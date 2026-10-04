@@ -65,12 +65,11 @@ func (b *InMemoryBackend) ListNamedQueries(
 	b.mu.RLock("ListNamedQueries")
 	defer b.mu.RUnlock()
 
-	var matches []*NamedQuery
 	if workGroup == "" {
-		matches = b.namedQueries.All()
-	} else {
-		matches = b.namedQueriesByWorkGroup.Get(workGroup)
+		workGroup = defaultWorkGroup
 	}
+
+	matches := b.namedQueriesByWorkGroup.Get(workGroup)
 
 	ids := make([]string, 0, len(matches))
 	for _, q := range matches {

@@ -78,6 +78,15 @@ var (
 	// JSON. The error table maps it to HTTP 400 with code "MalformedPolicy",
 	// matching real S3.
 	ErrMalformedPolicy = errors.New("MalformedPolicy")
+	// ErrListObjectsNotSupportedForDirectoryBucket is returned by ListObjects
+	// (V1) on a directory bucket: real S3 documents it as "not supported for
+	// directory buckets" (s3@v1.111.0 api_op_ListObjects.go:13) -- callers
+	// must use ListObjectsV2 instead.
+	ErrListObjectsNotSupportedForDirectoryBucket = errors.New(
+		"ListObjects is not supported for directory buckets")
+	// ErrDirectoryBucketDelimiter is returned by ListObjectsV2 on a directory
+	// bucket when Delimiter is set to anything other than "/".
+	ErrDirectoryBucketDelimiter = errors.New("directory buckets only support delimiter \"/\"")
 
 	// ErrAnnotationLimitExceeded and the Object Annotations errors below it
 	// carry codes verified against s3@v1.106.5 deserializers.go's per-op error
@@ -237,6 +246,16 @@ func coreErrorTableObject() []s3ErrorEntry {
 			"NotImplemented",
 			"A header you provided implies functionality that is not implemented.",
 			http.StatusNotImplemented,
+		}},
+		{ErrListObjectsNotSupportedForDirectoryBucket, s3ErrorInfo{
+			"NotImplemented",
+			"This operation is not supported for directory buckets. Use ListObjectsV2 instead.",
+			http.StatusNotImplemented,
+		}},
+		{ErrDirectoryBucketDelimiter, s3ErrorInfo{
+			errInvalidArgument,
+			"Delimiter must be \"/\" for directory buckets.",
+			http.StatusBadRequest,
 		}},
 		{ErrObjectLocked, s3ErrorInfo{errAccessDenied, "Access Denied", http.StatusForbidden}},
 		{ErrInvalidObjectState, s3ErrorInfo{

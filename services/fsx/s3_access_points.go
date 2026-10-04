@@ -160,7 +160,7 @@ func (b *InMemoryBackend) DescribeS3AccessPointAttachments(
 		for _, ap := range b.s3AccessPoints.All() {
 			if matchesFilters(filters, func(name string) (string, bool) {
 				switch name {
-				case "volume-id":
+				case filterNameVolumeID:
 					return ap.VolumeID, true
 				case "type":
 					return ap.Type, true

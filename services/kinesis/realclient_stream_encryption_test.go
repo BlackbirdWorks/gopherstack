@@ -2,6 +2,7 @@ package kinesis_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	kinesissdk "github.com/aws/aws-sdk-go-v2/service/kinesis"
@@ -17,7 +18,8 @@ import (
 func TestRealClient_StopStreamEncryption(t *testing.T) {
 	t.Parallel()
 
-	h := kinesis.NewHandler(kinesis.NewInMemoryBackend())
+	clock := newFakeClock(time.Now())
+	h := kinesis.NewHandler(kinesis.NewInMemoryBackend().WithClock(clock.Now))
 	client := newTestKinesisClient(t, h)
 
 	streamName := "s11-encryption-stream"
@@ -26,6 +28,7 @@ func TestRealClient_StopStreamEncryption(t *testing.T) {
 		ShardCount: aws.Int32(1),
 	})
 	require.NoError(t, err)
+	clock.Advance(streamSettleWait)
 
 	_, err = client.StartStreamEncryption(t.Context(), &kinesissdk.StartStreamEncryptionInput{
 		StreamName:     aws.String(streamName),
@@ -33,6 +36,7 @@ func TestRealClient_StopStreamEncryption(t *testing.T) {
 		KeyId:          aws.String("alias/aws/kinesis"),
 	})
 	require.NoError(t, err)
+	clock.Advance(streamSettleWait)
 
 	_, err = client.StopStreamEncryption(t.Context(), &kinesissdk.StopStreamEncryptionInput{
 		StreamName:     aws.String(streamName),

@@ -5,6 +5,8 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/blackbirdworks/gopherstack/services/awsconfig"
 )
 
@@ -54,7 +56,8 @@ func TestSelectResourceConfig(t *testing.T) {
 			mustPutResourceConfig(t, b, "AWS::S3::Bucket", "bucket-b", `{"region":"us-west-2"}`)
 			mustPutResourceConfig(t, b, "AWS::EC2::Instance", "instance-a", `{"region":"us-east-1"}`)
 
-			results := b.SelectResourceConfig(tt.expression)
+			results, err := b.SelectResourceConfig(tt.expression)
+			require.NoError(t, err)
 			gotIDs := extractResourceIDs(t, results)
 
 			assertStringSlicesEqual(t, tt.wantIDs, gotIDs)
@@ -68,14 +71,17 @@ func TestSelectResourceConfig_SelectsRequestedFields(t *testing.T) {
 	b := awsconfig.NewInMemoryBackend()
 	mustPutResourceConfig(t, b, "AWS::S3::Bucket", "bucket-a", `{"region":"us-east-1"}`)
 
-	results := b.SelectResourceConfig("SELECT resourceId, resourceType, region WHERE resourceType = 'AWS::S3::Bucket'")
+	results, err := b.SelectResourceConfig(
+		"SELECT resourceId, resourceType, region WHERE resourceType = 'AWS::S3::Bucket'",
+	)
+	require.NoError(t, err)
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d: %v", len(results), results)
 	}
 
 	var row map[string]any
-	if err := json.Unmarshal([]byte(results[0]), &row); err != nil {
-		t.Fatalf("unmarshal row: %v", err)
+	if unmarshalErr := json.Unmarshal([]byte(results[0]), &row); unmarshalErr != nil {
+		t.Fatalf("unmarshal row: %v", unmarshalErr)
 	}
 
 	if row["resourceId"] != "bucket-a" || row["resourceType"] != "AWS::S3::Bucket" || row["region"] != "us-east-1" {
@@ -89,7 +95,8 @@ func TestSelectAggregateResourceConfig_EvaluatesSameQuery(t *testing.T) {
 	b := awsconfig.NewInMemoryBackend()
 	mustPutResourceConfig(t, b, "AWS::S3::Bucket", "bucket-a", `{}`)
 
-	results := b.SelectAggregateResourceConfig("SELECT resourceId WHERE resourceType = 'AWS::S3::Bucket'")
+	results, err := b.SelectAggregateResourceConfig("SELECT resourceId WHERE resourceType = 'AWS::S3::Bucket'")
+	require.NoError(t, err)
 	gotIDs := extractResourceIDs(t, results)
 	assertStringSlicesEqual(t, []string{"bucket-a"}, gotIDs)
 }

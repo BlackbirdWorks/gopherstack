@@ -515,3 +515,7 @@ wire struct (`meshSummaryToWire`, `vnSummaryToWire`, `vrSummaryToWire`,
 Describe-only leaks, no missing Summary members. All false positives —
 this service was already fixed for this bug class in the 2026-09-12
 typed-client sweep (gopherstack-n3zi) above. No code changed.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+appmesh is region-isolated: meshes and their virtual nodes, routers, services and gateways live per region. The tagging bridge follows the region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/appmesh`. Limitation: the dashboard shows the home region only.

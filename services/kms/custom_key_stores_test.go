@@ -18,8 +18,15 @@ func TestCustomKeyStore_CRUD_Basic(t *testing.T) {
 	b := newBackend(t)
 
 	out, err := b.CreateCustomKeyStore(context.Background(), &kms.CreateCustomKeyStoreInput{
-		CustomKeyStoreName: "audit-store",
-		CustomKeyStoreType: "EXTERNAL_KEY_STORE",
+		CustomKeyStoreName:   "audit-store",
+		CustomKeyStoreType:   "EXTERNAL_KEY_STORE",
+		XksProxyConnectivity: "PUBLIC_ENDPOINT",
+		XksProxyURIEndpoint:  "https://xks-a.example.com",
+		XksProxyURIPath:      "/kms/xks/v1",
+		XksProxyAuthenticationCredential: &kms.XksProxyAuthenticationCredential{
+			AccessKeyID:        "AKIAEXAMPLE0001",
+			RawSecretAccessKey: "secretsecretsecret",
+		},
 	})
 	require.NoError(t, err)
 	assert.NotEmpty(t, out.CustomKeyStoreID)
@@ -154,8 +161,15 @@ func TestXKS_CreateWithExternalKeyStoreType(t *testing.T) {
 	b := b2newBackend(t)
 
 	out, err := b.CreateCustomKeyStore(context.Background(), &kms.CreateCustomKeyStoreInput{
-		CustomKeyStoreName: "my-xks-store",
-		CustomKeyStoreType: "EXTERNAL_KEY_STORE",
+		CustomKeyStoreName:   "my-xks-store",
+		CustomKeyStoreType:   "EXTERNAL_KEY_STORE",
+		XksProxyConnectivity: "PUBLIC_ENDPOINT",
+		XksProxyURIEndpoint:  "https://xks157.example.com",
+		XksProxyURIPath:      "/kms/xks/v1",
+		XksProxyAuthenticationCredential: &kms.XksProxyAuthenticationCredential{
+			AccessKeyID:        "AKIAEXAMPLE0001",
+			RawSecretAccessKey: "secretsecretsecret",
+		},
 	})
 	require.NoError(t, err)
 	assert.NotEmpty(t, out.CustomKeyStoreID)
@@ -166,8 +180,15 @@ func TestXKS_DescribeReturnsCorrectType(t *testing.T) {
 	b := b2newBackend(t)
 
 	out, err := b.CreateCustomKeyStore(context.Background(), &kms.CreateCustomKeyStoreInput{
-		CustomKeyStoreName: "my-xks-describe",
-		CustomKeyStoreType: "EXTERNAL_KEY_STORE",
+		CustomKeyStoreName:   "my-xks-describe",
+		CustomKeyStoreType:   "EXTERNAL_KEY_STORE",
+		XksProxyConnectivity: "PUBLIC_ENDPOINT",
+		XksProxyURIEndpoint:  "https://xks169.example.com",
+		XksProxyURIPath:      "/kms/xks/v1",
+		XksProxyAuthenticationCredential: &kms.XksProxyAuthenticationCredential{
+			AccessKeyID:        "AKIAEXAMPLE0001",
+			RawSecretAccessKey: "secretsecretsecret",
+		},
 	})
 	require.NoError(t, err)
 
@@ -195,8 +216,15 @@ func TestXKS_ConnectDisconnectLifecycle(t *testing.T) {
 	b := b2newBackend(t)
 
 	out, err := b.CreateCustomKeyStore(context.Background(), &kms.CreateCustomKeyStoreInput{
-		CustomKeyStoreName: "xks-lifecycle",
-		CustomKeyStoreType: "EXTERNAL_KEY_STORE",
+		CustomKeyStoreName:   "xks-lifecycle",
+		CustomKeyStoreType:   "EXTERNAL_KEY_STORE",
+		XksProxyConnectivity: "PUBLIC_ENDPOINT",
+		XksProxyURIEndpoint:  "https://xks198.example.com",
+		XksProxyURIPath:      "/kms/xks/v1",
+		XksProxyAuthenticationCredential: &kms.XksProxyAuthenticationCredential{
+			AccessKeyID:        "AKIAEXAMPLE0001",
+			RawSecretAccessKey: "secretsecretsecret",
+		},
 	})
 	require.NoError(t, err)
 	storeID := out.CustomKeyStoreID
@@ -234,8 +262,15 @@ func TestXKS_DescribeByName(t *testing.T) {
 	b := b2newBackend(t)
 
 	_, err := b.CreateCustomKeyStore(context.Background(), &kms.CreateCustomKeyStoreInput{
-		CustomKeyStoreName: "my-xks-by-name",
-		CustomKeyStoreType: "EXTERNAL_KEY_STORE",
+		CustomKeyStoreName:   "my-xks-by-name",
+		CustomKeyStoreType:   "EXTERNAL_KEY_STORE",
+		XksProxyConnectivity: "PUBLIC_ENDPOINT",
+		XksProxyURIEndpoint:  "https://xks237.example.com",
+		XksProxyURIPath:      "/kms/xks/v1",
+		XksProxyAuthenticationCredential: &kms.XksProxyAuthenticationCredential{
+			AccessKeyID:        "AKIAEXAMPLE0001",
+			RawSecretAccessKey: "secretsecretsecret",
+		},
 	})
 	require.NoError(t, err)
 

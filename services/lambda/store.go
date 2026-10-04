@@ -111,6 +111,7 @@ type InMemoryBackend struct {
 	functionConcurrencies map[string]int
 	kinesisPoller         *EventSourcePoller
 	pollerCancel          context.CancelFunc
+	janitorCancel         context.CancelFunc
 	// provisionedConcurrencies is keyed by FunctionArn (buildAliasARN:
 	// function+qualifier composite); provisionedConcurrenciesByFunction
 	// indexes it by bare function name for ListProvisionedConcurrencyConfigs
@@ -155,6 +156,7 @@ type InMemoryBackend struct {
 	durableExecs             *durableExecutionStore
 	asyncEnqueueWaiters      chan struct{}
 	shutdown                 chan struct{}
+	regionBackend            func(region string) *InMemoryBackend
 	mu                       *lockmetrics.RWMutex
 	portAlloc                *portalloc.Allocator
 	runtimes                 map[string]*functionRuntime
@@ -169,6 +171,7 @@ type InMemoryBackend struct {
 	pcActivationDelay        time.Duration
 	cscIDCounter             int
 	shutdownOnce             sync.Once
+	workersOnce              sync.Once
 }
 
 // SetActivationDelay configures how long a newly created function stays in the
@@ -276,6 +279,9 @@ func (b *InMemoryBackend) Close(ctx context.Context) {
 		urlServers []*functionURLServer
 		rts        []*functionRuntime
 		cancel     context.CancelFunc
+		poller     *EventSourcePoller
+
+		stopJanitor context.CancelFunc
 	)
 
 	func() {
@@ -293,12 +299,23 @@ func (b *InMemoryBackend) Close(ctx context.Context) {
 		}
 
 		cancel = b.pollerCancel
+		poller = b.kinesisPoller
 		b.pollerCancel = nil
+		stopJanitor = b.janitorCancel
+		b.janitorCancel = nil
 	}()
+
+	if stopJanitor != nil {
+		stopJanitor()
+	}
 
 	// Stop the event-source poller goroutine if it was started.
 	if cancel != nil {
 		cancel()
+
+		if poller != nil {
+			poller.WaitStopped(ctx)
+		}
 	}
 
 	var wg sync.WaitGroup
@@ -423,6 +440,22 @@ func (b *InMemoryBackend) SetSQSReader(r SQSReader) {
 
 	if p != nil {
 		p.SetSQSReader(r)
+	}
+}
+
+// SetMSKBrokerResolver sets the resolver that maps MSK cluster ARNs to real broker addresses.
+func (b *InMemoryBackend) SetMSKBrokerResolver(r MSKBrokerResolver) {
+	var p *EventSourcePoller
+
+	func() {
+		b.mu.RLock("SetMSKBrokerResolver")
+		defer b.mu.RUnlock()
+
+		p = b.kinesisPoller
+	}()
+
+	if p != nil {
+		p.SetMSKBrokerResolver(r)
 	}
 }
 

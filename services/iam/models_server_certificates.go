@@ -21,6 +21,7 @@ type serverCertXML struct {
 
 // listServerCertificatesResult contains the list of server certificates.
 type listServerCertificatesResult struct {
+	Marker                        string              `xml:"Marker,omitempty"`
 	ServerCertificateMetadataList []serverCertMetaXML `xml:"ServerCertificateMetadataList>member"`
 	IsTruncated                   bool                `xml:"IsTruncated"`
 }

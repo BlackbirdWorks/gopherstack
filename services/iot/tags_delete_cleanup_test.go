@@ -226,7 +226,7 @@ func tagCleanupCases() []tagCleanupCase {
 			create: func(b *iot.InMemoryBackend, key string) (string, error) {
 				if err := b.CreateTopicRule(&iot.CreateTopicRuleInput{
 					RuleName:         key,
-					TopicRulePayload: &iot.TopicRulePayload{SQL: "SELECT *", Actions: []iot.RuleAction{}},
+					TopicRulePayload: &iot.TopicRulePayload{SQL: "SELECT * FROM 'a/b'", Actions: []iot.RuleAction{}},
 				}); err != nil {
 					return "", err
 				}

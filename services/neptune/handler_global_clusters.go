@@ -33,7 +33,14 @@ func (h *Handler) handleCreateGlobalCluster(ctx context.Context, vals url.Values
 	if err := validateTagEntries(tags); err != nil {
 		return nil, err
 	}
-	gc, err := h.Backend.CreateGlobalCluster(ctx, globalClusterID, sourceDBClusterID, databaseName)
+	gc, err := h.Backend.CreateGlobalCluster(
+		ctx, globalClusterID, sourceDBClusterID, databaseName,
+		GlobalClusterCreateOptions{
+			EngineVersion:      vals.Get("EngineVersion"),
+			DeletionProtection: vals.Get("DeletionProtection") == formTrue,
+			StorageEncrypted:   vals.Get("StorageEncrypted") == formTrue,
+		},
+	)
 	if err != nil {
 		return nil, err
 	}

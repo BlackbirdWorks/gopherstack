@@ -10,8 +10,10 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -72,6 +74,7 @@ const (
 // Handler handles Inspector2 HTTP requests.
 type Handler struct {
 	Backend StorageBackend
+	peers   *regionpeers.Set[Handler]
 }
 
 // NewHandler constructs a new Handler.
@@ -83,7 +86,13 @@ func NewHandler(b StorageBackend) *Handler {
 func (h *Handler) Name() string { return "Inspector2" }
 
 // Reset resets the backend.
-func (h *Handler) Reset() { h.Backend.Reset() }
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+
+	for _, p := range h.peers.Drain() {
+		p.Backend.Reset()
+	}
+}
 
 // GetSupportedOperations returns the list of supported operations.
 func (h *Handler) GetSupportedOperations() []string {
@@ -165,6 +174,10 @@ var ambiguousRouteMatchPrefixes = map[string]bool{ //nolint:gochecknoglobals // 
 	"/findings/":      true,
 	"/members/":       true,
 	"/configuration/": true,
+	// "/cluster/": DSQL's cluster resource paths (/cluster/{id},
+	// /cluster/{id}/policy) share this prefix; Inspector2's only real
+	// operation here is the exact POST /cluster/get (gopherstack-7r6bz).
+	"/cluster/": true,
 }
 
 // RouteMatcher returns a matcher that accepts Inspector2 REST paths.
@@ -232,6 +245,10 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
+			return p.Handler()(c)
+		}
+
 		return h.handleREST(c)
 	}
 }

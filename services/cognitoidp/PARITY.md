@@ -152,11 +152,71 @@ gaps: []
 items_still_open:
   - "domains: Routing and Version (DomainDescriptionType) remain unpopulated -- no multi-region-domain-routing model or app-version tracking exists in this backend; left absent rather than fabricated."
   - "MFA_SETUP/AssociateSoftwareToken/VerifySoftwareToken session single-use/rotation semantics across the three-call round trip are not stated anywhere in the SDK's doc prose, so this backend echoes the same session token unchanged through all three (only the final RespondToAuthChallenge deletes it) rather than inventing rotation behavior AWS never documents."
+  - "OAuth2/OIDC endpoints (gopherstack-1ryp5): no federated IdP redirect, /oauth2/revoke does not invalidate already-issued access tokens, resource binding (resource param/aud) unsupported, nonce is not carried into ID tokens minted by the refresh grant, hosted login cannot answer MFA_SETUP or EMAIL_OTP/SMS challenges it has no delivery for beyond the generated code."
 deferred: []
 leaks: {status: clean, note: "janitor.go sweeps expired refresh tokens/mfa sessions/confirm codes/attr verification codes on a bounded interval (WithJanitor); ctx cancellation observed via StartWorker. This pass added custom_auth.go (CUSTOM_AUTH state machine) and user_migration.go (UserMigration trigger), both of which reuse the existing mfaSessions map/EvictExpiredMFASessions sweep for their session state -- no new maps, goroutines, or tickers introduced. All new backend methods (tryUserMigration, applyPostMigrationFinalStatus, startCustomAuth, customAuthRound, defineAuthChallenge, createAuthChallenge, verifyCustomAuthChallenge, preAuthenticationCheck, postAuthenticationNotify) are plain functions that assume the caller already holds b.mu (documented per-function), never call b.mu.Lock/RLock themselves -- verified no double-lock/deadlock paths and confirmed via `go test -race` (full suite, 233s, clean). De-stub hygiene: the ~15-op handler.go/handler_auth.go/handler_user_pools.go/handler_user_pool_clients.go/handler_users.go dead-code shadowing flagged as deferred in the prior sweep is now fully deleted (dead handlers + their now-orphaned model types removed across 4 files + models_auth.go/models_user_pools.go/models_user_pool_clients.go/models_users.go), closing that item; golangci-lint (0 issues) confirms nothing is newly unused. FIXED (gopherstack-cq0z, 2026-09-06): DeleteUserPool's user cascade deletes users directly (b.users.Delete) instead of calling AdminDeleteUser, so it did not inherit AdminDeleteUser's own devices/authEvents cleanup for each user -- the cascade-variant of the ghost-row class, where a parent delete bypasses the single-resource delete path holding the fix. Now clears devices[userStateKey]/authEvents[userStateKey] per user in the same cascade loop. Pool-level side maps (riskConfigurations, logDeliveryConfigs, poolMfaConfigs, and the pool's own resourceTags entry) are NOT cleared by DeleteUserPool either and remain open findings, not addressed this pass. See TestDeleteUserPool_ClearsUserDeviceState."}
 ---
 
 ## Notes
+
+### 2026-10-03 PreTokenGeneration V2_0/V3_0 on user token issuance
+
+Docs: user-pool-lambda-pre-token-generation (event versions, claims and scopes reference, trigger sources,
+request/response parameters). `LambdaVersion` V2_0/V3_0 sends the version-2/3 event (`userAttributes`,
+`groupConfiguration`, `scopes`, `clientMetadata`) and applies `claimsAndScopeOverrideDetails`; V1_0 and the bare ARN
+keep `claimsOverrideDetails` and ignore the V2 shape.
+
+- Applies to password/SRP/custom/MFA sign-in, NEW_PASSWORD_REQUIRED, `REFRESH_TOKEN_AUTH`, and the hosted code
+  exchange, implicit grant and refresh grant. Hosted flows now report `TokenGeneration_HostedAuth`.
+- ID and access edits are separate; values may be string, number, boolean, scalar arrays, or objects, except objects
+  and arrays on `email_verified`, `phone_number_verified`, `updated_at`, `address`. Suppress beats add.
+- Protected per the claims table: the previous list plus `identities`, `device_key`, `version`, `acr`, `amr`,
+  `at_hash`, `azp`, `nbf`, any `cognito:`/`dev:` add. `cognito:groups`, `cognito:roles`, `cognito:preferred_role`
+  and `dev:` claims can still be suppressed. Access `aud` is accepted only when it equals the client ID.
+- `scopesToAdd` (no whitespace) and `scopesToSuppress` edit `scope`; an empty result drops the claim.
+- `groupOverrideDetails` replaces `cognito:groups` in both tokens and sets ID `cognito:roles`/`cognito:preferred_role`;
+  an empty object suppresses groups, an absent one keeps them.
+- A wrongly typed container, claims map or string list is `UnexpectedLambdaException`.
+- Not changed: the docs do not mention `nonce` on refresh-issued ID tokens, so the refresh grant still omits it.
+  `clientMetadata` from RespondToAuthChallenge is not yet forwarded (sent empty), and the real-group
+  `cognito:roles`/`cognito:preferred_role` claims are not emitted without an override.
+
+### 2026-10-03 OAuth nonce, managed-login session, hosted challenges, M2M pre-token trigger
+
+Docs: authorization-endpoint (`nonce` is copied into the ID token; `prompt=none` silently continues for a valid
+session else `login_required`; `prompt=login` forces re-authentication and issues a new session cookie; the default
+needs "a valid managed login session cookie"), login-endpoint, user-pool-lambda-pre-token-generation (`nonce` is a
+protected claim; `TokenGeneration_ClientCredentials` fires only for `V3_0`; request `scopes`/`clientMetadata`,
+response `claimsAndScopeOverrideDetails.accessTokenGeneration`; M2M metadata arrives as `aws_client_metadata`).
+
+- `nonce` rides authorize -> code -> `/oauth2/token`, and the implicit fragment, into the ID token only.
+- `/login` success sets an HttpOnly, SameSite=Lax cookie `cognito` (Secure on TLS/loopback). The session is
+  runtime-only: 256-bit random id, stored by SHA-256 digest, 1 hour TTL (the docs give no figure; assumed), capped
+  at 10000 with expired-first then oldest eviction. It is bound to pool and user record (sub, password digest,
+  sign-out sequence) and is shared across clients of the same pool because the docs say `prompt=none` works
+  "between different app clients in your user pool". Logout, disable, delete, global sign-out, and password
+  change all end it, and re-enabling a user does not revive it.
+- The hosted page answers NEW_PASSWORD_REQUIRED and SOFTWARE_TOKEN_MFA/SMS_MFA as a second form step. A wrong MFA
+  code burns the challenge session (back to the password step); a policy-violating new password keeps it. Every
+  form carries the double-submit CSRF token.
+- client_credentials invokes PreTokenGeneration only when `LambdaVersion` is `V3_0`.
+
+### 2026-10-01 OAuth2/OIDC endpoints and hosted login (gopherstack-1ryp5)
+
+Added `oauth_*.go`: `GET /<pool>/.well-known/openid-configuration` (issuer equals the `iss` of issued tokens),
+`POST /oauth2/token` (authorization_code with S256 PKCE, refresh_token, client_credentials),
+`GET /oauth2/authorize`, `GET|POST /login`, `GET /oauth2/userInfo`, `GET /logout`, `POST /oauth2/revoke`.
+Behaviour follows the "User pool endpoints and managed login reference" pages (token, authorize, login,
+logout, userInfo, revocation endpoints). Routing accepts path-based requests and a Host header matching a
+registered user pool domain; SigV4-signed requests are never claimed.
+
+Deliberate choices: only `S256` is accepted (the authorize page says Cognito supports only S256, so `plain`
+is `invalid_request`); authorization codes live five minutes, are single-use (burned on any redemption attempt),
+bound to client and redirect_uri, and held in a bounded in-memory store that is never persisted; redirect_uri,
+logout_uri comparison is exact-match; client secrets are compared in constant time; `/login` uses a
+double-submit `XSRF-TOKEN` cookie plus `_csrf` field. The refresh token's granted scopes are persisted as an
+additive `scopes` field on `refreshTokenEntry` (no snapshot version bump). Refresh through `/oauth2/token`
+rotates the refresh token because the shared refresh path always rotates.
 
 ### 2026-09-19 leak-audit follow-up (gopherstack-1x2u0 Part 2)
 
@@ -1625,3 +1685,15 @@ clean; `go test -race -count=1 -p 2 ./services/cognitoidp/...` and
 `./pkgs/persistence/...` both `ok`; `golangci-lint run --concurrency 2
 --new-from-rev=HEAD ./services/cognitoidp/...` 0 issues; `go run
 ./cmd/paritylint` 0 FAIL.
+
+## 2026-10-03 (gopherstack-1izbr multi-region)
+
+Cognito user pools are region-isolated: each non-home region gets a lazily built sibling `Handler` (own pools, clients, users, tokens, hosted-login sessions, janitor; pool IDs `<region>_...`, ARNs and Lambda trigger `region` per region) via `pkgs/regionpeers`; siblings inherit the Lambda trigger invoker. Requests route to the owner region by the identifier they carry: pool-ID or ARN region, else the app client, access-token key id, domain or auth session, else the request region. This covers unsigned auth operations, `/oauth2/*`, hosted login, `/<pool>/.well-known/*` and domain-host discovery/JWKS. Routing only chooses the backend; each backend still validates credentials, secrets, PKCE and tokens exactly as before. `Handler.GetJWTPublicKey` searches every region for the API Gateway/AppSync JWT authorizers. Snapshots gain an additive `regions` key only when a sibling exists (no version bump). Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_RoutesByOwningResource`, `TestHandler_OAuthDiscoveryAndJWKSRouteToOwningPool`, `TestHandler_HostedAuthorizeRoutesByClient`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/cognitoidp`. Limitation: non-home regions are not visible to the tagging-API bridge or the dashboard.
+
+## 2026-10-03 (gopherstack-uox6 value-semantics pass)
+
+ListUsers Filter: `=` is exact and `^=` is prefix for every attribute (api_op_ListUsers.go "For an exact match, use =" / "prefix match, use ^="); `username = "bo*"` no longer treats `*` as a wildcard, escaped quotes are unescaped, and a malformed filter returns InvalidParameterException. Not done: rejecting non-searchable attributes ("Custom attributes aren't searchable") -- the doc names no error code.
+
+## 2026-10-03 (gopherstack-taq78 multi-region)
+
+The Resource Groups Tagging API bridge now lists the request region's tagged resources and resolves TagResources/UntagResources by the ARN's region, superseding the earlier home-region-only limitation. Proof: `TestInitializeServices_TaggingBridgeFollowsRegion`.

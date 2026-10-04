@@ -2,7 +2,11 @@ package eventbridge_test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/eventbridge"
 )
@@ -181,36 +185,96 @@ func TestRegionIsolation_Rules(t *testing.T) {
 func TestRegionIsolation_DefaultBus(t *testing.T) {
 	t.Parallel()
 
+	tests := []struct {
+		name   string
+		region string
+	}{
+		{name: "home region", region: "us-east-1"},
+		{name: "sibling region", region: "us-west-2"},
+		{name: "eu region", region: "eu-west-1"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := eventbridge.NewInMemoryBackend()
+			ctx := regionCtx(tc.region)
+
+			buses, _, err := b.ListEventBuses(ctx, "", "", 0)
+			require.NoError(t, err)
+			require.Len(t, buses, 1)
+			assert.Equal(t, "default", buses[0].Name)
+			assert.Contains(t, buses[0].Arn, ":"+tc.region+":")
+
+			bus, err := b.DescribeEventBus(ctx, "")
+			require.NoError(t, err)
+			assert.Equal(t, buses[0].Arn, bus.Arn)
+
+			require.ErrorIs(t, b.DeleteEventBus(ctx, "default"), eventbridge.ErrCannotDeleteDefaultBus)
+		})
+	}
+}
+
+func TestDefaultBus_RulesAndRestoreInSiblingRegion(t *testing.T) {
+	t.Parallel()
+
+	const euRegion = "eu-west-1"
+
+	ctx := regionCtx(euRegion)
 	b := eventbridge.NewInMemoryBackend()
 
-	// The default bus is created with the backend's default region (config.DefaultRegion).
-	// Requesting from a different region should not see it.
-	buses, _, err := b.ListEventBuses(regionCtx("us-west-2"), "", "", 0)
-	if err != nil {
-		t.Fatalf("ListEventBuses: %v", err)
-	}
+	_, err := b.PutRule(ctx, eventbridge.PutRuleInput{Name: "r", EventPattern: `{"source":["x"]}`})
+	require.NoError(t, err)
+
+	_, err = b.CreateEventBus(ctx, eventbridge.CreateEventBusParams{Name: "custom"})
+	require.NoError(t, err)
+
+	var snap map[string]json.RawMessage
+
+	require.NoError(t, json.Unmarshal(b.Snapshot(ctx), &snap))
+
+	var tables map[string]json.RawMessage
+
+	require.NoError(t, json.Unmarshal(snap["tables"], &tables))
+
+	var buses []map[string]any
+
+	require.NoError(t, json.Unmarshal(tables["buses/"+euRegion], &buses))
+
+	legacy := make([]map[string]any, 0, len(buses))
 
 	for _, bus := range buses {
-		if bus.Name == "default" {
-			t.Errorf("default bus should not be visible from us-west-2 (backend region is %q)", "us-east-1")
+		if bus["Name"] != "default" {
+			legacy = append(legacy, bus)
 		}
 	}
 
-	// The backend's own region should see the default bus.
-	defaultBuses, _, err := b.ListEventBuses(context.Background(), "", "", 0)
-	if err != nil {
-		t.Fatalf("ListEventBuses default region: %v", err)
+	require.Len(t, legacy, 1, "legacy snapshot keeps only the custom bus")
+
+	tables["buses/"+euRegion], err = json.Marshal(legacy)
+	require.NoError(t, err)
+
+	snap["tables"], err = json.Marshal(tables)
+	require.NoError(t, err)
+
+	data, err := json.Marshal(snap)
+	require.NoError(t, err)
+
+	restored := eventbridge.NewInMemoryBackend()
+	require.NoError(t, restored.Restore(ctx, data))
+
+	got, _, err := restored.ListEventBuses(ctx, "", "", 0)
+	require.NoError(t, err)
+
+	names := make([]string, 0, len(got))
+	for _, bus := range got {
+		names = append(names, bus.Name)
 	}
 
-	foundDefault := false
-	for _, bus := range defaultBuses {
-		if bus.Name == "default" {
-			foundDefault = true
+	assert.ElementsMatch(t, []string{"default", "custom"}, names)
 
-			break
-		}
-	}
-	if !foundDefault {
-		t.Error("default bus should be visible from the backend's own region")
-	}
+	rules, _, err := restored.ListRules(ctx, "default", "", "", 0)
+	require.NoError(t, err)
+	require.Len(t, rules, 1)
 }

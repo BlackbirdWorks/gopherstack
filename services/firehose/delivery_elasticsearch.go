@@ -11,10 +11,13 @@ func (b *InMemoryBackend) deliverToElasticsearch(
 	records [][]byte,
 	dest *ElasticsearchDestinationDescription,
 	streamARN string,
-) {
-	b.deliverToOpenSearch(ctx, records, &OpenSearchDestinationDescription{
-		ClusterEndpoint: dest.ClusterEndpoint,
-		IndexName:       dest.IndexName,
-		RetryOptions:    dest.RetryOptions,
+) [][]byte {
+	return b.deliverToOpenSearch(ctx, records, &OpenSearchDestinationDescription{
+		ClusterEndpoint:     dest.ClusterEndpoint,
+		DomainARN:           dest.DomainARN,
+		IndexName:           dest.IndexName,
+		IndexRotationPeriod: dest.IndexRotationPeriod,
+		RoleARN:             dest.RoleARN,
+		RetryOptions:        dest.RetryOptions,
 	}, streamARN)
 }

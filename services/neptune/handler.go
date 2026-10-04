@@ -169,11 +169,11 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		if !service.MatchesUserAgentMarker(r.Header, "api/neptune") {
 			return false
 		}
-		body, err := httputils.ReadBody(r)
+		_, err := httputils.ReadBody(r)
 		if err != nil {
 			return true
 		}
-		vals, err := url.ParseQuery(string(body))
+		vals, err := httputils.ParseFormBody(r)
 		if err != nil {
 			return false
 		}

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -662,40 +663,43 @@ func TestHandler_GetDocumentAnalysis_JobStatusSucceeded(t *testing.T) {
 func TestHandler_StartDocumentAnalysis_AsyncInProgressThenSucceeded(t *testing.T) {
 	t.Parallel()
 
-	// Use a backend with a short async delay (not zero, so we can observe IN_PROGRESS).
-	b := textract.NewInMemoryBackendSync("123456789012", "us-east-1")
-	textract.SetBackendAsyncDelay(b, 50*time.Millisecond)
-	h := textract.NewHandler(b)
+	synctest.Test(t, func(t *testing.T) {
+		// Use a backend with a short async delay (not zero, so we can observe IN_PROGRESS).
+		b := textract.NewInMemoryBackendSync("123456789012", "us-east-1")
+		textract.SetBackendAsyncDelay(b, 50*time.Millisecond)
+		h := textract.NewHandler(b)
 
-	startRec := doTextractRequest(t, h, "StartDocumentAnalysis", map[string]any{
-		"DocumentLocation": map[string]any{
-			"S3Object": map[string]any{"Bucket": "b", "Name": "doc.pdf"},
-		},
-		"FeatureTypes": []string{"FORMS"},
+		startRec := doTextractRequest(t, h, "StartDocumentAnalysis", map[string]any{
+			"DocumentLocation": map[string]any{
+				"S3Object": map[string]any{"Bucket": "b", "Name": "doc.pdf"},
+			},
+			"FeatureTypes": []string{"FORMS"},
+		})
+		require.Equal(t, http.StatusOK, startRec.Code)
+
+		var startResp map[string]string
+		require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
+		jobID := startResp["JobId"]
+
+		// Immediately after start, job should be IN_PROGRESS.
+		getRec1 := doTextractRequest(t, h, "GetDocumentAnalysis", map[string]any{"JobId": jobID})
+		require.Equal(t, http.StatusOK, getRec1.Code)
+
+		var getResp1 map[string]any
+		require.NoError(t, json.Unmarshal(getRec1.Body.Bytes(), &getResp1))
+		assert.Equal(t, "IN_PROGRESS", getResp1["JobStatus"])
+
+		// After delay, job should be SUCCEEDED.
+		time.Sleep(200 * time.Millisecond)
+		synctest.Wait()
+
+		getRec2 := doTextractRequest(t, h, "GetDocumentAnalysis", map[string]any{"JobId": jobID})
+		require.Equal(t, http.StatusOK, getRec2.Code)
+
+		var getResp2 map[string]any
+		require.NoError(t, json.Unmarshal(getRec2.Body.Bytes(), &getResp2))
+		assert.Equal(t, "SUCCEEDED", getResp2["JobStatus"])
 	})
-	require.Equal(t, http.StatusOK, startRec.Code)
-
-	var startResp map[string]string
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
-	jobID := startResp["JobId"]
-
-	// Immediately after start, job should be IN_PROGRESS.
-	getRec1 := doTextractRequest(t, h, "GetDocumentAnalysis", map[string]any{"JobId": jobID})
-	require.Equal(t, http.StatusOK, getRec1.Code)
-
-	var getResp1 map[string]any
-	require.NoError(t, json.Unmarshal(getRec1.Body.Bytes(), &getResp1))
-	assert.Equal(t, "IN_PROGRESS", getResp1["JobStatus"])
-
-	// After delay, job should be SUCCEEDED.
-	time.Sleep(200 * time.Millisecond)
-
-	getRec2 := doTextractRequest(t, h, "GetDocumentAnalysis", map[string]any{"JobId": jobID})
-	require.Equal(t, http.StatusOK, getRec2.Code)
-
-	var getResp2 map[string]any
-	require.NoError(t, json.Unmarshal(getRec2.Body.Bytes(), &getResp2))
-	assert.Equal(t, "SUCCEEDED", getResp2["JobStatus"])
 }
 
 // TestHandler_StartDocumentAnalysis_AsyncInitialStatusInProgress verifies that

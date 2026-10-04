@@ -32,8 +32,10 @@ func advanceJobRunState(run *JobRun, readyMap, doneMap, timeoutMap, stopMap map[
 // terminal run is never re-evaluated. Must be called with b.mu held.
 func advanceRunningJobRun(run *JobRun, doneMap, timeoutMap map[string]time.Time, now time.Time) {
 	if run.JobRunState != stateRunning {
-		delete(doneMap, run.ID)
-		delete(timeoutMap, run.ID)
+		if run.JobRunState != stateStarting {
+			delete(doneMap, run.ID)
+			delete(timeoutMap, run.ID)
+		}
 
 		return
 	}

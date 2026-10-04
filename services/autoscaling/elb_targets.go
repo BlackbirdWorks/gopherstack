@@ -41,8 +41,8 @@ func (b *InMemoryBackend) registerELBInstances(instanceIDs, lbNames []string) {
 	}
 
 	for _, lb := range lbNames {
-		if err := b.elbRegistrar.RegisterInstances(context.Background(), lb, instanceIDs); err != nil {
-			logger.Load(context.Background()).Error(
+		if err := b.elbRegistrar.RegisterInstances(b.crossServiceContext(), lb, instanceIDs); err != nil {
+			logger.Load(b.crossServiceContext()).Error(
 				"autoscaling: ELB RegisterInstances failed",
 				"error", err, "loadBalancerName", lb, "instanceIDs", instanceIDs)
 		}
@@ -59,8 +59,8 @@ func (b *InMemoryBackend) deregisterELBInstances(instanceIDs, lbNames []string) 
 	}
 
 	for _, lb := range lbNames {
-		if err := b.elbRegistrar.DeregisterInstances(context.Background(), lb, instanceIDs); err != nil {
-			logger.Load(context.Background()).Error(
+		if err := b.elbRegistrar.DeregisterInstances(b.crossServiceContext(), lb, instanceIDs); err != nil {
+			logger.Load(b.crossServiceContext()).Error(
 				"autoscaling: ELB DeregisterInstances failed",
 				"error", err, "loadBalancerName", lb, "instanceIDs", instanceIDs)
 		}

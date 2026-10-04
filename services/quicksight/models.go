@@ -103,6 +103,7 @@ type storedDataSet struct {
 	Name              string                            `json:"name"`
 	ImportMode        string                            `json:"importMode"`
 	Permissions       []ResourcePermission              `json:"permissions,omitempty"`
+	Security          DataSetSecurity                   `json:"security"`
 }
 
 func (d *storedDataSet) toDataSet() *DataSet {
@@ -116,6 +117,7 @@ func (d *storedDataSet) toDataSet() *DataSet {
 		Permissions:      clonePermissions(d.Permissions),
 		PhysicalTableMap: clonePhysicalTableMap(d.PhysicalTableMap),
 		LogicalTableMap:  cloneLogicalTableMap(d.LogicalTableMap),
+		Security:         cloneDataSetSecurity(d.Security),
 	}
 }
 
@@ -145,22 +147,31 @@ type storedDashboard struct {
 	// deleted version number must still stop being reported live by
 	// ListDashboardVersions and must 404 rather than re-succeed on a repeat
 	// delete -- both observable independent of full version history.
-	DeletedVersions        map[int64]bool       `json:"deletedVersions,omitempty"`
-	LastUpdatedTime        time.Time            `json:"lastUpdatedTime"`
-	LastPublishedTime      time.Time            `json:"lastPublishedTime"`
-	Definition             map[string]any       `json:"definition,omitempty"`
-	PublishOptions         map[string]any       `json:"publishOptions,omitempty"`
-	DashboardID            string               `json:"dashboardId"`
-	Arn                    string               `json:"arn"`
-	Name                   string               `json:"name"`
-	Status                 string               `json:"status"`
-	ThemeArn               string               `json:"themeArn,omitempty"`
-	VersionDescription     string               `json:"versionDescription,omitempty"`
-	Permissions            []ResourcePermission `json:"permissions,omitempty"`
-	LinkPermissions        []ResourcePermission `json:"linkPermissions,omitempty"`
-	LinkEntities           []string             `json:"linkEntities,omitempty"`
-	VersionNumber          int64                `json:"versionNumber"`
-	PublishedVersionNumber int64                `json:"publishedVersionNumber"`
+	DeletedVersions        map[int64]bool           `json:"deletedVersions,omitempty"`
+	Versions               []storedDashboardVersion `json:"versions,omitempty"`
+	LastUpdatedTime        time.Time                `json:"lastUpdatedTime"`
+	LastPublishedTime      time.Time                `json:"lastPublishedTime"`
+	Definition             map[string]any           `json:"definition,omitempty"`
+	PublishOptions         map[string]any           `json:"publishOptions,omitempty"`
+	DashboardID            string                   `json:"dashboardId"`
+	Arn                    string                   `json:"arn"`
+	Name                   string                   `json:"name"`
+	Status                 string                   `json:"status"`
+	ThemeArn               string                   `json:"themeArn,omitempty"`
+	VersionDescription     string                   `json:"versionDescription,omitempty"`
+	Permissions            []ResourcePermission     `json:"permissions,omitempty"`
+	LinkPermissions        []ResourcePermission     `json:"linkPermissions,omitempty"`
+	LinkEntities           []string                 `json:"linkEntities,omitempty"`
+	VersionNumber          int64                    `json:"versionNumber"`
+	PublishedVersionNumber int64                    `json:"publishedVersionNumber"`
+}
+
+// storedDashboardVersion is one dashboard version's immutable metadata.
+type storedDashboardVersion struct {
+	CreatedTime     time.Time `json:"createdTime"`
+	Description     string    `json:"description,omitempty"`
+	SourceEntityArn string    `json:"sourceEntityArn,omitempty"`
+	Number          int64     `json:"number"`
 }
 
 func (d *storedDashboard) toDashboard() *Dashboard {

@@ -30,6 +30,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 
 	backend := NewInMemoryBackend(accountID, region)
 	handler := NewHandler(backend)
+	handler.EnableRegions()
 
 	return handler, nil
 }
@@ -52,6 +53,7 @@ func (p *ServerlessProvider) Init(ctx *service.AppContext) (service.Registerable
 
 	backend := NewInMemoryBackend(accountID, region)
 	handler := NewServerlessHandler(backend)
+	handler.EnableRegions()
 
 	return handler, nil
 }

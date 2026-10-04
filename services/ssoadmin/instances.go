@@ -78,6 +78,7 @@ func (b *InMemoryBackend) ListInstances() []*Instance {
 			inst.Status = instanceStatusActive
 		}
 		cp := *inst
+		cp.Tags = maps.Clone(inst.Tags)
 		list = append(list, &cp)
 	}
 

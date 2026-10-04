@@ -309,3 +309,7 @@ and `go vet ./services/resourcegroupstaggingapi/...` clean; `go test -race
 ./pkgs/persistence/` pass; `golangci-lint run
 ./services/resourcegroupstaggingapi/...` 0 issues; `git diff --stat go.mod
 go.sum` empty. No code or persisted-field change.
+
+## 2026-10-03 (gopherstack-taq78 multi-region)
+
+The bridge lists the request region's resources and resolves TagResources/UntagResources by the ARN's region for ECS, Athena, Glue, ECR, Backup, CodeCommit, Cloud Map, Lightsail, Cognito IdP, SESv2 and CodeDeploy (`regionalTagSpec` in cli_cross_region.go). Auto Scaling, ELBv2 and CloudFormation expose no tagged-resource listing and are not bridged. Proof: `TestInitializeServices_TaggingBridgeFollowsRegion`.

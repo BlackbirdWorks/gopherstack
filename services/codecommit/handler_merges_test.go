@@ -78,10 +78,10 @@ func TestHandler_BatchDescribeMergeConflicts(t *testing.T) {
 
 			h := newTestHandler(t)
 
-			rec := doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "repo"})
-			require.Equal(t, http.StatusOK, rec.Code)
+			setupRepoAndBranch(t, h, "repo")
+			createBranchFromMain(t, h, "repo", "feature")
 
-			rec = doRequest(t, h, "BatchDescribeMergeConflicts", tt.input)
+			rec := doRequest(t, h, "BatchDescribeMergeConflicts", tt.input)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantStatus == http.StatusOK {
@@ -104,6 +104,7 @@ func TestHandler_BatchDescribeMergeConflicts_TableDriven(t *testing.T) {
 		filePaths     []string
 		wantCode      int
 		wantConflicts int
+		wantErrors    int
 	}{
 		{
 			name:          "no_file_paths",
@@ -113,11 +114,12 @@ func TestHandler_BatchDescribeMergeConflicts_TableDriven(t *testing.T) {
 			wantConflicts: 0,
 		},
 		{
-			name:          "two_file_paths",
+			name:          "unknown_file_paths",
 			mergeOption:   "SQUASH_MERGE",
 			filePaths:     []string{"a.go", "b.go"},
 			wantCode:      http.StatusOK,
-			wantConflicts: 2,
+			wantConflicts: 0,
+			wantErrors:    2,
 		},
 		{
 			name:        "invalid_merge_option",
@@ -131,7 +133,8 @@ func TestHandler_BatchDescribeMergeConflicts_TableDriven(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "repo"})
+			setupRepoAndBranch(t, h, "repo")
+			createBranchFromMain(t, h, "repo", "feat")
 
 			body := map[string]any{
 				"repositoryName":             "repo",
@@ -151,6 +154,7 @@ func TestHandler_BatchDescribeMergeConflicts_TableDriven(t *testing.T) {
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 				conflicts := resp["conflicts"].([]any)
 				assert.Len(t, conflicts, tt.wantConflicts)
+				assert.Len(t, resp["errors"], tt.wantErrors)
 			}
 		})
 	}
@@ -450,19 +454,30 @@ func TestHandler_GetMergeOptions(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "merge-opts-repo"})
+	setupRepoAndBranch(t, h, "merge-opts-repo")
+	createBranchFromMain(t, h, "merge-opts-repo", "feature")
 
 	rec := doRequest(t, h, "GetMergeOptions", map[string]any{
 		"repositoryName":             "merge-opts-repo",
 		"sourceCommitSpecifier":      "feature",
 		"destinationCommitSpecifier": "main",
 	})
-	assert.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	opts := resp["mergeOptions"].([]any)
 	assert.Len(t, opts, 3)
+
+	branch := doRequest(t, h, "GetBranch", map[string]any{"repositoryName": "merge-opts-repo", "branchName": "main"})
+	var branchResp struct {
+		Branch struct {
+			CommitID string `json:"commitId"`
+		} `json:"branch"`
+	}
+	require.NoError(t, json.Unmarshal(branch.Body.Bytes(), &branchResp))
+	assert.Equal(t, branchResp.Branch.CommitID, resp["destinationCommitId"])
+	assert.Equal(t, branchResp.Branch.CommitID, resp["baseCommitId"], "feature forked from main's tip")
 }
 
 func TestHandler_MergeOption_InvalidValue(t *testing.T) {
@@ -486,7 +501,8 @@ func TestHandler_MergeOptions_AllStrategies(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "repo"})
+	setupRepoAndBranch(t, h, "repo")
+	createBranchFromMain(t, h, "repo", "feat")
 
 	rec := doRequest(t, h, "GetMergeOptions", map[string]any{
 		"repositoryName":             "repo",
@@ -513,13 +529,14 @@ func TestHandler_CreateUnreferencedMergeCommit(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "unref-repo"})
+	setupRepoAndBranch(t, h, "unref-repo")
+	createBranchFromMain(t, h, "unref-repo", "feature")
 
 	rec := doRequest(t, h, "CreateUnreferencedMergeCommit", map[string]any{
 		"repositoryName":             "unref-repo",
-		"sourceCommitSpecifier":      "abc",
-		"destinationCommitSpecifier": "def",
-		"mergeOption":                "FAST_FORWARD_MERGE",
+		"sourceCommitSpecifier":      "feature",
+		"destinationCommitSpecifier": "main",
+		"mergeOption":                "THREE_WAY_MERGE",
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -583,7 +600,7 @@ func TestHandler_CreateUnreferencedMergeCommit_Success(t *testing.T) {
 		"repositoryName":             "repo",
 		"sourceCommitSpecifier":      commitID,
 		"destinationCommitSpecifier": commitID,
-		"mergeOption":                "FAST_FORWARD_MERGE",
+		"mergeOption":                "THREE_WAY_MERGE",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -818,21 +835,30 @@ func TestHandler_DescribeMergeConflicts(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "dmc-repo"})
+	setupRepoAndBranch(t, h, "dmc-repo")
+
+	seed := doRequest(t, h, "CreateCommit", map[string]any{
+		"repositoryName": "dmc-repo",
+		"branchName":     "main",
+		"putFiles":       []map[string]any{{"filePath": "main.go", "fileContent": "cGFja2FnZSBtYWlu"}},
+	})
+	require.Equal(t, http.StatusOK, seed.Code)
+	createBranchFromMain(t, h, "dmc-repo", "feature")
 
 	rec := doRequest(t, h, "DescribeMergeConflicts", map[string]any{
 		"repositoryName":             "dmc-repo",
-		"sourceCommitSpecifier":      "abc",
-		"destinationCommitSpecifier": "def",
-		"mergeOption":                "FAST_FORWARD_MERGE",
+		"sourceCommitSpecifier":      "feature",
+		"destinationCommitSpecifier": "main",
+		"mergeOption":                "SQUASH_MERGE",
 		"filePath":                   "main.go",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, "abc", resp["sourceCommitId"])
-	assert.Equal(t, "def", resp["destinationCommitId"])
+	assert.NotEqual(t, "feature", resp["sourceCommitId"], "specifiers resolve to commit IDs")
+	assert.NotEmpty(t, resp["sourceCommitId"])
+	assert.NotEmpty(t, resp["destinationCommitId"])
 	meta, ok := resp["conflictMetadata"].(map[string]any)
 	require.True(t, ok, "conflictMetadata must be an object")
 	assert.Equal(t, "main.go", meta["filePath"])
@@ -850,7 +876,7 @@ func TestHandler_DescribeMergeConflicts_RepositoryNotFound(t *testing.T) {
 		"repositoryName":             "no-such-repo",
 		"sourceCommitSpecifier":      "abc",
 		"destinationCommitSpecifier": "def",
-		"mergeOption":                "FAST_FORWARD_MERGE",
+		"mergeOption":                "THREE_WAY_MERGE",
 		"filePath":                   "main.go",
 	})
 	assert.Equal(t, http.StatusNotFound, rec.Code)

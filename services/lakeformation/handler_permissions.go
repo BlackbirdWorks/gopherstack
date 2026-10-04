@@ -58,12 +58,14 @@ func (h *Handler) handleListPermissions(_ context.Context, c *echo.Context, body
 		}
 	}
 
-	entries, nextToken := h.Backend.ListPermissions(
+	entries, nextToken := h.Backend.ListPermissionsInCatalog(
 		in.Resource,
 		in.MaxResults,
 		in.NextToken,
 		in.Principal,
 		in.ResourceType,
+		in.CatalogID,
+		h.AccountID,
 	)
 
 	return c.JSON(http.StatusOK, listPermissionsOutput{
@@ -125,7 +127,9 @@ func (h *Handler) handleGetEffectivePermissionsForPath(_ context.Context, c *ech
 			return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 		}
 	}
-	entries, nextToken := h.Backend.GetEffectivePermissionsForPath(in.ResourceArn, in.MaxResults, in.NextToken)
+	entries, nextToken := h.Backend.GetEffectivePermissionsForPathInCatalog(
+		in.ResourceArn, in.MaxResults, in.NextToken, in.CatalogID, h.AccountID,
+	)
 
 	return c.JSON(http.StatusOK, getEffectivePermissionsForPathOutput{
 		Permissions: toPermissionEntryWireList(entries),

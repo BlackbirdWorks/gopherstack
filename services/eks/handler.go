@@ -1,7 +1,6 @@
 package eks
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -10,7 +9,9 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -159,6 +160,7 @@ const (
 // Handler is the Echo HTTP handler for AWS EKS operations (REST-JSON protocol).
 type Handler struct {
 	Backend *InMemoryBackend
+	peers   *regionpeers.Set[Handler]
 }
 
 // NewHandler creates a new EKS handler.
@@ -167,12 +169,14 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 }
 
 // Reset clears all backend state.
-func (h *Handler) Reset() { h.Backend.Reset() }
+func (h *Handler) Reset() {
+	h.Backend.Reset()
 
-// Shutdown stops the backend's scheduled state-transition timers so no timer
-// goroutine outlives the service. Invoked on server shutdown via
-// service.Shutdowner.
-func (h *Handler) Shutdown(_ context.Context) { h.Backend.Close() }
+	for _, p := range h.peers.Drain() {
+		p.Backend.Reset()
+		p.Backend.Close()
+	}
+}
 
 // Name returns the service name.
 func (h *Handler) Name() string { return "EKS" }
@@ -268,7 +272,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		path := c.Request().URL.Path
 
 		return path == pathClusters ||
-			strings.HasPrefix(path, pathClusters+"/") ||
+			(strings.HasPrefix(path, pathClusters+"/") && !isDSQLVpcEndpointServiceNamePath(path)) ||
 			strings.HasPrefix(path, pathEKSTags+"arn:aws:eks:") ||
 			path == pathSubscriptions ||
 			strings.HasPrefix(path, pathSubscriptions+"/") ||
@@ -279,6 +283,15 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			path == pathClusterRegistrations ||
 			strings.HasPrefix(path, pathClusterRegistrations+"/")
 	}
+}
+
+// isDSQLVpcEndpointServiceNamePath reports whether path is DSQL's
+// GetVpcEndpointServiceName route (/clusters/{id}/vpc-endpoint-service-name),
+// which happens to share EKS's "/clusters/" prefix. EKS has no such
+// operation, so this exact suffix can safely be excluded from EKS's claim
+// (gopherstack-7r6bz).
+func isDSQLVpcEndpointServiceNamePath(path string) bool {
+	return strings.HasSuffix(path, "/vpc-endpoint-service-name")
 }
 
 // MatchPriority returns the routing priority.
@@ -496,6 +509,10 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function for EKS requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
+			return p.Handler()(c)
+		}
+
 		log := logger.Load(c.Request().Context())
 		route := parseEKSPath(c.Request().Method, c.Request().URL.Path)
 

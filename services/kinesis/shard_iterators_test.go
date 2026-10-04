@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -68,16 +69,23 @@ func TestGetShardIterator_ByARN(t *testing.T) {
 func TestGetShardIterator_AllTypes(t *testing.T) {
 	t.Parallel()
 
-	b := newParityBackend(t)
+	// A real-time-based fakeClock (not synctest): the TRIM_HORIZON subtest
+	// below computes a retention cutoff from "now" outside this setup, so
+	// setup and subtests must share one real-time-rooted clock (a synctest
+	// bubble's fake epoch would make the just-written records look expired
+	// once read back with a real time.Now()).
+	clock := newFakeClock(time.Now())
+	b := kinesis.NewInMemoryBackend().WithClock(clock.Now)
 	ctx := context.Background()
 
 	createParityStream(t, b, "iter-types", 1)
+	clock.Advance(streamSettleWait)
 
 	seqs := make([]string, 0, 5)
 	timestamps := make([]time.Time, 0, 5)
 
 	for i := range 5 {
-		time.Sleep(time.Millisecond)
+		clock.Advance(time.Millisecond)
 		out, err := b.PutRecord(ctx, &kinesis.PutRecordInput{
 			StreamName:   "iter-types",
 			PartitionKey: "pk",
@@ -85,7 +93,7 @@ func TestGetShardIterator_AllTypes(t *testing.T) {
 		})
 		require.NoError(t, err)
 		seqs = append(seqs, out.SequenceNumber)
-		timestamps = append(timestamps, time.Now())
+		timestamps = append(timestamps, clock.Now())
 	}
 
 	shardID := "shardId-000000000000"
@@ -228,6 +236,14 @@ func TestGetShardIteratorNonExistentShard(t *testing.T) {
 func TestGetShardIteratorAtTimestamp(t *testing.T) {
 	t.Parallel()
 
+	synctest.Test(t, func(t *testing.T) {
+		testGetShardIteratorAtTimestamp(t)
+	})
+}
+
+func testGetShardIteratorAtTimestamp(t *testing.T) {
+	t.Helper()
+
 	h := newTestHandler(t)
 
 	rec := doRequest(t, h, "CreateStream", map[string]any{
@@ -235,6 +251,7 @@ func TestGetShardIteratorAtTimestamp(t *testing.T) {
 		"ShardCount": 1,
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
+	time.Sleep(streamSettleWait)
 
 	// Get shard ID
 	rec = doRequest(t, h, "DescribeStream", map[string]any{"StreamName": "ts-stream"})
@@ -364,8 +381,17 @@ func TestGetShardIterator_AtTimestampNilRejectedAtBackend(t *testing.T) {
 func TestGetRecords_NextShardIteratorHasExpiry(t *testing.T) {
 	t.Parallel()
 
+	synctest.Test(t, func(t *testing.T) {
+		testGetRecordsNextShardIteratorHasExpiry(t)
+	})
+}
+
+func testGetRecordsNextShardIteratorHasExpiry(t *testing.T) {
+	t.Helper()
+
 	h := newTestHandler(t)
 	doRequest(t, h, "CreateStream", map[string]any{"StreamName": "next-iter-ttl-stream", "ShardCount": 1})
+	time.Sleep(streamSettleWait)
 
 	b := h.Backend.(*kinesis.InMemoryBackend)
 	ctx := context.Background()

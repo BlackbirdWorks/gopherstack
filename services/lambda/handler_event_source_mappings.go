@@ -2,6 +2,7 @@ package lambda
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -48,6 +49,7 @@ type handleCreateESMInput struct {
 	Topics                              []string                             `json:"Topics"`
 	Queues                              []string                             `json:"Queues"`
 	FunctionResponseTypes               []string                             `json:"FunctionResponseTypes"`
+	StartingPositionTimestamp           float64                              `json:"StartingPositionTimestamp"`
 	BatchSize                           int                                  `json:"BatchSize"`
 	MaximumBatchingWindowInSeconds      int                                  `json:"MaximumBatchingWindowInSeconds"`
 	TumblingWindowInSeconds             int                                  `json:"TumblingWindowInSeconds"`
@@ -77,6 +79,7 @@ func (h *Handler) handleCreateESM(c *echo.Context) error {
 			EventSourceARN:                      req.EventSourceARN,
 			FunctionName:                        req.FunctionName,
 			StartingPosition:                    req.StartingPosition,
+			StartingPositionTimestamp:           req.StartingPositionTimestamp,
 			KMSKeyArn:                           req.KMSKeyArn,
 			BatchSize:                           req.BatchSize,
 			Enabled:                             enabled,
@@ -97,6 +100,10 @@ func (h *Handler) handleCreateESM(c *echo.Context) error {
 			ParallelizationFactor:               req.ParallelizationFactor,
 			BisectBatchOnFunctionError:          req.BisectBatchOnFunctionError,
 		})
+		if errors.Is(err, ErrInvalidParameterValue) {
+			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
+		}
+
 		if err != nil {
 			return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
 		}

@@ -5,8 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net"
+	"strings"
 	"sync/atomic"
+	"time"
 
+	"github.com/google/uuid"
 	mqtt "github.com/mochi-mqtt/server/v2"
 	"github.com/mochi-mqtt/server/v2/hooks/auth"
 	"github.com/mochi-mqtt/server/v2/listeners"
@@ -16,6 +20,12 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/iotdataplane"
 )
 
+// mqttV5 is the MQTT protocol version number that carries DISCONNECT reason codes.
+const mqttV5 = 5
+
+// basicIngestPrefix starts every Basic Ingest topic: $aws/rules/<ruleName>/<topic>.
+const basicIngestPrefix = "$aws/rules/"
+
 // ErrBrokerNotStarted is returned when a publish is attempted before the broker is started.
 var ErrBrokerNotStarted = errors.New("mqtt broker not started")
 
@@ -24,6 +34,7 @@ type Broker struct {
 	// server is accessed atomically to avoid data races between Start and Publish.
 	server  atomic.Pointer[mqtt.Server]
 	backend *InMemoryBackend
+	others  func() []*InMemoryBackend
 	port    int
 }
 
@@ -50,7 +61,9 @@ func (b *Broker) Start(ctx context.Context) error {
 	}
 
 	hook := &ruleHook{
+		broker:  b,
 		backend: b.backend,
+		others:  b.others,
 		ctx:     ctx,
 	}
 
@@ -70,23 +83,14 @@ func (b *Broker) Start(ctx context.Context) error {
 	// Store the server atomically before Serve() so Publish() can access it concurrently.
 	b.server.Store(s)
 
-	done := make(chan struct{})
-	defer close(done)
-
-	go func() {
-		select {
-		case <-ctx.Done():
-			_ = s.Close()
-		case <-done:
-			// Serve() returned; goroutine exits cleanly.
-		}
-	}()
-
+	// mochi's Serve starts its listeners and event loop in goroutines and returns at once.
 	if err := s.Serve(); err != nil {
 		return fmt.Errorf("iot broker: serve: %w", err)
 	}
 
-	return nil
+	<-ctx.Done()
+
+	return s.Close()
 }
 
 // Run implements worker.Runner, adapting Start's blocking-with-error shape to
@@ -230,6 +234,70 @@ func (b *Broker) SendToClient(clientID, topic string, payload []byte, qos byte) 
 	)
 }
 
+// ClientSession implements iotdataplane.MQTTPublisher from the live client's
+// CONNECT-time properties and socket addresses.
+func (b *Broker) ClientSession(clientID string) (iotdataplane.SessionInfo, bool) {
+	s := b.server.Load()
+	if s == nil {
+		return iotdataplane.SessionInfo{}, false
+	}
+
+	cl, ok := s.Clients.Get(clientID)
+	if !ok || cl.Closed() {
+		return iotdataplane.SessionInfo{}, false
+	}
+
+	info := iotdataplane.SessionInfo{
+		Clean:         cl.Properties.Clean,
+		KeepAlive:     cl.State.Keepalive,
+		RemoteAddr:    cl.Net.Remote,
+		SessionExpiry: cl.Properties.Props.SessionExpiryInterval,
+		ExpiryKnown:   cl.Properties.Props.SessionExpiryIntervalFlag,
+	}
+
+	if cl.Net.Conn != nil && cl.Net.Conn.LocalAddr() != nil {
+		info.LocalAddr = cl.Net.Conn.LocalAddr().String()
+	}
+
+	return info, true
+}
+
+// DisconnectClient implements iotdataplane.MQTTPublisher; cleanSession drops stored session
+// state and preventWill clears the Last Will so mochi-mqtt does not publish it.
+func (b *Broker) DisconnectClient(clientID string, cleanSession, preventWill bool) (bool, error) {
+	s := b.server.Load()
+	if s == nil {
+		return false, ErrBrokerNotStarted
+	}
+
+	cl, ok := s.Clients.Get(clientID)
+	if !ok || cl.Closed() {
+		return false, nil
+	}
+
+	if preventWill {
+		atomic.StoreUint32(&cl.Properties.Will.Flag, 0)
+	}
+
+	if cleanSession {
+		cl.Properties.Clean = true
+		cl.Properties.Props.SessionExpiryInterval = 0
+	}
+
+	if cl.Properties.ProtocolVersion >= mqttV5 {
+		if err := s.DisconnectClient(cl, packets.ErrAdministrativeAction); err != nil &&
+			!errors.Is(err, packets.ErrAdministrativeAction) {
+			return false, fmt.Errorf("iot broker: disconnect client %s: %w", clientID, err)
+		}
+
+		return true, nil
+	}
+
+	cl.Stop(packets.ErrAdministrativeAction)
+
+	return true, nil
+}
+
 // SendToClientWithProperties implements iotdataplane.MQTTPublisher. It
 // behaves like SendToClient but also attaches props as real MQTT5 packet
 // properties -- see PublishWithProperties for the protocol-version encoding
@@ -268,7 +336,9 @@ func (b *Broker) SendToClientWithProperties(
 type ruleHook struct {
 	mqtt.HookBase
 
+	broker  *Broker
 	backend *InMemoryBackend
+	others  func() []*InMemoryBackend
 	ctx     context.Context //nolint:containedctx // required to propagate broker lifecycle context into hook callbacks
 }
 
@@ -281,40 +351,131 @@ func (h *ruleHook) Provides(b byte) bool {
 }
 
 // OnPublish is called for every MQTT message published to the broker.
-func (h *ruleHook) OnPublish(_ *mqtt.Client, pk packets.Packet) (packets.Packet, error) {
+func (h *ruleHook) OnPublish(cl *mqtt.Client, pk packets.Packet) (packets.Packet, error) {
 	dispatcher := h.backend.GetDispatcher()
 	log := logger.Load(h.ctx)
+	hops := takeHops(&pk)
+	received := time.Now()
+	ruleName, ingestTopic, ingest := basicIngestTopic(pk.TopicName)
 
-	for _, rule := range h.backend.GetRules() {
-		if !EvaluateRule(rule, pk.TopicName, pk.Payload) {
+	known := false
+
+	for _, rule := range h.allRules() {
+		if ingest && rule.RuleName != ruleName {
 			continue
 		}
 
-		log.Info("iot rule matched", "rule", rule.RuleName, "topic", pk.TopicName)
-		h.dispatchActions(rule, dispatcher, pk.Payload)
+		known = true
+
+		region, account := ruleRegionAccount(rule.ARN)
+		msg := &ruleMessage{
+			received: received, topic: pk.TopicName, clientID: publisherID(pk.Origin),
+			region: region, account: account, payload: pk.Payload, original: pk.Payload, hops: hops,
+			hook: h, props: packetProps(pk), sourceIP: sourceIPOf(cl), traceID: traceIDOf(pk),
+		}
+
+		if ingest {
+			msg.topic, msg.ingest = ingestTopic, true
+		}
+
+		if !rule.fire(msg) {
+			if msg.fatal != nil {
+				log.Warn("iot rule sql function failed", "rule", rule.RuleName, "reason", msg.fatal.Error())
+			}
+
+			continue
+		}
+
+		log.Info("iot rule matched", "rule", rule.RuleName)
+
+		h.dispatchActions(rule, dispatcher, msg)
+	}
+
+	if ingest {
+		if !known {
+			log.Warn("iot basic ingest names no rule")
+		}
+
+		pk.FixedHeader.Retain = false
+
+		return pk, packets.CodeSuccessIgnore
 	}
 
 	return pk, nil
 }
 
-func (h *ruleHook) dispatchActions(rule *TopicRule, dispatcher RuleDispatcher, payload []byte) {
-	if dispatcher == nil {
-		return
+// basicIngestTopic splits $aws/rules/<rule>/<topic> into the rule name and the topic the rule sees.
+func basicIngestTopic(topic string) (string, string, bool) {
+	rest, ok := strings.CutPrefix(topic, basicIngestPrefix)
+	if !ok {
+		return "", "", false
 	}
 
-	log := logger.Load(h.ctx)
+	name, remainder, _ := strings.Cut(rest, "/")
+	if name == "" {
+		return "", "", false
+	}
 
-	for _, action := range rule.Actions {
-		if action.SQS != nil {
-			if err := dispatcher.SendToSQS(action.SQS.QueueURL, string(payload)); err != nil {
-				log.Error("iot sqs action failed", "rule", rule.RuleName, "error", err)
-			}
-		}
+	return name, remainder, true
+}
 
-		if action.Lambda != nil {
-			if err := dispatcher.InvokeLambda(h.ctx, action.Lambda.FunctionARN, payload); err != nil {
-				log.Error("iot lambda action failed", "rule", rule.RuleName, "error", err)
-			}
+func packetProps(pk packets.Packet) *mqttProps {
+	if pk.Origin == mqtt.InlineClientId {
+		return nil
+	}
+
+	p := &mqttProps{
+		contentType: pk.Properties.ContentType, responseTopic: pk.Properties.ResponseTopic,
+		correlation: pk.Properties.CorrelationData, utf8: pk.Properties.PayloadFormat == 1,
+	}
+
+	for _, u := range pk.Properties.User {
+		p.user = append(p.user, userProp{key: u.Key, val: u.Val})
+	}
+
+	return p
+}
+
+// sourceIPOf is the publishing client's remote address without its port.
+func sourceIPOf(cl *mqtt.Client) string {
+	if cl == nil || cl.Net.Remote == "" {
+		return ""
+	}
+
+	host, _, err := net.SplitHostPort(cl.Net.Remote)
+	if err != nil {
+		return ""
+	}
+
+	return host
+}
+
+// traceIDOf mints a trace id for messages a device published over MQTT.
+func traceIDOf(pk packets.Packet) string {
+	if pk.Origin == mqtt.InlineClientId {
+		return ""
+	}
+
+	return uuid.NewString()
+}
+
+func publisherID(origin string) string {
+	if origin == mqtt.InlineClientId {
+		return ""
+	}
+
+	return origin
+}
+
+// allRules returns the home region's rules plus every regional sibling's.
+func (h *ruleHook) allRules() []*TopicRule {
+	rules := h.backend.GetRules()
+
+	if h.others != nil {
+		for _, ob := range h.others() {
+			rules = append(rules, ob.GetRules()...)
 		}
 	}
+
+	return rules
 }

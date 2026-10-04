@@ -118,6 +118,12 @@ func validateResourceDataSyncSource(src *ResourceDataSyncSource) error {
 		return fmt.Errorf("%w: SyncSource.SourceRegions is required", ErrValidationException)
 	}
 
+	if o := src.AwsOrganizationsSource; o != nil && o.OrganizationSourceType == "" {
+		return fmt.Errorf(
+			"%w: SyncSource.AwsOrganizationsSource.OrganizationSourceType is required", ErrValidationException,
+		)
+	}
+
 	return nil
 }
 
@@ -249,7 +255,7 @@ func (b *InMemoryBackend) ListResourceDataSync(
 			continue
 		}
 
-		items = append(items, *s)
+		items = append(items, cloneResourceDataSync(s))
 	}
 
 	sort.Slice(items, func(i, k int) bool {
@@ -264,6 +270,35 @@ func (b *InMemoryBackend) ListResourceDataSync(
 	page, next := paginateSlice(items, input.NextToken, maxResults, defaultDescribeMaxResults)
 
 	return &ListResourceDataSyncOutputFull{ResourceDataSyncItems: page, NextToken: next}, nil
+}
+
+func cloneResourceDataSync(s *ResourceDataSync) ResourceDataSync {
+	c := *s
+
+	if s.S3Destination != nil {
+		d := *s.S3Destination
+		if s.S3Destination.DestinationDataSharing != nil {
+			sh := *s.S3Destination.DestinationDataSharing
+			d.DestinationDataSharing = &sh
+		}
+
+		c.S3Destination = &d
+	}
+
+	if s.SyncSource != nil {
+		src := *s.SyncSource
+		src.SourceRegions = append([]string(nil), s.SyncSource.SourceRegions...)
+
+		if o := s.SyncSource.AwsOrganizationsSource; o != nil {
+			oc := *o
+			oc.OrganizationalUnits = append([]ResourceDataSyncOrganization(nil), o.OrganizationalUnits...)
+			src.AwsOrganizationsSource = &oc
+		}
+
+		c.SyncSource = &src
+	}
+
+	return c
 }
 
 // UpdateResourceDataSync updates an existing resource data sync. SyncType and

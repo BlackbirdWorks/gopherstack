@@ -405,7 +405,9 @@ func TestTraceSummary_UsersFromAnnotations(t *testing.T) {
 	users, ok := s["Users"].([]any)
 	require.True(t, ok, "Users field must be present when annotation.user is set")
 	require.Len(t, users, 1)
-	assert.Equal(t, "alice", users[0])
+	u, ok := users[0].(map[string]any)
+	require.True(t, ok, "Users entries are TraceUser objects, not strings")
+	assert.Equal(t, "alice", u["UserName"])
 }
 
 // TestTraceSummary_ForecastStatisticsPresent verifies ForecastStatistics is in response.

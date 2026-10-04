@@ -32,10 +32,10 @@ type CWLogsBackend interface {
 
 // KinesisReader is the subset of Kinesis operations that Firehose needs to poll source streams.
 type KinesisReader interface {
-	// ListShards returns all open shard IDs for the named stream.
-	ListShards(streamName string) ([]string, error)
+	// ListShards returns all open shard IDs for the stream, named by ARN (its region) or bare name.
+	ListShards(streamRef string) ([]string, error)
 	// GetShardIterator returns a TRIM_HORIZON iterator token for the given stream/shard.
-	GetShardIterator(streamName, shardID string) (string, error)
+	GetShardIterator(streamRef, shardID string) (string, error)
 	// GetRecords reads up to limit records. Returns raw data slices, next iterator token, and error.
 	GetRecords(shardIterator string, limit int) (records [][]byte, nextIterator string, err error)
 }

@@ -9,15 +9,19 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/smtprelay"
 	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
 
@@ -37,6 +41,9 @@ const (
 type Handler struct {
 	Backend    StorageBackend
 	janitor    *Janitor
+	relay      *smtprelay.Relay
+	peers      *regionpeers.Set[Handler]
+	workerCtx  atomic.Pointer[context.Context]
 	janitorRun worker.SingleRun
 }
 
@@ -67,6 +74,8 @@ func (h *Handler) WithJanitor(interval time.Duration, taskTimeout ...time.Durati
 
 // StartWorker starts the background janitor if configured.
 func (h *Handler) StartWorker(ctx context.Context) error {
+	h.startRegionWorkers(ctx)
+
 	if h.janitor == nil {
 		return nil
 	}
@@ -78,12 +87,22 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 
 // Shutdown stops the janitor worker and waits for it to exit.
 func (h *Handler) Shutdown(ctx context.Context) {
+	h.stopRegionWorkers(ctx)
 	h.janitorRun.Stop(ctx)
+
+	if h.relay != nil {
+		h.relay.Close()
+	}
 }
 
 // Reset clears all in-memory state. Used by the POST /_gopherstack/reset endpoint.
 func (h *Handler) Reset() {
 	h.Backend.Reset()
+
+	for _, p := range h.peers.Drain() {
+		p.janitorRun.Stop(context.Background())
+		p.Backend.Reset()
+	}
 }
 
 // Name returns the service name.
@@ -203,7 +222,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return false
 		}
 
-		body, err := httputils.ReadBody(r)
+		_, err := httputils.ReadBody(r)
 		if err != nil {
 			// Body unreadable (e.g. oversized): fall back to the User-Agent
 			// marker every aws-sdk-go-v2 ses client sets (api_client.go's
@@ -213,7 +232,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return service.MatchesUserAgentMarker(r.Header, "api/ses")
 		}
 
-		vals, err := url.ParseQuery(string(body))
+		vals, err := httputils.ParseFormBody(r)
 		if err != nil {
 			return false
 		}
@@ -272,6 +291,11 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		ctx := c.Request().Context()
+
+		if p := h.peers.Get(awsmeta.Region(ctx)); p != nil {
+			return p.Handler()(c)
+		}
+
 		log := logger.Load(ctx)
 
 		reqID := newRequestID()

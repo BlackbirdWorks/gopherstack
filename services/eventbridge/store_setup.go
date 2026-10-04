@@ -49,7 +49,7 @@ package eventbridge
 //
 // # What is NOT converted here, and why
 //
-//   - archivedEvents (map[string]map[string][]EventEntry, region -> archive
+//   - archivedEvents (map[string]map[string][]archivedEvent, region -> archive
 //     name -> events): one-to-many -- there is no single V to key a Table by;
 //     the archived events for one archive stay a slice, same as ec2/ssm's
 //     history-style slice maps.

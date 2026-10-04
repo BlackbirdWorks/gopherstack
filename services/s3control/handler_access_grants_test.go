@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -68,7 +69,7 @@ func TestAccessGrantsInstance(t *testing.T) {
 		b.CreateAccessGrantsInstance("000000000000", "")
 		loc := b.CreateAccessGrantsLocation("000000000000", "s3://bucket/", "arn:aws:iam::000000000000:role/r")
 		_, err := b.CreateAccessGrant(
-			"000000000000", loc.AccessGrantsLocationID, "IAMUser", "arn:test", "READ", "",
+			"000000000000", loc.AccessGrantsLocationID, "IAMUser", "arn:test", "READ", "", "",
 		)
 		require.NoError(t, err)
 
@@ -97,7 +98,7 @@ func TestAccessGrantsInstance(t *testing.T) {
 		b.CreateAccessGrantsInstance("000000000000", "")
 		loc := b.CreateAccessGrantsLocation("000000000000", "s3://bucket/", "arn:aws:iam::000000000000:role/r")
 		grant, err := b.CreateAccessGrant(
-			"000000000000", loc.AccessGrantsLocationID, "IAMUser", "arn:test", "READ", "",
+			"000000000000", loc.AccessGrantsLocationID, "IAMUser", "arn:test", "READ", "", "",
 		)
 		require.NoError(t, err)
 
@@ -190,6 +191,7 @@ func TestAccessGrantsCRUD(t *testing.T) {
 		"arn:aws:iam::000000000000:user/test",
 		"READ",
 		"",
+		"",
 	)
 	require.NoError(t, setupErr)
 
@@ -228,6 +230,7 @@ func TestAccessGrantsCRUD(t *testing.T) {
 			"arn:test",
 			"READ",
 			"",
+			"",
 		)
 		require.NoError(t, b2.DeleteAccessGrant("000000000000", g.AccessGrantID))
 	})
@@ -250,6 +253,7 @@ func TestAccessGrantsCRUD(t *testing.T) {
 			"IAMUser",
 			"arn:test",
 			"READ",
+			"",
 			"",
 		)
 		require.NoError(t, err)
@@ -313,7 +317,7 @@ func TestAccessGrantsLocation(t *testing.T) {
 		t.Parallel()
 		b2 := s3control.NewInMemoryBackend()
 		l := b2.CreateAccessGrantsLocation("000000000000", "s3://b/", "arn:test")
-		_, err := b2.CreateAccessGrant("000000000000", l.AccessGrantsLocationID, "IAMUser", "arn:test", "READ", "")
+		_, err := b2.CreateAccessGrant("000000000000", l.AccessGrantsLocationID, "IAMUser", "arn:test", "READ", "", "")
 		require.NoError(t, err)
 
 		err = b2.DeleteAccessGrantsLocation("000000000000", l.AccessGrantsLocationID)
@@ -329,7 +333,7 @@ func TestAccessGrantsLocation(t *testing.T) {
 		b2 := s3control.NewInMemoryBackend()
 		l := b2.CreateAccessGrantsLocation("000000000000", "s3://b/", "arn:test")
 		grant, err := b2.CreateAccessGrant(
-			"000000000000", l.AccessGrantsLocationID, "IAMUser", "arn:test", "READ", "",
+			"000000000000", l.AccessGrantsLocationID, "IAMUser", "arn:test", "READ", "", "",
 		)
 		require.NoError(t, err)
 
@@ -489,7 +493,7 @@ func TestCreateAccessGrant(t *testing.T) {
 			name:      "creates_access_grant",
 			accountID: "123456789012",
 			body: `<CreateAccessGrantRequest>
-<AccessGrantsLocationId>default</AccessGrantsLocationId>
+<AccessGrantsLocationId>{{LOC}}</AccessGrantsLocationId>
 <Permission>READ</Permission>
 <Grantee>
 <GranteeType>IAM</GranteeType>
@@ -503,7 +507,7 @@ func TestCreateAccessGrant(t *testing.T) {
 			name:      "creates_access_grant_with_application_arn",
 			accountID: "000000000000",
 			body: `<CreateAccessGrantRequest>
-<AccessGrantsLocationId>location-1</AccessGrantsLocationId>
+<AccessGrantsLocationId>{{LOC}}</AccessGrantsLocationId>
 <Permission>READWRITE</Permission>
 <Grantee>
 <GranteeType>DIRECTORY_USER</GranteeType>
@@ -514,6 +518,20 @@ func TestCreateAccessGrant(t *testing.T) {
 			wantStatus:       http.StatusOK,
 			wantBodyContains: "AccessGrantId",
 		},
+		{
+			name:      "unknown_location",
+			accountID: "000000000000",
+			body: `<CreateAccessGrantRequest>
+<AccessGrantsLocationId>missing</AccessGrantsLocationId>
+<Permission>READ</Permission>
+<Grantee>
+<GranteeType>IAM</GranteeType>
+<GranteeIdentifier>arn:aws:iam::000000000000:user/u</GranteeIdentifier>
+</Grantee>
+</CreateAccessGrantRequest>`,
+			wantStatus:       http.StatusNotFound,
+			wantBodyContains: "NoSuchAccessGrantsLocation",
+		},
 	}
 
 	for _, tt := range tests {
@@ -521,13 +539,16 @@ func TestCreateAccessGrant(t *testing.T) {
 			t.Parallel()
 
 			h := newTestS3ControlHandler(t)
+			loc := h.Backend.CreateAccessGrantsLocation(
+				tt.accountID, "s3://bucket/", "arn:aws:iam::123456789012:role/r",
+			)
 			rec := doS3ControlNewOpRequest(
 				t,
 				h,
 				http.MethodPost,
 				"/v20180820/accessgrantsinstance/grant",
 				tt.accountID,
-				tt.body,
+				strings.ReplaceAll(tt.body, "{{LOC}}", loc.AccessGrantsLocationID),
 			)
 
 			assert.Equal(t, tt.wantStatus, rec.Code)
@@ -826,7 +847,10 @@ func TestCreateAccessGrant_RequiresPermission(t *testing.T) {
 			t.Parallel()
 
 			b := s3control.NewInMemoryBackend()
-			grant, err := b.CreateAccessGrant("acc1", "loc1", "DIRECTORY_USER", "user@example.com", tt.permission, "")
+			loc := b.CreateAccessGrantsLocation("acc1", "s3://bucket/", "arn:aws:iam::acc1:role/r")
+			grant, err := b.CreateAccessGrant(
+				"acc1", loc.AccessGrantsLocationID, "DIRECTORY_USER", "user@example.com", tt.permission, "", "",
+			)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -883,6 +907,7 @@ func TestAccessGrantsResponseWireShape(t *testing.T) {
 					"000000000000", loc.AccessGrantsLocationID,
 					"IAMUser", "arn:aws:iam::000000000000:user/test", "READ",
 					"arn:aws:sso::000000000000:application/app-1",
+					"",
 				)
 				require.NoError(t, err)
 
@@ -934,6 +959,7 @@ func TestAccessGrantsResponseWireShape(t *testing.T) {
 					"000000000000", loc.AccessGrantsLocationID,
 					"IAMUser", "arn:aws:iam::000000000000:user/test", "READ",
 					"arn:aws:sso::000000000000:application/app-1",
+					"",
 				)
 				require.NoError(t, err)
 
@@ -1013,7 +1039,7 @@ func TestHandler_DeleteAccessGrantsInstance_Precondition(t *testing.T) {
 			setup: func(b *s3control.InMemoryBackend) {
 				loc := b.CreateAccessGrantsLocation("000000000000", "s3://bucket/", "arn:aws:iam::000000000000:role/r")
 				_, err := b.CreateAccessGrant(
-					"000000000000", loc.AccessGrantsLocationID, "IAMUser", "arn:test", "READ", "",
+					"000000000000", loc.AccessGrantsLocationID, "IAMUser", "arn:test", "READ", "", "",
 				)
 				require.NoError(t, err)
 			},

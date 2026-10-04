@@ -8,8 +8,10 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -71,6 +73,7 @@ const (
 // Handler is the Echo HTTP handler for Amazon MQ REST operations.
 type Handler struct {
 	Backend StorageBackend
+	peers   *regionpeers.Set[Handler]
 }
 
 // NewHandler creates a new Amazon MQ handler.
@@ -122,7 +125,13 @@ func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations()
 func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} }
 
 // Reset clears the handler's backend state.
-func (h *Handler) Reset() { h.Backend.Reset() }
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+
+	for _, p := range h.peers.Drain() {
+		p.Backend.Reset()
+	}
+}
 
 // RouteMatcher returns a function that matches Amazon MQ REST API requests.
 // MQ uses /v1/brokers, and MQ-signed /v1/configurations and /v1/tags paths.
@@ -168,6 +177,11 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		r := c.Request()
+
+		if p := h.peers.Get(awsmeta.Region(r.Context())); p != nil {
+			return p.Handler()(c)
+		}
+
 		route := parseRoute(r.Method, r.URL.Path)
 
 		return h.dispatch(c, route)

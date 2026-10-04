@@ -116,7 +116,9 @@ func recordVarDeclBindings(
 		}
 
 		typeName := underlyingIdentType(vs.Type)
-		if _, known := structs[typeName]; !known {
+		if sdkType := sdkInputBindingType(vs.Type); sdkType != "" {
+			typeName = sdkType
+		} else if _, known := structs[typeName]; !known {
 			continue
 		}
 

@@ -35,7 +35,7 @@ func (b *InMemoryBackend) CreateIPSet(name, changeToken string, tags map[string]
 		b.tags[b.ipSetARN(id)] = maps.Clone(tags)
 	}
 
-	return ipSet, nil
+	return cloneIPSet(ipSet), nil
 }
 
 // GetIPSet retrieves an IPSet by ID.
@@ -48,7 +48,17 @@ func (b *InMemoryBackend) GetIPSet(id string) (*IPSet, error) {
 		return nil, ErrNotFound
 	}
 
-	return ipSet, nil
+	return cloneIPSet(ipSet), nil
+}
+
+// cloneIPSet stops a caller from racing UpdateIPSet. A shallow copy is not
+// enough: applyEntryUpdate's delete path reuses the descriptors backing array.
+func cloneIPSet(ipSet *IPSet) *IPSet {
+	cp := *ipSet
+	cp.IPSetDescriptors = make([]IPSetDescriptor, len(ipSet.IPSetDescriptors))
+	copy(cp.IPSetDescriptors, ipSet.IPSetDescriptors)
+
+	return &cp
 }
 
 // UpdateIPSet updates an IPSet's descriptors.

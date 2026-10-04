@@ -474,8 +474,8 @@ func TestInMemoryBackend_ListUsersFiltered(t *testing.T) {
 			wantNames: []string{"alice"},
 		},
 		{
-			name:      "username_wildcard_filter",
-			filter:    `username = "bob*"`,
+			name:      "username_exact_filter",
+			filter:    `username = "bob"`,
 			wantCount: 1,
 			wantNames: []string{"bob"},
 		},

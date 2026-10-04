@@ -455,7 +455,7 @@ func (b *InMemoryBackend) ListClusters(ctx context.Context, params ListClustersP
 }
 
 // buildStateSet converts a slice of state strings to a set.
-// An empty slice means "all non-terminal states".
+// An empty slice means no state filter.
 func buildStateSet(states []string) map[string]bool {
 	if len(states) == 0 {
 		return nil
@@ -504,14 +504,8 @@ func (b *InMemoryBackend) gatherClusterSummaries(
 
 // clusterMatchesFilter reports whether c satisfies the given filter.
 func clusterMatchesFilter(c *Cluster, stateSet map[string]bool, params ListClustersParams) bool {
-	if stateSet != nil {
-		if !stateSet[c.Status.State] {
-			return false
-		}
-	} else {
-		if c.Status.State == StateTerminated || c.Status.State == StateTerminatedWithErrors {
-			return false
-		}
+	if stateSet != nil && !stateSet[c.Status.State] {
+		return false
 	}
 
 	creationSeconds := clusterCreationSecondsFromCluster(c)

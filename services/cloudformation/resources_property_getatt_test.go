@@ -180,7 +180,7 @@ func testPropertyGetAttFnSubResourceAttr(t *testing.T) {
 func newPropertyGetAttSNSSQSTestClient(t *testing.T) (*cloudformation.ServiceBackends, *cfnsdk.Client) {
 	t.Helper()
 
-	backends := newServiceBackends()
+	backends := newServiceBackends(t)
 	creator := cloudformation.NewResourceCreator(backends)
 	backend := cloudformation.NewInMemoryBackendWithConfig(backends.AccountID, backends.Region, creator)
 	client := newTestClientForBackend(t, backend)

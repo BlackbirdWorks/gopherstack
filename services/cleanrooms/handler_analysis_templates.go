@@ -74,13 +74,14 @@ func (h *Handler) handleBatchGetCollaborationAnalysisTemplate(
 
 func (h *Handler) handleCreateAnalysisTemplate(_ context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		Source               map[string]any    `json:"source"`
-		Tags                 map[string]string `json:"tags"`
-		MembershipIdentifier string            `json:"membershipIdentifier"`
-		Name                 string            `json:"name"`
-		Description          string            `json:"description"`
-		Format               string            `json:"format"`
-		AnalysisParameters   []map[string]any  `json:"analysisParameters"`
+		Source               map[string]any             `json:"source"`
+		Tags                 map[string]string          `json:"tags"`
+		ErrorMessageConfig   *ErrorMessageConfiguration `json:"errorMessageConfiguration"`
+		MembershipIdentifier string                     `json:"membershipIdentifier"`
+		Name                 string                     `json:"name"`
+		Description          string                     `json:"description"`
+		Format               string                     `json:"format"`
+		AnalysisParameters   []map[string]any           `json:"analysisParameters"`
 	}
 	_ = json.Unmarshal(body, &req)
 	t, err := h.Backend.CreateAnalysisTemplate(
@@ -91,6 +92,7 @@ func (h *Handler) handleCreateAnalysisTemplate(_ context.Context, body []byte) (
 		req.Source,
 		req.AnalysisParameters,
 		req.Tags,
+		AnalysisTemplateSettings{ErrorMessageConfiguration: req.ErrorMessageConfig},
 	)
 	if err != nil {
 		return nil, err

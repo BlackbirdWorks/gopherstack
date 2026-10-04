@@ -108,6 +108,18 @@ func Set(ctx context.Context, m *Metadata) context.Context {
 	return Key.Set(ctx, m)
 }
 
+// WithRegion returns ctx carrying a copy of its metadata with Region set; an empty region leaves ctx unchanged.
+func WithRegion(ctx context.Context, region string) context.Context {
+	if region == "" {
+		return ctx
+	}
+
+	m := *Get(ctx)
+	m.Region = region
+
+	return Set(ctx, &m)
+}
+
 // Get returns the metadata carried on ctx, or a *Metadata with default Account
 // and Partition fields when none was set. The return is never nil so callers
 // can dereference fields without a guard.
@@ -119,39 +131,71 @@ func Get(ctx context.Context) *Metadata {
 	return defaults()
 }
 
+func lookup(ctx context.Context) *Metadata {
+	if m, ok := Key.Get(ctx); ok {
+		return m
+	}
+
+	return nil
+}
+
 // Region returns Get(ctx).Region.
 func Region(ctx context.Context) string {
-	return Get(ctx).Region
+	if m := lookup(ctx); m != nil {
+		return m.Region
+	}
+
+	return ""
 }
 
 // Account returns Get(ctx).Account.
 func Account(ctx context.Context) string {
-	return Get(ctx).Account
+	if m := lookup(ctx); m != nil {
+		return m.Account
+	}
+
+	return DefaultAccount
 }
 
 // Partition returns Get(ctx).Partition.
 func Partition(ctx context.Context) string {
-	return Get(ctx).Partition
+	if m := lookup(ctx); m != nil {
+		return m.Partition
+	}
+
+	return DefaultPartition
 }
 
 // AccessKeyID returns Get(ctx).AccessKeyID.
 func AccessKeyID(ctx context.Context) string {
-	return Get(ctx).AccessKeyID
+	if m := lookup(ctx); m != nil {
+		return m.AccessKeyID
+	}
+
+	return ""
 }
 
 // Service returns Get(ctx).Service.
 func Service(ctx context.Context) string {
-	return Get(ctx).Service
+	if m := lookup(ctx); m != nil {
+		return m.Service
+	}
+
+	return ""
 }
 
 // GetPrincipal returns the Principal associated with ctx, or nil if unauthenticated/unresolved.
 func GetPrincipal(ctx context.Context) *Principal {
-	return Get(ctx).Principal
+	if m := lookup(ctx); m != nil {
+		return m.Principal
+	}
+
+	return nil
 }
 
 // CallerArn returns the ARN of the calling principal, or empty string.
 func CallerArn(ctx context.Context) string {
-	if p := Get(ctx).Principal; p != nil {
+	if p := GetPrincipal(ctx); p != nil {
 		return p.Arn
 	}
 
@@ -160,7 +204,7 @@ func CallerArn(ctx context.Context) string {
 
 // UserName returns the username of the calling principal, or empty string.
 func UserName(ctx context.Context) string {
-	if p := Get(ctx).Principal; p != nil {
+	if p := GetPrincipal(ctx); p != nil {
 		return p.UserName
 	}
 
@@ -169,7 +213,7 @@ func UserName(ctx context.Context) string {
 
 // UserID returns the unique user ID of the calling principal, or empty string.
 func UserID(ctx context.Context) string {
-	if p := Get(ctx).Principal; p != nil {
+	if p := GetPrincipal(ctx); p != nil {
 		return p.UserID
 	}
 
@@ -193,13 +237,13 @@ func FromRequest(r *http.Request, defaultRegion string) *Metadata {
 		Account:       DefaultAccount,
 		Region:        region,
 		Partition:     DefaultPartition,
-		RequestID:     httputils.SanitizeHeaderString(r.Header.Get("X-Amz-Request-Id")),
+		RequestID:     httputils.SanitizeHeaderString(httputils.HeaderValue(r.Header, "X-Amz-Request-Id")),
 		AccessKeyID:   accessKeyID,
 		SecurityToken: httputils.ExtractSecurityTokenFromRequest(r),
 		Service:       service,
 	}
 
-	if v := r.Header.Get("X-Amz-Account-Id"); v != "" {
+	if v := httputils.HeaderValue(r.Header, "X-Amz-Account-Id"); v != "" {
 		m.Account = httputils.SanitizeHeaderString(v)
 	}
 

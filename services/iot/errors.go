@@ -63,3 +63,6 @@ var ErrManagedJobTemplateNotFound = errors.New("managed job template not found")
 
 // ErrResourceNotFound is returned when a new-op resource is not found.
 var ErrResourceNotFound = errors.New("ResourceNotFoundException")
+
+// ErrSQLParse is returned when a rule's SQL statement cannot be parsed.
+var ErrSQLParse = errors.New("invalid rule SQL")

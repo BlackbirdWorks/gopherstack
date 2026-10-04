@@ -40,6 +40,23 @@ func TestRegisteredTablesSurviveRestore(t *testing.T) {
 			},
 		},
 		{
+			name: "deleted_plans",
+			run: func(t *testing.T) {
+				t.Helper()
+				b := newTestBackend(t)
+				mustVault(t, b, "dp-vault")
+				p := mustPlan(t, b, "dp-plan", "dp-vault")
+				_, err := b.DeleteBackupPlanChecked(p.BackupPlanID)
+				require.NoError(t, err)
+
+				restored := restoreFresh(t, b)
+
+				got, _ := restored.ListBackupPlansPaged(backup.ListPlansFilter{IncludeDeleted: true})
+				require.Len(t, got, 1)
+				assert.NotNil(t, got[0].DeletionTime)
+			},
+		},
+		{
 			name: "copy_jobs",
 			run: func(t *testing.T) {
 				t.Helper()

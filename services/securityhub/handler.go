@@ -9,6 +9,8 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -52,8 +54,9 @@ const (
 
 	msgNameRequired = "Name is required"
 
-	msgHubNotEnabled   = "SecurityHub is not enabled"
-	msgInsightNotFound = "Insight not found"
+	msgHubNotEnabled    = "SecurityHub is not enabled"
+	msgHubNotSubscribed = "Account is not subscribed to AWS Security Hub"
+	msgInsightNotFound  = "Insight not found"
 
 	// Operation names (returned by ExtractOperation).
 	opEnableSecurityHub    = "EnableSecurityHub"
@@ -221,6 +224,7 @@ const (
 // Handler handles SecurityHub HTTP requests.
 type Handler struct {
 	Backend StorageBackend
+	peers   *regionpeers.Set[Handler]
 }
 
 // NewHandler constructs a new Handler.
@@ -232,7 +236,13 @@ func NewHandler(b StorageBackend) *Handler {
 func (h *Handler) Name() string { return "SecurityHub" }
 
 // Reset resets the backend.
-func (h *Handler) Reset() { h.Backend.Reset() }
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+
+	for _, p := range h.peers.Drain() {
+		p.Backend.Reset()
+	}
+}
 
 // GetSupportedOperations returns all supported operations.
 // supportedOperations lists every SecurityHub operation name this handler
@@ -490,6 +500,10 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
+			return p.Handler()(c)
+		}
+
 		return h.handleREST(c)
 	}
 }
@@ -513,6 +527,12 @@ func typedErrorResponse(c *echo.Context, status int, errType, message string) er
 	c.Response().Header().Set(amznErrorTypeHeader, errType)
 
 	return c.JSON(status, map[string]any{keyMessage: message})
+}
+
+// hubNotSubscribed is the V1 unsubscribed-account error: InvalidAccessException,
+// "not subscribed to AWS Security Hub" (the text the Terraform provider matches).
+func hubNotSubscribed(c *echo.Context) error {
+	return typedErrorResponse(c, http.StatusBadRequest, "InvalidAccessException", msgHubNotSubscribed)
 }
 
 // errInvalidJSONBody is returned unwritten so handleREST can map and write

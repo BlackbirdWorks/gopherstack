@@ -310,35 +310,11 @@ gaps: []
   # dropping the field from vpcConnectionToMap; the model still stores/round-trips
   # SubnetIDs for Create/Update. See handler_vpcconnections.go, handler_vpcconnections_test.go.
 items_still_open:
-  - "gopherstack (parity-sweep, 2026-09-19): BatchDescribeUserLimits' AGENT_HOURS
-    SYSTEM_DEFAULT value (4/month STANDARD, 8/month ENTERPRISE) has no primary AWS
-    documentation source -- API_EffectiveLimit.html states only the unit/minimum-
-    value-0 constraint, no default number. The figure used is the one specific
-    number found in third-party Quick-pricing coverage, not docs.aws.amazon.com.
-    INDEX_STORAGE's 25GB/50GB default IS a real, cited AWS doc figure (manage-data-
-    capacity.html) and is not in question. If AWS later documents an official
-    AGENT_HOURS default, this value should be corrected against it."
-  - TopicV2 cross-family field projection: a topic's V1-only fields (ConfigOptions,
-    DataSets' full DatasetMetadata -- Columns/CalculatedFields/Filters/
-    NamedEntities/DataAggregation) are not visible through DescribeTopicV2, and a
-    topic's V2-only fields (DataSetRelations, the leaner TopicV2DataSetReference
-    DataSets, CustomInstructions) are not visible through DescribeTopic (V1). This
-    is a documented, non-fabricated omission, not a bug: TopicV2Details is not a
-    losslessly-convertible schema of V1's TopicDetails (verified field-by-field
-    against types.go -- neither is a superset of the other), and there is no SDK
-    evidence describing how real AWS projects one schema's fields into the other's
-    response, so synthesizing a translation would be exactly the kind of
-    unverified claim parity-principles.md warns against. Both families do share
-    the SAME TopicId/Arn/Name/Description/Permissions -- see topics_v2.go's doc
-    comment and TestQuickSight_TopicV2_SharesResourceWithV1.
-  - "CLOSED 2026-09-12 (gopherstack-n3zi slice 3): ListFoldersForResource's route classifier (classifyResourceFoldersPaths, handler_folders.go) and its handler both assumed a resource ARN fits in exactly one URI path segment. Every real QuickSight resource ARN contains a literal `/` (e.g. `arn:aws:quicksight:region:account:dashboard/id`), which net/http decodes back from the real client's percent-encoded `%2F` before this router sees it -- so the op 501'd (opUnknown) for any real client, always. Found only by a typed round trip using a real ARN (realclient_datasets_and_dashboards_test.go); no raw-body test had exercised this op with an ARN containing `/`. Fixed by reconstructing the ARN via strings.Join(segs[segResID:n-1], \"/\"), the same pattern classifyTagResourcePaths already used correctly for /resources/{arn}/tags. See the dated Notes section for detail; NOT swept broadly across every other ARN-in-URI op this pass."
-  - "2026-09-12 (reqfielddiff tier-1 sweep, gopherstack-xhu2t slice 3): GetDashboardEmbedUrl's ResetDisabled/StatePersistenceEnabled/UndoRedoDisabled (all real httpQuery members) are decoded nowhere. This backend's embed URL (embedurl.go's generateEmbedURL) is an opaque generated string with a fixed format and no session-config channel -- there is no rendering surface or other observable state these three toggles could affect without fabricating a URL format real AWS doesn't document. Namespace (the fourth undecoded query field on this op) IS now fixed -- see ops table."
-  - "2026-09-12 (same sweep): StartAssetBundleExportJob.ValidationStrategy (real, optional) is decoded nowhere. This backend's export job has no validation engine at all (it always reaches QUEUED/SUCCESSFUL with no per-resource checks), so there is nothing for StrictModeForAllResources to loosen or tighten."
-  - "2026-09-12 (same sweep): CreateDashboard.Parameters (real, on the wire) is decoded nowhere. No Describe* op echoes it back (verified against quicksight@v1.129.0's DescribeDashboardDefinitionOutput, which has no Parameters member at all -- unlike the sibling DashboardPublishOptions field, fixed this pass), and this backend's Dashboard.Definition is an opaque blob with no parameter-driven rendering to apply initial overrides to. Storing it with nowhere to prove it landed would violate this campaign's no-fabrication rule."
-  - "gopherstack-21my (per-item sweep, 2026-09-18): ListApps has no handler at all (Q Apps within QuickSight are an entirely unmodeled subsystem) -- flagged by cmd/overwidecandidates as an item-shape candidate, but there is no op to sweep."
-  - "gopherstack-21my (per-item sweep): DataSetSummary/DataSet never model ColumnLevelPermissionRulesApplied, RowLevelPermissionDataSet(Map), RowLevelPermissionTagConfigurationApplied, or UseAs -- row-level/column-level security is an entirely unmodeled subsystem, not a dropped field."
-  - "gopherstack-21my (per-item sweep): KnowledgeBaseSummary omits PrimaryOwnerUsername and Type -- KnowledgeBase tracks PrimaryOwnerArn but no username lookup or knowledge-base-type classification exists to derive either honestly."
-  - "gopherstack-21my (per-item sweep): ListDashboardVersions synthesizes each DashboardVersionSummary on the fly (CreatedTime/Arn/Status/VersionNumber only) -- this backend never stores a per-historical-version Description or SourceEntityArn (only the current Dashboard.VersionDescription), so neither can be surfaced without a structural change to how UpdateDashboard records version history."
+  - "BatchDescribeUserLimits AGENT_HOURS SYSTEM_DEFAULT (4 STANDARD / 8 ENTERPRISE) has no primary AWS source (API_EffectiveLimit.html gives no default); the figure is from third-party pricing coverage. Correct it if AWS documents one."
+  - "DescribeTopicV2/DescribeTopic do not project each other's family-only fields (V1 ConfigOptions/full DatasetMetadata, V2 DataSetRelations/CustomInstructions): the schemas are not convertible and the SDK documents no projection."
+  - "No backing subsystem for: GetDashboardEmbedUrl ResetDisabled/StatePersistenceEnabled/UndoRedoDisabled (opaque embed URL), CreateDashboard.Parameters (no Describe* echo, opaque Definition), and StartAssetBundleExportJob strict-mode validation errors (ValidationStrategy itself is echoed since 2026-10-04, but no dependency validation runs)."
+  - "DataSetSummary.RowLevelPermissionDataSetMap and KnowledgeBaseSummary.PrimaryOwnerUsername/Type are not modeled: no multi-RLS-map request member on Create/UpdateDataSet, no username or knowledge-base-type source."
+  - "2026-09-30: CLOSED ListFoldersForResource ARN-with-slash routing (realclient_datasets_and_dashboards_test.go testFoldersExtraRealClient), ListApps (TestRealClient_AppLifecycle), dataset RLS/CLS/UseAs fields (dataset_security_client_test.go) and ListDashboardVersions Description/SourceEntityArn/CreatedTime (dashboard_versions_client_test.go; per-version records capped at 1000)."
 deferred: []
   # All families audited across the prior and this pass; see families above. None
   # remain deferred.
@@ -2282,3 +2258,11 @@ Gates: `go build ./...`, `go vet ./services/quicksight/...`, `go test -race
 -count=1 ./services/quicksight/...` (pass, including the new suite),
 `golangci-lint run --new-from-rev=HEAD ./services/quicksight/...` (0
 issues). `cmd/paritylint` stays at 0 missing-items-still-open FAIL.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+quicksight is region-isolated: groups, users, data sources, analyses and dashboards live per region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/quicksight`. Limitation: the dashboard shows the home region only. `TestHandler_MultiRegionReset` covers Reset.
+
+## 2026-10-04 (reqfielddiff tier-1 pass)
+
+StartAssetBundleExportJob now stores ValidationStrategy.StrictModeForAllResources and CloudFormationOverridePropertyConfiguration (opaque pass-through) and DescribeAssetBundleExportJob echoes both; persistence additive on `storedAssetBundleExportJob`. Strict mode still performs no dependency validation, so no Errors are ever produced. GetDashboardEmbedUrl.ResetDisabled/StatePersistenceEnabled/UndoRedoDisabled and CreateDashboard.Parameters stay recorded. Proof: `TestAssetBundleExportJob_ValidationStrategyAndOverridesEchoed`.

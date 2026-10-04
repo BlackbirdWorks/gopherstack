@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -659,29 +660,20 @@ func extractID(path, prefix string) string {
 // encoder.SetQuery("pageSize")); a real SDK client's page size was
 // previously silently ignored here.
 func parsePageParams(query string) (string, int, error) {
-	var nextToken string
+	vals, _ := url.ParseQuery(query)
+	nextToken := vals.Get("nextToken")
 
 	var pageSize int
 
-	for part := range strings.SplitSeq(query, "&") {
-		if after, ok := strings.CutPrefix(part, "nextToken="); ok {
-			nextToken = after
+	if raw := vals.Get("pageSize"); raw != "" {
+		// AWS rejects a non-numeric pageSize with ValidationException
+		// rather than silently coercing it to zero / dropping non-digits.
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 0 {
+			return "", 0, ErrValidation
 		}
 
-		if after, ok := strings.CutPrefix(part, "pageSize="); ok {
-			if after == "" {
-				continue
-			}
-
-			// AWS rejects a non-numeric pageSize with ValidationException
-			// rather than silently coercing it to zero / dropping non-digits.
-			n, err := strconv.Atoi(after)
-			if err != nil || n < 0 {
-				return "", 0, ErrValidation
-			}
-
-			pageSize = n
-		}
+		pageSize = n
 	}
 
 	return nextToken, pageSize, nil

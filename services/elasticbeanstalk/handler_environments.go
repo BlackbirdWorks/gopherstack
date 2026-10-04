@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"net/url"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
@@ -206,6 +208,17 @@ func (h *Handler) handleDescribeEnvironments(ctx context.Context, vals url.Value
 	envIDs := parseMembers(vals, "EnvironmentIds.member")
 	envs := h.Backend.DescribeEnvironments(ctx, appName, envNames, envIDs)
 
+	if vals.Get("IncludeDeleted") == "true" {
+		var since time.Time
+
+		if t, err := time.Parse(time.RFC3339, vals.Get("IncludedDeletedBackTo")); err == nil {
+			since = t
+		}
+
+		envs = append(envs, h.Backend.DescribeDeletedEnvironments(ctx, appName, envNames, envIDs, since)...)
+		sort.SliceStable(envs, func(i, j int) bool { return envs[i].EnvironmentName < envs[j].EnvironmentName })
+	}
+
 	// VersionLabel filter (DescribeEnvironmentsInput.VersionLabel): "If
 	// specified, AWS Elastic Beanstalk restricts the returned descriptions
 	// to include only those that are associated with this application
@@ -222,11 +235,6 @@ func (h *Handler) handleDescribeEnvironments(ctx context.Context, vals url.Value
 
 		envs = filtered
 	}
-
-	// IncludeDeleted/IncludedDeletedBackTo are not modeled: TerminateEnvironment
-	// removes the environment record outright (see environmentDeleteKey), so
-	// there is no deleted-environment history to include -- a structural
-	// gap, not a filter this handler silently drops the effect of.
 
 	pg := page.New(envs, vals.Get("NextToken"), parseMaxRecords(vals, "MaxRecords"), defaultListLimit)
 

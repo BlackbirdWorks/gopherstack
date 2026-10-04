@@ -116,9 +116,9 @@ func TestFSx_CreateFileSystemFromBackup_FileSystemTypeVersion(t *testing.T) {
 			want:    "2.15",
 		},
 		{
-			name:    "omitted version leaves the field empty",
+			name:    "omitted version inherits the source default",
 			request: map[string]any{},
-			want:    "",
+			want:    "2.10",
 		},
 	}
 

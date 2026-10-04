@@ -18,6 +18,7 @@ type ReferenceStore struct {
 
 // ReferenceStoreFilter is filter criteria for listing reference stores.
 type ReferenceStoreFilter struct {
+	createdWindow
 	Name string
 }
 
@@ -53,11 +54,14 @@ type ReferenceSummary struct {
 
 // ReferenceFilter is filter criteria for listing references.
 type ReferenceFilter struct {
+	createdWindow
 	Name string
+	Md5  string
 }
 
 // ReferenceImportJobFilter is filter criteria for listing reference import jobs.
 type ReferenceImportJobFilter struct {
+	createdWindow
 	Status string
 }
 
@@ -108,7 +112,11 @@ type SequenceStore struct {
 
 // SequenceStoreFilter is filter criteria for listing sequence stores.
 type SequenceStoreFilter struct {
-	Name string
+	createdWindow
+	UpdatedAfter  *time.Time `json:"updatedAfter"`
+	UpdatedBefore *time.Time `json:"updatedBefore"`
+	Name          string
+	Status        string
 }
 
 // ReadSetMetadata holds metadata for a read set.
@@ -158,8 +166,12 @@ type ReadSetSummary struct {
 
 // ReadSetFilter is filter criteria for listing read sets.
 type ReadSetFilter struct {
-	Name   string
-	Status string
+	createdWindow
+	Name         string
+	Status       string
+	ReferenceArn string
+	SampleID     string `json:"sampleId"`
+	SubjectID    string `json:"subjectId"`
 }
 
 // ReadSetBatchError is an error item from a batch delete operation.
@@ -554,6 +566,8 @@ type Workflow struct {
 	StorageType       string                       `json:"storageType,omitempty"`
 	UUID              string                       `json:"uuid,omitempty"`
 	Status            string                       `json:"status"`
+	Readme            string                       `json:"readme,omitempty"`
+	ReadmePath        string                       `json:"readmePath,omitempty"`
 	pollCount         int                          // tracks CREATING→ACTIVE progression; not serialized
 }
 
@@ -579,26 +593,33 @@ type WorkflowSummary struct {
 // discarded -- this backend does not store or execute workflow definition
 // content, see the Engine doc comment in PARITY.md).
 type CreateWorkflowInput struct {
-	ParameterTemplate map[string]WorkflowParameter
-	StorageCapacity   *int
-	Tags              map[string]string
-	Name              string
-	Description       string
-	DefinitionZip     string
-	DefinitionURI     string
-	Engine            string
-	StorageType       string
+	ParameterTemplate     map[string]WorkflowParameter
+	StorageCapacity       *int
+	Tags                  map[string]string
+	Name                  string
+	Description           string
+	DefinitionZip         string
+	DefinitionURI         string
+	Engine                string
+	StorageType           string
+	ReadmeMarkdown        string
+	ReadmePath            string
+	WorkflowBucketOwnerID string
 }
 
 // CreateWorkflowVersionInput holds input for CreateWorkflowVersion.
 type CreateWorkflowVersionInput struct {
-	ParameterTemplate map[string]WorkflowParameter
-	StorageCapacity   *int
-	Tags              map[string]string
-	WorkflowID        string
-	VersionName       string
-	Description       string
-	StorageType       string
+	ParameterTemplate     map[string]WorkflowParameter
+	StorageCapacity       *int
+	Tags                  map[string]string
+	WorkflowID            string
+	VersionName           string
+	Description           string
+	StorageType           string
+	DefinitionURI         string
+	ReadmeMarkdown        string
+	ReadmePath            string
+	WorkflowBucketOwnerID string
 }
 
 // WorkflowVersionFilter is filter criteria for listing workflow versions.
@@ -620,6 +641,9 @@ type WorkflowVersion struct {
 	Type              string                       `json:"type,omitempty"`
 	StorageType       string                       `json:"storageType,omitempty"`
 	Status            string                       `json:"status"`
+	Readme            string                       `json:"readme,omitempty"`
+	ReadmePath        string                       `json:"readmePath,omitempty"`
+	BucketOwnerID     string                       `json:"workflowBucketOwnerId,omitempty"`
 	pollCount         int                          // tracks CREATING→ACTIVE progression; not serialized
 }
 

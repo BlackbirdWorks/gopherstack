@@ -65,24 +65,75 @@ func (h *Handler) handleDescribeFileSystems(
 
 // --- DeleteFileSystem ---
 
+type deleteFinalBackupConfig struct {
+	SkipFinalBackup *bool `json:"SkipFinalBackup,omitempty"`
+	FinalBackupTags []Tag `json:"FinalBackupTags,omitempty"`
+}
+
 type deleteFileSystemInput struct {
-	FileSystemID string `json:"FileSystemId"`
+	LustreConfiguration  *deleteFinalBackupConfig `json:"LustreConfiguration,omitempty"`
+	WindowsConfiguration *deleteFinalBackupConfig `json:"WindowsConfiguration,omitempty"`
+	OpenZFSConfiguration *deleteFinalBackupConfig `json:"OpenZFSConfiguration,omitempty"`
+	FileSystemID         string                   `json:"FileSystemId"`
+}
+
+type deleteFinalBackup struct {
+	FinalBackupID   string `json:"FinalBackupId"`
+	FinalBackupTags []Tag  `json:"FinalBackupTags,omitempty"`
 }
 
 type deleteFileSystemOutput struct {
-	FileSystemID string `json:"FileSystemId"`
-	Lifecycle    string `json:"Lifecycle"`
+	LustreResponse  *deleteFinalBackup `json:"LustreResponse,omitempty"`
+	WindowsResponse *deleteFinalBackup `json:"WindowsResponse,omitempty"`
+	OpenZFSResponse *deleteFinalBackup `json:"OpenZFSResponse,omitempty"`
+	FileSystemID    string             `json:"FileSystemId"`
+	Lifecycle       string             `json:"Lifecycle"`
+}
+
+// takesFinalBackup applies the documented defaults: Lustre skips unless
+// SkipFinalBackup=false, Windows and OpenZFS take one unless it is true.
+func takesFinalBackup(fsType string, cfg *deleteFinalBackupConfig) bool {
+	skipSet := cfg != nil && cfg.SkipFinalBackup != nil
+
+	switch fsType {
+	case fileSystemTypeLustre:
+		return skipSet && !*cfg.SkipFinalBackup
+	case fileSystemTypeWindows, fileSystemTypeOpenZFS:
+		return !skipSet || !*cfg.SkipFinalBackup
+	default:
+		return false
+	}
+}
+
+func (in *deleteFileSystemInput) configFor(fsType string) *deleteFinalBackupConfig {
+	switch fsType {
+	case fileSystemTypeLustre:
+		return in.LustreConfiguration
+	case fileSystemTypeWindows:
+		return in.WindowsConfiguration
+	case fileSystemTypeOpenZFS:
+		return in.OpenZFSConfiguration
+	default:
+		return nil
+	}
+}
+
+func (o *deleteFileSystemOutput) setFinalBackup(fsType string, fb *deleteFinalBackup) {
+	switch fsType {
+	case fileSystemTypeLustre:
+		o.LustreResponse = fb
+	case fileSystemTypeWindows:
+		o.WindowsResponse = fb
+	case fileSystemTypeOpenZFS:
+		o.OpenZFSResponse = fb
+	}
 }
 
 func (h *Handler) handleDeleteFileSystem(
 	_ context.Context,
 	in *deleteFileSystemInput,
 ) (*deleteFileSystemOutput, error) {
-	if err := h.Backend.DeleteFileSystem(in.FileSystemID); err != nil {
-		return nil, err
-	}
-
-	return &deleteFileSystemOutput{FileSystemID: in.FileSystemID, Lifecycle: lifecycleDeleting}, nil
+	return h.Backend.DeleteFileSystem(in)
 }
 
 // --- UpdateFileSystem ---

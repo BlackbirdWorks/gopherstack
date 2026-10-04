@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
 	"github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 )
 
@@ -370,10 +371,10 @@ func TestCloudWatchLogsBackend_MetricFilterEmission(t *testing.T) {
 	var mu sync.Mutex
 	var emitted []emittedMetric
 
-	emitter := cloudwatchlogs.MetricEmitterFunc(
-		func(namespace, name string, value float64, _ string) error {
+	emitter := cwmetric.EmitterFunc(
+		func(p cwmetric.Point) error {
 			mu.Lock()
-			emitted = append(emitted, emittedMetric{namespace: namespace, name: name, value: value})
+			emitted = append(emitted, emittedMetric{namespace: p.Namespace, name: p.Name, value: p.Value})
 			mu.Unlock()
 
 			return nil
@@ -513,10 +514,10 @@ func TestCloudWatchLogsBackend_MetricFilterEmission_FieldExtraction(t *testing.T
 			var mu sync.Mutex
 			var emitted []float64
 
-			emitter := cloudwatchlogs.MetricEmitterFunc(
-				func(_, _ string, value float64, _ string) error {
+			emitter := cwmetric.EmitterFunc(
+				func(p cwmetric.Point) error {
 					mu.Lock()
-					emitted = append(emitted, value)
+					emitted = append(emitted, p.Value)
 					mu.Unlock()
 
 					return nil
@@ -706,6 +707,84 @@ func TestCloudWatchLogsBackend_MetricTransformation_DimensionsAndUnit(t *testing
 			if tt.wantDimensions != nil {
 				assert.Equal(t, tt.wantDimensions, mf.Dimensions)
 			}
+		})
+	}
+}
+
+func TestCloudWatchLogsBackend_MetricFilterEmission_Dimensions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		dims    map[string]string
+		name    string
+		pattern string
+		message string
+		want    []cwmetric.Dimension
+		wantOne bool
+	}{
+		{
+			name: "json-field", pattern: `{ $.level = "*" }`, message: `{"level":"ERROR","svc":"api"}`,
+			dims:    map[string]string{"svc": "$.svc", "level": "$.level"},
+			want:    []cwmetric.Dimension{{Name: "level", Value: "ERROR"}, {Name: "svc", Value: "api"}},
+			wantOne: true,
+		},
+		{
+			name: "missing-field-skips", pattern: `{ $.level = "*" }`, message: `{"level":"ERROR"}`,
+			dims: map[string]string{"svc": "$.svc"},
+		},
+		{
+			name: "no-dimensions", pattern: "ERROR", message: "ERROR boom",
+			wantOne: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var mu sync.Mutex
+			var got []cwmetric.Point
+
+			b := cloudwatchlogs.NewInMemoryBackend()
+			b.SetMetricEmitter(cwmetric.EmitterFunc(func(p cwmetric.Point) error {
+				mu.Lock()
+				got = append(got, p)
+				mu.Unlock()
+
+				return nil
+			}))
+
+			ctx := context.Background()
+			_, err := b.CreateLogGroup(ctx, "grp", "", "")
+			require.NoError(t, err)
+			_, err = b.CreateLogStream(ctx, "grp", "s")
+			require.NoError(t, err)
+			require.NoError(t, b.PutMetricFilter(ctx, "grp", "f", tt.pattern, []cloudwatchlogs.MetricTransformation{
+				{MetricNamespace: "App", MetricName: "Hits", MetricValue: "1", Dimensions: tt.dims},
+			}))
+
+			_, err = b.PutLogEvents(ctx, "grp", "s", "", []cloudwatchlogs.InputLogEvent{
+				{Message: tt.message, Timestamp: time.Now().UnixMilli()},
+			})
+			require.NoError(t, err)
+
+			mu.Lock()
+			defer mu.Unlock()
+
+			if !tt.wantOne {
+				assert.Empty(t, got)
+
+				return
+			}
+
+			require.Len(t, got, 1)
+			if len(tt.want) == 0 {
+				assert.Empty(t, got[0].Dimensions)
+
+				return
+			}
+
+			assert.Equal(t, tt.want, got[0].Dimensions)
 		})
 	}
 }

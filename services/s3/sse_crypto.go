@@ -78,13 +78,13 @@ func extractCopySourceSSECInfo(r *http.Request) (sseInfo, error) {
 // sseInfo captures SSE parameters extracted from an HTTP request.
 type sseInfo struct {
 	// Algorithm is one of "AES256", "aws:kms", "aws:kms:dsse", or "" (none).
-	Algorithm string
+	Algorithm string `json:"Algorithm"`
 	// KMSKeyID is the KMS key ID, populated when Algorithm is aws:kms/dsse.
-	KMSKeyID string
+	KMSKeyID string `json:"KMSKeyID"`
 	// SSECAlgorithm is "AES256" when SSE-C is requested.
-	SSECAlgorithm string
+	SSECAlgorithm string `json:"SSECAlgorithm"`
 	// SSECKeyMD5 is the base64-encoded MD5 of the customer-supplied key.
-	SSECKeyMD5 string
+	SSECKeyMD5 string `json:"SSECKeyMD5"`
 	// SSECKeyB64 is the base64-encoded raw customer key. Kept on the
 	// request-scoped sseInfo only — not persisted (json:"-") — so the backend
 	// can encrypt the body on PUT and the GET handler can decrypt when the
@@ -93,7 +93,7 @@ type sseInfo struct {
 	// EncryptionContext is the base64-encoded JSON KMS encryption context
 	// (SSEKMSEncryptionContext), round-tripped verbatim — this emulator
 	// doesn't call KMS, so it's opaque AAD here, not decoded/validated.
-	EncryptionContext string
+	EncryptionContext string `json:"EncryptionContext"`
 }
 
 // extractSSEInfo reads SSE-* request headers and validates SSE-C when present.

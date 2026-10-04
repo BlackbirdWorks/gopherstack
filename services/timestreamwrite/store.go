@@ -17,9 +17,15 @@ const scheduledQueryARNFragment = "scheduled-query/"
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend() *InMemoryBackend {
+	return NewInMemoryBackendForRegion(config.DefaultRegion)
+}
+
+// NewInMemoryBackendForRegion creates a backend whose resource ARNs name region.
+func NewInMemoryBackendForRegion(region string) *InMemoryBackend {
 	b := &InMemoryBackend{
 		mu:       lockmetrics.New("timestreamwrite"),
 		registry: store.NewRegistry(),
+		region:   region,
 	}
 	registerAllTables(b)
 	b.ensureNonNilMaps()
@@ -56,7 +62,7 @@ func (b *InMemoryBackend) closeAllTableMutexesLocked() {
 func (b *InMemoryBackend) AccountID() string { return config.DefaultAccountID }
 
 // Region returns the simulated AWS region.
-func (b *InMemoryBackend) Region() string { return config.DefaultRegion }
+func (b *InMemoryBackend) Region() string { return b.region }
 
 // ensureNonNilMaps initialises the raw (non-store.Table) maps (called
 // without lock held during construction or restore). databases, tables, and
@@ -75,13 +81,13 @@ func (b *InMemoryBackend) ensureNonNilMapsLocked() {
 	b.tags = make(map[string]map[string]string)
 }
 
-func databaseARN(name string) string {
-	return arn.Build("timestream", config.DefaultRegion, config.DefaultAccountID, fmt.Sprintf("database/%s", name))
+func (b *InMemoryBackend) databaseARN(name string) string {
+	return arn.Build("timestream", b.region, config.DefaultAccountID, fmt.Sprintf("database/%s", name))
 }
 
-func tableARN(dbName, tblName string) string {
+func (b *InMemoryBackend) tableARN(dbName, tblName string) string {
 	return arn.Build(
-		"timestream", config.DefaultRegion, config.DefaultAccountID,
+		"timestream", b.region, config.DefaultAccountID,
 		fmt.Sprintf("database/%s/table/%s", dbName, tblName),
 	)
 }

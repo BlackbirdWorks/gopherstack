@@ -37,6 +37,7 @@ const iotSnapshotVersion = 3
 type backendSnapshot struct {
 	Tables                          map[string]json.RawMessage                    `json:"tables"`
 	AuditTasks                      map[string]string                             `json:"auditTasks"`
+	ClientRequestTokens             map[string]string                             `json:"clientRequestTokens,omitempty"`
 	MetricValues                    map[string][]*MetricDatapoint                 `json:"metricValues"`
 	CertificateTransfers            map[string]string                             `json:"certificateTransfers"`
 	ThingBillingGroups              map[string]string                             `json:"thingBillingGroups"`
@@ -139,6 +140,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		ThingPrincipalTypes:    copyNestedStringMap(b.thingPrincipalTypes),
 		AuditMitigationTasks:   copyStringMap(b.auditMitigationTasks),
 		AuditTasks:             copyStringMap(b.auditTasks),
+		ClientRequestTokens:    copyStringMap(b.clientRequestTokens),
 
 		ThingIndexingConfiguration:      thingIndexingConfig,
 		ThingGroupIndexingConfiguration: thingGroupIndexingConfig,
@@ -236,6 +238,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.thingPrincipalTypes = copyNestedStringMap(snap.ThingPrincipalTypes)
 	b.auditMitigationTasks = copyStringMap(snap.AuditMitigationTasks)
 	b.auditTasks = copyStringMap(snap.AuditTasks)
+	b.clientRequestTokens = copyStringMap(snap.ClientRequestTokens)
 
 	if snap.ThingIndexingConfiguration != nil {
 		b.thingIndexingConfig = cloneThingIndexingConfiguration(snap.ThingIndexingConfiguration)
@@ -356,24 +359,33 @@ func copyStringSliceMap(m map[string][]string) map[string][]string {
 	return cp
 }
 
-// Snapshot implements persistence.Persistable by delegating to the backend
-// when it implements Snapshottable. Returns nil for non-snapshottable backends.
+// Snapshot implements persistence.Persistable; other regions ride in an additive "regions" key.
+// Returns nil for non-snapshottable backends.
 func (h *Handler) Snapshot(ctx context.Context) []byte {
-	if s, ok := h.Backend.(Snapshottable); ok {
-		return s.Snapshot(ctx)
+	s, ok := h.Backend.(Snapshottable)
+	if !ok {
+		return nil
 	}
 
-	return nil
+	return h.peers.Snapshot(s.Snapshot(ctx), func(p *Handler) []byte { return p.Snapshot(ctx) })
 }
 
-// Restore implements persistence.Persistable by delegating to the backend
-// when it implements Snapshottable. Non-snapshottable backends are skipped.
+// Restore implements persistence.Persistable. Non-snapshottable backends are skipped.
 func (h *Handler) Restore(ctx context.Context, data []byte) error {
-	if s, ok := h.Backend.(Snapshottable); ok {
-		return s.Restore(ctx, data)
+	s, ok := h.Backend.(Snapshottable)
+	if !ok {
+		return nil
 	}
 
-	return nil
+	if err := s.Restore(ctx, data); err != nil {
+		return err
+	}
+
+	return h.peers.Restore(
+		data,
+		func(p *Handler, d []byte) error { return p.Restore(ctx, d) },
+		func(p *Handler) { p.Reset() },
+	)
 }
 
 // The helpers below each cover one group of raw (non-Table) backend state —
@@ -390,12 +402,15 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 // carries it through Snapshot/Restore so a pending HTTP destination
 // confirmation survives a restart instead of being silently dropped.
 type topicRuleDestSnap struct {
-	CreatedAt         time.Time                     `json:"createdAt,omitzero"`
-	LastUpdatedAt     time.Time                     `json:"lastUpdatedAt,omitzero"`
-	HTTPURLProperties *HTTPURLDestinationProperties `json:"httpUrlProperties,omitempty"`
-	ARN               string                        `json:"arn"`
-	Status            string                        `json:"status"`
-	ConfirmationToken string                        `json:"confirmationToken,omitempty"`
+	CreatedAt          time.Time                      `json:"createdAt,omitzero"`
+	LastUpdatedAt      time.Time                      `json:"lastUpdatedAt,omitzero"`
+	HTTPURLProperties  *HTTPURLDestinationProperties  `json:"httpUrlProperties,omitempty"`
+	VPCProperties      *VPCDestinationProperties      `json:"vpcProperties,omitempty"`
+	InfluxDBProperties *InfluxDBDestinationProperties `json:"influxDBProperties,omitempty"`
+	ARN                string                         `json:"arn"`
+	Status             string                         `json:"status"`
+	StatusReason       string                         `json:"statusReason,omitempty"`
+	ConfirmationToken  string                         `json:"confirmationToken,omitempty"`
 }
 
 // topicRuleDestSnapKey is the store.Table key function used for the
@@ -403,37 +418,33 @@ type topicRuleDestSnap struct {
 func topicRuleDestSnapKey(s *topicRuleDestSnap) string { return s.ARN }
 
 func toTopicRuleDestSnap(d *TopicRuleDestination) *topicRuleDestSnap {
-	var props *HTTPURLDestinationProperties
-	if d.HTTPURLProperties != nil {
-		cp := *d.HTTPURLProperties
-		props = &cp
-	}
+	cp := cloneTopicRuleDestination(d)
 
 	return &topicRuleDestSnap{
-		HTTPURLProperties: props,
-		ARN:               d.ARN,
-		Status:            d.Status,
-		ConfirmationToken: d.ConfirmationToken,
-		CreatedAt:         d.CreatedAt,
-		LastUpdatedAt:     d.LastUpdatedAt,
+		HTTPURLProperties:  cp.HTTPURLProperties,
+		VPCProperties:      cp.VPCProperties,
+		InfluxDBProperties: cp.InfluxDBProperties,
+		ARN:                cp.ARN,
+		Status:             cp.Status,
+		StatusReason:       cp.StatusReason,
+		ConfirmationToken:  cp.ConfirmationToken,
+		CreatedAt:          cp.CreatedAt,
+		LastUpdatedAt:      cp.LastUpdatedAt,
 	}
 }
 
 func fromTopicRuleDestSnap(s *topicRuleDestSnap) *TopicRuleDestination {
-	var props *HTTPURLDestinationProperties
-	if s.HTTPURLProperties != nil {
-		cp := *s.HTTPURLProperties
-		props = &cp
-	}
-
-	return &TopicRuleDestination{
-		HTTPURLProperties: props,
-		ARN:               s.ARN,
-		Status:            s.Status,
-		ConfirmationToken: s.ConfirmationToken,
-		CreatedAt:         s.CreatedAt,
-		LastUpdatedAt:     s.LastUpdatedAt,
-	}
+	return cloneTopicRuleDestination(&TopicRuleDestination{
+		HTTPURLProperties:  s.HTTPURLProperties,
+		VPCProperties:      s.VPCProperties,
+		InfluxDBProperties: s.InfluxDBProperties,
+		ARN:                s.ARN,
+		Status:             s.Status,
+		StatusReason:       s.StatusReason,
+		ConfirmationToken:  s.ConfirmationToken,
+		CreatedAt:          s.CreatedAt,
+		LastUpdatedAt:      s.LastUpdatedAt,
+	})
 }
 
 // snapshotTopicRuleDestinationsTable builds the "dirty" topicRuleDestinations

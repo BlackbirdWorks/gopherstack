@@ -159,6 +159,7 @@ type jobDetail struct {
 	StatusReason                 string                        `json:"statusReason,omitempty"`
 	ShareIdentifier              string                        `json:"shareIdentifier,omitempty"`
 	DependsOn                    []JobDependency               `json:"dependsOn,omitempty"`
+	Attempts                     []JobAttempt                  `json:"attempts,omitempty"`
 	PlatformCapabilities         []string                      `json:"platformCapabilities,omitempty"`
 	CreatedAt                    int64                         `json:"createdAt"`
 	// StartedAt is required on JobDetail even for a job that hasn't reached
@@ -198,6 +199,7 @@ func (h *Handler) handleDescribeJobs(ctx context.Context, in *describeJobsInput)
 			Container:                    j.Container,
 			Parameters:                   j.Parameters,
 			DependsOn:                    j.DependsOn,
+			Attempts:                     j.Attempts,
 			ShareIdentifier:              j.ShareIdentifier,
 			PlatformCapabilities:         j.PlatformCapabilities,
 			SchedulingPriorityOverride:   j.SchedulingPriorityOverride,

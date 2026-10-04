@@ -17,6 +17,7 @@ func (p *Provider) Name() string { return "AWSConfig" }
 func (p *Provider) Init(_ *service.AppContext) (service.Registerable, error) {
 	backend := NewInMemoryBackendWithMeta(config.DefaultAccountID, config.DefaultRegion)
 	handler := NewHandler(backend)
+	handler.EnableRegions()
 
 	return handler, nil
 }

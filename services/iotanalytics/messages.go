@@ -1,8 +1,11 @@
 package iotanalytics
 
 import (
+	"errors"
 	"fmt"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // BatchPutMessage ingests messages into a channel.
@@ -108,4 +111,26 @@ func (b *InMemoryBackend) BatchPutMessage(
 	}
 
 	return errs, nil
+}
+
+// ErrChannelMessageRejected means a channel refused an ingested message.
+var ErrChannelMessageRejected = errors.New("channel message rejected")
+
+// PutChannelMessages ingests payloads into a channel, for IoT rule iotAnalytics actions.
+func (b *InMemoryBackend) PutChannelMessages(channelName string, payloads [][]byte) error {
+	msgs := make([]messageInput, len(payloads))
+	for i, p := range payloads {
+		msgs[i] = messageInput{MessageID: uuid.NewString(), Payload: p}
+	}
+
+	errs, err := b.BatchPutMessage(channelName, msgs)
+	if err != nil {
+		return err
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("%w: %s", ErrChannelMessageRejected, errs[0].ErrorMessage)
+	}
+
+	return nil
 }

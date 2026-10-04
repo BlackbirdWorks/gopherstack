@@ -44,7 +44,7 @@ func (b *InMemoryBackend) resolveGatewayBindingLocked(directConnectGatewayID, vi
 	}
 
 	if directConnectGatewayID != "" {
-		if _, ok := b.gateways.Get(directConnectGatewayID); !ok {
+		if !b.hasGatewayLocked(directConnectGatewayID) {
 			return notFoundError(resourceGateway, directConnectGatewayID)
 		}
 	}
@@ -473,7 +473,7 @@ func (b *InMemoryBackend) ConfirmTransitVirtualInterface(vifID, directConnectGat
 		return "", clientError("virtual interface " + vifID + " is not awaiting transit confirmation")
 	}
 
-	if _, gwOK := b.gateways.Get(directConnectGatewayID); !gwOK {
+	if !b.hasGatewayLocked(directConnectGatewayID) {
 		return "", notFoundError(resourceGateway, directConnectGatewayID)
 	}
 
@@ -600,6 +600,10 @@ func (b *InMemoryBackend) DescribeVirtualInterfaces(connectionID, vifID string) 
 func (b *InMemoryBackend) GatewayAmazonSideAsn(gatewayID string) *int64 {
 	if gatewayID == "" {
 		return nil
+	}
+
+	if b.gatewayHome != nil {
+		return b.gatewayHome.GatewayAmazonSideAsn(gatewayID)
 	}
 
 	b.mu.RLock("GatewayAmazonSideAsn")

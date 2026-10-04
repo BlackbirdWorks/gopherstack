@@ -203,13 +203,17 @@ func evalIntrinsicArg(arg string, input any) (any, error) {
 		return applyPath(arg, input)
 	}
 
+	if _, _, isVar := splitVarRef(arg); isVar {
+		return applyPath(arg, input)
+	}
+
 	// Nested intrinsic function.
 	if strings.HasPrefix(arg, "States.") {
 		return evaluateIntrinsicFunction(arg, input)
 	}
 
 	// Null literal.
-	if arg == "null" {
+	if arg == aslNullLiteral {
 		return nil, nil //nolint:nilnil // null is a valid ASL literal value
 	}
 

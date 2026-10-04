@@ -14,6 +14,21 @@ import (
 // Mode defaults to INLINE when ProcessorConfig is omitted or Mode is "".
 const processorModeDistributed = "DISTRIBUTED"
 
+// DistributedMapItemResult is what running one Distributed Map item (or
+// ItemBatcher batch) as a real child execution contributes back: its
+// output, plus enough of the child's own identity for ResultWriter's
+// Transformation: NONE metadata (ExecutionArn, Name, StartDate, StopDate --
+// AWS docs: input-output-resultwriter.html). Populated regardless of
+// whether the child succeeded or failed, so a FAILED item's record can
+// still carry its own ExecutionArn/Name/dates.
+type DistributedMapItemResult struct {
+	Output       any
+	ExecutionArn string
+	Name         string
+	StartDate    float64
+	StopDate     float64
+}
+
 // DistributedMapRunner spawns a real child state-machine execution for one
 // Distributed Map item (or ItemBatcher batch) and blocks until it reaches a
 // terminal state, returning its output the way an INLINE iteration's
@@ -28,7 +43,7 @@ type DistributedMapRunner interface {
 		iterator *StateMachine,
 		idx int,
 		item any,
-	) (any, error)
+	) (DistributedMapItemResult, error)
 }
 
 // SetDistributedMapRunner configures the backend hook that spawns real child
@@ -57,6 +72,7 @@ func (e *Executor) runDistributedMapTasks(
 	items []any,
 	results []any,
 	errs []error,
+	meta []DistributedMapItemResult,
 	concurrency int,
 ) {
 	sem := semaphore.NewWeighted(int64(concurrency))
@@ -68,7 +84,7 @@ func (e *Executor) runDistributedMapTasks(
 		}
 
 		e.spawnDistributedMapTask(
-			ctx, executionARN, mapRunARN, stateName, iterator, i, item, results, errs, sem, &wg,
+			ctx, executionARN, mapRunARN, stateName, iterator, i, item, results, errs, meta, sem, &wg,
 		)
 	}
 
@@ -83,6 +99,7 @@ func (e *Executor) spawnDistributedMapTask(
 	item any,
 	results []any,
 	errs []error,
+	meta []DistributedMapItemResult,
 	sem *semaphore.Weighted,
 	wg *sync.WaitGroup,
 ) {
@@ -95,12 +112,14 @@ func (e *Executor) spawnDistributedMapTask(
 		out, err := e.distributedMapRunner.RunDistributedMapItem(
 			ctx, executionARN, mapRunARN, stateName, iterator, idx, item,
 		)
+		meta[idx] = out
+
 		if err != nil {
 			errs[idx] = err
 
 			return
 		}
 
-		results[idx] = out
+		results[idx] = out.Output
 	})
 }

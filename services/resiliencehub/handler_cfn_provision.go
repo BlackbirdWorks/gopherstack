@@ -106,3 +106,8 @@ func (h *Handler) CreateResilienceHubResiliencyPolicy(
 func (h *Handler) DeleteResilienceHubResiliencyPolicy(policyArn string) error {
 	return h.Backend.DeleteResiliencyPolicy(policyArn)
 }
+
+// RegionResilienceHub returns the handler serving region as CloudFormation's provisioning surface.
+func (h *Handler) RegionResilienceHub(region string) cfnbackend.ResilienceHubBackend {
+	return h.RegionHandler(region)
+}

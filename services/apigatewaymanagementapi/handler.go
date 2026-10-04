@@ -1,17 +1,21 @@
 package apigatewaymanagementapi
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -71,7 +75,11 @@ const (
 
 // Handler is the Echo HTTP handler for API Gateway Management API operations.
 type Handler struct {
-	Backend StorageBackend
+	Backend     StorageBackend
+	peers       *regionpeers.Set[Handler]
+	workerCtx   atomic.Pointer[context.Context]
+	stopJanitor atomic.Pointer[context.CancelFunc]
+	taskTimeout time.Duration
 }
 
 // NewHandler creates a new API Gateway Management API Handler.
@@ -182,6 +190,10 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function for API Gateway Management API operations.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
+			return p.Handler()(c)
+		}
+
 		path := c.Request().URL.Path
 
 		if sub, ok := strings.CutPrefix(path, adminPathPrefix); ok {

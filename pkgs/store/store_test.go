@@ -2,6 +2,8 @@ package store_test
 
 import (
 	"encoding/json"
+	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -613,4 +615,52 @@ func idsOf(ws []*widget) []string {
 	}
 
 	return out
+}
+
+func Test_RegistryRegisterRacesSnapshotAll(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		tables int
+	}{
+		{name: "few_tables", tables: 50},
+		{name: "many_tables", tables: 200},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			reg := store.NewRegistry()
+
+			var wg sync.WaitGroup
+
+			stop := make(chan struct{})
+
+			wg.Go(func() {
+				for {
+					select {
+					case <-stop:
+						return
+					default:
+					}
+
+					_, err := reg.SnapshotAll()
+					assert.NoError(t, err)
+				}
+			})
+
+			for i := range tt.tables {
+				store.Register(reg, fmt.Sprintf("t%d", i), newWidgetTable())
+			}
+
+			close(stop)
+			wg.Wait()
+
+			snap, err := reg.SnapshotAll()
+			require.NoError(t, err)
+			assert.Len(t, snap, tt.tables)
+		})
+	}
 }

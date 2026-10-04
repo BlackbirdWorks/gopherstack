@@ -229,7 +229,7 @@ func matchesScheduledInstanceFilters(filters map[string][]string, az, instanceTy
 			field = az
 		case filterKeyInstanceType:
 			field = instanceType
-		case "platform":
+		case filterKeyPlatform:
 			field = platform
 		default:
 			continue

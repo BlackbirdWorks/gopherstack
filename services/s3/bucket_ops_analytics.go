@@ -3,10 +3,13 @@ package s3
 import (
 	"context"
 	"fmt"
+	"html"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 func (h *S3Handler) deleteBucketAnalyticsConfiguration(
@@ -157,7 +160,7 @@ func (h *S3Handler) listBucketAnalyticsConfigurations(
 
 		return
 	}
-	writeConfigListXML(w, "ListBucketAnalyticsConfigurationResult", configs)
+	writeConfigListXML(w, r, "ListBucketAnalyticsConfigurationResult", configs, true)
 }
 
 func (h *S3Handler) putBucketIntelligentTieringConfiguration(
@@ -224,7 +227,7 @@ func (h *S3Handler) listBucketIntelligentTieringConfigurations(
 
 		return
 	}
-	writeConfigListXML(w, "ListBucketIntelligentTieringConfigurationsResult", configs)
+	writeConfigListXML(w, r, "ListBucketIntelligentTieringConfigurationsResult", configs, false)
 }
 
 func (h *S3Handler) putBucketInventoryConfiguration(
@@ -291,7 +294,7 @@ func (h *S3Handler) listBucketInventoryConfigurations(
 
 		return
 	}
-	writeConfigListXML(w, "ListInventoryConfigurationsResult", configs)
+	writeConfigListXML(w, r, "ListInventoryConfigurationsResult", configs, true)
 }
 
 func (h *S3Handler) putBucketMetricsConfiguration(
@@ -358,26 +361,39 @@ func (h *S3Handler) listBucketMetricsConfigurations(
 
 		return
 	}
-	writeConfigListXML(w, "ListMetricsConfigurationsResult", configs)
+	writeConfigListXML(w, r, "ListMetricsConfigurationsResult", configs, true)
 }
 
-// writeConfigListXML writes a generic XML list response containing zero or more
-// config elements.
-//
-// Each string in configs is the RAW request body PutBucket*Configuration stored
-// verbatim -- already a complete `<AnalyticsConfiguration>...</AnalyticsConfiguration>`
-// document per the real SDK's serializer, and the SDK's List deserializer treats
-// each top-level element directly under the list root as one unwrapped entry
-// (awsRestxml_deserializeDocumentAnalyticsConfigurationListUnwrapped). So configs
-// must be emitted AS-IS, not re-wrapped -- doing so produces doubly-nested XML no
-// real SDK client can parse back.
-func writeConfigListXML(w http.ResponseWriter, rootTag string, configs []string) {
+// configListPageSize is the documented per-page cap of the analytics, inventory and metrics list APIs.
+const configListPageSize = 100
+
+// writeConfigListXML emits the stored raw config documents as list entries, paging by
+// continuation-token when paginate is set.
+func writeConfigListXML(w http.ResponseWriter, r *http.Request, rootTag string, configs []string, paginate bool) {
+	token := r.URL.Query().Get("continuation-token")
+	next := ""
+	if paginate {
+		pg := page.New(configs, token, configListPageSize, configListPageSize)
+		configs, next = pg.Data, pg.Next
+	}
 	var sb strings.Builder
 	sb.WriteString(`<?xml version="1.0" encoding="UTF-8"?>`)
 	sb.WriteString(`<`)
 	sb.WriteString(rootTag)
 	sb.WriteString(` xmlns="http://s3.amazonaws.com/doc/2006-03-01/">`)
-	sb.WriteString(`<IsTruncated>false</IsTruncated>`)
+	if paginate && token != "" {
+		sb.WriteString("<ContinuationToken>")
+		sb.WriteString(html.EscapeString(token))
+		sb.WriteString("</ContinuationToken>")
+	}
+	sb.WriteString("<IsTruncated>")
+	sb.WriteString(strconv.FormatBool(next != ""))
+	sb.WriteString("</IsTruncated>")
+	if next != "" {
+		sb.WriteString("<NextContinuationToken>")
+		sb.WriteString(next)
+		sb.WriteString("</NextContinuationToken>")
+	}
 	for _, cfg := range configs {
 		sb.WriteString(cfg)
 	}

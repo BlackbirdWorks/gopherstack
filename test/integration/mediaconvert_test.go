@@ -1,5 +1,3 @@
-//go:build integration
-
 package integration_test
 
 import (
@@ -52,7 +50,7 @@ func TestIntegration_MediaConvert_QueueLifecycle(t *testing.T) {
 
 			ctx := t.Context()
 			client := createMediaConvertClient(t)
-			queueName := tt.queueName + "-" + t.Name()
+			queueName := shortUniqueName(tt.queueName)
 
 			// Create queue.
 			createOut, err := client.CreateQueue(ctx, &mediaconvertsdk.CreateQueueInput{
@@ -122,13 +120,14 @@ func TestIntegration_MediaConvert_PresetLifecycle(t *testing.T) {
 
 			ctx := t.Context()
 			client := createMediaConvertClient(t)
-			presetName := tt.presetName + "-" + t.Name()
+			presetName := shortUniqueName(tt.presetName)
 
 			// Create preset.
 			createOut, err := client.CreatePreset(ctx, &mediaconvertsdk.CreatePresetInput{
 				Name:        aws.String(presetName),
 				Description: aws.String("integration test preset"),
 				Category:    aws.String("Standard"),
+				Settings:    &mediaconverttypes.PresetSettings{},
 			})
 			require.NoError(t, err, "CreatePreset should succeed")
 			require.NotNil(t, createOut.Preset)
@@ -265,7 +264,8 @@ func TestIntegration_MediaConvert_CreateResourceShare(t *testing.T) {
 
 			// Create a job first.
 			jobOut, err := client.CreateJob(ctx, &mediaconvertsdk.CreateJobInput{
-				Role: aws.String("arn:aws:iam::123456789012:role/MediaConvert_Default_Role"),
+				Role:     aws.String("arn:aws:iam::123456789012:role/MediaConvert_Default_Role"),
+				Settings: &mediaconverttypes.JobSettings{},
 			})
 			require.NoError(t, err, "CreateJob should succeed")
 			require.NotNil(t, jobOut.Job)
@@ -274,7 +274,8 @@ func TestIntegration_MediaConvert_CreateResourceShare(t *testing.T) {
 
 			// Create resource share for the job.
 			_, err = client.CreateResourceShare(ctx, &mediaconvertsdk.CreateResourceShareInput{
-				JobId: aws.String(jobID),
+				JobId:         aws.String(jobID),
+				SupportCaseId: aws.String("1234567890"),
 			})
 			require.NoError(t, err, "CreateResourceShare should succeed")
 		})
@@ -301,13 +302,14 @@ func TestIntegration_MediaConvert_UpdatePreset(t *testing.T) {
 
 			ctx := t.Context()
 			client := createMediaConvertClient(t)
-			presetName := tt.presetName + "-" + t.Name()
+			presetName := shortUniqueName(tt.presetName)
 
 			// Create preset.
 			_, err := client.CreatePreset(ctx, &mediaconvertsdk.CreatePresetInput{
 				Name:        aws.String(presetName),
 				Description: aws.String("original description"),
 				Category:    aws.String("OriginalCat"),
+				Settings:    &mediaconverttypes.PresetSettings{},
 			})
 			require.NoError(t, err, "CreatePreset should succeed")
 
@@ -411,6 +413,7 @@ func TestIntegration_MediaConvert_JobUserMetadata(t *testing.T) {
 			createOut, err := client.CreateJob(ctx, &mediaconvertsdk.CreateJobInput{
 				Role:         aws.String("arn:aws:iam::123456789012:role/MediaConvert_Default_Role"),
 				UserMetadata: tt.meta,
+				Settings:     &mediaconverttypes.JobSettings{},
 			})
 			require.NoError(t, err, "CreateJob with userMetadata should succeed")
 			require.NotNil(t, createOut.Job)

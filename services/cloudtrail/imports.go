@@ -10,7 +10,9 @@ import (
 // StartImportInput, where ImportSource is optional when ImportId is set to
 // retry an existing import -- this backend does not model retry-by-ImportId,
 // but tolerates a nil source for callers that only pass Destinations).
-func (b *InMemoryBackend) StartImport(destinations []string, importSource *ImportSource) (*Import, error) {
+func (b *InMemoryBackend) StartImport(
+	destinations []string, importSource *ImportSource, startEventTime, endEventTime *time.Time,
+) (*Import, error) {
 	b.mu.Lock("StartImport")
 	defer b.mu.Unlock()
 
@@ -21,6 +23,8 @@ func (b *InMemoryBackend) StartImport(destinations []string, importSource *Impor
 		ImportID:         id,
 		Destinations:     destinations,
 		ImportSource:     importSource,
+		StartEventTime:   startEventTime,
+		EndEventTime:     endEventTime,
 		ImportStatus:     "INITIALIZING",
 		CreatedTimestamp: now,
 		UpdatedTimestamp: now,

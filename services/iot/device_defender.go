@@ -98,6 +98,7 @@ type StartAuditMitigationActionsTaskInput struct {
 	AuditCheckToActionsMapping map[string][]string
 	Target                     *AuditMitigationActionsTaskTarget
 	TaskID                     string
+	ClientRequestToken         string
 }
 
 // auditMitigationFindingIDs resolves the set of stored audit finding IDs that
@@ -163,6 +164,12 @@ func (b *InMemoryBackend) StartAuditMitigationActionsTask(
 	}
 	if input.Target == nil || len(input.AuditCheckToActionsMapping) == 0 {
 		return nil, fmt.Errorf("%w: target and auditCheckToActionsMapping are required", ErrValidation)
+	}
+
+	if err := b.claimClientTokenLocked(
+		tokenKindAuditMitigation, input.ClientRequestToken, input.TaskID, ErrAlreadyExists,
+	); err != nil {
+		return nil, err
 	}
 
 	now := float64(time.Now().Unix())
@@ -427,6 +434,7 @@ type StartDetectMitigationActionsTaskInput struct {
 	Target                        *DetectMitigationActionsTaskTarget
 	ViolationEventOccurrenceRange *ViolationEventOccurrenceRange
 	TaskID                        string
+	ClientRequestToken            string
 	Actions                       []string
 	IncludeOnlyActiveViolations   bool
 	IncludeSuppressedAlerts       bool
@@ -482,6 +490,12 @@ func (b *InMemoryBackend) StartDetectMitigationActionsTask(
 	}
 	if input.Target == nil || len(input.Actions) == 0 {
 		return nil, fmt.Errorf("%w: target and actions are required", ErrValidation)
+	}
+
+	if err := b.claimClientTokenLocked(
+		tokenKindDetectMitigation, input.ClientRequestToken, input.TaskID, ErrAlreadyExists,
+	); err != nil {
+		return nil, err
 	}
 
 	now := float64(time.Now().Unix())

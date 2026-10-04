@@ -665,3 +665,7 @@ Gates: `go build ./...` (whole module, clean). `go vet` clean. `go test
 -race -count=1 ./services/mediapackage/...` clean. `golangci-lint run
 --new-from-rev=HEAD` 0 issues. `go run ./cmd/paritylint` 0 FAIL
 throughout. No `snapshot_inventory.json` changes. No version bump.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+mediapackage is region-isolated: channels and origin endpoints live per region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/mediapackage`. Limitation: the dashboard shows the home region only. The tagging bridge lists the request region and resolves Tag/Untag by ARN region. `TestHandler_MultiRegionReset` covers Reset.

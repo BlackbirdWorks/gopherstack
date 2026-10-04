@@ -30,6 +30,20 @@ func (b *InMemoryBackend) PutSubscriptionFilter(
 	ctx context.Context,
 	groupName, filterName, filterPattern, destinationArn, roleArn, distribution string,
 ) error {
+	return b.PutSubscriptionFilterWithOptions(
+		ctx, groupName, filterName, filterPattern, destinationArn, roleArn, distribution, FilterOptions{},
+	)
+}
+
+// PutSubscriptionFilterWithOptions is PutSubscriptionFilter plus the system-field options.
+func (b *InMemoryBackend) PutSubscriptionFilterWithOptions(
+	ctx context.Context,
+	groupName, filterName, filterPattern, destinationArn, roleArn, distribution string,
+	opts FilterOptions,
+) error {
+	if err := validateFilterOptions(opts, subscriptionEmitSystemFields()); err != nil {
+		return err
+	}
 	if groupName == "" {
 		return fmt.Errorf("%w: logGroupName is required", ErrValidation)
 	}
@@ -56,6 +70,10 @@ func (b *InMemoryBackend) PutSubscriptionFilter(
 
 	region := getRegion(ctx, b.region)
 
+	if b.groupExists(region, groupName) && b.authorizeSubscription(region, groupName, roleArn, destinationArn) != nil {
+		return subscriptionDeniedError(destinationArn)
+	}
+
 	b.mu.Lock("PutSubscriptionFilter")
 	defer b.mu.Unlock()
 
@@ -72,6 +90,9 @@ func (b *InMemoryBackend) PutSubscriptionFilter(
 			f.DestinationArn = destinationArn
 			f.RoleArn = roleArn
 			f.Distribution = distribution
+			f.FieldSelectionCriteria = cloneStrPtr(opts.FieldSelectionCriteria)
+			f.EmitSystemFields = append([]string(nil), opts.EmitSystemFields...)
+			f.ApplyOnTransformedLogs = opts.ApplyOnTransformedLogs
 
 			return nil
 		}
@@ -92,6 +113,10 @@ func (b *InMemoryBackend) PutSubscriptionFilter(
 		Distribution:   distribution,
 		CreationTime:   time.Now().UnixMilli(),
 		region:         region,
+
+		FieldSelectionCriteria: cloneStrPtr(opts.FieldSelectionCriteria),
+		EmitSystemFields:       append([]string(nil), opts.EmitSystemFields...),
+		ApplyOnTransformedLogs: opts.ApplyOnTransformedLogs,
 	})
 
 	return nil
@@ -116,7 +141,10 @@ func (b *InMemoryBackend) DescribeSubscriptionFilters(
 	all := make([]SubscriptionFilter, 0, len(groupFilters))
 	for _, f := range groupFilters {
 		if filterNamePrefix == "" || strings.HasPrefix(f.FilterName, filterNamePrefix) {
-			all = append(all, *f)
+			cp := *f
+			cp.FieldSelectionCriteria = cloneStrPtr(f.FieldSelectionCriteria)
+			cp.EmitSystemFields = append([]string(nil), f.EmitSystemFields...)
+			all = append(all, cp)
 		}
 	}
 
@@ -227,6 +255,13 @@ func (b *InMemoryBackend) deliverToFilters(
 	}
 
 	for _, f := range filters {
+		if b.authorizeSubscription(f.region, groupName, f.RoleArn, f.DestinationArn) != nil {
+			logger.Load(ctx).WarnContext(ctx, "cloudwatchlogs: subscription delivery denied",
+				"logGroup", groupName, "filterName", f.FilterName)
+
+			continue
+		}
+
 		deliverCtx := ctx
 		var cancel context.CancelFunc
 		if timeout > 0 {

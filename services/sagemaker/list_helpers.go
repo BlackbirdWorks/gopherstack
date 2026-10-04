@@ -371,6 +371,16 @@ func timeWindowOK(t time.Time, after, before *time.Time) bool {
 	return true
 }
 
+// timeWindowInclusiveOK is timeWindowOK for fields documented "on or after" and "on or before".
+func timeWindowInclusiveOK(t time.Time, after, before *time.Time) bool {
+	return (after == nil || !t.Before(*after)) && (before == nil || !t.After(*before))
+}
+
+// timeWindowAfterInclusiveOK is timeWindowOK with a ">= after" lower bound and "< before" upper bound.
+func timeWindowAfterInclusiveOK(t time.Time, after, before *time.Time) bool {
+	return (after == nil || !t.Before(*after)) && (before == nil || t.Before(*before))
+}
+
 // compareTimes returns -1, 0 or 1 depending on whether a is before, equal to,
 // or after b. It is used to build strict weak orderings for sort.Slice-style
 // comparators that need to support both ascending and descending order.
@@ -452,7 +462,7 @@ func filterSortPaginateByNameWindow[T any](
 	list := make([]*T, 0, len(items))
 
 	for _, item := range items {
-		if timeWindowOK(creationTimeOf(item), params.CreationTimeAfter, params.CreationTimeBefore) {
+		if timeWindowAfterInclusiveOK(creationTimeOf(item), params.CreationTimeAfter, params.CreationTimeBefore) {
 			list = append(list, clone(item))
 		}
 	}
@@ -507,11 +517,7 @@ func filterSortPaginateByNameOrTime[T any](
 		}
 
 		ct := creationTimeOf(item)
-		if params.CreatedAfter != nil && !ct.After(*params.CreatedAfter) {
-			continue
-		}
-
-		if params.CreatedBefore != nil && !ct.Before(*params.CreatedBefore) {
+		if !timeWindowInclusiveOK(ct, params.CreatedAfter, params.CreatedBefore) {
 			continue
 		}
 

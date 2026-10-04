@@ -145,6 +145,7 @@ func (h *Handler) handleStartAuditMitigationActionsTask(c *echo.Context) error {
 	var req struct {
 		Target                     *AuditMitigationActionsTaskTarget `json:"target"`
 		AuditCheckToActionsMapping map[string][]string               `json:"auditCheckToActionsMapping"`
+		ClientRequestToken         string                            `json:"clientRequestToken"`
 	}
 	if err := readBody(c, &req); err != nil {
 		return err
@@ -154,6 +155,7 @@ func (h *Handler) handleStartAuditMitigationActionsTask(c *echo.Context) error {
 		TaskID:                     taskID,
 		Target:                     req.Target,
 		AuditCheckToActionsMapping: req.AuditCheckToActionsMapping,
+		ClientRequestToken:         req.ClientRequestToken,
 	})
 	if err != nil {
 		return respondAsConflictCode(c, err, ErrAlreadyExists, "TaskAlreadyExistsException")
@@ -261,6 +263,7 @@ func (h *Handler) handleStartDetectMitigationActionsTask(c *echo.Context) error 
 	var req struct {
 		Target                        *DetectMitigationActionsTaskTarget `json:"target"`
 		ViolationEventOccurrenceRange *ViolationEventOccurrenceRange     `json:"violationEventOccurrenceRange"`
+		ClientRequestToken            string                             `json:"clientRequestToken"`
 		Actions                       []string                           `json:"actions"`
 		IncludeOnlyActiveViolations   bool                               `json:"includeOnlyActiveViolations"`
 		IncludeSuppressedAlerts       bool                               `json:"includeSuppressedAlerts"`
@@ -276,6 +279,7 @@ func (h *Handler) handleStartDetectMitigationActionsTask(c *echo.Context) error 
 		IncludeOnlyActiveViolations:   req.IncludeOnlyActiveViolations,
 		IncludeSuppressedAlerts:       req.IncludeSuppressedAlerts,
 		ViolationEventOccurrenceRange: req.ViolationEventOccurrenceRange,
+		ClientRequestToken:            req.ClientRequestToken,
 	})
 	if err != nil {
 		return respondAsConflictCode(c, err, ErrAlreadyExists, "TaskAlreadyExistsException")

@@ -2,6 +2,7 @@ package ec2
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 
 	"github.com/google/uuid"
@@ -33,11 +34,45 @@ func (b *InMemoryBackend) CreateManagedPrefixList(
 		MaxEntries:     maxEntries,
 		Version:        1,
 		OwnerID:        b.AccountID,
-		Entries:        entries,
+		Entries:        slices.Clone(entries),
 	}
+	pl.recordVersion()
 	b.managedPrefixLists.Put(pl)
 
-	return pl, nil
+	return copyManagedPrefixList(pl), nil
+}
+
+// prefixListMaxVersions bounds how many versions of entries are retained.
+const prefixListMaxVersions = 100
+
+// recordVersion snapshots the current entries under the current version,
+// dropping the oldest versions beyond prefixListMaxVersions.
+func (pl *ManagedPrefixList) recordVersion() {
+	if pl.VersionEntries == nil {
+		pl.VersionEntries = make(map[int64][]PrefixListEntry)
+	}
+
+	pl.VersionEntries[pl.Version] = slices.Clone(pl.Entries)
+
+	for len(pl.VersionEntries) > prefixListMaxVersions {
+		oldest := pl.Version
+
+		for v := range pl.VersionEntries {
+			oldest = min(oldest, v)
+		}
+
+		delete(pl.VersionEntries, oldest)
+	}
+}
+
+// copyManagedPrefixList returns a copy safe to hand out of the lock; the
+// version history stays internal.
+func copyManagedPrefixList(pl *ManagedPrefixList) *ManagedPrefixList {
+	cp := *pl
+	cp.Entries = slices.Clone(pl.Entries)
+	cp.VersionEntries = nil
+
+	return &cp
 }
 
 // DeleteManagedPrefixList removes a managed prefix list.
@@ -76,8 +111,7 @@ func (b *InMemoryBackend) DescribeManagedPrefixLists(ids []string) []*ManagedPre
 		if len(filter) > 0 && !filter[pl.PrefixListID] {
 			continue
 		}
-		cp := *pl
-		out = append(out, &cp)
+		out = append(out, copyManagedPrefixList(pl))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].PrefixListID < out[j].PrefixListID })
 
@@ -86,6 +120,12 @@ func (b *InMemoryBackend) DescribeManagedPrefixLists(ids []string) []*ManagedPre
 
 // GetManagedPrefixListEntries returns the entries for a prefix list.
 func (b *InMemoryBackend) GetManagedPrefixListEntries(id string) ([]PrefixListEntry, error) {
+	return b.GetManagedPrefixListEntriesAt(id, 0)
+}
+
+// GetManagedPrefixListEntriesAt returns the entries of a retained version
+// (GetManagedPrefixListEntries.TargetVersion); 0 means the current version.
+func (b *InMemoryBackend) GetManagedPrefixListEntriesAt(id string, targetVersion int64) ([]PrefixListEntry, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: PrefixListId is required", ErrInvalidParameter)
 	}
@@ -98,10 +138,16 @@ func (b *InMemoryBackend) GetManagedPrefixListEntries(id string) ([]PrefixListEn
 		return nil, fmt.Errorf("%w: %s", ErrManagedPrefixListNotFound, id)
 	}
 
-	out := make([]PrefixListEntry, len(pl.Entries))
-	copy(out, pl.Entries)
+	if targetVersion == 0 || targetVersion == pl.Version {
+		return slices.Clone(pl.Entries), nil
+	}
 
-	return out, nil
+	entries, found := pl.VersionEntries[targetVersion]
+	if !found {
+		return nil, fmt.Errorf("%w: prefix list %s has no version %d", ErrInvalidParameter, id, targetVersion)
+	}
+
+	return slices.Clone(entries), nil
 }
 
 // ModifyManagedPrefixList modifies a managed prefix list.
@@ -140,13 +186,12 @@ func (b *InMemoryBackend) ModifyManagedPrefixList(
 	pl.Entries = append(pl.Entries, addEntries...)
 	pl.Version++
 	pl.State = "modify-complete"
+	pl.recordVersion()
 
-	cp := *pl
-
-	return &cp, nil
+	return copyManagedPrefixList(pl), nil
 }
 
-// RestoreManagedPrefixListVersion restores a previous version of a prefix list.
+// RestoreManagedPrefixListVersion restores a previous version's entries as a new version.
 func (b *InMemoryBackend) RestoreManagedPrefixListVersion(id string, version int64) (*ManagedPrefixList, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: PrefixListId is required", ErrInvalidParameter)
@@ -159,12 +204,18 @@ func (b *InMemoryBackend) RestoreManagedPrefixListVersion(id string, version int
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrManagedPrefixListNotFound, id)
 	}
-	pl.Version = version
+
+	entries, found := pl.VersionEntries[version]
+	if !found {
+		return nil, fmt.Errorf("%w: prefix list %s has no version %d", ErrInvalidParameter, id, version)
+	}
+
+	pl.Entries = slices.Clone(entries)
+	pl.Version++
 	pl.State = "restore-complete"
+	pl.recordVersion()
 
-	cp := *pl
-
-	return &cp, nil
+	return copyManagedPrefixList(pl), nil
 }
 
 // ---- ClientVpnEndpoint ----

@@ -9,31 +9,22 @@ import (
 	"strings"
 )
 
-// trieCacheEntry pairs a built routing trie with the resource-set version it was built
-// from, so the proxy can detect staleness cheaply.
-type trieCacheEntry struct {
-	trie    *resourcePathTrie
-	version uint64
-}
-
-// routingTrie returns the cached routing trie for the API, rebuilding it only when the
-// backend reports a newer resource-set version.
-func (h *Handler) routingTrie(apiID string) (*resourcePathTrie, error) {
-	resources, version, err := h.Backend.ResourcesForRouting(apiID)
-	if err != nil {
-		return nil, err
-	}
-
-	if cached, ok := h.trieCache.Load(apiID); ok {
-		if entry, isEntry := cached.(*trieCacheEntry); isEntry && entry.version == version {
-			return entry.trie, nil
+// routingTrie returns the cached routing trie for a deployment, building it once
+// per deploymentID. A deployment's snapshot never changes after CreateDeployment,
+// so unlike the live resource set this cache never needs version-based
+// invalidation -- only eviction when the deployment itself is deleted (see
+// deleteDeploymentAction / deleteRestAPIAction).
+func (h *Handler) routingTrie(deploymentID string, cfg *DeploymentConfig) *resourcePathTrie {
+	if cached, ok := h.trieCache.Load(deploymentID); ok {
+		if trie, isTrie := cached.(*resourcePathTrie); isTrie {
+			return trie
 		}
 	}
 
-	trie := buildResourceTrie(resources)
-	h.trieCache.Store(apiID, &trieCacheEntry{trie: trie, version: version})
+	trie := buildResourceTrie(cfg.Resources)
+	h.trieCache.Store(deploymentID, trie)
 
-	return trie, nil
+	return trie
 }
 
 // writeCORSPreflight writes an HTTP 200 response with CORS preflight headers.

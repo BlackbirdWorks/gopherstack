@@ -16,6 +16,7 @@ type radiusRequest struct {
 		DisplayLabel           string   `json:"DisplayLabel"`
 		SharedSecret           string   `json:"SharedSecret"`
 		RadiusServers          []string `json:"RadiusServers"`
+		RadiusServersIpv6      []string `json:"RadiusServersIpv6"`
 		RadiusPort             int32    `json:"RadiusPort"`
 		RadiusRetries          int32    `json:"RadiusRetries"`
 		RadiusTimeout          int32    `json:"RadiusTimeout"`
@@ -43,6 +44,7 @@ func (h *Handler) handleEnableRadius(c *echo.Context) error { //nolint:dupl // e
 		AuthenticationProtocol: req.RadiusSettings.AuthenticationProtocol,
 		DisplayLabel:           req.RadiusSettings.DisplayLabel,
 		RadiusServers:          req.RadiusSettings.RadiusServers,
+		RadiusServersIPv6:      req.RadiusSettings.RadiusServersIpv6,
 		SharedSecret:           req.RadiusSettings.SharedSecret,
 		RadiusPort:             req.RadiusSettings.RadiusPort,
 		RadiusRetries:          req.RadiusSettings.RadiusRetries,
@@ -102,6 +104,7 @@ func (h *Handler) handleUpdateRadius(c *echo.Context) error { //nolint:dupl // e
 		AuthenticationProtocol: req.RadiusSettings.AuthenticationProtocol,
 		DisplayLabel:           req.RadiusSettings.DisplayLabel,
 		RadiusServers:          req.RadiusSettings.RadiusServers,
+		RadiusServersIPv6:      req.RadiusSettings.RadiusServersIpv6,
 		SharedSecret:           req.RadiusSettings.SharedSecret,
 		RadiusPort:             req.RadiusSettings.RadiusPort,
 		RadiusRetries:          req.RadiusSettings.RadiusRetries,

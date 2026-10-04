@@ -312,10 +312,11 @@ func (h *Handler) handleDeleteDeliveryDestinationPolicy(
 }
 
 type putDeliverySourceInput struct {
-	Tags        map[string]string `json:"tags,omitempty"`
-	Name        string            `json:"name"`
-	LogType     string            `json:"logType,omitempty"`
-	ResourceArn string            `json:"resourceArn,omitempty"`
+	Tags                        map[string]string `json:"tags,omitempty"`
+	DeliverySourceConfiguration map[string]string `json:"deliverySourceConfiguration,omitempty"`
+	Name                        string            `json:"name"`
+	LogType                     string            `json:"logType,omitempty"`
+	ResourceArn                 string            `json:"resourceArn,omitempty"`
 }
 
 // deliverySourceWireShape maps a DeliverySource to the AWS wire shape
@@ -340,6 +341,9 @@ func deliverySourceWireShape(s *DeliverySource) map[string]any {
 	if len(s.Tags) > 0 {
 		shape["tags"] = s.Tags
 	}
+	if len(s.DeliverySourceConfiguration) > 0 {
+		shape["deliverySourceConfiguration"] = s.DeliverySourceConfiguration
+	}
 
 	return shape
 }
@@ -359,7 +363,7 @@ func (h *Handler) handlePutDeliverySource(
 	}
 
 	if b := cwlBackend(h); b != nil {
-		src, err := b.PutDeliverySource(in.Name, in.LogType, resourceArns, in.Tags)
+		src, err := b.PutDeliverySource(in.Name, in.LogType, resourceArns, in.Tags, in.DeliverySourceConfiguration)
 		if err != nil {
 			return nil, err
 		}

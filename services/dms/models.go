@@ -179,6 +179,7 @@ type Certificate struct {
 	CertificateIdentifier string
 	CertificateArn        string
 	CertificatePem        string
+	KmsKeyID              string
 	AccountID             string
 	Region                string
 }

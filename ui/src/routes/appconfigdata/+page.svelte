@@ -46,6 +46,7 @@
 	// lifecycle, and the Poll Console explains the 404 a visitor will hit if
 	// they start a session before seeding one.
 	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+	import { regionFetch } from '$lib/region.svelte';
 	import { getAppConfigDataClient } from '$lib/aws-client';
 	import {
 		StartConfigurationSessionCommand,
@@ -436,7 +437,7 @@
 		});
 		if (!ok) return;
 		try {
-			const res = await fetch(`/dashboard/api/appconfigdata/sessions/${encodeURIComponent(currentToken)}`, {
+			const res = await regionFetch(`/dashboard/api/appconfigdata/sessions/${encodeURIComponent(currentToken)}`, {
 				method: 'DELETE'
 			});
 			if (!res.ok && res.status !== 404) throw new Error(`status ${res.status}`);
@@ -460,7 +461,7 @@
 	let sessionSearch = $state('');
 
 	async function fetchSessions(): Promise<void> {
-		const res = await fetch('/dashboard/api/appconfigdata/sessions');
+		const res = await regionFetch('/dashboard/api/appconfigdata/sessions');
 		if (!res.ok) throw new Error(`status ${res.status}`);
 		const data = (await res.json()) as { sessions?: SafeSession[] };
 		sessions = data.sessions ?? [];
@@ -494,7 +495,7 @@
 	let showHistory = $state(false);
 
 	async function fetchProfiles(): Promise<void> {
-		const res = await fetch('/dashboard/api/appconfigdata/profiles');
+		const res = await regionFetch('/dashboard/api/appconfigdata/profiles');
 		if (!res.ok) throw new Error(`status ${res.status}`);
 		const data = (await res.json()) as { profiles?: ConfigurationProfile[] };
 		profiles = data.profiles ?? [];
@@ -535,7 +536,7 @@
 		}
 		seeding = true;
 		try {
-			const res = await fetch('/dashboard/api/appconfigdata/profiles', {
+			const res = await regionFetch('/dashboard/api/appconfigdata/profiles', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
@@ -577,7 +578,7 @@
 			configurationProfileIdentifier: p.configurationProfileIdentifier
 		});
 		try {
-			const res = await fetch(`/dashboard/api/appconfigdata/profiles?${params}`, { method: 'DELETE' });
+			const res = await regionFetch(`/dashboard/api/appconfigdata/profiles?${params}`, { method: 'DELETE' });
 			if (!res.ok && res.status !== 404) throw new Error(`status ${res.status}`);
 			toast.success('Fixture deleted');
 			if (
@@ -609,7 +610,7 @@
 
 	async function loadStats(): Promise<void> {
 		try {
-			const res = await fetch('/dashboard/api/appconfigdata/stats');
+			const res = await regionFetch('/dashboard/api/appconfigdata/stats');
 			if (!res.ok) return;
 			stats = await res.json();
 		} catch {

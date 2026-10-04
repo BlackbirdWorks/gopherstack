@@ -98,10 +98,10 @@ func TestCollaborationCRUD(t *testing.T) {
 		t.Fatalf("delete: status %d: %s", rec.Code, rec.Body.String())
 	}
 
-	// Get deleted collaboration returns 404
+	// Get deleted collaboration returns the declared 400 ValidationException
 	rec = doRequest(t, e, http.MethodGet, "/collaborations/"+collabID, nil)
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("get deleted: status %d want 404: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("get deleted: status %d want 400: %s", rec.Code, rec.Body.String())
 	}
 }
 

@@ -38,6 +38,7 @@ func (b *InMemoryBackend) CreateVpcLink(input CreateVpcLinkInput) (*VpcLink, err
 	b.vpcLinks.Put(vpcLink)
 
 	cp := *vpcLink
+	cp.Tags = copyTags(vpcLink.Tags)
 
 	return &cp, nil
 }
@@ -53,6 +54,7 @@ func (b *InMemoryBackend) GetVpcLink(vpcLinkID string) (*VpcLink, error) {
 	}
 
 	cp := *vpcLink
+	cp.Tags = copyTags(vpcLink.Tags)
 
 	return &cp, nil
 }
@@ -66,7 +68,9 @@ func (b *InMemoryBackend) GetVpcLinks() ([]VpcLink, error) {
 	out := make([]VpcLink, 0, len(all))
 
 	for _, item := range all {
-		out = append(out, *item)
+		cp := *item
+		cp.Tags = copyTags(item.Tags)
+		out = append(out, cp)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].VpcLinkID < out[j].VpcLinkID })
 
@@ -87,6 +91,7 @@ func (b *InMemoryBackend) UpdateVpcLink(vpcLinkID string, input UpdateVpcLinkInp
 	}
 
 	cp := *vpcLink
+	cp.Tags = copyTags(vpcLink.Tags)
 
 	return &cp, nil
 }

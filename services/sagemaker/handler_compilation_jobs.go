@@ -191,6 +191,15 @@ func (h *Handler) handleListCompilationJobs(ctx context.Context, body []byte) ([
 			summary["CompilationTargetDevice"] = j.OutputConfig.TargetDevice
 		}
 
+		if tp := compilationTargetPlatform(j); tp != nil {
+			summary["CompilationTargetPlatformOs"] = tp.Os
+			summary["CompilationTargetPlatformArch"] = tp.Arch
+
+			if tp.Accelerator != "" {
+				summary["CompilationTargetPlatformAccelerator"] = tp.Accelerator
+			}
+		}
+
 		if j.CompilationStartTime != nil {
 			summary["CompilationStartTime"] = epochSeconds(*j.CompilationStartTime)
 		}
@@ -206,4 +215,12 @@ func (h *Handler) handleListCompilationJobs(ctx context.Context, body []byte) ([
 		"CompilationJobSummaries": summaries,
 		keyNextToken:              next,
 	})
+}
+
+func compilationTargetPlatform(j *CompilationJob) *CompilationTargetPlatform {
+	if j.OutputConfig == nil {
+		return nil
+	}
+
+	return j.OutputConfig.TargetPlatform
 }

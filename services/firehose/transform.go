@@ -1,12 +1,33 @@
 package firehose
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
+)
+
+var errLambdaFunction = errors.New("lambda function returned an error")
+
+const (
+	lambdaMaxAttempts      = 3
+	codeLambdaInvocation   = "Lambda.InvocationFailure"
+	codeLambdaFunction     = "Lambda.FunctionError"
+	codeLambdaJSON         = "Lambda.JsonProcessingException"
+	codeLambdaMapping      = "Lambda.JsonMappingException"
+	codeLambdaMissingID    = "Lambda.MissingRecordId"
+	codeLambdaDuplicateID  = "Lambda.DuplicatedRecordId"
+	codeLambdaInvokeDenied = "Lambda.InvokeAccessDenied"
+	codeLambdaAssumeDenied = "Lambda.AssumeRoleAccessDenied"
+	codeRecordFailed       = "ProcessingFailed"
 )
 
 // lambdaTransformEvent is the event sent to a Lambda transformation function.
@@ -24,32 +45,65 @@ type lambdaTransformRecord struct {
 	ApproximateArrivalTimestamp int64  `json:"approximateArrivalTimestamp"`
 }
 
-// lambdaTransformResponse is the response from a Lambda transformation function.
-type lambdaTransformResponse struct {
-	Records []lambdaTransformResponseRecord `json:"records"`
-}
-
 // lambdaTransformResponseRecord is a single record in a Lambda transform response.
 type lambdaTransformResponseRecord struct {
+	Metadata *struct {
+		PartitionKeys map[string]string `json:"partitionKeys"`
+	} `json:"metadata"`
 	RecordID string `json:"recordId"`
 	Result   string `json:"result"`
 	Data     string `json:"data"`
 }
 
-// transformOutcome is the result of a Lambda transformation: records marked "Ok"
-// are delivered downstream, while records marked "ProcessingFailed" are routed to
-// the S3 error/backup destination. Records marked "Dropped" are intentionally
-// discarded and appear in neither slice.
+// transformOutcome holds Ok records (with parallel partitionKeys in Keys) and processing-failed
+// envelopes in Failed; Dropped records appear in neither.
 type transformOutcome struct {
 	Ok     [][]byte
+	Keys   []map[string]string
 	Failed [][]byte
 }
 
-// buildLambdaTransformPayload builds the JSON payload for a Lambda transformation
-// invocation. It returns the marshaled event and a map from the deterministic
-// record ID to the original record bytes so that "ProcessingFailed" records can be
-// recovered (and routed to the error destination) even when the Lambda response
-// omits their data.
+// transformError carries the documented Firehose error code of a failed transformation.
+type transformError struct {
+	err      error
+	code     string
+	attempts int
+}
+
+func (e *transformError) Error() string { return e.code + ": " + e.err.Error() }
+func (e *transformError) Unwrap() error { return e.err }
+
+// failureEnvelope is the documented processing-failed record format.
+type failureEnvelope struct {
+	AttemptsMade           string `json:"attemptsMade"`
+	ArrivalTimestamp       string `json:"arrivalTimestamp"`
+	ErrorCode              string `json:"errorCode"`
+	ErrorMessage           string `json:"errorMessage"`
+	AttemptEndingTimestamp string `json:"attemptEndingTimestamp"`
+	RawData                string `json:"rawData"`
+	LambdaARN              string `json:"lambdaARN,omitempty"`
+}
+
+func failureRecord(raw []byte, lambdaARN, code, msg string, attempts int) []byte {
+	now := strconv.FormatInt(time.Now().UnixMilli(), 10)
+	out, err := json.Marshal(failureEnvelope{
+		AttemptsMade:           strconv.Itoa(attempts),
+		ArrivalTimestamp:       now,
+		ErrorCode:              code,
+		ErrorMessage:           msg,
+		AttemptEndingTimestamp: now,
+		RawData:                base64.StdEncoding.EncodeToString(raw),
+		LambdaARN:              lambdaARN,
+	})
+	if err != nil {
+		return raw
+	}
+
+	return out
+}
+
+// buildLambdaTransformPayload builds the documented transformation event and a recordId to
+// source-bytes map used to validate the response.
 func buildLambdaTransformPayload(records [][]byte, streamARN, region string) ([]byte, map[string][]byte) {
 	now := time.Now().UnixMilli()
 
@@ -74,64 +128,201 @@ func buildLambdaTransformPayload(records [][]byte, streamARN, region string) ([]
 
 	payload, err := json.Marshal(event)
 	if err != nil {
-		// If we can't marshal the payload, return nil so the caller
-		// can propagate the failure and route the records to the error output.
 		return nil, nil
 	}
 
 	return payload, idToOriginal
 }
 
-// parseLambdaTransformResponse parses the Lambda response, separating "Ok" records
-// (to be delivered) from "ProcessingFailed" records (to be routed to the S3 error
-// destination). "Dropped" records are discarded. idToOriginal maps record IDs back
-// to their source bytes so failed records carry their original payload even when the
-// Lambda omits the data field. A record whose data cannot be decoded is treated as a
-// processing failure so it is not silently lost.
-func parseLambdaTransformResponse(result []byte, idToOriginal map[string][]byte) (transformOutcome, bool) {
-	var resp lambdaTransformResponse
+// parseLambdaTransformResponse enforces the response contract: every input recordId returned
+// exactly once with result Ok, Dropped or ProcessingFailed.
+func parseLambdaTransformResponse(
+	result []byte,
+	idToOriginal map[string][]byte,
+	lambdaARN string,
+) (transformOutcome, error) {
+	var resp struct {
+		ErrorMessage string                          `json:"errorMessage"`
+		Records      []lambdaTransformResponseRecord `json:"records"`
+	}
 	if err := json.Unmarshal(result, &resp); err != nil {
-		return transformOutcome{}, false
+		return transformOutcome{}, &transformError{code: codeLambdaJSON, err: err}
 	}
 
-	out := transformOutcome{
-		Ok:     make([][]byte, 0, len(resp.Records)),
-		Failed: make([][]byte, 0),
-	}
-
-	for _, rec := range resp.Records {
-		switch rec.Result {
-		case "Ok":
-			data, err := base64.StdEncoding.DecodeString(rec.Data)
-			if err != nil {
-				out.Failed = append(out.Failed, originalOrDecoded(rec, idToOriginal))
-
-				continue
-			}
-
-			out.Ok = append(out.Ok, data)
-		case "Dropped":
-			// Intentionally discarded by the transform function.
-			continue
-		default:
-			// "ProcessingFailed" (and any unknown result) is routed to the error output.
-			out.Failed = append(out.Failed, originalOrDecoded(rec, idToOriginal))
+	if resp.Records == nil && resp.ErrorMessage != "" {
+		return transformOutcome{}, &transformError{
+			code: codeLambdaFunction,
+			err:  fmt.Errorf("%w: %s", errLambdaFunction, resp.ErrorMessage),
 		}
 	}
 
-	return out, true
+	seen := make(map[string]bool, len(resp.Records))
+	out := transformOutcome{}
+
+	for _, rec := range resp.Records {
+		orig, known := idToOriginal[rec.RecordID]
+
+		switch {
+		case rec.RecordID == "" || !known:
+			return transformOutcome{}, &transformError{code: codeLambdaMissingID, err: ErrTransformPayload}
+		case seen[rec.RecordID]:
+			return transformOutcome{}, &transformError{code: codeLambdaDuplicateID, err: ErrTransformPayload}
+		}
+
+		seen[rec.RecordID] = true
+		out.addRecord(rec, orig, lambdaARN)
+	}
+
+	if len(seen) != len(idToOriginal) {
+		return transformOutcome{}, &transformError{
+			code: codeLambdaMapping,
+			err: fmt.Errorf(
+				"%w: response returned %d of %d records",
+				ErrTransformPayload,
+				len(seen),
+				len(idToOriginal),
+			),
+		}
+	}
+
+	return out, nil
 }
 
-// originalOrDecoded returns the original source bytes for a record ID when known,
-// falling back to decoding the response data field.
-func originalOrDecoded(rec lambdaTransformResponseRecord, idToOriginal map[string][]byte) []byte {
-	if orig, ok := idToOriginal[rec.RecordID]; ok && len(orig) > 0 {
-		return orig
+func (o *transformOutcome) addRecord(rec lambdaTransformResponseRecord, orig []byte, lambdaARN string) {
+	switch rec.Result {
+	case "Ok":
+		data, err := base64.StdEncoding.DecodeString(rec.Data)
+		if err != nil {
+			o.Failed = append(
+				o.Failed,
+				failureRecord(orig, lambdaARN, codeLambdaJSON, "record data is not valid base64", 1),
+			)
+
+			return
+		}
+
+		o.Ok = append(o.Ok, data)
+
+		var keys map[string]string
+		if rec.Metadata != nil {
+			keys = rec.Metadata.PartitionKeys
+		}
+
+		o.Keys = append(o.Keys, keys)
+	case "Dropped":
+	default:
+		o.Failed = append(
+			o.Failed,
+			failureRecord(
+				orig,
+				lambdaARN,
+				codeRecordFailed,
+				"record marked ProcessingFailed by the transformation function",
+				1,
+			),
+		)
+	}
+}
+
+// runTransform runs the Lambda processor over records. On error every source record is
+// returned as a failure envelope alongside the error.
+func (b *InMemoryBackend) runTransform(
+	ctx context.Context,
+	records [][]byte,
+	pc *ProcessingConfiguration,
+	roleARN, streamARN, region string,
+) (transformOutcome, error) {
+	fn := lambdaFunctionName(pc)
+	if b.lambda == nil || fn == "" || !pc.Enabled {
+		return transformOutcome{Ok: records}, nil
 	}
 
-	if data, err := base64.StdEncoding.DecodeString(rec.Data); err == nil && len(data) > 0 {
-		return data
+	payload, idToOriginal := buildLambdaTransformPayload(records, streamARN, region)
+	if payload == nil {
+		return failAll(
+			records,
+			fn,
+			&transformError{code: codeLambdaMapping, err: ErrTransformPayload},
+		), ErrTransformPayload
 	}
 
-	return nil
+	if code := b.authorizeLambdaInvoke(processorRole(pc, roleARN), fn); code != "" {
+		tErr := &transformError{code: code, err: roleauth.ErrAccessDenied}
+
+		return failAll(records, fn, tErr), tErr
+	}
+
+	var tErr *transformError
+
+	for attempt := 1; attempt <= lambdaMaxAttempts && ctx.Err() == nil; attempt++ {
+		result, _, err := b.lambda.InvokeFunction(ctx, fn, "RequestResponse", payload)
+		if err != nil {
+			tErr = &transformError{code: codeLambdaInvocation, err: err, attempts: attempt}
+
+			continue
+		}
+
+		out, perr := parseLambdaTransformResponse(result, idToOriginal, fn)
+		if perr == nil {
+			return out, nil
+		}
+
+		errors.As(perr, &tErr)
+		tErr.attempts = attempt
+
+		break
+	}
+
+	if tErr == nil {
+		tErr = &transformError{code: codeLambdaInvocation, err: ctx.Err()}
+	}
+
+	return failAll(records, fn, tErr), tErr
+}
+
+func failAll(records [][]byte, fn string, tErr *transformError) transformOutcome {
+	out := transformOutcome{Failed: make([][]byte, 0, len(records))}
+	for _, rec := range records {
+		out.Failed = append(out.Failed, failureRecord(rec, fn, tErr.code, tErr.err.Error(), max(tErr.attempts, 1)))
+	}
+
+	return out
+}
+
+// processorRole returns the Lambda processor's RoleArn parameter, else the destination role.
+func processorRole(pc *ProcessingConfiguration, destRole string) string {
+	for _, proc := range pc.Processors {
+		if proc.Type != "Lambda" {
+			continue
+		}
+
+		for _, p := range proc.Parameters {
+			if strings.EqualFold(p.ParameterName, "RoleArn") && p.ParameterValue != "" {
+				return p.ParameterValue
+			}
+		}
+	}
+
+	return destRole
+}
+
+// lambdaFunctionName extracts the Lambda function ARN from a ProcessingConfiguration.
+func lambdaFunctionName(pc *ProcessingConfiguration) string {
+	if pc == nil {
+		return ""
+	}
+
+	for _, proc := range pc.Processors {
+		if proc.Type != "Lambda" {
+			continue
+		}
+
+		for _, p := range proc.Parameters {
+			if p.ParameterName == "LambdaArn" {
+				return p.ParameterValue
+			}
+		}
+	}
+
+	return ""
 }

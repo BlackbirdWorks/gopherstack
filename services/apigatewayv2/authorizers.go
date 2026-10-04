@@ -28,6 +28,9 @@ const (
 	executeAPIInvokeAction = "execute-api:Invoke"
 )
 
+// maxAuthorizerCacheEntries bounds the runtime-only authorizer decision cache.
+const maxAuthorizerCacheEntries = 1024
+
 // authDecision is a cached authorizer result.
 type authDecision struct {
 	expireAt time.Time
@@ -76,7 +79,29 @@ func (a *authorizerCache) put(key string, allow bool, ttl time.Duration) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	a.m[key] = authDecision{allow: allow, expireAt: time.Now().Add(ttl)}
+	now := time.Now()
+	if _, exists := a.m[key]; !exists && len(a.m) >= maxAuthorizerCacheEntries {
+		a.evictLocked(now)
+	}
+
+	a.m[key] = authDecision{allow: allow, expireAt: now.Add(ttl)}
+}
+
+// evictLocked drops expired entries, then arbitrary ones until below the bound.
+func (a *authorizerCache) evictLocked(now time.Time) {
+	for k, d := range a.m {
+		if !now.Before(d.expireAt) {
+			delete(a.m, k)
+		}
+	}
+
+	for k := range a.m {
+		if len(a.m) < maxAuthorizerCacheEntries {
+			return
+		}
+
+		delete(a.m, k)
+	}
 }
 
 // reset clears the entire cache. Used by ResetAuthorizersCache.
@@ -195,7 +220,7 @@ func (f *flexibleStrings) UnmarshalJSON(data []byte) error {
 // buildRouteArn constructs the execute-api ARN for a matched route, used as the
 // routeArn/methodArn in authorizer events and as the resource an IAM policy is
 // evaluated against.
-func buildRouteArn(apiID, stage, method, resourcePath string) string {
+func buildRouteArn(region, apiID, stage, method, resourcePath string) string {
 	if resourcePath == "" {
 		resourcePath = "/"
 	}
@@ -205,7 +230,7 @@ func buildRouteArn(apiID, stage, method, resourcePath string) string {
 	}
 
 	// arn:aws:execute-api:region:account:apiId/stage/METHOD/resource-path
-	return "arn:aws:execute-api:" + defaultRegion + ":" + config.DefaultAccountID + ":" +
+	return "arn:aws:execute-api:" + region + ":" + config.DefaultAccountID + ":" +
 		apiID + "/" + stage + "/" + method + resourcePath
 }
 
@@ -240,12 +265,18 @@ func (h *Handler) enforceRequestAuthorizer(
 	}
 
 	cacheKey := auth.AuthorizerID + "\n" + strings.Join(idValues, "\n")
-	if allow, ok := h.authCache.get(cacheKey); ok {
+	if !auth.EnableSimpleResponses || authorizerUsesV1Payload(auth) {
+		// IAM-policy decisions are per route ARN; only simple responses are route-agnostic.
+		cacheKey += "\n" + buildRouteArn(regionFromCtx(req.Context()), apiID, stageName, req.Method, resourcePath)
+	}
+
+	cacheable := len(auth.IdentitySource) > 0
+	if allow, ok := h.authCache.get(cacheKey); ok && cacheable {
 		return finishAuthDecision(allow)
 	}
 
 	method := req.Method
-	routeArn := buildRouteArn(apiID, stageName, method, resourcePath)
+	routeArn := buildRouteArn(regionFromCtx(req.Context()), apiID, stageName, method, resourcePath)
 
 	payload, buildErr := buildAuthorizerPayload(req, auth, apiID, stageName, route.RouteKey, resourcePath, routeArn)
 	if buildErr != nil {
@@ -266,7 +297,9 @@ func (h *Handler) enforceRequestAuthorizer(
 	allow, denyExplicit := evaluateAuthorizerResponse(respBytes, auth, routeArn)
 
 	ttl := time.Duration(auth.AuthorizerResultTTLInSeconds) * time.Second
-	h.authCache.put(cacheKey, allow, ttl)
+	if cacheable {
+		h.authCache.put(cacheKey, allow, ttl)
+	}
 
 	if !allow {
 		if denyExplicit {
@@ -337,7 +370,7 @@ func buildAuthorizerPayload(
 		RequestContext: httpAPIRequestContext{
 			AccountID:  config.DefaultAccountID,
 			APIID:      apiID,
-			DomainName: apiID + ".execute-api." + defaultRegion + ".amazonaws.com",
+			DomainName: apiID + ".execute-api." + regionFromCtx(req.Context()) + ".amazonaws.com",
 			RouteKey:   routeKey,
 			Stage:      stageName,
 			HTTP: httpAPIHTTPContext{

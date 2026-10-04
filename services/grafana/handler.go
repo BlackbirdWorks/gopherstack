@@ -12,8 +12,10 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -24,6 +26,7 @@ var errUnknownPath = errors.New("unknown path")
 // Handler is the HTTP handler for the Amazon Managed Grafana API.
 type Handler struct {
 	Backend   *InMemoryBackend
+	peers     *regionpeers.Set[Handler]
 	AccountID string
 	Region    string
 }
@@ -39,7 +42,13 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 
 // Shutdown stops the backend's scheduled state-transition timers so none
 // outlives the service. Invoked on server shutdown via service.Shutdowner.
-func (h *Handler) Shutdown(_ context.Context) { h.Backend.Close() }
+func (h *Handler) Shutdown(_ context.Context) {
+	h.Backend.Close()
+
+	for _, p := range h.peers.Drain() {
+		p.Backend.Close()
+	}
+}
 
 var _ service.Shutdowner = (*Handler)(nil)
 
@@ -80,7 +89,14 @@ func (h *Handler) GetSupportedOperations() []string {
 }
 
 // Reset clears all stored state in the backend.
-func (h *Handler) Reset() { h.Backend.Reset() }
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+
+	for _, p := range h.peers.Drain() {
+		p.Backend.Reset()
+		p.Backend.Close()
+	}
+}
 
 // ChaosServiceName returns the lowercase AWS service name for fault rule matching.
 func (h *Handler) ChaosServiceName() string { return grafanaService }
@@ -135,6 +151,10 @@ type dispatchFunc func(ctx context.Context, r *http.Request, body []byte) ([]byt
 // Handler returns the Echo handler function for Grafana requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
+			return p.Handler()(c)
+		}
+
 		ctx := c.Request().Context()
 		log := logger.Load(ctx)
 

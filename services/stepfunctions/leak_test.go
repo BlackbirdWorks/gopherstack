@@ -412,11 +412,11 @@ func TestDeletedExecsTombstoneCleanup(t *testing.T) {
 				exec, err := bk.StartExecution(sm.StateMachineArn, "tomb-exec", `{}`)
 				require.NoError(t, err)
 
-				require.Eventually(t, func() bool {
-					e, descErr := bk.DescribeExecution(exec.ExecutionArn)
+				synctest.Wait()
 
-					return descErr == nil && e.Status != "RUNNING"
-				}, 3*time.Second, 10*time.Millisecond)
+				e, descErr := bk.DescribeExecution(exec.ExecutionArn)
+				require.NoError(t, descErr)
+				require.NotEqual(t, "RUNNING", e.Status)
 
 				// Return a cutoff far in the future to prune everything.
 				return float64(time.Now().Add(10 * time.Second).Unix())
@@ -428,16 +428,18 @@ func TestDeletedExecsTombstoneCleanup(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			bk := sfn.NewInMemoryBackend()
-			cutoff := tt.setupFn(t, bk)
+			synctest.Test(t, func(t *testing.T) {
+				bk := sfn.NewInMemoryBackend()
+				cutoff := tt.setupFn(t, bk)
 
-			beforeTombstones := bk.DeletedExecsCountForTest()
-			bk.PruneExecutionsForTest(cutoff)
-			afterTombstones := bk.DeletedExecsCountForTest()
+				beforeTombstones := bk.DeletedExecsCountForTest()
+				bk.PruneExecutionsForTest(cutoff)
+				afterTombstones := bk.DeletedExecsCountForTest()
 
-			// Tombstone count should not increase after pruning.
-			assert.LessOrEqual(t, afterTombstones, beforeTombstones,
-				"tombstone count should not increase after prune")
+				// Tombstone count should not increase after pruning.
+				assert.LessOrEqual(t, afterTombstones, beforeTombstones,
+					"tombstone count should not increase after prune")
+			})
 		})
 	}
 }

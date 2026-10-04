@@ -5,12 +5,15 @@ import (
 	"errors"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
+
+const keyPackageID = "PackageID"
 
 // packageSourceJSON is the JSON representation of a package's S3 source
 // location (types.PackageSource).
@@ -40,14 +43,15 @@ type packageErrorDetailsJSON struct {
 // always transition straight to AVAILABLE), and real AWS only populates
 // ErrorDetails when a package is in COPY_FAILED.
 type packageJSON struct {
-	ErrorDetails       *packageErrorDetailsJSON `json:"ErrorDetails,omitempty"`
-	PackageID          string                   `json:"PackageID"`
-	PackageName        string                   `json:"PackageName"`
-	PackageType        string                   `json:"PackageType"`
-	PackageDescription string                   `json:"PackageDescription"`
-	PackageStatus      string                   `json:"PackageStatus"`
-	CreatedAt          float64                  `json:"CreatedAt,omitempty"`
-	LastUpdatedAt      float64                  `json:"LastUpdatedAt,omitempty"`
+	ErrorDetails            *packageErrorDetailsJSON `json:"ErrorDetails,omitempty"`
+	PackageID               string                   `json:"PackageID"`
+	PackageName             string                   `json:"PackageName"`
+	PackageType             string                   `json:"PackageType"`
+	PackageDescription      string                   `json:"PackageDescription"`
+	PackageStatus           string                   `json:"PackageStatus"`
+	AvailablePackageVersion string                   `json:"AvailablePackageVersion"`
+	CreatedAt               float64                  `json:"CreatedAt,omitempty"`
+	LastUpdatedAt           float64                  `json:"LastUpdatedAt,omitempty"`
 }
 
 // createPackageOutput is the response for CreatePackage.
@@ -93,13 +97,14 @@ func (h *Handler) handleCreatePackage(w http.ResponseWriter, r *http.Request) {
 
 func toPackageJSON(p *Package) packageJSON {
 	out := packageJSON{
-		PackageID:          p.ID,
-		PackageName:        p.Name,
-		PackageType:        p.PackageType,
-		PackageDescription: p.Description,
-		PackageStatus:      p.Status,
-		CreatedAt:          awstime.Epoch(p.CreatedAt),
-		LastUpdatedAt:      awstime.Epoch(p.LastUpdatedAt),
+		PackageID:               p.ID,
+		PackageName:             p.Name,
+		PackageType:             p.PackageType,
+		PackageDescription:      p.Description,
+		PackageStatus:           p.Status,
+		AvailablePackageVersion: availablePackageVersion(p),
+		CreatedAt:               awstime.Epoch(p.CreatedAt),
+		LastUpdatedAt:           awstime.Epoch(p.LastUpdatedAt),
 	}
 
 	if p.ErrorDetails != nil {
@@ -184,7 +189,7 @@ func (h *Handler) handleDissociatePackage(w http.ResponseWriter, r *http.Request
 	}
 
 	h.writeJSON(r, w, map[string]any{"DomainPackageDetails": map[string]any{
-		"PackageID":           parts[0],
+		keyPackageID:          parts[0],
 		"DomainName":          parts[1],
 		"DomainPackageStatus": "DISSOCIATING",
 	}})
@@ -263,6 +268,7 @@ func (h *Handler) handleUpdatePackage(w http.ResponseWriter, r *http.Request) {
 		PackageSource      *packageSourceJSON `json:"PackageSource"`
 		PackageID          string             `json:"PackageID"`
 		PackageDescription string             `json:"PackageDescription"`
+		CommitMessage      string             `json:"CommitMessage"`
 	}
 	if !h.decodeRequest(w, r, &req) {
 		return
@@ -273,7 +279,9 @@ func (h *Handler) handleUpdatePackage(w http.ResponseWriter, r *http.Request) {
 		source = PackageSource{S3BucketName: req.PackageSource.S3BucketName, S3Key: req.PackageSource.S3Key}
 	}
 
-	pkg, err := h.Backend.UpdatePackage(h.reqContext(r), req.PackageID, req.PackageDescription, source)
+	pkg, err := h.Backend.UpdatePackage(
+		h.reqContext(r), req.PackageID, req.PackageDescription, req.CommitMessage, source,
+	)
 	if err != nil {
 		h.writeOperationError(r, w, err)
 
@@ -297,19 +305,36 @@ func (h *Handler) handleDeletePackage(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleGetPackageVersionHistory(w http.ResponseWriter, r *http.Request) {
 	id := pathID(r.URL.Path, elasticsearchPackages+"/", "/history")
-	packages, err := h.Backend.GetPackageVersionHistory(h.reqContext(r), id)
+
+	versions, err := h.Backend.GetPackageVersionHistory(h.reqContext(r), id)
 	if err != nil {
 		h.writeOperationError(r, w, err)
 
 		return
 	}
 
-	history := make([]packageJSON, 0, len(packages))
-	for _, pkg := range packages {
-		history = append(history, toPackageJSON(pkg))
+	maxResults, _ := strconv.Atoi(r.URL.Query().Get("maxResults"))
+	pg := page.New(versions, r.URL.Query().Get("nextToken"), maxResults, defaultPackageHistoryPage)
+
+	history := make([]map[string]any, 0, len(pg.Data))
+	for _, v := range pg.Data {
+		entry := map[string]any{
+			"PackageVersion": packageVersionLabel(v.Number),
+			"CreatedAt":      awstime.Epoch(v.CreatedAt),
+		}
+		if v.CommitMessage != "" {
+			entry["CommitMessage"] = v.CommitMessage
+		}
+
+		history = append(history, entry)
 	}
 
-	h.writeJSON(r, w, map[string]any{"PackageVersionHistoryList": history})
+	out := map[string]any{keyPackageID: id, "PackageVersionHistoryList": history}
+	if pg.Next != "" {
+		out["NextToken"] = pg.Next
+	}
+
+	h.writeJSON(r, w, out)
 }
 
 func (h *Handler) handleListDomainsForPackage(w http.ResponseWriter, r *http.Request) {

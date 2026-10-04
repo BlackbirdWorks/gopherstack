@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -360,9 +361,12 @@ func (b *InMemoryBackend) DescribeDBProxyTargetGroups(proxyName, targetGroupName
 
 // ModifyDBProxyTargetGroup modifies the connection pool settings for a proxy target group.
 func (b *InMemoryBackend) ModifyDBProxyTargetGroup(
-	proxyName, targetGroupName string,
+	proxyName, targetGroupName, newName string,
 	cfg ConnectionPoolConfig,
 ) (*DBProxyTargetGroup, error) {
+	if err := validateTargetGroupNewName(newName); err != nil {
+		return nil, err
+	}
 	b.mu.Lock("ModifyDBProxyTargetGroup")
 	defer b.mu.Unlock()
 
@@ -371,16 +375,50 @@ func (b *InMemoryBackend) ModifyDBProxyTargetGroup(
 	if !exists {
 		return nil, fmt.Errorf(
 			"%w: target group %s for proxy %s not found",
-			ErrInvalidParameter,
+			ErrDBProxyTargetGroupNotFound,
 			targetGroupName,
 			proxyName,
 		)
 	}
 
+	if newName != "" && newName != tg.TargetGroupName {
+		if err := b.renameTargetGroupLocked(tg, newName); err != nil {
+			return nil, err
+		}
+	}
+
 	tg.ConnectionPoolConfig = cfg
 	tg.UpdatedDate = time.Now()
+	cp := *tg
 
-	return tg, nil
+	return &cp, nil
+}
+
+// renameTargetGroupLocked renames tg; the SDK doc for NewName states "You can't rename the default target group".
+func (b *InMemoryBackend) renameTargetGroupLocked(tg *DBProxyTargetGroup, newName string) error {
+	if tg.TargetGroupName == proxyDefaultTargetGroupName {
+		return fmt.Errorf("%w: you can't rename the default target group", ErrInvalidParameter)
+	}
+	if _, taken := b.proxyTargetGroups.Get(tg.DBProxyName + "/" + newName); taken {
+		return fmt.Errorf("%w: target group %s already exists", ErrInvalidParameter, newName)
+	}
+	b.proxyTargetGroups.Delete(proxyTargetGroupsKeyFn(tg))
+	tg.TargetGroupName = newName
+	b.proxyTargetGroups.Put(tg)
+
+	return nil
+}
+
+// validateTargetGroupNewName enforces the NewName identifier rules (api_op_ModifyDBProxyTargetGroup.go:44).
+func validateTargetGroupNewName(newName string) error {
+	if newName == "" {
+		return nil
+	}
+	if !dbInstanceIDRegex.MatchString(newName) || strings.HasSuffix(newName, "-") || strings.Contains(newName, "--") {
+		return fmt.Errorf("%w: NewName %q is not a valid identifier", ErrInvalidParameter, newName)
+	}
+
+	return nil
 }
 
 // CreateDBProxyEndpoint creates a custom endpoint for a DB proxy.

@@ -108,6 +108,8 @@ func (h *Handler) handleCreateDBInstance(vals url.Values) (any, error) {
 	}
 
 	opts := DBInstanceOptions{
+		MasterSecretRequest:                parseMasterSecretRequest(vals),
+		MasterUserPassword:                 vals.Get("MasterUserPassword"),
 		EngineVersion:                      vals.Get("EngineVersion"),
 		StorageType:                        vals.Get("StorageType"),
 		AvailabilityZone:                   vals.Get("AvailabilityZone"),
@@ -276,8 +278,17 @@ func (h *Handler) handleModifyDBInstance(vals url.Values) (any, error) {
 	if v, perr := strconv.Atoi(vals.Get("DBPortNumber")); perr == nil {
 		port = v
 	}
+	resumeMinutes, perr := parseResumeAutomationMinutes(vals)
+	if perr != nil {
+		return nil, perr
+	}
 
 	opts := DBInstanceOptions{
+		MasterSecretRequest:                parseMasterSecretRequest(vals),
+		AutomationMode:                     vals.Get("AutomationMode"),
+		ResumeFullAutomationModeMinutes:    resumeMinutes,
+		ResumeFullAutomationModeMinutesSet: vals.Get("ResumeFullAutomationModeMinutes") != "",
+		MasterUserPassword:                 vals.Get("MasterUserPassword"),
 		EngineVersion:                      vals.Get("EngineVersion"),
 		StorageType:                        vals.Get("StorageType"),
 		OptionGroupName:                    vals.Get("OptionGroupName"),
@@ -323,6 +334,19 @@ func (h *Handler) handleModifyDBInstance(vals url.Values) (any, error) {
 		Xmlns:      rdsXMLNS,
 		DBInstance: toXMLInstance(inst, h.Backend.InstanceAssociatedRoles(inst.DBInstanceIdentifier)),
 	}, nil
+}
+
+func parseResumeAutomationMinutes(vals url.Values) (int, error) {
+	raw := vals.Get("ResumeFullAutomationModeMinutes")
+	if raw == "" {
+		return 0, nil
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, fmt.Errorf("%w: invalid ResumeFullAutomationModeMinutes %q", ErrInvalidParameter, raw)
+	}
+
+	return v, nil
 }
 
 func toXMLInstance(inst *DBInstance, roles []DBInstanceRole) xmlDBInstance {
@@ -418,6 +442,11 @@ func toXMLInstance(inst *DBInstance, roles []DBInstanceRole) xmlDBInstance {
 	}
 
 	result.AssociatedRoles = xmlDBInstanceRolesOrNil(roles)
+	result.MasterUserSecret = inst.MasterSecret.toXML()
+	result.AutomationMode = inst.AutomationMode
+	if !inst.ResumeFullAutomationModeTime.IsZero() {
+		result.ResumeFullAutomationModeTime = inst.ResumeFullAutomationModeTime.UTC().Format(time.RFC3339)
+	}
 
 	return result
 }
@@ -577,6 +606,9 @@ type xmlDBInstance struct {
 	PendingModifiedValues            *xmlPendingModifiedValues     `xml:"PendingModifiedValues,omitempty"`
 	OptionGroupMemberships           *xmlOptionGroupMembershipList `xml:"OptionGroupMemberships,omitempty"`
 	AssociatedRoles                  *xmlDBInstanceRoleList        `xml:"AssociatedRoles,omitempty"`
+	MasterUserSecret                 *xmlMasterUserSecret          `xml:"MasterUserSecret,omitempty"`
+	ResumeFullAutomationModeTime     string                        `xml:"ResumeFullAutomationModeTime,omitempty"`
+	AutomationMode                   string                        `xml:"AutomationMode,omitempty"`
 
 	LicenseModel                      string `xml:"LicenseModel,omitempty"`
 	PreferredBackupWindow             string `xml:"PreferredBackupWindow,omitempty"`
@@ -805,6 +837,7 @@ type stopDBInstanceResponse struct {
 // RestoreDBInstanceToPointInTime and RestoreDBInstanceFromDBSnapshot's request forms.
 func parseRestoreDBInstanceOptions(vals url.Values) DBInstanceOptions {
 	return DBInstanceOptions{
+		MasterSecretRequest:              parseMasterSecretRequest(vals),
 		MultiAZ:                          vals.Get("MultiAZ") == formTrue,
 		DeletionProtection:               vals.Get("DeletionProtection") == formTrue,
 		StorageType:                      vals.Get("StorageType"),
@@ -821,6 +854,9 @@ func parseRestoreDBInstanceOptions(vals url.Values) DBInstanceOptions {
 func (h *Handler) handleRestoreDBInstanceToPointInTime(vals url.Values) (any, error) {
 	id := vals.Get("TargetDBInstanceIdentifier")
 	sourceID := vals.Get("SourceDBInstanceIdentifier")
+	if err := rejectRestoreTimeConflict(vals, "RestoreTime"); err != nil {
+		return nil, err
+	}
 	opts := parseRestoreDBInstanceOptions(vals)
 
 	inst, err := h.Backend.RestoreDBInstanceToPointInTime(id, sourceID, opts)
@@ -904,6 +940,8 @@ func (h *Handler) handleRestoreDBInstanceFromS3(vals url.Values) (any, error) {
 	}
 
 	s3Opts := DBInstanceOptions{
+		MasterSecretRequest:                parseMasterSecretRequest(vals),
+		MasterUserPassword:                 vals.Get("MasterUserPassword"),
 		AutoMinorVersionUpgrade:            vals.Get("AutoMinorVersionUpgrade") == formTrue,
 		IAMDatabaseAuthenticationEnabled:   vals.Get("EnableIAMDatabaseAuthentication") == formTrue,
 		UseDefaultProcessorFeatures:        vals.Get("UseDefaultProcessorFeatures") == formTrue,
@@ -923,4 +961,16 @@ func (h *Handler) handleRestoreDBInstanceFromS3(vals url.Values) (any, error) {
 		Xmlns:      rdsXMLNS,
 		DBInstance: toXMLInstance(inst, h.Backend.InstanceAssociatedRoles(inst.DBInstanceIdentifier)),
 	}, nil
+}
+
+// rejectRestoreTimeConflict enforces the SDK-documented exclusivity of the
+// restore-time member and UseLatestRestorableTime.
+func rejectRestoreTimeConflict(vals url.Values, timeKey string) error {
+	if vals.Get(timeKey) != "" && vals.Get("UseLatestRestorableTime") == formTrue {
+		return fmt.Errorf(
+			"%w: %s can't be specified if UseLatestRestorableTime is enabled", ErrInvalidParameter, timeKey,
+		)
+	}
+
+	return nil
 }

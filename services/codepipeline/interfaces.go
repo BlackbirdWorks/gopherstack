@@ -7,9 +7,9 @@ import "context"
 // unset, Build actions complete instantly with no cross-service call,
 // matching this backend's original behavior.
 type CodeBuildStarter interface {
-	// StartBuild starts a build for the named CodeBuild project. An error
-	// (e.g. the project does not exist) fails the pipeline action.
-	StartBuild(projectName string) error
+	// StartBuild starts a build for the named project in the region ctx carries.
+	// An error (e.g. the project does not exist) fails the pipeline action.
+	StartBuild(ctx context.Context, projectName string) error
 }
 
 // LambdaInvoker is the subset of Lambda operations CodePipeline needs to run
@@ -32,8 +32,7 @@ type LambdaInvoker interface {
 // When unset, Deploy actions complete instantly with no cross-service call,
 // matching this backend's original behavior.
 type CodeDeployStarter interface {
-	// CreateDeployment starts a deployment against the named application and
-	// deployment group. An error (e.g. either does not exist) fails the
-	// pipeline action.
-	CreateDeployment(applicationName, deploymentGroupName string) error
+	// CreateDeployment starts a deployment in the region ctx carries. An error
+	// (e.g. either does not exist) fails the pipeline action.
+	CreateDeployment(ctx context.Context, applicationName, deploymentGroupName string) error
 }

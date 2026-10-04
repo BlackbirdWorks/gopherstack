@@ -196,6 +196,10 @@ func (h *Handler) handleDescribeDirectories(c *echo.Context) error {
 		}
 	}
 
+	if req.DirectoryIDs != nil && len(req.DirectoryIDs) == 0 {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "DirectoryIds must not be empty"))
+	}
+
 	dirs, nextToken, listErr := h.Backend.DescribeDirectories(
 		h.contextWithRegion(c),
 		req.DirectoryIDs,

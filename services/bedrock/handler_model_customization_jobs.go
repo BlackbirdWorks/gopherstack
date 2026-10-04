@@ -375,6 +375,10 @@ func parseListModelCustomizationJobsQuery(c *echo.Context) *ListModelCustomizati
 }
 
 func (h *Handler) handleListModelCustomizationJobs(c *echo.Context) error {
+	if err := validateListSortParams(c.Request().URL.Query()); err != nil {
+		return h.writeError(c, err)
+	}
+
 	jobs, outToken := h.Backend.ListModelCustomizationJobs(parseListModelCustomizationJobsQuery(c))
 	summaries := make([]modelCustomizationJobSummaryOutput, 0, len(jobs))
 

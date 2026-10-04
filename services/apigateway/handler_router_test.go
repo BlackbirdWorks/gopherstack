@@ -683,6 +683,10 @@ func (n *noopBackend) GetDeployments(_ string) ([]apigateway.Deployment, error) 
 	return nil, nil
 }
 
+func (n *noopBackend) DeploymentConfig(_ string, _ string) (*apigateway.DeploymentConfig, error) {
+	return nil, errNoopNotImplemented
+}
+
 func (n *noopBackend) DeleteDeployment(_ string, _ string) error { return nil }
 
 func (n *noopBackend) GetStages(_ string) ([]apigateway.Stage, error) { return nil, nil }

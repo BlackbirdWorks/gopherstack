@@ -94,10 +94,12 @@ func TestInMemoryBackend_FullStateSnapshotRestore(t *testing.T) {
 	})
 	agi := original.AddAccessGrantsInstanceInternal(accountID, "arn:aws:sso:::instance/ins-1")
 	require.NotNil(t, agi)
-	grant := original.AddAccessGrantInternal(accountID, "loc1", "DIRECTORY_USER", "u@x.com", "READ")
-	require.NotNil(t, grant)
 	loc := original.CreateAccessGrantsLocation(accountID, "s3://bucket/*", "arn:aws:iam::000000000000:role/r")
 	require.NotNil(t, loc)
+	grant := original.AddAccessGrantInternal(
+		accountID, loc.AccessGrantsLocationID, "DIRECTORY_USER", "u@x.com", "READ",
+	)
+	require.NotNil(t, grant)
 	ap := original.CreateAccessPoint(accountID, "my-ap", "my-bucket")
 	require.NotNil(t, ap)
 	olap := original.CreateAccessPointForObjectLambda(accountID, "my-olap")

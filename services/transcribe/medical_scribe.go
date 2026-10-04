@@ -91,7 +91,7 @@ func (b *InMemoryBackend) StartMedicalScribeJob(input *MedicalScribeJob) (*Medic
 	job.StartTime = now
 	job.CompletionTime = now
 	b.medicalScribeJobs.Put(&job)
-	b.recordResourceTagsLocked(resourceARN(resourceTypeMedicalScribeJob, job.MedicalScribeJobName), job.Tags)
+	b.recordResourceTagsLocked(b.resourceARN(resourceTypeMedicalScribeJob, job.MedicalScribeJobName), job.Tags)
 
 	cp := job
 
@@ -109,7 +109,7 @@ func (b *InMemoryBackend) GetMedicalScribeJob(jobName string) (*MedicalScribeJob
 	}
 
 	cp := *job
-	cp.Tags = b.liveTagsLocked(resourceARN(resourceTypeMedicalScribeJob, jobName))
+	cp.Tags = b.liveTagsLocked(b.resourceARN(resourceTypeMedicalScribeJob, jobName))
 
 	return &cp, nil
 }
@@ -151,7 +151,7 @@ func (b *InMemoryBackend) DeleteMedicalScribeJob(jobName string) error {
 		return fmt.Errorf("%w: medical scribe job %s not found", ErrNotFound, jobName)
 	}
 
-	b.forgetResourceTagsLocked(resourceARN(resourceTypeMedicalScribeJob, jobName))
+	b.forgetResourceTagsLocked(b.resourceARN(resourceTypeMedicalScribeJob, jobName))
 
 	return nil
 }

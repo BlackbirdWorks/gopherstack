@@ -26,6 +26,9 @@ func (b *InMemoryBackend) DeleteUserPoolClient(userPoolID, clientID string) erro
 
 	// Clean up any refresh tokens issued by this client to prevent leaks.
 	b.deleteRefreshTokensForClientAndUserIndexLocked(clientID)
+	b.uiCustomizations.Delete(uiKey(client.UserPoolID, clientID))
+	b.typedRiskConfigurations.Delete(client.UserPoolID + ":" + clientID)
+	delete(b.riskConfigurations, riskKey(client.UserPoolID, clientID))
 
 	return nil
 }

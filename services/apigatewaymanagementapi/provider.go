@@ -1,6 +1,7 @@
 package apigatewaymanagementapi
 
 import (
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -17,11 +18,15 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	backend := NewInMemoryBackend()
 	handler := NewHandler(backend)
 
-	if ctx != nil && ctx.JanitorCtx != nil {
-		janitor := NewJanitor(backend, 0, 0)
-		janitor.TaskTimeout = ctx.JanitorTimeout
+	region := config.DefaultRegion
+	if ctx != nil {
+		_, region = service.AccountRegionOrDefault(ctx)
+	}
 
-		go janitor.Run(ctx.JanitorCtx)
+	handler.EnableRegions(region)
+
+	if ctx != nil && ctx.JanitorCtx != nil {
+		handler.StartJanitor(ctx.JanitorCtx, ctx.JanitorTimeout)
 	}
 
 	return handler, nil

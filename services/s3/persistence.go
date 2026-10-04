@@ -166,6 +166,43 @@ func reinitUploadMutexes(uploads []*StoredMultipartUpload) {
 	}
 }
 
+// storedBucketAlias avoids infinite recursion from StoredBucket.MarshalJSON.
+type storedBucketAlias StoredBucket
+
+// MarshalJSON serialises the bucket under bucket.mu.RLock so Snapshot can't race PutObject/PutBucketWebsite/etc.
+// Those mutate bucket fields under bucket.mu without ever taking b.mu (gopherstack-fwd0g).
+func (bucket *StoredBucket) MarshalJSON() ([]byte, error) {
+	bucket.mu.RLock("Snapshot")
+	defer bucket.mu.RUnlock()
+
+	return json.Marshal((*storedBucketAlias)(bucket))
+}
+
+// storedObjectAlias avoids infinite recursion from StoredObject.MarshalJSON.
+type storedObjectAlias StoredObject
+
+// MarshalJSON serialises the object under obj.mu.RLock, nested under the
+// caller's bucket.mu.RLock -- see StoredBucket.MarshalJSON.
+func (obj *StoredObject) MarshalJSON() ([]byte, error) {
+	obj.mu.RLock("Snapshot")
+	defer obj.mu.RUnlock()
+
+	return json.Marshal((*storedObjectAlias)(obj))
+}
+
+// storedMultipartUploadAlias avoids infinite recursion from
+// StoredMultipartUpload.MarshalJSON.
+type storedMultipartUploadAlias StoredMultipartUpload
+
+// MarshalJSON serialises the upload under its own mu.RLock so Snapshot can't race storePart/CompleteMultipartUpload.
+// Those mutate upload fields under upload.mu without ever taking b.mu.
+func (u *StoredMultipartUpload) MarshalJSON() ([]byte, error) {
+	u.mu.RLock("Snapshot")
+	defer u.mu.RUnlock()
+
+	return json.Marshal((*storedMultipartUploadAlias)(u))
+}
+
 // Snapshot implements persistence.Persistable by delegating to the backend.
 func (h *S3Handler) Snapshot(ctx context.Context) []byte {
 	type snapshotter interface {

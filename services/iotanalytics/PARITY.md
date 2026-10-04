@@ -494,3 +494,7 @@ this new file to `.golangci.yml`'s existing whole-package `staticcheck`
 exemption list -- iotanalytics is AWS-deprecated, so every SDK
 type/method/field a real client touches carries an SA1019). `cmd/paritylint`
 stays at 0 FAIL.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+iotanalytics is region-isolated: channels, datastores, datasets and pipelines live per region; an IoT rule action puts messages into the channel of the rule's region, and each region's pipelines call that region's Lambda, IoT registry and IoT data plane. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestIoTAnalyticsTarget_PutsInRuleRegion`, `TestRegionIsolation/iotanalytics`. Limitation: the dashboard shows the home region only.

@@ -112,8 +112,79 @@ func (b *InMemoryBackend) DeleteUserPool(userPoolID string) error {
 	}
 
 	delete(b.groupMembers, userPoolID)
+	b.deletePoolScopedStateLocked(userPoolID)
 
 	return nil
+}
+
+// deletePoolScopedStateLocked drops every pool-keyed resource DeleteUserPool would otherwise
+// orphan. Caller must hold b.mu in write mode.
+func (b *InMemoryBackend) deletePoolScopedStateLocked(poolID string) {
+	for _, v := range slices.Clone(b.resourceServersByPool.Get(poolID)) {
+		b.resourceServers.Delete(resourceServerKey(poolID, v.Identifier))
+	}
+
+	for _, v := range slices.Clone(b.identityProvidersByPool.Get(poolID)) {
+		b.identityProviders.Delete(identityProviderKey(poolID, v.ProviderName))
+	}
+
+	for _, v := range slices.Clone(b.termsByPool.Get(poolID)) {
+		b.terms.Delete(v.TermsID)
+	}
+
+	for _, v := range slices.Clone(b.userImportJobsByPool.Get(poolID)) {
+		b.userImportJobs.Delete(userImportJobKey(poolID, v.JobID))
+	}
+
+	for _, v := range slices.Clone(b.managedLoginBrandingsByPool.Get(poolID)) {
+		b.managedLoginBrandings.Delete(managedLoginBrandingKey(poolID, v.ManagedLoginBrandingID))
+	}
+
+	for _, v := range slices.Clone(b.userPoolReplicasByPool.Get(poolID)) {
+		b.userPoolReplicas.Delete(replicaKey(poolID, v.RegionName))
+		delete(b.resourceTags, v.ARN)
+	}
+
+	for _, v := range b.uiCustomizations.All() {
+		if v.UserPoolID == poolID {
+			b.uiCustomizations.Delete(uiKey(poolID, v.ClientID))
+		}
+	}
+
+	for _, v := range b.typedRiskConfigurations.All() {
+		if v.UserPoolID == poolID {
+			b.typedRiskConfigurations.Delete(poolID + ":" + v.ClientID)
+		}
+	}
+
+	b.deletePoolKeyedMapsLocked(poolID)
+}
+
+// deletePoolKeyedMapsLocked drops the plain-map entries keyed by (or prefixed with) poolID.
+// Caller must hold b.mu in write mode.
+func (b *InMemoryBackend) deletePoolKeyedMapsLocked(poolID string) {
+	prefix := poolID + ":"
+
+	for k := range b.riskConfigurations {
+		if strings.HasPrefix(k, prefix) {
+			delete(b.riskConfigurations, k)
+		}
+	}
+
+	for k := range b.attrVerificationCodes {
+		if strings.HasPrefix(k, prefix) {
+			delete(b.attrVerificationCodes, k)
+		}
+	}
+
+	for k, e := range b.mfaSessions {
+		if e.PoolID == poolID {
+			delete(b.mfaSessions, k)
+		}
+	}
+
+	delete(b.logDeliveryConfigs, poolID)
+	delete(b.poolMfaConfigs, poolID)
 }
 
 // ListUserPools returns all user pools sorted by name, tiebroken by ID.

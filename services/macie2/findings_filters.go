@@ -152,7 +152,7 @@ func (b *InMemoryBackend) DeleteFindingsFilter(id string) error {
 // ListFindingsFilters returns summaries of all findings filters.
 func (b *InMemoryBackend) ListFindingsFilters(limit int, token string) ([]*FindingsFilterSummary, string, error) {
 	return listPaginated(
-		b, "ListFindingsFilters", b.findingsFilters.All(),
+		b, "ListFindingsFilters", b.findingsFilters.All,
 		func(ff *storedFindingsFilter) (*FindingsFilterSummary, bool) {
 			return &FindingsFilterSummary{
 				Action:      ff.Action,

@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -135,153 +136,161 @@ func waitForExport(t *testing.T, h *dynamodb.DynamoDBHandler, arn string) {
 func TestImportTable_FromS3_DynamoDBJSON(t *testing.T) {
 	t.Parallel()
 
-	db := dynamodb.NewInMemoryDB()
-	s3 := newMockS3()
-	db.SetS3Backend(s3)
+	synctest.Test(t, func(t *testing.T) {
+		db := dynamodb.NewInMemoryDB()
+		s3 := newMockS3()
+		db.SetS3Backend(s3)
 
-	s3.put("src", "data/part-1.json.gz", gzipBytes(t,
-		`{"Item":{"pk":{"S":"a"},"v":{"N":"1"}}}`+"\n"+
-			`{"Item":{"pk":{"S":"b"},"v":{"N":"2"}}}`+"\n"))
+		s3.put("src", "data/part-1.json.gz", gzipBytes(t,
+			`{"Item":{"pk":{"S":"a"},"v":{"N":"1"}}}`+"\n"+
+				`{"Item":{"pk":{"S":"b"},"v":{"N":"2"}}}`+"\n"))
 
-	out, err := db.ImportTable(t.Context(), &sdk.ImportTableInput{
-		S3BucketSource: &ddbtypes.S3BucketSource{
-			S3Bucket:    aws.String("src"),
-			S3KeyPrefix: aws.String("data/"),
-		},
-		InputFormat:             ddbtypes.InputFormatDynamodbJson,
-		InputCompressionType:    ddbtypes.InputCompressionTypeGzip,
-		TableCreationParameters: importCreationParams("ImportedJSON"),
+		out, err := db.ImportTable(t.Context(), &sdk.ImportTableInput{
+			S3BucketSource: &ddbtypes.S3BucketSource{
+				S3Bucket:    aws.String("src"),
+				S3KeyPrefix: aws.String("data/"),
+			},
+			InputFormat:             ddbtypes.InputFormatDynamodbJson,
+			InputCompressionType:    ddbtypes.InputCompressionTypeGzip,
+			TableCreationParameters: importCreationParams("ImportedJSON"),
+		})
+		require.NoError(t, err)
+
+		importDesc := waitForImport(t, db, aws.ToString(out.ImportTableDescription.ImportArn))
+
+		assert.Equal(t, ddbtypes.ImportStatusCompleted, importDesc.ImportTableDescription.ImportStatus)
+		assert.Equal(t, int64(2), importDesc.ImportTableDescription.ImportedItemCount)
+		assert.Equal(t, int64(2), importDesc.ImportTableDescription.ProcessedItemCount)
+
+		got, err := db.GetItem(t.Context(), &sdk.GetItemInput{
+			TableName: aws.String("ImportedJSON"),
+			Key: map[string]ddbtypes.AttributeValue{
+				"pk": &ddbtypes.AttributeValueMemberS{Value: "a"},
+			},
+		})
+		require.NoError(t, err)
+		require.NotEmpty(t, got.Item)
+		assert.Equal(t, "1", got.Item["v"].(*ddbtypes.AttributeValueMemberN).Value)
 	})
-	require.NoError(t, err)
-
-	importDesc := waitForImport(t, db, aws.ToString(out.ImportTableDescription.ImportArn))
-
-	assert.Equal(t, ddbtypes.ImportStatusCompleted, importDesc.ImportTableDescription.ImportStatus)
-	assert.Equal(t, int64(2), importDesc.ImportTableDescription.ImportedItemCount)
-	assert.Equal(t, int64(2), importDesc.ImportTableDescription.ProcessedItemCount)
-
-	got, err := db.GetItem(t.Context(), &sdk.GetItemInput{
-		TableName: aws.String("ImportedJSON"),
-		Key: map[string]ddbtypes.AttributeValue{
-			"pk": &ddbtypes.AttributeValueMemberS{Value: "a"},
-		},
-	})
-	require.NoError(t, err)
-	require.NotEmpty(t, got.Item)
-	assert.Equal(t, "1", got.Item["v"].(*ddbtypes.AttributeValueMemberN).Value)
 }
 
 // TestImportTable_FromS3_CSV verifies CSV ingestion with a header row.
 func TestImportTable_FromS3_CSV(t *testing.T) {
 	t.Parallel()
 
-	db := dynamodb.NewInMemoryDB()
-	s3 := newMockS3()
-	db.SetS3Backend(s3)
+	synctest.Test(t, func(t *testing.T) {
+		db := dynamodb.NewInMemoryDB()
+		s3 := newMockS3()
+		db.SetS3Backend(s3)
 
-	s3.put("src", "csv/rows.csv", []byte("pk,name\na,Alice\nb,Bob\n"))
+		s3.put("src", "csv/rows.csv", []byte("pk,name\na,Alice\nb,Bob\n"))
 
-	out, err := db.ImportTable(t.Context(), &sdk.ImportTableInput{
-		S3BucketSource: &ddbtypes.S3BucketSource{
-			S3Bucket:    aws.String("src"),
-			S3KeyPrefix: aws.String("csv/"),
-		},
-		InputFormat:             ddbtypes.InputFormatCsv,
-		TableCreationParameters: importCreationParams("ImportedCSV"),
+		out, err := db.ImportTable(t.Context(), &sdk.ImportTableInput{
+			S3BucketSource: &ddbtypes.S3BucketSource{
+				S3Bucket:    aws.String("src"),
+				S3KeyPrefix: aws.String("csv/"),
+			},
+			InputFormat:             ddbtypes.InputFormatCsv,
+			TableCreationParameters: importCreationParams("ImportedCSV"),
+		})
+		require.NoError(t, err)
+		importDesc := waitForImport(t, db, aws.ToString(out.ImportTableDescription.ImportArn))
+		assert.Equal(t, ddbtypes.ImportStatusCompleted, importDesc.ImportTableDescription.ImportStatus)
+		assert.Equal(t, int64(2), importDesc.ImportTableDescription.ImportedItemCount)
+
+		got, err := db.GetItem(t.Context(), &sdk.GetItemInput{
+			TableName: aws.String("ImportedCSV"),
+			Key: map[string]ddbtypes.AttributeValue{
+				"pk": &ddbtypes.AttributeValueMemberS{Value: "b"},
+			},
+		})
+		require.NoError(t, err)
+		require.NotEmpty(t, got.Item)
+		assert.Equal(t, "Bob", got.Item["name"].(*ddbtypes.AttributeValueMemberS).Value)
 	})
-	require.NoError(t, err)
-	importDesc := waitForImport(t, db, aws.ToString(out.ImportTableDescription.ImportArn))
-	assert.Equal(t, ddbtypes.ImportStatusCompleted, importDesc.ImportTableDescription.ImportStatus)
-	assert.Equal(t, int64(2), importDesc.ImportTableDescription.ImportedItemCount)
-
-	got, err := db.GetItem(t.Context(), &sdk.GetItemInput{
-		TableName: aws.String("ImportedCSV"),
-		Key: map[string]ddbtypes.AttributeValue{
-			"pk": &ddbtypes.AttributeValueMemberS{Value: "b"},
-		},
-	})
-	require.NoError(t, err)
-	require.NotEmpty(t, got.Item)
-	assert.Equal(t, "Bob", got.Item["name"].(*ddbtypes.AttributeValueMemberS).Value)
 }
 
 // TestImportTable_ION_Unsupported verifies that ION input fails the import cleanly.
 func TestImportTable_ION_Unsupported(t *testing.T) {
 	t.Parallel()
 
-	db := dynamodb.NewInMemoryDB()
-	s3 := newMockS3()
-	db.SetS3Backend(s3)
-	s3.put("src", "ion/data.ion", []byte("{pk: \"a\"}"))
+	synctest.Test(t, func(t *testing.T) {
+		db := dynamodb.NewInMemoryDB()
+		s3 := newMockS3()
+		db.SetS3Backend(s3)
+		s3.put("src", "ion/data.ion", []byte("{pk: \"a\"}"))
 
-	out, err := db.ImportTable(t.Context(), &sdk.ImportTableInput{
-		S3BucketSource: &ddbtypes.S3BucketSource{
-			S3Bucket:    aws.String("src"),
-			S3KeyPrefix: aws.String("ion/"),
-		},
-		InputFormat:             ddbtypes.InputFormatIon,
-		TableCreationParameters: importCreationParams("ImportedION"),
+		out, err := db.ImportTable(t.Context(), &sdk.ImportTableInput{
+			S3BucketSource: &ddbtypes.S3BucketSource{
+				S3Bucket:    aws.String("src"),
+				S3KeyPrefix: aws.String("ion/"),
+			},
+			InputFormat:             ddbtypes.InputFormatIon,
+			TableCreationParameters: importCreationParams("ImportedION"),
+		})
+		require.NoError(t, err)
+		importDesc := waitForImport(t, db, aws.ToString(out.ImportTableDescription.ImportArn))
+		assert.Equal(t, ddbtypes.ImportStatusFailed, importDesc.ImportTableDescription.ImportStatus)
+		assert.NotEmpty(t, aws.ToString(importDesc.ImportTableDescription.FailureCode))
 	})
-	require.NoError(t, err)
-	importDesc := waitForImport(t, db, aws.ToString(out.ImportTableDescription.ImportArn))
-	assert.Equal(t, ddbtypes.ImportStatusFailed, importDesc.ImportTableDescription.ImportStatus)
-	assert.NotEmpty(t, aws.ToString(importDesc.ImportTableDescription.FailureCode))
 }
 
 // TestExportImport_RoundTrip exports a populated table to S3 and re-imports it.
 func TestExportImport_RoundTrip(t *testing.T) {
 	t.Parallel()
 
-	db := dynamodb.NewInMemoryDB()
-	s3 := newMockS3()
-	db.SetS3Backend(s3)
-	h := dynamodb.NewHandler(db)
+	synctest.Test(t, func(t *testing.T) {
+		db := dynamodb.NewInMemoryDB()
+		s3 := newMockS3()
+		db.SetS3Backend(s3)
+		h := dynamodb.NewHandler(db)
 
-	createTableHelper(t, db, "SourceTbl", "pk")
-	for _, id := range []string{"x", "y", "z"} {
-		_, err := db.PutItem(t.Context(), &sdk.PutItemInput{
-			TableName: aws.String("SourceTbl"),
-			Item: map[string]ddbtypes.AttributeValue{
-				"pk": &ddbtypes.AttributeValueMemberS{Value: id},
+		createTableHelper(t, db, "SourceTbl", "pk")
+		for _, id := range []string{"x", "y", "z"} {
+			_, err := db.PutItem(t.Context(), &sdk.PutItemInput{
+				TableName: aws.String("SourceTbl"),
+				Item: map[string]ddbtypes.AttributeValue{
+					"pk": &ddbtypes.AttributeValueMemberS{Value: id},
+				},
+			})
+			require.NoError(t, err)
+		}
+
+		tbl, ok := db.GetTable("SourceTbl")
+		require.True(t, ok)
+
+		// Export to S3 via the handler.
+		code, res := invokeOp(t, h, "ExportTableToPointInTime", map[string]any{
+			"TableArn": tbl.TableArn,
+			"S3Bucket": "exb",
+			"S3Prefix": "out",
+		})
+		require.Equal(t, 200, code)
+		waitForExport(t, h, res["ExportDescription"].(map[string]any)["ExportArn"].(string))
+
+		// Re-import the exported data into a new table from the data/ prefix.
+		var dataPrefix string
+		for k := range s3.objects {
+			if strings.Contains(k, "/data/") {
+				_, key, _ := strings.Cut(k, "/")
+				dataPrefix = strings.TrimSuffix(key, "00000.json.gz")
+			}
+		}
+		require.NotEmpty(t, dataPrefix, "export must write a data object")
+
+		out, err := db.ImportTable(t.Context(), &sdk.ImportTableInput{
+			S3BucketSource: &ddbtypes.S3BucketSource{
+				S3Bucket:    aws.String("exb"),
+				S3KeyPrefix: aws.String(dataPrefix),
 			},
+			InputFormat:             ddbtypes.InputFormatDynamodbJson,
+			InputCompressionType:    ddbtypes.InputCompressionTypeGzip,
+			TableCreationParameters: importCreationParams("RoundTripTbl"),
 		})
 		require.NoError(t, err)
-	}
-
-	tbl, ok := db.GetTable("SourceTbl")
-	require.True(t, ok)
-
-	// Export to S3 via the handler.
-	code, res := invokeOp(t, h, "ExportTableToPointInTime", map[string]any{
-		"TableArn": tbl.TableArn,
-		"S3Bucket": "exb",
-		"S3Prefix": "out",
+		importDesc := waitForImport(t, db, aws.ToString(out.ImportTableDescription.ImportArn))
+		assert.Equal(t, int64(3), importDesc.ImportTableDescription.ImportedItemCount)
 	})
-	require.Equal(t, 200, code)
-	waitForExport(t, h, res["ExportDescription"].(map[string]any)["ExportArn"].(string))
-
-	// Re-import the exported data into a new table from the data/ prefix.
-	var dataPrefix string
-	for k := range s3.objects {
-		if strings.Contains(k, "/data/") {
-			_, key, _ := strings.Cut(k, "/")
-			dataPrefix = strings.TrimSuffix(key, "00000.json.gz")
-		}
-	}
-	require.NotEmpty(t, dataPrefix, "export must write a data object")
-
-	out, err := db.ImportTable(t.Context(), &sdk.ImportTableInput{
-		S3BucketSource: &ddbtypes.S3BucketSource{
-			S3Bucket:    aws.String("exb"),
-			S3KeyPrefix: aws.String(dataPrefix),
-		},
-		InputFormat:             ddbtypes.InputFormatDynamodbJson,
-		InputCompressionType:    ddbtypes.InputCompressionTypeGzip,
-		TableCreationParameters: importCreationParams("RoundTripTbl"),
-	})
-	require.NoError(t, err)
-	importDesc := waitForImport(t, db, aws.ToString(out.ImportTableDescription.ImportArn))
-	assert.Equal(t, int64(3), importDesc.ImportTableDescription.ImportedItemCount)
 }
 
 func TestImportTable_MissingTableCreationParameters(t *testing.T) {

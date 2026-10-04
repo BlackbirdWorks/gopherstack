@@ -5,6 +5,7 @@ package elb
 import (
 	"context"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
@@ -20,6 +21,10 @@ type regionContextKey struct{}
 // references never occur and isolation is always safe.
 func getRegion(ctx context.Context, defaultRegion string) string {
 	if r, ok := ctx.Value(regionContextKey{}).(string); ok && r != "" {
+		return r
+	}
+
+	if r := awsmeta.Region(ctx); r != "" {
 		return r
 	}
 

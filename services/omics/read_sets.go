@@ -86,14 +86,8 @@ func (b *InMemoryBackend) ListReadSets(
 	ids := make([]string, 0, len(group))
 
 	for _, rs := range group {
-		if filter != nil {
-			if filter.Name != "" && rs.Name != filter.Name {
-				continue
-			}
-
-			if filter.Status != "" && rs.Status != filter.Status {
-				continue
-			}
+		if !filter.matches(rs) {
+			continue
 		}
 
 		ids = append(ids, rs.ID)
@@ -178,6 +172,7 @@ func (b *InMemoryBackend) GetReadSetActivationJob(
 // ListReadSetActivationJobs lists read set activation jobs.
 func (b *InMemoryBackend) ListReadSetActivationJobs(
 	sequenceStoreID string,
+	filter *ReadSetJobFilter,
 	maxResults int,
 	nextToken string,
 ) ([]*ReadSetActivationJob, string, error) {
@@ -192,6 +187,10 @@ func (b *InMemoryBackend) ListReadSetActivationJobs(
 	ids := make([]string, 0, len(group))
 
 	for _, j := range group {
+		if !filter.matches(j.Status, j.CreationTime) {
+			continue
+		}
+
 		ids = append(ids, j.ID)
 	}
 
@@ -268,6 +267,7 @@ func (b *InMemoryBackend) GetReadSetExportJob(
 // ListReadSetExportJobs lists read set export jobs.
 func (b *InMemoryBackend) ListReadSetExportJobs(
 	sequenceStoreID string,
+	filter *ReadSetJobFilter,
 	maxResults int,
 	nextToken string,
 ) ([]*ReadSetExportJob, string, error) {
@@ -282,6 +282,10 @@ func (b *InMemoryBackend) ListReadSetExportJobs(
 	ids := make([]string, 0, len(group))
 
 	for _, j := range group {
+		if !filter.matches(j.Status, j.CreationTime) {
+			continue
+		}
+
 		ids = append(ids, j.ID)
 	}
 
@@ -379,6 +383,7 @@ func (b *InMemoryBackend) GetReadSetImportJob(
 // ListReadSetImportJobs lists read set import jobs.
 func (b *InMemoryBackend) ListReadSetImportJobs(
 	sequenceStoreID string,
+	filter *ReadSetJobFilter,
 	maxResults int,
 	nextToken string,
 ) ([]*ReadSetImportJob, string, error) {
@@ -393,6 +398,10 @@ func (b *InMemoryBackend) ListReadSetImportJobs(
 	ids := make([]string, 0, len(group))
 
 	for _, j := range group {
+		if !filter.matches(j.Status, j.CreationTime) {
+			continue
+		}
+
 		ids = append(ids, j.ID)
 	}
 

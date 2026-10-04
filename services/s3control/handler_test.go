@@ -639,7 +639,8 @@ func TestSeedHelpers(t *testing.T) {
 	require.NotNil(t, inst)
 	assert.Equal(t, 1, s3control.AccessGrantsInstanceCount(b))
 
-	grant := b.AddAccessGrantInternal("a1", "loc1", "DIRECTORY_USER", "u@x.com", "READ")
+	seedLoc := b.CreateAccessGrantsLocation("a1", "s3://bucket/", "arn:aws:iam::a1:role/r")
+	grant := b.AddAccessGrantInternal("a1", seedLoc.AccessGrantsLocationID, "DIRECTORY_USER", "u@x.com", "READ")
 	require.NotNil(t, grant)
 	assert.Equal(t, 1, s3control.AccessGrantCount(b))
 

@@ -47,12 +47,16 @@ func (b *InMemoryBackend) UpdateShardCount(
 	b.mu.Lock("UpdateShardCount")
 	defer b.mu.Unlock()
 
-	stream, ok := b.streams.Get(streamKey(region, input.StreamName))
-	if !ok {
-		return nil, ErrStreamNotFound
+	stream, err := b.resolveStreamTransitionLocked(region, input.StreamName)
+	if err != nil {
+		return nil, err
 	}
 	stream.mu.Lock("UpdateShardCount.stream")
 	defer stream.mu.Unlock()
+
+	if stream.Status != streamStatusActive {
+		return nil, ErrStreamNotActive
+	}
 
 	if stream.StreamMode == streamModeOnDemand {
 		return nil, ErrInvalidArgument
@@ -83,6 +87,8 @@ func (b *InMemoryBackend) UpdateShardCount(
 	}
 
 	reshardTo(stream, targetCount)
+	stream.Status = streamStatusUpdating
+	stream.ReadyAt = b.nowFunc().Add(streamTransitionDelay)
 
 	return &UpdateShardCountOutput{
 		StreamName:        input.StreamName,
@@ -189,6 +195,38 @@ func nextShardID(shards []*Shard) string {
 	return fmt.Sprintf("shardId-%012d", nextShardIDIndex(shards))
 }
 
+// mergedHashRange returns the combined [start, end] hash key range of two
+// adjacent shards, or ok=false if they are not actually adjacent (a gap
+// between their ranges).
+func mergedHashRange(shard1, shard2 *Shard) (*big.Int, *big.Int, bool) {
+	s1Start := new(big.Int)
+	s1Start.SetString(shard1.HashKeyRangeStart, hashKeyDecimalBase)
+	s2Start := new(big.Int)
+	s2Start.SetString(shard2.HashKeyRangeStart, hashKeyDecimalBase)
+	s1End := new(big.Int)
+	s1End.SetString(shard1.HashKeyRangeEnd, hashKeyDecimalBase)
+	s2End := new(big.Int)
+	s2End.SetString(shard2.HashKeyRangeEnd, hashKeyDecimalBase)
+
+	s1EndPlusOne := new(big.Int).Add(s1End, big.NewInt(1))
+	s2EndPlusOne := new(big.Int).Add(s2End, big.NewInt(1))
+	if s1EndPlusOne.Cmp(s2Start) != 0 && s2EndPlusOne.Cmp(s1Start) != 0 {
+		return nil, nil, false
+	}
+
+	start := s1Start
+	if s2Start.Cmp(s1Start) < 0 {
+		start = s2Start
+	}
+
+	end := s1End
+	if s2End.Cmp(s1End) > 0 {
+		end = s2End
+	}
+
+	return start, end, true
+}
+
 // MergeShards merges two adjacent shards into one.
 // The merged shard spans the combined hash key range of both parent shards.
 func (b *InMemoryBackend) MergeShards(ctx context.Context, input *MergeShardsInput) error {
@@ -202,12 +240,16 @@ func (b *InMemoryBackend) MergeShards(ctx context.Context, input *MergeShardsInp
 		streamName = streamNameFromARN(input.StreamARN)
 	}
 
-	stream, ok := b.streams.Get(streamKey(region, streamName))
-	if !ok {
-		return ErrStreamNotFound
+	stream, err := b.resolveStreamTransitionLocked(region, streamName)
+	if err != nil {
+		return err
 	}
 	stream.mu.Lock("MergeShards.stream")
 	defer stream.mu.Unlock()
+
+	if stream.Status != streamStatusActive {
+		return ErrStreamNotActive
+	}
 
 	if stream.StreamMode == streamModeOnDemand {
 		return ErrInvalidArgument
@@ -223,30 +265,9 @@ func (b *InMemoryBackend) MergeShards(ctx context.Context, input *MergeShardsInp
 		return ErrInvalidArgument
 	}
 
-	// Determine the merged range: min start, max end.
-	s1Start := new(big.Int)
-	s1Start.SetString(shard1.HashKeyRangeStart, hashKeyDecimalBase)
-	s2Start := new(big.Int)
-	s2Start.SetString(shard2.HashKeyRangeStart, hashKeyDecimalBase)
-	s1End := new(big.Int)
-	s1End.SetString(shard1.HashKeyRangeEnd, hashKeyDecimalBase)
-	s2End := new(big.Int)
-	s2End.SetString(shard2.HashKeyRangeEnd, hashKeyDecimalBase)
-
-	s1EndPlusOne := new(big.Int).Add(s1End, big.NewInt(1))
-	s2EndPlusOne := new(big.Int).Add(s2End, big.NewInt(1))
-	if s1EndPlusOne.Cmp(s2Start) != 0 && s2EndPlusOne.Cmp(s1Start) != 0 {
+	startKey, endKey, ok := mergedHashRange(shard1, shard2)
+	if !ok {
 		return ErrInvalidArgument
-	}
-
-	startKey := s1Start
-	if s2Start.Cmp(s1Start) < 0 {
-		startKey = s2Start
-	}
-
-	endKey := s1End
-	if s2End.Cmp(s1End) > 0 {
-		endKey = s2End
 	}
 
 	mergedID := nextShardID(stream.Shards)
@@ -268,6 +289,8 @@ func (b *InMemoryBackend) MergeShards(ctx context.Context, input *MergeShardsInp
 	newShards = append(newShards, stream.Shards...)
 	newShards = append(newShards, merged)
 	stream.Shards = newShards
+	stream.Status = streamStatusUpdating
+	stream.ReadyAt = b.nowFunc().Add(streamTransitionDelay)
 
 	return nil
 }
@@ -284,12 +307,16 @@ func (b *InMemoryBackend) SplitShard(ctx context.Context, input *SplitShardInput
 		streamName = streamNameFromARN(input.StreamARN)
 	}
 
-	stream, ok := b.streams.Get(streamKey(region, streamName))
-	if !ok {
-		return ErrStreamNotFound
+	stream, err := b.resolveStreamTransitionLocked(region, streamName)
+	if err != nil {
+		return err
 	}
 	stream.mu.Lock("SplitShard.stream")
 	defer stream.mu.Unlock()
+
+	if stream.Status != streamStatusActive {
+		return ErrStreamNotActive
+	}
 
 	if stream.StreamMode == streamModeOnDemand {
 		return ErrInvalidArgument
@@ -320,7 +347,7 @@ func (b *InMemoryBackend) SplitShard(ctx context.Context, input *SplitShardInput
 	shard1ID := nextShardID(stream.Shards)
 
 	var shard1Idx int
-	if _, err := fmt.Sscanf(shard1ID, "shardId-%012d", &shard1Idx); err != nil {
+	if _, scanErr := fmt.Sscanf(shard1ID, "shardId-%012d", &shard1Idx); scanErr != nil {
 		// nextShardID guarantees the format; this path is unreachable in practice.
 		shard1Idx = len(stream.Shards)
 	}
@@ -352,6 +379,8 @@ func (b *InMemoryBackend) SplitShard(ctx context.Context, input *SplitShardInput
 	newShards = append(newShards, stream.Shards...)
 	newShards = append(newShards, shard1, shard2)
 	stream.Shards = newShards
+	stream.Status = streamStatusUpdating
+	stream.ReadyAt = b.nowFunc().Add(streamTransitionDelay)
 
 	return nil
 }

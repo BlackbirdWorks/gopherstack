@@ -660,3 +660,12 @@ path. All three token maps are persisted; added the additive
 ./pkgs/persistence/ -update` diff reviewed and applied). Regression tests:
 `TestApplicationTokens_TTLBoundsMapGrowth` and
 `TestDeleteApplication_PurgesTokenState` (idempotency_ttl_internal_test.go).
+
+## 2026-10-03 (gopherstack-uox6, value-semantics sweep)
+
+FIXED: ListApplications/ListJobRuns read `states` with a single `q.Get`, so a request naming several states filtered on the first only (the SDK sends one `states` query entry per state, `serializers.go:929`). Both now consume every value and group the result by state ("if this filter contains multiple states, the resulting list will be grouped by the state"). ListJobRuns also applies `createdAtAfter`/`createdAtBefore` (inclusive) and `mode` (an unset run mode counts as BATCH). Proven by `list_filters_test.go`. `ListJobRuns` backend signature now takes `JobRunFilter`.
+Recorded: the SDK query encoder sorts repeated values, so request order of `states` is not observable on the wire.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+emrserverless is region-isolated: Applications, job runs and sessions live per region. Tagging bridge covers every region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/emrserverless`. Limitation: the dashboard shows the home region only.

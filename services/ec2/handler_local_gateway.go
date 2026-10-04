@@ -581,6 +581,8 @@ func (h *Handler) handleSearchLocalGatewayRoutes(vals url.Values, reqID string) 
 		return nil, err
 	}
 
+	routes = applyLocalGatewayRouteFilters(routes, parseEC2Filters(vals))
+
 	resp := &searchLocalGatewayRoutesResponse{RequestID: reqID}
 	for _, r := range routes {
 		resp.Routes.Items = append(resp.Routes.Items, localGatewayRouteToItem(r))

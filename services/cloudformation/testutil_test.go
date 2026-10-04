@@ -1,6 +1,7 @@
 package cloudformation_test
 
 import (
+	"context"
 	"testing"
 
 	acmbackend "github.com/blackbirdworks/gopherstack/services/acm"
@@ -42,23 +43,43 @@ import (
 )
 
 // newServiceBackends creates a ServiceBackends with all real in-memory backends.
-func newServiceBackends() *cloudformation.ServiceBackends {
+func newServiceBackends(tb testing.TB) *cloudformation.ServiceBackends {
+	tb.Helper()
+
+	sqsBackend := sqsbackend.NewInMemoryBackend()
+	tb.Cleanup(sqsBackend.Close)
+
+	sqsHandler := sqsbackend.NewHandler(sqsBackend)
+	smHandler := smbackend.NewHandler(smbackend.NewInMemoryBackend())
+	shutdownOnCleanup(tb, smHandler)
+
 	return &cloudformation.ServiceBackends{
 		DynamoDB:       ddbbackend.NewHandler(ddbbackend.NewInMemoryDB()),
 		S3:             s3backend.NewHandler(s3backend.NewInMemoryBackend(nil)),
-		SQS:            sqsbackend.NewHandler(sqsbackend.NewInMemoryBackend()),
+		SQS:            sqsHandler,
 		SNS:            snsbackend.NewHandler(snsbackend.NewInMemoryBackend()),
 		SSM:            ssmbackend.NewHandler(ssmbackend.NewInMemoryBackend()),
 		KMS:            kmsbackend.NewHandler(kmsbackend.NewInMemoryBackend()),
-		SecretsManager: smbackend.NewHandler(smbackend.NewInMemoryBackend()),
+		SecretsManager: smHandler,
 		AccountID:      "000000000000",
 		Region:         "us-east-1",
 	}
 }
 
+// shutdownOnCleanup stops each handler's background goroutines when the test ends.
+func shutdownOnCleanup(tb testing.TB, hs ...service.Shutdowner) {
+	tb.Helper()
+
+	for _, h := range hs {
+		tb.Cleanup(func() { h.Shutdown(context.Background()) })
+	}
+}
+
 // newExtendedServiceBackends creates a ServiceBackends with all backends including extended types.
-func newExtendedServiceBackends() *cloudformation.ServiceBackends {
-	b := newServiceBackends()
+func newExtendedServiceBackends(tb testing.TB) *cloudformation.ServiceBackends {
+	tb.Helper()
+
+	b := newServiceBackends(tb)
 	b.EventBridge = ebbackend.NewHandler(
 		ebbackend.NewInMemoryBackendWithConfig("000000000000", "us-east-1"),
 	)
@@ -89,8 +110,10 @@ func newExtendedServiceBackends() *cloudformation.ServiceBackends {
 }
 
 // newAdditionalServiceBackends creates a ServiceBackends with all phase 2 backends (RDS, ECS, etc.).
-func newAdditionalServiceBackends() *cloudformation.ServiceBackends {
-	b := newExtendedServiceBackends()
+func newAdditionalServiceBackends(tb testing.TB) *cloudformation.ServiceBackends {
+	tb.Helper()
+
+	b := newExtendedServiceBackends(tb)
 	b.RDS = rdsbackend.NewHandler(rdsbackend.NewInMemoryBackend("000000000000", "us-east-1"))
 	b.ECS = ecsbackend.NewHandler(
 		ecsbackend.NewInMemoryBackend("000000000000", "us-east-1", nil),
@@ -126,8 +149,10 @@ func newAdditionalServiceBackends() *cloudformation.ServiceBackends {
 }
 
 // newLambdaServiceBackends creates a ServiceBackends with a real Lambda backend.
-func newLambdaServiceBackends() *cloudformation.ServiceBackends {
-	b := newExtendedServiceBackends()
+func newLambdaServiceBackends(tb testing.TB) *cloudformation.ServiceBackends {
+	tb.Helper()
+
+	b := newExtendedServiceBackends(tb)
 	lambdaBk := lambdabackend.NewInMemoryBackend(
 		nil,
 		nil,
@@ -151,15 +176,24 @@ type mockBackendsProvider struct {
 	sm  *smbackend.Handler
 }
 
-func newMockBackendsProvider() *mockBackendsProvider {
+func newMockBackendsProvider(tb testing.TB) *mockBackendsProvider {
+	tb.Helper()
+
+	sqsBackend := sqsbackend.NewInMemoryBackend()
+	tb.Cleanup(sqsBackend.Close)
+
+	sqsHandler := sqsbackend.NewHandler(sqsBackend)
+	smHandler := smbackend.NewHandler(smbackend.NewInMemoryBackend())
+	shutdownOnCleanup(tb, smHandler)
+
 	return &mockBackendsProvider{
 		ddb: ddbbackend.NewHandler(ddbbackend.NewInMemoryDB()),
 		s3h: s3backend.NewHandler(s3backend.NewInMemoryBackend(nil)),
-		sqs: sqsbackend.NewHandler(sqsbackend.NewInMemoryBackend()),
+		sqs: sqsHandler,
 		sns: snsbackend.NewHandler(snsbackend.NewInMemoryBackend()),
 		ssm: ssmbackend.NewHandler(ssmbackend.NewInMemoryBackend()),
 		kms: kmsbackend.NewHandler(kmsbackend.NewInMemoryBackend()),
-		sm:  smbackend.NewHandler(smbackend.NewInMemoryBackend()),
+		sm:  smHandler,
 	}
 }
 
@@ -213,10 +247,10 @@ func (m *mockConfigProvider) GetGlobalConfig() *config.GlobalConfig {
 }
 
 // newExtraServiceBackends creates a ServiceBackends with all phase-5 backends populated.
-func newExtraServiceBackends(t *testing.T) *cloudformation.ServiceBackends {
-	t.Helper()
+func newExtraServiceBackends(tb testing.TB) *cloudformation.ServiceBackends {
+	tb.Helper()
 
-	b := newMoreTypesServiceBackends(t)
+	b := newMoreTypesServiceBackends(tb)
 	b.AppAutoScaling = appautoscalingbackend.NewHandler(
 		appautoscalingbackend.NewInMemoryBackend("000000000000", "us-east-1"),
 	)

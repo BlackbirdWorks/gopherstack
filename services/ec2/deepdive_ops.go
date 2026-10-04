@@ -9,6 +9,14 @@ import (
 
 // CreateImage creates an AMI from an instance.
 func (b *InMemoryBackend) CreateImage(instanceID, name, description string) (*AMIStub, error) {
+	return b.CreateImageWithLocation(instanceID, name, description, "")
+}
+
+// CreateImageWithLocation is CreateImage plus SnapshotLocation (local or
+// regional; local only for instances in a Local Zone).
+func (b *InMemoryBackend) CreateImageWithLocation(
+	instanceID, name, description, snapshotLocation string,
+) (*AMIStub, error) {
 	if instanceID == "" {
 		return nil, fmt.Errorf("%w: InstanceId is required", ErrInvalidParameter)
 	}
@@ -16,8 +24,13 @@ func (b *InMemoryBackend) CreateImage(instanceID, name, description string) (*AM
 	b.mu.Lock("CreateImage")
 	defer b.mu.Unlock()
 
-	if _, ok := b.instances.Get(instanceID); !ok {
+	inst, ok := b.instances.Get(instanceID)
+	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
+	}
+
+	if err := validateSnapshotLocation(snapshotLocation, inst.Placement.AvailabilityZone, b.Region); err != nil {
+		return nil, err
 	}
 
 	if name == "" {

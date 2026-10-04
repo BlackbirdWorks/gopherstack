@@ -45,6 +45,10 @@ func (b *InMemoryBackend) customAuthRound(
 		return nil, err
 	}
 
+	if curErr := b.authUserCurrentLocked(pool, user); curErr != nil {
+		return nil, curErr
+	}
+
 	if failAuthentication {
 		return nil, fmt.Errorf("%w: incorrect username or password", ErrNotAuthorized)
 	}
@@ -65,6 +69,10 @@ func (b *InMemoryBackend) customAuthRound(
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	if curErr := b.authUserCurrentLocked(pool, user); curErr != nil {
+		return nil, curErr
 	}
 
 	sessionToken := randomAlphanumeric(mfaSessionLen)
@@ -127,13 +135,18 @@ func (b *InMemoryBackend) RespondToCustomAuthChallenge(clientID, session, answer
 		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, entry.Username)
 	}
 
+	// Consume the session before the unlocked Lambda call so a replay cannot reuse it.
+	delete(b.mfaSessions, session)
+
 	answerCorrect, err := b.verifyCustomAuthChallenge(
 		pool, clientID, user.Username, user.Attributes, entry.CustomAuthPrivateParams, answer,
 	)
 	if err != nil {
-		delete(b.mfaSessions, session)
-
 		return nil, err
+	}
+
+	if curErr := b.authUserCurrentLocked(pool, user); curErr != nil {
+		return nil, curErr
 	}
 
 	nextSession := make([]customAuthChallengeResult, 0, len(entry.CustomAuthSession)+1)
@@ -143,10 +156,6 @@ func (b *InMemoryBackend) RespondToCustomAuthChallenge(clientID, session, answer
 		ChallengeResult:   answerCorrect,
 		ChallengeMetadata: entry.CustomAuthChallengeMetadata,
 	})
-
-	// Consume this round's session; customAuthRound mints a fresh one if another
-	// challenge follows.
-	delete(b.mfaSessions, session)
 
 	return b.customAuthRound(pool, clientID, user, nextSession)
 }

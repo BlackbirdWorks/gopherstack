@@ -269,6 +269,7 @@ type StorageBackend interface {
 	) (*OTAUpdate, error)
 	GetOTAUpdate(id string) (*OTAUpdate, error)
 	DeleteOTAUpdate(id string) error
+	DeleteOTAUpdateWithOptions(id string, forceDeleteJob bool) error
 	ListOTAUpdates() []*OTAUpdate
 
 	// Batch 3: IoT Packages.
@@ -296,6 +297,14 @@ type StorageBackend interface {
 	UpdatePackageConfiguration(cfg map[string]any) error
 
 	// Batch 3: Audit suppressions.
+	CreateAuditSuppressionWithToken(
+		checkName string,
+		resourceID map[string]any,
+		description string,
+		suppressIndefinitely bool,
+		expirationDate float64,
+		clientRequestToken string,
+	) error
 	CreateAuditSuppression(
 		checkName string,
 		resourceID map[string]any,

@@ -74,7 +74,7 @@ func (h *Handler) handleCreateRegexPatternSet(ctx context.Context, body []byte) 
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "wafv2: created regex pattern set", "name", rps.Name, "id", rps.ID)
 
-	arnStr := h.Backend.RegexPatternSetARN(rps.Name, rps.ID, rps.Scope)
+	arnStr := rps.ARN
 
 	return json.Marshal(map[string]any{
 		keySummary: map[string]string{
@@ -177,7 +177,7 @@ func (h *Handler) handleGetRegexPatternSet(ctx context.Context, body []byte) ([]
 		)
 	}
 
-	arnStr := h.Backend.RegexPatternSetARN(r.Name, r.ID, r.Scope)
+	arnStr := r.ARN
 
 	return json.Marshal(map[string]any{
 		"RegexPatternSet": map[string]any{
@@ -202,7 +202,7 @@ func (h *Handler) handleListRegexPatternSets(ctx context.Context, body []byte) (
 			return map[string]string{
 				"Id":           r.ID,
 				keyName:        r.Name,
-				keyARN:         h.Backend.RegexPatternSetARN(r.Name, r.ID, r.Scope),
+				keyARN:         r.ARN,
 				keyLockToken:   r.LockToken,
 				keyDescription: r.Description,
 			}

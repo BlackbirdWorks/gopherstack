@@ -237,155 +237,82 @@ gaps: []
   # - [FIXED, prior pass] CreateDBShardGroup/DeleteDBShardGroup/ModifyDBShardGroup/RebootDBShardGroup and CreateIntegration/DeleteIntegration/ModifyIntegration and CreateCustomDBEngineVersion/DeleteCustomDBEngineVersion/ModifyCustomDBEngineVersion (10 ops total) previously wrapped their response fields one XML level too deep (e.g. `<CreateDBShardGroupResult><DBShardGroup><DBShardGroupIdentifier>...`) when the real aws-sdk-go-v2 output for all 10 is a FLAT shape with no such wrapper (`<CreateDBShardGroupResult><DBShardGroupIdentifier>...`) — see Notes. A real aws-sdk-go-v2 client's query-XML deserializer only looks for named fields as direct children of the `<XxxResult>` element, so every field on these 10 ops (including the identifier needed to address the resource in a follow-up call) previously came back empty/zero to a real SDK client, even though the emulator's backend state was correct.
   # - [FIXED, prior pass] CreateCustomDBEngineVersion/ModifyCustomDBEngineVersion additionally serialized the description field under the wrong element name (`DatabaseInstallationFilesS3BucketName` instead of `DBEngineVersionDescription`) — see Notes.
 items_still_open:
-  - "OPEN 2026-09-13 (gopherstack-xhu2t tier-1 sweep): 11 request fields across
-    CreateDBCluster/CreateDBInstance/CreateTenantDatabase/ModifyDBCluster/
-    ModifyDBInstance(x2: MasterUserSecretKmsKeyId + MasterUserPassword)/
-    ModifyTenantDatabase/RestoreDBClusterFromS3/RestoreDBInstanceFromDBSnapshot/
-    RestoreDBInstanceFromS3/RestoreDBInstanceToPointInTime's .MasterUserSecretKmsKeyId
-    are accepted-but-dropped: this backend has no Secrets Manager integration
-    (no modeled ManageMasterUserPassword/RotateMasterUserPassword/master-secret
-    ARN anywhere), matching the pre-existing, already-documented precedent in
-    tenant_databases.go's ModifyTenantDatabase doc comment ('real
-    ManageMasterUserPassword/MasterUserPassword/MasterUserSecretKmsKeyId/
-    RotateMasterUserPassword aren't modeled by TenantDatabase -- no Secrets
-    Manager integration in this backend'). Implementing this for real would mean
-    building a master-password rotation/secret-ARN subsystem from scratch, not a
-    wire-field fix; declined, consistent with the existing precedent rather than
-    inventing a fabricated secret ARN."
-  - "OPEN 2026-09-13 (gopherstack-xhu2t): DeleteTenantDatabase.SkipFinalSnapshot
-    is accepted-but-dropped -- tenant database snapshots aren't modeled at all
-    (no TenantDatabase-scoped snapshot entity anywhere in this backend), so
-    there is no final-snapshot behavior to gate on the flag."
-  - "OPEN 2026-09-13 (gopherstack-xhu2t): DescribeDBClusterSnapshots/
-    DescribeDBSnapshots .IncludePublic/.IncludeShared (4 fields) are
-    accepted-but-dropped. This backend is single-account/single-tenant: every
-    snapshot it holds already belongs to the caller, and there is no
-    cross-account snapshot-sharing or AWS-public-snapshot-marketplace data
-    anywhere to additionally reveal when either flag is set, so the flags have
-    no observable effect to implement without fabricating other accounts'
-    data."
-  - "OPEN 2026-09-13 (gopherstack-xhu2t): DescribeDBEngineVersions
-    .ListSupportedCharacterSets/.ListSupportedTimezones (2 fields) are
-    accepted-but-dropped -- this backend's engine-version catalog
-    (engine_versions.go's static builtin list) has no per-version character-set
-    or timezone catalog to attach a SupportedCharacterSets/SupportedTimezones
-    list to; DescribeDBEngineVersions.IncludeAll is likewise dropped, since the
-    real flag's effect is including deprecated/non-default versions and this
-    catalog has no deprecated-version/status concept at all (every entry is
-    implicitly current) -- unlike DefaultOnly (FIXED this pass, see Notes),
-    which only needed a per-entry IsDefault bookkeeping flag, IncludeAll would
-    need fabricating deprecated version data that doesn't exist."
-  - "OPEN 2026-09-13 (gopherstack-xhu2t): ModifyDBInstance.CertificateRotationRestart
-    is accepted-but-dropped. Real AWS restarts the instance when a pending CA
-    certificate rotation requires it; this backend has no CA-certificate-rotation
-    concept tied to instances (only the account-level default CA via
-    ModifyCertificates) and reusing the existing RebootDBInstance state machine
-    here would fabricate a rotation-triggered-restart distinction this backend
-    cannot actually detect (every ModifyDBInstance already transitions the
-    instance through 'modifying', so there is no distinguishable additional
-    effect to add)."
-  - "OPEN 2026-09-13 (gopherstack-xhu2t): ModifyDBInstance.ResumeFullAutomationModeMinutes
-    is accepted-but-dropped -- RDS Custom's automation-mode pause/resume
-    lifecycle (AutomationMode field, ResumeFullAutomationModeMinutes' pairing)
-    isn't modeled anywhere in this backend; instances have no automation-mode
-    state to resume."
-  - "OPEN 2026-09-13 (gopherstack-xhu2t): ModifyDBProxyTargetGroup.NewName is
-    accepted-but-dropped. Real AWS's own doc comment on this field says 'You
-    can't rename the default target group' (rds@v1.124.1
-    api_op_ModifyDBProxyTargetGroup.go), and this backend, matching real AWS,
-    only ever creates the single implicit 'default' target group per proxy
-    (CreateDBProxy) -- there is no non-default target group this field could
-    ever legally apply to, so it can never have an observable effect here
-    either."
-  - "OPEN 2026-09-13 (gopherstack-xhu2t): RestoreDBClusterToPointInTime/
-    RestoreDBInstanceToPointInTime .UseLatestRestorableTime (2 fields) are
-    accepted-but-dropped, tied to the existing RestoreTime gap on both ops
-    (tier5, no strong signal -- point-in-time restore-to-an-exact-timestamp
-    isn't modeled; both ops always restore from the source's current live
-    state). UseLatestRestorableTime is RestoreTime's boolean alternative
-    ('use the latest point in time') and adds no new capability beyond that
-    already-current-state default, so it has nothing additional to gate."
-  - "OPEN 2026-09-13 (gopherstack-xhu2t): SwitchoverBlueGreenDeployment.SwitchoverTimeout
-    is accepted-but-dropped -- this backend's blue/green switchover completes
-    synchronously with no async timing/deadline machinery, so there is no
-    in-progress operation a timeout could ever cut short."
-  - "OPEN 2026-09-11 (gopherstack-qpxye): DescribeEngineDefaultParameters always returns an
-    empty Parameters list. Real AWS returns the engine family's default parameter set (a
-    few hundred parameters per DBParameterGroupFamily, e.g. mysql8.0), but this backend
-    has no seeded default-parameter data anywhere to serve it from -- CreateDBParameterGroup
-    (parameter_groups.go) creates groups with an empty Parameters map, there is no
-    default.<family> seeding on startup, and the pinned SDK module
-    (aws-sdk-go-v2/service/rds@v1.124.1) carries no enumerable default-value data to derive
-    a real set from (EngineDefaults.Parameters, types.go:3673, is populated server-side by
-    RDS itself, not documented as a static table anywhere in this SDK version). Seeding a
-    'small honest subset' would mean inventing which of the real several-hundred parameters
-    to include and what their real default values are, with nothing in this repo's
-    dependencies to verify either against -- the same fabrication risk already declined for
-    DescribeServerlessV2PlatformVersions below, for the identical reason (no authoritative
-    source to check against). applyDBParameterFilters (shared with DescribeDBParameters/
-    DescribeDBClusterParameters) is already wired into this op's Filters contract per its
-    own doc comment ('the only supported filter is parameter-name') and narrows correctly
-    the moment real data exists; only the data source is missing. Would need either (a) a
-    hand-maintained per-family default table cited against AWS's own published parameter
-    group documentation (a real research/verification project, not a coding task), or (b)
-    accepting the empty list as this backend's permanent, disclosed answer for this op."
-  - "FIXED 2026-09-11 (gopherstack-qpxye, four of the five ops gopherstack-vl4m's two
-    filter-fixing batches left with working matchers but no data to match against; see the
-    OPEN entry above for the fifth, DescribeEngineDefaultParameters, which stays
-    undisclosed-empty on purpose). DescribeDBClusterBacktracks: BacktrackDBCluster now
-    persists the DBClusterBacktrack it builds into a new clusterBacktracks store instead of
-    discarding it, and Describe reads that store (db_clusters.go).
-    DescribePendingMaintenanceActions: ModifyDBInstance with ApplyImmediately=false and an
-    EngineVersion change now queues a pending db-upgrade action, and
-    ApplyPendingMaintenanceAction with OptInType=immediate applies the deferred change and
-    clears it (maintenance.go, db_instances.go, lifecycle.go); next-maintenance/undo-opt-in
-    remain validated-but-inert, same as before. DescribeDBClusterAutomatedBackups:
-    CreateDBCluster with BackupRetentionPeriod>0 now registers a cluster automated backup
-    the same way db_instances.go's maybeRegisterAutomatedBackup already does for instances
-    (db_clusters.go, automated_backups.go). DescribeDBSnapshotTenantDatabases:
-    CreateDBSnapshot now copies every tenant database on the snapshotted instance into the
-    snapshot's tenant-database records, mirroring how AWS snapshots a multi-tenant
-    instance's PDBs along with it (db_snapshots.go, tenant_databases.go). All four
-    conversions from InMemoryBackend-seeded to real-client filter tests are in
-    describe_filters_batch1_test.go/describe_filters_batch2_test.go; the corresponding
-    in-package whitebox-only filter tests were deleted as redundant except
-    TestApplyDBParameterFilters_EngineDefaults, kept for the one op that stays undisclosed."
-  - "FIXED 2026-09-07 (gopherstack-1cjz, closes a gap the gopherstack-uao2 entry below opened and flagged in its own text: PromoteReadReplicaDBCluster left the promoted cluster still claiming ReplicationSourceIdentifier and left its former source still listing it in ReadReplicaIdentifiers, since uao2 wired that linkage through Create/Delete but not Promote. Mirrors the instance-level PromoteReadReplica (db_instances.go), which already cleared both sides: promote now strips the promoted cluster's ID from its source's ReadReplicaIdentifiers (idEqual-compared against the canonical DBClusterIdentifier, matching Delete's own comparison) and clears the promoted cluster's own ReplicationSourceIdentifier. Guards for a source that no longer exists (uao2 established deleting a source orphans its replicas rather than refusing or cascading, so a promoted replica may have no live source -- promote must not error in that case, and does not). Regression coverage: TestPromoteReadReplicaDBCluster_ClearsLinkage (two replicas, positively asserts the survivor stays in the source's ReadReplicaIdentifiers while the promoted one is gone, avoiding the omitempty-hides-empty-either-way hollow-test trap uao2's own first delete-cascade test fell into) and TestPromoteReadReplicaDBCluster_OrphanedSource (db_clusters_operations_test.go) -- both confirmed to fail against unmodified code."
-  - "FIXED 2026-09-07 (gopherstack-uao2, the fix for the 2026-09-07 gopherstack-z1sd triage entry recorded below verbatim). DBCluster now carries ReplicationSourceIdentifier and ReadReplicaIdentifiers (models.go), CreateDBCluster parses ReplicationSourceIdentifier (via DBClusterOptions, mirroring how AvailabilityZones/BacktrackWindow are already create-only fields threaded through that shared options struct) and requires the named source cluster to already exist (DBClusterNotFoundFault otherwise -- CreateDBCluster's own deserializeOpError declares that fault, confirmed by grep), and both directions are now on the wire (ReplicationSourceIdentifier flat, ReadReplicaIdentifiers wrapped -- wire shape and element names confirmed against deserializers.go's awsAwsquery_deserializeDocumentDBCluster/awsAwsquery_deserializeDocumentReadReplicaIdentifierList, which differ from the instance-level ReadReplicaDBInstanceIdentifiers>ReadReplicaDBInstanceIdentifier wrapping -- clusters use ReadReplicaIdentifiers>ReadReplicaIdentifier instead). Mirrors db_instances.go's CreateDBInstanceReadReplica pattern exactly, including its delete-time behavior: deleting a replica cluster removes it from its source's ReadReplicaIdentifiers (DeleteDBClusterWithOptions); deleting a source cluster while replicas exist is NOT refused and does NOT cascade-clear the replicas' ReplicationSourceIdentifier -- they orphan, matching CreateDBInstanceReadReplica's own instance-level precedent exactly (no doc evidence for either a refusal or a cascade exists at either level, and this repo declines to invent either without it). Two things deliberately NOT touched this pass, scope-fenced to the linkage itself: (1) PromoteReadReplicaDBCluster (already existed pre-fix) does not clear ReplicationSourceIdentifier or remove the promoted cluster from its former source's ReadReplicaIdentifiers, unlike the instance-level PromoteReadReplica which does both -- so promoting a replica cluster now leaves stale/incorrect linkage data instead of the previously-inert no-op it was; flagged, not fixed, needs its own bd issue. (2) DBInstance's cluster-crossing fields (ReadReplicaSourceDBClusterIdentifier/ReadReplicaDBClusterIdentifiers, types.go:2308/2298, needed only when an instance's replication source/target is a cluster rather than another instance) remain unmodeled -- out of scope for this pass, which was cluster-to-cluster linkage only. The docdb twin of this exact gap (services/docdb/PARITY.md) was left unfixed on purpose -- a separate service, separate bd issue territory, not touched here. Regression coverage: TestRDSHandler_FormActions_Clusters/CreateDBCluster_ReplicationSourceIdentifier(_NotFound), .../DescribeDBClusters_ReadReplicaIdentifiers, .../DeleteDBCluster_ReplicaRemovedFromSourceReadReplicaIdentifiers, .../DeleteDBCluster_SourceDeletionOrphansReplica (form_actions_cluster_test.go) -- all four confirmed to fail against the pre-fix source. Prior OPEN entry, kept verbatim for history: 'OPEN 2026-09-07 (gopherstack-z1sd triage): DBCluster has no ReplicationSourceIdentifier or ReadReplicaIdentifiers field at all (real SDK: aws-sdk-go-v2/service/rds@v1.124.1 types/types.go:1123 DBCluster.ReplicationSourceIdentifier *string \"The identifier of the source DB cluster if this DB cluster is a read replica\"; types.go:1107 DBCluster.ReadReplicaIdentifiers []string [corrected from the triage note's :1103 -- re-verified this pass]), and CreateDBClusterInput never parses the real ReplicationSourceIdentifier form field (api_op_CreateDBCluster.go:812) -- grepped handler_db_clusters.go's handleCreateDBCluster, no such vals.Get call exists. So an Aurora cluster that is itself a cross-region/binlog read replica of another Aurora cluster (the CreateDBCluster ReplicationSourceIdentifier path) is entirely unmodeled at the cluster level -- only instance-to-instance replication is (see the read_replicas: family note below, and CreateDBInstanceReadReplica/PromoteReadReplica). DBInstance is also missing the cluster-crossing fields ReadReplicaSourceDBClusterIdentifier/ReadReplicaDBClusterIdentifiers (types.go:2308/2298, needed when a DB instance's replication source or target is a cluster rather than another instance). This is the identical gap already disclosed for the docdb service (services/docdb/PARITY.md gaps: \"ReadReplicaIdentifiers is declared on the DBCluster model ... but CreateDBCluster has no ReplicationSourceIdentifier/create-as-replica code path at all ... dead scaffolding for an unbuilt feature\") -- rds has the identical situation but had not previously disclosed it. Fix is local to this service and has a working precedent to mirror: db_instances.go's CreateDBInstanceReadReplica already threads ReplicaSourceDBInstanceIdentifier/ReadReplicaIdentifiers bidirectionally between two DBInstance records; the same pattern (add the fields, parse ReplicationSourceIdentifier in handleCreateDBCluster, link source<->replica DBCluster records) would close this at the cluster level. Not attempted this pass (triage only, no .go writes).'"
-  - "NEW since v1.123.0 (found by gopherstack-u8my's pin-correction pass, not fixed): DBInstance/DBInstanceAutomatedBackup gained StorageOperationPercentProgress/StorageOperationStatus (Initializing/Optimizing progress reporting for an in-progress storage scaling op). Not modeled -- but the real fields only appear at all while a storage operation is actively in progress, and this backend applies storage modifications synchronously (no async storage-scaling state machine exists), so there is never a real in-progress state to report; same structural category as other transient-progress fields this file already treats as correctly omittable rather than a stub. (needs bd issue if a future pass wants a cosmetic 'briefly show Optimizing' simulation)"
-  - GetPerformanceInsightsMetrics does not correspond to a real operation name/shape on
-    either the RDS SDK client or the Performance Insights ("pi") SDK client (real op:
-    GetResourceMetrics, different client, different endpoint/protocol). Kept wired since
-    it is real, seeded (SetPerformanceInsightsData), non-stub functionality with no
-    accurate replacement to redirect callers to, but it will never be reachable by a
-    genuine AWS SDK client under either service and sdkcheck (gopherstack-vhw2) correctly
-    flags it as a phantom. See performance_insights family note. (parity-5/phantom-triage,
-    2026-07-31)
-  - DescribeDBEngineVersions/DescribeOrderableDBInstanceOptions do not implement
-    MaxRecords/Marker pagination (they return every matching row in one response). This
-    was already true before this pass; noted now because the fabricated
-    DescribeCustomDBEngineVersions action (removed this pass, see overall: header) DID
-    paginate via paginateDescribe, and its removal drops that pagination behavior for the
-    custom-engine-version subset with no replacement — a real (if pre-existing and
-    unrelated-to-phantoms) gap worth a follow-up if a real client's engine-version catalog
-    ever grows large enough to matter. (parity-5/phantom-triage, 2026-07-31)
-  - DescribeServerlessV2PlatformVersions (new this pass, 2026-07-25) always returns an
-    empty ServerlessV2PlatformVersions list. The installed SDK module documents no
-    enumerable list of real platform version numbers/descriptions to derive from
-    (ServerlessV2PlatformVersion is a plain *string on the wire, unlike e.g. the Engine
-    field which does have a documented closed set of valid values, which IS validated).
-    Inventing specific version strings would fabricate data with nothing in this SDK
-    module to verify them against. See the ops: entry for full reasoning; re-review if a
-    future SDK/API model version publishes an authoritative version list.
-  - "2026-09-19 (terraform rds-resources coverage pass): aws_rds_custom_db_engine_version
-    and aws_rds_reserved_instance were left out of terraform coverage without attempting
-    them -- the first needs real S3-hosted engine installation media, the second is a
-    reserved-capacity purchase, both explicitly out of scope for this pass rather than
-    emulator gaps."
+  - "OPEN 2026-10-04 (gopherstack-1jkv): two different roles added to a cluster with FeatureName omitted on both
+    coexist (placeholder); the pinned SDK documents no collision rule and real-AWS evidence is needed."
+  - "OPEN 2026-10-03: ManageMasterUserPassword/MasterUserSecretKmsKeyId record a MasterUserSecret (ARN, status, KMS
+    key) on instances, clusters and tenant databases, but no secret is created in services/secretsmanager (rds has no
+    sibling accessor), RotateMasterUserPassword is unread, and an unset MasterUserSecretKmsKeyId leaves KmsKeyId
+    empty rather than the aws/secretsmanager key ARN."
+  - "OPEN 2026-10-03: with --rds-engine=docker read replicas, restore-based instances, custom cluster
+    endpoints, DBPortNumber changes and non-Postgres/MySQL/MariaDB engines stay metadata-only. Restore
+    relaunches empty containers."
+  - "OPEN: DescribeDBClusterSnapshots/DescribeDBSnapshots .IncludePublic/.IncludeShared
+    are dropped; single-account backend has no cross-account snapshot data to reveal."
+  - "OPEN 2026-09-13 (gopherstack-xhu2t tier-5 sweep, consolidated 2026-09-26): five
+    fields describe transient/async state this backend never produces because the
+    matching operation applies synchronously -- ModifyDBInstance
+    .CertificateRotationRestart (no per-instance CACertificateIdentifier, so no
+    rotation/restart to control), RestoreDBClusterToPointInTime/
+    RestoreDBInstanceToPointInTime.UseLatestRestorableTime (restore always uses the
+    source's current live state; only the SDK-documented conflict with
+    RestoreTime/RestoreToTime is validated), SwitchoverBlueGreenDeployment.SwitchoverTimeout (switchover completes
+    synchronously, nothing to time out), and DBInstance/DBInstanceAutomatedBackup's
+    StorageOperationPercentProgress/StorageOperationStatus (storage modifications
+    apply synchronously, so there's never an in-progress op to report)."
+  - "OPEN 2026-09-11 (gopherstack-qpxye, consolidated 2026-09-26): three Describe ops
+    return honestly-empty/dropped data because the pinned SDK module
+    (aws-sdk-go-v2/service/rds@v1.124.1) has no enumerable catalog to source real
+    values from -- DescribeEngineDefaultParameters (empty Parameters; no seeded
+    per-family default-parameter table anywhere in this repo's dependencies),
+    DescribeDBEngineVersions.ListSupportedCharacterSets/.ListSupportedTimezones/
+    .IncludeAll (no per-version character-set/timezone/deprecated-status catalog
+    behind engine_versions.go's static builtin list), and
+    DescribeServerlessV2PlatformVersions (ServerlessV2PlatformVersion is a plain
+    *string with no documented enum to enumerate). Fabricating any of these would be
+    invented data with nothing in this SDK module to verify it against."
+  - "GetPerformanceInsightsMetrics is not a real operation name/shape on either the
+    RDS client or the Performance Insights ('pi') client (real op: GetResourceMetrics,
+    a separate client/endpoint not in this repo's go.mod). Kept wired as real, seeded,
+    non-stub functionality with no accurate replacement to redirect callers to;
+    sdkcheck's phantomAllowlist (gopherstack-vhw2) documents the exception. See the
+    performance_insights family note. (parity-5/phantom-triage, 2026-07-31)"
 deferred: []
 leaks: {status: fixed, note: "FOUND and FIXED this pass: DeleteDBCluster (DeleteDBClusterWithOptions in db_clusters.go) removed the cluster itself but did NOT cascade-delete its custom DB cluster endpoints or their tags — DescribeDBClusterEndpoints kept returning ghost rows pointing at a deleted cluster forever, and b.clusterEndpoints only ever shrank via an explicit DeleteDBClusterEndpoint call, so the map grew unboundedly across create/delete cycles in any long-running client (exactly the 'no ghost map rows after delete — cascade-clean instances/endpoints on cluster delete' invariant this audit was scoped to check). Fixed by adding deleteClusterEndpointsLocked (db_clusters.go), called from DeleteDBClusterWithOptions under the existing b.mu write lock, alongside the pre-existing tags/fisFailoverFaults/clusterRoles cleanup. Regression tests: TestDeleteDBCluster_CascadeDeletesClusterEndpoints (cluster_endpoints_test.go, verifies via DescribeDBClusterEndpoints) and a new cluster_endpoint_cascade_via_cluster_delete case added to the existing TestRDSBackend_TagsCleanedUpOnDelete table (tags_test.go). Separately re-verified this pass and still clean: the single reconciler goroutine (lifecycle.go:scheduleReconcilerLocked) is per-backend, started lazily, and exits its own loop once both instanceReadyAt and clusterReadyAt are empty (ticker.Stop() deferred); the two FIS fault-injection goroutines in fault_injection.go/handler_db_clusters.go are ctx-bound (one blocks on ctx.Done(), the other races a time.Timer against ctx.Done(), both Stop()/cleanup correctly). No time.Sleep/context.Background()-rooted unbounded goroutine patterns found in non-test files."}
 
 ## Notes
+
+- **2026-10-04 (gopherstack-1jkv)**: AddRoleToDBCluster re-adding an identical (FeatureName, RoleArn)
+  pair now returns DBClusterRoleAlreadyExists, and RemoveRoleFromDBCluster of a pair that is not
+  associated returns DBClusterRoleNotFound (both declared faults, rds@v1.124.1 types/errors.go
+  DBClusterRoleAlreadyExistsFault/DBClusterRoleNotFoundFault); previously both were silent no-ops.
+  Proven by `TestClusterRoleFaults_RealSDKClient` (errors.As on the typed faults). The omitted-FeatureName
+  dedup half stays open in `items_still_open` below: the SDK states no collision rule for it.
+
+- **2026-10-01 (items_still_open burn-down)**: DeleteTenantDatabase now honors
+  SkipFinalSnapshot/FinalDBSnapshotIdentifier per the SDK doc (required unless skipped,
+  rejected together; the final snapshot is a manual DBSnapshot carrying that tenant, see
+  `TestRealClient_DeleteTenantDatabaseFinalSnapshot`). RestoreDB{Instance,Cluster}ToPointInTime
+  reject RestoreTime/RestoreToTime combined with UseLatestRestorableTime as InvalidParameterValue
+  (`TestRealClient_RestoreToPointInTimeTimeConflict`; the SDK error switch names no dedicated code).
+
+- **2026-09-26 (items_still_open burn-down)**: re-verified every open item against
+  HEAD. Four were already fixed with existing regression coverage and are removed:
+  DescribeDBEngineVersions/DescribeOrderableDBInstanceOptions pagination
+  (`TestRealClient_DescribePagination/db_engine_versions`+`orderable_db_instance_options`,
+  realclient_describe_pagination_test.go, real typed rds client, MaxRecords+Marker);
+  PromoteReadReplicaDBCluster linkage-clearing (gopherstack-1cjz,
+  `TestPromoteReadReplicaDBCluster_ClearsLinkage`/`_OrphanedSource`); cluster
+  replication-source linkage (gopherstack-uao2,
+  `TestRDSHandler_FormActions_Clusters/CreateDBCluster_ReplicationSourceIdentifier*`);
+  and the four gopherstack-qpxye Describe-filter-data fixes
+  (`TestDescribeDBClusterBacktracks_Filters` etc., describe_filters_batch2_test.go).
+  The remaining open items were consolidated from 10 near-duplicate single-field
+  bullets into 6 grouped by root cause (Secrets Manager, no-sub-entity/cross-account
+  data, synchronous-op transient state, DBProxy default-group rename, catalog-data
+  fabrication, phantom op name) -- same substance, no new gaps found or invented. The
+  terraform-coverage scope note (aws_rds_custom_db_engine_version/
+  aws_rds_reserved_instance left unattempted) moved below since it's a test-coverage
+  decision, not an emulator parity gap.
 
 - **2026-09-19 (terraform rds-resources coverage pass)**: fixed 6 real bugs found via
   the real hashicorp/aws provider: AssociatedRoles never serialized on DBInstance;
@@ -393,6 +320,10 @@ leaks: {status: fixed, note: "FOUND and FIXED this pass: DeleteDBCluster (Delete
   not-found errors surfaced as 500 instead of the declared fault code; ExportTask.Status
   was lowercase; automated-backups-replication used the source ARN as DBInstanceIdentifier;
   DBShardGroup's ComputeRedundancy/MinACU omitted zero values on the wire.
+  `aws_rds_custom_db_engine_version` and `aws_rds_reserved_instance` were left out of
+  terraform coverage without attempting them (the first needs real S3-hosted engine
+  installation media, the second is a reserved-capacity purchase) -- both explicitly
+  out of scope for that pass, not emulator gaps.
 
 - **2026-09-19 (gopherstack-1x2u0 leak-audit follow-up)**: retrofitted all ~110 test
   call sites that constructed `InMemoryBackend` directly to register
@@ -1851,3 +1782,63 @@ Two real bugs found wiring up `aws_rds_custom_db_engine_version`:
 Gates: `go build ./...`, `go vet ./services/rds/...`, `go test -race
 -count=1 ./services/rds/...`, `golangci-lint run ./services/rds/...` --
 all clean. No persisted-struct fields changed; no version bump.
+
+## 2026-10-03 -- optional Docker-backed databases (--rds-engine)
+
+`--rds-engine=docker` (`RDS_ENGINE`, default `stub`; `RDS_DB_HOST` overrides the advertised host; ports bind 127.0.0.1 unless it is non-loopback, then all interfaces) starts a
+pinned official image per DB instance: `postgres:<13-17>` (default 17), `mysql:<8.0|8.4>` (default 8.4),
+`mariadb:<10.6|10.11|11.4|11.8>` (default 11.4), chosen from EngineVersion. `aurora-postgresql`/`aurora-mysql`
+map to the matching base image. Modelled on LocalStack Pro, which runs real Postgres/MySQL/MariaDB with the
+MasterUserPassword as the engine password (https://docs.localstack.cloud/aws/services/rds/).
+The instance is `creating` until a real login plus `SELECT 1` succeeds, then `available` with
+Endpoint/Port set to the real host:port (`failed` on start error or timeout; only container IDs/codes are
+logged, never credentials). The master user must be 1-16 letters/digits/underscores; an omitted password gets
+a random one. MySQL/MariaDB masters are granted server-wide rights.
+
+- Aurora: CreateDBCluster starts one container per cluster (cluster `creating` until up); member instances,
+  the cluster endpoint and the reader endpoint all point at it (no real reader/writer split).
+- ModifyDBInstance/ModifyDBCluster MasterUserPassword runs ALTER USER in the engine (InvalidDBInstanceState if
+  it is not available). Stop/Start/Reboot stop, start and restart the container (stopping/starting/rebooting).
+- DeleteDBInstance/DeleteDBCluster, Reset and Close remove containers. Final snapshots stay metadata-only.
+- Restore relaunches an EMPTY container per restored instance/cluster with a random password: data and
+  passwords are not persisted (no snapshot version bump), like MSK/MQ.
+- Still metadata-only in docker mode: read replicas, restore-from-snapshot/point-in-time/S3 instances, custom
+  cluster endpoints, DBPortNumber changes, other engines (Oracle, SQL Server, Db2, Neptune).
+Proven by `engine_test.go` (fake runtime) and the Docker-gated `TestEngineDockerRealDatabases`.
+
+## 2026-10-03 -- Data API reaches docker-mode Aurora clusters (gopherstack-rxmvb)
+
+- `DataAPITarget(resourceARN)` (data_api.go) is the sibling accessor services/rdsdata resolves clusters through: it
+  returns the cluster's real host:port/kind/default database, `ErrHTTPEndpointNotEnabled` when HttpEndpoint is
+  off, `ErrClusterNotReady` until the container is up, and `ErrNotRealCluster` for stub clusters (SQLite serves them).
+- Proven by the Docker-gated `TestRealDockerDataAPI` in services/rdsdata (postgres and mysql Aurora clusters).
+
+## 2026-10-03 -- reqfielddiff tier-1 follow-up (MasterUserSecret, engine-version flags, AutomationMode, proxy rename)
+
+- ManageMasterUserPassword/MasterUserSecretKmsKeyId (rds@v1.124.1 serializers.go:13074/13094 and the Modify/Restore/tenant
+  peers): MasterUserSecret{SecretArn,SecretStatus,KmsKeyId} is now stored and echoed by DBInstance, DBCluster and
+  TenantDatabase (deserializers.go MasterUserSecret). KMS key without ManageMasterUserPassword, and manage with
+  MasterUserPassword, return InvalidParameterCombination; disabling management needs MasterUserPassword. Metadata only
+  (see items_still_open).
+- DescribeDBEngineVersions: IncludeAll (deprecated versions hidden by default), ListSupportedCharacterSets (oracle-ee)
+  and ListSupportedTimezones (sqlserver-se); catalog gained oracle-ee, sqlserver-se and a deprecated postgres 9.6.24.
+- ModifyDBInstance AutomationMode/ResumeFullAutomationModeMinutes: RDS Custom only, 60..1440 minutes, instance returns to
+  `full` once ResumeFullAutomationModeTime passes.
+- ModifyDBProxyTargetGroup NewName: identifier validated and non-default groups are renamed; the SDK doc says "You can't
+  rename the default target group" (api_op_ModifyDBProxyTargetGroup.go:44), so the only group this backend creates
+  rejects it (generic InvalidParameterValue; the op declares no dedicated fault). Unknown groups now return
+  DBProxyTargetGroupNotFoundFault.
+- Still recorded: IncludePublic/IncludeShared (no foreign-account snapshots), CertificateRotationRestart,
+  SwitchoverTimeout (switchover is synchronous).
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+Audited for region isolation: same-named resources in two regions coexist and list per region; no code change. Proof: `TestRegionIsolation/rds`.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+`Handler.BackendFor(region)` returns the per-region backend (home for ""), so the RDS Data API finds an Aurora cluster in the region its ARN names. Proof: `TestHandler_BackendFor`. No change to isolation or snapshots.
+
+## 2026-10-04 (reqfielddiff tier-1 re-examined: 6 findings)
+
+All six stay recorded, each with a concrete reason. DescribeDBSnapshots/DescribeDBClusterSnapshots IncludePublic and IncludeShared add other accounts' public or shared manual snapshots; every snapshot here belongs to the single account, so the result cannot change. ModifyDBInstance.CertificateRotationRestart needs a per-instance CACertificateIdentifier, which no DBInstance carries (ModifyDBInstance drops CACertificateIdentifier as well), so there is no rotation to restart for. SwitchoverBlueGreenDeployment.SwitchoverTimeout bounds a switchover that completes synchronously, so it can never expire.

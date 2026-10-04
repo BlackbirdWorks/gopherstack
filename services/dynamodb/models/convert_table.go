@@ -49,6 +49,7 @@ func ToSDKCreateTableInput(input *CreateTableInput) *dynamodb.CreateTableInput {
 
 	return &dynamodb.CreateTableInput{
 		TableName:                 &input.TableName,
+		ResourcePolicy:            ptrconv.NilIfEmpty(input.ResourcePolicy),
 		KeySchema:                 ToSDKKeySchema(input.KeySchema),
 		AttributeDefinitions:      ToSDKAttributeDefinitions(input.AttributeDefinitions),
 		GlobalSecondaryIndexes:    ToSDKGlobalSecondaryIndexes(input.GlobalSecondaryIndexes),
@@ -415,6 +416,7 @@ func fromSDKReplicaDescriptions(sdkReplicas []types.ReplicaDescription) []Replic
 	for i, r := range sdkReplicas {
 		rep := ReplicaDescription{
 			RegionName:    ptrconv.String(r.RegionName),
+			ReplicaArn:    ptrconv.String(r.ReplicaArn),
 			ReplicaStatus: string(r.ReplicaStatus),
 		}
 		if r.ReplicaTableClassSummary != nil && r.ReplicaTableClassSummary.TableClass != "" {
@@ -501,10 +503,21 @@ func FromSDKProvisionedThroughputDescription(
 		return nil
 	}
 
-	return &ProvisionedThroughputDescription{
-		ReadCapacityUnits:  int(ptrconv.Int64(ptd.ReadCapacityUnits)),
-		WriteCapacityUnits: int(ptrconv.Int64(ptd.WriteCapacityUnits)),
+	out := &ProvisionedThroughputDescription{
+		ReadCapacityUnits:      int(ptrconv.Int64(ptd.ReadCapacityUnits)),
+		WriteCapacityUnits:     int(ptrconv.Int64(ptd.WriteCapacityUnits)),
+		NumberOfDecreasesToday: ptrconv.Int64(ptd.NumberOfDecreasesToday),
 	}
+
+	if ptd.LastIncreaseDateTime != nil {
+		out.LastIncreaseDateTime = awstime.Epoch(*ptd.LastIncreaseDateTime)
+	}
+
+	if ptd.LastDecreaseDateTime != nil {
+		out.LastDecreaseDateTime = awstime.Epoch(*ptd.LastDecreaseDateTime)
+	}
+
+	return out
 }
 
 func FromSDKConsumedCapacity(cc *types.ConsumedCapacity) *ConsumedCapacity {

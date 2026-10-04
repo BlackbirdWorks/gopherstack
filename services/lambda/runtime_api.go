@@ -28,8 +28,11 @@ type pendingInvocation struct {
 	createdAt     time.Time // when the event was first received (used for MaximumEventAgeInSeconds)
 	requestID     string
 	clientContext string
-	result        chan invocationResult
-	payload       []byte
+	// durableExecARN is set for an async (Event) invocation of a durable function so
+	// the retry loop can record the execution's completion once retries are exhausted.
+	durableExecARN string
+	result         chan invocationResult
+	payload        []byte
 }
 
 // invocationResult holds the outcome of a Lambda container invocation.

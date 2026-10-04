@@ -50,6 +50,7 @@ func (h *Handler) handlePutMetricAlarm(form url.Values, c *echo.Context) error {
 		InsufficientDataActions: parseMemberList(form, "InsufficientDataActions."),
 		Dimensions:              parseDimensionsFromForm(form, "Dimensions."),
 		Metrics:                 parseMetricDataQueriesFromForm(form),
+		EvaluationWindow:        formEvaluationWindow(form),
 	}
 	if err := h.Backend.PutMetricAlarm(alarm); err != nil {
 		if errors.Is(err, ErrValidation) {
@@ -104,6 +105,14 @@ func metricAlarmToXML(a MetricAlarm) metricAlarmXML {
 		x.AlarmConfigurationUpdatedTimestamp = a.AlarmConfigurationUpdatedTimestamp.UTC().
 			Format(time.RFC3339)
 	}
+	if a.EvaluationWindow != nil {
+		x.EvaluationWindow = &evaluationWindowXML{}
+		if a.EvaluationWindow.WallClock {
+			x.EvaluationWindow.WallClockWindow = &wallClockWindowXML{Timezone: a.EvaluationWindow.Timezone}
+		} else {
+			x.EvaluationWindow.SlidingWindow = &struct{}{}
+		}
+	}
 	for _, d := range a.Dimensions {
 		x.Dimensions = append(x.Dimensions, struct {
 			Name  string `xml:"Name"`
@@ -116,35 +125,36 @@ func metricAlarmToXML(a MetricAlarm) metricAlarmXML {
 
 // metricAlarmXML is the XML representation of a MetricAlarm.
 type metricAlarmXML struct {
-	AlarmConfigurationUpdatedTimestamp string   `xml:"AlarmConfigurationUpdatedTimestamp,omitempty"`
-	StateTransitionedTimestamp         string   `xml:"StateTransitionedTimestamp,omitempty"`
-	StateUpdatedTimestamp              string   `xml:"StateUpdatedTimestamp,omitempty"`
-	AlarmDescription                   string   `xml:"AlarmDescription,omitempty"`
-	Namespace                          string   `xml:"Namespace,omitempty"`
-	MetricName                         string   `xml:"MetricName,omitempty"`
-	ComparisonOperator                 string   `xml:"ComparisonOperator"`
-	Statistic                          string   `xml:"Statistic,omitempty"`
-	ExtendedStatistic                  string   `xml:"ExtendedStatistic,omitempty"`
-	TreatMissingData                   string   `xml:"TreatMissingData,omitempty"`
-	ThresholdMetricID                  string   `xml:"ThresholdMetricId,omitempty"`
-	Unit                               string   `xml:"Unit,omitempty"`
-	AlarmArn                           string   `xml:"AlarmArn"`
-	StateValue                         string   `xml:"StateValue"`
-	AlarmName                          string   `xml:"AlarmName"`
-	StateReason                        string   `xml:"StateReason,omitempty"`
-	StateReasonData                    string   `xml:"StateReasonData,omitempty"`
-	AlarmActions                       []string `xml:"AlarmActions>member,omitempty"`
-	InsufficientDataActions            []string `xml:"InsufficientDataActions>member,omitempty"`
-	OKActions                          []string `xml:"OKActions>member,omitempty"`
+	EvaluationWindow                   *evaluationWindowXML `xml:"EvaluationWindow,omitempty"`
+	AlarmArn                           string               `xml:"AlarmArn"`
+	ThresholdMetricID                  string               `xml:"ThresholdMetricId,omitempty"`
+	AlarmDescription                   string               `xml:"AlarmDescription,omitempty"`
+	Namespace                          string               `xml:"Namespace,omitempty"`
+	MetricName                         string               `xml:"MetricName,omitempty"`
+	ComparisonOperator                 string               `xml:"ComparisonOperator"`
+	Statistic                          string               `xml:"Statistic,omitempty"`
+	ExtendedStatistic                  string               `xml:"ExtendedStatistic,omitempty"`
+	TreatMissingData                   string               `xml:"TreatMissingData,omitempty"`
+	StateReason                        string               `xml:"StateReason,omitempty"`
+	Unit                               string               `xml:"Unit,omitempty"`
+	AlarmConfigurationUpdatedTimestamp string               `xml:"AlarmConfigurationUpdatedTimestamp,omitempty"`
+	StateUpdatedTimestamp              string               `xml:"StateUpdatedTimestamp,omitempty"`
+	AlarmName                          string               `xml:"AlarmName"`
+	StateTransitionedTimestamp         string               `xml:"StateTransitionedTimestamp,omitempty"`
+	StateReasonData                    string               `xml:"StateReasonData,omitempty"`
+	StateValue                         string               `xml:"StateValue"`
 	Dimensions                         []struct {
 		Name  string `xml:"Name"`
 		Value string `xml:"Value"`
 	} `xml:"Dimensions>member,omitempty"`
-	Threshold         float64 `xml:"Threshold"`
-	Period            int32   `xml:"Period,omitempty"`
-	EvaluationPeriods int32   `xml:"EvaluationPeriods"`
-	DatapointsToAlarm int32   `xml:"DatapointsToAlarm,omitempty"`
-	ActionsEnabled    bool    `xml:"ActionsEnabled"`
+	InsufficientDataActions []string `xml:"InsufficientDataActions>member,omitempty"`
+	AlarmActions            []string `xml:"AlarmActions>member,omitempty"`
+	OKActions               []string `xml:"OKActions>member,omitempty"`
+	Threshold               float64  `xml:"Threshold"`
+	Period                  int32    `xml:"Period,omitempty"`
+	EvaluationPeriods       int32    `xml:"EvaluationPeriods"`
+	DatapointsToAlarm       int32    `xml:"DatapointsToAlarm,omitempty"`
+	ActionsEnabled          bool     `xml:"ActionsEnabled"`
 }
 
 func (h *Handler) handleDescribeAlarms(form url.Values, c *echo.Context) error {
@@ -352,4 +362,32 @@ func (h *Handler) handleDisableAlarmActions(form url.Values, c *echo.Context) er
 	}
 
 	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
+}
+
+type wallClockWindowXML struct {
+	Timezone string `xml:"Timezone,omitempty"`
+}
+
+type evaluationWindowXML struct {
+	SlidingWindow   *struct{}           `xml:"SlidingWindow,omitempty"`
+	WallClockWindow *wallClockWindowXML `xml:"WallClockWindow,omitempty"`
+}
+
+// formEvaluationWindow decodes EvaluationWindow.SlidingWindow / EvaluationWindow.WallClockWindow.Timezone.
+func formEvaluationWindow(form url.Values) *AlarmEvaluationWindow {
+	if _, ok := form["EvaluationWindow.WallClockWindow.Timezone"]; ok {
+		return &AlarmEvaluationWindow{WallClock: true, Timezone: form.Get("EvaluationWindow.WallClockWindow.Timezone")}
+	}
+
+	for k := range form {
+		if k == "EvaluationWindow.WallClockWindow" {
+			return &AlarmEvaluationWindow{WallClock: true}
+		}
+
+		if k == "EvaluationWindow.SlidingWindow" {
+			return &AlarmEvaluationWindow{}
+		}
+	}
+
+	return nil
 }

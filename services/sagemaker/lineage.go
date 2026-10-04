@@ -384,11 +384,7 @@ func (b *InMemoryBackend) ListArtifacts(ctx context.Context, params ListArtifact
 			continue
 		}
 
-		if params.CreatedAfter != nil && !ar.CreationTime.After(*params.CreatedAfter) {
-			continue
-		}
-
-		if params.CreatedBefore != nil && !ar.CreationTime.Before(*params.CreatedBefore) {
+		if !timeWindowInclusiveOK(ar.CreationTime, params.CreatedAfter, params.CreatedBefore) {
 			continue
 		}
 
@@ -803,15 +799,7 @@ func associationMatchesFilters(a *Association, params ListAssociationsParams) bo
 		return false
 	}
 
-	if params.CreatedAfter != nil && !a.CreationTime.After(*params.CreatedAfter) {
-		return false
-	}
-
-	if params.CreatedBefore != nil && !a.CreationTime.Before(*params.CreatedBefore) {
-		return false
-	}
-
-	return true
+	return timeWindowInclusiveOK(a.CreationTime, params.CreatedAfter, params.CreatedBefore)
 }
 
 // associationMatchesTypeFilters reports whether a passes the SourceType/

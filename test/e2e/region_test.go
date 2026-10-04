@@ -5,6 +5,7 @@ package e2e_test
 import (
 	"net/http/httptest"
 	"regexp"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -330,4 +331,62 @@ func TestE2E_Region_MidSessionSwitchRefetchesWithNewRegion(t *testing.T) {
 	assert.Equal(t, "eu-west-2", last.region,
 		"the page's own onRegionChange refetch must sign for the newly selected region, "+
 			"not the region its client was first constructed with")
+}
+
+func TestE2E_Region_AdminFetchCarriesRegionHeader(t *testing.T) {
+	stack := newStack(t)
+
+	server := httptest.NewServer(stack.Echo)
+	defer server.Close()
+
+	ctx, err := browser.NewContext()
+	require.NoError(t, err)
+	defer ctx.Close()
+
+	page, err := ctx.NewPage()
+	require.NoError(t, err)
+	defer page.Close()
+
+	var (
+		mu      sync.Mutex
+		regions []string
+	)
+
+	page.OnRequest(func(req playwright.Request) {
+		if !strings.Contains(req.URL(), "/_gopherstack/apigwmgmt/connections") {
+			return
+		}
+
+		mu.Lock()
+		defer mu.Unlock()
+		regions = append(regions, req.Headers()["x-gopherstack-region"])
+	})
+
+	last := func() (string, int) {
+		mu.Lock()
+		defer mu.Unlock()
+
+		if len(regions) == 0 {
+			return "", 0
+		}
+
+		return regions[len(regions)-1], len(regions)
+	}
+
+	_, err = page.Goto(server.URL + "/dashboard/apigatewaymanagementapi")
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		r, n := last()
+
+		return n > 0 && r == "us-east-1"
+	}, 10*time.Second, 50*time.Millisecond, "initial list must carry the default region")
+
+	switchRegion(t, page, "eu-west-1")
+
+	require.Eventually(t, func() bool {
+		r, _ := last()
+
+		return r == "eu-west-1"
+	}, 10*time.Second, 50*time.Millisecond, "refetch after switching must carry eu-west-1")
 }

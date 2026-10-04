@@ -9,17 +9,18 @@ import (
 )
 
 type storedDataRepositoryTask struct {
-	CreationTime time.Time         `json:"creationTime"`
-	DeadlineAt   time.Time         `json:"deadlineAt"`
-	EndTime      time.Time         `json:"endTime"`
-	Report       *CompletionReport `json:"report,omitempty"`
-	Tags         map[string]string `json:"tags"`
-	TaskID       string            `json:"taskId"`
-	FileSystemID string            `json:"fileSystemId"`
-	Type         string            `json:"type"`
-	Lifecycle    string            `json:"lifecycle"`
-	ResourceARN  string            `json:"resourceArn"`
-	Paths        []string          `json:"paths,omitempty"`
+	CreationTime  time.Time         `json:"creationTime"`
+	DeadlineAt    time.Time         `json:"deadlineAt"`
+	EndTime       time.Time         `json:"endTime"`
+	Report        *CompletionReport `json:"report,omitempty"`
+	Tags          map[string]string `json:"tags"`
+	TaskID        string            `json:"taskId"`
+	AssociationID string            `json:"associationId,omitempty"`
+	FileSystemID  string            `json:"fileSystemId"`
+	Type          string            `json:"type"`
+	Lifecycle     string            `json:"lifecycle"`
+	ResourceARN   string            `json:"resourceArn"`
+	Paths         []string          `json:"paths,omitempty"`
 }
 
 func (t *storedDataRepositoryTask) toPublic() *DataRepositoryTask {
@@ -191,13 +192,8 @@ func (b *InMemoryBackend) CancelDataRepositoryTask(taskID string) error {
 	return nil
 }
 
-// DescribeDataRepositoryTasks returns tasks, optionally filtered by ID or
-// Filters. Real DataRepositoryTaskFilterName (aws-sdk-go-v2/service/fsx@v1.68.4
-// types/enums.go) has 4 values: file-system-id, task-lifecycle,
-// data-repository-association-id, file-cache-id. Only the first two are
-// recognized here -- CreateDataRepositoryTask never accepts an association or
-// file-cache reference to track, so those two have no honest value; matches
-// everything for them, same as an unset filter.
+// DescribeDataRepositoryTasks returns tasks filtered by ID or Filters. Tasks never
+// target a file cache, so file-cache-id matches none.
 func (b *InMemoryBackend) DescribeDataRepositoryTasks(
 	ids []string,
 	filters []wireFilter,
@@ -232,6 +228,10 @@ func (b *InMemoryBackend) DescribeDataRepositoryTasks(
 					return t.FileSystemID, true
 				case "task-lifecycle":
 					return t.Lifecycle, true
+				case "data-repository-association-id":
+					return t.AssociationID, true
+				case "file-cache-id":
+					return "", true
 				default:
 					return "", false
 				}

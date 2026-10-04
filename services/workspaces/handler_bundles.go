@@ -2,6 +2,7 @@ package workspaces
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -62,6 +63,10 @@ func (h *Handler) handleDescribeWorkspaceBundles(
 	ctx context.Context,
 	req *describeBundlesInput,
 ) (*describeBundlesOutput, error) {
+	if req.Owner != "" && len(req.BundleIDs) > 0 {
+		return nil, fmt.Errorf("%w: BundleIds cannot be combined with Owner", ErrInvalidParameter)
+	}
+
 	bundles, nextToken, err := h.Backend.DescribeWorkspaceBundles(
 		ctx,
 		req.BundleIDs,

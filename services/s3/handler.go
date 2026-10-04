@@ -14,8 +14,10 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -55,22 +57,24 @@ const (
 //nolint:revive // Stuttering preferred here for clarity per Plan.md
 type S3Handler struct {
 	notifier        NotificationDispatcher
+	notifyAuth      roleauth.Authorizer
 	notificationCtx context.Context
 	Backend         StorageBackend
+	metrics         cwmetric.Sink
 	janitor         *Janitor
-	DefaultRegion   string
-	Endpoint        string
-	// PresignSecret, when non-empty, opts the handler into cryptographic
-	// verification of presigned-URL signatures (SigV4 query-auth). It is empty
-	// by default so presigned URLs are accepted on structure/expiry alone,
-	// preserving backwards-compatible behaviour.
-	PresignSecret string
 	// pendingObjectLambdaRequests holds in-flight WriteGetObjectResponse
 	// tokens: request-scoped bookkeeping, not backend resource state, so it
 	// stays request-local rather than moving into the backend with the rest
 	// of Object Lambda's config (see object_lambda.go).
 	pendingObjectLambdaRequests sync.Map
-	notificationMu              sync.RWMutex
+	DefaultRegion               string
+	Endpoint                    string
+	// PresignSecret, when non-empty, opts the handler into cryptographic
+	// verification of presigned-URL signatures (SigV4 query-auth). It is empty
+	// by default so presigned URLs are accepted on structure/expiry alone,
+	// preserving backwards-compatible behaviour.
+	PresignSecret  string
+	notificationMu sync.RWMutex
 }
 
 // NewHandler creates a new S3 Handler with the given backend.
@@ -150,10 +154,17 @@ func (h *S3Handler) notificationDispatchContext() context.Context {
 // S3 event notifications to SQS/SNS/Lambda targets on PutObject and DeleteObject.
 func (h *S3Handler) SetNotificationDispatcher(d NotificationDispatcher) {
 	h.notifier = d
+
+	if md, ok := d.(*inMemoryNotificationDispatcher); ok {
+		if br, brOk := h.Backend.(interface{ BucketRegion(string) string }); brOk {
+			md.bucketRegion = br.BucketRegion
+		}
+	}
 }
 
 type s3Metrics struct {
 	operation string
+	bucket    string
 }
 
 type s3ContextKey struct{}
@@ -209,6 +220,22 @@ func (h *S3Handler) BucketsByRegion(region string) []types.Bucket {
 
 // Handler returns the Echo handler function for S3 requests.
 func (h *S3Handler) Handler() echo.HandlerFunc {
+	inner := h.serveHandler()
+
+	return func(c *echo.Context) error {
+		if !h.metrics.Enabled() {
+			return inner(c)
+		}
+
+		start := time.Now()
+		err := inner(c)
+		h.emitRequestMetrics(c, start)
+
+		return err
+	}
+}
+
+func (h *S3Handler) serveHandler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		ctx := c.Request().Context()
 		metrics := &s3Metrics{operation: "Unknown"}
@@ -263,6 +290,8 @@ func (h *S3Handler) Handler() echo.HandlerFunc {
 		if !ok {
 			return nil
 		}
+
+		metrics.bucket = bucketName
 
 		log.DebugContext(
 			ctx,

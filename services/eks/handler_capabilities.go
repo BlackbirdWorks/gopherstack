@@ -3,9 +3,7 @@ package eks
 import (
 	"encoding/json"
 	"net/http"
-	"time"
 
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -244,18 +242,7 @@ func (h *Handler) handleUpdateCapability(c *echo.Context, clusterName, capabilit
 		return h.handleError(c, err)
 	}
 
-	// UpdateCapabilityOutput carries an async Update object under "update"
-	// (types.go:3257, deserializers.go's awsRestjson1_deserializeOpDocumentUpdateCapabilityOutput
-	// case "update"), NOT a "capability" key -- discovered via
-	// TestCapabilityConfiguration_UpdateArgoCd_RoleMappingMergeSemantics
-	// (real SDK client) during gopherstack-wf8f item 1; the prior shape
-	// returned the mutated Capability directly under "capability", which a
-	// real client's UpdateCapability deserializer does not recognize (it
-	// would decode Update as nil and read no fields at all). Mirrors
-	// handleUpdateAddon's identical fabricated-Update-map pattern just
-	// below in this file: this backend does not create a real Update
-	// store record for capability updates any more than it does for addon
-	// updates (see PARITY.md's ListUpdates.CapabilityName gap).
+	// UpdateCapabilityOutput carries the async Update under "update" (deserializers.go, case "update").
 	return h.withIdempotency(c, opUpdateCapability, in.ClientRequestToken, body, func() (int, any, error) {
 		capa, err := h.Backend.UpdateCapability(
 			clusterName, capabilityName, in.RoleArn, in.DeletePropagationPolicy, in.Configuration,
@@ -264,14 +251,18 @@ func (h *Handler) handleUpdateCapability(c *echo.Context, clusterName, capabilit
 			return 0, nil, err
 		}
 
+		u := h.Backend.startUpdate(
+			&Update{ClusterName: clusterName, CapabilityName: capa.CapabilityName, Type: "CapabilityUpdate"},
+		)
+
 		return http.StatusOK, map[string]any{
 			keyUpdate: map[string]any{
-				"id":              uuid.NewString()[:8],
-				keyStatusField:    statusInProgress,
-				keyType:           "CapabilityUpdate",
+				"id":              u.ID,
+				keyStatusField:    u.Status,
+				keyType:           u.Type,
 				keyClusterName:    clusterName,
 				keyCapabilityName: capa.CapabilityName,
-				keyCreatedAt:      float64(time.Now().Unix()),
+				keyCreatedAt:      float64(u.CreatedAt.Unix()),
 			},
 		}, nil
 	})

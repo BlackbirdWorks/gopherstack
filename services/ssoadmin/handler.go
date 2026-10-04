@@ -14,6 +14,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -256,6 +257,7 @@ func listPermissionSetSubItems[T any](
 
 // Handler is the Echo HTTP handler for the SSO Admin service.
 type Handler struct {
+	peers   *regionpeers.Set[Handler]
 	Backend StorageBackend
 }
 
@@ -267,8 +269,8 @@ func NewHandler(backend StorageBackend) *Handler {
 // Name returns the handler name.
 func (h *Handler) Name() string { return "SsoAdmin" }
 
-// Reset clears all backend state.
-func (h *Handler) Reset() {
+// resetHome clears the home region only.
+func (h *Handler) resetHome() {
 	h.Backend.Reset()
 }
 
@@ -401,8 +403,8 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	return req.InstanceArn
 }
 
-// Handler returns the Echo handler function.
-func (h *Handler) Handler() echo.HandlerFunc {
+// homeHandler serves requests for the home region.
+func (h *Handler) homeHandler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		ctx := c.Request().Context()
 		log := logger.Load(ctx)

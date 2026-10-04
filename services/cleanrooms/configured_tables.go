@@ -20,11 +20,19 @@ func (b *InMemoryBackend) CreateConfiguredTable(
 	allowedColumns []string,
 	analysisMethod string,
 	tags map[string]string,
+	settings ...ConfiguredTableSettings,
 ) (*ConfiguredTable, error) {
 	b.mu.Lock("CreateConfiguredTable")
 	defer b.mu.Unlock()
 	if name == "" {
 		return nil, ErrValidation
+	}
+	var selected []string
+	if len(settings) > 0 {
+		selected = settings[0].SelectedAnalysisMethods
+	}
+	if err := validateSelectedMethods(selected); err != nil {
+		return nil, err
 	}
 	id := uuid.NewString()
 	ts := b.now()
@@ -44,6 +52,7 @@ func (b *InMemoryBackend) CreateConfiguredTable(
 		AllowedColumns:            allowedColumns,
 		AnalysisRuleTypes:         []string{},
 		AnalysisMethod:            analysisMethod,
+		SelectedAnalysisMethods:   slices.Clone(selected),
 		CreateTime:                ts,
 		UpdateTime:                ts,
 		Tags:                      tags,
@@ -54,7 +63,7 @@ func (b *InMemoryBackend) CreateConfiguredTable(
 		b.tagsByArn[ct.Arn] = maps.Clone(tags)
 	}
 
-	return ct, nil
+	return cloneConfiguredTable(ct), nil
 }
 
 func (b *InMemoryBackend) GetConfiguredTable(id string) (*ConfiguredTable, error) {
@@ -65,7 +74,7 @@ func (b *InMemoryBackend) GetConfiguredTable(id string) (*ConfiguredTable, error
 		return nil, ErrNotFound
 	}
 
-	return ct, nil
+	return cloneConfiguredTable(ct), nil
 }
 
 func (b *InMemoryBackend) ListConfiguredTables(
@@ -81,7 +90,8 @@ func (b *InMemoryBackend) ListConfiguredTables(
 			Arn:                       ct.Arn,
 			Name:                      ct.Name,
 			AnalysisMethod:            ct.AnalysisMethod,
-			AnalysisRuleTypes:         ct.AnalysisRuleTypes,
+			AnalysisRuleTypes:         slices.Clone(ct.AnalysisRuleTypes),
+			SelectedAnalysisMethods:   slices.Clone(ct.SelectedAnalysisMethods),
 			CreateTime:                ct.CreateTime,
 			UpdateTime:                ct.UpdateTime,
 			ID:                        ct.ID,
@@ -98,12 +108,23 @@ func (b *InMemoryBackend) ListConfiguredTables(
 
 func (b *InMemoryBackend) UpdateConfiguredTable(
 	id, name, description string,
+	settings ...ConfiguredTableSettings,
 ) (*ConfiguredTable, error) {
 	b.mu.Lock("UpdateConfiguredTable")
 	defer b.mu.Unlock()
+	var selected []string
+	if len(settings) > 0 {
+		selected = settings[0].SelectedAnalysisMethods
+	}
+	if err := validateSelectedMethods(selected); err != nil {
+		return nil, err
+	}
 	ct, ok := b.configuredTables.Get(id)
 	if !ok {
 		return nil, ErrNotFound
+	}
+	if len(selected) > 0 {
+		ct.SelectedAnalysisMethods = slices.Clone(selected)
 	}
 	if name != "" {
 		ct.Name = name
@@ -113,7 +134,7 @@ func (b *InMemoryBackend) UpdateConfiguredTable(
 	}
 	ct.UpdateTime = b.now()
 
-	return ct, nil
+	return cloneConfiguredTable(ct), nil
 }
 
 func (b *InMemoryBackend) DeleteConfiguredTable(id string) error {

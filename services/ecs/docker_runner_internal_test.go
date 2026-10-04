@@ -966,3 +966,71 @@ func TestDockerRunner_StopTask_CancelsContainerWait(t *testing.T) {
 	require.Len(t, got, 1)
 	assert.Equal(t, "operator stop", got[0].StoppedReason)
 }
+
+func TestDockerRunner_ContainerExit_EssentialSemantics(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		exited       string
+		wantStopped  bool
+		wantSiblings int
+	}{
+		{name: "non_essential_keeps_task", exited: "sidecar", wantStopped: false, wantSiblings: 0},
+		{name: "essential_stops_task_and_siblings", exited: "app", wantStopped: true, wantSiblings: 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			fake := &fakeDockerClient{}
+			runner := newDockerRunnerWithClient(context.Background(), fake)
+			backend := NewInMemoryBackend("000000000000", "us-east-1", runner)
+
+			_, err := backend.CreateCluster(CreateClusterInput{ClusterName: "test"})
+			require.NoError(t, err)
+
+			_, err = backend.RegisterTaskDefinition(RegisterTaskDefinitionInput{
+				Family: "multi",
+				ContainerDefinitions: []ContainerDefinition{
+					{Name: "app", Image: "busybox", Essential: true},
+					{Name: "sidecar", Image: "busybox", Essential: false},
+				},
+			})
+			require.NoError(t, err)
+
+			tasks, _, err := backend.RunTask(RunTaskInput{Cluster: "test", TaskDefinition: "multi"})
+			require.NoError(t, err)
+			require.Len(t, tasks, 1)
+			taskArn := tasks[0].TaskArn
+
+			require.Eventually(t, func() bool {
+				runner.mu.Lock()
+				defer runner.mu.Unlock()
+
+				return len(runner.containers[taskArn]) == 2
+			}, 2*time.Second, 10*time.Millisecond)
+
+			backend.markTaskStoppedByContainerExit(taskArn, tt.exited, 7)
+
+			got, _, err := backend.DescribeTasks("test", []string{taskArn})
+			require.NoError(t, err)
+			require.Len(t, got, 1)
+			assert.Equal(t, tt.wantStopped, got[0].LastStatus == statusStopped)
+
+			for _, c := range got[0].Containers {
+				if c.Name == tt.exited {
+					assert.Equal(t, statusStopped, c.LastStatus)
+					require.NotNil(t, c.ExitCode)
+					assert.Equal(t, 7, *c.ExitCode)
+				}
+			}
+
+			fake.mu.Lock()
+			defer fake.mu.Unlock()
+
+			assert.Len(t, fake.stopped, tt.wantSiblings)
+		})
+	}
+}

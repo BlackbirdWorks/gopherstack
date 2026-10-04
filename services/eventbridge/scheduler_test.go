@@ -3,6 +3,7 @@ package eventbridge_test
 import (
 	"context"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -32,15 +33,20 @@ func TestScheduler(t *testing.T) {
 			runAsync:   true,
 			check: func(t *testing.T, backend *eventbridge.InMemoryBackend) {
 				t.Helper()
-				require.Eventually(t, func() bool {
-					for _, entry := range backend.GetEventLog(context.Background()) {
-						if entry.Source == "aws.events" {
-							return true
-						}
-					}
+				// Advance past the 1-second rate period so the scheduler's
+				// 50ms ticker fires it at least once, then let delivery settle.
+				time.Sleep(1100 * time.Millisecond)
+				synctest.Wait()
 
-					return false
-				}, 5*time.Second, 100*time.Millisecond, "expected at least one scheduled event to be fired")
+				var fired bool
+				for _, entry := range backend.GetEventLog(context.Background()) {
+					if entry.Source == "aws.events" {
+						fired = true
+
+						break
+					}
+				}
+				assert.True(t, fired, "expected at least one scheduled event to be fired")
 			},
 		},
 		{
@@ -56,6 +62,7 @@ func TestScheduler(t *testing.T) {
 				t.Helper()
 				// Wait for the context to expire and then a little more to confirm no events fired.
 				time.Sleep(300 * time.Millisecond)
+				synctest.Wait()
 				for _, e := range backend.GetEventLog(context.Background()) {
 					assert.NotEqual(t, "aws.events", e.Source, "disabled rule should not fire events")
 				}
@@ -87,24 +94,26 @@ func TestScheduler(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backend := eventbridge.NewInMemoryBackend()
+			synctest.Test(t, func(t *testing.T) {
+				backend := eventbridge.NewInMemoryBackend()
 
-			_, err := backend.PutRule(context.Background(), tt.rule)
-			require.NoError(t, err)
+				_, err := backend.PutRule(context.Background(), tt.rule)
+				require.NoError(t, err)
 
-			scheduler := eventbridge.NewScheduler(backend, 50*time.Millisecond)
-			ctx, cancel := context.WithTimeout(t.Context(), tt.ctxTimeout)
-			defer cancel()
+				scheduler := eventbridge.NewScheduler(backend, 50*time.Millisecond)
+				ctx, cancel := context.WithTimeout(t.Context(), tt.ctxTimeout)
+				defer cancel()
 
-			if tt.runAsync {
-				go scheduler.Run(ctx)
-			} else {
-				scheduler.Run(ctx)
-			}
+				if tt.runAsync {
+					go scheduler.Run(ctx)
+				} else {
+					scheduler.Run(ctx)
+				}
 
-			if tt.check != nil {
-				tt.check(t, backend)
-			}
+				if tt.check != nil {
+					tt.check(t, backend)
+				}
+			})
 		})
 	}
 }

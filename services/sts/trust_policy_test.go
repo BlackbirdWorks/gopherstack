@@ -473,6 +473,122 @@ func TestEvaluateAssumeRoleTrust_ArnOperators(t *testing.T) {
 	}
 }
 
+// TestEvaluateAssumeRoleTrust_DateOperators exercises the Date condition
+// family against aws:CurrentTime, one of the two Date-typed keys this
+// evaluator can source honestly without new request plumbing (the other is
+// aws:EpochTime); see conditionValue and services/sts/PARITY.md's
+// gopherstack-yg95 entry. ConditionCtx overrides the key to a fixed instant
+// so the test is deterministic (no time.Sleep, no wall-clock dependency).
+func TestEvaluateAssumeRoleTrust_DateOperators(t *testing.T) {
+	t.Parallel()
+
+	const caller = "arn:aws:iam::123456789012:user/alice"
+
+	policy := func(op, value string) string {
+		return `{"Statement":[{"Effect":"Allow","Principal":{"AWS":"*"},` +
+			`"Action":"sts:AssumeRole","Condition":{"` + op + `":{"aws:CurrentTime":"` + value + `"}}}]}`
+	}
+
+	tests := []struct {
+		name    string
+		policy  string
+		now     string
+		wantErr bool
+	}{
+		{
+			name: "date_less_than_true", policy: policy("DateLessThan", "2025-01-01T00:00:00Z"),
+			now: "2024-01-01T00:00:00Z", wantErr: false,
+		},
+		{
+			name: "date_less_than_false", policy: policy("DateLessThan", "2025-01-01T00:00:00Z"),
+			now: "2026-01-01T00:00:00Z", wantErr: true,
+		},
+		{
+			name: "date_greater_than_epoch_seconds", policy: policy("DateGreaterThan", "1704067199"),
+			now: "2025-01-01T00:00:00Z", wantErr: false,
+		},
+		{
+			name: "date_greater_than_epoch_seconds_false", policy: policy("DateGreaterThan", "1704067199"),
+			now: "2023-01-01T00:00:00Z", wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ev := sts.TrustEvalForTest{
+				Action: sts.ActionAssumeRole, CallerArn: caller,
+				ConditionCtx: map[string]string{"aws:currenttime": tt.now},
+			}
+
+			err := sts.EvaluateAssumeRoleTrust(tt.policy, ev)
+			if !tt.wantErr {
+				require.NoError(t, err)
+
+				return
+			}
+
+			require.Error(t, err)
+			assert.ErrorIs(t, err, sts.ErrAccessDenied)
+		})
+	}
+}
+
+// TestEvaluateAssumeRoleTrust_NullIfExistsUnrecognized proves "NullIfExists"
+// is not silently accepted as a stripped-suffix alias for Null: AWS documents
+// IfExists as valid on any operator except Null.
+// https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_elements_condition_operators.html#Conditions_IfExists
+//
+//nolint:lll // AWS doc URL, cannot be split
+func TestEvaluateAssumeRoleTrust_NullIfExistsUnrecognized(t *testing.T) {
+	t.Parallel()
+
+	const caller = "arn:aws:iam::123456789012:user/alice"
+
+	policy := `{"Statement":[{"Effect":"Allow","Principal":{"AWS":"*"},` +
+		`"Action":"sts:AssumeRole","Condition":{"NullIfExists":{"custom:ticket":"true"}}}]}`
+
+	// Permissive mode (default): unrecognized operators fail open, same as
+	// TestEvaluateAssumeRoleTrust_UnmodeledOperatorPermitsByDesign.
+	err := sts.EvaluateAssumeRoleTrust(policy, sts.TrustEvalForTest{
+		Action: sts.ActionAssumeRole, CallerArn: caller,
+	})
+	require.NoError(t, err)
+
+	// Strict mode: an unrecognized operator now denies -- proving
+	// "NullIfExists" took the unrecognized-operator path (which strict mode
+	// distinguishes) rather than nullConditionHolds's permissive Null path
+	// (which "custom:ticket":"true", key absent, would have satisfied).
+	err = sts.EvaluateAssumeRoleTrust(policy, sts.TrustEvalForTest{
+		Action: sts.ActionAssumeRole, CallerArn: caller, StrictConditions: true,
+	})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, sts.ErrAccessDenied)
+}
+
+// TestEvaluateAssumeRoleTrust_ArnSegmentWise proves ArnLike compares each of
+// the six colon-delimited ARN components separately instead of one glob over
+// the whole string, so a wildcard cannot span a segment boundary.
+// https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_elements_condition_operators.html#Conditions_ARN
+func TestEvaluateAssumeRoleTrust_ArnSegmentWise(t *testing.T) {
+	t.Parallel()
+
+	const caller = "arn:aws:sts::123456789012:assumed-role/AppRole/session"
+
+	// A malformed pattern missing a colon must not match by letting '*' span
+	// the region+account segment boundary of aws:PrincipalArn.
+	policy := `{"Statement":[{"Effect":"Allow","Principal":{"AWS":"*"},` +
+		`"Action":"sts:AssumeRole","Condition":{"ArnLike":{"aws:PrincipalArn":` +
+		`"arn:aws:sts:*:assumed-role/AppRole/session"}}}]}`
+
+	err := sts.EvaluateAssumeRoleTrust(policy, sts.TrustEvalForTest{
+		Action: sts.ActionAssumeRole, CallerArn: caller,
+	})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, sts.ErrAccessDenied)
+}
+
 // TestEvaluateAssumeRoleTrust_UnmodeledOperatorPermitsByDesign documents the
 // deliberate fail-open decision (gopherstack-yg95) for condition operators
 // this evaluator has no request-context value to check against (Numeric*,

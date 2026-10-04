@@ -56,7 +56,7 @@ func newPersistenceTestBackend(t *testing.T) *cloudtrail.InMemoryBackend {
 	// imports table.
 	_, err = b.StartImport([]string{eds.EventDataStoreARN}, &cloudtrail.ImportSource{
 		S3: &cloudtrail.S3ImportSource{S3LocationURI: "s3://my-bucket/logs/"},
-	})
+	}, nil, nil)
 	require.NoError(t, err)
 
 	// raw events slice.

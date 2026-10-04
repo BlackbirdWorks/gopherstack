@@ -138,6 +138,7 @@ type InferenceExperimentEndpointMetadata struct {
 type InferenceExperiment struct {
 	CreationTime      time.Time                             `json:"CreationTime"`
 	LastModifiedTime  time.Time                             `json:"LastModifiedTime"`
+	CompletionTime    *time.Time                            `json:"CompletionTime,omitempty"`
 	DataStorageConfig *InferenceExperimentDataStorageConfig `json:"DataStorageConfig,omitempty"`
 	Schedule          *InferenceExperimentSchedule          `json:"Schedule,omitempty"`
 	ShadowModeConfig  *ShadowModeConfig                     `json:"ShadowModeConfig,omitempty"`
@@ -159,6 +160,11 @@ func cloneInferenceExperiment(e *InferenceExperiment) *InferenceExperiment {
 	cp := *e
 	cp.Tags = maps.Clone(e.Tags)
 	cp.ModelVariants = append([]ModelVariantConfig(nil), e.ModelVariants...)
+
+	if e.CompletionTime != nil {
+		ct := *e.CompletionTime
+		cp.CompletionTime = &ct
+	}
 
 	if e.DataStorageConfig != nil {
 		dsc := *e.DataStorageConfig
@@ -190,11 +196,13 @@ func (e *InferenceExperiment) MarshalJSON() ([]byte, error) {
 
 	return json.Marshal(struct {
 		*alias
+		CompletionTime   *float64                    `json:"CompletionTime,omitempty"`
 		ModelVariants    []ModelVariantConfigSummary `json:"ModelVariants"`
 		CreationTime     float64                     `json:"CreationTime"`
 		LastModifiedTime float64                     `json:"LastModifiedTime"`
 	}{
 		alias:            (*alias)(e),
+		CompletionTime:   epochSecondsPtr(e.CompletionTime),
 		CreationTime:     epochSeconds(e.CreationTime),
 		LastModifiedTime: epochSeconds(e.LastModifiedTime),
 		ModelVariants:    modelVariantConfigSummaries(e.ModelVariants),
@@ -208,8 +216,9 @@ func (e *InferenceExperiment) UnmarshalJSON(data []byte) error {
 
 	aux := struct {
 		*alias
-		CreationTime     float64 `json:"CreationTime"`
-		LastModifiedTime float64 `json:"LastModifiedTime"`
+		CompletionTime   *float64 `json:"CompletionTime,omitempty"`
+		CreationTime     float64  `json:"CreationTime"`
+		LastModifiedTime float64  `json:"LastModifiedTime"`
 	}{alias: (*alias)(e)}
 
 	if err := json.Unmarshal(data, &aux); err != nil {
@@ -218,6 +227,7 @@ func (e *InferenceExperiment) UnmarshalJSON(data []byte) error {
 
 	e.CreationTime = timeFromEpochSeconds(aux.CreationTime)
 	e.LastModifiedTime = timeFromEpochSeconds(aux.LastModifiedTime)
+	e.CompletionTime = timeFromEpochSecondsPtr(aux.CompletionTime)
 
 	return nil
 }
@@ -368,6 +378,8 @@ func (b *InMemoryBackend) StopInferenceExperiment(
 	e.Status = status
 	e.StatusReason = opts.Reason
 	e.LastModifiedTime = time.Now()
+	completed := e.LastModifiedTime
+	e.CompletionTime = &completed
 
 	switch {
 	case len(opts.DesiredModelVariants) > 0:
@@ -416,6 +428,7 @@ func (b *InMemoryBackend) StartInferenceExperiment(ctx context.Context, name str
 
 	e.Status = statusRunning
 	e.LastModifiedTime = time.Now()
+	e.CompletionTime = nil
 
 	return cloneInferenceExperiment(e), nil
 }

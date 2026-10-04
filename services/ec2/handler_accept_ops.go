@@ -25,17 +25,20 @@ type acceptAddressTransferResponse struct {
 }
 
 type capacityReservationItem struct {
-	CapacityReservationID  string          `xml:"capacityReservationId"`
-	InstanceType           string          `xml:"instanceType"`
-	AvailabilityZone       string          `xml:"availabilityZone"`
-	OwnedBy                string          `xml:"ownerId,omitempty"`
-	State                  string          `xml:"state"`
-	InstanceMatchCriteria  string          `xml:"instanceMatchCriteria,omitempty"`
-	Tenancy                string          `xml:"tenancy,omitempty"`
-	InstancePlatform       string          `xml:"instancePlatform,omitempty"`
-	TagSet                 []simpleTagItem `xml:"tagSet>item"`
-	AvailableInstanceCount int             `xml:"availableInstanceCount"`
-	TotalInstanceCount     int             `xml:"totalInstanceCount"`
+	InterruptibleCapacityAllocation *interruptibleAllocationDetail `xml:"interruptibleCapacityAllocation,omitempty"`
+	InterruptionInfo                *interruptionInfoItem          `xml:"interruptionInfo,omitempty"`
+	CapacityReservationID           string                         `xml:"capacityReservationId"`
+	InstanceType                    string                         `xml:"instanceType"`
+	AvailabilityZone                string                         `xml:"availabilityZone"`
+	OwnedBy                         string                         `xml:"ownerId,omitempty"`
+	State                           string                         `xml:"state"`
+	InstanceMatchCriteria           string                         `xml:"instanceMatchCriteria,omitempty"`
+	Tenancy                         string                         `xml:"tenancy,omitempty"`
+	InstancePlatform                string                         `xml:"instancePlatform,omitempty"`
+	TagSet                          []simpleTagItem                `xml:"tagSet>item"`
+	AvailableInstanceCount          int                            `xml:"availableInstanceCount"`
+	TotalInstanceCount              int                            `xml:"totalInstanceCount"`
+	Interruptible                   bool                           `xml:"interruptible,omitempty"`
 }
 
 // acceptCapacityReservationBillingOwnershipResponse matches the real
@@ -670,7 +673,9 @@ func (h *Handler) handleDescribeVpcPeeringConnections(vals url.Values, reqID str
 		ids = append(ids, id)
 	}
 
-	connections := h.Backend.DescribeVpcPeeringConnections(ids)
+	connections := applyVpcPeeringConnectionFilters(
+		h.Backend.DescribeVpcPeeringConnections(ids), parseEC2Filters(vals), h.Backend,
+	)
 
 	resp := &describeVpcPeeringConnectionsResponse{
 		Xmlns:     ec2XMLNS,

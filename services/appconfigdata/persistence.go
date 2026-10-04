@@ -103,19 +103,20 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	return nil
 }
 
-// Snapshot implements persistence.Persistable by delegating to the backend.
-// Handler previously had no Snapshot/Restore of its own -- and neither did
-// InMemoryBackend -- so cli.go's generic setupPersistence (which
-// type-asserts the registered service.Registerable, i.e. the Handler, for a
-// Snapshot/Restore pair) never picked AppConfigData up at all: dead wiring,
-// with no persistence underneath it either. This delegation (matching the
-// cleanrooms/appconfig/codecommit pattern) is what wires AppConfigData into
-// persistence for the first time.
+// Snapshot implements persistence.Persistable; other regions ride in an additive "regions" key.
 func (h *Handler) Snapshot(ctx context.Context) []byte {
-	return h.Backend.Snapshot(ctx)
+	return h.peers.Snapshot(h.Backend.Snapshot(ctx), func(p *Handler) []byte { return p.Backend.Snapshot(ctx) })
 }
 
-// Restore implements persistence.Persistable by delegating to the backend.
+// Restore implements persistence.Persistable; sibling janitors stop as the old siblings are dropped.
 func (h *Handler) Restore(ctx context.Context, data []byte) error {
-	return h.Backend.Restore(ctx, data)
+	if err := h.Backend.Restore(ctx, data); err != nil {
+		return err
+	}
+
+	return h.peers.Restore(
+		data,
+		func(p *Handler, d []byte) error { return p.Backend.Restore(ctx, d) },
+		func(p *Handler) { p.stopWorkers() },
+	)
 }

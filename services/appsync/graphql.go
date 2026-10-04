@@ -477,7 +477,7 @@ func invokeLambdaDataSource(
 	}
 
 	result, _, err := backend.lambdaFn.InvokeFunction(
-		ctx,
+		withRegion(ctx, backend.region),
 		ds.LambdaConfig.LambdaFunctionARN,
 		"RequestResponse",
 		payload,
@@ -553,6 +553,8 @@ func invokeDynamoDBDataSource(
 	}
 
 	operation, _ := request["operation"].(string)
+
+	ctx = withRegion(ctx, firstNonEmpty(ds.DynamoDBConfig.AWSRegion, backend.region))
 
 	var result any
 
@@ -679,4 +681,14 @@ func (b *InMemoryBackend) ExecuteGraphQL(
 	return executeGraphQL(
 		ctx, b, schema, resolversCopy, datasourcesCopy, functionsCopy, query, operationName, variables,
 	)
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+
+	return ""
 }

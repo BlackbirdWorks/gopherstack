@@ -3,7 +3,7 @@ package stepfunctions_test
 import (
 	"context"
 	"testing"
-	"time"
+	"testing/synctest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -88,55 +88,53 @@ func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 func TestRestore_RebuildsStatusIndex(t *testing.T) {
 	t.Parallel()
 
-	const def = `{"StartAt":"P","States":{"P":{"Type":"Pass","End":true}}}`
-	const role = "arn:aws:iam::000000000000:role/test"
+	synctest.Test(t, func(t *testing.T) {
+		const def = `{"StartAt":"P","States":{"P":{"Type":"Pass","End":true}}}`
+		const role = "arn:aws:iam::000000000000:role/test"
 
-	original := stepfunctions.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
-	ctx := t.Context()
+		original := stepfunctions.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+		ctx := t.Context()
 
-	sm, err := original.CreateStateMachine(ctx, "index-sm", def, role, "STANDARD")
-	require.NoError(t, err)
-	smARN := sm.StateMachineArn
+		sm, err := original.CreateStateMachine(ctx, "index-sm", def, role, "STANDARD")
+		require.NoError(t, err)
+		smARN := sm.StateMachineArn
 
-	// Manually inject a SUCCEEDED execution via snapshot-level approach:
-	// start, wait for completion.
-	exec, err := original.StartExecution(smARN, "exec-a", `{}`)
-	require.NoError(t, err)
-	execARN := exec.ExecutionArn
+		// Manually inject a SUCCEEDED execution via snapshot-level approach:
+		// start, wait for completion.
+		exec, err := original.StartExecution(smARN, "exec-a", `{}`)
+		require.NoError(t, err)
+		execARN := exec.ExecutionArn
 
-	// Wait for Pass state to complete.
-	require.Eventually(t, func() bool {
-		e, _ := original.DescribeExecution(execARN)
+		synctest.Wait()
 
-		return e != nil && e.Status != "RUNNING"
-	}, 5*time.Second, 10*time.Millisecond)
+		// Verify status before snapshot.
+		e, err := original.DescribeExecution(execARN)
+		require.NoError(t, err)
+		require.NotEqual(t, "RUNNING", e.Status)
+		wantStatus := e.Status
 
-	// Verify status before snapshot.
-	e, err := original.DescribeExecution(execARN)
-	require.NoError(t, err)
-	wantStatus := e.Status
+		// Snapshot → restore.
+		snap := original.Snapshot(ctx)
+		require.NotNil(t, snap)
 
-	// Snapshot → restore.
-	snap := original.Snapshot(ctx)
-	require.NotNil(t, snap)
+		fresh := stepfunctions.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+		require.NoError(t, fresh.Restore(ctx, snap))
 
-	fresh := stepfunctions.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
-	require.NoError(t, fresh.Restore(ctx, snap))
+		// Status bucket should be populated for the terminal status.
+		count := fresh.SMExecsByStatusCountForTest(smARN, wantStatus)
+		assert.Equal(t, 1, count, "smExecsByStatus[%s][%s] should have 1 entry after Restore", smARN, wantStatus)
 
-	// Status bucket should be populated for the terminal status.
-	count := fresh.SMExecsByStatusCountForTest(smARN, wantStatus)
-	assert.Equal(t, 1, count, "smExecsByStatus[%s][%s] should have 1 entry after Restore", smARN, wantStatus)
+		// ListExecutions with status filter should return the execution.
+		execs, _, listErr := fresh.ListExecutions(smARN, wantStatus, "", 0)
+		require.NoError(t, listErr)
+		require.Len(t, execs, 1)
+		assert.Equal(t, execARN, execs[0].ExecutionArn)
 
-	// ListExecutions with status filter should return the execution.
-	execs, _, listErr := fresh.ListExecutions(smARN, wantStatus, "", 0)
-	require.NoError(t, listErr)
-	require.Len(t, execs, 1)
-	assert.Equal(t, execARN, execs[0].ExecutionArn)
-
-	// ListExecutions with a non-matching status filter should return nothing.
-	execs2, _, listErr2 := fresh.ListExecutions(smARN, "FAILED", "", 0)
-	require.NoError(t, listErr2)
-	assert.Empty(t, execs2)
+		// ListExecutions with a non-matching status filter should return nothing.
+		execs2, _, listErr2 := fresh.ListExecutions(smARN, "FAILED", "", 0)
+		require.NoError(t, listErr2)
+		assert.Empty(t, execs2)
+	})
 }
 
 // TestInMemoryBackend_FullStateSnapshotRestoreRoundTrip exercises a full
@@ -149,72 +147,74 @@ func TestRestore_RebuildsStatusIndex(t *testing.T) {
 func TestInMemoryBackend_FullStateSnapshotRestoreRoundTrip(t *testing.T) {
 	t.Parallel()
 
-	const def = `{"StartAt":"P","States":{"P":{"Type":"Pass","End":true}}}`
-	const role = "arn:aws:iam::000000000000:role/test"
+	synctest.Test(t, func(t *testing.T) {
+		const def = `{"StartAt":"P","States":{"P":{"Type":"Pass","End":true}}}`
+		const role = "arn:aws:iam::000000000000:role/test"
 
-	ctx := t.Context()
-	original := stepfunctions.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+		ctx := t.Context()
+		original := stepfunctions.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
 
-	sm, err := original.CreateStateMachine(ctx, "full-state-sm", def, role, "STANDARD")
-	require.NoError(t, err)
+		sm, err := original.CreateStateMachine(ctx, "full-state-sm", def, role, "STANDARD")
+		require.NoError(t, err)
 
-	act, err := original.CreateActivity(ctx, "full-state-activity")
-	require.NoError(t, err)
+		act, err := original.CreateActivity(ctx, "full-state-activity")
+		require.NoError(t, err)
 
-	v, err := original.PublishStateMachineVersion(sm.StateMachineArn, "v1", "")
-	require.NoError(t, err)
+		v, err := original.PublishStateMachineVersion(sm.StateMachineArn, "v1", "")
+		require.NoError(t, err)
 
-	// Started via the version-qualified ARN so StateMachineVersionArn is
-	// non-empty on the Execution record, exercising the persistence DTO
-	// field added alongside qualified-ARN execution resolution.
-	exec, err := original.StartExecution(v.StateMachineVersionArn, "full-state-exec", `{"k":"v"}`)
-	require.NoError(t, err)
+		// Started via the version-qualified ARN so StateMachineVersionArn is
+		// non-empty on the Execution record, exercising the persistence DTO
+		// field added alongside qualified-ARN execution resolution.
+		exec, err := original.StartExecution(v.StateMachineVersionArn, "full-state-exec", `{"k":"v"}`)
+		require.NoError(t, err)
 
-	require.Eventually(t, func() bool {
-		e, describeErr := original.DescribeExecution(exec.ExecutionArn)
+		synctest.Wait()
 
-		return describeErr == nil && e.Status != "RUNNING"
-	}, 5*time.Second, 10*time.Millisecond)
+		terminalDesc, err := original.DescribeExecution(exec.ExecutionArn)
+		require.NoError(t, err)
+		require.NotEqual(t, "RUNNING", terminalDesc.Status)
 
-	wantHistory, _, err := original.GetExecutionHistory(exec.ExecutionArn, "", 0, false)
-	require.NoError(t, err)
-	require.NotEmpty(t, wantHistory, "execution should have recorded at least one history event")
+		wantHistory, _, err := original.GetExecutionHistory(exec.ExecutionArn, "", 0, false)
+		require.NoError(t, err)
+		require.NotEmpty(t, wantHistory, "execution should have recorded at least one history event")
 
-	snap := original.Snapshot(ctx)
-	require.NotNil(t, snap)
+		snap := original.Snapshot(ctx)
+		require.NotNil(t, snap)
 
-	fresh := stepfunctions.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
-	require.NoError(t, fresh.Restore(ctx, snap))
+		fresh := stepfunctions.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+		require.NoError(t, fresh.Restore(ctx, snap))
 
-	// State machine survives the round trip.
-	restoredSM, err := fresh.DescribeStateMachine(sm.StateMachineArn)
-	require.NoError(t, err)
-	assert.Equal(t, sm.Name, restoredSM.Name)
-	assert.Equal(t, sm.Definition, restoredSM.Definition)
-	assert.Equal(t, sm.RoleArn, restoredSM.RoleArn)
+		// State machine survives the round trip.
+		restoredSM, err := fresh.DescribeStateMachine(sm.StateMachineArn)
+		require.NoError(t, err)
+		assert.Equal(t, sm.Name, restoredSM.Name)
+		assert.Equal(t, sm.Definition, restoredSM.Definition)
+		assert.Equal(t, sm.RoleArn, restoredSM.RoleArn)
 
-	// Activity survives the round trip.
-	restoredAct, err := fresh.DescribeActivity(act.ActivityArn)
-	require.NoError(t, err)
-	assert.Equal(t, act.Name, restoredAct.Name)
+		// Activity survives the round trip.
+		restoredAct, err := fresh.DescribeActivity(act.ActivityArn)
+		require.NoError(t, err)
+		assert.Equal(t, act.Name, restoredAct.Name)
 
-	// Execution survives the round trip, including its inline history.
-	restoredExec, err := fresh.DescribeExecution(exec.ExecutionArn)
-	require.NoError(t, err)
-	assert.Equal(t, exec.ExecutionArn, restoredExec.ExecutionArn)
-	assert.Equal(t, sm.StateMachineArn, restoredExec.StateMachineArn)
-	assert.Equal(t, v.StateMachineVersionArn, restoredExec.StateMachineVersionArn,
-		"StateMachineVersionArn must survive the snapshot/restore round trip")
-	assert.JSONEq(t, `{"k":"v"}`, restoredExec.Input)
+		// Execution survives the round trip, including its inline history.
+		restoredExec, err := fresh.DescribeExecution(exec.ExecutionArn)
+		require.NoError(t, err)
+		assert.Equal(t, exec.ExecutionArn, restoredExec.ExecutionArn)
+		assert.Equal(t, sm.StateMachineArn, restoredExec.StateMachineArn)
+		assert.Equal(t, v.StateMachineVersionArn, restoredExec.StateMachineVersionArn,
+			"StateMachineVersionArn must survive the snapshot/restore round trip")
+		assert.JSONEq(t, `{"k":"v"}`, restoredExec.Input)
 
-	gotHistory, _, err := fresh.GetExecutionHistory(exec.ExecutionArn, "", 0, false)
-	require.NoError(t, err)
-	require.Len(t, gotHistory, len(wantHistory))
+		gotHistory, _, err := fresh.GetExecutionHistory(exec.ExecutionArn, "", 0, false)
+		require.NoError(t, err)
+		require.Len(t, gotHistory, len(wantHistory))
 
-	for i, wantEvent := range wantHistory {
-		assert.Equal(t, wantEvent.Type, gotHistory[i].Type, "history event %d type mismatch after restore", i)
-		assert.Equal(t, wantEvent.ID, gotHistory[i].ID, "history event %d ID mismatch after restore", i)
-	}
+		for i, wantEvent := range wantHistory {
+			assert.Equal(t, wantEvent.Type, gotHistory[i].Type, "history event %d type mismatch after restore", i)
+			assert.Equal(t, wantEvent.ID, gotHistory[i].ID, "history event %d ID mismatch after restore", i)
+		}
+	})
 }
 
 func TestSFNHandler_SnapshotRestore_Delegation(t *testing.T) {

@@ -181,7 +181,7 @@ func testModifyDBInstanceFieldsRealClient(t *testing.T) {
 		"mod-fields-instance", "postgres", "db.t3.micro", "", "admin", "", 20, rds.DBInstanceOptions{},
 	)
 	require.NoError(t, err)
-	waitForInstanceStatus(t, backend, "mod-fields-instance", "available")
+	waitForInstanceAvailable(t, backend, "mod-fields-instance")
 
 	out, err := client.ModifyDBInstance(ctx, &rdssdk.ModifyDBInstanceInput{
 		DBInstanceIdentifier:               aws.String("mod-fields-instance"),

@@ -67,6 +67,10 @@ func (b *InMemoryBackend) CreateGraphqlAPI(
 		return nil, fmt.Errorf("%w: invalid visibility %q, must be GLOBAL or PRIVATE", ErrValidation, visibility)
 	}
 
+	if err := validateEnhancedMetricsConfig(cfg); err != nil {
+		return nil, err
+	}
+
 	apiID := randomAPIID()
 	apiARN := arn.Build("appsync", b.region, b.accountID, "apis/"+apiID)
 
@@ -108,6 +112,26 @@ func (b *InMemoryBackend) CreateGraphqlAPI(
 	return &cp, nil
 }
 
+// validateEnhancedMetricsConfig rejects enum values outside the SDK's enums.go sets.
+func validateEnhancedMetricsConfig(cfg *GraphqlAPIConfig) error {
+	if cfg == nil || cfg.EnhancedMetricsConfig == nil {
+		return nil
+	}
+
+	emc := cfg.EnhancedMetricsConfig
+	valid := emc.DataSourceLevelMetricsBehavior == "FULL_REQUEST_DATA_SOURCE_METRICS" ||
+		emc.DataSourceLevelMetricsBehavior == "PER_DATA_SOURCE_METRICS"
+	valid = valid && (emc.ResolverLevelMetricsBehavior == "FULL_REQUEST_RESOLVER_METRICS" ||
+		emc.ResolverLevelMetricsBehavior == "PER_RESOLVER_METRICS")
+	valid = valid && (emc.OperationLevelMetricsConfig == "ENABLED" || emc.OperationLevelMetricsConfig == "DISABLED")
+
+	if !valid {
+		return fmt.Errorf("%w: invalid enhancedMetricsConfig", ErrValidation)
+	}
+
+	return nil
+}
+
 // applyGraphqlAPIConfig applies optional auth/logging config onto a GraphqlAPI.
 func applyGraphqlAPIConfig(api *GraphqlAPI, cfg *GraphqlAPIConfig) {
 	if cfg == nil {
@@ -132,6 +156,15 @@ func applyGraphqlAPIConfig(api *GraphqlAPI, cfg *GraphqlAPIConfig) {
 
 	if cfg.IntrospectionConfig != "" {
 		api.IntrospectionConfig = cfg.IntrospectionConfig
+	}
+
+	if cfg.EnhancedMetricsConfig != nil {
+		emc := *cfg.EnhancedMetricsConfig
+		api.EnhancedMetricsConfig = &emc
+	}
+
+	if cfg.MergedAPIExecutionRole != "" {
+		api.MergedAPIExecutionRoleARN = cfg.MergedAPIExecutionRole
 	}
 
 	if cfg.OwnerContact != "" {
@@ -185,6 +218,10 @@ func (b *InMemoryBackend) UpdateGraphqlAPI(
 
 	if visibility != "" && visibility != VisibilityGlobal && visibility != VisibilityPrivate {
 		return nil, fmt.Errorf("%w: invalid visibility %q, must be GLOBAL or PRIVATE", ErrValidation, visibility)
+	}
+
+	if err := validateEnhancedMetricsConfig(cfg); err != nil {
+		return nil, err
 	}
 
 	if name != "" {

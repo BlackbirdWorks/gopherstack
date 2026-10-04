@@ -3,6 +3,7 @@ package ecs_test
 import (
 	"context"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -31,94 +32,100 @@ func setupJanitorBackend(t *testing.T) *ecs.InMemoryBackend {
 func TestJanitor_SweepsStoppedTasksOlderThanTTL(t *testing.T) {
 	t.Parallel()
 
-	backend := setupJanitorBackend(t)
+	synctest.Test(t, func(t *testing.T) {
+		backend := setupJanitorBackend(t)
 
-	// Run a task then stop it.
-	tasks, _, err := backend.RunTask(ecs.RunTaskInput{
-		Cluster:        "test-cluster",
-		TaskDefinition: "test-family",
-		Count:          1,
+		// Run a task then stop it.
+		tasks, _, err := backend.RunTask(ecs.RunTaskInput{
+			Cluster:        "test-cluster",
+			TaskDefinition: "test-family",
+			Count:          1,
+		})
+		require.NoError(t, err)
+		require.Len(t, tasks, 1)
+
+		taskArn := tasks[0].TaskArn
+		_, err = backend.StopTask("test-cluster", taskArn, "testing")
+		require.NoError(t, err)
+
+		// Create a janitor with a very short TTL so the stopped task is immediately stale.
+		janitor := ecs.NewJanitor(backend, time.Second)
+		janitor.SetTaskTTL(1 * time.Millisecond)
+
+		// Allow time for the task to expire.
+		time.Sleep(5 * time.Millisecond)
+
+		janitor.SweepOnce(context.Background())
+
+		// The stopped task should have been evicted.
+		listed, err := backend.ListTasks("test-cluster")
+		require.NoError(t, err)
+		assert.Empty(t, listed)
 	})
-	require.NoError(t, err)
-	require.Len(t, tasks, 1)
-
-	taskArn := tasks[0].TaskArn
-	_, err = backend.StopTask("test-cluster", taskArn, "testing")
-	require.NoError(t, err)
-
-	// Create a janitor with a very short TTL so the stopped task is immediately stale.
-	janitor := ecs.NewJanitor(backend, time.Second)
-	janitor.SetTaskTTL(1 * time.Millisecond)
-
-	// Allow time for the task to expire.
-	time.Sleep(5 * time.Millisecond)
-
-	janitor.SweepOnce(context.Background())
-
-	// The stopped task should have been evicted.
-	listed, err := backend.ListTasks("test-cluster")
-	require.NoError(t, err)
-	assert.Empty(t, listed)
 }
 
 func TestJanitor_SweptTaskLosesResourceTags(t *testing.T) {
 	t.Parallel()
 
-	backend := setupJanitorBackend(t)
+	synctest.Test(t, func(t *testing.T) {
+		backend := setupJanitorBackend(t)
 
-	tasks, _, err := backend.RunTask(ecs.RunTaskInput{
-		Cluster:        "test-cluster",
-		TaskDefinition: "test-family",
-		Count:          1,
-		Tags:           []ecs.Tag{{Key: "env", Value: "test"}},
+		tasks, _, err := backend.RunTask(ecs.RunTaskInput{
+			Cluster:        "test-cluster",
+			TaskDefinition: "test-family",
+			Count:          1,
+			Tags:           []ecs.Tag{{Key: "env", Value: "test"}},
+		})
+		require.NoError(t, err)
+		require.Len(t, tasks, 1)
+
+		taskArn := tasks[0].TaskArn
+
+		tags, err := backend.ListTagsForResource(taskArn)
+		require.NoError(t, err)
+		require.NotEmpty(t, tags, "tags should be recorded immediately after RunTask")
+
+		_, err = backend.StopTask("test-cluster", taskArn, "testing")
+		require.NoError(t, err)
+
+		janitor := ecs.NewJanitor(backend, time.Second)
+		janitor.SetTaskTTL(1 * time.Millisecond)
+		time.Sleep(5 * time.Millisecond)
+
+		janitor.SweepOnce(context.Background())
+
+		// The task is gone; its resourceTags side-map entry must go with it, or a
+		// stale ARN keeps answering ListTagsForResource forever.
+		tags, err = backend.ListTagsForResource(taskArn)
+		require.NoError(t, err)
+		assert.Empty(t, tags, "resourceTags leaked a ghost row for a swept task")
 	})
-	require.NoError(t, err)
-	require.Len(t, tasks, 1)
-
-	taskArn := tasks[0].TaskArn
-
-	tags, err := backend.ListTagsForResource(taskArn)
-	require.NoError(t, err)
-	require.NotEmpty(t, tags, "tags should be recorded immediately after RunTask")
-
-	_, err = backend.StopTask("test-cluster", taskArn, "testing")
-	require.NoError(t, err)
-
-	janitor := ecs.NewJanitor(backend, time.Second)
-	janitor.SetTaskTTL(1 * time.Millisecond)
-	time.Sleep(5 * time.Millisecond)
-
-	janitor.SweepOnce(context.Background())
-
-	// The task is gone; its resourceTags side-map entry must go with it, or a
-	// stale ARN keeps answering ListTagsForResource forever.
-	tags, err = backend.ListTagsForResource(taskArn)
-	require.NoError(t, err)
-	assert.Empty(t, tags, "resourceTags leaked a ghost row for a swept task")
 }
 
 func TestJanitor_DoesNotSweepRunningTasks(t *testing.T) {
 	t.Parallel()
 
-	backend := setupJanitorBackend(t)
+	synctest.Test(t, func(t *testing.T) {
+		backend := setupJanitorBackend(t)
 
-	tasks, _, err := backend.RunTask(ecs.RunTaskInput{
-		Cluster:        "test-cluster",
-		TaskDefinition: "test-family",
-		Count:          1,
+		tasks, _, err := backend.RunTask(ecs.RunTaskInput{
+			Cluster:        "test-cluster",
+			TaskDefinition: "test-family",
+			Count:          1,
+		})
+		require.NoError(t, err)
+		require.Len(t, tasks, 1)
+
+		janitor := ecs.NewJanitor(backend, time.Second)
+		janitor.SetTaskTTL(1 * time.Millisecond)
+		time.Sleep(5 * time.Millisecond)
+
+		janitor.SweepOnce(context.Background())
+
+		listed, err := backend.ListTasks("test-cluster")
+		require.NoError(t, err)
+		assert.Len(t, listed, 1)
 	})
-	require.NoError(t, err)
-	require.Len(t, tasks, 1)
-
-	janitor := ecs.NewJanitor(backend, time.Second)
-	janitor.SetTaskTTL(1 * time.Millisecond)
-	time.Sleep(5 * time.Millisecond)
-
-	janitor.SweepOnce(context.Background())
-
-	listed, err := backend.ListTasks("test-cluster")
-	require.NoError(t, err)
-	assert.Len(t, listed, 1)
 }
 
 func TestJanitor_DoesNotSweepRecentlyStoppedTasks(t *testing.T) {
@@ -154,27 +161,30 @@ func TestJanitor_DoesNotSweepRecentlyStoppedTasks(t *testing.T) {
 func TestJanitor_RespectsContextCancellation(t *testing.T) {
 	t.Parallel()
 
-	backend := setupJanitorBackend(t)
+	synctest.Test(t, func(t *testing.T) {
+		backend := setupJanitorBackend(t)
 
-	janitor := ecs.NewJanitor(backend, 50*time.Millisecond)
+		janitor := ecs.NewJanitor(backend, 50*time.Millisecond)
 
-	ctx, cancel := context.WithCancel(context.Background())
+		ctx, cancel := context.WithCancel(context.Background())
 
-	done := make(chan struct{})
+		done := make(chan struct{})
 
-	go func() {
-		janitor.Run(ctx)
-		close(done)
-	}()
+		go func() {
+			janitor.Run(ctx)
+			close(done)
+		}()
 
-	// Let it tick once.
-	time.Sleep(100 * time.Millisecond)
-	cancel()
+		// Let it tick once.
+		time.Sleep(100 * time.Millisecond)
+		synctest.Wait()
+		cancel()
 
-	select {
-	case <-done:
-		// Janitor exited as expected.
-	case <-time.After(2 * time.Second):
-		t.Fatal("janitor did not exit after context cancellation")
-	}
+		select {
+		case <-done:
+			// Janitor exited as expected.
+		case <-time.After(2 * time.Second):
+			t.Fatal("janitor did not exit after context cancellation")
+		}
+	})
 }

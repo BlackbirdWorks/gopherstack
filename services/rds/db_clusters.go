@@ -9,6 +9,12 @@ import (
 	"time"
 )
 
+// cloneDBClusterMutableSlices deep-copies DBClusterMembers before a caller sees them.
+// FailoverDBCluster writes IsClusterWriter in place, so a shallow "cp := *cluster" would share the backing array.
+func cloneDBClusterMutableSlices(c *DBCluster) {
+	c.DBClusterMembers = slices.Clone(c.DBClusterMembers)
+}
+
 // CreateDBCluster creates a new DB cluster.
 func (b *InMemoryBackend) CreateDBCluster(
 	id, engine, masterUser, dbName, paramGroupName string,
@@ -38,7 +44,18 @@ func (b *InMemoryBackend) CreateDBCluster(
 		}
 	}
 
+	if err := b.validateEngineLogin(engine, masterUser); err != nil {
+		return nil, err
+	}
+
+	secret, err := b.createMasterSecret("cluster", opts.MasterSecretRequest, opts.MasterUserPassword)
+	if err != nil {
+		return nil, err
+	}
+
 	cluster := b.newDBCluster(id, engine, masterUser, dbName, paramGroupName, port, serverlessV2Cfg, opts)
+	cluster.MasterSecret = secret
+	b.provisionClusterLocked(cluster, opts.MasterUserPassword)
 	b.clusters.Put(cluster)
 
 	if replicationSource != nil {
@@ -53,6 +70,7 @@ func (b *InMemoryBackend) CreateDBCluster(
 	}
 
 	cp := *cluster
+	cloneDBClusterMutableSlices(&cp)
 
 	return &cp, nil
 }
@@ -161,6 +179,7 @@ func (b *InMemoryBackend) DescribeDBClusters(id string) ([]DBCluster, error) {
 			return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 		}
 		cp := *cluster
+		cloneDBClusterMutableSlices(&cp)
 		b.overlayFailoverStatusRLocked(&cp)
 
 		return []DBCluster{cp}, nil
@@ -168,6 +187,7 @@ func (b *InMemoryBackend) DescribeDBClusters(id string) ([]DBCluster, error) {
 	result := make([]DBCluster, 0, b.clusters.Len())
 	for _, cluster := range b.clusters.All() {
 		cp := *cluster
+		cloneDBClusterMutableSlices(&cp)
 		b.overlayFailoverStatusRLocked(&cp)
 		result = append(result, cp)
 	}
@@ -309,6 +329,7 @@ func (b *InMemoryBackend) DeleteDBClusterWithOptions(
 	}
 
 	cp := *cluster
+	cloneDBClusterMutableSlices(&cp)
 	// Clear the cluster association on any member instances so they appear standalone.
 	for _, member := range cluster.DBClusterMembers {
 		if inst, ok := b.instances.Get(normalizeID(member.DBInstanceIdentifier)); ok {
@@ -336,6 +357,7 @@ func (b *InMemoryBackend) DeleteDBClusterWithOptions(
 	}
 
 	b.clusters.Delete(normalizeID(id))
+	b.dropUnitLocked(unitKeyForCluster(canonicalID))
 	delete(b.tags, b.rdsARN("cluster", canonicalID))
 	delete(b.fisFailoverFaults, canonicalID)
 	delete(b.clusterRoles, canonicalID)
@@ -485,18 +507,33 @@ func (b *InMemoryBackend) ModifyDBCluster(
 	id, paramGroupName string,
 	opts DBClusterOptions,
 ) (*DBCluster, error) {
+	if err := b.guardClusterModify(id, opts.MasterUserPassword); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("ModifyDBCluster")
 	defer b.mu.Unlock()
 	cluster, exists := b.clusters.Get(normalizeID(id))
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 	}
+	secret, err := b.updateMasterSecret(
+		cluster.MasterSecret,
+		"cluster",
+		opts.MasterSecretRequest,
+		opts.MasterUserPassword,
+	)
+	if err != nil {
+		return nil, err
+	}
+	cluster.MasterSecret = secret
 	applyDBClusterOpts(cluster, paramGroupName, opts)
 	if opts.DBInstanceParameterGroupName != "" {
 		cluster.DBInstanceParameterGroupName = opts.DBInstanceParameterGroupName
 		b.cascadeInstanceParameterGroupLocked(cluster, opts.DBInstanceParameterGroupName)
 	}
 	cp := *cluster
+	cloneDBClusterMutableSlices(&cp)
 
 	return &cp, nil
 }
@@ -525,8 +562,11 @@ func (b *InMemoryBackend) StartDBCluster(id string) (*DBCluster, error) {
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 	}
-	cluster.Status = instanceStatusAvailable
+	if !b.beginClusterOpLocked(cluster, opStart, instanceStatusStarting) {
+		cluster.Status = instanceStatusAvailable
+	}
 	cp := *cluster
+	cloneDBClusterMutableSlices(&cp)
 
 	return &cp, nil
 }
@@ -542,8 +582,11 @@ func (b *InMemoryBackend) StopDBCluster(id string) (*DBCluster, error) {
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 	}
-	cluster.Status = "stopped"
+	if !b.beginClusterOpLocked(cluster, opStop, instanceStatusStopping) {
+		cluster.Status = instanceStatusStopped
+	}
 	cp := *cluster
+	cloneDBClusterMutableSlices(&cp)
 
 	return &cp, nil
 }
@@ -592,6 +635,7 @@ func (b *InMemoryBackend) RestoreDBClusterFromSnapshot(
 	}
 	b.clusters.Put(cluster)
 	cp := *cluster
+	cloneDBClusterMutableSlices(&cp)
 
 	return &cp, nil
 }
@@ -642,6 +686,7 @@ func (b *InMemoryBackend) RestoreDBClusterToPointInTime(
 	}
 	b.clusters.Put(cluster)
 	cp := *cluster
+	cloneDBClusterMutableSlices(&cp)
 
 	return &cp, nil
 }
@@ -652,12 +697,8 @@ func (b *InMemoryBackend) RestoreDBClusterToPointInTime(
 // can report (types.go:1522-1531) never apply here.
 const clusterRoleStatusActive = "ACTIVE"
 
-// AddRoleToDBCluster associates an IAM role with the given DB cluster for the
-// given feature (e.g. S3_INTEGRATION). Unlike the instance-side FeatureName
-// (required, fixed in gopherstack-i101), FeatureName is optional here
-// (rds@v1.124.1 api_op_AddRoleToDBCluster.go:39-43), so real AWS's behavior
-// when a client omits it on two different-role adds is unverified -- see
-// upsertClusterRole for the documented placeholder.
+// AddRoleToDBCluster associates an IAM role with the cluster for a feature.
+// Re-adding the identical (FeatureName, RoleArn) pair is DBClusterRoleAlreadyExists.
 func (b *InMemoryBackend) AddRoleToDBCluster(clusterID, roleARN, featureName string) error {
 	if clusterID == "" {
 		return fmt.Errorf("%w: DBClusterIdentifier must not be empty", ErrInvalidParameter)
@@ -679,6 +720,14 @@ func (b *InMemoryBackend) AddRoleToDBCluster(clusterID, roleARN, featureName str
 	// normalizeID; clusterRoles is a plain map with no normalization of its
 	// own.
 	canonicalID := cluster.DBClusterIdentifier
+	if slices.ContainsFunc(b.clusterRoles[canonicalID], func(r DBClusterRole) bool {
+		return r.FeatureName == featureName && r.RoleArn == roleARN
+	}) {
+		return fmt.Errorf(
+			"%w: role %s is already associated with cluster %s", ErrClusterRoleAlreadyExists, roleARN, clusterID,
+		)
+	}
+
 	b.clusterRoles[canonicalID] = upsertClusterRole(
 		b.clusterRoles[canonicalID],
 		roleARN,
@@ -774,10 +823,8 @@ func (b *InMemoryBackend) BacktrackDBCluster(
 }
 
 // RemoveRoleFromDBCluster disassociates an IAM role from the given cluster's
-// feature slot. Returns an error if the cluster does not exist. Removing a
-// role that is not associated, or whose ARN doesn't match what's currently
-// associated with that FeatureName (including the omitted-FeatureName ""
-// bucket -- see upsertClusterRole), is a no-op.
+// feature slot. Removing a (FeatureName, RoleArn) pair that is not associated
+// returns DBClusterRoleNotFound.
 func (b *InMemoryBackend) RemoveRoleFromDBCluster(clusterID, roleARN, featureName string) error {
 	if clusterID == "" {
 		return fmt.Errorf("%w: DBClusterIdentifier must not be empty", ErrInvalidParameter)
@@ -799,9 +846,11 @@ func (b *InMemoryBackend) RemoveRoleFromDBCluster(clusterID, roleARN, featureNam
 	idx := slices.IndexFunc(roles, func(r DBClusterRole) bool {
 		return r.FeatureName == featureName && r.RoleArn == roleARN
 	})
-	if idx >= 0 {
-		b.clusterRoles[canonicalID] = slices.Delete(roles, idx, idx+1)
+	if idx < 0 {
+		return fmt.Errorf("%w: role %s is not associated with cluster %s", ErrClusterRoleNotFound, roleARN, clusterID)
 	}
+
+	b.clusterRoles[canonicalID] = slices.Delete(roles, idx, idx+1)
 
 	return nil
 }
@@ -884,6 +933,7 @@ func (b *InMemoryBackend) FailoverDBCluster(
 	}
 	cluster.Status = instanceStatusAvailable
 	cp := *cluster
+	cloneDBClusterMutableSlices(&cp)
 
 	return &cp, nil
 }
@@ -915,10 +965,13 @@ func (b *InMemoryBackend) RebootDBCluster(clusterID string) (*DBCluster, error) 
 
 			return
 		}
-		cluster.Status = "rebooting"
-		b.clusterReadyAt[cluster.DBClusterIdentifier] = time.Now().Add(instanceTransitionDelay)
-		b.scheduleReconcilerLocked()
+		if !b.beginClusterOpLocked(cluster, opRestart, instanceStatusRebooting) {
+			cluster.Status = instanceStatusRebooting
+			b.clusterReadyAt[cluster.DBClusterIdentifier] = time.Now().Add(instanceTransitionDelay)
+			b.scheduleReconcilerLocked()
+		}
 		cp := *cluster
+		cloneDBClusterMutableSlices(&cp)
 		result = &cp
 	}()
 
@@ -968,6 +1021,7 @@ func (b *InMemoryBackend) PromoteReadReplicaDBCluster(clusterID string) (*DBClus
 	cluster.ReplicationSourceIdentifier = ""
 	cluster.Status = instanceStatusAvailable
 	cp := *cluster
+	cloneDBClusterMutableSlices(&cp)
 
 	return &cp, nil
 }
@@ -1064,6 +1118,7 @@ func (b *InMemoryBackend) ModifyCurrentDBClusterCapacity(
 	}
 	cluster.ServerlessCapacity = capacity
 	cp := *cluster
+	cloneDBClusterMutableSlices(&cp)
 
 	return &cp, nil
 }
@@ -1104,7 +1159,12 @@ func (b *InMemoryBackend) RestoreDBClusterFromS3(
 	if _, exists := b.clusters.Get(normalizeID(id)); exists {
 		return nil, fmt.Errorf("%w: %s", ErrClusterAlreadyExists, id)
 	}
+	secret, err := b.createMasterSecret("cluster", opts.MasterSecretRequest, opts.MasterUserPassword)
+	if err != nil {
+		return nil, err
+	}
 	cluster := &DBCluster{
+		MasterSecret:                     secret,
 		DBClusterIdentifier:              id,
 		DBClusterArn:                     b.rdsARN("cluster", id),
 		Engine:                           engine,
@@ -1114,6 +1174,7 @@ func (b *InMemoryBackend) RestoreDBClusterFromS3(
 	}
 	b.clusters.Put(cluster)
 	cp := *cluster
+	cloneDBClusterMutableSlices(&cp)
 
 	return &cp, nil
 }

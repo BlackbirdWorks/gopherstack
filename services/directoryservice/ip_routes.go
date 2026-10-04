@@ -26,14 +26,16 @@ func (b *InMemoryBackend) AddIpRoutes( //nolint:revive,staticcheck // existing i
 	existing := ipRoutes[directoryID]
 	existingSet := make(map[string]bool, len(existing))
 	for _, r := range existing {
-		existingSet[r.CidrIP] = true
+		existingSet[ipRouteKey(r.CidrIP, r.CidrIPv6)] = true
 	}
 
 	for _, r := range routes {
-		if !existingSet[r.CidrIP] {
+		if k := ipRouteKey(r.CidrIP, r.CidrIPv6); !existingSet[k] {
+			existingSet[k] = true
 			ipRoutes[directoryID] = append(ipRoutes[directoryID], storedIpRoute{
 				DirectoryID:   directoryID,
 				CidrIP:        r.CidrIP,
+				CidrIPv6:      r.CidrIPv6,
 				Description:   r.Description,
 				AddedDateTime: now,
 				IPRouteStatus: "Added",
@@ -49,6 +51,7 @@ func (b *InMemoryBackend) RemoveIpRoutes( //nolint:revive,staticcheck // existin
 	ctx context.Context,
 	directoryID string,
 	cidrIPs []string,
+	cidrIPv6s []string,
 ) error {
 	region := getRegion(ctx, b.region)
 
@@ -64,10 +67,16 @@ func (b *InMemoryBackend) RemoveIpRoutes( //nolint:revive,staticcheck // existin
 		remove[c] = true
 	}
 
+	removeV6 := make(map[string]bool, len(cidrIPv6s))
+	for _, c := range cidrIPv6s {
+		removeV6[c] = true
+	}
+
 	ipRoutes := b.ipRoutesStore(region)
 	filtered := ipRoutes[directoryID][:0]
 	for _, r := range ipRoutes[directoryID] {
-		if !remove[r.CidrIP] {
+		matched := (r.CidrIP != "" && remove[r.CidrIP]) || (r.CidrIPv6 != "" && removeV6[r.CidrIPv6])
+		if !matched {
 			filtered = append(filtered, r)
 		}
 	}
@@ -95,12 +104,12 @@ func (b *InMemoryBackend) ListIpRoutes( //nolint:revive,staticcheck // existing 
 	stored := b.ipRoutesStoreRO(region)[directoryID]
 	sorted := make([]storedIpRoute, len(stored))
 	copy(sorted, stored)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i].CidrIP < sorted[j].CidrIP })
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].key() < sorted[j].key() })
 
 	start := 0
 	if nextToken != "" {
 		for i, r := range sorted {
-			if r.CidrIP == nextToken {
+			if r.key() == nextToken {
 				start = i
 
 				break
@@ -119,6 +128,7 @@ func (b *InMemoryBackend) ListIpRoutes( //nolint:revive,staticcheck // existing 
 		result = append(result, IpRoute{
 			DirectoryID: r.DirectoryID,
 			CidrIP:      r.CidrIP,
+			CidrIPv6:    r.CidrIPv6,
 			Description: r.Description,
 			AddedTime:   r.AddedDateTime,
 			Status:      r.IPRouteStatus,
@@ -127,8 +137,12 @@ func (b *InMemoryBackend) ListIpRoutes( //nolint:revive,staticcheck // existing 
 
 	var outToken string
 	if end < len(sorted) {
-		outToken = sorted[end].CidrIP
+		outToken = sorted[end].key()
 	}
 
 	return result, outToken, nil
 }
+
+func ipRouteKey(cidrIP, cidrIPv6 string) string { return cidrIP + "|" + cidrIPv6 }
+
+func (r storedIpRoute) key() string { return ipRouteKey(r.CidrIP, r.CidrIPv6) }

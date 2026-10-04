@@ -649,3 +649,7 @@ Gates: `go build ./...` (whole module) clean. `go vet`, `go test -race
 `golangci-lint run --new-from-rev=HEAD` 0 issues. `go run ./cmd/paritylint`
 stays at 0 FAIL (missing-items-still-open). No persisted-struct/inventory
 changes; no version bump.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+personalize is region-isolated: dataset groups, datasets, solutions and campaigns live per region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/personalize`. Limitation: the dashboard shows the home region only. The tagging bridge lists the request region and resolves Tag/Untag by ARN region. `TestHandler_MultiRegionReset` covers Reset.

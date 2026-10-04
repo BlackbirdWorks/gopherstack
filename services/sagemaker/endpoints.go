@@ -242,11 +242,7 @@ func endpointMatchesFilter(ep *Endpoint, filter ListEndpointsFilter) bool {
 		return false
 	}
 
-	if filter.CreationTimeAfter != nil && !ep.CreationTime.After(*filter.CreationTimeAfter) {
-		return false
-	}
-
-	if filter.CreationTimeBefore != nil && !ep.CreationTime.Before(*filter.CreationTimeBefore) {
+	if !timeWindowAfterInclusiveOK(ep.CreationTime, filter.CreationTimeAfter, filter.CreationTimeBefore) {
 		return false
 	}
 

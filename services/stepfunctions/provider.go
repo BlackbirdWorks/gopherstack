@@ -2,9 +2,13 @@ package stepfunctions
 
 import (
 	"errors"
+	"fmt"
+	"os"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/services/stepfunctions/asl"
 )
 
 // ErrNilAppContext is returned when Init is called with a nil AppContext.
@@ -37,6 +41,10 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		backend.SetSettings(sp.GetStepFunctionsSettings())
 	}
 
+	if err := loadMockConfigFromEnv(ctx, backend); err != nil {
+		return nil, err
+	}
+
 	handler := NewHandler(backend)
 
 	return handler, nil
@@ -45,4 +53,26 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 // SettingsProvider is implemented by config objects that supply Step Functions settings.
 type SettingsProvider interface {
 	GetStepFunctionsSettings() Settings
+}
+
+// loadMockConfigFromEnv loads the file named by SFN_MOCK_CONFIG (or the LocalStack-prefixed form).
+func loadMockConfigFromEnv(ctx *service.AppContext, backend *InMemoryBackend) error {
+	path := os.Getenv("SFN_MOCK_CONFIG")
+	if path == "" {
+		path = os.Getenv("LOCALSTACK_SFN_MOCK_CONFIG")
+	}
+
+	if path == "" {
+		return nil
+	}
+
+	mockCfg, err := asl.LoadMockConfig(path)
+	if err != nil {
+		return fmt.Errorf("stepfunctions: SFN_MOCK_CONFIG %q: %w", path, err)
+	}
+
+	backend.SetMockConfig(mockCfg)
+	logger.Load(ctx.JanitorCtx).InfoContext(ctx.JanitorCtx, "Step Functions mock config loaded", "path", path)
+
+	return nil
 }

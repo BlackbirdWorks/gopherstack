@@ -18,14 +18,14 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
-// authorizerCacheEntry holds a cached authorizer result.
+// authorizerCacheEntry is a cached Lambda authorizer policy; a nil policy denies.
 type authorizerCacheEntry struct {
 	expiresAt time.Time
+	policy    *PolicyDocument
 	key       string
-	allowed   bool
 }
 
-// authorizerCache caches Lambda authorizer results keyed by authorizerID + cacheKey.
+// authorizerCache caches Lambda authorizer policies keyed by authorizer, stage and identity-source values.
 type authorizerCache struct {
 	entries    map[string]*list.Element
 	order      *list.List
@@ -49,36 +49,30 @@ func newAuthorizerCacheWithMaxEntries(maxEntries int) *authorizerCache {
 	}
 }
 
-// get returns (allowed, found) for the given cache key.
-func (c *authorizerCache) get(key string) (bool, bool) {
+// get returns the cached policy and whether an unexpired entry was found.
+func (c *authorizerCache) get(key string) (*PolicyDocument, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	elem, ok := c.entries[key]
 	if !ok {
-		return false, false
+		return nil, false
 	}
 
 	e, ok := elem.Value.(authorizerCacheEntry)
-	if !ok {
+	if !ok || !time.Now().Before(e.expiresAt) {
 		c.removeElement(elem)
 
-		return false, false
-	}
-
-	if time.Now().After(e.expiresAt) {
-		c.removeElement(elem)
-
-		return false, false
+		return nil, false
 	}
 
 	c.order.MoveToFront(elem)
 
-	return e.allowed, true
+	return e.policy, true
 }
 
-// set stores the result for the given cache key with a TTL.
-func (c *authorizerCache) set(key string, allowed bool, ttl time.Duration) {
+// set stores the policy under key for ttl; a non-positive ttl disables caching.
+func (c *authorizerCache) set(key string, policy *PolicyDocument, ttl time.Duration) {
 	if ttl <= 0 {
 		return
 	}
@@ -86,29 +80,37 @@ func (c *authorizerCache) set(key string, allowed bool, ttl time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if elem, ok := c.entries[key]; ok {
-		entry, valueOk := elem.Value.(authorizerCacheEntry)
-		if !valueOk {
-			c.removeElement(elem)
-		} else {
-			entry.allowed = allowed
-			entry.expiresAt = time.Now().Add(ttl)
-			elem.Value = entry
-			c.order.MoveToFront(elem)
+	now := time.Now()
+	entry := authorizerCacheEntry{key: key, policy: policy, expiresAt: now.Add(ttl)}
 
-			return
-		}
+	if elem, ok := c.entries[key]; ok {
+		elem.Value = entry
+		c.order.MoveToFront(elem)
+
+		return
 	}
 
-	elem := c.order.PushFront(authorizerCacheEntry{
-		key:       key,
-		allowed:   allowed,
-		expiresAt: time.Now().Add(ttl),
-	})
-	c.entries[key] = elem
+	if len(c.entries) >= c.maxEntries {
+		c.evictExpired(now)
+	}
+
+	c.entries[key] = c.order.PushFront(entry)
 
 	for len(c.entries) > c.maxEntries {
 		c.removeElement(c.order.Back())
+	}
+}
+
+// evictExpired drops every entry whose TTL has elapsed at now.
+func (c *authorizerCache) evictExpired(now time.Time) {
+	for elem := c.order.Back(); elem != nil; {
+		prev := elem.Prev()
+
+		if e, ok := elem.Value.(authorizerCacheEntry); !ok || !now.Before(e.expiresAt) {
+			c.removeElement(elem)
+		}
+
+		elem = prev
 	}
 }
 
@@ -125,14 +127,10 @@ func (c *authorizerCache) removeElement(elem *list.Element) {
 		return
 	}
 
-	entry, ok := elem.Value.(authorizerCacheEntry)
-	if !ok {
-		c.order.Remove(elem)
-
-		return
+	if entry, ok := elem.Value.(authorizerCacheEntry); ok {
+		delete(c.entries, entry.key)
 	}
 
-	delete(c.entries, entry.key)
 	c.order.Remove(elem)
 }
 
@@ -150,58 +148,75 @@ type AuthorizerEvent struct {
 	HTTPMethod            string             `json:"httpMethod,omitempty"`
 }
 
-// runAuthorizer invokes the Lambda authorizer and returns true if the request
-// should be denied (i.e., the response was written with a 4xx status).
+// authorizerTTL returns the authorizer result TTL; zero disables caching.
+func authorizerTTL(auth *Authorizer) time.Duration {
+	if auth.AuthorizerResultTTLInSeconds <= 0 {
+		return 0
+	}
+
+	return time.Duration(auth.AuthorizerResultTTLInSeconds) * time.Second
+}
+
+// writeAuthorizerError writes API Gateway's JSON error body for an authorizer rejection.
+func writeAuthorizerError(w http.ResponseWriter, status int, message string) {
+	w.Header().Set(headerContentType, "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]string{jsonMessageKey: message})
+}
+
+// runAuthorizer enforces the method's authorizer and returns true if the request
+// was denied (response already written).
 func (h *Handler) runAuthorizer(
 	ctx context.Context,
 	w http.ResponseWriter,
 	r *http.Request,
-	apiID, stageName, authorizerID string,
+	apiID, stageName string,
+	cfg *DeploymentConfig,
+	authorizerID string,
 ) bool {
-	auth, err := h.Backend.GetAuthorizer(apiID, authorizerID)
-	if err != nil {
+	auth, ok := cfg.Authorizers[authorizerID]
+	if !ok {
 		logger.Load(ctx).WarnContext(ctx, "APIGateway proxy: authorizer not found", "authorizerId", authorizerID)
 		http.Error(w, "Authorizer configuration error", http.StatusInternalServerError)
 
 		return true
 	}
 
-	// Determine TTL for cache (authorizer-level setting, default 300 s).
-	ttl := defaultAuthorizerTTL
-	if auth.AuthorizerResultTTLInSeconds > 0 {
-		ttl = time.Duration(auth.AuthorizerResultTTLInSeconds) * time.Second
-	} else if auth.AuthorizerResultTTLInSeconds < 0 {
-		ttl = 0 // caching disabled
+	if auth.Type == AuthTypeCognitoUserPool {
+		return h.runCognitoAuthorizer(ctx, w, r, auth)
 	}
 
-	// Build cache key: for TOKEN type use the token, for REQUEST type use the full path.
-	cacheKey := h.authorizerCacheKey(r, auth, authorizerID)
+	ttl := authorizerTTL(auth)
+
+	identity, valid := h.lambdaAuthorizerIdentity(r, auth, apiID, stageName, ttl)
+	if !valid {
+		writeAuthorizerError(w, http.StatusUnauthorized, msgUnauthorized)
+
+		return true
+	}
+
+	cacheKey := authorizerID + "\n" + stageName + "\n" + strings.Join(identity, "\n")
+	if len(identity) == 0 {
+		ttl = 0
+	}
+
+	resourcePath := authorizerResourcePath(r, apiID, stageName)
+	methodArn := authorizerMethodArn(ctx, r, apiID, stageName, resourcePath)
+
 	if ttl > 0 {
-		if allowed, found := h.authCache.get(cacheKey); found {
-			if !allowed {
-				http.Error(w, "Forbidden", http.StatusForbidden)
-
-				return true
-			}
-
-			return false
+		if policy, found := h.authCache.get(cacheKey); found {
+			return writeAuthorizerDecision(w, policy, methodArn)
 		}
 	}
 
-	// Cognito authorizers verify the JWT locally — no Lambda needed.
-	if auth.Type == AuthTypeCognitoUserPool {
-		return h.runCognitoAuthorizer(ctx, w, r, auth, cacheKey, ttl)
-	}
-
-	// All other authorizer types invoke a Lambda function.
 	if h.lambda == nil {
 		http.Error(w, "Lambda integration not configured", http.StatusServiceUnavailable)
 
 		return true
 	}
 
-	// Build the authorizer event based on type.
 	event := h.buildAuthorizerEvent(ctx, r, auth, apiID, stageName)
+	event.MethodArn = methodArn
 
 	payload, _ := json.Marshal(event)
 
@@ -210,31 +225,135 @@ func (h *Handler) runAuthorizer(
 	if invokeErr != nil {
 		logger.Load(ctx).WarnContext(ctx, "APIGateway proxy: authorizer invocation failed",
 			"authorizerId", authorizerID, "error", invokeErr)
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		writeAuthorizerError(w, http.StatusUnauthorized, msgUnauthorized)
 
 		return true
 	}
 
-	// Parse the authorizer response (IAM policy document).
 	var authResp AuthorizerResponse
 	if parseErr := json.Unmarshal(respBytes, &authResp); parseErr != nil {
 		logger.Load(ctx).WarnContext(ctx, "APIGateway proxy: failed to parse authorizer response", "error", parseErr)
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		writeAuthorizerError(w, http.StatusUnauthorized, msgUnauthorized)
 
 		return true
 	}
 
-	// Evaluate the policy document to determine allow/deny.
-	allowed := isAuthorizerAllowed(&authResp)
-	h.authCache.set(cacheKey, allowed, ttl)
+	h.authCache.set(cacheKey, authResp.PolicyDocument, ttl)
 
-	if !allowed {
-		http.Error(w, "Forbidden", http.StatusForbidden)
+	return writeAuthorizerDecision(w, authResp.PolicyDocument, methodArn)
+}
 
-		return true
+// writeAuthorizerDecision evaluates policy against methodArn and writes a 403 on denial.
+func writeAuthorizerDecision(w http.ResponseWriter, policy *PolicyDocument, methodArn string) bool {
+	allowed, explicit := evaluateAuthorizerPolicy(policy, methodArn)
+	if allowed {
+		return false
 	}
 
-	return false
+	msg := msgNotAuthorized
+	if explicit {
+		msg = msgExplicitDeny
+	}
+
+	writeAuthorizerError(w, http.StatusForbidden, msg)
+
+	return true
+}
+
+// lambdaAuthorizerIdentity returns the cache-key identity values; false means 401
+// without invoking (bad TOKEN, or REQUEST with caching on and a missing source).
+func (h *Handler) lambdaAuthorizerIdentity(
+	r *http.Request, auth *Authorizer, apiID, stageName string, ttl time.Duration,
+) ([]string, bool) {
+	if auth.Type == "TOKEN" {
+		token := extractTokenFromIdentitySource(r, auth.IdentitySource)
+		if token == "" {
+			return nil, false
+		}
+
+		if auth.IdentityValidationExpression != "" {
+			if re := h.cachedRegexp(auth.IdentityValidationExpression); re != nil && !re.MatchString(token) {
+				return nil, false
+			}
+		}
+
+		return []string{token}, true
+	}
+
+	if ttl <= 0 {
+		return nil, true
+	}
+
+	var stageVars map[string]string
+
+	sources := splitIdentitySources(auth.IdentitySource)
+	values := make([]string, 0, len(sources))
+
+	for _, src := range sources {
+		if strings.HasPrefix(src, "stageVariables.") && stageVars == nil {
+			stageVars = h.stageVars(apiID, stageName)
+		}
+
+		v := resolveRESTIdentitySource(r, src, apiID, stageName, stageVars)
+		if v == "" {
+			return nil, false
+		}
+
+		values = append(values, v)
+	}
+
+	return values, true
+}
+
+// splitIdentitySources splits a comma-separated IdentitySource into trimmed expressions.
+func splitIdentitySources(identitySource string) []string {
+	var out []string
+
+	for part := range strings.SplitSeq(identitySource, ",") {
+		if p := strings.TrimSpace(part); p != "" {
+			out = append(out, p)
+		}
+	}
+
+	return out
+}
+
+// resolveRESTIdentitySource resolves one REQUEST authorizer identity source
+// (method.request.header.X, method.request.querystring.X, context.X, stageVariables.X).
+func resolveRESTIdentitySource(
+	r *http.Request, src, apiID, stageName string, stageVars map[string]string,
+) string {
+	if name, ok := strings.CutPrefix(src, "method.request.header."); ok {
+		return r.Header.Get(name)
+	}
+
+	if name, ok := strings.CutPrefix(src, "method.request.querystring."); ok {
+		return r.URL.Query().Get(name)
+	}
+
+	if name, ok := strings.CutPrefix(src, "stageVariables."); ok {
+		return stageVars[name]
+	}
+
+	name, ok := strings.CutPrefix(src, "context.")
+	if !ok {
+		return ""
+	}
+
+	switch name {
+	case "httpMethod":
+		return r.Method
+	case "path":
+		return authorizerResourcePath(r, apiID, stageName)
+	case "stage":
+		return stageName
+	case "apiId":
+		return apiID
+	case "identity.sourceIp":
+		return realClientIP(r)
+	default:
+		return ""
+	}
 }
 
 // runCognitoAuthorizer verifies a JWT token for COGNITO_USER_POOLS authorizer type.
@@ -243,8 +362,6 @@ func (h *Handler) runCognitoAuthorizer(
 	w http.ResponseWriter,
 	r *http.Request,
 	auth *Authorizer,
-	cacheKey string,
-	ttl time.Duration,
 ) bool {
 	tokenSource := auth.IdentitySource
 	if tokenSource == "" {
@@ -260,7 +377,7 @@ func (h *Handler) runCognitoAuthorizer(
 	}
 
 	if tokenStr == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		writeAuthorizerError(w, http.StatusUnauthorized, msgUnauthorized)
 
 		return true
 	}
@@ -283,84 +400,25 @@ func (h *Handler) runCognitoAuthorizer(
 	token, parseErr := jwt.Parse(tokenStr, keyfunc, jwt.WithExpirationRequired())
 	if parseErr != nil {
 		logger.Load(ctx).WarnContext(ctx, "APIGateway proxy: cognito authorizer invalid token", "error", parseErr)
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		writeAuthorizerError(w, http.StatusUnauthorized, msgUnauthorized)
 
 		return true
 	}
 
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok || !token.Valid {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		writeAuthorizerError(w, http.StatusUnauthorized, msgUnauthorized)
 
 		return true
 	}
 
 	*r = *r.WithContext(context.WithValue(r.Context(), ctxKeyClaims, claims))
 
-	if ttl > 0 {
-		h.authCache.set(cacheKey, true, ttl)
-	}
-
 	return false
 }
 
-// authorizerCacheKey builds the cache key for an authorizer invocation.
-// TOKEN / COGNITO_USER_POOLS: authorizerID + ":" + extracted token (per-token granularity)
-// REQUEST: authorizerID + ":" + method + " " + path (per-request granularity).
-func (h *Handler) authorizerCacheKey(r *http.Request, auth *Authorizer, authorizerID string) string {
-	if auth.Type == "TOKEN" || auth.Type == AuthTypeCognitoUserPool {
-		token := extractTokenFromIdentitySource(r, auth.IdentitySource)
-		token = h.applyIdentityValidation(auth.IdentityValidationExpression, token)
-
-		return authorizerID + ":" + token
-	}
-
-	return authorizerID + ":" + r.Method + " " + r.URL.Path
-}
-
-// applyIdentityValidation normalizes a token using the authorizer's identityValidationExpression.
-// Returns the first capture group if present, the full match otherwise, or the original token unchanged.
-func (h *Handler) applyIdentityValidation(expr, token string) string {
-	if expr == "" {
-		return token
-	}
-
-	re := h.cachedRegexp(expr)
-	if re == nil {
-		return token
-	}
-
-	m := re.FindStringSubmatch(token)
-	if len(m) > 1 {
-		return m[1]
-	}
-
-	if len(m) == 1 {
-		return m[0]
-	}
-
-	return token
-}
-
-// buildAuthorizerEvent constructs the event payload for the Lambda authorizer.
-func (h *Handler) buildAuthorizerEvent(
-	ctx context.Context, r *http.Request, auth *Authorizer, apiID, stageName string,
-) AuthorizerEvent {
-	headers := make(map[string]string)
-	for k, vs := range r.Header {
-		if len(vs) > 0 {
-			headers[strings.ToLower(k)] = vs[0]
-		}
-	}
-
-	qsp := make(map[string]string)
-	for k, vs := range r.URL.Query() {
-		if len(vs) > 0 {
-			qsp[k] = vs[0]
-		}
-	}
-
-	// Strip internal proxy prefixes so the resource path matches the API definition path.
+// authorizerResourcePath strips internal proxy prefixes so the path matches the API definition.
+func authorizerResourcePath(r *http.Request, apiID, stageName string) string {
 	resourcePath := r.URL.Path
 	prefixes := []string{
 		fmt.Sprintf("/restapis/%s/%s/_user_request_", apiID, stageName),
@@ -382,13 +440,40 @@ func (h *Handler) buildAuthorizerEvent(
 		}
 	}
 
+	return resourcePath
+}
+
+// authorizerMethodArn builds the execute-api method ARN the authorizer policy is evaluated against.
+func authorizerMethodArn(ctx context.Context, r *http.Request, apiID, stageName, resourcePath string) string {
 	region := awsmeta.Region(ctx)
 	if region == "" {
 		region = config.DefaultRegion
 	}
 
-	methodArn := arn.Build("execute-api", region, awsmeta.Account(ctx),
+	return arn.Build("execute-api", region, awsmeta.Account(ctx),
 		fmt.Sprintf("%s/%s/%s%s", apiID, stageName, r.Method, resourcePath))
+}
+
+// buildAuthorizerEvent constructs the event payload for the Lambda authorizer.
+func (h *Handler) buildAuthorizerEvent(
+	ctx context.Context, r *http.Request, auth *Authorizer, apiID, stageName string,
+) AuthorizerEvent {
+	headers := make(map[string]string)
+	for k, vs := range r.Header {
+		if len(vs) > 0 {
+			headers[strings.ToLower(k)] = vs[0]
+		}
+	}
+
+	qsp := make(map[string]string)
+	for k, vs := range r.URL.Query() {
+		if len(vs) > 0 {
+			qsp[k] = vs[0]
+		}
+	}
+
+	resourcePath := authorizerResourcePath(r, apiID, stageName)
+	methodArn := authorizerMethodArn(ctx, r, apiID, stageName, resourcePath)
 
 	event := AuthorizerEvent{
 		Type:                  auth.Type,
@@ -431,24 +516,101 @@ func extractTokenFromIdentitySource(r *http.Request, identitySource string) stri
 	return r.Header.Get("Authorization")
 }
 
-// isAuthorizerAllowed evaluates the IAM policy document returned by a Lambda authorizer.
-// Returns true if at least one Allow statement exists and no explicit Deny overrides it.
-func isAuthorizerAllowed(authResp *AuthorizerResponse) bool {
-	if authResp.PolicyDocument == nil {
-		return false
+// evaluateAuthorizerPolicy evaluates a Lambda authorizer policy for methodArn.
+// An explicit Deny wins; otherwise a matching Allow is needed (implicit deny).
+func evaluateAuthorizerPolicy(policy *PolicyDocument, methodArn string) (bool, bool) {
+	if policy == nil {
+		return false, false
 	}
 
-	allow := false
+	allowed := false
 
-	for _, stmt := range authResp.PolicyDocument.Statement {
-		effect := strings.ToUpper(stmt.Effect)
-		if effect == "DENY" {
+	for _, stmt := range policy.Statement {
+		if !policyActionCoversInvoke(stmt.Action) || !policyResourceMatches(stmt.Resource, methodArn) {
+			continue
+		}
+
+		switch strings.ToUpper(stmt.Effect) {
+		case "DENY":
+			return false, true
+		case "ALLOW":
+			allowed = true
+		}
+	}
+
+	return allowed, false
+}
+
+// policyStrings normalizes an IAM string-or-list field.
+func policyStrings(v any) []string {
+	switch t := v.(type) {
+	case string:
+		return []string{t}
+	case []any:
+		out := make([]string, 0, len(t))
+
+		for _, e := range t {
+			if s, ok := e.(string); ok {
+				out = append(out, s)
+			}
+		}
+
+		return out
+	default:
+		return nil
+	}
+}
+
+func policyActionCoversInvoke(action any) bool {
+	actions := policyStrings(action)
+	if len(actions) == 0 {
+		return true
+	}
+
+	for _, a := range actions {
+		if policyGlob(a, "execute-api:Invoke") {
+			return true
+		}
+	}
+
+	return false
+}
+
+func policyResourceMatches(resource any, methodArn string) bool {
+	for _, pat := range policyStrings(resource) {
+		if policyGlob(pat, methodArn) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// policyGlob matches an IAM pattern with '*' and '?' wildcards.
+func policyGlob(pattern, s string) bool {
+	var p, i, star, mark int
+
+	star = -1
+
+	for i < len(s) {
+		switch {
+		case p < len(pattern) && (pattern[p] == '?' || pattern[p] == s[i]):
+			p++
+			i++
+		case p < len(pattern) && pattern[p] == '*':
+			star, mark = p, i
+			p++
+		case star >= 0:
+			mark++
+			p, i = star+1, mark
+		default:
 			return false
 		}
-		if effect == "ALLOW" {
-			allow = true
-		}
 	}
 
-	return allow
+	for p < len(pattern) && pattern[p] == '*' {
+		p++
+	}
+
+	return p == len(pattern)
 }

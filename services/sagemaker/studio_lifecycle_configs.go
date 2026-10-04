@@ -224,7 +224,7 @@ func studioLifecycleConfigMatchesFilter(c *StudioLifecycleConfig, f ListStudioLi
 		return false
 	}
 
-	if !timeWindowOK(c.CreationTime, f.CreationTimeAfter, f.CreationTimeBefore) {
+	if !timeWindowInclusiveOK(c.CreationTime, f.CreationTimeAfter, f.CreationTimeBefore) {
 		return false
 	}
 

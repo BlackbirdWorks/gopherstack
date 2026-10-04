@@ -11,8 +11,10 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -29,6 +31,7 @@ var (
 type Handler struct {
 	Backend       *InMemoryBackend
 	dispatchTable map[string]service.JSONOpFunc
+	peers         *regionpeers.Set[Handler]
 }
 
 // NewHandler creates a new Application Auto Scaling handler backed by backend.
@@ -97,6 +100,10 @@ func (h *Handler) ExtractResource(_ *echo.Context) string {
 // Handler returns the Echo handler function for Application Auto Scaling requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
+			return p.Handler()(c)
+		}
+
 		return service.HandleTarget(
 			c, logger.Load(c.Request().Context()),
 			"ApplicationAutoscaling", "application/x-amz-json-1.1",
@@ -253,4 +260,8 @@ func parseEpochSeconds(v *float64) *time.Time {
 // Reset clears all backend state.
 func (h *Handler) Reset() {
 	h.Backend.Reset()
+
+	for _, p := range h.peers.Drain() {
+		p.Backend.Reset()
+	}
 }

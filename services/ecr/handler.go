@@ -13,9 +13,11 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -48,8 +50,64 @@ type Handler struct {
 	ops             map[string]service.JSONOpFunc
 	registryHandler http.Handler
 	janitor         *Janitor
+	peers           *regionpeers.Set[Handler]
+	stop            context.CancelFunc
 	setEndpointOnce sync.Once
 	registryEnabled bool
+}
+
+// EnableRegions makes h serve every other region through lazily built per-region
+// siblings, each with its own lifecycle janitor running under ctx.
+func (h *Handler) EnableRegions(ctx context.Context) {
+	home, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	h.peers = regionpeers.New(home.Region(), func(region string) *Handler {
+		nb := NewInMemoryBackend(home.accountID, region, home.ProxyEndpoint())
+		nb.replicationSettleDelay = home.replicationSettleDelay
+		p := NewHandler(nb, nil)
+
+		if h.janitor == nil {
+			return p
+		}
+
+		p.WithJanitor(h.janitor.Interval, h.janitor.TaskTimeout)
+
+		var pctx context.Context
+
+		pctx, p.stop = context.WithCancel(ctx)
+		go p.janitor.Run(pctx)
+
+		return p
+	})
+}
+
+// BackendFor returns the backend serving region: the home backend, or the sibling
+// for any other region (built on first use).
+func (h *Handler) BackendFor(region string) Backend {
+	if p := h.peers.Get(region); p != nil {
+		return p.Backend
+	}
+
+	return h.Backend
+}
+
+func (h *Handler) closePeer() {
+	if h.stop != nil {
+		h.stop()
+	}
+}
+
+func (h *Handler) closePeers() {
+	for _, p := range h.peers.Drain() {
+		p.closePeer()
+	}
 }
 
 // NewHandler creates a new ECR handler.
@@ -107,6 +165,8 @@ type registryShutdowner interface{ Shutdown() error }
 // Broadcaster (app.events.sink) with no exported way to close it -- see
 // pkgs/testleak's ignore list.
 func (h *Handler) Shutdown(_ context.Context) {
+	h.closePeers()
+
 	if s, ok := h.registryHandler.(registryShutdowner); ok {
 		_ = s.Shutdown()
 	}
@@ -300,6 +360,12 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function for ECR requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if !isRegistryPath(c.Request().URL.Path) {
+			if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
+				return p.Handler()(c)
+			}
+		}
+
 		// Lazily set the proxy endpoint from the first request's Host header so
 		// that repository URIs and authorization tokens reflect the local server
 		// address rather than a default AWS-style endpoint.
@@ -339,6 +405,7 @@ func (h *Handler) Reset() {
 	}
 
 	h.setEndpointOnce = sync.Once{}
+	h.closePeers()
 }
 
 func (h *Handler) buildOps() map[string]service.JSONOpFunc {

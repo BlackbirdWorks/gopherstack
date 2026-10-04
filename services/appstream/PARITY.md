@@ -178,6 +178,11 @@ assumption as the bug. Rewrote it to send all required fields plus a
 
 ## Notes
 
+- **2026-10-04 (gopherstack-jzqo)**: both items verified at HEAD. The USER_NAME_NOT_FOUND ErrorCode is
+  emitted; DescribeSoftwareAssociations accepts an image or image-builder resource (the SDK exposes no
+  write path to image software, so an existing image lists none) and now also resolves the ARN form the
+  op's AssociatedResource documents (`TestSDKRoundTrip_DescribeSoftwareAssociations_ResourceForms`).
+
 **2026-09-24** (organizations-and-appstream): FIXED -- CreateImageBuilder started new
 builders in STOPPED; real AWS launches the build instance immediately
 (Pending->Running), and terraform-provider-aws's create waiter only accepts
@@ -1065,3 +1070,11 @@ CreateImageBuilder's handler read a "Platform" field CreateImageBuilderInput
 CreateFleet/CreateAppBlockBuilder-only. Removed the read; CreateImageBuilder
 now always defaults, matching what a real client experiences. See
 `TestCreateImageBuilder_NoPlatformMember`.
+
+## 2026-10-03 (gopherstack-uox6, value-semantics sweep)
+
+FIXED: DescribeSessions accepted `UserId` without `AuthenticationType`; `api_op_DescribeSessions.go` says "If you specify a user ID, you must also specify the authentication type", and the op declares InvalidParameterCombinationException. Proven by `describe_sessions_user_auth_test.go`; one pre-existing real-client test now sends `AuthenticationTypeApi` with its UserId.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+appstream is region-isolated: fleets, stacks, image builders and entitlements live per region. The tagging bridge follows the region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/appstream`. Limitation: the dashboard shows the home region only.

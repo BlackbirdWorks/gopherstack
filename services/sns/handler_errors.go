@@ -45,25 +45,25 @@ func (h *Handler) handleBackendError(c *echo.Context, err error) error {
 	case errors.Is(err, ErrTopicNotFound), errors.Is(err, ErrSubscriptionNotFound),
 		errors.Is(err, ErrPlatformApplicationNotFound), errors.Is(err, ErrEndpointNotFound),
 		errors.Is(err, ErrPhoneNumberNotFound):
-		log.WarnContext(ctx, "SNS resource not found", "error", err)
+		log.WarnContext(ctx, "SNS resource not found", "code", code)
 	case errors.Is(err, ErrTopicAlreadyExists), errors.Is(err, ErrPlatformApplicationAlreadyExists),
 		errors.Is(err, ErrSandboxPhoneAlreadyExists):
-		log.WarnContext(ctx, "SNS resource already exists", "error", err)
+		log.WarnContext(ctx, "SNS resource already exists", "code", code)
 	case errors.Is(err, ErrInvalidParameter), errors.Is(err, ErrSandboxPhoneNotVerified):
-		log.WarnContext(ctx, "SNS invalid parameter", "error", err)
+		log.WarnContext(ctx, "SNS invalid parameter", "code", code)
 	case errors.Is(err, ErrEndpointDisabled):
-		log.WarnContext(ctx, "SNS endpoint disabled", "error", err)
+		log.WarnContext(ctx, "SNS endpoint disabled", "code", code)
 	case errors.Is(err, ErrOptedOut):
-		log.WarnContext(ctx, "SNS phone number opted out", "error", err)
+		log.WarnContext(ctx, "SNS phone number opted out", "code", code)
 	case errors.Is(err, ErrPermissionLabelExists), errors.Is(err, ErrPermissionLabelNotFound):
 		status = http.StatusForbidden
-		log.WarnContext(ctx, "SNS permission label error", "error", err)
+		log.WarnContext(ctx, "SNS permission label error", "code", code)
 	case errors.Is(err, ErrSubscriptionLimitExceeded), errors.Is(err, ErrFilterPolicyLimitExceeded):
 		status = http.StatusForbidden
-		log.WarnContext(ctx, "SNS limit exceeded", "error", err)
+		log.WarnContext(ctx, "SNS limit exceeded", "code", code)
 	default:
 		status = http.StatusInternalServerError
-		log.ErrorContext(ctx, "SNS internal error", "error", err)
+		log.ErrorContext(ctx, "SNS internal error", "code", code)
 	}
 
 	return h.writeError(c, status, code, err.Error())

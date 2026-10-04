@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/url"
+	"strconv"
 )
 
 type associateNatGatewayAddressResponse struct {
@@ -26,7 +27,12 @@ func (h *Handler) handleDisassociateNatGatewayAddress(vals url.Values, reqID str
 	natGatewayID := vals.Get("NatGatewayId")
 	associationIDs := parseMemberList(vals, "AssociationId")
 
-	ngw, err := h.Backend.DisassociateNatGatewayAddress(natGatewayID, associationIDs)
+	maxDrain, err := parseMaxDrainDuration(vals)
+	if err != nil {
+		return nil, err
+	}
+
+	ngw, err := h.Backend.DisassociateNatGatewayAddressDrain(natGatewayID, associationIDs, maxDrain)
 	if err != nil {
 		return nil, err
 	}
@@ -39,6 +45,21 @@ func (h *Handler) handleDisassociateNatGatewayAddress(vals url.Values, reqID str
 		NatGatewayID:        ngw.ID,
 		NatGatewayAddresses: item.NatGatewayAddresses,
 	}, nil
+}
+
+// parseMaxDrainDuration reads MaxDrainDurationSeconds; absent means release immediately.
+func parseMaxDrainDuration(vals url.Values) (int, error) {
+	raw := vals.Get("MaxDrainDurationSeconds")
+	if raw == "" {
+		return 0, nil
+	}
+
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 0 {
+		return 0, fmt.Errorf("%w: MaxDrainDurationSeconds must be a non-negative integer", ErrInvalidParameter)
+	}
+
+	return n, nil
 }
 
 func (h *Handler) handleAssociateNatGatewayAddress(vals url.Values, reqID string) (any, error) {
@@ -113,7 +134,12 @@ func (h *Handler) handleUnassignPrivateNatGatewayAddress(
 	natGatewayID := vals.Get("NatGatewayId")
 	privateIPs := parseMemberList(vals, "PrivateIpAddress")
 
-	ngw, err := h.Backend.UnassignPrivateNatGatewayAddress(natGatewayID, privateIPs)
+	maxDrain, err := parseMaxDrainDuration(vals)
+	if err != nil {
+		return nil, err
+	}
+
+	ngw, err := h.Backend.UnassignPrivateNatGatewayAddressDrain(natGatewayID, privateIPs, maxDrain)
 	if err != nil {
 		return nil, err
 	}
@@ -155,6 +181,7 @@ type natGatewayAddressItem struct {
 	PublicIP         string `xml:"publicIp,omitempty"`
 	PrivateIP        string `xml:"privateIp,omitempty"`
 	AvailabilityZone string `xml:"availabilityZone,omitempty"`
+	Status           string `xml:"status,omitempty"`
 	IsPrimary        bool   `xml:"isPrimary,omitempty"`
 }
 
@@ -198,6 +225,16 @@ type deleteNatGatewayResponse struct {
 	NatGatewayID string   `xml:"natGatewayId"`
 }
 
+const natAddressStatusSucceeded = "succeeded"
+
+func natAddressStatus(ngw *NatGateway, key, draining string) string {
+	if _, ok := ngw.DrainingAddresses[key]; ok {
+		return draining
+	}
+
+	return natAddressStatusSucceeded
+}
+
 func toNatGatewayItem(ngw *NatGateway, tags map[string]string) natGatewayItem {
 	items := make(
 		[]natGatewayAddressItem, 0,
@@ -209,6 +246,7 @@ func toNatGatewayItem(ngw *NatGateway, tags map[string]string) natGatewayItem {
 		PublicIP:         ngw.PublicIP,
 		PrivateIP:        ngw.PrivateIP,
 		AvailabilityZone: ngw.AvailabilityZone,
+		Status:           natAddressStatusSucceeded,
 		IsPrimary:        true,
 	})
 
@@ -219,14 +257,16 @@ func toNatGatewayItem(ngw *NatGateway, tags map[string]string) natGatewayItem {
 			PublicIP:         sa.PublicIP,
 			PrivateIP:        sa.PrivateIP,
 			AvailabilityZone: ngw.AvailabilityZone,
+			Status:           natAddressStatus(ngw, sa.AssociationID, "disassociating"),
 		})
 	}
 
 	for _, ip := range ngw.SecondaryPrivateIPs {
-		items = append(
-			items,
-			natGatewayAddressItem{PrivateIP: ip, AvailabilityZone: ngw.AvailabilityZone},
-		)
+		items = append(items, natGatewayAddressItem{
+			PrivateIP:        ip,
+			AvailabilityZone: ngw.AvailabilityZone,
+			Status:           natAddressStatus(ngw, ip, "unassigning"),
+		})
 	}
 
 	return natGatewayItem{

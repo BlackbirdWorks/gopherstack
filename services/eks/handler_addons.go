@@ -2,12 +2,12 @@ package eks
 
 import (
 	"encoding/json"
+	"maps"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
-	"time"
 
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -75,7 +75,7 @@ func parseAddonRoute(method, clusterName string, parts []string) eksRoute {
 func addonToJSON(a *Addon) map[string]any {
 	m := map[string]any{
 		keyClusterName: a.ClusterName,
-		"addonName":    a.AddonName,
+		keyAddonName:   a.AddonName,
 		"addonArn":     a.ARN,
 		keyStatusField: a.Status,
 		keyCreatedAt:   a.CreatedAt.Unix(),
@@ -259,21 +259,77 @@ func (h *Handler) handleUpdateAddon(c *echo.Context, clusterName, addonName stri
 			return 0, nil, err
 		}
 
+		u := h.Backend.startUpdate(&Update{ClusterName: clusterName, AddonName: addon.AddonName, Type: "AddonUpdate"})
+
 		return http.StatusOK, map[string]any{
 			keyUpdate: map[string]any{
-				"id":           uuid.NewString()[:8],
-				keyStatusField: statusInProgress,
-				keyType:        "AddonUpdate",
+				"id":           u.ID,
+				keyStatusField: u.Status,
+				keyType:        u.Type,
 				keyClusterName: clusterName,
 				"addonName":    addon.AddonName,
-				keyCreatedAt:   float64(time.Now().Unix()),
+				keyCreatedAt:   float64(u.CreatedAt.Unix()),
 			},
 		}, nil
 	})
 }
 
+// filterAddonVersions applies DescribeAddonVersions' addonName, kubernetesVersion
+// (versions compatible with it) and types filters.
+func filterAddonVersions(addons []map[string]any, name, k8sVersion string, types []string) []map[string]any {
+	out := make([]map[string]any, 0, len(addons))
+
+	for _, a := range addons {
+		if name != "" && a[keyAddonName] != name {
+			continue
+		}
+
+		if typ, _ := a[keyType].(string); len(types) > 0 && !slices.Contains(types, typ) {
+			continue
+		}
+
+		if k8sVersion != "" {
+			compatible := compatibleAddonVersions(a, k8sVersion)
+			if len(compatible) == 0 {
+				continue
+			}
+
+			cp := maps.Clone(a)
+			cp[keyAddonVersions] = compatible
+			a = cp
+		}
+
+		out = append(out, a)
+	}
+
+	return out
+}
+
+func compatibleAddonVersions(addon map[string]any, k8sVersion string) []map[string]any {
+	var out []map[string]any
+
+	versions, _ := addon[keyAddonVersions].([]map[string]any)
+
+	for _, v := range versions {
+		comps, _ := v[keyCompatibilities].([]map[string]string)
+
+		for _, comp := range comps {
+			if comp[keyClusterVersion] == k8sVersion {
+				out = append(out, v)
+
+				break
+			}
+		}
+	}
+
+	return out
+}
+
 func (h *Handler) handleDescribeAddonVersions(c *echo.Context) error {
-	versions := h.Backend.DescribeAddonVersions()
+	q := c.Request().URL.Query()
+	versions := filterAddonVersions(
+		h.Backend.DescribeAddonVersions(), q.Get("addonName"), q.Get("kubernetesVersion"), q["types"],
+	)
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"addons": versions,

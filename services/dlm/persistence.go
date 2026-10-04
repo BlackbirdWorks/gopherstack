@@ -118,21 +118,20 @@ func maxCounterFromPolicies(policies []*storedPolicy) int {
 	return highest
 }
 
-// Snapshot implements persistence.Persistable by delegating to the backend.
-//
-// DEAD-WIRING FIX: prior to this change, Handler exposed no Snapshot/Restore
-// methods even though InMemoryBackend fully implemented both. cli.go's
-// setupPersistence type-asserts each registered service.Registerable
-// (the *Handler returned by Provider.Init) against a Snapshot/Restore
-// interface before registering it with the persistence.Manager -- with no
-// such methods on Handler, dlm was silently never registered for
-// snapshot-based state save/restore, matching the delegation pattern already
-// used by services/dax and services/sesv2.
+// Snapshot implements persistence.Persistable; other regions ride in an additive "regions" key.
 func (h *Handler) Snapshot(ctx context.Context) []byte {
-	return h.Backend.Snapshot(ctx)
+	return h.peers.Snapshot(h.Backend.Snapshot(ctx), func(p *Handler) []byte { return p.Backend.Snapshot(ctx) })
 }
 
-// Restore implements persistence.Persistable by delegating to the backend.
+// Restore implements persistence.Persistable.
 func (h *Handler) Restore(ctx context.Context, data []byte) error {
-	return h.Backend.Restore(ctx, data)
+	if err := h.Backend.Restore(ctx, data); err != nil {
+		return err
+	}
+
+	return h.peers.Restore(
+		data,
+		func(p *Handler, d []byte) error { return p.Backend.Restore(ctx, d) },
+		func(p *Handler) { p.Backend.Reset() },
+	)
 }

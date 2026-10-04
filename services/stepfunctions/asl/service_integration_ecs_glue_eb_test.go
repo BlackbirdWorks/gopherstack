@@ -123,7 +123,7 @@ func TestSFN_ECSRunTask(t *testing.T) {
 				}
 			}`,
 			mock:              nil,
-			wantError:         "TaskFailed",
+			wantError:         "States.TaskFailed",
 			wantCauseContains: asl.ErrECSIntegrationNotConfigured.Error(),
 		},
 		{
@@ -139,7 +139,7 @@ func TestSFN_ECSRunTask(t *testing.T) {
 				}
 			}`,
 			mock:              &mockECS{},
-			wantError:         "TaskFailed",
+			wantError:         "States.TaskFailed",
 			wantCauseContains: "unsupported ECS action",
 		},
 		{
@@ -155,7 +155,7 @@ func TestSFN_ECSRunTask(t *testing.T) {
 				}
 			}`,
 			mock:              &mockECS{returnErr: errClusterNotFound},
-			wantError:         "TaskFailed",
+			wantError:         "States.TaskFailed",
 			wantCauseContains: "cluster not found",
 		},
 		{
@@ -253,7 +253,7 @@ func TestSFN_GlueStartJobRun(t *testing.T) {
 				}
 			}`,
 			mock:              nil,
-			wantError:         "TaskFailed",
+			wantError:         "States.TaskFailed",
 			wantCauseContains: asl.ErrGlueIntegrationNotConfigured.Error(),
 		},
 		{
@@ -269,7 +269,7 @@ func TestSFN_GlueStartJobRun(t *testing.T) {
 				}
 			}`,
 			mock:              &mockGlue{},
-			wantError:         "TaskFailed",
+			wantError:         "States.TaskFailed",
 			wantCauseContains: "unsupported Glue action",
 		},
 		{
@@ -286,7 +286,7 @@ func TestSFN_GlueStartJobRun(t *testing.T) {
 			}`,
 			mock:              &mockGlue{returnErr: errJobNotFound},
 			input:             `{"JobName": "missing-job"}`,
-			wantError:         "TaskFailed",
+			wantError:         "States.TaskFailed",
 			wantCauseContains: "job not found",
 		},
 	}
@@ -378,7 +378,7 @@ func TestSFN_EventBridgePutEvents(t *testing.T) {
 				}
 			}`,
 			mock:              nil,
-			wantError:         "TaskFailed",
+			wantError:         "States.TaskFailed",
 			wantCauseContains: asl.ErrEventBridgeIntegrationNotConfigured.Error(),
 		},
 		{
@@ -394,7 +394,7 @@ func TestSFN_EventBridgePutEvents(t *testing.T) {
 				}
 			}`,
 			mock:              &mockEventBridge{},
-			wantError:         "TaskFailed",
+			wantError:         "States.TaskFailed",
 			wantCauseContains: "unsupported EventBridge action",
 		},
 		{
@@ -487,7 +487,7 @@ func TestSFN_UnsupportedIntegrationTaskFailed(t *testing.T) {
 
 			assert.Equal(
 				t,
-				"TaskFailed",
+				"States.TaskFailed",
 				result.Error,
 				"expected States.TaskFailed for %s",
 				tt.resource,
@@ -545,7 +545,7 @@ func TestSFN_SyncPatternUnsupportedForRequestResponseOnlyServices(t *testing.T) 
 			result, err := exec.Execute(t.Context(), "exec-sync-unsupported", `{}`)
 			require.NoError(t, err)
 
-			assert.Equal(t, "TaskFailed", result.Error, "expected States.TaskFailed for %s", tt.resource)
+			assert.Equal(t, "States.TaskFailed", result.Error, "expected States.TaskFailed for %s", tt.resource)
 			assert.Contains(t, result.Cause, asl.ErrSyncPatternUnsupported.Error())
 		})
 	}

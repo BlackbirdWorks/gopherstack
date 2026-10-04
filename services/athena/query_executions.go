@@ -237,12 +237,11 @@ func (b *InMemoryBackend) ListQueryExecutions(workGroup string) ([]string, error
 	b.mu.RLock("ListQueryExecutions")
 	defer b.mu.RUnlock()
 
-	var matches []*QueryExecution
 	if workGroup == "" {
-		matches = b.queryExecutions.All()
-	} else {
-		matches = b.queryExecutionsByWorkGroup.Get(workGroup)
+		workGroup = defaultWorkGroup
 	}
+
+	matches := b.queryExecutionsByWorkGroup.Get(workGroup)
 
 	ids := make([]string, 0, len(matches))
 	for _, qe := range matches {

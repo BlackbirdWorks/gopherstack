@@ -51,20 +51,26 @@ type AddressTransfer struct {
 
 // CapacityReservation represents an EC2 Capacity Reservation.
 type CapacityReservation struct {
-	CreateTime            time.Time `json:"createTime"`
-	CapacityReservationID string    `json:"capacityReservationID,omitempty"`
-	InstanceType          string    `json:"instanceType,omitempty"`
-	AvailabilityZone      string    `json:"availabilityZone,omitempty"`
-	OwnedBy               string    `json:"ownedBy,omitempty"`
-	State                 string    `json:"state,omitempty"`
+	// InterruptibleAllocation is populated on Describe copies of a source reservation only.
+	InterruptibleAllocation *InterruptibleCapacityReservationAllocation `json:"-"`
+	CreateTime              time.Time                                   `json:"createTime"`
+	CapacityReservationID   string                                      `json:"capacityReservationID,omitempty"`
+	InstanceType            string                                      `json:"instanceType,omitempty"`
+	AvailabilityZone        string                                      `json:"availabilityZone,omitempty"`
+	OwnedBy                 string                                      `json:"ownedBy,omitempty"`
+	State                   string                                      `json:"state,omitempty"`
 	// InstancePlatform is the OS platform reserved (e.g. "Linux/UNIX"). Populated
 	// for Capacity Block purchases; empty for plain CreateCapacityReservation
 	// calls that predate this field.
-	InstancePlatform       string `json:"instancePlatform,omitempty"`
-	InstanceMatchCriteria  string `json:"instanceMatchCriteria,omitempty"`
-	Tenancy                string `json:"tenancy,omitempty"`
-	AvailableInstanceCount int    `json:"availableInstanceCount,omitempty"`
-	TotalInstanceCount     int    `json:"totalInstanceCount,omitempty"`
+	InstancePlatform      string `json:"instancePlatform,omitempty"`
+	InstanceMatchCriteria string `json:"instanceMatchCriteria,omitempty"`
+	Tenancy               string `json:"tenancy,omitempty"`
+	// SourceCapacityReservationID is set on an interruptible reservation minted by
+	// CreateInterruptibleCapacityReservationAllocation.
+	SourceCapacityReservationID string `json:"sourceCapacityReservationID,omitempty"`
+	AvailableInstanceCount      int    `json:"availableInstanceCount,omitempty"`
+	TotalInstanceCount          int    `json:"totalInstanceCount,omitempty"`
+	Interruptible               bool   `json:"interruptible,omitempty"`
 }
 
 // ReservedInstancesExchange represents a completed reserved instances exchange.
@@ -129,6 +135,7 @@ type VpcPeeringConnection struct {
 	AccepterVpcID          string    `json:"accepterVpcID,omitempty"`
 	AccepterOwnerID        string    `json:"accepterOwnerID,omitempty"`
 	AccepterRegion         string    `json:"accepterRegion,omitempty"`
+	RequesterRegion        string    `json:"requesterRegion,omitempty"`
 	State                  string    `json:"state,omitempty"`
 }
 
@@ -263,6 +270,12 @@ func (b *InMemoryBackend) DescribeCapacityReservations(ids []string) []*Capacity
 		}
 
 		cp := *cr
+
+		if alloc, ok := b.interruptibleCRAllocations.Get(cr.CapacityReservationID); ok {
+			allocCopy := *alloc
+			cp.InterruptibleAllocation = &allocCopy
+		}
+
 		result = append(result, &cp)
 	}
 
@@ -390,9 +403,9 @@ func (b *InMemoryBackend) AddTGWMulticastDomainAssociationInternal(
 
 // ---- AcceptTransitGatewayPeeringAttachment ----
 
-// AcceptTransitGatewayPeeringAttachment accepts a TGW peering attachment,
+// acceptTransitGatewayPeeringAttachmentLocal accepts a TGW peering attachment,
 // transitioning its state to "available".
-func (b *InMemoryBackend) AcceptTransitGatewayPeeringAttachment(
+func (b *InMemoryBackend) acceptTransitGatewayPeeringAttachmentLocal(
 	transitGatewayAttachmentID string,
 ) (*TransitGatewayPeeringAttachment, error) {
 	if transitGatewayAttachmentID == "" {
@@ -537,9 +550,9 @@ func (b *InMemoryBackend) AddVpcEndpointConnectionInternal(conn *VpcEndpointConn
 
 // ---- AcceptVpcPeeringConnection ----
 
-// AcceptVpcPeeringConnection accepts a VPC peering connection, transitioning
+// acceptVpcPeeringConnectionLocal accepts a VPC peering connection, transitioning
 // its state to "active".
-func (b *InMemoryBackend) AcceptVpcPeeringConnection(
+func (b *InMemoryBackend) acceptVpcPeeringConnectionLocal(
 	vpcPeeringConnectionID string,
 ) (*VpcPeeringConnection, error) {
 	if vpcPeeringConnectionID == "" {
@@ -573,8 +586,8 @@ func (b *InMemoryBackend) AddVpcPeeringConnectionInternal(pc *VpcPeeringConnecti
 	b.vpcPeeringConnections.Put(&cp)
 }
 
-// RejectVpcPeeringConnection rejects a pending VPC peering connection.
-func (b *InMemoryBackend) RejectVpcPeeringConnection(id string) error {
+// rejectVpcPeeringConnectionLocal rejects a pending VPC peering connection.
+func (b *InMemoryBackend) rejectVpcPeeringConnectionLocal(id string) error {
 	if id == "" {
 		return fmt.Errorf("%w: VpcPeeringConnectionId is required", ErrInvalidParameter)
 	}

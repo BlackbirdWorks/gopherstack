@@ -15,6 +15,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -56,6 +57,7 @@ var errUnsupportedTemplateType = errors.New("unsupported template type")
 
 // Handler is the HTTP handler for the Amazon Pinpoint REST API.
 type Handler struct {
+	peers         *regionpeers.Set[Handler]
 	Backend       StorageBackend
 	AccountID     string
 	DefaultRegion string
@@ -66,8 +68,8 @@ func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{Backend: backend}
 }
 
-// Reset clears the handler's backend state (used for test isolation).
-func (h *Handler) Reset() {
+// resetHome clears the home region only.
+func (h *Handler) resetHome() {
 	h.Backend.Reset()
 }
 
@@ -374,8 +376,8 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	return ""
 }
 
-// Handler returns the echo.HandlerFunc for this service.
-func (h *Handler) Handler() echo.HandlerFunc {
+// homeHandler serves requests for the home region.
+func (h *Handler) homeHandler() echo.HandlerFunc {
 	return h.ServeHTTP
 }
 

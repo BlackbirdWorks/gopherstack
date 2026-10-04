@@ -10,8 +10,10 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -51,6 +53,7 @@ const (
 // Handler handles Access Analyzer HTTP requests.
 type Handler struct {
 	Backend StorageBackend
+	peers   *regionpeers.Set[Handler]
 }
 
 // NewHandler constructs a new Handler.
@@ -62,7 +65,13 @@ func NewHandler(b StorageBackend) *Handler {
 func (h *Handler) Name() string { return "AccessAnalyzer" }
 
 // Reset resets the backend.
-func (h *Handler) Reset() { h.Backend.Reset() }
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+
+	for _, p := range h.peers.Drain() {
+		p.Backend.Reset()
+	}
+}
 
 // GetSupportedOperations returns every operation this handler routes,
 // across all operation families (analyzers, archive rules, findings,
@@ -188,6 +197,10 @@ func parseAllPaths(method, path string) (string, string) {
 // Handler returns the Echo handler function.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
+			return p.Handler()(c)
+		}
+
 		return h.handleREST(c)
 	}
 }

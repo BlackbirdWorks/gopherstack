@@ -204,16 +204,6 @@ families:
 gaps: []
 
 items_still_open:
-  - "2026-08-30 (region-isolation sweep): every resource family (AccessPoint, ObjectLambdaAccessPoint,
-    OutpostsBucket, BatchJob, AccessGrant*, StorageLensGroup/Config) is keyed by AccountID+Name only --
-    no region dimension -- so two real aws-sdk-go-v2 clients signing for different regions against ONE
-    gopherstack process collide on a same-named resource (proven with a throwaway test, since deleted).
-    Not the same bug class as cloudwatchlogs/memorydb (no sibling op here scopes by region while this one
-    doesn't; it's uniform across all ~90 ops), and this task's guidance treats a uniform
-    single-region-per-backend-instance design as legitimate. A full fix needs a region parameter threaded
-    through ~16 AccessPoint backend methods (111+ call sites) times five more resource families --
-    tracked, not attempted (would need the services/ssm getRegion(ctx)+per-region store.Table pattern).
-    Excludes MultiRegionAccessPoint, which is correctly already global by design."
   - "s3control.ErrAlreadyExists dead sentinel (errors.go) REMOVED this pass -- verified unreachable
     (repo-wide grep, zero call sites) and its real-AWS duplicate-CreateAccessPoint behavior is
     unverifiable (deserializers.go's awsRestxml_deserializeOpErrorCreateAccessPoint has zero modeled
@@ -359,12 +349,7 @@ If re-auditing other REST-XML services, check both status code AND `<Code>` stri
   (incorrectly) claimed the precondition was unenforced; that language predated the
   fix documented below it in this same file and was never updated to match. Corrected
   2026-07-30 -- no code change was needed, only the stale summary text.
-- ErrAlreadyExists (errors.go) remains an unused/dead sentinel. Reason not fixed: no
-  backend method needs AlreadyExists semantics currently (e.g. CreateAccessPoint does
-  not reject duplicate names), and confirming whether real AWS actually returns
-  AlreadyExists for any s3control Create* op -- versus silently overwriting, versus a
-  different validation error -- was out of scope for this pass's leak/error-code/
-  persistence focus.
+- The dead `ErrAlreadyExists` sentinel (errors.go) was removed; no s3control symbol remains.
 - The synchronous DELETE /v20180820/mrap/instances/{Name} route (mapped to the real
   op name DeleteMultiRegionAccessPoint, but via an HTTP verb/path combination the real
   SDK never sends) remains routable. Reason not removed: unlike the 3 fabricated
@@ -1125,3 +1110,26 @@ Gates: `gofmt -l` clean; `go build ./services/s3control/...` and `go vet
 ./services/s3control/...` and `go test -count=1 ./pkgs/persistence/` pass;
 `golangci-lint run ./services/s3control/...` 0 issues; `git diff --stat
 go.mod go.sum` empty. No persisted-field change.
+
+## 2026-10-03 (gopherstack-7v0p multi-region)
+
+One process now serves every region: `Handler.Handler()` routes a request whose SigV4/`X-Amz-Region` region
+differs from the home region to a lazily built sibling `Handler` (own `InMemoryBackend`, region-correct ARNs)
+via `pkgs/regionpeers`. Same-named access points, jobs, grants and the rest coexist per region. The
+region-isolation `items_still_open` entry is closed. Snapshots gain an additive `regions` key only when a
+sibling exists (no version bump; legacy snapshots restore unchanged). Proof: `TestHandler_MultiRegionIsolation`,
+`TestHandler_MultiRegionPersistence`, and `TestRegionIsolation/s3control` at the repo root. Limitation:
+non-home regions are not visible to the tagging-API bridge or the dashboard.
+
+## 2026-10-03 (gopherstack-1izbr MRAP is account-global)
+
+Multi-Region Access Points are account-global: `Handler.Handler()` serves every MRAP operation (create/delete/put-policy/describe-operation/get/list/routes) from the home backend whichever region signed it, so a MRAP created through us-west-2 (where the AWS provider sends it) is visible from every region, including its async request tokens; the other S3 Control resources stay per region. Snapshot shape is unchanged. Fixes the terraform `TestTerraform_S3controlAndVpclattice` GetMultiRegionAccessPoint 404 from the per-region isolation change. Proof: `TestHandler_MultiRegionAccessPointsAreAccountGlobal`.
+
+## 2026-10-03 (gopherstack-uox6, value-semantics sweep)
+
+FIXED: ListCallerAccessGrants matched `GrantScope` exactly; `api_op_ListCallerAccessGrants.go` says "You can optionally pass only the beginning characters of a path", so it is now a prefix match. Proven by `list_caller_access_grants_scope_test.go`.
+FIXED 2026-10-03 (gopherstack-twwrp): CreateAccessGrant now sets GrantScope to the registered location scope plus `AccessGrantsLocationConfiguration.S3SubPrefix` (types.go: "appended to the location scope creating the grant scope") and returns NoSuchAccessGrantsLocation for an unknown location. Proven by `TestCreateAccessGrant_S3SubPrefix_RealClient`. Still open: ListAccessGrantsLocations `locationScope` is exact-match here; the doc does not say whether it is a prefix.
+
+## 2026-10-04 (reqfielddiff tier-1 pass)
+
+`DeleteAccessGrantsLocation`/`GetAccessGrantsLocation`/`UpdateAccessGrantsLocation.AccessGrantsLocationId` are tool false positives (httpLabel path segments, read from the URL). `ListAccessPoints.DataSourceType` stays recorded: every access point is bucket-backed so the filter cannot change the output.

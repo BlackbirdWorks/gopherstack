@@ -9,18 +9,17 @@
 | --- | --- |
 | PARITY entries audited | 33 (31 ok, 1 partial, 1 deferred) |
 | Feature families | 1 (1 ok) |
-| Known gaps | 6 |
+| Known gaps | 5 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- FlinkApplicationConfigurationDescription.JobPlanDescription (DescribeApplicationRequest.IncludeAdditionalDetails) remains accepted-but-ignored: it is real AWS's Apache Flink job graph/scheduling plan (see the Apache Flink "Jobs and Scheduling" docs JobPlanDescription's own doc comment links to), which requires an actual Flink job compiler to produce -- structural, same class as DiscoverInputSchema's synthetic-schema limitation. Confirmed still genuinely unmodelable this pass; IncludeAdditionalDetails isn't even parsed by describeApplicationInput. Leniency only.
-- StopApplication's Force field now enforces the Flink-only restriction and is stored, but the pre-stop auto-snapshot itself is still not modeled: real AWS's auto-snapshot naming/visibility convention isn't documented publicly enough to fabricate (re-confirmed this pass via AWS's own "Deep dive into the Amazon Managed Service for Apache Flink application lifecycle" blog, which describes that a snapshot is taken but not how it's named or surfaced) -- deliberately left unimplemented rather than invented.
-- UpdateApplicationMaintenanceConfiguration's ApplicationMaintenanceWindowEndTime is never computed/returned (pre-existing gap, unchanged, low value -- no client observably depends on the exact window end time).
-- ZeppelinApplicationConfiguration's referenced ARNs (GlueDataCatalogConfiguration.DatabaseARN, S3ContentLocation/S3ContentBaseLocation.BucketARN) are not validated to exist in a Glue/S3 backend -- matches every other ARN field in this service (ServiceExecutionRole, KinesisStreamsInputDesc.ResourceARN, etc.), none of which are cross-service-validated. CORRECTED (gopherstack-osg7): this codebase does have a cross-service backend-to-backend validation mechanism (SetAppConfig/siblingServices, used by grafana/ec2/others to reject a request referencing a resource that doesn't exist elsewhere) -- this service simply doesn't use it for these ARN fields. Not a Zeppelin-specific gap, and not a "no mechanism exists" gap either; a follow-up could adopt the existing pattern here if desired.
-- DeleteApplication is synchronous (app removed immediately); real AWS transitions through a DELETING status first. ApplicationStatusDeleting const is defined but unused. Matches the synchronous-delete convention used elsewhere in this codebase; not fixed (pre-existing, unchanged).
-- Real AWS's default-assigned maintenance window (every application gets one automatically at creation, before any UpdateApplicationMaintenanceConfiguration call) is not modeled -- ApplicationMaintenanceConfigurationDescription is only populated in DescribeApplication once UpdateApplicationMaintenanceConfiguration has been called at least once. Pre-existing, unchanged; low value.
+- JobPlanDescription (DescribeApplicationRequest.IncludeAdditionalDetails) accepted-but-ignored: needs a real Flink job compiler to produce the plan (structural).
+- StopApplication Force: the pre-stop auto-snapshot is not modeled; AWS does not publicly document its naming/visibility, so it is not invented.
+- Zeppelin Glue/S3 ARNs (and every other ARN field here) are not cross-service validated; could adopt the SetAppConfig/siblingServices pattern (gopherstack-osg7).
+- DeleteApplication is synchronous (no DELETING status), matching the repo-wide convention; ApplicationStatusDeleting is unused.
+- The default maintenance window real AWS assigns at creation is not modeled; ApplicationMaintenanceConfigurationDescription appears only after UpdateApplicationMaintenanceConfiguration (AWS does not document the default start).
 
 ### Deferred
 

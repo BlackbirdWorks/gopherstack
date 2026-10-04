@@ -5,6 +5,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/smtprelay"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -19,6 +20,7 @@ const sesDefaultMaxItems = 100
 // email templates, and configuration sets.
 type InMemoryBackend struct {
 	snsPublisher         SNSPublisher
+	relay                *smtprelay.Relay
 	customVerifTemplates *store.Table[CustomVerificationEmailTemplate]
 	emailsByID           *store.Table[Email]
 	templates            *store.Table[EmailTemplate]

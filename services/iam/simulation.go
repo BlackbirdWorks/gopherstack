@@ -448,13 +448,20 @@ func parseAccountFromArn(arnStr string) string {
 	return ""
 }
 
+const (
+	decisionExplicitDeny = "explicitDeny"
+	decisionImplicitDeny = "implicitDeny"
+	rankExplicitDeny     = 2
+	rankImplicitDeny     = 1
+)
+
 // evalDecisionStr converts an EvalResult to the AWS-compatible decision string.
 func evalDecisionStr(r EvaluationResult) string {
 	switch r {
 	case EvalAllow:
 		return "allowed"
 	case EvalExplicitDeny:
-		return "explicitDeny"
+		return decisionExplicitDeny
 	default:
 		return "implicitDeny"
 	}

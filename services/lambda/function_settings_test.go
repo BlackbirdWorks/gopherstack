@@ -26,16 +26,16 @@ func TestFunctionRecursionConfig_PutGet(t *testing.T) {
 	rec := callInMemoryHandler(
 		t, h, http.MethodPut,
 		"/2024-08-31/functions/"+fnName+"/recursion-config",
-		`{"RecursiveLoop":"Deny"}`,
+		`{"RecursiveLoop":"Allow"}`,
 	)
 	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "Deny")
+	assert.Contains(t, rec.Body.String(), "Allow")
 
 	// Get recursion config
 	rec = callInMemoryHandler(t, h, http.MethodGet,
 		"/2024-08-31/functions/"+fnName+"/recursion-config", "{}")
 	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "Deny")
+	assert.Contains(t, rec.Body.String(), "Allow")
 }
 
 func TestFunctionScalingConfig_PutGet(t *testing.T) {

@@ -1797,3 +1797,11 @@ read from `updateConnectorRequest`/`UpdateConnectorInput`/`handleUpdateConnector
 no real client could ever set it via UpdateConnector. Proven in
 `TestRoundTrip_Connectors`: the value set at creation now provably survives
 an otherwise-unrelated update.
+
+## 2026-10-04: EC2 launch in the service region (gopherstack-12q3n)
+
+Launch and cutover jobs resolve the EC2 backend of the service's own region through `BackendFor` instead of the home handler's backend.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+mgn is region-isolated: applications, waves, source servers and jobs live per region; each region's launch and cutover jobs use that region's EC2. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/mgn`. Limitation: the dashboard shows the home region only. The tagging bridge lists the request region and resolves Tag/Untag by ARN region. Sibling workers stop on Reset, Shutdown and restore (`TestHandler_SiblingTimersStopWithSibling`). `TestHandler_MultiRegionReset` covers Reset.

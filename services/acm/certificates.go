@@ -2,11 +2,14 @@ package acm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -26,13 +29,17 @@ func (b *InMemoryBackend) RequestCertificate(
 		return nil, err
 	}
 
-	certBody, privateKey, certMeta, notBefore, notAfter, err := generateSelfSignedCert(domainName, sans, keyAlgorithm)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate certificate: %w", err)
+	if keyAlgorithm == "" {
+		keyAlgorithm = keyAlgorithmRSA2048
 	}
 
-	if keyAlgorithm == "" {
-		keyAlgorithm = keyAlgorithmEC
+	certBody, privateKey, certMeta, notBefore, notAfter, err := generateSelfSignedCert(domainName, sans, keyAlgorithm)
+	if errors.Is(err, errWeakKey) {
+		return nil, fmt.Errorf("%w: %w", ErrRequestCertInvalidParameter, err)
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate certificate: %w", err)
 	}
 
 	region := getRegion(ctx, b.region)
@@ -50,7 +57,7 @@ func (b *InMemoryBackend) RequestCertificate(
 		return existing, nil
 	}
 
-	id := fmt.Sprintf("%x", time.Now().UnixNano())
+	id := uuid.NewString()
 	certARN := arn.Build("acm", region, b.accountID, "certificate/"+id)
 
 	if certType == "" {
@@ -401,7 +408,7 @@ func (b *InMemoryBackend) ImportCertificate(
 		return &cp, nil
 	}
 
-	id := fmt.Sprintf("%x", time.Now().UnixNano())
+	id := uuid.NewString()
 	certARN := arn.Build("acm", region, b.accountID, "certificate/"+id)
 
 	cert := &Certificate{
@@ -463,6 +470,10 @@ func (b *InMemoryBackend) RenewCertificate(ctx context.Context, certARN string) 
 	validationMethod := c.ValidationMethod
 
 	certBody, privateKey, meta, notBefore, notAfter, err := generateSelfSignedCert(domainName, sans, c.KeyAlgorithm)
+	if errors.Is(err, errWeakKey) {
+		return fmt.Errorf("%w: %w", ErrInvalidParameter, err)
+	}
+
 	if err != nil {
 		return fmt.Errorf("failed to generate self-signed certificate: %w", err)
 	}
@@ -741,7 +752,12 @@ func buildListCertFilters(p ListCertificatesParams) listCertFilters {
 		f.statusSet[s] = struct{}{}
 	}
 
-	for _, k := range p.KeyTypes {
+	keyTypes := p.KeyTypes
+	if len(keyTypes) == 0 {
+		keyTypes = []string{"RSA_1024", "RSA_2048"}
+	}
+
+	for _, k := range keyTypes {
 		f.keyTypeSet[k] = struct{}{}
 	}
 

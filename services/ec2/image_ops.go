@@ -145,6 +145,9 @@ type StoreImageTask struct {
 // store image task.
 const storeImageTaskProgressComplete = 100
 
+// storeTaskStateCompleted is StoreImageTaskResult.StoreTaskState "Completed" (types.go: InProgress, Completed, Failed).
+const storeTaskStateCompleted = "Completed"
+
 // resetImageTasksLocked re-initialises the store image task map. Must be called with b.mu
 // held.
 func (b *InMemoryBackend) resetImageTasksLocked() {
@@ -169,7 +172,7 @@ func (b *InMemoryBackend) CreateStoreImageTask(imageID, bucket string) (*StoreIm
 		AmiID:              imageID,
 		Bucket:             bucket,
 		S3ObjectKey:        imageID + ".bin",
-		StoreTaskState:     stateTaskCompleted,
+		StoreTaskState:     storeTaskStateCompleted,
 		ProgressPercentage: storeImageTaskProgressComplete,
 		TaskStartTime:      time.Now().UTC(),
 	}

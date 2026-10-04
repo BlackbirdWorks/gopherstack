@@ -528,3 +528,7 @@ Owner/Tags/ResourceQuery wire fixes already made). Used `Group` (not the
 deprecated `GroupName`) on `GetGroupQueryInput`/`UpdateGroupInput`/
 `UpdateGroupQueryInput` per current SDK guidance. No `items_still_open`
 changes; no `snapshot_inventory.json` change; no version bump.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+resourcegroups already isolates regions internally: groups and their configuration are keyed per region. Proof: `TestRegionIsolation/resourcegroups`; no sibling handlers needed.

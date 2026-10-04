@@ -158,11 +158,24 @@ func CalculateAttrSize(v any) int64 {
 		return 1
 	}
 
+	if len(m) == 1 {
+		for _, t := range attrTypeKeys {
+			if val, ok := m[t]; ok {
+				return calcTypedAttrSize(t, val)
+			}
+		}
+	}
+
 	for t, val := range m {
 		return calcTypedAttrSize(t, val)
 	}
 
 	return 1
+}
+
+// attrTypeKeys avoids starting a map iteration on one-entry attribute maps.
+var attrTypeKeys = [...]string{ //nolint:gochecknoglobals // lookup table
+	"S", "N", "M", "L", typeBOOL, "B", "SS", "NS", "BS", typeNULL,
 }
 
 func calcTypedAttrSize(t string, val any) int64 {

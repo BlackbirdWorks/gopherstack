@@ -702,3 +702,11 @@ records (`DeleteReplicationConfiguration.DeletionMode` inert single-region
 model; `DescribeAccountPreferences.MaxResults` structurally non-paginated;
 `ListTagsForResource.MaxResults` bounded 50-tag cap). Tier-1: 5 -> 5 (0
 fixed, 0 recorded as new, 5 already covered).
+
+## 2026-10-03 (gopherstack-uox6 value-semantics pass)
+
+DescribeMountTargets requires one of FileSystemId, MountTargetId or AccessPointId (api_op_DescribeMountTargets.go: "must be included in your request if ... is not included") and accepts an ARN for each; no selector returns BadRequest. Describe* list ops reduce an ARN FileSystemId/AccessPointId to its ID.
+
+## 2026-10-04 (reqfielddiff tier-1 pass)
+
+ListTagsForResource now honours MaxResults (default 100) and NextToken (api_op_ListTagsForResource.go), superseding the earlier "bounded 50-tag cap, ignored" note. DeleteReplicationConfiguration validates deletionMode (ALL_CONFIGURATIONS / LOCAL_CONFIGURATION_ONLY) and rejects LOCAL_CONFIGURATION_ONLY for same-account, same-region replication with BadRequest, as documented; there is still no destination-side configuration to leave behind for cross-region/account. DescribeAccountPreferences.MaxResults stays structurally non-paginated (a single ResourceIdPreference object). Proof: `TestListTagsForResource_Pagination`, `TestDeleteReplicationConfiguration_DeletionMode`.

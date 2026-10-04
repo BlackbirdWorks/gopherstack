@@ -8,8 +8,10 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -161,6 +163,7 @@ const (
 // Handler is the HTTP handler for the Bedrock Agent REST API.
 type Handler struct {
 	Backend       StorageBackend
+	peers         *regionpeers.Set[Handler]
 	AccountID     string
 	DefaultRegion string
 }
@@ -172,7 +175,15 @@ func NewHandler(backend StorageBackend) *Handler {
 
 // Reset clears handler state (delegates to backend).
 func (h *Handler) Reset() {
-	if r, ok := h.Backend.(interface{ Reset() }); ok {
+	resetBackend(h.Backend)
+
+	for _, p := range h.peers.Drain() {
+		resetBackend(p.Backend)
+	}
+}
+
+func resetBackend(b StorageBackend) {
+	if r, ok := b.(interface{ Reset() }); ok {
 		r.Reset()
 	}
 }
@@ -286,6 +297,10 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
+			return p.Handler()(c)
+		}
+
 		region := httputils.ExtractRegionFromRequest(c.Request(), h.DefaultRegion)
 		ctx := context.WithValue(c.Request().Context(), regionKey{}, region)
 		log := logger.Load(ctx)

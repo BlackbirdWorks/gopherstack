@@ -10,12 +10,20 @@ package lightsail
 import (
 	"fmt"
 	"sort"
+	"time"
 )
 
 const (
 	OperationTypeEnableAddOn = "EnableAddOn"
 	opTypeDisableAddOn       = "DisableAddOn"
 	opTypeDeleteAutoSnapshot = "DeleteAutoSnapshot"
+
+	// autoSnapshotCadence is AWS's real once-daily AutoSnapshot interval.
+	autoSnapshotCadence = 24 * time.Hour
+
+	// autoSnapshotRetentionCount is AWS's documented retention depth: the
+	// latest 7 daily snapshots are kept before the oldest is replaced.
+	autoSnapshotRetentionCount = 7
 )
 
 // applyAddOnRequestLocked returns addOns with req applied (added, or
@@ -141,7 +149,20 @@ func deleteAutoSnapshotByDate(in []AutoSnapshotDetails, date string) []AutoSnaps
 	return out
 }
 
-// EnableAddOn enables/updates req on resourceName (Instance or Disk).
+// hasAutoSnapshotAddOn reports whether addOns already contains an
+// AutoSnapshot entry.
+func hasAutoSnapshotAddOn(addOns []AddOn) bool {
+	for _, a := range addOns {
+		if a.Name == AddOnTypeAutoSnapshot {
+			return true
+		}
+	}
+
+	return false
+}
+
+// EnableAddOn enables/updates req on resourceName (Instance or Disk). First
+// enabling AutoSnapshot also starts a real recurring daily cadence.
 func (b *InMemoryBackend) EnableAddOn(resourceName string, req AddOnRequest) ([]Operation, error) {
 	b.mu.Lock("EnableAddOn")
 	defer b.mu.Unlock()
@@ -151,6 +172,8 @@ func (b *InMemoryBackend) EnableAddOn(resourceName string, req AddOnRequest) ([]
 		return nil, notFoundError("resource", resourceName)
 	}
 
+	var firstAutoSnapshot bool
+
 	switch kind {
 	case ResourceTypeInstance:
 		i, found := b.instances.Get(resourceName)
@@ -158,31 +181,90 @@ func (b *InMemoryBackend) EnableAddOn(resourceName string, req AddOnRequest) ([]
 			return nil, notFoundError("Instance", resourceName)
 		}
 
+		firstAutoSnapshot = req.Type == AddOnTypeAutoSnapshot && !hasAutoSnapshotAddOn(i.AddOns)
 		i.AddOns = applyAddOnRequestLocked(i.AddOns, req)
-
-		if req.Type == AddOnTypeAutoSnapshot {
-			i.AutoSnapshots = append(i.AutoSnapshots, AutoSnapshotDetails{
-				Date: nowUTC().Format("20060102"), CreatedAt: nowUTC(), Status: AutoSnapshotStatusSuccess,
-			})
-		}
 	case ResourceTypeDisk:
 		d, found := b.disks.Get(resourceName)
 		if !found {
 			return nil, notFoundError("Disk", resourceName)
 		}
 
+		firstAutoSnapshot = req.Type == AddOnTypeAutoSnapshot && !hasAutoSnapshotAddOn(d.AddOns)
 		d.AddOns = applyAddOnRequestLocked(d.AddOns, req)
-
-		if req.Type == AddOnTypeAutoSnapshot {
-			d.AutoSnapshots = append(d.AutoSnapshots, AutoSnapshotDetails{
-				Date: nowUTC().Format("20060102"), CreatedAt: nowUTC(), Status: AutoSnapshotStatusSuccess,
-			})
-		}
 	default:
 		return nil, validationError(fmt.Sprintf("resource %s is not an Instance or Disk", resourceName))
 	}
 
+	if req.Type == AddOnTypeAutoSnapshot {
+		b.appendAutoSnapshotLocked(kind, resourceName)
+
+		if firstAutoSnapshot {
+			b.scheduleAutoSnapshotCadenceLocked(kind, resourceName)
+		}
+	}
+
 	return b.newOperationsLocked(OperationTypeEnableAddOn, kind, []string{resourceName}), nil
+}
+
+// appendAutoSnapshotLocked records one dated entry for resourceName,
+// evicting the oldest past autoSnapshotRetentionCount. Callers hold b.mu.
+func (b *InMemoryBackend) appendAutoSnapshotLocked(kind, resourceName string) {
+	entry := AutoSnapshotDetails{
+		Date: nowUTC().Format("20060102"), CreatedAt: nowUTC(), Status: AutoSnapshotStatusSuccess,
+	}
+
+	switch kind {
+	case ResourceTypeInstance:
+		if i, found := b.instances.Get(resourceName); found {
+			i.AutoSnapshots = trimAutoSnapshots(append(i.AutoSnapshots, entry))
+		}
+	case ResourceTypeDisk:
+		if d, found := b.disks.Get(resourceName); found {
+			d.AutoSnapshots = trimAutoSnapshots(append(d.AutoSnapshots, entry))
+		}
+	}
+}
+
+// trimAutoSnapshots keeps only the newest autoSnapshotRetentionCount entries.
+func trimAutoSnapshots(in []AutoSnapshotDetails) []AutoSnapshotDetails {
+	if len(in) <= autoSnapshotRetentionCount {
+		return in
+	}
+
+	return in[len(in)-autoSnapshotRetentionCount:]
+}
+
+// autoSnapshotEnabledLocked reports whether resourceName still exists and
+// still has the AutoSnapshot add-on enabled. Callers must hold b.mu.
+func (b *InMemoryBackend) autoSnapshotEnabledLocked(kind, resourceName string) bool {
+	switch kind {
+	case ResourceTypeInstance:
+		i, found := b.instances.Get(resourceName)
+
+		return found && hasAutoSnapshotAddOn(i.AddOns)
+	case ResourceTypeDisk:
+		d, found := b.disks.Get(resourceName)
+
+		return found && hasAutoSnapshotAddOn(d.AddOns)
+	default:
+		return false
+	}
+}
+
+// scheduleAutoSnapshotCadenceLocked reschedules itself every
+// autoSnapshotCadence until disabled. Callers must hold b.mu.
+func (b *InMemoryBackend) scheduleAutoSnapshotCadenceLocked(kind, resourceName string) {
+	b.work.After("AutoSnapshotCadence", autoSnapshotCadence, func() {
+		b.mu.Lock("AutoSnapshotCadence")
+		defer b.mu.Unlock()
+
+		if !b.autoSnapshotEnabledLocked(kind, resourceName) {
+			return
+		}
+
+		b.appendAutoSnapshotLocked(kind, resourceName)
+		b.scheduleAutoSnapshotCadenceLocked(kind, resourceName)
+	})
 }
 
 // DisableAddOn removes addOnType from resourceName (Instance or Disk).

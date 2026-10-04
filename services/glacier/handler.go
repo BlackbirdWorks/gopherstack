@@ -9,8 +9,10 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -112,6 +114,7 @@ const (
 // Handler is the HTTP handler for the Glacier REST API.
 type Handler struct {
 	Backend       StorageBackend
+	peers         *regionpeers.Set[Handler]
 	AccountID     string
 	DefaultRegion string
 }
@@ -215,6 +218,10 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function for Glacier requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
+			return p.Handler()(c)
+		}
+
 		ctx := c.Request().Context()
 		log := logger.Load(ctx)
 
@@ -770,4 +777,8 @@ func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 // Reset clears all backend state and the handler-level archive data store.
 func (h *Handler) Reset() {
 	h.Backend.Reset()
+
+	for _, p := range h.peers.Drain() {
+		p.Backend.Reset()
+	}
 }

@@ -28,8 +28,12 @@ func (h *Handler) faceOps() map[string]service.JSONOpFunc {
 // --- Face requests ---
 
 type indexFacesReq struct {
-	CollectionID    string `json:"CollectionId"`
-	ExternalImageID string `json:"ExternalImageId"`
+	MaxFaces            *int32   `json:"MaxFaces"`
+	CollectionID        string   `json:"CollectionId"`
+	ExternalImageID     string   `json:"ExternalImageId"`
+	QualityFilter       string   `json:"QualityFilter"`
+	DetectionAttributes []string `json:"DetectionAttributes"`
+	Image               imageRef `json:"Image"`
 }
 
 type faceRecord struct {
@@ -46,9 +50,17 @@ type indexFacesResp struct {
 	FaceRecords      []faceRecord `json:"FaceRecords"`
 }
 
-func (h *Handler) handleIndexFaces(_ context.Context, req *indexFacesReq) (*indexFacesResp, error) {
+func (h *Handler) handleIndexFaces(ctx context.Context, req *indexFacesReq) (*indexFacesResp, error) {
 	if req.CollectionID == "" {
 		return nil, fmt.Errorf("%w: CollectionId is required", ErrValidation)
+	}
+
+	if err := h.checkImageRef(ctx, req.Image); err != nil {
+		return nil, err
+	}
+
+	if err := validateIndexFacesOptions(req); err != nil {
+		return nil, err
 	}
 
 	faces, err := h.Backend.IndexFaces(req.CollectionID, req.ExternalImageID)
@@ -71,6 +83,24 @@ func (h *Handler) handleIndexFaces(_ context.Context, req *indexFacesReq) (*inde
 		FaceModelVersion: faceModelVersion,
 		FaceRecords:      records,
 	}, nil
+}
+
+func validateIndexFacesOptions(req *indexFacesReq) error {
+	if !isValidQualityFilter(req.QualityFilter) {
+		return fmt.Errorf("%w: QualityFilter value %q is not valid", ErrValidation, req.QualityFilter)
+	}
+
+	for _, a := range req.DetectionAttributes {
+		if !isValidFaceAttribute(a) {
+			return fmt.Errorf("%w: DetectionAttributes value %q is not valid", ErrValidation, a)
+		}
+	}
+
+	if req.MaxFaces != nil && *req.MaxFaces < 1 {
+		return fmt.Errorf("%w: MaxFaces must be greater than or equal to 1", ErrValidation)
+	}
+
+	return nil
 }
 
 type deleteFacesReq struct {

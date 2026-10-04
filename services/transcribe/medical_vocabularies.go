@@ -43,7 +43,7 @@ func (b *InMemoryBackend) CreateMedicalVocabulary(
 		Tags:              tags,
 	}
 	b.medicalVocabularies.Put(v)
-	b.recordResourceTagsLocked(resourceARN(resourceTypeMedicalVocabulary, v.VocabularyName), v.Tags)
+	b.recordResourceTagsLocked(b.resourceARN(resourceTypeMedicalVocabulary, v.VocabularyName), v.Tags)
 
 	cp := *v
 
@@ -120,7 +120,7 @@ func (b *InMemoryBackend) DeleteMedicalVocabulary(vocabularyName string) error {
 		return fmt.Errorf("%w: medical vocabulary %s not found", ErrNotFound, vocabularyName)
 	}
 
-	b.forgetResourceTagsLocked(resourceARN(resourceTypeMedicalVocabulary, vocabularyName))
+	b.forgetResourceTagsLocked(b.resourceARN(resourceTypeMedicalVocabulary, vocabularyName))
 
 	return nil
 }

@@ -183,6 +183,100 @@ func TestTimeoutExecutionLocked_CascadesChildPolicy(t *testing.T) {
 	}
 }
 
+// TestSweepExpiredClosedExecutionsLocked_Evaluation proves closed workflow
+// executions are evicted once they cross their domain's
+// workflowExecutionRetentionPeriodInDays (see timeout_sweep.go's citation) --
+// previously only the unrelated maxWorkflowExecutions FIFO cap ever removed a
+// closed execution, regardless of the domain's configured retention.
+func TestSweepExpiredClosedExecutionsLocked_Evaluation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		retention   string
+		closedAge   time.Duration
+		leaveOpen   bool
+		wantEvicted bool
+	}{
+		{
+			name: "past a 1-day retention is evicted", retention: "1",
+			closedAge: 25 * time.Hour, wantEvicted: true,
+		},
+		{
+			name: "within a 1-day retention is kept", retention: "1",
+			closedAge: 23 * time.Hour, wantEvicted: false,
+		},
+		{
+			name: "NONE retention is never evicted", retention: "NONE",
+			closedAge: 365 * 24 * time.Hour, wantEvicted: false,
+		},
+		{
+			name: "0-day retention evicts immediately", retention: "0",
+			closedAge: time.Second, wantEvicted: true,
+		},
+		{
+			name: "still-open execution is never evicted", retention: "0",
+			leaveOpen: true, closedAge: 365 * 24 * time.Hour, wantEvicted: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := NewInMemoryBackend()
+			require.NoError(t, b.RegisterDomain("dom", "", tt.retention))
+
+			started, err := b.StartWorkflowExecution(StartWorkflowExecutionInput{
+				Domain: "dom", WorkflowID: "wf-1", TaskList: "tasks",
+			})
+			require.NoError(t, err)
+
+			evalAt := time.Now()
+
+			if !tt.leaveOpen {
+				require.NoError(t, b.TerminateWorkflowExecution("dom", "wf-1", started.RunID, "", "", ""))
+				live := mustLiveExecution(t, b, "wf-1", started.RunID)
+				live.CloseTimestamp = float64(evalAt.Add(-tt.closedAge).Unix())
+			}
+
+			b.mu.Lock("test")
+			b.sweepExpiredClosedExecutionsLocked(evalAt)
+			b.mu.Unlock()
+
+			_, err = b.DescribeWorkflowExecution("dom", "wf-1", started.RunID)
+			if tt.wantEvicted {
+				require.ErrorIs(t, err, ErrNotFound)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestListClosedWorkflowExecutions_SweepsRetentionOnRead verifies the
+// retention sweep is wired into a public entry point, not just callable in
+// isolation: a closed execution backdated past its domain's retention
+// disappears from ListClosedWorkflowExecutions on the next call.
+func TestListClosedWorkflowExecutions_SweepsRetentionOnRead(t *testing.T) {
+	t.Parallel()
+
+	b := NewInMemoryBackend()
+	require.NoError(t, b.RegisterDomain("dom", "", "1"))
+
+	started, err := b.StartWorkflowExecution(StartWorkflowExecutionInput{
+		Domain: "dom", WorkflowID: "wf-1", TaskList: "tasks",
+	})
+	require.NoError(t, err)
+	require.NoError(t, b.TerminateWorkflowExecution("dom", "wf-1", started.RunID, "", "", ""))
+
+	live := mustLiveExecution(t, b, "wf-1", started.RunID)
+	live.CloseTimestamp -= float64((25 * time.Hour) / time.Second)
+
+	out := b.ListClosedWorkflowExecutions("dom", ExecutionFilter{})
+	assert.Empty(t, out)
+}
+
 // TestDescribeWorkflowExecution_SweepsOnRead verifies the sweep is actually
 // wired into a public read entry point, not just callable in isolation:
 // backdating StartTimestamp into the real past (no sleep, no fabricated

@@ -232,6 +232,9 @@ func matchTaskFilters(t *storedTask, filters []TaskFilter) (bool, error) {
 			}
 
 			matched = srcMatch || dstMatch
+			if isNegativeFilterOperator(f.Operator) {
+				matched = srcMatch && dstMatch
+			}
 		case "CreationTime":
 			matched, err = matchFilterOperator(f.Operator, t.CreationTime.UTC().Format(time.RFC3339), f.Values)
 		default:

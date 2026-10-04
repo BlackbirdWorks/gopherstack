@@ -15,14 +15,14 @@ func TestBYOIP(t *testing.T) { //nolint:paralleltest // existing issue.
 	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
 
 	t.Run("provision cidr", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		entry, err := b.ProvisionByoipCidr("198.51.100.0/24", "test provision")
+		entry, err := b.ProvisionByoipCidr("198.51.100.0/24", "test provision", nil)
 		require.NoError(t, err)
 		assert.Equal(t, "198.51.100.0/24", entry.Cidr)
 		assert.Equal(t, "pending-provision", entry.State)
 	})
 
 	t.Run("provision empty cidr returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		_, err := b.ProvisionByoipCidr("", "")
+		_, err := b.ProvisionByoipCidr("", "", nil)
 		require.Error(t, err)
 	})
 
@@ -39,7 +39,7 @@ func TestBYOIP(t *testing.T) { //nolint:paralleltest // existing issue.
 
 	t.Run("withdraw cidr", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		// Re-provision first
-		_, err := b.ProvisionByoipCidr("203.0.113.0/24", "")
+		_, err := b.ProvisionByoipCidr("203.0.113.0/24", "", nil)
 		require.NoError(t, err)
 
 		entry, err := b.WithdrawByoipCidr("203.0.113.0/24")

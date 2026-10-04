@@ -10,7 +10,9 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -181,6 +183,7 @@ const (
 // Handler handles GuardDuty HTTP requests.
 type Handler struct {
 	Backend StorageBackend
+	peers   *regionpeers.Set[Handler]
 }
 
 // NewHandler constructs a new Handler.
@@ -192,7 +195,13 @@ func NewHandler(b StorageBackend) *Handler {
 func (h *Handler) Name() string { return "GuardDuty" }
 
 // Reset resets the backend.
-func (h *Handler) Reset() { h.Backend.Reset() }
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+
+	for _, p := range h.peers.Drain() {
+		p.Backend.Reset()
+	}
+}
 
 // GetSupportedOperations returns the list of supported operations.
 func (h *Handler) GetSupportedOperations() []string {
@@ -386,7 +395,15 @@ func (h *Handler) ExtractOperation(c *echo.Context) string { return h.restRouter
 func (h *Handler) ExtractResource(c *echo.Context) string { return h.restRouter().ExtractResource(c) }
 
 // Handler returns the Echo handler function.
-func (h *Handler) Handler() echo.HandlerFunc { return h.restRouter().Handler() }
+func (h *Handler) Handler() echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
+			return p.Handler()(c)
+		}
+
+		return h.restRouter().Handler()(c)
+	}
+}
 
 func (h *Handler) dispatch(
 	_ context.Context,

@@ -215,12 +215,11 @@ type loggingConfigEntry struct {
 	arn string
 }
 
-// filterLoggingConfigsByLogScope keeps only entries whose LogScope matches
-// logScope (defaultLogScope when a document has none), or returns entries
-// unchanged when logScope is empty (no filter requested).
+// filterLoggingConfigsByLogScope keeps entries matching logScope; empty means CUSTOMER
+// (api_op_ListLoggingConfigurations.go: "Default: CUSTOMER").
 func filterLoggingConfigsByLogScope(entries []loggingConfigEntry, logScope string) []loggingConfigEntry {
 	if logScope == "" {
-		return entries
+		logScope = defaultLogScope
 	}
 
 	filtered := make([]loggingConfigEntry, 0, len(entries))

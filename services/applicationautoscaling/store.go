@@ -48,6 +48,9 @@ type InMemoryBackend struct {
 	mu            *lockmetrics.RWMutex
 	accountID     string
 	region        string
+	// appConfig is the service.AppContext.Config value from Provider.Init,
+	// used to reach the DynamoDB backend lazily -- see cross_service.go.
+	appConfig any
 	// scalingActivities is append-order-sensitive: DescribeScalingActivities
 	// returns entries most-recent-first via slices.Backward over this exact
 	// slice. store.Table has no defined insertion order (see pkgs/store's

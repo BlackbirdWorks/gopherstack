@@ -75,8 +75,9 @@ type PutInventoryInput struct {
 
 // GetInventoryInput is the request payload for GetInventory.
 type GetInventoryInput struct {
-	MaxResults *int64 `json:"MaxResults,omitempty"`
-	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults *int64        `json:"MaxResults,omitempty"`
+	NextToken  string        `json:"NextToken,omitempty"`
+	Filters    []QueryFilter `json:"Filters,omitempty"`
 }
 
 // GetInventoryOutput is the response payload for GetInventory.
@@ -105,10 +106,11 @@ type InventorySchemaItem struct {
 
 // ListInventoryEntriesInput is the request payload for ListInventoryEntries.
 type ListInventoryEntriesInput struct {
-	MaxResults *int64 `json:"MaxResults,omitempty"`
-	InstanceID string `json:"InstanceId"`
-	TypeName   string `json:"TypeName"`
-	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults *int64        `json:"MaxResults,omitempty"`
+	InstanceID string        `json:"InstanceId"`
+	TypeName   string        `json:"TypeName"`
+	NextToken  string        `json:"NextToken,omitempty"`
+	Filters    []QueryFilter `json:"Filters,omitempty"`
 }
 
 // ListInventoryEntriesOutput is the response payload for ListInventoryEntries.
@@ -149,10 +151,11 @@ type PutComplianceItemsInput struct {
 // singular "ResourceId" wire key that no real client ever sends, so
 // filtering silently never matched.
 type ListComplianceItemsInput struct {
-	MaxResults    *int64   `json:"MaxResults,omitempty"`
-	NextToken     string   `json:"NextToken,omitempty"`
-	ResourceIDs   []string `json:"ResourceIds,omitempty"`
-	ResourceTypes []string `json:"ResourceTypes,omitempty"`
+	Filters       []QueryFilter `json:"Filters,omitempty"`
+	MaxResults    *int64        `json:"MaxResults,omitempty"`
+	NextToken     string        `json:"NextToken,omitempty"`
+	ResourceIDs   []string      `json:"ResourceIds,omitempty"`
+	ResourceTypes []string      `json:"ResourceTypes,omitempty"`
 }
 
 // ListComplianceItemsOutput is the response payload for ListComplianceItems.
@@ -163,8 +166,9 @@ type ListComplianceItemsOutput struct {
 
 // ListComplianceSummariesInput is the request payload.
 type ListComplianceSummariesInput struct {
-	MaxResults *int64 `json:"MaxResults,omitempty"`
-	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults *int64        `json:"MaxResults,omitempty"`
+	NextToken  string        `json:"NextToken,omitempty"`
+	Filters    []QueryFilter `json:"Filters,omitempty"`
 }
 
 // ListComplianceSummariesOutput is the response payload.
@@ -213,8 +217,9 @@ type ResourceComplianceSummaryItem struct {
 
 // ListResourceComplianceSummariesInput is the request payload.
 type ListResourceComplianceSummariesInput struct {
-	MaxResults *int64 `json:"MaxResults,omitempty"`
-	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults *int64        `json:"MaxResults,omitempty"`
+	NextToken  string        `json:"NextToken,omitempty"`
+	Filters    []QueryFilter `json:"Filters,omitempty"`
 }
 
 // ListResourceComplianceSummariesOutput is the response payload.

@@ -64,6 +64,8 @@ func queryFilter(q map[string][]string) networkResourceFilter {
 	}
 
 	return networkResourceFilter{
+		AccountID:     get("accountId"),
+		AwsRegion:     get("awsRegion"),
 		CoreNetworkID: get("coreNetworkId"),
 		ResourceArn:   get("resourceArn"),
 		ResourceType:  get("resourceType"),

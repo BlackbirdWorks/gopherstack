@@ -46,6 +46,10 @@ const (
 	// is documented, so this reuses services/ec2's terminated-instance TTL of
 	// one hour as a stand-in.
 	inactiveServiceTTL = time.Hour
+
+	// inactiveContainerInstanceTTL is how long a deregistered instance stays
+	// describable as INACTIVE; no duration is documented, so reuse one hour.
+	inactiveContainerInstanceTTL = time.Hour
 )
 
 // compile-time assertion.
@@ -177,8 +181,23 @@ func NewInMemoryBackend(accountID, region string, runner TaskRunner) *InMemoryBa
 
 // Reset zeroes all backend state for test isolation.
 func (b *InMemoryBackend) Reset() {
+	tasks := b.resetLocked()
+
+	if b.runner == nil {
+		return
+	}
+
+	for _, t := range tasks {
+		_ = b.runner.StopTask(t)
+	}
+}
+
+// resetLocked clears all state and returns the tasks that were live, so Reset can stop their containers.
+func (b *InMemoryBackend) resetLocked() []*Task {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
+
+	tasks := b.tasks.All()
 
 	b.registry.ResetAll()
 	b.taskDefByArn.Reset()
@@ -194,6 +213,8 @@ func (b *InMemoryBackend) Reset() {
 	b.serviceRevisions = make(map[string][]*ServiceRevision)
 	b.serviceRevisionsByArn = make(map[string]*ServiceRevision)
 	b.lifecycle = make(map[string]*taskLifecycle)
+
+	return tasks
 }
 
 // RegisterClusterDeleteHook registers a callback invoked (outside the backend

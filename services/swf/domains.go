@@ -30,7 +30,7 @@ func (b *InMemoryBackend) RegisterDomain(name, description, retention string) er
 		Name:                                   name,
 		Description:                            description,
 		Status:                                 statusRegistered,
-		Arn:                                    domainARN(defaultRegion, defaultAccountID, name),
+		Arn:                                    domainARN(b.region, defaultAccountID, name),
 		WorkflowExecutionRetentionPeriodInDays: retention,
 	})
 

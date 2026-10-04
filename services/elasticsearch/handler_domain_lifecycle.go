@@ -4,8 +4,11 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // cancelSoftwareUpdateRequest is the JSON body for CancelElasticsearchServiceSoftwareUpdate.
@@ -100,24 +103,61 @@ func (h *Handler) handleStartElasticsearchServiceSoftwareUpdate(w http.ResponseW
 
 func (h *Handler) handleGetUpgradeHistory(w http.ResponseWriter, r *http.Request) {
 	domainName := pathID(r.URL.Path, elasticsearchUpgradeDomain+"/", "/history")
-	if err := h.Backend.GetUpgradeHistory(h.reqContext(r), domainName); err != nil {
+
+	records, err := h.Backend.GetUpgradeHistory(h.reqContext(r), domainName)
+	if err != nil {
 		h.writeOperationError(r, w, err)
 
 		return
 	}
 
-	h.writeJSON(r, w, map[string]any{"UpgradeHistories": []any{}})
+	maxResults, _ := strconv.Atoi(r.URL.Query().Get("maxResults"))
+	pg := page.New(records, r.URL.Query().Get("nextToken"), maxResults, defaultUpgradeHistoryPage)
+
+	histories := make([]map[string]any, 0, len(pg.Data))
+	for _, rec := range pg.Data {
+		steps := make([]map[string]any, 0, len(rec.Steps))
+		for _, step := range rec.Steps {
+			steps = append(steps, map[string]any{
+				"UpgradeStep":       step,
+				"UpgradeStepStatus": upgradeStatusSucceeded,
+				"ProgressPercent":   upgradeProgressComplete,
+			})
+		}
+
+		histories = append(histories, map[string]any{
+			"UpgradeName":    rec.Name,
+			"StartTimestamp": awstime.Epoch(rec.StartTimestamp),
+			"UpgradeStatus":  upgradeStatusSucceeded,
+			"StepsList":      steps,
+		})
+	}
+
+	out := map[string]any{"UpgradeHistories": histories}
+	if pg.Next != "" {
+		out["NextToken"] = pg.Next
+	}
+
+	h.writeJSON(r, w, out)
 }
 
 func (h *Handler) handleGetUpgradeStatus(w http.ResponseWriter, r *http.Request) {
 	domainName := pathID(r.URL.Path, elasticsearchUpgradeDomain+"/", "/status")
-	if err := h.Backend.GetUpgradeStatus(h.reqContext(r), domainName); err != nil {
+
+	rec, ok, err := h.Backend.GetUpgradeStatus(h.reqContext(r), domainName)
+	if err != nil {
 		h.writeOperationError(r, w, err)
 
 		return
 	}
 
-	h.writeJSON(r, w, map[string]any{"UpgradeStep": "UPGRADE", "StepStatus": "SUCCEEDED"})
+	out := map[string]any{"UpgradeStep": upgradeStepUpgrade, "StepStatus": upgradeStatusSucceeded}
+	if ok {
+		out["UpgradeName"] = rec.Name
+		out["UpgradeStep"] = rec.Steps[len(rec.Steps)-1]
+	}
+
+	h.writeJSON(r, w, out)
 }
 
 func (h *Handler) handleUpgradeElasticsearchDomain(w http.ResponseWriter, r *http.Request) {
@@ -131,13 +171,15 @@ func (h *Handler) handleUpgradeElasticsearchDomain(w http.ResponseWriter, r *htt
 	}
 
 	ctx := h.reqContext(r)
-	if !req.PerformCheckOnly {
-		if _, err := h.Backend.UpgradeElasticsearchDomain(ctx, req.DomainName, req.TargetVersion); err != nil {
-			h.writeOperationError(r, w, err)
 
-			return
-		}
-	} else if _, err := h.Backend.DescribeDomain(ctx, req.DomainName); err != nil {
+	var err error
+	if req.PerformCheckOnly {
+		err = h.Backend.CheckElasticsearchDomainUpgrade(ctx, req.DomainName, req.TargetVersion)
+	} else {
+		_, err = h.Backend.UpgradeElasticsearchDomain(ctx, req.DomainName, req.TargetVersion)
+	}
+
+	if err != nil {
 		h.writeOperationError(r, w, err)
 
 		return

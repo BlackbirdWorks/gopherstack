@@ -108,13 +108,37 @@ type SNSPublishedEvent struct {
 
 // SNSSubscriptionSnapshot holds subscription metadata at publish time.
 type SNSSubscriptionSnapshot struct {
-	SubscriptionARN    string
-	Protocol           string
-	Endpoint           string
-	FilterPolicy       string
-	RedrivePolicy      string
-	DeliveryPolicy     string
+	SubscriptionARN  string
+	Protocol         string
+	Endpoint         string
+	FilterPolicy     string
+	RedrivePolicy    string
+	DeliveryPolicy   string
+	SubscriptionRole string
+	// Message is this subscription's MessageStructure=json resolved body; valid when HasMessage.
+	Message string
+	// Signature signs Message when it differs from the event's default Message.
+	Signature          string
 	RawMessageDelivery bool
+	HasMessage         bool
+}
+
+// Body returns the message this subscription receives, falling back to def.
+func (s SNSSubscriptionSnapshot) Body(def string) string {
+	if s.HasMessage {
+		return s.Message
+	}
+
+	return def
+}
+
+// SignatureFor returns the signature matching Body, falling back to def.
+func (s SNSSubscriptionSnapshot) SignatureFor(def string) string {
+	if s.Signature != "" {
+		return s.Signature
+	}
+
+	return def
 }
 
 // SNSMessageAttributeSnapshot holds a single message attribute value.

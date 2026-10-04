@@ -1,6 +1,9 @@
 package ecs
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // ---- Load balancer, logging, secrets, and volume models ----
 
@@ -307,11 +310,14 @@ type UpdateCapacityProviderInput struct {
 
 // StartTaskInput holds input for StartTask (place a task on a specific container instance).
 type StartTaskInput struct {
-	Cluster            string
-	TaskDefinition     string
-	Group              string
-	StartedBy          string
-	ContainerInstances []string
+	Overrides            *TaskOverride
+	NetworkConfiguration *NetworkConfiguration
+	Cluster              string
+	TaskDefinition       string
+	Group                string
+	StartedBy            string
+	ContainerInstances   []string
+	EnableExecuteCommand bool
 }
 
 // ---- Tag, capacity provider, account setting, and attribute models ----
@@ -688,6 +694,21 @@ type ContainerDefinition struct {
 	ReadonlyRootFilesystem bool                   `json:"readonlyRootFilesystem,omitempty"`
 }
 
+// UnmarshalJSON defaults Essential to true when the key is omitted, per
+// types.ContainerDefinition.Essential's documented default.
+func (c *ContainerDefinition) UnmarshalJSON(data []byte) error {
+	type plain ContainerDefinition
+
+	p := plain{Essential: true}
+	if err := json.Unmarshal(data, &p); err != nil {
+		return err
+	}
+
+	*c = ContainerDefinition(p)
+
+	return nil
+}
+
 // ContainerDependency specifies a start/stop dependency between containers.
 type ContainerDependency struct {
 	ContainerName string `json:"containerName"`
@@ -940,6 +961,8 @@ type ListTaskDefinitionsInput struct {
 // ContainerInstance represents a registered ECS container instance.
 type ContainerInstance struct {
 	RegisteredAt time.Time `json:"registeredAt"`
+	// InactiveAt is when DeregisterContainerInstance moved the instance to INACTIVE.
+	InactiveAt time.Time `json:"inactiveAt,omitzero"`
 	// AllocatedPorts tracks host ports currently reserved on this instance by
 	// bridge/host-mode EC2-launch-type tasks, keyed by "<protocol>/<hostPort>"
 	// (e.g. "tcp/51000") -- see host_ports.go. Not part of any real ECS wire

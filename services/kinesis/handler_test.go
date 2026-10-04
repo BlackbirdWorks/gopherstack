@@ -34,7 +34,14 @@ const (
 func newTestHandler(t *testing.T) *kinesis.Handler {
 	t.Helper()
 
-	backend := kinesis.NewInMemoryBackend()
+	return newTestHandlerWithBackend(t, kinesis.NewInMemoryBackend())
+}
+
+// newTestHandlerWithBackend builds a test Handler around a caller-supplied
+// backend, so tests that need a controllable clock (see fakeClock) can wire
+// it in before wrapping the backend in a Handler.
+func newTestHandlerWithBackend(t *testing.T, backend *kinesis.InMemoryBackend) *kinesis.Handler {
+	t.Helper()
 
 	return kinesis.NewHandler(backend).WithSubscribeToShardTiming(
 		testSubscribeToShardStreamDuration,

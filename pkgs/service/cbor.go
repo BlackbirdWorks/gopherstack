@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/aws/smithy-go/encoding/cbor"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
 // ContentTypeCBOR is the AWS CBOR wire protocol content type used by DynamoDB, Kinesis, and Timestream.
@@ -16,7 +18,7 @@ const ContentTypeCBOR = "application/x-amz-cbor-1.1"
 
 // IsCBORRequest returns true when the request carries an AWS CBOR-encoded body.
 func IsCBORRequest(r *http.Request) bool {
-	ct := r.Header.Get("Content-Type")
+	ct := httputils.HeaderValue(r.Header, "Content-Type")
 
 	return strings.HasPrefix(ct, ContentTypeCBOR)
 }

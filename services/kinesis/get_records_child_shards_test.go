@@ -2,6 +2,7 @@ package kinesis_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	kinesissdk "github.com/aws/aws-sdk-go-v2/service/kinesis"
@@ -21,7 +22,8 @@ import (
 func TestGetRecords_ChildShards(t *testing.T) {
 	t.Parallel()
 
-	backend := kinesis.NewInMemoryBackend()
+	clock := newFakeClock(time.Now())
+	backend := kinesis.NewInMemoryBackend().WithClock(clock.Now)
 	client := newTestKinesisClient(t, kinesis.NewHandler(backend))
 
 	streamName := "split-child-shards-stream"
@@ -30,6 +32,7 @@ func TestGetRecords_ChildShards(t *testing.T) {
 		ShardCount: aws.Int32(1),
 	})
 	require.NoError(t, err)
+	clock.Advance(streamSettleWait)
 
 	desc, err := client.DescribeStream(t.Context(), &kinesissdk.DescribeStreamInput{
 		StreamName: aws.String(streamName),

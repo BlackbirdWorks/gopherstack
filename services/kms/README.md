@@ -16,8 +16,8 @@
 ### Known gaps
 
 - XksKeyId (CreateKeyInput, external-key-store variant of CustomKeyStoreId) is unmodeled: no code in CreateKey's declared error set (api_op_CreateKey.go) fits a malformed/missing identifier, and this service defines no ValidationException type at all to carry it, so CreateKey rejects EXTERNAL_KEY_STORE linkage outright with UnsupportedOperationException instead of guessing a code (gopherstack-ufvn).
-- ListKeyRotationsInput.IncludeKeyMaterial (ALL_KEY_MATERIAL) is unmodeled: honoring it needs a synthetic first-key-material entry plus per-generation imported-material tracking, and this backend deliberately has no concept of multiple key-material generations per key (ImportKeyMaterialOutput's own doc comment states the same scope boundary) (gopherstack-xhu2t).
-- CreateCustomKeyStore/UpdateCustomKeyStoreInput.XksProxyVpcEndpointServiceOwner is accepted-and-dropped: the real CustomKeyStoresListEntry has no field to round-trip it onto, and this backend models no XKS-proxy/VPC-endpoint-service state at all (gopherstack-xhu2t).
+- ListKeyRotations ALL_KEY_MATERIAL covers the first AWS_KMS key material only: imported key material pending rotation, ImportState/ExpirationModel/ValidTo and per-generation imported material are unmodeled (EXTERNAL-origin and asymmetric keys get UnsupportedOperationException for ALL_KEY_MATERIAL).
+- External key store proxies are never contacted: XksProxyUriUnreachable/IncorrectAuthenticationCredential/InvalidResponse and the VPC endpoint service existence checks are not modeled; the proxy secret (RawSecretAccessKey) is not stored.
 
 ### Deferred
 

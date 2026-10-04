@@ -548,7 +548,7 @@ func (h *Handler) decodeRequest(w http.ResponseWriter, r *http.Request, out any)
 func (h *Handler) writeOperationError(r *http.Request, w http.ResponseWriter, err error) {
 	if errors.Is(err, ErrDomainNotFound) || errors.Is(err, ErrPackageNotFound) ||
 		errors.Is(err, ErrVpcEndpointNotFound) || errors.Is(err, ErrConnectionNotFound) ||
-		errors.Is(err, ErrOfferingNotFound) {
+		errors.Is(err, ErrOfferingNotFound) || errors.Is(err, ErrChangeNotFound) {
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 
 		return

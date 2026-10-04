@@ -710,6 +710,7 @@ type PromptRouter struct {
 	Type                       string    `json:"type"`
 	Description                string    `json:"description,omitempty"`
 	FallbackModelArn           string    `json:"fallbackModelArn"`
+	ClientRequestToken         string    `json:"clientRequestToken,omitempty"`
 	ModelArns                  []string  `json:"modelArns"`
 	Tags                       []Tag     `json:"tags,omitempty"`
 	RoutingResponseQualityDiff float64   `json:"routingResponseQualityDiff"`

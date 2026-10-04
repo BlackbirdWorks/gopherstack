@@ -973,3 +973,16 @@ run --new-from-rev=HEAD ./services/omics/...` 0 issues. `go run
 ./cmd/paritylint` stays at 0 FAIL. No persisted-struct/snapshot-inventory
 change (the fix was routing-only, no wire-shape or stored-field change); no
 version bump.
+
+## 2026-10-03 (gopherstack-uox6, value-semantics sweep: filter members the 2026-08-31 pass recorded as undeclared)
+
+FIXED: the filter members listed above as missing are now declared and applied: `createdAfter`/`createdBefore` on ListReferenceStores/ListReferences/ListReferenceImportJobs/ListSequenceStores/ListReadSets, `updatedAfter`/`updatedBefore` and `status` on ListSequenceStores, `md5` on ListReferences, `referenceArn`/`sampleId`/`subjectId` on ListReadSets, and a `filter` (status + created window) on ListReadSet{Import,Export,Activation}Jobs. Proven by `list_filters_test.go`.
+Recorded: the SDK says only "The filter's start date"/"end date", so both bounds are inclusive. ReadSetFilter `creationType`/`generatedFrom` stay unread (not tracked on ReadSetMetadata).
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+omics is region-isolated: stores, workflows, runs and read sets live per region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/omics`. Limitation: the dashboard shows the home region only. `TestHandler_MultiRegionReset` covers Reset.
+
+## 2026-10-04 (reqfielddiff tier-1 pass)
+
+CreateWorkflow and CreateWorkflowVersion now store and echo ReadmeMarkdown (as Get*.Readme) and ReadmePath, and CreateWorkflowVersion echoes WorkflowBucketOwnerId; a WorkflowBucketOwnerId different from this account on an s3:// DefinitionUri is rejected with ValidationException (every bucket here is owned by the one account; omitted owner skips the check, as documented). This supersedes the 2026-08-31 notes that recorded ReadmePath and WorkflowBucketOwnerId as unmodellable. ParameterTemplatePath stays recorded: it is only meaningful for DefinitionRepository workflows, no Get output returns it, and no repository is ever read. Proof: `TestWorkflow_ReadmeAndBucketOwner`.

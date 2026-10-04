@@ -5,11 +5,13 @@ import (
 	"math/rand/v2"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	sdk_s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -429,4 +431,127 @@ func TestListObjectVersions_PrefixIndex_Differential(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestListObjectsV2_DeleteMarkers_Differential checks delimited listings skip delete-marked
+// keys, including fully deleted prefixes.
+func TestListObjectsV2_DeleteMarkers_Differential(t *testing.T) {
+	t.Parallel()
+
+	seeds := []uint64{3, 8, 21, 34}
+
+	for _, seed := range seeds {
+		t.Run(fmt.Sprintf("seed_%d", seed), func(t *testing.T) {
+			t.Parallel()
+
+			rng := rand.New(rand.NewPCG(seed, seed^0x5eed))
+			keys := randomListingKeys(rng, 60+rng.IntN(60))
+
+			_, backend := newTestHandler(t)
+			bucket := "diff-bucket-dm"
+			mustCreateBucket(t, backend, bucket)
+
+			_, err := backend.PutBucketVersioning(t.Context(), &sdk_s3.PutBucketVersioningInput{
+				Bucket: aws.String(bucket),
+				VersioningConfiguration: &sdk_s3types.VersioningConfiguration{
+					Status: sdk_s3types.BucketVersioningStatusEnabled,
+				},
+			})
+			require.NoError(t, err)
+
+			var live []string
+
+			for _, k := range keys {
+				mustPutObject(t, backend, bucket, k, []byte("x"))
+
+				if rng.IntN(3) == 0 {
+					_, dErr := backend.DeleteObject(t.Context(), &sdk_s3.DeleteObjectInput{
+						Bucket: aws.String(bucket), Key: aws.String(k),
+					})
+					require.NoError(t, dErr)
+
+					continue
+				}
+
+				live = append(live, k)
+			}
+
+			sorted := append([]string(nil), keys...)
+			sort.Strings(sorted)
+
+			for _, delim := range []string{"/", "-"} {
+				for _, prefix := range listingCandidatePrefixes(rng, sorted) {
+					for _, maxKeys := range []int32{1, 3, 1000} {
+						wantContents, wantCPs, _, _ := bruteForceList(live, prefix, delim, "", int32(len(keys)+1))
+
+						var gotContents, gotCPs []string
+						token := ""
+
+						for range len(keys) + 2 {
+							out, lErr := backend.ListObjectsV2(t.Context(), &sdk_s3.ListObjectsV2Input{
+								Bucket: aws.String(bucket), Prefix: aws.String(prefix), Delimiter: aws.String(delim),
+								MaxKeys: aws.Int32(maxKeys), ContinuationToken: aws.String(token),
+							})
+							require.NoError(t, lErr)
+
+							gotContents = append(gotContents, contentKeys(out.Contents)...)
+							gotCPs = append(gotCPs, commonPrefixStrings(out.CommonPrefixes)...)
+
+							if !aws.ToBool(out.IsTruncated) {
+								break
+							}
+
+							token = aws.ToString(out.NextContinuationToken)
+						}
+
+						require.Equal(t, wantContents, gotContents, "delim=%q prefix=%q max=%d", delim, prefix, maxKeys)
+						require.Equal(t, wantCPs, gotCPs, "delim=%q prefix=%q max=%d", delim, prefix, maxKeys)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestListObjectsV2_Delimited_ConcurrentMutation(t *testing.T) {
+	t.Parallel()
+
+	_, backend := newTestHandler(t)
+	mustCreateBucket(t, backend, "conc")
+
+	var wg sync.WaitGroup
+
+	for w := range 4 {
+		wg.Go(func() {
+			for i := range 100 {
+				key := fmt.Sprintf("d%d/k%d", w, i)
+				mustPutObject(t, backend, "conc", key, []byte("x"))
+
+				if i%3 == 0 {
+					_, _ = backend.DeleteObject(t.Context(), &sdk_s3.DeleteObjectInput{
+						Bucket: aws.String("conc"), Key: aws.String(key),
+					})
+				}
+			}
+		})
+	}
+
+	for range 4 {
+		wg.Go(func() {
+			for range 100 {
+				out, err := backend.ListObjectsV2(t.Context(), &sdk_s3.ListObjectsV2Input{
+					Bucket: aws.String("conc"), Delimiter: aws.String("/"), MaxKeys: aws.Int32(10),
+				})
+				if err != nil {
+					t.Error(err)
+
+					return
+				}
+
+				assert.LessOrEqual(t, len(out.CommonPrefixes), 4)
+			}
+		})
+	}
+
+	wg.Wait()
 }

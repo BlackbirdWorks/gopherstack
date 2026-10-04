@@ -113,8 +113,10 @@ families:
   archives_replays_connections_api_destinations_endpoints: {status: ok, note: "Previously 'deferred, spot-checked only'. Field-diffed this sweep against aws-sdk-go-v2/service/eventbridge's api_op_*.go Input/Output structs and types.go for Archive, Connection (+ ConnectionAuthResponseParameters/CreateConnectionAuthRequestParameters/UpdateConnectionAuthRequestParameters), ApiDestination, Endpoint (+ RoutingConfig/FailoverConfig/Primary/Secondary/EndpointEventBus), Replay, and ReplayDestination. Found and fixed real bugs: DescribeEndpoint/ListEndpoints and DescribeReplay/ListReplays response-side epoch-seconds bug, Replay missing Destination/Description, ReplayDestination missing FilterArns (an over-delivery correctness bug, not just a missing echo field), StartReplayInput request-side epoch-seconds bug. Connections and API destinations were already correct field-for-field (auth masking, all CRUD output shapes) except the KMS/private-API-connectivity extras noted per-op above and in items_still_open."}
 gaps: []
 items_still_open:
+  - "AWS/Events rule metrics are emitted; ThrottledRules, bus-level metrics (IngestionToInvocationStartLatency, PutEventsRequestSize) and ApiDestination metrics are not. (gopherstack-4m1qr)"
   - "Cross-account event-bus PutTargets delivery (gopherstack-9iva, structural): real AWS's primary documented use of an event-bus-ARN target is routing matched events to ANOTHER AWS account's event bus (api_op_PutTargets.go doc comment; requires the target account to have granted permission via PutPermission, optionally a RoleArn for org-granted permission). This backend models a single AWS account (InMemoryBackend.accountID is fixed at construction), so there is no second account's bus state to route into -- RouteEventToBus (delivery.go) detects a target ARN whose account segment differs from b.accountID and drops it, the same as any other target ARN this backend cannot resolve, rather than erroring (PutTargets itself never validated ARNs and still doesn't -- see PutTargets note). Same-account cross-bus/cross-region routing (a rule on one bus targeting another bus this backend does host) IS implemented and delivers for real."
   - "ECS delivery central wiring (bd gopherstack-ubum, service side FIXED this sweep, cli.go NOT touched -- out of services/eventbridge scope): delivery.go's ECSTaskRunner interface previously only passed (clusterARN, payload) to RunTask, so an ECS target delivery only ran the right task definition if the event Input/InputTransformer payload happened to carry a \"TaskDefinition\" key -- EcsParameters.TaskDefinitionArn/LaunchType/TaskCount/NetworkConfiguration set via PutTargets were validated and stored but never reached delivery. Fixed the service side with an optional-capability extension: new ECSTaskRunnerWithParams interface (RunTaskWithParams(ctx, clusterARN, *EcsParameters, payload)); deliverToECS type-asserts dt.ECS against it and prefers it when present, falling back to the base RunTask otherwise, so no existing ECSTaskRunner implementation breaks. Also found and fixed a real wire-shape gap while verifying against the pinned SDK: EcsParameters was missing the real TaskCount *int32 member (aws-sdk-go-v2/service/eventbridge/types@v1.48.4, wire key \"TaskCount\") entirely -- added. Central wiring still needed (cli.go, main-thread/future-session work): ebECSTaskRunnerAdapter in cli.go must grow a RunTaskWithParams method mapping EcsParameters onto ecsbackend.RunTaskInput (TaskDefinitionArn->TaskDefinition, LaunchType->LaunchType, TaskCount->Count, NetworkConfiguration->NetworkConfiguration, Group/PlatformVersion/PlacementConstraints/PlacementStrategy/CapacityProviderStrategy/Tags/EnableECSManagedTags/EnableExecuteCommand map 1:1 by name) for the fix to take effect end-to-end; until then, ECS delivery keeps using the legacy RunTask/payload-TaskDefinition-key path with unchanged behavior (no regression, just not yet wired to the new capability)."
+  - "Resource-policy authorization of CloudWatch Logs targets and of the DLQ queue send is not modelled; DLQ messages carry ERROR_CODE but not ERROR_MESSAGE/EXHAUSTED_RETRY_CONDITION."
 deferred:
   - "Schema registry (CreateRegistry..GetCodeBindingSource, 17 real ops -- see schema_registry_and_pipes) and Pipes (CreatePipe..UpdatePipe, 5 ops) -- these model separate AWS control planes (schemas/pipes SDK modules), not core EventBridge (events) ops; field-level wire/errors/state audit still not done this pass, only the SDK-completeness/naming check. UPDATE 2026-08-29: the pagination slice of that still-undone audit is now done -- ListRegistries/ListSchemas/SearchSchemas/ListSchemaVersions all declare real Limit/NextToken (schemas@v1.37.4) that were completely unconsulted on both the JSON-RPC (handler_schemas.go/handler_registries.go, dead for a real client but still fixed for consistency) and REST-JSON1 (handler_schemas_rest.go, the actually-reachable path) dispatch paths -- every call returned every stored item in one unbounded page regardless of Limit or the query's `limit` param. Fixed via the existing paginateSlice-equivalent (backend methods gained a `limit int` parameter, wired to paginateN); REST handlers gained schemasRESTLimit(q) to parse the `limit` query param. Field-level wire/errors/state audit for the rest of these 17+5 ops is still open. UPDATE (wrapper-key sweep): PutCodeBinding/DescribeCodeBinding/GetCodeBindingSource now field-verified too -- see their own ops: entry (a real SchemaVersion-scoping bug found and fixed)."
   - "PutPermission/RemovePermission/policy-statement JSON shape (EventBusPolicyStatement.Principal as `any` for both string and object-with-AWS-key forms) -- spot-checked only, not re-verified this sweep beyond the persistence fix. UPDATE 2026-09-24: the surrounding document shape WAS re-verified and fixed -- see 2026-09-24 Notes entry; Principal's dual string/object shape itself remains unverified."
@@ -122,6 +124,35 @@ leaks: {status: clean, note: "Re-verified this sweep: PutEvents's async delivery
 ---
 
 ## Notes
+
+## 2026-10-03: Default-bus rule ARN format (bd gopherstack-199b6)
+
+- Default-bus rule ARNs are now `arn:aws:events:<region>:<acct>:rule/<name>`; custom buses keep `rule/<bus>/<name>` (EventBridge ARN format, Service Authorization Reference). aws:SourceArn in the AWS form now matches rule-initiated deliveries.
+- Compatibility: tag ops, replay FilterArns, restored rule ARNs and restored tag keys all canonicalise the legacy `rule/default/<name>` form, so old snapshots restore and old ARNs still resolve. No snapshot version bump.
+- A resource policy written with the legacy `rule/default/<name>` SourceArn no longer matches.
+
+## 2026-10-03: Rule targets and delivery under --enforce-iam (bd gopherstack-067r0, role-authz follow-up)
+
+- Kinesis target root cause (067r0): a stream is CREATING for `streamTransitionDelay` (250ms) and rejects PutRecord (InvalidArgumentException); delivery retried back-to-back, so all default attempts ran inside that window and went to the DLQ. Retries now back off exponentially (200ms base, as the PutTargets RetryPolicy docs describe "exponential backoff"); proven by TestEventBridgeKinesisTarget/stream_still_creating_is_retried (fails 20s without the backoff).
+- KinesisParameters.PartitionKeyPath was stored but never read; delivery always used a random UUID. Now resolved against the event, defaulting to the event ID ("If you do not include this parameter, the default is to use the eventId as the partition key", PutTargets Target.KinesisParameters doc, aws-sdk-go-v2/service/eventbridge@v1.48.4 types.Target).
+- Under enforcement, Lambda/SQS/SNS targets are authorized by the destination's resource policy (principal events.amazonaws.com, aws:SourceArn = rule ARN); denial goes to the target/bus DLQ with ERROR_CODE=NO_PERMISSIONS (EventBridge DLQ docs: message attributes RULE_ARN, TARGET_ARN, ERROR_CODE, ERROR_MESSAGE). Only RULE_ARN, TARGET_ARN and ERROR_CODE are set; ERROR_MESSAGE and EXHAUSTED_RETRY_CONDITION are not. CloudWatch Logs targets and the DLQ send itself are not policy-checked.
+- Fixed 2026-10-03 (gopherstack-199b6): see the 2026-10-03 rule ARN format note below.
+
+### 2026-10-03: rule target RoleArn is authorized under --enforce-iam
+
+With `--enforce-iam`, targets that EventBridge delivers to as the target `RoleArn` (Kinesis stream, Firehose, ECS,
+Step Functions, event bus, API destination) require `events.amazonaws.com` trust and a policy allowing
+`kinesis:PutRecord` / `firehose:PutRecord` / `ecs:RunTask` / `states:StartExecution` / `events:PutEvents` /
+`events:InvokeApiDestination`. A denial is not retried and goes straight to the target/bus DLQ (DLQ docs,
+`eb-rule-dlq`: missing-permission errors are sent to the DLQ without retries; sample ERROR_CODE values
+`NO_PERMISSIONS` and `FAILED_TO_ASSUME_ROLE`). The DLQ message here has no ERROR_CODE attribute and no
+FailedInvocations metric is emitted. Lambda, SQS, SNS and CloudWatch Logs targets are authorized by resource policy on
+AWS; gopherstack does not evaluate those resource policies for in-process delivery, so they stay unauthenticated.
+Enforcement off is unchanged.
+
+## 2026-10-01: per-event archive retention (gopherstack-pm4ym)
+
+SDK v1.53.0 CreateArchive: "RetentionDays ... If set to 0, events are retained indefinitely"; types.Archive: "number of days to retain events in the archive before they are deleted". The janitor wrongly deleted the whole archive at creation+retention and never pruned events; it now prunes events by capture time (an archive never expires), keeping EventCount/SizeBytes in step (SizeBytes now tracked). Leaks: unbounded archivedEvents growth fixed. Test: archive_retention_test.go.
 
 ### 2026-09-24 (leak sweep) terminal replays now evicted after 1h
 
@@ -1061,3 +1092,28 @@ changed (a string field's value, not its shape); no version bump.
 Added `leak_main_test.go` (goleak TestMain). Scheduler/archive-janitor
 goroutines are derived from a cancellable `workerCtx` stored for `Shutdown`;
 no leak found.
+
+## 2026-10-03: errcodeaudit invalid-parameter codes
+
+PutRule/TestEventPattern raised `InvalidParameterException` (no such type in
+the eventbridge SDK) for an unparseable EventPattern; both declare
+`InvalidEventPatternException`, now emitted. Other `ErrInvalidParameter`
+cases now emit `ValidationException`, which AWS returns for EventBridge input
+validation but the SDK does not model (UNCONFIRMED per-op). Proven by
+`errcode_invalid_pattern_test.go` via errors.As on the SDK type.
+
+## 2026-10-04: in-process metric inventory (gopherstack-4m1qr)
+
+Emits AWS/Events (RuleName, plus EventBusName for non-default buses; eb-monitoring.html): MatchedEvents, TriggeredRules, Invocations, FailedInvocations (after retries or authorization/age failure) and DeadLetterInvocations (DLQ send succeeded). Verified by cli_service_metrics_test.go (typed SDK, ListMetrics + GetMetricStatistics).
+
+## 2026-10-04 cross-region targets
+
+PutEvents accepts an event-bus ARN as `EventBusName` and files the event in the ARN's region; the CloudWatch Logs target writes to the log group ARN's region; the backend region falls back to the request region on the context. Proof: `TestInitializeServices_EventBridgePutEventsUseBusARNRegion`, `TestInitializeServices_LogsTargetsUseLogGroupARNRegion`.
+
+## 2026-10-04 (gopherstack-430jc, default bus per region)
+
+Every region now has its own `default` event bus (AWS creates one per account per Region, https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-event-bus.html). The bus table of a region is created with the default bus on first touch, and Restore re-adds it to every restored region, so legacy snapshots (default bus only in the home region) load and the snapshot format is unchanged. Rules and targets on a non-home default bus, and S3 to EventBridge notifications of a non-home bucket, now work. Proof: `TestRegionIsolation_DefaultBus`, `TestDefaultBus_RulesAndRestoreInSiblingRegion`, `TestEventBridge_DefaultBusExistsInEveryRegion`, `TestS3Notifications_NonHomeBucketUsesRegionalEventBridgeAndPayloadRegion`.
+
+## 2026-10-04 (gopherstack-9lr6d, SSM policy events)
+
+`NotifyParameterPolicyAction` runs in the region of the parameter (the SSM janitor puts it on the context), so the `aws.ssm` event lands on that region's default bus. Proof: `TestSSMJanitor_PolicyNotificationCarriesParameterRegion`.

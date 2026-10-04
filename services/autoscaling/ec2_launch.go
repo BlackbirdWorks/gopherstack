@@ -153,7 +153,7 @@ func (b *InMemoryBackend) makeInstances(g *AutoScalingGroup, count int32) []Inst
 		return []Instance{}
 	}
 
-	az := defaultAvailabilityZone
+	az := b.defaultAvailabilityZone()
 	if len(g.AvailabilityZones) > 0 {
 		az = g.AvailabilityZones[0]
 	}
@@ -191,7 +191,7 @@ func (b *InMemoryBackend) launchInEC2(
 		return nil, false
 	}
 
-	ctx := context.Background()
+	ctx := b.crossServiceContext()
 
 	instances, allIDs, ok := b.launchRoundRobin(ctx, specs, n, az, g, instanceType)
 	if !ok {
@@ -299,8 +299,8 @@ func (b *InMemoryBackend) terminateInEC2(ids []string) {
 		return
 	}
 
-	if err := b.ec2Launcher.TerminateInstances(context.Background(), ids); err != nil {
-		logger.Load(context.Background()).Error(
+	if err := b.ec2Launcher.TerminateInstances(b.crossServiceContext(), ids); err != nil {
+		logger.Load(b.crossServiceContext()).Error(
 			"autoscaling: EC2 terminate failed", "error", err, "instanceIDs", ids)
 	}
 }
@@ -396,7 +396,7 @@ func (b *InMemoryBackend) resolveLaunchTemplateSpec(
 	}
 
 	imageID, instanceType, err := b.ec2Launcher.ResolveLaunchTemplate(
-		context.Background(),
+		b.crossServiceContext(),
 		ltSpec.LaunchTemplateID,
 		ltSpec.LaunchTemplateName,
 		ltSpec.Version,

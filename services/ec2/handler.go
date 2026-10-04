@@ -1,6 +1,7 @@
 package ec2
 
 import (
+	"bytes"
 	"context"
 	"encoding/xml"
 	"errors"
@@ -14,9 +15,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -50,6 +53,8 @@ type Handler struct {
 	// context but should still be cancelled at service shutdown.
 	// Falls back to context.Background until StartWorker has run.
 	svcCtx    context.Context
+	peers     *regionpeers.Set[Handler]
+	stop      context.CancelFunc
 	AccountID string `json:"accountID,omitempty"`
 	Region    string `json:"region,omitempty"`
 }
@@ -65,7 +70,9 @@ func NewHandler(backend Backend) *Handler {
 
 // Reset clears all backend resource state and re-caches the dispatch table.
 func (h *Handler) Reset() {
+	h.releaseCompute()
 	h.Backend.Reset()
+	h.closePeers(true)
 }
 
 // WithJanitor attaches a background janitor to the handler.
@@ -110,6 +117,8 @@ func (h *Handler) Shutdown(_ context.Context) {
 	if mem, ok := h.Backend.(*InMemoryBackend); ok {
 		mem.StopLifecycleReconciler()
 	}
+
+	h.closePeers(false)
 }
 
 // Name returns the service name.
@@ -329,7 +338,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return false
 		}
 
-		body, err := httputils.ReadBody(r)
+		_, err := httputils.ReadBody(r)
 		if err != nil {
 			// Body unreadable (e.g. oversized): fall back to the User-Agent
 			// marker every aws-sdk-go-v2 ec2 client sets (api_client.go's
@@ -339,7 +348,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return service.MatchesUserAgentMarker(r.Header, "api/ec2")
 		}
 
-		vals, err := url.ParseQuery(string(body))
+		vals, err := httputils.ParseFormBody(r)
 		if err != nil {
 			return false
 		}
@@ -404,6 +413,11 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		ctx := c.Request().Context()
+
+		if p := h.peers.Get(awsmeta.Region(ctx)); p != nil {
+			return p.Handler()(c)
+		}
+
 		log := logger.Load(ctx)
 
 		reqID := newRequestID()
@@ -702,6 +716,8 @@ var errCodeLookup = []struct {
 	{ErrPlacementGroupNotFound, "InvalidPlacementGroup.Unknown"},
 	{ErrDuplicatePlacementGroupName, "InvalidPlacementGroup.Duplicate"},
 	{ErrInvalidInstanceState, "IncorrectInstanceState"},
+	{ErrUnsupportedHibernation, "UnsupportedHibernationConfiguration"},
+	{ErrDefaultSubnetExists, "DefaultSubnetAlreadyExistsInAvailabilityZone"},
 	{ErrAddressTransferNotFound, "InvalidAddressTransfer.NotFound"},
 	{ErrCapacityReservationNotFound, "InvalidCapacityReservationId.NotFound"},
 	{ErrReservedInstancesNotFound, "InvalidReservedInstancesId"},
@@ -1091,14 +1107,20 @@ func parseTagSpecification(vals url.Values, resourceType string) map[string]stri
 	return tags
 }
 
+const marshalXMLInitialCap = 4096
+
 // marshalXML encodes the payload with the XML declaration header.
 func marshalXML(v any) ([]byte, error) {
-	raw, err := xml.Marshal(v)
-	if err != nil {
+	var buf bytes.Buffer
+
+	buf.Grow(marshalXMLInitialCap)
+	buf.WriteString(xml.Header)
+
+	if err := xml.NewEncoder(&buf).Encode(v); err != nil {
 		return nil, err
 	}
 
-	return append([]byte(xml.Header), raw...), nil
+	return buf.Bytes(), nil
 }
 
 // newRequestID generates a unique request ID.

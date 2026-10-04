@@ -1109,3 +1109,11 @@ it found nothing to prove. Gates: `go build ./...`, `go vet`, `go test
 -race -count=1 ./services/resiliencehub/...`, `go test -count=1
 ./pkgs/persistence/`, `golangci-lint run --new-from-rev=HEAD` (0 issues)
 all clean. No persisted fields changed; no version bump.
+
+## 2026-10-04: EC2 source ARNs by region (gopherstack-12q3n)
+
+An `ec2` SourceArn is resolved against the EC2 backend of the ARN's region.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+resiliencehub is region-isolated: apps, resiliency policies and assessments live per region; each region resolves EC2 sources in its own region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/resiliencehub`. Limitation: the dashboard shows the home region only. The tagging bridge lists the request region and resolves Tag/Untag by ARN region. CloudFormation provisions it in the stack's region. Sibling workers stop on Reset, Shutdown and restore (`TestHandler_SiblingTimersStopWithSibling`). `TestHandler_MultiRegionReset` covers Reset.

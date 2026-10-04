@@ -14,9 +14,7 @@ import (
 // CreateVpcEndpointServiceConfiguration and CreateVpcPeeringConnection never
 // called parseTagSpecification, so TagSpecifications were silently dropped.
 // Each case creates a resource with a tag, then confirms the tag comes back
-// on the matching Describe/Get. CreateInterruptibleCapacityReservationAllocation
-// is excluded: the backend models the allocation with no distinct resource
-// ID (capacity_reservations.go), so there is nothing to attach a tag to.
+// on the matching Describe/Get.
 func TestCreate_Tags_RoundTrip_FinalBatch(t *testing.T) {
 	t.Parallel()
 

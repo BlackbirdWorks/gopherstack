@@ -148,6 +148,9 @@ type modifyInstanceProfileInput struct {
 	AvailabilityZone          *string `json:"AvailabilityZone"`
 	Description               *string `json:"Description"`
 	NetworkType               *string `json:"NetworkType"`
+	KmsKeyArn                 *string `json:"KmsKeyArn"`
+	SubnetGroupIdentifier     *string `json:"SubnetGroupIdentifier"`
+	PubliclyAccessible        *bool   `json:"PubliclyAccessible"`
 }
 
 type modifyInstanceProfileOutput struct {
@@ -163,6 +166,9 @@ func (h *Handler) handleModifyInstanceProfile(
 		ptrconv.String(in.AvailabilityZone),
 		ptrconv.String(in.Description),
 		ptrconv.String(in.NetworkType),
+		ptrconv.String(in.KmsKeyArn),
+		ptrconv.String(in.SubnetGroupIdentifier),
+		in.PubliclyAccessible,
 	)
 	if err != nil {
 		return nil, err

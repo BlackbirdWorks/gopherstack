@@ -70,12 +70,18 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
+	var stale []*liveBroker
+
+	defer func() { b.reapDetached(stale...) }()
+
 	if err := persistence.UnmarshalSnapshot(ctx, "mq", data, &snap); err != nil {
 		return err
 	}
 
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
+
+	stale = b.detachAllBrokersLocked()
 
 	if snap.Version != mqSnapshotVersion {
 		// An incompatible (older/newer/absent) snapshot version must never be
@@ -109,6 +115,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	fixNilResourceMaps(b)
 	reestablishTagPointers(b)
+	b.relaunchBrokersLocked()
 
 	return nil
 }
@@ -168,12 +175,20 @@ func reestablishTagPointers(b *InMemoryBackend) {
 	}
 }
 
-// Snapshot implements persistence.Persistable by delegating to the backend.
+// Snapshot implements persistence.Persistable; other regions ride in an additive "regions" key.
 func (h *Handler) Snapshot(ctx context.Context) []byte {
-	return h.Backend.Snapshot(ctx)
+	return h.peers.Snapshot(h.Backend.Snapshot(ctx), func(p *Handler) []byte { return p.Backend.Snapshot(ctx) })
 }
 
-// Restore implements persistence.Persistable by delegating to the backend.
+// Restore implements persistence.Persistable.
 func (h *Handler) Restore(ctx context.Context, data []byte) error {
-	return h.Backend.Restore(ctx, data)
+	if err := h.Backend.Restore(ctx, data); err != nil {
+		return err
+	}
+
+	return h.peers.Restore(
+		data,
+		func(p *Handler, d []byte) error { return p.Backend.Restore(ctx, d) },
+		func(p *Handler) { p.Backend.Reset() },
+	)
 }

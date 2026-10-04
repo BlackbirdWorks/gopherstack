@@ -46,6 +46,7 @@ func (h *Handler) cborPutMetricAlarm(input cbor.Map, c *echo.Context) error {
 		InsufficientDataActions: cborStrList(input, "InsufficientDataActions"),
 		Dimensions:              cborDimensions(input),
 		Metrics:                 parseMetricDataQueries(input, "Metrics"),
+		EvaluationWindow:        cborEvaluationWindow(input),
 	}
 
 	if err := h.Backend.PutMetricAlarm(alarm); err != nil {
@@ -231,6 +232,40 @@ func addMetricAlarmListsCBOR(m cbor.Map, a *MetricAlarm) {
 	if len(a.Metrics) > 0 {
 		m["Metrics"] = buildMetricDataQueriesCBOR(a.Metrics)
 	}
+	if a.EvaluationWindow != nil {
+		m["EvaluationWindow"] = evaluationWindowCBOR(a.EvaluationWindow)
+	}
+}
+
+// cborEvaluationWindow decodes the EvaluationWindow union ({SlidingWindow:{}} or {WallClockWindow:{Timezone}}).
+func cborEvaluationWindow(input cbor.Map) *AlarmEvaluationWindow {
+	u, ok := input["EvaluationWindow"].(cbor.Map)
+	if !ok {
+		return nil
+	}
+
+	if wc, isWC := u["WallClockWindow"].(cbor.Map); isWC {
+		return &AlarmEvaluationWindow{WallClock: true, Timezone: cborStr(wc, "Timezone")}
+	}
+
+	if _, isSliding := u["SlidingWindow"]; isSliding {
+		return &AlarmEvaluationWindow{}
+	}
+
+	return nil
+}
+
+func evaluationWindowCBOR(w *AlarmEvaluationWindow) cbor.Map {
+	if !w.WallClock {
+		return cbor.Map{"SlidingWindow": cbor.Map{}}
+	}
+
+	wc := cbor.Map{}
+	if w.Timezone != "" {
+		wc["Timezone"] = cbor.String(w.Timezone)
+	}
+
+	return cbor.Map{"WallClockWindow": wc}
 }
 
 // buildMetricDataQueriesCBOR converts a MetricDataQuery list to the wire

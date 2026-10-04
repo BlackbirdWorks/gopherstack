@@ -1,7 +1,7 @@
 service: sagemaker
 sdk_module: aws-sdk-go-v2/service/sagemaker@v1.263.2   # version audited against (parity-5)
-last_audit_commit: 4ad783e5c  # HEAD when this manifest was written
-last_audit_date: 2026-09-20
+last_audit_commit: 356d8cfa9  # HEAD when this manifest was written
+last_audit_date: 2026-09-26
                        # 2026-09-20 (sagemaker-resources terraform coverage): CreateProject never
                        # populated ServiceCatalogProvisionedProductDetails -- real AWS always
                        # provisions a product on project creation, and the terraform-provider-aws
@@ -310,23 +310,23 @@ items_still_open:
   - "parity-4: AIRecommendationJob.Recommendations is a real, deliberately always-empty slice — this backend does not run real benchmark/recommendation compute, so fabricating optimization recommendations or performance numbers would violate the no-fabricated-metrics rule; a real functional gap for any client polling for actual content. (no bd issue filed yet)"
   - "parity-4: DescribeJobSchemaVersion/ListJobSchemaVersions serve one synthetic JobConfigSchemaVersion (\"1.0\") with a generic per-JobCategory schema — AWS does not publish real per-category schema content anywhere in the SDK, so there is no ground truth to model against; internally consistent with CreateJob's own validation. (no bd issue filed yet)"
   - "TrialComponent/Experiment/Trial's CreatedBy/LastModifiedBy/Source (types.UserContext/*Source ARN+type pairs), Association's CreatedBy, and Pipeline's CreatedBy/LastModifiedBy (DescribePipelineOutput) are not modeled — this backend has no IAM-identity or resource-provenance model to honestly derive them from (class d, not fabricated). (no bd issue filed yet)"
-  - "2026-09-18 (over-wide List-summary sweep, gopherstack-dv4s): several List summaries are missing optional members the real SDK type declares, with no source on the corresponding domain model to derive them from (not fabricated) — AutoMLJobSummary.EndTime/FailureReason/PartialFailureReasons; ClusterSummary.TrainingPlanArns/ImageVersionStatus; ClusterNodeSummary.CurrentImageReleaseVersion/ImageVersionStatus/LastSoftwareUpdateTime/NodeLogicalId/PrivateDnsHostname/UltraServerInfo; CompilationJobSummary.CompilationTargetPlatformAccelerator/Arch/Os (only TargetDevice is tracked); DeviceSummary.AgentVersion/LatestHeartbeat/Models; FlowDefinitionSummary.FailureReason; HubContentInfo.OriginalCreationTime; HyperParameterTuningJobSummary.HyperParameterTuningEndTime; InferenceExperimentSummary.CompletionTime; LineageGroupSummary.DisplayName; HyperParameterTrainingJobSummary (ListTrainingJobsForHyperParameterTuningJob).FinalHyperParameterTuningJobObjectiveMetric/ObjectiveStatus/TrainingJobDefinitionName; TrainingJobSummary.TrainingPlanArn/WarmPoolStatus; ProcessingJobSummary.ExitMessage; OptimizationJobSummary/DescribeOptimizationJobOutput's OptimizationStartTime/OptimizationEndTime (jobs complete synchronously with no async run to time). (no bd issue filed yet)"
+  - "List summaries still missing optional members with no source on the domain model (not fabricated); narrowed 2026-10-01: AutoMLJobSummary.FailureReason/PartialFailureReasons; ClusterSummary.TrainingPlanArns/ImageVersionStatus; ClusterNodeSummary.ImageVersionStatus/NodeLogicalId/PrivateDnsHostname/UltraServerInfo; CompilationJobSummary has no gap; DeviceSummary.AgentVersion/LatestHeartbeat/Models; FlowDefinitionSummary.FailureReason; LineageGroupSummary.DisplayName (single auto-provisioned group); HyperParameterTrainingJobSummary.FinalHyperParameterTuningJobObjectiveMetric/ObjectiveStatus/TrainingJobDefinitionName; TrainingJobSummary.WarmPoolStatus (no warm-pool simulation); ProcessingJobSummary.ExitMessage. (no bd issue filed yet)"
   - "feature_store's DescribeFeatureGroupOutput.OnlineStoreTotalSizeBytes is not modeled — this backend does not track real online-store data volume, so there is no true byte count to report (OnlineStoreConfigUpdate/ThroughputConfigUpdate/LastUpdateStatus/OfflineStoreStatus are all real and already fixed). (no bd issue filed yet)"
   - "parity-5: InferenceRecommendationsJob.InputConfig is opaque json.RawMessage passthrough rather than the fully-typed RecommendationJobInputConfig union (ContainerConfig/Endpoints/ModelPackageVersionArn/...) — same convention as the parity-4 AI-job families; every client-sent field round-trips exactly. (no bd issue filed yet)"
   - "parity-6: CreateAutoMLJobV2/DescribeAutoMLJobV2's AutoMLProblemTypeConfig (5-member tagged union, each member itself a large nested struct) is opaque json.RawMessage passthrough, same convention as this file's other deeply-nested unions — every client-sent field round-trips exactly; only AutoMLProblemTypeConfigName (which member is present) is derived. (no bd issue filed yet)"
-  - "parity-6: DescribeAutoMLJobV2Output's BestCandidate/PartialFailureReasons/ResolvedAttributes/AutoMLJobArtifacts/EndTime/FailureReason/ModelDeployResult are not modeled — server-synthesized/derived fields mirroring V1 DescribeAutoMLJobOutput's pre-existing, disclosed depth limit; not a V2-specific regression. (no bd issue filed yet)"
+  - "parity-6: DescribeAutoMLJobV2Output's BestCandidate/PartialFailureReasons/ResolvedAttributes/AutoMLJobArtifacts/FailureReason/ModelDeployResult are not modeled — server-synthesized/derived fields mirroring V1 DescribeAutoMLJobOutput's pre-existing, disclosed depth limit; not a V2-specific regression. (no bd issue filed yet)"
   - "parity-7: Domain's DefaultUserSettings/DefaultSpaceSettings/DomainSettings, UserProfile's UserSettings, Space's OwnershipSettings/SpaceSettings/SpaceSharingSettings, and App's ResourceSpec are opaque json.RawMessage passthrough — UserSettings alone has ~20 app-specific sub-configs, each individually as large as a small family already in this file; every client-sent field round-trips exactly. (no bd issue filed yet)"
   - "parity-7: DescribeApp/DescribeDomain omit real optional output-only fields with no synchronous backend process to derive them from truthfully: App's EffectiveTrustedIdentityPropagationStatus/BuiltInLifecycleConfigArn/FailureReason/LastHealthCheckTimestamp/LastUserActivityTimestamp; Domain's FailureReason/HomeEfsFileSystemId/SecurityGroupIdForDomainBoundary/SingleSignOnApplicationArn/SingleSignOnManagedApplicationInstanceId. Left absent rather than fabricated. (no bd issue filed yet)"
-  - "parity-24: CreateAutoMLJobInput's AutoMLJobConfig (CandidateGenerationConfig/CompletionCriteria/Mode) remains accept-and-drop on the V1 path — DataSplitConfig/SecurityConfig are modeled (reused from V2) but not wired to V1 Create, since V1's own AutoMLJobConfig is itself unmodeled. (no bd issue filed yet)"
+  - "parity-24, narrowed 2026-09-26 (DataSplitConfig/SecurityConfig wired to V1 Create, see Notes): CreateAutoMLJobInput's AutoMLJobConfig.CandidateGenerationConfig/CompletionCriteria/Mode remain accept-and-drop on the V1 path — each governs a real training/HPO run (candidate generation, completion budget, ENSEMBLING vs HYPERPARAMETER_TUNING selection) this backend does not simulate. (no bd issue filed yet)"
   - "parity-24: DescribeEdgePackagingJobOutput's ModelSignature/PresetDeploymentOutput/EdgePackagingJobStatusMessage remain unmodeled — ModelSignature requires a real cryptographic signature this backend cannot honestly synthesize, and PresetDeploymentOutput/StatusMessage are server-derived from an async packaging/deployment pipeline this backend does not simulate (ModelArtifact FIXED this pass, see Notes). (no bd issue filed yet)"
   - "parity-25: algorithm's TrainingSpecification/InferenceSpecification/ValidationSpecification (required-checked/present) remain opaque json.RawMessage passthrough — TrainingSpecification alone nests ChannelSpecification/MetricDefinition/HyperParameterSpecification, deep and low-traffic; every client-sent field round-trips exactly. (no bd issue filed yet)"
   - "parity-25: model_endpoint_config_crud's CreateEndpointConfigInput.ExplainerConfig (ExplainerConfig -> ClarifyExplainerConfig -> ClarifyShapConfig/...) is opaque json.RawMessage passthrough, same convention as algorithm's specs; every client-sent field round-trips exactly, proven via a real-SDK-client test. (no bd issue filed yet)"
   - "parity-25: presigned_session's CreatePresignedDomainUrlInput.ExpiresInSeconds/LandingUri/SessionExpirationDurationInSeconds are decoded but disclosed no-ops — CreatePresignedDomainUrlOutput has no field to reflect them into and this backend's synthetic authorized-URL token has no verified real query-parameter format to encode them, same stance as PartnerApps' identical fields. (no bd issue filed yet)"
   - "2026-09-13 (gopherstack-xhu2t): UpdateProjectInput.ServiceCatalogProvisioningUpdateDetails/TemplateProvidersToUpdate are not decoded — applying either for real requires simulating an actual Service Catalog provisioned-product update, out of scope."
-  - "2026-09-13 (gopherstack-xhu2t): DeleteDomainInput.RetentionPolicy (HomeEfsFileSystem Retain vs Delete) has no state to act on — Domain tracks no EFS file-system content/ID at all, only HomeEfsFileSystemCreation (the creation mode, not a resource this backend can retain or delete). Not fixed: there is no simulated EFS resource for the field to govern."
+  - "DeleteDomainInput.RetentionPolicy.HomeEfsFileSystem is validated (Retain/Delete) but has no state to act on: Domain tracks no EFS file-system content/ID, only the HomeEfsFileSystemCreation mode (2026-10-04)."
   - "model_package_model_package_group (deferred item, now audited): ModelPackage's InferenceSpecification/SourceAlgorithmSpecification/ValidationSpecification/DriftCheckBaselines/ModelMetrics/AdditionalInferenceSpecifications are all opaque json.RawMessage passthrough, same convention as algorithm/AI-job families — every client-sent field round-trips exactly; ModelPackageStatusDetails is real and already fixed. Kept: deep unions, no value in re-typing. (no bd issue filed yet)"
   - "edge_deployment_device_fleet (deferred item, now audited): EdgeDeploymentPlan CRUD/stages/offerings are fully implemented; EdgeDeploymentSuccess/Pending/Failed (both DescribeEdgeDeploymentPlanOutput and the per-stage summary) are honestly disclosed as always zero — this backend does not simulate per-device deployment progress. DeviceFleet/Device and EdgePackagingJob's wire surface were already fixed in earlier passes. (no bd issue filed yet)"
-  - "training_plan (deferred item, now audited): full CRUD/offerings/extensions/UltraServer catalog implemented beyond the earlier timestamp fix. DescribeTrainingPlanOutput's AvailableSpareInstanceCount/TotalUltraServerCount are not surfaced at the TrainingPlan level (the underlying per-UltraServer data exists one level down, in ReservedCapacity.UltraServers, but isn't aggregated up); UnhealthyInstanceCount is deliberately always 0 since this catalog attaches exactly one healthy UltraServer per UltraServer-type ReservedCapacity (no live-hardware-health simulation, already disclosed in ultraServerSummary's doc). (no bd issue filed yet)"
+  - "training_plan (deferred item, now audited), narrowed 2026-09-26 (TotalUltraServerCount/AvailableSpareInstanceCount aggregation fixed, see Notes): full CRUD/offerings/extensions/UltraServer catalog implemented. DescribeTrainingPlanOutput's UnhealthyInstanceCount is deliberately always 0 (omitted) since this catalog attaches exactly one healthy UltraServer per UltraServer-type ReservedCapacity (no live-hardware-health simulation, already disclosed in ultraServerSummary's doc). (no bd issue filed yet)"
   - "monitoring_schedule_workteam_compilation_job (deferred item, now audited): Workteam CRUD is fully implemented including the Description/MemberDefinitions required-field fix; only ProductListingIds (Amazon Marketplace vendor-listing identifier, not settable via CreateWorkteamInput/UpdateWorkteamInput at all) is absent, correctly so — no Marketplace-vendor subsystem exists here. MonitoringSchedule/CompilationJob timestamps were already fixed in earlier passes. (no bd issue filed yet)"
 deferred: []
 
@@ -335,6 +335,32 @@ leaks: {status: clean, note: "Re-verified this pass: grepped every 'go func()'/r
 ---
 
 ## Notes
+
+**2026-10-01 (items_still_open burn-down):** fixed 6, each proven by a typed-SDK test in
+`realclient_summary_fields_test.go`. `ResourceConfig.TrainingPlanArn` stored and surfaced in
+`TrainingJobSummary`; `OutputConfig.TargetPlatform` stored and surfaced as
+`CompilationJobSummary.CompilationTargetPlatform{Os,Arch,Accelerator}`;
+`InferenceExperiment.CompletionTime` set on Stop (cleared on Start); `AutoMLJob.EndTime` set when
+Stopping reaches Stopped (V1/V2 Describe, V1 List); `HubContentInfo.OriginalCreationTime` is the
+first version's creation time; `UpdateClusterSoftware` now stamps `LastSoftwareUpdateTime` and
+`CurrentImageReleaseVersion` on the targeted nodes (summary and details).
+
+**2026-09-26 (items_still_open burn-down):** fixed 5, verified via typed-SDK-client
+tests. (1) `training_plan.go` `createReservedCapacity` never set
+`UltraServer.AvailableSpareInstanceCount` (always its zero value) — now set to the
+configured spare count, since no instance has failed yet. (2) `DescribeTrainingPlanOutput`
+gained `TotalUltraServerCount`/`AvailableSpareInstanceCount`, aggregated from the plan's
+UltraServer-type reserved capacities in `applyOfferingToPlan` (List's own summary already
+derived `TotalUltraServerCount` the same way). (3) V1 `CreateAutoMLJobInput.AutoMLJobConfig`
+now decodes `DataSplitConfig`/`SecurityConfig` (reusing the types V2 already models) and
+`DescribeAutoMLJob` echoes them back nested under `AutoMLJobConfig`, matching the real V1
+wire shape (V2's are top-level, not nested — verified against api_op_CreateAutoMLJob.go vs
+api_op_CreateAutoMLJobV2.go). (4) `HyperParameterTuningJob` gained
+`HyperParameterTuningEndTime`, set on both the Completed and Stopped terminal transitions
+(previously only `LastModifiedTime` was updated), surfaced in both Describe and List.
+(5) `OptimizationJob` gained `OptimizationStartTime`/`OptimizationEndTime`, both set to the
+creation instant since `CreateOptimizationJob` completes synchronously
+(`OptimizationJobStatus` starts `COMPLETED`).
 
 **2026-09-18 (over-wide List-summary sweep, gopherstack-dv4s):** hand-verified
 all 70 census-flagged List ops against the pinned SDK's real Summary types.
@@ -6856,3 +6882,15 @@ vet ./services/sagemaker/...` clean; `go test -race -count=1 -p 2
 ## 2026-09-19: goroutine-leak audit (gopherstack parity-sweep)
 
 Added `leak_main_test.go` (goleak TestMain). No leak found.
+
+## Notes (2026-10-03 pass — gopherstack-uox6 value-semantics audit)
+
+Fixed (typed-client tests in list_time_bounds_test.go): "on or after"/"on or before" bounds are now inclusive for ListImages, ListImageVersions, ListContexts, ListActions, ListArtifacts, ListAppImageConfigs, ListStudioLifecycleConfigs (creation) and ListMonitoringAlertHistory; "greater than or equal to" CreationTimeAfter is inclusive for ListEndpoints, ListFlowDefinitions, ListHumanTaskUis. ListAIWorkloadConfigs defaults to SortBy CreationTime / SortOrder Descending. ListApps rejects UserProfileNameEquals together with SpaceNameEquals ("If UserProfileNameEquals is set, then this value cannot be set"). Recorded: NameContains ("whose name contains the specified string") says nothing about case; some listings fold case and the shared name/time helper, ListImages and ListModelPackages do not.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+sagemaker already keys its resources by region; same-named resources in two regions coexist with region-correct ARNs. Proof: `TestRegionIsolation/sagemaker`. No code change to the resource store.
+
+## 2026-10-04 (reqfielddiff tier-1 pass)
+
+CreateImageVersion now honours ClientToken as an idempotency token: replaying a token returns the original version instead of creating a new one (the token is stored on the version, additive, and stripped from DescribeImageVersion). DeleteDomain validates RetentionPolicy.HomeEfsFileSystem. ListTrainingJobs.SortBy/SortOrder is a tool false positive (decoded by `listTrainingJobsInput` and applied by `ListTrainingJobsFiltered`). UpdateProject.ServiceCatalogProvisioningUpdateDetails stays recorded: applying it needs a real Service Catalog provisioned-product update. Proof: `TestCreateImageVersion_ClientTokenIdempotent`, `TestDeleteDomain_RetentionPolicyValidation`.

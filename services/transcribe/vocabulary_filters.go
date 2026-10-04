@@ -60,7 +60,7 @@ func (b *InMemoryBackend) CreateVocabularyFilter(input *VocabularyFilter) (*Voca
 	f := *input
 	f.LastModifiedTime = now
 	b.vocabularyFilters.Put(&f)
-	b.recordResourceTagsLocked(resourceARN(resourceTypeVocabularyFilter, f.VocabularyFilterName), f.Tags)
+	b.recordResourceTagsLocked(b.resourceARN(resourceTypeVocabularyFilter, f.VocabularyFilterName), f.Tags)
 
 	cp := f
 
@@ -148,7 +148,7 @@ func (b *InMemoryBackend) DeleteVocabularyFilter(vocabularyFilterName string) er
 		return fmt.Errorf("%w: vocabulary filter %s not found", ErrNotFound, vocabularyFilterName)
 	}
 
-	b.forgetResourceTagsLocked(resourceARN(resourceTypeVocabularyFilter, vocabularyFilterName))
+	b.forgetResourceTagsLocked(b.resourceARN(resourceTypeVocabularyFilter, vocabularyFilterName))
 
 	return nil
 }

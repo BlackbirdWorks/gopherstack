@@ -33,13 +33,8 @@ func (b *InMemoryBackend) CreatePullRequest(
 		RevisionID:         uuid.NewString(),
 	}
 	b.pullRequests.Put(pr)
-	cp := *pr
 
-	// deep copy targets slice
-	cp.PullRequestTargets = make([]PullRequestTarget, len(targets))
-	copy(cp.PullRequestTargets, targets)
-
-	return &cp, nil
+	return b.snapshotPullRequest(pr), nil
 }
 
 // GetPullRequest returns a pull request by ID.
@@ -52,9 +47,7 @@ func (b *InMemoryBackend) GetPullRequest(prID string) (*PullRequest, error) {
 		return nil, fmt.Errorf("%w: pull request %s not found", ErrPullRequestNotFound, prID)
 	}
 
-	cp := *pr
-
-	return &cp, nil
+	return b.snapshotPullRequest(pr), nil
 }
 
 // ListPullRequests returns pull request IDs for a repository, optionally filtered by status.
@@ -283,11 +276,12 @@ func (b *InMemoryBackend) DeletePullRequestApprovalRule(prID, ruleName string) (
 }
 
 // UpdatePullRequestApprovalRuleContent updates the content of an approval
-// rule on a pull request, returning the updated rule. The real
+// rule on a pull request, returning the updated rule. A non-empty
+// existingSha256 must match the hash of the current content. The real
 // UpdatePullRequestApprovalRuleContentOutput echoes the full ApprovalRule as
 // a required field (api_op_UpdatePullRequestApprovalRuleContent.go:82).
 func (b *InMemoryBackend) UpdatePullRequestApprovalRuleContent(
-	prID, ruleName, content string,
+	prID, ruleName, content, existingSha256 string,
 ) (*PullRequestApprovalRule, error) {
 	b.mu.Lock("UpdatePullRequestApprovalRuleContent")
 	defer b.mu.Unlock()
@@ -301,6 +295,9 @@ func (b *InMemoryBackend) UpdatePullRequestApprovalRuleContent(
 		return nil, fmt.Errorf(
 			"%w: approval rule %s not found on pull request %s", ErrApprovalRuleNotFound, ruleName, prID,
 		)
+	}
+	if existingSha256 != "" && existingSha256 != contentSha256(rule.ApprovalRuleContent) {
+		return nil, fmt.Errorf("%w: ruleContentSha256 does not match rule %s", ErrInvalidRuleContentSha256, ruleName)
 	}
 	rule.ApprovalRuleContent = content
 	cp := *rule

@@ -139,15 +139,17 @@ func (h *Handler) stopJob(ctx context.Context, c *echo.Context, appID, branchNam
 }
 
 type jobSummaryView struct {
-	JobID      string  `json:"jobId"`
-	JobARN     string  `json:"jobArn"`
-	CommitID   string  `json:"commitId"`
-	CommitMsg  string  `json:"commitMessage"`
-	Status     string  `json:"status"`
-	Type       string  `json:"jobType"`
-	StartTime  float64 `json:"startTime"`
-	EndTime    float64 `json:"endTime,omitempty"`
-	CommitTime float64 `json:"commitTime"`
+	JobID         string  `json:"jobId"`
+	JobARN        string  `json:"jobArn"`
+	CommitID      string  `json:"commitId"`
+	CommitMsg     string  `json:"commitMessage"`
+	Status        string  `json:"status"`
+	Type          string  `json:"jobType"`
+	SourceURL     string  `json:"sourceUrl,omitempty"`
+	SourceURLType string  `json:"sourceUrlType,omitempty"`
+	StartTime     float64 `json:"startTime"`
+	EndTime       float64 `json:"endTime,omitempty"`
+	CommitTime    float64 `json:"commitTime"`
 }
 
 // toJobSummaryView converts j to its wire shape. CommitTime is a required
@@ -163,14 +165,16 @@ func toJobSummaryView(j *Job) jobSummaryView {
 	}
 
 	v := jobSummaryView{
-		StartTime:  float64(j.StartTime.Unix()),
-		JobID:      j.JobID,
-		JobARN:     j.JobARN,
-		CommitID:   j.CommitID,
-		CommitMsg:  j.CommitMsg,
-		Status:     string(j.Status),
-		Type:       string(j.Type),
-		CommitTime: float64(commitTime.Unix()),
+		StartTime:     float64(j.StartTime.Unix()),
+		JobID:         j.JobID,
+		JobARN:        j.JobARN,
+		CommitID:      j.CommitID,
+		CommitMsg:     j.CommitMsg,
+		Status:        string(j.Status),
+		Type:          string(j.Type),
+		CommitTime:    float64(commitTime.Unix()),
+		SourceURL:     j.SourceURL,
+		SourceURLType: j.SourceURLType,
 	}
 
 	if !j.EndTime.IsZero() {

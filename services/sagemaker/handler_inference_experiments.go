@@ -286,6 +286,10 @@ func (h *Handler) handleListInferenceExperiments(ctx context.Context, body []byt
 			item["StatusReason"] = e.StatusReason
 		}
 
+		if e.CompletionTime != nil {
+			item["CompletionTime"] = epochSeconds(*e.CompletionTime)
+		}
+
 		if e.Schedule != nil {
 			item["Schedule"] = e.Schedule
 		}

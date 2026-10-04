@@ -10,11 +10,19 @@ import (
 // AutoMLJob handlers
 // ---------------------------------------------------------------------------
 
+// autoMLJobConfigRequest is the V1 AutoMLJobConfig wire shape (types.AutoMLJobConfig).
+// DataSplitConfig/SecurityConfig reuse the same types V2 already models.
+type autoMLJobConfigRequest struct {
+	DataSplitConfig *AutoMLDataSplitConfig `json:"DataSplitConfig,omitempty"`
+	SecurityConfig  *AutoMLSecurityConfig  `json:"SecurityConfig,omitempty"`
+}
+
 type createAutoMLJobRequest struct {
 	Tags               []tagObject             `json:"Tags"`
 	OutputDataConfig   *AutoMLOutputDataConfig `json:"OutputDataConfig"`
 	AutoMLJobObjective *AutoMLJobObjective     `json:"AutoMLJobObjective"`
 	ModelDeployConfig  *ModelDeployConfig      `json:"ModelDeployConfig,omitempty"`
+	AutoMLJobConfig    *autoMLJobConfigRequest `json:"AutoMLJobConfig,omitempty"`
 	AutoMLJobName      string                  `json:"AutoMLJobName"`
 	RoleArn            string                  `json:"RoleArn"`
 	InputDataConfig    []AutoMLChannel         `json:"InputDataConfig"`
@@ -48,6 +56,15 @@ func (h *Handler) handleCreateAutoMLJob(ctx context.Context, body []byte) ([]byt
 		return nil, err
 	}
 
+	var dataSplitConfig *AutoMLDataSplitConfig
+
+	var securityConfig *AutoMLSecurityConfig
+
+	if req.AutoMLJobConfig != nil {
+		dataSplitConfig = req.AutoMLJobConfig.DataSplitConfig
+		securityConfig = req.AutoMLJobConfig.SecurityConfig
+	}
+
 	if extErr := h.Backend.SetAutoMLJobExtras(
 		ctx,
 		req.AutoMLJobName,
@@ -55,6 +72,8 @@ func (h *Handler) handleCreateAutoMLJob(ctx context.Context, body []byte) ([]byt
 		req.AutoMLJobObjective,
 		req.InputDataConfig,
 		req.ModelDeployConfig,
+		dataSplitConfig,
+		securityConfig,
 	); extErr != nil {
 		return nil, extErr
 	}
@@ -98,6 +117,10 @@ func (h *Handler) handleDescribeAutoMLJob(ctx context.Context, body []byte) ([]b
 		"InputDataConfig":           inputDataConfig,
 	}
 
+	if j.EndTime != nil {
+		resp["EndTime"] = epochSeconds(*j.EndTime)
+	}
+
 	if j.OutputDataConfig != nil {
 		resp["OutputDataConfig"] = j.OutputDataConfig
 	}
@@ -108,6 +131,13 @@ func (h *Handler) handleDescribeAutoMLJob(ctx context.Context, body []byte) ([]b
 
 	if j.ModelDeployConfig != nil {
 		resp["ModelDeployConfig"] = j.ModelDeployConfig
+	}
+
+	if j.DataSplitConfig != nil || j.SecurityConfig != nil {
+		resp["AutoMLJobConfig"] = autoMLJobConfigRequest{
+			DataSplitConfig: j.DataSplitConfig,
+			SecurityConfig:  j.SecurityConfig,
+		}
 	}
 
 	return json.Marshal(resp)
@@ -165,14 +195,20 @@ func (h *Handler) handleListAutoMLJobs(ctx context.Context, body []byte) ([]byte
 
 	summaries := make([]map[string]any, 0, len(items))
 	for _, j := range items {
-		summaries = append(summaries, map[string]any{
+		summary := map[string]any{
 			keyAutoMLJobName:            j.AutoMLJobName,
 			keyAutoMLJobArn:             j.AutoMLJobArn,
 			keyAutoMLJobStatus:          j.AutoMLJobStatus,
 			keyAutoMLJobSecondaryStatus: j.AutoMLJobSecondaryStatus,
 			keyCreationTime:             epochSeconds(j.CreationTime),
 			keyLastModifiedTime:         epochSeconds(j.LastModifiedTime),
-		})
+		}
+
+		if j.EndTime != nil {
+			summary["EndTime"] = epochSeconds(*j.EndTime)
+		}
+
+		summaries = append(summaries, summary)
 	}
 
 	return json.Marshal(map[string]any{

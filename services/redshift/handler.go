@@ -11,11 +11,14 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -54,8 +57,10 @@ const (
 
 // Handler is the Echo HTTP handler for Redshift operations.
 type Handler struct {
-	Backend StorageBackend
-	ops     map[string]redshiftActionFn
+	Backend   StorageBackend
+	peers     *regionpeers.Set[Handler]
+	workerCtx atomic.Pointer[context.Context]
+	ops       map[string]redshiftActionFn
 }
 
 // NewHandler creates a new Redshift handler.
@@ -69,6 +74,11 @@ func NewHandler(backend StorageBackend) *Handler {
 // Reset clears all backend state and rebuilds the dispatch table.
 func (h *Handler) Reset() {
 	h.Backend.Reset()
+
+	for _, p := range h.peers.Drain() {
+		p.Backend.StopReconciler()
+		p.Backend.Reset()
+	}
 }
 
 // StartWorker implements service.BackgroundWorker. It starts the managed cluster
@@ -76,6 +86,7 @@ func (h *Handler) Reset() {
 // context.Background() is introduced.
 func (h *Handler) StartWorker(ctx context.Context) error {
 	h.Backend.StartReconciler(ctx)
+	h.startRegionWorkers(ctx)
 
 	return nil
 }
@@ -83,6 +94,7 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 // Shutdown implements service.Shutdowner. It stops the reconciler and waits for
 // its goroutine to exit, guaranteeing a clean, leak-free shutdown.
 func (h *Handler) Shutdown(_ context.Context) {
+	h.stopRegionWorkers()
 	h.Backend.StopReconciler()
 }
 
@@ -286,7 +298,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		if !strings.Contains(ct, "application/x-www-form-urlencoded") {
 			return false
 		}
-		body, err := httputils.ReadBody(r)
+		_, err := httputils.ReadBody(r)
 		if err != nil {
 			// Body unreadable (e.g. oversized): fall back to the User-Agent
 			// marker every aws-sdk-go-v2 redshift client sets (api_client.go's
@@ -295,7 +307,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			// error instead of masking the read failure as a 404.
 			return service.MatchesUserAgentMarker(r.Header, "api/redshift")
 		}
-		vals, err := url.ParseQuery(string(body))
+		vals, err := httputils.ParseFormBody(r)
 		if err != nil {
 			return false
 		}
@@ -343,6 +355,11 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		r := c.Request()
+
+		if p := h.peers.Get(awsmeta.Region(r.Context())); p != nil {
+			return p.Handler()(c)
+		}
+
 		body, err := httputils.ReadBody(r)
 		if err != nil {
 			return h.writeError(c, http.StatusInternalServerError, "InternalFailure", "failed to read request body")

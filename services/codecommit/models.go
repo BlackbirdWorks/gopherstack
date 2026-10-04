@@ -10,6 +10,10 @@ const (
 	prStatusOpen   = "OPEN"
 	prStatusClosed = "CLOSED"
 
+	mergeOptionFastForward = "FAST_FORWARD_MERGE"
+	mergeOptionSquash      = "SQUASH_MERGE"
+	mergeOptionThreeWay    = "THREE_WAY_MERGE"
+
 	fileModeDefault = "NORMAL"
 
 	// maxBatchGetRepositories is the AWS limit for BatchGetRepositories.
@@ -41,17 +45,25 @@ type Branch struct {
 
 // Commit represents a CodeCommit commit.
 type Commit struct {
-	CreatedAt      time.Time `json:"createdAt"`
-	CommitID       string    `json:"commitId"`
-	TreeID         string    `json:"treeId"`
-	Message        string    `json:"message,omitempty"`
-	AdditionalData string    `json:"additionalData,omitempty"`
-	AuthorName     string    `json:"authorName,omitempty"`
-	AuthorEmail    string    `json:"authorEmail,omitempty"`
-	CommitterName  string    `json:"committerName,omitempty"`
-	CommitterEmail string    `json:"committerEmail,omitempty"`
-	RepositoryName string    `json:"repositoryName"`
-	Parents        []string  `json:"parents,omitempty"`
+	CreatedAt      time.Time            `json:"createdAt"`
+	CommitID       string               `json:"commitId"`
+	TreeID         string               `json:"treeId"`
+	Tree           map[string]TreeEntry `json:"tree,omitempty"`
+	Message        string               `json:"message,omitempty"`
+	AdditionalData string               `json:"additionalData,omitempty"`
+	AuthorName     string               `json:"authorName,omitempty"`
+	AuthorEmail    string               `json:"authorEmail,omitempty"`
+	CommitterName  string               `json:"committerName,omitempty"`
+	CommitterEmail string               `json:"committerEmail,omitempty"`
+	RepositoryName string               `json:"repositoryName"`
+	Parents        []string             `json:"parents,omitempty"`
+	HasTree        bool                 `json:"hasTree,omitempty"`
+}
+
+// TreeEntry is one file in a commit's tree.
+type TreeEntry struct {
+	BlobID string `json:"blobId"`
+	Mode   string `json:"mode"`
 }
 
 // PutFileEntry describes a file to add or overwrite in a CreateCommit call.
@@ -63,12 +75,21 @@ type PutFileEntry struct {
 
 // PullRequestTarget represents a target for a pull request.
 type PullRequestTarget struct {
-	RepositoryName       string `json:"repositoryName"`
-	SourceReference      string `json:"sourceReference"`
-	DestinationReference string `json:"destinationReference,omitempty"`
-	SourceCommit         string `json:"sourceCommit,omitempty"`
-	DestinationCommit    string `json:"destinationCommit,omitempty"`
-	MergeBase            string `json:"mergeBase,omitempty"`
+	MergeMetadata        *MergeMetadata `json:"mergeMetadata,omitempty"`
+	RepositoryName       string         `json:"repositoryName"`
+	SourceReference      string         `json:"sourceReference"`
+	DestinationReference string         `json:"destinationReference,omitempty"`
+	SourceCommit         string         `json:"sourceCommit,omitempty"`
+	DestinationCommit    string         `json:"destinationCommit,omitempty"`
+	MergeBase            string         `json:"mergeBase,omitempty"`
+}
+
+// MergeMetadata records how and by whom a pull request target was merged.
+type MergeMetadata struct {
+	MergeCommitID string `json:"mergeCommitId,omitempty"`
+	MergeOption   string `json:"mergeOption,omitempty"`
+	MergedBy      string `json:"mergedBy,omitempty"`
+	IsMerged      bool   `json:"isMerged"`
 }
 
 // PullRequest represents a CodeCommit pull request.
@@ -247,6 +268,7 @@ type BatchDescribeMergeConflictsResult struct {
 	DestinationCommitID string          `json:"destinationCommitId"`
 	SourceCommitID      string          `json:"sourceCommitId"`
 	BaseCommitID        string          `json:"baseCommitId,omitempty"`
+	NextToken           string          `json:"nextToken,omitempty"`
 	Conflicts           []MergeConflict `json:"conflicts"`
 	Errors              []ConflictError `json:"errors,omitempty"`
 }
@@ -259,10 +281,43 @@ type MergeConflict struct {
 
 // ConflictMetadata holds metadata about a merge conflict.
 type ConflictMetadata struct {
-	FilePath          string           `json:"filePath"`
-	NumberOfConflicts int              `json:"numberOfConflicts"`
-	IsBinaryFile      FileBinaryStatus `json:"isBinaryFile"`
-	ContentConflict   bool             `json:"contentConflict"`
+	FileSizes          *FileSizes       `json:"fileSizes,omitempty"`
+	FileModes          *FileModes       `json:"fileModes,omitempty"`
+	ObjectTypes        *ObjectTypes     `json:"objectTypes,omitempty"`
+	MergeOperations    *MergeOperations `json:"mergeOperations,omitempty"`
+	FilePath           string           `json:"filePath"`
+	NumberOfConflicts  int              `json:"numberOfConflicts"`
+	IsBinaryFile       FileBinaryStatus `json:"isBinaryFile"`
+	ContentConflict    bool             `json:"contentConflict"`
+	FileModeConflict   bool             `json:"fileModeConflict"`
+	ObjectTypeConflict bool             `json:"objectTypeConflict"`
+}
+
+// FileSizes holds a file's size in the source, destination and base of a merge.
+type FileSizes struct {
+	Source      int64 `json:"source"`
+	Destination int64 `json:"destination"`
+	Base        int64 `json:"base"`
+}
+
+// FileModes holds a file's mode in the source, destination and base of a merge.
+type FileModes struct {
+	Source      string `json:"source,omitempty"`
+	Destination string `json:"destination,omitempty"`
+	Base        string `json:"base,omitempty"`
+}
+
+// ObjectTypes holds a path's object type in the source, destination and base of a merge.
+type ObjectTypes struct {
+	Source      string `json:"source,omitempty"`
+	Destination string `json:"destination,omitempty"`
+	Base        string `json:"base,omitempty"`
+}
+
+// MergeOperations holds the change each side made to a file.
+type MergeOperations struct {
+	Source      string `json:"source,omitempty"`
+	Destination string `json:"destination,omitempty"`
 }
 
 // FileBinaryStatus holds whether each version of a file is binary.
@@ -287,9 +342,9 @@ type MergeHunkDetail struct {
 	EndLine     int    `json:"endLine"`
 }
 
-// ConflictError represents an error encountered while describing a conflict.
+// ConflictError is one per-file error of BatchDescribeMergeConflicts.
 type ConflictError struct {
-	FilePath     string `json:"filePath"`
-	ErrorCode    string `json:"errorCode"`
-	ErrorMessage string `json:"errorMessage"`
+	ExceptionName string `json:"exceptionName"`
+	FilePath      string `json:"filePath"`
+	Message       string `json:"message"`
 }

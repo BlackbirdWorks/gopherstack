@@ -3,6 +3,7 @@ package accessanalyzer
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -49,13 +50,8 @@ func (h *Handler) handleTagResource(path string, body []byte) (any, int, error) 
 func (h *Handler) handleUntagResource(path, query string) (any, int, error) {
 	resourceARN := strings.TrimPrefix(path, "/"+pathTags+"/")
 
-	var tagKeys []string
-
-	for part := range strings.SplitSeq(query, "&") {
-		if after, ok := strings.CutPrefix(part, "tagKeys="); ok {
-			tagKeys = append(tagKeys, after)
-		}
-	}
+	vals, _ := url.ParseQuery(query)
+	tagKeys := vals["tagKeys"]
 
 	if err := h.Backend.UntagResource(resourceARN, tagKeys); err != nil {
 		return nil, 0, err

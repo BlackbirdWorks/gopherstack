@@ -844,3 +844,7 @@ Tool tier-1 count 3 -> 2 post-fix (both remaining are the same query-read
 blind spot, not real gaps — see ops table notes). Gates: `go build ./...`,
 `go vet`, `go test -race -count=1`, `golangci-lint run --new-from-rev=HEAD`
 (0 issues) all clean. No persisted struct fields changed; no version bump.
+
+## 2026-10-03 (gopherstack-uox6 value-semantics pass)
+
+ListHostedZonesByName and ListResourceRecordSets now order by reversed labels (`com.example.www.`) per api_op_ListResourceRecordSets.go / api_op_ListHostedZonesByName.go, and StartRecordName seeks in that order; `type` without `name` returns InvalidInput ("If you specify Type but not Name Amazon Route 53 returns the InvalidInput error"). Not done: sorting on escaped/Punycode values (needs octal-escape handling the stored names do not model).

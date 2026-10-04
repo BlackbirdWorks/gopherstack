@@ -53,6 +53,10 @@ func (b *InMemoryBackend) CreateCluster(input CreateClusterInput) (*Cluster, err
 		return &cp, nil
 	}
 
+	if err := b.validateCapacityProviderNamesLocked(input.CapacityProviders); err != nil {
+		return nil, err
+	}
+
 	if err := b.validateCapacityProviderStrategyLocked(input.DefaultCapacityProviderStrategy); err != nil {
 		return nil, err
 	}
@@ -146,7 +150,7 @@ func (b *InMemoryBackend) enrichCluster(c *Cluster) Cluster {
 	}
 
 	cp.ActiveServicesCount = activeServices
-	cp.RegisteredContainerInstancesCount = len(b.containerInstancesByCluster.Get(c.ClusterName))
+	cp.RegisteredContainerInstancesCount = b.activeContainerInstanceCountLocked(c.ClusterName)
 
 	// RunningTasksCount and PendingTasksCount are maintained as cached counters
 	// on the Cluster struct. No task iteration needed here.
@@ -175,7 +179,7 @@ func (b *InMemoryBackend) clusterDependencyViolationLocked(clusterName string) e
 		}
 	}
 
-	if ci := b.containerInstancesInClusterLocked(clusterName); len(ci) > 0 {
+	if b.activeContainerInstanceCountLocked(clusterName) > 0 {
 		return fmt.Errorf(
 			"%w: cluster %s still has registered container instances",
 			ErrClusterContainsContainerInstances, clusterName,
@@ -298,6 +302,10 @@ func (b *InMemoryBackend) PutClusterCapacityProviders(
 	c, ok := b.clusters.Get(clusterName)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, cluster)
+	}
+
+	if err := b.validateCapacityProviderNamesLocked(capacityProviders); err != nil {
+		return nil, err
 	}
 
 	if err := b.validateCapacityProviderStrategyLocked(defaultCapacityProviderStrategy); err != nil {

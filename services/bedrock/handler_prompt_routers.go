@@ -79,6 +79,7 @@ type createPromptRouterInput struct {
 	FallbackModel    *promptRouterTargetModelWire  `json:"fallbackModel"`
 	RoutingCriteria  *routingCriteriaWire          `json:"routingCriteria"`
 	PromptRouterName string                        `json:"promptRouterName"`
+	ClientToken      string                        `json:"clientRequestToken,omitempty"`
 	Description      string                        `json:"description,omitempty"`
 	Models           []promptRouterTargetModelWire `json:"models"`
 	Tags             []Tag                         `json:"tags,omitempty"`
@@ -110,8 +111,8 @@ func (h *Handler) handleCreatePromptRouter(c *echo.Context) error {
 		responseQualityDiff = in.RoutingCriteria.ResponseQualityDifference
 	}
 
-	router, opErr := h.Backend.CreatePromptRouter(
-		in.PromptRouterName, in.Description, fallbackModelArn, modelArns, responseQualityDiff, in.Tags,
+	router, opErr := h.Backend.CreatePromptRouterWithToken(
+		in.PromptRouterName, in.Description, fallbackModelArn, modelArns, responseQualityDiff, in.Tags, in.ClientToken,
 	)
 	if opErr != nil {
 		return h.writeError(c, opErr)

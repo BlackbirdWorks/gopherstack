@@ -65,8 +65,8 @@ func TestSeedRegions(t *testing.T) {
 		},
 		{
 			name:       "ignores empty string in seed list",
-			seed:       []string{"test-seed-empty-check", ""},
-			wantHas:    []string{"test-seed-empty-check"},
+			seed:       []string{"test-seed-empty-1", ""},
+			wantHas:    []string{"test-seed-empty-1"},
 			wantNotHas: []string{""},
 		},
 	}
@@ -152,4 +152,15 @@ func TestRegionTrackingMiddleware(t *testing.T) {
 			assert.Contains(t, service.KnownRegions(), tt.want)
 		})
 	}
+}
+
+func TestRecordRegion_RejectsMalformed(t *testing.T) {
+	t.Parallel()
+
+	for _, r := range []string{"garbage", "../x", "us-east-1\r\nX: y"} {
+		service.RecordRegion(r)
+	}
+
+	assert.NotContains(t, service.KnownRegions(), "garbage")
+	assert.NotContains(t, service.KnownRegions(), "../x")
 }

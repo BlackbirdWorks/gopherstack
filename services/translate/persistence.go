@@ -116,19 +116,12 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	return nil
 }
 
-// Snapshot implements persistence.Persistable by delegating to the backend.
-// Handler previously had no Snapshot/Restore of its own -- and neither did
-// InMemoryBackend -- so cli.go's generic setupPersistence (which
-// type-asserts the registered service.Registerable, i.e. the Handler, for a
-// Snapshot/Restore pair) never picked Translate up at all: dead wiring, with
-// no persistence underneath it either. This delegation (matching the
-// codecommit/polly/cleanrooms pattern) is what wires Translate into
-// persistence for the first time.
-func (h *Handler) Snapshot(ctx context.Context) []byte {
+// homeSnapshot serializes the home region only.
+func (h *Handler) homeSnapshot(ctx context.Context) []byte {
 	return h.Backend.Snapshot(ctx)
 }
 
-// Restore implements persistence.Persistable by delegating to the backend.
-func (h *Handler) Restore(ctx context.Context, data []byte) error {
+// homeRestore restores the home region only.
+func (h *Handler) homeRestore(ctx context.Context, data []byte) error {
 	return h.Backend.Restore(ctx, data)
 }

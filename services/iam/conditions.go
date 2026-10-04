@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/condeval"
 )
 
 // ctxKeySourceIP is the IAM condition key for the caller's source IP address.
@@ -31,6 +33,9 @@ type ConditionContext struct {
 	SourceIP         string            `json:"sourceIP,omitempty"`
 	Username         string            `json:"username,omitempty"`
 	UserID           string            `json:"userID,omitempty"`
+	// SecureTransport is "true"/"false", populated from whether the request
+	// arrived over TLS. Exposed as the aws:SecureTransport condition key.
+	SecureTransport string `json:"secureTransport,omitempty"`
 }
 
 // conditionMatches returns true if all condition operators in the map are satisfied
@@ -95,6 +100,8 @@ func resolveAWSStandardKey(lower string, ctx ConditionContext) (string, bool) {
 		return ctx.PrincipalAccount, true
 	case "aws:requestedregion":
 		return ctx.RequestedRegion, true
+	case "aws:securetransport":
+		return ctx.SecureTransport, true
 	case "aws:currenttime":
 		if ctx.CurrentTime != "" {
 			return ctx.CurrentTime, true
@@ -172,7 +179,15 @@ func lookupTag(tags map[string]string, key string) (string, bool) {
 // Returns true if the condition is satisfied.
 func evalSingleCondition(operator, ctxVal string, condVals []string) bool {
 	// IfExists suffix: if the key is missing (empty), condition is always true.
+	// AWS docs: IfExists may suffix any operator except Null (Null already
+	// tests presence), so "nullifexists" is left as an unrecognized operator.
+	//nolint:lll // AWS doc URL, cannot be split
+	// https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_elements_condition_operators.html#Conditions_IfExists
 	baseOp, ifExists := strings.CutSuffix(operator, "ifexists")
+	if ifExists && baseOp == "null" {
+		ifExists = false
+		baseOp = operator
+	}
 	if ifExists && ctxVal == "" {
 		return true
 	}
@@ -312,10 +327,10 @@ func evalIPARNCondition(baseOp, ctxVal string, condVals []string) (bool, bool) {
 		return !anyIPMatch(ctxVal, condVals), true
 	case "arnequals", "arnlike":
 
-		return anyStringLike(strings.ToLower(ctxVal), toLower(condVals)), true
+		return condeval.AnyArnMatch(condVals, ctxVal, wildcardMatch), true
 	case "arnnotequals", "arnnotlike":
 
-		return !anyStringLike(strings.ToLower(ctxVal), toLower(condVals)), true
+		return !condeval.AnyArnMatch(condVals, ctxVal, wildcardMatch), true
 	}
 
 	return false, false
@@ -337,18 +352,30 @@ func anyStringLike(ctxVal string, condVals []string) bool {
 	return false
 }
 
-// anyIPMatch returns true if ctxVal is an IP address that falls within any of
-// the CIDR ranges (or equals any IP address literal) in condVals.
+// anyIPMatch returns true if ctxVal is an IP address (IPv4 or IPv6) that
+// falls within any of the CIDR ranges, or equals any bare IP address
+// literal, in condVals. A bare literal is treated as its own /32 (or /128
+// for IPv6), per AWS's documented default routing prefix.
+// https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_elements_condition_operators.html#Conditions_IPAddress
+//
+//nolint:lll // AWS doc URL, cannot be split
 func anyIPMatch(ctxVal string, condVals []string) bool {
 	ip := net.ParseIP(ctxVal)
+	if ip == nil {
+		return false
+	}
 
 	for _, v := range condVals {
 		if strings.Contains(v, "/") {
 			_, ipNet, err := net.ParseCIDR(v)
-			if err == nil && ip != nil && ipNet.Contains(ip) {
+			if err == nil && ipNet.Contains(ip) {
 				return true
 			}
-		} else if v == ctxVal {
+
+			continue
+		}
+
+		if candidate := net.ParseIP(v); candidate != nil && candidate.Equal(ip) {
 			return true
 		}
 	}
@@ -419,31 +446,16 @@ func evalDateCondition(baseOp, ctxVal string, condVals []string) (bool, bool) {
 		"datelessthanequals",
 		"dategreaterthan",
 		"dategreaterthanequals":
-		ctxTime, err := time.Parse(time.RFC3339, ctxVal)
-		if err != nil {
+		ctxTime, ok := condeval.ParseDate(ctxVal)
+		if !ok {
 			return false, true
 		}
 		for _, v := range condVals {
-			condTime, errParse := time.Parse(time.RFC3339, v)
-			if errParse != nil {
+			condTime, okParse := condeval.ParseDate(v)
+			if !okParse {
 				continue
 			}
-			match := false
-			switch baseOp {
-			case "dateequals":
-				match = ctxTime.Equal(condTime)
-			case "datenotequals":
-				match = !ctxTime.Equal(condTime)
-			case "datelessthan":
-				match = ctxTime.Before(condTime)
-			case "datelessthanequals":
-				match = ctxTime.Before(condTime) || ctxTime.Equal(condTime)
-			case "dategreaterthan":
-				match = ctxTime.After(condTime)
-			case "dategreaterthanequals":
-				match = ctxTime.After(condTime) || ctxTime.Equal(condTime)
-			}
-			if match {
+			if condeval.CompareDate(baseOp, ctxTime, condTime) {
 				return true, true
 			}
 		}

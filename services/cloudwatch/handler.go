@@ -8,15 +8,18 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/aws/smithy-go/encoding/cbor"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -98,9 +101,108 @@ const formFalse = "false"
 
 // Handler is the Echo HTTP service handler for CloudWatch operations.
 type Handler struct {
-	Backend StorageBackend
-	tags    map[string]*tags.Tags
-	tagsMu  *lockmetrics.RWMutex
+	Backend   StorageBackend
+	tags      map[string]*tags.Tags
+	tagsMu    *lockmetrics.RWMutex
+	peers     *regionpeers.Set[Handler]
+	workerCtx atomic.Pointer[context.Context]
+	stopRun   atomic.Pointer[context.CancelFunc]
+	ec2For    atomic.Pointer[func(region string) EC2InstanceActioner]
+}
+
+// SetEC2ActionerFactory sets how each region's alarm EC2 actions reach that region's EC2.
+func (h *Handler) SetEC2ActionerFactory(f func(region string) EC2InstanceActioner) {
+	h.ec2For.Store(&f)
+
+	for _, p := range h.peers.All() {
+		if bk, ok := p.Backend.(*InMemoryBackend); ok {
+			bk.SetEC2Actioner(f(bk.region))
+		}
+	}
+}
+
+// arnRegionFields splits an ARN into its first five fields plus the resource tail.
+const arnRegionFields = 6
+
+// EnableRegions makes h serve every other region through lazily built per-region
+// siblings, each with its own janitor once StartWorker has run.
+func (h *Handler) EnableRegions() {
+	home, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	h.peers = regionpeers.New(home.region, func(region string) *Handler {
+		nb := NewInMemoryBackendWithConfig(home.accountID, region)
+		nb.inheritWiring(home)
+
+		if f := h.ec2For.Load(); f != nil {
+			nb.SetEC2Actioner((*f)(region))
+		}
+
+		p := NewHandler(nb)
+
+		if ctxp := h.workerCtx.Load(); ctxp != nil {
+			p.startJanitor(*ctxp)
+		}
+
+		return p
+	})
+}
+
+// BackendFor returns the backend serving region: the home backend, or the sibling
+// for any other region (built on first use).
+func (h *Handler) BackendFor(region string) StorageBackend {
+	if p := h.peers.Get(region); p != nil {
+		return p.Backend
+	}
+
+	return h.Backend
+}
+
+// SubscribeAlarmStateChange subscribes to the alarm named by alarmArn in that ARN's region.
+func (h *Handler) SubscribeAlarmStateChange(alarmArn string, cb func(newState string)) func() {
+	parts := strings.SplitN(alarmArn, ":", arnRegionFields)
+
+	region := ""
+	if len(parts) == arnRegionFields {
+		region = parts[3]
+	}
+
+	if bk, ok := h.BackendFor(region).(*InMemoryBackend); ok {
+		return bk.SubscribeAlarmStateChange(alarmArn, cb)
+	}
+
+	return func() {}
+}
+
+func (h *Handler) closePeers() {
+	for _, p := range h.peers.Drain() {
+		p.stopJanitor()
+	}
+}
+
+// startJanitor runs h's janitor once, until ctx ends or stopJanitor.
+func (h *Handler) startJanitor(ctx context.Context) {
+	bk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	jctx, cancel := context.WithCancel(ctx)
+	if !h.stopRun.CompareAndSwap(nil, &cancel) {
+		cancel()
+
+		return
+	}
+
+	go NewJanitor(bk).Run(jctx)
+}
+
+func (h *Handler) stopJanitor() {
+	if c := h.stopRun.Swap(nil); c != nil {
+		(*c)()
+	}
 }
 
 // NewHandler creates a new CloudWatch handler.
@@ -159,9 +261,12 @@ func (h *Handler) Name() string { return "CloudWatch" }
 // StartWorker starts the background janitor for metric sweeping.
 // It implements service.BackgroundWorker.
 func (h *Handler) StartWorker(ctx context.Context) error {
-	if cwBk, ok := h.Backend.(*InMemoryBackend); ok {
-		janitor := NewJanitor(cwBk)
-		go janitor.Run(ctx)
+	h.workerCtx.Store(&ctx)
+
+	h.startJanitor(ctx)
+
+	for _, p := range h.peers.All() {
+		p.startJanitor(ctx)
 	}
 
 	return nil
@@ -247,8 +352,9 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return slices.Contains(h.GetSupportedOperations(), op)
 		}
 
-		if target := extractTargetOperation(r.Header.Get("X-Amz-Target")); target != "" {
-			return slices.Contains(h.GetSupportedOperations(), target)
+		if target := r.Header.Get("X-Amz-Target"); target != "" {
+			return strings.HasPrefix(target, jsonTargetPrefix) &&
+				slices.Contains(h.GetSupportedOperations(), extractTargetOperation(target))
 		}
 
 		ct := r.Header.Get("Content-Type")
@@ -256,7 +362,10 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return false
 		}
 
-		body, err := httputils.ReadBody(r)
+		err := inflateRequestBody(r)
+		if err == nil {
+			_, err = httputils.ReadBody(r)
+		}
 		if err != nil {
 			// Body unreadable (e.g. oversized): fall back to the User-Agent
 			// marker every aws-sdk-go-v2 cloudwatch client sets
@@ -267,7 +376,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return service.MatchesUserAgentMarker(r.Header, "api/cloudwatch")
 		}
 
-		vals, err := url.ParseQuery(string(body))
+		vals, err := httputils.ParseFormBody(r)
 		if err != nil {
 			return false
 		}
@@ -291,7 +400,10 @@ func extractTargetOperation(target string) string {
 	return parts[len(parts)-1]
 }
 
-const cloudwatchMatchPriority = 80
+const (
+	cloudwatchMatchPriority = 80
+	jsonTargetPrefix        = "GraniteServiceVersion20100801."
+)
 
 // MatchPriority returns the routing priority for the CloudWatch handler.
 func (h *Handler) MatchPriority() int { return cloudwatchMatchPriority }
@@ -340,6 +452,18 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		r := c.Request()
+
+		if p := h.peers.Get(awsmeta.Region(r.Context())); p != nil {
+			return p.Handler()(c)
+		}
+
+		if err := inflateRequestBody(r); err != nil {
+			if isCBORRequest(r) {
+				return h.cborError(c, http.StatusBadRequest, "SerializationException", err.Error())
+			}
+
+			return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", err.Error())
+		}
 
 		// Route rpc-v2-cbor requests (AWS SDK v2 ≥ cloudwatch@v1.55)
 		if isCBORRequest(r) {
@@ -721,6 +845,8 @@ func (h *Handler) Reset() {
 	if b, ok := h.Backend.(*InMemoryBackend); ok {
 		b.Reset()
 	}
+
+	h.closePeers()
 
 	h.tagsMu.Lock("Reset")
 	h.tags = make(map[string]*tags.Tags)

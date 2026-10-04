@@ -471,6 +471,14 @@ func (h *Handler) handleModifyInstanceAttribute(vals url.Values, reqID string) (
 		}, nil
 	}
 
+	if updates := parseBlockDeviceUpdates(vals); len(updates) > 0 {
+		if err := h.Backend.ModifyInstanceBlockDeviceMappings(instanceID, updates); err != nil {
+			return nil, err
+		}
+
+		return &modifyInstanceAttributeResponse{Xmlns: ec2XMLNS, RequestID: reqID, Return: true}, nil
+	}
+
 	// Determine which attribute is being set and its new value.
 	// AWS uses different value wrappers per attribute type.
 	attrName, attrValue := parseModifyInstanceAttributeValue(vals)
@@ -553,6 +561,30 @@ func parseModifyInstanceAttributeValue(vals url.Values) (string, string) {
 	}
 
 	return "", ""
+}
+
+// parseBlockDeviceUpdates reads BlockDeviceMapping.N.{DeviceName,Ebs.VolumeId,
+// Ebs.DeleteOnTermination} (serializers.go awsEc2query_serializeDocumentInstanceBlockDeviceMappingSpecification).
+func parseBlockDeviceUpdates(vals url.Values) []BlockDeviceUpdate {
+	var updates []BlockDeviceUpdate
+
+	for i := 1; ; i++ {
+		prefix := fmt.Sprintf("BlockDeviceMapping.%d.", i)
+		device, volume := vals.Get(prefix+"DeviceName"), vals.Get(prefix+"Ebs.VolumeId")
+		delTerm, hasDel := vals[prefix+"Ebs.DeleteOnTermination"]
+
+		if device == "" && volume == "" && !hasDel {
+			return updates
+		}
+
+		u := BlockDeviceUpdate{DeviceName: device, VolumeID: volume}
+		if hasDel && len(delTerm) > 0 {
+			v := delTerm[0] == ec2BooleanTrue
+			u.DeleteOnTermination = &v
+		}
+
+		updates = append(updates, u)
+	}
 }
 
 type modifyInstanceAttributeResponse struct {

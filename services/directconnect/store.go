@@ -58,6 +58,8 @@ type InMemoryBackend struct {
 	registry          *store.Registry
 
 	ec2Resolver EC2GatewayResolver
+	baseCtx     context.Context
+	gatewayHome *InMemoryBackend
 
 	mu             *lockmetrics.RWMutex
 	work           *worker.Group
@@ -82,6 +84,7 @@ func NewInMemoryBackend(ctx context.Context, accountID, region string) *InMemory
 		region:         region,
 		mu:             lockmetrics.New("directconnect"),
 		work:           worker.NewGroup(ctx, "directconnect"),
+		baseCtx:        ctx,
 		nextPrivateAsn: privateAsnRangeStart,
 	}
 	registerAllTables(b)

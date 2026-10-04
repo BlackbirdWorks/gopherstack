@@ -3,6 +3,7 @@ package main
 import (
 	"go/ast"
 	"go/token"
+	"maps"
 	"strconv"
 	"strings"
 )
@@ -17,11 +18,19 @@ import (
 // "targeted, not blanket" reasoning. The map value is the field's own
 // (unnormalized) SDK name, so a match can be recorded keyed the way
 // findMissing looks it up.
-func formFieldKeys(fields []sdkField) map[string]string {
+func formFieldKeys(op sdkOp) map[string]string {
+	fields := op.Fields
+
 	out := make(map[string]string, len(fields)*2) //nolint:mnd // rough capacity hint, not a meaningful constant
 
 	for _, f := range fields {
 		out[normalizeWireName(f.Name)] = f.Name
+
+		for _, w := range op.WireKeys[f.Name] {
+			if _, exists := out[normalizeWireName(w)]; !exists {
+				out[normalizeWireName(w)] = f.Name
+			}
+		}
 
 		if sing, ok := singularVariant(f.Name); ok {
 			key := normalizeWireName(sing)
@@ -53,27 +62,19 @@ func singularVariant(name string) (string, bool) {
 	}
 }
 
-// urlValuesParamNames returns the names of every url.Values-holding local
-// in fl: a direct PARAMETER of that type (`vals url.Values`, `form
-// url.Values`, `q url.Values`), and a local reassigned from one via
-// `q := c.Request().URL.Query()` (lambda's durable-execution family reads
-// this way: `q := c.Request().URL.Query(); ... q.Get("ReverseOrder")`,
-// even indexing it directly as `q["Statuses"]` -- matchFormReadCall's
-// helper-call path still only fires for a genuine url.Values PARAMETER,
-// since a package-level helper's own signature can't have been written
-// against a local this scan only discovers by reading the caller).
-func urlValuesParamNames(fl funcLike) map[string]bool {
+// urlValuesParamNames returns url.Values-typed params plus locals assigned
+// from one (see addURLValuesReassignments).
+func urlValuesParamNames(fl funcLike, ctx handlerResolveCtx) map[string]bool {
 	out := map[string]bool{}
 
 	addURLValuesParams(fl.Params, out)
-	addURLValuesReassignments(fl.Body, out)
+	addURLValuesReassignments(fl.Body, ctx, out)
 
 	return out
 }
 
 // addURLValuesParams records the names of fl's direct url.Values-typed
-// parameters into out. Split out of urlValuesParamNames to keep that
-// function's cognitive complexity under the gocognit limit.
+// parameters into out.
 func addURLValuesParams(params *ast.FieldList, out map[string]bool) {
 	if params == nil {
 		return
@@ -90,33 +91,54 @@ func addURLValuesParams(params *ast.FieldList, out map[string]bool) {
 	}
 }
 
-// addURLValuesReassignments records the names of locals in body reassigned
-// from a `.Query()` call (e.g. `q := c.Request().URL.Query()`) into out.
-// Split out of urlValuesParamNames to keep that function's cognitive
-// complexity under the gocognit limit.
-func addURLValuesReassignments(body *ast.BlockStmt, out map[string]bool) {
+// addURLValuesReassignments records locals assigned a url.Values (Query(),
+// ParseQuery, ParseFormBody, r.Form, or a func returning one).
+func addURLValuesReassignments(body *ast.BlockStmt, ctx handlerResolveCtx, out map[string]bool) {
 	if body == nil {
 		return
 	}
 
 	ast.Inspect(body, func(n ast.Node) bool {
 		as, ok := n.(*ast.AssignStmt)
-		if !ok || len(as.Lhs) != 1 || len(as.Rhs) != 1 {
+		if !ok || len(as.Rhs) != 1 || len(as.Lhs) == 0 {
 			return true
 		}
 
-		call, ok := as.Rhs[0].(*ast.CallExpr)
-		if !ok || !isURLQueryCall(call) {
-			return true
-		}
-
-		if id, isIdent := as.Lhs[0].(*ast.Ident); isIdent && id.Name != "_" {
+		if id, isIdent := as.Lhs[0].(*ast.Ident); isIdent && id.Name != "_" && yieldsURLValues(as.Rhs[0], ctx) {
 			out[id.Name] = true
 		}
 
 		return true
 	})
 }
+
+func isURLValuesProducer(name string) bool {
+	return name == "ParseQuery" || name == "ParseFormBody"
+}
+
+func yieldsURLValues(rhs ast.Expr, ctx handlerResolveCtx) bool {
+	switch e := rhs.(type) {
+	case *ast.SelectorExpr:
+		return e.Sel.Name == "Form" || e.Sel.Name == "PostForm"
+	case *ast.CallExpr:
+		if isURLQueryCall(e) {
+			return true
+		}
+
+		if sel, ok := e.Fun.(*ast.SelectorExpr); ok && isURLValuesProducer(sel.Sel.Name) {
+			return true
+		}
+
+		fd := lookupFuncDecl(e.Fun, ctx)
+
+		return fd != nil && fd.Type.Results != nil && len(fd.Type.Results.List) > 0 &&
+			isURLValuesType(fd.Type.Results.List[0].Type)
+	default:
+		return false
+	}
+}
+
+const methodGet = "Get"
 
 func isURLValuesType(t ast.Expr) bool {
 	sel, ok := t.(*ast.SelectorExpr)
@@ -183,15 +205,8 @@ func matchFormReadCall(
 	matchFormHelperCall(call, urlValuesNames, formKeys, ctx, res, localLits, chainVisited)
 }
 
-// matchFormGetCall matches `vals.Get("Name")` -- either vals is a
-// url.Values-typed parameter/reassigned-local of the function being
-// scanned (urlValuesNames, PascalCase query-protocol convention -- keeps
-// addFormReadLiteral's uppercase-first-letter gate), or the receiver IS
-// itself the `.Query()` call (apigatewayv2's fully inline
-// `c.Request().URL.Query().Get("basepath")`, no intermediate variable at
-// all -- this repo's non-query-protocol services spell these camelCase, so
-// that gate is dropped for this branch; formKeys' own per-op scoping is
-// still the real safety net either way).
+// matchFormGetCall matches `vals.Get(key)` on a url.Values local or an inline
+// `.Query().Get(key)`; key may be a literal, local prefix or package const.
 func matchFormGetCall(
 	call *ast.CallExpr,
 	urlValuesNames map[string]bool,
@@ -200,7 +215,7 @@ func matchFormGetCall(
 	localLits map[string]string,
 ) bool {
 	sel, ok := call.Fun.(*ast.SelectorExpr)
-	if !ok || sel.Sel.Name != "Get" || len(call.Args) == 0 {
+	if !ok || sel.Sel.Name != methodGet || len(call.Args) == 0 {
 		return false
 	}
 
@@ -216,29 +231,14 @@ func matchFormGetCall(
 			return false
 		}
 
-		return matchWireLiteral(call.Args[0], formKeys, res, false)
+		return matchExprLiteral(call.Args[0], formKeys, res, false, localLits)
 	default:
 		return false
 	}
 }
 
-// matchFormHelperCall matches a call to a package-level helper whose own
-// first parameter is url.Values -- ec2's `parseMemberList(vals, "KeyName")`
-// shape, and its equivalents across the other affected services. When the
-// helper resolves, its own body is chased too (scanURLValuesFuncBody) --
-// rds's handleDescribeDBInstances calls the generic paginateDescribe(vals,
-// ...) directly, which itself calls parseDescribePagination(vals), whose
-// OWN body reads `vals.Get("MaxRecords")`: two calls from the handler,
-// past scanBody's single-hop cap on every OTHER decode signal. Chasing
-// this chain has no depth limit (chainVisited only guards against a
-// cycle) because, unlike scanBody's return-type struct resolution --
-// capped at one hop specifically to avoid gopherstack-id70's
-// same-named-different-receiver hazard -- every step here is gated by
-// three independent conditions regardless of depth: the callee's own
-// first parameter must be url.Values (structural), the caller must pass
-// one of its OWN already-confirmed url.Values locals into it (dataflow),
-// and a match still only counts against THIS operation's own SDK field
-// names (formKeys).
+// matchFormHelperCall follows a call that hands the caller's url.Values to a
+// helper, scanning the helper body (cycle-guarded) for reads of this op's keys.
 func matchFormHelperCall(
 	call *ast.CallExpr,
 	urlValuesNames map[string]bool,
@@ -248,31 +248,8 @@ func matchFormHelperCall(
 	localLits map[string]string,
 	chainVisited map[*ast.FuncDecl]bool,
 ) {
-	fn, ok := call.Fun.(*ast.Ident)
-	if !ok {
-		return
-	}
-
-	fd, ok := ctx.funcs[fn.Name]
-	if !ok || fd.Type == nil || fd.Type.Params == nil || len(fd.Type.Params.List) == 0 {
-		return
-	}
-
-	if !isURLValuesType(fd.Type.Params.List[0].Type) {
-		return
-	}
-
-	passesURLValues := false
-
-	for _, arg := range call.Args {
-		if id, isIdent := arg.(*ast.Ident); isIdent && urlValuesNames[id.Name] {
-			passesURLValues = true
-
-			break
-		}
-	}
-
-	if !passesURLValues {
+	fd := resolveFormHelper(call, ctx, urlValuesNames)
+	if fd == nil {
 		return
 	}
 
@@ -281,6 +258,55 @@ func matchFormHelperCall(
 	}
 
 	scanURLValuesFuncBody(fd, ctx, formKeys, res, chainVisited)
+}
+
+// resolveFormHelper finds the callee whose url.Values parameter, at any
+// position, receives one of the caller's own url.Values locals.
+func resolveFormHelper(call *ast.CallExpr, ctx handlerResolveCtx, urlValuesNames map[string]bool) *ast.FuncDecl {
+	var cands []*ast.FuncDecl
+
+	switch fn := call.Fun.(type) {
+	case *ast.Ident:
+		if fd, ok := ctx.funcs[fn.Name]; ok {
+			cands = append(cands, fd)
+		}
+	case *ast.SelectorExpr:
+		if _, isIdent := fn.X.(*ast.Ident); isIdent {
+			cands = ctx.methods[fn.Sel.Name]
+		}
+	}
+
+	for _, fd := range cands {
+		if passesURLValuesArg(fd, call, urlValuesNames) {
+			return fd
+		}
+	}
+
+	return nil
+}
+
+func passesURLValuesArg(fd *ast.FuncDecl, call *ast.CallExpr, urlValuesNames map[string]bool) bool {
+	if fd.Type == nil || fd.Type.Params == nil {
+		return false
+	}
+
+	pos := 0
+
+	for _, field := range fd.Type.Params.List {
+		width := max(len(field.Names), 1)
+
+		for i := range width {
+			if isURLValuesType(field.Type) && pos+i < len(call.Args) {
+				if id, ok := call.Args[pos+i].(*ast.Ident); ok && urlValuesNames[id.Name] {
+					return true
+				}
+			}
+		}
+
+		pos += width
+	}
+
+	return false
 }
 
 // scanURLValuesFuncBody walks fd's own body for Get() calls and further
@@ -301,14 +327,18 @@ func scanURLValuesFuncBody(
 
 	chainVisited[fd] = true
 
-	ownNames := map[string]bool{}
-	addURLValuesParams(fd.Type.Params, ownNames)
+	ownNames := urlValuesParamNames(fromFuncDecl(fd), ctx)
 
 	if len(ownNames) == 0 {
 		return
 	}
 
-	localLits := map[string]string{}
+	localLits := maps.Clone(ctx.pkgConsts)
+	if localLits == nil {
+		localLits = map[string]string{}
+	}
+
+	matchDynamicKeyTable(fd.Body, ownNames, formKeys, res)
 
 	ast.Inspect(fd.Body, func(n ast.Node) bool {
 		if as, ok := n.(*ast.AssignStmt); ok {
@@ -329,27 +359,13 @@ func scanURLValuesFuncBody(
 	})
 }
 
-// addFormReadLiteral checks a call-argument expression for a wire-name
-// prefix matching one of formKeys, either whole (a scalar field, or a
-// plural field's singular member prefix: "KeyName" matching declared
-// "KeyNames") or by its first dot-segment (a nested-prefix read like
-// "AssociationTarget.InstanceId", matched against the top-level
-// "AssociationTarget" field this scan is scoped to -- see the package doc,
-// this tool only ever compares top-level Input fields). Requires an
-// uppercase-ASCII first letter, since every AWS wire/query-param name in
-// this repo's query-protocol services is PascalCase; a lowercase literal is
-// never a wire key and is excluded before it can collide with anything.
-// The argument need not be a plain string literal -- see
-// resolveLiteralPrefix.
+// addFormReadLiteral matches a call argument against formKeys, whole or by
+// its first dot-segment ("AssociationTarget.InstanceId" -> AssociationTarget).
 func addFormReadLiteral(arg ast.Expr, formKeys map[string]string, res *opResolution, localLits map[string]string) bool {
-	return matchExprLiteral(arg, formKeys, res, true, localLits)
+	return matchExprLiteral(arg, formKeys, res, false, localLits)
 }
 
-// matchExprLiteral is addFormReadLiteral's shared core: resolve arg to a
-// literal prefix (resolveLiteralPrefix, which -- unlike a plain
-// *ast.BasicLit check -- follows an fmt.Sprintf format string or a local
-// variable built from string concatenation) and match it the same way
-// matchWireLiteral does.
+// matchExprLiteral resolves arg to a literal prefix and matches it against formKeys.
 func matchExprLiteral(
 	arg ast.Expr,
 	formKeys map[string]string,
@@ -466,28 +482,7 @@ func recordLocalPrefixAssign(as *ast.AssignStmt, localLits map[string]string) {
 	}
 }
 
-// matchWireLiteral is matchLiteralString's plain-*ast.BasicLit-only
-// entry point, used where an fmt.Sprintf/concatenation prefix is not a
-// shape this repo exhibits (a header read, the fully chained
-// `.Query().Get(lit)` case) -- resolveLiteralPrefix's Ident/BinaryExpr/
-// Sprintf following is deliberately not used here, since neither call
-// site has a localLits map of its own to resolve against.
-func matchWireLiteral(arg ast.Expr, formKeys map[string]string, res *opResolution, requireUpper bool) bool {
-	lit, ok := arg.(*ast.BasicLit)
-	if !ok || lit.Kind != token.STRING {
-		return false
-	}
-
-	s, err := strconv.Unquote(lit.Value)
-	if err != nil || s == "" {
-		return false
-	}
-
-	return matchLiteralString(s, formKeys, res, requireUpper)
-}
-
-// matchLiteralString is matchWireLiteral's and matchExprLiteral's shared
-// matching core, parameterized on whether an uppercase first letter is
+// matchLiteralString is matchExprLiteral's matching core, parameterized on whether an uppercase first letter is
 // required -- dropped for the non-query-protocol read shapes (a fully
 // chained `.Query().Get(lit)` with no url.Values receiver, a header read)
 // whose camelCase/mixed-case conventions would never pass that gate at
@@ -556,7 +551,7 @@ func stripHeaderPrefix(name string) string {
 // an unrelated reason is not a shape this repo's HTTP handlers exhibit.
 func isHeaderGetCall(call *ast.CallExpr) bool {
 	sel, ok := call.Fun.(*ast.SelectorExpr)
-	if !ok || sel.Sel.Name != "Get" {
+	if !ok || sel.Sel.Name != methodGet {
 		return false
 	}
 
@@ -565,23 +560,15 @@ func isHeaderGetCall(call *ast.CallExpr) bool {
 	return ok && inner.Sel.Name == "Header"
 }
 
-// matchHeaderReadCall recognises a header read keyed by op's own SDK field
-// names (formKeys, the same per-op candidate set formreads.go's
-// query-protocol matching uses) after stripping a known header prefix --
-// "X-Amz-Acl" strips to "Acl", which normalizes to match a declared "ACL"
-// field.
-func matchHeaderReadCall(call *ast.CallExpr, formKeys map[string]string, res *opResolution) {
+// matchHeaderReadCall matches a header read (literal or package const) against
+// formKeys after stripping an X-Amz- style prefix.
+func matchHeaderReadCall(call *ast.CallExpr, formKeys map[string]string, ctx handlerResolveCtx, res *opResolution) {
 	if len(formKeys) == 0 || !isHeaderGetCall(call) || len(call.Args) == 0 {
 		return
 	}
 
-	lit, ok := call.Args[0].(*ast.BasicLit)
-	if !ok || lit.Kind != token.STRING {
-		return
-	}
-
-	s, err := strconv.Unquote(lit.Value)
-	if err != nil || s == "" {
+	s, ok := resolveLiteralPrefix(call.Args[0], ctx.pkgConsts)
+	if !ok || s == "" {
 		return
 	}
 

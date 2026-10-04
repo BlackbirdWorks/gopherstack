@@ -84,6 +84,7 @@ type AutoMLChannel struct {
 type AutoMLJob struct {
 	CreationTime             time.Time               `json:"CreationTime"`
 	LastModifiedTime         time.Time               `json:"LastModifiedTime"`
+	EndTime                  *time.Time              `json:"EndTime,omitempty"`
 	Tags                     map[string]string       `json:"Tags,omitempty"`
 	OutputDataConfig         *AutoMLOutputDataConfig `json:"OutputDataConfig,omitempty"`
 	AutoMLJobObjective       *AutoMLJobObjective     `json:"AutoMLJobObjective,omitempty"`
@@ -104,6 +105,11 @@ type AutoMLJob struct {
 func cloneAutoMLJob(j *AutoMLJob) *AutoMLJob {
 	cp := *j
 	cp.Tags = maps.Clone(j.Tags)
+
+	if j.EndTime != nil {
+		et := *j.EndTime
+		cp.EndTime = &et
+	}
 
 	if j.InputDataConfig != nil {
 		cp.InputDataConfig = append([]AutoMLChannel{}, j.InputDataConfig...)
@@ -158,10 +164,12 @@ func (j *AutoMLJob) MarshalJSON() ([]byte, error) {
 
 	return json.Marshal(struct {
 		*alias
-		CreationTime     float64 `json:"CreationTime"`
-		LastModifiedTime float64 `json:"LastModifiedTime"`
+		EndTime          *float64 `json:"EndTime,omitempty"`
+		CreationTime     float64  `json:"CreationTime"`
+		LastModifiedTime float64  `json:"LastModifiedTime"`
 	}{
 		alias:            (*alias)(j),
+		EndTime:          epochSecondsPtr(j.EndTime),
 		CreationTime:     epochSeconds(j.CreationTime),
 		LastModifiedTime: epochSeconds(j.LastModifiedTime),
 	})
@@ -174,8 +182,9 @@ func (j *AutoMLJob) UnmarshalJSON(data []byte) error {
 
 	aux := struct {
 		*alias
-		CreationTime     float64 `json:"CreationTime"`
-		LastModifiedTime float64 `json:"LastModifiedTime"`
+		EndTime          *float64 `json:"EndTime,omitempty"`
+		CreationTime     float64  `json:"CreationTime"`
+		LastModifiedTime float64  `json:"LastModifiedTime"`
 	}{alias: (*alias)(j)}
 
 	if err := json.Unmarshal(data, &aux); err != nil {
@@ -184,6 +193,7 @@ func (j *AutoMLJob) UnmarshalJSON(data []byte) error {
 
 	j.CreationTime = timeFromEpochSeconds(aux.CreationTime)
 	j.LastModifiedTime = timeFromEpochSeconds(aux.LastModifiedTime)
+	j.EndTime = timeFromEpochSecondsPtr(aux.EndTime)
 
 	return nil
 }
@@ -276,6 +286,8 @@ func (b *InMemoryBackend) StopAutoMLJob(ctx context.Context, name string) error 
 			j2.AutoMLJobStatus = pipelineStatusStopped
 			j2.AutoMLJobSecondaryStatus = pipelineStatusStopped
 			j2.LastModifiedTime = time.Now()
+			ended := j2.LastModifiedTime
+			j2.EndTime = &ended
 		}
 	})
 
@@ -361,6 +373,8 @@ func (b *InMemoryBackend) SetAutoMLJobExtras(
 	objective *AutoMLJobObjective,
 	inputDataConfig []AutoMLChannel,
 	modelDeployConfig *ModelDeployConfig,
+	dataSplitConfig *AutoMLDataSplitConfig,
+	securityConfig *AutoMLSecurityConfig,
 ) error {
 	b.mu.Lock("SetAutoMLJobExtras")
 	defer b.mu.Unlock()
@@ -389,6 +403,16 @@ func (b *InMemoryBackend) SetAutoMLJobExtras(
 	if modelDeployConfig != nil {
 		mdc := *modelDeployConfig
 		j.ModelDeployConfig = &mdc
+	}
+
+	if dataSplitConfig != nil {
+		dsc := *dataSplitConfig
+		j.DataSplitConfig = &dsc
+	}
+
+	if securityConfig != nil {
+		sc := *securityConfig
+		j.SecurityConfig = &sc
 	}
 
 	return nil

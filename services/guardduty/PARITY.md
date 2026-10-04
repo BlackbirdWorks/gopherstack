@@ -953,3 +953,15 @@ Gates: `go build ./...`, `go vet ./services/guardduty/...`, `go test -race
 -count=1 ./services/guardduty/...` (pass), `golangci-lint run
 ./services/guardduty/...` (0 issues). No persisted field changed, no
 snapshot version bump.
+
+## 2026-10-03 (gopherstack-uox6, value-semantics sweep)
+
+FIXED: UntagResource hand-split the raw query string and never percent-decoded `tagKeys`, so keys with `:`, space, `/` or `&` were never removed. Now parsed with `url.ParseQuery`. Proven by `untag_encoded_keys_test.go` (fails against the old parser).
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+guardduty is region-isolated: Detectors, filters, IP sets, threat sets, members and plans live per region (each region has its own detector). The Organizations lookup is shared. Tagging bridge covers every region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/guardduty`. Limitation: the dashboard shows the home region only.
+
+## 2026-10-04 (gopherstack-nz6pn, soft-deleted IP and threat intel sets)
+
+FIXED: DeleteIPSet/DeleteThreatIntelSet removed the set outright, so the Terraform provider's delete waiter (target status DELETED) got a 404 from GetIPSet/GetThreatIntelSet, aborted `destroy`, and left the detector behind (the next CreateDetector hit 409). Deleted sets now stay readable with status DELETED, are hidden from List*, free their name, and reject Update/Delete as not found; DeleteDetector still purges them. Proof: `TestIPSet_CRUD/delete_ipset`, `TestThreatIntelSet_CRUD/delete_threatintelset`, and `go test ./test/terraform/ -run '(?i)guardduty' -count=2`.

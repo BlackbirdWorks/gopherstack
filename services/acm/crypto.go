@@ -308,12 +308,8 @@ func generateKey(keyAlgorithm string) (any, any, string, error) {
 
 	switch keyAlgorithm {
 	case keyAlgorithmRSA1024:
-		// RSA_1024 is a valid KeyAlgorithm enum value on the wire (imported
-		// certificates only) but is rejected here as a client input error
-		// (ValidationException/400), not surfaced as an unwrapped internal
-		// error (which would previously escape handleOpError's known-error
-		// switch and be reported as a 500 InternalFailure).
-		return nil, nil, "", fmt.Errorf("%w: %w", ErrInvalidParameter, errWeakKey)
+		// Callers wrap errWeakKey with their own operation's invalid-input sentinel.
+		return nil, nil, "", errWeakKey
 	case keyAlgorithmRSA2048:
 		privRSA, rsaErr := rsa.GenerateKey(cryptorand.Reader, rsa2048)
 		if rsaErr != nil {

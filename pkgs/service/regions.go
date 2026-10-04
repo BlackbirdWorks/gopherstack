@@ -8,7 +8,10 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 )
+
+const maxKnownRegions = 256
 
 //nolint:gochecknoglobals // process-wide set of regions seen across all services; fed by RegionTrackingMiddleware
 var (
@@ -20,7 +23,7 @@ var (
 // checks under RLock first so the steady-state hot path (the region has
 // already been recorded) never contends for the write lock.
 func RecordRegion(region string) {
-	if region == "" {
+	if !regionpeers.ValidRegion(region) {
 		return
 	}
 
@@ -33,7 +36,9 @@ func RecordRegion(region string) {
 	}
 
 	regionsMu.Lock("RecordRegion")
-	knownRegions[region] = struct{}{}
+	if len(knownRegions) < maxKnownRegions {
+		knownRegions[region] = struct{}{}
+	}
 	regionsMu.Unlock()
 }
 

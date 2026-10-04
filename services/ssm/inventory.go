@@ -3,6 +3,7 @@ package ssm
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"strconv"
@@ -77,6 +78,10 @@ func (b *InMemoryBackend) GetInventory(
 	ctx context.Context,
 	input *GetInventoryInput,
 ) (*GetInventoryOutput, error) {
+	if err := validateQueryFilters(input.Filters, true); err != nil {
+		return nil, err
+	}
+
 	region := getRegion(ctx)
 	b.mu.RLock("GetInventory")
 	defer b.mu.RUnlock()
@@ -84,6 +89,10 @@ func (b *InMemoryBackend) GetInventory(
 	store := b.inventoryStore(region)
 	entities := make([]InventoryResultEntity, 0, len(store))
 	for instanceID, items := range store {
+		if !inventoryItemsMatch(items, input.Filters) {
+			continue
+		}
+
 		data := make(map[string]InventoryTypeData, len(items))
 		for _, item := range items {
 			data[item.TypeName] = InventoryTypeData{
@@ -181,6 +190,31 @@ func (b *InMemoryBackend) GetInventorySchema(
 	return &GetInventorySchemaOutput{Schemas: filtered}, nil
 }
 
+// matchingInventoryEntries returns copies of typeName's content entries that satisfy filters.
+func matchingInventoryEntries(
+	items []InventoryItem,
+	typeName string,
+	filters []QueryFilter,
+) ([]map[string]string, string, string) {
+	entries := []map[string]string{}
+
+	for _, item := range items {
+		if item.TypeName != typeName {
+			continue
+		}
+
+		for _, entry := range item.Content {
+			if inventoryEntryMatches(typeName, entry, filters) {
+				entries = append(entries, maps.Clone(entry))
+			}
+		}
+
+		return entries, item.CaptureTime, item.SchemaVersion
+	}
+
+	return entries, "", ""
+}
+
 // ListInventoryEntries returns stored inventory entries for an instance and type.
 func (b *InMemoryBackend) ListInventoryEntries(
 	ctx context.Context,
@@ -198,6 +232,10 @@ func (b *InMemoryBackend) ListInventoryEntries(
 		}
 	}
 
+	if err := validateQueryFilters(input.Filters, true); err != nil {
+		return nil, err
+	}
+
 	region := getRegion(ctx)
 	b.mu.RLock("ListInventoryEntries")
 	defer b.mu.RUnlock()
@@ -211,23 +249,7 @@ func (b *InMemoryBackend) ListInventoryEntries(
 		}, nil
 	}
 
-	var entries []map[string]string
-
-	var captureTime, schemaVersion string
-
-	for _, item := range items {
-		if item.TypeName == input.TypeName {
-			entries = append(entries, item.Content...)
-			captureTime = item.CaptureTime
-			schemaVersion = item.SchemaVersion
-
-			break
-		}
-	}
-
-	if entries == nil {
-		entries = []map[string]string{}
-	}
+	entries, captureTime, schemaVersion := matchingInventoryEntries(items, input.TypeName, input.Filters)
 
 	startIdx := parseNextToken(input.NextToken)
 	limit := int64(maxInventoryEntries)
@@ -494,11 +516,27 @@ func mergeComplianceItemsByID(
 	return kept
 }
 
+func complianceListMatches(item ComplianceItem, input *ListComplianceItemsInput) bool {
+	if len(input.ResourceIDs) > 0 && !slices.Contains(input.ResourceIDs, item.ResourceID) {
+		return false
+	}
+
+	if len(input.ResourceTypes) > 0 && !slices.Contains(input.ResourceTypes, item.ResourceType) {
+		return false
+	}
+
+	return complianceItemMatches(item, input.Filters)
+}
+
 // ListComplianceItems returns stored compliance items, optionally filtered by ResourceId/ResourceType.
 func (b *InMemoryBackend) ListComplianceItems(
 	ctx context.Context,
 	input *ListComplianceItemsInput,
 ) (*ListComplianceItemsOutput, error) {
+	if err := validateQueryFilters(input.Filters, false); err != nil {
+		return nil, err
+	}
+
 	region := getRegion(ctx)
 	b.mu.RLock("ListComplianceItems")
 	defer b.mu.RUnlock()
@@ -507,15 +545,9 @@ func (b *InMemoryBackend) ListComplianceItems(
 
 	for _, items := range b.compliance[region] {
 		for _, item := range items {
-			if len(input.ResourceIDs) > 0 && !slices.Contains(input.ResourceIDs, item.ResourceID) {
-				continue
+			if complianceListMatches(item, input) {
+				all = append(all, item)
 			}
-
-			if len(input.ResourceTypes) > 0 && !slices.Contains(input.ResourceTypes, item.ResourceType) {
-				continue
-			}
-
-			all = append(all, item)
 		}
 	}
 
@@ -617,10 +649,14 @@ func severityRank(severity string) int {
 
 // buildComplianceTallies accumulates compliant/non-compliant item counts and
 // their per-severity breakdown per ComplianceType.
-func buildComplianceTallies(store map[string][]ComplianceItem) map[string]*complianceTally {
+func buildComplianceTallies(store map[string][]ComplianceItem, filters []QueryFilter) map[string]*complianceTally {
 	tallies := make(map[string]*complianceTally)
 	for _, items := range store {
 		for _, item := range items {
+			if !complianceItemMatches(item, filters) {
+				continue
+			}
+
 			ct := item.ComplianceType
 			if ct == "" {
 				ct = "Custom"
@@ -646,11 +682,15 @@ func (b *InMemoryBackend) ListComplianceSummaries(
 	ctx context.Context,
 	input *ListComplianceSummariesInput,
 ) (*ListComplianceSummariesOutput, error) {
+	if err := validateQueryFilters(input.Filters, false); err != nil {
+		return nil, err
+	}
+
 	region := getRegion(ctx)
 	b.mu.RLock("ListComplianceSummaries")
 	defer b.mu.RUnlock()
 
-	tallies := buildComplianceTallies(b.compliance[region])
+	tallies := buildComplianceTallies(b.compliance[region], input.Filters)
 
 	summaries := make([]any, 0, len(tallies))
 	for ct, t := range tallies {
@@ -765,6 +805,10 @@ func (b *InMemoryBackend) ListResourceComplianceSummaries(
 	ctx context.Context,
 	input *ListResourceComplianceSummariesInput,
 ) (*ListResourceComplianceSummariesOutput, error) {
+	if err := validateQueryFilters(input.Filters, false); err != nil {
+		return nil, err
+	}
+
 	region := getRegion(ctx)
 	b.mu.RLock("ListResourceComplianceSummaries")
 	defer b.mu.RUnlock()
@@ -772,7 +816,15 @@ func (b *InMemoryBackend) ListResourceComplianceSummaries(
 	store := b.compliance[region]
 	summaries := make([]any, 0, len(store))
 
-	for resourceID, items := range store {
+	for resourceID, all := range store {
+		items := make([]ComplianceItem, 0, len(all))
+
+		for _, item := range all {
+			if complianceItemMatches(item, input.Filters) {
+				items = append(items, item)
+			}
+		}
+
 		if len(items) == 0 {
 			continue
 		}

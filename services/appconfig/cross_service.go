@@ -1,10 +1,40 @@
 package appconfig
 
 import (
+	"context"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 
 	appconfigdatabackend "github.com/blackbirdworks/gopherstack/services/appconfigdata"
+	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 )
+
+type kmsSibling interface {
+	GetKMSHandler() service.Registerable
+}
+
+// resolveKmsKeyArn maps a key ID, alias or ARN to the key's ARN via the KMS backend.
+// An ARN that KMS cannot resolve is returned as-is; anything else yields "".
+func (b *InMemoryBackend) resolveKmsKeyArn(identifier string) string {
+	if identifier == "" {
+		return ""
+	}
+
+	if s, ok := b.appConfig.(kmsSibling); ok {
+		if h, hok := s.GetKMSHandler().(*kmsbackend.Handler); hok && h != nil && h.Backend != nil {
+			out, err := h.Backend.DescribeKey(context.Background(), &kmsbackend.DescribeKeyInput{KeyID: identifier})
+			if err == nil && out != nil && out.KeyMetadata.Arn != "" {
+				return out.KeyMetadata.Arn
+			}
+		}
+	}
+
+	if len(identifier) > len("arn:") && identifier[:4] == "arn:" {
+		return identifier
+	}
+
+	return ""
+}
 
 // siblingServices is the subset of *CLI's method set this backend needs: the
 // AppConfigData backend, so DeleteEnvironment/DeleteConfigurationProfile's
@@ -45,5 +75,5 @@ func (b *InMemoryBackend) appConfigDataBackend() (appconfigdatabackend.StorageBa
 		return nil, false
 	}
 
-	return h.Backend, true
+	return h.BackendFor(b.region), true
 }

@@ -171,7 +171,7 @@ func (b *InMemoryBackend) CreateCallAnalyticsCategory(input *CallAnalyticsCatego
 	cat.CreateTime = now
 	cat.LastUpdateTime = now
 	b.callAnalyticsCategories.Put(&cat)
-	b.recordResourceTagsLocked(resourceARN(resourceTypeCallAnalyticsCategory, cat.CategoryName), cat.Tags)
+	b.recordResourceTagsLocked(b.resourceARN(resourceTypeCallAnalyticsCategory, cat.CategoryName), cat.Tags)
 
 	cp := cat
 
@@ -191,7 +191,7 @@ func (b *InMemoryBackend) DeleteCallAnalyticsCategory(categoryName string) error
 		return fmt.Errorf("%w: category %s not found", ErrNotFound, categoryName)
 	}
 
-	b.forgetResourceTagsLocked(resourceARN(resourceTypeCallAnalyticsCategory, categoryName))
+	b.forgetResourceTagsLocked(b.resourceARN(resourceTypeCallAnalyticsCategory, categoryName))
 
 	return nil
 }
@@ -218,7 +218,7 @@ func (b *InMemoryBackend) GetCallAnalyticsCategory(
 	}
 
 	cp := *cat
-	cp.Tags = b.liveTagsLocked(resourceARN(resourceTypeCallAnalyticsCategory, categoryName))
+	cp.Tags = b.liveTagsLocked(b.resourceARN(resourceTypeCallAnalyticsCategory, categoryName))
 
 	return &cp, nil
 }
@@ -264,7 +264,7 @@ func (b *InMemoryBackend) ListCallAnalyticsCategories(
 	all := make([]CallAnalyticsCategory, 0, b.callAnalyticsCategories.Len())
 	for _, c := range b.callAnalyticsCategories.All() {
 		cp := *c
-		cp.Tags = b.liveTagsLocked(resourceARN(resourceTypeCallAnalyticsCategory, c.CategoryName))
+		cp.Tags = b.liveTagsLocked(b.resourceARN(resourceTypeCallAnalyticsCategory, c.CategoryName))
 		all = append(all, cp)
 	}
 
@@ -307,7 +307,7 @@ func (b *InMemoryBackend) StartCallAnalyticsJob(input *CallAnalyticsJob) (*CallA
 	job.StartTime = now
 	job.CompletionTime = now
 	b.callAnalyticsJobs.Put(&job)
-	b.recordResourceTagsLocked(resourceARN(resourceTypeCallAnalyticsJob, job.CallAnalyticsJobName), job.Tags)
+	b.recordResourceTagsLocked(b.resourceARN(resourceTypeCallAnalyticsJob, job.CallAnalyticsJobName), job.Tags)
 
 	cp := job
 
@@ -325,7 +325,7 @@ func (b *InMemoryBackend) GetCallAnalyticsJob(jobName string) (*CallAnalyticsJob
 	}
 
 	cp := *job
-	cp.Tags = b.liveTagsLocked(resourceARN(resourceTypeCallAnalyticsJob, jobName))
+	cp.Tags = b.liveTagsLocked(b.resourceARN(resourceTypeCallAnalyticsJob, jobName))
 
 	return &cp, nil
 }
@@ -367,7 +367,7 @@ func (b *InMemoryBackend) DeleteCallAnalyticsJob(jobName string) error {
 		return fmt.Errorf("%w: call analytics job %s not found", ErrNotFound, jobName)
 	}
 
-	b.forgetResourceTagsLocked(resourceARN(resourceTypeCallAnalyticsJob, jobName))
+	b.forgetResourceTagsLocked(b.resourceARN(resourceTypeCallAnalyticsJob, jobName))
 
 	return nil
 }

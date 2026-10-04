@@ -190,14 +190,16 @@ func (h *Handler) handleCreateAuditSuppression(c *echo.Context) error {
 		ResourceIdentifier   map[string]any `json:"resourceIdentifier"`
 		CheckName            string         `json:"checkName"`
 		Description          string         `json:"description"`
+		ClientRequestToken   string         `json:"clientRequestToken"`
 		SuppressIndefinitely bool           `json:"suppressIndefinitely"`
 		ExpirationDate       float64        `json:"expirationDate"`
 	}
 	if err := readBody(c, &req); err != nil {
 		return err
 	}
-	if err := h.Backend.CreateAuditSuppression(
+	if err := h.Backend.CreateAuditSuppressionWithToken(
 		req.CheckName, req.ResourceIdentifier, req.Description, req.SuppressIndefinitely, req.ExpirationDate,
+		req.ClientRequestToken,
 	); err != nil {
 		return respondErr(c, err)
 	}

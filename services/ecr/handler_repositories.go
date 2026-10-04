@@ -3,6 +3,7 @@ package ecr
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
 )
 
 // repositoryView is the JSON representation of a repository.
@@ -67,6 +68,7 @@ func toRepositoryView(r Repository) repositoryView {
 
 // createRepositoryInput is the request body for CreateRepository.
 type createRepositoryInput struct {
+	RegistryID                 string                          `json:"registryId,omitempty"`
 	EncryptionConfiguration    *encryptionConfigurationView    `json:"encryptionConfiguration,omitempty"`
 	ImageScanningConfiguration *imageScanningConfigurationView `json:"imageScanningConfiguration,omitempty"`
 	RepositoryName             string                          `json:"repositoryName"`
@@ -82,6 +84,14 @@ func (h *Handler) handleCreateRepository(
 	ctx context.Context,
 	in *createRepositoryInput,
 ) (*createRepositoryOutput, error) {
+	if h.foreignRegistry(in.RegistryID) {
+		return nil, fmt.Errorf(
+			"%w: registryId %s is not the caller's registry",
+			ErrInvalidRepositoryName,
+			in.RegistryID,
+		)
+	}
+
 	scanOnPush := false
 	if in.ImageScanningConfiguration != nil {
 		scanOnPush = in.ImageScanningConfiguration.ScanOnPush
@@ -117,6 +127,7 @@ func (h *Handler) handleCreateRepository(
 
 // describeRepositoriesInput is the request body for DescribeRepositories.
 type describeRepositoriesInput struct {
+	RegistryID      string   `json:"registryId,omitempty"`
 	NextToken       string   `json:"nextToken,omitempty"`
 	RepositoryNames []string `json:"repositoryNames"`
 	MaxResults      int      `json:"maxResults,omitempty"`
@@ -131,6 +142,14 @@ func (h *Handler) handleDescribeRepositories(
 	ctx context.Context,
 	in *describeRepositoriesInput,
 ) (*describeRepositoriesOutput, error) {
+	if h.foreignRegistry(in.RegistryID) {
+		if len(in.RepositoryNames) > 0 {
+			return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, in.RepositoryNames[0])
+		}
+
+		return &describeRepositoriesOutput{Repositories: []repositoryView{}}, nil
+	}
+
 	repos, err := h.Backend.DescribeRepositories(ctx, in.RepositoryNames)
 	if err != nil {
 		return nil, err

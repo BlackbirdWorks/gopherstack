@@ -190,6 +190,9 @@ func (h *Handler) handleListDomains(ctx context.Context, body []byte) ([]byte, e
 }
 
 type deleteDomainInput struct {
+	RetentionPolicy *struct {
+		HomeEfsFileSystem string `json:"HomeEfsFileSystem"`
+	} `json:"RetentionPolicy"`
 	DomainID string `json:"DomainId"`
 }
 
@@ -202,6 +205,11 @@ func (h *Handler) handleDeleteDomain(ctx context.Context, body []byte) error {
 
 	if req.DomainID == "" {
 		return fmt.Errorf("%w: DomainId is required", errInvalidRequest)
+	}
+
+	if rp := req.RetentionPolicy; rp != nil && rp.HomeEfsFileSystem != "" &&
+		rp.HomeEfsFileSystem != "Retain" && rp.HomeEfsFileSystem != "Delete" {
+		return fmt.Errorf("%w: RetentionPolicy.HomeEfsFileSystem must be Retain or Delete", errInvalidRequest)
 	}
 
 	if err := h.Backend.DeleteDomain(ctx, req.DomainID); err != nil {

@@ -387,6 +387,7 @@ func TestTerraform_Detective(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+			lockDetective(t)
 			runTFTest(t, tc)
 		})
 	}
@@ -483,6 +484,7 @@ func TestTerraform_Macie2(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+			lockMacie2(t)
 			runTFTest(t, tc)
 		})
 	}

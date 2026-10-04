@@ -88,6 +88,7 @@ func (b *InMemoryBackend) CreateAPI(ctx context.Context, input CreateAPIInput) (
 	}
 
 	cp := api
+	cp.Tags = copyTags(api.Tags)
 
 	return &cp, nil
 }
@@ -201,6 +202,7 @@ func (b *InMemoryBackend) GetAPI(apiID string) (*API, error) {
 	}
 
 	cp := *api
+	cp.Tags = copyTags(api.Tags)
 
 	return &cp, nil
 }
@@ -214,7 +216,9 @@ func (b *InMemoryBackend) GetAPIs() ([]API, error) {
 	result := make([]API, 0, len(all))
 
 	for _, api := range all {
-		result = append(result, *api)
+		cp := *api
+		cp.Tags = copyTags(api.Tags)
+		result = append(result, cp)
 	}
 
 	sort.Slice(result, func(i, j int) bool {
@@ -355,6 +359,7 @@ func (b *InMemoryBackend) UpdateAPI(apiID string, input UpdateAPIInput) (*API, e
 	applyQuickCreateUpdateMutateLocked(route, integration, input)
 
 	cp := *api
+	cp.Tags = copyTags(api.Tags)
 
 	return &cp, nil
 }

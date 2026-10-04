@@ -825,3 +825,7 @@ EndpointArn fails. Tier-1 count 3 -> 2 (both disclosed). Gates: `go build
 ./...` (whole module), `go vet`, `go test -race -count=1
 ./services/comprehend/...`, `golangci-lint run --new-from-rev=HEAD` (0
 issues) all clean. No persisted struct fields changed; no version bump.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+comprehend is region-isolated: flywheels, classifiers, recognizers, endpoints and jobs live per region. The tagging bridge follows the region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/comprehend`. Limitation: the dashboard shows the home region only.

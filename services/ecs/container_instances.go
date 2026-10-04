@@ -18,6 +18,8 @@ func (b *InMemoryBackend) RegisterContainerInstance(
 	b.mu.Lock("RegisterContainerInstance")
 	defer b.mu.Unlock()
 
+	b.sweepInactiveContainerInstancesLocked(time.Now())
+
 	b.ensureClusterLocked(clusterName)
 
 	clusterObj, ok := b.clusters.Get(clusterName)
@@ -57,12 +59,15 @@ func (b *InMemoryBackend) DeregisterContainerInstance(
 	b.mu.Lock("DeregisterContainerInstance")
 	defer b.mu.Unlock()
 
+	now := time.Now()
+	b.sweepInactiveContainerInstancesLocked(now)
+
 	if !b.clusters.Has(clusterName) {
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, cluster)
 	}
 
 	ci, ok := b.containerInstances.Get(scopedKey(clusterName, containerInstance))
-	if !ok {
+	if !ok || ci.Status == statusInactive {
 		return nil, fmt.Errorf("%w: container instance %s not found", ErrInvalidParameter, containerInstance)
 	}
 
@@ -77,11 +82,12 @@ func (b *InMemoryBackend) DeregisterContainerInstance(
 		}
 	}
 
-	b.containerInstances.Delete(scopedKey(clusterName, containerInstance))
+	ci.Status = statusInactive
+	ci.InactiveAt = now
+	ci.Version++
 	b.deleteResourceTagsLocked(ci.ContainerInstanceArn)
 
 	cp := *ci
-	cp.Status = statusInactive
 
 	return &cp, nil
 }
@@ -96,6 +102,8 @@ func (b *InMemoryBackend) DescribeContainerInstances(
 	b.mu.RLock("DescribeContainerInstances")
 	defer b.mu.RUnlock()
 
+	now := time.Now()
+
 	if !b.clusters.Has(clusterName) {
 		return nil, nil, fmt.Errorf("%w: %s", ErrClusterNotFound, cluster)
 	}
@@ -104,6 +112,10 @@ func (b *InMemoryBackend) DescribeContainerInstances(
 		instances := b.containerInstancesByCluster.Get(clusterName)
 		out := make([]ContainerInstance, 0, len(instances))
 		for _, ci := range instances {
+			if ci.inactiveExpired(now) {
+				continue
+			}
+
 			out = append(out, b.enrichContainerInstance(ci, clusterName))
 		}
 
@@ -115,7 +127,7 @@ func (b *InMemoryBackend) DescribeContainerInstances(
 
 	for _, ref := range containerInstances {
 		ci, found := b.containerInstances.Get(scopedKey(clusterName, ref))
-		if !found {
+		if !found || ci.inactiveExpired(now) {
 			failures = append(failures, Failure{
 				Arn:    ref,
 				Reason: statusMissing,
@@ -211,6 +223,8 @@ func (b *InMemoryBackend) ListContainerInstances(cluster, status string) ([]stri
 	b.mu.RLock("ListContainerInstances")
 	defer b.mu.RUnlock()
 
+	now := time.Now()
+
 	if !b.clusters.Has(clusterName) {
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, cluster)
 	}
@@ -218,6 +232,10 @@ func (b *InMemoryBackend) ListContainerInstances(cluster, status string) ([]stri
 	instances := b.containerInstancesByCluster.Get(clusterName)
 	arns := make([]string, 0, len(instances))
 	for _, ci := range instances {
+		if ci.inactiveExpired(now) || (status == "" && ci.Status == statusInactive) {
+			continue
+		}
+
 		if status != "" && ci.Status != status {
 			continue
 		}
@@ -260,7 +278,7 @@ func (b *InMemoryBackend) UpdateContainerInstancesState(
 
 	for _, ref := range containerInstances {
 		ci, found := b.containerInstances.Get(scopedKey(clusterName, ref))
-		if !found {
+		if !found || ci.Status == statusInactive {
 			failures = append(failures, Failure{
 				Arn:    ref,
 				Reason: statusMissing,
@@ -411,4 +429,33 @@ func (b *InMemoryBackend) AddAttributeInternal(cluster string, attr *Attribute) 
 
 	key := attributeKey(attr.Name, attr.TargetID)
 	b.attributes[cluster][key] = attr
+}
+
+// inactiveExpired reports whether a deregistered instance is past its retention.
+func (ci *ContainerInstance) inactiveExpired(now time.Time) bool {
+	return ci.Status == statusInactive && !ci.InactiveAt.IsZero() &&
+		now.Sub(ci.InactiveAt) >= inactiveContainerInstanceTTL
+}
+
+// sweepInactiveContainerInstancesLocked evicts deregistered instances past
+// inactiveContainerInstanceTTL. Caller must hold the write lock.
+func (b *InMemoryBackend) sweepInactiveContainerInstancesLocked(now time.Time) {
+	for _, ci := range b.containerInstances.All() {
+		if ci.inactiveExpired(now) {
+			b.containerInstances.Delete(containerInstancesKeyFn(ci))
+		}
+	}
+}
+
+// activeContainerInstanceCountLocked counts instances that are not INACTIVE.
+func (b *InMemoryBackend) activeContainerInstanceCountLocked(clusterName string) int {
+	n := 0
+
+	for _, ci := range b.containerInstancesByCluster.Get(clusterName) {
+		if ci.Status != statusInactive {
+			n++
+		}
+	}
+
+	return n
 }

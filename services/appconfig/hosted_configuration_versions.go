@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -79,6 +80,7 @@ func (b *InMemoryBackend) CreateHostedConfigurationVersion(
 		ContentType:            contentType,
 		Description:            description,
 		VersionLabel:           versionLabel,
+		KmsKeyArn:              b.resolveKmsKeyArn(profile.KmsKeyIdentifier),
 		Content:                content,
 		VersionNumber:          versionNumber,
 		CreatedAt:              time.Now(),
@@ -130,7 +132,7 @@ func (b *InMemoryBackend) ListHostedConfigurationVersions(
 
 	out := make([]HostedConfigurationVersion, 0, len(profileVersions))
 	for _, v := range profileVersions {
-		if versionLabel != "" && v.VersionLabel != versionLabel {
+		if !versionLabelMatches(v.VersionLabel, versionLabel) {
 			continue
 		}
 
@@ -154,6 +156,7 @@ func hostedConfigurationVersionToSummary(v HostedConfigurationVersion) HostedCon
 		ContentType:            v.ContentType,
 		Description:            v.Description,
 		VersionLabel:           v.VersionLabel,
+		KmsKeyArn:              v.KmsKeyArn,
 		VersionNumber:          v.VersionNumber,
 	}
 }
@@ -197,4 +200,18 @@ func (b *InMemoryBackend) DeleteHostedConfigurationVersion(
 	b.hostedConfigVersions.Delete(key)
 
 	return nil
+}
+
+// versionLabelMatches applies ListHostedConfigurationVersions' VersionLabel filter: a trailing
+// "*" is a prefix match, otherwise only an exact match qualifies; empty means no filter.
+func versionLabelMatches(label, filter string) bool {
+	if filter == "" {
+		return true
+	}
+
+	if prefix, ok := strings.CutSuffix(filter, "*"); ok {
+		return strings.HasPrefix(label, prefix)
+	}
+
+	return label == filter
 }

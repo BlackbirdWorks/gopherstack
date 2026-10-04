@@ -14,9 +14,12 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/apigatewaymanagementapi"
 )
@@ -96,10 +99,91 @@ type Handler struct {
 	jwksProvider          JWKSProvider
 	lambdaInvoker         LambdaInvoker
 	managementAPI         apigatewaymanagementapi.StorageBackend
+	managementAPIFor      func(region string) apigatewaymanagementapi.StorageBackend
+	metrics               cwmetric.Sink
 	authCache             *authorizerCache
 	subCollectionDispatch map[subDispatchKey]func(*Handler, *echo.Context, string) error
 	subResourceDispatch   map[subDispatchKey]func(*Handler, *echo.Context, string, string) error
 	httpClient            *http.Client
+	peers                 *regionpeers.Set[Handler]
+	region                string
+}
+
+// EnableRegions makes h serve every other region through lazily built per-region
+// siblings, each with its own backend and authorizer cache.
+func (h *Handler) EnableRegions() {
+	home, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	h.region = home.region
+	h.peers = regionpeers.New(home.region, func(region string) *Handler {
+		nb := NewInMemoryBackend()
+		nb.region = region
+
+		p := NewHandler(nb)
+		p.region = region
+		p.lambdaInvoker, p.jwksProvider = h.lambdaInvoker, h.jwksProvider
+		p.managementAPI, p.httpClient = h.managementAPI, h.httpClient
+		p.managementAPIFor = h.managementAPIFor
+
+		if h.managementAPIFor != nil {
+			p.managementAPI = h.managementAPIFor(region)
+		}
+		p.metrics.Set(h.metrics.Emitter())
+
+		return p
+	})
+}
+
+// BackendFor returns the backend serving region: the home backend, or the sibling
+// for any other region (built on first use).
+func (h *Handler) BackendFor(region string) StorageBackend {
+	if p := h.peers.Get(region); p != nil {
+		return p.Backend
+	}
+
+	return h.Backend
+}
+
+// invokeOwner returns the handler whose backend holds API apiID (h when none does),
+// so data-plane calls, which carry no usable region, reach the API's own region.
+func (h *Handler) invokeOwner(apiID string) *Handler {
+	if _, err := h.Backend.GetAPI(apiID); err == nil {
+		return h
+	}
+
+	for _, p := range h.peers.All() {
+		if _, err := p.Backend.GetAPI(apiID); err == nil {
+			return p
+		}
+	}
+
+	return h
+}
+
+// invokeRequest returns r carrying h's region so execute-api ARNs and hosts name the API's region.
+func (h *Handler) invokeRequest(r *http.Request) *http.Request {
+	if h.region == "" {
+		return r
+	}
+
+	m := *awsmeta.Get(r.Context())
+	m.Region = h.region
+
+	return r.WithContext(awsmeta.Set(r.Context(), &m))
+}
+
+// Reset clears the backend and every regional sibling.
+func (h *Handler) Reset() {
+	if r, ok := h.Backend.(interface{ Reset() }); ok {
+		r.Reset()
+	}
+
+	for _, p := range h.peers.Drain() {
+		p.Reset()
+	}
 }
 
 // NewHandler creates a new API Gateway v2 Handler.
@@ -139,6 +223,12 @@ func (h *Handler) SetJWKSProvider(p JWKSProvider) {
 // SetManagementAPIBackend configures the Management API backend for WebSocket connections.
 func (h *Handler) SetManagementAPIBackend(managementAPI apigatewaymanagementapi.StorageBackend) {
 	h.managementAPI = managementAPI
+}
+
+// SetManagementAPIResolver registers every region's WebSocket connections with that region's Management API.
+func (h *Handler) SetManagementAPIResolver(resolve func(region string) apigatewaymanagementapi.StorageBackend) {
+	h.managementAPIFor = resolve
+	h.managementAPI = resolve(h.region)
 }
 
 // Name returns the service name.
@@ -358,21 +448,33 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.handleStageProxyEcho(c)
 		case isUserRequestPath(path):
 			return h.handleUserRequestEcho(c)
-		case path == domainNamesPrefix || strings.HasPrefix(path, domainNamesPrefix+"/"):
-			return h.handleDomainNamesPath(c, method, path)
-		case path == portalsPrefix || strings.HasPrefix(path, portalsPrefix+"/"):
-			return h.handlePortalsPath(c, method, path)
-		case path == portalProductsPrefix || strings.HasPrefix(path, portalProductsPrefix+"/"):
-			return h.handlePortalProductsPath(c, method, path)
-		case path == vpcLinksPrefix || strings.HasPrefix(path, vpcLinksPrefix+"/"):
-			return h.handleVpcLinksPath(c, method, path)
-		case path == apisPathPrefix || strings.HasPrefix(path, apisPathPrefix+"/"):
-			return h.handleAPIsPath(c, method, path)
-		case strings.HasPrefix(path, tagsPrefix+"/"):
-			return h.handleTagsPath(c, method, path)
-		default:
-			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
+
+		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
+			return p.Handler()(c)
+		}
+
+		return h.servePath(c, method, path)
+	}
+}
+
+// servePath routes a control-plane request to its resource family.
+func (h *Handler) servePath(c *echo.Context, method, path string) error {
+	switch {
+	case path == domainNamesPrefix || strings.HasPrefix(path, domainNamesPrefix+"/"):
+		return h.handleDomainNamesPath(c, method, path)
+	case path == portalsPrefix || strings.HasPrefix(path, portalsPrefix+"/"):
+		return h.handlePortalsPath(c, method, path)
+	case path == portalProductsPrefix || strings.HasPrefix(path, portalProductsPrefix+"/"):
+		return h.handlePortalProductsPath(c, method, path)
+	case path == vpcLinksPrefix || strings.HasPrefix(path, vpcLinksPrefix+"/"):
+		return h.handleVpcLinksPath(c, method, path)
+	case path == apisPathPrefix || strings.HasPrefix(path, apisPathPrefix+"/"):
+		return h.handleAPIsPath(c, method, path)
+	case strings.HasPrefix(path, tagsPrefix+"/"):
+		return h.handleTagsPath(c, method, path)
+	default:
+		return writeErr(c, http.StatusNotFound, msgNotFound)
 	}
 }
 

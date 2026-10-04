@@ -312,19 +312,16 @@ func TestRealClient_DurableExecution(t *testing.T) {
 					},
 				)
 				require.NoError(t, err)
-				// Real-shape round trip proven (decodes cleanly), but this backend
-				// can never return a match: CheckpointDurableExecution is the only
-				// creation path and its request carries no function identity at all
-				// (DurableExecutionArn is client-opaque, "server-never-parses-
-				// structure-from-it" per deriveDurableExecutionName's own doc
-				// comment), so DurableExecution.FunctionARN is never assigned
-				// anywhere in this package -- confirmed by grep, zero write sites.
-				// Same root cause as PARITY.md's documented FunctionArn-always-empty
-				// gap (no StartDurableExecution/Invoke entry point), one step
-				// further: it also makes this entire op permanently return zero
-				// results for any function. Recorded in items_still_open rather
-				// than fixed -- fixing it needs the same out-of-scope Invoke
-				// rewiring that gap already defers.
+				// Real-shape round trip proven (decodes cleanly), but this specific
+				// creation path can never return a match: CheckpointDurableExecution
+				// carries no function identity at all (DurableExecutionArn is
+				// client-opaque, "server-never-parses-structure-from-it" per
+				// deriveDurableExecutionName's own doc comment), so a
+				// checkpoint-only-created execution's FunctionARN stays empty.
+				// Invoke's DurableExecutionName wiring (durable_invoke_test.go) now
+				// DOES assign FunctionARN/Version and makes this op return real
+				// matches for executions started that way -- this case only proves
+				// the CheckpointDurableExecution-only path is unaffected.
 				assert.Empty(t, listOut.DurableExecutions)
 			},
 		},

@@ -7,8 +7,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -39,6 +42,10 @@ func getRegionFromContext(ctx context.Context, defaultRegion string) string {
 		return region
 	}
 
+	if r := awsmeta.Region(ctx); r != "" {
+		return r
+	}
+
 	return defaultRegion
 }
 
@@ -59,6 +66,7 @@ var (
 	ErrRuleNotFound           = errors.New("ResourceNotFoundException")
 	ErrCannotDeleteDefaultBus = errors.New("IllegalArgumentException")
 	ErrInvalidParameter       = errors.New("InvalidParameterException")
+	ErrInvalidEventPattern    = errors.New("InvalidEventPatternException")
 	ErrNotFound               = errors.New("ResourceNotFoundException")
 	ErrAlreadyExists          = errors.New("ResourceAlreadyExistsException")
 	ErrInvalidState           = errors.New("InvalidStateException")
@@ -297,8 +305,9 @@ type StorageBackend interface {
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	ctx context.Context
-	mu  *lockmetrics.RWMutex
+	ctx     context.Context
+	metrics cwmetric.Sink
+	mu      *lockmetrics.RWMutex
 	// registry is the lifecycle registry for every PERSISTED *store.Table
 	// below -- see store_setup.go's package doc for why eventbridge
 	// (region-scoped, with rules/targets nested one level deeper still)
@@ -323,11 +332,12 @@ type InMemoryBackend struct {
 	apiDestinations map[string]*store.Table[APIDestination]
 	cancel          context.CancelFunc
 	deliveryTargets *DeliveryTargets
+	roleAuth        roleauth.Authorizer
 	endpoints       map[string]*store.Table[Endpoint]
 	buses           map[string]*store.Table[EventBus]
 	partnerSources  map[string]*store.Table[PartnerEventSource]
 	archives        map[string]*store.Table[Archive]
-	archivedEvents  map[string]map[string][]EventEntry
+	archivedEvents  map[string]map[string][]archivedEvent
 	busePolicies    map[string]map[string]*EventBusPolicy
 	// registries is NOT region-scoped -- a single backend holds one global
 	// SchemaRegistry catalogue -- so it is a single Table, lazily registered
@@ -403,7 +413,7 @@ func NewInMemoryBackendWithContext(
 		replays:          make(map[string]*store.Table[Replay]),
 		apiDestinations:  make(map[string]*store.Table[APIDestination]),
 		archives:         make(map[string]*store.Table[Archive]),
-		archivedEvents:   make(map[string]map[string][]EventEntry),
+		archivedEvents:   make(map[string]map[string][]archivedEvent),
 		connections:      make(map[string]*store.Table[Connection]),
 		endpoints:        make(map[string]*store.Table[Endpoint]),
 		partnerSources:   make(map[string]*store.Table[PartnerEventSource]),
@@ -422,14 +432,7 @@ func NewInMemoryBackendWithContext(
 		ruleIndex:        make(map[string]map[string]map[ruleIndexKey]map[string]*Rule),
 		targetsByARN:     make(map[string]map[string]map[string]struct{}),
 	}
-	// Create the default event bus in the backend's own region.
-	now := time.Now()
-	b.busesTable(b.region).Put(&EventBus{
-		Name:             defaultEventBusName,
-		Arn:              b.busARN(b.region, defaultEventBusName),
-		CreatedTime:      now,
-		LastModifiedTime: now,
-	})
+	b.busesTable(b.region)
 
 	return b
 }
@@ -503,6 +506,9 @@ func (b *InMemoryBackend) SetDeliveryTargets(dt *DeliveryTargets) {
 	if dt != nil && dt.EventBusRouter == nil {
 		dt.EventBusRouter = b
 	}
+	if dt != nil && dt.RoleAuth == nil {
+		dt.RoleAuth = b.roleAuth
+	}
 	b.deliveryTargets = dt
 }
 
@@ -531,7 +537,7 @@ func (b *InMemoryBackend) Reset() {
 	b.replays = make(map[string]*store.Table[Replay])
 	b.apiDestinations = make(map[string]*store.Table[APIDestination])
 	b.archives = make(map[string]*store.Table[Archive])
-	b.archivedEvents = make(map[string]map[string][]EventEntry)
+	b.archivedEvents = make(map[string]map[string][]archivedEvent)
 	b.connections = make(map[string]*store.Table[Connection])
 	b.endpoints = make(map[string]*store.Table[Endpoint])
 	b.partnerSources = make(map[string]*store.Table[PartnerEventSource])
@@ -547,12 +553,5 @@ func (b *InMemoryBackend) Reset() {
 	b.patternCache = sync.Map{}
 	b.apiDestLimiters = sync.Map{}
 
-	// Re-create the default event bus so it is always available after reset.
-	now := time.Now()
-	b.busesTable(b.region).Put(&EventBus{
-		Name:             defaultEventBusName,
-		Arn:              b.busARN(b.region, defaultEventBusName),
-		CreatedTime:      now,
-		LastModifiedTime: now,
-	})
+	b.busesTable(b.region)
 }

@@ -9,18 +9,14 @@
 | --- | --- |
 | PARITY entries audited | 44 (44 ok) |
 | Feature families | 9 (9 ok) |
-| Known gaps | 6 |
+| Known gaps | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- ProfileConfiguration (CreateProfileJob/UpdateProfileJob's Configuration field) remains map[string]any pass-through -- see families.job_extras_typing for the depth measurement behind that call. Wire-compatible (arbitrary nested JSON round-trips byte-for-byte) but not validated.
-- StartProjectSession/SendProjectSessionAction's interactive session lifecycle (view frames, recipe-step preview/apply) is not modeled -- structural, not a stub gap: there's no session state to be incomplete. What was fixable (rejecting a project name that doesn't exist) was fixed 2026-08-10; OpenDate was fixed 2026-08-15 (see families.session_status_fabrication).
-- Project.OpenedBy (real member) is never populated -- see families.session_status_fabrication. No caller-identity infrastructure exists anywhere in this package to derive it from (same root cause as CreatedBy/LastModifiedBy staying empty across every entity).
-- JobRun.ErrorMessage/StartedBy (real members) are never populated -- see families.jobrun_job_snapshot. ErrorMessage has no FAILED path to source a message from (StartJobRun always succeeds); StartedBy has the same no-identity-infrastructure root cause as OpenedBy above.
-- 2026-08-29 sweep: Rule.Threshold/Rule.ColumnSelectors (CreateRuleset/UpdateRuleset/DescribeRuleset) remain map[string]any/[]map[string]any pass-through, same wire-compatible-but-unvalidated tradeoff as ProfileConfiguration -- both are shallow, simple shapes (Threshold: Value/Type/Unit; ColumnSelector: Name/Regex) and would be reasonable to type in a future pass, but were not touched this pass since the pass-through already round-trips correctly (no wrapper-key or dropped-field bug, only missing validation).
-- 2026-08-29 sweep: ops NOT re-verified member-by-member this pass (relied on the 2026-08-15/2026-08-21 passes' coverage, spot-checked only): CreateRecipe/UpdateRecipe/PublishRecipe/DescribeRecipe/ListRecipes/ListRecipeVersions/BatchDeleteRecipeVersion/DeleteRecipeVersion request-side field handling beyond Steps typing; CreateRuleset/UpdateRuleset/DescribeRuleset/ListRulesets beyond the Rule/Threshold/ColumnSelector check above; TagResource/UntagResource/ListTagsForResource; StartProjectSession/SendProjectSessionAction beyond what families.session_status_fabrication already covers.
+- Needs real data-prep execution or caller identity (neither exists here): StartProjectSession/SendProjectSessionAction view frames and recipe-step preview/apply; Project.OpenedBy, JobRun.StartedBy and CreatedBy/LastModifiedBy on every entity; JobRun.ErrorMessage (StartJobRun always succeeds).
+- Not re-verified member by member (spot-checked only): recipe request-side fields beyond Steps, ruleset ops beyond Rule typing, Tag ops, project-session ops.
 
 ## More
 

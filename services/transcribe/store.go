@@ -61,10 +61,10 @@ const (
 	resourceTypeLanguageModel           = "language-model"
 )
 
-// resourceARN builds the ARN for a Transcribe resource of the given type and name,
+// resourceARN builds the ARN in this backend's region for a Transcribe resource of the given type and name,
 // matching the format real AWS clients compute for TagResource/ListTagsForResource calls.
-func resourceARN(resourceType, name string) string {
-	return arn.Build("transcribe", config.DefaultRegion, defaultAccountID, resourceType+"/"+name)
+func (b *InMemoryBackend) resourceARN(resourceType, name string) string {
+	return arn.Build("transcribe", b.region, defaultAccountID, resourceType+"/"+name)
 }
 
 // InMemoryBackend is the in-memory store for Transcribe jobs.
@@ -81,13 +81,20 @@ type InMemoryBackend struct {
 	registry                 *store.Registry
 	resourceTags             map[string]map[string]string // ARN → tag map
 	mu                       *lockmetrics.RWMutex
+	region                   string
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend() *InMemoryBackend {
+	return NewInMemoryBackendForRegion(config.DefaultRegion)
+}
+
+// NewInMemoryBackendForRegion creates a backend whose resource ARNs name region.
+func NewInMemoryBackendForRegion(region string) *InMemoryBackend {
 	b := &InMemoryBackend{
 		mu:       lockmetrics.New("transcribe"),
 		registry: store.NewRegistry(),
+		region:   region,
 	}
 	registerAllTables(b)
 	b.resourceTags = make(map[string]map[string]string)

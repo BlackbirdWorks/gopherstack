@@ -40,15 +40,16 @@ func (h *Handler) startDeployment(ctx context.Context, c *echo.Context, appID, b
 	}
 
 	var input struct {
-		JobID     string `json:"jobId"`
-		SourceURL string `json:"sourceUrl"`
+		JobID         string `json:"jobId"`
+		SourceURL     string `json:"sourceUrl"`
+		SourceURLType string `json:"sourceUrlType"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
 		return amplifyErrorJSON(c, http.StatusBadRequest, "invalid request body")
 	}
 
-	job, startErr := h.Backend.StartDeployment(appID, branchName, input.JobID, input.SourceURL)
+	job, startErr := h.Backend.StartDeployment(appID, branchName, input.JobID, input.SourceURL, input.SourceURLType)
 	if startErr != nil {
 		return h.handleBackendError(ctx, c, "StartDeployment", startErr)
 	}

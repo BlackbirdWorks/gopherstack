@@ -228,8 +228,8 @@ func TestACMHandler_DescribeCertificate_RealistFields(t *testing.T) {
 	assert.NotEmpty(t, descOut.Certificate.Serial, "Serial should be set")
 	assert.Contains(t, descOut.Certificate.Subject, "realism.example.com", "Subject should contain domain")
 	assert.Contains(t, descOut.Certificate.Issuer, "realism.example.com", "Issuer should contain domain (self-signed)")
-	assert.Equal(t, "EC_prime256v1", descOut.Certificate.KeyAlgorithm)
-	assert.Equal(t, "SHA256WITHECDSA", descOut.Certificate.SignatureAlgorithm)
+	assert.Equal(t, "RSA_2048", descOut.Certificate.KeyAlgorithm)
+	assert.Equal(t, "SHA256WITHRSA", descOut.Certificate.SignatureAlgorithm)
 	assert.NotNil(t, descOut.Certificate.IssuedAt, "IssuedAt should be set for ISSUED cert")
 }
 

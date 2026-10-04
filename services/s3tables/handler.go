@@ -15,6 +15,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -78,6 +79,7 @@ var (
 
 // Handler is the HTTP handler for the AWS S3 Tables API.
 type Handler struct {
+	peers     *regionpeers.Set[Handler]
 	Backend   *InMemoryBackend
 	AccountID string
 	Region    string
@@ -150,8 +152,8 @@ func (h *Handler) GetSupportedOperations() []string {
 	}
 }
 
-// Reset clears all stored state in the backend.
-func (h *Handler) Reset() { h.Backend.Reset() }
+// resetHome clears the home region only.
+func (h *Handler) resetHome() { h.Backend.Reset() }
 
 // ChaosServiceName returns the lowercase AWS service name for fault rule matching.
 func (h *Handler) ChaosServiceName() string { return s3tablesService }
@@ -222,8 +224,8 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	return ""
 }
 
-// Handler returns the Echo handler function for S3 Tables requests.
-func (h *Handler) Handler() echo.HandlerFunc {
+// homeHandler serves requests for the home region.
+func (h *Handler) homeHandler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		ctx := c.Request().Context()
 		log := logger.Load(ctx)

@@ -68,8 +68,9 @@ func (h *Handler) handleGetOTAUpdate(c *echo.Context) error {
 
 func (h *Handler) handleDeleteOTAUpdate(c *echo.Context) error {
 	id := strings.TrimPrefix(c.Request().URL.Path, "/otaUpdates/")
-	if err := h.Backend.DeleteOTAUpdate(id); err != nil {
-		return respondErr(c, err)
+	force := c.QueryParam("forceDeleteAWSJob") == "true"
+	if err := h.Backend.DeleteOTAUpdateWithOptions(id, force); err != nil {
+		return respondAsInvalidRequest(c, err, ErrInvalidStateTransition)
 	}
 
 	return c.NoContent(http.StatusOK)

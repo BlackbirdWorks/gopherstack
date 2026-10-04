@@ -256,6 +256,10 @@ func (h *Handler) opDescribeSessions(_ context.Context, body []byte) (any, error
 		}
 	}
 
+	if req.UserId != "" && req.AuthenticationType == "" {
+		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
+	}
+
 	sessions, next, err := h.Backend.DescribeSessions(
 		req.StackName, req.FleetName, req.UserId, req.AuthenticationType, req.Limit, req.NextToken,
 	)

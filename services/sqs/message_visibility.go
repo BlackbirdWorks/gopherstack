@@ -24,16 +24,21 @@ func resolveVisibilityTimeout(requested int, q *Queue) int {
 // buildBlockedGroups returns the set of FIFO message group IDs that currently
 // have at least one in-flight message. Messages in a blocked group must not be
 // delivered until all earlier in-flight messages for that group are deleted,
-// ensuring strict per-group ordering.
-func buildBlockedGroups(inflight []*InFlightMessage) map[string]bool {
-	blocked := make(map[string]bool)
-	for _, inf := range inflight {
+// ensuring strict per-group ordering. Returns q.blockedGroupsScratch, reused.
+func buildBlockedGroups(q *Queue) map[string]bool {
+	if q.blockedGroupsScratch == nil {
+		q.blockedGroupsScratch = make(map[string]bool, len(q.inFlightMessages))
+	} else {
+		clear(q.blockedGroupsScratch)
+	}
+
+	for _, inf := range q.inFlightMessages {
 		if inf.Msg.MessageGroupID != "" {
-			blocked[inf.Msg.MessageGroupID] = true
+			q.blockedGroupsScratch[inf.Msg.MessageGroupID] = true
 		}
 	}
 
-	return blocked
+	return q.blockedGroupsScratch
 }
 
 // prepareAndPickMessages consolidates reQueueExpired, expireRetainedMessages,
@@ -301,7 +306,7 @@ func prepareAndPickMessages(
 	// Pass 2: sweep q.messages (original + re-queued from Pass 1) in-place.
 	var blockedGroups map[string]bool
 	if q.IsFIFO {
-		blockedGroups = buildBlockedGroups(q.inFlightMessages)
+		blockedGroups = buildBlockedGroups(q)
 	}
 
 	var result []*Message
@@ -343,14 +348,14 @@ func (b *InMemoryBackend) ChangeMessageVisibility(input *ChangeMessageVisibility
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
-	return changeVisibility(q, input.ReceiptHandle, input.VisibilityTimeout)
+	return changeVisibility(q, input.ReceiptHandle, input.VisibilityTimeout, b.now())
 }
 
 // changeVisibility updates the VisibleAt time for an in-flight message by receipt handle.
 // When visibilityTimeout is 0 the message is immediately returned to the visible queue,
 // matching the AWS behaviour where a zero timeout makes a message immediately available.
 // Caller must hold q.mu.
-func changeVisibility(q *Queue, receiptHandle string, visibilityTimeout int) error {
+func changeVisibility(q *Queue, receiptHandle string, visibilityTimeout int, now time.Time) error {
 	// Use inFlightByHandle for lookup; fall back to linear scan if map not populated
 	// (e.g., restored from snapshot before #56 was applied).
 	inf, found := q.inFlightByHandle[receiptHandle]
@@ -372,7 +377,6 @@ func changeVisibility(q *Queue, receiptHandle string, visibilityTimeout int) err
 
 	if visibilityTimeout == 0 {
 		// Move back to the visible queue immediately.
-		now := time.Now()
 		inf.Msg.VisibleAt = now
 		if !tryRouteToDLQ(q, inf.Msg, now) {
 			requeueMessage(q, inf.Msg)
@@ -389,7 +393,7 @@ func changeVisibility(q *Queue, receiptHandle string, visibilityTimeout int) err
 		return nil
 	}
 
-	inf.VisibleAt = time.Now().Add(time.Duration(visibilityTimeout) * time.Second)
+	inf.VisibleAt = now.Add(time.Duration(visibilityTimeout) * time.Second)
 
 	return nil
 }
@@ -421,6 +425,7 @@ func (b *InMemoryBackend) ChangeMessageVisibilityBatch(
 	defer q.mu.Unlock()
 
 	out := &ChangeMessageVisibilityBatchOutput{}
+	now := b.now()
 
 	for _, entry := range input.Entries {
 		if entry.VisibilityTimeout < 0 || entry.VisibilityTimeout > maxVisibilityTimeoutSeconds {
@@ -434,7 +439,7 @@ func (b *InMemoryBackend) ChangeMessageVisibilityBatch(
 			continue
 		}
 
-		if err := changeVisibility(q, entry.ReceiptHandle, entry.VisibilityTimeout); err != nil {
+		if err := changeVisibility(q, entry.ReceiptHandle, entry.VisibilityTimeout, now); err != nil {
 			out.Failed = append(out.Failed, BatchErrorEntry{
 				ID:          entry.ID,
 				Code:        "MessageNotInflight",

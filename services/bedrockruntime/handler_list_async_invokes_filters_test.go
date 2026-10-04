@@ -14,7 +14,8 @@ import (
 
 func startAsyncInvokeBody(i int) map[string]any {
 	return map[string]any{
-		"modelId": fmt.Sprintf("model-%d", i),
+		"modelId":    fmt.Sprintf("model-%d", i),
+		"modelInput": map[string]any{},
 		"outputDataConfig": map[string]any{
 			"s3OutputDataConfig": map[string]any{
 				"s3Uri": fmt.Sprintf("s3://bucket/%d/", i),

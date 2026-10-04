@@ -13,9 +13,11 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
@@ -34,6 +36,7 @@ type Handler struct {
 	Backend       StorageBackend
 	dispatchTable map[string]func(url.Values) (any, error)
 	scheduler     *ScheduledActionScheduler
+	peers         *regionpeers.Set[Handler]
 	schedulerRun  worker.SingleRun
 }
 
@@ -139,11 +142,8 @@ func (h *Handler) buildDispatchTable() map[string]func(url.Values) (any, error) 
 // lifecycle-hook timers so no goroutine outlives the service. Invoked on
 // server shutdown via service.Shutdowner.
 func (h *Handler) Shutdown(ctx context.Context) {
-	h.schedulerRun.Stop(ctx)
-
-	if c, ok := h.Backend.(interface{ Close() }); ok {
-		c.Close()
-	}
+	h.closePeers(ctx)
+	h.stopOwn(ctx)
 }
 
 // Ensure Handler implements service.BackgroundWorker and service.Shutdowner at
@@ -256,7 +256,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return false
 		}
 
-		body, err := httputils.ReadBody(r)
+		_, err := httputils.ReadBody(r)
 		if err != nil {
 			// Body unreadable (e.g. oversized): fall back to the User-Agent
 			// marker every aws-sdk-go-v2 autoscaling client sets
@@ -267,7 +267,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return service.MatchesUserAgentMarker(r.Header, "api/autoscaling")
 		}
 
-		vals, err := url.ParseQuery(string(body))
+		vals, err := httputils.ParseFormBody(r)
 		if err != nil {
 			return false
 		}
@@ -317,6 +317,10 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function for Autoscaling operations.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
+			return p.Handler()(c)
+		}
+
 		r := c.Request()
 		body, err := httputils.ReadBody(r)
 		if err != nil {

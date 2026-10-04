@@ -438,13 +438,16 @@ func (b *InMemoryBackend) ListScanJobs() []*ScanJob {
 // type doc) are not modeled -- kept consistent with the same State-only
 // grouping precedent ListBackupJobSummaries/ListCopyJobSummaries already
 // use for their own sibling ops.
-func (b *InMemoryBackend) ListScanJobSummaries() []map[string]any {
+func (b *InMemoryBackend) ListScanJobSummaries(f JobSummaryFilter) []map[string]any {
 	b.mu.RLock("ListScanJobSummaries")
 	defer b.mu.RUnlock()
 
 	counts := make(map[string]int)
 	for _, j := range b.scanJobs.All() {
-		counts[j.Status]++
+		if f.matches(b.summaryAccount(j.AccountID), j.ResourceType, j.Status, "") &&
+			summaryFieldMatches(f.MalwareScanner, j.MalwareScanner) {
+			counts[j.Status]++
+		}
 	}
 
 	summaries := make([]map[string]any, 0, len(counts))

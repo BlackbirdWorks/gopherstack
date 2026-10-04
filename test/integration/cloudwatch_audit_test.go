@@ -7,6 +7,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	cloudwatchsdk "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cwtypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
+	cloudwatchlogssdk "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	cwlogstypes "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -77,35 +79,57 @@ func TestIntegration_CloudWatchAudit_GetInsightRuleReport(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 	client := createCloudWatchClient(t)
+	logs := createCloudWatchLogsClient(t)
 	ctx := t.Context()
 
-	ruleName := "audit-rule-" + uuid.NewString()[:8]
+	suffix := uuid.NewString()[:8]
+	group := "/aws/audit/" + suffix
+	ruleName := "audit-rule-" + suffix
 	ruleDef := `{"Schema":{"Name":"CloudWatchLogRule","Version":1},` +
-		`"LogGroupNames":["/aws/audit/` + ruleName + `"],` +
+		`"LogGroupNames":["` + group + `"],` +
 		`"LogFormat":"JSON","Contribution":{"Keys":["$.requestId"]},` +
 		`"AggregateOn":"Count"}`
 
-	// Seed an insight rule so GetInsightRuleReport has a target to report on.
-	_, err := client.PutInsightRule(ctx, &cloudwatchsdk.PutInsightRuleInput{
+	_, err := logs.CreateLogGroup(ctx, &cloudwatchlogssdk.CreateLogGroupInput{LogGroupName: aws.String(group)})
+	require.NoError(t, err)
+	_, err = logs.CreateLogStream(ctx, &cloudwatchlogssdk.CreateLogStreamInput{
+		LogGroupName: aws.String(group), LogStreamName: aws.String("s"),
+	})
+	require.NoError(t, err)
+
+	now := time.Now().UTC()
+	events := make([]cwlogstypes.InputLogEvent, 0, 3)
+
+	for _, id := range []string{"req-a", "req-a", "req-b"} {
+		events = append(events, cwlogstypes.InputLogEvent{
+			Message: aws.String(`{"requestId":"` + id + `"}`), Timestamp: aws.Int64(now.UnixMilli()),
+		})
+	}
+
+	_, err = logs.PutLogEvents(ctx, &cloudwatchlogssdk.PutLogEventsInput{
+		LogGroupName: aws.String(group), LogStreamName: aws.String("s"), LogEvents: events,
+	})
+	require.NoError(t, err)
+
+	_, err = client.PutInsightRule(ctx, &cloudwatchsdk.PutInsightRuleInput{
 		RuleName:       aws.String(ruleName),
 		RuleDefinition: aws.String(ruleDef),
 	})
 	require.NoError(t, err)
 
-	// GetInsightRuleReport must call the backend via the CBOR path and return a
-	// (possibly empty) Contributors list rather than erroring.
 	out, err := client.GetInsightRuleReport(ctx, &cloudwatchsdk.GetInsightRuleReportInput{
 		RuleName:  aws.String(ruleName),
-		StartTime: aws.Time(time.Now().UTC().Add(-time.Hour)),
-		EndTime:   aws.Time(time.Now().UTC()),
+		StartTime: aws.Time(now.Add(-time.Hour)),
+		EndTime:   aws.Time(now.Add(time.Hour)),
 		Period:    aws.Int32(60),
 	})
-	require.NoError(t, err, "GetInsightRuleReport should not return 'unknown operation'")
-	require.NotNil(t, out)
-	// No log events were ingested so Contributors is empty.  The SDK deserialiser
-	// uses var-append which leaves an empty CBOR list as a nil Go slice; assert
-	// Empty (not NotNil) to accept both nil and [].
-	assert.Empty(t, out.Contributors)
-	assert.NotNil(t, out.AggregateValue, "AggregateValue must be present in response")
-	assert.NotNil(t, out.AggregationStatistic, "AggregationStatistic must be present in response")
+	require.NoError(t, err)
+	require.Len(t, out.Contributors, 2)
+	assert.Equal(t, []string{"req-a"}, out.Contributors[0].Keys)
+	assert.InDelta(t, 2, aws.ToFloat64(out.Contributors[0].ApproximateAggregateValue), 0)
+	assert.Equal(t, []string{"req-b"}, out.Contributors[1].Keys)
+	assert.InDelta(t, 3, aws.ToFloat64(out.AggregateValue), 0)
+	assert.EqualValues(t, 2, aws.ToInt64(out.ApproximateUniqueCount))
+	assert.Equal(t, "COUNT", aws.ToString(out.AggregationStatistic))
+	assert.Equal(t, []string{"$.requestId"}, out.KeyLabels)
 }

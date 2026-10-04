@@ -189,3 +189,11 @@ Gates: `gofmt -l`, `go build ./...`, `go vet ./services/dynamodbstreams/...`,
 `go test -race -count=1 ./services/dynamodbstreams/...` and
 `./pkgs/persistence/...` all green. No persisted-struct/snapshot changes
 (Handler owns no state -- see persistence family above).
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+dynamodbstreams reads the DynamoDB tables of the request region (the handler passes the request region to the shared DynamoDB backend), so a stream lists and reads only in the region of its table. No code change. Proof: `TestRegionIsolation/dynamodbstreams`.
+
+## 2026-10-04 (gopherstack-bn4vx, iterator region)
+
+A shard iterator entry now carries the stream's region (taken from the stream ARN), and GetRecords reads the table in that region and chains the region into NextShardIterator, so Lambda ESM and Pipes sources in a non-home region can read. Tokens stay opaque and ephemeral; a token without a region resolves in the request region as before. Proof: `TestStreams_IteratorCarriesTableRegion`, `TestDynamoDBStreamsReaders_ReadNonHomeRegion`.

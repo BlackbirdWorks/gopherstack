@@ -5,6 +5,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/google/uuid"
 )
 
@@ -31,16 +32,16 @@ func (b *InMemoryBackend) ResetServiceSpecificCredentialFull(
 	return cred, nil
 }
 
-// ListServiceSpecificCredentials returns service-specific credentials for a user.
-// If serviceName is non-empty, only credentials for that service are returned.
+// ListServiceSpecificCredentials returns a page of a user's service-specific credentials,
+// filtered to serviceName when non-empty.
 func (b *InMemoryBackend) ListServiceSpecificCredentials(
-	userName, serviceName string,
-) ([]ServiceSpecificCredential, error) {
+	userName, serviceName, marker string, maxItems int,
+) (page.Page[ServiceSpecificCredential], error) {
 	b.mu.RLock("ListServiceSpecificCredentials")
 	defer b.mu.RUnlock()
 
 	if _, exists := b.users.Get(userName); !exists {
-		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
+		return page.Page[ServiceSpecificCredential]{}, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
 	result := make([]ServiceSpecificCredential, 0, b.serviceSpecificCreds.Len())
@@ -60,7 +61,7 @@ func (b *InMemoryBackend) ListServiceSpecificCredentials(
 		return result[i].ServiceSpecificCredentialID < result[j].ServiceSpecificCredentialID
 	})
 
-	return result, nil
+	return page.New(result, marker, maxItems, iamDefaultMaxItems), nil
 }
 
 // DeleteServiceSpecificCredential deletes a service-specific credential.

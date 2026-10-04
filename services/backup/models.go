@@ -151,6 +151,16 @@ type Plan struct {
 	AdvancedBackupSettings []AdvancedBackupSetting `json:"advancedBackupSettings,omitempty"`
 }
 
+// DeletedPlan is the tombstone ListBackupPlans serves when IncludeDeleted is true.
+type DeletedPlan struct {
+	CreationTime   time.Time `json:"creationTime"`
+	DeletionTime   time.Time `json:"deletionTime"`
+	BackupPlanName string    `json:"backupPlanName"`
+	BackupPlanArn  string    `json:"backupPlanArn"`
+	BackupPlanID   string    `json:"backupPlanId"`
+	VersionID      string    `json:"versionId"`
+}
+
 // Job represents an AWS Backup job.
 type Job struct {
 	CreationTime              time.Time         `json:"creationTime"`
@@ -446,6 +456,7 @@ type InMemoryBackend struct {
 	registry                       *store.Registry
 	vaults                         *store.Table[Vault]
 	plans                          *store.Table[Plan]
+	deletedPlans                   *store.Table[DeletedPlan]
 	jobs                           *store.Table[Job]
 	selections                     *store.Table[Selection] // composite key: planID#selectionID
 	selectionsByPlan               *store.Index[Selection] // grouped by BackupPlanID

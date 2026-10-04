@@ -158,7 +158,8 @@ func TestStreamIdentifiedByARNOnly(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			backend := kinesis.NewInMemoryBackend()
+			clock := newFakeClock(time.Now())
+			backend := kinesis.NewInMemoryBackend().WithClock(clock.Now)
 			client := newTestKinesisClient(t, kinesis.NewHandler(backend))
 			streamName := "arn-only-" + tc.name
 
@@ -167,6 +168,7 @@ func TestStreamIdentifiedByARNOnly(t *testing.T) {
 				ShardCount: aws.Int32(1),
 			})
 			require.NoError(t, err)
+			clock.Advance(streamSettleWait)
 
 			desc, err := client.DescribeStream(t.Context(), &kinesissdk.DescribeStreamInput{
 				StreamName: aws.String(streamName),
@@ -262,7 +264,8 @@ func TestRegisterStreamConsumer_TagsRoundTrip(t *testing.T) {
 func TestDescribeStreamSummary_MaxRecordSizeAndWarmThroughput(t *testing.T) {
 	t.Parallel()
 
-	backend := kinesis.NewInMemoryBackend()
+	clock := newFakeClock(time.Now())
+	backend := kinesis.NewInMemoryBackend().WithClock(clock.Now)
 	client := newTestKinesisClient(t, kinesis.NewHandler(backend))
 
 	streamName := "summary-fields-stream"
@@ -272,6 +275,7 @@ func TestDescribeStreamSummary_MaxRecordSizeAndWarmThroughput(t *testing.T) {
 		ShardCount: aws.Int32(1),
 	})
 	require.NoError(t, err)
+	clock.Advance(streamSettleWait)
 
 	desc, err := client.DescribeStream(t.Context(), &kinesissdk.DescribeStreamInput{StreamName: aws.String(streamName)})
 	require.NoError(t, err)
@@ -294,6 +298,7 @@ func TestDescribeStreamSummary_MaxRecordSizeAndWarmThroughput(t *testing.T) {
 		WarmThroughputMiBps: aws.Int32(5),
 	})
 	require.NoError(t, err)
+	clock.Advance(streamSettleWait)
 
 	after, err := client.DescribeStreamSummary(t.Context(), &kinesissdk.DescribeStreamSummaryInput{
 		StreamName: aws.String(streamName),
@@ -312,7 +317,8 @@ func TestDescribeStreamSummary_MaxRecordSizeAndWarmThroughput(t *testing.T) {
 func TestListStreams_StreamSummaries(t *testing.T) {
 	t.Parallel()
 
-	backend := kinesis.NewInMemoryBackend()
+	clock := newFakeClock(time.Now())
+	backend := kinesis.NewInMemoryBackend().WithClock(clock.Now)
 	client := newTestKinesisClient(t, kinesis.NewHandler(backend))
 
 	streamName := "list-streams-summaries-stream"
@@ -322,6 +328,7 @@ func TestListStreams_StreamSummaries(t *testing.T) {
 		ShardCount: aws.Int32(1),
 	})
 	require.NoError(t, err)
+	clock.Advance(streamSettleWait)
 
 	desc, err := client.DescribeStream(t.Context(), &kinesissdk.DescribeStreamInput{StreamName: aws.String(streamName)})
 	require.NoError(t, err)
@@ -345,7 +352,8 @@ func TestListStreams_StreamSummaries(t *testing.T) {
 func TestUpdateShardCount_StreamARN(t *testing.T) {
 	t.Parallel()
 
-	backend := kinesis.NewInMemoryBackend()
+	clock := newFakeClock(time.Now())
+	backend := kinesis.NewInMemoryBackend().WithClock(clock.Now)
 	client := newTestKinesisClient(t, kinesis.NewHandler(backend))
 
 	streamName := "update-shard-count-arn-stream"
@@ -355,6 +363,7 @@ func TestUpdateShardCount_StreamARN(t *testing.T) {
 		ShardCount: aws.Int32(2),
 	})
 	require.NoError(t, err)
+	clock.Advance(streamSettleWait)
 
 	desc, err := client.DescribeStream(t.Context(), &kinesissdk.DescribeStreamInput{StreamName: aws.String(streamName)})
 	require.NoError(t, err)
@@ -411,7 +420,8 @@ func TestCreateStream_MaxRecordSizeAndWarmThroughput(t *testing.T) {
 func TestUpdateStreamMode_WarmThroughputMiBps(t *testing.T) {
 	t.Parallel()
 
-	backend := kinesis.NewInMemoryBackend()
+	clock := newFakeClock(time.Now())
+	backend := kinesis.NewInMemoryBackend().WithClock(clock.Now)
 	client := newTestKinesisClient(t, kinesis.NewHandler(backend))
 
 	streamName := "update-stream-mode-warm"
@@ -421,6 +431,7 @@ func TestUpdateStreamMode_WarmThroughputMiBps(t *testing.T) {
 		ShardCount: aws.Int32(1),
 	})
 	require.NoError(t, err)
+	clock.Advance(streamSettleWait)
 
 	desc, err := client.DescribeStream(t.Context(), &kinesissdk.DescribeStreamInput{StreamName: aws.String(streamName)})
 	require.NoError(t, err)
@@ -433,6 +444,7 @@ func TestUpdateStreamMode_WarmThroughputMiBps(t *testing.T) {
 		WarmThroughputMiBps: aws.Int32(7),
 	})
 	require.NoError(t, err)
+	clock.Advance(streamSettleWait)
 
 	summary, err := client.DescribeStreamSummary(t.Context(), &kinesissdk.DescribeStreamSummaryInput{
 		StreamName: aws.String(streamName),
@@ -454,7 +466,8 @@ func TestUpdateStreamMode_WarmThroughputMiBps(t *testing.T) {
 func TestUpdateStreamMode_WarmThroughputMiBps_PreservesOmitted(t *testing.T) {
 	t.Parallel()
 
-	backend := kinesis.NewInMemoryBackend()
+	clock := newFakeClock(time.Now())
+	backend := kinesis.NewInMemoryBackend().WithClock(clock.Now)
 	client := newTestKinesisClient(t, kinesis.NewHandler(backend))
 
 	streamName := "update-stream-mode-warm-preserve"
@@ -464,6 +477,7 @@ func TestUpdateStreamMode_WarmThroughputMiBps_PreservesOmitted(t *testing.T) {
 		ShardCount: aws.Int32(1),
 	})
 	require.NoError(t, err)
+	clock.Advance(streamSettleWait)
 
 	desc, err := client.DescribeStream(t.Context(), &kinesissdk.DescribeStreamInput{StreamName: aws.String(streamName)})
 	require.NoError(t, err)
@@ -476,6 +490,7 @@ func TestUpdateStreamMode_WarmThroughputMiBps_PreservesOmitted(t *testing.T) {
 		WarmThroughputMiBps: aws.Int32(9),
 	})
 	require.NoError(t, err)
+	clock.Advance(streamSettleWait)
 
 	// Omits WarmThroughputMiBps -- the stored value must survive.
 	_, err = client.UpdateStreamMode(t.Context(), &kinesissdk.UpdateStreamModeInput{
@@ -485,6 +500,7 @@ func TestUpdateStreamMode_WarmThroughputMiBps_PreservesOmitted(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
+	clock.Advance(streamSettleWait)
 
 	preserved, err := client.DescribeStreamSummary(t.Context(), &kinesissdk.DescribeStreamSummaryInput{
 		StreamName: aws.String(streamName),
@@ -503,6 +519,7 @@ func TestUpdateStreamMode_WarmThroughputMiBps_PreservesOmitted(t *testing.T) {
 		WarmThroughputMiBps: aws.Int32(0),
 	})
 	require.NoError(t, err)
+	clock.Advance(streamSettleWait)
 
 	zeroed, err := client.DescribeStreamSummary(t.Context(), &kinesissdk.DescribeStreamSummaryInput{
 		StreamName: aws.String(streamName),
@@ -523,7 +540,8 @@ func TestUpdateStreamMode_WarmThroughputMiBps_PreservesOmitted(t *testing.T) {
 func TestGetRecords_EncryptionType(t *testing.T) {
 	t.Parallel()
 
-	backend := kinesis.NewInMemoryBackend()
+	clock := newFakeClock(time.Now())
+	backend := kinesis.NewInMemoryBackend().WithClock(clock.Now)
 	client := newTestKinesisClient(t, kinesis.NewHandler(backend))
 
 	streamName := "encryption-type-stream"
@@ -532,6 +550,7 @@ func TestGetRecords_EncryptionType(t *testing.T) {
 		ShardCount: aws.Int32(1),
 	})
 	require.NoError(t, err)
+	clock.Advance(streamSettleWait)
 
 	desc, err := client.DescribeStream(t.Context(), &kinesissdk.DescribeStreamInput{
 		StreamName: aws.String(streamName),
@@ -578,7 +597,8 @@ func TestGetRecords_EncryptionType(t *testing.T) {
 func TestSubscribeToShard_EncryptionType(t *testing.T) {
 	t.Parallel()
 
-	backend := kinesis.NewInMemoryBackend()
+	clock := newFakeClock(time.Now())
+	backend := kinesis.NewInMemoryBackend().WithClock(clock.Now)
 	client := newTestKinesisClient(t, kinesis.NewHandler(backend))
 
 	streamName := "subscribe-encryption-type-stream"
@@ -587,6 +607,7 @@ func TestSubscribeToShard_EncryptionType(t *testing.T) {
 		ShardCount: aws.Int32(1),
 	})
 	require.NoError(t, err)
+	clock.Advance(streamSettleWait)
 
 	desc, err := client.DescribeStream(t.Context(), &kinesissdk.DescribeStreamInput{
 		StreamName: aws.String(streamName),

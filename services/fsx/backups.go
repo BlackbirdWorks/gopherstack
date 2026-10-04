@@ -21,6 +21,7 @@ type storedBackup struct {
 	CreationTime time.Time         `json:"creationTime"`
 	Tags         map[string]string `json:"tags"`
 	FileSystem   *storedFileSystem `json:"fileSystem,omitempty"`
+	Volume       *storedVolume     `json:"volume,omitempty"`
 	FileSystemID string            `json:"fileSystemId"`
 	BackupID     string            `json:"backupId"`
 	BackupType   string            `json:"backupType"`
@@ -58,6 +59,10 @@ func (b *storedBackup) toBackup(fallbackFS *storedFileSystem) *Backup {
 		Tags:         tagsMapToSlice(b.Tags),
 	}
 
+	if b.Volume != nil {
+		bk.Volume = b.Volume.toPublic()
+	}
+
 	switch {
 	case b.FileSystem != nil:
 		bk.FileSystem = b.FileSystem.toFileSystem()
@@ -70,8 +75,47 @@ func (b *storedBackup) toBackup(fallbackFS *storedFileSystem) *Backup {
 
 // createBackupInput holds parameters for CreateBackup.
 type createBackupInput struct {
-	FileSystemID string `json:"FileSystemId"`
+	FileSystemID string `json:"FileSystemId,omitempty"`
+	VolumeID     string `json:"VolumeId,omitempty"`
 	Tags         []Tag  `json:"Tags,omitempty"`
+}
+
+// cloneStoredVolume deep-copies v so a backup snapshot never aliases the live volume row.
+func cloneStoredVolume(v *storedVolume) *storedVolume {
+	clone := *v
+	clone.Tags = maps.Clone(v.Tags)
+
+	return &clone
+}
+
+// resolveBackupSourceLocked resolves CreateBackup's file system and optional ONTAP
+// volume, deriving the file system from the volume. Caller must hold b.mu.
+func (b *InMemoryBackend) resolveBackupSourceLocked(
+	input *createBackupInput,
+) (*storedFileSystem, *storedVolume, error) {
+	var vol *storedVolume
+
+	fsID := input.FileSystemID
+
+	if input.VolumeID != "" {
+		v, ok := b.volumes.Get(input.VolumeID)
+		if !ok {
+			return nil, nil, ErrVolumeNotFound
+		}
+
+		if v.VolumeType != fileSystemTypeONTAP || (fsID != "" && fsID != v.FileSystemID) {
+			return nil, nil, ErrValidation
+		}
+
+		vol, fsID = v, v.FileSystemID
+	}
+
+	fs, ok := b.fileSystems.Get(fsID)
+	if !ok {
+		return nil, nil, ErrFileSystemNotFound
+	}
+
+	return fs, vol, nil
 }
 
 // CreateBackup creates a backup of the specified file system.
@@ -83,9 +127,9 @@ func (b *InMemoryBackend) CreateBackup(input *createBackupInput) (*Backup, error
 	b.mu.Lock("CreateBackup")
 	defer b.mu.Unlock()
 
-	fs, ok := b.fileSystems.Get(input.FileSystemID)
-	if !ok {
-		return nil, ErrFileSystemNotFound
+	fs, vol, err := b.resolveBackupSourceLocked(input)
+	if err != nil {
+		return nil, err
 	}
 
 	id := newFSxBackupID()
@@ -101,8 +145,12 @@ func (b *InMemoryBackend) CreateBackup(input *createBackupInput) (*Backup, error
 		Lifecycle:    lifecycleAvailable,
 		ResourceARN:  arn,
 		Tags:         tags,
-		FileSystemID: input.FileSystemID,
+		FileSystemID: fs.FileSystemID,
 		FileSystem:   cloneStoredFileSystem(fs),
+	}
+
+	if vol != nil {
+		bk.Volume = cloneStoredVolume(vol)
 	}
 
 	b.backups.Put(bk)
@@ -116,9 +164,7 @@ func (b *InMemoryBackend) CreateBackup(input *createBackupInput) (*Backup, error
 // DescribeBackupsInput's own doc comment documents as supported;
 // aws-sdk-go-v2/service/fsx@v1.68.4 api_op_DescribeBackups.go) for bk. Its own
 // Volume (real Backup.Volume, for ONTAP/OpenZFS volume backups) isn't tracked
-// by this backend's CreateBackup, so volume-id has no honest value to compare
-// against and isn't recognized here -- a request setting it matches every
-// backup rather than none, same as AWS treating an unset/unsupported filter.
+// is tracked from CreateBackup's VolumeId, so volume-id filters on it.
 func backupFilterValue(bk *storedBackup, fallbackFS *storedFileSystem, name string) (string, bool) {
 	switch name {
 	case filterNameFileSystemID:
@@ -134,6 +180,12 @@ func backupFilterValue(bk *storedBackup, fallbackFS *storedFileSystem, name stri
 		default:
 			return "", true
 		}
+	case filterNameVolumeID:
+		if bk.Volume != nil {
+			return bk.Volume.VolumeID, true
+		}
+
+		return "", true
 	default:
 		return "", false
 	}
@@ -291,6 +343,10 @@ func (b *InMemoryBackend) CopyBackup(input *copyBackupInput) (*Backup, error) {
 		Tags:         tags,
 		FileSystemID: src.FileSystemID,
 		FileSystem:   fs,
+	}
+
+	if src.Volume != nil {
+		bk.Volume = cloneStoredVolume(src.Volume)
 	}
 
 	b.backups.Put(bk)

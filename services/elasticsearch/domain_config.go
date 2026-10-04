@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // UpdateDomainConfig updates the cluster configuration and/or EBS options for a domain.
@@ -102,7 +104,16 @@ func applyDomainConfigUpdateExtended(d *Domain, cfg UpdateConfig) bool {
 	}
 
 	if cfg.AutoTuneOptions != nil {
+		prevRollback := ""
+		if d.AutoTuneOptions != nil {
+			prevRollback = d.AutoTuneOptions.RollbackOnDisable
+		}
+
 		d.AutoTuneOptions = cloneAutoTuneOptions(cfg.AutoTuneOptions)
+		if d.AutoTuneOptions.RollbackOnDisable == "" {
+			d.AutoTuneOptions.RollbackOnDisable = prevRollback
+		}
+
 		changed = true
 	}
 
@@ -147,15 +158,52 @@ func (b *InMemoryBackend) DescribeDomainAutoTunes(ctx context.Context, domainNam
 	return nil
 }
 
-// DescribeDomainChangeProgress validates a domain exists and returns (changes are synchronous in-memory).
-func (b *InMemoryBackend) DescribeDomainChangeProgress(ctx context.Context, domainName string) error {
+// maxChangeProgressHistory bounds how many past configuration changes
+// DescribeDomainChangeProgress can resolve by ChangeId.
+const maxChangeProgressHistory = 100
+
+// ChangeProgress is one configuration change of a domain.
+type ChangeProgress struct {
+	StartTime time.Time
+	ChangeID  string
+}
+
+// changeIDForVersion derives the stable ChangeId of a domain's configuration
+// version, so the history needs no stored state.
+func changeIDForVersion(region string, d *Domain, version int) string {
+	key := fmt.Sprintf("%s|%s|%d|%d", region, d.Name, d.CreatedAt.UnixNano(), version)
+
+	return uuid.NewSHA1(uuid.NameSpaceOID, []byte(key)).String()
+}
+
+// DescribeDomainChangeProgress returns the change named by changeID, or the
+// latest when empty; changes apply synchronously so all are complete.
+func (b *InMemoryBackend) DescribeDomainChangeProgress(
+	ctx context.Context, domainName, changeID string,
+) (*ChangeProgress, error) {
 	region := getRegion(ctx, b.region)
 	b.mu.RLock("DescribeDomainChangeProgress")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.domainGet(region, domainName); !exists {
-		return fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+	d, exists := b.domainGet(region, domainName)
+	if !exists {
+		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
 
-	return nil
+	latest := ChangeProgress{ChangeID: changeIDForVersion(region, d, d.ConfigVersion), StartTime: d.CreatedAt}
+	if !d.ConfigUpdatedAt.IsZero() {
+		latest.StartTime = d.ConfigUpdatedAt
+	}
+
+	if changeID == "" || changeID == latest.ChangeID {
+		return &latest, nil
+	}
+
+	for v := d.ConfigVersion - 1; v >= 1 && v > d.ConfigVersion-maxChangeProgressHistory; v-- {
+		if changeIDForVersion(region, d, v) == changeID {
+			return &ChangeProgress{ChangeID: changeID}, nil
+		}
+	}
+
+	return nil, fmt.Errorf("%w: change %s not found for domain %s", ErrChangeNotFound, changeID, domainName)
 }

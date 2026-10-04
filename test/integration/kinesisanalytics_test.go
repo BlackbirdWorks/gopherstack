@@ -1,9 +1,8 @@
-//go:build integration
-
 package integration_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -55,7 +54,7 @@ func TestIntegration_KinesisAnalytics_ApplicationLifecycle(t *testing.T) {
 
 			ctx := t.Context()
 			client := createKinesisAnalyticsClient(t)
-			appName := tt.appName + "-" + t.Name()
+			appName := shortUniqueName(tt.appName)
 
 			// Create application.
 			createOut, err := client.CreateApplication(ctx, &kinesisanalyticssdk.CreateApplicationInput{
@@ -96,21 +95,21 @@ func TestIntegration_KinesisAnalytics_ApplicationLifecycle(t *testing.T) {
 			})
 			require.NoError(t, err, "DeleteApplication should succeed")
 
-			// Verify deletion.
-			listAfter, err := client.ListApplications(ctx, &kinesisanalyticssdk.ListApplicationsInput{})
-			require.NoError(t, err, "ListApplications should succeed after deletion")
-
-			foundAfter := false
-
-			for _, a := range listAfter.ApplicationSummaries {
-				if aws.ToString(a.ApplicationName) == appName {
-					foundAfter = true
-
-					break
+			// Deletion is asynchronous (DELETING first).
+			require.Eventually(t, func() bool {
+				listAfter, listErr := client.ListApplications(ctx, &kinesisanalyticssdk.ListApplicationsInput{})
+				if listErr != nil {
+					return false
 				}
-			}
 
-			assert.False(t, foundAfter, "deleted application should not appear in list")
+				for _, a := range listAfter.ApplicationSummaries {
+					if aws.ToString(a.ApplicationName) == appName {
+						return false
+					}
+				}
+
+				return true
+			}, 30*time.Second, 100*time.Millisecond, "deleted application should disappear from list")
 		})
 	}
 }

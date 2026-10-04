@@ -3,6 +3,8 @@ package elasticsearch
 import (
 	"context"
 	"fmt"
+	"slices"
+	"time"
 )
 
 // CancelElasticsearchServiceSoftwareUpdate cancels a scheduled software update.
@@ -43,30 +45,45 @@ func (b *InMemoryBackend) DeleteElasticsearchServiceRole() error {
 	return nil
 }
 
-// GetUpgradeHistory validates a domain exists and returns empty history (no upgrade state tracked).
-func (b *InMemoryBackend) GetUpgradeHistory(ctx context.Context, domainName string) error {
+// GetUpgradeHistory returns the domain's recorded upgrades, newest first.
+func (b *InMemoryBackend) GetUpgradeHistory(ctx context.Context, domainName string) ([]UpgradeRecord, error) {
 	region := getRegion(ctx, b.region)
 	b.mu.RLock("GetUpgradeHistory")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.domainGet(region, domainName); !exists {
-		return fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+	d, exists := b.domainGet(region, domainName)
+	if !exists {
+		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
 
-	return nil
+	out := make([]UpgradeRecord, 0, len(d.Upgrades))
+	for _, rec := range slices.Backward(d.Upgrades) {
+		rec.Steps = slices.Clone(rec.Steps)
+		out = append(out, rec)
+	}
+
+	return out, nil
 }
 
-// GetUpgradeStatus validates a domain exists and returns (no upgrade in progress in-memory).
-func (b *InMemoryBackend) GetUpgradeStatus(ctx context.Context, domainName string) error {
+// GetUpgradeStatus returns the most recent upgrade record; ok is false when none exists.
+func (b *InMemoryBackend) GetUpgradeStatus(ctx context.Context, domainName string) (UpgradeRecord, bool, error) {
 	region := getRegion(ctx, b.region)
 	b.mu.RLock("GetUpgradeStatus")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.domainGet(region, domainName); !exists {
-		return fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+	d, exists := b.domainGet(region, domainName)
+	if !exists {
+		return UpgradeRecord{}, false, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
 
-	return nil
+	if len(d.Upgrades) == 0 {
+		return UpgradeRecord{}, false, nil
+	}
+
+	rec := d.Upgrades[len(d.Upgrades)-1]
+	rec.Steps = slices.Clone(rec.Steps)
+
+	return rec, true, nil
 }
 
 // StartElasticsearchServiceSoftwareUpdate schedules a software update (no-op in-memory).
@@ -85,7 +102,7 @@ func (b *InMemoryBackend) StartElasticsearchServiceSoftwareUpdate(
 	return domainCopy(d), nil
 }
 
-// UpgradeElasticsearchDomain upgrades a domain to the target version.
+// UpgradeElasticsearchDomain upgrades a domain and records the upgrade in its history.
 func (b *InMemoryBackend) UpgradeElasticsearchDomain(
 	ctx context.Context, domainName, targetVersion string,
 ) (*Domain, error) {
@@ -98,9 +115,50 @@ func (b *InMemoryBackend) UpgradeElasticsearchDomain(
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
 
+	b.recordUpgrade(d, targetVersion, false)
+
 	if targetVersion != "" {
 		d.ElasticsearchVersion = targetVersion
 	}
 
 	return domainCopy(d), nil
+}
+
+// CheckElasticsearchDomainUpgrade records an upgrade eligibility check without changing the domain.
+func (b *InMemoryBackend) CheckElasticsearchDomainUpgrade(
+	ctx context.Context, domainName, targetVersion string,
+) error {
+	region := getRegion(ctx, b.region)
+	b.mu.Lock("CheckElasticsearchDomainUpgrade")
+	defer b.mu.Unlock()
+
+	d, exists := b.domainGet(region, domainName)
+	if !exists {
+		return fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+	}
+
+	b.recordUpgrade(d, targetVersion, true)
+
+	return nil
+}
+
+// recordUpgrade appends a bounded upgrade-history entry; the caller holds the write lock.
+func (b *InMemoryBackend) recordUpgrade(d *Domain, targetVersion string, checkOnly bool) {
+	name := "Upgrade from " + d.ElasticsearchVersion + " to " + targetVersion
+	steps := []string{upgradeStepPreCheck, upgradeStepSnapshot, upgradeStepUpgrade}
+
+	if checkOnly {
+		name = "Upgrade eligibility check from " + d.ElasticsearchVersion + " to " + targetVersion
+		steps = steps[:1]
+	}
+
+	d.Upgrades = append(d.Upgrades, UpgradeRecord{
+		Name:           name,
+		StartTimestamp: time.Now(),
+		Steps:          steps,
+	})
+
+	if len(d.Upgrades) > maxUpgradeHistoryPerDomain {
+		d.Upgrades = slices.Clone(d.Upgrades[len(d.Upgrades)-maxUpgradeHistoryPerDomain:])
+	}
 }

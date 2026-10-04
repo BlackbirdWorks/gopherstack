@@ -2,12 +2,37 @@ package cloudformation_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/cloudformation"
+	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 )
+
+// kinesisStreamSettleWait safely exceeds the kinesis package's internal
+// CREATING/UPDATING/DELETING transition delay (streamTransitionDelay,
+// 250ms), so a fake-clocked stream created via ResourceCreator.Create is
+// ACTIVE by the time a later call needs it (e.g. ResourceCreator.Delete's
+// DeleteStream, which real AWS -- and now this backend -- only accepts on
+// an ACTIVE stream).
+const kinesisStreamSettleWait = time.Second
+
+// withFakeClockedKinesis replaces backends.Kinesis with a freshly built
+// handler whose backend's clock is the caller-controlled fakeNow, so tests
+// that call ResourceCreator.Create then .Delete back-to-back (no real
+// elapsed time, unlike a genuine CloudFormation stack lifecycle where a
+// delete always follows a create by a real, separate API call) can move
+// the stream's lazy CREATING->ACTIVE deadline forward without a real
+// time.Sleep. Single-goroutine use only (ResourceCreator.Create/Delete are
+// called directly, synchronously, never through a real HTTP server here).
+func withFakeClockedKinesis(backends *cloudformation.ServiceBackends, fakeNow *time.Time) {
+	backends.Kinesis = kinesisbackend.NewHandler(
+		kinesisbackend.NewInMemoryBackendWithConfig("000000000000", "us-east-1").
+			WithClock(func() time.Time { return *fakeNow }),
+	)
+}
 
 func TestResourceCreator_S3Bucket(t *testing.T) {
 	t.Parallel()
@@ -39,7 +64,7 @@ func TestResourceCreator_S3Bucket(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backends := newServiceBackends()
+			backends := newServiceBackends(t)
 			rc := cloudformation.NewResourceCreator(backends)
 
 			physID, err := rc.Create(
@@ -161,7 +186,7 @@ func TestResourceCreator_DynamoDBTable(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backends := newServiceBackends()
+			backends := newServiceBackends(t)
 			rc := cloudformation.NewResourceCreator(backends)
 
 			physID, err := rc.Create(
@@ -229,7 +254,7 @@ func TestResourceCreator_SQSQueue(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backends := newServiceBackends()
+			backends := newServiceBackends(t)
 			rc := cloudformation.NewResourceCreator(backends)
 
 			physID, err := rc.Create(
@@ -287,7 +312,7 @@ func TestResourceCreator_SNSTopic(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backends := newServiceBackends()
+			backends := newServiceBackends(t)
 			rc := cloudformation.NewResourceCreator(backends)
 
 			physID, err := rc.Create(
@@ -338,7 +363,9 @@ func TestResourceCreator_KinesisStream(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backends := newExtendedServiceBackends()
+			backends := newExtendedServiceBackends(t)
+			fakeNow := time.Now()
+			withFakeClockedKinesis(backends, &fakeNow)
 			rc := cloudformation.NewResourceCreator(backends)
 
 			physID, err := rc.Create(
@@ -356,6 +383,8 @@ func TestResourceCreator_KinesisStream(t *testing.T) {
 				assert.Contains(t, physID, tt.wantContains)
 			}
 
+			fakeNow = fakeNow.Add(kinesisStreamSettleWait)
+
 			err = rc.Delete(t.Context(), "AWS::Kinesis::Stream", physID, nil, nil)
 			require.NoError(t, err)
 		})
@@ -365,7 +394,7 @@ func TestResourceCreator_KinesisStream(t *testing.T) {
 func TestResourceCreator_SNSSubscription(t *testing.T) {
 	t.Parallel()
 
-	backends := newExtendedServiceBackends()
+	backends := newExtendedServiceBackends(t)
 	rc := cloudformation.NewResourceCreator(backends)
 
 	// Create a topic first.
@@ -410,7 +439,7 @@ func TestResourceCreator_EventBus(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backends := newExtendedServiceBackends()
+			backends := newExtendedServiceBackends(t)
 			rc := cloudformation.NewResourceCreator(backends)
 
 			physID, err := rc.Create(
@@ -433,7 +462,7 @@ func TestResourceCreator_EventBus(t *testing.T) {
 func TestResourceCreator_S3BucketPolicy(t *testing.T) {
 	t.Parallel()
 
-	backends := newExtendedServiceBackends()
+	backends := newExtendedServiceBackends(t)
 	rc := cloudformation.NewResourceCreator(backends)
 
 	// Create bucket first.
@@ -457,7 +486,7 @@ func TestResourceCreator_S3BucketPolicy(t *testing.T) {
 func TestResourceCreator_SQSQueuePolicy(t *testing.T) {
 	t.Parallel()
 
-	backends := newExtendedServiceBackends()
+	backends := newExtendedServiceBackends(t)
 	rc := cloudformation.NewResourceCreator(backends)
 
 	// Create queue first.
@@ -481,7 +510,7 @@ func TestResourceCreator_SQSQueuePolicy(t *testing.T) {
 func TestResourceCreator_DeleteSNSSubscription_NilBackend(t *testing.T) {
 	t.Parallel()
 
-	backends := newServiceBackends() // SNS field is set but we want to test nil case; override
+	backends := newServiceBackends(t) // SNS field is set but we want to test nil case; override
 	backends.SNS = nil
 	rc := cloudformation.NewResourceCreator(backends)
 
@@ -493,7 +522,7 @@ func TestResourceCreator_DeleteSNSSubscription_NilBackend(t *testing.T) {
 func TestResourceCreator_DeleteS3BucketPolicy_NilBackend(t *testing.T) {
 	t.Parallel()
 
-	backends := newServiceBackends()
+	backends := newServiceBackends(t)
 	backends.S3 = nil
 	rc := cloudformation.NewResourceCreator(backends)
 
@@ -504,7 +533,7 @@ func TestResourceCreator_DeleteS3BucketPolicy_NilBackend(t *testing.T) {
 func TestResourceCreator_DeleteS3BucketPolicy_RealBackend(t *testing.T) {
 	t.Parallel()
 
-	backends := newExtendedServiceBackends()
+	backends := newExtendedServiceBackends(t)
 	rc := cloudformation.NewResourceCreator(backends)
 
 	// Create bucket then apply policy, then delete policy.

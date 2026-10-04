@@ -14,7 +14,7 @@ import (
 func newKinesisMoreTestClient(t *testing.T) (*cloudformation.ServiceBackends, *cfnsdk.Client) {
 	t.Helper()
 
-	backends := newExtendedServiceBackends()
+	backends := newExtendedServiceBackends(t)
 	creator := cloudformation.NewResourceCreator(backends)
 	backend := cloudformation.NewInMemoryBackendWithConfig("000000000000", "us-east-1", creator)
 	client := newTestClientForBackend(t, backend)
@@ -63,7 +63,7 @@ func TestCreateStack_KinesisStreamConsumer(t *testing.T) {
 func TestCreateStack_KinesisFirehoseDeliveryStream_RealTypeName(t *testing.T) {
 	t.Parallel()
 
-	backends := newAdditionalServiceBackends()
+	backends := newAdditionalServiceBackends(t)
 	creator := cloudformation.NewResourceCreator(backends)
 	backend := cloudformation.NewInMemoryBackendWithConfig("000000000000", "us-east-1", creator)
 	client := newTestClientForBackend(t, backend)

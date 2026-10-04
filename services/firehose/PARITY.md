@@ -71,39 +71,12 @@ families:
 gaps: []
 
 items_still_open:
-  - "Redshift delivery's COPY step (RedshiftDataExecutor) needs SetRedshiftDataBackend wired
-    to the local redshiftdata backend in cli.go, outside services/firehose's own directory --
-    staging to S3 is real and unconditional regardless of wiring (gopherstack-ohdc)."
-  - "Iceberg/Snowflake destinations land processed records in their required S3Configuration
-    staging bucket (genuine state mutation) but drive no real Apache Iceberg/Glue Data
-    Catalog commit or Snowflake Snowpipe Streaming ingest -- this backend has no
-    Iceberg-table or Snowflake-account backend to connect to. Wire shape is fully
-    field-diffed and correct; only the data-movement mechanics diverge."
-  - "AmazonOpenSearchServerlessDestinationConfiguration (a real, distinct 11th destination
-    type) has no delivery pipeline -- this backend has no OpenSearch-Serverless backend to
-    connect to. The accept-and-drop request-side half is fixed: CreateDeliveryStream/
-    UpdateDestination now detect the key's presence and reject explicitly with
-    InvalidArgumentException instead of silently creating a stream with no destination."
-  - "MSK source ingestion: SourceDescription.MSKSourceDescription round-trips correctly, but
-    real polling/ingestion needs a KafkaReader-style interface plus cli.go wiring to
-    services/kafka's backend, outside services/firehose's own directory (unlike
-    KinesisStreamAsSource, which is wired)."
-  - "Database source ingestion: DatabaseSourceConfiguration/DatabaseSourceDescription
-    round-trip correctly (DatabaseSourceDescription.SnapshotInfo honestly stays an empty
-    slice -- no snapshot is ever taken), but real snapshot/CDC polling against a MySQL/
-    PostgreSQL endpoint needs its own backend wiring, same structural gap class as MSK."
-  - "Elasticsearch/Amazonopensearchservice's VpcConfiguration/VpcConfigurationDescription
-    (private-VPC ENI delivery) isn't modeled: VpcConfigurationDescription.VpcId is a
-    required response field AWS derives by resolving the given SubnetIds against real EC2,
-    and fabricating one without that cross-service resolution would violate the no-fabricated-
-    IDs rule. DocumentIdOptions, the sibling field flagged alongside this, is now modeled --
-    see PutInsightSelectors-style OpenSearch/Elasticsearch ops notes and
-    TestDocumentIdOptions_OpenSearchRoundTrips/TestDocumentIdOptions_ElasticsearchRoundTrips."
-  - "DeleteDeliveryStream.AllowForceDelete (reqfieldiff tier-1, 2026-09-18) is not read: it
-    only overrides a KMS-grant-retirement failure that would otherwise block deletion, and
-    this backend has no KMS-grant-retirement failure mode to bypass -- delete always
-    succeeds unconditionally today, so the flag has no observable effect to implement
-    without fabricating a KMS failure subsystem. (bd: unfiled)"
+  - "No in-process CloudWatch metrics are published for AWS/Firehose (IncomingBytes, IncomingRecords, DeliveryTo*.Success; dimension DeliveryStreamName); the shared pkgs/cwmetric emitter (gopherstack-4m1qr) is the seam to add them with the documented dimensions."
+  - "Redshift COPY (RedshiftDataExecutor), MSK source polling and database-source snapshot/CDC need cli.go wiring to other backends (redshiftdata, kafka, a DB endpoint); staging to S3 and wire-shape round-trips are real (gopherstack-ohdc)."
+  - "Iceberg, Snowflake and AmazonOpenSearchServerless destinations stage to S3 (or are rejected with InvalidArgumentException for OpenSearch Serverless) but have no Iceberg/Glue catalog, Snowpipe or OpenSearch-Serverless backend to deliver to."
+  - "Elasticsearch/Amazonopensearchservice VpcConfiguration is not modeled: the required VpcConfigurationDescription.VpcId must come from resolving SubnetIds against EC2, and fabricating it is not allowed."
+  - "DeleteDeliveryStream.AllowForceDelete is not read: it only bypasses a KMS-grant-retirement failure, a failure mode this backend does not model."
+  - "Role authorization covers S3 and S3-backup delivery, the Lambda processor (lambda:InvokeFunction) and domain-ARN OpenSearch/Elasticsearch (es:ESHttpPost); Redshift staging, HTTP (RoleARN not modeled), Splunk, Iceberg and Snowflake destination calls are not checked (2026-10-03)."
 deferred: []              # consolidated into items_still_open 2026-09-18: KinesisStreamAsSource
                            # wiring and CloudWatchLoggingOptions delivery were both already fully
                            # fixed (gopherstack-o4ny, gopherstack-pe7x) and are removed rather than
@@ -114,6 +87,26 @@ leaks: {status: "fixed this pass", note: "FIXED 2026-09-04 (gopherstack-rop): Ki
 ---
 
 ## Notes
+
+## 2026-10-03: delivery realism (processor, partitioning, compression, HTTP, OpenSearch)
+
+Per the Firehose developer guide (s3-prefixes, data-transformation-failure-handling, httpdeliveryrequestresponse, monitoring-with-cloudwatch-logs).
+
+- Lambda processor: response contract enforced (every recordId exactly once, else `Lambda.MissingRecordId`/`DuplicatedRecordId`/`JsonMappingException`/`FunctionError`); invocation retried 3 times; `metadata.partitionKeys` honoured; failures written as the documented `attemptsMade/arrivalTimestamp/errorCode/errorMessage/attemptEndingTimestamp/rawData/lambdaARN` envelope. Role checked under `--enforce-iam` (`Lambda.InvokeAccessDenied`/`Lambda.AssumeRoleAccessDenied`).
+- S3 prefixes: `!{timestamp:java-pattern}`, `!{firehose:random-string}`, `!{firehose:error-output-type}`, CustomTimeZone; a timestamp expression replaces the default yyyy/MM/dd/HH/. Dynamic partitioning keys come from the MetadataExtraction `{key: .path}` query (`partitionKeyFromQuery:key`) or `metadata.partitionKeys` (`partitionKeyFromLambda:key`); only plain `.a.b[0]` jq paths are evaluated, anything else fails the record to `processing-failed`.
+- Compression: GZIP, ZIP, Snappy and HADOOP_SNAPPY with default extensions; error objects are written uncompressed under ErrorOutputPrefix (default `<Prefix><error-output-type>/`) in the primary bucket.
+- HTTP endpoint: documented headers (protocol version, request id kept across retries, source ARN, access key, common-attributes JSON, gzip), 1s doubling jittered backoff to 2m within RetryOptions, only a 200 with a matching requestId JSON body succeeds, 413 is permanent and not backed up, exhausted batches go to the S3 bucket as `http-endpoint-failed` envelopes.
+- OpenSearch/Elasticsearch: a DomainARN destination indexes into the in-process opensearch store (index created on first write, IndexRotationPeriod suffixes); non-JSON records fail to `AmazonOpenSearchService-failed`. A ClusterEndpoint still uses the bulk HTTP path. The opensearch backend is single-region, so no per-region lookup exists.
+- Not delivered: Parquet/ORC output (canonical JSON), Redshift/MSK/Snowflake/Iceberg real sinks (unchanged, see items_still_open), Splunk failures to backup.
+
+## 2026-10-03: S3 destination role under --enforce-iam
+
+- With enforcement on, S3 delivery and S3 backup check the destination RoleARN (trust for firehose.amazonaws.com, then s3:PutObject on bucket/*). Denial skips delivery and the error-output write (the same role would be denied), increments FailedRecords, and writes `S3.AccessDenied` (policy) or `S3.AssumeRoleAccessDenied` (trust) to the destination's CloudWatchLoggingOptions log stream. Codes are from the Firehose developer guide "Monitor with CloudWatch Logs" S3 error list; the guide is not SDK-pinned, so the exact text is recorded, not wire-verified. DescribeDeliveryStream.FailureDescription is create-time only and is not used.
+- Not authorized: Lambda processor (lambda:InvokeFunction), OpenSearch/Elasticsearch, Redshift staging, HTTP/Splunk/Iceberg/Snowflake destination calls.
+
+### 2026-09-30: ledger re-adjudication
+
+Re-checked all 7 items against HEAD: none fixable in-process, so merged same-reason items into 4 one-line entries (cross-backend wiring, no destination backend, VpcConfiguration, AllowForceDelete). No code change.
 
 ### 2026-09-18: items_still_open/deferred ledger burn-down
 
@@ -713,3 +706,15 @@ the per-shard Kinesis source poller goroutines (`pollKinesisStream`/
 `pollKinesisShard`), leaking them across the package's test run. Added
 `t.Cleanup(b.Reset)` (Reset already cancels all pollers); added
 `leak_main_test.go` (goleak TestMain), now clean.
+
+## 2026-10-04: in-process metric inventory (gopherstack-4m1qr)
+
+This service emits no in-process CloudWatch metrics today; recorded in items_still_open. Only SQS and CloudWatch Logs metric filters publish via pkgs/cwmetric.
+
+## 2026-10-04: region from the cross-service context (gopherstack-12q3n)
+
+Delivery streams were already region-keyed. The backend now also reads the region from the shared request metadata on the context, and the SNS, EventBridge, Pipes, IoT and CloudWatch Logs adapters deliver into the stream ARN's region. KinesisStreamAsSource polls the source stream in the stream ARN's region (the reader takes the ARN), and the Lambda transform resolves the function by its ARN region. Proof: `TestRegionIsolation/firehose`, `TestInitializeServices_SNSInvokesLambdaInARNRegion`. Limitation: OpenSearch is single-region, so its destinations have no per-region lookup.
+
+## 2026-10-04 (reqfielddiff tier-1 re-examined: DeleteDeliveryStream.AllowForceDelete)
+
+Still recorded: the flag bypasses a failure to retire the KMS grant Firehose takes for a customer-managed key (api_op_DeleteDeliveryStream.go:62). This backend creates no KMS grants on StartDeliveryStreamEncryption, so retirement cannot fail and a forced delete is indistinguishable from a normal one.

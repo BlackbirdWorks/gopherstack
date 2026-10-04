@@ -45,6 +45,12 @@ const (
 
 	// defaultRefreshTokenTTL is the lifetime for refresh tokens.
 	defaultRefreshTokenTTL = 30 * 24 * time.Hour
+
+	// refreshTokenEvictThreshold: table size that arms the expired-token sweep.
+	refreshTokenEvictThreshold = 256
+
+	// refreshTokenEvictSweepInterval: inserts between sweeps once armed.
+	refreshTokenEvictSweepInterval = 64
 )
 
 // InMemoryBackend is the in-memory store for Cognito IDP resources.
@@ -55,53 +61,56 @@ const (
 // identity for a store.Table key; store_setup.go's registerAllTables doc
 // comment lists each one and why.
 type InMemoryBackend struct {
-	lambdaInvoker               LambdaTriggerInvoker
-	domains                     *store.Table[UserPoolDomain]
-	resourceServers             *store.Table[ResourceServer]
-	poolsByName                 *store.Index[UserPool]
-	clients                     *store.Table[UserPoolClient]
-	clientsByPool               *store.Index[UserPoolClient]
-	users                       *store.Table[User]
-	usersByPool                 *store.Index[User]
-	usersBySub                  *store.Index[User]
-	refreshTokens               map[string]*refreshTokenEntry
-	refreshTokensByClient       map[string]map[string]struct{}
-	refreshTokensByUser         map[string]map[string]struct{}
-	mfaSessions                 map[string]*mfaSessionEntry
-	groups                      *store.Table[Group]
-	logDeliveryConfigs          map[string]*LogDeliveryConfig
-	groupMembers                map[string]map[string]map[string]struct{}
-	riskConfigurations          map[string]*RiskConfiguration
-	resourceServersByPool       *store.Index[ResourceServer]
-	tokenRevokedBeforeSeq       map[string]int64
-	tokenRevokedBefore          map[string]time.Time
-	registry                    *store.Registry
-	identityProviders           *store.Table[IdentityProvider]
-	identityProvidersByPool     *store.Index[IdentityProvider]
-	mu                          *lockmetrics.RWMutex
-	pools                       *store.Table[UserPool]
-	resourceTags                map[string]map[string]string
-	groupsByPool                *store.Index[Group]
-	uiCustomizations            *store.Table[UICustomization]
-	managedLoginBrandings       *store.Table[ManagedLoginBranding]
-	managedLoginBrandingsByPool *store.Index[ManagedLoginBranding]
-	terms                       *store.Table[Terms]
-	termsByPool                 *store.Index[Terms]
-	userImportJobs              *store.Table[UserImportJob]
-	userImportJobsByPool        *store.Index[UserImportJob]
-	poolMfaConfigs              map[string]*UserPoolMfaFullConfig
-	attrVerificationCodes       map[string]*attrVerificationEntry
-	typedRiskConfigurations     *store.Table[TypedRiskConfiguration]
-	devices                     map[string]map[string]*Device
-	webauthnCredentials         map[string]map[string]*WebAuthnCredential
-	authEvents                  map[string]map[string]*AuthEvent
-	userPoolReplicas            *store.Table[UserPoolReplica]
-	userPoolReplicasByPool      *store.Index[UserPoolReplica]
-	provisionedLimits           map[string]int32
-	accountID                   string
-	region                      string
-	endpoint                    string
-	tokenSeq                    int64
+	lambdaInvoker                 LambdaTriggerInvoker
+	domains                       *store.Table[UserPoolDomain]
+	resourceServers               *store.Table[ResourceServer]
+	poolsByName                   *store.Index[UserPool]
+	clients                       *store.Table[UserPoolClient]
+	clientsByPool                 *store.Index[UserPoolClient]
+	users                         *store.Table[User]
+	usersByPool                   *store.Index[User]
+	usersBySub                    *store.Index[User]
+	refreshTokens                 map[string]*refreshTokenEntry
+	authCodes                     map[string]*authCodeEntry
+	hostedSessions                map[string]*hostedSession
+	refreshTokensByClient         map[string]map[string]struct{}
+	refreshTokensByUser           map[string]map[string]struct{}
+	mfaSessions                   map[string]*mfaSessionEntry
+	groups                        *store.Table[Group]
+	logDeliveryConfigs            map[string]*LogDeliveryConfig
+	groupMembers                  map[string]map[string]map[string]struct{}
+	riskConfigurations            map[string]*RiskConfiguration
+	resourceServersByPool         *store.Index[ResourceServer]
+	tokenRevokedBeforeSeq         map[string]int64
+	tokenRevokedBefore            map[string]time.Time
+	registry                      *store.Registry
+	identityProviders             *store.Table[IdentityProvider]
+	identityProvidersByPool       *store.Index[IdentityProvider]
+	mu                            *lockmetrics.RWMutex
+	pools                         *store.Table[UserPool]
+	resourceTags                  map[string]map[string]string
+	groupsByPool                  *store.Index[Group]
+	uiCustomizations              *store.Table[UICustomization]
+	managedLoginBrandings         *store.Table[ManagedLoginBranding]
+	managedLoginBrandingsByPool   *store.Index[ManagedLoginBranding]
+	terms                         *store.Table[Terms]
+	termsByPool                   *store.Index[Terms]
+	userImportJobs                *store.Table[UserImportJob]
+	userImportJobsByPool          *store.Index[UserImportJob]
+	poolMfaConfigs                map[string]*UserPoolMfaFullConfig
+	attrVerificationCodes         map[string]*attrVerificationEntry
+	typedRiskConfigurations       *store.Table[TypedRiskConfiguration]
+	devices                       map[string]map[string]*Device
+	webauthnCredentials           map[string]map[string]*WebAuthnCredential
+	authEvents                    map[string]map[string]*AuthEvent
+	userPoolReplicas              *store.Table[UserPoolReplica]
+	userPoolReplicasByPool        *store.Index[UserPoolReplica]
+	provisionedLimits             map[string]int32
+	accountID                     string
+	region                        string
+	endpoint                      string
+	tokenSeq                      int64
+	refreshTokenInsertsSinceSweep int
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -110,6 +119,8 @@ func NewInMemoryBackend(accountID, region, endpoint string) *InMemoryBackend {
 		mu:                    lockmetrics.New("cognitoidp"),
 		registry:              store.NewRegistry(),
 		refreshTokens:         make(map[string]*refreshTokenEntry),
+		authCodes:             make(map[string]*authCodeEntry),
+		hostedSessions:        make(map[string]*hostedSession),
 		refreshTokensByClient: make(map[string]map[string]struct{}),
 		refreshTokensByUser:   make(map[string]map[string]struct{}),
 		mfaSessions:           make(map[string]*mfaSessionEntry),
@@ -143,6 +154,8 @@ func (b *InMemoryBackend) Reset() {
 	b.registry.ResetAll()
 
 	b.refreshTokens = make(map[string]*refreshTokenEntry)
+	b.authCodes = make(map[string]*authCodeEntry)
+	b.hostedSessions = make(map[string]*hostedSession)
 	b.refreshTokensByClient = make(map[string]map[string]struct{})
 	b.refreshTokensByUser = make(map[string]map[string]struct{})
 	b.mfaSessions = make(map[string]*mfaSessionEntry)
@@ -150,6 +163,7 @@ func (b *InMemoryBackend) Reset() {
 	b.tokenRevokedBeforeSeq = make(map[string]int64)
 	b.tokenRevokedBefore = make(map[string]time.Time)
 	b.tokenSeq = 0
+	b.refreshTokenInsertsSinceSweep = 0
 	b.resourceTags = make(map[string]map[string]string)
 	b.riskConfigurations = make(map[string]*RiskConfiguration)
 	b.logDeliveryConfigs = make(map[string]*LogDeliveryConfig)

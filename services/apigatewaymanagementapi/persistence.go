@@ -130,17 +130,38 @@ func (b *InMemoryBackend) Reset() {
 	b.stats = Stats{}
 }
 
-// Snapshot implements persistence.Persistable by delegating to the backend.
+// Snapshot implements persistence.Persistable; other regions ride in an additive "regions" key.
 func (h *Handler) Snapshot(ctx context.Context) []byte {
-	return h.Backend.Snapshot(ctx)
+	return h.peers.Snapshot(h.Backend.Snapshot(ctx), func(p *Handler) []byte { return p.Backend.Snapshot(ctx) })
 }
 
-// Restore implements persistence.Persistable by delegating to the backend.
+// Restore implements persistence.Persistable; sibling janitors stop as the old siblings are dropped.
 func (h *Handler) Restore(ctx context.Context, data []byte) error {
-	return h.Backend.Restore(ctx, data)
+	if err := h.Backend.Restore(ctx, data); err != nil {
+		return err
+	}
+
+	return h.peers.Restore(
+		data,
+		func(p *Handler, d []byte) error { return p.Backend.Restore(ctx, d) },
+		func(p *Handler) { p.stopWorkers() },
+	)
 }
 
-// Reset implements service.Resettable by delegating to the backend.
+// Reset implements service.Resettable and drops every region sibling, stopping its janitor.
 func (h *Handler) Reset() {
 	h.Backend.Reset()
+
+	for _, p := range h.peers.Drain() {
+		p.stopWorkers()
+	}
+}
+
+// Shutdown stops the janitors of h and every sibling.
+func (h *Handler) Shutdown(_ context.Context) {
+	h.stopWorkers()
+
+	for _, p := range h.peers.Drain() {
+		p.stopWorkers()
+	}
 }

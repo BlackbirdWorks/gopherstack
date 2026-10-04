@@ -109,7 +109,7 @@ func TestPutOpsWithTags_RoundTrip(t *testing.T) {
 		client := newTestHandlerAndClient(t)
 
 		ruleDef := `{"Schema":{"Name":"CloudWatchLogRule","Version":1},"LogFormat":"JSON",` +
-			`"LogGroupNames":["lg"],"Fields":{"@message":"Message"},"Contribution":{"Keys":["@message"]},"AggregateOn":"Count"}`
+			`"LogGroupNames":["lg"],"Contribution":{"Keys":["$.message"]},"AggregateOn":"Count"}`
 
 		_, err := client.PutInsightRule(t.Context(), &cwsdk.PutInsightRuleInput{
 			RuleName:       aws.String("tagged-insight-rule"),

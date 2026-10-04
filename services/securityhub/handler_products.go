@@ -74,13 +74,10 @@ func (h *Handler) handleListEnabledProductsForImport(c *echo.Context) error {
 func (h *Handler) handleEnableImportFindingsForProduct(c *echo.Context, body map[string]any) error {
 	productArn, _ := body["ProductArn"].(string)
 
-	// ErrHubNotEnabled is left unheadered: EnableImportFindingsForProduct's
-	// error list also carries InvalidAccessException (securityhub@v1.75.4
-	// deserializers.go), same ambiguity as handler_hub.go's V1 handlers.
 	subArn, err := h.Backend.EnableImportFindingsForProduct(productArn)
 	if err != nil {
 		if errors.Is(err, ErrHubNotEnabled) {
-			return c.JSON(http.StatusBadRequest, map[string]any{keyMessage: msgHubNotEnabled})
+			return hubNotSubscribed(c)
 		}
 
 		if errors.Is(err, ErrAlreadyExists) {
@@ -96,7 +93,7 @@ func (h *Handler) handleEnableImportFindingsForProduct(c *echo.Context, body map
 func (h *Handler) handleDisableImportFindingsForProduct(c *echo.Context, productSubscriptionArn string) error {
 	if err := h.Backend.DisableImportFindingsForProduct(productSubscriptionArn); err != nil {
 		if errors.Is(err, ErrHubNotEnabled) {
-			return typedErrorResponse(c, http.StatusBadRequest, "InvalidAccessException", msgHubNotEnabled)
+			return hubNotSubscribed(c)
 		}
 
 		if errors.Is(err, ErrNotFound) {

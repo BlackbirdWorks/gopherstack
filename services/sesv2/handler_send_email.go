@@ -11,6 +11,7 @@ type sendEmailInput struct {
 	Content          emailContent     `json:"Content"`
 	FromEmailAddress string           `json:"FromEmailAddress"`
 	Destination      emailDestination `json:"Destination"`
+	ReplyTo          []string         `json:"ReplyToAddresses"`
 }
 
 type emailDestination struct {
@@ -55,9 +56,6 @@ func (h *Handler) handleSendEmail(c *echo.Context) (any, error) {
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidParameter, err.Error())
 	}
 
-	from := in.FromEmailAddress
-	to := in.Destination.ToAddresses
-
 	dest := in.Destination
 	if len(dest.ToAddresses) == 0 && len(dest.CcAddresses) == 0 && len(dest.BccAddresses) == 0 {
 		return nil, fmt.Errorf(
@@ -79,7 +77,15 @@ func (h *Handler) handleSendEmail(c *echo.Context) (any, error) {
 		}
 	}
 
-	msgID, err := h.Backend.SendEmail(from, to, subject, bodyHTML, bodyText, in.Content.Template)
+	out := OutboundEmail{
+		From: in.FromEmailAddress, To: dest.ToAddresses, Cc: dest.CcAddresses, Bcc: dest.BccAddresses,
+		ReplyTo: in.ReplyTo, Subject: subject, BodyHTML: bodyHTML, BodyText: bodyText, Template: in.Content.Template,
+	}
+	if in.Content.Raw != nil {
+		out.Raw = in.Content.Raw.Data
+	}
+
+	msgID, err := h.Backend.SendMessage(out)
 	if err != nil {
 		return nil, err
 	}

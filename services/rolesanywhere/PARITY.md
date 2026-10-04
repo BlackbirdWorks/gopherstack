@@ -460,3 +460,11 @@ Gates: `go build ./...`, `go vet`, `go test -race -count=1`
 (services/rolesanywhere + pkgs/persistence), `golangci-lint run --new-from-rev=HEAD`
 (0 issues). `cmd/paritylint` stays at 0 missing-items-still-open FAIL. No
 persisted-struct fields changed; no version bump.
+
+## 2026-10-03 (gopherstack-uox6, value-semantics sweep)
+
+FIXED: DeleteAttributeMapping (`certificateField`, `specifiers`) and `parsePageParams` (`nextToken`, `pageSize`) hand-split the raw query string without percent-decoding, so specifiers or opaque tokens containing encoded characters never matched. Now `url.ParseQuery`. Proven by `attribute_mapping_encoded_specifier_test.go`.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+rolesanywhere already isolates regions internally: trust anchors, profiles and CRLs are keyed per region. Proof: `TestRegionIsolation/rolesanywhere`; no sibling handlers needed.

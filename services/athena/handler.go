@@ -12,9 +12,11 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -28,6 +30,56 @@ type Handler struct {
 	tokens *pageTokenCodec
 	// dispatch is the pre-built immutable dispatch table, set once in NewHandler.
 	dispatch map[string]athenaActionFn
+	peers    *regionpeers.Set[Handler]
+	stop     context.CancelFunc
+	// glueFor returns the Glue source for a region; set by the composition root.
+	glueFor func(region string) GlueMetadataSource
+}
+
+// SetGlueSourceFactory sets how sibling regions resolve their Glue catalog.
+func (h *Handler) SetGlueSourceFactory(f func(region string) GlueMetadataSource) { h.glueFor = f }
+
+// EnableRegions makes h serve every other region through lazily built per-region
+// siblings, each with its own janitor running under ctx.
+func (h *Handler) EnableRegions(ctx context.Context) {
+	home, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	h.peers = regionpeers.New(home.region, func(region string) *Handler {
+		nb := NewInMemoryBackend(region, home.accountID)
+		nb.s3 = home.s3
+
+		if h.glueFor != nil {
+			nb.glueSource = h.glueFor(region)
+		}
+
+		p := NewHandler(nb)
+
+		if h.janitor == nil {
+			return p
+		}
+
+		p.WithJanitor(h.janitor.Interval, h.janitor.ExecutionTTL, h.janitor.TaskTimeout)
+
+		var pctx context.Context
+
+		pctx, p.stop = context.WithCancel(ctx)
+		go p.janitor.Run(pctx)
+
+		return p
+	})
+}
+
+func (h *Handler) closePeer() {
+	if h.stop != nil {
+		h.stop()
+	}
 }
 
 // NewHandler creates a new Athena handler with the given storage backend.
@@ -219,6 +271,10 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo HTTP handler for Athena operations.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
+			return p.Handler()(c)
+		}
+
 		return service.HandleTarget(
 			c, logger.Load(c.Request().Context()),
 			"Athena", "application/x-amz-json-1.1",

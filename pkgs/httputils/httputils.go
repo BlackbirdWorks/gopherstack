@@ -5,11 +5,15 @@ import (
 	"context"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"hash/crc32"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
+	"sync"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
@@ -23,7 +27,10 @@ import (
 type bodyReadCloser struct {
 	*bytes.Reader
 
-	body []byte
+	formErr  error
+	form     url.Values
+	body     []byte
+	formOnce sync.Once
 }
 
 func (b *bodyReadCloser) Close() error { return nil }
@@ -76,7 +83,7 @@ func ReadBody(r *http.Request) ([]byte, error) {
 		return nil, erc.err
 	}
 
-	body, err := io.ReadAll(http.MaxBytesReader(nil, r.Body, MaxRequestBodyBytes))
+	body, err := readAllSized(r.Body, r.ContentLength)
 	_ = r.Body.Close() // Ensure original body is closed
 	if err != nil {
 		r.Body = &bodyReadErrCloser{err: err}
@@ -92,6 +99,63 @@ func ReadBody(r *http.Request) ([]byte, error) {
 	}
 
 	return body, nil
+}
+
+// HeaderValue is h.Get for a key already in canonical form, skipping re-canonicalisation.
+func HeaderValue(h http.Header, canonicalKey string) string {
+	if v := h[canonicalKey]; len(v) > 0 {
+		return v[0]
+	}
+
+	return ""
+}
+
+// maxPresizeBytes caps the buffer allocated up front from an untrusted Content-Length.
+const maxPresizeBytes = 8 * 1024 * 1024
+
+// readAllSized reads r to EOF, sizing the first buffer from the declared length (capped at
+// maxPresizeBytes) and failing with *http.MaxBytesError past MaxRequestBodyBytes.
+func readAllSized(r io.Reader, declared int64) ([]byte, error) {
+	buf := make([]byte, 0, min(max(declared, 0), maxPresizeBytes)+bytes.MinRead)
+
+	for {
+		n, err := r.Read(buf[len(buf):cap(buf)])
+		buf = buf[:len(buf)+n]
+
+		if int64(len(buf)) > MaxRequestBodyBytes {
+			return nil, &http.MaxBytesError{Limit: MaxRequestBodyBytes}
+		}
+
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				err = nil
+			}
+
+			return buf, err
+		}
+
+		if len(buf) == cap(buf) {
+			buf = append(buf, 0)[:len(buf)]
+		}
+	}
+}
+
+// ParseFormBody is url.ParseQuery over the request body, memoized per request
+// so route matchers share one parse. Callers must not mutate the result.
+func ParseFormBody(r *http.Request) (url.Values, error) {
+	body, err := ReadBody(r)
+	if err != nil {
+		return nil, err
+	}
+
+	brc, ok := r.Body.(*bodyReadCloser)
+	if !ok {
+		return url.ParseQuery(string(body))
+	}
+
+	brc.formOnce.Do(func() { brc.form, brc.formErr = url.ParseQuery(string(brc.body)) })
+
+	return brc.form, brc.formErr
 }
 
 // DrainBody reads and discards the request body.
@@ -328,51 +392,54 @@ const (
 	sigV4TerminalScope      = "aws4_request"
 )
 
-func parseValidSigV4Scope(raw string) []string {
+func parseValidSigV4Scope(raw string) ([expectedSigV4ScopeParts]string, bool) {
+	var scope [expectedSigV4ScopeParts]string
+
 	if idx := strings.IndexAny(raw, ", \t\r\n"); idx != -1 {
 		raw = raw[:idx]
 	}
 
-	parts := strings.Split(raw, "/")
-	if len(parts) != expectedSigV4ScopeParts {
-		return nil
-	}
-
-	for _, p := range parts {
-		if strings.TrimSpace(p) == "" {
-			return nil
+	for i := range sigV4TerminalIndex {
+		part, rest, found := strings.Cut(raw, "/")
+		if !found || strings.TrimSpace(part) == "" {
+			return scope, false
 		}
+
+		scope[i] = part
+		raw = rest
 	}
 
-	if parts[sigV4TerminalIndex] != sigV4TerminalScope {
-		return nil
+	if strings.TrimSpace(raw) == "" || strings.Contains(raw, "/") || raw != sigV4TerminalScope {
+		return scope, false
 	}
 
-	return parts
+	scope[sigV4TerminalIndex] = raw
+
+	return scope, true
 }
 
-func extractSigV4ScopeFromRequest(r *http.Request) []string {
+func extractSigV4ScopeFromRequest(r *http.Request) ([expectedSigV4ScopeParts]string, bool) {
 	if r == nil {
-		return nil
+		return [expectedSigV4ScopeParts]string{}, false
 	}
 
-	if auth := r.Header.Get("Authorization"); auth != "" {
+	if auth := HeaderValue(r.Header, "Authorization"); auth != "" {
 		if _, raw, ok := strings.Cut(auth, "Credential="); ok {
-			if scope := parseValidSigV4Scope(raw); scope != nil {
-				return scope
+			if scope, valid := parseValidSigV4Scope(raw); valid {
+				return scope, true
 			}
 		}
 	}
 
-	if r.URL != nil {
+	if r.URL != nil && r.URL.RawQuery != "" {
 		if cred := r.URL.Query().Get("X-Amz-Credential"); cred != "" {
-			if scope := parseValidSigV4Scope(cred); scope != nil {
-				return scope
+			if scope, valid := parseValidSigV4Scope(cred); valid {
+				return scope, true
 			}
 		}
 	}
 
-	return nil
+	return [expectedSigV4ScopeParts]string{}, false
 }
 
 // ExtractRegionFromRequest extracts the AWS region from an HTTP request.
@@ -380,11 +447,11 @@ func extractSigV4ScopeFromRequest(r *http.Request) []string {
 // then the X-Amz-Region header, then falls back to defaultRegion.
 func ExtractRegionFromRequest(r *http.Request, defaultRegion string) string {
 	if r != nil {
-		if scope := extractSigV4ScopeFromRequest(r); scope != nil {
+		if scope, ok := extractSigV4ScopeFromRequest(r); ok {
 			return SanitizeHeaderString(scope[sigV4RegionIndex])
 		}
 
-		if region := r.Header.Get("X-Amz-Region"); region != "" {
+		if region := HeaderValue(r.Header, "X-Amz-Region"); region != "" {
 			return SanitizeHeaderString(region)
 		}
 	}
@@ -396,7 +463,7 @@ func ExtractRegionFromRequest(r *http.Request, defaultRegion string) string {
 // header credential scope or X-Amz-Credential query parameter.
 // Returns an empty string if the service name cannot be determined.
 func ExtractServiceFromRequest(r *http.Request) string {
-	if scope := extractSigV4ScopeFromRequest(r); scope != nil {
+	if scope, ok := extractSigV4ScopeFromRequest(r); ok {
 		return SanitizeHeaderString(scope[sigV4ServiceIndex])
 	}
 
@@ -418,7 +485,7 @@ func extractBareAccessKey(raw string) string {
 // SigV4RequestFields returns the access key, region and service in one parse,
 // matching the three Extract*FromRequest functions.
 func SigV4RequestFields(r *http.Request, defaultRegion string) (string, string, string) {
-	if scope := extractSigV4ScopeFromRequest(r); scope != nil {
+	if scope, ok := extractSigV4ScopeFromRequest(r); ok {
 		return SanitizeHeaderString(scope[sigV4AccessKeyIndex]),
 			SanitizeHeaderString(scope[sigV4RegionIndex]),
 			SanitizeHeaderString(scope[sigV4ServiceIndex])
@@ -431,7 +498,7 @@ func SigV4RequestFields(r *http.Request, defaultRegion string) (string, string, 
 // It checks the SigV4 Authorization header credential scope first, then the
 // X-Amz-Credential query parameter, and returns an empty string if none is found.
 func ExtractAccessKeyFromRequest(r *http.Request) string {
-	if scope := extractSigV4ScopeFromRequest(r); scope != nil {
+	if scope, ok := extractSigV4ScopeFromRequest(r); ok {
 		return SanitizeHeaderString(scope[sigV4AccessKeyIndex])
 	}
 
@@ -439,7 +506,7 @@ func ExtractAccessKeyFromRequest(r *http.Request) string {
 		return ""
 	}
 
-	if auth := r.Header.Get("Authorization"); auth != "" {
+	if auth := HeaderValue(r.Header, "Authorization"); auth != "" {
 		if _, raw, ok := strings.Cut(auth, "Credential="); ok {
 			if key := extractBareAccessKey(raw); key != "" {
 				return key
@@ -447,7 +514,7 @@ func ExtractAccessKeyFromRequest(r *http.Request) string {
 		}
 	}
 
-	if r.URL != nil {
+	if r.URL != nil && r.URL.RawQuery != "" {
 		if cred := r.URL.Query().Get("X-Amz-Credential"); cred != "" {
 			if key := extractBareAccessKey(cred); key != "" {
 				return key
@@ -469,7 +536,7 @@ func ExtractSecurityTokenFromRequest(r *http.Request) string {
 		return SanitizeHeaderString(tok)
 	}
 
-	if r.URL != nil {
+	if r.URL != nil && r.URL.RawQuery != "" {
 		if tok := r.URL.Query().Get("X-Amz-Security-Token"); tok != "" {
 			return SanitizeHeaderString(tok)
 		}
@@ -536,6 +603,10 @@ func isAllowedHeaderChar(c rune) bool {
 // preserving alphanumeric, hyphens, underscores, periods, and base64/ARN characters (+, /, =, :, ~).
 // This breaks the taint for static analysis tools like CodeQL which flag raw header values in logs.
 func SanitizeHeaderString(s string) string {
+	if isAllAllowedASCII(s) {
+		return s
+	}
+
 	var b strings.Builder
 	for _, c := range s {
 		if isAllowedHeaderChar(c) {
@@ -544,4 +615,15 @@ func SanitizeHeaderString(s string) string {
 	}
 
 	return b.String()
+}
+
+func isAllAllowedASCII(s string) bool {
+	for i := range len(s) {
+		c := s[i]
+		if c >= utf8.RuneSelf || !isAllowedHeaderChar(rune(c)) {
+			return false
+		}
+	}
+
+	return true
 }

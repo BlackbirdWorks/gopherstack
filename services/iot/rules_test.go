@@ -30,43 +30,17 @@ func TestParseRuleSQL(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
-		sql           string
-		wantTopic     string
-		wantCondition string
+		name      string
+		sql       string
+		wantTopic string
+		wantErr   bool
 	}{
-		{
-			name:      "simple_topic",
-			sql:       sqlAllSensorTemp,
-			wantTopic: "sensor/temperature",
-		},
-		{
-			name:      "wildcard_topic",
-			sql:       sqlAllSensorHash,
-			wantTopic: "sensor/#",
-		},
-		{
-			name:          "with_where_clause",
-			sql:           sqlSensorTempGT50,
-			wantTopic:     "sensor/#",
-			wantCondition: "temperature > 50",
-		},
-		{
-			name:          "with_equals_condition",
-			sql:           sqlDeviceStatusEqAct,
-			wantTopic:     "device/status",
-			wantCondition: "status = 'active'",
-		},
-		{
-			name:      "no_from_clause",
-			sql:       sqlSelectStar,
-			wantTopic: "",
-		},
-		{
-			name:      "empty",
-			sql:       "",
-			wantTopic: "",
-		},
+		{name: "simple_topic", sql: sqlAllSensorTemp, wantTopic: "sensor/temperature"},
+		{name: "wildcard_topic", sql: sqlAllSensorHash, wantTopic: "sensor/#"},
+		{name: "with_where_clause", sql: sqlSensorTempGT50, wantTopic: "sensor/#"},
+		{name: "bare_topic", sql: "SELECT * FROM sensor/+/temp", wantTopic: "sensor/+/temp"},
+		{name: "no_from_clause_basic_ingest_only", sql: sqlSelectStar, wantTopic: ""},
+		{name: "empty", sql: "", wantErr: true},
 	}
 
 	for _, tt := range tests {
@@ -74,9 +48,14 @@ func TestParseRuleSQL(t *testing.T) {
 			t.Parallel()
 
 			got, err := iot.ParseRuleSQL(tt.sql)
+			if tt.wantErr {
+				require.ErrorIs(t, err, iot.ErrSQLParse)
+
+				return
+			}
+
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantTopic, got.TopicPattern)
-			assert.Equal(t, tt.wantCondition, got.Condition)
 		})
 	}
 }

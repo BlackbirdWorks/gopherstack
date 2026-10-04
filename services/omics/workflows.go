@@ -3,6 +3,7 @@ package omics
 import (
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -26,6 +27,10 @@ func (b *InMemoryBackend) CreateWorkflow(input CreateWorkflowInput) (*Workflow, 
 		return nil, fmt.Errorf("%w: name is required", ErrValidation)
 	}
 
+	if err := b.checkWorkflowBucketOwner(input.DefinitionURI, input.WorkflowBucketOwnerID); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateWorkflow")
 	defer b.mu.Unlock()
 
@@ -39,6 +44,8 @@ func (b *InMemoryBackend) CreateWorkflow(input CreateWorkflowInput) (*Workflow, 
 		StorageType:       input.StorageType,
 		StorageCapacity:   input.StorageCapacity,
 		ParameterTemplate: input.ParameterTemplate,
+		Readme:            input.ReadmeMarkdown,
+		ReadmePath:        input.ReadmePath,
 		UUID:              newUUID(),
 		Status:            statusCreating,
 		Tags:              copyTags(input.Tags),
@@ -184,6 +191,10 @@ func (b *InMemoryBackend) UpdateWorkflow(id, name, description, storageType stri
 // StorageType/ParameterTemplate are stored/echoed exactly as given -- see
 // the doc comment on CreateWorkflow for why no default is fabricated.
 func (b *InMemoryBackend) CreateWorkflowVersion(input CreateWorkflowVersionInput) (*WorkflowVersion, error) {
+	if err := b.checkWorkflowBucketOwner(input.DefinitionURI, input.WorkflowBucketOwnerID); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateWorkflowVersion")
 	defer b.mu.Unlock()
 
@@ -209,6 +220,9 @@ func (b *InMemoryBackend) CreateWorkflowVersion(input CreateWorkflowVersionInput
 		StorageType:       input.StorageType,
 		StorageCapacity:   input.StorageCapacity,
 		ParameterTemplate: input.ParameterTemplate,
+		Readme:            input.ReadmeMarkdown,
+		ReadmePath:        input.ReadmePath,
+		BucketOwnerID:     input.WorkflowBucketOwnerID,
 		Status:            statusCreating,
 		Tags:              copyTags(input.Tags),
 		CreationTime:      time.Now().UTC(),
@@ -354,4 +368,16 @@ func (b *InMemoryBackend) UpdateWorkflowVersion(
 	}
 
 	return nil
+}
+
+// checkWorkflowBucketOwner enforces WorkflowBucketOwnerId: every S3 bucket here belongs to this account, so an
+// s3:// definition URI with a different expected owner fails (omitted owner skips validation).
+func (b *InMemoryBackend) checkWorkflowBucketOwner(definitionURI, expectedOwner string) error {
+	if expectedOwner == "" || !strings.HasPrefix(definitionURI, "s3://") || expectedOwner == b.accountID {
+		return nil
+	}
+
+	return fmt.Errorf(
+		"%w: workflowBucketOwnerId %s does not match the owner of the definition bucket", ErrValidation, expectedOwner,
+	)
 }

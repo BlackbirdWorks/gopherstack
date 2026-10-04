@@ -5,22 +5,24 @@ import (
 )
 
 var (
-	ErrParameterNotFound        = errors.New("ParameterNotFound")
-	ErrParameterVersionNotFound = errors.New("ParameterVersionNotFound")
-	ErrParameterAlreadyExists   = errors.New("ParameterAlreadyExists")
-	ErrInvalidKeyID             = errors.New("InvalidKeyId")
-	ErrCiphertextTooShort       = errors.New("ciphertext too short")
-	ErrValidationException      = errors.New("ValidationException")
-	ErrDocumentAlreadyExists    = errors.New("DocumentAlreadyExists")
-	ErrDocumentNotFound         = errors.New("DocumentNotFound")
-	ErrInvalidDocumentVersion   = errors.New("InvalidDocumentVersion")
-	ErrCommandNotFound          = errors.New("CommandNotFound")
+	ErrParameterNotFound            = errors.New("ParameterNotFound")
+	ErrParameterVersionNotFound     = errors.New("ParameterVersionNotFound")
+	ErrParameterAlreadyExists       = errors.New("ParameterAlreadyExists")
+	ErrInvalidKeyID                 = errors.New("InvalidKeyId")
+	ErrCiphertextTooShort           = errors.New("ciphertext too short")
+	ErrValidationException          = errors.New("ValidationException")
+	ErrDocumentAlreadyExists        = errors.New("DocumentAlreadyExists")
+	ErrDocumentNotFound             = errors.New("DocumentNotFound")
+	ErrInvalidDocumentVersion       = errors.New("InvalidDocumentVersion")
+	ErrDuplicateDocumentVersionName = errors.New("DuplicateDocumentVersionName")
+	ErrCommandNotFound              = errors.New("CommandNotFound")
 	// ErrInvalidActivationID is returned when an ActivationId doesn't match any
 	// known activation (DeleteActivation). "ActivationNotFound" is not a real
 	// AWS SSM error code — DeleteActivation's own deserializer
 	// (ssm@v1.73.4 deserializers.go) models InvalidActivationId for this case.
 	ErrInvalidActivationID                = errors.New("InvalidActivationId")
 	ErrAssociationNotFound                = errors.New("AssociationDoesNotExist")
+	ErrInvalidAssociationVersion          = errors.New("InvalidAssociationVersion")
 	ErrMaintenanceWindowNotFound          = errors.New("DoesNotExistException")
 	ErrMaintenanceWindowExecutionNotFound = errors.New("DoesNotExistException")
 	ErrOpsItemNotFound                    = errors.New("OpsItemNotFoundException")
@@ -44,6 +46,11 @@ var (
 	// still referenced by a registered task. TargetInUseException is the
 	// real declared exception (ssm@v1.77.0 types/errors.go).
 	ErrMaintenanceWindowTargetInUse = errors.New("TargetInUseException")
+	// ErrOpsItemRelatedItemAssociationNotFound is returned by
+	// DisassociateOpsItemRelatedItem when AssociationId doesn't match any
+	// related item on the OpsItem. OpsItemRelatedItemAssociationNotFoundException
+	// is the op's own declared exception (ssm@v1.77.0 deserializers.go).
+	ErrOpsItemRelatedItemAssociationNotFound = errors.New("OpsItemRelatedItemAssociationNotFoundException")
 )
 var (
 	ErrResourceDataSyncNotFound    = errors.New("ResourceDataSyncNotFoundException")

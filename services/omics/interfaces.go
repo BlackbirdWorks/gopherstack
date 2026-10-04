@@ -67,6 +67,7 @@ type StorageBackend interface {
 	GetReadSetActivationJob(sequenceStoreID, jobID string) (*ReadSetActivationJob, error)
 	ListReadSetActivationJobs(
 		sequenceStoreID string,
+		filter *ReadSetJobFilter,
 		maxResults int,
 		nextToken string,
 	) ([]*ReadSetActivationJob, string, error)
@@ -77,6 +78,7 @@ type StorageBackend interface {
 	GetReadSetExportJob(sequenceStoreID, jobID string) (*ReadSetExportJob, error)
 	ListReadSetExportJobs(
 		sequenceStoreID string,
+		filter *ReadSetJobFilter,
 		maxResults int,
 		nextToken string,
 	) ([]*ReadSetExportJob, string, error)
@@ -87,6 +89,7 @@ type StorageBackend interface {
 	GetReadSetImportJob(sequenceStoreID, jobID string) (*ReadSetImportJob, error)
 	ListReadSetImportJobs(
 		sequenceStoreID string,
+		filter *ReadSetJobFilter,
 		maxResults int,
 		nextToken string,
 	) ([]*ReadSetImportJob, string, error)

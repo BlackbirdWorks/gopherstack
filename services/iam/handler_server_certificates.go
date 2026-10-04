@@ -23,13 +23,15 @@ func looksLikePEMPrivateKey(s string) bool {
 func (h *Handler) iamServerCertReadDispatch() map[string]iamActionFn {
 	return map[string]iamActionFn{
 		"ListServerCertificates": func(vals url.Values, reqID string) (any, error) {
-			certs, err := h.Backend.ListServerCertificates(vals.Get("PathPrefix"))
+			p, err := h.Backend.ListServerCertificates(
+				vals.Get("PathPrefix"), vals.Get("Marker"), parseMaxItems(vals.Get("MaxItems")),
+			)
 			if err != nil {
 				return nil, err
 			}
 
-			members := make([]serverCertMetaXML, 0, len(certs))
-			for _, c := range certs {
+			members := make([]serverCertMetaXML, 0, len(p.Data))
+			for _, c := range p.Data {
 				members = append(members, serverCertMetaXML{
 					ServerCertificateName: c.ServerCertificateName,
 					ServerCertificateID:   c.ServerCertificateID,
@@ -44,7 +46,8 @@ func (h *Handler) iamServerCertReadDispatch() map[string]iamActionFn {
 				Xmlns:   iamXMLNS,
 				ListServerCertificatesResult: listServerCertificatesResult{
 					ServerCertificateMetadataList: members,
-					IsTruncated:                   false,
+					IsTruncated:                   p.Next != "",
+					Marker:                        p.Next,
 				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil

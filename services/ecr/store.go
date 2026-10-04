@@ -24,6 +24,7 @@ type InMemoryBackend struct {
 	repos                       *store.Table[Repository]
 	images                      *store.Table[Image]
 	imagesByRepo                *store.Index[Image]
+	layerRefs                   *layerRefIndex
 	imageScanFindings           *store.Table[ImageScanFindingsResult]
 	imageScanFindingsByRepo     *store.Index[ImageScanFindingsResult]
 	pullThroughCacheRules       *store.Table[PullThroughCacheRule]
@@ -60,6 +61,7 @@ type InMemoryBackend struct {
 func NewInMemoryBackend(accountID, region, endpoint string) *InMemoryBackend {
 	b := &InMemoryBackend{
 		registry:               store.NewRegistry(),
+		layerRefs:              newLayerRefIndex(),
 		tagIndex:               make(map[string]map[string]string),
 		digestTagsIndex:        make(map[string]map[string][]string),
 		uploadedLayers:         make(map[string]map[string]int64),
@@ -131,6 +133,7 @@ func (b *InMemoryBackend) Reset() {
 	defer b.mu.Unlock()
 
 	b.registry.ResetAll()
+	b.layerRefs.rebuild(b.images)
 	b.tagIndex = make(map[string]map[string]string)
 	b.digestTagsIndex = make(map[string]map[string][]string)
 	b.lifecycleLastEvaluated = make(map[string]time.Time)

@@ -93,18 +93,6 @@ func (b *InMemoryBackend) DeleteResourceConfig(resourceType, resourceID string) 
 	return nil
 }
 
-// GetDiscoveredResourceCounts returns the total number of discovered
-// resources tracked by resourceConfigs -- previously a hardcoded 0
-// regardless of how many resources PutResourceConfig had stored, unlike its
-// GetAggregateDiscoveredResourceCounts sibling, which already read
-// resourceConfigs.Len() correctly.
-func (b *InMemoryBackend) GetDiscoveredResourceCounts() int64 {
-	b.mu.RLock("GetDiscoveredResourceCounts")
-	defer b.mu.RUnlock()
-
-	return int64(b.resourceConfigs.Len())
-}
-
 // ListAggregateDiscoveredResources returns discovered resources of resourceType
 // as seen through aggregatorName, tagged with the local account/region as the
 // source (mirroring SelectAggregateResourceConfig/GetAggregateResourceConfig,
@@ -330,7 +318,7 @@ func (b *InMemoryBackend) resourceConfigItemsLocked() []*ResourceConfigItem {
 // key = value / LIKE pattern" query (see select_query.go) against the
 // account's discovered resource configurations, instead of ignoring the
 // query entirely.
-func (b *InMemoryBackend) SelectResourceConfig(expression string) []string {
+func (b *InMemoryBackend) SelectResourceConfig(expression string) ([]string, error) {
 	b.mu.RLock("SelectResourceConfig")
 	defer b.mu.RUnlock()
 
@@ -343,7 +331,7 @@ func (b *InMemoryBackend) SelectResourceConfig(expression string) []string {
 // (mirroring DescribeAggregateComplianceByConfigRules, which reuses the
 // account's rule evaluations for its aggregate view) it reuses
 // resourceConfigItemsLocked rather than returning an empty result.
-func (b *InMemoryBackend) SelectAggregateResourceConfig(expression string) []string {
+func (b *InMemoryBackend) SelectAggregateResourceConfig(expression string) ([]string, error) {
 	b.mu.RLock("SelectAggregateResourceConfig")
 	defer b.mu.RUnlock()
 

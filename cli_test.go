@@ -113,6 +113,22 @@ import (
 // when shutdown itself completes on time (gopherstack-becu).
 const shutdownWaitTimeout = shutdownTimeout + 3*time.Second
 
+// waitForServerReady polls the health endpoint instead of a fixed sleep,
+// since startup time varies under load.
+func waitForServerReady(t *testing.T, port int) {
+	t.Helper()
+
+	require.Eventually(t, func() bool {
+		resp, err := http.Get(fmt.Sprintf("http://localhost:%d/_gopherstack/health", port))
+		if err != nil {
+			return false
+		}
+		resp.Body.Close()
+
+		return resp.StatusCode == http.StatusOK
+	}, 3*time.Second, 50*time.Millisecond, "server did not become ready")
+}
+
 // parseCLI parses the given args (key=value env pairs) into a CLI value
 // by setting environment variables then parsing an empty argument list.
 func parseCLI(t *testing.T, envPairs map[string]string) CLI {
@@ -305,8 +321,7 @@ func TestServerStartupAndShutdown(t *testing.T) {
 		errCh <- run(ctx, cli)
 	}()
 
-	// Wait briefly to let the server start (in a real test you might poll the endpoint)
-	time.Sleep(200 * time.Millisecond)
+	waitForServerReady(t, port)
 
 	// Cancel the context to initiate a graceful shutdown
 	cancel()
@@ -384,18 +399,13 @@ func TestServerStartup_WithInitScript(t *testing.T) {
 		errCh <- run(ctx, cli)
 	}()
 
-	// Poll for the marker file instead of a fixed sleep to avoid timing flakes.
-	deadline := time.Now().Add(5 * time.Second)
 	var data []byte
-	for time.Now().Before(deadline) {
+	require.Eventually(t, func() bool {
 		var readErr error
 		data, readErr = os.ReadFile(marker)
-		if readErr == nil {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	require.NotNil(t, data, "init script should have created the marker file within 5s")
+
+		return readErr == nil
+	}, 5*time.Second, 20*time.Millisecond, "init script should have created the marker file within 5s")
 	assert.Contains(t, string(data), "ran")
 
 	cancel()
@@ -430,7 +440,7 @@ func TestServerStartup_WithDNS(t *testing.T) {
 		errCh <- run(ctx, cli)
 	}()
 
-	time.Sleep(300 * time.Millisecond)
+	waitForServerReady(t, port)
 	cancel()
 
 	select {
@@ -457,7 +467,7 @@ func TestServerStartup_InvalidDNSConfig(t *testing.T) {
 		errCh <- run(ctx, cli)
 	}()
 
-	time.Sleep(200 * time.Millisecond)
+	waitForServerReady(t, port)
 	cancel()
 
 	select {
@@ -484,7 +494,7 @@ func TestServerStartup_InvalidPortRange(t *testing.T) {
 		errCh <- run(ctx, cli)
 	}()
 
-	time.Sleep(200 * time.Millisecond)
+	waitForServerReady(t, port)
 	cancel()
 
 	select {
@@ -512,16 +522,7 @@ func TestHealthCmd_Success(t *testing.T) {
 		errCh <- run(ctx, cli)
 	}()
 
-	// Wait for the server to be ready.
-	require.Eventually(t, func() bool {
-		resp, err := http.Get(fmt.Sprintf("http://localhost:%d/_gopherstack/health", port))
-		if err != nil {
-			return false
-		}
-		resp.Body.Close()
-
-		return resp.StatusCode == http.StatusOK
-	}, 3*time.Second, 50*time.Millisecond, "server did not become ready")
+	waitForServerReady(t, port)
 
 	// Run the health command against the running server.
 	cmd := &HealthCmd{Port: portString}
@@ -2966,11 +2967,34 @@ func TestAWSMetaMiddleware_PopulatesCtxbag(t *testing.T) {
 		name          string
 		authHeader    string
 		accountHeader string
+		regionHeader  string
 		defaultRegion string
 		defaultAcct   string
 		wantRegion    string
 		wantAccount   string
 	}{
+		{
+			name:          "dashboard region header applies when unsigned",
+			regionHeader:  "eu-west-1",
+			defaultRegion: "us-east-1",
+			wantRegion:    "eu-west-1",
+			wantAccount:   awsmeta.DefaultAccount,
+		},
+		{
+			name:          "invalid dashboard region header ignored",
+			regionHeader:  "not-a-region",
+			defaultRegion: "us-east-1",
+			wantRegion:    "us-east-1",
+			wantAccount:   awsmeta.DefaultAccount,
+		},
+		{
+			name:          "dashboard region header ignored when signed",
+			regionHeader:  "eu-west-1",
+			authHeader:    "AWS4-HMAC-SHA256 Credential=AKIA/20260606/ap-south-1/s3/aws4_request",
+			defaultRegion: "us-east-1",
+			wantRegion:    "ap-south-1",
+			wantAccount:   awsmeta.DefaultAccount,
+		},
 		{
 			name:          "falls back to configured defaults",
 			defaultRegion: "eu-west-1",
@@ -3019,6 +3043,10 @@ func TestAWSMetaMiddleware_PopulatesCtxbag(t *testing.T) {
 
 			if tt.accountHeader != "" {
 				req.Header.Set("X-Amz-Account-Id", tt.accountHeader)
+			}
+
+			if tt.regionHeader != "" {
+				req.Header.Set(dashboardRegionHeader, tt.regionHeader)
 			}
 
 			rec := httptest.NewRecorder()

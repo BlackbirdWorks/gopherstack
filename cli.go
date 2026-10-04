@@ -15,6 +15,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -60,6 +61,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/inithooks"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	svctags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
@@ -122,11 +124,13 @@ import (
 	dlmbackend "github.com/blackbirdworks/gopherstack/services/dlm"
 	dmsbackend "github.com/blackbirdworks/gopherstack/services/dms"
 	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
+	dsqlbackend "github.com/blackbirdworks/gopherstack/services/dsql"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	ddbmodels "github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 	dynamodbstreamsbackend "github.com/blackbirdworks/gopherstack/services/dynamodbstreams"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
+	ecrpublicbackend "github.com/blackbirdworks/gopherstack/services/ecrpublic"
 	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
 	efsbackend "github.com/blackbirdworks/gopherstack/services/efs"
 	eksbackend "github.com/blackbirdworks/gopherstack/services/eks"
@@ -154,9 +158,11 @@ import (
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
 	iotwirelessbackend "github.com/blackbirdworks/gopherstack/services/iotwireless"
 	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
+	kafkaconnectbackend "github.com/blackbirdworks/gopherstack/services/kafkaconnect"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	kinesisanalyticsbackend "github.com/blackbirdworks/gopherstack/services/kinesisanalytics"
 	kinesisanalyticsv2backend "github.com/blackbirdworks/gopherstack/services/kinesisanalyticsv2"
+	kinesisvideobackend "github.com/blackbirdworks/gopherstack/services/kinesisvideo"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lakeformationbackend "github.com/blackbirdworks/gopherstack/services/lakeformation"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
@@ -259,6 +265,7 @@ const (
 	emrServerlessRoleARN = "arn:aws:iam::000000000000:role/EMRServerlessRole"
 	envProduction        = "production"
 	kinesisServiceName   = "kinesis"
+	compressionOff       = "off"
 )
 
 // CLI holds all command-line / environment-variable configuration for Gopherstack.
@@ -358,8 +365,10 @@ type CLI struct {
 	codeStarConnectionsHandler    service.Registerable
 	dynamodbStreamsHandler        service.Registerable
 	docdbHandler                  service.Registerable
+	dsqlHandler                   service.Registerable
 	elasticbeanstalkHandler       service.Registerable
 	ecrHandler                    service.Registerable
+	ecrPublicHandler              service.Registerable
 	ecsHandler                    service.Registerable
 	efsHandler                    service.Registerable
 	eksHandler                    service.Registerable
@@ -381,7 +390,9 @@ type CLI struct {
 	inspector2Handler             service.Registerable
 	iotanalyticsHandler           service.Registerable
 	kafkaHandler                  service.Registerable
+	kafkaconnectHandler           service.Registerable
 	kinesisanalyticsv2Handler     service.Registerable
+	kinesisvideoHandler           service.Registerable
 	managedblockchainHandler      service.Registerable
 	mediaconvertHandler           service.Registerable
 	mqHandler                     service.Registerable
@@ -422,25 +433,30 @@ type CLI struct {
 	globalConfig                  *config.GlobalConfig
 	portAlloc                     *portalloc.Allocator
 	shutdownDeadline              time.Time
-	ElastiCacheEngine             string                            `                                       name:"elasticache-engine"      env:"ELASTICACHE_ENGINE"      default:"embedded"      help:"ElastiCache engine mode: embedded (miniredis), stub, or docker."`                                      //nolint:lll // config struct tags are intentionally verbose
-	EC2Provider                   string                            `                                       name:"ec2-provider"            env:"EC2_PROVIDER"            default:"inmemory"      help:"EC2 compute provider: inmemory (stub) or docker (launches real containers as instances)."`             //nolint:lll // config struct tags are intentionally verbose
-	EC2DockerImage                string                            `                                       name:"ec2-docker-image"        env:"EC2_DOCKER_IMAGE"        default:"amazonlinux:2" help:"Docker image used by the EC2 docker provider when launching instances."`                               //nolint:lll // config struct tags are intentionally verbose
-	EC2DockerNetwork              string                            `                                       name:"ec2-docker-network"      env:"EC2_DOCKER_NETWORK"      default:""              help:"Docker network EC2 docker-provider containers attach to (empty = daemon default bridge)."`             //nolint:lll // config struct tags are intentionally verbose
-	EC2DockerSSHHostIP            string                            `                                       name:"ec2-docker-ssh-host-ip"  env:"EC2_DOCKER_SSH_HOST_IP"  default:"127.0.0.1"     help:"Host IP that mapped EC2-docker SSH ports bind to (use 0.0.0.0 to expose externally)."`                 //nolint:lll // config struct tags are intentionally verbose
-	Port                          string                            `                                       name:"port"                    env:"PORT"                    default:"8000"          help:"HTTP server port."`                                                                                    //nolint:lll // config struct tags are intentionally verbose
-	DataDir                       string                            `                                       name:"data-dir"                env:"GOPHERSTACK_DATA_DIR"    default:""              help:"Directory for persistence data files (default: ~/.gopherstack/data, or /data in containers)."`         //nolint:lll // config struct tags are intentionally verbose
-	DNSListenAddr                 string                            `                                       name:"dns-addr"                env:"DNS_ADDR"                default:""              help:"Address for embedded DNS server (e.g. :10053). Empty = disabled."`                                     //nolint:lll // config struct tags are intentionally verbose
-	LogLevel                      string                            `                                       name:"log-level"               env:"LOG_LEVEL"               default:"info"          help:"Log level (debug|info|warn|error)."`                                                                   //nolint:lll // config struct tags are intentionally verbose
-	Region                        string                            `                                       name:"region"                  env:"REGION"                  default:"us-east-1"     help:"AWS region (also read from AWS_DEFAULT_REGION and AWS_REGION)."`                                       //nolint:lll // config struct tags are intentionally verbose
-	OpenSearchEngine              string                            `                                       name:"opensearch-engine"       env:"OPENSEARCH_ENGINE"       default:"stub"          help:"OpenSearch engine mode: stub (API-only) or docker."`                                                   //nolint:lll // config struct tags are intentionally verbose
-	ElasticsearchEngine           string                            `                                       name:"elasticsearch-engine"    env:"ELASTICSEARCH_ENGINE"    default:"stub"          help:"Elasticsearch engine mode: stub (API-only) or docker."`                                                //nolint:lll // config struct tags are intentionally verbose
-	DNSResolveIP                  string                            `                                       name:"dns-resolve-ip"          env:"DNS_RESOLVE_IP"          default:"127.0.0.1"     help:"IP address synthetic hostnames resolve to."`                                                           //nolint:lll // config struct tags are intentionally verbose
-	AccountID                     string                            `                                       name:"account-id"              env:"ACCOUNT_ID"              default:"000000000000"  help:"Mock AWS account ID used in ARNs."`                                                                    //nolint:lll // config struct tags are intentionally verbose
-	TLSCertFile                   string                            `                                       name:"tls-cert"                env:"TLS_CERT"                default:""              help:"Path to a TLS certificate (PEM). Enables an HTTPS listener; requires --tls-key. Empty = HTTP only."`   //nolint:lll // config struct tags are intentionally verbose
-	TLSKeyFile                    string                            `                                       name:"tls-key"                 env:"TLS_KEY"                 default:""              help:"Path to a TLS private key (PEM). Required with --tls-cert."`                                           //nolint:lll // config struct tags are intentionally verbose
-	SigV4Secret                   string                            `                                       name:"sigv4-secret"            env:"SIGV4_SECRET"            default:"test"          help:"Secret access key SigV4 validation signs against (used only when --validate-sigv4 is set)."`           //nolint:lll // config struct tags are intentionally verbose
-	InitScripts                   []string                          `                                       name:"init-script"             env:"INIT_SCRIPTS"                                    help:"Shell scripts to run on startup (may be specified multiple times)."`                                   //nolint:lll // config struct tags are intentionally verbose
-	S3InitBuckets                 []string                          `                                       name:"s3-bucket"               env:"S3_BUCKETS"                                      help:"S3 bucket names to create on startup (may be specified multiple times or as a comma-separated list)."` //nolint:lll // config struct tags are intentionally verbose
+	ElastiCacheEngine             string                            `                                       name:"elasticache-engine"      env:"ELASTICACHE_ENGINE"      default:"embedded"      help:"ElastiCache engine mode: embedded (miniredis), stub, or docker."`                                                                                                                                            //nolint:lll // config struct tags are intentionally verbose
+	KafkaEngine                   string                            `                                       name:"kafka-engine"            env:"KAFKA_ENGINE"            default:"stub"          help:"MSK engine mode: stub (metadata only) or docker (real Kafka broker per cluster)."`                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
+	MQEngine                      string                            `                                       name:"mq-engine"               env:"MQ_ENGINE"               default:"stub"          help:"Amazon MQ engine mode: stub (metadata only) or docker (real RabbitMQ/ActiveMQ container per broker)."`                                                                                                       //nolint:lll // config struct tags are intentionally verbose
+	EKSEngine                     string                            `                                       name:"eks-engine"              env:"EKS_ENGINE"              default:"stub"          help:"EKS engine mode: stub (metadata only) or docker (real single-node k3s cluster per CreateCluster)."`                                                                                                          //nolint:lll // config struct tags are intentionally verbose
+	RDSEngine                     string                            `                                       name:"rds-engine"              env:"RDS_ENGINE"              default:"stub"          help:"RDS engine mode: stub (metadata only) or docker (real database container)."`                                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
+	EC2Provider                   string                            `                                       name:"ec2-provider"            env:"EC2_PROVIDER"            default:"inmemory"      help:"EC2 compute provider: inmemory (stub) or docker (launches real containers as instances)."`                                                                                                                   //nolint:lll // config struct tags are intentionally verbose
+	EC2DockerImage                string                            `                                       name:"ec2-docker-image"        env:"EC2_DOCKER_IMAGE"        default:"amazonlinux:2" help:"Docker image used by the EC2 docker provider when launching instances."`                                                                                                                                     //nolint:lll // config struct tags are intentionally verbose
+	EC2DockerNetwork              string                            `                                       name:"ec2-docker-network"      env:"EC2_DOCKER_NETWORK"      default:""              help:"Docker network EC2 docker-provider containers attach to (empty = daemon default bridge)."`                                                                                                                   //nolint:lll // config struct tags are intentionally verbose
+	EC2DockerSSHHostIP            string                            `                                       name:"ec2-docker-ssh-host-ip"  env:"EC2_DOCKER_SSH_HOST_IP"  default:"127.0.0.1"     help:"Host IP that mapped EC2-docker SSH ports bind to (use 0.0.0.0 to expose externally)."`                                                                                                                       //nolint:lll // config struct tags are intentionally verbose
+	Port                          string                            `                                       name:"port"                    env:"PORT"                    default:"8000"          help:"HTTP server port."`                                                                                                                                                                                          //nolint:lll // config struct tags are intentionally verbose
+	DataDir                       string                            `                                       name:"data-dir"                env:"GOPHERSTACK_DATA_DIR"    default:""              help:"Directory for persistence data files (default: ~/.gopherstack/data, or /data in containers)."`                                                                                                               //nolint:lll // config struct tags are intentionally verbose
+	DNSListenAddr                 string                            `                                       name:"dns-addr"                env:"DNS_ADDR"                default:""              help:"Address for embedded DNS server (e.g. :10053). Empty = disabled."`                                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
+	LogLevel                      string                            `                                       name:"log-level"               env:"LOG_LEVEL"               default:"info"          help:"Log level (debug|info|warn|error)."`                                                                                                                                                                         //nolint:lll // config struct tags are intentionally verbose
+	Region                        string                            `                                       name:"region"                  env:"REGION"                  default:"us-east-1"     help:"AWS region (also read from AWS_DEFAULT_REGION and AWS_REGION)."`                                                                                                                                             //nolint:lll // config struct tags are intentionally verbose
+	OpenSearchEngine              string                            `                                       name:"opensearch-engine"       env:"OPENSEARCH_ENGINE"       default:"stub"          help:"OpenSearch engine mode: stub (API-only) or docker."`                                                                                                                                                         //nolint:lll // config struct tags are intentionally verbose
+	ElasticsearchEngine           string                            `                                       name:"elasticsearch-engine"    env:"ELASTICSEARCH_ENGINE"    default:"stub"          help:"Elasticsearch engine mode: stub (API-only) or docker."`                                                                                                                                                      //nolint:lll // config struct tags are intentionally verbose
+	DNSResolveIP                  string                            `                                       name:"dns-resolve-ip"          env:"DNS_RESOLVE_IP"          default:"127.0.0.1"     help:"IP address synthetic hostnames resolve to."`                                                                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
+	AccountID                     string                            `                                       name:"account-id"              env:"ACCOUNT_ID"              default:"000000000000"  help:"Mock AWS account ID used in ARNs."`                                                                                                                                                                          //nolint:lll // config struct tags are intentionally verbose
+	TLSCertFile                   string                            `                                       name:"tls-cert"                env:"TLS_CERT"                default:""              help:"Path to a TLS certificate (PEM). Enables an HTTPS listener; requires --tls-key. Empty = HTTP only."`                                                                                                         //nolint:lll // config struct tags are intentionally verbose
+	TLSKeyFile                    string                            `                                       name:"tls-key"                 env:"TLS_KEY"                 default:""              help:"Path to a TLS private key (PEM). Required with --tls-cert."`                                                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
+	Compression                   string                            `                                       name:"compression"             env:"COMPRESSION"             default:"on"            help:"Runtime response compression: zstd/br/gzip for the dashboard, gzip for DynamoDB clients that opt in."                                                                                         enum:"on,off"` //nolint:lll // config struct tags are intentionally verbose
+	SigV4Secret                   string                            `                                       name:"sigv4-secret"            env:"SIGV4_SECRET"            default:"test"          help:"Secret access key SigV4 validation signs against (used only when --validate-sigv4 is set)."`                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
+	InitScripts                   []string                          `                                       name:"init-script"             env:"INIT_SCRIPTS"                                    help:"Shell scripts to run on startup (may be specified multiple times)."`                                                                                                                                         //nolint:lll // config struct tags are intentionally verbose
+	S3InitBuckets                 []string                          `                                       name:"s3-bucket"               env:"S3_BUCKETS"                                      help:"S3 bucket names to create on startup (may be specified multiple times or as a comma-separated list)."`                                                                                                       //nolint:lll // config struct tags are intentionally verbose
 	AzureARM                      azurearmbackend.Settings          `embed:"" prefix:"azure-arm-"`
 	S3                            s3backend.Settings                `embed:"" prefix:"s3-"`
 	CosmosDB                      cosmosdbbackend.Settings          `embed:"" prefix:"cosmosdb-"`
@@ -1179,6 +1195,18 @@ func (c *CLI) GetElastiCacheHandler() service.Registerable { return c.elasticach
 // GetElastiCacheEngine returns the ElastiCache engine mode (elasticache.EngineConfig).
 func (c *CLI) GetElastiCacheEngine() string { return c.ElastiCacheEngine }
 
+// GetEKSEngine returns the EKS engine mode (eks.EngineConfig).
+func (c *CLI) GetEKSEngine() string { return c.EKSEngine }
+
+// GetMQEngine returns the Amazon MQ engine mode (mq.EngineConfig).
+func (c *CLI) GetMQEngine() string { return c.MQEngine }
+
+// GetRDSEngine returns the RDS engine mode (rds.EngineModeConfig).
+func (c *CLI) GetRDSEngine() string { return c.RDSEngine }
+
+// GetKafkaEngine returns the MSK engine mode (kafka.EngineConfig).
+func (c *CLI) GetKafkaEngine() string { return c.KafkaEngine }
+
 // GetRoute53Handler returns the Route 53 handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -1302,6 +1330,11 @@ func (c *CLI) GetSupportHandler() service.Registerable { return c.supportHandler
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetECRHandler() service.Registerable { return c.ecrHandler }
 
+// GetECRPublicHandler returns the ECR Public handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetECRPublicHandler() service.Registerable { return c.ecrPublicHandler }
+
 // GetECSHandler returns the ECS handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -1367,12 +1400,22 @@ func (c *CLI) GetInspector2Handler() service.Registerable { return c.inspector2H
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetKafkaHandler() service.Registerable { return c.kafkaHandler }
 
+// GetKafkaConnectHandler returns the MSK Connect handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetKafkaConnectHandler() service.Registerable { return c.kafkaconnectHandler }
+
 // GetKinesisAnalyticsV2Handler returns the Kinesis Data Analytics v2 handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetKinesisAnalyticsV2Handler() service.Registerable {
 	return c.kinesisanalyticsv2Handler
 }
+
+// GetKinesisVideoHandler returns the Kinesis Video Streams handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetKinesisVideoHandler() service.Registerable { return c.kinesisvideoHandler }
 
 // GetManagedBlockchainHandler returns the Managed Blockchain handler (dashboard.AWSSDKProvider).
 //
@@ -1735,6 +1778,11 @@ func (c *CLI) GetElasticbeanstalkHandler() service.Registerable { return c.elast
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetDocDBHandler() service.Registerable { return c.docdbHandler }
+
+// GetDSQLHandler returns the Aurora DSQL handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetDSQLHandler() service.Registerable { return c.dsqlHandler }
 
 // GetFISHandler returns the FIS handler (dashboard.AWSSDKProvider).
 //
@@ -2275,6 +2323,7 @@ func lambdaCloseFn(lambdaReg service.Registerable, deadline time.Time) func() {
 	return func() {
 		ctx, cancel := context.WithDeadline(context.Background(), deadline)
 		defer cancel()
+		lambdaH.CloseRegions(ctx)
 		lambdaBk.Close(ctx)
 	}
 }
@@ -2362,6 +2411,7 @@ func buildEchoServer(
 	e.GET("/_localstack/init/ready", buildLocalstackInitHandler())
 	e.GET("/_localstack/info", buildLocalstackInfoHandler())
 	e.POST("/_gopherstack/reset", buildResetHandler(services))
+	registerLocalstackDevEndpoints(e, services)
 	e.POST("/_gopherstack/snapshot", buildSnapshotHandler(persistManager))
 	e.POST("/_gopherstack/load", buildLoadHandler(persistManager))
 
@@ -2778,6 +2828,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.bedrockHandler = byName["Bedrock"]
 	cli.bedrockruntimeHandler = byName["BedrockRuntime"]
 	cli.ecrHandler = byName["ECR"]
+	cli.ecrPublicHandler = byName["ECRPublic"]
 	cli.ecsHandler = byName["ECS"]
 	cli.iotHandler = byName["IoT"]
 	cli.cognitoIDPHandler = byName["CognitoIDP"]
@@ -2819,7 +2870,9 @@ func storeCLILatestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.inspector2Handler = byName["Inspector2"]
 	cli.iotanalyticsHandler = byName["IoTAnalytics"]
 	cli.kafkaHandler = byName["Kafka"]
+	cli.kafkaconnectHandler = byName["KafkaConnect"]
 	cli.kinesisanalyticsv2Handler = byName["KinesisAnalyticsV2"]
+	cli.kinesisvideoHandler = byName["KinesisVideo"]
 	cli.managedblockchainHandler = byName["ManagedBlockchain"]
 	cli.mediaconvertHandler = byName["MediaConvert"]
 	cli.mqHandler = byName["MQ"]
@@ -2835,6 +2888,7 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.mwaaHandler = byName["MWAA"]
 	cli.neptuneHandler = byName["Neptune"]
 	cli.docdbHandler = byName["DocDB"]
+	cli.dsqlHandler = byName["DSQL"]
 	cli.pinpointHandler = byName["Pinpoint"]
 	cli.pipesHandler = byName["Pipes"]
 	cli.rdsdataHandler = byName["RDSData"]
@@ -2944,8 +2998,9 @@ func wireCrossServiceDependencies(
 	wireEventSourcePollers(byName)
 	wireComputeAndObservabilityIntegrations(appCtx, byName)
 	wireCWLogsMetricEmitters(byName)
+	wireServiceMetrics(appCtx.JanitorCtx, byName)
 	wireStorageAndSecretsIntegrations(byName)
-	wireAppSyncAndStreamsIntegrations(byName)
+	wireAppSyncAndStreamsIntegrations(byName, sigV4SecretOf(appCtx))
 	wireSchedulerAndPipesIntegrations(byName)
 	wireGovernanceIntegrations(byName, services)
 }
@@ -3062,6 +3117,8 @@ func wireEventSourcePollers(byName map[string]service.Registerable) {
 
 	// Wire SQS → Lambda event source mapping poller.
 	wireSQSLambda(byName["SQS"], byName["Lambda"])
+	wireMSKLambda(byName["Kafka"], byName["Lambda"])
+	wireMQLambda(byName["MQ"], byName["SecretsManager"], byName["Lambda"])
 
 	// Wire DynamoDB Streams → Lambda event source mapping poller.
 	wireDynamoDBStreamLambda(byName["DynamoDB"], byName["Lambda"])
@@ -3189,26 +3246,45 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 	wireEFSCrossService(byName["EFS"], byName["EC2"])
 }
 
+// ec2Regions gives services that are not region-aware themselves a view over
+// every region's EC2 backend, home region first.
+type ec2Regions struct {
+	handler *ec2backend.Handler
+}
+
+// any reports whether fn holds for some region's backend.
+func (r ec2Regions) any(fn func(ec2backend.Backend) bool) bool {
+	return slices.ContainsFunc(r.handler.RegionBackends(), fn)
+}
+
+// forARN returns the backend for the region named by arn, or the home backend.
+func (r ec2Regions) forARN(arn string) *ec2backend.InMemoryBackend {
+	bk, _ := r.handler.BackendFor(arnRegion(arn)).(*ec2backend.InMemoryBackend)
+
+	return bk
+}
+
 // directConnectEC2ResolverAdapter adapts the EC2 backend to the
 // directconnect.EC2GatewayResolver interface.
 type directConnectEC2ResolverAdapter struct {
-	backend *ec2backend.InMemoryBackend
+	regions ec2Regions
 }
 
 func (a *directConnectEC2ResolverAdapter) ResolveVpnGateway(id string) bool {
-	return len(a.backend.DescribeVpnGateways([]string{id})) > 0
+	return a.regions.any(func(b ec2backend.Backend) bool { return len(b.DescribeVpnGateways([]string{id})) > 0 })
 }
 
 func (a *directConnectEC2ResolverAdapter) ResolveTransitGateway(id string) bool {
-	return len(a.backend.DescribeTransitGateways([]string{id})) > 0
+	return a.regions.any(func(b ec2backend.Backend) bool { return len(b.DescribeTransitGateways([]string{id})) > 0 })
 }
 
 func (a *directConnectEC2ResolverAdapter) VirtualGateways() []string {
-	vgws := a.backend.DescribeVpnGateways(nil)
-	ids := make([]string, 0, len(vgws))
+	var ids []string
 
-	for _, v := range vgws {
-		ids = append(ids, v.VpnGatewayID)
+	for _, b := range a.regions.handler.RegionBackends() {
+		for _, v := range b.DescribeVpnGateways(nil) {
+			ids = append(ids, v.VpnGatewayID)
+		}
 	}
 
 	return ids
@@ -3227,12 +3303,7 @@ func wireDirectConnectEC2(directconnectReg, ec2Reg service.Registerable) {
 		return
 	}
 
-	ec2Bk, ok := ec2H.Backend.(*ec2backend.InMemoryBackend)
-	if !ok {
-		return
-	}
-
-	directconnectH.Backend.SetEC2GatewayResolver(&directConnectEC2ResolverAdapter{backend: ec2Bk})
+	directconnectH.Backend.SetEC2GatewayResolver(&directConnectEC2ResolverAdapter{regions: ec2Regions{handler: ec2H}})
 }
 
 // arnResourceID extracts the trailing resource-id segment of an ARN's
@@ -3251,37 +3322,44 @@ func arnResourceID(arnStr string) string {
 // networkManagerEC2ResolverAdapter adapts the EC2 backend to the
 // networkmanager.EC2Resolver interface.
 type networkManagerEC2ResolverAdapter struct {
-	backend *ec2backend.InMemoryBackend
+	regions ec2Regions
 }
 
 func (a *networkManagerEC2ResolverAdapter) ResolveVpc(vpcArn string) bool {
-	return len(a.backend.DescribeVpcs([]string{arnResourceID(vpcArn)})) > 0
+	return len(a.regions.forARN(vpcArn).DescribeVpcs([]string{arnResourceID(vpcArn)})) > 0
 }
 
 func (a *networkManagerEC2ResolverAdapter) ResolveSubnet(subnetArn string) bool {
-	return len(a.backend.DescribeSubnets([]string{arnResourceID(subnetArn)})) > 0
+	return len(a.regions.forARN(subnetArn).DescribeSubnets([]string{arnResourceID(subnetArn)})) > 0
 }
 
 func (a *networkManagerEC2ResolverAdapter) ResolveCustomerGateway(customerGatewayArn string) bool {
-	cgws, err := a.backend.DescribeCustomerGateways([]string{arnResourceID(customerGatewayArn)})
+	cgws, err := a.regions.forARN(customerGatewayArn).
+		DescribeCustomerGateways([]string{arnResourceID(customerGatewayArn)})
 
 	return err == nil && len(cgws) > 0
 }
 
 func (a *networkManagerEC2ResolverAdapter) ResolveTransitGateway(transitGatewayArn string) bool {
-	return len(a.backend.DescribeTransitGateways([]string{arnResourceID(transitGatewayArn)})) > 0
+	bk := a.regions.forARN(transitGatewayArn)
+
+	return len(bk.DescribeTransitGateways([]string{arnResourceID(transitGatewayArn)})) > 0
 }
 
 func (a *networkManagerEC2ResolverAdapter) ResolveVpnConnection(vpnConnectionArn string) bool {
-	return len(a.backend.DescribeVpnConnections([]string{arnResourceID(vpnConnectionArn)})) > 0
+	return len(a.regions.forARN(vpnConnectionArn).DescribeVpnConnections([]string{arnResourceID(vpnConnectionArn)})) > 0
 }
 
 func (a *networkManagerEC2ResolverAdapter) ResolveTransitGatewayConnectPeer(transitGatewayConnectPeerArn string) bool {
-	return len(a.backend.DescribeTransitGatewayConnectPeers([]string{arnResourceID(transitGatewayConnectPeerArn)})) > 0
+	bk := a.regions.forARN(transitGatewayConnectPeerArn)
+
+	return len(bk.DescribeTransitGatewayConnectPeers([]string{arnResourceID(transitGatewayConnectPeerArn)})) > 0
 }
 
 func (a *networkManagerEC2ResolverAdapter) ResolveTransitGatewayRouteTable(transitGatewayRouteTableArn string) bool {
-	return len(a.backend.DescribeTransitGatewayRouteTables([]string{arnResourceID(transitGatewayRouteTableArn)})) > 0
+	bk := a.regions.forARN(transitGatewayRouteTableArn)
+
+	return len(bk.DescribeTransitGatewayRouteTables([]string{arnResourceID(transitGatewayRouteTableArn)})) > 0
 }
 
 // TransitGatewayRouteTableForAttachment resolves a TGW VPC attachment to
@@ -3293,18 +3371,19 @@ func (a *networkManagerEC2ResolverAdapter) TransitGatewayRouteTableForAttachment
 	transitGatewayAttachmentArn string,
 ) (string, bool) {
 	attachmentID := arnResourceID(transitGatewayAttachmentArn)
+	backend := a.regions.forARN(transitGatewayAttachmentArn)
 
-	atts := a.backend.DescribeTransitGatewayVpcAttachments([]string{attachmentID})
+	atts := backend.DescribeTransitGatewayVpcAttachments([]string{attachmentID})
 	if len(atts) == 0 || atts[0].State != "available" {
 		return "", false
 	}
 
-	for _, rt := range a.backend.DescribeTransitGatewayRouteTables(nil) {
+	for _, rt := range backend.DescribeTransitGatewayRouteTables(nil) {
 		if rt.TransitGatewayID != atts[0].TransitGatewayID {
 			continue
 		}
 
-		assocs, err := a.backend.GetTransitGatewayRouteTableAssociations(rt.RouteTableID)
+		assocs, err := backend.GetTransitGatewayRouteTableAssociations(rt.RouteTableID)
 		if err != nil {
 			continue
 		}
@@ -3328,15 +3407,16 @@ func (a *networkManagerEC2ResolverAdapter) CustomerGatewayArnsForTransitGateway(
 	transitGatewayArn string,
 ) []string {
 	tgwID := arnResourceID(transitGatewayArn)
+	backend := a.regions.forARN(transitGatewayArn)
 
 	var out []string
 
-	for _, vc := range a.backend.DescribeVpnConnections(nil) {
+	for _, vc := range backend.DescribeVpnConnections(nil) {
 		if vc.TransitGatewayID != tgwID || vc.CustomerGatewayID == "" {
 			continue
 		}
 
-		out = append(out, "arn:aws:ec2:"+a.backend.Region+":"+a.backend.AccountID+
+		out = append(out, "arn:aws:ec2:"+backend.Region+":"+backend.AccountID+
 			":customer-gateway/"+vc.CustomerGatewayID)
 	}
 
@@ -3346,9 +3426,14 @@ func (a *networkManagerEC2ResolverAdapter) CustomerGatewayArnsForTransitGateway(
 func (a *networkManagerEC2ResolverAdapter) TransitGatewayRoutes(
 	routeTableID string,
 ) []networkmanagerbackend.EC2TransitGatewayRoute {
-	routes, err := a.backend.SearchTransitGatewayRoutes(routeTableID, nil)
-	if err != nil {
-		return nil
+	var routes []*ec2backend.TransitGatewayRoute
+
+	for _, b := range a.regions.handler.RegionBackends() {
+		if found, err := b.SearchTransitGatewayRoutes(routeTableID, nil); err == nil {
+			routes = found
+
+			break
+		}
 	}
 
 	out := make([]networkmanagerbackend.EC2TransitGatewayRoute, 0, len(routes))
@@ -3381,12 +3466,7 @@ func wireNetworkManagerEC2(networkmanagerReg, ec2Reg service.Registerable) {
 		return
 	}
 
-	ec2Bk, ok := ec2H.Backend.(*ec2backend.InMemoryBackend)
-	if !ok {
-		return
-	}
-
-	networkmanagerH.Backend.SetEC2Resolver(&networkManagerEC2ResolverAdapter{backend: ec2Bk})
+	networkmanagerH.Backend.SetEC2Resolver(&networkManagerEC2ResolverAdapter{regions: ec2Regions{handler: ec2H}})
 }
 
 // networkManagerDirectConnectResolverAdapter adapts the DirectConnect
@@ -3423,19 +3503,19 @@ func wireNetworkManagerDirectConnect(networkmanagerReg, directconnectReg service
 
 // elbEC2ResolverAdapter adapts the EC2 backend to the elb.EC2Resolver interface.
 type elbEC2ResolverAdapter struct {
-	backend ec2backend.Backend
+	regions ec2Regions
 }
 
 func (a *elbEC2ResolverAdapter) SecurityGroupExists(id string) bool {
-	return len(a.backend.DescribeSecurityGroups([]string{id})) > 0
+	return a.regions.any(func(b ec2backend.Backend) bool { return len(b.DescribeSecurityGroups([]string{id})) > 0 })
 }
 
 func (a *elbEC2ResolverAdapter) SubnetExists(id string) bool {
-	return len(a.backend.DescribeSubnets([]string{id})) > 0
+	return a.regions.any(func(b ec2backend.Backend) bool { return len(b.DescribeSubnets([]string{id})) > 0 })
 }
 
 func (a *elbEC2ResolverAdapter) InstanceExists(id string) bool {
-	return len(a.backend.DescribeInstances([]string{id}, "")) > 0
+	return a.regions.any(func(b ec2backend.Backend) bool { return len(b.DescribeInstances([]string{id}, "")) > 0 })
 }
 
 // elbCertificateResolverAdapter adapts the ACM and IAM backends to the
@@ -3448,6 +3528,30 @@ type elbCertificateResolverAdapter struct {
 	iamBackend *iambackend.InMemoryBackend
 }
 
+// elbResolverServerCertMatches walks every page of IAM server certificates
+// looking for certARN, since ListServerCertificates now paginates.
+func elbResolverServerCertMatches(b *iambackend.InMemoryBackend, certARN string) bool {
+	marker := ""
+	for {
+		p, err := b.ListServerCertificates("", marker, 0)
+		if err != nil {
+			return false
+		}
+
+		for _, c := range p.Data {
+			if c.Arn == certARN {
+				return true
+			}
+		}
+
+		if p.Next == "" {
+			return false
+		}
+
+		marker = p.Next
+	}
+}
+
 func (a *elbCertificateResolverAdapter) ResolveCertificate(ctx context.Context, certARN string) bool {
 	if a.acmBackend != nil {
 		if _, err := a.acmBackend.DescribeCertificate(ctx, certARN); err == nil {
@@ -3455,15 +3559,8 @@ func (a *elbCertificateResolverAdapter) ResolveCertificate(ctx context.Context, 
 		}
 	}
 
-	if a.iamBackend != nil {
-		certs, err := a.iamBackend.ListServerCertificates("")
-		if err == nil {
-			for _, c := range certs {
-				if c.Arn == certARN {
-					return true
-				}
-			}
-		}
+	if a.iamBackend != nil && elbResolverServerCertMatches(a.iamBackend, certARN) {
+		return true
 	}
 
 	return false
@@ -3484,7 +3581,7 @@ func wireELBCrossService(elbReg, ec2Reg, acmReg, iamReg service.Registerable) {
 	}
 
 	if ec2H, ec2Ok := ec2Reg.(*ec2backend.Handler); ec2Ok {
-		elbBk.SetEC2Resolver(&elbEC2ResolverAdapter{backend: ec2H.Backend})
+		elbBk.SetEC2Resolver(&elbEC2ResolverAdapter{regions: ec2Regions{handler: ec2H}})
 	}
 
 	var acmBk *acmbackend.InMemoryBackend
@@ -3519,15 +3616,8 @@ func (a *elbv2CertificateResolverAdapter) ResolveCertificate(certARN string) boo
 		}
 	}
 
-	if a.iamBackend != nil {
-		certs, err := a.iamBackend.ListServerCertificates("")
-		if err == nil {
-			for _, c := range certs {
-				if c.Arn == certARN {
-					return true
-				}
-			}
-		}
+	if a.iamBackend != nil && elbResolverServerCertMatches(a.iamBackend, certARN) {
+		return true
 	}
 
 	return false
@@ -3561,7 +3651,7 @@ func wireELBv2CrossService(elbv2Reg, ec2Reg, acmReg, iamReg service.Registerable
 	}
 
 	if ec2H, ec2Ok := ec2Reg.(*ec2backend.Handler); ec2Ok {
-		elbv2Bk.SetEC2Resolver(&elbEC2ResolverAdapter{backend: ec2H.Backend})
+		elbv2Bk.SetEC2Resolver(&elbEC2ResolverAdapter{regions: ec2Regions{handler: ec2H}})
 	}
 
 	var acmBk *acmbackend.InMemoryBackend
@@ -3581,29 +3671,35 @@ func wireELBv2CrossService(elbv2Reg, ec2Reg, acmReg, iamReg service.Registerable
 
 // efsEC2ResolverAdapter adapts the EC2 backend to the efs.EC2Resolver interface.
 type efsEC2ResolverAdapter struct {
-	backend ec2backend.Backend
+	regions ec2Regions
 }
 
-func (a *efsEC2ResolverAdapter) SubnetExists(id string) bool {
-	return len(a.backend.DescribeSubnets([]string{id})) > 0
-}
-
-func (a *efsEC2ResolverAdapter) SubnetVPC(id string) string {
-	subnets := a.backend.DescribeSubnets([]string{id})
-	if len(subnets) == 0 {
-		return ""
+func (a *efsEC2ResolverAdapter) subnet(id string) *ec2backend.Subnet {
+	for _, b := range a.regions.handler.RegionBackends() {
+		if subnets := b.DescribeSubnets([]string{id}); len(subnets) > 0 {
+			return subnets[0]
+		}
 	}
 
-	return subnets[0].VPCID
+	return nil
+}
+
+func (a *efsEC2ResolverAdapter) SubnetExists(id string) bool { return a.subnet(id) != nil }
+
+func (a *efsEC2ResolverAdapter) SubnetVPC(id string) string {
+	if sn := a.subnet(id); sn != nil {
+		return sn.VPCID
+	}
+
+	return ""
 }
 
 func (a *efsEC2ResolverAdapter) SubnetAZ(id string) string {
-	subnets := a.backend.DescribeSubnets([]string{id})
-	if len(subnets) == 0 {
-		return ""
+	if sn := a.subnet(id); sn != nil {
+		return sn.AvailabilityZone
 	}
 
-	return subnets[0].AvailabilityZone
+	return ""
 }
 
 // wireEFSCrossService wires the EFS backend to EC2 so CreateMountTarget
@@ -3621,64 +3717,13 @@ func wireEFSCrossService(efsReg, ec2Reg service.Registerable) {
 		return
 	}
 
-	efsH.Backend.SetEC2Resolver(&efsEC2ResolverAdapter{backend: ec2H.Backend})
+	efsH.Backend.SetEC2Resolver(&efsEC2ResolverAdapter{regions: ec2Regions{handler: ec2H}})
 }
 
-// wireCWLogsMetricEmitters wires CloudWatch Logs metric filters to emit
-// CloudWatch metric data points. The repeated identical calls are preserved
-// verbatim from before this decomposition; collapsing them is a behavior
-// change outside the scope of this refactor.
+// wireCWLogsMetricEmitters wires CloudWatch Logs metric filters to emit CloudWatch metrics.
 func wireCWLogsMetricEmitters(byName map[string]service.Registerable) {
-	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
 	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
-
-	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
-	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
-
-	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
-	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
-
-	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
-	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
-
-	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
-	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
-
-	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
-	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
-
-	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
-	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
-
-	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
-	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
-
-	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
-	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
-
-	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
-	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
-
-	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
-	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
-
-	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
-	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
-
-	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
-	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
-
-	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
-	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
-
-	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
-	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
-
-	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
-	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
-
-	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
-	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
+	wireCWInsightRuleLogs(byName["CloudWatchLogs"], byName["CloudWatch"])
 }
 
 // wireStorageAndSecretsIntegrations wires Firehose delivery, DynamoDB→S3
@@ -3715,6 +3760,9 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	// running it (gopherstack-lgwb).
 	wireFirehoseRedshift(byName["Firehose"], byName["RedshiftData"])
 
+	// Wire Firehose → OpenSearch so domain-ARN destinations index into the in-process store.
+	wireFirehoseOpenSearch(byName["Firehose"], byName["OpenSearch"])
+
 	// Wire DynamoDB → S3 so ImportTable reads source objects and
 	// ExportTableToPointInTime writes real export data.
 	wireDynamoDBS3(byName["DynamoDB"], byName["S3"])
@@ -3749,8 +3797,12 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	// the real KMS backend instead of stored opaquely.
 	wireSecretsManagerKMS(byName["SecretsManager"], byName["KMS"])
 
+	// Route RDS Data API calls for docker-backed Aurora clusters to their real database.
+	wireRDSData(byName["RDSData"], byName["RDS"], byName["SecretsManager"])
+
 	// Wire IoT rules → SQS/Lambda action dispatch, and broker → IoT Data Plane.
 	wireIoTRules(byName["IoT"], byName["IoTDataPlane"], byName["SQS"], byName["Lambda"])
+	wireIoTActionTargets(byName)
 
 	// Wire IoT Analytics' RunPipelineActivity lambda/deviceRegistryEnrich/
 	// deviceShadowEnrich activities to the real Lambda and IoT backends.
@@ -3809,23 +3861,20 @@ func wireAppConfigDeployments(appconfigReg, appconfigdataReg service.Registerabl
 		return
 	}
 
-	acBk, ok := acH.Backend.(*appconfigbackend.InMemoryBackend)
-	if !ok {
-		return
-	}
-
 	acdH, ok := appconfigdataReg.(*appconfigdatabackend.Handler)
 	if !ok || acdH.Backend == nil {
 		return
 	}
 
-	acBk.SetDeployedConfigurationPublisher(acdH.Backend)
+	acH.SetPublisherResolver(func(region string) appconfigbackend.DeployedConfigurationPublisher {
+		return acdH.BackendFor(region)
+	})
 }
 
 // wireAppSyncAndStreamsIntegrations wires AppSync's Lambda and DynamoDB
 // resolvers, AppSync's Cognito/OIDC JWT verification, DynamoDB Streams to the
 // DynamoDB backend, and CloudFront KeyValueStore to the CloudFront backend.
-func wireAppSyncAndStreamsIntegrations(byName map[string]service.Registerable) {
+func wireAppSyncAndStreamsIntegrations(byName map[string]service.Registerable, sigV4Secret string) {
 	// Wire AppSync → Lambda for LAMBDA resolver execution.
 	wireAppSyncLambda(byName["AppSync"], byName["Lambda"])
 
@@ -3834,6 +3883,8 @@ func wireAppSyncAndStreamsIntegrations(byName map[string]service.Registerable) {
 
 	// Wire AppSync → Cognito for AMAZON_COGNITO_USER_POOLS/OPENID_CONNECT JWT signature verification.
 	wireAppSyncCognito(byName["AppSync"], byName["CognitoIDP"])
+
+	wireAppSyncSigV4(byName["AppSync"], sigV4Secret)
 
 	// Wire DynamoDB Streams → DynamoDB backend so streams share the same in-memory data.
 	wireDynamoDBStreams(byName["DynamoDB"], byName["DynamoDBStreams"])
@@ -4052,12 +4103,16 @@ func getRemainingServiceProviders() []service.Provider {
 		&guarddutybackend.Provider{},
 		&inspector2backend.Provider{},
 		&docdbbackend.Provider{},
+		&dsqlbackend.Provider{},
 		&glacierbackend.Provider{},
 		&iotanalyticsbackend.Provider{},
 		&iotwirelessbackend.Provider{},
 		&kinesisanalyticsbackend.Provider{},
 		&kafkabackend.Provider{},
+		&kafkaconnectbackend.Provider{},
 		&kinesisanalyticsv2backend.Provider{},
+		&kinesisvideobackend.Provider{},
+		&ecrpublicbackend.Provider{},
 		&lakeformationbackend.Provider{},
 		&managedblockchainbackend.Provider{},
 		&mediaconvertbackend.Provider{},
@@ -4383,6 +4438,10 @@ func (a *snsFirehosePutterAdapter) PutRecordBatch(streamName string, records [][
 	return a.backend.PutRecordBatch(context.Background(), streamName, records)
 }
 
+func (a *snsFirehosePutterAdapter) PutRecordBatchInRegion(region, streamName string, records [][]byte) (int, error) {
+	return a.backend.PutRecordBatch(inRegion(context.Background(), region), streamName, records)
+}
+
 // wireSQSMetrics wires the CloudWatch metric emitter into the SQS backend so that
 // SendMessage, ReceiveMessage, and DeleteMessage operations emit CloudWatch metrics.
 func wireSQSMetrics(sqsReg, cwReg service.Registerable) {
@@ -4393,29 +4452,12 @@ func wireSQSMetrics(sqsReg, cwReg service.Registerable) {
 		return
 	}
 
-	sqsBk, bk1Ok := sqsH.Backend.(*sqsbackend.InMemoryBackend)
-	cwBk, bk2Ok := cwH.Backend.(*cwbackend.InMemoryBackend)
-
-	if !bk1Ok || !bk2Ok {
+	sqsBk, bkOk := sqsH.Backend.(*sqsbackend.InMemoryBackend)
+	if !bkOk {
 		return
 	}
 
-	sqsBk.SetMetricEmitter(
-		sqsbackend.MetricEmitterFunc(
-			func(namespace, name string, value float64, unit string) error {
-				err := cwBk.PutMetricData(namespace, []cwbackend.MetricDatum{
-					{
-						MetricName: name,
-						Value:      value,
-						Unit:       unit,
-						Timestamp:  time.Now(),
-					},
-				})
-
-				return err
-			},
-		),
-	)
+	sqsBk.SetMetricEmitter(regionalMetricEmitter(cwH))
 }
 
 // wireEventBridgeDelivery connects EventBridge fan-out to Lambda, SQS, SNS, Kinesis Data Streams,
@@ -4487,7 +4529,7 @@ func wireEventBridgeExtendedTargets(
 
 	if ecsH, ecsOk := ecsReg.(*ecsbackend.Handler); ecsOk {
 		if ecsBk, bkOk := ecsH.Backend.(*ecsbackend.InMemoryBackend); bkOk {
-			dt.ECS = &ebECSTaskRunnerAdapter{backend: ecsBk}
+			dt.ECS = &ebECSTaskRunnerAdapter{backend: ecsBk, handler: ecsH}
 		}
 	}
 
@@ -4517,7 +4559,29 @@ func (a *sqsSenderAdapter) SendMessageToQueue(
 	queueURL := arnToSQSQueueURL(queueARN)
 	_, err := a.backend.SendMessage(&sqsbackend.SendMessageInput{
 		QueueURL:    queueURL,
+		Region:      arnRegion(queueARN),
 		MessageBody: messageBody,
+	})
+
+	return err
+}
+
+// SendMessageWithAttributes implements eventbridge.SQSAttributeSender for DLQ error attributes.
+func (a *sqsSenderAdapter) SendMessageWithAttributes(
+	_ context.Context,
+	queueARN, messageBody string,
+	attrs map[string]string,
+) error {
+	msgAttrs := make(map[string]sqsbackend.MessageAttributeValue, len(attrs))
+	for k, v := range attrs {
+		msgAttrs[k] = sqsbackend.MessageAttributeValue{DataType: "String", StringValue: v}
+	}
+
+	_, err := a.backend.SendMessage(&sqsbackend.SendMessageInput{
+		QueueURL:          arnToSQSQueueURL(queueARN),
+		Region:            arnRegion(queueARN),
+		MessageBody:       messageBody,
+		MessageAttributes: msgAttrs,
 	})
 
 	return err
@@ -4531,6 +4595,7 @@ func (a *sqsSenderAdapter) SendMessageToFIFOQueue(
 	queueURL := arnToSQSQueueURL(queueARN)
 	_, err := a.backend.SendMessage(&sqsbackend.SendMessageInput{
 		QueueURL:       queueURL,
+		Region:         arnRegion(queueARN),
 		MessageBody:    messageBody,
 		MessageGroupID: messageGroupID,
 	})
@@ -4555,9 +4620,7 @@ type ebKinesisStreamAdapter struct {
 }
 
 func (a *ebKinesisStreamAdapter) PutRecord(ctx context.Context, streamARN, partitionKey, data string) error {
-	// Convert Kinesis stream ARN to stream name (last segment after '/').
-	parts := strings.Split(streamARN, "/")
-	streamName := parts[len(parts)-1]
+	ctx, streamName := kinesisRefContext(ctx, streamARN)
 
 	_, err := a.backend.PutRecord(ctx, &kinesisbackend.PutRecordInput{
 		StreamName:   streamName,
@@ -4578,13 +4641,26 @@ func (a *ebFirehoseAdapter) PutRecord(ctx context.Context, deliveryStreamARN, da
 	parts := strings.Split(deliveryStreamARN, "/")
 	streamName := parts[len(parts)-1]
 
-	return a.backend.PutRecord(ctx, streamName, []byte(data))
+	return a.backend.PutRecord(inRegion(ctx, arnRegion(deliveryStreamARN)), streamName, []byte(data))
 }
 
 // ebECSTaskRunnerAdapter adapts the ECS backend to the eventbridge.ECSTaskRunner
 // and eventbridge.ECSTaskRunnerWithParams interfaces.
 type ebECSTaskRunnerAdapter struct {
 	backend *ecsbackend.InMemoryBackend
+	handler *ecsbackend.Handler
+}
+
+const arnFieldCount = 6
+
+// arnRegion returns the region field of an ARN, or "" when s is not an ARN.
+func arnRegion(s string) string {
+	parts := strings.SplitN(s, ":", arnFieldCount)
+	if len(parts) < arnFieldCount || parts[0] != "arn" {
+		return ""
+	}
+
+	return parts[3]
 }
 
 func (a *ebECSTaskRunnerAdapter) RunTask(ctx context.Context, clusterARN string, payload []byte) error {
@@ -4723,7 +4799,15 @@ func (a *ebECSTaskRunnerAdapter) RunTaskWithParams(
 	payload []byte,
 ) error {
 	runInput := buildECSRunInput(clusterARN, params, payload)
-	_, _, err := a.backend.RunTask(runInput)
+	bk := a.backend
+
+	if a.handler != nil {
+		if regional, ok := a.handler.BackendFor(arnRegion(clusterARN)).(*ecsbackend.InMemoryBackend); ok {
+			bk = regional
+		}
+	}
+
+	_, _, err := bk.RunTask(runInput)
 
 	return err
 }
@@ -5204,14 +5288,12 @@ func wireAPIGatewayCognito(apigwReg, apigwv2Reg, cognitoReg service.Registerable
 		return
 	}
 
-	cognitoBk := cognitoH.Backend
-
 	if apigwH, ok2 := apigwReg.(*apigwbackend.Handler); ok2 {
-		apigwH.SetJWKSProvider(cognitoBk)
+		apigwH.SetJWKSProvider(cognitoH)
 	}
 
 	if apigwv2H, ok3 := apigwv2Reg.(*apigwv2backend.Handler); ok3 {
-		apigwv2H.SetJWKSProvider(cognitoBk)
+		apigwv2H.SetJWKSProvider(cognitoH)
 	}
 }
 
@@ -5220,9 +5302,7 @@ func wireAPIGatewayCognito(apigwReg, apigwv2Reg, cognitoReg service.Registerable
 func wireAPIGatewayManagementAPI(apigwv2Reg, mngtReg service.Registerable) {
 	if apigwv2H, ok := apigwv2Reg.(*apigwv2backend.Handler); ok {
 		if mngtH, mngtOk := mngtReg.(*apigwmgmtbackend.Handler); mngtOk {
-			if mngtBk, bkOk := mngtH.Backend.(*apigwmgmtbackend.InMemoryBackend); bkOk {
-				apigwv2H.SetManagementAPIBackend(mngtBk)
-			}
+			apigwv2H.SetManagementAPIResolver(mngtH.BackendFor)
 		}
 	}
 }
@@ -5330,19 +5410,15 @@ func wireStepFunctionsServiceIntegrations(
 
 	if ecsH, ecsOk := ecsReg.(*ecsbackend.Handler); ecsOk {
 		if ecsBk, ecsBkOk := ecsH.Backend.(*ecsbackend.InMemoryBackend); ecsBkOk {
-			sfnBk.SetECSIntegration(ecsBk)
-			// gopherstack-tdp6: poll RunTask's task(s) to STOPPED for the
-			// ".sync" integration pattern instead of dispatching fire-and-forget.
-			sfnBk.SetECSSyncWaiter(sfnbackend.NewECSSyncWaiter(ecsBk))
+			sfnBk.SetECSIntegration(&sfnECSAdapter{handler: ecsH, home: ecsBk})
+			sfnBk.SetECSSyncWaiter(sfnbackend.NewECSSyncWaiter(regionalECSBackend(ecsH, ecsBk)))
 		}
 	}
 
 	if glueH, glueOk := glueReg.(*gluebackend.Handler); glueOk {
 		if glueBk, glueBkOk := glueH.Backend.(*gluebackend.InMemoryBackend); glueBkOk {
-			sfnBk.SetGlueIntegration(glueBk)
-			// gopherstack-tdp6: poll StartJobRun's JobRunState to a terminal
-			// state for the ".sync" integration pattern.
-			sfnBk.SetGlueSyncWaiter(sfnbackend.NewGlueSyncWaiter(glueBk))
+			sfnBk.SetGlueIntegration(&sfnGlueAdapter{handler: glueH, home: glueBk})
+			sfnBk.SetGlueSyncWaiter(sfnbackend.NewGlueSyncWaiter(regionalGlueBackend(glueH, glueBk)))
 		}
 	}
 
@@ -5488,6 +5564,48 @@ func wireSQSLambda(sqsReg, lambdaReg service.Registerable) {
 	}
 }
 
+// wireMSKLambda lets Lambda MSK event source mappings resolve the real brokers of docker-backed MSK clusters.
+func wireMSKLambda(kafkaReg, lambdaReg service.Registerable) {
+	kafkaH, ok := kafkaReg.(*kafkabackend.Handler)
+	if !ok {
+		return
+	}
+
+	kafkaBk, bkOk := kafkaH.Backend.(*kafkabackend.InMemoryBackend)
+	if !bkOk {
+		return
+	}
+
+	if lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler); lambdaOk {
+		if lambdaBk, bk2Ok := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bk2Ok {
+			lambdaBk.SetMSKBrokerResolver(kafkaBk)
+		}
+	}
+}
+
+// wireMQLambda lets Lambda MQ event source mappings reach docker-backed brokers and BASIC_AUTH secrets.
+func wireMQLambda(mqReg, smReg, lambdaReg service.Registerable) {
+	lambdaH, ok := lambdaReg.(*lambdabackend.Handler)
+	if !ok {
+		return
+	}
+
+	lambdaBk, ok := lambdaH.Backend.(*lambdabackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	if mqH, mqOk := mqReg.(*mqbackend.Handler); mqOk {
+		lambdaBk.SetMQBrokerResolver(&mqRegionResolver{handler: mqH})
+	}
+
+	if smH, smOk := smReg.(*secretsmanagerbackend.Handler); smOk {
+		if smBk, bkOk := smH.Backend.(*secretsmanagerbackend.InMemoryBackend); bkOk {
+			lambdaBk.SetMQSecretResolver(smBk)
+		}
+	}
+}
+
 // wireLambdaAsyncDestinations connects the Lambda backend to the SQS, SNS, and
 // Lambda backends so that async-invocation DeadLetterConfig and DestinationConfig
 // (OnSuccess/OnFailure) outcomes are actually delivered to their target ARNs.
@@ -5546,6 +5664,7 @@ func (a *lambdaAsyncDeliveryAdapter) DeliverToTarget(
 
 		_, err := a.sqs.SendMessage(&sqsbackend.SendMessageInput{
 			QueueURL:          arnToSQSQueueURL(targetARN),
+			Region:            arnRegion(targetARN),
 			MessageBody:       string(payload),
 			MessageAttributes: attrs,
 		})
@@ -5564,8 +5683,7 @@ func (a *lambdaAsyncDeliveryAdapter) DeliverToTarget(
 			return nil
 		}
 
-		fnName := targetARN[strings.LastIndex(targetARN, ":")+1:]
-		_, _, err := a.lambda.InvokeFunction(ctx, fnName, lambdabackend.InvocationTypeEvent, payload)
+		_, _, err := a.lambda.InvokeFunction(ctx, targetARN, lambdabackend.InvocationTypeEvent, payload)
 
 		return err
 	default:
@@ -5582,13 +5700,17 @@ func (a *sqsReaderAdapter) ReceiveMessagesLocal(
 	queueARN string,
 	maxMessages int,
 ) ([]*lambdabackend.SQSMessage, error) {
-	url := arnToSQSQueueURL(queueARN)
-
-	msgs, err := a.backend.ReceiveMessagesLocal(url, maxMessages)
+	out, err := a.backend.ReceiveMessage(&sqsbackend.ReceiveMessageInput{
+		QueueURL:            arnToSQSQueueURL(queueARN),
+		Region:              arnRegion(queueARN),
+		MaxNumberOfMessages: maxMessages,
+		VisibilityTimeout:   sqsbackend.NoVisibilityTimeout,
+	})
 	if err != nil {
 		return nil, err
 	}
 
+	msgs := out.Messages
 	result := make([]*lambdabackend.SQSMessage, len(msgs))
 	for i, m := range msgs {
 		var msgAttrs map[string]lambdabackend.SQSMessageAttribute
@@ -5619,9 +5741,16 @@ func (a *sqsReaderAdapter) ReceiveMessagesLocal(
 }
 
 func (a *sqsReaderAdapter) DeleteMessagesLocal(queueARN string, receiptHandles []string) error {
-	url := arnToSQSQueueURL(queueARN)
+	for _, rh := range receiptHandles {
+		err := a.backend.DeleteMessage(&sqsbackend.DeleteMessageInput{
+			QueueURL: arnToSQSQueueURL(queueARN), Region: arnRegion(queueARN), ReceiptHandle: rh,
+		})
+		if err != nil {
+			return err
+		}
+	}
 
-	return a.backend.DeleteMessagesLocal(url, receiptHandles)
+	return nil
 }
 
 // wireDynamoDBStreamLambda connects the DynamoDB Streams backend to the Lambda event source
@@ -5856,21 +5985,28 @@ func wireCloudWatchInfraActions(cwReg, ec2Reg, asgReg service.Registerable) {
 	if ec2H, okEC2 := ec2Reg.(*ec2backend.Handler); okEC2 {
 		if ec2Bk, isEC2 := ec2H.Backend.(*ec2backend.InMemoryBackend); isEC2 {
 			cwBk.SetEC2Actioner(&cwEC2ActionerAdapter{backend: ec2Bk})
+			cwH.SetEC2ActionerFactory(func(region string) cwbackend.EC2InstanceActioner {
+				if bk, regionOK := ec2H.BackendFor(region).(*ec2backend.InMemoryBackend); regionOK {
+					return &cwEC2ActionerAdapter{backend: bk}
+				}
+
+				return nil
+			})
 		}
 	}
 
 	if asgH, okASG := asgReg.(*autoscalingbackend.Handler); okASG {
 		if asgBk, isASG := asgH.Backend.(*autoscalingbackend.InMemoryBackend); isASG {
-			cwBk.SetAutoScalingExecutor(&cwAutoScalingAdapter{backend: asgBk})
+			cwBk.SetAutoScalingExecutor(&cwAutoScalingAdapter{handler: asgH, backend: asgBk})
 		}
 	}
 }
 
 // fisAlarmStateSubscriber pins the compile-time check that CloudWatch's
-// InMemoryBackend satisfies fisbackend.AlarmStateSubscriber structurally, with
+// Handler satisfies fisbackend.AlarmStateSubscriber structurally, with
 // no adapter needed: both sides of the interface are designed in this repo, so
 // their SubscribeAlarmStateChange signatures are kept identical on purpose.
-var _ fisbackend.AlarmStateSubscriber = (*cwbackend.InMemoryBackend)(nil)
+var _ fisbackend.AlarmStateSubscriber = (*cwbackend.Handler)(nil)
 
 // wireFISStopConditions connects FIS experiment stop conditions to CloudWatch's
 // alarm-state-change subscription, so an experiment stops when the alarm named
@@ -5892,12 +6028,7 @@ func wireFISStopConditions(fisReg, cwReg service.Registerable) {
 		return
 	}
 
-	cwBk, ok := cwH.Backend.(*cwbackend.InMemoryBackend)
-	if !ok {
-		return
-	}
-
-	setter.SetAlarmStateSubscriber(cwBk)
+	setter.SetAlarmStateSubscriber(cwH)
 }
 
 // cwEC2ActionerAdapter adapts the EC2 backend to the cloudwatch.EC2InstanceActioner interface.
@@ -5924,7 +6055,21 @@ func (a *cwEC2ActionerAdapter) RebootInstances(ids []string) error {
 // cwAutoScalingAdapter adapts the Auto Scaling backend to the
 // cloudwatch.AutoScalingPolicyExecutor interface.
 type cwAutoScalingAdapter struct {
+	handler *autoscalingbackend.Handler
 	backend *autoscalingbackend.InMemoryBackend
+}
+
+// ExecuteScalingPolicyInRegion runs the policy in region's Auto Scaling backend.
+func (a *cwAutoScalingAdapter) ExecuteScalingPolicyInRegion(region, asgName, policyName string) error {
+	bk, ok := regionpeers.Backend[*autoscalingbackend.InMemoryBackend](a.handler.BackendFor, region)
+	if !ok {
+		bk = a.backend
+	}
+
+	return bk.ExecutePolicy(autoscalingbackend.ExecutePolicyInput{
+		AutoScalingGroupName: asgName,
+		PolicyName:           policyName,
+	})
 }
 
 func (a *cwAutoScalingAdapter) ExecuteScalingPolicy(asgName, policyName string) error {
@@ -5960,7 +6105,7 @@ func wireAutoScalingEC2(asgReg, ec2Reg service.Registerable) {
 		return
 	}
 
-	asgBk.SetEC2Launcher(&ec2AutoScalingLauncherAdapter{backend: ec2Bk})
+	asgBk.SetEC2Launcher(&ec2AutoScalingLauncherAdapter{handler: ec2H, backend: ec2Bk})
 	asgBk.SetInstanceTypeResolver(&ec2AutoScalingInstanceTypeResolverAdapter{backend: ec2Bk})
 }
 
@@ -5973,7 +6118,12 @@ func wireAutoScalingEC2(asgReg, ec2Reg service.Registerable) {
 // defaultTargetPorts in services/elbv2/handler.go), do not default the port
 // themselves, and these adapters call the backend methods directly.
 type elbv2TargetRegistrarAdapter struct {
-	backend *elbv2backend.InMemoryBackend
+	handler *elbv2backend.Handler
+	home    *elbv2backend.InMemoryBackend
+}
+
+func (a *elbv2TargetRegistrarAdapter) backendFor(tgArn string) *elbv2backend.InMemoryBackend {
+	return regionalELBv2Backend(a.handler, a.home)(arnRegion(tgArn))
 }
 
 func (a *elbv2TargetRegistrarAdapter) port(tgArn string, targetPort int) int32 {
@@ -5981,7 +6131,7 @@ func (a *elbv2TargetRegistrarAdapter) port(tgArn string, targetPort int) int32 {
 		return int32(targetPort) //nolint:gosec // container/instance ports fit in int32
 	}
 
-	tgs, err := a.backend.DescribeTargetGroups([]string{tgArn}, nil, "")
+	tgs, err := a.backendFor(tgArn).DescribeTargetGroups([]string{tgArn}, nil, "")
 	if err != nil || len(tgs) == 0 {
 		return 0
 	}
@@ -6017,7 +6167,7 @@ func wireAutoScalingELBv2(asgReg, elbv2Reg service.Registerable) {
 	}
 
 	asgBk.SetELBv2Registrar(&autoscalingELBv2RegistrarAdapter{
-		elbv2TargetRegistrarAdapter{backend: elbv2Bk},
+		elbv2TargetRegistrarAdapter{handler: elbv2H, home: elbv2Bk},
 	})
 }
 
@@ -6091,13 +6241,13 @@ type autoscalingELBv2RegistrarAdapter struct {
 func (a *autoscalingELBv2RegistrarAdapter) RegisterTargets(
 	_ context.Context, tgArn string, targets []autoscalingbackend.ELBTarget,
 ) error {
-	return a.backend.RegisterTargets(tgArn, a.toELBv2Targets(tgArn, targets))
+	return a.backendFor(tgArn).RegisterTargets(tgArn, a.toELBv2Targets(tgArn, targets))
 }
 
 func (a *autoscalingELBv2RegistrarAdapter) DeregisterTargets(
 	_ context.Context, tgArn string, targets []autoscalingbackend.ELBTarget,
 ) error {
-	return a.backend.DeregisterTargets(tgArn, a.toELBv2Targets(tgArn, targets))
+	return a.backendFor(tgArn).DeregisterTargets(tgArn, a.toELBv2Targets(tgArn, targets))
 }
 
 func (a *autoscalingELBv2RegistrarAdapter) toELBv2Targets(
@@ -6140,7 +6290,7 @@ func wireECSELBv2(ecsReg, elbv2Reg service.Registerable) {
 	}
 
 	ecsBk.SetELBv2Registrar(&ecsELBv2RegistrarAdapter{
-		elbv2TargetRegistrarAdapter{backend: elbv2Bk},
+		elbv2TargetRegistrarAdapter{handler: elbv2H, home: elbv2Bk},
 	})
 }
 
@@ -6153,13 +6303,13 @@ type ecsELBv2RegistrarAdapter struct {
 func (a *ecsELBv2RegistrarAdapter) RegisterTargets(
 	_ context.Context, tgArn string, targets []ecsbackend.ELBTarget,
 ) error {
-	return a.backend.RegisterTargets(tgArn, a.toELBv2Targets(tgArn, targets))
+	return a.backendFor(tgArn).RegisterTargets(tgArn, a.toELBv2Targets(tgArn, targets))
 }
 
 func (a *ecsELBv2RegistrarAdapter) DeregisterTargets(
 	_ context.Context, tgArn string, targets []ecsbackend.ELBTarget,
 ) error {
-	return a.backend.DeregisterTargets(tgArn, a.toELBv2Targets(tgArn, targets))
+	return a.backendFor(tgArn).DeregisterTargets(tgArn, a.toELBv2Targets(tgArn, targets))
 }
 
 func (a *ecsELBv2RegistrarAdapter) toELBv2Targets(
@@ -6179,13 +6329,20 @@ func (a *ecsELBv2RegistrarAdapter) toELBv2Targets(
 // the results) and an autoscaling instance-ID list into an EC2
 // TerminateInstances call.
 type ec2AutoScalingLauncherAdapter struct {
+	handler *ec2backend.Handler
 	backend *ec2backend.InMemoryBackend
 }
 
+func (a *ec2AutoScalingLauncherAdapter) backendFor(ctx context.Context) *ec2backend.InMemoryBackend {
+	return regionalEC2Backend(a.handler, a.backend)(awsmeta.Region(ctx))
+}
+
 func (a *ec2AutoScalingLauncherAdapter) LaunchInstances(
-	_ context.Context, spec autoscalingbackend.InstanceLaunchSpec, count int,
+	ctx context.Context, spec autoscalingbackend.InstanceLaunchSpec, count int,
 ) ([]string, error) {
-	instances, err := a.backend.RunInstances(spec.ImageID, spec.InstanceType, spec.SubnetID, count)
+	bk := a.backendFor(ctx)
+
+	instances, err := bk.RunInstances(spec.ImageID, spec.InstanceType, spec.SubnetID, count)
 	if err != nil {
 		return nil, err
 	}
@@ -6194,14 +6351,14 @@ func (a *ec2AutoScalingLauncherAdapter) LaunchInstances(
 	for i, inst := range instances {
 		ids[i] = inst.ID
 		if spec.KeyName != "" || len(spec.SecurityGroups) > 0 {
-			if cfgErr := a.backend.SetInstanceLaunchConfig(inst.ID, spec.KeyName, spec.SecurityGroups); cfgErr != nil {
+			if cfgErr := bk.SetInstanceLaunchConfig(inst.ID, spec.KeyName, spec.SecurityGroups); cfgErr != nil {
 				return ids, fmt.Errorf("setting launch config for instance %s: %w", inst.ID, cfgErr)
 			}
 		}
 	}
 
 	if len(spec.Tags) > 0 {
-		if tagErr := a.backend.CreateTags(ids, spec.Tags); tagErr != nil {
+		if tagErr := bk.CreateTags(ids, spec.Tags); tagErr != nil {
 			return ids, tagErr
 		}
 	}
@@ -6209,21 +6366,21 @@ func (a *ec2AutoScalingLauncherAdapter) LaunchInstances(
 	return ids, nil
 }
 
-func (a *ec2AutoScalingLauncherAdapter) TerminateInstances(_ context.Context, ids []string) error {
-	_, err := a.backend.TerminateInstances(ids)
+func (a *ec2AutoScalingLauncherAdapter) TerminateInstances(ctx context.Context, ids []string) error {
+	_, err := a.backendFor(ctx).TerminateInstances(ids)
 
 	return err
 }
 
 func (a *ec2AutoScalingLauncherAdapter) ResolveLaunchTemplate(
-	_ context.Context, id, name, version string,
+	ctx context.Context, id, name, version string,
 ) (string, string, error) {
 	idOrName := id
 	if idOrName == "" {
 		idOrName = name
 	}
 
-	lt, err := a.backend.GetLaunchTemplate(idOrName, version)
+	lt, err := a.backendFor(ctx).GetLaunchTemplate(idOrName, version)
 	if err != nil {
 		return "", "", err
 	}
@@ -6430,6 +6587,9 @@ func wireEcsCWLogs(ecsReg, cwlogsReg service.Registerable) {
 	if cwlogsH, cwlogsOk := cwlogsReg.(*cwlogsbackend.Handler); cwlogsOk {
 		if cwlogsBk, cwBkOk := cwlogsH.Backend.(*cwlogsbackend.InMemoryBackend); cwBkOk {
 			ecsBk.SetCWLogsBackend(&cwLogsAdapter{backend: cwlogsBk})
+			ecsH.SetCWLogsFactory(func(region string) ecsbackend.CWLogsBackend {
+				return &cwLogsAdapter{backend: cwlogsBk, region: region}
+			})
 		}
 	}
 }
@@ -6458,6 +6618,13 @@ func wireAthenaGlue(athenaReg, glueReg service.Registerable) {
 	}
 
 	athenaBk.SetGlueMetadataSource(&athenaGlueAdapter{backend: glueBk})
+	athenaH.SetGlueSourceFactory(func(region string) athenabackend.GlueMetadataSource {
+		if bk, regionOK := glueH.BackendFor(region).(*gluebackend.InMemoryBackend); regionOK {
+			return &athenaGlueAdapter{backend: bk}
+		}
+
+		return nil
+	})
 }
 
 // wireAthenaS3 connects the Athena backend to S3 so a succeeded query execution's
@@ -6556,17 +6723,17 @@ func wireCodePipelineCodeBuild(codepipelineReg, codebuildReg service.Registerabl
 		return
 	}
 
-	cpH.Backend.SetCodeBuildBackend(&codepipelineCodeBuildAdapter{backend: cbH.Backend})
+	cpH.Backend.SetCodeBuildBackend(&codepipelineCodeBuildAdapter{handler: cbH})
 }
 
 // codepipelineCodeBuildAdapter adapts the CodeBuild backend to the
 // codepipeline.CodeBuildStarter interface.
 type codepipelineCodeBuildAdapter struct {
-	backend *codebuildbackend.InMemoryBackend
+	handler *codebuildbackend.Handler
 }
 
-func (a *codepipelineCodeBuildAdapter) StartBuild(projectName string) error {
-	_, err := a.backend.StartBuild(projectName, codebuildbackend.StartBuildConfig{})
+func (a *codepipelineCodeBuildAdapter) StartBuild(ctx context.Context, projectName string) error {
+	_, err := a.handler.BackendFor(awsmeta.Region(ctx)).StartBuild(projectName, codebuildbackend.StartBuildConfig{})
 
 	return err
 }
@@ -6618,17 +6785,20 @@ func wireCodePipelineCodeDeploy(codepipelineReg, codeDeployReg service.Registera
 		return
 	}
 
-	cpH.Backend.SetCodeDeployBackend(&codepipelineCodeDeployAdapter{backend: cdH.Backend})
+	cpH.Backend.SetCodeDeployBackend(&codepipelineCodeDeployAdapter{handler: cdH})
 }
 
 // codepipelineCodeDeployAdapter adapts the CodeDeploy backend to the
 // codepipeline.CodeDeployStarter interface.
 type codepipelineCodeDeployAdapter struct {
-	backend *codedeploybackend.InMemoryBackend
+	handler *codedeploybackend.Handler
 }
 
-func (a *codepipelineCodeDeployAdapter) CreateDeployment(applicationName, deploymentGroupName string) error {
-	_, err := a.backend.CreateDeployment(applicationName, deploymentGroupName, codedeploybackend.DeploymentOptions{})
+func (a *codepipelineCodeDeployAdapter) CreateDeployment(
+	ctx context.Context, applicationName, deploymentGroupName string,
+) error {
+	_, err := a.handler.BackendFor(awsmeta.Region(ctx)).CreateDeployment(
+		applicationName, deploymentGroupName, codedeploybackend.DeploymentOptions{})
 
 	return err
 }
@@ -6824,12 +6994,11 @@ func wireLambdaECR(lambdaReg, ecrReg service.Registerable) {
 		return
 	}
 
-	ecrBk, ecrBkOk := ecrH.Backend.(*ecrbackend.InMemoryBackend)
-	if !ecrBkOk {
+	if _, ecrBkOk := ecrH.Backend.(*ecrbackend.InMemoryBackend); !ecrBkOk {
 		return
 	}
 
-	lambdaBk.SetECRResolver(&lambdaECRResolverAdapter{backend: ecrBk})
+	lambdaBk.SetECRResolver(&lambdaECRResolverAdapter{handler: ecrH})
 }
 
 // lambdaECRResolverAdapter adapts the ECR backend to the lambda.ECRResolver
@@ -6838,7 +7007,7 @@ func wireLambdaECR(lambdaReg, ecrReg service.Registerable) {
 // public Docker Hub image) is accepted unvalidated: real AWS only validates
 // Code.ImageUri against ECR when it is in fact an ECR reference.
 type lambdaECRResolverAdapter struct {
-	backend *ecrbackend.InMemoryBackend
+	handler *ecrbackend.Handler
 }
 
 func (a *lambdaECRResolverAdapter) ResolveImage(imageURI string) bool {
@@ -6847,9 +7016,28 @@ func (a *lambdaECRResolverAdapter) ResolveImage(imageURI string) bool {
 		return true
 	}
 
-	_, err := a.backend.DescribeImages(context.Background(), repo, []ecrbackend.ImageIdentifier{id})
+	bk, ok := a.handler.BackendFor(ecrImageURIRegion(imageURI)).(*ecrbackend.InMemoryBackend)
+	if !ok {
+		return true
+	}
+
+	_, err := bk.DescribeImages(context.Background(), repo, []ecrbackend.ImageIdentifier{id})
 
 	return err == nil
+}
+
+// ecrImageURIRegion returns the region in <acct>.dkr.ecr.<region>.amazonaws.com, or "" for the home region.
+func ecrImageURIRegion(imageURI string) string {
+	host, _, _ := strings.Cut(imageURI, "/")
+	_, rest, found := strings.Cut(host, ".dkr.ecr.")
+
+	if !found {
+		return ""
+	}
+
+	region, _, _ := strings.Cut(rest, ".")
+
+	return region
 }
 
 // parseECRImageURI splits an ECR-style image URI
@@ -6891,22 +7079,36 @@ func wireTimestreamQueryTags(tsqReg, tswReg service.Registerable) {
 	}
 
 	if tswH, tswOk := tswReg.(*timestreamwritebackend.Handler); tswOk {
-		tsqBk.SetTagWriteBackend(tswH.Backend)
+		tsqBk.SetTagWriteBackend(&timestreamTagWriter{handler: tswH})
 	}
 }
 
 // cwLogsAdapter adapts the CloudWatch Logs InMemoryBackend to the lambda.CWLogsBackend interface.
 type cwLogsAdapter struct {
 	backend *cwlogsbackend.InMemoryBackend
+	region  string
+}
+
+// ForRegion binds the adapter to region so a sibling Lambda backend logs into its own region.
+func (a *cwLogsAdapter) ForRegion(region string) lambdabackend.CWLogsBackend {
+	return &cwLogsAdapter{backend: a.backend, region: region}
+}
+
+func (a *cwLogsAdapter) ctx() context.Context {
+	if a.region == "" {
+		return context.Background()
+	}
+
+	return cwlogsbackend.WithRegion(context.Background(), a.region)
 }
 
 func (a *cwLogsAdapter) EnsureLogGroupAndStream(groupName, streamName string) error {
-	if _, err := a.backend.CreateLogGroup(context.Background(), groupName, "", ""); err != nil &&
+	if _, err := a.backend.CreateLogGroup(a.ctx(), groupName, "", ""); err != nil &&
 		!errors.Is(err, cwlogsbackend.ErrLogGroupAlreadyExists) {
 		return err
 	}
 
-	if _, err := a.backend.CreateLogStream(context.Background(), groupName, streamName); err != nil &&
+	if _, err := a.backend.CreateLogStream(a.ctx(), groupName, streamName); err != nil &&
 		!errors.Is(err, cwlogsbackend.ErrLogStreamAlreadyExist) {
 		return err
 	}
@@ -6922,7 +7124,7 @@ func (a *cwLogsAdapter) PutLogLines(groupName, streamName string, messages []str
 		events[i] = cwlogsbackend.InputLogEvent{Message: msg, Timestamp: now}
 	}
 
-	_, err := a.backend.PutLogEvents(context.Background(), groupName, streamName, "", events)
+	_, err := a.backend.PutLogEvents(a.ctx(), groupName, streamName, "", events)
 
 	return err
 }
@@ -6999,10 +7201,9 @@ func (d *cwlogsSubscriptionDeliverer) DeliverLogEvents(
 			return nil
 		}
 		// resource is "function:<name>" or just "<name>"
-		funcName := strings.TrimPrefix(resource, "function:")
 		_, _, err := d.lambda.InvokeFunction(
 			ctx,
-			funcName,
+			destinationArn,
 			lambdabackend.InvocationTypeEvent,
 			payload,
 		)
@@ -7012,9 +7213,8 @@ func (d *cwlogsSubscriptionDeliverer) DeliverLogEvents(
 		if d.kinesis == nil {
 			return nil
 		}
-		// resource is "stream/<name>"
-		streamName := strings.TrimPrefix(resource, "stream/")
-		_, err := d.kinesis.PutRecord(ctx, &kinesisbackend.PutRecordInput{
+		kctx, streamName := kinesisRefContext(ctx, destinationArn)
+		_, err := d.kinesis.PutRecord(kctx, &kinesisbackend.PutRecordInput{
 			StreamName:   streamName,
 			PartitionKey: "cwlogs",
 			Data:         payload,
@@ -7028,7 +7228,7 @@ func (d *cwlogsSubscriptionDeliverer) DeliverLogEvents(
 		// resource is "deliverystream/<name>"
 		streamName := strings.TrimPrefix(resource, "deliverystream/")
 
-		return d.firehose.PutRecord(ctx, streamName, payload)
+		return d.firehose.PutRecord(inRegion(ctx, arnRegion(destinationArn)), streamName, payload)
 	}
 
 	return nil
@@ -7052,28 +7252,7 @@ func wireCWLogsMetricEmitter(cwlogsReg, cwReg service.Registerable) {
 		return
 	}
 
-	cwBk, cwBkOk := cwH.Backend.(*cwbackend.InMemoryBackend)
-	if !cwBkOk {
-		return
-	}
-
-	cwlogsBk.SetMetricEmitter(
-		cwlogsbackend.MetricEmitterFunc(
-			func(namespace, name string, value float64, unit string) error {
-				err := cwBk.PutMetricData(namespace, []cwbackend.MetricDatum{
-					{
-						MetricName: name,
-						Namespace:  namespace,
-						Value:      value,
-						Unit:       unit,
-						Timestamp:  time.Now(),
-					},
-				})
-
-				return err
-			},
-		),
-	)
+	cwlogsBk.SetMetricEmitter(regionalMetricEmitter(cwH))
 }
 
 // wireIAMToSTS connects the IAM backend to STS so that AssumeRole can validate
@@ -7206,7 +7385,28 @@ func wireAppSyncCognito(appSyncReg, cognitoReg service.Registerable) {
 	}
 
 	if cognitoH, cogOk := cognitoReg.(*cognitoidpbackend.Handler); cogOk {
-		appSyncBk.SetJWKSProvider(cognitoH.Backend)
+		appSyncBk.SetJWKSProvider(cognitoH)
+	}
+}
+
+// sigV4SecretOf returns the configured --sigv4-secret, or empty when appCtx carries no CLI.
+func sigV4SecretOf(appCtx *service.AppContext) string {
+	if cli, ok := appCtx.Config.(*CLI); ok {
+		return cli.SigV4Secret
+	}
+
+	return ""
+}
+
+// wireAppSyncSigV4 passes --sigv4-secret to AppSync so AWS_IAM GraphQL auth verifies against it.
+func wireAppSyncSigV4(appSyncReg service.Registerable, secret string) {
+	appSyncH, ok := appSyncReg.(*appsyncbackend.Handler)
+	if !ok {
+		return
+	}
+
+	if appSyncBk, bkOk := appSyncH.Backend.(*appsyncbackend.InMemoryBackend); bkOk {
+		appSyncBk.SetSigV4Secret(secret)
 	}
 }
 
@@ -7216,13 +7416,14 @@ type iotRuleDispatcher struct {
 	lambda *lambdabackend.InMemoryBackend
 }
 
-func (d *iotRuleDispatcher) SendToSQS(queueURL, body string) error {
+func (d *iotRuleDispatcher) SendToSQS(region, queueURL, body string) error {
 	if d.sqs == nil {
 		return nil
 	}
 
 	_, err := d.sqs.SendMessage(&sqsbackend.SendMessageInput{
 		QueueURL:    queueURL,
+		Region:      region,
 		MessageBody: body,
 	})
 
@@ -8106,32 +8307,35 @@ func wireTaggingECS(bk resourcegroupstaggingapibackend.StorageBackend, ecsReg se
 		return
 	}
 
-	ecsBk, ok := ecsH.Backend.(*ecsbackend.InMemoryBackend)
+	home, ok := ecsH.Backend.(*ecsbackend.InMemoryBackend)
 	if !ok {
 		return
 	}
 
-	wireTaggingARNResources(
-		bk, "ecs",
-		func(arn string) string { return resourceTypeFromARN(arn, "ecs") },
-		func() []taggedARNEntry {
-			items := ecsBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
+	in := regionalECSBackend(ecsH, home)
+
+	registerTaggingService(
+		bk,
+		func(ctx context.Context) []resourcegroupstaggingapibackend.TaggedResource {
+			items := in(awsmeta.Region(ctx)).TaggedResources()
+			out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(items))
 			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+				out = append(out, resourcegroupstaggingapibackend.TaggedResource{
+					ResourceARN: item.ARN, ResourceType: resourceTypeFromARN(item.ARN, "ecs"), Tags: item.Tags,
+				})
 			}
 
 			return out
 		},
-		func(arn string, newTags map[string]string) error {
-			tagList := make([]ecsbackend.Tag, 0, len(newTags))
-			for k, v := range newTags {
-				tagList = append(tagList, ecsbackend.Tag{Key: k, Value: v})
-			}
-
-			return ecsBk.TagResource(arn, tagList)
+		"ecs",
+		func(_ context.Context, arn string, newTags map[string]string) error {
+			return in(arnRegion(arn)).TagResource(arn, mapToTagSlice(newTags, func(k, v string) ecsbackend.Tag {
+				return ecsbackend.Tag{Key: k, Value: v}
+			}))
 		},
-		ecsBk.UntagResource,
+		func(_ context.Context, arn string, keys []string) error {
+			return in(arnRegion(arn)).UntagResource(arn, keys)
+		},
 	)
 }
 
@@ -8140,31 +8344,11 @@ func wireTaggingECS(bk resourcegroupstaggingapibackend.StorageBackend, ecsReg se
 // catalogs, capacity reservations, notebooks) in one flat ARN-keyed map, so
 // resourceTypeFromARN derives the per-resource type.
 func wireTaggingAthena(bk resourcegroupstaggingapibackend.StorageBackend, athenaReg service.Registerable) {
-	athenaH, ok := athenaReg.(*athenabackend.Handler)
-	if !ok {
-		return
+	if h, ok := athenaReg.(*athenabackend.Handler); ok {
+		wireStdRegionalTagging[*athenabackend.InMemoryBackend, athenabackend.TaggedEntry](
+			bk, "athena", arnResourceType("athena"),
+			func(region string) any { return h.RegionHandler(region).Backend })
 	}
-
-	athenaBk, ok := athenaH.Backend.(*athenabackend.InMemoryBackend)
-	if !ok {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "athena",
-		func(arn string) string { return resourceTypeFromARN(arn, "athena") },
-		func() []taggedARNEntry {
-			items := athenaBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
-		athenaBk.TagResource,
-		athenaBk.UntagResource,
-	)
 }
 
 // wireTaggingGlue wires the Glue backend into the Resource Groups Tagging API. Glue
@@ -8173,31 +8357,11 @@ func wireTaggingAthena(bk resourcegroupstaggingapibackend.StorageBackend, athena
 // the same "glue:type/id" ARN convention, so resourceTypeFromARN derives the type for
 // every kind uniformly instead of one wiring function apiece.
 func wireTaggingGlue(bk resourcegroupstaggingapibackend.StorageBackend, glueReg service.Registerable) {
-	glueH, ok := glueReg.(*gluebackend.Handler)
-	if !ok {
-		return
+	if h, ok := glueReg.(*gluebackend.Handler); ok {
+		wireStdRegionalTagging[*gluebackend.InMemoryBackend, gluebackend.TaggedEntry](
+			bk, "glue", arnResourceType("glue"),
+			func(region string) any { return h.RegionHandler(region).Backend })
 	}
-
-	glueBk, ok := glueH.Backend.(*gluebackend.InMemoryBackend)
-	if !ok {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "glue",
-		func(arn string) string { return resourceTypeFromARN(arn, "glue") },
-		func() []taggedARNEntry {
-			items := glueBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
-		glueBk.TagResource,
-		glueBk.UntagResource,
-	)
 }
 
 // wireTaggingECR wires the ECR backend into the Resource Groups Tagging API. ECR only
@@ -8206,35 +8370,26 @@ func wireTaggingGlue(bk resourcegroupstaggingapibackend.StorageBackend, glueReg 
 // so this uses registerTaggingService directly rather than the ctx-dropping
 // wireTaggingARNResources helper.
 func wireTaggingECR(bk resourcegroupstaggingapibackend.StorageBackend, ecrReg service.Registerable) {
-	ecrH, ok := ecrReg.(*ecrbackend.Handler)
+	h, ok := ecrReg.(*ecrbackend.Handler)
 	if !ok {
 		return
 	}
 
-	ecrBk, ok := ecrH.Backend.(*ecrbackend.InMemoryBackend)
-	if !ok {
-		return
-	}
-
-	registerTaggingService(
-		bk,
-		func(_ context.Context) []resourcegroupstaggingapibackend.TaggedResource {
-			items := ecrBk.TaggedResources()
-			out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(items))
-			for _, item := range items {
-				out = append(out, resourcegroupstaggingapibackend.TaggedResource{
-					ResourceARN:  item.ARN,
-					ResourceType: "ecr:repository",
-					Tags:         item.Tags,
-				})
-			}
-
-			return out
+	wireRegionalTagging(bk, regionalTagSpec[*ecrbackend.InMemoryBackend]{
+		arnService:     "ecr",
+		resourceTypeOf: constantResourceType("ecr:repository"),
+		backendFor: regionalBackendFor[*ecrbackend.InMemoryBackend](
+			func(r string) any { return h.RegionHandler(r).Backend }),
+		list: func(b *ecrbackend.InMemoryBackend) []taggedARNEntry {
+			return taggedEntries(b.TaggedResources())
 		},
-		"ecr",
-		ecrBk.TagResource,
-		ecrBk.UntagResource,
-	)
+		tag: func(b *ecrbackend.InMemoryBackend, ctx context.Context, arn string, t map[string]string) error {
+			return b.TagResource(ctx, arn, t)
+		},
+		untag: func(b *ecrbackend.InMemoryBackend, ctx context.Context, arn string, k []string) error {
+			return b.UntagResource(ctx, arn, k)
+		},
+	})
 }
 
 // wireTaggingKinesis wires the Kinesis backend into the Resource Groups Tagging API.
@@ -8345,31 +8500,11 @@ func wireTaggingCloudFront(bk resourcegroupstaggingapibackend.StorageBackend, cf
 // subscriptions) in typed stores searched by resourceARN, so resourceTypeFromARN
 // derives the per-resource type instead of a hand-written wiring function per kind.
 func wireTaggingEKS(bk resourcegroupstaggingapibackend.StorageBackend, eksReg service.Registerable) {
-	eksH, ok := eksReg.(*eksbackend.Handler)
-	if !ok {
-		return
+	if h, ok := eksReg.(*eksbackend.Handler); ok {
+		wireStdRegionalTagging[*eksbackend.InMemoryBackend, eksbackend.TaggedEntry](
+			bk, "eks", arnResourceType("eks"),
+			func(region string) any { return h.BackendFor(region) })
 	}
-
-	eksBk := eksH.Backend
-	if eksBk == nil {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "eks",
-		func(arn string) string { return resourceTypeFromARN(arn, "eks") },
-		func() []taggedARNEntry {
-			items := eksBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
-		eksBk.TagResource,
-		eksBk.UntagResource,
-	)
 }
 
 // wireTaggingBatch wires the Batch backend into the Resource Groups Tagging API. Batch
@@ -8448,31 +8583,11 @@ func wireTaggingWAFv2(bk resourcegroupstaggingapibackend.StorageBackend, wafReg 
 // resourceTypeFromARN derives the per-resource type instead of a hand-written wiring
 // function per kind.
 func wireTaggingBackup(bk resourcegroupstaggingapibackend.StorageBackend, backupReg service.Registerable) {
-	backupH, ok := backupReg.(*backupbackend.Handler)
-	if !ok {
-		return
+	if h, ok := backupReg.(*backupbackend.Handler); ok {
+		wireStdRegionalTagging[*backupbackend.InMemoryBackend, backupbackend.TaggedEntry](
+			bk, "backup", arnResourceType("backup"),
+			func(region string) any { return h.RegionHandler(region).Backend })
 	}
-
-	backupBk := backupH.Backend
-	if backupBk == nil {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "backup",
-		func(arn string) string { return resourceTypeFromARN(arn, "backup") },
-		func() []taggedARNEntry {
-			items := backupBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
-		backupBk.TagResource,
-		backupBk.UntagResource,
-	)
 }
 
 // wireTaggingEFS wires the EFS backend into the Resource Groups Tagging API. EFS keeps
@@ -8787,49 +8902,47 @@ func wireTaggingRedshift(bk resourcegroupstaggingapibackend.StorageBackend, reds
 		return
 	}
 
-	redshiftBk, ok := redshiftH.Backend.(*redshiftbackend.InMemoryBackend)
-	if !ok {
-		return
-	}
-
-	clusterARN := func(id string) string {
-		return arn.Build("redshift", redshiftBk.Region(), redshiftBk.AccountID(), "cluster:"+id)
-	}
-
-	wireTaggingARNResources(
-		bk, "redshift",
-		constantResourceType("redshift:cluster"),
-		func() []taggedARNEntry {
-			all := redshiftBk.DescribeTags()
-			out := make([]taggedARNEntry, 0, len(all))
-
-			for clusterID, tagMap := range all {
-				if len(tagMap) == 0 {
-					continue
-				}
-
-				out = append(out, taggedARNEntry{ARN: clusterARN(clusterID), Tags: tagMap})
-			}
-
-			return out
-		},
-		func(arnStr string, newTags map[string]string) error {
+	wireRegionalTagging(bk, regionalTagSpec[*redshiftbackend.InMemoryBackend]{
+		arnService:     "redshift",
+		resourceTypeOf: constantResourceType("redshift:cluster"),
+		backendFor: regionalBackendFor[*redshiftbackend.InMemoryBackend](
+			func(region string) any { return redshiftH.BackendFor(region) }),
+		list: redshiftTaggedClusters,
+		tag: func(b *redshiftbackend.InMemoryBackend, _ context.Context, arnStr string, tags map[string]string) error {
 			id, parsed := redshiftClusterIDFromARN(arnStr)
 			if !parsed {
 				return fmt.Errorf("%w: malformed Redshift cluster ARN: %s", redshiftbackend.ErrClusterNotFound, arnStr)
 			}
 
-			return redshiftBk.CreateTags(id, newTags)
+			return b.CreateTags(id, tags)
 		},
-		func(arnStr string, keys []string) error {
+		untag: func(b *redshiftbackend.InMemoryBackend, _ context.Context, arnStr string, keys []string) error {
 			id, parsed := redshiftClusterIDFromARN(arnStr)
 			if !parsed {
 				return fmt.Errorf("%w: malformed Redshift cluster ARN: %s", redshiftbackend.ErrClusterNotFound, arnStr)
 			}
 
-			return redshiftBk.DeleteTags(id, keys)
+			return b.DeleteTags(id, keys)
 		},
-	)
+	})
+}
+
+func redshiftTaggedClusters(b *redshiftbackend.InMemoryBackend) []taggedARNEntry {
+	all := b.DescribeTags()
+	out := make([]taggedARNEntry, 0, len(all))
+
+	for clusterID, tagMap := range all {
+		if len(tagMap) == 0 {
+			continue
+		}
+
+		out = append(out, taggedARNEntry{
+			ARN:  arn.Build("redshift", b.Region(), b.AccountID(), "cluster:"+clusterID),
+			Tags: tagMap,
+		})
+	}
+
+	return out
 }
 
 // firehoseStreamNameFromARN extracts the delivery stream name from a Firehose ARN
@@ -8917,35 +9030,38 @@ func wireTaggingOpenSearch(bk resourcegroupstaggingapibackend.StorageBackend, os
 		return
 	}
 
-	osBk, ok := osH.Backend.(*opensearchbackend.InMemoryBackend)
-	if !ok {
-		return
+	wireRegionalTagging(bk, regionalTagSpec[*opensearchbackend.InMemoryBackend]{
+		arnService:     "es",
+		resourceTypeOf: constantResourceType("es:domain"),
+		backendFor: regionalBackendFor[*opensearchbackend.InMemoryBackend](
+			func(region string) any { return osH.BackendFor(region) }),
+		list: openSearchTaggedDomains,
+		tag: func(b *opensearchbackend.InMemoryBackend, _ context.Context, arnStr string, tags map[string]string) error {
+			return b.AddTags(arnStr, tags)
+		},
+		untag: func(b *opensearchbackend.InMemoryBackend, _ context.Context, arnStr string, keys []string) error {
+			return b.RemoveTags(arnStr, keys)
+		},
+	})
+}
+
+func openSearchTaggedDomains(b *opensearchbackend.InMemoryBackend) []taggedARNEntry {
+	domains, err := b.DescribeDomains(nil)
+	if err != nil {
+		return nil
 	}
 
-	wireTaggingARNResources(
-		bk, "es",
-		constantResourceType("es:domain"),
-		func() []taggedARNEntry {
-			domains, err := osBk.DescribeDomains(nil)
-			if err != nil {
-				return nil
-			}
+	out := make([]taggedARNEntry, 0, len(domains))
 
-			out := make([]taggedARNEntry, 0, len(domains))
+	for _, d := range domains {
+		if d.Tags == nil || d.Tags.Len() == 0 {
+			continue
+		}
 
-			for _, d := range domains {
-				if d.Tags == nil || d.Tags.Len() == 0 {
-					continue
-				}
+		out = append(out, taggedARNEntry{ARN: d.ARN, Tags: d.Tags.Clone()})
+	}
 
-				out = append(out, taggedARNEntry{ARN: d.ARN, Tags: d.Tags.Clone()})
-			}
-
-			return out
-		},
-		osBk.AddTags,
-		osBk.RemoveTags,
-	)
+	return out
 }
 
 // wireTaggingMQ wires the Amazon MQ backend into the Resource Groups Tagging API. MQ
@@ -8961,27 +9077,19 @@ func wireTaggingMQ(bk resourcegroupstaggingapibackend.StorageBackend, mqReg serv
 		return
 	}
 
-	mqBk, ok := mqH.Backend.(*mqbackend.InMemoryBackend)
-	if !ok {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "mq",
-		func(arnStr string) string { return resourceTypeFromARN(arnStr, "mq") },
-		func() []taggedARNEntry {
-			items := mqBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
+	wireRegionalTagging(bk, regionalTagSpec[*mqbackend.InMemoryBackend]{
+		arnService:     "mq",
+		resourceTypeOf: arnResourceType("mq"),
+		backendFor: regionalBackendFor[*mqbackend.InMemoryBackend](
+			func(region string) any { return mqH.BackendFor(region) }),
+		list: func(b *mqbackend.InMemoryBackend) []taggedARNEntry { return taggedEntries(b.TaggedResources()) },
+		tag: func(b *mqbackend.InMemoryBackend, _ context.Context, arn string, tags map[string]string) error {
+			return b.CreateTags(arn, tags)
 		},
-		mqBk.CreateTags,
-		mqBk.DeleteTags,
-	)
+		untag: func(b *mqbackend.InMemoryBackend, _ context.Context, arn string, keys []string) error {
+			return b.DeleteTags(arn, keys)
+		},
+	})
 }
 
 // wireTaggingEMR wires the EMR backend into the Resource Groups Tagging API. EMR
@@ -9034,32 +9142,21 @@ func wireTaggingEMR(bk resourcegroupstaggingapibackend.StorageBackend, emrReg se
 // verified (terraform-provider-aws's workspaceARN helper, since the SDK
 // itself never emits a workspace ARN on any of its 25 operations).
 func wireTaggingGrafana(bk resourcegroupstaggingapibackend.StorageBackend, grafanaReg service.Registerable) {
-	grafanaH, ok := grafanaReg.(*grafanabackend.Handler)
+	h, ok := grafanaReg.(*grafanabackend.Handler)
 	if !ok {
 		return
 	}
 
-	grafanaBk := grafanaH.Backend
-	if grafanaBk == nil {
-		return
-	}
-
-	wireTaggingCtxARNResources(
-		bk, "grafana",
-		constantResourceType("grafana:workspace"),
-		func() []taggedARNEntry {
-			items := grafanaBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
+	wireRegionalTagging(bk, regionalTagSpec[*grafanabackend.InMemoryBackend]{
+		arnService:     "grafana",
+		resourceTypeOf: constantResourceType("grafana:workspace"),
+		backendFor:     h.BackendFor,
+		list: func(b *grafanabackend.InMemoryBackend) []taggedARNEntry {
+			return taggedEntries(b.TaggedResources())
 		},
-		grafanaBk.TagResource,
-		grafanaBk.UntagResource,
-	)
+		tag:   (*grafanabackend.InMemoryBackend).TagResource,
+		untag: (*grafanabackend.InMemoryBackend).UntagResource,
+	})
 }
 
 // wireTaggingOutposts wires the AWS Outposts backend into the Resource Groups
@@ -9074,32 +9171,21 @@ func wireTaggingGrafana(bk resourcegroupstaggingapibackend.StorageBackend, grafa
 // campaign found) via in-repo test fixtures in services/ec2 and
 // services/route53resolver -- see services/outposts/PARITY.md's ARN section.
 func wireTaggingOutposts(bk resourcegroupstaggingapibackend.StorageBackend, outpostsReg service.Registerable) {
-	outpostsH, ok := outpostsReg.(*outpostsbackend.Handler)
+	h, ok := outpostsReg.(*outpostsbackend.Handler)
 	if !ok {
 		return
 	}
 
-	outpostsBk := outpostsH.Backend
-	if outpostsBk == nil {
-		return
-	}
-
-	wireTaggingCtxARNResources(
-		bk, "outposts",
-		func(arn string) string { return resourceTypeFromARN(arn, "outposts") },
-		func() []taggedARNEntry {
-			items := outpostsBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
+	wireRegionalTagging(bk, regionalTagSpec[*outpostsbackend.InMemoryBackend]{
+		arnService:     "outposts",
+		resourceTypeOf: arnResourceType("outposts"),
+		backendFor:     h.BackendFor,
+		list: func(b *outpostsbackend.InMemoryBackend) []taggedARNEntry {
+			return taggedEntries(b.TaggedResources())
 		},
-		outpostsBk.TagResource,
-		outpostsBk.UntagResource,
-	)
+		tag:   (*outpostsbackend.InMemoryBackend).TagResource,
+		untag: (*outpostsbackend.InMemoryBackend).UntagResource,
+	})
 }
 
 // wireTaggingResilienceHub wires the AWS Resilience Hub backend into the
@@ -9118,32 +9204,21 @@ func wireTaggingResilienceHub(
 	bk resourcegroupstaggingapibackend.StorageBackend,
 	resiliencehubReg service.Registerable,
 ) {
-	resiliencehubH, ok := resiliencehubReg.(*resiliencehubbackend.Handler)
+	h, ok := resiliencehubReg.(*resiliencehubbackend.Handler)
 	if !ok {
 		return
 	}
 
-	resiliencehubBk := resiliencehubH.Backend
-	if resiliencehubBk == nil {
-		return
-	}
-
-	wireTaggingCtxARNResources(
-		bk, "resiliencehub",
-		func(arn string) string { return resourceTypeFromARN(arn, "resiliencehub") },
-		func() []taggedARNEntry {
-			items := resiliencehubBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
+	wireRegionalTagging(bk, regionalTagSpec[*resiliencehubbackend.InMemoryBackend]{
+		arnService:     "resiliencehub",
+		resourceTypeOf: arnResourceType("resiliencehub"),
+		backendFor:     h.BackendFor,
+		list: func(b *resiliencehubbackend.InMemoryBackend) []taggedARNEntry {
+			return taggedEntries(b.TaggedResources())
 		},
-		resiliencehubBk.TagResource,
-		resiliencehubBk.UntagResource,
-	)
+		tag:   (*resiliencehubbackend.InMemoryBackend).TagResource,
+		untag: (*resiliencehubbackend.InMemoryBackend).UntagResource,
+	})
 }
 
 // wireTaggingDirectConnect wires the AWS Direct Connect backend into the
@@ -9159,32 +9234,21 @@ func wireTaggingDirectConnect(
 	bk resourcegroupstaggingapibackend.StorageBackend,
 	directconnectReg service.Registerable,
 ) {
-	directconnectH, ok := directconnectReg.(*directconnectbackend.Handler)
+	h, ok := directconnectReg.(*directconnectbackend.Handler)
 	if !ok {
 		return
 	}
 
-	directconnectBk := directconnectH.Backend
-	if directconnectBk == nil {
-		return
-	}
-
-	wireTaggingCtxARNResources(
-		bk, "directconnect",
-		func(arn string) string { return resourceTypeFromARN(arn, "directconnect") },
-		func() []taggedARNEntry {
-			items := directconnectBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
+	wireRegionalTagging(bk, regionalTagSpec[*directconnectbackend.InMemoryBackend]{
+		arnService:     "directconnect",
+		resourceTypeOf: arnResourceType("directconnect"),
+		backendFor:     h.BackendFor,
+		list: func(b *directconnectbackend.InMemoryBackend) []taggedARNEntry {
+			return taggedEntries(b.TaggedResources())
 		},
-		directconnectBk.TagResource,
-		directconnectBk.UntagResource,
-	)
+		tag:   (*directconnectbackend.InMemoryBackend).TagResource,
+		untag: (*directconnectbackend.InMemoryBackend).UntagResource,
+	})
 }
 
 // wireTaggingMGN wires the AWS Application Migration Service backend into the
@@ -9199,32 +9263,21 @@ func wireTaggingMGN(
 	bk resourcegroupstaggingapibackend.StorageBackend,
 	mgnReg service.Registerable,
 ) {
-	mgnH, ok := mgnReg.(*mgnbackend.Handler)
+	h, ok := mgnReg.(*mgnbackend.Handler)
 	if !ok {
 		return
 	}
 
-	mgnBk := mgnH.Backend
-	if mgnBk == nil {
-		return
-	}
-
-	wireTaggingCtxARNResources(
-		bk, "mgn",
-		func(arn string) string { return resourceTypeFromARN(arn, "mgn") },
-		func() []taggedARNEntry {
-			items := mgnBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
+	wireRegionalTagging(bk, regionalTagSpec[*mgnbackend.InMemoryBackend]{
+		arnService:     "mgn",
+		resourceTypeOf: arnResourceType("mgn"),
+		backendFor:     h.BackendFor,
+		list: func(b *mgnbackend.InMemoryBackend) []taggedARNEntry {
+			return taggedEntries(b.TaggedResources())
 		},
-		mgnBk.TagResource,
-		mgnBk.UntagResource,
-	)
+		tag:   (*mgnbackend.InMemoryBackend).TagResource,
+		untag: (*mgnbackend.InMemoryBackend).UntagResource,
+	})
 }
 
 // wireTaggingNetworkManager wires the AWS Network Manager backend into the
@@ -9283,36 +9336,27 @@ func wireTaggingNetworkManager(
 // real op needs before delegating to the same resolution path, rather than
 // wireTaggingCtxARNResources/wireTaggingARNResources needing a
 // name-first variant of their own.
-func wireTaggingLightsail(
-	bk resourcegroupstaggingapibackend.StorageBackend,
-	lightsailReg service.Registerable,
-) {
-	lightsailH, ok := lightsailReg.(*lightsailbackend.Handler)
+func wireTaggingLightsail(bk resourcegroupstaggingapibackend.StorageBackend, lightsailReg service.Registerable) {
+	h, ok := lightsailReg.(*lightsailbackend.Handler)
 	if !ok {
 		return
 	}
 
-	lightsailBk := lightsailH.Backend
-	if lightsailBk == nil {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "lightsail",
-		func(arn string) string { return resourceTypeFromARN(arn, "lightsail") },
-		func() []taggedARNEntry {
-			items := lightsailBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
+	wireRegionalTagging(bk, regionalTagSpec[*lightsailbackend.InMemoryBackend]{
+		arnService:     "lightsail",
+		resourceTypeOf: arnResourceType("lightsail"),
+		backendFor: regionalBackendFor[*lightsailbackend.InMemoryBackend](
+			func(r string) any { return h.RegionHandler(r).Backend }),
+		list: func(b *lightsailbackend.InMemoryBackend) []taggedARNEntry {
+			return taggedEntries(b.TaggedResources())
 		},
-		lightsailBk.TagResourceByARN,
-		lightsailBk.UntagResourceByARN,
-	)
+		tag: func(b *lightsailbackend.InMemoryBackend, _ context.Context, arn string, t map[string]string) error {
+			return b.TagResourceByARN(arn, t)
+		},
+		untag: func(b *lightsailbackend.InMemoryBackend, _ context.Context, arn string, k []string) error {
+			return b.UntagResourceByARN(arn, k)
+		},
+	})
 }
 
 // wireTaggingCloudWatchLogs wires the CloudWatch Logs backend into the Resource
@@ -9409,39 +9453,28 @@ func wireTaggingSageMaker(bk resourcegroupstaggingapibackend.StorageBackend, smR
 // error, unlike the bare-error shape wireTaggingARNResources expects, so their results
 // are adapted away here.
 func wireTaggingDAX(bk resourcegroupstaggingapibackend.StorageBackend, daxReg service.Registerable) {
-	daxH, ok := daxReg.(*daxbackend.Handler)
+	h, ok := daxReg.(*daxbackend.Handler)
 	if !ok {
 		return
 	}
 
-	daxBk, ok := daxH.Backend.(*daxbackend.InMemoryBackend)
-	if !ok {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "dax",
-		func(arn string) string { return resourceTypeFromARN(arn, "dax") },
-		func() []taggedARNEntry {
-			items := daxBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
-		func(arn string, tags map[string]string) error {
-			_, err := daxBk.TagResource(arn, tags)
+	wireRegionalTagging(bk, regionalTagSpec[*daxbackend.InMemoryBackend]{
+		arnService:     "dax",
+		resourceTypeOf: arnResourceType("dax"),
+		backendFor: regionalBackendFor[*daxbackend.InMemoryBackend](
+			func(region string) any { return h.BackendFor(region) }),
+		list: func(b *daxbackend.InMemoryBackend) []taggedARNEntry { return taggedEntries(b.TaggedResources()) },
+		tag: func(b *daxbackend.InMemoryBackend, _ context.Context, arn string, tags map[string]string) error {
+			_, err := b.TagResource(arn, tags)
 
 			return err
 		},
-		func(arn string, keys []string) error {
-			_, err := daxBk.UntagResource(arn, keys)
+		untag: func(b *daxbackend.InMemoryBackend, _ context.Context, arn string, keys []string) error {
+			_, err := b.UntagResource(arn, keys)
 
 			return err
 		},
-	)
+	})
 }
 
 // wireTaggingDetective wires the Detective backend into the Resource Groups Tagging
@@ -9449,31 +9482,11 @@ func wireTaggingDAX(bk resourcegroupstaggingapibackend.StorageBackend, daxReg se
 // "graph:{id}" (colon-delimited, not "graph/{id}") -- resourceTypeFromARN handles
 // both separators, deriving "detective:graph".
 func wireTaggingDetective(bk resourcegroupstaggingapibackend.StorageBackend, detReg service.Registerable) {
-	detH, ok := detReg.(*detectivebackend.Handler)
-	if !ok {
-		return
+	if h, ok := detReg.(*detectivebackend.Handler); ok {
+		wireStdRegionalTagging[*detectivebackend.InMemoryBackend, detectivebackend.TaggedEntry](
+			bk, "detective", arnResourceType("detective"),
+			func(region string) any { return h.BackendFor(region) })
 	}
-
-	detBk, ok := detH.Backend.(*detectivebackend.InMemoryBackend)
-	if !ok {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "detective",
-		func(arn string) string { return resourceTypeFromARN(arn, "detective") },
-		func() []taggedARNEntry {
-			items := detBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
-		detBk.TagResource,
-		detBk.UntagResource,
-	)
 }
 
 // wireTaggingGuardDuty wires the GuardDuty backend into the Resource Groups Tagging
@@ -9484,31 +9497,11 @@ func wireTaggingDetective(bk resourcegroupstaggingapibackend.StorageBackend, det
 // -- a plain resourceTypeFromARN would take only the first segment and collide every
 // nested kind under "guardduty:detector", so nestedResourceType is used instead.
 func wireTaggingGuardDuty(bk resourcegroupstaggingapibackend.StorageBackend, gdReg service.Registerable) {
-	gdH, ok := gdReg.(*guarddutybackend.Handler)
-	if !ok {
-		return
+	if h, ok := gdReg.(*guarddutybackend.Handler); ok {
+		wireStdRegionalTagging[*guarddutybackend.InMemoryBackend, guarddutybackend.TaggedEntry](
+			bk, "guardduty", func(arn string) string { return nestedResourceType(arn, "guardduty") },
+			func(region string) any { return h.BackendFor(region) })
 	}
-
-	gdBk, ok := gdH.Backend.(*guarddutybackend.InMemoryBackend)
-	if !ok {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "guardduty",
-		func(arn string) string { return nestedResourceType(arn, "guardduty") },
-		func() []taggedARNEntry {
-			items := gdBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
-		gdBk.TagResource,
-		gdBk.UntagResource,
-	)
 }
 
 // wireTaggingTransfer wires the Transfer Family backend into the Resource Groups
@@ -9518,31 +9511,11 @@ func wireTaggingGuardDuty(bk resourcegroupstaggingapibackend.StorageBackend, gdR
 // nestedResourceType handles both shapes, deriving "transfer:agreement" for the
 // nested case instead of colliding it under "transfer:server".
 func wireTaggingTransfer(bk resourcegroupstaggingapibackend.StorageBackend, xferReg service.Registerable) {
-	xferH, ok := xferReg.(*transferbackend.Handler)
-	if !ok {
-		return
+	if h, ok := xferReg.(*transferbackend.Handler); ok {
+		wireStdRegionalTagging[*transferbackend.InMemoryBackend, transferbackend.TaggedEntry](
+			bk, "transfer", func(arn string) string { return nestedResourceType(arn, "transfer") },
+			func(region string) any { return h.BackendFor(region) })
 	}
-
-	xferBk, ok := xferH.Backend.(*transferbackend.InMemoryBackend)
-	if !ok {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "transfer",
-		func(arn string) string { return nestedResourceType(arn, "transfer") },
-		func() []taggedARNEntry {
-			items := xferBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
-		xferBk.TagResource,
-		xferBk.UntagResource,
-	)
 }
 
 // wireTaggingCognitoIDP wires the Cognito Identity Provider backend into the Resource
@@ -9552,39 +9525,30 @@ func wireTaggingTransfer(bk resourcegroupstaggingapibackend.StorageBackend, xfer
 // unlike the error-returning shape wireTaggingARNResources expects, so they are
 // adapted away here.
 func wireTaggingCognitoIDP(bk resourcegroupstaggingapibackend.StorageBackend, idpReg service.Registerable) {
-	idpH, ok := idpReg.(*cognitoidpbackend.Handler)
+	h, ok := idpReg.(*cognitoidpbackend.Handler)
 	if !ok {
 		return
 	}
 
-	idpBk := idpH.Backend
-	if idpBk == nil {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "cognito-idp",
-		func(arn string) string { return resourceTypeFromARN(arn, "cognito-idp") },
-		func() []taggedARNEntry {
-			items := idpBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
+	wireRegionalTagging(bk, regionalTagSpec[*cognitoidpbackend.InMemoryBackend]{
+		arnService:     "cognito-idp",
+		resourceTypeOf: arnResourceType("cognito-idp"),
+		backendFor: regionalBackendFor[*cognitoidpbackend.InMemoryBackend](
+			func(r string) any { return h.RegionHandler(r).Backend }),
+		list: func(b *cognitoidpbackend.InMemoryBackend) []taggedARNEntry {
+			return taggedEntries(b.TaggedResources())
 		},
-		func(arn string, tags map[string]string) error {
-			idpBk.TagResource(arn, tags)
+		tag: func(b *cognitoidpbackend.InMemoryBackend, _ context.Context, arn string, t map[string]string) error {
+			b.TagResource(arn, t)
 
 			return nil
 		},
-		func(arn string, keys []string) error {
-			idpBk.UntagResource(arn, keys)
+		untag: func(b *cognitoidpbackend.InMemoryBackend, _ context.Context, arn string, k []string) error {
+			b.UntagResource(arn, k)
 
 			return nil
 		},
-	)
+	})
 }
 
 // wireTaggingAppConfig wires the AppConfig backend into the Resource Groups Tagging
@@ -9593,31 +9557,11 @@ func wireTaggingCognitoIDP(bk resourcegroupstaggingapibackend.StorageBackend, id
 // and experiment definitions nest under their owning application
 // ("application/{id}/{kind}/{id}") -- nestedResourceType handles both shapes.
 func wireTaggingAppConfig(bk resourcegroupstaggingapibackend.StorageBackend, acReg service.Registerable) {
-	acH, ok := acReg.(*appconfigbackend.Handler)
-	if !ok {
-		return
+	if h, ok := acReg.(*appconfigbackend.Handler); ok {
+		wireStdRegionalTagging[*appconfigbackend.InMemoryBackend, appconfigbackend.TaggedEntry](
+			bk, "appconfig", func(arn string) string { return nestedResourceType(arn, "appconfig") },
+			func(region string) any { return h.BackendFor(region) })
 	}
-
-	acBk, ok := acH.Backend.(*appconfigbackend.InMemoryBackend)
-	if !ok {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "appconfig",
-		func(arn string) string { return nestedResourceType(arn, "appconfig") },
-		func() []taggedARNEntry {
-			items := acBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
-		acBk.TagResource,
-		acBk.UntagResource,
-	)
 }
 
 // wireTaggingCodeCommit wires the CodeCommit backend into the Resource Groups Tagging
@@ -9627,31 +9571,11 @@ func wireTaggingAppConfig(bk resourcegroupstaggingapibackend.StorageBackend, acR
 // SQS/SNS use for their own bare-name ARNs -- rather than resourceTypeFromARN, which
 // would fall back to just "codecommit" with no ":repository" suffix.
 func wireTaggingCodeCommit(bk resourcegroupstaggingapibackend.StorageBackend, ccReg service.Registerable) {
-	ccH, ok := ccReg.(*codecommitbackend.Handler)
-	if !ok {
-		return
+	if h, ok := ccReg.(*codecommitbackend.Handler); ok {
+		wireStdRegionalTagging[*codecommitbackend.InMemoryBackend, codecommitbackend.TaggedEntry](
+			bk, "codecommit", constantResourceType("codecommit:repository"),
+			func(region string) any { return h.RegionHandler(region).Backend })
 	}
-
-	ccBk := ccH.Backend
-	if ccBk == nil {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "codecommit",
-		constantResourceType("codecommit:repository"),
-		func() []taggedARNEntry {
-			items := ccBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
-		ccBk.TagResource,
-		ccBk.UntagResource,
-	)
 }
 
 // wireTaggingServiceDiscovery wires the Cloud Map (servicediscovery) backend into the
@@ -9659,31 +9583,11 @@ func wireTaggingCodeCommit(bk resourcegroupstaggingapibackend.StorageBackend, cc
 // the ARN's first segment ("namespace/{id}", "service/{id}"), so resourceTypeFromARN
 // derives the per-resource type.
 func wireTaggingServiceDiscovery(bk resourcegroupstaggingapibackend.StorageBackend, sdReg service.Registerable) {
-	sdH, ok := sdReg.(*servicediscoverybackend.Handler)
-	if !ok {
-		return
+	if h, ok := sdReg.(*servicediscoverybackend.Handler); ok {
+		wireStdRegionalTagging[*servicediscoverybackend.InMemoryBackend, servicediscoverybackend.TaggedEntry](
+			bk, "servicediscovery", arnResourceType("servicediscovery"),
+			func(region string) any { return h.RegionHandler(region).Backend })
 	}
-
-	sdBk, ok := sdH.Backend.(*servicediscoverybackend.InMemoryBackend)
-	if !ok {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "servicediscovery",
-		func(arn string) string { return resourceTypeFromARN(arn, "servicediscovery") },
-		func() []taggedARNEntry {
-			items := sdBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
-		sdBk.TagResource,
-		sdBk.UntagResource,
-	)
 }
 
 // wireTaggingMemoryDB wires the MemoryDB backend into the Resource Groups Tagging API.
@@ -9725,60 +9629,22 @@ func wireTaggingMemoryDB(bk resourcegroupstaggingapibackend.StorageBackend, mdbR
 // InMemoryBackend.analyzerARN), a single resource kind, so this uses a constant
 // resource type rather than resourceTypeFromARN.
 func wireTaggingAccessAnalyzer(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
-	h, ok := reg.(*accessanalyzerbackend.Handler)
-	if !ok {
-		return
+	if h, ok := reg.(*accessanalyzerbackend.Handler); ok {
+		wireStdRegionalTagging[*accessanalyzerbackend.InMemoryBackend, accessanalyzerbackend.TaggedEntry](
+			bk, "access-analyzer", constantResourceType("access-analyzer:analyzer"),
+			func(region string) any { return h.BackendFor(region) })
 	}
-
-	aaBk, ok := h.Backend.(*accessanalyzerbackend.InMemoryBackend)
-	if !ok {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "access-analyzer", constantResourceType("access-analyzer:analyzer"),
-		func() []taggedARNEntry {
-			items := aaBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
-		aaBk.TagResource,
-		aaBk.UntagResource,
-	)
 }
 
 // wireTaggingDLM wires the DLM backend into the Resource Groups Tagging API. DLM tags
 // only lifecycle policies ("policy/{id}", see InMemoryBackend's policyARN callers), a
 // single resource kind, so this uses a constant resource type.
 func wireTaggingDLM(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
-	h, ok := reg.(*dlmbackend.Handler)
-	if !ok {
-		return
+	if h, ok := reg.(*dlmbackend.Handler); ok {
+		wireStdRegionalTagging[*dlmbackend.InMemoryBackend, dlmbackend.TaggedEntry](
+			bk, "dlm", constantResourceType("dlm:policy"),
+			func(region string) any { return h.BackendFor(region) })
 	}
-
-	dlmBk, ok := h.Backend.(*dlmbackend.InMemoryBackend)
-	if !ok {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "dlm", constantResourceType("dlm:policy"),
-		func() []taggedARNEntry {
-			items := dlmBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
-		dlmBk.TagResource,
-		dlmBk.UntagResource,
-	)
 }
 
 // wireTaggingOpsWorks wires the OpsWorks backend into the Resource Groups Tagging API.
@@ -9786,31 +9652,11 @@ func wireTaggingDLM(bk resourcegroupstaggingapibackend.StorageBackend, reg servi
 // resourceExists), so resourceTypeFromARN correctly derives "opsworks:stack" or
 // "opsworks:layer" from each tagged ARN's resource segment.
 func wireTaggingOpsWorks(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
-	h, ok := reg.(*opsworksbackend.Handler)
-	if !ok {
-		return
+	if h, ok := reg.(*opsworksbackend.Handler); ok {
+		wireStdRegionalTagging[*opsworksbackend.InMemoryBackend, opsworksbackend.TaggedEntry](
+			bk, "opsworks", arnResourceType("opsworks"),
+			func(region string) any { return h.BackendFor(region) })
 	}
-
-	opsworksBk, ok := h.Backend.(*opsworksbackend.InMemoryBackend)
-	if !ok {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "opsworks",
-		func(arn string) string { return resourceTypeFromARN(arn, "opsworks") },
-		func() []taggedARNEntry {
-			items := opsworksBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
-		opsworksBk.TagResource,
-		opsworksBk.UntagResource,
-	)
 }
 
 // wireTaggingComprehend wires the Comprehend backend into the Resource Groups Tagging
@@ -9820,38 +9666,28 @@ func wireTaggingOpsWorks(bk resourcegroupstaggingapibackend.StorageBackend, reg 
 // account, resourceType+"/"+name(+"/version/"+version for versioned resources, which
 // still derives the correct base type since resourceTypeFromARN only reads up to the
 // first "/").
-//
-//nolint:dupl // structurally mirrors wireTaggingAWSConfig (both need mapToTagSlice) but wires an unrelated backend
 func wireTaggingComprehend(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
 	h, ok := reg.(*comprehendbackend.Handler)
 	if !ok {
 		return
 	}
 
-	cBk := h.Backend
-	if cBk == nil {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "comprehend",
-		func(arn string) string { return resourceTypeFromARN(arn, "comprehend") },
-		func() []taggedARNEntry {
-			items := cBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
+	wireRegionalTagging(bk, regionalTagSpec[*comprehendbackend.InMemoryBackend]{
+		arnService:     "comprehend",
+		resourceTypeOf: arnResourceType("comprehend"),
+		backendFor:     h.BackendFor,
+		list: func(b *comprehendbackend.InMemoryBackend) []taggedARNEntry {
+			return taggedEntries(b.TaggedResources())
 		},
-		func(arn string, tags map[string]string) error {
-			return cBk.TagResource(arn, mapToTagSlice(tags, func(k, v string) comprehendbackend.Tag {
+		tag: func(b *comprehendbackend.InMemoryBackend, _ context.Context, arn string, tags map[string]string) error {
+			return b.TagResource(arn, mapToTagSlice(tags, func(k, v string) comprehendbackend.Tag {
 				return comprehendbackend.Tag{Key: k, Value: v}
 			}))
 		},
-		cBk.UntagResource,
-	)
+		untag: func(b *comprehendbackend.InMemoryBackend, _ context.Context, arn string, keys []string) error {
+			return b.UntagResource(arn, keys)
+		},
+	})
 }
 
 // wireTaggingShield wires the Shield backend into the Resource Groups Tagging API.
@@ -9894,31 +9730,11 @@ func wireTaggingShield(bk resourcegroupstaggingapibackend.StorageBackend, reg se
 // against services/transcribe/store.go's resourceARN helper: "transcribe",
 // config.DefaultRegion, defaultAccountID, resourceType+"/"+name.
 func wireTaggingTranscribe(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
-	h, ok := reg.(*transcribebackend.Handler)
-	if !ok {
-		return
+	if h, ok := reg.(*transcribebackend.Handler); ok {
+		wireStdRegionalTagging[*transcribebackend.InMemoryBackend, transcribebackend.TaggedEntry](
+			bk, "transcribe", arnResourceType("transcribe"),
+			func(region string) any { return h.BackendFor(region) })
 	}
-
-	tBk, ok := h.Backend.(*transcribebackend.InMemoryBackend)
-	if !ok {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "transcribe",
-		func(arn string) string { return resourceTypeFromARN(arn, "transcribe") },
-		func() []taggedARNEntry {
-			items := tBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
-		tBk.TagResource,
-		tBk.UntagResource,
-	)
 }
 
 // wireTaggingVerifiedPermissions wires the Verified Permissions backend into the
@@ -9928,31 +9744,11 @@ func wireTaggingTranscribe(bk resourcegroupstaggingapibackend.StorageBackend, re
 // arn.Build call sites: "verifiedpermissions", region (sometimes ""), account,
 // resourceType+"/"+resourceID.
 func wireTaggingVerifiedPermissions(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
-	h, ok := reg.(*verifiedpermissionsbackend.Handler)
-	if !ok {
-		return
+	if h, ok := reg.(*verifiedpermissionsbackend.Handler); ok {
+		wireStdRegionalTagging[*verifiedpermissionsbackend.InMemoryBackend, verifiedpermissionsbackend.TaggedEntry](
+			bk, "verifiedpermissions", arnResourceType("verifiedpermissions"),
+			func(region string) any { return h.BackendFor(region) })
 	}
-
-	vpBk, ok := h.Backend.(*verifiedpermissionsbackend.InMemoryBackend)
-	if !ok {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "verifiedpermissions",
-		func(arn string) string { return resourceTypeFromARN(arn, "verifiedpermissions") },
-		func() []taggedARNEntry {
-			items := vpBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
-		vpBk.TagResource,
-		vpBk.UntagResource,
-	)
 }
 
 // wireTaggingWAF wires the WAF Classic backend into the Resource Groups Tagging API.
@@ -9996,31 +9792,11 @@ func wireTaggingWAF(bk resourcegroupstaggingapibackend.StorageBackend, reg servi
 // call sites: "securityhub", region, account, kind+"/"+id (fmt.Sprintf-built, same
 // "type/id" shape).
 func wireTaggingSecurityHub(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
-	h, ok := reg.(*securityhubbackend.Handler)
-	if !ok {
-		return
+	if h, ok := reg.(*securityhubbackend.Handler); ok {
+		wireStdRegionalTagging[*securityhubbackend.InMemoryBackend, securityhubbackend.TaggedEntry](
+			bk, "securityhub", arnResourceType("securityhub"),
+			func(region string) any { return h.BackendFor(region) })
 	}
-
-	shBk, ok := h.Backend.(*securityhubbackend.InMemoryBackend)
-	if !ok {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "securityhub",
-		func(arn string) string { return resourceTypeFromARN(arn, "securityhub") },
-		func() []taggedARNEntry {
-			items := shBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
-		shBk.TagResource,
-		shBk.UntagResource,
-	)
 }
 
 // wireTaggingAppRunner wires the App Runner backend into the Resource Groups Tagging
@@ -10033,31 +9809,11 @@ func wireTaggingSecurityHub(bk resourcegroupstaggingapibackend.StorageBackend, r
 // first "/", so the extra revision/id segments of this single-kind compound key don't
 // need nestedResourceType).
 func wireTaggingAppRunner(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
-	h, ok := reg.(*apprunnerbackend.Handler)
-	if !ok {
-		return
+	if h, ok := reg.(*apprunnerbackend.Handler); ok {
+		wireStdRegionalTagging[*apprunnerbackend.InMemoryBackend, apprunnerbackend.TaggedEntry](
+			bk, "apprunner", arnResourceType("apprunner"),
+			func(region string) any { return h.BackendFor(region) })
 	}
-
-	arBk, ok := h.Backend.(*apprunnerbackend.InMemoryBackend)
-	if !ok {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "apprunner",
-		func(arn string) string { return resourceTypeFromARN(arn, "apprunner") },
-		func() []taggedARNEntry {
-			items := arBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
-		arBk.TagResource,
-		arBk.UntagResource,
-	)
 }
 
 // wireTaggingRoute53Resolver wires the Route 53 Resolver backend into the Resource
@@ -10106,31 +9862,11 @@ func wireTaggingRoute53Resolver(bk resourcegroupstaggingapibackend.StorageBacken
 // ("database/{db}/table/{table}"), which nestedResourceType handles (a bare database
 // ARN falls back to resourceTypeFromARN's first-segment rule).
 func wireTaggingTimestreamWrite(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
-	h, ok := reg.(*timestreamwritebackend.Handler)
-	if !ok {
-		return
+	if h, ok := reg.(*timestreamwritebackend.Handler); ok {
+		wireStdRegionalTagging[*timestreamwritebackend.InMemoryBackend, timestreamwritebackend.TaggedEntry](
+			bk, "timestream", func(arn string) string { return nestedResourceType(arn, "timestream") },
+			func(region string) any { return h.BackendFor(region) })
 	}
-
-	twBk := h.Backend
-	if twBk == nil {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "timestream",
-		func(arn string) string { return nestedResourceType(arn, "timestream") },
-		func() []taggedARNEntry {
-			items := twBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
-		twBk.TagResource,
-		twBk.UntagResource,
-	)
 }
 
 // wireTaggingS3Tables wires the S3 Tables backend into the Resource Groups Tagging
@@ -10138,37 +9874,15 @@ func wireTaggingTimestreamWrite(bk resourcegroupstaggingapibackend.StorageBacken
 // namespace under a bucket (see s3tablesResourceType's doc comment for why neither
 // resourceTypeFromARN nor nestedResourceType fits this depth).
 func wireTaggingS3Tables(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
-	h, ok := reg.(*s3tablesbackend.Handler)
-	if !ok {
-		return
+	if h, ok := reg.(*s3tablesbackend.Handler); ok {
+		wireStdRegionalTagging[*s3tablesbackend.InMemoryBackend, s3tablesbackend.TaggedEntry](
+			bk, "s3tables", s3tablesResourceType,
+			func(region string) any { return h.BackendFor(region) })
 	}
-
-	stBk := h.Backend
-	if stBk == nil {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "s3tables", s3tablesResourceType,
-		func() []taggedARNEntry {
-			items := stBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
-		stBk.TagResource,
-		stBk.UntagResource,
-	)
 }
 
-// wireTaggingS3 wires the S3 backend into the Resource Groups Tagging API.
-// Bucket ARNs (arn:aws:s3:::name) share the "s3" ARN service token with S3
-// Control's own resources (access points, jobs, access grants -- see
-// services/s3control/store.go's arnFmt* constants), so s3OwnsARN is used
-// instead of a plain arnServiceIs check to avoid claiming those (gopherstack-8kco).
+// wireTaggingS3 wires S3 into the Tagging API; s3OwnsARN keeps S3 Control ARNs, which share
+// the "s3" service token, from being claimed by S3 (gopherstack-8kco).
 func wireTaggingS3(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
 	h, ok := reg.(*s3backend.S3Handler)
 	if !ok {
@@ -10339,30 +10053,19 @@ func wireTaggingAppSync(bk resourcegroupstaggingapibackend.StorageBackend, reg s
 		return
 	}
 
-	apBk, ok := h.Backend.(*appsyncbackend.InMemoryBackend)
-	if !ok {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "appsync",
-		func(arn string) string { return resourceTypeFromARN(arn, "appsync") },
-		func() []taggedARNEntry {
-			items := apBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
+	wireRegionalTagging(bk, regionalTagSpec[*appsyncbackend.InMemoryBackend]{
+		arnService:     "appsync",
+		resourceTypeOf: arnResourceType("appsync"),
+		backendFor: regionalBackendFor[*appsyncbackend.InMemoryBackend](
+			func(region string) any { return h.BackendFor(region) }),
+		list: func(b *appsyncbackend.InMemoryBackend) []taggedARNEntry { return taggedEntries(b.TaggedResources()) },
+		tag: func(b *appsyncbackend.InMemoryBackend, _ context.Context, arnStr string, tags map[string]string) error {
+			return b.TagResource(appsyncAPIIDFromARN(arnStr), tags)
 		},
-		func(arnStr string, newTags map[string]string) error {
-			return apBk.TagResource(appsyncAPIIDFromARN(arnStr), newTags)
+		untag: func(b *appsyncbackend.InMemoryBackend, _ context.Context, arnStr string, keys []string) error {
+			return b.UntagResource(appsyncAPIIDFromARN(arnStr), keys)
 		},
-		func(arnStr string, keys []string) error {
-			return apBk.UntagResource(appsyncAPIIDFromARN(arnStr), keys)
-		},
-	)
+	})
 }
 
 // appsyncAPIIDFromARN extracts the apiId from an AppSync resource ARN
@@ -10390,30 +10093,11 @@ func appsyncAPIIDFromARN(arnStr string) string {
 // emrserverless.InMemoryBackend.TaggedResources' doc comment for why sessions are
 // excluded.
 func wireTaggingEmrServerless(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
-	h, ok := reg.(*emrserverlessbackend.Handler)
-	if !ok {
-		return
+	if h, ok := reg.(*emrserverlessbackend.Handler); ok {
+		wireStdRegionalTagging[*emrserverlessbackend.InMemoryBackend, emrserverlessbackend.TaggedEntry](
+			bk, "emr-serverless", emrServerlessResourceType,
+			func(region string) any { return h.BackendFor(region) })
 	}
-
-	emrBk := h.Backend
-	if emrBk == nil {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "emr-serverless", emrServerlessResourceType,
-		func() []taggedARNEntry {
-			items := emrBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
-		emrBk.TagResource,
-		emrBk.UntagResource,
-	)
 }
 
 // emrServerlessResourceType derives the resource-type string for an EMR Serverless
@@ -10487,40 +10171,31 @@ func wireTaggingSSOAdmin(bk resourcegroupstaggingapibackend.StorageBackend, reg 
 		return
 	}
 
-	ssoBk, ok := h.Backend.(*ssoadminbackend.InMemoryBackend)
-	if !ok {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "sso",
-		func(arnStr string) string { return resourceTypeFromARN(arnStr, "sso") },
-		func() []taggedARNEntry {
-			items := ssoBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
+	wireRegionalTagging(bk, regionalTagSpec[*ssoadminbackend.InMemoryBackend]{
+		arnService:     "sso",
+		resourceTypeOf: arnResourceType("sso"),
+		backendFor: regionalBackendFor[*ssoadminbackend.InMemoryBackend](
+			func(region string) any { return h.BackendFor(region) }),
+		list: func(b *ssoadminbackend.InMemoryBackend) []taggedARNEntry {
+			return taggedEntries(b.TaggedResources())
 		},
-		func(arnStr string, newTags map[string]string) error {
-			instanceArn, found := ssoBk.InstanceArnForResource(arnStr)
+		tag: func(b *ssoadminbackend.InMemoryBackend, _ context.Context, arnStr string, tags map[string]string) error {
+			instanceArn, found := b.InstanceArnForResource(arnStr)
 			if !found {
 				return ssoadminbackend.ErrInstanceNotFound
 			}
 
-			return ssoBk.TagResource(instanceArn, arnStr, newTags)
+			return b.TagResource(instanceArn, arnStr, tags)
 		},
-		func(arnStr string, keys []string) error {
-			instanceArn, found := ssoBk.InstanceArnForResource(arnStr)
+		untag: func(b *ssoadminbackend.InMemoryBackend, _ context.Context, arnStr string, keys []string) error {
+			instanceArn, found := b.InstanceArnForResource(arnStr)
 			if !found {
 				return ssoadminbackend.ErrInstanceNotFound
 			}
 
-			return ssoBk.UntagResource(instanceArn, arnStr, keys)
+			return b.UntagResource(instanceArn, arnStr, keys)
 		},
-	)
+	})
 }
 
 // apigwStageARNSegs is the "/"-delimited segment count of a nested API Gateway
@@ -10680,31 +10355,11 @@ func wireTaggingWorkMail(bk resourcegroupstaggingapibackend.StorageBackend, reg 
 // the per-resource type. Export/import jobs also build "apps/..." ARNs but are never
 // entered into the tag index (see TaggedResources' doc comment), so they never surface.
 func wireTaggingPinpoint(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
-	h, ok := reg.(*pinpointbackend.Handler)
-	if !ok {
-		return
+	if h, ok := reg.(*pinpointbackend.Handler); ok {
+		wireStdRegionalTagging[*pinpointbackend.InMemoryBackend, pinpointbackend.TaggedEntry](
+			bk, "mobiletargeting", func(arn string) string { return nestedResourceType(arn, "mobiletargeting") },
+			func(region string) any { return h.BackendFor(region) })
 	}
-
-	pBk, ok := h.Backend.(*pinpointbackend.InMemoryBackend)
-	if !ok {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "mobiletargeting",
-		func(arn string) string { return nestedResourceType(arn, "mobiletargeting") },
-		func() []taggedARNEntry {
-			items := pBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
-		pBk.TagResource,
-		pBk.UntagResource,
-	)
 }
 
 // wireTaggingApplicationAutoScaling wires the Application Auto Scaling backend into
@@ -10716,31 +10371,14 @@ func wireTaggingPinpoint(bk resourcegroupstaggingapibackend.StorageBackend, reg 
 // (see TaggedResources' doc comment), so only the "application-autoscaling" namespace
 // is wired, with a constant resource type since it is the only taggable kind.
 func wireTaggingApplicationAutoScaling(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
-	h, ok := reg.(*applicationautoscalingbackend.Handler)
-	if !ok {
-		return
+	if h, ok := reg.(*applicationautoscalingbackend.Handler); ok {
+		wireStdRegionalTagging[*applicationautoscalingbackend.InMemoryBackend, applicationautoscalingbackend.TaggedEntry](
+			bk,
+			"application-autoscaling",
+			constantResourceType("application-autoscaling:scalable-target"),
+			func(region string) any { return h.BackendFor(region) },
+		)
 	}
-
-	aasBk := h.Backend
-	if aasBk == nil {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "application-autoscaling",
-		constantResourceType("application-autoscaling:scalable-target"),
-		func() []taggedARNEntry {
-			items := aasBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
-		aasBk.TagResource,
-		aasBk.UntagResource,
-	)
 }
 
 // wireTaggingCodeArtifact wires the CodeArtifact backend into the Resource Groups
@@ -10787,61 +10425,22 @@ func wireTaggingCodeArtifact(bk resourcegroupstaggingapibackend.StorageBackend, 
 // ("membership/{id}/{kind}/{id}", confirmed against every arn.Build call site in the
 // package), so nestedResourceType derives the per-resource type.
 func wireTaggingCleanRooms(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
-	h, ok := reg.(*cleanroomsbackend.Handler)
-	if !ok {
-		return
+	if h, ok := reg.(*cleanroomsbackend.Handler); ok {
+		wireStdRegionalTagging[*cleanroomsbackend.InMemoryBackend, cleanroomsbackend.TaggedEntry](
+			bk, "cleanrooms", func(arn string) string { return nestedResourceType(arn, "cleanrooms") },
+			func(region string) any { return h.BackendFor(region) })
 	}
-
-	crBk, ok := h.Backend.(*cleanroomsbackend.InMemoryBackend)
-	if !ok {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "cleanrooms",
-		func(arn string) string { return nestedResourceType(arn, "cleanrooms") },
-		func() []taggedARNEntry {
-			items := crBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
-		crBk.TagResource,
-		crBk.UntagResource,
-	)
 }
 
 // wireTaggingAppMesh wires the App Mesh backend into the Resource Groups Tagging API.
 // See appmeshResourceType's doc comment for why mesh sub-resources need their own
 // derivation rather than resourceTypeFromARN or nestedResourceType.
 func wireTaggingAppMesh(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
-	h, ok := reg.(*appmeshbackend.Handler)
-	if !ok {
-		return
+	if h, ok := reg.(*appmeshbackend.Handler); ok {
+		wireStdRegionalTagging[*appmeshbackend.InMemoryBackend, appmeshbackend.TaggedEntry](
+			bk, "appmesh", appmeshResourceType,
+			func(region string) any { return h.BackendFor(region) })
 	}
-
-	amBk, ok := h.Backend.(*appmeshbackend.InMemoryBackend)
-	if !ok {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "appmesh", appmeshResourceType,
-		func() []taggedARNEntry {
-			items := amBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
-		amBk.TagResource,
-		amBk.UntagResource,
-	)
 }
 
 // wireTaggingPersonalize wires the Personalize backend into the Resource Groups
@@ -10851,31 +10450,11 @@ func wireTaggingAppMesh(bk resourcegroupstaggingapibackend.StorageBackend, reg s
 // own top-level "type/id" segment (confirmed against services/personalize/store.go's
 // personalizeARN helper), so resourceTypeFromARN derives the per-resource type.
 func wireTaggingPersonalize(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
-	h, ok := reg.(*personalizebackend.Handler)
-	if !ok {
-		return
+	if h, ok := reg.(*personalizebackend.Handler); ok {
+		wireStdRegionalTagging[*personalizebackend.InMemoryBackend, personalizebackend.TaggedEntry](
+			bk, "personalize", arnResourceType("personalize"),
+			func(region string) any { return h.BackendFor(region) })
 	}
-
-	pzBk := h.Backend
-	if pzBk == nil {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "personalize",
-		func(arn string) string { return resourceTypeFromARN(arn, "personalize") },
-		func() []taggedARNEntry {
-			items := pzBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
-		pzBk.TagResource,
-		pzBk.UntagResource,
-	)
 }
 
 // wireTaggingSESv2 wires the SESv2 backend into the Resource Groups Tagging API. Its
@@ -10886,32 +10465,12 @@ func wireTaggingPersonalize(bk resourcegroupstaggingapibackend.StorageBackend, r
 // so resourceTypeFromARN derives the per-resource type. services/ses (SES v1) builds
 // no ARNs of its own today, so there is no shared-namespace ownership collision to
 // guard against yet -- unlike kinesisanalytics v1/v2, see this issue's notes.
-func wireTaggingSESv2(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
-	h, ok := reg.(*sesv2backend.Handler)
-	if !ok {
-		return
+func wireTaggingSESv2(bk resourcegroupstaggingapibackend.StorageBackend, sesReg service.Registerable) {
+	if h, ok := sesReg.(*sesv2backend.Handler); ok {
+		wireStdRegionalTagging[*sesv2backend.InMemoryBackend, sesv2backend.TaggedEntry](
+			bk, "ses", arnResourceType("ses"),
+			func(region string) any { return h.RegionHandler(region).Backend })
 	}
-
-	sesBk, ok := h.Backend.(*sesv2backend.InMemoryBackend)
-	if !ok {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "ses",
-		func(arn string) string { return resourceTypeFromARN(arn, "ses") },
-		func() []taggedARNEntry {
-			items := sesBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
-		sesBk.TagResource,
-		sesBk.UntagResource,
-	)
 }
 
 // wireTaggingXRay wires the X-Ray backend into the Resource Groups Tagging API.
@@ -10921,31 +10480,11 @@ func wireTaggingSESv2(bk resourcegroupstaggingapibackend.StorageBackend, reg ser
 // "xray:group" correctly since it reads only up to the first "/"), so
 // resourceTypeFromARN derives the per-resource type.
 func wireTaggingXRay(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
-	h, ok := reg.(*xraybackend.Handler)
-	if !ok {
-		return
+	if h, ok := reg.(*xraybackend.Handler); ok {
+		wireStdRegionalTagging[*xraybackend.InMemoryBackend, xraybackend.TaggedEntry](
+			bk, "xray", arnResourceType("xray"),
+			func(region string) any { return h.BackendFor(region) })
 	}
-
-	xBk, ok := h.Backend.(*xraybackend.InMemoryBackend)
-	if !ok {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "xray",
-		func(arn string) string { return resourceTypeFromARN(arn, "xray") },
-		func() []taggedARNEntry {
-			items := xBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
-		xBk.TagResource,
-		xBk.UntagResource,
-	)
 }
 
 // wireTaggingAWSConfig wires the AWS Config backend into the Resource Groups Tagging
@@ -10954,38 +10493,28 @@ func wireTaggingXRay(bk resourcegroupstaggingapibackend.StorageBackend, reg serv
 // "arn:aws:config:..." rather than using pkgs/arn). Configuration recorders and
 // connectors are each their own flat "type/id" ARN, so resourceTypeFromARN derives the
 // per-resource type.
-//
-//nolint:dupl // structurally mirrors wireTaggingComprehend (both need mapToTagSlice) but wires an unrelated backend
 func wireTaggingAWSConfig(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
 	h, ok := reg.(*awsconfigbackend.Handler)
 	if !ok {
 		return
 	}
 
-	acfgBk := h.Backend
-	if acfgBk == nil {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "config",
-		func(arn string) string { return resourceTypeFromARN(arn, "config") },
-		func() []taggedARNEntry {
-			items := acfgBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
+	wireRegionalTagging(bk, regionalTagSpec[*awsconfigbackend.InMemoryBackend]{
+		arnService:     "config",
+		resourceTypeOf: arnResourceType("config"),
+		backendFor: func(region string) *awsconfigbackend.InMemoryBackend {
+			return h.BackendFor(region)
 		},
-		func(arn string, tags map[string]string) error {
-			return acfgBk.TagResource(arn, mapToTagSlice(tags, func(k, v string) awsconfigbackend.Tag {
+		list: func(b *awsconfigbackend.InMemoryBackend) []taggedARNEntry { return taggedEntries(b.TaggedResources()) },
+		tag: func(b *awsconfigbackend.InMemoryBackend, _ context.Context, arn string, tags map[string]string) error {
+			return b.TagResource(arn, mapToTagSlice(tags, func(k, v string) awsconfigbackend.Tag {
 				return awsconfigbackend.Tag{Key: k, Value: v}
 			}))
 		},
-		acfgBk.UntagResource,
-	)
+		untag: func(b *awsconfigbackend.InMemoryBackend, _ context.Context, arn string, keys []string) error {
+			return b.UntagResource(arn, keys)
+		},
+	})
 }
 
 // wireTaggingScheduler wires the EventBridge Scheduler backend into the Resource
@@ -11063,31 +10592,11 @@ func wireTaggingCE(bk resourcegroupstaggingapibackend.StorageBackend, reg servic
 // resourceTypeOriginEndpoint in services/mediapackage/store.go) in one flat ARN-keyed
 // map, so resourceTypeFromARN derives the per-resource type.
 func wireTaggingMediaPackage(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
-	h, ok := reg.(*mediapackagebackend.Handler)
-	if !ok {
-		return
+	if h, ok := reg.(*mediapackagebackend.Handler); ok {
+		wireStdRegionalTagging[*mediapackagebackend.InMemoryBackend, mediapackagebackend.TaggedEntry](
+			bk, "mediapackage", arnResourceType("mediapackage"),
+			func(region string) any { return h.BackendFor(region) })
 	}
-
-	mpBk, ok := h.Backend.(*mediapackagebackend.InMemoryBackend)
-	if !ok {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "mediapackage",
-		func(arn string) string { return resourceTypeFromARN(arn, "mediapackage") },
-		func() []taggedARNEntry {
-			items := mpBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
-		mpBk.TagResource,
-		mpBk.UntagResource,
-	)
 }
 
 // wireTaggingSWF wires the SWF backend into the Resource Groups Tagging API. SWF tags
@@ -11095,30 +10604,11 @@ func wireTaggingMediaPackage(bk resourcegroupstaggingapibackend.StorageBackend, 
 // (see swfARNRegex) -- resourceTypeFromARN would treat that leading slash as an empty
 // type, so this uses a constant resource type instead.
 func wireTaggingSWF(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
-	h, ok := reg.(*swfbackend.Handler)
-	if !ok {
-		return
+	if h, ok := reg.(*swfbackend.Handler); ok {
+		wireStdRegionalTagging[*swfbackend.InMemoryBackend, swfbackend.TaggedEntry](
+			bk, "swf", constantResourceType("swf:domain"),
+			func(region string) any { return h.BackendFor(region) })
 	}
-
-	swfBk, ok := h.Backend.(*swfbackend.InMemoryBackend)
-	if !ok {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "swf", constantResourceType("swf:domain"),
-		func() []taggedARNEntry {
-			items := swfBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
-		swfBk.TagResource,
-		swfBk.UntagResource,
-	)
 }
 
 // wireTaggingFIS wires the FIS backend into the Resource Groups Tagging API. FIS tags
@@ -11284,31 +10774,11 @@ func wireTaggingPipes(bk resourcegroupstaggingapibackend.StorageBackend, reg ser
 // each resource's own arn.Build call site), so resourceTypeFromARN derives the
 // per-resource type.
 func wireTaggingMacie2(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
-	h, ok := reg.(*macie2backend.Handler)
-	if !ok {
-		return
+	if h, ok := reg.(*macie2backend.Handler); ok {
+		wireStdRegionalTagging[*macie2backend.InMemoryBackend, macie2backend.TaggedEntry](
+			bk, "macie2", arnResourceType("macie2"),
+			func(region string) any { return h.BackendFor(region) })
 	}
-
-	mBk, ok := h.Backend.(*macie2backend.InMemoryBackend)
-	if !ok {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "macie2",
-		func(arnStr string) string { return resourceTypeFromARN(arnStr, "macie2") },
-		func() []taggedARNEntry {
-			items := mBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
-		mBk.TagResource,
-		mBk.UntagResource,
-	)
 }
 
 // wireTaggingManagedBlockchain wires the Managed Blockchain backend into the Resource
@@ -11317,31 +10787,11 @@ func wireTaggingMacie2(bk resourcegroupstaggingapibackend.StorageBackend, reg se
 // note the plural resource-type segments), so resourceTypeFromARN derives the
 // per-resource type. Invitations carry no Tags field and are never returned.
 func wireTaggingManagedBlockchain(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
-	h, ok := reg.(*managedblockchainbackend.Handler)
-	if !ok {
-		return
+	if h, ok := reg.(*managedblockchainbackend.Handler); ok {
+		wireStdRegionalTagging[*managedblockchainbackend.InMemoryBackend, managedblockchainbackend.TaggedEntry](
+			bk, "managedblockchain", arnResourceType("managedblockchain"),
+			func(region string) any { return h.BackendFor(region) })
 	}
-
-	mbBk, ok := h.Backend.(*managedblockchainbackend.InMemoryBackend)
-	if !ok {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "managedblockchain",
-		func(arnStr string) string { return resourceTypeFromARN(arnStr, "managedblockchain") },
-		func() []taggedARNEntry {
-			items := mbBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
-		mbBk.TagResource,
-		mbBk.UntagResource,
-	)
 }
 
 // wireTaggingMediaConvert wires the MediaConvert backend into the Resource Groups
@@ -11356,34 +10806,25 @@ func wireTaggingMediaConvert(bk resourcegroupstaggingapibackend.StorageBackend, 
 		return
 	}
 
-	mcBk, ok := h.Backend.(*mediaconvertbackend.InMemoryBackend)
-	if !ok {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "mediaconvert",
-		func(arnStr string) string { return resourceTypeFromARN(arnStr, "mediaconvert") },
-		func() []taggedARNEntry {
-			items := mcBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
+	wireRegionalTagging(bk, regionalTagSpec[*mediaconvertbackend.InMemoryBackend]{
+		arnService:     "mediaconvert",
+		resourceTypeOf: arnResourceType("mediaconvert"),
+		backendFor: regionalBackendFor[*mediaconvertbackend.InMemoryBackend](
+			func(region string) any { return h.BackendFor(region) }),
+		list: func(b *mediaconvertbackend.InMemoryBackend) []taggedARNEntry {
+			return taggedEntries(b.TaggedResources())
 		},
-		func(arnStr string, newTags map[string]string) error {
-			mcBk.TagResource(arnStr, newTags)
+		tag: func(b *mediaconvertbackend.InMemoryBackend, _ context.Context, arn string, tags map[string]string) error {
+			b.TagResource(arn, tags)
 
 			return nil
 		},
-		func(arnStr string, keys []string) error {
-			mcBk.UntagResource(arnStr, keys)
+		untag: func(b *mediaconvertbackend.InMemoryBackend, _ context.Context, arn string, keys []string) error {
+			b.UntagResource(arn, keys)
 
 			return nil
 		},
-	)
+	})
 }
 
 // wireTaggingDataSync wires the DataSync backend into the Resource Groups Tagging API.
@@ -11392,31 +10833,11 @@ func wireTaggingMediaConvert(bk resourcegroupstaggingapibackend.StorageBackend, 
 // Task executions build a nested "task/{id}/execution/{id}" ARN but isKnownResource
 // never recognizes execution ARNs, so they can never be tagged and never appear here.
 func wireTaggingDataSync(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
-	h, ok := reg.(*datasyncbackend.Handler)
-	if !ok {
-		return
+	if h, ok := reg.(*datasyncbackend.Handler); ok {
+		wireStdRegionalTagging[*datasyncbackend.InMemoryBackend, datasyncbackend.TaggedEntry](
+			bk, "datasync", arnResourceType("datasync"),
+			func(region string) any { return h.BackendFor(region) })
 	}
-
-	dsBk, ok := h.Backend.(*datasyncbackend.InMemoryBackend)
-	if !ok {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "datasync",
-		func(arnStr string) string { return resourceTypeFromARN(arnStr, "datasync") },
-		func() []taggedARNEntry {
-			items := dsBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
-		dsBk.TagResource,
-		dsBk.UntagResource,
-	)
 }
 
 // wireTaggingCodeDeploy wires the CodeDeploy backend into the Resource Groups Tagging
@@ -11424,32 +10845,12 @@ func wireTaggingDataSync(bk resourcegroupstaggingapibackend.StorageBackend, reg 
 // before the resource segment ("application:{name}", "deploymentgroup:{app}/{group}",
 // see ApplicationARN/DeploymentGroupARN) -- resourceTypeFromARN handles both "/" and
 // ":" separators, so it still derives the per-resource type correctly.
-func wireTaggingCodeDeploy(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
-	h, ok := reg.(*codedeploybackend.Handler)
-	if !ok {
-		return
+func wireTaggingCodeDeploy(bk resourcegroupstaggingapibackend.StorageBackend, cdReg service.Registerable) {
+	if h, ok := cdReg.(*codedeploybackend.Handler); ok {
+		wireStdRegionalTagging[*codedeploybackend.InMemoryBackend, codedeploybackend.TaggedEntry](
+			bk, "codedeploy", arnResourceType("codedeploy"),
+			func(region string) any { return h.RegionHandler(region).Backend })
 	}
-
-	cdBk := h.Backend
-	if cdBk == nil {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "codedeploy",
-		func(arnStr string) string { return resourceTypeFromARN(arnStr, "codedeploy") },
-		func() []taggedARNEntry {
-			items := cdBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
-		cdBk.TagResource,
-		cdBk.UntagResource,
-	)
 }
 
 // wireTaggingInspector2 wires the Inspector2 backend into the Resource Groups Tagging
@@ -11458,31 +10859,11 @@ func wireTaggingCodeDeploy(bk resourcegroupstaggingapibackend.StorageBackend, re
 // store, and only CreateFilter seeds the tag store at creation time), giving a flat
 // "filter/{id}" ARN, so resourceTypeFromARN derives the per-resource type.
 func wireTaggingInspector2(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
-	h, ok := reg.(*inspector2backend.Handler)
-	if !ok {
-		return
+	if h, ok := reg.(*inspector2backend.Handler); ok {
+		wireStdRegionalTagging[*inspector2backend.InMemoryBackend, inspector2backend.TaggedEntry](
+			bk, "inspector2", arnResourceType("inspector2"),
+			func(region string) any { return h.BackendFor(region) })
 	}
-
-	iBk, ok := h.Backend.(*inspector2backend.InMemoryBackend)
-	if !ok {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "inspector2",
-		func(arnStr string) string { return resourceTypeFromARN(arnStr, "inspector2") },
-		func() []taggedARNEntry {
-			items := iBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
-		iBk.TagResource,
-		iBk.UntagResource,
-	)
 }
 
 // wireGlueRAMPolicyShares connects glue's PutResourcePolicy/DeleteResourcePolicy to RAM
@@ -11535,30 +10916,11 @@ func (a *glueRAMShareAdapter) DeletePolicyBasedShare(resourceARN string) error {
 // never checked), so this uses a constant resource type rather than
 // resourceTypeFromARN.
 func wireTaggingRAM(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
-	h, ok := reg.(*rambackend.Handler)
-	if !ok {
-		return
+	if h, ok := reg.(*rambackend.Handler); ok {
+		wireStdRegionalTagging[*rambackend.InMemoryBackend, rambackend.TaggedEntry](
+			bk, "ram", constantResourceType("ram:resource-share"),
+			func(region string) any { return h.BackendFor(region) })
 	}
-
-	rBk, ok := h.Backend.(*rambackend.InMemoryBackend)
-	if !ok {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "ram", constantResourceType("ram:resource-share"),
-		func() []taggedARNEntry {
-			items := rBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
-		rBk.TagResource,
-		rBk.UntagResource,
-	)
 }
 
 // wireTaggingRekognition wires the Rekognition backend into the Resource
@@ -11568,31 +10930,11 @@ func wireTaggingRAM(bk resourcegroupstaggingapibackend.StorageBackend, reg servi
 // project ARNs (arn.Build in rekognition/projects.go) are never accepted --
 // only a project *version* ARN is taggable, matching the real API.
 func wireTaggingRekognition(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
-	h, ok := reg.(*rekognitionbackend.Handler)
-	if !ok {
-		return
+	if h, ok := reg.(*rekognitionbackend.Handler); ok {
+		wireStdRegionalTagging[*rekognitionbackend.InMemoryBackend, rekognitionbackend.TaggedEntry](
+			bk, "rekognition", arnResourceType("rekognition"),
+			func(region string) any { return h.BackendFor(region) })
 	}
-
-	rBk, ok := h.Backend.(*rekognitionbackend.InMemoryBackend)
-	if !ok {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "rekognition",
-		func(arnStr string) string { return resourceTypeFromARN(arnStr, "rekognition") },
-		func() []taggedARNEntry {
-			items := rBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
-		rBk.TagResource,
-		rBk.UntagResource,
-	)
 }
 
 // wireTaggingTranslate wires the Translate backend into the Resource Groups
@@ -11600,31 +10942,11 @@ func wireTaggingRekognition(bk resourcegroupstaggingapibackend.StorageBackend, r
 // see translate/terminologies.go and translate/parallel_data.go's arn.Build
 // call sites), so resourceTypeFromARN derives the per-resource type.
 func wireTaggingTranslate(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
-	h, ok := reg.(*translatebackend.Handler)
-	if !ok {
-		return
+	if h, ok := reg.(*translatebackend.Handler); ok {
+		wireStdRegionalTagging[*translatebackend.InMemoryBackend, translatebackend.TaggedEntry](
+			bk, "translate", arnResourceType("translate"),
+			func(region string) any { return h.BackendFor(region) })
 	}
-
-	tBk := h.Backend
-	if tBk == nil {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "translate",
-		func(arnStr string) string { return resourceTypeFromARN(arnStr, "translate") },
-		func() []taggedARNEntry {
-			items := tBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
-		tBk.TagResource,
-		tBk.UntagResource,
-	)
 }
 
 // wireTaggingAppStream wires the AppStream backend into the Resource Groups
@@ -11635,31 +10957,11 @@ func wireTaggingTranslate(bk resourcegroupstaggingapibackend.StorageBackend, reg
 // (appstream/directory_configs.go, appstream/users.go) but are never seeded,
 // so they can never be tagged and never appear here.
 func wireTaggingAppStream(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
-	h, ok := reg.(*appstreambackend.Handler)
-	if !ok {
-		return
+	if h, ok := reg.(*appstreambackend.Handler); ok {
+		wireStdRegionalTagging[*appstreambackend.InMemoryBackend, appstreambackend.TaggedEntry](
+			bk, "appstream", arnResourceType("appstream"),
+			func(region string) any { return h.BackendFor(region) })
 	}
-
-	aBk, ok := h.Backend.(*appstreambackend.InMemoryBackend)
-	if !ok {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "appstream",
-		func(arnStr string) string { return resourceTypeFromARN(arnStr, "appstream") },
-		func() []taggedARNEntry {
-			items := aBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
-		aBk.TagResource,
-		aBk.UntagResource,
-	)
 }
 
 // wireTaggingMediaTailor wires the MediaTailor backend into the Resource
@@ -11668,31 +10970,11 @@ func wireTaggingAppStream(bk resourcegroupstaggingapibackend.StorageBackend, reg
 // mediatailor/store.go's arn.Build call sites), so resourceTypeFromARN
 // derives the per-resource type.
 func wireTaggingMediaTailor(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
-	h, ok := reg.(*mediatailorbackend.Handler)
-	if !ok {
-		return
+	if h, ok := reg.(*mediatailorbackend.Handler); ok {
+		wireStdRegionalTagging[*mediatailorbackend.InMemoryBackend, mediatailorbackend.TaggedEntry](
+			bk, "mediatailor", arnResourceType("mediatailor"),
+			func(region string) any { return h.BackendFor(region) })
 	}
-
-	mBk, ok := h.Backend.(*mediatailorbackend.InMemoryBackend)
-	if !ok {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "mediatailor",
-		func(arnStr string) string { return resourceTypeFromARN(arnStr, "mediatailor") },
-		func() []taggedARNEntry {
-			items := mBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
-		mBk.TagResource,
-		mBk.UntagResource,
-	)
 }
 
 // wireTaggingVPCLattice wires the VPC Lattice backend into the Resource
@@ -11703,31 +10985,11 @@ func wireTaggingMediaTailor(bk resourcegroupstaggingapibackend.StorageBackend, r
 // rules, resource gateways/configurations, domain verifications,
 // associations), so resourceTypeFromARN derives the per-resource type.
 func wireTaggingVPCLattice(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
-	h, ok := reg.(*vpclatticebackend.Handler)
-	if !ok {
-		return
+	if h, ok := reg.(*vpclatticebackend.Handler); ok {
+		wireStdRegionalTagging[*vpclatticebackend.InMemoryBackend, vpclatticebackend.TaggedEntry](
+			bk, "vpc-lattice", arnResourceType("vpc-lattice"),
+			func(region string) any { return h.BackendFor(region) })
 	}
-
-	vBk, ok := h.Backend.(*vpclatticebackend.InMemoryBackend)
-	if !ok {
-		return
-	}
-
-	wireTaggingARNResources(
-		bk, "vpc-lattice",
-		func(arnStr string) string { return resourceTypeFromARN(arnStr, "vpc-lattice") },
-		func() []taggedARNEntry {
-			items := vBk.TaggedResources()
-			out := make([]taggedARNEntry, 0, len(items))
-			for _, item := range items {
-				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
-			}
-
-			return out
-		},
-		vBk.TagResource,
-		vBk.UntagResource,
-	)
 }
 
 // codepipelineResourceType derives the resource-type string for a CodePipeline
@@ -12087,14 +11349,83 @@ func setupChaosAndRegistry(
 		cli.EnforceIAM,
 		cli.GetGlobalConfig(),
 		faultStore,
+		cli.Compression != compressionOff,
 	)
 	if err != nil {
 		return err
 	}
 
 	chaos.RegisterRoutes(chaosGroup, faultStore, registry)
+	wireStepFunctionsSDKIntegration(e, services, cli.GetGlobalConfig().GetRegion(), cli.EnforceIAM)
+	wireServiceRoleAuthorizer(services, cli.EnforceIAM)
 
 	return nil
+}
+
+// wireStepFunctionsSDKIntegration lets Step Functions Task states call every
+// registered service in-process; with IAM enforcement on, calls run as the execution role.
+func wireStepFunctionsSDKIntegration(e http.Handler, services []service.Registerable, region string, enforceIAM bool) {
+	byName := serviceByName(services)
+
+	sfnH, ok := byName["StepFunctions"].(*sfnbackend.Handler)
+	if !ok {
+		return
+	}
+
+	bk, ok := sfnH.Backend.(*sfnbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	var roles sfnbackend.RoleAssumer
+
+	if stsH, stsOk := byName["STS"].(*stsbackend.Handler); stsOk && enforceIAM {
+		if stsBk, bkOk := stsH.Backend.(*stsbackend.InMemoryBackend); bkOk {
+			roles = &sfnRoleAssumer{sts: stsBk}
+		}
+	}
+
+	bk.SetSDKIntegration(sfnbackend.NewSDKIntegrationWithHTTP(e, region, roles, sfnConnectionsFor(byName)))
+}
+
+// sfnRoleAssumer issues execution-role credentials to states.amazonaws.com via STS.
+type sfnRoleAssumer struct {
+	sts *stsbackend.InMemoryBackend
+}
+
+func (r *sfnRoleAssumer) AssumeExecutionRole(roleArn string) (sfnbackend.RoleCredentials, error) {
+	out, err := r.sts.AssumeRoleForService("states.amazonaws.com", roleArn, "states-execution")
+	if err != nil {
+		return sfnbackend.RoleCredentials{}, err
+	}
+
+	c := out.AssumeRoleResult.Credentials
+
+	exp, parseErr := time.Parse(time.RFC3339, c.Expiration)
+	if parseErr != nil {
+		return sfnbackend.RoleCredentials{}, parseErr
+	}
+
+	return sfnbackend.RoleCredentials{
+		AccessKeyID: c.AccessKeyID, SecretAccessKey: c.SecretAccessKey, SessionToken: c.SessionToken, Expires: exp,
+	}, nil
+}
+
+// compressionMiddleware returns the runtime response-compression middleware for
+// the only two services where it applies: the dashboard and DynamoDB (opt-in gzip).
+func compressionMiddleware(name string, enabled bool) []service.Middleware {
+	if !enabled {
+		return nil
+	}
+
+	switch name {
+	case "Dashboard":
+		return []service.Middleware{dashboard.CompressionMiddleware()}
+	case "DynamoDB":
+		return []service.Middleware{ddbbackend.CompressionMiddleware()}
+	default:
+		return nil
+	}
 }
 
 func setupRegistry(
@@ -12105,6 +11436,7 @@ func setupRegistry(
 	enforceIAM bool,
 	globalCfg *config.GlobalConfig,
 	faultStore *chaos.FaultStore,
+	compression bool,
 ) (*service.Registry, error) {
 	registry := service.NewRegistry()
 
@@ -12153,14 +11485,14 @@ func setupRegistry(
 	}
 
 	for _, svc := range services {
-		if err := registry.Register(svc); err != nil {
+		if err := registry.Register(svc, compressionMiddleware(svc.Name(), compression)...); err != nil {
 			log.Error("Failed to register service", "service", svc.Name(), "error", err)
 
 			return nil, err
 		}
 	}
 
-	router := service.NewServiceRouter(registry)
+	router := service.NewServiceRouter(registry).WithTargetGates(routeTargetGates())
 	e.Use(router.RouteHandler())
 
 	return registry, nil
@@ -12229,8 +11561,8 @@ func extractStorageResourcePolicyProvider(svc service.Registerable) iambackend.R
 			return &secretsManagerPolicyAdapter{backend: b}
 		}
 	case *lambdabackend.Handler:
-		if b, ok := h.Backend.(lambdaPolicyBackend); ok {
-			return &lambdaPolicyAdapter{backend: b}
+		if _, ok := h.Backend.(lambdaPolicyBackend); ok {
+			return &lambdaPolicyAdapter{handler: h}
 		}
 	}
 
@@ -12492,7 +11824,7 @@ func (a *secretsManagerPolicyAdapter) GetResourcePolicy(
 
 // lambdaPolicyAdapter wraps a Lambda backend to implement ResourcePolicyProvider.
 type lambdaPolicyAdapter struct {
-	backend lambdaPolicyBackend
+	handler *lambdabackend.Handler
 }
 
 func (a *lambdaPolicyAdapter) GetResourcePolicy(
@@ -12504,18 +11836,24 @@ func (a *lambdaPolicyAdapter) GetResourcePolicy(
 		return "", nil
 	}
 
-	parts := strings.Split(resourceARN, ":")
 	const arnMinParts = 6
+
+	parts := strings.SplitN(resourceARN, ":", arnMinParts)
 	if len(parts) < arnMinParts {
 		return "", nil
 	}
 
-	fnName := strings.TrimPrefix(parts[5], "function:")
+	fnName, qualifier, _ := strings.Cut(strings.TrimPrefix(parts[5], "function:"), ":")
 	if fnName == "" {
 		return "", nil
 	}
 
-	out, err := a.backend.GetPolicy(fnName, "")
+	bk, _ := a.handler.BackendFor(arnRegion(resourceARN)).(lambdaPolicyBackend)
+	if bk == nil {
+		return "", nil
+	}
+
+	out, err := bk.GetPolicy(fnName, qualifier)
 	if err != nil || out == nil || out.Policy == nil {
 		return "", err
 	}
@@ -12711,6 +12049,30 @@ func wireRDSDNS(rdsReg service.Registerable, dns rdsbackend.DNSRegistrar) {
 	rdsH.Backend.SetDNSRegistrar(dns)
 }
 
+// wireRDSData lets the RDS Data API reach docker-backed Aurora clusters, using
+// Secrets Manager secrets for the database login.
+func wireRDSData(dataReg, rdsReg, smReg service.Registerable) {
+	dataH, dataOK := dataReg.(*rdsdatabackend.Handler)
+	rdsH, rdsOK := rdsReg.(*rdsbackend.Handler)
+	smH, smOK := smReg.(*secretsmanagerbackend.Handler)
+
+	if !dataOK || !rdsOK || !smOK {
+		return
+	}
+
+	dataBk, ok := dataH.Backend.(*rdsdatabackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	smBk, ok := smH.Backend.(*secretsmanagerbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	dataBk.WithRealEngine(&rdsDataResolver{handler: rdsH}, smBk)
+}
+
 // wireRedshiftDNS sets the DNS registrar on the Redshift backend so that cluster
 // hostnames are automatically registered with the embedded DNS server.
 func wireRedshiftDNS(redshiftReg service.Registerable, dns redshiftbackend.DNSRegistrar) {
@@ -12723,7 +12085,9 @@ func wireRedshiftDNS(redshiftReg service.Registerable, dns redshiftbackend.DNSRe
 		return
 	}
 
-	redshiftH.Backend.SetDNSRegistrar(dns)
+	for _, b := range redshiftH.RegionBackends() {
+		b.SetDNSRegistrar(dns)
+	}
 }
 
 // wireOpenSearchDNS sets the DNS registrar on the OpenSearch backend so that domain
@@ -12738,12 +12102,11 @@ func wireOpenSearchDNS(osReg service.Registerable, dns opensearchbackend.DNSRegi
 		return
 	}
 
-	bk, ok := osH.Backend.(*opensearchbackend.InMemoryBackend)
-	if !ok {
-		return
+	for _, sb := range osH.RegionBackends() {
+		if bk, bkOk := sb.(*opensearchbackend.InMemoryBackend); bkOk {
+			bk.SetDNSRegistrar(dns)
+		}
 	}
-
-	bk.SetDNSRegistrar(dns)
 }
 
 // wireElasticsearchDNS sets the DNS registrar on the Elasticsearch backend so that domain
@@ -12791,8 +12154,10 @@ func wireEC2DNS(ec2Reg service.Registerable, dns ec2backend.DNSRegistrar) {
 		return
 	}
 
-	if ec2Bk, bkOk := ec2H.Backend.(*ec2backend.InMemoryBackend); bkOk {
-		ec2Bk.SetDNSRegistrar(dns)
+	for _, bk := range ec2H.RegionBackends() {
+		if ec2Bk, bkOk := bk.(*ec2backend.InMemoryBackend); bkOk {
+			ec2Bk.SetDNSRegistrar(dns)
+		}
 	}
 }
 
@@ -13022,6 +12387,58 @@ func wireFirehoseRedshift(firehoseReg, redshiftdataReg service.Registerable) {
 	fhBk.SetRedshiftDataBackend(&firehoseRedshiftDataExecutorAdapter{backend: redshiftdataBk})
 }
 
+// wireFirehoseOpenSearch connects Firehose to the in-process OpenSearch document store.
+func wireFirehoseOpenSearch(firehoseReg, osReg service.Registerable) {
+	fhH, ok := firehoseReg.(*firehosebackend.Handler)
+	if !ok {
+		return
+	}
+
+	fhBk, ok := fhH.Backend.(*firehosebackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	osH, ok := osReg.(*opensearchbackend.Handler)
+	if !ok {
+		return
+	}
+
+	fhBk.SetOpenSearchBackend(&firehoseOpenSearchAdapter{handler: osH})
+}
+
+// firehoseOpenSearchAdapter indexes Firehose documents, creating the index on first write
+// as the real _bulk API does.
+type firehoseOpenSearchAdapter struct {
+	handler *opensearchbackend.Handler
+}
+
+func (a *firehoseOpenSearchAdapter) IndexDocument(domainName, indexName string, doc map[string]any) error {
+	return a.IndexDocumentInRegion("", domainName, indexName, doc)
+}
+
+func (a *firehoseOpenSearchAdapter) IndexDocumentInRegion(
+	region, domainName, indexName string, doc map[string]any,
+) error {
+	backend, ok := regionpeers.Backend[*opensearchbackend.InMemoryBackend](a.handler.BackendFor, region)
+	if !ok {
+		return errOpenSearchRegionUnavailable
+	}
+
+	_, _, _, err := backend.IndexDocument(domainName, indexName, "", doc)
+	if !errors.Is(err, opensearchbackend.ErrConnectionNotFound) {
+		return err
+	}
+
+	if _, cErr := backend.CreateIndex(domainName, indexName, nil, nil, nil, nil); cErr != nil {
+		return cErr
+	}
+
+	_, _, _, err = backend.IndexDocument(domainName, indexName, "", doc)
+
+	return err
+}
+
 // firehoseRedshiftDataExecutorAdapter adapts the Redshift Data backend's
 // full ExecuteStatement (cluster/workgroup/secret/session-shaped) to
 // firehose.RedshiftDataExecutor's narrow (sql, clusterIdentifier, database,
@@ -13239,28 +12656,32 @@ func wireIoTAnalyticsCrossService(iotaReg, lambdaReg, iotReg, iotDPReg service.R
 		return
 	}
 
-	iotaBk, bkOk := iotaH.Backend.(*iotanalyticsbackend.InMemoryBackend)
-	if !bkOk {
-		return
-	}
+	lambdaH, _ := lambdaReg.(*lambdabackend.Handler)
+	iotH, _ := iotReg.(*iotbackend.Handler)
+	iotDPH, _ := iotDPReg.(*iotdataplanebackend.Handler)
 
-	if lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler); lambdaOk {
-		if lambdaBk, lbkOk := lambdaH.Backend.(*lambdabackend.InMemoryBackend); lbkOk {
-			iotaBk.SetLambdaBackend(lambdaBk)
+	iotaH.WireRegions(func(region string, bk *iotanalyticsbackend.InMemoryBackend) {
+		if lambdaH != nil {
+			lambdaBk, lbkOk := regionpeers.Backend[*lambdabackend.InMemoryBackend](lambdaH.BackendFor, region)
+			if lbkOk {
+				bk.SetLambdaBackend(lambdaBk)
+			}
 		}
-	}
 
-	if iotH, iotOk := iotReg.(*iotbackend.Handler); iotOk {
-		if iotBk, ibkOk := iotH.Backend.(*iotbackend.InMemoryBackend); ibkOk {
-			iotaBk.SetThingRegistry(&iotAnalyticsThingRegistryAdapter{backend: iotBk})
+		if iotH != nil {
+			iotBk, ibkOk := regionpeers.Backend[*iotbackend.InMemoryBackend](iotH.BackendFor, region)
+			if ibkOk {
+				bk.SetThingRegistry(&iotAnalyticsThingRegistryAdapter{backend: iotBk})
+			}
 		}
-	}
 
-	if iotDPH, iotDPOk := iotDPReg.(*iotdataplanebackend.Handler); iotDPOk {
-		if iotDPBk, idpbkOk := iotDPH.Backend.(*iotdataplanebackend.InMemoryBackend); idpbkOk {
-			iotaBk.SetThingShadowStore(&iotAnalyticsThingShadowAdapter{backend: iotDPBk})
+		if iotDPH != nil {
+			dpBk, dbkOk := regionpeers.Backend[*iotdataplanebackend.InMemoryBackend](iotDPH.BackendFor, region)
+			if dbkOk {
+				bk.SetThingShadowStore(&iotAnalyticsThingShadowAdapter{backend: dpBk})
+			}
 		}
-	}
+	})
 }
 
 // ddbKinesisStreamRecordData mirrors the "dynamodb" node of the JSON payload
@@ -13298,8 +12719,7 @@ type ddbKinesisEmitterAdapter struct {
 func (a *ddbKinesisEmitterAdapter) EmitDynamoDBStreamRecord(
 	streamARN, tableName string, record ddbmodels.StreamRecord,
 ) {
-	parts := strings.Split(streamARN, "/")
-	streamName := parts[len(parts)-1]
+	ctx, streamName := kinesisRefContext(context.Background(), streamARN)
 
 	partitionKey := tableName
 	if keys, err := json.Marshal(record.Keys); err == nil {
@@ -13327,7 +12747,7 @@ func (a *ddbKinesisEmitterAdapter) EmitDynamoDBStreamRecord(
 			return
 		}
 
-		_, _ = a.backend.PutRecord(context.Background(), &kinesisbackend.PutRecordInput{
+		_, _ = a.backend.PutRecord(ctx, &kinesisbackend.PutRecordInput{
 			StreamName:   streamName,
 			PartitionKey: partitionKey,
 			Data:         data,
@@ -13351,8 +12771,19 @@ type kinesisStreamReaderAdapter struct {
 // unexported (services/kinesis/models.go:40).
 const kinesisTrimHorizonIteratorType = "TRIM_HORIZON"
 
-func (a *kinesisStreamReaderAdapter) ListShards(streamName string) ([]string, error) {
-	out, err := a.backend.ListShards(context.Background(), &kinesisbackend.ListShardsInput{StreamName: streamName})
+// kinesisRefContext resolves a stream ARN to its region-scoped context and name; a bare name stays as is.
+func kinesisRefContext(ctx context.Context, ref string) (context.Context, string) {
+	if arnRegion(ref) == "" {
+		return ctx, ref
+	}
+
+	return kinesisbackend.ContextAndNameFromStreamARN(ctx, ref)
+}
+
+func (a *kinesisStreamReaderAdapter) ListShards(streamRef string) ([]string, error) {
+	ctx, streamName := kinesisRefContext(context.Background(), streamRef)
+
+	out, err := a.backend.ListShards(ctx, &kinesisbackend.ListShardsInput{StreamName: streamName})
 	if err != nil {
 		return nil, err
 	}
@@ -13365,8 +12796,10 @@ func (a *kinesisStreamReaderAdapter) ListShards(streamName string) ([]string, er
 	return ids, nil
 }
 
-func (a *kinesisStreamReaderAdapter) GetShardIterator(streamName, shardID string) (string, error) {
-	out, err := a.backend.GetShardIterator(context.Background(), &kinesisbackend.GetShardIteratorInput{
+func (a *kinesisStreamReaderAdapter) GetShardIterator(streamRef, shardID string) (string, error) {
+	ctx, streamName := kinesisRefContext(context.Background(), streamRef)
+
+	out, err := a.backend.GetShardIterator(ctx, &kinesisbackend.GetShardIteratorInput{
 		StreamName:        streamName,
 		ShardID:           shardID,
 		ShardIteratorType: kinesisTrimHorizonIteratorType,
@@ -13446,10 +12879,12 @@ func wireKinesisAnalyticsCrossService(kaReg, kinesisReg, s3Reg service.Registera
 // becomes a stack parameter, and the resulting stack is real: a genuine
 // Stack record in the cloudformation backend with a real StackID/ARN.
 type cfnLightsailStackAdapter struct {
-	backend cfnbackend.StorageBackend
+	handler *cfnbackend.Handler
 }
 
-func (a *cfnLightsailStackAdapter) CreateStackFromLightsail(stackName string, instanceNames []string) (string, error) {
+func (a *cfnLightsailStackAdapter) CreateStackFromLightsail(
+	region, stackName string, instanceNames []string,
+) (string, error) {
 	params := make([]cfnbackend.Parameter, 0, len(instanceNames))
 
 	for i, name := range instanceNames {
@@ -13459,7 +12894,8 @@ func (a *cfnLightsailStackAdapter) CreateStackFromLightsail(stackName string, in
 		})
 	}
 
-	stack, err := a.backend.CreateStack(context.Background(), stackName, "", params, cfnbackend.StackOptions{})
+	ctx := awsmeta.Set(context.Background(), &awsmeta.Metadata{Region: region, Account: awsmeta.DefaultAccount})
+	stack, err := a.handler.BackendFor(region).CreateStack(ctx, stackName, "", params, cfnbackend.StackOptions{})
 	if err != nil {
 		return "", err
 	}
@@ -13485,7 +12921,7 @@ func wireLightsailCloudFormation(lightsailReg, cfnReg service.Registerable) {
 		return
 	}
 
-	lightsailH.Backend.SetCloudFormationBackend(&cfnLightsailStackAdapter{backend: cfnH.Backend})
+	lightsailH.Backend.SetCloudFormationBackend(&cfnLightsailStackAdapter{handler: cfnH})
 }
 
 // wireCloudFormationOrganizations wires the Organizations backend as
@@ -13901,6 +13337,9 @@ func panicRecoveryMiddleware() echo.MiddlewareFunc {
 	}
 }
 
+// dashboardRegionHeader carries the dashboard's selected region on unsigned browser requests.
+const dashboardRegionHeader = "X-Gopherstack-Region"
+
 // awsMetaMiddleware populates the per-request AWS metadata ctxbag (account,
 // region, partition, request ID) and threads the same fields onto the context
 // logger so every record emitted via logger.Load(ctx) is tagged uniformly.
@@ -13912,6 +13351,11 @@ func awsMetaMiddleware(defaultRegion, defaultAccount string) echo.MiddlewareFunc
 		return func(c *echo.Context) error {
 			req := c.Request()
 			meta := awsmeta.FromRequest(req, defaultRegion)
+
+			if r := req.Header.Get(dashboardRegionHeader); r != "" && req.Header.Get("Authorization") == "" &&
+				regionpeers.ValidRegion(r) {
+				meta.Region = r
+			}
 
 			// FromRequest defaults the account to awsmeta.DefaultAccount; honor
 			// the operator-configured account when no per-request override was
@@ -14134,7 +13578,7 @@ func wireSchedulerCompute(
 
 	if ecsH, ok := ecsReg.(*ecsbackend.Handler); ok {
 		if ecsBk, ok2 := ecsH.Backend.(*ecsbackend.InMemoryBackend); ok2 {
-			runner.SetECSTaskRunner(&schedECSAdapter{backend: ecsBk})
+			runner.SetECSTaskRunner(&schedECSAdapter{handler: ecsH, home: ecsBk})
 		}
 	}
 }
@@ -14278,15 +13722,18 @@ func (a *pipesSQSReaderAdapter) ReceivePipeMessages(
 	queueARN string,
 	maxMessages int,
 ) ([]*pipesbackend.SQSMessage, error) {
-	url := arnToSQSQueueURL(queueARN)
-
-	msgs, err := a.backend.ReceiveMessagesLocal(url, maxMessages)
+	out, err := a.backend.ReceiveMessage(&sqsbackend.ReceiveMessageInput{
+		QueueURL:            arnToSQSQueueURL(queueARN),
+		Region:              arnRegion(queueARN),
+		MaxNumberOfMessages: maxMessages,
+		VisibilityTimeout:   sqsbackend.NoVisibilityTimeout,
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	result := make([]*pipesbackend.SQSMessage, len(msgs))
-	for i, m := range msgs {
+	result := make([]*pipesbackend.SQSMessage, len(out.Messages))
+	for i, m := range out.Messages {
 		result[i] = &pipesbackend.SQSMessage{
 			MessageID:     m.MessageID,
 			ReceiptHandle: m.ReceiptHandle,
@@ -14300,9 +13747,16 @@ func (a *pipesSQSReaderAdapter) ReceivePipeMessages(
 }
 
 func (a *pipesSQSReaderAdapter) DeletePipeMessages(queueARN string, receiptHandles []string) error {
-	url := arnToSQSQueueURL(queueARN)
+	for _, rh := range receiptHandles {
+		err := a.backend.DeleteMessage(&sqsbackend.DeleteMessageInput{
+			QueueURL: arnToSQSQueueURL(queueARN), Region: arnRegion(queueARN), ReceiptHandle: rh,
+		})
+		if err != nil {
+			return err
+		}
+	}
 
-	return a.backend.DeleteMessagesLocal(url, receiptHandles)
+	return nil
 }
 
 // pipesSFNStarterAdapter adapts the StepFunctions InMemoryBackend to the pipes.PipeStepFunctionsStarter interface.
@@ -14323,11 +13777,10 @@ type pipesKinesisReaderAdapter struct {
 	backend *kinesisbackend.InMemoryBackend
 }
 
-func (a *pipesKinesisReaderAdapter) GetShardIDs(streamName string) ([]string, error) {
-	out, err := a.backend.DescribeStream(
-		context.Background(),
-		&kinesisbackend.DescribeStreamInput{StreamName: streamName},
-	)
+func (a *pipesKinesisReaderAdapter) GetShardIDs(streamRef string) ([]string, error) {
+	ctx, streamName := kinesisRefContext(context.Background(), streamRef)
+
+	out, err := a.backend.DescribeStream(ctx, &kinesisbackend.DescribeStreamInput{StreamName: streamName})
 	if err != nil {
 		return nil, err
 	}
@@ -14341,9 +13794,11 @@ func (a *pipesKinesisReaderAdapter) GetShardIDs(streamName string) ([]string, er
 }
 
 func (a *pipesKinesisReaderAdapter) GetShardIterator(
-	streamName, shardID, iteratorType, startingSeqNum string,
+	streamRef, shardID, iteratorType, startingSeqNum string,
 ) (string, error) {
-	out, err := a.backend.GetShardIterator(context.Background(), &kinesisbackend.GetShardIteratorInput{
+	ctx, streamName := kinesisRefContext(context.Background(), streamRef)
+
+	out, err := a.backend.GetShardIterator(ctx, &kinesisbackend.GetShardIteratorInput{
 		StreamName:             streamName,
 		ShardID:                shardID,
 		ShardIteratorType:      iteratorType,
@@ -14525,6 +13980,7 @@ func (a *pipesSQSSenderAdapter) SendMessage(
 	url := arnToSQSQueueURL(queueARN)
 	_, err := a.backend.SendMessage(&sqsbackend.SendMessageInput{
 		QueueURL:               url,
+		Region:                 arnRegion(queueARN),
 		MessageBody:            body,
 		MessageGroupID:         groupID,
 		MessageDeduplicationID: dedupID,
@@ -14540,9 +13996,7 @@ type pipesKinesisPutterAdapter struct {
 }
 
 func (a *pipesKinesisPutterAdapter) PutRecord(ctx context.Context, streamARN, partitionKey string, data []byte) error {
-	// Convert Kinesis stream ARN to stream name (last segment after '/').
-	parts := strings.Split(streamARN, "/")
-	streamName := parts[len(parts)-1]
+	ctx, streamName := kinesisRefContext(ctx, streamARN)
 
 	_, err := a.backend.PutRecord(ctx, &kinesisbackend.PutRecordInput{
 		StreamName:   streamName,
@@ -14567,6 +14021,7 @@ func (a *pipesEventBridgePutterAdapter) PutEvents(
 	// Convert event bus ARN to bus name (last segment after '/').
 	parts := strings.Split(eventBusARN, "/")
 	busName := parts[len(parts)-1]
+	ctx = inRegion(ctx, arnRegion(eventBusARN))
 
 	entries := make([]ebbackend.EventEntry, 0, len(events))
 
@@ -14602,6 +14057,7 @@ func (a *pipesCloudWatchLogsPutterAdapter) PutLogEvents(
 	messages []string,
 ) error {
 	groupName := logGroupNameFromLogsARN(logGroupARN)
+	ctx = inRegion(ctx, arnRegion(logGroupARN))
 	now := time.Now().UnixMilli()
 
 	events := make([]cwlogsbackend.InputLogEvent, len(messages))
@@ -14642,5 +14098,5 @@ func (a *pipesFirehosePutterAdapter) PutRecord(ctx context.Context, deliveryStre
 	parts := strings.Split(deliveryStreamARN, "/")
 	streamName := parts[len(parts)-1]
 
-	return a.backend.PutRecord(ctx, streamName, data)
+	return a.backend.PutRecord(inRegion(ctx, arnRegion(deliveryStreamARN)), streamName, data)
 }

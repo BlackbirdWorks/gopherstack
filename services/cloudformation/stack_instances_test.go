@@ -24,6 +24,7 @@ func TestCreateStackInstances_ProvisionsChildStacks(t *testing.T) {
 		[]string{"111111111111", "222222222222"},
 		nil,
 		[]string{"us-east-1"},
+		"",
 	)
 	require.NoError(t, err)
 
@@ -52,7 +53,7 @@ func TestDeleteStackInstances_TearsDownChildStacks(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = b.CreateStackInstances(
-		t.Context(), "teardown-ss", []string{"111111111111"}, nil, []string{"us-east-1"},
+		t.Context(), "teardown-ss", []string{"111111111111"}, nil, []string{"us-east-1"}, "",
 	)
 	require.NoError(t, err)
 
@@ -62,7 +63,7 @@ func TestDeleteStackInstances_TearsDownChildStacks(t *testing.T) {
 	childID := instances.Data[0].StackID
 
 	_, err = b.DeleteStackInstances(
-		t.Context(), "teardown-ss", []string{"111111111111"}, nil, []string{"us-east-1"}, false,
+		t.Context(), "teardown-ss", []string{"111111111111"}, nil, []string{"us-east-1"}, false, "",
 	)
 	require.NoError(t, err)
 
@@ -85,7 +86,7 @@ func TestDeleteStackInstances_RetainStacksKeepsChildStack(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = b.CreateStackInstances(
-		t.Context(), "retain-ss", []string{"111111111111"}, nil, []string{"us-east-1"},
+		t.Context(), "retain-ss", []string{"111111111111"}, nil, []string{"us-east-1"}, "",
 	)
 	require.NoError(t, err)
 
@@ -95,7 +96,7 @@ func TestDeleteStackInstances_RetainStacksKeepsChildStack(t *testing.T) {
 	childID := instances.Data[0].StackID
 
 	_, err = b.DeleteStackInstances(
-		t.Context(), "retain-ss", []string{"111111111111"}, nil, []string{"us-east-1"}, true,
+		t.Context(), "retain-ss", []string{"111111111111"}, nil, []string{"us-east-1"}, true, "",
 	)
 	require.NoError(t, err)
 

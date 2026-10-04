@@ -279,23 +279,11 @@ func matchesImageListParams(img *SMImage, p ListImagesParams) bool {
 		return false
 	}
 
-	if p.CreationTimeAfter != nil && !img.CreationTime.After(*p.CreationTimeAfter) {
+	if !timeWindowInclusiveOK(img.CreationTime, p.CreationTimeAfter, p.CreationTimeBefore) {
 		return false
 	}
 
-	if p.CreationTimeBefore != nil && !img.CreationTime.Before(*p.CreationTimeBefore) {
-		return false
-	}
-
-	if p.LastModifiedTimeAfter != nil && !img.LastModifiedTime.After(*p.LastModifiedTimeAfter) {
-		return false
-	}
-
-	if p.LastModifiedTimeBefore != nil && !img.LastModifiedTime.Before(*p.LastModifiedTimeBefore) {
-		return false
-	}
-
-	return true
+	return timeWindowInclusiveOK(img.LastModifiedTime, p.LastModifiedTimeAfter, p.LastModifiedTimeBefore)
 }
 
 // imageSortLess orders two images by sortBy — one of ImageSortBy's real
@@ -332,17 +320,18 @@ func imageSortLess(a, b *SMImage, sortBy string) bool {
 type ImageVersion struct {
 	CreationTime       time.Time `json:"CreationTime"`
 	LastModifiedTime   time.Time `json:"LastModifiedTime"`
-	JobType            string    `json:"JobType,omitempty"`
-	BaseImage          string    `json:"BaseImage,omitempty"`
+	MLFramework        string    `json:"MLFramework,omitempty"`
+	Processor          string    `json:"Processor,omitempty"`
 	ContainerImage     string    `json:"ContainerImage,omitempty"`
 	ImageArn           string    `json:"ImageArn"`
 	ImageVersionArn    string    `json:"ImageVersionArn"`
 	ImageVersionStatus string    `json:"ImageVersionStatus"`
-	MLFramework        string    `json:"MLFramework,omitempty"`
-	Processor          string    `json:"Processor,omitempty"`
+	JobType            string    `json:"JobType,omitempty"`
+	BaseImage          string    `json:"BaseImage,omitempty"`
 	ProgrammingLang    string    `json:"ProgrammingLang,omitempty"`
 	ReleaseNotes       string    `json:"ReleaseNotes,omitempty"`
 	VendorGuidance     string    `json:"VendorGuidance,omitempty"`
+	ClientToken        string    `json:"ClientToken,omitempty"`
 	Aliases            []string  `json:"Aliases,omitempty"`
 	Version            int       `json:"Version"`
 	Horovod            bool      `json:"Horovod,omitempty"`
@@ -404,6 +393,7 @@ type CreateImageVersionOptions struct {
 	ProgrammingLang string
 	ReleaseNotes    string
 	VendorGuidance  string
+	ClientToken     string
 	Aliases         []string
 }
 
@@ -431,6 +421,14 @@ func (b *InMemoryBackend) CreateImageVersion(
 		return nil, fmt.Errorf("%w: image %q not found", ErrSMImageNotFound, imageName)
 	}
 
+	if opts.ClientToken != "" {
+		for _, existing := range b.imageVersionsStore(region)[imageName] {
+			if existing.ClientToken == opts.ClientToken {
+				return cloneImageVersion(existing), nil
+			}
+		}
+	}
+
 	b.imageVersionCountsStore(region)[imageName]++
 	version := b.imageVersionCountsStore(region)[imageName]
 
@@ -454,6 +452,7 @@ func (b *InMemoryBackend) CreateImageVersion(
 		ProgrammingLang:    opts.ProgrammingLang,
 		ReleaseNotes:       opts.ReleaseNotes,
 		VendorGuidance:     opts.VendorGuidance,
+		ClientToken:        opts.ClientToken,
 		CreationTime:       now,
 		LastModifiedTime:   now,
 	}
@@ -752,23 +751,11 @@ func (b *InMemoryBackend) ListImageVersions(
 
 // matchesImageVersionListParams reports whether iv satisfies every filter in params.
 func matchesImageVersionListParams(iv *ImageVersion, p ListImageVersionsParams) bool {
-	if p.CreationTimeAfter != nil && !iv.CreationTime.After(*p.CreationTimeAfter) {
+	if !timeWindowInclusiveOK(iv.CreationTime, p.CreationTimeAfter, p.CreationTimeBefore) {
 		return false
 	}
 
-	if p.CreationTimeBefore != nil && !iv.CreationTime.Before(*p.CreationTimeBefore) {
-		return false
-	}
-
-	if p.LastModifiedTimeAfter != nil && !iv.LastModifiedTime.After(*p.LastModifiedTimeAfter) {
-		return false
-	}
-
-	if p.LastModifiedTimeBefore != nil && !iv.LastModifiedTime.Before(*p.LastModifiedTimeBefore) {
-		return false
-	}
-
-	return true
+	return timeWindowInclusiveOK(iv.LastModifiedTime, p.LastModifiedTimeAfter, p.LastModifiedTimeBefore)
 }
 
 // imageVersionSortLess orders two image versions by sortBy — one of

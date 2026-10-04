@@ -13,8 +13,10 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -81,6 +83,7 @@ const (
 // Handler is the Echo HTTP handler for EMR Serverless operations (REST-JSON protocol).
 type Handler struct {
 	Backend *InMemoryBackend
+	peers   *regionpeers.Set[Handler]
 }
 
 // NewHandler creates a new EMR Serverless handler.
@@ -89,7 +92,13 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 }
 
 // Reset clears all backend state. Used for test isolation.
-func (h *Handler) Reset() { h.Backend.Reset() }
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+
+	for _, p := range h.peers.Drain() {
+		p.Backend.Reset()
+	}
+}
 
 // Name returns the service name.
 func (h *Handler) Name() string { return "EmrServerless" }
@@ -367,6 +376,10 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function for EMR Serverless requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
+			return p.Handler()(c)
+		}
+
 		r := c.Request()
 		log := logger.Load(r.Context())
 		route := parseEMRPath(r.Method, r.URL.Path)
@@ -800,14 +813,7 @@ func (h *Handler) handleListApplications(c *echo.Context) error {
 		maxResults = n
 	}
 
-	var states []string
-	if s := q.Get("states"); s != "" {
-		for st := range strings.SplitSeq(s, ",") {
-			if trimmed := strings.TrimSpace(st); trimmed != "" {
-				states = append(states, trimmed)
-			}
-		}
-	}
+	states := queryStates(q)
 
 	apps, outToken := h.Backend.ListApplications(nextToken, maxResults, states...)
 	list := make([]map[string]any, 0, len(apps))
@@ -986,16 +992,14 @@ func (h *Handler) handleListJobRuns(c *echo.Context, applicationID string) error
 		maxResults = n
 	}
 
-	var states []string
-	if s := q.Get("states"); s != "" {
-		for st := range strings.SplitSeq(s, ",") {
-			if trimmed := strings.TrimSpace(st); trimmed != "" {
-				states = append(states, trimmed)
-			}
-		}
+	states := queryStates(q)
+
+	filter, err := jobRunFilterFromQuery(q, states)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", err.Error()))
 	}
 
-	runs, outToken, err := h.Backend.ListJobRuns(applicationID, nextToken, maxResults, states...)
+	runs, outToken, err := h.Backend.ListJobRuns(applicationID, nextToken, maxResults, filter)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1147,4 +1151,41 @@ func (h *Handler) handleUntagResource(c *echo.Context, resourceARN string, query
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{})
+}
+
+// queryStates reads the repeated "states" query parameter (the SDK adds one entry per state).
+func queryStates(q url.Values) []string {
+	var states []string
+
+	for _, v := range q["states"] {
+		for st := range strings.SplitSeq(v, ",") {
+			if trimmed := strings.TrimSpace(st); trimmed != "" {
+				states = append(states, trimmed)
+			}
+		}
+	}
+
+	return states
+}
+
+var errInvalidTimestamp = errors.New("must be an ISO-8601 timestamp")
+
+func jobRunFilterFromQuery(q url.Values, states []string) (JobRunFilter, error) {
+	f := JobRunFilter{States: states, Mode: q.Get("mode")}
+
+	for key, dst := range map[string]**time.Time{"createdAtAfter": &f.CreatedAfter, "createdAtBefore": &f.CreatedBefore} {
+		raw := q.Get(key)
+		if raw == "" {
+			continue
+		}
+
+		t, err := time.Parse(time.RFC3339, raw)
+		if err != nil {
+			return f, fmt.Errorf("%w: %s", errInvalidTimestamp, key)
+		}
+
+		*dst = &t
+	}
+
+	return f, nil
 }

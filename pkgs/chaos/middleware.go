@@ -21,49 +21,62 @@ const HeaderDashboard = "X-Gopherstack-Dashboard"
 // headerDashboardBypass is the value of HeaderDashboard that signals bypass.
 const headerDashboardBypass = "true"
 
-// sigV4CredentialParts splits the SigV4 Credential scope once per request; nil if absent or malformed.
+// credScope holds the region and service fields of a SigV4 Credential scope.
+type credScope struct {
+	region  string
+	service string
+	ok      bool
+}
+
+// sigV4CredentialParts parses the SigV4 Credential scope once per request; ok is false if absent or malformed.
 func sigV4CredentialParts(r interface {
 	Header(string) string
 },
-) []string {
+) credScope {
 	auth := r.Header("Authorization")
-	if auth == "" || !strings.Contains(auth, "Credential=") {
-		return nil
+	if auth == "" {
+		return credScope{}
 	}
 
 	_, after, found := strings.Cut(auth, "Credential=")
 	if !found {
-		return nil
+		return credScope{}
 	}
 
 	// Credential value ends at the next comma (before SignedHeaders).
-	credOnly, _, _ := strings.Cut(after, ",")
-	parts := strings.Split(credOnly, "/")
+	rest, _, _ := strings.Cut(after, ",")
 
 	// Format: AKID / date / region / service / aws4_request
-	if len(parts) < minSigV4CredentialParts {
-		return nil
+	var fields [minSigV4CredentialParts - 1]string
+
+	for i := range fields {
+		var ok bool
+
+		fields[i], rest, ok = strings.Cut(rest, "/")
+		if !ok {
+			return credScope{}
+		}
 	}
 
-	return parts
+	return credScope{region: fields[2], service: fields[3], ok: true}
 }
 
 // extractServiceFromRequest returns the lowercase service from the scope, or "".
-func extractServiceFromRequest(parts []string) string {
-	if parts == nil {
+func extractServiceFromRequest(scope credScope) string {
+	if !scope.ok {
 		return ""
 	}
 
-	return sanitizeName(strings.ToLower(parts[3]))
+	return sanitizeName(strings.ToLower(scope.service))
 }
 
 // extractRegionFromRequest returns the scope's region, falling back to X-Amz-Region.
-func extractRegionFromRequest(parts []string, r interface {
+func extractRegionFromRequest(scope credScope, r interface {
 	Header(string) string
 },
 ) string {
-	if parts != nil {
-		return sanitizeName(parts[2])
+	if scope.ok {
+		return sanitizeName(scope.region)
 	}
 
 	return sanitizeName(r.Header("X-Amz-Region"))
@@ -127,7 +140,7 @@ func Middleware(store *FaultStore) func(echo.HandlerFunc) echo.HandlerFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
 			// Dashboard requests bypass all chaos fault injection and network effects.
-			if c.Request().Header.Get(HeaderDashboard) == headerDashboardBypass {
+			if store.Idle() || c.Request().Header.Get(HeaderDashboard) == headerDashboardBypass {
 				return next(c)
 			}
 
@@ -199,13 +212,31 @@ func Middleware(store *FaultStore) func(echo.HandlerFunc) echo.HandlerFunc {
 // that are not alphanumeric, hyphen, underscore, or period. This also breaks the
 // taint for static analysis tools like CodeQL which flag raw header values in logs.
 func sanitizeName(s string) string {
+	if isAllNameASCII(s) {
+		return s
+	}
+
 	var b strings.Builder
 	for _, c := range s {
-		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-			(c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' {
+		if isNameChar(c) {
 			b.WriteRune(c)
 		}
 	}
 
 	return b.String()
+}
+
+func isNameChar(c rune) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+		(c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.'
+}
+
+func isAllNameASCII(s string) bool {
+	for i := range len(s) {
+		if !isNameChar(rune(s[i])) {
+			return false
+		}
+	}
+
+	return true
 }

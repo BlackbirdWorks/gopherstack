@@ -12,8 +12,10 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -28,7 +30,46 @@ type Handler struct {
 	Backend StorageBackend
 	// ops is the pre-built dispatch table mapping operation names to handler
 	// functions, initialized in NewHandler.
-	ops map[string]service.JSONOpFunc
+	ops   map[string]service.JSONOpFunc
+	peers *regionpeers.Set[Handler]
+}
+
+// EnableRegions makes h serve every other region through lazily built per-region
+// siblings, each with its own reconciler running under ctx.
+func (h *Handler) EnableRegions(ctx context.Context) {
+	home, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	h.peers = regionpeers.New(home.region, func(region string) *Handler {
+		nb := NewInMemoryBackend(home.accountID, region)
+		nb.limits, nb.configuredLimits = home.configuredLimits, home.configuredLimits
+		nb.ramShareCreator = home.currentResourceShareCreator()
+		nb.StartReconciler(ctx)
+
+		return NewHandler(nb)
+	})
+}
+
+// BackendFor returns the backend serving region: the home backend, or the sibling
+// for any other region (built on first use).
+func (h *Handler) BackendFor(region string) StorageBackend {
+	if p := h.peers.Get(region); p != nil {
+		return p.Backend
+	}
+
+	return h.Backend
+}
+
+func (h *Handler) closePeers() {
+	for _, p := range h.peers.Drain() {
+		p.Backend.StopReconciler()
+	}
 }
 
 // NewHandler creates a new Glue handler backed by backend.
@@ -40,7 +81,10 @@ func NewHandler(backend StorageBackend) *Handler {
 }
 
 // Reset clears all backend state. Used for test isolation.
-func (h *Handler) Reset() { h.Backend.Reset() }
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+	h.closePeers()
+}
 
 // StartWorker implements service.BackgroundWorker. It starts the managed lifecycle
 // reconciler using the framework-provided background context, so no
@@ -55,6 +99,7 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 // goroutine to exit, guaranteeing a clean, leak-free shutdown.
 func (h *Handler) Shutdown(_ context.Context) {
 	h.Backend.StopReconciler()
+	h.closePeers()
 }
 
 // Ensure Handler satisfies the optional background-lifecycle interfaces.
@@ -148,6 +193,10 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function for Glue requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
+			return p.Handler()(c)
+		}
+
 		return service.HandleTarget(
 			c, logger.Load(c.Request().Context()),
 			glueServiceName, "application/x-amz-json-1.1",

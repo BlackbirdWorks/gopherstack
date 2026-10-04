@@ -370,15 +370,28 @@ type StackSetOperation struct {
 
 // RegisteredType holds registration info for a CloudFormation type.
 type RegisteredType struct {
-	TypeArn        string
-	TypeName       string
-	Type           string // RESOURCE / MODULE / HOOK
-	VersionID      string
-	DefaultVersion string
-	Status         string // COMPLETE / IN_PROGRESS / FAILED / DEPRECATED
-	Configuration  string
-	IsActivated    bool
-	IsPublished    bool
+	AutoUpdate       *bool
+	VersionID        string
+	Type             string
+	TypeArn          string
+	DefaultVersion   string
+	Status           string
+	Configuration    string
+	TypeName         string
+	ExecutionRoleArn string
+	LogGroupName     string
+	LogRoleArn       string
+	IsActivated      bool
+	IsPublished      bool
+}
+
+// ActivateTypeOptions carries ActivateTypeInput's AutoUpdate, ExecutionRoleArn
+// and LoggingConfig members.
+type ActivateTypeOptions struct {
+	AutoUpdate       *bool
+	ExecutionRoleArn string
+	LogGroupName     string
+	LogRoleArn       string
 }
 
 // TypeRegistrationRecord holds the state of a type registration request.
@@ -446,20 +459,24 @@ type SignalRecord struct {
 
 // TypeDetails holds full detail about a registered CloudFormation type, returned by DescribeType.
 type TypeDetails struct {
-	TypeName           string `xml:"TypeName,omitempty"`
-	TypeArn            string `xml:"Arn,omitempty"`
-	Type               string `xml:"Type,omitempty"`
+	AutoUpdate         *bool  `xml:"-"`
+	DefaultVersionID   string `xml:"DefaultVersionId,omitempty"`
+	DeprecatedStatus   string `xml:"DeprecatedStatus,omitempty"`
 	Visibility         string `xml:"Visibility,omitempty"`
 	Status             string `xml:"TypeVersionStatus,omitempty"`
 	Description        string `xml:"Description,omitempty"`
 	Schema             string `xml:"Schema,omitempty"`
 	VersionID          string `xml:"VersionId,omitempty"`
-	DefaultVersionID   string `xml:"DefaultVersionId,omitempty"`
+	TypeName           string `xml:"TypeName,omitempty"`
+	Type               string `xml:"Type,omitempty"`
+	LogRoleArn         string `xml:"-"`
 	PublisherID        string `xml:"PublisherId,omitempty"`
-	DeprecatedStatus   string `xml:"DeprecatedStatus,omitempty"`
-	IsActivated        bool   `xml:"IsActivated,omitempty"`
-	IsDefaultVersion   bool   `xml:"IsDefaultVersion,omitempty"`
+	LogGroupName       string `xml:"-"`
+	ExecutionRoleArn   string `xml:"-"`
+	TypeArn            string `xml:"Arn,omitempty"`
 	IsActivatableInOrg bool   `xml:"IsActivatableInOrg,omitempty"`
+	IsDefaultVersion   bool   `xml:"IsDefaultVersion,omitempty"`
+	IsActivated        bool   `xml:"IsActivated,omitempty"`
 }
 
 // RegisteredTypeVersion holds version-level info for a registered type.

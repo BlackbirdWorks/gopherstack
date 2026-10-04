@@ -14,7 +14,7 @@ import (
 func newECSMoreTestClient(t *testing.T) (*cloudformation.ServiceBackends, *cfnsdk.Client) {
 	t.Helper()
 
-	backends := newAdditionalServiceBackends()
+	backends := newAdditionalServiceBackends(t)
 	creator := cloudformation.NewResourceCreator(backends)
 	backend := cloudformation.NewInMemoryBackendWithConfig("000000000000", "us-east-1", creator)
 	client := newTestClientForBackend(t, backend)

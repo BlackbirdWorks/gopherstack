@@ -90,10 +90,7 @@ func isUnknownOperation(op string) bool {
 // extractAccessKeyID extracts the AWS access key ID from the SigV4
 // Authorization header's Credential value. Returns "" when absent or malformed.
 func extractAccessKeyID(r *http.Request) string {
-	auth := r.Header.Get("Authorization")
-	if auth == "" || !strings.Contains(auth, "Credential=") {
-		return ""
-	}
+	auth := httputils.HeaderValue(r.Header, "Authorization")
 
 	_, after, found := strings.Cut(auth, "Credential=")
 	if !found {
@@ -101,13 +98,13 @@ func extractAccessKeyID(r *http.Request) string {
 	}
 
 	credOnly, _, _ := strings.Cut(after, ",")
-	parts := strings.Split(credOnly, "/")
-
-	if len(parts) < minCredentialParts {
+	if strings.Count(credOnly, "/") < minCredentialParts-1 {
 		return ""
 	}
 
-	return parts[0]
+	akid, _, _ := strings.Cut(credOnly, "/")
+
+	return akid
 }
 
 // eventSourceFor derives the CloudTrail EventSource for a request, e.g.
@@ -209,6 +206,8 @@ func (w *captureResponseWriter) WriteHeader(code int) {
 // a wrapped handler that writes an error body without ever setting
 // Content-Type would otherwise let net/http sniff the tee'd bytes -- which
 // can include request-derived text -- as text/html, enabling reflected XSS.
+// The tee itself only runs for error statuses; extractErrorInfo ignores the
+// body otherwise, so buffering every success response was wasted work.
 func (w *captureResponseWriter) Write(b []byte) (int, error) {
 	if w.status == 0 {
 		w.WriteHeader(http.StatusOK)
@@ -218,7 +217,9 @@ func (w *captureResponseWriter) Write(b []byte) (int, error) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	}
 
-	w.body.Write(b)
+	if w.status >= httpErrorStatusThreshold {
+		w.body.Write(b)
+	}
 
 	return w.ResponseWriter.Write(b)
 }

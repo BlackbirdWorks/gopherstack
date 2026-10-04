@@ -6,6 +6,7 @@ import (
 	"maps"
 	"slices"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,18 +14,21 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // RuleDispatcher is implemented by the CLI wiring layer and dispatches rule actions.
 type RuleDispatcher interface {
-	SendToSQS(queueURL, body string) error
+	SendToSQS(region, queueURL, body string) error
 	InvokeLambda(ctx context.Context, functionARN string, payload []byte) error
 }
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
 	dispatcher                 RuleDispatcher
+	roleAuth                   roleauth.Authorizer
+	targets                    *ActionTargets
 	resourceTags               map[string]map[string]string
 	certificateTransfers       map[string]string
 	thingBillingGroups         map[string]string
@@ -36,6 +40,7 @@ type InMemoryBackend struct {
 	thingPrincipalTypes        map[string]map[string]string
 	auditMitigationTasks       map[string]string
 	auditTasks                 map[string]string
+	clientRequestTokens        map[string]string
 	thingGroupMembers          map[string][]string
 	policyVersions             map[string][]*PolicyVersion
 	provTemplateVersions       map[string][]*ProvisioningTemplateVersion
@@ -94,10 +99,12 @@ type InMemoryBackend struct {
 	behaviorTrainingSummaries  map[string][]*BehaviorModelTrainingSummary
 	mu                         *lockmetrics.RWMutex
 	registrationCode           string
+	endpointBase               string
 	defaultAuthorizer          string
 	accountID                  string
 	region                     string
 	violationEvents            []*ViolationEvent
+	bg                         sync.WaitGroup
 	mqttPort                   int
 }
 
@@ -123,6 +130,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		thingPrincipalTypes:    make(map[string]map[string]string),
 		auditMitigationTasks:   make(map[string]string),
 		auditTasks:             make(map[string]string),
+		clientRequestTokens:    make(map[string]string),
 		thingGroupMembers:      make(map[string][]string),
 		policyVersions:         make(map[string][]*PolicyVersion),
 		provTemplateVersions:   make(map[string][]*ProvisioningTemplateVersion),
@@ -187,6 +195,7 @@ func (b *InMemoryBackend) Reset() {
 	b.thingPrincipalTypes = make(map[string]map[string]string)
 	b.auditMitigationTasks = make(map[string]string)
 	b.auditTasks = make(map[string]string)
+	b.clientRequestTokens = make(map[string]string)
 	b.thingGroupMembers = make(map[string][]string)
 	b.policyVersions = make(map[string][]*PolicyVersion)
 	b.provTemplateVersions = make(map[string][]*ProvisioningTemplateVersion)

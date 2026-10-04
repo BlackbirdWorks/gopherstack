@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
 
@@ -31,6 +33,17 @@ func (b *InMemoryBackend) scheduleUpdateTransition(clusterName, updateID string)
 			u.Status = statusSuccessful
 		}
 	})
+}
+
+// startUpdate stamps u as a new InProgress update, stores it, and schedules its Successful transition.
+func (b *InMemoryBackend) startUpdate(u *Update) *Update {
+	u.ID = uuid.NewString()[:8]
+	u.Status = statusInProgress
+	u.CreatedAt = time.Now().UTC()
+	b.StoreUpdate(u)
+	b.scheduleUpdateTransition(u.ClusterName, u.ID)
+
+	return u
 }
 
 // AssociateEncryptionConfig associates encryption configuration with a cluster.

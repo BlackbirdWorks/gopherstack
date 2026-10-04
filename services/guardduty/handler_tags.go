@@ -3,6 +3,7 @@ package guardduty
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -69,15 +70,9 @@ func extractTagResourceARN(path string) string {
 	return strings.TrimPrefix(path, "/"+pathTags+"/")
 }
 
-// parseTagKeys extracts tagKeys from query string: tagKeys=k1&tagKeys=k2.
+// parseTagKeys extracts the percent-decoded tagKeys values (tagKeys=k1&tagKeys=k2).
 func parseTagKeys(query string) []string {
-	var keys []string
+	vals, _ := url.ParseQuery(query)
 
-	for part := range strings.SplitSeq(query, "&") {
-		if val, ok := strings.CutPrefix(part, "tagKeys="); ok {
-			keys = append(keys, val)
-		}
-	}
-
-	return keys
+	return vals["tagKeys"]
 }

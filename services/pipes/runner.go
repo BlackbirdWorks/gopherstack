@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 	"github.com/blackbirdworks/gopherstack/pkgs/safemap"
 )
 
@@ -133,10 +134,10 @@ type KinesisRecord struct {
 
 // PipeKinesisReader reads records from a Kinesis stream for a pipe source.
 type PipeKinesisReader interface {
-	// GetShardIDs returns the shard IDs for the given stream.
-	GetShardIDs(streamName string) ([]string, error)
-	// GetShardIterator returns an iterator token for a shard.
-	GetShardIterator(streamName, shardID, iteratorType, startingSeqNum string) (string, error)
+	// GetShardIDs returns the shard IDs for the stream ARN.
+	GetShardIDs(streamARN string) ([]string, error)
+	// GetShardIterator returns an iterator token for a shard of the stream ARN.
+	GetShardIterator(streamARN, shardID, iteratorType, startingSeqNum string) (string, error)
 	// GetRecords reads up to limit records from the given iterator, returning
 	// records and the next iterator token.
 	GetRecords(iteratorToken string, limit int) ([]KinesisRecord, string, error)
@@ -168,6 +169,7 @@ type PipeDynamoDBStreamsReader interface {
 
 // Runner polls pipe sources and forwards records to pipe targets for RUNNING pipes.
 type Runner struct {
+	auth             roleauth.Authorizer
 	sqsReader        SQSReader
 	lambda           PipeLambdaInvoker
 	sfn              PipeStepFunctionsStarter
@@ -301,6 +303,12 @@ func (r *Runner) pollAllPipes(ctx context.Context) {
 }
 
 func (r *Runner) pollPipe(ctx context.Context, p *Pipe) {
+	if err := r.authorizeSource(p); err != nil {
+		logger.Load(ctx).WarnContext(ctx, "pipes: source access denied", "pipe", p.Name, "error", err)
+
+		return
+	}
+
 	switch {
 	case isSQSARN(p.Source):
 		r.pollSQSPipe(ctx, p)
@@ -450,6 +458,10 @@ func (r *Runner) sendToDLQ(ctx context.Context, dlqARN string, payload []byte) e
 func (r *Runner) invokeEnrichment(ctx context.Context, p *Pipe, payload []byte) ([]byte, error) {
 	enrichARN := p.Enrichment
 
+	if err := r.authorizeCall(p, enrichARN, true); err != nil {
+		return nil, err
+	}
+
 	switch {
 	case strings.HasPrefix(enrichARN, "arn:aws:lambda:"):
 		if r.lambda == nil {
@@ -559,6 +571,10 @@ func (r *Runner) invokeTargetWithPayload(
 // the target ARN's service. It is source-agnostic: SQS-, Kinesis-, and
 // DynamoDB-Streams-sourced pipes all funnel through this one switch.
 func (r *Runner) dispatchTarget(ctx context.Context, p *Pipe, payload []byte) error {
+	if err := r.authorizeCall(p, p.Target, false); err != nil {
+		return err
+	}
+
 	switch {
 	case strings.HasPrefix(p.Target, "arn:aws:lambda:"):
 		return r.invokeLambdaTarget(ctx, p, payload)

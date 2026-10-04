@@ -164,6 +164,7 @@ type DataQualityEvaluationRunOptions struct {
 	AdditionalRunOptions  *DataQualityRunAdditionalOptions
 	AdditionalDataSources map[string]DataQualityDataSource
 	Role                  string
+	ClientToken           string
 	DataQualityRunOptions
 }
 
@@ -183,7 +184,19 @@ func (b *InMemoryBackend) StartDataQualityRulesetEvaluationRunWithOptions(
 		}
 	}
 
+	if opts.ClientToken != "" {
+		for _, existing := range b.dataQualityEvalRuns.All() {
+			if existing.ClientToken == opts.ClientToken {
+				cp := *existing
+				cp.RulesetNames = append([]string(nil), existing.RulesetNames...)
+
+				return &cp, nil
+			}
+		}
+	}
+
 	run := &DataQualityEvaluationRun{
+		ClientToken: opts.ClientToken,
 		RunID: fmt.Sprintf(
 			"dqer_%d_%04d",
 			time.Now().UnixNano(),

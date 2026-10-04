@@ -33,6 +33,8 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	wireEndpointLookup(ctx, backend)
 	handler := NewHandler(backend)
 
+	handler.EnableRegions()
+
 	return handler, nil
 }
 

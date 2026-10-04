@@ -3,6 +3,7 @@ package awsconfig
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -176,66 +177,81 @@ func (h *Handler) handleGetResourceConfigHistory(
 	return &getResourceConfigHistoryOutput{ConfigurationItems: items, NextToken: next}, nil
 }
 
-// GetDiscoveredResourceCounts request/response types and handler. Real
-// GetDiscoveredResourceCountsOutput is lowerCamelCase
-// ("totalDiscoveredResources"/"resourceCounts"/"nextToken" -- confirmed at
-// deserializers.go's
-// awsAwsjson11_deserializeOpDocumentGetDiscoveredResourceCountsOutput),
-// unlike most of this service's DescribeXxx wrappers -- TotalDiscoveredResources
-// was always 0 for a real client regardless of how many resources this
-// backend had discovered. The real, required ResourceCounts (per-type
-// breakdown) member is not modeled: this backend's resourceConfigsByType
-// index has no method to enumerate its group keys with counts, so adding it
-// needs new pkgs/store surface, not a wire-key rename -- left as a disclosed
-// gap rather than fabricated. Limit/NextToken (real, optional members) page
-// that same unmodeled ResourceCounts list, so they're inert for the same
-// reason (gopherstack-xhu2t tier-1 sweep, PARITY.md items_still_open).
+// GetDiscoveredResourceCounts is lowerCamelCase on the wire
+// (deserializers.go: awsAwsjson11_deserializeOpDocumentGetDiscoveredResourceCountsOutput).
+type getDiscoveredResourceCountsInput struct {
+	NextToken     string   `json:"nextToken,omitempty"`
+	ResourceTypes []string `json:"resourceTypes,omitempty"`
+	Limit         int32    `json:"limit,omitempty"`
+}
 type getDiscoveredResourceCountsOutput struct {
-	TotalDiscoveredResources int64 `json:"totalDiscoveredResources"`
+	NextToken                string              `json:"nextToken,omitempty"`
+	ResourceCounts           []ResourceTypeCount `json:"resourceCounts"`
+	TotalDiscoveredResources int64               `json:"totalDiscoveredResources"`
 }
 
+// getDiscoveredResourceCountsPageDefault is the documented default page size.
+const getDiscoveredResourceCountsPageDefault = 100
+
 func (h *Handler) handleGetDiscoveredResourceCounts(
-	_ context.Context, _ *emptyInput,
+	_ context.Context, in *getDiscoveredResourceCountsInput,
 ) (*getDiscoveredResourceCountsOutput, error) {
+	counts, total := h.Backend.DiscoveredResourceTypeCounts(in.ResourceTypes)
+
+	p, err := paginate(counts, in.NextToken, in.Limit, getDiscoveredResourceCountsPageDefault)
+	if err != nil {
+		return nil, err
+	}
+
 	return &getDiscoveredResourceCountsOutput{
-		TotalDiscoveredResources: h.Backend.GetDiscoveredResourceCounts(),
+		ResourceCounts:           p.Data,
+		NextToken:                p.Next,
+		TotalDiscoveredResources: total,
 	}, nil
 }
 
-// GetAggregateDiscoveredResourceCounts request/response types and handler.
-// GroupByKey is echoed back per api_op_GetAggregateDiscoveredResourceCounts.go
-// ("The key passed into the request object"), but the real
-// GroupedResourceCounts breakdown is not modeled: this backend has no
-// per-group (account/region) resource-count breakdown surface to source it
-// from without new tracking, so it is disclosed as a gap rather than
-// fabricated. TotalDiscoveredResources ("This member is required") is
-// unaffected by that gap and already correctly cased/emitted.
-// ConfigurationAggregatorName ("This member is required") is validated
-// against the store's aggregators (NoSuchConfigurationAggregatorException),
-// matching every other aggregate-* op. Limit/NextToken (real, optional
-// members) page that same unmodeled GroupedResourceCounts list, so they're
-// inert for the same reason (gopherstack-xhu2t tier-1 sweep, PARITY.md
-// items_still_open).
+// GetAggregateDiscoveredResourceCounts groups counts by GroupByKey; the group
+// list is empty when GroupByKey is omitted, per the SDK output docs.
 type getAggregateDiscoveredResourceCountsInput struct {
-	ConfigurationAggregatorName string `json:"ConfigurationAggregatorName"`
-	GroupByKey                  string `json:"GroupByKey,omitempty"`
+	Filters                     *ResourceCountFilters `json:"Filters,omitempty"`
+	ConfigurationAggregatorName string                `json:"ConfigurationAggregatorName"`
+	GroupByKey                  string                `json:"GroupByKey,omitempty"`
+	NextToken                   string                `json:"NextToken,omitempty"`
+	Limit                       int32                 `json:"Limit,omitempty"`
 }
 type getAggregateDiscoveredResourceCountsOutput struct {
-	GroupByKey               string `json:"GroupByKey,omitempty"`
-	TotalDiscoveredResources int32  `json:"TotalDiscoveredResources"`
+	GroupByKey               string                 `json:"GroupByKey,omitempty"`
+	NextToken                string                 `json:"NextToken,omitempty"`
+	GroupedResourceCounts    []GroupedResourceCount `json:"GroupedResourceCounts,omitempty"`
+	TotalDiscoveredResources int64                  `json:"TotalDiscoveredResources"`
 }
+
+// getAggregateDiscoveredResourceCountsPageDefault is the documented default (and maximum) page size.
+const getAggregateDiscoveredResourceCountsPageDefault = 1000
 
 func (h *Handler) handleGetAggregateDiscoveredResourceCounts(
 	_ context.Context, in *getAggregateDiscoveredResourceCountsInput,
 ) (*getAggregateDiscoveredResourceCountsOutput, error) {
-	count, err := h.Backend.GetAggregateDiscoveredResourceCounts(in.ConfigurationAggregatorName)
+	var f ResourceCountFilters
+	if in.Filters != nil {
+		f = *in.Filters
+	}
+
+	groups, total, err := h.Backend.AggregateResourceCounts(in.ConfigurationAggregatorName, in.GroupByKey, f)
+	if err != nil {
+		return nil, err
+	}
+
+	p, err := paginate(groups, in.NextToken, in.Limit, getAggregateDiscoveredResourceCountsPageDefault)
 	if err != nil {
 		return nil, err
 	}
 
 	return &getAggregateDiscoveredResourceCountsOutput{
 		GroupByKey:               in.GroupByKey,
-		TotalDiscoveredResources: count,
+		GroupedResourceCounts:    p.Data,
+		NextToken:                p.Next,
+		TotalDiscoveredResources: total,
 	}, nil
 }
 
@@ -280,9 +296,10 @@ func (h *Handler) handleGetAggregateResourceConfig(
 // rather than tombstoning it, so there is no deleted-resource record to
 // include -- disclosed as a gap (PARITY.md) rather than fabricated.
 type listDiscoveredResourcesInput struct {
-	ResourceType string `json:"resourceType"`
-	NextToken    string `json:"nextToken,omitempty"`
-	Limit        int32  `json:"limit,omitempty"`
+	ResourceType string   `json:"resourceType"`
+	NextToken    string   `json:"nextToken,omitempty"`
+	ResourceIDs  []string `json:"resourceIds,omitempty"`
+	Limit        int32    `json:"limit,omitempty"`
 }
 type listDiscoveredResourcesOutput struct {
 	NextToken           string               `json:"nextToken,omitempty"`
@@ -297,6 +314,12 @@ func (h *Handler) handleListDiscoveredResources(
 	_ context.Context, in *listDiscoveredResourcesInput,
 ) (*listDiscoveredResourcesOutput, error) {
 	all := h.Backend.ListDiscoveredResources(in.ResourceType)
+	if len(in.ResourceIDs) > 0 {
+		all = slices.DeleteFunc(
+			all,
+			func(it ResourceConfigItem) bool { return !slices.Contains(in.ResourceIDs, it.ResourceID) },
+		)
+	}
 
 	p, err := paginate(all, in.NextToken, in.Limit, listDiscoveredResourcesPageDefault)
 	if err != nil {
@@ -368,9 +391,12 @@ type selectResourceConfigOutput struct {
 func (h *Handler) handleSelectResourceConfig(
 	_ context.Context, in *selectResourceConfigInput,
 ) (*selectResourceConfigOutput, error) {
-	return &selectResourceConfigOutput{
-		Results: h.Backend.SelectResourceConfig(in.Expression),
-	}, nil
+	results, err := h.Backend.SelectResourceConfig(in.Expression)
+	if err != nil {
+		return nil, err
+	}
+
+	return &selectResourceConfigOutput{Results: results}, nil
 }
 
 // SelectAggregateResourceConfig request/response types and handler.
@@ -385,9 +411,12 @@ type selectAggregateResourceConfigOutput struct {
 func (h *Handler) handleSelectAggregateResourceConfig(
 	_ context.Context, in *selectAggregateResourceConfigInput,
 ) (*selectAggregateResourceConfigOutput, error) {
-	return &selectAggregateResourceConfigOutput{
-		Results: h.Backend.SelectAggregateResourceConfig(in.Expression),
-	}, nil
+	results, err := h.Backend.SelectAggregateResourceConfig(in.Expression)
+	if err != nil {
+		return nil, err
+	}
+
+	return &selectAggregateResourceConfigOutput{Results: results}, nil
 }
 
 // GetResourceEvaluationSummary request/response types and handler.

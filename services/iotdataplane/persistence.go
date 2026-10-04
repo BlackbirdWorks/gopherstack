@@ -259,9 +259,13 @@ func (b *InMemoryBackend) restoreDirtyTablesLocked(tables map[string]json.RawMes
 	return nil
 }
 
-// Snapshot implements persistence by delegating to the backend if it supports it.
+// Snapshot implements persistence.Persistable; other regions ride in an additive "regions" key.
 func (h *Handler) Snapshot(ctx context.Context) []byte {
-	s, ok := h.Backend.(Snapshottable)
+	return h.peers.Snapshot(snapshotOf(ctx, h.Backend), func(p *Handler) []byte { return snapshotOf(ctx, p.Backend) })
+}
+
+func snapshotOf(ctx context.Context, b StorageBackend) []byte {
+	s, ok := b.(Snapshottable)
 	if !ok {
 		return nil
 	}
@@ -269,9 +273,21 @@ func (h *Handler) Snapshot(ctx context.Context) []byte {
 	return s.Snapshot(ctx)
 }
 
-// Restore implements persistence by delegating to the backend if it supports it.
+// Restore implements persistence.Persistable.
 func (h *Handler) Restore(ctx context.Context, data []byte) error {
-	s, ok := h.Backend.(Snapshottable)
+	if err := restoreInto(ctx, h.Backend, data); err != nil {
+		return err
+	}
+
+	return h.peers.Restore(
+		data,
+		func(p *Handler, d []byte) error { return restoreInto(ctx, p.Backend, d) },
+		func(p *Handler) { p.Backend.Reset() },
+	)
+}
+
+func restoreInto(ctx context.Context, b StorageBackend, data []byte) error {
+	s, ok := b.(Snapshottable)
 	if !ok {
 		return ErrNoSnapshot
 	}

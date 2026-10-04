@@ -474,6 +474,30 @@ func TestDescribeDeliverySources_FullPagination(t *testing.T) {
 	require.Equal(t, want, got)
 }
 
+// TestPutDeliverySource_DeliverySourceConfiguration checks the configuration map
+// round-trips through Put/Get (api_op_PutDeliverySource.go:179).
+func TestPutDeliverySource_DeliverySourceConfiguration(t *testing.T) {
+	t.Parallel()
+
+	backend := cloudwatchlogs.NewInMemoryBackend()
+	client := newTestCloudWatchLogsClient(t, cloudwatchlogs.NewHandler(backend))
+	ctx := t.Context()
+
+	_, err := client.PutDeliverySource(ctx, &cwlsdk.PutDeliverySourceInput{
+		Name:                        aws.String("src-with-config"),
+		ResourceArn:                 aws.String("arn:aws:lambda:us-east-1:123456789012:function:fn-cfg"),
+		LogType:                     aws.String("APPLICATION_LOGS"),
+		DeliverySourceConfiguration: map[string]string{"fieldDelimiter": ","},
+	})
+	require.NoError(t, err)
+
+	getOut, err := client.GetDeliverySource(ctx, &cwlsdk.GetDeliverySourceInput{
+		Name: aws.String("src-with-config"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"fieldDelimiter": ","}, getOut.DeliverySource.DeliverySourceConfiguration)
+}
+
 // TestDescribeIndexPolicies_FiltersByLogGroupIdentifiers proves
 // gopherstack-wksweep-cwl-3: DescribeIndexPoliciesInput.LogGroupIdentifiers
 // is a required member (api_op_DescribeIndexPolicies.go) that scopes which

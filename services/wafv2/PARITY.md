@@ -732,3 +732,11 @@ No persisted (`backendSnapshot`) fields changed. Gates: `go build ./...`,
 pass), `golangci-lint run --new-from-rev=HEAD ./services/wafv2/` (0 issues).
 tier-1 (`cmd/reqfielddiff -dir wafv2`): 4 -> 0. `DescribeAllManagedProducts.Scope`
 (tier3, out of this sweep's scope) still open, unchanged.
+
+## Notes (2026-10-03 pass — gopherstack-uox6 value-semantics audit)
+
+Fixed (list_logging_configurations_default_scope_test.go): ListLoggingConfigurations with no LogScope lists only CUSTOMER configurations ("Default: CUSTOMER").
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+WAFv2 REGIONAL-scope resources are region-isolated: the backend already partitioned by request region but never received it, and the ARN builders ignored it. It now reads the region from the request metadata, and web ACL, IP set, regex pattern set and rule group ARNs carry the creating region. CLOUDFRONT scope stays global by AWS definition: the API requires US East (N. Virginia) and the resource ARN has a `global` scope segment (https://docs.aws.amazon.com/waf/latest/APIReference/API_CreateWebACL.html, `Scope`). No snapshot shape change. Proof: `TestHandler_MultiRegionRegionalScope`, `TestHandler_MultiRegionCloudFrontScopeIsGlobal`, `TestRegionIsolation/wafv2`.

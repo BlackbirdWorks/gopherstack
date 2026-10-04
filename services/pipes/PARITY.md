@@ -27,6 +27,19 @@ leaks: {status: clean, note: "runDelayed goroutines are tracked by b.wg and tied
 
 ## Notes
 
+### 2026-10-03: pipe RoleArn is authorized under --enforce-iam
+
+With `--enforce-iam` the runner checks `pipes.amazonaws.com` trust and the role's policies for the source read
+(`sqs:ReceiveMessage/DeleteMessage/GetQueueAttributes`; Kinesis `DescribeStream/GetRecords/GetShardIterator/ListShards`;
+DynamoDB Streams `DescribeStream/GetRecords/GetShardIterator`), enrichment (`lambda:InvokeFunction`,
+`states:StartSyncExecution`) and target (`lambda:InvokeFunction`, `states:StartExecution`, `sqs:SendMessage`,
+`sns:Publish`, `kinesis:PutRecord`, `events:PutEvents`, `firehose:PutRecord`, `logs:PutLogEvents`). A target or enrichment
+denial is a customer invocation error and follows the normal failure path (error-handling docs,
+`eb-pipes-error-troubleshooting`: insufficient permissions to invoke the target retries per source; for SQS sources the
+message stays for redelivery). A source-read denial skips the poll with a warning; AWS instead reports a `StateReason`
+such as "Pipes does not have required permissions to perform Queue operations ..." and may auto-disable the pipe, which is
+not modeled. Enforcement off is unchanged.
+
 ### 2026-09-18 zeroguard: UpdatePipe Target/Enrichment omitted-member fix
 
 Target and Enrichment were plain strings guarded by `!= ""`; changed to
@@ -1002,3 +1015,11 @@ Gates: `go build ./...`, `go vet ./services/pipes/...`, `go test -race
 run --new-from-rev=HEAD ./services/pipes/...` (0 issues). `go run
 ./cmd/paritylint` stays at 0 FAIL. No persisted-struct/snapshot changes
 (response-shape-only fix).
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+Audited for region isolation: same-named resources in two regions coexist and list per region; no code change. Proof: `TestRegionIsolation/pipes`.
+
+## 2026-10-04 source and target regions
+
+SQS and Kinesis sources are read, and SQS, Kinesis, EventBridge and CloudWatch Logs targets written, in the ARN's region. The Kinesis reader interface now takes the stream ARN (was the bare name). Proof: `TestInitializeServices_PipesSQSSourceReadsQueueARNRegion`, `TestInitializeServices_PipesKinesisSourceReadsStreamARNRegion`, `TestInitializeServices_LogsTargetsUseLogGroupARNRegion`.

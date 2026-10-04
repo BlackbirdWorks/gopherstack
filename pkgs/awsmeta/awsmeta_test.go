@@ -323,3 +323,36 @@ func TestPrincipalResolversAndHelpers(t *testing.T) {
 		})
 	}
 }
+
+func TestAccessorsMatchGet(t *testing.T) {
+	t.Parallel()
+
+	full := &awsmeta.Metadata{
+		Account: "123456789012", Region: "eu-west-1", Partition: "aws-cn", AccessKeyID: "AK", Service: "dynamodb",
+		Principal: &awsmeta.Principal{Arn: "arn:aws:iam::1:user/u", UserName: "u", UserID: "UID"},
+	}
+
+	tests := []struct {
+		meta *awsmeta.Metadata
+		name string
+	}{
+		{name: "unset", meta: nil},
+		{name: "populated", meta: full},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := awsmeta.Set(context.Background(), tt.meta)
+			m := awsmeta.Get(ctx)
+
+			assert.Equal(t, m.Region, awsmeta.Region(ctx))
+			assert.Equal(t, m.Account, awsmeta.Account(ctx))
+			assert.Equal(t, m.Partition, awsmeta.Partition(ctx))
+			assert.Equal(t, m.AccessKeyID, awsmeta.AccessKeyID(ctx))
+			assert.Equal(t, m.Service, awsmeta.Service(ctx))
+			assert.Equal(t, m.Principal, awsmeta.GetPrincipal(ctx))
+		})
+	}
+}

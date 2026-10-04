@@ -236,15 +236,16 @@ type SnapshotImportTask struct {
 
 // ManagedPrefixList represents a managed prefix list.
 type ManagedPrefixList struct {
-	PrefixListID   string            `json:"prefixListId,omitempty"`
-	PrefixListName string            `json:"prefixListName,omitempty"`
-	PrefixListArn  string            `json:"prefixListArn,omitempty"`
-	AddressFamily  string            `json:"addressFamily,omitempty"`
-	State          string            `json:"state,omitempty"`
-	OwnerID        string            `json:"ownerId,omitempty"`
-	Entries        []PrefixListEntry `json:"entries,omitempty"`
-	Version        int64             `json:"version"`
-	MaxEntries     int               `json:"maxEntries,omitempty"`
+	VersionEntries map[int64][]PrefixListEntry `json:"versionEntries,omitempty"`
+	PrefixListID   string                      `json:"prefixListId,omitempty"`
+	PrefixListName string                      `json:"prefixListName,omitempty"`
+	PrefixListArn  string                      `json:"prefixListArn,omitempty"`
+	AddressFamily  string                      `json:"addressFamily,omitempty"`
+	State          string                      `json:"state,omitempty"`
+	OwnerID        string                      `json:"ownerId,omitempty"`
+	Entries        []PrefixListEntry           `json:"entries,omitempty"`
+	Version        int64                       `json:"version"`
+	MaxEntries     int                         `json:"maxEntries,omitempty"`
 }
 
 // PrefixListEntry holds a single CIDR entry in a managed prefix list.
@@ -501,18 +502,20 @@ type TrafficMirrorTarget struct {
 // Fleet holds an EC2 Fleet.
 
 type Fleet struct {
-	FleetID                          string                      `json:"fleetId,omitempty"`
+	ValidFrom                        time.Time                   `json:"validFrom,omitzero"`
+	ValidUntil                       time.Time                   `json:"validUntil,omitzero"`
 	FleetState                       string                      `json:"fleetState,omitempty"`
 	FleetType                        string                      `json:"fleetType,omitempty"`
 	TargetCapacityUnitType           string                      `json:"targetCapacityUnitType,omitempty"`
 	ExcessCapacityTerminationPolicy  string                      `json:"excessCapacityTerminationPolicy,omitempty"`
 	DefaultTargetCapacityType        string                      `json:"defaultTargetCapacityType,omitempty"`
+	FleetID                          string                      `json:"fleetId,omitempty"`
 	InstanceIDs                      []string                    `json:"instanceIds,omitempty"`
 	LaunchTemplateConfigs            []FleetLaunchTemplateConfig `json:"launchTemplateConfigs,omitempty"`
-	TotalTargetCapacity              int                         `json:"totalTargetCapacity,omitempty"`
 	OnDemandTargetCapacity           int                         `json:"onDemandTargetCapacity,omitempty"`
 	SpotTargetCapacity               int                         `json:"spotTargetCapacity,omitempty"`
 	FulfilledCapacity                float64                     `json:"fulfilledCapacity,omitempty"`
+	TotalTargetCapacity              int                         `json:"totalTargetCapacity,omitempty"`
 	TerminateInstancesWithExpiration bool                        `json:"terminateInstancesWithExpiration,omitempty"`
 }
 

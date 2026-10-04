@@ -119,8 +119,10 @@ func (db *InMemoryDB) executeTransactWrite(
 	}
 	defer releaseTables()
 
+	wirePuts := newTransactWirePuts(input.TransactItems)
+
 	// Pre-phase: validate duplicate keys and total size.
-	if dupErr := validateTransactWriteItems(input.TransactItems, tables); dupErr != nil {
+	if dupErr := validateTransactWriteItemsWire(input.TransactItems, tables, wirePuts); dupErr != nil {
 		return transactWriteExecResult{}, dupErr
 	}
 
@@ -150,13 +152,13 @@ func (db *InMemoryDB) executeTransactWrite(
 	// Phase 2: Apply writes with rollback on failure.
 	wantIndexes := input.ReturnConsumedCapacity == types.ReturnConsumedCapacityIndexes
 	applyResult, writeErr := db.applyTransactItems(
-		ctx, tables, input.TransactItems, input.ReturnItemCollectionMetrics, wantIndexes,
+		ctx, tables, input.TransactItems, input.ReturnItemCollectionMetrics, wantIndexes, wirePuts,
 	)
 	if writeErr != nil {
 		return transactWriteExecResult{}, writeErr
 	}
 
-	payloads := db.collectTransactReplicationPayloads(tables, region, input.TransactItems)
+	payloads := db.collectTransactReplicationPayloads(tables, region, input.TransactItems, wirePuts)
 
 	// Release the table locks before ever touching db.mu (see releaseTables'
 	// doc above), then record the token as committed now that all writes have
@@ -216,10 +218,11 @@ func (db *InMemoryDB) collectTransactReplicationPayloads(
 	tables map[string]*Table,
 	currentRegion string,
 	items []types.TransactWriteItem,
+	wirePuts transactWirePuts,
 ) []transactReplicationPayload {
 	var payloads []transactReplicationPayload
 
-	for _, ti := range items {
+	for i, ti := range items {
 		switch {
 		case ti.Put != nil:
 			tableName := aws.ToString(ti.Put.TableName)
@@ -228,12 +231,11 @@ func (db *InMemoryDB) collectTransactReplicationPayloads(
 				continue
 			}
 
-			wireItem := models.FromSDKItem(ti.Put.Item)
 			payloads = append(payloads, transactReplicationPayload{
 				tableName:       tableName,
 				globalTableName: table.GlobalTableName,
 				region:          currentRegion,
-				item:            deepCopyItem(wireItem),
+				item:            deepCopyItem(wirePuts.at(i)),
 				op:              "PUT",
 			})
 
@@ -260,9 +262,7 @@ func (db *InMemoryDB) collectTransactReplicationPayloads(
 				continue
 			}
 
-			wireKey := models.FromSDKItem(ti.Update.Key)
-			pkDef, skDef := getPKAndSK(table.KeySchema)
-			finalItem := db.lookupItem(table, wireKey, pkDef.AttributeName, skDef.AttributeName)
+			finalItem, _ := db.findMatchForPutSDK(table, ti.Update.Key)
 
 			if finalItem == nil {
 				continue
@@ -376,8 +376,9 @@ func (db *InMemoryDB) applyTransactItems(
 	items []types.TransactWriteItem,
 	rim types.ReturnItemCollectionMetrics,
 	wantIndexes bool,
+	wirePuts transactWirePuts,
 ) (transactApplyResult, error) {
-	prepared, err := db.prepareTransactWrites(ctx, tables, items)
+	prepared, err := db.prepareTransactWrites(ctx, tables, items, wirePuts)
 	if err != nil {
 		return transactApplyResult{}, err
 	}
@@ -440,11 +441,12 @@ func (db *InMemoryDB) prepareTransactWrites(
 	ctx context.Context,
 	tables map[string]*Table,
 	items []types.TransactWriteItem,
+	wirePuts transactWirePuts,
 ) ([]preparedTransactWrite, error) {
 	prepared := make([]preparedTransactWrite, len(items))
 
 	for i, ti := range items {
-		p, err := db.prepareTransactWrite(ctx, tables, ti)
+		p, err := db.prepareTransactWrite(ctx, tables, ti, wirePuts.at(i))
 		if err != nil {
 			return nil, err
 		}
@@ -458,10 +460,11 @@ func (db *InMemoryDB) prepareTransactWrite(
 	ctx context.Context,
 	tables map[string]*Table,
 	ti types.TransactWriteItem,
+	wirePut map[string]any,
 ) (preparedTransactWrite, error) {
 	switch {
 	case ti.Put != nil:
-		return db.prepareTransactPut(tables, ti.Put)
+		return db.prepareTransactPut(tables, ti.Put, wirePut)
 	case ti.Delete != nil:
 		return preparedTransactWrite{del: prepareTransactDelete(ti.Delete)}, nil
 	case ti.Update != nil:
@@ -480,9 +483,9 @@ func (db *InMemoryDB) prepareTransactWrite(
 func (db *InMemoryDB) prepareTransactPut(
 	tables map[string]*Table,
 	put *types.Put,
+	wireItem map[string]any,
 ) (preparedTransactWrite, error) {
 	tableName := aws.ToString(put.TableName)
-	wireItem := models.FromSDKItem(put.Item)
 
 	if err := db.validateItem(wireItem, tables[tableName]); err != nil {
 		return preparedTransactWrite{}, err
@@ -516,8 +519,7 @@ func (db *InMemoryDB) prepareTransactUpdate(
 ) (preparedTransactWrite, error) {
 	tableName := aws.ToString(upd.TableName)
 	table := tables[tableName]
-	wireKey := models.FromSDKItem(upd.Key)
-	existing, _ := db.findMatchForPut(table, wireKey)
+	existing, _ := db.findMatchForPutSDK(table, upd.Key)
 
 	dummyInput := &dynamodb.UpdateItemInput{
 		Key:                       upd.Key,
@@ -527,7 +529,7 @@ func (db *InMemoryDB) prepareTransactUpdate(
 		ExpressionAttributeValues: upd.ExpressionAttributeValues,
 	}
 
-	updated, updatedPaths, err := db.computeUpdate(ctx, table, dummyInput, existing)
+	updated, updatedPaths, err := db.computeUpdate(ctx, table, dummyInput, existing, updateWire{})
 	if err != nil {
 		return preparedTransactWrite{}, err
 	}
@@ -588,6 +590,8 @@ func (db *InMemoryDB) enforceTransactWriteThroughput(
 
 	for name, n := range perTable {
 		table := tables[name]
+		db.emitWCU(region, name, float64(n))
+
 		if isOnDemandTable(table.BillingMode) {
 			continue
 		}
@@ -767,11 +771,12 @@ func (db *InMemoryDB) enforceTransactReadThroughput(
 
 	for name, n := range perTable {
 		table := tables[name]
+		cu := float64(n) * rcuPerRead
+		db.emitRCU(region, name, cu)
+
 		if isOnDemandTable(table.BillingMode) {
 			continue
 		}
-
-		cu := float64(n) * rcuPerRead
 
 		if err := db.throttler.ConsumeRead(throttleKey(region, name), cu); err != nil {
 			return err
@@ -910,9 +915,9 @@ func (db *InMemoryDB) checkTransactWriteCondition(
 		return db.checkTransactCondExpr(
 			ctx,
 			tables[aws.ToString(ti.Delete.TableName)],
-			models.FromSDKItem(ti.Delete.Key),
+			ti.Delete.Key,
 			aws.ToString(ti.Delete.ConditionExpression),
-			models.FromSDKItem(ti.Delete.ExpressionAttributeValues),
+			ti.Delete.ExpressionAttributeValues,
 			ti.Delete.ExpressionAttributeNames,
 			idx,
 			ti.Delete.ReturnValuesOnConditionCheckFailure,
@@ -922,9 +927,9 @@ func (db *InMemoryDB) checkTransactWriteCondition(
 		return db.checkTransactCondExpr(
 			ctx,
 			tables[aws.ToString(ti.Update.TableName)],
-			models.FromSDKItem(ti.Update.Key),
+			ti.Update.Key,
 			aws.ToString(ti.Update.ConditionExpression),
-			models.FromSDKItem(ti.Update.ExpressionAttributeValues),
+			ti.Update.ExpressionAttributeValues,
 			ti.Update.ExpressionAttributeNames,
 			idx,
 			ti.Update.ReturnValuesOnConditionCheckFailure,
@@ -934,9 +939,9 @@ func (db *InMemoryDB) checkTransactWriteCondition(
 		return db.checkTransactCondExpr(
 			ctx,
 			tables[aws.ToString(ti.ConditionCheck.TableName)],
-			models.FromSDKItem(ti.ConditionCheck.Key),
+			ti.ConditionCheck.Key,
 			aws.ToString(ti.ConditionCheck.ConditionExpression),
-			models.FromSDKItem(ti.ConditionCheck.ExpressionAttributeValues),
+			ti.ConditionCheck.ExpressionAttributeValues,
 			ti.ConditionCheck.ExpressionAttributeNames,
 			idx,
 			ti.ConditionCheck.ReturnValuesOnConditionCheckFailure,
@@ -954,39 +959,32 @@ func (db *InMemoryDB) checkTransactPut(
 	idx int,
 	reasons []CancellationReason,
 ) error {
-	table := tables[aws.ToString(input.TableName)]
-	wireItem := models.FromSDKItem(input.Item)
-	oldItem, _ := db.findMatchForPut(table, wireItem)
-
 	cond := aws.ToString(input.ConditionExpression)
 	if cond == "" {
 		return nil
 	}
 
-	eav := models.FromSDKItem(input.ExpressionAttributeValues)
+	table := tables[aws.ToString(input.TableName)]
+	oldItem, _ := db.findMatchForPutSDK(table, input.Item)
 
-	if err := db.checkTransactCondExprRaw(
+	return db.checkTransactCondExprRaw(
 		ctx,
 		oldItem,
 		cond,
-		eav,
+		models.FromSDKItem(input.ExpressionAttributeValues),
 		input.ExpressionAttributeNames,
 		idx,
 		input.ReturnValuesOnConditionCheckFailure,
 		reasons,
-	); err != nil {
-		return err
-	}
-
-	return nil
+	)
 }
 
 func (db *InMemoryDB) checkTransactCondExpr(
 	ctx context.Context,
 	table *Table,
-	key map[string]any,
+	key map[string]types.AttributeValue,
 	condExpr string,
-	eavs map[string]any,
+	eavs map[string]types.AttributeValue,
 	eans map[string]string,
 	idx int,
 	rv types.ReturnValuesOnConditionCheckFailure,
@@ -996,9 +994,9 @@ func (db *InMemoryDB) checkTransactCondExpr(
 		return nil
 	}
 
-	oldItem, _ := db.findMatchForPut(table, key)
+	oldItem, _ := db.findMatchForPutSDK(table, key)
 
-	return db.checkTransactCondExprRaw(ctx, oldItem, condExpr, eavs, eans, idx, rv, reasons)
+	return db.checkTransactCondExprRaw(ctx, oldItem, condExpr, models.FromSDKItem(eavs), eans, idx, rv, reasons)
 }
 
 func (db *InMemoryDB) checkTransactCondExprRaw(
@@ -1037,7 +1035,7 @@ func (db *InMemoryDB) checkTransactCondExprRaw(
 			// item is already in DynamoDB wire form ({"attr":{"S":...}}), which is the
 			// shape AWS returns in CancellationReasons[].Item. Marshalling the smithy SDK
 			// union types instead would emit {"Value":...} and break SDK parsing.
-			reason.Item = item
+			reason.Item = deepCopyItem(item)
 		}
 		reasons[idx] = reason
 
@@ -1062,7 +1060,7 @@ func lsiCollectionMetricFor(
 		return nil
 	}
 
-	m := buildItemCollectionMetrics(table, rim, pkOnlyKey(table, itemKey), collectionBytes)
+	m := buildItemCollectionMetrics(table, rim, itemKey, collectionBytes)
 	if m == nil {
 		return nil
 	}
@@ -1164,8 +1162,7 @@ func (db *InMemoryDB) commitTransactUpdate(
 	rim types.ReturnItemCollectionMetrics,
 	wantIndexes bool,
 ) transactSingleWriteResult {
-	wireKey := models.FromSDKItem(p.action.Key)
-	existing, matchIndex := db.findMatchForPut(table, wireKey)
+	existing, matchIndex := db.findMatchForPutSDK(table, p.action.Key)
 
 	db.commitUpdate(table, existing, p.updated, matchIndex)
 

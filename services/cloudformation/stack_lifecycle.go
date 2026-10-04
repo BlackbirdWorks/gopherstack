@@ -164,16 +164,54 @@ func (b *InMemoryBackend) DescribeAccountLimits() []AccountLimit {
 	}
 }
 
-func (b *InMemoryBackend) RollbackStack(_ context.Context, nameOrID string) (*Stack, error) {
+// RollbackStack rolls a CREATE_FAILED stack back: every resource it managed to create is deleted
+// (Retain/Snapshot ones too when retainExceptOnCreate), per RollbackStackInput.RetainExceptOnCreate.
+func (b *InMemoryBackend) RollbackStack(
+	ctx context.Context, nameOrID string, retainExceptOnCreate bool,
+) (*Stack, error) {
 	b.mu.Lock("RollbackStack")
 	defer b.mu.Unlock()
 	stack, ok := b.resolveStack(nameOrID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrStackNotFound, nameOrID)
 	}
-	stack.StackStatus = statusRollbackComplete
+	if stack.StackStatus != statusCreateFailed {
+		return nil, fmt.Errorf("%w: stack %s is in %s", ErrRollbackStackInvalidState, nameOrID, stack.StackStatus)
+	}
 
-	return stack, nil
+	arn, name := stack.StackID, stack.StackName
+	b.addEvent(arn, name, name, arn, cfnStackType, statusRollbackInProgress, reasonUserInitiated)
+	if b.rollbackCreateResources(ctx, stack, b.creationOrderLocked(stack), retainExceptOnCreate) {
+		b.addEvent(arn, name, name, arn, cfnStackType, statusRollbackComplete, "")
+		stack.StackStatus = statusRollbackComplete
+	} else {
+		reason := reasonRollbackDeleteFailed
+		b.addEvent(arn, name, name, arn, cfnStackType, statusRollbackFailed, reason)
+		stack.StackStatus = statusRollbackFailed
+		stack.StackStatusReason = reason
+	}
+	cp := *stack
+
+	return &cp, nil
+}
+
+// creationOrderLocked lists the stack's live logical IDs oldest-first.
+func (b *InMemoryBackend) creationOrderLocked(stack *Stack) []string {
+	live := b.resources[stack.StackID]
+	ids := make([]string, 0, len(live))
+	for id := range live {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool {
+		ti, tj := live[ids[i]].Timestamp, live[ids[j]].Timestamp
+		if !ti.Equal(tj) {
+			return ti.Before(tj)
+		}
+
+		return ids[i] < ids[j]
+	})
+
+	return ids
 }
 
 // isFailedResourceStatus reports whether status is one of CloudFormation's

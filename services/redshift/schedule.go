@@ -1,10 +1,12 @@
 package redshift
 
 import (
+	"encoding/json"
 	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awscron"
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
 
 // maxNextInvocations bounds how many upcoming ScheduledActionTime entries this
@@ -117,4 +119,54 @@ func (c *cronExpr) matches(t time.Time) bool {
 	}
 
 	return awscron.MatchDayFields(c.dayOfMonth, c.dayOfWeek, t)
+}
+
+// slNextInvocations evaluates a serverless Schedule union ({"at":epoch} or {"cron":"..."})
+// within the action's StartTime/EndTime window; DISABLED actions yield none.
+func slNextInvocations(sa *ServerlessScheduledAction, now time.Time) []float64 {
+	if sa.State == slStateDisabled || len(sa.Schedule) == 0 {
+		return nil
+	}
+
+	var sched struct {
+		At   *float64 `json:"at"`
+		Cron string   `json:"cron"`
+	}
+
+	if json.Unmarshal(sa.Schedule, &sched) != nil {
+		return nil
+	}
+
+	after := now
+	if sa.StartTime.After(after) {
+		after = sa.StartTime.UTC()
+	}
+
+	var times []time.Time
+
+	switch {
+	case sched.At != nil:
+		at := time.Unix(int64(*sched.At), 0).UTC()
+		if !at.Before(after) {
+			times = []time.Time{at}
+		}
+	case sched.Cron != "":
+		times = nextCronInvocations("cron("+strings.TrimSpace(sched.Cron)+")", after)
+	}
+
+	out := make([]float64, 0, len(times))
+
+	for _, t := range times {
+		if !sa.EndTime.IsZero() && t.After(sa.EndTime) {
+			break
+		}
+
+		out = append(out, awstime.Epoch(t))
+	}
+
+	if len(out) == 0 {
+		return nil
+	}
+
+	return out
 }

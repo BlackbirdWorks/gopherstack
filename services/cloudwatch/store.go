@@ -45,7 +45,8 @@ const (
 	alarmStateOK               = "OK"
 	alarmStateInsufficientData = "INSUFFICIENT_DATA"
 
-	insightRuleStateEnabled = "ENABLED"
+	insightRuleStateEnabled  = "ENABLED"
+	insightRuleStateDisabled = "DISABLED"
 
 	historyTypeStateUpdate         = "StateUpdate"
 	historyTypeConfigurationUpdate = "ConfigurationUpdate"
@@ -88,6 +89,7 @@ type InMemoryBackend struct {
 	asgExecutor      AutoScalingPolicyExecutor
 	ec2Actioner      EC2InstanceActioner
 	lambdaInvoker    LambdaInvoker
+	logEvents        LogEventSource
 	registry         *store.Registry
 	logAlarms        *store.Table[LogAlarm]
 	insightRules     *store.Table[InsightRule]
@@ -151,6 +153,19 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 // Caller must hold b.mu (at least read lock).
 func (b *InMemoryBackend) countTotalMetrics() int {
 	return b.totalMetrics
+}
+
+// inheritWiring copies the cross-service clients wired on src so a regional sibling reaches the same targets.
+func (b *InMemoryBackend) inheritWiring(src *InMemoryBackend) {
+	src.mu.RLock("inheritWiring")
+	defer src.mu.RUnlock()
+
+	b.snsPublisher = src.snsPublisher
+	b.lambdaInvoker = src.lambdaInvoker
+	b.ec2Actioner = src.ec2Actioner
+	b.asgExecutor = src.asgExecutor
+	b.firehosePutter = src.firehosePutter
+	b.logEvents = src.logEvents
 }
 
 // SetSNSPublisher registers an SNS publisher used to fire alarm action notifications.

@@ -8,8 +8,10 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -87,6 +89,7 @@ const (
 // Handler is the Echo HTTP handler for IoT Data Plane operations.
 type Handler struct {
 	Backend StorageBackend
+	peers   *regionpeers.Set[Handler]
 }
 
 // NewHandler creates a new IoT Data Plane Handler.
@@ -97,6 +100,10 @@ func NewHandler(backend StorageBackend) *Handler {
 // Reset clears all handler state by delegating to the backend.
 func (h *Handler) Reset() {
 	h.Backend.Reset()
+
+	for _, p := range h.peers.Drain() {
+		p.Backend.Reset()
+	}
 }
 
 // Name returns the service name.
@@ -450,6 +457,10 @@ func invalidRequestResponse(c *echo.Context, message string) error {
 // Handler returns the Echo handler function for IoT Data Plane operations.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
+			return p.Handler()(c)
+		}
+
 		path := c.Request().URL.Path
 		switch {
 		case strings.HasPrefix(path, "/topics/"):

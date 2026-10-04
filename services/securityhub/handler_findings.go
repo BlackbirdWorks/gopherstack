@@ -110,15 +110,9 @@ func (h *Handler) handleUpdateFindings(c *echo.Context, body map[string]any) err
 	note, _ := body["Note"].(map[string]any)
 	recordState, _ := body["RecordState"].(string)
 
-	// ErrHubNotEnabled is left unheadered: UpdateFindings models both
-	// InvalidAccessException and ResourceNotFoundException
-	// (securityhub@v1.75.4 deserializers.go), same ambiguity as handler_hub.go's
-	// V1 handlers.
 	if err := h.Backend.UpdateFindings(filters, note, recordState); err != nil {
 		if errors.Is(err, ErrHubNotEnabled) {
-			return c.JSON(http.StatusBadRequest, map[string]any{
-				keyMessage: msgHubNotEnabled,
-			})
+			return hubNotSubscribed(c)
 		}
 
 		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())

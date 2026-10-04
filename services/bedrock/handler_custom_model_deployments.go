@@ -141,6 +141,10 @@ func parseListCustomModelDeploymentsQuery(c *echo.Context) *ListCustomModelDeplo
 }
 
 func (h *Handler) handleListCustomModelDeployments(c *echo.Context) error {
+	if err := validateListSortParams(c.Request().URL.Query()); err != nil {
+		return h.writeError(c, err)
+	}
+
 	deployments, nextToken := h.Backend.ListCustomModelDeployments(parseListCustomModelDeploymentsQuery(c))
 	summaries := make([]map[string]any, 0, len(deployments))
 

@@ -107,6 +107,7 @@ func TestTerraform_GuardDuty(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+			lockGuardDuty(t)
 			runTFTest(t, tc)
 		})
 	}
@@ -141,6 +142,7 @@ func TestTerraform_SecurityHub(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+			lockSecurityHub(t)
 			runTFTest(t, tc)
 		})
 	}

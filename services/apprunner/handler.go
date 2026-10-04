@@ -11,7 +11,9 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -33,6 +35,7 @@ var (
 type Handler struct {
 	Backend StorageBackend
 	ops     map[string]service.JSONOpFunc
+	peers   *regionpeers.Set[Handler]
 }
 
 // NewHandler constructs a new Handler.
@@ -50,6 +53,10 @@ func (h *Handler) Name() string { return "AppRunner" }
 func (h *Handler) Reset() {
 	h.Backend.Reset()
 	h.ops = h.buildOps()
+
+	for _, p := range h.peers.Drain() {
+		p.Reset()
+	}
 }
 
 // GetSupportedOperations returns the list of supported operations.
@@ -118,6 +125,10 @@ func (h *Handler) ExtractResource(_ *echo.Context) string { return "" }
 // Handler returns the Echo handler function for App Runner requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
+			return p.Handler()(c)
+		}
+
 		return service.HandleTarget(
 			c, logger.Load(c.Request().Context()),
 			"AppRunner", contentType,

@@ -333,6 +333,52 @@ func TestHandler_CreateHyperParameterTuningJob_ReachesCompleted(t *testing.T) {
 	})
 }
 
+// TestHandler_HyperParameterTuningJob_EndTime_RealClient asserts HyperParameterTuningEndTime is
+// populated on Completed. Uses require.Eventually, not synctest, which deadlocks here (gopherstack-k3ae).
+func TestHandler_HyperParameterTuningJob_EndTime_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	_, err := client.CreateHyperParameterTuningJob(t.Context(), &sagemakersdk.CreateHyperParameterTuningJobInput{
+		HyperParameterTuningJobName: aws.String("hpt-end-time"),
+		HyperParameterTuningJobConfig: &smtypes.HyperParameterTuningJobConfig{
+			Strategy:       smtypes.HyperParameterTuningJobStrategyTypeBayesian,
+			ResourceLimits: &smtypes.ResourceLimits{MaxParallelTrainingJobs: aws.Int32(1)},
+		},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeHyperParameterTuningJob(
+		t.Context(), &sagemakersdk.DescribeHyperParameterTuningJobInput{
+			HyperParameterTuningJobName: aws.String("hpt-end-time"),
+		},
+	)
+	require.NoError(t, err)
+	assert.Nil(t, out.HyperParameterTuningEndTime)
+
+	require.Eventually(t, func() bool {
+		polled, pollErr := client.DescribeHyperParameterTuningJob(
+			t.Context(), &sagemakersdk.DescribeHyperParameterTuningJobInput{
+				HyperParameterTuningJobName: aws.String("hpt-end-time"),
+			},
+		)
+		require.NoError(t, pollErr)
+
+		return polled.HyperParameterTuningJobStatus == smtypes.HyperParameterTuningJobStatusCompleted
+	}, 2*time.Second, 10*time.Millisecond)
+
+	out, err = client.DescribeHyperParameterTuningJob(
+		t.Context(), &sagemakersdk.DescribeHyperParameterTuningJobInput{
+			HyperParameterTuningJobName: aws.String("hpt-end-time"),
+		},
+	)
+	require.NoError(t, err)
+	require.NotNil(t, out.HyperParameterTuningEndTime)
+	assert.False(t, out.HyperParameterTuningEndTime.Before(aws.ToTime(out.CreationTime)))
+}
+
 // TestHandler_CreateHyperParameterTuningJob_ExtrasRoundTrip_RealClient
 // asserts Autotune/WarmStartConfig/TrainingJobDefinition/
 // HyperParameterTuningJobConfig's ParameterRanges/TrainingJobEarlyStoppingType

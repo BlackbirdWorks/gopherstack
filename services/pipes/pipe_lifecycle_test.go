@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -94,21 +95,24 @@ func TestLifecycle_CreatingToRunning(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := auditNewBackend()
-			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
-				RoleARN:      "arn:aws:iam::123456789012:role/r",
-				Name:         tt.name,
-				Source:       "arn:aws:sqs:us-west-2:123456789012:q",
-				Target:       "arn:aws:lambda:us-west-2:123456789012:function:fn",
-				DesiredState: tt.desiredState,
-			})
-			require.NoError(t, err)
+			synctest.Test(t, func(t *testing.T) {
+				b := auditNewBackend()
+				_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
+					RoleARN:      "arn:aws:iam::123456789012:role/r",
+					Name:         tt.name,
+					Source:       "arn:aws:sqs:us-west-2:123456789012:q",
+					Target:       "arn:aws:lambda:us-west-2:123456789012:function:fn",
+					DesiredState: tt.desiredState,
+				})
+				require.NoError(t, err)
 
-			require.Eventually(t, func() bool {
+				time.Sleep(20 * time.Millisecond)
+				synctest.Wait()
+
 				p, getErr := b.GetPipe(context.Background(), tt.name)
-
-				return getErr == nil && p.CurrentState == tt.wantEventualState
-			}, 500*time.Millisecond, 5*time.Millisecond)
+				require.NoError(t, getErr)
+				assert.Equal(t, tt.wantEventualState, p.CurrentState)
+			})
 		})
 	}
 }
@@ -138,36 +142,39 @@ func TestLifecycle_Updating(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := auditNewBackend()
-			pipeName := tt.name + "-pipe"
-			desiredState := "RUNNING"
-			if tt.wantEventualState == "STOPPED" {
-				desiredState = "STOPPED"
-			}
-			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
-				RoleARN:      "arn:aws:iam::123456789012:role/r",
-				Name:         pipeName,
-				Source:       "arn:aws:sqs:us-west-2:123456789012:q",
-				Target:       "arn:aws:lambda:us-west-2:123456789012:function:fn",
-				DesiredState: "RUNNING",
-			})
-			require.NoError(t, err)
-			pipes.WaitPipeRunning(t, b, pipeName)
+			synctest.Test(t, func(t *testing.T) {
+				b := auditNewBackend()
+				pipeName := tt.name + "-pipe"
+				desiredState := "RUNNING"
+				if tt.wantEventualState == "STOPPED" {
+					desiredState = "STOPPED"
+				}
+				_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
+					RoleARN:      "arn:aws:iam::123456789012:role/r",
+					Name:         pipeName,
+					Source:       "arn:aws:sqs:us-west-2:123456789012:q",
+					Target:       "arn:aws:lambda:us-west-2:123456789012:function:fn",
+					DesiredState: "RUNNING",
+				})
+				require.NoError(t, err)
+				pipes.WaitPipeRunning(t, b, pipeName)
 
-			desc := tt.description
-			updated, err := b.UpdatePipe(context.Background(), pipeName, pipes.UpdatePipeInput{
-				RoleARN:      "arn:aws:iam::123456789012:role/r",
-				Description:  &desc,
-				DesiredState: desiredState,
-			})
-			require.NoError(t, err)
-			assert.Equal(t, "UPDATING", updated.CurrentState, "UpdatePipe should return UPDATING state")
+				desc := tt.description
+				updated, err := b.UpdatePipe(context.Background(), pipeName, pipes.UpdatePipeInput{
+					RoleARN:      "arn:aws:iam::123456789012:role/r",
+					Description:  &desc,
+					DesiredState: desiredState,
+				})
+				require.NoError(t, err)
+				assert.Equal(t, "UPDATING", updated.CurrentState, "UpdatePipe should return UPDATING state")
 
-			require.Eventually(t, func() bool {
+				time.Sleep(20 * time.Millisecond)
+				synctest.Wait()
+
 				p, e := b.GetPipe(context.Background(), pipeName)
-
-				return e == nil && p.CurrentState == tt.wantEventualState
-			}, 500*time.Millisecond, 5*time.Millisecond)
+				require.NoError(t, e)
+				assert.Equal(t, tt.wantEventualState, p.CurrentState)
+			})
 		})
 	}
 }
@@ -187,26 +194,28 @@ func TestLifecycle_Deleting(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := auditNewBackend()
-			pipeName := tt.name + "-pipe"
-			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
-				RoleARN:      "arn:aws:iam::123456789012:role/r",
-				Name:         pipeName,
-				Source:       "arn:aws:sqs:us-west-2:123456789012:q",
-				Target:       "arn:aws:lambda:us-west-2:123456789012:function:fn",
-				DesiredState: "RUNNING",
-			})
-			require.NoError(t, err)
+			synctest.Test(t, func(t *testing.T) {
+				b := auditNewBackend()
+				pipeName := tt.name + "-pipe"
+				_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
+					RoleARN:      "arn:aws:iam::123456789012:role/r",
+					Name:         pipeName,
+					Source:       "arn:aws:sqs:us-west-2:123456789012:q",
+					Target:       "arn:aws:lambda:us-west-2:123456789012:function:fn",
+					DesiredState: "RUNNING",
+				})
+				require.NoError(t, err)
 
-			deleted, err := b.DeletePipe(context.Background(), pipeName)
-			require.NoError(t, err)
-			assert.Equal(t, "DELETING", deleted.CurrentState, "DeletePipe should return DELETING state")
+				deleted, err := b.DeletePipe(context.Background(), pipeName)
+				require.NoError(t, err)
+				assert.Equal(t, "DELETING", deleted.CurrentState, "DeletePipe should return DELETING state")
 
-			require.Eventually(t, func() bool {
+				time.Sleep(20 * time.Millisecond)
+				synctest.Wait()
+
 				_, e := b.GetPipe(context.Background(), pipeName)
-
-				return e != nil
-			}, 500*time.Millisecond, 5*time.Millisecond, "pipe should be removed after DELETING transition")
+				assert.Error(t, e, "pipe should be removed after DELETING transition")
+			})
 		})
 	}
 }
@@ -261,54 +270,56 @@ func TestLifecycle_StartStop(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := b2Backend()
-			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
-				RoleARN:      "arn:aws:iam::123456789012:role/r",
-				Name:         tt.name,
-				Source:       b2SQSSource,
-				Target:       b2ECSTarget,
-				DesiredState: "RUNNING",
-				TargetParameters: &pipes.TargetParameters{
-					EcsTaskParameters: &pipes.ECSTaskTargetParameters{
-						TaskDefinitionArn: "arn:aws:ecs:us-east-1:123456789012:task-definition/td:1",
-						LaunchType:        "FARGATE",
-						NetworkConfiguration: &pipes.NetworkConfiguration{
-							AwsvpcConfiguration: &pipes.AwsVpcConfiguration{
-								Subnets: []string{"subnet-aaa"},
+			synctest.Test(t, func(t *testing.T) {
+				b := b2Backend()
+				_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
+					RoleARN:      "arn:aws:iam::123456789012:role/r",
+					Name:         tt.name,
+					Source:       b2SQSSource,
+					Target:       b2ECSTarget,
+					DesiredState: "RUNNING",
+					TargetParameters: &pipes.TargetParameters{
+						EcsTaskParameters: &pipes.ECSTaskTargetParameters{
+							TaskDefinitionArn: "arn:aws:ecs:us-east-1:123456789012:task-definition/td:1",
+							LaunchType:        "FARGATE",
+							NetworkConfiguration: &pipes.NetworkConfiguration{
+								AwsvpcConfiguration: &pipes.AwsVpcConfiguration{
+									Subnets: []string{"subnet-aaa"},
+								},
 							},
 						},
 					},
-				},
+				})
+				require.NoError(t, err)
+				pipes.WaitPipeRunning(t, b, tt.name)
+
+				stopped, err := b.StopPipe(context.Background(), tt.name)
+				require.NoError(t, err)
+				assert.Equal(t, "STOPPING", stopped.CurrentState)
+
+				time.Sleep(20 * time.Millisecond)
+				synctest.Wait()
+
+				p, e := b.GetPipe(context.Background(), tt.name)
+				require.NoError(t, e)
+				assert.Equal(t, "STOPPED", p.CurrentState)
+
+				started, err := b.StartPipe(context.Background(), tt.name)
+				require.NoError(t, err)
+				assert.Equal(t, "STARTING", started.CurrentState)
+
+				time.Sleep(20 * time.Millisecond)
+				synctest.Wait()
+
+				p, err = b.GetPipe(context.Background(), tt.name)
+				require.NoError(t, err)
+				assert.Equal(t, "RUNNING", p.CurrentState)
+
+				ecs := p.TargetParameters.EcsTaskParameters
+				require.NotNil(t, ecs.NetworkConfiguration)
+				assert.Equal(t, "subnet-aaa",
+					ecs.NetworkConfiguration.AwsvpcConfiguration.Subnets[0])
 			})
-			require.NoError(t, err)
-			pipes.WaitPipeRunning(t, b, tt.name)
-
-			stopped, err := b.StopPipe(context.Background(), tt.name)
-			require.NoError(t, err)
-			assert.Equal(t, "STOPPING", stopped.CurrentState)
-
-			require.Eventually(t, func() bool {
-				p, e := b.GetPipe(context.Background(), tt.name)
-
-				return e == nil && p.CurrentState == "STOPPED"
-			}, 500*time.Millisecond, 5*time.Millisecond)
-
-			started, err := b.StartPipe(context.Background(), tt.name)
-			require.NoError(t, err)
-			assert.Equal(t, "STARTING", started.CurrentState)
-
-			require.Eventually(t, func() bool {
-				p, e := b.GetPipe(context.Background(), tt.name)
-
-				return e == nil && p.CurrentState == "RUNNING"
-			}, 500*time.Millisecond, 5*time.Millisecond)
-
-			p, err := b.GetPipe(context.Background(), tt.name)
-			require.NoError(t, err)
-			ecs := p.TargetParameters.EcsTaskParameters
-			require.NotNil(t, ecs.NetworkConfiguration)
-			assert.Equal(t, "subnet-aaa",
-				ecs.NetworkConfiguration.AwsvpcConfiguration.Subnets[0])
 		})
 	}
 }
@@ -328,35 +339,37 @@ func TestLifecycle_Delete(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := b2Backend()
-			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
-				RoleARN: "arn:aws:iam::123456789012:role/r",
-				Name:    tt.name,
-				Source:  b2SQSSource,
-				Target:  "arn:aws:batch:us-east-1:123456789012:job-queue/q",
-				TargetParameters: &pipes.TargetParameters{
-					BatchJobParameters: &pipes.BatchJobTargetParameters{
-						JobDefinition: "jd",
-						JobName:       "job",
-						DependsOn: []pipes.BatchJobDependency{
-							{JobID: "parent-job", Type: "SEQUENTIAL"},
+			synctest.Test(t, func(t *testing.T) {
+				b := b2Backend()
+				_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
+					RoleARN: "arn:aws:iam::123456789012:role/r",
+					Name:    tt.name,
+					Source:  b2SQSSource,
+					Target:  "arn:aws:batch:us-east-1:123456789012:job-queue/q",
+					TargetParameters: &pipes.TargetParameters{
+						BatchJobParameters: &pipes.BatchJobTargetParameters{
+							JobDefinition: "jd",
+							JobName:       "job",
+							DependsOn: []pipes.BatchJobDependency{
+								{JobID: "parent-job", Type: "SEQUENTIAL"},
+							},
 						},
 					},
-				},
-			})
-			require.NoError(t, err)
+				})
+				require.NoError(t, err)
 
-			deleted, err := b.DeletePipe(context.Background(), tt.name)
-			require.NoError(t, err)
-			assert.Equal(t, "DELETING", deleted.CurrentState)
-			assert.Equal(t, "parent-job",
-				deleted.TargetParameters.BatchJobParameters.DependsOn[0].JobID)
+				deleted, err := b.DeletePipe(context.Background(), tt.name)
+				require.NoError(t, err)
+				assert.Equal(t, "DELETING", deleted.CurrentState)
+				assert.Equal(t, "parent-job",
+					deleted.TargetParameters.BatchJobParameters.DependsOn[0].JobID)
 
-			require.Eventually(t, func() bool {
+				time.Sleep(20 * time.Millisecond)
+				synctest.Wait()
+
 				_, e := b.GetPipe(context.Background(), tt.name)
-
-				return e != nil
-			}, 500*time.Millisecond, 5*time.Millisecond)
+				assert.Error(t, e)
+			})
 		})
 	}
 }
@@ -392,39 +405,42 @@ func TestPipeStateTransitions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newPipeBackend()
-			pipeName := "transition-" + tt.name
+			synctest.Test(t, func(t *testing.T) {
+				b := newPipeBackend()
+				pipeName := "transition-" + tt.name
 
-			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
-				RoleARN:      "arn:aws:iam::123456789012:role/r",
-				Name:         pipeName,
-				Source:       "arn:aws:sqs:us-east-1:000000000000:queue",
-				Target:       "arn:aws:lambda:us-east-1:000000000000:function:fn",
-				DesiredState: tt.initialState,
-			})
-			require.NoError(t, err)
+				_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
+					RoleARN:      "arn:aws:iam::123456789012:role/r",
+					Name:         pipeName,
+					Source:       "arn:aws:sqs:us-east-1:000000000000:queue",
+					Target:       "arn:aws:lambda:us-east-1:000000000000:function:fn",
+					DesiredState: tt.initialState,
+				})
+				require.NoError(t, err)
 
-			// Perform the action.
-			var result *pipes.Pipe
-			switch tt.action {
-			case "stop":
-				result, err = b.StopPipe(context.Background(), pipeName)
-			case "start":
-				result, err = b.StartPipe(context.Background(), pipeName)
-			}
-			require.NoError(t, err)
+				// Perform the action.
+				var result *pipes.Pipe
+				switch tt.action {
+				case "stop":
+					result, err = b.StopPipe(context.Background(), pipeName)
+				case "start":
+					result, err = b.StartPipe(context.Background(), pipeName)
+				}
+				require.NoError(t, err)
 
-			// Verify intermediate state in the synchronous return value.
-			assert.Equal(t, tt.wantImmediate, result.CurrentState,
-				"expected intermediate state %q", tt.wantImmediate)
+				// Verify intermediate state in the synchronous return value.
+				assert.Equal(t, tt.wantImmediate, result.CurrentState,
+					"expected intermediate state %q", tt.wantImmediate)
 
-			// Wait for the async transition to complete.
-			require.Eventually(t, func() bool {
+				// Wait for the async transition to complete.
+				time.Sleep(30 * time.Millisecond)
+				synctest.Wait()
+
 				p, e := b.GetPipe(context.Background(), pipeName)
-
-				return e == nil && p.CurrentState == tt.wantEventualFinal
-			}, 2*time.Second, 10*time.Millisecond,
-				"timed out waiting for pipe to reach %q", tt.wantEventualFinal)
+				require.NoError(t, e)
+				assert.Equal(t, tt.wantEventualFinal, p.CurrentState,
+					"expected pipe to reach %q", tt.wantEventualFinal)
+			})
 		})
 	}
 }
@@ -785,30 +801,37 @@ func TestUpdatePipe_UpdatesLastModifiedTime(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := auditNewBackend()
-			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
-				RoleARN:      "arn:aws:iam::123456789012:role/r",
-				Name:         tt.name + "-pipe",
-				Source:       "arn:aws:sqs:us-west-2:123456789012:q",
-				Target:       "arn:aws:lambda:us-west-2:123456789012:function:fn",
-				DesiredState: "RUNNING",
+			synctest.Test(t, func(t *testing.T) {
+				b := auditNewBackend()
+				_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
+					RoleARN:      "arn:aws:iam::123456789012:role/r",
+					Name:         tt.name + "-pipe",
+					Source:       "arn:aws:sqs:us-west-2:123456789012:q",
+					Target:       "arn:aws:lambda:us-west-2:123456789012:function:fn",
+					DesiredState: "RUNNING",
+				})
+				require.NoError(t, err)
+				pipes.WaitPipeRunning(t, b, tt.name+"-pipe")
+
+				before, _ := b.GetPipe(context.Background(), tt.name+"-pipe")
+				time.Sleep(2 * time.Millisecond)
+
+				updatedDesc := "updated"
+				_, err = b.UpdatePipe(context.Background(), tt.name+"-pipe", pipes.UpdatePipeInput{
+					RoleARN:     "arn:aws:iam::123456789012:role/r",
+					Description: &updatedDesc,
+				})
+				require.NoError(t, err)
+
+				after, _ := b.GetPipe(context.Background(), tt.name+"-pipe")
+				assert.True(t, after.LastModifiedTime.After(before.LastModifiedTime),
+					"LastModifiedTime should increase after update")
+
+				// Drain UpdatePipe's pending UPDATING->RUNNING transition
+				// goroutine before the bubble closes.
+				time.Sleep(20 * time.Millisecond)
+				synctest.Wait()
 			})
-			require.NoError(t, err)
-			pipes.WaitPipeRunning(t, b, tt.name+"-pipe")
-
-			before, _ := b.GetPipe(context.Background(), tt.name+"-pipe")
-			time.Sleep(2 * time.Millisecond)
-
-			updatedDesc := "updated"
-			_, err = b.UpdatePipe(context.Background(), tt.name+"-pipe", pipes.UpdatePipeInput{
-				RoleARN:     "arn:aws:iam::123456789012:role/r",
-				Description: &updatedDesc,
-			})
-			require.NoError(t, err)
-
-			after, _ := b.GetPipe(context.Background(), tt.name+"-pipe")
-			assert.True(t, after.LastModifiedTime.After(before.LastModifiedTime),
-				"LastModifiedTime should increase after update")
 		})
 	}
 }

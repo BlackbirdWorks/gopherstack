@@ -182,7 +182,7 @@ func TestMoveByoipCidrToIpam_Backend(t *testing.T) {
 	_, err = bk.MoveByoipCidrToIpam("198.51.100.0/24", pool.IpamPoolID, "123456789012")
 	require.Error(t, err)
 
-	_, err = bk.ProvisionByoipCidr("198.51.100.0/24", "test cidr")
+	_, err = bk.ProvisionByoipCidr("198.51.100.0/24", "test cidr", nil)
 	require.NoError(t, err)
 
 	// IpamPoolOwner is required.

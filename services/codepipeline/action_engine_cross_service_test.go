@@ -3,11 +3,16 @@ package codepipeline_test
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/services/codepipeline"
 )
 
@@ -18,7 +23,7 @@ type fakeCodeBuildStarter struct {
 	err error
 }
 
-func (f *fakeCodeBuildStarter) StartBuild(_ string) error { return f.err }
+func (f *fakeCodeBuildStarter) StartBuild(_ context.Context, _ string) error { return f.err }
 
 // fakeLambdaInvoker is a minimal codepipeline.LambdaInvoker double.
 type fakeLambdaInvoker struct {
@@ -36,7 +41,7 @@ type fakeCodeDeployStarter struct {
 	err error
 }
 
-func (f *fakeCodeDeployStarter) CreateDeployment(_, _ string) error { return f.err }
+func (f *fakeCodeDeployStarter) CreateDeployment(_ context.Context, _, _ string) error { return f.err }
 
 // codeBuildActionPipeline returns a 2-stage pipeline (Source -> Build) whose
 // Build stage is a single built-in Build/CodeBuild action configured with
@@ -320,4 +325,84 @@ func TestRunOneAction_NonAWSProviderUntouched(t *testing.T) {
 	exec, err := h.Backend.StartPipelineExecution(ctx, p.Name)
 	require.NoError(t, err)
 	assert.Equal(t, "Succeeded", exec.Status)
+}
+
+// regionRecorder records the region each cross-service call carried.
+type regionRecorder struct{ regions []string }
+
+func (r *regionRecorder) StartBuild(ctx context.Context, _ string) error {
+	r.regions = append(r.regions, awsmeta.Region(ctx))
+
+	return nil
+}
+
+func (r *regionRecorder) CreateDeployment(ctx context.Context, _, _ string) error {
+	r.regions = append(r.regions, awsmeta.Region(ctx))
+
+	return nil
+}
+
+func (r *regionRecorder) InvokeFunction(ctx context.Context, _, _ string, _ []byte) ([]byte, int, error) {
+	r.regions = append(r.regions, awsmeta.Region(ctx))
+
+	return nil, 200, nil
+}
+
+func TestRunOneAction_CrossServiceCallsCarryPipelineRegion(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		region   string
+		provider string
+		category string
+		config   string
+	}{
+		{
+			name:     "codebuild",
+			region:   "eu-west-1",
+			provider: "CodeBuild",
+			category: "Build",
+			config:   `{"ProjectName":"p"}`,
+		},
+		{name: "lambda", region: "ap-south-1", provider: "Lambda", category: "Invoke", config: `{"FunctionName":"f"}`},
+		{
+			name: "codedeploy", region: "us-west-2", provider: "CodeDeploy", category: "Deploy",
+			config: `{"ApplicationName":"a","DeploymentGroupName":"g"}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := &regionRecorder{}
+			h := newTestHandler(t)
+			h.Backend.SetCodeBuildBackend(rec)
+			h.Backend.SetLambdaBackend(rec)
+			h.Backend.SetCodeDeployBackend(rec)
+
+			call := func(op, body string) {
+				req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+				req.Header.Set("X-Amz-Target", "CodePipeline_20150709."+op)
+				req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+				req.Header.Set("X-Amz-Region", tt.region)
+
+				w := httptest.NewRecorder()
+				require.NoError(t, h.Handler()(echo.New().NewContext(req, w)))
+				require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+			}
+
+			call("CreatePipeline", `{"pipeline":{"name":"p","roleArn":"arn:aws:iam::000000000000:role/r",`+
+				`"artifactStore":{"type":"S3","location":"b"},"stages":[`+
+				`{"name":"Source","actions":[{"name":"s","actionTypeId":{"category":"Source","owner":"AWS",`+
+				`"provider":"S3","version":"1"},"configuration":{"S3Bucket":"b","S3ObjectKey":"k"},`+
+				`"outputArtifacts":[{"name":"o"}]}]},`+
+				`{"name":"Act","actions":[{"name":"a","actionTypeId":{"category":"`+tt.category+`","owner":"AWS",`+
+				`"provider":"`+tt.provider+`","version":"1"},"configuration":`+tt.config+
+				`,"inputArtifacts":[{"name":"o"}]}]}]}}`)
+			call("StartPipelineExecution", `{"name":"p"}`)
+			assert.Equal(t, []string{tt.region}, rec.regions)
+		})
+	}
 }

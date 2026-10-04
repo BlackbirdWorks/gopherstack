@@ -426,3 +426,52 @@ func TestDistributionCacheBehaviorRoundTrip(t *testing.T) {
 		lightsailtypes.BehaviorEnumDontCacheSetting, afterUpdate.Distributions[0].DefaultCacheBehavior.Behavior,
 	)
 }
+
+// TestUpdateDistribution_OriginRoundTrip proves Origin actually replaces a
+// distribution's origin resource (previously decoded nowhere).
+func TestUpdateDistribution_OriginRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	client := newTestClient(t)
+	ctx := t.Context()
+
+	_, err := client.CreateBucket(ctx, &lightsailsdk.CreateBucketInput{
+		BucketName: aws.String("origin-swap-bucket"), BundleId: aws.String("small_1_0"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateInstances(ctx, &lightsailsdk.CreateInstancesInput{
+		InstanceNames: []string{"origin-swap-instance"}, AvailabilityZone: aws.String("us-east-1a"),
+		BlueprintId: aws.String("amazon_linux_2023"), BundleId: aws.String("nano_3_0"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateDistribution(ctx, &lightsailsdk.CreateDistributionInput{
+		DistributionName:     aws.String("origin-swap-dist"),
+		BundleId:             aws.String("small_1_0"),
+		Origin:               &lightsailtypes.InputOrigin{Name: aws.String("origin-swap-bucket")},
+		DefaultCacheBehavior: &lightsailtypes.CacheBehavior{Behavior: lightsailtypes.BehaviorEnumCacheSetting},
+	})
+	require.NoError(t, err)
+
+	_, err = client.UpdateDistribution(ctx, &lightsailsdk.UpdateDistributionInput{
+		DistributionName: aws.String("origin-swap-dist"),
+		Origin:           &lightsailtypes.InputOrigin{Name: aws.String("origin-swap-instance")},
+	})
+	require.NoError(t, err)
+
+	distOut, err := client.GetDistributions(
+		ctx, &lightsailsdk.GetDistributionsInput{DistributionName: aws.String("origin-swap-dist")},
+	)
+	require.NoError(t, err)
+	require.Len(t, distOut.Distributions, 1)
+	require.NotNil(t, distOut.Distributions[0].Origin)
+	assert.Equal(t, "origin-swap-instance", aws.ToString(distOut.Distributions[0].Origin.Name))
+	assert.Contains(t, aws.ToString(distOut.Distributions[0].OriginPublicDNS), "origin-swap-instance")
+
+	_, err = client.UpdateDistribution(ctx, &lightsailsdk.UpdateDistributionInput{
+		DistributionName: aws.String("origin-swap-dist"),
+		Origin:           &lightsailtypes.InputOrigin{Name: aws.String("does-not-exist")},
+	})
+	require.Error(t, err, "an unknown origin resource must be rejected")
+}

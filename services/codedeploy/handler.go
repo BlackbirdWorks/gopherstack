@@ -10,8 +10,10 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -36,7 +38,8 @@ var errUnknownAction = errors.New("unknown action")
 type Handler struct {
 	Backend *InMemoryBackend
 	// ops is a pre-built dispatch table to avoid allocating a new map on every request.
-	ops map[string]service.JSONOpFunc
+	ops   map[string]service.JSONOpFunc
+	peers *regionpeers.Set[Handler]
 }
 
 // NewHandler creates a new CodeDeploy handler with a pre-built dispatch table.
@@ -50,6 +53,29 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 // Reset clears the handler state by delegating to the backend.
 func (h *Handler) Reset() {
 	h.Backend.Reset()
+
+	for _, p := range h.peers.Drain() {
+		p.Backend.Reset()
+	}
+}
+
+// EnableRegions makes h serve every other region through lazily built per-region siblings.
+func (h *Handler) EnableRegions() {
+	h.peers = regionpeers.New(h.Backend.region, func(region string) *Handler {
+		nb := NewInMemoryBackend(h.Backend.accountID, region)
+		nb.SetAppConfig(h.Backend.appConfig)
+
+		return NewHandler(nb)
+	})
+}
+
+// BackendFor returns the backend serving region: the home backend, or the sibling built on first use.
+func (h *Handler) BackendFor(region string) *InMemoryBackend {
+	if p := h.peers.Get(region); p != nil {
+		return p.Backend
+	}
+
+	return h.Backend
 }
 
 // Name returns the service name.
@@ -159,6 +185,10 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
+			return p.Handler()(c)
+		}
+
 		return service.HandleTarget(
 			c, logger.Load(c.Request().Context()),
 			"CodeDeploy", "application/x-amz-json-1.1",

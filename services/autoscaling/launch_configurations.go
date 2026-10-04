@@ -5,8 +5,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/config"
 )
 
 // CreateLaunchConfiguration creates a new launch configuration.
@@ -32,7 +30,7 @@ func (b *InMemoryBackend) CreateLaunchConfiguration(
 		LaunchConfigurationName: input.LaunchConfigurationName,
 		LaunchConfigurationARN: fmt.Sprintf(
 			"arn:aws:autoscaling:%s:%s:launchConfiguration:%s:launchConfigurationName/%s",
-			config.DefaultRegion, config.DefaultAccountID, uuid.NewString(), input.LaunchConfigurationName,
+			b.region, b.accountID, uuid.NewString(), input.LaunchConfigurationName,
 		),
 		ImageID:                      input.ImageID,
 		InstanceType:                 input.InstanceType,

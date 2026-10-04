@@ -40,12 +40,13 @@ import (
 type moduleCodes struct {
 	typeCodes      map[string]bool
 	deserCodes     map[string]bool
+	aliasCodes     map[string]bool
 	opFuncs        int
 	matchedOpFuncs int
 }
 
 func newModuleCodes() *moduleCodes {
-	return &moduleCodes{typeCodes: map[string]bool{}, deserCodes: map[string]bool{}}
+	return &moduleCodes{typeCodes: map[string]bool{}, deserCodes: map[string]bool{}, aliasCodes: map[string]bool{}}
 }
 
 // loadModuleCodes reads modPath's types/errors.go and deserializers.go. A
@@ -81,6 +82,13 @@ func loadModuleCodes(modPath string) (*moduleCodes, error) {
 		mc.opFuncs = opFuncs
 		mc.matchedOpFuncs = matchedOpFuncs
 	}
+
+	aliases, err := parseSchemaQueryAliases(filepath.Join(modPath, "schemas", "schemas.go"))
+	if err != nil {
+		return nil, err
+	}
+
+	mc.aliasCodes = aliases
 
 	return mc, nil
 }
@@ -312,6 +320,10 @@ func buildServiceGroundTruth(
 		}
 
 		for c := range mc.deserCodes {
+			gt.codes[c] = true
+		}
+
+		for c := range mc.aliasCodes {
 			gt.codes[c] = true
 		}
 	}

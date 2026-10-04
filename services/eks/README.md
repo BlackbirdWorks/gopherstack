@@ -8,23 +8,16 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 70 (70 ok) |
-| Known gaps | 11 |
+| Known gaps | 4 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- ListUpdates.AddonName/CapabilityName filters are unimplemented: UpdateAddon/UpdateCapability never create an Update record in this backend (they return a fabricated Update-shaped map directly, not a stored Update), so there is no addon/capability-scoped Update to filter over yet
-- Insight/DescribeInsight content beyond the two derivable UPGRADE_READINESS checks (Kubernetes version end-of-support, version behind latest -- gopherstack-wf8f item 2) remains unmodeled: deprecated-Kubernetes-API-usage insights, AddonCompatibilityDetails, InsightCategorySpecificSummary.DeprecationDetails, Resources[]/InsightResourceDetail, and the entire MISCONFIGURATION category (EKS Hybrid Nodes) all require either a live Kubernetes API server or a hybrid-nodes model this backend does not have -- inherent emulator limitation, not something fixable by more wire-shape work
-- ArgoCdAwsIdcConfig.IdcManagedApplicationArn and ArgoCdConfig.ServerUrl (real AWS's server-computed IAM Identity Center application ARN and Argo CD web/API URL) have no documented derivation pattern anywhere in the pinned SDK's doc comments or the EKS user guide's capabilities/argocd pages (WebFetch'd 2026-09-11) -- left empty on every CreateCapability/DescribeCapability/UpdateCapability response rather than fabricated
-- ClientRequestToken idempotency (gopherstack-wf8f item 3) does not enforce the documented 24-hour token validity window (api_op_CreateCluster.go: 'This token is valid for 24 hours after creation.') -- tokens remain valid for the lifetime of the backend. Conservative (can only cause an over-eager replay of a token real AWS would have already expired, never fabricate a wrong new resource); no TTL sweep infrastructure was added for this
-- gopherstack-lruaw (2026-09-11): CertificateAuthority.ScheduledEvents (FinalAutoActivation/FirstAutoActivation) is unmodeled -- no published derivation formula from the CA's validity period exists in the pinned SDK's doc comments or the EKS user guide
-- gopherstack-lruaw (2026-09-11): ActivateCertificateAuthority's RollbackAvailable window ('For a limited period after activation, CA rollback is available') is set true on the retired outgoing CA but never expires -- no TTL sweep exists for it, the same disclosed simplification as the ClientRequestToken 24h window above
-- gopherstack-lruaw (2026-09-11): DeleteCertificateAuthority's second documented protection case ('a successor that Amazon EKS appended can't be deleted while it's the only successor') can never trigger here -- every CA in this backend has CreatedBy=CUSTOMER, since nothing auto-provisions an EKS-created initial cluster CA into the new certificateAuthorities table (the pre-existing, unrelated Cluster.CertificateAuthority placeholder field is untouched by this pass)
-- CreateCluster.BootstrapSelfManagedAddons is decoded nowhere and has no backend effect: this backend never auto-installs the default vpc-cni/coredns/kube-proxy addons at cluster-creation time in the first place (they only ever appear via an explicit CreateAddon call), so there is no auto-install behavior for the flag to suppress. Not fabricated -- the field is also not echoed on the Cluster response shape at all in the real SDK (types.Cluster has no such member), so a real client cannot observe this backend's non-handling either way
-- gopherstack-21my (2026-09-18, per-item sweep): Nodegroup.NodeRepairConfig and Nodegroup.WarmPoolConfig (real CreateNodegroupInput/UpdateNodegroupConfigInput members and Nodegroup/DescribeNodegroupOutput response members, eks@v1.98.0 types.go) are entirely unmodeled -- no backend field, no request parsing, no response emission. Both are full lifecycle features (node auto-repair policy enforcement, warm-pool capacity management) rather than a single field, out of scope for a per-item wire-shape pass
-- gopherstack-21my (2026-09-18, per-item sweep): EksAnywhereSubscription.LicenseArns/Licenses ([]types.License{Id,Token}) are unmodeled -- this backend has no per-license record behind LicenseQuantity to source real IDs/tokens from; left absent rather than fabricated
-- gopherstack-21my (2026-09-18, per-item sweep): Nodegroup.Health.Issues and FargateProfile.Health.Issues are always empty arrays -- both are honest (no health-check engine backs either), consistent with the same disclosed limitation already covering Insight content above
+- EKS docker engine: IAM (k8s-aws-v1) token authentication, managed nodegroup/Fargate/addon workloads and Insights computed from the live API server are not modeled (gopherstack-7neth follow-up).
+- Needs a live Kubernetes API server or hybrid-nodes model (bd gopherstack-7neth): Insight/DescribeInsight content beyond the two derivable UPGRADE_READINESS checks, Nodegroup.Health.Issues and FargateProfile.Health.Issues (always empty), and DeleteCertificateAuthority's only-successor protection (every CA here is CreatedBy=CUSTOMER).
+- No published derivation: ArgoCd IdcManagedApplicationArn/ServerUrl, CertificateAuthority.ScheduledEvents, the CA RollbackAvailable expiry window (no duration documented), and EksAnywhereSubscription.LicenseArns/Licenses (no per-license record) are left empty rather than fabricated.
+- CreateCluster.BootstrapSelfManagedAddons has no effect: no default addons are auto-installed, and types.Cluster does not echo the flag, so a client cannot observe it.
 
 ### Deferred
 

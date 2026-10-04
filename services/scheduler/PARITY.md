@@ -30,6 +30,16 @@ leaks: {status: clean, note: "leak_main_test.go (testleak.VerifyTestMain) passes
 
 ## Notes (2026-08-21 pass, gopherstack-r80d batch 32)
 
+### 2026-10-03: schedule RoleArn is authorized under --enforce-iam
+
+With `--enforce-iam`, each invocation requires `scheduler.amazonaws.com` to be able to assume the target `RoleArn` and
+the role's policies to allow the target action (`lambda:InvokeFunction`, `sqs:SendMessage`, `sns:Publish`,
+`states:StartExecution`, `events:PutEvents`, `kinesis:PutRecord`, `ecs:RunTask`, `sagemaker:StartPipelineExecution`).
+A denial is a permanent error: no retries, the payload goes straight to the DLQ (Scheduler DLQ docs,
+`configuring-schedule-dlq`: ERROR_CODE is the target API's code and EXHAUSTED_RETRY_CONDITION is only present for
+retryable errors). DLQ messages here carry no ERROR_CODE/ERROR_MESSAGE message attributes, and the DLQ send itself is not
+authorized under the schedule role (AWS requires sqs:SendMessage on it). Enforcement off is unchanged.
+
 Part of the mgn/redshiftdata/scheduler batch testing r80d's op-count-vs-
 field-count hypothesis (see `services/_REQUIRED_OUTPUT_CANDIDATES.md`).
 scheduler tied at 5 required output fields (12 ops); flat scan alone is
@@ -752,3 +762,15 @@ Gates: `go build ./...`, `go vet ./services/scheduler/...`, `go test -race
 `golangci-lint run --new-from-rev=HEAD ./services/scheduler/...` (0
 issues). `go run ./cmd/paritylint` stays at 0 FAIL. No persisted-struct/
 snapshot changes.
+
+## 2026-10-03 ECS target region
+
+- The ECS universal target runs the task in the region named by the task-definition ARN (falling back to the context region, then home). Proof: `TestInitializeServices_CrossServiceECSTargetsUseOriginRegion`.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+Audited for region isolation: same-named resources in two regions coexist and list per region; no code change. Proof: `TestRegionIsolation/scheduler`. Targets route Lambda and ECS by ARN region.
+
+## 2026-10-04 target regions
+
+SQS (incl. FIFO), Kinesis, EventBridge and SageMaker targets resolve their backend from the target ARN's region (else the caller's context region); no longer the home backend. Proof: `TestInitializeServices_SQSTargetsUseQueueARNRegion`, `TestInitializeServices_KinesisTargetsUseStreamARNRegion`, `TestInitializeServices_EventBridgePutEventsUseBusARNRegion`, `TestInitializeServices_SchedulerSageMakerPipelineUsesARNRegion`.

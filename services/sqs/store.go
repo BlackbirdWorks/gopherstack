@@ -7,33 +7,29 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
-
-// MetricEmitter emits a CloudWatch metric data point.
-// It is implemented by the CloudWatch backend and injected into InMemoryBackend
-// so that SQS operations can be forwarded to CloudWatch as metrics.
-type MetricEmitter interface {
-	EmitMetric(namespace, name string, value float64, unit string) error
-}
-
-// MetricEmitterFunc is a function adapter for MetricEmitter.
-type MetricEmitterFunc func(namespace, name string, value float64, unit string) error
-
-// EmitMetric implements MetricEmitter.
-func (f MetricEmitterFunc) EmitMetric(namespace, name string, value float64, unit string) error {
-	return f(namespace, name, value, unit)
-}
 
 // sqsMetricNamespace is the CloudWatch namespace used for SQS metrics.
 const sqsMetricNamespace = "AWS/SQS"
 
-const sqsMetricUnitCount = "Count"
+const (
+	sqsMetricUnitCount  = "Count"
+	sqsMetricUnitBytes  = "Bytes"
+	sqsMetricDimQueue   = "QueueName"
+	sqsMetricSentSize   = "SentMessageSize"
+	sqsMetricEmptyRecv  = "NumberOfEmptyReceives"
+	sqsMetricVisible    = "ApproximateNumberOfMessagesVisible"
+	sqsMetricNotVisible = "ApproximateNumberOfMessagesNotVisible"
+	sqsMetricDelayed    = "ApproximateNumberOfMessagesDelayed"
+)
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	metricEmitter MetricEmitter
+	metricEmitter cwmetric.Emitter
 	svcCtx        context.Context
 	// registry lets Reset collapse the queues/moveTasks lifecycle to one call
 	// (registry.ResetAll()) instead of hand-rolled re-initialization of each map.
@@ -41,12 +37,13 @@ type InMemoryBackend struct {
 	queues         *store.Table[Queue]
 	moveTasks      *store.Table[moveTaskState]
 	snsUnsubscribe func()
+	roleAuth       roleauth.Authorizer
 	janitorStop    chan struct{}
 	mu             *lockmetrics.RWMutex
 	// nowFunc is the backend's time source for FIFO throughput rate limiting
-	// (see checkFIFOPerQueueRateLimit / checkFIFOPerGroupRateLimit), overridable
-	// in tests via export_test.go's SetNowFunc for deterministic windows without
-	// real sleeps. Defaults to time.Now.
+	// (see checkFIFOThroughput), overridable in tests via export_test.go's
+	// SetNowFunc for deterministic windows without real sleeps. Defaults to
+	// time.Now.
 	nowFunc func() time.Time
 	// recentlyDeleted maps a queueKey(region, name) to the time DeleteQueue was
 	// called for it, so CreateQueue can enforce AWS's 60-second
@@ -67,15 +64,16 @@ func queueTableKey(q *Queue) string {
 }
 
 // SetMetricEmitter sets the emitter used to forward SQS operation metrics to CloudWatch.
-func (b *InMemoryBackend) SetMetricEmitter(e MetricEmitter) {
+func (b *InMemoryBackend) SetMetricEmitter(e cwmetric.Emitter) {
 	b.mu.Lock("SetMetricEmitter")
 	defer b.mu.Unlock()
 
 	b.metricEmitter = e
 }
 
-func (b *InMemoryBackend) emitMetric(name string, value float64) {
-	var e MetricEmitter
+// emitMetric publishes an AWS/SQS metric with the QueueName dimension asynchronously.
+func (b *InMemoryBackend) emitMetric(region, queueName, name, unit string, value float64) {
+	var e cwmetric.Emitter
 	func() {
 		b.mu.RLock("emitMetric")
 		defer b.mu.RUnlock()
@@ -87,10 +85,28 @@ func (b *InMemoryBackend) emitMetric(name string, value float64) {
 		return
 	}
 
-	// Emit asynchronously without holding the lock.
+	p := cwmetric.Point{
+		Region: region, Namespace: sqsMetricNamespace, Name: name, Unit: unit, Value: value,
+		Dimensions: []cwmetric.Dimension{{Name: sqsMetricDimQueue, Value: queueName}},
+	}
+
 	go func() {
-		_ = e.EmitMetric(sqsMetricNamespace, name, value, sqsMetricUnitCount)
+		_ = e.EmitMetric(p)
 	}()
+}
+
+// emitCount publishes a Count-unit AWS/SQS metric for q.
+func (b *InMemoryBackend) emitCount(q *Queue, name string, value float64) {
+	b.emitMetric(q.Region, q.Name, name, sqsMetricUnitCount, value)
+}
+
+// emitQueueDepth publishes the depth gauges for q; callers hold q.mu.
+func (b *InMemoryBackend) emitQueueDepth(q *Queue) {
+	delayed := q.delayedCount
+
+	b.emitCount(q, sqsMetricVisible, float64(len(q.messages)-delayed))
+	b.emitCount(q, sqsMetricNotVisible, float64(len(q.inFlightMessages)))
+	b.emitCount(q, sqsMetricDelayed, float64(delayed))
 }
 
 const sqsDefaultMaxResults = 1000

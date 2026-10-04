@@ -24,6 +24,11 @@ func (h *Handler) datasetOps() map[string]service.JSONOpFunc {
 // =============================================================================
 
 type createDatasetReq struct {
+	DatasetSource struct {
+		GroundTruthManifest struct {
+			S3Object *s3RefWire `json:"S3Object"`
+		} `json:"GroundTruthManifest"`
+	} `json:"DatasetSource"`
 	ProjectArn  string `json:"ProjectArn"`
 	DatasetType string `json:"DatasetType"`
 }
@@ -32,13 +37,19 @@ type createDatasetResp struct {
 	DatasetArn string `json:"DatasetArn"`
 }
 
-func (h *Handler) handleCreateDataset(_ context.Context, req *createDatasetReq) (*createDatasetResp, error) {
+func (h *Handler) handleCreateDataset(ctx context.Context, req *createDatasetReq) (*createDatasetResp, error) {
 	if req.ProjectArn == "" {
 		return nil, fmt.Errorf("%w: ProjectArn is required", ErrValidation)
 	}
 
 	if req.DatasetType == "" {
 		return nil, fmt.Errorf("%w: DatasetType is required", ErrValidation)
+	}
+
+	if m := req.DatasetSource.GroundTruthManifest.S3Object; m != nil {
+		if err := h.checkS3Object(ctx, m.Bucket, m.Name); err != nil {
+			return nil, err
+		}
 	}
 
 	ds, err := h.Backend.CreateDataset(req.ProjectArn, req.DatasetType)

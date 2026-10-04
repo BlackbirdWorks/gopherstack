@@ -568,10 +568,17 @@ type hubContentInfoSummary struct {
 	HubContentStatus             string   `json:"HubContentStatus"`
 	HubContentSearchKeywords     []string `json:"HubContentSearchKeywords,omitempty"`
 	CreationTime                 float64  `json:"CreationTime"`
+	OriginalCreationTime         float64  `json:"OriginalCreationTime,omitempty"`
 }
 
 func toHubContentInfoSummary(hc *HubContent) hubContentInfoSummary {
+	original := hc.OriginalCreationTime
+	if original.IsZero() {
+		original = hc.CreationTime
+	}
+
 	return hubContentInfoSummary{
+		OriginalCreationTime:         epochSeconds(original),
 		HubContentName:               hc.HubContentName,
 		HubContentArn:                hc.HubContentArn,
 		SageMakerPublicHubContentArn: hc.SageMakerPublicHubContentArn,

@@ -131,7 +131,7 @@ func TestResourceCreator_UnknownType(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backends := newServiceBackends()
+			backends := newServiceBackends(t)
 			rc := cloudformation.NewResourceCreator(backends)
 
 			if tt.isDelete {
@@ -199,7 +199,7 @@ func TestBackend_CreateStack_RealResources(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backends := newServiceBackends()
+			backends := newServiceBackends(t)
 			creator := cloudformation.NewResourceCreator(backends)
 			backend := cloudformation.NewInMemoryBackendWithConfig(
 				"000000000000",
@@ -268,7 +268,7 @@ func TestBackend_UpdateStack_WithNewResource(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backends := newServiceBackends()
+			backends := newServiceBackends(t)
 			creator := cloudformation.NewResourceCreator(backends)
 			backend := cloudformation.NewInMemoryBackendWithConfig(
 				"000000000000",
@@ -361,7 +361,7 @@ func TestResourceCreator_ExtendedTypes(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backends := newExtendedServiceBackends()
+			backends := newExtendedServiceBackends(t)
 			rc := cloudformation.NewResourceCreator(backends)
 
 			physID, err := rc.Create(t.Context(), tt.logicalID, tt.resourceType, tt.props, nil, nil)
@@ -421,7 +421,7 @@ func TestResourceCreator_CloudWatchAlarm(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backends := newExtendedServiceBackends()
+			backends := newExtendedServiceBackends(t)
 			rc := cloudformation.NewResourceCreator(backends)
 
 			physID, err := rc.Create(
@@ -470,7 +470,7 @@ func TestResourceCreator_Route53HostedZone(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backends := newExtendedServiceBackends()
+			backends := newExtendedServiceBackends(t)
 			rc := cloudformation.NewResourceCreator(backends)
 
 			physID, err := rc.Create(
@@ -493,7 +493,7 @@ func TestResourceCreator_Route53HostedZone(t *testing.T) {
 func TestResourceCreator_Route53RecordSet(t *testing.T) {
 	t.Parallel()
 
-	backends := newExtendedServiceBackends()
+	backends := newExtendedServiceBackends(t)
 	rc := cloudformation.NewResourceCreator(backends)
 
 	// Create hosted zone first.
@@ -548,7 +548,7 @@ func TestResourceCreator_ElastiCacheCacheCluster(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backends := newExtendedServiceBackends()
+			backends := newExtendedServiceBackends(t)
 			rc := cloudformation.NewResourceCreator(backends)
 
 			physID, err := rc.Create(
@@ -597,7 +597,7 @@ func TestResourceCreator_SchedulerSchedule(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backends := newExtendedServiceBackends()
+			backends := newExtendedServiceBackends(t)
 			rc := cloudformation.NewResourceCreator(backends)
 
 			physID, err := rc.Create(
@@ -808,7 +808,7 @@ func TestResourceCreator_NewTypes_NilBackends(t *testing.T) {
 			t.Parallel()
 
 			// Use base backends (no IAM/EC2/Kinesis/etc.)
-			backends := newServiceBackends()
+			backends := newServiceBackends(t)
 			rc := cloudformation.NewResourceCreator(backends)
 
 			physID, err := rc.Create(t.Context(), tt.logicalID, tt.resourceType, tt.props, nil, nil)

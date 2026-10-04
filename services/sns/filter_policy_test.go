@@ -545,6 +545,33 @@ func TestSNS_FilterPolicyValidation(t *testing.T) {
 			name:         "accepts_equals_ignore_case_operator",
 			filterPolicy: `{"region":[{"equals-ignore-case":"us-east-1"}]}`,
 		},
+		{
+			name:         "rejects_malformed_cidr_block",
+			filterPolicy: `{"source_ip":[{"cidr":"10.0.0.0/999"}]}`,
+			wantErr:      "not a valid CIDR block",
+		},
+		{
+			name:         "rejects_non_ip_cidr_operand",
+			filterPolicy: `{"source_ip":[{"cidr":"not-an-ip"}]}`,
+			wantErr:      "not a valid IP address",
+		},
+		{
+			name:         "rejects_non_string_cidr_operand",
+			filterPolicy: `{"source_ip":[{"cidr":10}]}`,
+			wantErr:      "must be a string",
+		},
+		{
+			name:         "accepts_valid_cidr_block",
+			filterPolicy: `{"source_ip":[{"cidr":"10.0.0.0/24"}]}`,
+		},
+		{
+			name:         "accepts_valid_bare_ip_cidr",
+			filterPolicy: `{"source_ip":[{"cidr":"192.168.1.1"}]}`,
+		},
+		{
+			name:         "accepts_valid_ipv6_cidr",
+			filterPolicy: `{"source_ip":[{"cidr":"2001:db8::/32"}]}`,
+		},
 	}
 
 	for _, tt := range tests {

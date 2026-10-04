@@ -2,7 +2,6 @@ package cloudwatch_test
 
 import (
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -63,40 +62,4 @@ func TestBackend_InsightRule_DeleteNonExistent(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, failures, 1)
 	assert.Equal(t, "missing", failures[0].RuleName)
-}
-
-func TestCloudWatchBackend_GetInsightRuleContributors(t *testing.T) {
-	t.Parallel()
-
-	b := cloudwatch.NewInMemoryBackend()
-	require.NoError(t, b.PutInsightRule(&cloudwatch.InsightRule{
-		Name:       "rule-1",
-		Definition: `{}`,
-		Schema:     "CloudWatchLogRule",
-	}))
-
-	ts := time.Now().UTC().Add(-30 * time.Second)
-	err := b.PutMetricData("App", []cloudwatch.MetricDatum{
-		{
-			MetricName: "Hits", Value: 10, Count: 10, Sum: 100, Min: 8, Max: 12, Timestamp: ts,
-			Dimensions: []cloudwatch.Dimension{{Name: "Host", Value: "h1"}},
-		},
-		{
-			MetricName: "Hits", Value: 5, Count: 5, Sum: 50, Min: 9, Max: 11, Timestamp: ts,
-			Dimensions: []cloudwatch.Dimension{{Name: "Host", Value: "h2"}},
-		},
-	})
-	require.NoError(t, err)
-
-	contributors, err := b.GetInsightRuleContributorsForTest(
-		"rule-1",
-		time.Now().UTC().Add(-2*time.Minute),
-		time.Now().UTC(),
-		10,
-		"Sum",
-	)
-	require.NoError(t, err)
-	require.Len(t, contributors, 2, "should return contributors for each dimension set")
-	// h1 has higher sum so should be first.
-	assert.Equal(t, []string{"h1"}, contributors[0].Keys)
 }

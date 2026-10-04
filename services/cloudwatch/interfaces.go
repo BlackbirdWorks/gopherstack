@@ -117,6 +117,7 @@ type StorageBackend interface {
 	DeleteInsightRules(ruleNames []string) ([]InsightRuleFailure, error)
 	PutInsightRule(rule *InsightRule) error
 	GetInsightRule(name string) (*InsightRule, error)
+	GetInsightRuleReport(req InsightRuleReportRequest) (*InsightRuleReport, error)
 	DescribeInsightRules(nextToken string, maxResults int) (page.Page[InsightRule], error)
 	DisableInsightRules(ruleNames []string) ([]InsightRuleFailure, error)
 	EnableInsightRules(ruleNames []string) ([]InsightRuleFailure, error)

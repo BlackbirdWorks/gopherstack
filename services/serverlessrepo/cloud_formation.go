@@ -2,8 +2,9 @@ package serverlessrepo
 
 import (
 	"fmt"
-	"strconv"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
@@ -43,7 +44,9 @@ func (b *InMemoryBackend) CreateCloudFormationTemplate(
 	}
 
 	now := time.Now()
-	templateID := fmt.Sprintf("%s-%d", appName, now.UnixNano())
+	// TemplateId is a bare UUID (confirmed pattern on CreateCloudFormationTemplateOutput,
+	// aws-sdk-go-v2/service/serverlessapplicationrepository), not appName-prefixed.
+	templateID := uuid.NewString()
 	t := &CloudFormationTemplate{
 		ApplicationID:   app.ApplicationID,
 		TemplateID:      templateID,
@@ -142,7 +145,9 @@ func (b *InMemoryBackend) CreateCloudFormationChangeSetWithOptions(
 		}
 	}
 
-	suffix := strconv.FormatInt(time.Now().UnixNano(), 10)
+	// suffix mirrors real CloudFormation's UUID stack-ID suffix
+	// (arn:...:stack/{name}/{uuid}).
+	suffix := uuid.NewString()
 
 	csName := changeSetName
 	if csName == "" {

@@ -6,6 +6,7 @@
 		DeleteConnectionCommand
 	} from '@aws-sdk/client-apigatewaymanagementapi';
 	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+	import { regionFetch } from '$lib/region.svelte';
 	import { getAPIGatewayManagementAPIClient } from '$lib/aws-client';
 	import { confirmDestructive } from '$lib/confirm-dialog';
 	import {
@@ -123,7 +124,7 @@
 	async function loadConnections() {
 		loading = true;
 		try {
-			const res = await fetch(`${adminBase}/connections`);
+			const res = await regionFetch(`${adminBase}/connections`);
 			if (!res.ok) {
 				throw new Error(`HTTP ${res.status}`);
 			}
@@ -138,7 +139,7 @@
 
 	async function loadStats() {
 		try {
-			const res = await fetch(`${adminBase}/stats`);
+			const res = await regionFetch(`${adminBase}/stats`);
 			if (!res.ok) {
 				throw new Error(`HTTP ${res.status}`);
 			}
@@ -150,7 +151,7 @@
 
 	async function loadMessages(id: string) {
 		try {
-			const res = await fetch(`${adminBase}/connections/${encodeURIComponent(id)}/messages`);
+			const res = await regionFetch(`${adminBase}/connections/${encodeURIComponent(id)}/messages`);
 			if (!res.ok) {
 				throw new Error(`HTTP ${res.status}`);
 			}
@@ -163,7 +164,7 @@
 
 	async function loadTimeline(id: string) {
 		try {
-			const res = await fetch(`${adminBase}/connections/${encodeURIComponent(id)}/timeline`);
+			const res = await regionFetch(`${adminBase}/connections/${encodeURIComponent(id)}/timeline`);
 			if (!res.ok) {
 				throw new Error(`HTTP ${res.status}`);
 			}
@@ -226,7 +227,7 @@
 			return;
 		}
 		try {
-			const res = await fetch(
+			const res = await regionFetch(
 				`${adminBase}/connections/${encodeURIComponent(selected.connectionId)}/ping`,
 				{ method: 'POST' }
 			);
@@ -253,7 +254,7 @@
 			return;
 		}
 		try {
-			const res = await fetch(
+			const res = await regionFetch(
 				`${adminBase}/connections/${encodeURIComponent(selected.connectionId)}/messages`,
 				{ method: 'DELETE' }
 			);
@@ -299,7 +300,7 @@
 		}
 		simulating = true;
 		try {
-			const res = await fetch(`${adminBase}/connections`, {
+			const res = await regionFetch(`${adminBase}/connections`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
@@ -330,7 +331,7 @@
 		}
 		broadcasting = true;
 		try {
-			const res = await fetch(`${adminBase}/broadcast`, {
+			const res = await regionFetch(`${adminBase}/broadcast`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ data: broadcastBody })
@@ -354,7 +355,7 @@
 	async function pruneIdle() {
 		pruning = true;
 		try {
-			const res = await fetch(`${adminBase}/prune`, {
+			const res = await regionFetch(`${adminBase}/prune`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ idleSeconds: pruneSeconds })

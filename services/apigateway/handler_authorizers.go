@@ -6,6 +6,7 @@ import (
 )
 
 type createAuthorizerInput struct {
+	AuthorizerResultTTLInSeconds *int     `json:"authorizerResultTtlInSeconds,omitempty"`
 	RestAPIID                    string   `json:"restApiId"`
 	Name                         string   `json:"name"`
 	Type                         string   `json:"type"`
@@ -15,7 +16,6 @@ type createAuthorizerInput struct {
 	IdentityValidationExpression string   `json:"identityValidationExpression,omitempty"`
 	AuthType                     string   `json:"authType,omitempty"`
 	ProviderARNs                 []string `json:"providerARNs,omitempty"`
-	AuthorizerResultTTLInSeconds int      `json:"authorizerResultTtlInSeconds,omitempty"`
 }
 
 type getAuthorizerInput struct {
@@ -37,6 +37,7 @@ type getAuthorizersInput struct {
 // (patch-operations.html), which a plain string can't represent.
 type updateAuthorizerInput struct {
 	IdentitySource               *string  `json:"identitySource,omitempty"`
+	AuthorizerResultTTLInSeconds *int     `json:"authorizerResultTtlInSeconds,omitempty"`
 	RestAPIID                    string   `json:"restApiId"`
 	AuthorizerID                 string   `json:"authorizerId"`
 	Name                         string   `json:"name,omitempty"`
@@ -46,7 +47,6 @@ type updateAuthorizerInput struct {
 	IdentityValidationExpression string   `json:"identityValidationExpression,omitempty"`
 	AuthType                     string   `json:"authType,omitempty"`
 	ProviderARNs                 []string `json:"providerARNs,omitempty"`
-	AuthorizerResultTTLInSeconds int      `json:"authorizerResultTtlInSeconds,omitempty"`
 }
 
 type deleteAuthorizerInput struct {
@@ -70,6 +70,10 @@ func (h *Handler) createAuthorizerAction(b []byte) (int, any, error) {
 	if err := json.Unmarshal(b, &input); err != nil {
 		return 0, nil, err
 	}
+	ttl := defaultAuthorizerTTLSeconds
+	if input.AuthorizerResultTTLInSeconds != nil {
+		ttl = *input.AuthorizerResultTTLInSeconds
+	}
 	auth, err := h.Backend.CreateAuthorizer(input.RestAPIID, CreateAuthorizerInput{
 		Name:                         input.Name,
 		Type:                         input.Type,
@@ -78,7 +82,7 @@ func (h *Handler) createAuthorizerAction(b []byte) (int, any, error) {
 		IdentitySource:               input.IdentitySource,
 		IdentityValidationExpression: input.IdentityValidationExpression,
 		AuthType:                     input.AuthType,
-		AuthorizerResultTTLInSeconds: input.AuthorizerResultTTLInSeconds,
+		AuthorizerResultTTLInSeconds: ttl,
 		ProviderARNs:                 input.ProviderARNs,
 	})
 	if err != nil {

@@ -184,7 +184,7 @@ func (b *InMemoryBackend) CreateDBInstance(
 func (b *InMemoryBackend) DescribeDBInstances(
 	ctx context.Context,
 	id string,
-	clusterFilter []string,
+	filters DBInstanceFilters,
 ) ([]DBInstance, error) {
 	region := getRegion(ctx, b.region)
 	b.mu.RLock("DescribeDBInstances")
@@ -201,7 +201,10 @@ func (b *InMemoryBackend) DescribeDBInstances(
 	instances := b.instancesInRegion(region)
 	result := make([]DBInstance, 0, len(instances))
 	for _, inst := range instances {
-		if len(clusterFilter) > 0 && !slices.Contains(clusterFilter, inst.DBClusterIdentifier) {
+		if len(filters.Engine) > 0 && !slices.Contains(filters.Engine, inst.Engine) {
+			continue
+		}
+		if len(filters.ClusterID) > 0 && !b.instanceClusterMatches(region, inst, filters.ClusterID) {
 			continue
 		}
 		result = append(result, *inst)
@@ -378,4 +381,14 @@ func (b *InMemoryBackend) RebootDBInstance(ctx context.Context, id string) (*DBI
 	cp := *inst
 
 	return &cp, nil
+}
+
+// instanceClusterMatches reports whether inst belongs to a cluster named by id or ARN in ids.
+func (b *InMemoryBackend) instanceClusterMatches(region string, inst *DBInstance, ids []string) bool {
+	if slices.Contains(ids, inst.DBClusterIdentifier) {
+		return true
+	}
+	c, ok := b.clusterGet(region, inst.DBClusterIdentifier)
+
+	return ok && slices.Contains(ids, c.DBClusterArn)
 }

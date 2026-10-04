@@ -66,7 +66,7 @@ func sortFindings(findings []*storedFinding, sortBy *FindingSortCriteria) {
 		var less, tied bool
 
 		switch sortBy.AttributeName {
-		case "count":
+		case findingFieldCount:
 			less, tied = findings[i].Count < findings[k].Count, findings[i].Count == findings[k].Count
 		case keyCreatedAt:
 			less = findings[i].CreatedAt.Before(findings[k].CreatedAt)
@@ -145,6 +145,50 @@ func getFindingFieldValue(finding *storedFinding, key string) string {
 	return ""
 }
 
+const findingFieldCount = "count"
+
+func findingIntField(finding *storedFinding, key string) (int64, bool) {
+	switch key {
+	case keyUpdatedAt:
+		return finding.UpdatedAt.UnixMilli(), true
+	case "createdAt":
+		return finding.CreatedAt.UnixMilli(), true
+	case "severity.score":
+		return finding.Severity.Score, true
+	case findingFieldCount:
+		return finding.Count, true
+	}
+
+	return 0, false
+}
+
+// matchesIntOperators applies gt/gte/lt/lte (types.CriterionAdditionalProperties) to a numeric field.
+func matchesIntOperators(v int64, cond map[string]any) bool {
+	bound := func(op string) (int64, bool) {
+		f, ok := cond[op].(float64)
+
+		return int64(f), ok
+	}
+
+	if n, ok := bound("gt"); ok && v <= n {
+		return false
+	}
+
+	if n, ok := bound("gte"); ok && v < n {
+		return false
+	}
+
+	if n, ok := bound("lt"); ok && v >= n {
+		return false
+	}
+
+	if n, ok := bound("lte"); ok && v > n {
+		return false
+	}
+
+	return true
+}
+
 func matchEq(fVal string, eqVals []any) bool {
 	for _, eqV := range eqVals {
 		if strV, sOk := eqV.(string); sOk && strV == fVal {
@@ -179,6 +223,10 @@ func matchesFindingCriteria(finding *storedFinding, criteria map[string]any) boo
 		cond, cOk := v.(map[string]any)
 		if !cOk {
 			continue
+		}
+
+		if n, isInt := findingIntField(finding, k); isInt && !matchesIntOperators(n, cond) {
+			return false
 		}
 
 		fVal := getFindingFieldValue(finding, k)

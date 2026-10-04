@@ -44,6 +44,18 @@ type backendSnapshot struct {
 	Version                            int                                      `json:"version"`
 }
 
+// streamAlias avoids infinite recursion from Stream.MarshalJSON.
+type streamAlias Stream
+
+// MarshalJSON serialises the stream under stream.mu.RLock, since Snapshot must not race consumer/setting updates.
+// Those mutate stream fields, including Consumers, under stream.mu without ever taking b.mu (gopherstack-fwd0g).
+func (stream *Stream) MarshalJSON() ([]byte, error) {
+	stream.mu.RLock("Snapshot")
+	defer stream.mu.RUnlock()
+
+	return json.Marshal((*streamAlias)(stream))
+}
+
 // Snapshot serialises the backend state to JSON.
 // It implements persistence.Persistable.
 // Note: shard sequence number counters are now serialised via the NextSeq field.

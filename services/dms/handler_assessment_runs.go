@@ -140,8 +140,11 @@ func (h *Handler) handleDeleteReplicationTaskAssessmentRun(
 }
 
 type describeApplicableIndividualAssessmentsInput struct {
-	Marker     *string `json:"Marker"`
-	MaxRecords *int32  `json:"MaxRecords"`
+	Marker                 *string `json:"Marker"`
+	MaxRecords             *int32  `json:"MaxRecords"`
+	ReplicationTaskArn     *string `json:"ReplicationTaskArn"`
+	ReplicationInstanceArn *string `json:"ReplicationInstanceArn"`
+	ReplicationConfigArn   *string `json:"ReplicationConfigArn"`
 }
 
 type describeApplicableIndividualAssessmentsOutput struct {
@@ -150,8 +153,17 @@ type describeApplicableIndividualAssessmentsOutput struct {
 }
 
 func (h *Handler) handleDescribeApplicableIndividualAssessments(
-	_ context.Context, in *describeApplicableIndividualAssessmentsInput,
+	ctx context.Context, in *describeApplicableIndividualAssessmentsInput,
 ) (*describeApplicableIndividualAssessmentsOutput, error) {
+	if err := h.Backend.CheckAssessmentBaseResources(
+		ctx,
+		ptrconv.String(in.ReplicationTaskArn),
+		ptrconv.String(in.ReplicationInstanceArn),
+		ptrconv.String(in.ReplicationConfigArn),
+	); err != nil {
+		return nil, err
+	}
+
 	data, marker := dmsPaginate(defaultApplicableIndividualAssessments(), in.Marker, in.MaxRecords)
 
 	return &describeApplicableIndividualAssessmentsOutput{

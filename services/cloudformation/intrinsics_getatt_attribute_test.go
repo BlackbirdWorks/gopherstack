@@ -16,7 +16,7 @@ import (
 // Real CreateStack rejects this synchronously with a ValidationError
 // ("Template error: resource <X> does not support attribute type <Y> in
 // Fn::GetAtt"); AWS::Lambda::CodeSigningConfig is one of the table's listed
-// types (cfn_attributes_gen.go), with CodeSigningConfigArn/CodeSigningConfigId
+// types (cfn_attributes.json), with CodeSigningConfigArn/CodeSigningConfigId
 // as its only documented attributes.
 func TestCreateStack_GetAttAttributeValidation(t *testing.T) {
 	t.Parallel()
@@ -67,16 +67,15 @@ func TestCreateStack_GetAttAttributeValidation(t *testing.T) {
 
 		_, client := newNewerTypesTestClient(t)
 
-		// AWS::CodeArtifact::Domain isn't in cfn_attributes_gen.go's table
-		// (see PARITY.md's gopherstack-p7pvq note: it's dropped whole rather
-		// than partially, since not every attribute this backend stashes for
-		// it can be safely re-quoted there) -- any attribute on it must still
-		// fall back to the resource's physical ID, not error.
+		// AWS::CodeDeploy::DeploymentConfig has no Attributes documented in
+		// the CloudFormation spec at all, so it isn't in cfn_attributes.json
+		// -- any attribute on it must still fall back to the resource's
+		// physical ID, not error.
 		tmpl := `{
 "Resources": {
-  "Dom": {"Type": "AWS::CodeArtifact::Domain", "Properties": {"DomainName": "gaa-domain"}}
+  "DC": {"Type": "AWS::CodeDeploy::DeploymentConfig", "Properties": {"DeploymentConfigName": "gaa-config"}}
 },
-"Outputs": {"Fallback": {"Value": {"Fn::GetAtt": ["Dom", "SomeFieldThisBackendDoesNotModel"]}}}
+"Outputs": {"Fallback": {"Value": {"Fn::GetAtt": ["DC", "SomeFieldThisBackendDoesNotModel"]}}}
 }`
 
 		outputs := createStackAndGetOutputs(t, client, "gaa-fallback-stack", tmpl)

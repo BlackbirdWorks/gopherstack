@@ -56,6 +56,7 @@ type backendSnapshot struct {
 	Tables               map[string]json.RawMessage                    `json:"tables"`
 	ManagedActionHistory map[string]map[string][]*ManagedActionHistory `json:"managedActionHistory,omitempty"`
 	Events               map[string][]*EventRecord                     `json:"events,omitempty"`
+	DeletedEnvironments  map[string][]*Environment                     `json:"deletedEnvironments,omitempty"`
 	EnvCounters          map[string]int                                `json:"envCounters,omitempty"`
 	AccountID            string                                        `json:"accountID"`
 	Region               string                                        `json:"region"`
@@ -143,6 +144,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Tables:               tables,
 		ManagedActionHistory: b.managedActionHistory,
 		Events:               b.events,
+		DeletedEnvironments:  b.deletedEnvironments,
 		EnvCounters:          b.envCounters,
 		AccountID:            b.accountID,
 		Region:               b.region,
@@ -177,6 +179,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.registry.ResetAll()
 		b.managedActionHistory = make(map[string]map[string][]*ManagedActionHistory)
 		b.events = make(map[string][]*EventRecord)
+		b.deletedEnvironments = make(map[string][]*Environment)
 		b.envCounters = make(map[string]int)
 		b.accountID = snap.AccountID
 		b.region = snap.Region
@@ -197,12 +200,17 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		snap.Events = make(map[string][]*EventRecord)
 	}
 
+	if snap.DeletedEnvironments == nil {
+		snap.DeletedEnvironments = make(map[string][]*Environment)
+	}
+
 	if snap.EnvCounters == nil {
 		snap.EnvCounters = make(map[string]int)
 	}
 
 	b.managedActionHistory = snap.ManagedActionHistory
 	b.events = snap.Events
+	b.deletedEnvironments = snap.DeletedEnvironments
 	b.envCounters = snap.EnvCounters
 	b.accountID = snap.AccountID
 	b.region = snap.Region

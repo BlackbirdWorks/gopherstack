@@ -96,7 +96,7 @@ type networkInsightsPathItem struct {
 }
 
 func toFleetItem(f *Fleet, tags map[string]string) fleetItem {
-	return fleetItem{
+	item := fleetItem{
 		FleetID:                         f.FleetID,
 		FleetState:                      f.FleetState,
 		FleetType:                       f.FleetType,
@@ -110,6 +110,15 @@ func toFleetItem(f *Fleet, tags map[string]string) fleetItem {
 		Instances:                       fleetInstanceItemSet{Items: []fleetInstanceItem{}},
 		TagSet:                          tagItemsFromMap(tags),
 	}
+	if !f.ValidFrom.IsZero() {
+		item.ValidFrom = f.ValidFrom.UTC().Format("2006-01-02T15:04:05.000Z")
+	}
+
+	if !f.ValidUntil.IsZero() {
+		item.ValidUntil = f.ValidUntil.UTC().Format("2006-01-02T15:04:05.000Z")
+	}
+
+	return item
 }
 
 // groupFleetInstancesByType groups instances by InstanceType into the
@@ -222,6 +231,24 @@ func (h *Handler) handleCreateFleet(vals url.Values, reqID string) (any, error) 
 
 	if v := vals.Get("TerminateInstancesWithExpiration"); v != "" {
 		input.TerminateInstancesWithExpiration = strings.EqualFold(v, "true")
+	}
+
+	validFrom, err := parseEC2Timestamp(vals.Get("ValidFrom"))
+	if err != nil {
+		return nil, err
+	}
+
+	validUntil, err := parseEC2Timestamp(vals.Get("ValidUntil"))
+	if err != nil {
+		return nil, err
+	}
+
+	if validFrom != nil {
+		input.ValidFrom = *validFrom
+	}
+
+	if validUntil != nil {
+		input.ValidUntil = *validUntil
 	}
 
 	f, launched, err := h.Backend.CreateFleet(input)

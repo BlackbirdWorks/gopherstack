@@ -2,6 +2,7 @@ package ec2
 
 import (
 	"encoding/xml"
+	"fmt"
 	"net/url"
 	"strconv"
 )
@@ -38,26 +39,27 @@ func applicationStatusChecksSupportedOperations() []string {
 // shape (field-diffed against awsEc2query_deserializeDocumentApplicationStatusCheckResponseObject).
 // HealthCheckPaths is intentionally omitted — not modeled, see PARITY.md gaps.
 type applicationStatusCheckItem struct {
-	ApplicationStatusCheckID         string          `xml:"applicationStatusCheckId,omitempty"`
-	Aggregation                      string          `xml:"aggregation,omitempty"`
-	CreationTime                     string          `xml:"creationTime,omitempty"`
-	DeletionTime                     string          `xml:"deletionTime,omitempty"`
-	IPScope                          string          `xml:"ipScope,omitempty"`
-	IPVersion                        string          `xml:"ipVersion,omitempty"`
-	LastUpdatedAt                    string          `xml:"lastUpdatedAt,omitempty"`
-	ModifyTime                       string          `xml:"modifyTime,omitempty"`
-	Path                             string          `xml:"path,omitempty"`
-	Protocol                         string          `xml:"protocol,omitempty"`
-	StatusCodeMatcher                string          `xml:"statusCodeMatcher,omitempty"`
-	TagSet                           []simpleTagItem `xml:"tagSet>item"`
-	TargetTagAssociationSet          []simpleTagItem `xml:"targetTagAssociationSet>item"`
-	Port                             int             `xml:"port,omitempty"`
-	DeviceIndex                      int             `xml:"deviceIndex,omitempty"`
-	FailureThreshold                 int             `xml:"failureThreshold,omitempty"`
-	InitializationGracePeriodSeconds int             `xml:"initializationGracePeriodSeconds,omitempty"`
-	Interval                         int             `xml:"interval,omitempty"`
-	SuccessThreshold                 int             `xml:"successThreshold,omitempty"`
-	Timeout                          int             `xml:"timeout,omitempty"`
+	HealthCheckPaths                 *healthCheckPathSet `xml:"healthCheckPathSet,omitempty"`
+	StatusCodeMatcher                string              `xml:"statusCodeMatcher,omitempty"`
+	CreationTime                     string              `xml:"creationTime,omitempty"`
+	DeletionTime                     string              `xml:"deletionTime,omitempty"`
+	IPScope                          string              `xml:"ipScope,omitempty"`
+	IPVersion                        string              `xml:"ipVersion,omitempty"`
+	LastUpdatedAt                    string              `xml:"lastUpdatedAt,omitempty"`
+	ModifyTime                       string              `xml:"modifyTime,omitempty"`
+	Path                             string              `xml:"path,omitempty"`
+	ApplicationStatusCheckID         string              `xml:"applicationStatusCheckId,omitempty"`
+	Protocol                         string              `xml:"protocol,omitempty"`
+	Aggregation                      string              `xml:"aggregation,omitempty"`
+	TargetTagAssociationSet          []simpleTagItem     `xml:"targetTagAssociationSet>item"`
+	TagSet                           []simpleTagItem     `xml:"tagSet>item"`
+	Port                             int                 `xml:"port,omitempty"`
+	DeviceIndex                      int                 `xml:"deviceIndex,omitempty"`
+	FailureThreshold                 int                 `xml:"failureThreshold,omitempty"`
+	InitializationGracePeriodSeconds int                 `xml:"initializationGracePeriodSeconds,omitempty"`
+	Interval                         int                 `xml:"interval,omitempty"`
+	SuccessThreshold                 int                 `xml:"successThreshold,omitempty"`
+	Timeout                          int                 `xml:"timeout,omitempty"`
 }
 
 // applicationStatusCheckToItem converts a check to its wire shape. tags are
@@ -80,6 +82,7 @@ func applicationStatusCheckToItem(
 		StatusCodeMatcher:                c.StatusCodeMatcher,
 		TagSet:                           tagItemsFromMap(tags),
 		TargetTagAssociationSet:          tagAssociations,
+		HealthCheckPaths:                 healthCheckPathItems(c.HealthCheckPaths),
 		Port:                             c.Port,
 		DeviceIndex:                      c.DeviceIndex,
 		FailureThreshold:                 c.FailureThreshold,
@@ -412,7 +415,75 @@ func applicationStatusCheckParamsFromVals(vals url.Values) ApplicationStatusChec
 		Interval:                         intParamPtr(vals, "Interval"),
 		SuccessThreshold:                 intParamPtr(vals, "SuccessThreshold"),
 		Timeout:                          intParamPtr(vals, "Timeout"),
+		HealthCheckPaths:                 parseHealthCheckPaths(vals),
 	}
+}
+
+// parseHealthCheckPaths reads HealthCheckPath.N.Source.* and .Destination.M.*
+// (serializers.go awsEc2query_serializeDocumentHealthCheckPathRequestObject).
+func parseHealthCheckPaths(vals url.Values) []HealthCheckPath {
+	var paths []HealthCheckPath
+
+	for i := 1; ; i++ {
+		prefix := fmt.Sprintf("HealthCheckPath.%d.", i)
+		path := HealthCheckPath{Source: HealthCheckPathEndpoint{
+			SubnetID:        vals.Get(prefix + "Source.SubnetId"),
+			SecurityGroupID: vals.Get(prefix + "Source.SecurityGroupId"),
+		}}
+
+		for j := 1; ; j++ {
+			dst := fmt.Sprintf("%sDestination.%d.", prefix, j)
+			ep := HealthCheckPathEndpoint{
+				SubnetID:        vals.Get(dst + "SubnetId"),
+				SecurityGroupID: vals.Get(dst + "SecurityGroupId"),
+			}
+
+			if ep == (HealthCheckPathEndpoint{}) {
+				break
+			}
+
+			path.Destinations = append(path.Destinations, ep)
+		}
+
+		if path.Source == (HealthCheckPathEndpoint{}) && len(path.Destinations) == 0 {
+			return paths
+		}
+
+		paths = append(paths, path)
+	}
+}
+
+type healthCheckEndpointItem struct {
+	SecurityGroupID string `xml:"securityGroupId,omitempty"`
+	SubnetID        string `xml:"subnetId,omitempty"`
+}
+
+type healthCheckPathItem struct {
+	Source       healthCheckEndpointItem   `xml:"source"`
+	Destinations []healthCheckEndpointItem `xml:"destinationSet>item"`
+}
+
+type healthCheckPathSet struct {
+	Items []healthCheckPathItem `xml:"item"`
+}
+
+func healthCheckPathItems(paths []HealthCheckPath) *healthCheckPathSet {
+	if len(paths) == 0 {
+		return nil
+	}
+
+	items := make([]healthCheckPathItem, 0, len(paths))
+
+	for _, p := range paths {
+		item := healthCheckPathItem{Source: healthCheckEndpointItem(p.Source)}
+		for _, d := range p.Destinations {
+			item.Destinations = append(item.Destinations, healthCheckEndpointItem(d))
+		}
+
+		items = append(items, item)
+	}
+
+	return &healthCheckPathSet{Items: items}
 }
 
 // checkTagAssociationItems returns the check's own tag-based

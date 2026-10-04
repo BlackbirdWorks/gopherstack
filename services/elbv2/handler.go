@@ -13,9 +13,11 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -34,6 +36,7 @@ const (
 type Handler struct {
 	Backend       StorageBackend
 	dispatchTable map[string]dispatchFunc
+	peers         *regionpeers.Set[Handler]
 }
 
 // NewHandler creates a new ELBv2 handler.
@@ -50,6 +53,11 @@ func (h *Handler) Name() string { return "ELBv2" }
 // Shutdown stops the backend's health reconciler goroutine so it does not
 // outlive the service. Invoked on server shutdown via service.Shutdowner.
 func (h *Handler) Shutdown(_ context.Context) {
+	h.closePeers()
+	h.closeBackend()
+}
+
+func (h *Handler) closeBackend() {
 	if c, ok := h.Backend.(closer); ok {
 		c.Close()
 	}
@@ -141,7 +149,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return false
 		}
 
-		body, err := httputils.ReadBody(r)
+		_, err := httputils.ReadBody(r)
 		if err != nil {
 			// Body unreadable (e.g. oversized): fall back to the User-Agent
 			// marker every aws-sdk-go-v2 elasticloadbalancingv2 client sets
@@ -152,7 +160,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return service.MatchesUserAgentMarker(r.Header, "api/elasticloadbalancingv2")
 		}
 
-		vals, err := url.ParseQuery(string(body))
+		vals, err := httputils.ParseFormBody(r)
 		if err != nil {
 			return false
 		}
@@ -206,6 +214,10 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function for ELBv2 operations.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
+			return p.Handler()(c)
+		}
+
 		r := c.Request()
 		body, err := httputils.ReadBody(r)
 		if err != nil {

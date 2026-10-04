@@ -24,7 +24,7 @@ const sqsSnapshotVersion = 2
 // separate DTO (rather than JSON tags directly on Queue) because Queue also
 // carries live, non-serialisable state — an open notify channel, a mutex, a
 // self-referential dlq pointer rebuilt post-restore from RedrivePolicy, and
-// short-lived caches (fifoSendTimes, fifoSendTimesQueue, receiveAttempts) — that must never be
+// short-lived caches (fifoThroughput, receiveAttempts) — that must never be
 // part of an on-disk snapshot.
 type queueSnapshot struct {
 	DeduplicationIDs    map[string]time.Time             `json:"deduplicationIDs"`
@@ -99,33 +99,24 @@ type backendSnapshot struct {
 	Version         int                        `json:"version"`
 }
 
-// Snapshot serialises the backend state to JSON.
-// It implements persistence.Persistable.
-func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
-	b.mu.RLock("Snapshot")
-	defer b.mu.RUnlock()
+// marshalQueuesLocked marshals each queue's DTO to JSON while q.mu is held, then reassembles the JSON array.
+// queues must already be sorted, as [store.Table.Snapshot] returns them, to keep the wire format unchanged.
+func marshalQueuesLocked(queues []*Queue) (json.RawMessage, error) {
+	if len(queues) == 0 {
+		return json.RawMessage("null"), nil
+	}
 
-	// Build a throwaway DTO registry purely to reuse store's deterministic,
-	// type-erased JSON encoding (store.Registry.SnapshotAll) instead of
-	// hand-rolling the marshal step. This is intentionally separate from the
-	// live b.registry: Queue/moveTaskState carry fields (channels, mutexes,
-	// cancel funcs, a dlq back-pointer) that cannot round-trip through JSON,
-	// and only terminal move tasks are meant to survive a restart — a direct
-	// snapshot of the live tables could not express either constraint.
-	dtoReg := store.NewRegistry()
-	queueDTOs := store.Register(dtoReg, "queues", store.New(queueSnapshotKey))
-	moveDTOs := store.Register(dtoReg, "moveTasks", store.New(moveTaskSnapshotKey))
+	parts := make([]json.RawMessage, len(queues))
 
-	for _, q := range b.queues.Snapshot() {
+	for i, q := range queues {
 		q.mu.Lock()
+
 		var lastPurgedAtMillis int64
 		if !q.lastPurgedAt.IsZero() {
 			lastPurgedAtMillis = q.lastPurgedAt.UnixMilli()
 		}
-		fifoSeqCounter := q.fifoSeqCounter
-		q.mu.Unlock()
 
-		queueDTOs.Put(&queueSnapshot{
+		data, err := json.Marshal(&queueSnapshot{
 			DeduplicationIDs:      q.DeduplicationIDs,
 			Attributes:            q.Attributes,
 			Tags:                  q.Tags,
@@ -138,10 +129,39 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 			Region:                q.Region,
 			MaxReceiveCount:       q.MaxReceiveCount,
 			IsFIFO:                q.IsFIFO,
-			FifoSeqCounter:        fifoSeqCounter,
+			FifoSeqCounter:        q.fifoSeqCounter,
 			LastPurgedAtUnixMilli: lastPurgedAtMillis,
 		})
+
+		q.mu.Unlock()
+
+		if err != nil {
+			return nil, err
+		}
+
+		parts[i] = data
 	}
+
+	return json.Marshal(parts)
+}
+
+// Snapshot serialises the backend state to JSON.
+// It implements persistence.Persistable.
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
+	b.mu.RLock("Snapshot")
+	defer b.mu.RUnlock()
+
+	// Queues are marshaled while q.mu is held (see marshalQueuesLocked), not via the DTO-registry pattern below.
+	// SendMessage/ReceiveMessage mutate Queue and *Message fields under q.mu alone, never b.mu (gopherstack-fwd0g).
+	queuesJSON, err := marshalQueuesLocked(b.queues.Snapshot())
+	if err != nil {
+		logger.Load(ctx).WarnContext(ctx, "sqs: snapshot table marshal failed", "error", err)
+
+		return nil
+	}
+
+	dtoReg := store.NewRegistry()
+	moveDTOs := store.Register(dtoReg, "moveTasks", store.New(moveTaskSnapshotKey))
 
 	// Persist terminal move tasks (COMPLETED/CANCELLED/FAILED) so task history
 	// survives restarts. RUNNING tasks are skipped because the goroutine cannot
@@ -184,6 +204,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 
 		return nil
 	}
+	tables["queues"] = queuesJSON
 
 	var recentlyDeleted map[string]int64
 	if len(b.recentlyDeleted) > 0 {
@@ -256,7 +277,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 			region = b.effectiveRegion("")
 		}
 
-		liveQueues = append(liveQueues, restoreQueueFromSnapshot(qs, region))
+		liveQueues = append(liveQueues, restoreQueueFromSnapshot(qs, region, b.now()))
 	}
 
 	b.queues.Restore(liveQueues)
@@ -295,7 +316,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	// Restore the ErrQueueDeletedRecently cooldown, dropping any entry whose
 	// 60-second window has already elapsed since it was snapshotted so the
 	// map doesn't carry stale cooldowns forward indefinitely.
-	now := time.Now()
+	now := b.now()
 	recentlyDeleted := make(map[string]time.Time, len(snap.RecentlyDeleted))
 
 	for key, deletedAtMillis := range snap.RecentlyDeleted {
@@ -311,7 +332,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 }
 
 // restoreQueueFromSnapshot rebuilds a Queue from its persisted snapshot.
-func restoreQueueFromSnapshot(qs *queueSnapshot, region string) *Queue {
+func restoreQueueFromSnapshot(qs *queueSnapshot, region string, now time.Time) *Queue {
 	if qs.DeduplicationIDs == nil {
 		qs.DeduplicationIDs = make(map[string]time.Time)
 	}
@@ -334,7 +355,6 @@ func restoreQueueFromSnapshot(qs *queueSnapshot, region string) *Queue {
 		inf.sliceIdx = i
 	}
 
-	now := time.Now()
 	delayedCount := 0
 
 	for _, msg := range qs.Messages {

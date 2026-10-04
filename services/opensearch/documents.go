@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 // Document search bounds. The engine is deliberately small and honest: it stores
@@ -393,6 +394,8 @@ func compileQuery(query map[string]any) (docPredicate, error) {
 			return nil, perr
 		}
 
+		want = unwrapClauseValue(want, "value")
+
 		return func(doc map[string]any) bool {
 			return termEqual(doc[field], want)
 		}, nil
@@ -404,14 +407,65 @@ func compileQuery(query map[string]any) (docPredicate, error) {
 			return nil, perr
 		}
 
-		needle := strings.ToLower(stringify(want))
-
-		return func(doc map[string]any) bool {
-			return strings.Contains(strings.ToLower(stringify(doc[field])), needle)
-		}, nil
+		return matchPredicate(field, want), nil
 	}
 
 	return nil, fmt.Errorf("%w: unsupported query clause", ErrValidation)
+}
+
+// unwrapClauseValue returns the scalar of a term/match clause given in either
+// the short form {"field": v} or the long form {"field": {key: v, ...}}.
+func unwrapClauseValue(want any, key string) any {
+	if m, ok := want.(map[string]any); ok {
+		if v, has := m[key]; has {
+			return v
+		}
+	}
+
+	return want
+}
+
+// matchPredicate implements match: lowercase alphanumeric tokens, any query token
+// matching (all with "operator": "and").
+func matchPredicate(field string, want any) docPredicate {
+	requireAll := false
+
+	if m, ok := want.(map[string]any); ok {
+		requireAll = strings.EqualFold(stringify(m["operator"]), "and")
+	}
+
+	queryTokens := analyzeTokens(stringify(unwrapClauseValue(want, "query")))
+
+	return func(doc map[string]any) bool {
+		if len(queryTokens) == 0 {
+			return false
+		}
+
+		have := make(map[string]struct{})
+		for _, t := range analyzeTokens(stringify(doc[field])) {
+			have[t] = struct{}{}
+		}
+
+		for _, t := range queryTokens {
+			_, ok := have[t]
+			if ok && !requireAll {
+				return true
+			}
+
+			if !ok && requireAll {
+				return false
+			}
+		}
+
+		return requireAll
+	}
+}
+
+// analyzeTokens lowercases s and splits it on non-alphanumeric characters.
+func analyzeTokens(s string) []string {
+	return strings.FieldsFunc(strings.ToLower(s), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	})
 }
 
 // matchAll matches every document.

@@ -41,7 +41,7 @@ func (b *InMemoryBackend) CreateTable(
 	tbl := &Table{
 		DatabaseName:    dbName,
 		TableName:       tblName,
-		ARN:             tableARN(dbName, tblName),
+		ARN:             b.tableARN(dbName, tblName),
 		TableStatus:     tableStatusActive,
 		CreationTime:    now,
 		LastUpdatedTime: now,
@@ -146,7 +146,7 @@ func (b *InMemoryBackend) DeleteTable(dbName, tblName string) error {
 		return fmt.Errorf("%w: table %s not found", ErrTableNotFound, tblName)
 	}
 
-	arn := tableARN(dbName, tblName)
+	arn := b.tableARN(dbName, tblName)
 
 	if slot := b.records[dbName][tblName]; slot != nil && slot.mu != nil {
 		slot.mu.Close()

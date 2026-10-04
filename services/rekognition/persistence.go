@@ -137,22 +137,12 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	return nil
 }
 
-// Snapshot implements persistence.Persistable by delegating to the backend.
-//
-// This delegation is itself the Phase 3.3 dead-wiring fix: before this
-// change Handler had no Snapshot/Restore of its own, even though
-// InMemoryBackend (via StorageBackend) always implemented both. cli.go's
-// generic setupPersistence type-asserts the registered service.Registerable
-// (the Handler returned by Provider.Init, not the backend) against a
-// Snapshot/Restore-shaped interface, so without these two methods
-// Rekognition was silently never persisted at all, matching the
-// codecommit/codepipeline/emr pattern.
-func (h *Handler) Snapshot(ctx context.Context) []byte {
+// homeSnapshot serializes the home region only.
+func (h *Handler) homeSnapshot(ctx context.Context) []byte {
 	return h.Backend.Snapshot(ctx)
 }
 
-// Restore implements persistence.Persistable by delegating to the backend.
-// See Handler.Snapshot for why this delegation exists.
-func (h *Handler) Restore(ctx context.Context, data []byte) error {
+// homeRestore restores the home region only.
+func (h *Handler) homeRestore(ctx context.Context, data []byte) error {
 	return h.Backend.Restore(ctx, data)
 }

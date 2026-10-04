@@ -9,8 +9,10 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -116,6 +118,7 @@ const (
 // Handler is the HTTP handler for OpenSearch operations.
 type Handler struct {
 	Backend   StorageBackend
+	peers     *regionpeers.Set[Handler]
 	AccountID string
 	Region    string
 }
@@ -196,7 +199,13 @@ func (h *Handler) RouteMatcher() service.Matcher {
 }
 
 // Reset clears the handler's backend state.
-func (h *Handler) Reset() { h.Backend.Reset() }
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+
+	for _, p := range h.peers.Drain() {
+		p.Backend.Reset()
+	}
+}
 
 // ServeHTTP implements [http.Handler] for the OpenSearch service.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -488,6 +497,11 @@ func domainNameFromRest(rest string) string {
 
 // Handle satisfies the Echo handler interface.
 func (h *Handler) Handle(c *echo.Context) error {
+	region := requestRegion(c.Request().Host, awsmeta.Region(c.Request().Context()))
+	if p := h.peers.Get(region); p != nil {
+		return p.Handle(c)
+	}
+
 	if op, ok := strings.CutPrefix(c.Request().Header.Get("X-Amz-Target"), openSearchServerlessTargetPrefix); ok {
 		return h.handleServerlessJSONRPC(c, op)
 	}

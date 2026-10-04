@@ -29,10 +29,50 @@ type bucketWire struct {
 	ResourceType             string                        `json:"resourceType,omitempty"`
 	SupportCode              string                        `json:"supportCode,omitempty"`
 	URL                      string                        `json:"url,omitempty"`
+	Cors                     *bucketCorsWire               `json:"cors,omitempty"`
 	ReadonlyAccessAccounts   []string                      `json:"readonlyAccessAccounts,omitempty"`
 	ResourcesReceivingAccess []resourceReceivingAccessWire `json:"resourcesReceivingAccess,omitempty"`
 	Tags                     []tagWire                     `json:"tags,omitempty"`
 	AbleToUpdateBundle       bool                          `json:"ableToUpdateBundle,omitempty"`
+}
+
+type bucketCorsWire struct {
+	Rules []bucketCorsRuleWire `json:"rules"`
+}
+
+type bucketCorsRuleWire struct {
+	MaxAgeSeconds  *int32   `json:"maxAgeSeconds,omitempty"`
+	ID             string   `json:"id,omitempty"`
+	AllowedMethods []string `json:"allowedMethods"`
+	AllowedOrigins []string `json:"allowedOrigins"`
+	AllowedHeaders []string `json:"allowedHeaders,omitempty"`
+	ExposeHeaders  []string `json:"exposeHeaders,omitempty"`
+}
+
+func (w *bucketCorsWire) toModel() *BucketCORS {
+	if w == nil {
+		return nil
+	}
+
+	out := &BucketCORS{Rules: make([]BucketCORSRule, len(w.Rules))}
+	for i, r := range w.Rules {
+		out.Rules[i] = BucketCORSRule(r)
+	}
+
+	return out
+}
+
+func bucketCorsToWire(c *BucketCORS) *bucketCorsWire {
+	if c == nil {
+		return nil
+	}
+
+	out := &bucketCorsWire{Rules: make([]bucketCorsRuleWire, len(c.Rules))}
+	for i, r := range c.Rules {
+		out.Rules[i] = bucketCorsRuleWire(r)
+	}
+
+	return out
 }
 
 type bucketStateWire struct {
@@ -68,6 +108,7 @@ func bucketToWire(bk *Bucket) bucketWire {
 		Location:                 locationToWire(bk.Location),
 		Name:                     bk.Name,
 		ObjectVersioning:         bk.ObjectVersioning,
+		Cors:                     bucketCorsToWire(bk.CORS),
 		ReadonlyAccessAccounts:   bk.ReadonlyAccessAccounts,
 		ResourcesReceivingAccess: resourcesReceivingAccessToWire(bk.ResourcesReceivingAccess),
 		ResourceType:             "Bucket",
@@ -128,9 +169,10 @@ func (h *Handler) handleDeleteBucket(_ context.Context, body []byte) ([]byte, er
 }
 
 type updateBucketRequest struct {
-	BucketName             string   `json:"bucketName"`
-	Versioning             string   `json:"versioning,omitempty"`
-	ReadonlyAccessAccounts []string `json:"readonlyAccessAccounts,omitempty"`
+	Cors                   *bucketCorsWire `json:"cors,omitempty"`
+	BucketName             string          `json:"bucketName"`
+	Versioning             string          `json:"versioning,omitempty"`
+	ReadonlyAccessAccounts []string        `json:"readonlyAccessAccounts,omitempty"`
 }
 
 type bucketAndOpsResponse struct {
@@ -144,12 +186,17 @@ func (h *Handler) handleUpdateBucket(_ context.Context, body []byte) ([]byte, er
 		return nil, err
 	}
 
-	bk, ops, updateErr := h.Backend.UpdateBucket(req.BucketName, req.Versioning, req.ReadonlyAccessAccounts)
+	bk, ops, updateErr := h.Backend.UpdateBucket(
+		req.BucketName, req.Versioning, req.ReadonlyAccessAccounts, req.Cors.toModel(),
+	)
 	if updateErr != nil {
 		return nil, updateErr
 	}
 
 	w := bucketToWire(bk)
+	if req.Cors == nil {
+		w.Cors = nil
+	}
 
 	return marshalResponse(bucketAndOpsResponse{Bucket: &w, Operations: operationsToWire(ops)})
 }
@@ -174,7 +221,8 @@ func (h *Handler) handleUpdateBucketBundle(_ context.Context, body []byte) ([]by
 }
 
 type getBucketsRequest struct {
-	BucketName string `json:"bucketName,omitempty"`
+	BucketName  string `json:"bucketName,omitempty"`
+	IncludeCors bool   `json:"includeCors,omitempty"`
 }
 
 type bucketsListResponse struct {
@@ -195,6 +243,9 @@ func (h *Handler) handleGetBuckets(_ context.Context, body []byte) ([]byte, erro
 	out := make([]bucketWire, len(bks))
 	for i, bk := range bks {
 		out[i] = bucketToWire(bk)
+		if !req.IncludeCors || req.BucketName == "" {
+			out[i].Cors = nil
+		}
 	}
 
 	return marshalResponse(bucketsListResponse{Buckets: out})

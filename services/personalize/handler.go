@@ -12,6 +12,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -82,6 +83,7 @@ type opFunc func(map[string]any) (map[string]any, error)
 
 // Handler serves Amazon Personalize JSON operations.
 type Handler struct {
+	peers   *regionpeers.Set[Handler]
 	Backend *InMemoryBackend
 	ops     map[string]opFunc
 }
@@ -97,8 +99,8 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 // Name returns service name.
 func (h *Handler) Name() string { return "Personalize" }
 
-// Reset clears all backend state for the /_gopherstack/reset test hook.
-func (h *Handler) Reset() { h.Backend.Reset() }
+// resetHome clears the home region only.
+func (h *Handler) resetHome() { h.Backend.Reset() }
 
 // ChaosServiceName returns service key for fault matching.
 func (h *Handler) ChaosServiceName() string { return "personalize" }
@@ -172,8 +174,8 @@ func (h *Handler) GetSupportedOperations() []string {
 	return ops
 }
 
-// Handler returns the Echo HTTP handler.
-func (h *Handler) Handler() echo.HandlerFunc {
+// homeHandler serves requests for the home region.
+func (h *Handler) homeHandler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		if op := runtimeRESTOpForPath(c.Request().URL.Path); op != "" {
 			return h.handleRuntimeREST(c, op)

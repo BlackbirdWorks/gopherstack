@@ -198,6 +198,7 @@ type backendSnapshot struct {
 	PREvents          map[string][]PullRequestEvent            `json:"prEvents"`
 	CommentReactions  map[string][]Reaction                    `json:"commentReactions"`
 	FileHistory       map[string]map[string][]FileHistoryEntry `json:"fileHistory"`
+	Blobs             map[string]map[string][]byte             `json:"blobs,omitempty"`
 	Triggers          map[string][]RepositoryTrigger           `json:"triggers"`
 	AccountID         string                                   `json:"accountId"`
 	Region            string                                   `json:"region"`
@@ -248,6 +249,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		PREvents:          b.prEvents,
 		CommentReactions:  b.commentReactions,
 		FileHistory:       b.fileHistory,
+		Blobs:             b.blobs,
 		Triggers:          b.triggers,
 		AccountID:         b.accountID,
 		Region:            b.region,
@@ -291,6 +293,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.prEvents = make(map[string][]PullRequestEvent)
 		b.commentReactions = make(map[string][]Reaction)
 		b.fileHistory = make(map[string]map[string][]FileHistoryEntry)
+		b.blobs = make(map[string]map[string][]byte)
 		b.triggers = make(map[string][]RepositoryTrigger)
 		b.nextPRCounter = 0
 
@@ -393,6 +396,11 @@ func (b *InMemoryBackend) restorePlainMaps(s *backendSnapshot) {
 		b.fileHistory = make(map[string]map[string][]FileHistoryEntry)
 	}
 
+	b.blobs = s.Blobs
+	if b.blobs == nil {
+		b.blobs = make(map[string]map[string][]byte)
+	}
+
 	b.triggers = s.Triggers
 	if b.triggers == nil {
 		b.triggers = make(map[string][]RepositoryTrigger)
@@ -410,12 +418,20 @@ func (b *InMemoryBackend) rebuildRepositoriesByARN() {
 	}
 }
 
-// Snapshot implements persistence.Persistable by delegating to the backend.
+// Snapshot implements persistence.Persistable; other regions ride in an additive "regions" key.
 func (h *Handler) Snapshot(ctx context.Context) []byte {
-	return h.Backend.Snapshot(ctx)
+	return h.peers.Snapshot(h.Backend.Snapshot(ctx), func(p *Handler) []byte { return p.Backend.Snapshot(ctx) })
 }
 
-// Restore implements persistence.Persistable by delegating to the backend.
+// Restore implements persistence.Persistable.
 func (h *Handler) Restore(ctx context.Context, data []byte) error {
-	return h.Backend.Restore(ctx, data)
+	if err := h.Backend.Restore(ctx, data); err != nil {
+		return err
+	}
+
+	return h.peers.Restore(
+		data,
+		func(p *Handler, d []byte) error { return p.Backend.Restore(ctx, d) },
+		func(p *Handler) { p.Backend.Reset() },
+	)
 }

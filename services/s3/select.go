@@ -43,6 +43,7 @@ type selectRequest struct {
 	XMLName             xml.Name                  `xml:"SelectObjectContentRequest"`
 	InputSerialization  selectInputSerialization  `xml:"InputSerialization"`
 	RequestProgress     *selectRequestProgress    `xml:"RequestProgress"`
+	ScanRange           *selectScanRange          `xml:"ScanRange"`
 	Expression          string                    `xml:"Expression"`
 	ExpressionType      string                    `xml:"ExpressionType"`
 }
@@ -324,6 +325,10 @@ func (h *S3Handler) evaluateQuery(
 		return 0, decErr
 	}
 
+	if ct := strings.ToUpper(req.InputSerialization.CompressionType); ct == "" || ct == compressionNone {
+		data = applySelectScanRange(data, req)
+	}
+
 	switch {
 	case req.InputSerialization.CSV != nil:
 		return evaluateCSVQuery(w, query, data, req)
@@ -347,11 +352,11 @@ var errParquetUnsupported = errors.New("parquet input serialization is not suppo
 // empty result instead of an error or its real content.
 func decompressSelectInput(data []byte, compressionType string) ([]byte, error) {
 	switch strings.ToUpper(compressionType) {
-	case "", "NONE":
+	case "", compressionNone:
 		return data, nil
 
 	case "GZIP":
-		out, err := (&GzipCompressor{}).Decompress(data)
+		out, err := (&GzipCompressor{}).gunzip(data)
 		if err != nil {
 			return nil, fmt.Errorf("GZIPDecompression: %w", err)
 		}

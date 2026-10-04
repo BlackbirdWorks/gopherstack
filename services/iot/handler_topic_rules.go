@@ -127,6 +127,8 @@ func (h *Handler) dispatchTopicRuleDestinationOps(c *echo.Context, op string) (b
 }
 
 func (h *Handler) handleCreateTopicRule(c *echo.Context) error {
+	h.noteEndpoint(c)
+
 	ruleName := strings.TrimPrefix(c.Request().URL.Path, "/rules/")
 
 	rawBody, err := io.ReadAll(c.Request().Body)
@@ -197,18 +199,20 @@ func (h *Handler) handleGetTopicRule(c *echo.Context) error {
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"ruleArn": r.ARN,
-		"rule": map[string]any{
-			"ruleName":         r.RuleName,
-			"sql":              r.SQL,
-			"awsIotSqlVersion": r.AWSIoTSQLVersion,
-			keyDescription:     r.Description,
-			"actions":          r.Actions,
-			"ruleDisabled":     !r.Enabled,
-			keyCreatedAt:       awstime.Epoch(r.CreatedAt),
-		},
-	})
+	rule := map[string]any{
+		keyRuleName:        r.RuleName,
+		"sql":              r.SQL,
+		"awsIotSqlVersion": r.AWSIoTSQLVersion,
+		keyDescription:     r.Description,
+		"actions":          r.Actions,
+		"ruleDisabled":     !r.Enabled,
+		keyCreatedAt:       awstime.Epoch(r.CreatedAt),
+	}
+	if r.ErrorAction != nil {
+		rule["errorAction"] = r.ErrorAction
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"ruleArn": r.ARN, "rule": rule})
 }
 
 func (h *Handler) handleDeleteTopicRule(c *echo.Context) error {
@@ -231,12 +235,15 @@ func (h *Handler) handleListTopicRules(c *echo.Context) error {
 		// not sql -- a different shape from the full TopicRule GetTopicRule
 		// returns. Every real client's TopicPattern decoded empty before this
 		// fix.
-		parsed, _ := ParseRuleSQL(r.SQL)
+		topicPattern := ""
+		if parsed, perr := ParseRuleSQLVersion(r.SQL, r.AWSIoTSQLVersion); perr == nil {
+			topicPattern = parsed.TopicPattern
+		}
 
 		out = append(out, map[string]any{
-			"ruleName":     r.RuleName,
+			keyRuleName:    r.RuleName,
 			"ruleArn":      r.ARN,
-			"topicPattern": parsed.TopicPattern,
+			"topicPattern": topicPattern,
 			"ruleDisabled": !r.Enabled,
 			keyCreatedAt:   awstime.Epoch(r.CreatedAt),
 		})
@@ -278,6 +285,8 @@ func (h *Handler) handleEnableTopicRule(c *echo.Context) error {
 }
 
 func (h *Handler) handleReplaceTopicRule(c *echo.Context) error {
+	h.noteEndpoint(c)
+
 	ruleName := strings.TrimPrefix(c.Request().URL.Path, "/rules/")
 
 	rawBody, err := io.ReadAll(c.Request().Body)
@@ -331,11 +340,17 @@ func topicRuleDestinationFields(d *TopicRuleDestination) map[string]any {
 		keyCreatedAt:     awstime.Epoch(d.CreatedAt),
 		keyLastUpdatedAt: awstime.Epoch(d.LastUpdatedAt),
 	}
+	if d.StatusReason != "" {
+		out["statusReason"] = d.StatusReason
+	}
 	if d.HTTPURLProperties != nil {
 		out["httpUrlProperties"] = d.HTTPURLProperties
 	}
 	if d.VPCProperties != nil {
 		out["vpcProperties"] = d.VPCProperties
+	}
+	if d.InfluxDBProperties != nil {
+		out["influxDBProperties"] = d.InfluxDBProperties
 	}
 
 	return out
@@ -354,17 +369,25 @@ func topicRuleDestinationSummaryFields(d *TopicRuleDestination) map[string]any {
 		keyCreatedAt:     awstime.Epoch(d.CreatedAt),
 		keyLastUpdatedAt: awstime.Epoch(d.LastUpdatedAt),
 	}
+	if d.StatusReason != "" {
+		out["statusReason"] = d.StatusReason
+	}
 	if d.HTTPURLProperties != nil {
 		out["httpUrlSummary"] = d.HTTPURLProperties
 	}
 	if d.VPCProperties != nil {
 		out["vpcDestinationSummary"] = d.VPCProperties
 	}
+	if d.InfluxDBProperties != nil {
+		out["influxDBSummary"] = d.InfluxDBProperties
+	}
 
 	return out
 }
 
 func (h *Handler) handleCreateTopicRuleDestination(c *echo.Context) error {
+	h.noteEndpoint(c)
+
 	var body struct {
 		DestinationConfiguration *TopicRuleDestinationConfiguration `json:"destinationConfiguration"`
 	}
@@ -418,6 +441,8 @@ func (h *Handler) handleListTopicRuleDestinations(c *echo.Context) error {
 }
 
 func (h *Handler) handleUpdateTopicRuleDestination(c *echo.Context) error {
+	h.noteEndpoint(c)
+
 	var body struct {
 		ARN    string `json:"arn"`
 		Status string `json:"status"`
@@ -453,4 +478,11 @@ func (h *Handler) handleConfirmTopicRuleDestination(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{})
+}
+
+// noteEndpoint tells the backend which address clients use, for destination enableUrl values.
+func (h *Handler) noteEndpoint(c *echo.Context) {
+	if s, ok := h.Backend.(interface{ SetEndpointBase(base string) }); ok {
+		s.SetEndpointBase(c.Scheme() + "://" + c.Request().Host)
+	}
 }

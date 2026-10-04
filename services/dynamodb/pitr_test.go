@@ -9,6 +9,7 @@ import (
 	"context"
 	"net/http"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
@@ -91,36 +92,39 @@ func TestPITR_SnapshotsSurvivePersistenceRoundTrip(t *testing.T) {
 // for well over 60 fires and asserting no PITR snapshot was taken.
 func TestPITR_SnapshotCadenceDecoupledFromMainSweep(t *testing.T) {
 	t.Parallel()
-	ctx, cancel := context.WithCancel(t.Context())
 
-	db := newInMemoryTestDB(t)
-	h := dynamodb.NewHandler(db)
-	createSimpleTestTable(t, db, "PITRCadenceTable")
-	enablePITR(t, h, "PITRCadenceTable")
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
 
-	j := dynamodb.NewJanitor(db, dynamodb.Settings{JanitorInterval: 2 * time.Millisecond})
+		db := newInMemoryTestDB(t)
+		h := dynamodb.NewHandler(db)
+		createSimpleTestTable(t, db, "PITRCadenceTable")
+		enablePITR(t, h, "PITRCadenceTable")
 
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		j.Run(ctx)
-	}()
+		j := dynamodb.NewJanitor(db, dynamodb.Settings{JanitorInterval: 2 * time.Millisecond})
 
-	// 300ms at a 2ms housekeeping interval is >100 fast-ticker fires -- far
-	// more than the 60-slot ring's capacity -- while the PITR ticker
-	// (1 minute) cannot have fired even once.
-	time.Sleep(300 * time.Millisecond)
-	cancel()
-	<-done
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			j.Run(ctx)
+		}()
 
-	tbl, ok := db.GetTableInRegion("PITRCadenceTable", "us-east-1")
-	require.True(t, ok)
-	assert.Empty(
-		t,
-		tbl.PITRSnapshots,
-		"PITR snapshot must not be taken by the fast housekeeping ticker; "+
-			"it must only fire on its own slower, decoupled ticker",
-	)
+		// 300ms at a 2ms housekeeping interval is >100 fast-ticker fires -- far
+		// more than the 60-slot ring's capacity -- while the PITR ticker
+		// (1 minute) cannot have fired even once.
+		time.Sleep(300 * time.Millisecond)
+		cancel()
+		<-done
+
+		tbl, ok := db.GetTableInRegion("PITRCadenceTable", "us-east-1")
+		require.True(t, ok)
+		assert.Empty(
+			t,
+			tbl.PITRSnapshots,
+			"PITR snapshot must not be taken by the fast housekeeping ticker; "+
+				"it must only fire on its own slower, decoupled ticker",
+		)
+	})
 }
 
 // TestPITR_RestoreOutsideWindow_ReturnsInvalidRestoreTimeException is a

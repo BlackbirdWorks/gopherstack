@@ -23,11 +23,16 @@ func (b *InMemoryBackend) CreateCollaboration(
 	isMetricsEnabled bool,
 	creatorPaymentConfiguration map[string]any,
 	tags map[string]string,
+	settings ...CollaborationSettings,
 ) (*Collaboration, error) {
 	b.mu.Lock("CreateCollaboration")
 	defer b.mu.Unlock()
 	if name == "" {
 		return nil, ErrValidation
+	}
+	cs := firstCollaborationSettings(settings)
+	if err := cs.validate(); err != nil {
+		return nil, err
 	}
 	id := uuid.NewString()
 	ts := b.now()
@@ -35,7 +40,13 @@ func (b *InMemoryBackend) CreateCollaboration(
 		jobLogStatus = jobLogStatusDisabled
 	}
 	memberSummaries := make([]*MemberSummary, 0, len(members)+1)
+	for _, m := range members {
+		if err := validateMLAbilities(m.MLMemberAbility); err != nil {
+			return nil, err
+		}
+	}
 	memberSummaries = append(memberSummaries, &MemberSummary{
+		MLAbilities:   cloneMLAbilities(cs.CreatorMLMemberAbilities),
 		AccountID:     b.accountID,
 		DisplayName:   creatorDisplayName,
 		Abilities:     creatorMemberAbilities,
@@ -46,6 +57,7 @@ func (b *InMemoryBackend) CreateCollaboration(
 	})
 	for _, m := range members {
 		memberSummaries = append(memberSummaries, &MemberSummary{
+			MLAbilities:   cloneMLAbilities(m.MLMemberAbility),
 			AccountID:     m.AccountID,
 			DisplayName:   m.DisplayName,
 			Abilities:     m.Abilities,
@@ -69,6 +81,9 @@ func (b *InMemoryBackend) CreateCollaboration(
 		QueryLogStatus:          queryLogStatus,
 		JobLogStatus:            jobLogStatus,
 		IsMetricsEnabled:        isMetricsEnabled,
+		AnalyticsEngine:         cs.AnalyticsEngine,
+		AllowedResultRegions:    slices.Clone(cs.AllowedResultRegions),
+		DataEncryptionMetadata:  cs.DataEncryptionMetadata,
 		CreateTime:              ts,
 		UpdateTime:              ts,
 		Tags:                    tags,
@@ -89,6 +104,7 @@ func (b *InMemoryBackend) CreateCollaboration(
 		JobLogStatus:         jobLogStatus,
 		IsMetricsEnabled:     isMetricsEnabled,
 		MemberAbilities:      creatorMemberAbilities,
+		MLMemberAbilities:    cloneMLAbilities(cs.CreatorMLMemberAbilities),
 		PaymentConfiguration: memberSummaries[0].PaymentConfig,
 	})
 	collab.MembershipArn = creatorMembership.Arn
@@ -96,7 +112,7 @@ func (b *InMemoryBackend) CreateCollaboration(
 	memberSummaries[0].MembershipArn = creatorMembership.Arn
 	memberSummaries[0].MembershipID = creatorMembership.ID
 
-	return collab, nil
+	return cloneCollaboration(collab), nil
 }
 
 func (b *InMemoryBackend) GetCollaboration(id string) (*Collaboration, error) {
@@ -107,7 +123,7 @@ func (b *InMemoryBackend) GetCollaboration(id string) (*Collaboration, error) {
 		return nil, ErrNotFound
 	}
 
-	return c, nil
+	return cloneCollaboration(c), nil
 }
 
 func (b *InMemoryBackend) ListCollaborations(
@@ -131,6 +147,7 @@ func (b *InMemoryBackend) ListCollaborations(
 			MemberStatus:            statusActive,
 			MembershipArn:           c.MembershipArn,
 			MembershipID:            c.MembershipID,
+			AnalyticsEngine:         c.AnalyticsEngine,
 			CreateTime:              c.CreateTime,
 			UpdateTime:              c.UpdateTime,
 		})
@@ -146,12 +163,20 @@ func (b *InMemoryBackend) ListCollaborations(
 
 func (b *InMemoryBackend) UpdateCollaboration(
 	id, name, description string,
+	settings ...CollaborationSettings,
 ) (*Collaboration, error) {
 	b.mu.Lock("UpdateCollaboration")
 	defer b.mu.Unlock()
+	cs := firstCollaborationSettings(settings)
+	if err := cs.validate(); err != nil {
+		return nil, err
+	}
 	c, ok := b.collaborations.Get(id)
 	if !ok {
 		return nil, ErrNotFound
+	}
+	if cs.AnalyticsEngine != "" {
+		c.AnalyticsEngine = cs.AnalyticsEngine
 	}
 	if name != "" {
 		c.Name = name
@@ -161,7 +186,7 @@ func (b *InMemoryBackend) UpdateCollaboration(
 	}
 	c.UpdateTime = b.now()
 
-	return c, nil
+	return cloneCollaboration(c), nil
 }
 
 // DeleteCollaboration deletes the collaboration identified by id. A
@@ -209,7 +234,11 @@ func (b *InMemoryBackend) ListMembers(
 		return nil, "", ErrNotFound
 	}
 	members := make([]*MemberSummary, len(c.Members))
-	copy(members, c.Members)
+	for i, m := range c.Members {
+		mc := *m
+		mc.MLAbilities = cloneMLAbilities(m.MLAbilities)
+		members[i] = &mc
+	}
 	page, next := paginate(members, maxResults, nextToken)
 
 	return page, next, nil
@@ -284,6 +313,9 @@ func validateChange(c Change) error {
 	case changeSpecTypeMember:
 		if c.Specification.Member == nil || c.Specification.Member.AccountID == "" {
 			return fmt.Errorf("%w: specification.member.accountId is required", ErrValidation)
+		}
+		if err := validateMLAbilities(c.Specification.Member.MLMemberAbilities); err != nil {
+			return fmt.Errorf("%w: invalid specification.member.mlMemberAbilities", err)
 		}
 	case changeSpecTypeCollaboration:
 		if c.Specification.Collaboration == nil {
@@ -461,6 +493,7 @@ func (b *InMemoryBackend) applyAddMemberLocked(collab *Collaboration, spec *Memb
 
 	ts := b.now()
 	collab.Members = append(collab.Members, &MemberSummary{
+		MLAbilities:   cloneMLAbilities(spec.MLMemberAbilities),
 		AccountID:     spec.AccountID,
 		DisplayName:   spec.DisplayName,
 		Abilities:     spec.MemberAbilities,

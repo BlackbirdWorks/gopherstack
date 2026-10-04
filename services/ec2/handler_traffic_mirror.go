@@ -105,6 +105,8 @@ type fleetItem struct {
 	FleetState                      string `xml:"fleetState"`
 	FleetType                       string `xml:"type,omitempty"`
 	ExcessCapacityTerminationPolicy string `xml:"excessCapacityTerminationPolicy,omitempty"`
+	ValidFrom                       string `xml:"validFrom,omitempty"`
+	ValidUntil                      string `xml:"validUntil,omitempty"`
 	DefaultTargetCapacityType       string `xml:"targetCapacitySpecification>defaultTargetCapacityType,omitempty"`
 	TargetCapacityUnitType          string `xml:"targetCapacitySpecification>targetCapacityUnitType,omitempty"`
 	// Errors/Instances are valid only for fleets of type instant (ec2@v1.319.1
@@ -358,6 +360,8 @@ func (h *Handler) handleDescribeTrafficMirrorFilterRules(
 	if err != nil {
 		return nil, err
 	}
+
+	rules = applyTrafficMirrorFilterRuleFilters(rules, parseEC2Filters(vals))
 
 	resp := &describeTrafficMirrorFilterRulesResponse{RequestID: reqID}
 	for _, r := range rules {

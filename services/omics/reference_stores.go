@@ -110,7 +110,7 @@ func (b *InMemoryBackend) ListReferenceStores(
 	ids := make([]string, 0, len(all))
 
 	for _, rs := range all {
-		if filter != nil && filter.Name != "" && rs.Name != filter.Name {
+		if !filter.matches(rs) {
 			continue
 		}
 
@@ -182,7 +182,7 @@ func (b *InMemoryBackend) GetReferenceMetadata(
 
 // ListReferences lists references in a reference store.
 //
-//nolint:dupl // structurally-identical parent-scoped List op (already deduped via listChildFiltered)
+
 func (b *InMemoryBackend) ListReferences(
 	referenceStoreID string,
 	filter *ReferenceFilter,
@@ -204,9 +204,7 @@ func (b *InMemoryBackend) ListReferences(
 	result, outToken := listChildFiltered(
 		group,
 		func(ref *ReferenceMetadata) string { return ref.ID },
-		func(ref *ReferenceMetadata) bool {
-			return filter == nil || filter.Name == "" || ref.Name == filter.Name
-		},
+		filter.matches,
 		nextToken, maxResults,
 		func(id string) (*ReferenceMetadata, bool) { return b.references.Get(parentKey(referenceStoreID, id)) },
 	)
@@ -315,7 +313,7 @@ func (b *InMemoryBackend) GetReferenceImportJob(
 // ListReferenceImportJobs lists reference import jobs for a store, optionally
 // filtered by status (real AWS ListReferenceImportJobsInput body "filter").
 //
-//nolint:dupl // structurally-identical parent-scoped List op (already deduped via listChildFiltered)
+
 func (b *InMemoryBackend) ListReferenceImportJobs(
 	referenceStoreID string,
 	filter *ReferenceImportJobFilter,
@@ -337,9 +335,7 @@ func (b *InMemoryBackend) ListReferenceImportJobs(
 	result, outToken := listChildFiltered(
 		group,
 		func(j *ReferenceImportJob) string { return j.ID },
-		func(j *ReferenceImportJob) bool {
-			return filter == nil || filter.Status == "" || j.Status == filter.Status
-		},
+		filter.matches,
 		nextToken, maxResults,
 		func(id string) (*ReferenceImportJob, bool) {
 			return b.referenceImportJobs.Get(parentKey(referenceStoreID, id))

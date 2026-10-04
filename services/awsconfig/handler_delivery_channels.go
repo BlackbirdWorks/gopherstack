@@ -62,6 +62,7 @@ type deliveryChannelBody struct {
 	Name                             string                      `json:"name"`
 	S3BucketName                     string                      `json:"s3BucketName"`
 	S3KeyPrefix                      string                      `json:"s3KeyPrefix,omitempty"`
+	S3KmsKeyArn                      string                      `json:"s3KmsKeyArn,omitempty"`
 	SnsTopicARN                      string                      `json:"snsTopicARN"`
 }
 
@@ -75,13 +76,14 @@ func (h *Handler) handlePutDeliveryChannel(
 	_ context.Context,
 	in *handlePutDeliveryChannelInput,
 ) (*putDeliveryChannelOutput, error) {
-	if err := h.Backend.PutDeliveryChannel(
-		in.DeliveryChannel.Name,
-		in.DeliveryChannel.S3BucketName,
-		in.DeliveryChannel.SnsTopicARN,
-		in.DeliveryChannel.S3KeyPrefix,
-		in.DeliveryChannel.ConfigSnapshotDeliveryProperties,
-	); err != nil {
+	if err := h.Backend.PutDeliveryChannelConfig(&DeliveryChannel{
+		Name:                             in.DeliveryChannel.Name,
+		S3Bucket:                         in.DeliveryChannel.S3BucketName,
+		SNSArn:                           in.DeliveryChannel.SnsTopicARN,
+		S3KeyPrefix:                      in.DeliveryChannel.S3KeyPrefix,
+		S3KmsKeyArn:                      in.DeliveryChannel.S3KmsKeyArn,
+		ConfigSnapshotDeliveryProperties: in.DeliveryChannel.ConfigSnapshotDeliveryProperties,
+	}); err != nil {
 		return nil, err
 	}
 

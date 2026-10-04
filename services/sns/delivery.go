@@ -74,6 +74,8 @@ func (b *InMemoryBackend) logDeliveryStatus(
 ) {
 	var roleArn string
 
+	b.emitDeliveryOutcome(topicARN, status == "SUCCESS")
+
 	func() {
 		b.mu.RLock("logDeliveryStatus")
 		defer b.mu.RUnlock()

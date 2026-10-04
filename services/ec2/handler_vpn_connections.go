@@ -10,7 +10,8 @@ import (
 func (h *Handler) handleModifyVpnConnection(vals url.Values, reqID string) (any, error) {
 	vpnID := vals.Get("VpnConnectionId")
 	vgwID := vals.Get("VpnGatewayId")
-	if err := h.Backend.ModifyVpnConnection(vpnID, vgwID); err != nil {
+	tgwID := vals.Get("TransitGatewayId")
+	if err := h.Backend.ModifyVpnConnection(vpnID, vgwID, tgwID); err != nil {
 		return nil, err
 	}
 
@@ -79,6 +80,7 @@ func (h *Handler) handleCreateVpnConnection(vals url.Values, reqID string) (any,
 		vals.Get("Type"),
 		vals.Get("CustomerGatewayId"),
 		vals.Get("VpnGatewayId"),
+		vals.Get("TransitGatewayId"),
 	)
 	if err != nil {
 		return nil, err

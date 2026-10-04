@@ -2,6 +2,7 @@ package ses_test
 
 import (
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -513,29 +514,31 @@ func TestSESPersistence_TemplatesAndConfigSetsRoundTrip(t *testing.T) {
 func TestSESPersistence_RestorePrunesExpiredEmails(t *testing.T) {
 	t.Parallel()
 
-	original := ses.NewInMemoryBackend()
-	require.NoError(t, original.VerifyEmailIdentity("prune@test.com"))
+	synctest.Test(t, func(t *testing.T) {
+		original := ses.NewInMemoryBackend()
+		require.NoError(t, original.VerifyEmailIdentity("prune@test.com"))
 
-	_, err := original.SendEmail(ses.SendEmailInput{
-		From: "prune@test.com", To: []string{"to@test.com"}, Subject: "keep", BodyText: "b",
+		_, err := original.SendEmail(ses.SendEmailInput{
+			From: "prune@test.com", To: []string{"to@test.com"}, Subject: "keep", BodyText: "b",
+		})
+		require.NoError(t, err)
+
+		snap := original.Snapshot(t.Context())
+		require.NotNil(t, snap)
+
+		// Restore into a backend with a very short TTL so the snapshot email is
+		// considered expired at restore time.
+		fresh := ses.NewInMemoryBackend()
+		fresh.SetEmailTTL(time.Nanosecond) // instant expiry
+
+		time.Sleep(time.Millisecond) // ensure TTL has passed
+
+		require.NoError(t, fresh.Restore(t.Context(), snap))
+
+		// The expired email must have been pruned.
+		assert.Equal(t, 0, fresh.EmailCount())
+		assert.Equal(t, 0, fresh.EmailsByIDCount())
 	})
-	require.NoError(t, err)
-
-	snap := original.Snapshot(t.Context())
-	require.NotNil(t, snap)
-
-	// Restore into a backend with a very short TTL so the snapshot email is
-	// considered expired at restore time.
-	fresh := ses.NewInMemoryBackend()
-	fresh.SetEmailTTL(time.Nanosecond) // instant expiry
-
-	time.Sleep(time.Millisecond) // ensure TTL has passed
-
-	require.NoError(t, fresh.Restore(t.Context(), snap))
-
-	// The expired email must have been pruned.
-	assert.Equal(t, 0, fresh.EmailCount())
-	assert.Equal(t, 0, fresh.EmailsByIDCount())
 }
 
 func TestSESPersistence_RestoreCapsToBound(t *testing.T) {

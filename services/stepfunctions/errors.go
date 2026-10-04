@@ -18,6 +18,7 @@ var (
 	ErrInvalidExecutionType            = errors.New("InvalidExecutionType")
 	ErrStateMachineTypeNotSupported    = errors.New("StateMachineTypeNotSupported")
 	ErrInvalidRoleArn                  = errors.New("InvalidArn")
+	ErrInvalidStateMachineArn          = errors.New("InvalidArn")
 	ErrInvalidName                     = errors.New("InvalidName")
 	ErrInvalidRoutingConfiguration     = errors.New("ValidationException")
 	ErrTagPolicyViolation              = errors.New("TagPolicyViolation")

@@ -93,7 +93,11 @@ func (h *Handler) validateCreateFunctionInput(c *echo.Context, input *CreateFunc
 		return false
 	}
 
-	return h.validateEphemeralStorageInput(c, input.EphemeralStorage)
+	if !h.validateEphemeralStorageInput(c, input.EphemeralStorage) {
+		return false
+	}
+
+	return h.validateDurableConfigInput(c, input.DurableConfig)
 }
 
 // validateSnapStartInput checks the optional SnapStart.ApplyOn value. AWS only
@@ -125,6 +129,34 @@ func (h *Handler) validateEphemeralStorageInput(c *echo.Context, es *EphemeralSt
 		_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
 			fmt.Sprintf("EphemeralStorage.Size must be between %d and %d MB",
 				minEphemeralStorageSize, maxEphemeralStorageSize))
+
+		return false
+	}
+
+	return true
+}
+
+// validateDurableConfigInput checks ExecutionTimeout/RetentionPeriodInDays ranges.
+// docs.aws.amazon.com/lambda/latest/api/API_DurableConfig.html.
+func (h *Handler) validateDurableConfigInput(c *echo.Context, dc *DurableConfig) bool {
+	if dc == nil {
+		return true
+	}
+
+	if dc.ExecutionTimeout != nil &&
+		(*dc.ExecutionTimeout < minDurableExecutionTimeout || *dc.ExecutionTimeout > maxDurableExecutionTimeout) {
+		_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			fmt.Sprintf("DurableConfig.ExecutionTimeout must be between %d and %d seconds",
+				minDurableExecutionTimeout, maxDurableExecutionTimeout))
+
+		return false
+	}
+
+	if dc.RetentionPeriodInDays != nil &&
+		(*dc.RetentionPeriodInDays < minDurableRetentionDays || *dc.RetentionPeriodInDays > maxDurableRetentionDays) {
+		_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			fmt.Sprintf("DurableConfig.RetentionPeriodInDays must be between %d and %d",
+				minDurableRetentionDays, maxDurableRetentionDays))
 
 		return false
 	}
@@ -234,6 +266,13 @@ func (h *Handler) validateCreateFunctionCode(c *echo.Context, input *CreateFunct
 			return false
 		}
 
+		if input.DurableConfig != nil && !isDurableSupportedRuntime(input.Runtime) {
+			_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+				fmt.Sprintf("Runtime %q does not support durable functions", input.Runtime))
+
+			return false
+		}
+
 		if input.Code.ZipFile == nil && (input.Code.S3Bucket == "" || input.Code.S3Key == "") {
 			_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
 				"Code.ZipFile or Code.S3Bucket+Code.S3Key is required for Zip package type")
@@ -262,6 +301,19 @@ func applyZipDigest(fn *FunctionConfiguration) {
 	}
 }
 
+// validateCreateFunction runs the generic input checks, then the hot-reload code-path check.
+func (h *Handler) validateCreateFunction(c *echo.Context, input *CreateFunctionInput) bool {
+	if !h.validateCreateFunctionInput(c, input) {
+		return false
+	}
+
+	if input.PackageType != PackageTypeZip || input.Code.ZipFile != nil {
+		return true
+	}
+
+	return h.validateHotReloadCode(c, input.Code.S3Bucket, input.Code.S3Key)
+}
+
 func (h *Handler) handleCreateFunction(c *echo.Context) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
@@ -273,7 +325,7 @@ func (h *Handler) handleCreateFunction(c *echo.Context) error {
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid request body")
 	}
 
-	if !h.validateCreateFunctionInput(c, &input) {
+	if !h.validateCreateFunction(c, &input) {
 		return nil
 	}
 
@@ -320,6 +372,7 @@ func (h *Handler) handleCreateFunction(c *echo.Context) error {
 
 	applyImageConfig(fn, &input)
 	applyZipDigest(fn)
+	h.applyHotReloadDigest(fn)
 	applySnapStart(fn, input.SnapStart)
 
 	if len(input.Architectures) > 0 {
@@ -623,6 +676,10 @@ func (h *Handler) applyZipCodeUpdate(c *echo.Context, fn *FunctionConfiguration,
 		return false
 	}
 
+	if input.ZipFile == nil && !h.validateHotReloadCode(c, input.S3Bucket, input.S3Key) {
+		return false
+	}
+
 	fn.ZipData = input.ZipFile
 	fn.S3BucketCode = input.S3Bucket
 	fn.S3KeyCode = input.S3Key
@@ -639,6 +696,8 @@ func (h *Handler) applyZipCodeUpdate(c *echo.Context, fn *FunctionConfiguration,
 		sum := sha256.Sum256(fn.ZipData)
 		fn.CodeSha256 = base64.StdEncoding.EncodeToString(sum[:])
 	}
+
+	h.applyHotReloadDigest(fn)
 
 	return true
 }
@@ -675,6 +734,10 @@ func (h *Handler) handleUpdateFunctionConfiguration(c *echo.Context, name string
 		}
 	}
 
+	if !h.validateDurableConfigInput(c, input.DurableConfig) {
+		return nil
+	}
+
 	fn, getFnErr := h.Backend.GetFunction(name)
 	if getFnErr != nil {
 		if errors.Is(getFnErr, ErrFunctionNotFound) {
@@ -689,6 +752,10 @@ func (h *Handler) handleUpdateFunctionConfiguration(c *echo.Context, name string
 		return nil
 	}
 
+	if !h.validateDurableRuntimeUpdate(c, fn, &input) {
+		return nil
+	}
+
 	applyFunctionConfigurationUpdate(fn, &input)
 
 	fn.LastModified = time.Now().UTC().Format(time.RFC3339)
@@ -700,6 +767,39 @@ func (h *Handler) handleUpdateFunctionConfiguration(c *echo.Context, name string
 	}
 
 	return c.JSON(http.StatusOK, toWireFunctionConfiguration(fn))
+}
+
+// validateDurableRuntimeUpdate rejects an unsupported runtime for a Zip durable function.
+// docs.aws.amazon.com/lambda/latest/dg/durable-supported-runtimes.html.
+func (h *Handler) validateDurableRuntimeUpdate(
+	c *echo.Context, fn *FunctionConfiguration, input *UpdateFunctionConfigurationInput,
+) bool {
+	if fn.PackageType != PackageTypeZip {
+		return true
+	}
+
+	durableConfig := fn.DurableConfig
+	if input.DurableConfig != nil {
+		durableConfig = input.DurableConfig
+	}
+
+	if durableConfig == nil {
+		return true
+	}
+
+	runtime := fn.Runtime
+	if input.Runtime != "" {
+		runtime = input.Runtime
+	}
+
+	if isDurableSupportedRuntime(runtime) {
+		return true
+	}
+
+	_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+		fmt.Sprintf("Runtime %q does not support durable functions", runtime))
+
+	return false
 }
 
 // applySnapStart sets the SnapStart field on fn based on the input.
@@ -860,6 +960,19 @@ const minTimeout = 1
 
 // maxTimeout is the maximum allowed Lambda function timeout in seconds.
 const maxTimeout = 900
+
+// ExecutionTimeout's documented range.
+// docs.aws.amazon.com/lambda/latest/api/API_DurableConfig.html.
+const (
+	minDurableExecutionTimeout = 1
+	maxDurableExecutionTimeout = 31622400
+)
+
+// RetentionPeriodInDays's documented range (same API_DurableConfig.html page).
+const (
+	minDurableRetentionDays = 1
+	maxDurableRetentionDays = 90
+)
 
 // handleGetFunctionConfiguration handles GET /2015-03-31/functions/{name}/configuration.
 // Real AWS returns the function configuration without the code location.

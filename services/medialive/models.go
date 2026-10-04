@@ -2,6 +2,7 @@ package medialive
 
 import (
 	"maps"
+	"slices"
 	"time"
 )
 
@@ -394,14 +395,16 @@ func (c *storedCluster) toSummary(channelIDs []string) *ClusterSummary {
 
 // Tags first, then strings: reduces GC pointer scan.
 type storedNode struct {
-	Tags            map[string]string `json:"tags"`
-	ARN             string            `json:"arn"`
-	ID              string            `json:"id"`
-	Name            string            `json:"name"`
-	ClusterID       string            `json:"clusterId"`
-	Role            string            `json:"role"`
-	State           string            `json:"state"`
-	ConnectionState string            `json:"connectionState"`
+	Tags                  map[string]string      `json:"tags"`
+	ARN                   string                 `json:"arn"`
+	ID                    string                 `json:"id"`
+	Name                  string                 `json:"name"`
+	ClusterID             string                 `json:"clusterId"`
+	Role                  string                 `json:"role"`
+	State                 string                 `json:"state"`
+	ConnectionState       string                 `json:"connectionState"`
+	NodeInterfaceMappings []NodeInterfaceMapping `json:"nodeInterfaceMappings,omitempty"`
+	SdiSourceMappings     []SdiSourceMapping     `json:"sdiSourceMappings,omitempty"`
 }
 
 // toNode converts to the domain Node shape. cpgIDs is the live set of
@@ -421,7 +424,19 @@ func (n *storedNode) toNode(cpgIDs []string) *Node {
 		State:                  n.State,
 		ConnectionState:        n.ConnectionState,
 		ChannelPlacementGroups: cpgIDs,
+		NodeInterfaceMappings:  cloneNodeInterfaceMappings(n.NodeInterfaceMappings),
+		SdiSourceMappings:      slices.Clone(n.SdiSourceMappings),
 	}
+}
+
+func cloneNodeInterfaceMappings(in []NodeInterfaceMapping) []NodeInterfaceMapping {
+	out := make([]NodeInterfaceMapping, len(in))
+	for i, m := range in {
+		m.PhysicalInterfaceIPAddresses = slices.Clone(m.PhysicalInterfaceIPAddresses)
+		out[i] = m
+	}
+
+	return out
 }
 
 func (n *storedNode) toSummary(cpgIDs []string) *NodeSummary {
@@ -434,6 +449,8 @@ func (n *storedNode) toSummary(cpgIDs []string) *NodeSummary {
 		State:                  n.State,
 		ConnectionState:        n.ConnectionState,
 		ChannelPlacementGroups: cpgIDs,
+		NodeInterfaceMappings:  cloneNodeInterfaceMappings(n.NodeInterfaceMappings),
+		SdiSourceMappings:      slices.Clone(n.SdiSourceMappings),
 	}
 }
 

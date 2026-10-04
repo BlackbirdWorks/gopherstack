@@ -288,6 +288,7 @@ families:
   WebSocket @connections data plane (apigatewaymanagementapi): {status: ok, note: "delegated to services/apigatewaymanagementapi via SetManagementAPIBackend; out of scope for this apigatewayv2-only sweep"}
 gaps: []
 items_still_open:
+  - "AWS/ApiGateway HTTP/WebSocket metrics Count/4xx/5xx/Latency/IntegrationLatency and ConnectCount/MessageCount/ClientError/ExecutionError are emitted; DataProcessed, IntegrationError and the Route/Resource/Method dimensions are not. (gopherstack-4m1qr)"
   - "Quick-create route/stage immutability partially enforced (gopherstack-2tx, narrowed): UpdateRoute
     now rejects a route-key change on an apiGatewayManaged route (\"You can't modify the $default
     route key\") and UpdateStage now rejects any modification of an apiGatewayManaged stage (\"You
@@ -384,7 +385,7 @@ deferred:
   - ImportApi/ReimportApi basepath=split; failOnWarnings real effect (see gaps, bd gopherstack-jni0)
   - Quick-create DeleteRoute/DeleteStage/DeleteIntegration rejection (see gaps, bd gopherstack-2tx)
   - DeploymentID=="" gating for a never-deployed stage (see gaps, bd gopherstack-vli) -- per-deployment route/integration snapshotting itself was fixed 2026-09-06 (gopherstack-cfr1, see gaps and Notes #19)
-  - apigateway (v1)'s identical live-routing-vs-deployment-snapshot bug (bd gopherstack-fum) -- deliberately not fixed alongside v2's; v1's resource-tree/routingTrie data plane and lack of an autoDeploy model make it a distinctly larger effort, not a copy of this fix
+  - apigateway (v1)'s identical live-routing-vs-deployment-snapshot bug (bd gopherstack-fum) was NOT copied from this fix -- deliberately deferred at the time (v1's resource-tree/routingTrie data plane and lack of an autoDeploy model made it a distinctly larger effort) but has since been fixed independently, 2026-09-26; see services/apigateway/PARITY.md's CreateDeployment note and deployment_snapshot.go
 leaks: {status: clean, note: "portalProductSharingPolicies cleanup on DeletePortalProduct already covered by leak_internal_test.go from a prior sweep; authorizerCache entries are now purged on DeleteAuthorizer/DeleteApi (bd gopherstack-wmh, fixed and closed this pass -- see Notes #11), not merely TTL-bounded; no goroutines/janitors in this package"}
 ---
 
@@ -1124,3 +1125,20 @@ apigatewayv2_apprunner_and_macie_test.go) for api_mapping, authorizer, deploymen
 integration_response, model, route_response, vpc_link -- all 8 resources
 the census flagged as uncovered. Zero bugs found; confirms the existing
 `ops:` table verdicts.
+
+## 2026-10-01 (gopherstack-m46co): REQUEST authorizer cache
+
+- v2 already keyed on identity-source values; but IAM-policy decisions were cached without the route ARN (a cached Allow for GET /a allowed GET /b). The key now includes the route ARN unless simple responses are used.
+- Authorizers with no identity source are never cached (a shared key would span callers); the decision cache is bounded at 1024 entries with expired-first eviction.
+
+## 2026-10-03 (gopherstack-1izbr multi-region)
+
+API Gateway v2 is region-isolated: each non-home region gets a lazily built sibling `Handler` (own APIs, routes, stages, domain names, portals, authorizer cache) via `pkgs/regionpeers`; siblings inherit the Lambda/JWKS/management-API/HTTP wiring. Data-plane invokes (`/v2proxy/...`, `_user_request_`) find the API by id across regions and run in its region, so authorizer route ARNs and event `domainName` name that region; portal ARNs and endpoints use the backend region. `Handler.Reset` now also resets the backend and siblings. Snapshots gain an additive `regions` key only when a sibling exists (no version bump). Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_InvokeResolvesAPIInOwningRegion`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/apigatewayv2`. Limitation: WebSocket connections share one management-API backend across regions.
+
+## 2026-10-04: in-process metric inventory (gopherstack-4m1qr)
+
+Emits HTTP API Count, 4xx, 5xx, Latency, IntegrationLatency and WebSocket ConnectCount, MessageCount, Count, ClientError, ExecutionError, IntegrationLatency under AWS/ApiGateway with ApiId and ApiId+Stage dimensions (http-api-metrics.html, apigateway-websocket-api-logging.html). Points fold per second into statistic sets. Verified by cli_service_metrics_test.go (typed SDK, ListMetrics + GetMetricStatistics).
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+WebSocket connections register with the Management API backend of the API's region (`SetManagementAPIResolver`), so `@connections` calls from another region report the connection gone. Proof: `TestHandler_WebSocketConnectionsLandInAPIRegion`.

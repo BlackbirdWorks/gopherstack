@@ -23,7 +23,7 @@ func (d *distributedMapChildRunner) RunDistributedMapItem(
 	iterator *asl.StateMachine,
 	_ int,
 	item any,
-) (any, error) {
+) (asl.DistributedMapItemResult, error) {
 	return d.backend.runDistributedMapChild(ctx, executionARN, mapRunARN, iterator, item)
 }
 
@@ -110,14 +110,14 @@ func (b *InMemoryBackend) runDistributedMapChild(
 	parentExecARN, mapRunARN string,
 	iterator *asl.StateMachine,
 	item any,
-) (any, error) {
+) (asl.DistributedMapItemResult, error) {
 	b.mu.RLock("runDistributedMapChild.context")
 	cc, ok := b.distributedMapChildContextLocked(parentExecARN)
 	integrations := b.snapshotIntegrationsLocked()
 	b.mu.RUnlock()
 
 	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrExecutionDoesNotExist, parentExecARN)
+		return asl.DistributedMapItemResult{}, fmt.Errorf("%w: %s", ErrExecutionDoesNotExist, parentExecARN)
 	}
 
 	input := marshalDistributedMapInput(item)
@@ -170,15 +170,26 @@ func (b *InMemoryBackend) runDistributedMapChild(
 	} else if childExec.Status == statusRunning {
 		b.finalizeExecutionRecordLocked(childExec, childExecARN, result, execErr)
 	}
+
+	meta := asl.DistributedMapItemResult{
+		ExecutionArn: childExecARN,
+		Name:         childName,
+		StartDate:    childExec.StartDate,
+	}
+	if childExec.StopDate != nil {
+		meta.StopDate = *childExec.StopDate
+	}
 	b.mu.Unlock()
 
 	if execErr != nil {
-		return nil, execErr
+		return meta, execErr
 	}
 
 	if result.Failed {
-		return nil, &asl.FailError{ErrCode: result.Error, Cause: result.Cause}
+		return meta, &asl.FailError{ErrCode: result.Error, Cause: result.Cause}
 	}
 
-	return result.Output, nil
+	meta.Output = result.Output
+
+	return meta, nil
 }

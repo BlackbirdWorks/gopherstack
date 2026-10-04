@@ -186,11 +186,14 @@ func (h *Handler) handleListTasks(_ context.Context, in *listTasksInput) (*listT
 // ----- StartTask -----
 
 type startTaskInput struct {
-	Cluster            string   `json:"cluster,omitempty"`
-	TaskDefinition     string   `json:"taskDefinition"`
-	Group              string   `json:"group,omitempty"`
-	StartedBy          string   `json:"startedBy,omitempty"`
-	ContainerInstances []string `json:"containerInstances"`
+	Overrides            *taskOverrideInput         `json:"overrides,omitempty"`
+	NetworkConfiguration *networkConfigurationInput `json:"networkConfiguration,omitempty"`
+	Cluster              string                     `json:"cluster,omitempty"`
+	TaskDefinition       string                     `json:"taskDefinition"`
+	Group                string                     `json:"group,omitempty"`
+	StartedBy            string                     `json:"startedBy,omitempty"`
+	ContainerInstances   []string                   `json:"containerInstances"`
+	EnableExecuteCommand bool                       `json:"enableExecuteCommand,omitempty"`
 }
 
 type startTaskOutput struct {
@@ -203,11 +206,14 @@ func (h *Handler) handleStartTask(
 	in *startTaskInput,
 ) (*startTaskOutput, error) {
 	tasks, failures, err := h.Backend.StartTask(StartTaskInput{
-		Cluster:            in.Cluster,
-		TaskDefinition:     in.TaskDefinition,
-		ContainerInstances: in.ContainerInstances,
-		Group:              in.Group,
-		StartedBy:          in.StartedBy,
+		Cluster:              in.Cluster,
+		TaskDefinition:       in.TaskDefinition,
+		ContainerInstances:   in.ContainerInstances,
+		Group:                in.Group,
+		StartedBy:            in.StartedBy,
+		Overrides:            toTaskOverride(in.Overrides),
+		NetworkConfiguration: toNetworkConfiguration(in.NetworkConfiguration),
+		EnableExecuteCommand: in.EnableExecuteCommand,
 	})
 	if err != nil {
 		return nil, err

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -191,48 +192,50 @@ func TestReplayPolicyValidAccepted(t *testing.T) {
 func TestReplayPolicyTriggersLambdaReplay(t *testing.T) {
 	t.Parallel()
 
-	b := newTestBackend(t)
-	lambda := &mockLambdaInvoker{}
-	b.SetLambdaBackend(lambda)
+	synctest.Test(t, func(t *testing.T) {
+		b := newTestBackend(t)
+		lambda := &mockLambdaInvoker{}
+		b.SetLambdaBackend(lambda)
 
-	tp, err := b.CreateTopic("replay-lambda-topic.fifo", map[string]string{
-		"ArchivePolicy": `{"MessageRetentionPeriod":30}`,
-	})
-	require.NoError(t, err)
-
-	// Publish messages before subscribing.
-	pastTime := time.Now().UTC().Add(-time.Hour)
-	for i := range 3 {
-		_, err = b.Publish(tp.TopicArn, fmt.Sprintf("archived-%d", i), "", "", nil)
+		tp, err := b.CreateTopic("replay-lambda-topic.fifo", map[string]string{
+			"ArchivePolicy": `{"MessageRetentionPeriod":30}`,
+		})
 		require.NoError(t, err)
-	}
 
-	// Subscribe AFTER the messages were published.
-	sub, err := b.Subscribe(
-		tp.TopicArn, "lambda", "arn:aws:lambda:us-east-1:000000000000:function:replay-fn", "",
-	)
-	require.NoError(t, err)
+		// Publish messages before subscribing.
+		pastTime := time.Now().UTC().Add(-time.Hour)
+		for i := range 3 {
+			_, err = b.Publish(tp.TopicArn, fmt.Sprintf("archived-%d", i), "", "", nil)
+			require.NoError(t, err)
+		}
 
-	// Set ReplayPolicy to replay from before the archived messages.
-	replayFrom := pastTime.Format(time.RFC3339)
-	err = b.SetSubscriptionAttributes(sub.SubscriptionArn, "ReplayPolicy",
-		fmt.Sprintf(`{"replayFromTimestamp":"%s"}`, replayFrom))
-	require.NoError(t, err)
+		// Subscribe AFTER the messages were published.
+		sub, err := b.Subscribe(
+			tp.TopicArn, "lambda", "arn:aws:lambda:us-east-1:000000000000:function:replay-fn", "",
+		)
+		require.NoError(t, err)
 
-	// Expect all 3 archived messages to be replayed.
-	require.Eventually(t, func() bool { return lambda.Count() == 3 },
-		3*time.Second, 10*time.Millisecond, "not all archived messages were replayed")
+		// Set ReplayPolicy to replay from before the archived messages.
+		replayFrom := pastTime.Format(time.RFC3339)
+		err = b.SetSubscriptionAttributes(sub.SubscriptionArn, "ReplayPolicy",
+			fmt.Sprintf(`{"replayFromTimestamp":"%s"}`, replayFrom))
+		require.NoError(t, err)
 
-	// Verify all archived messages were replayed, in original publish order.
-	for i, invocation := range lambda.All() {
-		var envelope map[string]any
-		require.NoError(t, json.Unmarshal(invocation.Payload, &envelope))
-		records, _ := envelope["Records"].([]any)
-		require.Len(t, records, 1)
-		record, _ := records[0].(map[string]any)
-		snsData, _ := record["Sns"].(map[string]any)
-		assert.Equal(t, fmt.Sprintf("archived-%d", i), snsData["Message"])
-	}
+		// Wait for the async replay goroutine to deliver all 3 archived messages.
+		synctest.Wait()
+		require.Equal(t, 3, lambda.Count(), "not all archived messages were replayed")
+
+		// Verify all archived messages were replayed, in original publish order.
+		for i, invocation := range lambda.All() {
+			var envelope map[string]any
+			require.NoError(t, json.Unmarshal(invocation.Payload, &envelope))
+			records, _ := envelope["Records"].([]any)
+			require.Len(t, records, 1)
+			record, _ := records[0].(map[string]any)
+			snsData, _ := record["Sns"].(map[string]any)
+			assert.Equal(t, fmt.Sprintf("archived-%d", i), snsData["Message"])
+		}
+	})
 }
 
 // TestReplayPolicyFutureTimestampReplaysNothing verifies that a
@@ -240,32 +243,34 @@ func TestReplayPolicyTriggersLambdaReplay(t *testing.T) {
 func TestReplayPolicyFutureTimestampReplaysNothing(t *testing.T) {
 	t.Parallel()
 
-	b := newTestBackend(t)
-	lambda := &mockLambdaInvoker{}
-	b.SetLambdaBackend(lambda)
+	synctest.Test(t, func(t *testing.T) {
+		b := newTestBackend(t)
+		lambda := &mockLambdaInvoker{}
+		b.SetLambdaBackend(lambda)
 
-	tp, err := b.CreateTopic("replay-future-topic.fifo", map[string]string{
-		"ArchivePolicy": `{"MessageRetentionPeriod":30}`,
+		tp, err := b.CreateTopic("replay-future-topic.fifo", map[string]string{
+			"ArchivePolicy": `{"MessageRetentionPeriod":30}`,
+		})
+		require.NoError(t, err)
+
+		_, err = b.Publish(tp.TopicArn, "past-message", "", "", nil)
+		require.NoError(t, err)
+
+		sub, err := b.Subscribe(
+			tp.TopicArn, "lambda", "arn:aws:lambda:us-east-1:000000000000:function:future-fn", "",
+		)
+		require.NoError(t, err)
+
+		// ReplayFromTimestamp is in the future → no messages match.
+		futureTS := time.Now().UTC().Add(24 * time.Hour).Format(time.RFC3339)
+		err = b.SetSubscriptionAttributes(sub.SubscriptionArn, "ReplayPolicy",
+			fmt.Sprintf(`{"replayFromTimestamp":"%s"}`, futureTS))
+		require.NoError(t, err)
+
+		// Let the async replay goroutine finish finding nothing to replay.
+		synctest.Wait()
+		assert.Equal(t, 0, lambda.Count(), "no message should be replayed with a future replayFromTimestamp")
 	})
-	require.NoError(t, err)
-
-	_, err = b.Publish(tp.TopicArn, "past-message", "", "", nil)
-	require.NoError(t, err)
-
-	sub, err := b.Subscribe(
-		tp.TopicArn, "lambda", "arn:aws:lambda:us-east-1:000000000000:function:future-fn", "",
-	)
-	require.NoError(t, err)
-
-	// ReplayFromTimestamp is in the future → no messages match.
-	futureTS := time.Now().UTC().Add(24 * time.Hour).Format(time.RFC3339)
-	err = b.SetSubscriptionAttributes(sub.SubscriptionArn, "ReplayPolicy",
-		fmt.Sprintf(`{"replayFromTimestamp":"%s"}`, futureTS))
-	require.NoError(t, err)
-
-	// Wait briefly; no invocation should arrive.
-	time.Sleep(400 * time.Millisecond)
-	assert.Equal(t, 0, lambda.Count(), "no message should be replayed with a future replayFromTimestamp")
 }
 
 // TestReplayPolicyDeliversToA2AProtocols verifies that a subscription's
@@ -307,8 +312,8 @@ func TestReplayPolicyDeliversToA2AProtocols(t *testing.T) {
 					endpoint: "arn:aws:lambda:us-east-1:123456789012:function:replay-fn",
 					verify: func(t *testing.T) {
 						t.Helper()
-						require.Eventually(t, func() bool { return lambda.Count() == 1 },
-							2*time.Second, 10*time.Millisecond, "lambda function was never invoked")
+						synctest.Wait()
+						require.Equal(t, 1, lambda.Count(), "lambda function was never invoked")
 
 						var envelope map[string]any
 						require.NoError(t, json.Unmarshal(lambda.Last().Payload, &envelope))
@@ -336,8 +341,8 @@ func TestReplayPolicyDeliversToA2AProtocols(t *testing.T) {
 					endpoint: "arn:aws:firehose:us-east-1:123456789012:deliverystream/" + streamName,
 					verify: func(t *testing.T) {
 						t.Helper()
-						require.Eventually(t, func() bool { return len(firehose.RecordsFor(streamName)) == 1 },
-							2*time.Second, 10*time.Millisecond, "firehose stream received no record")
+						synctest.Wait()
+						require.Len(t, firehose.RecordsFor(streamName), 1, "firehose stream received no record")
 
 						var envelope map[string]any
 						require.NoError(t, json.Unmarshal(firehose.RecordsFor(streamName)[0], &envelope))
@@ -352,29 +357,31 @@ func TestReplayPolicyDeliversToA2AProtocols(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			// Each subtest builds its own isolated backend, topic, and subscription.
-			b := newTestBackend(t)
-			tp, err := b.CreateTopic("replay-fanout-"+tc.name+".fifo", map[string]string{
-				"ArchivePolicy": `{"MessageRetentionPeriod":30}`,
+			synctest.Test(t, func(t *testing.T) {
+				// Each subtest builds its own isolated backend, topic, and subscription.
+				b := newTestBackend(t)
+				tp, err := b.CreateTopic("replay-fanout-"+tc.name+".fifo", map[string]string{
+					"ArchivePolicy": `{"MessageRetentionPeriod":30}`,
+				})
+				require.NoError(t, err)
+
+				// Publish before subscribing so the message lands only in the archive.
+				pastTime := time.Now().UTC().Add(-time.Hour)
+				_, err = b.Publish(tp.TopicArn, archivedMessage, "", "", nil)
+				require.NoError(t, err)
+
+				res := tc.setup(t, b)
+
+				sub, err := b.Subscribe(tp.TopicArn, tc.proto, res.endpoint, "")
+				require.NoError(t, err)
+
+				replayFrom := pastTime.Format(time.RFC3339)
+				err = b.SetSubscriptionAttributes(sub.SubscriptionArn, "ReplayPolicy",
+					fmt.Sprintf(`{"replayFromTimestamp":"%s"}`, replayFrom))
+				require.NoError(t, err)
+
+				res.verify(t)
 			})
-			require.NoError(t, err)
-
-			// Publish before subscribing so the message lands only in the archive.
-			pastTime := time.Now().UTC().Add(-time.Hour)
-			_, err = b.Publish(tp.TopicArn, archivedMessage, "", "", nil)
-			require.NoError(t, err)
-
-			res := tc.setup(t, b)
-
-			sub, err := b.Subscribe(tp.TopicArn, tc.proto, res.endpoint, "")
-			require.NoError(t, err)
-
-			replayFrom := pastTime.Format(time.RFC3339)
-			err = b.SetSubscriptionAttributes(sub.SubscriptionArn, "ReplayPolicy",
-				fmt.Sprintf(`{"replayFromTimestamp":"%s"}`, replayFrom))
-			require.NoError(t, err)
-
-			res.verify(t)
 		})
 	}
 }

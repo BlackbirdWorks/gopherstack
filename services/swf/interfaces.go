@@ -5,6 +5,7 @@ import "context"
 // StorageBackend defines the interface for SWF backend implementations.
 // All mutating methods must be safe for concurrent use.
 type StorageBackend interface {
+	Region() string
 	// Domain lifecycle
 	RegisterDomain(name, description, retention string) error
 	DescribeDomain(name string) (*Domain, error)

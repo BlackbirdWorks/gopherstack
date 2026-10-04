@@ -15,8 +15,8 @@ import (
 // method, and every recognised dispatch-table entry -- everything resolveOp
 // needs to answer "what does the emulator declare for operation X".
 type packageIndex struct {
-	ctx      handlerResolveCtx
 	dispatch map[string]ast.Expr
+	ctx      handlerResolveCtx
 }
 
 func parseDirFiles(dir string) ([]*ast.File, *token.FileSet, error) {
@@ -76,11 +76,15 @@ func buildPackageIndexFromFiles(files []*ast.File, fset *token.FileSet, dir stri
 		genericDecodeWrappers: collectGenericDecodeWrapperFuncs(files),
 		decodeDstWrappers:     collectLocalDecodeDstWrappers(files),
 		queryAccessorWrappers: collectQueryAccessorWrappers(files),
+		queryKeyForwarders:    collectQueryKeyForwarders(files, collectQueryAccessorWrappers(files)),
 		subPackages:           buildSubPackageIndexes(files, dir),
 		pkgConsts:             consts,
 	}
 
-	return &packageIndex{ctx: ctx, dispatch: collectDispatchEntries(files, consts, funcTypeNames, namedMapTypes)}
+	dispatch, alts := collectDispatchEntries(files, consts, funcTypeNames, namedMapTypes)
+	ctx.dispatchAlts = alts
+
+	return &packageIndex{ctx: ctx, dispatch: dispatch}
 }
 
 // buildSubPackageIndexes parses every in-repo subpackage dir imports (see

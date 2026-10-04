@@ -3,6 +3,7 @@ package cloudformation_test
 import (
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -21,7 +22,7 @@ func TestProvider_Init_WithConfig(t *testing.T) {
 	}{
 		{
 			name:    "with_backends_provider",
-			config:  newMockBackendsProvider(),
+			config:  newMockBackendsProvider(t),
 			wantSvc: "CloudFormation",
 		},
 		{
@@ -81,7 +82,7 @@ func TestResourceNameFromARN(t *testing.T) {
 			// We drive it through deleteSchedulerSchedule by creating and deleting a schedule.
 			if tt.input == "my-plain-resource" {
 				// Exercise plain-name case directly via Scheduler ARN that is already a name.
-				backends := newExtendedServiceBackends()
+				backends := newExtendedServiceBackends(t)
 				rc := cloudformation.NewResourceCreator(backends)
 
 				physID, err := rc.Create(t.Context(), "PlainSched", "AWS::Scheduler::Schedule",
@@ -103,7 +104,7 @@ func TestResourceNameFromARN(t *testing.T) {
 			}
 
 			// For ARN forms, just verify the ARN is used in scheduler create/delete cycle.
-			backends := newExtendedServiceBackends()
+			backends := newExtendedServiceBackends(t)
 			rc := cloudformation.NewResourceCreator(backends)
 
 			schedName := tt.want
@@ -150,7 +151,9 @@ func TestStreamNameFromARN(t *testing.T) {
 			t.Parallel()
 
 			// Exercise streamNameFromARN indirectly via Kinesis delete path.
-			backends := newExtendedServiceBackends()
+			backends := newExtendedServiceBackends(t)
+			fakeNow := time.Now()
+			withFakeClockedKinesis(backends, &fakeNow)
 			rc := cloudformation.NewResourceCreator(backends)
 
 			streamName := tt.want
@@ -163,6 +166,8 @@ func TestStreamNameFromARN(t *testing.T) {
 			if tt.input == "my-plain-stream" {
 				deleteID = tt.input // pass plain name so fallback branch is hit
 			}
+
+			fakeNow = fakeNow.Add(kinesisStreamSettleWait)
 
 			err = rc.Delete(t.Context(), "AWS::Kinesis::Stream", deleteID, nil, nil)
 			require.NoError(t, err)
@@ -323,8 +328,8 @@ func TestResourceCreator_AdditionalTypes_NilBackends(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			// newServiceBackends() leaves all Phase 2 backends nil → stub path.
-			backends := newServiceBackends()
+			// newServiceBackends(t) leaves all Phase 2 backends nil → stub path.
+			backends := newServiceBackends(t)
 			rc := cloudformation.NewResourceCreator(backends)
 
 			physID, err := rc.Create(t.Context(), tt.logicalID, tt.resourceType, tt.props, nil, nil)
@@ -542,7 +547,7 @@ func TestResourceCreator_AdditionalTypes_RealBackends(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backends := newAdditionalServiceBackends()
+			backends := newAdditionalServiceBackends(t)
 			rc := cloudformation.NewResourceCreator(backends)
 
 			physID, err := rc.Create(t.Context(), tt.logicalID, tt.resourceType, tt.props, nil, nil)
@@ -569,7 +574,7 @@ func TestResourceCreator_AdditionalTypes_RealBackends(t *testing.T) {
 func TestResourceCreator_CognitoUserPoolWithClient(t *testing.T) {
 	t.Parallel()
 
-	backends := newAdditionalServiceBackends()
+	backends := newAdditionalServiceBackends(t)
 	rc := cloudformation.NewResourceCreator(backends)
 	ctx := t.Context()
 

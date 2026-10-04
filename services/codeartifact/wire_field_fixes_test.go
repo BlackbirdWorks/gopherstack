@@ -123,6 +123,7 @@ func TestCodeArtifactSDK_DeletePackage_SummaryShape(t *testing.T) {
 	h := newTestHandler(t)
 	setupDomain(t, h, "dps-domain")
 	setupRepo(t, h, "dps-domain", "dps-repo")
+	seedVersion(t, h, "dps-domain", "dps-repo", "npm", "", "lodash", "1.0.0")
 
 	client := newTestCodeArtifactClient(t, h)
 
@@ -172,14 +173,7 @@ func TestCodeArtifactSDK_PackageVersionOutcomes(t *testing.T) {
 
 		client := newTestCodeArtifactClient(t, h)
 
-		_, err := client.DescribePackageVersion(t.Context(), &casdk.DescribePackageVersionInput{
-			Domain:         aws.String("pvo-del-domain"),
-			Repository:     aws.String("pvo-del-repo"),
-			Format:         "npm",
-			Package:        aws.String("react"),
-			PackageVersion: aws.String("18.0.0"),
-		})
-		require.NoError(t, err)
+		seedVersion(t, h, "pvo-del-domain", "pvo-del-repo", "npm", "", "react", "18.0.0")
 
 		out, err := client.DeletePackageVersions(t.Context(), &casdk.DeletePackageVersionsInput{
 			Domain:     aws.String("pvo-del-domain"),
@@ -205,14 +199,7 @@ func TestCodeArtifactSDK_PackageVersionOutcomes(t *testing.T) {
 
 		client := newTestCodeArtifactClient(t, h)
 
-		_, err := client.DescribePackageVersion(t.Context(), &casdk.DescribePackageVersionInput{
-			Domain:         aws.String("pvo-copy-domain"),
-			Repository:     aws.String("src"),
-			Format:         "npm",
-			Package:        aws.String("react"),
-			PackageVersion: aws.String("18.0.0"),
-		})
-		require.NoError(t, err)
+		seedVersion(t, h, "pvo-copy-domain", "src", "npm", "", "react", "18.0.0")
 
 		out, err := client.CopyPackageVersions(t.Context(), &casdk.CopyPackageVersionsInput{
 			Domain:                aws.String("pvo-copy-domain"),
@@ -238,14 +225,7 @@ func TestCodeArtifactSDK_PackageVersionOutcomes(t *testing.T) {
 
 		client := newTestCodeArtifactClient(t, h)
 
-		_, err := client.DescribePackageVersion(t.Context(), &casdk.DescribePackageVersionInput{
-			Domain:         aws.String("pvo-disp-domain"),
-			Repository:     aws.String("pvo-disp-repo"),
-			Format:         "npm",
-			Package:        aws.String("react"),
-			PackageVersion: aws.String("18.0.0"),
-		})
-		require.NoError(t, err)
+		seedVersion(t, h, "pvo-disp-domain", "pvo-disp-repo", "npm", "", "react", "18.0.0")
 
 		out, err := client.DisposePackageVersions(t.Context(), &casdk.DisposePackageVersionsInput{
 			Domain:     aws.String("pvo-disp-domain"),
@@ -270,14 +250,7 @@ func TestCodeArtifactSDK_PackageVersionOutcomes(t *testing.T) {
 
 		client := newTestCodeArtifactClient(t, h)
 
-		_, err := client.DescribePackageVersion(t.Context(), &casdk.DescribePackageVersionInput{
-			Domain:         aws.String("pvo-upd-domain"),
-			Repository:     aws.String("pvo-upd-repo"),
-			Format:         "npm",
-			Package:        aws.String("react"),
-			PackageVersion: aws.String("18.0.0"),
-		})
-		require.NoError(t, err)
+		seedVersion(t, h, "pvo-upd-domain", "pvo-upd-repo", "npm", "", "react", "18.0.0")
 
 		out, err := client.UpdatePackageVersionsStatus(t.Context(), &casdk.UpdatePackageVersionsStatusInput{
 			Domain:       aws.String("pvo-upd-domain"),
@@ -379,17 +352,9 @@ func TestCodeArtifactSDK_ListPackageVersions_StatusSortByDefaultDisplay(t *testi
 		// "9.0.0" is created (published) first, "1.0.0" second -- lexicographic
 		// version order and publish-time order disagree, so this distinguishes
 		// SortBy=PUBLISHED_TIME from the default Version-ascending order.
-		_, err := client.DescribePackageVersion(t.Context(), &casdk.DescribePackageVersionInput{
-			Domain:         aws.String("lpv-domain"),
-			Repository:     aws.String("lpv-repo"),
-			Format:         "npm",
-			Namespace:      aws.String("scope"),
-			Package:        aws.String("pkg"),
-			PackageVersion: aws.String("9.0.0"),
-		})
-		require.NoError(t, err)
+		seedVersion(t, h, "lpv-domain", "lpv-repo", "npm", "scope", "pkg", "9.0.0")
 
-		_, err = client.UpdatePackageVersionsStatus(t.Context(), &casdk.UpdatePackageVersionsStatusInput{
+		_, err := client.UpdatePackageVersionsStatus(t.Context(), &casdk.UpdatePackageVersionsStatusInput{
 			Domain:       aws.String("lpv-domain"),
 			Repository:   aws.String("lpv-repo"),
 			Format:       "npm",
@@ -400,15 +365,7 @@ func TestCodeArtifactSDK_ListPackageVersions_StatusSortByDefaultDisplay(t *testi
 		})
 		require.NoError(t, err)
 
-		_, err = client.DescribePackageVersion(t.Context(), &casdk.DescribePackageVersionInput{
-			Domain:         aws.String("lpv-domain"),
-			Repository:     aws.String("lpv-repo"),
-			Format:         "npm",
-			Namespace:      aws.String("scope"),
-			Package:        aws.String("pkg"),
-			PackageVersion: aws.String("1.0.0"),
-		})
-		require.NoError(t, err)
+		seedVersion(t, h, "lpv-domain", "lpv-repo", "npm", "scope", "pkg", "1.0.0")
 	}
 
 	t.Run("status_filter", func(t *testing.T) {
@@ -480,6 +437,7 @@ func TestDescribePackage_NoInventedFields_RealClient(t *testing.T) {
 	h := newTestHandler(t)
 	setupDomain(t, h, "dpi-domain")
 	setupRepo(t, h, "dpi-domain", "dpi-repo")
+	seedVersion(t, h, "dpi-domain", "dpi-repo", "npm", "", "lodash", "1.0.0")
 
 	rec := doRequest(
 		t, h, http.MethodGet,

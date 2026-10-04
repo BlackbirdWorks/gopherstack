@@ -3,7 +3,7 @@ service: s3
 sdk_module: aws-sdk-go-v2/service/s3@v1.111.0   # version audited against (go.mod pin)
 last_audit_commit: 30db30dd8
 last_audit_date: 2026-09-24
-overall: A   # gopherstack-3dqa: found+fixed 4 real bugs incl. a race-detector-confirmed data race and a real (not disguised) over-replication bug. gopherstack-zi7k (2026-08-14): implemented the 5-op Object Annotations family that gopherstack-3dqa found entirely missing. gopherstack-3dqa follow-up (2026-08-14b): mechanical struct-field diff (the method that closed the dynamodb sibling pass) found 2 real absent-but-tracked wire bugs; a benchmark-verified ListObjectsV2 allocation fix closed the one axis (optimization) the prior four rounds left as "inspected, not profiled". gopherstack-6flj (2026-08-15): full List/Describe/Get wrapper-key sweep (45 ops), 2 more real bugs fixed (ListObjects/V2 Owner, GetBucketVersioning MFADelete), 1 severe wrong-response-shape finding flagged not fixed (GetBucketMetadataConfiguration/GetBucketMetadataTableConfiguration) -- see families/ops/gaps below.
+overall: A   # gopherstack-3dqa: found+fixed 4 real bugs incl. a race-detector-confirmed data race and a real (not disguised) over-replication bug. gopherstack-zi7k (2026-08-14): implemented the 5-op Object Annotations family that gopherstack-3dqa found entirely missing. gopherstack-3dqa follow-up (2026-08-14b): mechanical struct-field diff (the method that closed the dynamodb sibling pass) found 2 real absent-but-tracked wire bugs; a benchmark-verified ListObjectsV2 allocation fix closed the one axis (optimization) the prior four rounds left as "inspected, not profiled". gopherstack-6flj (2026-08-15): full List/Describe/Get wrapper-key sweep (45 ops), 2 more real bugs fixed (ListObjects/V2 Owner, GetBucketVersioning MFADelete), 1 severe wrong-response-shape finding flagged not fixed (GetBucketMetadataConfiguration/GetBucketMetadataTableConfiguration) -- see families/ops/gaps below. gopherstack-z2w1a (2026-09-26): S3 Express One Zone (directory buckets) implemented for real -- CreateSession now issues real 5-minute-TTL session credentials, verifyHeaderAuth's Credential-scope check (previously hardcoded to "s3"/"s3-object-lambda") now accepts the "s3express" signing name every S3 Express request uses, and ListDirectoryBuckets' discriminator now keys on the real "x-id" query param instead of dead "list-type=directory" -- see the CreateSession/ListDirectoryBuckets ops rows and the dated Notes section below.
 protocol: REST-XML
 families:
   multipart:    {status: ok, note: part-order InvalidPartOrder, non-last EntityTooSmall, ETag=MD5(concat part-MD5s)-N, SSE sealing}
@@ -40,21 +40,105 @@ ops:
   GetBucketVersioning/PutBucketVersioning: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-15 (gopherstack-6flj wrapper-key sweep): GetBucketVersioningOutput.MFADelete (deserializers.go's awsRestxml_deserializeOpDocumentGetBucketVersioningOutput, case \"MfaDelete\", sibling to \"Status\") was read from no request, stored nowhere, and echoed by no response -- a real client's PutBucketVersioning({MFADelete: Enabled}) had the value silently dropped, and GetBucketVersioning's MFADelete was always empty regardless. Real request-side type is types.MFADelete; real response-side type is the DIFFERENT types.MFADeleteStatus (same \"Enabled\"/\"Disabled\" strings, two distinct SDK enums) -- stored as a plain string in StoredBucket to avoid coupling to either. Only emitted once ever configured (omitempty), matching the real doc: \"This element is only returned if the bucket has been configured with MFA delete.\""}
   GetBucketMetadataTableConfiguration: {wire: ok, errors: n/a, state: n/a, persist: ok, note: "FIXED 2026-09-12 (gopherstack-n3zi typed slice 11) -- see bucket_ops_metadata_table.go's getBucketMetadataTableConfigurationResponse. Was previously the Table half of the finding below; confirmed via a real typed GetBucketMetadataTableConfiguration client call."}
   GetBucketMetadataConfiguration: {wire: gap, errors: n/a, state: n/a, persist: ok, note: "FOUND, NOT FIXED 2026-08-15 (gopherstack-6flj wrapper-key sweep); re-confirmed still open 2026-09-12 (gopherstack-n3zi). Unlike every other Get*Configuration op in this file (CORS/lifecycle/notification/encryption/logging/replication/analytics/inventory/metrics/intelligent-tiering), where the real GET deserializer parses the response ROOT element directly as the same struct the PUT request root already is (confirmed per-op against deserializers.go), this one does NOT: awsRestxml_deserializeOpGetBucketMetadataConfiguration.HandleDeserialize (deserializers.go) parses the response root directly as types.GetBucketMetadataConfigurationResult, which requires a CHILD element named exactly \"MetadataConfigurationResult\" (types.MetadataConfigurationResult{DestinationResult (required, TableBucketArn/TableBucketType/TableNamespace), AnnotationTableConfigurationResult, InventoryTableConfigurationResult, JournalTableConfigurationResult}) -- a server-computed RESULT shape, structurally different from the client's CreateBucketMetadataConfiguration request body (types.MetadataConfiguration{JournalTableConfiguration, AnnotationTableConfiguration, InventoryTableConfiguration}, no ARNs/status at all). gopherstack's getBucketMetadataConfiguration (bucket_ops_metadata_table.go) echoes the raw stored CREATE request body verbatim -- which has no \"MetadataConfigurationResult\" child element anywhere, so a real typed client's GetBucketMetadataConfigurationOutput.GetBucketMetadataConfigurationResult.MetadataConfigurationResult decodes to nil regardless of what was created. The same OpDocument...Output wrapper function with a matching case IS present in generated code but is dead -- HandleDeserialize never calls it, the same trap gopherstack-ob1g already found and fixed once on GetBucketAbac -- so this is not a simple 'wrong root name' rename. NOT FIXED: producing a real DestinationResult requires an S3 Tables table-bucket ARN/namespace/provisioning-status concept this backend has no model for at all (no CreateBucketMetadataConfiguration path allocates a table bucket or generates an ARN); fabricating plausible-looking ARNs/status would be invented data, not a shape fix. Flagged per this campaign's own precedent for genuinely-unmodeled response shapes (matches securityhub's GetRecommendedPolicyV2 finding) rather than attempted."}
+  CreateSession (S3 Express One Zone): {wire: fixed, errors: ok, state: ok, persist: n/a, note: "FIXED 2026-09-26 (gopherstack-z2w1a): was a disguised stub returning one hardcoded credential set for any bucket, with no effect on subsequent auth. CreateSession now generates a real random AccessKeyID/SecretAccessKey/SessionToken per call, scoped to the bucket, expiring 5 minutes from issuance (matches the real API's documented TTL); tracked in a safemap.Map keyed by AccessKeyID, swept for expired entries on every CreateSession call so the store cannot grow unbounded. Root cause of the reported 403 SignatureDoesNotMatch was NOT the credentials or a signature bug at all: verifyHeaderAuth (sigv4.go) rejected any Authorization header whose Credential scope's service wasn't literally \"s3\" or \"s3-object-lambda\" -- but every S3 Express request (CreateSession itself included) signs with the \"s3express\" signing name (confirmed against a real client via httptest: s3@v1.111.0 internal/customizations/express_signer.go's SetSigV4SigningName(\"s3express\")), so the very first CreateSession call the SDK makes automatically for a directory-bucket-shaped name was rejected before any real signature check ran. \"s3express\" is now accepted alongside \"s3\"/\"s3-object-lambda\". Requests carrying x-amz-s3session-token are matched against the live session store (bucket+secret+token); an unknown/mismatched/expired token gets 403 ExpiredToken. Full signature re-verification against the session's own secret only happens when PresignSecret is configured, consistent with how every other credential is treated (unverified by default) -- but token liveness (the actual point of the 5-minute TTL) is always checked, independent of that opt-in. SessionMode (ReadOnly/ReadWrite) is accepted but not enforced -- see items_still_open. CreateSession deliberately does NOT require bucketName to already exist (confirmed via a real client against a dumping httptest.Server): CreateBucket's own bindEndpointParams never sets DisableS3ExpressSessionAuth, so with a custom BaseEndpoint the SDK's endpoint ruleset routes CreateBucket itself through the session-credential auth scheme for a directory-bucket-shaped name, before the bucket exists -- rejecting on NoSuchBucket here would make aws_s3_directory_bucket permanently uncreatable through any custom endpoint. Bucket existence is still enforced by every real operation (CreateBucket, PutObject, HeadBucket, ...), just not by this bootstrapping step."}
+  ListDirectoryBuckets: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED 2026-09-26 (gopherstack-z2w1a): isListDirectoryBucketsRequest previously keyed on \"list-type=directory\", a query param the pinned SDK never sends (gopherstack-0bq8) -- every real ListDirectoryBuckets call silently fell through to listBuckets. Replaced with the \"x-id\" query param (\"x-id=ListDirectoryBuckets\" vs \"x-id=ListBuckets\"), confirmed via a real client against httptest to be present on every S3 restXml request regardless of Express status -- a real, always-present signal, not an invented one. Reaching ListDirectoryBuckets against gopherstack's single custom-BaseEndpoint architecture still requires the caller to set Options.DisableS3ExpressSessionAuth = true: without it, the pinned SDK's own ExpressIdentityResolver.GetIdentity requires a bucket name that this bucket-less operation structurally never has, and the request never reaches the wire (client-side error, not a gopherstack bug) -- this is an SDK-side limitation of driving S3Express-classified operations through a custom endpoint, not something a server-side fix can work around. terraform-provider-aws's aws_s3_directory_bucket resource does not call ListDirectoryBuckets, so this limitation does not affect it."}
 gaps: []
 items_still_open:
-  - "GetBucketMetadataConfiguration returns the wrong response shape entirely for any real typed client (gopherstack-6flj, 2026-08-15) -- the real GET deserializer requires a MetadataConfigurationResult child with a server-computed DestinationResult (table-bucket ARN/namespace/status), and this backend echoes the raw CREATE request body instead. Fixing this needs modeling S3 Tables table-bucket provisioning (ARN/namespace/status), which this backend has no concept of anywhere; fabricating plausible ARNs/status would be invented data, not a shape fix. Kept as a genuinely unmodeled subsystem."
-  - "Object Annotations (gopherstack-zi7k) is implemented and persisted, but two things are deliberately not enforced because they're absent from every relevant op's error switch in the pinned SDK (inventing a rejection would violate this sweep's own no-fabrication rule): the documented 1-byte-to-1-MiB payload size window, and DeleteObjectAnnotation/PutObjectAnnotation's ObjectIfMatch conditional header (read into the request struct but never compared)."
-  - "CreateSession (S3 Express One Zone) is a disguised stub: it returns hardcoded fake credentials for ANY bucket regardless of IsDirectoryBucket or SessionMode, and the returned session token has no effect on sigv4 validation or any subsequent request. Consistent with this emulator not modeling directory buckets/S3-Express as a distinct bucket type anywhere -- a real fix is a full S3-Express feature addition, not scoped for this pass."
-  - "RenameObject is applied uniformly to any bucket (general-purpose or directory), but real S3 restricts it to directory buckets only -- a permissive superset rather than a wire-shape bug reachable by a real client, since this emulator has no directory-bucket-vs-general-purpose distinction anywhere (see CreateSession entry above). (DestinationIfMatch/DestinationIfNoneMatch/DestinationIfModifiedSince/DestinationIfUnmodifiedSince precondition enforcement, previously logged as a second gap here, was already fixed and is proven by TestRenameObjectDestinationPreconditions -- stale sub-claim removed this sweep.)"
-  - "SelectObjectContent ScanRange (partial-object byte-range selection) is not implemented -- requests with a ScanRange element are accepted but the range is ignored and the full object is scanned. Real semantics need record-boundary-aware slicing entangled with evaluateCSVQuery/evaluateJSONQuery's own record-splitting logic -- a real feature addition, not a diff-and-fix."
-  - "List*Configurations (analytics/inventory/metrics/intelligent-tiering) do not implement ContinuationToken-based pagination -- IsTruncated is always false and all stored configs are returned in one response. The underlying config maps also iterate in unspecified Go map order, so real pagination needs a deterministic sort as a prerequisite; only matters for buckets with >100 configs of one type, an edge case unlikely to be exercised by any realistic test."
-  - "object_lambda: GetObject only recognizes a Lambda wired in by bucket name (via SetObjectLambdaConfig), not via genuine access-point-ARN routing (Bucket=<object-lambda-access-point-ARN>). Wiring that needs access-point-ARN parsing on every object route plus a live cross-service lookup into s3control's backend -- and regular (non-Lambda) S3 Access Points have zero ARN-as-bucket routing support anywhere in this service either, so this would be building ARN routing on a foundation that doesn't exist yet. Real, larger cross-service feature."
-  - "ListDirectoryBuckets is structurally unreachable from any real, unmodified aws-sdk-go-v2 client pointed at gopherstack's single local endpoint (gopherstack-0bq8) -- real AWS distinguishes it from ListBuckets purely by literal hostname (s3express-control.* vs s3.*), which this single-endpoint emulator has no way to key on. The router's isListDirectoryBucketsRequest checks a query key no real client ever sends -- dead code, kept (not deleted) since it's the only way any test can reach the op at all."
+  - "AWS/S3 request metrics are emitted per bucket metrics configuration (FilterId; key-prefix filters honoured, tag filters not); FirstByteLatency, SelectRequests/SelectBytes*, replication and per-storage-class request metrics are not. (gopherstack-4m1qr)"
+  - "GetBucketMetadataConfiguration echoes the CREATE body instead of a MetadataConfigurationResult with a server-computed DestinationResult; needs S3 Tables table-bucket ARN/namespace/status modeling (gopherstack-6flj)."
+  - "Rejections the pinned SDK lists no error code for, so none is invented: Object Annotations 1 B-1 MiB payload window and ObjectIfMatch; RenameObject and CreateSession accepted on non-directory buckets; CreateSession SessionMode ReadOnly not enforced; directory buckets still accept ACL/tagging/versioning/lifecycle/website/CORS."
+  - "ListBucketIntelligentTieringConfigurations is unpaginated (the SDK documents no page size)."
+  - "object_lambda: GetObject only resolves a Lambda wired by bucket name, not access-point-ARN routing; needs ARN-as-bucket routing on every route plus an s3control lookup."
+  - "Notification destinations are validated only at PutBucketNotificationConfiguration; per-configuration error details are not emitted (2026-10-03)."
 deferred: []
 leaks: {status: clean, note: janitor ctx-parented w/ <-ctx.Done() stop; replication goroutines WaitGroup-drained; Shutdown() cancels; object_lambda config now cleared on DeleteBucket (was previously leaking across bucket-name reuse — see 2026-07-24 section)}
 ---
 
 ## Notes
+
+## 2026-10-03: PutBucketNotificationConfiguration destination validation under --enforce-iam
+
+- Queue, topic and Lambda destinations are validated at PUT against the destination's resource policy (s3.amazonaws.com, aws:SourceArn = bucket ARN, SourceAccount = destination account); denial is 400 InvalidArgument "Unable to validate the following destination configurations" (message from AWS docs/CLI reports; AWS also lists each failing configuration in the error details, which is not emitted).
+- Event delivery is not re-authorized after PUT, and a nonexistent destination is not rejected.
+
+### 2026-10-01 items_still_open burn-down
+
+Fixed: List{Analytics,Inventory,Metrics}Configurations now sort by ID and paginate at 100 with ContinuationToken/NextContinuationToken (TestRealClient_ListBucketConfigurations_Pagination); SelectObjectContent ScanRange now slices CSV and JSON Lines records by first-byte offset, keeping the CSV header row, uncompressed input only (TestSelectObjectContent_ScanRange). Remaining items need unmodeled subsystems or error codes the pinned SDK does not list. Re-checked and consolidated again later on 2026-10-01 with no further fixable item.
+
+### 2026-09-26 (S3 Express One Zone / directory buckets, gopherstack-z2w1a)
+
+**Root cause of the reported 403 SignatureDoesNotMatch on `aws_s3_directory_bucket`**:
+reproduced first with a real `aws-sdk-go-v2/service/s3` client against a raw
+`httptest.Server` dumping request headers, no gopherstack code involved. With
+`UsePathStyle: true` and a directory-bucket-shaped name, the SDK's own
+`CreateBucket`/`PutObject` calls sign with
+`Credential=.../<region>/s3express/aws4_request` -- the credential scope's
+*service* is `"s3express"`, never `"s3"` (confirmed: `s3@v1.111.0
+internal/customizations/express_signer.go`, every S3Express endpoint rule
+branch calls `smithyhttp.SetSigV4SigningName("s3express")` regardless of
+`DisableS3ExpressSessionAuth`). `sigv4.go`'s `verifyHeaderAuth` had a hardcoded
+`if scope.service != "s3" && scope.service != "s3-object-lambda"` guard that
+ran unconditionally (not gated behind `PresignSecret`) and rejected anything
+else with `SignatureDoesNotMatch` -- so the very first `CreateSession` call
+the SDK issues automatically for a directory bucket was rejected before any
+real signature was ever computed. Fix: accept `"s3express"` too.
+
+**The express flow, as actually observed** (not from memory -- from driving a
+real client against a dumping `httptest.Server`, see the reasoning trail in
+the PR): `CreateBucket`/`PutObject`/`GetObject`/etc. on a directory bucket
+first trigger `GET /<bucket>?session=` signed with the caller's own
+credentials (still `s3express`-scoped); the response's `Credentials` element
+(`SessionToken`/`SecretAccessKey`/`AccessKeyId`/`Expiration`) is then used to
+sign the actual request, adding the `x-amz-s3session-token` header and
+suppressing the normal `X-Amz-Security-Token`. `ListDirectoryBuckets` sends
+`GET /?x-id=ListDirectoryBuckets` -- but only when the client sets
+`Options.DisableS3ExpressSessionAuth = true`; without it, the pinned SDK's own
+`ExpressIdentityResolver.GetIdentity` needs `GetBucket(ctx)` for this
+bucket-less op and errors client-side (`"bucket name is missing"`) before any
+request is even built. This is an SDK/harness-side constraint of driving an
+S3Express-classified operation through a custom `BaseEndpoint`, not a
+gopherstack bug -- terraform-provider-aws's `aws_s3_directory_bucket` resource
+never calls `ListDirectoryBuckets`, so it is unaffected.
+
+**What changed**: `verifyHeaderAuth` accepts the `"s3express"` credential
+scope; `CreateSession` (`express_session.go`, new file) issues real random
+session credentials scoped to the bucket with a 5-minute TTL, tracked in a
+`safemap.Map` keyed by `AccessKeyID` and swept for expired entries on every
+`CreateSession` call (bounded, no leak -- proven by
+`TestS3ExpressSession_TTLBoundsGrowth`); a request carrying
+`x-amz-s3session-token` is checked against that store (`ExpiredToken` 403 if
+unknown/mismatched/expired) regardless of whether full signature
+cryptographic verification (`PresignSecret`) is enabled, matching this
+service's existing "everything else is unverified by default" posture while
+still enforcing the one thing the whole feature is about: expiry.
+`isListDirectoryBucketsRequest` now keys on the real `x-id` query param.
+`ListObjectsV2` on a directory bucket now requires `Delimiter` to be `"/"` or
+omitted (`ErrDirectoryBucketDelimiter`, InvalidArgument); `ListObjects` (V1)
+on a directory bucket now returns NotImplemented (real S3 docs: "This
+operation is not supported for directory buckets", `api_op_ListObjects.go:13`).
+`CreateBucket` additionally reads `CreateBucketConfiguration.Bucket.Type`
+(alongside the pre-existing `--x-s3` suffix detection) so a caller using the
+documented `Bucket{Type: Directory, DataRedundancy: SingleAvailabilityZone}` /
+`Location{Type: AvailabilityZone, Name}` shape is never silently ignored.
+
+**Verified via a real typed client** (`services/s3/express_test.go`):
+`TestS3Express_FullFlow` drives `CreateBucket` (directory) ->
+`PutObject` -> `GetObject` -> `ListObjectsV2` -> `DeleteObject` ->
+`DeleteBucket` through the real SDK end to end, letting the SDK's own
+session-credential machinery run untouched; `TestS3Express_ListDirectoryBuckets`
+and `TestS3Express_DirectoryBucketSemantics` cover the discriminator and the
+two enforced restrictions; `TestS3ExpressSession_Expiry` and
+`TestS3ExpressSession_TTLBoundsGrowth` use `testing/synctest` to prove the
+5-minute TTL and the sweep, without a real 5-minute sleep.
+
+**Not attempted this pass** (see items_still_open): `SessionMode`
+(ReadOnly/ReadWrite) is accepted but doesn't restrict which Zonal-endpoint ops
+a session may authorize; `CreateSession` doesn't reject a general-purpose
+bucket; directory-bucket restrictions beyond the two enforced here (ACLs,
+tagging, versioning, lifecycle, website, CORS are all real-S3-unsupported on
+directory buckets but still accepted here); `RenameObject` is still not
+scoped to directory buckets only, despite `IsDirectoryBucket` now existing to
+check it against.
 
 ### 2026-09-24 (sorted key-index for ListObjects/V2/ListObjectVersions, gopherstack-0mji2)
 
@@ -768,15 +852,8 @@ governance-with-bypass subtest failed exactly as predicted (`InvalidObjectState`
 409 where AWS would allow the bypassed delete); restored and confirmed
 byte-identical via `md5sum`.
 
-**Not fixed this pass, flagged as a related but separate gap**:
-`PutObjectRetention` itself has zero enforcement — it unconditionally
-overwrites `RetentionMode`/`RetainUntil` regardless of the object's existing
-retention state, so a caller can shorten or remove even a COMPLIANCE-mode
-retention today (real AWS forbids this unconditionally, and forbids
-shortening/removing a GOVERNANCE retention without the same bypass header).
-Implementing this correctly needs old-vs-new retention comparison logic that
-doesn't exist yet anywhere in this file; deferred rather than rushed, per
-this campaign's standing "don't ship a rushed partial feature" rule.
+`PutObjectRetention` retention-ratchet enforcement was added in the
+2026-08-23 entry below (`TestPutObjectRetention_Ratchet`).
 
 Gates: `go build ./...`, `go vet ./services/s3/...`, `go test -race -count=1
 ./services/s3/...`, `go fix -diff ./services/s3/...` (no diff), `gofmt -l
@@ -1594,10 +1671,10 @@ destination regardless of directive), and `ObjectOwnership` on CreateBucket
 (no OwnershipControls stored at creation time). New tests in
 `wire_field_fixes_test.go`.
 
-3 new `items_still_open` gaps recorded (each names the missing subsystem,
-not fabricated): CreateMultipartUpload's `X-Amz-Grant-*` headers (no
-grant-list-from-header construction exists anywhere in this service, not
-just this op), `PutBucketLifecycleConfiguration.TransitionDefaultMinimumObjectSize`
+2 new `items_still_open` gaps recorded (each names the missing subsystem,
+not fabricated; CreateMultipartUpload's `X-Amz-Grant-*` headers were later
+implemented, see `TestGrantHeaders`):
+`PutBucketLifecycleConfiguration.TransitionDefaultMinimumObjectSize`
 (the transition engine has no object-size gating to hang it on), and
 `PutBucketEncryption`/`PutBucketPolicy`'s `ChecksumAlgorithm` (whole-request
 checksum-trailer validation is a cross-cutting mechanism this service
@@ -1635,3 +1712,15 @@ clean. `git diff --stat go.mod go.sum` empty. No files outside
 `services/s3/` were touched for a signature change (`CopyObjectAnnotations`
 is a new method, not an edit to an existing one, and has no callers outside
 this package).
+
+## 2026-10-04: in-process metric inventory (gopherstack-4m1qr)
+
+Emits AWS/S3 request metrics (BucketName+FilterId; metrics-dimensions.html) only for buckets with a metrics configuration: AllRequests, Get/Put/Delete/Head/Post/ListRequests, 4xxErrors, 5xxErrors, BytesDownloaded, BytesUploaded, TotalRequestLatency. Daily storage metrics BucketSizeBytes (per StorageType) and NumberOfObjects (AllStorageTypes) are emitted at startup and every 24h by the janitor (bounded ticker). Verified by cli_service_metrics_test.go (typed SDK, ListMetrics + GetMetricStatistics).
+
+## 2026-10-04 (gopherstack-9lr6d, notification region)
+
+Notification payloads carry the bucket's region in `awsRegion` (was the dispatcher's default region) and the dispatch context carries it, so S3 to EventBridge files the event on the bucket region's default bus. Proof: `TestNotificationDispatch_UsesBucketRegion`.
+
+## 2026-10-04 (reqfielddiff tier-1 pass)
+
+CreateSession now validates and echoes its SSE members (ServerSideEncryption AES256/aws:kms, SSEKMSKeyId required for aws:kms, SSEKMSEncryptionContext limited to the bucket-ARN default for directory buckets, BucketKeyEnabled), stores them on the session, and applies the algorithm/key/context as defaults to header-signed PUTs made with that session's token when the request names no SSE. SessionMode ReadOnly is still not enforced. Proof: `TestCreateSession_EncryptionHeaders`, `TestCreateSession_EncryptionAppliedToObjects`.

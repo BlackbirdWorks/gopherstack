@@ -203,12 +203,31 @@ type DBInstanceModifyOptions struct {
 	ApplyImmediately bool
 }
 
+// RestoreClusterOptions holds the optional request members shared by
+// RestoreDBClusterFromSnapshot and RestoreDBClusterToPointInTime.
+type RestoreClusterOptions struct {
+	ServerlessV2ScalingConfig   *ServerlessV2ScalingConfiguration
+	DBSubnetGroupName           string
+	StorageType                 string
+	EngineVersion               string
+	KmsKeyID                    string
+	NetworkType                 string
+	DBClusterParameterGroupName string
+	AvailabilityZones           []string
+	VpcSecurityGroupIDs         []string
+	Port                        int
+	EnableIAMAuth               bool
+	DeletionProtection          bool
+	CopyTagsToSnapshot          bool
+}
+
 // RestoreToPointInTimeOptions holds optional fields for
 // RestoreDBClusterToPointInTime. RestoreToTime and UseLatestRestorableTime
 // are mutually exclusive and one is required, per
 // api_op_RestoreDBClusterToPointInTime.go:145-192.
 type RestoreToPointInTimeOptions struct {
-	RestoreToTime           string
+	RestoreToTime string
+	RestoreClusterOptions
 	UseLatestRestorableTime bool
 }
 
@@ -353,14 +372,29 @@ type GlobalCluster struct {
 	DeletionProtection   bool                  `json:"DeletionProtection"`
 }
 
+// GlobalClusterCreateOptions holds optional fields for CreateGlobalCluster.
+// EngineVersion and StorageEncrypted apply only when no source cluster is given.
+type GlobalClusterCreateOptions struct {
+	EngineVersion      string
+	DeletionProtection bool
+	StorageEncrypted   bool
+}
+
 // GlobalClusterMember represents a member cluster in a global cluster.
 type GlobalClusterMember struct {
 	DBClusterARN string `json:"DBClusterARN"`
 	IsWriter     bool   `json:"IsWriter"`
 }
 
+// DBInstanceFilters holds filter values for DescribeDBInstances.
+type DBInstanceFilters struct {
+	ClusterID []string
+	Engine    []string
+}
+
 // DBClusterFilters holds filter values for DescribeDBClusters.
 type DBClusterFilters struct {
+	ClusterID     []string
 	Engine        []string
 	EngineVersion []string
 	Status        []string

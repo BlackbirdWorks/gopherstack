@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"slices"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -26,8 +28,20 @@ type importSourceBody struct {
 }
 
 type startImportBody struct {
-	ImportSource importSourceBody `json:"ImportSource"`
-	Destinations []string         `json:"Destinations"`
+	ImportSource   importSourceBody `json:"ImportSource"`
+	StartEventTime *float64         `json:"StartEventTime"`
+	EndEventTime   *float64         `json:"EndEventTime"`
+	Destinations   []string         `json:"Destinations"`
+}
+
+func epochPtr(v *float64) *time.Time {
+	if v == nil {
+		return nil
+	}
+
+	t := time.Unix(0, int64(*v*float64(time.Second))).UTC()
+
+	return &t
 }
 
 // toBackendImportSource converts the wire body into the backend's
@@ -54,7 +68,9 @@ func (h *Handler) handleStartImport(c *echo.Context, body []byte) error {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
-	imp, err := h.Backend.StartImport(in.Destinations, in.toBackendImportSource())
+	imp, err := h.Backend.StartImport(
+		in.Destinations, in.toBackendImportSource(), epochPtr(in.StartEventTime), epochPtr(in.EndEventTime),
+	)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -168,6 +184,12 @@ func importToMap(imp *Import) map[string]any {
 		keyDestinations:     imp.Destinations,
 		keyCreatedTimestamp: float64(imp.CreatedTimestamp.Unix()),
 		keyUpdatedTimestamp: float64(imp.UpdatedTimestamp.Unix()),
+	}
+	if imp.StartEventTime != nil {
+		m["StartEventTime"] = awstime.Epoch(*imp.StartEventTime)
+	}
+	if imp.EndEventTime != nil {
+		m["EndEventTime"] = awstime.Epoch(*imp.EndEventTime)
 	}
 	if imp.ImportSource != nil && imp.ImportSource.S3 != nil {
 		m["ImportSource"] = map[string]any{

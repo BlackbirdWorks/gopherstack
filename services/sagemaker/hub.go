@@ -316,6 +316,7 @@ type HubContentDependency struct {
 type HubContent struct {
 	CreationTime                 time.Time              `json:"CreationTime"`
 	LastModifiedTime             time.Time              `json:"LastModifiedTime"`
+	OriginalCreationTime         time.Time              `json:"OriginalCreationTime"`
 	Tags                         map[string]string      `json:"Tags,omitempty"`
 	HubContentType               string                 `json:"HubContentType"`
 	HubContentDisplayName        string                 `json:"HubContentDisplayName,omitempty"`
@@ -449,7 +450,14 @@ func (b *InMemoryBackend) ImportHubContent(ctx context.Context, in ImportHubCont
 	}
 
 	now := time.Now()
+	original := now
+
+	if first, found := b.earliestHubContentLocked(region, h.HubName, in.HubContentType, in.HubContentName); found {
+		original = first
+	}
+
 	hc := &HubContent{
+		OriginalCreationTime:     original,
 		HubName:                  h.HubName,
 		HubArn:                   h.HubArn,
 		HubContentName:           in.HubContentName,
@@ -471,6 +479,29 @@ func (b *InMemoryBackend) ImportHubContent(ctx context.Context, in ImportHubCont
 	store.Put(hc)
 
 	return cloneHubContent(hc), nil
+}
+
+// earliestHubContentLocked returns the first-ever creation time across the
+// stored versions of the named content. Callers must hold b.mu.
+func (b *InMemoryBackend) earliestHubContentLocked(region, hubName, contentType, contentName string) (time.Time, bool) {
+	var earliest time.Time
+
+	for _, hc := range b.hubContentsStoreRO(region).All() {
+		if hc.HubName != hubName || hc.HubContentType != contentType || hc.HubContentName != contentName {
+			continue
+		}
+
+		t := hc.OriginalCreationTime
+		if t.IsZero() {
+			t = hc.CreationTime
+		}
+
+		if earliest.IsZero() || t.Before(earliest) {
+			earliest = t
+		}
+	}
+
+	return earliest, !earliest.IsZero()
 }
 
 // latestHubContentLocked returns the most recently created version of the named

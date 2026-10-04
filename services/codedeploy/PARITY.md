@@ -416,3 +416,16 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; Reset/Snap
   table. Verdict unchanged: no safe remedy for any of the five; landmine comments at
   all five call sites left as-is (already accurate and complete). No `.go` files
   touched for this issue.
+
+## 2026-10-03 (gopherstack-uox6, value-semantics sweep)
+
+FIXED: ListDeployments accepted applicationName without deploymentGroupName (and the reverse). `api_op_ListDeployments.go` documents "If applicationName is specified, then deploymentGroupName must be specified" and the converse; now DeploymentGroupNameRequiredException / ApplicationNameRequiredException, plus ApplicationDoesNotExist / DeploymentGroupDoesNotExist for unknown names. `TestDeployments_SortedList` had listed by application alone and now passes the group too. Proven by `list_deployments_scope_test.go`.
+Recorded: `createTimeRange` bounds and on-premises `tagFilters` combination are not specified by the SDK docs; left as inclusive bounds / AND.
+
+## 2026-10-03 (gopherstack-taq78 multi-region)
+
+CodeDeploy is region-isolated: each non-home region gets a lazily built sibling Handler (own applications, deployment groups, deployments, configs, on-premises instances; region-correct ARNs) via `pkgs/regionpeers`; siblings inherit the app config so deployment targets resolve against the EC2 backend of the deployment group's own region. Same-named resources coexist per region. Snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/codedeploy`. CodeDeploy makes no Lambda or ECS calls, so EC2 is the only cross-service path. The tagging-API bridge lists the request region and resolves Tag/Untag by ARN region.
+
+## 2026-10-04 (reqfielddiff tier-1 re-examined: CreateDeployment.DeploymentMode)
+
+Still recorded, reason made precise: types.DeploymentInfo in codedeploy@v1.43.0 has no deploymentMode member to echo, the SDK documents only that RESTART runs "a shortened set of lifecycle events" without naming them, and this backend produces no per-instance lifecycle events for either mode to differ in. Inventing an event list would be fabrication.

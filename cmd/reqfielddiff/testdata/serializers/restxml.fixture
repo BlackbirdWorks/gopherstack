@@ -1,0 +1,25 @@
+func awsRestxml_serializeOpHttpBindingsPutThingInput(v *PutThingInput, encoder *httpbinding.Encoder) error {
+	if v == nil {
+		return fmt.Errorf("unsupported serialization of nil %T", v)
+	}
+
+	if len(v.ServerSideEncryption) > 0 {
+		locationName := "X-Amz-Server-Side-Encryption"
+		encoder.SetHeader(locationName).String(string(v.ServerSideEncryption))
+	}
+
+	if v.MaxKeys != nil {
+		encoder.SetQuery("max-keys").Integer(*v.MaxKeys)
+	}
+
+	return nil
+}
+
+func (m *awsRestxml_serializeOpPutThing) HandleSerialize(ctx context.Context, in middleware.SerializeInput) {
+	if input.ThingConfiguration != nil {
+		xmlEncoder := smithyxml.NewEncoder(bytes.NewBuffer(nil))
+		if err := awsRestxml_serializeDocumentThingConfiguration(input.ThingConfiguration, xmlEncoder.RootElement(payloadRoot)); err != nil {
+			return out, metadata, &smithy.SerializationError{Err: err}
+		}
+	}
+}

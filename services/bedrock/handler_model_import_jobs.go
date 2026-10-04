@@ -93,6 +93,10 @@ func parseListModelImportJobsQuery(c *echo.Context) *ListModelImportJobsInput {
 }
 
 func (h *Handler) handleListModelImportJobs(c *echo.Context) error {
+	if err := validateListSortParams(c.Request().URL.Query()); err != nil {
+		return h.writeError(c, err)
+	}
+
 	jobs, nextToken := h.Backend.ListModelImportJobs(parseListModelImportJobsQuery(c))
 	summaries := make([]map[string]any, 0, len(jobs))
 
@@ -241,6 +245,10 @@ func parseListImportedModelsQuery(c *echo.Context) *ListImportedModelsInput {
 }
 
 func (h *Handler) handleListImportedModels(c *echo.Context) error {
+	if err := validateListSortParams(c.Request().URL.Query()); err != nil {
+		return h.writeError(c, err)
+	}
+
 	models, nextToken := h.Backend.ListImportedModels(parseListImportedModelsQuery(c))
 
 	summaries := make([]map[string]any, 0, len(models))

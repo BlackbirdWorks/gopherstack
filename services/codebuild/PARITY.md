@@ -1053,3 +1053,11 @@ Gates: `go build ./...` (whole module) clean; `go vet
 --new-from-rev=HEAD ./services/codebuild/...` 0 issues; `go run
 ./cmd/paritylint` 0 FAIL. No persisted fields changed, no inventory rows,
 no version bump.
+
+## Notes (2026-10-03 pass — gopherstack-uox6 value-semantics audit)
+
+Audited clean: sortOrder/sortBy, build-batch and report status filters. No change.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+codebuild is region-isolated: Projects, builds, batches, report groups and source credentials live per region; each sibling runs its own build janitor. CodePipeline Build actions start builds in the pipeline region. Tagging bridge not wired (none before). Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/codebuild`. Limitation: the dashboard shows the home region only.

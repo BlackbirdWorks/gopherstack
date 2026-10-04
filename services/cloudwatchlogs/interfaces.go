@@ -20,22 +20,6 @@ func (f SubscriptionDelivererFunc) DeliverLogEvents(
 	return f(ctx, destinationArn, payload)
 }
 
-// MetricEmitter emits a CloudWatch metric data point.
-// It is implemented by the CloudWatch backend and injected into InMemoryBackend
-// so that metric filter matches on PutLogEvents can be forwarded to CloudWatch.
-type MetricEmitter interface {
-	// EmitMetric records a single metric data point with the given namespace, name, value, and unit.
-	EmitMetric(namespace, name string, value float64, unit string) error
-}
-
-// MetricEmitterFunc is a function adapter for MetricEmitter.
-type MetricEmitterFunc func(namespace, name string, value float64, unit string) error
-
-// EmitMetric implements MetricEmitter.
-func (f MetricEmitterFunc) EmitMetric(namespace, name string, value float64, unit string) error {
-	return f(namespace, name, value, unit)
-}
-
 // StorageBackend is the interface for a CloudWatch Logs in-memory store.
 type StorageBackend interface {
 	CreateLogGroup(ctx context.Context, name, logGroupClass, kmsKeyID string) (*LogGroup, error)
@@ -69,6 +53,11 @@ type StorageBackend interface {
 		[]FilteredLogEvent, string, []SearchedLogStream, error)
 	PutSubscriptionFilter(
 		ctx context.Context, groupName, filterName, filterPattern, destinationArn, roleArn, distribution string,
+	) error
+	// PutSubscriptionFilterWithOptions is PutSubscriptionFilter plus the system-field options.
+	PutSubscriptionFilterWithOptions(
+		ctx context.Context, groupName, filterName, filterPattern, destinationArn, roleArn, distribution string,
+		opts FilterOptions,
 	) error
 	DescribeSubscriptionFilters(
 		ctx context.Context,
@@ -115,6 +104,10 @@ type StorageBackend interface {
 	) (string, error)
 	// CreateImportTask creates an import task from a CloudTrail Lake event data store.
 	CreateImportTask(ctx context.Context, importRoleArn, importSourceArn string) (*ImportTask, error)
+	// CreateImportTaskWithFilter is CreateImportTask plus an optional event-time filter.
+	CreateImportTaskWithFilter(
+		ctx context.Context, importRoleArn, importSourceArn string, filter *ImportFilter,
+	) (*ImportTask, error)
 	// CreateLogAnomalyDetector creates an anomaly detector for one or more log groups.
 	CreateLogAnomalyDetector(
 		logGroupArnList []string,
@@ -176,6 +169,11 @@ type StorageBackend interface {
 	// PutMetricFilter creates or updates a metric filter for a log group.
 	PutMetricFilter(
 		ctx context.Context, logGroupName, filterName, filterPattern string, transformations []MetricTransformation,
+	) error
+	// PutMetricFilterWithOptions is PutMetricFilter plus the system-field options.
+	PutMetricFilterWithOptions(
+		ctx context.Context, logGroupName, filterName, filterPattern string,
+		transformations []MetricTransformation, opts FilterOptions,
 	) error
 	// DescribeMetricFilters lists metric filters with optional filters.
 	DescribeMetricFilters(
@@ -239,5 +237,12 @@ type StorageBackend interface {
 		ctx context.Context,
 		namePattern, nextToken, logGroupClass string,
 		limit int,
+	) ([]LogGroup, string, error)
+	// ListLogGroupsFiltered is ListLogGroups plus a keep predicate applied before pagination.
+	ListLogGroupsFiltered(
+		ctx context.Context,
+		namePattern, nextToken, logGroupClass string,
+		limit int,
+		keep func(LogGroup) bool,
 	) ([]LogGroup, string, error)
 }

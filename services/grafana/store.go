@@ -50,6 +50,7 @@ type InMemoryBackend struct {
 	// appConfig is service.AppContext.Config, captured for lazy sibling-service
 	// and chaos fault-store lookups -- see cross_service.go's SetAppConfig.
 	appConfig            any
+	baseCtx              context.Context
 	accountID            string
 	region               string
 	nextServiceAccountID uint64
@@ -64,6 +65,7 @@ func NewInMemoryBackend(ctx context.Context, accountID, region string) *InMemory
 		region:    region,
 		mu:        lockmetrics.New("grafana"),
 		work:      worker.NewGroup(ctx, "grafana"),
+		baseCtx:   ctx,
 	}
 	registerAllTables(b)
 

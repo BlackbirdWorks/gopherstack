@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
 )
 
 // validatePutLogEventsBatch checks the batch size constraints for PutLogEvents.
@@ -237,7 +239,7 @@ func (b *InMemoryBackend) PutLogEvents(
 	var eventsForDelivery []InputLogEvent
 	var filtersForDelivery []*SubscriptionFilter
 	var metricMatches []metricFilterMatch
-	var emitter MetricEmitter
+	var emitter cwmetric.Emitter
 
 	func() {
 		b.mu.Lock("PutLogEvents")
@@ -302,7 +304,7 @@ func (b *InMemoryBackend) PutLogEvents(
 
 	// Emit CloudWatch metrics for matched metric filters (no lock held).
 	if len(metricMatches) > 0 && emitter != nil {
-		b.emitMetricFilterMatches(emitter, metricMatches)
+		b.emitMetricFilterMatches(emitter, region, metricMatches)
 	}
 
 	b.scheduleFilterDelivery(groupName, streamName, eventsForDelivery, filtersForDelivery)
@@ -486,6 +488,8 @@ func (b *InMemoryBackend) GetLogEvents(
 
 	filtered := filterByTime(stream.events, startTime, endTime)
 
+	masker := b.unmaskedMasker(ctx, region, groupName)
+
 	if limit <= 0 {
 		limit = defaultEventLimit
 	}
@@ -527,6 +531,7 @@ func (b *InMemoryBackend) GetLogEvents(
 	result := make([]OutputLogEvent, len(page))
 	for i, e := range page {
 		result[i] = *e
+		result[i].Message = masker.mask(e.Message, e.IngestionTime)
 	}
 
 	return result, fwdToken, bwdToken, nil
@@ -708,12 +713,13 @@ func (b *InMemoryBackend) FilterLogEvents(
 	}
 
 	page := all[startIdx:end]
+	masker := b.unmaskedMasker(ctx, region, p.GroupName)
 	result := make([]FilteredLogEvent, len(page))
 	for i, te := range page {
 		result[i] = FilteredLogEvent{
 			EventID:       filteredEventID(p.GroupName, te.stream, te.ev),
 			LogStreamName: te.stream,
-			Message:       te.ev.Message,
+			Message:       masker.mask(te.ev.Message, te.ev.IngestionTime),
 			IngestionTime: te.ev.IngestionTime,
 			Timestamp:     te.ev.Timestamp,
 		}
@@ -884,7 +890,7 @@ func (b *InMemoryBackend) GetLogRecord(
 
 	ev := stream.events[idx]
 	result := map[string]string{
-		keyMessageField:  ev.Message,
+		keyMessageField:  b.unmaskedMasker(ctx, region, groupName).mask(ev.Message, ev.IngestionTime),
 		keyTimestamp:     strconv.FormatInt(ev.Timestamp, 10),
 		keyIngestionTime: strconv.FormatInt(ev.IngestionTime, 10),
 		keyLogStream:     streamName,

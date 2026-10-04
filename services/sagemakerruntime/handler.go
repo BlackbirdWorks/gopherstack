@@ -13,6 +13,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -67,6 +68,7 @@ const (
 
 // Handler is the Echo HTTP handler for AWS SageMaker Runtime operations.
 type Handler struct {
+	peers   *regionpeers.Set[Handler]
 	Backend *InMemoryBackend
 }
 
@@ -125,8 +127,8 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	return extractEndpointName(c.Request().URL.Path)
 }
 
-// Handler returns the Echo handler function for SageMaker Runtime requests.
-func (h *Handler) Handler() echo.HandlerFunc {
+// homeHandler serves requests for the home region.
+func (h *Handler) homeHandler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		r := c.Request()
 		log := logger.Load(r.Context())

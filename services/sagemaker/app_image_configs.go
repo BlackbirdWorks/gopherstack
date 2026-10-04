@@ -276,9 +276,9 @@ func appImageConfigMatchesFilter(a *AppImageConfig, f ListAppImageConfigsFilter)
 		return false
 	}
 
-	if !timeWindowOK(a.CreationTime, f.CreationTimeAfter, f.CreationTimeBefore) {
+	if !timeWindowInclusiveOK(a.CreationTime, f.CreationTimeAfter, f.CreationTimeBefore) {
 		return false
 	}
 
-	return timeWindowOK(a.LastModifiedTime, f.ModifiedTimeAfter, f.ModifiedTimeBefore)
+	return timeWindowInclusiveOK(a.LastModifiedTime, f.ModifiedTimeAfter, f.ModifiedTimeBefore)
 }

@@ -152,11 +152,25 @@ func (b *InMemoryBackend) ListUsers(marker string, maxItems int) (page.Page[User
 
 	return pageFromSortedNames(
 		b.sortedUserNames,
-		b.users.Get,
+		b.cloneUserLocked,
 		marker,
 		maxItems,
 		iamDefaultMaxItems,
 	), nil
+}
+
+// cloneUserLocked looks up a user by name and returns a copy with its own
+// Tags map, so ListUsers cannot alias TagUser/UntagUser's in-place writes.
+func (b *InMemoryBackend) cloneUserLocked(userName string) (*User, bool) {
+	u, exists := b.users.Get(userName)
+	if !exists {
+		return nil, false
+	}
+
+	cp := *u
+	cp.Tags = maps.Clone(u.Tags)
+
+	return &cp, true
 }
 
 // GetUser retrieves a single IAM user by name.
@@ -169,7 +183,10 @@ func (b *InMemoryBackend) GetUser(userName string) (*User, error) {
 		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
-	return u, nil
+	cp := *u
+	cp.Tags = maps.Clone(u.Tags)
+
+	return &cp, nil
 }
 
 // ListAllUsers returns all users (for dashboard).
@@ -219,13 +236,27 @@ func (b *InMemoryBackend) GetUserByAccessKeyID(accessKeyID string) (*User, error
 	return u, nil
 }
 
+func (b *InMemoryBackend) userByAccessKeyID(accessKeyID string) (*User, bool) {
+	b.mu.RLock("GetUserByAccessKeyID")
+	defer b.mu.RUnlock()
+
+	ak, exists := b.accessKeys.Get(accessKeyID)
+	if !exists {
+		return nil, false
+	}
+
+	u, exists := b.users.Get(ak.UserName)
+
+	return u, exists && u != nil
+}
+
 // ResolvePrincipal resolves an access key ID to an awsmeta.Principal representing an IAM User.
 func (b *InMemoryBackend) ResolvePrincipal(
 	_ context.Context,
 	accessKeyID, _ string,
 ) (*awsmeta.Principal, bool) {
-	u, err := b.GetUserByAccessKeyID(accessKeyID)
-	if err != nil || u == nil {
+	u, ok := b.userByAccessKeyID(accessKeyID)
+	if !ok {
 		return nil, false
 	}
 

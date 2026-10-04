@@ -13,8 +13,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -62,6 +64,7 @@ const valueNone = "NONE"
 // Handler is the Echo HTTP service handler for CloudFormation operations.
 type Handler struct {
 	Backend StorageBackend
+	peers   *regionpeers.Set[Handler]
 }
 
 // NewHandler creates a new CloudFormation handler.
@@ -200,7 +203,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return false
 		}
 
-		body, err := httputils.ReadBody(r)
+		_, err := httputils.ReadBody(r)
 		if err != nil {
 			// Body unreadable (e.g. oversized): fall back to the User-Agent
 			// marker every aws-sdk-go-v2 cloudformation client sets
@@ -211,7 +214,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return service.MatchesUserAgentMarker(r.Header, "api/cloudformation")
 		}
 
-		vals, err := url.ParseQuery(string(body))
+		vals, err := httputils.ParseFormBody(r)
 		if err != nil {
 			return false
 		}
@@ -260,6 +263,10 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
+			return p.Handler()(c)
+		}
+
 		r := c.Request()
 		body, err := httputils.ReadBody(r)
 		if err != nil {
@@ -473,6 +480,7 @@ func parseStackOptions(form url.Values) StackOptions {
 		DisableRollback:             disableRollback,
 		RollbackConfiguration:       parseRollbackConfiguration(form),
 		StackPolicyDuringUpdateBody: form.Get("StackPolicyDuringUpdateBody"),
+		StackPolicyBody:             form.Get("StackPolicyBody"),
 		ResourceTypes:               parseMemberList(form, "ResourceTypes."),
 		EnableTerminationProtection: strings.EqualFold(form.Get("EnableTerminationProtection"), "true"),
 		DisableValidation:           strings.EqualFold(form.Get("DisableValidation"), "true"),

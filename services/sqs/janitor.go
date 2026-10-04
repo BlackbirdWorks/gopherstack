@@ -48,7 +48,7 @@ func (j *Janitor) Run(ctx context.Context) {
 // It delegates to InMemoryBackend.pruneState so the handler and internal janitor share one code path.
 func (j *Janitor) sweepExpiredMessages(ctx context.Context) {
 	before := j.Backend.totalMessages()
-	j.Backend.pruneState(time.Now())
+	j.Backend.pruneState(j.Backend.now())
 	after := j.Backend.totalMessages()
 
 	if purged := before - after; purged > 0 {
@@ -102,7 +102,7 @@ func (b *InMemoryBackend) runJanitor() {
 		case <-b.janitorStop:
 			return
 		case <-ticker.C:
-			b.pruneState(time.Now())
+			b.pruneState(b.now())
 		}
 	}
 }
@@ -155,6 +155,12 @@ func (b *InMemoryBackend) pruneState(now time.Time) {
 				q.hasActivity.Store(false)
 			}
 		}()
+	}
+
+	for _, q := range b.allQueues() {
+		q.mu.Lock()
+		b.emitQueueDepth(q)
+		q.mu.Unlock()
 	}
 
 	tasksPruned := 0
@@ -210,4 +216,20 @@ func (b *InMemoryBackend) pruneRecentlyDeleted(now time.Time) int {
 	}
 
 	return pruned
+}
+
+// allQueues snapshots every queue so depth gauges cover idle queues too.
+func (b *InMemoryBackend) allQueues() []*Queue {
+	b.mu.RLock("allQueues")
+	defer b.mu.RUnlock()
+
+	var out []*Queue
+
+	b.queues.Range(func(q *Queue) bool {
+		out = append(out, q)
+
+		return true
+	})
+
+	return out
 }

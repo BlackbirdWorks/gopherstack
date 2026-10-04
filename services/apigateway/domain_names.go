@@ -39,12 +39,12 @@ func (b *InMemoryBackend) CreateDomainName(input CreateDomainNameInput) (*Domain
 		epConfig = &EndpointConfiguration{Types: []string{endpointType}}
 	}
 
-	regionalDomain := input.DomainName + ".execute-api.us-east-1.amazonaws.com"
+	regionalDomain := input.DomainName + ".execute-api." + b.region + ".amazonaws.com"
 	distributionDomain := input.DomainName + ".cloudfront.net"
 
 	dn := &DomainName{
 		DomainNameValue:          input.DomainName,
-		DomainNameArnValue:       "arn:aws:apigateway:us-east-1::/domainnames/" + input.DomainName,
+		DomainNameArnValue:       "arn:aws:apigateway:" + b.region + "::/domainnames/" + input.DomainName,
 		CertificateARN:           input.CertificateARN,
 		RegionalCertificateARN:   input.RegionalCertificateARN,
 		SecurityPolicy:           securityPolicy,
@@ -83,7 +83,7 @@ func (b *InMemoryBackend) CreateDomainNameAccessAssociation(
 	b.mu.Lock("CreateDomainNameAccessAssociation")
 	defer b.mu.Unlock()
 
-	assocARN := "arn:aws:apigateway:us-east-1::/accessassociations/" + randomID(apiIDLength)
+	assocARN := "arn:aws:apigateway:" + b.region + "::/accessassociations/" + randomID(apiIDLength)
 	assoc := &DomainNameAccessAssociation{
 		DomainNameAccessAssociationARN: assocARN,
 		DomainNameARN:                  input.DomainNameARN,

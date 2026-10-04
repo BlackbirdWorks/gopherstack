@@ -172,7 +172,7 @@ func (h *Handler) handleDescribeSecurityGroupVpcAssociations(
 	reqID string,
 ) (any, error) {
 	sgIDs := parseMemberList(vals, "GroupId")
-	assocs := h.Backend.DescribeSecurityGroupVpcAssociations(sgIDs)
+	assocs := applySGVpcAssociationFilters(h.Backend.DescribeSecurityGroupVpcAssociations(sgIDs), parseEC2Filters(vals))
 
 	maxResults, offset, err := parseEC2Pagination(
 		vals,
@@ -223,6 +223,8 @@ func (h *Handler) handleGetSecurityGroupsForVpc(vals url.Values, reqID string) (
 	if err != nil {
 		return nil, err
 	}
+
+	sgs = applySecurityGroupForVpcFilters(sgs, parseEC2Filters(vals), h.AccountID)
 
 	maxResults, offset, err := parseEC2Pagination(
 		vals,

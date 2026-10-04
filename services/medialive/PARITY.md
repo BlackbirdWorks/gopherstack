@@ -746,133 +746,20 @@ gaps: []
 
 
 items_still_open:
-  - Channel's EncoderSettings is modeled to a deliberately bounded depth (sweep 6,
-    gopherstack-jb9i; extended by gopherstack-sthr across two sub-passes, then gopherstack-hj9n,
-    then gopherstack-1szb). See Channel's note above for the full list of what IS modeled:
-    AvailConfiguration/ColorCorrectionSettings/MotionGraphicsConfiguration/NielsenConfiguration
-    (gopherstack-sthr pass 1 -- none turned out to be a large per-format union, each is a small
-    flat struct or a small tagged union); AudioDescription's CodecSettings/
-    AudioNormalizationSettings/AudioWatermarkingSettings/RemixSettings/AudioDashRoles/
-    DvbDashAccessibility (gopherstack-sthr pass 2 -- the AudioCodecSettings union verified as 7
-    variants of flat scalar structs, not the ~20 the bd issue title estimated);
-    OutputGroup.OutputGroupSettings + Output.OutputSettings, modeled together (gopherstack-hj9n --
-    11 variants each, down through every nested container/CDN/stream sub-union: M2tsSettings,
-    MultiplexM2tsSettings, HlsSettings, HlsCdnSettings, KeyProviderSettings, ArchiveCdnSettings,
-    FrameCaptureCdnSettings, M3u8Settings, MediaPackageV2GroupSettings/
-    MediaPackageV2DestinationSettings); CaptionDescription.DestinationSettings + CaptionDashRoles
-    (gopherstack-1szb, first sub-pass -- types.CaptionDestinationSettings is 13 variants, not the
-    12 the bd issue counted: 8 empty-marker structs, Ttml/Webvtt single-field, EbuTtD 6 fields,
-    BurnIn/DvbSub 18 fields each, not 19 as originally estimated); and
-    VideoDescription.CodecSettings (gopherstack-1szb, final sub-pass -- types.VideoCodecSettings,
-    5 variants, measured at Av1Settings 24 fields, H264Settings 44, H265Settings 42,
-    Mpeg2Settings 17, FrameCaptureSettings 3, all sharing TimecodeBurninSettings; H264/H265's
-    FilterSettings sub-union is identical between the two and shares one wire struct). This
-    closes the last EncoderSettings union -- no gap remains in this family at the union level.
-    (bd: gopherstack-jb9i closed the 12-of-17-member gap; gopherstack-sthr closed
-    AvailConfiguration/ColorCorrectionSettings/MotionGraphicsConfiguration/NielsenConfiguration
-    and, in a second sub-pass, AudioDescription's codec/normalization/watermarking/remix/
-    dash-role/accessibility fields; gopherstack-hj9n closed OutputGroupSettings/OutputSettings
-    together per its explicit ordering instruction; gopherstack-1szb closed
-    CaptionDestinationSettings and, in a follow-up sub-pass once measured and confirmed
-    tractable, VideoCodecSettings -- the union this whole gap entry originally tracked.)
-  - InputAttachment.InputSettings is now modeled in full (gopherstack-sthr, this pass) -- see
-    Channel's note above. InputAttachmentName/InputId/LogicalInterfaceNames/
-    AutomaticInputFailoverSettings (including all 3 failover-condition variants) were already
-    modeled (sweep 6). No open gap remains in this family.
-  - Channel.Vpc's response-side availabilityZones/networkInterfaceIds (types.
-    VpcOutputSettingsDescription) are always omitted -- MediaLive computes them from a real
-    VPC/ENI integration gopherstack does not have. The request-side subnetIds/
-    publicAddressAllocationIds/securityGroupIds ARE modeled and echoed back (sweep 6).
-  - Deep state/error-code audit of Cluster, Node, SignalMap, Reservation/Offering purchase
-    flow, Batch semantics beyond the wire-casing scope of sweep 4 and the association/
-    leak/new-field fixes sweep 5 made was not re-performed (route matching for all of them was
-    verified correct in sweep 4; op-by-op state-machine correctness beyond what these two
-    passes touched was not re-verified). UPDATE 2026-08-23: this gap is what prompted the
-    Reservation/Offering request-side audit below ("every List operation ignored the client's
-    maxResults/nextToken"), which found and fixed the same real bug across 20 List handlers
-    spanning every family in the service (not just Reservation/Offering) but did not attempt
-    the full state/error-code re-audit this entry originally called for; Cluster/Node/
-    SignalMap/Batch semantics and DeleteReservation's hard-delete-vs-DELETED-state question
-    (see the same dated entry) remain open.
-  - "Constraining-parameter sweep (wrapper-key campaign, 2026-08-29): six real
-    never-applied-constraint bugs found and fixed, all confirmed with a real
-    aws-sdk-go-v2 client test that failed against the unfixed handler first.
-    (1) ListClusterAlerts never read StateFilter (SET/CLEARED/ALL) -- the
-    synthetic \"cluster-not-ready\" alert (always state SET) was returned for
-    ANY filter value, so a client asking for CLEARED alerts wrongly got the
-    SET one back; now stateFilter==\"CLEARED\" excludes it.
-    (2) ListReservations never read Codec/MaximumBitrate/MaximumFramerate/
-    Resolution/ResourceType/SpecialFeature/VideoQuality -- an account can
-    purchase an unbounded number of reservations (see the pagination test's
-    25-reservation setup), so unlike ListOfferings' fixed 3-item catalog
-    (left unfixed -- see below) this was the \"unbounded counts\" case that
-    must honor its filters, not the \"at most a few values\" restraint case;
-    now filtered via ReservationFilter (reservations.go) against each
-    reservation's inherited ResourceSpecification. ChannelClass is NOT
-    filterable -- neither Offering nor Reservation tracks it anywhere in
-    this backend, a genuine structural gap, disclosed rather than faked.
-    (3) ListCloudWatchAlarmTemplates/ListEventBridgeRuleTemplates never read
-    GroupIdentifier (resolved via the same findCWAlarmTemplateGroup/
-    findEBRuleTemplateGroup ID/ARN/name lookup Create already uses) or
-    SignalMapIdentifier (a signal map's own cloudWatchAlarmTemplateGroupIds/
-    eventBridgeRuleTemplateGroupIds lists, both AND-combinable with
-    GroupIdentifier).
-    (4) ListCloudWatchAlarmTemplateGroups/ListEventBridgeRuleTemplateGroups
-    never read SignalMapIdentifier -- same signal-map-list match, shared via
-    the new generic listTemplateGroups (cloudwatch_alarm_templates.go).
-    (5) ListSignalMaps never read CloudWatchAlarmTemplateGroupIdentifier/
-    EventBridgeRuleTemplateGroupIdentifier -- the reverse direction of (4),
-    filtering signal maps down to those referencing a given group.
-    (6) ListInputDeviceTransfers echoed back whatever transferType
-    (OUTGOING/INCOMING) the client queried on every pending transfer,
-    regardless of its real direction -- TransferInputDevice is the only way
-    this backend ever creates a pending transfer, and it always makes THIS
-    account the source (no path exists for another account to initiate a
-    transfer targeting this one), so every pending transfer is inherently
-    OUTGOING; querying INCOMING now correctly returns empty instead of the
-    same devices relabeled. This also corrected an existing test
-    (TestHandlerListInputDeviceTransfers's \"incoming transfers\" case) that
-    asserted the bug's own wrong output (wantCount: 2) as correct.
-    Left as disclosed restraint, not fixed: ListOfferings' 10 filter params
-    (ChannelClass/ChannelConfiguration/Codec/Duration/MaximumBitrate/
-    MaximumFramerate/Resolution/ResourceType/SpecialFeature/VideoQuality) --
-    seedOfferings is a fixed 3-item catalog (store.go), squarely the \"at
-    most one to three values can ever exist\" case filtering would not
-    meaningfully change; ChannelConfiguration additionally requires deriving
-    compatibility from an existing channel's configuration, a distinct
-    feature with no backing logic here. medialive's Scope filter (LOCAL vs
-    AWS_MANAGED on the CW/EB template-group List ops) was also left
-    unimplemented: it is a plain *string in the pinned SDK with no typed
-    enum anywhere in the module (grepped types/enums.go and the whole SDK
-    package for AWS_MANAGED/LOCAL -- zero hits), so its exact wire values
-    are asserted only in a prose doc comment; implementing a filter against
-    an unverified literal risks the wrong-vocabulary bug class more than
-    leaving it a documented gap, since this backend has zero AWS-managed
-    groups to ever wrongly include regardless."
-  - "2026-09-18 (over-wide List-summary sweep, gopherstack-dv4s): 15
-    census-flagged List ops verified member by member against their real
-    Summary/Describe types. ListChannels' ChannelSummary was dropping
-    'tags' (sourced on storedChannel all along, never copied onto
-    ChannelSummary) -- fixed. ListNetworks leaked 'tags' onto
-    DescribeNetworkSummary/DescribeNetworkOutput/CreateNetworkOutput/
-    UpdateNetworkOutput, none of which carry it (same pattern as Cluster)
-    -- fixed via toNetworkOutput. The other 13 ops were already exact
-    matches. Members with no backing source, recorded rather than
-    fabricated: ChannelSummary.UsedChannelEngineVersions (no engine-version
-    history tracking); InputDeviceSummary.AvailabilityZone/
-    HdDeviceSettings/MedialiveInputArns/NetworkSettings/OutputType/
-    UhdDeviceSettings (InputDevice models only the fields InputDevice
-    struct already carried; devices are hardware-registered in real AWS,
-    not API-created here, so most of this shape has no natural source);
-    DescribeNodeSummary.InstanceArn/ManagedInstanceId/
-    NodeInterfaceMappings/SdiSourceMappings (NodeInterfaceMappings IS
-    accepted by CreateNodeInput but never threaded onto the stored Node --
-    same class as the pre-existing RunSummary.Priority gap in omics)."
+  - "Channel.Vpc response-side availabilityZones/networkInterfaceIds are omitted: MediaLive derives them from a real VPC/ENI integration this backend lacks."
+  - "Members with no backing source, not fabricated: ChannelSummary.UsedChannelEngineVersions (no engine-version history); InputDeviceSummary AvailabilityZone/HdDeviceSettings/MedialiveInputArns/NetworkSettings/OutputType/UhdDeviceSettings (hardware-registered devices); Node NodeInterfaceMapping.PhysicalInterfaceIpAddresses and DescribeNodeSummary InstanceArn/ManagedInstanceId (node hardware)."
+  - "ListOfferings ChannelClass/ChannelConfiguration and the CW/EB template-group Scope filter are unimplemented: no channel-class on Offering/Reservation, and Scope's wire values appear only in an SDK prose comment (no enum), so a filter risks the wrong-vocabulary bug. ListReservations ChannelClass likewise."
+  - "DeleteReservation hard-deletes (after a transient CANCELED) rather than reaching the real DELETED state; unproven without AWS evidence, tested as deliberate."
+  - "Op-by-op state/error-code audit of Cluster, Node, SignalMap and Batch beyond the fixes in the dated notes was not re-performed."
 leaks: {status: clean, note: "No goroutines/janitors in this service (re-confirmed sweep 5: no `go func`/time.NewTicker/time.AfterFunc/context.WithCancel anywhere in non-test files). Two real leaks found and fixed this pass: (1) b.tags[ARN] rows were never removed on delete for every resource family outside the Channel/Input/InputSecurityGroup/Multiplex/InputDevice fast path (taggableResourceTags) -- Cluster/Node/SignalMap/CloudWatchAlarmTemplate(Group)/EventBridgeRuleTemplate(Group)/Reservation/Network/SdiSource/ChannelPlacementGroup all now clear their b.tags entry in their respective Delete method; regression-tested via TestTags_LegacyStoreClearedOnDelete. (2) DeleteCluster never cascade-deleted its ChannelPlacementGroups -- unlike Nodes (embedded in storedCluster.Nodes, removed automatically with their parent), ChannelPlacementGroup lives in its own top-level table keyed by \"clusterID/groupID\"; fixed via cascadeDeleteChannelPlacementGroups, regression-tested via TestChannelPlacementGroup_CascadeDeletedWithCluster. Every b.mu.Lock/RLock call site was re-verified this pass to have an immediately-following `defer b.mu.Unlock()`/`RUnlock()` (125 call sites, no exceptions)."}
 
 ---
 
 ## Notes
+
+### 2026-10-01: ListOfferings filters, Node mappings
+
+ListOfferings now honors codec/duration/maximumBitrate/maximumFramerate/resolution/resourceType/specialFeature/videoQuality (TestListOfferings_RealClient_Filters). CreateNode persists nodeInterfaceMappings and UpdateNode persists sdiSourceMappings, both echoed on Create/Describe/Update/ListNodes (TestNode_RealClient_InterfaceMappings, TestUpdateNode_RealClient_SdiSourceMappings). Closed the EncoderSettings/InputSettings entries (no gap remained).
 
 **2026-09-24 (gopherstack-f9w3k, DELETED-tombstone TTL eviction):** the
 soft-delete fix below (DeleteInputSecurityGroup/DeleteMultiplex) kept the
@@ -1714,3 +1601,7 @@ keep the row (DeleteMultiplex previously did both: set State=DELETED, then
 immediately deleted the row anyway). Verified via
 TestTerraform_ElasticsearchGrafanaAndRam destroy (TF_LOG=trace): both resources destroy
 clean now, no more logged errors.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+medialive is region-isolated: channels, inputs, multiplexes and alarm templates live per region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/medialive`. Limitation: the dashboard shows the home region only. `TestHandler_MultiRegionReset` covers Reset.

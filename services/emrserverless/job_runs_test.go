@@ -382,7 +382,7 @@ func TestSortedListJobRuns(t *testing.T) {
 		})
 	}
 
-	runs, _, err := b.ListJobRuns(app.ApplicationID, "", 0)
+	runs, _, err := b.ListJobRuns(app.ApplicationID, "", 0, emrserverless.JobRunFilter{})
 	require.NoError(t, err)
 	require.Len(t, runs, 3)
 	assert.Equal(t, "aaa-run", runs[0].JobRunID)

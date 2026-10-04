@@ -10,10 +10,12 @@ import (
 // SELECTION_CRITERIA, has no reuse site outside validAccountPolicyScopes).
 const accountPolicyScopeAll = "ALL"
 
+const policyTypeDataProtection = "DATA_PROTECTION_POLICY"
+
 // validAccountPolicyTypes returns the allowed values for the account policy type field.
 func validAccountPolicyTypes() map[string]struct{} {
 	return map[string]struct{}{
-		"DATA_PROTECTION_POLICY":     {},
+		policyTypeDataProtection:     {},
 		"SUBSCRIPTION_FILTER_POLICY": {},
 		"FIELD_INDEX_POLICY":         {},
 		"TRANSFORMER_POLICY":         {},
@@ -33,6 +35,10 @@ func validAccountPolicyScopes() map[string]struct{} {
 func (b *InMemoryBackend) PutDataProtectionPolicy(logGroupIdentifier, policyDocument string) error {
 	if logGroupIdentifier == "" {
 		return fmt.Errorf("%w: logGroupIdentifier is required", ErrValidation)
+	}
+
+	if err := validateDataProtectionDocument(policyDocument); err != nil {
+		return err
 	}
 
 	b.mu.Lock("PutDataProtectionPolicy")
@@ -124,6 +130,12 @@ func (b *InMemoryBackend) PutAccountPolicy(
 			"%w: selectionCriteria is required when scope is SELECTION_CRITERIA",
 			ErrValidation,
 		)
+	}
+
+	if policyType == policyTypeDataProtection {
+		if err := validateDataProtectionDocument(policyDocument); err != nil {
+			return nil, err
+		}
 	}
 
 	b.mu.Lock("PutAccountPolicy")

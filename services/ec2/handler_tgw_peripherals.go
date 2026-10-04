@@ -544,6 +544,8 @@ func (h *Handler) handleGetTransitGatewayPolicyTableEntries(
 		return nil, err
 	}
 
+	entries = applyTGWPolicyTableEntryFilters(entries, parseEC2Filters(vals))
+
 	resp := &getTransitGatewayPolicyTableEntriesResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, e := range entries {
 		resp.Entries.Items = append(resp.Entries.Items, tgwPolicyTableEntryToItem(e))

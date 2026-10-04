@@ -153,9 +153,10 @@ func parseMacSIPConfig(vals url.Values) *MacSIPConfig {
 }
 
 func (h *Handler) handleCreateMacSIPModificationTask(vals url.Values, reqID string) (any, error) {
-	task, err := h.Backend.CreateMacSystemIntegrityProtectionModificationTask(
+	task, err := h.Backend.CreateMacSIPModificationTaskWithCredentials(
 		vals.Get("InstanceId"),
 		vals.Get("MacSystemIntegrityProtectionStatus"),
+		vals.Get("MacCredentials"),
 		parseMacSIPConfig(vals),
 		parseTagSpecification(vals, resourceTypeMacModificationTask),
 	)
@@ -191,7 +192,7 @@ func (h *Handler) handleCreateDelegateMacVolumeOwnershipTask(vals url.Values, re
 
 func (h *Handler) handleDescribeMacModificationTasks(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "MacModificationTaskId")
-	tasks := h.Backend.DescribeMacModificationTasks(ids)
+	tasks := applyMacModificationTaskFilters(h.Backend.DescribeMacModificationTasks(ids), parseEC2Filters(vals))
 
 	resp := &describeMacModificationTasksResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, t := range tasks {

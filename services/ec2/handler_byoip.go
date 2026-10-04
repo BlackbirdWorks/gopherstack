@@ -35,7 +35,13 @@ func (h *Handler) handleProvisionByoipCidr(vals url.Values, reqID string) (any, 
 	cidr := vals.Get("Cidr")
 	description := vals.Get("Description")
 
-	entry, err := h.Backend.ProvisionByoipCidr(cidr, description)
+	var publiclyAdvertisable *bool
+	if v := vals.Get("PubliclyAdvertisable"); v != "" {
+		parsed := v == ec2BooleanTrue
+		publiclyAdvertisable = &parsed
+	}
+
+	entry, err := h.Backend.ProvisionByoipCidr(cidr, description, publiclyAdvertisable)
 	if err != nil {
 		return nil, err
 	}

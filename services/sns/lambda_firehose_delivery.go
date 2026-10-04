@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/events"
+	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 )
 
 // snsLambdaEnvelope is the JSON payload delivered to a Lambda function from SNS.
@@ -75,10 +76,10 @@ func buildLambdaPayload(
 			MessageID:         ev.MessageID,
 			TopicArn:          ev.TopicARN,
 			Subject:           ev.Subject,
-			Message:           ev.Message,
+			Message:           sub.Body(ev.Message),
 			Timestamp:         ev.Timestamp,
 			SignatureVersion:  resolveSignatureVersion(ev.SignatureVersion),
-			Signature:         ev.Signature,
+			Signature:         sub.SignatureFor(ev.Signature),
 			SigningCertURL:    ev.SigningCertURL,
 			UnsubscribeURL:    subscriptionUnsubscribeURL(ev.TopicARN, sub.SubscriptionARN),
 			MessageAttributes: attrs,
@@ -102,10 +103,10 @@ func buildFirehoseEnvelope(ev *events.SNSPublishedEvent, sub events.SNSSubscript
 		Type:             messageTypeNotification,
 		MessageID:        ev.MessageID,
 		TopicArn:         ev.TopicARN,
-		Message:          ev.Message,
+		Message:          sub.Body(ev.Message),
 		Timestamp:        ev.Timestamp,
 		SignatureVersion: resolveSignatureVersion(ev.SignatureVersion),
-		Signature:        ev.Signature,
+		Signature:        sub.SignatureFor(ev.Signature),
 		SigningCertURL:   ev.SigningCertURL,
 		UnsubscribeURL:   subscriptionUnsubscribeURL(ev.TopicARN, sub.SubscriptionARN),
 	}
@@ -115,7 +116,7 @@ func buildFirehoseEnvelope(ev *events.SNSPublishedEvent, sub events.SNSSubscript
 
 	enc, err := json.Marshal(env)
 	if err != nil {
-		return []byte(ev.Message)
+		return []byte(sub.Body(ev.Message))
 	}
 
 	return enc
@@ -128,6 +129,7 @@ func (b *InMemoryBackend) deliverToLambdaSubscriptions(ev *events.SNSPublishedEv
 	var (
 		lambda               LambdaInvoker
 		sqsSender            SQSSender
+		auth                 roleauth.Authorizer
 		topicEffectivePolicy string
 	)
 
@@ -135,6 +137,7 @@ func (b *InMemoryBackend) deliverToLambdaSubscriptions(ev *events.SNSPublishedEv
 		b.mu.RLock("lambda-topic-policy")
 		defer b.mu.RUnlock()
 
+		auth = b.roleAuth
 		lambda = b.lambdaBackend
 		sqsSender = b.sqsSender
 
@@ -154,7 +157,11 @@ func (b *InMemoryBackend) deliverToLambdaSubscriptions(ev *events.SNSPublishedEv
 
 		numRetries := getRetryConfig(topicEffectivePolicy, sub.DeliveryPolicy, protocolLambda)
 		payload := buildLambdaPayload(ev, sub)
-		var err error
+		err := roleauth.AuthorizeResource(
+			auth, roleauth.PrincipalSNS, "lambda:InvokeFunction", sub.Endpoint, ev.TopicARN)
+		if err != nil {
+			numRetries = -1
+		}
 
 		for i := 0; i <= numRetries; i++ {
 			_, _, err = lambda.InvokeFunction(b.svcCtx, sub.Endpoint, snsLambdaInvocationType, payload)
@@ -168,7 +175,7 @@ func (b *InMemoryBackend) deliverToLambdaSubscriptions(ev *events.SNSPublishedEv
 		if err != nil {
 			b.logDeliveryStatus(b.svcCtx, ev.TopicARN, protocolLambda, sub.Endpoint, "FAILURE", err)
 			if sub.RedrivePolicy != "" && sqsSender != nil {
-				sendLambdaDLQ(b.svcCtx, sqsSender, sub.RedrivePolicy, ev.Message)
+				sendLambdaDLQ(b.svcCtx, sqsSender, sub.RedrivePolicy, sub.Body(ev.Message))
 			}
 		}
 	}
@@ -183,6 +190,7 @@ func (b *InMemoryBackend) deliverToFirehoseSubscriptions(ev *events.SNSPublished
 	var (
 		firehose             FirehosePutter
 		sqsSender            SQSSender
+		auth                 roleauth.Authorizer
 		topicEffectivePolicy string
 	)
 
@@ -190,6 +198,7 @@ func (b *InMemoryBackend) deliverToFirehoseSubscriptions(ev *events.SNSPublished
 		b.mu.RLock("firehose-topic-policy")
 		defer b.mu.RUnlock()
 
+		auth = b.roleAuth
 		firehose = b.firehoseBackend
 		sqsSender = b.sqsSender
 
@@ -207,7 +216,7 @@ func (b *InMemoryBackend) deliverToFirehoseSubscriptions(ev *events.SNSPublished
 			continue
 		}
 
-		b.deliverFirehoseSubscription(ev, sub, firehose, sqsSender, topicEffectivePolicy)
+		b.deliverFirehoseSubscription(ev, sub, firehose, sqsSender, auth, topicEffectivePolicy)
 	}
 }
 
@@ -220,6 +229,7 @@ func (b *InMemoryBackend) deliverFirehoseSubscription(
 	sub events.SNSSubscriptionSnapshot,
 	firehose FirehosePutter,
 	sqsSender SQSSender,
+	auth roleauth.Authorizer,
 	topicEffectivePolicy string,
 ) {
 	streamName := firehoseStreamNameFromARN(sub.Endpoint)
@@ -227,17 +237,21 @@ func (b *InMemoryBackend) deliverFirehoseSubscription(
 		return
 	}
 
-	record := []byte(ev.Message)
+	record := []byte(sub.Body(ev.Message))
 	if !sub.RawMessageDelivery {
 		record = buildFirehoseEnvelope(ev, sub)
 	}
 
 	numRetries := getRetryConfig(topicEffectivePolicy, sub.DeliveryPolicy, protocolFirehose)
 
-	var err error
+	err := roleauth.Authorize(
+		auth, roleauth.PrincipalSNS, sub.SubscriptionRole, "firehose:PutRecordBatch", sub.Endpoint)
+	if err != nil {
+		numRetries = -1
+	}
 
 	for i := 0; i <= numRetries; i++ {
-		_, err = firehose.PutRecordBatch(streamName, [][]byte{record})
+		_, err = putFirehoseBatch(firehose, arnRegion(sub.Endpoint), streamName, [][]byte{record})
 		if err == nil {
 			b.logDeliveryStatus(b.svcCtx, ev.TopicARN, protocolFirehose, sub.Endpoint, "SUCCESS", nil)
 
@@ -254,6 +268,15 @@ func (b *InMemoryBackend) deliverFirehoseSubscription(
 
 // firehoseStreamNameFromARN extracts the delivery stream name from a Firehose ARN.
 // ARN format: arn:aws:firehose:<region>:<account>:deliverystream/<name>.
+// putFirehoseBatch delivers into the stream's own region when the putter supports regions.
+func putFirehoseBatch(p FirehosePutter, region, stream string, records [][]byte) (int, error) {
+	if rp, ok := p.(RegionalFirehosePutter); ok && region != "" {
+		return rp.PutRecordBatchInRegion(region, stream, records)
+	}
+
+	return p.PutRecordBatch(stream, records)
+}
+
 func firehoseStreamNameFromARN(endpoint string) string {
 	const prefix = "deliverystream/"
 	if _, after, ok := strings.Cut(endpoint, prefix); ok {
@@ -275,7 +298,7 @@ func (b *InMemoryBackend) deliverToSMSSubscriptions(ev *events.SNSPublishedEvent
 		if sub.Protocol != protocolSMS {
 			continue
 		}
-		_, _ = b.PublishSMS(sub.Endpoint, ev.Message)
+		_, _ = b.PublishSMS(sub.Endpoint, sub.Body(ev.Message))
 	}
 }
 
@@ -311,7 +334,7 @@ func (b *InMemoryBackend) deliverToApplicationSubscriptions(ev *events.SNSPublis
 
 			b.applicationDeliveries = appendBounded(b.applicationDeliveries, ApplicationDelivery{
 				EndpointARN: sub.Endpoint,
-				Message:     ev.Message,
+				Message:     sub.Body(ev.Message),
 				MessageID:   msgID,
 			}, maxRecordedDeliveries)
 		}()

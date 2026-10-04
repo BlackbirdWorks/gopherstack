@@ -123,6 +123,10 @@ func (h *Handler) handleDescribeAutoMLJobV2(ctx context.Context, body []byte) ([
 		"AutoMLJobInputDataConfig":  inputDataConfig,
 	}
 
+	if j.EndTime != nil {
+		resp["EndTime"] = epochSeconds(*j.EndTime)
+	}
+
 	if j.OutputDataConfig != nil {
 		resp["OutputDataConfig"] = j.OutputDataConfig
 	}

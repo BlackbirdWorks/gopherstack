@@ -142,6 +142,15 @@ func appendNodegroupOptionalFields(ng *Nodegroup, m map[string]any) {
 	if ng.Resources != nil && len(ng.Resources.AutoScalingGroups) > 0 {
 		m["resources"] = nodegroupResourcesToJSON(ng.Resources)
 	}
+	appendNodegroupConfigs(ng, m)
+	if ng.Tags != nil {
+		m[keyTags] = ng.Tags.Clone()
+	} else {
+		m[keyTags] = map[string]string{}
+	}
+}
+
+func appendNodegroupConfigs(ng *Nodegroup, m map[string]any) {
 	if ng.UpdateConfig != nil {
 		uc := map[string]any{}
 		if ng.UpdateConfig.MaxUnavailable != nil {
@@ -158,10 +167,11 @@ func appendNodegroupOptionalFields(ng *Nodegroup, m map[string]any) {
 
 		m["updateConfig"] = uc
 	}
-	if ng.Tags != nil {
-		m[keyTags] = ng.Tags.Clone()
-	} else {
-		m[keyTags] = map[string]string{}
+	if ng.NodeRepair != nil {
+		m["nodeRepairConfig"] = ng.NodeRepair
+	}
+	if ng.WarmPool != nil {
+		m["warmPoolConfig"] = ng.WarmPool
 	}
 }
 
@@ -236,6 +246,8 @@ type createNodegroupBody struct {
 	RemoteAccess       *remoteAccessJSON          `json:"remoteAccess"`
 	LaunchTemplate     *launchTemplateJSON        `json:"launchTemplate"`
 	UpdateConfig       *nodegroupUpdateConfigJSON `json:"updateConfig"`
+	NodeRepairConfig   *NodeRepairConfig          `json:"nodeRepairConfig"`
+	WarmPoolConfig     *WarmPoolConfig            `json:"warmPoolConfig"`
 	CapacityType       string                     `json:"capacityType"`
 	NodeRole           string                     `json:"nodeRole"`
 	AMIType            string                     `json:"amiType"`
@@ -318,6 +330,8 @@ func (h *Handler) handleCreateNodegroup(c *echo.Context, clusterName string, bod
 				Taints:         taints,
 				DiskSize:       in.DiskSize,
 				UpdateConfig:   ngUpdateCfg,
+				NodeRepair:     in.NodeRepairConfig,
+				WarmPool:       in.WarmPoolConfig,
 			},
 			in.Tags,
 		)
@@ -390,6 +404,8 @@ type updateNodegroupConfigInput struct {
 	Labels             *updateNodegroupLabelsPayload     `json:"labels,omitempty"`
 	Taints             *updateNodegroupTaintsPayload     `json:"taints,omitempty"`
 	UpdateConfig       *updateNodegroupUpdateConfigJSON  `json:"updateConfig,omitempty"`
+	NodeRepairConfig   *NodeRepairConfig                 `json:"nodeRepairConfig,omitempty"`
+	WarmPoolConfig     *WarmPoolConfig                   `json:"warmPoolConfig,omitempty"`
 	ClientRequestToken string                            `json:"clientRequestToken,omitempty"`
 }
 
@@ -405,7 +421,7 @@ func (h *Handler) handleUpdateNodegroupConfig(
 		}
 	}
 
-	upd := NodegroupConfigUpdate{}
+	upd := NodegroupConfigUpdate{NodeRepair: in.NodeRepairConfig, WarmPool: in.WarmPoolConfig}
 	if in.ScalingConfig != nil {
 		upd.DesiredSize = in.ScalingConfig.DesiredSize
 		upd.MinSize = in.ScalingConfig.MinSize

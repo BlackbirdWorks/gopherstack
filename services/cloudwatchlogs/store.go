@@ -7,8 +7,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -23,9 +26,18 @@ const (
 // regionContextKey is the context key under which the per-request AWS region is stored.
 type regionContextKey struct{}
 
+// WithRegion returns ctx carrying region as the request region.
+func WithRegion(ctx context.Context, region string) context.Context {
+	return context.WithValue(ctx, regionContextKey{}, region)
+}
+
 // getRegion extracts the region from ctx, falling back to defaultRegion when unset.
 func getRegion(ctx context.Context, defaultRegion string) string {
 	if r, ok := ctx.Value(regionContextKey{}).(string); ok && r != "" {
+		return r
+	}
+
+	if r := awsmeta.Region(ctx); r != "" {
 		return r
 	}
 
@@ -108,7 +120,8 @@ const (
 // the hand-rolled maps this backend used before Phase 3.3 (see store_setup.go).
 type InMemoryBackend struct {
 	deliverer     SubscriptionDeliverer
-	metricEmitter MetricEmitter
+	roleAuth      roleauth.Authorizer
+	metricEmitter cwmetric.Emitter
 	ctx           context.Context
 	workerSem     chan struct{}
 
@@ -259,7 +272,7 @@ func (b *InMemoryBackend) SetSubscriptionDeliverer(d SubscriptionDeliverer) {
 }
 
 // SetMetricEmitter sets the emitter used to forward metric filter matches to CloudWatch.
-func (b *InMemoryBackend) SetMetricEmitter(e MetricEmitter) {
+func (b *InMemoryBackend) SetMetricEmitter(e cwmetric.Emitter) {
 	b.mu.Lock("SetMetricEmitter")
 	defer b.mu.Unlock()
 	b.metricEmitter = e

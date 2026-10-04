@@ -95,12 +95,12 @@ func TestNeptuneInstanceAndTagRegionIsolation(t *testing.T) {
 	}
 
 	// Each region sees exactly one instance.
-	eastInsts, err := backend.DescribeDBInstances(ctxEast, "", nil)
+	eastInsts, err := backend.DescribeDBInstances(ctxEast, "", DBInstanceFilters{})
 	require.NoError(t, err)
 	require.Len(t, eastInsts, 1)
 	assert.Contains(t, eastInsts[0].DBInstanceArn, "us-east-1")
 
-	westInsts, err := backend.DescribeDBInstances(ctxWest, "", nil)
+	westInsts, err := backend.DescribeDBInstances(ctxWest, "", DBInstanceFilters{})
 	require.NoError(t, err)
 	require.Len(t, westInsts, 1)
 	assert.Contains(t, westInsts[0].DBInstanceArn, "us-west-2")
@@ -132,7 +132,7 @@ func TestNeptuneGlobalClusterIsNotRegionIsolated(t *testing.T) {
 	ctxEast := ctxRegion("us-east-1")
 	ctxWest := ctxRegion("us-west-2")
 
-	_, err := backend.CreateGlobalCluster(ctxEast, "global1", "", "")
+	_, err := backend.CreateGlobalCluster(ctxEast, "global1", "", "", GlobalClusterCreateOptions{})
 	require.NoError(t, err)
 
 	// Visible regardless of the request region (global/partition-scoped).

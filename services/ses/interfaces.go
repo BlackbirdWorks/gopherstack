@@ -90,7 +90,7 @@ type StorageBackend interface {
 	UpdateAccountSendingEnabled(enabled bool)
 	GetAccountSendingEnabled() bool
 	// Send ops
-	SendBounce(originalMsgID, bounceSender string, recipients []string) (string, error)
+	SendBounce(originalMsgID, bounceSender string, recipients []string, opts SendBounceOptions) (string, error)
 	SendBulkTemplatedEmail(in SendBulkTemplatedEmailInput) ([]string, error)
 	SendCustomVerificationEmail(email, templateName, configurationSetName string) (string, error)
 	TestRenderTemplate(templateName, templateData string) (string, error)

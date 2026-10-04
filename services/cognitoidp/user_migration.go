@@ -29,7 +29,7 @@ const userMigrationFinalStatusReset = "RESET_REQUIRED"
 // independent DefineAuthChallenge-driven state machine (custom_auth.go) -- neither
 // flow supports migration.
 var migrationApplicableAuthFlows = map[string]bool{ //nolint:gochecknoglobals // static lookup set
-	"USER_PASSWORD_AUTH":       true,
+	authFlowUserPassword:       true,
 	"ADMIN_USER_PASSWORD_AUTH": true,
 	"ADMIN_NO_SRP_AUTH":        true,
 }
@@ -57,6 +57,10 @@ func (b *InMemoryBackend) tryUserMigration(
 
 	if resp == nil {
 		return nil, "", nil
+	}
+
+	if slotErr := b.newUserSlotFreeLocked(pool, username); slotErr != nil {
+		return nil, "", slotErr
 	}
 
 	hash, saltHex, verifierHex, err := hashAndSRP(pool.ID, username, password)
@@ -100,6 +104,10 @@ func (b *InMemoryBackend) tryUserMigrationForgotPassword(pool *UserPool, clientI
 
 	if resp == nil {
 		return nil, nil //nolint:nilnil // sentinel "declined" pair, documented above
+	}
+
+	if slotErr := b.newUserSlotFreeLocked(pool, username); slotErr != nil {
+		return nil, slotErr
 	}
 
 	now := time.Now()

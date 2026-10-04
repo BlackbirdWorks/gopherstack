@@ -162,7 +162,7 @@ func TestSFN_ECSSyncTaskFailureFailsState(t *testing.T) {
 		require.NoError(t, execErr)
 
 		assert.True(t, result.Failed)
-		assert.Equal(t, "TaskFailed", result.Error)
+		assert.Equal(t, "States.TaskFailed", result.Error)
 		assert.Contains(t, result.Cause, "exited with code 1")
 	})
 }
@@ -239,7 +239,7 @@ func TestSFN_GlueSyncJobRunFailureFailsState(t *testing.T) {
 		require.NoError(t, execErr)
 
 		assert.True(t, result.Failed)
-		assert.Equal(t, "TaskFailed", result.Error)
+		assert.Equal(t, "States.TaskFailed", result.Error)
 		assert.Contains(t, result.Cause, "TIMEOUT")
 	})
 }

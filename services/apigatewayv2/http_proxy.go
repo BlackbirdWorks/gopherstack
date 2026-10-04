@@ -160,11 +160,15 @@ func (h *Handler) handleHTTPAPIProxy(c *echo.Context, apiID, stageName, resource
 	// Dispatch to integration.
 	switch integration.IntegrationType {
 	case IntegrationTypeAWSProxy:
+		defer h.recordIntegrationLatency(c, time.Now())
+
 		return h.invokeHTTPAPILambda(
 			c, apiID, stageName, matchedRoute.RouteKey,
 			resourcePath, pathParams, stageVars, integration,
 		)
 	case integrationTypeHTTPProxy, integrationTypeHTTPType:
+		defer h.recordIntegrationLatency(c, time.Now())
+
 		return h.forwardHTTPAPIHTTPIntegration(c, integration, stageVars)
 	default:
 		return c.String(http.StatusInternalServerError, "Unsupported integration type: "+integration.IntegrationType)
@@ -373,7 +377,7 @@ func buildV2Payload(
 		RequestContext: httpAPIRequestContext{
 			AccountID:    config.DefaultAccountID,
 			APIID:        apiID,
-			DomainName:   apiID + ".execute-api." + defaultRegion + ".amazonaws.com",
+			DomainName:   apiID + ".execute-api." + regionFromCtx(req.Context()) + ".amazonaws.com",
 			DomainPrefix: apiID,
 			RouteKey:     routeKey,
 			Stage:        stageName,

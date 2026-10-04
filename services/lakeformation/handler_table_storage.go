@@ -28,9 +28,11 @@ func (h *Handler) handleListTableStorageOptimizers(_ context.Context, c *echo.Co
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
-	opts := h.Backend.ListTableStorageOptimizers(in.CatalogID, in.DatabaseName, in.TableName, in.StorageOptimizerType)
+	opts, next := h.Backend.ListTableStorageOptimizers(
+		in.CatalogID, in.DatabaseName, in.TableName, in.StorageOptimizerType, in.MaxResults, in.NextToken,
+	)
 
-	return c.JSON(http.StatusOK, listTableStorageOptimizersOutput{StorageOptimizerList: opts})
+	return c.JSON(http.StatusOK, listTableStorageOptimizersOutput{StorageOptimizerList: opts, NextToken: next})
 }
 
 func (h *Handler) handleUpdateTableObjects(_ context.Context, c *echo.Context, body []byte) error {

@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/events"
+	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 )
 
 // snsMessageAttribute is a single message attribute in the SNS notification envelope.
@@ -75,7 +76,15 @@ func (b *InMemoryBackend) deliverSNSSubscription(
 		return
 	}
 
-	body, msgAttrs := buildDeliveryBody(ev, sub, queueName)
+	body, msgAttrs := buildDeliveryBody(ev, sub)
+
+	if b.snsDeliveryDenied(ev.TopicARN, sub.Endpoint) {
+		if sub.RedrivePolicy != "" {
+			b.deliverToDLQ(sub.RedrivePolicy, body, msgAttrs)
+		}
+
+		return
+	}
 
 	input := &SendMessageInput{
 		QueueURL:    "internal/" + queueName,
@@ -98,13 +107,12 @@ func (b *InMemoryBackend) deliverSNSSubscription(
 func buildDeliveryBody(
 	ev *events.SNSPublishedEvent,
 	sub events.SNSSubscriptionSnapshot,
-	queueName string,
 ) (string, map[string]MessageAttributeValue) {
 	if sub.RawMessageDelivery {
-		return ev.Message, snsAttrsToSQSAttrs(ev.Attributes)
+		return sub.Body(ev.Message), snsAttrsToSQSAttrs(ev.Attributes)
 	}
 
-	return buildSNSEnvelope(ev, queueName), nil
+	return buildSNSEnvelope(ev, sub), nil
 }
 
 // deliverToDLQ sends the message body and attributes (exactly as attempted during the failed
@@ -189,13 +197,15 @@ func parseQueueARNOrURL(endpoint string) (string, string) {
 }
 
 // buildSNSEnvelope wraps the published message in the standard SNS notification JSON.
-func buildSNSEnvelope(ev *events.SNSPublishedEvent, _ string) string {
+func buildSNSEnvelope(ev *events.SNSPublishedEvent, sub events.SNSSubscriptionSnapshot) string {
 	ts := ev.Timestamp
 	if ts == "" {
+		// Cosmetic payload fallback only, not compared against any internal
+		// deadline/expiry, so it stays on wall-clock time rather than b.now().
 		ts = time.Now().UTC().Format(time.RFC3339)
 	}
 
-	sig := ev.Signature
+	sig := sub.SignatureFor(ev.Signature)
 	if sig == "" {
 		sig = uuid.NewString()
 	}
@@ -215,7 +225,7 @@ func buildSNSEnvelope(ev *events.SNSPublishedEvent, _ string) string {
 		MessageID:        ev.MessageID,
 		TopicArn:         ev.TopicARN,
 		Subject:          ev.Subject,
-		Message:          ev.Message,
+		Message:          sub.Body(ev.Message),
 		Timestamp:        ts,
 		SignatureVersion: sigVersion,
 		Signature:        sig,
@@ -235,8 +245,24 @@ func buildSNSEnvelope(ev *events.SNSPublishedEvent, _ string) string {
 
 	b, err := json.Marshal(env)
 	if err != nil {
-		return ev.Message
+		return sub.Body(ev.Message)
 	}
 
 	return string(b)
+}
+
+// SetRoleAuthorizer makes SNS fan-out require the queue's policy to allow sns.amazonaws.com.
+func (b *InMemoryBackend) SetRoleAuthorizer(a roleauth.Authorizer) {
+	b.mu.Lock("SetRoleAuthorizer")
+	defer b.mu.Unlock()
+
+	b.roleAuth = a
+}
+
+func (b *InMemoryBackend) snsDeliveryDenied(topicARN, queueARN string) bool {
+	b.mu.RLock("snsDeliveryDenied")
+	auth := b.roleAuth
+	b.mu.RUnlock()
+
+	return roleauth.AuthorizeResource(auth, roleauth.PrincipalSNS, "sqs:SendMessage", queueARN, topicARN) != nil
 }

@@ -489,3 +489,7 @@ detailed per-field wire verification from prior sweeps.
 ## 2026-09-19: goroutine-leak audit (gopherstack parity-sweep)
 
 Added `leak_main_test.go` (goleak TestMain). No leak found.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+kinesisanalytics already isolates regions internally: applications live per region (applications are keyed by region and name). Proof: `TestRegionIsolation/kinesisanalytics`; no sibling handlers needed.

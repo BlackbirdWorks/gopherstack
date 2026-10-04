@@ -31,7 +31,8 @@ func TestStartWorker_AdvancesAsyncInvoke_NearCompletionDelay(t *testing.T) {
 		defer h.Shutdown(t.Context())
 
 		startBody := map[string]any{
-			"modelId": "anthropic.claude-v2",
+			"modelId":    "anthropic.claude-v2",
+			"modelInput": map[string]any{},
 			"outputDataConfig": map[string]any{
 				"s3OutputDataConfig": map[string]any{
 					"s3Uri": "s3://bucket/out/",

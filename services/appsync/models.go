@@ -310,6 +310,7 @@ type GraphqlAPI struct {
 	OpenIDConnectConfig               *OpenIDConnectConfig               `json:"openIDConnectConfig,omitempty"`
 	LambdaAuthorizerConfig            *LambdaAuthorizerConfig            `json:"lambdaAuthorizerConfig,omitempty"`
 	LogConfig                         *LogConfig                         `json:"logConfig,omitempty"`
+	EnhancedMetricsConfig             *EnhancedMetricsConfig             `json:"enhancedMetricsConfig,omitempty"`
 	AuthenticationType                AuthenticationType                 `json:"authenticationType"`
 	IntrospectionConfig               string                             `json:"introspectionConfig,omitempty"`
 	ARN                               string                             `json:"arn"`
@@ -320,6 +321,7 @@ type GraphqlAPI struct {
 	APIID                             string                             `json:"apiId"`
 	Owner                             string                             `json:"owner,omitempty"`
 	OwnerContact                      string                             `json:"ownerContact,omitempty"`
+	MergedAPIExecutionRoleARN         string                             `json:"mergedApiExecutionRoleArn,omitempty"`
 	AdditionalAuthenticationProviders []AdditionalAuthenticationProvider `json:"additionalAuthenticationProviders,omitempty"` //nolint:lll // AWS field name is long
 	CreatedAt                         int64                              `json:"createdAt,omitempty"`
 	UpdatedAt                         int64                              `json:"updatedAt,omitempty"`
@@ -358,6 +360,13 @@ func toWireGraphqlAPIs(apis []*GraphqlAPI) []*wireGraphqlAPI {
 	return out
 }
 
+// EnhancedMetricsConfig controls which AppSync CloudWatch metrics are emitted.
+type EnhancedMetricsConfig struct {
+	DataSourceLevelMetricsBehavior string `json:"dataSourceLevelMetricsBehavior"`
+	OperationLevelMetricsConfig    string `json:"operationLevelMetricsConfig"`
+	ResolverLevelMetricsBehavior   string `json:"resolverLevelMetricsBehavior"`
+}
+
 // GraphqlAPIConfig bundles optional auth/logging config for CreateGraphqlAPI and UpdateGraphqlAPI.
 // Passing nil is equivalent to no config — existing behaviour is preserved.
 type GraphqlAPIConfig struct {
@@ -365,8 +374,10 @@ type GraphqlAPIConfig struct {
 	OpenIDConnectConfig    *OpenIDConnectConfig
 	LambdaAuthorizerConfig *LambdaAuthorizerConfig
 	LogConfig              *LogConfig
+	EnhancedMetricsConfig  *EnhancedMetricsConfig
 	IntrospectionConfig    string
 	OwnerContact           string
+	MergedAPIExecutionRole string
 	QueryDepthLimit        int32
 	ResolverCountLimit     int32
 }
@@ -576,8 +587,9 @@ type API struct {
 	// ARN's wire key is "apiArn", not "arn" -- verified against the real
 	// deserializer (appsync@v1.56.4 deserializers.go:12050), which is the only
 	// field name real clients recognize to discover an Event API's ARN.
-	ARN          string `json:"apiArn"`
-	OwnerContact string `json:"ownerContact,omitempty"`
+	ARN          string  `json:"apiArn"`
+	OwnerContact string  `json:"ownerContact,omitempty"`
+	Created      float64 `json:"created,omitempty"` // epoch seconds
 }
 
 // Integration is the data source integration for an event handler.

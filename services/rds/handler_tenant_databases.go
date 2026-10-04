@@ -6,10 +6,21 @@ import (
 )
 
 type xmlTenantDatabase struct {
-	TenantDatabaseName   string `xml:"TenantDBName"`
-	TenantDatabaseARN    string `xml:"TenantDatabaseARN,omitempty"`
-	DBInstanceIdentifier string `xml:"DBInstanceIdentifier,omitempty"`
-	Status               string `xml:"Status,omitempty"`
+	MasterUserSecret     *xmlMasterUserSecret `xml:"MasterUserSecret,omitempty"`
+	TenantDatabaseName   string               `xml:"TenantDBName"`
+	TenantDatabaseARN    string               `xml:"TenantDatabaseARN,omitempty"`
+	DBInstanceIdentifier string               `xml:"DBInstanceIdentifier,omitempty"`
+	Status               string               `xml:"Status,omitempty"`
+}
+
+func toXMLTenantDatabase(tdb *TenantDatabase) xmlTenantDatabase {
+	return xmlTenantDatabase{
+		TenantDatabaseName:   tdb.TenantDBName,
+		TenantDatabaseARN:    tdb.TenantDatabaseARN,
+		DBInstanceIdentifier: tdb.DBInstanceIdentifier,
+		Status:               tdb.Status,
+		MasterUserSecret:     tdb.MasterSecret.toXML(),
+	}
 }
 
 type xmlTenantDatabaseList struct {
@@ -17,15 +28,15 @@ type xmlTenantDatabaseList struct {
 }
 
 type createTenantDatabaseResponse struct {
+	TenantDatabase xmlTenantDatabase `xml:"CreateTenantDatabaseResult>TenantDatabase"`
 	XMLName        xml.Name          `xml:"CreateTenantDatabaseResponse"`
 	Xmlns          string            `xml:"xmlns,attr"`
-	TenantDatabase xmlTenantDatabase `xml:"CreateTenantDatabaseResult>TenantDatabase"`
 }
 
 type deleteTenantDatabaseResponse struct {
+	TenantDatabase xmlTenantDatabase `xml:"DeleteTenantDatabaseResult>TenantDatabase"`
 	XMLName        xml.Name          `xml:"DeleteTenantDatabaseResponse"`
 	Xmlns          string            `xml:"xmlns,attr"`
-	TenantDatabase xmlTenantDatabase `xml:"DeleteTenantDatabaseResult>TenantDatabase"`
 }
 
 type describeTenantDatabasesResponse struct {
@@ -36,9 +47,9 @@ type describeTenantDatabasesResponse struct {
 }
 
 type modifyTenantDatabaseResponse struct {
+	TenantDatabase xmlTenantDatabase `xml:"ModifyTenantDatabaseResult>TenantDatabase"`
 	XMLName        xml.Name          `xml:"ModifyTenantDatabaseResponse"`
 	Xmlns          string            `xml:"xmlns,attr"`
-	TenantDatabase xmlTenantDatabase `xml:"ModifyTenantDatabaseResult>TenantDatabase"`
 }
 
 type xmlDBSnapshotTenantDatabase struct {
@@ -65,7 +76,9 @@ func (h *Handler) handleCreateTenantDatabase(vals url.Values) (any, error) {
 	tenantDBName := vals.Get("TenantDBName")
 	masterUsername := vals.Get("MasterUsername")
 
-	tdb, err := h.Backend.CreateTenantDatabase(instanceID, tenantDBName, masterUsername)
+	tdb, err := h.Backend.CreateTenantDatabaseWithSecret(
+		instanceID, tenantDBName, masterUsername, vals.Get("MasterUserPassword"), parseMasterSecretRequest(vals),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -73,13 +86,8 @@ func (h *Handler) handleCreateTenantDatabase(vals url.Values) (any, error) {
 	h.applyCreateTags(vals, tdb.TenantDatabaseARN)
 
 	return &createTenantDatabaseResponse{
-		Xmlns: rdsXMLNS,
-		TenantDatabase: xmlTenantDatabase{
-			TenantDatabaseName:   tdb.TenantDBName,
-			TenantDatabaseARN:    tdb.TenantDatabaseARN,
-			DBInstanceIdentifier: tdb.DBInstanceIdentifier,
-			Status:               tdb.Status,
-		},
+		Xmlns:          rdsXMLNS,
+		TenantDatabase: toXMLTenantDatabase(tdb),
 	}, nil
 }
 
@@ -87,19 +95,17 @@ func (h *Handler) handleDeleteTenantDatabase(vals url.Values) (any, error) {
 	instanceID := vals.Get("DBInstanceIdentifier")
 	tenantDBName := vals.Get("TenantDBName")
 
-	tdb, err := h.Backend.DeleteTenantDatabase(instanceID, tenantDBName)
+	tdb, err := h.Backend.DeleteTenantDatabase(instanceID, tenantDBName, DeleteTenantDatabaseOptions{
+		FinalDBSnapshotIdentifier: vals.Get("FinalDBSnapshotIdentifier"),
+		SkipFinalSnapshot:         vals.Get("SkipFinalSnapshot") == formTrue,
+	})
 	if err != nil {
 		return nil, err
 	}
 
 	return &deleteTenantDatabaseResponse{
-		Xmlns: rdsXMLNS,
-		TenantDatabase: xmlTenantDatabase{
-			TenantDatabaseName:   tdb.TenantDBName,
-			TenantDatabaseARN:    tdb.TenantDatabaseARN,
-			DBInstanceIdentifier: tdb.DBInstanceIdentifier,
-			Status:               tdb.Status,
-		},
+		Xmlns:          rdsXMLNS,
+		TenantDatabase: toXMLTenantDatabase(tdb),
 	}, nil
 }
 
@@ -125,11 +131,7 @@ func (h *Handler) handleDescribeTenantDatabases(vals url.Values) (any, error) {
 			return ka < kb
 		},
 		func(tdb TenantDatabase) xmlTenantDatabase {
-			return xmlTenantDatabase{
-				TenantDatabaseName:   tdb.TenantDBName,
-				DBInstanceIdentifier: tdb.DBInstanceIdentifier,
-				Status:               tdb.Status,
-			}
+			return toXMLTenantDatabase(&tdb)
 		},
 	)
 	if err != nil {
@@ -148,19 +150,16 @@ func (h *Handler) handleModifyTenantDatabase(vals url.Values) (any, error) {
 	tenantDBName := vals.Get("TenantDBName")
 	newTenantDBName := vals.Get("NewTenantDBName")
 
-	tdb, err := h.Backend.ModifyTenantDatabase(instanceID, tenantDBName, newTenantDBName)
+	tdb, err := h.Backend.ModifyTenantDatabaseWithSecret(
+		instanceID, tenantDBName, newTenantDBName, vals.Get("MasterUserPassword"), parseMasterSecretRequest(vals),
+	)
 	if err != nil {
 		return nil, err
 	}
 
 	return &modifyTenantDatabaseResponse{
-		Xmlns: rdsXMLNS,
-		TenantDatabase: xmlTenantDatabase{
-			TenantDatabaseName:   tdb.TenantDBName,
-			TenantDatabaseARN:    tdb.TenantDatabaseARN,
-			DBInstanceIdentifier: tdb.DBInstanceIdentifier,
-			Status:               tdb.Status,
-		},
+		Xmlns:          rdsXMLNS,
+		TenantDatabase: toXMLTenantDatabase(tdb),
 	}, nil
 }
 

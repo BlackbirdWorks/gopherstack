@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -16,6 +18,14 @@ import (
 func TestStartEncryption_ARNSupport(t *testing.T) {
 	t.Parallel()
 
+	synctest.Test(t, func(t *testing.T) {
+		testStartEncryptionARNSupport(t)
+	})
+}
+
+func testStartEncryptionARNSupport(t *testing.T) {
+	t.Helper()
+
 	h := newTestHandler(t)
 
 	rec := doRequest(t, h, "CreateStream", map[string]any{
@@ -23,6 +33,7 @@ func TestStartEncryption_ARNSupport(t *testing.T) {
 		"ShardCount": 1,
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
+	time.Sleep(streamSettleWait)
 
 	rec = doRequest(t, h, "DescribeStream", map[string]any{"StreamName": "arn-enc-stream"})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -41,6 +52,7 @@ func TestStartEncryption_ARNSupport(t *testing.T) {
 		"KeyId":          "alias/arn-key",
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
+	time.Sleep(streamSettleWait)
 
 	rec = doRequest(t, h, "StopStreamEncryption", map[string]any{
 		"StreamARN":      descResp.StreamDescription.StreamARN,
@@ -103,29 +115,33 @@ func TestStreamEncryption(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler(t)
+			synctest.Test(t, func(t *testing.T) {
+				h := newTestHandler(t)
 
-			rec := doRequest(t, h, "CreateStream", map[string]any{
-				"StreamName": tt.streamName,
-				"ShardCount": 1,
-			})
-			require.Equal(t, http.StatusOK, rec.Code)
+				rec := doRequest(t, h, "CreateStream", map[string]any{
+					"StreamName": tt.streamName,
+					"ShardCount": 1,
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+				time.Sleep(streamSettleWait)
 
-			// Start encryption.
-			rec = doRequest(t, h, "StartStreamEncryption", map[string]any{
-				"StreamName":     tt.streamName,
-				"EncryptionType": tt.encType,
-				"KeyId":          tt.keyID,
-			})
-			assert.Equal(t, tt.wantStartCode, rec.Code)
+				// Start encryption.
+				rec = doRequest(t, h, "StartStreamEncryption", map[string]any{
+					"StreamName":     tt.streamName,
+					"EncryptionType": tt.encType,
+					"KeyId":          tt.keyID,
+				})
+				assert.Equal(t, tt.wantStartCode, rec.Code)
+				time.Sleep(streamSettleWait)
 
-			// Stop encryption.
-			rec = doRequest(t, h, "StopStreamEncryption", map[string]any{
-				"StreamName":     tt.streamName,
-				"EncryptionType": tt.encType,
-				"KeyId":          tt.keyID,
+				// Stop encryption.
+				rec = doRequest(t, h, "StopStreamEncryption", map[string]any{
+					"StreamName":     tt.streamName,
+					"EncryptionType": tt.encType,
+					"KeyId":          tt.keyID,
+				})
+				assert.Equal(t, tt.wantStopCode, rec.Code)
 			})
-			assert.Equal(t, tt.wantStopCode, rec.Code)
 		})
 	}
 }
@@ -168,12 +184,17 @@ func TestStreamEncryption_Errors(t *testing.T) {
 		},
 	}
 
-	h := newTestHandler(t)
-	setup := doRequest(t, h, "CreateStream", map[string]any{
-		"StreamName": "enc-err-stream",
-		"ShardCount": 1,
+	var h *kinesis.Handler
+
+	synctest.Test(t, func(t *testing.T) {
+		h = newTestHandler(t)
+		setup := doRequest(t, h, "CreateStream", map[string]any{
+			"StreamName": "enc-err-stream",
+			"ShardCount": 1,
+		})
+		require.Equal(t, http.StatusOK, setup.Code)
+		time.Sleep(streamSettleWait)
 	})
-	require.Equal(t, http.StatusOK, setup.Code)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -197,38 +218,42 @@ func TestStreamEncryption_Errors(t *testing.T) {
 func TestStreamEncryption_StartStop(t *testing.T) {
 	t.Parallel()
 
-	bk := kinesis.NewInMemoryBackend()
-	require.NoError(t, bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: "enc-stream"}))
+	synctest.Test(t, func(t *testing.T) {
+		bk := kinesis.NewInMemoryBackend()
+		require.NoError(t, bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: "enc-stream"}))
+		time.Sleep(streamSettleWait)
 
-	// Initially no encryption.
-	descOut, err := bk.DescribeStream(context.Background(), &kinesis.DescribeStreamInput{StreamName: "enc-stream"})
-	require.NoError(t, err)
-	assert.Equal(t, "NONE", descOut.EncryptionType)
-	assert.Empty(t, descOut.KeyID)
+		// Initially no encryption.
+		descOut, err := bk.DescribeStream(context.Background(), &kinesis.DescribeStreamInput{StreamName: "enc-stream"})
+		require.NoError(t, err)
+		assert.Equal(t, "NONE", descOut.EncryptionType)
+		assert.Empty(t, descOut.KeyID)
 
-	// Start encryption.
-	require.NoError(t, bk.StartStreamEncryption(context.Background(), &kinesis.StartStreamEncryptionInput{
-		StreamName:     "enc-stream",
-		EncryptionType: "KMS",
-		KeyID:          "alias/aws/kinesis",
-	}))
+		// Start encryption.
+		require.NoError(t, bk.StartStreamEncryption(context.Background(), &kinesis.StartStreamEncryptionInput{
+			StreamName:     "enc-stream",
+			EncryptionType: "KMS",
+			KeyID:          "alias/aws/kinesis",
+		}))
+		time.Sleep(streamSettleWait)
 
-	descOut, err = bk.DescribeStream(context.Background(), &kinesis.DescribeStreamInput{StreamName: "enc-stream"})
-	require.NoError(t, err)
-	assert.Equal(t, "KMS", descOut.EncryptionType)
-	assert.Equal(t, "alias/aws/kinesis", descOut.KeyID)
+		descOut, err = bk.DescribeStream(context.Background(), &kinesis.DescribeStreamInput{StreamName: "enc-stream"})
+		require.NoError(t, err)
+		assert.Equal(t, "KMS", descOut.EncryptionType)
+		assert.Equal(t, "alias/aws/kinesis", descOut.KeyID)
 
-	// Stop encryption.
-	require.NoError(t, bk.StopStreamEncryption(context.Background(), &kinesis.StopStreamEncryptionInput{
-		StreamName:     "enc-stream",
-		EncryptionType: "KMS",
-		KeyID:          "alias/aws/kinesis",
-	}))
+		// Stop encryption.
+		require.NoError(t, bk.StopStreamEncryption(context.Background(), &kinesis.StopStreamEncryptionInput{
+			StreamName:     "enc-stream",
+			EncryptionType: "KMS",
+			KeyID:          "alias/aws/kinesis",
+		}))
 
-	descOut, err = bk.DescribeStream(context.Background(), &kinesis.DescribeStreamInput{StreamName: "enc-stream"})
-	require.NoError(t, err)
-	assert.Equal(t, "NONE", descOut.EncryptionType)
-	assert.Empty(t, descOut.KeyID)
+		descOut, err = bk.DescribeStream(context.Background(), &kinesis.DescribeStreamInput{StreamName: "enc-stream"})
+		require.NoError(t, err)
+		assert.Equal(t, "NONE", descOut.EncryptionType)
+		assert.Empty(t, descOut.KeyID)
+	})
 }
 
 // TestStartStreamEncryption_KeyIDFormat verifies StartStreamEncryption's
@@ -260,24 +285,27 @@ func TestStartStreamEncryption_KeyIDFormat(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			bk := kinesis.NewInMemoryBackend()
-			streamName := "kmsfmt-" + tt.name
-			require.NoError(t, bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{
-				StreamName: streamName,
-			}))
+			synctest.Test(t, func(t *testing.T) {
+				bk := kinesis.NewInMemoryBackend()
+				streamName := "kmsfmt-" + tt.name
+				require.NoError(t, bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{
+					StreamName: streamName,
+				}))
+				time.Sleep(streamSettleWait)
 
-			err := bk.StartStreamEncryption(context.Background(), &kinesis.StartStreamEncryptionInput{
-				StreamName:     streamName,
-				EncryptionType: "KMS",
-				KeyID:          tt.keyID,
+				err := bk.StartStreamEncryption(context.Background(), &kinesis.StartStreamEncryptionInput{
+					StreamName:     streamName,
+					EncryptionType: "KMS",
+					KeyID:          tt.keyID,
+				})
+
+				if tt.wantErr {
+					require.Error(t, err)
+					assert.ErrorIs(t, err, kinesis.ErrInvalidArgument)
+				} else {
+					require.NoError(t, err)
+				}
 			})
-
-			if tt.wantErr {
-				require.Error(t, err)
-				assert.ErrorIs(t, err, kinesis.ErrInvalidArgument)
-			} else {
-				require.NoError(t, err)
-			}
 		})
 	}
 }
@@ -322,26 +350,29 @@ func TestStartStreamEncryption_KMSValidator(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			bk := kinesis.NewInMemoryBackend()
-			streamName := "kmsval-" + tt.name
-			require.NoError(t, bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{
-				StreamName: streamName,
-			}))
+			synctest.Test(t, func(t *testing.T) {
+				bk := kinesis.NewInMemoryBackend()
+				streamName := "kmsval-" + tt.name
+				require.NoError(t, bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{
+					StreamName: streamName,
+				}))
+				time.Sleep(streamSettleWait)
 
-			bk.WithKMSValidator(&fakeKMSValidator{keyID: "alias/scripted-key", err: tt.validatorErr})
+				bk.WithKMSValidator(&fakeKMSValidator{keyID: "alias/scripted-key", err: tt.validatorErr})
 
-			err := bk.StartStreamEncryption(context.Background(), &kinesis.StartStreamEncryptionInput{
-				StreamName:     streamName,
-				EncryptionType: "KMS",
-				KeyID:          "alias/scripted-key",
+				err := bk.StartStreamEncryption(context.Background(), &kinesis.StartStreamEncryptionInput{
+					StreamName:     streamName,
+					EncryptionType: "KMS",
+					KeyID:          "alias/scripted-key",
+				})
+
+				if tt.wantErr != nil {
+					require.Error(t, err)
+					assert.ErrorIs(t, err, tt.wantErr)
+				} else {
+					require.NoError(t, err)
+				}
 			})
-
-			if tt.wantErr != nil {
-				require.Error(t, err)
-				assert.ErrorIs(t, err, tt.wantErr)
-			} else {
-				require.NoError(t, err)
-			}
 		})
 	}
 }

@@ -6,7 +6,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
+
+const staleTempAge = time.Hour
 
 // FileStore persists blobs as JSON files on the local file system.
 // Data is stored at {baseDir}/{service}/{key}.json.
@@ -23,7 +26,41 @@ func NewFileStore(baseDir string) (*FileStore, error) {
 		return nil, fmt.Errorf("persistence: create base dir: %w", err)
 	}
 
+	removeStaleTemps(baseDir)
+
 	return &FileStore{baseDir: baseDir}, nil
+}
+
+// removeStaleTemps deletes ".tmp-*" files orphaned by a crash mid-Save.
+func removeStaleTemps(baseDir string) {
+	dirs, err := os.ReadDir(baseDir)
+	if err != nil {
+		return
+	}
+
+	cutoff := time.Now().Add(-staleTempAge)
+
+	for _, d := range dirs {
+		if !d.IsDir() {
+			continue
+		}
+
+		sub := filepath.Join(baseDir, d.Name())
+
+		files, readErr := os.ReadDir(sub)
+		if readErr != nil {
+			continue
+		}
+
+		for _, f := range files {
+			info, infoErr := f.Info()
+			if f.IsDir() || !strings.HasPrefix(f.Name(), ".tmp-") || infoErr != nil || info.ModTime().After(cutoff) {
+				continue
+			}
+
+			_ = os.Remove(filepath.Join(sub, f.Name()))
+		}
+	}
 }
 
 // sanitizeSegment makes a service or key name safe to use as a single path

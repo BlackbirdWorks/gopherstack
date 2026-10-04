@@ -6,6 +6,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
@@ -213,32 +214,53 @@ func (b *InMemoryBackend) DescribeEnvironments(
 	list := make([]*Environment, 0, len(envs))
 
 	for _, env := range envs {
-		if appName != "" && env.ApplicationName != appName {
-			continue
+		if envMatches(env, appName, envNames, envIDs) {
+			list = append(list, cloneEnvironment(env))
 		}
-
-		if len(envNames) > 0 {
-			found := slices.Contains(envNames, env.EnvironmentName)
-
-			if !found {
-				continue
-			}
-		}
-
-		if len(envIDs) > 0 {
-			found := slices.Contains(envIDs, env.EnvironmentID)
-
-			if !found {
-				continue
-			}
-		}
-
-		list = append(list, cloneEnvironment(env))
 	}
 
 	sort.Slice(list, func(i, j int) bool {
 		return list[i].EnvironmentName < list[j].EnvironmentName
 	})
+
+	return list
+}
+
+func envMatches(env *Environment, appName string, envNames, envIDs []string) bool {
+	if appName != "" && env.ApplicationName != appName {
+		return false
+	}
+
+	if len(envNames) > 0 && !slices.Contains(envNames, env.EnvironmentName) {
+		return false
+	}
+
+	return len(envIDs) == 0 || slices.Contains(envIDs, env.EnvironmentID)
+}
+
+// DescribeDeletedEnvironments returns terminated environments deleted after since (zero means all).
+func (b *InMemoryBackend) DescribeDeletedEnvironments(
+	ctx context.Context,
+	appName string,
+	envNames, envIDs []string,
+	since time.Time,
+) []*Environment {
+	b.mu.RLock("DescribeDeletedEnvironments")
+	defer b.mu.RUnlock()
+
+	var list []*Environment
+
+	for _, env := range b.deletedEnvironments[getRegion(ctx, b.region)] {
+		if !envMatches(env, appName, envNames, envIDs) {
+			continue
+		}
+
+		if t, err := time.Parse(time.RFC3339, env.DateUpdated); err == nil && !t.After(since) {
+			continue
+		}
+
+		list = append(list, cloneEnvironment(env))
+	}
 
 	return list
 }
@@ -369,7 +391,14 @@ func (b *InMemoryBackend) TerminateEnvironment(ctx context.Context, appName, env
 // storage. Caller must hold b.mu.
 func (b *InMemoryBackend) terminateEnvironmentLocked(region string, env *Environment) *Environment {
 	env.Status = "Terminated"
+	env.DateUpdated = nowISO8601()
 	out := cloneEnvironment(env)
+	b.deletedEnvironments[region] = append(b.deletedEnvironments[region], out)
+
+	if n := len(b.deletedEnvironments[region]); n > maxDeletedEnvironmentsPerRegion {
+		b.deletedEnvironments[region] = b.deletedEnvironments[region][n-maxDeletedEnvironmentsPerRegion:]
+	}
+
 	b.environmentDeleteKey(region, env.ApplicationName, env.EnvironmentName)
 	delete(b.managedActionHistory[region], env.EnvironmentName)
 

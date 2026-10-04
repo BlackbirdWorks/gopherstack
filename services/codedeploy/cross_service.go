@@ -41,5 +41,5 @@ func (b *InMemoryBackend) ec2Backend() (ec2backend.Backend, bool) {
 		return nil, false
 	}
 
-	return h.Backend, true
+	return h.BackendFor(b.region), true
 }

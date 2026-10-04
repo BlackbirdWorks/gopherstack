@@ -1,54 +1,58 @@
 package iot
 
 import (
-	"encoding/json"
-	"errors"
-	"fmt"
-	"strconv"
 	"strings"
 )
 
-// ErrCannotParseFloat is returned when a numeric value cannot be parsed.
-var ErrCannotParseFloat = errors.New("cannot parse value as float")
+const (
+	sqlVersion2015 = "2015-10-08"
+	sqlVersion2016 = "2016-03-23"
+	sqlVersionBeta = "beta"
+)
 
-// ParsedRule holds the parsed components of an IoT SQL rule statement.
+// ParsedRule is a compiled IoT SQL rule statement.
 type ParsedRule struct {
-	// TopicPattern is the MQTT topic pattern extracted from the FROM clause.
+	stmt *selectStmt
+	// TopicPattern is the MQTT topic filter from the FROM clause.
 	TopicPattern string
-	// Condition is the optional WHERE clause predicate.
-	Condition string
+	version      string
+	v2016        bool
 }
 
-// ParseRuleSQL parses a simplified AWS IoT SQL rule statement.
-// Supported format: SELECT * FROM 'topic/pattern' [WHERE condition].
+// ParseRuleSQL compiles a rule statement under the latest SQL version.
 func ParseRuleSQL(sql string) (*ParsedRule, error) {
-	sql = strings.TrimSpace(sql)
+	return ParseRuleSQLVersion(sql, sqlVersion2016)
+}
 
-	fromIdx := strings.Index(strings.ToUpper(sql), " FROM ")
-	if fromIdx < 0 {
-		return &ParsedRule{}, nil
+// ParseRuleSQLVersion compiles a rule statement under the given awsIotSqlVersion.
+func ParseRuleSQLVersion(sql, version string) (*ParsedRule, error) {
+	v2016 := version != sqlVersion2015 && version != ""
+
+	if strings.TrimSpace(sql) == "" {
+		return nil, ErrSQLParse
 	}
 
-	rest := strings.TrimSpace(sql[fromIdx+6:])
+	p := newSQLParser(sql, v2016)
+	stmt, topic := p.parseTopStatement()
 
-	var topicPattern, condition string
-
-	if len(rest) > 0 && rest[0] == '\'' {
-		end := strings.Index(rest[1:], "'")
-		if end >= 0 {
-			topicPattern = rest[1 : end+1]
-			after := strings.TrimSpace(rest[end+2:])
-
-			if whereIdx := strings.Index(strings.ToUpper(after), "WHERE "); whereIdx >= 0 {
-				condition = strings.TrimSpace(after[whereIdx+6:])
-			}
-		}
+	if p.err != nil {
+		return nil, p.err
 	}
 
-	return &ParsedRule{
-		TopicPattern: topicPattern,
-		Condition:    condition,
-	}, nil
+	return &ParsedRule{stmt: stmt, TopicPattern: topic, version: effectiveVersion(version), v2016: v2016}, nil
+}
+
+func effectiveVersion(v string) string {
+	if v == "" {
+		return sqlVersion2015
+	}
+
+	return v
+}
+
+// validSQLVersion reports whether v is an accepted awsIotSqlVersion.
+func validSQLVersion(v string) bool {
+	return v == sqlVersion2015 || v == sqlVersion2016 || v == sqlVersionBeta
 }
 
 // MatchesTopic reports whether the MQTT topic matches the given pattern.
@@ -87,108 +91,58 @@ func matchParts(pattern, topic []string) bool {
 	return matchParts(pattern[1:], topic[1:])
 }
 
-// EvaluateRule reports whether the given topic and payload satisfy the rule's SQL predicate.
+// EvaluateRule reports whether a message on topic with payload fires the rule.
 func EvaluateRule(rule *TopicRule, topic string, payload []byte) bool {
-	if rule == nil || !rule.Enabled {
-		return false
-	}
-
-	parsed, err := ParseRuleSQL(rule.SQL)
-	if err != nil || parsed.TopicPattern == "" {
-		return false
-	}
-
-	if !MatchesTopic(parsed.TopicPattern, topic) {
-		return false
-	}
-
-	if parsed.Condition == "" {
-		return true
-	}
-
-	return evaluateCondition(parsed.Condition, payload)
+	return rule.fire(&ruleMessage{topic: topic, payload: payload, original: payload})
 }
 
-// evaluateCondition evaluates a simple WHERE condition against a JSON payload.
-// Supported operators: >, >=, <, <=, =, !=.
-func evaluateCondition(condition string, payload []byte) bool {
-	var data map[string]any
-	if err := json.Unmarshal(payload, &data); err != nil {
+// fire reports whether msg triggers the rule and, if so, sets msg.payload to the SELECT result.
+func (r *TopicRule) fire(msg *ruleMessage) bool {
+	if r == nil || !r.Enabled {
 		return false
 	}
 
-	condition = strings.TrimSpace(condition)
-
-	// Try operators in longest-first order to avoid ">=" being parsed as ">".
-	for _, op := range []string{">=", "<=", "!=", ">", "<", "="} {
-		before, after, ok := strings.Cut(condition, op)
-		if !ok {
-			continue
-		}
-
-		fieldName := strings.TrimSpace(before)
-		rawVal := strings.Trim(strings.TrimSpace(after), "'\"")
-
-		fieldVal, exists := data[fieldName]
-		if !exists {
-			return false
-		}
-
-		return compareValues(fieldVal, rawVal, op)
+	parsed, err := ParseRuleSQLVersion(r.SQL, r.AWSIoTSQLVersion)
+	if err != nil || !parsed.matches(msg) {
+		return false
 	}
 
-	return false
+	msg.ruleARN = r.ARN
+
+	out, ok := parsed.apply(msg)
+	msg.calls = nil
+
+	if !ok || msg.fatal != nil {
+		return false
+	}
+
+	msg.payload = out
+
+	return true
 }
 
-func compareValues(fieldVal any, rawVal, op string) bool {
-	switch v := fieldVal.(type) {
-	case float64:
-		var target float64
-		if err := parseFloat(rawVal, &target); err != nil {
-			return false
-		}
-
-		switch op {
-		case ">":
-			return v > target
-		case ">=":
-			return v >= target
-		case "<":
-			return v < target
-		case "<=":
-			return v <= target
-		case "=":
-			return v == target
-		case "!=":
-			return v != target
-		}
-	case string:
-		switch op {
-		case "=":
-			return v == rawVal
-		case "!=":
-			return v != rawVal
-		}
-	case bool:
-		target := rawVal == keyBoolTrue
-		switch op {
-		case "=":
-			return v == target
-		case "!=":
-			return v != target
-		}
+// matches reports whether the FROM filter selects the message; a rule without FROM runs only via Basic Ingest.
+func (p *ParsedRule) matches(msg *ruleMessage) bool {
+	if p.TopicPattern == "" {
+		return msg.ingest
 	}
 
-	return false
+	return MatchesTopic(p.TopicPattern, msg.topic)
 }
 
-func parseFloat(s string, out *float64) error {
-	f, err := strconv.ParseFloat(s, 64)
-	if err != nil {
-		return fmt.Errorf("%w: %q", ErrCannotParseFloat, s)
+// apply evaluates SET, WHERE then SELECT against the message's original payload.
+func (p *ParsedRule) apply(msg *ruleMessage) ([]byte, bool) {
+	c := newSQLCtx(msg, p.version, p.v2016)
+
+	p.stmt.bindVars(c)
+
+	if msg.fatal != nil || !p.stmt.passes(c) {
+		return nil, false
 	}
 
-	*out = f
+	if p.stmt.loneStar() {
+		return msg.original, true
+	}
 
-	return nil
+	return marshalResult(p.stmt.project(c)), true
 }

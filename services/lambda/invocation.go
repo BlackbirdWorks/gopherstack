@@ -45,6 +45,23 @@ func invocationChainContains(ctx context.Context, functionName string) bool {
 	return slices.Contains(chain, functionName)
 }
 
+// durableExecARNKeyType carries an Event invocation's durable execution ARN to
+// invokeEvent without widening InvokeFunctionWithQualifier.
+type durableExecARNKeyType struct{}
+
+// withDurableExecARN returns a context carrying arn for a pending Event invocation.
+func withDurableExecARN(ctx context.Context, arn string) context.Context {
+	return context.WithValue(ctx, durableExecARNKeyType{}, arn)
+}
+
+// durableExecARNFromContext returns the durable execution ARN set by
+// withDurableExecARN, or "" when none was set (non-durable or non-Event invocation).
+func durableExecARNFromContext(ctx context.Context) string {
+	arn, _ := ctx.Value(durableExecARNKeyType{}).(string)
+
+	return arn
+}
+
 // InvokeFunction invokes a Lambda function without a qualifier (equivalent to "$LATEST").
 // For qualified invocations (alias or version number), use InvokeFunctionWithQualifier.
 func (b *InMemoryBackend) InvokeFunction(
@@ -67,10 +84,15 @@ const asyncInvocationEnqueueTimeout = 5 * time.Minute
 // waiting for space in a runtime async invocation queue.
 const maxAsyncEnqueueWaiters = 128
 
-// checkRecursiveLoop returns an error when fn is already in the invocation chain and
-// its RecursiveLoop config is set to "Deny".
+// recursiveLoopTerminateDepth is how many times a function may already appear
+// in its invocation chain before RecursiveLoop=Terminate stops it.
+const recursiveLoopTerminateDepth = 16
+
+// checkRecursiveLoop rejects an invocation of a function that already appears
+// recursiveLoopTerminateDepth times in the chain unless RecursiveLoop is Allow.
 func (b *InMemoryBackend) checkRecursiveLoop(ctx context.Context, functionName string) error {
-	if !invocationChainContains(ctx, functionName) {
+	chain, _ := ctx.Value(invocationChainKeyType{}).([]string)
+	if count(chain, functionName) < recursiveLoopTerminateDepth {
 		return nil
 	}
 
@@ -83,19 +105,26 @@ func (b *InMemoryBackend) checkRecursiveLoop(ctx context.Context, functionName s
 		rc = b.functionRecursionConfigs[functionName]
 	}()
 
-	mode := "Terminate"
-	if rc != nil {
-		mode = rc.RecursiveLoop
+	if rc != nil && rc.RecursiveLoop == "Allow" {
+		return nil
 	}
 
-	if mode == "Deny" {
-		return fmt.Errorf(
-			"%w: recursive invocation detected for function %s with RecursiveLoop=Deny",
-			ErrInvalidParameterValue, functionName,
-		)
+	return fmt.Errorf(
+		"%w: recursive loop detected for function %s with RecursiveLoop=Terminate",
+		ErrInvalidParameterValue, functionName,
+	)
+}
+
+func count(chain []string, name string) int {
+	n := 0
+
+	for _, c := range chain {
+		if c == name {
+			n++
+		}
 	}
 
-	return nil
+	return n
 }
 
 // InvokeFunctionWithQualifier invokes a Lambda function using an optional qualifier.
@@ -105,6 +134,10 @@ func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 	invocationType InvocationType,
 	payload []byte,
 ) ([]byte, string, string, int, error) {
+	if sib := b.routeRegion(ctx, name); sib != nil {
+		return sib.InvokeFunctionWithQualifier(ctx, name, qualifier, clientContext, logType, invocationType, payload)
+	}
+
 	fn, err := b.resolveQualifier(name, qualifier)
 	if err != nil {
 		return nil, "", "", http.StatusNotFound, err
@@ -114,8 +147,7 @@ func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 		return nil, "", "", http.StatusNoContent, nil
 	}
 
-	// Enforce RecursiveLoop=Deny: reject self-invocations when the function name
-	// is already in the current invocation chain.
+	// Enforce RecursiveLoop: stop a function invoked as part of a deep loop.
 	if loopErr := b.checkRecursiveLoop(ctx, fn.FunctionName); loopErr != nil {
 		return nil, "", "", http.StatusBadRequest, loopErr
 	}
@@ -143,6 +175,8 @@ func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 	if trackConcurrency && invocationType != InvocationTypeEvent {
 		defer b.releaseConcurrencySlot(fn.FunctionName)
 	}
+
+	b.recycleStaleHotReloadRuntime(fn)
 
 	srv, srvErr := b.getOrCreateRuntime(ctx, fn)
 	if srvErr != nil {
@@ -233,12 +267,13 @@ func (b *InMemoryBackend) invokeEvent(
 	trackConcurrency bool,
 ) {
 	inv := &pendingInvocation{
-		requestID:     uuid.New().String(),
-		payload:       payload,
-		clientContext: clientContext,
-		deadline:      time.Now().Add(timeout),
-		createdAt:     time.Now(),
-		result:        make(chan invocationResult, 1),
+		requestID:      uuid.New().String(),
+		payload:        payload,
+		clientContext:  clientContext,
+		deadline:       time.Now().Add(timeout),
+		createdAt:      time.Now(),
+		result:         make(chan invocationResult, 1),
+		durableExecARN: durableExecARNFromContext(ctx),
 	}
 
 	b.enqueueAsyncInvocation(ctx, srv, fn.FunctionName, inv, timeout, trackConcurrency)
@@ -406,6 +441,7 @@ func (b *InMemoryBackend) runAsyncInvocationRetryLoop(
 					"function", functionName, "attempts", attempt+1)
 			}
 
+			b.completeAsyncDurableExecution(currentInv.durableExecARN, !isError, result.payload)
 			b.dispatchAsyncOutcome(context.WithoutCancel(b.ctx), outcome)
 
 			return
@@ -418,6 +454,16 @@ func (b *InMemoryBackend) runAsyncInvocationRetryLoop(
 
 		currentInv = newInv
 	}
+}
+
+// completeAsyncDurableExecution records an Event invocation's final outcome;
+// no-op when arn is empty.
+func (b *InMemoryBackend) completeAsyncDurableExecution(arn string, succeeded bool, result []byte) {
+	if arn == "" || b.durableExecs == nil {
+		return
+	}
+
+	b.durableExecs.completeExecution(arn, succeeded, string(result))
 }
 
 // readAsyncRetryConfig returns the effective maximum retry attempts and the event-age deadline
@@ -510,11 +556,12 @@ func scheduleAsyncRetry(
 	}
 
 	newInv := &pendingInvocation{
-		requestID: uuid.New().String(),
-		payload:   original.payload,
-		deadline:  time.Now().Add(timeout),
-		result:    make(chan invocationResult, 1),
-		createdAt: original.createdAt,
+		requestID:      uuid.New().String(),
+		payload:        original.payload,
+		deadline:       time.Now().Add(timeout),
+		result:         make(chan invocationResult, 1),
+		createdAt:      original.createdAt,
+		durableExecARN: original.durableExecARN,
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, asyncInvocationEnqueueTimeout)

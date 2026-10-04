@@ -390,3 +390,39 @@ func TestSDKRoundTrip_UpdateThemeForStack_FieldsApply(t *testing.T) {
 	// Confirms the fix isn't just clearing everything: TitleText from the prior update survives.
 	assert.Equal(t, "Updated Title", aws.ToString(out2.Theme.ThemeTitleText))
 }
+
+func TestSDKRoundTrip_DescribeSoftwareAssociations_ResourceForms(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		resource string
+		wantNF   bool
+	}{
+		{resource: "arn:aws:appstream:us-east-1:123456789012:image-builder/sw-res-builder"},
+		{resource: "arn:aws:appstream:us-east-1:123456789012:image/sw-res-image"},
+		{resource: "arn:aws:appstream:us-east-1:123456789012:image/missing", wantNF: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.resource, func(t *testing.T) {
+			t.Parallel()
+
+			h := appstream.NewHandler(appstream.NewInMemoryBackend("123456789012", "us-east-1"))
+			client := newTestAppStreamClient(t, h)
+			createImage(t, h, "sw-res-image")
+			createImageBuilder(t, h, "sw-res-builder")
+
+			out, err := client.DescribeSoftwareAssociations(t.Context(),
+				&appstreamsdk.DescribeSoftwareAssociationsInput{AssociatedResource: aws.String(tt.resource)})
+			if tt.wantNF {
+				var nf *types.ResourceNotFoundException
+				require.ErrorAs(t, err, &nf)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.resource, aws.ToString(out.AssociatedResource))
+		})
+	}
+}

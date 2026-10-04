@@ -73,13 +73,17 @@ func executionSnapshotKey(v *executionSnapshot) string { return v.ExecutionArn }
 // documented on [executionSnapshot]. This is the same DTO-registry pattern
 // services/sqs's persistence.go (commit 0f09d77c) and
 // services/cloudwatchlogs's persistence.go use.
-func (b *InMemoryBackend) newPersistedDTORegistry() (*store.Registry, *store.Table[executionSnapshot]) {
+func (b *InMemoryBackend) newPersistedDTORegistry() (
+	*store.Registry, *store.Table[executionSnapshot], *store.Table[MapRun],
+) {
 	dtoReg := store.NewRegistry()
 	store.Register(dtoReg, "stateMachines", b.stateMachines)
 	store.Register(dtoReg, "activities", b.activities)
 	execDTOs := store.Register(dtoReg, "executions", store.New(executionSnapshotKey))
 
-	return dtoReg, execDTOs
+	mapRunDTOs := store.Register(dtoReg, "mapRuns", store.New(mapRunsKeyFn))
+
+	return dtoReg, execDTOs, mapRunDTOs
 }
 
 // backendSnapshot is the top-level on-disk shape for the stepfunctions backend.
@@ -111,7 +115,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	dtoReg, execDTOs := b.newPersistedDTORegistry()
+	dtoReg, execDTOs, mapRunDTOs := b.newPersistedDTORegistry()
 
 	// exec.history is written by appendHistory under only b.mu.RLock +
 	// b.historyMu.Lock (a deliberate hot-path optimization -- see
@@ -152,6 +156,20 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 			RedriveCount:           cp.RedriveCount,
 			ItemCount:              cp.ItemCount,
 		})
+	}
+
+	for _, mr := range b.mapRuns.All() {
+		cp := *mr
+		if cp.Status == statusRunning {
+			cp.Status = statusFailed
+
+			if cp.StopDate == nil {
+				now := float64(time.Now().Unix())
+				cp.StopDate = &now
+			}
+		}
+
+		mapRunDTOs.Put(&cp)
 	}
 
 	tables, err := dtoReg.SnapshotAll()
@@ -205,7 +223,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		return nil
 	}
 
-	dtoReg, execDTOs := b.newPersistedDTORegistry()
+	dtoReg, execDTOs, mapRunDTOs := b.newPersistedDTORegistry()
 
 	if err := dtoReg.RestoreAll(snap.Tables); err != nil {
 		return fmt.Errorf("stepfunctions: restore snapshot tables: %w", err)
@@ -243,6 +261,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	// Restore rebuilds executionsByStateMachine too (store.Table.Restore
 	// maintains every registered store.Index from scratch).
 	b.executions.Restore(liveExecs)
+	b.mapRuns.Restore(mapRunDTOs.All())
 
 	b.accountID = snap.AccountID
 	b.region = snap.Region
@@ -295,7 +314,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.deletedExecs = make(map[string]bool)
 	b.historyTruncated = make(map[string]bool)
 
-	// versions/aliases/mapRuns (and smAliases/executionDefinitions) are left
+	// versions/aliases (and smAliases/executionDefinitions) are left
 	// untouched here, matching pre-Phase-3.3 Restore -- backendSnapshot has
 	// never included those fields, so a fresh backend simply keeps them empty
 	// as constructed. See the Phase 3.3 tracking issue's per-map persistence

@@ -192,8 +192,8 @@ func (b *InMemoryBackend) rebuildARNIndexLocked() {
 	}
 }
 
-// Snapshot implements persistence.Persistable by delegating to the backend.
-func (h *Handler) Snapshot(ctx context.Context) []byte {
+// homeSnapshot serializes the home region only.
+func (h *Handler) homeSnapshot(ctx context.Context) []byte {
 	if mem, ok := h.Backend.(*InMemoryBackend); ok {
 		return mem.Snapshot(ctx)
 	}
@@ -201,8 +201,8 @@ func (h *Handler) Snapshot(ctx context.Context) []byte {
 	return nil
 }
 
-// Restore implements persistence.Persistable by delegating to the backend.
-func (h *Handler) Restore(ctx context.Context, data []byte) error {
+// homeRestore restores the home region only.
+func (h *Handler) homeRestore(ctx context.Context, data []byte) error {
 	if mem, ok := h.Backend.(*InMemoryBackend); ok {
 		return mem.Restore(ctx, data)
 	}
@@ -210,8 +210,8 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 	return nil
 }
 
-// Reset implements service.Resettable by delegating to the backend.
-func (h *Handler) Reset() {
+// resetHome clears the home region only.
+func (h *Handler) resetHome() {
 	if mem, ok := h.Backend.(*InMemoryBackend); ok {
 		mem.Reset()
 	}

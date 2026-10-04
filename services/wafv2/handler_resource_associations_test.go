@@ -105,7 +105,7 @@ func TestHandler_AssociateWebACL(t *testing.T) {
 			name: "success",
 			setup: func(h *wafv2.Handler) (string, string) {
 				w, _ := wafv2.CreateWebACLSimple(h.Backend, "my-acl", "REGIONAL", "", "ALLOW", nil)
-				webACLARN := h.Backend.WebACLARN(w.Name, w.ID, w.Scope)
+				webACLARN := w.ARN
 
 				return webACLARN, "arn:aws:elasticloadbalancing:us-east-1:000000000000:loadbalancer/app/my-lb/abc"
 			},
@@ -122,7 +122,7 @@ func TestHandler_AssociateWebACL(t *testing.T) {
 			name: "missing_resource_arn",
 			setup: func(h *wafv2.Handler) (string, string) {
 				w, _ := wafv2.CreateWebACLSimple(h.Backend, "my-acl", "REGIONAL", "", "ALLOW", nil)
-				webACLARN := h.Backend.WebACLARN(w.Name, w.ID, w.Scope)
+				webACLARN := w.ARN
 
 				return webACLARN, ""
 			},
@@ -173,7 +173,7 @@ func TestHandler_DisassociateWebACL(t *testing.T) {
 			name: "success",
 			setup: func(h *wafv2.Handler) string {
 				w, _ := wafv2.CreateWebACLSimple(h.Backend, "my-acl", "REGIONAL", "", "ALLOW", nil)
-				webACLARN := h.Backend.WebACLARN(w.Name, w.ID, w.Scope)
+				webACLARN := w.ARN
 				resourceARN := "arn:aws:elasticloadbalancing:us-east-1:000000000000:loadbalancer/app/my-lb/abc"
 				require.NoError(t, h.Backend.AssociateWebACL(context.Background(), webACLARN, resourceARN))
 
@@ -229,7 +229,7 @@ func TestHandler_GetWebACLForResource(t *testing.T) {
 			name: "success",
 			setup: func(h *wafv2.Handler) string {
 				w, _ := wafv2.CreateWebACLSimple(h.Backend, "my-acl", "REGIONAL", "", "ALLOW", nil)
-				webACLARN := h.Backend.WebACLARN(w.Name, w.ID, w.Scope)
+				webACLARN := w.ARN
 				resourceARN := "arn:aws:elasticloadbalancing:us-east-1:000000000000:loadbalancer/app/my-lb/abc"
 				require.NoError(t, h.Backend.AssociateWebACL(context.Background(), webACLARN, resourceARN))
 
@@ -287,7 +287,7 @@ func TestHandler_GetWebACLForResource_WithVisibilityConfig(t *testing.T) {
 	w, err := wafv2.CreateWebACLSimple(h.Backend, "my-acl", "REGIONAL", "", "BLOCK", nil)
 	require.NoError(t, err)
 
-	webACLARN := h.Backend.WebACLARN(w.Name, w.ID, w.Scope)
+	webACLARN := w.ARN
 	resourceARN := "arn:aws:elasticloadbalancing:us-east-1:000000000000:loadbalancer/app/my-lb/xyz"
 	require.NoError(t, h.Backend.AssociateWebACL(context.Background(), webACLARN, resourceARN))
 

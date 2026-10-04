@@ -134,6 +134,10 @@ func parseListModelCopyJobsQuery(c *echo.Context) *ListModelCopyJobsInput {
 }
 
 func (h *Handler) handleListModelCopyJobs(c *echo.Context) error {
+	if err := validateListSortParams(c.Request().URL.Query()); err != nil {
+		return h.writeError(c, err)
+	}
+
 	jobs, nextToken := h.Backend.ListModelCopyJobs(parseListModelCopyJobsQuery(c))
 	summaries := make([]map[string]any, 0, len(jobs))
 

@@ -75,7 +75,7 @@ func TestFullStateSnapshotRestore(t *testing.T) {
 	require.NoError(t, err)
 
 	// A global cluster: partition-scoped, must survive without region nesting.
-	_, err = original.CreateGlobalCluster(ctxEast, "global-shared", sharedName, "", "")
+	_, err = original.CreateGlobalCluster(ctxEast, "global-shared", sharedName, "", "", CreateGlobalClusterOptions{})
 	require.NoError(t, err)
 
 	// Tags on the west cluster's ARN (raw nested map, left unconverted).

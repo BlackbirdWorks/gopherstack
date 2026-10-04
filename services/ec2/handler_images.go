@@ -279,7 +279,9 @@ func (h *Handler) handleResetImageAttribute(vals url.Values, reqID string) (any,
 
 func (h *Handler) handleDescribeInstanceImageMetadata(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "InstanceId")
-	items := h.Backend.DescribeInstanceImageMetadata(ids)
+	items := applyInstanceImageMetadataFilters(
+		h.Backend.DescribeInstanceImageMetadata(ids), parseEC2Filters(vals), h.Backend,
+	)
 
 	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
 	if err != nil {
@@ -557,7 +559,7 @@ func (h *Handler) handleExportImage(vals url.Values, reqID string) (any, error) 
 
 func (h *Handler) handleDescribeExportImageTasks(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "ExportImageTaskId")
-	tasks := h.Backend.DescribeExportImageTasks(ids)
+	tasks := applyExportImageTaskFilters(h.Backend.DescribeExportImageTasks(ids), parseEC2Filters(vals))
 
 	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
 	if err != nil {
@@ -765,7 +767,7 @@ func (h *Handler) handleDisableFastLaunch(vals url.Values, reqID string) (any, e
 
 func (h *Handler) handleDescribeFastLaunchImages(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "ImageId")
-	items := h.Backend.DescribeFastLaunchImages(ids)
+	items := applyFastLaunchImageFilters(h.Backend.DescribeFastLaunchImages(ids), parseEC2Filters(vals), h.AccountID)
 
 	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
 	if err != nil {
@@ -789,10 +791,12 @@ func (h *Handler) handleDescribeFastLaunchImages(vals url.Values, reqID string) 
 func (h *Handler) handleCopyImage(vals url.Values, reqID string) (any, error) {
 	sourceImageID := vals.Get("SourceImageId")
 
-	image, err := h.Backend.CopyImage(
+	image, err := h.Backend.CopyImageEncrypted(
 		sourceImageID,
 		vals.Get("Name"),
 		vals.Get("Description"),
+		vals.Get("Encrypted") == ec2BooleanTrue,
+		vals.Get("KmsKeyId"),
 	)
 	if err != nil {
 		return nil, err
@@ -801,7 +805,7 @@ func (h *Handler) handleCopyImage(vals url.Values, reqID string) (any, error) {
 	// Default: your user-defined AMI tags are not copied (ec2@v1.319.1
 	// api_op_CopyImage.go's CopyImageTags doc comment).
 	if vals.Get("CopyImageTags") == ec2BooleanTrue {
-		if srcTags := h.Backend.TagsForResource(sourceImageID); len(srcTags) > 0 {
+		if srcTags := h.sourceTags(sourceImageID); len(srcTags) > 0 {
 			if err = h.Backend.CreateTags([]string{image.ImageID}, srcTags); err != nil {
 				return nil, err
 			}
@@ -815,23 +819,38 @@ func (h *Handler) handleCopyImage(vals url.Values, reqID string) (any, error) {
 	}, nil
 }
 
-// handleDeregisterImage: DeregisterImageOutput also has DeleteSnapshotResults
-// (ec2@v1.319.1 api_op_DeregisterImage.go), populated only when the request's
-// DeleteAssociatedSnapshots=true and a snapshot backing the AMI was actually
-// deleted. This backend doesn't track which snapshots back an AMI (AMIStub
-// has no block-device-mapping/snapshot fields at all -- see store.go), so
-// there's no real data to report for that case; left as a stub (Return only)
-// rather than adding a field that would always be empty. See PARITY.md.
+type deleteSnapshotResultItem struct {
+	ReturnCode string `xml:"returnCode"`
+	SnapshotID string `xml:"snapshotId"`
+}
+
+type deregisterImageResponse struct {
+	XMLName   xml.Name                   `xml:"DeregisterImageResponse"`
+	Xmlns     string                     `xml:"xmlns,attr"`
+	RequestID string                     `xml:"requestId"`
+	Results   []deleteSnapshotResultItem `xml:"deleteSnapshotResultSet>item,omitempty"`
+	Return    bool                       `xml:"return"`
+}
+
+// handleDeregisterImage reports DeleteSnapshotResults when DeleteAssociatedSnapshots=true
+// (deserializers.go awsEc2query_deserializeOpDocumentDeregisterImageOutput).
 func (h *Handler) handleDeregisterImage(vals url.Values, reqID string) (any, error) {
-	if err := h.Backend.DeregisterImage(vals.Get("ImageId")); err != nil {
+	results, err := h.Backend.DeregisterImageDeleteSnapshots(
+		vals.Get("ImageId"), vals.Get("DeleteAssociatedSnapshots") == ec2BooleanTrue,
+	)
+	if err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeregisterImageResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
+	resp := &deregisterImageResponse{Xmlns: ec2XMLNS, RequestID: reqID, Return: true}
+	for _, r := range results {
+		resp.Results = append(
+			resp.Results,
+			deleteSnapshotResultItem{ReturnCode: r.ReturnCode, SnapshotID: r.SnapshotID},
+		)
+	}
+
+	return resp, nil
 }
 
 // ---- VPC / Subnet attribute handlers ----
@@ -1443,7 +1462,7 @@ func (h *Handler) handleDescribeImages(vals url.Values, reqID string) (any, erro
 	}, nil
 }
 
-func (h *Handler) handleDescribeRegions(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleDescribeRegions(vals url.Values, reqID string) (any, error) {
 	regions := h.Backend.DescribeRegions()
 
 	items := make([]regionItem, 0, len(regions))
@@ -1453,6 +1472,8 @@ func (h *Handler) handleDescribeRegions(_ url.Values, reqID string) (any, error)
 			Endpoint:   fmt.Sprintf("ec2.%s.amazonaws.com", r),
 		})
 	}
+
+	items = applyRegionFilters(items, parseEC2Filters(vals))
 
 	return &describeRegionsResponse{
 		Xmlns:      ec2XMLNS,

@@ -8,8 +8,20 @@ import (
 	"sort"
 	"time"
 
+	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/services/stepfunctions/asl"
 )
+
+// execContext returns the service context carrying the execution's own region for cross-service calls.
+func (b *InMemoryBackend) execContext(execARN string) context.Context {
+	return awsmeta.Set(b.svcCtx, &awsmeta.Metadata{
+		Account:   b.accountID,
+		Region:    regionFromARN(execARN, b.region),
+		Partition: awsmeta.DefaultPartition,
+	})
+}
 
 // PruneExecutions removes executions and history older than the retention period.
 func (b *InMemoryBackend) PruneExecutions(_ context.Context) int {
@@ -58,6 +70,7 @@ func (b *InMemoryBackend) pruneExecutionsLocked(cutoff float64) int {
 		}
 	}
 
+	b.pruneMapRunsLocked(cutoff)
 	b.sweepOrphanedTombstonesLocked()
 
 	return len(toDelete)
@@ -88,6 +101,8 @@ func (b *InMemoryBackend) StartSyncExecution(
 		)
 	}
 
+	stateMachineArn, testCase, hasTestCase := splitMockTestCase(stateMachineArn)
+
 	b.mu.RLock("StartSyncExecution")
 	resolved, resolveErr := b.resolveExecutionTarget(stateMachineArn)
 	if resolveErr != nil {
@@ -115,17 +130,23 @@ func (b *InMemoryBackend) StartSyncExecution(
 	}
 
 	smName := sm.Name
-	definition := sm.Definition
+	parsedSM, parseErr := sm.parseDefinition()
 	integrations := b.snapshotIntegrationsLocked()
+	mockRun, mockErr := b.mockRunLocked(smName, testCase, hasTestCase)
 	b.mu.RUnlock()
 
-	parsedSM, parseErr := asl.Parse(definition)
+	if mockErr != nil {
+		return nil, mockErr
+	}
+
+	integrations.mockRun = mockRun
+
 	if parseErr != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidDefinition, parseErr)
 	}
 
 	if name == "" {
-		name = fmt.Sprintf("sync-%d", time.Now().UnixNano())
+		name = uuid.NewString()
 	}
 
 	// Execution/MapRun ARNs are always keyed off the base (unqualified) state
@@ -140,7 +161,7 @@ func (b *InMemoryBackend) StartSyncExecution(
 	// Express Workflows must complete within 5 minutes per AWS spec.
 	const expressSyncTimeout = 5 * time.Minute
 
-	syncCtx, syncCancel := context.WithTimeout(b.svcCtx, expressSyncTimeout)
+	syncCtx, syncCancel := context.WithTimeout(b.execContext(execARN), expressSyncTimeout)
 	defer syncCancel()
 
 	// Run synchronously with nil history recorder (sync executions are ephemeral).
@@ -163,7 +184,7 @@ func (b *InMemoryBackend) StartSyncExecution(
 
 	result, execErr := executor.Execute(syncCtx, execARN, input)
 
-	return finalizeSyncExecutionResult(
+	syncResult := finalizeSyncExecutionResult(
 		execARN,
 		baseSMArn,
 		name,
@@ -171,7 +192,11 @@ func (b *InMemoryBackend) StartSyncExecution(
 		startDate,
 		result,
 		execErr,
-	), nil
+	)
+	b.emitExecutionStarted(baseSMArn)
+	b.emitExecutionEnded(baseSMArn, syncResult.Status, syncResult.StartDate, syncResult.StopDate)
+
+	return syncResult, nil
 }
 
 // finalizeSyncExecutionResult assembles the SyncExecutionResult based on the
@@ -246,6 +271,7 @@ func (b *InMemoryBackend) initializeExecutionRecord(
 	b.executions.Put(exec)
 	b.executionDefinitions[execArn] = def
 	b.addToStatusBucket(smArn, statusRunning, execArn)
+	b.emitExecutionStarted(smArn)
 
 	return exec
 }
@@ -276,6 +302,8 @@ type startedExecution struct {
 func (b *InMemoryBackend) startExecutionLocked(
 	stateMachineArn, name, input string,
 ) (*startedExecution, error) {
+	stateMachineArn, testCase, hasTestCase := splitMockTestCase(stateMachineArn)
+
 	b.mu.Lock("StartExecution")
 	defer b.mu.Unlock()
 
@@ -308,7 +336,16 @@ func (b *InMemoryBackend) startExecutionLocked(
 	// machine ARN, even when stateMachineArn (the caller-supplied argument)
 	// was a version or alias ARN -- see resolveExecutionTarget's doc comment.
 	baseSMArn := sm.StateMachineArn
+	if name == "" {
+		name = uuid.NewString()
+	}
+
 	execArn := b.execARN(baseSMArn, sm.Name, name)
+
+	mockRun, mockErr := b.mockRunLocked(sm.Name, testCase, hasTestCase)
+	if mockErr != nil {
+		return nil, mockErr
+	}
 
 	// StartExecution is idempotent for STANDARD workflows: calling it again
 	// with the same name and input against a still-RUNNING execution
@@ -336,7 +373,7 @@ func (b *InMemoryBackend) startExecutionLocked(
 	// leaves an orphaned RUNNING execution in the store.
 	definition := sm.Definition
 
-	parsedSM, parseErr := asl.Parse(definition)
+	parsedSM, parseErr := sm.parseDefinition()
 	if parseErr != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidDefinition, parseErr)
 	}
@@ -352,14 +389,14 @@ func (b *InMemoryBackend) startExecutionLocked(
 	// The context is derived from b.svcCtx so that all active executions are
 	// also cancelled when the server shuts down.
 
-	ctx, cancel := context.WithCancel(b.svcCtx)
+	ctx, cancel := context.WithCancel(b.execContext(execArn))
 	b.cancelFns[execArn] = cancel
 
 	return &startedExecution{
 		exec:            exec,
 		execArn:         execArn,
 		parsedSM:        parsedSM,
-		integrations:    b.snapshotIntegrationsLocked(),
+		integrations:    b.integrationsWithMockLocked(mockRun),
 		ctx:             ctx,
 		activityInvoker: b,
 	}, nil
@@ -515,6 +552,7 @@ func (b *InMemoryBackend) finalizeExecutionRecordLocked(
 		exec.RedriveStatusReason = ""
 		b.removeFromStatusBucket(exec.StateMachineArn, statusRunning, execARN)
 		b.addToStatusBucket(exec.StateMachineArn, exec.Status, execARN)
+		b.emitExecutionEnded(exec.StateMachineArn, exec.Status, exec.StartDate, now)
 		exec.history = append(exec.history, &HistoryEvent{
 			Timestamp: now, Type: "ExecutionFailed", ID: nextID, PreviousEventID: nextID - 1,
 		})
@@ -530,6 +568,7 @@ func (b *InMemoryBackend) finalizeExecutionRecordLocked(
 		exec.RedriveStatusReason = ""
 		b.removeFromStatusBucket(exec.StateMachineArn, statusRunning, execARN)
 		b.addToStatusBucket(exec.StateMachineArn, exec.Status, execARN)
+		b.emitExecutionEnded(exec.StateMachineArn, exec.Status, exec.StartDate, now)
 		exec.history = append(exec.history, &HistoryEvent{
 			Timestamp: now, Type: "ExecutionFailed", ID: nextID, PreviousEventID: nextID - 1,
 		})
@@ -545,6 +584,7 @@ func (b *InMemoryBackend) finalizeExecutionRecordLocked(
 	exec.RedriveStatusReason = redriveStatusReasonSucceeded
 	b.removeFromStatusBucket(exec.StateMachineArn, statusRunning, execARN)
 	b.addToStatusBucket(exec.StateMachineArn, exec.Status, execARN)
+	b.emitExecutionEnded(exec.StateMachineArn, exec.Status, exec.StartDate, now)
 	exec.history = append(exec.history, &HistoryEvent{
 		Timestamp: now, Type: "ExecutionSucceeded", ID: nextID, PreviousEventID: nextID - 1,
 	})
@@ -575,6 +615,7 @@ func (b *InMemoryBackend) StopExecution(executionArn, errCode, cause string) err
 	exec.RedriveStatusReason = ""
 	b.removeFromStatusBucket(exec.StateMachineArn, statusRunning, executionArn)
 	b.addToStatusBucket(exec.StateMachineArn, statusAborted, executionArn)
+	b.emitExecutionEnded(exec.StateMachineArn, statusAborted, exec.StartDate, now)
 
 	// Cancel the running goroutine for this execution.
 	if cancelFn, ok := b.cancelFns[executionArn]; ok {
@@ -791,7 +832,7 @@ func (b *InMemoryBackend) redriveExecutionLocked(executionARN string) (*redriven
 
 	definition := sm.Definition
 
-	parsedSM, parseErr := asl.Parse(definition)
+	parsedSM, parseErr := sm.parseDefinition()
 	if parseErr != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidDefinition, parseErr)
 	}
@@ -803,7 +844,7 @@ func (b *InMemoryBackend) redriveExecutionLocked(executionARN string) (*redriven
 	// Snapshot the (possibly-updated) definition.
 	b.executionDefinitions[executionARN] = definition
 
-	ctx, cancel := context.WithCancel(b.svcCtx)
+	ctx, cancel := context.WithCancel(b.execContext(executionARN))
 	b.cancelFns[executionARN] = cancel
 
 	// No manual "ensure execution is tracked under the SM" step is needed here

@@ -1,5 +1,3 @@
-//go:build integration
-
 package integration_test
 
 import (
@@ -55,8 +53,7 @@ func TestIntegration_ManagedBlockchain_NetworkLifecycle(t *testing.T) {
 			ctx := t.Context()
 			client := createManagedBlockchainClient(t)
 
-			uniqueSuffix := t.Name()
-			networkName := tt.networkName + "-" + uniqueSuffix
+			networkName := shortUniqueName(tt.networkName)
 			memberName := tt.memberName
 
 			// CreateNetwork with initial member.
@@ -113,10 +110,42 @@ func TestIntegration_ManagedBlockchain_NetworkLifecycle(t *testing.T) {
 
 			assert.True(t, found, "created network should appear in list")
 
+			// Invite via an approved proposal; CreateMember requires a pending invitation.
+			propOut, err := client.CreateProposal(ctx, &managedblockchainSDK.CreateProposalInput{
+				ClientRequestToken: aws.String("token-prop"),
+				NetworkId:          createNetOut.NetworkId,
+				MemberId:           createNetOut.MemberId,
+				Actions: &managedblockchaintypes.ProposalActions{
+					Invitations: []managedblockchaintypes.InviteAction{{Principal: aws.String("123456789013")}},
+				},
+			})
+			require.NoError(t, err, "CreateProposal should succeed")
+
+			_, err = client.VoteOnProposal(ctx, &managedblockchainSDK.VoteOnProposalInput{
+				NetworkId:     createNetOut.NetworkId,
+				ProposalId:    propOut.ProposalId,
+				VoterMemberId: createNetOut.MemberId,
+				Vote:          managedblockchaintypes.VoteValueYes,
+			})
+			require.NoError(t, err, "VoteOnProposal should succeed")
+
+			invitationID := ""
+
+			invOut, err := client.ListInvitations(ctx, &managedblockchainSDK.ListInvitationsInput{})
+			require.NoError(t, err, "ListInvitations should succeed")
+
+			for _, inv := range invOut.Invitations {
+				if inv.NetworkSummary != nil && aws.ToString(inv.NetworkSummary.Id) == networkID {
+					invitationID = aws.ToString(inv.InvitationId)
+				}
+			}
+
+			require.NotEmpty(t, invitationID, "approved proposal should create an invitation")
+
 			// CreateMember.
 			createMemOut, err := client.CreateMember(ctx, &managedblockchainSDK.CreateMemberInput{
 				ClientRequestToken: aws.String("token-2"),
-				InvitationId:       aws.String("inv-1"),
+				InvitationId:       aws.String(invitationID),
 				NetworkId:          createNetOut.NetworkId,
 				MemberConfiguration: &managedblockchaintypes.MemberConfiguration{
 					Name: aws.String("second-member"),

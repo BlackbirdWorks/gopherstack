@@ -759,3 +759,17 @@ func TestHandler_ErrValidationMapsTo400(t *testing.T) {
 		assert.Equal(t, http.StatusConflict, rec.Code)
 	})
 }
+
+// seedVersion publishes version of pkg so it exists as real state.
+func seedVersion(t *testing.T, h *codeartifact.Handler, domain, repo, format, namespace, pkg, version string) {
+	t.Helper()
+
+	path := "/v1/package/version/publish?domain=" + domain + "&repository=" + repo + "&format=" + format +
+		"&package=" + pkg + "&version=" + version + "&asset=" + pkg + "-" + version + ".bin"
+	if namespace != "" {
+		path += "&namespace=" + namespace
+	}
+
+	rec := doRawRequest(t, h, path, []byte("seed-"+pkg+"-"+version))
+	require.Equal(t, http.StatusOK, rec.Code)
+}

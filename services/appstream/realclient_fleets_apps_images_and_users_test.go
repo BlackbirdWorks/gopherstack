@@ -700,6 +700,8 @@ func TestRealClient_FleetsAppsImagesAndUsers(t *testing.T) {
 				StackName: aws.String("slice18-sess-stack"),
 				FleetName: aws.String("slice18-sess-fleet"),
 				UserId:    aws.String("slice18-expire-user"),
+
+				AuthenticationType: types.AuthenticationTypeApi,
 			})
 			require.NoError(t, err)
 			require.Len(t, sessionsAfterDrain.Sessions, 1)

@@ -108,7 +108,7 @@ func (b *InMemoryBackend) CreatePortal(input CreatePortalInput) (*Portal, error)
 	}
 	portal := &Portal{
 		PortalID:                  id,
-		PortalArn:                 "arn:aws:apigateway:" + defaultRegion + "::/portals/" + id,
+		PortalArn:                 "arn:aws:apigateway:" + b.region + "::/portals/" + id,
 		LogoURI:                   input.LogoURI,
 		LastModified:              &now,
 		Tags:                      copyTags(input.Tags),
@@ -117,13 +117,14 @@ func (b *InMemoryBackend) CreatePortal(input CreatePortalInput) (*Portal, error)
 		IncludedPortalProductArns: includedPortalProductArns,
 		RumAppMonitorName:         input.RumAppMonitorName,
 		EndpointConfiguration: endpointConfigurationResponseFromRequest(
-			id, input.EndpointConfiguration,
+			b.region, id, input.EndpointConfiguration,
 		),
 	}
 
 	b.portals.Put(portal)
 
 	cp := *portal
+	cp.Tags = copyTags(portal.Tags)
 
 	return &cp, nil
 }
@@ -136,10 +137,10 @@ func (b *InMemoryBackend) CreatePortal(input CreatePortalInput) (*Portal, error)
 // synthesizes ARNs and execute-api endpoints (randomID/defaultRegion) --
 // see EndpointConfigurationResponse's doc comment.
 func endpointConfigurationResponseFromRequest(
-	portalID string, req *EndpointConfigurationRequest,
+	region, portalID string, req *EndpointConfigurationRequest,
 ) *EndpointConfigurationResponse {
 	resp := &EndpointConfigurationResponse{
-		PortalDefaultDomainName:  portalID + ".portal.apigateway." + defaultRegion + ".amazonaws.com",
+		PortalDefaultDomainName:  portalID + ".portal.apigateway." + region + ".amazonaws.com",
 		PortalDomainHostedZoneID: "Z" + strings.ToUpper(portalID),
 	}
 
@@ -164,7 +165,7 @@ func (b *InMemoryBackend) CreatePortalProduct(input CreatePortalProductInput) (*
 	now := isoTime{time.Now()}
 	product := &PortalProduct{
 		PortalProductID:  id,
-		PortalProductArn: "arn:aws:apigateway:" + defaultRegion + "::/portalproducts/" + id,
+		PortalProductArn: "arn:aws:apigateway:" + b.region + "::/portalproducts/" + id,
 		DisplayName:      input.DisplayName,
 		Description:      input.Description,
 		LastModified:     &now,
@@ -174,6 +175,7 @@ func (b *InMemoryBackend) CreatePortalProduct(input CreatePortalProductInput) (*
 	b.portalProducts.Put(product)
 
 	cp := *product
+	cp.Tags = copyTags(product.Tags)
 
 	return &cp, nil
 }
@@ -203,7 +205,7 @@ func (b *InMemoryBackend) CreateProductPage(
 	id := randomID()
 	page := &ProductPage{
 		ProductPageID:   id,
-		ProductPageArn:  "arn:aws:apigateway:" + defaultRegion + "::/portalproducts/" + portalProductID + "/pages/" + id,
+		ProductPageArn:  "arn:aws:apigateway:" + b.region + "::/portalproducts/" + portalProductID + "/pages/" + id,
 		PortalProductID: portalProductID,
 		DisplayContent:  input.DisplayContent,
 		PageTitle:       displayContentTitle(input.DisplayContent),
@@ -224,7 +226,7 @@ func (b *InMemoryBackend) CreateProductPage(
 // apigatewayv2@v1.37.4 types.go:379-381). Returns "" when IdentifierParts is
 // absent (RestEndpointIdentifier's only modeled variant is itself optional
 // per validateRestEndpointIdentifier) -- no synthesized value is possible.
-func endpointDisplayContentEndpoint(identifier *RestEndpointIdentifier) string {
+func endpointDisplayContentEndpoint(region string, identifier *RestEndpointIdentifier) string {
 	if identifier == nil || identifier.IdentifierParts == nil {
 		return ""
 	}
@@ -236,7 +238,7 @@ func endpointDisplayContentEndpoint(identifier *RestEndpointIdentifier) string {
 		path = "/" + path
 	}
 
-	return "https://" + ip.RestAPIID + ".execute-api." + defaultRegion + ".amazonaws.com/" + ip.Stage + path
+	return "https://" + ip.RestAPIID + ".execute-api." + region + ".amazonaws.com/" + ip.Stage + path
 }
 
 // renderEndpointDisplayContent builds the response-shape
@@ -248,8 +250,12 @@ func endpointDisplayContentEndpoint(identifier *RestEndpointIdentifier) string {
 // replaces it; Body/OperationName pass through from overrides when present.
 // A plain `DisplayContent: input.DisplayContent` echo (this backend's prior
 // behavior) therefore always dropped the required Endpoint member.
-func renderEndpointDisplayContent(identifier *RestEndpointIdentifier, raw map[string]any) map[string]any {
-	out := map[string]any{"endpoint": endpointDisplayContentEndpoint(identifier)}
+func renderEndpointDisplayContent(
+	region string,
+	identifier *RestEndpointIdentifier,
+	raw map[string]any,
+) map[string]any {
+	out := map[string]any{"endpoint": endpointDisplayContentEndpoint(region, identifier)}
 
 	ov, _ := raw["overrides"].(map[string]any)
 	if e, ok := ov["endpoint"].(string); ok && e != "" {
@@ -328,14 +334,14 @@ func (b *InMemoryBackend) CreateProductRestEndpointPage(
 		tryItState = tryItStateEnabled
 	}
 
-	displayContent := renderEndpointDisplayContent(input.RestEndpointIdentifier, input.DisplayContent)
+	displayContent := renderEndpointDisplayContent(b.region, input.RestEndpointIdentifier, input.DisplayContent)
 	endpoint, _ := displayContent["endpoint"].(string)
 
 	now := isoTime{time.Now()}
 	id := randomID()
 	page := &ProductRestEndpointPage{
 		ProductRestEndpointPageID: id,
-		ProductRestEndpointPageArn: "arn:aws:apigateway:" + defaultRegion +
+		ProductRestEndpointPageArn: "arn:aws:apigateway:" + b.region +
 			"::/portalproducts/" + portalProductID + "/restendpointpages/" + id,
 		PortalProductID:        portalProductID,
 		LastModified:           &now,
@@ -404,6 +410,7 @@ func (b *InMemoryBackend) GetPortal(portalID string) (*Portal, error) {
 	}
 
 	cp := *p
+	cp.Tags = copyTags(p.Tags)
 
 	return &cp, nil
 }
@@ -417,7 +424,9 @@ func (b *InMemoryBackend) ListPortals() ([]Portal, error) {
 	result := make([]Portal, 0, len(all))
 
 	for _, p := range all {
-		result = append(result, *p)
+		cp := *p
+		cp.Tags = copyTags(p.Tags)
+		result = append(result, cp)
 	}
 
 	sort.Slice(result, func(i, j int) bool {
@@ -438,6 +447,7 @@ func (b *InMemoryBackend) GetPortalProduct(portalProductID string) (*PortalProdu
 	}
 
 	cp := *pp
+	cp.Tags = copyTags(pp.Tags)
 
 	return &cp, nil
 }
@@ -451,7 +461,9 @@ func (b *InMemoryBackend) ListPortalProducts() ([]PortalProduct, error) {
 	result := make([]PortalProduct, 0, len(all))
 
 	for _, pp := range all {
-		result = append(result, *pp)
+		cp := *pp
+		cp.Tags = copyTags(pp.Tags)
+		result = append(result, cp)
 	}
 
 	sort.Slice(result, func(i, j int) bool {
@@ -537,6 +549,7 @@ func (b *InMemoryBackend) UpdatePortal(portalID string, input UpdatePortalInput)
 	p.LastModified = &now
 
 	cp := *p
+	cp.Tags = copyTags(p.Tags)
 
 	return &cp, nil
 }
@@ -573,6 +586,7 @@ func (b *InMemoryBackend) UpdatePortalProduct(
 	pp.LastModified = &now
 
 	cp := *pp
+	cp.Tags = copyTags(pp.Tags)
 
 	return &cp, nil
 }
@@ -629,7 +643,7 @@ func (b *InMemoryBackend) UpdateProductRestEndpointPage(
 
 	now := isoTime{time.Now()}
 	if input.DisplayContent != nil {
-		displayContent := renderEndpointDisplayContent(page.RestEndpointIdentifier, input.DisplayContent)
+		displayContent := renderEndpointDisplayContent(b.region, page.RestEndpointIdentifier, input.DisplayContent)
 		page.DisplayContent = displayContent
 		page.Endpoint, _ = displayContent["endpoint"].(string)
 	}

@@ -1,6 +1,7 @@
 package redshift_test
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -393,4 +394,47 @@ func testGetClusterCredentialsWithIAMDurationRealClient(t *testing.T) {
 		DurationSeconds:   aws.Int32(9999),
 	})
 	require.Error(t, err)
+}
+
+func TestGetClusterCredentials_DbGroups_RealClient(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		groups  []string
+		wantErr bool
+	}{
+		{name: "none"},
+		{name: "valid", groups: []string{"analysts", "etl_group-1"}},
+		{name: "uppercase", groups: []string{"Analysts"}, wantErr: true},
+		{name: "leading_digit", groups: []string{"1group"}, wantErr: true},
+		{name: "colon", groups: []string{"a:b"}, wantErr: true},
+		{name: "too_long", groups: []string{strings.Repeat("a", 65)}, wantErr: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend, client := newLifecycleFieldsBackendAndClient(t)
+
+			_, err := backend.CreateCluster(
+				"dbgroups-c1", "dc2.large", "dev", "admin", nil, "", redshift.CreateClusterOptions{},
+			)
+			require.NoError(t, err)
+
+			_, err = client.GetClusterCredentials(t.Context(), &redshiftsdk.GetClusterCredentialsInput{
+				ClusterIdentifier: aws.String("dbgroups-c1"),
+				DbUser:            aws.String("dbuser1"),
+				DbGroups:          tc.groups,
+			})
+			if tc.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
 }

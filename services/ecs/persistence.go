@@ -231,22 +231,30 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	return nil
 }
 
-// Snapshot implements Snapshottable by delegating to the backend when it
-// supports snapshotting. Returns nil for non-snapshottable backends.
+// Snapshot implements Snapshottable; other regions ride in an additive "regions" key.
 func (h *Handler) Snapshot(ctx context.Context) []byte {
-	if s, ok := h.Backend.(Snapshottable); ok {
-		return s.Snapshot(ctx)
+	s, ok := h.Backend.(Snapshottable)
+	if !ok {
+		return nil
 	}
 
-	return nil
+	return h.peers.Snapshot(s.Snapshot(ctx), func(p *Handler) []byte { return p.Snapshot(ctx) })
 }
 
-// Restore implements Snapshottable by delegating to the backend when it
-// supports snapshotting. Non-snapshottable backends are skipped.
+// Restore implements Snapshottable.
 func (h *Handler) Restore(ctx context.Context, data []byte) error {
-	if s, ok := h.Backend.(Snapshottable); ok {
-		return s.Restore(ctx, data)
+	s, ok := h.Backend.(Snapshottable)
+	if !ok {
+		return nil
 	}
 
-	return nil
+	if err := s.Restore(ctx, data); err != nil {
+		return err
+	}
+
+	return h.peers.Restore(
+		data,
+		func(p *Handler, d []byte) error { return p.Restore(ctx, d) },
+		(*Handler).closePeer,
+	)
 }

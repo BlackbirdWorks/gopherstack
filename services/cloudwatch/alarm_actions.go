@@ -187,7 +187,7 @@ func (b *InMemoryBackend) executeAutoScalingAction(
 		return "AutoScaling (no AutoScaling backend wired)"
 	}
 
-	if err := deps.asg.ExecuteScalingPolicy(asgName, policyName); err != nil {
+	if err := executeScalingPolicy(deps.asg, action, asgName, policyName); err != nil {
 		log.WarnContext(ctx, "cloudwatch: AutoScaling alarm action failed",
 			"action", action, "error", err)
 
@@ -195,6 +195,22 @@ func (b *InMemoryBackend) executeAutoScalingAction(
 	}
 
 	return "AutoScaling policy executed"
+}
+
+// regionalScalingExecutor is an optional executor extension that routes by the policy ARN's region.
+type regionalScalingExecutor interface {
+	ExecuteScalingPolicyInRegion(region, autoScalingGroupName, policyName string) error
+}
+
+func executeScalingPolicy(e AutoScalingPolicyExecutor, policyARN, asgName, policyName string) error {
+	if r, ok := e.(regionalScalingExecutor); ok {
+		fields := strings.SplitN(policyARN, ":", arnRegionFields)
+		if len(fields) == arnRegionFields {
+			return r.ExecuteScalingPolicyInRegion(fields[3], asgName, policyName)
+		}
+	}
+
+	return e.ExecuteScalingPolicy(asgName, policyName)
 }
 
 // parseEC2AutomateVerb extracts the action verb from an

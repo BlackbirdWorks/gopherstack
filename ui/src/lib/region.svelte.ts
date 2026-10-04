@@ -88,3 +88,10 @@ if (typeof window !== "undefined") {
     }
   });
 }
+
+/** `fetch` for dashboard/admin endpoints: tags the request with the selected region so the server routes to that region's backend. */
+export function regionFetch(input: string, init: RequestInit = {}): Promise<Response> {
+  const headers = new Headers(init.headers);
+  headers.set("X-Gopherstack-Region", currentRegion());
+  return fetch(input, { ...init, headers });
+}

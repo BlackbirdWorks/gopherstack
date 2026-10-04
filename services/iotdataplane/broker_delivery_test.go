@@ -99,6 +99,7 @@ func Test_Publish_DeliversThroughRealBroker(t *testing.T) {
 		AddBroker(fmt.Sprintf("tcp://127.0.0.1:%d", port)).
 		SetClientID("real-broker-sub").
 		SetConnectTimeout(3 * time.Second).
+		SetAutoReconnect(false).
 		SetDefaultPublishHandler(func(_ pahomqtt.Client, m pahomqtt.Message) {
 			received <- m
 		})
@@ -156,6 +157,7 @@ func Test_SendDirectMessage_DeliversThroughRealBroker(t *testing.T) {
 		AddBroker(fmt.Sprintf("tcp://127.0.0.1:%d", port)).
 		SetClientID(clientID).
 		SetConnectTimeout(3 * time.Second).
+		SetAutoReconnect(false).
 		SetDefaultPublishHandler(func(_ pahomqtt.Client, m pahomqtt.Message) {
 			received <- m
 		})

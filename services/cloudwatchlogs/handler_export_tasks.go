@@ -38,8 +38,9 @@ type createExportTaskOutput struct {
 }
 
 type createImportTaskInput struct {
-	ImportRoleArn   string `json:"importRoleArn"`
-	ImportSourceArn string `json:"importSourceArn"`
+	ImportFilter    *ImportFilter `json:"importFilter"`
+	ImportRoleArn   string        `json:"importRoleArn"`
+	ImportSourceArn string        `json:"importSourceArn"`
 }
 
 type createImportTaskOutput struct {
@@ -209,7 +210,9 @@ func (h *Handler) handleCreateImportTask(
 		return nil, err
 	}
 
-	task, err := h.Backend.CreateImportTask(ctx, input.ImportRoleArn, input.ImportSourceArn)
+	task, err := h.Backend.CreateImportTaskWithFilter(
+		ctx, input.ImportRoleArn, input.ImportSourceArn, input.ImportFilter,
+	)
 	if err != nil {
 		return nil, err
 	}

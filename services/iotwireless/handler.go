@@ -12,6 +12,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -133,9 +134,11 @@ const (
 
 // Handler is the HTTP handler for the IoT Wireless REST API.
 type Handler struct {
+	peers         *regionpeers.Set[Handler]
 	Backend       StorageBackend
 	AccountID     string
 	DefaultRegion string
+	idem          idempotencyCache
 }
 
 // NewHandler creates a new IoT Wireless handler.
@@ -143,8 +146,10 @@ func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{Backend: backend}
 }
 
-// Reset clears the handler's backend state, returning it to a pristine condition.
-func (h *Handler) Reset() {
+// resetHome clears the home region only.
+func (h *Handler) resetHome() {
+	h.idem.reset()
+
 	if r, ok := h.Backend.(interface{ Reset() }); ok {
 		r.Reset()
 	}
@@ -157,7 +162,7 @@ func (h *Handler) Name() string { return "IoTWireless" }
 // CRUD, messaging, and thing-association operations.
 func supportedWirelessDeviceOps() []string {
 	return []string{
-		"CreateWirelessDevice",
+		opCreateWirelessDevice,
 		"GetWirelessDevice",
 		"ListWirelessDevices",
 		"DeleteWirelessDevice",
@@ -176,7 +181,7 @@ func supportedWirelessDeviceOps() []string {
 // CRUD, certificate/thing association, task, and task-definition operations.
 func supportedWirelessGatewayOps() []string {
 	return []string{
-		"CreateWirelessGateway",
+		opCreateWirelessGateway,
 		"GetWirelessGateway",
 		"ListWirelessGateways",
 		"DeleteWirelessGateway",
@@ -200,7 +205,7 @@ func supportedWirelessGatewayOps() []string {
 // profile, destination, and resource-tagging operations.
 func supportedProfileAndDestinationOps() []string {
 	return []string{
-		"CreateServiceProfile",
+		opCreateServiceProfile,
 		"GetServiceProfile",
 		"ListServiceProfiles",
 		"DeleteServiceProfile",
@@ -235,11 +240,11 @@ func supportedAssociationOps() []string {
 // profile and FUOTA task operations.
 func supportedDeviceProfileAndFuotaOps() []string {
 	return []string{
-		"CreateDeviceProfile",
+		opCreateDeviceProfile,
 		"GetDeviceProfile",
 		"ListDeviceProfiles",
 		"DeleteDeviceProfile",
-		"CreateFuotaTask",
+		opCreateFuotaTask,
 		"GetFuotaTask",
 		"ListFuotaTasks",
 		"DeleteFuotaTask",
@@ -440,8 +445,8 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	return resource
 }
 
-// Handler returns the Echo handler function for IoT Wireless requests.
-func (h *Handler) Handler() echo.HandlerFunc {
+// homeHandler serves requests for the home region.
+func (h *Handler) homeHandler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		ctx := c.Request().Context()
 		log := logger.Load(ctx)
@@ -463,7 +468,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		log.DebugContext(ctx, "iotwireless request", "op", op, "resource", resource)
 
-		return h.dispatch(c, op, resource, body, c.Request().URL.Query())
+		return h.dispatchIdempotent(c, op, resource, body, c.Request().URL.Query())
 	}
 }
 
@@ -799,7 +804,7 @@ func (h *Handler) dispatchGatewayDeviceMiscOps(c *echo.Context, op, resource str
 // dispatchWirelessDevice handles wireless device operations.
 func (h *Handler) dispatchWirelessDevice(c *echo.Context, op, resource string, body []byte) (bool, error) {
 	switch op {
-	case "CreateWirelessDevice":
+	case opCreateWirelessDevice:
 		return true, h.createWirelessDevice(c, body)
 	case "GetWirelessDevice":
 		return true, h.getWirelessDevice(c, resource)
@@ -815,7 +820,7 @@ func (h *Handler) dispatchWirelessDevice(c *echo.Context, op, resource string, b
 // dispatchWirelessGateway handles wireless gateway operations.
 func (h *Handler) dispatchWirelessGateway(c *echo.Context, op, resource string, body []byte) (bool, error) {
 	switch op {
-	case "CreateWirelessGateway":
+	case opCreateWirelessGateway:
 		return true, h.createWirelessGateway(c, body)
 	case "GetWirelessGateway":
 		return true, h.getWirelessGateway(c, resource)
@@ -831,7 +836,7 @@ func (h *Handler) dispatchWirelessGateway(c *echo.Context, op, resource string, 
 // dispatchServiceProfile handles service profile operations.
 func (h *Handler) dispatchServiceProfile(c *echo.Context, op, resource string, body []byte) (bool, error) {
 	switch op {
-	case "CreateServiceProfile":
+	case opCreateServiceProfile:
 		return true, h.createServiceProfile(c, body)
 	case "GetServiceProfile":
 		return true, h.getServiceProfile(c, resource)
@@ -872,7 +877,7 @@ func (h *Handler) dispatchNewOps(c *echo.Context, op, resource string, body []by
 // dispatchNewCRUDOps handles CRUD operations for DeviceProfile and FuotaTask.
 func (h *Handler) dispatchNewCRUDOps(c *echo.Context, op, resource string, body []byte) (bool, error) {
 	switch op {
-	case "CreateDeviceProfile":
+	case opCreateDeviceProfile:
 		return true, h.createDeviceProfile(c, body)
 	case "GetDeviceProfile":
 		return true, h.getDeviceProfile(c, resource)
@@ -880,7 +885,7 @@ func (h *Handler) dispatchNewCRUDOps(c *echo.Context, op, resource string, body 
 		return true, h.listDeviceProfiles(c)
 	case "DeleteDeviceProfile":
 		return true, h.deleteDeviceProfile(c, resource)
-	case "CreateFuotaTask":
+	case opCreateFuotaTask:
 		return true, h.createFuotaTask(c, body)
 	case "GetFuotaTask":
 		return true, h.getFuotaTask(c, resource)

@@ -73,14 +73,16 @@ type StorageBackend interface {
 		ctx context.Context,
 		stackSetName string,
 		accounts, ouIDs, regions []string,
+		filterType string,
 	) (string, error)
 	DeleteStackInstances(
 		ctx context.Context,
 		stackSetName string,
 		accounts, ouIDs, regions []string,
 		retainStacks bool,
+		filterType string,
 	) (string, error)
-	UpdateStackInstances(stackSetName string, accounts, ouIDs, regions []string) (string, error)
+	UpdateStackInstances(stackSetName string, accounts, ouIDs, regions []string, filterType string) (string, error)
 	ListStackInstances(
 		stackSetName string, maxResults int, nextToken string, filter ListStackInstancesFilter,
 	) (page.Page[StackInstance], error)
@@ -115,7 +117,7 @@ type StorageBackend interface {
 	ListResourceScanResources(scanID, nextToken string, maxResults int) (page.Page[ScannedResource], error)
 	ListResourceScanRelatedResources(scanID string, resources []string) ([]string, error)
 	// Type management
-	ActivateType(typeName, typeArn string) (string, error)
+	ActivateType(typeName, typeArn string, opts ActivateTypeOptions) (string, error)
 	DeactivateType(typeName, typeArn string) error
 	RegisterType(typeName, schemaHandlerPackage string) (string, error)
 	DeregisterType(typeName, typeArn, versionID string) error
@@ -158,7 +160,7 @@ type StorageBackend interface {
 	DescribeOrganizationsAccess() (string, error)
 	// Misc
 	SignalResource(stackName, logicalID, uniqueID, status string) error
-	RollbackStack(ctx context.Context, stackName string) (*Stack, error)
+	RollbackStack(ctx context.Context, stackName string, retainExceptOnCreate bool) (*Stack, error)
 	RecordHandlerProgress(bearerToken, operationStatus string) error
 	GetHookResult(hookResultToken string) (string, error)
 	ListHookResults(hookResultToken, nextToken string) ([]HookResult, error)
@@ -232,6 +234,7 @@ const (
 	statusRollbackComplete         = "ROLLBACK_COMPLETE"
 	statusRollbackFailed           = "ROLLBACK_FAILED"
 	reasonUserInitiated            = "User Initiated"
+	reasonRollbackDeleteFailed     = "rollback failed to delete one or more resources"
 	deletionPolicyRetain           = "Retain"
 	deletionPolicySnapshot         = "Snapshot"
 )

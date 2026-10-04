@@ -762,3 +762,11 @@ Gates: `go build ./...`, `go vet ./services/dax/...`, `go test -race
 `./pkgs/persistence/...`, `golangci-lint run --new-from-rev=HEAD
 ./services/dax/...` (0 issues). `go run ./cmd/paritylint` stays at 0 FAIL.
 No persisted-struct/snapshot changes.
+
+## Notes (2026-10-03 pass — gopherstack-uox6 value-semantics audit)
+
+Audited clean: DescribeEvents source/time filters, DescribeParameters Source, ordering. No change.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+dax is region-isolated: Clusters, parameter groups and subnet groups live per region. The data-plane listener serves only the home region. Tagging bridge covers every region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/dax`. Limitation: the dashboard shows the home region only.

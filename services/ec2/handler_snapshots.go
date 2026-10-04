@@ -120,7 +120,9 @@ func (h *Handler) handleCreateSnapshots(vals url.Values, reqID string) (any, err
 	excludeDataVolumeIDs := parseMemberList(vals, "InstanceSpecification.ExcludeDataVolumeId")
 	description := vals.Get("Description")
 
-	snaps, err := h.Backend.CreateSnapshots(instanceID, excludeBootVolume, excludeDataVolumeIDs, description)
+	snaps, err := h.Backend.CreateSnapshotsAt(
+		instanceID, excludeBootVolume, excludeDataVolumeIDs, description, vals.Get("Location"),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -199,7 +201,7 @@ itemLoop:
 	for _, item := range items {
 		for name, values := range filters {
 			switch name {
-			case "snapshot-id":
+			case filterKeySnapshotID:
 				if !anyEqual(item.SnapshotID, values) {
 					continue itemLoop
 				}
@@ -665,7 +667,9 @@ func (h *Handler) handleDisableFastSnapshotRestores(vals url.Values, reqID strin
 }
 
 func (h *Handler) handleDescribeFastSnapshotRestores(vals url.Values, reqID string) (any, error) {
-	items := h.Backend.DescribeFastSnapshotRestores()
+	items := applyFastSnapshotRestoreFilters(
+		h.Backend.DescribeFastSnapshotRestores(), parseEC2Filters(vals), h.AccountID,
+	)
 
 	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
 	if err != nil {
@@ -686,7 +690,7 @@ func (h *Handler) handleDescribeFastSnapshotRestores(vals url.Values, reqID stri
 }
 
 func (h *Handler) handleCreateSnapshot(vals url.Values, reqID string) (any, error) {
-	snap, err := h.Backend.CreateSnapshot(vals.Get("VolumeId"), vals.Get("Description"))
+	snap, err := h.Backend.CreateSnapshotAt(vals.Get("VolumeId"), vals.Get("Description"), vals.Get("Location"))
 	if err != nil {
 		return nil, err
 	}

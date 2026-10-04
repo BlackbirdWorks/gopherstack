@@ -22,7 +22,10 @@ func (b *InMemoryBackend) EvaluateAlarms(ctx context.Context, now time.Time) {
 		b.mu.RLock("EvaluateAlarms.snapshot")
 		defer b.mu.RUnlock()
 
-		for _, a := range b.alarms.All() {
+		all := b.alarms.All()
+		snaps = make([]alarmSnap, 0, len(all))
+
+		for _, a := range all {
 			isMultiMetric := len(a.Metrics) > 0
 			if !isMultiMetric && (a.MetricName == "" || a.Namespace == "" || a.Period <= 0) {
 				continue
@@ -37,7 +40,7 @@ func (b *InMemoryBackend) EvaluateAlarms(ctx context.Context, now time.Time) {
 	}()
 
 	for _, snap := range snaps {
-		newState := b.evaluateMetricAlarmState(snap.alarm, now)
+		newState := b.evaluateMetricAlarmState(snap.alarm, alarmEvaluationTime(snap.alarm, now))
 		if newState == snap.alarm.StateValue {
 			continue
 		}

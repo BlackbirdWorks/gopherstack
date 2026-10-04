@@ -48,7 +48,12 @@ func newCaptureServer(t *testing.T, statusCode int) *captureServer {
 		cs.mu.Lock()
 		cs.requests = append(cs.requests, cr)
 		cs.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(statusCode)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"requestId": r.Header.Get("X-Amz-Firehose-Request-Id"),
+			"timestamp": time.Now().UnixMilli(),
+		})
 	}))
 
 	t.Cleanup(cs.srv.Close)

@@ -254,6 +254,39 @@ func TestHandler_DescribeReservedCapacity_UltraServerSummary_RealClient(t *testi
 // InstanceCount was decoded and threaded through but never applied by the
 // matching loop (a no-effect absence, not a decode absence), and
 // UltraServerCount was not even decoded by the handler.
+// TestHandler_DescribeTrainingPlan_UltraServerAggregates_RealClient asserts
+// TotalUltraServerCount/AvailableSpareInstanceCount are now populated on DescribeTrainingPlan.
+func TestHandler_DescribeTrainingPlan_UltraServerAggregates_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	search, err := client.SearchTrainingPlanOfferings(
+		t.Context(), &sagemakersdk.SearchTrainingPlanOfferingsInput{
+			UltraServerType: aws.String("ml.u-p6e-gb200x72"),
+		},
+	)
+	require.NoError(t, err)
+	require.NotEmpty(t, search.TrainingPlanOfferings)
+
+	_, err = client.CreateTrainingPlan(t.Context(), &sagemakersdk.CreateTrainingPlanInput{
+		TrainingPlanName:                 aws.String("ultraserver-aggregates-plan"),
+		TrainingPlanOfferingId:           search.TrainingPlanOfferings[0].TrainingPlanOfferingId,
+		SpareInstanceCountPerUltraServer: aws.Int32(4),
+	})
+	require.NoError(t, err)
+
+	desc, err := client.DescribeTrainingPlan(t.Context(), &sagemakersdk.DescribeTrainingPlanInput{
+		TrainingPlanName: aws.String("ultraserver-aggregates-plan"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, desc.TotalUltraServerCount)
+	assert.EqualValues(t, 1, *desc.TotalUltraServerCount)
+	require.NotNil(t, desc.AvailableSpareInstanceCount)
+	assert.EqualValues(t, 4, *desc.AvailableSpareInstanceCount)
+}
+
 func TestHandler_SearchTrainingPlanOfferings_InstanceUltraServerCount_RealClient(t *testing.T) {
 	t.Parallel()
 

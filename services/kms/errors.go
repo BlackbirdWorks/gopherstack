@@ -30,6 +30,14 @@ var (
 	// CreateKey's own deserializeOpError (kms@v1.55.4 deserializers.go) recognizes
 	// CustomKeyStoreInvalidStateException for exactly this.
 	ErrCustomKeyStoreInvalidState = errors.New("CustomKeyStoreInvalidStateException")
+	// ErrXksProxyInvalidConfiguration rejects an inconsistent external key store proxy configuration.
+	ErrXksProxyInvalidConfiguration = errors.New("XksProxyInvalidConfigurationException")
+	// ErrXksProxyURIInUse is returned when another store already uses the endpoint+path pair.
+	ErrXksProxyURIInUse = errors.New("XksProxyUriInUseException")
+	// ErrXksProxyURIEndpointInUse is returned when another store already uses the endpoint.
+	ErrXksProxyURIEndpointInUse = errors.New("XksProxyUriEndpointInUseException")
+	// ErrXksProxyVPCEndpointServiceInUse is returned when another store already uses the VPC endpoint service.
+	ErrXksProxyVPCEndpointServiceInUse = errors.New("XksProxyVpcEndpointServiceInUseException")
 	// ErrCustomKeyStoreHasKeys is returned by DeleteCustomKeyStore when the store
 	// still contains KMS keys. DeleteCustomKeyStore's own deserializeOpError
 	// recognizes CustomKeyStoreHasCMKsException for exactly this ("The custom key

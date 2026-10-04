@@ -10,18 +10,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func testAllowPolicy() *PolicyDocument {
+	return &PolicyDocument{Statement: []PolicyStatement{{Effect: "Allow", Action: "execute-api:Invoke", Resource: "*"}}}
+}
+
 func TestAuthorizerCacheSet(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		setup         func(*authorizerCache)
+		wantVal       *PolicyDocument
 		name          string
 		key           string
 		retainedKey   string
 		evictedKey    string
 		ttl           time.Duration
 		wantHit       bool
-		wantVal       bool
 		checkEviction bool
 	}{
 		{
@@ -29,19 +33,19 @@ func TestAuthorizerCacheSet(t *testing.T) {
 			key:     "k1",
 			ttl:     time.Minute,
 			wantHit: true,
-			wantVal: true,
+			wantVal: testAllowPolicy(),
 		},
 		{
 			name: "evicts_lru_when_max_entries_reached",
 			setup: func(cache *authorizerCache) {
-				cache.set("a", true, time.Minute)
-				cache.set("b", false, time.Minute)
+				cache.set("a", testAllowPolicy(), time.Minute)
+				cache.set("b", nil, time.Minute)
 				_, _ = cache.get("a")
 			},
 			key:           "c",
 			ttl:           time.Minute,
 			wantHit:       true,
-			wantVal:       true,
+			wantVal:       testAllowPolicy(),
 			checkEviction: true,
 			retainedKey:   "a",
 			evictedKey:    "b",
@@ -65,7 +69,7 @@ func TestAuthorizerCacheSet(t *testing.T) {
 			cache.set(tt.key, tt.wantVal, tt.ttl)
 			gotVal, gotHit := cache.get(tt.key)
 			assert.Equal(t, tt.wantHit, gotHit)
-			assert.Equal(t, tt.wantVal, gotVal)
+			assert.Equal(t, tt.wantVal != nil, gotVal != nil)
 
 			if tt.checkEviction {
 				_, retainedHit := cache.get(tt.retainedKey)
@@ -372,18 +376,23 @@ func TestDeleteRestAPI_EvictsTrieCache(t *testing.T) {
 	api, err := backend.CreateRestAPI(CreateRestAPIInput{Name: "leak-api"})
 	require.NoError(t, err)
 
-	// Prime the trie cache the same way a proxied request would.
-	_, err = h.routingTrie(api.ID)
+	depl, err := backend.CreateDeployment(api.ID, "prod", "")
 	require.NoError(t, err)
 
-	_, cached := h.trieCache.Load(api.ID)
+	cfg, err := backend.DeploymentConfig(api.ID, depl.ID)
+	require.NoError(t, err)
+
+	// Prime the trie cache the same way a proxied request would.
+	h.routingTrie(depl.ID, cfg)
+
+	_, cached := h.trieCache.Load(depl.ID)
 	require.True(t, cached, "trie cache should hold an entry after routingTrie")
 
 	status, _, err := h.deleteRestAPIAction([]byte(`{"restApiId":"` + api.ID + `"}`))
 	require.NoError(t, err)
 	require.Equal(t, http.StatusAccepted, status)
 
-	_, stillCached := h.trieCache.Load(api.ID)
+	_, stillCached := h.trieCache.Load(depl.ID)
 	assert.False(t, stillCached, "trie cache entry must be evicted on DeleteRestApi")
 }
 

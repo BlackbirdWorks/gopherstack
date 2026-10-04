@@ -753,3 +753,7 @@ prune-on-write, no new goroutine). `idempotency` is deliberately not persisted
 (see models.go), so no snapshot change. Regression test:
 `TestIdempotency_TTLBoundsMapGrowth` (idempotency_ttl_internal_test.go), proves an
 entry is kept and resolves inside the window and is swept/forgotten after it.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+acmpca already keys its resources by region; same-named resources in two regions coexist with region-correct ARNs. Proof: `TestRegionIsolation/acmpca`. No code change to the resource store.

@@ -6,6 +6,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	cloudwatchsdk "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
+	cwtypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	sqstypes "github.com/aws/aws-sdk-go-v2/service/sqs/types"
 	"github.com/google/uuid"
@@ -48,7 +49,7 @@ func TestIntegration_SQS_MetricEmission(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, *sendOut.MessageId)
 
-	assertMetricExists(t, cwClient, "NumberOfMessagesSent")
+	assertMetricExists(t, cwClient, queueName, "NumberOfMessagesSent")
 
 	// --- GetQueueAttributes → ApproximateNumberOfMessages reflects queue depth ---
 	attrOut, err := sqsClient.GetQueueAttributes(ctx, &sqs.GetQueueAttributesInput{
@@ -67,7 +68,7 @@ func TestIntegration_SQS_MetricEmission(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, receiveOut.Messages, 1)
 
-	assertMetricExists(t, cwClient, "NumberOfMessagesReceived")
+	assertMetricExists(t, cwClient, queueName, "NumberOfMessagesReceived")
 
 	// --- DeleteMessage → NumberOfMessagesDeleted ---
 	_, err = sqsClient.DeleteMessage(ctx, &sqs.DeleteMessageInput{
@@ -76,7 +77,7 @@ func TestIntegration_SQS_MetricEmission(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	assertMetricExists(t, cwClient, "NumberOfMessagesDeleted")
+	assertMetricExists(t, cwClient, queueName, "NumberOfMessagesDeleted")
 
 	// --- Verify queue is empty after deletion ---
 	attrOut2, err := sqsClient.GetQueueAttributes(ctx, &sqs.GetQueueAttributesInput{
@@ -89,14 +90,15 @@ func TestIntegration_SQS_MetricEmission(t *testing.T) {
 }
 
 // assertMetricExists polls ListMetrics until the async metric-emission goroutine
-// has registered the named metric in the AWS/SQS namespace, or the deadline expires.
-func assertMetricExists(t *testing.T, cwClient *cloudwatchsdk.Client, metricName string) {
+// has registered the named metric with the QueueName dimension in the AWS/SQS namespace, or the deadline expires.
+func assertMetricExists(t *testing.T, cwClient *cloudwatchsdk.Client, queueName, metricName string) {
 	t.Helper()
 
 	require.Eventually(t, func() bool {
 		out, err := cwClient.ListMetrics(t.Context(), &cloudwatchsdk.ListMetricsInput{
 			Namespace:  aws.String("AWS/SQS"),
 			MetricName: aws.String(metricName),
+			Dimensions: []cwtypes.DimensionFilter{{Name: aws.String("QueueName"), Value: aws.String(queueName)}},
 		})
 
 		return err == nil && len(out.Metrics) > 0

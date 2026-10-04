@@ -2,6 +2,8 @@ package s3
 
 import (
 	"context"
+	"maps"
+	"slices"
 )
 
 // PutBucketAnalyticsConfiguration stores an analytics configuration for a bucket by ID.
@@ -74,7 +76,7 @@ func (b *InMemoryBackend) DeleteBucketAnalyticsConfiguration(
 	return nil
 }
 
-// ListBucketAnalyticsConfigurations returns all analytics configurations for a bucket.
+// ListBucketAnalyticsConfigurations returns all analytics configurations for a bucket, ordered by ID.
 func (b *InMemoryBackend) ListBucketAnalyticsConfigurations(
 	_ context.Context,
 	bucketName string,
@@ -91,8 +93,8 @@ func (b *InMemoryBackend) ListBucketAnalyticsConfigurations(
 	defer bucket.mu.RUnlock()
 
 	configs := make([]string, 0, len(bucket.AnalyticsConfigs))
-	for _, v := range bucket.AnalyticsConfigs {
-		configs = append(configs, v)
+	for _, id := range slices.Sorted(maps.Keys(bucket.AnalyticsConfigs)) {
+		configs = append(configs, bucket.AnalyticsConfigs[id])
 	}
 
 	return configs, nil
@@ -185,8 +187,8 @@ func (b *InMemoryBackend) ListBucketIntelligentTieringConfigurations(
 	defer bucket.mu.RUnlock()
 
 	configs := make([]string, 0, len(bucket.IntelligentTieringConfigs))
-	for _, v := range bucket.IntelligentTieringConfigs {
-		configs = append(configs, v)
+	for _, id := range slices.Sorted(maps.Keys(bucket.IntelligentTieringConfigs)) {
+		configs = append(configs, bucket.IntelligentTieringConfigs[id])
 	}
 
 	return configs, nil
@@ -279,8 +281,8 @@ func (b *InMemoryBackend) ListBucketInventoryConfigurations(
 	defer bucket.mu.RUnlock()
 
 	configs := make([]string, 0, len(bucket.InventoryConfigs))
-	for _, v := range bucket.InventoryConfigs {
-		configs = append(configs, v)
+	for _, id := range slices.Sorted(maps.Keys(bucket.InventoryConfigs)) {
+		configs = append(configs, bucket.InventoryConfigs[id])
 	}
 
 	return configs, nil
@@ -373,8 +375,8 @@ func (b *InMemoryBackend) ListBucketMetricsConfigurations(
 	defer bucket.mu.RUnlock()
 
 	configs := make([]string, 0, len(bucket.MetricsConfigs))
-	for _, v := range bucket.MetricsConfigs {
-		configs = append(configs, v)
+	for _, id := range slices.Sorted(maps.Keys(bucket.MetricsConfigs)) {
+		configs = append(configs, bucket.MetricsConfigs[id])
 	}
 
 	return configs, nil

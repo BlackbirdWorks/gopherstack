@@ -104,7 +104,7 @@ func (b *InMemoryBackend) StartMedicalTranscriptionJob(
 		"Medical transcription result for "+input.MedicalTranscriptionJobName+".")
 	b.medicalTranscriptionJobs.Put(&job)
 	b.recordResourceTagsLocked(
-		resourceARN(resourceTypeMedicalTranscriptionJob, job.MedicalTranscriptionJobName), job.Tags,
+		b.resourceARN(resourceTypeMedicalTranscriptionJob, job.MedicalTranscriptionJobName), job.Tags,
 	)
 
 	cp := job
@@ -125,7 +125,7 @@ func (b *InMemoryBackend) GetMedicalTranscriptionJob(
 	}
 
 	cp := *job
-	cp.Tags = b.liveTagsLocked(resourceARN(resourceTypeMedicalTranscriptionJob, jobName))
+	cp.Tags = b.liveTagsLocked(b.resourceARN(resourceTypeMedicalTranscriptionJob, jobName))
 
 	return &cp, nil
 }
@@ -166,7 +166,7 @@ func (b *InMemoryBackend) DeleteMedicalTranscriptionJob(jobName string) error {
 		return fmt.Errorf("%w: medical transcription job %s not found", ErrNotFound, jobName)
 	}
 
-	b.forgetResourceTagsLocked(resourceARN(resourceTypeMedicalTranscriptionJob, jobName))
+	b.forgetResourceTagsLocked(b.resourceARN(resourceTypeMedicalTranscriptionJob, jobName))
 
 	return nil
 }

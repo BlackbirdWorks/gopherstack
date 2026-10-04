@@ -28,7 +28,7 @@ func TestHandler_TagResource_and_ListTags(t *testing.T) {
 			setup: func(h *wafv2.Handler) string {
 				w, _ := wafv2.CreateWebACLSimple(h.Backend, "tagged-acl", "REGIONAL", "", "ALLOW", nil)
 
-				return h.Backend.WebACLARN(w.Name, w.ID, w.Scope)
+				return w.ARN
 			},
 			tags:       []map[string]string{{"Key": "env", "Value": "prod"}},
 			wantStatus: http.StatusOK,
@@ -91,7 +91,7 @@ func TestHandler_UntagResource(t *testing.T) {
 					"ALLOW",
 					map[string]string{"env": "prod", "team": "ops"},
 				)
-				arnStr := h.Backend.WebACLARN(w.Name, w.ID, w.Scope)
+				arnStr := w.ARN
 
 				return arnStr
 			},
@@ -126,7 +126,7 @@ func TestHandler_UntagResource(t *testing.T) {
 					nil,
 					map[string]string{"env": "prod"},
 				)
-				arnStr := h.Backend.IPSetARN(s.Name, s.ID, s.Scope)
+				arnStr := s.ARN
 
 				return arnStr
 			},
@@ -370,7 +370,7 @@ func TestHandler_ListTagsForResource_Pagination(t *testing.T) {
 	w, err := wafv2.CreateWebACLSimple(h.Backend, "paginated-tags-acl", "REGIONAL", "", "ALLOW", nil)
 	require.NoError(t, err)
 
-	arnStr := h.Backend.WebACLARN(w.Name, w.ID, w.Scope)
+	arnStr := w.ARN
 
 	tagRec := doWafv2Request(t, h, "TagResource", map[string]any{
 		"ResourceARN": arnStr,

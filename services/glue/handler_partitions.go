@@ -376,11 +376,6 @@ func (h *Handler) filterPartitionsByExpression(
 		return nil, err
 	}
 
-	keyNames := make([]string, len(tbl.PartitionKeys))
-	for i, col := range tbl.PartitionKeys {
-		keyNames[i] = col.Name
-	}
-
 	pred, err := parsePartitionExpr(in.Expression)
 	if err != nil {
 		return nil, fmt.Errorf("%w: invalid Expression: %w", ErrValidation, err)
@@ -388,7 +383,7 @@ func (h *Handler) filterPartitionsByExpression(
 
 	filtered := partitions[:0]
 	for _, p := range partitions {
-		if pred.eval(keyNames, p.Values) {
+		if pred.eval(tbl.PartitionKeys, p.Values) {
 			filtered = append(filtered, p)
 		}
 	}

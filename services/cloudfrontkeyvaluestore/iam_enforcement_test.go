@@ -67,6 +67,7 @@ func setupCLOUDFRONTKEYVALUESTOREEnforcementServer(
 	t.Helper()
 
 	backend := cloudfront.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
+	t.Cleanup(backend.Close)
 	kvs, err := backend.CreateKeyValueStore("kvs-1", "", nil)
 	require.NoError(t, err)
 	handler := cloudfrontkeyvaluestore.NewHandler(backend)

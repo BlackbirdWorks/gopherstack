@@ -73,18 +73,10 @@ func (h *Handler) handleEnableHub(c *echo.Context, body map[string]any) error {
 	return c.JSON(http.StatusOK, map[string]any{})
 }
 
-// handleDisableHub's ErrHubNotEnabled case is intentionally left without a
-// X-Amzn-Errortype header: DisableSecurityHub models both InvalidAccessException
-// ("the account doesn't have permission") and ResourceNotFoundException ("can't
-// find the specified resource") (securityhub@v1.75.4 deserializers.go), and
-// nothing in the pinned SDK disambiguates which one real AWS returns for an
-// unsubscribed account -- emitting either would be a guess, not a verified type.
 func (h *Handler) handleDisableHub(c *echo.Context) error {
 	if err := h.Backend.DisableHub(); err != nil {
 		if errors.Is(err, ErrHubNotEnabled) {
-			return c.JSON(http.StatusBadRequest, map[string]any{
-				keyMessage: msgHubNotEnabled,
-			})
+			return hubNotSubscribed(c)
 		}
 
 		if errors.Is(err, ErrHubIsAdministrator) {
@@ -97,16 +89,11 @@ func (h *Handler) handleDisableHub(c *echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{})
 }
 
-// handleDescribeHub's ErrHubNotEnabled case is left unheadered for the same
-// reason as handleDisableHub above (DescribeHub's error list has the same
-// InvalidAccessException/ResourceNotFoundException ambiguity).
 func (h *Handler) handleDescribeHub(c *echo.Context) error {
 	hub, err := h.Backend.DescribeHub()
 	if err != nil {
 		if errors.Is(err, ErrHubNotEnabled) {
-			return c.JSON(http.StatusBadRequest, map[string]any{
-				keyMessage: "SecurityHub is not subscribed",
-			})
+			return hubNotSubscribed(c)
 		}
 
 		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
@@ -140,15 +127,10 @@ func (h *Handler) handleUpdateHubConfig(c *echo.Context, body map[string]any) er
 		controlFindingGenerator = &v
 	}
 
-	// ErrHubNotEnabled is left unheadered here too -- same
-	// InvalidAccessException/ResourceNotFoundException ambiguity as
-	// handleDisableHub/handleDescribeHub.
 	err := h.Backend.UpdateHubConfiguration(autoEnableControls, autoEnableStandards, controlFindingGenerator)
 	if err != nil {
 		if errors.Is(err, ErrHubNotEnabled) {
-			return c.JSON(http.StatusBadRequest, map[string]any{
-				keyMessage: msgHubNotEnabled,
-			})
+			return hubNotSubscribed(c)
 		}
 
 		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())

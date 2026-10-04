@@ -17,6 +17,22 @@ func (b *InMemoryBackend) customDataIDARN(id string) string {
 	return arn.Build("macie2", b.region, b.accountID, fmt.Sprintf("custom-data-identifier/%s", id))
 }
 
+// resolveMatchDistance applies the documented 1-300 range and default of 50.
+func resolveMatchDistance(maxMatchDistance *int32) (int32, error) {
+	if maxMatchDistance == nil {
+		return defaultMatchDist, nil
+	}
+
+	if *maxMatchDistance < minMatchDist || *maxMatchDistance > maxMatchDist {
+		return 0, fmt.Errorf(
+			"%w: maximumMatchDistance must be between %d and %d",
+			ErrValidation, minMatchDist, maxMatchDist,
+		)
+	}
+
+	return *maxMatchDistance, nil
+}
+
 // CreateCustomDataIdentifier creates a new custom data identifier.
 func (b *InMemoryBackend) CreateCustomDataIdentifier(
 	name, description, regex string,
@@ -29,16 +45,9 @@ func (b *InMemoryBackend) CreateCustomDataIdentifier(
 		return "", fmt.Errorf("%w: regex is invalid: %s", ErrValidation, compileErr.Error())
 	}
 
-	dist := defaultMatchDist
-	if maxMatchDistance != nil {
-		if *maxMatchDistance < minMatchDist || *maxMatchDistance > maxMatchDist {
-			return "", fmt.Errorf(
-				"%w: maximumMatchDistance must be between %d and %d",
-				ErrValidation, minMatchDist, maxMatchDist,
-			)
-		}
-
-		dist = *maxMatchDistance
+	dist, distErr := resolveMatchDistance(maxMatchDistance)
+	if distErr != nil {
+		return "", distErr
 	}
 
 	b.mu.Lock("CreateCustomDataIdentifier")
@@ -160,14 +169,14 @@ func (b *InMemoryBackend) TestCustomDataIdentifier(
 		return 0, ErrValidation
 	}
 
+	dist, distErr := resolveMatchDistance(maxMatchDistance)
+	if distErr != nil {
+		return 0, distErr
+	}
+
 	matches := re.FindAllStringIndex(sampleText, -1)
 	if len(matches) == 0 {
 		return 0, nil
-	}
-
-	dist := defaultMatchDist
-	if maxMatchDistance != nil {
-		dist = *maxMatchDistance
 	}
 
 	count := int32(0)
@@ -179,7 +188,7 @@ func (b *InMemoryBackend) TestCustomDataIdentifier(
 			continue
 		}
 
-		if len(keywords) > 0 && !hasKeywordBefore(sampleText, match[0], keywords, int(dist)) {
+		if len(keywords) > 0 && !hasKeywordBefore(sampleText, match[0], match[1], keywords, int(dist)) {
 			continue
 		}
 
@@ -201,13 +210,19 @@ func containsIgnoreWord(text string, ignoreWords []string) bool {
 	return false
 }
 
-func hasKeywordBefore(text string, matchStart int, keywords []string, dist int) bool {
-	start := max(matchStart-dist, 0)
-
-	preceding := strings.ToLower(text[start:matchStart])
+// hasKeywordBefore reports whether a complete keyword precedes the match and
+// ends within dist characters of the end of the matched text.
+func hasKeywordBefore(text string, matchStart, matchEnd int, keywords []string, dist int) bool {
+	preceding := strings.ToLower(text[:matchStart])
 
 	for _, kw := range keywords {
-		if strings.Contains(preceding, strings.ToLower(kw)) {
+		kw = strings.ToLower(kw)
+		if kw == "" {
+			continue
+		}
+
+		idx := strings.LastIndex(preceding, kw)
+		if idx >= 0 && matchEnd-(idx+len(kw)) <= dist {
 			return true
 		}
 	}

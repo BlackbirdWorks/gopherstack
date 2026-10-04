@@ -159,7 +159,15 @@ func (b *InMemoryBackend) GetFunction(name string) (*FunctionConfiguration, erro
 		return nil, ErrFunctionNotFound
 	}
 
-	return fn, nil
+	return cloneFunctionConfig(fn), nil
+}
+
+// cloneFunctionConfig stops a caller from racing scheduleFunctionActive,
+// TagResource or UntagResource, which mutate fn's fields under the lock.
+func cloneFunctionConfig(fn *FunctionConfiguration) *FunctionConfiguration {
+	cp := *fn
+
+	return &cp
 }
 
 // GetFunctionByQualifier returns the configuration for a specific qualifier
@@ -238,7 +246,12 @@ func (b *InMemoryBackend) ListFunctions(
 	b.mu.RLock("ListFunctions")
 	defer b.mu.RUnlock()
 
-	fns := b.functions.All()
+	stored := b.functions.All()
+	fns := make([]*FunctionConfiguration, len(stored))
+
+	for i, fn := range stored {
+		fns[i] = cloneFunctionConfig(fn)
+	}
 
 	sort.Slice(fns, func(i, j int) bool {
 		return fns[i].FunctionName < fns[j].FunctionName
@@ -258,7 +271,12 @@ func (b *InMemoryBackend) ListFunctionsAll(
 	defer b.mu.RUnlock()
 
 	// Include $LATEST for each function.
-	fns := b.functions.All()
+	stored := b.functions.All()
+	fns := make([]*FunctionConfiguration, 0, len(stored))
+
+	for _, fn := range stored {
+		fns = append(fns, cloneFunctionConfig(fn))
+	}
 
 	// Include all published versions.
 	for name, vMap := range b.versionIndex {

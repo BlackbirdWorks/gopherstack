@@ -60,6 +60,15 @@ func (h *Handler) getHandlerForRegion(region string) *Handler {
 	return handler
 }
 
+// BackendFor returns the backend serving region, creating it on first use; "" is the home region.
+func (h *Handler) BackendFor(region string) *InMemoryBackend {
+	if region == "" {
+		return h.Backend
+	}
+
+	return h.getHandlerForRegion(region).Backend
+}
+
 // Reset clears all backend state. Useful for test isolation.
 func (h *Handler) Reset() {
 	h.mu.Lock()
@@ -101,7 +110,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return false
 		}
 
-		body, err := httputils.ReadBody(r)
+		_, err := httputils.ReadBody(r)
 		if err != nil {
 			// Body unreadable (e.g. oversized): fall back to the User-Agent
 			// marker every aws-sdk-go-v2 rds client sets (api_client.go's
@@ -111,7 +120,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return service.MatchesUserAgentMarker(r.Header, "api/rds")
 		}
 
-		vals, err := url.ParseQuery(string(body))
+		vals, err := httputils.ParseFormBody(r)
 		if err != nil {
 			return false
 		}
@@ -531,6 +540,8 @@ func rdsErrorCode(opErr error) string {
 		{ErrOptionGroupAlreadyExists, "OptionGroupAlreadyExistsFault"},
 		{ErrClusterNotFound, "DBClusterNotFoundFault"},
 		{ErrClusterAlreadyExists, "DBClusterAlreadyExistsFault"},
+		{ErrClusterRoleAlreadyExists, "DBClusterRoleAlreadyExists"},
+		{ErrClusterRoleNotFound, "DBClusterRoleNotFound"},
 		{ErrClusterSnapshotNotFound, "DBClusterSnapshotNotFoundFault"},
 		{ErrClusterSnapshotAlreadyExists, "DBClusterSnapshotAlreadyExistsFault"},
 		{ErrClusterEndpointNotFound, "DBClusterEndpointNotFoundFault"},
@@ -562,6 +573,7 @@ func rdsErrorCode(opErr error) string {
 		{ErrDBProxyEndpointAlreadyExists, "DBProxyEndpointAlreadyExistsFault"},
 		{ErrCannotDeleteDefaultProxyEndpoint, "InvalidDBProxyEndpointStateFault"},
 		{ErrDBProxyNotFound, "DBProxyNotFoundFault"},
+		{ErrDBProxyTargetGroupNotFound, "DBProxyTargetGroupNotFoundFault"},
 		{ErrDBProxyEndpointNotFound, "DBProxyEndpointNotFoundFault"},
 	}
 

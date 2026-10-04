@@ -190,6 +190,69 @@ func TestDecodeReaderItems(t *testing.T) {
 			data:    []byte("ignored"),
 			wantErr: true,
 		},
+		{
+			name: "csv_pipe_delimiter",
+			cfg:  &asl.ReaderConfig{InputType: "CSV", CSVDelimiter: "PIPE"},
+			data: []byte("col1|col2\nx|1\ny|2\n"),
+			want: []any{
+				map[string]any{"col1": "x", "col2": "1"},
+				map[string]any{"col1": "y", "col2": "2"},
+			},
+		},
+		{
+			name: "csv_semicolon_delimiter_lowercase",
+			cfg:  &asl.ReaderConfig{InputType: "CSV", CSVDelimiter: "semicolon"},
+			data: []byte("a;b\n1;2\n"),
+			want: []any{map[string]any{"a": "1", "b": "2"}},
+		},
+		{
+			name: "csv_tab_delimiter",
+			cfg:  &asl.ReaderConfig{InputType: "CSV", CSVDelimiter: "TAB"},
+			data: []byte("a\tb\n1\t2\n"),
+			want: []any{map[string]any{"a": "1", "b": "2"}},
+		},
+		{
+			name: "csv_space_delimiter",
+			cfg:  &asl.ReaderConfig{InputType: "CSV", CSVDelimiter: "SPACE"},
+			data: []byte("a b\n1 2\n"),
+			want: []any{map[string]any{"a": "1", "b": "2"}},
+		},
+		{
+			name:    "csv_unsupported_delimiter",
+			cfg:     &asl.ReaderConfig{InputType: "CSV", CSVDelimiter: "COLON"},
+			data:    []byte("a:b\n1:2\n"),
+			wantErr: true,
+		},
+		{
+			name: "items_pointer_selects_nested_array",
+			cfg:  &asl.ReaderConfig{InputType: "JSON", ItemsPointer: "/data/items"},
+			data: []byte(`{"data":{"items":[{"id":1.0},{"id":2.0}]}}`),
+			want: []any{map[string]any{"id": 1.0}, map[string]any{"id": 2.0}},
+		},
+		{
+			name: "items_pointer_array_index_segment",
+			cfg:  &asl.ReaderConfig{InputType: "JSON", ItemsPointer: "/data/0/items"},
+			data: []byte(`{"data":[{"items":[{"id":1.0}]}]}`),
+			want: []any{map[string]any{"id": 1.0}},
+		},
+		{
+			name:    "items_pointer_not_an_array",
+			cfg:     &asl.ReaderConfig{InputType: "JSON", ItemsPointer: "/data"},
+			data:    []byte(`{"data":{"id":1}}`),
+			wantErr: true,
+		},
+		{
+			name:    "items_pointer_missing_path",
+			cfg:     &asl.ReaderConfig{InputType: "JSON", ItemsPointer: "/nope"},
+			data:    []byte(`{"data":[1,2]}`),
+			wantErr: true,
+		},
+		{
+			name:    "items_pointer_must_start_with_slash",
+			cfg:     &asl.ReaderConfig{InputType: "JSON", ItemsPointer: "data"},
+			data:    []byte(`{"data":[1,2]}`),
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {

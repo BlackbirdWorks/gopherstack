@@ -22,7 +22,7 @@ func (t epochTime) MarshalJSON() ([]byte, error) {
 type StorageBackend interface {
 	CreateFileSystem(input *createFileSystemInput) (*FileSystem, error)
 	DescribeFileSystems(ids []string, maxResults int32, nextToken string) ([]*FileSystem, string, error)
-	DeleteFileSystem(fileSystemID string) error
+	DeleteFileSystem(in *deleteFileSystemInput) (*deleteFileSystemOutput, error)
 	UpdateFileSystem(input *updateFileSystemInput) (*FileSystem, error)
 
 	CreateBackup(input *createBackupInput) (*Backup, error)
@@ -92,7 +92,7 @@ type StorageBackend interface {
 
 	CreateVolume(input *createVolumeInput) (*Volume, error)
 	CreateVolumeFromBackup(input *createVolumeFromBackupInput) (*Volume, error)
-	DeleteVolume(volumeID string) error
+	DeleteVolume(in *deleteVolumeInput) (*deleteVolumeOutput, error)
 	DescribeVolumes(
 		ids []string,
 		filters []wireFilter,
@@ -243,6 +243,7 @@ type DataRepositoryConfiguration struct {
 type Backup struct {
 	CreationTime epochTime   `json:"CreationTime"`
 	FileSystem   *FileSystem `json:"FileSystem,omitempty"`
+	Volume       *Volume     `json:"Volume,omitempty"`
 	BackupID     string      `json:"BackupId"`
 	BackupType   string      `json:"Type"`
 	Lifecycle    string      `json:"Lifecycle"`

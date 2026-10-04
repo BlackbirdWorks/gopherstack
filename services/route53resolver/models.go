@@ -98,10 +98,12 @@ const (
 )
 
 type IPAddress struct {
-	IPID     string `json:"ipID"`
-	SubnetID string `json:"subnetID"`
-	IP       string `json:"ip"`
-	Ipv6     string `json:"ipv6,omitempty"`
+	IPID             string `json:"ipID"`
+	SubnetID         string `json:"subnetID"`
+	IP               string `json:"ip"`
+	Ipv6             string `json:"ipv6,omitempty"`
+	CreationTime     string `json:"creationTime,omitempty"`
+	ModificationTime string `json:"modificationTime,omitempty"`
 }
 
 type ResolverEndpoint struct {

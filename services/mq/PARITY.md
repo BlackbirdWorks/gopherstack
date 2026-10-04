@@ -114,10 +114,11 @@ items_still_open:
   - "2026-08-29 sweep: `go run ./cmd/acceptguard` flagged handler_configurations.go's createConfigurationInput reading a 'Description' JSON field on CreateConfiguration -- confirmed against serializers.go's awsRestjson1_serializeOpDocumentCreateConfigurationInput that the real CreateConfigurationInput NEVER serializes a description key (only authenticationStrategy/engineType/engineVersion/name/tags). Verdict: harmless, not fixed -- a real SDK client can never populate this field on Create (it will always decode as \"\"), which exactly matches real AWS's own behavior (Configuration.Description starts empty on Create and is set via UpdateConfiguration, which gopherstack already supports correctly). Pre-existing, not introduced this pass; left as-is rather than removed since gopherstack's own internal Go backend API and non-SDK/raw test callers use the same positional description parameter for convenience."
   - "DescribeSharedResources (now callable via aws-sdk-go-v2/service/mq@v1.39.4, the pinned version) always returns an empty sharedResources list: this backend does not model AWS RAM cross-account resource sharing, so there is no real state to report against. This is an honest empty result, not a stub -- BrokerId is still validated against real broker state. UpdateBrokerInput/Output.resourceShareArns (2026-08-29) is accept-and-echo only for the same reason -- there is no real resource-share state for it to affect."
   - "2026-08-29: DescribeBrokerOutput.pendingStorageSize/UpdateBrokerOutput.storageSize semantics assume storage size behaves like EngineVersion/HostInstanceType (stage-then-promote-on-reboot); the pinned SDK's doc text for these fields is terse enough that this is a best-effort interpretation, not a confirmed AWS behavior (real EBS/EFS volume resize is likely asynchronous and NOT reboot-gated in the live service). Flagged for a future pass with access to real AWS behavior to confirm or correct."
+  - "Docker engine (--mq-engine=docker, 2026-10-03): endpoints are plaintext only (amqp://, tcp:// OpenWire, stomp://, mqtt:// -- no TLS, so no amqps/ssl/+ssl forms), multi-AZ deployment modes run one container and report one broker instance, ActiveMQ AMQP/WSS ports and the ActiveMQ web console are not published, and only the first CreateBroker user is configured: CreateUser/UpdateUser/DeleteUser and broker configurations are not applied to the running container."
 deferred:
   - "Full CRDR (cross-region data replication) simulation: Promote/DataReplicationMetadata population when dataReplicationMode=CRDR is not modeled beyond accepting/echoing the mode string, seeding DataReplicationMetadata.DataReplicationCounterpart from CreateBroker's dataReplicationPrimaryBrokerArn, and (2026-09-12) requiring/flipping DataReplicationRole REPLICA->PRIMARY on Promote -- no data actually moves between a simulated pair, and the counterpart broker's own role is not updated in tandem (this backend has no bidirectional pairing state to update it through). Considered explicitly this pass (gopherstack-7wz5) and ruled out of scope: a half-modelled cross-region replication state machine (pairing brokers, propagating data, promote semantics) would report a state no client could rely on, which is worse than the current honest non-implementation. User.ReplicationUser is now accepted/echoed (see CreateUser/UpdateUser/DescribeUser above) but its CRDR *effects* (actual replication) remain part of this same deferred surface. 2026-08-20 wrapper-key sweep fixed the WIRE SHAPE of what is emitted (DataReplicationCounterpart is now the real nested {brokerId, region} object, parsed best-effort from the given ARN since there is no real cross-region broker to look up) without expanding the deferred simulation itself -- see CreateBroker's note."
 
-leaks: {status: clean, note: "no goroutines, tickers, or background janitors in services/mq; purely synchronous in-memory backend guarded by a single lockmetrics.RWMutex. Verified this pass: DeleteBroker's lazy removal still drops the whole Broker value (Users map included) from the store.Table in one shot on the next Describe/List read -- no separate top-level user collection to leak. Reboot promotion (promoteBrokerReboot/promoteBrokerUsers) runs synchronously inside the already-held write lock taken by DescribeBroker/ListBrokers/RebootBroker; no new lock paths or goroutines introduced."}
+leaks: {status: clean, note: "stub mode (default) has no goroutines, tickers, or background janitors in services/mq (docker mode: one startup goroutine per broker, reaped on DeleteBroker/Reset/Restore/Close, see the 2026-10-03 note); purely synchronous in-memory backend guarded by a single lockmetrics.RWMutex. Verified this pass: DeleteBroker's lazy removal still drops the whole Broker value (Users map included) from the store.Table in one shot on the next Describe/List read -- no separate top-level user collection to leak. Reboot promotion (promoteBrokerReboot/promoteBrokerUsers) runs synchronously inside the already-held write lock taken by DescribeBroker/ListBrokers/RebootBroker; no new lock paths or goroutines introduced."}
 
 ## gopherstack-o7gx follow-up (2026-08-22): default error path emitted InternalError instead of the modeled fault
 
@@ -193,3 +194,26 @@ CreateConfiguration's handler read a "description" field CreateConfigurationInpu
 (a new revision). Removed the read; the server now always synthesizes a
 non-empty description at creation instead of trusting client input no real
 client can send. See `TestCreateConfiguration_NoDescriptionMember`.
+
+## 2026-10-03 -- optional Docker-backed brokers (--mq-engine)
+
+`--mq-engine=docker` (`MQ_ENGINE`, default `stub`; `MQ_BROKER_HOST` overrides the advertised host; ports bind 127.0.0.1 unless it is non-loopback, then all interfaces) starts
+one container per broker that has a user: `rabbitmq:3.13.7-management` (RABBITMQ) or
+`apache/activemq-classic:5.18.7` (ACTIVEMQ), configured with `Users[0]`. The broker is
+CREATION_IN_PROGRESS until a real AMQP/STOMP login succeeds, then RUNNING (CREATION_FAILED on start error
+or timeout). DescribeBroker reports the real endpoints and, for RabbitMQ, the management console URL.
+DeleteBroker, Reset, Restore and Close remove the containers. Container IDs, ports and passwords are
+runtime state and are not persisted (no snapshot version bump): Restore relaunches an empty container per
+broker with the first username and a random password, so queues, messages and credentials do not survive.
+ActiveMQ credentials containing `/ & \ < > " '` are rejected (the image seds them into its config).
+Lambda event source mappings consume from these brokers (see services/lambda/PARITY.md). Metadata-only
+brokers (the default, or a broker with no users) behave as before. Proven by `broker_engine_test.go` and
+the Docker-gated `TestMQESMRealRabbitMQ` / `TestMQESMRealActiveMQ` in services/lambda.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+Amazon MQ is region-isolated: each non-home region gets a lazily built sibling `Handler` (own brokers, configurations, users, tags; region-correct ARNs) via `pkgs/regionpeers`. Siblings inherit the docker broker-engine config; the runtime and the bounded port allocator are shared and only the home backend closes the runtime. Lambda MQ event source mappings resolve the broker in its ARN region (`mqRegionResolver`). Snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestHandler_MultiRegionLegacyRestore`, `TestHandler_MultiRegionDockerBrokers`, `TestMQRegionResolver_ResolvesBrokerInARNRegion`, `TestRegionIsolation/mq`.
+
+## 2026-10-04 (reqfielddiff tier-1 pass)
+
+`DescribeSharedResources.MaxResults` stays recorded: the op is structurally always empty (no AWS RAM sharing state), so there is nothing to page.

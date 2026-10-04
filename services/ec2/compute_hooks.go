@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
@@ -372,4 +373,43 @@ func (b *InMemoryBackend) LookupInstancePublicDNSName(instanceID string) string 
 	}
 
 	return inst.PublicDNSName
+}
+
+// releaseTimeout bounds terminating every backing container when a backend is dropped.
+const releaseTimeout = 30 * time.Second
+
+// releaseCompute terminates every backing container (and its DNS name and SSH port) of h's backend.
+func (h *Handler) releaseCompute() {
+	cb, c := h.computeBackend()
+	mem, ok := h.Backend.(*InMemoryBackend)
+
+	if c == nil || !ok {
+		return
+	}
+
+	providerIDs, dnsNames := mem.computeResources()
+	if len(providerIDs) == 0 {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(h.svcCtx), releaseTimeout)
+	defer cancel()
+
+	h.terminateOnCompute(ctx, cb, c, providerIDs, dnsNames)
+}
+
+func (b *InMemoryBackend) computeResources() (map[string]string, map[string]string) {
+	b.mu.RLock("computeResources")
+	defer b.mu.RUnlock()
+
+	providerIDs, dnsNames := make(map[string]string), make(map[string]string)
+
+	for _, inst := range b.instances.All() {
+		if inst.ProviderID != "" {
+			providerIDs[inst.ID] = inst.ProviderID
+			dnsNames[inst.ID] = inst.PublicDNSName
+		}
+	}
+
+	return providerIDs, dnsNames
 }

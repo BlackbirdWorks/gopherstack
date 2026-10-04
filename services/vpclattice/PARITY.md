@@ -387,3 +387,11 @@ per-item-status operation in this service -- is fully wired: both
 
 No test changes; no source changes. Recorded as genuinely clean for this bug
 class.
+
+## Notes (2026-10-03 pass — gopherstack-uox6 value-semantics audit)
+
+Audited clean: SNRA IncludeChildren, ListTargets target filter, association filters accept ID or ARN. No change.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+vpclattice is region-isolated: Service networks, services, listeners, rules and target groups live per region. Tagging bridge covers every region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/vpclattice`. Limitation: the dashboard shows the home region only.

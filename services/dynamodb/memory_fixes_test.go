@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/services/dynamodb"
@@ -124,15 +125,17 @@ func TestExpressionCacheTTL_LazyEvictionOnGet(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			cache := dynamodb.NewExpressionCacheWithTTL(100, tt.ttl)
-			cache.Put("my-key", "my-value")
+			synctest.Test(t, func(t *testing.T) {
+				cache := dynamodb.NewExpressionCacheWithTTL(100, tt.ttl)
+				cache.Put("my-key", "my-value")
 
-			if tt.sleepFor > 0 {
-				time.Sleep(tt.sleepFor)
-			}
+				if tt.sleepFor > 0 {
+					time.Sleep(tt.sleepFor)
+				}
 
-			_, found := cache.Get("my-key")
-			assert.Equal(t, tt.wantFound, found)
+				_, found := cache.Get("my-key")
+				assert.Equal(t, tt.wantFound, found)
+			})
 		})
 	}
 }
@@ -161,42 +164,44 @@ func TestExpressionCacheTTL_SweepRemovesExpiredEntries(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			// Use a cache with a very short TTL so entries expire quickly.
-			cache := dynamodb.NewExpressionCacheWithTTL(200, 1*time.Millisecond)
+			synctest.Test(t, func(t *testing.T) {
+				// Use a cache with a very short TTL so entries expire quickly.
+				cache := dynamodb.NewExpressionCacheWithTTL(200, 1*time.Millisecond)
 
-			// Add entries with the short TTL — they will expire.
-			for i := range tt.nExpired {
-				cache.Put(fmt.Sprintf("expired-%d", i), i)
-			}
+				// Add entries with the short TTL — they will expire.
+				for i := range tt.nExpired {
+					cache.Put(fmt.Sprintf("expired-%d", i), i)
+				}
 
-			// Wait for the short-TTL entries to expire.
-			time.Sleep(5 * time.Millisecond)
+				// Wait for the short-TTL entries to expire.
+				time.Sleep(5 * time.Millisecond)
 
-			// Add fresh entries into a SEPARATE long-TTL cache. Using a separate
-			// instance avoids TTL races with the short-TTL cache above and lets us
-			// assert independently. For mixed-cache behaviour (expired + fresh in the
-			// same cache instance), see TestExpressionCacheTTL_SweepMixedInSameCache.
-			freshCache := dynamodb.NewExpressionCacheWithTTL(200, 1*time.Hour)
+				// Add fresh entries into a SEPARATE long-TTL cache. Using a separate
+				// instance avoids TTL races with the short-TTL cache above and lets us
+				// assert independently. For mixed-cache behaviour (expired + fresh in the
+				// same cache instance), see TestExpressionCacheTTL_SweepMixedInSameCache.
+				freshCache := dynamodb.NewExpressionCacheWithTTL(200, 1*time.Hour)
 
-			for i := range tt.nFresh {
-				freshCache.Put(fmt.Sprintf("fresh-%d", i), i)
-			}
+				for i := range tt.nFresh {
+					freshCache.Put(fmt.Sprintf("fresh-%d", i), i)
+				}
 
-			// Sweep the short-TTL cache — all expired entries should be removed.
-			cache.Sweep()
+				// Sweep the short-TTL cache — all expired entries should be removed.
+				cache.Sweep()
 
-			for i := range tt.nExpired {
-				_, found := cache.Get(fmt.Sprintf("expired-%d", i))
-				assert.False(t, found, "expired entry %d should be gone after Sweep", i)
-			}
+				for i := range tt.nExpired {
+					_, found := cache.Get(fmt.Sprintf("expired-%d", i))
+					assert.False(t, found, "expired entry %d should be gone after Sweep", i)
+				}
 
-			// The long-TTL cache entries should survive their own sweep.
-			freshCache.Sweep()
+				// The long-TTL cache entries should survive their own sweep.
+				freshCache.Sweep()
 
-			for i := range tt.nFresh {
-				_, found := freshCache.Get(fmt.Sprintf("fresh-%d", i))
-				assert.True(t, found, "fresh entry %d should survive Sweep", i)
-			}
+				for i := range tt.nFresh {
+					_, found := freshCache.Get(fmt.Sprintf("fresh-%d", i))
+					assert.True(t, found, "fresh entry %d should survive Sweep", i)
+				}
+			})
 		})
 	}
 }

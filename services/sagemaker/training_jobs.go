@@ -248,6 +248,7 @@ type OutputDataConfig struct {
 type ResourceConfig struct {
 	InstanceType             string          `json:"InstanceType"`
 	VolumeKmsKeyID           string          `json:"VolumeKmsKeyId,omitempty"`
+	TrainingPlanArn          string          `json:"TrainingPlanArn,omitempty"`
 	InstanceGroups           []InstanceGroup `json:"InstanceGroups,omitempty"`
 	InstanceCount            int32           `json:"InstanceCount"`
 	VolumeSizeInGB           int32           `json:"VolumeSizeInGB"`

@@ -667,3 +667,7 @@ Gates: `go build ./...`, `go vet ./services/elb/...`, `go test -race
 -count=1 ./services/elb/...` and `./pkgs/persistence/...`, `golangci-lint
 run --new-from-rev=HEAD ./services/elb/...` (0 issues). `go run
 ./cmd/paritylint` stays at 0 FAIL. No persisted-struct/snapshot changes.
+
+## 2026-10-04: region from the cross-service context (gopherstack-12q3n)
+
+Classic ELB already isolated load balancers per request region. The backend now also reads the region from the shared request metadata on the context, so in-process callers (Auto Scaling registering instances) act on the group's region instead of the home region. Proof: `TestRegionIsolation/elb`, `TestInitializeServices_AutoScalingRegistersClassicELBInGroupRegion`.

@@ -1,12 +1,15 @@
 package ssm_test
 
 import (
+	"context"
 	"errors"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	ssmsdk "github.com/aws/aws-sdk-go-v2/service/ssm"
 	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
+	smithy "github.com/aws/smithy-go"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/ssm"
@@ -207,4 +210,179 @@ func TestPutParameter_InvalidKMSKey_RealClient(t *testing.T) {
 
 	var ik *ssmtypes.InvalidKeyId
 	require.ErrorAs(t, err, &ik, "expected a real InvalidKeyId from the SDK deserializer")
+}
+
+// TestMaintenanceWindowUpdate_NotFound_RealClient: unknown IDs return DoesNotExistException.
+func TestMaintenanceWindowUpdate_NotFound_RealClient(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		call func(ctx context.Context, client *ssmsdk.Client) error
+		name string
+	}{
+		{
+			name: "UpdateMaintenanceWindowTarget",
+			call: func(ctx context.Context, client *ssmsdk.Client) error {
+				_, err := client.UpdateMaintenanceWindowTarget(ctx, &ssmsdk.UpdateMaintenanceWindowTargetInput{
+					WindowId:       aws.String("mw-0123456789abcdef0"),
+					WindowTargetId: aws.String("wt-0123456789abcdef0"),
+				})
+
+				return err
+			},
+		},
+		{
+			name: "UpdateMaintenanceWindowTask",
+			call: func(ctx context.Context, client *ssmsdk.Client) error {
+				_, err := client.UpdateMaintenanceWindowTask(ctx, &ssmsdk.UpdateMaintenanceWindowTaskInput{
+					WindowId:     aws.String("mw-0123456789abcdef0"),
+					WindowTaskId: aws.String("task-0123456789abcdef0"),
+				})
+
+				return err
+			},
+		},
+		{
+			name: "GetMaintenanceWindowTask",
+			call: func(ctx context.Context, client *ssmsdk.Client) error {
+				_, err := client.GetMaintenanceWindowTask(ctx, &ssmsdk.GetMaintenanceWindowTaskInput{
+					WindowId:     aws.String("mw-0123456789abcdef0"),
+					WindowTaskId: aws.String("task-0123456789abcdef0"),
+				})
+
+				return err
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newTestSSMClient(t, ssm.NewHandler(ssm.NewInMemoryBackend()))
+
+			err := tt.call(t.Context(), client)
+			require.Error(t, err)
+
+			var dne *ssmtypes.DoesNotExistException
+			require.ErrorAs(t, err, &dne, "expected a real DoesNotExistException from the SDK deserializer")
+		})
+	}
+}
+
+// TestMaintenanceWindowUpdate_EmptyID_ValidationException: empty IDs reach the wire
+// (SDK only rejects nil) and must fail server-side.
+func TestMaintenanceWindowUpdate_EmptyID_ValidationException(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		call func(ctx context.Context, client *ssmsdk.Client) error
+		name string
+	}{
+		{
+			name: "UpdateMaintenanceWindowTarget_empty_WindowTargetId",
+			call: func(ctx context.Context, client *ssmsdk.Client) error {
+				_, err := client.UpdateMaintenanceWindowTarget(ctx, &ssmsdk.UpdateMaintenanceWindowTargetInput{
+					WindowId:       aws.String("mw-0123456789abcdef0"),
+					WindowTargetId: aws.String(""),
+				})
+
+				return err
+			},
+		},
+		{
+			name: "UpdateMaintenanceWindowTask_empty_WindowTaskId",
+			call: func(ctx context.Context, client *ssmsdk.Client) error {
+				_, err := client.UpdateMaintenanceWindowTask(ctx, &ssmsdk.UpdateMaintenanceWindowTaskInput{
+					WindowId:     aws.String("mw-0123456789abcdef0"),
+					WindowTaskId: aws.String(""),
+				})
+
+				return err
+			},
+		},
+		{
+			name: "GetMaintenanceWindowTask_empty_WindowTaskId",
+			call: func(ctx context.Context, client *ssmsdk.Client) error {
+				_, err := client.GetMaintenanceWindowTask(ctx, &ssmsdk.GetMaintenanceWindowTaskInput{
+					WindowId:     aws.String("mw-0123456789abcdef0"),
+					WindowTaskId: aws.String(""),
+				})
+
+				return err
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newTestSSMClient(t, ssm.NewHandler(ssm.NewInMemoryBackend()))
+
+			err := tt.call(t.Context(), client)
+			require.Error(t, err)
+
+			var apiErr smithy.APIError
+			require.ErrorAs(t, err, &apiErr)
+			assert.Equal(t, "ValidationException", apiErr.ErrorCode())
+		})
+	}
+}
+
+// TestDisassociateOpsItemRelatedItem_NotFound_RealClient: unknown OpsItem or association
+// returns its not-found error.
+func TestDisassociateOpsItemRelatedItem_NotFound_RealClient(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(t *testing.T, client *ssmsdk.Client) string
+		name     string
+		wantCode string
+	}{
+		{
+			name: "unknown_ops_item",
+			setup: func(t *testing.T, _ *ssmsdk.Client) string {
+				t.Helper()
+
+				return "oi-does-not-exist"
+			},
+			wantCode: "OpsItemNotFoundException",
+		},
+		{
+			name: "unknown_association",
+			setup: func(t *testing.T, client *ssmsdk.Client) string {
+				t.Helper()
+
+				created, err := client.CreateOpsItem(t.Context(), &ssmsdk.CreateOpsItemInput{
+					Title:       aws.String("disassociate-not-found-test"),
+					Source:      aws.String("EC2"),
+					Description: aws.String("desc"),
+				})
+				require.NoError(t, err)
+
+				return aws.ToString(created.OpsItemId)
+			},
+			wantCode: "OpsItemRelatedItemAssociationNotFoundException",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newTestSSMClient(t, ssm.NewHandler(ssm.NewInMemoryBackend()))
+			opsItemID := tt.setup(t, client)
+
+			_, err := client.DisassociateOpsItemRelatedItem(t.Context(), &ssmsdk.DisassociateOpsItemRelatedItemInput{
+				OpsItemId:     aws.String(opsItemID),
+				AssociationId: aws.String("assoc-does-not-exist"),
+			})
+			require.Error(t, err)
+
+			var apiErr smithy.APIError
+			require.ErrorAs(t, err, &apiErr)
+			assert.Equal(t, tt.wantCode, apiErr.ErrorCode())
+		})
+	}
 }

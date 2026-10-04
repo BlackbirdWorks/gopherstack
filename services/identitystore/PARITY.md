@@ -139,3 +139,7 @@ uncovered ops through a real `aws-sdk-go-v2/service/identitystore` client:
 Gates: `go build ./services/identitystore/...`, `go vet`, `go test -race
 -count=1` (clean), `golangci-lint run --new-from-rev=HEAD` (0 issues).
 `cmd/paritylint` stays at 0 FAIL.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+identitystore already region-isolated: same-named resources in two regions stay separate and each region lists only its own. No code change. Proof: `TestRegionIsolation/identitystore`.

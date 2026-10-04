@@ -85,6 +85,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		settings.CancelledSpotTTL,
 		ctx.JanitorTimeout,
 	)
+	handler.EnableRegions(svcCtx)
 
 	return handler, nil
 }

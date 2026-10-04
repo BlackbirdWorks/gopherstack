@@ -3,6 +3,7 @@ package eventbridge
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"maps"
 	"strings"
 	"sync"
@@ -10,8 +11,10 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/ctxval"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -28,6 +31,11 @@ type LambdaInvoker interface {
 // SQSSender can send a message to an SQS queue by URL or ARN.
 type SQSSender interface {
 	SendMessageToQueue(ctx context.Context, queueARN, messageBody string) error
+}
+
+// SQSAttributeSender is an optional SQSSender extension that sets string message attributes.
+type SQSAttributeSender interface {
+	SendMessageWithAttributes(ctx context.Context, queueARN, messageBody string, attrs map[string]string) error
 }
 
 // SNSPublisher can publish a message to an SNS topic by ARN.
@@ -82,6 +90,9 @@ type DeliveryTargets struct {
 	CloudWatchLogs  CloudWatchLogsPublisher
 	APIDestinations APIDestinationResolver
 	EventBusRouter  EventBusRouter
+	RoleAuth        roleauth.Authorizer
+	obs             ruleObserver
+	ruleARN         string
 }
 
 // EventBusRouter routes a matched event to another event bus, implementing
@@ -175,6 +186,8 @@ func (b *InMemoryBackend) deliverScheduledRule(
 		snapped = snapshotTargets(storedTargets)
 		accountID = b.accountID
 		dt = *b.deliveryTargets
+		dt.ruleARN = rule.Arn
+		dt.obs = ruleObserver{sink: &b.metrics, region: region, bus: busName, rule: rule.Name}
 		timeout = b.deliveryTimeout
 		if bus, exists := b.busesTable(region).Get(ebBusKey(busName)); exists {
 			busDLQ = bus.DeadLetterConfig
@@ -206,6 +219,8 @@ func (b *InMemoryBackend) deliverScheduledRule(
 	}
 	envelope := buildDeliveryEnvelope(entry, accountID, region)
 
+	dt.obs.matched()
+
 	var wg sync.WaitGroup
 	for _, t := range snapped {
 		target := t
@@ -235,11 +250,16 @@ func (b *InMemoryBackend) deliverEvents(
 	// the goroutine beyond the configured timeout.
 	for _, g := range groups {
 		var wg sync.WaitGroup
+		groupTargets := targets
+		groupTargets.ruleARN = g.ruleARN
+		groupTargets.obs = ruleObserver{sink: &b.metrics, region: region, bus: g.busName, rule: g.ruleName}
+		groupTargets.obs.matched()
+
 		for _, t := range g.targets {
 			target := t
 			envelope := g.envelope
 			wg.Go(func() {
-				deliverToTargetBounded(ctx, target, envelope, targets, timeout, g.busDLQ)
+				deliverToTargetBounded(ctx, target, envelope, groupTargets, timeout, g.busDLQ)
 			})
 		}
 		wg.Wait()
@@ -252,6 +272,9 @@ func (b *InMemoryBackend) deliverEvents(
 type deliveryGroup struct {
 	envelope map[string]any
 	busDLQ   *DeadLetterConfig
+	ruleARN  string
+	ruleName string
+	busName  string
 	targets  []*Target
 }
 
@@ -308,14 +331,18 @@ func (b *InMemoryBackend) matchedDeliveryGroupsForEntry(
 	}
 
 	busKey := ebBusKey(busName)
-	eventEnvelope := buildEventEnvelope(entry)
+	eventEnvelope := buildEventEnvelopeMap(entry)
 
 	var busDLQ *DeadLetterConfig
 	if bus, exists := b.busesTable(region).Get(busKey); exists {
 		busDLQ = bus.DeadLetterConfig
 	}
 
-	var groups []deliveryGroup
+	var (
+		groups      []deliveryGroup
+		detail      any
+		detailReady bool
+	)
 	for _, rule := range indexedRulesForEvent(ruleIndex[busKey], entry.Source, entry.DetailType) {
 		if !ruleMatchesForDelivery(rule, eventEnvelope, filterRuleARNs) {
 			continue
@@ -328,9 +355,16 @@ func (b *InMemoryBackend) matchedDeliveryGroupsForEntry(
 
 		// Build the delivery envelope once per matched rule so all targets
 		// for this rule share the same event id, matching AWS behaviour.
+		if !detailReady {
+			detail, detailReady = parseDeliveryDetail(entry), true
+		}
+
 		groups = append(groups, deliveryGroup{
-			envelope: buildDeliveryEnvelope(entry, accountID, region),
+			envelope: buildDeliveryEnvelopeWithDetail(entry, accountID, region, detail),
 			busDLQ:   busDLQ,
+			ruleARN:  rule.Arn,
+			ruleName: rule.Name,
+			busName:  busName,
 			targets:  snapshotTargets(storedTargets),
 		})
 	}
@@ -344,7 +378,7 @@ func (b *InMemoryBackend) matchedDeliveryGroupsForEntry(
 // empty filter), and the event pattern matches. eventEnvelope is the entry's
 // JSON-encoded event (see buildEventEnvelope), not the per-target delivery
 // envelope built separately below.
-func ruleMatchesForDelivery(rule *Rule, eventEnvelope string, filterRuleARNs map[string]struct{}) bool {
+func ruleMatchesForDelivery(rule *Rule, eventEnvelope map[string]any, filterRuleARNs map[string]struct{}) bool {
 	if rule.State != "ENABLED" || rule.EventPattern == "" {
 		return false
 	}
@@ -355,7 +389,7 @@ func ruleMatchesForDelivery(rule *Rule, eventEnvelope string, filterRuleARNs map
 		}
 	}
 
-	return matchCompiledPattern(rule.compiledPattern, eventEnvelope)
+	return matchCompiledPatternData(rule.compiledPattern, eventEnvelope)
 }
 
 // snapshotTargets returns copies of the stored target structs so delivery cannot
@@ -398,10 +432,20 @@ func deliverToTargetBounded(
 		}
 	}
 
+	dt.obs.invoked()
+
+	if reason := authorizeTarget(target, dt); reason != "" {
+		dt.obs.failed()
+		sendToDLQ(ctx, target, envelope, dt, busDLQ, reason)
+
+		return
+	}
+
 	eventAge := extractEventAge(envelope)
 
 	for attempt := 0; attempt <= maxAttempts; attempt++ {
 		if int(eventAge.Seconds()) > maxAgeSeconds {
+			dt.obs.failed()
 			sendToDLQ(ctx, target, envelope, dt, busDLQ, "MaximumEventAgeExceeded")
 
 			return
@@ -421,10 +465,24 @@ func deliverToTargetBounded(
 		}
 
 		if attempt == maxAttempts {
+			dt.obs.failed()
 			sendToDLQ(ctx, target, envelope, dt, busDLQ, "DeliveryFailure")
 
 			return
 		}
+
+		waitRetryBackoff(ctx, attempt)
+	}
+}
+
+// waitRetryBackoff pauses before the next attempt; EventBridge retries with exponential backoff.
+func waitRetryBackoff(ctx context.Context, attempt int) {
+	timer := time.NewTimer(retryBackoffBase << min(attempt, retryBackoffMaxShift))
+	defer timer.Stop()
+
+	select {
+	case <-timer.C:
+	case <-ctx.Done():
 	}
 }
 
@@ -475,10 +533,23 @@ func sendToDLQ(
 	payload, _ := json.Marshal(envelope)
 	dlqARN := dlq.Arn
 
-	if err := dt.SQS.SendMessageToQueue(ctx, dlqARN, string(payload)); err != nil {
+	var err error
+	if withAttrs, ok := dt.SQS.(SQSAttributeSender); ok {
+		err = withAttrs.SendMessageWithAttributes(ctx, dlqARN, string(payload), map[string]string{
+			"RULE_ARN": dt.ruleARN, "TARGET_ARN": target.Arn, "ERROR_CODE": reason,
+		})
+	} else {
+		err = dt.SQS.SendMessageToQueue(ctx, dlqARN, string(payload))
+	}
+
+	if err != nil {
 		log.WarnContext(ctx, "EventBridge: failed to send event to DLQ",
 			"dlq", dlqARN, "reason", reason, "error", err)
+
+		return
 	}
+
+	dt.obs.deadLettered()
 }
 
 func indexedRulesForEvent(
@@ -512,6 +583,14 @@ func indexedRulesForEvent(
 
 // buildEventEnvelope creates a JSON string representing the normalized event for pattern matching.
 func buildEventEnvelope(entry EventEntry) string {
+	b, _ := json.Marshal(buildEventEnvelopeMap(entry))
+
+	return string(b)
+}
+
+// buildEventEnvelopeMap returns the normalized event as the value a JSON round-trip
+// of buildEventEnvelope would yield, so pattern matching can skip the re-parse.
+func buildEventEnvelopeMap(entry EventEntry) map[string]any {
 	envelope := map[string]any{
 		"source":      entry.Source,
 		"detail-type": entry.DetailType,
@@ -532,16 +611,17 @@ func buildEventEnvelope(entry EventEntry) string {
 
 	if entry.Detail != "" {
 		var detail map[string]any
-		if err := json.Unmarshal([]byte(entry.Detail), &detail); err == nil {
-			envelope["detail"] = detail
-		} else {
+		switch err := json.Unmarshal([]byte(entry.Detail), &detail); {
+		case err != nil:
 			envelope["detail"] = entry.Detail
+		case detail == nil:
+			envelope["detail"] = nil
+		default:
+			envelope["detail"] = detail
 		}
 	}
 
-	b, _ := json.Marshal(envelope)
-
-	return string(b)
+	return envelope
 }
 
 // deliverToTarget delivers a single event to a single target.
@@ -565,7 +645,7 @@ func deliverToTarget(
 	case isKinesisFirehoseARN(targetARN):
 		return deliverToKinesisFirehose(ctx, dt.KinesisFirehose, targetARN, payload)
 	case isKinesisStreamARN(targetARN):
-		return deliverToKinesisStream(ctx, dt.KinesisStream, targetARN, payload)
+		return deliverToKinesisStream(ctx, dt.KinesisStream, target, envelope, payload)
 	case isECSARN(targetARN):
 		return deliverToECS(ctx, dt.ECS, targetARN, payload, target.EcsParameters)
 	case isStateMachineARN(targetARN):
@@ -652,20 +732,45 @@ func deliverToKinesisFirehose(
 func deliverToKinesisStream(
 	ctx context.Context,
 	svc KinesisStreamPublisher,
-	arn, payload string,
+	target *Target,
+	envelope map[string]any,
+	payload string,
 ) bool {
 	if svc == nil {
 		return false
 	}
-	partitionKey := uuid.New().String()
-	if err := svc.PutRecord(ctx, arn, partitionKey, payload); err != nil {
+
+	if err := svc.PutRecord(ctx, target.Arn, kinesisPartitionKey(target, envelope), payload); err != nil {
 		logger.Load(ctx).WarnContext(ctx, "EventBridge failed to put record to Kinesis Data Stream",
-			"arn", arn, "error", err)
+			"arn", target.Arn, "error", err)
 
 		return true
 	}
 
 	return false
+}
+
+// kinesisPartitionKey resolves KinesisParameters.PartitionKeyPath against the event, defaulting
+// to the event ID per the Target.KinesisParameters docs.
+func kinesisPartitionKey(target *Target, envelope map[string]any) string {
+	if target.KinesisParameters != nil {
+		switch v := jsonPathExtract(target.KinesisParameters.PartitionKeyPath, envelope).(type) {
+		case string:
+			if v != "" {
+				return v
+			}
+		case nil, map[string]any, []any:
+		default:
+			return fmt.Sprint(v)
+		}
+	}
+
+	id, _ := envelope["id"].(string)
+	if id == "" {
+		id = uuid.New().String()
+	}
+
+	return id
 }
 
 // deliverToECS runs the target's ECS task. When svc also implements
@@ -717,19 +822,27 @@ func buildPayload(target *Target, envelope map[string]any) string {
 // buildDeliveryEnvelope creates the full AWS EventBridge event envelope used for delivery payloads.
 // It includes id, version, time, account, region, source, detail-type, resources, and detail.
 func buildDeliveryEnvelope(entry EventEntry, accountID, region string) map[string]any {
+	return buildDeliveryEnvelopeWithDetail(entry, accountID, region, parseDeliveryDetail(entry))
+}
+
+// parseDeliveryDetail decodes entry.Detail once; the result is shared read-only.
+func parseDeliveryDetail(entry EventEntry) any {
+	if entry.Detail == "" {
+		return nil
+	}
+
+	var d any
+	if err := json.Unmarshal([]byte(entry.Detail), &d); err != nil {
+		return entry.Detail
+	}
+
+	return d
+}
+
+func buildDeliveryEnvelopeWithDetail(entry EventEntry, accountID, region string, detail any) map[string]any {
 	eventTime := time.Now()
 	if entry.Time != nil {
 		eventTime = *entry.Time
-	}
-
-	var detail any
-	if entry.Detail != "" {
-		var d any
-		if err := json.Unmarshal([]byte(entry.Detail), &d); err == nil {
-			detail = d
-		} else {
-			detail = entry.Detail
-		}
 	}
 
 	resources := entry.Resources
@@ -834,7 +947,7 @@ func deliverToCloudWatchLogs(ctx context.Context, svc CloudWatchLogsPublisher, a
 	}
 	logGroupName := parts[6]
 
-	err := svc.PutLogEvents(ctx, logGroupName, "EventBridge", []any{payload})
+	err := svc.PutLogEvents(awsmeta.WithRegion(ctx, parts[3]), logGroupName, "EventBridge", []any{payload})
 
 	return err != nil
 }

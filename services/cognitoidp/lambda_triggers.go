@@ -10,11 +10,8 @@ package cognitoidp
 // testdata fixtures, which mirror the JSON Amazon Cognito actually sends to a
 // trigger Lambda -- not just this package's own handler output.
 //
-// Trigger invocation happens while the caller already holds b.mu (Lock or RLock,
-// matching the surrounding method), consistent with this backend's coarse
-// per-backend RWMutex: Cognito itself blocks the originating API call until the
-// synchronous Lambda invocation completes, so serializing other backend operations
-// for that duration matches real behavior, not just an implementation shortcut.
+// Sign-in-path triggers (PreAuthentication, PreTokenGeneration, PostAuthentication)
+// run with b.mu released and re-validate pool/user afterwards; the others hold it.
 
 import (
 	"context"
@@ -53,6 +50,7 @@ const (
 	triggerSourceTokenGenAuthentication   = "TokenGeneration_Authentication"
 	triggerSourceTokenGenNewPasswordFlow  = "TokenGeneration_NewPasswordChallenge"
 	triggerSourceTokenGenRefreshTokens    = "TokenGeneration_RefreshTokens"
+	triggerSourceTokenGenHostedAuth       = "TokenGeneration_HostedAuth"
 	triggerSourceCustomMessageSignUp      = "CustomMessage_SignUp"
 	triggerSourceCustomMessageResendCode  = "CustomMessage_ResendCode"
 	triggerSourceCustomMessageForgotPwd   = "CustomMessage_ForgotPassword"
@@ -127,43 +125,82 @@ func lambdaConfigARN(cfg map[string]any, triggerKey string) string {
 	return ""
 }
 
-// invokeLambdaTrigger builds the standard Cognito trigger event envelope, invokes
-// the Lambda configured for triggerKey on pool (if any), and returns the "response"
-// sub-object from the (possibly modified) event the function returns.
-//
-// It returns (nil, nil) -- not an error -- when no invoker is wired or the pool has
-// no Lambda configured for triggerKey, so every call site's existing behavior is
-// preserved exactly for pools/deployments that never configure this feature.
-func (b *InMemoryBackend) invokeLambdaTrigger(
+// invokeTriggerUnlocked runs triggerKey's Lambda (if any) with b.mu released and returns its
+// "response"; caller holds the write lock and must re-validate what it read before the call.
+func (b *InMemoryBackend) invokeTriggerUnlocked(
 	pool *UserPool,
 	triggerKey, triggerSource, clientID, username string,
 	request map[string]any,
 	defaultResponse map[string]any,
 ) (map[string]any, error) {
+	call := b.prepareTrigger(pool, triggerKey, triggerSource, clientID, username, request, defaultResponse)
+	if call == nil {
+		return nil, nil //nolint:nilnil // sentinel "not configured" pair
+	}
+
+	var (
+		result map[string]any
+		err    error
+	)
+
+	b.releaseLocked("Trigger", func() {
+		result, err = call.inv.InvokeTrigger(context.Background(), call.functionARN, call.event)
+	})
+
+	return parseTriggerResult(triggerKey, result, err)
+}
+
+// triggerCall is a fully built trigger invocation, safe to run without b.mu.
+type triggerCall struct {
+	inv         LambdaTriggerInvoker
+	event       map[string]any
+	functionARN string
+}
+
+// prepareTrigger builds the invocation under b.mu; nil means no trigger is configured.
+func (b *InMemoryBackend) prepareTrigger(
+	pool *UserPool,
+	triggerKey, triggerSource, clientID, username string,
+	request map[string]any,
+	defaultResponse map[string]any,
+) *triggerCall {
 	if b.lambdaInvoker == nil || pool == nil {
-		return nil, nil //nolint:nilnil // sentinel "not configured" pair, documented above
+		return nil
 	}
 
 	functionARN := lambdaConfigARN(pool.LambdaConfig, triggerKey)
 	if functionARN == "" {
-		return nil, nil //nolint:nilnil // sentinel "not configured" pair, documented above
+		return nil
 	}
 
-	event := map[string]any{
-		"version":       "1",
-		"triggerSource": triggerSource,
-		"region":        b.region,
-		"userPoolId":    pool.ID,
-		"userName":      username,
-		"callerContext": map[string]any{
-			"awsSdkVersion": "gopherstack",
-			"clientId":      clientID,
+	return &triggerCall{
+		inv:         b.lambdaInvoker,
+		functionARN: functionARN,
+		event: map[string]any{
+			"version":       triggerEventVersion(pool, triggerKey),
+			"triggerSource": triggerSource,
+			"region":        b.region,
+			"userPoolId":    pool.ID,
+			"userName":      username,
+			"callerContext": map[string]any{
+				"awsSdkVersion": "gopherstack",
+				"clientId":      clientID,
+			},
+			"request":  request,
+			"response": defaultResponse,
 		},
-		"request":  request,
-		"response": defaultResponse,
+	}
+}
+
+func triggerEventVersion(pool *UserPool, triggerKey string) string {
+	if triggerKey == triggerKeyPreTokenGeneration {
+		return preTokenEventVersion(pool.LambdaConfig)
 	}
 
-	result, err := b.lambdaInvoker.InvokeTrigger(context.Background(), functionARN, event)
+	return "1"
+}
+
+func parseTriggerResult(triggerKey string, result map[string]any, err error) (map[string]any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s trigger: %s", ErrUserLambdaValidation, triggerKey, err.Error())
 	}
@@ -179,6 +216,87 @@ func (b *InMemoryBackend) invokeLambdaTrigger(
 	}
 
 	return resp, nil
+}
+
+// releaseLocked runs fn with b.mu released and re-acquires it even if fn panics.
+func (b *InMemoryBackend) releaseLocked(op string, fn func()) {
+	b.mu.Unlock()
+	defer b.mu.Lock(op)
+
+	fn()
+}
+
+// newUserSlotFreeLocked re-checks, after an unlocked trigger, that pool is still live
+// and username is still unclaimed, so a concurrent create wins instead of being overwritten.
+func (b *InMemoryBackend) newUserSlotFreeLocked(pool *UserPool, username string) error {
+	if cur, ok := b.pools.Get(pool.ID); !ok || cur != pool {
+		return fmt.Errorf("%w: user pool %q not found", ErrUserPoolNotFound, pool.ID)
+	}
+
+	if _, exists := b.users.Get(userKey(pool.ID, username)); exists {
+		return fmt.Errorf("%w: user %q already exists", ErrUsernameExists, username)
+	}
+
+	return nil
+}
+
+// authRecordCurrentLocked fails with the deleted-pool/user error when pool or user
+// is no longer the live record.
+func (b *InMemoryBackend) authRecordCurrentLocked(pool *UserPool, user *User) error {
+	if cur, ok := b.pools.Get(pool.ID); !ok || cur != pool {
+		return fmt.Errorf("%w: user pool %q not found", ErrUserPoolNotFound, pool.ID)
+	}
+
+	if cur, ok := b.users.Get(userKey(pool.ID, user.Username)); !ok || cur != user {
+		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, user.Username)
+	}
+
+	return nil
+}
+
+// authUserCurrentLocked is authRecordCurrentLocked plus the confirmed/enabled gates.
+func (b *InMemoryBackend) authUserCurrentLocked(pool *UserPool, user *User) error {
+	if err := b.authRecordCurrentLocked(pool, user); err != nil {
+		return err
+	}
+
+	if user.Status == UserStatusUnconfirmed {
+		return fmt.Errorf("%w: user %q is not confirmed", ErrUserNotConfirmed, user.Username)
+	}
+
+	if !user.Enabled {
+		return fmt.Errorf("%w: user %q account is disabled", ErrNotAuthorized, user.Username)
+	}
+
+	return nil
+}
+
+// invokeAuthTrigger runs a sign-in trigger with b.mu released (so it may call back in),
+// then re-validates pool and user. Caller must hold the write lock.
+func (b *InMemoryBackend) invokeAuthTrigger(
+	pool *UserPool, user *User,
+	triggerKey, triggerSource, clientID string,
+	request, defaultResponse map[string]any,
+) (map[string]any, error) {
+	call := b.prepareTrigger(pool, triggerKey, triggerSource, clientID, user.Username, request, defaultResponse)
+	if call == nil {
+		return nil, nil //nolint:nilnil // sentinel "not configured" pair
+	}
+
+	var (
+		result map[string]any
+		err    error
+	)
+
+	b.releaseLocked("AuthTrigger", func() {
+		result, err = call.inv.InvokeTrigger(context.Background(), call.functionARN, call.event)
+	})
+
+	if curErr := b.authRecordCurrentLocked(pool, user); curErr != nil {
+		return nil, curErr
+	}
+
+	return parseTriggerResult(triggerKey, result, err)
 }
 
 // stringMapToAny converts a map[string]string to map[string]any for embedding into
@@ -258,6 +376,38 @@ func parsePreSignUpResponse(resp map[string]any) (bool, bool, bool) {
 	return autoConfirm, autoVerifyEmail, autoVerifyPhone
 }
 
+// prepareCustomMessage builds the CustomMessage invocation under the read lock; nil
+// means no override applies.
+func (b *InMemoryBackend) prepareCustomMessage(clientID, username, triggerSource string) *triggerCall {
+	b.mu.RLock("InvokeCustomMessageTrigger")
+	defer b.mu.RUnlock()
+
+	client, clientOK := b.clients.Get(clientID)
+	if !clientOK {
+		return nil
+	}
+
+	pool, poolOK := b.pools.Get(client.UserPoolID)
+	if !poolOK {
+		return nil
+	}
+
+	var attrs map[string]string
+	if user, userOK := b.users.Get(userKey(client.UserPoolID, username)); userOK {
+		attrs = user.Attributes
+	}
+
+	return b.prepareTrigger(pool, triggerKeyCustomMessage, triggerSource, clientID, username,
+		map[string]any{
+			eventKeyUserAttributes: stringMapToAny(attrs),
+			"codeParameter":        customMessageCodeParameter,
+			"usernameParameter":    username,
+			eventKeyClientMetadata: map[string]any{},
+		},
+		map[string]any{"smsMessage": "", "emailMessage": "", "emailSubject": ""},
+	)
+}
+
 // InvokeCustomMessageTrigger fires the CustomMessage Lambda trigger (if configured)
 // for a code-delivery flow (SignUp, ResendConfirmationCode, ForgotPassword) and
 // returns any smsMessage/emailMessage/emailSubject override the Lambda supplied,
@@ -276,33 +426,14 @@ func parsePreSignUpResponse(resp map[string]any) (bool, bool, bool) {
 func (b *InMemoryBackend) InvokeCustomMessageTrigger(
 	clientID, username, code, triggerSource string,
 ) (string, string, error) {
-	b.mu.RLock("InvokeCustomMessageTrigger")
-	defer b.mu.RUnlock()
-
-	client, clientOK := b.clients.Get(clientID)
-	if !clientOK {
+	call := b.prepareCustomMessage(clientID, username, triggerSource)
+	if call == nil {
 		return "", "", nil
 	}
 
-	pool, poolOK := b.pools.Get(client.UserPoolID)
-	if !poolOK {
-		return "", "", nil
-	}
+	result, invErr := call.inv.InvokeTrigger(context.Background(), call.functionARN, call.event)
 
-	var attrs map[string]string
-	if user, userOK := b.users.Get(userKey(client.UserPoolID, username)); userOK {
-		attrs = user.Attributes
-	}
-
-	resp, err := b.invokeLambdaTrigger(pool, triggerKeyCustomMessage, triggerSource, clientID, username,
-		map[string]any{
-			eventKeyUserAttributes: stringMapToAny(attrs),
-			"codeParameter":        customMessageCodeParameter,
-			"usernameParameter":    username,
-			eventKeyClientMetadata: map[string]any{},
-		},
-		map[string]any{"smsMessage": "", "emailMessage": "", "emailSubject": ""},
-	)
+	resp, err := parseTriggerResult(triggerKeyCustomMessage, result, invErr)
 	if err != nil {
 		return "", "", err
 	}
@@ -325,37 +456,52 @@ func (b *InMemoryBackend) InvokeCustomMessageTrigger(
 	return message, subject, nil
 }
 
-// preTokenGenerationOverride fires the PreTokenGeneration Lambda trigger (if
-// configured) ahead of token issuance and returns the claimsToAddOrOverride /
-// claimsToSuppress the Lambda requested, ready to feed into TokenParams. Caller
-// must hold b.mu (issueTokensLocked and InitiateAuthRefreshToken both do).
-func (b *InMemoryBackend) preTokenGenerationOverride(
-	pool *UserPool, clientID string, user *User, groups []string, triggerSource string,
-) (map[string]string, []string, error) {
-	resp, err := b.invokeLambdaTrigger(pool, triggerKeyPreTokenGeneration, triggerSource, clientID, user.Username,
-		map[string]any{
-			eventKeyUserAttributes: stringMapToAny(user.Attributes),
-			"groupConfiguration": map[string]any{
-				"groupsToOverride":   stringsToAny(groups),
-				"iamRolesToOverride": []any{},
-				"preferredRole":      nil,
-			},
-			eventKeyClientMetadata: map[string]any{},
-		},
-		map[string]any{
-			"claimsOverrideDetails": map[string]any{
-				"claimsToAddOrOverride": map[string]any{},
-				"claimsToSuppress":      []any{},
-			},
-		},
-	)
-	if err != nil {
-		return nil, nil, err
+// preTokenGenerationOverrideAuth runs PreTokenGeneration with b.mu released (sign-in path); V2_0/V3_0
+// pools get the version-2/3 event and claimsAndScopeOverrideDetails, V1_0 keeps claimsOverrideDetails.
+func (b *InMemoryBackend) preTokenGenerationOverrideAuth(
+	pool *UserPool, clientID string, user *User, groups, scopes []string, triggerSource string,
+) (tokenOverrides, error) {
+	v2 := preTokenAccessCustomizable(pool.LambdaConfig)
+
+	request, defaults := preTokenEvent(user, groups)
+	if v2 {
+		request = b.preTokenV2Request(pool, user, groups, scopes)
+		defaults = map[string]any{respKeyClaimsAndScope: map[string]any{}}
 	}
 
-	claimsToAdd, claimsToSuppress := parseClaimsOverride(resp)
+	resp, err := b.invokeAuthTrigger(
+		pool, user, triggerKeyPreTokenGeneration, triggerSource, clientID, request, defaults,
+	)
+	if err != nil {
+		return tokenOverrides{}, err
+	}
 
-	return claimsToAdd, claimsToSuppress, nil
+	if v2 {
+		if resp == nil {
+			return tokenOverrides{}, nil
+		}
+
+		parsed, parseErr := parseClaimsAndScopeOverride(resp)
+
+		return tokenOverrides{v2: parsed}, parseErr
+	}
+
+	claims, suppress := parseClaimsOverride(resp)
+
+	return tokenOverrides{v1Claims: claims, v1Suppress: suppress}, nil
+}
+
+func preTokenEvent(user *User, groups []string) (map[string]any, map[string]any) {
+	return map[string]any{
+		eventKeyUserAttributes: stringMapToAny(user.Attributes),
+		keyGroupConfiguration:  groupConfigEvent(groups, nil, nil),
+		eventKeyClientMetadata: map[string]any{},
+	}, map[string]any{
+		"claimsOverrideDetails": map[string]any{
+			"claimsToAddOrOverride": map[string]any{},
+			"claimsToSuppress":      []any{},
+		},
+	}
 }
 
 // preAuthenticationCheck fires the PreAuthentication Lambda trigger (if configured)
@@ -366,8 +512,8 @@ func (b *InMemoryBackend) preTokenGenerationOverride(
 // (CognitoEventUserPoolsPreAuthenticationResponse has no fields), so on success there
 // is nothing to apply back onto state. Caller must hold b.mu (authenticate does).
 func (b *InMemoryBackend) preAuthenticationCheck(pool *UserPool, clientID string, user *User) error {
-	_, err := b.invokeLambdaTrigger(pool, triggerKeyPreAuthentication, triggerSourcePreAuthentication,
-		clientID, user.Username,
+	_, err := b.invokeAuthTrigger(pool, user, triggerKeyPreAuthentication, triggerSourcePreAuthentication,
+		clientID,
 		map[string]any{
 			eventKeyUserAttributes: stringMapToAny(user.Attributes),
 			eventKeyValidationData: map[string]any{},
@@ -388,8 +534,8 @@ func (b *InMemoryBackend) preAuthenticationCheck(pool *UserPool, clientID string
 // whether the trigger fires or what it is invoked with otherwise. Caller must hold
 // b.mu (issueTokensLocked does).
 func (b *InMemoryBackend) postAuthenticationNotify(pool *UserPool, clientID string, user *User) error {
-	_, err := b.invokeLambdaTrigger(pool, triggerKeyPostAuthentication, triggerSourcePostAuthentication,
-		clientID, user.Username,
+	_, err := b.invokeAuthTrigger(pool, user, triggerKeyPostAuthentication, triggerSourcePostAuthentication,
+		clientID,
 		map[string]any{
 			"newDeviceUsed":        false,
 			eventKeyUserAttributes: stringMapToAny(user.Attributes),
@@ -436,7 +582,7 @@ func (b *InMemoryBackend) defineAuthChallenge(
 				"which is not configured for user pool %q", ErrInvalidUserPoolConfig, pool.ID)
 	}
 
-	resp, err := b.invokeLambdaTrigger(pool, triggerKeyDefineAuthChallenge, triggerSourceDefineAuthChallenge,
+	resp, err := b.invokeTriggerUnlocked(pool, triggerKeyDefineAuthChallenge, triggerSourceDefineAuthChallenge,
 		clientID, username,
 		map[string]any{
 			eventKeyUserAttributes: stringMapToAny(userAttrs),
@@ -465,7 +611,7 @@ func (b *InMemoryBackend) createAuthChallenge(
 	pool *UserPool, clientID, username string, userAttrs map[string]string,
 	challengeName string, session []customAuthChallengeResult,
 ) (map[string]string, map[string]string, string, error) {
-	resp, err := b.invokeLambdaTrigger(pool, triggerKeyCreateAuthChallenge, triggerSourceCreateAuthChallenge,
+	resp, err := b.invokeTriggerUnlocked(pool, triggerKeyCreateAuthChallenge, triggerSourceCreateAuthChallenge,
 		clientID, username,
 		map[string]any{
 			eventKeyUserAttributes: stringMapToAny(userAttrs),
@@ -497,7 +643,7 @@ func (b *InMemoryBackend) createAuthChallenge(
 func (b *InMemoryBackend) verifyCustomAuthChallenge(
 	pool *UserPool, clientID, username string, userAttrs, private map[string]string, answer string,
 ) (bool, error) {
-	resp, err := b.invokeLambdaTrigger(pool, triggerKeyVerifyAuthChallenge, triggerSourceVerifyAuthChallenge,
+	resp, err := b.invokeTriggerUnlocked(pool, triggerKeyVerifyAuthChallenge, triggerSourceVerifyAuthChallenge,
 		clientID, username,
 		map[string]any{
 			eventKeyUserAttributes:       stringMapToAny(userAttrs),
@@ -584,7 +730,7 @@ func (b *InMemoryBackend) invokeUserMigrationTrigger(
 		return nil, nil //nolint:nilnil // sentinel "not configured" pair, documented above
 	}
 
-	resp, err := b.invokeLambdaTrigger(pool, triggerKeyUserMigration, triggerSourceUserMigrationAuth,
+	resp, err := b.invokeTriggerUnlocked(pool, triggerKeyUserMigration, triggerSourceUserMigrationAuth,
 		clientID, username,
 		map[string]any{
 			"password":             password,
@@ -615,7 +761,7 @@ func (b *InMemoryBackend) invokeUserMigrationTriggerForgotPassword(
 		return nil, nil //nolint:nilnil // sentinel "not configured" pair, documented above
 	}
 
-	resp, err := b.invokeLambdaTrigger(pool, triggerKeyUserMigration, triggerSourceUserMigrationForgotPwd,
+	resp, err := b.invokeTriggerUnlocked(pool, triggerKeyUserMigration, triggerSourceUserMigrationForgotPwd,
 		clientID, username,
 		map[string]any{
 			eventKeyValidationData: map[string]any{},

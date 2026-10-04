@@ -257,8 +257,8 @@ func testOptimizationJobRealClient(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// testLabelingJobRealClient covers CreateLabelingJob, DescribeLabelingJob,
-// ListLabelingJobs, StopLabelingJob.
+// testLabelingJobRealClient covers CreateLabelingJob, DescribeLabelingJob and
+// ListLabelingJobs; StopLabelingJob races the completion timer, so it is tested under synctest.
 func testLabelingJobRealClient(t *testing.T) {
 	t.Helper()
 
@@ -301,11 +301,6 @@ func testLabelingJobRealClient(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, listed.LabelingJobSummaryList, 1)
-
-	_, err = client.StopLabelingJob(
-		t.Context(), &sagemakersdk.StopLabelingJobInput{LabelingJobName: aws.String("slice10-labeling-job")},
-	)
-	require.NoError(t, err)
 }
 
 // testStudioLifecycleConfigRealClient covers CreateStudioLifecycleConfig,

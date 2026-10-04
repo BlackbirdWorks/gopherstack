@@ -2,22 +2,19 @@ package bedrockruntime
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
 // startAsyncInvokeInput is the parsed request body for StartAsyncInvoke.
-// Note: the real StartAsyncInvokeInput.ModelInput member (an opaque,
-// model-specific smithy document) is intentionally not modeled here --
-// gopherstack cannot interpret arbitrary model input schemas, and the real
-// AWS SDK client itself enforces ModelInput's presence before ever sending
-// the request (client-side required-member validation), so a raw HTTP
-// request that omits it is not a realistic scenario an SDK-driven caller can
-// produce.
+// ModelInput is the opaque model-specific document; it is required but never interpreted.
 //
 // It has no InferenceProfileIdentifier member: the real StartAsyncInvokeInput
 // (bedrockruntime@v1.57.1 api_op_StartAsyncInvoke.go) names this member
@@ -30,8 +27,9 @@ type startAsyncInvokeInput struct {
 			S3URI string `json:"s3Uri"`
 		} `json:"s3OutputDataConfig"`
 	} `json:"outputDataConfig"`
-	ModelID            string `json:"modelId"`
-	ClientRequestToken string `json:"clientRequestToken"`
+	ModelID            string          `json:"modelId"`
+	ClientRequestToken string          `json:"clientRequestToken"`
+	ModelInput         json.RawMessage `json:"modelInput"`
 }
 
 // handleStartAsyncInvoke handles POST /async-invoke.
@@ -40,6 +38,10 @@ func (h *Handler) handleStartAsyncInvoke(c *echo.Context, body []byte) error {
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
+	}
+
+	if len(req.ModelInput) == 0 || string(req.ModelInput) == "null" {
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "modelInput is required"))
 	}
 
 	s3URI := req.OutputDataConfig.S3OutputDataConfig.S3URI
@@ -80,6 +82,10 @@ func (h *Handler) handleGetAsyncInvoke(c *echo.Context, path string) error {
 	}
 
 	inv, err := h.Backend.GetAsyncInvoke(invocationArn)
+	if errors.Is(err, awserr.ErrNotFound) {
+		// GetAsyncInvoke declares no ResourceNotFoundException (bedrockruntime@v1.57.1).
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", err.Error()))
+	}
 	if err != nil {
 		return handleError(c, err)
 	}

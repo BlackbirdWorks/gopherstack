@@ -398,6 +398,7 @@ func (b *InMemoryBackend) resetForIncompatibleSnapshotLocked() {
 	b.tokenRevokedBeforeSeq = make(map[string]int64)
 	b.tokenRevokedBefore = make(map[string]time.Time)
 	b.tokenSeq = 0
+	b.refreshTokenInsertsSinceSweep = 0
 	b.resourceTags = make(map[string]map[string]string)
 	b.riskConfigurations = make(map[string]*RiskConfiguration)
 	b.logDeliveryConfigs = make(map[string]*LogDeliveryConfig)
@@ -668,10 +669,26 @@ func restoreUsersFromSnapshot(userSnapshots []*userSnapshot) []*User {
 	return users
 }
 
-// Snapshot implements persistence.Persistable by delegating to the backend.
-func (h *Handler) Snapshot(ctx context.Context) []byte { return h.Backend.Snapshot(ctx) }
+// Snapshot implements persistence.Persistable; other regions ride in an additive "regions" key.
+func (h *Handler) Snapshot(ctx context.Context) []byte {
+	return h.peers.Snapshot(h.Backend.Snapshot(ctx), func(p *Handler) []byte { return p.Backend.Snapshot(ctx) })
+}
 
-// Restore implements persistence.Persistable by delegating to the backend.
+// Restore implements persistence.Persistable.
 func (h *Handler) Restore(ctx context.Context, data []byte) error {
-	return h.Backend.Restore(ctx, data)
+	if err := h.Backend.Restore(ctx, data); err != nil {
+		return err
+	}
+
+	return h.peers.Restore(
+		data,
+		func(p *Handler, d []byte) error { return p.Backend.Restore(ctx, d) },
+		func(p *Handler) {
+			if p.stop != nil {
+				p.stop()
+			}
+
+			p.Backend.Reset()
+		},
+	)
 }

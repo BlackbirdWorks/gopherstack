@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -14,8 +15,24 @@ func (b *InMemoryBackend) busARN(region, name string) string {
 	return arn.Build("events", region, b.accountID, "event-bus/"+name)
 }
 
+// ruleARN omits the bus segment for the default bus, per the EventBridge ARN format
+// arn:aws:events:region:account:rule/[event-bus-name/]rule-name.
 func (b *InMemoryBackend) ruleARN(region, busName, ruleName string) string {
+	if ebBusKey(busName) == defaultEventBusName {
+		return arn.Build("events", region, b.accountID, "rule/"+ruleName)
+	}
+
 	return arn.Build("events", region, b.accountID, "rule/"+busName+"/"+ruleName)
+}
+
+// canonicalRuleARN rewrites the legacy default-bus form rule/default/<name> to rule/<name>.
+func canonicalRuleARN(s string) string {
+	head, name, ok := strings.Cut(s, ":rule/default/")
+	if !ok || name == "" || strings.Contains(name, "/") {
+		return s
+	}
+
+	return head + ":rule/" + name
 }
 
 func (b *InMemoryBackend) apiDestinationARN(name string) string {
@@ -48,10 +65,44 @@ func (b *InMemoryBackend) targetKey(busName, ruleName string) string {
 	return ebBusKey(busName) + "/" + ruleName
 }
 
-// busesTable returns the *store.Table[EventBus] for the given region, lazily
-// creating and registering it. Callers must hold b.mu.
+// busesTable returns the region's bus table, creating it with the region's default bus. Callers must hold b.mu.
 func (b *InMemoryBackend) busesTable(region string) *store.Table[EventBus] {
-	return getOrCreateTable(b.registry, &b.tableMu, b.buses, "buses", region, eventBusKeyFn)
+	b.tableMu.Lock()
+	defer b.tableMu.Unlock()
+
+	t, ok := b.buses[region]
+	if !ok {
+		t = store.Register(b.registry, "buses/"+region, store.New(eventBusKeyFn))
+		b.buses[region] = t
+		b.putDefaultBus(region, t)
+	}
+
+	return t
+}
+
+// putDefaultBus adds the region's default bus when absent (AWS creates one per region).
+func (b *InMemoryBackend) putDefaultBus(region string, t *store.Table[EventBus]) {
+	if t.Has(defaultEventBusName) {
+		return
+	}
+
+	now := time.Now()
+	t.Put(&EventBus{
+		Name:             defaultEventBusName,
+		Arn:              b.busARN(region, defaultEventBusName),
+		CreatedTime:      now,
+		LastModifiedTime: now,
+	})
+}
+
+// ensureDefaultBuses re-adds the default bus to every known region after a restore.
+func (b *InMemoryBackend) ensureDefaultBuses() {
+	b.tableMu.Lock()
+	defer b.tableMu.Unlock()
+
+	for region, t := range b.buses {
+		b.putDefaultBus(region, t)
+	}
 }
 
 // rulesStore returns the region's bus->Table[Rule] map, lazily creating the
@@ -187,9 +238,9 @@ func (b *InMemoryBackend) archivesTable(region string) *store.Table[Archive] {
 
 // archivedEventsStore returns the archived-events map for the given region.
 // Callers must hold b.mu.
-func (b *InMemoryBackend) archivedEventsStore(region string) map[string][]EventEntry {
+func (b *InMemoryBackend) archivedEventsStore(region string) map[string][]archivedEvent {
 	if b.archivedEvents[region] == nil {
-		b.archivedEvents[region] = make(map[string][]EventEntry)
+		b.archivedEvents[region] = make(map[string][]archivedEvent)
 	}
 
 	return b.archivedEvents[region]
@@ -199,7 +250,7 @@ func (b *InMemoryBackend) archivedEventsStore(region string) map[string][]EventE
 // callers holding only a read lock. Creating the region map on a pure read is
 // pointless anyway, and doing it under RLock is a concurrent map write plus a
 // race -- the same class fixed across 17 services in c381f62b3.
-func (b *InMemoryBackend) archivedEventsStoreRO(region string) map[string][]EventEntry {
+func (b *InMemoryBackend) archivedEventsStoreRO(region string) map[string][]archivedEvent {
 	return b.archivedEvents[region]
 }
 

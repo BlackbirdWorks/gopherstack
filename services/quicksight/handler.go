@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -592,6 +593,7 @@ func newReqID() string { return uuid.NewString() }
 
 // Handler is the Echo HTTP handler for QuickSight operations.
 type Handler struct {
+	peers       *regionpeers.Set[Handler]
 	Backend     StorageBackend
 	appendixOps map[string]appendixHandlerFn
 	accountID   string
@@ -611,8 +613,8 @@ func NewHandler(b StorageBackend) *Handler {
 // Name returns the service name.
 func (h *Handler) Name() string { return quicksightServiceName }
 
-// Reset clears the backend.
-func (h *Handler) Reset() { h.Backend.Reset() }
+// resetHome clears the home region only.
+func (h *Handler) resetHome() { h.Backend.Reset() }
 
 // MatchPriority returns routing priority (above SecurityHub which also uses /accounts/).
 func (h *Handler) MatchPriority() int { return quicksightMatchPriority }
@@ -1214,8 +1216,8 @@ func appOps() []string {
 	}
 }
 
-// Handler returns the Echo handler function.
-func (h *Handler) Handler() echo.HandlerFunc {
+// homeHandler serves requests for the home region.
+func (h *Handler) homeHandler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		return h.dispatch(c)
 	}

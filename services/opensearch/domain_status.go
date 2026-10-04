@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
 
@@ -131,7 +133,9 @@ func (b *InMemoryBackend) GetDryRunProgress(domainName string) (*DryRunStatus, e
 	if !exists {
 		now := time.Now().UTC().Format(time.RFC3339)
 		dr = &DryRunStatus{
-			DryRunID:           fmt.Sprintf("dryrun-%s-%d", domainName, time.Now().UnixNano()),
+			// DryRunId is a bare UUID (confirmed pattern on DryRunProgressStatus,
+			// docs.aws.amazon.com/opensearch-service).
+			DryRunID:           uuid.NewString(),
 			DryRunStatus:       softwareUpdateCompleted,
 			CreationDate:       now,
 			UpdateDate:         now,

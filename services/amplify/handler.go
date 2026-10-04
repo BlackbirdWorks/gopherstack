@@ -5,12 +5,15 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -61,6 +64,9 @@ const (
 type Handler struct {
 	Backend       StorageBackend
 	janitor       *Janitor
+	peers         *regionpeers.Set[Handler]
+	workerCtx     atomic.Pointer[context.Context]
+	stopJanitor   atomic.Pointer[context.CancelFunc]
 	DefaultRegion string
 	AccountID     string
 }
@@ -90,15 +96,47 @@ func (h *Handler) WithJanitor(
 	return h
 }
 
-// StartWorker starts the background janitor if configured. It implements the
-// worker-lifecycle hook of service.Registerable, so cli.go's generic startup
-// dispatch starts it without any Amplify-specific wiring there.
+// StartWorker starts the background janitor of h and every sibling. It implements service.Registerable's worker hook.
 func (h *Handler) StartWorker(ctx context.Context) error {
-	if h.janitor != nil {
-		go h.janitor.Run(ctx)
+	h.workerCtx.Store(&ctx)
+	h.startJanitor(ctx)
+
+	for _, p := range h.peers.All() {
+		p.startJanitor(ctx)
 	}
 
 	return nil
+}
+
+// startJanitor runs h's janitor once, until ctx ends or stopWorkers.
+func (h *Handler) startJanitor(ctx context.Context) {
+	if h.janitor == nil {
+		return
+	}
+
+	jctx, cancel := context.WithCancel(ctx)
+	if !h.stopJanitor.CompareAndSwap(nil, &cancel) {
+		cancel()
+
+		return
+	}
+
+	go h.janitor.Run(jctx)
+}
+
+func (h *Handler) stopWorkers() {
+	if c := h.stopJanitor.Swap(nil); c != nil {
+		(*c)()
+	}
+}
+
+// Shutdown stops the janitors of h and every sibling.
+func (h *Handler) Shutdown(_ context.Context) {
+	h.stopWorkers()
+
+	for _, p := range h.peers.Drain() {
+		p.stopWorkers()
+	}
 }
 
 // Name returns the service name.
@@ -372,6 +410,10 @@ func splitAmplifyPath(path string) []string {
 // Handler returns the Echo handler function for Amplify requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
+			return p.Handler()(c)
+		}
+
 		ctx := c.Request().Context()
 		method := c.Request().Method
 		path := c.Request().URL.Path

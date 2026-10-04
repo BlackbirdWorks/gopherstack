@@ -504,3 +504,42 @@ func TestFaultStore_RecordActivity(t *testing.T) {
 		})
 	}
 }
+
+func TestFaultStoreIdle(t *testing.T) {
+	t.Parallel()
+
+	rule := chaos.FaultRule{Service: "s3"}
+
+	tests := []struct {
+		run  func(s *chaos.FaultStore)
+		name string
+		idle bool
+	}{
+		{name: "new", run: func(*chaos.FaultStore) {}, idle: true},
+		{name: "set_rules", run: func(s *chaos.FaultStore) { s.SetRules([]chaos.FaultRule{rule}) }},
+		{name: "append_rules", run: func(s *chaos.FaultStore) { s.AppendRules([]chaos.FaultRule{rule}) }},
+		{name: "delete_rules", run: func(s *chaos.FaultStore) {
+			s.SetRules([]chaos.FaultRule{rule})
+			s.DeleteRules([]chaos.FaultRule{rule})
+		}, idle: true},
+		{name: "delete_by_index", run: func(s *chaos.FaultStore) {
+			s.SetRules([]chaos.FaultRule{rule})
+			s.DeleteRuleByIndex(0)
+		}, idle: true},
+		{name: "effects", run: func(s *chaos.FaultStore) { s.SetEffects(chaos.NetworkEffects{Latency: 5}) }},
+		{name: "effects_cleared", run: func(s *chaos.FaultStore) {
+			s.SetEffects(chaos.NetworkEffects{Latency: 5})
+			s.SetEffects(chaos.NetworkEffects{})
+		}, idle: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := chaos.NewFaultStore()
+			tt.run(s)
+			assert.Equal(t, tt.idle, s.Idle())
+		})
+	}
+}

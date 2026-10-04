@@ -90,6 +90,8 @@ func (b *InMemoryBackend) replayMessagesToSubscription(
 
 	for _, msg := range toReplay {
 		subSnap := events.SNSSubscriptionSnapshot{
+			Message:            resolveArchived(msg, &sub),
+			HasMessage:         true,
 			SubscriptionARN:    sub.SubscriptionArn,
 			Protocol:           sub.Protocol,
 			Endpoint:           sub.Endpoint,
@@ -97,6 +99,7 @@ func (b *InMemoryBackend) replayMessagesToSubscription(
 			RawMessageDelivery: sub.RawMessageDelivery,
 			RedrivePolicy:      sub.RedrivePolicy,
 			DeliveryPolicy:     sub.DeliveryPolicy,
+			SubscriptionRole:   sub.SubscriptionRoleArn,
 		}
 
 		// Build one shared event for this replayed message and fan it out through
@@ -142,7 +145,7 @@ func (b *InMemoryBackend) GetArchivedMessages(topicArn string) []ArchivedMessage
 }
 
 func (b *InMemoryBackend) archivePublishedMessage(
-	topicArn, messageID, message, subject string,
+	topicArn, messageID, message, subject, messageStructure string,
 	attrs map[string]MessageAttribute,
 ) {
 	attrsCopy := make(map[string]MessageAttribute, len(attrs))
@@ -161,7 +164,13 @@ func (b *InMemoryBackend) archivePublishedMessage(
 		MessageID:  messageID,
 		Message:    message,
 		Subject:    subject,
+		Structure:  messageStructure,
 		Attributes: attrsCopy,
 		Timestamp:  time.Now().UTC(),
 	})
+}
+
+// resolveArchived picks the body sub receives from an archived message.
+func resolveArchived(msg *ArchivedMessage, sub *Subscription) string {
+	return buildMessageResolver(msg.Message, parsePerProtocolMessages(msg.Message, msg.Structure))(messageKey(sub))
 }

@@ -76,9 +76,9 @@ func TestElasticsearchHandler_DomainDedicatedMaster(t *testing.T) {
 func TestElasticsearchHandler_DomainZoneAwareness(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // fieldalignment: readability over micro-optimization
-		name          string
+	tests := []struct {
 		body          map[string]any
+		name          string
 		wantAZCount   float64
 		wantZoneAware bool
 	}{
@@ -197,9 +197,9 @@ func TestElasticsearchHandler_DomainWarm(t *testing.T) {
 func TestElasticsearchHandler_DomainEBSIopsAndThroughput(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // fieldalignment: readability over micro-optimization
-		name           string
+	tests := []struct {
 		body           map[string]any
+		name           string
 		wantIops       float64
 		wantThroughput float64
 	}{
@@ -258,9 +258,9 @@ func TestElasticsearchHandler_DomainEBSIopsAndThroughput(t *testing.T) {
 func TestElasticsearchHandler_DomainEncryptionAtRest(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // fieldalignment: readability over micro-optimization
-		name        string
+	tests := []struct {
 		body        map[string]any
+		name        string
 		wantEnabled bool
 	}{
 		{
@@ -305,9 +305,9 @@ func TestElasticsearchHandler_DomainEncryptionAtRest(t *testing.T) {
 func TestElasticsearchHandler_DomainNodeToNodeEncryption(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // fieldalignment: readability over micro-optimization
-		name        string
+	tests := []struct {
 		body        map[string]any
+		name        string
 		wantEnabled bool
 	}{
 		{
@@ -615,10 +615,10 @@ func TestElasticsearchHandler_DomainAccessPolicies(t *testing.T) {
 func TestElasticsearchHandler_UpdateDomainNewFields(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // fieldalignment: readability over micro-optimization
-		name       string
+	tests := []struct {
 		updateBody map[string]any
 		checkFn    func(t *testing.T, status map[string]any)
+		name       string
 	}{
 		{
 			name: "update_encryption_at_rest",

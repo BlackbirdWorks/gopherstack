@@ -42,8 +42,8 @@ ops:
   CancelElasticsearchServiceSoftwareUpdate: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (2026-09-12, gopherstack-n3zi) -- AutomatedUpdateDate was a plain string (restjson1 unixTimestamp requires a JSON Number), which failed a real client's decode outright; now *float64 with omitempty, always nil (no scheduled-update date tracked)."}
   DeleteElasticsearchServiceRole: {wire: ok, errors: ok, state: ok, persist: n/a}
   UpgradeElasticsearchDomain: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetUpgradeHistory: {wire: ok, errors: ok, state: ok, persist: n/a, note: "no upgrade-history state tracked; always returns empty list"}
-  GetUpgradeStatus: {wire: ok, errors: ok, state: ok, persist: n/a, note: "always reports SUCCEEDED; no async upgrade state. Disclosed gap (gopherstack-6flj): real UpgradeName (*string, optional, api_op_GetUpgradeStatus.go) is never emitted -- this backend has no upgrade-name/upgrade-history state at all (GetUpgradeHistory always returns empty), so there is no honest value to source it from; a fabricated 'Upgrade to X' string would be invented state. Not fixed -- see gaps"}
+  GetUpgradeHistory: {wire: ok, errors: ok, state: fixed, persist: ok, note: "FIXED 2026-10-01: UpgradeElasticsearchDomain (and PerformCheckOnly) now record bounded per-domain history, returned newest first with MaxResults/NextToken; see TestUpgradeHistoryAndStatus_RealClient, TestUpgradeHistory_PaginationNewestFirst_RealClient"}
+  GetUpgradeStatus: {wire: ok, errors: ok, state: fixed, persist: ok, note: "FIXED 2026-10-01: UpgradeName and UpgradeStep now come from the latest recorded upgrade; every recorded upgrade completes synchronously so StepStatus is SUCCEEDED"}
   DescribeDomainAutoTunes: {wire: ok, errors: ok, state: ok, persist: n/a, note: "always empty; no auto-tune state modeled. MaxResults (reqfielddiff tier-1, 2026-09-18) has nothing to page over for the same reason -- see items_still_open."}
   DescribeDomainChangeProgress: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "FIXED (2026-09-12, gopherstack-n3zi) -- response used a fabricated \"Status\" key (types.ChangeProgressStatusDetails has no such member; real key is ConfigChangeStatus) and the wrong enum casing (\"COMPLETED\" vs real \"Completed\"). Always ConfigChangeStatus=Completed; changes apply synchronously. ChangeId (reqfielddiff tier-1, 2026-09-18) has no change-history to select from -- see items_still_open."}
   GetCompatibleElasticsearchVersions: {wire: ok, errors: ok, state: ok, persist: n/a}
@@ -56,7 +56,7 @@ ops:
   DeletePackage: {wire: ok, errors: ok, state: ok, persist: ok}
   AssociatePackage: {wire: ok, errors: ok, state: ok, persist: ok}
   DissociatePackage: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (cmd/enumcheck sweep, 1d6e40d1a): DomainPackageStatus was the non-member string \"DISSOCIATED\" -- types.DomainPackageStatus only has ASSOCIATING/ASSOCIATION_FAILED/ACTIVE/DISSOCIATING/DISSOCIATION_FAILED (types/enums.go:189-198), no terminal DISSOCIATED. Now emits DISSOCIATING (the transitional state a real client sees on a successful call; this backend completes the removal synchronously, but that is an implementation detail, not a wire value). See TestDissociatePackage_DomainPackageStatus_RealSDKClient (wire_field_fixes_test.go)."}
-  GetPackageVersionHistory: {wire: ok, errors: ok, state: ok, persist: n/a}
+  GetPackageVersionHistory: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED 2026-10-01: returned whole package objects instead of PackageVersionHistory entries; now v1..vN with CommitMessage/CreatedAt, newest first, paginated; UpdatePackage appends a version. See TestPackageVersionHistory_RealClient"}
   ListDomainsForPackage: {wire: ok, errors: ok, state: ok, persist: n/a}
   ListPackagesForDomain: {wire: ok, errors: fixed, state: fixed, persist: n/a, note: "FIXED (2026-09-04 pass) -- never validated the domain existed (ResourceNotFoundException is modelled but never returned); also DeleteElasticsearchDomain never removed the domain from packageAssociationsStore, so a deleted domain remained a ghost row forever in both ListDomainsForPackage and this op. Now 404s for an unknown/deleted domain, and DeleteElasticsearchDomain cleans the association map on delete. See Notes."}
   CreateVpcEndpoint: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-p2mx) -- request/response VpcOptions was map[string]string; real wire shape is types.VPCOptions/{SecurityGroupIds,SubnetIds} (request) and types.VPCDerivedInfo (response, same two fields plus unmodeled AvailabilityZones/VPCId -- matches the identical domain-level VPCOptions simplification). A real SDK client always serializes VpcOptions as {SecurityGroupIds:[...],SubnetIds:[...]}, so json.Unmarshal into map[string]string failed on every real call with a security group or subnet -- CreateVpcEndpoint 400'd unconditionally for any non-toy client. Reused the already-correct vpcOptionsRequestJSON/vpcDerivedInfoJSON/toVPCDerivedInfoJSON machinery built for domain-level VPCOptions (handler_domains.go) -- CreateVpcEndpointInput.VpcOptions is the literal same SDK type. Prior wire: ok was false; existing unit tests asserted the broken shape (flat VpcId/SubnetId keys) and were corrected. Proven via a real aws-sdk-go-v2 client round-trip (handler_sdk_roundtrip_test.go), verified to fail against the unfixed code by hand-revert"}
@@ -80,62 +80,19 @@ ops:
   PurchaseReservedElasticsearchInstanceOffering: {wire: ok, errors: fixed, state: fixed, persist: ok, note: "FIXED (2026-09-04 pass) -- never validated ReservedElasticsearchInstanceOfferingId against the known offering; an unknown offering ID silently created a reservation with zero-value InstanceType/FixedPrice/UsagePrice/Duration and 200 OK instead of the modelled ResourceNotFoundException. See Notes."}
 gaps: []
 items_still_open:
-  - "GetUpgradeStatus.UpgradeName (gopherstack-6flj, 2026-08-15): real, optional *string member \
-     never emitted -- no upgrade-name/upgrade-history state is tracked anywhere in this backend \
-     (GetUpgradeHistory always returns empty), so there is no honest source value; fabricating a \
-     plausible name would be invented state, not parity."
-  - "PackageDetails.AvailablePackageVersion and DomainPackageDetails.PackageVersion/ReferencePath/ \
-     LastUpdated (gopherstack-6flj, 2026-08-15): real members with no backing state at all in this \
-     backend's Package model (models.go) -- a structural modeling gap, not a value the backend \
-     already holds and fails to emit. ErrorDetails on both types already handled the same way \
-     (see packageJSON's doc comment)."
-  - "Domains never transition through a Processing/creating state -- CreateElasticsearchDomain \
-     returns Processing=false / DomainProcessingStatus=Active immediately, and Endpoint is \
-     populated synchronously too, so every field a real client would poll on (Processing, \
-     DomainProcessingStatus, Endpoint, and DescribeElasticsearchDomainConfig's per-field \
-     OptionStatus.State) is self-consistently 'already done'. Re-verified 2026-08-10 \
-     (gopherstack-toz8): checked whether any client-visible action (Create, \
-     UpdateElasticsearchDomainConfig, Delete) should visibly flip Processing to true -- this \
-     backend applies all three synchronously with no async work to represent, so there is \
-     nothing for a transient Processing=true to model faithfully; a fake timed delay would be \
-     invented state, not parity. Confirmed deliberate simplification, not a stub -- SDK callers \
-     that poll DescribeElasticsearchDomain waiting for Processing==false succeed immediately \
-     instead of spinning. Separately (not in scope this pass): ElasticsearchDomainStatus.Created/ \
-     Deleted (types.go:958-966) are not modeled at all, unlike Processing/DomainProcessingStatus \
-     which are (see toDomainStatusJSON)."
-  - "VPCOptions.VPCId and .AvailabilityZones are never populated on Describe/domain-status \
-     responses -- deriving them would require a cross-service EC2 subnet/VPC lookup this \
-     backend does not perform (SubnetIds/SecurityGroupIds are correctly modeled and echoed). \
-     Matches services/opensearch's identical, already-accepted simplification. Needs cli.go \
-     wiring to close: this service has no reference to any EC2 backend today (grep confirms no \
-     ec2 import in services/elasticsearch), so VPCId/AvailabilityZones would need either (a) an \
-     EC2 lookup interface (mirroring how services/elasticsearch already takes a DNSRegistrar \
-     interface, store_setup.go) that cli.go wires to the real services/ec2 backend when both \
-     services are registered, or (b) a shared pkgs/ helper cli.go injects both backends into. \
-     Either way the wiring decision belongs in cli.go, which this pass does not touch."
-  - "AutoTuneOptions.RollbackOnDisable (types.AutoTuneOptions, Update-only -- it is not a \
-     member of the Create-only types.AutoTuneOptionsInput) is not modeled. Not filed as a bd \
-     issue this pass: this backend has no rollback state machine to act on it, and it is a \
-     narrower field than the two this pass targeted (SAMLOptions/MaintenanceSchedules)."
-  - "DescribeDomainAutoTunes.MaxResults (reqfielddiff tier-1, 2026-09-18): real, documented \
-     pagination member, but AutoTunes is unconditionally empty (no auto-tune scaling-action \
-     history is tracked anywhere in this backend) -- there is nothing to page over, so MaxResults \
-     has no observable effect to fix or test. Same class as GetUpgradeStatus.UpgradeName above: a \
-     structural modeling gap (no auto-tune-history subsystem), not a dropped-but-actionable \
-     parameter."
-  - "DescribeDomainChangeProgress.ChangeId (reqfielddiff tier-1, 2026-09-18): real, optional \
-     filter for a specific historical config change ('If omitted, the service returns \
-     information about the most recent configuration change') -- this backend tracks no \
-     change-history at all, applying every config change synchronously and always answering with \
-     one static ChangeProgressStatus (ConfigChangeStatus=Completed, see the op's own note). With \
-     no history to select from, an unknown or well-formed ChangeId is indistinguishable from no \
-     ChangeId at all; there is no honest way to make the parameter change the answer without \
-     inventing a change-ID history subsystem this backend doesn't have."
+  - "DomainPackageDetails.PackageVersion/ReferencePath/LastUpdated: package associations store only domain names, so association-time version, path and timestamp are not tracked."
+  - "Domains never pass through Processing: all changes apply synchronously, so Processing/DomainProcessingStatus/OptionStatus.State are always settled (deliberate; a timed delay would be invented state)."
+  - "VPCOptions.VPCId/AvailabilityZones are never populated: they need a cross-service EC2 lookup wired in cli.go (same accepted gap as services/opensearch)."
+  - "DescribeDomainAutoTunes.MaxResults has no effect: no auto-tune action history exists to page (the opensearch placeholder derived from maintenance schedules is not reproduced here)."
 deferred: []              # this pass's target deferred item (DescribeElasticsearchDomainConfig per-field OptionStatus) is now implemented; remaining edges tracked under gaps above
 leaks: {status: clean, note: "no goroutines/janitors in this service; Snapshot/Restore close domain Tags before replacing state (verified in persistence.go). This pass also fixed domainCopy (store.go) to deep-clone AdvancedOptions/VPCOptions/CognitoOptions/AdvancedSecurityOptions/AutoTuneOptions/LogPublishingOptions -- previously AdvancedOptions (and now the five new option fields) were shallow-copied, so a caller mutating the map/slice on a DescribeDomain result would have silently mutated the backend's stored state. Not a resource leak, but a real aliasing bug fixed alongside the new fields it would otherwise have applied to as well. 2026-08-10: extended the same deep-clone treatment to AdvancedSecurityOptions.SAMLOptions (and its Idp pointer) and AutoTuneOptions.MaintenanceSchedules (and each element's Duration pointer), which would otherwise have reintroduced the identical aliasing bug for the newly-added nested pointers/slices."}
 ---
 
 ## Notes
+
+### 2026-10-01 burn-down
+
+Fixed: upgrade history/status state, package version history (previously a wrong-shape response), `Deleted` flag on domain status, `AutoTuneOptions.RollbackOnDisable` (stored on update, echoed by DescribeElasticsearchDomainConfig; tests in upgrade_history_test.go and package_versions_test.go).
 
 Protocol: **restjson1**. Base path prefix `/2015-01-01/`.
 
@@ -314,8 +271,7 @@ why" rule:
      (wrong) shape's `State` field inside `Options` and was corrected to assert
      `DesiredState` in `Options` and `State` in `Status` separately -- textbook case of
      parity-principles.md rule 3 ("unit tests are not parity proof").
-   - `AutoTuneOptions.RollbackOnDisable` (Update-only, no Create equivalent) is
-     deliberately NOT modeled -- see gaps.
+   - `AutoTuneOptions.RollbackOnDisable` (Update-only) was modeled in the 2026-10-01 pass.
 2. **`DeploymentStrategyOptions`**: real, simple field (`types.DeploymentStrategyOptions`
    has one required member, `DeploymentStrategy`, enum `Default`/`CapacityOptimized` --
    types/enums.go:130-136), present on `CreateElasticsearchDomainInput`,
@@ -904,3 +860,11 @@ No persisted (`backendSnapshot`) fields changed. Gates: `go build ./...`,
 --new-from-rev=HEAD ./services/elasticsearch/` (0 issues). tier-1
 (`cmd/reqfielddiff -dir elasticsearch`): 4 -> 2 (the 2 remaining are the
 disclosed structural gaps above).
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+elasticsearch already keys its resources by region; same-named resources in two regions coexist with region-correct ARNs. Proof: `TestRegionIsolation/elasticsearch`. No code change to the resource store.
+
+## 2026-10-04 (reqfielddiff tier-1: DescribeDomainChangeProgress.ChangeId)
+
+DescribeDomainChangeProgress now returns ChangeId, Status (COMPLETED), ConfigChangeStatus and, for the latest change, StartTime/LastUpdatedTime. A change is one domain configuration version; its ChangeId is derived deterministically from the domain and version (no stored history), the last 100 versions resolve, an omitted `changeid` selects the latest, and an unknown id is ResourceNotFoundException (declared by the op). Earlier changes carry no times because none were stored. Proof: `TestDescribeDomainChangeProgress_ChangeId_RealClient`. The earlier note that the response has no Status member was wrong for v1.45.4 (deserializers.go:10169 reads it).

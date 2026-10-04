@@ -51,6 +51,10 @@ var (
 	ErrClusterNotFound = awserr.New("DBClusterNotFound", awserr.ErrNotFound)
 	// ErrClusterAlreadyExists is returned when a DB cluster already exists.
 	ErrClusterAlreadyExists = awserr.New("DBClusterAlreadyExists", awserr.ErrAlreadyExists)
+	// ErrClusterRoleAlreadyExists is returned when the role is already associated with the cluster feature.
+	ErrClusterRoleAlreadyExists = awserr.New("DBClusterRoleAlreadyExists", awserr.ErrAlreadyExists)
+	// ErrClusterRoleNotFound is returned when the role is not associated with the cluster feature.
+	ErrClusterRoleNotFound = awserr.New("DBClusterRoleNotFound", awserr.ErrNotFound)
 	// ErrClusterSnapshotNotFound is returned when a DB cluster snapshot does not exist.
 	ErrClusterSnapshotNotFound = awserr.New("DBClusterSnapshotNotFound", awserr.ErrNotFound)
 	// ErrClusterSnapshotAlreadyExists is returned when a DB cluster snapshot already exists.
@@ -130,6 +134,8 @@ var (
 	// InvalidParameterValue this backend previously returned, which left the real
 	// AWS provider's delete waiter unable to recognize "already gone" as success).
 	ErrDBProxyNotFound = awserr.New("DBProxyNotFoundFault", awserr.ErrNotFound)
+	// ErrDBProxyTargetGroupNotFound is the documented fault for an unknown target group.
+	ErrDBProxyTargetGroupNotFound = awserr.New("DBProxyTargetGroupNotFoundFault", awserr.ErrNotFound)
 	// ErrDBProxyEndpointNotFound is returned for an unknown DBProxyEndpointName
 	// (confirmed against DescribeDBProxyEndpoints/DeleteDBProxyEndpoint's declared
 	// error sets, both DBProxyEndpointNotFoundFault).

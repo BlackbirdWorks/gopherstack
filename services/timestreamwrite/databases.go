@@ -23,7 +23,7 @@ func (b *InMemoryBackend) CreateDatabase(name, kmsKeyID string, tags map[string]
 	now := time.Now()
 	db := &Database{
 		DatabaseName:    name,
-		ARN:             databaseARN(name),
+		ARN:             b.databaseARN(name),
 		KmsKeyID:        kmsKeyID,
 		TableCount:      0,
 		CreationTime:    now,
@@ -92,7 +92,7 @@ func (b *InMemoryBackend) DeleteDatabase(name string) error {
 	// Clean up tags and per-table mutexes for all tables in this database
 	// before dropping the records map so lockmetrics doesn't leak handles.
 	for _, tbl := range tbls {
-		delete(b.tags, tableARN(name, tbl.TableName))
+		delete(b.tags, b.tableARN(name, tbl.TableName))
 	}
 
 	for _, slot := range b.records[name] {
@@ -107,7 +107,7 @@ func (b *InMemoryBackend) DeleteDatabase(name string) error {
 
 	b.databases.Delete(name)
 	delete(b.records, name)
-	delete(b.tags, databaseARN(name))
+	delete(b.tags, b.databaseARN(name))
 
 	return nil
 }

@@ -36,6 +36,9 @@ func (h *Handler) handleCreateWorkflow(c *echo.Context) error {
 		Engine            string                            `json:"engine"`
 		DefinitionURI     string                            `json:"definitionUri"`
 		StorageType       string                            `json:"storageType"`
+		ReadmeMarkdown    string                            `json:"readmeMarkdown"`
+		ReadmePath        string                            `json:"readmePath"`
+		BucketOwnerID     string                            `json:"workflowBucketOwnerId"`
 		DefinitionZip     []byte                            `json:"definitionZip"`
 	}
 
@@ -53,6 +56,10 @@ func (h *Handler) handleCreateWorkflow(c *echo.Context) error {
 		StorageCapacity:   req.StorageCapacity,
 		ParameterTemplate: toWorkflowParameterTemplate(req.ParameterTemplate),
 		Tags:              req.Tags,
+
+		ReadmeMarkdown:        req.ReadmeMarkdown,
+		ReadmePath:            req.ReadmePath,
+		WorkflowBucketOwnerID: req.BucketOwnerID,
 	})
 	if err != nil {
 		return h.mapError(c, err)
@@ -144,6 +151,10 @@ func (h *Handler) handleCreateWorkflowVersion(c *echo.Context, workflowID string
 		VersionName       string                            `json:"versionName"`
 		Description       string                            `json:"description"`
 		StorageType       string                            `json:"storageType"`
+		DefinitionURI     string                            `json:"definitionUri"`
+		ReadmeMarkdown    string                            `json:"readmeMarkdown"`
+		ReadmePath        string                            `json:"readmePath"`
+		BucketOwnerID     string                            `json:"workflowBucketOwnerId"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
@@ -158,6 +169,11 @@ func (h *Handler) handleCreateWorkflowVersion(c *echo.Context, workflowID string
 		StorageCapacity:   req.StorageCapacity,
 		ParameterTemplate: toWorkflowParameterTemplate(req.ParameterTemplate),
 		Tags:              req.Tags,
+
+		DefinitionURI:         req.DefinitionURI,
+		ReadmeMarkdown:        req.ReadmeMarkdown,
+		ReadmePath:            req.ReadmePath,
+		WorkflowBucketOwnerID: req.BucketOwnerID,
 	})
 	if err != nil {
 		return h.mapError(c, err)

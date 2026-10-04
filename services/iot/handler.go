@@ -11,9 +11,11 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
@@ -31,7 +33,47 @@ const (
 type Handler struct {
 	Backend   StorageBackend
 	broker    *Broker
+	peers     *regionpeers.Set[Handler]
 	brokerRun worker.SingleRun
+}
+
+// EnableRegions makes h serve every other region through lazily built per-region
+// siblings that share h's single MQTT broker.
+func (h *Handler) EnableRegions() {
+	home, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	h.peers = regionpeers.New(home.region, func(region string) *Handler {
+		return NewHandler(NewInMemoryBackendWithConfig(home.accountID, region), h.broker)
+	})
+
+	if h.broker != nil {
+		h.broker.others = h.siblingBackends
+	}
+}
+
+func (h *Handler) siblingBackends() []*InMemoryBackend {
+	var out []*InMemoryBackend
+
+	for _, p := range h.peers.All() {
+		if b, ok := p.Backend.(*InMemoryBackend); ok {
+			out = append(out, b)
+		}
+	}
+
+	return out
+}
+
+// BackendFor returns the backend serving region: the home backend, or the sibling
+// for any other region (built on first use).
+func (h *Handler) BackendFor(region string) StorageBackend {
+	if p := h.peers.Get(region); p != nil {
+		return p.Backend
+	}
+
+	return h.Backend
 }
 
 // NewHandler creates a new IoT Handler.
@@ -43,6 +85,10 @@ func NewHandler(backend StorageBackend, broker *Broker) *Handler {
 func (h *Handler) Reset() {
 	if r, ok := h.Backend.(Resettable); ok {
 		r.Reset()
+	}
+
+	for _, p := range h.peers.Drain() {
+		p.Reset()
 	}
 }
 
@@ -156,6 +202,17 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 // Invoked on server shutdown via service.Shutdowner.
 func (h *Handler) Shutdown(ctx context.Context) {
 	h.brokerRun.Stop(ctx)
+	h.drainBackground(ctx)
+
+	for _, p := range h.peers.All() {
+		p.drainBackground(ctx)
+	}
+}
+
+func (h *Handler) drainBackground(ctx context.Context) {
+	if d, ok := h.Backend.(interface{ DrainBackground(ctx context.Context) }); ok {
+		d.DrainBackground(ctx)
+	}
 }
 
 // Ensure Handler implements service.BackgroundWorker and service.Shutdowner
@@ -168,6 +225,10 @@ var (
 // Handler returns the Echo handler function for IoT operations.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
+			return p.Handler()(c)
+		}
+
 		log := logger.Load(c.Request().Context())
 		op := resolveOperation(c.Request().URL.Path, c.Request().Method)
 
@@ -267,14 +328,8 @@ func (h *Handler) handleCreateThing(c *echo.Context) error {
 	})
 }
 
-func (h *Handler) handleDescribeThing(c *echo.Context) error {
-	thingName := strings.TrimPrefix(c.Request().URL.Path, "/things/")
-
-	t, err := h.Backend.DescribeThing(thingName)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
+// thingDescription builds the DescribeThing response.
+func thingDescription(t *Thing) map[string]any {
 	resp := map[string]any{
 		keyThingName:      t.ThingName,
 		keyThingArn:       t.ARN,
@@ -287,6 +342,19 @@ func (h *Handler) handleDescribeThing(c *echo.Context) error {
 	if t.BillingGroupName != "" {
 		resp["billingGroupName"] = t.BillingGroupName
 	}
+
+	return resp
+}
+
+func (h *Handler) handleDescribeThing(c *echo.Context) error {
+	thingName := strings.TrimPrefix(c.Request().URL.Path, "/things/")
+
+	t, err := h.Backend.DescribeThing(thingName)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	resp := thingDescription(t)
 
 	return c.JSON(http.StatusOK, resp)
 }

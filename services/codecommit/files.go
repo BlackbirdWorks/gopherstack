@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -43,17 +44,18 @@ func (b *InMemoryBackend) PutFile(
 		return nil, "", fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
 	}
 
-	if existing, ok := b.files.Get(fileKey(repoName, filePath)); ok && bytes.Equal(existing.FileContent, content) {
-		return nil, "", fmt.Errorf(
-			"%w: file %s content is unchanged", ErrSameFileContent, filePath,
-		)
-	}
-
 	var currentTip string
 	if branchName != "" {
 		if br, branchOK := b.branches.Get(branchKey(repoName, branchName)); branchOK {
 			currentTip = br.CommitID
 		}
+	}
+
+	tree := b.parentTreeLocked(repoName, currentTip)
+	if b.treeFileContentEquals(repoName, tree, filePath, content) {
+		return nil, "", fmt.Errorf(
+			"%w: file %s content is unchanged", ErrSameFileContent, filePath,
+		)
 	}
 
 	if meta.ParentCommitID != "" && currentTip != "" && meta.ParentCommitID != currentTip {
@@ -73,6 +75,8 @@ func (b *InMemoryBackend) PutFile(
 	}
 
 	blobID := uuid.NewString()
+	b.storeBlobLocked(repoName, blobID, content)
+	tree[filePath] = TreeEntry{BlobID: blobID, Mode: fileMode}
 	b.files.Put(&File{
 		FilePath: filePath,
 		// CommitSpecifier is the commit that produced this version of the
@@ -111,6 +115,7 @@ func (b *InMemoryBackend) PutFile(
 		Parents:        parents,
 		CreatedAt:      now,
 	}
+	setCommitTree(commit, tree)
 	b.commits.Put(commit)
 
 	// Update branch tip
@@ -128,12 +133,21 @@ func (b *InMemoryBackend) PutFile(
 }
 
 // GetFile retrieves a file by repository, commit specifier, and path.
-func (b *InMemoryBackend) GetFile(repoName, _ /* commitSpecifier */, filePath string) (*File, error) {
+func (b *InMemoryBackend) GetFile(repoName, commitSpecifier, filePath string) (*File, error) {
 	b.mu.RLock("GetFile")
 	defer b.mu.RUnlock()
 
 	if !b.repositories.Has(repoName) {
 		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
+	}
+
+	if commitID, tree, ok := b.specTreeLocked(repoName, commitSpecifier); ok {
+		entry, found := tree[filePath]
+		if !found {
+			return nil, fmt.Errorf("%w: file %s not found", ErrFileNotFound, filePath)
+		}
+
+		return b.fileFromEntryLocked(repoName, commitID, filePath, entry), nil
 	}
 
 	f, ok := b.files.Get(fileKey(repoName, filePath))
@@ -146,12 +160,28 @@ func (b *InMemoryBackend) GetFile(repoName, _ /* commitSpecifier */, filePath st
 }
 
 // GetFolder lists file paths under a folder path.
-func (b *InMemoryBackend) GetFolder(repoName, _ /* commitSpecifier */, folderPath string) ([]string, error) {
+func (b *InMemoryBackend) GetFolder(repoName, commitSpecifier, folderPath string) ([]string, error) {
 	b.mu.RLock("GetFolder")
 	defer b.mu.RUnlock()
 
 	if !b.repositories.Has(repoName) {
 		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
+	}
+
+	folderPath = strings.Trim(folderPath, "/")
+
+	if _, tree, ok := b.specTreeLocked(repoName, commitSpecifier); ok {
+		var paths []string
+
+		for p := range tree {
+			if pathMatchesFilter(p, folderPath) {
+				paths = append(paths, p)
+			}
+		}
+
+		sort.Strings(paths)
+
+		return paths, nil
 	}
 
 	repoFiles := b.filesByRepo.Get(repoName)
@@ -173,12 +203,28 @@ func (b *InMemoryBackend) GetFolder(repoName, _ /* commitSpecifier */, folderPat
 
 // GetFolderFiles returns file metadata (path, blobId, fileMode) for files under a folder path.
 // This provides richer info than GetFolder for handler responses matching the AWS API shape.
-func (b *InMemoryBackend) GetFolderFiles(repoName, _ /* commitSpecifier */, folderPath string) ([]*File, error) {
+func (b *InMemoryBackend) GetFolderFiles(repoName, commitSpecifier, folderPath string) ([]*File, error) {
 	b.mu.RLock("GetFolderFiles")
 	defer b.mu.RUnlock()
 
 	if !b.repositories.Has(repoName) {
 		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
+	}
+
+	folderPath = strings.Trim(folderPath, "/")
+
+	if commitID, tree, ok := b.specTreeLocked(repoName, commitSpecifier); ok {
+		var files []*File
+
+		for p, entry := range tree {
+			if pathMatchesFilter(p, folderPath) {
+				files = append(files, b.fileFromEntryLocked(repoName, commitID, p, entry))
+			}
+		}
+
+		sort.Slice(files, func(i, j int) bool { return files[i].FilePath < files[j].FilePath })
+
+		return files, nil
 	}
 
 	repoFiles := b.filesByRepo.Get(repoName)
@@ -264,6 +310,8 @@ func (b *InMemoryBackend) DeleteFile(
 		)
 	}
 
+	tree := b.parentTreeLocked(repoName, currentTip)
+	delete(tree, filePath)
 	b.files.Delete(fileKey(repoName, filePath))
 
 	commitID := uuid.NewString()
@@ -292,9 +340,10 @@ func (b *InMemoryBackend) DeleteFile(
 		Parents:        parents,
 		CreatedAt:      now,
 	}
-	b.commits.Put(commit)
 	b.recordFileHistory(repoName, filePath, commitID, blobID)
-	b.keepEmptyFoldersLocked(repoName, commitID, []string{filePath}, meta.KeepEmptyFolders)
+	b.keepEmptyFoldersLocked(repoName, commitID, []string{filePath}, meta.KeepEmptyFolders, tree)
+	setCommitTree(commit, tree)
+	b.commits.Put(commit)
 
 	// Update branch tip
 	if branchName != "" {
@@ -319,14 +368,8 @@ func (b *InMemoryBackend) GetBlob(repoName, blobID string) ([]byte, error) {
 		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
 	}
 
-	repoFiles := b.filesByRepo.Get(repoName)
-	for _, f := range repoFiles {
-		if f.BlobID == blobID {
-			result := make([]byte, len(f.FileContent))
-			copy(result, f.FileContent)
-
-			return result, nil
-		}
+	if content, ok := b.blobContentLocked(repoName, blobID); ok {
+		return bytes.Clone(content), nil
 	}
 
 	return nil, fmt.Errorf("%w: blob %s not found", ErrBlobNotFound, blobID)

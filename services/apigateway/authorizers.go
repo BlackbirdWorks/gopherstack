@@ -125,13 +125,13 @@ func (b *InMemoryBackend) UpdateAuthorizer(
 	if input.IdentityValidationExpression != "" {
 		auth.IdentityValidationExpression = input.IdentityValidationExpression
 	}
-	if input.AuthorizerResultTTLInSeconds != 0 {
+	if input.AuthorizerResultTTLInSeconds != nil {
 		const maxAuthorizerTTL = 3600
-		if input.AuthorizerResultTTLInSeconds < 0 || input.AuthorizerResultTTLInSeconds > maxAuthorizerTTL {
+		if *input.AuthorizerResultTTLInSeconds < 0 || *input.AuthorizerResultTTLInSeconds > maxAuthorizerTTL {
 			return nil, fmt.Errorf("%w: authorizerResultTtlInSeconds must be in [0, %d]",
 				ErrInvalidParameter, maxAuthorizerTTL)
 		}
-		auth.AuthorizerResultTTLInSeconds = input.AuthorizerResultTTLInSeconds
+		auth.AuthorizerResultTTLInSeconds = *input.AuthorizerResultTTLInSeconds
 	}
 	// nil-checked rather than len-checked so patching the last ARN away via
 	// "/providerARNs" remove actually clears it (see applyAuthorizerPatchOp).

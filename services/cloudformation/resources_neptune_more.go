@@ -212,6 +212,7 @@ func (rc *ResourceCreator) createNeptuneGlobalCluster(
 		ctx, id,
 		strProp(props, "SourceDBClusterIdentifier", params, physicalIDs),
 		"",
+		neptunebackend.GlobalClusterCreateOptions{},
 	)
 	if err != nil {
 		return "", fmt.Errorf("create Neptune global cluster %s: %w", id, err)

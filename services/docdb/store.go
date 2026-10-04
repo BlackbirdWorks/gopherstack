@@ -328,6 +328,7 @@ func (b *InMemoryBackend) AddGlobalClusterInternal(gc *GlobalCluster) {
 func copyCluster(c *DBCluster) *DBCluster {
 	cp := *c
 	cp.Tags = copyTags(c.Tags)
+	cp.ServerlessV2Scaling = copyScaling(c.ServerlessV2Scaling)
 	if len(c.AvailabilityZones) > 0 {
 		cp.AvailabilityZones = make([]string, len(c.AvailabilityZones))
 		copy(cp.AvailabilityZones, c.AvailabilityZones)

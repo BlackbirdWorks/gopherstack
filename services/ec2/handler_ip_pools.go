@@ -418,7 +418,7 @@ func (h *Handler) handleDeprovisionPublicIpv4PoolCidr(vals url.Values, reqID str
 
 func (h *Handler) handleDescribeIpv6Pools(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "PoolId")
-	pools := h.Backend.DescribeIpv6Pools(ids)
+	pools := applyIpv6PoolFilters(h.Backend.DescribeIpv6Pools(ids), parseEC2Filters(vals), h.Backend)
 
 	resp := &describeIpv6PoolsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, p := range pools {

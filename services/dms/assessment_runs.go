@@ -31,6 +31,29 @@ func defaultApplicableIndividualAssessments() []string {
 	}
 }
 
+// CheckAssessmentBaseResources returns ErrNotFound when a non-empty task, instance or config ARN does not exist.
+func (b *InMemoryBackend) CheckAssessmentBaseResources(
+	ctx context.Context,
+	taskArn, instanceArn, configArn string,
+) error {
+	b.mu.RLock("CheckAssessmentBaseResources")
+	defer b.mu.RUnlock()
+
+	if taskArn != "" && b.findTask(ctx, taskArn) == nil {
+		return fmt.Errorf("%w: replication task %s not found", ErrNotFound, taskArn)
+	}
+
+	if instanceArn != "" && b.findReplicationInstance(ctx, instanceArn) == nil {
+		return fmt.Errorf("%w: replication instance %s not found", ErrNotFound, instanceArn)
+	}
+
+	if configArn != "" && b.findReplicationConfig(ctx, configArn) == nil {
+		return fmt.Errorf("%w: replication config %s not found", ErrNotFound, configArn)
+	}
+
+	return nil
+}
+
 // CancelReplicationTaskAssessmentRun cancels a single premigration assessment run.
 func (b *InMemoryBackend) CancelReplicationTaskAssessmentRun(
 	ctx context.Context,

@@ -208,17 +208,18 @@ const (
 
 // SubscriptionFilter represents a CloudWatch Logs subscription filter.
 type SubscriptionFilter struct {
-	FilterPattern  string `json:"filterPattern"`
-	FilterName     string `json:"filterName"`
-	LogGroupName   string `json:"logGroupName"`
-	DestinationArn string `json:"destinationArn"`
-	RoleArn        string `json:"roleArn,omitempty"`
-	Distribution   string `json:"distribution,omitempty"`
-	// region is unexported identity metadata (see LogGroup.region) letting
-	// store.Table[SubscriptionFilter] key every region+group's filters from the
-	// value alone; it round-trips through the subscriptionFilterSnapshot DTO.
-	region       string
-	CreationTime int64 `json:"creationTime"`
+	FieldSelectionCriteria *string `json:"fieldSelectionCriteria,omitempty"`
+	FilterPattern          string  `json:"filterPattern"`
+	FilterName             string  `json:"filterName"`
+	LogGroupName           string  `json:"logGroupName"`
+	DestinationArn         string  `json:"destinationArn"`
+	RoleArn                string  `json:"roleArn,omitempty"`
+	Distribution           string  `json:"distribution,omitempty"`
+	// region is unexported identity metadata; it round-trips via the snapshot DTO.
+	region                 string
+	EmitSystemFields       []string `json:"emitSystemFields,omitempty"`
+	CreationTime           int64    `json:"creationTime"`
+	ApplyOnTransformedLogs bool     `json:"applyOnTransformedLogs,omitempty"`
 }
 
 // subscriptionLogEvent is one event in a subscription filter delivery payload.
@@ -317,13 +318,20 @@ type ExportTask struct {
 // ImportRoleArn from every snapshot -- previously noted but never fixed,
 // see PARITY.md.
 type ImportTask struct {
-	ImportID             string `json:"importId"`
-	ImportSourceArn      string `json:"importSourceArn"`
-	ImportRoleArn        string `json:"-"`
-	ImportDestinationArn string `json:"importDestinationArn"`
-	Status               string `json:"importStatus"`
-	CreationTime         int64  `json:"creationTime"`
-	LastUpdatedTime      int64  `json:"lastUpdatedTime"`
+	ImportFilter         *ImportFilter `json:"importFilter,omitempty"`
+	ImportID             string        `json:"importId"`
+	ImportSourceArn      string        `json:"importSourceArn"`
+	ImportRoleArn        string        `json:"-"`
+	ImportDestinationArn string        `json:"importDestinationArn"`
+	Status               string        `json:"importStatus"`
+	CreationTime         int64         `json:"creationTime"`
+	LastUpdatedTime      int64         `json:"lastUpdatedTime"`
+}
+
+// ImportFilter constrains an import by CloudTrail event time (Unix milliseconds).
+type ImportFilter struct {
+	StartEventTime *int64 `json:"startEventTime,omitempty"`
+	EndEventTime   *int64 `json:"endEventTime,omitempty"`
 }
 
 // DeliveryS3Configuration mirrors the real S3DeliveryConfiguration shape
@@ -483,13 +491,23 @@ type MetricTransformation struct {
 
 // MetricFilter represents a CloudWatch Logs metric filter.
 type MetricFilter struct {
-	RetentionInDays       *int32 `json:"retentionInDays,omitempty"`
-	FilterPattern         string `json:"filterPattern"`
-	FilterName            string `json:"filterName"`
-	LogGroupName          string `json:"logGroupName"`
-	region                string
-	MetricTransformations []MetricTransformation `json:"metricTransformations"`
-	CreationTime          int64                  `json:"creationTime"`
+	RetentionInDays           *int32  `json:"retentionInDays,omitempty"`
+	FieldSelectionCriteria    *string `json:"fieldSelectionCriteria,omitempty"`
+	FilterPattern             string  `json:"filterPattern"`
+	FilterName                string  `json:"filterName"`
+	LogGroupName              string  `json:"logGroupName"`
+	region                    string
+	MetricTransformations     []MetricTransformation `json:"metricTransformations"`
+	EmitSystemFieldDimensions []string               `json:"emitSystemFieldDimensions,omitempty"`
+	CreationTime              int64                  `json:"creationTime"`
+	ApplyOnTransformedLogs    bool                   `json:"applyOnTransformedLogs,omitempty"`
+}
+
+// FilterOptions carries the system-field options shared by Put{Metric,Subscription}Filter.
+type FilterOptions struct {
+	FieldSelectionCriteria *string
+	EmitSystemFields       []string
+	ApplyOnTransformedLogs bool
 }
 
 // MetricFilterMatchRecord represents one event that matched a TestMetricFilter call.
@@ -587,13 +605,14 @@ type DeliverySource struct {
 	// needs a real tag for persistence (gopherstack-gqxy0): deliverySources
 	// was a "clean" table (store_setup.go) whose own json.Marshal round trip
 	// honored this tag too, silently dropping CreatedAt from every snapshot.
-	CreatedAt    time.Time         `json:"-"`
-	Tags         map[string]string `json:"tags,omitempty"`
-	Name         string            `json:"name"`
-	Arn          string            `json:"arn"`
-	LogType      string            `json:"logType,omitempty"`
-	Service      string            `json:"service,omitempty"`
-	ResourceArns []string          `json:"resourceArns,omitempty"`
+	CreatedAt                   time.Time         `json:"-"`
+	Tags                        map[string]string `json:"tags,omitempty"`
+	DeliverySourceConfiguration map[string]string `json:"deliverySourceConfiguration,omitempty"`
+	Name                        string            `json:"name"`
+	Arn                         string            `json:"arn"`
+	LogType                     string            `json:"logType,omitempty"`
+	Service                     string            `json:"service,omitempty"`
+	ResourceArns                []string          `json:"resourceArns,omitempty"`
 }
 
 // CWLDestination represents a CloudWatch Logs log routing destination.

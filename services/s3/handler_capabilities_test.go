@@ -274,18 +274,23 @@ func TestS3_CreateSession(t *testing.T) {
 		wantStatus int
 	}{
 		{
-			name:       "CreateSession returns mock credentials",
+			name:       "CreateSession returns generated credentials",
 			bucket:     "session-bucket",
 			path:       "/session-bucket?session",
 			wantStatus: http.StatusOK,
-			wantBody:   "gopherstack-mock-session-token",
+			wantBody:   "CreateSessionResult",
 		},
 		{
-			name:       "CreateSession on missing bucket returns 404",
+			// CreateSession deliberately does not require the bucket to
+			// already exist: the pinned SDK issues an implicit CreateSession
+			// for CreateBucket itself on a directory-bucket-shaped name when
+			// a custom BaseEndpoint is configured, before the bucket exists
+			// (see express_session.go's CreateSession doc comment).
+			name:       "CreateSession on not-yet-created bucket still succeeds",
 			bucket:     "",
-			path:       "/no-such-bucket?session",
-			wantStatus: http.StatusNotFound,
-			wantBody:   "NoSuchBucket",
+			path:       "/not-yet-created--use1-az4--x-s3?session",
+			wantStatus: http.StatusOK,
+			wantBody:   "CreateSessionResult",
 		},
 	}
 

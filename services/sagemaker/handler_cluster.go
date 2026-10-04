@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
@@ -563,13 +564,8 @@ type updateClusterSoftwareInstanceGroupRequest struct {
 	ImageReleaseVersion string `json:"ImageReleaseVersion"`
 }
 
-// updateClusterSoftwareInput is UpdateClusterSoftware's request shape
-// (api_op_UpdateClusterSoftware.go:28-63). DeploymentConfig/ImageId/
-// InstanceGroups are decoded for wire-shape fidelity but are disclosed
-// no-ops: this backend applies an UpdateClusterSoftware request immediately
-// with no observable AMI/software-version state to update per instance group
-// (see UpdateClusterSoftware's doc comment in cluster.go), so there is
-// nothing for a per-group image ID/version or rollout policy to act on.
+// updateClusterSoftwareInput mirrors api_op_UpdateClusterSoftware.go:28-63;
+// DeploymentConfig/ImageId are decoded but have no state to act on.
 type updateClusterSoftwareInput struct {
 	DeploymentConfig json.RawMessage                             `json:"DeploymentConfig"`
 	ClusterName      string                                      `json:"ClusterName"`
@@ -588,7 +584,12 @@ func (h *Handler) handleUpdateClusterSoftware(ctx context.Context, body []byte) 
 		return nil, fmt.Errorf("%w: ClusterName is required", errInvalidRequest)
 	}
 
-	clusterArn, err := h.Backend.UpdateClusterSoftware(ctx, req.ClusterName)
+	updates := make([]ClusterSoftwareUpdate, 0, len(req.InstanceGroups))
+	for _, g := range req.InstanceGroups {
+		updates = append(updates, ClusterSoftwareUpdate(g))
+	}
+
+	clusterArn, err := h.Backend.UpdateClusterSoftware(ctx, req.ClusterName, updates)
 	if err != nil {
 		return nil, err
 	}
@@ -613,11 +614,13 @@ type clusterInstanceStatusDetails struct {
 // all describe EC2/network/Kubernetes state this emulator does not simulate
 // and are disclosed, not modeled.
 type clusterNodeDetails struct {
-	InstanceGroupName string                       `json:"InstanceGroupName,omitempty"`
-	InstanceID        string                       `json:"InstanceId,omitempty"`
-	InstanceType      string                       `json:"InstanceType,omitempty"`
-	InstanceStatus    clusterInstanceStatusDetails `json:"InstanceStatus"`
-	LaunchTime        float64                      `json:"LaunchTime"`
+	InstanceGroupName          string                       `json:"InstanceGroupName,omitempty"`
+	InstanceID                 string                       `json:"InstanceId,omitempty"`
+	InstanceType               string                       `json:"InstanceType,omitempty"`
+	InstanceStatus             clusterInstanceStatusDetails `json:"InstanceStatus"`
+	CurrentImageReleaseVersion string                       `json:"CurrentImageReleaseVersion,omitempty"`
+	LaunchTime                 float64                      `json:"LaunchTime"`
+	LastSoftwareUpdateTime     float64                      `json:"LastSoftwareUpdateTime,omitempty"`
 }
 
 func toClusterNodeDetails(n *ClusterNode) clusterNodeDetails {
@@ -627,7 +630,18 @@ func toClusterNodeDetails(n *ClusterNode) clusterNodeDetails {
 		InstanceType:      n.InstanceType,
 		InstanceStatus:    clusterInstanceStatusDetails{Status: n.NodeStatus},
 		LaunchTime:        epochSeconds(n.CreationTime),
+
+		CurrentImageReleaseVersion: n.CurrentImageReleaseVersion,
+		LastSoftwareUpdateTime:     optionalEpoch(n.LastSoftwareUpdateTime),
 	}
+}
+
+func optionalEpoch(t time.Time) float64 {
+	if t.IsZero() {
+		return 0
+	}
+
+	return epochSeconds(t)
 }
 
 // describeClusterNodeInput is DescribeClusterNode's request shape
@@ -676,11 +690,13 @@ func (h *Handler) handleDescribeClusterNode(ctx context.Context, body []byte) ([
 // always populated by a node's owning instance group in practice, but
 // carried no omitempty for wire-accuracy regardless.
 type clusterNodeSummary struct {
-	InstanceGroupName string                       `json:"InstanceGroupName"`
-	InstanceID        string                       `json:"InstanceId"`
-	InstanceType      string                       `json:"InstanceType"`
-	InstanceStatus    clusterInstanceStatusDetails `json:"InstanceStatus"`
-	LaunchTime        float64                      `json:"LaunchTime"`
+	InstanceGroupName          string                       `json:"InstanceGroupName"`
+	InstanceID                 string                       `json:"InstanceId"`
+	InstanceType               string                       `json:"InstanceType"`
+	InstanceStatus             clusterInstanceStatusDetails `json:"InstanceStatus"`
+	CurrentImageReleaseVersion string                       `json:"CurrentImageReleaseVersion,omitempty"`
+	LaunchTime                 float64                      `json:"LaunchTime"`
+	LastSoftwareUpdateTime     float64                      `json:"LastSoftwareUpdateTime,omitempty"`
 }
 
 // listClusterNodesInput is ListClusterNodes' request shape
@@ -731,6 +747,9 @@ func (h *Handler) handleListClusterNodes(ctx context.Context, body []byte) ([]by
 			InstanceType:      n.InstanceType,
 			InstanceStatus:    clusterInstanceStatusDetails{Status: n.NodeStatus},
 			LaunchTime:        epochSeconds(n.CreationTime),
+
+			CurrentImageReleaseVersion: n.CurrentImageReleaseVersion,
+			LastSoftwareUpdateTime:     optionalEpoch(n.LastSoftwareUpdateTime),
 		})
 	}
 

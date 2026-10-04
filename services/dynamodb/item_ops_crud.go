@@ -13,7 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
 
-func (db *InMemoryDB) PutItem(
+func (db *InMemoryDB) putItemOp(
 	ctx context.Context,
 	input *dynamodb.PutItemInput,
 ) (*dynamodb.PutItemOutput, error) {
@@ -52,7 +52,8 @@ func (db *InMemoryDB) PutItem(
 		return nil, err
 	}
 
-	out, globalTableName, region, putErr := db.putItemLocked(ctx, tableName, table, input, wireItem, itemSize)
+	wire := putWire{item: wireItem, eav: wireEAV}
+	out, globalTableName, region, putErr := db.putItemLocked(ctx, tableName, table, input, wire, itemSize)
 	if putErr != nil {
 		return nil, putErr
 	}
@@ -63,6 +64,12 @@ func (db *InMemoryDB) PutItem(
 	}
 
 	return out, nil
+}
+
+// putWire is a PutItem request's already-converted item and ExpressionAttributeValues.
+type putWire struct {
+	item map[string]any
+	eav  map[string]any
 }
 
 // putItemLocked performs the table.mu-guarded portion of PutItem. Using a
@@ -76,9 +83,10 @@ func (db *InMemoryDB) putItemLocked(
 	tableName string,
 	table *Table,
 	input *dynamodb.PutItemInput,
-	wireItem map[string]any,
+	wire putWire,
 	itemSize int,
 ) (*dynamodb.PutItemOutput, string, string, error) {
+	wireItem := wire.item
 	table.mu.Lock("PutItem")
 	defer table.mu.Unlock()
 
@@ -93,6 +101,8 @@ func (db *InMemoryDB) putItemLocked(
 	wcu := WriteCapacityUnitsFromSize(itemSize)
 	region := getRegionFromContext(ctx, db)
 
+	db.emitWCU(region, tableName, wcu)
+
 	if !isOnDemandTable(table.BillingMode) {
 		if throttleErr := db.throttler.ConsumeWrite(throttleKey(region, tableName), wcu); throttleErr != nil {
 			return nil, "", "", throttleErr
@@ -100,7 +110,7 @@ func (db *InMemoryDB) putItemLocked(
 	}
 
 	oldItem, matchIndex := db.findMatchForPut(table, wireItem)
-	if condErr := db.checkPutCondition(ctx, input, oldItem); condErr != nil {
+	if condErr := db.checkPutCondition(ctx, input, oldItem, wire.eav); condErr != nil {
 		return nil, "", "", condErr
 	}
 
@@ -143,6 +153,28 @@ func (db *InMemoryDB) findMatchForPut(table *Table, item map[string]any) (map[st
 	return nil, -1
 }
 
+// findMatchForPutSDK is findMatchForPut keyed straight off an SDK item, converting only the key attributes.
+func (db *InMemoryDB) findMatchForPutSDK(
+	table *Table,
+	item map[string]types.AttributeValue,
+) (map[string]any, int) {
+	pkDef, skDef := getPKAndSK(table.KeySchema)
+	pkVal := BuildKeyStringFromSDK(item, pkDef.AttributeName)
+
+	if skDef.AttributeName != "" {
+		skVal := BuildKeyStringFromSDK(item, skDef.AttributeName)
+		if skMap, ok := table.pkskIndex[pkVal]; ok {
+			if idx, okIdx := skMap[skVal]; okIdx {
+				return table.Items[idx], idx
+			}
+		}
+	} else if idx, ok := table.pkIndex[pkVal]; ok {
+		return table.Items[idx], idx
+	}
+
+	return nil, -1
+}
+
 // conditionalCheckFailed builds a ConditionalCheckFailedException, attaching the
 // existing item when the caller requested ReturnValuesOnConditionCheckFailure=ALL_OLD.
 // This mirrors AWS, which returns the current item in the error body so clients doing
@@ -154,7 +186,7 @@ func conditionalCheckFailed(
 	if rv == types.ReturnValuesOnConditionCheckFailureAllOld && oldItem != nil {
 		// oldItem is already in DynamoDB wire form (e.g. {"pk":{"S":"a"}}), which is
 		// exactly the shape AWS returns in the ConditionalCheckFailedException body.
-		return NewConditionalCheckFailedExceptionWithItem("The conditional request failed", oldItem)
+		return NewConditionalCheckFailedExceptionWithItem("The conditional request failed", deepCopyItem(oldItem))
 	}
 
 	return NewConditionalCheckFailedException("The conditional request failed")
@@ -164,6 +196,7 @@ func (db *InMemoryDB) checkPutCondition(
 	ctx context.Context,
 	input *dynamodb.PutItemInput,
 	oldItem map[string]any,
+	eav map[string]any,
 ) error {
 	condition := aws.ToString(input.ConditionExpression)
 	if condition == "" {
@@ -175,9 +208,6 @@ func (db *InMemoryDB) checkPutCondition(
 		"expression", condition,
 		"attributeNames", input.ExpressionAttributeNames,
 		"attributeValues", input.ExpressionAttributeValues)
-
-	// Convert EAV to Wire format for evaluator
-	eav := models.FromSDKItem(input.ExpressionAttributeValues)
 
 	match, err := evaluateExpression(
 		condition,
@@ -201,6 +231,7 @@ func (db *InMemoryDB) doPut(table *Table, item map[string]any, matchIndex int) {
 }
 
 func (db *InMemoryDB) doPutWithSize(table *Table, item map[string]any, matchIndex int, itemSize int) {
+	table.itemsChanged()
 	if matchIndex != -1 {
 		oldItem := table.Items[matchIndex]
 		table.totalItemSizeBytes += int64(itemSize) - int64(table.itemSizes[matchIndex])
@@ -296,7 +327,7 @@ func computeLSICollectionSize(
 func buildItemCollectionMetrics(
 	table *Table,
 	rim types.ReturnItemCollectionMetrics,
-	pkKey map[string]types.AttributeValue,
+	src map[string]types.AttributeValue,
 	collectionBytes int64,
 ) *types.ItemCollectionMetrics {
 	if rim == "" || rim == types.ReturnItemCollectionMetricsNone {
@@ -309,7 +340,7 @@ func buildItemCollectionMetrics(
 	sizeGB := collectionBytesToGB(collectionBytes)
 
 	return &types.ItemCollectionMetrics{
-		ItemCollectionKey:   pkKey,
+		ItemCollectionKey:   pkOnlyKey(table, src),
 		SizeEstimateRangeGB: []float64{sizeGB, sizeGB},
 	}
 }
@@ -385,7 +416,7 @@ func (db *InMemoryDB) populatePutItemOutput(
 	out.ItemCollectionMetrics = buildItemCollectionMetrics(
 		table,
 		input.ReturnItemCollectionMetrics,
-		pkOnlyKey(table, input.Item),
+		input.Item,
 		lsiCollectionBytes,
 	)
 
@@ -417,20 +448,42 @@ func resolveGetItemKeys(
 	return pkVal, skVal, nil
 }
 
-func (db *InMemoryDB) GetItem(
+func (db *InMemoryDB) getItemOp(
 	ctx context.Context,
 	input *dynamodb.GetItemInput,
 ) (*dynamodb.GetItemOutput, error) {
+	result, cc, err := db.getItemCore(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+
+	if result == nil {
+		return &dynamodb.GetItemOutput{}, nil
+	}
+
+	sdkItem, err := models.ToSDKItem(result)
+	if err != nil {
+		return nil, err
+	}
+
+	return &dynamodb.GetItemOutput{Item: sdkItem, ConsumedCapacity: cc}, nil
+}
+
+// getItemCore returns the (projected) wire item, or nil when the item is absent or expired.
+func (db *InMemoryDB) getItemCore(
+	ctx context.Context,
+	input *dynamodb.GetItemInput,
+) (map[string]any, *types.ConsumedCapacity, error) {
 	tableName := aws.ToString(input.TableName)
 	table, err := db.getTable(ctx, tableName)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Validate projection params before taking any lock.
 	projExpr := aws.ToString(input.ProjectionExpression)
 	if projErr := validateProjectionParams(projExpr, input.AttributesToGet); projErr != nil {
-		return nil, projErr
+		return nil, nil, projErr
 	}
 
 	consistentRead := aws.ToBool(input.ConsistentRead)
@@ -454,6 +507,8 @@ func (db *InMemoryDB) GetItem(
 			return
 		}
 
+		db.emitRCU(region, tableName, rcu)
+
 		if !isOnDemandTable(table.BillingMode) {
 			if throttleErr := db.throttler.ConsumeRead(
 				throttleKey(region, tableName),
@@ -470,11 +525,11 @@ func (db *InMemoryDB) GetItem(
 	}()
 
 	if tableErr != nil {
-		return nil, tableErr
+		return nil, nil, tableErr
 	}
 
 	if item == nil || isItemExpired(item, ttlAttr) {
-		return &dynamodb.GetItemOutput{}, nil
+		return nil, nil, nil
 	}
 
 	// Resolve effective projection (fallback to AttributesToGet).
@@ -484,22 +539,21 @@ func (db *InMemoryDB) GetItem(
 	if effectiveProj != "" {
 		result, err = projectItem(item, effectiveProj, mergeAttrNames(input.ExpressionAttributeNames, atgNames))
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 
-	sdkItem, err := models.ToSDKItem(result)
-	if err != nil {
-		return nil, err
+	if result == nil {
+		result = map[string]any{}
 	}
 
-	out := &dynamodb.GetItemOutput{Item: sdkItem}
+	var cc *types.ConsumedCapacity
 	if input.ReturnConsumedCapacity != "" &&
 		input.ReturnConsumedCapacity != types.ReturnConsumedCapacityNone {
 		// RCU on a read is ceil(item-size / 4 KB) * 0.5 (eventually consistent)
 		// or doubled when ConsistentRead=true. Matches the real AWS formula.
 		readUnits := applyConsistentReadMultiplier(ReadCapacityUnits(item), consistentRead)
-		out.ConsumedCapacity = buildConsumedCapacityWithIndexes(
+		cc = buildConsumedCapacityWithIndexes(
 			aws.ToString(input.TableName),
 			input.ReturnConsumedCapacity,
 			readUnits, 0,
@@ -508,10 +562,10 @@ func (db *InMemoryDB) GetItem(
 		)
 	}
 
-	return out, nil
+	return result, cc, nil
 }
 
-func (db *InMemoryDB) DeleteItem(
+func (db *InMemoryDB) deleteItemOp(
 	ctx context.Context,
 	input *dynamodb.DeleteItemInput,
 ) (*dynamodb.DeleteItemOutput, error) {
@@ -542,7 +596,7 @@ func (db *InMemoryDB) DeleteItem(
 
 	wireKey := models.FromSDKItem(input.Key)
 
-	out, globalTableName, region, oldItem, delErr := db.deleteItemLocked(ctx, tableName, table, input, wireKey)
+	out, globalTableName, region, oldItem, delErr := db.deleteItemLocked(ctx, tableName, table, input, wireKey, wireEAV)
 	if delErr != nil {
 		return nil, delErr
 	}
@@ -570,6 +624,7 @@ func (db *InMemoryDB) deleteItemLocked(
 	table *Table,
 	input *dynamodb.DeleteItemInput,
 	wireKey map[string]any,
+	wireEAV map[string]any,
 ) (*dynamodb.DeleteItemOutput, string, string, map[string]any, error) {
 	table.mu.Lock("DeleteItem")
 	defer table.mu.Unlock()
@@ -600,6 +655,8 @@ func (db *InMemoryDB) deleteItemLocked(
 	// Enforce throughput after key validation so that invalid requests do not
 	// consume tokens. PAY_PER_REQUEST tables bypass throttling. DeleteItem
 	// consumes WCUs proportional to the size of the deleted item (min 1).
+	db.emitWCU(region, tableName, wcu)
+
 	if !isOnDemandTable(table.BillingMode) {
 		if throttleErr := db.throttler.ConsumeWrite(
 			throttleKey(region, tableName), wcu,
@@ -608,7 +665,7 @@ func (db *InMemoryDB) deleteItemLocked(
 		}
 	}
 
-	if err := db.checkDeleteCondition(ctx, input, oldItem); err != nil {
+	if err := db.checkDeleteCondition(ctx, input, oldItem, wireEAV); err != nil {
 		return nil, "", "", nil, err
 	}
 
@@ -628,6 +685,7 @@ func (db *InMemoryDB) checkDeleteCondition(
 	ctx context.Context,
 	input *dynamodb.DeleteItemInput,
 	oldItem map[string]any,
+	eav map[string]any,
 ) error {
 	condition := aws.ToString(input.ConditionExpression)
 	if condition == "" {
@@ -639,8 +697,6 @@ func (db *InMemoryDB) checkDeleteCondition(
 		"expression", condition,
 		"attributeNames", input.ExpressionAttributeNames,
 		"attributeValues", input.ExpressionAttributeValues)
-
-	eav := models.FromSDKItem(input.ExpressionAttributeValues)
 
 	match, err := evaluateExpression(
 		condition,
@@ -689,7 +745,7 @@ func (db *InMemoryDB) buildDeleteItemOutput(
 	out.ItemCollectionMetrics = buildItemCollectionMetrics(
 		table,
 		input.ReturnItemCollectionMetrics,
-		pkOnlyKey(table, input.Key),
+		input.Key,
 		currentLSICollectionBytes(table, pkVal),
 	)
 
@@ -729,7 +785,7 @@ func validateConditionExpressionAttributes(
 	return nil
 }
 
-func (db *InMemoryDB) UpdateItem(
+func (db *InMemoryDB) updateItemOp(
 	ctx context.Context,
 	input *dynamodb.UpdateItemInput,
 ) (*dynamodb.UpdateItemOutput, error) {
@@ -783,7 +839,7 @@ func (db *InMemoryDB) UpdateItem(
 
 	wireKey := models.FromSDKItem(input.Key)
 
-	out, globalTableName, region, updated, outErr := db.updateItemLocked(ctx, tableName, table, input, wireKey)
+	out, globalTableName, region, updated, outErr := db.updateItemLocked(ctx, tableName, table, input, wireKey, wireEAV)
 	if outErr != nil {
 		return nil, outErr
 	}
@@ -805,6 +861,7 @@ func (db *InMemoryDB) updateItemLocked(
 	table *Table,
 	input *dynamodb.UpdateItemInput,
 	wireKey map[string]any,
+	wireEAV map[string]any,
 ) (*dynamodb.UpdateItemOutput, string, string, map[string]any, error) {
 	table.mu.Lock("UpdateItem")
 	defer table.mu.Unlock()
@@ -820,19 +877,23 @@ func (db *InMemoryDB) updateItemLocked(
 	// Enforce throughput after key validation so that invalid requests do not
 	// consume tokens. PAY_PER_REQUEST tables bypass throttling. UpdateItem
 	// consumes WCUs proportional to the (pre-update) item size, min 1.
+	updateWCU := WriteCapacityUnits(existing)
+	db.emitWCU(region, tableName, updateWCU)
+
 	if !isOnDemandTable(table.BillingMode) {
 		if throttleErr := db.throttler.ConsumeWrite(
-			throttleKey(region, tableName), WriteCapacityUnits(existing),
+			throttleKey(region, tableName), updateWCU,
 		); throttleErr != nil {
 			return nil, "", "", nil, throttleErr
 		}
 	}
 
-	if err := db.checkUpdateCondition(ctx, input, existing); err != nil {
+	if err := db.checkUpdateCondition(ctx, input, existing, wireEAV); err != nil {
 		return nil, "", "", nil, err
 	}
 
-	updated, updatedPaths, err := db.doUpdate(ctx, table, input, existing, matchIndex)
+	wire := updateWire{key: wireKey, eav: wireEAV}
+	updated, updatedPaths, err := db.doUpdate(ctx, table, input, existing, matchIndex, wire)
 	if err != nil {
 		return nil, "", "", nil, err
 	}
@@ -854,6 +915,7 @@ func (db *InMemoryDB) checkUpdateCondition(
 	ctx context.Context,
 	input *dynamodb.UpdateItemInput,
 	item map[string]any,
+	eav map[string]any,
 ) error {
 	condition := aws.ToString(input.ConditionExpression)
 	if condition == "" {
@@ -866,7 +928,6 @@ func (db *InMemoryDB) checkUpdateCondition(
 		"attributeNames", input.ExpressionAttributeNames,
 		"attributeValues", input.ExpressionAttributeValues)
 
-	eav := models.FromSDKItem(input.ExpressionAttributeValues)
 	match, err := evaluateExpression(
 		condition,
 		item,
@@ -883,6 +944,12 @@ func (db *InMemoryDB) checkUpdateCondition(
 	return nil
 }
 
+// updateWire carries an UpdateItem request's pre-converted key and values; nil fields are converted on demand.
+type updateWire struct {
+	key map[string]any
+	eav map[string]any
+}
+
 // computeUpdate is the pure half of doUpdate: it applies the UpdateExpression to a
 // copy of existing and validates the result, without touching table state. Reused
 // by UpdateItem (via doUpdate) and by TransactWriteItems' prepare phase, which must
@@ -892,14 +959,18 @@ func (db *InMemoryDB) computeUpdate(
 	table *Table,
 	input *dynamodb.UpdateItemInput,
 	existing map[string]any,
+	wire updateWire,
 ) (map[string]any, map[string]struct{}, error) {
 	updated := make(map[string]any)
-	wireKey := models.FromSDKItem(input.Key)
 
 	if existing != nil {
 		maps.Copy(updated, deepCopyItem(existing))
 	} else {
-		// Create new item from key
+		wireKey := wire.key
+		if wireKey == nil {
+			wireKey = models.FromSDKItem(input.Key)
+		}
+
 		maps.Copy(updated, wireKey)
 	}
 
@@ -913,7 +984,11 @@ func (db *InMemoryDB) computeUpdate(
 			"attributeNames", input.ExpressionAttributeNames,
 			"attributeValues", input.ExpressionAttributeValues)
 
-		eav := models.FromSDKItem(input.ExpressionAttributeValues)
+		eav := wire.eav
+		if eav == nil {
+			eav = models.FromSDKItem(input.ExpressionAttributeValues)
+		}
+
 		var err error
 		updatedPaths, err = applyUpdate(
 			updated,
@@ -941,6 +1016,7 @@ func (db *InMemoryDB) commitUpdate(
 	matchIndex int,
 ) {
 	updatedSize, _ := CalculateItemSize(updated)
+	table.itemsChanged()
 
 	if matchIndex != -1 {
 		table.totalItemSizeBytes += int64(updatedSize) - int64(table.itemSizes[matchIndex])
@@ -964,8 +1040,9 @@ func (db *InMemoryDB) doUpdate(
 	input *dynamodb.UpdateItemInput,
 	existing map[string]any,
 	matchIndex int,
+	wire updateWire,
 ) (map[string]any, map[string]struct{}, error) {
-	updated, updatedPaths, err := db.computeUpdate(ctx, table, input, existing)
+	updated, updatedPaths, err := db.computeUpdate(ctx, table, input, existing, wire)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1080,7 +1157,7 @@ func (db *InMemoryDB) populateUpdateOutput(
 	out.ItemCollectionMetrics = buildItemCollectionMetrics(
 		table,
 		input.ReturnItemCollectionMetrics,
-		pkOnlyKey(table, input.Key),
+		input.Key,
 		currentLSICollectionBytes(table, pkVal),
 	)
 
@@ -1106,6 +1183,7 @@ func (db *InMemoryDB) deleteItemAtIndex(table *Table, matchIndex int) {
 
 	table.updateSecondaryIndexes(item, matchIndex, nil, 0)
 
+	table.itemsChanged()
 	// Swap with last strategy for O(1) deletion
 	lastIdx := len(table.Items) - 1
 	deletedSize := table.itemSizes[matchIndex]

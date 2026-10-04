@@ -33,15 +33,17 @@ func TestRemoveRoleFromDBCluster(t *testing.T) {
 			roleARN:   "arn:aws:iam::000:role/R1",
 		},
 		{
-			name: "noop_when_role_not_associated",
+			name: "role_not_associated",
 			setup: func(b *rds.InMemoryBackend) {
 				b.AddClusterInternal("c2", "aurora")
 			},
 			clusterID: "c2",
 			roleARN:   "arn:aws:iam::000:role/NotAttached",
+			wantErr:   true,
+			wantErrIs: rds.ErrClusterRoleNotFound,
 		},
 		{
-			name: "noop_when_feature_name_does_not_match",
+			name: "feature_name_does_not_match",
 			setup: func(b *rds.InMemoryBackend) {
 				b.AddClusterInternal("c4", "aurora")
 				_ = b.AddRoleToDBCluster("c4", "arn:aws:iam::000:role/R1", "S3_INTEGRATION")
@@ -49,6 +51,8 @@ func TestRemoveRoleFromDBCluster(t *testing.T) {
 			clusterID:   "c4",
 			roleARN:     "arn:aws:iam::000:role/R1",
 			featureName: "SQLSERVER_AUDIT",
+			wantErr:     true,
+			wantErrIs:   rds.ErrClusterRoleNotFound,
 		},
 		{
 			name:      "cluster_not_found",
@@ -403,13 +407,15 @@ func TestRDSBackend_AddRoleToDBCluster(t *testing.T) {
 			wantErrIs: rds.ErrInvalidParameter,
 		},
 		{
-			name: "idempotent_duplicate",
+			name: "duplicate_role_feature_pair",
 			setup: func(b *rds.InMemoryBackend) {
 				_, _ = b.CreateDBCluster("my-cluster", "aurora-postgresql", "", "", "", 0, nil, rds.DBClusterOptions{})
 				_ = b.AddRoleToDBCluster("my-cluster", "arn:aws:iam::000000000000:role/MyRole", "")
 			},
 			clusterID: "my-cluster",
 			roleARN:   "arn:aws:iam::000000000000:role/MyRole",
+			wantErr:   true,
+			wantErrIs: rds.ErrClusterRoleAlreadyExists,
 		},
 		{
 			name: "empty_feature_name_ok_since_optional",

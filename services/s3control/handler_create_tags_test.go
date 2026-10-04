@@ -184,9 +184,16 @@ func TestCreateOps_TagsRoundTrip(t *testing.T) {
 
 		client := newTestS3ControlClient(t, newHandler(t))
 
+		loc, err := client.CreateAccessGrantsLocation(t.Context(), &s3csdk.CreateAccessGrantsLocationInput{
+			AccountId:     aws.String(createTagsTestAccountID),
+			LocationScope: aws.String("s3://tagged-bucket/"),
+			IAMRoleArn:    aws.String("arn:aws:iam::123456789012:role/access-grants"),
+		})
+		require.NoError(t, err)
+
 		out, err := client.CreateAccessGrant(t.Context(), &s3csdk.CreateAccessGrantInput{
 			AccountId:              aws.String(createTagsTestAccountID),
-			AccessGrantsLocationId: aws.String("default"),
+			AccessGrantsLocationId: loc.AccessGrantsLocationId,
 			Grantee: &types.Grantee{
 				GranteeType:       types.GranteeTypeIam,
 				GranteeIdentifier: aws.String("arn:aws:iam::123456789012:role/reader"),

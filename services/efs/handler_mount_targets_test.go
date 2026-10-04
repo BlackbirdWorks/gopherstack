@@ -43,7 +43,7 @@ func TestMountTargetCRUD(t *testing.T) {
 				mtID := mt["MountTargetId"].(string)
 
 				// Describe all.
-				rec3 := doREST(t, h, http.MethodGet, "/2015-02-01/mount-targets", nil)
+				rec3 := doREST(t, h, http.MethodGet, "/2015-02-01/mount-targets?FileSystemId="+fsID, nil)
 				assert.Equal(t, http.StatusOK, rec3.Code)
 				list := parseResp(t, rec3)["MountTargets"].([]any)
 				assert.Len(t, list, 1)
@@ -227,7 +227,7 @@ func TestMountTargetArn_NotOnWire(t *testing.T) {
 			if tt.via == "create" {
 				mt = parseResp(t, rec)
 			} else {
-				rec2 := doREST(t, h, http.MethodGet, "/2015-02-01/mount-targets", nil)
+				rec2 := doREST(t, h, http.MethodGet, "/2015-02-01/mount-targets?FileSystemId="+fsID, nil)
 				require.Equal(t, http.StatusOK, rec2.Code)
 				mts := parseResp(t, rec2)["MountTargets"].([]any)
 				require.Len(t, mts, 1)
@@ -359,7 +359,7 @@ func TestSortedDescribeMountTargets(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 			}
 
-			rec := doREST(t, h, http.MethodGet, "/2015-02-01/mount-targets", nil)
+			rec := doREST(t, h, http.MethodGet, "/2015-02-01/mount-targets?FileSystemId="+fsID, nil)
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			resp := parseResp(t, rec)

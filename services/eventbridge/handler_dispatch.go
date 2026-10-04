@@ -467,8 +467,12 @@ func (h *Handler) handleError(
 	case errors.Is(reqErr, ErrCannotDeleteDefaultBus), errors.Is(reqErr, ErrReplayNotCancellable):
 		errType = "IllegalStatusException"
 		statusCode = http.StatusBadRequest
+	case errors.Is(reqErr, ErrInvalidEventPattern):
+		errType = "InvalidEventPatternException"
+		statusCode = http.StatusBadRequest
 	case errors.Is(reqErr, ErrInvalidParameter):
-		errType = "InvalidParameterException"
+		// Not modeled by the SDK; AWS returns ValidationException here.
+		errType = "ValidationException"
 		statusCode = http.StatusBadRequest
 	case errors.Is(reqErr, ErrInvalidState):
 		errType = "InvalidStateException"

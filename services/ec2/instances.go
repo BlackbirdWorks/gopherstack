@@ -3,6 +3,7 @@ package ec2
 import (
 	"encoding/base64"
 	"fmt"
+	"maps"
 	"sort"
 	"time"
 
@@ -74,6 +75,12 @@ func (b *InMemoryBackend) StartInstances(ids []string) ([]*InstanceStateChange, 
 // StopInstances transitions running instances to stopped.
 // Returns ErrInvalidInstanceState if any instance is not in the running state.
 func (b *InMemoryBackend) StopInstances(ids []string) ([]*InstanceStateChange, error) {
+	return b.StopInstancesWithOptions(ids, false)
+}
+
+// StopInstancesWithOptions is StopInstances plus the Hibernate flag: a
+// hibernating stop requires HibernationOptions.Configured at launch.
+func (b *InMemoryBackend) StopInstancesWithOptions(ids []string, hibernate bool) ([]*InstanceStateChange, error) {
 	b.mu.Lock("StopInstances")
 	defer b.mu.Unlock()
 
@@ -102,11 +109,19 @@ func (b *InMemoryBackend) StopInstances(ids []string) ([]*InstanceStateChange, e
 				ErrOperationNotPermitted, id)
 		}
 
+		if hibernate && !inst.HibernationConfigured {
+			return nil, fmt.Errorf("%w: instance %s is not enabled for hibernation", ErrUnsupportedHibernation, id)
+		}
+
 		prev := inst.State
 		// AWS state machine: running/pending → stopping → stopped (reconciler advances stopping→stopped).
 		inst.State = StateStopping
 		inst.StateReasonCode = "Client.UserInitiatedShutdown"
 		inst.StateReasonMessage = "Client.UserInitiatedShutdown: User initiated shutdown"
+		if hibernate {
+			inst.StateReasonCode = "Client.UserInitiatedHibernate"
+			inst.StateReasonMessage = "Client.UserInitiatedHibernate: User initiated hibernate"
+		}
 		inst.StateTransitionReason = fmt.Sprintf(
 			"User initiated (%s)", time.Now().UTC().Format("2006-01-02 15:04:05 GMT"),
 		)
@@ -937,6 +952,59 @@ func (b *InMemoryBackend) DescribeInstances(ids []string, state string) []*Insta
 	}
 
 	return out
+}
+
+// DescribeInstancesMatching returns copies of only the instances (restricted to
+// ids when non-empty) accepted by match, plus copies of their tags, in one lock.
+func (b *InMemoryBackend) DescribeInstancesMatching(
+	ids []string, match func(inst *Instance, tags map[string]string) bool,
+) ([]*Instance, map[string]map[string]string) {
+	b.mu.RLock("DescribeInstancesMatching")
+	defer b.mu.RUnlock()
+
+	var (
+		out    []*Instance
+		tagsBy map[string]map[string]string
+	)
+
+	visit := func(inst *Instance) {
+		src := b.tags[inst.ID]
+		if match != nil && !match(inst, src) {
+			return
+		}
+
+		cp := *inst
+		out = append(out, &cp)
+
+		if len(src) == 0 {
+			return
+		}
+
+		if tagsBy == nil {
+			tagsBy = make(map[string]map[string]string)
+		}
+
+		tagsBy[inst.ID] = maps.Clone(src)
+	}
+
+	if len(ids) > 0 {
+		out = make([]*Instance, 0, len(ids))
+
+		for _, id := range ids {
+			if inst, ok := b.instances.Get(id); ok {
+				visit(inst)
+			}
+		}
+
+		return out, tagsBy
+	}
+
+	out = make([]*Instance, 0, b.instances.Len())
+	for _, inst := range b.instances.All() {
+		visit(inst)
+	}
+
+	return out, tagsBy
 }
 
 // TerminateInstances transitions instances to shutting-down then terminated.

@@ -2,7 +2,9 @@ package s3control
 
 import (
 	"fmt"
+	"slices"
 	"sort"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
@@ -50,7 +52,7 @@ func (b *InMemoryBackend) CreateAccessGrantsInstance(accountID, identityCenterAr
 // CreateAccessGrant creates an access grant for an account.
 // Returns ErrValidation if permission is empty.
 func (b *InMemoryBackend) CreateAccessGrant(
-	accountID, locationID, granteeType, granteeIdentifier, permission, applicationArn string,
+	accountID, locationID, granteeType, granteeIdentifier, permission, applicationArn, s3SubPrefix string,
 ) (*AccessGrant, error) {
 	if permission == "" {
 		return nil, fmt.Errorf("permission is required: %w", ErrValidation)
@@ -58,6 +60,11 @@ func (b *InMemoryBackend) CreateAccessGrant(
 
 	b.mu.Lock("CreateAccessGrant")
 	defer b.mu.Unlock()
+
+	loc, ok := b.accessGrantsLocations.Get(accountID + ":" + locationID)
+	if !ok {
+		return nil, awserr.New("NoSuchAccessGrantsLocation", awserr.ErrNotFound)
+	}
 
 	id := b.newID("grant")
 	arn := fmt.Sprintf(arnFmtAccessGrant, b.region, accountID, id)
@@ -67,7 +74,7 @@ func (b *InMemoryBackend) CreateAccessGrant(
 		AccessGrantID:          id,
 		AccessGrantArn:         arn,
 		AccessGrantsLocationID: locationID,
-		GrantScope:             fmt.Sprintf("s3://%s/*", locationID),
+		GrantScope:             loc.LocationScope + s3SubPrefix,
 		Permission:             permission,
 		GranteeType:            granteeType,
 		GranteeIdentifier:      granteeIdentifier,
@@ -118,7 +125,9 @@ func (b *InMemoryBackend) ListAccessGrantsInstances(accountID string) []*AccessG
 		return nil
 	}
 
-	return []*AccessGrantsInstance{inst}
+	cp := *inst
+
+	return []*AccessGrantsInstance{&cp}
 }
 
 func (b *InMemoryBackend) GetAccessGrantsInstance(accountID string) (*AccessGrantsInstance, error) {
@@ -130,7 +139,9 @@ func (b *InMemoryBackend) GetAccessGrantsInstance(accountID string) (*AccessGran
 		return nil, awserr.New("AccessGrantsInstanceNotExistsError", awserr.ErrNotFound)
 	}
 
-	return inst, nil
+	cp := *inst
+
+	return &cp, nil
 }
 
 // errAccessGrantsInstanceNotEmpty is returned when DeleteAccessGrantsInstance
@@ -231,7 +242,9 @@ func (b *InMemoryBackend) GetAccessGrantsInstanceForPrefix(
 	}
 	_ = prefix
 
-	return inst, nil
+	cp := *inst
+
+	return &cp, nil
 }
 
 // ---- Access Grants CRUD ----
@@ -324,9 +337,11 @@ func (b *InMemoryBackend) ListAccessGrants(accountID string, filter AccessGrants
 }
 
 // ListCallerAccessGrants returns access grants visible to the caller,
-// optionally filtered by grantScope.
+// optionally narrowed to grants whose scope begins with grantScope (the input documents a path fragment).
 func (b *InMemoryBackend) ListCallerAccessGrants(accountID, grantScope string) []*AccessGrant {
-	return b.ListAccessGrants(accountID, AccessGrantsFilter{GrantScope: grantScope})
+	all := b.ListAccessGrants(accountID, AccessGrantsFilter{})
+
+	return slices.DeleteFunc(all, func(g *AccessGrant) bool { return !strings.HasPrefix(g.GrantScope, grantScope) })
 }
 
 // GetAccessGrantsLocation returns an access grants location by ID.
@@ -342,7 +357,9 @@ func (b *InMemoryBackend) GetAccessGrantsLocation(
 		return nil, awserr.New("NoSuchAccessGrantsLocation", awserr.ErrNotFound)
 	}
 
-	return loc, nil
+	cp := *loc
+
+	return &cp, nil
 }
 
 // errAccessGrantsLocationNotEmpty is returned when DeleteAccessGrantsLocation
@@ -399,8 +416,9 @@ func (b *InMemoryBackend) UpdateAccessGrantsLocation(
 		return nil, awserr.New("NoSuchAccessGrantsLocation", awserr.ErrNotFound)
 	}
 	loc.IAMRoleArn = iamRoleArn
+	cp := *loc
 
-	return loc, nil
+	return &cp, nil
 }
 
 // ListAccessGrantsLocations returns all locations for an account.
@@ -449,7 +467,7 @@ func (b *InMemoryBackend) AddAccessGrantsInstanceInternal(accountID, identityCen
 func (b *InMemoryBackend) AddAccessGrantInternal(
 	accountID, locationID, granteeType, granteeIdentifier, permission string,
 ) *AccessGrant {
-	grant, _ := b.CreateAccessGrant(accountID, locationID, granteeType, granteeIdentifier, permission, "")
+	grant, _ := b.CreateAccessGrant(accountID, locationID, granteeType, granteeIdentifier, permission, "", "")
 
 	return grant
 }

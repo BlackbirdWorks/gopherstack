@@ -853,3 +853,15 @@ pkgs/persistence/testdata/snapshot_inventory.json, additive only, no version
 bump. See list_summary_shapes_test.go. Gates: `go build`/`go vet`/
 `go test -race` clean, `golangci-lint run` 0 issues, `go test ./pkgs/persistence/`
 clean.
+
+## Notes (2026-10-03 pass — gopherstack-uox6 value-semantics audit)
+
+Fixed (list_filters_test.go): ListClusters has no implicit state filter ("Provides the status of all clusters visible to this Amazon Web Services account"); ListSteps is reverse order only without stepIds/StepStates; DescribeJobFlows reports JobFlowExecutionState values (COMPLETED/FAILED/SHUTTING_DOWN), keeps the documented two-month window and the no-parameter default. Recorded: ListClusters CreatedAfter/CreatedBefore ("beginning value filter"/"end value filter") do not state inclusivity; ReleaseLabelFilter.Application ("For example, spark@2.1.0") carries a version this backend does not model.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+emr already keys its resources by region; same-named resources in two regions coexist with region-correct ARNs. Proof: `TestRegionIsolation/emr`. No code change to the resource store.
+
+## 2026-10-04 (reqfielddiff tier-1: CancelSteps.StepCancellationOption)
+
+The option is now validated (SEND_INTERRUPT or TERMINATE_PROCESS, anything else InvalidRequestException; `TestCancelSteps_StepCancellationOption_RealClient`). The distinction itself still has nothing to act on: steps go PENDING to COMPLETED/CANCELLED with no RUNNING state, so the structural gap above stands for the semantics.

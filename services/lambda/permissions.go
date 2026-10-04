@@ -1,8 +1,10 @@
 package lambda
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strconv"
@@ -56,7 +58,7 @@ func (b *InMemoryBackend) AddPermission(
 		SourceAccount:         input.SourceAccount,
 		EventSourceToken:      input.EventSourceToken,
 		PrincipalOrgID:        input.PrincipalOrgID,
-		Effect:                "Allow",
+		Effect:                effectAllow,
 		FunctionName:          name,
 		Qualifier:             qualifier,
 		FunctionURLAuthType:   input.FunctionURLAuthType,
@@ -203,68 +205,78 @@ func policyRevisionID(perms []*FunctionPermission) string {
 	return hex.EncodeToString(h[:])
 }
 
-// buildPermissionStatementJSON builds the IAM policy statement JSON for a FunctionPermission.
-// It includes a Condition block when SourceArn or SourceAccount are set, matching real AWS output.
+const effectAllow = "Allow"
+
+type permissionStatement struct {
+	Principal any                  `json:"Principal"`
+	Condition *permissionCondition `json:"Condition,omitempty"`
+	Sid       string               `json:"Sid"`
+	Effect    string               `json:"Effect"`
+	Action    string               `json:"Action"`
+	Resource  string               `json:"Resource"`
+}
+
+type permissionCondition struct {
+	ArnLike      map[string]string `json:"ArnLike,omitempty"`
+	StringEquals map[string]string `json:"StringEquals,omitempty"`
+	Bool         map[string]string `json:"Bool,omitempty"`
+}
+
+// buildPermissionStatementJSON builds the IAM policy statement JSON for a FunctionPermission,
+// with a Condition block when SourceArn, SourceAccount etc. are set. Values are JSON-encoded.
 func buildPermissionStatementJSON(p *FunctionPermission, resourceArn string) string {
-	// Determine principal format: account IDs and "*" use root principal; services use Service key.
-	var principalJSON string
+	var principal any
 	switch {
 	case p.Principal == "*":
-		principalJSON = `"*"`
+		principal = "*"
 	case strings.Contains(p.Principal, ".amazonaws.com") || strings.Contains(p.Principal, ".aws.amazon.com"):
-		principalJSON = fmt.Sprintf(`{"Service":%q}`, p.Principal)
+		principal = map[string]string{"Service": p.Principal}
 	default:
-		// Account principal: arn:aws:iam::{account}:root
-		principalJSON = fmt.Sprintf(`{"AWS":%q}`, p.Principal)
+		principal = map[string]string{"AWS": p.Principal}
 	}
 
-	base := fmt.Sprintf(
-		`{"Sid":%q,"Effect":"Allow","Principal":%s,"Action":%q,"Resource":%q`,
-		p.StatementID, principalJSON, p.Action, resourceArn,
-	)
+	stmt := permissionStatement{
+		Sid: p.StatementID, Effect: effectAllow, Principal: principal, Action: p.Action, Resource: resourceArn,
+	}
 
-	// Build the Condition block. ArnLike and StringEquals are each a single
-	// JSON object — SourceAccount, PrincipalOrgID, and EventSourceToken all
-	// use the StringEquals operator and must be merged into ONE object
-	// (naively appending separate "StringEquals":{...} entries would emit
-	// duplicate JSON keys, which real AWS never does).
-	var arnLike []string
+	var cond permissionCondition
 	if p.SourceArn != "" {
-		arnLike = append(arnLike, fmt.Sprintf(`"AWS:SourceArn":%q`, p.SourceArn))
+		cond.ArnLike = map[string]string{"AWS:SourceArn": p.SourceArn}
 	}
 
-	var stringEquals []string
-	if p.SourceAccount != "" {
-		stringEquals = append(stringEquals, fmt.Sprintf(`"AWS:SourceAccount":%q`, p.SourceAccount))
-	}
-	if p.PrincipalOrgID != "" {
-		stringEquals = append(stringEquals, fmt.Sprintf(`"aws:PrincipalOrgID":%q`, p.PrincipalOrgID))
-	}
-	if p.EventSourceToken != "" {
-		stringEquals = append(stringEquals, fmt.Sprintf(`"lambda:EventSourceToken":%q`, p.EventSourceToken))
-	}
-	if p.FunctionURLAuthType != "" {
-		stringEquals = append(stringEquals, fmt.Sprintf(`"lambda:FunctionUrlAuthType":%q`, p.FunctionURLAuthType))
+	for k, v := range map[string]string{
+		"AWS:SourceAccount":          p.SourceAccount,
+		"aws:PrincipalOrgID":         p.PrincipalOrgID,
+		"lambda:EventSourceToken":    p.EventSourceToken,
+		"lambda:FunctionUrlAuthType": p.FunctionURLAuthType,
+	} {
+		if v == "" {
+			continue
+		}
+
+		if cond.StringEquals == nil {
+			cond.StringEquals = map[string]string{}
+		}
+
+		cond.StringEquals[k] = v
 	}
 
-	var conditions []string
-	if len(arnLike) > 0 {
-		conditions = append(conditions, `"ArnLike":{`+strings.Join(arnLike, ",")+`}`)
-	}
-	if len(stringEquals) > 0 {
-		conditions = append(conditions, `"StringEquals":{`+strings.Join(stringEquals, ",")+`}`)
-	}
-	// InvokedViaFunctionURL uses the Bool operator, distinct from the
-	// StringEquals-keyed conditions above; AWS renders the boolean as a
-	// quoted "true"/"false" string, matching IAM's Bool condition operator.
 	if p.InvokedViaFunctionURL != nil {
-		conditions = append(conditions,
-			fmt.Sprintf(`"Bool":{"lambda:InvokedViaFunctionUrl":%q}`, strconv.FormatBool(*p.InvokedViaFunctionURL)))
+		cond.Bool = map[string]string{"lambda:InvokedViaFunctionUrl": strconv.FormatBool(*p.InvokedViaFunctionURL)}
 	}
 
-	if len(conditions) > 0 {
-		return base + `,"Condition":{` + strings.Join(conditions, ",") + `}}`
+	if cond.ArnLike != nil || cond.StringEquals != nil || cond.Bool != nil {
+		stmt.Condition = &cond
 	}
 
-	return base + "}"
+	var buf bytes.Buffer
+
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+
+	if err := enc.Encode(stmt); err != nil {
+		return ""
+	}
+
+	return strings.TrimSuffix(buf.String(), "\n")
 }

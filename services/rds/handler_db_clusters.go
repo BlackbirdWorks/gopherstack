@@ -73,6 +73,8 @@ func buildDBClusterOptions(vals url.Values, numeric dbClusterNumericParams) DBCl
 	}
 
 	return DBClusterOptions{
+		MasterSecretRequest:         parseMasterSecretRequest(vals),
+		MasterUserPassword:          vals.Get("MasterUserPassword"),
 		EngineVersion:               vals.Get("EngineVersion"),
 		KmsKeyID:                    vals.Get("KmsKeyId"),
 		PreferredBackupWindow:       vals.Get("PreferredBackupWindow"),
@@ -237,6 +239,8 @@ func (h *Handler) handleModifyDBCluster(vals url.Values) (any, error) {
 
 	storageEncryptedRaw := vals.Get("StorageEncrypted")
 	opts := DBClusterOptions{
+		MasterSecretRequest:          parseMasterSecretRequest(vals),
+		MasterUserPassword:           vals.Get("MasterUserPassword"),
 		EngineVersion:                vals.Get("EngineVersion"),
 		BackupRetentionPeriod:        backupRetentionPeriod,
 		KmsKeyID:                     vals.Get("KmsKeyId"),
@@ -360,6 +364,9 @@ func (h *Handler) handleRestoreDBClusterFromSnapshot(vals url.Values) (any, erro
 func (h *Handler) handleRestoreDBClusterToPointInTime(vals url.Values) (any, error) {
 	clusterID := vals.Get("DBClusterIdentifier")
 	sourceClusterID := vals.Get("SourceDBClusterIdentifier")
+	if err := rejectRestoreTimeConflict(vals, "RestoreToTime"); err != nil {
+		return nil, err
+	}
 
 	piRetention := 0
 	if v, perr := strconv.Atoi(vals.Get("PerformanceInsightsRetentionPeriod")); perr == nil {
@@ -401,6 +408,7 @@ func toXMLCluster(c *DBCluster, roles []DBClusterRole) xmlDBCluster {
 		EngineVersion:                      c.EngineVersion,
 		Status:                             c.Status,
 		MasterUsername:                     c.MasterUsername,
+		MasterUserSecret:                   c.MasterSecret.toXML(),
 		DatabaseName:                       c.DatabaseName,
 		DBClusterParameterGroupName:        c.DBClusterParameterGroupName,
 		Endpoint:                           c.Endpoint,
@@ -624,6 +632,7 @@ type xmlDBCluster struct {
 	EnabledCloudwatchLogsExports     *xmlLogTypeList                  `xml:"EnabledCloudwatchLogsExports,omitempty"`
 	AvailabilityZones                *xmlAvailabilityZoneList         `xml:"AvailabilityZones,omitempty"`
 	AssociatedRoles                  *xmlDBClusterRoleList            `xml:"AssociatedRoles,omitempty"`
+	MasterUserSecret                 *xmlMasterUserSecret             `xml:"MasterUserSecret,omitempty"`
 	ReadReplicaIdentifiers           *xmlClusterReplicaIdentifierList `xml:"ReadReplicaIdentifiers,omitempty"`
 	DBClusterOptionGroupMemberships  *xmlDBClusterOGMembershipList    `xml:"DBClusterOptionGroupMemberships,omitempty"`
 
@@ -959,6 +968,8 @@ func (h *Handler) handleRestoreDBClusterFromS3(vals url.Values) (any, error) {
 	sourceEngine := vals.Get("SourceEngine")
 	sourceEngineVersion := vals.Get("SourceEngineVersion")
 	s3ClusterOpts := DBClusterOptions{
+		MasterSecretRequest:             parseMasterSecretRequest(vals),
+		MasterUserPassword:              vals.Get("MasterUserPassword"),
 		EnableIAMDatabaseAuthentication: vals.Get("EnableIAMDatabaseAuthentication") == formTrue,
 	}
 	cluster, err := h.Backend.RestoreDBClusterFromS3(

@@ -156,6 +156,13 @@ func (h *Handler) Reset() {
 	h.Backend.Reset()
 }
 
+// Shutdown stops every docker-backed broker; it is a no-op for metadata-only backends.
+func (h *Handler) Shutdown(_ context.Context) {
+	if c, ok := h.Backend.(interface{ Close() }); ok {
+		c.Close()
+	}
+}
+
 // GetSupportedOperations returns the list of supported MSK operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{

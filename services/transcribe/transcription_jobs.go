@@ -56,7 +56,7 @@ func (b *InMemoryBackend) StartTranscriptionJob(input *TranscriptionJob) (*Trans
 	}
 
 	b.jobs.Put(&job)
-	b.recordResourceTagsLocked(resourceARN(resourceTypeTranscriptionJob, job.JobName), job.Tags)
+	b.recordResourceTagsLocked(b.resourceARN(resourceTypeTranscriptionJob, job.JobName), job.Tags)
 	cp := job
 
 	return &cp, nil
@@ -166,7 +166,7 @@ func (b *InMemoryBackend) GetTranscriptionJob(jobName string) (*TranscriptionJob
 
 	advanceDeferredTranscriptionJob(job)
 	cp := *job
-	cp.Tags = b.liveTagsLocked(resourceARN(resourceTypeTranscriptionJob, job.JobName))
+	cp.Tags = b.liveTagsLocked(b.resourceARN(resourceTypeTranscriptionJob, job.JobName))
 
 	return &cp, nil
 }
@@ -204,7 +204,7 @@ func (b *InMemoryBackend) DeleteTranscriptionJob(jobName string) error {
 		return fmt.Errorf("%w: job %s not found", ErrNotFound, jobName)
 	}
 
-	b.forgetResourceTagsLocked(resourceARN(resourceTypeTranscriptionJob, jobName))
+	b.forgetResourceTagsLocked(b.resourceARN(resourceTypeTranscriptionJob, jobName))
 
 	return nil
 }

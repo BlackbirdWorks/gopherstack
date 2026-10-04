@@ -226,10 +226,10 @@ func TestInMemoryBackend_FullStateSnapshotRestore(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "alice", gotLP.UserName)
 
-	creds, err := fresh.ListServiceSpecificCredentials("alice", "")
+	creds, err := fresh.ListServiceSpecificCredentials("alice", "", "", 0)
 	require.NoError(t, err)
-	require.Len(t, creds, 1)
-	assert.Equal(t, cred.ServiceSpecificCredentialID, creds[0].ServiceSpecificCredentialID)
+	require.Len(t, creds.Data, 1)
+	assert.Equal(t, cred.ServiceSpecificCredentialID, creds.Data[0].ServiceSpecificCredentialID)
 
 	mfaDevices, err := fresh.ListVirtualMFADevices("", 0)
 	require.NoError(t, err)
@@ -240,9 +240,9 @@ func TestInMemoryBackend_FullStateSnapshotRestore(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, signingCerts.Data, 1)
 
-	serverCerts, err := fresh.ListServerCertificates("")
+	serverCerts, err := fresh.ListServerCertificates("", "", 0)
 	require.NoError(t, err)
-	assert.Len(t, serverCerts, 1)
+	assert.Len(t, serverCerts.Data, 1)
 
 	require.NoError(t, fresh.AcceptDelegationRequest(delegation.DelegationID))
 

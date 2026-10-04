@@ -307,3 +307,60 @@ func TestMiddleware_DashboardHeaderBypassesChaos(t *testing.T) {
 		})
 	}
 }
+
+func TestMiddleware_ScopeParsing(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		auth      string
+		region    string
+		rule      chaos.FaultRule
+		wantFault bool
+	}{
+		{"service match", buildSigV4Auth("s3", "us-east-1"), "", chaos.FaultRule{Service: "s3"}, true},
+		{"service case folded", buildSigV4Auth("S3", "us-east-1"), "", chaos.FaultRule{Service: "s3"}, true},
+		{"region match", buildSigV4Auth("s3", "eu-west-1"), "", chaos.FaultRule{Region: "eu-west-1"}, true},
+		{
+			"extra scope parts", "AWS4-HMAC-SHA256 Credential=AK/20231225/eu-west-1/s3/aws4_request/x, Signature=s",
+			"", chaos.FaultRule{Service: "s3", Region: "eu-west-1"}, true,
+		},
+		{
+			"short scope uses x-amz-region", "AWS4-HMAC-SHA256 Credential=AK/20231225/eu-west-1/s3, Signature=s",
+			"ap-south-1", chaos.FaultRule{Region: "ap-south-1"}, true,
+		},
+		{"short scope has no service", "AWS4-HMAC-SHA256 Credential=AK/20231225/eu-west-1/s3, Signature=s",
+			"", chaos.FaultRule{Service: "s3"}, false},
+		{"no auth region header", "", "ap-south-1", chaos.FaultRule{Region: "ap-south-1"}, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := chaos.NewFaultStore()
+			tt.rule.Probability = 1
+			store.SetRules([]chaos.FaultRule{tt.rule})
+
+			called := false
+			wrapped := chaos.Middleware(store)(func(c *echo.Context) error {
+				called = true
+
+				return c.String(http.StatusOK, "ok")
+			})
+
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/", nil)
+			if tt.auth != "" {
+				req.Header.Set("Authorization", tt.auth)
+			}
+
+			if tt.region != "" {
+				req.Header.Set("X-Amz-Region", tt.region)
+			}
+
+			c := echo.New().NewContext(req, httptest.NewRecorder())
+			require.NoError(t, wrapped(c))
+			assert.Equal(t, !tt.wantFault, called)
+		})
+	}
+}

@@ -158,7 +158,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.Len(t, lfTags, 1)
 	assert.Equal(t, "confidentiality", lfTags[0].TagKey)
 
-	optimizers := fresh.ListTableStorageOptimizers("123456789012", "db1", "tbl1", "")
+	optimizers, _ := fresh.ListTableStorageOptimizers("123456789012", "db1", "tbl1", "", 0, "")
 	require.Len(t, optimizers, 1)
 	assert.Equal(t, "COMPACTION", optimizers[0].StorageOptimizerType)
 }
@@ -358,6 +358,6 @@ func TestPersistence_IncludesQueriesAndOptimizers(t *testing.T) {
 	assert.Equal(t, "WORKUNITS_AVAILABLE", state)
 
 	// Verify optimizer survived restore
-	opts := b2.ListTableStorageOptimizers("", "db", "t", "")
+	opts, _ := b2.ListTableStorageOptimizers("", "db", "t", "", 0, "")
 	assert.Len(t, opts, 1)
 }

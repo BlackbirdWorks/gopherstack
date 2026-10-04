@@ -14,9 +14,22 @@ import (
 // documented TunnelBandwidth default.
 const vpnTunnelBandwidthStandard = "standard"
 
-// ModifyVpnConnection moves a VPN connection onto a different VPN Gateway. An empty
-// vpnGatewayID leaves the connection's gateway attachment unchanged.
-func (b *InMemoryBackend) ModifyVpnConnection(vpnConnectionID, vpnGatewayID string) error {
+// firstNonEmpty returns the first non-empty string in vals, or "".
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+
+	return ""
+}
+
+// ModifyVpnConnection moves a VPN connection onto a different VPN gateway
+// or transit gateway; empty values leave the attachment unchanged.
+func (b *InMemoryBackend) ModifyVpnConnection(vpnConnectionID, vpnGatewayID string, transitGatewayID ...string) error {
+	tgwID := firstNonEmpty(transitGatewayID...)
+
 	if vpnConnectionID == "" {
 		return fmt.Errorf("%w: VpnConnectionId is required", ErrInvalidParameter)
 	}
@@ -36,6 +49,15 @@ func (b *InMemoryBackend) ModifyVpnConnection(vpnConnectionID, vpnGatewayID stri
 
 		conn.VpnGatewayID = vpnGatewayID
 		conn.TransitGatewayID = ""
+	}
+
+	if tgwID != "" {
+		if _, exists := b.transitGateways.Get(tgwID); !exists {
+			return fmt.Errorf("%w: %s", ErrTransitGatewayNotFound, tgwID)
+		}
+
+		conn.TransitGatewayID = tgwID
+		conn.VpnGatewayID = ""
 	}
 
 	return nil
@@ -101,16 +123,23 @@ func (b *InMemoryBackend) DeleteVpnConnectionRoute(vpnConnectionID, destinationC
 
 // ---- VPN Connections ----
 
-// CreateVpnConnection creates a new VPN connection between a customer gateway and VPN gateway.
+// CreateVpnConnection creates a VPN connection terminating on either a VPN
+// gateway or a transit gateway (mutually exclusive, per real AWS).
 func (b *InMemoryBackend) CreateVpnConnection(
-	connType, customerGatewayID, vpnGatewayID string,
+	connType, customerGatewayID, vpnGatewayID string, transitGatewayID ...string,
 ) (*VpnConnection, error) {
+	tgwID := firstNonEmpty(transitGatewayID...)
+
 	if customerGatewayID == "" {
 		return nil, fmt.Errorf("%w: CustomerGatewayId is required", ErrInvalidParameter)
 	}
 
-	if vpnGatewayID == "" {
-		return nil, fmt.Errorf("%w: VpnGatewayId is required", ErrInvalidParameter)
+	if vpnGatewayID == "" && tgwID == "" {
+		return nil, fmt.Errorf("%w: one of VpnGatewayId or TransitGatewayId is required", ErrInvalidParameter)
+	}
+
+	if vpnGatewayID != "" && tgwID != "" {
+		return nil, fmt.Errorf("%w: cannot specify both VpnGatewayId and TransitGatewayId", ErrInvalidParameter)
 	}
 
 	if connType == "" {
@@ -124,8 +153,16 @@ func (b *InMemoryBackend) CreateVpnConnection(
 		return nil, fmt.Errorf("%w: %s", ErrCustomerGatewayNotFound, customerGatewayID)
 	}
 
-	if _, ok := b.vpnGateways.Get(vpnGatewayID); !ok {
-		return nil, fmt.Errorf("%w: %s", ErrVpnGatewayNotFound, vpnGatewayID)
+	if vpnGatewayID != "" {
+		if _, ok := b.vpnGateways.Get(vpnGatewayID); !ok {
+			return nil, fmt.Errorf("%w: %s", ErrVpnGatewayNotFound, vpnGatewayID)
+		}
+	}
+
+	if tgwID != "" {
+		if _, ok := b.transitGateways.Get(tgwID); !ok {
+			return nil, fmt.Errorf("%w: %s", ErrTransitGatewayNotFound, tgwID)
+		}
 	}
 
 	conn := &VpnConnection{
@@ -133,6 +170,7 @@ func (b *InMemoryBackend) CreateVpnConnection(
 		State:             stateAvailable,
 		CustomerGatewayID: customerGatewayID,
 		VpnGatewayID:      vpnGatewayID,
+		TransitGatewayID:  tgwID,
 		Type:              connType,
 		Category:          "VPN",
 	}

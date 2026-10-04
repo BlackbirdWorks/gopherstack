@@ -8,6 +8,8 @@ import (
 	"maps"
 	"net/http"
 	"net/url"
+	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -790,32 +792,111 @@ func parseConditionContext(vals url.Values) ConditionContext {
 	return ConditionContext{Extra: extra}
 }
 
-// simResultsToXML converts SimulationResult slice to the XML representation.
+// simResultsToXML folds the per-resource results into one EvaluationResult per action,
+// with per-resource decisions under ResourceSpecificResults (iam@v1.63.0 types.EvaluationResult).
 func simResultsToXML(results []SimulationResult) []SimulationEvalResultXML {
 	xmlResults := make([]SimulationEvalResultXML, 0, len(results))
+	byAction := make(map[string]int, len(results))
 
 	for _, r := range results {
-		entry := SimulationEvalResultXML{
-			EvalActionName:   r.ActionName,
-			EvalResourceName: r.ResourceName,
-			EvalDecision:     r.Decision,
+		perResource := ResourceSpecificResultXML{
+			EvalResourceName:                  r.ResourceName,
+			EvalResourceDecision:              r.Decision,
+			EvalDecisionDetails:               evalDetailEntries(r.EvalDecisionDetails),
+			PermissionsBoundaryDecisionDetail: boundaryDetailXML(r.AllowedByPermissionsBoundary),
 		}
 
-		for policyID, decision := range r.EvalDecisionDetails {
-			entry.EvalDecisionDetails = append(entry.EvalDecisionDetails,
-				EvalDecisionDetailEntry{Key: policyID, Value: decision})
+		idx, seen := byAction[r.ActionName]
+		if !seen {
+			byAction[r.ActionName] = len(xmlResults)
+			xmlResults = append(xmlResults, SimulationEvalResultXML{
+				EvalActionName:                    r.ActionName,
+				EvalResourceName:                  "*",
+				EvalDecision:                      r.Decision,
+				EvalDecisionDetails:               slices.Clone(perResource.EvalDecisionDetails),
+				PermissionsBoundaryDecisionDetail: boundaryDetailXML(r.AllowedByPermissionsBoundary),
+				ResourceSpecificResults:           []ResourceSpecificResultXML{perResource},
+			})
+
+			continue
 		}
 
-		if r.AllowedByPermissionsBoundary != nil {
-			entry.PermissionsBoundaryDecisionDetail = &PermBoundaryDecisionXML{
-				AllowedByPermissionsBoundary: *r.AllowedByPermissionsBoundary,
-			}
-		}
+		agg := &xmlResults[idx]
+		agg.ResourceSpecificResults = append(agg.ResourceSpecificResults, perResource)
+		agg.EvalDecision = mostRestrictiveDecision(agg.EvalDecision, r.Decision)
+		agg.EvalDecisionDetails = mergeDecisionDetails(agg.EvalDecisionDetails, perResource.EvalDecisionDetails)
 
-		xmlResults = append(xmlResults, entry)
+		if agg.PermissionsBoundaryDecisionDetail != nil && perResource.PermissionsBoundaryDecisionDetail != nil {
+			agg.PermissionsBoundaryDecisionDetail.AllowedByPermissionsBoundary =
+				agg.PermissionsBoundaryDecisionDetail.AllowedByPermissionsBoundary &&
+					perResource.PermissionsBoundaryDecisionDetail.AllowedByPermissionsBoundary
+		}
 	}
 
 	return xmlResults
+}
+
+func evalDetailEntries(m map[string]string) []EvalDecisionDetailEntry {
+	if len(m) == 0 {
+		return nil
+	}
+
+	out := make([]EvalDecisionDetailEntry, 0, len(m))
+	for k, v := range m {
+		out = append(out, EvalDecisionDetailEntry{Key: k, Value: v})
+	}
+
+	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
+
+	return out
+}
+
+func boundaryDetailXML(allowed *bool) *PermBoundaryDecisionXML {
+	if allowed == nil {
+		return nil
+	}
+
+	return &PermBoundaryDecisionXML{AllowedByPermissionsBoundary: *allowed}
+}
+
+func decisionRank(d string) int {
+	switch d {
+	case decisionExplicitDeny:
+		return rankExplicitDeny
+	case decisionImplicitDeny:
+		return rankImplicitDeny
+	default:
+		return 0
+	}
+}
+
+func mostRestrictiveDecision(a, b string) string {
+	if decisionRank(b) > decisionRank(a) {
+		return b
+	}
+
+	return a
+}
+
+func mergeDecisionDetails(agg, more []EvalDecisionDetailEntry) []EvalDecisionDetailEntry {
+	for _, m := range more {
+		found := false
+
+		for i := range agg {
+			if agg[i].Key == m.Key {
+				agg[i].Value = mostRestrictiveDecision(agg[i].Value, m.Value)
+				found = true
+
+				break
+			}
+		}
+
+		if !found {
+			agg = append(agg, m)
+		}
+	}
+
+	return agg
 }
 
 // parseIndexedValues parses form values with a given prefix followed by an integer index.

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
-	"time"
+	"testing/synctest"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
@@ -52,34 +52,34 @@ func TestGetExecutionHistory(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
-			arn := tt.executionArn
-			if tt.createExec {
-				sm, err := b.CreateStateMachine(context.Background(), "hist-sm", passDefinition, "arn:role", "STANDARD")
+			synctest.Test(t, func(t *testing.T) {
+				b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+
+				arn := tt.executionArn
+				if tt.createExec {
+					sm, err := b.CreateStateMachine(
+						context.Background(), "hist-sm", passDefinition, "arn:role", "STANDARD",
+					)
+					require.NoError(t, err)
+					exec, err := b.StartExecution(sm.StateMachineArn, "exec-h", "")
+					require.NoError(t, err)
+					arn = exec.ExecutionArn
+					synctest.Wait()
+				}
+
+				events, next, err := b.GetExecutionHistory(arn, "", 0, tt.reverse)
+				if tt.wantErr != nil {
+					require.ErrorIs(t, err, tt.wantErr)
+
+					return
+				}
 				require.NoError(t, err)
-				exec, err := b.StartExecution(sm.StateMachineArn, "exec-h", "")
-				require.NoError(t, err)
-				arn = exec.ExecutionArn
-				// Wait for async execution to complete.
-				require.Eventually(t, func() bool {
-					desc, descErr := b.DescribeExecution(arn)
-
-					return descErr == nil && desc.Status != "RUNNING"
-				}, 5*time.Second, 50*time.Millisecond)
-			}
-
-			events, next, err := b.GetExecutionHistory(arn, "", 0, tt.reverse)
-			if tt.wantErr != nil {
-				require.ErrorIs(t, err, tt.wantErr)
-
-				return
-			}
-			require.NoError(t, err)
-			assert.Empty(t, next)
-			assert.Len(t, events, tt.wantLen)
-			assert.Equal(t, tt.wantFirst, events[0].Type)
-			assert.Equal(t, tt.wantSecond, events[1].Type)
+				assert.Empty(t, next)
+				assert.Len(t, events, tt.wantLen)
+				assert.Equal(t, tt.wantFirst, events[0].Type)
+				assert.Equal(t, tt.wantSecond, events[1].Type)
+			})
 		})
 	}
 }
@@ -102,100 +102,94 @@ func TestGetExecutionHistory_TaskEventDetails(t *testing.T) {
 	t.Run("succeeded_task_populates_resource_and_output", func(t *testing.T) {
 		t.Parallel()
 
-		b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
-		b.SetLambdaInvoker(&mockLambdaForBackend{})
+		synctest.Test(t, func(t *testing.T) {
+			b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+			b.SetLambdaInvoker(&mockLambdaForBackend{})
 
-		sm, err := b.CreateStateMachine(
-			context.Background(),
-			"hist-task-sm",
-			taskLambdaDefinition,
-			"arn:role",
-			"STANDARD",
-		)
-		require.NoError(t, err)
+			sm, err := b.CreateStateMachine(
+				context.Background(),
+				"hist-task-sm",
+				taskLambdaDefinition,
+				"arn:role",
+				"STANDARD",
+			)
+			require.NoError(t, err)
 
-		exec, err := b.StartExecution(sm.StateMachineArn, "exec-task-ok", `{"in": 1}`)
-		require.NoError(t, err)
+			exec, err := b.StartExecution(sm.StateMachineArn, "exec-task-ok", `{"in": 1}`)
+			require.NoError(t, err)
+			synctest.Wait()
 
-		require.Eventually(t, func() bool {
-			desc, descErr := b.DescribeExecution(exec.ExecutionArn)
+			events, _, err := b.GetExecutionHistory(exec.ExecutionArn, "", 0, false)
+			require.NoError(t, err)
 
-			return descErr == nil && desc.Status != "RUNNING"
-		}, 5*time.Second, 50*time.Millisecond)
+			var sawScheduled, sawSucceeded, sawStateEntered bool
 
-		events, _, err := b.GetExecutionHistory(exec.ExecutionArn, "", 0, false)
-		require.NoError(t, err)
-
-		var sawScheduled, sawSucceeded, sawStateEntered bool
-
-		for _, ev := range events {
-			switch ev.Type {
-			case "TaskScheduled":
-				require.NotNil(t, ev.TaskScheduledEventDetails)
-				assert.Equal(
-					t,
-					"arn:aws:lambda:us-east-1:000000000000:function:fn",
-					ev.TaskScheduledEventDetails.Resource,
-				)
-				assert.Equal(t, "lambda", ev.TaskScheduledEventDetails.ResourceType)
-				sawScheduled = true
-			case "TaskSucceeded":
-				require.NotNil(t, ev.TaskSucceededEventDetails)
-				assert.Contains(t, ev.TaskSucceededEventDetails.Output, "ok")
-				require.NotNil(t, ev.TaskSucceededEventDetails.OutputDetails)
-				assert.False(t, ev.TaskSucceededEventDetails.OutputDetails.Truncated)
-				sawSucceeded = true
-			case "TaskStateEntered":
-				require.NotNil(t, ev.StateEnteredEventDetails)
-				assert.Contains(t, ev.StateEnteredEventDetails.Input, `"in":1`)
-				sawStateEntered = true
+			for _, ev := range events {
+				switch ev.Type {
+				case "TaskScheduled":
+					require.NotNil(t, ev.TaskScheduledEventDetails)
+					assert.Equal(
+						t,
+						"arn:aws:lambda:us-east-1:000000000000:function:fn",
+						ev.TaskScheduledEventDetails.Resource,
+					)
+					assert.Equal(t, "lambda", ev.TaskScheduledEventDetails.ResourceType)
+					sawScheduled = true
+				case "TaskSucceeded":
+					require.NotNil(t, ev.TaskSucceededEventDetails)
+					assert.Contains(t, ev.TaskSucceededEventDetails.Output, "ok")
+					require.NotNil(t, ev.TaskSucceededEventDetails.OutputDetails)
+					assert.False(t, ev.TaskSucceededEventDetails.OutputDetails.Truncated)
+					sawSucceeded = true
+				case "TaskStateEntered":
+					require.NotNil(t, ev.StateEnteredEventDetails)
+					assert.Contains(t, ev.StateEnteredEventDetails.Input, `"in":1`)
+					sawStateEntered = true
+				}
 			}
-		}
 
-		assert.True(t, sawScheduled, "expected a TaskScheduled event")
-		assert.True(t, sawSucceeded, "expected a TaskSucceeded event")
-		assert.True(t, sawStateEntered, "expected a TaskStateEntered event with populated input")
+			assert.True(t, sawScheduled, "expected a TaskScheduled event")
+			assert.True(t, sawSucceeded, "expected a TaskSucceeded event")
+			assert.True(t, sawStateEntered, "expected a TaskStateEntered event with populated input")
+		})
 	})
 
 	t.Run("failed_task_populates_error_and_cause", func(t *testing.T) {
 		t.Parallel()
 
-		b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
-		b.SetLambdaInvoker(&mockLambdaForBackend{returnErr: assert.AnError})
+		synctest.Test(t, func(t *testing.T) {
+			b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+			b.SetLambdaInvoker(&mockLambdaForBackend{returnErr: assert.AnError})
 
-		sm, err := b.CreateStateMachine(
-			context.Background(),
-			"hist-task-fail-sm",
-			taskLambdaDefinition,
-			"arn:role",
-			"STANDARD",
-		)
-		require.NoError(t, err)
+			sm, err := b.CreateStateMachine(
+				context.Background(),
+				"hist-task-fail-sm",
+				taskLambdaDefinition,
+				"arn:role",
+				"STANDARD",
+			)
+			require.NoError(t, err)
 
-		exec, err := b.StartExecution(sm.StateMachineArn, "exec-task-fail", `{}`)
-		require.NoError(t, err)
+			exec, err := b.StartExecution(sm.StateMachineArn, "exec-task-fail", `{}`)
+			require.NoError(t, err)
+			synctest.Wait()
 
-		require.Eventually(t, func() bool {
-			desc, descErr := b.DescribeExecution(exec.ExecutionArn)
+			events, _, err := b.GetExecutionHistory(exec.ExecutionArn, "", 0, false)
+			require.NoError(t, err)
 
-			return descErr == nil && desc.Status != "RUNNING"
-		}, 5*time.Second, 50*time.Millisecond)
+			var sawFailed bool
 
-		events, _, err := b.GetExecutionHistory(exec.ExecutionArn, "", 0, false)
-		require.NoError(t, err)
-
-		var sawFailed bool
-
-		for _, ev := range events {
-			if ev.Type == "TaskFailed" {
-				require.NotNil(t, ev.TaskFailedEventDetails)
-				assert.NotEmpty(t, ev.TaskFailedEventDetails.Error)
-				assert.NotEmpty(t, ev.TaskFailedEventDetails.Cause)
-				sawFailed = true
+			for _, ev := range events {
+				if ev.Type == "TaskFailed" {
+					require.NotNil(t, ev.TaskFailedEventDetails)
+					assert.NotEmpty(t, ev.TaskFailedEventDetails.Error)
+					assert.NotEmpty(t, ev.TaskFailedEventDetails.Cause)
+					sawFailed = true
+				}
 			}
-		}
 
-		assert.True(t, sawFailed, "expected a TaskFailed event")
+			assert.True(t, sawFailed, "expected a TaskFailed event")
+		})
 	})
 }
 
@@ -218,20 +212,9 @@ func TestHandler_GetExecutionHistory(t *testing.T) {
 				smArn := createSM(ctx, t, h, e, "hist-sm")
 				execArn := startExec(ctx, t, h, e, smArn, "hist-exec")
 
-				// Wait for the async execution to complete before checking history.
-				require.Eventually(t, func() bool {
-					rec := sfnPost(ctx, t, h, e, "DescribeExecution",
-						`{"executionArn":"`+execArn+`"}`)
-					if rec.Code != http.StatusOK {
-						return false
-					}
-					var resp map[string]any
-					if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-						return false
-					}
-
-					return resp["status"] != "RUNNING"
-				}, 5*time.Second, 50*time.Millisecond)
+				// The async execution runs in this goroutine's bubble; Wait
+				// blocks until it finishes before checking history.
+				synctest.Wait()
 
 				return execArn
 			},
@@ -250,27 +233,29 @@ func TestHandler_GetExecutionHistory(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx := t.Context()
-			h, e := newSFNHandler(t)
+			synctest.Test(t, func(t *testing.T) {
+				ctx := t.Context()
+				h, e := newSFNHandler(t)
 
-			var setupResult string
-			if tt.setup != nil {
-				setupResult = tt.setup(t, ctx, h, e)
-			}
+				var setupResult string
+				if tt.setup != nil {
+					setupResult = tt.setup(t, ctx, h, e)
+				}
 
-			body := tt.body
-			if tt.bodyFn != nil {
-				body = tt.bodyFn(setupResult)
-			}
+				body := tt.body
+				if tt.bodyFn != nil {
+					body = tt.bodyFn(setupResult)
+				}
 
-			rec := sfnPost(ctx, t, h, e, "GetExecutionHistory", body)
-			assert.Equal(t, tt.wantCode, rec.Code)
+				rec := sfnPost(ctx, t, h, e, "GetExecutionHistory", body)
+				assert.Equal(t, tt.wantCode, rec.Code)
 
-			if tt.wantEvents > 0 {
-				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-				assert.Len(t, resp["events"].([]any), tt.wantEvents)
-			}
+				if tt.wantEvents > 0 {
+					var resp map[string]any
+					require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+					assert.Len(t, resp["events"].([]any), tt.wantEvents)
+				}
+			})
 		})
 	}
 }
@@ -278,143 +263,131 @@ func TestHandler_GetExecutionHistory(t *testing.T) {
 func TestGetExecutionHistory_HasExecutionStarted(t *testing.T) {
 	t.Parallel()
 
-	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine(
-		context.Background(),
-		"hist-sm",
-		minimalDefinition,
-		validRoleARN,
-		"STANDARD",
-	)
-	require.NoError(t, err)
-	defer b.Destroy()
+	synctest.Test(t, func(t *testing.T) {
+		b := stepfunctions.NewInMemoryBackend()
+		sm, err := b.CreateStateMachine(
+			context.Background(),
+			"hist-sm",
+			minimalDefinition,
+			validRoleARN,
+			"STANDARD",
+		)
+		require.NoError(t, err)
+		defer b.Destroy()
 
-	exec, err := b.StartExecution(sm.StateMachineArn, "hist-exec", "{}")
-	require.NoError(t, err)
+		exec, err := b.StartExecution(sm.StateMachineArn, "hist-exec", "{}")
+		require.NoError(t, err)
+		synctest.Wait()
 
-	// Allow time for history to populate.
-	require.Eventually(t, func() bool {
-		events, _, err2 := b.GetExecutionHistory(exec.ExecutionArn, "", 100, false)
-
-		return err2 == nil && len(events) >= 1
-	}, 5*time.Second, 20*time.Millisecond)
-
-	events, _, err := b.GetExecutionHistory(exec.ExecutionArn, "", 100, false)
-	require.NoError(t, err)
-	assert.Equal(t, "ExecutionStarted", events[0].Type)
+		events, _, err := b.GetExecutionHistory(exec.ExecutionArn, "", 100, false)
+		require.NoError(t, err)
+		require.NotEmpty(t, events)
+		assert.Equal(t, "ExecutionStarted", events[0].Type)
+	})
 }
 
 func TestGetExecutionHistory_ReverseOrder(t *testing.T) {
 	t.Parallel()
 
-	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine(
-		context.Background(),
-		"rev-hist-sm",
-		minimalDefinition,
-		validRoleARN,
-		"STANDARD",
-	)
-	require.NoError(t, err)
-	defer b.Destroy()
+	synctest.Test(t, func(t *testing.T) {
+		b := stepfunctions.NewInMemoryBackend()
+		sm, err := b.CreateStateMachine(
+			context.Background(),
+			"rev-hist-sm",
+			minimalDefinition,
+			validRoleARN,
+			"STANDARD",
+		)
+		require.NoError(t, err)
+		defer b.Destroy()
 
-	exec, err := b.StartExecution(sm.StateMachineArn, "rev-hist-exec", "{}")
-	require.NoError(t, err)
+		exec, err := b.StartExecution(sm.StateMachineArn, "rev-hist-exec", "{}")
+		require.NoError(t, err)
+		synctest.Wait()
 
-	require.Eventually(t, func() bool {
-		d, e := b.DescribeExecution(exec.ExecutionArn)
-
-		return e == nil && d.Status == "SUCCEEDED"
-	}, 5*time.Second, 20*time.Millisecond)
-
-	events, _, err := b.GetExecutionHistory(exec.ExecutionArn, "", 100, true)
-	require.NoError(t, err)
-	require.NotEmpty(t, events)
-	// Last event in forward order should be first in reverse.
-	assert.Equal(t, "ExecutionSucceeded", events[0].Type)
+		events, _, err := b.GetExecutionHistory(exec.ExecutionArn, "", 100, true)
+		require.NoError(t, err)
+		require.NotEmpty(t, events)
+		// Last event in forward order should be first in reverse.
+		assert.Equal(t, "ExecutionSucceeded", events[0].Type)
+	})
 }
 
 func TestGetExecutionHistory_Pagination(t *testing.T) {
 	t.Parallel()
 
-	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine(
-		context.Background(),
-		"page-hist-sm",
-		minimalDefinition,
-		validRoleARN,
-		"STANDARD",
-	)
-	require.NoError(t, err)
-	defer b.Destroy()
+	synctest.Test(t, func(t *testing.T) {
+		b := stepfunctions.NewInMemoryBackend()
+		sm, err := b.CreateStateMachine(
+			context.Background(),
+			"page-hist-sm",
+			minimalDefinition,
+			validRoleARN,
+			"STANDARD",
+		)
+		require.NoError(t, err)
+		defer b.Destroy()
 
-	exec, err := b.StartExecution(sm.StateMachineArn, "page-hist-exec", "{}")
-	require.NoError(t, err)
+		exec, err := b.StartExecution(sm.StateMachineArn, "page-hist-exec", "{}")
+		require.NoError(t, err)
+		synctest.Wait()
 
-	require.Eventually(t, func() bool {
-		d, e := b.DescribeExecution(exec.ExecutionArn)
+		// Get all events first.
+		all, _, err := b.GetExecutionHistory(exec.ExecutionArn, "", 100, false)
+		require.NoError(t, err)
+		require.NotEmpty(t, all)
 
-		return e == nil && d.Status == "SUCCEEDED"
-	}, 5*time.Second, 20*time.Millisecond)
+		// Paginate with maxResults=1.
+		var collected []stepfunctions.HistoryEvent
+		tok := ""
 
-	// Get all events first.
-	all, _, err := b.GetExecutionHistory(exec.ExecutionArn, "", 100, false)
-	require.NoError(t, err)
-	require.NotEmpty(t, all)
+		for {
+			page, next, err2 := b.GetExecutionHistory(exec.ExecutionArn, tok, 1, false)
+			require.NoError(t, err2)
+			collected = append(collected, page...)
 
-	// Paginate with maxResults=1.
-	var collected []stepfunctions.HistoryEvent
-	tok := ""
+			if next == "" {
+				break
+			}
 
-	for {
-		page, next, err2 := b.GetExecutionHistory(exec.ExecutionArn, tok, 1, false)
-		require.NoError(t, err2)
-		collected = append(collected, page...)
-
-		if next == "" {
-			break
+			tok = next
 		}
 
-		tok = next
-	}
-
-	assert.Len(t, collected, len(all))
+		assert.Len(t, collected, len(all))
+	})
 }
 
 func TestGetExecutionHistory_EventIDsMonotonicallyIncreasing(t *testing.T) {
 	t.Parallel()
 
-	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine(
-		context.Background(),
-		"mono-sm",
-		minimalDefinition,
-		validRoleARN,
-		"STANDARD",
-	)
-	require.NoError(t, err)
-	defer b.Destroy()
-
-	exec, err := b.StartExecution(sm.StateMachineArn, "mono-exec", "{}")
-	require.NoError(t, err)
-
-	require.Eventually(t, func() bool {
-		d, e := b.DescribeExecution(exec.ExecutionArn)
-
-		return e == nil && d.Status == "SUCCEEDED"
-	}, 5*time.Second, 20*time.Millisecond)
-
-	events, _, err := b.GetExecutionHistory(exec.ExecutionArn, "", 100, false)
-	require.NoError(t, err)
-
-	for i := 1; i < len(events); i++ {
-		assert.Greater(
-			t,
-			events[i].ID,
-			events[i-1].ID,
-			"event IDs must be monotonically increasing",
+	synctest.Test(t, func(t *testing.T) {
+		b := stepfunctions.NewInMemoryBackend()
+		sm, err := b.CreateStateMachine(
+			context.Background(),
+			"mono-sm",
+			minimalDefinition,
+			validRoleARN,
+			"STANDARD",
 		)
-	}
+		require.NoError(t, err)
+		defer b.Destroy()
+
+		exec, err := b.StartExecution(sm.StateMachineArn, "mono-exec", "{}")
+		require.NoError(t, err)
+		synctest.Wait()
+
+		events, _, err := b.GetExecutionHistory(exec.ExecutionArn, "", 100, false)
+		require.NoError(t, err)
+
+		for i := 1; i < len(events); i++ {
+			assert.Greater(
+				t,
+				events[i].ID,
+				events[i-1].ID,
+				"event IDs must be monotonically increasing",
+			)
+		}
+	})
 }
 
 // ─── ListExecutions ───────────────────────────────────────────────────────────
@@ -447,32 +420,28 @@ func TestHistoryEventCap(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newSFBackend()
-			sm, err := b.CreateStateMachine(context.Background(), "cap-sm", exprPassDef, "arn:role", "STANDARD")
-			require.NoError(t, err)
+			synctest.Test(t, func(t *testing.T) {
+				b := newSFBackend()
+				sm, err := b.CreateStateMachine(context.Background(), "cap-sm", exprPassDef, "arn:role", "STANDARD")
+				require.NoError(t, err)
 
-			exec, err := b.StartExecution(sm.StateMachineArn, "cap-exec", "{}")
-			require.NoError(t, err)
+				exec, err := b.StartExecution(sm.StateMachineArn, "cap-exec", "{}")
+				require.NoError(t, err)
 
-			execARN := exec.ExecutionArn
+				execARN := exec.ExecutionArn
+				synctest.Wait()
 
-			// Wait for execution to reach terminal state so goroutine is done.
-			require.Eventually(t, func() bool {
-				d, e := b.DescribeExecution(execARN)
+				// Pre-fill history to the desired count using the exported test helper.
+				b.FillHistoryForTest(execARN, tt.preFill)
 
-				return e == nil && d.Status != "RUNNING"
-			}, 5*time.Second, 50*time.Millisecond)
+				// Try to add more events via the exported recorder helper.
+				for range tt.addMoreEvents {
+					b.RecordStateEnteredForTest(execARN, "ExtraState", "Pass")
+				}
 
-			// Pre-fill history to the desired count using the exported test helper.
-			b.FillHistoryForTest(execARN, tt.preFill)
-
-			// Try to add more events via the exported recorder helper.
-			for range tt.addMoreEvents {
-				b.RecordStateEnteredForTest(execARN, "ExtraState", "Pass")
-			}
-
-			histLen := b.HistoryLenForTest(execARN)
-			assert.Equal(t, tt.wantLen, histLen)
+				histLen := b.HistoryLenForTest(execARN)
+				assert.Equal(t, tt.wantLen, histLen)
+			})
 		})
 	}
 }
@@ -501,24 +470,22 @@ func TestBackend_GetExecutionHistory_ReverseOrder(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := stepfunctions.NewInMemoryBackend()
-			sm, err := b.CreateStateMachine(context.Background(), "hist-sm", sfnPassDefinition, "arn:role", "STANDARD")
-			require.NoError(t, err)
+			synctest.Test(t, func(t *testing.T) {
+				b := stepfunctions.NewInMemoryBackend()
+				sm, err := b.CreateStateMachine(
+					context.Background(), "hist-sm", sfnPassDefinition, "arn:role", "STANDARD",
+				)
+				require.NoError(t, err)
 
-			exec, err := b.StartExecution(sm.StateMachineArn, "hist-exec", `{}`)
-			require.NoError(t, err)
+				exec, err := b.StartExecution(sm.StateMachineArn, "hist-exec", `{}`)
+				require.NoError(t, err)
+				synctest.Wait()
 
-			// Wait for execution to complete
-			require.Eventually(t, func() bool {
-				desc, descErr := b.DescribeExecution(exec.ExecutionArn)
-
-				return descErr == nil && desc.Status == "SUCCEEDED"
-			}, 5*time.Second, 50*time.Millisecond)
-
-			events, _, err := b.GetExecutionHistory(exec.ExecutionArn, "", 0, tt.reverseOrder)
-			require.NoError(t, err)
-			require.NotEmpty(t, events)
-			assert.Equal(t, tt.wantFirst, events[0].Type)
+				events, _, err := b.GetExecutionHistory(exec.ExecutionArn, "", 0, tt.reverseOrder)
+				require.NoError(t, err)
+				require.NotEmpty(t, events)
+				assert.Equal(t, tt.wantFirst, events[0].Type)
+			})
 		})
 	}
 }
@@ -549,43 +516,40 @@ func TestExecutionHistory_Events(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newSFBackend()
-			sm, err := b.CreateStateMachine(
-				context.Background(),
-				"hist-"+tt.name,
-				tt.definition,
-				"arn:role",
-				"STANDARD",
-			)
-			require.NoError(t, err)
+			synctest.Test(t, func(t *testing.T) {
+				b := newSFBackend()
+				sm, err := b.CreateStateMachine(
+					context.Background(),
+					"hist-"+tt.name,
+					tt.definition,
+					"arn:role",
+					"STANDARD",
+				)
+				require.NoError(t, err)
 
-			exec, err := b.StartExecution(sm.StateMachineArn, "hist-exec", "{}")
-			require.NoError(t, err)
+				exec, err := b.StartExecution(sm.StateMachineArn, "hist-exec", "{}")
+				require.NoError(t, err)
+				synctest.Wait()
 
-			require.Eventually(t, func() bool {
-				d, e := b.DescribeExecution(exec.ExecutionArn)
+				events, _, err := b.GetExecutionHistory(exec.ExecutionArn, "", 100, false)
+				require.NoError(t, err)
+				require.NotEmpty(t, events)
 
-				return e == nil && d.Status != "RUNNING"
-			}, 10*time.Second, 25*time.Millisecond)
+				// Collect event types.
+				types := make([]string, len(events))
+				for i, e := range events {
+					types[i] = e.Type
+				}
 
-			events, _, err := b.GetExecutionHistory(exec.ExecutionArn, "", 100, false)
-			require.NoError(t, err)
-			require.NotEmpty(t, events)
+				for _, wantType := range tt.wantEventTypes {
+					assert.Contains(t, types, wantType, "expected event type %q in history", wantType)
+				}
 
-			// Collect event types.
-			types := make([]string, len(events))
-			for i, e := range events {
-				types[i] = e.Type
-			}
-
-			for _, wantType := range tt.wantEventTypes {
-				assert.Contains(t, types, wantType, "expected event type %q in history", wantType)
-			}
-
-			// Verify IDs are monotonically increasing.
-			for i := 1; i < len(events); i++ {
-				assert.Greater(t, events[i].ID, events[i-1].ID, "event IDs should increase")
-			}
+				// Verify IDs are monotonically increasing.
+				for i := 1; i < len(events); i++ {
+					assert.Greater(t, events[i].ID, events[i-1].ID, "event IDs should increase")
+				}
+			})
 		})
 	}
 }
@@ -593,31 +557,28 @@ func TestExecutionHistory_Events(t *testing.T) {
 func TestExecutionHistory_ReverseOrder(t *testing.T) {
 	t.Parallel()
 
-	b := newSFBackend()
-	sm, err := b.CreateStateMachine(context.Background(), "hist-rev", exprPassDef, "arn:role", "STANDARD")
-	require.NoError(t, err)
+	synctest.Test(t, func(t *testing.T) {
+		b := newSFBackend()
+		sm, err := b.CreateStateMachine(context.Background(), "hist-rev", exprPassDef, "arn:role", "STANDARD")
+		require.NoError(t, err)
 
-	exec, err := b.StartExecution(sm.StateMachineArn, "rev-exec", "{}")
-	require.NoError(t, err)
+		exec, err := b.StartExecution(sm.StateMachineArn, "rev-exec", "{}")
+		require.NoError(t, err)
+		synctest.Wait()
 
-	require.Eventually(t, func() bool {
-		d, e := b.DescribeExecution(exec.ExecutionArn)
+		forward, _, err := b.GetExecutionHistory(exec.ExecutionArn, "", 100, false)
+		require.NoError(t, err)
 
-		return e == nil && d.Status != "RUNNING"
-	}, 10*time.Second, 25*time.Millisecond)
+		reverse, _, err := b.GetExecutionHistory(exec.ExecutionArn, "", 100, true)
+		require.NoError(t, err)
 
-	forward, _, err := b.GetExecutionHistory(exec.ExecutionArn, "", 100, false)
-	require.NoError(t, err)
+		require.Len(t, reverse, len(forward))
 
-	reverse, _, err := b.GetExecutionHistory(exec.ExecutionArn, "", 100, true)
-	require.NoError(t, err)
-
-	require.Len(t, reverse, len(forward))
-
-	// Reverse order means IDs should decrease.
-	for i := 1; i < len(reverse); i++ {
-		assert.Less(t, reverse[i].ID, reverse[i-1].ID)
-	}
+		// Reverse order means IDs should decrease.
+		for i := 1; i < len(reverse); i++ {
+			assert.Less(t, reverse[i].ID, reverse[i-1].ID)
+		}
+	})
 }
 
 // TestResourceTypeFromResource verifies TaskScheduled/TaskSucceeded/TaskFailed's

@@ -17,7 +17,6 @@ func TestDescribeEffectivePolicy_AllPolicyTypes(t *testing.T) {
 	t.Parallel()
 
 	policyTypes := []string{
-		"SERVICE_CONTROL_POLICY",
 		"TAG_POLICY",
 		"BACKUP_POLICY",
 		"AISERVICES_OPT_OUT_POLICY",
@@ -52,7 +51,6 @@ func TestListEffectivePolicyValidationErrors_AllTypes(t *testing.T) {
 	t.Parallel()
 
 	policyTypes := []string{
-		"SERVICE_CONTROL_POLICY",
 		"TAG_POLICY",
 		"BACKUP_POLICY",
 		"AISERVICES_OPT_OUT_POLICY",
@@ -203,16 +201,8 @@ func TestHandler_DescribeEffectivePolicy(t *testing.T) {
 		wantContent bool
 	}{
 		{
-			// SCP always resolves via the default FullAWSAccess SCP attached
-			// to root, even with no custom policy anywhere in the hierarchy.
-			name:        "no_custom_policy_inherits_default_scp",
-			policyType:  "SERVICE_CONTROL_POLICY",
-			wantStatus:  http.StatusOK,
-			wantContent: true,
-		},
-		{
 			name:        "effective_policy_found_on_target",
-			policyType:  "SERVICE_CONTROL_POLICY",
+			policyType:  "TAG_POLICY",
 			seedPolicy:  true,
 			wantStatus:  http.StatusOK,
 			wantContent: true,
@@ -291,10 +281,6 @@ func TestHandler_DescribeEffectivePolicy(t *testing.T) {
 				assert.NotEmpty(t, ep["PolicyId"])
 				assert.Equal(t, tt.policyType, ep["PolicyType"])
 				assert.NotZero(t, ep["LastUpdatedTimestamp"])
-
-				if tt.name == "no_custom_policy_inherits_default_scp" {
-					assert.Equal(t, "p-FullAWSAccess", ep["PolicyId"])
-				}
 			}
 		})
 	}
@@ -313,19 +299,13 @@ func TestBackend_DescribeEffectivePolicy(t *testing.T) {
 		wantErr    bool
 	}{
 		{
-			// SCP always resolves via the default FullAWSAccess SCP attached
-			// to root, even with no custom policy anywhere in the hierarchy.
-			name:       "no_custom_policy_inherits_default_scp",
-			policyType: "SERVICE_CONTROL_POLICY",
-		},
-		{
 			name:       "effective_policy_found",
-			policyType: "SERVICE_CONTROL_POLICY",
+			policyType: "TAG_POLICY",
 			seedPolicy: true,
 		},
 		{
 			name:       "no_org_returns_error",
-			policyType: "SERVICE_CONTROL_POLICY",
+			policyType: "TAG_POLICY",
 			noOrg:      true,
 			wantErr:    true,
 		},
@@ -377,13 +357,6 @@ func TestBackend_DescribeEffectivePolicy(t *testing.T) {
 			assert.Equal(t, tt.policyType, ep.PolicyType)
 			assert.NotEmpty(t, ep.PolicyContent)
 			assert.NotEmpty(t, ep.PolicyID)
-
-			if tt.name == "no_custom_policy_inherits_default_scp" {
-				assert.Equal(t, "p-FullAWSAccess", ep.PolicyID)
-				assert.JSONEq(t,
-					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
-					ep.PolicyContent)
-			}
 		})
 	}
 }

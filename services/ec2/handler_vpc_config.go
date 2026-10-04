@@ -219,6 +219,8 @@ func (h *Handler) handleDescribeVpcClassicLink(vals url.Values, reqID string) (a
 		return nil, err
 	}
 
+	vpcs = applyVpcClassicLinkFilters(vpcs, parseEC2Filters(vals), h.Backend)
+
 	resp := &describeVpcClassicLinkResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, vpc := range vpcs {
 		resp.VpcSet = append(resp.VpcSet, vpcClassicLinkItem{
@@ -480,7 +482,9 @@ type describeVpcBlockPublicAccessExclusionsResponse struct {
 
 func (h *Handler) handleDescribeVpcBlockPublicAccessExclusions(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "ExclusionId")
-	excls := h.Backend.DescribeVpcBlockPublicAccessExclusions(ids)
+	excls := applyVpcBPAExclusionFilters(
+		h.Backend.DescribeVpcBlockPublicAccessExclusions(ids), parseEC2Filters(vals), h.Backend,
+	)
 
 	resp := &describeVpcBlockPublicAccessExclusionsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, excl := range excls {

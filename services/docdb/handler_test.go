@@ -625,7 +625,9 @@ func TestPersistenceRoundTrip_NewState(t *testing.T) {
 	b1.AddPendingMaintenanceActionInternal(
 		"arn:aws:rds:us-east-1:000000000000:cluster:persist-cluster", "system-update", "seeded for persistence test",
 	)
-	_, err = b1.CreateGlobalCluster(context.Background(), "persist-gc", "persist-cluster", "", "")
+	_, err = b1.CreateGlobalCluster(
+		context.Background(), "persist-gc", "persist-cluster", "", "", docdb.CreateGlobalClusterOptions{},
+	)
 	require.NoError(t, err)
 
 	data := b1.Snapshot(t.Context())

@@ -336,11 +336,15 @@ type Deployment struct {
 	// APISummary is a snapshot, taken at deployment time, of every resource
 	// path's methods (types.Deployment.ApiSummary in the SDK), keyed
 	// resourcePath -> httpMethod.
-	APISummary  map[string]map[string]MethodSnapshot `json:"apiSummary,omitempty"`
-	CreatedDate unixEpochTime                        `json:"createdDate"`
-	ID          string                               `json:"id"`
-	RestAPIID   string                               `json:"-"`
-	Description string                               `json:"description,omitempty"`
+	APISummary map[string]map[string]MethodSnapshot `json:"apiSummary,omitempty"`
+	// Config is the full invoke-time configuration snapshot (see
+	// DeploymentConfig's doc) -- internal state, never part of the wire
+	// response, matching the RestAPIID json:"-" convention below.
+	Config      *DeploymentConfig `json:"-"`
+	CreatedDate unixEpochTime     `json:"createdDate"`
+	ID          string            `json:"id"`
+	RestAPIID   string            `json:"-"`
+	Description string            `json:"description,omitempty"`
 }
 
 // PutMethodInput is the input for PutMethod.
@@ -429,6 +433,7 @@ type CreateAuthorizerInput struct {
 // supported) can be told apart from the field being absent from the PATCH.
 type UpdateAuthorizerInput struct {
 	IdentitySource               *string  `json:"identitySource,omitempty"`
+	AuthorizerResultTTLInSeconds *int     `json:"authorizerResultTtlInSeconds,omitempty"`
 	Name                         string   `json:"name,omitempty"`
 	Type                         string   `json:"type,omitempty"`
 	AuthorizerURI                string   `json:"authorizerUri,omitempty"`
@@ -436,7 +441,6 @@ type UpdateAuthorizerInput struct {
 	IdentityValidationExpression string   `json:"identityValidationExpression,omitempty"`
 	AuthType                     string   `json:"authType,omitempty"`
 	ProviderARNs                 []string `json:"providerARNs,omitempty"`
-	AuthorizerResultTTLInSeconds int      `json:"authorizerResultTtlInSeconds,omitempty"`
 }
 
 // RequestValidator represents an API Gateway request validator.

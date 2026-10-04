@@ -14,8 +14,8 @@ package quicksight
 // Handler-level delegation.
 import "context"
 
-// Snapshot implements persistence.Persistable by delegating to the backend.
-func (h *Handler) Snapshot(ctx context.Context) []byte {
+// homeSnapshot serializes the home region only.
+func (h *Handler) homeSnapshot(ctx context.Context) []byte {
 	type snapshotter interface {
 		Snapshot(ctx context.Context) []byte
 	}
@@ -27,8 +27,8 @@ func (h *Handler) Snapshot(ctx context.Context) []byte {
 	return nil
 }
 
-// Restore implements persistence.Persistable by delegating to the backend.
-func (h *Handler) Restore(ctx context.Context, data []byte) error {
+// homeRestore restores the home region only.
+func (h *Handler) homeRestore(ctx context.Context, data []byte) error {
 	type restorer interface {
 		Restore(context.Context, []byte) error
 	}

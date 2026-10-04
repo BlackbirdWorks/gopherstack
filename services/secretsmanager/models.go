@@ -85,7 +85,8 @@ type ExternalSecretRotationMetadataItem struct {
 type RotationRulesType struct {
 	// AutomaticallyAfterDays rotates the secret after this many days.
 	AutomaticallyAfterDays *int64 `json:"AutomaticallyAfterDays,omitempty"`
-	// Duration is an optional ISO-8601 duration window for rotation.
+	// Duration is the rotation window length, formatted "<N>h" (e.g. "3h").
+	// Optional; validateRotationRules enforces its format and range.
 	Duration string `json:"Duration,omitempty"`
 	// ScheduleExpression is an optional cron/rate expression for rotation scheduling.
 	ScheduleExpression string `json:"ScheduleExpression,omitempty"`

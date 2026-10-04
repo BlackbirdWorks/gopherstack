@@ -111,7 +111,7 @@ func (h *Handler) handleCreateRuleGroup(ctx context.Context, body []byte) ([]byt
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "wafv2: created rule group", "name", rg.Name, "id", rg.ID)
 
-	arnStr := h.Backend.RuleGroupARN(rg.Name, rg.ID, rg.Scope)
+	arnStr := rg.ARN
 
 	return json.Marshal(map[string]any{
 		keySummary: map[string]string{
@@ -170,7 +170,7 @@ func (h *Handler) handleGetRuleGroup(ctx context.Context, body []byte) ([]byte, 
 		)
 	}
 
-	arnStr := h.Backend.RuleGroupARN(rg.Name, rg.ID, rg.Scope)
+	arnStr := rg.ARN
 	visConfig := parseVisibilityConfig(json.RawMessage(rg.VisibilityConfig), rg.Name)
 
 	// LabelNamespace grammar ("awswaf:<account ID>:rulegroup:<rule group
@@ -223,7 +223,7 @@ func (h *Handler) handleListRuleGroups(ctx context.Context, body []byte) ([]byte
 			return map[string]string{
 				"Id":           rg.ID,
 				keyName:        rg.Name,
-				keyARN:         h.Backend.RuleGroupARN(rg.Name, rg.ID, rg.Scope),
+				keyARN:         rg.ARN,
 				keyLockToken:   rg.LockToken,
 				keyDescription: rg.Description,
 			}

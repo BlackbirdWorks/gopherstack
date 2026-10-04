@@ -112,6 +112,13 @@ type FirehosePutter interface {
 	PutRecordBatch(streamName string, records [][]byte) (int, error)
 }
 
+// RegionalFirehosePutter is a FirehosePutter that can deliver into a named region's delivery stream.
+type RegionalFirehosePutter interface {
+	FirehosePutter
+	// PutRecordBatchInRegion delivers a batch of records to the stream in region.
+	PutRecordBatchInRegion(region, streamName string, records [][]byte) (int, error)
+}
+
 // SQSSender can send a message to an SQS queue identified by ARN, used for DLQ delivery.
 type SQSSender interface {
 	SendMessageToQueue(ctx context.Context, queueARN, messageBody string) error

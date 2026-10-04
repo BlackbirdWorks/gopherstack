@@ -188,7 +188,7 @@ ops:
   CreatePolicyVersion: {wire: fixed, errors: ok, state: ok, persist: ok, note: "response was missing policyArn (real CreatePolicyVersionOutput has it); fixed"}
   GetPolicyVersion: {wire: fixed, errors: ok, state: ok, persist: ok, note: "used wrong date field name \"createDate\" (real GetPolicyVersionOutput uses \"creationDate\", verified against v1.76.0's awsRestjson1_deserializeOpDocumentGetPolicyVersionOutput -- \"createDate\" is only correct for the ListPolicyVersions summary shape) and was missing generationId/lastModifiedDate + epoch encoding; fixed, added GenerationID to the PolicyVersion domain type"}
   ListPolicyVersions: {wire: fixed, errors: ok, state: ok, persist: ok, note: "createDate was a raw time.Time; fixed via awstime.Epoch"}
-  CreateTopicRule: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED 2026-09-19 (terraform-coverage sweep, iot-and-ses): RuleAction only modeled Sqs/Lambda -- an sns action (types.SnsAction: RoleArn/TargetArn/MessageFormat) decoded into an all-nil RuleAction{} (unknown JSON key silently dropped), so GetTopicRule always returned Actions[0].Sns == nil for a real SNS-action rule. Confirmed via a real aws_iot_topic_rule apply with an sns{} block. cloudwatch_alarm/dynamodb/firehose/kinesis/s3/http/republish/step_functions/... action types remain unmodeled (RuleAction only has Sqs/Lambda/Sns) -- see items_still_open."}
+  CreateTopicRule: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED 2026-09-19 (terraform-coverage sweep, iot-and-ses): RuleAction only modeled Sqs/Lambda -- an sns action (types.SnsAction: RoleArn/TargetArn/MessageFormat) decoded into an all-nil RuleAction{} (unknown JSON key silently dropped), so GetTopicRule always returned Actions[0].Sns == nil for a real SNS-action rule. Confirmed via a real aws_iot_topic_rule apply with an sns{} block. other action types are now kept verbatim (UPDATED 2026-10-01); execution is not modeled -- see items_still_open."}
   GetTopicRule: {wire: fixed, errors: ok, state: ok, persist: ok, note: "rule.createdAt was a raw time.Time (RFC3339 string) instead of epoch-seconds; fixed via awstime.Epoch"}
   CreateTopicRuleDestination: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED 2026-09-19 (terraform-coverage sweep, iot-and-ses): TopicRuleDestinationConfiguration only modeled HttpUrlConfiguration -- a vpcConfiguration request body was decoded into nothing (unknown JSON key), and CreateTopicRuleDestination unconditionally minted an http-typed ARN (\"ruledestination/http/...\") and ENABLED status regardless of what was requested, silently discarding the caller's VPC config end to end. Now branches on which configuration variant is present, builds a vpc-typed ARN (\"ruledestination/vpc/...\"), and stores/echoes VpcProperties (Create/Get) and VpcDestinationSummary (List) -- see VPCDestinationConfiguration/VPCDestinationProperties in types.go."}
   DeleteTopicRule: {wire: ok, errors: ok, state: fixed, persist: ok, note: "(gopherstack-1ycq, 2026-09-06) left b.resourceTags[ruleARN] behind on delete, inherited by a same-named recreate; fixed. Regression: TestDeleteResource_ClearsResourceTagsOnRecreate/topic_rule."}
@@ -289,12 +289,11 @@ gaps: []
   # gap for ListSecurityProfiles/ListSecurityProfilesForTarget, and three wire-shape key-name
   # bugs on the same two ops plus ListTargetsForSecurityProfile).
 items_still_open:
-  - "CreateAuditSuppression/CreateCustomMetric/CreateDimension/StartAuditMitigationActionsTask/StartDetectMitigationActionsTask's ClientRequestToken is not honored for idempotent-replay dedup (CreateCustomMetric/CreateDimension decode it into their input struct but never read the value; the other three don't even declare it). Real semantics need a token->result cache keyed per op plus rejecting a same-token-different-params replay, and this newer SDK codegen (v1.83.0, schema-based, no per-op deserializeOpError functions) doesn't resolve to a specific declared exception type for the mismatch case the way older-gen services (see eks/fsx's ClientRequestToken idempotency) do -- implementing it without a confirmed wire error code risks inventing behavior. StartAuditMitigationActionsTask/StartDetectMitigationActionsTask already reject a reused taskId (the real practical replay-safety case) via TaskAlreadyExistsException, independent of this token (gopherstack-xhu2t slice 2)."
-  - "DeleteOTAUpdate's ForceDeleteAWSJob is not honored: CreateOTAUpdate fabricates an AWSIoTJobId/AWSIoTJobArn string but never creates a real entry in this backend's jobs table, so there is no actual Job resource for force to act on (DeleteOTAUpdate has no state to gate on either way). Modeling this for real would mean CreateOTAUpdate actually calling CreateJob and DeleteOTAUpdate checking that job's status, a structural change out of this pass's bounds (gopherstack-xhu2t slice 2)."
-  - "GetThingConnectivityData's IncludeSocketInformation is not honored: the real output's socket fields (sourcePort/targetPort/sourceIp/targetIp/vpcEndpointId) have no backing data anywhere in this backend's ThingConnectivityData model (only Connected/Timestamp/DisconnectReason are tracked), so there is nothing to conditionally include even if the flag were read (gopherstack-xhu2t slice 2)."
-  - "gopherstack-21my (per-item sweep): ListJobs' JobSummary omits IsConcurrent and ThingGroupId -- neither is modeled anywhere on the Job type (no concurrent-execution or thing-group-target tracking exists), so there is no honest value to surface. CompletedAt IS a real Job struct field but nothing ever sets it (no job-completion codepath writes it), so it would always emit as its own zero value; left unwired rather than adding a field that can never round-trip a real value."
-  - "gopherstack-21my (per-item sweep): ListCommandExecutions/GetCommandExecution's CommandExecutionSummary omits StartedAt/CompletedAt -- IoTCommandExecution has no such fields and this backend has no StartCommandExecution/UpdateCommandExecution control-plane op to set them (executions only arrive via test-seeding or Get/Delete), matching the existing doc comment on commandExecutionSummaryFields."
-  - "ListTopicRuleDestinations/GetTopicRuleDestination never surface InfluxDBSummary or StatusReason -- this backend only implements the HTTP URL and VPC destination variants (VpcDestinationSummary FIXED 2026-09-19, terraform-coverage sweep gopherstack iot-and-ses: CreateTopicRuleDestination silently ignored destinationConfiguration.vpcConfiguration entirely, always emitting an http-typed ARN/httpUrlProperties response regardless of what the caller sent -- confirmed via a real aws_iot_topic_rule_destination apply, which got a VPC-shaped resource back with none of its own config; see topic_rules.go/handler_topic_rules.go). InfluxDB destinations remain unmodeled, and no failure path ever produces a StatusReason string."
+  - "ClientRequestToken idempotency is not honored for CreateCustomMetric/CreateDimension: the pinned SDK docs contradict each other (CreateCustomMetric: a different token on an existing name errors; CreateDimension: the same token errors) and name no exception type, so any replay semantics would be invented. CreateAuditSuppression/StartAuditMitigationActionsTask/StartDetectMitigationActionsTask now reject a reused token (2026-10-04)."
+  - "DeleteOTAUpdate.DeleteStream is not honored: CreateOTAUpdate never creates an OTA-owned stream (needs a real OTA stream pipeline). ForceDeleteAWSJob is honored against the real AFR_OTA-<id> job (2026-10-04); the non-terminal-job rejection uses InvalidRequestException, a code the pinned SDK does not document for this case."
+  - "Needs an unmodeled device fleet (no job agent, no StartCommandExecution, no connection tracking): GetThingConnectivityData IncludeSocketInformation and socket fields; Job CompletedAt/IsConcurrent/ThingGroupId on ListJobs/DescribeJob (jobs never reach COMPLETED); CommandExecution StartedAt/CompletedAt; TopicRuleDestination StatusReason (no failure path)."
+  - "Rule actions timestream, kafka, location, openSearch, iotEvents, iotSiteWise, influxDB are stored verbatim but not executed (no data-plane backend). The http action runs but not enableBatching/batchConfig (the action fails with an error rather than sending singly). Kinesis, Firehose, S3, SNS and Step Functions deliveries use the home-region backend; DynamoDB, CloudWatch and CloudWatch Logs honour the rule's region. errorAction envelope omits cloudwatchTraceId and clientId."
+  - "Rule SQL engine gaps: md2(), transform(), decode(...,'proto'), get_thing_shadow reads the single region-agnostic shadow store, get_secret is not cached for 15 minutes, principal() is always Undefined (no certificate/IAM identity reaches the broker), MQTT5 properties (get_mqtt_property, get_user_properties) are Undefined for MQTT 3.1.1 publishers; Int/Int division returns a Decimal when inexact; unaliased non-field SELECT items are keyed by their source text; a bare unaliased @variable is keyed by its source text."
 deferred: []
   # gopherstack-srzb (job_and_jobtemplate + device_defender consolidated tracking issue) and
   # the security_profiles item that superseded it as pass #3's sole open item are both closed
@@ -303,6 +302,90 @@ leaks: {status: found_and_fixed, note: "FOUND: Handler.StartWorker launched the 
 ---
 
 ## Notes
+
+## 2026-10-03: HTTP action, Basic Ingest, service-calling SQL functions
+
+- HTTP action (iot-https-rule-action, iot-http-action-destination): the action POSTs the
+  projected payload to the expanded url with templated header values; Content-Type defaults
+  to application/json for JSON payloads, else application/octet-stream, and a content-type
+  header overrides it. It runs only when an ENABLED http destination's confirmationUrl is a
+  prefix of the url; otherwise it fails into the errorAction. Retries: at most 3 tries on 429
+  and 5xx, none after a response over 16,384 bytes; 10s total timeout, 128 KiB body cap,
+  redirects are not followed, payloads are never logged. auth.sigv4 signs with credentials
+  issued to iot.amazonaws.com for roleArn (STS AssumeRoleForService, trust-checked) under
+  --enforce-iam, and with the default test key when enforcement is off. enableBatching is
+  rejected with an action error.
+- Destinations: Create (http) mints a token and POSTs the documented confirmation request
+  (x-amz-rules-engine-message-type/destination-arn headers, JSON arn/confirmationToken/enableUrl/
+  messageType, ?confirmationToken= query) to the confirmationUrl in the background; a failed
+  request sets ERROR with statusReason. ConfirmTopicRuleDestination or GET enableUrl moves
+  IN_PROGRESS to ENABLED; UpdateTopicRuleDestination to IN_PROGRESS sends a new token.
+  CreateTopicRule/ReplaceTopicRule create the implied destination (hardcoded url or
+  non-templated confirmationUrl) and reject a confirmationUrl that is not a prefix of url or a
+  templated url without one. enableUrl is built from the address the client reached the
+  service on. statusReason is persisted (additive inventory rows, no version bump).
+- Basic Ingest (iot-basic-ingest): a publish to $aws/rules/<rule>/<topic> runs only that rule
+  with the remainder as topic() and FROM input, is acked but not delivered to subscribers or
+  retained, and a rule without FROM runs only this way. A missing rule is logged only (no
+  RuleNotFound metric).
+- SQL (iot-sql-functions, iot-sql-set): SET @var (immutable, max 10, 128 KiB), get_dynamodb,
+  get_secret, get_thing_shadow, get_registry_data (DescribeThing, ListThingGroupsForThing),
+  aws_lambda, parse_time (Joda patterns), time_to_epoch (java.time patterns), get_mqtt_property,
+  get_user_properties, sourceip (client remote address), traceid (minted per MQTT-published
+  message). Calls run in-process against the rule's region. Under --enforce-iam the roleArn
+  argument must allow dynamodb:GetItem, secretsmanager:GetSecretValue and DescribeSecret
+  (checked against the secret's ARN), iot:GetThingShadow, iot:DescribeThing or
+  iot:ListThingGroupsForThing for iot.amazonaws.com; aws_lambda uses the function's resource
+  policy (source ARN = rule ARN). A failed or denied function, a second get_dynamodb or
+  get_registry_data in one statement, or a non-JSON Lambda result ends the rule without running
+  actions (docs name no errorAction for it). A missing DynamoDB item is Undefined.
+
+## 2026-10-03: Rule SQL engine (gopherstack-o321h)
+
+The rules engine now implements the AWS IoT SQL reference
+(docs.aws.amazon.com/iot/latest/developerguide/iot-sql-reference.html) as a
+recursive-descent parser + evaluator (sql_lexer/parser/eval/ops/select/value.go,
+sql_funcs*.go). awsIotSqlVersion is honoured: 2015-10-08 (the API default) keeps
+whole decimals as Decimal, rejects nested SELECT, SELECT VALUE of an array and the
+2016-only functions; 2016-03-23 and beta fold whole decimals into Int
+(iot-sql-data-types, iot-rule-sql-version, iot-sql-nested-queries).
+
+- SELECT: `*`, field lists, AS (dotted aliases nest), a.b[0] paths, literals
+  (number/string/bool/NULL/UNDEFINED/array/object), SELECT VALUE, CASE
+  (iot-sql-case), nested `(SELECT ... FROM path [AS a] [WHERE])`, EXISTS and IN.
+  Undefined members are omitted (iot-sql-data-types). Lone `SELECT *` passes the
+  raw bytes through, so binary payloads survive; field access on non-JSON is Undefined.
+- Operators (iot-sql-operators): AND OR NOT, = <> != < <= > >=, + - * / %,
+  unary minus, with the documented string/number coercions and Undefined results.
+- Functions: abs acos asin atan atan2 bitand bitor bitxor bitnot ceil cos cosh exp
+  floor ln log mod power remainder round sign sin sinh sqrt tan tanh trunc rand nanvl;
+  chr concat endswith startswith indexof length numbytes lower upper lpad rpad ltrim
+  rtrim trim replace regexp_matches regexp_replace regexp_substr substring; cast
+  get get_or_default isNull isUndefined encode decode(base64) topic timestamp clientid
+  newuuid accountid sql_version md5 sha1 sha224 sha256 sha384 sha512
+  (iot-sql-functions).
+- FROM: quoted or bare topic filter with + and #; WHERE shares the expression
+  language and an Undefined/non-true result suppresses the actions.
+- The projected result is the payload for every action; ${...} templates are
+  evaluated against the original message, not the SELECT result
+  (iot-substitution-templates) and now accept the full expression grammar.
+- Invalid SQL at CreateTopicRule/ReplaceTopicRule returns SqlParseException (400),
+  declared by iot@v1.83.0 types.SqlParseException on both operations.
+
+Tests: sql_engine_whitebox_test.go, rules_test.go, rule_templates_whitebox_test.go,
+cli_iot_rule_sql_test.go (typed-SDK delivery to SQS and SqlParseException).
+
+## 2026-10-03: Rule action roles under --enforce-iam
+
+- SQS actions check roleArn (iot.amazonaws.com, sqs:SendMessage on the queue ARN derived from queueUrl); Lambda actions check the function's resource policy (iot.amazonaws.com, aws:SourceArn = rule ARN). A failed action (denied or dispatch error) runs the rule's errorAction with `ruleName`, `topic`, `base64OriginalPayload`, `failedAction`, `failedActionReason` (AWS IoT "Error handling (error action)" docs; cloudwatchTraceId and clientId are not populated).
+- Only SQS and Lambda actions are dispatched at all; SNS and the other action types are stored but never executed, so there is nothing to authorize.
+
+### 2026-10-01 (items_still_open burn-down)
+
+InfluxDB topic rule destinations are modeled (Create/Get/List, V2/V3 and
+secret-type validation); rule actions beyond sqs/lambda/sns and errorAction
+round-trip verbatim; VPC destination properties now survive Snapshot/Restore
+(previously dropped). Tests: topic_rule_actions_destinations_test.go.
 
 ### 2026-09-19 (terraform-coverage sweep, iot-and-ses)
 
@@ -2304,3 +2387,26 @@ Regression: TestMatchIoTPath_JobsFamilyDisambiguation.
 Gates: `go build ./...`, `go vet ./services/iot/...`, `go test -race
 -count=1 ./services/iot/...` (pass), `golangci-lint run ./services/iot/...`
 (0 issues). No persisted field changed, no snapshot version bump.
+
+## 2026-10-03 (gopherstack-1izbr multi-region)
+
+IoT is region-isolated: each non-home region gets a lazily built sibling `Handler` (own things, policies, certificates, rules, jobs, tags; region-correct ARNs and `DescribeEndpoint` host) via `pkgs/regionpeers`. All regions share the home MQTT broker; its rule hook evaluates the rules of every region and dispatches them through the home rule dispatcher. Snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestHandler_MultiRegionRulesFireOnSharedBroker`, `TestRegionIsolation/iot`. Limitations: MQTT topics are not region-scoped (one shared broker); the iotanalytics thing-registry adapter reads the home region only; non-home regions are not visible to the tagging-API bridge or the dashboard.
+
+## 2026-10-03: Rule actions dispatched in-process
+
+- republish (topic/qos/headers, hop-limited), sns (RAW/JSON), kinesis, firehose (separator, batchMode), dynamoDB (INSERT/UPDATE/DELETE, payloadField), dynamoDBv2, s3 (key, cannedAcl), cloudwatchMetric, cloudwatchAlarm, cloudwatchLogs (batchMode; stream named after the rule), stepFunctions (executionNamePrefix) and iotAnalytics now deliver through `ActionTargets` wired in `cli_iot_rule_targets.go`.
+- `${...}` templates support topic(), topic(n), timestamp(), clientid(), newuuid(), accountid() and dotted payload paths; an undefined value fails the action and runs errorAction.
+- Under --enforce-iam each action checks its roleArn for iot.amazonaws.com against the documented permission (iot:Publish, sns:Publish, kinesis:PutRecord, firehose:PutRecord/PutRecordBatch, dynamodb:PutItem/UpdateItem/DeleteItem, s3:PutObject, cloudwatch:PutMetricData/SetAlarmState, logs:CreateLogStream/DescribeLogStreams/PutLogEvents, states:StartExecution, iotanalytics:BatchPutMessage); failures run errorAction.
+- LocalStack executes only Lambda, SQS, Kinesis, Firehose, DynamoDBv2 and HTTP (https://docs.localstack.cloud/aws/services/iot/); AWS action list: https://docs.aws.amazon.com/iot/latest/developerguide/iot-rule-actions.html.
+
+## 2026-10-04 (gopherstack-d7ql1, /destinations, /event-configurations and /tags collisions with iotwireless)
+
+FIXED: IoT's RouteMatcher claimed `/destinations[/...]`, `/event-configurations` and `/tags` regardless of SigV4 scope, so iotwireless (scope `iotwireless`) and iotanalytics `/tags` requests were routed here (priority 90 beats 86). These paths now match only when the scope is absent or `iot`; MatchPriority is untouched. Proof: routing corpus rows for both services' `/destinations` ops (`TestRoutingEquivalence`) and `TestIntegration_IoTWireless_DestinationsNotCapturedByIoT`.
+
+## 2026-10-04 (gopherstack-7gdnb, rule target regions)
+
+The SQS action sends to the queue in the rule's region (`RuleDispatcher.SendToSQS` now takes the region) and the Kinesis action writes to the stream in the rule's region. SNS topics are addressed by ARN, so the SNS action already reaches the topic of its ARN's region. Proof: `TestIoTRuleTargets_RouteToRuleRegion`, `TestHandler_MultiRegionRulesFireOnSharedBroker`.
+
+## 2026-10-04 (reqfielddiff tier-1 pass)
+
+CreateOTAUpdate now creates the real AFR_OTA-<id> IoT job (document `{"afr_ota":{"files":[...]}}` is an approximation of the real one, thing targets fan out executions), and DeleteOTAUpdate honours ForceDeleteAWSJob: a non-terminal job blocks the delete with InvalidRequestException unless forced, which deletes the job. CreateAuditSuppression and Start{Audit,Detect}MitigationActionsTask reject a ClientRequestToken already held by another resource (ResourceAlreadyExists / TaskAlreadyExists); tokens persist additively under `clientRequestTokens`. DescribeManagedJobTemplate.TemplateVersion is a tool false positive (query-param read, see above). GetThingConnectivityData.IncludeSocketInformation stays recorded. Proof: `TestDeleteOTAUpdate_ForceDeleteAWSJob`, `TestClientRequestToken_UniquePerResource`.

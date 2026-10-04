@@ -1,6 +1,7 @@
 package iot
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -48,6 +49,22 @@ func (b *InMemoryBackend) CreateOTAUpdate(
 	}
 	now := float64(time.Now().Unix())
 	jobID := "AFR_OTA-" + id
+
+	doc, docErr := json.Marshal(map[string]any{"afr_ota": map[string]any{"files": files}})
+	if docErr != nil {
+		return nil, fmt.Errorf("building OTA job document: %w", docErr)
+	}
+
+	if _, err := b.createJobLocked(&CreateJobInput{
+		JobID:           jobID,
+		Description:     description,
+		Document:        string(doc),
+		Targets:         targets,
+		TargetSelection: "SNAPSHOT",
+	}); err != nil {
+		return nil, err
+	}
+
 	o := &OTAUpdate{
 		OTAUpdateID:      id,
 		OTAUpdateARN:     b.otaARN(id),
@@ -80,12 +97,26 @@ func (b *InMemoryBackend) GetOTAUpdate(id string) (*OTAUpdate, error) {
 }
 
 func (b *InMemoryBackend) DeleteOTAUpdate(id string) error {
+	return b.DeleteOTAUpdateWithOptions(id, true)
+}
+
+// DeleteOTAUpdateWithOptions deletes an OTA update and its job; a non-terminal job needs forceDeleteJob
+// (api_op_DeleteOTAUpdate.go ForceDeleteAWSJob), else ErrInvalidStateTransition and nothing is deleted.
+func (b *InMemoryBackend) DeleteOTAUpdateWithOptions(id string, forceDeleteJob bool) error {
 	b.mu.Lock("DeleteOTAUpdate")
 	defer b.mu.Unlock()
 
-	if !b.otaUpdates.Has(id) {
+	o, ok := b.otaUpdates.Get(id)
+	if !ok {
 		return fmt.Errorf("OTA update %q not found: %w", id, ErrResourceNotFound)
 	}
+
+	if o.AWSIoTJobID != "" && b.jobs.Has(o.AWSIoTJobID) {
+		if err := b.deleteJobLocked(o.AWSIoTJobID, forceDeleteJob); err != nil {
+			return err
+		}
+	}
+
 	b.otaUpdates.Delete(id)
 	delete(b.resourceTags, b.otaARN(id))
 

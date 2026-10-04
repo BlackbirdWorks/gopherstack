@@ -2,6 +2,7 @@ package cloudwatch
 
 import (
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -79,6 +80,10 @@ func (h *Handler) putInsightRule(ruleName string, form url.Values, c *echo.Conte
 
 	definition := form.Get("RuleDefinition")
 	if err := validateInsightRuleDefinition(definition); err != nil {
+		if errors.Is(err, ErrInsightRuleLimit) {
+			return h.xmlError(c, http.StatusBadRequest, "LimitExceeded", err.Error())
+		}
+
 		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", err.Error())
 	}
 
@@ -87,6 +92,10 @@ func (h *Handler) putInsightRule(ruleName string, form url.Values, c *echo.Conte
 		Definition: definition,
 		State:      form.Get("RuleState"),
 	}); err != nil {
+		if errors.Is(err, ErrValidation) {
+			return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", err.Error())
+		}
+
 		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
@@ -246,78 +255,120 @@ func (h *Handler) handleEnableInsightRules(form url.Values, c *echo.Context) err
 	})
 }
 
-// handleGetInsightRuleReport returns a contributor insights report by aggregating
-// metric data grouped by dimension values for the named rule's log group.
-func (h *Handler) handleGetInsightRuleReport(form url.Values, c *echo.Context) error {
-	ruleName := form.Get("RuleName")
-	if ruleName == "" {
-		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "RuleName is required")
-	}
-	if _, err := h.Backend.GetInsightRule(ruleName); err != nil {
-		return h.xmlError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
-	}
+type insightContributorDatapointXML struct {
+	Timestamp        string  `xml:"Timestamp"`
+	ApproximateValue float64 `xml:"ApproximateValue"`
+}
 
-	maxContributors, _ := strconv.Atoi(form.Get("MaxContributorCount"))
-	if maxContributors <= 0 {
-		maxContributors = 10
-	}
-	orderBy := form.Get("OrderBy")
-	startStr := form.Get("StartTime")
-	endStr := form.Get("EndTime")
+type insightContributorXML struct {
+	Keys                      []string                         `xml:"Keys>member"`
+	Datapoints                []insightContributorDatapointXML `xml:"Datapoints>member"`
+	ApproximateAggregateValue float64                          `xml:"ApproximateAggregateValue"`
+}
 
-	startTime := time.Now().UTC().Add(-time.Hour)
-	if t, err := time.Parse(time.RFC3339, startStr); err == nil {
-		startTime = t
-	}
-	endTime := time.Now().UTC()
-	if t, err := time.Parse(time.RFC3339, endStr); err == nil {
-		endTime = t
-	}
+type insightMetricDatapointXML struct {
+	UniqueContributors  *float64 `xml:"UniqueContributors,omitempty"`
+	MaxContributorValue *float64 `xml:"MaxContributorValue,omitempty"`
+	SampleCount         *float64 `xml:"SampleCount,omitempty"`
+	Sum                 *float64 `xml:"Sum,omitempty"`
+	Minimum             *float64 `xml:"Minimum,omitempty"`
+	Maximum             *float64 `xml:"Maximum,omitempty"`
+	Average             *float64 `xml:"Average,omitempty"`
+	Timestamp           string   `xml:"Timestamp"`
+}
 
-	var contributors []InsightRuleContributor
-	if bk, ok := h.Backend.(*InMemoryBackend); ok {
-		var innerErr error
-		func() {
-			bk.mu.RLock("GetInsightRuleReport")
-			defer bk.mu.RUnlock()
-			contributors, innerErr = bk.GetInsightRuleContributors(
-				ruleName,
-				startTime,
-				endTime,
-				maxContributors,
-				orderBy,
-			)
-		}()
-		if innerErr != nil {
-			return h.xmlError(
-				c,
-				http.StatusBadRequest,
-				"ResourceNotFoundException",
-				innerErr.Error(),
-			)
+type insightReportResultXML struct {
+	AggregationStatistic   string                      `xml:"AggregationStatistic"`
+	KeyLabels              []string                    `xml:"KeyLabels>member"`
+	Contributors           []insightContributorXML     `xml:"Contributors>member"`
+	MetricDatapoints       []insightMetricDatapointXML `xml:"MetricDatapoints>member"`
+	AggregateValue         float64                     `xml:"AggregateValue"`
+	ApproximateUniqueCount int64                       `xml:"ApproximateUniqueCount"`
+}
+
+func parseQueryTime(s string) time.Time {
+	for _, layout := range []string{time.RFC3339, "2006-01-02T15:04:05"} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t.UTC()
 		}
 	}
 
-	type keyXML struct {
-		Keys []string `xml:"Keys>member"`
-		Sum  float64  `xml:"ApproximateSum"`
+	return time.Time{}
+}
+
+func (h *Handler) handleGetInsightRuleReport(form url.Values, c *echo.Context) error {
+	maxContributors, _ := strconv.Atoi(form.Get("MaxContributorCount"))
+	period, _ := strconv.Atoi(form.Get("Period"))
+
+	report, err := h.Backend.GetInsightRuleReport(InsightRuleReportRequest{
+		RuleName:        form.Get("RuleName"),
+		StartTime:       parseQueryTime(form.Get("StartTime")),
+		EndTime:         parseQueryTime(form.Get("EndTime")),
+		Period:          period,
+		MaxContributors: maxContributors,
+		OrderBy:         form.Get("OrderBy"),
+		Metrics:         parseMemberList(form, "Metrics."),
+	})
+	if err != nil {
+		return h.insightReportError(c, err)
 	}
-	type result struct {
-		Contributors []keyXML `xml:"Contributors>member"`
-	}
+
 	type response struct {
-		XMLName   xml.Name `xml:"GetInsightRuleReportResponse"`
-		Xmlns     string   `xml:"xmlns,attr"`
-		RequestID string   `xml:"ResponseMetadata>RequestId"`
-		Result    result   `xml:"GetInsightRuleReportResult"`
+		XMLName   xml.Name               `xml:"GetInsightRuleReportResponse"`
+		Xmlns     string                 `xml:"xmlns,attr"`
+		RequestID string                 `xml:"ResponseMetadata>RequestId"`
+		Result    insightReportResultXML `xml:"GetInsightRuleReportResult"`
 	}
 
-	resp := response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()}
-	for _, c := range contributors {
-		resp.Result.Contributors = append(resp.Result.Contributors, keyXML(c))
+	return writeXML(c, response{
+		Xmlns: cloudwatchNS, RequestID: uuid.New().String(), Result: insightReportToXML(report),
+	})
+}
+
+func (h *Handler) insightReportError(c *echo.Context, err error) error {
+	switch {
+	case errors.Is(err, ErrMissingParameter):
+		return h.xmlError(c, http.StatusBadRequest, "MissingParameter", err.Error())
+	case errors.Is(err, ErrInsightRuleNotFound):
+		return h.xmlError(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 	}
 
-	return writeXML(c, resp)
+	return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", err.Error())
+}
+
+func insightReportToXML(r *InsightRuleReport) insightReportResultXML {
+	out := insightReportResultXML{
+		AggregationStatistic:   r.AggregationStatistic,
+		KeyLabels:              r.KeyLabels,
+		AggregateValue:         r.AggregateValue,
+		ApproximateUniqueCount: r.ApproximateUniqueCount,
+	}
+
+	for _, c := range r.Contributors {
+		xc := insightContributorXML{Keys: c.Keys, ApproximateAggregateValue: c.ApproximateAggregateValue}
+		for _, d := range c.Datapoints {
+			xc.Datapoints = append(xc.Datapoints, insightContributorDatapointXML{
+				Timestamp: d.Timestamp.UTC().Format(time.RFC3339), ApproximateValue: d.ApproximateValue,
+			})
+		}
+
+		out.Contributors = append(out.Contributors, xc)
+	}
+
+	for _, d := range r.MetricDatapoints {
+		out.MetricDatapoints = append(out.MetricDatapoints, insightMetricDatapointXML{
+			Timestamp:           d.Timestamp.UTC().Format(time.RFC3339),
+			UniqueContributors:  d.UniqueContributors,
+			MaxContributorValue: d.MaxContributorValue,
+			SampleCount:         d.SampleCount,
+			Sum:                 d.Sum,
+			Minimum:             d.Minimum,
+			Maximum:             d.Maximum,
+			Average:             d.Average,
+		})
+	}
+
+	return out
 }
 
 func (h *Handler) handleListManagedInsightRules(form url.Values, c *echo.Context) error {

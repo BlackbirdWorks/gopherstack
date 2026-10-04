@@ -11,9 +11,11 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -191,6 +193,8 @@ var pathToOperation = map[string]string{ //nolint:gochecknoglobals // package-le
 type Handler struct {
 	Backend StorageBackend
 	janitor *Janitor
+	peers   *regionpeers.Set[Handler]
+	stop    context.CancelFunc
 }
 
 // NewHandler creates a new X-Ray handler backed by backend.
@@ -344,6 +348,10 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function for X-Ray requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
+			return p.Handler()(c)
+		}
+
 		ctx := c.Request().Context()
 		log := logger.Load(ctx)
 
@@ -524,4 +532,8 @@ func (h *Handler) handleError(c *echo.Context, _ string, err error) error {
 // Reset clears all backend state.
 func (h *Handler) Reset() {
 	h.Backend.Reset()
+
+	for _, p := range h.peers.Drain() {
+		p.close()
+	}
 }

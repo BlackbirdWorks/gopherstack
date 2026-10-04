@@ -40,15 +40,10 @@ func (h *Handler) handleCreateActionTarget(c *echo.Context, body map[string]any)
 		return typedErrorResponse(c, http.StatusBadRequest, "InvalidInputException", "Id is required")
 	}
 
-	// CreateActionTarget models ResourceConflictException for "already exists"
-	// but no ResourceNotFoundException (securityhub@v1.75.4 deserializers.go,
-	// op CreateActionTarget). ErrHubNotEnabled is left unheadered: its error
-	// list also carries InvalidAccessException, the same ambiguity as
-	// handler_hub.go's V1 handlers.
 	arn, err := h.Backend.CreateActionTarget(name, description, id)
 	if err != nil {
 		if errors.Is(err, ErrHubNotEnabled) {
-			return c.JSON(http.StatusBadRequest, map[string]any{keyMessage: msgHubNotEnabled})
+			return hubNotSubscribed(c)
 		}
 
 		if errors.Is(err, ErrAlreadyExists) {
@@ -100,7 +95,7 @@ func (h *Handler) handleUpdateActionTarget(c *echo.Context, actionTargetArn stri
 
 	if err := h.Backend.UpdateActionTarget(actionTargetArn, name, description); err != nil {
 		if errors.Is(err, ErrHubNotEnabled) {
-			return typedErrorResponse(c, http.StatusBadRequest, "InvalidAccessException", msgHubNotEnabled)
+			return hubNotSubscribed(c)
 		}
 
 		if errors.Is(err, ErrNotFound) {
@@ -117,7 +112,7 @@ func (h *Handler) handleDeleteActionTarget(c *echo.Context, actionTargetArn stri
 	deletedArn, err := h.Backend.DeleteActionTarget(actionTargetArn)
 	if err != nil {
 		if errors.Is(err, ErrHubNotEnabled) {
-			return typedErrorResponse(c, http.StatusBadRequest, "InvalidAccessException", msgHubNotEnabled)
+			return hubNotSubscribed(c)
 		}
 
 		if errors.Is(err, ErrNotFound) {

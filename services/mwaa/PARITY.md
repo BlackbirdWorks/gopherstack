@@ -560,3 +560,7 @@ Gates: `go build ./...`, `go vet ./services/mwaa/...`, `go test -race
 -count=1 ./services/mwaa/...` (pass), `golangci-lint run
 --new-from-rev=HEAD ./services/mwaa/...` (0 issues). No persisted struct
 fields changed, no version bump. `cmd/paritylint` stays at 0 FAIL.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+mwaa already isolates regions internally: environments are keyed per region. Proof: `TestRegionIsolation/mwaa`; no sibling handlers needed.

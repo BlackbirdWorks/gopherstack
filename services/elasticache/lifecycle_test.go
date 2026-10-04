@@ -310,6 +310,7 @@ func TestEmbeddedEndpointIsConnectable(t *testing.T) {
 
 	ctx := context.Background()
 	b := elasticache.NewInMemoryBackend(elasticache.EngineEmbedded, "000000000000", "us-east-1", nil)
+	t.Cleanup(b.Reset)
 
 	cluster, err := b.CreateCluster(ctx, "conn-cache", "redis", "", 0)
 	require.NoError(t, err)
@@ -340,6 +341,7 @@ func TestConcurrentClusterCreationSucceeds(t *testing.T) {
 
 	ctx := context.Background()
 	b := elasticache.NewInMemoryBackend(elasticache.EngineEmbedded, "000000000000", "us-east-1", nil)
+	t.Cleanup(b.Reset)
 
 	const n = 12
 
@@ -407,6 +409,7 @@ func TestEmbeddedEndpointRegistersConnectableARecord(t *testing.T) {
 	ctx := context.Background()
 	dns := newRecordingDNS()
 	b := elasticache.NewInMemoryBackend(elasticache.EngineEmbedded, "000000000000", "us-east-1", nil)
+	t.Cleanup(b.Reset)
 	b.SetDNSRegistrar(dns)
 
 	cluster, err := b.CreateCluster(ctx, "dns-cache", "redis", "", 0)
@@ -739,6 +742,7 @@ func TestConcurrentDuplicateCreateYieldsOneWinner(t *testing.T) {
 
 	ctx := context.Background()
 	b := elasticache.NewInMemoryBackend(elasticache.EngineEmbedded, "000000000000", "us-east-1", nil)
+	t.Cleanup(b.Reset)
 
 	const n = 8
 

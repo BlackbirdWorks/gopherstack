@@ -11,8 +11,10 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -93,6 +95,7 @@ type jobSpec struct {
 // Handler serves Amazon Comprehend JSON operations.
 type Handler struct {
 	Backend *InMemoryBackend
+	peers   *regionpeers.Set[Handler]
 	ops     map[string]operation
 }
 
@@ -105,7 +108,13 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 }
 
 // Reset clears backend state.
-func (h *Handler) Reset() { h.Backend.Reset() }
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+
+	for _, p := range h.peers.Drain() {
+		p.Backend.Reset()
+	}
+}
 
 // Name returns service name.
 func (h *Handler) Name() string { return "Comprehend" }
@@ -174,6 +183,10 @@ func (h *Handler) GetSupportedOperations() []string {
 // Handler returns Echo JSON target dispatcher.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
+			return p.Handler()(c)
+		}
+
 		return service.HandleTarget(
 			c, logger.Load(c.Request().Context()), h.Name(), comprehendContentType,
 			h.GetSupportedOperations(), h.dispatch, h.handleError,

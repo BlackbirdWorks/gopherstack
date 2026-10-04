@@ -1,7 +1,53 @@
 ---
 service: cloudformation
 sdk_module: aws-sdk-go-v2/service/cloudformation@v1.76.1
-last_audit_commit: 57873cfd3  # 2026-09-24 25 new resource types added: Glue
+last_audit_commit: 54869319e  # 2026-09-25 24 new resource types added: EC2
+                               # PlacementGroup/VPNGateway/VPNConnection/
+                               # PrefixList/NetworkInterfacePermission/
+                               # VPCEndpointService/TransitGatewayVpcAttachment/
+                               # TransitGatewayPeeringAttachment/
+                               # TransitGatewayMulticastDomain/
+                               # TrafficMirrorFilter/TrafficMirrorFilterRule/
+                               # TrafficMirrorTarget/TrafficMirrorSession/
+                               # RouteServer/RouteServerEndpoint/
+                               # RouteServerPeer/NetworkInsightsPath/
+                               # VerifiedAccessInstance (18 types); IAM
+                               # SAMLProvider/VirtualMFADevice (2 types);
+                               # ElastiCache User (1 type); ApiGatewayV2
+                               # VpcLink (1 type); the real CFN type names
+                               # AWS::CertificateManager::Certificate and
+                               # AWS::OpenSearchService::Domain added as
+                               # aliases for the existing (undocumented)
+                               # AWS::ACM::Certificate/AWS::OpenSearch::Domain
+                               # handlers, same pattern as the existing
+                               # AWS::KinesisFirehose::DeliveryStream alias
+                               # (2 types) (405 -> 429 supported types); no
+                               # new services wired into the CloudFormation
+                               # backend -- EC2/IAM/ElastiCache/ApiGatewayV2/
+                               # ACM/OpenSearch were all already wired;
+                               # cfn_attributes_gen.go regenerated
+                               # (cmd/cfnattrgen) -- most new attribute names
+                               # were excluded by its goconst-safety rule
+                               # (already common literals elsewhere in the
+                               # package, e.g. "Id"/"Arn"/"State"), which is
+                               # documented conservative behavior, not a
+                               # regression: an excluded attribute falls back
+                               # to pre-existing permissive resolution rather
+                               # than being wrongly rejected. Skipped (ops
+                               # missing or no real backend): AWS::EC2::Fleet/
+                               # SpotFleet/CapacityReservationFleet (would
+                               # need broker-side instance-launch simulation
+                               # beyond this sweep's scope), AWS::EC2::Ipam*
+                               # family (complex nested scope/pool graph),
+                               # AWS::EC2::LocalGateway* (Outposts-only,
+                               # no realistic test env), AWS::ECS::
+                               # ContainerInstance/Task/ServiceRevision (not
+                               # documented CFN resource types in the current
+                               # public TemplateReference), AWS::RDS::
+                               # DBSecurityGroup (EC2-Classic-only, no VPC
+                               # equivalent to back it), AWS::S3::AccessPoint
+                               # family (no backend Create/DeleteAccessPoint);
+                               # prior: 57873cfd3  # 2026-09-24 25 new resource types added: Glue
                                # Blueprint/CustomEntityType/Workflow (3 types);
                                # DataSync Agent/LocationS3/Task (3 types);
                                # Transfer Profile/Workflow (2 types); AppConfig
@@ -101,7 +147,7 @@ last_audit_commit: 57873cfd3  # 2026-09-24 25 new resource types added: Glue
                                # StreamConsumer, the real AWS::KinesisFirehose::DeliveryStream type
                                # name, ECS CapacityProvider/ClusterCapacityProviderAssociations/
                                # TaskSet/PrimaryTaskSet); prior: 05eeb3af7
-last_audit_date: 2026-09-24  # prior: 2026-09-24 (28-type IAM/ECR/ElastiCache/Neptune/DocDB/Backup/Glue/CodeBuild/Kinesis/Lambda pass earlier same day)
+last_audit_date: 2026-09-25  # prior: 2026-09-24 (25-type Glue/DataSync/Transfer/AppConfig/Macie/GuardDuty/AccessAnalyzer/Amplify/Batch/EFS/Redshift pass)
 overall: A            # This pass closed out all 4 documented gaps and independently re-verified/acted
                        # on all 6 documented deferred items (see gaps:/deferred: below for exact
                        # disposition of each -- some fixed, some reclassified to ok after
@@ -155,9 +201,9 @@ ops:
   DeleteStackSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now idempotent (no-op, not StackSetNotFoundException) — SDK's DeleteStackSet error deserializer models only {OperationInProgressException, StackSetNotEmptyException}, no not-found case, mirroring the already-fixed DeleteStack precedent"}
   DescribeStackSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass (was the #1 named gap): full field set now returned, field-diffed against awsAwsquery_deserializeDocumentStackSet -- Parameters, Capabilities, Tags, StackSetARN, AdministrationRoleARN, ExecutionRoleName, PermissionModel, OrganizationalUnitIds, AutoDeployment{Enabled,RetainStacksOnAccountRemoval}, ManagedExecution{Active}. CreateStackSet/UpdateStackSet now accept these via a new StackSetOptions struct (signature change, all callers updated). Regions is intentionally NOT stored on StackSet -- it's computed live from stack instances each call (StackSetRegions) to avoid a second source of truth, mirroring the driftByStackID rationale below. Verified via TestStackSet_DescribeFieldCompleteness"}
   ListStackSets: {wire: ok, errors: ok, state: ok, persist: ok, note: "this pass (constraint-parameter audit): fixed -- Status (cloudformation@v1.76.1 api_op_ListStackSets.go:75-76) was read nowhere, so a real client's Status=DELETED filter silently fell back to returning every StackSet instead of the empty list real AWS would return (DeleteStackSet hard-deletes its row, so no DELETED-status StackSet can ever exist in this backend -- an unfiltered call and a Status=ACTIVE-filtered call are behaviorally identical; only Status=DELETED was actually wrong). Now applies the filter (exact match against StackSetSummary.Status)."}
-  CreateStackInstances: {wire: ok, errors: ok, state: ok, persist: ok, note: "real per-account/region child stacks are provisioned (provisionStackInstance), not just recorded rows — verified correct. gopherstack-g7b5: now also accepts DeploymentTargets.OrganizationalUnitIds.member.N (serializers.go's DeploymentTargets/OrganizationalUnitIdList encoders) and resolves each OU to its real member accounts via a wired Organizations backend (services/cloudformation/organizations_directory.go's OrganizationsDirectory interface, satisfied by organizations.InMemoryBackend.ResolveAccountIDsUnderParent, wired in cli.go's wireCloudFormationOrganizations). Requires PermissionModel=SERVICE_MANAGED and ActivateOrganizationsAccess; errors clearly otherwise rather than silently expanding to zero accounts. gopherstack-nirx: DeploymentTargets.AccountFilterType was documented as rejected but the field was never read by the handler (silently dropped, computing a union of Accounts and OU-resolved accounts regardless of the requested filter) — now handler_stack_sets.go's unsupportedAccountFilterType actually rejects INTERSECTION/DIFFERENCE/UNION with ValidationError; only unset/NONE (the union case) is honoured. See TestStackInstances_AccountFilterType"}
-  DeleteStackInstances: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "tears down provisioned child stacks via deleteStackLocked — verified correct. gopherstack-g7b5: also accepts DeploymentTargets.OrganizationalUnitIds, same resolution path as CreateStackInstances. CORRECTION 2026-09-11 (required-member sweep pass 4a): 'verified correct' missed that RetainStacks (required, api_op_DeleteStackInstances.go) was never read at all -- the handler always tore down the child stack via deleteStackLocked regardless of what the caller asked. Fixed: RetainStacks is now required and presence-validated; when true, deleteMatchingStackInstances drops only the stack-instance association and leaves the child stack alive. See TestDeleteStackInstances_RetainStacksKeepsChildStack."}
-  UpdateStackInstances: {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-g7b5: also accepts DeploymentTargets.OrganizationalUnitIds"}
+  CreateStackInstances: {wire: ok, errors: ok, state: ok, persist: ok, note: "real per-account/region child stacks are provisioned (provisionStackInstance), not just recorded rows — verified correct. gopherstack-g7b5: now also accepts DeploymentTargets.OrganizationalUnitIds.member.N (serializers.go's DeploymentTargets/OrganizationalUnitIdList encoders) and resolves each OU to its real member accounts via a wired Organizations backend (services/cloudformation/organizations_directory.go's OrganizationsDirectory interface, satisfied by organizations.InMemoryBackend.ResolveAccountIDsUnderParent, wired in cli.go's wireCloudFormationOrganizations). Requires PermissionModel=SERVICE_MANAGED and ActivateOrganizationsAccess; errors clearly otherwise rather than silently expanding to zero accounts. FIXED 2026-09-26 (was: gopherstack-nirx's INTERSECTION/DIFFERENCE/UNION-rejected-outright state): DeploymentTargets.AccountFilterType now implements the full documented enum (API_DeploymentTargets.html) -- NONE (OU accounts only, Accounts ignored), INTERSECTION (Accounts ∩ OU accounts), DIFFERENCE (OU accounts minus Accounts), UNION (OU accounts plus Accounts, the wire default when unset) -- via resolveInstanceTargets/combineAccountFilter (stack_instances.go). Also enforces the two Create-specific documented rules: UNION is rejected with ValidationError ('UNION is not supported for CreateStackInstances operations'), and specifying both Accounts and OrganizationalUnitIds without an explicit AccountFilterType is rejected ('you must specify DeploymentTargets.AccountFilterType...'). AccountsUrl (S3-hosted account list) is accepted on the wire but not fetched -- no S3 client wired for it, same structural gap as TemplateURL not being fetched elsewhere in this service. See TestStackInstances_AccountFilterType_Create/_UnionRejectedAtCreate/_RequiredWhenBothGivenAtCreate/_InvalidValue"}
+  DeleteStackInstances: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "tears down provisioned child stacks via deleteStackLocked — verified correct. gopherstack-g7b5: also accepts DeploymentTargets.OrganizationalUnitIds, same resolution path as CreateStackInstances. CORRECTION 2026-09-11 (required-member sweep pass 4a): 'verified correct' missed that RetainStacks (required, api_op_DeleteStackInstances.go) was never read at all -- the handler always tore down the child stack via deleteStackLocked regardless of what the caller asked. Fixed: RetainStacks is now required and presence-validated; when true, deleteMatchingStackInstances drops only the stack-instance association and leaves the child stack alive. See TestDeleteStackInstances_RetainStacksKeepsChildStack. FIXED 2026-09-26: AccountFilterType (NONE/INTERSECTION/DIFFERENCE/UNION) now determines exactly which accounts' instances are torn down, same combineAccountFilter as CreateStackInstances/UpdateStackInstances (previously always used the union of Accounts and OU-resolved accounts regardless of the requested filter). See TestStackInstances_AccountFilterType_DeleteDifference"}
+  UpdateStackInstances: {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-g7b5: also accepts DeploymentTargets.OrganizationalUnitIds. FIXED 2026-09-26: AccountFilterType (NONE/INTERSECTION/DIFFERENCE/UNION, UNION allowed here unlike Create) now determines the touched account set recorded via ListStackSetOperationResults; note UpdateStackInstances updates existing stack instances rather than provisioning new ones for a previously-untargeted account (pre-existing structural behavior, unaffected by this fix). See TestStackInstances_AccountFilterType_UpdateUnion"}
   ListStackInstances: {wire: ok, errors: ok, state: ok, persist: ok, note: "this pass (constraint-parameter audit): fixed -- handleListStackInstances read only StackSetName/NextToken; StackInstanceAccount, StackInstanceRegion, and Filters (cloudformation@v1.76.1 api_op_ListStackInstances.go) were parsed nowhere, so every call returned every instance in the StackSet regardless of the filter sent. Now applies StackInstanceAccount/StackInstanceRegion (exact match) and Filters entries named DRIFT_STATUS/LAST_OPERATION_ID (matched against StackInstance.DriftStatus/LastOperationID). DETAILED_STATUS is accepted on the wire but left unenforced and documented as a gap: this backend tracks no field distinct from Status, and DetailedStatus's real values (PENDING/RUNNING/SUCCEEDED/FAILED/CANCELLED/INOPERABLE/SKIPPED_SUSPENDED_ACCOUNT) don't correspond to StackInstanceStatus's (CURRENT/OUTDATED/INOPERABLE) closely enough to map one onto the other without fabricating data."}
   DescribeStackInstance: {wire: ok, errors: ok, state: ok, persist: ok}
   DetectStackDrift: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-22 (gopherstack-r80d batch 26, NEW ops: row -- had no prior entry): required output StackDriftDetectionId always a real uuid, field-diffed against DetectStackDriftOutput; 0 bugs"}
@@ -223,21 +269,217 @@ families:
   type_registry_filters_and_registration: {status: ok, note: "FIXED this pass (gopherstack-xhu2t, 2026-09-13): ListTypes' Visibility/ProvisioningType, ListTypeRegistrations' RegistrationStatusFilter, and TestType's VersionId were all declared request-side filters that were read nowhere. Now enforced (type_registry.go's ListTypes/ListTypeRegistrations/TestType signatures gained the filter params; TestType validates VersionId against the stored typeVersions). RegisterPublisher now requires AcceptTermsAndConditions=true (was silently accepted with the field absent, contradicting the real API's mandatory-acceptance contract) -- fixed 2 pre-existing tests that had been driving RegisterPublisher without the field (wire_field_fixes_cfn21my_test.go, type_registry_test.go), not weakened, since they were exercising the bug rather than pinning real behavior. Adjacent bug found and fixed: DescribeTypeRegistration only ever populated TypeArn, never the distinct TypeVersionArn field the real response also carries -- now both are emitted. CORRECTION during this pass: an earlier draft of this fix incorrectly added Visibility/ProvisioningType fields to the ListTypes response wire shape (typeXML) and a ProvisioningType field to the TypeSummary model, assuming they were echoed back -- a real-SDK-typed compile error (types.TypeSummary has no such field) caught this; verified against deserializers.go's awsAwsquery_deserializeDocumentTypeSummary that neither is wire-visible on the response (both are request-only filters), and reverted. Verified via TestRealClient_StackOptions's list_types/list_type_registrations/test_type_version_id/register_publisher subtests."}
 gaps: []
 items_still_open:
-  - "changeset_diff.go requiresRecreation() covers only a curated subset of resource types' replacement-forcing properties — expanding it is future work under gopherstack-e5h, not a regression (re-verified 2026-09-18)"
-  - "SetTypeConfiguration accepts configuration for any type name without prior registration — intentional permissiveness for first-party AWS types this emulator doesn't catalog fully (bd: gopherstack-e5h; re-verified 2026-09-18)"
-  - "StackSets DeploymentTargets.AccountFilterType INTERSECTION/DIFFERENCE/UNION and AccountsUrl are not implemented (only unset/NONE is honoured; other values are rejected with ValidationError, not silently dropped) — no account-filter graph to compute them against (bd: gopherstack-g7b5, gopherstack-nirx; re-verified 2026-09-18)"
-  - "ImportStacksToStackSet doesn't tag imported instances with a real OU — ImportStacksToStackSetInput has no DeploymentTargets to source one from (structural, unaffected by the gopherstack-g7b5 OU work; re-verified 2026-09-18)"
-  - "StackSetOperations complete synchronously as SUCCEEDED (RUNNING/STOPPING unreachable) — deliberate: cloudformation has no clock/janitor-driven lifecycle anywhere, every op resolves inside its own handler call (gopherstack-b3pm; see families: stacksets for the full writeup and tests; re-verified 2026-09-18)"
-  - "Stack policy enforcement doesn't implement NotAction/NotResource (disclosed, not approximated), treats Replacement=='Conditionally' as Update:Replace (errs protective), doesn't model StackPolicyBody/URL at Create/UpdateStack time, and doesn't check parameter-only updates (no TemplateBody diff to compute) — see families: stack_policy_enforcement (gopherstack-cqy3; re-verified 2026-09-18)"
-  - "CreateChangeSet's IncludeNestedStacks (api_op_CreateChangeSet.go:209) is read nowhere — changeset_diff.go's computeChanges has no nested-stack awareness to include/exclude against (unmodeled subsystem; DisableValidation/ResourceTypes were the same class of gap and are now fixed, see ops: CreateChangeSet, 2026-09-18)"
-  - "UpdateStack.RetainExceptOnCreate is accepted and validated but has nothing to act on outside CreateStack/ExecuteChangeSet's create-fallback (which IS wired): UpdateStack has no resource-level create-then-rollback machinery at all (gopherstack-xhu2t; re-verified 2026-09-18)"
-  - "RollbackStack is a status-only stub (flips StackStatus, replays nothing) and drops RoleARN/RetainExceptOnCreate both — same missing rollback machinery as the UpdateStack line above (gopherstack-xhu2t; re-verified 2026-09-18)"
-  - "ListResourceScanRelatedResources ignores MaxResults/NextToken and always returns an empty list — this backend computes no cross-resource relationship graph for a scan, so there's nothing to paginate over (gopherstack-xhu2t; re-verified 2026-09-18)"
-  - "ActivateType's AutoUpdate/MajorVersion/VersionBump/LoggingConfig/ExecutionRoleArn are all dropped — no multi-version type catalog exists for them to gate (RegisterType stores one version per type, ActivateType hardcodes VersionID \"00000001\"; same class as SetTypeConfiguration above) (gopherstack-xhu2t; re-verified 2026-09-18)"
+  - "changeset_diff.go requiresRecreation() covers only a curated subset of resource types' replacement-forcing properties; expanding it is ongoing work (gopherstack-e5h)."
+  - "SetTypeConfiguration accepts configuration for any type name without prior registration, intentionally, since first-party AWS types are not fully cataloged (gopherstack-e5h)."
+  - "StackSets DeploymentTargets.AccountsUrl is accepted but not fetched: no S3 client is wired for it, same gap as TemplateURL elsewhere (gopherstack-g7b5)."
+  - "ImportStacksToStackSet cannot tag imported instances with an OU: ImportStacksToStackSetInput carries no DeploymentTargets to source one from."
+  - "StackSetOperations complete synchronously as SUCCEEDED (RUNNING/STOPPING unreachable): the service has no clock- or janitor-driven lifecycle (gopherstack-b3pm)."
+  - "Stack policy enforcement leaves NotAction/NotResource unevaluated (AWS's two-axis default-deny model) and treats Replacement Conditionally as Update:Replace; StackPolicyURL is not fetched (no S3 client) (gopherstack-cqy3)."
+  - "No nested-stack change-set or public-extension version machinery exists, so these stay unmodeled: CreateChangeSet IncludeNestedStacks (nested stacks are created from inline TemplateBody only, TemplateURL is never fetched, so there is no nested template to diff), UpdateStack RetainExceptOnCreate, RollbackStack RoleARN, ActivateType MajorVersion/VersionBump/TypeNameAlias (no public extension version catalog) (gopherstack-xhu2t)."
+  - "ListResourceScanRelatedResources always returns an empty list: no cross-resource relationship graph is computed for a scan, so MaxResults/Resources have nothing to page or seed from (re-verified 2026-10-03; the output also still uses plain-string members, not ScannedResource)."
+  - "SAM transform (AWS::Serverless-2016-10-31) still unexpanded: HttpApi Auth/Domain/DefinitionBody/DefinitionUri/PropagateTags and HttpApi event Auth, Api event RequestParameters/RequestModel/ApiKeyRequired/AWS_IAM authorizers/UsagePlan/ResourcePolicy/Domain, Cognito AuthorizationScopes, ScheduleV2 DeadLetterConfig Type SQS (queue generation), SAM policy templates, Application/Connector/GraphQLApi/WebSocketApi, DeploymentPreference, FunctionUrlConfig, EventInvokeConfig, StateMachine Events. All fail the stack/change set with an explicit reason, never silently dropped."
+  - "SAM HttpApi emits separate AWS::ApiGatewayV2::Integration/Route resources (<Fn><Event>Integration/Route) instead of the OpenAPI Body real SAM generates, and SAM S3 events omit the Bucket DependsOn Permission edge (it would be circular here); logical IDs for those extras differ from real SAM."
 leaks: {status: clean, note: "no goroutines/janitors/tickers introduced this pass. All fixes are pure control-flow/data changes under the existing b.mu lock discipline (every new lock path already has its matching defer Unlock/RUnlock, verified by reading each new/changed method in full). The persistence fix (10 previously-unpersisted map fields) is the largest change this pass but is snapshot/restore-only -- no new background work, no new maps that need cascade-delete beyond what already existed (stackInstances/stackSetOperations were already correctly cascade-deleted by DeleteStackSet before this pass; this pass only fixed their Snapshot/Restore wiring, not their lifecycle). FIXED (gopherstack-8907, 2026-09-06): DeleteStack cleared driftDetections/driftByStackID via pruneDriftDetections but not resourceDriftStatus[StackID]/resourceDriftDetail[StackID], both populated by DetectStackDrift/DetectStackResourceDrift and persisted verbatim in Snapshot() -- unbounded growth on drift-detect/delete churn (StackID embeds a random UUID, so this is not a wrong-answer-on-recreate case, but it is an unbounded leak observable via the persisted snapshot). Now cleared inside pruneDriftDetections. See TestDeleteStack_ClearsDriftMaps."}
 ---
 
 ## Notes
+
+### 2026-10-01 SAM HttpApi, S3, ScheduleV2, Api Cors/Auth
+
+SAM guide pages: sam-resource-httpapi, sam-property-function-httpapi, sam-property-function-s3, sam-property-function-schedulev2,
+sam-property-function-api, sam-property-api-corsconfiguration, sam-property-api-apiauth (+ Cognito/LambdaToken/LambdaRequest
+authorizer and identity pages), sam-property-function-apifunctionauth, sam-specification-generated-resources-{httpapi,function,api}.
+Added HttpApi (explicit and implicit ServerlessHttpApi, `$default`/named stage logical IDs), HttpApi/S3/ScheduleV2 events, Api Cors
+(OPTIONS mock integration) and Auth (Cognito, Lambda TOKEN/REQUEST, DefaultAuthorizer, per-event Authorizer incl. NONE). The
+ApiGatewayV2 Api/Stage/Integration/Route/Authorizer, Scheduler Schedule and S3 Bucket NotificationConfiguration creators now apply
+the full property set. Proven by SDK-driven change-set tests (sam_events_test.go).
+
+### 2026-10-01: Create/UpdateStack StackPolicyBody
+
+Both ops now validate and store StackPolicyBody (previously ignored); malformed JSON is a ValidationError before any mutation. Proven by `stack_policy_body_test.go`.
+
+### 2026-09-26: StackSets DeploymentTargets.AccountFilterType (NONE/INTERSECTION/DIFFERENCE/UNION)
+
+Previously INTERSECTION/DIFFERENCE/UNION were rejected outright with
+ValidationError (gopherstack-nirx) and only unset/NONE was honoured, both
+computed identically as the union of Accounts and OU-resolved accounts.
+Implemented the full enum per
+docs.aws.amazon.com/AWSCloudFormation/latest/APIReference/API_DeploymentTargets.html:
+NONE (OU accounts only, Accounts ignored), INTERSECTION (Accounts ∩ OU
+accounts), DIFFERENCE (OU accounts minus Accounts), UNION (OU accounts plus
+Accounts, the documented default when AccountFilterType is unset) —
+`resolveInstanceTargets`/`combineAccountFilter` (stack_instances.go), threaded
+through CreateStackInstances, UpdateStackInstances, and DeleteStackInstances
+(all three gained a `filterType` parameter; every direct backend-call test
+site was updated to pass `""`, preserving prior union-default behavior).
+
+Also enforces the two Create-specific validation rules the API reference
+documents: "UNION is not supported for CreateStackInstances operations", and
+"When performing create operations, if you specify both
+OrganizationalUnitIds and Accounts, you must also specify the
+AccountFilterType property" — both return ValidationError
+(`parseAccountFilterType`, handler_stack_sets.go). An unrecognized
+AccountFilterType value is also rejected with ValidationError.
+
+AccountsUrl remains unfetched (see items_still_open) — same structural class
+as TemplateURL not being fetched elsewhere in this service.
+
+Tests: `stack_instances_account_filter_test.go`, table-driven through the
+real aws-sdk-go-v2 client, asserting `ListStackInstances` (Create) or
+`ListStackSetOperationResults` (Update, which updates existing instances
+rather than provisioning new ones) returns exactly the expected accounts for
+each filter type, plus the two Create-only validation rules and an invalid
+enum value.
+
+### 2026-09-26 (parity sweep): 6 new resource types (429 -> 435), 3 new backend families wired
+
+Added real create+delete support for 6 `AWS::*` resource types across 3
+newly-landed service families, each backed by a genuine `InMemoryBackend`
+call (no stubs), with Ref/Fn::GetAtt verified against the live AWS
+CloudFormation Template Reference docs (fetched this pass) and, where the
+Template Reference itself left `Ref` undocumented, cross-checked against the
+AWS-published resource-provider schemas
+(`aws-cloudformation-resource-providers-kafkaconnect`'s `primaryIdentifier`)
+and the legacy `CloudFormationResourceSpecification.json`.
+
+- **KinesisVideo** (2 types): Stream, SignalingChannel
+  (`resources_kinesisvideo.go`) -- `Ref`/`Fn::GetAtt Arn` both return the
+  resource ARN; the Template Reference page leaves `Ref` undocumented for
+  both, stating only the `Arn` attribute (same undocumented-`Ref`-equals-
+  sole-ARN-attribute pattern independently confirmed for KafkaConnect
+  Connector below via its published resource-provider schema)
+- **ECRPublic** (1 type): PublicRepository (`resources_ecrpublic.go`) --
+  `Ref` returns the repository name (documented), `Fn::GetAtt Arn` returns
+  the repository ARN (documented); delete does not force-empty the
+  repository (`AWS::ECR::PublicRepository` has no `EmptyOnDelete` property,
+  unlike `AWS::ECR::Repository`), matching real AWS's less convenient
+  behavior for public repos
+- **KafkaConnect** (3 types): Connector, CustomPlugin, WorkerConfiguration
+  (`resources_kafkaconnect.go`) -- each type's `Ref` returns its ARN,
+  confirmed via the resource-provider schema's `primaryIdentifier` (equal to
+  its sole `readOnlyProperty`) since the Template Reference page leaves
+  `Ref` undocumented for all three; CustomPlugin/WorkerConfiguration also
+  expose a documented `Revision` `Fn::GetAtt` attribute
+
+All three backends were newly wired into the CloudFormation backend:
+`ServiceBackends` (`resources.go`) gained `KinesisVideo`/`ECRPublic`/
+`KafkaConnect` fields, `BackendsProvider` (`provider.go`) gained the matching
+`Get*Handler` methods, and `extractAllServiceBackends` wires them from the
+handlers -- `cli.go` already had `GetKinesisVideoHandler`/
+`GetECRPublicHandler`/`GetKafkaConnectHandler` getters (added when those
+services first landed), so no `cli.go` change was needed. Dispatch wiring
+chains `createKinesisVideoResource`/`createECRPublicResource`/
+`createKafkaConnectResource` (and their `delete*` counterparts) off the end
+of `createNewestSupplementalResource`/`deleteNewestSupplementalResource` in
+`resources_newest_dispatch.go`.
+
+**Fn::GetAtt side-channel stashing.** All 6 types stash their real ARN (and,
+for CustomPlugin/WorkerConfiguration, `Revision`) into
+`physicalIDs[logicalID+"/AttrName"]` at create time; their `resTypeXxx`
+constants were added to `resolveGetAtt`'s existing custom-resource-style
+whitelist in `template.go` so those stashed values are read back instead of
+falling through to the default `return physID`. This mattered concretely for
+ECRPublic (`Ref` is the repository *name*, but `Arn` differs) and for
+CustomPlugin/WorkerConfiguration's `Revision` (an integer, never equal to
+the ARN `Ref` returns) -- both were caught by the new integration tests
+before being added to the whitelist (ECRPublic's `Arn` output resolved to
+the bare repository name, and `Revision` resolved to the full ARN).
+
+`cfn_attributes_gen.go` was regenerated (`cmd/cfnattrgen`) against a fresh
+download of the legacy `CloudFormationResourceSpecification.json`. All 6 new
+types' documented attributes were narrow enough to clear the generator's
+goconst-safety rule for KinesisVideo::Stream/SignalingChannel (`Arn`),
+ECRPublic::PublicRepository (`Arn`), and KafkaConnect::Connector
+(`ConnectorArn`); KafkaConnect::CustomPlugin/WorkerConfiguration were
+excluded whole because `Revision` already clears golangci-lint's `goconst`
+threshold elsewhere in the package -- per the generator's documented
+contract this is conservative, not lossy (an excluded type falls back to
+today's permissive `Fn::GetAtt` resolution, which the stash-and-whitelist
+fix above already makes correct regardless of table membership). Unrelated
+to this pass: regenerating against today's spec download also dropped
+`AWS::EC2::PrefixList` and `AWS::SageMaker::ImageVersion` from the table --
+independently reproduced against the pre-existing (unmodified) source, so
+this is drift in the package's own literal-occurrence counts since the last
+generation, not something this pass's new code caused. Both types keep
+working via the same permissive fallback.
+
+Task B (separate, `services/ecrpublic`): fixed an unrelated
+`InitiateLayerUpload` session leak -- see that service's own PARITY.md Notes
+entry. Task C (separate, `services/kafkaconnect`): implemented
+`RestartConnector` -- see that service's own PARITY.md.
+
+### 2026-09-25 (parity sweep): 24 new resource types (405 -> 429), no new backend families
+
+Added real create+delete support for 24 `AWS::*` resource types, each backed
+by a genuine `InMemoryBackend` call (no stubs), with Ref/Fn::GetAtt verified
+against the live AWS CloudFormation Template Reference docs (fetched this
+pass). Every backing service (EC2, IAM, ElastiCache, ApiGatewayV2, ACM,
+OpenSearch) was already wired into the CloudFormation backend, so no
+`cli.go`/`provider.go` changes were needed this pass.
+
+- **EC2** (18 types): PlacementGroup, VPNGateway, VPNConnection, PrefixList,
+  NetworkInterfacePermission, VPCEndpointService
+  (`resources_ec2_networking_extras.go`, `resources_ec2_vpn.go`);
+  TransitGatewayVpcAttachment, TransitGatewayPeeringAttachment,
+  TransitGatewayMulticastDomain (`resources_ec2_transitgateway_more.go`);
+  TrafficMirrorFilter, TrafficMirrorFilterRule, TrafficMirrorTarget,
+  TrafficMirrorSession (`resources_ec2_trafficmirror.go`); RouteServer,
+  RouteServerEndpoint, RouteServerPeer (`resources_ec2_routeserver.go`);
+  NetworkInsightsPath (`resources_ec2_networkinsights.go`);
+  VerifiedAccessInstance (`resources_ec2_networking_extras.go`)
+- **IAM** (2 types): SAMLProvider, VirtualMFADevice (`resources_iam_extras.go`)
+- **ElastiCache** (1 type): User (`resources_elasticache_user.go`)
+- **ApiGatewayV2** (1 type): VpcLink (`resources_apigatewayv2_vpclink.go`)
+- **Type-name aliases** (2 types): `AWS::CertificateManager::Certificate`
+  and `AWS::OpenSearchService::Domain` are the real CFN type names for the
+  existing (undocumented) `AWS::ACM::Certificate`/`AWS::OpenSearch::Domain`
+  handlers -- added as aliases in `resources.go`'s `createMiscLegacyResource`/
+  `deleteComputeStorageResource`/`deleteAppNetworkResource`, same pattern as
+  the existing `AWS::KinesisFirehose::DeliveryStream` alias
+  (`resources_type_aliases.go` holds the two new constants)
+
+Dispatch wiring lives in a new `createEC2AdvancedNetworkingResource`/
+`deleteEC2AdvancedNetworkingResource` pair in `resources_newest_dispatch.go`,
+chained off the end of `createNewestSupplementalResource`/
+`deleteNewestSupplementalResource`.
+
+**Fn::GetAtt side-channel stashing.** PrefixList (Arn/OwnerId/Version),
+TransitGatewayPeeringAttachment (State), TransitGatewayMulticastDomain
+(CreationTime/State/Arn), RouteServer/RouteServerEndpoint/RouteServerPeer
+(Arn plus their real ENI/VPC/subnet fields), NetworkInsightsPath
+(NetworkInsightsPathArn/SourceArn/DestinationArn), and ElastiCache User
+(Arn/Status) all stash real backend values into `physicalIDs[logicalID+
+"/AttrName"]` at create time; their `resTypeXxx` constants were added to
+`resolveGetAtt`'s existing custom-resource-style whitelist in `template.go`
+so those stashed values are actually read back instead of falling through to
+the default `return physID` (documented next to `getExtraResourceAttribute`).
+Where the backend has no honest value to stash (e.g. IAM SAMLProvider's
+SamlProviderUUID, EC2 VerifiedAccessInstance's CreationTime/LastUpdatedTime,
+EC2 TransitGatewayPeeringAttachment's CreationTime, EC2 PlacementGroup's
+GroupId as distinct from GroupName), the attribute is left on the default
+physID fallback rather than fabricated -- called out in each file's
+`---- AWS::Xxx::Yyy ----` doc comment.
+
+**Skipped (real gaps, not fixed this pass).** AWS::EC2::Fleet/SpotFleet/
+CapacityReservationFleet (would need broker-side instance-launch simulation);
+the AWS::EC2::Ipam* family (complex nested scope/pool/resource-discovery
+graph); AWS::EC2::LocalGateway* (Outposts-only, no realistic local test
+environment); AWS::ECS::ContainerInstance/Task/ServiceRevision (not
+documented CFN resource types in the current public TemplateReference, so
+Ref/GetAtt can't be verified against docs); AWS::RDS::DBSecurityGroup
+(EC2-Classic-only, no VPC equivalent to back it honestly); the
+AWS::S3::AccessPoint family (this backend has no
+Create/DeleteAccessPoint). AWS::EC2::VPCEndpointService's
+PrivateDnsNameConfiguration.* Fn::GetAtt attributes are left unimplemented:
+the backend's `CreateVpcEndpointServiceConfiguration` doesn't model private
+DNS name verification at all.
+
+cfn_attributes_gen.go was regenerated (`cmd/cfnattrgen`); most of the new
+attribute names above were excluded by its goconst-safety rule (already
+common literals elsewhere in the package, e.g. "Id"/"Arn"/"State"/
+"VpcId"/"SubnetId") -- documented conservative behavior, not a regression:
+an excluded attribute falls back to the pre-existing permissive resolution
+rather than being wrongly rejected.
 
 ### 2026-09-24 (parity sweep): 25 new resource types (380 -> 405), 6 new backend families wired
 
@@ -2360,3 +2602,37 @@ tests `TestDescribeType_Registered/lookup_by_version-suffixed_ARN_after_Register
 plus the updated ARN literals across `type_registry_test.go`,
 `type_registry_feature_test.go`, `deregister_type_version_test.go`,
 `empty_result_element_test.go`, `handler_type_registry_arn_test.go`.
+
+### 2026-09-30: ActivateType AutoUpdate/ExecutionRoleArn/LoggingConfig
+
+ActivateType now stores AutoUpdate (default true per api_op_ActivateType.go),
+ExecutionRoleArn and LoggingConfig on the registered type, and DescribeType
+returns them (api_op_DescribeType.go). Proven by
+`TestRealClient_ActivateTypeOptionsVisibleInDescribeType`. `items_still_open`
+was consolidated by reason; no other item was fixable in-process.
+
+## 2026-10-01: SAM transform expansion (AWS::Serverless-2016-10-31)
+
+`ParseTemplate` now expands SAM (sam_transform.go, sam_function.go, sam_events.go, sam_api.go, sam_misc.go), so create, update, change-set diff and drift see the processed template. GetTemplate `TemplateStage=Processed` returns it with the SAM Transform removed; Original returns the submitted body. Unsupported types, properties and events fail the stack (CREATE_FAILED) or change set (FAILED) with a reason.
+
+Supported: Function (generated `<Fn>Role`, Policies, AutoPublishAlias, Environment, Layers, CodeUri/InlineCode/ImageUri), SimpleTable, LayerVersion, StateMachine, Api (explicit and implicit `ServerlessRestApi`, `<Api><Stage>Stage`, `Deployment<hash>`), events Api/SQS/Kinesis/DynamoDB/SNS/Schedule/EventBridgeRule/CloudWatchEvent, and Globals (Function/Api/SimpleTable).
+
+Spec: https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/sam-specification-resources-and-properties.html and .../sam-specification-generated-resources.html (logical IDs for Role, Alias, Version, RestApi, Stage, Deployment, ESM, Rule). The `<Fn><Event>Permission<Stage>` and `...PermissionTest` Permission IDs are not stated on those pages and follow SAM's translator behaviour.
+
+Creator fixes made so the output is real: Lambda function Code/Environment/Layers/limits, IAM role trust document + ManagedPolicyArns + inline Policies (and inline cleanup on delete), Lambda permission now calls AddPermission/RemovePermission (requires the function to exist, as in AWS), RestApi Body import, Stage creation, Events::Rule Targets. CreateChangeSet on an unparseable template is now FAILED with the parse error as StatusReason.
+
+## 2026-10-03: RollbackStack now rolls back (reqfielddiff tier-1 follow-up)
+
+RollbackStack used to set ROLLBACK_COMPLETE on any stack without touching its resources. It now accepts only
+CREATE_FAILED stacks (api_op_RollbackStack.go: CREATE_FAILED/UPDATE_FAILED; UPDATE_FAILED is never a resting state here),
+deletes the resources the failed create left behind, and honours RetainExceptOnCreate: Retain/Snapshot-policy resources
+survive unless it is true. Other states return ValidationError; a failed delete leaves ROLLBACK_FAILED. Proven by
+testRollbackStack in realclient_stack_options_test.go.
+
+## 2026-10-03 (gopherstack-taq78 multi-region)
+
+CloudFormation is region-isolated: each non-home region gets a lazily built sibling Handler (own stacks, change sets, exports, stack sets; region-correct ARNs) via `pkgs/regionpeers`. Each sibling owns a resource creator built from `ServiceBackends.forRegion`, which swaps every region-sibling service handler (EC2, ECS, ECR, Glue, Athena, Backup, Cognito IdP, Cloud Map, API Gateway v1/v2, CloudWatch, IoT, ELBv2, Auto Scaling, CodeDeploy, Lambda) for its sibling in the stack's region and sets `Region`; `Create`, `Update` and `Delete` also carry that region on the context for services that key by request region. SQS queues and SNS topics are created with explicit region. Exports and imports are per region. Snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/cloudformation`, `TestInitializeServices_CloudFormationProvisionsInStackRegion`. Lambda functions, layers, permissions and event source mappings land in the stack region (`TestInitializeServices_CloudFormationCreatesLambdaInStackRegion`), and the Lightsail export creates its stack in the export's region. Limitation: resource creators for services that are not region-isolated stay single-store. Not bridged to the tagging API.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+The per-region resource creator (`ServiceBackends.forRegion`) now also swaps in the stack region for CodeBuild, GuardDuty, Transfer, CloudTrail, AWS Config and Application Auto Scaling. Proof: `TestInitializeServices_CloudFormationProvisionsPlatformServicesInStackRegion`.

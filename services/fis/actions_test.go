@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -569,220 +570,226 @@ func TestBackend_ListActions_WithProviders(t *testing.T) {
 func TestFISHandler_StopExperiment_AlreadyStopped(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-	templateID := createTestTemplate(t, h)
+	synctest.Test(t, func(t *testing.T) {
+		h := newTestHandler(t)
+		templateID := createTestTemplate(t, h)
 
-	// Start experiment.
-	rec := doRequest(t, h, http.MethodPost, "/experiments", map[string]any{
-		"experimentTemplateId": templateID,
-	})
-	require.Equal(t, http.StatusCreated, rec.Code)
+		// Start experiment.
+		rec := doRequest(t, h, http.MethodPost, "/experiments", map[string]any{
+			"experimentTemplateId": templateID,
+		})
+		require.Equal(t, http.StatusCreated, rec.Code)
 
-	var expResp struct {
-		Experiment struct {
-			ID string `json:"id"`
-		} `json:"experiment"`
-	}
-
-	mustJSON(t, rec, &expResp)
-	expID := expResp.Experiment.ID
-
-	// Stop experiment.
-	rec2 := doRequest(t, h, http.MethodDelete, "/experiments/"+expID, nil)
-	assert.Equal(t, http.StatusOK, rec2.Code)
-
-	// Wait for it to actually stop.
-	require.Eventually(t, func() bool {
-		rec3 := doRequest(t, h, http.MethodGet, "/experiments/"+expID, nil)
-		var resp struct {
+		var expResp struct {
 			Experiment struct {
-				Status struct {
-					Status string `json:"status"`
-				} `json:"status"`
+				ID string `json:"id"`
 			} `json:"experiment"`
 		}
 
-		if err := json.Unmarshal(rec3.Body.Bytes(), &resp); err != nil {
-			return false
-		}
+		mustJSON(t, rec, &expResp)
+		expID := expResp.Experiment.ID
 
-		s := resp.Experiment.Status.Status
+		// Stop experiment.
+		rec2 := doRequest(t, h, http.MethodDelete, "/experiments/"+expID, nil)
+		assert.Equal(t, http.StatusOK, rec2.Code)
 
 		// Stopping this fast after StartExperiment races the background
 		// lifecycle goroutine: it may still be in "pending"/"initiating" when
 		// the stop signal arrives, in which case real AWS FIS reports
 		// "cancelled" rather than "stopped" (see runExperiment); it may also
 		// have already reached "completed" if the template has no timed
-		// actions. All three are valid terminal outcomes of this race.
-		return s == "stopped" || s == "completed" || s == "cancelled"
-	}, 5*time.Second, 50*time.Millisecond)
+		// actions. All three are valid terminal outcomes of this race, so the
+		// deliberate race itself is preserved — only the wall-clock cost of
+		// waiting it out is not, since Eventually's ticks run on the bubble's
+		// fake clock.
+		require.Eventually(t, func() bool {
+			rec3 := doRequest(t, h, http.MethodGet, "/experiments/"+expID, nil)
+			var resp struct {
+				Experiment struct {
+					Status struct {
+						Status string `json:"status"`
+					} `json:"status"`
+				} `json:"experiment"`
+			}
 
-	// Attempt to stop the now-terminal experiment — should fail with 400
-	// ValidationException. StopExperiment's generated deserializer in
-	// aws-sdk-go-v2/service/fis only recognizes ResourceNotFoundException and
-	// ValidationException — it has no ConflictException case.
-	rec4 := doRequest(t, h, http.MethodDelete, "/experiments/"+expID, nil)
-	assert.Equal(t, http.StatusBadRequest, rec4.Code)
+			if err := json.Unmarshal(rec3.Body.Bytes(), &resp); err != nil {
+				return false
+			}
+
+			s := resp.Experiment.Status.Status
+
+			return s == "stopped" || s == "completed" || s == "cancelled"
+		}, 5*time.Second, 50*time.Millisecond)
+
+		// Attempt to stop the now-terminal experiment — should fail with 400
+		// ValidationException. StopExperiment's generated deserializer in
+		// aws-sdk-go-v2/service/fis only recognizes ResourceNotFoundException and
+		// ValidationException — it has no ConflictException case.
+		rec4 := doRequest(t, h, http.MethodDelete, "/experiments/"+expID, nil)
+		assert.Equal(t, http.StatusBadRequest, rec4.Code)
+	})
 }
 
 func TestFISHandler_ExperimentFails_WhenActionProviderFails(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
+	synctest.Test(t, func(t *testing.T) {
+		h := newTestHandler(t)
 
-	// Register a mock provider that always fails.
-	mock := &fis.MockFISActionProvider{
-		ExecErr: fis.ErrMockAction,
-		Definitions: []service.FISActionDefinition{
-			{ActionID: "aws:test:fail-action", TargetType: "aws:ec2:instance"},
-		},
-	}
-	h.SetActionProviders([]service.FISActionProvider{mock})
-
-	body := map[string]any{
-		"roleArn":        "arn:aws:iam::000000000000:role/FISRole",
-		"stopConditions": []map[string]any{{"source": "none"}},
-		"targets": map[string]any{
-			"MyInstances": map[string]any{
-				"resourceType":  "aws:ec2:instance",
-				"selectionMode": "ALL",
-				"resourceArns":  []string{"arn:aws:ec2:us-east-1:000:instance/i-abc123"},
+		// Register a mock provider that always fails.
+		mock := &fis.MockFISActionProvider{
+			ExecErr: fis.ErrMockAction,
+			Definitions: []service.FISActionDefinition{
+				{ActionID: "aws:test:fail-action", TargetType: "aws:ec2:instance"},
 			},
-		},
-		"actions": map[string]any{
-			"fail": map[string]any{
-				"actionId": "aws:test:fail-action",
-				"targets":  map[string]string{"Instances": "MyInstances"},
+		}
+		h.SetActionProviders([]service.FISActionProvider{mock})
+
+		body := map[string]any{
+			"roleArn":        "arn:aws:iam::000000000000:role/FISRole",
+			"stopConditions": []map[string]any{{"source": "none"}},
+			"targets": map[string]any{
+				"MyInstances": map[string]any{
+					"resourceType":  "aws:ec2:instance",
+					"selectionMode": "ALL",
+					"resourceArns":  []string{"arn:aws:ec2:us-east-1:000:instance/i-abc123"},
+				},
 			},
-		},
-	}
+			"actions": map[string]any{
+				"fail": map[string]any{
+					"actionId": "aws:test:fail-action",
+					"targets":  map[string]string{"Instances": "MyInstances"},
+				},
+			},
+		}
 
-	rec := doRequest(t, h, http.MethodPost, "/experimentTemplates", body)
-	require.Equal(t, http.StatusCreated, rec.Code)
+		rec := doRequest(t, h, http.MethodPost, "/experimentTemplates", body)
+		require.Equal(t, http.StatusCreated, rec.Code)
 
-	var tplResp struct {
-		ExperimentTemplate struct {
-			ID string `json:"id"`
-		} `json:"experimentTemplate"`
-	}
+		var tplResp struct {
+			ExperimentTemplate struct {
+				ID string `json:"id"`
+			} `json:"experimentTemplate"`
+		}
 
-	mustJSON(t, rec, &tplResp)
-	templateID := tplResp.ExperimentTemplate.ID
+		mustJSON(t, rec, &tplResp)
+		templateID := tplResp.ExperimentTemplate.ID
 
-	rec2 := doRequest(t, h, http.MethodPost, "/experiments", map[string]any{
-		"experimentTemplateId": templateID,
-	})
-	require.Equal(t, http.StatusCreated, rec2.Code)
+		rec2 := doRequest(t, h, http.MethodPost, "/experiments", map[string]any{
+			"experimentTemplateId": templateID,
+		})
+		require.Equal(t, http.StatusCreated, rec2.Code)
 
-	var expResp struct {
-		Experiment struct {
-			ID string `json:"id"`
-		} `json:"experiment"`
-	}
+		var expResp struct {
+			Experiment struct {
+				ID string `json:"id"`
+			} `json:"experiment"`
+		}
 
-	mustJSON(t, rec2, &expResp)
-	expID := expResp.Experiment.ID
+		mustJSON(t, rec2, &expResp)
+		expID := expResp.Experiment.ID
 
-	var finalResp struct {
-		Experiment struct {
-			Status struct {
-				Error *struct {
-					Code      string `json:"code"`
-					Location  string `json:"location"`
-					AccountID string `json:"accountId"`
-				} `json:"error"`
-				Status string `json:"status"`
-				Reason string `json:"reason"`
-			} `json:"status"`
-		} `json:"experiment"`
-	}
+		// The mock action fails synchronously once running; only the
+		// pending -> initiating delay gates it.
+		time.Sleep(fis.LifecycleDelayForTest + time.Millisecond)
+		synctest.Wait()
 
-	require.Eventually(t, func() bool {
+		var finalResp struct {
+			Experiment struct {
+				Status struct {
+					Error *struct {
+						Code      string `json:"code"`
+						Location  string `json:"location"`
+						AccountID string `json:"accountId"`
+					} `json:"error"`
+					Status string `json:"status"`
+					Reason string `json:"reason"`
+				} `json:"status"`
+			} `json:"experiment"`
+		}
+
 		rec3 := doRequest(t, h, http.MethodGet, "/experiments/"+expID, nil)
-		if rec3.Code != http.StatusOK {
-			return false
-		}
+		require.Equal(t, http.StatusOK, rec3.Code)
+		require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &finalResp))
+		require.Equal(t, "failed", finalResp.Experiment.Status.Status)
 
-		if err := json.Unmarshal(rec3.Body.Bytes(), &finalResp); err != nil {
-			return false
-		}
-
-		return finalResp.Experiment.Status.Status == "failed"
-	}, 5*time.Second, 50*time.Millisecond)
-
-	// Regression test: cleanupActions used to unconditionally overwrite
-	// exp.Status right after markExperimentFailed set it, clobbering the
-	// structured ExperimentStatusError before any client could ever observe
-	// it. Verify Reason and the full structured error survive end-to-end.
-	assert.NotEmpty(t, finalResp.Experiment.Status.Reason, "failed experiment must retain its reason")
-	require.NotNil(t, finalResp.Experiment.Status.Error, "failed experiment must retain its structured error")
-	assert.Equal(t, "ActionExecutionFailed", finalResp.Experiment.Status.Error.Code)
-	assert.Equal(t, "fail", finalResp.Experiment.Status.Error.Location)
-	assert.Equal(t, "000000000000", finalResp.Experiment.Status.Error.AccountID)
+		// Regression test: cleanupActions used to unconditionally overwrite
+		// exp.Status right after markExperimentFailed set it, clobbering the
+		// structured ExperimentStatusError before any client could ever observe
+		// it. Verify Reason and the full structured error survive end-to-end.
+		assert.NotEmpty(t, finalResp.Experiment.Status.Reason, "failed experiment must retain its reason")
+		require.NotNil(t, finalResp.Experiment.Status.Error, "failed experiment must retain its structured error")
+		assert.Equal(t, "ActionExecutionFailed", finalResp.Experiment.Status.Error.Code)
+		assert.Equal(t, "fail", finalResp.Experiment.Status.Error.Location)
+		assert.Equal(t, "000000000000", finalResp.Experiment.Status.Error.AccountID)
+	})
 }
 
 func TestFISHandler_ExperimentSucceeds_WithMockActionProvider(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
+	synctest.Test(t, func(t *testing.T) {
+		h := newTestHandler(t)
 
-	// Register a mock provider that succeeds.
-	mock := &fis.MockFISActionProvider{
-		Definitions: []service.FISActionDefinition{
-			{ActionID: "aws:test:succeed-action", TargetType: "aws:ec2:instance"},
-		},
-	}
-	h.SetActionProviders([]service.FISActionProvider{mock})
-
-	body := map[string]any{
-		"roleArn":        "arn:aws:iam::000000000000:role/FISRole",
-		"stopConditions": []map[string]any{{"source": "none"}},
-		"targets": map[string]any{
-			"MyInstances": map[string]any{
-				"resourceType":  "aws:ec2:instance",
-				"selectionMode": "ALL",
-				"resourceArns":  []string{"arn:aws:ec2:us-east-1:000:instance/i-abc123"},
+		// Register a mock provider that succeeds.
+		mock := &fis.MockFISActionProvider{
+			Definitions: []service.FISActionDefinition{
+				{ActionID: "aws:test:succeed-action", TargetType: "aws:ec2:instance"},
 			},
-		},
-		"actions": map[string]any{
-			"succeed": map[string]any{
-				"actionId": "aws:test:succeed-action",
-				"targets":  map[string]string{"Instances": "MyInstances"},
-			},
-		},
-	}
-
-	rec := doRequest(t, h, http.MethodPost, "/experimentTemplates", body)
-	require.Equal(t, http.StatusCreated, rec.Code)
-
-	var tplResp struct {
-		ExperimentTemplate struct {
-			ID string `json:"id"`
-		} `json:"experimentTemplate"`
-	}
-
-	mustJSON(t, rec, &tplResp)
-	templateID := tplResp.ExperimentTemplate.ID
-
-	rec2 := doRequest(t, h, http.MethodPost, "/experiments", map[string]any{
-		"experimentTemplateId": templateID,
-	})
-	require.Equal(t, http.StatusCreated, rec2.Code)
-
-	var expResp struct {
-		Experiment struct {
-			ID string `json:"id"`
-		} `json:"experiment"`
-	}
-
-	mustJSON(t, rec2, &expResp)
-	expID := expResp.Experiment.ID
-
-	require.Eventually(t, func() bool {
-		rec3 := doRequest(t, h, http.MethodGet, "/experiments/"+expID, nil)
-		if rec3.Code != http.StatusOK {
-			return false
 		}
+		h.SetActionProviders([]service.FISActionProvider{mock})
+
+		body := map[string]any{
+			"roleArn":        "arn:aws:iam::000000000000:role/FISRole",
+			"stopConditions": []map[string]any{{"source": "none"}},
+			"targets": map[string]any{
+				"MyInstances": map[string]any{
+					"resourceType":  "aws:ec2:instance",
+					"selectionMode": "ALL",
+					"resourceArns":  []string{"arn:aws:ec2:us-east-1:000:instance/i-abc123"},
+				},
+			},
+			"actions": map[string]any{
+				"succeed": map[string]any{
+					"actionId": "aws:test:succeed-action",
+					"targets":  map[string]string{"Instances": "MyInstances"},
+				},
+			},
+		}
+
+		rec := doRequest(t, h, http.MethodPost, "/experimentTemplates", body)
+		require.Equal(t, http.StatusCreated, rec.Code)
+
+		var tplResp struct {
+			ExperimentTemplate struct {
+				ID string `json:"id"`
+			} `json:"experimentTemplate"`
+		}
+
+		mustJSON(t, rec, &tplResp)
+		templateID := tplResp.ExperimentTemplate.ID
+
+		rec2 := doRequest(t, h, http.MethodPost, "/experiments", map[string]any{
+			"experimentTemplateId": templateID,
+		})
+		require.Equal(t, http.StatusCreated, rec2.Code)
+
+		var expResp struct {
+			Experiment struct {
+				ID string `json:"id"`
+			} `json:"experiment"`
+		}
+
+		mustJSON(t, rec2, &expResp)
+		expID := expResp.Experiment.ID
+
+		// Mock action succeeds synchronously; initiating delay plus the
+		// no-timed-action grace period gate completion.
+		time.Sleep(2*fis.LifecycleDelayForTest + time.Millisecond)
+		synctest.Wait()
+
+		rec3 := doRequest(t, h, http.MethodGet, "/experiments/"+expID, nil)
+		require.Equal(t, http.StatusOK, rec3.Code)
 
 		var resp struct {
 			Experiment struct {
@@ -792,10 +799,7 @@ func TestFISHandler_ExperimentSucceeds_WithMockActionProvider(t *testing.T) {
 			} `json:"experiment"`
 		}
 
-		if err := json.Unmarshal(rec3.Body.Bytes(), &resp); err != nil {
-			return false
-		}
-
-		return resp.Experiment.Status.Status == "completed"
-	}, 5*time.Second, 50*time.Millisecond)
+		require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &resp))
+		require.Equal(t, "completed", resp.Experiment.Status.Status)
+	})
 }

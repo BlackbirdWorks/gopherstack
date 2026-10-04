@@ -3,22 +3,28 @@ package cleanrooms
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 
 	"github.com/labstack/echo/v5"
 )
 
 func (h *Handler) handleCreateCollaboration(_ context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		Tags                        map[string]string `json:"tags"`
-		CreatorPaymentConfiguration map[string]any    `json:"creatorPaymentConfiguration"`
-		Name                        string            `json:"name"`
-		Description                 string            `json:"description"`
-		CreatorDisplayName          string            `json:"creatorDisplayName"`
-		QueryLogStatus              string            `json:"queryLogStatus"`
-		JobLogStatus                string            `json:"jobLogStatus"`
-		CreatorMemberAbilities      []string          `json:"creatorMemberAbilities"`
-		Members                     []MemberSpec      `json:"members"`
-		IsMetricsEnabled            bool              `json:"isMetricsEnabled"`
+		Tags                        map[string]string       `json:"tags"`
+		CreatorPaymentConfiguration map[string]any          `json:"creatorPaymentConfiguration"`
+		DataEncryptionMetadata      *DataEncryptionMetadata `json:"dataEncryptionMetadata"`
+		JobLogStatus                string                  `json:"jobLogStatus"`
+		CreatorDisplayName          string                  `json:"creatorDisplayName"`
+		QueryLogStatus              string                  `json:"queryLogStatus"`
+		Description                 string                  `json:"description"`
+		AnalyticsEngine             string                  `json:"analyticsEngine"`
+		Name                        string                  `json:"name"`
+		CreatorMemberAbilities      []string                `json:"creatorMemberAbilities"`
+		CreatorMLMemberAbilities    *MLMemberAbilities      `json:"creatorMLMemberAbilities"`
+		Members                     []MemberSpec            `json:"members"`
+		AllowedResultRegions        []string                `json:"allowedResultRegions"`
+		IsMetricsEnabled            bool                    `json:"isMetricsEnabled"`
 	}
 	_ = json.Unmarshal(body, &req)
 	c, err := h.Backend.CreateCollaboration(
@@ -32,12 +38,28 @@ func (h *Handler) handleCreateCollaboration(_ context.Context, body []byte) ([]b
 		req.IsMetricsEnabled,
 		req.CreatorPaymentConfiguration,
 		req.Tags,
+		CollaborationSettings{
+			CreatorMLMemberAbilities: req.CreatorMLMemberAbilities,
+			AnalyticsEngine:          req.AnalyticsEngine,
+			AllowedResultRegions:     req.AllowedResultRegions,
+			DataEncryptionMetadata:   req.DataEncryptionMetadata,
+		},
 	)
 	if err != nil {
 		return nil, err
 	}
 
 	return mustJSON(map[string]any{keyCollaboration: c}), nil
+}
+
+// declaredCollaborationError maps not-found to ValidationException: Get/UpdateCollaboration
+// declare no ResourceNotFoundException (cleanrooms@v1.49.4 deserializers.go:4695-4705).
+func declaredCollaborationError(err error) error {
+	if errors.Is(err, ErrNotFound) {
+		return fmt.Errorf("collaboration not found: %w", ErrValidation)
+	}
+
+	return err
 }
 
 func (h *Handler) handleGetCollaboration(_ context.Context, body []byte) ([]byte, error) {
@@ -47,7 +69,7 @@ func (h *Handler) handleGetCollaboration(_ context.Context, body []byte) ([]byte
 	_ = json.Unmarshal(body, &req)
 	c, err := h.Backend.GetCollaboration(req.CollaborationIdentifier)
 	if err != nil {
-		return nil, err
+		return nil, declaredCollaborationError(err)
 	}
 
 	return mustJSON(map[string]any{keyCollaboration: c}), nil
@@ -75,15 +97,17 @@ func (h *Handler) handleUpdateCollaboration(_ context.Context, body []byte) ([]b
 		CollaborationIdentifier string `json:"collaborationIdentifier"`
 		Name                    string `json:"name"`
 		Description             string `json:"description"`
+		AnalyticsEngine         string `json:"analyticsEngine"`
 	}
 	_ = json.Unmarshal(body, &req)
 	col, err := h.Backend.UpdateCollaboration(
 		req.CollaborationIdentifier,
 		req.Name,
 		req.Description,
+		CollaborationSettings{AnalyticsEngine: req.AnalyticsEngine},
 	)
 	if err != nil {
-		return nil, err
+		return nil, declaredCollaborationError(err)
 	}
 
 	return mustJSON(map[string]any{keyCollaboration: col}), nil

@@ -3,6 +3,7 @@ package ses
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -262,6 +263,7 @@ func (b *InMemoryBackend) SendEmail(in SendEmailInput) (string, error) {
 	}
 
 	b.publishEmailNotifications(email, targets)
+	b.relayEmail(email, in.RawMessage)
 
 	return msgID, nil
 }
@@ -360,6 +362,7 @@ func (b *InMemoryBackend) sendTemplatedEmailChecked(in SendTemplatedEmailInput, 
 	}
 
 	b.publishEmailNotifications(email, targets)
+	b.relayEmail(email, nil)
 
 	return msgID, nil
 }
@@ -477,12 +480,20 @@ func (b *InMemoryBackend) sweepExpiredEmails(cutoff time.Time) int {
 	return first
 }
 
-// SendBounce generates and sends a bounce message for a previously received
-// email. Real AWS SES models BounceSender and BouncedRecipientInfoList as
-// required input members (SendBounceInput), so both must be supplied here;
-// BounceSender must additionally be a verified identity (or a verified
-// domain), matching the same sender-verification rule enforced by SendEmail.
-func (b *InMemoryBackend) SendBounce(originalMsgID, bounceSender string, recipients []string) (string, error) {
+// SendBounceOptions carries SendBounceInput's optional Explanation and
+// MessageDsn members.
+type SendBounceOptions struct {
+	ArrivalDate     string
+	ReportingMta    string
+	Explanation     string
+	ExtensionFields []Tag
+}
+
+// SendBounce records a bounce as a captured Email; BounceSender must be verified.
+// It is addressed to the bounced recipients: no inbound mailbox names the sender.
+func (b *InMemoryBackend) SendBounce(
+	originalMsgID, bounceSender string, recipients []string, opts SendBounceOptions,
+) (string, error) {
 	if strings.TrimSpace(originalMsgID) == "" {
 		return "", fmt.Errorf("%w: OriginalMessageId is required", ErrInvalidParameter)
 	}
@@ -505,7 +516,47 @@ func (b *InMemoryBackend) SendBounce(originalMsgID, bounceSender string, recipie
 		)
 	}
 
-	return "ses-bounce-" + uuid.New().String(), nil
+	msgID := "ses-bounce-" + uuid.New().String()
+	b.appendEmailLocked(Email{
+		MessageID: msgID,
+		From:      bounceSender,
+		To:        slices.Clone(recipients),
+		Subject:   "Delivery Status Notification (Failure)",
+		BodyText:  b.bounceBodyLocked(originalMsgID, recipients, opts),
+		Timestamp: time.Now().UTC(),
+	})
+
+	return msgID, nil
+}
+
+// bounceBodyLocked renders the bounce text: the caller's Explanation, or an
+// auto-generated one, followed by the DSN fields SendBounce accepts.
+func (b *InMemoryBackend) bounceBodyLocked(originalMsgID string, recipients []string, opts SendBounceOptions) string {
+	var sb strings.Builder
+
+	if opts.Explanation != "" {
+		sb.WriteString(opts.Explanation)
+	} else {
+		fmt.Fprintf(&sb, "Delivery of message %s to the following recipients failed: %s",
+			originalMsgID, strings.Join(recipients, ", "))
+	}
+
+	mta := opts.ReportingMta
+	if mta == "" {
+		mta = "dns; inbound-smtp." + b.region + ".amazonaws.com"
+	}
+
+	fmt.Fprintf(&sb, "\n\nReporting-MTA: %s", mta)
+
+	if opts.ArrivalDate != "" {
+		fmt.Fprintf(&sb, "\nArrival-Date: %s", opts.ArrivalDate)
+	}
+
+	for _, f := range opts.ExtensionFields {
+		fmt.Fprintf(&sb, "\n%s: %s", f.Name, f.Value)
+	}
+
+	return sb.String()
 }
 
 // SendBulkTemplatedEmail sends one email per destination and returns a message
@@ -652,4 +703,30 @@ func containsAny(ss []string, substr string) bool {
 	}
 
 	return false
+}
+
+// DeleteEmail removes the captured email with the given MessageID and reports whether it existed.
+func (b *InMemoryBackend) DeleteEmail(messageID string) bool {
+	b.mu.Lock("DeleteEmail")
+	defer b.mu.Unlock()
+
+	for i := range b.emails {
+		if b.emails[i].MessageID == messageID {
+			b.emails = append(b.emails[:i], b.emails[i+1:]...)
+			b.emailsByID.Delete(messageID)
+
+			return true
+		}
+	}
+
+	return false
+}
+
+// ClearEmails drops every captured email.
+func (b *InMemoryBackend) ClearEmails() {
+	b.mu.Lock("ClearEmails")
+	defer b.mu.Unlock()
+
+	b.emails = nil
+	b.emailsByID.Reset()
 }

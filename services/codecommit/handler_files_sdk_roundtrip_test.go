@@ -140,7 +140,7 @@ func Test_SDKRoundTrip_CreateUnreferencedMergeCommit_CommitMetadata(t *testing.T
 		RepositoryName:             aws.String(repoName),
 		SourceCommitSpecifier:      aws.String(aws.ToString(putOut.CommitId)),
 		DestinationCommitSpecifier: aws.String(aws.ToString(putOut.CommitId)),
-		MergeOption:                "FAST_FORWARD_MERGE",
+		MergeOption:                "THREE_WAY_MERGE",
 		CommitMessage:              aws.String("unref merge result"),
 		AuthorName:                 aws.String("Katherine Johnson"),
 		Email:                      aws.String("katherine@example.com"),

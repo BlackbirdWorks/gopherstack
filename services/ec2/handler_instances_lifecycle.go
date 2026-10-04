@@ -5,7 +5,8 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/url"
-	"sort"
+	"slices"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
@@ -184,6 +185,12 @@ func (h *Handler) applyRunInstancesPostCreateOptions(instances []*Instance, vals
 		return err
 	}
 
+	if vals.Get("HibernationOptions.Configured") == ec2BooleanTrue {
+		if err := h.Backend.SetInstancesHibernation(instanceIDsOf(instances), true); err != nil {
+			return err
+		}
+	}
+
 	profileARN := iamInstanceProfileArg(vals)
 	if profileARN == "" {
 		return nil
@@ -240,6 +247,15 @@ func (h *Handler) iamProfilesByInstance() map[string]*iamProfileSpec {
 // securityGroupNamesFor returns the ID→Name map for every security group
 // referenced by instances, fetched with a single DescribeSecurityGroups call
 // instead of one per instance.
+func instanceIDsOf(instances []*Instance) []string {
+	ids := make([]string, len(instances))
+	for i, inst := range instances {
+		ids[i] = inst.ID
+	}
+
+	return ids
+}
+
 func securityGroupNamesFor(b Backend, instances []*Instance) map[string]string {
 	var ids []string
 
@@ -333,16 +349,23 @@ func (h *Handler) handleRunInstances(vals url.Values, reqID string) (any, error)
 		ids[i] = inst.ID
 	}
 
+	// Render from locked copies: the lifecycle reconciler mutates stored instances concurrently.
+	if fresh := h.Backend.DescribeInstances(ids, ""); len(fresh) == len(instances) {
+		instances = fresh
+	}
+
 	tagsByID := h.Backend.TagsForResources(ids)
 	iamProfiles := h.iamProfilesByInstance()
 	sgNames := securityGroupNamesFor(h.Backend, instances)
+	sdcByID := h.Backend.PrimaryNetworkInterfaceSourceDestChecks(instanceIDsOf(instances))
+
+	devicesByID := h.Backend.InstanceBlockDevices(instanceIDsOf(instances))
 
 	items := make([]instanceItem, 0, len(instances))
 	for _, inst := range instances {
-		items = append(
-			items,
-			toInstanceItem(inst, tagsByID[inst.ID], iamProfiles[inst.ID], sgNames),
-		)
+		item := toInstanceItem(inst, tagsByID[inst.ID], iamProfiles[inst.ID], sgNames, sdcByID[inst.ID])
+		item.BlockDeviceMapping = blockDeviceSet(devicesByID[inst.ID])
+		items = append(items, item)
 	}
 
 	return &runInstancesResponse{
@@ -366,22 +389,7 @@ func (h *Handler) handleDescribeInstances(vals url.Values, reqID string) (any, e
 	// Parse named EC2 filters: Filter.N.Name / Filter.N.Value.M
 	filters := parseEC2Filters(vals)
 
-	// Fetch all instances matching the IDs (state filter applied post-fetch so
-	// that multi-value OR semantics work: e.g. state=running OR state=stopped).
-	instances := h.Backend.DescribeInstances(ids, "")
-
-	// Snapshot tags once for every candidate instance: reused below for both
-	// tag: filter evaluation and TagSet rendering, instead of one
-	// TagsForResource backend lock per instance per use.
-	preFilterIDs := make([]string, len(instances))
-	for i, inst := range instances {
-		preFilterIDs[i] = inst.ID
-	}
-
-	tagsByID := h.Backend.TagsForResources(preFilterIDs)
-
-	// Apply all filters post-fetch (AND across filter names, OR within values).
-	instances = applyInstanceFilters(instances, filters, tagsByID)
+	instances, tagsByID := h.describeInstancesFiltered(ids, filters)
 
 	// Pagination: MaxResults / NextToken.
 	maxResults := 0
@@ -425,13 +433,15 @@ func (h *Handler) handleDescribeInstances(vals url.Values, reqID string) (any, e
 
 	iamProfiles := h.iamProfilesByInstance()
 	sgNames := securityGroupNamesFor(h.Backend, instances)
+	sdcByID := h.Backend.PrimaryNetworkInterfaceSourceDestChecks(instanceIDsOf(instances))
+
+	devicesByID := h.Backend.InstanceBlockDevices(instanceIDsOf(instances))
 
 	items := make([]instanceItem, 0, len(instances))
 	for _, inst := range instances {
-		items = append(
-			items,
-			toInstanceItem(inst, tagsByID[inst.ID], iamProfiles[inst.ID], sgNames),
-		)
+		item := toInstanceItem(inst, tagsByID[inst.ID], iamProfiles[inst.ID], sgNames, sdcByID[inst.ID])
+		item.BlockDeviceMapping = blockDeviceSet(devicesByID[inst.ID])
+		items = append(items, item)
 	}
 
 	reservation := reservationItem{
@@ -446,6 +456,32 @@ func (h *Handler) handleDescribeInstances(vals url.Values, reqID string) (any, e
 		ReservationSet: reservationSet{Items: []reservationItem{reservation}},
 		NextToken:      nextToken,
 	}, nil
+}
+
+// instanceMatcher is the optional backend fast path that filters before copying.
+type instanceMatcher interface {
+	DescribeInstancesMatching(
+		ids []string, match func(inst *Instance, tags map[string]string) bool,
+	) ([]*Instance, map[string]map[string]string)
+}
+
+func (h *Handler) describeInstancesFiltered(
+	ids []string, filters map[string][]string,
+) ([]*Instance, map[string]map[string]string) {
+	if m, ok := h.Backend.(instanceMatcher); ok {
+		return m.DescribeInstancesMatching(ids, compileInstanceFilters(filters))
+	}
+
+	instances := h.Backend.DescribeInstances(ids, "")
+
+	allIDs := make([]string, len(instances))
+	for i, inst := range instances {
+		allIDs[i] = inst.ID
+	}
+
+	tagsByID := h.Backend.TagsForResources(allIDs)
+
+	return applyInstanceFilters(instances, filters, tagsByID), tagsByID
 }
 
 func (h *Handler) handleTerminateInstances(vals url.Values, reqID string) (any, error) {
@@ -519,6 +555,15 @@ func (h *Handler) handleDescribeInstanceAttribute(vals url.Values, reqID string)
 		return nil, fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
 	}
 
+	if attr == attrBlockDeviceMapping {
+		return &describeInstanceBlockDevicesResponse{
+			Xmlns:      ec2XMLNS,
+			RequestID:  reqID,
+			InstanceID: instanceID,
+			Devices:    blockDeviceItems(h.Backend.InstanceBlockDevices([]string{instanceID})[instanceID]),
+		}, nil
+	}
+
 	inst := instances[0]
 	attrValue := h.instanceAttributeValue(inst, instanceID, attr)
 
@@ -576,13 +621,14 @@ func (h *Handler) instanceAttributeValue(inst *Instance, instanceID, attr string
 
 func toInstanceItem(
 	inst *Instance, instanceTags map[string]string, iamProfile *iamProfileSpec, sgNames map[string]string,
+	sourceDestCheck bool,
 ) instanceItem {
 	tagItems := make([]instanceTagItem, 0, len(instanceTags))
 	for k, v := range instanceTags {
 		tagItems = append(tagItems, instanceTagItem{Key: k, Value: v})
 	}
 
-	sort.Slice(tagItems, func(i, j int) bool { return tagItems[i].Key < tagItems[j].Key })
+	slices.SortFunc(tagItems, func(a, b instanceTagItem) int { return strings.Compare(a.Key, b.Key) })
 
 	// GroupIdentifier carries both groupId and groupName (ec2@v1.329.0
 	// deserializers.go:107843 awsEc2query_deserializeDocumentGroupIdentifier);
@@ -610,6 +656,7 @@ func toInstanceItem(
 		SriovNetSupport:       inst.SriovNetSupport,
 		EBSOptimized:          inst.EBSOptimized,
 		EnaSupport:            inst.EnaSupport,
+		SourceDestCheck:       &sourceDestCheck,
 		GroupSet:              instanceGroupSet{Items: groupItems},
 		TagSet:                instanceTagItemSet{Items: tagItems},
 		IamInstanceProfile:    iamProfile,
@@ -623,6 +670,10 @@ func toInstanceItem(
 			HostResourceGroupArn: inst.Placement.HostResourceGroupArn,
 			PartitionNumber:      inst.Placement.PartitionNumber,
 		},
+	}
+
+	if inst.HibernationConfigured {
+		item.HibernationOptions = &instanceHibernationOptionsItem{Configured: true}
 	}
 
 	if inst.StateReasonCode != "" {
@@ -714,13 +765,73 @@ type instancePrivateDNSNameOptionsItem struct {
 	EnableResourceNameDNSAAAARecord bool   `xml:"enableResourceNameDnsAAAARecord"`
 }
 
+type instanceHibernationOptionsItem struct {
+	Configured bool `xml:"configured"`
+}
+
+// instanceBlockDeviceItem mirrors types.InstanceBlockDeviceMapping
+// (ec2@v1.329.0 deserializers.go awsEc2query_deserializeDocumentInstanceBlockDeviceMapping).
+type instanceBlockDeviceItem struct {
+	DeviceName string                `xml:"deviceName"`
+	Ebs        instanceEbsDeviceItem `xml:"ebs"`
+}
+
+type instanceEbsDeviceItem struct {
+	AttachTime          string `xml:"attachTime,omitempty"`
+	Status              string `xml:"status,omitempty"`
+	VolumeID            string `xml:"volumeId"`
+	DeleteOnTermination bool   `xml:"deleteOnTermination"`
+}
+
+type instanceBlockDeviceSet struct {
+	Items []instanceBlockDeviceItem `xml:"item"`
+}
+
+func blockDeviceSet(atts []VolumeAttachment) *instanceBlockDeviceSet {
+	if len(atts) == 0 {
+		return nil
+	}
+
+	return &instanceBlockDeviceSet{Items: blockDeviceItems(atts)}
+}
+
+func blockDeviceItems(atts []VolumeAttachment) []instanceBlockDeviceItem {
+	if len(atts) == 0 {
+		return nil
+	}
+
+	items := make([]instanceBlockDeviceItem, 0, len(atts))
+
+	for _, att := range atts {
+		items = append(items, instanceBlockDeviceItem{
+			DeviceName: att.Device,
+			Ebs: instanceEbsDeviceItem{
+				AttachTime:          att.AttachTime.UTC().Format("2006-01-02T15:04:05.000Z"),
+				Status:              att.State,
+				VolumeID:            att.VolumeID,
+				DeleteOnTermination: att.DeleteOnTermination,
+			},
+		})
+	}
+
+	slices.SortFunc(
+		items,
+		func(a, b instanceBlockDeviceItem) int { return strings.Compare(a.DeviceName, b.DeviceName) },
+	)
+
+	return items
+}
+
 type instanceItem struct {
+	BlockDeviceMapping        *instanceBlockDeviceSet                `xml:"blockDeviceMapping,omitempty"`
+	HibernationOptions        *instanceHibernationOptionsItem        `xml:"hibernationOptions,omitempty"`
 	NetworkPerformanceOptions *instanceNetworkPerformanceOptionsItem `xml:"networkPerformanceOptions,omitempty"`
 	MaintenanceOptions        *instanceMaintenanceOptionsItem        `xml:"maintenanceOptions,omitempty"`
 	CPUOptions                *instanceCPUOptionsItem                `xml:"cpuOptions,omitempty"`
 	StateReasonItem           *stateReasonItem                       `xml:"stateReason,omitempty"`
 	IamInstanceProfile        *iamProfileSpec                        `xml:"iamInstanceProfile,omitempty"`
 	PrivateDNSNameOptions     *instancePrivateDNSNameOptionsItem     `xml:"privateDnsNameOptions,omitempty"`
+	SourceDestCheck           *bool                                  `xml:"sourceDestCheck,omitempty"`
 	Placement                 instancePlacementItem                  `xml:"placement"`
 	// OutpostArn is a top-level field, sibling to Placement -- see
 	// store.go's Instance.OutpostArn doc comment for the SDK confirmation.
@@ -808,6 +919,14 @@ type terminateInstancesResponse struct {
 type namedStringAttr struct {
 	XMLName xml.Name `json:"xmlName"`
 	Value   string   `json:"value,omitempty" xml:"value"`
+}
+
+type describeInstanceBlockDevicesResponse struct {
+	XMLName    xml.Name                  `xml:"DescribeInstanceAttributeResponse"`
+	Xmlns      string                    `xml:"xmlns,attr"`
+	RequestID  string                    `xml:"requestId"`
+	InstanceID string                    `xml:"instanceId"`
+	Devices    []instanceBlockDeviceItem `xml:"blockDeviceMapping>item"`
 }
 
 type describeInstanceAttributeResponse struct {

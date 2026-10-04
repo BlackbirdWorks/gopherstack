@@ -24,7 +24,7 @@ import (
 // backing stack -- an honest, documented scoped-down behavior rather than a
 // fabricated stack ARN.
 type CloudFormationBackend interface {
-	CreateStackFromLightsail(stackName string, instanceNames []string) (stackID string, err error)
+	CreateStackFromLightsail(region, stackName string, instanceNames []string) (stackID string, err error)
 }
 
 // InMemoryBackend is the in-memory store for Amazon Lightsail. A single
@@ -98,6 +98,13 @@ func (b *InMemoryBackend) SetCloudFormationBackend(cfn CloudFormationBackend) {
 	defer b.mu.Unlock()
 
 	b.cfnBackend = cfn
+}
+
+func (b *InMemoryBackend) currentCloudFormationBackend() CloudFormationBackend {
+	b.mu.RLock("currentCloudFormationBackend")
+	defer b.mu.RUnlock()
+
+	return b.cfnBackend
 }
 
 // Region returns the AWS region this backend is configured for.

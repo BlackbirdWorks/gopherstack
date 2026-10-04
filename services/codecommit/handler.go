@@ -11,33 +11,37 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
 const (
-	keyRepositoryID     = "repositoryId"
-	keyRepositoryName   = "repositoryName"
-	keyCreationDate     = "creationDate"
-	keyErrors           = "errors"
-	keyMessage          = "message"
-	keyCommitID         = "commitId"
-	keyTreeID           = "treeId"
-	keyLastModifiedDate = "lastModifiedDate"
-	keyApprovalRuleTmpl = "approvalRuleTemplate"
-	keyPullRequest      = "pullRequest"
-	keyComment          = "comment"
-	keySourceCommitID   = "sourceCommitId"
-	keyDestCommitID     = "destinationCommitId"
-	keyBlobID           = "blobId"
-	keyFilePath         = "filePath"
-	keyFileMode         = "fileMode"
-	keyAfterCommitID    = "afterCommitId"
-	keyPullRequestID    = "pullRequestId"
-	keyAbsolutePath     = "absolutePath"
-	keyApprovalRuleID   = "approvalRuleId"
-	fileModeNormal      = "NORMAL"
+	keyRepositoryID      = "repositoryId"
+	keyRepositoryName    = "repositoryName"
+	keyCreationDate      = "creationDate"
+	keyErrors            = "errors"
+	keyMessage           = "message"
+	keyCommitID          = "commitId"
+	keyTreeID            = "treeId"
+	keyLastModifiedDate  = "lastModifiedDate"
+	keyApprovalRuleTmpl  = "approvalRuleTemplate"
+	keyPullRequest       = "pullRequest"
+	keyComment           = "comment"
+	keySourceCommitID    = "sourceCommitId"
+	keyBaseCommitID      = "baseCommitId"
+	keyRuleContentSha256 = "ruleContentSha256"
+	keyDestCommitID      = "destinationCommitId"
+	keyBlobID            = "blobId"
+	keyFilePath          = "filePath"
+	keyFileMode          = "fileMode"
+	keyAfterCommitID     = "afterCommitId"
+	keyPullRequestID     = "pullRequestId"
+	keyAbsolutePath      = "absolutePath"
+	keyApprovalRuleID    = "approvalRuleId"
+	fileModeNormal       = "NORMAL"
 )
 
 const codecommitTargetPrefix = "CodeCommit_20150413."
@@ -77,6 +81,14 @@ func paginateStrings(items []string, nextToken string, maxResults int) ([]string
 type Handler struct {
 	Backend *InMemoryBackend
 	ops     map[string]func([]byte) (any, error)
+	peers   *regionpeers.Set[Handler]
+}
+
+// EnableRegions makes h serve every other region through lazily built per-region siblings.
+func (h *Handler) EnableRegions() {
+	h.peers = regionpeers.New(h.Backend.region, func(region string) *Handler {
+		return NewHandler(NewInMemoryBackend(h.Backend.accountID, region))
+	})
 }
 
 // NewHandler creates a new CodeCommit handler.
@@ -90,6 +102,10 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 // Reset clears all handler and backend state.
 func (h *Handler) Reset() {
 	h.Backend.Reset()
+
+	for _, p := range h.peers.Drain() {
+		p.Backend.Reset()
+	}
 }
 
 // buildOps returns the dispatch table mapping action name to handler function.
@@ -153,9 +169,6 @@ func (h *Handler) buildOps() map[string]func([]byte) (any, error) {
 		"MergeBranchesByFastForward":                       h.handleMergeBranchesByFastForward,
 		"MergeBranchesBySquash":                            h.handleMergeBranchesBySquash,
 		"MergeBranchesByThreeWay":                          h.handleMergeBranchesByThreeWay,
-		"MergePullRequestByFastForward":                    h.handleMergePullRequestByFastForward,
-		"MergePullRequestBySquash":                         h.handleMergePullRequestBySquash,
-		"MergePullRequestByThreeWay":                       h.handleMergePullRequestByThreeWay,
 		// OverridePullRequestApprovalRules is dispatched directly from
 		// dispatch(), not through this table -- it needs ctx (see dispatch's
 		// doc comment).
@@ -319,6 +332,10 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
+			return p.Handler()(c)
+		}
+
 		return service.HandleTarget(
 			c, logger.Load(c.Request().Context()),
 			"CodeCommit", "application/x-amz-json-1.1",
@@ -347,6 +364,15 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 
 	if action == "PutCommentReaction" {
 		resp, err := h.handlePutCommentReaction(ctx, body)
+		if err != nil {
+			return nil, err
+		}
+
+		return json.Marshal(resp)
+	}
+
+	if option, isPRMerge := pullRequestMergeOption(action); isPRMerge {
+		resp, err := h.handleMergePullRequest(ctx, option, body)
 		if err != nil {
 			return nil, err
 		}
@@ -399,6 +425,7 @@ var errCodeLookup = []errCodeEntry{
 	{sentinel: ErrFileNotFound, code: http.StatusNotFound, errType: "FileDoesNotExistException"},
 	{sentinel: ErrBlobNotFound, code: http.StatusNotFound, errType: "BlobIdDoesNotExistException"},
 	{sentinel: ErrCommentNotFound, code: http.StatusNotFound, errType: "CommentDoesNotExistException"},
+	{sentinel: ErrInvalidRuleContentSha256, code: http.StatusBadRequest, errType: "InvalidRuleContentSha256Exception"},
 	{sentinel: ErrApprovalRuleNotFound, code: http.StatusNotFound, errType: "ApprovalRuleDoesNotExistException"},
 	{sentinel: ErrPullRequestNotFound, code: http.StatusNotFound, errType: "PullRequestDoesNotExistException"},
 	{
@@ -447,6 +474,39 @@ var errCodeLookup = []errCodeEntry{
 		errType:  "InvalidContinuationTokenException",
 	},
 	{sentinel: ErrInvalidActorArn, code: http.StatusBadRequest, errType: "InvalidActorArnException"},
+	{sentinel: ErrManualMergeRequired, code: http.StatusBadRequest, errType: "ManualMergeRequiredException"},
+	{
+		sentinel: ErrInvalidConflictDetailLevel,
+		code:     http.StatusBadRequest,
+		errType:  "InvalidConflictDetailLevelException",
+	},
+	{
+		sentinel: ErrInvalidConflictResolutionStrategy,
+		code:     http.StatusBadRequest,
+		errType:  "InvalidConflictResolutionStrategyException",
+	},
+	{
+		sentinel: ErrInvalidConflictResolution,
+		code:     http.StatusBadRequest,
+		errType:  "InvalidConflictResolutionException",
+	},
+	{sentinel: ErrReplacementTypeRequired, code: http.StatusBadRequest, errType: "ReplacementTypeRequiredException"},
+	{sentinel: ErrInvalidReplacementType, code: http.StatusBadRequest, errType: "InvalidReplacementTypeException"},
+	{
+		sentinel: ErrReplacementContentRequired,
+		code:     http.StatusBadRequest,
+		errType:  "ReplacementContentRequiredException",
+	},
+	{
+		sentinel: ErrMultipleConflictResolutionEntries,
+		code:     http.StatusBadRequest,
+		errType:  "MultipleConflictResolutionEntriesException",
+	},
+	{sentinel: ErrPathRequired, code: http.StatusBadRequest, errType: "PathRequiredException"},
+	{sentinel: ErrInvalidFileMode, code: http.StatusBadRequest, errType: "InvalidFileModeException"},
+	{sentinel: ErrFileModeRequired, code: http.StatusBadRequest, errType: "FileModeRequiredException"},
+	{sentinel: ErrInvalidMaxConflictFiles, code: http.StatusBadRequest, errType: "InvalidMaxConflictFilesException"},
+	{sentinel: ErrInvalidMaxMergeHunks, code: http.StatusBadRequest, errType: "InvalidMaxMergeHunksException"},
 	{sentinel: errInvalidRequest, code: http.StatusBadRequest, errType: "ValidationException"},
 }
 
@@ -468,4 +528,17 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		"__type":   errType,
 		keyMessage: err.Error(),
 	})
+}
+
+func pullRequestMergeOption(action string) (string, bool) {
+	switch action {
+	case "MergePullRequestByFastForward":
+		return mergeOptionFastForward, true
+	case "MergePullRequestBySquash":
+		return mergeOptionSquash, true
+	case "MergePullRequestByThreeWay":
+		return mergeOptionThreeWay, true
+	}
+
+	return "", false
 }

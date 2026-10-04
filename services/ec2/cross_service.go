@@ -1,12 +1,15 @@
 package ec2
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 
 	outpostsbackend "github.com/blackbirdworks/gopherstack/services/outposts"
+	ssmbackend "github.com/blackbirdworks/gopherstack/services/ssm"
 )
 
 // siblingServices is the subset of *CLI's method set this backend needs to
@@ -108,4 +111,39 @@ func translateOutpostsCapacityErr(err error) error {
 	default:
 		return err
 	}
+}
+
+const ssmAliasPrefix = "resolve:ssm:"
+
+type ssmSibling interface {
+	GetSSMHandler() service.Registerable
+}
+
+// ResolveSSMImageAlias resolves a "resolve:ssm:<parameter>[:version]" image
+// reference against the SSM backend; any other value is returned unchanged.
+func (b *InMemoryBackend) ResolveSSMImageAlias(ref string) (string, error) {
+	name, ok := strings.CutPrefix(ref, ssmAliasPrefix)
+	if !ok {
+		return ref, nil
+	}
+
+	s, ok := b.appConfig.(ssmSibling)
+	if !ok {
+		return "", fmt.Errorf("%w: SSM is not available to resolve %q", ErrInvalidParameter, ref)
+	}
+
+	h, ok := s.GetSSMHandler().(*ssmbackend.Handler)
+	if !ok || h == nil {
+		return "", fmt.Errorf("%w: SSM is not available to resolve %q", ErrInvalidParameter, ref)
+	}
+
+	out, err := h.Backend.GetParameter(
+		ssmbackend.WithRegion(context.Background(), b.Region),
+		&ssmbackend.GetParameterInput{Name: name},
+	)
+	if err != nil {
+		return "", fmt.Errorf("%w: unable to resolve SSM parameter %q: %w", ErrInvalidParameter, name, err)
+	}
+
+	return out.Parameter.Value, nil
 }

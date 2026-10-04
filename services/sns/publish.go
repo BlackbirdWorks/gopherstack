@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -57,17 +58,21 @@ func (b *InMemoryBackend) collectPublishTargets(
 		// Resolve the per-protocol message body for this subscription.
 		// This must happen before filter evaluation when FilterPolicyScope=MessageBody,
 		// because the body itself is the subject of the filter.
-		msg := resolveMsg(sub.Protocol)
+		msg := resolveMsg(messageKey(sub))
 
 		// Apply filter policy. When FilterPolicyScope is "MessageBody", the filter
 		// is evaluated against the message body parsed as a JSON object. The default
 		// scope "MessageAttributes" (or unset) evaluates against message attributes.
 		if sub.FilterPolicyScope == "MessageBody" {
 			if !matchesFilterPolicyMessageBody(sub.parsedFilterPolicy, msg) {
+				out.filteredOut.record(false, true)
+
 				continue
 			}
 		} else {
 			if !matchesParsedFilterPolicy(sub.parsedFilterPolicy, attrs) {
+				out.filteredOut.record(len(attrs) == 0, false)
+
 				continue
 			}
 		}
@@ -109,10 +114,30 @@ func (b *InMemoryBackend) collectPublishTargets(
 			FilterPolicy:       sub.FilterPolicy,
 			RawMessageDelivery: sub.RawMessageDelivery,
 			RedrivePolicy:      sub.RedrivePolicy,
+			SubscriptionRole:   sub.SubscriptionRoleArn,
+			Message:            msg,
+			HasMessage:         true,
 		})
 	}
 
 	return out
+}
+
+// messageKey is the MessageStructure=json key for sub: the platform name for
+// application endpoints (endpoint/<PLATFORM>/...), else the protocol.
+func messageKey(sub *Subscription) string {
+	if sub.Protocol != protocolApplication {
+		return sub.Protocol
+	}
+
+	_, after, ok := strings.Cut(sub.Endpoint, "endpoint/")
+	if !ok {
+		return sub.Protocol
+	}
+
+	platform, _, _ := strings.Cut(after, "/")
+
+	return platform
 }
 
 // Publish publishes a message to a topic and returns the message ID.
@@ -274,12 +299,15 @@ func (b *InMemoryBackend) buildPublishedEvent(
 	// signature already computed for it in Publish instead of signing again.
 	sn, ok := signed[message]
 	if !ok {
-		canonical := canonicalNotificationString(messageID, topicArn, subject, message, ts)
-		sn = signedNotification{
-			signature: b.signer.signWithVersion(canonical, sigVersion),
-			certURL:   b.signer.certURL(),
+		sn.certURL = b.signer.certURL()
+
+		if eventNeedsSignature(subs) {
+			canonical := canonicalNotificationString(messageID, topicArn, subject, message, ts)
+			sn.signature = b.signer.signWithVersion(canonical, sigVersion)
 		}
 	}
+
+	b.signResolvedBodies(subs, topicArn, messageID, subject, message, ts, sigVersion, signed)
 
 	return &events.SNSPublishedEvent{
 		TopicARN:         topicArn,
@@ -293,6 +321,53 @@ func (b *InMemoryBackend) buildPublishedEvent(
 		SignatureVersion: sigVersion,
 		SigningCertURL:   sn.certURL,
 	}
+}
+
+// signResolvedBodies signs each subscription body that differs from the default
+// message so its envelope signature verifies against what it actually receives.
+func (b *InMemoryBackend) signResolvedBodies(
+	subs []events.SNSSubscriptionSnapshot,
+	topicArn, messageID, subject, message, ts, sigVersion string,
+	signed map[string]signedNotification,
+) {
+	for i := range subs {
+		sub := &subs[i]
+		if !sub.HasMessage || sub.Message == message || !eventNeedsSignature(subs[i:i+1]) {
+			continue
+		}
+
+		sn, ok := signed[sub.Message]
+		if !ok {
+			canonical := canonicalNotificationString(messageID, topicArn, subject, sub.Message, ts)
+			sn = signedNotification{
+				signature: b.signer.signWithVersion(canonical, sigVersion),
+				certURL:   b.signer.certURL(),
+			}
+
+			if signed != nil {
+				signed[sub.Message] = sn
+			}
+		}
+
+		sub.Signature = sn.signature
+	}
+}
+
+// eventNeedsSignature reports whether any channel fed by the published event
+// embeds its Signature (SQS envelope, Lambda, Firehose). RSA signing is costly.
+func eventNeedsSignature(subs []events.SNSSubscriptionSnapshot) bool {
+	for _, sub := range subs {
+		switch sub.Protocol {
+		case protocolSQS:
+			if !sub.RawMessageDelivery {
+				return true
+			}
+		case protocolLambda, protocolFirehose:
+			return true
+		}
+	}
+
+	return false
 }
 
 // emitPublishedEvent broadcasts ev to the publish emitter (e.g. to SQS). It is
@@ -408,9 +483,10 @@ func (b *InMemoryBackend) Publish(
 	// Archive the message when the topic has an ArchivePolicy (e.g. FIFO topics
 	// with message retention). Archived messages are used for subscription replay.
 	if archivePolicy != "" {
-		b.archivePublishedMessage(topicArn, messageID, message, subject, attrs)
+		b.archivePublishedMessage(topicArn, messageID, message, subject, messageStructure, attrs)
 	}
 
+	b.emitPublishMetrics(topicArn, message, &targets)
 	b.dispatchHTTPDeliveries(targets.httpDeliveries, client)
 
 	b.recordEmailDeliveries(targets.emailDeliveries, messageID, topicArn)

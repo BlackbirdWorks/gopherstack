@@ -176,12 +176,24 @@ func (h *Handler) Snapshot(ctx context.Context) []byte {
 		return backendData
 	}
 
-	return data
+	return h.peers.Snapshot(data, func(p *Handler) []byte { return p.Snapshot(ctx) })
 }
 
 // Restore implements persistence.Persistable by delegating to the backend and
 // restoring the handler-level resource tags.
 func (h *Handler) Restore(ctx context.Context, data []byte) error {
+	if err := h.restoreHome(ctx, data); err != nil {
+		return err
+	}
+
+	return h.peers.Restore(
+		data,
+		func(p *Handler, d []byte) error { return p.restoreHome(ctx, d) },
+		func(p *Handler) { p.stopJanitor(); p.Reset() },
+	)
+}
+
+func (h *Handler) restoreHome(ctx context.Context, data []byte) error {
 	// Attempt to unmarshal as a handlerSnapshot first.
 	var hs handlerSnapshot
 	if unmarshalErr := json.Unmarshal(data, &hs); unmarshalErr == nil && hs.Backend != nil {

@@ -219,3 +219,62 @@ func TestWrapCloudTrailCapture(t *testing.T) {
 		})
 	}
 }
+
+// TestWrapCloudTrailCapture_ErrorExtraction pins that a failed response still
+// yields ErrorCode/ErrorMessage now that the tee only runs for status >= 400.
+func TestWrapCloudTrailCapture_ErrorExtraction(t *testing.T) {
+	t.Parallel()
+
+	rec := &mockRecorder{}
+	svc := &dummyService{name: "S3", extractOperation: "PutObject", extractResource: "bucket"}
+	next := func(c *echo.Context) error {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"__type":  "NoSuchBucket",
+			"message": "bucket does not exist",
+		})
+	}
+	handler := wrapCloudTrailCapture(rec, svc, next)
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPut, "/", nil)
+	c := e.NewContext(req, httptest.NewRecorder())
+
+	require.NoError(t, handler(c))
+	require.Len(t, rec.events, 1)
+	assert.Equal(t, "NoSuchBucket", rec.events[0].ErrorCode)
+	assert.Equal(t, "bucket does not exist", rec.events[0].ErrorMessage)
+}
+
+// BenchmarkCaptureResponseWriterWrite_Success proves the success path no
+// longer tees the response body into captureResponseWriter.body.
+func BenchmarkCaptureResponseWriterWrite_Success(b *testing.B) {
+	payload := []byte(`{"ok":true,"items":[1,2,3,4,5]}`)
+
+	b.ReportAllocs()
+
+	for b.Loop() {
+		w := &captureResponseWriter{ResponseWriter: httptest.NewRecorder()}
+		w.WriteHeader(http.StatusOK)
+
+		if _, err := w.Write(payload); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkCaptureResponseWriterWrite_Error covers the still-buffered path so
+// the A/B comparison shows the error path's cost is unchanged.
+func BenchmarkCaptureResponseWriterWrite_Error(b *testing.B) {
+	payload := []byte(`{"__type":"SomeException","message":"bad"}`)
+
+	b.ReportAllocs()
+
+	for b.Loop() {
+		w := &captureResponseWriter{ResponseWriter: httptest.NewRecorder()}
+		w.WriteHeader(http.StatusBadRequest)
+
+		if _, err := w.Write(payload); err != nil {
+			b.Fatal(err)
+		}
+	}
+}

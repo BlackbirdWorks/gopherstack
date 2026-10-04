@@ -13,8 +13,13 @@ import (
 // CreateNode creates a Node within a Cluster.
 func (b *InMemoryBackend) CreateNode(
 	clusterID, name, role string,
+	mappings []NodeInterfaceMapping,
 	tags map[string]string,
 ) (*Node, error) {
+	if err := validateNodeInterfaceMappings(mappings); err != nil {
+		return nil, err
+	}
+
 	if clusterID == "" {
 		return nil, fmt.Errorf("%w: clusterId required", ErrInvalidParameter)
 	}
@@ -45,11 +50,23 @@ func (b *InMemoryBackend) CreateNode(
 		State:           nodeStateActive,
 		ConnectionState: nodeConnectionConn,
 		Tags:            copyTags(tags),
+
+		NodeInterfaceMappings: cloneNodeInterfaceMappings(mappings),
 	}
 
 	c.Nodes[id] = n
 
 	return n.toNode(b.channelPlacementGroupIDsForNode(clusterID, id)), nil
+}
+
+func validateNodeInterfaceMappings(mappings []NodeInterfaceMapping) error {
+	for _, m := range mappings {
+		if m.NetworkInterfaceMode != "" && m.NetworkInterfaceMode != "NAT" && m.NetworkInterfaceMode != "BRIDGE" {
+			return fmt.Errorf("%w: invalid networkInterfaceMode %q", ErrInvalidParameter, m.NetworkInterfaceMode)
+		}
+	}
+
+	return nil
 }
 
 // channelPlacementGroupIDsForNode returns the sorted set of
@@ -95,7 +112,10 @@ func (b *InMemoryBackend) DescribeNode(clusterID, nodeID string) (*Node, error) 
 }
 
 // UpdateNode updates a Node's mutable fields.
-func (b *InMemoryBackend) UpdateNode(clusterID, nodeID, name, role string) (*Node, error) {
+func (b *InMemoryBackend) UpdateNode(
+	clusterID, nodeID, name, role string,
+	sdi []SdiSourceMapping,
+) (*Node, error) {
 	b.mu.Lock("UpdateNode")
 	defer b.mu.Unlock()
 
@@ -115,6 +135,10 @@ func (b *InMemoryBackend) UpdateNode(clusterID, nodeID, name, role string) (*Nod
 
 	if role != "" {
 		n.Role = role
+	}
+
+	if sdi != nil {
+		n.SdiSourceMappings = slices.Clone(sdi)
 	}
 
 	return n.toNode(b.channelPlacementGroupIDsForNode(clusterID, nodeID)), nil

@@ -147,3 +147,78 @@ func apiGatewayV2ChildProperties(resourceType string) string {
 		return `"ApiId":{"Ref":"MyApi"},"StageName":"prod"`
 	}
 }
+
+// TestDeleteStack_APIGatewayV2FullStack: an Api stack reaches DELETE_COMPLETE even when its
+// Integration, Route and Stage were already cascade-deleted.
+func TestDeleteStack_APIGatewayV2FullStack(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		predelete func(t *testing.T, apigw *apigatewayv2backend.InMemoryBackend, apiID string)
+		name      string
+	}{
+		{name: "clean_delete"},
+		{
+			name: "children_already_gone",
+			predelete: func(t *testing.T, apigw *apigatewayv2backend.InMemoryBackend, apiID string) {
+				t.Helper()
+
+				integs, err := apigw.GetIntegrations(apiID)
+				require.NoError(t, err)
+				require.Len(t, integs, 1)
+				require.NoError(t, apigw.DeleteIntegration(apiID, integs[0].IntegrationID))
+
+				routes, err := apigw.GetRoutes(apiID)
+				require.NoError(t, err)
+				require.Len(t, routes, 1)
+				require.NoError(t, apigw.DeleteRoute(apiID, routes[0].RouteID))
+
+				require.NoError(t, apigw.DeleteStage(apiID, "prod"))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			backends := newDependentServiceBackends(t)
+			apigw, ok := backends.APIGatewayV2.Backend.(*apigatewayv2backend.InMemoryBackend)
+			require.True(t, ok)
+
+			b := cloudformation.NewInMemoryBackendWithConfig(
+				"000000000000", "us-east-1", cloudformation.NewResourceCreator(backends),
+			)
+
+			tmpl := `{"AWSTemplateFormatVersion":"2010-09-09","Resources":{` +
+				`"MyApi":{"Type":"AWS::ApiGatewayV2::Api","Properties":{"Name":"fullstack","ProtocolType":"HTTP"}},` +
+				`"Integration":{"Type":"AWS::ApiGatewayV2::Integration","Properties":{` +
+				apiGatewayV2ChildProperties("AWS::ApiGatewayV2::Integration") + `}},` +
+				`"Route":{"Type":"AWS::ApiGatewayV2::Route","Properties":{` +
+				apiGatewayV2ChildProperties("AWS::ApiGatewayV2::Route") + `}},` +
+				`"Stage":{"Type":"AWS::ApiGatewayV2::Stage","Properties":{` +
+				apiGatewayV2ChildProperties("AWS::ApiGatewayV2::Stage") + `}}` +
+				`}}`
+
+			stackName := "apigwv2-fullstack-" + tc.name
+
+			stack, err := b.CreateStack(t.Context(), stackName, tmpl, nil, cloudformation.StackOptions{})
+			require.NoError(t, err)
+			require.Equal(t, "CREATE_COMPLETE", stack.StackStatus)
+
+			apiRes, err := b.DescribeStackResource(stackName, "MyApi")
+			require.NoError(t, err)
+
+			if tc.predelete != nil {
+				tc.predelete(t, apigw, apiRes.PhysicalID)
+			}
+
+			require.NoError(t, b.DeleteStack(t.Context(), stackName))
+
+			final, err := b.DescribeStack(stackName)
+			require.NoError(t, err)
+			assert.Equal(t, "DELETE_COMPLETE", final.StackStatus)
+			assert.Empty(t, final.StackStatusReason)
+		})
+	}
+}

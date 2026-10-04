@@ -3,6 +3,7 @@ package cleanrooms
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/labstack/echo/v5"
 )
@@ -109,8 +110,16 @@ func (h *Handler) handlePopulateIDMappingTable(_ context.Context, body []byte) (
 	var req struct {
 		MembershipIdentifier     string `json:"membershipIdentifier"`
 		IDMappingTableIdentifier string `json:"idMappingTableIdentifier"`
+		JobType                  string `json:"jobType"`
 	}
 	_ = json.Unmarshal(body, &req)
+
+	switch req.JobType {
+	case "", "INCREMENTAL", "BATCH", "DELETE_ONLY":
+	default:
+		return nil, fmt.Errorf("%w: jobType must be one of INCREMENTAL, BATCH, DELETE_ONLY", ErrValidation)
+	}
+
 	result, err := h.Backend.PopulateIDMappingTable(
 		req.MembershipIdentifier,
 		req.IDMappingTableIdentifier,

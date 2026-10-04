@@ -118,11 +118,16 @@ func (b *InMemoryBackend) DeleteBucket(name string, forceDelete bool) ([]Operati
 	return b.newOperationsLocked(opTypeDeleteBucket, ResourceTypeBucket, []string{name}), nil
 }
 
-// UpdateBucket updates the named bucket's versioning/readonly-access-accounts.
+// UpdateBucket updates the named bucket's versioning, readonly-access-accounts and CORS (replaced when non-nil).
 func (b *InMemoryBackend) UpdateBucket(
 	name, versioning string,
 	readonlyAccessAccounts []string,
+	cors *BucketCORS,
 ) (*Bucket, []Operation, error) {
+	if err := validateBucketCORS(cors); err != nil {
+		return nil, nil, err
+	}
+
 	b.mu.Lock("UpdateBucket")
 	defer b.mu.Unlock()
 
@@ -139,7 +144,79 @@ func (b *InMemoryBackend) UpdateBucket(
 		bk.ReadonlyAccessAccounts = readonlyAccessAccounts
 	}
 
+	if cors != nil {
+		bk.CORS = cors.clone()
+	}
+
 	return bk.clone(), b.newOperationsLocked("UpdateBucket", ResourceTypeBucket, []string{name}), nil
+}
+
+// Limits from types.BucketCorsConfig/BucketCorsRule docs: 20 rules, 64 KB, 255-char IDs.
+const (
+	maxBucketCORSRules    = 20
+	maxBucketCORSBytes    = 64 * 1024
+	maxBucketCORSRuleIDLn = 255
+)
+
+func validBucketCORSMethod(m string) bool {
+	switch m {
+	case "GET", "PUT", "POST", "DELETE", "HEAD":
+		return true
+	}
+
+	return false
+}
+
+func bucketCORSSize(c *BucketCORS) int {
+	n := 0
+
+	for _, r := range c.Rules {
+		n += len(r.ID)
+
+		for _, l := range [][]string{r.AllowedMethods, r.AllowedOrigins, r.AllowedHeaders, r.ExposeHeaders} {
+			for _, v := range l {
+				n += len(v)
+			}
+		}
+	}
+
+	return n
+}
+
+func validateBucketCORS(c *BucketCORS) error {
+	if c == nil {
+		return nil
+	}
+
+	if len(c.Rules) > maxBucketCORSRules {
+		return validationError("a CORS configuration can have at most 20 rules")
+	}
+
+	for _, r := range c.Rules {
+		if len(r.AllowedOrigins) == 0 || len(r.AllowedMethods) == 0 {
+			return validationError("each CORS rule must identify at least one origin and one method")
+		}
+
+		for _, m := range r.AllowedMethods {
+			if !validBucketCORSMethod(m) {
+				return validationError("unsupported CORS method: " + m)
+			}
+		}
+
+		if len(r.ID) > maxBucketCORSRuleIDLn {
+			return validationError("a CORS rule ID can be at most 255 characters")
+		}
+
+		if r.MaxAgeSeconds != nil && *r.MaxAgeSeconds < 0 {
+			return validationError("MaxAgeSeconds must not be negative")
+		}
+	}
+
+	if bucketCORSSize(c) > maxBucketCORSBytes {
+		return validationError("the CORS configuration is limited to 64 KB")
+	}
+
+	return nil
 }
 
 // UpdateBucketBundle changes the named bucket's bundle tier.

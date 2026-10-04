@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -32,19 +33,9 @@ func (h *Handler) handlePutAttributeMapping(ctx context.Context, path string, bo
 func (h *Handler) handleDeleteAttributeMapping(ctx context.Context, path, query string) (any, int, error) {
 	profileID := extractProfileIDFromMappingPath(path)
 
-	var certificateField string
-
-	var specifiers []string
-
-	for part := range strings.SplitSeq(query, "&") {
-		if after, ok := strings.CutPrefix(part, "certificateField="); ok {
-			certificateField = after
-		}
-
-		if after, ok := strings.CutPrefix(part, "specifiers="); ok {
-			specifiers = append(specifiers, after)
-		}
-	}
+	vals, _ := url.ParseQuery(query)
+	certificateField := vals.Get("certificateField")
+	specifiers := vals["specifiers"]
 
 	p, err := h.Backend.DeleteAttributeMapping(ctx, profileID, certificateField, specifiers)
 	if err != nil {

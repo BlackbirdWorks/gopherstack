@@ -46,16 +46,10 @@ func (b *InMemoryBackend) RespondToNewPasswordRequired(
 		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, entry.Username)
 	}
 
-	hash, saltHex, verifierHex, err := hashAndSRP(entry.PoolID, entry.Username, newPassword)
-	if err != nil {
+	if err := setPermanentPasswordLocked(user, newPassword); err != nil {
 		return nil, err
 	}
 
-	user.PasswordHash = hash
-	user.SRPSalt = saltHex
-	user.SRPVerifier = verifierHex
-	user.Status = UserStatusConfirmed
-	user.UpdatedAt = time.Now()
 	delete(b.mfaSessions, session)
 
 	result, err := b.issueTokensLocked(pool, clientID, user, triggerSourceTokenGenNewPasswordFlow)
@@ -64,6 +58,22 @@ func (b *InMemoryBackend) RespondToNewPasswordRequired(
 	}
 
 	return result.Tokens, nil
+}
+
+// setPermanentPasswordLocked stores newPassword, confirms the user and refreshes the SRP verifier.
+func setPermanentPasswordLocked(user *User, newPassword string) error {
+	hash, saltHex, verifierHex, err := hashAndSRP(user.UserPoolID, user.Username, newPassword)
+	if err != nil {
+		return err
+	}
+
+	user.PasswordHash = hash
+	user.SRPSalt = saltHex
+	user.SRPVerifier = verifierHex
+	user.Status = UserStatusConfirmed
+	user.UpdatedAt = time.Now()
+
+	return nil
 }
 
 // RespondToSRPChallenge completes the USER_SRP_AUTH/ADMIN_USER_SRP_AUTH handshake

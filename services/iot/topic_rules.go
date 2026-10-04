@@ -1,6 +1,7 @@
 package iot
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -9,31 +10,51 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
-// cloneTopicRule creates a deep copy of a TopicRule.
-func cloneTopicRule(r *TopicRule) *TopicRule {
-	actions := make([]RuleAction, len(r.Actions))
-	for i, action := range r.Actions {
-		actions[i] = RuleAction{}
-		if action.SQS != nil {
-			actions[i].SQS = &SQSAction{
-				QueueURL: action.SQS.QueueURL,
-				RoleARN:  action.SQS.RoleARN,
-			}
-		}
-		if action.Lambda != nil {
-			actions[i].Lambda = &LambdaAction{
-				FunctionARN: action.Lambda.FunctionARN,
-			}
-		}
-		if action.SNS != nil {
-			actions[i].SNS = &SNSAction{
-				RoleARN:       action.SNS.RoleARN,
-				TargetARN:     action.SNS.TargetARN,
-				MessageFormat: action.SNS.MessageFormat,
-			}
+// cloneRuleAction deep-copies a RuleAction, including unmodeled action keys.
+func cloneRuleAction(a RuleAction) RuleAction {
+	out := RuleAction{}
+	if a.SQS != nil {
+		cp := *a.SQS
+		out.SQS = &cp
+	}
+	if a.Lambda != nil {
+		cp := *a.Lambda
+		out.Lambda = &cp
+	}
+	if a.SNS != nil {
+		cp := *a.SNS
+		out.SNS = &cp
+	}
+	if len(a.Other) > 0 {
+		out.Other = make(map[string]json.RawMessage, len(a.Other))
+		for k, v := range a.Other {
+			out.Other[k] = append(json.RawMessage(nil), v...)
 		}
 	}
 
+	return out
+}
+
+func cloneRuleActions(in []RuleAction) []RuleAction {
+	out := make([]RuleAction, len(in))
+	for i, a := range in {
+		out[i] = cloneRuleAction(a)
+	}
+
+	return out
+}
+
+func cloneErrorAction(a *RuleAction) *RuleAction {
+	if a == nil {
+		return nil
+	}
+	cp := cloneRuleAction(*a)
+
+	return &cp
+}
+
+// cloneTopicRule creates a deep copy of a TopicRule.
+func cloneTopicRule(r *TopicRule) *TopicRule {
 	return &TopicRule{
 		RuleName:         r.RuleName,
 		ARN:              r.ARN,
@@ -42,7 +63,8 @@ func cloneTopicRule(r *TopicRule) *TopicRule {
 		Description:      r.Description,
 		Enabled:          r.Enabled,
 		CreatedAt:        r.CreatedAt,
-		Actions:          actions,
+		Actions:          cloneRuleActions(r.Actions),
+		ErrorAction:      cloneErrorAction(r.ErrorAction),
 	}
 }
 
@@ -64,16 +86,21 @@ func (b *InMemoryBackend) CreateTopicRule(input *CreateTopicRuleInput) error {
 		payload = &TopicRulePayload{}
 	}
 
-	actions := payload.Actions
-	if actions == nil {
-		actions = []RuleAction{}
-	}
+	actions := cloneRuleActions(payload.Actions)
 
 	arn := arn.Build("iot", b.region, b.accountID, fmt.Sprintf("rule/%s", input.RuleName))
 
 	sqlVersion := payload.AWSIoTSQLVersion
 	if sqlVersion == "" {
-		sqlVersion = "2015-10-08"
+		sqlVersion = sqlVersion2015
+	}
+
+	if err := validateRuleSQL(payload.SQL, sqlVersion); err != nil {
+		return err
+	}
+
+	if err := b.ensureHTTPDestinationsLocked(actions, payload.ErrorAction); err != nil {
+		return err
 	}
 
 	b.rules.Put(&TopicRule{
@@ -83,6 +110,7 @@ func (b *InMemoryBackend) CreateTopicRule(input *CreateTopicRuleInput) error {
 		AWSIoTSQLVersion: sqlVersion,
 		Description:      payload.Description,
 		Actions:          actions,
+		ErrorAction:      cloneErrorAction(payload.ErrorAction),
 		Enabled:          !payload.RuleDisabled,
 		CreatedAt:        time.Now(),
 	})
@@ -184,19 +212,25 @@ func (b *InMemoryBackend) ReplaceTopicRule(input *ReplaceTopicRuleInput) error {
 		payload = &TopicRulePayload{}
 	}
 
-	actions := payload.Actions
-	if actions == nil {
-		actions = []RuleAction{}
-	}
+	actions := cloneRuleActions(payload.Actions)
 
 	sqlVersion := payload.AWSIoTSQLVersion
 	if sqlVersion == "" {
-		sqlVersion = "2015-10-08"
+		sqlVersion = sqlVersion2015
+	}
+
+	if err := validateRuleSQL(payload.SQL, sqlVersion); err != nil {
+		return err
+	}
+
+	if err := b.ensureHTTPDestinationsLocked(actions, payload.ErrorAction); err != nil {
+		return err
 	}
 
 	r.SQL = payload.SQL
 	r.Description = payload.Description
 	r.Actions = actions
+	r.ErrorAction = cloneErrorAction(payload.ErrorAction)
 	r.AWSIoTSQLVersion = sqlVersion
 	r.Enabled = !payload.RuleDisabled
 
@@ -226,9 +260,20 @@ func (b *InMemoryBackend) CreateTopicRuleDestination(
 	b.mu.Lock("CreateTopicRuleDestination")
 	defer b.mu.Unlock()
 
-	destType := "http"
-	if input.DestinationConfiguration != nil && input.DestinationConfiguration.VPCConfiguration != nil {
-		destType = "vpc"
+	if cfg := input.DestinationConfiguration; cfg != nil && cfg.InfluxDBConfiguration != nil {
+		if err := validateInfluxDBConfiguration(cfg.InfluxDBConfiguration); err != nil {
+			return nil, err
+		}
+	}
+
+	destType := actionHTTP
+	if cfg := input.DestinationConfiguration; cfg != nil {
+		switch {
+		case cfg.VPCConfiguration != nil:
+			destType = "vpc"
+		case cfg.InfluxDBConfiguration != nil:
+			destType = "influxdb"
+		}
 	}
 
 	arn := arn.Build("iot", b.region, b.accountID,
@@ -249,7 +294,7 @@ func (b *InMemoryBackend) CreateTopicRuleDestination(
 		// HTTP destinations require confirmation before they can be used,
 		// matching AWS's real IN_PROGRESS -> ENABLED lifecycle.
 		dest.Status = statusInProgress
-		dest.ConfirmationToken = randomHex(certIDHexLen)
+		dest.ConfirmationToken = randomHex()
 	case input.DestinationConfiguration != nil && input.DestinationConfiguration.VPCConfiguration != nil:
 		vpcCfg := input.DestinationConfiguration.VPCConfiguration
 		dest.VPCProperties = &VPCDestinationProperties{
@@ -260,13 +305,21 @@ func (b *InMemoryBackend) CreateTopicRuleDestination(
 		}
 		// VPC destinations need no out-of-band confirmation.
 		dest.Status = statusEnabled
+	case input.DestinationConfiguration != nil && input.DestinationConfiguration.InfluxDBConfiguration != nil:
+		cp := *input.DestinationConfiguration.InfluxDBConfiguration
+		dest.InfluxDBProperties = &cp
+		dest.Status = statusEnabled
 	default:
 		dest.Status = statusEnabled
 	}
 
 	b.topicRuleDestinations.Put(dest)
 
-	return dest, nil
+	if dest.ConfirmationToken != "" {
+		b.dispatchConfirmation(b.newConfirmationLocked(dest))
+	}
+
+	return cloneTopicRuleDestination(dest), nil
 }
 
 // SetTopicRuleDestinationTimestampsInternal backdates a destination's
@@ -296,9 +349,7 @@ func (b *InMemoryBackend) GetTopicRuleDestination(arn string) (*TopicRuleDestina
 		return nil, fmt.Errorf("%w: %s", ErrTopicRuleDestinationNotFound, arn)
 	}
 
-	cp := *dest
-
-	return &cp, nil
+	return cloneTopicRuleDestination(dest), nil
 }
 
 // ListTopicRuleDestinations returns all topic rule destinations.
@@ -310,8 +361,7 @@ func (b *InMemoryBackend) ListTopicRuleDestinations() []*TopicRuleDestination {
 	out := make([]*TopicRuleDestination, 0, len(items))
 
 	for _, v := range items {
-		cp := *v
-		out = append(out, &cp)
+		out = append(out, cloneTopicRuleDestination(v))
 	}
 
 	return out
@@ -328,7 +378,13 @@ func (b *InMemoryBackend) UpdateTopicRuleDestination(input *UpdateTopicRuleDesti
 	}
 
 	dest.Status = input.Status
+	dest.StatusReason = ""
 	dest.LastUpdatedAt = time.Now()
+
+	if input.Status == statusInProgress && dest.HTTPURLProperties != nil {
+		dest.ConfirmationToken = randomHex()
+		b.dispatchConfirmation(b.newConfirmationLocked(dest))
+	}
 
 	return nil
 }
@@ -361,6 +417,7 @@ func (b *InMemoryBackend) ConfirmTopicRuleDestination(token string) error {
 	for _, dest := range b.topicRuleDestinations.All() {
 		if dest.ConfirmationToken != "" && dest.ConfirmationToken == token {
 			dest.Status = statusEnabled
+			dest.StatusReason = ""
 			dest.ConfirmationToken = ""
 			dest.LastUpdatedAt = time.Now()
 
@@ -369,4 +426,52 @@ func (b *InMemoryBackend) ConfirmTopicRuleDestination(token string) error {
 	}
 
 	return fmt.Errorf("%w: invalid or expired confirmation token", ErrValidation)
+}
+
+func cloneTopicRuleDestination(d *TopicRuleDestination) *TopicRuleDestination {
+	cp := *d
+	if d.HTTPURLProperties != nil {
+		p := *d.HTTPURLProperties
+		cp.HTTPURLProperties = &p
+	}
+	if d.VPCProperties != nil {
+		p := *d.VPCProperties
+		p.SecurityGroups = append([]string(nil), d.VPCProperties.SecurityGroups...)
+		p.SubnetIDs = append([]string(nil), d.VPCProperties.SubnetIDs...)
+		cp.VPCProperties = &p
+	}
+	if d.InfluxDBProperties != nil {
+		p := *d.InfluxDBProperties
+		cp.InfluxDBProperties = &p
+	}
+
+	return &cp
+}
+
+// validateInfluxDBConfiguration enforces the required members and the V2/V3 enums
+// (types.InfluxDBVersion, types.InfluxDBSecretType, iot@v1.83.0 enums.go).
+func validateInfluxDBConfiguration(c *InfluxDBDestinationProperties) error {
+	if c.Endpoint == "" || c.SecretID == "" {
+		return fmt.Errorf("%w: influxDBConfiguration requires endpoint and secretId", ErrValidation)
+	}
+	if c.InfluxDBVersion != "V2" && c.InfluxDBVersion != "V3" {
+		return fmt.Errorf("%w: invalid influxDBVersion %q", ErrValidation, c.InfluxDBVersion)
+	}
+	if c.SecretType != "" && c.SecretType != "SecretString" && c.SecretType != "SecretBinary" {
+		return fmt.Errorf("%w: invalid secretType %q", ErrValidation, c.SecretType)
+	}
+
+	return nil
+}
+
+func validateRuleSQL(sql, version string) error {
+	if !validSQLVersion(version) {
+		return fmt.Errorf("%w: unsupported awsIotSqlVersion %q", ErrValidation, version)
+	}
+
+	if _, err := ParseRuleSQLVersion(sql, version); err != nil {
+		return err
+	}
+
+	return nil
 }

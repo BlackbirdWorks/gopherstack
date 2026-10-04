@@ -131,6 +131,7 @@ func (b *InMemoryBackend) DeleteRepository(
 	// returned, so iterating the live (unsloned) slice while deleting from it
 	// would skip entries.
 	for _, img := range slices.Clone(b.imagesByRepo.Get(name)) {
+		b.layerRefs.remove(img)
 		b.images.Delete(imageTableKey(img.RepositoryName, img.ImageDigest))
 	}
 

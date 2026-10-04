@@ -2,10 +2,13 @@ package appsync
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
 
 // CreateAPI creates a new Event API.
@@ -32,11 +35,13 @@ func (b *InMemoryBackend) CreateAPI(
 			"REALTIME": realtimeEndpoint,
 		},
 		EventConfig: eventConfig,
+		Created:     awstime.Epoch(time.Now()),
 	}
 
 	b.eventAPIs.Put(api)
 
 	cp := *api
+	cp.Tags = maps.Clone(api.Tags)
 
 	return &cp, nil
 }
@@ -52,6 +57,7 @@ func (b *InMemoryBackend) GetAPI(apiID string) (*API, error) {
 	}
 
 	cp := *api
+	cp.Tags = maps.Clone(api.Tags)
 
 	return &cp, nil
 }
@@ -66,6 +72,7 @@ func (b *InMemoryBackend) ListAPIs() ([]*API, error) {
 
 	for _, api := range apis {
 		cp := *api
+		cp.Tags = maps.Clone(api.Tags)
 		out = append(out, &cp)
 	}
 
@@ -117,6 +124,7 @@ func (b *InMemoryBackend) UpdateAPI(apiID, name, ownerContact string, eventConfi
 	}
 
 	cp := *api
+	cp.Tags = maps.Clone(api.Tags)
 
 	return &cp, nil
 }

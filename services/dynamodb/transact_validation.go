@@ -32,6 +32,15 @@ func validateTransactWriteItems(
 	items []types.TransactWriteItem,
 	tables map[string]*Table,
 ) error {
+	return validateTransactWriteItemsWire(items, tables, nil)
+}
+
+// validateTransactWriteItemsWire is validateTransactWriteItems reusing already-converted Put items.
+func validateTransactWriteItemsWire(
+	items []types.TransactWriteItem,
+	tables map[string]*Table,
+	wire transactWirePuts,
+) error {
 	seen := make(map[transactWriteKey]bool, len(items))
 	totalBytes := 0
 
@@ -44,7 +53,7 @@ func validateTransactWriteItems(
 			return err
 		}
 
-		if err := checkTransactWriteItemSizeAndDupe(i, ti, items, tables, seen, &totalBytes); err != nil {
+		if err := checkTransactWriteItemSizeAndDupe(i, ti, items, tables, seen, &totalBytes, wire.at(i)); err != nil {
 			return err
 		}
 	}
@@ -64,6 +73,7 @@ func checkTransactWriteItemSizeAndDupe(
 	tables map[string]*Table,
 	seen map[transactWriteKey]bool,
 	totalBytes *int,
+	wireItem map[string]any,
 ) error {
 	tableName, keyItem, itemForSize := extractTransactWriteKeyAndItem(ti)
 	if tableName == "" {
@@ -72,7 +82,11 @@ func checkTransactWriteItemSizeAndDupe(
 
 	// Accumulate size estimate.
 	if itemForSize != nil {
-		sz, _ := CalculateItemSize(models.FromSDKItem(itemForSize))
+		if wireItem == nil {
+			wireItem = models.FromSDKItem(itemForSize)
+		}
+
+		sz, _ := CalculateItemSize(wireItem)
 		*totalBytes += sz
 	}
 
@@ -86,16 +100,18 @@ func checkTransactWriteItemSizeAndDupe(
 		return nil
 	}
 
-	wireKey := models.FromSDKItem(keyItem)
+	var wireKey map[string]any
 
-	// Resolve the table to extract only the key attributes.
 	if table, ok := tables[tableName]; ok {
 		pkDef, skDef := getPKAndSK(table.KeySchema)
-		keyOnly := map[string]any{pkDef.AttributeName: wireKey[pkDef.AttributeName]}
+		wireKey = make(map[string]any)
+		wireKey[pkDef.AttributeName] = sdkAttrOrNil(keyItem, pkDef.AttributeName)
+
 		if skDef.AttributeName != "" {
-			keyOnly[skDef.AttributeName] = wireKey[skDef.AttributeName]
+			wireKey[skDef.AttributeName] = sdkAttrOrNil(keyItem, skDef.AttributeName)
 		}
-		wireKey = keyOnly
+	} else {
+		wireKey = models.FromSDKItem(keyItem)
 	}
 
 	// A marshal failure only affects duplicate-key detection (not a real
@@ -117,6 +133,16 @@ func checkTransactWriteItemSizeAndDupe(
 	}
 
 	return nil
+}
+
+// sdkAttrOrNil converts one attribute, or returns nil when it is absent.
+func sdkAttrOrNil(item map[string]types.AttributeValue, name string) any {
+	av, ok := item[name]
+	if !ok {
+		return nil
+	}
+
+	return models.FromSDKAttributeValue(av)
 }
 
 // validateTransactUpdateKeys rejects a TransactWriteItem Update action whose
@@ -252,4 +278,26 @@ func validateTransactItemCount(n int, opName string) error {
 	_ = opName // reserved for future context-specific messages
 
 	return nil
+}
+
+// transactWirePuts holds each Put item's wire form, indexed by TransactItems position.
+type transactWirePuts []map[string]any
+
+func newTransactWirePuts(items []types.TransactWriteItem) transactWirePuts {
+	w := make(transactWirePuts, len(items))
+	for i, ti := range items {
+		if ti.Put != nil {
+			w[i] = models.FromSDKItem(ti.Put.Item)
+		}
+	}
+
+	return w
+}
+
+func (w transactWirePuts) at(i int) map[string]any {
+	if i < 0 || i >= len(w) {
+		return nil
+	}
+
+	return w[i]
 }

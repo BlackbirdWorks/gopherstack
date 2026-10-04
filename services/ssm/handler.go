@@ -25,6 +25,11 @@ const errCodeDoesNotExist = "DoesNotExistException"
 
 type regionContextKey struct{}
 
+// WithRegion returns ctx carrying the region SSM resolves parameters in.
+func WithRegion(ctx context.Context, region string) context.Context {
+	return context.WithValue(ctx, regionContextKey{}, region)
+}
+
 // Handler is the Echo HTTP service handler for SSM operations.
 type Handler struct {
 	Backend StorageBackend
@@ -299,6 +304,8 @@ func classifySSMError(reqErr error) (string, int) {
 		return "DocumentAlreadyExists", statusCode
 	case errors.Is(reqErr, ErrDocumentNotFound):
 		return "InvalidDocument", statusCode
+	case errors.Is(reqErr, ErrDuplicateDocumentVersionName):
+		return "DuplicateDocumentVersionName", statusCode
 	case errors.Is(reqErr, ErrInvalidDocumentVersion):
 		return "InvalidDocumentVersion", statusCode
 	case errors.Is(reqErr, ErrCommandNotFound):
@@ -368,6 +375,8 @@ func classifySSMOpsError(reqErr error) (string, int, bool) {
 		return "OpsMetadataNotFoundException", statusCode, true
 	case errors.Is(reqErr, ErrOpsMetadataAlreadyExists):
 		return "OpsMetadataAlreadyExistsException", statusCode, true
+	case errors.Is(reqErr, ErrOpsItemRelatedItemAssociationNotFound):
+		return "OpsItemRelatedItemAssociationNotFoundException", statusCode, true
 	default:
 		return "", 0, false
 	}
@@ -466,6 +475,8 @@ func classifySSMErrorExtended(reqErr error) (string, int) {
 		return "ResourceNotFoundException", statusCode
 	case errors.Is(reqErr, ErrAssociationNotFound):
 		return "AssociationDoesNotExist", statusCode
+	case errors.Is(reqErr, ErrInvalidAssociationVersion):
+		return "InvalidAssociationVersion", statusCode
 	case errors.Is(reqErr, ErrAutomationExecutionNotFound):
 		return "AutomationExecutionNotFoundException", statusCode
 	case errors.Is(reqErr, ErrUnknownOperation):

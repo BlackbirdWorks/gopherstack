@@ -3,6 +3,7 @@ package medialive
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -10,14 +11,36 @@ import (
 
 // --- Offering operations ---
 
-// ListOfferings returns the seeded offering catalog.
+// OfferingFilter holds ListOfferings' query filters; ChannelClass,
+// ChannelConfiguration and Scope are not modeled.
+type OfferingFilter struct {
+	Duration string
+	ReservationFilter
+}
+
+// ListOfferings returns the seeded offering catalog matching filter.
 func (b *InMemoryBackend) ListOfferings(
 	maxResults int,
 	nextToken string,
+	filter OfferingFilter,
 ) ([]*Offering, string, error) {
 	b.mu.RLock("ListOfferings")
 	defer b.mu.RUnlock()
-	pg := page.New(b.offerings, nextToken, maxResults, defaultMaxResults)
+
+	matched := make([]*Offering, 0, len(b.offerings))
+
+	for _, o := range b.offerings {
+		if filter.Duration != "" && filter.Duration != strconv.Itoa(int(o.Duration)) {
+			continue
+		}
+
+		if filter.matches(o.ResourceSpecification) {
+			cp := *o
+			matched = append(matched, &cp)
+		}
+	}
+
+	pg := page.New(matched, nextToken, maxResults, defaultMaxResults)
 	result := make([]*Offering, len(pg.Data))
 	copy(result, pg.Data)
 

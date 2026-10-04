@@ -1,0 +1,87 @@
+PutItem	{"TableName":"Tbl","Item":{"pk":{"S":"p0"},"sk":{"S":"s0"},"g":{"S":"g0"},"v":{"N":"0"},"txt":{"S":"café <&> 0"},"set":{"SS":["a","b"]},"bin":{"B":"AAEC"},"m":{"M":{"k":{"L":[{"N":"1"},{"NULL":true}]}}}}}
+PutItem	{"TableName":"Tbl","Item":{"pk":{"S":"p1"},"sk":{"S":"s1"},"g":{"S":"g1"},"v":{"N":"1"},"txt":{"S":"café <&> 1"},"set":{"SS":["a","b"]},"bin":{"B":"AAEC"},"m":{"M":{"k":{"L":[{"N":"1"},{"NULL":true}]}}}}}
+PutItem	{"TableName":"Tbl","Item":{"pk":{"S":"p2"},"sk":{"S":"s2"},"g":{"S":"g2"},"v":{"N":"2"},"txt":{"S":"café <&> 2"},"set":{"SS":["a","b"]},"bin":{"B":"AAEC"},"m":{"M":{"k":{"L":[{"N":"1"},{"NULL":true}]}}}}}
+PutItem	{"TableName":"Tbl","Item":{"pk":{"S":"p0"},"sk":{"S":"s3"},"g":{"S":"g3"},"v":{"N":"3"},"txt":{"S":"café <&> 3"},"set":{"SS":["a","b"]},"bin":{"B":"AAEC"},"m":{"M":{"k":{"L":[{"N":"1"},{"NULL":true}]}}}}}
+PutItem	{"TableName":"Tbl","Item":{"pk":{"S":"p1"},"sk":{"S":"s4"},"g":{"S":"g4"},"v":{"N":"4"},"txt":{"S":"café <&> 4"},"set":{"SS":["a","b"]},"bin":{"B":"AAEC"},"m":{"M":{"k":{"L":[{"N":"1"},{"NULL":true}]}}}}}
+PutItem	{"TableName":"Tbl","Item":{"pk":{"S":"p2"},"sk":{"S":"s5"},"g":{"S":"g5"},"v":{"N":"5"},"txt":{"S":"café <&> 5"},"set":{"SS":["a","b"]},"bin":{"B":"AAEC"},"m":{"M":{"k":{"L":[{"N":"1"},{"NULL":true}]}}}}}
+PutItem	{"TableName":"Tbl","Item":{"pk":{"S":"p0"},"sk":{"S":"s6"},"g":{"S":"g6"},"v":{"N":"6"},"txt":{"S":"café <&> 6"},"set":{"SS":["a","b"]},"bin":{"B":"AAEC"},"m":{"M":{"k":{"L":[{"N":"1"},{"NULL":true}]}}}}}
+PutItem	{"TableName":"Tbl","Item":{"pk":{"S":"p1"},"sk":{"S":"s7"},"g":{"S":"g7"},"v":{"N":"7"},"txt":{"S":"café <&> 7"},"set":{"SS":["a","b"]},"bin":{"B":"AAEC"},"m":{"M":{"k":{"L":[{"N":"1"},{"NULL":true}]}}}}}
+PutItem	{"TableName":"Tbl","Item":{"pk":{"S":"p2"},"sk":{"S":"s8"},"g":{"S":"g8"},"v":{"N":"8"},"txt":{"S":"café <&> 8"},"set":{"SS":["a","b"]},"bin":{"B":"AAEC"},"m":{"M":{"k":{"L":[{"N":"1"},{"NULL":true}]}}}}}
+PutItem	{"TableName":"Tbl","Item":{"pk":{"S":"p0"},"sk":{"S":"s9"},"g":{"S":"g9"},"v":{"N":"9"},"txt":{"S":"café <&> 9"},"set":{"SS":["a","b"]},"bin":{"B":"AAEC"},"m":{"M":{"k":{"L":[{"N":"1"},{"NULL":true}]}}}}}
+PutItem	{"TableName":"Tbl","Item":{"pk":{"S":"p1"},"sk":{"S":"s10"},"g":{"S":"g10"},"v":{"N":"10"},"txt":{"S":"café <&> 10"},"set":{"SS":["a","b"]},"bin":{"B":"AAEC"},"m":{"M":{"k":{"L":[{"N":"1"},{"NULL":true}]}}}}}
+PutItem	{"TableName":"Tbl","Item":{"pk":{"S":"p2"},"sk":{"S":"s11"},"g":{"S":"g11"},"v":{"N":"11"},"txt":{"S":"café <&> 11"},"set":{"SS":["a","b"]},"bin":{"B":"AAEC"},"m":{"M":{"k":{"L":[{"N":"1"},{"NULL":true}]}}}}}
+PutItem	{"TableName":"Hsh","Item":{"id":{"N":"1"},"v":{"S":"x"}},"ReturnValues":"ALL_OLD","ReturnConsumedCapacity":"TOTAL"}
+PutItem	{"TableName":"Hsh","Item":{"id":{"N":"1"},"v":{"S":"y"}},"ReturnValues":"ALL_OLD","ReturnConsumedCapacity":"INDEXES","ReturnItemCollectionMetrics":"SIZE"}
+PutItem	{"TableName":"Hsh","Item":{"id":{"N":"1"}},"ConditionExpression":"attribute_not_exists(id)","ReturnValuesOnConditionCheckFailure":"ALL_OLD"}
+PutItem	{"TableName":"Hsh","Item":{"id":{"N":"2"}},"ConditionExpression":"attribute_not_exists(#i)","ExpressionAttributeNames":{"#i":"id"}}
+PutItem	{"TableName":"Hsh","Item":{"id":{"N":"3"}},"Expected":{"id":{"Exists":false}}}
+PutItem	{"TableName":"Hsh","Item":{"id":{"S":"wrongtype"}}}
+PutItem	{"TableName":"Hsh","Item":{}}
+PutItem	{"TableName":"Nope","Item":{"id":{"N":"1"}}}
+PutItem	{"Item":{"id":{"N":"1"}}}
+PutItem	{"TableName":"Hsh","Item":{"id":{"S":1}}}
+PutItem	{"TableName":"Hsh","Item":{"id":{"N":"4"}},"ExpressionAttributeValues":{":x":{"S":"unused"}}}
+PutItem	{"TableName":"Hsh","Item":{"id":{"N":"4"},"id":{"N":"5"}}}
+PutItem	{"tablename":"H","Item":{"id":{"N":"6"}}}
+PutItem	{"TableName":"Hsh","Item":{"id":{"N":"7"}},"Bogus":true}
+PutItem	{"TableName":"Hsh","Item":{"id":{"N":"7"}}
+PutItem	
+GetItem	{"TableName":"Hsh","Key":{"id":{"N":"1"}}}
+GetItem	{"TableName":"Hsh","Key":{"id":{"N":"1"}},"ConsistentRead":true,"ReturnConsumedCapacity":"TOTAL"}
+GetItem	{"TableName":"Hsh","Key":{"id":{"N":"999"}}}
+GetItem	{"TableName":"Tbl","Key":{"pk":{"S":"p0"},"sk":{"S":"s0"}},"ProjectionExpression":"pk, #t, m.k[0]","ExpressionAttributeNames":{"#t":"txt"}}
+GetItem	{"TableName":"Tbl","Key":{"pk":{"S":"p0"},"sk":{"S":"s0"}},"AttributesToGet":["pk","v"]}
+GetItem	{"TableName":"Tbl","Key":{"pk":{"S":"p0"}}}
+GetItem	{"TableName":"Tbl","Key":{}}
+GetItem	{"TableName":"Nope","Key":{"id":{"N":"1"}}}
+UpdateItem	{"TableName":"Hsh","Key":{"id":{"N":"1"}},"UpdateExpression":"SET v = :v, c = if_not_exists(c, :z) ADD n :one","ExpressionAttributeValues":{":v":{"S":"z"},":z":{"N":"0"},":one":{"N":"1"}},"ReturnValues":"ALL_NEW"}
+UpdateItem	{"TableName":"Hsh","Key":{"id":{"N":"1"}},"UpdateExpression":"REMOVE c","ReturnValues":"UPDATED_OLD","ReturnConsumedCapacity":"TOTAL","ReturnItemCollectionMetrics":"SIZE"}
+UpdateItem	{"TableName":"Hsh","Key":{"id":{"N":"1"}},"UpdateExpression":"SET v = :v","ConditionExpression":"v = :bad","ExpressionAttributeValues":{":v":{"S":"q"},":bad":{"S":"nope"}},"ReturnValuesOnConditionCheckFailure":"ALL_OLD"}
+UpdateItem	{"TableName":"Hsh","Key":{"id":{"N":"50"}},"UpdateExpression":"SET v = :v","ExpressionAttributeValues":{":v":{"S":"new"}},"ReturnValues":"ALL_OLD"}
+UpdateItem	{"TableName":"Hsh","Key":{"id":{"N":"1"}},"UpdateExpression":"SET"}
+UpdateItem	{"TableName":"Hsh","Key":{"id":{"N":"1"}},"AttributeUpdates":{"v":{"Action":"PUT","Value":{"S":"legacy"}}}}
+DeleteItem	{"TableName":"Hsh","Key":{"id":{"N":"50"}},"ReturnValues":"ALL_OLD","ReturnConsumedCapacity":"TOTAL"}
+DeleteItem	{"TableName":"Hsh","Key":{"id":{"N":"50"}},"ConditionExpression":"attribute_exists(id)"}
+DeleteItem	{"TableName":"Hsh","Key":{"id":{"N":"51"}}}
+Query	{"TableName":"Tbl","KeyConditionExpression":"pk = :p","ExpressionAttributeValues":{":p":{"S":"p1"}}}
+Query	{"TableName":"Tbl","KeyConditionExpression":"pk = :p AND begins_with(sk, :s)","ExpressionAttributeValues":{":p":{"S":"p1"},":s":{"S":"s"}},"ScanIndexForward":false,"ReturnConsumedCapacity":"TOTAL"}
+Query	{"TableName":"Tbl","KeyConditionExpression":"pk = :p","ExpressionAttributeValues":{":p":{"S":"p0"}},"Limit":2}
+Query	{"TableName":"Tbl","KeyConditionExpression":"pk = :p","ExpressionAttributeValues":{":p":{"S":"p0"}},"Limit":2,"ExclusiveStartKey":{"pk":{"S":"p0"},"sk":{"S":"s3"}}}
+Query	{"TableName":"Tbl","KeyConditionExpression":"pk = :p","FilterExpression":"v > :v AND contains(txt, :c)","ExpressionAttributeValues":{":p":{"S":"p0"},":v":{"N":"1"},":c":{"S":"caf"}},"ProjectionExpression":"sk, v"}
+Query	{"TableName":"Tbl","KeyConditionExpression":"pk = :p","ExpressionAttributeValues":{":p":{"S":"p0"}},"Select":"COUNT"}
+Query	{"TableName":"Tbl","IndexName":"gsi","KeyConditionExpression":"g = :g","ExpressionAttributeValues":{":g":{"S":"g1"}},"ReturnConsumedCapacity":"INDEXES"}
+Query	{"TableName":"Tbl","IndexName":"gsi","KeyConditionExpression":"g = :g","ExpressionAttributeValues":{":g":{"S":"g1"}},"ConsistentRead":true}
+Query	{"TableName":"Tbl","KeyConditionExpression":"pk = :p AND sk BETWEEN :a AND :b","ExpressionAttributeValues":{":p":{"S":"p1"},":a":{"S":"s0"},":b":{"S":"s9"}}}
+Query	{"TableName":"Tbl","KeyConditions":{"pk":{"ComparisonOperator":"EQ","AttributeValueList":[{"S":"p1"}]}}}
+Query	{"TableName":"Tbl","KeyConditionExpression":"pk = :p","ExpressionAttributeValues":{":p":{"S":"none"}}}
+Query	{"TableName":"Tbl"}
+Query	{"TableName":"Tbl","KeyConditionExpression":"pk = :p","ExpressionAttributeValues":{":p":{"S":"p1"}},"Limit":-1}
+Scan	{"TableName":"Tbl"}
+Scan	{"TableName":"Tbl","Limit":5}
+Scan	{"TableName":"Tbl","Limit":5,"ExclusiveStartKey":{"pk":{"S":"p0"},"sk":{"S":"s6"}}}
+Scan	{"TableName":"Tbl","FilterExpression":"v BETWEEN :a AND :b","ExpressionAttributeValues":{":a":{"N":"2"},":b":{"N":"6"}},"ReturnConsumedCapacity":"TOTAL"}
+Scan	{"TableName":"Tbl","Select":"COUNT"}
+Scan	{"TableName":"Tbl","TotalSegments":2,"Segment":1}
+Scan	{"TableName":"Tbl","IndexName":"gsi","ProjectionExpression":"g, pk"}
+Scan	{"TableName":"Hsh","ConsistentRead":true}
+Scan	{"TableName":"Nope"}
+Scan	{"TableName":"Tbl","ScanFilter":{"v":{"ComparisonOperator":"GT","AttributeValueList":[{"N":"3"}]}}}
+BatchWriteItem	{"RequestItems":{"Hsh":[{"PutRequest":{"Item":{"id":{"N":"60"}}}},{"PutRequest":{"Item":{"id":{"N":"61"},"x":{"S":"y"}}}},{"DeleteRequest":{"Key":{"id":{"N":"1"}}}}],"Tbl":[{"PutRequest":{"Item":{"pk":{"S":"b"},"sk":{"S":"1"}}}}]}}
+BatchWriteItem	{"RequestItems":{"Hsh":[{"PutRequest":{"Item":{"id":{"N":"62"}}}}]},"ReturnConsumedCapacity":"TOTAL","ReturnItemCollectionMetrics":"SIZE"}
+BatchWriteItem	{"RequestItems":{"Nope":[{"PutRequest":{"Item":{"id":{"N":"1"}}}}]}}
+BatchWriteItem	{"RequestItems":{}}
+BatchWriteItem	{"RequestItems":{"Hsh":[]}}
+BatchWriteItem	{"RequestItems":{"Hsh":[{"PutRequest":{"Item":{"id":{"N":"63"}}},"DeleteRequest":{"Key":{"id":{"N":"1"}}}}]}}
+BatchGetItem	{"RequestItems":{"Hsh":{"Keys":[{"id":{"N":"60"}},{"id":{"N":"61"}},{"id":{"N":"404"}}]},"Tbl":{"Keys":[{"pk":{"S":"b"},"sk":{"S":"1"}}],"ProjectionExpression":"pk"}}}
+BatchGetItem	{"RequestItems":{"Hsh":{"Keys":[{"id":{"N":"60"}}],"ConsistentRead":true,"AttributesToGet":["id"]}},"ReturnConsumedCapacity":"TOTAL"}
+BatchGetItem	{"RequestItems":{"Nope":{"Keys":[{"id":{"N":"1"}}]}}}
+BatchGetItem	{"RequestItems":{"Hsh":{"Keys":[]}}}
+BatchGetItem	{"RequestItems":{}}
+TransactWriteItems	{"TransactItems":[{"Put":{"TableName":"Hsh","Item":{"id":{"N":"70"}}}},{"Delete":{"TableName":"Hsh","Key":{"id":{"N":"60"}}}}]}
+TransactGetItems	{"TransactItems":[{"Get":{"TableName":"Hsh","Key":{"id":{"N":"70"}}}},{"Get":{"TableName":"Hsh","Key":{"id":{"N":"60"}}}}]}
+ExecuteStatement	{"Statement":"SELECT * FROM \"Hsh\" WHERE id = 70"}
+Scan	{"TableName":"Hsh"}
+Scan	{"TableName":"Tbl"}
+PutItem	{"TableName":"Hsh","Item":{"id":{"N":"80"},"s":{"S":"caf\u00e9 \ud83d\ude00 \u003c\u0026\u003e \"q\" \\ \/ \u0000"},"k\u00e9y":{"S":"v"}}}
+GetItem	{"TableName":"Hsh","Key":{"id":{"N":"80"}}}
+Scan	{"TableName":"Hsh"}

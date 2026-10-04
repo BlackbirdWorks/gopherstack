@@ -193,20 +193,6 @@ func (db *InMemoryDB) lookupItemByKeys(
 	return nil
 }
 
-func (db *InMemoryDB) lookupItem(
-	table *Table,
-	key map[string]any,
-	pkName, skName string,
-) map[string]any {
-	pkVal := BuildKeyString(key, pkName)
-	var skVal string
-	if skName != "" {
-		skVal = BuildKeyString(key, skName)
-	}
-
-	return db.lookupItemByKeys(table, pkVal, skVal)
-}
-
 func (db *InMemoryDB) lookupItemWithIndex(
 	table *Table,
 	key map[string]any,
@@ -708,7 +694,7 @@ func findExclusiveStartIndex(
 	keySchema []models.KeySchemaElement,
 	tableKeySchema []models.KeySchemaElement,
 ) int {
-	if exclusiveStartKey == nil {
+	if len(exclusiveStartKey) == 0 {
 		return 0
 	}
 

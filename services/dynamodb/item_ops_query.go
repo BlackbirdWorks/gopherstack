@@ -20,13 +20,77 @@ func (db *InMemoryDB) Query(
 	ctx context.Context,
 	input *dynamodb.QueryInput,
 ) (*dynamodb.QueryOutput, error) {
-	return db.QueryWithContext(ctx, input)
+	return db.observedQuery(ctx, input)
+}
+
+// pageResult is a Query/Scan page still in wire form; items is nil for Select=COUNT.
+type pageResult struct {
+	consumed     *types.ConsumedCapacity
+	lastKey      map[string]any
+	items        []map[string]any
+	count        int32
+	scannedCount int32
+}
+
+func (r *pageResult) sdkItems() []map[string]types.AttributeValue {
+	if r.items == nil {
+		return nil
+	}
+
+	out := make([]map[string]types.AttributeValue, len(r.items))
+	for i, it := range r.items {
+		out[i], _ = models.ToSDKItem(it)
+	}
+
+	return out
+}
+
+func (r *pageResult) sdkLastKey() map[string]types.AttributeValue {
+	if r.lastKey == nil {
+		return nil
+	}
+
+	key, _ := models.ToSDKItem(r.lastKey)
+
+	return key
+}
+
+func (r *pageResult) toQueryOutput() *dynamodb.QueryOutput {
+	return &dynamodb.QueryOutput{
+		Items:            r.sdkItems(),
+		LastEvaluatedKey: r.sdkLastKey(),
+		Count:            r.count,
+		ScannedCount:     r.scannedCount,
+		ConsumedCapacity: r.consumed,
+	}
+}
+
+func (r *pageResult) toScanOutput() *dynamodb.ScanOutput {
+	return &dynamodb.ScanOutput{
+		Items:            r.sdkItems(),
+		LastEvaluatedKey: r.sdkLastKey(),
+		Count:            r.count,
+		ScannedCount:     r.scannedCount,
+		ConsumedCapacity: r.consumed,
+	}
 }
 
 func (db *InMemoryDB) QueryWithContext(
 	ctx context.Context,
 	input *dynamodb.QueryInput,
 ) (*dynamodb.QueryOutput, error) {
+	res, err := db.queryCore(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+
+	return res.toQueryOutput(), nil
+}
+
+func (db *InMemoryDB) queryCore(
+	ctx context.Context,
+	input *dynamodb.QueryInput,
+) (*pageResult, error) {
 	// Check if context is already cancelled
 	select {
 	case <-ctx.Done():
@@ -59,7 +123,8 @@ func (db *InMemoryDB) QueryWithContext(
 	}
 
 	// Pre-parse PK value before locking so we can do a targeted index copy.
-	precomputedPKValue := preParseQueryPKValue(input)
+	eav := models.FromSDKItem(input.ExpressionAttributeValues)
+	precomputedPKValue := preParseQueryPKValue(input, eav)
 	snapshotTable, billingMode, ttlAttr := db.snapshotTableForQuery(
 		table, idxName, precomputedPKValue,
 	)
@@ -81,7 +146,7 @@ func (db *InMemoryDB) QueryWithContext(
 	}
 
 	candidates, err := db.filterCandidatesForKeyCondition(
-		ctx, snapshotTable, input, projection, keySchema,
+		ctx, snapshotTable, input, projection, keySchema, eav,
 	)
 	if err != nil {
 		return nil, err
@@ -91,6 +156,8 @@ func (db *InMemoryDB) QueryWithContext(
 	region := getRegionFromContext(ctx, db)
 	consistentRead := aws.ToBool(input.ConsistentRead)
 	rcuUnits := applyConsistentReadMultiplier(rcuForCount(len(candidates)), consistentRead)
+
+	db.emitRCU(region, tableName, rcuUnits)
 
 	if !isOnDemandTable(billingMode) {
 		if err = db.throttler.ConsumeRead(throttleKey(region, tableName), rcuUnits); err != nil {
@@ -106,7 +173,7 @@ func (db *InMemoryDB) QueryWithContext(
 	}
 
 	return db.processQueryResults(
-		ctx, candidates, input, keySchema, snapshotTable.KeySchema, ttlAttr, snapshotTable,
+		ctx, candidates, input, keySchema, snapshotTable.KeySchema, ttlAttr, snapshotTable, eav,
 	)
 }
 
@@ -207,6 +274,7 @@ func (db *InMemoryDB) filterCandidatesForKeyCondition(
 	input *dynamodb.QueryInput,
 	projection *models.Projection,
 	keySchema []models.KeySchemaElement,
+	eav map[string]any,
 ) ([]map[string]any, error) {
 	cond := aws.ToString(input.KeyConditionExpression)
 	if cond != "" {
@@ -228,8 +296,6 @@ func (db *InMemoryDB) filterCandidatesForKeyCondition(
 
 	pkDef, skDef := getPKAndSK(keySchema)
 	idxName := aws.ToString(input.IndexName)
-
-	eav := models.FromSDKItem(input.ExpressionAttributeValues)
 
 	if err := checkUndefinedExpressionAttributeNames(
 		input.ExpressionAttributeNames, "KeyConditionExpression", cond,
@@ -541,8 +607,8 @@ func (db *InMemoryDB) processQueryResults(
 	tableKeySchema []models.KeySchemaElement,
 	ttlAttr string,
 	table *Table,
-) (*dynamodb.QueryOutput, error) {
-	eav := models.FromSDKItem(input.ExpressionAttributeValues)
+	eav map[string]any,
+) (*pageResult, error) {
 	exclusiveStartKey := models.FromSDKItem(input.ExclusiveStartKey)
 
 	startIndex := findExclusiveStartIndex(candidates, exclusiveStartKey, keySchema, tableKeySchema)
@@ -561,33 +627,25 @@ func (db *InMemoryDB) processQueryResults(
 		return nil, err
 	}
 
-	// AWS omits Items entirely when Select=COUNT: "Returns the number of matching
-	// items, rather than the matching items themselves." Count/ScannedCount still
-	// reflect the matched/scanned totals.
-	var outItems []map[string]types.AttributeValue
-	if input.Select != types.SelectCount {
-		outItems = make([]map[string]types.AttributeValue, len(items))
-		for i, it := range items {
-			sdkIt, _ := models.ToSDKItem(it)
-			outItems[i] = sdkIt
-		}
-	}
-
-	out := &dynamodb.QueryOutput{
-		Items:        outItems,
-		Count:        int32(len(items)),   // #nosec G115
-		ScannedCount: int32(scannedCount), // #nosec G115
-		ConsumedCapacity: consumedCapacityForReadOp(
+	// AWS omits Items entirely for Select=COUNT; Count/ScannedCount still reflect totals.
+	res := &pageResult{
+		lastKey:      lastEvaluatedKey,
+		count:        int32(len(items)),   // #nosec G115
+		scannedCount: int32(scannedCount), // #nosec G115
+		consumed: consumedCapacityForReadOp(
 			aws.ToString(input.TableName), input.ReturnConsumedCapacity, scannedCount,
 			aws.ToBool(input.ConsistentRead), aws.ToString(input.IndexName), table,
 		),
 	}
 
-	if lastEvaluatedKey != nil {
-		out.LastEvaluatedKey, _ = models.ToSDKItem(lastEvaluatedKey)
+	if input.Select != types.SelectCount {
+		res.items = items
+		if res.items == nil {
+			res.items = []map[string]any{}
+		}
 	}
 
-	return out, nil
+	return res, nil
 }
 
 // collectQueryPage iterates candidates from startIndex, collecting items up to
@@ -712,8 +770,7 @@ func inferSKType(candidates []map[string]any, skName string) string {
 // query targets the base table or a GSI/LSI -- so the same helper scopes the
 // targeted index-snapshot copy for both (see snapshotIndexForQuery and
 // snapshotSecondaryIndexForQuery).
-func preParseQueryPKValue(input *dynamodb.QueryInput) string {
-	eav := models.FromSDKItem(input.ExpressionAttributeValues)
+func preParseQueryPKValue(input *dynamodb.QueryInput, eav map[string]any) string {
 	exprParts := dynamoattr.SplitANDConditions(aws.ToString(input.KeyConditionExpression))
 
 	if len(exprParts) == 0 {

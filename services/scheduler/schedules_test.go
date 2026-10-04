@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -1286,31 +1287,33 @@ func TestUpdateSchedule_NotFound(t *testing.T) {
 func TestUpdateSchedule_UpdatesLastModificationDate(t *testing.T) {
 	t.Parallel()
 
-	b := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
-	h := scheduler.NewHandler(b)
+	synctest.Test(t, func(t *testing.T) {
+		b := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
+		h := scheduler.NewHandler(b)
 
-	createScheduleViaHandler(t, h, "upd-sched", "", "rate(1 minute)")
+		createScheduleViaHandler(t, h, "upd-sched", "", "rate(1 minute)")
 
-	s1, err := b.GetSchedule(context.Background(), "upd-sched", "")
-	require.NoError(t, err)
+		s1, err := b.GetSchedule(context.Background(), "upd-sched", "")
+		require.NoError(t, err)
 
-	// Advance time enough to guarantee LastModificationDate changes.
-	time.Sleep(1100 * time.Millisecond)
+		// Advance time enough to guarantee LastModificationDate changes.
+		time.Sleep(1100 * time.Millisecond)
 
-	doSchedulerRequest(t, h, "UpdateSchedule", map[string]any{
-		"Name":               "upd-sched",
-		"ScheduleExpression": "rate(2 minutes)",
-		"Target":             map[string]string{"Arn": "arn:a", "RoleArn": "arn:r"},
-		"FlexibleTimeWindow": map[string]string{"Mode": "OFF"},
-		"State":              "ENABLED",
+		doSchedulerRequest(t, h, "UpdateSchedule", map[string]any{
+			"Name":               "upd-sched",
+			"ScheduleExpression": "rate(2 minutes)",
+			"Target":             map[string]string{"Arn": "arn:a", "RoleArn": "arn:r"},
+			"FlexibleTimeWindow": map[string]string{"Mode": "OFF"},
+			"State":              "ENABLED",
+		})
+
+		s2, err := b.GetSchedule(context.Background(), "upd-sched", "")
+		require.NoError(t, err)
+
+		assert.True(t, s2.LastModificationDate.After(s1.LastModificationDate),
+			"LastModificationDate should advance after UpdateSchedule")
+		assert.Equal(t, "rate(2 minutes)", s2.ScheduleExpression)
 	})
-
-	s2, err := b.GetSchedule(context.Background(), "upd-sched", "")
-	require.NoError(t, err)
-
-	assert.True(t, s2.LastModificationDate.After(s1.LastModificationDate),
-		"LastModificationDate should advance after UpdateSchedule")
-	assert.Equal(t, "rate(2 minutes)", s2.ScheduleExpression)
 }
 
 func TestUpdateSchedule_ValidatesState(t *testing.T) {

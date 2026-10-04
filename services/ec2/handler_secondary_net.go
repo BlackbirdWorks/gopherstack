@@ -419,7 +419,7 @@ func (h *Handler) handleDescribeServiceLinkVirtualInterfaces(vals url.Values, re
 
 func (h *Handler) handleDescribeOutpostLags(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "OutpostLagId")
-	lags := h.Backend.DescribeOutpostLags(ids)
+	lags := applyOutpostLagFilters(h.Backend.DescribeOutpostLags(ids), parseEC2Filters(vals))
 
 	resp := &describeOutpostLagsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, l := range lags {

@@ -184,9 +184,38 @@ func TestSearchIndex(t *testing.T) {
 			wantIDs: []string{"b3"},
 		},
 		{
-			name:    "match_substring_case_insensitive",
+			name:    "match_token_case_insensitive",
 			query:   map[string]any{"match": map[string]any{"title": "go"}},
 			wantIDs: []string{"b1", "b2"},
+		},
+		{
+			name:    "match_is_not_substring",
+			query:   map[string]any{"match": map[string]any{"title": "gram"}},
+			wantIDs: []string{},
+		},
+		{
+			name:    "match_any_token",
+			query:   map[string]any{"match": map[string]any{"title": "effective rust"}},
+			wantIDs: []string{"b2", "b3"},
+		},
+		{
+			name: "match_operator_and",
+			query: map[string]any{"match": map[string]any{
+				"title": map[string]any{"query": "programming language", "operator": "and"},
+			}},
+			wantIDs: []string{"b1"},
+		},
+		{
+			name: "match_operator_and_partial_miss",
+			query: map[string]any{"match": map[string]any{
+				"title": map[string]any{"query": "programming rust", "operator": "and"},
+			}},
+			wantIDs: []string{},
+		},
+		{
+			name:    "term_long_form",
+			query:   map[string]any{"term": map[string]any{"author": map[string]any{"value": "Team"}}},
+			wantIDs: []string{"b2"},
 		},
 		{
 			name:    "term_no_match",

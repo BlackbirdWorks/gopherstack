@@ -68,7 +68,7 @@ func csvFileHeaderInfo(csvIn *selectCSVInput) string {
 		return strings.ToUpper(csvIn.FileHeaderInfo)
 	}
 
-	return "NONE"
+	return compressionNone
 }
 
 // parseCSVInput parses CSV rows per opts. When opts sticks to RFC4180's

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -93,25 +94,28 @@ func TestDDBJanitor_RemovesTable(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			db := dynamodb.NewInMemoryDB()
-			createTable(t, db, tt.createTable)
+			synctest.Test(t, func(t *testing.T) {
+				db := dynamodb.NewInMemoryDB()
+				createTable(t, db, tt.createTable)
 
-			_, err := db.DeleteTable(t.Context(), &dynamodb_sdk.DeleteTableInput{
-				TableName: aws.String(tt.createTable),
-			})
-			require.NoError(t, err)
+				_, err := db.DeleteTable(t.Context(), &dynamodb_sdk.DeleteTableInput{
+					TableName: aws.String(tt.createTable),
+				})
+				require.NoError(t, err)
 
-			ctx, cancel := context.WithCancel(t.Context())
-			defer cancel()
+				ctx, cancel := context.WithCancel(t.Context())
+				go newFastDDBJanitor(db).Run(ctx)
 
-			j := newFastDDBJanitor(db)
-			go j.Run(ctx)
+				time.Sleep(50 * time.Millisecond)
+				synctest.Wait()
 
-			require.Eventually(t, func() bool {
 				listed, listErr := db.ListTables(t.Context(), &dynamodb_sdk.ListTablesInput{})
+				require.NoError(t, listErr)
+				assert.Empty(t, listed.TableNames)
 
-				return listErr == nil && len(listed.TableNames) == 0
-			}, 500*time.Millisecond, 10*time.Millisecond)
+				cancel()
+				synctest.Wait()
+			})
 		})
 	}
 }
@@ -545,26 +549,27 @@ func TestStreamRecordsCompaction(t *testing.T) {
 func TestJanitorRunExitsOnContextCancel(t *testing.T) {
 	t.Parallel()
 
-	db := dynamodb.NewInMemoryDB()
-	j := dynamodb.NewJanitor(db, dynamodb.Settings{JanitorInterval: 5 * time.Millisecond})
+	synctest.Test(t, func(t *testing.T) {
+		db := dynamodb.NewInMemoryDB()
+		j := dynamodb.NewJanitor(db, dynamodb.Settings{JanitorInterval: 5 * time.Millisecond})
 
-	ctx, cancel := context.WithCancel(t.Context())
+		ctx, cancel := context.WithCancel(t.Context())
+		done := make(chan struct{})
 
-	done := make(chan struct{})
+		go func() {
+			defer close(done)
+			j.Run(ctx)
+		}()
 
-	go func() {
-		defer close(done)
-		j.Run(ctx)
-	}()
+		cancel()
+		synctest.Wait()
 
-	cancel()
-
-	select {
-	case <-done:
-		// clean exit
-	case <-time.After(500 * time.Millisecond):
-		t.Fatal("janitor Run did not exit after context cancellation")
-	}
+		select {
+		case <-done:
+		default:
+			t.Fatal("janitor Run did not exit after context cancellation")
+		}
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -960,28 +965,26 @@ func TestPurge_KeepsNewerTables(t *testing.T) {
 func TestJanitor_Run_SweepsIteratorStore(t *testing.T) {
 	t.Parallel()
 
-	db := dynamodb.NewInMemoryDB()
-	_, err := db.CreateTable(t.Context(), makeCreateTableInput("tbl", "pk"))
-	require.NoError(t, err)
+	synctest.Test(t, func(t *testing.T) {
+		db := dynamodb.NewInMemoryDB()
+		_, err := db.CreateTable(t.Context(), makeCreateTableInput("tbl", "pk"))
+		require.NoError(t, err)
 
-	// Inject an expired iterator so the store has size > 0.
-	db.InjectExpiredShardIteratorForTest("tbl")
-	require.Equal(t, 1, db.IteratorStoreSize(), "pre-condition: one expired entry")
+		db.InjectExpiredShardIteratorForTest("tbl")
+		require.Equal(t, 1, db.IteratorStoreSize(), "pre-condition: one expired entry")
 
-	// Run the janitor with a very short main interval, let it tick once, then cancel.
-	j := dynamodb.NewJanitor(db, dynamodb.Settings{JanitorInterval: 10 * time.Millisecond})
-	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
-	defer cancel()
-	go j.Run(ctx)
-	<-ctx.Done()
+		j := dynamodb.NewJanitor(db, dynamodb.Settings{JanitorInterval: 10 * time.Millisecond})
+		ctx, cancel := context.WithCancel(t.Context())
+		go j.Run(ctx)
 
-	// The janitor's main-ticker must have swept the expired entry.
-	assert.Equal(
-		t,
-		0,
-		db.IteratorStoreSize(),
-		"expired iterator tokens must be swept by janitor Run loop",
-	)
+		time.Sleep(50 * time.Millisecond)
+		synctest.Wait()
+
+		assert.Equal(t, 0, db.IteratorStoreSize(), "expired iterator tokens must be swept by janitor Run loop")
+
+		cancel()
+		synctest.Wait()
+	})
 }
 
 func TestSweepTxnTokens_TwoPhaseDoesSweep(t *testing.T) {

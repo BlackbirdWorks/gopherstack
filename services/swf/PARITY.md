@@ -71,6 +71,16 @@ leaks: {status: clean, note: "no goroutines/timers spawned by this service, incl
 
 ## Notes
 
+### 2026-09-26: closed-execution retention pruning (unbounded-growth audit)
+
+Closed workflow executions were only ever removed by the unrelated
+maxWorkflowExecutions=10_000 FIFO cap, never by the domain's own
+workflowExecutionRetentionPeriodInDays (AWS RegisterDomain doc). Added
+sweepExpiredClosedExecutionsLocked (timeout_sweep.go), wired into the same
+lazy per-op sweep as timeout enforcement -- no new goroutine. See
+TestSweepExpiredClosedExecutionsLocked_Evaluation /
+TestListClosedWorkflowExecutions_SweepsRetentionOnRead.
+
 ### 2026-09-19 over-wide-response sweep
 
 cmd/overwidecandidates flagged all 5 List ops. All 5 already emitted exactly
@@ -896,3 +906,7 @@ was already a model field, just never populated). Gates: `go build ./...`,
 `go vet ./services/swf/`, `go test -race -count=1 ./services/swf/` (all
 pass), `golangci-lint run --new-from-rev=HEAD ./services/swf/` (0 issues).
 tier-1 (`cmd/reqfielddiff -dir swf`): 4 -> 0.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+swf is region-isolated: domains and everything under them live per region; domain ARNs now name the serving region (the backend gained a region and a `NewInMemoryBackendForRegion` constructor, default unchanged). Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/swf`. Limitation: the dashboard shows the home region only. The tagging bridge lists the request region and resolves Tag/Untag by ARN region. CloudFormation provisions it in the stack's region. `TestHandler_MultiRegionReset` covers Reset.

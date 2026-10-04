@@ -238,7 +238,8 @@ func (b *InMemoryBackend) checkLambdaAuth(
 		return false
 	}
 
-	result, _, invokeErr := b.lambdaFn.InvokeFunction(ctx, cfg.AuthorizerURI, "RequestResponse", payload)
+	result, _, invokeErr := b.lambdaFn.InvokeFunction(
+		withRegion(ctx, b.region), cfg.AuthorizerURI, "RequestResponse", payload)
 	if invokeErr != nil {
 		return false
 	}

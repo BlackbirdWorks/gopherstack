@@ -781,12 +781,20 @@ func (b *InMemoryBackend) UpdateKeyDescription(
 // recordLastUsage stores the last successful cryptographic operation for the given key.
 // It is safe to call concurrently without holding any lock.
 func (b *InMemoryBackend) recordLastUsage(region, canonicalKeyID, operation string) {
-	b.lastUsage.Store(region+":"+canonicalKeyID, &KeyLastUsageData{
-		Operation:         operation,
-		Timestamp:         UnixTimeFloat(time.Now()),
-		CloudTrailEventID: uuid.New().String(),
-		KmsRequestID:      uuid.New().String(),
+	b.lastUsage.Store(region+":"+canonicalKeyID, &lastUsageRecord{
+		operation: operation,
+		timestamp: UnixTimeFloat(time.Now()),
+		eventID:   uuid.New(),
+		requestID: uuid.New(),
 	})
+}
+
+// lastUsageRecord defers UUID string formatting to GetKeyLastUsage.
+type lastUsageRecord struct {
+	operation string
+	timestamp float64
+	eventID   uuid.UUID
+	requestID uuid.UUID
 }
 
 // GetKeyLastUsage returns the last successful cryptographic operation performed with the specified key.
@@ -827,8 +835,13 @@ func (b *InMemoryBackend) GetKeyLastUsage(
 	}
 
 	if v, loaded := b.lastUsage.Load(region + ":" + key.KeyID); loaded {
-		if lu, ok := v.(*KeyLastUsageData); ok {
-			out.KeyLastUsage = lu
+		if lu, ok := v.(*lastUsageRecord); ok {
+			out.KeyLastUsage = &KeyLastUsageData{
+				Operation:         lu.operation,
+				Timestamp:         lu.timestamp,
+				CloudTrailEventID: lu.eventID.String(),
+				KmsRequestID:      lu.requestID.String(),
+			}
 		}
 	}
 

@@ -10,8 +10,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
 	"github.com/blackbirdworks/gopherstack/pkgs/events"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -609,6 +611,8 @@ type ArchivedMessage struct {
 	MessageID  string
 	Message    string
 	Subject    string
+	// Structure is the Publish MessageStructure ("json" when Message is per-protocol).
+	Structure string
 }
 
 // notificationSigner holds the RSA key pair and self-signed certificate used to
@@ -627,9 +631,11 @@ type notificationSigner struct {
 
 // InMemoryBackend implements StorageBackend using an in-memory concurrency-safe store.
 type InMemoryBackend struct {
+	metrics              cwmetric.Sink
 	emitter              events.EventEmitter[*events.SNSPublishedEvent]
 	lambdaBackend        LambdaInvoker
 	firehoseBackend      FirehosePutter
+	roleAuth             roleauth.Authorizer
 	sqsSender            SQSSender
 	sqsChecker           SQSQueueChecker
 	svcCtx               context.Context
@@ -706,6 +712,7 @@ type publishTargets struct {
 	subs            []events.SNSSubscriptionSnapshot
 	httpDeliveries  []httpDelivery
 	emailDeliveries []EmailDelivery
+	filteredOut     filteredCounts
 }
 
 type parsedFilterPolicy map[string][]json.RawMessage

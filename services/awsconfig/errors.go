@@ -41,6 +41,9 @@ var (
 	// awsAwsjson11_deserializeOpErrorDescribeConfigRules, which declares
 	// InvalidNextTokenException/InvalidParameterValueException, never ValidationException).
 	ErrInvalidNextToken = awserr.New("InvalidNextTokenException", awserr.ErrInvalidParameter)
+	// ErrInvalidExpression is returned for a query outside the supported SELECT grammar
+	// (SelectResourceConfig/SelectAggregateResourceConfig declare InvalidExpressionException).
+	ErrInvalidExpression = awserr.New("InvalidExpressionException", awserr.ErrInvalidParameter)
 	// ErrResourceNotFound is returned when a referenced resource evaluation does not exist.
 	ErrResourceNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	// ErrResourceNotDiscovered is returned when GetAggregateResourceConfig's
@@ -92,6 +95,12 @@ var (
 	// PutDeliveryChannel deserializer, which declares
 	// InvalidDeliveryChannelNameException).
 	ErrInvalidDeliveryChannelName = awserr.New("InvalidDeliveryChannelNameException", awserr.ErrInvalidParameter)
+	// ErrInvalidRecordingGroup is PutConfigurationRecorder's InvalidRecordingGroupException.
+	ErrInvalidRecordingGroup = awserr.New("InvalidRecordingGroupException", awserr.ErrInvalidParameter)
+	// ErrInvalidS3KmsKeyArn is PutDeliveryChannel's InvalidS3KmsKeyArnException.
+	ErrInvalidS3KmsKeyArn = awserr.New("InvalidS3KmsKeyArnException", awserr.ErrInvalidParameter)
+	// ErrInvalidSNSTopicARN is PutDeliveryChannel's InvalidSNSTopicARNException.
+	ErrInvalidSNSTopicARN = awserr.New("InvalidSNSTopicARNException", awserr.ErrInvalidParameter)
 	// ErrConflict is returned when a connector or third-party service-linked
 	// recorder request conflicts with existing state: PutConnector with a
 	// ConnectorConfiguration matching an already-existing connector, or

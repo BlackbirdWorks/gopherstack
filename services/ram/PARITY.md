@@ -918,3 +918,7 @@ fixture creating/depending on an org would race organizations-and-appstream's. A
 (not fixed, not a gopherstack gap): aws_ram_resource_share_accepter's destroy
 error is a terraform-provider-aws waiter bug (wrong enum in its Pending list).
 See items_still_open for both.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+ram is region-isolated: resource shares and their associations live per region; the sibling inherits the home handler's cross-service config. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/ram`. Limitation: the dashboard shows the home region only. The tagging bridge lists the request region and resolves Tag/Untag by ARN region. `TestHandler_MultiRegionReset` covers Reset.

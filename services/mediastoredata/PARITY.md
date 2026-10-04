@@ -180,3 +180,7 @@ preceded by `return` on the same line.
 **No instance of the broken shape exists in mediastoredata.** No code changed. Gates re-run
 for the record: `GOTOOLCHAIN=go1.27.0 golangci-lint run ./services/mediastoredata/...` 0
 issues; `GOTOOLCHAIN=go1.27.0 go test -race ./services/mediastoredata/...` ok.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+mediastoredata already isolates regions internally: objects live in a per-region table resolved from the request region; it does not call MediaStore, so there is no container lookup to route. Proof: `TestRegionIsolation/mediastoredata`; no sibling handlers needed.

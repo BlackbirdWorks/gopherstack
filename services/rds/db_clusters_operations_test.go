@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -571,10 +572,11 @@ func TestDeletionProtectionCanBeDisabled(t *testing.T) {
 // timing assertions. The backend uses 250ms.
 const transitionDelay = 250 * time.Millisecond
 
-// TestRebootDBClusterDelayedTransition exercises the delayed lifecycle goroutine
-// scheduled by RebootDBCluster via runDelayed. It verifies both that the
+// TestRebootDBClusterDelayedTransition exercises the delayed lifecycle
+// goroutine scheduled by RebootDBCluster. It verifies both that the
 // transition still fires after the delay and that Close cancels in-flight
 // transitions promptly without mutating state after shutdown (the leak fix).
+// Runs under synctest so the delay is virtual time, not wall clock.
 func TestRebootDBClusterDelayedTransition(t *testing.T) {
 	t.Parallel()
 
@@ -601,56 +603,54 @@ func TestRebootDBClusterDelayedTransition(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := rds.NewInMemoryBackend("123456789012", "us-east-1")
-			t.Cleanup(b.Close)
+			synctest.Test(t, func(t *testing.T) {
+				b := rds.NewInMemoryBackend("123456789012", "us-east-1")
+				defer b.Close()
 
-			_, err := b.CreateDBCluster(
-				"my-cluster",
-				"aurora-mysql",
-				"admin",
-				"",
-				"",
-				0,
-				nil,
-				rds.DBClusterOptions{},
-			)
-			require.NoError(t, err)
+				_, err := b.CreateDBCluster(
+					"my-cluster",
+					"aurora-mysql",
+					"admin",
+					"",
+					"",
+					0,
+					nil,
+					rds.DBClusterOptions{},
+				)
+				require.NoError(t, err)
 
-			_, err = b.RebootDBCluster("my-cluster")
-			require.NoError(t, err)
+				_, err = b.RebootDBCluster("my-cluster")
+				require.NoError(t, err)
 
-			if tt.closeEarly {
-				// Close immediately, before the transition delay elapses. The
-				// delayed goroutine must observe stopCh and return without
-				// mutating state. Close must block only briefly on b.wg.Wait().
-				start := time.Now()
-				b.Close()
-				elapsed := time.Since(start)
+				if tt.closeEarly {
+					// Close immediately, before the transition delay elapses. The
+					// delayed goroutine must observe stopCh and return without
+					// mutating state. Close must block only briefly on b.wg.Wait().
+					start := time.Now()
+					b.Close()
+					elapsed := time.Since(start)
 
-				if tt.wantFastClose {
-					require.Less(t, elapsed, transitionDelay,
-						"Close should not wait out the full transition delay")
+					if tt.wantFastClose {
+						require.Less(t, elapsed, transitionDelay,
+							"Close should not wait out the full transition delay")
+					}
+
+					clusters, derr := b.DescribeDBClusters("my-cluster")
+					require.NoError(t, derr)
+					require.Equal(t, tt.wantStatus, clusters[0].Status)
+
+					return
 				}
+
+				// Advance virtual time past the delay plus the reconciler's own
+				// tick period, since the transition only lands on a tick boundary.
+				time.Sleep(2 * transitionDelay)
 
 				clusters, derr := b.DescribeDBClusters("my-cluster")
 				require.NoError(t, derr)
+				require.Len(t, clusters, 1)
 				require.Equal(t, tt.wantStatus, clusters[0].Status)
-
-				return
-			}
-
-			// Wait for the delayed transition to fire, then verify the status
-			// and a clean Close afterward.
-			require.Eventually(t, func() bool {
-				clusters, derr := b.DescribeDBClusters("my-cluster")
-				if derr != nil || len(clusters) == 0 {
-					return false
-				}
-
-				return clusters[0].Status == tt.wantStatus
-			}, 2*time.Second, 10*time.Millisecond)
-
-			b.Close()
+			})
 		})
 	}
 }

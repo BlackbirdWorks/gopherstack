@@ -124,7 +124,7 @@ func (b *InMemoryBackend) CreateCloudFormationStack(instances []InstanceEntry) (
 	}
 
 	if b.cfnBackend != nil {
-		if _, err := b.cfnBackend.CreateStackFromLightsail(recordName, sourceNames); err != nil {
+		if _, err := b.cfnBackend.CreateStackFromLightsail(b.region, recordName, sourceNames); err != nil {
 			rec.State = RecordStateFailed
 		} else {
 			rec.State = RecordStateSucceeded

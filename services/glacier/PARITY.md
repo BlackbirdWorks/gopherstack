@@ -12,7 +12,7 @@ overall: A            # wrapper-key/header/nested-shape sweep (2026-08-20): 1 re
                        # gopherstack-6flj/21my sweep (2026-08-29): 1 real bug found+fixed (ListJobs sorted by JobID instead of CreationDate/initiation-time -- see Notes). ListVaults/ListMultipartUploads/ListParts sort orders re-verified against real API docs (ASCII-by-name / no-guaranteed-order / by-range respectively) and found correct. DescribeCommands/DescribeDeployments-equivalent filters (statuscode/completed on ListJobs) re-verified honored. An existing test (TestSortedListJobs) was asserting the JobID-sort bug as correct behavior; fixed to assert CreationDate order instead.
 ops:
   CreateVault:            {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeVault:          {wire: ok, errors: ok, state: ok, persist: ok, note: "GAP (disclosed 2026-09-07, gopherstack-x8em, not fixed this pass -- separate from DeleteVault's fix, filed separately): NumberOfArchives/SizeInBytes/LastInventoryDate are documented as-of-last-inventory (types.DescribeVaultOutput doc: 'The number of archives in the vault as of the last inventory date... returns null if an inventory has not yet run'), but this backend reports the LIVE v.NumberOfArchives/v.SizeInBytes counters instead. DeleteVault's fix added a separate NumberOfArchivesAtLastInventory field for its own check; DescribeVault was left untouched -- reusing that field here is a distinct, larger change (would also need SizeInBytes-at-inventory and null-vs-zero handling) out of this pass's scope."}
+  DescribeVault:          {wire: ok, errors: ok, state: ok, persist: ok, note: "NumberOfArchives/SizeInBytes/LastInventoryDate are as-of-last-inventory (null before any inventory); TestDescribeVault_ArchiveStatsAsOfInventory"}
   DeleteVault:            {wire: ok, errors: ok, state: ok, persist: ok, note: "cascade-deletes jobs/uploads/lock; blocks per api_op_DeleteVault.go's documented as-of-last-inventory rule (archives at last inventory OR any write since), not the live archive count; this pass fixed a leak where cascade-deleting a vault's multipart uploads dropped the store.Table row but orphaned the raw multipartParts map entry (see Notes). gopherstack-ygfk: consults the vault's lock policy (checkVaultLockDelete) before deleting -- see families: vault_lock_enforcement. FIXED 2026-09-07 (gopherstack-x8em): was checking len(v.Archives) (live count) instead -- see Notes."}
   ListVaults:             {wire: ok, errors: ok, state: ok, persist: ok, note: "marker/limit pagination verified vs SDK Marker/VaultList shape. FIXED 2026-08-29 (gopherstack-6flj constrained-parameter sweep): an unset limit returned every vault instead of defaulting to the documented 10 -- see Notes."}
   UploadArchive:          {wire: ok, errors: ok, state: ok, persist: ok, note: "ArchiveId/Checksum/Location are header-only on real wire (confirmed via awsRestjson1_deserializeOpHttpBindingsUploadArchiveOutput); gopherstack sets all three headers correctly, body is a harmless bonus"}
@@ -555,12 +555,8 @@ background inventory process and none was invented; `LastInventoryDate`
 only advances on an explicit `InitiateJob(inventory-retrieval)` call, same
 as before this fix.
 
-Separate, disclosed, NOT fixed this pass: `DescribeVault` reports the LIVE
-`NumberOfArchives`/`SizeInBytes` where AWS documents as-of-inventory values
--- see the `DescribeVault` ops row. Filed separately; not the same one-line
-change as `DeleteVault`'s fix (that used a new field purpose-built for the
-delete check; `DescribeVault` would need its own as-of-inventory
-size/count/null handling).
+`DescribeVault` now reports as-of-inventory `NumberOfArchives`/`SizeInBytes`
+(`TestDescribeVault_ArchiveStatsAsOfInventory`).
 
 Pre-existing tests corrected (2, strengthened not weakened):
 `TestDeleteVault_RejectsNonEmpty` and `TestDeleteVault_NotEmpty_Returns409`
@@ -992,3 +988,11 @@ pre-existing tests). `golangci-lint run --new-from-rev=HEAD` 0 issues.
 `go run ./cmd/paritylint` 0 FAIL throughout. No `snapshot_inventory.json`
 changes (the fix changes only the error path, not any persisted struct
 shape). No version bump.
+
+## 2026-10-04 (gopherstack-jrfzw multi-region)
+
+glacier is region-isolated: vaults, archives, jobs and multipart uploads live per region; each region's Select jobs write to the shared S3. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/glacier`. Limitation: the dashboard shows the home region only.
+
+## 2026-10-04 (reqfielddiff tier-1 pass)
+
+`GetJobOutput.Range` re-confirmed as a tool false positive: `serveWithRange` reads the `Range` request header (handler_jobs.go:389) and returns 206 with Content-Range.

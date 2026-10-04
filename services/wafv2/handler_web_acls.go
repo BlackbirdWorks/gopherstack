@@ -98,7 +98,7 @@ func (h *Handler) handleCreateWebACL(ctx context.Context, body []byte) ([]byte, 
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "wafv2: created web ACL", "name", w.Name, "id", w.ID)
 
-	arnStr := h.Backend.WebACLARN(w.Name, w.ID, w.Scope)
+	arnStr := w.ARN
 
 	return json.Marshal(map[string]any{
 		keySummary: map[string]string{
@@ -177,7 +177,7 @@ func (h *Handler) handleGetWebACL(ctx context.Context, body []byte) ([]byte, err
 
 // marshalWebACL builds the canonical WebACL JSON response.
 func (h *Handler) marshalWebACL(ctx context.Context, w *WebACL) ([]byte, error) {
-	arnStr := h.Backend.WebACLARN(w.Name, w.ID, w.Scope)
+	arnStr := w.ARN
 	visConfig := parseVisibilityConfig(w.VisibilityConfig, w.Name)
 
 	// Capacity ("web ACL capacity units... currently being used by this web
@@ -389,7 +389,7 @@ func (h *Handler) handleListWebACLs(ctx context.Context, body []byte) ([]byte, e
 			return map[string]string{
 				"Id":           w.ID,
 				keyName:        w.Name,
-				keyARN:         h.Backend.WebACLARN(w.Name, w.ID, w.Scope),
+				keyARN:         w.ARN,
 				keyLockToken:   w.LockToken,
 				keyDescription: w.Description,
 			}

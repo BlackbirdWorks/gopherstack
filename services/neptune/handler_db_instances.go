@@ -88,8 +88,11 @@ func (h *Handler) handleCreateDBInstance(ctx context.Context, vals url.Values) (
 
 func (h *Handler) handleDescribeDBInstances(ctx context.Context, vals url.Values) (any, error) {
 	id := vals.Get("DBInstanceIdentifier")
-	clusterFilter := parseNeptuneFilterValues(vals, "db-cluster-id")
-	instances, err := h.Backend.DescribeDBInstances(ctx, id, clusterFilter)
+	filters := DBInstanceFilters{
+		ClusterID: parseNeptuneFilterValues(vals, "db-cluster-id"),
+		Engine:    parseNeptuneFilterValues(vals, "engine"),
+	}
+	instances, err := h.Backend.DescribeDBInstances(ctx, id, filters)
 	if err != nil {
 		return nil, err
 	}
@@ -409,7 +412,7 @@ func (h *Handler) handleDescribeValidDBInstanceModifications(
 	if id == "" {
 		return nil, fmt.Errorf("%w: DBInstanceIdentifier is required", ErrInstanceNotFound)
 	}
-	if _, err := h.Backend.DescribeDBInstances(ctx, id, nil); err != nil {
+	if _, err := h.Backend.DescribeDBInstances(ctx, id, DBInstanceFilters{}); err != nil {
 		return nil, err
 	}
 

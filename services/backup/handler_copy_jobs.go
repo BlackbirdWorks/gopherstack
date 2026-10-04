@@ -50,6 +50,7 @@ func copyJobToJSON(j *CopyJob) map[string]any {
 	setOptionalStr(resp, "ResourceType", j.ResourceType)
 	setOptionalStr(resp, "IamRoleArn", j.IAMRoleArn)
 	setOptionalStr(resp, "SourceBackupVaultArn", j.SourceBackupVaultArn)
+	setOptionalStr(resp, "SourceRecoveryPointArn", j.SourceRecoveryPointArn)
 	setOptionalStr(resp, "DestinationBackupVaultArn", j.DestinationBackupVaultArn)
 	setOptionalStr(resp, "DestinationRecoveryPointArn", j.DestinationRecoveryPointArn)
 	if j.CompletionDate != nil {
@@ -81,7 +82,7 @@ func (h *Handler) handleDescribeCopyJob(c *echo.Context, copyJobID string) error
 func (h *Handler) dispatchCopyJobExtraOps(c *echo.Context, route backupRoute, body []byte) (bool, error) {
 	switch route.operation {
 	case opListCopyJobSummaries:
-		summaries := h.Backend.ListCopyJobSummaries()
+		summaries := h.Backend.ListCopyJobSummaries(NewJobSummaryFilter(c.Request().URL.Query()))
 
 		return true, c.JSON(http.StatusOK, map[string]any{"CopyJobSummaries": summaries})
 	case opStartCopyJob:

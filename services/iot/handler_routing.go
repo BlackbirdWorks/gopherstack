@@ -26,9 +26,19 @@ func matchIoTPath(method, path, svc string) bool {
 		return matchIoTJobsShape(method, path) && (svc == "" || svc == iotServiceName)
 	}
 
+	if isIoTWirelessSharedPath(path) && svc != "" && svc != iotServiceName {
+		return false
+	}
+
 	return matchCoreIoTPath(path) || matchNewIoTPath(path) || matchBatch4Path(path) ||
 		matchFinalOpsPath(path) || matchTaggableResourcePath(path) || matchCACertPath(path) ||
 		matchPolicyPrincipalPath(path) || matchCertificateTransferPath(path) || matchMiscUnroutedPath(path)
+}
+
+// isIoTWirelessSharedPath reports paths IoT Wireless also serves (destinations, event-configurations, tags).
+func isIoTWirelessSharedPath(path string) bool {
+	return path == pathDestinations || strings.HasPrefix(path, pathDestinations+"/") ||
+		path == pathEventConfigs || path == pathTags
 }
 
 // isJobsFamilyPath reports whether path is IoT's bare "/jobs" or any

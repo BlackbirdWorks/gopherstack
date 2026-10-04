@@ -6,6 +6,8 @@ import "errors"
 var (
 	ErrDomainNotFound      = errors.New("ResourceNotFoundException")
 	ErrDomainAlreadyExists = errors.New("ResourceAlreadyExistsException")
+	// ErrChangeNotFound is returned by DescribeDomainChangeProgress for an unknown ChangeId.
+	ErrChangeNotFound = errors.New("ResourceNotFoundException")
 	// ErrValidation is returned for invalid or missing input parameters.
 	ErrValidation = errors.New("ValidationException")
 	// ErrInvalidParameter is an alias for ErrValidation kept for compatibility.

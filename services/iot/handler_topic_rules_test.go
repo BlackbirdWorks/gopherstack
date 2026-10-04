@@ -451,7 +451,7 @@ func TestHandler_ReplaceTopicRule(t *testing.T) {
 
 	resp := doRequest(t, h, http.MethodPatch, "/rules/replace-rule", map[string]any{
 		"topicRulePayload": map[string]any{
-			"sql":         "SELECT new",
+			"sql":         "SELECT new FROM 'a/b'",
 			"description": "updated",
 		},
 	})
@@ -459,7 +459,7 @@ func TestHandler_ReplaceTopicRule(t *testing.T) {
 
 	r, err := backend.GetTopicRule("replace-rule")
 	require.NoError(t, err)
-	assert.Equal(t, "SELECT new", r.SQL)
+	assert.Equal(t, "SELECT new FROM 'a/b'", r.SQL)
 	assert.Equal(t, "updated", r.Description)
 }
 

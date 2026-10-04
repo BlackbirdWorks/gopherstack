@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 	"github.com/blackbirdworks/gopherstack/pkgs/worker"
@@ -40,6 +41,7 @@ func NewJanitor(backend *InMemoryBackend, interval time.Duration) *Janitor {
 func (j *Janitor) Run(ctx context.Context) {
 	g := worker.NewGroup(ctx, "ssm")
 	g.Ticker("CommandSweeper", j.Interval, j.TaskTimeout, j.sweepExpiredCommands)
+	g.Ticker("CommandHistorySweeper", j.Interval, j.TaskTimeout, j.sweepExpiredCommandHistory)
 	g.Ticker("ParameterExpirer", j.Interval, j.TaskTimeout, j.sweepExpiredParameters)
 	g.Ticker("SessionSweeper", j.Interval, j.TaskTimeout, j.sweepTerminatedSessions)
 	g.Ticker("ParameterPolicyNotifier", j.Interval, j.TaskTimeout, j.sweepParameterPolicyNotifications)
@@ -57,6 +59,7 @@ func (j *Janitor) Run(ctx context.Context) {
 // policy-notification dedupe state) is deleted.
 func (j *Janitor) SweepOnce(ctx context.Context) {
 	j.sweepExpiredCommands(ctx)
+	j.sweepExpiredCommandHistory(ctx)
 	j.sweepParameterPolicyNotifications(ctx)
 	j.sweepExpiredParameters(ctx)
 	j.sweepTerminatedSessions(ctx)
@@ -191,6 +194,54 @@ func (j *Janitor) sweepExpiredCommands(ctx context.Context) {
 	}
 }
 
+// sweepExpiredCommandHistory evicts terminal commands whose completion is
+// older than commandHistoryRetentionSecs, independent of ExpiresAfter.
+func (j *Janitor) sweepExpiredCommandHistory(ctx context.Context) {
+	b := j.Backend
+	now := UnixTimeFloat(time.Now())
+	cutoff := now - b.commandHistoryRetentionSecs
+
+	b.mu.Lock("SSMJanitorCommandHistory")
+
+	type expiredCmd struct {
+		region string
+		id     string
+	}
+	var expired []expiredCmd
+
+	for region, commands := range b.commands {
+		b.materializeCommandsLocked(region, now)
+
+		for _, cmd := range commands.All() {
+			if cmd.terminalAt > 0 && cmd.terminalAt < cutoff {
+				expired = append(expired, expiredCmd{region: region, id: cmd.CommandID})
+			}
+		}
+	}
+
+	regions := make(map[string]struct{}, len(expired))
+	for _, e := range expired {
+		b.commands[e.region].Delete(e.id)
+		delete(b.commandInvocations[e.region], e.id)
+		regions[e.region] = struct{}{}
+	}
+
+	for region := range regions {
+		cleanupEmptyInnerMap(b.commandInvocations, region)
+	}
+
+	b.mu.Unlock()
+
+	count := len(expired)
+
+	telemetry.RecordWorkerItems("ssm", "CommandHistorySweeper", count)
+	telemetry.RecordWorkerTask("ssm", "CommandHistorySweeper", "success")
+
+	if count > 0 {
+		logger.Load(ctx).InfoContext(ctx, "SSM janitor: expired command history evicted", "count", count)
+	}
+}
+
 // parameterExpirationPolicy is the JSON shape of an Expiration policy attached
 // to an SSM parameter via PutParameter.Policies.
 // AWS policy text format:
@@ -303,7 +354,8 @@ func (j *Janitor) sweepParameterPolicyNotifications(ctx context.Context) {
 	count := 0
 
 	for _, d := range due {
-		if err := notifier.NotifyParameterPolicyAction(ctx, d.parameterName, d.policyType); err != nil {
+		rctx := awsmeta.WithRegion(ctx, d.region)
+		if err := notifier.NotifyParameterPolicyAction(rctx, d.parameterName, d.policyType); err != nil {
 			logger.Load(ctx).WarnContext(ctx, "SSM janitor: parameter policy notification failed",
 				"parameter", d.parameterName, "policyType", d.policyType, "region", d.region, "error", err)
 

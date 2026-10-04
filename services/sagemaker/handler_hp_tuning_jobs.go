@@ -149,6 +149,10 @@ func (h *Handler) handleDescribeHyperParameterTuningJob(
 		resp["TrainingJobDefinitions"] = j.TrainingJobDefinitions
 	}
 
+	if j.HyperParameterTuningEndTime != nil {
+		resp["HyperParameterTuningEndTime"] = epochSeconds(*j.HyperParameterTuningEndTime)
+	}
+
 	return json.Marshal(resp)
 }
 
@@ -162,6 +166,7 @@ type hpTuningJobSummary struct {
 	ResourceLimits                HPResourceLimits            `json:"ResourceLimits"`
 	CreationTime                  float64                     `json:"CreationTime"`
 	LastModifiedTime              float64                     `json:"LastModifiedTime"`
+	HyperParameterTuningEndTime   float64                     `json:"HyperParameterTuningEndTime,omitempty"`
 }
 
 // listHPTuningJobsInput mirrors ListHyperParameterTuningJobsInput
@@ -200,7 +205,7 @@ func (h *Handler) handleListHyperParameterTuningJobs(ctx context.Context, body [
 	summaries := make([]hpTuningJobSummary, 0, len(jobs))
 
 	for _, j := range jobs {
-		summaries = append(summaries, hpTuningJobSummary{
+		summary := hpTuningJobSummary{
 			HyperParameterTuningJobName:   j.HyperParameterTuningJobName,
 			HyperParameterTuningJobArn:    j.HyperParameterTuningJobArn,
 			HyperParameterTuningJobStatus: j.HyperParameterTuningJobStatus,
@@ -210,7 +215,12 @@ func (h *Handler) handleListHyperParameterTuningJobs(ctx context.Context, body [
 			TrainingJobStatusCounters:     j.TrainingJobStatusCounters,
 			CreationTime:                  epochSeconds(j.CreationTime),
 			LastModifiedTime:              epochSeconds(j.LastModifiedTime),
-		})
+		}
+		if j.HyperParameterTuningEndTime != nil {
+			summary.HyperParameterTuningEndTime = epochSeconds(*j.HyperParameterTuningEndTime)
+		}
+
+		summaries = append(summaries, summary)
 	}
 
 	resp := map[string]any{"HyperParameterTuningJobSummaries": summaries}

@@ -166,22 +166,24 @@ func toXMLClusterSnapshot(snap *DBClusterSnapshot) xmlDBClusterSnapshot {
 		Port:                        snap.Port,
 		PercentProgress:             snap.PercentProgress,
 		StorageEncrypted:            snap.StorageEncrypted,
+		StorageType:                 snap.StorageType,
 	}
 }
 
 type xmlDBClusterSnapshot struct {
-	DBClusterSnapshotIdentifier string                  `xml:"DBClusterSnapshotIdentifier"`
-	DBClusterIdentifier         string                  `xml:"DBClusterIdentifier"`
+	ClusterCreateTime           string                  `xml:"ClusterCreateTime,omitempty"`
+	EngineVersion               string                  `xml:"EngineVersion,omitempty"`
 	DBClusterSnapshotArn        string                  `xml:"DBClusterSnapshotArn,omitempty"`
 	SourceDBClusterSnapshotArn  string                  `xml:"SourceDBClusterSnapshotArn,omitempty"`
 	Engine                      string                  `xml:"Engine"`
 	Status                      string                  `xml:"Status"`
 	SnapshotType                string                  `xml:"SnapshotType,omitempty"`
 	SnapshotCreateTime          string                  `xml:"SnapshotCreateTime,omitempty"`
-	ClusterCreateTime           string                  `xml:"ClusterCreateTime,omitempty"`
-	EngineVersion               string                  `xml:"EngineVersion,omitempty"`
+	DBClusterIdentifier         string                  `xml:"DBClusterIdentifier"`
 	KmsKeyID                    string                  `xml:"KmsKeyId,omitempty"`
+	DBClusterSnapshotIdentifier string                  `xml:"DBClusterSnapshotIdentifier"`
 	MasterUsername              string                  `xml:"MasterUsername,omitempty"`
+	StorageType                 string                  `xml:"StorageType,omitempty"`
 	AvailabilityZones           xmlAvailabilityZoneList `xml:"AvailabilityZones"`
 	Port                        int                     `xml:"Port"`
 	PercentProgress             int                     `xml:"PercentProgress"`

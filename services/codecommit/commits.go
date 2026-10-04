@@ -1,7 +1,6 @@
 package codecommit
 
 import (
-	"bytes"
 	"fmt"
 	"sort"
 	"strings"
@@ -57,35 +56,14 @@ func parentFolder(filePath string) string {
 	return filePath[:idx]
 }
 
-// folderHasFilesLocked reports whether any file in repoFiles still lives
-// under folder (as an exact match or a "/"-prefixed descendant). Caller must
-// hold at least the read lock.
-func folderHasFilesLocked(repoFiles []*File, folder string) bool {
-	for _, f := range repoFiles {
-		if pathMatchesFilter(f.FilePath, folder) {
-			return true
-		}
-	}
-
-	return false
-}
-
-// keepEmptyFoldersLocked creates a .gitkeep marker under each folder left
-// empty by deleteFiles, when keepEmptyFolders is true -- matching real
-// CodeCommit's documented default (false: empty folders are deleted, i.e.
-// left with no marker and so absent from GetFolder) versus true (a .gitkeep
-// keeps the folder appearing). The marker is not reported back via
-// blobIDsAdded: real CreateCommitOutput.FilesAdded/DeleteFileOutput report
-// only the files the caller explicitly changed, not this internal
-// side effect. Caller must hold the write lock.
+// keepEmptyFoldersLocked adds a .gitkeep (tree and file view) to each folder a
+// deletion emptied when keepEmptyFolders is set; it is not reported as added.
 func (b *InMemoryBackend) keepEmptyFoldersLocked(
-	repoName, commitID string, deleteFiles []string, keepEmptyFolders bool,
+	repoName, commitID string, deleteFiles []string, keepEmptyFolders bool, tree map[string]TreeEntry,
 ) {
 	if !keepEmptyFolders {
 		return
 	}
-
-	repoFiles := b.filesByRepo.Get(repoName)
 
 	seen := make(map[string]bool, len(deleteFiles))
 
@@ -97,12 +75,14 @@ func (b *InMemoryBackend) keepEmptyFoldersLocked(
 
 		seen[folder] = true
 
-		if folderHasFilesLocked(repoFiles, folder) {
+		if treeHasUnder(tree, folder) {
 			continue
 		}
 
 		keepPath := folder + "/" + gitkeepFileName
 		blobID := uuid.NewString()
+		b.storeBlobLocked(repoName, blobID, []byte{})
+		tree[keepPath] = TreeEntry{BlobID: blobID, Mode: fileModeDefault}
 		b.files.Put(&File{
 			FilePath:        keepPath,
 			CommitSpecifier: commitID,
@@ -124,6 +104,7 @@ func (b *InMemoryBackend) keepEmptyFoldersLocked(
 // hold the write lock.
 func (b *InMemoryBackend) applyFileChanges(
 	repoName, commitID string, putFiles []PutFileEntry, deleteFiles []string, keepEmptyFolders bool,
+	tree map[string]TreeEntry,
 ) (map[string]string, map[string]string) {
 	blobIDsAdded := make(map[string]string, len(putFiles))
 	blobIDsDeleted := make(map[string]string, len(deleteFiles))
@@ -143,6 +124,8 @@ func (b *InMemoryBackend) applyFileChanges(
 			RepoName:        repoName,
 		})
 		b.recordFileHistory(repoName, pf.FilePath, commitID, blobID)
+		b.storeBlobLocked(repoName, blobID, pf.FileContent)
+		tree[pf.FilePath] = TreeEntry{BlobID: blobID, Mode: fileMode}
 		blobIDsAdded[pf.FilePath] = blobID
 	}
 	for _, fp := range deleteFiles {
@@ -151,11 +134,12 @@ func (b *InMemoryBackend) applyFileChanges(
 			removedBlobID = existing.BlobID
 		}
 		b.files.Delete(fileKey(repoName, fp))
+		delete(tree, fp)
 		b.recordFileHistory(repoName, fp, commitID, removedBlobID)
 		blobIDsDeleted[fp] = removedBlobID
 	}
 
-	b.keepEmptyFoldersLocked(repoName, commitID, deleteFiles, keepEmptyFolders)
+	b.keepEmptyFoldersLocked(repoName, commitID, deleteFiles, keepEmptyFolders, tree)
 
 	return blobIDsAdded, blobIDsDeleted
 }
@@ -199,9 +183,10 @@ func (b *InMemoryBackend) CreateCommit(
 	// what's already at that path with NoChangeException (CreateCommit's own
 	// declared error set has no SameFileContentException; that's PutFile's),
 	// checked before any mutation so a rejected commit leaves no partial state.
+	tree := b.parentTreeLocked(repositoryName, currentTip)
+
 	for _, pf := range putFiles {
-		if existing, ok := b.files.Get(fileKey(repositoryName, pf.FilePath)); ok &&
-			bytes.Equal(existing.FileContent, pf.FileContent) {
+		if b.treeFileContentEquals(repositoryName, tree, pf.FilePath, pf.FileContent) {
 			return nil, nil, nil, fmt.Errorf(
 				"%w: file %s content is unchanged", ErrNoChange, pf.FilePath,
 			)
@@ -235,8 +220,9 @@ func (b *InMemoryBackend) CreateCommit(
 
 	// Apply putFiles and deleteFiles to the file store.
 	blobIDsAdded, blobIDsDeleted := b.applyFileChanges(
-		repositoryName, commitID, putFiles, deleteFiles, keepEmptyFolders,
+		repositoryName, commitID, putFiles, deleteFiles, keepEmptyFolders, tree,
 	)
+	setCommitTree(commit, tree)
 
 	// Update the branch tip to the new commit.
 	if branchName != "" {
@@ -330,7 +316,7 @@ const getDifferencesDefaultMaxResults = 100
 // is empty, returns all files in afterCommitSpecifier as ADDed. nextToken and
 // maxResults implement AWS's cursor-based pagination for this op.
 func (b *InMemoryBackend) GetDifferences(
-	repoName, afterCommitSpecifier, _ /* beforeCommitSpecifier */, nextToken string, maxResults int,
+	repoName, afterCommitSpecifier, beforeCommitSpecifier, nextToken string, maxResults int,
 	afterPath string,
 ) (page.Page[FileDifference], error) {
 	if err := page.ValidateToken(nextToken); err != nil {
@@ -342,6 +328,10 @@ func (b *InMemoryBackend) GetDifferences(
 
 	if !b.repositories.Has(repoName) {
 		return page.Page[FileDifference]{}, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
+	}
+
+	if diffs, ok := b.treeDifferencesLocked(repoName, beforeCommitSpecifier, afterCommitSpecifier, afterPath); ok {
+		return page.New(diffs, nextToken, maxResults, getDifferencesDefaultMaxResults), nil
 	}
 
 	repoFiles := b.filesByRepo.Get(repoName)
@@ -385,4 +375,52 @@ func (b *InMemoryBackend) GetDifferences(
 	})
 
 	return page.New(diffs, nextToken, maxResults, getDifferencesDefaultMaxResults), nil
+}
+
+// treeDifferencesLocked diffs the two commits' trees (all of after's files
+// when before is empty); ok is false when either tree is unavailable.
+func (b *InMemoryBackend) treeDifferencesLocked(repo, before, after, path string) ([]FileDifference, bool) {
+	_, afterTree, ok := b.specTreeLocked(repo, after)
+	if !ok {
+		return nil, false
+	}
+
+	beforeTree := map[string]TreeEntry{}
+
+	if before != "" {
+		if _, beforeTree, ok = b.specTreeLocked(repo, before); !ok {
+			return nil, false
+		}
+	}
+
+	var diffs []FileDifference
+
+	for _, p := range unionPaths(beforeTree, afterTree) {
+		if !pathMatchesFilter(p, path) {
+			continue
+		}
+
+		bt, hadBefore := beforeTree[p]
+		at, hasAfter := afterTree[p]
+
+		switch {
+		case hadBefore && hasAfter && bt == at:
+			continue
+		case !hadBefore:
+			diffs = append(diffs, FileDifference{AfterBlob: blobInfo(p, at), ChangeType: "A"})
+		case !hasAfter:
+			diffs = append(diffs, FileDifference{BeforeBlob: blobInfo(p, bt), ChangeType: "D"})
+		default:
+			diffs = append(
+				diffs,
+				FileDifference{BeforeBlob: blobInfo(p, bt), AfterBlob: blobInfo(p, at), ChangeType: "M"},
+			)
+		}
+	}
+
+	return diffs, true
+}
+
+func blobInfo(path string, e TreeEntry) *BlobInfo {
+	return &BlobInfo{BlobID: e.BlobID, Path: path, Mode: modeOrDefault(e.Mode)}
 }
