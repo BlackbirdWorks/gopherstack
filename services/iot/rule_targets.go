@@ -79,6 +79,11 @@ type ActionTargets struct {
 	Logs          LogEventPutter
 	StepFunctions ExecutionStarter
 	Analytics     ChannelMessagePutter
+	DynamoReader  DynamoItemReader
+	Secrets       SecretReader
+	Shadows       ShadowReader
+	Lambda        LambdaRequester
+	Credentials   RoleCredentialIssuer
 }
 
 // SetActionTargets wires the services non-SQS/Lambda rule actions deliver to.

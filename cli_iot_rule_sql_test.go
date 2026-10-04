@@ -122,7 +122,7 @@ func TestIoTRuleSQLParseException(t *testing.T) {
 		name string
 		sql  string
 	}{
-		{name: "missing_from", sql: "SELECT *"},
+		{name: "junk_after_select", sql: "SELECT * junk"},
 		{name: "unknown_function", sql: "SELECT nosuchfn(a) FROM 'a/b'"},
 		{name: "bad_topic_filter", sql: "SELECT * FROM 'a/#/b'"},
 		{name: "unbalanced", sql: "SELECT (a FROM 'a/b'"},

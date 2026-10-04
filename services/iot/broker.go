@@ -5,9 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net"
+	"strings"
 	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
 	mqtt "github.com/mochi-mqtt/server/v2"
 	"github.com/mochi-mqtt/server/v2/hooks/auth"
 	"github.com/mochi-mqtt/server/v2/listeners"
@@ -19,6 +22,9 @@ import (
 
 // mqttV5 is the MQTT protocol version number that carries DISCONNECT reason codes.
 const mqttV5 = 5
+
+// basicIngestPrefix starts every Basic Ingest topic: $aws/rules/<ruleName>/<topic>.
+const basicIngestPrefix = "$aws/rules/"
 
 // ErrBrokerNotStarted is returned when a publish is attempted before the broker is started.
 var ErrBrokerNotStarted = errors.New("mqtt broker not started")
@@ -345,29 +351,112 @@ func (h *ruleHook) Provides(b byte) bool {
 }
 
 // OnPublish is called for every MQTT message published to the broker.
-func (h *ruleHook) OnPublish(_ *mqtt.Client, pk packets.Packet) (packets.Packet, error) {
+func (h *ruleHook) OnPublish(cl *mqtt.Client, pk packets.Packet) (packets.Packet, error) {
 	dispatcher := h.backend.GetDispatcher()
 	log := logger.Load(h.ctx)
 	hops := takeHops(&pk)
 	received := time.Now()
+	ruleName, ingestTopic, ingest := basicIngestTopic(pk.TopicName)
+
+	known := false
 
 	for _, rule := range h.allRules() {
+		if ingest && rule.RuleName != ruleName {
+			continue
+		}
+
+		known = true
+
 		region, account := ruleRegionAccount(rule.ARN)
 		msg := &ruleMessage{
 			received: received, topic: pk.TopicName, clientID: publisherID(pk.Origin),
 			region: region, account: account, payload: pk.Payload, original: pk.Payload, hops: hops,
+			hook: h, props: packetProps(pk), sourceIP: sourceIPOf(cl), traceID: traceIDOf(pk),
+		}
+
+		if ingest {
+			msg.topic, msg.ingest = ingestTopic, true
 		}
 
 		if !rule.fire(msg) {
+			if msg.fatal != nil {
+				log.Warn("iot rule sql function failed", "rule", rule.RuleName, "reason", msg.fatal.Error())
+			}
+
 			continue
 		}
 
-		log.Info("iot rule matched", "rule", rule.RuleName, "topic", pk.TopicName)
+		log.Info("iot rule matched", "rule", rule.RuleName)
 
 		h.dispatchActions(rule, dispatcher, msg)
 	}
 
+	if ingest {
+		if !known {
+			log.Warn("iot basic ingest names no rule")
+		}
+
+		pk.FixedHeader.Retain = false
+
+		return pk, packets.CodeSuccessIgnore
+	}
+
 	return pk, nil
+}
+
+// basicIngestTopic splits $aws/rules/<rule>/<topic> into the rule name and the topic the rule sees.
+func basicIngestTopic(topic string) (string, string, bool) {
+	rest, ok := strings.CutPrefix(topic, basicIngestPrefix)
+	if !ok {
+		return "", "", false
+	}
+
+	name, remainder, _ := strings.Cut(rest, "/")
+	if name == "" {
+		return "", "", false
+	}
+
+	return name, remainder, true
+}
+
+func packetProps(pk packets.Packet) *mqttProps {
+	if pk.Origin == mqtt.InlineClientId {
+		return nil
+	}
+
+	p := &mqttProps{
+		contentType: pk.Properties.ContentType, responseTopic: pk.Properties.ResponseTopic,
+		correlation: pk.Properties.CorrelationData, utf8: pk.Properties.PayloadFormat == 1,
+	}
+
+	for _, u := range pk.Properties.User {
+		p.user = append(p.user, userProp{key: u.Key, val: u.Val})
+	}
+
+	return p
+}
+
+// sourceIPOf is the publishing client's remote address without its port.
+func sourceIPOf(cl *mqtt.Client) string {
+	if cl == nil || cl.Net.Remote == "" {
+		return ""
+	}
+
+	host, _, err := net.SplitHostPort(cl.Net.Remote)
+	if err != nil {
+		return ""
+	}
+
+	return host
+}
+
+// traceIDOf mints a trace id for messages a device published over MQTT.
+func traceIDOf(pk packets.Packet) string {
+	if pk.Origin == mqtt.InlineClientId {
+		return ""
+	}
+
+	return uuid.NewString()
 }
 
 func publisherID(origin string) string {

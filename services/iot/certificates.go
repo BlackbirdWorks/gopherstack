@@ -58,9 +58,9 @@ const certValidityPeriod = 365 * 24 * time.Hour
 // rotation operations; this backend increments it on UpdateCertificate.
 const initialCustomerVersion = 1
 
-// randomHex generates a cryptographically random hex string of n bytes (2n characters).
-func randomHex(n int) string {
-	b := make([]byte, n)
+// randomHex generates a cryptographically random hex string of certIDHexLen bytes.
+func randomHex() string {
+	b := make([]byte, certIDHexLen)
 	if _, err := rand.Read(b); err != nil {
 		panic("iot: randomHex: crypto/rand failed: " + err.Error())
 	}
@@ -124,7 +124,7 @@ func (b *InMemoryBackend) AddCACertificateInternal(c CACertificate) {
 
 // newCertificate creates a new Certificate with a random 64-hex-char ID.
 func (b *InMemoryBackend) newCertificate(pem, status, mode string) *Certificate {
-	certID := randomHex(certIDHexLen)
+	certID := randomHex()
 	arn := arn.Build("iot", b.region, b.accountID, fmt.Sprintf("cert/%s", certID))
 	now := time.Now()
 

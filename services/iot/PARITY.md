@@ -292,8 +292,8 @@ items_still_open:
   - "ClientRequestToken idempotency (CreateAuditSuppression/CreateCustomMetric/CreateDimension/StartAuditMitigationActionsTask/StartDetectMitigationActionsTask) is not honored: the pinned SDK docs contradict each other (CreateCustomMetric: a different token on an existing name errors; CreateDimension/AuditSuppression/Start*Task: the same token errors) and name no exception type, so any replay semantics would be invented. Duplicate names/taskIds already return ResourceAlreadyExists/TaskAlreadyExists."
   - "DeleteOTAUpdate's ForceDeleteAWSJob/DeleteStream are not honored: CreateOTAUpdate fabricates the AWS job id and never creates a Job or an OTA-owned stream (needs a real OTA job/stream pipeline), and the SDK names no exception for the non-terminal-job case."
   - "Needs an unmodeled device fleet (no job agent, no StartCommandExecution, no connection tracking): GetThingConnectivityData IncludeSocketInformation and socket fields; Job CompletedAt/IsConcurrent/ThingGroupId on ListJobs/DescribeJob (jobs never reach COMPLETED); CommandExecution StartedAt/CompletedAt; TopicRuleDestination StatusReason (no failure path)."
-  - "Rule actions http, timestream, kafka, location, openSearch, iotEvents, iotSiteWise, influxDB are stored verbatim but not executed (http needs the destination confirmation workflow; the others have no data-plane backend). Kinesis, Firehose, S3, SNS and Step Functions deliveries use the home-region backend; DynamoDB, CloudWatch and CloudWatch Logs honour the rule's region. errorAction envelope omits cloudwatchTraceId and clientId."
-  - "Rule SQL engine (sql_*.go) not modeled: SET variables, md2(), parse_time/time_to_epoch, transform(), aws_lambda/get_dynamodb/get_thing_shadow/get_registry_data/get_secret/get_mqtt_property/get_user_properties/principal/traceid/sourceip and decode(...,'proto') (unknown or unsupported functions fail CreateTopicRule/ReplaceTopicRule with SqlParseException); Int/Int division returns a Decimal when inexact; unaliased non-field SELECT items are keyed by their source text; Basic Ingest $aws/rules/ topics are not unwrapped."
+  - "Rule actions timestream, kafka, location, openSearch, iotEvents, iotSiteWise, influxDB are stored verbatim but not executed (no data-plane backend). The http action runs but not enableBatching/batchConfig (the action fails with an error rather than sending singly). Kinesis, Firehose, S3, SNS and Step Functions deliveries use the home-region backend; DynamoDB, CloudWatch and CloudWatch Logs honour the rule's region. errorAction envelope omits cloudwatchTraceId and clientId."
+  - "Rule SQL engine gaps: md2(), transform(), decode(...,'proto'), get_thing_shadow reads the single region-agnostic shadow store, get_secret is not cached for 15 minutes, principal() is always Undefined (no certificate/IAM identity reaches the broker), MQTT5 properties (get_mqtt_property, get_user_properties) are Undefined for MQTT 3.1.1 publishers; Int/Int division returns a Decimal when inexact; unaliased non-field SELECT items are keyed by their source text; a bare unaliased @variable is keyed by its source text."
 deferred: []
   # gopherstack-srzb (job_and_jobtemplate + device_defender consolidated tracking issue) and
   # the security_profiles item that superseded it as pass #3's sole open item are both closed
@@ -302,6 +302,43 @@ leaks: {status: found_and_fixed, note: "FOUND: Handler.StartWorker launched the 
 ---
 
 ## Notes
+
+## 2026-10-03: HTTP action, Basic Ingest, service-calling SQL functions
+
+- HTTP action (iot-https-rule-action, iot-http-action-destination): the action POSTs the
+  projected payload to the expanded url with templated header values; Content-Type defaults
+  to application/json for JSON payloads, else application/octet-stream, and a content-type
+  header overrides it. It runs only when an ENABLED http destination's confirmationUrl is a
+  prefix of the url; otherwise it fails into the errorAction. Retries: at most 3 tries on 429
+  and 5xx, none after a response over 16,384 bytes; 10s total timeout, 128 KiB body cap,
+  redirects are not followed, payloads are never logged. auth.sigv4 signs with credentials
+  issued to iot.amazonaws.com for roleArn (STS AssumeRoleForService, trust-checked) under
+  --enforce-iam, and with the default test key when enforcement is off. enableBatching is
+  rejected with an action error.
+- Destinations: Create (http) mints a token and POSTs the documented confirmation request
+  (x-amz-rules-engine-message-type/destination-arn headers, JSON arn/confirmationToken/enableUrl/
+  messageType, ?confirmationToken= query) to the confirmationUrl in the background; a failed
+  request sets ERROR with statusReason. ConfirmTopicRuleDestination or GET enableUrl moves
+  IN_PROGRESS to ENABLED; UpdateTopicRuleDestination to IN_PROGRESS sends a new token.
+  CreateTopicRule/ReplaceTopicRule create the implied destination (hardcoded url or
+  non-templated confirmationUrl) and reject a confirmationUrl that is not a prefix of url or a
+  templated url without one. enableUrl is built from the address the client reached the
+  service on. statusReason is persisted (additive inventory rows, no version bump).
+- Basic Ingest (iot-basic-ingest): a publish to $aws/rules/<rule>/<topic> runs only that rule
+  with the remainder as topic() and FROM input, is acked but not delivered to subscribers or
+  retained, and a rule without FROM runs only this way. A missing rule is logged only (no
+  RuleNotFound metric).
+- SQL (iot-sql-functions, iot-sql-set): SET @var (immutable, max 10, 128 KiB), get_dynamodb,
+  get_secret, get_thing_shadow, get_registry_data (DescribeThing, ListThingGroupsForThing),
+  aws_lambda, parse_time (Joda patterns), time_to_epoch (java.time patterns), get_mqtt_property,
+  get_user_properties, sourceip (client remote address), traceid (minted per MQTT-published
+  message). Calls run in-process against the rule's region. Under --enforce-iam the roleArn
+  argument must allow dynamodb:GetItem, secretsmanager:GetSecretValue and DescribeSecret
+  (checked against the secret's ARN), iot:GetThingShadow, iot:DescribeThing or
+  iot:ListThingGroupsForThing for iot.amazonaws.com; aws_lambda uses the function's resource
+  policy (source ARN = rule ARN). A failed or denied function, a second get_dynamodb or
+  get_registry_data in one statement, or a non-JSON Lambda result ends the rule without running
+  actions (docs name no errorAction for it). A missing DynamoDB item is Undefined.
 
 ## 2026-10-03: Rule SQL engine (gopherstack-o321h)
 

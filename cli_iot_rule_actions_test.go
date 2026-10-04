@@ -32,6 +32,7 @@ type iotRuleFixture struct {
 	fx     *sfnFixture
 	broker *iotbackend.Broker
 	role   string
+	port   int
 }
 
 func newIoTRuleFixture(t *testing.T, enforce bool, rolePerm string) *iotRuleFixture {
@@ -45,12 +46,13 @@ func newIoTRuleFixture(t *testing.T, enforce bool, rolePerm string) *iotRuleFixt
 	iotBk, ok := iotH.Backend.(*iotbackend.InMemoryBackend)
 	require.True(t, ok)
 
-	broker := iotbackend.NewBroker(iotBk, freeTCPPort(t))
+	port := freeTCPPort(t)
+	broker := iotbackend.NewBroker(iotBk, port)
 
 	go broker.Run(t.Context())
 
 	return &iotRuleFixture{
-		fx: fx, broker: broker,
+		fx: fx, broker: broker, port: port,
 		role: authzRole(t, fx, "iot-action-role", "iot.amazonaws.com", rolePerm),
 	}
 }

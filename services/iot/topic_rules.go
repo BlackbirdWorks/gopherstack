@@ -99,6 +99,10 @@ func (b *InMemoryBackend) CreateTopicRule(input *CreateTopicRuleInput) error {
 		return err
 	}
 
+	if err := b.ensureHTTPDestinationsLocked(actions, payload.ErrorAction); err != nil {
+		return err
+	}
+
 	b.rules.Put(&TopicRule{
 		RuleName:         input.RuleName,
 		ARN:              arn,
@@ -219,6 +223,10 @@ func (b *InMemoryBackend) ReplaceTopicRule(input *ReplaceTopicRuleInput) error {
 		return err
 	}
 
+	if err := b.ensureHTTPDestinationsLocked(actions, payload.ErrorAction); err != nil {
+		return err
+	}
+
 	r.SQL = payload.SQL
 	r.Description = payload.Description
 	r.Actions = actions
@@ -258,7 +266,7 @@ func (b *InMemoryBackend) CreateTopicRuleDestination(
 		}
 	}
 
-	destType := "http"
+	destType := actionHTTP
 	if cfg := input.DestinationConfiguration; cfg != nil {
 		switch {
 		case cfg.VPCConfiguration != nil:
@@ -286,7 +294,7 @@ func (b *InMemoryBackend) CreateTopicRuleDestination(
 		// HTTP destinations require confirmation before they can be used,
 		// matching AWS's real IN_PROGRESS -> ENABLED lifecycle.
 		dest.Status = statusInProgress
-		dest.ConfirmationToken = randomHex(certIDHexLen)
+		dest.ConfirmationToken = randomHex()
 	case input.DestinationConfiguration != nil && input.DestinationConfiguration.VPCConfiguration != nil:
 		vpcCfg := input.DestinationConfiguration.VPCConfiguration
 		dest.VPCProperties = &VPCDestinationProperties{
@@ -306,6 +314,10 @@ func (b *InMemoryBackend) CreateTopicRuleDestination(
 	}
 
 	b.topicRuleDestinations.Put(dest)
+
+	if dest.ConfirmationToken != "" {
+		b.dispatchConfirmation(b.newConfirmationLocked(dest))
+	}
 
 	return cloneTopicRuleDestination(dest), nil
 }
@@ -366,7 +378,13 @@ func (b *InMemoryBackend) UpdateTopicRuleDestination(input *UpdateTopicRuleDesti
 	}
 
 	dest.Status = input.Status
+	dest.StatusReason = ""
 	dest.LastUpdatedAt = time.Now()
+
+	if input.Status == statusInProgress && dest.HTTPURLProperties != nil {
+		dest.ConfirmationToken = randomHex()
+		b.dispatchConfirmation(b.newConfirmationLocked(dest))
+	}
 
 	return nil
 }
@@ -399,6 +417,7 @@ func (b *InMemoryBackend) ConfirmTopicRuleDestination(token string) error {
 	for _, dest := range b.topicRuleDestinations.All() {
 		if dest.ConfirmationToken != "" && dest.ConfirmationToken == token {
 			dest.Status = statusEnabled
+			dest.StatusReason = ""
 			dest.ConfirmationToken = ""
 			dest.LastUpdatedAt = time.Now()
 

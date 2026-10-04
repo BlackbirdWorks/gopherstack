@@ -305,7 +305,7 @@ func TestSQLParseErrors(t *testing.T) {
 		version string
 	}{
 		{name: "empty", sql: ""},
-		{name: "no_from", sql: "SELECT *"},
+		{name: "junk_instead_of_from", sql: "SELECT * junk"},
 		{name: "no_select", sql: "FROM 't/x'"},
 		{name: "bad_topic_hash_middle", sql: "SELECT * FROM 'a/#/b'"},
 		{name: "bad_topic_partial_wildcard", sql: "SELECT * FROM 'a/b+'"},

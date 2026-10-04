@@ -199,7 +199,7 @@ func (h *Handler) handleListThingGroups(c *echo.Context) error {
 		})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"thingGroups": out})
+	return c.JSON(http.StatusOK, map[string]any{keyThingGroups: out})
 }
 
 func (h *Handler) handleUpdateThingGroup(c *echo.Context) error {
@@ -297,7 +297,7 @@ func (h *Handler) handleListThingGroupsForThing(c *echo.Context) error {
 	pageSize, start := parseIoTPagination(c)
 	page, nextToken := paginateMaps(out, pageSize, start)
 
-	resp := map[string]any{"thingGroups": page}
+	resp := map[string]any{keyThingGroups: page}
 	if nextToken != "" {
 		resp["nextToken"] = nextToken
 	}

@@ -406,6 +406,7 @@ type TopicRuleDestination struct {
 	InfluxDBProperties *InfluxDBDestinationProperties `json:"influxDBProperties,omitempty"`
 	ARN                string                         `json:"arn"`
 	Status             string                         `json:"status"`
+	StatusReason       string                         `json:"statusReason,omitempty"`
 	// ConfirmationToken is the token that must be presented to
 	// ConfirmTopicRuleDestination to transition an HTTP destination from
 	// IN_PROGRESS to ENABLED. AWS delivers this out-of-band (via a

@@ -6,6 +6,7 @@ import (
 	"maps"
 	"slices"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -26,8 +27,8 @@ type RuleDispatcher interface {
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
 	dispatcher                 RuleDispatcher
-	targets                    *ActionTargets
 	roleAuth                   roleauth.Authorizer
+	targets                    *ActionTargets
 	resourceTags               map[string]map[string]string
 	certificateTransfers       map[string]string
 	thingBillingGroups         map[string]string
@@ -97,10 +98,12 @@ type InMemoryBackend struct {
 	behaviorTrainingSummaries  map[string][]*BehaviorModelTrainingSummary
 	mu                         *lockmetrics.RWMutex
 	registrationCode           string
+	endpointBase               string
 	defaultAuthorizer          string
 	accountID                  string
 	region                     string
 	violationEvents            []*ViolationEvent
+	bg                         sync.WaitGroup
 	mqttPort                   int
 }
 

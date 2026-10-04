@@ -6,13 +6,42 @@ type selectItem struct {
 	star  bool
 }
 
+type setVar struct {
+	expr sqlNode
+	name string
+}
+
 // selectStmt is a parsed SELECT; from is set only for nested queries.
 type selectStmt struct {
 	from      sqlNode
+	sets      []setVar
 	where     sqlNode
 	fromAlias string
 	items     []selectItem
 	value     bool
+}
+
+// bindVars evaluates the SET clause in order and stores each value for SELECT, WHERE and templates.
+func (s *selectStmt) bindVars(c *sqlCtx) {
+	if len(s.sets) == 0 {
+		return
+	}
+
+	c.msg.vars = make(map[string]any, len(s.sets))
+	total := 0
+
+	for _, sv := range s.sets {
+		v := sv.expr.eval(c)
+		total += len(jsonString(v))
+
+		if total > maxVarValueLen {
+			c.msg.fail(errSQLFunction, "SET")
+
+			return
+		}
+
+		c.msg.vars[sv.name] = v
+	}
 }
 
 func (s *selectStmt) loneStar() bool {

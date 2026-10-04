@@ -39,7 +39,7 @@ func TestParseRuleSQL(t *testing.T) {
 		{name: "wildcard_topic", sql: sqlAllSensorHash, wantTopic: "sensor/#"},
 		{name: "with_where_clause", sql: sqlSensorTempGT50, wantTopic: "sensor/#"},
 		{name: "bare_topic", sql: "SELECT * FROM sensor/+/temp", wantTopic: "sensor/+/temp"},
-		{name: "no_from_clause", sql: sqlSelectStar, wantErr: true},
+		{name: "no_from_clause_basic_ingest_only", sql: sqlSelectStar, wantTopic: ""},
 		{name: "empty", sql: "", wantErr: true},
 	}
 

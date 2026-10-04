@@ -406,6 +406,7 @@ type topicRuleDestSnap struct {
 	InfluxDBProperties *InfluxDBDestinationProperties `json:"influxDBProperties,omitempty"`
 	ARN                string                         `json:"arn"`
 	Status             string                         `json:"status"`
+	StatusReason       string                         `json:"statusReason,omitempty"`
 	ConfirmationToken  string                         `json:"confirmationToken,omitempty"`
 }
 
@@ -422,6 +423,7 @@ func toTopicRuleDestSnap(d *TopicRuleDestination) *topicRuleDestSnap {
 		InfluxDBProperties: cp.InfluxDBProperties,
 		ARN:                cp.ARN,
 		Status:             cp.Status,
+		StatusReason:       cp.StatusReason,
 		ConfirmationToken:  cp.ConfirmationToken,
 		CreatedAt:          cp.CreatedAt,
 		LastUpdatedAt:      cp.LastUpdatedAt,
@@ -435,6 +437,7 @@ func fromTopicRuleDestSnap(s *topicRuleDestSnap) *TopicRuleDestination {
 		InfluxDBProperties: s.InfluxDBProperties,
 		ARN:                s.ARN,
 		Status:             s.Status,
+		StatusReason:       s.StatusReason,
 		ConfirmationToken:  s.ConfirmationToken,
 		CreatedAt:          s.CreatedAt,
 		LastUpdatedAt:      s.LastUpdatedAt,

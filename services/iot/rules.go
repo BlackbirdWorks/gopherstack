@@ -103,12 +103,16 @@ func (r *TopicRule) fire(msg *ruleMessage) bool {
 	}
 
 	parsed, err := ParseRuleSQLVersion(r.SQL, r.AWSIoTSQLVersion)
-	if err != nil || !MatchesTopic(parsed.TopicPattern, msg.topic) {
+	if err != nil || !parsed.matches(msg) {
 		return false
 	}
 
+	msg.ruleARN = r.ARN
+
 	out, ok := parsed.apply(msg)
-	if !ok {
+	msg.calls = nil
+
+	if !ok || msg.fatal != nil {
 		return false
 	}
 
@@ -117,11 +121,22 @@ func (r *TopicRule) fire(msg *ruleMessage) bool {
 	return true
 }
 
-// apply evaluates WHERE then SELECT against the message's original payload.
+// matches reports whether the FROM filter selects the message; a rule without FROM runs only via Basic Ingest.
+func (p *ParsedRule) matches(msg *ruleMessage) bool {
+	if p.TopicPattern == "" {
+		return msg.ingest
+	}
+
+	return MatchesTopic(p.TopicPattern, msg.topic)
+}
+
+// apply evaluates SET, WHERE then SELECT against the message's original payload.
 func (p *ParsedRule) apply(msg *ruleMessage) ([]byte, bool) {
 	c := newSQLCtx(msg, p.version, p.v2016)
 
-	if !p.stmt.passes(c) {
+	p.stmt.bindVars(c)
+
+	if msg.fatal != nil || !p.stmt.passes(c) {
 		return nil, false
 	}
 

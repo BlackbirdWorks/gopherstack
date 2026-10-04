@@ -51,6 +51,14 @@ func (l *sqlLexer) next() sqlToken {
 	c := l.src[l.pos]
 
 	switch {
+	case c == '@' && l.pos+1 < len(l.src) && isIdentStart(l.src[l.pos+1]):
+		l.pos++
+
+		for l.pos < len(l.src) && (isIdentStart(l.src[l.pos]) || isDigit(l.src[l.pos])) {
+			l.pos++
+		}
+
+		return sqlToken{kind: tokIdent, text: l.src[start:l.pos], pos: start}
 	case isIdentStart(c):
 		for l.pos < len(l.src) && (isIdentStart(l.src[l.pos]) || isDigit(l.src[l.pos])) {
 			l.pos++

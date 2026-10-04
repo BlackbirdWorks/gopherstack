@@ -51,6 +51,7 @@ func otherRunners() map[string]otherRunner {
 		"cloudwatchLogs":   {(*ruleHook).runCloudwatchLogs, "CloudwatchLogsAction"},
 		"stepFunctions":    {(*ruleHook).runStepFunctions, "StepFunctionsAction"},
 		"iotAnalytics":     {(*ruleHook).runIoTAnalytics, "IotAnalyticsAction"},
+		actionHTTP:         {(*ruleHook).runHTTP, "HttpAction"},
 	}
 }
 

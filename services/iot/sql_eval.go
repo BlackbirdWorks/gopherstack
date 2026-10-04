@@ -1,5 +1,7 @@
 package iot
 
+import "strings"
+
 type sqlNode interface {
 	eval(c *sqlCtx) any
 }
@@ -61,6 +63,14 @@ func (n starNode) eval(c *sqlCtx) any {
 type identNode struct{ name string }
 
 func (n identNode) eval(c *sqlCtx) any {
+	if strings.HasPrefix(n.name, "@") {
+		if v, ok := c.msg.vars[n.name]; ok {
+			return v
+		}
+
+		return sqlUndefined{}
+	}
+
 	if c.alias != "" && n.name == c.alias {
 		return c.scope
 	}

@@ -11,6 +11,7 @@ import (
 type sqlParser struct {
 	err     error
 	funcs   map[string]funcDef
+	vars    map[string]struct{}
 	lex     sqlLexer
 	tok     sqlToken
 	prevEnd int
@@ -92,11 +93,23 @@ func (p *sqlParser) ident() string {
 
 // parseTopStatement parses SELECT ... FROM <topic filter> [WHERE ...] to EOF.
 func (p *sqlParser) parseTopStatement() (*selectStmt, string) {
+	var sets []setVar
+
+	p.vars = map[string]struct{}{}
+
+	if p.isKw("SET") {
+		sets = p.parseSets()
+	}
+
 	stmt := p.parseSelectHead()
+	stmt.sets = sets
 	topic := ""
 
-	if p.expectFromKw() {
+	switch {
+	case p.isKw("FROM"):
 		topic = p.parseTopicFilter()
+	case p.tok.kind != tokEOF && !p.isKw("WHERE"):
+		p.fail("expected FROM")
 	}
 
 	if p.acceptKw("WHERE") {
@@ -155,6 +168,45 @@ func validTopicFilter(f string) bool {
 	return f != ""
 }
 
+const (
+	maxSetVars     = 10
+	maxSetVarName  = 64
+	maxVarValueLen = 128 * 1024
+)
+
+// parseSets parses SET @name = expr[, ...] (iot-sql-set); variables are immutable.
+func (p *sqlParser) parseSets() []setVar {
+	p.advance()
+
+	var sets []setVar
+
+	for p.err == nil {
+		name := p.ident()
+		if !strings.HasPrefix(name, "@") || len(name) > maxSetVarName+1 {
+			p.fail("variable names start with @ and hold at most 64 characters")
+
+			break
+		}
+
+		if _, dup := p.vars[name]; dup || len(sets) >= maxSetVars {
+			p.fail("variable assigned twice or more than 10 variables")
+
+			break
+		}
+
+		p.expectPunct("=")
+
+		sets = append(sets, setVar{name: name, expr: p.parseExpr()})
+		p.vars[name] = struct{}{}
+
+		if !p.acceptPunct(",") {
+			break
+		}
+	}
+
+	return sets
+}
+
 func (p *sqlParser) parseSelectHead() *selectStmt {
 	p.expectKw("SELECT")
 
@@ -202,6 +254,10 @@ func (p *sqlParser) parseItem() selectItem {
 
 	start := p.tok.pos
 	expr := p.parseExpr()
+	if p.err != nil {
+		return selectItem{}
+	}
+
 	text := strings.TrimSpace(p.lex.src[start:p.prevEnd])
 
 	if p.acceptKw("AS") {
@@ -209,6 +265,10 @@ func (p *sqlParser) parseItem() selectItem {
 	}
 
 	if path := keyPath(expr); path != nil {
+		if len(path) > 1 && strings.HasPrefix(path[0], "@") {
+			path = path[1:]
+		}
+
 		return selectItem{expr: expr, alias: path}
 	}
 
@@ -488,6 +548,10 @@ func (p *sqlParser) parseWord() sqlNode {
 
 	if p.isPunct("(") {
 		return p.parseCall(word)
+	}
+
+	if _, declared := p.vars[word]; p.vars != nil && strings.HasPrefix(word, "@") && !declared {
+		p.fail("variable " + word + " is not set")
 	}
 
 	return identNode{name: word}

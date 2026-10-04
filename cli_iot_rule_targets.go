@@ -22,10 +22,14 @@ import (
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
 	iotanalyticsbackend "github.com/blackbirdworks/gopherstack/services/iotanalytics"
+	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
+	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
+	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
 	snsbackend "github.com/blackbirdworks/gopherstack/services/sns"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
+	stsbackend "github.com/blackbirdworks/gopherstack/services/sts"
 )
 
 // wireIoTActionTargets connects the IoT rule actions beyond SQS and Lambda to their service backends.
@@ -45,6 +49,7 @@ func wireIoTActionTargets(byName map[string]service.Registerable) {
 	wireIoTStreamTargets(t, byName)
 	wireIoTStoreTargets(t, byName)
 	wireIoTOpsTargets(t, byName)
+	wireIoTLookupTargets(t, byName)
 
 	iotBk.SetActionTargets(t)
 }
@@ -273,4 +278,114 @@ type iotAnalyticsTarget struct {
 
 func (a *iotAnalyticsTarget) PutChannelMessages(_ context.Context, _, channel string, payloads [][]byte) error {
 	return a.backend.PutChannelMessages(channel, payloads)
+}
+
+func wireIoTLookupTargets(t *iotbackend.ActionTargets, byName map[string]service.Registerable) {
+	if h, ok := byName["DynamoDB"].(*ddbbackend.DynamoDBHandler); ok {
+		if bk, bkOk := h.Backend.(*ddbbackend.InMemoryDB); bkOk {
+			t.DynamoReader = &iotDynamoTarget{db: bk}
+		}
+	}
+
+	if h, ok := byName["SecretsManager"].(*secretsmanagerbackend.Handler); ok {
+		if bk, bkOk := h.Backend.(*secretsmanagerbackend.InMemoryBackend); bkOk {
+			t.Secrets = &iotSecretsTarget{backend: bk}
+		}
+	}
+
+	if h, ok := byName["IoTDataPlane"].(*iotdataplanebackend.Handler); ok {
+		if bk, bkOk := h.Backend.(*iotdataplanebackend.InMemoryBackend); bkOk {
+			t.Shadows = &iotShadowTarget{backend: bk}
+		}
+	}
+
+	if h, ok := byName["Lambda"].(*lambdabackend.Handler); ok {
+		if bk, bkOk := h.Backend.(*lambdabackend.InMemoryBackend); bkOk {
+			t.Lambda = &iotLambdaTarget{backend: bk}
+		}
+	}
+
+	if h, ok := byName["STS"].(*stsbackend.Handler); ok {
+		if bk, bkOk := h.Backend.(*stsbackend.InMemoryBackend); bkOk {
+			t.Credentials = &iotRoleCredentials{sts: bk}
+		}
+	}
+}
+
+func (a *iotDynamoTarget) GetItem(
+	ctx context.Context, region, table string, key map[string]any,
+) (map[string]any, error) {
+	sdkKey, err := ddbmodels.ToSDKItem(key)
+	if err != nil {
+		return nil, fmt.Errorf("iot dynamodb target: key: %w", err)
+	}
+
+	out, err := a.db.GetItem(ddbbackend.WithRegion(ctx, region), &dynamodb.GetItemInput{
+		TableName: aws.String(table), Key: sdkKey,
+	})
+	if err != nil || len(out.Item) == 0 {
+		return nil, err
+	}
+
+	return ddbmodels.FromSDKItem(out.Item), nil
+}
+
+type iotSecretsTarget struct {
+	backend *secretsmanagerbackend.InMemoryBackend
+}
+
+func (a *iotSecretsTarget) GetSecretValue(
+	ctx context.Context,
+	region, secretID string,
+) (iotbackend.SecretValue, error) {
+	out, err := a.backend.GetSecretValue(secretsmanagerbackend.WithRegion(ctx, region),
+		&secretsmanagerbackend.GetSecretValueInput{SecretID: secretID})
+	if err != nil {
+		return iotbackend.SecretValue{}, err
+	}
+
+	return iotbackend.SecretValue{ARN: out.ARN, String: out.SecretString, Binary: out.SecretBinary}, nil
+}
+
+type iotShadowTarget struct {
+	backend *iotdataplanebackend.InMemoryBackend
+}
+
+func (a *iotShadowTarget) GetThingShadow(_ context.Context, _, thingName, shadowName string) ([]byte, error) {
+	return a.backend.GetThingShadow(thingName, shadowName)
+}
+
+var errIoTLambdaFunction = errors.New("lambda function returned an error")
+
+type iotLambdaTarget struct {
+	backend *lambdabackend.InMemoryBackend
+}
+
+func (a *iotLambdaTarget) RequestLambda(ctx context.Context, _, functionARN string, payload []byte) ([]byte, error) {
+	out, _, fnErr, _, err := a.backend.InvokeFunctionWithQualifier(
+		ctx, functionARN, "", "", "", lambdabackend.InvocationTypeRequestResponse, payload)
+	if err != nil {
+		return nil, err
+	}
+
+	if fnErr != "" {
+		return nil, errIoTLambdaFunction
+	}
+
+	return out, nil
+}
+
+type iotRoleCredentials struct{ sts *stsbackend.InMemoryBackend }
+
+func (a *iotRoleCredentials) IssueRoleCredentials(roleARN string) (aws.Credentials, error) {
+	out, err := a.sts.AssumeRoleForService("iot.amazonaws.com", roleARN, "iot-rules-engine")
+	if err != nil {
+		return aws.Credentials{}, err
+	}
+
+	c := out.AssumeRoleResult.Credentials
+
+	return aws.Credentials{
+		AccessKeyID: c.AccessKeyID, SecretAccessKey: c.SecretAccessKey, SessionToken: c.SessionToken,
+	}, nil
 }

@@ -127,6 +127,8 @@ func (h *Handler) dispatchTopicRuleDestinationOps(c *echo.Context, op string) (b
 }
 
 func (h *Handler) handleCreateTopicRule(c *echo.Context) error {
+	h.noteEndpoint(c)
+
 	ruleName := strings.TrimPrefix(c.Request().URL.Path, "/rules/")
 
 	rawBody, err := io.ReadAll(c.Request().Body)
@@ -283,6 +285,8 @@ func (h *Handler) handleEnableTopicRule(c *echo.Context) error {
 }
 
 func (h *Handler) handleReplaceTopicRule(c *echo.Context) error {
+	h.noteEndpoint(c)
+
 	ruleName := strings.TrimPrefix(c.Request().URL.Path, "/rules/")
 
 	rawBody, err := io.ReadAll(c.Request().Body)
@@ -336,6 +340,9 @@ func topicRuleDestinationFields(d *TopicRuleDestination) map[string]any {
 		keyCreatedAt:     awstime.Epoch(d.CreatedAt),
 		keyLastUpdatedAt: awstime.Epoch(d.LastUpdatedAt),
 	}
+	if d.StatusReason != "" {
+		out["statusReason"] = d.StatusReason
+	}
 	if d.HTTPURLProperties != nil {
 		out["httpUrlProperties"] = d.HTTPURLProperties
 	}
@@ -362,6 +369,9 @@ func topicRuleDestinationSummaryFields(d *TopicRuleDestination) map[string]any {
 		keyCreatedAt:     awstime.Epoch(d.CreatedAt),
 		keyLastUpdatedAt: awstime.Epoch(d.LastUpdatedAt),
 	}
+	if d.StatusReason != "" {
+		out["statusReason"] = d.StatusReason
+	}
 	if d.HTTPURLProperties != nil {
 		out["httpUrlSummary"] = d.HTTPURLProperties
 	}
@@ -376,6 +386,8 @@ func topicRuleDestinationSummaryFields(d *TopicRuleDestination) map[string]any {
 }
 
 func (h *Handler) handleCreateTopicRuleDestination(c *echo.Context) error {
+	h.noteEndpoint(c)
+
 	var body struct {
 		DestinationConfiguration *TopicRuleDestinationConfiguration `json:"destinationConfiguration"`
 	}
@@ -429,6 +441,8 @@ func (h *Handler) handleListTopicRuleDestinations(c *echo.Context) error {
 }
 
 func (h *Handler) handleUpdateTopicRuleDestination(c *echo.Context) error {
+	h.noteEndpoint(c)
+
 	var body struct {
 		ARN    string `json:"arn"`
 		Status string `json:"status"`
@@ -464,4 +478,11 @@ func (h *Handler) handleConfirmTopicRuleDestination(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{})
+}
+
+// noteEndpoint tells the backend which address clients use, for destination enableUrl values.
+func (h *Handler) noteEndpoint(c *echo.Context) {
+	if s, ok := h.Backend.(interface{ SetEndpointBase(base string) }); ok {
+		s.SetEndpointBase(c.Scheme() + "://" + c.Request().Host)
+	}
 }

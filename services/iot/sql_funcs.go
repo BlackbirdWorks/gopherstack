@@ -20,6 +20,9 @@ func funcTable() map[string]funcDef {
 	maps.Copy(t, messageFuncs())
 	maps.Copy(t, valueFuncs())
 	maps.Copy(t, hashFuncs())
+	maps.Copy(t, propFuncs())
+	maps.Copy(t, timeFuncs())
+	maps.Copy(t, lookupFuncs())
 	t["cast"] = funcDef{impl: func(*sqlCtx, []any) any { return sqlUndefined{} }}
 
 	return t

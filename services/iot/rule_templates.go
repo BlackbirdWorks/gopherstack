@@ -10,18 +10,47 @@ import (
 var (
 	errTemplate          = errors.New("invalid substitution template")
 	errTemplateUndefined = errors.New("substitution template resolved to undefined")
+	errSQLFunction       = errors.New("sql function failed")
 )
 
 // ruleMessage is the message a rule matched, as substitution templates see it.
 type ruleMessage struct {
-	received time.Time
-	topic    string
-	clientID string
-	region   string
-	account  string
-	payload  []byte
-	original []byte
-	hops     int
+	received  time.Time
+	fatal     error
+	hook      *ruleHook
+	vars      map[string]any
+	calls     map[string]int
+	props     *mqttProps
+	topic     string
+	clientID  string
+	region    string
+	account   string
+	ruleARN   string
+	principal string
+	sourceIP  string
+	traceID   string
+	payload   []byte
+	original  []byte
+	hops      int
+	ingest    bool
+}
+
+// fail aborts the rule: a failed SQL function runs no actions.
+func (m *ruleMessage) fail(cause error, fn string) {
+	if m.fatal == nil {
+		m.fatal = fmt.Errorf("%w: %s", cause, fn)
+	}
+}
+
+// callOnce reports whether fn may run; some functions are limited to one call per statement.
+func (m *ruleMessage) callOnce(fn string) bool {
+	if m.calls == nil {
+		m.calls = map[string]int{}
+	}
+
+	m.calls[fn]++
+
+	return m.calls[fn] == 1
 }
 
 // expand resolves every ${expression} in tmpl against the original message.
@@ -66,7 +95,15 @@ func (m *ruleMessage) eval(expr string) (string, error) {
 		return "", fmt.Errorf("%w: %w", errTemplate, p.err)
 	}
 
-	return renderTemplateValue(n.eval(newSQLCtx(m, sqlVersion2016, true)))
+	v := n.eval(newSQLCtx(m, sqlVersion2016, true))
+
+	if err := m.fatal; err != nil {
+		m.fatal = nil
+
+		return "", err
+	}
+
+	return renderTemplateValue(v)
 }
 
 func renderTemplateValue(v any) (string, error) {

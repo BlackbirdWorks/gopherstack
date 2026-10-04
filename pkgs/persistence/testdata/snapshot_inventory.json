@@ -14927,6 +14927,7 @@
       "TopicRuleDestination.InfluxDBProperties *InfluxDBDestinationProperties `json:\"influxDBProperties,omitempty\"`",
       "TopicRuleDestination.LastUpdatedAt time.Time `json:\"-\"`",
       "TopicRuleDestination.Status string `json:\"status\"`",
+      "TopicRuleDestination.StatusReason string `json:\"statusReason,omitempty\"`",
       "TopicRuleDestination.VPCProperties *VPCDestinationProperties `json:\"vpcProperties,omitempty\"`",
       "V2LoggingLevel.LogLevel string `json:\"logLevel\"`",
       "V2LoggingLevel.Target map[string]any `json:\"logTarget\"`",
@@ -15016,6 +15017,7 @@
       "topicRuleDestSnap.InfluxDBProperties *InfluxDBDestinationProperties `json:\"influxDBProperties,omitempty\"`",
       "topicRuleDestSnap.LastUpdatedAt time.Time `json:\"lastUpdatedAt,omitzero\"`",
       "topicRuleDestSnap.Status string `json:\"status\"`",
+      "topicRuleDestSnap.StatusReason string `json:\"statusReason,omitempty\"`",
       "topicRuleDestSnap.VPCProperties *VPCDestinationProperties `json:\"vpcProperties,omitempty\"`"
     ],
     "version": 3

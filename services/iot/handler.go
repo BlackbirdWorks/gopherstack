@@ -202,6 +202,10 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 // Invoked on server shutdown via service.Shutdowner.
 func (h *Handler) Shutdown(ctx context.Context) {
 	h.brokerRun.Stop(ctx)
+
+	if d, ok := h.Backend.(interface{ DrainBackground(ctx context.Context) }); ok {
+		d.DrainBackground(ctx)
+	}
 }
 
 // Ensure Handler implements service.BackgroundWorker and service.Shutdowner
@@ -317,14 +321,8 @@ func (h *Handler) handleCreateThing(c *echo.Context) error {
 	})
 }
 
-func (h *Handler) handleDescribeThing(c *echo.Context) error {
-	thingName := strings.TrimPrefix(c.Request().URL.Path, "/things/")
-
-	t, err := h.Backend.DescribeThing(thingName)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
+// thingDescription builds the DescribeThing response.
+func thingDescription(t *Thing) map[string]any {
 	resp := map[string]any{
 		keyThingName:      t.ThingName,
 		keyThingArn:       t.ARN,
@@ -337,6 +335,19 @@ func (h *Handler) handleDescribeThing(c *echo.Context) error {
 	if t.BillingGroupName != "" {
 		resp["billingGroupName"] = t.BillingGroupName
 	}
+
+	return resp
+}
+
+func (h *Handler) handleDescribeThing(c *echo.Context) error {
+	thingName := strings.TrimPrefix(c.Request().URL.Path, "/things/")
+
+	t, err := h.Backend.DescribeThing(thingName)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	resp := thingDescription(t)
 
 	return c.JSON(http.StatusOK, resp)
 }
