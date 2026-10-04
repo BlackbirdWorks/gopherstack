@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 88 (88 ok) |
 | Feature families | 21 (21 ok) |
-| Known gaps | 4 |
+| Known gaps | 5 |
 | Deferred items | 0 |
 | Resource leaks | found_and_fixed |
 
@@ -18,7 +18,8 @@
 - ClientRequestToken idempotency (CreateAuditSuppression/CreateCustomMetric/CreateDimension/StartAuditMitigationActionsTask/StartDetectMitigationActionsTask) is not honored: the pinned SDK docs contradict each other (CreateCustomMetric: a different token on an existing name errors; CreateDimension/AuditSuppression/Start*Task: the same token errors) and name no exception type, so any replay semantics would be invented. Duplicate names/taskIds already return ResourceAlreadyExists/TaskAlreadyExists.
 - DeleteOTAUpdate's ForceDeleteAWSJob/DeleteStream are not honored: CreateOTAUpdate fabricates the AWS job id and never creates a Job or an OTA-owned stream (needs a real OTA job/stream pipeline), and the SDK names no exception for the non-terminal-job case.
 - Needs an unmodeled device fleet (no job agent, no StartCommandExecution, no connection tracking): GetThingConnectivityData IncludeSocketInformation and socket fields; Job CompletedAt/IsConcurrent/ThingGroupId on ListJobs/DescribeJob (jobs never reach COMPLETED); CommandExecution StartedAt/CompletedAt; TopicRuleDestination StatusReason (no failure path).
-- Rule actions http, timestream, kafka, location, openSearch, iotEvents, iotSiteWise, influxDB are stored verbatim but not executed (http needs the destination confirmation workflow; the others have no data-plane backend). The rule SQL SELECT clause is not applied: actions and ${...} templates see the raw published payload. Kinesis, Firehose, S3, SNS and Step Functions deliveries use the home-region backend; DynamoDB, CloudWatch and CloudWatch Logs honour the rule's region. errorAction envelope omits cloudwatchTraceId and clientId.
+- Rule actions http, timestream, kafka, location, openSearch, iotEvents, iotSiteWise, influxDB are stored verbatim but not executed (http needs the destination confirmation workflow; the others have no data-plane backend). Kinesis, Firehose, S3, SNS and Step Functions deliveries use the home-region backend; DynamoDB, CloudWatch and CloudWatch Logs honour the rule's region. errorAction envelope omits cloudwatchTraceId and clientId.
+- Rule SQL engine (sql_*.go) not modeled: SET variables, md2(), parse_time/time_to_epoch, transform(), aws_lambda/get_dynamodb/get_thing_shadow/get_registry_data/get_secret/get_mqtt_property/get_user_properties/principal/traceid/sourceip and decode(...,'proto') (unknown or unsupported functions fail CreateTopicRule/ReplaceTopicRule with SqlParseException); Int/Int division returns a Decimal when inexact; unaliased non-field SELECT items are keyed by their source text; Basic Ingest $aws/rules/ topics are not unwrapped.
 
 ## More
 
