@@ -344,6 +344,10 @@ func (b *InMemoryBackend) CreateJob(input *CreateJobInput) (*Job, error) {
 	b.mu.Lock("CreateJob")
 	defer b.mu.Unlock()
 
+	return b.createJobLocked(input)
+}
+
+func (b *InMemoryBackend) createJobLocked(input *CreateJobInput) (*Job, error) {
 	if b.jobs.Has(input.JobID) {
 		return nil, fmt.Errorf("job %q already exists: %w", input.JobID, ErrAlreadyExists)
 	}
@@ -635,6 +639,10 @@ func (b *InMemoryBackend) DeleteJob(jobID string, force bool) error {
 	b.mu.Lock("DeleteJob")
 	defer b.mu.Unlock()
 
+	return b.deleteJobLocked(jobID, force)
+}
+
+func (b *InMemoryBackend) deleteJobLocked(jobID string, force bool) error {
 	j, ok := b.jobs.Get(jobID)
 	if !ok {
 		return fmt.Errorf("job %q not found: %w", jobID, ErrResourceNotFound)

@@ -120,6 +120,24 @@ func (b *InMemoryBackend) DeleteReplicationConfiguration(
 	ctx context.Context,
 	sourceFileSystemID string,
 ) error {
+	return b.DeleteReplicationConfigurationWithMode(ctx, sourceFileSystemID, deletionModeAll)
+}
+
+const (
+	deletionModeAll       = "ALL_CONFIGURATIONS"
+	deletionModeLocalOnly = "LOCAL_CONFIGURATION_ONLY"
+)
+
+// DeleteReplicationConfigurationWithMode is DeleteReplicationConfiguration with an explicit deletionMode.
+// LOCAL_CONFIGURATION_ONLY is rejected for same-account, same-region replication.
+func (b *InMemoryBackend) DeleteReplicationConfigurationWithMode(
+	ctx context.Context,
+	sourceFileSystemID, mode string,
+) error {
+	if mode != "" && mode != deletionModeAll && mode != deletionModeLocalOnly {
+		return fmt.Errorf("%w: deletionMode must be ALL_CONFIGURATIONS or LOCAL_CONFIGURATION_ONLY", ErrBadRequest)
+	}
+
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("DeleteReplicationConfiguration")
@@ -129,11 +147,19 @@ func (b *InMemoryBackend) DeleteReplicationConfiguration(
 		return fmt.Errorf("%w: file system %s not found", ErrNotFound, sourceFileSystemID)
 	}
 
-	if _, exists := b.replicationConfigs.Get(regionKey(region, sourceFileSystemID)); !exists {
+	rc, exists := b.replicationConfigs.Get(regionKey(region, sourceFileSystemID))
+	if !exists {
 		return fmt.Errorf(
 			"%w: replication configuration not found for file system %s",
 			ErrNotFound,
 			sourceFileSystemID,
+		)
+	}
+
+	if mode == deletionModeLocalOnly && sameAccountAndRegion(rc, b.accountID, region) {
+		return fmt.Errorf(
+			"%w: LOCAL_CONFIGURATION_ONLY cannot be used for same-account, same-region replication",
+			ErrBadRequest,
 		)
 	}
 
@@ -242,4 +268,14 @@ func (b *InMemoryBackend) UpdateFileSystemProtection(
 	fs.ReplicationOverwriteProtection = replicationOverwriteProtection
 
 	return nil
+}
+
+func sameAccountAndRegion(rc *ReplicationConfiguration, accountID, region string) bool {
+	for _, d := range rc.Destinations {
+		if d.OwnerID != accountID || d.Region != region {
+			return false
+		}
+	}
+
+	return true
 }

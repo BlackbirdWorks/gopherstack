@@ -2,6 +2,7 @@ package quicksight
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 	"time"
 )
@@ -16,18 +17,20 @@ const (
 // storedAssetBundleExportJob is the persisted representation of one asset-bundle
 // export job, keyed by JobId.
 type storedAssetBundleExportJob struct {
-	CreatedTime              time.Time `json:"createdTime"`
-	JobID                    string    `json:"jobId"`
-	Arn                      string    `json:"arn"`
-	Status                   string    `json:"status"`
-	ExportFormat             string    `json:"exportFormat"`
-	DownloadURL              string    `json:"downloadUrl,omitempty"`
-	IncludeFolderMembers     string    `json:"includeFolderMembers,omitempty"`
-	ResourceArns             []string  `json:"resourceArns"`
-	IncludeAllDependencies   bool      `json:"includeAllDependencies"`
-	IncludeFolderMemberships bool      `json:"includeFolderMemberships"`
-	IncludePermissions       bool      `json:"includePermissions"`
-	IncludeTags              bool      `json:"includeTags"`
+	CreatedTime              time.Time      `json:"createdTime"`
+	CloudFormationOverrides  map[string]any `json:"cloudFormationOverrides,omitempty"`
+	ValidationStrategyStrict *bool          `json:"validationStrategyStrict,omitempty"`
+	IncludeFolderMembers     string         `json:"includeFolderMembers,omitempty"`
+	ExportFormat             string         `json:"exportFormat"`
+	DownloadURL              string         `json:"downloadUrl,omitempty"`
+	Status                   string         `json:"status"`
+	Arn                      string         `json:"arn"`
+	JobID                    string         `json:"jobId"`
+	ResourceArns             []string       `json:"resourceArns"`
+	IncludeAllDependencies   bool           `json:"includeAllDependencies"`
+	IncludeFolderMemberships bool           `json:"includeFolderMemberships"`
+	IncludePermissions       bool           `json:"includePermissions"`
+	IncludeTags              bool           `json:"includeTags"`
 }
 
 func (j *storedAssetBundleExportJob) toAssetBundleExportJob() *AssetBundleExportJob {
@@ -47,7 +50,19 @@ func (j *storedAssetBundleExportJob) toAssetBundleExportJob() *AssetBundleExport
 		IncludeFolderMemberships: j.IncludeFolderMemberships,
 		IncludePermissions:       j.IncludePermissions,
 		IncludeTags:              j.IncludeTags,
+		ValidationStrategyStrict: cloneBoolPtr(j.ValidationStrategyStrict),
+		CloudFormationOverrides:  maps.Clone(j.CloudFormationOverrides),
 	}
+}
+
+func cloneBoolPtr(p *bool) *bool {
+	if p == nil {
+		return nil
+	}
+
+	v := *p
+
+	return &v
 }
 
 // storedAssetBundleImportJob is the persisted representation of one asset-bundle
@@ -76,6 +91,7 @@ func (b *InMemoryBackend) StartAssetBundleExportJob(
 	_, jobID, exportFormat, includeFolderMembers string,
 	resourceArns []string,
 	includeAllDependencies, includeFolderMemberships, includePermissions, includeTags bool,
+	extras AssetBundleExportExtras,
 ) (*AssetBundleExportJob, error) {
 	if jobID == "" || len(resourceArns) == 0 {
 		return nil, ErrValidation
@@ -103,6 +119,8 @@ func (b *InMemoryBackend) StartAssetBundleExportJob(
 		IncludeFolderMemberships: includeFolderMemberships,
 		IncludePermissions:       includePermissions,
 		IncludeTags:              includeTags,
+		ValidationStrategyStrict: cloneBoolPtr(extras.ValidationStrategyStrict),
+		CloudFormationOverrides:  maps.Clone(extras.CloudFormationOverrides),
 	}
 	b.assetBundleExportJobs.Put(job)
 

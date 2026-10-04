@@ -37,6 +37,7 @@ const iotSnapshotVersion = 3
 type backendSnapshot struct {
 	Tables                          map[string]json.RawMessage                    `json:"tables"`
 	AuditTasks                      map[string]string                             `json:"auditTasks"`
+	ClientRequestTokens             map[string]string                             `json:"clientRequestTokens,omitempty"`
 	MetricValues                    map[string][]*MetricDatapoint                 `json:"metricValues"`
 	CertificateTransfers            map[string]string                             `json:"certificateTransfers"`
 	ThingBillingGroups              map[string]string                             `json:"thingBillingGroups"`
@@ -139,6 +140,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		ThingPrincipalTypes:    copyNestedStringMap(b.thingPrincipalTypes),
 		AuditMitigationTasks:   copyStringMap(b.auditMitigationTasks),
 		AuditTasks:             copyStringMap(b.auditTasks),
+		ClientRequestTokens:    copyStringMap(b.clientRequestTokens),
 
 		ThingIndexingConfiguration:      thingIndexingConfig,
 		ThingGroupIndexingConfiguration: thingGroupIndexingConfig,
@@ -236,6 +238,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.thingPrincipalTypes = copyNestedStringMap(snap.ThingPrincipalTypes)
 	b.auditMitigationTasks = copyStringMap(snap.AuditMitigationTasks)
 	b.auditTasks = copyStringMap(snap.AuditTasks)
+	b.clientRequestTokens = copyStringMap(snap.ClientRequestTokens)
 
 	if snap.ThingIndexingConfiguration != nil {
 		b.thingIndexingConfig = cloneThingIndexingConfiguration(snap.ThingIndexingConfiguration)

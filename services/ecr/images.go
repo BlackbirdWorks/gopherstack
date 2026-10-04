@@ -381,11 +381,11 @@ func (b *InMemoryBackend) ListImages(
 	return out, nil
 }
 
-// ListImageReferrers lists image referrers for a subject image.
+// ListImageReferrers returns the images whose manifest "subject" is the given digest, sorted by digest.
 func (b *InMemoryBackend) ListImageReferrers(
-	ctx context.Context, //nolint:revive // existing issue.
+	_ context.Context,
 	repositoryName string,
-	_ ImageIdentifier,
+	subject ImageIdentifier,
 ) ([]ImageReferrer, error) {
 	b.mu.RLock("ListImageReferrers")
 	defer b.mu.RUnlock()
@@ -394,11 +394,27 @@ func (b *InMemoryBackend) ListImageReferrers(
 		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
 	}
 
-	// Real ListImageReferrers declares no not-found error for the subject
-	// (only RepositoryNotFoundException/UnableToListUpstreamImageReferrersException/etc,
-	// per deserializeOpErrorListImageReferrers) -- an unknown subject digest
-	// returns an empty list, not ImageNotFoundException.
-	return []ImageReferrer{}, nil
+	out := []ImageReferrer{}
+
+	for _, img := range b.imagesByRepo.Get(repositoryName) {
+		artifactType, subjectDigest := parseManifestArtifactFields(img.ImageManifest)
+		if subject.ImageDigest == "" || subjectDigest != subject.ImageDigest {
+			continue
+		}
+
+		out = append(out, ImageReferrer{
+			Annotations:    parseManifestAnnotations(img.ImageManifest),
+			Digest:         img.ImageDigest,
+			MediaType:      img.ImageManifestMediaType,
+			ArtifactStatus: img.ImageStatus,
+			ArtifactType:   artifactType,
+			Size:           img.ImageSizeInBytes,
+		})
+	}
+
+	sort.Slice(out, func(i, j int) bool { return out[i].Digest < out[j].Digest })
+
+	return out, nil
 }
 
 // retagImageLocked moves a tag to a new digest: if the tag already maps to a

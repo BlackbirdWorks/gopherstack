@@ -106,8 +106,15 @@ func TestCreateKey_CustomKeyStore_Rejections(t *testing.T) {
 			build: func(t *testing.T, b *kms.InMemoryBackend) kms.CreateKeyInput {
 				t.Helper()
 				out, err := b.CreateCustomKeyStore(context.Background(), &kms.CreateCustomKeyStoreInput{
-					CustomKeyStoreName: "xks-store",
-					CustomKeyStoreType: "EXTERNAL_KEY_STORE",
+					CustomKeyStoreName:   "xks-store",
+					CustomKeyStoreType:   "EXTERNAL_KEY_STORE",
+					XksProxyConnectivity: "PUBLIC_ENDPOINT",
+					XksProxyURIEndpoint:  "https://xks-b.example.com",
+					XksProxyURIPath:      "/kms/xks/v1",
+					XksProxyAuthenticationCredential: &kms.XksProxyAuthenticationCredential{
+						AccessKeyID:        "AKIAEXAMPLE0001",
+						RawSecretAccessKey: "secretsecretsecret",
+					},
 				})
 				require.NoError(t, err)
 				require.NoError(t, b.ConnectCustomKeyStore(context.Background(), &kms.ConnectCustomKeyStoreInput{

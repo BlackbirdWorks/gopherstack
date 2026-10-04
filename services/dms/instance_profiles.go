@@ -146,7 +146,8 @@ func (b *InMemoryBackend) migrationProjectUsesInstanceProfileLocked(region, inst
 // api_op_ModifyInstanceProfile.go:16-17).
 func (b *InMemoryBackend) ModifyInstanceProfile(
 	ctx context.Context,
-	nameOrArn, availabilityZone, description, networkType string,
+	nameOrArn, availabilityZone, description, networkType, kmsKeyArn, subnetGroupIdentifier string,
+	publiclyAccessible *bool,
 ) (*InstanceProfile, error) {
 	b.mu.Lock("ModifyInstanceProfile")
 	defer b.mu.Unlock()
@@ -175,6 +176,18 @@ func (b *InMemoryBackend) ModifyInstanceProfile(
 
 	if networkType != "" {
 		ip.NetworkType = networkType
+	}
+
+	if kmsKeyArn != "" {
+		ip.KmsKeyArn = kmsKeyArn
+	}
+
+	if subnetGroupIdentifier != "" {
+		ip.SubnetGroupIdentifier = subnetGroupIdentifier
+	}
+
+	if publiclyAccessible != nil {
+		ip.PubliclyAccessible = *publiclyAccessible
 	}
 
 	cp := *ip

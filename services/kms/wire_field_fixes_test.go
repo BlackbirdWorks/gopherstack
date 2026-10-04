@@ -208,8 +208,14 @@ func TestCreateKey_ExternalKeyStore_UnsupportedOperationException_RealClient(t *
 	ctx := t.Context()
 
 	store, err := client.CreateCustomKeyStore(ctx, &kmssdk.CreateCustomKeyStoreInput{
-		CustomKeyStoreName: aws.String("xks-store"),
-		CustomKeyStoreType: kmstypes.CustomKeyStoreTypeExternalKeyStore,
+		CustomKeyStoreName:   aws.String("xks-store"),
+		CustomKeyStoreType:   kmstypes.CustomKeyStoreTypeExternalKeyStore,
+		XksProxyConnectivity: kmstypes.XksProxyConnectivityTypePublicEndpoint,
+		XksProxyUriEndpoint:  aws.String("https://xks.example.com"),
+		XksProxyUriPath:      aws.String("/kms/xks/v1"),
+		XksProxyAuthenticationCredential: &kmstypes.XksProxyAuthenticationCredentialType{
+			AccessKeyId: aws.String("AKIAEXAMPLE0001"), RawSecretAccessKey: aws.String("secretsecretsecret"),
+		},
 	})
 	require.NoError(t, err)
 

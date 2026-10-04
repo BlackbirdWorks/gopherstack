@@ -184,6 +184,7 @@ type createImageVersionInput struct {
 	ProgrammingLang string   `json:"ProgrammingLang"`
 	ReleaseNotes    string   `json:"ReleaseNotes"`
 	VendorGuidance  string   `json:"VendorGuidance"`
+	ClientToken     string   `json:"ClientToken"`
 	Aliases         []string `json:"Aliases"`
 }
 
@@ -207,6 +208,7 @@ func (h *Handler) handleCreateImageVersion(ctx context.Context, body []byte) ([]
 		ProgrammingLang: req.ProgrammingLang,
 		ReleaseNotes:    req.ReleaseNotes,
 		VendorGuidance:  req.VendorGuidance,
+		ClientToken:     req.ClientToken,
 	})
 	if err != nil {
 		return nil, err
@@ -236,6 +238,8 @@ func (h *Handler) handleDescribeImageVersion(ctx context.Context, body []byte) (
 	if err != nil {
 		return nil, err
 	}
+
+	result.ClientToken = ""
 
 	return json.Marshal(result)
 }

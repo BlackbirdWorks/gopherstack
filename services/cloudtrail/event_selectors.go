@@ -157,13 +157,6 @@ func (b *InMemoryBackend) ListInsightsData() []map[string]any {
 	return []map[string]any{}
 }
 
-// ListInsightsMetricData returns empty insights metric data (stub). The real
-// ListInsightsMetricDataOutput.Values field is []float64, not a list of
-// records.
-func (b *InMemoryBackend) ListInsightsMetricData() []float64 {
-	return []float64{}
-}
-
 // PutEDSInsightSelectors sets insight selectors for an event data store, and
 // the destination event data store ARN (InsightsDestination) that logs the
 // resulting Insights events -- PutInsightSelectorsInput.InsightsDestination,

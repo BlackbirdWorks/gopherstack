@@ -251,12 +251,33 @@ func (b *InMemoryBackend) CreateAuditSuppression(
 	suppressIndefinitely bool,
 	expirationDate float64,
 ) error {
+	return b.CreateAuditSuppressionWithToken(
+		checkName, resourceID, description, suppressIndefinitely, expirationDate, "",
+	)
+}
+
+// CreateAuditSuppressionWithToken is CreateAuditSuppression with a unique client request token
+// (api_op_CreateAuditSuppression.go: reusing a token on a new suppression is an error).
+func (b *InMemoryBackend) CreateAuditSuppressionWithToken(
+	checkName string,
+	resourceID map[string]any,
+	description string,
+	suppressIndefinitely bool,
+	expirationDate float64,
+	clientRequestToken string,
+) error {
 	b.mu.Lock("CreateAuditSuppression")
 	defer b.mu.Unlock()
 
 	key := auditSuppressionKey(checkName, resourceID)
 	if b.auditSuppressions.Has(key) {
 		return fmt.Errorf("audit suppression %q already exists: %w", key, ErrAlreadyExists)
+	}
+
+	if err := b.claimClientTokenLocked(
+		tokenKindAuditSuppression, clientRequestToken, key, ErrAlreadyExists,
+	); err != nil {
+		return err
 	}
 	rid := make(map[string]any, len(resourceID))
 	maps.Copy(rid, resourceID)
@@ -322,6 +343,7 @@ func (b *InMemoryBackend) DeleteAuditSuppression(checkName string, resourceID ma
 		return fmt.Errorf("audit suppression %q not found: %w", key, ErrResourceNotFound)
 	}
 	b.auditSuppressions.Delete(key)
+	b.releaseClientTokensLocked(tokenKindAuditSuppression, key)
 
 	return nil
 }

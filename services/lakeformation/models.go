@@ -406,6 +406,7 @@ type revokePermissionsOutput struct{}
 // shape), NOT a flat ResourceArn string -- GetEffectivePermissionsForPath is the
 // only Lake Formation op that takes a flat ResourceArn.
 type listPermissionsInput struct {
+	CatalogID      string             `json:"CatalogId,omitempty"`
 	Principal      *DataLakePrincipal `json:"Principal,omitempty"`
 	Resource       *Resource          `json:"Resource,omitempty"`
 	NextToken      string             `json:"NextToken,omitempty"`
@@ -1103,6 +1104,7 @@ type getDataCellsFilterOutput struct {
 }
 
 type getEffectivePermissionsForPathInput struct {
+	CatalogID   string `json:"CatalogId,omitempty"`
 	ResourceArn string `json:"ResourceArn,omitempty"`
 	NextToken   string `json:"NextToken,omitempty"`
 	MaxResults  int    `json:"MaxResults,omitempty"`

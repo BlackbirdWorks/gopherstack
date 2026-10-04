@@ -70,34 +70,35 @@ type Datapoint struct {
 
 // MetricAlarm represents a CloudWatch metric alarm.
 type MetricAlarm struct {
-	CreatedAt                          time.Time         `json:"AlarmCreatedAt"`
-	StateTransitionedTimestamp         time.Time         `json:"StateTransitionedTimestamp"`
-	StateUpdatedTimestamp              time.Time         `json:"StateUpdatedTimestamp"`
-	AlarmConfigurationUpdatedTimestamp time.Time         `json:"AlarmConfigurationUpdatedTimestamp"`
-	AlarmDescription                   string            `json:"AlarmDescription,omitempty"`
-	AlarmArn                           string            `json:"AlarmArn"`
-	MetricName                         string            `json:"MetricName"`
-	ComparisonOperator                 string            `json:"ComparisonOperator"`
-	Statistic                          string            `json:"Statistic"`
-	ExtendedStatistic                  string            `json:"ExtendedStatistic,omitempty"`
-	TreatMissingData                   string            `json:"TreatMissingData,omitempty"`
-	AlarmName                          string            `json:"AlarmName"`
-	StateReason                        string            `json:"StateReason,omitempty"`
-	StateReasonData                    string            `json:"StateReasonData,omitempty"`
-	StateValue                         string            `json:"StateValue"`
-	Namespace                          string            `json:"Namespace"`
-	ThresholdMetricID                  string            `json:"ThresholdMetricId,omitempty"`
-	Unit                               string            `json:"Unit,omitempty"`
-	OKActions                          []string          `json:"OKActions,omitempty"`
-	InsufficientDataActions            []string          `json:"InsufficientDataActions,omitempty"`
-	Dimensions                         []Dimension       `json:"Dimensions,omitempty"`
-	Metrics                            []MetricDataQuery `json:"Metrics,omitempty"`
-	AlarmActions                       []string          `json:"AlarmActions,omitempty"`
-	Threshold                          float64           `json:"Threshold"`
-	EvaluationPeriods                  int32             `json:"EvaluationPeriods"`
-	DatapointsToAlarm                  int32             `json:"DatapointsToAlarm,omitempty"`
-	Period                             int32             `json:"Period"`
-	ActionsEnabled                     bool              `json:"ActionsEnabled"`
+	EvaluationWindow                   *AlarmEvaluationWindow `json:"EvaluationWindow,omitempty"`
+	CreatedAt                          time.Time              `json:"AlarmCreatedAt"`
+	StateTransitionedTimestamp         time.Time              `json:"StateTransitionedTimestamp"`
+	StateUpdatedTimestamp              time.Time              `json:"StateUpdatedTimestamp"`
+	AlarmConfigurationUpdatedTimestamp time.Time              `json:"AlarmConfigurationUpdatedTimestamp"`
+	AlarmDescription                   string                 `json:"AlarmDescription,omitempty"`
+	AlarmArn                           string                 `json:"AlarmArn"`
+	MetricName                         string                 `json:"MetricName"`
+	ComparisonOperator                 string                 `json:"ComparisonOperator"`
+	Statistic                          string                 `json:"Statistic"`
+	ExtendedStatistic                  string                 `json:"ExtendedStatistic,omitempty"`
+	TreatMissingData                   string                 `json:"TreatMissingData,omitempty"`
+	AlarmName                          string                 `json:"AlarmName"`
+	StateReason                        string                 `json:"StateReason,omitempty"`
+	StateReasonData                    string                 `json:"StateReasonData,omitempty"`
+	StateValue                         string                 `json:"StateValue"`
+	Namespace                          string                 `json:"Namespace"`
+	ThresholdMetricID                  string                 `json:"ThresholdMetricId,omitempty"`
+	Unit                               string                 `json:"Unit,omitempty"`
+	OKActions                          []string               `json:"OKActions,omitempty"`
+	InsufficientDataActions            []string               `json:"InsufficientDataActions,omitempty"`
+	Dimensions                         []Dimension            `json:"Dimensions,omitempty"`
+	Metrics                            []MetricDataQuery      `json:"Metrics,omitempty"`
+	AlarmActions                       []string               `json:"AlarmActions,omitempty"`
+	Threshold                          float64                `json:"Threshold"`
+	EvaluationPeriods                  int32                  `json:"EvaluationPeriods"`
+	DatapointsToAlarm                  int32                  `json:"DatapointsToAlarm,omitempty"`
+	Period                             int32                  `json:"Period"`
+	ActionsEnabled                     bool                   `json:"ActionsEnabled"`
 }
 
 // CompositeAlarm represents a CloudWatch composite alarm that combines child alarms.

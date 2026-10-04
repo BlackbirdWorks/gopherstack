@@ -38,7 +38,8 @@ func (h *Handler) handleCreateReplicationConfiguration(
 }
 
 func (h *Handler) handleDeleteReplicationConfiguration(c *echo.Context, fileSystemID string) error {
-	if err := h.Backend.DeleteReplicationConfiguration(h.contextWithRegion(c), fileSystemID); err != nil {
+	mode := c.Request().URL.Query().Get("deletionMode")
+	if err := h.Backend.DeleteReplicationConfigurationWithMode(h.contextWithRegion(c), fileSystemID, mode); err != nil {
 		return h.handleError(c, err)
 	}
 

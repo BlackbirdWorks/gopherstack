@@ -312,7 +312,7 @@ gaps: []
 items_still_open:
   - "BatchDescribeUserLimits AGENT_HOURS SYSTEM_DEFAULT (4 STANDARD / 8 ENTERPRISE) has no primary AWS source (API_EffectiveLimit.html gives no default); the figure is from third-party pricing coverage. Correct it if AWS documents one."
   - "DescribeTopicV2/DescribeTopic do not project each other's family-only fields (V1 ConfigOptions/full DatasetMetadata, V2 DataSetRelations/CustomInstructions): the schemas are not convertible and the SDK documents no projection."
-  - "No backing subsystem for: GetDashboardEmbedUrl ResetDisabled/StatePersistenceEnabled/UndoRedoDisabled (opaque embed URL), StartAssetBundleExportJob.ValidationStrategy (no validation engine), CreateDashboard.Parameters (no Describe* echo, opaque Definition)."
+  - "No backing subsystem for: GetDashboardEmbedUrl ResetDisabled/StatePersistenceEnabled/UndoRedoDisabled (opaque embed URL), CreateDashboard.Parameters (no Describe* echo, opaque Definition), and StartAssetBundleExportJob strict-mode validation errors (ValidationStrategy itself is echoed since 2026-10-04, but no dependency validation runs)."
   - "DataSetSummary.RowLevelPermissionDataSetMap and KnowledgeBaseSummary.PrimaryOwnerUsername/Type are not modeled: no multi-RLS-map request member on Create/UpdateDataSet, no username or knowledge-base-type source."
   - "2026-09-30: CLOSED ListFoldersForResource ARN-with-slash routing (realclient_datasets_and_dashboards_test.go testFoldersExtraRealClient), ListApps (TestRealClient_AppLifecycle), dataset RLS/CLS/UseAs fields (dataset_security_client_test.go) and ListDashboardVersions Description/SourceEntityArn/CreatedTime (dashboard_versions_client_test.go; per-version records capped at 1000)."
 deferred: []
@@ -2262,3 +2262,7 @@ issues). `cmd/paritylint` stays at 0 missing-items-still-open FAIL.
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 quicksight is region-isolated: groups, users, data sources, analyses and dashboards live per region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/quicksight`. Limitation: the dashboard shows the home region only. `TestHandler_MultiRegionReset` covers Reset.
+
+## 2026-10-04 (reqfielddiff tier-1 pass)
+
+StartAssetBundleExportJob now stores ValidationStrategy.StrictModeForAllResources and CloudFormationOverridePropertyConfiguration (opaque pass-through) and DescribeAssetBundleExportJob echoes both; persistence additive on `storedAssetBundleExportJob`. Strict mode still performs no dependency validation, so no Errors are ever produced. GetDashboardEmbedUrl.ResetDisabled/StatePersistenceEnabled/UndoRedoDisabled and CreateDashboard.Parameters stay recorded. Proof: `TestAssetBundleExportJob_ValidationStrategyAndOverridesEchoed`.

@@ -106,6 +106,7 @@ func TestQuickSight_Phase3_3_StoreRoundTrip(t *testing.T) {
 
 	_, err = b.StartAssetBundleExportJob(
 		testAccountID, "exportjob1", "", "", []string{dash.Arn}, false, false, false, false,
+		quicksight.AssetBundleExportExtras{},
 	)
 	require.NoError(t, err)
 

@@ -580,17 +580,25 @@ type IdentityPropagationConfig struct {
 // AssetBundleExportJob represents an asynchronous asset-bundle export job.
 type AssetBundleExportJob struct {
 	CreatedTime              time.Time
-	JobID                    string
-	Arn                      string
-	Status                   string
+	CloudFormationOverrides  map[string]any
+	ValidationStrategyStrict *bool
+	IncludeFolderMembers     string
 	ExportFormat             string
 	DownloadURL              string
-	IncludeFolderMembers     string
+	Status                   string
+	Arn                      string
+	JobID                    string
 	ResourceArns             []string
 	IncludeAllDependencies   bool
 	IncludeFolderMemberships bool
 	IncludePermissions       bool
 	IncludeTags              bool
+}
+
+// AssetBundleExportExtras carries the optional StartAssetBundleExportJob members that are only echoed back.
+type AssetBundleExportExtras struct {
+	ValidationStrategyStrict *bool
+	CloudFormationOverrides  map[string]any
 }
 
 // AssetBundleImportJob represents an asynchronous asset-bundle import job.

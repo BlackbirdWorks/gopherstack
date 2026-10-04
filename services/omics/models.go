@@ -566,6 +566,8 @@ type Workflow struct {
 	StorageType       string                       `json:"storageType,omitempty"`
 	UUID              string                       `json:"uuid,omitempty"`
 	Status            string                       `json:"status"`
+	Readme            string                       `json:"readme,omitempty"`
+	ReadmePath        string                       `json:"readmePath,omitempty"`
 	pollCount         int                          // tracks CREATING→ACTIVE progression; not serialized
 }
 
@@ -591,26 +593,33 @@ type WorkflowSummary struct {
 // discarded -- this backend does not store or execute workflow definition
 // content, see the Engine doc comment in PARITY.md).
 type CreateWorkflowInput struct {
-	ParameterTemplate map[string]WorkflowParameter
-	StorageCapacity   *int
-	Tags              map[string]string
-	Name              string
-	Description       string
-	DefinitionZip     string
-	DefinitionURI     string
-	Engine            string
-	StorageType       string
+	ParameterTemplate     map[string]WorkflowParameter
+	StorageCapacity       *int
+	Tags                  map[string]string
+	Name                  string
+	Description           string
+	DefinitionZip         string
+	DefinitionURI         string
+	Engine                string
+	StorageType           string
+	ReadmeMarkdown        string
+	ReadmePath            string
+	WorkflowBucketOwnerID string
 }
 
 // CreateWorkflowVersionInput holds input for CreateWorkflowVersion.
 type CreateWorkflowVersionInput struct {
-	ParameterTemplate map[string]WorkflowParameter
-	StorageCapacity   *int
-	Tags              map[string]string
-	WorkflowID        string
-	VersionName       string
-	Description       string
-	StorageType       string
+	ParameterTemplate     map[string]WorkflowParameter
+	StorageCapacity       *int
+	Tags                  map[string]string
+	WorkflowID            string
+	VersionName           string
+	Description           string
+	StorageType           string
+	DefinitionURI         string
+	ReadmeMarkdown        string
+	ReadmePath            string
+	WorkflowBucketOwnerID string
 }
 
 // WorkflowVersionFilter is filter criteria for listing workflow versions.
@@ -632,6 +641,9 @@ type WorkflowVersion struct {
 	Type              string                       `json:"type,omitempty"`
 	StorageType       string                       `json:"storageType,omitempty"`
 	Status            string                       `json:"status"`
+	Readme            string                       `json:"readme,omitempty"`
+	ReadmePath        string                       `json:"readmePath,omitempty"`
+	BucketOwnerID     string                       `json:"workflowBucketOwnerId,omitempty"`
 	pollCount         int                          // tracks CREATING→ACTIVE progression; not serialized
 }
 

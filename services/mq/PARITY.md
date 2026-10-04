@@ -213,3 +213,7 @@ the Docker-gated `TestMQESMRealRabbitMQ` / `TestMQESMRealActiveMQ` in services/l
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 Amazon MQ is region-isolated: each non-home region gets a lazily built sibling `Handler` (own brokers, configurations, users, tags; region-correct ARNs) via `pkgs/regionpeers`. Siblings inherit the docker broker-engine config; the runtime and the bounded port allocator are shared and only the home backend closes the runtime. Lambda MQ event source mappings resolve the broker in its ARN region (`mqRegionResolver`). Snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestHandler_MultiRegionLegacyRestore`, `TestHandler_MultiRegionDockerBrokers`, `TestMQRegionResolver_ResolvesBrokerInARNRegion`, `TestRegionIsolation/mq`.
+
+## 2026-10-04 (reqfielddiff tier-1 pass)
+
+`DescribeSharedResources.MaxResults` stays recorded: the op is structurally always empty (no AWS RAM sharing state), so there is nothing to page.

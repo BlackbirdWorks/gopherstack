@@ -50,14 +50,25 @@ func (h *Handler) handleStartPersonTracking(
 	return &startJobResp{JobId: jobID}, nil
 }
 
+type getPersonTrackingReq struct {
+	JobId      string `json:"JobId"` //nolint:revive,staticcheck // existing issue.
+	NextToken  string `json:"NextToken"`
+	SortBy     string `json:"SortBy"`
+	MaxResults int32  `json:"MaxResults"`
+}
+
 type getPersonTrackingResp struct {
 	getJobBaseResp
 	Persons []struct{} `json:"Persons"`
 }
 
 func (h *Handler) handleGetPersonTracking(
-	_ context.Context, req *getJobReq,
+	_ context.Context, req *getPersonTrackingReq,
 ) (*getPersonTrackingResp, error) {
+	if req.SortBy != "" && req.SortBy != "INDEX" && req.SortBy != "TIMESTAMP" {
+		return nil, fmt.Errorf("%w: SortBy must be INDEX or TIMESTAMP", ErrValidation)
+	}
+
 	base, _, err := h.getJobBase(req.JobId)
 	if err != nil {
 		return nil, err

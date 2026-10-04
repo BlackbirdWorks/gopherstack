@@ -320,17 +320,18 @@ func imageSortLess(a, b *SMImage, sortBy string) bool {
 type ImageVersion struct {
 	CreationTime       time.Time `json:"CreationTime"`
 	LastModifiedTime   time.Time `json:"LastModifiedTime"`
-	JobType            string    `json:"JobType,omitempty"`
-	BaseImage          string    `json:"BaseImage,omitempty"`
+	MLFramework        string    `json:"MLFramework,omitempty"`
+	Processor          string    `json:"Processor,omitempty"`
 	ContainerImage     string    `json:"ContainerImage,omitempty"`
 	ImageArn           string    `json:"ImageArn"`
 	ImageVersionArn    string    `json:"ImageVersionArn"`
 	ImageVersionStatus string    `json:"ImageVersionStatus"`
-	MLFramework        string    `json:"MLFramework,omitempty"`
-	Processor          string    `json:"Processor,omitempty"`
+	JobType            string    `json:"JobType,omitempty"`
+	BaseImage          string    `json:"BaseImage,omitempty"`
 	ProgrammingLang    string    `json:"ProgrammingLang,omitempty"`
 	ReleaseNotes       string    `json:"ReleaseNotes,omitempty"`
 	VendorGuidance     string    `json:"VendorGuidance,omitempty"`
+	ClientToken        string    `json:"ClientToken,omitempty"`
 	Aliases            []string  `json:"Aliases,omitempty"`
 	Version            int       `json:"Version"`
 	Horovod            bool      `json:"Horovod,omitempty"`
@@ -392,6 +393,7 @@ type CreateImageVersionOptions struct {
 	ProgrammingLang string
 	ReleaseNotes    string
 	VendorGuidance  string
+	ClientToken     string
 	Aliases         []string
 }
 
@@ -419,6 +421,14 @@ func (b *InMemoryBackend) CreateImageVersion(
 		return nil, fmt.Errorf("%w: image %q not found", ErrSMImageNotFound, imageName)
 	}
 
+	if opts.ClientToken != "" {
+		for _, existing := range b.imageVersionsStore(region)[imageName] {
+			if existing.ClientToken == opts.ClientToken {
+				return cloneImageVersion(existing), nil
+			}
+		}
+	}
+
 	b.imageVersionCountsStore(region)[imageName]++
 	version := b.imageVersionCountsStore(region)[imageName]
 
@@ -442,6 +452,7 @@ func (b *InMemoryBackend) CreateImageVersion(
 		ProgrammingLang:    opts.ProgrammingLang,
 		ReleaseNotes:       opts.ReleaseNotes,
 		VendorGuidance:     opts.VendorGuidance,
+		ClientToken:        opts.ClientToken,
 		CreationTime:       now,
 		LastModifiedTime:   now,
 	}

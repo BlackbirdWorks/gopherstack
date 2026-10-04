@@ -38,6 +38,10 @@ func (b *InMemoryBackend) PutMetricAlarm(alarm *MetricAlarm) error {
 		return fmt.Errorf("%w: Unit %q is not a valid StandardUnit", ErrValidation, alarm.Unit)
 	}
 
+	if err := validateEvaluationWindow(alarm.EvaluationWindow, alarm.Period); err != nil {
+		return err
+	}
+
 	b.mu.Lock("PutMetricAlarm")
 	defer b.mu.Unlock()
 

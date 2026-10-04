@@ -22,7 +22,10 @@ func TestHandler_XKS_CreateDescribeViaHTTP(t *testing.T) {
 
 	// Create XKS store
 	rec := b2postKMSOp(t, h, "CreateCustomKeyStore",
-		`{"CustomKeyStoreName":"xks-http","CustomKeyStoreType":"EXTERNAL_KEY_STORE"}`)
+		`{"CustomKeyStoreName":"xks-http","CustomKeyStoreType":"EXTERNAL_KEY_STORE",`+
+			`"XksProxyConnectivity":"PUBLIC_ENDPOINT","XksProxyUriEndpoint":"https://xks.example.com",`+
+			`"XksProxyUriPath":"/kms/xks/v1","XksProxyAuthenticationCredential":`+
+			`{"AccessKeyId":"AKIAEXAMPLE0001","RawSecretAccessKey":"secretsecretsecret"}}`)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp struct {

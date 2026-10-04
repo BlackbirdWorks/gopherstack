@@ -40,7 +40,7 @@ func (b *InMemoryBackend) EvaluateAlarms(ctx context.Context, now time.Time) {
 	}()
 
 	for _, snap := range snaps {
-		newState := b.evaluateMetricAlarmState(snap.alarm, now)
+		newState := b.evaluateMetricAlarmState(snap.alarm, alarmEvaluationTime(snap.alarm, now))
 		if newState == snap.alarm.StateValue {
 			continue
 		}

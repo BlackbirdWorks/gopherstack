@@ -36,6 +36,11 @@ func (b *InMemoryBackend) CreateCustomKeyStore(
 
 	region := getRegion(ctx, b.defaultRegion)
 
+	xks, xksErr := b.buildXksConfig(region, storeType, input)
+	if xksErr != nil {
+		return nil, xksErr
+	}
+
 	// Ensure name is unique.
 	for _, ks := range b.customKeyStoresStore(region).All() {
 		if ks.CustomKeyStoreName == input.CustomKeyStoreName {
@@ -56,6 +61,7 @@ func (b *InMemoryBackend) CreateCustomKeyStore(
 		CustomKeyStoreType:     storeType,
 		CloudHsmClusterID:      input.CloudHsmClusterID,
 		TrustAnchorCertificate: input.TrustAnchorCertificate,
+		XksProxyConfiguration:  xks,
 	})
 
 	return &CreateCustomKeyStoreOutput{CustomKeyStoreID: storeID}, nil
@@ -259,5 +265,5 @@ func (b *InMemoryBackend) UpdateCustomKeyStore(
 		}
 	}
 
-	return nil
+	return b.applyCustomKeyStoreUpdate(region, ks, input)
 }

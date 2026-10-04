@@ -982,3 +982,7 @@ Recorded: the SDK says only "The filter's start date"/"end date", so both bounds
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 omics is region-isolated: stores, workflows, runs and read sets live per region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/omics`. Limitation: the dashboard shows the home region only. `TestHandler_MultiRegionReset` covers Reset.
+
+## 2026-10-04 (reqfielddiff tier-1 pass)
+
+CreateWorkflow and CreateWorkflowVersion now store and echo ReadmeMarkdown (as Get*.Readme) and ReadmePath, and CreateWorkflowVersion echoes WorkflowBucketOwnerId; a WorkflowBucketOwnerId different from this account on an s3:// DefinitionUri is rejected with ValidationException (every bucket here is owned by the one account; omitted owner skips the check, as documented). This supersedes the 2026-08-31 notes that recorded ReadmePath and WorkflowBucketOwnerId as unmodellable. ParameterTemplatePath stays recorded: it is only meaningful for DefinitionRepository workflows, no Get output returns it, and no repository is ever read. Proof: `TestWorkflow_ReadmeAndBucketOwner`.

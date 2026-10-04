@@ -17,6 +17,7 @@ type certificateJSON struct {
 	CertificateIdentifier string `json:"CertificateIdentifier"`
 	CertificateArn        string `json:"CertificateArn"`
 	CertificatePem        string `json:"CertificatePem,omitempty"`
+	KmsKeyID              string `json:"KmsKeyId,omitempty"`
 }
 
 type deleteCertificateOutput struct {
@@ -28,6 +29,7 @@ func certToJSON(c *Certificate) certificateJSON {
 		CertificateIdentifier: c.CertificateIdentifier,
 		CertificateArn:        c.CertificateArn,
 		CertificatePem:        c.CertificatePem,
+		KmsKeyID:              c.KmsKeyID,
 	}
 }
 
@@ -88,6 +90,7 @@ func (h *Handler) handleDescribeCertificates(
 type importCertificateInput struct {
 	CertificateIdentifier *string    `json:"CertificateIdentifier"`
 	CertificatePem        *string    `json:"CertificatePem"`
+	KmsKeyID              *string    `json:"KmsKeyId"`
 	Tags                  []tagEntry `json:"Tags"`
 }
 
@@ -105,7 +108,13 @@ func (h *Handler) handleImportCertificate(
 
 	kv := tagsToMap(in.Tags)
 
-	cert, err := h.Backend.ImportCertificate(ctx, identifier, ptrconv.String(in.CertificatePem), kv)
+	cert, err := h.Backend.ImportCertificate(
+		ctx,
+		identifier,
+		ptrconv.String(in.CertificatePem),
+		ptrconv.String(in.KmsKeyID),
+		kv,
+	)
 	if err != nil {
 		return nil, err
 	}

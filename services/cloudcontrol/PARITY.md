@@ -502,3 +502,7 @@ additive field (no version bump; `go test ./pkgs/persistence/ -update` diff
 reviewed and applied). Regression test: `TestClientTokens_TTLBoundsMapGrowth`
 (idempotency_ttl_internal_test.go), proves a replay is kept inside the window and
 a stale token neither replays nor conflicts after it.
+
+## 2026-10-04 (reqfielddiff tier-1 pass)
+
+Re-checked the 5 `TypeVersionId` findings: still recorded in items_still_open. The store is generic and has no private resource type registry, so there is no version to select or reject; unchanged.

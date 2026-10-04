@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"slices"
+	"strings"
 	"time"
 )
 
@@ -109,6 +111,7 @@ type describeImagesFilter struct {
 type describeImagesInput struct {
 	Filter         *describeImagesFilter `json:"filter,omitempty"`
 	RepositoryName string                `json:"repositoryName"`
+	RegistryID     string                `json:"registryId,omitempty"`
 	NextToken      string                `json:"nextToken,omitempty"`
 	ImageIDs       []ImageIdentifier     `json:"imageIds,omitempty"`
 	MaxResults     int                   `json:"maxResults,omitempty"`
@@ -196,6 +199,18 @@ func parseManifestArtifactFields(manifest string) (string, string) {
 	return parsed.ArtifactType, subjectDigest
 }
 
+func parseManifestAnnotations(manifest string) map[string]string {
+	var parsed struct {
+		Annotations map[string]string `json:"annotations"`
+	}
+
+	if err := json.Unmarshal([]byte(manifest), &parsed); err != nil || len(parsed.Annotations) == 0 {
+		return nil
+	}
+
+	return parsed.Annotations
+}
+
 func toImageDetailView(img Image) imageDetailView {
 	// Prefer multi-tag list from DescribeImages annotation; fall back to single tag.
 	tags := img.Tags
@@ -246,6 +261,10 @@ func (h *Handler) handleDescribeImages(
 	ctx context.Context,
 	in *describeImagesInput,
 ) (*describeImagesOutput, error) {
+	if err := h.checkRegistryForRepo(in.RegistryID, in.RepositoryName); err != nil {
+		return nil, err
+	}
+
 	imgs, err := h.Backend.DescribeImages(ctx, in.RepositoryName, in.ImageIDs)
 	if err != nil {
 		return nil, err
@@ -499,36 +518,86 @@ func (h *Handler) handlePutImageTagMutability(
 	}, nil
 }
 
-// listImageReferrersInput is the request body for ListImageReferrers.
-//
-// The real ListImageReferrersInput also carries Filter/MaxResults/NextToken
-// (see ListImageReferrersFilter), deliberately omitted here: PutImage never
-// records an OCI-referrer edge from a pushed artifact's manifest "subject"
-// back to the subject image, so ListImageReferrers is structurally always
-// empty (see ListImageReferrers's backend implementation) and those fields
-// would have no observable effect on any response this handler can produce —
-// adding them would be a schema-only change with no real behavior to ratify.
-// Disclosed as a structural gap rather than papered over.
+type listImageReferrersFilter struct {
+	ArtifactStatus string   `json:"artifactStatus,omitempty"`
+	ArtifactTypes  []string `json:"artifactTypes,omitempty"`
+}
+
 type listImageReferrersInput struct {
-	RepositoryName string          `json:"repositoryName"`
-	SubjectID      ImageIdentifier `json:"subjectId"`
-	RegistryID     string          `json:"registryId,omitempty"`
+	Filter         *listImageReferrersFilter `json:"filter,omitempty"`
+	RepositoryName string                    `json:"repositoryName"`
+	RegistryID     string                    `json:"registryId,omitempty"`
+	NextToken      string                    `json:"nextToken,omitempty"`
+	SubjectID      ImageIdentifier           `json:"subjectId"`
+	MaxResults     int                       `json:"maxResults,omitempty"`
 }
 
 type listImageReferrersOutput struct {
+	NextToken string          `json:"nextToken,omitempty"`
 	Referrers []ImageReferrer `json:"referrers"`
+}
+
+const defaultReferrersPageSize = 20
+
+func filterReferrers(in []ImageReferrer, f *listImageReferrersFilter) []ImageReferrer {
+	status := ""
+	if f != nil {
+		status = f.ArtifactStatus
+	}
+
+	out := make([]ImageReferrer, 0, len(in))
+
+	for _, r := range in {
+		if !passesImageStatusFilter(r.ArtifactStatus, status) {
+			continue
+		}
+
+		if f != nil && len(f.ArtifactTypes) > 0 && !slices.Contains(f.ArtifactTypes, r.ArtifactType) {
+			continue
+		}
+
+		out = append(out, r)
+	}
+
+	return out
 }
 
 func (h *Handler) handleListImageReferrers(
 	ctx context.Context,
 	in *listImageReferrersInput,
 ) (*listImageReferrersOutput, error) {
-	referrers, err := h.Backend.ListImageReferrers(ctx, in.RepositoryName, in.SubjectID)
+	if err := h.checkRegistryForRepo(in.RegistryID, in.RepositoryName); err != nil {
+		return nil, err
+	}
+
+	all, err := h.Backend.ListImageReferrers(ctx, in.RepositoryName, in.SubjectID)
 	if err != nil {
 		return nil, err
 	}
 
-	return &listImageReferrersOutput{Referrers: referrers}, nil
+	referrers := filterReferrers(all, in.Filter)
+
+	if in.NextToken != "" {
+		if decoded, decErr := base64.StdEncoding.DecodeString(in.NextToken); decErr == nil {
+			start, _ := slices.BinarySearchFunc(referrers, string(decoded), func(r ImageReferrer, d string) int {
+				return strings.Compare(r.Digest, d)
+			})
+			referrers = referrers[start:]
+		}
+	}
+
+	pageSize := in.MaxResults
+	if pageSize <= 0 {
+		pageSize = defaultReferrersPageSize
+	}
+
+	var next string
+	if len(referrers) > pageSize {
+		next = base64.StdEncoding.EncodeToString([]byte(referrers[pageSize].Digest))
+		referrers = referrers[:pageSize]
+	}
+
+	return &listImageReferrersOutput{Referrers: referrers, NextToken: next}, nil
 }
 
 type updateImageStorageClassInput struct {

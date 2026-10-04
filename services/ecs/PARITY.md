@@ -1209,3 +1209,7 @@ ECS is region-isolated: a request signed for another region is served by a lazil
 ## 2026-10-04: in-process metric inventory (gopherstack-4m1qr)
 
 Recorded, not emitted: AWS/ECS CPUUtilization/MemoryUtilization (ClusterName, ServiceName) need real container stats; see items_still_open.
+
+## 2026-10-04 (reqfielddiff tier-1 pass)
+
+StartTask now honours Overrides (echoed on the task; TaskRoleArn override resolves the task role like RunTask), NetworkConfiguration and EnableExecuteCommand (api_op_StartTask.go). Proof: `TestStartTask_OverridesPersisted_RealClient`. The earlier StartTask Containers/host-port gap is unchanged.

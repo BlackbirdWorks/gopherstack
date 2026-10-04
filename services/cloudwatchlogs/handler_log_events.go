@@ -21,6 +21,7 @@ type getLogEventsInput struct {
 	NextToken     string `json:"nextToken"`
 	Limit         int    `json:"limit"`
 	StartFromHead bool   `json:"startFromHead"`
+	Unmask        bool   `json:"unmask"`
 }
 
 type filterLogEventsInput struct {
@@ -33,6 +34,7 @@ type filterLogEventsInput struct {
 	LogStreamNamePrefix string   `json:"logStreamNamePrefix"`
 	LogStreamNames      []string `json:"logStreamNames"`
 	Limit               int      `json:"limit"`
+	Unmask              bool     `json:"unmask"`
 }
 
 type putLogEventsOutput struct {
@@ -55,6 +57,7 @@ type filterLogEventsOutput struct {
 // --- GetLogRecord ---.
 type getLogRecordInput struct {
 	LogRecordPointer string `json:"logRecordPointer"`
+	Unmask           bool   `json:"unmask"`
 }
 
 type getLogRecordOutput struct {
@@ -89,7 +92,7 @@ func (h *Handler) logEventActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			evts, fwd, bwd, err := h.Backend.GetLogEvents(ctx,
+			evts, fwd, bwd, err := h.Backend.GetLogEvents(withUnmask(ctx, input.Unmask),
 				input.LogGroupName, input.LogStreamName, input.StartTime, input.EndTime,
 				input.Limit, input.NextToken, input.StartFromHead)
 			if err != nil {
@@ -107,7 +110,7 @@ func (h *Handler) logEventActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			evts, next, searched, err := h.Backend.FilterLogEvents(ctx, FilterLogEventsParams{
+			evts, next, searched, err := h.Backend.FilterLogEvents(withUnmask(ctx, input.Unmask), FilterLogEventsParams{
 				GroupName:           input.LogGroupName,
 				StreamNames:         input.LogStreamNames,
 				LogStreamNamePrefix: input.LogStreamNamePrefix,
@@ -136,7 +139,7 @@ func (h *Handler) handleGetLogRecord(ctx context.Context, b []byte) (any, error)
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
 	}
-	record, err := h.Backend.GetLogRecord(ctx, input.LogRecordPointer)
+	record, err := h.Backend.GetLogRecord(withUnmask(ctx, input.Unmask), input.LogRecordPointer)
 	if err != nil {
 		return nil, err
 	}
@@ -203,6 +206,7 @@ func (h *Handler) handleGetLogObject(ctx context.Context, body []byte) (any, err
 	var input struct {
 		LogObjectPointer string `json:"logObjectPointer"`
 		LogRecordPointer string `json:"logRecordPointer"`
+		Unmask           bool   `json:"unmask"`
 	}
 	if len(body) > 0 {
 		if err := json.Unmarshal(body, &input); err != nil {
@@ -223,7 +227,7 @@ func (h *Handler) handleGetLogObject(ctx context.Context, body []byte) (any, err
 		return nil, fmt.Errorf("%w: log object %s not found", ErrLogStreamNotFound, pointer)
 	}
 
-	record, err := b.GetLogRecord(ctx, pointer)
+	record, err := b.GetLogRecord(withUnmask(ctx, input.Unmask), pointer)
 	if err != nil {
 		return nil, err
 	}

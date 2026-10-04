@@ -11,7 +11,9 @@ type jsonPutRecordReq struct {
 	StreamARN       string `json:"StreamARN"`
 	PartitionKey    string `json:"PartitionKey"`
 	ExplicitHashKey string `json:"ExplicitHashKey,omitempty"`
-	Data            []byte `json:"Data"`
+	// SequenceNumberForOrdering is validated; ordering already holds because shard sequence numbers only increase.
+	SequenceNumberForOrdering string `json:"SequenceNumberForOrdering,omitempty"`
+	Data                      []byte `json:"Data"`
 }
 
 type jsonPutRecordEntry struct {
@@ -93,6 +95,10 @@ func (h *Handler) handlePutRecord(
 	streamName := req.StreamName
 	if streamName == "" && req.StreamARN != "" {
 		streamName = streamNameFromARN(req.StreamARN)
+	}
+
+	if req.SequenceNumberForOrdering != "" && !isValidSequenceNumber(req.SequenceNumberForOrdering) {
+		return nil, ErrInvalidArgument
 	}
 
 	out, err := h.Backend.PutRecord(ctx, &PutRecordInput{
@@ -208,4 +214,25 @@ func (h *Handler) handleGetRecords(
 		ChildShards:        childShards,
 		MillisBehindLatest: out.MillisBehindLatest,
 	}, nil
+}
+
+// isValidSequenceNumber reports whether s matches the SequenceNumber shape: 0 or 1-129 digits without a leading zero.
+func isValidSequenceNumber(s string) bool {
+	const maxSequenceNumberLen = 129
+
+	if s == "0" {
+		return true
+	}
+
+	if len(s) == 0 || len(s) > maxSequenceNumberLen || s[0] == '0' {
+		return false
+	}
+
+	for i := range len(s) {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+
+	return true
 }

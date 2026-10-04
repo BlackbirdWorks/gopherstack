@@ -55,6 +55,6 @@ func TestOTAUpdateCRUD(t *testing.T) {
 	}
 
 	// Delete
-	iotOK(t, h, http.MethodDelete, "/otaUpdates/my-ota", nil)
+	iotOK(t, h, http.MethodDelete, "/otaUpdates/my-ota?forceDeleteAWSJob=true", nil)
 	iotExpectError(t, h, "/otaUpdates/my-ota")
 }

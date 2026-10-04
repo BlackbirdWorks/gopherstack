@@ -755,9 +755,11 @@ type ListKeyPoliciesOutput struct {
 
 // KeyRotationEntry describes one key rotation event.
 type KeyRotationEntry struct {
-	KeyID        string  `json:"KeyId,omitempty"`
-	RotationType string  `json:"RotationType,omitempty"`
-	RotationDate float64 `json:"RotationDate"`
+	KeyID            string  `json:"KeyId,omitempty"`
+	KeyMaterialID    string  `json:"KeyMaterialId,omitempty"`
+	KeyMaterialState string  `json:"KeyMaterialState,omitempty"`
+	RotationType     string  `json:"RotationType,omitempty"`
+	RotationDate     float64 `json:"RotationDate,omitempty"`
 }
 
 // ListKeyRotationsInput is the request payload for ListKeyRotations.
@@ -765,6 +767,8 @@ type ListKeyRotationsInput struct {
 	Limit  *int32 `json:"Limit,omitempty"`
 	KeyID  string `json:"KeyId"`
 	Marker string `json:"Marker,omitempty"`
+	// IncludeKeyMaterial is ROTATIONS_ONLY (default) or ALL_KEY_MATERIAL.
+	IncludeKeyMaterial string `json:"IncludeKeyMaterial,omitempty"`
 }
 
 // ListKeyRotationsOutput is the response payload for ListKeyRotations.
@@ -809,8 +813,16 @@ type RotateKeyOnDemandOutput struct {
 
 // UpdateCustomKeyStoreInput is the request payload for UpdateCustomKeyStore.
 type UpdateCustomKeyStoreInput struct {
-	NewCustomKeyStoreName *string `json:"NewCustomKeyStoreName,omitempty"`
-	CustomKeyStoreID      string  `json:"CustomKeyStoreId"`
+	NewCustomKeyStoreName            *string                           `json:"NewCustomKeyStoreName,omitempty"`
+	CloudHsmClusterID                *string                           `json:"CloudHsmClusterId,omitempty"`
+	KeyStorePassword                 *string                           `json:"KeyStorePassword,omitempty"`
+	XksProxyAuthenticationCredential *XksProxyAuthenticationCredential `json:"XksProxyAuthenticationCredential,omitempty"`
+	XksProxyConnectivity             *string                           `json:"XksProxyConnectivity,omitempty"`
+	XksProxyURIEndpoint              *string                           `json:"XksProxyUriEndpoint,omitempty"`
+	XksProxyURIPath                  *string                           `json:"XksProxyUriPath,omitempty"`
+	XksProxyVpcEndpointServiceName   *string                           `json:"XksProxyVpcEndpointServiceName,omitempty"`
+	XksProxyVpcEndpointServiceOwner  *string                           `json:"XksProxyVpcEndpointServiceOwner,omitempty"`
+	CustomKeyStoreID                 string                            `json:"CustomKeyStoreId"`
 }
 
 // UpdateKeyDescriptionInput is the request payload for UpdateKeyDescription.
@@ -876,6 +888,24 @@ type CustomKeyStore struct {
 	// KeyStorePassword is write-only and never echoed.
 	CloudHsmClusterID      string `json:"CloudHsmClusterId,omitempty"`
 	TrustAnchorCertificate string `json:"TrustAnchorCertificate,omitempty"`
+	// XksProxyConfiguration is set for EXTERNAL_KEY_STORE stores only.
+	XksProxyConfiguration *XksProxyConfiguration `json:"XksProxyConfiguration,omitempty"`
+}
+
+// XksProxyConfiguration is the CustomKeyStoresListEntry.XksProxyConfiguration wire shape.
+type XksProxyConfiguration struct {
+	AccessKeyID             string `json:"AccessKeyId,omitempty"`
+	Connectivity            string `json:"Connectivity,omitempty"`
+	URIEndpoint             string `json:"UriEndpoint,omitempty"`
+	URIPath                 string `json:"UriPath,omitempty"`
+	VpcEndpointServiceName  string `json:"VpcEndpointServiceName,omitempty"`
+	VpcEndpointServiceOwner string `json:"VpcEndpointServiceOwner,omitempty"`
+}
+
+// XksProxyAuthenticationCredential is the write-only proxy credential; the secret is never stored.
+type XksProxyAuthenticationCredential struct {
+	AccessKeyID        string `json:"AccessKeyId"`
+	RawSecretAccessKey string `json:"RawSecretAccessKey"`
 }
 
 // CreateCustomKeyStoreInput is the request payload for CreateCustomKeyStore.
@@ -888,6 +918,13 @@ type CreateCustomKeyStoreInput struct {
 	// inputs, echoed back verbatim by DescribeCustomKeyStores.
 	CloudHsmClusterID      string `json:"CloudHsmClusterId,omitempty"`
 	TrustAnchorCertificate string `json:"TrustAnchorCertificate,omitempty"`
+	// EXTERNAL_KEY_STORE proxy settings.
+	XksProxyAuthenticationCredential *XksProxyAuthenticationCredential `json:"XksProxyAuthenticationCredential,omitempty"`
+	XksProxyConnectivity             string                            `json:"XksProxyConnectivity,omitempty"`
+	XksProxyURIEndpoint              string                            `json:"XksProxyUriEndpoint,omitempty"`
+	XksProxyURIPath                  string                            `json:"XksProxyUriPath,omitempty"`
+	XksProxyVpcEndpointServiceName   string                            `json:"XksProxyVpcEndpointServiceName,omitempty"`
+	XksProxyVpcEndpointServiceOwner  string                            `json:"XksProxyVpcEndpointServiceOwner,omitempty"`
 }
 
 // CreateCustomKeyStoreOutput is the response payload for CreateCustomKeyStore.

@@ -189,13 +189,24 @@ func (b *InMemoryBackend) ListPermissions(
 	principal *DataLakePrincipal,
 	resourceType string,
 ) ([]*PermissionEntry, string) {
+	return b.ListPermissionsInCatalog(resource, maxResults, nextToken, principal, resourceType, "", "")
+}
+
+// ListPermissionsInCatalog is ListPermissions restricted to entries whose resource lives in catalogID (all when empty).
+func (b *InMemoryBackend) ListPermissionsInCatalog(
+	resource *Resource,
+	maxResults int,
+	nextToken string,
+	principal *DataLakePrincipal,
+	resourceType, catalogID, account string,
+) ([]*PermissionEntry, string) {
 	b.mu.RLock("ListPermissions")
 	defer b.mu.RUnlock()
 
 	filtered := make([]*PermissionEntry, 0, len(b.permissionsList))
 
 	for _, p := range b.permissionsList {
-		if !permissionMatchesResource(p, resource) {
+		if !permissionMatchesResource(p, resource) || !permissionInCatalog(p, catalogID, account) {
 			continue
 		}
 
@@ -729,6 +740,13 @@ func (b *InMemoryBackend) expandLFTagPolicyGrantsLocked(resourceArn string) []*P
 func (b *InMemoryBackend) GetEffectivePermissionsForPath(
 	resourceArn string, maxResults int, nextToken string,
 ) ([]*PermissionEntry, string) {
+	return b.GetEffectivePermissionsForPathInCatalog(resourceArn, maxResults, nextToken, "", "")
+}
+
+// GetEffectivePermissionsForPathInCatalog is GetEffectivePermissionsForPath restricted to catalogID (all when empty).
+func (b *InMemoryBackend) GetEffectivePermissionsForPathInCatalog(
+	resourceArn string, maxResults int, nextToken, catalogID, account string,
+) ([]*PermissionEntry, string) {
 	b.mu.RLock("GetEffectivePermissionsForPath")
 	defer b.mu.RUnlock()
 
@@ -736,6 +754,10 @@ func (b *InMemoryBackend) GetEffectivePermissionsForPath(
 
 	for _, p := range b.permissionsList {
 		if resourceArn != "" && !permissionMatchesARN(p, resourceArn) {
+			continue
+		}
+
+		if !permissionInCatalog(p, catalogID, account) {
 			continue
 		}
 
@@ -747,4 +769,42 @@ func (b *InMemoryBackend) GetEffectivePermissionsForPath(
 	}
 
 	return paginate(filtered, maxResults, nextToken, defaultMaxResults)
+}
+
+// resourceCatalogID returns the catalog a permission resource lives in, defaulting to the account.
+func resourceCatalogID(r *Resource, account string) string {
+	id := ""
+
+	switch {
+	case r == nil:
+	case r.Catalog != nil:
+		id = r.Catalog.ID
+	case r.Database != nil:
+		id = r.Database.CatalogID
+	case r.Table != nil:
+		id = r.Table.CatalogID
+	case r.TableWithColumns != nil:
+		id = r.TableWithColumns.CatalogID
+	case r.DataLocation != nil:
+		id = r.DataLocation.CatalogID
+	case r.DataCellsFilter != nil:
+		id = r.DataCellsFilter.TableCatalogID
+	case r.LFTag != nil:
+		id = r.LFTag.CatalogID
+	case r.LFTagExpression != nil:
+		id = r.LFTagExpression.CatalogID
+	case r.LFTagPolicy != nil:
+		id = r.LFTagPolicy.CatalogID
+	}
+
+	if id == "" {
+		return account
+	}
+
+	return id
+}
+
+// permissionInCatalog reports whether p belongs to catalogID; an empty catalogID matches everything.
+func permissionInCatalog(p *PermissionEntry, catalogID, account string) bool {
+	return catalogID == "" || resourceCatalogID(p.Resource, account) == catalogID
 }

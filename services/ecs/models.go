@@ -310,11 +310,14 @@ type UpdateCapacityProviderInput struct {
 
 // StartTaskInput holds input for StartTask (place a task on a specific container instance).
 type StartTaskInput struct {
-	Cluster            string
-	TaskDefinition     string
-	Group              string
-	StartedBy          string
-	ContainerInstances []string
+	Overrides            *TaskOverride
+	NetworkConfiguration *NetworkConfiguration
+	Cluster              string
+	TaskDefinition       string
+	Group                string
+	StartedBy            string
+	ContainerInstances   []string
+	EnableExecuteCommand bool
 }
 
 // ---- Tag, capacity provider, account setting, and attribute models ----

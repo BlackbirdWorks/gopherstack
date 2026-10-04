@@ -537,6 +537,7 @@ type StorageBackend interface {
 		accountID, jobID, exportFormat, includeFolderMembers string,
 		resourceArns []string,
 		includeAllDependencies, includeFolderMemberships, includePermissions, includeTags bool,
+		extras AssetBundleExportExtras,
 	) (*AssetBundleExportJob, error)
 	DescribeAssetBundleExportJob(accountID, jobID string) (*AssetBundleExportJob, error)
 	ListAssetBundleExportJobs(

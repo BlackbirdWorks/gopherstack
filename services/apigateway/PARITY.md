@@ -1286,3 +1286,7 @@ API Gateway (REST) is region-isolated: each non-home region gets a lazily built 
 ## 2026-10-04: in-process metric inventory (gopherstack-4m1qr)
 
 Emits AWS/ApiGateway (ApiName; ApiName+Stage; ApiName+Method+Resource+Stage when the stage MethodSettings enable metrics): Count, 4XXError, 5XXError, Latency and, when an integration ran, IntegrationLatency (api-gateway-metrics-and-dimensions.html). Requests that never resolve a deployed stage emit nothing. Points fold per second into statistic sets. Verified by cli_service_metrics_test.go (typed SDK, ListMetrics + GetMetricStatistics).
+
+## 2026-10-04 (reqfielddiff tier-1 pass)
+
+`GetTags.Limit` is a tool false positive for a real gap: the pinned SDK documents it "(Not currently supported)" (api_op_GetTags.go), so ignoring it matches the service.

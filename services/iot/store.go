@@ -40,6 +40,7 @@ type InMemoryBackend struct {
 	thingPrincipalTypes        map[string]map[string]string
 	auditMitigationTasks       map[string]string
 	auditTasks                 map[string]string
+	clientRequestTokens        map[string]string
 	thingGroupMembers          map[string][]string
 	policyVersions             map[string][]*PolicyVersion
 	provTemplateVersions       map[string][]*ProvisioningTemplateVersion
@@ -129,6 +130,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		thingPrincipalTypes:    make(map[string]map[string]string),
 		auditMitigationTasks:   make(map[string]string),
 		auditTasks:             make(map[string]string),
+		clientRequestTokens:    make(map[string]string),
 		thingGroupMembers:      make(map[string][]string),
 		policyVersions:         make(map[string][]*PolicyVersion),
 		provTemplateVersions:   make(map[string][]*ProvisioningTemplateVersion),
@@ -193,6 +195,7 @@ func (b *InMemoryBackend) Reset() {
 	b.thingPrincipalTypes = make(map[string]map[string]string)
 	b.auditMitigationTasks = make(map[string]string)
 	b.auditTasks = make(map[string]string)
+	b.clientRequestTokens = make(map[string]string)
 	b.thingGroupMembers = make(map[string][]string)
 	b.policyVersions = make(map[string][]*PolicyVersion)
 	b.provTemplateVersions = make(map[string][]*ProvisioningTemplateVersion)

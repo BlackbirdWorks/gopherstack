@@ -2,7 +2,9 @@ package efs
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/labstack/echo/v5"
 )
@@ -31,10 +33,37 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, resourceID string) 
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		keyTags: tagsToEntries(t),
-	})
+	maxResults := listTagsDefaultMax
+	if v := c.Request().URL.Query().Get("MaxResults"); v != "" {
+		n, convErr := strconv.Atoi(v)
+		if convErr != nil || n < 1 {
+			return h.handleError(c, fmt.Errorf("%w: MaxResults must be a positive integer", ErrBadRequest))
+		}
+
+		maxResults = n
+	}
+
+	page, next, pageErr := paginate(
+		tagsToEntries(
+			t,
+		),
+		c.Request().URL.Query().Get("NextToken"),
+		maxResults,
+		func(e tagEntry) string { return e.Key },
+	)
+	if pageErr != nil {
+		return h.handleError(c, fmt.Errorf("%w: invalid NextToken", ErrBadRequest))
+	}
+
+	resp := map[string]any{keyTags: page}
+	if next != "" {
+		resp["NextToken"] = next
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
+
+const listTagsDefaultMax = 100
 
 type createTagsBody struct {
 	Tags []tagEntry `json:"Tags"`

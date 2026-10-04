@@ -137,7 +137,6 @@ gaps: []
 
 items_still_open:
   - "EvaluationJob AutomatedEvaluationConfig.CustomMetricConfig and RAGConfig's knowledgeBaseConfig/precomputedRagSourceConfig are stored verbatim as json.RawMessage, not modeled field by field: they wrap further unions plus a recursive RetrievalFilter tree (types/types.go:196, 6165-6344), and the job store never runs an evaluation, so nothing interprets them (round trip: evaluation_job_unions_test.go). Revisit if the backend starts interpreting evaluation content."
-  - "CreatePromptRouter.ClientRequestToken is not decoded: the sibling CreateModelInvocationJob token is stored but has no create-dedup or echo, so decoding it would be dead plumbing with no observable effect to prove."
   - "List-summary members with no domain source, not fabricated (no cross-region replication, KMS, per-phase job status, batch record processing or capability detection modeled): GuardrailSummary.CrossRegionDetails; EvaluationSummary.ModelIdentifiers/RagIdentifiers/CustomMetricsEvaluatorModelIdentifiers/InferenceConfigSummary; ImportedModelSummary.InstructSupported/ModelArchitecture; ModelCopyJobSummary.SourceModelName/TargetModelKmsKeyArn; ModelCustomizationJobSummary.StatusDetails; ModelInvocationJobSummary.ErrorRecordCount/JobExpirationTime/ModelInvocationType/ProcessedRecordCount/SuccessRecordCount/TimeoutDurationInHours/TotalRecordCount/VpcConfig; CustomModelDeploymentSummary.FailureMessage."
 deferred: []
 # Every item previously listed here (AutomatedReasoningPolicy full wire re-verification,
@@ -1191,3 +1190,7 @@ completed gopherstack-7znk path-model note.
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 bedrock is region-isolated: guardrails, custom models, jobs, provisioned throughput and policies live per region. Each region runs its own status janitor, stopped on Reset, Shutdown or restore. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestSiblingJanitorStopsWithSibling`, `TestRegionIsolation/bedrock`. Limitation: the dashboard shows the home region only.
+
+## 2026-10-04 (reqfielddiff tier-1 pass)
+
+CreatePromptRouter now honours ClientRequestToken as an idempotency token: replaying a token with identical parameters returns the original router, changed parameters under the same token return ConflictException, and a new token with an existing name still conflicts. The token persists additively on the router (`clientRequestToken`). Proof: `TestCreatePromptRouter_ClientRequestToken`.

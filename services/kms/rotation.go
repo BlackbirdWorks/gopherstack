@@ -2,6 +2,8 @@ package kms
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"slices"
 	"strconv"
@@ -296,6 +298,66 @@ func (b *InMemoryBackend) rotateKeyMaterialLocked(
 	return nil
 }
 
+const (
+	includeRotationsOnly  = "ROTATIONS_ONLY"
+	includeAllKeyMaterial = "ALL_KEY_MATERIAL"
+	keyMaterialCurrent    = "CURRENT"
+	keyMaterialNonCurrent = "NON_CURRENT"
+)
+
+// keyMaterialID derives a stable 64-hex id for the generation-th key material of keyID.
+func keyMaterialID(keyID string, generation int) string {
+	sum := sha256.Sum256([]byte(keyID + "|" + strconv.Itoa(generation)))
+
+	return hex.EncodeToString(sum[:])
+}
+
+// listRotationEntries builds ListKeyRotations entries; ALL_KEY_MATERIAL adds the first key material.
+func listRotationEntries(key *Key, include string) ([]KeyRotationEntry, error) {
+	switch include {
+	case "", includeRotationsOnly, includeAllKeyMaterial:
+	default:
+		return nil, fmt.Errorf("%w: IncludeKeyMaterial must be ROTATIONS_ONLY or ALL_KEY_MATERIAL", ErrValidation)
+	}
+
+	if include == includeAllKeyMaterial && (key.KeySpec != keySpecSymmetric || key.Origin == KeyOriginExternal) {
+		return nil, fmt.Errorf(
+			"%w: ALL_KEY_MATERIAL is only supported for symmetric AWS_KMS keys",
+			ErrUnsupportedOrigin,
+		)
+	}
+
+	stateFor := func(generation int) string {
+		if generation == len(key.Rotations) {
+			return keyMaterialCurrent
+		}
+
+		return keyMaterialNonCurrent
+	}
+
+	out := make([]KeyRotationEntry, 0, len(key.Rotations)+1)
+
+	if include == includeAllKeyMaterial {
+		out = append(out, KeyRotationEntry{
+			KeyID:            key.KeyID,
+			KeyMaterialID:    keyMaterialID(key.KeyID, 0),
+			KeyMaterialState: stateFor(0),
+		})
+	}
+
+	for i, r := range key.Rotations {
+		out = append(out, KeyRotationEntry{
+			KeyID:            key.KeyID,
+			KeyMaterialID:    keyMaterialID(key.KeyID, i+1),
+			KeyMaterialState: stateFor(i + 1),
+			RotationDate:     r.Date,
+			RotationType:     r.RotationType,
+		})
+	}
+
+	return out, nil
+}
+
 // ListKeyRotations returns observed key material rotation timestamps for a key.
 func (b *InMemoryBackend) ListKeyRotations(
 	ctx context.Context,
@@ -312,13 +374,9 @@ func (b *InMemoryBackend) ListKeyRotations(
 	// Build rotation entries from the typed Rotations slice. Legacy keys loaded
 	// from older snapshots that only have RotationDates (no Rotations) will show
 	// empty history; this is acceptable since type information cannot be recovered.
-	rotations := make([]KeyRotationEntry, 0, len(key.Rotations))
-	for _, r := range key.Rotations {
-		rotations = append(rotations, KeyRotationEntry{
-			KeyID:        key.KeyID,
-			RotationDate: r.Date,
-			RotationType: r.RotationType,
-		})
+	rotations, err := listRotationEntries(key, input.IncludeKeyMaterial)
+	if err != nil {
+		return nil, err
 	}
 
 	startIdx := parseMarker(input.Marker)

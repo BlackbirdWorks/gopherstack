@@ -827,7 +827,16 @@ func (b *InMemoryBackend) StartTask(input StartTaskInput) ([]Task, []Failure, er
 			)
 			now := time.Now()
 
+			taskRoleArn := td.TaskRoleArn
+			if input.Overrides != nil && input.Overrides.TaskRoleArn != "" {
+				taskRoleArn = input.Overrides.TaskRoleArn
+			}
+
 			t := &Task{
+				Overrides:            input.Overrides,
+				NetworkConfiguration: input.NetworkConfiguration,
+				EnableExecuteCommand: input.EnableExecuteCommand,
+				TaskRoleArn:          taskRoleArn,
 				TaskArn:              taskArn,
 				ClusterArn:           clusterArn,
 				TaskDefinitionArn:    td.TaskDefinitionArn,

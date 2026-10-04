@@ -2,6 +2,7 @@ package bedrock
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"time"
@@ -27,8 +28,45 @@ func (b *InMemoryBackend) CreatePromptRouter(
 	routingResponseQualityDiff float64,
 	tags []Tag,
 ) (*PromptRouter, error) {
+	return b.CreatePromptRouterWithToken(
+		name, description, fallbackModelArn, modelArns, routingResponseQualityDiff, tags, "",
+	)
+}
+
+// CreatePromptRouterWithToken is CreatePromptRouter with an idempotency token: same token and parameters
+// replay the original router, changed parameters conflict.
+func (b *InMemoryBackend) CreatePromptRouterWithToken(
+	name, description, fallbackModelArn string,
+	modelArns []string,
+	routingResponseQualityDiff float64,
+	tags []Tag,
+	clientRequestToken string,
+) (*PromptRouter, error) {
 	b.mu.Lock("CreatePromptRouter")
 	defer b.mu.Unlock()
+
+	if clientRequestToken != "" {
+		for _, existing := range b.promptRouters.All() {
+			if existing.ClientRequestToken != clientRequestToken {
+				continue
+			}
+
+			if existing.PromptRouterName != name || existing.Description != description ||
+				existing.FallbackModelArn != fallbackModelArn || !slices.Equal(existing.ModelArns, modelArns) ||
+				existing.RoutingResponseQualityDiff != routingResponseQualityDiff {
+				return nil, fmt.Errorf(
+					"%w: client request token already used with different parameters",
+					ErrAlreadyExists,
+				)
+			}
+
+			cp := *existing
+			cp.Tags = copyTags(existing.Tags)
+			cp.ModelArns = append([]string(nil), existing.ModelArns...)
+
+			return &cp, nil
+		}
+	}
 
 	if name == "" {
 		return nil, fmt.Errorf("%w: promptRouterName is required", ErrValidation)
@@ -62,6 +100,7 @@ func (b *InMemoryBackend) CreatePromptRouter(
 		CreatedAt:                  now,
 		UpdatedAt:                  now,
 		Tags:                       copyTags(tags),
+		ClientRequestToken:         clientRequestToken,
 	}
 	b.promptRouters.Put(router)
 	b.promptRoutersByName[name] = routerARN

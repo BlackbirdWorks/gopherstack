@@ -127,6 +127,14 @@ func exportJobToMap(job *AssetBundleExportJob) map[string]any {
 		m[keyIncludeFolderMembers] = job.IncludeFolderMembers
 	}
 
+	if job.ValidationStrategyStrict != nil {
+		m["ValidationStrategy"] = map[string]any{"StrictModeForAllResources": *job.ValidationStrategyStrict}
+	}
+
+	if job.CloudFormationOverrides != nil {
+		m["CloudFormationOverridePropertyConfiguration"] = job.CloudFormationOverrides
+	}
+
 	return m
 }
 
@@ -151,6 +159,7 @@ func (h *Handler) handleStartAssetBundleExportJob(c *echo.Context) error {
 		strField(body, keyIncludeFolderMembers),
 		stringsFromBody(body, keyResourceArns),
 		includeAllDeps, includeFolderMemberships, includePermissions, includeTags,
+		exportExtrasFromBody(body),
 	)
 	if err != nil {
 		return httpErr(c, err)
@@ -457,4 +466,19 @@ func classifyAssetBundleImportPaths(method string, segs []string, n int) (string
 	}
 
 	return opUnknown, ""
+}
+
+func exportExtrasFromBody(body map[string]any) AssetBundleExportExtras {
+	var extras AssetBundleExportExtras
+
+	if vs, ok := body["ValidationStrategy"].(map[string]any); ok {
+		strict, _ := vs["StrictModeForAllResources"].(bool)
+		extras.ValidationStrategyStrict = &strict
+	}
+
+	if cfn, ok := body["CloudFormationOverridePropertyConfiguration"].(map[string]any); ok {
+		extras.CloudFormationOverrides = cfn
+	}
+
+	return extras
 }

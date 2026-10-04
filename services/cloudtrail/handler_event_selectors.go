@@ -6,6 +6,8 @@ import (
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 )
 
 // --- PutEventSelectors ---
@@ -365,11 +367,17 @@ func (h *Handler) handleListInsightsData(c *echo.Context, body []byte) error {
 // fields relevant to this backend: EventName, EventSource, and InsightType
 // are all required; ErrorCode and TrailName are optional.
 type listInsightsMetricDataBody struct {
-	EventName   string `json:"EventName"`
-	EventSource string `json:"EventSource"`
-	InsightType string `json:"InsightType"`
-	ErrorCode   string `json:"ErrorCode"`
-	TrailName   string `json:"TrailName"`
+	StartTime   *float64 `json:"StartTime"`
+	EndTime     *float64 `json:"EndTime"`
+	MaxResults  *int64   `json:"MaxResults"`
+	Period      *int64   `json:"Period"`
+	EventName   string   `json:"EventName"`
+	EventSource string   `json:"EventSource"`
+	InsightType string   `json:"InsightType"`
+	ErrorCode   string   `json:"ErrorCode"`
+	TrailName   string   `json:"TrailName"`
+	DataType    string   `json:"DataType"`
+	NextToken   string   `json:"NextToken"`
 }
 
 func (h *Handler) handleListInsightsMetricData(c *echo.Context, body []byte) error {
@@ -398,20 +406,39 @@ func (h *Handler) handleListInsightsMetricData(c *echo.Context, body []byte) err
 	// TrailARN/Values), not a "Values"-wrapped list of records -- confirmed
 	// against cloudtrail@v1.58.4's
 	// awsAwsjson11_deserializeOpDocumentListInsightsMetricDataOutput.
+	metric, err := h.Backend.ListInsightsMetricData(&InsightsMetricInput{
+		Start:       epochPtr(in.StartTime),
+		End:         epochPtr(in.EndTime),
+		EventName:   in.EventName,
+		EventSource: in.EventSource,
+		InsightType: in.InsightType,
+		ErrorCode:   in.ErrorCode,
+		DataType:    in.DataType,
+		NextToken:   in.NextToken,
+		Period:      int(ptrconv.Int64(in.Period)),
+		MaxResults:  int(ptrconv.Int64(in.MaxResults)),
+	})
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
 	resp := map[string]any{
 		"EventName":   in.EventName,
 		"EventSource": in.EventSource,
 		"InsightType": in.InsightType,
-		"Timestamps":  []float64{},
-		"Values":      h.Backend.ListInsightsMetricData(),
+		"Timestamps":  metric.Timestamps,
+		"Values":      metric.Values,
+	}
+	if metric.NextToken != "" {
+		resp["NextToken"] = metric.NextToken
 	}
 	if in.ErrorCode != "" {
 		resp["ErrorCode"] = in.ErrorCode
 	}
 	if in.TrailName != "" {
-		trail, err := h.Backend.GetTrail(in.TrailName)
-		if err != nil {
-			return h.handleError(c, err)
+		trail, trailErr := h.Backend.GetTrail(in.TrailName)
+		if trailErr != nil {
+			return h.handleError(c, trailErr)
 		}
 		resp["TrailARN"] = trail.TrailARN
 	}

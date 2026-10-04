@@ -25,6 +25,14 @@ type StorageBackend interface {
 		resourceType string,
 	) ([]*PermissionEntry, string)
 
+	ListPermissionsInCatalog(
+		resource *Resource,
+		maxResults int,
+		nextToken string,
+		principal *DataLakePrincipal,
+		resourceType, catalogID, account string,
+	) ([]*PermissionEntry, string)
+
 	CreateLFTag(catalogID, tagKey string, tagValues []string) error
 	DeleteLFTag(catalogID, tagKey string) error
 	GetLFTag(catalogID, tagKey string) (*LFTag, error)
@@ -98,6 +106,9 @@ type StorageBackend interface {
 	UpdateLFTagExpression(name, catalogID, description string, expression []LFTag) error
 
 	GetEffectivePermissionsForPath(resourceArn string, maxResults int, nextToken string) ([]*PermissionEntry, string)
+	GetEffectivePermissionsForPathInCatalog(
+		resourceArn string, maxResults int, nextToken, catalogID, account string,
+	) ([]*PermissionEntry, string)
 
 	GetTemporaryCredentials(durationSeconds *int32) *TemporaryCredentials
 
