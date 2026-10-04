@@ -157,11 +157,12 @@ func TestInitializeServices_EC2ECSRegionWiring(t *testing.T) {
 
 		status := euEC2.DescribeInstanceStatus([]string{euInst[0].ID})
 		require.Len(t, status, 1)
-		assert.Equal(t, "stopping", status[0].State.Name)
+		// The stop transition is timed, so a loaded runner may already report "stopped".
+		assert.Contains(t, []string{"stopping", "stopped"}, status[0].State.Name)
 
 		homeStatus := homeEC2.DescribeInstanceStatus([]string{homeInst[0].ID})
 		require.Len(t, homeStatus, 1)
-		assert.NotEqual(t, "stopping", homeStatus[0].State.Name)
+		assert.NotContains(t, []string{"stopping", "stopped"}, homeStatus[0].State.Name)
 	})
 
 	t.Run("ecs-awslogs-and-eventbridge-use-task-region", func(t *testing.T) {
