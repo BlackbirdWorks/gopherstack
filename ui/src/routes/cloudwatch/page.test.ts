@@ -39,6 +39,19 @@ function stubRegionsWithData(regions: string[]): void {
   );
 }
 
+// DescribeAlarms is dispatched by region (not call order): this page's
+// `$effect` and `onRegionChange` both fire loadData() on mount, so
+// DescribeAlarms fires twice per region -- a sequential mockResolvedValueOnce
+// queue can't express that reliably, but a per-region response can.
+function alarmsByRegion(byRegion: Record<string, { AlarmName: string }[]>): void {
+  mockSend.mockImplementation((cmd: { constructor: { name: string } }, region: string) => {
+    if (cmd.constructor.name === "DescribeAlarmsCommand") {
+      return Promise.resolve({ MetricAlarms: byRegion[region] ?? [] });
+    }
+    return Promise.resolve({});
+  });
+}
+
 describe("CloudWatch Page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -186,19 +199,6 @@ describe("CloudWatch Page", () => {
   });
 
   describe("All regions mode", () => {
-    // DescribeAlarms is dispatched by region (not call order): this page's
-    // `$effect` and `onRegionChange` both fire loadData() on mount, so
-    // DescribeAlarms fires twice per region -- a sequential mockResolvedValueOnce
-    // queue can't express that reliably, but a per-region response can.
-    function alarmsByRegion(byRegion: Record<string, { AlarmName: string }[]>): void {
-      mockSend.mockImplementation((cmd: { constructor: { name: string } }, region: string) => {
-        if (cmd.constructor.name === "DescribeAlarmsCommand") {
-          return Promise.resolve({ MetricAlarms: byRegion[region] ?? [] });
-        }
-        return Promise.resolve({});
-      });
-    }
-
     it("fans DescribeAlarms out across every region with data and tags each row", async () => {
       setStoredRegion(ALL_REGIONS);
       stubRegionsWithData(["us-east-1", "eu-west-1"]);

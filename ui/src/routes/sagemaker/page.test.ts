@@ -24,6 +24,15 @@ function stubRegionsWithData(regions: string[]): void {
   );
 }
 
+// loadData fans out ListNotebookInstances/ListTrainingJobs/ListModels/
+// ListEndpoints/ListPipelines together, so these tests key responses off
+// the command name rather than call order.
+function notebookCallCount(): number {
+  return mockSend.mock.calls.filter(
+    ([cmd]) => cmd?.constructor?.name === "ListNotebookInstancesCommand",
+  ).length;
+}
+
 describe("SageMaker Page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -109,15 +118,6 @@ describe("SageMaker Page", () => {
     render(SageMakerPage);
     expect(screen.getAllByText("Models")[0]).toBeInTheDocument();
   });
-
-  // loadData fans out ListNotebookInstances/ListTrainingJobs/ListModels/
-  // ListEndpoints/ListPipelines together, so these tests key responses off
-  // the command name rather than call order.
-  function notebookCallCount(): number {
-    return mockSend.mock.calls.filter(
-      ([cmd]) => cmd?.constructor?.name === "ListNotebookInstancesCommand",
-    ).length;
-  }
 
   describe("All regions mode", () => {
     it("fans ListNotebookInstances out across every region with data and tags each row", async () => {

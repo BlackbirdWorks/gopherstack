@@ -70,28 +70,30 @@
 		goto(href);
 	}
 
-	onMount(() => {
-		const confirmHandler = (options: Parameters<ConfirmDialog['show']>[0]) => {
-			if (!confirmDialog) {
-				return Promise.resolve(false);
-			}
+	function confirmHandler(options: Parameters<ConfirmDialog['show']>[0]) {
+		if (!confirmDialog) {
+			return Promise.resolve(false);
+		}
 
-			return confirmDialog.show(options);
-		};
+		return confirmDialog.show(options);
+	}
+
+	// Close search on escape
+	function handleKeydown(e: KeyboardEvent) {
+		if (e.key === 'Escape') searchOpen = false;
+		if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+			e.preventDefault();
+			searchOpen = true;
+			document.querySelector<HTMLInputElement>('#global-search')?.focus();
+		}
+	}
+
+	onMount(() => {
 		registerConfirmDialog(confirmHandler);
 		theme = initializeTheme(document, window.localStorage, window.matchMedia('(prefers-color-scheme: dark)').matches);
 		sidebarMini = window.localStorage.getItem('gopherstack-sidebar-mini') === 'true';
 		showAllServices = window.localStorage.getItem('gopherstack-sidebar-show-all') === 'true';
 
-		// Close search on escape
-		const handleKeydown = (e: KeyboardEvent) => {
-			if (e.key === 'Escape') searchOpen = false;
-			if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-				e.preventDefault();
-				searchOpen = true;
-				document.querySelector<HTMLInputElement>('#global-search')?.focus();
-			}
-		};
 		document.addEventListener('keydown', handleKeydown);
 		return () => {
 			unregisterConfirmDialog(confirmHandler);

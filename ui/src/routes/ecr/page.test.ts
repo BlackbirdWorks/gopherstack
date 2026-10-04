@@ -24,6 +24,16 @@ function stubRegionsWithData(regions: string[]): void {
   );
 }
 
+// ECR's onRegionChange also fires loadRegistryFeatures (6 unrelated
+// calls), so these tests key responses off the command name rather than
+// call order -- an ordered mockResolvedValueOnce queue would be racy
+// against those unrelated calls.
+function describeReposCallCount(): number {
+  return mockSend.mock.calls.filter(
+    ([cmd]) => cmd?.constructor?.name === "DescribeRepositoriesCommand",
+  ).length;
+}
+
 describe("ECR Page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -151,16 +161,6 @@ describe("ECR Page", () => {
       { timeout: 3000 },
     );
   });
-
-  // ECR's onRegionChange also fires loadRegistryFeatures (6 unrelated
-  // calls), so these tests key responses off the command name rather than
-  // call order -- an ordered mockResolvedValueOnce queue would be racy
-  // against those unrelated calls.
-  function describeReposCallCount(): number {
-    return mockSend.mock.calls.filter(
-      ([cmd]) => cmd?.constructor?.name === "DescribeRepositoriesCommand",
-    ).length;
-  }
 
   describe("All regions mode", () => {
     it("fans DescribeRepositories out across every region with data and tags each row", async () => {
