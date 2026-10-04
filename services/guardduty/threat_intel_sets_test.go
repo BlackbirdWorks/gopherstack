@@ -82,6 +82,16 @@ func TestThreatIntelSet_CRUD(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				rec = doRequest(t, h, http.MethodGet, "/detector/"+detectorID+"/threatintelset/"+setID, nil)
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				var gr map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &gr))
+				assert.Equal(t, "DELETED", gr["status"])
+
+				rec = doRequest(t, h, http.MethodGet, "/detector/"+detectorID+"/threatintelset", nil)
+				assert.NotContains(t, rec.Body.String(), setID)
+
+				rec = doRequest(t, h, http.MethodDelete, "/detector/"+detectorID+"/threatintelset/"+setID, nil)
 				assert.Equal(t, http.StatusNotFound, rec.Code)
 			},
 		},

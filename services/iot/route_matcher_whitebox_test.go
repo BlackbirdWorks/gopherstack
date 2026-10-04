@@ -313,3 +313,30 @@ func TestMatchIoTPath_JobsFamilyDisambiguation(t *testing.T) {
 	assert.False(t, matchIoTPath(http.MethodGet, "/jobs/j1", "macie2"),
 		"GET /jobs/{jobId} signed as macie2 is Macie2's DescribeClassificationJob")
 }
+
+func TestMatchIoTPath_SharedPathsScopedBySigV4(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		path string
+		svc  string
+		want bool
+	}{
+		{name: "destinations_iot", path: "/destinations", svc: "iot", want: true},
+		{name: "destinations_unsigned", path: "/destinations", svc: "", want: true},
+		{name: "destinations_iotwireless", path: "/destinations", svc: "iotwireless", want: false},
+		{name: "destination_item_iotwireless", path: "/destinations/x", svc: "iotwireless", want: false},
+		{name: "event_configurations_iotwireless", path: "/event-configurations", svc: "iotwireless", want: false},
+		{name: "tags_iotanalytics", path: "/tags", svc: "iotanalytics", want: false},
+		{name: "tags_iot", path: "/tags", svc: "iot", want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, matchIoTPath(http.MethodGet, tt.path, tt.svc))
+		})
+	}
+}

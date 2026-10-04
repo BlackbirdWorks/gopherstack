@@ -39,7 +39,7 @@ func TestDeleteConnection_DisconnectsLiveBrokerSession(t *testing.T) {
 
 			willSeen := make(chan struct{}, 1)
 			watcher := pahomqtt.NewClient(pahomqtt.NewClientOptions().
-				AddBroker(url).SetClientID("will-watcher").
+				AddBroker(url).SetClientID("will-watcher").SetAutoReconnect(false).
 				SetDefaultPublishHandler(func(pahomqtt.Client, pahomqtt.Message) { willSeen <- struct{}{} }))
 			require.True(t, watcher.Connect().WaitTimeout(3*time.Second))
 			t.Cleanup(func() { watcher.Disconnect(100) })
@@ -124,7 +124,7 @@ func TestGetConnection_ReportsLiveBrokerSession(t *testing.T) {
 			broker := startRealBroker(t, port)
 
 			c := pahomqtt.NewClient(pahomqtt.NewClientOptions().
-				AddBroker(fmt.Sprintf("tcp://127.0.0.1:%d", port)).SetClientID("dev").
+				AddBroker(fmt.Sprintf("tcp://127.0.0.1:%d", port)).SetClientID("dev").SetAutoReconnect(false).
 				SetCleanSession(tt.cleanSession).SetKeepAlive(30 * time.Second))
 			require.True(t, c.Connect().WaitTimeout(3*time.Second))
 			t.Cleanup(func() { c.Disconnect(100) })

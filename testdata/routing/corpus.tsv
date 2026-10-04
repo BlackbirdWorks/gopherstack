@@ -7991,13 +7991,13 @@ GET	localhost:4566	/datasets/xdatase/contents	iotanalytics				User-Agent:aws-sdk
 GET	localhost:4566	/datasets	iotanalytics				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotanalytics#1.0.0	IoTAnalytics	IoTAnalytics
 GET	localhost:4566	/datastores	iotanalytics				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotanalytics#1.0.0	IoTAnalytics	IoTAnalytics
 GET	localhost:4566	/pipelines	iotanalytics				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotanalytics#1.0.0	IoTAnalytics	IoTAnalytics
-GET	localhost:4566	/tags	iotanalytics				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotanalytics#1.0.0	IoT	IoT
+GET	localhost:4566	/tags	iotanalytics				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotanalytics#1.0.0	IoTAnalytics	IoTAnalytics
 PUT	localhost:4566	/logging	iotanalytics				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotanalytics#1.0.0	IoTAnalytics	IoTAnalytics
 POST	localhost:4566	/pipelineactivities/run	iotanalytics				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotanalytics#1.0.0	IoTAnalytics	IoTAnalytics
 GET	localhost:4566	/channels/xchanne/sample	iotanalytics				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotanalytics#1.0.0	IoTAnalytics	IoTAnalytics
 POST	localhost:4566	/pipelines/xpipeli/reprocessing	iotanalytics				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotanalytics#1.0.0	IoTAnalytics	IoTAnalytics
-POST	localhost:4566	/tags	iotanalytics				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotanalytics#1.0.0	IoT	IoT
-DELETE	localhost:4566	/tags	iotanalytics				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotanalytics#1.0.0	IoT	IoT
+POST	localhost:4566	/tags	iotanalytics				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotanalytics#1.0.0	IoTAnalytics	IoTAnalytics
+DELETE	localhost:4566	/tags	iotanalytics				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotanalytics#1.0.0	IoTAnalytics	IoTAnalytics
 PUT	localhost:4566	/channels/xchanne	iotanalytics				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotanalytics#1.0.0	IoTAnalytics	IoTAnalytics
 PUT	localhost:4566	/datasets/xdatase	iotanalytics				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotanalytics#1.0.0	IoTAnalytics	IoTAnalytics
 PUT	localhost:4566	/datastores/xdatast	iotanalytics				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotanalytics#1.0.0	IoTAnalytics	IoTAnalytics
@@ -8064,7 +8064,7 @@ PUT	localhost:4566	/wireless-gateways/xid/thing	iotwireless				User-Agent:aws-sd
 PUT	localhost:4566	/wireless-gateways/xid/thing						S3	S3
 DELETE	localhost:4566	/multicast-groups/xid/session	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoTWireless	IoTWireless
 DELETE	localhost:4566	/multicast-groups/xid/session						S3	S3
-POST	localhost:4566	/destinations	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoT	IoT
+POST	localhost:4566	/destinations	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoTWireless	IoTWireless
 POST	localhost:4566	/destinations						IoT	IoT
 POST	localhost:4566	/device-profiles	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoTWireless	IoTWireless
 POST	localhost:4566	/device-profiles						S3	S3
@@ -8078,7 +8078,7 @@ POST	localhost:4566	/wireless-devices	iotwireless				User-Agent:aws-sdk-go-v2/1.
 POST	localhost:4566	/wireless-gateways	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoTWireless	IoTWireless
 POST	localhost:4566	/wireless-gateways/xid/tasks	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoTWireless	IoTWireless
 POST	localhost:4566	/wireless-gateway-task-definitions	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoTWireless	IoTWireless
-DELETE	localhost:4566	/destinations/xname	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoT	IoT
+DELETE	localhost:4566	/destinations/xname	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoTWireless	IoTWireless
 DELETE	localhost:4566	/device-profiles/xid	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoTWireless	IoTWireless
 DELETE	localhost:4566	/fuota-tasks/xid	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoTWireless	IoTWireless
 DELETE	localhost:4566	/multicast-groups/xid	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoTWireless	IoTWireless
@@ -8098,7 +8098,7 @@ DELETE	localhost:4566	/multicast-groups/xid/wireless-devices/xwirele	iotwireless
 DELETE	localhost:4566	/wireless-devices/xid/thing	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoTWireless	IoTWireless
 DELETE	localhost:4566	/wireless-gateways/xid/certificate	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoTWireless	IoTWireless
 DELETE	localhost:4566	/wireless-gateways/xid/thing	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoTWireless	IoTWireless
-GET	localhost:4566	/destinations/xname	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoT	IoT
+GET	localhost:4566	/destinations/xname	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoTWireless	IoTWireless
 GET	localhost:4566	/device-profiles/xid	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoTWireless	IoTWireless
 GET	localhost:4566	/event-configurations-resource-types	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoTWireless	IoTWireless
 GET	localhost:4566	/fuota-tasks/xid	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoTWireless	IoTWireless
@@ -8126,10 +8126,10 @@ GET	localhost:4566	/wireless-gateways/xid/firmware-information	iotwireless				Us
 GET	localhost:4566	/wireless-gateways/xwirele/statistics	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoTWireless	IoTWireless
 GET	localhost:4566	/wireless-gateways/xid/tasks	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoTWireless	IoTWireless
 GET	localhost:4566	/wireless-gateway-task-definitions/xid	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoTWireless	IoTWireless
-GET	localhost:4566	/destinations	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoT	IoT
+GET	localhost:4566	/destinations	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoTWireless	IoTWireless
 GET	localhost:4566	/device-profiles	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoTWireless	IoTWireless
 GET	localhost:4566	/wireless_device_import_task	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoTWireless	IoTWireless
-GET	localhost:4566	/event-configurations	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoT	IoT
+GET	localhost:4566	/event-configurations	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoTWireless	IoTWireless
 GET	localhost:4566	/fuota-tasks	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoTWireless	IoTWireless
 GET	localhost:4566	/multicast-groups	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoTWireless	IoTWireless
 GET	localhost:4566	/fuota-tasks/xid/multicast-groups	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoTWireless	IoTWireless
@@ -8138,7 +8138,7 @@ GET	localhost:4566	/partner-accounts	iotwireless				User-Agent:aws-sdk-go-v2/1.4
 GET	localhost:4566	/position-configurations	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoTWireless	IoTWireless
 GET	localhost:4566	/wireless-devices/xid/data	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoTWireless	IoTWireless
 GET	localhost:4566	/service-profiles	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoTWireless	IoTWireless
-GET	localhost:4566	/tags	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoT	IoT
+GET	localhost:4566	/tags	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoTWireless	IoTWireless
 GET	localhost:4566	/wireless_device_import_tasks	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoTWireless	IoTWireless
 GET	localhost:4566	/wireless-devices	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoTWireless	IoTWireless
 GET	localhost:4566	/wireless-gateways	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoTWireless	IoTWireless
@@ -8155,10 +8155,10 @@ PUT	localhost:4566	/fuota-tasks/xid	iotwireless				User-Agent:aws-sdk-go-v2/1.41
 PUT	localhost:4566	/multicast-groups/xid/session	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoTWireless	IoTWireless
 POST	localhost:4566	/wireless_single_device_import_task	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoTWireless	IoTWireless
 POST	localhost:4566	/wireless_device_import_task	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoTWireless	IoTWireless
-POST	localhost:4566	/tags	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoT	IoT
+POST	localhost:4566	/tags	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoTWireless	IoTWireless
 POST	localhost:4566	/wireless-devices/xid/test	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoTWireless	IoTWireless
-DELETE	localhost:4566	/tags	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoT	IoT
-PATCH	localhost:4566	/destinations/xname	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoT	IoT
+DELETE	localhost:4566	/tags	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoTWireless	IoTWireless
+PATCH	localhost:4566	/destinations/xname	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoTWireless	IoTWireless
 PATCH	localhost:4566	/event-configurations-resource-types	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoTWireless	IoTWireless
 PATCH	localhost:4566	/fuota-tasks/xid	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoTWireless	IoTWireless
 POST	localhost:4566	/log-levels	iotwireless				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotwireless#1.0.0	IoTWireless	IoTWireless

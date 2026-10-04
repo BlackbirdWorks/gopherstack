@@ -2398,3 +2398,7 @@ IoT is region-isolated: each non-home region gets a lazily built sibling `Handle
 - `${...}` templates support topic(), topic(n), timestamp(), clientid(), newuuid(), accountid() and dotted payload paths; an undefined value fails the action and runs errorAction.
 - Under --enforce-iam each action checks its roleArn for iot.amazonaws.com against the documented permission (iot:Publish, sns:Publish, kinesis:PutRecord, firehose:PutRecord/PutRecordBatch, dynamodb:PutItem/UpdateItem/DeleteItem, s3:PutObject, cloudwatch:PutMetricData/SetAlarmState, logs:CreateLogStream/DescribeLogStreams/PutLogEvents, states:StartExecution, iotanalytics:BatchPutMessage); failures run errorAction.
 - LocalStack executes only Lambda, SQS, Kinesis, Firehose, DynamoDBv2 and HTTP (https://docs.localstack.cloud/aws/services/iot/); AWS action list: https://docs.aws.amazon.com/iot/latest/developerguide/iot-rule-actions.html.
+
+## 2026-10-04 (gopherstack-d7ql1, /destinations, /event-configurations and /tags collisions with iotwireless)
+
+FIXED: IoT's RouteMatcher claimed `/destinations[/...]`, `/event-configurations` and `/tags` regardless of SigV4 scope, so iotwireless (scope `iotwireless`) and iotanalytics `/tags` requests were routed here (priority 90 beats 86). These paths now match only when the scope is absent or `iot`; MatchPriority is untouched. Proof: routing corpus rows for both services' `/destinations` ops (`TestRoutingEquivalence`) and `TestIntegration_IoTWireless_DestinationsNotCapturedByIoT`.

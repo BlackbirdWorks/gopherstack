@@ -84,6 +84,16 @@ func TestIPSet_CRUD(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				rec = doRequest(t, h, http.MethodGet, "/detector/"+detectorID+"/ipset/"+ipSetID, nil)
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				var gr map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &gr))
+				assert.Equal(t, "DELETED", gr["status"])
+
+				rec = doRequest(t, h, http.MethodGet, "/detector/"+detectorID+"/ipset", nil)
+				assert.NotContains(t, rec.Body.String(), ipSetID)
+
+				rec = doRequest(t, h, http.MethodDelete, "/detector/"+detectorID+"/ipset/"+ipSetID, nil)
 				assert.Equal(t, http.StatusNotFound, rec.Code)
 			},
 		},

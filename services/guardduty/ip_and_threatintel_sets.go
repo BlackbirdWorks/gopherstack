@@ -26,7 +26,7 @@ func (b *InMemoryBackend) CreateIPSet(
 	}
 
 	for _, existing := range b.ipSetsByDetector.Get(detectorID) {
-		if existing.Name == name {
+		if existing.Name == name && existing.Status != statusDeleted {
 			return nil, ErrIPSetAlreadyExists
 		}
 	}
@@ -91,7 +91,7 @@ func (b *InMemoryBackend) UpdateIPSet(
 	}
 
 	s, ok := b.ipSets.Get(detectorKey(detectorID, ipSetID))
-	if !ok {
+	if !ok || s.Status == statusDeleted {
 		return ErrIPSetNotFound
 	}
 
@@ -129,9 +129,14 @@ func (b *InMemoryBackend) DeleteIPSet(detectorID, ipSetID string) error {
 		return ErrDetectorNotFound
 	}
 
-	if !b.ipSets.Delete(detectorKey(detectorID, ipSetID)) {
+	s, ok := b.ipSets.Get(detectorKey(detectorID, ipSetID))
+	if !ok || s.Status == statusDeleted {
 		return ErrIPSetNotFound
 	}
+
+	s.Status = statusDeleted
+	s.UpdatedAt = time.Now().UTC()
+	b.ipSets.Put(s)
 
 	delete(b.tags, b.ipSetARN(detectorID, ipSetID))
 
@@ -148,10 +153,12 @@ func (b *InMemoryBackend) ListIPSets(detectorID string, maxResults int32, nextTo
 	}
 
 	items := b.ipSetsByDetector.Get(detectorID)
-	ids := make([]string, len(items))
+	ids := make([]string, 0, len(items))
 
-	for i, s := range items {
-		ids[i] = s.IPSetID
+	for _, s := range items {
+		if s.Status != statusDeleted {
+			ids = append(ids, s.IPSetID)
+		}
 	}
 
 	slices.Sort(ids)
@@ -184,7 +191,7 @@ func (b *InMemoryBackend) CreateThreatIntelSet(
 	}
 
 	for _, existing := range b.threatIntelSetsByDetector.Get(detectorID) {
-		if existing.Name == name {
+		if existing.Name == name && existing.Status != statusDeleted {
 			return nil, ErrThreatIntelSetAlreadyExists
 		}
 	}
@@ -249,7 +256,7 @@ func (b *InMemoryBackend) UpdateThreatIntelSet(
 	}
 
 	s, ok := b.threatIntelSets.Get(detectorKey(detectorID, setID))
-	if !ok {
+	if !ok || s.Status == statusDeleted {
 		return ErrThreatIntelSetNotFound
 	}
 
@@ -287,9 +294,14 @@ func (b *InMemoryBackend) DeleteThreatIntelSet(detectorID, setID string) error {
 		return ErrDetectorNotFound
 	}
 
-	if !b.threatIntelSets.Delete(detectorKey(detectorID, setID)) {
+	s, ok := b.threatIntelSets.Get(detectorKey(detectorID, setID))
+	if !ok || s.Status == statusDeleted {
 		return ErrThreatIntelSetNotFound
 	}
+
+	s.Status = statusDeleted
+	s.UpdatedAt = time.Now().UTC()
+	b.threatIntelSets.Put(s)
 
 	delete(b.tags, b.threatIntelSetARN(detectorID, setID))
 
@@ -308,10 +320,12 @@ func (b *InMemoryBackend) ListThreatIntelSets(
 	}
 
 	items := b.threatIntelSetsByDetector.Get(detectorID)
-	ids := make([]string, len(items))
+	ids := make([]string, 0, len(items))
 
-	for i, s := range items {
-		ids[i] = s.ThreatIntelSetID
+	for _, s := range items {
+		if s.Status != statusDeleted {
+			ids = append(ids, s.ThreatIntelSetID)
+		}
 	}
 
 	slices.Sort(ids)

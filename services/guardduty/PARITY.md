@@ -961,3 +961,7 @@ FIXED: UntagResource hand-split the raw query string and never percent-decoded `
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 guardduty is region-isolated: Detectors, filters, IP sets, threat sets, members and plans live per region (each region has its own detector). The Organizations lookup is shared. Tagging bridge covers every region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/guardduty`. Limitation: the dashboard shows the home region only.
+
+## 2026-10-04 (gopherstack-nz6pn, soft-deleted IP and threat intel sets)
+
+FIXED: DeleteIPSet/DeleteThreatIntelSet removed the set outright, so the Terraform provider's delete waiter (target status DELETED) got a 404 from GetIPSet/GetThreatIntelSet, aborted `destroy`, and left the detector behind (the next CreateDetector hit 409). Deleted sets now stay readable with status DELETED, are hidden from List*, free their name, and reject Update/Delete as not found; DeleteDetector still purges them. Proof: `TestIPSet_CRUD/delete_ipset`, `TestThreatIntelSet_CRUD/delete_threatintelset`, and `go test ./test/terraform/ -run '(?i)guardduty' -count=2`.

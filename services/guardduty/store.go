@@ -17,6 +17,7 @@ const (
 	statusDisabled = "DISABLED"
 	statusActive   = "ACTIVE"
 	statusInactive = "INACTIVE"
+	statusDeleted  = "DELETED"
 	freqSixHours   = "SIX_HOURS"
 
 	errResourceNotFound  = "ResourceNotFoundException"
