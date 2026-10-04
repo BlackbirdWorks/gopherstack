@@ -1,11 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import {
-  render,
-  screen,
-  fireEvent,
-  waitFor,
-  within,
-} from "@testing-library/svelte";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/svelte";
 import ApiGwMgmtPage from "./+page.svelte";
 
 const mockSend = vi.fn();
@@ -52,17 +46,12 @@ const exampleConnection = {
  * /broadcast, /prune), so GET and DELETE on the same "/messages" suffix
  * don't collide.
  */
-function installFetch(
-  routes: Array<[string, string, unknown]>,
-  fallback: unknown = {},
-) {
+function installFetch(routes: Array<[string, string, unknown]>, fallback: unknown = {}) {
   vi.stubGlobal(
     "fetch",
     vi.fn((url: string, opts?: RequestInit) => {
       const method = (opts?.method ?? "GET").toUpperCase();
-      const match = routes.find(
-        ([m, suffix]) => m === method && url.endsWith(suffix),
-      );
+      const match = routes.find(([m, suffix]) => m === method && url.endsWith(suffix));
       return Promise.resolve({
         ok: true,
         json: () => Promise.resolve(match ? match[2] : fallback),
@@ -144,12 +133,9 @@ describe("API Gateway Management API Page", () => {
     await renderWithConnection();
     await selectConnection();
 
-    await fireEvent.input(
-      screen.getByLabelText("Send message (PostToConnection)"),
-      {
-        target: { value: "hello there" },
-      },
-    );
+    await fireEvent.input(screen.getByLabelText("Send message (PostToConnection)"), {
+      target: { value: "hello there" },
+    });
 
     mockSend.mockResolvedValueOnce({});
     await fireEvent.click(screen.getByRole("button", { name: /Send/ }));
@@ -168,12 +154,9 @@ describe("API Gateway Management API Page", () => {
     await renderWithConnection();
     await selectConnection();
 
-    await fireEvent.input(
-      screen.getByLabelText("Send message (PostToConnection)"),
-      {
-        target: { value: "hello there" },
-      },
-    );
+    await fireEvent.input(screen.getByLabelText("Send message (PostToConnection)"), {
+      target: { value: "hello there" },
+    });
 
     const error = Object.assign(new Error("Connection is gone."), {
       name: "GoneException",
@@ -197,9 +180,9 @@ describe("API Gateway Management API Page", () => {
 
     await fireEvent.click(screen.getByText("Heartbeat"));
 
-    expect(
-      screen.getByLabelText("Send message (PostToConnection)"),
-    ).toHaveValue('{"type":"heartbeat","seq":1}');
+    expect(screen.getByLabelText("Send message (PostToConnection)")).toHaveValue(
+      '{"type":"heartbeat","seq":1}',
+    );
   });
 
   it("pings the selected connection with no confirmation dialog", async () => {
@@ -331,9 +314,7 @@ describe("API Gateway Management API Page", () => {
             ok: true,
             json: () =>
               Promise.resolve({
-                connections: [
-                  { ...exampleConnection, connectionId: "conn-new" },
-                ],
+                connections: [{ ...exampleConnection, connectionId: "conn-new" }],
               }),
           });
         }
@@ -370,8 +351,7 @@ describe("API Gateway Management API Page", () => {
         if (url.endsWith("/connections") && opts?.method === "POST") {
           return Promise.resolve({
             ok: false,
-            json: () =>
-              Promise.resolve({ message: "Connection ID already in use." }),
+            json: () => Promise.resolve({ message: "Connection ID already in use." }),
           });
         }
         return Promise.resolve({
@@ -435,9 +415,7 @@ describe("API Gateway Management API Page", () => {
     });
     const { toast } = await import("svelte-sonner");
     await waitFor(() => {
-      expect(toast.success).toHaveBeenCalledWith(
-        "Broadcast delivered to 2 connection(s)",
-      );
+      expect(toast.success).toHaveBeenCalledWith("Broadcast delivered to 2 connection(s)");
     });
   });
 
@@ -502,12 +480,9 @@ describe("API Gateway Management API Page", () => {
     await waitFor(() => screen.getByText("conn-1"));
     expect(screen.getByText("conn-2")).toBeInTheDocument();
 
-    await fireEvent.input(
-      screen.getByPlaceholderText("Search id, IP, or user-agent"),
-      {
-        target: { value: "198.51.100.9" },
-      },
-    );
+    await fireEvent.input(screen.getByPlaceholderText("Search id, IP, or user-agent"), {
+      target: { value: "198.51.100.9" },
+    });
 
     expect(screen.getByText("conn-2")).toBeInTheDocument();
     expect(screen.queryByText("conn-1")).not.toBeInTheDocument();
