@@ -29,6 +29,12 @@ type StorageBackend interface {
 		prefix, nextToken, logGroupClass string,
 		limit int,
 	) ([]LogGroup, string, error)
+	DescribeLogGroupsFiltered(
+		ctx context.Context,
+		prefix, nextToken, logGroupClass string,
+		limit int,
+		keep func(LogGroup) bool,
+	) ([]LogGroup, string, error)
 	CreateLogStream(ctx context.Context, groupName, streamName string) (*LogStream, error)
 	DeleteLogStream(ctx context.Context, groupName, streamName string) error
 	DescribeLogStreams(
@@ -194,6 +200,16 @@ type StorageBackend interface {
 		logGroupNames []string,
 		parameters []QueryParameter,
 	) (string, error)
+	PutQueryDefinitionWithLanguage(
+		name, queryString, queryDefinitionID, queryLanguage string,
+		logGroupNames []string,
+		parameters []QueryParameter,
+	) (string, error)
+	DescribeQueryDefinitionsByLanguage(
+		queryDefinitionNamePrefix, queryLanguage string,
+		limit int,
+		nextToken string,
+	) ([]QueryDefinition, string, error)
 	// DescribeQueryDefinitions lists query definitions optionally filtered by name prefix.
 	DescribeQueryDefinitions(
 		queryDefinitionNamePrefix string,

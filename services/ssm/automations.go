@@ -100,6 +100,19 @@ func (b *InMemoryBackend) StartAutomationExecution(
 
 	b.automationExecutionsStore(region).Put(exec)
 
+	if len(input.Tags) > 0 {
+		if b.miscResourceTags[region] == nil {
+			b.miscResourceTags[region] = make(map[string]map[string]string)
+		}
+
+		miscTags := b.miscResourceTagsStore(region)
+		miscTags[execID] = make(map[string]string, len(input.Tags))
+
+		for _, t := range input.Tags {
+			miscTags[execID][t.Key] = t.Value
+		}
+	}
+
 	return &StartAutomationExecutionOutputFull{AutomationExecutionID: execID}, nil
 }
 

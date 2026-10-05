@@ -3,6 +3,7 @@ package cloudformation
 import (
 	"encoding/xml"
 	"net/url"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
@@ -22,7 +23,9 @@ func isValidGetTemplateStage(stage string) bool {
 
 func (h *Handler) handleGetTemplate(form url.Values, c *echo.Context) error {
 	stackName := form.Get("StackName")
-	if stackName == "" {
+	changeSetName := form.Get("ChangeSetName")
+
+	if stackName == "" && !strings.HasPrefix(changeSetName, "arn:") {
 		return h.xmlError(c, "ValidationError", "StackName is required")
 	}
 
@@ -30,8 +33,17 @@ func (h *Handler) handleGetTemplate(form url.Values, c *echo.Context) error {
 		return h.xmlError(c, "ValidationError", "TemplateStage must be Original or Processed")
 	}
 
-	body, err := h.Backend.GetTemplate(stackName)
-	if err != nil {
+	var (
+		body string
+		err  error
+	)
+
+	if changeSetName != "" {
+		body, err = h.Backend.GetChangeSetTemplate(stackName, changeSetName)
+		if err != nil {
+			return h.xmlError(c, "ChangeSetNotFound", err.Error())
+		}
+	} else if body, err = h.Backend.GetTemplate(stackName); err != nil {
 		return h.xmlError(c, "ValidationError", err.Error())
 	}
 

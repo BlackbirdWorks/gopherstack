@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	sdktypes "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
 )
@@ -21,10 +22,12 @@ type deleteLogGroupInput struct {
 }
 
 type describeLogGroupsInput struct {
-	LogGroupNamePrefix string `json:"logGroupNamePrefix"`
-	NextToken          string `json:"nextToken"`
-	LogGroupClass      string `json:"logGroupClass,omitempty"`
-	Limit              int    `json:"limit"`
+	LogGroupNamePrefix  string   `json:"logGroupNamePrefix"`
+	LogGroupNamePattern string   `json:"logGroupNamePattern"`
+	NextToken           string   `json:"nextToken"`
+	LogGroupClass       string   `json:"logGroupClass,omitempty"`
+	LogGroupIdentifiers []string `json:"logGroupIdentifiers"`
+	Limit               int      `json:"limit"`
 }
 
 type putRetentionPolicyInput struct {
@@ -171,18 +174,56 @@ func (h *Handler) handleDescribeLogGroups(ctx context.Context, b []byte) (any, e
 		return nil, err
 	}
 
-	groups, next, err := h.Backend.DescribeLogGroups(
+	if input.LogGroupNamePrefix != "" && input.LogGroupNamePattern != "" {
+		return nil, fmt.Errorf("%w: logGroupNamePrefix and logGroupNamePattern are mutually exclusive", ErrValidation)
+	}
+
+	groups, next, err := h.Backend.DescribeLogGroupsFiltered(
 		ctx,
 		input.LogGroupNamePrefix,
 		input.NextToken,
 		input.LogGroupClass,
 		input.Limit,
+		describeLogGroupsKeeper(input.LogGroupNamePattern, input.LogGroupIdentifiers),
 	)
 	if err != nil {
 		return nil, err
 	}
 
+	if input.LogGroupNamePattern != "" {
+		for i := range groups {
+			g := groups[i]
+			groups[i] = LogGroup{LogGroupName: g.LogGroupName, Arn: g.Arn, CreationTime: g.CreationTime}
+		}
+	}
+
 	return &describeLogGroupsOutput{LogGroups: groups, NextToken: next}, nil
+}
+
+// describeLogGroupsKeeper applies the substring logGroupNamePattern and logGroupIdentifiers.
+func describeLogGroupsKeeper(pattern string, identifiers []string) func(LogGroup) bool {
+	if pattern == "" && len(identifiers) == 0 {
+		return nil
+	}
+
+	names := make(map[string]struct{}, len(identifiers))
+	for _, id := range identifiers {
+		names[normalizeLogGroupIdentifier(id)] = struct{}{}
+	}
+
+	return func(g LogGroup) bool {
+		if pattern != "" && !strings.Contains(g.LogGroupName, pattern) {
+			return false
+		}
+
+		if len(names) > 0 {
+			_, ok := names[g.LogGroupName]
+
+			return ok
+		}
+
+		return true
+	}
 }
 
 func (h *Handler) retentionActions() map[string]actionFn {

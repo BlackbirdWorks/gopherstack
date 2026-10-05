@@ -335,6 +335,43 @@ func (b *InMemoryBackend) BatchDescribeTypeConfigurations(
 func (b *InMemoryBackend) ListTypes(
 	visibilityFilter, provisioningTypeFilter, typeNamePrefix string, maxResults int, nextToken string,
 ) (page.Page[TypeSummary], error) {
+	return b.ListTypesFiltered(ListTypesOptions{
+		Visibility: visibilityFilter, ProvisioningType: provisioningTypeFilter, TypeNamePrefix: typeNamePrefix,
+		MaxResults: maxResults, NextToken: nextToken,
+	})
+}
+
+// ListTypesOptions carries ListTypesInput's filter members. Category is Filters.Category
+// (REGISTERED/ACTIVATED/THIRD_PARTY/AWS_TYPES); DeprecatedStatus defaults to LIVE.
+type ListTypesOptions struct {
+	Visibility, ProvisioningType, TypeNamePrefix, NextToken string
+	Type, Category, DeprecatedStatus                        string
+	MaxResults                                              int
+}
+
+// typeMatchesCategory reports whether a registry entry falls in ListTypes' Filters.Category.
+// The registry holds no Amazon-published types, so AWS_TYPES never matches.
+func typeMatchesCategory(t *RegisteredType, category string) bool {
+	switch category {
+	case "REGISTERED":
+		return !t.IsActivated
+	case "ACTIVATED":
+		return t.IsActivated
+	case "THIRD_PARTY":
+		return true
+	case "AWS_TYPES":
+		return false
+	default:
+		return true
+	}
+}
+
+// ListTypesFiltered is ListTypes with the Type, Filters.Category and DeprecatedStatus filters.
+func (b *InMemoryBackend) ListTypesFiltered(opts ListTypesOptions) (page.Page[TypeSummary], error) {
+	visibilityFilter, provisioningTypeFilter, typeNamePrefix := opts.Visibility, opts.ProvisioningType, opts.TypeNamePrefix
+	maxResults, nextToken := opts.MaxResults, opts.NextToken
+	wantDeprecated := opts.DeprecatedStatus == typeStatusDeprecated
+
 	b.mu.RLock("ListTypes")
 	defer b.mu.RUnlock()
 
@@ -344,10 +381,14 @@ func (b *InMemoryBackend) ListTypes(
 
 	result := make([]TypeSummary, 0, b.typeRegistry.Len())
 	for _, t := range b.typeRegistry.All() {
-		if t.Status == typeStatusDeprecated || !strings.HasPrefix(t.TypeName, typeNamePrefix) {
+		if (t.Status == typeStatusDeprecated) != wantDeprecated || !strings.HasPrefix(t.TypeName, typeNamePrefix) {
 			continue
 		}
-		if t.Status == statusComplete || t.IsActivated {
+
+		if (opts.Type != "" && t.Type != opts.Type) || !typeMatchesCategory(t, opts.Category) {
+			continue
+		}
+		if t.Status == statusComplete || t.IsActivated || wantDeprecated {
 			visibility := "PRIVATE"
 			if t.IsPublished {
 				visibility = typeVisibilityPublic

@@ -27,8 +27,11 @@ type CreateChangeSetOptions struct {
 	// fields (api_op_CreateChangeSet.go:192,254); stored on the ChangeSet
 	// and applied when ExecuteChangeSet calls CreateStack/UpdateStack,
 	// same as Capabilities.
-	ResourceTypes     []string
-	DisableValidation bool
+	RollbackConfiguration *RollbackConfiguration
+	RoleARN               string
+	ResourceTypes         []string
+	NotificationARNs      []string
+	DisableValidation     bool
 }
 
 // CreateChangeSet creates a change set for a stack.
@@ -85,8 +88,11 @@ func (b *InMemoryBackend) CreateChangeSet(
 		Capabilities:    capabilities,
 		Tags:            tags,
 
-		ResourceTypes:     opts.ResourceTypes,
-		DisableValidation: opts.DisableValidation,
+		ResourceTypes:         opts.ResourceTypes,
+		DisableValidation:     opts.DisableValidation,
+		NotificationARNs:      opts.NotificationARNs,
+		RoleARN:               opts.RoleARN,
+		RollbackConfiguration: opts.RollbackConfiguration,
 	}
 
 	if _, perr := ParseTemplate(templateBody); perr != nil && templateBody != "" {
@@ -200,6 +206,26 @@ func (b *InMemoryBackend) DescribeChangeSet(stackName, changeSetName string) (*C
 	return cs, nil
 }
 
+// GetChangeSetTemplate returns the template stored on a change set, addressed by name (with stackName) or by ARN.
+func (b *InMemoryBackend) GetChangeSetTemplate(stackName, changeSetName string) (string, error) {
+	b.mu.RLock("GetChangeSetTemplate")
+	defer b.mu.RUnlock()
+
+	if cs, ok := b.changeSets[stackName][changeSetName]; ok {
+		return cs.TemplateBody, nil
+	}
+
+	for _, csMap := range b.changeSets {
+		for _, cs := range csMap {
+			if cs.ChangeSetID == changeSetName {
+				return cs.TemplateBody, nil
+			}
+		}
+	}
+
+	return "", ErrChangeSetNotFound
+}
+
 // ExecuteChangeSet applies a change set to a stack. Only a change set whose
 // ExecutionStatus is AVAILABLE can be executed — e.g. a change set created with
 // no actual changes is FAILED/UNAVAILABLE and AWS rejects execution of it with
@@ -237,11 +263,15 @@ func (b *InMemoryBackend) ExecuteChangeSet(
 
 	var execErr error
 	opts := StackOptions{
-		Capabilities:         cs.Capabilities,
-		DisableRollback:      disableRollback,
-		RetainExceptOnCreate: retainExceptOnCreate,
-		ResourceTypes:        cs.ResourceTypes,
-		DisableValidation:    cs.DisableValidation,
+		Capabilities:          cs.Capabilities,
+		Tags:                  cs.Tags,
+		NotificationARNs:      cs.NotificationARNs,
+		RoleARN:               cs.RoleARN,
+		RollbackConfiguration: cs.RollbackConfiguration,
+		DisableRollback:       disableRollback,
+		RetainExceptOnCreate:  retainExceptOnCreate,
+		ResourceTypes:         cs.ResourceTypes,
+		DisableValidation:     cs.DisableValidation,
 	}
 	_, err := b.UpdateStack(ctx, stackName, cs.TemplateBody, cs.Parameters, opts)
 	if err != nil {

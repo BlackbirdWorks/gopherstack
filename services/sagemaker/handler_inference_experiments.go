@@ -25,6 +25,7 @@ type createInferenceExperimentInput struct {
 	Name              string                                `json:"Name"`
 	Type              string                                `json:"Type"`
 	RoleArn           string                                `json:"RoleArn"`
+	Description       string                                `json:"Description"`
 	EndpointName      string                                `json:"EndpointName"`
 	KmsKey            string                                `json:"KmsKey"`
 	ModelVariants     []ModelVariantConfig                  `json:"ModelVariants"`
@@ -55,6 +56,7 @@ func (h *Handler) handleCreateInferenceExperiment(ctx context.Context, body []by
 		Name:              req.Name,
 		Type:              req.Type,
 		RoleArn:           req.RoleArn,
+		Description:       req.Description,
 		EndpointName:      req.EndpointName,
 		ModelVariants:     req.ModelVariants,
 		ShadowModeConfig:  req.ShadowModeConfig,

@@ -74,6 +74,7 @@ type DocumentDescription struct {
 	HashType               string                  `json:"HashType,omitempty"`
 	Sha1                   string                  `json:"Sha1,omitempty"`
 	VersionName            string                  `json:"VersionName,omitempty"`
+	Owner                  string                  `json:"Owner,omitempty"`
 	AttachmentsInformation []AttachmentInformation `json:"AttachmentsInformation,omitempty"`
 	Requires               []DocumentRequires      `json:"Requires,omitempty"`
 	Tags                   []Tag                   `json:"Tags,omitempty"`
@@ -103,6 +104,7 @@ type DocumentIdentifier struct {
 	DocumentVersion string             `json:"DocumentVersion"`
 	SchemaVersion   string             `json:"SchemaVersion"`
 	TargetType      string             `json:"TargetType,omitempty"`
+	Owner           string             `json:"Owner,omitempty"`
 	PlatformTypes   []string           `json:"PlatformTypes,omitempty"`
 	Requires        []DocumentRequires `json:"Requires,omitempty"`
 	Tags            []Tag              `json:"Tags,omitempty"`

@@ -517,6 +517,7 @@ type updateClusterRequest struct {
 	TieredStorageConfig            *ClusterTieredStorageConfig             `json:"TieredStorageConfig,omitempty"`
 	RestrictedInstanceGroupsConfig *ClusterRestrictedInstanceGroupsConfig  `json:"RestrictedInstanceGroupsConfig,omitempty"` //nolint:lll // long field/type names push this past the line limit
 	ClusterName                    string                                  `json:"ClusterName"`
+	ClusterRole                    string                                  `json:"ClusterRole,omitempty"`
 	NodeRecovery                   string                                  `json:"NodeRecovery,omitempty"`
 	NodeProvisioningMode           string                                  `json:"NodeProvisioningMode,omitempty"`
 	InstanceGroups                 []clusterInstanceGroupRequest           `json:"InstanceGroups"`
@@ -536,6 +537,7 @@ func (h *Handler) handleUpdateCluster(ctx context.Context, body []byte) ([]byte,
 
 	c, err := h.Backend.UpdateCluster(ctx, UpdateClusterOptions{
 		NameOrArn:                      req.ClusterName,
+		ClusterRole:                    req.ClusterRole,
 		InstanceGroups:                 toClusterInstanceGroups(req.InstanceGroups),
 		InstanceGroupsToDelete:         req.InstanceGroupsToDelete,
 		RestrictedInstanceGroups:       toClusterRestrictedInstanceGroups(req.RestrictedInstanceGroups),

@@ -226,6 +226,7 @@ func (d Document) asDocumentDescription(docTags []Tag) DocumentDescription {
 		Requires:               d.Requires,
 		VersionName:            d.VersionName,
 		Tags:                   docTags,
+		Owner:                  documentOwner(d.Name),
 		CreatedDate:            d.CreatedDate,
 	}
 }
@@ -389,45 +390,66 @@ func (b *InMemoryBackend) GetDocument(
 // document's tag value for a given tag name.
 const tagFilterKeyPrefix = "tag:"
 
+// ownerAmazon is DocumentIdentifier.Owner for the built-in AWS documents.
+const ownerAmazon = "Amazon"
+
+// documentOwner is "Amazon" for the built-in documents, else the account ID.
+func documentOwner(name string) string {
+	if strings.HasPrefix(name, "AWS-") {
+		return ownerAmazon
+	}
+
+	return defaultAccountID
+}
+
+// ownerFilterMatches evaluates the Owner filter: Amazon, Self (built-ins excluded) or ThirdParty (none exist).
+func ownerFilterMatches(name string, values []string) bool {
+	owner := documentOwner(name)
+
+	return slices.ContainsFunc(values, func(v string) bool {
+		switch v {
+		case ownerAmazon:
+			return owner == ownerAmazon
+		case "Self":
+			return owner != ownerAmazon
+		case "ThirdParty":
+			return false
+		default:
+			return true
+		}
+	})
+}
+
 // documentMatchesFilters returns true when doc satisfies all provided DocumentFilters
-// (types.DocumentKeyValuesFilter, api_op_ListDocuments.go: "valid keys include Owner,
-// Name, PlatformTypes, DocumentType, and TargetType"). Owner ("Self" vs. other
-// accounts) isn't modeled -- there's no document-ownership/caller-identity data to
-// filter on -- and falls through to unfiltered, matching this backend's established
-// unknown-key convention (matchesActivationFilter). tags is doc's own misc-tag map
-// (miscResourceTagsStore), used for the tag:tagName key form.
+// (types.DocumentKeyValuesFilter). Public/Private Owner values and unknown keys stay
+// unfiltered. tags is doc's misc-tag map, used for the tag:tagName key form.
 func documentMatchesFilters(doc Document, tags map[string]string, filters []DocumentFilter) bool {
 	for _, f := range filters {
-		switch {
-		case f.Key == "DocumentType":
-			if !slices.Contains(f.Values, doc.DocumentType) {
-				return false
-			}
-		case f.Key == filterKeyName:
-			if !slices.ContainsFunc(f.Values, func(v string) bool { return strings.HasPrefix(doc.Name, v) }) {
-				return false
-			}
-		case f.Key == "TargetType":
-			if !slices.Contains(f.Values, doc.TargetType) {
-				return false
-			}
-		case f.Key == filterKeyPlatformTypes:
-			if !slices.ContainsFunc(doc.PlatformTypes, func(p string) bool {
-				return slices.Contains(f.Values, p)
-			}) {
-				return false
-			}
-		case strings.HasPrefix(f.Key, tagFilterKeyPrefix):
-			tagName := strings.TrimPrefix(f.Key, tagFilterKeyPrefix)
-			if !slices.Contains(f.Values, tags[tagName]) {
-				return false
-			}
-		default:
-			continue
+		if !documentMatchesFilter(doc, tags, f) {
+			return false
 		}
 	}
 
 	return true
+}
+
+func documentMatchesFilter(doc Document, tags map[string]string, f DocumentFilter) bool {
+	switch {
+	case f.Key == "DocumentType":
+		return slices.Contains(f.Values, doc.DocumentType)
+	case f.Key == filterKeyName:
+		return slices.ContainsFunc(f.Values, func(v string) bool { return strings.HasPrefix(doc.Name, v) })
+	case f.Key == "Owner":
+		return ownerFilterMatches(doc.Name, f.Values)
+	case f.Key == "TargetType":
+		return slices.Contains(f.Values, doc.TargetType)
+	case f.Key == filterKeyPlatformTypes:
+		return slices.ContainsFunc(doc.PlatformTypes, func(p string) bool { return slices.Contains(f.Values, p) })
+	case strings.HasPrefix(f.Key, tagFilterKeyPrefix):
+		return slices.Contains(f.Values, tags[strings.TrimPrefix(f.Key, tagFilterKeyPrefix)])
+	default:
+		return true
+	}
 }
 
 // DescribeDocument returns document metadata.
@@ -519,6 +541,7 @@ func (b *InMemoryBackend) ListDocuments(
 			Requires:        doc.Requires,
 			Tags:            b.miscResourceTagList(region, doc.Name),
 			TargetType:      doc.TargetType,
+			Owner:           documentOwner(doc.Name),
 			CreatedDate:     doc.CreatedDate,
 		})
 	}

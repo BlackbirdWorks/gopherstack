@@ -40,6 +40,7 @@ type StorageBackend interface {
 		opts CreateChangeSetOptions,
 	) (*ChangeSet, error)
 	DescribeChangeSet(stackName, changeSetName string) (*ChangeSet, error)
+	GetChangeSetTemplate(stackName, changeSetName string) (string, error)
 	ExecuteChangeSet(
 		ctx context.Context, stackName, changeSetName string, disableRollback, retainExceptOnCreate bool,
 	) error
@@ -130,6 +131,7 @@ type StorageBackend interface {
 	ListTypes(
 		visibilityFilter, provisioningTypeFilter, typeNamePrefix string, maxResults int, nextToken string,
 	) (page.Page[TypeSummary], error)
+	ListTypesFiltered(opts ListTypesOptions) (page.Page[TypeSummary], error)
 	ListTypeVersions(
 		typeName, deprecatedStatus string, maxResults int, nextToken string,
 	) (page.Page[string], error)

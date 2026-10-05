@@ -7,9 +7,10 @@ import (
 )
 
 type putDestinationInput struct {
-	DestinationName string `json:"destinationName"`
-	TargetArn       string `json:"targetArn"`
-	RoleArn         string `json:"roleArn"`
+	Tags            map[string]string `json:"tags"`
+	DestinationName string            `json:"destinationName"`
+	TargetArn       string            `json:"targetArn"`
+	RoleArn         string            `json:"roleArn"`
 }
 
 func (h *Handler) handlePutDestination(
@@ -25,6 +26,10 @@ func (h *Handler) handlePutDestination(
 		dest, err := b.PutDestination(in.DestinationName, in.TargetArn, in.RoleArn)
 		if err != nil {
 			return nil, err
+		}
+
+		if len(in.Tags) > 0 {
+			h.setTags(dest.Arn, in.Tags)
 		}
 
 		return map[string]any{"destination": destinationWireShape(dest)}, nil

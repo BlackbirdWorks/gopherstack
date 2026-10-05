@@ -10,6 +10,7 @@ type putQueryDefinitionInput struct {
 	Name              string           `json:"name"`
 	QueryDefinitionID string           `json:"queryDefinitionId"`
 	QueryString       string           `json:"queryString"`
+	QueryLanguage     string           `json:"queryLanguage"`
 	LogGroupNames     []string         `json:"logGroupNames"`
 	Parameters        []QueryParameter `json:"parameters,omitempty"`
 }
@@ -21,6 +22,7 @@ type putQueryDefinitionOutput struct {
 // --- DescribeQueryDefinitions ---.
 type describeQueryDefinitionsInput struct {
 	QueryDefinitionNamePrefix string `json:"queryDefinitionNamePrefix"`
+	QueryLanguage             string `json:"queryLanguage"`
 	NextToken                 string `json:"nextToken"`
 	MaxResults                int    `json:"maxResults"`
 }
@@ -47,8 +49,13 @@ func (h *Handler) handlePutQueryDefinition(
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
 	}
-	id, err := h.Backend.PutQueryDefinition(
-		input.Name, input.QueryString, input.QueryDefinitionID, input.LogGroupNames, input.Parameters,
+	id, err := h.Backend.PutQueryDefinitionWithLanguage(
+		input.Name,
+		input.QueryString,
+		input.QueryDefinitionID,
+		input.QueryLanguage,
+		input.LogGroupNames,
+		input.Parameters,
 	)
 	if err != nil {
 		return nil, err
@@ -65,8 +72,9 @@ func (h *Handler) handleDescribeQueryDefinitions(
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
 	}
-	defs, next, err := h.Backend.DescribeQueryDefinitions(
+	defs, next, err := h.Backend.DescribeQueryDefinitionsByLanguage(
 		input.QueryDefinitionNamePrefix,
+		input.QueryLanguage,
 		input.MaxResults,
 		input.NextToken,
 	)

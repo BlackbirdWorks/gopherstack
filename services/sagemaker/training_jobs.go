@@ -2,6 +2,7 @@ package sagemaker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"sort"
@@ -19,7 +20,11 @@ var (
 	ErrTrainingJobAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
 )
 
+// rawConfigMap holds CreateTrainingJob members stored verbatim.
+type rawConfigMap = map[string]json.RawMessage
+
 type TrainingJob struct {
+	PassthroughConfigs                    rawConfigMap                `json:"PassthroughConfigs,omitempty"`
 	LastModifiedTime                      time.Time                   `json:"LastModifiedTime"`
 	CreationTime                          time.Time                   `json:"CreationTime"`
 	VpcConfig                             *VpcConfig                  `json:"VpcConfig,omitempty"`
@@ -56,6 +61,7 @@ func cloneTrainingJob(tj *TrainingJob) *TrainingJob {
 	cp.Tags = maps.Clone(tj.Tags)
 	cp.HyperParameters = maps.Clone(tj.HyperParameters)
 	cp.Environment = maps.Clone(tj.Environment)
+	cp.PassthroughConfigs = maps.Clone(tj.PassthroughConfigs)
 	cp.InputDataConfig = make([]Channel, len(tj.InputDataConfig))
 	copy(cp.InputDataConfig, tj.InputDataConfig)
 	cp.SecondaryStatusTransitions = make(
@@ -301,6 +307,7 @@ type SecondaryStatusTransition struct {
 
 // TrainingJobOptions holds all fields for CreateTrainingJob.
 type TrainingJobOptions struct {
+	PassthroughConfigs                    rawConfigMap           `json:"PassthroughConfigs,omitempty"`
 	Tags                                  map[string]string      `json:"Tags,omitempty"`
 	Environment                           map[string]string      `json:"Environment,omitempty"`
 	HyperParameters                       map[string]string      `json:"HyperParameters,omitempty"`
@@ -358,6 +365,7 @@ func (b *InMemoryBackend) CreateTrainingJobFull(ctx context.Context, opts Traini
 		LastModifiedTime:                      now,
 		TrainingStartTime:                     &now,
 		Tags:                                  mergeTags(nil, opts.Tags),
+		PassthroughConfigs:                    maps.Clone(opts.PassthroughConfigs),
 		EnableNetworkIsolation:                opts.EnableNetworkIsolation,
 		EnableManagedSpotTraining:             opts.EnableManagedSpotTraining,
 		EnableInterContainerTrafficEncryption: opts.EnableInterContainerTrafficEncryption,

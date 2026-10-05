@@ -438,7 +438,7 @@ items_still_open:
     multi-account/key-value targeting schemes this backend's Targets-only model doesn't
     support; ScheduleOffset/LastExecutionDate/LastSuccessfulExecutionDate need a real
     scheduler (associations run synchronously on demand, not on a cron loop)."
-  - "StartAutomationExecutionInput's AlarmConfiguration/ClientToken/Tags/TargetLocations/
+  - "StartAutomationExecutionInput's AlarmConfiguration/ClientToken/TargetLocations/
     TargetMaps/TargetParameterName/Targets remain unmodeled (this backend runs one
     synchronous single-account/region execution, nothing for multi-target fan-out to plug
     into); SendAutomationSignal's Payload is stored but not consulted since this backend
@@ -465,9 +465,10 @@ items_still_open:
     is a distinct opaque identifier from the KB number/Name this synthetic catalogue
     already models, and fabricating one would invent data with nothing real to verify it
     against."
-  - "ListDocuments' Owner filter key (Self/Amazon/Public/Private/ThirdParty) is ignored --
-    CreateDocument does not reserve the AWS- prefix, so built-in vs. user ownership cannot be
-    derived without also adding that name validation."
+  - "ListDocuments' Owner filter honours Amazon/Self/ThirdParty (built-ins are the AWS- named
+    documents, owner derived from the name); Public/Private stay unfiltered -- no
+    shared-with-account visibility model distinguishes them, and CreateDocument does not
+    reserve the AWS- prefix, so a user-created AWS- document would read as Amazon-owned."
   - "ListCommandInvocationsInput.Details is declared but inert -- real AWS only populates
     CommandInvocation.CommandPlugins (per-plugin status/output) when Details=true, and this
     backend has no CommandPlugin type or per-plugin execution state."
@@ -1715,3 +1716,7 @@ Removed dead ErrInventoryNotFound (never raised). CommandNotFound is a sentinel 
 ## 2026-10-05 errcodeaudit needs-review adjudication (gopherstack-r3pr)
 
 DocumentNotFound (errors.go:15) is a sentinel identity string only; handler.go maps it to InvalidDocument, which the pinned ssm v1.77.0 declares (types.InvalidDocument).
+
+## 2026-10-05 (PARITY burn-down, gopherstack-9x62)
+
+FIXED: StartAutomationExecution Tags (applied to the execution, readable via ListTagsForResource ResourceType=Automation); DescribeDocument/ListDocuments Owner (Amazon for AWS- built-ins, else the account ID) and the ListDocuments Owner filter. Proof: document_owner_automation_tags_test.go.

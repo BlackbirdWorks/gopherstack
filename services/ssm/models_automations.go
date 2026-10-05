@@ -79,6 +79,7 @@ type StartAutomationExecutionInput struct {
 	Mode            string              `json:"Mode,omitempty"`
 	MaxConcurrency  string              `json:"MaxConcurrency,omitempty"`
 	MaxErrors       string              `json:"MaxErrors,omitempty"`
+	Tags            []Tag               `json:"Tags,omitempty"`
 }
 
 // StartAutomationExecutionOutput is the response payload.

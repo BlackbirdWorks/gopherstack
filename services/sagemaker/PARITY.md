@@ -6902,3 +6902,7 @@ Orphan `InstanceGroupNotFound` (cluster.go) is a valid `BatchAddClusterNodesErro
 ## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
 
 InstanceIdNotFound, NodeIdNotFound are per-item BatchReplaceClusterNodes error codes (types.BatchReplaceClusterNodesErrorCode enum members) in a 200 body, not error envelopes.
+
+## 2026-10-05 (PARITY burn-down, gopherstack-9x62)
+
+FIXED: CreateTrainingJob DebugHookConfig/DebugRuleConfigurations/ExperimentConfig/InfraCheckConfig/MlflowConfig/ModelPackageConfig/ProfilerConfig/ProfilerRuleConfigurations/RemoteDebugConfig/RetryStrategy/ServerlessJobConfig/TensorBoardOutputConfig are stored verbatim (additive omitempty PassthroughConfigs) and echoed by DescribeTrainingJob; SessionChainingConfig is accepted but not echoed (DescribeTrainingJobOutput has no such member). CreateInferenceExperiment Description and UpdateCluster ClusterRole were dropped and are now applied. Proof: training_job_config_passthrough_test.go, create_description_update_cluster_role_test.go.

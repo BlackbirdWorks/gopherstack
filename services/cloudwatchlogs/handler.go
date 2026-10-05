@@ -297,10 +297,23 @@ type actionFn func(ctx context.Context, body []byte) (any, error)
 func normalizeLogGroupIdentifier(id string) string {
 	const logGroupToken = ":log-group:"
 	if _, after, ok := strings.CutLast(id, logGroupToken); ok {
-		return after
+		return strings.TrimSuffix(after, ":*")
 	}
 
 	return id
+}
+
+// resolveLogGroupRef resolves logGroupName or logGroupIdentifier (name or ARN); both set is invalid.
+func resolveLogGroupRef(name, identifier string) (string, error) {
+	if name != "" && identifier != "" {
+		return "", fmt.Errorf("%w: specify either logGroupIdentifier or logGroupName, not both", ErrValidation)
+	}
+
+	if identifier != "" {
+		return normalizeLogGroupIdentifier(identifier), nil
+	}
+
+	return name, nil
 }
 
 func (h *Handler) newOperationsActions() map[string]actionFn {
