@@ -347,9 +347,12 @@ func (h *Handler) routeARPSingleItem(
 }
 
 type createAutomatedReasoningPolicyInput struct {
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	Tags        []Tag  `json:"tags,omitempty"`
+	Name               string          `json:"name"`
+	Description        string          `json:"description,omitempty"`
+	KmsKeyID           string          `json:"kmsKeyId,omitempty"`
+	ClientRequestToken string          `json:"clientRequestToken,omitempty"`
+	PolicyDefinition   json.RawMessage `json:"policyDefinition,omitempty"`
+	Tags               []Tag           `json:"tags,omitempty"`
 }
 
 type createAutomatedReasoningPolicyOutput struct {
@@ -357,7 +360,7 @@ type createAutomatedReasoningPolicyOutput struct {
 	UpdatedAt      isoTime `json:"updatedAt"`
 	PolicyArn      string  `json:"policyArn"`
 	Name           string  `json:"name"`
-	Status         string  `json:"status"`
+	Description    string  `json:"description,omitempty"`
 	DefinitionHash string  `json:"definitionHash,omitempty"`
 	Version        string  `json:"version,omitempty"`
 }
@@ -371,7 +374,16 @@ func (h *Handler) handleCreateAutomatedReasoningPolicy(c *echo.Context, body []b
 		)
 	}
 
-	policy, opErr := h.Backend.CreateAutomatedReasoningPolicy(in.Name, in.Description, in.Tags)
+	policy, opErr := idemCreate(
+		h.idem, "CreateAutomatedReasoningPolicy", in.ClientRequestToken, idemFingerprint(in), ErrAlreadyExists,
+		func(p *AutomatedReasoningPolicy) string { return p.PolicyArn }, h.Backend.GetAutomatedReasoningPolicy,
+		func() (*AutomatedReasoningPolicy, error) {
+			return h.Backend.CreateAutomatedReasoningPolicyWithOptions(
+				in.Name, in.Description, in.Tags,
+				ARPCreateOptions{KmsKeyID: in.KmsKeyID, PolicyDefinition: in.PolicyDefinition},
+			)
+		},
+	)
 	if opErr != nil {
 		return h.writeError(c, opErr)
 	}
@@ -379,7 +391,7 @@ func (h *Handler) handleCreateAutomatedReasoningPolicy(c *echo.Context, body []b
 	return c.JSON(http.StatusCreated, createAutomatedReasoningPolicyOutput{
 		PolicyArn:      policy.PolicyArn,
 		Name:           policy.Name,
-		Status:         policy.Status,
+		Description:    policy.Description,
 		CreatedAt:      isoTime{policy.CreatedAt},
 		UpdatedAt:      isoTime{policy.UpdatedAt},
 		DefinitionHash: policy.DefinitionHash,
@@ -715,7 +727,7 @@ func (h *Handler) handleGetAutomatedReasoningPolicy(c *echo.Context, policyARN s
 		return h.writeError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
+	out := map[string]any{
 		keyPolicyArn:      policy.PolicyArn,
 		"policyId":        policyIDFromARN(policy.PolicyArn),
 		keyName:           policy.Name,
@@ -724,7 +736,12 @@ func (h *Handler) handleGetAutomatedReasoningPolicy(c *echo.Context, policyARN s
 		keyVersion:        policy.Version,
 		keyCreatedAt:      isoTime{policy.CreatedAt},
 		keyUpdatedAt:      isoTime{policy.UpdatedAt},
-	})
+	}
+	if policy.KmsKeyArn != "" {
+		out["kmsKeyArn"] = policy.KmsKeyArn
+	}
+
+	return c.JSON(http.StatusOK, out)
 }
 
 func (h *Handler) handleListAutomatedReasoningPolicies(c *echo.Context) error {

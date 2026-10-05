@@ -339,36 +339,7 @@ func (h *Handler) handleCreateFunction(c *echo.Context) error {
 		timeout = defaultTimeout
 	}
 
-	now := time.Now().UTC()
-	fn := &FunctionConfiguration{
-		FunctionName:      input.FunctionName,
-		FunctionArn:       buildARN(h.DefaultRegion, h.AccountID, input.FunctionName),
-		Description:       input.Description,
-		ImageURI:          input.Code.ImageURI,
-		PackageType:       input.PackageType,
-		Runtime:           input.Runtime,
-		Handler:           input.Handler,
-		Role:              input.Role,
-		MemorySize:        memorySize,
-		Timeout:           timeout,
-		Environment:       input.Environment,
-		VpcConfig:         input.VpcConfig,
-		TracingConfig:     input.TracingConfig,
-		FileSystemConfigs: input.FileSystemConfigs,
-		DeadLetterConfig:  input.DeadLetterConfig,
-		EphemeralStorage:  input.EphemeralStorage,
-		DurableConfig:     input.DurableConfig,
-		Layers:            layerARNsToFunctionLayers(input.Layers),
-		Tags:              input.Tags,
-		State:             FunctionStateActive,
-		LastUpdateStatus:  LastUpdateStatusSuccessful,
-		CreatedAt:         now,
-		LastModified:      now.Format(time.RFC3339),
-		RevisionID:        uuid.New().String(),
-		ZipData:           input.Code.ZipFile,
-		S3BucketCode:      input.Code.S3Bucket,
-		S3KeyCode:         input.Code.S3Key,
-	}
+	fn := h.newFunctionConfiguration(&input, memorySize, timeout)
 
 	applyImageConfig(fn, &input)
 	applyZipDigest(fn)
@@ -377,6 +348,10 @@ func (h *Handler) handleCreateFunction(c *echo.Context) error {
 
 	if len(input.Architectures) > 0 {
 		fn.Architectures = input.Architectures
+	}
+
+	if !h.codeSigningConfigExists(c, input.CodeSigningConfigArn) {
+		return nil
 	}
 
 	if createErr := h.Backend.CreateFunction(fn); createErr != nil {
@@ -389,6 +364,10 @@ func (h *Handler) handleCreateFunction(c *echo.Context) error {
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", createErr.Error())
+	}
+
+	if attachErr := h.attachCodeSigningConfig(fn.FunctionName, input.CodeSigningConfigArn); attachErr != nil {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", attachErr.Error())
 	}
 
 	// h.tags is a separate store from fn.Tags (see handler_tags.go); TaggedFunctions,
@@ -868,6 +847,36 @@ func applyFunctionConfigurationCoreFields(fn *FunctionConfiguration, input *Upda
 	if input.Layers != nil {
 		fn.Layers = layerARNsToFunctionLayers(input.Layers)
 	}
+
+	if input.KMSKeyArn != nil {
+		fn.KMSKeyArn = *input.KMSKeyArn
+	}
+
+	if input.LoggingConfig != nil {
+		fn.LoggingConfig = normalizeLoggingConfig(input.LoggingConfig, fn.FunctionName)
+	}
+
+	if input.ImageConfig != nil && fn.PackageType == PackageTypeImage {
+		fn.ImageConfigResponse = &ImageConfigResponse{ImageConfig: input.ImageConfig}
+	}
+}
+
+// normalizeLoggingConfig fills the documented LogFormat/LogGroup defaults; nil stays nil.
+func normalizeLoggingConfig(in *LoggingConfig, functionName string) *LoggingConfig {
+	if in == nil {
+		return nil
+	}
+
+	out := *in
+	if out.LogFormat == "" {
+		out.LogFormat = "Text"
+	}
+
+	if out.LogGroup == "" {
+		out.LogGroup = "/aws/lambda/" + functionName
+	}
+
+	return &out
 }
 
 // applyFunctionConfigurationStructuredFields applies the remaining structured
@@ -989,4 +998,75 @@ func (h *Handler) handleGetFunctionConfiguration(c *echo.Context, name string) e
 
 	// GetFunctionConfiguration returns the configuration only (no code location).
 	return c.JSON(http.StatusOK, toWireFunctionConfiguration(fn))
+}
+
+// codeSigningConfigExists writes CodeSigningConfigNotFoundException and returns false when
+// a non-empty cscARN names no config.
+func (h *Handler) codeSigningConfigExists(c *echo.Context, cscARN string) bool {
+	if cscARN == "" {
+		return true
+	}
+
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return true
+	}
+
+	if _, err := lambdaBk.GetCodeSigningConfig(cscARN); err != nil {
+		_ = h.writeError(c, http.StatusNotFound, "CodeSigningConfigNotFoundException",
+			"Code signing config not found: "+cscARN)
+
+		return false
+	}
+
+	return true
+}
+
+// attachCodeSigningConfig associates cscARN with the new function; an empty ARN is a no-op.
+func (h *Handler) attachCodeSigningConfig(functionName, cscARN string) error {
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok || cscARN == "" {
+		return nil
+	}
+
+	return lambdaBk.PutFunctionCodeSigningConfig(functionName, cscARN)
+}
+
+// newFunctionConfiguration builds the stored configuration for a CreateFunction request.
+func (h *Handler) newFunctionConfiguration(
+	input *CreateFunctionInput, memorySize, timeout int,
+) *FunctionConfiguration {
+	now := time.Now().UTC()
+
+	return &FunctionConfiguration{
+		FunctionName:      input.FunctionName,
+		FunctionArn:       buildARN(h.DefaultRegion, h.AccountID, input.FunctionName),
+		Description:       input.Description,
+		ImageURI:          input.Code.ImageURI,
+		PackageType:       input.PackageType,
+		Runtime:           input.Runtime,
+		Handler:           input.Handler,
+		Role:              input.Role,
+		MemorySize:        memorySize,
+		Timeout:           timeout,
+		Environment:       input.Environment,
+		VpcConfig:         input.VpcConfig,
+		TracingConfig:     input.TracingConfig,
+		FileSystemConfigs: input.FileSystemConfigs,
+		DeadLetterConfig:  input.DeadLetterConfig,
+		EphemeralStorage:  input.EphemeralStorage,
+		DurableConfig:     input.DurableConfig,
+		Layers:            layerARNsToFunctionLayers(input.Layers),
+		Tags:              input.Tags,
+		KMSKeyArn:         input.KMSKeyArn,
+		LoggingConfig:     normalizeLoggingConfig(input.LoggingConfig, input.FunctionName),
+		State:             FunctionStateActive,
+		LastUpdateStatus:  LastUpdateStatusSuccessful,
+		CreatedAt:         now,
+		LastModified:      now.Format(time.RFC3339),
+		RevisionID:        uuid.New().String(),
+		ZipData:           input.Code.ZipFile,
+		S3BucketCode:      input.Code.S3Bucket,
+		S3KeyCode:         input.Code.S3Key,
+	}
 }

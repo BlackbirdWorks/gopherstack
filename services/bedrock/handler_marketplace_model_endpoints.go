@@ -155,6 +155,7 @@ type createMarketplaceModelEndpointInput struct {
 	EndpointConfig        *endpointConfigWire `json:"endpointConfig,omitempty"`
 	EndpointName          string              `json:"endpointName"`
 	ModelSourceIdentifier string              `json:"modelSourceIdentifier"`
+	ClientRequestToken    string              `json:"clientRequestToken,omitempty"`
 	Tags                  []Tag               `json:"tags,omitempty"`
 }
 
@@ -209,11 +210,14 @@ func (h *Handler) handleCreateMarketplaceModelEndpoint(c *echo.Context, body []b
 		)
 	}
 
-	ep, opErr := h.Backend.CreateMarketplaceModelEndpoint(
-		in.EndpointName,
-		in.ModelSourceIdentifier,
-		endpointConfigFromWire(in.EndpointConfig),
-		in.Tags,
+	ep, opErr := idemCreate(
+		h.idem, "CreateMarketplaceModelEndpoint", in.ClientRequestToken, idemFingerprint(in), ErrAlreadyExists,
+		func(e *MarketplaceModelEndpoint) string { return e.EndpointArn }, h.Backend.GetMarketplaceModelEndpoint,
+		func() (*MarketplaceModelEndpoint, error) {
+			return h.Backend.CreateMarketplaceModelEndpoint(
+				in.EndpointName, in.ModelSourceIdentifier, endpointConfigFromWire(in.EndpointConfig), in.Tags,
+			)
+		},
 	)
 	if opErr != nil {
 		return h.writeError(c, opErr)

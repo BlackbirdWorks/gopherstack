@@ -18,16 +18,35 @@ func (b *InMemoryBackend) CreateReportPlan(
 	deliveryChannel *ReportDeliveryChannel,
 	setting *ReportSetting,
 ) (*ReportPlan, error) {
+	return b.CreateReportPlanWithOptions(name, description, deliveryChannel, setting, CreateOptions{})
+}
+
+// CreateReportPlanWithOptions is CreateReportPlan with ReportPlanTags and
+// IdempotencyToken; a retry with the same token returns the existing plan.
+func (b *InMemoryBackend) CreateReportPlanWithOptions(
+	name, description string,
+	deliveryChannel *ReportDeliveryChannel,
+	setting *ReportSetting,
+	opts CreateOptions,
+) (*ReportPlan, error) {
 	b.mu.Lock("CreateReportPlan")
 	defer b.mu.Unlock()
 
-	if b.reportPlans.Has(name) {
+	if existing, ok := b.reportPlans.Get(name); ok {
+		if opts.IdempotencyToken != "" && existing.IdempotencyToken == opts.IdempotencyToken {
+			cp := *existing
+
+			return &cp, nil
+		}
+
 		return nil, fmt.Errorf("%w: report plan %s already exists", ErrAlreadyExists, name)
 	}
 
 	planARN := arn.Build("backup", b.region, b.accountID, "report-plan:"+name)
 	t := tags.New("backup.report-plan." + name + ".tags")
+	t.Merge(opts.Tags)
 	rp := &ReportPlan{
+		IdempotencyToken:      opts.IdempotencyToken,
 		ReportPlanName:        name,
 		ReportPlanArn:         planARN,
 		ReportPlanDescription: description,
@@ -165,15 +184,38 @@ func (b *InMemoryBackend) DescribeReportJob(reportJobID string) (*ReportJob, err
 	return job, nil
 }
 
+// ReportJobsFilter holds ListReportJobs' ByReportPlanName/ByStatus/ByCreation* filters.
+type ReportJobsFilter struct {
+	CreatedAfter   *time.Time
+	CreatedBefore  *time.Time
+	ReportPlanName string
+	Status         string
+}
+
 // ListReportJobs returns all report jobs, optionally filtered by report plan name.
 func (b *InMemoryBackend) ListReportJobs(reportPlanName string) []*ReportJob {
+	return b.ListReportJobsFiltered(ReportJobsFilter{ReportPlanName: reportPlanName})
+}
+
+// ListReportJobsFiltered returns the report jobs matching f.
+func (b *InMemoryBackend) ListReportJobsFiltered(f ReportJobsFilter) []*ReportJob {
 	b.mu.RLock("ListReportJobs")
 	defer b.mu.RUnlock()
 
+	planArn := ""
+	if f.ReportPlanName != "" {
+		planArn = arn.Build("backup", b.region, b.accountID, "report-plan:"+f.ReportPlanName)
+	}
+
 	var out []*ReportJob
 	for _, j := range b.reportJobs.All() {
-		if reportPlanName != "" &&
-			j.ReportPlanArn != "arn:aws:backup:"+b.region+":"+b.accountID+":report-plan:"+reportPlanName {
+		if planArn != "" && j.ReportPlanArn != planArn {
+			continue
+		}
+		if f.Status != "" && j.Status != f.Status {
+			continue
+		}
+		if !inTimeRange(j.CreationTime, f.CreatedAfter, f.CreatedBefore) {
 			continue
 		}
 		cp := *j

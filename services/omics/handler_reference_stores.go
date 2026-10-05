@@ -9,20 +9,28 @@ import (
 func (h *Handler) handleCreateReferenceStore(c *echo.Context) error {
 	var req struct {
 		Tags        map[string]string `json:"tags"`
+		SseConfig   map[string]any    `json:"sseConfig"`
 		Name        string            `json:"name"`
 		Description string            `json:"description"`
+		ClientToken string            `json:"clientToken"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
 		return err
 	}
 
-	rs, err := h.Backend.CreateReferenceStore(req.Name, req.Description, req.Tags)
+	rs, err := idemCreate(
+		h.idem, opCreateReferenceStore, req.ClientToken, idemFingerprint(req),
+		func(s *ReferenceStore) string { return s.ID }, h.Backend.GetReferenceStore,
+		func() (*ReferenceStore, error) {
+			return h.Backend.CreateReferenceStore(req.Name, req.Description, req.SseConfig, req.Tags)
+		},
+	)
 	if err != nil {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusCreated, rs)
+	return c.JSON(http.StatusCreated, newReferenceStoreWire(rs))
 }
 
 func (h *Handler) handleDeleteReferenceStore(c *echo.Context, id string) error {
@@ -39,7 +47,7 @@ func (h *Handler) handleGetReferenceStore(c *echo.Context, id string) error {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, rs)
+	return c.JSON(http.StatusOK, newReferenceStoreWire(rs))
 }
 
 func (h *Handler) handleListReferenceStores(c *echo.Context) error {
@@ -58,8 +66,13 @@ func (h *Handler) handleListReferenceStores(c *echo.Context) error {
 		return h.mapError(c, err)
 	}
 
+	items := make([]referenceStoreWire, 0, len(stores))
+	for _, rs := range stores {
+		items = append(items, newReferenceStoreWire(rs))
+	}
+
 	return c.JSON(http.StatusOK, map[string]any{
-		"referenceStores": stores,
+		"referenceStores": items,
 		keyNextToken:      next,
 	})
 }
@@ -122,20 +135,23 @@ func (h *Handler) handleListReferences(c *echo.Context, storeID string) error {
 
 func (h *Handler) handleStartReferenceImportJob(c *echo.Context, storeID string) error {
 	var req struct {
-		RoleArn string                     `json:"roleArn"`
-		Sources []ReferenceImportJobSource `json:"sources"`
+		RoleArn     string                     `json:"roleArn"`
+		ClientToken string                     `json:"clientToken"`
+		Sources     []ReferenceImportJobSource `json:"sources"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
 		return err
 	}
 
-	job, err := h.Backend.StartReferenceImportJob(storeID, req.RoleArn, req.Sources)
-	if err != nil {
-		return h.mapError(c, err)
-	}
-
-	return c.JSON(http.StatusCreated, job)
+	return idemCreated(
+		h, c, opStartReferenceImportJob, req.ClientToken, idemFingerprint(req)+storeID,
+		func(j *ReferenceImportJob) string { return j.ID },
+		func(id string) (*ReferenceImportJob, error) { return h.Backend.GetReferenceImportJob(storeID, id) },
+		func() (*ReferenceImportJob, error) {
+			return h.Backend.StartReferenceImportJob(storeID, req.RoleArn, req.Sources)
+		},
+	)
 }
 
 func (h *Handler) handleGetReferenceImportJob(c *echo.Context, storeID, jobID string) error {

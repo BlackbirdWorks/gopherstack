@@ -16,7 +16,10 @@ func (h *Handler) handleCancelLegalHold(c *echo.Context, legalHoldID string) err
 		)
 	}
 
-	if err := h.Backend.CancelLegalHold(legalHoldID); err != nil {
+	q := c.Request().URL.Query()
+	if err := h.Backend.CancelLegalHold(
+		legalHoldID, q.Get("cancelDescription"), int64(parseInt(q.Get("retainRecordInDays"))),
+	); err != nil {
 		return h.handleError(c, err)
 	}
 
@@ -82,8 +85,8 @@ func (h *Handler) handleCreateLegalHold(c *echo.Context, body []byte) error {
 		)
 	}
 
-	lh, err := h.Backend.CreateLegalHold(
-		in.Title, in.Description, recoveryPointSelectionFromJSON(in.RecoveryPointSelection),
+	lh, err := h.Backend.CreateLegalHoldWithToken(
+		in.Title, in.Description, recoveryPointSelectionFromJSON(in.RecoveryPointSelection), in.IdempotencyToken,
 	)
 	if err != nil {
 		return h.handleError(c, err)
@@ -91,9 +94,9 @@ func (h *Handler) handleCreateLegalHold(c *echo.Context, body []byte) error {
 
 	return c.JSON(http.StatusOK, map[string]any{
 		keyLegalHoldID:  lh.LegalHoldID,
-		"LegalHoldArn":  lh.LegalHoldArn,
+		keyLegalHoldArn: lh.LegalHoldArn,
 		keyTitle:        lh.Title,
-		"Description":   lh.Description,
+		keyDescription:  lh.Description,
 		keyStatus:       lh.Status,
 		keyCreationDate: epochSeconds(lh.CreationDate),
 	})
@@ -137,8 +140,15 @@ func (h *Handler) dispatchLegalHoldOps(c *echo.Context, route backupRoute) (bool
 
 		resp := map[string]any{
 			keyLegalHoldID: lh.LegalHoldID, keyTitle: lh.Title,
-			keyStatus: lh.Status, "LegalHoldArn": lh.LegalHoldArn,
-			"Description": lh.Description, keyCreationDate: epochSeconds(lh.CreationDate),
+			keyStatus: lh.Status, keyLegalHoldArn: lh.LegalHoldArn,
+			keyDescription: lh.Description, keyCreationDate: epochSeconds(lh.CreationDate),
+		}
+		setOptionalStr(resp, "CancelDescription", lh.CancelDescription)
+		if lh.CancellationDate != nil {
+			resp["CancellationDate"] = epochSeconds(*lh.CancellationDate)
+		}
+		if lh.RetainRecordUntil != nil {
+			resp["RetainRecordUntil"] = epochSeconds(*lh.RetainRecordUntil)
 		}
 		if lh.RecoveryPointSelection != nil {
 			resp["RecoveryPointSelection"] = recoveryPointSelectionToJSON(lh.RecoveryPointSelection)
@@ -150,14 +160,18 @@ func (h *Handler) dispatchLegalHoldOps(c *echo.Context, route backupRoute) (bool
 		lhs, nextToken := h.Backend.ListLegalHolds(parseInt(q.Get("maxResults")), q.Get("nextToken"))
 		items := make([]map[string]any, 0, len(lhs))
 		for _, lh := range lhs {
-			items = append(
-				items,
-				map[string]any{
-					keyLegalHoldID: lh.LegalHoldID,
-					keyTitle:       lh.Title,
-					keyStatus:      lh.Status,
-				},
-			)
+			item := map[string]any{
+				keyLegalHoldID:  lh.LegalHoldID,
+				keyTitle:        lh.Title,
+				keyStatus:       lh.Status,
+				keyLegalHoldArn: lh.LegalHoldArn,
+				keyDescription:  lh.Description,
+				keyCreationDate: epochSeconds(lh.CreationDate),
+			}
+			if lh.CancellationDate != nil {
+				item["CancellationDate"] = epochSeconds(*lh.CancellationDate)
+			}
+			items = append(items, item)
 		}
 
 		resp := map[string]any{"LegalHolds": items}

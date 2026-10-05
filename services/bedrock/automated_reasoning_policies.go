@@ -47,6 +47,21 @@ func (b *InMemoryBackend) CreateAutomatedReasoningPolicy(
 	name, description string,
 	tags []Tag,
 ) (*AutomatedReasoningPolicy, error) {
+	return b.CreateAutomatedReasoningPolicyWithOptions(name, description, tags, ARPCreateOptions{})
+}
+
+// ARPCreateOptions carries CreateAutomatedReasoningPolicy's optional policyDefinition and kmsKeyId.
+type ARPCreateOptions struct {
+	KmsKeyID         string
+	PolicyDefinition json.RawMessage
+}
+
+// CreateAutomatedReasoningPolicyWithOptions is CreateAutomatedReasoningPolicy with ARPCreateOptions.
+func (b *InMemoryBackend) CreateAutomatedReasoningPolicyWithOptions(
+	name, description string,
+	tags []Tag,
+	opts ARPCreateOptions,
+) (*AutomatedReasoningPolicy, error) {
 	b.mu.Lock("CreateAutomatedReasoningPolicy")
 	defer b.mu.Unlock()
 
@@ -76,6 +91,10 @@ func (b *InMemoryBackend) CreateAutomatedReasoningPolicy(
 		DefinitionHash: fmt.Sprintf("%x", now.UnixNano()),
 		Version:        "DRAFT",
 		Tags:           copyTags(tags),
+		KmsKeyArn:      kmsKeyARN(b.region, b.accountID, opts.KmsKeyID),
+	}
+	if len(opts.PolicyDefinition) > 0 {
+		policy.PolicyDefinition = opts.PolicyDefinition
 	}
 	b.automatedReasoningPolicies.Put(policy)
 	b.arpByName[name] = policyARN

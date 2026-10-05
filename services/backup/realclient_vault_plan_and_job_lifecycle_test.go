@@ -278,10 +278,11 @@ func TestRealClient_VaultPlanAndJobLifecycle(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			_, err = client.GetLegalHold(ctx, &backupsdk.GetLegalHoldInput{
+			canceled, err := client.GetLegalHold(ctx, &backupsdk.GetLegalHoldInput{
 				LegalHoldId: createOut.LegalHoldId,
 			})
-			require.Error(t, err)
+			require.NoError(t, err)
+			assert.Equal(t, types.LegalHoldStatusCanceled, canceled.Status)
 		}},
 		{name: "tiering_configuration_lifecycle", run: func(t *testing.T) {
 			t.Helper()

@@ -90,6 +90,7 @@ func (h *Handler) handleStartRestoreJob(c *echo.Context, defaultRecoveryPointArn
 		RecoveryPointArn string            `json:"RecoveryPointArn"`
 		IamRoleArn       string            `json:"IamRoleArn"`
 		ResourceType     string            `json:"ResourceType"`
+		IdempotencyToken string            `json:"IdempotencyToken"`
 	}
 	if err := json.Unmarshal(body, &reqBody); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterValueException", "invalid request body"))
@@ -98,11 +99,12 @@ func (h *Handler) handleStartRestoreJob(c *echo.Context, defaultRecoveryPointArn
 		reqBody.RecoveryPointArn = defaultRecoveryPointArn
 	}
 
-	job, err := h.Backend.StartRestoreJob(
+	job, err := h.Backend.StartRestoreJobWithToken(
 		reqBody.RecoveryPointArn,
 		reqBody.IamRoleArn,
 		reqBody.ResourceType,
 		reqBody.Metadata,
+		reqBody.IdempotencyToken,
 	)
 	if err != nil {
 		return h.handleError(c, err)
@@ -162,8 +164,13 @@ func (h *Handler) dispatchRestoreJobOps(
 
 		return true, c.JSON(http.StatusOK, resp)
 	case opListRestoreJobsByProtectedResource:
+		q := c.Request().URL.Query()
 		jobs, next := pageQuery(
-			c.Request().URL.Query(), h.Backend.ListRestoreJobsByProtectedResource(route.resource),
+			q, h.Backend.ListRestoreJobsByProtectedResourceFiltered(route.resource, ProtectedResourceRestoreFilter{
+				Status:                     q.Get("status"),
+				RecoveryPointCreatedAfter:  ParseTimeFilter(q.Get("recoveryPointCreationDateAfter")),
+				RecoveryPointCreatedBefore: ParseTimeFilter(q.Get("recoveryPointCreationDateBefore")),
+			}),
 			func(j *RestoreJob) string { return j.RestoreJobID },
 		)
 		items := make([]map[string]any, 0, len(jobs))

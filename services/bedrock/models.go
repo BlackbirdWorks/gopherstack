@@ -97,6 +97,7 @@ type Guardrail struct {
 	CreatedAt               time.Time          `json:"createdAt"`
 	UpdatedAt               time.Time          `json:"updatedAt"`
 	Policies                *GuardrailPolicies `json:"policies,omitempty"`
+	Extras                  *GuardrailExtras   `json:"extras,omitempty"`
 	GuardrailID             string             `json:"guardrailId"`
 	GuardrailArn            string             `json:"guardrailArn"`
 	Name                    string             `json:"name"`
@@ -110,16 +111,32 @@ type Guardrail struct {
 	versionCounter int
 }
 
+// GuardrailExtras holds the optional guardrail members outside the content policies.
+type GuardrailExtras struct {
+	AutomatedReasoning *GuardrailAutomatedReasoning `json:"automatedReasoning,omitempty"`
+	// KmsKeyArn is the request's kmsKeyId resolved to an ARN.
+	KmsKeyArn string `json:"kmsKeyArn,omitempty"`
+	// CrossRegionProfileID is crossRegionConfig.guardrailProfileIdentifier as given.
+	CrossRegionProfileID string `json:"crossRegionProfileId,omitempty"`
+}
+
+// GuardrailAutomatedReasoning is automatedReasoningPolicyConfig / the automatedReasoningPolicy output.
+type GuardrailAutomatedReasoning struct {
+	ConfidenceThreshold *float64 `json:"confidenceThreshold,omitempty"`
+	Policies            []string `json:"policies"`
+}
+
 // GuardrailSummary is used in list operations.
 type GuardrailSummary struct {
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
-	GuardrailID string    `json:"id"`
-	Arn         string    `json:"arn"`
-	Name        string    `json:"name"`
-	Description string    `json:"description,omitempty"`
-	Status      string    `json:"status"`
-	Version     string    `json:"version"`
+	CrossRegionProfileID string    `json:"crossRegionProfileId,omitempty"`
+	CreatedAt            time.Time `json:"createdAt"`
+	UpdatedAt            time.Time `json:"updatedAt"`
+	GuardrailID          string    `json:"id"`
+	Arn                  string    `json:"arn"`
+	Name                 string    `json:"name"`
+	Description          string    `json:"description,omitempty"`
+	Status               string    `json:"status"`
+	Version              string    `json:"version"`
 }
 
 // ProvisionedModelThroughput represents a provisioned model throughput resource.
@@ -372,6 +389,7 @@ type EvaluationJob struct {
 	ApplicationType  string                     `json:"applicationType,omitempty"`
 	JobName          string                     `json:"jobName"`
 	JobDescription   string                     `json:"jobDescription,omitempty"`
+	CustomerKeyID    string                     `json:"customerEncryptionKeyId,omitempty"`
 	RoleArn          string                     `json:"roleArn,omitempty"`
 	Status           string                     `json:"status"`
 	JobArn           string                     `json:"jobArn"`
@@ -395,6 +413,7 @@ type AutomatedReasoningPolicy struct {
 	Status           string          `json:"status"`
 	DefinitionHash   string          `json:"definitionHash,omitempty"`
 	Version          string          `json:"version,omitempty"`
+	KmsKeyArn        string          `json:"kmsKeyArn,omitempty"`
 	Tags             []Tag           `json:"tags,omitempty"`
 }
 
@@ -452,6 +471,7 @@ type CustomModel struct {
 	CustomizationType string    `json:"customizationType,omitempty"`
 	JobArn            string    `json:"jobArn,omitempty"`
 	JobName           string    `json:"jobName,omitempty"`
+	ModelKmsKeyArn    string    `json:"modelKmsKeyArn,omitempty"`
 	Tags              []Tag     `json:"tags,omitempty"`
 }
 
@@ -462,6 +482,7 @@ type CustomModelDeployment struct {
 	CustomModelDeploymentArn string    `json:"customModelDeploymentArn"`
 	ModelDeploymentName      string    `json:"modelDeploymentName"`
 	ModelArn                 string    `json:"modelArn"`
+	Description              string    `json:"description,omitempty"`
 	Status                   string    `json:"status"`
 	Tags                     []Tag     `json:"tags,omitempty"`
 }
@@ -487,6 +508,7 @@ type FoundationModelAgreementOffer struct {
 type GuardrailVersion struct {
 	CreatedAt               time.Time          `json:"createdAt"`
 	Policies                *GuardrailPolicies `json:"policies,omitempty"`
+	Extras                  *GuardrailExtras   `json:"extras,omitempty"`
 	GuardrailID             string             `json:"guardrailId"`
 	GuardrailArn            string             `json:"guardrailArn"`
 	Version                 string             `json:"version"`
@@ -509,24 +531,30 @@ type ModelCopyJob struct {
 	// also a real optional Get/ListModelCopyJobs member (deserializers.go),
 	// previously not surfaced on either response.
 	TargetModelName string `json:"targetModelName,omitempty"`
-	Status          string `json:"status"`
-	FailureMessage  string `json:"failureMessage,omitempty"`
-	Tags            []Tag  `json:"tags,omitempty"`
+	// TargetModelKmsKeyArn is CreateModelCopyJobInput.ModelKmsKeyId resolved to an ARN.
+	TargetModelKmsKeyArn string `json:"targetModelKmsKeyArn,omitempty"`
+	Status               string `json:"status"`
+	FailureMessage       string `json:"failureMessage,omitempty"`
+	Tags                 []Tag  `json:"tags,omitempty"`
 }
 
 // ModelImportJob represents a model import job.
 type ModelImportJob struct {
-	CreationTime      time.Time  `json:"creationTime"`
-	LastModifiedTime  time.Time  `json:"lastModifiedTime"`
-	EndTime           *time.Time `json:"endTime,omitempty"`
-	JobArn            string     `json:"jobArn"`
-	JobName           string     `json:"jobName"`
-	ImportedModelArn  string     `json:"importedModelArn"`
-	ImportedModelName string     `json:"importedModelName"`
-	RoleArn           string     `json:"roleArn"`
-	ModelDataSourceS3 string     `json:"modelDataSourceS3,omitempty"`
-	Status            string     `json:"status"`
-	Tags              []Tag      `json:"tags,omitempty"`
+	CreationTime           time.Time      `json:"creationTime"`
+	LastModifiedTime       time.Time      `json:"lastModifiedTime"`
+	EndTime                *time.Time     `json:"endTime,omitempty"`
+	VpcConfig              map[string]any `json:"vpcConfig,omitempty"`
+	JobArn                 string         `json:"jobArn"`
+	JobName                string         `json:"jobName"`
+	ImportedModelArn       string         `json:"importedModelArn"`
+	ImportedModelName      string         `json:"importedModelName"`
+	RoleArn                string         `json:"roleArn"`
+	ModelDataSourceS3      string         `json:"modelDataSourceS3,omitempty"`
+	Status                 string         `json:"status"`
+	ImportedModelKmsKeyArn string         `json:"importedModelKmsKeyArn,omitempty"`
+	Tags                   []Tag          `json:"tags,omitempty"`
+	// ImportedModelTags tag the imported model (ARN ImportedModelArn), not the job.
+	ImportedModelTags []Tag `json:"importedModelTags,omitempty"`
 }
 
 // OutputDataConfig mirrors bedrock@v1.66.4 types.OutputDataConfig
@@ -557,26 +585,32 @@ type TrainingDataConfig struct {
 // completion (see AdvanceCustomizationJobStatuses) can populate
 // CustomModelSummary's required baseModelName without a second lookup.
 type ModelCustomizationJob struct {
-	CreationTime       time.Time          `json:"creationTime"`
-	LastModifiedTime   time.Time          `json:"lastModifiedTime"`
-	EndTime            time.Time          `json:"endTime"`
-	JobArn             string             `json:"jobArn"`
-	JobName            string             `json:"jobName"`
-	BaseModelArn       string             `json:"baseModelArn"`
-	BaseModelName      string             `json:"baseModelName,omitempty"`
-	OutputModelArn     string             `json:"outputModelArn"`
-	CustomModelName    string             `json:"customModelName"`
-	Status             string             `json:"status"`
-	CustomizationType  string             `json:"customizationType,omitempty"`
-	RoleArn            string             `json:"roleArn"`
-	OutputDataConfig   OutputDataConfig   `json:"outputDataConfig"`
-	TrainingDataConfig TrainingDataConfig `json:"trainingDataConfig"`
+	CreationTime         time.Time          `json:"creationTime"`
+	LastModifiedTime     time.Time          `json:"lastModifiedTime"`
+	EndTime              time.Time          `json:"endTime"`
+	HyperParameters      map[string]string  `json:"hyperParameters,omitempty"`
+	CustomizationConfig  map[string]any     `json:"customizationConfig,omitempty"`
+	VpcConfig            map[string]any     `json:"vpcConfig,omitempty"`
+	JobArn               string             `json:"jobArn"`
+	JobName              string             `json:"jobName"`
+	BaseModelArn         string             `json:"baseModelArn"`
+	BaseModelName        string             `json:"baseModelName,omitempty"`
+	OutputModelArn       string             `json:"outputModelArn"`
+	CustomModelName      string             `json:"customModelName"`
+	Status               string             `json:"status"`
+	CustomizationType    string             `json:"customizationType,omitempty"`
+	RoleArn              string             `json:"roleArn"`
+	OutputDataConfig     OutputDataConfig   `json:"outputDataConfig"`
+	TrainingDataConfig   TrainingDataConfig `json:"trainingDataConfig"`
+	OutputModelKmsKeyArn string             `json:"outputModelKmsKeyArn,omitempty"`
 	// ValidatorS3Uris holds Validator.S3Uri from the optional
 	// CreateModelCustomizationJobInput.ValidationDataConfig (bedrock@v1.66.4
 	// serializers.go:13249); GetModelCustomizationJobOutput.ValidationDataConfig
 	// is required regardless, so it's always emitted, empty or not.
 	ValidatorS3Uris []string `json:"validatorS3Uris,omitempty"`
 	Tags            []Tag    `json:"tags,omitempty"`
+	// CustomModelTags tag the output custom model once the job materializes it.
+	CustomModelTags []Tag `json:"customModelTags,omitempty"`
 }
 
 // InferenceProfile represents an inference profile resource. ModelSource is
@@ -657,6 +691,7 @@ type CreateEvaluationJobInput struct {
 	JobDescription   string
 	RoleArn          string
 	ApplicationType  string
+	CustomerKeyID    string
 	OutputDataConfig OutputDataConfig
 	Tags             []Tag
 }
@@ -688,16 +723,22 @@ type ModelInvocationJob struct {
 	JobName          string         `json:"jobName"`
 	FailureMessage   string         `json:"failureMessage,omitempty"`
 	ClientToken      string         `json:"clientRequestToken,omitempty"`
+	InvocationType   string         `json:"modelInvocationType,omitempty"`
+	VpcConfig        map[string]any `json:"vpcConfig,omitempty"`
 	Tags             []Tag          `json:"tags,omitempty"`
+	TimeoutHours     int32          `json:"timeoutDurationInHours,omitempty"`
 }
 
 // CreateModelInvocationJobInput holds the full set of fields for CreateModelInvocationJob.
 type CreateModelInvocationJobInput struct {
-	RoleArn          string         `json:"roleArn"`
-	ModelID          string         `json:"modelId"`
 	InputDataConfig  map[string]any `json:"inputDataConfig,omitempty"`
 	OutputDataConfig map[string]any `json:"outputDataConfig,omitempty"`
+	VpcConfig        map[string]any `json:"vpcConfig,omitempty"`
+	RoleArn          string         `json:"roleArn"`
+	ModelID          string         `json:"modelId"`
 	ClientToken      string         `json:"clientRequestToken,omitempty"`
+	InvocationType   string         `json:"modelInvocationType,omitempty"`
+	TimeoutHours     int32          `json:"timeoutDurationInHours,omitempty"`
 }
 
 // PromptRouter represents a prompt router resource.

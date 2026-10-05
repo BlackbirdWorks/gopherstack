@@ -18,37 +18,38 @@ import (
 const sequenceStoreDefaultETagAlgorithm = "MD5up"
 
 // CreateSequenceStore creates a new sequence store.
-func (b *InMemoryBackend) CreateSequenceStore(
-	name, description, eTagAlgorithmFamily, accessLogLocation string,
-	tags map[string]string,
-) (*SequenceStore, error) {
-	if name == "" {
+func (b *InMemoryBackend) CreateSequenceStore(in CreateSequenceStoreInput) (*SequenceStore, error) {
+	if in.Name == "" {
 		return nil, fmt.Errorf("%w: name is required", ErrValidation)
 	}
 
 	b.mu.Lock("CreateSequenceStore")
 	defer b.mu.Unlock()
 
+	eTagAlgorithmFamily := in.ETagAlgorithmFamily
 	if eTagAlgorithmFamily == "" {
 		eTagAlgorithmFamily = sequenceStoreDefaultETagAlgorithm
 	}
 
 	var s3Access map[string]any
-	if accessLogLocation != "" {
-		s3Access = map[string]any{"accessLogLocation": accessLogLocation}
+	if in.AccessLogLocation != "" {
+		s3Access = map[string]any{"accessLogLocation": in.AccessLogLocation}
 	}
 
 	now := time.Now().UTC()
 	ss := &SequenceStore{
-		ID:            newID(),
-		Name:          name,
-		Description:   description,
-		Status:        statusActive,
-		Tags:          copyTags(tags),
-		CreationTime:  now,
-		UpdateTime:    now,
-		ETagAlgorithm: eTagAlgorithmFamily,
-		S3Access:      s3Access,
+		ID:                     newID(),
+		Name:                   in.Name,
+		Description:            in.Description,
+		Status:                 statusActive,
+		Tags:                   copyTags(in.Tags),
+		CreationTime:           now,
+		UpdateTime:             now,
+		ETagAlgorithm:          eTagAlgorithmFamily,
+		S3Access:               s3Access,
+		SseConfig:              in.SseConfig,
+		FallbackLocation:       in.FallbackLocation,
+		PropagatedSetLevelTags: slices.Clone(in.PropagatedSetLevelTags),
 	}
 	ss.Arn = arn.Build("omics", b.defaultRegion, b.accountID, "sequenceStore/"+ss.ID)
 
@@ -57,8 +58,8 @@ func (b *InMemoryBackend) CreateSequenceStore(
 	b.uploadPartData[ss.ID] = make(map[string]map[string]map[int][]byte)
 	b.readSetBytes[ss.ID] = make(map[string][]byte)
 
-	if tags != nil {
-		b.tags[ss.Arn] = copyTags(tags)
+	if in.Tags != nil {
+		b.tags[ss.Arn] = copyTags(in.Tags)
 	}
 
 	result := *ss
@@ -159,9 +160,7 @@ func (b *InMemoryBackend) ListSequenceStores(
 }
 
 // UpdateSequenceStore updates a sequence store's name and description.
-func (b *InMemoryBackend) UpdateSequenceStore(
-	id, name, description string,
-) (*SequenceStore, error) {
+func (b *InMemoryBackend) UpdateSequenceStore(id string, in UpdateSequenceStoreInput) (*SequenceStore, error) {
 	b.mu.Lock("UpdateSequenceStore")
 	defer b.mu.Unlock()
 
@@ -170,12 +169,24 @@ func (b *InMemoryBackend) UpdateSequenceStore(
 		return nil, fmt.Errorf("%w: sequence store %s not found", ErrNotFound, id)
 	}
 
-	if name != "" {
-		ss.Name = name
+	if in.Name != "" {
+		ss.Name = in.Name
 	}
 
-	if description != "" {
-		ss.Description = description
+	if in.Description != "" {
+		ss.Description = in.Description
+	}
+
+	if in.FallbackLocation != nil {
+		ss.FallbackLocation = *in.FallbackLocation
+	}
+
+	if in.PropagatedSetLevelTags != nil {
+		ss.PropagatedSetLevelTags = slices.Clone(in.PropagatedSetLevelTags)
+	}
+
+	if in.AccessLogLocation != nil {
+		ss.S3Access = map[string]any{"accessLogLocation": *in.AccessLogLocation}
 	}
 
 	ss.UpdateTime = time.Now().UTC()

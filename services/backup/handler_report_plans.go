@@ -132,6 +132,7 @@ type createReportPlanBody struct {
 	ReportPlanDescription string                     `json:"ReportPlanDescription,omitempty"`
 	ReportDeliveryChannel *reportDeliveryChannelJSON `json:"ReportDeliveryChannel,omitempty"`
 	ReportSetting         *reportSettingJSON         `json:"ReportSetting,omitempty"`
+	ReportPlanTags        map[string]string          `json:"ReportPlanTags,omitempty"`
 	IdempotencyToken      string                     `json:"IdempotencyToken,omitempty"`
 }
 
@@ -148,11 +149,12 @@ func (h *Handler) handleCreateReportPlan(c *echo.Context, body []byte) error {
 		)
 	}
 
-	rp, err := h.Backend.CreateReportPlan(
+	rp, err := h.Backend.CreateReportPlanWithOptions(
 		in.ReportPlanName,
 		in.ReportPlanDescription,
 		reportDeliveryChannelFromJSON(in.ReportDeliveryChannel),
 		reportSettingFromJSON(in.ReportSetting),
+		CreateOptions{Tags: in.ReportPlanTags, IdempotencyToken: in.IdempotencyToken},
 	)
 	if err != nil {
 		return h.handleError(c, err)
@@ -293,9 +295,12 @@ func (h *Handler) dispatchReportJobOps(
 		return true, c.JSON(http.StatusOK, map[string]any{"ReportJob": reportJobToJSON(job)})
 	case opListReportJobs:
 		q := c.Request().URL.Query()
-		jobs, next := pageQuery(
-			q, h.Backend.ListReportJobs(q.Get("ReportPlanName")), func(j *ReportJob) string { return j.ReportJobID },
-		)
+		jobs, next := pageQuery(q, h.Backend.ListReportJobsFiltered(ReportJobsFilter{
+			ReportPlanName: q.Get("ReportPlanName"),
+			Status:         q.Get("Status"),
+			CreatedAfter:   ParseTimeFilter(q.Get("CreationAfter")),
+			CreatedBefore:  ParseTimeFilter(q.Get("CreationBefore")),
+		}), func(j *ReportJob) string { return j.ReportJobID })
 		items := make([]map[string]any, 0, len(jobs))
 		for _, j := range jobs {
 			items = append(items, reportJobToJSON(j))

@@ -55,6 +55,8 @@ func (h *Handler) routeStubDeploymentOps(c *echo.Context, path, method string, b
 type createCustomModelDeploymentInput struct {
 	ModelArn            string `json:"modelArn"`
 	ModelDeploymentName string `json:"modelDeploymentName"`
+	Description         string `json:"description,omitempty"`
+	ClientRequestToken  string `json:"clientRequestToken,omitempty"`
 	Tags                []Tag  `json:"tags,omitempty"`
 }
 
@@ -71,10 +73,15 @@ func (h *Handler) handleCreateCustomModelDeployment(c *echo.Context, body []byte
 		)
 	}
 
-	deployment, opErr := h.Backend.CreateCustomModelDeployment(
-		in.ModelArn,
-		in.ModelDeploymentName,
-		in.Tags,
+	deployment, opErr := idemCreate(
+		h.idem, "CreateCustomModelDeployment", in.ClientRequestToken, idemFingerprint(in), ErrValidation,
+		func(d *CustomModelDeployment) string { return d.CustomModelDeploymentArn },
+		h.Backend.GetCustomModelDeployment,
+		func() (*CustomModelDeployment, error) {
+			return h.Backend.CreateCustomModelDeploymentWithDescription(
+				in.ModelArn, in.ModelDeploymentName, in.Description, in.Tags,
+			)
+		},
 	)
 	if opErr != nil {
 		return h.writeError(c, opErr)
@@ -95,14 +102,19 @@ func (h *Handler) handleGetCustomModelDeployment(c *echo.Context, deployARN stri
 	// keyCreationTime/keyLastModifiedTime ("creationTime"/"lastModifiedTime")
 	// constants correct for this package's job-summary ops (bedrock@v1.66.4
 	// deserializers.go, awsRestjson1_deserializeOpDocumentGetCustomModelDeploymentOutput).
-	return c.JSON(http.StatusOK, map[string]any{
+	out := map[string]any{
 		keyCustomModelDeploymentArn: d.CustomModelDeploymentArn,
 		"modelDeploymentName":       d.ModelDeploymentName,
 		keyModelArn:                 d.ModelArn,
 		keyStatus:                   d.Status,
 		keyCreatedAt:                d.CreationTime.Format(time.RFC3339),
 		"lastUpdatedAt":             d.LastModifiedTime.Format(time.RFC3339),
-	})
+	}
+	if d.Description != "" {
+		out["description"] = d.Description
+	}
+
+	return c.JSON(http.StatusOK, out)
 }
 
 // parseListCustomModelDeploymentsQuery is structurally similar to

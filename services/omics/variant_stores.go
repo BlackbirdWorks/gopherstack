@@ -19,7 +19,7 @@ import (
 // every response (types.go); the same passthrough-map convention
 // AnnotationStore already uses (gopherstack-r80d batch 7).
 func (b *InMemoryBackend) CreateVariantStore(
-	name string,
+	name, description string,
 	reference, sseConfig map[string]any,
 	tags map[string]string,
 ) (*VariantStore, error) {
@@ -38,6 +38,7 @@ func (b *InMemoryBackend) CreateVariantStore(
 	vs := &VariantStore{
 		ID:           newID(),
 		Name:         name,
+		Description:  description,
 		Reference:    reference,
 		SseConfig:    sseConfig,
 		Status:       statusCreating,

@@ -60,7 +60,7 @@ func TestHandler_CreateAutomatedReasoningPolicy(t *testing.T) { //nolint:paralle
 				mustUnmarshal(t, rec, &out)
 				assert.NotEmpty(t, out["policyArn"])
 				assert.Equal(t, "my-policy", out["name"])
-				assert.Equal(t, "ACTIVE", out["status"])
+				assert.NotContains(t, out, "status", "CreateAutomatedReasoningPolicyOutput has no status member")
 			}
 		})
 	}

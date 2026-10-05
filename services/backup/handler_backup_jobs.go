@@ -10,6 +10,9 @@ import (
 
 type startBackupJobBody struct {
 	BackupOptions      map[string]string `json:"BackupOptions,omitempty"`
+	RecoveryPointTags  map[string]string `json:"RecoveryPointTags,omitempty"`
+	Lifecycle          *lifecycleJSON    `json:"Lifecycle,omitempty"`
+	IdempotencyToken   string            `json:"IdempotencyToken,omitempty"`
 	BackupVaultName    string            `json:"BackupVaultName"`
 	ResourceArn        string            `json:"ResourceArn"`
 	IamRoleArn         string            `json:"IamRoleArn"`
@@ -33,14 +36,17 @@ func (h *Handler) handleStartBackupJob(c *echo.Context, body []byte) error {
 		)
 	}
 
-	j, err := h.Backend.StartBackupJob(
-		in.BackupVaultName,
-		in.ResourceArn,
-		in.IamRoleArn,
-		in.ResourceType,
-		in.BackupOptions,
-		in.StartWindowMinutes,
-	)
+	j, err := h.Backend.StartBackupJobFromInput(StartBackupJobInput{
+		VaultName:          in.BackupVaultName,
+		ResourceArn:        in.ResourceArn,
+		IAMRoleArn:         in.IamRoleArn,
+		ResourceType:       in.ResourceType,
+		BackupOptions:      in.BackupOptions,
+		StartWindowMinutes: in.StartWindowMinutes,
+		RecoveryPointTags:  in.RecoveryPointTags,
+		Lifecycle:          lifecycleFromJSON(in.Lifecycle),
+		IdempotencyToken:   in.IdempotencyToken,
+	})
 	if err != nil {
 		return h.handleError(c, err)
 	}

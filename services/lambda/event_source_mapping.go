@@ -32,6 +32,10 @@ const (
 // EventSourceMapping represents a Lambda event source mapping.
 type EventSourceMapping struct {
 	LastModified                        time.Time                            `json:"lastModified"`
+	ScalingConfig                       *ESMScalingConfig                    `json:"scalingConfig,omitempty"`
+	LoggingConfig                       *ESMLoggingConfig                    `json:"loggingConfig,omitempty"`
+	MetricsConfig                       *ESMMetricsConfig                    `json:"metricsConfig,omitempty"`
+	ProvisionedPollerConfig             *ESMProvisionedPollerConfig          `json:"provisionedPollerConfig,omitempty"`
 	FilterCriteria                      *FilterCriteria                      `json:"filterCriteria,omitempty"`
 	DestinationConfig                   *ESMDestinationConfig                `json:"destinationConfig,omitempty"`
 	AmazonManagedKafkaEventSourceConfig *AmazonManagedKafkaEventSourceConfig `json:"mskConfig,omitempty"`
@@ -57,6 +61,28 @@ type EventSourceMapping struct {
 	MaximumRetryAttempts                int                                  `json:"maximumRetryAttempts,omitempty"`
 	ParallelizationFactor               int                                  `json:"parallelizationFactor,omitempty"`
 	BisectBatchOnFunctionError          bool                                 `json:"bisectBatchOnFunctionError,omitempty"`
+}
+
+// ESMScalingConfig caps concurrent invokes for SQS mappings.
+type ESMScalingConfig struct {
+	MaximumConcurrency *int32 `json:"MaximumConcurrency,omitempty"`
+}
+
+// ESMLoggingConfig is the mapping's system log level.
+type ESMLoggingConfig struct {
+	SystemLogLevel string `json:"SystemLogLevel,omitempty"`
+}
+
+// ESMMetricsConfig lists the enabled mapping metrics.
+type ESMMetricsConfig struct {
+	Metrics []string `json:"Metrics,omitempty"`
+}
+
+// ESMProvisionedPollerConfig sizes the provisioned pollers of a mapping.
+type ESMProvisionedPollerConfig struct {
+	MaximumPollers  *int32 `json:"MaximumPollers,omitempty"`
+	MinimumPollers  *int32 `json:"MinimumPollers,omitempty"`
+	PollerGroupName string `json:"PollerGroupName,omitempty"`
 }
 
 // ESMDestinationConfig holds on-failure destination for event source mappings.
@@ -113,6 +139,10 @@ type SourceAccessConfiguration struct {
 
 // CreateEventSourceMappingInput is the input for CreateEventSourceMapping.
 type CreateEventSourceMappingInput struct {
+	ScalingConfig                       *ESMScalingConfig
+	LoggingConfig                       *ESMLoggingConfig
+	MetricsConfig                       *ESMMetricsConfig
+	ProvisionedPollerConfig             *ESMProvisionedPollerConfig
 	FilterCriteria                      *FilterCriteria
 	DestinationConfig                   *ESMDestinationConfig
 	AmazonManagedKafkaEventSourceConfig *AmazonManagedKafkaEventSourceConfig
@@ -140,6 +170,11 @@ type CreateEventSourceMappingInput struct {
 
 // UpdateEventSourceMappingInput is the input for UpdateEventSourceMapping.
 type UpdateEventSourceMappingInput struct {
+	ScalingConfig                  *ESMScalingConfig
+	LoggingConfig                  *ESMLoggingConfig
+	MetricsConfig                  *ESMMetricsConfig
+	ProvisionedPollerConfig        *ESMProvisionedPollerConfig
+	FunctionName                   string
 	MaximumBatchingWindowInSeconds *int32
 	FilterCriteria                 *FilterCriteria
 	DestinationConfig              *ESMDestinationConfig
@@ -160,6 +195,11 @@ type UpdateEventSourceMappingInput struct {
 
 // jsonESMResponse is the JSON representation of an event source mapping.
 type jsonESMResponse struct {
+	ScalingConfig                       *ESMScalingConfig                    `json:"ScalingConfig,omitempty"`
+	LoggingConfig                       *ESMLoggingConfig                    `json:"LoggingConfig,omitempty"`
+	MetricsConfig                       *ESMMetricsConfig                    `json:"MetricsConfig,omitempty"`
+	ProvisionedPollerConfig             *ESMProvisionedPollerConfig          `json:"ProvisionedPollerConfig,omitempty"`
+	EventSourceMappingArn               string                               `json:"EventSourceMappingArn,omitempty"`
 	FilterCriteria                      *FilterCriteria                      `json:"FilterCriteria,omitempty"`
 	DestinationConfig                   *ESMDestinationConfig                `json:"DestinationConfig,omitempty"`
 	AmazonManagedKafkaEventSourceConfig *AmazonManagedKafkaEventSourceConfig `json:"AmazonManagedKafkaEventSourceConfig,omitempty"` //nolint:lll // AWS field name
@@ -197,6 +237,11 @@ type jsonListESMResponse struct {
 // toJSONESMResponse converts an EventSourceMapping to its JSON representation.
 func toJSONESMResponse(m *EventSourceMapping) jsonESMResponse {
 	return jsonESMResponse{
+		ScalingConfig:                       m.ScalingConfig,
+		LoggingConfig:                       m.LoggingConfig,
+		MetricsConfig:                       m.MetricsConfig,
+		ProvisionedPollerConfig:             m.ProvisionedPollerConfig,
+		EventSourceMappingArn:               esmARN(m),
 		UUID:                                m.UUID,
 		EventSourceARN:                      m.EventSourceARN,
 		FunctionARN:                         m.FunctionARN,
@@ -224,6 +269,19 @@ func toJSONESMResponse(m *EventSourceMapping) jsonESMResponse {
 		ParallelizationFactor:               m.ParallelizationFactor,
 		BisectBatchOnFunctionError:          m.BisectBatchOnFunctionError,
 	}
+}
+
+// esmARNParts is the field count of arn:partition:service:region:account:resource.
+const esmARNParts = 6
+
+// esmARN builds the mapping's own ARN from its function ARN's region/account.
+func esmARN(m *EventSourceMapping) string {
+	parts := strings.SplitN(m.FunctionARN, ":", esmARNParts)
+	if len(parts) < esmARNParts {
+		return ""
+	}
+
+	return arn.Build("lambda", parts[3], parts[4], "event-source-mapping:"+m.UUID)
 }
 
 // esmFunctionName normalizes a function reference (bare name or full function ARN)
@@ -314,6 +372,10 @@ func (b *InMemoryBackend) CreateEventSourceMapping(
 		ParallelizationFactor:               input.ParallelizationFactor,
 		BisectBatchOnFunctionError:          input.BisectBatchOnFunctionError,
 		FunctionResponseTypes:               input.FunctionResponseTypes,
+		ScalingConfig:                       input.ScalingConfig,
+		LoggingConfig:                       input.LoggingConfig,
+		MetricsConfig:                       input.MetricsConfig,
+		ProvisionedPollerConfig:             input.ProvisionedPollerConfig,
 	}
 
 	b.eventSourceMappings.Put(m)
@@ -456,6 +518,22 @@ func applyESMUpdate(esm *EventSourceMapping, input *UpdateEventSourceMappingInpu
 		esm.KMSKeyArn = *input.KMSKeyArn
 	}
 
+	if input.ScalingConfig != nil {
+		esm.ScalingConfig = input.ScalingConfig
+	}
+
+	if input.LoggingConfig != nil {
+		esm.LoggingConfig = input.LoggingConfig
+	}
+
+	if input.MetricsConfig != nil {
+		esm.MetricsConfig = input.MetricsConfig
+	}
+
+	if input.ProvisionedPollerConfig != nil {
+		esm.ProvisionedPollerConfig = input.ProvisionedPollerConfig
+	}
+
 	applyESMWindowFields(esm, input)
 	applyESMSourceFields(esm, input)
 
@@ -525,6 +603,7 @@ func (b *InMemoryBackend) UpdateEventSourceMapping(
 		}
 
 		found = true
+		b.reindexESMFunctionLocked(esm, input.FunctionName)
 		applyESMUpdate(esm, input)
 		poller = b.kinesisPoller
 		result = cloneESM(esm)
@@ -539,6 +618,33 @@ func (b *InMemoryBackend) UpdateEventSourceMapping(
 	}
 
 	return result, nil
+}
+
+// reindexESMFunctionLocked repoints esm at functionName (bare name or ARN); caller holds b.mu.
+func (b *InMemoryBackend) reindexESMFunctionLocked(esm *EventSourceMapping, functionName string) {
+	if functionName == "" {
+		return
+	}
+
+	newARN := arn.Build("lambda", b.region, b.accountID, "function:"+esmFunctionName(functionName))
+	if newARN == esm.FunctionARN {
+		return
+	}
+
+	if ids := b.esmByFunctionARN[esm.FunctionARN]; ids != nil {
+		delete(ids, esm.UUID)
+
+		if len(ids) == 0 {
+			delete(b.esmByFunctionARN, esm.FunctionARN)
+		}
+	}
+
+	if b.esmByFunctionARN[newARN] == nil {
+		b.esmByFunctionARN[newARN] = make(map[string]struct{})
+	}
+
+	b.esmByFunctionARN[newARN][esm.UUID] = struct{}{}
+	esm.FunctionARN = newARN
 }
 
 // setESMLastProcessingResult records the last poller outcome on a mapping.

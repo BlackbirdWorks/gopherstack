@@ -13,6 +13,7 @@ func (h *Handler) handleCreateAnnotationStore(c *echo.Context) error {
 		SseConfig    map[string]any    `json:"sseConfig"`
 		StoreOptions map[string]any    `json:"storeOptions"`
 		Name         string            `json:"name"`
+		Description  string            `json:"description"`
 		StoreFormat  string            `json:"storeFormat"`
 		VersionName  string            `json:"versionName"`
 	}
@@ -23,7 +24,9 @@ func (h *Handler) handleCreateAnnotationStore(c *echo.Context) error {
 
 	as, err := h.Backend.CreateAnnotationStore(
 		req.Name,
+		req.Description,
 		req.StoreFormat,
+		req.VersionName,
 		req.Reference,
 		req.SseConfig,
 		req.StoreOptions,
@@ -39,6 +42,9 @@ func (h *Handler) handleCreateAnnotationStore(c *echo.Context) error {
 		Name:         as.Name,
 		Status:       as.Status,
 		VersionName:  req.VersionName,
+		Reference:    as.Reference,
+		StoreFormat:  as.StoreFormat,
+		StoreOptions: as.StoreOptions,
 	})
 }
 
@@ -192,9 +198,10 @@ func (h *Handler) handleCancelAnnotationImportJob(c *echo.Context, jobID string)
 
 func (h *Handler) handleCreateAnnotationStoreVersion(c *echo.Context, name string) error {
 	var req struct {
-		Tags        map[string]string `json:"tags"`
-		VersionName string            `json:"versionName"`
-		Description string            `json:"description"`
+		Tags           map[string]string `json:"tags"`
+		VersionOptions map[string]any    `json:"versionOptions"`
+		VersionName    string            `json:"versionName"`
+		Description    string            `json:"description"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
@@ -205,13 +212,22 @@ func (h *Handler) handleCreateAnnotationStoreVersion(c *echo.Context, name strin
 		name,
 		req.VersionName,
 		req.Description,
+		req.VersionOptions,
 		req.Tags,
 	)
 	if err != nil {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusCreated, v)
+	return c.JSON(http.StatusCreated, CreateAnnotationStoreVersionResponse{
+		CreationTime:   v.CreationTime,
+		VersionOptions: v.VersionOptions,
+		ID:             v.ID,
+		StoreID:        v.StoreID,
+		Name:           v.StoreName,
+		VersionName:    v.VersionName,
+		Status:         v.Status,
+	})
 }
 
 func (h *Handler) handleDeleteAnnotationStoreVersions(c *echo.Context, name string) error {

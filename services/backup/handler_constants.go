@@ -222,11 +222,15 @@ const (
 	keyTieringConfigurations       = "TieringConfigurations"
 	keyAccessPointArn              = "AccessPointArn"
 
+	keyLegalHoldArn = "LegalHoldArn"
+	keyDescription  = "Description"
+
 	// Status value constants.
 	statusCompleted = "COMPLETED"
 	statusCreated   = "CREATED"
 	statusCreating  = "CREATING"
 	statusActive    = "ACTIVE"
+	statusCanceled  = "CANCELED"
 	statusAvailable = "AVAILABLE"
 )
 

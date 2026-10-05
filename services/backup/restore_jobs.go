@@ -33,8 +33,28 @@ func (b *InMemoryBackend) StartRestoreJob(
 	recoveryPointArn, iamRoleArn, resourceType string,
 	metadata map[string]string,
 ) (*RestoreJob, error) {
+	return b.StartRestoreJobWithToken(recoveryPointArn, iamRoleArn, resourceType, metadata, "")
+}
+
+// StartRestoreJobWithToken is StartRestoreJob with an IdempotencyToken; a
+// retry with the same token returns the job it already started.
+func (b *InMemoryBackend) StartRestoreJobWithToken(
+	recoveryPointArn, iamRoleArn, resourceType string,
+	metadata map[string]string,
+	token string,
+) (*RestoreJob, error) {
 	b.mu.Lock("StartRestoreJob")
 	defer b.mu.Unlock()
+
+	if token != "" {
+		for _, existing := range b.restoreJobs.All() {
+			if existing.IdempotencyToken == token {
+				cp := *existing
+
+				return &cp, nil
+			}
+		}
+	}
 
 	if recoveryPointArn == "" {
 		return nil, fmt.Errorf("%w: RecoveryPointArn is required", ErrValidation)
@@ -50,6 +70,7 @@ func (b *InMemoryBackend) StartRestoreJob(
 	jobID := "restore-job-" + uuid.NewString()[:8]
 
 	job := &RestoreJob{
+		IdempotencyToken: token,
 		RestoreJobID:     jobID,
 		RecoveryPointArn: recoveryPointArn,
 		IAMRoleArn:       iamRoleArn,
@@ -210,17 +231,45 @@ func (b *InMemoryBackend) ListRestoreJobsFiltered(f ListRestoreJobsFilter) ([]*R
 	return paginateByID(out, func(j *RestoreJob) string { return j.RestoreJobID }, f.MaxResults, f.NextToken)
 }
 
+// ProtectedResourceRestoreFilter holds ListRestoreJobsByProtectedResource's
+// ByStatus and ByRecoveryPointCreationDate* filters.
+type ProtectedResourceRestoreFilter struct {
+	RecoveryPointCreatedAfter  *time.Time
+	RecoveryPointCreatedBefore *time.Time
+	Status                     string
+}
+
 // ListRestoreJobsByProtectedResource returns restore jobs for a given resource ARN.
 func (b *InMemoryBackend) ListRestoreJobsByProtectedResource(resourceArn string) []*RestoreJob {
+	return b.ListRestoreJobsByProtectedResourceFiltered(resourceArn, ProtectedResourceRestoreFilter{})
+}
+
+// ListRestoreJobsByProtectedResourceFiltered applies f to the jobs for resourceArn;
+// a job whose recovery point is gone fails any creation-date bound.
+func (b *InMemoryBackend) ListRestoreJobsByProtectedResourceFiltered(
+	resourceArn string, f ProtectedResourceRestoreFilter,
+) []*RestoreJob {
 	b.mu.RLock("ListRestoreJobsByProtectedResource")
 	defer b.mu.RUnlock()
 
+	byDate := f.RecoveryPointCreatedAfter != nil || f.RecoveryPointCreatedBefore != nil
+
 	var out []*RestoreJob
 	for _, j := range b.restoreJobs.All() {
-		if j.ResourceArn == resourceArn || j.RecoveryPointArn == resourceArn {
-			cp := *j
-			out = append(out, &cp)
+		if j.ResourceArn != resourceArn && j.RecoveryPointArn != resourceArn {
+			continue
 		}
+		if f.Status != "" && j.Status != f.Status {
+			continue
+		}
+		if byDate {
+			rp, ok := b.recoveryPoints.Get(recoveryPointKey(j.BackupVaultName, j.RecoveryPointArn))
+			if !ok || !inTimeRange(rp.CreationDate, f.RecoveryPointCreatedAfter, f.RecoveryPointCreatedBefore) {
+				continue
+			}
+		}
+		cp := *j
+		out = append(out, &cp)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].RestoreJobID < out[j].RestoreJobID })
 

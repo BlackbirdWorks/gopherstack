@@ -127,6 +127,7 @@ type FunctionConfiguration struct {
 	ImageURI                     string                  `json:"ImageUri,omitempty"`
 	LastUpdateStatus             LastUpdateStatus        `json:"LastUpdateStatus"`
 	LastUpdateStatusReason       string                  `json:"LastUpdateStatusReason,omitempty"`
+	KMSKeyArn                    string                  `json:"KMSKeyArn,omitempty"`
 	// MasterArn is the ARN of the owner function for Lambda@Edge replicas.
 	// When set, GetFunctionConfiguration returns this field to signal the function is an edge replica.
 	MasterArn           string              `json:"MasterArn,omitempty"`
@@ -208,23 +209,26 @@ type DurableConfig struct {
 
 // CreateFunctionInput holds the request body for CreateFunction.
 type CreateFunctionInput struct {
-	DurableConfig     *DurableConfig          `json:"DurableConfig,omitempty"`
-	Environment       *EnvironmentConfig      `json:"Environment,omitempty"`
-	ImageConfig       *ImageConfig            `json:"ImageConfig,omitempty"`
-	VpcConfig         *VpcConfig              `json:"VpcConfig,omitempty"`
-	TracingConfig     *TracingConfig          `json:"TracingConfig,omitempty"`
-	DeadLetterConfig  *DeadLetterConfig       `json:"DeadLetterConfig,omitempty"`
-	EphemeralStorage  *EphemeralStorageConfig `json:"EphemeralStorage,omitempty"`
-	Code              *FunctionCode           `json:"Code"`
-	SnapStart         *SnapStart              `json:"SnapStart,omitempty"`
-	Tags              map[string]string       `json:"Tags,omitempty"`
-	FunctionName      string                  `json:"FunctionName"`
-	Description       string                  `json:"Description"`
-	PackageType       string                  `json:"PackageType"`
-	Runtime           string                  `json:"Runtime,omitempty"`
-	Handler           string                  `json:"Handler,omitempty"`
-	Role              string                  `json:"Role"`
-	FileSystemConfigs []*FileSystemConfig     `json:"FileSystemConfigs,omitempty"`
+	LoggingConfig        *LoggingConfig          `json:"LoggingConfig,omitempty"`
+	KMSKeyArn            string                  `json:"KMSKeyArn,omitempty"`
+	CodeSigningConfigArn string                  `json:"CodeSigningConfigArn,omitempty"`
+	DurableConfig        *DurableConfig          `json:"DurableConfig,omitempty"`
+	Environment          *EnvironmentConfig      `json:"Environment,omitempty"`
+	ImageConfig          *ImageConfig            `json:"ImageConfig,omitempty"`
+	VpcConfig            *VpcConfig              `json:"VpcConfig,omitempty"`
+	TracingConfig        *TracingConfig          `json:"TracingConfig,omitempty"`
+	DeadLetterConfig     *DeadLetterConfig       `json:"DeadLetterConfig,omitempty"`
+	EphemeralStorage     *EphemeralStorageConfig `json:"EphemeralStorage,omitempty"`
+	Code                 *FunctionCode           `json:"Code"`
+	SnapStart            *SnapStart              `json:"SnapStart,omitempty"`
+	Tags                 map[string]string       `json:"Tags,omitempty"`
+	FunctionName         string                  `json:"FunctionName"`
+	Description          string                  `json:"Description"`
+	PackageType          string                  `json:"PackageType"`
+	Runtime              string                  `json:"Runtime,omitempty"`
+	Handler              string                  `json:"Handler,omitempty"`
+	Role                 string                  `json:"Role"`
+	FileSystemConfigs    []*FileSystemConfig     `json:"FileSystemConfigs,omitempty"`
 	// Layers is a list of layer ARN strings supplied by the client.
 	Layers        []string `json:"Layers,omitempty"`
 	Architectures []string `json:"Architectures,omitempty"`
@@ -264,6 +268,9 @@ type UpdateFunctionCodeInput struct {
 
 // UpdateFunctionConfigurationInput holds the request body for UpdateFunctionConfiguration.
 type UpdateFunctionConfigurationInput struct {
+	LoggingConfig     *LoggingConfig          `json:"LoggingConfig,omitempty"`
+	ImageConfig       *ImageConfig            `json:"ImageConfig,omitempty"`
+	KMSKeyArn         *string                 `json:"KMSKeyArn,omitempty"`
 	Description       *string                 `json:"Description,omitempty"`
 	Handler           *string                 `json:"Handler,omitempty"`
 	VpcConfig         *VpcConfig              `json:"VpcConfig,omitempty"`
@@ -390,6 +397,7 @@ type FunctionVersion struct {
 	StateReasonCode        string                  `json:"StateReasonCode,omitempty"`
 	LastUpdateStatus       LastUpdateStatus        `json:"LastUpdateStatus"`
 	LastUpdateStatusReason string                  `json:"LastUpdateStatusReason,omitempty"`
+	KMSKeyArn              string                  `json:"KMSKeyArn,omitempty"`
 	Layers                 []*FunctionLayer        `json:"Layers,omitempty"`
 	Architectures          []string                `json:"Architectures,omitempty"`
 	MemorySize             int                     `json:"MemorySize"`
@@ -451,14 +459,15 @@ type LayerVersionContent struct {
 
 // LayerVersion holds an immutable snapshot of a layer version.
 type LayerVersion struct {
-	Content            *LayerVersionContent `json:"Content,omitempty"`
-	LayerVersionArn    string               `json:"LayerVersionArn"`
-	Description        string               `json:"Description,omitempty"`
-	CreatedDate        string               `json:"CreatedDate"`
-	LicenseInfo        string               `json:"LicenseInfo,omitempty"`
-	CompatibleRuntimes []string             `json:"CompatibleRuntimes,omitempty"`
-	ZipData            []byte               `json:"-"`
-	Version            int64                `json:"Version"`
+	Content                 *LayerVersionContent `json:"Content,omitempty"`
+	LayerVersionArn         string               `json:"LayerVersionArn"`
+	Description             string               `json:"Description,omitempty"`
+	CreatedDate             string               `json:"CreatedDate"`
+	LicenseInfo             string               `json:"LicenseInfo,omitempty"`
+	CompatibleRuntimes      []string             `json:"CompatibleRuntimes,omitempty"`
+	CompatibleArchitectures []string             `json:"CompatibleArchitectures,omitempty"`
+	ZipData                 []byte               `json:"-"`
+	Version                 int64                `json:"Version"`
 }
 
 // Layer holds a summary of a layer with its latest version.
@@ -470,11 +479,12 @@ type Layer struct {
 
 // PublishLayerVersionInput is the request body for PublishLayerVersion.
 type PublishLayerVersionInput struct {
-	Content            *LayerVersionContentInput `json:"Content"`
-	Description        string                    `json:"Description,omitempty"`
-	LayerName          string                    `json:"-"`
-	LicenseInfo        string                    `json:"LicenseInfo,omitempty"`
-	CompatibleRuntimes []string                  `json:"CompatibleRuntimes,omitempty"`
+	Content                 *LayerVersionContentInput `json:"Content"`
+	Description             string                    `json:"Description,omitempty"`
+	LayerName               string                    `json:"-"`
+	LicenseInfo             string                    `json:"LicenseInfo,omitempty"`
+	CompatibleRuntimes      []string                  `json:"CompatibleRuntimes,omitempty"`
+	CompatibleArchitectures []string                  `json:"CompatibleArchitectures,omitempty"`
 }
 
 // LayerVersionContentInput holds the zip content for a new layer version.
@@ -486,26 +496,28 @@ type LayerVersionContentInput struct {
 
 // PublishLayerVersionOutput is the response for PublishLayerVersion.
 type PublishLayerVersionOutput struct {
-	Content            *LayerVersionContent `json:"Content"`
-	LayerVersionArn    string               `json:"LayerVersionArn"`
-	LayerArn           string               `json:"LayerArn"`
-	Description        string               `json:"Description,omitempty"`
-	CreatedDate        string               `json:"CreatedDate"`
-	LicenseInfo        string               `json:"LicenseInfo,omitempty"`
-	CompatibleRuntimes []string             `json:"CompatibleRuntimes,omitempty"`
-	Version            int64                `json:"Version"`
+	Content                 *LayerVersionContent `json:"Content"`
+	LayerVersionArn         string               `json:"LayerVersionArn"`
+	LayerArn                string               `json:"LayerArn"`
+	Description             string               `json:"Description,omitempty"`
+	CreatedDate             string               `json:"CreatedDate"`
+	LicenseInfo             string               `json:"LicenseInfo,omitempty"`
+	CompatibleRuntimes      []string             `json:"CompatibleRuntimes,omitempty"`
+	CompatibleArchitectures []string             `json:"CompatibleArchitectures,omitempty"`
+	Version                 int64                `json:"Version"`
 }
 
 // GetLayerVersionOutput is the response for GetLayerVersion.
 type GetLayerVersionOutput struct {
-	Content            *LayerVersionContent `json:"Content"`
-	LayerVersionArn    string               `json:"LayerVersionArn"`
-	LayerArn           string               `json:"LayerArn"`
-	Description        string               `json:"Description,omitempty"`
-	CreatedDate        string               `json:"CreatedDate"`
-	LicenseInfo        string               `json:"LicenseInfo,omitempty"`
-	CompatibleRuntimes []string             `json:"CompatibleRuntimes,omitempty"`
-	Version            int64                `json:"Version"`
+	Content                 *LayerVersionContent `json:"Content"`
+	LayerVersionArn         string               `json:"LayerVersionArn"`
+	LayerArn                string               `json:"LayerArn"`
+	Description             string               `json:"Description,omitempty"`
+	CreatedDate             string               `json:"CreatedDate"`
+	LicenseInfo             string               `json:"LicenseInfo,omitempty"`
+	CompatibleRuntimes      []string             `json:"CompatibleRuntimes,omitempty"`
+	CompatibleArchitectures []string             `json:"CompatibleArchitectures,omitempty"`
+	Version                 int64                `json:"Version"`
 }
 
 // ListLayersOutput is the response for ListLayers.
@@ -712,6 +724,7 @@ type CodeSigningConfig struct {
 
 // CreateCodeSigningConfigInput is the request body for CreateCodeSigningConfig.
 type CreateCodeSigningConfigInput struct {
+	Tags                map[string]string    `json:"Tags,omitempty"`
 	AllowedPublishers   *AllowedPublishers   `json:"AllowedPublishers"`
 	CodeSigningPolicies *CodeSigningPolicies `json:"CodeSigningPolicies,omitempty"`
 	Description         string               `json:"Description,omitempty"`

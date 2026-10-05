@@ -2,6 +2,7 @@ package omics
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"time"
 
@@ -245,6 +246,10 @@ func (b *InMemoryBackend) startRunLocked(input StartRunInput) *Run {
 		WorkflowType:        input.WorkflowType,
 		WorkflowVersionName: input.WorkflowVersionName,
 		UUID:                newUUID(),
+		Priority:            input.Priority,
+		EngineSettings:      input.EngineSettings,
+		LogLevel:            input.LogLevel,
+		WorkflowOwnerID:     input.WorkflowOwnerID,
 		Params:              input.Params,
 		Tags:                copyTags(input.Tags),
 		Status:              statusPending,
@@ -398,6 +403,7 @@ func (b *InMemoryBackend) ListRuns(filter *RunFilter, maxResults int, nextToken 
 // ListRuns holds only the runs map's lock, not the workflows map's.
 func newRunSummary(r *Run, workflowName string) RunSummary {
 	return RunSummary{
+		Priority:            r.Priority,
 		StartTime:           r.StartTime,
 		StopTime:            r.StopTime,
 		StorageCapacity:     r.StorageCapacity,
@@ -518,7 +524,7 @@ func newRunTaskSummary(t *RunTask) RunTaskSummary {
 // CreateRunCacheInput.CacheBehavior's own documented default
 // (CACHE_ON_FAILURE) when empty.
 func (b *InMemoryBackend) CreateRunCache(
-	name, cacheS3Location, cacheBehavior string,
+	name, description, cacheS3Location, cacheBehavior, cacheBucketOwnerID string,
 	tags map[string]string,
 ) (*RunCache, error) {
 	b.mu.Lock("CreateRunCache")
@@ -530,13 +536,15 @@ func (b *InMemoryBackend) CreateRunCache(
 
 	id := newID()
 	rc := &RunCache{
-		ID:              id,
-		Name:            name,
-		CacheS3Location: cacheS3Location,
-		CacheBehavior:   cacheBehavior,
-		Status:          statusActive,
-		Tags:            copyTags(tags),
-		CreationTime:    time.Now().UTC(),
+		ID:                 id,
+		Name:               name,
+		Description:        description,
+		CacheS3Location:    cacheS3Location,
+		CacheBehavior:      cacheBehavior,
+		CacheBucketOwnerID: cacheBucketOwnerID,
+		Status:             statusActive,
+		Tags:               copyTags(tags),
+		CreationTime:       time.Now().UTC(),
 	}
 	rc.Arn = arn.Build("omics", b.defaultRegion, b.accountID, "runCache/"+id)
 
@@ -677,6 +685,7 @@ func (b *InMemoryBackend) StartRunBatch(
 		RunGroupID:    def.RunGroupID,
 		OutputURI:     def.OutputURI,
 		Tags:          copyTags(tags),
+		Defaults:      &def,
 		Status:        statusProcessed,
 		CreationTime:  now,
 		SubmittedTime: now,
@@ -697,31 +706,7 @@ func (b *InMemoryBackend) StartRunBatch(
 
 		seenSettingIDs[inline.RunSettingID] = true
 
-		name := def.Name
-		if inline.Name != "" {
-			name = inline.Name
-		}
-
-		outputURI := def.OutputURI
-		if inline.OutputURI != "" {
-			outputURI = inline.OutputURI
-		}
-
-		runTags := def.RunTags
-		if inline.RunTags != nil {
-			runTags = inline.RunTags
-		}
-
-		b.startRunLocked(StartRunInput{
-			WorkflowID:   def.WorkflowID,
-			RoleARN:      def.RoleARN,
-			Name:         name,
-			RunGroupID:   def.RunGroupID,
-			RunBatchID:   id,
-			RunSettingID: inline.RunSettingID,
-			RunOutputURI: outputURI,
-			Tags:         runTags,
-		})
+		b.startRunLocked(batchRunInput(def, inline, id))
 		rb.SubmissionSuccessCount++
 	}
 
@@ -987,5 +972,73 @@ func newRunInBatchSummary(r *Run) RunInBatchSummary {
 		RunUUID:          r.UUID,
 		RunSettingID:     r.RunSettingID,
 		SubmissionStatus: "SUCCESS",
+	}
+}
+
+// mergeTags overlays override on base; override wins on key overlap.
+func mergeTags(base, override map[string]string) map[string]string {
+	if base == nil && override == nil {
+		return nil
+	}
+
+	out := make(map[string]string, len(base)+len(override))
+	maps.Copy(out, base)
+	maps.Copy(out, override)
+
+	return out
+}
+
+// batchRunInput merges a batch's DefaultRunSetting with one InlineRunSetting; inline values win.
+func batchRunInput(def DefaultRunSetting, inline InlineRunSetting, batchID string) StartRunInput {
+	name := def.Name
+	if inline.Name != "" {
+		name = inline.Name
+	}
+
+	outputURI := def.OutputURI
+	if inline.OutputURI != "" {
+		outputURI = inline.OutputURI
+	}
+
+	engineSettings := def.EngineSettings
+	if inline.EngineSettings != nil {
+		engineSettings = inline.EngineSettings
+	}
+
+	params := def.Parameters
+	if inline.Parameters != nil {
+		params = make(map[string]any, len(def.Parameters)+len(inline.Parameters))
+		maps.Copy(params, def.Parameters)
+		maps.Copy(params, inline.Parameters)
+	}
+
+	priority := def.Priority
+	if inline.Priority != nil {
+		priority = inline.Priority
+	}
+
+	return StartRunInput{
+		WorkflowID:          def.WorkflowID,
+		WorkflowType:        def.WorkflowType,
+		WorkflowVersionName: def.WorkflowVersionName,
+		WorkflowOwnerID:     def.WorkflowOwnerID,
+		RoleARN:             def.RoleARN,
+		Name:                name,
+		RunGroupID:          def.RunGroupID,
+		RunBatchID:          batchID,
+		RunSettingID:        inline.RunSettingID,
+		RunOutputURI:        outputURI,
+		CacheID:             def.CacheID,
+		CacheBehavior:       def.CacheBehavior,
+		NetworkingMode:      def.NetworkingMode,
+		RetentionMode:       def.RetentionMode,
+		ScratchStorageMode:  def.ScratchStorageMode,
+		StorageType:         def.StorageType,
+		StorageCapacity:     def.StorageCapacity,
+		LogLevel:            def.LogLevel,
+		EngineSettings:      engineSettings,
+		Params:              params,
+		Priority:            priority,
+		Tags:                mergeTags(def.RunTags, inline.RunTags),
 	}
 }

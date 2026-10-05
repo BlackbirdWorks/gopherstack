@@ -128,12 +128,7 @@ func (t *trainingDataConfigInput) toModel() TrainingDataConfig {
 }
 
 type createModelCustomizationJobInput struct {
-	JobName             string                 `json:"jobName"`
-	CustomModelName     string                 `json:"customModelName"`
-	BaseModelIdentifier string                 `json:"baseModelIdentifier"`
-	CustomizationType   string                 `json:"customizationType,omitempty"`
-	RoleArn             string                 `json:"roleArn"`
-	OutputDataConfig    *outputDataConfigInput `json:"outputDataConfig"`
+	OutputDataConfig *outputDataConfigInput `json:"outputDataConfig"`
 	// TrainingDataConfig must be a pointer so an absent object (vs. one
 	// present but empty -- valid, since neither of its own leaves is
 	// required) can be distinguished for the "trainingDataConfig is
@@ -143,13 +138,24 @@ type createModelCustomizationJobInput struct {
 	// own ValidationDataConfig is required regardless (bedrock@v1.66.4
 	// api_op_GetModelCustomizationJob.go:85) -- see modelCustomizationJobOutput.
 	ValidationDataConfig *validationDataConfigInput `json:"validationDataConfig,omitempty"`
+	HyperParameters      map[string]string          `json:"hyperParameters,omitempty"`
+	CustomizationConfig  map[string]any             `json:"customizationConfig,omitempty"`
+	VpcConfig            map[string]any             `json:"vpcConfig,omitempty"`
+	JobName              string                     `json:"jobName"`
+	CustomModelName      string                     `json:"customModelName"`
+	BaseModelIdentifier  string                     `json:"baseModelIdentifier"`
+	CustomizationType    string                     `json:"customizationType,omitempty"`
+	RoleArn              string                     `json:"roleArn"`
+	CustomModelKmsKeyID  string                     `json:"customModelKmsKeyId,omitempty"`
+	ClientRequestToken   string                     `json:"clientRequestToken,omitempty"`
 	// JobTags, not Tags: real CreateModelCustomizationJobInput carries the
 	// job's own tags as JobTags (wire key "jobTags"), separate from
 	// CustomModelTags (wire key "customModelTags") on the resulting output
 	// model, which gopherstack does not track as an independently taggable
 	// resource (bedrock@v1.66.4 serializers.go:
 	// awsRestjson1_serializeOpDocumentCreateModelCustomizationJobInput).
-	Tags []Tag `json:"jobTags,omitempty"`
+	Tags            []Tag `json:"jobTags,omitempty"`
+	CustomModelTags []Tag `json:"customModelTags,omitempty"`
 }
 
 type createModelCustomizationJobOutput struct {
@@ -177,9 +183,20 @@ func (h *Handler) handleCreateModelCustomizationJob(c *echo.Context, body []byte
 		outputDataConfig = OutputDataConfig{S3Uri: in.OutputDataConfig.S3Uri}
 	}
 
-	job, opErr := h.Backend.CreateModelCustomizationJob(
-		in.JobName, in.CustomModelName, in.BaseModelIdentifier, in.CustomizationType, in.RoleArn,
-		outputDataConfig, in.TrainingDataConfig.toModel(), in.ValidationDataConfig.s3Uris(), in.Tags,
+	job, opErr := idemCreate(
+		h.idem, "CreateModelCustomizationJob", in.ClientRequestToken, idemFingerprint(in), ErrAlreadyExists,
+		func(j *ModelCustomizationJob) string { return j.JobArn }, h.Backend.GetModelCustomizationJob,
+		func() (*ModelCustomizationJob, error) {
+			return h.Backend.CreateModelCustomizationJobWithOptions(
+				in.JobName, in.CustomModelName, in.BaseModelIdentifier, in.CustomizationType, in.RoleArn,
+				outputDataConfig, in.TrainingDataConfig.toModel(), in.ValidationDataConfig.s3Uris(), in.Tags,
+				CustomizationJobOptions{
+					HyperParameters: in.HyperParameters, CustomizationConfig: in.CustomizationConfig,
+					VpcConfig: in.VpcConfig, CustomModelKmsKeyID: in.CustomModelKmsKeyID,
+					CustomModelTags: in.CustomModelTags,
+				},
+			)
+		},
 	)
 	if opErr != nil {
 		return h.writeError(c, opErr)
@@ -249,6 +266,9 @@ func trainingDataConfigToOutput(t TrainingDataConfig) trainingDataConfigOutput {
 }
 
 type modelCustomizationJobOutput struct {
+	HyperParameters      map[string]string          `json:"hyperParameters,omitempty"`
+	CustomizationConfig  map[string]any             `json:"customizationConfig,omitempty"`
+	VpcConfig            map[string]any             `json:"vpcConfig,omitempty"`
 	CreationTime         string                     `json:"creationTime"`
 	LastModifiedTime     string                     `json:"lastModifiedTime"`
 	JobArn               string                     `json:"jobArn"`
@@ -262,6 +282,7 @@ type modelCustomizationJobOutput struct {
 	OutputDataConfig     outputDataConfigOutput     `json:"outputDataConfig"`
 	TrainingDataConfig   trainingDataConfigOutput   `json:"trainingDataConfig"`
 	ValidationDataConfig validationDataConfigOutput `json:"validationDataConfig"`
+	OutputModelKmsKeyArn string                     `json:"outputModelKmsKeyArn,omitempty"`
 	Tags                 []Tag                      `json:"tags,omitempty"`
 }
 
@@ -281,6 +302,10 @@ func customizationJobToOutput(j *ModelCustomizationJob) modelCustomizationJobOut
 		CreationTime:         j.CreationTime.Format(time.RFC3339),
 		LastModifiedTime:     j.LastModifiedTime.Format(time.RFC3339),
 		Tags:                 j.Tags,
+		HyperParameters:      j.HyperParameters,
+		CustomizationConfig:  j.CustomizationConfig,
+		VpcConfig:            j.VpcConfig,
+		OutputModelKmsKeyArn: j.OutputModelKmsKeyArn,
 	}
 }
 

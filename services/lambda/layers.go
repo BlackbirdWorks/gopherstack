@@ -73,13 +73,14 @@ func (b *InMemoryBackend) PublishLayerVersion(
 	codeSize := int64(len(zipData))
 
 	lv := &LayerVersion{
-		LayerVersionArn:    b.buildLayerVersionARN(input.LayerName, version),
-		Description:        input.Description,
-		CreatedDate:        time.Now().UTC().Format(time.RFC3339),
-		Version:            version,
-		CompatibleRuntimes: input.CompatibleRuntimes,
-		LicenseInfo:        input.LicenseInfo,
-		ZipData:            zipData,
+		LayerVersionArn:         b.buildLayerVersionARN(input.LayerName, version),
+		Description:             input.Description,
+		CreatedDate:             time.Now().UTC().Format(time.RFC3339),
+		Version:                 version,
+		CompatibleRuntimes:      input.CompatibleRuntimes,
+		CompatibleArchitectures: input.CompatibleArchitectures,
+		LicenseInfo:             input.LicenseInfo,
+		ZipData:                 zipData,
 		Content: &LayerVersionContent{
 			CodeSize: codeSize,
 		},
@@ -88,14 +89,15 @@ func (b *InMemoryBackend) PublishLayerVersion(
 	b.layers[input.LayerName] = append(b.layers[input.LayerName], lv)
 
 	return &PublishLayerVersionOutput{
-		LayerVersionArn:    lv.LayerVersionArn,
-		LayerArn:           b.buildLayerARN(input.LayerName),
-		Description:        lv.Description,
-		CreatedDate:        lv.CreatedDate,
-		Content:            lv.Content,
-		CompatibleRuntimes: lv.CompatibleRuntimes,
-		LicenseInfo:        lv.LicenseInfo,
-		Version:            lv.Version,
+		LayerVersionArn:         lv.LayerVersionArn,
+		LayerArn:                b.buildLayerARN(input.LayerName),
+		Description:             lv.Description,
+		CreatedDate:             lv.CreatedDate,
+		Content:                 lv.Content,
+		CompatibleRuntimes:      lv.CompatibleRuntimes,
+		CompatibleArchitectures: lv.CompatibleArchitectures,
+		LicenseInfo:             lv.LicenseInfo,
+		Version:                 lv.Version,
 	}, nil
 }
 
@@ -115,14 +117,15 @@ func (b *InMemoryBackend) GetLayerVersion(
 	for _, lv := range versions {
 		if lv.Version == version {
 			return &GetLayerVersionOutput{
-				LayerVersionArn:    lv.LayerVersionArn,
-				LayerArn:           b.buildLayerARN(layerName),
-				Description:        lv.Description,
-				CreatedDate:        lv.CreatedDate,
-				Content:            lv.Content,
-				CompatibleRuntimes: lv.CompatibleRuntimes,
-				LicenseInfo:        lv.LicenseInfo,
-				Version:            lv.Version,
+				LayerVersionArn:         lv.LayerVersionArn,
+				LayerArn:                b.buildLayerARN(layerName),
+				Description:             lv.Description,
+				CreatedDate:             lv.CreatedDate,
+				Content:                 lv.Content,
+				CompatibleRuntimes:      lv.CompatibleRuntimes,
+				CompatibleArchitectures: lv.CompatibleArchitectures,
+				LicenseInfo:             lv.LicenseInfo,
+				Version:                 lv.Version,
 			}, nil
 		}
 	}
@@ -130,40 +133,60 @@ func (b *InMemoryBackend) GetLayerVersion(
 	return nil, ErrLayerVersionNotFound
 }
 
+// layerVersionMatches reports whether lv satisfies the optional runtime and architecture filters.
+func layerVersionMatches(lv *LayerVersion, runtime, arch string) bool {
+	return (runtime == "" || slices.Contains(lv.CompatibleRuntimes, runtime)) &&
+		(arch == "" || slices.Contains(lv.CompatibleArchitectures, arch))
+}
+
+// layerVersionSummary copies the list-visible members of lv.
+func layerVersionSummary(lv *LayerVersion) *LayerVersion {
+	return &LayerVersion{
+		LayerVersionArn:         lv.LayerVersionArn,
+		Description:             lv.Description,
+		CreatedDate:             lv.CreatedDate,
+		CompatibleRuntimes:      lv.CompatibleRuntimes,
+		CompatibleArchitectures: lv.CompatibleArchitectures,
+		LicenseInfo:             lv.LicenseInfo,
+		Version:                 lv.Version,
+	}
+}
+
 // ListLayers returns a paginated summary of all layers with their latest version.
 // Marker is an opaque cursor; maxItems uses lambdaDefaultMaxItems when zero.
 func (b *InMemoryBackend) ListLayers(compatibleRuntime, marker string, maxItems int) page.Page[*Layer] {
+	return b.ListLayersFiltered(compatibleRuntime, "", marker, maxItems)
+}
+
+// ListLayersFiltered is ListLayers with the CompatibleArchitecture filter; each layer reports
+// its latest version matching the filters.
+func (b *InMemoryBackend) ListLayersFiltered(
+	compatibleRuntime, compatibleArchitecture, marker string, maxItems int,
+) page.Page[*Layer] {
 	b.mu.RLock("ListLayers")
 	defer b.mu.RUnlock()
 
 	result := make([]*Layer, 0, len(b.layers))
 
-	names := collections.SortedKeys(b.layers)
+	for _, name := range collections.SortedKeys(b.layers) {
+		var match *LayerVersion
 
-	for _, name := range names {
-		versions := b.layers[name]
-		if len(versions) == 0 {
-			continue
+		for _, lv := range slices.Backward(b.layers[name]) {
+			if layerVersionMatches(lv, compatibleRuntime, compatibleArchitecture) {
+				match = lv
+
+				break
+			}
 		}
 
-		latest := versions[len(versions)-1]
-
-		// Filter by CompatibleRuntime when provided.
-		if compatibleRuntime != "" && !slices.Contains(latest.CompatibleRuntimes, compatibleRuntime) {
+		if match == nil {
 			continue
 		}
 
 		result = append(result, &Layer{
-			LayerArn:  b.buildLayerARN(name),
-			LayerName: name,
-			LatestMatchingVersion: &LayerVersion{
-				LayerVersionArn:    latest.LayerVersionArn,
-				Description:        latest.Description,
-				CreatedDate:        latest.CreatedDate,
-				CompatibleRuntimes: latest.CompatibleRuntimes,
-				LicenseInfo:        latest.LicenseInfo,
-				Version:            latest.Version,
-			},
+			LayerArn:              b.buildLayerARN(name),
+			LayerName:             name,
+			LatestMatchingVersion: layerVersionSummary(match),
 		})
 	}
 
@@ -175,6 +198,13 @@ func (b *InMemoryBackend) ListLayers(compatibleRuntime, marker string, maxItems 
 func (b *InMemoryBackend) ListLayerVersions(
 	layerName, compatibleRuntime, marker string, maxItems int,
 ) (page.Page[*LayerVersion], error) {
+	return b.ListLayerVersionsFiltered(layerName, compatibleRuntime, "", marker, maxItems)
+}
+
+// ListLayerVersionsFiltered is ListLayerVersions with the CompatibleArchitecture filter.
+func (b *InMemoryBackend) ListLayerVersionsFiltered(
+	layerName, compatibleRuntime, compatibleArchitecture, marker string, maxItems int,
+) (page.Page[*LayerVersion], error) {
 	b.mu.RLock("ListLayerVersions")
 	defer b.mu.RUnlock()
 
@@ -183,20 +213,11 @@ func (b *InMemoryBackend) ListLayerVersions(
 		return page.Page[*LayerVersion]{}, ErrLayerNotFound
 	}
 
-	// Return a copy in reverse order (newest first), applying optional runtime filter.
 	result := make([]*LayerVersion, 0, len(versions))
 	for _, lv := range slices.Backward(versions) {
-		if compatibleRuntime != "" && !slices.Contains(lv.CompatibleRuntimes, compatibleRuntime) {
-			continue
+		if layerVersionMatches(lv, compatibleRuntime, compatibleArchitecture) {
+			result = append(result, layerVersionSummary(lv))
 		}
-		result = append(result, &LayerVersion{
-			LayerVersionArn:    lv.LayerVersionArn,
-			Description:        lv.Description,
-			CreatedDate:        lv.CreatedDate,
-			CompatibleRuntimes: lv.CompatibleRuntimes,
-			LicenseInfo:        lv.LicenseInfo,
-			Version:            lv.Version,
-		})
 	}
 
 	return page.New(result, marker, maxItems, lambdaDefaultMaxItems), nil

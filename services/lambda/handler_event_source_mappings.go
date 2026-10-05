@@ -34,6 +34,11 @@ func (h *Handler) handleESMRoute(c *echo.Context, path, method string) error {
 }
 
 type handleCreateESMInput struct {
+	Tags                                map[string]string                    `json:"Tags"`
+	ScalingConfig                       *ESMScalingConfig                    `json:"ScalingConfig"`
+	LoggingConfig                       *ESMLoggingConfig                    `json:"LoggingConfig"`
+	MetricsConfig                       *ESMMetricsConfig                    `json:"MetricsConfig"`
+	ProvisionedPollerConfig             *ESMProvisionedPollerConfig          `json:"ProvisionedPollerConfig"`
 	Enabled                             *bool                                `json:"Enabled"`
 	FilterCriteria                      *FilterCriteria                      `json:"FilterCriteria"`
 	DestinationConfig                   *ESMDestinationConfig                `json:"DestinationConfig"`
@@ -76,6 +81,10 @@ func (h *Handler) handleCreateESM(c *echo.Context) error {
 		enabled := req.Enabled == nil || *req.Enabled // default enabled=true
 
 		m, err := lambdaBk.CreateEventSourceMapping(&CreateEventSourceMappingInput{
+			ScalingConfig:                       req.ScalingConfig,
+			LoggingConfig:                       req.LoggingConfig,
+			MetricsConfig:                       req.MetricsConfig,
+			ProvisionedPollerConfig:             req.ProvisionedPollerConfig,
 			EventSourceARN:                      req.EventSourceARN,
 			FunctionName:                        req.FunctionName,
 			StartingPosition:                    req.StartingPosition,
@@ -107,6 +116,8 @@ func (h *Handler) handleCreateESM(c *echo.Context) error {
 		if err != nil {
 			return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
 		}
+
+		h.tagESM(m, req.Tags)
 
 		return c.JSON(http.StatusCreated, toJSONESMResponse(m))
 	}
@@ -163,6 +174,11 @@ func (h *Handler) handleDeleteESM(c *echo.Context, id string) error {
 
 // handleUpdateESMInput is the request body for UpdateEventSourceMapping.
 type handleUpdateESMInput struct {
+	ScalingConfig                  *ESMScalingConfig           `json:"ScalingConfig"`
+	LoggingConfig                  *ESMLoggingConfig           `json:"LoggingConfig"`
+	MetricsConfig                  *ESMMetricsConfig           `json:"MetricsConfig"`
+	ProvisionedPollerConfig        *ESMProvisionedPollerConfig `json:"ProvisionedPollerConfig"`
+	FunctionName                   string                      `json:"FunctionName"`
 	BatchSize                      *int32                      `json:"BatchSize"`
 	MaximumBatchingWindowInSeconds *int32                      `json:"MaximumBatchingWindowInSeconds"`
 	DestinationConfig              *ESMDestinationConfig       `json:"DestinationConfig"`
@@ -198,6 +214,11 @@ func (h *Handler) handleUpdateESM(c *echo.Context, id string) error {
 	}
 
 	m, err := lambdaBk.UpdateEventSourceMapping(id, &UpdateEventSourceMappingInput{
+		ScalingConfig:                  req.ScalingConfig,
+		LoggingConfig:                  req.LoggingConfig,
+		MetricsConfig:                  req.MetricsConfig,
+		ProvisionedPollerConfig:        req.ProvisionedPollerConfig,
+		FunctionName:                   req.FunctionName,
 		Enabled:                        req.Enabled,
 		BatchSize:                      req.BatchSize,
 		KMSKeyArn:                      req.KMSKeyArn,
@@ -219,4 +240,11 @@ func (h *Handler) handleUpdateESM(c *echo.Context, id string) error {
 	}
 
 	return c.JSON(http.StatusOK, toJSONESMResponse(m))
+}
+
+// tagESM records tags supplied at CreateEventSourceMapping against the mapping's ARN.
+func (h *Handler) tagESM(m *EventSourceMapping, kv map[string]string) {
+	if len(kv) > 0 {
+		h.setTags(esmARN(m), kv)
+	}
 }
