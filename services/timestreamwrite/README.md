@@ -9,16 +9,13 @@
 | --- | --- |
 | PARITY entries audited | 19 (17 ok, 2 partial) |
 | Feature families | 3 (3 ok) |
-| Known gaps | 4 |
+| Known gaps | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- UpdateDatabase does not enforce KmsKeyId as required (real UpdateDatabaseRequest marks it required) — not fixed, conflicts with an existing intentional test that uses empty string to clear the key (bd: file if desired)
-- UntagResource/ListTagsForResource never return ResourceNotFoundException for an unknown ARN (real API can) — not fixed, would require an interface signature change and conflicts with existing post-delete cleanup test assertions; AWS's own docs note the two outcomes are meant to be treated as equivalent for DeleteDatabase's ARN-cleanup race anyway (bd: file if desired)
-- CreateBatchLoadTask does not validate ReportConfiguration as required, and ClientToken is accepted but not used for idempotent dedup (bd: file if desired)
-- Table.Schema.CompositePartitionKey[].EnforcementInRecord=REQUIRED (2026-08-29 pass, write-only-state FORWARD direction): confirmed real and stored -- validated at CreateTable/UpdateTable time (validateSchemaPartitionKeys) and correctly echoed on Describe -- but never read back by WriteRecords, so a record missing a dimension a table's schema marks REQUIRED is silently accepted instead of rejected. types/types.go's PartitionKey.EnforcementInRecord doc comment ('REQUIRED (dimension key must be specified)') confirms this is meant to gate writes, matching this campaign's 'a dropped request field is a disabled validation until proven otherwise' rule (same class as emr's SessionEnabled/fsx's SourceSnapshotARN). NOT fixed this pass: RejectedRecord.Reason is undocumented free text for this specific cause (the pinned SDK's RejectedRecord doc comment lists duplicate-version, retention-window, and size-limit causes, but not a missing-partition-key case; unlike an error CODE, which must byte-match for a typed client to classify it, Reason's exact wording isn't independently verifiable against the pinned SDK source or docs from this environment) and it's unclear whether the real failure mode is a per-record RejectedRecord vs. a whole-request ValidationException -- implementing enforcement risks fabricating the wire shape rather than confirming it, which this campaign explicitly treats as worse than an honest gap. Flagged for a follow-up pass with live-AWS access to confirm the exact failure shape (bd: file if desired).
+- CompositePartitionKey[].EnforcementInRecord=REQUIRED is validated and echoed but not enforced by WriteRecords: the failure shape (per-record RejectedRecord vs request ValidationException, and its Reason text) is not documented in the pinned SDK, so it needs live-AWS evidence before it can be implemented without inventing wire content.
 
 ## More
 

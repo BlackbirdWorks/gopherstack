@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 105 (104 ok, 1 gap) |
 | Feature families | 21 (21 ok) |
-| Known gaps | 25 |
+| Known gaps | 24 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -19,9 +19,7 @@
 - "ServiceSetting.LastModifiedUser (the ARN of the last-writing caller) can't be populated -- this emulator has no caller-identity/SigV4-principal tracking."
 - GetInventory's Aggregators/ResultAttributes are unmodeled (needs an aggregation engine).
 - "GetInventorySchema's real per-type Attributes ([]InventoryItemAttribute) aren't modeled -- AWS hasn't published the exact attribute list for the 13 built-in types outside web docs, so fabricating names would invent wire content rather than verify it."
-- "CreateActivationInput.RegistrationMetadata is accepted-and-discarded -- real AWS's own Activation/DescribeActivations types never echo it either, so there is no wire location to round-trip it to."
-- "DeleteInventoryInput's ClientToken (idempotency) and SchemaDeleteOption (DisableSchema/DeleteSchema) are unmodeled -- this backend tracks only inventory items, not versioned schema state, so SchemaDeleteOption has nothing distinct to act on."
-- "PutInventoryOutput.Message (free-text, no documented behavioral meaning) is unmodeled -- low value; fabricating placeholder text would add nothing verifiable."
+- "DeleteInventoryInput.SchemaDeleteOption (DisableSchema/DeleteSchema) has nothing distinct to act on: this backend tracks inventory items only, not versioned schema state."
 - "ValidateCloudConnector can't make a real outbound Azure call (no Azure tenant, credentials, or egress in this emulator) -- ValidationFindings are deterministically derived from the connector's own stored Configuration instead, an inherent sandbox constraint like KMS's local HSM emulation."
 - "CreateMaintenanceWindow/UpdateMaintenanceWindow's StartDate/EndDate/ScheduleTimezone/ ScheduleOffset are stored and round-tripped but not evaluated -- this backend's DescribeMaintenanceWindowSchedule/Executions synthesize a single always-on execution and don't even honor Enabled, so factoring in a date range needs a real scheduler this backend doesn't have."
 - "DeleteResourceDataSync's SyncType is unobservable since resourceDataSyncsStore keys solely by SyncName. ListResourceDataSync's ResourceDataSyncItem.LastSuccessfulSyncTime/ LastSyncStatusMessage/SyncLastModifiedTime and SyncSource.State (found 2026-09-18, structfielddiff) are also unmodeled -- a sync is created once at LastStatus 'InProgress' and never advances (no sync-completion janitor/reconciler), so there is no real completion event to source a success timestamp, status message, or state string from."
@@ -29,8 +27,9 @@
 - "GetParameter/GetParameters/GetParametersByPath's SourceResult (advanced-parameter source resolution) and GetParameterHistory/DescribeParameters' LastModifiedUser (no caller-identity infra) remain unmodeled."
 - "DocumentDescription's review-approval workflow (ApprovedVersion/PendingReviewVersion/ ReviewInformation/ReviewStatus) and Category/CategoryEnum remain entirely unmodeled -- no review state machine exists in this backend. Author/Owner need the same caller-identity infra ServiceSetting.LastModifiedUser lacks; GetDocumentOutput. AttachmentsContent needs a real S3-backed object store this backend doesn't have."
 - "Association/AssociationDescription's AlarmConfiguration/TriggeredAlarms need CloudWatch-alarm infra this backend lacks; TargetLocations/TargetMaps are alternate multi-account/key-value targeting schemes this backend's Targets-only model doesn't support; ScheduleOffset/LastExecutionDate/LastSuccessfulExecutionDate need a real scheduler (associations run synchronously on demand, not on a cron loop)."
-- "StartAutomationExecutionInput's AlarmConfiguration/ClientToken/TargetLocations/ TargetMaps/TargetParameterName/Targets remain unmodeled (this backend runs one synchronous single-account/region execution, nothing for multi-target fan-out to plug into); SendAutomationSignal's Payload is stored but not consulted since this backend has no per-step Waiting/InProgress state (every step goes straight to Success)."
-- "RegisterTaskWithMaintenanceWindowInput/UpdateMaintenanceWindowTaskInput's AlarmConfiguration (no CloudWatch-alarm infra) and ClientToken (also on CreatePatchBaseline/ StartAutomationExecution; idempotency/reuse semantics undocumented) remain unmodeled."
+- "StartAutomationExecutionInput's AlarmConfiguration/TargetLocations/ TargetMaps/TargetParameterName/Targets remain unmodeled (this backend runs one synchronous single-account/region execution, nothing for multi-target fan-out to plug into); SendAutomationSignal's Payload is stored but not consulted since this backend has no per-step Waiting/InProgress state (every step goes straight to Success)."
+- "RegisterTaskWithMaintenanceWindowInput/UpdateMaintenanceWindowTaskInput AlarmConfiguration needs CloudWatch-alarm infrastructure this backend lacks."
+- "StartChangeRequestExecution AutoApprove/ChangeDetails/ScheduledEndTime are unmodeled: they need a change-template approval workflow (no review state machine exists)."
 - "GetMaintenanceWindowExecutionTaskInvocationOutput.Parameters (the actual command/automation parameters used for one invocation) is unmodeled -- this backend has no per-invocation parameter snapshot, only task-level defaults."
 - "DescribePatchPropertiesOutput.Properties aggregates baseline name/OS pairs instead of listing distinct catalogue values of the requested Property, per its own doc comment -- the real per-Property map-key convention for the untyped []map[string]string output can't be verified from the pinned SDK source, so fixing it risks fabricating a differently-wrong shape."
 - "GetDeployablePatchSnapshotForInstanceInput.BaselineOverride is unmodeled -- this backend's snapshot response is already synthetic, so honoring a second, non-registered baseline needs real effective-patch computation this backend doesn't have."

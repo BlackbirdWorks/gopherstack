@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 38 (38 ok) |
 | Feature families | 6 (6 ok) |
-| Known gaps | 5 |
+| Known gaps | 4 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -17,9 +17,8 @@
 
 - "aws_iam_security_token_service_preferences (2026-09-24): dropped from the iam-detective-and-s3-replication terraform fixture; provider v5.100.0's Put-then-Read singleton pattern trips a Terraform Core state-consistency check (same as ecr's registry scanning config, gopherstack-101r). External tooling issue; the op is wire-verified."
 - "Role manager/account properties (2026-09-19): no per-property value typing (AWS publishes no registry), AcquireRole's List join format is undocumented, and role templates have no Create/Put/List op in the pinned SDK (AddRoleTemplateVersionInternal is the only seam). Disclosed choices, see families.role_manager."
-- "Policy simulation (evaluator.go): response aggregation per action matches SDK v1.57+ (2026-10-01), but MatchedStatements, MissingContextValues and OrganizationsDecisionDetail are not produced, and top-level EvalResourceName is '*' (no per-action ARN-template catalogue). Modelling gap, needs an IAM service-authorization reference dataset."
-- "resource_arn.go (resource-policy ARN extraction) not re-audited since sweep 4; conditions.go was re-verified 2026-09-26 (enforcement_integration_test.go)."
-- "Access advisor: Granularity=ACTION_LEVEL is not honored (no per-action tracking; would fabricate data). ListDelegationRequests' OwnerId filter is unapplied (no caller-identity plumbing to populate request owners)."
+- "Policy simulation: MissingContextValues is produced (2026-10-05); MatchedStatements is not -- Statement.Start/EndPosition line/column convention and SourcePolicyType mapping are not documented in the pinned SDK, so need AWS evidence. OrganizationsDecisionDetail needs an SCP model (no organizations link). Top-level EvalResourceName stays '*' (no per-action ARN-template catalogue)."
+- "Access advisor: Granularity=ACTION_LEVEL needs per-action usage tracking this backend lacks (would fabricate data). ListDelegationRequests OwnerId filter and DelegationRequest ApproverId/OwnerId/RequestorId need caller-identity plumbing to record request owners."
 
 ## More
 

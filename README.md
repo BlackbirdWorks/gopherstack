@@ -537,7 +537,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Redshift](services/redshift/README.md) | A | 9 | 3 gaps |
 | [Redshift Data](services/redshiftdata/README.md) | A | 12 | 5 gaps; 1 deferred |
 | [Timestream Query](services/timestreamquery/README.md) | A | 12 | 4 gaps; 1 deferred |
-| [Timestream Write](services/timestreamwrite/README.md) | A | 19 | 4 gaps |
+| [Timestream Write](services/timestreamwrite/README.md) | A | 19 | 1 gap |
 
 ### Networking & Content Delivery
 
@@ -620,7 +620,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Cognito Identity](services/cognitoidentity/README.md) | A | 23 | 2 gaps; 4 deferred |
 | [Cognito Identity Provider](services/cognitoidp/README.md) | A | 68 | 3 gaps |
 | [Directory Service](services/directoryservice/README.md) | A | 80 | 5 gaps; 2 deferred |
-| [IAM](services/iam/README.md) | A | 38 | 5 gaps |
+| [IAM](services/iam/README.md) | A | 38 | 4 gaps |
 | [IAM Access Analyzer](services/accessanalyzer/README.md) | A | 39 | 6 gaps; 1 deferred |
 | [IAM Identity Center (SSO)](services/ssoadmin/README.md) | A | 56 | 3 gaps |
 | [IAM Roles Anywhere](services/rolesanywhere/README.md) | A | 30 | 4 gaps |
@@ -648,7 +648,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Resource Access Manager](services/ram/README.md) | A | 36 | 2 gaps; 2 deferred |
 | [Resource Groups](services/resourcegroups/README.md) | A | 23 | 3 gaps |
 | [Resource Groups Tagging API](services/resourcegroupstaggingapi/README.md) | A | 9 | 3 gaps; 1 deferred |
-| [Systems Manager](services/ssm/README.md) | A | 105 | 25 gaps |
+| [Systems Manager](services/ssm/README.md) | A | 105 | 24 gaps |
 
 ### Developer Tools
 
