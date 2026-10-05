@@ -352,6 +352,10 @@ func (h *Handler) handleListActionTypes(
 	ctx context.Context,
 	in *listActionTypesInput,
 ) (*listActionTypesOutput, error) {
+	if in.RegionFilter != "" {
+		ctx = context.WithValue(ctx, regionContextKey{}, in.RegionFilter)
+	}
+
 	types := h.Backend.ListActionTypes(ctx)
 	items := make([]map[string]any, 0, len(types))
 

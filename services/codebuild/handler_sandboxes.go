@@ -82,7 +82,8 @@ func (h *Handler) handleListSandboxesForProject(
 }
 
 type startSandboxInput struct {
-	ProjectName string `json:"projectName"`
+	ProjectName      string `json:"projectName"`
+	IdempotencyToken string `json:"idempotencyToken,omitempty"`
 }
 
 type startSandboxOutput struct {
@@ -94,7 +95,7 @@ func (h *Handler) handleStartSandbox(_ context.Context, in *startSandboxInput) (
 		return nil, fmt.Errorf("%w: projectName is required", errInvalidRequest)
 	}
 
-	sb, err := h.Backend.StartSandbox(in.ProjectName)
+	sb, err := h.Backend.StartSandbox(in.ProjectName, in.IdempotencyToken)
 	if err != nil {
 		return nil, err
 	}

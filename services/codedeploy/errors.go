@@ -38,6 +38,7 @@ var (
 	ErrDeploymentNotInReadyState  = awserr.New("DeploymentIsNotInReadyStateException", awserr.ErrConflict)
 	ErrInvalidDeploymentWaitType  = awserr.New("InvalidDeploymentWaitTypeException", awserr.ErrInvalidParameter)
 	ErrInvalidFileExistsBehavior  = awserr.New("InvalidFileExistsBehaviorException", awserr.ErrInvalidParameter)
+	ErrInvalidTargetInstances     = awserr.New("InvalidTargetInstancesException", awserr.ErrInvalidParameter)
 	// ErrInvalidEC2TagCombination and ErrInvalidOnPremisesTagCombination guard
 	// CreateDeploymentGroup/UpdateDeploymentGroup's own modeled rule that at
 	// most one of each Ec2TagFilters/Ec2TagSet and

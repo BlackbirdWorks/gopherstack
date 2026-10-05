@@ -30,6 +30,7 @@ type startBuildInput struct {
 	ImagePullCredentialsTypeOverride string                 `json:"imagePullCredentialsTypeOverride,omitempty"`
 	HostKernelOverride               string                 `json:"hostKernelOverride,omitempty"`
 	ComputeTypeOverride              string                 `json:"computeTypeOverride,omitempty"`
+	LogsConfigOverride               *LogsConfig            `json:"logsConfigOverride,omitempty"`
 	IdempotencyToken                 string                 `json:"idempotencyToken,omitempty"`
 	ProjectName                      string                 `json:"projectName"`
 	SecondaryArtifactsOverride       []ProjectArtifacts     `json:"secondaryArtifactsOverride,omitempty"`
@@ -85,6 +86,8 @@ func (h *Handler) handleStartBuild(
 		SecondarySourcesVersionOverride:  in.SecondarySourcesVersionOverride,
 		QueuedTimeoutInMinutesOverride:   in.QueuedTimeoutInMinutesOverride,
 		AutoRetryLimitOverride:           in.AutoRetryLimitOverride,
+		LogsConfigOverride:               in.LogsConfigOverride,
+		IdempotencyToken:                 in.IdempotencyToken,
 	})
 	if err != nil {
 		return nil, err
@@ -245,7 +248,8 @@ func (h *Handler) handleBatchDeleteBuilds(
 }
 
 type retryBuildInput struct {
-	ID string `json:"id"`
+	ID               string `json:"id"`
+	IdempotencyToken string `json:"idempotencyToken,omitempty"`
 }
 
 type retryBuildOutput struct {
@@ -260,7 +264,7 @@ func (h *Handler) handleRetryBuild(
 		return nil, fmt.Errorf("%w: id is required", errInvalidRequest)
 	}
 
-	build, err := h.Backend.RetryBuild(in.ID)
+	build, err := h.Backend.RetryBuild(in.ID, in.IdempotencyToken)
 	if err != nil {
 		return nil, err
 	}

@@ -184,8 +184,9 @@ func (h *Handler) handleListProjects(
 }
 
 type updateProjectVisibilityInput struct {
-	ProjectArn        string `json:"projectArn"`
-	ProjectVisibility string `json:"projectVisibility"`
+	ProjectArn         string `json:"projectArn"`
+	ProjectVisibility  string `json:"projectVisibility"`
+	ResourceAccessRole string `json:"resourceAccessRole"`
 }
 
 type updateProjectVisibilityOutput struct {
@@ -202,7 +203,7 @@ func (h *Handler) handleUpdateProjectVisibility(
 		return nil, fmt.Errorf("%w: projectArn is required", errInvalidRequest)
 	}
 
-	alias, err := h.Backend.UpdateProjectVisibility(in.ProjectArn, in.ProjectVisibility)
+	alias, err := h.Backend.UpdateProjectVisibility(in.ProjectArn, in.ProjectVisibility, in.ResourceAccessRole)
 	if err != nil {
 		return nil, err
 	}

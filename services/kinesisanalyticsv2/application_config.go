@@ -1,6 +1,9 @@
 package kinesisanalyticsv2
 
-import "context"
+import (
+	"context"
+	"slices"
+)
 
 // AddApplicationCloudWatchLoggingOption adds a CloudWatch logging option to
 // an application, returning the OperationID of the recorded
@@ -9,7 +12,7 @@ import "context"
 // OperationId field, unlike most other Add*/Delete* config ops.
 func (b *InMemoryBackend) AddApplicationCloudWatchLoggingOption(
 	ctx context.Context,
-	name string, currentVersionID int64, logStreamARN, roleARN string,
+	name string, currentVersionID int64, conditionalTok string, logStreamARN, roleARN string,
 ) (string, error) {
 	region := getRegion(ctx, b.defaultRegion)
 
@@ -21,7 +24,7 @@ func (b *InMemoryBackend) AddApplicationCloudWatchLoggingOption(
 		return "", ErrNotFound
 	}
 
-	if err := checkAndBumpVersion(app, currentVersionID); err != nil {
+	if err := checkAndBumpVersionOrToken(app, currentVersionID, conditionalTok); err != nil {
 		return "", err
 	}
 
@@ -171,7 +174,7 @@ func (b *InMemoryBackend) AddApplicationReferenceDataSource(
 // most other Add*/Delete* config ops.
 func (b *InMemoryBackend) AddApplicationVpcConfiguration(
 	ctx context.Context,
-	name string, currentVersionID int64, vpc VpcConfigurationDescription,
+	name string, currentVersionID int64, conditionalTok string, vpc VpcConfigurationDescription,
 ) (string, error) {
 	region := getRegion(ctx, b.defaultRegion)
 
@@ -183,7 +186,7 @@ func (b *InMemoryBackend) AddApplicationVpcConfiguration(
 		return "", ErrNotFound
 	}
 
-	if err := checkAndBumpVersion(app, currentVersionID); err != nil {
+	if err := checkAndBumpVersionOrToken(app, currentVersionID, conditionalTok); err != nil {
 		return "", err
 	}
 
@@ -211,11 +214,24 @@ func (b *InMemoryBackend) AddApplicationVpcConfiguration(
 // OperationId field, unlike most other Add*/Delete* config ops.
 func (b *InMemoryBackend) DeleteApplicationCloudWatchLoggingOption(
 	ctx context.Context,
-	name string, currentVersionID int64, loggingOptionID string,
+	name string, currentVersionID int64, conditionalTok string, loggingOptionID string,
+) (string, error) {
+	return deleteSubresource(
+		ctx, b, "DeleteApplicationCloudWatchLoggingOption", name, currentVersionID, conditionalTok, loggingOptionID,
+		func(a *Application) *[]CloudWatchLoggingOptionDesc { return &a.CloudWatchLoggingOptionDescs },
+		func(o CloudWatchLoggingOptionDesc) string { return o.CloudWatchLoggingOptionID },
+	)
+}
+
+// deleteSubresource removes the item with the given ID from the slice items selects, then bumps the version.
+func deleteSubresource[T any](
+	ctx context.Context, b *InMemoryBackend,
+	op, name string, currentVersionID int64, conditionalTok, id string,
+	items func(*Application) *[]T, idOf func(T) string,
 ) (string, error) {
 	region := getRegion(ctx, b.defaultRegion)
 
-	b.mu.Lock("DeleteApplicationCloudWatchLoggingOption")
+	b.mu.Lock(op)
 	defer b.mu.Unlock()
 
 	app, ok := b.findApplication(region, name)
@@ -223,33 +239,23 @@ func (b *InMemoryBackend) DeleteApplicationCloudWatchLoggingOption(
 		return "", ErrNotFound
 	}
 
+	list := items(app)
+
 	// Find before bumping to avoid a phantom version increment on NotFound.
-	idx := -1
-
-	for i, opt := range app.CloudWatchLoggingOptionDescs {
-		if opt.CloudWatchLoggingOptionID == loggingOptionID {
-			idx = i
-
-			break
-		}
-	}
-
+	idx := slices.IndexFunc(*list, func(it T) bool { return idOf(it) == id })
 	if idx < 0 {
 		return "", ErrNotFound
 	}
 
-	if err := checkAndBumpVersion(app, currentVersionID); err != nil {
+	if err := checkAndBumpVersionOrToken(app, currentVersionID, conditionalTok); err != nil {
 		return "", err
 	}
 
 	defer b.snapshotVersion(region, name, app)
 
-	app.CloudWatchLoggingOptionDescs = append(
-		app.CloudWatchLoggingOptionDescs[:idx],
-		app.CloudWatchLoggingOptionDescs[idx+1:]...,
-	)
+	*list = slices.Delete(*list, idx, idx+1)
 
-	return b.recordOperation(region, name, "DeleteApplicationCloudWatchLoggingOption"), nil
+	return b.recordOperation(region, name, op), nil
 }
 
 // DeleteApplicationInputProcessingConfiguration removes the processing config from an input.
@@ -387,42 +393,11 @@ func (b *InMemoryBackend) DeleteApplicationReferenceDataSource(
 // field, unlike most other Add*/Delete* config ops.
 func (b *InMemoryBackend) DeleteApplicationVpcConfiguration(
 	ctx context.Context,
-	name string, currentVersionID int64, vpcConfigurationID string,
+	name string, currentVersionID int64, conditionalTok string, vpcConfigurationID string,
 ) (string, error) {
-	region := getRegion(ctx, b.defaultRegion)
-
-	b.mu.Lock("DeleteApplicationVpcConfiguration")
-	defer b.mu.Unlock()
-
-	app, ok := b.findApplication(region, name)
-	if !ok {
-		return "", ErrNotFound
-	}
-
-	idx := -1
-
-	for i, vpc := range app.VpcConfigurationDescriptions {
-		if vpc.VpcConfigurationID == vpcConfigurationID {
-			idx = i
-
-			break
-		}
-	}
-
-	if idx < 0 {
-		return "", ErrNotFound
-	}
-
-	if err := checkAndBumpVersion(app, currentVersionID); err != nil {
-		return "", err
-	}
-
-	defer b.snapshotVersion(region, name, app)
-
-	app.VpcConfigurationDescriptions = append(
-		app.VpcConfigurationDescriptions[:idx],
-		app.VpcConfigurationDescriptions[idx+1:]...,
+	return deleteSubresource(
+		ctx, b, "DeleteApplicationVpcConfiguration", name, currentVersionID, conditionalTok, vpcConfigurationID,
+		func(a *Application) *[]VpcConfigurationDescription { return &a.VpcConfigurationDescriptions },
+		func(v VpcConfigurationDescription) string { return v.VpcConfigurationID },
 	)
-
-	return b.recordOperation(region, name, "DeleteApplicationVpcConfiguration"), nil
 }

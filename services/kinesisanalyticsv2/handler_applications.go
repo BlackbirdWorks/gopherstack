@@ -281,8 +281,14 @@ type updateMaintenanceConfigOutput struct {
 // StartApplication's SqlRunConfigurations).
 type discoverInputSchemaInput struct {
 	InputStartingPositionConfiguration *InputStartingPositionConfig `json:"InputStartingPositionConfiguration,omitempty"` //nolint:lll // AWS API name
+	S3Configuration                    *s3DiscoveryConfig           `json:"S3Configuration,omitempty"`
 	ResourceARN                        string                       `json:"ResourceARN"`
 	ServiceExecutionRole               string                       `json:"ServiceExecutionRole,omitempty"` //nolint:lll // AWS API name
+}
+
+type s3DiscoveryConfig struct {
+	BucketARN string `json:"BucketARN"`
+	FileKey   string `json:"FileKey"`
 }
 
 type discoverInputSchemaRecordFormat struct {
@@ -714,7 +720,12 @@ func (h *Handler) handleDiscoverInputSchema(ctx context.Context, c *echo.Context
 		startingPosition = in.InputStartingPositionConfiguration.InputStartingPosition
 	}
 
-	schema, err := h.Backend.DiscoverInputSchema(ctx, in.ResourceARN, in.ServiceExecutionRole, startingPosition)
+	source := in.ResourceARN
+	if source == "" && in.S3Configuration != nil && in.S3Configuration.FileKey != "" {
+		source = in.S3Configuration.BucketARN
+	}
+
+	schema, err := h.Backend.DiscoverInputSchema(ctx, source, in.ServiceExecutionRole, startingPosition)
 	if err != nil {
 		return h.handleError(c, err)
 	}

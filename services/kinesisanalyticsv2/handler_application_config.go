@@ -16,6 +16,7 @@ type cwlOptionInput struct {
 type addApplicationCWLOptionInput struct {
 	CloudWatchLoggingOption     *cwlOptionInput `json:"CloudWatchLoggingOption"`
 	ApplicationName             string          `json:"ApplicationName"`
+	ConditionalToken            string          `json:"ConditionalToken,omitempty"`
 	CurrentApplicationVersionID int64           `json:"CurrentApplicationVersionId,omitempty"`
 }
 
@@ -144,6 +145,7 @@ type vpcConfigInput struct {
 type addApplicationVpcConfigInput struct {
 	VpcConfiguration            *vpcConfigInput `json:"VpcConfiguration"`
 	ApplicationName             string          `json:"ApplicationName"`
+	ConditionalToken            string          `json:"ConditionalToken,omitempty"`
 	CurrentApplicationVersionID int64           `json:"CurrentApplicationVersionId,omitempty"`
 }
 
@@ -157,6 +159,7 @@ type addApplicationVpcConfigOutput struct {
 type deleteApplicationCWLOptionInput struct {
 	CloudWatchLoggingOptionID   string `json:"CloudWatchLoggingOptionId"`
 	ApplicationName             string `json:"ApplicationName"`
+	ConditionalToken            string `json:"ConditionalToken,omitempty"`
 	CurrentApplicationVersionID int64  `json:"CurrentApplicationVersionId,omitempty"`
 }
 
@@ -203,6 +206,7 @@ type deleteApplicationRefDataSourceOutput struct {
 type deleteApplicationVpcConfigInput struct {
 	ApplicationName             string `json:"ApplicationName"`
 	VpcConfigurationID          string `json:"VpcConfigurationId"`
+	ConditionalToken            string `json:"ConditionalToken,omitempty"`
 	CurrentApplicationVersionID int64  `json:"CurrentApplicationVersionId,omitempty"`
 }
 
@@ -226,6 +230,7 @@ func (h *Handler) handleAddApplicationCloudWatchLoggingOption(ctx context.Contex
 		ctx,
 		in.ApplicationName,
 		in.CurrentApplicationVersionID,
+		in.ConditionalToken,
 		in.CloudWatchLoggingOption.LogStreamARN,
 		in.CloudWatchLoggingOption.RoleARN,
 	)
@@ -403,7 +408,9 @@ func (h *Handler) handleAddApplicationVpcConfiguration(ctx context.Context, c *e
 
 	vpc := buildVpcConfigDescription(in.VpcConfiguration)
 
-	opID, err := h.Backend.AddApplicationVpcConfiguration(ctx, in.ApplicationName, in.CurrentApplicationVersionID, vpc)
+	opID, err := h.Backend.AddApplicationVpcConfiguration(
+		ctx, in.ApplicationName, in.CurrentApplicationVersionID, in.ConditionalToken, vpc,
+	)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -437,7 +444,7 @@ func (h *Handler) handleDeleteApplicationCloudWatchLoggingOption(
 	}
 
 	opID, err := h.Backend.DeleteApplicationCloudWatchLoggingOption(
-		ctx, in.ApplicationName, in.CurrentApplicationVersionID, in.CloudWatchLoggingOptionID,
+		ctx, in.ApplicationName, in.CurrentApplicationVersionID, in.ConditionalToken, in.CloudWatchLoggingOptionID,
 	)
 	if err != nil {
 		return h.handleError(c, err)
@@ -534,7 +541,7 @@ func (h *Handler) handleDeleteApplicationVpcConfiguration(ctx context.Context, c
 	}
 
 	opID, err := h.Backend.DeleteApplicationVpcConfiguration(
-		ctx, in.ApplicationName, in.CurrentApplicationVersionID, in.VpcConfigurationID,
+		ctx, in.ApplicationName, in.CurrentApplicationVersionID, in.ConditionalToken, in.VpcConfigurationID,
 	)
 	if err != nil {
 		return h.handleError(c, err)

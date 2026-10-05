@@ -129,8 +129,9 @@ func (h *Handler) handleListBuildBatchesForProject(
 // RetryBuildBatchInput. RetryType is accepted but not behaviorally
 // distinguished -- see RetryBuildBatch's doc comment (build_batches.go).
 type retryBuildBatchInput struct {
-	ID        string `json:"id"`
-	RetryType string `json:"retryType,omitempty"`
+	ID               string `json:"id"`
+	RetryType        string `json:"retryType,omitempty"`
+	IdempotencyToken string `json:"idempotencyToken,omitempty"`
 }
 
 type retryBuildBatchOutput struct {
@@ -142,7 +143,7 @@ func (h *Handler) handleRetryBuildBatch(_ context.Context, in *retryBuildBatchIn
 		return nil, fmt.Errorf("%w: id is required", errInvalidRequest)
 	}
 
-	bb, err := h.Backend.RetryBuildBatch(in.ID)
+	bb, err := h.Backend.RetryBuildBatch(in.ID, in.RetryType, in.IdempotencyToken)
 	if err != nil {
 		return nil, err
 	}
@@ -151,10 +152,10 @@ func (h *Handler) handleRetryBuildBatch(_ context.Context, in *retryBuildBatchIn
 }
 
 // startBuildBatchInput mirrors aws-sdk-go-v2/service/codebuild@v1.72.4's
-// api_op_StartBuildBatch.go StartBuildBatchInput. IdempotencyToken and
-// LogsConfigOverride are intentionally not modeled -- see
-// StartBuildBatchConfig's doc comment (build_batches.go).
+// api_op_StartBuildBatch.go StartBuildBatchInput.
 type startBuildBatchInput struct {
+	LogsConfigOverride               *LogsConfig            `json:"logsConfigOverride,omitempty"`
+	IdempotencyToken                 string                 `json:"idempotencyToken,omitempty"`
 	ArtifactsOverride                *ProjectArtifacts      `json:"artifactsOverride,omitempty"`
 	BuildBatchConfigOverride         *BuildBatchConfig      `json:"buildBatchConfigOverride,omitempty"`
 	CacheOverride                    *ProjectCache          `json:"cacheOverride,omitempty"`
@@ -196,6 +197,8 @@ func (h *Handler) handleStartBuildBatch(_ context.Context, in *startBuildBatchIn
 	}
 
 	bb, err := h.Backend.StartBuildBatch(in.ProjectName, StartBuildBatchConfig{
+		LogsConfigOverride:               in.LogsConfigOverride,
+		IdempotencyToken:                 in.IdempotencyToken,
 		ArtifactsOverride:                in.ArtifactsOverride,
 		BuildBatchConfigOverride:         in.BuildBatchConfigOverride,
 		CacheOverride:                    in.CacheOverride,

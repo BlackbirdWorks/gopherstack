@@ -332,7 +332,7 @@ func (b *InMemoryBackend) ListProjectsSortedBy(sortBy string) []string {
 
 // UpdateProjectVisibility sets the visibility of a project by ARN.
 // Returns the publicProjectAlias (non-empty only when visibility is PUBLIC_READ).
-func (b *InMemoryBackend) UpdateProjectVisibility(projectArn, visibility string) (string, error) {
+func (b *InMemoryBackend) UpdateProjectVisibility(projectArn, visibility, resourceAccessRole string) (string, error) {
 	b.mu.Lock("UpdateProjectVisibility")
 	defer b.mu.Unlock()
 
@@ -343,6 +343,10 @@ func (b *InMemoryBackend) UpdateProjectVisibility(projectArn, visibility string)
 
 	p := matches[0]
 	p.Visibility = visibility
+
+	if resourceAccessRole != "" {
+		p.ResourceAccessRole = resourceAccessRole
+	}
 
 	if visibility == "PUBLIC_READ" {
 		if p.PublicProjectAlias == "" {

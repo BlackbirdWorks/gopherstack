@@ -224,10 +224,11 @@ func TestBackend_UpdateApplication_ApplicationConfigurationUpdate(t *testing.T) 
 		_, err := b.CreateApplication(ctx, "vpc-upd-app", "FLINK-1_18", "", "", "", nil)
 		require.NoError(t, err)
 
-		_, err = b.AddApplicationVpcConfiguration(ctx, "vpc-upd-app", 0, kinesisanalyticsv2.VpcConfigurationDescription{
-			SubnetIDs:        []string{"subnet-1"},
-			SecurityGroupIDs: []string{"sg-1"},
-		})
+		_, err = b.AddApplicationVpcConfiguration(
+			ctx, "vpc-upd-app", 0, "", kinesisanalyticsv2.VpcConfigurationDescription{
+				SubnetIDs:        []string{"subnet-1"},
+				SecurityGroupIDs: []string{"sg-1"},
+			})
 		require.NoError(t, err)
 
 		app, err := b.DescribeApplication(ctx, "vpc-upd-app")
@@ -266,7 +267,7 @@ func TestBackend_UpdateApplication_CloudWatchLoggingOptionUpdates(t *testing.T) 
 		_, err := b.CreateApplication(ctx, "cwl-upd-app", "FLINK-1_18", "", "", "", nil)
 		require.NoError(t, err)
 
-		_, err = b.AddApplicationCloudWatchLoggingOption(ctx, "cwl-upd-app", 0,
+		_, err = b.AddApplicationCloudWatchLoggingOption(ctx, "cwl-upd-app", 0, "",
 			"arn:aws:logs:us-east-1:000000000000:log-group:g:log-stream:s1", "")
 		require.NoError(t, err)
 
@@ -472,15 +473,16 @@ func TestBackend_AddDeleteVpcAndCWLOption_ReturnOperationID(t *testing.T) {
 	_, err := b.CreateApplication(ctx, "opid-app", "FLINK-1_18", "", "", "", nil)
 	require.NoError(t, err)
 
-	cwlOpID, err := b.AddApplicationCloudWatchLoggingOption(ctx, "opid-app", 0,
+	cwlOpID, err := b.AddApplicationCloudWatchLoggingOption(ctx, "opid-app", 0, "",
 		"arn:aws:logs:us-east-1:000000000000:log-group:g:log-stream:s", "")
 	require.NoError(t, err)
 	assert.NotEmpty(t, cwlOpID)
 
-	vpcOpID, err := b.AddApplicationVpcConfiguration(ctx, "opid-app", 0, kinesisanalyticsv2.VpcConfigurationDescription{
-		SubnetIDs:        []string{"subnet-1"},
-		SecurityGroupIDs: []string{"sg-1"},
-	})
+	vpcOpID, err := b.AddApplicationVpcConfiguration(
+		ctx, "opid-app", 0, "", kinesisanalyticsv2.VpcConfigurationDescription{
+			SubnetIDs:        []string{"subnet-1"},
+			SecurityGroupIDs: []string{"sg-1"},
+		})
 	require.NoError(t, err)
 	assert.NotEmpty(t, vpcOpID)
 	assert.NotEqual(t, cwlOpID, vpcOpID)
@@ -489,13 +491,13 @@ func TestBackend_AddDeleteVpcAndCWLOption_ReturnOperationID(t *testing.T) {
 	require.NoError(t, err)
 
 	delCWLOpID, err := b.DeleteApplicationCloudWatchLoggingOption(
-		ctx, "opid-app", 0, app.CloudWatchLoggingOptionDescs[0].CloudWatchLoggingOptionID,
+		ctx, "opid-app", 0, "", app.CloudWatchLoggingOptionDescs[0].CloudWatchLoggingOptionID,
 	)
 	require.NoError(t, err)
 	assert.NotEmpty(t, delCWLOpID)
 
 	delVpcOpID, err := b.DeleteApplicationVpcConfiguration(
-		ctx, "opid-app", 0, app.VpcConfigurationDescriptions[0].VpcConfigurationID,
+		ctx, "opid-app", 0, "", app.VpcConfigurationDescriptions[0].VpcConfigurationID,
 	)
 	require.NoError(t, err)
 	assert.NotEmpty(t, delVpcOpID)

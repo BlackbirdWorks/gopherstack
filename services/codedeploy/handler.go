@@ -295,6 +295,7 @@ var errorMappings = []errorMapping{
 	{ErrDeploymentConfigInUse, "DeploymentConfigInUseException", http.StatusConflict},
 	{ErrInvalidDeploymentWaitType, "InvalidDeploymentWaitTypeException", http.StatusBadRequest},
 	{ErrInvalidFileExistsBehavior, "InvalidFileExistsBehaviorException", http.StatusBadRequest},
+	{ErrInvalidTargetInstances, "InvalidTargetInstancesException", http.StatusBadRequest},
 	{ErrInvalidComputePlatform, "InvalidComputePlatformException", http.StatusBadRequest},
 	{ErrInvalidEC2TagCombination, "InvalidEC2TagCombinationException", http.StatusBadRequest},
 	{ErrInvalidOnPremisesTagCombination, "InvalidOnPremisesTagCombinationException", http.StatusBadRequest},

@@ -107,14 +107,87 @@ func revisionToWire(r *RevisionLocation) *revisionLocationInput {
 }
 
 type createDeploymentInput struct {
-	Revision                      *revisionLocationInput `json:"revision"`
-	ApplicationName               string                 `json:"applicationName"`
-	DeploymentGroupName           string                 `json:"deploymentGroupName"`
-	Description                   string                 `json:"description"`
-	FileExistsBehavior            string                 `json:"fileExistsBehavior"`
-	DeploymentConfigName          string                 `json:"deploymentConfigName"`
-	UpdateOutdatedInstancesOnly   bool                   `json:"updateOutdatedInstancesOnly"`
-	IgnoreApplicationStopFailures bool                   `json:"ignoreApplicationStopFailures"`
+	Revision                      *revisionLocationInput   `json:"revision"`
+	AutoRollbackConfiguration     *autoRollbackConfigEntry `json:"autoRollbackConfiguration,omitempty"`
+	OverrideAlarmConfiguration    *alarmConfigEntry        `json:"overrideAlarmConfiguration,omitempty"`
+	TargetInstances               *targetInstancesEntry    `json:"targetInstances,omitempty"`
+	ApplicationName               string                   `json:"applicationName"`
+	DeploymentGroupName           string                   `json:"deploymentGroupName"`
+	Description                   string                   `json:"description"`
+	FileExistsBehavior            string                   `json:"fileExistsBehavior"`
+	DeploymentConfigName          string                   `json:"deploymentConfigName"`
+	UpdateOutdatedInstancesOnly   bool                     `json:"updateOutdatedInstancesOnly"`
+	IgnoreApplicationStopFailures bool                     `json:"ignoreApplicationStopFailures"`
+}
+
+// targetInstancesEntry is the wire format for a blue/green replacement environment.
+type targetInstancesEntry struct {
+	Ec2TagSet         *ec2TagSetEntry  `json:"ec2TagSet,omitempty"`
+	AutoScalingGroups []string         `json:"autoScalingGroups,omitempty"`
+	TagFilters        []tagFilterEntry `json:"tagFilters,omitempty"`
+}
+
+func targetInstancesFromWire(t *targetInstancesEntry) *TargetInstances {
+	if t == nil {
+		return nil
+	}
+
+	out := &TargetInstances{
+		AutoScalingGroups: t.AutoScalingGroups,
+		Ec2TagSet:         dgEc2TagSetFromWire(t.Ec2TagSet),
+	}
+	for _, f := range t.TagFilters {
+		out.TagFilters = append(out.TagFilters, TagFilter(f))
+	}
+
+	return out
+}
+
+func targetInstancesToWire(t *TargetInstances) *targetInstancesEntry {
+	if t == nil {
+		return nil
+	}
+
+	out := &targetInstancesEntry{
+		AutoScalingGroups: t.AutoScalingGroups,
+		Ec2TagSet:         dgEc2TagSetToOutput(t.Ec2TagSet),
+	}
+	for _, f := range t.TagFilters {
+		out.TagFilters = append(out.TagFilters, tagFilterEntry(f))
+	}
+
+	return out
+}
+
+// toDeploymentInfo renders d as the DeploymentInfo shared by GetDeployment and BatchGetDeployments.
+func toDeploymentInfo(d *Deployment) deploymentInfo {
+	info := deploymentInfo{
+		DeploymentID:                  d.DeploymentID,
+		ApplicationName:               d.ApplicationName,
+		DeploymentGroupName:           d.DeploymentGroupName,
+		DeploymentConfigName:          d.DeploymentConfigName,
+		Status:                        d.Status,
+		Creator:                       d.Creator,
+		CreateTime:                    awstime.Epoch(d.CreateTime),
+		Description:                   d.Description,
+		FileExistsBehavior:            d.FileExistsBehavior,
+		UpdateOutdatedInstancesOnly:   d.UpdateOutdatedInstancesOnly,
+		IgnoreApplicationStopFailures: d.IgnoreApplicationStopFailures,
+		Revision:                      revisionToWire(d.Revision),
+		DeploymentOverview:            deploymentOverviewForStatus(d.Status),
+		AutoRollbackConfiguration:     dgAutoRollbackConfigToOutput(d.AutoRollbackConfiguration),
+		OverrideAlarmConfiguration:    dgAlarmConfigToOutput(d.OverrideAlarmConfiguration),
+		TargetInstances:               targetInstancesToWire(d.TargetInstances),
+		DeploymentStyle:               dgDeploymentStyleToOutput(d.DeploymentStyle),
+		ComputePlatform:               d.ComputePlatform,
+	}
+
+	if d.CompleteTime != nil {
+		ct := awstime.Epoch(*d.CompleteTime)
+		info.CompleteTime = &ct
+	}
+
+	return info
 }
 
 type createDeploymentOutput struct {
@@ -140,6 +213,9 @@ func (h *Handler) handleCreateDeployment(
 		UpdateOutdatedInstancesOnly:   in.UpdateOutdatedInstancesOnly,
 		IgnoreApplicationStopFailures: in.IgnoreApplicationStopFailures,
 		Revision:                      revisionFromWire(in.Revision),
+		AutoRollbackConfiguration:     dgAutoRollbackConfigFromWire(in.AutoRollbackConfiguration),
+		OverrideAlarmConfiguration:    dgAlarmConfigFromWire(in.OverrideAlarmConfiguration),
+		TargetInstances:               targetInstancesFromWire(in.TargetInstances),
 	}
 
 	d, err := h.Backend.CreateDeployment(in.ApplicationName, in.DeploymentGroupName, opts)
@@ -165,20 +241,25 @@ type deploymentOverview struct {
 }
 
 type deploymentInfo struct {
-	DeploymentOverview            *deploymentOverview    `json:"deploymentOverview,omitempty"`
-	Revision                      *revisionLocationInput `json:"revision,omitempty"`
-	CompleteTime                  *float64               `json:"completeTime,omitempty"`
-	DeploymentID                  string                 `json:"deploymentId"`
-	ApplicationName               string                 `json:"applicationName"`
-	DeploymentGroupName           string                 `json:"deploymentGroupName"`
-	DeploymentConfigName          string                 `json:"deploymentConfigName,omitempty"`
-	Status                        string                 `json:"status"`
-	Creator                       string                 `json:"creator"`
-	Description                   string                 `json:"description,omitempty"`
-	FileExistsBehavior            string                 `json:"fileExistsBehavior,omitempty"`
-	CreateTime                    float64                `json:"createTime"`
-	UpdateOutdatedInstancesOnly   bool                   `json:"updateOutdatedInstancesOnly,omitempty"`
-	IgnoreApplicationStopFailures bool                   `json:"ignoreApplicationStopFailures,omitempty"`
+	DeploymentOverview            *deploymentOverview      `json:"deploymentOverview,omitempty"`
+	Revision                      *revisionLocationInput   `json:"revision,omitempty"`
+	AutoRollbackConfiguration     *autoRollbackConfigEntry `json:"autoRollbackConfiguration,omitempty"`
+	OverrideAlarmConfiguration    *alarmConfigEntry        `json:"overrideAlarmConfiguration,omitempty"`
+	TargetInstances               *targetInstancesEntry    `json:"targetInstances,omitempty"`
+	DeploymentStyle               *deploymentStyleEntry    `json:"deploymentStyle,omitempty"`
+	CompleteTime                  *float64                 `json:"completeTime,omitempty"`
+	ComputePlatform               string                   `json:"computePlatform,omitempty"`
+	DeploymentID                  string                   `json:"deploymentId"`
+	ApplicationName               string                   `json:"applicationName"`
+	DeploymentGroupName           string                   `json:"deploymentGroupName"`
+	DeploymentConfigName          string                   `json:"deploymentConfigName,omitempty"`
+	Status                        string                   `json:"status"`
+	Creator                       string                   `json:"creator"`
+	Description                   string                   `json:"description,omitempty"`
+	FileExistsBehavior            string                   `json:"fileExistsBehavior,omitempty"`
+	CreateTime                    float64                  `json:"createTime"`
+	UpdateOutdatedInstancesOnly   bool                     `json:"updateOutdatedInstancesOnly,omitempty"`
+	IgnoreApplicationStopFailures bool                     `json:"ignoreApplicationStopFailures,omitempty"`
 }
 
 type getDeploymentOutput struct {
@@ -198,26 +279,7 @@ func (h *Handler) handleGetDeployment(
 		return nil, err
 	}
 
-	info := deploymentInfo{
-		DeploymentID:                  d.DeploymentID,
-		ApplicationName:               d.ApplicationName,
-		DeploymentGroupName:           d.DeploymentGroupName,
-		DeploymentConfigName:          d.DeploymentConfigName,
-		Status:                        d.Status,
-		Creator:                       d.Creator,
-		CreateTime:                    awstime.Epoch(d.CreateTime),
-		Description:                   d.Description,
-		FileExistsBehavior:            d.FileExistsBehavior,
-		UpdateOutdatedInstancesOnly:   d.UpdateOutdatedInstancesOnly,
-		IgnoreApplicationStopFailures: d.IgnoreApplicationStopFailures,
-		Revision:                      revisionToWire(d.Revision),
-		DeploymentOverview:            deploymentOverviewForStatus(d.Status),
-	}
-
-	if d.CompleteTime != nil {
-		ct := awstime.Epoch(*d.CompleteTime)
-		info.CompleteTime = &ct
-	}
+	info := toDeploymentInfo(d)
 
 	return &getDeploymentOutput{DeploymentInfo: info}, nil
 }
@@ -417,26 +479,7 @@ func (h *Handler) handleBatchGetDeployments(
 
 	infos := make([]deploymentInfo, 0, len(deployments))
 	for _, d := range deployments {
-		info := deploymentInfo{
-			DeploymentID:                  d.DeploymentID,
-			ApplicationName:               d.ApplicationName,
-			DeploymentGroupName:           d.DeploymentGroupName,
-			DeploymentConfigName:          d.DeploymentConfigName,
-			Status:                        d.Status,
-			Creator:                       d.Creator,
-			CreateTime:                    awstime.Epoch(d.CreateTime),
-			Description:                   d.Description,
-			FileExistsBehavior:            d.FileExistsBehavior,
-			UpdateOutdatedInstancesOnly:   d.UpdateOutdatedInstancesOnly,
-			IgnoreApplicationStopFailures: d.IgnoreApplicationStopFailures,
-			Revision:                      revisionToWire(d.Revision),
-			DeploymentOverview:            deploymentOverviewForStatus(d.Status),
-		}
-
-		if d.CompleteTime != nil {
-			ct := awstime.Epoch(*d.CompleteTime)
-			info.CompleteTime = &ct
-		}
+		info := toDeploymentInfo(d)
 
 		infos = append(infos, info)
 	}

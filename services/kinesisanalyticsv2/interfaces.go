@@ -36,7 +36,7 @@ type StorageBackend interface {
 	// these four among the Add*/Delete* config family) carry an OperationId
 	// field, verified against aws-sdk-go-v2's api_op_*.go.
 	AddApplicationCloudWatchLoggingOption(
-		ctx context.Context, name string, currentVersionID int64, logStreamARN, roleARN string,
+		ctx context.Context, name string, currentVersionID int64, conditionalTok string, logStreamARN, roleARN string,
 	) (string, error)
 	AddApplicationInput(ctx context.Context, name string, currentVersionID int64, input InputDescription) error
 	AddApplicationInputProcessingConfiguration(
@@ -51,11 +51,11 @@ type StorageBackend interface {
 		ctx context.Context, name string, currentVersionID int64, ref ReferenceDataSourceDescription,
 	) error
 	AddApplicationVpcConfiguration(
-		ctx context.Context, name string, currentVersionID int64, vpc VpcConfigurationDescription,
+		ctx context.Context, name string, currentVersionID int64, conditionalTok string, vpc VpcConfigurationDescription,
 	) (string, error)
 
 	DeleteApplicationCloudWatchLoggingOption(
-		ctx context.Context, name string, currentVersionID int64, loggingOptionID string,
+		ctx context.Context, name string, currentVersionID int64, conditionalTok string, loggingOptionID string,
 	) (string, error)
 	DeleteApplicationInputProcessingConfiguration(
 		ctx context.Context, name string, currentVersionID int64, inputID string,
@@ -65,7 +65,7 @@ type StorageBackend interface {
 		ctx context.Context, name string, currentVersionID int64, referenceID string,
 	) error
 	DeleteApplicationVpcConfiguration(
-		ctx context.Context, name string, currentVersionID int64, vpcConfigurationID string,
+		ctx context.Context, name string, currentVersionID int64, conditionalTok string, vpcConfigurationID string,
 	) (string, error)
 
 	DescribeApplicationOperation(ctx context.Context, name, operationID string) (*ApplicationOperation, error)
