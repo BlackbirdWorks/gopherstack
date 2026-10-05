@@ -99,6 +99,16 @@ leaks: {status: clean, note: "no goroutines/timers spawned by this service; purg
 
 ## Notes
 
+### 2026-10-05 (gopherstack-fb5ao): secret-echo audit
+
+Re-checked every channel Get/Update/GetChannels/Delete response (all share `toChannelResponse`)
+against pinpoint@v1.42.4 types/types.go. APNS*/ADM/GCM-ServiceJson/Baidu-SecretKey/Certificate/
+PrivateKey/TokenKey are not response members and are not emitted (HasCredential/HasTokenKey/
+HasFcmServiceCredentials are computed); `TestChannelResponses_NoSecretsInRawBody` locks all
+three read paths. Ambiguous, kept: `GCMChannelResponse.Credential` (types.go:3334) and
+`BaiduChannelResponse.Credential` (types.go:1207) are SDK output members documented as the API
+key itself, so the stored ApiKey is still echoed there; real AWS masking is unverified.
+
 ### 2026-09-19 (later same day): required-output-member re-verification, no new findings
 
 Independent re-read of the census (`cmd/requiredoutputfields`) against HEAD

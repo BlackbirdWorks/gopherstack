@@ -335,6 +335,14 @@ itself) -- documented per-field in the `ops:` notes, not silently dropped.
 
 ## Notes
 
+### 2026-10-05 (gopherstack-fb5ao): secret-echo audit
+
+No secret is stored or emitted. BYODKIM `DkimSigningAttributes.DomainSigningPrivateKey` is ignored
+on CreateEmailIdentity/PutEmailIdentityDkimSigningAttributes (not stored; GetEmailIdentity's
+DkimAttributes has no key member, sesv2@v1.66.4 types/types.go DkimAttributes). SMTP relay
+credentials (SMTP_USER/SMTP_PASS) never appear in any response. Locked by
+`TestEmailIdentity_NoDkimPrivateKeyInResponses`.
+
 ### 2026-09-19 (gopherstack-op3e census): "/v2" prefix shadow (ecr) -- false positive
 
 cmd/routecollisions flags ecr's Docker Registry v2 claim (registry
