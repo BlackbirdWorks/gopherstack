@@ -61,9 +61,8 @@ func (b *InMemoryBackend) GetFinding(analyzerName, findingID string) (*Finding, 
 	return copyFinding(f), nil
 }
 
-// matchesFindingFilter reports whether f satisfies every criterion in filter.
-// Eq/Neq/Exists are evaluated for modeled keys; Contains has no documented
-// semantics and, like unmodeled keys, is treated as matching.
+// matchesFindingFilter evaluates Eq/Neq/Exists on modeled keys; Contains (no documented
+// semantics) and unmodeled keys are treated as matching.
 func matchesFindingFilter(f *Finding, filter map[string]FilterCriterion) bool {
 	for key, crit := range filter {
 		actual, known := findingFilterValues(f, key)
