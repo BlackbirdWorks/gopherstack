@@ -3413,3 +3413,49 @@ rows:
     date: "2026-10-05"
     commit: a8af9ded8
     source: "commit+parity"
+  - service: mediastoredata
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: 7c496c00b
+    source: "commit+parity"
+  - service: dynamodbstreams
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: 7c496c00b
+    source: "parity"
+  - service: appconfigdata
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: 7c496c00b
+    source: "parity"
+  - service: sagemakerruntime
+    class: filter_default_semantics
+    verdict: inapplicable
+    date: "2026-10-05"
+    commit: 7c496c00b
+    source: "parity"
+    reasoning: "Invoke operations are data-plane: no Create/Describe/Update surface and no SDK-documented filter or default."
+  - service: apigatewaymanagementapi
+    class: filter_default_semantics
+    verdict: inapplicable
+    date: "2026-10-05"
+    commit: 7c496c00b
+    source: "parity"
+    reasoning: "Post/Get/DeleteConnection are data-plane: no Update surface and no SDK-documented filter or default."
+  - service: qldb
+    class: filter_default_semantics
+    verdict: inapplicable
+    date: "2026-10-05"
+    commit: 7c496c00b
+    source: "commit"
+    reasoning: "README-only directory: no implementation and no SDK dependency, so there is no behaviour to check."
+  - service: qldbsession
+    class: filter_default_semantics
+    verdict: inapplicable
+    date: "2026-10-05"
+    commit: 7c496c00b
+    source: "commit"
+    reasoning: "README-only directory: no implementation and no SDK dependency, so there is no behaviour to check."
