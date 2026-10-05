@@ -9,14 +9,13 @@
 | --- | --- |
 | PARITY entries audited | 21 (21 ok) |
 | Feature families | 21 (21 ok) |
-| Known gaps | 2 |
+| Known gaps | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
 - ClientRequestToken replay is held in memory per region (1024 tokens, FIFO) and is not persisted, so a token is forgotten across a restart.
-- STALE, CORRECTED 2026-08-23 (found already fixed in code, not reflected in this file -- same pattern as gopherstack-jqh2 below): this entry claimed ListWirelessDevices doesn't implement the DestinationName/DeviceProfileId/ServiceProfileId/FuotaTaskId/MulticastGroupId/WirelessDeviceType query-parameter filters. All six are fully implemented: handler_wireless_devices.go's listWirelessDevices reads all six query params into a ListWirelessDevicesFilter (wireless_devices.go), whose matches() method checks every one of them (DeviceProfileId across both LoRaWAN and Sidewalk via hasDeviceProfileID; FuotaTaskId/MulticastGroupId via the b.fuotaTaskDevices/b.multicastGroupDevices membership maps this note itself predicted could back them). Covered end-to-end, including AND-combination semantics, by TestHandler_ListWirelessDevices_Filters (handler_wireless_devices_filter_test.go, 12 subtests, all passing) -- verified again this pass via a real HTTP round-trip. git blame dates the filter code to commit d39bf33e4 (2026-08-11), two days before this file's last_audit_date at the time (2026-08-13); the audit that produced this claim either predates that commit's landing in its working tree or simply never re-checked after. No code change needed -- this file was wrong, not the backend.
 
 ## More
 

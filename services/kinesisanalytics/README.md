@@ -9,14 +9,13 @@
 | --- | --- |
 | PARITY entries audited | 20 (20 ok) |
 | Feature families | 2 (2 ok) |
-| Known gaps | 2 |
+| Known gaps | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
 - DiscoverInputSchema now does real sampling+inference (discover_schema.go: newline-delimited-JSON sampling, per-key BOOLEAN/INTEGER/DOUBLE/VARCHAR(N) type inference, sorted-alphabetical column order) instead of a fixed synthetic schema, and cli.go wires both readers it needs: S3 directly (kaBk.SetS3ObjectReader(s3Bk), no adapter -- s3.InMemoryBackend.GetObject satisfies S3ObjectReader with the real SDK types) and Kinesis via kinesisAnalyticsStreamReaderAdapter (cli.go), which bridges kinesis.InMemoryBackend's real ctx+typed-struct ListShards/GetShardIterator/GetRecords (services/kinesis/records.go, shards.go) onto KinesisStreamReader's narrow (streamName string, limit int) shape. Both proven through the actual composition root (not the wiring helper called directly) by TestInitializeServices_KinesisAnalyticsKinesisS3Wiring (cli_kinesisanalytics_kinesis_s3_wiring_test.go), which deletes its own wireKinesisAnalyticsCrossService call site to confirm the test goes red. Firehose delivery streams as a DiscoverInputSchema source remain genuinely unimplemented, not just unwired: firehose.InMemoryBackend has no accessor to read back buffered/recently-ingested records at all (it's flush-oriented), and adding one is outside services/kinesisanalytics. A Firehose-sourced request (and any request before either reader existed) correctly reports UnableToDetectSchemaException (a real, previously-unused SDK error type for this exact op -- see errors.go) instead of fabricating a 200 -- covered by the same wiring test's firehose_source_reports_unable_to_detect_schema subtest.
-- statusUpdating ("UPDATING", a real ApplicationStatus enum value per types/enums.go) is unused by design, not by omission: it is present in source (matches the wire enum exactly, not a gap in the enum itself), but UpdateApplication is genuinely synchronous here -- it validates, applies, and bumps ApplicationVersionId/LastUpdateTimestamp atomically under the backend lock before returning, so a client can never observe an intermediate state where those fields disagree. This is the same shape as the emrserverless-SUBMITTED and elasticsearch-Processing precedents judged legitimate simplifications: the transient state is unreachable because nothing async ever exists to be caught mid-transition, not because a field is missing or inconsistent. No code change made for this item.
 
 ## More
 

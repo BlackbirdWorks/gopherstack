@@ -10,7 +10,7 @@
 | PARITY entries audited | 51 (50 ok, 1 partial) |
 | Feature families | 8 (7 ok, 1 partial) |
 | Known gaps | 5 |
-| Deferred items | 6 |
+| Deferred items | 4 |
 | Resource leaks | clean |
 
 ### Known gaps
@@ -23,12 +23,10 @@
 
 ### Deferred
 
-- IMPLEMENTED 2026-08-07 (bd gopherstack-q1z2): RuleTransforms -- see families.rule-transforms above.
 - jwt-validation is a real, newer Action type (types.ActionTypeEnum has "jwt-validation" alongside forward/redirect/fixed-response/authenticate-oidc/authenticate-cognito; backed by JwtValidationActionConfig/JwtValidationActionAdditionalClaim) not implemented here at all - not in this task's explicit actions checklist (forward/redirect/fixed-response/authenticate-oidc/authenticate-cognito). No bd id filed yet.
 - AnomalyDetection (types.TargetHealth.AnomalyDetection) and AdministrativeOverride (types.TargetHealth.AdministrativeOverride) are newer DescribeTargetHealth response fields (anomaly mitigation / zonal-shift administrative override status) not modeled on the backend Target/TargetHealthDescription types - not in this task's explicit target-health checklist. No bd id filed yet.
 - LoadBalancer fields added to the SDK since the last full field-diff: IpamPools, CustomerOwnedIpv4Pool (types.LoadBalancer / CreateLoadBalancerInput) - Outposts/IPAM niche features, not in this task's explicit CreateLoadBalancer checklist (subnets/subnetMappings/securityGroups/scheme/ipAddressType). No bd id filed yet. FIXED 2026-09-18 (reqfielddiff tier-1): EnablePrefixForIpv6SourceNat and EnforceSecurityGroupInboundRulesOnPrivateLinkTraffic, previously listed here as deferred, are now implemented -- see the CreateLoadBalancer/SetSubnets/SetSecurityGroups op rows and the 2026-09-18 Notes entry.
-- MutualAuthenticationAttributes.AdvertiseTrustStoreCaNames and .TrustStoreAssociationStatus (types.go) are not modeled on the backend MutualAuthentication struct - a newer mTLS/shared-trust-store feature, not in this task's explicit trust-store checklist. No bd id filed yet.
-- …and 1 more — see PARITY.md
+- AuthenticateCognitoConfig/AuthenticateOidcConfig were verified for field-name accuracy only, not behaviorally exercised (this emulator does not implement actual OIDC/Cognito redirect flows, matching every other gopherstack service's scope for auth actions)
 
 ## More
 
