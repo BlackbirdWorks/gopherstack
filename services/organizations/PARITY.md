@@ -613,3 +613,7 @@ ListHandshakesForAccount/ForOrganization reject a Filter carrying both ActionTyp
 ## 2026-10-05 (gopherstack-uox6 pass 5, value semantics)
 
 UpdateOrganizationalUnit with Name omitted no longer blanks the OU name; accounts report State alongside Status.
+
+## 2026-10-05 (reqfielddiff tier-2 pagination)
+
+FIXED: ListRoots, ListParents, ListAccountsWithInvalidEffectivePolicy and ListEffectivePolicyValidationErrors read MaxResults/NextToken (ListRoots and ListParents ignored them) and reject MaxResults outside 1-20 or a malformed token with InvalidInputException. RECORDED: the lists are structurally one root, one parent, and the two effective-policy lists are always empty (no policy validation state), so truncation is never observable. Proof: `TestSingletonLists_PagingInputs`.

@@ -3,6 +3,7 @@ package cloudformation
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/google/uuid"
 
@@ -21,7 +22,8 @@ func (b *InMemoryBackend) CreateStackRefactor(
 	b.stackRefactors.Put(&StackRefactor{
 		RefactorID:          refactorID,
 		Description:         description,
-		Status:              "CREATE_COMPLETE",
+		Status:              statusCreateComplete,
+		ExecutionStatus:     executionStatusAvailable,
 		ResourceMappings:    resourceMappings,
 		StackDefinitions:    stackDefinitions,
 		EnableStackCreation: enableStackCreation,
@@ -150,7 +152,8 @@ func (b *InMemoryBackend) ExecuteStackRefactor(ctx context.Context, stackRefacto
 		)
 	}
 
-	r.Status = "EXECUTE_COMPLETE"
+	r.Status = "CREATE_COMPLETE"
+	r.ExecutionStatus = "EXECUTE_COMPLETE"
 
 	return nil
 }
@@ -162,18 +165,43 @@ func (b *InMemoryBackend) ExecuteStackRefactor(ctx context.Context, stackRefacto
 func (b *InMemoryBackend) ListStackRefactors(
 	maxResults int, nextToken string,
 ) (page.Page[StackRefactorSummary], error) {
+	return b.ListStackRefactorsFiltered(maxResults, nextToken, nil)
+}
+
+// ListStackRefactorsFiltered keeps only refactors whose ExecutionStatus is in executionStatuses (all when empty).
+func (b *InMemoryBackend) ListStackRefactorsFiltered(
+	maxResults int, nextToken string, executionStatuses []string,
+) (page.Page[StackRefactorSummary], error) {
 	b.mu.RLock("ListStackRefactors")
 	defer b.mu.RUnlock()
 	summaries := make([]StackRefactorSummary, 0, b.stackRefactors.Len())
 	for _, r := range b.stackRefactors.Snapshot() {
+		status, exec := r.statuses()
+		if len(executionStatuses) > 0 && !slices.Contains(executionStatuses, exec) {
+			continue
+		}
+
 		summaries = append(summaries, StackRefactorSummary{
 			StackRefactorID: r.RefactorID,
-			Status:          r.Status,
+			Status:          status,
+			ExecutionStatus: exec,
 			Description:     r.Description,
 		})
 	}
 
 	return page.New(summaries, nextToken, maxResults, cfnDefaultPageSize), nil
+}
+
+// statuses returns (Status, ExecutionStatus), splitting the legacy combined Status of older snapshots.
+func (r *StackRefactor) statuses() (string, string) {
+	switch {
+	case r.ExecutionStatus != "":
+		return r.Status, r.ExecutionStatus
+	case r.Status == "EXECUTE_COMPLETE":
+		return "CREATE_COMPLETE", r.Status
+	default:
+		return r.Status, executionStatusAvailable
+	}
 }
 
 // ListStackRefactorActions returns a stack refactor's actions, paginated by

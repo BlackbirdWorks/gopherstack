@@ -1061,3 +1061,7 @@ Audited clean: sortOrder/sortBy, build-batch and report status filters. No chang
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 codebuild is region-isolated: Projects, builds, batches, report groups and source credentials live per region; each sibling runs its own build janitor. CodePipeline Build actions start builds in the pipeline region. Tagging bridge not wired (none before). Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/codebuild`. Limitation: the dashboard shows the home region only.
+
+## 2026-10-05 (reqfielddiff tier-2 pagination)
+
+FIXED: DescribeCodeCoverages now takes maxResults/nextToken and rejects a malformed token with InvalidInputException (`TestPaginationParams_HonourMalformedNextToken`). RECORDED: DescribeCodeCoverages min/max coverage and sort members and DescribeTestCases Filter are unsupported because both ops always return an empty list (no coverage/test-case ingestion), so a filter has nothing to act on.

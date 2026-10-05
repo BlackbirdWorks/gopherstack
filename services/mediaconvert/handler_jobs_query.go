@@ -33,20 +33,22 @@ func parseJobsQueriesRoute(method, suffix string) mcRoute {
 const jobsQueryStatusComplete = "COMPLETE"
 
 type jobsQueryResultsOutput struct {
-	Status string `json:"status"`
-	Jobs   []*Job `json:"jobs"`
+	Status    string `json:"status"`
+	NextToken string `json:"nextToken,omitempty"`
+	Jobs      []*Job `json:"jobs"`
 }
 
 func (h *Handler) handleGetJobsQueryResults(c *echo.Context, queryID string) error {
-	jobs := h.Backend.GetJobsQueryResults(queryID)
+	jobs, next := h.Backend.GetJobsQueryPage(queryID)
 
-	return c.JSON(http.StatusOK, jobsQueryResultsOutput{Jobs: jobs, Status: jobsQueryStatusComplete})
+	return c.JSON(http.StatusOK, jobsQueryResultsOutput{Jobs: jobs, Status: jobsQueryStatusComplete, NextToken: next})
 }
 
 // --- StartJobsQuery handler ---
 
 type startJobsQueryInput struct {
 	Order      string           `json:"order,omitempty"`
+	NextToken  string           `json:"nextToken,omitempty"`
 	MaxResults *int             `json:"maxResults,omitempty"`
 	FilterList []map[string]any `json:"filterList,omitempty"`
 }
@@ -68,7 +70,7 @@ func (h *Handler) handleStartJobsQuery(c *echo.Context, body []byte) error {
 		maxResults = *in.MaxResults
 	}
 
-	queryID, err := h.Backend.StartJobsQuery(in.FilterList, maxResults, in.Order)
+	queryID, err := h.Backend.StartJobsQuery(in.FilterList, maxResults, in.Order, in.NextToken)
 	if err != nil {
 		return h.writeError(c, err)
 	}

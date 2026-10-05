@@ -751,3 +751,5 @@ accessanalyzer is region-isolated: analyzers, archive rules, findings and tags l
 ## 2026-10-05 (reqfielddiff tier-2 pagination)
 
 ListAnalyzers, ListArchiveRules, ListAccessPreviews and ValidatePolicy now honour the query-bound maxResults/nextToken (`pageByQuery`, handler_paging.go; ValidatePolicy's nextToken was previously read from the body, but serializers.go binds it to the query). Proof: `TestList_HonoursMaxResultsAndNextToken`. ListPolicyGenerations already paged (tool miss on its manual query parse). GetFindingV2/GetFindingRecommendation maxResults/nextToken page the finding's details/recommended steps, which are single-element/empty here, so nothing to page.
+
+- **2026-10-05**: GetFindingV2/GetFindingRecommendation now validate maxResults (>=1) and reject malformed nextToken with ValidationException via `pageByQuery`; the lists stay single/empty so no token is ever issued (`TestGetFinding_PagingMembers`).

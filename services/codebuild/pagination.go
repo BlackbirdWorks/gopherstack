@@ -76,3 +76,12 @@ func paginateTestCases(all []TestCase, nextToken string, maxResults int32) (page
 
 	return page.New(all, nextToken, int(maxResults), defaultListPageSize), nil
 }
+
+// paginateCodeCoverages pages a CodeCoverage slice; DescribeCodeCoverages declares InvalidInputException.
+func paginateCodeCoverages(all []CodeCoverage, nextToken string, maxResults int32) (page.Page[CodeCoverage], error) {
+	if err := page.ValidateToken(nextToken); err != nil {
+		return page.Page[CodeCoverage]{}, fmt.Errorf("%w: invalid nextToken", ErrValidation)
+	}
+
+	return page.New(all, nextToken, int(maxResults), defaultListPageSize), nil
+}

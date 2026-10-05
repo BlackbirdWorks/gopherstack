@@ -3,6 +3,7 @@ package ce
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -49,8 +50,9 @@ func buildTimeSeriesResponse[T, A any](
 	timePeriod func(T) map[string]string,
 	totalOf func(T) A,
 	sortBy *ceSortDefinition,
+	maxResults int,
 	nextPageToken string,
-) ([]T, *A, string) {
+) ([]T, *A, string, error) {
 	if sortBy != nil && strings.EqualFold(sortBy.Key, "Time") {
 		sortByTime(items, timePeriod, sortDescending(sortBy.SortOrder))
 	}
@@ -61,11 +63,14 @@ func buildTimeSeriesResponse[T, A any](
 		total = &t
 	}
 
-	page, nextToken := paginateOrdered(items, 0, nextPageToken, func(item T) string {
-		return timePeriod(item)[timePeriodKeyStart]
-	})
+	keyFn := func(item T) string { return timePeriod(item)[timePeriodKeyStart] }
+	if nextPageToken != "" && !slices.ContainsFunc(items, func(item T) bool { return keyFn(item) == nextPageToken }) {
+		return nil, nil, "", fmt.Errorf("%w: unknown NextPageToken", ErrInvalidNextToken)
+	}
 
-	return page, total, nextToken
+	page, nextToken := paginateOrdered(items, maxResults, nextPageToken, keyFn)
+
+	return page, total, nextToken, nil
 }
 
 // resolveCoverageTimeRange extracts start/end/granularity from a
@@ -105,6 +110,7 @@ type getReservationCoverageInput struct {
 	Granularity   string            `json:"Granularity"`
 	NextPageToken string            `json:"NextPageToken"`
 	GroupBy       []groupBySpec     `json:"GroupBy"`
+	MaxResults    int               `json:"MaxResults"`
 }
 
 type getReservationCoverageOutput struct {
@@ -121,12 +127,15 @@ func (h *Handler) handleGetReservationCoverage(
 
 	coverages := h.Backend.GetReservationCoverageFiltered(start, end, granularity, serviceDimensionFilter(in.Filter))
 
-	page, total, nextToken := buildTimeSeriesResponse(
+	page, total, nextToken, err := buildTimeSeriesResponse(
 		coverages,
 		func(c ReservationCoverageByTime) map[string]string { return c.TimePeriod },
 		func(c ReservationCoverageByTime) ReservationCoverageAgg { return c.Total },
-		in.SortBy, in.NextPageToken,
+		in.SortBy, in.MaxResults, in.NextPageToken,
 	)
+	if err != nil {
+		return nil, err
+	}
 
 	return &getReservationCoverageOutput{
 		CoveragesByTime: page,
@@ -217,6 +226,7 @@ type getReservationUtilizationInput struct {
 	Granularity   string            `json:"Granularity"`
 	NextPageToken string            `json:"NextPageToken"`
 	GroupBy       []groupBySpec     `json:"GroupBy"`
+	MaxResults    int               `json:"MaxResults"`
 }
 
 type getReservationUtilizationOutput struct {
@@ -233,12 +243,15 @@ func (h *Handler) handleGetReservationUtilization(
 
 	utils := h.Backend.GetReservationUtilizationFiltered(start, end, granularity, serviceDimensionFilter(in.Filter))
 
-	page, total, nextToken := buildTimeSeriesResponse(
+	page, total, nextToken, err := buildTimeSeriesResponse(
 		utils,
 		func(u ReservationUtilizationByTime) map[string]string { return u.TimePeriod },
 		func(u ReservationUtilizationByTime) ReservationUtilizationAgg { return u.Total },
-		in.SortBy, in.NextPageToken,
+		in.SortBy, in.MaxResults, in.NextPageToken,
 	)
+	if err != nil {
+		return nil, err
+	}
 
 	return &getReservationUtilizationOutput{
 		UtilizationsByTime: page,

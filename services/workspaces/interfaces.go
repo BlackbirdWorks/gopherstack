@@ -153,6 +153,12 @@ type StorageBackend interface {
 		limit int32,
 		nextToken string,
 	) ([]*storedPool, string, error)
+	DescribeWorkspacesPoolsFiltered(
+		poolIDs []string,
+		filters []PoolFilter,
+		limit int32,
+		nextToken string,
+	) ([]*storedPool, string, error)
 	StartWorkspacesPool(poolID string) error
 	StopWorkspacesPool(poolID string) error
 	TerminateWorkspacesPool(poolID string) error

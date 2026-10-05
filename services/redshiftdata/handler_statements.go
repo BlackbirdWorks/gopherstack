@@ -158,7 +158,8 @@ func (h *Handler) handleDescribeStatement(ctx context.Context, body []byte) ([]b
 
 func (h *Handler) handleGetStatementResult(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		ID string `json:"Id"`
+		ID        string `json:"Id"`
+		NextToken string `json:"NextToken"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -184,6 +185,10 @@ func (h *Handler) handleGetStatementResult(ctx context.Context, body []byte) ([]
 
 	if stmt.ResultFormat != resultFormatJSON && stmt.ResultFormat != "" {
 		return nil, fmt.Errorf("%w: statement %s result format is not JSON", ErrValidation, req.ID)
+	}
+
+	if req.NextToken != "" {
+		return nil, fmt.Errorf("%w: invalid NextToken, the result fits on one page", ErrValidation)
 	}
 
 	// Return a single demo row so the UI can render a non-empty result table.
@@ -235,6 +240,10 @@ func (h *Handler) handleGetStatementResultV2(ctx context.Context, body []byte) (
 
 	if stmt.ResultFormat != resultFormatCSV {
 		return nil, fmt.Errorf("%w: statement %s result format is not CSV", ErrValidation, req.ID)
+	}
+
+	if req.NextToken != "" {
+		return nil, fmt.Errorf("%w: invalid NextToken, the result fits on one page", ErrValidation)
 	}
 
 	// Return a single demo CSV record matching the V2 format.

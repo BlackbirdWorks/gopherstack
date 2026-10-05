@@ -719,3 +719,7 @@ rather than an empty list (confirmed against
 asserts the error, then separately confirms the subscription is gone via
 an unfiltered `MonitorArn`-scoped list. No `items_still_open` changes; no
 `snapshot_inventory.json` change; no version bump.
+
+## 2026-10-05 (reqfielddiff tier-2 pagination)
+
+FIXED: GetReservationCoverage and GetReservationUtilization honour MaxResults (the cap of 100 still applies) and reject a NextPageToken that names no page boundary with InvalidNextTokenException (both ops declare it); it silently restarted before. Proof: `TestReservationOps_MaxResultsAndBadToken`. RECORDED: GetCostComparisonDrivers MaxResults is unsupported because the op always returns zero drivers (no per-line-item attribution state).

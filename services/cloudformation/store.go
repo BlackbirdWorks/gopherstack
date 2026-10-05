@@ -151,6 +151,9 @@ type StorageBackend interface {
 	DescribeStackRefactor(stackRefactorID string) (*StackRefactor, error)
 	ExecuteStackRefactor(ctx context.Context, stackRefactorID string) error
 	ListStackRefactors(maxResults int, nextToken string) (page.Page[StackRefactorSummary], error)
+	ListStackRefactorsFiltered(
+		maxResults int, nextToken string, executionStatuses []string,
+	) (page.Page[StackRefactorSummary], error)
 	ListStackRefactorActions(
 		stackRefactorID string, maxResults int, nextToken string,
 	) (page.Page[StackRefactorAction], error)
@@ -220,6 +223,7 @@ const (
 	cfnStackType                   = "AWS::CloudFormation::Stack"
 	statusCreateInProgress         = "CREATE_IN_PROGRESS"
 	statusCreateComplete           = "CREATE_COMPLETE"
+	executionStatusAvailable       = "AVAILABLE"
 	statusCreateFailed             = "CREATE_FAILED"
 	statusUpdateInProgress         = "UPDATE_IN_PROGRESS"
 	statusUpdateComplete           = "UPDATE_COMPLETE"

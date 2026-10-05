@@ -760,3 +760,7 @@ Gates: `go build ./services/redshiftdata/...`, `go vet`, `go test -race
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 redshiftdata already isolates regions internally: statements are keyed per region; Firehose COPY statements now run in the delivery stream's region. Proof: `TestRegionIsolation/redshiftdata`; no sibling handlers needed.
+
+## 2026-10-05 (reqfielddiff tier-2 pagination)
+
+FIXED: DescribeTable pages its ColumnList by MaxResults (0-1000)/NextToken and rejects an unknown token with ValidationException; GetStatementResult/GetStatementResultV2 reject any NextToken with ValidationException because the single-row result never issues one. Proof: `TestDescribeTableAndStatementResult_Paging`. RECORDED: DescribeTable returns the same fixed demo columns for any table and the statement results are one fixed row, so a real column/row paging effect is limited to that fixed data.

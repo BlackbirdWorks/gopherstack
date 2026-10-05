@@ -3,6 +3,7 @@ package iotdataplane
 import (
 	"errors"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -497,6 +498,11 @@ func parsePageSize(q interface{ Get(string) string }, defaultSize int) int {
 	}
 
 	return defaultSize
+}
+
+// cursorUnknown reports a non-empty cursor that names no item, which both List ops reject as InvalidRequestException.
+func cursorUnknown(items []string, cursor string) bool {
+	return cursor != "" && !slices.Contains(items, cursor)
 }
 
 // findCursorIndex returns the start index for the given nextToken cursor in items.

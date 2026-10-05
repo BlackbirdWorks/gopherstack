@@ -1,17 +1,26 @@
 package mediaconvert
 
 import (
+	"fmt"
 	"slices"
 	"sort"
 	"strings"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // StartJobsQuery stores a jobs query and returns a query ID for deferred retrieval.
 // Filters use key-value pairs where key is a field name (e.g. "queue", "status")
 // and values are the allowed values for that field.
-func (b *InMemoryBackend) StartJobsQuery(filterList []map[string]any, maxResults int, order string) (string, error) {
+func (b *InMemoryBackend) StartJobsQuery(
+	filterList []map[string]any, maxResults int, order, nextToken string,
+) (string, error) {
+	if err := page.ValidateToken(nextToken); err != nil {
+		return "", fmt.Errorf("%w: invalid nextToken", ErrValidation)
+	}
+
 	id := uuid.NewString()
 
 	b.mu.Lock("StartJobsQuery")
@@ -21,6 +30,7 @@ func (b *InMemoryBackend) StartJobsQuery(filterList []map[string]any, maxResults
 		queryID:    id,
 		filterList: filterList,
 		maxResults: maxResults,
+		offset:     page.DecodeToken(nextToken),
 		order:      order,
 	})
 
@@ -30,12 +40,19 @@ func (b *InMemoryBackend) StartJobsQuery(filterList []map[string]any, maxResults
 // GetJobsQueryResults returns jobs matching the stored query for the given ID.
 // If the queryID is unknown (not from a prior StartJobsQuery call), returns empty.
 func (b *InMemoryBackend) GetJobsQueryResults(queryID string) []*Job {
+	jobs, _ := b.GetJobsQueryPage(queryID)
+
+	return jobs
+}
+
+// GetJobsQueryPage is GetJobsQueryResults plus the nextToken for the following batch, empty when none remains.
+func (b *InMemoryBackend) GetJobsQueryPage(queryID string) ([]*Job, string) {
 	b.mu.RLock("GetJobsQueryResults")
 	defer b.mu.RUnlock()
 
 	q, ok := b.queries.Get(queryID)
 	if !ok {
-		return []*Job{}
+		return []*Job{}, ""
 	}
 
 	list := make([]*Job, 0, b.jobs.Len())
@@ -48,17 +65,22 @@ func (b *InMemoryBackend) GetJobsQueryResults(queryID string) []*Job {
 		list = append(list, cloneJob(j))
 	}
 
-	if q.order == orderAscending {
-		sort.Slice(list, func(i, j int) bool { return list[i].CreatedAt < list[j].CreatedAt })
-	} else {
-		sort.Slice(list, func(i, j int) bool { return list[i].CreatedAt > list[j].CreatedAt })
-	}
+	sortQueryJobs(list, q.order == orderAscending)
 
-	if q.maxResults > 0 && len(list) > q.maxResults {
-		list = list[:q.maxResults]
-	}
+	pg := page.New(list, page.EncodeToken(q.offset), q.maxResults, defaultListPageSize)
 
-	return list
+	return pg.Data, pg.Next
+}
+
+// sortQueryJobs orders by CreatedAt with the job ID as tiebreak so paging is stable.
+func sortQueryJobs(list []*Job, asc bool) {
+	sort.Slice(list, func(i, j int) bool {
+		if list[i].CreatedAt != list[j].CreatedAt {
+			return (list[i].CreatedAt < list[j].CreatedAt) == asc
+		}
+
+		return list[i].ID < list[j].ID
+	})
 }
 
 // jobMatchesFilters applies each JobsQueryFilter: values within a filter are OR'd, filters are AND'd.

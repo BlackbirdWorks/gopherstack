@@ -650,3 +650,7 @@ StartJobsQuery filter keys: queue matches name or ARN, fileInput is a partial-na
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 mediaconvert is region-isolated: queues, presets, job templates and jobs live per region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/mediaconvert`. Limitation: the dashboard shows the home region only. The tagging bridge lists the request region and resolves Tag/Untag by ARN region. `TestHandler_MultiRegionReset` covers Reset.
+
+## 2026-10-05 (reqfielddiff tier-2 pagination)
+
+FIXED: StartJobsQuery nextToken starts the new query at that offset and GetJobsQueryResults returns the next token when truncated (maxResults default/cap 20, CreatedAt order now tie-broken by job ID); ListVersions pages by maxResults/nextToken. Malformed tokens give BadRequestException (neither op declares a narrower token error). The queries table stays unpersisted. Proof: `TestJobsQueryAndVersions_Paging`.

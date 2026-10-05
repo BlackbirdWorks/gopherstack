@@ -72,6 +72,17 @@ func (b *InMemoryBackend) CreateWorkspacesPool(
 func (b *InMemoryBackend) DescribeWorkspacesPools(
 	poolIDs []string, limit int32, nextToken string,
 ) ([]*storedPool, string, error) {
+	return b.DescribeWorkspacesPoolsFiltered(poolIDs, nil, limit, nextToken)
+}
+
+// DescribeWorkspacesPoolsFiltered is DescribeWorkspacesPools narrowed by PoolName filter conditions.
+func (b *InMemoryBackend) DescribeWorkspacesPoolsFiltered(
+	poolIDs []string, filters []PoolFilter, limit int32, nextToken string,
+) ([]*storedPool, string, error) {
+	if err := validatePoolFilters(filters); err != nil {
+		return nil, "", err
+	}
+
 	b.mu.RLock("DescribeWorkspacesPools")
 	defer b.mu.RUnlock()
 
@@ -83,7 +94,7 @@ func (b *InMemoryBackend) DescribeWorkspacesPools(
 	result := make([]*storedPool, 0, len(all))
 
 	for _, p := range all {
-		if !matchesFilter(filter, p.PoolID) {
+		if !matchesFilter(filter, p.PoolID) || !poolMatchesFilters(p, filters) {
 			continue
 		}
 

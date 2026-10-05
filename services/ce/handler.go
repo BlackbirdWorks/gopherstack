@@ -212,6 +212,13 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		// against API_DeleteAnomalyMonitor/API_UpdateAnomalyMonitor/API_GetAnomalyMonitors),
 		// not the generic 404/409 an unstyled REST mapping might suggest.
 		return c.JSONBlob(http.StatusBadRequest, payload)
+	case errors.Is(err, ErrInvalidNextToken):
+		payload, _ := json.Marshal(service.JSONErrorResponse{
+			Type:    "InvalidNextTokenException",
+			Message: err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, ErrUnknownSubscription):
 		payload, _ := json.Marshal(service.JSONErrorResponse{
 			Type:    "UnknownSubscriptionException",

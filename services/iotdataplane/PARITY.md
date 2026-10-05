@@ -421,3 +421,7 @@ ListSubscriptions.MaxResults is a tool false positive (read through `parsePageSi
 ## 2026-10-05 errcodeaudit note (gopherstack-r3pr)
 
 - Admin-only RegisterConnection duplicate now emits ConflictException (409), a type the SDK declares; the old ResourceAlreadyExistsException is not in iotdataplane@v1.35.4.
+
+## 2026-10-05 (reqfielddiff tier-2 pagination)
+
+ListNamedShadowsForThing PageSize/NextToken and ListRetainedMessages MaxResults are false positives (read through `parsePageSize`, handler.go); both now reject a NextToken that names no item with InvalidRequestException (declared by both ops) instead of restarting at page one. Proof: `TestListOps_PagingAndUnknownCursor`.

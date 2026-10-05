@@ -120,10 +120,13 @@ func (h *Handler) handleDeleteReportGroup(
 }
 
 type describeCodeCoveragesInput struct {
-	ReportArn string `json:"reportArn"`
+	ReportArn  string `json:"reportArn"`
+	NextToken  string `json:"nextToken,omitempty"`
+	MaxResults int32  `json:"maxResults,omitempty"`
 }
 
 type describeCodeCoveragesOutput struct {
+	NextToken     string         `json:"nextToken,omitempty"`
 	CodeCoverages []CodeCoverage `json:"codeCoverages"`
 }
 
@@ -140,7 +143,12 @@ func (h *Handler) handleDescribeCodeCoverages(
 		return nil, err
 	}
 
-	return &describeCodeCoveragesOutput{CodeCoverages: coverages}, nil
+	pg, err := paginateCodeCoverages(coverages, in.NextToken, in.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeCodeCoveragesOutput{CodeCoverages: pg.Data, NextToken: pg.Next}, nil
 }
 
 type describeTestCasesInput struct {

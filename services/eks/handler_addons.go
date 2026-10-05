@@ -335,9 +335,12 @@ func (h *Handler) handleDescribeAddonVersions(c *echo.Context) error {
 		h.Backend.DescribeAddonVersions(), q.Get("addonName"), q.Get("kubernetesVersion"), q["types"],
 	)
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"addons": versions,
-	})
+	p, err := eksVersionsPage(c, versions)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, eksPageResponse("addons", p))
 }
 
 func (h *Handler) handleDescribeAddonConfiguration(c *echo.Context) error {

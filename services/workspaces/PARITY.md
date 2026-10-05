@@ -733,3 +733,7 @@ workspaces is region-isolated: directories, workspaces, IP groups and bundles li
 ## 2026-10-05 (gopherstack-uox6 pass 6, value semantics)
 
 ModifyWorkspaceProperties merges the supplied members instead of replacing the whole WorkspaceProperties (a RunningMode-only call used to wipe volume sizes and compute type). The SDK doc comments state no defaults for these members.
+
+## 2026-10-05 (reqfielddiff tier-2 pagination)
+
+FIXED: DescribeWorkspacesPools applies Filters (Name PoolName; EQUALS/NOTEQUALS/CONTAINS/NOTCONTAINS; filters ANDed, values ORed, the NOT forms match none) and rejects other names/operators with InvalidParameterValuesException. Proof: `TestDescribeWorkspacesPools_Filters`. RECORDED: DescribeWorkspaceDirectories Filters (USER_IDENTITY_TYPE, WORKSPACE_TYPE) are unsupported because RegisterWorkspaceDirectory does not store UserIdentityType/WorkspaceType, so the directories carry nothing to match.

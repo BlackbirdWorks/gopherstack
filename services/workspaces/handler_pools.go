@@ -107,10 +107,17 @@ func toPoolResp(p *storedPool) workspacesPoolResp {
 	}
 }
 
+type describeWorkspacesPoolsFilter struct {
+	Name     string   `json:"Name"`
+	Operator string   `json:"Operator"`
+	Values   []string `json:"Values"`
+}
+
 type describeWorkspacesPoolsInput struct {
-	NextToken string   `json:"NextToken"`
-	PoolIds   []string `json:"PoolIds"` //nolint:revive // existing issue.
-	Limit     int32    `json:"Limit"`
+	NextToken string                          `json:"NextToken"`
+	PoolIds   []string                        `json:"PoolIds"` //nolint:revive // existing issue.
+	Filters   []describeWorkspacesPoolsFilter `json:"Filters"`
+	Limit     int32                           `json:"Limit"`
 }
 
 type describeWorkspacesPoolsOutput struct {
@@ -121,8 +128,14 @@ type describeWorkspacesPoolsOutput struct {
 func (h *Handler) handleDescribeWorkspacesPools(
 	_ context.Context, req *describeWorkspacesPoolsInput,
 ) (*describeWorkspacesPoolsOutput, error) {
-	pools, nextToken, err := h.Backend.DescribeWorkspacesPools(
+	filters := make([]PoolFilter, 0, len(req.Filters))
+	for _, f := range req.Filters {
+		filters = append(filters, PoolFilter(f))
+	}
+
+	pools, nextToken, err := h.Backend.DescribeWorkspacesPoolsFiltered(
 		req.PoolIds,
+		filters,
 		req.Limit,
 		req.NextToken,
 	)

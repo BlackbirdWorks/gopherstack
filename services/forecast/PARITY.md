@@ -621,3 +621,7 @@ ListMonitorEvaluations no longer emits CreationTime/MonitorName/Status, which Pr
 ## 2026-10-05 errtargetaudit triage (gopherstack-3fvxc)
 
 127 findings, all false positives from the mode-generic dispatcher: one `handleError` mapper serves create/describe/delete/list specs, so the tool attributes every sentinel to every op. Per-op reachability holds: Describe/Delete emit only not-found (Delete also in-use), List only invalid-next-token, Create only validation/already-exists/not-found-for-referenced-ARN. Typed proof: `TestTypedErrors_PerOperationCodes`.
+
+## 2026-10-05 (reqfielddiff tier-2 pagination)
+
+ListMonitorEvaluations Filters/MaxResults/NextToken are false positives (the tool misses the map-based dispatcher); already applied and the bad token is InvalidNextTokenException. Proof: `TestListMonitorEvaluations_FilterAndPaging`.

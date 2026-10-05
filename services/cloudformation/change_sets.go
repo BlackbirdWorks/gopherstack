@@ -76,7 +76,7 @@ func (b *InMemoryBackend) CreateChangeSet(
 		StackID:         stackID,
 		StackName:       stackName,
 		Status:          statusCreateComplete,
-		ExecutionStatus: "AVAILABLE",
+		ExecutionStatus: executionStatusAvailable,
 		ChangeSetType:   changeSetType,
 		Description:     description,
 		CreationTime:    time.Now(),
@@ -221,7 +221,7 @@ func (b *InMemoryBackend) ExecuteChangeSet(
 		if !ok {
 			return ErrChangeSetNotFound
 		}
-		if cs.ExecutionStatus != "AVAILABLE" {
+		if cs.ExecutionStatus != executionStatusAvailable {
 			return fmt.Errorf(
 				"%w: ChangeSet [%s] cannot be executed in its current status of %s",
 				ErrChangeSetNotExecutable, changeSetName, cs.ExecutionStatus,

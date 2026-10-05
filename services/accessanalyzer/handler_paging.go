@@ -19,5 +19,10 @@ func pageByQuery[T any](items []T, query string) (page.Page[T], error) {
 		limit = n
 	}
 
-	return page.New(items, queryParamValue(query, "nextToken"), limit, max(len(items), 1)), nil
+	token := queryParamValue(query, "nextToken")
+	if page.ValidateToken(token) != nil {
+		return page.Page[T]{}, ErrValidation
+	}
+
+	return page.New(items, token, limit, max(len(items), 1)), nil
 }

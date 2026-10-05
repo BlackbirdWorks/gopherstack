@@ -489,9 +489,12 @@ func (h *Handler) handleDescribeClusterVersions(c *echo.Context) error {
 	defaultOnly := c.Request().URL.Query().Get("defaultOnly") == "true"
 	versions := h.Backend.DescribeClusterVersions(defaultOnly)
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"clusterVersions": versions,
-	})
+	p, err := eksVersionsPage(c, versions)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, eksPageResponse("clusterVersions", p))
 }
 
 const (

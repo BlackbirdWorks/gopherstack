@@ -35,6 +35,29 @@ func eksPaginationParams(c *echo.Context) (int, string) {
 	return maxResults, q.Get("nextToken")
 }
 
+// eksVersionsPage pages a describe-versions list by maxResults (1-100 when given) and nextToken.
+func eksVersionsPage[T any](c *echo.Context, items []T) (page.Page[T], error) {
+	q := c.Request().URL.Query()
+	maxResults := 0
+
+	if s := q.Get("maxResults"); s != "" {
+		n, err := strconv.Atoi(s)
+		if err != nil || n < 1 || n > eksDefaultPageSize {
+			return page.Page[T]{}, fmt.Errorf(
+				"%w: maxResults must be between 1 and %d", ErrValidation, eksDefaultPageSize,
+			)
+		}
+
+		maxResults = n
+	}
+
+	if page.ValidateToken(q.Get("nextToken")) != nil {
+		return page.Page[T]{}, fmt.Errorf("%w: invalid nextToken", ErrValidation)
+	}
+
+	return page.New(items, q.Get("nextToken"), maxResults, eksDefaultPageSize), nil
+}
+
 // eksPageResponse builds the common {<itemsKey>: ..., "nextToken": ...}
 // envelope shared by every EKS List* response. nextToken is only present
 // (non-null) when there are more pages, matching the real API's null-when-

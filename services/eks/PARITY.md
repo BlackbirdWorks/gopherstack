@@ -1296,3 +1296,7 @@ Still recorded: with the default (true) EKS installs vpc-cni, coredns and kube-p
 ## 2026-10-05 (gopherstack-uox6 pass 5, value semantics)
 
 CreateCluster stores EndpointPublicAccess true, PublicAccessCidrs 0.0.0.0/0 and ipv4 KubernetesNetworkConfig when omitted; CreateNodegroup stores t3.medium, diskSize 20 (50 for Windows AMIs) and scaling 1/2/2 when omitted without a launch template; addons carry ModifiedAt, advanced by UpdateAddon.
+
+## 2026-10-05 (reqfielddiff tier-2 pagination)
+
+FIXED: DescribeAddonVersions and DescribeClusterVersions honour maxResults (1-100, default 100)/nextToken and reject a bad value or token with InvalidParameterException (both ops declare it). Proof: `TestDescribeVersions_Paging`. RECORDED: DescribeAddonVersions owners/publishers and DescribeClusterVersions clusterType/clusterVersions/includeAll/status/versionStatus are still not applied, and the cluster version rows carry no status field.

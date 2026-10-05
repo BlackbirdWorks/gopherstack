@@ -414,7 +414,8 @@ type Publisher struct {
 type StackRefactor struct {
 	RefactorID          string
 	Description         string
-	Status              string // CREATE_IN_PROGRESS / CREATE_COMPLETE / EXECUTE_IN_PROGRESS / EXECUTE_COMPLETE
+	Status              string // StackRefactorStatus: CREATE_COMPLETE once created
+	ExecutionStatus     string `json:"ExecutionStatus,omitempty"` // AVAILABLE until executed, then EXECUTE_COMPLETE
 	ResourceMappings    []ResourceMapping
 	StackDefinitions    []StackDefinition
 	EnableStackCreation bool
@@ -540,6 +541,7 @@ type AutoDeploymentTarget struct {
 type StackRefactorSummary struct {
 	StackRefactorID string `xml:"StackRefactorId"`
 	Status          string `xml:"Status,omitempty"`
+	ExecutionStatus string `xml:"ExecutionStatus,omitempty"`
 	Description     string `xml:"Description,omitempty"`
 }
 
