@@ -35,6 +35,7 @@ func toGroupView(g *Group) groupView {
 type createGroupInput struct {
 	GroupName             string             `json:"GroupName"`
 	FilterExpression      string             `json:"FilterExpression"`
+	Tags                  []tagWire          `json:"Tags"`
 	InsightsConfiguration insightsConfigView `json:"InsightsConfiguration"`
 }
 
@@ -55,6 +56,10 @@ func (h *Handler) handleCreateGroup(_ context.Context, body []byte) ([]byte, err
 		return nil, fmt.Errorf("%w: NotificationsEnabled requires InsightsEnabled to be true", errInvalidRequest)
 	}
 
+	if err := checkCreateTags(in.Tags); err != nil {
+		return nil, err
+	}
+
 	ic := InsightsConfiguration{
 		InsightsEnabled:      in.InsightsConfiguration.InsightsEnabled,
 		NotificationsEnabled: in.InsightsConfiguration.NotificationsEnabled,
@@ -62,6 +67,10 @@ func (h *Handler) handleCreateGroup(_ context.Context, body []byte) ([]byte, err
 
 	g, err := h.Backend.CreateGroupWithInsights(in.GroupName, in.FilterExpression, ic)
 	if err != nil {
+		return nil, err
+	}
+
+	if err = h.applyCreateTags(g.GroupARN, in.Tags); err != nil {
 		return nil, err
 	}
 

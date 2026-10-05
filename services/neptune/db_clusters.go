@@ -3,6 +3,7 @@ package neptune
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -49,6 +50,8 @@ func cloneCluster(c *DBCluster) DBCluster {
 	copy(cp.DBClusterMembers, c.DBClusterMembers)
 	cp.AssociatedRoles = make([]string, len(c.AssociatedRoles))
 	copy(cp.AssociatedRoles, c.AssociatedRoles)
+	cp.EnabledCloudwatchLogsExports = slices.Clone(c.EnabledCloudwatchLogsExports)
+	cp.RoleFeatures = maps.Clone(c.RoleFeatures)
 	cp.VpcSecurityGroupIDs = make([]string, len(c.VpcSecurityGroupIDs))
 	copy(cp.VpcSecurityGroupIDs, c.VpcSecurityGroupIDs)
 	cp.AvailabilityZones = make([]string, len(c.AvailabilityZones))
@@ -256,6 +259,7 @@ func (b *InMemoryBackend) buildNewCluster(
 		StorageType:                     storageType,
 		HostedZoneID:                    hostedZoneID,
 		NetworkType:                     networkType,
+		EnabledCloudwatchLogsExports:    slices.Clone(opts.EnableCloudwatchLogsExports),
 	}
 	if opts.ManageMasterUserPassword {
 		cluster.MasterUserManagedSecret = &MasterUserManagedSecret{
@@ -447,9 +451,25 @@ func (b *InMemoryBackend) ModifyDBCluster(
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 	}
+	if opts.NewDBClusterIdentifier != "" && opts.NewDBClusterIdentifier != id {
+		if err := validateNeptuneIdentifier(opts.NewDBClusterIdentifier, "NewDBClusterIdentifier"); err != nil {
+			return nil, err
+		}
+		if b.clusterHas(region, opts.NewDBClusterIdentifier) {
+			return nil, fmt.Errorf(
+				"%w: cluster %s already exists", ErrClusterAlreadyExists, opts.NewDBClusterIdentifier,
+			)
+		}
+	}
+	if err := checkMajorVersionUpgrade(c.EngineVersion, opts.EngineVersion, opts.AllowMajorVersionUpgrade); err != nil {
+		return nil, err
+	}
 	if paramGroupName != "" {
 		c.DBClusterParameterGroupName = paramGroupName
 	}
+	c.EnabledCloudwatchLogsExports = applyLogTypes(
+		c.EnabledCloudwatchLogsExports, opts.EnableLogTypes, opts.DisableLogTypes,
+	)
 	applyClusterScalarModifications(c, opts)
 	if err := applyClusterBackupRetention(c, opts); err != nil {
 		return nil, err
@@ -459,9 +479,92 @@ func (b *InMemoryBackend) ModifyDBCluster(
 	if opts.DBInstanceParameterGroupName != "" {
 		b.applyDBInstanceParameterGroupName(region, c, opts.DBInstanceParameterGroupName)
 	}
+	if opts.NewDBClusterIdentifier != "" && opts.NewDBClusterIdentifier != id {
+		b.renameCluster(region, id, c, opts.NewDBClusterIdentifier)
+	}
 	cp := cloneCluster(c)
 
 	return &cp, nil
+}
+
+// checkMajorVersionUpgrade rejects an EngineVersion in another major version unless allowed.
+func checkMajorVersionUpgrade(current, target string, allowed bool) error {
+	if allowed || target == "" || current == "" {
+		return nil
+	}
+	if majorVersion(current) != majorVersion(target) {
+		return fmt.Errorf(
+			"%w: AllowMajorVersionUpgrade is required to change EngineVersion from %s to %s",
+			ErrInvalidParameterCombination, current, target,
+		)
+	}
+
+	return nil
+}
+
+func majorVersion(v string) string {
+	major, _, _ := strings.Cut(v, ".")
+
+	return major
+}
+
+// applyLogTypes adds enable then removes disable from the exported log types.
+func applyLogTypes(current, enable, disable []string) []string {
+	out := slices.Clone(current)
+	for _, t := range enable {
+		if !slices.Contains(out, t) {
+			out = append(out, t)
+		}
+	}
+	out = slices.DeleteFunc(out, func(t string) bool { return slices.Contains(disable, t) })
+	if len(out) == 0 {
+		return nil
+	}
+
+	return out
+}
+
+// renameCluster re-keys c under newID and repoints its ARN, endpoints, tags, roles and dependents.
+func (b *InMemoryBackend) renameCluster(region, oldID string, c *DBCluster, newID string) {
+	oldARN := b.clusterARN(region, oldID)
+	b.clusterDelete(region, oldID)
+	c.DBClusterIdentifier = newID
+	c.DBClusterArn = b.clusterARN(region, newID)
+	c.Endpoint = fmt.Sprintf("%s.cluster.%s.neptune.amazonaws.com", newID, region)
+	c.ReaderEndpoint = fmt.Sprintf("%s.cluster-ro.%s.neptune.amazonaws.com", newID, region)
+	b.clusterPut(c)
+
+	tags := b.tagsStore(region)
+	if t, ok := tags[oldARN]; ok {
+		delete(tags, oldARN)
+		tags[c.DBClusterArn] = t
+	}
+
+	roles := b.clusterRolesStore(region)
+	if r, ok := roles[oldID]; ok {
+		delete(roles, oldID)
+		roles[newID] = r
+	}
+
+	for _, inst := range b.instancesInRegion(region) {
+		if inst.DBClusterIdentifier == oldID {
+			inst.DBClusterIdentifier = newID
+		}
+	}
+
+	for _, ep := range b.clusterEndpointsInRegion(region) {
+		if ep.DBClusterIdentifier == oldID {
+			ep.DBClusterIdentifier = newID
+		}
+	}
+
+	for _, gc := range b.globalClusters.All() {
+		for i := range gc.GlobalClusterMembers {
+			if gc.GlobalClusterMembers[i].DBClusterARN == oldARN {
+				gc.GlobalClusterMembers[i].DBClusterARN = c.DBClusterArn
+			}
+		}
+	}
 }
 
 // applyDBInstanceParameterGroupName sets DBParameterGroupName on every
@@ -675,6 +778,13 @@ func promoteClusterMember(c *DBCluster, targetInstanceID string) error {
 
 // AddRoleToDBCluster associates an IAM role with a Neptune DB cluster.
 func (b *InMemoryBackend) AddRoleToDBCluster(ctx context.Context, clusterID, roleARN string) error {
+	return b.AddRoleToDBClusterFeature(ctx, clusterID, roleARN, "")
+}
+
+// AddRoleToDBClusterFeature associates an IAM role with a cluster for the named feature.
+func (b *InMemoryBackend) AddRoleToDBClusterFeature(
+	ctx context.Context, clusterID, roleARN, featureName string,
+) error {
 	if clusterID == "" {
 		return fmt.Errorf("%w: DBClusterIdentifier is required", ErrInvalidParameter)
 	}
@@ -695,6 +805,12 @@ func (b *InMemoryBackend) AddRoleToDBCluster(ctx context.Context, clusterID, rol
 	roles[clusterID] = append(roles[clusterID], roleARN)
 	if !slices.Contains(cluster.AssociatedRoles, roleARN) {
 		cluster.AssociatedRoles = append(cluster.AssociatedRoles, roleARN)
+	}
+	if featureName != "" {
+		if cluster.RoleFeatures == nil {
+			cluster.RoleFeatures = make(map[string]string)
+		}
+		cluster.RoleFeatures[roleARN] = featureName
 	}
 
 	return nil
@@ -734,6 +850,7 @@ func (b *InMemoryBackend) RemoveRoleFromDBCluster(
 		}
 	}
 	cluster.AssociatedRoles = keptRoles
+	delete(cluster.RoleFeatures, roleARN)
 
 	return nil
 }
@@ -822,6 +939,16 @@ func validateRestorePort(port int) error {
 	return nil
 }
 
+// validateRestoreType accepts the two documented RestoreType values.
+func validateRestoreType(restoreType string) error {
+	switch restoreType {
+	case "", "full-copy", "copy-on-write":
+		return nil
+	default:
+		return fmt.Errorf("%w: RestoreType %q must be full-copy or copy-on-write", ErrInvalidParameter, restoreType)
+	}
+}
+
 // applyRestoreOptions overlays the request's explicit restore options on a new cluster.
 func applyRestoreOptions(c *DBCluster, o RestoreClusterOptions) {
 	if o.DBSubnetGroupName != "" {
@@ -855,6 +982,9 @@ func applyRestoreOptions(c *DBCluster, o RestoreClusterOptions) {
 		sv2 := *o.ServerlessV2ScalingConfig
 		c.ServerlessV2ScalingConfig = &sv2
 	}
+	if len(o.EnableCloudwatchLogsExports) > 0 {
+		c.EnabledCloudwatchLogsExports = slices.Clone(o.EnableCloudwatchLogsExports)
+	}
 	c.EnableIAMDatabaseAuthentication = c.EnableIAMDatabaseAuthentication || o.EnableIAMAuth
 	c.DeletionProtection = c.DeletionProtection || o.DeletionProtection
 	c.CopyTagsToSnapshot = c.CopyTagsToSnapshot || o.CopyTagsToSnapshot
@@ -883,6 +1013,9 @@ func (b *InMemoryBackend) RestoreDBClusterToPointInTime(
 		)
 	}
 	if err := validateRestorePort(opts.Port); err != nil {
+		return nil, err
+	}
+	if err := validateRestoreType(opts.RestoreType); err != nil {
 		return nil, err
 	}
 	region := getRegion(ctx, b.region)

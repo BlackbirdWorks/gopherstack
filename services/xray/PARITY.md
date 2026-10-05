@@ -61,7 +61,8 @@ items_still_open:
   - "GetTraceSummaries Sampling/SamplingStrategy and GetTimeSeriesServiceStatistics EntitySelectorExpression/ForecastStatistics are accepted with no effect: AWS documents no SamplingStrategy semantics (API_SamplingStrategy.html) and no selector or forecast engine exists."
   - "SamplingTargetDocument.SamplingBoost is never set: AWS does not publish the boost-rate algorithm; boost statistics are accepted and unknown rules reported as unprocessed."
   - "PutResourcePolicy LockoutPreventionException and ThrottledException are never raised: the request pipeline carries no calling principal and no rate limiting is modeled."
-  - "Default trace TTL is 30 minutes (XRAY_TRACE_TTL) vs AWS's 30 days to bound memory; PutTelemetryRecords entries sit in an unpersisted 100-entry ring (X-Ray has no read-back operation)."
+  - "Default trace TTL is 30 minutes (XRAY_TRACE_TTL) vs AWS's 30 days to bound memory; PutTelemetryRecords entries sit in an unpersisted 100-entry ring (X-Ray has no read-back operation), and the ring drops Hostname/EC2InstanceId/BackendConnectionErrors."
+  - "GetServiceGraph Service/Edge ResponseTimeHistogram and DurationHistogram stay empty: AWS documents no bucketing scheme for HistogramEntry values, so none is invented; Service.AccountId and Service.Names beyond the canonical name are unmodeled."
 deferred:
   - none; all routed ops covered by ops/families above
 leaks: {status: clean, note: "Janitor.Run uses pkgs/worker.Group with Ticker + Stop() on ctx.Done(); sweepExpiredTraces holds b.mu.Lock only around map mutation, releases before telemetry/logging calls. Re-verified this pass: no new goroutines/tickers introduced; all new lock paths (resourceExists, resolveSamplingRule, DeleteResourcePolicy's revision check) execute entirely within their caller's existing Lock/RLock and use defer Unlock/RUnlock."}
@@ -542,3 +543,7 @@ PutResourcePolicy revision IDs now increment ("1", "2", ...) per api_op_PutResou
 ## 2026-10-05 (reqfielddiff -adjudicated tier-2)
 
 - BatchGetTraces.NextToken: unsupported per SDK, it carries no page size (api_op_BatchGetTraces.go:41); the call is capped at 5 trace IDs and the emulator tracks no response-size limit, so every call returns all requested traces and no token is due.
+
+- **2026-10-05 (pass 6, gopherstack-9x62)**: GetServiceGraph services now carry Names (canonical name).
+
+- **2026-10-05 (pass 7, gopherstack-9x62)**: CreateGroup and CreateSamplingRule apply Tags (TooManyTagsException above 50); proof create_tags_sdk_test.go. PutTelemetryRecords.ResourceARN is accepted and dropped: the ring has no read-back operation.

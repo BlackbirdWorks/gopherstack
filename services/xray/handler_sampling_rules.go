@@ -87,6 +87,7 @@ type samplingRuleInput struct {
 }
 
 type createSamplingRuleInput struct {
+	Tags         []tagWire         `json:"Tags"`
 	SamplingRule samplingRuleInput `json:"SamplingRule"`
 }
 
@@ -127,8 +128,16 @@ func (h *Handler) handleCreateSamplingRule(_ context.Context, body []byte) ([]by
 		return nil, err
 	}
 
+	if err := checkCreateTags(in.Tags); err != nil {
+		return nil, err
+	}
+
 	r, err := h.Backend.CreateSamplingRule(rule)
 	if err != nil {
+		return nil, err
+	}
+
+	if err = h.applyCreateTags(r.RuleARN, in.Tags); err != nil {
 		return nil, err
 	}
 

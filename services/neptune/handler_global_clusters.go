@@ -70,6 +70,11 @@ func (h *Handler) handleDeleteGlobalCluster(ctx context.Context, vals url.Values
 func (h *Handler) handleFailoverGlobalCluster(ctx context.Context, vals url.Values) (any, error) {
 	globalClusterID := vals.Get("GlobalClusterIdentifier")
 	targetDBClusterID := vals.Get("TargetDbClusterIdentifier")
+	if vals.Get("AllowDataLoss") == formTrue && vals.Get("Switchover") == formTrue {
+		return nil, fmt.Errorf(
+			"%w: AllowDataLoss and Switchover cannot be specified together", ErrInvalidParameterCombination,
+		)
+	}
 	gc, err := h.Backend.FailoverGlobalCluster(ctx, globalClusterID, targetDBClusterID)
 	if err != nil {
 		return nil, err

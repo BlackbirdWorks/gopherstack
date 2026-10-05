@@ -904,3 +904,58 @@ False positives: every flagged Describe*/ListTagsForResource Filters member is d
 - DescribeEventSubscriptions.Filters: unsupported per SDK, documented "not currently supported" (neptune@v1.48.4 api_op_DescribeEventSubscriptions.go:36).
 - DescribeEvents.Filters: unsupported per SDK, documented "not currently supported" (neptune@v1.48.4 api_op_DescribeEvents.go:54).
 - DescribeOrderableDBInstanceOptions.Filters: unsupported per SDK, documented "not currently supported" (neptune@v1.48.4 api_op_DescribeOrderableDBInstanceOptions.go:45).
+
+## 2026-10-05 (pass 7, gopherstack-9x62)
+
+FIXED: ModifyDBCluster/ModifyDBInstance NewDBClusterIdentifier/NewDBInstanceIdentifier rename (ARN, endpoints, tags, roles, members, custom endpoints and global-cluster membership follow). CreateDBCluster/RestoreDBCluster* EnableCloudwatchLogsExports and ModifyDBCluster CloudwatchLogsExportConfiguration persist and emit EnabledCloudwatchLogsExports. ModifyDBCluster enforces AllowMajorVersionUpgrade (InvalidParameterCombination). AddRoleToDBCluster keeps FeatureName. Copy*ParameterGroup/CopyDBClusterSnapshot apply Tags. ModifyDBInstance keeps CACertificateIdentifier. FailoverGlobalCluster rejects AllowDataLoss with Switchover. RestoreDBClusterToPointInTime validates RestoreType. DescribeDBEngineVersions applies Engine/EngineVersion/DBParameterGroupFamily; DescribeEventCategories applies SourceType. Proof: dropped_members_sdk_test.go.
+
+Adjudicated (reqfielddiff -adjudicated), unchanged:
+- CreateDBInstance.AllocatedStorage: documented "Not supported by Neptune." (api_op_CreateDBInstance.go:68).
+- CreateDBInstance.MasterUsername: documented "Not supported by Neptune." (api_op_CreateDBInstance.go:194).
+- CreateDBInstance.MasterUserPassword: documented "Not supported by Neptune." (api_op_CreateDBInstance.go:191).
+- CreateDBInstance.CharacterSetName: documented "(Not supported by Neptune)" (api_op_CreateDBInstance.go:103).
+- CreateDBInstance.DBName: documented "Not supported." (api_op_CreateDBInstance.go:110).
+- CreateDBInstance.EnablePerformanceInsights: documented "(Not supported by Neptune)" (api_op_CreateDBInstance.go:159).
+- CreateDBInstance.OptionGroupName: documented "(Not supported by Neptune)" (api_op_CreateDBInstance.go:219).
+- CreateDBInstance.PerformanceInsightsKMSKeyId: documented "(Not supported by Neptune)" (api_op_CreateDBInstance.go:222).
+- ModifyDBInstance.AllocatedStorage: documented "Not supported by Neptune." (api_op_ModifyDBInstance.go:43).
+- ModifyDBInstance.StorageType: documented "Not applicable", storage type is managed by the DB cluster (api_op_ModifyDBInstance.go:293).
+- ModifyDBInstance.VpcSecurityGroupIds: documented "Not applicable", managed by the DB cluster via ModifyDBCluster (api_op_ModifyDBInstance.go:311).
+- ModifyDBInstance.Domain: documented "Not supported." (api_op_ModifyDBInstance.go:149).
+- ModifyDBInstance.DomainIAMRoleName: documented "Not supported" (api_op_ModifyDBInstance.go:152).
+- ModifyDBInstance.EnablePerformanceInsights: documented "(Not supported by Neptune)" (api_op_ModifyDBInstance.go:166).
+- ModifyDBInstance.LicenseModel: documented "Not supported by Neptune." (api_op_ModifyDBInstance.go:183).
+- ModifyDBInstance.MasterUserPassword: documented "Not supported by Neptune." (api_op_ModifyDBInstance.go:186).
+- ModifyDBInstance.OptionGroupName: documented "(Not supported by Neptune)" (api_op_ModifyDBInstance.go:230).
+- ModifyDBInstance.PerformanceInsightsKMSKeyId: documented "(Not supported by Neptune)" (api_op_ModifyDBInstance.go:233).
+- RestoreDBClusterFromSnapshot.DatabaseName: documented "Not supported." (api_op_RestoreDBClusterFromSnapshot.go:98).
+- RestoreDBClusterFromSnapshot.OptionGroupName: documented "(Not supported by Neptune)" (api_op_RestoreDBClusterFromSnapshot.go:149).
+- RestoreDBClusterToPointInTime.OptionGroupName: documented "(Not supported by Neptune)" (api_op_RestoreDBClusterToPointInTime.go:130).
+- CopyDBClusterSnapshot.PreSignedUrl: documented "Not currently supported" (api_op_CopyDBClusterSnapshot.go:94).
+- CreateDBCluster.PreSignedUrl: documented "not currently supported" (api_op_CreateDBCluster.go:182).
+- CreateDBCluster.CharacterSetName: documented "(Not supported by Neptune)" (api_op_CreateDBCluster.go:78).
+- CreateDBCluster.MasterUserPassword: documented "Not supported by Neptune." (api_op_CreateDBCluster.go:157).
+- CreateDBCluster.OptionGroupName: documented "(Not supported by Neptune)" (api_op_CreateDBCluster.go:174).
+- ModifyDBCluster.MasterUserPassword: documented "Not supported by Neptune." (api_op_ModifyDBCluster.go:126).
+- ModifyDBCluster.OptionGroupName: documented "Not supported by Neptune." (api_op_ModifyDBCluster.go:153).
+- CopyDBClusterSnapshot.SourceRegion: only feeds the PreSignedUrl generation the SDK middleware performs; cross-region copy is not modeled.
+- CreateDBCluster.SourceRegion: only feeds the PreSignedUrl generation the SDK middleware performs; cross-region replicas are not modeled.
+- CreateDBCluster.ReplicationSourceIdentifier: read-replica clusters need replication between clusters, which is not modeled; accepting it would fabricate a replica.
+- CreateDBInstance.Domain: Active Directory domain join is not modeled and the SDK gives no Neptune support statement; unverified against real AWS.
+- CreateDBInstance.DomainIAMRoleName: same as Domain; unverified against real AWS.
+- ModifyDBInstance.DomainIAMRoleName: see Domain; documented "Not supported".
+- CreateDBInstance.LicenseModel: the SDK lists RDS license values and no Neptune statement; unverified against real AWS.
+- CreateDBInstance.TdeCredentialArn: TDE key stores are not modeled; unverified against real AWS.
+- CreateDBInstance.TdeCredentialPassword: TDE key stores are not modeled; unverified against real AWS.
+- CreateDBInstance.Timezone: time zones are not modeled for Neptune; unverified against real AWS.
+- ModifyDBInstance.TdeCredentialArn: TDE key stores are not modeled; unverified against real AWS.
+- ModifyDBInstance.TdeCredentialPassword: TDE key stores are not modeled; unverified against real AWS.
+- CreateDBInstance.EnableCloudwatchLogsExports: log exports are applied on the cluster (CreateDBCluster/ModifyDBCluster); the instance-level member is unverified against real AWS and left unapplied.
+- ModifyDBInstance.CloudwatchLogsExportConfiguration: log exports are applied on the cluster (ModifyDBCluster); the instance-level member is unverified against real AWS and left unapplied.
+- ModifyDBInstance.AllowMajorVersionUpgrade: engine versions are changed through ModifyDBCluster, where the flag is enforced; the instance-level flag is unverified against real AWS.
+- RemoveRoleFromDBCluster.FeatureName: a role keeps one stored feature and removal ignores the name; real AWS likely answers DBClusterRoleNotFound for a mismatch, unverified.
+- RebootDBInstance.ForceFailover: instances are never Multi-AZ here, so there is no failover to force.
+- DescribeDBEngineVersions.ListSupportedCharacterSets: the catalog carries no character sets for Neptune.
+- DescribeDBEngineVersions.ListSupportedTimezones: the catalog carries no time zones for Neptune.
+- DescribeOrderableDBInstanceOptions.LicenseModel: orderable options emit no LicenseModel/Vpc values; real values are unverified, so none are invented or filtered.
+- DescribeOrderableDBInstanceOptions.Vpc: see LicenseModel: orderable options emit no Vpc value, so the filter has nothing to match.

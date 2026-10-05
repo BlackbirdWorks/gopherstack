@@ -17,14 +17,16 @@ import (
 const sqsMetricNamespace = "AWS/SQS"
 
 const (
-	sqsMetricUnitCount  = "Count"
-	sqsMetricUnitBytes  = "Bytes"
-	sqsMetricDimQueue   = "QueueName"
-	sqsMetricSentSize   = "SentMessageSize"
-	sqsMetricEmptyRecv  = "NumberOfEmptyReceives"
-	sqsMetricVisible    = "ApproximateNumberOfMessagesVisible"
-	sqsMetricNotVisible = "ApproximateNumberOfMessagesNotVisible"
-	sqsMetricDelayed    = "ApproximateNumberOfMessagesDelayed"
+	sqsMetricUnitCount   = "Count"
+	sqsMetricUnitBytes   = "Bytes"
+	sqsMetricUnitSeconds = "Seconds"
+	sqsMetricOldestAge   = "ApproximateAgeOfOldestMessage"
+	sqsMetricDimQueue    = "QueueName"
+	sqsMetricSentSize    = "SentMessageSize"
+	sqsMetricEmptyRecv   = "NumberOfEmptyReceives"
+	sqsMetricVisible     = "ApproximateNumberOfMessagesVisible"
+	sqsMetricNotVisible  = "ApproximateNumberOfMessagesNotVisible"
+	sqsMetricDelayed     = "ApproximateNumberOfMessagesDelayed"
 )
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
@@ -101,12 +103,36 @@ func (b *InMemoryBackend) emitCount(q *Queue, name string, value float64) {
 }
 
 // emitQueueDepth publishes the depth gauges for q; callers hold q.mu.
-func (b *InMemoryBackend) emitQueueDepth(q *Queue) {
+func (b *InMemoryBackend) emitQueueDepth(q *Queue, now time.Time) {
 	delayed := q.delayedCount
 
 	b.emitCount(q, sqsMetricVisible, float64(len(q.messages)-delayed))
 	b.emitCount(q, sqsMetricNotVisible, float64(len(q.inFlightMessages)))
 	b.emitCount(q, sqsMetricDelayed, float64(delayed))
+	b.emitMetric(q.Region, q.Name, sqsMetricOldestAge, sqsMetricUnitSeconds, oldestMessageAgeSeconds(q, now))
+}
+
+// oldestMessageAgeSeconds is the age of the oldest undeleted message, in-flight included; callers hold q.mu.
+func oldestMessageAgeSeconds(q *Queue, now time.Time) float64 {
+	oldest := int64(0)
+
+	for _, m := range q.messages {
+		if oldest == 0 || m.SentTimestamp < oldest {
+			oldest = m.SentTimestamp
+		}
+	}
+
+	for _, inf := range q.inFlightMessages {
+		if oldest == 0 || inf.Msg.SentTimestamp < oldest {
+			oldest = inf.Msg.SentTimestamp
+		}
+	}
+
+	if oldest == 0 {
+		return 0
+	}
+
+	return max(0, (time.Duration(now.UnixMilli()-oldest) * time.Millisecond).Seconds())
 }
 
 const sqsDefaultMaxResults = 1000

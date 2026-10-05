@@ -18,7 +18,8 @@ type jsonCreateQueueReq struct {
 }
 
 type jsonGetQueueURLReq struct {
-	QueueName string `json:"QueueName"`
+	QueueName              string `json:"QueueName"`
+	QueueOwnerAWSAccountID string `json:"QueueOwnerAWSAccountId"`
 }
 
 type jsonListQueuesReq struct {
@@ -146,7 +147,9 @@ func (h *Handler) handleGetQueueURL(
 
 	region := httputils.ExtractRegionFromRequest(r, h.DefaultRegion)
 
-	out, err := h.Backend.GetQueueURL(&GetQueueURLInput{QueueName: req.QueueName, Region: region})
+	out, err := h.Backend.GetQueueURL(&GetQueueURLInput{
+		QueueName: req.QueueName, Region: region, OwnerAccountID: req.QueueOwnerAWSAccountID,
+	})
 	if err != nil {
 		return nil, err
 	}

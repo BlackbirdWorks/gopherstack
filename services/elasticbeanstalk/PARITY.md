@@ -65,10 +65,10 @@ ops:
   DescribeInstancesHealth: {wire: fixed, errors: ok, state: n/a, persist: n/a, note: "always returns empty list -- correct since the backend never models EC2 instances; not a disguised stub. gopherstack-6flj: RefreshedAt (real *time.Time member) was never emitted at all -- omitting it decodes as a nil pointer on a typed client, unlike the always-empty (but non-nil) InstanceHealthList a real client already expects to handle as zero-length. Fixed using the same placeholder DescribeEnvironmentHealth uses."}
   DescribeEnvironmentManagedActions: {wire: ok, errors: ok, state: n/a, persist: n/a, note: "always empty -- correct, backend never schedules future actions"}
   DescribeEnvironmentManagedActionHistory: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-6flj: EnvironmentId (real input, alternate to EnvironmentName) was parsed nowhere -- fixed. ExecutedTime (real ManagedActionHistoryItem member) was never emitted -- fixed as equal to FinishedTime (this backend applies managed actions synchronously, so there is no observable gap between start and finish). MaxItems/NextToken pagination added via pkgs/page. FailureDescription/FailureType remain unmodeled -- see gaps (Status is always 'Succeeded', no failure path exists to describe)."}
-  ApplyEnvironmentManagedAction: {wire: ok, errors: ok, state: ok, persist: ok}
-  AbortEnvironmentUpdate: {wire: ok, errors: ok, state: n/a, persist: n/a, note: "no-op is correct: updates complete synchronously in this backend, so there is never anything in-flight to abort"}
-  RebuildEnvironment: {wire: ok, errors: ok, state: n/a, persist: n/a, note: "no-op is correct for a backend with no real infra to rebuild"}
-  RestartAppServer: {wire: ok, errors: ok, state: n/a, persist: n/a, note: "no-op is correct, same reasoning"}
+  ApplyEnvironmentManagedAction: {wire: ok, errors: ok, state: ok, persist: ok, note: "environment resolved by name or id (history is keyed by the resolved name); unknown environment is InvalidParameterValue"}
+  AbortEnvironmentUpdate: {wire: ok, errors: ok, state: n/a, persist: n/a, note: "updates complete synchronously, so there is nothing in flight to abort; a supplied EnvironmentName/EnvironmentId must resolve (InvalidParameterValue otherwise)"}
+  RebuildEnvironment: {wire: ok, errors: ok, state: n/a, persist: n/a, note: "no infra to rebuild; a supplied EnvironmentName/EnvironmentId must resolve (InvalidParameterValue otherwise)"}
+  RestartAppServer: {wire: ok, errors: ok, state: n/a, persist: n/a, note: "no instances to restart; a supplied EnvironmentName/EnvironmentId must resolve (InvalidParameterValue otherwise)"}
   RequestEnvironmentInfo: {wire: ok, errors: fixed, state: n/a, persist: n/a, note: "FIXED this pass (gopherstack-uhsb): InfoType (required; types.EnvironmentInfoType enum tail/bundle/analyze) and EnvironmentName/EnvironmentId were both parsed nowhere -- a request naming a nonexistent environment, or omitting InfoType/the environment entirely, previously got a silent 200. Now validated: InfoType must be one of tail/bundle/analyze, and the named environment must exist (real AWS: 'If no such environment is found, RequestEnvironmentInfo returns an InvalidParameterValue error'), reusing the same DescribeEnvironmentResources resolution pattern (factored into resolveSingleEnvironment). STILL a deliberate structural gap beyond that: real AWS compiles/zips the environment's live EC2 instance log files (tail/bundle) or forwards them to Amazon Bedrock (analyze) -- this backend never models EC2 instances at all (see DescribeInstancesHealth's always-empty list, same reasoning), so there is no genuine log content this no-op could produce; faking log lines would be worse than a documented no-op."}
   RetrieveEnvironmentInfo: {wire: ok, errors: fixed, state: ok, persist: n/a, note: "always empty EnvironmentInfo list -- correct, no log-tailing state is modeled. FIXED this pass (gopherstack-uhsb): same InfoType + environment-existence validation as RequestEnvironmentInfo (previously neither was checked); the empty-list structural gap itself is unchanged and remains correct, not a stub -- see RequestEnvironmentInfo's note for why."}
   CheckDNSAvailability: {wire: ok, errors: ok, state: ok, persist: n/a}
@@ -469,3 +469,18 @@ Still recorded: false retains the environment's Auto Scaling group and load bala
 ## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
 
 ClientException is a sentinel text only; the handler maps ErrAlreadyExists to InvalidParameterValue.
+
+## 2026-10-05 (pass 7, gopherstack-9x62)
+
+FIXED: CreateEnvironment with TemplateName requires the template (InvalidParameterValue), inherits its solution stack/platform when none is given, and starts from its option settings; OptionSettings override and OptionsToRemove drop entries. RestartAppServer, RebuildEnvironment, AbortEnvironmentUpdate, ApplyEnvironmentManagedAction, DescribeEnvironmentManagedActions and DescribeInstancesHealth resolve EnvironmentName/EnvironmentId. ValidateConfigurationSettings resolves EnvironmentName/TemplateName and rejects both together. Proof: env_ops_sdk_test.go.
+
+Adjudicated, unchanged:
+- CreatePlatformVersion.EnvironmentName: no platform builder environment is modeled, so the builder is never launched.
+- CreatePlatformVersion.OptionSettings: builder option settings have no builder to apply to.
+- DescribeInstancesHealth.AttributeNames: the instance list is always empty, so no attribute set is selectable.
+- ComposeEnvironments.GroupName: environment groups are unmodeled with ComposeEnvironments.VersionLabels.
+- CreateEnvironment.GroupName: unmodeled group suffix, see ComposeEnvironments.GroupName.
+- UpdateEnvironment.GroupName: unmodeled group suffix, see ComposeEnvironments.GroupName.
+- CreateApplicationVersion.BuildConfiguration: no CodeBuild data source; BuildArn stays unmodeled (see items_still_open).
+- DeleteApplicationVersion.DeleteSourceBundle: no S3 source bundle is stored, so there is nothing to delete.
+- TerminateEnvironment.ForceTerminate: resources are never created, so termination cannot fail to delete them.

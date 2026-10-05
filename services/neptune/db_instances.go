@@ -290,6 +290,17 @@ func (b *InMemoryBackend) ModifyDBInstance(
 	if !exists {
 		return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, id)
 	}
+	if opts.NewDBInstanceIdentifier != "" && opts.NewDBInstanceIdentifier != id {
+		if err := validateNeptuneIdentifier(opts.NewDBInstanceIdentifier, "NewDBInstanceIdentifier"); err != nil {
+			return nil, err
+		}
+		if b.instanceHas(region, opts.NewDBInstanceIdentifier) {
+			return nil, fmt.Errorf(
+				"%w: instance %s already exists", ErrInstanceAlreadyExists, opts.NewDBInstanceIdentifier,
+			)
+		}
+		b.renameInstance(region, id, inst, opts.NewDBInstanceIdentifier)
+	}
 	applyDBInstanceModifications(inst, instanceClass, opts)
 	cp := *inst
 
@@ -356,6 +367,9 @@ func applyDBInstanceMonitoringAndNetwork(inst *DBInstance, opts DBInstanceModify
 	if opts.MonitoringRoleArn != "" {
 		inst.MonitoringRoleArn = opts.MonitoringRoleArn
 	}
+	if opts.CACertificateIdentifier != "" {
+		inst.CACertificateIdentifier = opts.CACertificateIdentifier
+	}
 	if opts.IopsSet {
 		inst.Iops = opts.Iops
 	}
@@ -391,4 +405,28 @@ func (b *InMemoryBackend) instanceClusterMatches(region string, inst *DBInstance
 	c, ok := b.clusterGet(region, inst.DBClusterIdentifier)
 
 	return ok && slices.Contains(ids, c.DBClusterArn)
+}
+
+// renameInstance re-keys inst under newID and repoints its ARN, endpoint, tags and cluster membership.
+func (b *InMemoryBackend) renameInstance(region, oldID string, inst *DBInstance, newID string) {
+	oldARN := b.instanceARN(region, oldID)
+	b.instanceDelete(region, oldID)
+	inst.DBInstanceIdentifier = newID
+	inst.DBInstanceArn = b.instanceARN(region, newID)
+	inst.Endpoint = fmt.Sprintf("%s.neptune.%s.amazonaws.com", newID, region)
+	b.instancePut(inst)
+
+	tags := b.tagsStore(region)
+	if t, ok := tags[oldARN]; ok {
+		delete(tags, oldARN)
+		tags[inst.DBInstanceArn] = t
+	}
+
+	if cl, ok := b.clusterGet(region, inst.DBClusterIdentifier); ok {
+		for i := range cl.DBClusterMembers {
+			if cl.DBClusterMembers[i].DBInstanceIdentifier == oldID {
+				cl.DBClusterMembers[i].DBInstanceIdentifier = newID
+			}
+		}
+	}
 }

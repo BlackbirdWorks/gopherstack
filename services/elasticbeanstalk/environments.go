@@ -91,6 +91,7 @@ type CreateEnvironmentParams struct {
 	InstanceProfile  string
 	CustomAMI        string
 	OptionSettings   []OptionSetting
+	OptionsToRemove  []OptionSetting
 }
 
 // UpdateEnvironmentParams holds state changes accepted by UpdateEnvironment.
@@ -140,6 +141,22 @@ func (b *InMemoryBackend) CreateEnvironment(
 		return nil, fmt.Errorf("%w: environment %s already exists", ErrAlreadyExists, envName)
 	}
 
+	optionSettings := slices.Clone(params.OptionSettings)
+
+	if params.TemplateName != "" {
+		tmpl, ok := b.configTemplateGet(region, appName, params.TemplateName)
+		if !ok {
+			return nil, fmt.Errorf("%w: no configuration template named %s", ErrNotFound, params.TemplateName)
+		}
+
+		if solutionStack == "" && params.PlatformARN == "" {
+			solutionStack = tmpl.SolutionStackName
+			params.PlatformARN = tmpl.PlatformArn
+		}
+
+		optionSettings = updateOptionSettings(tmpl.OptionSettings, params.OptionSettings, params.OptionsToRemove)
+	}
+
 	envID := b.nextEnvID(region)
 	envARN := arn.Build("elasticbeanstalk", region, b.accountID, "environment/"+appName+"/"+envName)
 
@@ -161,7 +178,7 @@ func (b *InMemoryBackend) CreateEnvironment(
 	cname := cnamePrefix + "." + region + ".elasticbeanstalk.com"
 
 	env := &Environment{
-		OptionSettings:    slices.Clone(params.OptionSettings),
+		OptionSettings:    optionSettings,
 		ApplicationName:   appName,
 		EnvironmentName:   envName,
 		EnvironmentID:     envID,

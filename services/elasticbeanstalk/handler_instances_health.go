@@ -32,7 +32,11 @@ type describeInstancesHealthResponse struct {
 // handleDescribeEnvironmentHealth uses): the real field is *time.Time, so
 // never emitting it would decode as a nil pointer, unlike the always-empty
 // list which a real client already expects to handle as zero-length.
-func (h *Handler) handleDescribeInstancesHealth(_ context.Context, _ url.Values) (any, error) {
+func (h *Handler) handleDescribeInstancesHealth(ctx context.Context, vals url.Values) (any, error) {
+	if err := h.checkOptionalEnvironment(ctx, vals); err != nil {
+		return nil, err
+	}
+
 	return &describeInstancesHealthResponse{
 		Xmlns: ebXMLNS,
 		DescribeInstancesHealthResult: describeInstancesHealthResult{

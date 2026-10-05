@@ -27,6 +27,7 @@ type StorageBackend interface {
 		id, paramGroupName string,
 		opts DBClusterModifyOptions,
 	) (*DBCluster, error)
+	AddRoleToDBClusterFeature(ctx context.Context, clusterID, roleARN, featureName string) error
 	StopDBCluster(ctx context.Context, id string) (*DBCluster, error)
 	StartDBCluster(ctx context.Context, id string) (*DBCluster, error)
 	FailoverDBCluster(ctx context.Context, id, targetInstanceID string) (*DBCluster, error)

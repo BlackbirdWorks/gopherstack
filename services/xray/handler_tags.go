@@ -64,12 +64,7 @@ func (h *Handler) handleTagResource(_ context.Context, body []byte) ([]byte, err
 		return nil, fmt.Errorf("%w: ResourceARN is required", errInvalidRequest)
 	}
 
-	tags := make(map[string]string, len(in.Tags))
-	for _, t := range in.Tags {
-		tags[t.Key] = t.Value
-	}
-
-	if err := h.Backend.TagResource(in.ResourceARN, tags); err != nil {
+	if err := h.Backend.TagResource(in.ResourceARN, tagsToMap(in.Tags)); err != nil {
 		return nil, err
 	}
 
@@ -103,3 +98,29 @@ func (h *Handler) handleUntagResource(_ context.Context, body []byte) ([]byte, e
 const (
 	defaultTagsPageSize = 50
 )
+
+func tagsToMap(in []tagWire) map[string]string {
+	tags := make(map[string]string, len(in))
+	for _, t := range in {
+		tags[t.Key] = t.Value
+	}
+
+	return tags
+}
+
+// checkCreateTags rejects an over-limit tag list before the resource exists.
+func checkCreateTags(in []tagWire) error {
+	if n := len(tagsToMap(in)); n > maxTagsPerResource {
+		return fmt.Errorf("%w: at most %d tags allowed, got %d", ErrTooManyTags, maxTagsPerResource, n)
+	}
+
+	return nil
+}
+
+func (h *Handler) applyCreateTags(arn string, in []tagWire) error {
+	if len(in) == 0 {
+		return nil
+	}
+
+	return h.Backend.TagResource(arn, tagsToMap(in))
+}

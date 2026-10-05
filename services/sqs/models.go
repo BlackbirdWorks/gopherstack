@@ -266,6 +266,8 @@ type ListQueuesOutput struct {
 type GetQueueURLInput struct {
 	QueueName string
 	Region    string
+	// OwnerAccountID is QueueOwnerAWSAccountId; a queue of another account does not exist here.
+	OwnerAccountID string
 }
 
 // GetQueueURLOutput is the output for GetQueueURL.
