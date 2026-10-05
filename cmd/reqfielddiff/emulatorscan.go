@@ -83,6 +83,8 @@ func buildPackageIndexFromFiles(files []*ast.File, fset *token.FileSet, dir stri
 
 	dispatch, alts := collectDispatchEntries(files, consts, funcTypeNames, namedMapTypes)
 	ctx.dispatchAlts = alts
+	ctx.switchBodies = map[string][]ast.Expr{}
+	collectSwitchBodyEntries(files, consts, ctx.switchBodies)
 
 	return &packageIndex{ctx: ctx, dispatch: dispatch}
 }

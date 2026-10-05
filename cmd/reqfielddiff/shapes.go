@@ -134,7 +134,7 @@ func matchHeaderHelperCall(call *ast.CallExpr, formKeys map[string]string, ctx h
 
 func passesHeaderArg(call *ast.CallExpr) bool {
 	for _, a := range call.Args {
-		if sel, ok := a.(*ast.SelectorExpr); ok && sel.Sel.Name == "Header" {
+		if sel, ok := a.(*ast.SelectorExpr); ok && sel.Sel.Name == selHeader {
 			return true
 		}
 	}
@@ -230,7 +230,7 @@ func matchRequestFormCall(
 
 	isForm := requestFormSelectors[sel.Sel.Name]
 	if inner, isSel := sel.X.(*ast.SelectorExpr); isSel && sel.Sel.Name == methodGet {
-		isForm = inner.Sel.Name == "Form" || inner.Sel.Name == "PostForm"
+		isForm = inner.Sel.Name == selForm || inner.Sel.Name == selPostForm
 	}
 
 	if isForm {

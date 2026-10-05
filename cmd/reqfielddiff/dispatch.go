@@ -33,6 +33,7 @@ type handlerResolveCtx struct {
 	queryKeyForwarders    map[string][]int
 	subPackages           map[string]subPackageIndex
 	pkgConsts             map[string]string
+	switchBodies          map[string][]ast.Expr
 	dispatchAlts          map[string][]ast.Expr
 	opName                string
 }
@@ -275,6 +276,7 @@ func collectDispatchEntries(
 	collectBinderSliceEntries(files, pkgConsts, out)
 	collectSwitchDispatchEntries(files, pkgConsts, out)
 	collectIndexAssignEntries(files, pkgConsts, out)
+	collectRouteTableEntries(files, pkgConsts, funcTypeNames, out)
 
 	return out, alts
 }
