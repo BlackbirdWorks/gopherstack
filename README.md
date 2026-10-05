@@ -552,7 +552,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [CloudWatch Network Monitor](services/networkmonitor/README.md) | A | 12 | 1 gap; 1 deferred |
 | [ELB (Classic)](services/elb/README.md) | A | 29 | 2 gaps; 1 deferred |
 | [ELBv2](services/elbv2/README.md) | A | 51 | 3 gaps; 2 deferred |
-| [Route 53](services/route53/README.md) | A | 67 | 1 gap; 3 deferred |
+| [Route 53](services/route53/README.md) | A | 67 | 3 deferred |
 | [Route 53 Resolver](services/route53resolver/README.md) | A | 72 | 3 gaps; 1 deferred |
 | [VPC Lattice](services/vpclattice/README.md) | A | 73 | 5 gaps |
 
@@ -567,7 +567,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [EventBridge Scheduler](services/scheduler/README.md) | A | 12 | 1 gap |
 | [Pinpoint](services/pinpoint/README.md) | A | 51 | 2 gaps; 3 deferred |
 | [SES](services/ses/README.md) | A | 71 | 4 gaps; 1 deferred |
-| [SES v2](services/sesv2/README.md) | A | 112 | 2 gaps |
+| [SES v2](services/sesv2/README.md) | A | 112 | 3 gaps |
 | [SNS](services/sns/README.md) | A | 34 | 2 gaps; 1 deferred |
 | [SQS](services/sqs/README.md) | A | 20 | 3 gaps |
 | [SWF](services/swf/README.md) | A | 39 | 4 gaps |
@@ -607,7 +607,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [KMS](services/kms/README.md) | A | 54 | 3 gaps; 1 deferred |
 | [Macie](services/macie2/README.md) | A | 81 | clean |
 | [Secrets Manager](services/secretsmanager/README.md) | A | 24 | 3 gaps; 2 deferred |
-| [Security Hub](services/securityhub/README.md) | A | 116 | 4 gaps |
+| [Security Hub](services/securityhub/README.md) | A | 116 | 5 gaps |
 | [Shield](services/shield/README.md) | A | 36 | 2 gaps; 1 deferred |
 | [Verified Permissions](services/verifiedpermissions/README.md) | A | 34 | 5 gaps |
 | [WAF](services/waf/README.md) | A | 4 | 2 gaps; 2 structural gaps |
