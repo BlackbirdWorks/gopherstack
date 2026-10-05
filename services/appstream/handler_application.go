@@ -79,6 +79,7 @@ func (h *Handler) opDeleteApplication(_ context.Context, body []byte) (any, erro
 }
 
 type describeApplicationsInput struct {
+	pageReq
 	Arns []string `json:"Arns"`
 }
 
@@ -95,12 +96,17 @@ func (h *Handler) opDescribeApplications(_ context.Context, body []byte) (any, e
 		return nil, err
 	}
 
+	apps, next, err := pageOf(apps, func(v *Application) string { return v.Arn }, req.pageReq, maxDescribePageSize)
+	if err != nil {
+		return nil, err
+	}
+
 	resp := make([]any, 0, len(apps))
 	for _, app := range apps {
 		resp = append(resp, applicationToResponse(app))
 	}
 
-	return map[string]any{"Applications": resp}, nil
+	return withNext(map[string]any{"Applications": resp}, next), nil
 }
 
 type updateApplicationInput struct {
@@ -128,14 +134,31 @@ func (h *Handler) opUpdateApplication(_ context.Context, body []byte) (any, erro
 	return map[string]any{"Application": applicationToResponse(app)}, nil
 }
 
-func (h *Handler) opDescribeAppLicenseUsage(_ context.Context, _ []byte) (any, error) {
+func (h *Handler) opDescribeAppLicenseUsage(_ context.Context, body []byte) (any, error) {
+	var req pageReq
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
+		}
+	}
+
 	usage, err := h.Backend.DescribeAppLicenseUsage()
 	if err != nil {
 		return nil, err
 	}
 
+	usage, next, err := pageOf(
+		usage,
+		func(v map[string]string) string { return v["BillingPeriod"] },
+		req,
+		maxDescribePageSize,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	// Real DescribeAppLicenseUsageOutput carries AppLicenseUsages (plural).
-	return map[string]any{"AppLicenseUsages": usage}, nil
+	return withNext(map[string]any{"AppLicenseUsages": usage}, next), nil
 }
 
 // --- Application-Fleet association handlers ---
@@ -178,6 +201,7 @@ func (h *Handler) opDisassociateApplicationFleet(_ context.Context, body []byte)
 type describeApplicationFleetAssociationsInput struct {
 	ApplicationArn string `json:"ApplicationArn"`
 	FleetName      string `json:"FleetName"`
+	pageReq
 }
 
 func (h *Handler) opDescribeApplicationFleetAssociations(_ context.Context, body []byte) (any, error) {
@@ -193,16 +217,18 @@ func (h *Handler) opDescribeApplicationFleetAssociations(_ context.Context, body
 		return nil, err
 	}
 
-	resp := make([]any, 0, len(assocs))
-	for _, a := range assocs {
-		resp = append(resp, map[string]any{
-			"ApplicationArn": a.ApplicationArn,
-			keyFleetName:     a.FleetName,
-			"State":          a.State, //nolint:goconst // existing issue.
-		})
-	}
-
-	return map[string]any{"ApplicationFleetAssociations": resp}, nil
+	return pagedResponse(
+		assocs,
+		func(v *ApplicationFleetAssociation) string { return v.ApplicationArn + "|" + v.FleetName },
+		req.pageReq, "ApplicationFleetAssociations",
+		func(a *ApplicationFleetAssociation) map[string]any {
+			return map[string]any{
+				"ApplicationArn": a.ApplicationArn,
+				keyFleetName:     a.FleetName,
+				"State":          a.State, //nolint:goconst // existing issue.
+			}
+		},
+	)
 }
 
 // --- Entitlement handlers ---
@@ -267,6 +293,7 @@ func (h *Handler) opDeleteEntitlement(_ context.Context, body []byte) (any, erro
 type describeEntitlementsInput struct {
 	Name      string `json:"Name"`
 	StackName string `json:"StackName"`
+	pageReq
 }
 
 func (h *Handler) opDescribeEntitlements(_ context.Context, body []byte) (any, error) {
@@ -282,12 +309,22 @@ func (h *Handler) opDescribeEntitlements(_ context.Context, body []byte) (any, e
 		return nil, err
 	}
 
+	ents, next, err := pageOf(
+		ents,
+		func(v *Entitlement) string { return v.StackName + "|" + v.Name },
+		req.pageReq,
+		maxDescribePageSize,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	resp := make([]any, 0, len(ents))
 	for _, e := range ents {
 		resp = append(resp, entitlementToResponse(e))
 	}
 
-	return map[string]any{"Entitlements": resp}, nil
+	return withNext(map[string]any{"Entitlements": resp}, next), nil
 }
 
 type updateEntitlementInput struct {
@@ -360,6 +397,7 @@ func (h *Handler) opDisassociateApplicationFromEntitlement(_ context.Context, bo
 type listEntitledApplicationsInput struct {
 	EntitlementName string `json:"EntitlementName"`
 	StackName       string `json:"StackName"`
+	pageReq
 }
 
 func (h *Handler) opListEntitledApplications(_ context.Context, body []byte) (any, error) {
@@ -373,12 +411,22 @@ func (h *Handler) opListEntitledApplications(_ context.Context, body []byte) (an
 		return nil, err
 	}
 
+	apps, next, err := pageOf(
+		apps,
+		func(v *EntitledApplication) string { return v.ApplicationIdentifier },
+		req.pageReq,
+		maxDescribePageSize,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	resp := make([]any, 0, len(apps))
 	for _, a := range apps {
 		resp = append(resp, map[string]any{"ApplicationIdentifier": a.ApplicationIdentifier})
 	}
 
-	return map[string]any{"EntitledApplications": resp}, nil
+	return withNext(map[string]any{"EntitledApplications": resp}, next), nil
 }
 
 // --- DirectoryConfig handlers ---
@@ -455,6 +503,7 @@ func (h *Handler) opDeleteDirectoryConfig(_ context.Context, body []byte) (any, 
 }
 
 type describeDirectoryConfigsInput struct {
+	pageReq
 	DirectoryNames []string `json:"DirectoryNames"`
 }
 
@@ -471,12 +520,22 @@ func (h *Handler) opDescribeDirectoryConfigs(_ context.Context, body []byte) (an
 		return nil, err
 	}
 
+	dcs, next, err := pageOf(
+		dcs,
+		func(v *DirectoryConfig) string { return v.DirectoryName },
+		req.pageReq,
+		maxDescribePageSize,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	resp := make([]any, 0, len(dcs))
 	for _, dc := range dcs {
 		resp = append(resp, directoryConfigToResponse(dc))
 	}
 
-	return map[string]any{"DirectoryConfigs": resp}, nil
+	return withNext(map[string]any{"DirectoryConfigs": resp}, next), nil
 }
 
 type updateDirectoryConfigInput struct {

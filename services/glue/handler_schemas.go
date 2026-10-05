@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -931,13 +933,25 @@ func (h *Handler) handlePutSchemaVersionMetadata(
 
 // querySchemaVersionMetadataInput holds input for QuerySchemaVersionMetadata.
 type querySchemaVersionMetadataInput struct {
-	SchemaVersionID string `json:"SchemaVersionId"`
+	SchemaVersionID string                  `json:"SchemaVersionId"`
+	NextToken       string                  `json:"NextToken,omitempty"`
+	MetadataList    []metadataKeyValueInput `json:"MetadataList,omitempty"`
+	MaxResults      int32                   `json:"MaxResults,omitempty"`
 }
+
+type metadataKeyValueInput struct {
+	MetadataKey   string `json:"MetadataKey"`
+	MetadataValue string `json:"MetadataValue"`
+}
+
+// defaultQuerySchemaVersionMetadataLimit is the documented default (api_op_QuerySchemaVersionMetadata.go).
+const defaultQuerySchemaVersionMetadataLimit = 25
 
 // querySchemaVersionMetadataOutput holds the result for QuerySchemaVersionMetadata.
 type querySchemaVersionMetadataOutput struct {
 	MetadataInfo    map[string]any `json:"MetadataInfoMap"`
 	SchemaVersionID string         `json:"SchemaVersionId"`
+	NextToken       string         `json:"NextToken,omitempty"`
 }
 
 func (h *Handler) handleQuerySchemaVersionMetadata(
@@ -946,14 +960,32 @@ func (h *Handler) handleQuerySchemaVersionMetadata(
 ) (*querySchemaVersionMetadataOutput, error) {
 	raw := h.Backend.QuerySchemaVersionMetadata(in.SchemaVersionID)
 
-	meta := make(map[string]any, len(raw))
+	keys := make([]string, 0, len(raw))
+
 	for k, v := range raw {
-		meta[k] = map[string]any{"MetadataValue": v, "CreatedTime": ""}
+		if len(in.MetadataList) == 0 || slices.ContainsFunc(in.MetadataList, func(m metadataKeyValueInput) bool {
+			return m.MetadataKey == k && (m.MetadataValue == "" || m.MetadataValue == v)
+		}) {
+			keys = append(keys, k)
+		}
+	}
+
+	sort.Strings(keys)
+
+	page, next, err := pagedSlice(keys, in.NextToken, in.MaxResults, defaultQuerySchemaVersionMetadataLimit)
+	if err != nil {
+		return nil, err
+	}
+
+	meta := make(map[string]any, len(page))
+	for _, k := range page {
+		meta[k] = map[string]any{"MetadataValue": raw[k], "CreatedTime": ""}
 	}
 
 	return &querySchemaVersionMetadataOutput{
 		MetadataInfo:    meta,
 		SchemaVersionID: in.SchemaVersionID,
+		NextToken:       next,
 	}, nil
 }
 

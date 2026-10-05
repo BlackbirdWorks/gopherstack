@@ -70,6 +70,10 @@ func (h *Handler) handleListSites(_ context.Context, r *http.Request, _ []byte) 
 		statesRegions: q["OperatingAddressStateOrRegionFilter"],
 	}
 
+	if err := validatePage(q); err != nil {
+		return nil, err
+	}
+
 	p := h.Backend.ListSites(f, q.Get("NextToken"), queryMaxResults(q))
 
 	resp := listSitesResponse{NextToken: p.Next, Sites: make([]siteWire, 0, len(p.Data))}

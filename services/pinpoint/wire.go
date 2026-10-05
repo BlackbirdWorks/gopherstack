@@ -46,6 +46,7 @@ type createEmailTemplateRequest struct {
 
 // createExportJobRequest is the request body for CreateExportJob.
 type createExportJobRequest struct {
+	SegmentID   string `json:"SegmentId,omitempty"`
 	RoleArn     string `json:"RoleArn"`
 	S3UrlPrefix string `json:"S3UrlPrefix"`
 }
@@ -601,7 +602,8 @@ type eventStreamResponse struct {
 
 // campaignActivitiesResponse is the JSON wire format of ActivitiesResponse.
 type campaignActivitiesResponse struct {
-	Item []campaignActivity `json:"Item"`
+	NextToken *string            `json:"NextToken,omitempty"`
+	Item      []campaignActivity `json:"Item"`
 }
 
 // campaignActivity is a single campaign activity.
@@ -790,7 +792,8 @@ type journeyExecutionActivityMetricsResponse struct {
 
 // journeyRunsResponse is the response for GetJourneyRuns.
 type journeyRunsResponse struct {
-	Item []journeyRun `json:"Item"`
+	NextToken *string      `json:"NextToken,omitempty"`
+	Item      []journeyRun `json:"Item"`
 }
 
 // journeyRun is a single journey run. CreationTime/LastUpdateTime are "This
@@ -837,37 +840,44 @@ type journeyRunExecutionActivityMetricsResponse struct {
 
 // templatesListResponse is the JSON wire format of TemplatesResponse (ListTemplates).
 type templatesListResponse struct {
-	Item []templateListItem `json:"Item"`
+	NextToken *string            `json:"NextToken,omitempty"`
+	Item      []templateListItem `json:"Item"`
 }
 
 // templateVersionsListResponse is the JSON wire format of TemplateVersionsResponse.
 type templateVersionsListResponse struct {
-	Item []templateVersionItem `json:"Item"`
+	NextToken *string               `json:"NextToken,omitempty"`
+	Item      []templateVersionItem `json:"Item"`
 }
 
 // recommenderConfigsListResponse is the JSON wire format of ListRecommenderConfigurationsResponse.
 type recommenderConfigsListResponse struct {
-	Item []recommenderConfigResponse `json:"Item"`
+	NextToken *string                     `json:"NextToken,omitempty"`
+	Item      []recommenderConfigResponse `json:"Item"`
 }
 
 // exportJobsListResponse is the JSON wire format of ExportJobsResponse.
 type exportJobsListResponse struct {
-	Item []exportJobResponse `json:"Item"`
+	NextToken *string             `json:"NextToken,omitempty"`
+	Item      []exportJobResponse `json:"Item"`
 }
 
 // importJobsListResponse is the JSON wire format of ImportJobsResponse.
 type importJobsListResponse struct {
-	Item []importJobResponse `json:"Item"`
+	NextToken *string             `json:"NextToken,omitempty"`
+	Item      []importJobResponse `json:"Item"`
 }
 
 // campaignVersionsResponse is the JSON wire format of CampaignVersionsResponse.
 type campaignVersionsResponse struct {
-	Item []campaignResponse `json:"Item"`
+	NextToken *string            `json:"NextToken,omitempty"`
+	Item      []campaignResponse `json:"Item"`
 }
 
 // segmentVersionsResponse is the JSON wire format of SegmentVersionsResponse.
 type segmentVersionsResponse struct {
-	Item []segmentResponse `json:"Item"`
+	NextToken *string           `json:"NextToken,omitempty"`
+	Item      []segmentResponse `json:"Item"`
 }
 
 // messageBodyResponse is a simple message/arn response for update ops.

@@ -47,7 +47,7 @@ func TestResourceScan_PopulatesFromStacks(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			scanID, err := b.StartResourceScan()
+			scanID, err := b.StartResourceScan(nil)
 			require.NoError(t, err)
 			assert.NotEmpty(t, scanID)
 

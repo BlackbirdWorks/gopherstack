@@ -55,6 +55,7 @@ func (h *Handler) opDeleteUser(_ context.Context, body []byte) (any, error) {
 
 type describeUsersInput struct {
 	AuthenticationType string `json:"AuthenticationType"`
+	pageReq
 }
 
 func (h *Handler) opDescribeUsers(_ context.Context, body []byte) (any, error) {
@@ -70,12 +71,22 @@ func (h *Handler) opDescribeUsers(_ context.Context, body []byte) (any, error) {
 		return nil, err
 	}
 
+	users, next, err := pageOf(
+		users,
+		func(v *User) string { return v.UserName + "|" + v.AuthenticationType },
+		req.pageReq,
+		maxDescribePageSize,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	resp := make([]any, 0, len(users))
 	for _, u := range users {
 		resp = append(resp, userToResponse(u))
 	}
 
-	return map[string]any{"Users": resp}, nil
+	return withNext(map[string]any{"Users": resp}, next), nil
 }
 
 type userAuthInput struct {
@@ -210,6 +221,7 @@ type describeUserStackAssociationsInput struct {
 	StackName          string `json:"StackName"`
 	UserName           string `json:"UserName"`
 	AuthenticationType string `json:"AuthenticationType"`
+	pageReq
 }
 
 func (h *Handler) opDescribeUserStackAssociations(_ context.Context, body []byte) (any, error) {
@@ -225,6 +237,13 @@ func (h *Handler) opDescribeUserStackAssociations(_ context.Context, body []byte
 		return nil, err
 	}
 
+	assocs, next, err := pageOf(assocs, func(v *UserStackAssociation) string {
+		return v.StackName + "|" + v.UserName + "|" + v.AuthenticationType
+	}, req.pageReq, maxDescribePageSize)
+	if err != nil {
+		return nil, err
+	}
+
 	resp := make([]any, 0, len(assocs))
 	for _, a := range assocs {
 		resp = append(resp, map[string]any{
@@ -234,7 +253,7 @@ func (h *Handler) opDescribeUserStackAssociations(_ context.Context, body []byte
 		})
 	}
 
-	return map[string]any{"UserStackAssociations": resp}, nil
+	return withNext(map[string]any{"UserStackAssociations": resp}, next), nil
 }
 
 // --- Session handlers ---
@@ -356,8 +375,25 @@ func (h *Handler) opDeleteUsageReportSubscription(_ context.Context, _ []byte) (
 	return map[string]any{}, nil
 }
 
-func (h *Handler) opDescribeUsageReportSubscriptions(_ context.Context, _ []byte) (any, error) {
+func (h *Handler) opDescribeUsageReportSubscriptions(_ context.Context, body []byte) (any, error) {
+	var req pageReq
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
+		}
+	}
+
 	subs, err := h.Backend.DescribeUsageReportSubscriptions()
+	if err != nil {
+		return nil, err
+	}
+
+	subs, next, err := pageOf(
+		subs,
+		func(v *UsageReportSubscription) string { return v.S3BucketName },
+		req,
+		maxDescribePageSize,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -370,7 +406,7 @@ func (h *Handler) opDescribeUsageReportSubscriptions(_ context.Context, _ []byte
 		})
 	}
 
-	return map[string]any{"UsageReportSubscriptions": resp}, nil
+	return withNext(map[string]any{"UsageReportSubscriptions": resp}, next), nil
 }
 
 // --- Theme handlers ---

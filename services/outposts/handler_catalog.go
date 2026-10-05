@@ -26,6 +26,10 @@ func (h *Handler) handleListCatalogItems(_ context.Context, r *http.Request, _ [
 		supportedStorage: q["SupportedStorageFilter"],
 	}
 
+	if err := validatePage(q); err != nil {
+		return nil, err
+	}
+
 	p := h.Backend.ListCatalogItems(f, q.Get("NextToken"), queryMaxResults(q))
 
 	resp := listCatalogItemsResponse{NextToken: p.Next, CatalogItems: make([]catalogItemWire, 0, len(p.Data))}
@@ -38,6 +42,10 @@ func (h *Handler) handleListCatalogItems(_ context.Context, r *http.Request, _ [
 
 func (h *Handler) handleListOrderableInstanceTypes(_ context.Context, r *http.Request, _ []byte) ([]byte, error) {
 	q := r.URL.Query()
+
+	if err := validatePage(q); err != nil {
+		return nil, err
+	}
 
 	p := h.Backend.ListOrderableInstanceTypes(q.Get("OutpostGenerationFilter"), q.Get("NextToken"), queryMaxResults(q))
 

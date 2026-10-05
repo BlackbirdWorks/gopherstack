@@ -543,6 +543,7 @@ func (h *Handler) opCreateStack(_ context.Context, body []byte) (any, error) {
 }
 
 type describeStacksInput struct {
+	pageReq
 	Names []string `json:"Names"`
 }
 
@@ -559,12 +560,17 @@ func (h *Handler) opDescribeStacks(_ context.Context, body []byte) (any, error) 
 		return nil, err
 	}
 
+	stacks, next, err := pageOf(stacks, func(v *Stack) string { return v.Name }, req.pageReq, maxDescribePageSize)
+	if err != nil {
+		return nil, err
+	}
+
 	resp := make([]any, 0, len(stacks))
 	for _, s := range stacks {
 		resp = append(resp, stackToResponse(s))
 	}
 
-	return map[string]any{"Stacks": resp}, nil
+	return withNext(map[string]any{"Stacks": resp}, next), nil
 }
 
 type updateStackInput struct {
@@ -758,6 +764,7 @@ func (h *Handler) opCreateFleet(_ context.Context, body []byte) (any, error) {
 }
 
 type describeFleetsInput struct {
+	pageReq
 	Names []string `json:"Names"`
 }
 
@@ -774,12 +781,17 @@ func (h *Handler) opDescribeFleets(_ context.Context, body []byte) (any, error) 
 		return nil, err
 	}
 
+	fleets, next, err := pageOf(fleets, func(v *Fleet) string { return v.Name }, req.pageReq, maxDescribePageSize)
+	if err != nil {
+		return nil, err
+	}
+
 	resp := make([]any, 0, len(fleets))
 	for _, f := range fleets {
 		resp = append(resp, fleetToResponse(f))
 	}
 
-	return map[string]any{"Fleets": resp}, nil
+	return withNext(map[string]any{"Fleets": resp}, next), nil
 }
 
 type updateFleetInput struct {
@@ -932,6 +944,7 @@ func (h *Handler) opDisassociateFleet(_ context.Context, body []byte) (any, erro
 
 type listAssociatedFleetsInput struct {
 	StackName string `json:"StackName"`
+	pageReq
 }
 
 func (h *Handler) opListAssociatedFleets(_ context.Context, body []byte) (any, error) {
@@ -945,11 +958,17 @@ func (h *Handler) opListAssociatedFleets(_ context.Context, body []byte) (any, e
 		return nil, err
 	}
 
-	return map[string]any{"Names": names}, nil
+	names, next, err := pageOf(names, func(v string) string { return v }, req.pageReq, maxDescribePageSize)
+	if err != nil {
+		return nil, err
+	}
+
+	return withNext(map[string]any{"Names": names}, next), nil
 }
 
 type listAssociatedStacksInput struct {
 	FleetName string `json:"FleetName"`
+	pageReq
 }
 
 func (h *Handler) opListAssociatedStacks(_ context.Context, body []byte) (any, error) {
@@ -963,7 +982,12 @@ func (h *Handler) opListAssociatedStacks(_ context.Context, body []byte) (any, e
 		return nil, err
 	}
 
-	return map[string]any{"Names": names}, nil
+	names, next, err := pageOf(names, func(v string) string { return v }, req.pageReq, maxDescribePageSize)
+	if err != nil {
+		return nil, err
+	}
+
+	return withNext(map[string]any{"Names": names}, next), nil
 }
 
 // --- Tag handlers ---

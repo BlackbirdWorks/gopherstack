@@ -1605,3 +1605,7 @@ clean now, no more logged errors.
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 medialive is region-isolated: channels, inputs, multiplexes and alarm templates live per region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/medialive`. Limitation: the dashboard shows the home region only. `TestHandler_MultiRegionReset` covers Reset.
+
+## 2026-10-05 (reqfielddiff tier-2 pagination)
+
+DescribeSchedule now pages its schedule actions (query maxResults/nextToken, `paginationParams` + `page.New`, default `defaultMaxResults`, NextToken only when truncated). ListAlerts and ListMultiplexAlerts (maxResults, nextToken, StateFilter) are recorded as always-empty: no alert engine raises or clears alerts, so StateFilter has nothing to filter. All three now reject a non-positive maxResults or a malformed nextToken with BadRequestException (`validPaging`). Proof: `TestRealClient_DescribeScheduleHonoursPaging`.

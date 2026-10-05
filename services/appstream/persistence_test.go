@@ -289,7 +289,7 @@ func assertRestoredAssociations(t *testing.T, fresh *appstream.InMemoryBackend) 
 func assertRestoredCountersAndScalar(t *testing.T, fresh *appstream.InMemoryBackend) {
 	t.Helper()
 
-	tasks, _, err := fresh.ListExportImageTasks(0, "")
+	tasks, _, err := fresh.ListExportImageTasks(0, "", nil)
 	require.NoError(t, err)
 	require.Len(t, tasks, 1)
 	assert.Equal(t, "export-task-00001", tasks[0].TaskID)

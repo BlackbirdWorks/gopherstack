@@ -100,9 +100,11 @@ func (h *Handler) handleListHookResults(form url.Values, c *echo.Context) error 
 }
 
 func (h *Handler) handleDescribeChangeSetHooks(form url.Values, c *echo.Context) error {
-	hooks, _ := h.Backend.DescribeChangeSetHooks(form.Get("StackName"), form.Get("ChangeSetName"))
+	all, _ := h.Backend.DescribeChangeSetHooks(form.Get("StackName"), form.Get("ChangeSetName"))
+	hooks := pageForm(form, all)
 	type result struct {
-		Hooks []ChangeSetHook `xml:"Hooks>member"`
+		NextToken string          `xml:"NextToken,omitempty"`
+		Hooks     []ChangeSetHook `xml:"Hooks>member"`
 	}
 	type response struct {
 		XMLName   xml.Name `xml:"DescribeChangeSetHooksResponse"`
@@ -113,6 +115,10 @@ func (h *Handler) handleDescribeChangeSetHooks(form url.Values, c *echo.Context)
 
 	return writeXML(
 		c,
-		response{Xmlns: cfnNS, Result: result{Hooks: hooks}, RequestID: uuid.New().String()},
+		response{
+			Xmlns:     cfnNS,
+			Result:    result{Hooks: hooks.Data, NextToken: hooks.Next},
+			RequestID: uuid.New().String(),
+		},
 	)
 }

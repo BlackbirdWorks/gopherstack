@@ -432,7 +432,9 @@ type getUnfilteredPartitionsMetadataInput struct {
 	DatabaseName             string   `json:"DatabaseName"`
 	TableName                string   `json:"TableName"`
 	CatalogID                string   `json:"CatalogId,omitempty"`
+	NextToken                string   `json:"NextToken,omitempty"`
 	SupportedPermissionTypes []string `json:"SupportedPermissionTypes,omitempty"`
+	MaxResults               int32    `json:"MaxResults,omitempty"`
 }
 
 // unfilteredPartitionEntry wraps a Partition for the unfiltered metadata response.
@@ -444,7 +446,8 @@ type unfilteredPartitionEntry struct {
 
 // getUnfilteredPartitionsMetadataOutput holds the result for GetUnfilteredPartitionsMetadata.
 type getUnfilteredPartitionsMetadataOutput struct {
-	UnfilteredPartitions []any `json:"UnfilteredPartitions"`
+	NextToken            string `json:"NextToken,omitempty"`
+	UnfilteredPartitions []any  `json:"UnfilteredPartitions"`
 }
 
 func (h *Handler) handleGetUnfilteredPartitionsMetadata(
@@ -471,6 +474,11 @@ func (h *Handler) handleGetUnfilteredPartitionsMetadata(
 		return nil, err
 	}
 
+	partitions, next, err := pagedSlice(partitions, in.NextToken, in.MaxResults, defaultListPageSize)
+	if err != nil {
+		return nil, err
+	}
+
 	result := make([]any, 0, len(partitions))
 	for _, p := range partitions {
 		result = append(result, unfilteredPartitionEntry{
@@ -479,7 +487,7 @@ func (h *Handler) handleGetUnfilteredPartitionsMetadata(
 		})
 	}
 
-	return &getUnfilteredPartitionsMetadataOutput{UnfilteredPartitions: result}, nil
+	return &getUnfilteredPartitionsMetadataOutput{UnfilteredPartitions: result, NextToken: next}, nil
 }
 
 // updatePartitionInput holds input for UpdatePartition.

@@ -145,6 +145,7 @@ items_still_open:
   - "GetFindingsV2 OCSF filter fields with no ASFF backing stay unevaluated (accepted, not applied): evidences.*, vendor_attributes.*, resources.image.*, databucket.tags, compliance.assessments.meets_criteria, class_name, and is_fix_available (FixAvailable is three-valued). vulnerabilities.cve.cvss.base_score is now evaluated (2026-10-01, TestRealClient_GetFindingsV2_CvssBaseScore)."
   - "BatchUpdateFindingsV2 MetadataUids never resolve (ResourceNotFoundException): findings carry no OCSF metadata.uid because ingestion is ASFF-only. Same reason: ListMembers(onlyAssociated=true) needs cross-account invitation acceptance; CSPM Connector status stays PENDING/UNKNOWN (no out-of-band Azure signal); Scopes.AwsOrganizations is accepted-and-dropped (no OU tree)."
   - "GetFindingsV2 OcsfMapFilter entries with a repeated field are combined by the CompositeFilter Operator, not V1's implicit CONTAINS-OR/NOT-AND rule; AWS docs do not say which applies, so not guessed."
+  - "GetFindingsTrendsV2.Filters and GetResourcesTrendsV2.Filters are not evaluated: trend points cover every stored finding/resource (2026-10-05 tier-2 pass)."
 deferred: []
 leaks: {status: clean, note: "no goroutines, tickers, or background loops in services/securityhub -- pure request-response over an in-memory store.Registry guarded by one lockmetrics.RWMutex. New findingHistory map (findings.go/store.go) follows the same plain-map + coarse-lock pattern as findings/tags -- every read/write path holds b.mu for the duration, no separate lock, no goroutines."}
 ---
@@ -1458,3 +1459,7 @@ Gates: `go build ./...`, `go vet ./services/securityhub/...`, `go test
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 securityhub is region-isolated: Hub enablement, standards, insights, action targets, automation rules and findings live per region. Tagging bridge covers every region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/securityhub`. Limitation: the dashboard shows the home region only.
+
+## 2026-10-05 (reqfielddiff tier-2 pagination)
+
+GetFindingsTrendsV2, GetResourcesTrendsV2 (body MaxResults/NextToken) and GetRecommendedPolicyV2 (query MaxResults/NextToken) now validate paging (`validPaging`, handler.go: negative MaxResults or a malformed token returns InvalidInputException) and the trend ops page through `paginateSlice`; the backend emits a single trend point so NextToken is never set for a first page. The eight flagged MaxResults members on DescribeProducts, DescribeStandards, DescribeStandardsControls, ListAutomationRules, ListConnectors, ListEnabledProductsForImport, ListSecurityControlDefinitions and ListStandardsControlAssociations were false positives: each handler reads them through `queryInt`. Recorded gap: GetFindingsTrendsV2.Filters and GetResourcesTrendsV2.Filters are not evaluated (trends cover every stored finding/resource). Proof: `TestRealClient_TrendOpsHonourPaging`.

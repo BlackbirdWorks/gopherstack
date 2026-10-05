@@ -1004,6 +1004,10 @@ func (h *Handler) handleStopChannel(c *echo.Context, channelID string) error {
 // --- Alert and version handlers ---
 
 func (h *Handler) handleListAlerts(c *echo.Context, channelID string) error {
+	if err := validPaging(c); err != nil {
+		return respondErr(c, err)
+	}
+
 	alerts, err := h.Backend.ListAlerts(channelID)
 	if err != nil {
 		return respondErr(c, err)

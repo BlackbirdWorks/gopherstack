@@ -1142,3 +1142,7 @@ Emits HTTP API Count, 4xx, 5xx, Latency, IntegrationLatency and WebSocket Connec
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 WebSocket connections register with the Management API backend of the API's region (`SetManagementAPIResolver`), so `@connections` calls from another region report the connection gone. Proof: `TestHandler_WebSocketConnectionsLandInAPIRegion`.
+
+## 2026-10-05 (reqfielddiff tier-2 pagination)
+
+All 20 flagged members (GetAuthorizers, GetDeployments, GetIntegrationResponses, GetIntegrations, GetModels, GetRouteResponses, GetRoutes, GetStages, GetVpcLinks, ListRoutingRules maxResults/nextToken) were false positives: every list already pages through `apigwPaginationParams` (query members, serializers.go:4218 apigatewayv2@v1.37.4) over stable-sorted backend lists. The one real gap was a malformed token or non-positive maxResults silently restarting at page 1; `validateAPIGWPaging` now returns 400 BadRequestException. Proof: `TestRealClient_GetOpsPageAndRejectBadTokens`.

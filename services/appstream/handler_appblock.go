@@ -91,6 +91,7 @@ func (h *Handler) opDeleteAppBlock(_ context.Context, body []byte) (any, error) 
 }
 
 type describeAppBlocksInput struct {
+	pageReq
 	Arns []string `json:"Arns"`
 }
 
@@ -107,12 +108,17 @@ func (h *Handler) opDescribeAppBlocks(_ context.Context, body []byte) (any, erro
 		return nil, err
 	}
 
+	abs, next, err := pageOf(abs, func(v *AppBlock) string { return v.Arn }, req.pageReq, maxDescribePageSize)
+	if err != nil {
+		return nil, err
+	}
+
 	resp := make([]any, 0, len(abs))
 	for _, ab := range abs {
 		resp = append(resp, appBlockToResponse(ab))
 	}
 
-	return map[string]any{"AppBlocks": resp}, nil
+	return withNext(map[string]any{"AppBlocks": resp}, next), nil
 }
 
 // --- AppBlockBuilder handlers ---
@@ -173,6 +179,7 @@ func (h *Handler) opDeleteAppBlockBuilder(_ context.Context, body []byte) (any, 
 }
 
 type describeAppBlockBuildersInput struct {
+	pageReq
 	Names []string `json:"Names"`
 }
 
@@ -189,12 +196,17 @@ func (h *Handler) opDescribeAppBlockBuilders(_ context.Context, body []byte) (an
 		return nil, err
 	}
 
+	bbs, next, err := pageOf(bbs, func(v *AppBlockBuilder) string { return v.Name }, req.pageReq, maxBlockBuilderPage)
+	if err != nil {
+		return nil, err
+	}
+
 	resp := make([]any, 0, len(bbs))
 	for _, bb := range bbs {
 		resp = append(resp, appBlockBuilderToResponse(bb))
 	}
 
-	return map[string]any{"AppBlockBuilders": resp}, nil
+	return withNext(map[string]any{"AppBlockBuilders": resp}, next), nil
 }
 
 type appBlockBuilderNameInput struct {
@@ -328,6 +340,7 @@ func (h *Handler) opDisassociateAppBlockBuilderAppBlock(_ context.Context, body 
 type describeAppBlockBuilderAppBlockAssociationsInput struct {
 	AppBlockBuilderName string `json:"AppBlockBuilderName"`
 	AppBlockArn         string `json:"AppBlockArn"`
+	pageReq
 }
 
 func (h *Handler) opDescribeAppBlockBuilderAppBlockAssociations(_ context.Context, body []byte) (any, error) {
@@ -343,16 +356,18 @@ func (h *Handler) opDescribeAppBlockBuilderAppBlockAssociations(_ context.Contex
 		return nil, err
 	}
 
-	resp := make([]any, 0, len(assocs))
-	for _, a := range assocs {
-		resp = append(resp, map[string]any{
-			"AppBlockBuilderName": a.AppBlockBuilderName,
-			keyAppBlockArn:        a.AppBlockArn,
-			"State":               a.State, //nolint:goconst // existing issue.
-		})
-	}
-
-	return map[string]any{"AppBlockBuilderAppBlockAssociations": resp}, nil
+	return pagedResponse(
+		assocs,
+		func(v *AppBlockBuilderAppBlockAssociation) string { return v.AppBlockBuilderName + "|" + v.AppBlockArn },
+		req.pageReq, "AppBlockBuilderAppBlockAssociations",
+		func(a *AppBlockBuilderAppBlockAssociation) map[string]any {
+			return map[string]any{
+				"AppBlockBuilderName": a.AppBlockBuilderName,
+				keyAppBlockArn:        a.AppBlockArn,
+				"State":               a.State, //nolint:goconst // existing issue.
+			}
+		},
+	)
 }
 
 // --- Response helpers ---

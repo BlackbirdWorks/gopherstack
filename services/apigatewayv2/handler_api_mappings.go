@@ -98,6 +98,10 @@ func (h *Handler) handleGetAPIMappings(c *echo.Context, domainName string) error
 		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
+	if pageErr := validateAPIGWPaging(c); pageErr != nil {
+		return writeErr(c, http.StatusBadRequest, pageErr.Error())
+	}
+
 	maxResults, nextToken := apigwPaginationParams(c)
 	p := page.New(items, nextToken, maxResults, apigwDefaultPageSize)
 

@@ -263,20 +263,36 @@ func (h *Handler) handleGetFindingStatisticsV2(c *echo.Context, body map[string]
 	})
 }
 
+// maxTrendPoints is the page cap for the trend ops; the SDK documents none.
+const maxTrendPoints = 100
+
 func (h *Handler) handleGetFindingsTrendsV2(c *echo.Context, body map[string]any) error {
 	startTime, _ := body["StartTime"].(string)
 	endTime, _ := body["EndTime"].(string)
 
-	trends := h.Backend.GetFindingsTrendsV2(startTime, endTime)
+	nextToken, _ := body["NextToken"].(string)
+	maxResults := intFromBody(body)
 
-	if trends == nil {
-		trends = []map[string]any{}
+	if !validPaging(maxResults, nextToken) {
+		return pagingErrorResponse(c)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
+	trends, next := paginateSlice(
+		h.Backend.GetFindingsTrendsV2(startTime, endTime),
+		nextToken,
+		maxResults,
+		maxTrendPoints,
+	)
+
+	resp := map[string]any{
 		"Granularity":   trendGranularity(startTime, endTime),
 		"TrendsMetrics": trends,
-	})
+	}
+	if next != "" {
+		resp["NextToken"] = next
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 // findingsOpHandlers returns the Findings (V1 + V2) operation dispatch table

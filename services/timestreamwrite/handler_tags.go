@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"sort"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 type tagResourceInput struct {
@@ -23,11 +25,17 @@ type untagResourceInput struct {
 
 type listTagsInput struct {
 	ResourceARN string `json:"ResourceARN"`
+	NextToken   string `json:"NextToken"`
+	MaxResults  int32  `json:"MaxResults"`
 }
 
 type listTagsOutput struct {
-	Tags []tagInput `json:"Tags"`
+	NextToken string     `json:"NextToken,omitempty"`
+	Tags      []tagInput `json:"Tags"`
 }
+
+// maxTagsPageSize is the API reference MaxResults ceiling (1-200) for timestreamquery's ListTagsForResource.
+const maxTagsPageSize = 200
 
 // tagsFromInput converts a slice of tagInput to a map[string]string.
 func tagsFromInput(tags []tagInput) map[string]string {
@@ -92,6 +100,10 @@ func (h *Handler) handleListTagsForResource(
 		return nil, fmt.Errorf("%w: ResourceARN is required", errInvalidRequest)
 	}
 
+	if in.MaxResults < 0 || in.MaxResults > maxTagsPageSize || page.ValidateToken(in.NextToken) != nil {
+		return nil, fmt.Errorf("%w: invalid MaxResults or NextToken", errInvalidRequest)
+	}
+
 	tagsMap := h.Backend.ListTagsForResource(in.ResourceARN)
 	tags := make([]tagInput, 0, len(tagsMap))
 
@@ -101,5 +113,7 @@ func (h *Handler) handleListTagsForResource(
 
 	sort.Slice(tags, func(i, j int) bool { return tags[i].Key < tags[j].Key })
 
-	return &listTagsOutput{Tags: tags}, nil
+	pg := page.New(tags, in.NextToken, int(in.MaxResults), maxTagsPageSize)
+
+	return &listTagsOutput{Tags: pg.Data, NextToken: pg.Next}, nil
 }

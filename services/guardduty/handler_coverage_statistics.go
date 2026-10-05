@@ -28,7 +28,22 @@ func (h *Handler) handleGetCoverageStatistics(detectorID string, body []byte) (a
 	return stats, http.StatusOK, nil
 }
 
-func (h *Handler) handleListCoverage(detectorID string) (any, int, error) {
+func (h *Handler) handleListCoverage(detectorID string, body []byte) (any, int, error) {
+	var req struct {
+		NextToken  string `json:"nextToken"`
+		MaxResults int32  `json:"maxResults"`
+	}
+
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			return nil, http.StatusBadRequest, ErrValidation
+		}
+	}
+
+	if _, err := decodeToken(req.NextToken); err != nil || req.MaxResults < 0 {
+		return nil, http.StatusBadRequest, ErrValidation
+	}
+
 	resources, err := h.Backend.ListCoverage(detectorID)
 	if err != nil {
 		return nil, http.StatusNotFound, err

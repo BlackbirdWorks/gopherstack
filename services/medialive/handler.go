@@ -3,6 +3,7 @@ package medialive
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -746,6 +748,21 @@ func paginationParams(c *echo.Context) (int, string) {
 	}
 
 	return n, c.QueryParam("nextToken")
+}
+
+// validPaging reports whether the query's maxResults is numeric and positive and nextToken well-formed.
+func validPaging(c *echo.Context) error {
+	if s := c.QueryParam("maxResults"); s != "" {
+		if n, err := strconv.Atoi(s); err != nil || n < 1 {
+			return fmt.Errorf("%w: maxResults must be a positive integer", ErrInvalidParameter)
+		}
+	}
+
+	if page.ValidateToken(c.QueryParam("nextToken")) != nil {
+		return fmt.Errorf("%w: invalid nextToken", ErrInvalidParameter)
+	}
+
+	return nil
 }
 
 func extractStringSlice(body map[string]any, key string) []string {

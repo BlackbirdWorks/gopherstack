@@ -2,6 +2,8 @@ package pinpoint
 
 import (
 	"fmt"
+	"slices"
+	"sort"
 
 	"github.com/google/uuid"
 
@@ -26,6 +28,7 @@ func (b *InMemoryBackend) CreateExportJob(
 	j := &ExportJob{
 		ARN:           jobARN,
 		ApplicationID: appID,
+		SegmentID:     req.SegmentID,
 		ID:            id,
 		RoleArn:       req.RoleArn,
 		S3UrlPrefix:   req.S3UrlPrefix,
@@ -141,6 +144,8 @@ func (b *InMemoryBackend) GetExportJobs(appID string) ([]*ExportJob, error) {
 		}
 	}
 
+	sort.Slice(jobs, func(i, k int) bool { return jobs[i].ID < jobs[k].ID })
+
 	return jobs, nil
 }
 
@@ -173,12 +178,19 @@ func (b *InMemoryBackend) GetImportJobs(appID string) ([]*ImportJob, error) {
 		}
 	}
 
+	sort.Slice(jobs, func(i, k int) bool { return jobs[i].ID < jobs[k].ID })
+
 	return jobs, nil
 }
 
 // GetSegmentExportJobs returns all export jobs for a segment.
-func (b *InMemoryBackend) GetSegmentExportJobs(appID, _ string) ([]*ExportJob, error) {
-	return b.GetExportJobs(appID)
+func (b *InMemoryBackend) GetSegmentExportJobs(appID, segmentID string) ([]*ExportJob, error) {
+	jobs, err := b.GetExportJobs(appID)
+	if err != nil {
+		return nil, err
+	}
+
+	return slices.DeleteFunc(jobs, func(j *ExportJob) bool { return j.SegmentID != segmentID }), nil
 }
 
 // GetSegmentImportJobs returns import jobs associated with a specific segment.
@@ -194,6 +206,8 @@ func (b *InMemoryBackend) GetSegmentImportJobs(appID, segmentID string) ([]*Impo
 			jobs = append(jobs, &cp)
 		}
 	}
+
+	sort.Slice(jobs, func(i, k int) bool { return jobs[i].ID < jobs[k].ID })
 
 	return jobs, nil
 }

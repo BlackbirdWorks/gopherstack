@@ -94,7 +94,7 @@ type StorageBackend interface {
 	DescribeStackSetOperation(stackSetName, operationID string) (*StackSetOperation, error)
 	StopStackSetOperation(stackSetName, operationID string) error
 	ListStackSetOperationResults(
-		stackSetName, operationID string, maxResults int, nextToken string,
+		stackSetName, operationID string, maxResults int, nextToken string, statuses []string,
 	) (page.Page[StackSetOperationResult], error)
 	ListStackSetAutoDeploymentTargets(
 		stackSetName string, maxResults int, nextToken string,
@@ -111,7 +111,7 @@ type StorageBackend interface {
 	GetGeneratedTemplate(id string) (string, error)
 	ListGeneratedTemplates(maxResults int, nextToken string) (page.Page[GeneratedTemplate], error)
 	// Resource scans
-	StartResourceScan() (string, error)
+	StartResourceScan(types []string) (string, error)
 	DescribeResourceScan(scanID string) (*ResourceScan, error)
 	ListResourceScans(maxResults int, nextToken, scanTypeFilter string) (page.Page[ResourceScan], error)
 	ListResourceScanResources(scanID, nextToken string, maxResults int) (page.Page[ScannedResource], error)
@@ -128,7 +128,7 @@ type StorageBackend interface {
 		identifiers []TypeConfigurationIdentifier,
 	) ([]TypeConfigurationDetail, []BatchDescribeTypeConfigurationsError, []TypeConfigurationIdentifier)
 	ListTypes(
-		visibilityFilter, provisioningTypeFilter string, maxResults int, nextToken string,
+		visibilityFilter, provisioningTypeFilter, typeNamePrefix string, maxResults int, nextToken string,
 	) (page.Page[TypeSummary], error)
 	ListTypeVersions(
 		typeName, deprecatedStatus string, maxResults int, nextToken string,

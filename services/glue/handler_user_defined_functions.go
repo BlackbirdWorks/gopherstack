@@ -89,10 +89,13 @@ type getUserDefinedFunctionsInput struct {
 	DatabaseName string `json:"DatabaseName,omitempty"`
 	Pattern      string `json:"Pattern"`
 	CatalogID    string `json:"CatalogId,omitempty"`
+	NextToken    string `json:"NextToken,omitempty"`
+	MaxResults   int32  `json:"MaxResults,omitempty"`
 }
 
 // getUserDefinedFunctionsOutput holds the result for GetUserDefinedFunctions.
 type getUserDefinedFunctionsOutput struct {
+	NextToken            string                 `json:"NextToken,omitempty"`
 	UserDefinedFunctions []*UserDefinedFunction `json:"UserDefinedFunctions"`
 }
 
@@ -118,7 +121,12 @@ func (h *Handler) handleGetUserDefinedFunctions(
 		}
 	}
 
-	return &getUserDefinedFunctionsOutput{UserDefinedFunctions: filtered}, nil
+	page, next, err := pagedSlice(filtered, in.NextToken, in.MaxResults, defaultListPageSize)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getUserDefinedFunctionsOutput{UserDefinedFunctions: page, NextToken: next}, nil
 }
 
 // updateUserDefinedFunctionInput holds input for UpdateUserDefinedFunction.

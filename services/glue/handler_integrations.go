@@ -13,6 +13,7 @@ type createIntegrationInput struct {
 	IntegrationName string            `json:"IntegrationName"`
 	SourceArn       string            `json:"SourceArn"`
 	TargetArn       string            `json:"TargetArn"`
+	DataFilter      string            `json:"DataFilter,omitempty"`
 }
 
 // createIntegrationOutput holds the result for CreateIntegration.
@@ -22,6 +23,7 @@ type createIntegrationOutput struct {
 	SourceArn       string  `json:"SourceArn"`
 	TargetArn       string  `json:"TargetArn"`
 	Status          string  `json:"Status"`
+	DataFilter      string  `json:"DataFilter,omitempty"`
 	CreateTime      float64 `json:"CreateTime"`
 }
 
@@ -29,7 +31,7 @@ func (h *Handler) handleCreateIntegration(
 	_ context.Context,
 	in *createIntegrationInput,
 ) (*createIntegrationOutput, error) {
-	ig, err := h.Backend.CreateIntegration(in.IntegrationName, in.SourceArn, in.TargetArn, in.Tags)
+	ig, err := h.Backend.CreateIntegration(in.IntegrationName, in.SourceArn, in.TargetArn, in.Tags, in.DataFilter)
 	if err != nil {
 		return nil, err
 	}
@@ -40,6 +42,7 @@ func (h *Handler) handleCreateIntegration(
 		SourceArn:       ig.SourceArn,
 		TargetArn:       ig.TargetArn,
 		Status:          ig.Status,
+		DataFilter:      ig.DataFilter,
 		CreateTime:      awstime.Epoch(ig.CreatedAt),
 	}, nil
 }
@@ -482,7 +485,8 @@ func (h *Handler) handleListIntegrationResourceProperties(
 
 // modifyIntegrationInput holds input for ModifyIntegration.
 type modifyIntegrationInput struct {
-	IntegrationIdentifier string `json:"IntegrationIdentifier"`
+	DataFilter            *string `json:"DataFilter,omitempty"`
+	IntegrationIdentifier string  `json:"IntegrationIdentifier"`
 }
 
 // modifyIntegrationOutput holds the result for ModifyIntegration.
@@ -492,6 +496,7 @@ type modifyIntegrationOutput struct {
 	SourceArn       string  `json:"SourceArn"`
 	TargetArn       string  `json:"TargetArn"`
 	Status          string  `json:"Status"`
+	DataFilter      string  `json:"DataFilter,omitempty"`
 	CreateTime      float64 `json:"CreateTime"`
 }
 
@@ -499,7 +504,7 @@ func (h *Handler) handleModifyIntegration(
 	_ context.Context,
 	in *modifyIntegrationInput,
 ) (*modifyIntegrationOutput, error) {
-	ig, err := h.Backend.ModifyIntegration(in.IntegrationIdentifier)
+	ig, err := h.Backend.ModifyIntegration(in.IntegrationIdentifier, in.DataFilter)
 	if err != nil {
 		return nil, err
 	}
@@ -510,6 +515,7 @@ func (h *Handler) handleModifyIntegration(
 		SourceArn:       ig.SourceArn,
 		TargetArn:       ig.TargetArn,
 		Status:          stateActive,
+		DataFilter:      ig.DataFilter,
 		CreateTime:      awstime.Epoch(ig.CreatedAt),
 	}, nil
 }

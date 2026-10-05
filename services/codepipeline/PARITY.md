@@ -622,3 +622,7 @@ changed; no version bump.
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 codepipeline already keys its resources by region; same-named resources in two regions coexist with region-correct ARNs. Build, Invoke and Deploy actions now call CodeBuild, Lambda and CodeDeploy in the pipeline region (`StartBuild`/`CreateDeployment` take a context carrying it). Proof: `TestRunOneAction_CrossServiceCallsCarryPipelineRegion`, `TestInitializeServices_CodePipelineActionsRunInPipelineRegion`, `TestRegionIsolation/codepipeline`. No code change to the resource store.
+
+## 2026-10-05 (reqfielddiff tier-2 pagination)
+
+ListRuleTypes now applies RuleOwnerFilter (`ruleOwnerFilter`, serializers.go:5019 codepipeline@v1.49.4): the four built-in rule types are all AWS-owned, so any other owner returns an empty list. ListTagsForResource MaxResults/NextToken are false positives by documentation: `api_op_ListTagsForResource.go` states the call "lists all available tags in one call and does not use pagination". ListDeployActionExecutionTargets (Filters) and ListRuleExecutions (Filter) are recorded as always-empty: no deploy-target or rule-execution data is generated, so there is nothing to filter. Proof: `TestRealClient_ListRuleTypesOwnerFilter`.

@@ -172,10 +172,12 @@ func (h *Handler) handleListSessions(
 // listStatementsInput holds input for ListStatements.
 type listStatementsInput struct {
 	SessionID string `json:"SessionId"`
+	NextToken string `json:"NextToken,omitempty"`
 }
 
 // listStatementsOutput holds the result for ListStatements.
 type listStatementsOutput struct {
+	NextToken  string       `json:"NextToken,omitempty"`
 	Statements []*Statement `json:"Statements"`
 }
 
@@ -191,7 +193,12 @@ func (h *Handler) handleListStatements(
 		stmts = []*Statement{}
 	}
 
-	return &listStatementsOutput{Statements: stmts}, nil
+	stmts, next, err := pagedSlice(stmts, in.NextToken, 0, defaultListPageSize)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listStatementsOutput{Statements: stmts, NextToken: next}, nil
 }
 
 // runStatementInput holds input for RunStatement.

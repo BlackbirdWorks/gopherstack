@@ -229,11 +229,14 @@ func (h *Handler) handleGetJobRun(_ context.Context, in *getJobRunInput) (*getJo
 }
 
 type getJobRunsInput struct {
-	JobName string `json:"JobName"`
+	JobName    string `json:"JobName"`
+	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults int32  `json:"MaxResults,omitempty"`
 }
 
 type getJobRunsOutput struct {
-	JobRuns []*JobRun `json:"JobRuns"`
+	NextToken string    `json:"NextToken,omitempty"`
+	JobRuns   []*JobRun `json:"JobRuns"`
 }
 
 func (h *Handler) handleGetJobRuns(_ context.Context, in *getJobRunsInput) (*getJobRunsOutput, error) {
@@ -242,7 +245,12 @@ func (h *Handler) handleGetJobRuns(_ context.Context, in *getJobRunsInput) (*get
 		return nil, err
 	}
 
-	return &getJobRunsOutput{JobRuns: runs}, nil
+	runs, next, err := pagedSlice(runs, in.NextToken, in.MaxResults, defaultListPageSize)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getJobRunsOutput{JobRuns: runs, NextToken: next}, nil
 }
 
 type batchStopJobRunInput struct {

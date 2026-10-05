@@ -20,11 +20,10 @@ import (
 )
 
 const (
-	pinpointService         = "mobiletargeting"
-	pinpointMatchPriority   = 87
-	appSubPathParts         = 2
-	pinpointDefaultPageSize = 500
-	defaultPageSize         = 100 // page size used by parsePageParams/applyPageParams below
+	pinpointService       = "mobiletargeting"
+	pinpointMatchPriority = 87
+	appSubPathParts       = 2
+	defaultPageSize       = 100 // page size used by parsePageParams/applyPageParams below
 
 	templateSubPathParts = 2
 	unknownOperation     = "Unknown"
@@ -557,27 +556,54 @@ func (h *Handler) handleCreateNamedAppResource(c *echo.Context, appID string, cr
 	return nil
 }
 
-// parsePageParams parses page-size and token query params.
-// Returns offset (0-based index) and page size.
-func parsePageParams(c *echo.Context) (int, int) {
+// parsePageParams reads page-size and token (next-token for templates), serializers.go:3485,6978 pinpoint@v1.42.4.
+// Malformed values write a 400 BadRequestException and return ok=false.
+func parsePageParams(c *echo.Context) (int, int, bool) {
 	pageSize := defaultPageSize
 	offset := 0
 
 	if ps := c.QueryParam("page-size"); ps != "" {
-		if n, err := strconv.Atoi(ps); err == nil && n > 0 {
-			pageSize = n
+		n, err := strconv.Atoi(ps)
+		if err != nil || n < 1 {
+			_ = writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid page-size")
+
+			return 0, 0, false
 		}
+
+		pageSize = n
 	}
 
-	if tok := c.QueryParam("token"); tok != "" {
-		if raw, err := base64.StdEncoding.DecodeString(tok); err == nil {
-			if n, atoiErr := strconv.Atoi(string(raw)); atoiErr == nil && n >= 0 {
-				offset = n
-			}
-		}
+	tok := c.QueryParam("token")
+	if tok == "" {
+		tok = c.QueryParam("next-token")
 	}
 
-	return offset, pageSize
+	if tok != "" {
+		raw, err := base64.StdEncoding.DecodeString(tok)
+		n, atoiErr := strconv.Atoi(string(raw))
+
+		if err != nil || atoiErr != nil || n < 0 {
+			_ = writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid token")
+
+			return 0, 0, false
+		}
+
+		offset = n
+	}
+
+	return offset, pageSize, true
+}
+
+// pageSlice returns the requested page of an already ordered slice.
+func pageSlice[T any](c *echo.Context, items []T) ([]T, *string, bool) {
+	offset, size, ok := parsePageParams(c)
+	if !ok {
+		return nil, nil, false
+	}
+
+	start, end, next := applyPageParams(offset, size, len(items))
+
+	return items[start:end], next, true
 }
 
 // applyPageParams slices items to the requested page and returns the NextToken if more items remain.

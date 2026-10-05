@@ -44,6 +44,7 @@ func (h *Handler) handleDeletePartitionIndex(
 type getPartitionIndexesInput struct {
 	DatabaseName string `json:"DatabaseName"`
 	TableName    string `json:"TableName"`
+	NextToken    string `json:"NextToken,omitempty"`
 }
 
 // keySchemaElementWire mirrors types.KeySchemaElement: a partition index
@@ -67,6 +68,7 @@ type partitionIndexDescriptorWire struct {
 
 // getPartitionIndexesOutput holds the result for GetPartitionIndexes.
 type getPartitionIndexesOutput struct {
+	NextToken                    string                         `json:"NextToken,omitempty"`
 	PartitionIndexDescriptorList []partitionIndexDescriptorWire `json:"PartitionIndexDescriptorList"`
 }
 
@@ -75,6 +77,11 @@ func (h *Handler) handleGetPartitionIndexes(
 	in *getPartitionIndexesInput,
 ) (*getPartitionIndexesOutput, error) {
 	indexes, err := h.Backend.GetPartitionIndexes(in.DatabaseName, in.TableName)
+	if err != nil {
+		return nil, err
+	}
+
+	indexes, next, err := pagedSlice(indexes, in.NextToken, 0, defaultListPageSize)
 	if err != nil {
 		return nil, err
 	}
@@ -108,5 +115,5 @@ func (h *Handler) handleGetPartitionIndexes(
 		})
 	}
 
-	return &getPartitionIndexesOutput{PartitionIndexDescriptorList: list}, nil
+	return &getPartitionIndexesOutput{PartitionIndexDescriptorList: list, NextToken: next}, nil
 }

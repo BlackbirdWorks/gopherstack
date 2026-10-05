@@ -3,6 +3,7 @@ package appstream
 import (
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -27,6 +28,7 @@ const (
 	// defaultListExportImageTasksLimit matches real AWS's documented default
 	// page size (50) when the caller omits MaxResults.
 	defaultListExportImageTasksLimit = 50
+	maxListExportImageTasksLimit     = 500
 
 	// defaultBuilderStreamingURLValiditySeconds matches real AWS's default for
 	// CreateImageBuilderStreamingURL/CreateAppBlockBuilderStreamingURL (3600
@@ -757,20 +759,26 @@ func (b *InMemoryBackend) GetExportImageTask(taskID string) (*ExportImageTask, e
 }
 
 // ListExportImageTasks returns a page of export tasks ordered by TaskID.
-// Real AWS also accepts a generic Filters parameter (opaque Name/Values
-// pairs whose matching semantics are not part of the published service
-// model); this emulator does not evaluate it, only MaxResults/NextToken
-// pagination.
-func (b *InMemoryBackend) ListExportImageTasks(maxResults int32, nextToken string) ([]*ExportImageTask, string, error) {
+// MaxResults is 1-500, default 50 (api_op_ListExportImageTasks.go:35). Only the
+// State filter is evaluated; other filter names are undocumented.
+func (b *InMemoryBackend) ListExportImageTasks(
+	maxResults int32, nextToken string, states []string,
+) ([]*ExportImageTask, string, error) {
 	b.mu.RLock("ListExportImageTasks")
 	defer b.mu.RUnlock()
 
 	all := make([]*ExportImageTask, 0, b.exportTasks.Len())
 	for _, task := range b.exportTasks.All() {
-		all = append(all, task.toExportImageTask())
+		if len(states) == 0 || slices.Contains(states, task.State) {
+			all = append(all, task.toExportImageTask())
+		}
 	}
 
 	sort.Slice(all, func(i, j int) bool { return all[i].TaskID < all[j].TaskID })
+
+	if maxResults < 0 || maxResults > maxListExportImageTasksLimit || page.ValidateToken(nextToken) != nil {
+		return nil, "", awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
+	}
 
 	p := page.New(all, nextToken, int(maxResults), defaultListExportImageTasksLimit)
 

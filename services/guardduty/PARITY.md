@@ -965,3 +965,7 @@ guardduty is region-isolated: Detectors, filters, IP sets, threat sets, members 
 ## 2026-10-04 (gopherstack-nz6pn, soft-deleted IP and threat intel sets)
 
 FIXED: DeleteIPSet/DeleteThreatIntelSet removed the set outright, so the Terraform provider's delete waiter (target status DELETED) got a 404 from GetIPSet/GetThreatIntelSet, aborted `destroy`, and left the detector behind (the next CreateDetector hit 409). Deleted sets now stay readable with status DELETED, are hidden from List*, free their name, and reject Update/Delete as not found; DeleteDetector still purges them. Proof: `TestIPSet_CRUD/delete_ipset`, `TestThreatIntelSet_CRUD/delete_threatintelset`, and `go test ./test/terraform/ -run '(?i)guardduty' -count=2`.
+
+## 2026-10-05 (reqfielddiff tier-2 pagination)
+
+GetUsageStatistics (body maxResults/nextToken) and DescribeOrganizationConfiguration (query maxResults/nextToken; pages `features`) now page through `paginate` (default/max 50, pagination.go) with a malformed token returning BadRequestException. Fixed a wire bug found on the way: GetUsageStatistics bound `usageStatisticType`, but the real body key is `usageStatisticsType` (serializers.go awsRestjson1_serializeOpDocumentGetUsageStatisticsInput, guardduty@v1.85.4), so the statistic-type selection never applied. ListCoverage validates paging; its results, ListCoverage.FilterCriteria and GetCoverageStatistics.FilterCriteria are recorded as always-empty because no coverage resources are tracked. Proof: `TestRealClient_UsageAndOrgConfigPage`, `TestRealClient_CoverageAndUsageRejectBadToken`.

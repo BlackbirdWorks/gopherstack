@@ -183,10 +183,7 @@ func (h *Handler) handleListChangeSets(form url.Values, c *echo.Context) error {
 // handleDescribeChangeSet returns the full DescribeChangeSet response including
 // ExecutionStatus and ChangeSetType fields.
 func (h *Handler) handleDescribeChangeSet(form url.Values, c *echo.Context) error {
-	stackName := form.Get("StackName")
-	changeSetName := form.Get("ChangeSetName")
-
-	cs, err := h.Backend.DescribeChangeSet(stackName, changeSetName)
+	cs, err := h.Backend.DescribeChangeSet(form.Get("StackName"), form.Get("ChangeSetName"))
 	if err != nil {
 		return h.xmlError(c, "ChangeSetNotFound", err.Error())
 	}
@@ -214,8 +211,9 @@ func (h *Handler) handleDescribeChangeSet(form url.Values, c *echo.Context) erro
 		Type           string            `xml:"Type"`
 		ResourceChange resourceChangeXML `xml:"ResourceChange"`
 	}
-	changes := make([]changeXML, 0, len(cs.Changes))
-	for _, ch := range cs.Changes {
+	changePage := pageForm(form, cs.Changes)
+	changes := make([]changeXML, 0, len(changePage.Data))
+	for _, ch := range changePage.Data {
 		details := make([]detailXML, 0, len(ch.ResourceChange.Details))
 		for _, d := range ch.ResourceChange.Details {
 			dx := detailXML{Evaluation: d.Evaluation, ChangeSource: d.ChangeSource}
@@ -243,6 +241,7 @@ func (h *Handler) handleDescribeChangeSet(form url.Values, c *echo.Context) erro
 	}
 
 	type descResult struct {
+		NextToken       string      `xml:"NextToken,omitempty"`
 		ChangeSetID     string      `xml:"ChangeSetId"`
 		ChangeSetName   string      `xml:"ChangeSetName"`
 		StackID         string      `xml:"StackId"`
@@ -280,6 +279,7 @@ func (h *Handler) handleDescribeChangeSet(form url.Values, c *echo.Context) erro
 			Capabilities:    cs.Capabilities,
 			Tags:            cs.Tags,
 			Changes:         changes,
+			NextToken:       changePage.Next,
 		},
 		RequestID: uuid.New().String(),
 	})

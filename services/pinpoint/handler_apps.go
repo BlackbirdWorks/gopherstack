@@ -4,14 +4,12 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
-	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // extractAppsCollectionOp returns the operation for the apps collection.
@@ -151,25 +149,12 @@ func (h *Handler) handleGetApps(c *echo.Context) error {
 		items = append(items, toAppResponse(app))
 	}
 
-	// Support pageSize and token query parameters for cursor-based pagination.
-	// The Pinpoint REST API uses ?pageSize=N&token=<cursor>.
-	q := c.Request().URL.Query()
-	token := q.Get("token")
-
-	var limit int
-
-	if ps := q.Get("pageSize"); ps != "" {
-		if n, parseErr := strconv.Atoi(ps); parseErr == nil && n > 0 {
-			limit = n
-		}
+	paged, next, ok := pageSlice(c, items)
+	if !ok {
+		return nil
 	}
 
-	p := page.New(items, token, limit, pinpointDefaultPageSize)
-
-	resp := appsResponse{Item: p.Data}
-	if p.Next != "" {
-		resp.NextToken = &p.Next
-	}
+	resp := appsResponse{Item: paged, NextToken: next}
 
 	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, resp)
 

@@ -484,3 +484,7 @@ never set them; see `handler_applications.go`.
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 ssoadmin is region-isolated: IAM Identity Center instances are regional (an instance lives in its home Region), so each region serves its own instances, permission sets and assignments. Every region seeds its own default instance. Identity Center ARNs carry no region, so the tagging bridge resolves them by the request region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/ssoadmin`. Limitation: the dashboard shows the home region only. The tagging bridge lists the request region and resolves Tag/Untag by ARN region. `TestHandler_MultiRegionReset` covers Reset.
+
+## 2026-10-05 (reqfielddiff tier-2 pagination)
+
+ListApplicationAuthenticationMethods, ListApplicationGrants and ListTagsForResource read the body NextToken and page through `paginateBy` (key-sorted, opaque base64 cursor, page cap `maxPageSize` 100); these inputs carry NextToken only, no MaxResults. The finite grant/auth-method enums and the 50-tag limit keep every real result inside one page, so a NextToken is only ever resumed by a client-supplied cursor. Proof: `TestApplicationLists_NextTokenCursor`.

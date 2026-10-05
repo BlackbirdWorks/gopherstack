@@ -4,6 +4,10 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"slices"
+	"strconv"
+	"strings"
+	"unicode"
 )
 
 type createTableInput struct {
@@ -387,12 +391,81 @@ func (h *Handler) handleGetUnfilteredTableMetadata(
 
 // searchTablesInput holds input for SearchTables.
 type searchTablesInput struct {
-	SearchText string `json:"SearchText,omitempty"`
+	SearchText string              `json:"SearchText,omitempty"`
+	NextToken  string              `json:"NextToken,omitempty"`
+	Filters    []propertyPredicate `json:"Filters,omitempty"`
+	MaxResults int32               `json:"MaxResults,omitempty"`
 }
 
 // searchTablesOutput holds the result for SearchTables.
 type searchTablesOutput struct {
+	NextToken string   `json:"NextToken,omitempty"`
 	TableList []*Table `json:"TableList"`
+}
+
+// propertyPredicate mirrors types.PropertyPredicate.
+type propertyPredicate struct {
+	Key        string `json:"Key"`
+	Value      string `json:"Value"`
+	Comparator string `json:"Comparator,omitempty"`
+}
+
+const (
+	predKeyName        = "Name"
+	predKeyDescription = "Description"
+)
+
+// tableMatchesPredicate applies one filter: string keys token-match per the
+// SearchTablesInput.Filters doc; CreateTime/UpdateTime use Comparator on epoch seconds.
+func tableMatchesPredicate(t *Table, p propertyPredicate) bool {
+	var field string
+
+	switch p.Key {
+	case predKeyName:
+		field = t.Name
+	case "DatabaseName":
+		field = t.DatabaseName
+	case predKeyDescription:
+		field = t.Description
+	case "TableType":
+		field = t.TableType
+	case "Owner":
+		field = t.Owner
+	case "CreateTime":
+		return compareEpoch(t.CreateTime, p)
+	case "UpdateTime":
+		return compareEpoch(t.UpdateTime, p)
+	default:
+		return false
+	}
+
+	if strings.EqualFold(field, p.Value) {
+		return true
+	}
+
+	tokens := strings.FieldsFunc(field, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) })
+
+	return slices.ContainsFunc(tokens, func(tok string) bool { return strings.EqualFold(tok, p.Value) })
+}
+
+func compareEpoch(have float64, p propertyPredicate) bool {
+	want, err := strconv.ParseFloat(p.Value, 64)
+	if err != nil {
+		return false
+	}
+
+	switch p.Comparator {
+	case "GREATER_THAN":
+		return have > want
+	case "GREATER_THAN_EQUALS":
+		return have >= want
+	case "LESS_THAN":
+		return have < want
+	case "LESS_THAN_EQUALS":
+		return have <= want
+	default:
+		return have == want
+	}
 }
 
 func (h *Handler) handleSearchTables(
@@ -401,5 +474,18 @@ func (h *Handler) handleSearchTables(
 ) (*searchTablesOutput, error) {
 	tables := h.Backend.SearchTables(in.SearchText)
 
-	return &searchTablesOutput{TableList: tables}, nil
+	matched := make([]*Table, 0, len(tables))
+
+	for _, t := range tables {
+		if !slices.ContainsFunc(in.Filters, func(p propertyPredicate) bool { return !tableMatchesPredicate(t, p) }) {
+			matched = append(matched, t)
+		}
+	}
+
+	page, next, err := pagedSlice(matched, in.NextToken, in.MaxResults, defaultListPageSize)
+	if err != nil {
+		return nil, err
+	}
+
+	return &searchTablesOutput{TableList: page, NextToken: next}, nil
 }

@@ -609,3 +609,8 @@ stays at 0 FAIL. No persisted-struct/snapshot changes.
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 timestreamquery already isolates regions internally: scheduled queries are keyed per region; tag mirroring into Timestream Write now follows the ARN's region. Proof: `TestRegionIsolation/timestreamquery`; no sibling handlers needed.
+
+
+## 2026-10-05 (reqfielddiff tier-2 pagination)
+
+ListTagsForResource is served by timestreamwrite's shared tag handler (this service's RouteMatcher defers tag ops), so MaxResults/NextToken (body-bound, `api_op_ListTagsForResource.go`) are now honoured there: key-sorted tags, MaxResults 1-200 per the API reference, NextToken only when truncated, a malformed token or out-of-range MaxResults returns ValidationException. Proof: `TestRealClient_ListTagsForResourcePaging`.

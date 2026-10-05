@@ -420,7 +420,8 @@ func (h *Handler) handleBatchDescribeTypeConfigurations(form url.Values, c *echo
 
 func (h *Handler) handleListTypes(form url.Values, c *echo.Context) error {
 	p, err := h.Backend.ListTypes(
-		form.Get("Visibility"), form.Get("ProvisioningType"), parseFormMaxResults(form), form.Get("NextToken"),
+		form.Get("Visibility"), form.Get("ProvisioningType"), form.Get("Filters.TypeNamePrefix"),
+		parseFormMaxResults(form), form.Get("NextToken"),
 	)
 	if err != nil {
 		return h.xmlError(c, "CFNRegistryException", err.Error())

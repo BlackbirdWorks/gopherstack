@@ -93,6 +93,7 @@ func (h *Handler) opDeleteImage(_ context.Context, body []byte) (any, error) {
 }
 
 type describeImagesInput struct {
+	pageReq
 	Type  string   `json:"Type"`
 	Names []string `json:"Names"`
 	Arns  []string `json:"Arns"`
@@ -116,12 +117,17 @@ func (h *Handler) opDescribeImages(_ context.Context, body []byte) (any, error) 
 		return nil, err
 	}
 
+	imgs, next, err := pageOf(imgs, func(v *Image) string { return v.Name }, req.pageReq, maxDescribePageSize)
+	if err != nil {
+		return nil, err
+	}
+
 	resp := make([]any, 0, len(imgs))
 	for _, img := range imgs {
 		resp = append(resp, imageToResponse(img))
 	}
 
-	return map[string]any{"Images": resp}, nil
+	return withNext(map[string]any{"Images": resp}, next), nil
 }
 
 type imagePermissionsInput struct {
@@ -171,6 +177,7 @@ func (h *Handler) opDeleteImagePermissions(_ context.Context, body []byte) (any,
 }
 
 type describeImagePermissionsInput struct {
+	pageReq
 	Name                string   `json:"Name"`
 	SharedAwsAccountIds []string `json:"SharedAwsAccountIds"` //nolint:revive // matches real SDK field name (Aws not AWS)
 }
@@ -186,6 +193,16 @@ func (h *Handler) opDescribeImagePermissions(_ context.Context, body []byte) (an
 		return nil, err
 	}
 
+	perms, next, err := pageOf(
+		perms,
+		func(v *SharedImagePermissions) string { return v.SharedAccountID },
+		req.pageReq,
+		maxDescribePageSize,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	resp := make([]any, 0, len(perms))
 	for _, p := range perms {
 		resp = append(resp, map[string]any{
@@ -197,10 +214,10 @@ func (h *Handler) opDescribeImagePermissions(_ context.Context, body []byte) (an
 		})
 	}
 
-	return map[string]any{
+	return withNext(map[string]any{
 		"Name":                       req.Name, //nolint:goconst // existing issue.
 		"SharedImagePermissionsList": resp,
-	}, nil
+	}, next), nil
 }
 
 // --- ImageBuilder handlers ---
@@ -269,6 +286,7 @@ func (h *Handler) opDeleteImageBuilder(_ context.Context, body []byte) (any, err
 }
 
 type describeImageBuildersInput struct {
+	pageReq
 	Names []string `json:"Names"`
 }
 
@@ -285,12 +303,17 @@ func (h *Handler) opDescribeImageBuilders(_ context.Context, body []byte) (any, 
 		return nil, err
 	}
 
+	ibs, next, err := pageOf(ibs, func(v *ImageBuilder) string { return v.Name }, req.pageReq, maxDescribePageSize)
+	if err != nil {
+		return nil, err
+	}
+
 	resp := make([]any, 0, len(ibs))
 	for _, ib := range ibs {
 		resp = append(resp, imageBuilderToResponse(ib))
 	}
 
-	return map[string]any{"ImageBuilders": resp}, nil
+	return withNext(map[string]any{"ImageBuilders": resp}, next), nil
 }
 
 type startImageBuilderInput struct {
@@ -396,6 +419,7 @@ func (h *Handler) opDisassociateSoftwareFromImageBuilder(_ context.Context, body
 
 type describeSoftwareAssociationsInput struct {
 	AssociatedResource string `json:"AssociatedResource"`
+	pageReq
 }
 
 func (h *Handler) opDescribeSoftwareAssociations(_ context.Context, body []byte) (any, error) {
@@ -409,6 +433,16 @@ func (h *Handler) opDescribeSoftwareAssociations(_ context.Context, body []byte)
 		return nil, err
 	}
 
+	assocs, next, err := pageOf(
+		assocs,
+		func(v SoftwareAssociation) string { return v.Software },
+		req.pageReq,
+		maxDescribePageSize,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	resp := make([]any, 0, len(assocs))
 	for _, a := range assocs {
 		resp = append(resp, map[string]any{
@@ -417,10 +451,10 @@ func (h *Handler) opDescribeSoftwareAssociations(_ context.Context, body []byte)
 		})
 	}
 
-	return map[string]any{
+	return withNext(map[string]any{
 		"AssociatedResource":   req.AssociatedResource,
 		"SoftwareAssociations": resp,
-	}, nil
+	}, next), nil
 }
 
 type startSoftwareDeploymentInput struct {
@@ -489,13 +523,30 @@ func (h *Handler) opGetExportImageTask(_ context.Context, body []byte) (any, err
 	return map[string]any{"ExportImageTask": exportImageTaskToResponse(task)}, nil
 }
 
-// listExportImageTasksInput intentionally omits Filters: real AWS accepts a
-// generic Name/Values Filters list whose matching semantics aren't part of
-// the published service model, and this emulator doesn't evaluate it (any
-// Filters the caller sends are harmlessly ignored by json.Unmarshal).
+// listExportImageTasksInput evaluates only the State filter; other names are undocumented.
 type listExportImageTasksInput struct {
-	NextToken  string `json:"NextToken"`
-	MaxResults int32  `json:"MaxResults"`
+	NextToken  string        `json:"NextToken"`
+	Filters    []filterInput `json:"Filters"`
+	MaxResults int32         `json:"MaxResults"`
+}
+
+type filterInput struct {
+	Name   string   `json:"Name"`
+	Values []string `json:"Values"`
+}
+
+const filterNameState = "State"
+
+func stateFilterValues(filters []filterInput) []string {
+	var out []string
+
+	for _, f := range filters {
+		if f.Name == filterNameState {
+			out = append(out, f.Values...)
+		}
+	}
+
+	return out
 }
 
 func (h *Handler) opListExportImageTasks(_ context.Context, body []byte) (any, error) {
@@ -506,7 +557,11 @@ func (h *Handler) opListExportImageTasks(_ context.Context, body []byte) (any, e
 		}
 	}
 
-	tasks, nextToken, err := h.Backend.ListExportImageTasks(req.MaxResults, req.NextToken)
+	tasks, nextToken, err := h.Backend.ListExportImageTasks(
+		req.MaxResults,
+		req.NextToken,
+		stateFilterValues(req.Filters),
+	)
 	if err != nil {
 		return nil, err
 	}

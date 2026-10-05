@@ -505,7 +505,7 @@ func (h *Handler) handleListTemplates(c *echo.Context) error {
 	prefix := c.QueryParam("prefix")
 	templateType := strings.ToUpper(c.QueryParam("template-type"))
 
-	resp := templatesListResponse{Item: make([]templateListItem, 0, len(items))}
+	matched := make([]*templateListItem, 0, len(items))
 
 	for _, item := range items {
 		if prefix != "" && !strings.HasPrefix(item.TemplateName, prefix) {
@@ -516,6 +516,16 @@ func (h *Handler) handleListTemplates(c *echo.Context) error {
 			continue
 		}
 
+		matched = append(matched, item)
+	}
+
+	paged, next, ok := pageSlice(c, matched)
+	if !ok {
+		return nil
+	}
+
+	resp := templatesListResponse{NextToken: next, Item: make([]templateListItem, 0, len(paged))}
+	for _, item := range paged {
 		resp.Item = append(resp.Item, *item)
 	}
 
@@ -535,9 +545,14 @@ func (h *Handler) handleListTemplateVersions(c *echo.Context, templateName, temp
 		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", err.Error())
 	}
 
-	resp := templateVersionsListResponse{Item: make([]templateVersionItem, 0, len(items))}
+	paged, next, ok := pageSlice(c, items)
+	if !ok {
+		return nil
+	}
 
-	for _, item := range items {
+	resp := templateVersionsListResponse{NextToken: next, Item: make([]templateVersionItem, 0, len(paged))}
+
+	for _, item := range paged {
 		resp.Item = append(resp.Item, *item)
 	}
 

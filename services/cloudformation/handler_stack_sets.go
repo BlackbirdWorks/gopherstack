@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -1030,8 +1032,20 @@ func (h *Handler) handleListStackInstanceResourceDrifts(form url.Values, c *echo
 		StackResourceDriftStatus string               `xml:"StackResourceDriftStatus"`
 		PropertyDifferences      []PropertyDifference `xml:"PropertyDifferences>member,omitempty"`
 	}
-	members := make([]driftSummaryXML, 0, len(drifts))
-	for _, d := range drifts {
+	if statuses := parseMemberList(form, "StackInstanceResourceDriftStatuses."); len(statuses) > 0 {
+		drifts = slices.DeleteFunc(drifts, func(d StackResourceDrift) bool {
+			return !slices.Contains(statuses, d.StackResourceDriftStatus)
+		})
+	}
+
+	slices.SortFunc(drifts, func(a, b StackResourceDrift) int {
+		return strings.Compare(a.LogicalResourceID, b.LogicalResourceID)
+	})
+
+	driftPage := pageForm(form, drifts)
+	members := make([]driftSummaryXML, 0, len(driftPage.Data))
+
+	for _, d := range driftPage.Data {
 		members = append(members, driftSummaryXML{
 			Timestamp:                d.Timestamp.UTC().Format("2006-01-02T15:04:05Z"),
 			StackID:                  d.StackID,
@@ -1043,6 +1057,7 @@ func (h *Handler) handleListStackInstanceResourceDrifts(form url.Values, c *echo
 		})
 	}
 	type result struct {
+		NextToken string            `xml:"NextToken,omitempty"`
 		Summaries []driftSummaryXML `xml:"Summaries>member"`
 	}
 	type response struct {
@@ -1054,7 +1069,11 @@ func (h *Handler) handleListStackInstanceResourceDrifts(form url.Values, c *echo
 
 	return writeXML(
 		c,
-		response{Xmlns: cfnNS, Result: result{Summaries: members}, RequestID: uuid.New().String()},
+		response{
+			Xmlns:     cfnNS,
+			Result:    result{Summaries: members, NextToken: driftPage.Next},
+			RequestID: uuid.New().String(),
+		},
 	)
 }
 
@@ -1107,6 +1126,22 @@ func (h *Handler) handleDescribeOrganizationsAccess(form url.Values, c *echo.Con
 }
 
 // handleListStackSetOperationResults returns per-account/region operation results.
+// operationResultStatuses collects the Values of OPERATION_RESULT_STATUS entries in Filters.member.N.
+func operationResultStatuses(form url.Values) []string {
+	var out []string
+
+	for i := 1; ; i++ {
+		name := form.Get(fmt.Sprintf("Filters.member.%d.Name", i))
+		if name == "" {
+			return out
+		}
+
+		if v := form.Get(fmt.Sprintf("Filters.member.%d.Values", i)); name == "OPERATION_RESULT_STATUS" && v != "" {
+			out = append(out, v)
+		}
+	}
+}
+
 func (h *Handler) handleListStackSetOperationResults(form url.Values, c *echo.Context) error {
 	stackSetName := form.Get("StackSetName")
 	operationID := form.Get("OperationId")
@@ -1120,7 +1155,7 @@ func (h *Handler) handleListStackSetOperationResults(form url.Values, c *echo.Co
 	}
 
 	p, err := h.Backend.ListStackSetOperationResults(
-		stackSetName, operationID, parseFormMaxResults(form), form.Get("NextToken"),
+		stackSetName, operationID, parseFormMaxResults(form), form.Get("NextToken"), operationResultStatuses(form),
 	)
 	if err != nil {
 		if errors.Is(err, ErrStackSetNotFound) {

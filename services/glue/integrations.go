@@ -57,6 +57,7 @@ func (b *InMemoryBackend) resolveIntegrationName(identifier string) string {
 func (b *InMemoryBackend) CreateIntegration(
 	name, sourceArn, targetArn string,
 	tags map[string]string,
+	dataFilter ...string,
 ) (*Integration, error) {
 	b.mu.Lock("CreateIntegration")
 	defer b.mu.Unlock()
@@ -86,6 +87,10 @@ func (b *InMemoryBackend) CreateIntegration(
 		Tags:            tags,
 		CreatedAt:       now,
 	}
+	if len(dataFilter) > 0 {
+		ig.DataFilter = dataFilter[0]
+	}
+
 	b.integrations.Put(ig)
 
 	// Nothing previously advanced a CREATING integration -- no ticker, no later
@@ -142,7 +147,7 @@ func (b *InMemoryBackend) ListIntegrations() []*Integration {
 // ModifyIntegration updates an integration, identified by name or ARN (see
 // resolveIntegrationName), and returns the current record so the caller can
 // echo the real required response fields.
-func (b *InMemoryBackend) ModifyIntegration(identifier string) (*Integration, error) {
+func (b *InMemoryBackend) ModifyIntegration(identifier string, dataFilter *string) (*Integration, error) {
 	b.mu.Lock("ModifyIntegration")
 	defer b.mu.Unlock()
 
@@ -151,6 +156,10 @@ func (b *InMemoryBackend) ModifyIntegration(identifier string) (*Integration, er
 	ig, ok := b.integrations.Get(name)
 	if !ok {
 		return nil, ErrIntegrationNotFound
+	}
+
+	if dataFilter != nil {
+		ig.DataFilter = *dataFilter
 	}
 
 	cp := *ig

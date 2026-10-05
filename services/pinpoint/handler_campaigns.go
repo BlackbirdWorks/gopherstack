@@ -161,12 +161,14 @@ func (h *Handler) handleGetCampaigns(c *echo.Context, appID string) error {
 		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", err.Error())
 	}
 
-	offset, pageSize := parsePageParams(c)
-	start, end, nextToken := applyPageParams(offset, pageSize, len(campaigns))
+	paged, nextToken, ok := pageSlice(c, campaigns)
+	if !ok {
+		return nil
+	}
 
-	items := make([]campaignResponse, 0, end-start)
+	items := make([]campaignResponse, 0, len(paged))
 
-	for _, c2 := range campaigns[start:end] {
+	for _, c2 := range paged {
 		items = append(items, toCampaignResponse(c2))
 	}
 
@@ -222,7 +224,13 @@ func (h *Handler) handleGetCampaignActivities(c *echo.Context, appID, campaignID
 		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", err.Error())
 	}
 
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, resp)
+	paged, next, ok := pageSlice(c, resp.Item)
+	if !ok {
+		return nil
+	}
+
+	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK,
+		campaignActivitiesResponse{NextToken: next, Item: paged})
 
 	return nil
 }
@@ -272,13 +280,23 @@ func (h *Handler) handleGetCampaignVersions(c *echo.Context, appID, campaignID s
 		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", err.Error())
 	}
 
-	items := make([]campaignResponse, 0, len(campaigns))
+	paged, next, ok := pageSlice(c, campaigns)
+	if !ok {
+		return nil
+	}
 
-	for _, c2 := range campaigns {
+	items := make([]campaignResponse, 0, len(paged))
+
+	for _, c2 := range paged {
 		items = append(items, toCampaignResponse(c2))
 	}
 
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, campaignVersionsResponse{Item: items})
+	httputils.WriteJSON(
+		c.Request().Context(),
+		c.Response(),
+		http.StatusOK,
+		campaignVersionsResponse{NextToken: next, Item: items},
+	)
 
 	return nil
 }

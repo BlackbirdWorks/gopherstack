@@ -361,3 +361,7 @@ Gates: `go build ./...`, `go vet ./services/timestreamwrite/...`,
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 timestreamwrite is region-isolated: databases, tables and batch load tasks live per region; ARNs now name the serving region (the backend gained a region and a `NewInMemoryBackendForRegion` constructor, default unchanged). Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/timestreamwrite`. Limitation: the dashboard shows the home region only. The tagging bridge lists the request region and resolves Tag/Untag by ARN region. `TestHandler_MultiRegionReset` covers Reset.
+
+## 2026-10-05 (reqfielddiff tier-2 pagination)
+
+The shared ListTagsForResource handler also serves timestreamquery's client, whose input carries MaxResults/NextToken (timestreamwrite's own input has neither); it now pages the key-sorted tags (cap 200) and rejects a malformed token with ValidationException. See timestreamquery/PARITY.md.

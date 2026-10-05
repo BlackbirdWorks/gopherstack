@@ -769,6 +769,7 @@ type Integration struct {
 	SourceArn       string            `json:"SourceArn"`
 	TargetArn       string            `json:"TargetArn"`
 	Status          string            `json:"Status"`
+	DataFilter      string            `json:"DataFilter,omitempty"`
 }
 
 // IdentityCenterConfig represents the Glue Identity Center configuration.

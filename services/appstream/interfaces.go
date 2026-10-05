@@ -138,7 +138,7 @@ type StorageBackend interface {
 		tagSpecifications map[string]string,
 	) (*ExportImageTask, error)
 	GetExportImageTask(taskID string) (*ExportImageTask, error)
-	ListExportImageTasks(maxResults int32, nextToken string) ([]*ExportImageTask, string, error)
+	ListExportImageTasks(maxResults int32, nextToken string, states []string) ([]*ExportImageTask, string, error)
 
 	// UsageReportSubscriptions
 	CreateUsageReportSubscription() (*UsageReportSubscription, error)

@@ -1707,3 +1707,7 @@ cloudfront is now 167/167 typed-covered.
 Gates: `go build ./services/cloudfront/...`, `go vet`, `go test -race -count=1`
 (clean), `golangci-lint run --new-from-rev=HEAD` (0 issues). `cmd/paritylint`
 stays at 0 FAIL.
+
+## 2026-10-05 (reqfielddiff tier-2 pagination)
+
+All 11 flagged MaxItems members (ListDistributionsByAnycastIpListId, ByCachePolicyId, ByConnectionFunction, ByConnectionMode, ByKeyGroup, ByOriginRequestPolicyId, ByOwnedResource, ByRealtimeLogConfig, ByResponseHeadersPolicyId, ByTrustStore, ByVpcOriginId) are false positives. Marker/MaxItems are query-bound for every one of them except ByRealtimeLogConfig, which carries them in the XML body (serializers.go:8821-9654, cloudfront@v1.67.4); each handler reads them through `paginateByMarkerID` / `paginateByMarkerValue` (pagination_helper.go) over an ID-sorted backend list (`distributionsByConfigSearch`).

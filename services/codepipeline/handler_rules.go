@@ -47,6 +47,7 @@ func (h *Handler) handleListRuleExecutions(
 
 type listRuleTypesInput struct {
 	RegionFilter string `json:"regionFilter"`
+	RuleOwner    string `json:"ruleOwnerFilter"`
 }
 
 type listRuleTypesOutput struct {
@@ -55,7 +56,11 @@ type listRuleTypesOutput struct {
 
 func (h *Handler) handleListRuleTypes(
 	_ context.Context,
-	_ *listRuleTypesInput,
+	in *listRuleTypesInput,
 ) (*listRuleTypesOutput, error) {
+	if in.RuleOwner != "" && in.RuleOwner != ruleOwnerAWS {
+		return &listRuleTypesOutput{RuleTypes: []map[string]any{}}, nil
+	}
+
 	return &listRuleTypesOutput{RuleTypes: h.Backend.ListRuleTypes()}, nil
 }

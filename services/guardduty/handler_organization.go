@@ -25,7 +25,7 @@ func (h *Handler) dispatchOrgOps(op, path, query string, body []byte) (any, int,
 		return result, code, true, nil
 
 	case opDescribeOrganizationConfiguration:
-		result, code, err := h.handleDescribeOrganizationConfiguration(detectorID)
+		result, code, err := h.handleDescribeOrganizationConfiguration(detectorID, query)
 
 		return result, code, true, err
 
@@ -118,11 +118,21 @@ func (h *Handler) handleListOrganizationAdminAccounts(query string) (any, int) {
 	return resp, http.StatusOK
 }
 
-func (h *Handler) handleDescribeOrganizationConfiguration(detectorID string) (any, int, error) {
+func (h *Handler) handleDescribeOrganizationConfiguration(detectorID, query string) (any, int, error) {
 	cfg, err := h.Backend.DescribeOrganizationConfiguration(detectorID)
 	if err != nil {
 		return nil, http.StatusNotFound, err
 	}
+
+	maxResults, nextToken := paginationParamsFromQuery(query)
+
+	offset, tokErr := decodeToken(nextToken)
+	if tokErr != nil {
+		return nil, http.StatusBadRequest, ErrValidation
+	}
+
+	features, next := paginate(cfg.Features, offset, resolvePageSize(int(maxResults)))
+	cfg.Features = features
 
 	resp := map[string]any{
 		"autoEnable":                cfg.AutoEnable,
@@ -133,6 +143,10 @@ func (h *Handler) handleDescribeOrganizationConfiguration(detectorID string) (an
 
 	if cfg.AutoEnableOrganizationMembers != "" {
 		resp["autoEnableOrganizationMembers"] = cfg.AutoEnableOrganizationMembers
+	}
+
+	if next != "" {
+		resp["nextToken"] = next
 	}
 
 	return resp, http.StatusOK, nil

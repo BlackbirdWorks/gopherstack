@@ -333,7 +333,7 @@ func (b *InMemoryBackend) BatchDescribeTypeConfigurations(
 // imposes no constraint (the documented default: PRIVATE for Visibility,
 // unfiltered for ProvisioningType).
 func (b *InMemoryBackend) ListTypes(
-	visibilityFilter, provisioningTypeFilter string, maxResults int, nextToken string,
+	visibilityFilter, provisioningTypeFilter, typeNamePrefix string, maxResults int, nextToken string,
 ) (page.Page[TypeSummary], error) {
 	b.mu.RLock("ListTypes")
 	defer b.mu.RUnlock()
@@ -344,7 +344,7 @@ func (b *InMemoryBackend) ListTypes(
 
 	result := make([]TypeSummary, 0, b.typeRegistry.Len())
 	for _, t := range b.typeRegistry.All() {
-		if t.Status == typeStatusDeprecated {
+		if t.Status == typeStatusDeprecated || !strings.HasPrefix(t.TypeName, typeNamePrefix) {
 			continue
 		}
 		if t.Status == statusComplete || t.IsActivated {

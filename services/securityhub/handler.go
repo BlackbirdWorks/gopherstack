@@ -710,6 +710,25 @@ func intFromBody(body map[string]any) int {
 	return 0
 }
 
+// validPaging reports whether maxResults is non-negative and nextToken is a well-formed offset.
+func validPaging(maxResults int, nextToken string) bool {
+	if maxResults < 0 {
+		return false
+	}
+
+	if nextToken == "" {
+		return true
+	}
+
+	n, err := strconv.Atoi(nextToken)
+
+	return err == nil && n >= 0
+}
+
+func pagingErrorResponse(c *echo.Context) error {
+	return typedErrorResponse(c, http.StatusBadRequest, "InvalidInputException", "invalid MaxResults or NextToken")
+}
+
 func queryInt(c *echo.Context) int {
 	v, err := strconv.Atoi(c.QueryParam(keyMaxResults))
 	if err != nil {

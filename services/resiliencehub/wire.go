@@ -822,9 +822,11 @@ type sortWire struct {
 
 type listMetricsRequest struct {
 	DataSource string          `json:"dataSource,omitempty"`
+	NextToken  string          `json:"nextToken,omitempty"`
 	Conditions []conditionWire `json:"conditions,omitempty"`
 	Fields     []fieldWire     `json:"fields,omitempty"`
 	Sorts      []sortWire      `json:"sorts,omitempty"`
+	MaxResults int32           `json:"maxResults,omitempty"`
 }
 
 type listMetricsResponse struct {

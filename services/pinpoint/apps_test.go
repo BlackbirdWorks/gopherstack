@@ -642,7 +642,7 @@ func TestHandler_GetAppsPagination(t *testing.T) {
 
 			path := "/v1/apps"
 			if tt.pageSize != "" {
-				path += "?pageSize=" + url.QueryEscape(tt.pageSize)
+				path += "?page-size=" + url.QueryEscape(tt.pageSize)
 			}
 
 			rec := doPinpointRequest(t, h, http.MethodGet, path, nil)
@@ -675,7 +675,7 @@ func TestHandler_GetAppsContinuation(t *testing.T) {
 	}
 
 	// First page: 2 of 3.
-	rec1 := doPinpointRequest(t, h, http.MethodGet, "/v1/apps?pageSize=2", nil)
+	rec1 := doPinpointRequest(t, h, http.MethodGet, "/v1/apps?page-size=2", nil)
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var resp1 map[string]any
@@ -690,7 +690,7 @@ func TestHandler_GetAppsContinuation(t *testing.T) {
 	require.NotEmpty(t, nextToken)
 
 	// Second page: remaining 1.
-	path2 := "/v1/apps?pageSize=2&token=" + url.QueryEscape(nextToken)
+	path2 := "/v1/apps?page-size=2&token=" + url.QueryEscape(nextToken)
 	rec2 := doPinpointRequest(t, h, http.MethodGet, path2, nil)
 	require.Equal(t, http.StatusOK, rec2.Code)
 
@@ -745,7 +745,7 @@ func TestHandler_GetApps_DuplicateNames_NoDropOrDupAcrossPages(t *testing.T) {
 		}
 
 		seen := make(map[string]bool, dupCount)
-		path := "/v1/apps?pageSize=2"
+		path := "/v1/apps?page-size=2"
 
 		for range dupCount + 1 {
 			rec := doPinpointRequest(t, h, http.MethodGet, path, nil)
@@ -766,7 +766,7 @@ func TestHandler_GetApps_DuplicateNames_NoDropOrDupAcrossPages(t *testing.T) {
 				break
 			}
 
-			path = "/v1/apps?pageSize=2&token=" + url.QueryEscape(nextToken)
+			path = "/v1/apps?page-size=2&token=" + url.QueryEscape(nextToken)
 		}
 
 		assert.Equal(t, created, seen, "paged GetApps dropped or duplicated same-named apps across pages")
