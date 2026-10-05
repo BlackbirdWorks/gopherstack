@@ -21,9 +21,7 @@ func connectorOperationARN(connectorArn string) string {
 	return connectorArn + "/operation/" + uuid.NewString()
 }
 
-// CreateConnector creates a connector. Connectors become RUNNING immediately
-// -- see PARITY.md for the CREATING/UPDATING/DELETING transient states this
-// backend deliberately does not model.
+// CreateConnector creates a connector in CREATING; it settles to RUNNING after provisionDelay.
 func (b *InMemoryBackend) CreateConnector(accountID, region string, spec ConnectorSpec) (*Connector, error) {
 	if spec.Name == "" {
 		return nil, ErrValidation
@@ -32,9 +30,17 @@ func (b *InMemoryBackend) CreateConnector(accountID, region string, spec Connect
 	b.mu.Lock("CreateConnector")
 	defer b.mu.Unlock()
 
+	b.settleLocked(time.Now())
+
 	if _, ok := b.connectorByName(spec.Name); ok {
 		return nil, ErrConnectorNameInUse
 	}
+
+	if err := b.validateConnectorRefsLocked(spec); err != nil {
+		return nil, err
+	}
+
+	now := time.Now().UTC()
 
 	tags := make(map[string]string, len(spec.Tags))
 	maps.Copy(tags, spec.Tags)
@@ -46,9 +52,10 @@ func (b *InMemoryBackend) CreateConnector(accountID, region string, spec Connect
 		Name:                             spec.Name,
 		ARN:                              connectorARN(region, accountID, spec.Name),
 		Description:                      spec.Description,
-		State:                            connectorStateRunning,
+		State:                            connectorStateCreating,
+		PendingUntil:                     now.Add(provisionDelay),
 		CurrentVersion:                   newVersion(),
-		CreationTime:                     time.Now().UTC(),
+		CreationTime:                     now,
 		ConnectorConfiguration:           cfg,
 		Capacity:                         spec.Capacity.clone(),
 		ApacheKafkaCluster:               spec.ApacheKafkaCluster,
@@ -70,8 +77,10 @@ func (b *InMemoryBackend) CreateConnector(accountID, region string, spec Connect
 
 // DescribeConnector returns the current information about a connector.
 func (b *InMemoryBackend) DescribeConnector(connectorArn string) (*Connector, error) {
-	b.mu.RLock("DescribeConnector")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeConnector")
+	defer b.mu.Unlock()
+
+	b.settleLocked(time.Now())
 
 	c, ok := b.connectors.Get(connectorArn)
 	if !ok {
@@ -83,8 +92,10 @@ func (b *InMemoryBackend) DescribeConnector(connectorArn string) (*Connector, er
 
 // ListConnectors returns connectors matching namePrefix, paginated by nextToken/maxResults.
 func (b *InMemoryBackend) ListConnectors(namePrefix, nextToken string, maxResults int) ([]*Connector, string, error) {
-	b.mu.RLock("ListConnectors")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListConnectors")
+	defer b.mu.Unlock()
+
+	b.settleLocked(time.Now())
 
 	all := b.connectors.All()
 
@@ -107,8 +118,8 @@ func (b *InMemoryBackend) ListConnectors(namePrefix, nextToken string, maxResult
 
 // UpdateConnector updates a connector's capacity or configuration under
 // optimistic lock (currentVersion). Exactly one of update.Capacity or
-// update.ConnectorConfiguration must be set. The returned ConnectorOperation
-// completes immediately (UPDATE_COMPLETE) -- see PARITY.md.
+// update.ConnectorConfiguration must be set. The connector goes UPDATING and
+// the returned operation UPDATE_IN_PROGRESS until provisionDelay elapses.
 func (b *InMemoryBackend) UpdateConnector(
 	connectorArn, currentVersion string,
 	update ConnectorUpdate,
@@ -120,6 +131,8 @@ func (b *InMemoryBackend) UpdateConnector(
 	b.mu.Lock("UpdateConnector")
 	defer b.mu.Unlock()
 
+	b.settleLocked(time.Now())
+
 	c, ok := b.connectors.Get(connectorArn)
 	if !ok {
 		return nil, nil, ErrConnectorNotFound
@@ -129,11 +142,18 @@ func (b *InMemoryBackend) UpdateConnector(
 		return nil, nil, ErrVersionMismatch
 	}
 
+	if c.State == deletingState {
+		return nil, nil, ErrConnectorDeleting
+	}
+
+	now := time.Now().UTC()
+	b.completeOperationsLocked(connectorArn, now)
+
 	op := &ConnectorOperation{
 		ARN:                          connectorOperationARN(connectorArn),
 		ConnectorArn:                 connectorArn,
-		State:                        connectorOperationStateComplete,
-		CreationTime:                 time.Now().UTC(),
+		State:                        connectorOperationStateInProgress,
+		CreationTime:                 now,
 		OriginConnectorConfiguration: maps.Clone(c.ConnectorConfiguration),
 		TargetConnectorConfiguration: maps.Clone(c.ConnectorConfiguration),
 	}
@@ -141,7 +161,7 @@ func (b *InMemoryBackend) UpdateConnector(
 	if update.Capacity != nil {
 		op.Type = connectorOperationTypeWorkerSetting
 		op.Steps = []ConnectorOperationStep{
-			{StepType: connectorOperationStepUpdateWorkerSetting, StepState: connectorOperationStepStateCompleted},
+			{StepType: connectorOperationStepUpdateWorkerSetting, StepState: connectorOperationStepStateInProgress},
 		}
 
 		origin := c.Capacity.clone()
@@ -152,14 +172,15 @@ func (b *InMemoryBackend) UpdateConnector(
 	} else {
 		op.Type = connectorOperationTypeConfiguration
 		op.Steps = []ConnectorOperationStep{
-			{StepType: connectorOperationStepUpdateConfiguration, StepState: connectorOperationStepStateCompleted},
+			{StepType: connectorOperationStepUpdateConfiguration, StepState: connectorOperationStepStateInProgress},
 		}
 
 		op.TargetConnectorConfiguration = maps.Clone(update.ConnectorConfiguration)
 		c.ConnectorConfiguration = maps.Clone(update.ConnectorConfiguration)
 	}
 
-	op.EndTime = time.Now().UTC()
+	c.State = connectorStateUpdating
+	c.PendingUntil = now.Add(provisionDelay)
 	c.CurrentVersion = newVersion()
 
 	b.connectorOperations.Put(op)
@@ -167,12 +188,13 @@ func (b *InMemoryBackend) UpdateConnector(
 	return c.clone(), op.clone(), nil
 }
 
-// DeleteConnector deletes a connector under optimistic lock (currentVersion,
-// when supplied), returning a snapshot with State set to DELETING to mirror
-// AWS's synchronous delete response.
+// DeleteConnector marks a connector DELETING under optimistic lock
+// (currentVersion, when supplied); it is removed once deletionDelay elapses.
 func (b *InMemoryBackend) DeleteConnector(connectorArn, currentVersion string) (*Connector, error) {
 	b.mu.Lock("DeleteConnector")
 	defer b.mu.Unlock()
+
+	b.settleLocked(time.Now())
 
 	c, ok := b.connectors.Get(connectorArn)
 	if !ok {
@@ -183,36 +205,44 @@ func (b *InMemoryBackend) DeleteConnector(connectorArn, currentVersion string) (
 		return nil, ErrVersionMismatch
 	}
 
-	out := c.clone()
-	out.State = deletingState
+	if c.State != deletingState {
+		c.State = deletingState
+		c.PendingUntil = time.Now().UTC().Add(deletionDelay)
+	}
 
-	b.connectors.Delete(connectorArn)
-
-	return out, nil
+	return c.clone(), nil
 }
 
-// RestartConnector restarts a connector, recording a ConnectorOperation that
-// completes immediately (RESTART_COMPLETE) -- see PARITY.md for the
-// transient RESTARTING connector state and per-task restart tracking this
-// backend deliberately does not model.
+// RestartConnector moves a connector to RESTARTING and records a
+// RESTART_IN_PROGRESS operation that completes after provisionDelay.
 func (b *InMemoryBackend) RestartConnector(connectorArn string, _ bool) (*Connector, *ConnectorOperation, error) {
 	b.mu.Lock("RestartConnector")
 	defer b.mu.Unlock()
+
+	b.settleLocked(time.Now())
 
 	c, ok := b.connectors.Get(connectorArn)
 	if !ok {
 		return nil, nil, ErrConnectorNotFound
 	}
 
+	if c.State == deletingState {
+		return nil, nil, ErrConnectorDeleting
+	}
+
 	now := time.Now().UTC()
+	b.completeOperationsLocked(connectorArn, now)
+
 	op := &ConnectorOperation{
 		ARN:          connectorOperationARN(connectorArn),
 		ConnectorArn: connectorArn,
 		Type:         connectorOperationTypeRestart,
-		State:        connectorOperationStateRestartComplete,
+		State:        connectorOperationStateRestartInProgress,
 		CreationTime: now,
-		EndTime:      now,
 	}
+
+	c.State = connectorStateRestarting
+	c.PendingUntil = now.Add(provisionDelay)
 
 	b.connectorOperations.Put(op)
 
@@ -221,8 +251,10 @@ func (b *InMemoryBackend) RestartConnector(connectorArn string, _ bool) (*Connec
 
 // DescribeConnectorOperation returns the details of a single connector operation.
 func (b *InMemoryBackend) DescribeConnectorOperation(operationArn string) (*ConnectorOperation, error) {
-	b.mu.RLock("DescribeConnectorOperation")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeConnectorOperation")
+	defer b.mu.Unlock()
+
+	b.settleLocked(time.Now())
 
 	op, ok := b.connectorOperations.Get(operationArn)
 	if !ok {
@@ -237,8 +269,10 @@ func (b *InMemoryBackend) ListConnectorOperations(
 	connectorArn, nextToken string,
 	maxResults int,
 ) ([]*ConnectorOperation, string, error) {
-	b.mu.RLock("ListConnectorOperations")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListConnectorOperations")
+	defer b.mu.Unlock()
+
+	b.settleLocked(time.Now())
 
 	all := b.connectorOperations.All()
 
@@ -257,4 +291,20 @@ func (b *InMemoryBackend) ListConnectorOperations(
 	p := page.New(matched, nextToken, maxResults, defaultListLimit)
 
 	return p.Data, p.Next, nil
+}
+
+func (b *InMemoryBackend) validateConnectorRefsLocked(spec ConnectorSpec) error {
+	for _, ref := range spec.Plugins {
+		if _, ok := b.customPlugins.Get(ref.CustomPluginArn); !ok {
+			return ErrCustomPluginNotFound
+		}
+	}
+
+	if spec.WorkerConfiguration != nil {
+		if _, ok := b.workerConfigurations.Get(spec.WorkerConfiguration.Arn); !ok {
+			return ErrWorkerConfigNotFound
+		}
+	}
+
+	return nil
 }

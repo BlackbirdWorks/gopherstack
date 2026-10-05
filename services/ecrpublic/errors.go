@@ -26,4 +26,5 @@ var (
 	ErrImageAlreadyExists      = awserr.New("ImageAlreadyExistsException", awserr.ErrAlreadyExists)
 	ErrImageDigestDoesNotMatch = awserr.New("ImageDigestDoesNotMatchException", awserr.ErrInvalidParameter)
 	ErrImageTagAlreadyExists   = awserr.New("ImageTagAlreadyExistsException", awserr.ErrConflict)
+	ErrReferencedImagesMissing = awserr.New("ReferencedImagesNotFoundException", awserr.ErrNotFound)
 )

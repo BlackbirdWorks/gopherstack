@@ -146,7 +146,7 @@ func TestDeleteRepository_NotEmptyWithoutForce(t *testing.T) {
 
 	_, err = client.PutImage(ctx, &ecrpublicsdk.PutImageInput{
 		RepositoryName: aws.String("has-image"),
-		ImageManifest:  aws.String(`{"schemaVersion":2}`),
+		ImageManifest:  aws.String(`{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json"}`),
 	})
 	require.NoError(t, err)
 

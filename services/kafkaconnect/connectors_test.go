@@ -11,7 +11,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func minimalCreateConnectorInput(name string) *kafkaconnectsdk.CreateConnectorInput {
+// connectorInput registers a plugin for the connector (CreateConnector rejects unknown plugin ARNs).
+func connectorInput(
+	t *testing.T, client *kafkaconnectsdk.Client, name string,
+) *kafkaconnectsdk.CreateConnectorInput {
+	t.Helper()
+
+	return minimalCreateConnectorInput(name, createPlugin(t, client, "plugin-for-"+name))
+}
+
+func minimalCreateConnectorInput(name, pluginArn string) *kafkaconnectsdk.CreateConnectorInput {
 	return &kafkaconnectsdk.CreateConnectorInput{
 		Capacity: &types.Capacity{
 			ProvisionedCapacity: &types.ProvisionedCapacity{McuCount: 1, WorkerCount: 1},
@@ -37,7 +46,7 @@ func minimalCreateConnectorInput(name string) *kafkaconnectsdk.CreateConnectorIn
 		Plugins: []types.Plugin{
 			{
 				CustomPlugin: &types.CustomPlugin{
-					CustomPluginArn: aws.String("arn:aws:kafkaconnect:us-east-1:123456789012:custom-plugin/p/abc"),
+					CustomPluginArn: aws.String(pluginArn),
 					Revision:        1,
 				},
 			},
@@ -61,10 +70,11 @@ func TestCreateConnector(t *testing.T) {
 
 			client := newTestClient(t, newTestHandler())
 
-			out, err := client.CreateConnector(t.Context(), minimalCreateConnectorInput("conn-"+tt.name))
+			out, err := client.CreateConnector(t.Context(), connectorInput(t, client, "conn-"+tt.name))
 			require.NoError(t, err)
 			assert.Contains(t, aws.ToString(out.ConnectorArn), "connector/conn-"+tt.name+"/")
-			assert.Equal(t, types.ConnectorStateRunning, out.ConnectorState)
+			assert.Equal(t, types.ConnectorStateCreating, out.ConnectorState)
+			waitConnectorRunning(t, client, out.ConnectorArn)
 		})
 	}
 }
@@ -75,10 +85,12 @@ func TestCreateConnector_DuplicateNameReturnsConflict(t *testing.T) {
 	client := newTestClient(t, newTestHandler())
 	ctx := t.Context()
 
-	_, err := client.CreateConnector(ctx, minimalCreateConnectorInput("dup-connector"))
+	input := connectorInput(t, client, "dup-connector")
+
+	_, err := client.CreateConnector(ctx, input)
 	require.NoError(t, err)
 
-	_, err = client.CreateConnector(ctx, minimalCreateConnectorInput("dup-connector"))
+	_, err = client.CreateConnector(ctx, input)
 	require.Error(t, err)
 
 	var apiErr smithy.APIError
@@ -92,7 +104,7 @@ func TestDescribeConnector(t *testing.T) {
 	client := newTestClient(t, newTestHandler())
 	ctx := t.Context()
 
-	created, err := client.CreateConnector(ctx, minimalCreateConnectorInput("describe-me"))
+	created, err := client.CreateConnector(ctx, connectorInput(t, client, "describe-me"))
 	require.NoError(t, err)
 
 	out, err := client.DescribeConnector(
@@ -101,7 +113,7 @@ func TestDescribeConnector(t *testing.T) {
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "describe-me", aws.ToString(out.ConnectorName))
-	assert.Equal(t, types.ConnectorStateRunning, out.ConnectorState)
+	assert.Equal(t, types.ConnectorStateCreating, out.ConnectorState)
 	require.NotNil(t, out.Capacity)
 	require.NotNil(t, out.Capacity.ProvisionedCapacity)
 	assert.EqualValues(t, 1, out.Capacity.ProvisionedCapacity.WorkerCount)
@@ -132,9 +144,9 @@ func TestListConnectors(t *testing.T) {
 	client := newTestClient(t, newTestHandler())
 	ctx := t.Context()
 
-	_, err := client.CreateConnector(ctx, minimalCreateConnectorInput("list-a"))
+	_, err := client.CreateConnector(ctx, connectorInput(t, client, "list-a"))
 	require.NoError(t, err)
-	_, err = client.CreateConnector(ctx, minimalCreateConnectorInput("list-b"))
+	_, err = client.CreateConnector(ctx, connectorInput(t, client, "list-b"))
 	require.NoError(t, err)
 
 	out, err := client.ListConnectors(ctx, &kafkaconnectsdk.ListConnectorsInput{})
@@ -148,8 +160,9 @@ func TestUpdateConnector_Capacity(t *testing.T) {
 	client := newTestClient(t, newTestHandler())
 	ctx := t.Context()
 
-	created, err := client.CreateConnector(ctx, minimalCreateConnectorInput("update-me"))
+	created, err := client.CreateConnector(ctx, connectorInput(t, client, "update-me"))
 	require.NoError(t, err)
+	waitConnectorRunning(t, client, created.ConnectorArn)
 
 	described, err := client.DescribeConnector(
 		ctx,
@@ -165,8 +178,9 @@ func TestUpdateConnector_Capacity(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	assert.Equal(t, types.ConnectorStateRunning, out.ConnectorState)
+	assert.Equal(t, types.ConnectorStateUpdating, out.ConnectorState)
 	assert.NotEmpty(t, aws.ToString(out.ConnectorOperationArn))
+	waitConnectorRunning(t, client, created.ConnectorArn)
 
 	describedAfter, err := client.DescribeConnector(
 		ctx,
@@ -182,6 +196,7 @@ func TestUpdateConnector_Capacity(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, types.ConnectorOperationStateUpdateComplete, opOut.ConnectorOperationState)
+	assert.NotNil(t, opOut.EndTime)
 	assert.Equal(t, types.ConnectorOperationTypeUpdateWorkerSetting, opOut.ConnectorOperationType)
 
 	listOpsOut, err := client.ListConnectorOperations(ctx, &kafkaconnectsdk.ListConnectorOperationsInput{
@@ -197,7 +212,7 @@ func TestUpdateConnector_VersionMismatch(t *testing.T) {
 	client := newTestClient(t, newTestHandler())
 	ctx := t.Context()
 
-	created, err := client.CreateConnector(ctx, minimalCreateConnectorInput("stale-version"))
+	created, err := client.CreateConnector(ctx, connectorInput(t, client, "stale-version"))
 	require.NoError(t, err)
 
 	_, err = client.UpdateConnector(ctx, &kafkaconnectsdk.UpdateConnectorInput{
@@ -218,19 +233,14 @@ func TestDeleteConnector(t *testing.T) {
 	client := newTestClient(t, newTestHandler())
 	ctx := t.Context()
 
-	created, err := client.CreateConnector(ctx, minimalCreateConnectorInput("delete-me"))
+	created, err := client.CreateConnector(ctx, connectorInput(t, client, "delete-me"))
 	require.NoError(t, err)
 
 	out, err := client.DeleteConnector(ctx, &kafkaconnectsdk.DeleteConnectorInput{ConnectorArn: created.ConnectorArn})
 	require.NoError(t, err)
 	assert.Equal(t, types.ConnectorStateDeleting, out.ConnectorState)
 
-	_, err = client.DescribeConnector(ctx, &kafkaconnectsdk.DescribeConnectorInput{ConnectorArn: created.ConnectorArn})
-	require.Error(t, err)
-
-	var apiErr smithy.APIError
-	require.ErrorAs(t, err, &apiErr)
-	assert.Equal(t, "NotFoundException", apiErr.ErrorCode())
+	waitConnectorGone(t, client, created.ConnectorArn)
 }
 
 func TestRestartConnector(t *testing.T) {
@@ -251,7 +261,7 @@ func TestRestartConnector(t *testing.T) {
 			client := newTestClient(t, newTestHandler())
 			ctx := t.Context()
 
-			created, err := client.CreateConnector(ctx, minimalCreateConnectorInput("restart-"+tt.name))
+			created, err := client.CreateConnector(ctx, connectorInput(t, client, "restart-"+tt.name))
 			require.NoError(t, err)
 
 			out, err := client.RestartConnector(ctx, &kafkaconnectsdk.RestartConnectorInput{
@@ -266,8 +276,17 @@ func TestRestartConnector(t *testing.T) {
 				ConnectorOperationArn: out.ConnectorOperationArn,
 			})
 			require.NoError(t, err)
-			assert.Equal(t, types.ConnectorOperationStateRestartComplete, opOut.ConnectorOperationState)
+			assert.Equal(t, types.ConnectorOperationStateRestartInProgress, opOut.ConnectorOperationState)
 			assert.Equal(t, types.ConnectorOperationTypeRestartConnector, opOut.ConnectorOperationType)
+
+			waitConnectorRunning(t, client, created.ConnectorArn)
+
+			opOut, err = client.DescribeConnectorOperation(ctx, &kafkaconnectsdk.DescribeConnectorOperationInput{
+				ConnectorOperationArn: out.ConnectorOperationArn,
+			})
+			require.NoError(t, err)
+			assert.Equal(t, types.ConnectorOperationStateRestartComplete, opOut.ConnectorOperationState)
+			assert.NotNil(t, opOut.EndTime)
 
 			described, err := client.DescribeConnector(ctx, &kafkaconnectsdk.DescribeConnectorInput{
 				ConnectorArn: created.ConnectorArn,

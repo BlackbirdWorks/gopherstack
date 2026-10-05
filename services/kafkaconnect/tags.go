@@ -1,11 +1,16 @@
 package kafkaconnect
 
-import "maps"
+import (
+	"maps"
+	"time"
+)
 
 // TagResource adds or replaces tags on a connector, custom plugin, or worker configuration by ARN.
 func (b *InMemoryBackend) TagResource(resourceArn string, tags map[string]string) error {
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
+
+	b.settleLocked(time.Now())
 
 	if c, ok := b.connectors.Get(resourceArn); ok {
 		maps.Copy(c.Tags, tags)
@@ -32,6 +37,8 @@ func (b *InMemoryBackend) TagResource(resourceArn string, tags map[string]string
 func (b *InMemoryBackend) UntagResource(resourceArn string, tagKeys []string) error {
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
+
+	b.settleLocked(time.Now())
 
 	if c, ok := b.connectors.Get(resourceArn); ok {
 		for _, k := range tagKeys {
@@ -62,8 +69,10 @@ func (b *InMemoryBackend) UntagResource(resourceArn string, tagKeys []string) er
 
 // ListTagsForResource returns all tags on a connector, custom plugin, or worker configuration by ARN.
 func (b *InMemoryBackend) ListTagsForResource(resourceArn string) (map[string]string, error) {
-	b.mu.RLock("ListTagsForResource")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListTagsForResource")
+	defer b.mu.Unlock()
+
+	b.settleLocked(time.Now())
 
 	if c, ok := b.connectors.Get(resourceArn); ok {
 		return maps.Clone(c.Tags), nil

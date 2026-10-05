@@ -32,29 +32,32 @@ func isFullSHA256Digest(s string) bool {
 	return true
 }
 
-// manifestLayerDigests is the minimal subset of an OCI/Docker image manifest
-// needed to verify that every layer (and the config blob) a PutImage call
-// references was actually uploaded first. A manifest this loose parser
-// cannot decode (e.g. a manifest list / OCI index for multi-arch images) is
-// treated as having no checkable layer references, since a real manifest
-// list references per-platform manifests rather than layer digests directly.
-type manifestLayers struct {
-	Config struct {
-		Digest string `json:"digest"`
+// manifestDoc is the subset of an OCI/Docker image manifest or OCI index
+// PutImage inspects: referenced layers/config, or referenced child manifests.
+type manifestDoc struct {
+	MediaType    string `json:"mediaType"`
+	ArtifactType string `json:"artifactType"`
+	Config       struct {
+		Digest    string `json:"digest"`
+		MediaType string `json:"mediaType"`
 	} `json:"config"`
 	Layers []struct {
 		Digest string `json:"digest"`
 	} `json:"layers"`
+	Manifests []struct {
+		Digest string `json:"digest"`
+	} `json:"manifests"`
 }
 
-// referencedDigests returns every layer/config digest manifest references,
-// or nil if manifest is not a shape this parser understands.
-func referencedDigests(manifest string) []string {
-	var m manifestLayers
-	if err := json.Unmarshal([]byte(manifest), &m); err != nil {
-		return nil
-	}
+func parseManifest(manifest string) (manifestDoc, bool) {
+	var m manifestDoc
 
+	return m, json.Unmarshal([]byte(manifest), &m) == nil
+}
+
+// referencedDigests returns every layer/config digest an image manifest
+// references; an OCI index or undecodable manifest yields none.
+func referencedDigests(m manifestDoc) []string {
 	var out []string
 	if m.Config.Digest != "" {
 		out = append(out, m.Config.Digest)
@@ -67,4 +70,27 @@ func referencedDigests(manifest string) []string {
 	}
 
 	return out
+}
+
+// referencedManifests returns the child manifest digests of an OCI index or
+// Docker manifest list.
+func referencedManifests(m manifestDoc) []string {
+	out := make([]string, 0, len(m.Manifests))
+
+	for _, c := range m.Manifests {
+		if c.Digest != "" {
+			out = append(out, c.Digest)
+		}
+	}
+
+	return out
+}
+
+// artifactMediaType is the OCI artifactType, else the config blob's media type.
+func (m manifestDoc) artifactMediaType() string {
+	if m.ArtifactType != "" {
+		return m.ArtifactType
+	}
+
+	return m.Config.MediaType
 }
