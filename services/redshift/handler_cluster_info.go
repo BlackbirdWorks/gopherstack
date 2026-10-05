@@ -54,15 +54,15 @@ type describeClusterTracksResponse struct {
 }
 
 func (h *Handler) handleDescribeClusterTracks(_ url.Values) (any, error) {
+	tracks := make([]xmlMaintenanceTrack, 0, len(maintenanceTrackNames()))
+	for _, name := range maintenanceTrackNames() {
+		tracks = append(tracks, xmlMaintenanceTrack{MaintenanceTrackName: name, DatabaseVersion: modelVersion10})
+	}
+
 	return &describeClusterTracksResponse{
 		Xmlns: redshiftXMLNS,
 		Result: xmlDescribeClusterTracksResult{
-			MaintenanceTracks: xmlMaintenanceTracks{
-				Tracks: []xmlMaintenanceTrack{
-					{MaintenanceTrackName: "current", DatabaseVersion: modelVersion10},
-					{MaintenanceTrackName: "trailing", DatabaseVersion: modelVersion10},
-				},
-			},
+			MaintenanceTracks: xmlMaintenanceTracks{Tracks: tracks},
 		},
 	}, nil
 }

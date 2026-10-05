@@ -68,7 +68,8 @@ func (h *Handler) handleUpdateAccountAuditConfiguration(c *echo.Context) error {
 }
 
 func (h *Handler) handleDeleteAccountAuditConfiguration(c *echo.Context) error {
-	if err := h.Backend.DeleteAccountAuditConfiguration(); err != nil {
+	dropAudits := c.QueryParam("deleteScheduledAudits") == keyBoolTrue
+	if err := h.Backend.DeleteAccountAuditConfiguration(dropAudits); err != nil {
 		return respondErr(c, err)
 	}
 

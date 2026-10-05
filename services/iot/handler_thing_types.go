@@ -145,7 +145,13 @@ func (h *Handler) handleListThingTypes(c *echo.Context) error {
 	types := h.Backend.ListThingTypes()
 	out := make([]map[string]any, 0, len(types))
 
+	nameFilter := c.QueryParam("thingTypeName")
+
 	for _, tt := range types {
+		if nameFilter != "" && tt.ThingTypeName != nameFilter {
+			continue
+		}
+
 		out = append(out, map[string]any{
 			keyThingTypeName:    tt.ThingTypeName,
 			keyThingTypeArn:     tt.ThingTypeARN,

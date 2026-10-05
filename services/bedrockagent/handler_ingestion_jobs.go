@@ -17,11 +17,12 @@ func (h *Handler) handleStartIngestionJob(
 ) error {
 	var req struct {
 		Description string `json:"description"`
+		ClientToken string `json:"clientToken"`
 	}
 
 	_ = json.Unmarshal(body, &req)
 
-	job, err := h.Backend.StartIngestionJob(ctx, kbID, dsID, req.Description)
+	job, err := h.Backend.StartIngestionJob(ctx, kbID, dsID, req.Description, req.ClientToken)
 	if err != nil {
 		return handleErr(c, err)
 	}

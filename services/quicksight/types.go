@@ -37,7 +37,17 @@ type User struct {
 	PrincipalID           string
 	SessionName           string
 	CustomPermissionsName string
+	Federation            UserFederation
 	Active                bool
+}
+
+// UserFederation holds a user's external login provider settings.
+type UserFederation struct {
+	ProviderType string
+	ProviderURL  string
+	LoginID      string
+	// UnapplyCustomPermissions is an UpdateUser instruction, never stored.
+	UnapplyCustomPermissions bool
 }
 
 // DataSource represents a QuickSight data source.
@@ -45,6 +55,7 @@ type User struct {
 type DataSource struct {
 	CreatedTime     time.Time
 	LastUpdatedTime time.Time
+	Config          map[string]any
 	DataSourceID    string
 	Arn             string
 	Name            string
@@ -60,12 +71,13 @@ type DataSet struct {
 	LastUpdatedTime  time.Time
 	PhysicalTableMap map[string]PhysicalTable
 	LogicalTableMap  map[string]LogicalTable
+	Config           map[string]any
 	DataSetID        string
 	Arn              string
 	Name             string
 	ImportMode       string
-	Permissions      []ResourcePermission
 	Security         DataSetSecurity
+	Permissions      []ResourcePermission
 }
 
 // DataSetSecurity holds a dataset's row-level and column-level security
@@ -206,6 +218,8 @@ type Ingestion struct {
 	Arn             string
 	DataSetID       string
 	IngestionStatus string
+	RequestType     string
+	RequestSource   string
 }
 
 // Dashboard represents a QuickSight dashboard.
@@ -505,6 +519,25 @@ type AccountSubscription struct {
 	NotificationEmail         string
 	AuthenticationType        string
 	AccountSubscriptionStatus string
+	IAMIdentityCenterArn      string
+}
+
+// AccountSubscriptionOptions holds the directory and contact members of CreateAccountSubscription.
+type AccountSubscriptionOptions struct {
+	ActiveDirectoryName          string
+	Realm                        string
+	DirectoryID                  string
+	IAMIdentityCenterInstanceArn string
+	FirstName                    string
+	LastName                     string
+	EmailAddress                 string
+	ContactNumber                string
+	AdminGroup                   []string
+	AdminProGroup                []string
+	AuthorGroup                  []string
+	AuthorProGroup               []string
+	ReaderGroup                  []string
+	ReaderProGroup               []string
 }
 
 // AccountCustomization represents a QuickSight account's (or namespace's) branding customization.

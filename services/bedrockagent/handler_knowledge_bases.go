@@ -21,6 +21,7 @@ func (h *Handler) handleCreateKB(ctx context.Context, c *echo.Context, body []by
 		Name                 string            `json:"name"`
 		Description          string            `json:"description"`
 		RoleARN              string            `json:"roleArn"`
+		ClientToken          string            `json:"clientToken"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -28,6 +29,7 @@ func (h *Handler) handleCreateKB(ctx context.Context, c *echo.Context, body []by
 	}
 
 	kb, err := h.Backend.CreateKnowledgeBase(ctx, KnowledgeBaseConfig{
+		ClientToken:          req.ClientToken,
 		Name:                 req.Name,
 		Description:          req.Description,
 		RoleARN:              req.RoleARN,

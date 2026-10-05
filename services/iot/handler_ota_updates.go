@@ -36,12 +36,29 @@ func (h *Handler) handleCreateOTAUpdate(c *echo.Context) error {
 		Targets     []string  `json:"targets"`
 		Files       []any     `json:"otaUpdateFiles"`
 		Tags        []tags.KV `json:"tags"`
+
+		AdditionalParameters          map[string]string `json:"additionalParameters"`
+		AWSJobAbortConfig             map[string]any    `json:"awsJobAbortConfig"`
+		AWSJobExecutionsRolloutConfig map[string]any    `json:"awsJobExecutionsRolloutConfig"`
+		AWSJobPresignedURLConfig      map[string]any    `json:"awsJobPresignedUrlConfig"`
+		AWSJobTimeoutConfig           map[string]any    `json:"awsJobTimeoutConfig"`
+		TargetSelection               string            `json:"targetSelection"`
+		Protocols                     []string          `json:"protocols"`
 	}
 	if err := readBody(c, &req); err != nil {
 		return err
 	}
 	o, err := h.Backend.CreateOTAUpdate(
 		id, req.Description, req.RoleARN, req.Targets, req.Files, tags.MapFromKV(req.Tags),
+		OTAUpdateOptions{
+			AdditionalParameters:          req.AdditionalParameters,
+			AWSJobAbortConfig:             req.AWSJobAbortConfig,
+			AWSJobExecutionsRolloutConfig: req.AWSJobExecutionsRolloutConfig,
+			AWSJobPresignedURLConfig:      req.AWSJobPresignedURLConfig,
+			AWSJobTimeoutConfig:           req.AWSJobTimeoutConfig,
+			TargetSelection:               req.TargetSelection,
+			Protocols:                     req.Protocols,
+		},
 	)
 	if err != nil {
 		return respondErr(c, err)

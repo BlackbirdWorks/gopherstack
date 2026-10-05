@@ -64,6 +64,7 @@ func (h *Handler) handleRegisterUser(c *echo.Context) error {
 		strField(body, "SessionName"),
 		strField(body, keyCustomPermissionsName),
 		tagsFromBody(body),
+		userFederationFromBody(body),
 	)
 	if err != nil {
 		return httpErr(c, err)
@@ -108,6 +109,7 @@ func (h *Handler) handleUpdateUser(c *echo.Context) error {
 	u, err := h.Backend.UpdateUser(
 		accountID, namespace, userName,
 		strField(body, "Email"), strField(body, "Role"), strField(body, keyCustomPermissionsName),
+		userFederationFromBody(body),
 	)
 	if err != nil {
 		return httpErr(c, err)
@@ -221,6 +223,24 @@ func userToMap(u *User) map[string]any {
 	if u.CustomPermissionsName != "" {
 		m["CustomPermissionsName"] = u.CustomPermissionsName
 	}
+	if u.Federation.ProviderType != "" {
+		m["ExternalLoginFederationProviderType"] = u.Federation.ProviderType
+	}
+	if u.Federation.ProviderURL != "" {
+		m["ExternalLoginFederationProviderUrl"] = u.Federation.ProviderURL
+	}
+	if u.Federation.LoginID != "" {
+		m["ExternalLoginId"] = u.Federation.LoginID
+	}
 
 	return m
+}
+
+func userFederationFromBody(body map[string]any) UserFederation {
+	return UserFederation{
+		ProviderType:             strField(body, "ExternalLoginFederationProviderType"),
+		ProviderURL:              strField(body, "CustomFederationProviderUrl"),
+		LoginID:                  strField(body, "ExternalLoginId"),
+		UnapplyCustomPermissions: boolField(body, "UnapplyCustomPermissions"),
+	}
 }

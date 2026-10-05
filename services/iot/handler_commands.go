@@ -80,9 +80,12 @@ func (h *Handler) handleCreateCommand(c *echo.Context) error {
 	id := strings.TrimPrefix(c.Request().URL.Path, "/commands/")
 	var req struct {
 		Payload             map[string]any   `json:"payload"`
+		Preprocessor        map[string]any   `json:"preprocessor"`
 		DisplayName         string           `json:"displayName"`
 		Description         string           `json:"description"`
 		Namespace           string           `json:"namespace"`
+		PayloadTemplate     string           `json:"payloadTemplate"`
+		RoleARN             string           `json:"roleArn"`
 		Tags                []tags.KV        `json:"tags"`
 		MandatoryParameters []map[string]any `json:"mandatoryParameters"`
 	}
@@ -92,6 +95,7 @@ func (h *Handler) handleCreateCommand(c *echo.Context) error {
 	cmd, err := h.Backend.CreateCommand(
 		id, req.DisplayName, req.Description, req.Namespace, req.Payload,
 		req.MandatoryParameters, tags.MapFromKV(req.Tags),
+		CommandExtras{Preprocessor: req.Preprocessor, PayloadTemplate: req.PayloadTemplate, RoleARN: req.RoleARN},
 	)
 	if err != nil {
 		return respondAsConflictCode(c, err, ErrAlreadyExists, "ConflictException")
@@ -155,17 +159,7 @@ func commandSummaryFields(cmd *IoTCommand) map[string]any {
 }
 
 func (h *Handler) handleListCommands(c *echo.Context) error {
-	items := h.Backend.ListCommands()
-
-	if ns := c.QueryParam("namespace"); ns != "" {
-		filtered := items[:0:0]
-		for _, cmd := range items {
-			if cmd.Namespace == ns {
-				filtered = append(filtered, cmd)
-			}
-		}
-		items = filtered
-	}
+	items := filterCommands(h.Backend.ListCommands(), c.QueryParam("namespace"), c.QueryParam("commandParameterName"))
 
 	// Default order is descending by creation time (ListCommandsInput's
 	// sortOrder doc comment); "ASCENDING" is the only other real enum value.
@@ -364,4 +358,33 @@ func (h *Handler) dispatchCommandOps(c *echo.Context, op string) (bool, error) {
 	}
 
 	return false, nil
+}
+
+func commandHasParameter(cmd *IoTCommand, name string) bool {
+	for _, p := range cmd.MandatoryParameters {
+		if n, _ := p["name"].(string); n == name {
+			return true
+		}
+	}
+
+	return false
+}
+
+// filterCommands keeps the commands in namespace (when set) that declare parameterName (when set).
+func filterCommands(items []*IoTCommand, namespace, parameterName string) []*IoTCommand {
+	filtered := items[:0:0]
+
+	for _, cmd := range items {
+		if namespace != "" && cmd.Namespace != namespace {
+			continue
+		}
+
+		if parameterName != "" && !commandHasParameter(cmd, parameterName) {
+			continue
+		}
+
+		filtered = append(filtered, cmd)
+	}
+
+	return filtered
 }

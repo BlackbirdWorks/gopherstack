@@ -66,6 +66,11 @@ func (h *Handler) handleCreateAnalysis(c *echo.Context) error {
 		name = analysisID
 	}
 
+	folderArns := stringsFromBody(body, "FolderArns")
+	if folderErr := h.Backend.CheckFolderArns(accountID, folderArns); folderErr != nil {
+		return httpErr(c, folderErr)
+	}
+
 	a, err := h.Backend.CreateAnalysis(
 		accountID,
 		analysisID,
@@ -77,6 +82,10 @@ func (h *Handler) handleCreateAnalysis(c *echo.Context) error {
 	)
 	if err != nil {
 		return httpErr(c, err)
+	}
+	folderErr := h.Backend.AddToFolders(accountID, folderMemberTypeAnalysis, a.AnalysisID, folderArns)
+	if folderErr != nil {
+		return httpErr(c, folderErr)
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
@@ -194,7 +203,7 @@ func (h *Handler) handleRestoreAnalysis(c *echo.Context) error {
 	// path: /accounts/{id}/restore/analyses/{analysisId}
 	analysisID := seg(segs, segSubRes)
 
-	a, err := h.Backend.RestoreAnalysis(accountID, analysisID)
+	a, err := h.Backend.RestoreAnalysis(accountID, analysisID, queryParam(c, "restore-to-folders") == "true")
 	if err != nil {
 		return httpErr(c, err)
 	}

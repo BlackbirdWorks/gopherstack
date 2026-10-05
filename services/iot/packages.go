@@ -121,6 +121,7 @@ func (b *InMemoryBackend) DeleteIoTPackage(name string) error {
 		return fmt.Errorf("package %q not found: %w", name, ErrResourceNotFound)
 	}
 	b.iotPackages.Delete(name)
+	b.releaseClientTokensLocked(tokenKindPackage, name)
 	delete(b.resourceTags, b.packageARN(name))
 
 	return nil
@@ -320,6 +321,7 @@ func (b *InMemoryBackend) DeleteIoTPackageVersion(packageName, versionName strin
 		return fmt.Errorf("package version %q/%q not found: %w", packageName, versionName, ErrResourceNotFound)
 	}
 	delete(b.packageVersions2[packageName], versionName)
+	b.releaseClientTokensLocked(tokenKindPackageVersion, packageName+"/"+versionName)
 	delete(b.resourceTags, b.packageVersionARN(packageName, versionName))
 
 	return nil

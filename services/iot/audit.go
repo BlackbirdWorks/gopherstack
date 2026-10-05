@@ -150,11 +150,18 @@ func (b *InMemoryBackend) DescribeAccountAuditConfiguration() *AccountAuditConfi
 // DeleteAccountAuditConfiguration clears the account-level audit configuration,
 // restoring it to its unconfigured state. It is idempotent: deleting an
 // unconfigured account still succeeds, matching AWS IoT behavior.
-func (b *InMemoryBackend) DeleteAccountAuditConfiguration() error {
+func (b *InMemoryBackend) DeleteAccountAuditConfiguration(deleteScheduledAudits bool) error {
 	b.mu.Lock("DeleteAccountAuditConfiguration")
 	defer b.mu.Unlock()
 
 	b.auditConfiguration = nil
+
+	if deleteScheduledAudits {
+		for _, sa := range b.scheduledAudits.Snapshot() {
+			b.scheduledAudits.Delete(sa.ScheduledAuditName)
+			delete(b.resourceTags, b.scheduledAuditARN(sa.ScheduledAuditName))
+		}
+	}
 
 	return nil
 }

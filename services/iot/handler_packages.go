@@ -148,10 +148,21 @@ func (h *Handler) handleCreatePackage(c *echo.Context) error {
 	if err := readBody(c, &req); err != nil {
 		return err
 	}
+	token := c.QueryParam("clientToken")
+	replay, err := h.Backend.CheckCreateToken(tokenKindPackage, token, name)
+	if err != nil {
+		return respondAsConflictCode(c, err, ErrAlreadyExists, "ConflictException")
+	}
+	if replay {
+		if existing, getErr := h.Backend.GetIoTPackage(name); getErr == nil {
+			return c.JSON(http.StatusOK, existing)
+		}
+	}
 	p, err := h.Backend.CreateIoTPackage(name, req.Description, req.Tags)
 	if err != nil {
 		return respondAsConflictCode(c, err, ErrAlreadyExists, "ConflictException")
 	}
+	h.Backend.RecordCreateToken(tokenKindPackage, token, name)
 
 	return c.JSON(http.StatusOK, p)
 }
@@ -242,6 +253,17 @@ func (h *Handler) handleCreatePackageVersion(c *echo.Context) error {
 	if err := readBody(c, &req); err != nil {
 		return err
 	}
+	versionKey := pkgName + "/" + versionName
+	token := c.QueryParam("clientToken")
+	replay, tokenErr := h.Backend.CheckCreateToken(tokenKindPackageVersion, token, versionKey)
+	if tokenErr != nil {
+		return respondAsConflictCode(c, tokenErr, ErrAlreadyExists, "ConflictException")
+	}
+	if replay {
+		if existing, getErr := h.Backend.GetIoTPackageVersion(pkgName, versionName); getErr == nil {
+			return c.JSON(http.StatusOK, existing)
+		}
+	}
 	v, err := h.Backend.CreateIoTPackageVersion(pkgName, versionName, req.Description, req.Tags,
 		CreateIoTPackageVersionOptions{
 			Attributes: req.Attributes,
@@ -251,6 +273,7 @@ func (h *Handler) handleCreatePackageVersion(c *echo.Context) error {
 	if err != nil {
 		return respondAsConflictCode(c, err, ErrAlreadyExists, "ConflictException")
 	}
+	h.Backend.RecordCreateToken(tokenKindPackageVersion, token, versionKey)
 
 	return c.JSON(http.StatusOK, v)
 }

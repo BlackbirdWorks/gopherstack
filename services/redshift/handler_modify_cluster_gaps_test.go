@@ -98,7 +98,11 @@ func TestModifyCluster_ClusterVersion_PendingGating(t *testing.T) {
 	rec = postRedshiftForm(t, h, "Action=DescribeClusters&Version=2012-12-01&ClusterIdentifier=ver-cluster")
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "<ClusterVersion>1.0</ClusterVersion>")
-	assert.NotContains(t, rec.Body.String(), "<ClusterVersion>2.0</ClusterVersion>")
+	assert.Contains(
+		t,
+		rec.Body.String(),
+		"<PendingModifiedValues><ClusterVersion>2.0</ClusterVersion></PendingModifiedValues>",
+	)
 }
 
 // TestModifyCluster_PubliclyAccessible_TriState verifies PubliclyAccessible

@@ -3,6 +3,7 @@ package quicksight
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -975,6 +976,16 @@ func readBody(c *echo.Context) (map[string]any, error) {
 	}
 
 	return body, nil
+}
+
+// readOptionalBody is readBody for operations whose request body may be empty.
+func readOptionalBody(c *echo.Context) (map[string]any, error) {
+	body, err := readBody(c)
+	if errors.Is(err, io.EOF) {
+		return map[string]any{}, nil
+	}
+
+	return body, err
 }
 
 func strField(body map[string]any, key string) string {

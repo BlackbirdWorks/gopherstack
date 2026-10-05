@@ -206,6 +206,7 @@ func (h *Handler) handleCreateAccountSubscription(c *echo.Context) error {
 		strField(body, keyEdition),
 		strField(body, keyAuthenticationMethod),
 		strField(body, keyNotificationEmail),
+		accountSubscriptionOptionsFromBody(body),
 	)
 	if err != nil {
 		if errors.Is(err, ErrAccountSubscriptionAlreadyExists) {
@@ -236,11 +237,12 @@ func (h *Handler) handleDescribeAccountSubscription(c *echo.Context) error {
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		keyAccountInfo: map[string]any{
-			keyAccountName:               s.AccountName,
-			keyEdition:                   s.Edition,
-			keyNotificationEmail:         s.NotificationEmail,
-			keyAuthenticationType:        s.AuthenticationType,
-			keyAccountSubscriptionStatus: s.AccountSubscriptionStatus,
+			keyAccountName:                 s.AccountName,
+			keyEdition:                     s.Edition,
+			keyNotificationEmail:           s.NotificationEmail,
+			keyAuthenticationType:          s.AuthenticationType,
+			keyAccountSubscriptionStatus:   s.AccountSubscriptionStatus,
+			"IAMIdentityCenterInstanceArn": s.IAMIdentityCenterArn,
 		},
 		keyRequestID: reqIDPlaceholder,
 		keyStatus:    http.StatusOK,
@@ -971,4 +973,23 @@ func (h *Handler) handleDeleteAccountCustomPerm(c *echo.Context) error {
 		keyRequestID: reqIDPlaceholder,
 		keyStatus:    http.StatusOK,
 	})
+}
+
+func accountSubscriptionOptionsFromBody(body map[string]any) AccountSubscriptionOptions {
+	return AccountSubscriptionOptions{
+		ActiveDirectoryName:          strField(body, "ActiveDirectoryName"),
+		Realm:                        strField(body, "Realm"),
+		DirectoryID:                  strField(body, "DirectoryId"),
+		IAMIdentityCenterInstanceArn: strField(body, "IAMIdentityCenterInstanceArn"),
+		FirstName:                    strField(body, "FirstName"),
+		LastName:                     strField(body, "LastName"),
+		EmailAddress:                 strField(body, "EmailAddress"),
+		ContactNumber:                strField(body, "ContactNumber"),
+		AdminGroup:                   stringsFromBody(body, "AdminGroup"),
+		AdminProGroup:                stringsFromBody(body, "AdminProGroup"),
+		AuthorGroup:                  stringsFromBody(body, "AuthorGroup"),
+		AuthorProGroup:               stringsFromBody(body, "AuthorProGroup"),
+		ReaderGroup:                  stringsFromBody(body, "ReaderGroup"),
+		ReaderProGroup:               stringsFromBody(body, "ReaderProGroup"),
+	}
 }

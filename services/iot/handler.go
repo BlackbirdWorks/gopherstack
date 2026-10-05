@@ -504,6 +504,10 @@ func (h *Handler) handleListThings(c *echo.Context) error {
 
 	out := make([]map[string]any, 0, len(things))
 	for _, t := range things {
+		if !thingMatchesListFilters(c, t) {
+			continue
+		}
+
 		out = append(out, map[string]any{
 			keyThingName:     t.ThingName,
 			keyThingArn:      t.ARN,
@@ -627,4 +631,32 @@ func (h *Handler) handleGetThingConnectivityData(c *echo.Context) error {
 		"timestamp":        data.Timestamp,
 		"disconnectReason": data.DisconnectReason,
 	})
+}
+
+// thingMatchesListFilters applies ListThings' thingTypeName and attribute filters.
+func thingMatchesListFilters(c *echo.Context, t *Thing) bool {
+	if typeName := c.QueryParam("thingTypeName"); typeName != "" && t.ThingTypeName != typeName {
+		return false
+	}
+
+	name := c.QueryParam("attributeName")
+	if name == "" {
+		return true
+	}
+
+	value, ok := t.Attributes[name]
+	if !ok {
+		return false
+	}
+
+	want := c.QueryParam("attributeValue")
+	if want == "" {
+		return true
+	}
+
+	if c.QueryParam("usePrefixAttributeValue") == keyBoolTrue {
+		return strings.HasPrefix(value, want)
+	}
+
+	return value == want
 }

@@ -36,22 +36,29 @@ type StorageBackend interface {
 	RegisterUser(
 		accountID, namespace, userName, email, role, identityType, sessionName, customPermissionsName string,
 		tags map[string]string,
+		federation UserFederation,
 	) (*User, error)
 	DescribeUser(accountID, namespace, userName string) (*User, error)
-	UpdateUser(accountID, namespace, userName, email, role, customPermissionsName string) (*User, error)
+	UpdateUser(
+		accountID, namespace, userName, email, role, customPermissionsName string, federation UserFederation,
+	) (*User, error)
 	DeleteUser(accountID, namespace, userName string) error
 	DeleteUserByPrincipalID(accountID, namespace, principalID string) error
 	ListUsers(accountID, namespace string, maxResults int32, nextToken string) ([]*User, string, error)
 	ListUserGroups(accountID, namespace, userName string, maxResults int32, nextToken string) ([]*Group, string, error)
+
+	CheckFolderArns(accountID string, folderArns []string) error
+	AddToFolders(accountID, memberType, memberID string, folderArns []string) error
 
 	// DataSources
 	CreateDataSource(
 		accountID, dataSourceID, name, dsType string,
 		permissions []ResourcePermission,
 		tags map[string]string,
+		opts DataSourceOptions,
 	) (*DataSource, error)
 	DescribeDataSource(accountID, dataSourceID string) (*DataSource, error)
-	UpdateDataSource(accountID, dataSourceID, name string) (*DataSource, error)
+	UpdateDataSource(accountID, dataSourceID, name string, opts DataSourceOptions) (*DataSource, error)
 	DeleteDataSource(accountID, dataSourceID string) error
 	ListDataSources(accountID string, maxResults int32, nextToken string) ([]*DataSource, string, error)
 	SearchDataSources(
@@ -78,6 +85,7 @@ type StorageBackend interface {
 		physicalTableMap map[string]PhysicalTable,
 		logicalTableMap map[string]LogicalTable,
 		security DataSetSecurity,
+		opts DataSetOptions,
 	) (*DataSet, *Ingestion, error)
 	DescribeDataSet(accountID, dataSetID string) (*DataSet, error)
 	// UpdateDataSet returns the updated dataset plus the *Ingestion triggered
@@ -90,6 +98,7 @@ type StorageBackend interface {
 		physicalTableMap map[string]PhysicalTable,
 		logicalTableMap map[string]LogicalTable,
 		security DataSetSecurity,
+		opts DataSetOptions,
 	) (*DataSet, *Ingestion, error)
 	DeleteDataSet(accountID, dataSetID string) error
 	ListDataSets(accountID string, maxResults int32, nextToken string) ([]*DataSet, string, error)
@@ -106,7 +115,7 @@ type StorageBackend interface {
 	) (*DataSet, []ResourcePermission, error)
 
 	// Ingestions
-	CreateIngestion(accountID, dataSetID, ingestionID string) (*Ingestion, error)
+	CreateIngestion(accountID, dataSetID, ingestionID, ingestionType string) (*Ingestion, error)
 	DescribeIngestion(accountID, dataSetID, ingestionID string) (*Ingestion, error)
 	CancelIngestion(accountID, dataSetID, ingestionID string) error
 	ListIngestions(accountID, dataSetID string, maxResults int32, nextToken string) ([]*Ingestion, string, error)
@@ -160,7 +169,7 @@ type StorageBackend interface {
 		accountID, analysisID string, forceDeleteWithoutRecovery bool, recoveryWindowInDays int64,
 	) (time.Time, error)
 	ListAnalyses(accountID string, maxResults int32, nextToken string) ([]*Analysis, string, error)
-	RestoreAnalysis(accountID, analysisID string) (*Analysis, error)
+	RestoreAnalysis(accountID, analysisID string, restoreToFolders bool) (*Analysis, error)
 	SearchAnalyses(
 		accountID string,
 		filters []SearchFilter,
@@ -410,6 +419,7 @@ type StorageBackend interface {
 	// Account subscription
 	CreateAccountSubscription(
 		accountID, accountName, edition, authenticationMethod, notificationEmail string,
+		opts AccountSubscriptionOptions,
 	) (*AccountSubscription, error)
 	DescribeAccountSubscription(accountID string) (*AccountSubscription, error)
 	DeleteAccountSubscription(accountID string) error

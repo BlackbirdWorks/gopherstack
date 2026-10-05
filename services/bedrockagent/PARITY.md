@@ -195,7 +195,7 @@ ops:
     AgentAliasSummary also dropped RoutingConfiguration, a REQUIRED real
     types.AgentAliasSummary member, despite the singular AgentAlias always
     carrying it. Added, populated from the stored alias. AliasInvocationState
-    (optional) remains unmodeled -- see items_still_open. Proven by
+    is now carried on the summary too. Proven by
     TestListSummaryFields/agent_alias_summary_carries_routing_configuration."}
   AssociateAgentCollaborator: {wire: fixed, errors: fixed, state: ok, persist: ok,
     note: "same DRAFT-only {agentVersion} path constraint as
@@ -387,30 +387,25 @@ ops:
     note: "FIXED (gopherstack-21my, 2026-09-18, per-item sweep):
     FlowAliasSummary dropped RoutingConfiguration, a REQUIRED real
     types.FlowAliasSummary member, despite the singular FlowAlias always
-    carrying it. Added, populated from the stored alias.
-    ConcurrencyConfiguration (optional) remains unmodeled -- see
-    items_still_open. Proven by
+    carrying it. Added, populated from the stored alias. Proven by
     TestListSummaryFields/flow_alias_summary_carries_routing_configuration."}
   CreatePrompt: {wire: fixed, errors: ok, state: ok, persist: ok,
     note: "invented 'tags' wire field removed — see Notes:
     invented-tags-field. b.tags[PromptArn] seed was already correct."}
-  GetPrompt: {wire: partial, errors: ok, state: ok, persist: ok,
-    note: "GAP (parity-5/phantom-triage, 2026-07-31): does not read the real
-    promptVersion query parameter at all — always returns the DRAFT/latest
-    version regardless of what a real client requests. See GetPromptVersion
-    row below for the fabricated route this gap left in place of the real
-    fix."}
+  GetPrompt: {wire: fixed, errors: ok, state: ok, persist: ok,
+    note: "FIXED: promptVersion returns that numbered snapshot (not found if
+    absent); includedData=METADATA_ONLY omits variants (from memory of the
+    docs, defaultVariant is kept). Proven by TestDroppedMembers_FlowsAndPrompts."}
   UpdatePrompt: {wire: fixed, errors: ok, state: ok, persist: ok,
     note: "invented 'tags' wire field removed; real UpdatePromptInput has no
     tags param, so the old cfg.Tags-on-update branch was dead code for real
     clients — removed"}
-  DeletePrompt: {wire: partial, errors: ok, state: fixed, persist: ok,
-    note: "now also deletes the prompt's b.tags[PromptArn] entry (promptVersions
-    cleanup was already correct) — see Notes: cascade-delete. GAP
-    (parity-5/phantom-triage, 2026-07-31): does not read the real promptVersion
-    query parameter either — always deletes the whole prompt (all versions),
-    never a single version. See DeletePromptVersion row below."}
-  ListPrompts: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeletePrompt: {wire: fixed, errors: ok, state: fixed, persist: ok,
+    note: "also deletes the prompt's tags and its versions' tags. FIXED:
+    promptVersion deletes only that version and returns {id, version}."}
+  ListPrompts: {wire: fixed, errors: ok, state: ok, persist: ok,
+    note: "FIXED: promptIdentifier lists that prompt's DRAFT plus numbered versions (the
+    DRAFT row is from memory, the docs only say 'versions'); unknown id is not found."}
   CreatePromptVersion: {wire: fixed, errors: ok, state: ok, persist: ok,
     note: "FIXED 2026-08-21 (gopherstack-r80d batch 7): CreatePromptVersionOutput
     requires 'updatedAt' (api_op_CreatePromptVersion.go) -- PromptVersion had
@@ -556,7 +551,9 @@ gaps: []
 items_still_open:
   - "DeleteAgentActionGroup.SkipResourceInUseCheck is accepted and ignored: action groups are DRAFT-only and aliases route to numbered versions holding their own copy, so no in-use reference can exist."
   - "ValidateFlowDefinition covers only top-level graph structure (see its ops row); cycle, unreachable-node, node-type and expression validation are not modeled."
-  - "FailureReasons, StatusReason, AliasInvocationState, ConcurrencyConfiguration and ParentActionGroupSignature(Params) are unmodeled: no FAILED state paths, invocation control, concurrency limits or built-in action groups exist in this backend."
+  - "FailureReasons and StatusReason are unmodeled: no FAILED state paths exist in this backend."
+  - "Stored and echoed only, no runtime applies them: AliasInvocationState, FlowAlias ConcurrencyConfiguration, ParentActionGroupSignature(Params), CustomOrchestration, PromptOverrideConfiguration, CustomerEncryptionKeyArn (no KMS)."
+  - "ClientToken replay is honoured for Create/Update members whose resource carries it (agent, action group, alias, collaborator, knowledge base, data source, ingestion job, flow, flow version, flow alias, prompt, prompt version); tokens on KB, data source, ingestion job, flow, flow version, flow alias and prompt resources are not persisted across restart, and Ingest/DeleteKnowledgeBaseDocuments ClientToken is not tracked."
 deferred:
   - "KBDocument/DataSource nested configuration blobs (dataSourceConfiguration,
     vectorIngestionConfiguration, knowledgeBaseConfiguration,

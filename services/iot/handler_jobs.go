@@ -223,7 +223,10 @@ func (h *Handler) handleDescribeJob(c *echo.Context) error {
 }
 
 func (h *Handler) handleListJobs(c *echo.Context) error {
-	jobs := h.Backend.ListJobs()
+	jobs := h.Backend.ListJobsFiltered(
+		c.QueryParam("status"), c.QueryParam("targetSelection"),
+		c.QueryParam("thingGroupName"), c.QueryParam("thingGroupId"),
+	)
 	summaries := make([]map[string]any, len(jobs))
 	for i, j := range jobs {
 		summaries[i] = map[string]any{
@@ -281,13 +284,14 @@ func (h *Handler) handleCancelJob(c *echo.Context) error {
 	trimmed := strings.TrimPrefix(c.Request().URL.Path, "/jobs/")
 	jobID := strings.TrimSuffix(trimmed, "/cancel")
 	var req struct {
-		Comment string `json:"comment"`
+		Comment    string `json:"comment"`
+		ReasonCode string `json:"reasonCode"`
 	}
 	if err := readBody(c, &req); err != nil {
 		return err
 	}
 	force := c.QueryParam("force") == keyBoolTrue
-	job, err := h.Backend.CancelJob(jobID, req.Comment, force)
+	job, err := h.Backend.CancelJob(jobID, req.Comment, req.ReasonCode, force)
 	if err != nil {
 		// CancelJob's own deserializeOpError switch declares no
 		// InvalidStateTransitionException case -- InvalidRequestException is

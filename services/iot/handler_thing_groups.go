@@ -186,9 +186,14 @@ func (h *Handler) handleDescribeThingGroup(c *echo.Context) error {
 func (h *Handler) handleListThingGroups(c *echo.Context) error {
 	prefix := c.QueryParam("namePrefixFilter")
 	groups := h.Backend.ListThingGroups()
+	parent := c.QueryParam("parentGroup")
+	recursive := c.QueryParam("recursive") == keyBoolTrue
 	out := make([]map[string]string, 0, len(groups))
 	for _, tg := range groups {
 		if !strings.HasPrefix(tg.ThingGroupName, prefix) {
+			continue
+		}
+		if parent != "" && !isChildOfGroup(tg, parent, groups, recursive) {
 			continue
 		}
 		// ListThingGroups' items deserialize as types.GroupNameAndArn
@@ -488,4 +493,22 @@ func resolveThingGroupForThingOps(path, method string) string {
 	}
 
 	return unknownOperation
+}
+
+// isChildOfGroup reports whether g sits directly under parent, or anywhere below it when recursive.
+func isChildOfGroup(g *ThingGroup, parent string, all []*ThingGroup, recursive bool) bool {
+	byName := make(map[string]*ThingGroup, len(all))
+	for _, tg := range all {
+		byName[tg.ThingGroupName] = tg
+	}
+
+	for hops, cur := 0, g; cur != nil && cur.ParentGroupName != "" && hops <= len(all); hops++ {
+		if cur.ParentGroupName == parent {
+			return recursive || hops == 0
+		}
+
+		cur = byName[cur.ParentGroupName]
+	}
+
+	return false
 }

@@ -3,6 +3,7 @@ package iot
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -10,23 +11,41 @@ import (
 
 // OTAUpdate represents an AWS IoT OTA update.
 type OTAUpdate struct {
-	OTAUpdateARN     string   `json:"otaUpdateArn"`
-	OTAUpdateID      string   `json:"otaUpdateId"`
-	Description      string   `json:"description,omitempty"`
-	RoleARN          string   `json:"roleArn,omitempty"`
-	Status           string   `json:"otaUpdateStatus"`
-	AWSIoTJobID      string   `json:"awsIotJobId,omitempty"`
-	AWSIoTJobARN     string   `json:"awsIotJobArn,omitempty"`
-	Files            []any    `json:"otaUpdateFiles,omitempty"`
-	Targets          []string `json:"targets,omitempty"`
-	CreationDate     float64  `json:"creationDate,omitempty"`
-	LastModifiedDate float64  `json:"lastModifiedDate,omitempty"`
+	AdditionalParameters          map[string]string `json:"additionalParameters,omitempty"`
+	AWSJobExecutionsRolloutConfig map[string]any    `json:"awsJobExecutionsRolloutConfig,omitempty"`
+	AWSJobPresignedURLConfig      map[string]any    `json:"awsJobPresignedUrlConfig,omitempty"`
+	OTAUpdateARN                  string            `json:"otaUpdateArn"`
+	OTAUpdateID                   string            `json:"otaUpdateId"`
+	Description                   string            `json:"description,omitempty"`
+	RoleARN                       string            `json:"roleArn,omitempty"`
+	Status                        string            `json:"otaUpdateStatus"`
+	AWSIoTJobID                   string            `json:"awsIotJobId,omitempty"`
+	AWSIoTJobARN                  string            `json:"awsIotJobArn,omitempty"`
+	TargetSelection               string            `json:"targetSelection,omitempty"`
+	Files                         []any             `json:"otaUpdateFiles,omitempty"`
+	Targets                       []string          `json:"targets,omitempty"`
+	Protocols                     []string          `json:"protocols,omitempty"`
+	CreationDate                  float64           `json:"creationDate,omitempty"`
+	LastModifiedDate              float64           `json:"lastModifiedDate,omitempty"`
+}
+
+// OTAUpdateOptions holds CreateOTAUpdate's optional members beyond files and targets.
+type OTAUpdateOptions struct {
+	AdditionalParameters          map[string]string
+	AWSJobAbortConfig             map[string]any
+	AWSJobExecutionsRolloutConfig map[string]any
+	AWSJobPresignedURLConfig      map[string]any
+	AWSJobTimeoutConfig           map[string]any
+	TargetSelection               string
+	Protocols                     []string
 }
 
 func cloneOTAUpdate(o *OTAUpdate) *OTAUpdate {
 	cp := *o
 	cp.Targets = append([]string(nil), o.Targets...)
 	cp.Files = append([]any(nil), o.Files...)
+	cp.Protocols = append([]string(nil), o.Protocols...)
+	cp.AdditionalParameters = maps.Clone(o.AdditionalParameters)
 
 	return &cp
 }
@@ -40,7 +59,12 @@ func (b *InMemoryBackend) CreateOTAUpdate(
 	targets []string,
 	files []any,
 	tags map[string]string,
+	opts OTAUpdateOptions,
 ) (*OTAUpdate, error) {
+	if err := validateOTAUpdateOptions(opts); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateOTAUpdate")
 	defer b.mu.Unlock()
 
@@ -55,13 +79,16 @@ func (b *InMemoryBackend) CreateOTAUpdate(
 		return nil, fmt.Errorf("building OTA job document: %w", docErr)
 	}
 
-	if _, err := b.createJobLocked(&CreateJobInput{
-		JobID:           jobID,
-		Description:     description,
-		Document:        string(doc),
-		Targets:         targets,
-		TargetSelection: "SNAPSHOT",
-	}); err != nil {
+	targetSelection := firstNonEmptyString(opts.TargetSelection, otaTargetSnapshot)
+
+	jobInput := otaJobInput(opts, roleARN)
+	jobInput.JobID = jobID
+	jobInput.Description = description
+	jobInput.Document = string(doc)
+	jobInput.Targets = targets
+	jobInput.TargetSelection = targetSelection
+
+	if _, err := b.createJobLocked(jobInput); err != nil {
 		return nil, err
 	}
 
@@ -77,6 +104,12 @@ func (b *InMemoryBackend) CreateOTAUpdate(
 		AWSIoTJobARN:     b.jobARN(jobID),
 		CreationDate:     now,
 		LastModifiedDate: now,
+
+		AdditionalParameters:          maps.Clone(opts.AdditionalParameters),
+		AWSJobExecutionsRolloutConfig: opts.AWSJobExecutionsRolloutConfig,
+		AWSJobPresignedURLConfig:      opts.AWSJobPresignedURLConfig,
+		Protocols:                     append([]string(nil), opts.Protocols...),
+		TargetSelection:               targetSelection,
 	}
 	b.otaUpdates.Put(o)
 	b.putResourceTagsLocked(o.OTAUpdateARN, tags)

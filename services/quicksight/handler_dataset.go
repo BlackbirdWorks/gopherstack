@@ -2,6 +2,7 @@ package quicksight
 
 import (
 	"fmt"
+	"maps"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
@@ -82,6 +83,7 @@ func (h *Handler) handleCreateDataSet(c *echo.Context) error {
 		physicalTableMap,
 		logicalTableMap,
 		dataSetSecurityFromBody(body),
+		dataSetOptionsFromBody(body),
 	)
 	if err != nil {
 		return httpErr(c, err)
@@ -141,7 +143,7 @@ func (h *Handler) handleUpdateDataSet(c *echo.Context) error {
 
 	ds, ingestion, err := h.Backend.UpdateDataSet(
 		accountID, dataSetID, strField(body, "Name"), strField(body, "ImportMode"),
-		physicalTableMap, logicalTableMap, dataSetSecurityFromBody(body),
+		physicalTableMap, logicalTableMap, dataSetSecurityFromBody(body), dataSetOptionsFromBody(body),
 	)
 	if err != nil {
 		return httpErr(c, err)
@@ -236,6 +238,7 @@ func dataSetDetailToMap(ds *DataSet) map[string]any {
 	if ds.Security.RowLevelPermissionTagConfiguration != nil {
 		m["RowLevelPermissionTagConfiguration"] = ds.Security.RowLevelPermissionTagConfiguration
 	}
+	maps.Copy(m, ds.Config)
 	m["PhysicalTableMap"] = physicalTableMapToWire(ds.PhysicalTableMap)
 	if lt := logicalTableMapToWire(ds.LogicalTableMap); lt != nil {
 		m["LogicalTableMap"] = lt
@@ -299,7 +302,12 @@ func (h *Handler) handleCreateIngestion(c *echo.Context) error {
 	dataSetID := seg(segs, segResID)
 	ingestionID := seg(segs, segSubResID)
 
-	ing, err := h.Backend.CreateIngestion(accountID, dataSetID, ingestionID)
+	body, err := readOptionalBody(c)
+	if err != nil {
+		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
+	}
+
+	ing, err := h.Backend.CreateIngestion(accountID, dataSetID, ingestionID, strField(body, "IngestionType"))
 	if err != nil {
 		return httpErr(c, err)
 	}
@@ -325,12 +333,7 @@ func (h *Handler) handleDescribeIngestion(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		keyIngestion: map[string]any{
-			keyArn:             ing.Arn,
-			keyCreatedTime:     ing.CreatedTime.Unix(),
-			keyIngestionID:     ing.IngestionID,
-			keyIngestionStatus: ing.IngestionStatus,
-		},
+		keyIngestion: ingestionToMap(ing),
 		keyRequestID: newReqID(),
 		keyStatus:    http.StatusOK,
 	})
@@ -364,12 +367,7 @@ func (h *Handler) handleListIngestions(c *echo.Context) error {
 
 	items := make([]map[string]any, 0, len(ingestions))
 	for _, ing := range ingestions {
-		items = append(items, map[string]any{
-			keyArn:             ing.Arn,
-			keyCreatedTime:     ing.CreatedTime.Unix(),
-			keyIngestionID:     ing.IngestionID,
-			keyIngestionStatus: ing.IngestionStatus,
-		})
+		items = append(items, ingestionToMap(ing))
 	}
 
 	resp := map[string]any{
@@ -415,4 +413,21 @@ func (h *Handler) handleSearchDataSets(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusOK, resp)
+}
+
+func ingestionToMap(ing *Ingestion) map[string]any {
+	m := map[string]any{
+		keyArn:             ing.Arn,
+		keyCreatedTime:     ing.CreatedTime.Unix(),
+		keyIngestionID:     ing.IngestionID,
+		keyIngestionStatus: ing.IngestionStatus,
+	}
+	if ing.RequestType != "" {
+		m["RequestType"] = ing.RequestType
+	}
+	if ing.RequestSource != "" {
+		m["RequestSource"] = ing.RequestSource
+	}
+
+	return m
 }

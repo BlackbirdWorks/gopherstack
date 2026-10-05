@@ -32,6 +32,13 @@ func (b *InMemoryBackend) AssociateAgentCollaborator(
 		return nil, fmt.Errorf("%w: agent %q not found", ErrNotFound, agentID)
 	}
 
+	if prior := findByClientToken(b.agentCollaborators, cfg.ClientToken,
+		func(c *AgentCollaborator) string { return c.ClientToken },
+		func(c *AgentCollaborator) bool { return c.AgentID == agentID && c.AgentVersion == agentVersion },
+	); prior != nil {
+		return collabCopy(prior), nil
+	}
+
 	id := b.nextID("collab", &b.collabCounter)
 
 	now := time.Now().UTC()
@@ -44,6 +51,7 @@ func (b *InMemoryBackend) AssociateAgentCollaborator(
 		RelayConversationHistory: cfg.RelayConversationHistory,
 		AgentDescriptor:          cfg.AgentDescriptor,
 		CollaboratorStatus:       collabEnabled,
+		ClientToken:              cfg.ClientToken,
 		CreatedAt:                now,
 		UpdatedAt:                now,
 	}

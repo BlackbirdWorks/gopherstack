@@ -39,6 +39,9 @@ type DataShareAssociation struct {
 	StatusChangeDate   time.Time `json:"statusChangeDate"`
 	Status             string    `json:"status"`
 	Type               string    `json:"type"`
+
+	ProducerAllowedWrites  bool `json:"producerAllowedWrites,omitempty"`
+	ConsumerAcceptedWrites bool `json:"consumerAcceptedWrites,omitempty"`
 }
 
 // DataShare represents a Redshift data share.
@@ -303,7 +306,16 @@ type IdcApplication struct {
 	// set only on create -- real ModifyRedshiftIdcApplicationInput has no field
 	// for it (confirmed against aws-sdk-go-v2/service/redshift@v1.65.4/serializers.go
 	// awsAwsquery_serializeOpDocumentModifyRedshiftIdcApplicationInput).
-	ApplicationType string `json:"applicationType,omitempty"`
+	ApplicationType           string                  `json:"applicationType,omitempty"`
+	IdentityNamespace         string                  `json:"identityNamespace,omitempty"`
+	AuthorizedTokenIssuerList []AuthorizedTokenIssuer `json:"authorizedTokenIssuerList,omitempty"`
+	SsoTagKeys                []string                `json:"ssoTagKeys,omitempty"`
+}
+
+// AuthorizedTokenIssuer is a trusted token issuer of an IDC application.
+type AuthorizedTokenIssuer struct {
+	TrustedTokenIssuerArn   string   `json:"trustedTokenIssuerArn"`
+	AuthorizedAudiencesList []string `json:"authorizedAudiencesList,omitempty"`
 }
 
 // Qev2IdcApplication represents an Amazon Redshift Query Editor (QEV2) IAM
@@ -334,6 +346,7 @@ type SnapshotCopyConfig struct {
 	DestinationRegion     string `json:"destinationRegion"`
 	SnapshotCopyGrantName string `json:"snapshotCopyGrantName"`
 	RetentionPeriod       int    `json:"retentionPeriod"`
+	ManualRetentionPeriod int    `json:"manualRetentionPeriod,omitempty"`
 }
 
 // ClusterPendingModifiedValues holds changes queued for the next maintenance
@@ -342,10 +355,18 @@ type SnapshotCopyConfig struct {
 type ClusterPendingModifiedValues struct {
 	NodeType                         string `json:"nodeType,omitempty"`
 	ClusterVersion                   string `json:"clusterVersion,omitempty"`
+	MaintenanceTrackName             string `json:"maintenanceTrackName,omitempty"`
 	NumberOfNodes                    int    `json:"numberOfNodes,omitempty"`
 	AutomatedSnapshotRetentionPeriod int    `json:"automatedSnapshotRetentionPeriod,omitempty"`
 	Encrypted                        bool   `json:"encrypted,omitempty"`
 	PubliclyAccessible               bool   `json:"publiclyAccessible,omitempty"`
+}
+
+// DeferredMaintenanceWindow is one ModifyClusterMaintenance deferral.
+type DeferredMaintenanceWindow struct {
+	StartTime  time.Time `json:"startTime"`
+	EndTime    time.Time `json:"endTime"`
+	Identifier string    `json:"identifier"`
 }
 
 // Cluster represents a Redshift cluster.
@@ -371,9 +392,17 @@ type Cluster struct {
 	AvailabilityZone                 string                        `json:"availabilityZone,omitempty"`
 	ClusterSubnetGroupName           string                        `json:"clusterSubnetGroupName,omitempty"`
 	DefaultIamRoleArn                string                        `json:"defaultIamRoleArn,omitempty"`
+	MaintenanceTrackName             string                        `json:"maintenanceTrackName,omitempty"`
+	IPAddressType                    string                        `json:"ipAddressType,omitempty"`
+	ElasticIP                        string                        `json:"elasticIp,omitempty"`
+	MasterPasswordSecretArn          string                        `json:"masterPasswordSecretArn,omitempty"`
+	MasterPasswordSecretKmsKeyID     string                        `json:"masterPasswordSecretKmsKeyId,omitempty"`
+	HsmClientCertificateIdentifier   string                        `json:"hsmClientCertificateIdentifier,omitempty"`
+	HsmConfigurationIdentifier       string                        `json:"hsmConfigurationIdentifier,omitempty"`
 	ClusterSecurityGroups            []string                      `json:"clusterSecurityGroups,omitempty"`
 	VpcSecurityGroupIDs              []string                      `json:"vpcSecurityGroupIds,omitempty"`
 	IamRoles                         []string                      `json:"iamRoles,omitempty"`
+	DeferredMaintenanceWindows       []DeferredMaintenanceWindow   `json:"deferredMaintenanceWindows,omitempty"`
 	Port                             int                           `json:"port"`
 	NumberOfNodes                    int                           `json:"numberOfNodes"`
 	AutomatedSnapshotRetentionPeriod int                           `json:"automatedSnapshotRetentionPeriod"`
@@ -384,6 +413,7 @@ type Cluster struct {
 	AllowVersionUpgrade              bool                          `json:"allowVersionUpgrade"`
 
 	ExtraComputeForAutomaticOptimization bool `json:"extraComputeForAutomaticOptimization,omitempty"`
+	AvailabilityZoneRelocation           bool `json:"availabilityZoneRelocation,omitempty"`
 }
 
 // ClusterCredentials holds temporary cluster credentials.

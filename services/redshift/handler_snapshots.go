@@ -316,6 +316,7 @@ func parseRestoreFromClusterSnapshotOptions(vals url.Values) (RestoreFromCluster
 		ClusterParameterGroupName: vals.Get("ClusterParameterGroupName"),
 		DefaultIamRoleArn:         vals.Get("DefaultIamRoleArn"),
 		VpcSecurityGroupIDs:       parseStringList(vals, "VpcSecurityGroupIds.VpcSecurityGroupId."),
+		Settings:                  parseClusterSettings(vals),
 	}
 
 	if v := vals.Get("AllowVersionUpgrade"); v != "" {
@@ -359,7 +360,11 @@ func parseRestoreFromClusterSnapshotOptions(vals url.Values) (RestoreFromCluster
 
 func (h *Handler) handleRestoreFromClusterSnapshot(vals url.Values) (any, error) {
 	clusterID := vals.Get("ClusterIdentifier")
-	snapshotID := vals.Get("SnapshotIdentifier")
+
+	snapshotID, err := h.resolveRestoreSnapshotID(vals.Get("SnapshotIdentifier"), vals.Get("SnapshotArn"))
+	if err != nil {
+		return nil, err
+	}
 
 	opts, err := parseRestoreFromClusterSnapshotOptions(vals)
 	if err != nil {
@@ -375,6 +380,33 @@ func (h *Handler) handleRestoreFromClusterSnapshot(vals url.Values) (any, error)
 		Xmlns:   redshiftXMLNS,
 		Cluster: h.toXMLCluster(cluster),
 	}, nil
+}
+
+// resolveRestoreSnapshotID maps SnapshotArn to its identifier; the two are mutually exclusive.
+func (h *Handler) resolveRestoreSnapshotID(snapshotID, snapshotArn string) (string, error) {
+	if snapshotArn == "" {
+		return snapshotID, nil
+	}
+
+	if snapshotID != "" {
+		return "", fmt.Errorf(
+			"%w: SnapshotIdentifier and SnapshotArn can't both be specified",
+			ErrInvalidParameterCombination,
+		)
+	}
+
+	snaps, err := h.Backend.DescribeClusterSnapshots("", "", "", nil)
+	if err != nil {
+		return "", err
+	}
+
+	for i := range snaps {
+		if snaps[i].SnapshotArn == snapshotArn {
+			return snaps[i].SnapshotIdentifier, nil
+		}
+	}
+
+	return "", fmt.Errorf("%w: snapshot %s not found", ErrSnapshotNotFound, snapshotArn)
 }
 
 // ---- AuthorizeSnapshotAccess ----

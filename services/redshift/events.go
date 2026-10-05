@@ -2,6 +2,7 @@ package redshift
 
 import (
 	"fmt"
+	"slices"
 	"time"
 	"unicode"
 )
@@ -12,7 +13,15 @@ type LoggingStatus struct {
 	LastSuccessTime time.Time `json:"lastSuccessTime"`
 	BucketName      string    `json:"bucketName"`
 	S3KeyPrefix     string    `json:"s3KeyPrefix"`
+	LogDestination  string    `json:"logDestinationType,omitempty"`
+	LogExports      []string  `json:"logExports,omitempty"`
 	LoggingEnabled  bool      `json:"loggingEnabled"`
+}
+
+// LoggingOptions holds EnableLogging's destination members.
+type LoggingOptions struct {
+	LogDestinationType string
+	LogExports         []string
 }
 
 // Event represents a Redshift event.
@@ -63,13 +72,17 @@ func invalidS3KeyPrefixRune(s string) rune {
 }
 
 // EnableLogging enables audit logging for the specified cluster.
-func (b *InMemoryBackend) EnableLogging(clusterID, bucketName, s3KeyPrefix string) (*LoggingStatus, error) {
+func (b *InMemoryBackend) EnableLogging(
+	clusterID, bucketName, s3KeyPrefix string, opts LoggingOptions,
+) (*LoggingStatus, error) {
 	if clusterID == "" {
 		return nil, fmt.Errorf("%w: ClusterIdentifier is required", ErrInvalidParameter)
 	}
-	if bucketName == "" {
-		return nil, fmt.Errorf("%w: BucketName is required", ErrInvalidParameter)
+	destination, err := resolveLogDestination(bucketName, opts)
+	if err != nil {
+		return nil, err
 	}
+
 	if r := invalidS3KeyPrefixRune(s3KeyPrefix); r != 0 {
 		return nil, fmt.Errorf("%w: S3KeyPrefix contains invalid character %q", ErrInvalidS3KeyPrefix, r)
 	}
@@ -85,6 +98,8 @@ func (b *InMemoryBackend) EnableLogging(clusterID, bucketName, s3KeyPrefix strin
 		LoggingEnabled:  true,
 		BucketName:      bucketName,
 		S3KeyPrefix:     s3KeyPrefix,
+		LogDestination:  destination,
+		LogExports:      slices.Clone(opts.LogExports),
 		LastSuccessTime: time.Now(),
 	}
 	b.loggingStatuses[clusterID] = status
@@ -318,4 +333,35 @@ func cloneEventSubscription(sub *EventSubscription) *EventSubscription {
 	copy(cp.EventCategories, sub.EventCategories)
 
 	return &cp
+}
+
+func logDestinationTypes() []string { return []string{logDestinationS3, logDestinationCloudWatch} }
+
+func logExportTypes() []string { return []string{"connectionlog", "useractivitylog", "userlog"} }
+
+const (
+	logDestinationS3         = "s3"
+	logDestinationCloudWatch = "cloudwatch"
+)
+
+// resolveLogDestination validates EnableLogging's destination members and returns the effective type.
+func resolveLogDestination(bucketName string, opts LoggingOptions) (string, error) {
+	destination := firstNonEmpty(opts.LogDestinationType, logDestinationS3)
+	if !slices.Contains(logDestinationTypes(), destination) {
+		return "", fmt.Errorf("%w: LogDestinationType must be s3 or cloudwatch", ErrInvalidParameter)
+	}
+
+	for _, export := range opts.LogExports {
+		if !slices.Contains(logExportTypes(), export) {
+			return "", fmt.Errorf(
+				"%w: LogExports value %q must be one of %v", ErrInvalidParameter, export, logExportTypes(),
+			)
+		}
+	}
+
+	if destination == logDestinationS3 && bucketName == "" {
+		return "", fmt.Errorf("%w: BucketName is required", ErrInvalidParameter)
+	}
+
+	return destination, nil
 }

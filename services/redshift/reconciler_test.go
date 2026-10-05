@@ -180,7 +180,7 @@ func TestReconciler_AsyncDelete_ClearsLoggingStatuses(t *testing.T) {
 	_, err := b.CreateCluster("reused-cluster", "dc2.large", "dev", "admin", nil, "", redshift.CreateClusterOptions{})
 	require.NoError(t, err)
 
-	_, err = b.EnableLogging("reused-cluster", "my-bucket", "")
+	_, err = b.EnableLogging("reused-cluster", "my-bucket", "", redshift.LoggingOptions{})
 	require.NoError(t, err)
 
 	_, err = b.DeleteCluster("reused-cluster")

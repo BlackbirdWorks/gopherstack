@@ -24,6 +24,11 @@ func (b *InMemoryBackend) CreateAgent(ctx context.Context, cfg AgentConfig) (*Ag
 	b.mu.Lock("CreateAgent")
 	defer b.mu.Unlock()
 
+	if prior := findByClientToken(b.agents, cfg.ClientToken,
+		func(a *Agent) string { return a.ClientToken }, func(*Agent) bool { return true }); prior != nil {
+		return agentCopy(prior), nil
+	}
+
 	if _, exists := b.agentsByName[cfg.AgentName]; exists {
 		return nil, fmt.Errorf("%w: agent %q already exists", ErrAlreadyExists, cfg.AgentName)
 	}
@@ -55,12 +60,14 @@ func (b *InMemoryBackend) CreateAgent(ctx context.Context, cfg AgentConfig) (*Ag
 		OrchestrationType: orchestrationType,
 		Guardrail:         cfg.Guardrail,
 		Memory:            cfg.Memory,
-		PromptOverrideConfiguration: map[string]any{
-			"promptConfigurations": []any{},
-		},
-		IdleSessionTTLInSeconds: ttlOrDefault(cfg.IdleSessionTTLInSeconds),
-		CreatedAt:               now,
-		UpdatedAt:               now,
+
+		PromptOverrideConfiguration: promptOverrideOrDefault(cfg.PromptOverrideConfiguration),
+		CustomOrchestration:         cfg.CustomOrchestration,
+		CustomerEncryptionKeyArn:    cfg.CustomerEncryptionKeyArn,
+		ClientToken:                 cfg.ClientToken,
+		IdleSessionTTLInSeconds:     ttlOrDefault(cfg.IdleSessionTTLInSeconds),
+		CreatedAt:                   now,
+		UpdatedAt:                   now,
 	}
 
 	b.agents.Put(a)
@@ -109,6 +116,14 @@ func (b *InMemoryBackend) UpdateAgent(_ context.Context, agentID string, cfg Age
 	return agentCopy(a), nil
 }
 
+func promptOverrideOrDefault(cfg map[string]any) map[string]any {
+	if cfg != nil {
+		return cfg
+	}
+
+	return map[string]any{"promptConfigurations": []any{}}
+}
+
 func ttlOrDefault(ttl int) int {
 	if ttl > 0 {
 		return ttl
@@ -118,6 +133,18 @@ func ttlOrDefault(ttl int) int {
 }
 
 func applyAgentConfig(a *Agent, cfg AgentConfig) {
+	if cfg.CustomerEncryptionKeyArn != "" {
+		a.CustomerEncryptionKeyArn = cfg.CustomerEncryptionKeyArn
+	}
+
+	if cfg.CustomOrchestration != nil {
+		a.CustomOrchestration = cfg.CustomOrchestration
+	}
+
+	if cfg.PromptOverrideConfiguration != nil {
+		a.PromptOverrideConfiguration = cfg.PromptOverrideConfiguration
+	}
+
 	if cfg.Collaboration != "" {
 		a.Collaboration = cfg.Collaboration
 	}

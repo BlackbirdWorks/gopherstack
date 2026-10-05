@@ -20,6 +20,9 @@ const (
 	folderMemberTypeAnalysis  = "ANALYSIS"
 	folderMemberTypeDataSet   = "DATASET"
 
+	folderMemberTypeDataSource = "DATASOURCE"
+	folderMemberTypeTopic      = "TOPIC"
+
 	folderArnMarker = ":folder/"
 
 	filterParentFolderArn = "PARENT_FOLDER_ARN"
@@ -126,7 +129,8 @@ func isValidFolderType(folderType string) bool {
 
 func isValidFolderMemberType(memberType string) bool {
 	switch memberType {
-	case folderMemberTypeDashboard, folderMemberTypeAnalysis, folderMemberTypeDataSet:
+	case folderMemberTypeDashboard, folderMemberTypeAnalysis, folderMemberTypeDataSet,
+		folderMemberTypeDataSource, folderMemberTypeTopic:
 		return true
 	}
 

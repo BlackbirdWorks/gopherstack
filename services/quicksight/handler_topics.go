@@ -144,6 +144,11 @@ func (h *Handler) handleCreateTopic(c *echo.Context) error {
 	topicID := strField(body, keyTopicID)
 	name, description, uxVersion, dataSets := topicFieldsFromBody(body)
 
+	folderArns := stringsFromBody(body, "FolderArns")
+	if folderErr := h.Backend.CheckFolderArns(accountID, folderArns); folderErr != nil {
+		return httpErr(c, folderErr)
+	}
+
 	t, err := h.Backend.CreateTopic(
 		accountID, topicID, name, description, uxVersion, dataSets,
 		permissionsField(body, keyPermissions), tagsFromBody(body),
@@ -154,6 +159,9 @@ func (h *Handler) handleCreateTopic(c *echo.Context) error {
 		}
 
 		return httpErr(c, err)
+	}
+	if folderErr := h.Backend.AddToFolders(accountID, folderMemberTypeTopic, t.TopicID, folderArns); folderErr != nil {
+		return httpErr(c, folderErr)
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{

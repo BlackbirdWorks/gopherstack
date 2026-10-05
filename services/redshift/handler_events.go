@@ -16,9 +16,11 @@ const (
 // ---- Logging XML types ----
 
 type xmlLoggingStatus struct {
-	BucketName     string `xml:"BucketName,omitempty"`
-	S3KeyPrefix    string `xml:"S3KeyPrefix,omitempty"`
-	LoggingEnabled bool   `xml:"LoggingEnabled"`
+	BucketName         string   `xml:"BucketName,omitempty"`
+	S3KeyPrefix        string   `xml:"S3KeyPrefix,omitempty"`
+	LogDestinationType string   `xml:"LogDestinationType,omitempty"`
+	LogExports         []string `xml:"LogExports>member,omitempty"`
+	LoggingEnabled     bool     `xml:"LoggingEnabled"`
 }
 
 // ---- EnableLogging ----
@@ -34,19 +36,25 @@ func (h *Handler) handleEnableLogging(vals url.Values) (any, error) {
 	bucketName := vals.Get("BucketName")
 	s3KeyPrefix := vals.Get("S3KeyPrefix")
 
-	status, err := h.Backend.EnableLogging(clusterID, bucketName, s3KeyPrefix)
+	status, err := h.Backend.EnableLogging(clusterID, bucketName, s3KeyPrefix, LoggingOptions{
+		LogDestinationType: vals.Get("LogDestinationType"),
+		LogExports:         parseStringList(vals, "LogExports.member."),
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	return &enableLoggingResponse{
-		Xmlns: redshiftXMLNS,
-		Result: xmlLoggingStatus{
-			LoggingEnabled: status.LoggingEnabled,
-			BucketName:     status.BucketName,
-			S3KeyPrefix:    status.S3KeyPrefix,
-		},
-	}, nil
+	return &enableLoggingResponse{Xmlns: redshiftXMLNS, Result: loggingStatusXML(status)}, nil
+}
+
+func loggingStatusXML(s *LoggingStatus) xmlLoggingStatus {
+	return xmlLoggingStatus{
+		LoggingEnabled:     s.LoggingEnabled,
+		BucketName:         s.BucketName,
+		S3KeyPrefix:        s.S3KeyPrefix,
+		LogDestinationType: s.LogDestination,
+		LogExports:         s.LogExports,
+	}
 }
 
 // ---- DisableLogging ----
@@ -89,14 +97,7 @@ func (h *Handler) handleDescribeLoggingStatus(vals url.Values) (any, error) {
 		return nil, err
 	}
 
-	return &describeLoggingStatusResponse{
-		Xmlns: redshiftXMLNS,
-		Result: xmlLoggingStatus{
-			LoggingEnabled: status.LoggingEnabled,
-			BucketName:     status.BucketName,
-			S3KeyPrefix:    status.S3KeyPrefix,
-		},
-	}, nil
+	return &describeLoggingStatusResponse{Xmlns: redshiftXMLNS, Result: loggingStatusXML(status)}, nil
 }
 
 // ---- Events XML types ----

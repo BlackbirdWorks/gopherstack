@@ -202,7 +202,7 @@ func (b *InMemoryBackend) ListAnalyses(
 	return result, next, nil
 }
 
-func (b *InMemoryBackend) RestoreAnalysis(accountID, analysisID string) (*Analysis, error) {
+func (b *InMemoryBackend) RestoreAnalysis(accountID, analysisID string, restoreToFolders bool) (*Analysis, error) {
 	b.mu.Lock("RestoreAnalysis")
 	defer b.mu.Unlock()
 
@@ -210,6 +210,12 @@ func (b *InMemoryBackend) RestoreAnalysis(accountID, analysisID string) (*Analys
 	a, ok := b.analyses.Get(key)
 	if !ok {
 		return nil, ErrAnalysisNotFound
+	}
+
+	if a.Status == statusDeleted {
+		if err := b.restoreAnalysisFoldersLocked(accountID, analysisID, restoreToFolders); err != nil {
+			return nil, err
+		}
 	}
 
 	a.Status = statusCreationSuccessful
@@ -303,4 +309,32 @@ func (b *InMemoryBackend) UpdateAnalysisPermissions(
 	a.LastUpdatedTime = time.Now().UTC()
 
 	return a.toAnalysis(), clonePermissions(a.Permissions), nil
+}
+
+// restoreAnalysisFoldersLocked drops the folder memberships of a restored analysis unless restoreToFolders;
+// an analysis in a restricted folder can only come back with restoreToFolders (api_op_RestoreAnalysis.go).
+func (b *InMemoryBackend) restoreAnalysisFoldersLocked(accountID, analysisID string, restoreToFolders bool) error {
+	if restoreToFolders {
+		return nil
+	}
+
+	var memberKeys []string
+
+	for _, m := range b.folderMembers.All() {
+		if m.MemberType != folderMemberTypeAnalysis || m.MemberID != analysisID {
+			continue
+		}
+
+		if f, ok := b.folders.Get(folderKey(accountID, m.FolderID)); ok && f.FolderType == folderTypeRestricted {
+			return fmt.Errorf("%w: restoring a restricted analysis requires RestoreToFolders", ErrValidation)
+		}
+
+		memberKeys = append(memberKeys, folderMemberKey(b.accountID, m.FolderID, m.MemberType, m.MemberID))
+	}
+
+	for _, k := range memberKeys {
+		b.folderMembers.Delete(k)
+	}
+
+	return nil
 }

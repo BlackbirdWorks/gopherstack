@@ -194,7 +194,7 @@ func TestDeleteKnowledgeBaseCascades(t *testing.T) {
 		t.Fatalf("create data source: %v", err)
 	}
 
-	_, jobErr := b.StartIngestionJob(ctx, kb.KnowledgeBaseID, ds.DataSourceID, "job")
+	_, jobErr := b.StartIngestionJob(ctx, kb.KnowledgeBaseID, ds.DataSourceID, "job", "")
 	if jobErr != nil {
 		t.Fatalf("start ingestion job: %v", jobErr)
 	}
@@ -276,7 +276,7 @@ func TestDeleteDataSourceCascades(t *testing.T) {
 		t.Fatalf("create data source: %v", err)
 	}
 
-	_, jobErr := b.StartIngestionJob(ctx, kb.KnowledgeBaseID, ds.DataSourceID, "job")
+	_, jobErr := b.StartIngestionJob(ctx, kb.KnowledgeBaseID, ds.DataSourceID, "job", "")
 	if jobErr != nil {
 		t.Fatalf("start ingestion job: %v", jobErr)
 	}

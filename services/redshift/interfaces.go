@@ -21,7 +21,7 @@ type StorageBackend interface {
 	ResizeCluster(id, nodeType, clusterType string, numberOfNodes int, classic bool) (*Cluster, error)
 	RotateEncryptionKey(id string) (*Cluster, error)
 	ModifyClusterIamRoles(id string, addRoles, removeRoles []string, defaultIamRoleArn string) (*Cluster, error)
-	ModifyClusterMaintenance(id, maintenanceTrack string, deferMaintenance bool) (*Cluster, error)
+	ModifyClusterMaintenance(id string, opts ModifyClusterMaintenanceOptions) (*Cluster, error)
 	ModifyAquaConfiguration(id string) (*Cluster, error)
 	ModifyLakehouseConfiguration(p ModifyLakehouseConfigParams) (*ClusterLakehouseConfigResult, error)
 
@@ -94,9 +94,9 @@ type StorageBackend interface {
 	AddPartner(accountID, clusterID, databaseName, partnerName string) (*Partner, error)
 	AssociateDataShareConsumer(
 		dataShareArn, consumerArn, consumerRegion string,
-		associateEntireAccount bool,
+		associateEntireAccount, allowWrites bool,
 	) (*DataShare, error)
-	AuthorizeDataShare(dataShareArn, consumerIdentifier string) (*DataShare, error)
+	AuthorizeDataShare(dataShareArn, consumerIdentifier string, allowWrites bool) (*DataShare, error)
 	DeauthorizeDataShare(dataShareArn, consumerIdentifier string) (*DataShare, error)
 	DescribeDataShares(dataShareArn string) ([]DataShare, error)
 	DescribeDataSharesForConsumer(consumerArn, status string) ([]DataShare, error)
@@ -124,7 +124,7 @@ type StorageBackend interface {
 	GetClusterCredentials(clusterID, dbUser string, autoCreate bool, durationSeconds *int) (*ClusterCredentials, error)
 
 	// Logging operations
-	EnableLogging(clusterID, bucketName, s3KeyPrefix string) (*LoggingStatus, error)
+	EnableLogging(clusterID, bucketName, s3KeyPrefix string, opts LoggingOptions) (*LoggingStatus, error)
 	DisableLogging(clusterID string) (*LoggingStatus, error)
 	GetLoggingStatus(clusterID string) (*LoggingStatus, error)
 
@@ -161,7 +161,7 @@ type StorageBackend interface {
 	// Snapshot copy operations
 	EnableSnapshotCopy(clusterID, destinationRegion, grantName string, retentionPeriod int) (*Cluster, error)
 	DisableSnapshotCopy(clusterID string) (*Cluster, error)
-	ModifySnapshotCopyRetentionPeriod(clusterID string, retentionPeriod int) (*Cluster, error)
+	ModifySnapshotCopyRetentionPeriod(clusterID string, retentionPeriod int, manual bool) (*Cluster, error)
 
 	// Snapshot schedule operations
 	CreateSnapshotSchedule(
@@ -260,11 +260,13 @@ type StorageBackend interface {
 
 	// IDC application operations
 	CreateIdcApplication(
-		appName, idcInstanceArn, idcDisplayName, iamRoleArn, applicationType string,
+		appName, idcInstanceArn, idcDisplayName, iamRoleArn, applicationType string, extras IdcApplicationExtras,
 	) (*IdcApplication, error)
 	DeleteIdcApplication(appArn string) error
 	DescribeIdcApplications(appArn string) ([]IdcApplication, error)
-	ModifyIdcApplication(appArn, idcDisplayName, iamRoleArn string) (*IdcApplication, error)
+	ModifyIdcApplication(
+		appArn, idcDisplayName, iamRoleArn string, extras IdcApplicationExtras,
+	) (*IdcApplication, error)
 
 	// Query Editor V2 (QEV2) IDC application operations. Qev2IdcApplication is
 	// a distinct resource from IdcApplication above -- see the doc comment on

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
+	"time"
 )
 
 // ---- ModifyCluster ----
@@ -138,6 +139,7 @@ func (h *Handler) handleModifyCluster(vals url.Values) (any, error) {
 		AutomatedSnapshotRetentionPeriod:     ints.automatedSnapshotRetentionPeriod,
 		ManualSnapshotRetentionPeriod:        ints.manualSnapshotRetentionPeriod,
 		ApplyImmediately:                     vals.Get("ApplyImmediately") != "false",
+		Settings:                             parseClusterSettings(vals),
 	})
 	if err != nil {
 		return nil, err
@@ -309,10 +311,13 @@ type modifyClusterMaintenanceResponse struct {
 
 func (h *Handler) handleModifyClusterMaintenance(vals url.Values) (any, error) {
 	id := vals.Get("ClusterIdentifier")
-	maintenanceTrack := vals.Get("MaintenanceTrackName")
-	deferMaintenance := vals.Get("DeferMaintenance") == paramValueTrue
 
-	cluster, err := h.Backend.ModifyClusterMaintenance(id, maintenanceTrack, deferMaintenance)
+	opts, err := parseModifyClusterMaintenanceOptions(vals)
+	if err != nil {
+		return nil, err
+	}
+
+	cluster, err := h.Backend.ModifyClusterMaintenance(id, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -321,6 +326,45 @@ func (h *Handler) handleModifyClusterMaintenance(vals url.Values) (any, error) {
 		Xmlns:   redshiftXMLNS,
 		Cluster: h.toXMLCluster(cluster),
 	}, nil
+}
+
+func parseModifyClusterMaintenanceOptions(vals url.Values) (ModifyClusterMaintenanceOptions, error) {
+	opts := ModifyClusterMaintenanceOptions{DeferMaintenanceIdentifier: vals.Get("DeferMaintenanceIdentifier")}
+
+	if v := vals.Get("DeferMaintenance"); v != "" {
+		b := v == paramValueTrue
+		opts.DeferMaintenance = &b
+	}
+
+	var err error
+
+	if opts.DeferMaintenanceDuration, err = parseOptionalInt(
+		vals, "DeferMaintenanceDuration", "DeferMaintenanceDuration must be an integer",
+	); err != nil {
+		return opts, err
+	}
+
+	if opts.StartTime, err = parseOptionalTime(vals, "DeferMaintenanceStartTime"); err != nil {
+		return opts, err
+	}
+
+	opts.EndTime, err = parseOptionalTime(vals, "DeferMaintenanceEndTime")
+
+	return opts, err
+}
+
+func parseOptionalTime(vals url.Values, key string) (*time.Time, error) {
+	v := vals.Get(key)
+	if v == "" {
+		return nil, nil //nolint:nilnil // absent form field means "unset", not an error
+	}
+
+	parsed, err := time.Parse(time.RFC3339, v)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s must be an ISO8601 timestamp", ErrInvalidParameter, key)
+	}
+
+	return &parsed, nil
 }
 
 // ---- DescribeClusterDBRevisions ----

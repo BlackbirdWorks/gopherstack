@@ -31,6 +31,13 @@ func (b *InMemoryBackend) CreateAgentAlias(
 		return nil, fmt.Errorf("%w: agent %q not found", ErrNotFound, agentID)
 	}
 
+	if prior := findByClientToken(b.agentAliases, cfg.ClientToken,
+		func(a *AgentAlias) string { return a.ClientToken },
+		func(a *AgentAlias) bool { return a.AgentID == agentID },
+	); prior != nil {
+		return aliasCopy(prior), nil
+	}
+
 	routing := cfg.RoutingConfiguration
 
 	// Real AWS: when CreateAgentAlias is called with no routingConfiguration,
@@ -59,6 +66,8 @@ func (b *InMemoryBackend) CreateAgentAlias(
 		AgentID:              agentID,
 		Description:          cfg.Description,
 		RoutingConfiguration: routing,
+		AliasInvocationState: aliasInvocationAccept,
+		ClientToken:          cfg.ClientToken,
 		CreatedAt:            now,
 		UpdatedAt:            now,
 	}
@@ -92,6 +101,10 @@ func (b *InMemoryBackend) GetAgentAlias(_ context.Context, agentID, aliasID stri
 func (b *InMemoryBackend) UpdateAgentAlias(
 	_ context.Context, agentID, aliasID string, cfg AliasConfig,
 ) (*AgentAlias, error) {
+	if err := validateEnum("aliasInvocationState", cfg.AliasInvocationState, aliasInvocationStates()); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("UpdateAgentAlias")
 	defer b.mu.Unlock()
 
@@ -110,6 +123,10 @@ func (b *InMemoryBackend) UpdateAgentAlias(
 
 	if cfg.RoutingConfiguration != nil {
 		al.RoutingConfiguration = cfg.RoutingConfiguration
+	}
+
+	if cfg.AliasInvocationState != "" {
+		al.AliasInvocationState = cfg.AliasInvocationState
 	}
 
 	al.UpdatedAt = time.Now().UTC()
@@ -155,6 +172,7 @@ func (b *InMemoryBackend) ListAgentAliases(
 			AgentAliasName:       al.AgentAliasName,
 			AgentAliasStatus:     al.AgentAliasStatus,
 			Description:          al.Description,
+			AliasInvocationState: invocationStateOrDefault(al.AliasInvocationState),
 			CreatedAt:            al.CreatedAt,
 			UpdatedAt:            al.UpdatedAt,
 			RoutingConfiguration: slices.Clone(al.RoutingConfiguration),
@@ -166,10 +184,19 @@ func (b *InMemoryBackend) ListAgentAliases(
 
 func aliasCopy(al *AgentAlias) *AgentAlias {
 	cp := *al
+	cp.AliasInvocationState = invocationStateOrDefault(al.AliasInvocationState)
 
 	if al.RoutingConfiguration != nil {
 		cp.RoutingConfiguration = append([]AliasRouting{}, al.RoutingConfiguration...)
 	}
 
 	return &cp
+}
+
+func invocationStateOrDefault(state string) string {
+	if state == "" {
+		return aliasInvocationAccept
+	}
+
+	return state
 }

@@ -239,7 +239,6 @@ type Job struct {
 	// each time DescribeJob runs (see jobProcessDetailsLocked) and attached
 	// only to the response clone.
 	JobProcessDetails          *JobProcessDetails `json:"jobProcessDetails,omitempty"`
-	DestinationPackageVersions []string           `json:"destinationPackageVersions,omitempty"`
 	JobID                      string             `json:"jobId"`
 	JobARN                     string             `json:"jobArn"`
 	Description                string             `json:"description,omitempty"`
@@ -248,10 +247,14 @@ type Job struct {
 	JobTemplateARN             string             `json:"jobTemplateArn,omitempty"`
 	Status                     JobStatus          `json:"status"`
 	TargetSelection            string             `json:"targetSelection,omitempty"`
+	Comment                    string             `json:"comment,omitempty"`
+	ReasonCode                 string             `json:"reasonCode,omitempty"`
+	DestinationPackageVersions []string           `json:"destinationPackageVersions,omitempty"`
 	Targets                    []string           `json:"targets,omitempty"`
 	CreatedAt                  float64            `json:"createdAt,omitempty"`
 	LastUpdatedAt              float64            `json:"lastUpdatedAt,omitempty"`
 	CompletedAt                float64            `json:"completedAt,omitempty"`
+	ForceCanceled              bool               `json:"forceCanceled,omitempty"`
 }
 
 // JobExecutionStatusDetails holds free-form status detail name/value pairs
@@ -533,6 +536,50 @@ func (b *InMemoryBackend) ListJobs() []*Job {
 	return out
 }
 
+// ListJobsFiltered returns jobs matching status, targetSelection and a thing group (by name or id).
+func (b *InMemoryBackend) ListJobsFiltered(status, targetSelection, thingGroupName, thingGroupID string) []*Job {
+	b.mu.RLock("ListJobsFiltered")
+	defer b.mu.RUnlock()
+
+	groupName := thingGroupName
+	if groupName == "" && thingGroupID != "" {
+		groupName = b.thingGroupNameByIDLocked(thingGroupID)
+		if groupName == "" {
+			return []*Job{}
+		}
+	}
+
+	out := make([]*Job, 0, b.jobs.Len())
+
+	for _, j := range b.jobs.Snapshot() {
+		if status != "" && string(j.Status) != status {
+			continue
+		}
+
+		if targetSelection != "" && j.TargetSelection != targetSelection {
+			continue
+		}
+
+		if groupName != "" && !jobTargetsThingGroup(j, groupName) {
+			continue
+		}
+
+		out = append(out, cloneJob(j))
+	}
+
+	return out
+}
+
+func jobTargetsThingGroup(j *Job, groupName string) bool {
+	for _, target := range j.Targets {
+		if kind, name := parseJobTargetARN(target); kind == "thinggroup" && name == groupName {
+			return true
+		}
+	}
+
+	return false
+}
+
 // UpdateJobInput is the input for UpdateJob. Mirrors types (v1.77.4)
 // beyond description: AbortConfig/JobExecutionsRolloutConfig/TimeoutConfig/
 // JobExecutionsRetryConfig/PresignedURLConfig, all previously silently
@@ -600,7 +647,7 @@ func (b *InMemoryBackend) jobExecutionsForJob(jobID string) []*JobExecution {
 // the same class of terminal-state guard CancelJobExecution/CancelAuditTask
 // already enforce. force additionally determines whether IN_PROGRESS job
 // executions are canceled too (QUEUED executions are always canceled).
-func (b *InMemoryBackend) CancelJob(jobID, _ string, force bool) (*Job, error) {
+func (b *InMemoryBackend) CancelJob(jobID, comment, reasonCode string, force bool) (*Job, error) {
 	b.mu.Lock("CancelJob")
 	defer b.mu.Unlock()
 
@@ -612,6 +659,9 @@ func (b *InMemoryBackend) CancelJob(jobID, _ string, force bool) (*Job, error) {
 		return nil, fmt.Errorf("%w: job %q is already in state %s", ErrInvalidStateTransition, jobID, j.Status)
 	}
 	j.Status = JobStatusCanceled
+	j.Comment = comment
+	j.ReasonCode = reasonCode
+	j.ForceCanceled = force
 	j.LastUpdatedAt = float64(time.Now().Unix())
 
 	now := float64(time.Now().Unix())
@@ -979,4 +1029,20 @@ func (b *InMemoryBackend) DeleteJobTemplate(id string) error {
 	delete(b.resourceTags, b.jobTemplateARN(id))
 
 	return nil
+}
+
+func (b *InMemoryBackend) thingGroupNameByIDLocked(id string) string {
+	var name string
+
+	b.thingGroups.Range(func(g *ThingGroup) bool {
+		if g.ThingGroupID == id {
+			name = g.ThingGroupName
+
+			return false
+		}
+
+		return true
+	})
+
+	return name
 }

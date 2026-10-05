@@ -360,6 +360,7 @@ type RestoreFromClusterSnapshotOptions struct {
 	AvailabilityZone                 string
 	ClusterParameterGroupName        string
 	DefaultIamRoleArn                string
+	Settings                         ClusterSettings
 	VpcSecurityGroupIDs              []string
 	Port                             int
 }
@@ -516,6 +517,10 @@ func (b *InMemoryBackend) RestoreFromClusterSnapshot(
 		AllowVersionUpgrade:              allowVersionUpgrade,
 		AutomatedSnapshotRetentionPeriod: automatedRetention,
 		ManualSnapshotRetentionPeriod:    manualRetention,
+	}
+
+	if err = b.applyClusterSettingsLocked(cluster, opts.Settings); err != nil {
+		return nil, err
 	}
 
 	b.clusters.Put(cluster)

@@ -1,6 +1,10 @@
 package quicksight
 
-import "maps"
+import (
+	"fmt"
+	"maps"
+	"slices"
+)
 
 const (
 	editionStandard = "STANDARD"
@@ -101,6 +105,7 @@ type storedAccountSubscription struct {
 	NotificationEmail         string `json:"notificationEmail"`
 	AuthenticationType        string `json:"authenticationType"`
 	AccountSubscriptionStatus string `json:"accountSubscriptionStatus"`
+	IAMIdentityCenterArn      string `json:"iamIdentityCenterArn,omitempty"`
 }
 
 func (s *storedAccountSubscription) toAccountSubscription() *AccountSubscription {
@@ -110,13 +115,19 @@ func (s *storedAccountSubscription) toAccountSubscription() *AccountSubscription
 		NotificationEmail:         s.NotificationEmail,
 		AuthenticationType:        s.AuthenticationType,
 		AccountSubscriptionStatus: s.AccountSubscriptionStatus,
+		IAMIdentityCenterArn:      s.IAMIdentityCenterArn,
 	}
 }
 
 // CreateAccountSubscription subscribes accountID to QuickSight.
 func (b *InMemoryBackend) CreateAccountSubscription(
 	accountID, accountName, edition, authenticationMethod, notificationEmail string,
+	opts AccountSubscriptionOptions,
 ) (*AccountSubscription, error) {
+	if err := validateAccountSubscription(edition, authenticationMethod, opts); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateAccountSubscription")
 	defer b.mu.Unlock()
 
@@ -140,6 +151,7 @@ func (b *InMemoryBackend) CreateAccountSubscription(
 		NotificationEmail:         notificationEmail,
 		AuthenticationType:        authenticationMethod,
 		AccountSubscriptionStatus: subscriptionStatusCreated,
+		IAMIdentityCenterArn:      opts.IAMIdentityCenterInstanceArn,
 	}
 	b.accountSubscriptions[accountID] = s
 
@@ -692,4 +704,53 @@ func (b *InMemoryBackend) UpdateDashboardsQAConfiguration(accountID, status stri
 	b.dashboardsQAConfig[accountID] = status
 
 	return status, nil
+}
+
+const (
+	authMethodActiveDirectory   = "ACTIVE_DIRECTORY"
+	authMethodIAMIdentityCenter = "IAM_IDENTITY_CENTER"
+	editionEnterpriseAndQ       = "ENTERPRISE_AND_Q"
+)
+
+// validateAccountSubscription enforces the member requirements CreateAccountSubscriptionInput documents.
+func validateAccountSubscription(edition, authenticationMethod string, opts AccountSubscriptionOptions) error {
+	var missing []string
+
+	switch authenticationMethod {
+	case authMethodActiveDirectory:
+		if opts.ActiveDirectoryName == "" {
+			missing = append(missing, "ActiveDirectoryName")
+		}
+
+		if opts.Realm == "" {
+			missing = append(missing, "Realm")
+		}
+
+		if len(opts.AdminGroup)+len(opts.AdminProGroup) == 0 {
+			missing = append(missing, "AdminGroup or AdminProGroup")
+		}
+	case authMethodIAMIdentityCenter:
+		if len(opts.AdminGroup)+len(opts.AdminProGroup) == 0 {
+			missing = append(missing, "AdminGroup or AdminProGroup")
+		}
+	}
+
+	if edition == editionEnterpriseAndQ {
+		for name, v := range map[string]string{
+			"FirstName": opts.FirstName, "LastName": opts.LastName,
+			"EmailAddress": opts.EmailAddress, "ContactNumber": opts.ContactNumber,
+		} {
+			if v == "" {
+				missing = append(missing, name)
+			}
+		}
+	}
+
+	if len(missing) > 0 {
+		slices.Sort(missing)
+
+		return fmt.Errorf("%w: missing required members %v", ErrValidation, missing)
+	}
+
+	return nil
 }

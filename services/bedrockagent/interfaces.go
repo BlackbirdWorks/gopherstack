@@ -108,7 +108,7 @@ type StorageBackend interface {
 	) ([]*DataSourceSummary, string, error)
 
 	// Ingestion job operations.
-	StartIngestionJob(ctx context.Context, kbID, dataSourceID, description string) (*IngestionJob, error)
+	StartIngestionJob(ctx context.Context, kbID, dataSourceID, description, clientToken string) (*IngestionJob, error)
 	GetIngestionJob(ctx context.Context, kbID, dataSourceID, ingestionJobID string) (*IngestionJob, error)
 	StopIngestionJob(ctx context.Context, kbID, dataSourceID, ingestionJobID string) (*IngestionJob, error)
 	ListIngestionJobs(
@@ -126,7 +126,7 @@ type StorageBackend interface {
 	ValidateFlowDefinition(ctx context.Context, definition map[string]any) ([]FlowValidationError, error)
 
 	// Flow version operations.
-	CreateFlowVersion(ctx context.Context, flowID, description string) (*FlowVersion, error)
+	CreateFlowVersion(ctx context.Context, flowID string, cfg VersionConfig) (*FlowVersion, error)
 	GetFlowVersion(ctx context.Context, flowID, flowVersion string) (*FlowVersion, error)
 	DeleteFlowVersion(ctx context.Context, flowID, flowVersion string, skipResourceInUseCheck bool) error
 	ListFlowVersions(
@@ -147,10 +147,12 @@ type StorageBackend interface {
 	GetPrompt(ctx context.Context, promptID string) (*Prompt, error)
 	UpdatePrompt(ctx context.Context, promptID string, cfg PromptConfig) (*Prompt, error)
 	DeletePrompt(ctx context.Context, promptID string) error
-	ListPrompts(ctx context.Context, maxResults int, nextToken string) ([]*PromptSummary, string, error)
+	ListPrompts(
+		ctx context.Context, promptIdentifier string, maxResults int, nextToken string,
+	) ([]*PromptSummary, string, error)
 
 	// Prompt version operations.
-	CreatePromptVersion(ctx context.Context, promptID, description string) (*PromptVersion, error)
+	CreatePromptVersion(ctx context.Context, promptID string, cfg VersionConfig) (*PromptVersion, error)
 	GetPromptVersion(ctx context.Context, promptID, version string) (*PromptVersion, error)
 	DeletePromptVersion(ctx context.Context, promptID, version string) error
 

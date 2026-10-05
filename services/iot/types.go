@@ -507,8 +507,10 @@ type CreateCertificateFromCsrInput struct {
 
 // RegisterCertificateInput is the input for RegisterCertificate.
 type RegisterCertificateInput struct {
-	CertificatePem string
-	Status         string
+	CertificatePem   string
+	CACertificatePem string
+	Status           string
+	SetAsActive      bool
 }
 
 // UpdateCertificateInput is the input for UpdateCertificate.

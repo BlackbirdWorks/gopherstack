@@ -141,6 +141,12 @@ var (
 	// text for unrelated call sites -- see errCodeSentinels, where resolveErrCode
 	// only needs the sentinel's Error() text to match.
 	ErrClusterInvalidState = errors.New("InvalidClusterState")
+	// ErrInvalidClusterTrack and ErrInvalidElasticIP match InvalidClusterTrackFault and
+	// InvalidElasticIpFault ErrorCode() in the pinned SDK's types/errors.go.
+	ErrInvalidClusterTrack = errors.New("InvalidClusterTrack")
+	ErrInvalidElasticIP    = errors.New("InvalidElasticIpFault")
+	// ErrInvalidParameterCombination is the generic Query-protocol code; the pinned SDK declares no fault for it.
+	ErrInvalidParameterCombination = errors.New("InvalidParameterCombination")
 	// ErrInvalidS3KeyPrefix is returned by EnableLogging when S3KeyPrefix
 	// contains a character outside the set documented on
 	// EnableLoggingInput.S3KeyPrefix (ErrorCode() "InvalidS3KeyPrefixFault",
