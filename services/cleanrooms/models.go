@@ -324,13 +324,14 @@ type ConfiguredTableAssociationAnalysisRule struct {
 // UpdateAnalysisTemplate (Summary is its List shape). Verified against
 // awsRestjson1_deserializeDocumentAnalysisTemplate(Summary): real keys use
 // "id"/"collaborationId"/"membershipId", never the "*Identifier" forms
-// (request-parameter-only names). sourceMetadata, syntheticDataParameters,
-// validations and isSyntheticData are not modeled (see PARITY.md).
+// (request-parameter-only names). sourceMetadata and validations are not
+// modeled (see PARITY.md).
 type AnalysisTemplate struct {
 	Source                     map[string]any             `json:"source,omitempty"`
 	Tags                       map[string]string          `json:"-"`
 	Schema                     map[string]any             `json:"schema,omitempty"`
 	ErrorMessageConfiguration  *ErrorMessageConfiguration `json:"errorMessageConfiguration,omitempty"`
+	SyntheticDataParameters    map[string]any             `json:"syntheticDataParameters,omitempty"`
 	CollaborationIdentifier    string                     `json:"-"`
 	Arn                        string                     `json:"arn"`
 	Name                       string                     `json:"name"`
@@ -362,6 +363,7 @@ type AnalysisTemplateSummary struct {
 	CollaborationID            string  `json:"collaborationId"`
 	CreateTime                 float64 `json:"createTime,omitempty"`
 	UpdateTime                 float64 `json:"updateTime,omitempty"`
+	IsSyntheticData            bool    `json:"isSyntheticData,omitempty"`
 }
 
 // CollaborationAnalysisTemplateSummary is the wire shape for
@@ -379,6 +381,7 @@ type CollaborationAnalysisTemplateSummary struct {
 	Description      string  `json:"description,omitempty"`
 	CreateTime       float64 `json:"createTime,omitempty"`
 	UpdateTime       float64 `json:"updateTime,omitempty"`
+	IsSyntheticData  bool    `json:"isSyntheticData,omitempty"`
 }
 
 type BatchError struct {

@@ -19,9 +19,12 @@ type ConfiguredTableSettings struct {
 	SelectedAnalysisMethods []string
 }
 
-// AnalysisTemplateSettings carries the optional errorMessageConfiguration member.
+// AnalysisTemplateSettings carries the optional errorMessageConfiguration and
+// syntheticDataParameters members.
 type AnalysisTemplateSettings struct {
 	ErrorMessageConfiguration *ErrorMessageConfiguration
+	SyntheticDataParameters   map[string]any
+	Schema                    map[string]any
 }
 
 func validAnalyticsEngines() []string { return []string{"SPARK", "CLEAN_ROOMS_SQL"} }
@@ -107,6 +110,44 @@ func validateErrorMessageConfiguration(c *ErrorMessageConfiguration) error {
 	return nil
 }
 
+// validateSyntheticDataParameters checks the mlSyntheticDataParameters union
+// member's required fields (validators.go validateMLSyntheticDataParameters).
+func validateSyntheticDataParameters(p map[string]any) error {
+	if p == nil {
+		return nil
+	}
+
+	ml, ok := p["mlSyntheticDataParameters"].(map[string]any)
+	if !ok || len(p) != 1 {
+		return ErrValidation
+	}
+
+	for _, k := range []string{"epsilon", "maxMembershipInferenceAttackScore"} {
+		if _, isNum := ml[k].(float64); !isNum {
+			return ErrValidation
+		}
+	}
+
+	cc, ok := ml["columnClassification"].(map[string]any)
+	if !ok {
+		return ErrValidation
+	}
+
+	mapping, ok := cc["columnMapping"].([]any)
+	if !ok {
+		return ErrValidation
+	}
+
+	for _, m := range mapping {
+		col, isMap := m.(map[string]any)
+		if !isMap || col["columnName"] == nil || col["columnType"] == nil {
+			return ErrValidation
+		}
+	}
+
+	return nil
+}
+
 func cloneCollaboration(c *Collaboration) *Collaboration {
 	out := *c
 	out.Tags = maps.Clone(c.Tags)
@@ -141,6 +182,8 @@ func cloneConfiguredTable(ct *ConfiguredTable) *ConfiguredTable {
 func cloneAnalysisTemplate(t *AnalysisTemplate) *AnalysisTemplate {
 	out := *t
 	out.Tags = maps.Clone(t.Tags)
+	out.SyntheticDataParameters = maps.Clone(t.SyntheticDataParameters)
+	out.Schema = maps.Clone(t.Schema)
 	if t.ErrorMessageConfiguration != nil {
 		e := *t.ErrorMessageConfiguration
 		out.ErrorMessageConfiguration = &e

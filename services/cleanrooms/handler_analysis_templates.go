@@ -77,6 +77,8 @@ func (h *Handler) handleCreateAnalysisTemplate(_ context.Context, body []byte) (
 		Source               map[string]any             `json:"source"`
 		Tags                 map[string]string          `json:"tags"`
 		ErrorMessageConfig   *ErrorMessageConfiguration `json:"errorMessageConfiguration"`
+		SyntheticData        map[string]any             `json:"syntheticDataParameters"`
+		Schema               map[string]any             `json:"schema"`
 		MembershipIdentifier string                     `json:"membershipIdentifier"`
 		Name                 string                     `json:"name"`
 		Description          string                     `json:"description"`
@@ -92,7 +94,11 @@ func (h *Handler) handleCreateAnalysisTemplate(_ context.Context, body []byte) (
 		req.Source,
 		req.AnalysisParameters,
 		req.Tags,
-		AnalysisTemplateSettings{ErrorMessageConfiguration: req.ErrorMessageConfig},
+		AnalysisTemplateSettings{
+			ErrorMessageConfiguration: req.ErrorMessageConfig,
+			SyntheticDataParameters:   req.SyntheticData,
+			Schema:                    req.Schema,
+		},
 	)
 	if err != nil {
 		return nil, err

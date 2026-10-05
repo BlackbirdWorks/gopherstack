@@ -593,8 +593,7 @@ items_still_open:
     render); DescribeVpcEncryptionControls, DescribeElasticGpus (documented, but always
     empty: Elastic Graphics retired), DescribeInstanceStatus event.*/operator.*/
     attached-ebs-status/application-status, DescribeSecondaryInterfaces
-    attachment.instance-owner-id, DescribeRegions opt-in-status,
-    DescribeReservedInstancesModifications client-token/
+    attachment.instance-owner-id, DescribeReservedInstancesModifications client-token/
     create-date/effective-date/update-date/modification-result.reserved-instances-id,
     DescribeOutpostLags' service-link-VIF family (unmodeled), DescribeImageUsageReports
     creation-time (wildcard). Confirmed PERMANENT non-gaps (the pinned SDK's own
@@ -610,15 +609,11 @@ items_still_open:
     DescribeSecurityGroupRules' tag:<key> (no write path threads a TagSpecification through
     Authorize*Ingress/Egress for the security-group-rule resource type, so there are never
     any rule tags to filter against)."
-  - "Application Status Checks (2026-08-05, gopherstack-8pce): InstanceApplicationStatus.
-    AvailabilityZoneId is always empty (this backend tracks only AZ name, not a separate AZ
-    ID, on Instance) -- real gap. ApplicationStatus.StatusSince and ApplicationStatusDetail
+  - "Application Status Checks (2026-08-05, gopherstack-8pce): ApplicationStatus.StatusSince and ApplicationStatusDetail
     (the real per-check breakdown) are always zero/empty since this backend runs no real
     health-check execution -- honest omission, not fabrication. The documented 50-tag/
     100-instance-ID request-size limits are accepted without enforcement (the 50-check-per-
-    account limit IS enforced). MaxResults/NextToken on the three Describe* ops in this
-    family are accepted but not enforced (always returns every match) -- same low-severity
-    pattern as roughly a dozen other newer op families. DescribeApplicationStatusCheckAssociationsOutput.Tags
+    account limit IS enforced). DescribeApplicationStatusCheckAssociationsOutput.Tags
     is always empty: its aggregation semantics across multiple checks are ambiguous from the
     SDK doc alone."
   - "reqfielddiff ec2 tier-1 remainder (2026-10-03), request fields the tool still flags
@@ -646,15 +641,6 @@ items_still_open:
     for a Local Zone source; no location on the wire). Disassociate/UnassignPrivateNatGateway
     Address drain only when MaxDrainDurationSeconds is given; AWS's 350s default is not
     applied because Terraform's waiters expect immediate release."
-  - "NetworkAcl associations (gopherstack-n3zi, 2026-09-12): this backend does not model a
-    NetworkAclAssociationId distinct from the subnet it associates (NetworkACL.AssociationIDs
-    stores bare subnet IDs; DescribeNetworkAcls renders that subnet ID as
-    networkAclAssociationId and never renders subnetId at all; ReplaceNetworkAclAssociation
-    treats its AssociationId parameter as the subnet to move, not a real association ID). A
-    full fix needs a real per-association-ID model threaded through
-    CreateNetworkAcl/DeleteNetworkAcl/ReplaceNetworkAclAssociation/DescribeNetworkAcls/
-    applyNetworkACLFilters together -- out of scope for a single field fix; disclosed in-code
-    at applyNetworkACLFilters."
   - "Recycle Bin is entirely unmodeled for all three resource types it covers (volumes,
     snapshots, images): DeleteVolume/DeleteSnapshot/DeregisterImage all hard-delete
     unconditionally rather than moving the resource into a bin under a real Recycle-Bin
@@ -708,9 +694,13 @@ deferred:
   - "DeleteQueuedReservedInstances: PurchaseReservedInstancesOffering has no future-dated purchase mode, so no Reserved Instance is ever created in the queued state and the success path is reachable only via direct state manipulation in tests."
   - NAT gateway private-connectivity mode (ConnectivityType=private, no AllocationId) and create-time PrivateIpAddress/SecondaryAllocationIds/SecondaryPrivateIpAddressCount/SecondaryPrivateIpAddresses — not modeled, no backing data; see nat_gateway note.
   - VPC Endpoint Service / VPC Endpoint DnsEntries, security groups, IP prefixes, policy documents, PrivateLink-managed-service fields — not modeled, no backing data; see vpc_endpoints note.
-  - "Snapshot.DataEncryptionKeyId and AMI-backing-snapshot InvalidSnapshot.InUse protection have no backing data; per-ENI security-group tracking is a larger separate feature; MaxResults/NextToken truncation is declared but unimplemented across ~12 newer op families; SearchTransitGatewayRoutes does not enforce its required Filters."
+  - "Snapshot.DataEncryptionKeyId and AMI-backing-snapshot InvalidSnapshot.InUse protection have no backing data; per-ENI security-group tracking is a larger separate feature; SearchTransitGatewayRoutes does not enforce its required Filters."
 leaks: {status: ok, note: FIXED the tag_cleanup class above (real, reachable leak). Re-verified the lifecycle-reconciler goroutine (store.go StartLifecycleReconciler/StopLifecycleReconciler) is ctx-parented AND has an explicit Stop channel, wired into provider.go/handler.go Shutdown — no leak. No other goroutines/tickers found in services/ec2 (grep for `go func\(`/`time.NewTicker`/`time.AfterFunc` — one hit, the reconciler above). Secondary indexes (instanceIDsByVPC/subnetIDsByVPC/routeTableIDsByVPC/sgIDsByVPC/natGatewayIDsByVPC) are correctly deindexed on every explicit per-resource delete; eniIDsByVPC is still correctly maintained but is now write-only (no reader) since DeleteVpc no longer cascades through it — not a leak (bounded, cleaned on ENI delete), just vestigial; left in place rather than risk a wider removal across network_interfaces.go/instances.go/spot_fleet.go/indexes.go for a non-functional cleanup. NEW (2026-09-24): the six tombstone maps (tgwRouteTableTombstones, tgwVpcAttachmentTombstones, tgwPeeringAttachmentTombstones, natGatewayTombstones, fleetTombstones, vpnConnectionTombstones) never expired an entry — unbounded growth for a long-running emulator's terraform suites. Fixed: each tombstone now carries a deletedAt, describeWithTombstones stops returning one past ec2TombstoneTTL (1h, api_op_DescribeInstances.go's documented "usually less than one hour" terminated-instance visibility — no per-resource-type duration is documented for these six), and Janitor.sweepExpiredTombstones (added to SweepOnce) plus each Delete* op's own pruneExpiredTombstones call physically evict expired entries. See TestTombstones_ExpireAfterRetentionWindow, TestJanitor_SweepExpiredTombstones.}
 ---
+
+## 2026-10-05 (gap burn-down pass 3, gopherstack-9x62)
+
+Zone IDs (`use1-az1` form, derived from the zone name) now appear on DescribeAvailabilityZones (zoneId, zone-id filter), DescribeSubnets (availabilityZoneId, availability-zone-id filter), InstanceApplicationStatus, and replace the fabricated `<az>1` in DescribeInstanceTopology/DescribeInstanceImageMetadata; availability-zone-id filters added to DescribeInstanceStatus, DescribeReservedInstances(Offerings) and DescribeSpotPriceHistory. DescribeRegions returns optInStatus with an opt-in-status filter. NetworkAcl associations use derived `aclassoc-` IDs (new ID per move, ReplaceNetworkAclAssociation resolves them, unknown IDs return InvalidAssociationID.NotFound). Application-status MaxResults/NextToken was already implemented. Proof: az_ids_test.go, network_acl_association_ids_test.go, application_status_pagination_test.go.
 
 ## Notes
 

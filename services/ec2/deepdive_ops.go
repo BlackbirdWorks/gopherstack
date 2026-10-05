@@ -179,13 +179,7 @@ func (b *InMemoryBackend) DescribeNetworkAcls(vpcIDs []string) []*NetworkACL {
 		assocIDs := make([]string, 0, b.subnets.Len())
 		for _, subnet := range b.subnets.All() {
 			if subnet.VPCID == vpc.ID && !explicitlyAssociated[subnet.ID] {
-				// AssociationIDs stores the raw subnet ID, matching this
-				// backend's documented association-ID simplification
-				// (network_acls.go's AddSubnetAssociation/
-				// ReplaceNetworkACLAssociation do the same) -- a distinct
-				// "aclassoc-" ID here would silently break the
-				// association.subnet-id filter, which compares directly
-				// against AssociationIDs.
+				// AssociationIDs holds subnet IDs; the wire ID is derived at render time.
 				assocIDs = append(assocIDs, subnet.ID)
 			}
 		}

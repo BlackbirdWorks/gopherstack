@@ -30,6 +30,8 @@ const (
 	filterKeyDescription      = "description"
 	filterKeyInstanceID       = "instance-id"
 	filterKeyAvailabilityZone = "availability-zone"
+	azIDFilterKey             = "availability-zone-id"
+	zoneIDFilterKey           = "zone-id"
 	filterKeyVolumeID         = "volume-id"
 	filterKeyDhcpConfigKey    = "key"
 	filterKeyDhcpConfigValue  = "value"
@@ -298,6 +300,8 @@ func subnetMatchesFilter(s *Subnet, filterName string, values []string, b Backen
 		return anyEqual(s.CIDRBlock, values)
 	case "availabilityZone", filterKeyAvailabilityZone:
 		return anyEqual(s.AvailabilityZone, values)
+	case azIDFilterKey:
+		return anyEqual(availabilityZoneID(s.AvailabilityZone), values)
 	case filterKeyState:
 		return anyEqual("available", values)
 	case "defaultForAz", "default-for-az":
@@ -1608,10 +1612,8 @@ func flowLogMatchesFilter(fl *FlowLog, filterName string, values []string, b Bac
 // documented but left: NACLEntry has no ICMP or IPv6 fields, and NetworkACL
 // has no per-resource owner (see applyDhcpOptionsFilters' owner-id note).
 //
-// association.association-id and association.subnet-id both key off
-// AssociationIDs: AddSubnetAssociation (network_acls.go) appends the raw
-// subnetID there, so that list already IS the set of associated subnet IDs
-// this backend tracks; there is no separately-modeled association ID.
+// AssociationIDs holds the associated subnet IDs; association.association-id
+// matches the "aclassoc-" ID derived from (subnet, ACL).
 func applyNetworkACLFilters(acls []*NetworkACL, filters map[string][]string, b Backend) []*NetworkACL {
 	if len(filters) == 0 {
 		return acls
@@ -1661,9 +1663,17 @@ func naclMatchesFilter(acl *NetworkACL, filterName string, values []string, b Ba
 
 func naclMatchesAssociationFilter(acl *NetworkACL, filterName string, values []string) bool {
 	switch filterName {
-	case "association.association-id", "association.subnet-id":
-		for _, aid := range acl.AssociationIDs {
-			if anyEqual(aid, values) {
+	case "association.association-id":
+		for _, sid := range acl.AssociationIDs {
+			if anyEqual(networkACLAssociationID(sid, acl.ID), values) {
+				return true
+			}
+		}
+
+		return false
+	case "association.subnet-id":
+		for _, sid := range acl.AssociationIDs {
+			if anyEqual(sid, values) {
 				return true
 			}
 		}
@@ -1720,7 +1730,7 @@ func naclEntryAny(acl *NetworkACL, values []string, field func(NACLEntry) string
 // applyInstanceStatusFilters supports availability-zone, instance-state-code,
 // instance-state-name, instance-status.reachability, instance-status.status,
 // system-status.reachability, system-status.status
-// (api_op_DescribeInstanceStatus.go). availability-zone-id, event.*,
+// (api_op_DescribeInstanceStatus.go) plus availability-zone-id. event.*,
 // operator.*, attached-ebs-status.status, and application-status.status are
 // documented but left: this backend models neither scheduled events,
 // managed-instance operators, nor per-resource-type health independent of
@@ -1755,6 +1765,8 @@ func instanceStatusMatchesFilter(
 	switch filterName {
 	case filterKeyAvailabilityZone:
 		return anyEqual(inst.Placement.AvailabilityZone, values)
+	case azIDFilterKey:
+		return anyEqual(availabilityZoneID(inst.Placement.AvailabilityZone), values)
 	case "instance-state-code":
 		return anyEqual(itoa(inst.State.Code), values)
 	case filterKeyInstStateName:
@@ -2754,8 +2766,8 @@ func launchTemplateVersionMatchesFilter(item launchTemplateVersionItem, filterNa
 // DescribeReservedInstancesOfferings filters this backend has data for:
 // availability-zone, duration, fixed-price, instance-type,
 // product-description, reserved-instances-offering-id, usage-price
-// (api_op_DescribeReservedInstancesOfferings.go doc comment). marketplace,
-// availability-zone-id, and scope are documented but unmodeled.
+// (api_op_DescribeReservedInstancesOfferings.go doc comment) plus
+// availability-zone-id. marketplace and scope are documented but unmodeled.
 func applyReservedInstancesOfferingFilters(
 	offerings []*ReservedInstancesOffering, filters map[string][]string,
 ) []*ReservedInstancesOffering {
@@ -2783,6 +2795,8 @@ func reservedInstancesOfferingMatchesFilter(o *ReservedInstancesOffering, filter
 	switch filterName {
 	case filterKeyAvailabilityZone:
 		return anyEqual(o.AvailabilityZone, values)
+	case azIDFilterKey:
+		return anyEqual(availabilityZoneID(o.AvailabilityZone), values)
 	case "duration":
 		return anyEqual(strconv.FormatInt(o.Duration, 10), values)
 	case "fixed-price":
@@ -3478,7 +3492,7 @@ func fleetMatchesFilter(f *Fleet, filterName string, values []string) bool {
 // applySpotPriceFilters supports the DescribeSpotPriceHistory filters this
 // backend has data for: availability-zone, instance-type,
 // product-description, spot-price (api_op_DescribeSpotPriceHistory.go doc
-// comment). availability-zone-id is documented but unmodeled; timestamp is
+// comment) plus availability-zone-id. timestamp is
 // documented as wildcard-matchable, which this backend does not implement,
 // so it is left unmodeled rather than an incorrect exact-match-only version.
 func applySpotPriceFilters(records []SpotPriceRecord, filters map[string][]string) []SpotPriceRecord {
@@ -3489,6 +3503,8 @@ func spotPriceRecordMatchesFilter(r SpotPriceRecord, filterName string, values [
 	switch filterName {
 	case filterKeyAvailabilityZone:
 		return anyEqual(r.AvailabilityZone, values)
+	case azIDFilterKey:
+		return anyEqual(availabilityZoneID(r.AvailabilityZone), values)
 	case filterKeyInstanceType:
 		return anyEqual(r.InstanceType, values)
 	case filterKeyProductDesc:
@@ -3506,9 +3522,8 @@ func spotPriceRecordMatchesFilter(r SpotPriceRecord, filterName string, values [
 // filters this backend has data for: availability-zone, duration, end,
 // fixed-price, instance-type, product-description, reserved-instances-id,
 // start, state, tag:<key>, tag-key, usage-price
-// (api_op_DescribeReservedInstances.go doc comment). availability-zone-id
-// and scope are documented but unmodeled (ReservedInstance has no backing
-// field for either).
+// (api_op_DescribeReservedInstances.go doc comment) plus availability-zone-id.
+// scope is documented but unmodeled (ReservedInstance has no backing field).
 func applyReservedInstanceFilters(
 	ris []*ReservedInstance, filters map[string][]string, b Backend,
 ) []*ReservedInstance {
@@ -3525,6 +3540,8 @@ func reservedInstanceMatchesFilter(ri *ReservedInstance, filterName string, valu
 	switch filterName {
 	case filterKeyAvailabilityZone:
 		return anyEqual(ri.AvailabilityZone, values)
+	case azIDFilterKey:
+		return anyEqual(availabilityZoneID(ri.AvailabilityZone), values)
 	case "duration":
 		return anyEqual(strconv.FormatInt(ri.Duration, 10), values)
 	case "end":

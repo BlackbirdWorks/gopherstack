@@ -449,7 +449,7 @@ func (b *InMemoryBackend) DescribeInstanceImageMetadata(
 
 		var zoneID string
 		if az != "" {
-			zoneID = az + "1"
+			zoneID = availabilityZoneID(az)
 		}
 
 		out = append(out, InstanceImageMetadataItem{

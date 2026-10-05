@@ -441,19 +441,36 @@ type UpdateRouteResponseInput struct {
 // against api_op_UpdatePortal.go) and must never be JSON-decoded from a
 // request body.
 type UpdatePortalInput struct {
-	Tags                      map[string]string `json:"tags,omitempty"`
-	LogoURI                   *string           `json:"logoUri,omitempty"`
-	RumAppMonitorName         *string           `json:"rumAppMonitorName,omitempty"`
-	Status                    string            `json:"-"`
-	PublishDescription        string            `json:"-"`
-	IncludedPortalProductArns []string          `json:"includedPortalProductArns,omitempty"`
+	Authorization             *Authorization                `json:"authorization,omitempty"`
+	EndpointConfiguration     *EndpointConfigurationRequest `json:"endpointConfiguration,omitempty"`
+	PortalContent             *PortalContent                `json:"portalContent,omitempty"`
+	Tags                      map[string]string             `json:"tags,omitempty"`
+	LogoURI                   *string                       `json:"logoUri,omitempty"`
+	RumAppMonitorName         *string                       `json:"rumAppMonitorName,omitempty"`
+	Status                    string                        `json:"-"`
+	PublishDescription        string                        `json:"-"`
+	IncludedPortalProductArns []string                      `json:"includedPortalProductArns,omitempty"`
+}
+
+// DisplayOrder mirrors types.DisplayOrder (types.go:390).
+type DisplayOrder struct {
+	OverviewPageArn *string   `json:"overviewPageArn,omitempty"`
+	Contents        []Section `json:"contents,omitempty"`
+	ProductPageArns []string  `json:"productPageArns,omitempty"`
+}
+
+// Section mirrors types.Section (types.go:1367); both members are required.
+type Section struct {
+	SectionName                 string   `json:"sectionName"`
+	ProductRestEndpointPageArns []string `json:"productRestEndpointPageArns"`
 }
 
 // UpdatePortalProductInput is the input for UpdatePortalProduct (PATCH).
 type UpdatePortalProductInput struct {
-	Tags        map[string]string `json:"tags,omitempty"`
-	DisplayName *string           `json:"displayName,omitempty"`
-	Description *string           `json:"description,omitempty"`
+	DisplayOrder *DisplayOrder     `json:"displayOrder,omitempty"`
+	Tags         map[string]string `json:"tags,omitempty"`
+	DisplayName  *string           `json:"displayName,omitempty"`
+	Description  *string           `json:"description,omitempty"`
 }
 
 // UpdateProductPageInput is the input for UpdateProductPage (PATCH).
@@ -732,6 +749,7 @@ type CreatePortalInput struct {
 // silently dropped the required member.
 type PortalProduct struct {
 	LastModified     *isoTime          `json:"lastModified,omitempty"`
+	DisplayOrder     *DisplayOrder     `json:"displayOrder,omitempty"`
 	Tags             map[string]string `json:"tags,omitempty"`
 	PortalProductID  string            `json:"portalProductId"`
 	PortalProductArn string            `json:"portalProductArn,omitempty"`
@@ -809,6 +827,7 @@ type ProductRestEndpointPage struct {
 	ProductRestEndpointPageID  string                  `json:"productRestEndpointPageId"`
 	ProductRestEndpointPageArn string                  `json:"productRestEndpointPageArn"`
 	Endpoint                   string                  `json:"endpoint"`
+	OperationName              string                  `json:"operationName,omitempty"`
 	Status                     string                  `json:"status"`
 	TryItState                 string                  `json:"tryItState"`
 	PortalProductID            string                  `json:"-"`

@@ -91,6 +91,27 @@ func validateCreatePortalInput(input CreatePortalInput) error {
 	return validateCreatePortalContent(input.PortalContent)
 }
 
+// validateUpdatePortalInput validates only the optional members the caller supplied.
+func validateUpdatePortalInput(input UpdatePortalInput) error {
+	if input.Authorization != nil {
+		if err := validateCreatePortalAuthorization(input.Authorization); err != nil {
+			return err
+		}
+	}
+
+	if input.EndpointConfiguration != nil {
+		if err := validateCreatePortalEndpointConfiguration(input.EndpointConfiguration); err != nil {
+			return err
+		}
+	}
+
+	if input.PortalContent != nil {
+		return validateCreatePortalContent(input.PortalContent)
+	}
+
+	return nil
+}
+
 // CreatePortal creates a new portal.
 func (b *InMemoryBackend) CreatePortal(input CreatePortalInput) (*Portal, error) {
 	if err := validateCreatePortalInput(input); err != nil {
@@ -463,6 +484,7 @@ func (b *InMemoryBackend) ListPortalProducts() ([]PortalProduct, error) {
 	for _, pp := range all {
 		cp := *pp
 		cp.Tags = copyTags(pp.Tags)
+		cp.DisplayOrder = nil
 		result = append(result, cp)
 	}
 
@@ -505,7 +527,9 @@ func (b *InMemoryBackend) ListProductRestEndpointPages(portalProductID string) (
 	result := make([]ProductRestEndpointPage, 0, len(pages))
 
 	for _, p := range pages {
-		result = append(result, *p)
+		cp := *p
+		cp.OperationName, _ = p.DisplayContent["operationName"].(string)
+		result = append(result, cp)
 	}
 
 	return result, nil
@@ -513,6 +537,10 @@ func (b *InMemoryBackend) ListProductRestEndpointPages(portalProductID string) (
 
 // UpdatePortal updates fields on an existing portal.
 func (b *InMemoryBackend) UpdatePortal(portalID string, input UpdatePortalInput) (*Portal, error) {
+	if err := validateUpdatePortalInput(input); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("UpdatePortal")
 	defer b.mu.Unlock()
 
@@ -528,6 +556,19 @@ func (b *InMemoryBackend) UpdatePortal(portalID string, input UpdatePortalInput)
 		maps.Copy(p.Tags, input.Tags)
 	}
 
+	if input.Authorization != nil {
+		p.Authorization = input.Authorization
+	}
+	if input.EndpointConfiguration != nil {
+		p.EndpointConfiguration = endpointConfigurationResponseFromRequest(
+			b.region,
+			portalID,
+			input.EndpointConfiguration,
+		)
+	}
+	if input.PortalContent != nil {
+		p.PortalContent = input.PortalContent
+	}
 	if input.LogoURI != nil {
 		p.LogoURI = *input.LogoURI
 	}
@@ -554,11 +595,32 @@ func (b *InMemoryBackend) UpdatePortal(portalID string, input UpdatePortalInput)
 	return &cp, nil
 }
 
+// validateDisplayOrder enforces Section's required members (validators.go validateSection).
+func validateDisplayOrder(d *DisplayOrder) error {
+	if d == nil {
+		return nil
+	}
+
+	for _, sec := range d.Contents {
+		if sec.SectionName == "" || sec.ProductRestEndpointPageArns == nil {
+			return fmt.Errorf(
+				"%w: displayOrder.contents sectionName and productRestEndpointPageArns are required", ErrBadRequest,
+			)
+		}
+	}
+
+	return nil
+}
+
 // UpdatePortalProduct updates fields on an existing portal product.
 func (b *InMemoryBackend) UpdatePortalProduct(
 	portalProductID string,
 	input UpdatePortalProductInput,
 ) (*PortalProduct, error) {
+	if err := validateDisplayOrder(input.DisplayOrder); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("UpdatePortalProduct")
 	defer b.mu.Unlock()
 
@@ -580,6 +642,10 @@ func (b *InMemoryBackend) UpdatePortalProduct(
 
 	if input.Description != nil {
 		pp.Description = *input.Description
+	}
+
+	if input.DisplayOrder != nil {
+		pp.DisplayOrder = input.DisplayOrder
 	}
 
 	now := isoTime{time.Now()}

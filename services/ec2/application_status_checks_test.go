@@ -384,6 +384,10 @@ func TestApplicationStatusChecks_DescribeStatusNeverFabricates(t *testing.T) {
 	assert.Equal(t, "insufficient-data", byID[tagAssocInst].Status)
 
 	for _, s := range statuses {
+		assert.Regexp(t, `^[a-z]+[0-9]-az[0-9]+$`, s.AvailabilityZoneID, "AZ ID derived from %q", s.AvailabilityZone)
+	}
+
+	for _, s := range statuses {
 		assert.Contains(
 			t,
 			[]string{"not-applicable", "insufficient-data", "suppressed"},

@@ -334,12 +334,9 @@ func toNetworkACLItem(acl *NetworkACL, tags map[string]string) networkACLItem {
 	assocs := make([]networkACLAssocItem, 0, len(acl.AssociationIDs))
 	for _, aid := range acl.AssociationIDs {
 		assocs = append(assocs, networkACLAssocItem{
-			NetworkACLAssociationID: aid,
+			NetworkACLAssociationID: networkACLAssociationID(aid, acl.ID),
 			NetworkACLID:            acl.ID,
-			// AssociationIDs stores the raw subnet ID (this backend's
-			// documented association-ID simplification -- see
-			// DescribeNetworkAcls' doc comment), so it doubles as SubnetID.
-			SubnetID: aid,
+			SubnetID:                aid,
 		})
 	}
 
