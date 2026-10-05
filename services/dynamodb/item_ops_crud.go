@@ -3,6 +3,7 @@ package dynamodb
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"maps"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -961,11 +962,13 @@ func (db *InMemoryDB) computeUpdate(
 	existing map[string]any,
 	wire updateWire,
 ) (map[string]any, map[string]struct{}, error) {
-	updated := make(map[string]any)
+	var updated map[string]any
 
 	if existing != nil {
-		maps.Copy(updated, deepCopyItem(existing))
+		updated = deepCopyItem(existing)
 	} else {
+		updated = make(map[string]any)
+
 		wireKey := wire.key
 		if wireKey == nil {
 			wireKey = models.FromSDKItem(input.Key)
@@ -978,11 +981,12 @@ func (db *InMemoryDB) computeUpdate(
 
 	updateExpr := aws.ToString(input.UpdateExpression)
 	if updateExpr != "" {
-		log := logger.Load(ctx)
-		log.DebugContext(ctx, "Applying UpdateItem expression",
-			"expression", updateExpr,
-			"attributeNames", input.ExpressionAttributeNames,
-			"attributeValues", input.ExpressionAttributeValues)
+		if log := logger.Load(ctx); log.Enabled(ctx, slog.LevelDebug) {
+			log.DebugContext(ctx, "Applying UpdateItem expression",
+				"expression", updateExpr,
+				"attributeNames", input.ExpressionAttributeNames,
+				"attributeValues", input.ExpressionAttributeValues)
+		}
 
 		eav := wire.eav
 		if eav == nil {
@@ -995,6 +999,7 @@ func (db *InMemoryDB) computeUpdate(
 			updateExpr,
 			input.ExpressionAttributeNames,
 			eav,
+			existing,
 		)
 		if err != nil {
 			return nil, nil, err

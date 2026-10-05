@@ -599,13 +599,12 @@ func appendWireAttr(dst []byte, v any) ([]byte, bool) {
 		return dst, false
 	}
 
-	for _, t := range attrTypeKeys {
-		if val, found := m[t]; found {
-			return appendWireTyped(dst, t, val)
-		}
+	t, val, ok := singleAttr(m)
+	if !ok {
+		return dst, false
 	}
 
-	return dst, false
+	return appendWireTyped(dst, t, val)
 }
 
 func appendWireTyped(dst []byte, typeKey string, val any) ([]byte, bool) {

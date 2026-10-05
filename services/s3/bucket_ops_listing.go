@@ -142,6 +142,7 @@ func (h *S3Handler) listObjects(
 
 	buf := httputils.GetBuffer()
 	defer httputils.PutBuffer(buf)
+	growListBuffer(buf, resp.Contents)
 	buf.WriteString(xml.Header)
 	writeListBucketXML(buf, &resp)
 	writeListXMLResponse(ctx, w, http.StatusOK, buf)
@@ -154,10 +155,12 @@ func (h *S3Handler) mapObjectsToXML(
 	encodingType string,
 	includeOwner bool,
 ) ([]ObjectXML, []CommonPrefixXML) {
-	var contents []ObjectXML
 	var commonPrefixes []CommonPrefixXML
 
-	for _, obj := range objects {
+	contents := make([]ObjectXML, 0, len(objects))
+	stamps := newTimestampArena(objects)
+
+	for i, obj := range objects {
 		key := *obj.Key
 		if cp, isCommon := commonPrefixFor(key, prefix, delimiter); isCommon {
 			if _, seen := seenPrefixes[cp]; !seen {
@@ -189,7 +192,7 @@ func (h *S3Handler) mapObjectsToXML(
 		contents = append(contents, ObjectXML{
 			Owner:             owner,
 			Key:               encodeListKey(encodingType, key),
-			LastModified:      obj.LastModified.Format(time.RFC3339),
+			LastModified:      stamps.at(i),
 			Size:              *obj.Size,
 			ETag:              aws.ToString(obj.ETag),
 			StorageClass:      sc,
@@ -197,7 +200,42 @@ func (h *S3Handler) mapObjectsToXML(
 		})
 	}
 
+	if len(contents) == 0 {
+		contents = nil
+	}
+
 	return contents, commonPrefixes
+}
+
+// timestampArena renders every object's LastModified into one string so a page pays one allocation.
+type timestampArena struct {
+	text string
+	ends []int
+}
+
+func newTimestampArena(objects []types.Object) timestampArena {
+	var sb strings.Builder
+	sb.Grow(len(objects) * len(time.RFC3339))
+
+	ends := make([]int, len(objects))
+	scratch := make([]byte, 0, len(time.RFC3339)+len("+00:00"))
+
+	for i := range objects {
+		scratch = objects[i].LastModified.AppendFormat(scratch[:0], time.RFC3339)
+		sb.Write(scratch)
+		ends[i] = sb.Len()
+	}
+
+	return timestampArena{text: sb.String(), ends: ends}
+}
+
+func (a timestampArena) at(i int) string {
+	start := 0
+	if i > 0 {
+		start = a.ends[i-1]
+	}
+
+	return a.text[start:a.ends[i]]
 }
 
 func commonPrefixFor(key, prefix, delimiter string) (string, bool) {

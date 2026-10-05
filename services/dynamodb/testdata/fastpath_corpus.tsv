@@ -85,3 +85,22 @@ Scan	{"TableName":"Tbl"}
 PutItem	{"TableName":"Hsh","Item":{"id":{"N":"80"},"s":{"S":"caf\u00e9 \ud83d\ude00 \u003c\u0026\u003e \"q\" \\ \/ \u0000"},"k\u00e9y":{"S":"v"}}}
 GetItem	{"TableName":"Hsh","Key":{"id":{"N":"80"}}}
 Scan	{"TableName":"Hsh"}
+TransactWriteItems	{"TransactItems":[{"Put":{"TableName":"Tbl","Item":{"pk":{"S":"t1"},"sk":{"S":"a"},"g":{"S":"gt"},"v":{"N":"1"}}}},{"Put":{"TableName":"Tbl","Item":{"pk":{"S":"t1"},"sk":{"S":"b"},"v":{"N":"2"}},"ConditionExpression":"attribute_not_exists(#p)","ExpressionAttributeNames":{"#p":"pk"}}}],"ClientRequestToken":"tok-1","ReturnConsumedCapacity":"TOTAL","ReturnItemCollectionMetrics":"SIZE"}
+TransactWriteItems	{"TransactItems":[{"Update":{"TableName":"Tbl","Key":{"pk":{"S":"t1"},"sk":{"S":"a"}},"UpdateExpression":"SET v = v + :i","ExpressionAttributeValues":{":i":{"N":"5"}}}},{"ConditionCheck":{"TableName":"Tbl","Key":{"pk":{"S":"t1"},"sk":{"S":"b"}},"ConditionExpression":"v = :two","ExpressionAttributeValues":{":two":{"N":"2"}}}},{"Delete":{"TableName":"Tbl","Key":{"pk":{"S":"t1"},"sk":{"S":"b"}}}}]}
+TransactWriteItems	{"TransactItems":[{"ConditionCheck":{"TableName":"Tbl","Key":{"pk":{"S":"t1"},"sk":{"S":"zzz"}},"ConditionExpression":"attribute_exists(pk)","ReturnValuesOnConditionCheckFailure":"ALL_OLD"}}]}
+TransactWriteItems	{"TransactItems":[{"Put":{"TableName":"Tbl","Item":{"pk":{"S":"t1"},"sk":{"S":"a"},"v":{"N":"9"}},"ConditionExpression":"v = :nope","ExpressionAttributeValues":{":nope":{"N":"0"}},"ReturnValuesOnConditionCheckFailure":"ALL_OLD"}}]}
+TransactWriteItems	{"TransactItems":[{"Put":{"TableName":"Tbl","Item":{"pk":{"S":"d"},"sk":{"S":"d"}}}},{"Delete":{"TableName":"Tbl","Key":{"pk":{"S":"d"},"sk":{"S":"d"}}}}]}
+TransactWriteItems	{"TransactItems":[{"Put":{"TableName":"Missing","Item":{"id":{"N":"1"}}}}]}
+TransactWriteItems	{"TransactItems":[]}
+TransactWriteItems	{}
+TransactWriteItems	{"TransactItems":[{}]}
+TransactWriteItems	{"TransactItems":[{"Put":{"TableName":"Hsh","Item":{"id":{"N":"71"}},"ExpressionAttributeValues":{":x":{"S":"a","N":"1"}},"ConditionExpression":"attribute_not_exists(id)"}}]}
+TransactWriteItems	{"TransactItems":[{"Put":{"TableName":"Hsh","Item":{"id":{"N":"72"}},"ExpressionAttributeValues":{":x":{"Q":"a"}},"ConditionExpression":"attribute_not_exists(id)"}}]}
+TransactWriteItems	{"TransactItems":[{"put":{"TableName":"Hsh","Item":{"id":{"N":"73"}}}}]}
+TransactWriteItems	{"TransactItems":[{"Put":{"TableName":"Hsh","Item":{"id":{"N":"74"}},"Bogus":1}}],"Extra":true}
+TransactWriteItems	{"TransactItems":[{"Put":{"TableName":"Hsh","Item":{"id":{"N":"75"}}}}],"TransactItems":[]}
+TransactWriteItems	{"TransactItems":[{"Put":{"TableName":"Hsh","Item":{"id":{"N":"76"},"s\u00e9":{"S":"caf\u00e9 <&>"}}}},{"Update":{"TableName":"Hsh","Key":{"id":{"N":"76"}},"UpdateExpression":"SET #n = :v","ExpressionAttributeNames":{"#n":"nm"},"ExpressionAttributeValues":{":v":{"L":[{"S":"x"},{"BOOL":false}]}}}}]}
+TransactWriteItems	{"TransactItems":[{"Update":{"TableName":"Hsh","Key":{"id":{"N":"76"}},"UpdateExpression":"SET bad ="}}]}
+TransactWriteItems	{"TransactItems":[{"Put":{"TableName":"Hsh","Item":{"id":{"N":"77"}},"ConditionExpression":"attribute_not_exists(id)","ExpressionAttributeNames":{},"ExpressionAttributeValues":{}}}],"ClientRequestToken":""}
+Scan	{"TableName":"Tbl"}
+Scan	{"TableName":"Hsh"}

@@ -98,3 +98,12 @@ func CalculateChecksum(data []byte, algorithm string) string {
 
 	return base64.StdEncoding.EncodeToString(sum)
 }
+
+// queryParam returns the first value of a query parameter without parsing an empty query.
+func queryParam(r *http.Request, name string) string {
+	if r.URL.RawQuery == "" {
+		return ""
+	}
+
+	return r.URL.Query().Get(name)
+}

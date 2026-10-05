@@ -96,6 +96,9 @@ type Evaluator struct {
 	// resolved against this snapshot rather than the (possibly already-mutated) Item.
 	// https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Expressions.UpdateExpressions.html
 	original map[string]any
+
+	// Snapshot, when set, is a read-only pre-update item used instead of copying Item.
+	Snapshot map[string]any
 }
 
 func (e *Evaluator) Evaluate(node Node) (any, error) {
@@ -875,7 +878,11 @@ func (e *Evaluator) navigateList(current any, index int) (any, bool) {
 
 func (e *Evaluator) ApplyUpdate(u *UpdateExpr) error {
 	e.UpdatedPaths = make(map[string]struct{})
-	e.original = deepCopyItemMap(e.Item)
+	if e.Snapshot != nil {
+		e.original = e.Snapshot
+	} else {
+		e.original = deepCopyItemMap(e.Item)
+	}
 
 	if err := e.checkNoOverlappingPaths(u); err != nil {
 		return err
@@ -977,7 +984,12 @@ func (e *Evaluator) evalAgainstSnapshot(node Node) (any, error) {
 	}
 	reader := &Evaluator{Item: snapshot, AttrNames: e.AttrNames, AttrValues: e.AttrValues}
 
-	return reader.Evaluate(node)
+	val, err := reader.Evaluate(node)
+	if err != nil || e.Snapshot == nil {
+		return val, err
+	}
+
+	return deepCopyValue(val), nil
 }
 
 // deepCopyItemMap deep-copies an item map, falling back to the original
@@ -1009,6 +1021,8 @@ func deepCopyValue(v any) any {
 		}
 
 		return out
+	case []string:
+		return append([]string(nil), val...)
 	default:
 		return v
 	}

@@ -40,7 +40,7 @@ func (h *S3Handler) headObject(
 	}
 	ctx = newCtx
 
-	versionID := r.URL.Query().Get("versionId")
+	versionID := queryParam(r, "versionId")
 	var vid *string
 
 	if versionID != "" {
@@ -298,7 +298,7 @@ func (h *S3Handler) handleGetObjectAttributes(
 		return
 	}
 
-	versionID := r.URL.Query().Get("versionId")
+	versionID := queryParam(r, "versionId")
 	maxParts, partMarker := parseObjectAttributesPagination(r)
 
 	attrs, err := h.Backend.GetObjectAttributes(ctx, bucket, key, versionID, maxParts, partMarker)

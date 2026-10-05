@@ -641,13 +641,12 @@ func onlyAttrValue(m map[string]any) (any, bool) {
 		return nil, false
 	}
 
-	for _, t := range attrTypeKeys {
-		if v, ok := m[t]; ok {
-			return v, true
-		}
+	t, v, ok := singleAttr(m)
+	if !ok || !isAttrTypeKey(t) {
+		return nil, false
 	}
 
-	return nil, false
+	return v, true
 }
 
 // BuildKeyStringFromSDK extracts the string key directly from an SDK AttributeValue map

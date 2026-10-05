@@ -54,7 +54,7 @@ func (h *S3Handler) getObject(
 	}
 	ctx = newCtx
 
-	versionID := r.URL.Query().Get("versionId")
+	versionID := queryParam(r, "versionId")
 	logger.Load(ctx).DebugContext(
 		ctx,
 		"S3 getObject input",
@@ -186,6 +186,10 @@ var responseOverrideParams = map[string]string{ //nolint:gochecknoglobals // fix
 // to the outgoing headers, matching real S3 GetObject/HeadObject behaviour. An
 // override always wins over the object's stored header value.
 func applyResponseOverrideHeaders(w http.ResponseWriter, r *http.Request) {
+	if r.URL.RawQuery == "" {
+		return
+	}
+
 	q := r.URL.Query()
 	for param, header := range responseOverrideParams {
 		if v := q.Get(param); v != "" {

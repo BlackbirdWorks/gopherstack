@@ -30,3 +30,12 @@ func BenchmarkRWMutex_RLockRUnlock_SameOp(b *testing.B) {
 		m.RUnlock()
 	}
 }
+
+func BenchmarkNew(b *testing.B) {
+	b.ReportAllocs()
+
+	for range b.N {
+		m := lockmetrics.New("bench.new")
+		m.Close()
+	}
+}

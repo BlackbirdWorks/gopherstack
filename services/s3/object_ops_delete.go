@@ -55,7 +55,7 @@ func (h *S3Handler) deleteObject(
 	// AWS S3 supports If-Match on DeleteObject for ETag-conditional deletes.
 	// We only honour it when no version is targeted: per-version deletes are
 	// idempotent in real S3 and don't carry preconditions.
-	if r.URL.Query().Get("versionId") == "" {
+	if queryParam(r, "versionId") == "" {
 		if err := h.enforceDeleteObjectPreconditions(ctx, r, bucketName, key); err != nil {
 			WriteError(ctx, w, r, err)
 
@@ -63,7 +63,7 @@ func (h *S3Handler) deleteObject(
 		}
 	}
 
-	versionID := r.URL.Query().Get("versionId")
+	versionID := queryParam(r, "versionId")
 	logger.Load(ctx).DebugContext(
 		ctx,
 		"S3 deleteObject input",

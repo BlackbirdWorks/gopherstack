@@ -835,6 +835,10 @@ func (h *DynamoDBHandler) dispatchTransactOps(
 ) (any, error) {
 	switch action {
 	case opTransactWriteItems:
+		if resp, handled, err := h.fastTransactWrite(ctx, body); handled {
+			return resp, err
+		}
+
 		return handleOpErr(
 			ctx,
 			action,
