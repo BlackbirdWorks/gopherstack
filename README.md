@@ -569,7 +569,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [SES](services/ses/README.md) | A | 71 | 4 gaps; 1 deferred |
 | [SES v2](services/sesv2/README.md) | A | 112 | 3 gaps |
 | [SNS](services/sns/README.md) | A | 34 | 4 gaps; 2 deferred |
-| [SQS](services/sqs/README.md) | A | 20 | 3 gaps; 4 deferred |
+| [SQS](services/sqs/README.md) | A | 20 | 3 gaps |
 | [SWF](services/swf/README.md) | A | 39 | 4 gaps |
 | [Step Functions](services/stepfunctions/README.md) | A | 37 | 9 gaps |
 | [WorkMail](services/workmail/README.md) | A | 92 | 3 gaps |
@@ -663,7 +663,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [CodePipeline](services/codepipeline/README.md) | A | 22 | 5 gaps; 1 deferred |
 | [CodeStar Connections](services/codestarconnections/README.md) | A | 27 | 1 gap; 2 structural gaps |
 | [Serverless Application Repository](services/serverlessrepo/README.md) | A | 14 | clean |
-| [X-Ray](services/xray/README.md) | A | 38 | 6 gaps; 1 deferred |
+| [X-Ray](services/xray/README.md) | A | 38 | 7 gaps; 1 deferred |
 
 ### Machine Learning
 
