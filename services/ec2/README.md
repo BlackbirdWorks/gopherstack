@@ -9,7 +9,7 @@
 | --- | --- |
 | Feature families | 22 (22 ok) |
 | Known gaps | 11 |
-| Structural gaps (can't be emulated) | 3 |
+| Structural gaps (can't be emulated) | 9 |
 | Deferred items | 8 |
 | Resource leaks | ok |
 
@@ -33,7 +33,13 @@ These do not block an A grade — no implementation could produce real data here
 
 - "DescribeApplicationStatus's ApplicationStatus.StatusSince and ApplicationStatusDetail (the real per-check status-transition timestamp and breakdown list) are always zero/empty, and the aggregated status itself never reports 'ok'/'impaired'/ 'initializing' (see the application_status_checks family note). Real AWS derives all of this from actually executing HTTP(S) health checks against the target instance's application over real network traffic between the AWS control plane and the instance. This mock has no network path to an instance's application at all — instances here are metadata records, not running workloads — so there is no data source that could ever produce a genuine check result, timestamp, or transition here, in an emulator or not. Reporting anything but the explicitly-defined 'not-applicable'/'insufficient-data'/ 'suppressed' subset would be fabrication. (gopherstack-8pce, 2026-08-07)"
 - "GetIpamDiscoveredRoutes/GetIpamRouteProtectionFindings (2026-09-19): no BGP route discovery or RPKI route-validation pipeline exists in this emulator -- both ops validate their real FK (IpamResourceDiscoveryId / IpamId, correct NotFound on an unknown one) but always return an empty, correctly-shaped result rather than fabricate routes or findings."
-- "Request fields still unread (2026-10-05): DescribeNetworkInsightsAnalyses AnalysisStartTime/AnalysisEndTime (analysis items carry startDate only, no end date; the SDK does not say which bound each field compares), DescribeNetworkInsightsAccessScopeAnalyses AnalysisStartTimeBegin/End (items carry no start time), CreateNetworkInsightsPath FilterAtSource/FilterAtDestination and StartNetworkInsightsAnalysis FilterInArns/FilterOutArns (no path-analysis engine consumes them), GetCapacityManagerMetricData/ Dimensions FilterBy (no metric data modeled), ExportTransitGatewayRoutes Filters (shapes an S3 file this backend does not render)."
+- "Request fields still unread (2026-10-05): DescribeNetworkInsightsAnalyses AnalysisStartTime/AnalysisEndTime (analysis items carry startDate only, no end date; the SDK does not say which bound each field compares), CreateNetworkInsightsPath FilterAtSource/FilterAtDestination (no path-analysis engine consumes them), ExportTransitGatewayRoutes Filters (shapes an S3 file this backend does not render)."
+- DescribeNetworkInsightsAccessScopeAnalyses.AnalysisStartTimeBegin/AnalysisStartTimeEnd (2026-10-05): analyses now carry startDate and both bounds are inclusive per api_op_DescribeNetworkInsightsAccessScopeAnalyses.go:31-37 ("on or after"/"on or before").
+- DescribeCapacityBlockOfferings.StartDateRange (2026-10-05): tool false positive, applied via the boundsCapacityBlockOfferings spec table in describe_post_specs.go and covered by a typed SDK test.
+- GetCapacityManagerMetricData.FilterBy (2026-10-05): always-empty, no capacity-manager metric data is modeled to filter.
+- GetCapacityManagerMetricDimensions.FilterBy (2026-10-05): always-empty, no capacity-manager metric data is modeled to filter.
+- StartNetworkInsightsAnalysis.FilterInArns (2026-10-05): no path-analysis engine exists to consume it.
+- StartNetworkInsightsAnalysis.FilterOutArns (2026-10-05): no path-analysis engine exists to consume it.
 
 ### Deferred
 
