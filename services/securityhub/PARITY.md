@@ -206,7 +206,9 @@ applied wholesale via `maps.Copy` onto the stored ASFF finding
 pre-existing test, `TestBatchImportFindings_PreservesCustomerManagedFields`,
 and a new real-SDK-client test), but no per-field declaration exists
 anywhere for the tool to find. **3 recorded gaps** (see `items_still_open`):
-`GetFindingsV2`/`GetFindingStatisticsV2`/`GetResourcesV2`/
+`GetFindingsV2.Scopes`,
+`GetFindingStatisticsV2.Scopes`,
+`GetResourcesV2.Scopes` and
 `GetResourcesStatisticsV2.Scopes` (AwsOrganizations-OU filtering; this
 backend has no organizational-unit tree to filter against). Proven via
 `realclient_control_finding_generator_and_misc_fields_test.go` driving the real `securityhub` client.
