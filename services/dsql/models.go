@@ -3,7 +3,10 @@ package dsql
 import (
 	"maps"
 	"slices"
+	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // Cluster status values, matching aws-sdk-go-v2/service/dsql/types.ClusterStatus.
@@ -101,7 +104,15 @@ func (c *Cluster) kmsKeyARN() string {
 		return ""
 	}
 
-	return c.KmsEncryptionKey
+	if strings.HasPrefix(c.KmsEncryptionKey, "arn:") {
+		return c.KmsEncryptionKey
+	}
+
+	if strings.HasPrefix(c.KmsEncryptionKey, "alias/") {
+		return arn.Build("kms", c.Region, c.AccountID, c.KmsEncryptionKey)
+	}
+
+	return arn.Build("kms", c.Region, c.AccountID, "key/"+c.KmsEncryptionKey)
 }
 
 // StreamTarget mirrors types.TargetDefinitionMemberKinesis.

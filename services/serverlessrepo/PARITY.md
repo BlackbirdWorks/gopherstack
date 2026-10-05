@@ -329,3 +329,7 @@ at 0 FAIL. No persisted-struct/snapshot changes.
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 serverlessrepo is region-isolated: applications, versions and policies live per region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/serverlessrepo`. Limitation: the dashboard shows the home region only. `TestHandler_MultiRegionReset` covers Reset.
+
+## 2026-10-05 (gopherstack-uox6 pass 12, value semantics)
+
+Clean. UpdateApplication keeps omitted Description/Author/HomePageUrl/Labels (an explicit empty Labels list clears them), GetApplication returns the latest version, PutApplicationPolicy replaces the statement set. Proof: `TestApplication_PartialUpdateKeepsOmittedFields`.

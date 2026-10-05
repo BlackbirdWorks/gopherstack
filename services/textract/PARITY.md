@@ -486,3 +486,7 @@ after it.
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 textract already isolates regions internally: adapters and analysis jobs are keyed per region. Proof: `TestRegionIsolation/textract`; no sibling handlers needed.
+
+## 2026-10-05 (gopherstack-uox6 pass 12, value semantics)
+
+Clean. UpdateAdapter changes only the members present (AdapterName, Description, AutoUpdate; api_op_UpdateAdapter.go), CreateAdapter defaults AutoUpdate to DISABLED. Analyze/Start/Get operations return synthetic documents with no update surface.

@@ -456,3 +456,7 @@ FIXED: GetAsyncInvoke returned ResourceNotFoundException for an unknown ARN, whi
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 bedrockruntime is region-isolated: async invocations and the invocation history live per region. Each region runs its own async janitor, stopped on Reset, Shutdown or restore. CloudFormation (`forRegion`) follows the region. bedrockruntime does not call bedrock or bedrockagent, so there is no cross-service call to route. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestSiblingJanitorStopsWithSibling`, `TestRegionIsolation/bedrockruntime`. Limitation: the dashboard shows the home region only.
+
+## 2026-10-05 (gopherstack-uox6 pass 12, value semantics)
+
+Recorded, unchanged: ListAsyncInvokes sorts ascending by SubmitTime when SortOrder is omitted; the AWS API docs say the default is Descending but the SDK comment (api_op_ListAsyncInvokes.go:42) states no default, so it is not modeled.

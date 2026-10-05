@@ -1719,3 +1719,7 @@ CreateCachePolicy/UpdateCachePolicy apply the documented TTL defaults when omitt
 ## 2026-10-05 (reqfielddiff -adjudicated tier-2)
 
 - ListDistributionsByRealtimeLogConfig.MaxItems: tool false positive, it is an XML body member (serializers.go awsRestxml_serializeOpDocumentListDistributionsByRealtimeLogConfigInput) decoded by `listDistributionsByRealtimeLogConfigBody` and paged by `paginateByMarkerValue`; `TestListDistributionsByRealtimeLogConfig_SDKRoundTrip_Pagination`.
+
+## 2026-10-05 (gopherstack-uox6 pass 12, value semantics)
+
+Key value store data-plane writes (PutKVSValue, DeleteKVSValue, UpdateKVSValues) now set the store's LastModifiedTime; see services/cloudfrontkeyvaluestore/PARITY.md (gopherstack-uox6 pass 12).

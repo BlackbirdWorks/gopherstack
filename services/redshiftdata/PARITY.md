@@ -764,3 +764,7 @@ redshiftdata already isolates regions internally: statements are keyed per regio
 ## 2026-10-05 (reqfielddiff tier-2 pagination)
 
 FIXED: DescribeTable pages its ColumnList by MaxResults (0-1000)/NextToken and rejects an unknown token with ValidationException; GetStatementResult/GetStatementResultV2 reject any NextToken with ValidationException because the single-row result never issues one. Proof: `TestDescribeTableAndStatementResult_Paging`. RECORDED: DescribeTable returns the same fixed demo columns for any table and the statement results are one fixed row, so a real column/row paging effect is limited to that fixed data.
+
+## 2026-10-05 (gopherstack-uox6 pass 12, value semantics)
+
+Recorded, unchanged: ListStatements/ListSessions accept RoleLevel but do not apply it (SDK default true, api_op_ListStatements.go:63-66); no role/session identity is modeled. Statements complete synchronously, so there is no update surface.

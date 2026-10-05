@@ -92,3 +92,7 @@ Grade moves B to A on `TestIntegration_ECRPublic_RepositoryImageLifecycle` (test
 - PutImage now parses OCI image indexes / Docker manifest lists: every child manifest digest must already exist in the repository or the call fails with ReferencedImagesNotFoundException (documented on the SDK's PutImage error set). Covered by `TestPutImageManifestIndex` (manifest_index_test.go).
 - imageManifestMediaType falls back to the manifest's own mediaType (the SDK field doc says it is required only when the manifest has none); with neither, InvalidParameterException. DescribeImages/DescribeImageTags artifactMediaType is now recorded (artifactType, else config.mediaType) instead of always empty. Covered by `TestPutImageMediaTypeRequirement` and `TestDescribeImagesArtifactMediaType`.
 - The single-tenant DescribeRegistries entry is no longer an open item: an account has exactly one public registry, so returning the caller's own is the AWS behaviour. The remaining three divergences are recorded under structural_gaps (they need public DNS/TLS, a docker-login registry, or the Marketplace verification process).
+
+## 2026-10-05 (gopherstack-uox6 pass 12, value semantics)
+
+Clean. PutRepositoryCatalogData replaces the catalog data and PutRegistryCatalogData replaces the display name; the SDK says only 'creates or updates', so full replacement is an interpretation. Repository creation stores CatalogData that GetRepositoryCatalogData returns.
