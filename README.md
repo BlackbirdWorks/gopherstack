@@ -532,7 +532,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Neptune](services/neptune/README.md) | A | — | 13 families; 5 gaps; 2 deferred |
 | [QLDB](services/qldb/README.md) | Removed | — | removed service |
 | [QLDB Session](services/qldbsession/README.md) | Removed | — | removed service |
-| [RDS](services/rds/README.md) | A | 52 | 7 gaps |
+| [RDS](services/rds/README.md) | A | 52 | 8 gaps |
 | [RDS Data](services/rdsdata/README.md) | A | 6 | 4 gaps |
 | [Redshift](services/redshift/README.md) | A | 9 | 3 gaps |
 | [Redshift Data](services/redshiftdata/README.md) | A | 12 | 5 gaps; 1 deferred |
@@ -601,7 +601,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [ACM](services/acm/README.md) | A | 39 | 5 gaps; 2 deferred |
 | [ACM PCA](services/acmpca/README.md) | A | 23 | 6 gaps |
-| [Detective](services/detective/README.md) | A | 29 | 5 gaps; 2 deferred |
+| [Detective](services/detective/README.md) | A | 29 | 4 gaps; 2 deferred |
 | [GuardDuty](services/guardduty/README.md) | A | 66 | 5 gaps |
 | [Inspector](services/inspector2/README.md) | A | 13 | 5 gaps; 1 deferred |
 | [KMS](services/kms/README.md) | A | 54 | 3 gaps; 1 deferred |
@@ -619,7 +619,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [Cognito Identity](services/cognitoidentity/README.md) | A | 23 | 2 gaps; 4 deferred |
 | [Cognito Identity Provider](services/cognitoidp/README.md) | A | 68 | 3 gaps |
-| [Directory Service](services/directoryservice/README.md) | A | 80 | 5 gaps; 2 deferred |
+| [Directory Service](services/directoryservice/README.md) | A | 80 | 6 gaps; 2 deferred |
 | [IAM](services/iam/README.md) | A | 38 | 4 gaps |
 | [IAM Access Analyzer](services/accessanalyzer/README.md) | A | 39 | 6 gaps; 1 deferred |
 | [IAM Identity Center (SSO)](services/ssoadmin/README.md) | A | 56 | 3 gaps |
@@ -638,9 +638,9 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Cloud Control API](services/cloudcontrol/README.md) | A | 8 | 4 gaps |
 | [CloudFormation](services/cloudformation/README.md) | A | 73 | 11 gaps |
 | [CloudTrail](services/cloudtrail/README.md) | A | 60 | 7 gaps |
-| [CloudWatch](services/cloudwatch/README.md) | A | 50 | 2 gaps; 5 deferred |
+| [CloudWatch](services/cloudwatch/README.md) | A | 50 | 2 gaps; 16 deferred |
 | [CloudWatch Logs](services/cloudwatchlogs/README.md) | A | 86 | 15 gaps |
-| [Config](services/awsconfig/README.md) | A | 102 | 6 gaps; 1 deferred |
+| [Config](services/awsconfig/README.md) | A | 102 | 7 gaps; 1 deferred |
 | [Cost Explorer](services/ce/README.md) | A | 37 | 4 gaps; 2 deferred |
 | [Fault Injection Simulator](services/fis/README.md) | A | 26 | 3 gaps; 1 deferred |
 | [OpsWorks](services/opsworks/README.md) | A | 32 | 5 gaps; 1 deferred |
