@@ -81,7 +81,7 @@ func (b *InMemoryBackend) ListProjects(
 	return out, next
 }
 
-// UpdateProject modifies a project's RoleArn and Sample. DatasetName is
+// UpdateProject modifies a project's RoleArn and Sample; an omitted Sample is kept. DatasetName is
 // deliberately NOT settable here: aws-sdk-go-v2/service/databrew's
 // UpdateProjectInput has no DatasetName member (only Name/RoleArn/Sample) --
 // a project's dataset is fixed at creation and is not one of the documented
@@ -105,7 +105,9 @@ func (b *InMemoryBackend) UpdateProject(
 	if roleArn != "" {
 		p.RoleArn = roleArn
 	}
-	p.Sample = sample
+	if sample != (Sample{}) {
+		p.Sample = sample
+	}
 	p.LastModifiedDate = float64(time.Now().Unix())
 
 	return nil

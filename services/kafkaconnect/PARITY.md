@@ -68,3 +68,7 @@ Grade moves B to A on `TestIntegration_KafkaConnect_ConnectorLifecycle` (test/in
 - Custom plugins read their S3 object through the emulated S3 backend (cross_service.go, resolved lazily through the app config like services/grafana): FileMd5 and FileSize are the real MD5 and length, a missing object ends CREATE_FAILED. Covered by `TestCustomPluginReadsEmulatedS3` (plugin_s3_test.go). When S3 is not wired the old derived values remain.
 - Persistence is additive: `PendingUntil` on connectors, plugins and worker configurations, `FailureMessage` on plugins (snapshot inventory rows added, no version bump).
 - The MSK cluster named in a connector is still taken as opaque input: real AWS never validates it at API time (failures arrive later as FAILED), and no Connect runtime exists to produce them; recorded under structural_gaps.
+
+## 2026-10-05 (gopherstack-uox6 pass 11, value semantics)
+
+CreateConnector defaults NetworkType to IPV4 (api_op_CreateConnector.go:92). Proof: `TestCreateConnector_NetworkTypeDefault`. Recorded, unchanged: RestartConnector ignores OnlyFailedTasks because no per-task state is modeled; Update capacity/configuration is one-of full replacement.

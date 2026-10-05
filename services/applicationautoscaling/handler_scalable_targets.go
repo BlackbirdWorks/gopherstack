@@ -7,9 +7,9 @@ import (
 // --- Input/Output types ---
 
 type suspendedStateInput struct {
-	DynamicScalingInSuspended  bool `json:"DynamicScalingInSuspended"`
-	DynamicScalingOutSuspended bool `json:"DynamicScalingOutSuspended"`
-	ScheduledScalingSuspended  bool `json:"ScheduledScalingSuspended"`
+	DynamicScalingInSuspended  *bool `json:"DynamicScalingInSuspended,omitempty"`
+	DynamicScalingOutSuspended *bool `json:"DynamicScalingOutSuspended,omitempty"`
+	ScheduledScalingSuspended  *bool `json:"ScheduledScalingSuspended,omitempty"`
 }
 
 type registerScalableTargetInput struct {
@@ -31,16 +31,16 @@ func (h *Handler) handleRegisterScalableTarget(
 	_ context.Context,
 	in *registerScalableTargetInput,
 ) (*registerScalableTargetOutput, error) {
-	var ss *SuspendedState
+	var ss *suspendedStatePatch
 	if in.SuspendedState != nil {
-		ss = &SuspendedState{
+		ss = &suspendedStatePatch{
 			DynamicScalingInSuspended:  in.SuspendedState.DynamicScalingInSuspended,
 			DynamicScalingOutSuspended: in.SuspendedState.DynamicScalingOutSuspended,
 			ScheduledScalingSuspended:  in.SuspendedState.ScheduledScalingSuspended,
 		}
 	}
 
-	t, err := h.Backend.RegisterScalableTarget(
+	t, err := h.Backend.registerScalableTarget(
 		in.ServiceNamespace, in.ResourceID, in.ScalableDimension,
 		in.MinCapacity, in.MaxCapacity,
 		in.Tags, in.RoleARN, ss,

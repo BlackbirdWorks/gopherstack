@@ -468,3 +468,7 @@ FIXED: DeleteAttributeMapping (`certificateField`, `specifiers`) and `parsePageP
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 rolesanywhere already isolates regions internally: trust anchors, profiles and CRLs are keyed per region. Proof: `TestRegionIsolation/rolesanywhere`; no sibling handlers needed.
+
+## 2026-10-05 (gopherstack-uox6 pass 11, value semantics)
+
+CreateProfile defaults DurationSeconds to 3600 (api_op_CreateProfile.go:50, types.go:208), and PutAttributeMapping/DeleteAttributeMapping advance the profile's UpdatedAt (interpretation: the SDK returns the updated profile but does not name these as updating it). Proof: `TestProfile_DefaultDurationAndPartialUpdate`, `TestPutAttributeMapping_AdvancesProfileUpdatedAt`. Recorded, unchanged: UpdateProfile cannot clear SessionPolicy and an omitted DurationSeconds is kept (SDK silent); the default notification-setting values are not enumerated by the SDK, so none are seeded.

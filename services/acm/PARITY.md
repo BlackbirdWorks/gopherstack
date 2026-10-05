@@ -1097,3 +1097,7 @@ ListCertificates Includes.keyTypes omitted now defaults to RSA_1024 and RSA_2048
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 acm already keys its resources by region; same-named resources in two regions coexist with region-correct ARNs. Proof: `TestRegionIsolation/acm`. No code change to the resource store.
+
+## 2026-10-05 (gopherstack-uox6 pass 11, value semantics)
+
+ImportCertificate and re-import now fill SubjectAlternativeNames from the certificate's DNS names; DescribeCertificate returned none for imported certificates and a re-import kept stale ones. Re-import keeps tags (api_op_ImportCertificate.go:103). Proof: `TestImportCertificate_ReimportReplacesSANsKeepsTags`. Recorded, unchanged: RequestCertificate KeyAlgorithm default RSA_2048 already applied; re-import of a non-imported certificate has no documented error.

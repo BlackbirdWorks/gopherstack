@@ -21,6 +21,9 @@ func connectorOperationARN(connectorArn string) string {
 	return connectorArn + "/operation/" + uuid.NewString()
 }
 
+// networkTypeIPv4 is NetworkType's documented default (api_op_CreateConnector.go:92, "Defaults to IPV4").
+const networkTypeIPv4 = "IPV4"
+
 // CreateConnector creates a connector in CREATING; it settles to RUNNING after provisionDelay.
 func (b *InMemoryBackend) CreateConnector(accountID, region string, spec ConnectorSpec) (*Connector, error) {
 	if spec.Name == "" {
@@ -38,6 +41,10 @@ func (b *InMemoryBackend) CreateConnector(accountID, region string, spec Connect
 
 	if err := b.validateConnectorRefsLocked(spec); err != nil {
 		return nil, err
+	}
+
+	if spec.NetworkType == "" {
+		spec.NetworkType = networkTypeIPv4
 	}
 
 	now := time.Now().UTC()

@@ -713,3 +713,7 @@ MaxResults defaults to 100 on the eight List* ops documented "The default value 
 ## 2026-10-05 (reqfielddiff -adjudicated tier-2)
 
 - ListAlerts.NextToken: always-empty, alerts are an unmodeled subsystem so Items is always empty and no token is ever due (handler_alerts.go).
+
+## 2026-10-05 (gopherstack-uox6 pass 11, value semantics)
+
+PutPlaybackConfiguration now stores the documented defaults: DashConfiguration MpdLocation EMT_DEFAULT and OriginManifestType MULTI_PERIOD (types.go:551-580) with the output-only ManifestEndpointPrefix, and the partial AdsPersonalizationConcurrency/Timeouts members (types.go:199-234; applied only when the sub-object is sent). Proof: `TestPlaybackConfiguration_DocumentedDefaults`. Recorded, unchanged: SCTE-35 segmentation/splice defaults (types.go:1495-1690) describe the value written into the manifest, not a Describe member; PrefetchAdsRequestTimeoutMilliseconds falling back to AdsRequestTimeoutMilliseconds; UpdateChannel/UpdateSourceLocation optional-member omission semantics (SDK silent).

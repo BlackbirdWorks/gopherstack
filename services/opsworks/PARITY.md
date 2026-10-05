@@ -930,3 +930,7 @@ opsworks is region-isolated: stacks, layers, instances and apps live per region.
 ## 2026-10-04 (gopherstack-uox6 value-semantics)
 
 Recorded, not fixed: 11 Describe* ops document "This call accepts only one resource-identifying parameter" (e.g. api_op_DescribeInstances.go:18). The backend ANDs combined identifiers (pinned by `TestDescribeVolumes_RaidArrayIDExcludesAll`); the real rejection code and message are not in the SDK, so the combination is not rejected.
+
+## 2026-10-05 (gopherstack-uox6 pass 11, value semantics)
+
+Round trip reviewed, no change: UpdateStack/UpdateInstance/UpdateLayer keep omitted members, and UpdateApp/UpdateLayer only accept the members the backend models (the rest of the optional App/Layer surface is already listed in items_still_open). The SDK states no defaults for the unmodeled members, so none are applied.

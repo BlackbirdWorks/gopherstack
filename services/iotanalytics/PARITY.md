@@ -498,3 +498,7 @@ stays at 0 FAIL.
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 iotanalytics is region-isolated: channels, datastores, datasets and pipelines live per region; an IoT rule action puts messages into the channel of the rule's region, and each region's pipelines call that region's Lambda, IoT registry and IoT data plane. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestIoTAnalyticsTarget_PutsInRuleRegion`, `TestRegionIsolation/iotanalytics`. Limitation: the dashboard shows the home region only.
+
+## 2026-10-05 (gopherstack-uox6 pass 11, value semantics)
+
+CreateChannel/CreateDatastore default an unset storage to serviceManagedS3 and CreateDatastore an unset file format to JSON, so Describe returns them (types.go:108, api_op_CreateDatastore.go:47,57). Proof: `TestChannelDatastore_DefaultStorageAndPartialUpdate`. Recorded, unchanged: the SDK says the storage choice cannot change after create but names no error, and UpdateDataset omitted-member semantics are unstated; dataset 90-day default retention is documented but not modeled in Describe (SDK states it only as server behavior).

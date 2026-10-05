@@ -610,3 +610,7 @@ kinesisanalyticsv2 already keys its resources by region; same-named resources in
 ## 2026-10-04 (gopherstack-uox6 value-semantics)
 
 ListApplications/ListApplicationVersions/ListApplicationSnapshots/ListApplicationOperations now honour `Limit`; ListApplicationOperations honours `Operation` and `OperationStatus` (exact match). The SDK documents no default or maximum for Limit; the page default stays 50.
+
+## 2026-10-05 (gopherstack-uox6 pass 11, value semantics)
+
+UpdateApplication with a RunConfigurationUpdate that omits AllowNonRestoredState now resets it to false (types.go:1075, "set to false, even if it was previously set to true"; interpretation: applied only when a RunConfigurationUpdate is sent). Proof: `TestUpdateApplication_AllowNonRestoredStateResets`; checkpoint CUSTOM->DEFAULT reset and partial checkpoint updates round-trip clean (`TestUpdateApplication_CheckpointAndRunConfigSemantics`). Recorded, unchanged: CreateApplication ApplicationMode default and Parallelism/Monitoring DEFAULT values are not stated by the SDK.

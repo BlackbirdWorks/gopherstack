@@ -88,6 +88,10 @@ func (b *InMemoryBackend) UpdateDatasourcePackages(graphARN string, packages []s
 
 	now := time.Now().UTC()
 	for _, pkg := range packages {
+		if b.datasources[graphARN][pkg] == datasourceIngestStateStarted {
+			continue
+		}
+
 		b.datasources[graphARN][pkg] = datasourceIngestStateStarted
 		b.datasourceChangedAt[graphARN][pkg] = now
 	}

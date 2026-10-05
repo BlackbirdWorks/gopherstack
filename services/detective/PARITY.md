@@ -428,3 +428,7 @@ Still recorded: the flag only suppresses the invitation email Detective sends to
 ## 2026-10-04 (gopherstack-uox6 value-semantics)
 
 ListInvestigations now applies FilterCriteria (members ANDed, StringFilter exact, CreatedTime inclusive on both bounds) and SortCriteria (default order unchanged: InvestigationId). Severity sorts INFORMATIONAL..CRITICAL, Status lexically; the SDK specifies neither ordering.
+
+## 2026-10-05 (gopherstack-uox6 pass 11, value semantics)
+
+UpdateDatasourcePackages on an already STARTED package no longer resets its collection-start timestamp (types.go:490, "when data collection began"; interpretation of re-enabling an active package as a no-op). Proof: `TestUpdateDatasourcePackages_RepeatKeepsCollectionStart`. Recorded, unchanged: CreateMembers DisableEmailNotification has no observable effect, UpdateInvestigationState carries no change time in the SDK shape, and no SDK doc states a default package set for a new graph.

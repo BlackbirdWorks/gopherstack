@@ -106,6 +106,56 @@ func (b *InMemoryBackend) RegisterScalableTarget(
 	roleARN string,
 	suspendedState *SuspendedState,
 ) (*ScalableTarget, error) {
+	var patch *suspendedStatePatch
+	if suspendedState != nil {
+		patch = &suspendedStatePatch{
+			DynamicScalingInSuspended:  &suspendedState.DynamicScalingInSuspended,
+			DynamicScalingOutSuspended: &suspendedState.DynamicScalingOutSuspended,
+			ScheduledScalingSuspended:  &suspendedState.ScheduledScalingSuspended,
+		}
+	}
+
+	return b.registerScalableTarget(
+		serviceNamespace, resourceID, scalableDimension, minCapacity, maxCapacity, tags, roleARN, patch,
+	)
+}
+
+// suspendedStatePatch carries only the SuspendedState members the caller sent.
+type suspendedStatePatch struct {
+	DynamicScalingInSuspended  *bool
+	DynamicScalingOutSuspended *bool
+	ScheduledScalingSuspended  *bool
+}
+
+// apply merges the sent members over cur; unsent members stay unchanged.
+func (p *suspendedStatePatch) apply(cur *SuspendedState) *SuspendedState {
+	out := SuspendedState{}
+	if cur != nil {
+		out = *cur
+	}
+
+	if p.DynamicScalingInSuspended != nil {
+		out.DynamicScalingInSuspended = *p.DynamicScalingInSuspended
+	}
+
+	if p.DynamicScalingOutSuspended != nil {
+		out.DynamicScalingOutSuspended = *p.DynamicScalingOutSuspended
+	}
+
+	if p.ScheduledScalingSuspended != nil {
+		out.ScheduledScalingSuspended = *p.ScheduledScalingSuspended
+	}
+
+	return &out
+}
+
+func (b *InMemoryBackend) registerScalableTarget(
+	serviceNamespace, resourceID, scalableDimension string,
+	minCapacity, maxCapacity *int32,
+	tags map[string]string,
+	roleARN string,
+	suspendedState *suspendedStatePatch,
+) (*ScalableTarget, error) {
 	if err := validateRegisterScalableTargetBasics(serviceNamespace, resourceID, scalableDimension, tags); err != nil {
 		return nil, err
 	}
@@ -174,7 +224,7 @@ func (b *InMemoryBackend) RegisterScalableTarget(
 		AccountID:        b.accountID,
 		Region:           b.region,
 		Tags:             maps.Clone(tags),
-		SuspendedState:   suspendedState,
+		SuspendedState:   newSuspendedState(suspendedState),
 		CreationTime:     now,
 		LastModifiedTime: now,
 	}
@@ -224,7 +274,7 @@ func (b *InMemoryBackend) updateExistingTarget(
 	minCapacity, maxCapacity *int32,
 	tags map[string]string,
 	roleARN string,
-	suspendedState *SuspendedState,
+	suspendedState *suspendedStatePatch,
 	now time.Time,
 ) (*ScalableTarget, error) {
 	newMin := existing.MinCapacity
@@ -255,7 +305,7 @@ func (b *InMemoryBackend) updateExistingTarget(
 	}
 
 	if suspendedState != nil {
-		existing.SuspendedState = suspendedState
+		existing.SuspendedState = suspendedState.apply(existing.SuspendedState)
 	}
 
 	if len(tags) > 0 {
@@ -395,4 +445,14 @@ func (b *InMemoryBackend) DescribeScalableTargets(f DescribeScalableTargetsFilte
 // hold at least a read lock.
 func (b *InMemoryBackend) scalableTargetExists(serviceNamespace, resourceID, scalableDimension string) bool {
 	return b.scalableTargets.Has(scalableTargetKey(serviceNamespace, resourceID, scalableDimension))
+}
+
+// newSuspendedState defaults every suspension member to false
+// (api_op_RegisterScalableTarget.go:306, "false (default)").
+func newSuspendedState(p *suspendedStatePatch) *SuspendedState {
+	if p == nil {
+		return &SuspendedState{}
+	}
+
+	return p.apply(nil)
 }
