@@ -171,7 +171,7 @@ type StorageBackend interface {
 		maxResults int,
 		nextToken string,
 	) ([]*AnnotationStore, string, error)
-	UpdateAnnotationStore(name, description string) (*AnnotationStore, error)
+	UpdateAnnotationStore(name string, description *string) (*AnnotationStore, error)
 	StartAnnotationImportJob(
 		destinationName, roleARN string,
 		items []AnnotationImportItem,
@@ -204,7 +204,7 @@ type StorageBackend interface {
 		nextToken string,
 	) ([]*AnnotationStoreVersion, string, error)
 	UpdateAnnotationStoreVersion(
-		name, versionName, description string,
+		name, versionName string, description *string,
 	) (*AnnotationStoreVersion, error)
 
 	// VariantStore
@@ -219,7 +219,7 @@ type StorageBackend interface {
 		maxResults int,
 		nextToken string,
 	) ([]*VariantStore, string, error)
-	UpdateVariantStore(name, description string) (*VariantStore, error)
+	UpdateVariantStore(name string, description *string) (*VariantStore, error)
 	StartVariantImportJob(
 		destinationName, roleARN string,
 		items []VariantImportItem,

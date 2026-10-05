@@ -219,7 +219,7 @@ func (h *Handler) handleUpdateThingGroup(c *echo.Context) error {
 			AttributePayload      *AttributePayload `json:"attributePayload"`
 			ThingGroupDescription *string           `json:"thingGroupDescription,omitempty"`
 		} `json:"thingGroupProperties"`
-		ExpectedVersion int64 `json:"expectedVersion"`
+		ExpectedVersion *int64 `json:"expectedVersion"`
 	}
 
 	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
@@ -402,7 +402,7 @@ func (h *Handler) handleUpdateDynamicThingGroup(c *echo.Context) error {
 		QueryString     *string `json:"queryString,omitempty"`
 		IndexName       *string `json:"indexName,omitempty"`
 		QueryVersion    *string `json:"queryVersion,omitempty"`
-		ExpectedVersion int64   `json:"expectedVersion"`
+		ExpectedVersion *int64  `json:"expectedVersion"`
 	}
 	if err := readBody(c, &req); err != nil {
 		return err

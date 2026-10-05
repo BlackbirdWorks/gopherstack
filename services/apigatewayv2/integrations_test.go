@@ -85,7 +85,7 @@ func TestInMemoryBackend_UpdateIntegration_AllFields(t *testing.T) {
 		PayloadFormatVersion: aws.String("2.0"),
 		ConnectionType:       "INTERNET",
 		ConnectionID:         aws.String("conn-1"),
-		TimeoutInMillis:      5000,
+		TimeoutInMillis:      aws.Int32(5000),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "HTTP_PROXY", updated.IntegrationType)
@@ -182,11 +182,13 @@ func TestInMemoryBackend_UpdateIntegration_TimeoutValidation(t *testing.T) {
 		protocolType string
 		timeoutMs    int32
 		wantErr      bool
+		omit         bool
 	}{
 		{name: "http_valid_50", protocolType: "HTTP", timeoutMs: 50, wantErr: false},
 		{name: "http_valid_30000", protocolType: "HTTP", timeoutMs: 30000, wantErr: false},
 		{name: "http_valid_1000", protocolType: "HTTP", timeoutMs: 1000, wantErr: false},
-		{name: "http_zero_skips_update", protocolType: "HTTP", timeoutMs: 0, wantErr: false},
+		{name: "http_omitted_skips_update", protocolType: "HTTP", omit: true, wantErr: false},
+		{name: "http_explicit_zero_rejected", protocolType: "HTTP", timeoutMs: 0, wantErr: true},
 		{name: "http_too_low_49", protocolType: "HTTP", timeoutMs: 49, wantErr: true},
 		{name: "http_too_high_30001", protocolType: "HTTP", timeoutMs: 30001, wantErr: true},
 		{name: "ws_valid_29000", protocolType: "WEBSOCKET", timeoutMs: 29000, wantErr: false},
@@ -216,9 +218,12 @@ func TestInMemoryBackend_UpdateIntegration_TimeoutValidation(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			_, err = b.UpdateIntegration(api.APIID, intg.IntegrationID, apigatewayv2.UpdateIntegrationInput{
-				TimeoutInMillis: tt.timeoutMs,
-			})
+			in := apigatewayv2.UpdateIntegrationInput{}
+			if !tt.omit {
+				in.TimeoutInMillis = aws.Int32(tt.timeoutMs)
+			}
+
+			_, err = b.UpdateIntegration(api.APIID, intg.IntegrationID, in)
 
 			if tt.wantErr {
 				require.Error(t, err)

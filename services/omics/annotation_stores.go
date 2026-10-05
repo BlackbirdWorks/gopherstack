@@ -171,7 +171,7 @@ func newAnnotationStoreSummary(as *AnnotationStore) AnnotationStoreSummary {
 
 // UpdateAnnotationStore updates an annotation store.
 func (b *InMemoryBackend) UpdateAnnotationStore(
-	name, description string,
+	name string, description *string,
 ) (*AnnotationStore, error) {
 	b.mu.Lock("UpdateAnnotationStore")
 	defer b.mu.Unlock()
@@ -181,8 +181,8 @@ func (b *InMemoryBackend) UpdateAnnotationStore(
 		return nil, fmt.Errorf("%w: annotation store %s not found", ErrNotFound, name)
 	}
 
-	if description != "" {
-		as.Description = description
+	if description != nil {
+		as.Description = *description
 	}
 
 	as.UpdateTime = time.Now().UTC()
@@ -506,7 +506,7 @@ func newAnnotationStoreVersionSummary(v *AnnotationStoreVersion) AnnotationStore
 
 // UpdateAnnotationStoreVersion updates an annotation store version.
 func (b *InMemoryBackend) UpdateAnnotationStoreVersion(
-	name, versionName, description string,
+	name, versionName string, description *string,
 ) (*AnnotationStoreVersion, error) {
 	b.mu.Lock("UpdateAnnotationStoreVersion")
 	defer b.mu.Unlock()
@@ -524,8 +524,8 @@ func (b *InMemoryBackend) UpdateAnnotationStoreVersion(
 		)
 	}
 
-	if description != "" {
-		v.Description = description
+	if description != nil {
+		v.Description = *description
 	}
 
 	v.UpdateTime = time.Now().UTC()

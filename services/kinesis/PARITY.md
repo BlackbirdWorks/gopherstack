@@ -1120,3 +1120,7 @@ Emits AWS/Kinesis (StreamName; docs.aws.amazon.com/streams/latest/dev/monitoring
 ## 2026-10-04 (reqfielddiff tier-1 pass)
 
 PutRecord now reads SequenceNumberForOrdering and rejects a malformed value (not "0" or 1-129 digits without a leading zero) with InvalidArgumentException. The documented guarantee (strictly increasing numbers when chaining the previous sequence number) already holds by construction because shard sequence numbers only increase; a well-formed value above the shard's next number is accepted and does not push the shard counter. Proof: `TestPutRecord_SequenceNumberForOrdering`.
+
+## 2026-10-05 (zeroguard omitted-vs-zero audit)
+
+Tool false positives (cmd/zeroguard): required path/identifier members (Name, *Id, *Arn), Put* operations that replace the whole resource (PutRule, PutPermission, PutResourcePolicy, PutCodeBinding), and PatchOperations-based Update* ops.

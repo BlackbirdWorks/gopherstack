@@ -1340,3 +1340,7 @@ ListCapacityProviders honours Marker, MaxItems and State (api_op_ListCapacityPro
 ## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
 
 Handled and Unhandled (invocation.go:211,215) are X-Amz-Function-Error header values, not error codes. Forbidden (errors.go:61) is the 403 body of an AWS_IAM function-URL data-plane request, not an API operation.
+
+## 2026-10-05 (zeroguard omitted-vs-zero pass)
+
+UpdateFunctionConfiguration, UpdateFunctionCode and UpdateAlias decode RevisionId as *string: omitted skips the check, an explicit empty value is a PreconditionFailedException (cmd/zeroguard). UpdateFunctionCode ImageUri/S3Bucket/S3Key and UpdateEventSourceMapping FunctionName/UUID rows are selectors with no clear semantics: tool false positives. Proof: `TestUpdate_RevisionIDOmittedVsEmpty`.

@@ -244,7 +244,7 @@ func (b *InMemoryBackend) UpdateAlias(
 		return nil, ErrAliasNotFound
 	}
 
-	if input.RevisionID != "" && input.RevisionID != alias.RevisionID {
+	if input.RevisionID != nil && *input.RevisionID != alias.RevisionID {
 		return nil, ErrPreconditionFailed
 	}
 

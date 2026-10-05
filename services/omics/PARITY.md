@@ -989,3 +989,7 @@ CreateWorkflow and CreateWorkflowVersion now store and echo ReadmeMarkdown (as G
 ## 2026-10-05 (reqfielddiff tier-1/2 pass 8)
 
 ListReadSetUploadParts reads the body members partSource (required) and filter.createdAfter/createdBefore (serializers.go ListReadSetUploadPartsInput) and pages by part number: sorted, stale-token safe, nextToken only when truncated (it was always emitted, empty). Proof: `TestListReadSetUploadParts_SourceAndWindow`.
+
+## 2026-10-05 (zeroguard omitted-vs-zero pass)
+
+UpdateSequenceStore name/description and UpdateVariantStore/UpdateAnnotationStore/UpdateAnnotationStoreVersion description are pointers: omitted keeps, an explicit empty description clears, an explicit empty sequence-store name is a ValidationException (cmd/zeroguard). Proof: `TestUpdateSequenceStore_OmittedVsEmpty`, `TestUpdateStores_DescriptionOmittedVsEmpty`.

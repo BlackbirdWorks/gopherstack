@@ -169,12 +169,16 @@ func (b *InMemoryBackend) UpdateSequenceStore(id string, in UpdateSequenceStoreI
 		return nil, fmt.Errorf("%w: sequence store %s not found", ErrNotFound, id)
 	}
 
-	if in.Name != "" {
-		ss.Name = in.Name
+	if in.Name != nil {
+		if *in.Name == "" {
+			return nil, fmt.Errorf("%w: name must not be empty", ErrValidation)
+		}
+
+		ss.Name = *in.Name
 	}
 
-	if in.Description != "" {
-		ss.Description = in.Description
+	if in.Description != nil {
+		ss.Description = *in.Description
 	}
 
 	if in.FallbackLocation != nil {

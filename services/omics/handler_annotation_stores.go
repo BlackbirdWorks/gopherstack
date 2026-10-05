@@ -97,7 +97,7 @@ func (h *Handler) handleListAnnotationStores(c *echo.Context) error {
 
 func (h *Handler) handleUpdateAnnotationStore(c *echo.Context, name string) error {
 	var req struct {
-		Description string `json:"description"`
+		Description *string `json:"description"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
@@ -298,7 +298,7 @@ func (h *Handler) handleUpdateAnnotationStoreVersion(
 	name, versionName string,
 ) error {
 	var req struct {
-		Description string `json:"description"`
+		Description *string `json:"description"`
 	}
 
 	if err := readJSON(c, &req); err != nil {

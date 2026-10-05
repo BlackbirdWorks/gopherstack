@@ -1246,3 +1246,7 @@ Adjudicated (reqfielddiff -adjudicated), unchanged:
 - SubmitTaskStateChange.PullStartedAt: see ExecutionStoppedAt.
 - SubmitTaskStateChange.PullStoppedAt: see ExecutionStoppedAt.
 - SubmitTaskStateChange.ManagedAgents: agent-reported state with no read-back output member.
+
+## 2026-10-05 (zeroguard omitted-vs-zero audit)
+
+Tool false positives (cmd/zeroguard): required path/identifier members (Name, *Id, *Arn), Put* operations that replace the whole resource (PutRule, PutPermission, PutResourcePolicy, PutCodeBinding), and PatchOperations-based Update* ops.

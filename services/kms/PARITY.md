@@ -991,3 +991,7 @@ definition; no test exercises the janitor goroutine. `go test -race -count=2` cl
 ## 2026-10-04 (reqfielddiff tier-1 pass)
 
 The earlier claim that CustomKeyStoresListEntry had no field for XksProxyVpcEndpointServiceOwner was wrong (types.XksProxyConfigurationType.VpcEndpointServiceOwner, types/types.go:806). CreateCustomKeyStore/UpdateCustomKeyStore now model the full external key store proxy configuration: connectivity, https endpoint, /kms/xks/v1 path, credential access key id, VPC endpoint service name/owner (owner defaults to the caller account), XksProxyInvalidConfiguration/UriInUse/UriEndpointInUse/VpcEndpointServiceInUse errors, DISCONNECTED-state requirement for connectivity/endpoint/service changes, and CloudHsmClusterId/KeyStorePassword updates for AWS_CLOUDHSM stores; Describe returns XksProxyConfiguration. EXTERNAL_KEY_STORE creation now requires the proxy parameters as in AWS. ListKeyRotations honours IncludeKeyMaterial with stable per-generation KeyMaterialId/KeyMaterialState. Persistence additive (CustomKeyStore.XksProxyConfiguration). Proof: `TestCustomKeyStore_XksCreateValidation`, `TestCustomKeyStore_XksUniqueness`, `TestCustomKeyStore_XksDescribeAndUpdate`, `TestListKeyRotations_IncludeKeyMaterial`.
+
+## 2026-10-05 (zeroguard omitted-vs-zero audit)
+
+Tool false positives (cmd/zeroguard): required path/identifier members (Name, *Id, *Arn), Put* operations that replace the whole resource (PutRule, PutPermission, PutResourcePolicy, PutCodeBinding), and PatchOperations-based Update* ops.

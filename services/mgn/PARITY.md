@@ -1809,3 +1809,7 @@ mgn is region-isolated: applications, waves, source servers and jobs live per re
 ## 2026-10-05 errtargetaudit triage (gopherstack-3fvxc)
 
 122 findings, none fixed. `InternalServerException` (90) is only the `marshalResponse` failure path, unreachable for well-typed wire structs. `ValidationException` (32) covers malformed JSON bodies and empty required fields (CreateApplication/CreateWave name); most mgn ops do not model it but REST-JSON services return it for body validation, and no declared code fits.
+
+## 2026-10-05 (zeroguard omitted-vs-zero audit)
+
+Tool false positives (cmd/zeroguard): required path/identifier members (Name, *Id, *Arn), Put* operations that replace the whole resource (PutRule, PutPermission, PutResourcePolicy, PutCodeBinding), and PatchOperations-based Update* ops.

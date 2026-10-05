@@ -100,8 +100,8 @@ func (h *Handler) handleUpdateSequenceStore(c *echo.Context, id string) error {
 	var req struct {
 		FallbackLocation       *string                      `json:"fallbackLocation"`
 		S3AccessConfig         *sequenceStoreS3AccessConfig `json:"s3AccessConfig"`
-		Name                   string                       `json:"name"`
-		Description            string                       `json:"description"`
+		Name                   *string                      `json:"name"`
+		Description            *string                      `json:"description"`
 		ClientToken            string                       `json:"clientToken"`
 		PropagatedSetLevelTags []string                     `json:"propagatedSetLevelTags"`
 	}

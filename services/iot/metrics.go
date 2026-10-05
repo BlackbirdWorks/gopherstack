@@ -120,9 +120,13 @@ type UpdateFleetMetricInput struct {
 	Description      *string          `json:"description,omitempty"`
 	AggregationField *string          `json:"aggregationField,omitempty"`
 	AggregationType  *AggregationType `json:"aggregationType,omitempty"`
+	Period           *int32           `json:"period,omitempty"`
+	ExpectedVersion  *int64           `json:"expectedVersion,omitempty"`
 	Unit             string           `json:"unit,omitempty"`
-	Period           int32            `json:"period,omitempty"`
-	ExpectedVersion  int64            `json:"expectedVersion,omitempty"`
+}
+
+func validFleetMetricPeriod(p int32) bool {
+	return p >= 60 && p <= 86400 && p%60 == 0
 }
 
 func (b *InMemoryBackend) UpdateFleetMetric(name string, input *UpdateFleetMetricInput) error {
@@ -134,9 +138,12 @@ func (b *InMemoryBackend) UpdateFleetMetric(name string, input *UpdateFleetMetri
 		return fmt.Errorf("fleet metric %q not found: %w", name, ErrResourceNotFound)
 	}
 
-	if input.ExpectedVersion != 0 && input.ExpectedVersion != fm.Version {
+	if input.ExpectedVersion != nil && *input.ExpectedVersion != fm.Version {
 		return fmt.Errorf("%w: expected version %d but current is %d",
-			ErrVersionConflict, input.ExpectedVersion, fm.Version)
+			ErrVersionConflict, *input.ExpectedVersion, fm.Version)
+	}
+	if input.Period != nil && !validFleetMetricPeriod(*input.Period) {
+		return fmt.Errorf("%w: period must be a multiple of 60 between 60 and 86400", ErrValidation)
 	}
 	if input.QueryString != nil {
 		fm.QueryString = *input.QueryString
@@ -159,8 +166,8 @@ func (b *InMemoryBackend) UpdateFleetMetric(name string, input *UpdateFleetMetri
 	if input.Unit != "" {
 		fm.Unit = input.Unit
 	}
-	if input.Period > 0 {
-		fm.Period = input.Period
+	if input.Period != nil {
+		fm.Period = *input.Period
 	}
 	fm.Version++
 	fm.LastModified = float64(time.Now().Unix())

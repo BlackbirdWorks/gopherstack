@@ -1072,3 +1072,7 @@ GetIntegrationResponses, GetRouteResponses, GetVpcLinks and ListRoutingRules wer
 ## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
 
 InternalServerErrorException (errors.go:30) is a generic 500 fallback; the pinned SDK models no internal-error type, so no replacement exists.
+
+## 2026-10-05 (zeroguard omitted-vs-zero pass)
+
+UpdateIntegration TimeoutInMillis is a pointer: omitted keeps the stored value, an explicit 0 is range-checked and rejected (cmd/zeroguard). PutRoutingRule is full-replace with required Priority: tool false positive. Proof: `TestUpdateIntegration_TimeoutOmittedVsZero`.

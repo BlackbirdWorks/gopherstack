@@ -81,7 +81,7 @@ func (h *Handler) handleListVariantStores(c *echo.Context) error {
 
 func (h *Handler) handleUpdateVariantStore(c *echo.Context, name string) error {
 	var req struct {
-		Description string `json:"description"`
+		Description *string `json:"description"`
 	}
 
 	if err := readJSON(c, &req); err != nil {

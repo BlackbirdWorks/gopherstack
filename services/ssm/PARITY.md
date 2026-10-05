@@ -1715,3 +1715,7 @@ DocumentNotFound (errors.go:15) is a sentinel identity string only; handler.go m
 ## 2026-10-05 (PARITY burn-down, gopherstack-9x62)
 
 FIXED: StartAutomationExecution Tags (applied to the execution, readable via ListTagsForResource ResourceType=Automation); DescribeDocument/ListDocuments Owner (Amazon for AWS- built-ins, else the account ID) and the ListDocuments Owner filter. Proof: document_owner_automation_tags_test.go.
+
+## 2026-10-05 (zeroguard omitted-vs-zero audit)
+
+Tool false positives (cmd/zeroguard): required path/identifier members (Name, *Id, *Arn), Put* operations that replace the whole resource (PutRule, PutPermission, PutResourcePolicy, PutCodeBinding), and PatchOperations-based Update* ops.

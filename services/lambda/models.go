@@ -259,7 +259,7 @@ type UpdateFunctionCodeInput struct {
 	ImageURI            string   `json:"ImageUri,omitempty"`
 	S3Bucket            string   `json:"S3Bucket,omitempty"`
 	S3Key               string   `json:"S3Key,omitempty"`
-	RevisionID          string   `json:"RevisionId,omitempty"`
+	RevisionID          *string  `json:"RevisionId,omitempty"`
 	S3ObjectStorageMode string   `json:"S3ObjectStorageMode,omitempty"`
 	Architectures       []string `json:"Architectures,omitempty"`
 	ZipFile             []byte   `json:"ZipFile,omitempty"`
@@ -283,7 +283,7 @@ type UpdateFunctionConfigurationInput struct {
 	Timeout           *int32                  `json:"Timeout,omitempty"`
 	Role              *string                 `json:"Role,omitempty"`
 	MemorySize        *int32                  `json:"MemorySize,omitempty"`
-	RevisionID        string                  `json:"RevisionId,omitempty"`
+	RevisionID        *string                 `json:"RevisionId,omitempty"`
 	Runtime           string                  `json:"Runtime,omitempty"`
 	FileSystemConfigs []*FileSystemConfig     `json:"FileSystemConfigs,omitempty"`
 	Layers            []string                `json:"Layers,omitempty"`
@@ -441,7 +441,7 @@ type UpdateAliasInput struct {
 	FunctionVersion *string             `json:"FunctionVersion,omitempty"`
 	// RevisionID, when set, must match the alias's current RevisionId or the
 	// update is rejected with PreconditionFailedException (optimistic concurrency).
-	RevisionID string `json:"RevisionId,omitempty"`
+	RevisionID *string `json:"RevisionId,omitempty"`
 }
 
 // ListAliasesOutput is the response for ListAliases.

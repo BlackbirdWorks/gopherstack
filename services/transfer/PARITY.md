@@ -403,3 +403,7 @@ transfer is region-isolated: Servers, users, connectors, agreements and workflow
 ## 2026-10-05 (gopherstack-uox6 pass 7, value semantics)
 
 CreateServer defaults IpAddressType IPV4 (api_op_CreateServer.go:162) and, for FTP/FTPS, ProtocolDetails.PassiveIp AUTO and, for FTPS, TlsSessionResumptionMode ENFORCED (types.go:2236, 2280); UpdateServer merges supplied ProtocolDetails members instead of replacing the struct. SetStatOption DEFAULT is only in the AWS API docs, not modelled. Users, access, connectors, agreements and web apps round-trip clean.
+
+## 2026-10-05 (zeroguard omitted-vs-zero audit)
+
+Tool false positives (cmd/zeroguard): required path/identifier members (Name, *Id, *Arn), Put* operations that replace the whole resource (PutRule, PutPermission, PutResourcePolicy, PutCodeBinding), and PatchOperations-based Update* ops.

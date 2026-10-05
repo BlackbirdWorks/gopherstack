@@ -294,8 +294,8 @@ func applyIntegrationBehaviorUpdate(i *Integration, input UpdateIntegrationInput
 		i.PayloadFormatVersion = *input.PayloadFormatVersion
 	}
 
-	if input.TimeoutInMillis != 0 {
-		i.TimeoutInMillis = input.TimeoutInMillis
+	if input.TimeoutInMillis != nil {
+		i.TimeoutInMillis = *input.TimeoutInMillis
 	}
 
 	if input.RequestParameters != nil {
@@ -343,8 +343,8 @@ func (b *InMemoryBackend) UpdateIntegration(
 		}
 	}
 
-	if input.TimeoutInMillis != 0 {
-		if err := validateTimeoutInMillis(input.TimeoutInMillis, api.ProtocolType); err != nil {
+	if input.TimeoutInMillis != nil {
+		if err := validateTimeoutInMillis(*input.TimeoutInMillis, api.ProtocolType); err != nil {
 			return nil, err
 		}
 	}

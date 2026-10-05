@@ -2424,3 +2424,7 @@ ListAttachedPolicies (`pageSize`/`marker`, output `nextMarker`, serializers.go i
 ## 2026-10-05 (reqfielddiff tier-1/2 pass 8)
 
 RECORDED: ListCommandExecutions CompletedTimeFilter is ignored; executions carry no completion time (CompletedAt is deliberately absent), so there is nothing honest to filter on.
+
+## 2026-10-05 (zeroguard omitted-vs-zero pass)
+
+UpdateThing, UpdateThingGroup, UpdateDynamicThingGroup and UpdateFleetMetric decode expectedVersion as *int64 (explicit 0 now conflicts with version >= 1, omitted skips the check); UpdateFleetMetric period is *int32, omitted keeps and an explicit value outside 60..86400 in steps of 60 is rejected (cmd/zeroguard). Proof: `TestUpdateThing_ExpectedVersionOmittedVsZero`, `TestUpdateThingGroup_ExpectedVersionOmittedVsZero`, `TestUpdateFleetMetric_PeriodAndVersionOmittedVsZero`.

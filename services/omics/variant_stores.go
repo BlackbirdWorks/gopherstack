@@ -150,7 +150,7 @@ func newVariantStoreSummary(vs *VariantStore) VariantStoreSummary {
 }
 
 // UpdateVariantStore updates a variant store.
-func (b *InMemoryBackend) UpdateVariantStore(name, description string) (*VariantStore, error) {
+func (b *InMemoryBackend) UpdateVariantStore(name string, description *string) (*VariantStore, error) {
 	b.mu.Lock("UpdateVariantStore")
 	defer b.mu.Unlock()
 
@@ -159,8 +159,8 @@ func (b *InMemoryBackend) UpdateVariantStore(name, description string) (*Variant
 		return nil, fmt.Errorf("%w: variant store %s not found", ErrNotFound, name)
 	}
 
-	if description != "" {
-		vs.Description = description
+	if description != nil {
+		vs.Description = *description
 	}
 
 	vs.UpdateTime = time.Now().UTC()

@@ -374,3 +374,7 @@ Gates: `go build ./...`, `go vet ./services/secretsmanager/...`, `go test
 --new-from-rev=HEAD ./services/secretsmanager/...` — all clean, no code
 changed. No new test file (no dropped-parameter fix to prove). No persisted
 fields changed, no `snapshot_inventory.json` rows, no version bump.
+
+## 2026-10-05 (zeroguard omitted-vs-zero pass)
+
+PutSecretValue, UpdateSecret and UpdateSecretVersionStage reject an explicit empty ClientRequestToken, RotationToken, SecretString, MoveToVersionId or RemoveFromVersionId (min-length members, previously treated as omitted) via a presence probe in `explicit_empty.go` (cmd/zeroguard). SecretId/VersionStage/ResourcePolicy rows are required members already validated: tool false positives. Proof: `TestUpdateSecret_OmittedVsExplicitEmpty`, `TestPutSecretValue_ExplicitEmptyMembersRejected`, `TestUpdateSecretVersionStage_ExplicitEmptyVersionIDsRejected`.

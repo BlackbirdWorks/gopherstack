@@ -1121,3 +1121,7 @@ Every region now has its own `default` event bus (AWS creates one per account pe
 ## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
 
 EventSizeLimitExceeded is a per-entry ErrorCode in a PutEvents 200 body (put_events.go:217), not an error envelope. ErrCannotDeleteDefaultBus text IllegalArgumentException is never written; handler_dispatch.go:467 emits IllegalStatusException.
+
+## 2026-10-05 (zeroguard omitted-vs-zero audit)
+
+Tool false positives (cmd/zeroguard): required path/identifier members (Name, *Id, *Arn), Put* operations that replace the whole resource (PutRule, PutPermission, PutResourcePolicy, PutCodeBinding), and PatchOperations-based Update* ops.

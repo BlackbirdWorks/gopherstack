@@ -1301,3 +1301,7 @@ PutIntegration now defaults CacheNamespace to the resource ID (api_op_PutIntegra
 - CreateDomainName keeps CertificateName, RegionalCertificateName, OwnershipVerificationCertificateArn, Policy, RoutingMode, EndpointAccessMode and MutualTlsAuthentication; CreateDomainNameAccessAssociation keeps Tags.
 - CreateDeployment on an existing stage no longer replaces the stage record (settings, variables, tags were lost); it moves the stage's deployment, or sets CanarySettings when canarySettings is given. cacheClusterEnabled/cacheClusterSize apply to the stage. Canary traffic is not split by the data plane. A canary on a stage that does not yet exist is created as a plain stage (real error not in the SDK).
 - PutIntegration keeps TlsConfig, IntegrationTarget and ResponseTransferMode; GetDocumentationParts applies LocationStatus; CreateDocumentationVersion associates StageName with the stage.
+
+## 2026-10-05 (zeroguard omitted-vs-zero audit)
+
+Tool false positives (cmd/zeroguard): required path/identifier members (Name, *Id, *Arn), Put* operations that replace the whole resource (PutRule, PutPermission, PutResourcePolicy, PutCodeBinding), and PatchOperations-based Update* ops.

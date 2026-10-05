@@ -126,9 +126,9 @@ func (b *InMemoryBackend) UpdateThingGroup(input *UpdateThingGroupInput) (int64,
 		return 0, fmt.Errorf("%w: %s", ErrThingGroupNotFound, input.ThingGroupName)
 	}
 
-	if input.ExpectedVersion != 0 && input.ExpectedVersion != tg.Version {
+	if input.ExpectedVersion != nil && *input.ExpectedVersion != tg.Version {
 		return 0, fmt.Errorf("%w: expected version %d but current is %d",
-			ErrVersionConflict, input.ExpectedVersion, tg.Version)
+			ErrVersionConflict, *input.ExpectedVersion, tg.Version)
 	}
 
 	if input.Description != nil {
@@ -316,9 +316,9 @@ func (b *InMemoryBackend) UpdateDynamicThingGroup(input *UpdateThingGroupInput) 
 		return 0, fmt.Errorf("%w: %s", ErrThingGroupNotFound, input.ThingGroupName)
 	}
 
-	if input.ExpectedVersion != 0 && input.ExpectedVersion != tg.Version {
+	if input.ExpectedVersion != nil && *input.ExpectedVersion != tg.Version {
 		return 0, fmt.Errorf("%w: expected version %d but current is %d",
-			ErrVersionConflict, input.ExpectedVersion, tg.Version)
+			ErrVersionConflict, *input.ExpectedVersion, tg.Version)
 	}
 
 	if input.Description != nil {

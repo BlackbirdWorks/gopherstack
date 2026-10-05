@@ -353,10 +353,10 @@ type UpdateIntegrationInput struct {
 	PayloadFormatVersion        *string               `json:"payloadFormatVersion,omitempty"`
 	CredentialsArn              *string               `json:"credentialsArn,omitempty"`
 	ConnectionID                *string               `json:"connectionId,omitempty"`
+	TimeoutInMillis             *int32                `json:"timeoutInMillis,omitempty"`
 	IntegrationType             string                `json:"integrationType,omitempty"`
 	PassthroughBehavior         string                `json:"passthroughBehavior,omitempty"`
 	ConnectionType              string                `json:"connectionType,omitempty"`
-	TimeoutInMillis             int32                 `json:"timeoutInMillis,omitempty"`
 }
 
 // CreateDeploymentInput is the input for CreateDeployment.

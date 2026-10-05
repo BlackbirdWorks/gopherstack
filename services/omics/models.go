@@ -128,8 +128,8 @@ type CreateSequenceStoreInput struct {
 type UpdateSequenceStoreInput struct {
 	FallbackLocation       *string
 	AccessLogLocation      *string
-	Name                   string
-	Description            string
+	Name                   *string
+	Description            *string
 	PropagatedSetLevelTags []string
 }
 
