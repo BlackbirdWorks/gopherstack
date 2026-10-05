@@ -10,9 +10,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/kafka"
 )
 
-// TestList_HonoursMaxResultsAndNextToken pins the query-bound maxResults and
-// nextToken members of the cluster-scoped and global list ops
-// (kafka@v1.x serializers.go, e.g. ListNodes).
+// TestList_HonoursMaxResultsAndNextToken pins query-bound maxResults/nextToken on the
+// cluster-scoped and global list ops (kafka serializers.go, e.g. ListNodes).
 func TestList_HonoursMaxResultsAndNextToken(t *testing.T) {
 	t.Parallel()
 

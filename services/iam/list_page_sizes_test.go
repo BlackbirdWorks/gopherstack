@@ -18,9 +18,8 @@ type listPage struct {
 	truncated bool
 }
 
-// TestListOps_HonourMaxItemsAndMarker pins the MaxItems/Marker/IsTruncated
-// members of the list ops that return unbounded name or tag lists
-// (e.g. api_op_ListUserPolicies.go).
+// TestListOps_HonourMaxItemsAndMarker pins MaxItems/Marker/IsTruncated on the list ops
+// returning unbounded name or tag lists (e.g. api_op_ListUserPolicies.go).
 func TestListOps_HonourMaxItemsAndMarker(t *testing.T) {
 	t.Parallel()
 
