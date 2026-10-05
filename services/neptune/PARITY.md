@@ -884,3 +884,7 @@ FIXED: DescribeDBClusterEndpoints applies `db-cluster-endpoint-type`/`-custom-ty
 ## 2026-10-05 (gopherstack-1jkv Marker check)
 
 applyNeptuneMarker restarts at page one on a malformed Marker. neptune@v1.48.4 declares no invalid-Marker error (types/errors.go has no InvalidParameterValue), so there is no documented code to return; recorded, not changed.
+
+## 2026-10-05 (reqfielddiff tier-1/2 pass 8)
+
+False positives: every flagged Describe*/ListTagsForResource Filters member is documented 'Not currently supported' in neptune@v1.48.4. IncludePublic/IncludeShared stay recorded (single account).

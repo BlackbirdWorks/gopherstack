@@ -107,7 +107,8 @@ type StorageBackend interface {
 		nextToken string,
 	) ([]*MultipartReadSetUpload, string, error)
 	ListReadSetUploadParts(
-		sequenceStoreID, uploadID string,
+		sequenceStoreID, uploadID, partSource string,
+		window *createdWindow,
 		maxResults int,
 		nextToken string,
 	) ([]*ReadSetUploadPart, string, error)

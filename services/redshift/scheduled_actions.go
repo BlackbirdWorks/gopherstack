@@ -1,6 +1,9 @@
 package redshift
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 // scheduledActionStateActiveValue is the wire State value scheduledActionState
 // returns for an enabled scheduled action. Named locally (rather than reusing
@@ -19,11 +22,30 @@ func scheduledActionState(enable *bool) string {
 	return scheduledActionStateActiveValue
 }
 
+// ScheduleWindow is the optional StartTime/EndTime pair of a scheduled action.
+type ScheduleWindow struct {
+	Start *time.Time
+	End   *time.Time
+}
+
+func applyWindow(a *ScheduledAction, window []ScheduleWindow) {
+	for _, w := range window {
+		if w.Start != nil {
+			a.StartTime = w.Start
+		}
+
+		if w.End != nil {
+			a.EndTime = w.End
+		}
+	}
+}
+
 // CreateScheduledAction creates a new Redshift scheduled action.
 func (b *InMemoryBackend) CreateScheduledAction(
 	name, schedule, iamRole, description string,
 	target *ScheduledActionTarget,
 	enable *bool,
+	window ...ScheduleWindow,
 ) (*ScheduledAction, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: ScheduledActionName is required", ErrInvalidParameter)
@@ -44,6 +66,7 @@ func (b *InMemoryBackend) CreateScheduledAction(
 		State:                      scheduledActionState(enable),
 		TargetAction:               target,
 	}
+	applyWindow(action, window)
 	b.scheduledActions.Put(action)
 
 	cp := *action
@@ -100,6 +123,7 @@ func (b *InMemoryBackend) ModifyScheduledAction(
 	name, schedule, iamRole, description string,
 	target *ScheduledActionTarget,
 	enable *bool,
+	window ...ScheduleWindow,
 ) (*ScheduledAction, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: ScheduledActionName is required", ErrInvalidParameter)
@@ -128,6 +152,8 @@ func (b *InMemoryBackend) ModifyScheduledAction(
 	if enable != nil {
 		a.State = scheduledActionState(enable)
 	}
+
+	applyWindow(a, window)
 
 	cp := *a
 

@@ -453,3 +453,7 @@ All 12 flagged `Filters` members (DescribeCertificates, DescribeDBClusterParamet
 ## 2026-10-05 (gopherstack-1jkv Marker check)
 
 applyDocDBMarker restarts at page one on a malformed Marker. The pinned docdb SDK declares no invalid-Marker error (types/errors.go has no InvalidParameterValue), so there is no documented code to return; recorded, not changed.
+
+## 2026-10-05 (reqfielddiff tier-1/2 pass 8)
+
+False positives: every flagged Describe*/ListTagsForResource Filters member is documented 'isn't currently supported' in docdb@v1.51.4. IncludePublic/IncludeShared stay recorded (single account).

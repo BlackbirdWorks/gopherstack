@@ -653,3 +653,7 @@ changes; no version bump.
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 personalize is region-isolated: dataset groups, datasets, solutions and campaigns live per region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/personalize`. Limitation: the dashboard shows the home region only. The tagging bridge lists the request region and resolves Tag/Untag by ARN region. `TestHandler_MultiRegionReset` covers Reset.
+
+## 2026-10-05 (reqfielddiff tier-1/2 pass 8)
+
+CreateBatchInferenceJob and CreateBatchSegmentJob read FilterArn (types.go: BatchInferenceJob.FilterArn, BatchSegmentJob.FilterArn): an unknown filter returns ResourceNotFoundException, the ARN is echoed by Describe. Applying the filter to recommendations needs a data engine and stays unmodeled. Persistence: additive FilterArn (omitempty) on both job types. Proof: `TestBatchJobs_FilterArn`.

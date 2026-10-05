@@ -600,9 +600,10 @@ func (b *InMemoryBackend) ListMultipartReadSetUploads(
 	return result, outToken, nil
 }
 
-// ListReadSetUploadParts lists parts for a multipart read set upload.
+// ListReadSetUploadParts lists the parts of one partSource, narrowed by the created window.
 func (b *InMemoryBackend) ListReadSetUploadParts(
-	sequenceStoreID, uploadID string,
+	sequenceStoreID, uploadID, partSource string,
+	window *createdWindow,
 	maxResults int,
 	nextToken string,
 ) ([]*ReadSetUploadPart, string, error) {
@@ -617,40 +618,43 @@ func (b *InMemoryBackend) ListReadSetUploadParts(
 		return nil, "", fmt.Errorf("%w: upload %s not found", ErrNotFound, uploadID)
 	}
 
-	parts := b.uploadParts[sequenceStoreID][uploadID]
+	byID := make(map[string]*ReadSetUploadPart)
+	ids := make([]string, 0)
 
-	if maxResults <= 0 || maxResults > maxPageSize {
-		maxResults = maxPageSize
-	}
-
-	start := 0
-
-	if nextToken != "" {
-		for i, p := range parts {
-			if strconv.Itoa(p.PartNumber) == nextToken {
-				start = i
-
-				break
-			}
+	for _, p := range b.uploadParts[sequenceStoreID][uploadID] {
+		if (partSource != "" && p.Source != partSource) || (window != nil && !window.admitsCreated(p.CreationTime)) {
+			continue
 		}
+
+		id := fmt.Sprintf("%010d", p.PartNumber)
+		byID[id] = p
+		ids = append(ids, id)
 	}
 
-	end := min(start+maxResults, len(parts))
-	page := parts[start:end]
+	result, token := paginatedCopies(
+		ids,
+		partCursor(nextToken),
+		maxResults,
+		func(id string) (*ReadSetUploadPart, bool) {
+			return byID[id], true
+		},
+	)
 
-	var outToken string
-	if end < len(parts) {
-		outToken = strconv.Itoa(parts[end].PartNumber)
+	if n, err := strconv.Atoi(token); err == nil {
+		token = strconv.Itoa(n)
 	}
 
-	result := make([]*ReadSetUploadPart, len(page))
+	return result, token, nil
+}
 
-	for i, p := range page {
-		cp := *p
-		result[i] = &cp
+// partCursor turns a part-number token into the zero-padded sort key used for paging.
+func partCursor(token string) string {
+	n, err := strconv.Atoi(token)
+	if err != nil {
+		return ""
 	}
 
-	return result, outToken, nil
+	return fmt.Sprintf("%010d", n)
 }
 
 // newReadSetUploadPartSummary converts a persisted upload part record into

@@ -859,3 +859,7 @@ fsx is region-isolated: File systems, backups, volumes, snapshots and associatio
 ## 2026-10-04 (reqfielddiff tier-1: BatchImportMetaDataOnCreate, IncludeShared)
 
 CreateDataRepositoryAssociation.BatchImportMetaDataOnCreate=true now starts an IMPORT_METADATA_FROM_REPOSITORY task for the association (Paths = FileSystemPath, report disabled, EXECUTING then settling like other tasks); DescribeDataRepositoryTasks filters on `data-repository-association-id` (`TestCreateDataRepositoryAssociation_BatchImportMetaDataOnCreate_RealClient`). The task's association id is an additive persisted field. DescribeSnapshots.IncludeShared stays recorded: every snapshot belongs to the single account, so the shared and owned sets cannot differ.
+
+## 2026-10-05 (reqfielddiff tier-1/2 pass 8)
+
+ListTagsForResource pages through MaxResults/NextToken (api_op_ListTagsForResource.go): tags sorted by key, the token is the next key, present only when truncated, no max means the whole list. The op declares only BadRequest, so a stale token resumes at the next surviving key. Proof: `TestListTagsForResource_Paging`.

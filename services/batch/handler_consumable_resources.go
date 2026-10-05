@@ -227,9 +227,10 @@ func (h *Handler) handleListConsumableResources(
 }
 
 type listJobsByConsumableResourceInput struct {
-	MaxResults         *int32  `json:"maxResults,omitempty"`
-	NextToken          *string `json:"nextToken,omitempty"`
-	ConsumableResource string  `json:"consumableResource"`
+	MaxResults         *int32               `json:"maxResults,omitempty"`
+	NextToken          *string              `json:"nextToken,omitempty"`
+	ConsumableResource string               `json:"consumableResource"`
+	Filters            []keyValuesPairInput `json:"filters,omitempty"`
 }
 
 // listJobsByConsumableResourceSummary mirrors aws-sdk-go-v2/service/batch/
@@ -266,7 +267,12 @@ func (h *Handler) handleListJobsByConsumableResource(
 	ctx context.Context,
 	in *listJobsByConsumableResourceInput,
 ) (*listJobsByConsumableResourceOutput, error) {
-	jobs, err := h.Backend.ListJobsByConsumableResource(ctx, in.ConsumableResource)
+	filters := make([]KeyValueFilter, 0, len(in.Filters))
+	for _, f := range in.Filters {
+		filters = append(filters, KeyValueFilter(f))
+	}
+
+	jobs, err := h.Backend.ListJobsByConsumableResource(ctx, in.ConsumableResource, filters)
 	if err != nil {
 		return nil, err
 	}

@@ -591,3 +591,7 @@ ListInsightsMetricData now returns a real series: recorded management events mat
 ## 2026-10-05 (reqfielddiff tier-2 pagination)
 
 FIXED: ListQueries applies StartTime/EndTime to the query creation time (api_op_ListQueries.go); ListChannels, ListEventDataStores, ListImports, ListImportFailures, GetQueryResults and LookupEvents return InvalidNextTokenException for a malformed NextToken (deserializers.go:3457-5314) instead of restarting; LookupEvents parsed StartTime/EndTime as int64 so the SDK's fractional epoch seconds failed with InvalidParameterCombinationException, now float64. RECORDED: ListPublicKeys/ListTags NextToken is "Reserved for future use" (false positive); ListInsightsData and SearchSampleQueries stay always-empty (see items_still_open); ListImportFailures is always empty (no import engine). Proof: `TestListOps_RejectMalformedNextToken`, `TestListQueries_TimeRange`, `TestLookupEvents_FractionalTimes`.
+
+## 2026-10-05 (reqfielddiff tier-1/2 pass 8)
+
+RECORDED: ListPublicKeys StartTime/EndTime are ignored; the op always returns an empty list (no digest signing keys are modeled).

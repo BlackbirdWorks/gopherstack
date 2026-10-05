@@ -1541,3 +1541,7 @@ The SQS service integration sends to the queue in the execution's region and the
 ## 2026-10-04 (reqfielddiff tier-1: TestState.InspectionLevel)
 
 InspectionLevel is validated (INFO, DEBUG, TRACE; otherwise ValidationException) and DEBUG/TRACE return InspectionData from the executor's stage hooks (asl `EnableInspection`): input, afterInputPath, afterParameters, result, afterResultSelector, afterResultPath, as JSON strings; INFO (the default) returns none. Proof: `TestTestState_InspectionLevel_RealClient`. JSONata states record only the raw input; arguments/variables stages are not recorded.
+
+## 2026-10-05 (reqfielddiff tier-1/2 pass 8)
+
+ListExecutions applies redriveFilter (REDRIVEN/NOT_REDRIVEN on RedriveCount; api_op_ListExecutions.go:80-92) to mapRunArn listings and returns ValidationException for it with a stateMachineArn or for an unknown value. Proof: `TestListExecutions_RedriveFilter`.

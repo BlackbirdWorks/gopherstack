@@ -28,6 +28,7 @@ const (
 	// KeyValuesPair filter names shared by ListJobs/ListServiceJobs/
 	// ListConsumableResources (api_op_ListJobs.go, api_op_ListServiceJobs.go).
 	filterJobName         = "JOB_NAME"
+	filterJobStatus       = "JOB_STATUS"
 	filterJobDefinition   = "JOB_DEFINITION"
 	filterShareIdentifier = "SHARE_IDENTIFIER"
 	filterQuotaShareName  = "QUOTA_SHARE_NAME"

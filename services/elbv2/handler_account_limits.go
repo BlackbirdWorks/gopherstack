@@ -5,7 +5,7 @@ import (
 	"net/url"
 )
 
-func (h *Handler) handleDescribeAccountLimits(_ url.Values) (any, error) {
+func (h *Handler) handleDescribeAccountLimits(vals url.Values) (any, error) {
 	limits := []xmlAccountLimit{
 		{Name: "target-groups", Max: "3000"},
 		{Name: "targets-per-target-group", Max: "1000"},
@@ -21,10 +21,14 @@ func (h *Handler) handleDescribeAccountLimits(_ url.Values) (any, error) {
 		{Name: "subnets-per-load-balancer", Max: "8"},
 	}
 
+	marker, pageSize := parsePagination(vals)
+	limits, nextMarker := applyMarkerPage(limits, marker, pageSize, func(l xmlAccountLimit) string { return l.Name })
+
 	return &describeAccountLimitsResponse{
 		Xmlns: elbv2XMLNS,
 		Result: describeAccountLimitsResult{
-			Limits: xmlAccountLimitList{Members: limits},
+			Limits:     xmlAccountLimitList{Members: limits},
+			NextMarker: nextMarker,
 		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-describe-account-limits"},
 	}, nil
@@ -40,7 +44,8 @@ type xmlAccountLimitList struct {
 }
 
 type describeAccountLimitsResult struct {
-	Limits xmlAccountLimitList `xml:"Limits"`
+	NextMarker string              `xml:"NextMarker,omitempty"`
+	Limits     xmlAccountLimitList `xml:"Limits"`
 }
 
 type describeAccountLimitsResponse struct {

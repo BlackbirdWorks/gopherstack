@@ -967,3 +967,7 @@ The Resource Groups Tagging API bridge now lists the request region's tagged res
 ## 2026-10-04 (reqfielddiff tier-1 pass)
 
 ListImageReferrers now computes referrers from the subject digest in pushed manifests, with Filter/MaxResults/NextToken (supersedes the earlier "structurally empty" notes above). CreateRepository, DescribeRepositories, DescribeImages and ListImageReferrers now reject a RegistryId that is not the backend account: Create returns InvalidParameterException (real AWS would need cross-account access), Describe/List return RepositoryNotFoundException (empty list for unnamed DescribeRepositories). Other ops still ignore RegistryId. Proof: `TestForeignRegistryID`, `TestListImageReferrers`.
+
+## 2026-10-05 (reqfielddiff tier-1/2 pass 8)
+
+CreateRepository stores imageTagMutabilityExclusionFilters (api_op_CreateRepository.go:61-63); they were dropped, so a later retag of an excluded tag in an IMMUTABLE repository failed. Proof: `TestCreateRepository_ExclusionFilters`.

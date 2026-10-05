@@ -2305,3 +2305,7 @@ DbGroups (wire key `DbGroups.DbGroup.N`) is now validated against the documented
 ## 2026-10-05 (reqfielddiff tier-2 filters)
 
 FIXED: DescribeEvents applies StartTime/EndTime (ISO 8601; api_op_DescribeEvents.go:42-48,104-110) on top of Duration; DescribeScheduledActions applies the cluster-identifier and iam-role Filters (types/enums.go:519-520); DescribeNodeConfigurationOptions applies Mode and EstimatedDiskUtilizationPercent beside NumberOfNodes (NodeType selects the generated type). RECORDED: DescribeScheduledActions StartTime/EndTime are ignored (scheduled actions store no start/end window). Proof: `TestDescribeEvents_StartEndTime`, `TestDescribeScheduledActions_Filters`, `TestDescribeNodeConfigurationOptions_ModeAndUtilizationFilters`.
+
+## 2026-10-05 (reqfielddiff tier-1/2 pass 8)
+
+CreateScheduledAction/ModifyScheduledAction store StartTime/EndTime (ISO 8601; api_op_CreateScheduledAction.go) and the response echoes them; DescribeScheduledActions StartTime/EndTime keep ACTIVE actions with an at()/cron() invocation after/before the bound inside the action's own window (api_op_DescribeScheduledActions.go:36-65). Supersedes the 2026-10-05 note that recorded them as ignored. Persistence: additive ScheduledAction.StartTime/EndTime (omitempty). Proof: `TestScheduledAction_WindowAndRangeFilter`, `TestModifyScheduledAction_Window`.

@@ -10,13 +10,14 @@ func (h *Handler) createBatchInferenceJob(input map[string]any) (map[string]any,
 	jobName, _ := input["jobName"].(string)
 	solutionVersionArn, _ := input["solutionVersionArn"].(string)
 	roleArn, _ := input["roleArn"].(string)
+	filterArn, _ := input[keyFilterArn].(string)
 	jobMode, _ := input["batchInferenceJobMode"].(string)
 	jobInput, _ := input["jobInput"].(map[string]any)
 	jobOutput, _ := input["jobOutput"].(map[string]any)
 	tags := extractTags(input)
 
 	job, err := h.Backend.CreateBatchInferenceJob(
-		jobName, solutionVersionArn, roleArn, jobMode, jobInput, jobOutput, tags,
+		jobName, solutionVersionArn, roleArn, filterArn, jobMode, jobInput, jobOutput, tags,
 	)
 	if err != nil {
 		return nil, err
@@ -57,7 +58,7 @@ func (h *Handler) listBatchInferenceJobs(input map[string]any) (map[string]any, 
 }
 
 func batchInferenceJobToMap(job *BatchInferenceJob) map[string]any {
-	return map[string]any{
+	m := map[string]any{
 		keyBatchInferenceJobArn: job.BatchInferenceJobArn,
 		keyJobName:              job.JobName,
 		keySolutionVersionArn:   job.SolutionVersionArn,
@@ -69,6 +70,11 @@ func batchInferenceJobToMap(job *BatchInferenceJob) map[string]any {
 		keyCreationDateTime:     awstime.Epoch(job.CreationDateTime),
 		keyLastUpdatedDateTime:  awstime.Epoch(job.LastUpdatedDateTime),
 	}
+	if job.FilterArn != "" {
+		m[keyFilterArn] = job.FilterArn
+	}
+
+	return m
 }
 
 // batchInferenceJobSummaryToMap builds the types.BatchInferenceJobSummary
@@ -96,11 +102,14 @@ func (h *Handler) createBatchSegmentJob(input map[string]any) (map[string]any, e
 	jobName, _ := input["jobName"].(string)
 	solutionVersionArn, _ := input["solutionVersionArn"].(string)
 	roleArn, _ := input["roleArn"].(string)
+	filterArn, _ := input[keyFilterArn].(string)
 	jobInput, _ := input["jobInput"].(map[string]any)
 	jobOutput, _ := input["jobOutput"].(map[string]any)
 	tags := extractTags(input)
 
-	job, err := h.Backend.CreateBatchSegmentJob(jobName, solutionVersionArn, roleArn, jobInput, jobOutput, tags)
+	job, err := h.Backend.CreateBatchSegmentJob(
+		jobName, solutionVersionArn, roleArn, filterArn, jobInput, jobOutput, tags,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -140,7 +149,7 @@ func (h *Handler) listBatchSegmentJobs(input map[string]any) (map[string]any, er
 }
 
 func batchSegmentJobToMap(job *BatchSegmentJob) map[string]any {
-	return map[string]any{
+	m := map[string]any{
 		keyBatchSegmentJobArn:  job.BatchSegmentJobArn,
 		keyJobName:             job.JobName,
 		keySolutionVersionArn:  job.SolutionVersionArn,
@@ -151,6 +160,11 @@ func batchSegmentJobToMap(job *BatchSegmentJob) map[string]any {
 		keyCreationDateTime:    awstime.Epoch(job.CreationDateTime),
 		keyLastUpdatedDateTime: awstime.Epoch(job.LastUpdatedDateTime),
 	}
+	if job.FilterArn != "" {
+		m[keyFilterArn] = job.FilterArn
+	}
+
+	return m
 }
 
 // batchSegmentJobSummaryToMap builds the types.BatchSegmentJobSummary shape

@@ -133,6 +133,7 @@ type BatchInferenceJob struct {
 	RoleArn               string
 	Status                string
 	BatchInferenceJobMode string
+	FilterArn             string `json:",omitempty"`
 }
 
 // BatchSegmentJob stores an async batch segment job.
@@ -146,6 +147,7 @@ type BatchSegmentJob struct {
 	JobName             string
 	RoleArn             string
 	Status              string
+	FilterArn           string `json:",omitempty"`
 }
 
 // EventTracker stores an Amazon Personalize event tracker.

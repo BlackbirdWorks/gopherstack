@@ -683,3 +683,7 @@ GetApps, GetCampaigns, GetSegments, GetJourneys, GetCampaignActivities, GetCampa
 ## 2026-10-05 (gopherstack-uox6 pass 6, value semantics)
 
 CreateRecommenderConfiguration stores RecommendationProviderIdType PINPOINT_ENDPOINT_ID and RecommendationsPerMessage 5 when omitted (types.go:1900-1940). Campaign, segment, journey and application-settings updates were read against their shapes: the SDK doc comments state no further defaults.
+
+## 2026-10-05 (reqfielddiff tier-1/2 pass 8)
+
+RECORDED: the seven *DateRangeKpi / journey execution metrics ops ignore page-size/next-token; they always return empty rows (no analytics engine), so there is nothing to page.

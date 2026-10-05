@@ -448,3 +448,7 @@ iotwireless is region-isolated: device profiles, gateways, destinations and the 
 ## 2026-10-04 (reqfielddiff tier-1: ClientRequestToken on 11 ops)
 
 The earlier reason (no mismatch error type in the module) was wrong: each op's doc (e.g. api_op_CreateDestination.go:60) says the same token with the same parameters completes successfully and the same token with different parameters is an HTTP 409 conflict, i.e. ConflictException. `dispatchIdempotent` (idempotency.go) now covers CreateDestination, CreateDeviceProfile, CreateFuotaTask, CreateMulticastGroup, CreateNetworkAnalyzerConfiguration, CreateServiceProfile, CreateWirelessDevice, CreateWirelessGateway, CreateWirelessGatewayTaskDefinition, StartSingleWirelessDeviceImportTask and StartWirelessDeviceImportTask: a repeated token with an identical body (token excluded) replays the first successful response, a different body is 409 ConflictException, failed calls are not remembered. Proof: `TestClientRequestToken_Idempotency_RealClient`.
+
+## 2026-10-05 (reqfielddiff tier-1/2 pass 8)
+
+RECORDED: ListDevicesForWirelessDeviceImportTask MaxResults/NextToken have nothing to page: import tasks record no per-device list, so ImportedWirelessDeviceList is always empty (no import engine).

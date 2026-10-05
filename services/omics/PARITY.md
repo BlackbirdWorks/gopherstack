@@ -986,3 +986,7 @@ omics is region-isolated: stores, workflows, runs and read sets live per region.
 ## 2026-10-04 (reqfielddiff tier-1 pass)
 
 CreateWorkflow and CreateWorkflowVersion now store and echo ReadmeMarkdown (as Get*.Readme) and ReadmePath, and CreateWorkflowVersion echoes WorkflowBucketOwnerId; a WorkflowBucketOwnerId different from this account on an s3:// DefinitionUri is rejected with ValidationException (every bucket here is owned by the one account; omitted owner skips the check, as documented). This supersedes the 2026-08-31 notes that recorded ReadmePath and WorkflowBucketOwnerId as unmodellable. ParameterTemplatePath stays recorded: it is only meaningful for DefinitionRepository workflows, no Get output returns it, and no repository is ever read. Proof: `TestWorkflow_ReadmeAndBucketOwner`.
+
+## 2026-10-05 (reqfielddiff tier-1/2 pass 8)
+
+ListReadSetUploadParts reads the body members partSource (required) and filter.createdAfter/createdBefore (serializers.go ListReadSetUploadPartsInput) and pages by part number: sorted, stale-token safe, nextToken only when truncated (it was always emitted, empty). Proof: `TestListReadSetUploadParts_SourceAndWindow`.

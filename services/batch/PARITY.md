@@ -643,3 +643,7 @@ No code changes this pass. Gates unaffected (nothing touched):
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 batch already keys its resources by region; same-named resources in two regions coexist with region-correct ARNs. Proof: `TestRegionIsolation/batch`. No code change to the resource store.
+
+## 2026-10-05 (reqfielddiff tier-1/2 pass 8)
+
+ListJobsByConsumableResource applies Filters JOB_STATUS and JOB_NAME (case-insensitive, trailing `*` prefix; api_op_ListJobsByConsumableResource.go:36-49): entries AND, values within an entry OR. Proof: `TestListJobsByConsumableResource_Filters`.

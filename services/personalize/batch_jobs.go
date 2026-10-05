@@ -30,9 +30,18 @@ func (b *InMemoryBackend) requireSolutionVersion(solutionVersionArn string) erro
 	return nil
 }
 
+// requireFilter FK-validates an optional filterArn.
+func (b *InMemoryBackend) requireFilter(filterArn string) error {
+	if filterArn != "" && b.findFilter(filterArn) == nil {
+		return fmt.Errorf("%w: filter %q not found", ErrNotFound, filterArn)
+	}
+
+	return nil
+}
+
 // CreateBatchInferenceJob creates a new batch inference job.
 func (b *InMemoryBackend) CreateBatchInferenceJob(
-	jobName, solutionVersionArn, roleArn, jobMode string,
+	jobName, solutionVersionArn, roleArn, filterArn, jobMode string,
 	jobInput, jobOutput map[string]any,
 	tags map[string]string,
 ) (*BatchInferenceJob, error) {
@@ -43,6 +52,9 @@ func (b *InMemoryBackend) CreateBatchInferenceJob(
 		return nil, err
 	}
 	if err := b.requireSolutionVersion(solutionVersionArn); err != nil {
+		return nil, err
+	}
+	if err := b.requireFilter(filterArn); err != nil {
 		return nil, err
 	}
 
@@ -64,6 +76,7 @@ func (b *InMemoryBackend) CreateBatchInferenceJob(
 		JobName:               jobName,
 		SolutionVersionArn:    solutionVersionArn,
 		RoleArn:               roleArn,
+		FilterArn:             filterArn,
 		JobInput:              jobInput,
 		JobOutput:             jobOutput,
 		Status:                statusActive,
@@ -116,7 +129,7 @@ func (b *InMemoryBackend) ListBatchInferenceJobs(
 
 // CreateBatchSegmentJob creates a new batch segment job.
 func (b *InMemoryBackend) CreateBatchSegmentJob(
-	jobName, solutionVersionArn, roleArn string,
+	jobName, solutionVersionArn, roleArn, filterArn string,
 	jobInput, jobOutput map[string]any,
 	tags map[string]string,
 ) (*BatchSegmentJob, error) {
@@ -129,6 +142,9 @@ func (b *InMemoryBackend) CreateBatchSegmentJob(
 	if err := b.requireSolutionVersion(solutionVersionArn); err != nil {
 		return nil, err
 	}
+	if err := b.requireFilter(filterArn); err != nil {
+		return nil, err
+	}
 
 	now := time.Now().UTC()
 	jobArn := b.personalizeARN("batch-segment-job", jobName)
@@ -137,6 +153,7 @@ func (b *InMemoryBackend) CreateBatchSegmentJob(
 		JobName:             jobName,
 		SolutionVersionArn:  solutionVersionArn,
 		RoleArn:             roleArn,
+		FilterArn:           filterArn,
 		JobInput:            jobInput,
 		JobOutput:           jobOutput,
 		Status:              statusActive,

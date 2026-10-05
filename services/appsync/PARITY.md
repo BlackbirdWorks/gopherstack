@@ -522,3 +522,7 @@ AppSync is region-isolated: each non-home region gets a lazily built sibling `Ha
 ## 2026-10-05 (gopherstack-uox6 pass 6, value semantics)
 
 Create->Update->Get round trip audited (visibility GLOBAL, introspection ENABLED, partial UpdateGraphqlApi keeps x-ray). Updates of functions, resolvers and data sources merge supplied members; the SDK docs do not say whether real AppSync treats them as full replacements, so left as is.
+
+## 2026-10-05 (reqfielddiff tier-1/2 pass 8)
+
+RECORDED: GetDataSourceIntrospection MaxResults/NextToken have nothing to page; the models list is always empty (no RDS Data API to introspect).

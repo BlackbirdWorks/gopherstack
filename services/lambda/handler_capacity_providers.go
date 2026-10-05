@@ -162,9 +162,10 @@ func (h *Handler) handleUpdateCapacityProvider(c *echo.Context, bk *InMemoryBack
 
 // handleListCapacityProviders handles GET /2025-11-30/capacity-providers.
 func (h *Handler) handleListCapacityProviders(c *echo.Context, bk *InMemoryBackend) error {
-	cps := bk.ListCapacityProviders()
+	marker, maxItems := parsePaginationParams(c.Request())
+	p := bk.ListCapacityProviders(c.Request().URL.Query().Get("State"), marker, maxItems)
 
-	return c.JSON(http.StatusOK, &ListCapacityProvidersOutput{CapacityProviders: cps})
+	return c.JSON(http.StatusOK, &ListCapacityProvidersOutput{CapacityProviders: p.Data, NextMarker: p.Next})
 }
 
 // --- ListFunctionVersionsByCapacityProvider ---

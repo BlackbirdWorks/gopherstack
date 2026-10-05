@@ -400,7 +400,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.Len(t, uploads, 1)
 	assert.Equal(t, upload.UploadID, uploads[0].UploadID)
 
-	parts, _, err := fresh.ListReadSetUploadParts(seqStore.ID, upload.UploadID, 10, "")
+	parts, _, err := fresh.ListReadSetUploadParts(seqStore.ID, upload.UploadID, "", nil, 10, "")
 	require.NoError(t, err)
 	require.Len(t, parts, 1)
 	assert.Equal(t, 1, parts[0].PartNumber)

@@ -221,6 +221,7 @@ type StorageBackend interface {
 		name, schedule, iamRole, description string,
 		target *ScheduledActionTarget,
 		enable *bool,
+		window ...ScheduleWindow,
 	) (*ScheduledAction, error)
 	DeleteScheduledAction(name string) error
 	DescribeScheduledActions(name string) ([]ScheduledAction, error)
@@ -228,6 +229,7 @@ type StorageBackend interface {
 		name, schedule, iamRole, description string,
 		target *ScheduledActionTarget,
 		enable *bool,
+		window ...ScheduleWindow,
 	) (*ScheduledAction, error)
 
 	// Custom domain association operations

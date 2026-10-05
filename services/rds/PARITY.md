@@ -1850,3 +1850,7 @@ All six stay recorded, each with a concrete reason. DescribeDBSnapshots/Describe
 ## 2026-10-05 (gopherstack-1jkv verification)
 
 Cluster role ops verified clean against rds@v1.124.1 (api_op_AddRoleToDBCluster.go:39-43): storage is keyed on (FeatureName, RoleArn), DescribeDBClusters emits AssociatedRoles, duplicate add and missing remove return DBClusterRoleAlreadyExists/DBClusterRoleNotFound. Proof: `cluster_roles_sdk_test.go`. The omitted-FeatureName collision rule stays in items_still_open (no SDK evidence). Marker helpers: the pinned SDK declares no invalid-Marker error on any Describe op (types/errors.go has no InvalidParameterValue), so a malformed Marker keeps restarting at page one; recorded, not changed.
+
+## 2026-10-05 (reqfielddiff tier-1/2 pass 8)
+
+False positives, all re-read against rds@v1.124.1: every flagged Describe* Filters member except DescribeDBShardGroups/DescribeIntegrations documents 'This parameter isn't currently supported'; DescribeDBClusterParameters applies parameter-name through applyDBParameterFilters (shared.go). DescribeDBShardGroups/DescribeIntegrations filter names are undocumented in the SDK and stay recorded. Tool blind spots: doc text 'not currently supported', and filters applied through a shared helper.

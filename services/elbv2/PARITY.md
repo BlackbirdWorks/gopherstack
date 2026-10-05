@@ -567,3 +567,7 @@ struct fields changed; no version bump.
 ## 2026-10-03 (gopherstack-taq78 multi-region)
 
 ELBv2 is region-isolated: each non-home region gets a lazily built sibling Handler (own load balancers, target groups, listeners, rules, trust stores, health reconciler; region-correct ARNs and DNS names) via `pkgs/regionpeers`; siblings inherit the EC2 and certificate resolvers. `Handler.BackendFor(region)` lets Auto Scaling and ECS register targets in the target group's ARN region. Same-named resources coexist per region. Snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/elbv2`, `TestInitializeServices_ELBv2TargetRegistrationInGroupRegion`. Not bridged to the tagging API (no tagged-resource listing exists).
+
+## 2026-10-05 (reqfielddiff tier-1/2 pass 8)
+
+DescribeSSLPolicies and DescribeAccountLimits honour Marker/PageSize (default 400) and return NextMarker only when truncated (the ops declare no invalid-marker error; a stale marker restarts like the sibling Describe ops). Proof: `TestDescribeSSLPoliciesAndAccountLimits_PageSize`.

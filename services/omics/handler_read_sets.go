@@ -309,11 +309,22 @@ func (h *Handler) handleListMultipartReadSetUploads(c *echo.Context, storeID str
 }
 
 func (h *Handler) handleListReadSetUploadParts(c *echo.Context, storeID, uploadID string) error {
+	var req struct {
+		Filter     *createdWindow `json:"filter"`
+		PartSource string         `json:"partSource"`
+	}
+
+	if err := readJSON(c, &req); err != nil {
+		return err
+	}
+
 	maxResults, nextToken := listQueryParams(c)
 
 	parts, next, err := h.Backend.ListReadSetUploadParts(
 		storeID,
 		uploadID,
+		req.PartSource,
+		req.Filter,
 		maxResults,
 		nextToken,
 	)
@@ -328,7 +339,12 @@ func (h *Handler) handleListReadSetUploadParts(c *echo.Context, storeID, uploadI
 		summaries = append(summaries, newReadSetUploadPartSummary(p))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"parts": summaries, keyNextToken: next})
+	out := map[string]any{"parts": summaries}
+	if next != "" {
+		out[keyNextToken] = next
+	}
+
+	return c.JSON(http.StatusOK, out)
 }
 
 func (h *Handler) handleUploadReadSetPart(c *echo.Context, storeID, uploadID string) error {

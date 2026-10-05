@@ -247,6 +247,8 @@ type ScheduledActionTarget struct {
 
 // ScheduledAction represents a Redshift scheduled action.
 type ScheduledAction struct {
+	StartTime                  *time.Time             `json:"startTime,omitempty"`
+	EndTime                    *time.Time             `json:"endTime,omitempty"`
 	TargetAction               *ScheduledActionTarget `json:"targetAction,omitempty"`
 	ScheduledActionName        string                 `json:"scheduledActionName"`
 	Schedule                   string                 `json:"schedule"`

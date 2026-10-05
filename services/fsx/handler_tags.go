@@ -40,10 +40,13 @@ func (h *Handler) handleUntagResource(_ context.Context, in *untagResourceInput)
 
 type listTagsForResourceInput struct {
 	ResourceARN string `json:"ResourceARN"`
+	NextToken   string `json:"NextToken,omitempty"`
+	MaxResults  int32  `json:"MaxResults,omitempty"`
 }
 
 type listTagsForResourceOutput struct {
-	Tags []Tag `json:"Tags"`
+	NextToken string `json:"NextToken,omitempty"`
+	Tags      []Tag  `json:"Tags"`
 }
 
 func (h *Handler) handleListTagsForResource(
@@ -55,9 +58,12 @@ func (h *Handler) handleListTagsForResource(
 		return nil, err
 	}
 
-	if tags == nil {
-		tags = []Tag{}
+	maxResults := int(in.MaxResults)
+	if maxResults <= 0 {
+		maxResults = maxResultsDefault
 	}
 
-	return &listTagsForResourceOutput{Tags: tags}, nil
+	start, end, next := paginate(len(tags), maxResults, in.NextToken, func(i int) string { return tags[i].Key })
+
+	return &listTagsForResourceOutput{Tags: append([]Tag{}, tags[start:end]...), NextToken: next}, nil
 }

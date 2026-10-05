@@ -1331,3 +1331,7 @@ Both required fields were already read (tool false positives: plain strings, not
 ## 2026-10-05 errcodeaudit note (gopherstack-r3pr)
 
 - Function-URL "Forbidden" is the HTTP 403 body a real AWS_IAM function URL returns for an unsigned or badly signed request; it is not an SDK API error, so no SDK type exists.
+
+## 2026-10-05 (reqfielddiff tier-1/2 pass 8)
+
+ListCapacityProviders honours Marker, MaxItems and State (api_op_ListCapacityProviders.go:29-38; serializers.go query keys); it returned every provider unfiltered. RECORDED: ListFunctionUrlConfigs MaxItems/Marker have nothing to page (one URL config per function). Proof: `TestListCapacityProviders_PagingAndState`.
