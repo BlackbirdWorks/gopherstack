@@ -71,6 +71,8 @@ type Datapoint struct {
 // MetricAlarm represents a CloudWatch metric alarm.
 type MetricAlarm struct {
 	EvaluationWindow                   *AlarmEvaluationWindow `json:"EvaluationWindow,omitempty"`
+	WarmUp                             *AlarmWarmUp           `json:"WarmUpConfiguration,omitempty"`
+	EvaluateLowSampleCountPercentile   string                 `json:"EvaluateLowSampleCountPercentile,omitempty"`
 	CreatedAt                          time.Time              `json:"AlarmCreatedAt"`
 	StateTransitionedTimestamp         time.Time              `json:"StateTransitionedTimestamp"`
 	StateUpdatedTimestamp              time.Time              `json:"StateUpdatedTimestamp"`
@@ -99,6 +101,12 @@ type MetricAlarm struct {
 	DatapointsToAlarm                  int32                  `json:"DatapointsToAlarm,omitempty"`
 	Period                             int32                  `json:"Period"`
 	ActionsEnabled                     bool                   `json:"ActionsEnabled"`
+}
+
+// AlarmWarmUp is types.WarmUpConfiguration: the alarm stays put until the period elapses after a create/update.
+type AlarmWarmUp struct {
+	PeriodMinutes int32 `json:"WarmUpPeriodDurationInMinutes"`
+	OnlyAfterEnd  bool  `json:"OnlyStartEvaluatingAfterWarmUpPeriodEnds,omitempty"`
 }
 
 // CompositeAlarm represents a CloudWatch composite alarm that combines child alarms.
@@ -295,13 +303,33 @@ type DashboardValidationMessage struct {
 
 // AnomalyDetector represents a CloudWatch anomaly detector.
 type AnomalyDetector struct {
-	ID         string      `json:"Id"`
-	Namespace  string      `json:"Namespace"`
-	MetricName string      `json:"MetricName"`
-	Stat       string      `json:"Stat"`
-	StateValue string      `json:"StateValue"`
-	Dimensions []Dimension `json:"Dimensions,omitempty"`
-	BandWidth  float64     `json:"BandWidth,omitempty"`
+	Configuration         *AnomalyDetectorConfiguration `json:"Configuration,omitempty"`
+	MetricCharacteristics *MetricCharacteristics        `json:"MetricCharacteristics,omitempty"`
+	ID                    string                        `json:"Id"`
+	Namespace             string                        `json:"Namespace"`
+	MetricName            string                        `json:"MetricName"`
+	Stat                  string                        `json:"Stat"`
+	StateValue            string                        `json:"StateValue"`
+	Dimensions            []Dimension                   `json:"Dimensions,omitempty"`
+	MetricMath            []MetricDataQuery             `json:"MetricMath,omitempty"`
+	BandWidth             float64                       `json:"BandWidth,omitempty"`
+}
+
+// AnomalyDetectorConfiguration holds the model-training settings of an anomaly detector.
+type AnomalyDetectorConfiguration struct {
+	MetricTimezone     string             `json:"MetricTimezone,omitempty"`
+	ExcludedTimeRanges []AnomalyTimeRange `json:"ExcludedTimeRanges,omitempty"`
+}
+
+// AnomalyTimeRange is a period excluded from anomaly model training.
+type AnomalyTimeRange struct {
+	StartTime time.Time `json:"StartTime"`
+	EndTime   time.Time `json:"EndTime"`
+}
+
+// MetricCharacteristics tunes anomaly model training for the metric.
+type MetricCharacteristics struct {
+	PeriodicSpikes bool `json:"PeriodicSpikes"`
 }
 
 // InsightRule represents a CloudWatch Contributor Insights rule.

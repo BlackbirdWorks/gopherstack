@@ -161,6 +161,8 @@ func (h *Handler) handleRestoreDBInstanceFromDBSnapshot(vals url.Values) (any, e
 		return nil, err
 	}
 
+	h.applyCreateTags(vals, inst.DBInstanceArn)
+
 	return &restoreDBInstanceFromDBSnapshotResponse{
 		Xmlns:      rdsXMLNS,
 		DBInstance: toXMLInstance(inst, h.Backend.InstanceAssociatedRoles(inst.DBInstanceIdentifier)),
@@ -181,6 +183,8 @@ func (h *Handler) handleCopyDBSnapshot(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	h.applyCreateTags(vals, snap.DBSnapshotArn)
 
 	return &copyDBSnapshotResponse{
 		Xmlns:      rdsXMLNS,

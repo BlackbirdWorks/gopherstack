@@ -333,10 +333,11 @@ func (h *Handler) handleDescribeComplianceByResource(
 
 // GetComplianceDetailsByResource request/response types and handler.
 type getComplianceDetailsByResourceInput struct {
-	ResourceType    string   `json:"ResourceType"`
-	ResourceID      string   `json:"ResourceId"`
-	NextToken       string   `json:"NextToken,omitempty"`
-	ComplianceTypes []string `json:"ComplianceTypes,omitempty"`
+	ResourceType         string   `json:"ResourceType"`
+	ResourceID           string   `json:"ResourceId"`
+	ResourceEvaluationID string   `json:"ResourceEvaluationId,omitempty"`
+	NextToken            string   `json:"NextToken,omitempty"`
+	ComplianceTypes      []string `json:"ComplianceTypes,omitempty"`
 }
 type getComplianceDetailsByResourceOutput struct {
 	NextToken         string                     `json:"NextToken,omitempty"`
@@ -346,8 +347,20 @@ type getComplianceDetailsByResourceOutput struct {
 func (h *Handler) handleGetComplianceDetailsByResource(
 	_ context.Context, in *getComplianceDetailsByResourceInput,
 ) (*getComplianceDetailsByResourceOutput, error) {
+	resourceType, resourceID := in.ResourceType, in.ResourceID
+
+	if in.ResourceEvaluationID != "" {
+		re := h.Backend.GetResourceEvaluationSummaryByID(in.ResourceEvaluationID)
+		if re == nil {
+			return nil, fmt.Errorf(
+				"%w: unknown ResourceEvaluationId %s", ErrInvalidParameterValue, in.ResourceEvaluationID)
+		}
+
+		resourceType, resourceID = re.ResourceType, re.ResourceID
+	}
+
 	return &getComplianceDetailsByResourceOutput{
-		EvaluationResults: h.Backend.GetComplianceDetailsByResource(in.ResourceType, in.ResourceID, in.ComplianceTypes),
+		EvaluationResults: h.Backend.GetComplianceDetailsByResource(resourceType, resourceID, in.ComplianceTypes),
 	}, nil
 }
 
@@ -468,7 +481,8 @@ func (h *Handler) handleGetAggregateConfigRuleComplianceSummary(
 
 // DescribeAggregateComplianceByConfigRules request/response types and handler.
 type describeAggregateComplianceByConfigRulesInput struct {
-	Filters *struct {
+	ConfigurationAggregatorName string `json:"ConfigurationAggregatorName"`
+	Filters                     *struct {
 		ConfigRuleName string `json:"ConfigRuleName,omitempty"`
 		ComplianceType string `json:"ComplianceType,omitempty"`
 		AccountID      string `json:"AccountId,omitempty"`
@@ -485,6 +499,10 @@ type describeAggregateComplianceByConfigRulesOutput struct {
 func (h *Handler) handleDescribeAggregateComplianceByConfigRules(
 	_ context.Context, in *describeAggregateComplianceByConfigRulesInput,
 ) (*describeAggregateComplianceByConfigRulesOutput, error) {
+	if err := h.Backend.RequireAggregator(in.ConfigurationAggregatorName); err != nil {
+		return nil, err
+	}
+
 	all := h.Backend.DescribeAggregateComplianceByConfigRules()
 	if f := in.Filters; f != nil {
 		all = slices.DeleteFunc(all, func(v any) bool {
@@ -587,10 +605,20 @@ func (h *Handler) handlePutExternalEvaluation(
 }
 
 // StartConfigRulesEvaluation request/response types and handler.
+const maxStartEvaluationRules = 25
+
+type startConfigRulesEvaluationInput struct {
+	ConfigRuleNames []string `json:"ConfigRuleNames,omitempty"`
+}
+
 func (h *Handler) handleStartConfigRulesEvaluation(
-	_ context.Context, _ *emptyInput,
+	_ context.Context, in *startConfigRulesEvaluationInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, h.Backend.StartConfigRulesEvaluation()
+	if len(in.ConfigRuleNames) > maxStartEvaluationRules {
+		return nil, fmt.Errorf("%w: at most %d ConfigRuleNames", ErrInvalidParameterValue, maxStartEvaluationRules)
+	}
+
+	return &emptyOutput{}, h.Backend.StartConfigRulesEvaluationFor(in.ConfigRuleNames)
 }
 
 // GetCustomRulePolicy request/response types and handler.

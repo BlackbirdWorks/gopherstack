@@ -47,6 +47,16 @@ func (h *Handler) cborPutMetricAlarm(input cbor.Map, c *echo.Context) error {
 		Dimensions:              cborDimensions(input),
 		Metrics:                 parseMetricDataQueries(input, "Metrics"),
 		EvaluationWindow:        cborEvaluationWindow(input),
+		WarmUp:                  cborWarmUp(input),
+
+		EvaluateLowSampleCountPercentile: cborStr(input, "EvaluateLowSampleCountPercentile"),
+	}
+
+	_, hasCriteria := input["EvaluationCriteria"]
+	_, hasInterval := input["EvaluationInterval"]
+
+	if err := checkUnsupportedAlarmMembers(hasCriteria, hasInterval); err != nil {
+		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
 	}
 
 	if err := h.Backend.PutMetricAlarm(alarm); err != nil {
@@ -235,6 +245,29 @@ func addMetricAlarmListsCBOR(m cbor.Map, a *MetricAlarm) {
 	if a.EvaluationWindow != nil {
 		m["EvaluationWindow"] = evaluationWindowCBOR(a.EvaluationWindow)
 	}
+	if a.WarmUp != nil {
+		//nolint:gosec // PeriodMinutes is validated positive
+		minutes := uint64(a.WarmUp.PeriodMinutes)
+		m["WarmUpConfiguration"] = cbor.Map{
+			"WarmUpPeriodDurationInMinutes":            cbor.Uint(minutes),
+			"OnlyStartEvaluatingAfterWarmUpPeriodEnds": cbor.Bool(a.WarmUp.OnlyAfterEnd),
+		}
+	}
+	if a.EvaluateLowSampleCountPercentile != "" {
+		m["EvaluateLowSampleCountPercentile"] = cbor.String(a.EvaluateLowSampleCountPercentile)
+	}
+}
+
+// cborWarmUp decodes the WarmUpConfiguration structure.
+func cborWarmUp(input cbor.Map) *AlarmWarmUp {
+	w, ok := input["WarmUpConfiguration"].(cbor.Map)
+	if !ok {
+		return nil
+	}
+
+	only, _ := w["OnlyStartEvaluatingAfterWarmUpPeriodEnds"].(cbor.Bool)
+
+	return &AlarmWarmUp{PeriodMinutes: cborInt32(w, "WarmUpPeriodDurationInMinutes"), OnlyAfterEnd: bool(only)}
 }
 
 // cborEvaluationWindow decodes the EvaluationWindow union ({SlidingWindow:{}} or {WallClockWindow:{Timezone}}).

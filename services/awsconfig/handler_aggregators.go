@@ -2,6 +2,7 @@ package awsconfig
 
 import (
 	"context"
+	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -96,8 +97,9 @@ func (h *Handler) handlePutAggregationAuthorization(
 
 // DescribeConfigurationAggregators request/response types and handler.
 type describeConfigurationAggregatorsInput struct {
-	NextToken string `json:"NextToken,omitempty"`
-	Limit     int32  `json:"Limit,omitempty"`
+	NextToken                    string   `json:"NextToken,omitempty"`
+	ConfigurationAggregatorNames []string `json:"ConfigurationAggregatorNames,omitempty"`
+	Limit                        int32    `json:"Limit,omitempty"`
 }
 type describeConfigurationAggregatorsOutput struct {
 	NextToken                string                    `json:"NextToken,omitempty"`
@@ -107,7 +109,18 @@ type describeConfigurationAggregatorsOutput struct {
 func (h *Handler) handleDescribeConfigurationAggregators(
 	_ context.Context, in *describeConfigurationAggregatorsInput,
 ) (*describeConfigurationAggregatorsOutput, error) {
-	p, err := paginate(h.Backend.DescribeConfigurationAggregators(), in.NextToken, in.Limit, unboundedPageDefault)
+	aggs := h.Backend.DescribeConfigurationAggregators()
+
+	if len(in.ConfigurationAggregatorNames) > 0 {
+		var nameErr error
+
+		aggs, nameErr = h.Backend.DescribeConfigurationAggregatorsByName(in.ConfigurationAggregatorNames)
+		if nameErr != nil {
+			return nil, nameErr
+		}
+	}
+
+	p, err := paginate(aggs, in.NextToken, in.Limit, unboundedPageDefault)
 	if err != nil {
 		return nil, err
 	}
@@ -120,9 +133,10 @@ func (h *Handler) handleDescribeConfigurationAggregators(
 
 // DescribeConfigurationAggregatorSourcesStatus request/response types and handler.
 type describeConfigurationAggregatorSourcesStatusInput struct {
-	ConfigurationAggregatorName string `json:"ConfigurationAggregatorName"`
-	NextToken                   string `json:"NextToken,omitempty"`
-	Limit                       int32  `json:"Limit,omitempty"`
+	ConfigurationAggregatorName string   `json:"ConfigurationAggregatorName"`
+	NextToken                   string   `json:"NextToken,omitempty"`
+	UpdateStatus                []string `json:"UpdateStatus,omitempty"`
+	Limit                       int32    `json:"Limit,omitempty"`
 }
 type describeConfigurationAggregatorSourcesStatusOutput struct {
 	NextToken                  string                   `json:"NextToken,omitempty"`
@@ -135,6 +149,12 @@ func (h *Handler) handleDescribeConfigurationAggregatorSourcesStatus(
 	statuses, err := h.Backend.DescribeConfigurationAggregatorSourcesStatus(in.ConfigurationAggregatorName)
 	if err != nil {
 		return nil, err
+	}
+
+	if len(in.UpdateStatus) > 0 {
+		statuses = slices.DeleteFunc(statuses, func(s AggregatedSourceStatus) bool {
+			return !slices.Contains(in.UpdateStatus, s.LastUpdateStatus)
+		})
 	}
 
 	p, err := paginate(statuses, in.NextToken, in.Limit, unboundedPageDefault)

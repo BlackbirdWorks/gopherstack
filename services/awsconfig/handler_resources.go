@@ -124,17 +124,14 @@ func (h *Handler) handleDeleteResourceConfig(
 	return &emptyOutput{}, h.Backend.DeleteResourceConfig(in.ResourceType, in.ResourceID)
 }
 
-// PutResourceConfig request/response types and handler. SchemaVersionId is a
-// required member (aws-sdk-go-v2/service/configservice's
-// PutResourceConfigInput) that real AWS uses to validate Configuration
-// against the CloudFormation-registered schema for ResourceType -- a check
-// this emulator cannot perform. It carries no output (PutResourceConfigOutput
-// has no fields), so it is accepted and required but not stored.
+// PutResourceConfig: SchemaVersionId is required but real schema validation is not modelled.
 type putResourceConfigInput struct {
-	ResourceType    string `json:"ResourceType"`
-	ResourceID      string `json:"ResourceId"`
-	Configuration   string `json:"Configuration"`
-	SchemaVersionID string `json:"SchemaVersionId"`
+	Tags            map[string]string `json:"Tags,omitempty"`
+	ResourceType    string            `json:"ResourceType"`
+	ResourceID      string            `json:"ResourceId"`
+	ResourceName    string            `json:"ResourceName,omitempty"`
+	Configuration   string            `json:"Configuration"`
+	SchemaVersionID string            `json:"SchemaVersionId"`
 }
 
 func (h *Handler) handlePutResourceConfig(
@@ -144,7 +141,9 @@ func (h *Handler) handlePutResourceConfig(
 		return nil, fmt.Errorf("%w: SchemaVersionId is required", ErrValidation)
 	}
 
-	return &emptyOutput{}, h.Backend.PutResourceConfig(in.ResourceType, in.ResourceID, in.Configuration)
+	return &emptyOutput{}, h.Backend.PutResourceConfigNamed(
+		in.ResourceType, in.ResourceID, in.Configuration, in.ResourceName, in.Tags,
+	)
 }
 
 // GetResourceConfigHistory request/response types and handler.
@@ -298,6 +297,7 @@ func (h *Handler) handleGetAggregateResourceConfig(
 type listDiscoveredResourcesInput struct {
 	ResourceType string   `json:"resourceType"`
 	NextToken    string   `json:"nextToken,omitempty"`
+	ResourceName string   `json:"resourceName,omitempty"`
 	ResourceIDs  []string `json:"resourceIds,omitempty"`
 	Limit        int32    `json:"limit,omitempty"`
 }
@@ -319,6 +319,10 @@ func (h *Handler) handleListDiscoveredResources(
 			all,
 			func(it ResourceConfigItem) bool { return !slices.Contains(in.ResourceIDs, it.ResourceID) },
 		)
+	}
+
+	if in.ResourceName != "" {
+		all = slices.DeleteFunc(all, func(it ResourceConfigItem) bool { return it.ResourceName != in.ResourceName })
 	}
 
 	p, err := paginate(all, in.NextToken, in.Limit, listDiscoveredResourcesPageDefault)
@@ -409,10 +413,11 @@ func (h *Handler) handleSelectResourceConfig(
 
 // SelectAggregateResourceConfig request/response types and handler.
 type selectAggregateResourceConfigInput struct {
-	Expression string `json:"Expression"`
-	NextToken  string `json:"NextToken,omitempty"`
-	MaxResults int32  `json:"MaxResults,omitempty"`
-	Limit      int32  `json:"Limit,omitempty"`
+	ConfigurationAggregatorName string `json:"ConfigurationAggregatorName"`
+	Expression                  string `json:"Expression"`
+	NextToken                   string `json:"NextToken,omitempty"`
+	MaxResults                  int32  `json:"MaxResults,omitempty"`
+	Limit                       int32  `json:"Limit,omitempty"`
 }
 
 type selectAggregateResourceConfigOutput struct {
@@ -423,6 +428,10 @@ type selectAggregateResourceConfigOutput struct {
 func (h *Handler) handleSelectAggregateResourceConfig(
 	_ context.Context, in *selectAggregateResourceConfigInput,
 ) (*selectAggregateResourceConfigOutput, error) {
+	if err := h.Backend.RequireAggregator(in.ConfigurationAggregatorName); err != nil {
+		return nil, err
+	}
+
 	results, err := h.Backend.SelectAggregateResourceConfig(in.Expression)
 	if err != nil {
 		return nil, err
@@ -453,12 +462,15 @@ type resourceEvaluationDetails struct {
 	ResourceType string `json:"ResourceType,omitempty"`
 }
 type getResourceEvaluationSummaryOutput struct {
-	EvaluationStatus         *resourceEvaluationStatus  `json:"EvaluationStatus,omitempty"`
-	ResourceDetails          *resourceEvaluationDetails `json:"ResourceDetails,omitempty"`
-	ResourceEvaluationID     string                     `json:"ResourceEvaluationId,omitempty"`
-	EvaluationMode           string                     `json:"EvaluationMode,omitempty"`
-	Compliance               string                     `json:"Compliance,omitempty"`
-	EvaluationStartTimestamp float64                    `json:"EvaluationStartTimestamp,omitempty"`
+	EvaluationStatus  *resourceEvaluationStatus  `json:"EvaluationStatus,omitempty"`
+	ResourceDetails   *resourceEvaluationDetails `json:"ResourceDetails,omitempty"`
+	EvaluationContext *struct {
+		EvaluationContextIdentifier string `json:"EvaluationContextIdentifier"`
+	} `json:"EvaluationContext,omitempty"`
+	ResourceEvaluationID     string  `json:"ResourceEvaluationId,omitempty"`
+	EvaluationMode           string  `json:"EvaluationMode,omitempty"`
+	Compliance               string  `json:"Compliance,omitempty"`
+	EvaluationStartTimestamp float64 `json:"EvaluationStartTimestamp,omitempty"`
 }
 
 func (h *Handler) handleGetResourceEvaluationSummary(
@@ -469,7 +481,7 @@ func (h *Handler) handleGetResourceEvaluationSummary(
 		return nil, fmt.Errorf("%w: %s", ErrResourceNotFound, in.ResourceEvaluationID)
 	}
 
-	return &getResourceEvaluationSummaryOutput{
+	out := &getResourceEvaluationSummaryOutput{
 		ResourceEvaluationID:     re.ResourceEvaluationID,
 		EvaluationMode:           re.EvaluationMode,
 		EvaluationStatus:         &resourceEvaluationStatus{Status: re.Status},
@@ -479,7 +491,15 @@ func (h *Handler) handleGetResourceEvaluationSummary(
 			ResourceID:   re.ResourceID,
 			ResourceType: re.ResourceType,
 		},
-	}, nil
+	}
+
+	if re.ContextIdentifier != "" {
+		out.EvaluationContext = &struct {
+			EvaluationContextIdentifier string `json:"EvaluationContextIdentifier"`
+		}{EvaluationContextIdentifier: re.ContextIdentifier}
+	}
+
+	return out, nil
 }
 
 // ListResourceEvaluations request/response types and handler.
@@ -494,7 +514,8 @@ type listResourceEvaluationsInput struct {
 			StartTime float64 `json:"StartTime"`
 			EndTime   float64 `json:"EndTime"`
 		} `json:"TimeWindow,omitempty"`
-		EvaluationMode string `json:"EvaluationMode,omitempty"`
+		EvaluationMode              string `json:"EvaluationMode,omitempty"`
+		EvaluationContextIdentifier string `json:"EvaluationContextIdentifier,omitempty"`
 	} `json:"Filters,omitempty"`
 	NextToken string `json:"NextToken,omitempty"`
 	Limit     int32  `json:"Limit,omitempty"`
@@ -521,6 +542,10 @@ func (h *Handler) handleListResourceEvaluations(
 				continue
 			}
 
+			if f.EvaluationContextIdentifier != "" && e.ContextIdentifier != f.EvaluationContextIdentifier {
+				continue
+			}
+
 			if w := f.TimeWindow; w != nil &&
 				(e.StartTime < w.StartTime || (w.EndTime != 0 && e.StartTime > w.EndTime)) {
 				continue
@@ -542,20 +567,19 @@ func (h *Handler) handleListResourceEvaluations(
 	return &listResourceEvaluationsOutput{ResourceEvaluations: p.Data, NextToken: p.Next}, nil
 }
 
-// StartResourceEvaluation request/response types and handler.
-// EvaluationTimeout (real, optional member) has no backend counterpart:
-// StartResourceEvaluation completes synchronously and always lands on
-// statusSucceeded, so there is no in-flight evaluation a timeout could ever
-// interrupt -- disclosed as a gap (PARITY.md items_still_open) rather than a
-// field that decodes into nothing observable.
+// StartResourceEvaluation: EvaluationTimeout is unmodelled (evaluation completes synchronously).
 type startResourceEvaluationDetails struct {
 	ResourceID            string `json:"ResourceId"`
 	ResourceType          string `json:"ResourceType"`
 	ResourceConfiguration string `json:"ResourceConfiguration"`
 }
 type startResourceEvaluationInput struct {
+	EvaluationContext *struct {
+		EvaluationContextIdentifier string `json:"EvaluationContextIdentifier"`
+	} `json:"EvaluationContext,omitempty"`
 	ResourceDetails startResourceEvaluationDetails `json:"ResourceDetails"`
 	EvaluationMode  string                         `json:"EvaluationMode"`
+	ClientToken     string                         `json:"ClientToken,omitempty"`
 }
 type startResourceEvaluationOutput struct {
 	ResourceEvaluationID string `json:"ResourceEvaluationId"`
@@ -564,12 +588,22 @@ type startResourceEvaluationOutput struct {
 func (h *Handler) handleStartResourceEvaluation(
 	_ context.Context, in *startResourceEvaluationInput,
 ) (*startResourceEvaluationOutput, error) {
-	id := h.Backend.StartResourceEvaluation(
+	contextID := ""
+	if in.EvaluationContext != nil {
+		contextID = in.EvaluationContext.EvaluationContextIdentifier
+	}
+
+	id, err := h.Backend.StartResourceEvaluationIdempotent(
 		in.ResourceDetails.ResourceType,
 		in.ResourceDetails.ResourceID,
 		in.EvaluationMode,
 		in.ResourceDetails.ResourceConfiguration,
+		in.ClientToken,
+		contextID,
 	)
+	if err != nil {
+		return nil, err
+	}
 
 	return &startResourceEvaluationOutput{ResourceEvaluationID: id}, nil
 }

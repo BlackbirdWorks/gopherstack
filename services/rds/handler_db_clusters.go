@@ -95,6 +95,11 @@ func buildDBClusterOptions(vals url.Values, numeric dbClusterNumericParams) DBCl
 			vals,
 			"AvailabilityZones.AvailabilityZone",
 		),
+		DBSubnetGroupName:                  vals.Get("DBSubnetGroupName"),
+		GlobalClusterIdentifier:            vals.Get("GlobalClusterIdentifier"),
+		VpcSecurityGroupIDs:                parseMultiValueParam(vals, "VpcSecurityGroupIds.VpcSecurityGroupId"),
+		AllocatedStorage:                   atoiOrZero(vals.Get("AllocatedStorage")),
+		Iops:                               atoiOrZero(vals.Get("Iops")),
 		BacktrackWindow:                    numeric.backtrackWindow,
 		BackupRetentionPeriod:              numeric.backupRetention,
 		MonitoringInterval:                 numeric.monitoringInterval,
@@ -257,6 +262,10 @@ func (h *Handler) handleModifyDBCluster(vals url.Values) (any, error) {
 			vals,
 			"CloudwatchLogsExportConfiguration.EnableLogTypes.member",
 		),
+		VpcSecurityGroupIDs:                parseMultiValueParam(vals, "VpcSecurityGroupIds.VpcSecurityGroupId"),
+		AllocatedStorage:                   atoiOrZero(vals.Get("AllocatedStorage")),
+		Iops:                               atoiOrZero(vals.Get("Iops")),
+		AllowMajorVersionUpgrade:           vals.Get("AllowMajorVersionUpgrade") == formTrue,
 		BacktrackWindow:                    backtrackWindow,
 		MonitoringInterval:                 monitoringInterval,
 		PerformanceInsightsRetentionPeriod: piRetention,
@@ -345,12 +354,18 @@ func (h *Handler) handleRestoreDBClusterFromSnapshot(vals url.Values) (any, erro
 		EnableIAMDatabaseAuthentication:    vals.Get("EnableIAMDatabaseAuthentication") == formTrue,
 		PerformanceInsightsKMSKeyID:        vals.Get("PerformanceInsightsKMSKeyId"),
 		PerformanceInsightsRetentionPeriod: piRetention,
+		DBSubnetGroupName:                  vals.Get("DBSubnetGroupName"),
+		VpcSecurityGroupIDs:                parseMultiValueParam(vals, "VpcSecurityGroupIds.VpcSecurityGroupId"),
+		EnabledCloudwatchLogsExports:       parseMultiValueParam(vals, "EnableCloudwatchLogsExports.member"),
+		PerformanceInsightsEnabled:         vals.Get("EnablePerformanceInsights") == formTrue,
 	}
 
 	cluster, err := h.Backend.RestoreDBClusterFromSnapshot(clusterID, snapshotID, engine, restoreOpts)
 	if err != nil {
 		return nil, err
 	}
+
+	h.applyCreateTags(vals, cluster.DBClusterArn)
 
 	return &restoreDBClusterFromSnapshotResponse{
 		Xmlns: rdsXMLNS,
@@ -379,12 +394,18 @@ func (h *Handler) handleRestoreDBClusterToPointInTime(vals url.Values) (any, err
 		EnableIAMDatabaseAuthentication:    vals.Get("EnableIAMDatabaseAuthentication") == formTrue,
 		PerformanceInsightsKMSKeyID:        vals.Get("PerformanceInsightsKMSKeyId"),
 		PerformanceInsightsRetentionPeriod: piRetention,
+		DBSubnetGroupName:                  vals.Get("DBSubnetGroupName"),
+		VpcSecurityGroupIDs:                parseMultiValueParam(vals, "VpcSecurityGroupIds.VpcSecurityGroupId"),
+		EnabledCloudwatchLogsExports:       parseMultiValueParam(vals, "EnableCloudwatchLogsExports.member"),
+		PerformanceInsightsEnabled:         vals.Get("EnablePerformanceInsights") == formTrue,
 	}
 
 	cluster, err := h.Backend.RestoreDBClusterToPointInTime(clusterID, sourceClusterID, restoreOpts)
 	if err != nil {
 		return nil, err
 	}
+
+	h.applyCreateTags(vals, cluster.DBClusterArn)
 
 	return &restoreDBClusterToPointInTimeResponse{
 		Xmlns: rdsXMLNS,
@@ -445,6 +466,18 @@ func toXMLCluster(c *DBCluster, roles []DBClusterRole) xmlDBCluster {
 		PerformanceInsightsKMSKeyID:        c.PerformanceInsightsKMSKeyID,
 		ClusterScalabilityType:             c.ClusterScalabilityType,
 		GlobalWriteForwardingRequested:     c.EnableGlobalWriteForwarding,
+		DBSubnetGroup:                      c.DBSubnetGroupName,
+		AllocatedStorage:                   c.AllocatedStorage,
+		Iops:                               c.Iops,
+	}
+
+	if len(c.VpcSecurityGroups) > 0 {
+		members := make([]xmlVpcSecurityGroupMembership, 0, len(c.VpcSecurityGroups))
+		for _, sg := range c.VpcSecurityGroups {
+			members = append(members, xmlVpcSecurityGroupMembership(sg))
+		}
+
+		x.VpcSecurityGroups = &xmlVpcSecurityGroupList{Members: members}
 	}
 
 	applyXMLClusterOptionalScalars(&x, c)
@@ -633,6 +666,7 @@ type xmlDBCluster struct {
 	AvailabilityZones                *xmlAvailabilityZoneList         `xml:"AvailabilityZones,omitempty"`
 	AssociatedRoles                  *xmlDBClusterRoleList            `xml:"AssociatedRoles,omitempty"`
 	MasterUserSecret                 *xmlMasterUserSecret             `xml:"MasterUserSecret,omitempty"`
+	VpcSecurityGroups                *xmlVpcSecurityGroupList         `xml:"VpcSecurityGroups,omitempty"`
 	ReadReplicaIdentifiers           *xmlClusterReplicaIdentifierList `xml:"ReadReplicaIdentifiers,omitempty"`
 	DBClusterOptionGroupMemberships  *xmlDBClusterOGMembershipList    `xml:"DBClusterOptionGroupMemberships,omitempty"`
 
@@ -663,6 +697,7 @@ type xmlDBCluster struct {
 	ClusterScalabilityType          string `xml:"ClusterScalabilityType,omitempty"`
 	PerformanceInsightsKMSKeyID     string `xml:"PerformanceInsightsKMSKeyId,omitempty"`
 	LocalWriteForwardingStatus      string `xml:"LocalWriteForwardingStatus,omitempty"`
+	DBSubnetGroup                   string `xml:"DBSubnetGroup,omitempty"`
 
 	Port                               int   `xml:"Port"`
 	Capacity                           int   `xml:"Capacity,omitempty"`
@@ -670,6 +705,8 @@ type xmlDBCluster struct {
 	BacktrackWindow                    int64 `xml:"BacktrackWindow,omitempty"`
 	MonitoringInterval                 int   `xml:"MonitoringInterval,omitempty"`
 	PerformanceInsightsRetentionPeriod int   `xml:"PerformanceInsightsRetentionPeriod,omitempty"`
+	AllocatedStorage                   int   `xml:"AllocatedStorage,omitempty"`
+	Iops                               int   `xml:"Iops,omitempty"`
 
 	MultiAZ                          bool `xml:"MultiAZ,omitempty"`
 	StorageEncrypted                 bool `xml:"StorageEncrypted,omitempty"`
@@ -971,6 +1008,10 @@ func (h *Handler) handleRestoreDBClusterFromS3(vals url.Values) (any, error) {
 		MasterSecretRequest:             parseMasterSecretRequest(vals),
 		MasterUserPassword:              vals.Get("MasterUserPassword"),
 		EnableIAMDatabaseAuthentication: vals.Get("EnableIAMDatabaseAuthentication") == formTrue,
+		OptionGroupName:                 vals.Get("OptionGroupName"),
+		DBSubnetGroupName:               vals.Get("DBSubnetGroupName"),
+		VpcSecurityGroupIDs:             parseMultiValueParam(vals, "VpcSecurityGroupIds.VpcSecurityGroupId"),
+		EnabledCloudwatchLogsExports:    parseMultiValueParam(vals, "EnableCloudwatchLogsExports.member"),
 	}
 	cluster, err := h.Backend.RestoreDBClusterFromS3(
 		id, engine, masterUsername, s3Bucket, s3IngestionRoleArn, sourceEngine, sourceEngineVersion,
@@ -979,6 +1020,8 @@ func (h *Handler) handleRestoreDBClusterFromS3(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	h.applyCreateTags(vals, cluster.DBClusterArn)
 
 	return &restoreDBClusterFromS3Response{
 		Xmlns: rdsXMLNS,
@@ -1051,4 +1094,10 @@ func (h *Handler) fisFailoverDBClusters(
 	}
 
 	return nil
+}
+
+func atoiOrZero(raw string) int {
+	v, _ := strconv.Atoi(raw)
+
+	return v
 }

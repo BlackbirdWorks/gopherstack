@@ -20,6 +20,13 @@ import (
 // MaxNumberOfConfigurationRecordersExceededException; service-linked recorders
 // (ServicePrincipal/ConnectorArn set) don't count against this limit.
 func (b *InMemoryBackend) PutConfigurationRecorder(name, roleARN string, recordingGroup *RecordingGroup) error {
+	return b.PutConfigurationRecorderTagged(name, roleARN, recordingGroup, nil)
+}
+
+// PutConfigurationRecorderTagged is PutConfigurationRecorder plus creation-time tags.
+func (b *InMemoryBackend) PutConfigurationRecorderTagged(
+	name, roleARN string, recordingGroup *RecordingGroup, tags []Tag,
+) error {
 	if strings.TrimSpace(name) == "" {
 		return fmt.Errorf("%w: ConfigurationRecorder name is required", ErrInvalidConfigurationRecorderName)
 	}
@@ -52,6 +59,7 @@ func (b *InMemoryBackend) PutConfigurationRecorder(name, roleARN string, recordi
 		Status:         recorderStatusPending,
 		RecordingGroup: recordingGroup,
 	})
+	b.setResourceTagsLocked(b.recorderArn(name), tags)
 
 	return nil
 }
@@ -214,7 +222,7 @@ func (b *InMemoryBackend) deleteServiceLinkedLinkForRecorderLocked(recorderName 
 }
 
 // recorderStatus builds a ConfigurationRecorderStatus from a recorder.
-func recorderStatus(r *ConfigurationRecorder) ConfigurationRecorderStatus {
+func (b *InMemoryBackend) recorderStatus(r *ConfigurationRecorder) ConfigurationRecorderStatus {
 	recording := r.Status == recorderStatusActive
 	lastStatus := recorderStatusPending
 	if recording {
@@ -222,9 +230,11 @@ func recorderStatus(r *ConfigurationRecorder) ConfigurationRecorderStatus {
 	}
 
 	return ConfigurationRecorderStatus{
-		Name:       r.Name,
-		Recording:  recording,
-		LastStatus: lastStatus,
+		Arn:              b.recorderArn(r.Name),
+		ServicePrincipal: b.recorderPrincipal(r),
+		Name:             r.Name,
+		Recording:        recording,
+		LastStatus:       lastStatus,
 	}
 }
 
@@ -239,12 +249,12 @@ func (b *InMemoryBackend) DescribeConfigurationRecorderStatus(names []string) []
 
 	if len(names) == 0 {
 		for _, r := range b.recorders.All() {
-			out = append(out, recorderStatus(r))
+			out = append(out, b.recorderStatus(r))
 		}
 	} else {
 		for _, n := range names {
 			if r, ok := b.recorders.Get(n); ok {
-				out = append(out, recorderStatus(r))
+				out = append(out, b.recorderStatus(r))
 			}
 		}
 	}
@@ -659,4 +669,46 @@ func validateRecordingGroup(rg *RecordingGroup) error {
 	}
 
 	return nil
+}
+
+// RecorderNamesForFilter narrows names by recorder ARN and service principal; ok is false when none match.
+func (b *InMemoryBackend) RecorderNamesForFilter(names []string, arn, servicePrincipal string) ([]string, bool) {
+	if arn == "" && servicePrincipal == "" {
+		return names, true
+	}
+
+	b.mu.RLock("RecorderNamesForFilter")
+	defer b.mu.RUnlock()
+
+	var out []string
+
+	for _, r := range b.recorders.All() {
+		if len(names) > 0 && !slices.Contains(names, r.Name) {
+			continue
+		}
+
+		if (arn != "" && b.recorderArn(r.Name) != arn) ||
+			(servicePrincipal != "" && b.recorderPrincipal(r) != servicePrincipal) {
+			continue
+		}
+
+		out = append(out, r.Name)
+	}
+
+	return out, len(out) > 0
+}
+
+// recorderPrincipal returns r's owning service principal, from the recorder itself or the service-linked link table.
+func (b *InMemoryBackend) recorderPrincipal(r *ConfigurationRecorder) string {
+	if r.ServicePrincipal != "" {
+		return r.ServicePrincipal
+	}
+
+	for _, l := range b.serviceLinkedRecorders.All() {
+		if l.RecorderName == r.Name {
+			return l.ServicePrincipal
+		}
+	}
+
+	return ""
 }

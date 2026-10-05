@@ -212,7 +212,8 @@ type TTPsObservedDetail struct {
 
 // DatasourcePackageIngestDetail holds the ingest state for a datasource package.
 type DatasourcePackageIngestDetail struct {
-	IngestState string
+	LastIngestStateChange map[string]time.Time
+	IngestState           string
 }
 
 // MembershipDatasources holds datasource package info for a member or graph.

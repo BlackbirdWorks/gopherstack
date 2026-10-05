@@ -99,6 +99,10 @@ func (h *Handler) putInsightRule(ruleName string, form url.Values, c *echo.Conte
 		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
+	if rule, err := h.Backend.GetInsightRule(ruleName); err == nil {
+		h.applyFormCreationTags(form, rule.Arn)
+	}
+
 	return nil
 }
 

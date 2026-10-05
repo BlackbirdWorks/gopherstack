@@ -34,7 +34,9 @@ func (h *Handler) cborPutAnomalyDetector(input cbor.Map, c *echo.Context) error 
 		dims = cborDimensions(input)
 	}
 
-	if namespace == "" || metricName == "" {
+	mathQueries := cborMetricMathQueries(input)
+
+	if len(mathQueries) == 0 && (namespace == "" || metricName == "") {
 		return h.cborError(
 			c,
 			http.StatusBadRequest,
@@ -44,12 +46,19 @@ func (h *Handler) cborPutAnomalyDetector(input cbor.Map, c *echo.Context) error 
 	}
 
 	detector := &AnomalyDetector{
-		Namespace:  namespace,
-		MetricName: metricName,
-		Stat:       stat,
-		Dimensions: dims,
-		StateValue: statusTrainedInsufficient,
+		Namespace:             namespace,
+		MetricName:            metricName,
+		Stat:                  stat,
+		Dimensions:            dims,
+		StateValue:            statusTrainedInsufficient,
+		MetricMath:            mathQueries,
+		Configuration:         cborAnomalyConfiguration(input),
+		MetricCharacteristics: cborMetricCharacteristics(input),
 	}
+	if len(mathQueries) > 0 {
+		detector.Namespace, detector.MetricName, detector.Stat, detector.Dimensions = "", "", "", nil
+	}
+
 	if err := h.Backend.PutAnomalyDetector(detector); err != nil {
 		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
@@ -57,7 +66,86 @@ func (h *Handler) cborPutAnomalyDetector(input cbor.Map, c *echo.Context) error 
 	return writeCBOR(c, cbor.Map{"AnomalyDetectorId": cbor.String(detector.ID)})
 }
 
+func cborMetricMathQueries(input cbor.Map) []MetricDataQuery {
+	mm, ok := input["MetricMathAnomalyDetector"].(cbor.Map)
+	if !ok {
+		return nil
+	}
+
+	return parseMetricDataQueries(mm, "MetricDataQueries")
+}
+
+func cborAnomalyConfiguration(input cbor.Map) *AnomalyDetectorConfiguration {
+	cfgMap, ok := input["Configuration"].(cbor.Map)
+	if !ok {
+		return nil
+	}
+
+	cfg := &AnomalyDetectorConfiguration{MetricTimezone: cborStr(cfgMap, "MetricTimezone")}
+
+	if ranges, isList := cfgMap["ExcludedTimeRanges"].(cbor.List); isList {
+		for _, r := range ranges {
+			if rm, isMap := r.(cbor.Map); isMap {
+				cfg.ExcludedTimeRanges = append(cfg.ExcludedTimeRanges, AnomalyTimeRange{
+					StartTime: cborTime(rm, "StartTime"),
+					EndTime:   cborTime(rm, "EndTime"),
+				})
+			}
+		}
+	}
+
+	return cfg
+}
+
+func cborMetricCharacteristics(input cbor.Map) *MetricCharacteristics {
+	mc, ok := input["MetricCharacteristics"].(cbor.Map)
+	if !ok {
+		return nil
+	}
+
+	spikes, _ := mc["PeriodicSpikes"].(cbor.Bool)
+
+	return &MetricCharacteristics{PeriodicSpikes: bool(spikes)}
+}
+
+func cborAnomalyConfigurationValue(cfg *AnomalyDetectorConfiguration) cbor.Map {
+	out := cbor.Map{}
+	if cfg.MetricTimezone != "" {
+		out["MetricTimezone"] = cbor.String(cfg.MetricTimezone)
+	}
+
+	if len(cfg.ExcludedTimeRanges) > 0 {
+		ranges := make(cbor.List, 0, len(cfg.ExcludedTimeRanges))
+		for _, r := range cfg.ExcludedTimeRanges {
+			ranges = append(ranges, cbor.Map{
+				"StartTime": cborFromTime(r.StartTime),
+				"EndTime":   cborFromTime(r.EndTime),
+			})
+		}
+
+		out["ExcludedTimeRanges"] = ranges
+	}
+
+	return out
+}
+
 func (h *Handler) cborDeleteAnomalyDetector(input cbor.Map, c *echo.Context) error {
+	if id := cborStr(input, "AnomalyDetectorId"); id != "" {
+		if err := h.Backend.DeleteAnomalyDetectorByID(id); err != nil {
+			return h.cborError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
+		}
+
+		return writeCBOR(c, cbor.Map{})
+	}
+
+	if queries := cborMetricMathQueries(input); len(queries) > 0 {
+		if err := h.Backend.DeleteMetricMathAnomalyDetector(queries); err != nil {
+			return h.cborError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
+		}
+
+		return writeCBOR(c, cbor.Map{})
+	}
+
 	namespace := ""
 	metricName := ""
 	stat := ""
@@ -97,7 +185,21 @@ func (h *Handler) cborDescribeAnomalyDetectors(input cbor.Map, c *echo.Context) 
 	nextToken := cborStr(input, "NextToken")
 	maxResults := int(cborInt32(input, "MaxResults"))
 
-	p, err := h.Backend.DescribeAnomalyDetectors(namespace, metricName, nextToken, maxResults)
+	filter := AnomalyDetectorFilter{
+		Namespace:  namespace,
+		MetricName: metricName,
+		IDs:        cborStrList(input, "AnomalyDetectorIds"),
+		Types:      cborStrList(input, "AnomalyDetectorTypes"),
+		Dimensions: cborDimensions(input),
+	}
+
+	if len(filter.IDs) > 0 && (namespace != "" || metricName != "" || len(filter.Types) > 0 ||
+		len(filter.Dimensions) > 0) {
+		return h.cborError(c, http.StatusBadRequest, "InvalidParameterCombinationException",
+			"AnomalyDetectorIds cannot be combined with Namespace, MetricName, Dimensions or AnomalyDetectorTypes")
+	}
+
+	p, err := h.Backend.DescribeAnomalyDetectorsFiltered(filter, nextToken, maxResults)
 	if err != nil {
 		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
@@ -109,10 +211,24 @@ func (h *Handler) cborDescribeAnomalyDetectors(input cbor.Map, c *echo.Context) 
 			keyMetricName: cbor.String(d.MetricName),
 			"Stat":        cbor.String(d.Stat),
 		}
-		entry := cbor.Map{
-			keyStateValue:                 cbor.String(d.StateValue),
-			"SingleMetricAnomalyDetector": smad,
+		entry := cbor.Map{keyStateValue: cbor.String(d.StateValue)}
+
+		if len(d.MetricMath) > 0 {
+			entry["MetricMathAnomalyDetector"] = cbor.Map{"MetricDataQueries": buildMetricDataQueriesCBOR(d.MetricMath)}
+		} else {
+			entry["SingleMetricAnomalyDetector"] = smad
 		}
+
+		if d.Configuration != nil {
+			entry["Configuration"] = cborAnomalyConfigurationValue(d.Configuration)
+		}
+
+		if d.MetricCharacteristics != nil {
+			entry["MetricCharacteristics"] = cbor.Map{
+				"PeriodicSpikes": cbor.Bool(d.MetricCharacteristics.PeriodicSpikes),
+			}
+		}
+
 		if d.ID != "" {
 			entry["AnomalyDetectorId"] = cbor.String(d.ID)
 		}

@@ -83,6 +83,10 @@ func (h *Handler) handlePutAlarmMuteRule(form url.Values, c *echo.Context) error
 		return err
 	}
 
+	if stored, err := h.Backend.GetAlarmMuteRule(form.Get("Name")); err == nil {
+		h.applyFormCreationTags(form, stored.Arn)
+	}
+
 	type response struct {
 		XMLName   xml.Name `xml:"PutAlarmMuteRuleResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`

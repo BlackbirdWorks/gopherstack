@@ -28,6 +28,8 @@ var (
 	ErrNoDeliveryChannel = awserr.New("NoAvailableDeliveryChannelException", awserr.ErrInvalidParameter)
 	// ErrValidation is returned when a required field is missing or invalid.
 	ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter)
+	// ErrIdempotentParameterMismatch is returned when a ClientToken is reused with different parameters.
+	ErrIdempotentParameterMismatch = awserr.New("IdempotentParameterMismatch", awserr.ErrInvalidParameter)
 	// ErrInvalidParameterValue is returned for a missing/invalid required field
 	// on operations whose declared error model has no ValidationException --
 	// e.g. PutRemediationExceptions (verified against aws-sdk-go-v2/service/

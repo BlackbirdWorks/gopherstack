@@ -85,6 +85,8 @@ func (h *Handler) handlePutCompositeAlarm(form url.Values, c *echo.Context) erro
 		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
+	h.applyFormCreationTags(form, alarm.AlarmArn)
+
 	type response struct {
 		XMLName   xml.Name `xml:"PutCompositeAlarmResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`

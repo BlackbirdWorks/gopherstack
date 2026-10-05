@@ -71,6 +71,8 @@ func (h *Handler) handlePutLogAlarm(form url.Values, c *echo.Context) error {
 		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
+	h.applyFormCreationTags(form, alarm.AlarmArn)
+
 	type response struct {
 		XMLName   xml.Name `xml:"PutLogAlarmResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`

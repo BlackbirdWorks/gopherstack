@@ -141,8 +141,19 @@ deferred:                 # consciously not audited this pass (scope) — next p
   - widget.go / widget_draw.go / widget_font.go (GetMetricWidgetImage PNG rendering internals — not a wire-shape or state-correctness concern, only visual fidelity)
   - "IMPLEMENTED 2026-08-07 (bd gopherstack-lrmf): metric-stream Firehose delivery -- see families.metric-streams-delivery. Remaining: opentelemetry0.7/opentelemetry1.0 OutputFormat byte-level OTLP protobuf shape not encoded (json only); SetFirehosePutter cli.go wiring itself is deferred (forbidden in this pass's scope), so delivery does not fire in a real running gopherstack server yet, only under test with a wired mock/real backend."
   - "DEEPENED 2026-08-07 (bd gopherstack-lrmf): insight-rule Definition schema validation -- see PutInsightRule row. Remaining: Contribution.Filters per-match-type field shape (Match/In/NotIn/StartsWith/EqualTo/NotEqualTo) and CLF's Fields position-mapping requirement are not enforced, deliberately, since neither is part of the generated SDK model and this pass could not verify their exact shape against a typed struct."
-  - MetricAlarm/LogAlarm fields added to the real SDK model alongside this pass's SDK bump but not part of the 7 named new operations: types.MetricAlarm now also has StateUpdatedTimestamp, EvaluationCriteria, EvaluationInterval, EvaluateLowSampleCountPercentile (EvaluationWindow now modeled, 2026-10-04), none of which gopherstack's MetricAlarm struct carries (StateUpdatedTimestamp WAS added to the new LogAlarm type this pass, since that type was authored fresh — but retrofitting it and the other new fields onto the pre-existing MetricAlarm struct is a larger, separate change against a type used across ~15 files, out of scope here). Unit WAS added 2026-09-11 (gopherstack-l4ywn) — see dated section below; removed from this list. Discovered while field-diffing LogAlarm against MetricAlarm for comparison; worth a dedicated pass.
-  - inline Tags on PutLogAlarm's request (PutLogAlarmInput.Tags []types.Tag) is parsed nowhere, matching the exact same pre-existing gap on PutMetricAlarmInput.Tags/PutInsightRuleInput.Tags (neither is parsed either) — deliberately NOT fixed to single out PutLogAlarm, since that would make it inconsistent with its two Put* siblings; tagging still works via the separate TagResource op for all three.
+  - "PutCompositeAlarm.ActionsSuppressor is accepted but ignored: suppression needs a delayed-action scheduler."
+  - "PutCompositeAlarm.ActionsSuppressorWaitPeriod is accepted but ignored: needs the delayed-action scheduler."
+  - "PutCompositeAlarm.ActionsSuppressorExtensionPeriod is accepted but ignored: needs the delayed-action scheduler."
+  - "GetMetricData.LabelOptions is accepted but ignored: label timezone offsets are not rendered."
+  - "PutMetricData.EntityMetricData is accepted but ignored: no entity model."
+  - "PutMetricData.StrictEntityValidation is accepted but ignored: no entity model."
+  - "PutMetricStream.IncludeLinkedAccountsMetrics is accepted but ignored: single-account backend."
+  - "ListMetrics.OwningAccount is accepted but ignored: single-account backend."
+  - "DescribeAlarmHistory.AlarmContributorId is accepted but ignored: no contributor-scoped alarms."
+  - "PutMetricAlarm.EvaluationCriteria (PromQL) is rejected with a validation error: no PromQL engine."
+  - "PutMetricAlarm.EvaluationInterval is rejected with a validation error: it is only valid with PromQL EvaluationCriteria."
+  - "PutMetricAlarm.EvaluateLowSampleCountPercentile is validated and echoed but ignore has no effect: AWS documents no statistical-significance threshold."
+  - "PutLogAlarm.WarmUpConfiguration is accepted but ignored: warm-up is applied to metric alarms only (log alarms have no evaluation loop)."
 leaks: {status: clean, note: "Janitor (janitor.go) owns the single alarm-eval + metric-sweep goroutine, ctx-cancel-aware, StartWorker only spawns it for *InMemoryBackend. storeDatum/filterAlivePoints reslice (not just filter) to release oversized backing arrays (#60 total-metrics counter avoids O(namespaces) walks). No new goroutines/tickers introduced this pass. New tables (logAlarms, datasets, otelEnrichment, registered in store_setup.go) are plain store.Table[T] with no background workers; log alarms have no automatic evaluation loop (no CloudWatch Logs query engine exists here) so nothing was added to janitor.go's sweep."}
 ---
 
@@ -1371,3 +1382,24 @@ handling exists in metricmath.go/GetMetricData); rules are evaluated at query ti
 ## 2026-10-04 (reqfielddiff tier-1 pass)
 
 PutMetricAlarm now models EvaluationWindow (union of SlidingWindow and WallClockWindow{Timezone}) on both the CBOR and query wires: it is stored, echoed by DescribeAlarms, and validated (wall clock needs a period of 60/300/3600/86400/604800 and a valid IANA zone or a UTC offset in 5-minute steps). The alarm evaluator for a wall clock alarm evaluates up to the latest clock boundary in its zone instead of "now"; weekly windows start on Monday (the SDK only says "start of the calendar week", so that choice is an assumption). Persistence additive (`EvaluationWindow`). `PutMetricStream.StatisticsConfigurations` is a tool false positive (decoded by the form and CBOR metric-stream parsers). ListMetrics.IncludeLinkedAccounts and PutInsightRule.ApplyOnTransformedLogs stay recorded. Proof: `TestPutMetricAlarm_EvaluationWindow`, `TestAlarmEvaluationTime_WallClockAlignment`.
+
+## 2026-10-05 (gopherstack-9x62 pass 8)
+
+reqfielddiff findings adjudicated as false positives (the CBOR path applies creation tags; the query path now does too):
+- PutMetricAlarm.Tags: covered by TestPutOpsWithTags_RoundTrip and TestFormPutOps_CreationTags.
+- PutCompositeAlarm.Tags: covered by TestPutOpsWithTags_RoundTrip and TestFormPutOps_CreationTags.
+- PutInsightRule.Tags: covered by TestPutOpsWithTags_RoundTrip.
+- PutMetricStream.Tags: covered by TestPutOpsWithTags_RoundTrip.
+- PutDashboard.Tags: covered by TestPutOpsWithTags_RoundTrip and TestFormPutOps_CreationTags.
+- PutAlarmMuteRule.Tags: covered by TestPutOpsWithTags_RoundTrip.
+- PutLogAlarm.Tags: covered by TestPutOpsWithTags_RoundTrip; the stale deferred item claiming it was unparsed is removed.
+
+Fixed (typed SDK tests alarm_warmup_sdk_test.go, form_creation_tags_test.go, anomaly_detector_members_sdk_test.go):
+- PutMetricAlarm.WarmUpConfiguration: stored, echoed, and gates evaluation (stays put during warm-up; early end needs a full window unless OnlyStartEvaluatingAfterWarmUpPeriodEnds).
+- DeleteAnomalyDetector.AnomalyDetectorId: resolves the detector by id.
+- DeleteAnomalyDetector.MetricMathAnomalyDetector: resolves a metric-math detector.
+- PutAnomalyDetector.MetricCharacteristics: stored and echoed.
+- PutAnomalyDetector.MetricMathAnomalyDetector: stored and echoed.
+- DescribeAnomalyDetectors.Dimensions: filters detectors by dimensions.
+- DescribeAnomalyDetectors.AnomalyDetectorIds: filters by id (rejected when combined with other filters).
+- DescribeAnomalyDetectors.AnomalyDetectorTypes: filters single-metric versus metric-math detectors.

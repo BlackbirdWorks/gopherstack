@@ -1,6 +1,7 @@
 package rds
 
 import (
+	"cmp"
 	"fmt"
 	"net/url"
 	"slices"
@@ -176,6 +177,13 @@ func (b *InMemoryBackend) DeleteDBClusterSnapshot(snapshotID string) (*DBCluster
 func (b *InMemoryBackend) CopyDBClusterSnapshot(
 	sourceSnapshotID, targetSnapshotID string, copyTags bool,
 ) (*DBClusterSnapshot, error) {
+	return b.CopyDBClusterSnapshotWithKMS(sourceSnapshotID, targetSnapshotID, copyTags, "")
+}
+
+// CopyDBClusterSnapshotWithKMS is CopyDBClusterSnapshot plus KmsKeyId, which re-encrypts the copy.
+func (b *InMemoryBackend) CopyDBClusterSnapshotWithKMS(
+	sourceSnapshotID, targetSnapshotID string, copyTags bool, kmsKeyID string,
+) (*DBClusterSnapshot, error) {
 	if sourceSnapshotID == "" {
 		return nil, fmt.Errorf("%w: SourceDBClusterSnapshotIdentifier must not be empty", ErrInvalidParameter)
 	}
@@ -210,7 +218,8 @@ func (b *InMemoryBackend) CopyDBClusterSnapshot(
 		Status:                      instanceStatusAvailable,
 		SnapshotType:                snapshotTypeManual,
 		PercentProgress:             percentProgressComplete,
-		StorageEncrypted:            source.StorageEncrypted,
+		StorageEncrypted:            source.StorageEncrypted || kmsKeyID != "",
+		KmsKeyID:                    cmp.Or(kmsKeyID, source.KmsKeyID),
 		CopyTagsToSnapshot:          copyTags,
 		SourceDBClusterSnapshotArn:  source.DBClusterSnapshotArn,
 	}

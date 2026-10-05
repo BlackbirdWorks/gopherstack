@@ -246,6 +246,7 @@ items_still_open:
   - "OPEN 2026-10-03: with --rds-engine=docker read replicas, restore-based instances, custom cluster
     endpoints, DBPortNumber changes and non-Postgres/MySQL/MariaDB engines stay metadata-only. Restore
     relaunches empty containers."
+  - "OPEN 2026-10-05 (gopherstack-9x62): FailoverGlobalCluster/SwitchoverGlobalCluster do not move the writer role between members; CreateDBInstanceReadReplica.SourceDBClusterIdentifier, CopyDBClusterSnapshot/CreateDBCluster.SourceRegion and PreSignedUrl (cross-region) are not read; DBInstance.MaxAllocatedStorage is stored and echoed but never autoscales; the cluster restores copy only a subset of the source/snapshot attributes."
   - "OPEN: DescribeDBClusterSnapshots/DescribeDBSnapshots .IncludePublic/.IncludeShared
     are dropped; single-account backend has no cross-account snapshot data to reveal."
   - "OPEN 2026-09-13 (gopherstack-xhu2t tier-5 sweep, consolidated 2026-09-26): five
@@ -1861,3 +1862,13 @@ False positives, all re-read against rds@v1.124.1: every flagged Describe* Filte
 - DescribeDBProxyTargetGroups.Filters: unsupported per SDK, same doc (api_op_DescribeDBProxyTargetGroups.go:37).
 - DescribeDBProxyTargets.Filters: unsupported per SDK, same doc (api_op_DescribeDBProxyTargets.go:36).
 - DescribeReservedDBInstancesOfferings.Filters: unsupported per SDK, documented "This parameter isn't currently supported." (api_op_DescribeReservedDBInstancesOfferings.go:41).
+
+
+## Notes 2026-10-05 (gopherstack-9x62 pass 8)
+
+Dropped members now applied (typed SDK test `dropped_members_sdk_test.go`): CreateDBCluster/ModifyDBCluster DBSubnetGroupName,
+VpcSecurityGroupIds, AllocatedStorage, Iops, GlobalClusterIdentifier (real global-cluster membership) and ModifyDBCluster.AllowMajorVersionUpgrade;
+CreateGlobalCluster.SourceDBClusterIdentifier/DatabaseName; Copy{DBParameterGroup,DBClusterParameterGroup,OptionGroup,DBSnapshot,DBClusterSnapshot}.Tags
+and CopyDBClusterSnapshot.KmsKeyId; DBInstance NetworkType/MaxAllocatedStorage and ModifyDBInstance.DBSubnetGroupName; CreateDBInstanceReadReplica
+now honours class, subnet group, storage, KMS, monitoring, PI, log exports, network type, AZ and port; cluster/instance restore ops apply Tags,
+subnet group, VPC security groups and log exports. CopyOptionGroup now assigns the copy an OptionGroupArn.

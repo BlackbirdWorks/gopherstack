@@ -58,22 +58,33 @@ func (b *InMemoryBackend) DescribeRemediationConfigurations(ruleNames []string) 
 // for a rule (real Config adds one exception per key in the request, e.g. 3
 // exceptions for 3 resource keys).
 func (b *InMemoryBackend) PutRemediationExceptions(ruleName string, keys []RemediationExceptionResourceKey) error {
+	return b.PutRemediationExceptionsWithMeta(ruleName, keys, "", 0)
+}
+
+// PutRemediationExceptionsWithMeta is PutRemediationExceptions plus the Message and ExpirationTime (epoch seconds).
+func (b *InMemoryBackend) PutRemediationExceptionsWithMeta(
+	ruleName string, keys []RemediationExceptionResourceKey, message string, expiration float64,
+) error {
 	b.mu.Lock("PutRemediationExceptions")
 	defer b.mu.Unlock()
 
 	for _, k := range keys {
-		b.putRemediationExceptionLocked(ruleName, k.ResourceType, k.ResourceID)
+		b.putRemediationExceptionLocked(ruleName, k.ResourceType, k.ResourceID, message, expiration)
 	}
 
 	return nil
 }
 
 // putRemediationExceptionLocked upserts a single exception; callers must hold b.mu.
-func (b *InMemoryBackend) putRemediationExceptionLocked(ruleName, resourceType, resourceID string) {
+func (b *InMemoryBackend) putRemediationExceptionLocked(
+	ruleName, resourceType, resourceID, message string, expiration float64,
+) {
 	ex := RemediationException{
 		ConfigRuleName: ruleName,
 		ResourceType:   resourceType,
 		ResourceID:     resourceID,
+		Message:        message,
+		ExpirationTime: expiration,
 	}
 
 	existing := b.remediationExceptions[ruleName]

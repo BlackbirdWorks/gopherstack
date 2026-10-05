@@ -111,20 +111,27 @@ type putConformancePackInput struct {
 	ConformancePackName        string                                        `json:"ConformancePackName"`
 	DeliveryS3Bucket           string                                        `json:"DeliveryS3Bucket,omitempty"`
 	DeliveryS3KeyPrefix        string                                        `json:"DeliveryS3KeyPrefix,omitempty"`
-	TemplateBody               string                                        `json:"TemplateBody,omitempty"`
-	TemplateS3Uri              string                                        `json:"TemplateS3Uri,omitempty"`
-	Tags                       []Tag                                         `json:"Tags,omitempty"`
+
+	Parameters []ConformancePackInputParameter `json:"ConformancePackInputParameters,omitempty"`
+
+	TemplateBody  string `json:"TemplateBody,omitempty"`
+	TemplateS3Uri string `json:"TemplateS3Uri,omitempty"`
+	Tags          []Tag  `json:"Tags,omitempty"`
+}
+
+type putConformancePackOutput struct {
+	ConformancePackArn string `json:"ConformancePackArn"`
 }
 
 func (h *Handler) handlePutConformancePack(
 	_ context.Context, in *putConformancePackInput,
-) (*emptyOutput, error) {
+) (*putConformancePackOutput, error) {
 	ssmDocName := ""
 	if in.TemplateSSMDocumentDetails != nil {
 		ssmDocName = in.TemplateSSMDocumentDetails.DocumentName
 	}
 
-	return &emptyOutput{}, h.Backend.PutConformancePack(
+	arn, err := h.Backend.PutConformancePackWithParams(
 		in.ConformancePackName,
 		in.DeliveryS3Bucket,
 		in.DeliveryS3KeyPrefix,
@@ -132,7 +139,13 @@ func (h *Handler) handlePutConformancePack(
 		in.TemplateS3Uri,
 		ssmDocName,
 		in.Tags,
+		in.Parameters,
 	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &putConformancePackOutput{ConformancePackArn: arn}, nil
 }
 
 // DescribeConformancePackStatus request/response types and handler.

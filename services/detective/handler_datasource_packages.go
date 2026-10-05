@@ -18,17 +18,20 @@ func ingestHistoryToJSON(history map[string]map[string]time.Time) map[string]any
 	result := make(map[string]any, len(history))
 
 	for pkg, states := range history {
-		stateJSON := make(map[string]any, len(states))
-		for state, changedAt := range states {
-			stateJSON[state] = map[string]any{
-				"Timestamp": changedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
-			}
-		}
-
-		result[pkg] = stateJSON
+		result[pkg] = stateTimestampsToJSON(states)
 	}
 
 	return result
+}
+
+// stateTimestampsToJSON encodes state -> {Timestamp} (types.TimestampForCollection).
+func stateTimestampsToJSON(states map[string]time.Time) map[string]any {
+	out := make(map[string]any, len(states))
+	for state, changedAt := range states {
+		out[state] = map[string]any{"Timestamp": changedAt.UTC().Format("2006-01-02T15:04:05.000Z")}
+	}
+
+	return out
 }
 
 func (h *Handler) handleBatchGetGraphMemberDatasources(c *echo.Context) error {
@@ -141,6 +144,7 @@ func (h *Handler) handleListDatasourcePackages(c *echo.Context) error {
 	for k, v := range packages {
 		pkgDetails[k] = map[string]any{
 			"DatasourcePackageIngestState": v.IngestState,
+			"LastIngestStateChange":        stateTimestampsToJSON(v.LastIngestStateChange),
 		}
 	}
 

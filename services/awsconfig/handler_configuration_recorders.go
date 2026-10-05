@@ -90,6 +90,7 @@ type configurationRecorderBody struct {
 
 type putConfigurationRecorderRequest struct {
 	ConfigurationRecorder configurationRecorderBody `json:"ConfigurationRecorder"`
+	Tags                  []Tag                     `json:"Tags,omitempty"`
 }
 
 type putConfigurationRecorderOutput struct{}
@@ -98,10 +99,11 @@ func (h *Handler) handlePutConfigurationRecorder(
 	_ context.Context,
 	in *putConfigurationRecorderRequest,
 ) (*putConfigurationRecorderOutput, error) {
-	if err := h.Backend.PutConfigurationRecorder(
+	if err := h.Backend.PutConfigurationRecorderTagged(
 		in.ConfigurationRecorder.Name,
 		in.ConfigurationRecorder.RoleARN,
 		in.ConfigurationRecorder.RecordingGroup,
+		in.Tags,
 	); err != nil {
 		return nil, err
 	}
@@ -110,6 +112,8 @@ func (h *Handler) handlePutConfigurationRecorder(
 }
 
 type describeConfigurationRecordersInput struct {
+	Arn                        string   `json:"Arn,omitempty"`
+	ServicePrincipal           string   `json:"ServicePrincipal,omitempty"`
 	ConfigurationRecorderNames []string `json:"ConfigurationRecorderNames,omitempty"`
 }
 
@@ -121,7 +125,12 @@ func (h *Handler) handleDescribeConfigurationRecorders(
 	_ context.Context,
 	in *describeConfigurationRecordersInput,
 ) (*describeConfigurationRecordersOutput, error) {
-	recorders := h.Backend.DescribeConfigurationRecorders(in.ConfigurationRecorderNames)
+	names, ok := h.Backend.RecorderNamesForFilter(in.ConfigurationRecorderNames, in.Arn, in.ServicePrincipal)
+	if !ok {
+		return &describeConfigurationRecordersOutput{ConfigurationRecorders: []wireConfigurationRecorder{}}, nil
+	}
+
+	recorders := h.Backend.DescribeConfigurationRecorders(names)
 
 	return &describeConfigurationRecordersOutput{ConfigurationRecorders: toWireConfigurationRecorders(recorders)}, nil
 }
@@ -170,6 +179,8 @@ func (h *Handler) handleDeleteConfigurationRecorder(
 }
 
 type describeConfigurationRecorderStatusInput struct {
+	Arn                        string   `json:"Arn,omitempty"`
+	ServicePrincipal           string   `json:"ServicePrincipal,omitempty"`
 	ConfigurationRecorderNames []string `json:"ConfigurationRecorderNames,omitempty"`
 }
 
@@ -181,7 +192,14 @@ func (h *Handler) handleDescribeConfigurationRecorderStatus(
 	_ context.Context,
 	in *describeConfigurationRecorderStatusInput,
 ) (*describeConfigurationRecorderStatusOutput, error) {
-	statuses := h.Backend.DescribeConfigurationRecorderStatus(in.ConfigurationRecorderNames)
+	names, ok := h.Backend.RecorderNamesForFilter(in.ConfigurationRecorderNames, in.Arn, in.ServicePrincipal)
+	if !ok {
+		return &describeConfigurationRecorderStatusOutput{
+			ConfigurationRecordersStatus: []ConfigurationRecorderStatus{},
+		}, nil
+	}
+
+	statuses := h.Backend.DescribeConfigurationRecorderStatus(names)
 
 	return &describeConfigurationRecorderStatusOutput{ConfigurationRecordersStatus: statuses}, nil
 }

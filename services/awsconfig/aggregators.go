@@ -203,6 +203,33 @@ func (b *InMemoryBackend) DescribeConfigurationAggregators() []ConfigurationAggr
 	return out
 }
 
+// DescribeConfigurationAggregatorsByName returns the named aggregators, or ErrNoSuchAggregator for an unknown name.
+func (b *InMemoryBackend) DescribeConfigurationAggregatorsByName(names []string) ([]ConfigurationAggregator, error) {
+	b.mu.RLock("DescribeConfigurationAggregators")
+	defer b.mu.RUnlock()
+
+	out := make([]ConfigurationAggregator, 0, len(names))
+
+	for _, n := range names {
+		a, ok := b.aggregators.Get(n)
+		if !ok {
+			return nil, fmt.Errorf("%w: %s", ErrNoSuchAggregator, n)
+		}
+
+		out = append(out, *a)
+	}
+
+	return out, nil
+}
+
+// RequireAggregator errors ErrNoSuchAggregator when name is not a configured aggregator.
+func (b *InMemoryBackend) RequireAggregator(name string) error {
+	b.mu.RLock("RequireAggregator")
+	defer b.mu.RUnlock()
+
+	return b.requireAggregatorLocked(name)
+}
+
 // requireAggregatorLocked errors NoSuchConfigurationAggregatorException when
 // name does not identify a configured aggregator, matching every aggregate-*
 // operation's declared error model (verified against

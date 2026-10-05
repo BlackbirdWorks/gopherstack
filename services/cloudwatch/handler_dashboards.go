@@ -50,6 +50,10 @@ func (h *Handler) handlePutDashboard(form url.Values, c *echo.Context) error {
 		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
+	if entry, _, entryErr := h.Backend.GetDashboard(name); entryErr == nil {
+		h.applyFormCreationTags(form, entry.DashboardArn)
+	}
+
 	type response struct {
 		XMLName   xml.Name `xml:"PutDashboardResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`

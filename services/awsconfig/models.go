@@ -187,12 +187,19 @@ type AggregatorFilter struct {
 
 // ConformancePack represents an AWS Config conformance pack.
 type ConformancePack struct {
-	ConformancePackArn      string `json:"ConformancePackArn,omitempty"`
-	ConformancePackID       string `json:"ConformancePackId,omitempty"`
-	ConformancePackName     string `json:"ConformancePackName"`
-	DeliveryS3Bucket        string `json:"DeliveryS3Bucket,omitempty"`
-	DeliveryS3KeyPrefix     string `json:"DeliveryS3KeyPrefix,omitempty"`
-	LastUpdateRequestedTime string `json:"LastUpdateRequestedTime,omitempty"`
+	ConformancePackArn             string                          `json:"ConformancePackArn,omitempty"`
+	ConformancePackID              string                          `json:"ConformancePackId,omitempty"`
+	ConformancePackName            string                          `json:"ConformancePackName"`
+	DeliveryS3Bucket               string                          `json:"DeliveryS3Bucket,omitempty"`
+	DeliveryS3KeyPrefix            string                          `json:"DeliveryS3KeyPrefix,omitempty"`
+	LastUpdateRequestedTime        string                          `json:"LastUpdateRequestedTime,omitempty"`
+	ConformancePackInputParameters []ConformancePackInputParameter `json:"ConformancePackInputParameters,omitempty"`
+}
+
+// ConformancePackInputParameter mirrors types.ConformancePackInputParameter.
+type ConformancePackInputParameter struct {
+	ParameterName  string `json:"ParameterName"`
+	ParameterValue string `json:"ParameterValue"`
 }
 
 // OrganizationManagedRuleMetadata mirrors types.OrganizationManagedRuleMetadata.
@@ -218,18 +225,42 @@ type OrganizationCustomRuleMetadata struct {
 	ResourceTypesScope                 []string `json:"ResourceTypesScope,omitempty"`
 }
 
+// OrganizationCustomPolicyRuleMetadata mirrors the SDK type; Describe never echoes PolicyText.
+type OrganizationCustomPolicyRuleMetadata struct {
+	Description                        string   `json:"Description,omitempty"`
+	InputParameters                    string   `json:"InputParameters,omitempty"`
+	MaximumExecutionFrequency          string   `json:"MaximumExecutionFrequency,omitempty"`
+	PolicyRuntime                      string   `json:"PolicyRuntime,omitempty"`
+	PolicyText                         string   `json:"PolicyText,omitempty"`
+	ResourceIDScope                    string   `json:"ResourceIdScope,omitempty"`
+	TagKeyScope                        string   `json:"TagKeyScope,omitempty"`
+	TagValueScope                      string   `json:"TagValueScope,omitempty"`
+	DebugLogDeliveryAccounts           []string `json:"DebugLogDeliveryAccounts,omitempty"`
+	OrganizationConfigRuleTriggerTypes []string `json:"OrganizationConfigRuleTriggerTypes,omitempty"`
+	ResourceTypesScope                 []string `json:"ResourceTypesScope,omitempty"`
+}
+
 // OrganizationConfigRule represents an AWS Config organization config rule.
 type OrganizationConfigRule struct {
 	OrganizationManagedRuleMetadata *OrganizationManagedRuleMetadata `json:"OrganizationManagedRuleMetadata,omitempty"`
 	OrganizationCustomRuleMetadata  *OrganizationCustomRuleMetadata  `json:"OrganizationCustomRuleMetadata,omitempty"`
-	OrganizationConfigRuleName      string                           `json:"OrganizationConfigRuleName"`
-	OrganizationConfigRuleArn       string                           `json:"OrganizationConfigRuleArn"`
-	ExcludedAccounts                []string                         `json:"ExcludedAccounts,omitempty"`
+
+	CustomPolicy *OrganizationCustomPolicyRuleMetadata `json:"OrganizationCustomPolicyRuleMetadata,omitempty"`
+
+	OrganizationConfigRuleName string   `json:"OrganizationConfigRuleName"`
+	OrganizationConfigRuleArn  string   `json:"OrganizationConfigRuleArn"`
+	ExcludedAccounts           []string `json:"ExcludedAccounts,omitempty"`
 }
 
 // OrganizationConformancePack represents an AWS Config organization conformance pack.
 type OrganizationConformancePack struct {
-	OrganizationConformancePackName string `json:"OrganizationConformancePackName"`
+	OrganizationConformancePackName string                          `json:"OrganizationConformancePackName"`
+	OrganizationConformancePackArn  string                          `json:"OrganizationConformancePackArn,omitempty"`
+	DeliveryS3Bucket                string                          `json:"DeliveryS3Bucket,omitempty"`
+	DeliveryS3KeyPrefix             string                          `json:"DeliveryS3KeyPrefix,omitempty"`
+	ExcludedAccounts                []string                        `json:"ExcludedAccounts,omitempty"`
+	ConformancePackInputParameters  []ConformancePackInputParameter `json:"ConformancePackInputParameters,omitempty"`
+	LastUpdateTime                  float64                         `json:"LastUpdateTime,omitempty"`
 }
 
 // StoredQuery represents an AWS Config stored query.
@@ -249,12 +280,14 @@ type Tag struct {
 
 // ConfigurationRecorderStatus represents the recording status of a recorder.
 type ConfigurationRecorderStatus struct {
-	LastErrorCode string `json:"lastErrorCode,omitempty"`
-	LastStartTime string `json:"lastStartTime,omitempty"`
-	LastStatus    string `json:"lastStatus,omitempty"`
-	LastStopTime  string `json:"lastStopTime,omitempty"`
-	Name          string `json:"name"`
-	Recording     bool   `json:"recording"`
+	Arn              string `json:"arn,omitempty"`
+	ServicePrincipal string `json:"servicePrincipal,omitempty"`
+	LastErrorCode    string `json:"lastErrorCode,omitempty"`
+	LastStartTime    string `json:"lastStartTime,omitempty"`
+	LastStatus       string `json:"lastStatus,omitempty"`
+	LastStopTime     string `json:"lastStopTime,omitempty"`
+	Name             string `json:"name"`
+	Recording        bool   `json:"recording"`
 }
 
 // ConfigurationRecorderSummary is a lightweight summary returned by ListConfigurationRecorders.
@@ -344,9 +377,11 @@ type RemediationStaticValue struct {
 
 // RemediationException holds an exception for remediation of a resource.
 type RemediationException struct {
-	ConfigRuleName string `json:"ConfigRuleName"`
-	ResourceType   string `json:"ResourceType"`
-	ResourceID     string `json:"ResourceId"`
+	ConfigRuleName string  `json:"ConfigRuleName"`
+	ResourceType   string  `json:"ResourceType"`
+	ResourceID     string  `json:"ResourceId"`
+	Message        string  `json:"Message,omitempty"`
+	ExpirationTime float64 `json:"ExpirationTime,omitempty"`
 }
 
 // RemediationExecutionStepStatus holds the status of a single step of a
@@ -584,10 +619,12 @@ type OrganizationConformancePackDetailedStatus struct {
 // previously carried the PascalCase convention instead, so every consumer
 // always decoded these four fields as empty/zero.
 type ResourceConfigItem struct {
-	ResourceType                 string  `json:"resourceType"`
-	ResourceID                   string  `json:"resourceId"`
-	Configuration                string  `json:"configuration"`
-	ConfigurationItemCaptureTime float64 `json:"configurationItemCaptureTime"`
+	Tags                         map[string]string `json:"tags,omitempty"`
+	ResourceType                 string            `json:"resourceType"`
+	ResourceID                   string            `json:"resourceId"`
+	ResourceName                 string            `json:"resourceName,omitempty"`
+	Configuration                string            `json:"configuration"`
+	ConfigurationItemCaptureTime float64           `json:"configurationItemCaptureTime"`
 }
 
 // AggregatedSourceStatus holds the sync status of one configuration
