@@ -9,13 +9,15 @@
 | --- | --- |
 | PARITY entries audited | 60 (60 ok) |
 | Feature families | 18 (18 ok) |
-| Known gaps | 1 |
+| Known gaps | 3 |
 | Deferred items | 4 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- 2026-09-18 (gopherstack-dv4s over-wide-response census): DistributionTenant/DistributionTenantSummary both omit the real, optional Customizations member (types.DistributionTenantSummary/DistributionTenant, cloudfront@v1.67.4) even though the backend already tracks it (DistributionTenant.Customizations map[string]any, set by Update). Pre-existing on the singular GetDistributionTenant response too, not List-specific. Not fixed this pass: Customizations is a nested struct (Certificate.Arn, GeoRestrictions, WebAcl.Action/Arn) that needs its own wire-shape verification against the real deserializer before being surfaced, out of scope for a List-narrowing pass. Not fabricated -- correct per protocol to omit an absent optional field.
+- CreateDistributionTenant/UpdateDistributionTenant ManagedCertificateRequest is not applied: managed certificates need ACM validation this emulator does not run, so GetManagedCertificateDetails keeps its deterministic ARN. CreateKeyValueStore ImportSource is not applied: the import needs an S3 GetObject path no cloudfront hook exposes.
+- GetFunction/DescribeFunction and the connection-function equivalents ignore Stage: a function is one record whose Status flips DEVELOPMENT to LIVE on publish, so the LIVE snapshot that outlives a later UpdateFunction is not kept. AnycastIPList.AnycastIps are always IPv4-formatted whatever IpAddressType says, since the SDK documents no ipv6 or dualstack address count.
+- DistributionTenant responses still carry a WebACLArn element that the SDK type does not declare: it is the only place a tenant web ACL association (AssociateDistributionTenantWebACL) is observable, and how the real service surfaces it (likely Customizations.WebAcl) is unverified.
 
 ### Deferred
 
