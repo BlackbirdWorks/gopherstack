@@ -170,9 +170,7 @@ func (b *InMemoryBackend) CreateWorkspace(req *createWorkspaceRequest) (*Workspa
 	b.workspaces.Put(w)
 	b.scheduleWorkspaceTransition(id, StatusCreating)
 
-	cp := *w
-
-	return &cp, nil
+	return cloneWorkspace(w), nil
 }
 
 // scheduleWorkspaceTransition schedules an async transition of the named
@@ -219,9 +217,7 @@ func (b *InMemoryBackend) DescribeWorkspace(id string) (*Workspace, error) {
 		return nil, notFoundError(resourceTypeWorkspace, id)
 	}
 
-	cp := *w
-
-	return &cp, nil
+	return cloneWorkspace(w), nil
 }
 
 // ListWorkspaces returns every workspace, ordered by ID (matching
@@ -230,7 +226,25 @@ func (b *InMemoryBackend) ListWorkspaces() []*Workspace {
 	b.mu.RLock("ListWorkspaces")
 	defer b.mu.RUnlock()
 
-	return b.workspaces.Snapshot()
+	all := b.workspaces.Snapshot()
+	out := make([]*Workspace, len(all))
+
+	for i, w := range all {
+		out[i] = cloneWorkspace(w)
+	}
+
+	return out
+}
+
+// cloneWorkspace copies w so callers can read it after the backend lock is released.
+func cloneWorkspace(w *Workspace) *Workspace {
+	cp := *w
+	cp.AuthenticationProviders = cloneStrs(w.AuthenticationProviders)
+	cp.DataSources = cloneStrs(w.DataSources)
+	cp.NotificationDestinations = cloneStrs(w.NotificationDestinations)
+	cp.OrganizationalUnits = cloneStrs(w.OrganizationalUnits)
+
+	return &cp
 }
 
 // cloneStrs returns a deep copy of a string slice (nil-safe).
