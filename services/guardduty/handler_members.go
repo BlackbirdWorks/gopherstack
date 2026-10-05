@@ -321,14 +321,18 @@ func (h *Handler) handleGetMemberDetectors(detectorID string, body []byte) (any,
 
 func (h *Handler) handleUpdateMemberDetectors(detectorID string, body []byte) (any, int, error) {
 	var req struct {
-		AccountIDs []string `json:"accountIds"`
+		DataSources *dataSources      `json:"dataSources"`
+		AccountIDs  []string          `json:"accountIds"`
+		Features    []DetectorFeature `json:"features"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 
-	unprocessed, err := h.Backend.UpdateMemberDetectors(detectorID, req.AccountIDs)
+	features := mergeFeatures(req.DataSources.features(), req.Features)
+
+	unprocessed, err := h.Backend.UpdateMemberDetectors(detectorID, req.AccountIDs, features)
 	if err != nil {
 		return nil, http.StatusNotFound, err
 	}
@@ -445,7 +449,7 @@ func memberToMap(m *Member) map[string]any {
 		"accountId":          m.AccountID,
 		"administratorId":    m.AdministratorID,
 		"masterId":           m.MasterID,
-		"detectorId":         m.DetectorID, //nolint:goconst // existing issue.
+		"detectorId":         m.DetectorID,
 		"email":              m.Email,
 		"relationshipStatus": m.RelationshipStatus,
 		"invitedAt":          m.InvitedAt,

@@ -12,6 +12,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -28,6 +29,7 @@ const (
 	pathTags           = "tags"
 
 	keyName            = "name"
+	keyFeatures        = "features"
 	keyStatus          = "status"
 	keyTags            = "tags"
 	keyCreatedAt       = "createdAt"
@@ -184,11 +186,12 @@ const (
 type Handler struct {
 	Backend StorageBackend
 	peers   *regionpeers.Set[Handler]
+	idem    *idempotency.Memo
 }
 
 // NewHandler constructs a new Handler.
 func NewHandler(b StorageBackend) *Handler {
-	return &Handler{Backend: b}
+	return &Handler{Backend: b, idem: idempotency.New("guardduty")}
 }
 
 // Name returns the service name.

@@ -509,25 +509,33 @@ type EbsBlockDevice struct {
 
 // LaunchConfiguration represents an Auto Scaling launch configuration.
 type LaunchConfiguration struct {
-	CreatedTime                  time.Time            `json:"CreatedTime"`
-	LaunchConfigurationName      string               `json:"LaunchConfigurationName"`
-	LaunchConfigurationARN       string               `json:"LaunchConfigurationARN"`
-	ImageID                      string               `json:"ImageID"`
-	InstanceType                 string               `json:"InstanceType"`
-	KeyName                      string               `json:"KeyName,omitempty"`
-	IAMInstanceProfile           string               `json:"IAMInstanceProfile,omitempty"`
-	UserData                     string               `json:"UserData,omitempty"`
-	KernelID                     string               `json:"KernelID,omitempty"`
-	RamdiskID                    string               `json:"RamdiskID,omitempty"`
-	SpotPrice                    string               `json:"SpotPrice,omitempty"`
-	PlacementTenancy             string               `json:"PlacementTenancy,omitempty"`
-	ClassicLinkVPCID             string               `json:"ClassicLinkVpcId,omitempty"`
-	BlockDeviceMappings          []BlockDeviceMapping `json:"BlockDeviceMappings,omitempty"`
-	ClassicLinkVPCSecurityGroups []string             `json:"ClassicLinkVpcSecurityGroups,omitempty"`
-	SecurityGroups               []string             `json:"SecurityGroups,omitempty"`
-	AssociatePublicIPAddress     bool                 `json:"AssociatePublicIpAddress,omitempty"`
-	EbsOptimized                 bool                 `json:"EbsOptimized,omitempty"`
-	InstanceMonitoring           bool                 `json:"InstanceMonitoring,omitempty"`
+	CreatedTime                  time.Time                `json:"CreatedTime"`
+	LaunchConfigurationName      string                   `json:"LaunchConfigurationName"`
+	LaunchConfigurationARN       string                   `json:"LaunchConfigurationARN"`
+	ImageID                      string                   `json:"ImageID"`
+	InstanceType                 string                   `json:"InstanceType"`
+	KeyName                      string                   `json:"KeyName,omitempty"`
+	IAMInstanceProfile           string                   `json:"IAMInstanceProfile,omitempty"`
+	UserData                     string                   `json:"UserData,omitempty"`
+	KernelID                     string                   `json:"KernelID,omitempty"`
+	RamdiskID                    string                   `json:"RamdiskID,omitempty"`
+	SpotPrice                    string                   `json:"SpotPrice,omitempty"`
+	PlacementTenancy             string                   `json:"PlacementTenancy,omitempty"`
+	ClassicLinkVPCID             string                   `json:"ClassicLinkVpcId,omitempty"`
+	MetadataOptions              *InstanceMetadataOptions `json:"MetadataOptions,omitempty"`
+	BlockDeviceMappings          []BlockDeviceMapping     `json:"BlockDeviceMappings,omitempty"`
+	ClassicLinkVPCSecurityGroups []string                 `json:"ClassicLinkVpcSecurityGroups,omitempty"`
+	SecurityGroups               []string                 `json:"SecurityGroups,omitempty"`
+	AssociatePublicIPAddress     bool                     `json:"AssociatePublicIpAddress,omitempty"`
+	EbsOptimized                 bool                     `json:"EbsOptimized,omitempty"`
+	InstanceMonitoring           bool                     `json:"InstanceMonitoring,omitempty"`
+}
+
+// InstanceMetadataOptions is a launch configuration's instance metadata (IMDS) settings.
+type InstanceMetadataOptions struct {
+	HTTPEndpoint            string `json:"HttpEndpoint,omitempty"`
+	HTTPTokens              string `json:"HttpTokens,omitempty"`
+	HTTPPutResponseHopLimit int32  `json:"HttpPutResponseHopLimit,omitempty"`
 }
 
 // BlockDeviceMapping represents an EBS or ephemeral block device mapping.
@@ -633,17 +641,25 @@ type InstanceRefreshPreferences struct {
 
 // InstanceRefresh represents an instance refresh operation for an Auto Scaling group.
 type InstanceRefresh struct {
-	StartTime            time.Time `json:"StartTime"`
-	EndTime              time.Time `json:"EndTime,omitzero"`
-	InstanceRefreshID    string    `json:"InstanceRefreshId"`
-	AutoScalingGroupName string    `json:"AutoScalingGroupName"`
-	Status               string    `json:"Status"`
-	StatusReason         string    `json:"StatusReason,omitempty"`
+	StartTime time.Time `json:"StartTime"`
+	EndTime   time.Time `json:"EndTime,omitzero"`
+	// DesiredConfiguration is applied to the group when the refresh succeeds.
+	DesiredConfiguration *DesiredConfiguration `json:"DesiredConfiguration,omitempty"`
+	InstanceRefreshID    string                `json:"InstanceRefreshId"`
+	AutoScalingGroupName string                `json:"AutoScalingGroupName"`
+	Status               string                `json:"Status"`
+	StatusReason         string                `json:"StatusReason,omitempty"`
 	// Strategy is the instance refresh strategy; defaults to "Rolling".
 	Strategy           string                     `json:"Strategy,omitempty"`
 	Preferences        InstanceRefreshPreferences `json:"Preferences"`
 	PercentageComplete int32                      `json:"PercentageComplete,omitempty"`
 	InstancesToUpdate  int32                      `json:"InstancesToUpdate,omitempty"`
+}
+
+// DesiredConfiguration is StartInstanceRefresh's target launch template or mixed instances policy.
+type DesiredConfiguration struct {
+	LaunchTemplate       *LaunchTemplateSpecification `json:"LaunchTemplate,omitempty"`
+	MixedInstancesPolicy *MixedInstancesPolicy        `json:"MixedInstancesPolicy,omitempty"`
 }
 
 // LifecycleHook represents a lifecycle hook attached to an Auto Scaling group.
@@ -789,6 +805,7 @@ type CreateLaunchConfigurationInput struct {
 	ClassicLinkVPCID             string
 	SecurityGroups               []string
 	ClassicLinkVPCSecurityGroups []string
+	MetadataOptions              *InstanceMetadataOptions
 	BlockDeviceMappings          []BlockDeviceMapping
 	AssociatePublicIPAddress     bool
 	EbsOptimized                 bool
@@ -797,6 +814,7 @@ type CreateLaunchConfigurationInput struct {
 
 // StartInstanceRefreshInput holds the input for StartInstanceRefresh.
 type StartInstanceRefreshInput struct {
+	DesiredConfiguration *DesiredConfiguration
 	AutoScalingGroupName string
 	Strategy             string
 	Preferences          InstanceRefreshPreferences

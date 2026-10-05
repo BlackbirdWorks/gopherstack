@@ -77,10 +77,8 @@ type createAppRequest struct {
 	EnableBranchAutoDeletion   bool                      `json:"enableBranchAutoDeletion"`
 }
 
-// toAppOptions converts the wire request into the AppOptions the backend
-// expects. isCreate selects create-vs-update pointer/default semantics for
-// the plain (non-pointer) boolean fields -- see AppOptions's doc comment.
-func (r createAppRequest) toAppOptions(isCreate bool) AppOptions {
+// toAppOptions converts a CreateApp body into backend options; absent members take Amplify defaults.
+func (r createAppRequest) toAppOptions() AppOptions {
 	opts := AppOptions{
 		EnvironmentVariables:       r.EnvironmentVariables,
 		AutoBranchCreationConfig:   r.AutoBranchCreationConfig,
@@ -99,35 +97,11 @@ func (r createAppRequest) toAppOptions(isCreate bool) AppOptions {
 		opts.JobConfigBuildComputeType = ptrconv.NilIfEmpty(r.JobConfig.BuildComputeType)
 	}
 
-	// Plain bool JSON fields can't distinguish "false" from "absent", so
-	// CreateApp (which wants "absent -> real Amplify's default") always
-	// applies the request value, while UpdateApp (which wants "absent ->
-	// leave unchanged") only forwards it when true -- a caller that wants to
-	// explicitly flip one of these back to false on update must currently
-	// still send true (same limitation the pre-existing plain-bool
-	// enableAutoBuild field already has on UpdateBranch); this is
-	// conservative (never silently clobbers an existing true with an absent
-	// false) rather than silently wrong.
-	if isCreate {
-		opts.EnableBasicAuth = &r.EnableBasicAuth
-		opts.EnableAutoBranchCreation = &r.EnableAutoBranchCreation
-		opts.EnableBranchAutoDeletion = &r.EnableBranchAutoDeletion
-	} else {
-		opts.EnableBasicAuth = boolPtrIfTrue(r.EnableBasicAuth)
-		opts.EnableAutoBranchCreation = boolPtrIfTrue(r.EnableAutoBranchCreation)
-		opts.EnableBranchAutoDeletion = boolPtrIfTrue(r.EnableBranchAutoDeletion)
-	}
+	opts.EnableBasicAuth = &r.EnableBasicAuth
+	opts.EnableAutoBranchCreation = &r.EnableAutoBranchCreation
+	opts.EnableBranchAutoDeletion = &r.EnableBranchAutoDeletion
 
 	return opts
-}
-
-// boolPtrIfTrue returns a pointer to true when v is true, else nil.
-func boolPtrIfTrue(v bool) *bool {
-	if v {
-		return &v
-	}
-
-	return nil
 }
 
 // createApp handles POST /apps.
@@ -149,7 +123,7 @@ func (h *Handler) createApp(ctx context.Context, c *echo.Context) error {
 
 	app, createErr := h.Backend.CreateApp(
 		input.Name, input.Description, input.Repository, input.Platform, input.Tags,
-		input.toAppOptions(true),
+		input.toAppOptions(),
 	)
 	if createErr != nil {
 		return h.handleBackendError(ctx, c, "CreateApp", createErr)
@@ -217,8 +191,8 @@ func (h *Handler) updateApp(ctx context.Context, c *echo.Context, appID string) 
 	}
 
 	app, updateErr := h.Backend.UpdateApp(
-		appID, input.Name, input.Description, input.Repository, input.Platform,
-		input.toAppOptions(false),
+		appID, input.Name, "", "", input.Platform,
+		input.toAppUpdateOptions(sentKeys(body)),
 	)
 	if updateErr != nil {
 		return h.handleBackendError(ctx, c, "UpdateApp", updateErr)

@@ -3,6 +3,8 @@ package batch
 import (
 	"context"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
 )
 
 // --- ConsumableResource handlers ---
@@ -106,6 +108,7 @@ func (h *Handler) handleDescribeConsumableResource(
 // --- UpdateConsumableResource handler ---
 
 type updateConsumableResourceInput struct {
+	ClientToken        string `json:"clientToken,omitempty"`
 	ConsumableResource string `json:"consumableResource"`
 	Operation          string `json:"operation"`
 	Quantity           int64  `json:"quantity"`
@@ -130,9 +133,20 @@ func (h *Handler) handleUpdateConsumableResource(
 		return nil, fmt.Errorf("%w: consumableResource is required", ErrValidation)
 	}
 
-	cr, err := h.Backend.UpdateConsumableResource(ctx, in.ConsumableResource, in.Operation, in.Quantity)
+	req := *in
+	req.ClientToken = ""
+
+	cr, err := idempotency.Create(
+		h.idem, "UpdateConsumableResource|"+getRegion(ctx, h.Backend.region), in.ClientToken,
+		idempotency.Fingerprint(req),
+		func(cr *ConsumableResource) string { return cr.ConsumableResourceArn },
+		func(arn string) (*ConsumableResource, error) { return h.Backend.DescribeConsumableResource(ctx, arn) },
+		func() (*ConsumableResource, error) {
+			return h.Backend.UpdateConsumableResource(ctx, in.ConsumableResource, in.Operation, in.Quantity)
+		},
+	)
 	if err != nil {
-		return nil, err
+		return nil, tokenMismatchAsValidation(err)
 	}
 
 	return &updateConsumableResourceOutput{

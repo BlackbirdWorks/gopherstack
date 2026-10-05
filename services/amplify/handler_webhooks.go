@@ -107,8 +107,8 @@ func (h *Handler) updateWebhook(ctx context.Context, c *echo.Context, webhookID 
 	}
 
 	var input struct {
-		BranchName  string `json:"branchName"`
-		Description string `json:"description"`
+		Description *string `json:"description"`
+		BranchName  string  `json:"branchName"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {

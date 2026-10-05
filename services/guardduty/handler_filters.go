@@ -50,6 +50,7 @@ func (h *Handler) handleCreateFilter(detectorID string, body []byte) (any, int, 
 		Name            string            `json:"name"`
 		Description     string            `json:"description"`
 		Action          string            `json:"action"`
+		ClientToken     string            `json:"clientToken"`
 		Rank            int32             `json:"rank"`
 	}
 
@@ -65,20 +66,28 @@ func (h *Handler) handleCreateFilter(detectorID string, body []byte) (any, int, 
 		req.Action = "NOOP"
 	}
 
-	f, err := h.Backend.CreateFilter(
-		detectorID,
-		req.Name,
-		req.Description,
-		req.Action,
-		req.Rank,
-		req.FindingCriteria,
-		req.Tags,
+	token := req.ClientToken
+	req.ClientToken = ""
+
+	name, err := h.createOnce(
+		opCreateFilter, detectorID, token, req,
+		func(name string) error { return only(h.Backend.GetFilter(detectorID, name)) },
+		func() (string, error) {
+			f, createErr := h.Backend.CreateFilter(
+				detectorID, req.Name, req.Description, req.Action, req.Rank, req.FindingCriteria, req.Tags,
+			)
+			if createErr != nil {
+				return "", createErr
+			}
+
+			return f.Name, nil
+		},
 	)
 	if err != nil {
 		return nil, http.StatusBadRequest, err
 	}
 
-	return map[string]any{keyName: f.Name}, http.StatusOK, nil
+	return map[string]any{keyName: name}, http.StatusOK, nil
 }
 
 func (h *Handler) handleGetFilter(detectorID, filterName string) (any, int, error) {

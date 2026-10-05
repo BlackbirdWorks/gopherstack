@@ -81,7 +81,7 @@ func (b *InMemoryBackend) DescribeOrganizationConfiguration(detectorID string) (
 // UpdateOrganizationConfiguration updates org config for a detector.
 func (b *InMemoryBackend) UpdateOrganizationConfiguration(
 	detectorID string,
-	autoEnable bool,
+	autoEnable *bool,
 	autoEnableOrganizationMembers string,
 	features []OrgFeature,
 ) error {
@@ -98,14 +98,19 @@ func (b *InMemoryBackend) UpdateOrganizationConfiguration(
 		existing.detectorID = detectorID
 	}
 
-	existing.AutoEnable = autoEnable
+	if err := validateOrgUpdate(autoEnableOrganizationMembers, features); err != nil {
+		return err
+	}
+
+	if autoEnable != nil {
+		existing.AutoEnable = *autoEnable
+	}
+
 	if autoEnableOrganizationMembers != "" {
 		existing.AutoEnableOrganizationMembers = autoEnableOrganizationMembers
 	}
 
-	if features != nil {
-		existing.Features = features
-	}
+	existing.Features = mergeOrgFeatures(existing.Features, features)
 
 	b.orgConfigs.Put(existing)
 

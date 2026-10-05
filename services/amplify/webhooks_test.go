@@ -3,6 +3,7 @@ package amplify_test
 import (
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -46,12 +47,12 @@ func TestInMemoryBackend_Webhook_Lifecycle(t *testing.T) {
 	require.Error(t, err)
 
 	// Update webhook
-	updated, err := b.UpdateWebhook(wh.WebhookID, "main", "updated desc")
+	updated, err := b.UpdateWebhook(wh.WebhookID, "main", aws.String("updated desc"))
 	require.NoError(t, err)
 	assert.Equal(t, "updated desc", updated.Description)
 
 	// Update nonexistent
-	_, err = b.UpdateWebhook("nonexistent", "main", "desc")
+	_, err = b.UpdateWebhook("nonexistent", "main", aws.String("desc"))
 	require.Error(t, err)
 
 	// Delete webhook
@@ -95,7 +96,7 @@ func TestInMemoryBackend_Webhook_RequiresExistingBranch(t *testing.T) {
 		wh, err := b.CreateWebhook(app.AppID, "main", "test")
 		require.NoError(t, err)
 
-		_, err = b.UpdateWebhook(wh.WebhookID, "does-not-exist", "desc")
+		_, err = b.UpdateWebhook(wh.WebhookID, "does-not-exist", aws.String("desc"))
 		require.Error(t, err)
 	})
 }

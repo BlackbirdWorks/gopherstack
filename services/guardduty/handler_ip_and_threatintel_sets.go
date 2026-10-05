@@ -57,6 +57,7 @@ func (h *Handler) handleCreateIPSet(detectorID string, body []byte) (any, int, e
 		Format              string            `json:"format"`
 		Location            string            `json:"location"`
 		ExpectedBucketOwner string            `json:"expectedBucketOwner"`
+		ClientToken         string            `json:"clientToken"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -72,14 +73,28 @@ func (h *Handler) handleCreateIPSet(detectorID string, body []byte) (any, int, e
 		activate = *req.Activate
 	}
 
-	s, err := h.Backend.CreateIPSet(
-		detectorID, req.Name, req.Format, req.Location, activate, req.Tags, req.ExpectedBucketOwner,
+	token := req.ClientToken
+	req.ClientToken = ""
+
+	id, err := h.createOnce(
+		opCreateIPSet, detectorID, token, req,
+		func(id string) error { return only(h.Backend.GetIPSet(detectorID, id)) },
+		func() (string, error) {
+			s, createErr := h.Backend.CreateIPSet(
+				detectorID, req.Name, req.Format, req.Location, activate, req.Tags, req.ExpectedBucketOwner,
+			)
+			if createErr != nil {
+				return "", createErr
+			}
+
+			return s.IPSetID, nil
+		},
 	)
 	if err != nil {
 		return nil, http.StatusBadRequest, err
 	}
 
-	return map[string]any{"ipSetId": s.IPSetID}, http.StatusOK, nil
+	return map[string]any{"ipSetId": id}, http.StatusOK, nil
 }
 
 func (h *Handler) handleGetIPSet(detectorID, ipSetID string) (any, int, error) {
@@ -192,6 +207,7 @@ func (h *Handler) handleCreateThreatIntelSet(detectorID string, body []byte) (an
 		Format              string            `json:"format"`
 		Location            string            `json:"location"`
 		ExpectedBucketOwner string            `json:"expectedBucketOwner"`
+		ClientToken         string            `json:"clientToken"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -207,14 +223,28 @@ func (h *Handler) handleCreateThreatIntelSet(detectorID string, body []byte) (an
 		activate = *req.Activate
 	}
 
-	s, err := h.Backend.CreateThreatIntelSet(
-		detectorID, req.Name, req.Format, req.Location, activate, req.Tags, req.ExpectedBucketOwner,
+	token := req.ClientToken
+	req.ClientToken = ""
+
+	id, err := h.createOnce(
+		opCreateThreatIntelSet, detectorID, token, req,
+		func(id string) error { return only(h.Backend.GetThreatIntelSet(detectorID, id)) },
+		func() (string, error) {
+			s, createErr := h.Backend.CreateThreatIntelSet(
+				detectorID, req.Name, req.Format, req.Location, activate, req.Tags, req.ExpectedBucketOwner,
+			)
+			if createErr != nil {
+				return "", createErr
+			}
+
+			return s.ThreatIntelSetID, nil
+		},
 	)
 	if err != nil {
 		return nil, http.StatusBadRequest, err
 	}
 
-	return map[string]any{"threatIntelSetId": s.ThreatIntelSetID}, http.StatusOK, nil
+	return map[string]any{"threatIntelSetId": id}, http.StatusOK, nil
 }
 
 func (h *Handler) handleGetThreatIntelSet(detectorID, setID string) (any, int, error) {

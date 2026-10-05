@@ -166,12 +166,14 @@ func TestAutoscalingHandler_HTTPActions(t *testing.T) {
 					"Action=CreateAutoScalingGroup&Version=2011-01-01&AutoScalingGroupName=psf-http-asg&MinSize=0&MaxSize=5",
 				)
 			},
-			body:       "Action=GetPredictiveScalingForecast&Version=2011-01-01&AutoScalingGroupName=psf-http-asg",
+			body: "Action=GetPredictiveScalingForecast&Version=2011-01-01&AutoScalingGroupName=psf-http-asg" +
+				"&StartTime=2030-01-01T00:00:00Z&EndTime=2030-01-02T00:00:00Z",
 			wantStatus: http.StatusOK,
 		},
 		{
-			name:       "get_predictive_scaling_forecast_not_found",
-			body:       "Action=GetPredictiveScalingForecast&Version=2011-01-01&AutoScalingGroupName=no-such",
+			name: "get_predictive_scaling_forecast_not_found",
+			body: "Action=GetPredictiveScalingForecast&Version=2011-01-01&AutoScalingGroupName=no-such" +
+				"&StartTime=2030-01-01T00:00:00Z&EndTime=2030-01-02T00:00:00Z",
 			wantStatus: http.StatusBadRequest,
 		},
 		// DeleteNotificationConfiguration

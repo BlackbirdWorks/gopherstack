@@ -424,7 +424,7 @@ func TestInMemoryBackend_UpdateBranch_PartialSemantics(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "React", branch.Framework)
 
-	updated, err := b.UpdateBranch(app.AppID, "main", "new description", "", false)
+	updated, err := b.UpdateBranch(app.AppID, "main", "new description", "", nil)
 	require.NoError(t, err)
 
 	assert.Equal(t, "new description", updated.Description)
@@ -440,7 +440,7 @@ func TestInMemoryBackend_UpdateBranch_InvalidStage(t *testing.T) {
 	app := seedApp(t, b, "BadStageUpdateApp")
 	branch := seedMainBranch(t, b, app.AppID)
 
-	_, err := b.UpdateBranch(app.AppID, branch.BranchName, "", "STAGING", false)
+	_, err := b.UpdateBranch(app.AppID, branch.BranchName, "", "STAGING", nil)
 	require.Error(t, err)
 	require.ErrorIs(t, err, awserr.ErrInvalidParameter)
 }

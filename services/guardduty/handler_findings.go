@@ -50,7 +50,8 @@ func (h *Handler) dispatchFindingOps(op, path string, body []byte) (any, int, bo
 
 func (h *Handler) handleGetFindings(detectorID string, body []byte) (any, int, error) {
 	var req struct {
-		FindingIDs []string `json:"findingIds"`
+		SortCriteria *SortCriteria `json:"sortCriteria"`
+		FindingIDs   []string      `json:"findingIds"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -60,6 +61,10 @@ func (h *Handler) handleGetFindings(detectorID string, body []byte) (any, int, e
 	findings, err := h.Backend.GetFindings(detectorID, req.FindingIDs)
 	if err != nil {
 		return nil, http.StatusNotFound, err
+	}
+
+	if req.SortCriteria != nil {
+		sortFindings(findings, req.SortCriteria.AttributeName, req.SortCriteria.OrderBy)
 	}
 
 	return map[string]any{"findings": findings}, http.StatusOK, nil

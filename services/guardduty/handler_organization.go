@@ -138,7 +138,7 @@ func (h *Handler) handleDescribeOrganizationConfiguration(detectorID, query stri
 		"autoEnable":                cfg.AutoEnable,
 		"memberAccountLimitReached": cfg.MemberAccountLimitReached,
 		"dataSources":               cfg.DataSources,
-		"features":                  cfg.Features, //nolint:goconst // existing issue.
+		keyFeatures:                 cfg.Features,
 	}
 
 	if cfg.AutoEnableOrganizationMembers != "" {
@@ -154,9 +154,10 @@ func (h *Handler) handleDescribeOrganizationConfiguration(detectorID, query stri
 
 func (h *Handler) handleUpdateOrganizationConfiguration(detectorID string, body []byte) (int, error) {
 	var req struct {
-		AutoEnableOrganizationMembers string       `json:"autoEnableOrganizationMembers"`
-		Features                      []OrgFeature `json:"features"`
-		AutoEnable                    bool         `json:"autoEnable"`
+		AutoEnable                    *bool           `json:"autoEnable"`
+		DataSources                   *orgDataSources `json:"dataSources"`
+		AutoEnableOrganizationMembers string          `json:"autoEnableOrganizationMembers"`
+		Features                      []OrgFeature    `json:"features"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -164,7 +165,8 @@ func (h *Handler) handleUpdateOrganizationConfiguration(detectorID string, body 
 	}
 
 	err := h.Backend.UpdateOrganizationConfiguration(
-		detectorID, req.AutoEnable, req.AutoEnableOrganizationMembers, req.Features,
+		detectorID, req.AutoEnable, req.AutoEnableOrganizationMembers,
+		append(req.DataSources.features(), req.Features...),
 	)
 	if err != nil {
 		return http.StatusNotFound, err

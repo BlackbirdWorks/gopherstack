@@ -42,9 +42,10 @@ func (h *Handler) dispatchDetectorOps(op, path, query string, body []byte) (any,
 func (h *Handler) handleCreateDetector(body []byte) (any, int, error) {
 	var req struct {
 		Enable                     *bool             `json:"enable"`
+		Tags                       map[string]string `json:"tags"`
+		DataSources                *dataSources      `json:"dataSources"`
 		ClientToken                string            `json:"clientToken"`
 		FindingPublishingFrequency string            `json:"findingPublishingFrequency"`
-		Tags                       map[string]string `json:"tags"`
 		Features                   []DetectorFeature `json:"features"`
 	}
 
@@ -56,12 +57,27 @@ func (h *Handler) handleCreateDetector(body []byte) (any, int, error) {
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 
-	d, err := h.Backend.CreateDetector(*req.Enable, req.FindingPublishingFrequency, req.Tags, req.Features)
+	token := req.ClientToken
+	req.ClientToken = ""
+	features := mergeFeatures(req.DataSources.features(), req.Features)
+
+	id, err := h.createOnce(
+		opCreateDetector, "", token, req,
+		func(id string) error { return only(h.Backend.GetDetector(id)) },
+		func() (string, error) {
+			d, createErr := h.Backend.CreateDetector(*req.Enable, req.FindingPublishingFrequency, req.Tags, features)
+			if createErr != nil {
+				return "", createErr
+			}
+
+			return d.DetectorID, nil
+		},
+	)
 	if err != nil {
 		return nil, http.StatusBadRequest, err
 	}
 
-	return map[string]any{"detectorId": d.DetectorID}, http.StatusOK, nil //nolint:goconst // existing issue.
+	return map[string]any{"detectorId": id}, http.StatusOK, nil
 }
 
 func (h *Handler) handleGetDetector(detectorID string) (any, int, error) {
@@ -77,13 +93,14 @@ func (h *Handler) handleGetDetector(detectorID string) (any, int, error) {
 		keyCreatedAt:                 d.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 		keyUpdatedAt:                 d.UpdatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 		keyTags:                      tagsOrEmpty(d.Tags),
-		"features":                   d.Features, //nolint:goconst // existing issue.
+		keyFeatures:                  d.Features,
 	}, http.StatusOK, nil
 }
 
 func (h *Handler) handleUpdateDetector(detectorID string, body []byte) (int, error) {
 	var req struct {
 		Enable                     *bool             `json:"enable"`
+		DataSources                *dataSources      `json:"dataSources"`
 		FindingPublishingFrequency string            `json:"findingPublishingFrequency"`
 		Features                   []DetectorFeature `json:"features"`
 	}
@@ -93,7 +110,7 @@ func (h *Handler) handleUpdateDetector(detectorID string, body []byte) (int, err
 	}
 
 	if err := h.Backend.UpdateDetector(
-		detectorID, req.Enable, req.FindingPublishingFrequency, req.Features,
+		detectorID, req.Enable, req.FindingPublishingFrequency, mergeFeatures(req.DataSources.features(), req.Features),
 	); err != nil {
 		return http.StatusNotFound, err
 	}

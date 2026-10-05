@@ -69,7 +69,7 @@ type StorageBackend interface {
 	StopMonitoringMembers(detectorID string, accountIDs []string) ([]map[string]any, error)
 	DisassociateMembers(detectorID string, accountIDs []string) ([]map[string]any, error)
 	GetMemberDetectors(detectorID string, accountIDs []string) ([]map[string]any, []map[string]any, error)
-	UpdateMemberDetectors(detectorID string, accountIDs []string) ([]map[string]any, error)
+	UpdateMemberDetectors(detectorID string, accountIDs []string, features []DetectorFeature) ([]map[string]any, error)
 
 	// Invitation management
 	AcceptAdministratorInvitation(detectorID, administratorID, invitationID string) error
@@ -90,7 +90,7 @@ type StorageBackend interface {
 	DescribeOrganizationConfiguration(detectorID string) (*OrgConfig, error)
 	UpdateOrganizationConfiguration(
 		detectorID string,
-		autoEnable bool,
+		autoEnable *bool,
 		autoEnableOrganizationMembers string,
 		features []OrgFeature,
 	) error
@@ -115,6 +115,7 @@ type StorageBackend interface {
 	DescribeMalwareScans(detectorID string, q MalwareScanQuery) ([]*MalwareScan, string, error)
 	ListMalwareScans(q MalwareScanQuery) ([]*MalwareScan, string, error)
 	StartMalwareScan(resourceARN string) (string, error)
+	StartMalwareScanWithConfig(resourceARN string, scanConfig map[string]any) (string, error)
 	GetMalwareScan(scanID string) (*MalwareScan, error)
 	GetMalwareScanSettings(detectorID string) (*MalwareScanSettings, error)
 	UpdateMalwareScanSettings(detectorID string, settings *MalwareScanSettings) error

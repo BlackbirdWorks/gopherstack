@@ -45,6 +45,7 @@ func (b *InMemoryBackend) CreateLaunchConfiguration(
 		SecurityGroups:               input.SecurityGroups,
 		ClassicLinkVPCSecurityGroups: input.ClassicLinkVPCSecurityGroups,
 		BlockDeviceMappings:          input.BlockDeviceMappings,
+		MetadataOptions:              input.MetadataOptions,
 		AssociatePublicIPAddress:     input.AssociatePublicIPAddress,
 		EbsOptimized:                 input.EbsOptimized,
 		InstanceMonitoring:           input.InstanceMonitoring,

@@ -13,6 +13,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -51,12 +52,16 @@ type Handler struct {
 	Backend *InMemoryBackend
 	janitor *Janitor
 	ops     map[string]service.JSONOpFunc
+	idem    *idempotency.Memo
 }
 
 // NewHandler creates a new Batch handler backed by backend.
 // backend must not be nil.
 func NewHandler(backend *InMemoryBackend) *Handler {
-	h := &Handler{Backend: backend}
+	h := &Handler{
+		Backend: backend,
+		idem:    idempotency.New("batch", idempotency.WithLimits(consumableResourceTokenTTL, tokenMemoEntries)),
+	}
 	h.ops = h.buildOps()
 
 	return h
