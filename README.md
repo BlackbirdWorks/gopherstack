@@ -515,7 +515,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [EFS](services/efs/README.md) | A | 31 | 3 gaps; 1 deferred |
 | [FSx](services/fsx/README.md) | A | — | 13 families; 6 gaps |
 | [S3](services/s3/README.md) | A | 26 | 6 gaps |
-| [S3 Control](services/s3control/README.md) | A | 44 | 3 gaps; 3 deferred |
+| [S3 Control](services/s3control/README.md) | A | 44 | 4 gaps; 3 deferred |
 | [S3 Glacier](services/glacier/README.md) | A | 33 | 2 gaps |
 | [S3 Tables](services/s3tables/README.md) | A | 49 | 1 gap |
 
@@ -547,7 +547,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [API Gateway Management API](services/apigatewaymanagementapi/README.md) | A | 3 | 1 gap; 2 deferred |
 | [API Gateway v2](services/apigatewayv2/README.md) | A | 77 | 5 gaps |
 | [App Mesh](services/appmesh/README.md) | A | 38 | 2 gaps |
-| [Cloud Map](services/servicediscovery/README.md) | A | 30 | 5 gaps; 1 deferred |
+| [Cloud Map](services/servicediscovery/README.md) | A | 30 | 4 gaps; 1 deferred |
 | [CloudFront](services/cloudfront/README.md) | A | 60 | 1 gap; 4 deferred |
 | [CloudWatch Network Monitor](services/networkmonitor/README.md) | A | 12 | 1 gap; 1 deferred |
 | [ELB (Classic)](services/elb/README.md) | A | 29 | 2 gaps; 1 deferred |
@@ -568,7 +568,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Pinpoint](services/pinpoint/README.md) | A | 51 | 2 gaps; 3 deferred |
 | [SES](services/ses/README.md) | A | 71 | 4 gaps; 1 deferred |
 | [SES v2](services/sesv2/README.md) | A | 112 | 3 gaps |
-| [SNS](services/sns/README.md) | A | 34 | 4 gaps; 2 deferred |
+| [SNS](services/sns/README.md) | A | 34 | 2 gaps; 1 deferred |
 | [SQS](services/sqs/README.md) | A | 20 | 3 gaps |
 | [SWF](services/swf/README.md) | A | 39 | 4 gaps |
 | [Step Functions](services/stepfunctions/README.md) | A | 37 | 9 gaps |
@@ -676,7 +676,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Forecast](services/forecast/README.md) | A | 21 | 3 gaps |
 | [Personalize](services/personalize/README.md) | A | 74 | clean |
 | [Polly](services/polly/README.md) | A | 10 | 1 gap |
-| [Rekognition](services/rekognition/README.md) | A | 50 | 2 gaps; 4 deferred |
+| [Rekognition](services/rekognition/README.md) | A | 50 | 3 gaps; 3 deferred |
 | [SageMaker](services/sagemaker/README.md) | A | 69 | 24 gaps |
 | [SageMaker Runtime](services/sagemakerruntime/README.md) | A | 3 | 2 gaps |
 | [Textract](services/textract/README.md) | A | 25 | 2 gaps; 1 structural gap; 1 deferred |

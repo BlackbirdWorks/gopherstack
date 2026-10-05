@@ -9,19 +9,19 @@
 | --- | --- |
 | PARITY entries audited | 50 (47 ok, 3 partial) |
 | Feature families | 3 (3 ok) |
-| Known gaps | 2 |
-| Deferred items | 4 |
+| Known gaps | 3 |
+| Deferred items | 3 |
 | Resource leaks | clean |
 
 ### Known gaps
 
 - CreateProjectVersion still drops TrainingData/TestingData contents (Custom Labels external-manifest structures: TrainingData/TestingData -> []Asset -> GroundTruthManifest -> S3Object, 3-4 levels, no unions, structurally simple but pointless to store -- the only place they'd resurface is TrainingDataResult/TestingDataResult, which requires a training-completion lifecycle this backend never reaches; both-or-neither presence is still cross-validated) — see Notes #6
 - Needs real video/image ML (2026-10-04): GetPersonTracking.SortBy ordering (Persons always empty), IndexFaces.DetectionAttributes detail output and QualityFilter/MaxFaces filtering (no FaceDetail or per-face quality is ever produced; one synthetic face per call), DetectLabels IMAGE_PROPERTIES (dominant colors/quality would be fabricated). The request values are now validated (enums, MaxFaces >= 1) but cannot change results.
+- Unmodeled subsystems (2026-10-05): Start* job notification channels (no SNS completion publish from the job state machine), GetCelebrityRecognition/GetFaceSearch SortBy (result arrays always empty), StartLabelDetection Features/Settings and DetectLabels Settings (no ML to filter on), CreateFaceLivenessSession KmsKeyId/Settings (no audit-image output to encrypt or limit), DetectModerationLabels HumanLoopConfig/ProjectVersion (no A2I or custom-model inference), StartStreamProcessor StartSelector/StopSelector (no Kinesis Video fragment source).
 
 ### Deferred
 
 - ProjectVersionDescription's BaseModelVersion (needs data this emulator cannot have: an AWS-internal base-model-catalog string, not derivable or user-supplied) and BillableTrainingTimeInSeconds/TrainingEndTimestamp/EvaluationResult/ManifestSummary/TestingDataResult/TrainingDataResult (needs a lifecycle that does not exist: all are documented as populated only once training completes, and this backend's Status never advances past TRAINING_IN_PROGRESS; EvaluationResult additionally requires a fabricated F1 score, which the no-fabrication rule forbids outright) — see Notes #6
-- ProjectVersionDescription.Feature / DescribeProjects' Feature (large mechanical surface deferred for size: Feature is set at CreateProject time, which does not currently accept or store it at all; modeling ProjectVersionDescription.Feature honestly requires a CreateProject signature change cascading through DescribeProjects too, a separate op family from this sweep's CreateProjectVersion/StartProjectVersion/CopyProjectVersion scope) — see Notes #6
 - SegmentTypeInfo.ModelVersion (needs data this emulator cannot have: AWS-internal segment-detection model build string) — Type is modeled, ModelVersion is not, see Notes #6
 - Detection-result arrays (Celebrities/ModerationLabels/Faces/Labels/Persons/Segments/TextDetections) stay synthesized-empty; acceptable per the ML-mock exemption, not individually wire-diffed field-by-field this sweep (this sweep's scope was CreateProjectVersion/ProjectVersionDescription/async-video envelope fields, not the ML detection payloads themselves)
 
