@@ -1,9 +1,7 @@
 package sts
 
 import (
-	"bytes"
 	"context"
-	"encoding/xml"
 	"errors"
 	"fmt"
 	"net/http"
@@ -351,15 +349,12 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, reqErr error
 
 // writeXMLResponse serialises payload to XML and writes it to the Echo response.
 func writeXMLResponse(c *echo.Context, code int, payload any) error {
-	var buf bytes.Buffer
-
-	buf.WriteString(xml.Header)
-
-	if err := xml.NewEncoder(&buf).Encode(payload); err != nil {
+	body, err := httputils.MarshalXML(payload)
+	if err != nil {
 		return err
 	}
 
-	return c.Blob(code, "text/xml; charset=utf-8", buf.Bytes())
+	return c.Blob(code, "text/xml; charset=utf-8", body)
 }
 
 // parseFormValues parses URL-encoded form bytes into a simple key→value map.

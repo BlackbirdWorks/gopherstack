@@ -11492,7 +11492,7 @@ func setupRegistry(
 		}
 	}
 
-	router := service.NewServiceRouter(registry).WithTargetGates(routeTargetGates())
+	router := service.NewServiceRouter(registry).WithTargetGates(routeTargetGates()).WithPathGates(routePathGates())
 	e.Use(router.RouteHandler())
 
 	return registry, nil

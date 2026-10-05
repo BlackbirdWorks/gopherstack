@@ -1,5 +1,10 @@
 package main
 
+import (
+	_ "embed" // routePathGatesData
+	"strings"
+)
+
 // routeTargetGates maps each service to the X-Amz-Target prefixes its RouteMatcher requires;
 // TestRouteTargetGatesHold proves the matchers return false outside them.
 func routeTargetGates() map[string][]string {
@@ -70,4 +75,21 @@ func routeTargetGates() map[string][]string {
 		"WorkMail":                 {"WorkMailService."},
 		"WorkSpaces":               {"WorkspacesService."},
 	}
+}
+
+//go:embed cli_route_path_gates.txt
+var routePathGatesData string
+
+// routePathGates maps each service to the path prefixes its matcher requires ("Name<TAB>prefixes");
+// TestRoutePathGatesHold proves the matchers return false outside them.
+func routePathGates() map[string][]string {
+	gates := map[string][]string{}
+
+	for line := range strings.SplitSeq(routePathGatesData, "\n") {
+		if name, prefixes, ok := strings.Cut(line, "\t"); ok {
+			gates[name] = strings.Fields(prefixes)
+		}
+	}
+
+	return gates
 }
