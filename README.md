@@ -494,7 +494,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [App Runner](services/apprunner/README.md) | A | 37 | 2 gaps |
 | [Auto Scaling](services/autoscaling/README.md) | A | 66 | 3 gaps |
 | [Batch](services/batch/README.md) | A | 45 | 5 gaps |
-| [EC2](services/ec2/README.md) | A | — | 22 families; 8 gaps; 9 structural gaps; 5 deferred |
+| [EC2](services/ec2/README.md) | A | — | 22 families; 7 gaps; 9 structural gaps; 5 deferred |
 | [Elastic Beanstalk](services/elasticbeanstalk/README.md) | A | 47 | 7 gaps |
 | [Lambda](services/lambda/README.md) | A | — | 10 families; 4 gaps |
 
@@ -545,7 +545,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [API Gateway](services/apigateway/README.md) | A | 123 | 3 gaps; 1 deferred |
 | [API Gateway Management API](services/apigatewaymanagementapi/README.md) | A | 3 | 1 gap; 2 deferred |
-| [API Gateway v2](services/apigatewayv2/README.md) | A | 77 | 5 gaps; 6 deferred |
+| [API Gateway v2](services/apigatewayv2/README.md) | A | 77 | 5 gaps |
 | [App Mesh](services/appmesh/README.md) | A | 38 | 2 gaps |
 | [Cloud Map](services/servicediscovery/README.md) | A | 30 | 5 gaps; 1 deferred |
 | [CloudFront](services/cloudfront/README.md) | A | 60 | 1 gap; 4 deferred |
@@ -579,7 +579,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [Athena](services/athena/README.md) | A | 25 | 4 gaps; 1 deferred |
-| [Clean Rooms](services/cleanrooms/README.md) | A | — | 17 families; 8 gaps; 2 deferred |
+| [Clean Rooms](services/cleanrooms/README.md) | A | — | 17 families; 9 gaps |
 | [EMR](services/emr/README.md) | A | 65 | 1 gap; 7 structural gaps |
 | [EMR Serverless](services/emrserverless/README.md) | A | 22 | 2 gaps |
 | [Elasticsearch](services/elasticsearch/README.md) | A | 51 | 4 gaps |
