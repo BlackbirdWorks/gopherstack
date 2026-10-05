@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -177,6 +178,8 @@ func (b *InMemoryBackend) ListContactLists(nextToken string, pageSize int) page.
 		cp := *cl
 		items = append(items, &cp)
 	}
+
+	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
 
 	return page.New(items, nextToken, pageSize, sesv2DefaultMaxItems)
 }

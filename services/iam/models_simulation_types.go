@@ -199,6 +199,7 @@ type SimulatePrincipalPolicyResponse struct {
 
 // SimulatePrincipalPolicyResult contains all evaluation results.
 type SimulatePrincipalPolicyResult struct {
+	Marker            string                    `xml:"Marker,omitempty"`
 	EvaluationResults []SimulationEvalResultXML `xml:"EvaluationResults>member"`
 	IsTruncated       bool                      `xml:"IsTruncated"`
 }

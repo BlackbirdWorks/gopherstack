@@ -150,9 +150,10 @@ func (h *Handler) iamInstanceProfileRefinementDispatch() map[string]iamActionFn 
 				return nil, err
 			}
 
-			xmlProfiles := make([]InstanceProfileXML, 0, len(profiles))
-			for i := range profiles {
-				ip := &profiles[i]
+			pg := pageForm(profiles, vals)
+			xmlProfiles := make([]InstanceProfileXML, 0, len(pg.Data))
+			for i := range pg.Data {
+				ip := &pg.Data[i]
 				roles := h.resolveInstanceProfileRoles(ip)
 				xmlProfiles = append(xmlProfiles, h.toInstanceProfileXML(ip, roles))
 			}
@@ -161,7 +162,8 @@ func (h *Handler) iamInstanceProfileRefinementDispatch() map[string]iamActionFn 
 				Xmlns: iamXMLNS,
 				ListInstanceProfilesForRoleResult: ListInstanceProfilesForRoleResult{
 					InstanceProfiles: xmlProfiles,
-					IsTruncated:      false,
+					Marker:           pg.Next,
+					IsTruncated:      pg.Next != "",
 				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil

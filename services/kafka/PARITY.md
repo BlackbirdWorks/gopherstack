@@ -368,11 +368,8 @@ was wrong. Fresh per-field diff of `ClusterInfo`/`Cluster`(V2 top)/
 - **Spot-checked clean** (per-field diffed against the real deserializer,
   no changes needed): Topics family (`DescribeTopic`/`ListTopics`/
   `topicInfoOutput` match `types.TopicInfo`/`DescribeTopicOutput` exactly),
-  `ListKafkaVersions`/`ListNodes` (both have a real, unmodeled `nextToken`
-  pagination member this backend's single-page response omits -- disclosed,
-  not fixed, since neither list is large enough in this in-memory backend to
-  need real pagination and adding an always-empty cursor would be
-  fabrication, not a fix). `ListNodes`' pre-existing "wire: partial" note
+  `ListKafkaVersions`/`ListNodes` (their `nextToken`
+  pagination member was unmodeled here; fixed 2026-10-05, see Notes). `ListNodes`' pre-existing "wire: partial" note
   (see `ops.ListNodes`, filed under gopherstack-mk3t) was re-confirmed still
   accurate and is not duplicated here.
 
@@ -737,3 +734,7 @@ service. `cmd/paritylint` re-verified 0 missing-items-still-open FAIL.
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 Audited for region isolation: same-named resources in two regions coexist and list per region; no code change. Proof: `TestRegionIsolation/kafka`.
+
+## 2026-10-05 (reqfielddiff tier-2 pagination)
+
+ListNodes, ListKafkaVersions, ListScramSecrets, ListVpcConnections, ListClientVpcConnections, ListClusterOperations and ListClusterOperationsV2 now honour maxResults/nextToken (`kafkaPage`, handler_paging.go) and ListReplicators applies ReplicatorNameFilter as a name prefix (api_op_ListReplicators.go:40). Proof: `TestList_HonoursMaxResultsAndNextToken`, `TestListReplicators_NameFilterIsPrefix`. Supersedes the earlier "nextToken unmodeled" disclosure for ListKafkaVersions/ListNodes.

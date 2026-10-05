@@ -23,9 +23,8 @@ const (
 )
 
 // dispatchPolicyValidationOps routes policy-validation operations
-// (Check*/ValidatePolicy). These take their input entirely from the request
-// body, so path and query are unused here.
-func (h *Handler) dispatchPolicyValidationOps(op, _, _ string, body []byte) (any, int, bool, error) {
+// (Check*/ValidatePolicy). Only ValidatePolicy reads the query (maxResults/nextToken).
+func (h *Handler) dispatchPolicyValidationOps(op, _, query string, body []byte) (any, int, bool, error) {
 	switch op {
 	case opCheckAccessNotGranted:
 		r, c, err := h.handleCheckAccessNotGranted(body)
@@ -40,7 +39,7 @@ func (h *Handler) dispatchPolicyValidationOps(op, _, _ string, body []byte) (any
 
 		return r, c, true, err
 	case opValidatePolicy:
-		r, c, err := h.handleValidatePolicy(body)
+		r, c, err := h.handleValidatePolicy(body, query)
 
 		return r, c, true, err
 	}
@@ -135,11 +134,10 @@ func (h *Handler) handleCheckNoPublicAccess(body []byte) (any, int, error) {
 	return map[string]any{keyResult: res.Result, keyMessage: res.Message, keyReasons: reasons}, http.StatusOK, nil
 }
 
-func (h *Handler) handleValidatePolicy(body []byte) (any, int, error) {
+func (h *Handler) handleValidatePolicy(body []byte, query string) (any, int, error) {
 	var req struct {
 		PolicyDocument string `json:"policyDocument"`
 		PolicyType     string `json:"policyType"`
-		NextToken      string `json:"nextToken"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -152,9 +150,15 @@ func (h *Handler) handleValidatePolicy(body []byte) (any, int, error) {
 	}
 
 	raw := ValidatePolicy(req.PolicyDocument, policyType)
-	findings := make([]any, 0, len(raw))
 
-	for _, f := range raw {
+	pg, err := pageByQuery(raw, query)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	findings := make([]any, 0, len(pg.Data))
+
+	for _, f := range pg.Data {
 		findings = append(findings, map[string]any{
 			"findingType":    f.FindingType,
 			"issueCode":      f.IssueCode,
@@ -164,7 +168,12 @@ func (h *Handler) handleValidatePolicy(body []byte) (any, int, error) {
 		})
 	}
 
-	return map[string]any{keyFindings: findings}, http.StatusOK, nil
+	resp := map[string]any{keyFindings: findings}
+	if pg.Next != "" {
+		resp["nextToken"] = pg.Next
+	}
+
+	return resp, http.StatusOK, nil
 }
 
 // ---- URL path parsing ----

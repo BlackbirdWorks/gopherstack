@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"slices"
+	"strings"
 
 	"github.com/labstack/echo/v5"
 )
@@ -409,7 +411,10 @@ type listReplicatorsOutput struct {
 }
 
 func (h *Handler) handleListReplicators(ctx context.Context, c *echo.Context) error {
-	all := h.Backend.ListReplicators(ctx)
+	prefix := c.Request().URL.Query().Get("replicatorNameFilter")
+	all := slices.DeleteFunc(slices.Clone(h.Backend.ListReplicators(ctx)), func(r *Replicator) bool {
+		return !strings.HasPrefix(r.ReplicatorName, prefix)
+	})
 
 	token := c.Request().URL.Query().Get("nextToken")
 	offset := decodeKafkaPageToken(token)

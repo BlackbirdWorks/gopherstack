@@ -94,7 +94,7 @@ func (h *Handler) handleUpdateCustomVerificationEmailTemplate(
 
 func (h *Handler) handleListCustomVerificationEmailTemplates(c *echo.Context) (any, error) {
 	nextToken := c.QueryParam("NextToken")
-	pg := h.Backend.ListCustomVerificationEmailTemplates(nextToken, 0)
+	pg := h.Backend.ListCustomVerificationEmailTemplates(nextToken, queryPageSize(c))
 
 	items := make([]customVerificationEmailTemplateMetadataOutput, 0, len(pg.Data))
 	for _, t := range pg.Data {

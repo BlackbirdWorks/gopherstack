@@ -96,19 +96,20 @@ func (h *Handler) iamPolicyBasicDispatchTable() map[string]iamActionFn {
 				return nil, err
 			}
 
-			xmlVersions := make([]PolicyVersionXML, 0, len(versions))
-			for i := range versions {
+			pg := pageForm(versions, vals)
+			xmlVersions := make([]PolicyVersionXML, 0, len(pg.Data))
+			for i := range pg.Data {
 				xmlVersions = append(xmlVersions, PolicyVersionXML{
-					VersionID:        versions[i].VersionID,
-					CreateDate:       isoTime(versions[i].CreateDate),
-					IsDefaultVersion: versions[i].IsDefaultVersion,
+					VersionID:        pg.Data[i].VersionID,
+					CreateDate:       isoTime(pg.Data[i].CreateDate),
+					IsDefaultVersion: pg.Data[i].IsDefaultVersion,
 				})
 			}
 
 			return &ListPolicyVersionsResponse{
 				Xmlns: iamXMLNS,
 				ListPolicyVersionsResult: ListPolicyVersionsResult{
-					Versions: xmlVersions,
+					Versions: xmlVersions, Marker: pg.Next, IsTruncated: pg.Next != "",
 				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
@@ -154,10 +155,14 @@ func (h *Handler) iamPolicyAttachDispatchTable() map[string]iamActionFn {
 				return nil, err
 			}
 
+			pg := pageForm(names, vals)
+
 			return &ListRolePoliciesResponse{
-				Xmlns:                  iamXMLNS,
-				ListRolePoliciesResult: ListRolePoliciesResult{PolicyNames: names},
-				ResponseMetadata:       ResponseMetadata{RequestID: reqID},
+				Xmlns: iamXMLNS,
+				ListRolePoliciesResult: ListRolePoliciesResult{
+					PolicyNames: pg.Data, Marker: pg.Next, IsTruncated: pg.Next != "",
+				},
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
 	}
@@ -403,10 +408,12 @@ func (h *Handler) iamSimulateCustomPolicyDispatch() map[string]iamActionFn {
 				return nil, err
 			}
 
+			pg := pageForm(simResultsToXML(results), vals)
+
 			return &SimulateCustomPolicyResponse{
 				Xmlns: iamXMLNS,
 				SimulateCustomPolicyResult: SimulateCustomPolicyResult{
-					EvaluationResults: simResultsToXML(results),
+					EvaluationResults: pg.Data, Marker: pg.Next, IsTruncated: pg.Next != "",
 				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil

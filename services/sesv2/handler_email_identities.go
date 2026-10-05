@@ -139,7 +139,7 @@ func (h *Handler) handleGetEmailIdentity(identity string) (any, error) {
 
 func (h *Handler) handleListEmailIdentities(c *echo.Context) any {
 	nextToken := c.QueryParam("NextToken")
-	pg := h.Backend.ListEmailIdentities(nextToken, 0)
+	pg := h.Backend.ListEmailIdentities(nextToken, queryPageSize(c))
 
 	items := make([]emailIdentitySummary, 0, len(pg.Data))
 

@@ -138,7 +138,7 @@ func (h *Handler) handleGetConfigurationSet(name string) (any, error) {
 
 func (h *Handler) handleListConfigurationSets(c *echo.Context) any {
 	nextToken := c.QueryParam("NextToken")
-	pg := h.Backend.ListConfigurationSets(nextToken, 0)
+	pg := h.Backend.ListConfigurationSets(nextToken, queryPageSize(c))
 
 	names := make([]string, 0, len(pg.Data))
 

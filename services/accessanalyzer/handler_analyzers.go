@@ -145,13 +145,23 @@ func (h *Handler) handleListAnalyzers(query string) (any, int, error) {
 		return nil, 0, err
 	}
 
-	list := make([]any, 0, len(analyzers))
+	pg, err := pageByQuery(analyzers, query)
+	if err != nil {
+		return nil, 0, err
+	}
 
-	for _, a := range analyzers {
+	list := make([]any, 0, len(pg.Data))
+
+	for _, a := range pg.Data {
 		list = append(list, analyzerToJSON(a, false))
 	}
 
-	return map[string]any{"analyzers": list}, http.StatusOK, nil
+	resp := map[string]any{"analyzers": list}
+	if pg.Next != "" {
+		resp["nextToken"] = pg.Next
+	}
+
+	return resp, http.StatusOK, nil
 }
 
 func (h *Handler) handleDeleteAnalyzer(path string) (int, error) {

@@ -16,6 +16,7 @@ type CreateAccountAliasResponse struct {
 
 // ListAccountAliasesResult contains the list of account aliases.
 type ListAccountAliasesResult struct {
+	Marker         string   `xml:"Marker,omitempty"`
 	AccountAliases []string `xml:"AccountAliases>member"`
 	IsTruncated    bool     `xml:"IsTruncated"`
 }

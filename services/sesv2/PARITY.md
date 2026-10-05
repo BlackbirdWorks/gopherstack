@@ -900,3 +900,7 @@ Recorded: ListContacts `Filter.FilteredStatus` alone is undocumented ("The statu
 ## 2026-10-03 (gopherstack-taq78 multi-region)
 
 The Resource Groups Tagging API bridge now lists the request region's tagged resources and resolves TagResources/UntagResources by the ARN's region, superseding the earlier home-region-only limitation. Proof: `TestInitializeServices_TaggingBridgeFollowsRegion`.
+
+## 2026-10-05 (reqfielddiff tier-2 PageSize)
+
+ListConfigurationSets, ListContactLists, ListEmailIdentities, ListEmailTemplates, ListCustomVerificationEmailTemplates, ListDeliverabilityTestReports, ListDomainDeliverabilityCampaigns and ListMultiRegionEndpoints passed a hardcoded 0 page size; the query-bound `PageSize` (serializers.go SetQuery("PageSize")) is now read (`queryPageSize`). ListContactLists/ListEmailTemplates/ListCustomVerificationEmailTemplates/ListDeliverabilityTestReports iterated a map unsorted, so paging was unstable; they now sort by name/ID. Proof: `TestList_HonoursPageSize` (5 ops; the other three share the same one-line wiring).

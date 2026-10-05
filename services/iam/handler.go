@@ -511,6 +511,7 @@ type iamActionFn func(vals url.Values, reqID string) (any, error)
 // The XMLName field is set dynamically per action to produce the correct element name.
 type iamListTagsResult struct {
 	XMLName     xml.Name     `xml:""`
+	Marker      string       `xml:"Marker,omitempty"`
 	Tags        []svcTags.KV `xml:"Tags>member"`
 	IsTruncated bool         `xml:"IsTruncated"`
 }

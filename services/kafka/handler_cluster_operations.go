@@ -25,6 +25,7 @@ func (h *Handler) handleDescribeClusterOperation(
 }
 
 type listClusterOperationsOutput struct {
+	NextToken                string              `json:"nextToken,omitempty"`
 	ClusterOperationInfoList []*ClusterOperation `json:"clusterOperationInfoList"`
 }
 
@@ -91,6 +92,7 @@ type clusterOperationV2SummaryOutput struct {
 }
 
 type listClusterOperationsV2Output struct {
+	NextToken                string                            `json:"nextToken,omitempty"`
 	ClusterOperationInfoList []clusterOperationV2SummaryOutput `json:"clusterOperationInfoList"`
 }
 
@@ -150,12 +152,14 @@ func (h *Handler) handleListClusterOperations(
 	c *echo.Context,
 	clusterArn string,
 ) error {
-	ops, err := h.Backend.ListClusterOperations(ctx, clusterArn)
+	all, err := h.Backend.ListClusterOperations(ctx, clusterArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, listClusterOperationsOutput{ClusterOperationInfoList: ops})
+	ops, next := kafkaPage(c, all)
+
+	return c.JSON(http.StatusOK, listClusterOperationsOutput{ClusterOperationInfoList: ops, NextToken: next})
 }
 
 func (h *Handler) handleListClusterOperationsV2(
@@ -163,10 +167,12 @@ func (h *Handler) handleListClusterOperationsV2(
 	c *echo.Context,
 	clusterArn string,
 ) error {
-	ops, err := h.Backend.ListClusterOperationsV2(ctx, clusterArn)
+	all, err := h.Backend.ListClusterOperationsV2(ctx, clusterArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
+
+	ops, next := kafkaPage(c, all)
 
 	var clusterType string
 	if len(ops) > 0 {
@@ -186,5 +192,5 @@ func (h *Handler) handleListClusterOperationsV2(
 		}
 	}
 
-	return c.JSON(http.StatusOK, listClusterOperationsV2Output{ClusterOperationInfoList: summaries})
+	return c.JSON(http.StatusOK, listClusterOperationsV2Output{ClusterOperationInfoList: summaries, NextToken: next})
 }

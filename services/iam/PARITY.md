@@ -940,3 +940,7 @@ leaks. Documented, deliberate gaps stand unchanged: ServerCertificateMetadata
 `Expiration` (no certificate parsing) and
 ServiceSpecificCredentialMetadata `ExpirationDate`/`ServiceCredentialAlias`
 (no backend field). No code changed this pass.
+
+## 2026-10-05 (reqfielddiff tier-2 pagination)
+
+ListUserPolicies, ListRolePolicies, ListGroupPolicies, ListPolicyVersions, ListAccountAliases, ListInstanceProfilesForRole, GetGroup (Users), ListUserTags, ListRoleTags, ListPolicyTags, ListMFADeviceTags, SimulateCustomPolicy and SimulatePrincipalPolicy now honour Marker/MaxItems and emit Marker/IsTruncated (`pageForm`, handler_paging.go; each op's Input declares both, e.g. api_op_ListUserPolicies.go). Proof: `TestListOps_HonourMaxItemsAndMarker`. GetOrganizationsAccessReport.MaxItems and GetServiceLastAccessedDetailsWithEntities.MaxItems stay unconsulted: both always return an empty AccessDetails/EntityDetailsList, so there is nothing to page (the access-report model itself is a separate gap).

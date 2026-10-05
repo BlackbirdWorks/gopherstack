@@ -3,11 +3,13 @@ package route53
 import (
 	"encoding/xml"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 type xmlQueryLoggingConfig struct {
@@ -112,6 +114,7 @@ func (h *Handler) deleteQueryLoggingConfig(c *echo.Context, path string) error {
 type listQueryLoggingConfigsResponse struct {
 	XMLName             xml.Name                `xml:"ListQueryLoggingConfigsResponse"`
 	Xmlns               string                  `xml:"xmlns,attr"`
+	NextToken           string                  `xml:"NextToken,omitempty"`
 	QueryLoggingConfigs []xmlQueryLoggingConfig `xml:"QueryLoggingConfigs>QueryLoggingConfig"`
 }
 
@@ -123,8 +126,15 @@ func (h *Handler) listQueryLoggingConfigs(c *echo.Context) error {
 		return xmlError(c, http.StatusInternalServerError, "InternalError", err.Error())
 	}
 
-	items := make([]xmlQueryLoggingConfig, 0, len(cfgs))
-	for _, cfg := range cfgs {
+	maxResults := 0
+	if n, convErr := strconv.Atoi(c.Request().URL.Query().Get("maxresults")); convErr == nil {
+		maxResults = n
+	}
+
+	pg := page.New(cfgs, c.Request().URL.Query().Get("nexttoken"), maxResults, route53DefaultMaxItems)
+
+	items := make([]xmlQueryLoggingConfig, 0, len(pg.Data))
+	for _, cfg := range pg.Data {
 		items = append(items, xmlQueryLoggingConfig{
 			ID:                        cfg.ID,
 			HostedZoneID:              cfg.HostedZoneID,
@@ -135,5 +145,6 @@ func (h *Handler) listQueryLoggingConfigs(c *echo.Context) error {
 	return writeXML(c, http.StatusOK, listQueryLoggingConfigsResponse{
 		Xmlns:               route53Namespace,
 		QueryLoggingConfigs: items,
+		NextToken:           pg.Next,
 	})
 }

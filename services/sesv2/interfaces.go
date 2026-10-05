@@ -142,6 +142,7 @@ type StorageBackend interface {
 	GetDomainStatisticsReport(domain, startDate, endDate string) (map[string]any, error)
 	ListDomainDeliverabilityCampaigns(
 		startDate, endDate, domain, nextToken string,
+		pageSize int,
 	) ([]map[string]any, string, error)
 
 	// Email template ops

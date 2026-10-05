@@ -416,6 +416,7 @@ type RemoveUserFromGroupResponse struct {
 type GetGroupResult struct {
 	Group       GroupXML  `xml:"Group"`
 	Users       []UserXML `xml:"Users>member"`
+	Marker      string    `xml:"Marker,omitempty"`
 	IsTruncated bool      `xml:"IsTruncated"`
 }
 
@@ -631,7 +632,9 @@ type GetPolicyVersionResult struct {
 
 // ListPolicyVersionsResult contains the policy version list.
 type ListPolicyVersionsResult struct {
-	Versions []PolicyVersionXML `xml:"Versions>member"`
+	Versions    []PolicyVersionXML `xml:"Versions>member"`
+	Marker      string             `xml:"Marker,omitempty"`
+	IsTruncated bool               `xml:"IsTruncated"`
 }
 
 // ListPolicyVersionsResponse is the XML response for ListPolicyVersions.

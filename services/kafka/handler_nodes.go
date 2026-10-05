@@ -8,6 +8,7 @@ import (
 )
 
 type listKafkaVersionsOutput struct {
+	NextToken     string        `json:"nextToken,omitempty"`
 	KafkaVersions []*MSKVersion `json:"kafkaVersions"`
 }
 
@@ -16,13 +17,14 @@ type compatibleKafkaVersionsOutput struct {
 }
 
 type listNodesOutput struct {
+	NextToken    string      `json:"nextToken,omitempty"`
 	NodeInfoList []*NodeInfo `json:"nodeInfoList"`
 }
 
 func (h *Handler) handleListKafkaVersions(ctx context.Context, c *echo.Context) error {
-	versions := h.Backend.ListKafkaVersions(ctx)
+	versions, next := kafkaPage(c, h.Backend.ListKafkaVersions(ctx))
 
-	return c.JSON(http.StatusOK, listKafkaVersionsOutput{KafkaVersions: versions})
+	return c.JSON(http.StatusOK, listKafkaVersionsOutput{KafkaVersions: versions, NextToken: next})
 }
 
 // handleGetCompatibleKafkaVersions serves GET /v1/compatible-kafka-versions.
@@ -40,10 +42,12 @@ func (h *Handler) handleGetCompatibleKafkaVersions(ctx context.Context, c *echo.
 }
 
 func (h *Handler) handleListNodes(ctx context.Context, c *echo.Context, clusterArn string) error {
-	nodes, err := h.Backend.ListNodes(ctx, clusterArn)
+	all, err := h.Backend.ListNodes(ctx, clusterArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, listNodesOutput{NodeInfoList: nodes})
+	nodes, next := kafkaPage(c, all)
+
+	return c.JSON(http.StatusOK, listNodesOutput{NodeInfoList: nodes, NextToken: next})
 }

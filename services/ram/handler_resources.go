@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 type resourceObject struct {
@@ -270,13 +272,14 @@ var awsShareableResourceTypes = []resourceTypeObject{
 }
 
 type listResourceTypesRequest struct {
+	MaxResults          *int32 `json:"maxResults"`
 	ResourceRegionScope string `json:"resourceRegionScope"`
+	NextToken           string `json:"nextToken"`
 }
 
 // handleListResourceTypes serves the static shareable-resource-type catalogue, filtered by
 // the documented ResourceRegionScope enum (ram@v1.39.4 api_op_ListResourceTypes.go:46-58:
-// ALL, the default, GLOBAL, or REGIONAL). MaxResults/NextToken are intentionally not
-// consulted -- see PARITY.md, the 21-entry catalogue never exceeds a page.
+// ALL, the default, GLOBAL, or REGIONAL), then paged by MaxResults/NextToken.
 func (h *Handler) handleListResourceTypes(_ context.Context, body []byte) ([]byte, error) {
 	var req listResourceTypesRequest
 	if len(body) > 0 {
@@ -303,7 +306,14 @@ func (h *Handler) handleListResourceTypes(_ context.Context, body []byte) ([]byt
 		return nil, fmt.Errorf("%w: invalid resourceRegionScope %q", errInvalidRequest, req.ResourceRegionScope)
 	}
 
-	return json.Marshal(listResourceTypesResponse{ResourceTypes: types})
+	limit := 0
+	if req.MaxResults != nil {
+		limit = int(*req.MaxResults)
+	}
+
+	pg := page.New(types, req.NextToken, limit, len(awsShareableResourceTypes))
+
+	return json.Marshal(listResourceTypesResponse{ResourceTypes: pg.Data, NextToken: pg.Next})
 }
 
 // associatedSourceObject is the JSON representation of an AssociatedSource (RAM's wire
