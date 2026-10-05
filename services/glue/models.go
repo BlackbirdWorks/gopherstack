@@ -81,7 +81,10 @@ type Order struct {
 // StorageDescriptor describes the physical storage of a table or partition.
 type StorageDescriptor struct {
 	SerdeInfo              *SerDeInfo        `json:"SerdeInfo,omitempty"`
+	SchemaReference        *SchemaReference  `json:"SchemaReference,omitempty"`
+	SkewedInfo             *SkewedInfo       `json:"SkewedInfo,omitempty"`
 	Parameters             map[string]string `json:"Parameters,omitempty"`
+	AdditionalLocations    []string          `json:"AdditionalLocations,omitempty"`
 	Location               string            `json:"Location,omitempty"`
 	InputFormat            string            `json:"InputFormat,omitempty"`
 	OutputFormat           string            `json:"OutputFormat,omitempty"`
@@ -93,19 +96,54 @@ type StorageDescriptor struct {
 	StoredAsSubDirectories bool              `json:"StoredAsSubDirectories,omitempty"`
 }
 
+// SchemaReference points a storage descriptor at a schema-registry schema.
+type SchemaReference struct {
+	SchemaID            *SchemaReferenceID `json:"SchemaId,omitempty"`
+	SchemaVersionID     string             `json:"SchemaVersionId,omitempty"`
+	SchemaVersionNumber int64              `json:"SchemaVersionNumber,omitempty"`
+}
+
+// SchemaReferenceID identifies a schema by ARN or by registry and schema name.
+type SchemaReferenceID struct {
+	RegistryName string `json:"RegistryName,omitempty"`
+	SchemaArn    string `json:"SchemaArn,omitempty"`
+	SchemaName   string `json:"SchemaName,omitempty"`
+}
+
+// SkewedInfo lists skewed column values and their locations.
+type SkewedInfo struct {
+	SkewedColumnValueLocationMaps map[string]string `json:"SkewedColumnValueLocationMaps,omitempty"`
+	SkewedColumnNames             []string          `json:"SkewedColumnNames,omitempty"`
+	SkewedColumnValues            []string          `json:"SkewedColumnValues,omitempty"`
+}
+
+// TableIdentifier names a table, used by TargetTable for resource links.
+type TableIdentifier struct {
+	CatalogID    string `json:"CatalogId,omitempty"`
+	DatabaseName string `json:"DatabaseName,omitempty"`
+	Name         string `json:"Name,omitempty"`
+	Region       string `json:"Region,omitempty"`
+}
+
 // TableInput is the input for creating or updating a Glue table.
 type TableInput struct {
+	TargetTable *TableIdentifier  `json:"TargetTable,omitempty"`
 	Parameters  map[string]string `json:"Parameters,omitempty"`
-	Name        string            `json:"Name"`
-	Description string            `json:"Description,omitempty"`
-	Owner       string            `json:"Owner,omitempty"`
-	TableType   string            `json:"TableType,omitempty"`
 	// CatalogID carries CreateTableInput's top-level CatalogId (not a
 	// TableInput member on the wire) into CreateTable; handlers set it
 	// before calling the backend.
 	CatalogID         string            `json:"-"`
+	Name              string            `json:"Name"`
+	Description       string            `json:"Description,omitempty"`
+	Owner             string            `json:"Owner,omitempty"`
+	TableType         string            `json:"TableType,omitempty"`
+	ViewOriginalText  string            `json:"ViewOriginalText,omitempty"`
+	ViewExpandedText  string            `json:"ViewExpandedText,omitempty"`
 	PartitionKeys     []Column          `json:"PartitionKeys,omitempty"`
+	PartitionIndexes  []PartitionIndex  `json:"-"`
 	StorageDescriptor StorageDescriptor `json:"StorageDescriptor,omitzero"`
+	LastAnalyzedTime  float64           `json:"LastAnalyzedTime,omitempty"`
+	LastAccessTime    float64           `json:"LastAccessTime,omitempty"`
 	Retention         int               `json:"Retention,omitempty"`
 	// SkipArchive carries UpdateTableInput's top-level SkipArchive into
 	// UpdateTable, unused by CreateTable.
@@ -114,15 +152,20 @@ type TableInput struct {
 
 // Table represents a Glue catalog table.
 type Table struct {
+	TargetTable       *TableIdentifier  `json:"TargetTable,omitempty"`
 	Parameters        map[string]string `json:"Parameters,omitempty"`
+	Owner             string            `json:"Owner,omitempty"`
 	Name              string            `json:"Name"`
 	DatabaseName      string            `json:"DatabaseName"`
 	CatalogID         string            `json:"CatalogId"`
-	Description       string            `json:"Description,omitempty"`
-	Owner             string            `json:"Owner,omitempty"`
+	ViewOriginalText  string            `json:"ViewOriginalText,omitempty"`
+	ViewExpandedText  string            `json:"ViewExpandedText,omitempty"`
 	TableType         string            `json:"TableType,omitempty"`
+	Description       string            `json:"Description,omitempty"`
 	PartitionKeys     []Column          `json:"PartitionKeys,omitempty"`
 	StorageDescriptor StorageDescriptor `json:"StorageDescriptor,omitzero"`
+	LastAnalyzedTime  float64           `json:"LastAnalyzedTime,omitempty"`
+	LastAccessTime    float64           `json:"LastAccessTime,omitempty"`
 	Retention         int               `json:"Retention,omitempty"`
 	CreateTime        float64           `json:"CreateTime,omitempty"`
 	UpdateTime        float64           `json:"UpdateTime,omitempty"`
@@ -292,7 +335,16 @@ type Job struct {
 	Tags                 map[string]string     `json:"-"`
 	DefaultArguments     map[string]string     `json:"DefaultArguments,omitempty"`
 	SourceControlDetails *SourceControlDetails `json:"SourceControlDetails,omitempty"`
-	Command              JobCommand            `json:"Command,omitzero"`
+	// NonOverridableArguments are job arguments a run cannot override.
+	NonOverridableArguments map[string]string `json:"NonOverridableArguments,omitempty"`
+	// CodeGenConfigurationNodes is the visual-job DAG, stored verbatim.
+	CodeGenConfigurationNodes map[string]json.RawMessage `json:"CodeGenConfigurationNodes,omitempty"`
+	JobRunQueuingEnabled      *bool                      `json:"JobRunQueuingEnabled,omitempty"`
+	Command                   JobCommand                 `json:"Command,omitzero"`
+	LogURI                    string                     `json:"LogUri,omitempty"`
+	SecurityConfiguration     string                     `json:"SecurityConfiguration,omitempty"`
+	ExecutionClass            string                     `json:"ExecutionClass,omitempty"`
+	MaintenanceWindow         string                     `json:"MaintenanceWindow,omitempty"`
 	// JobMode describes how the job was created (SCRIPT/VISUAL/NOTEBOOK);
 	// missing or null defaults to SCRIPT (glue@v1.157.0 api_op_CreateJob.go).
 	JobMode         string          `json:"JobMode,omitempty"`
@@ -505,6 +557,12 @@ type JobRun struct {
 	WorkerType            string            `json:"WorkerType,omitempty"`
 	GlueVersion           string            `json:"GlueVersion,omitempty"`
 	SecurityConfiguration string            `json:"SecurityConfiguration,omitempty"`
+	ExecutionClass        string            `json:"ExecutionClass,omitempty"`
+	MaintenanceWindow     string            `json:"MaintenanceWindow,omitempty"`
+	// ExecutionRoleSessionPolicy is the inline session policy given at StartJobRun.
+	ExecutionRoleSessionPolicy string `json:"ExecutionRoleSessionPolicy,omitempty"`
+	// JobRunQueuingEnabled is inherited from the job definition.
+	JobRunQueuingEnabled *bool `json:"JobRunQueuingEnabled,omitempty"`
 	// TriggerName is the name of the trigger that started this run (real field:
 	// aws-sdk-go-v2/service/glue@v1.152.0 types.go:7350-7351).
 	TriggerName string `json:"TriggerName,omitempty"`
@@ -525,12 +583,15 @@ type JobRun struct {
 // StartJobRunOptions carries the optional per-run overrides AWS's
 // StartJobRunRequest supports beyond JobName/Arguments.
 type StartJobRunOptions struct {
-	NotificationProperty  *NotificationProperty
-	WorkerType            string
-	SecurityConfiguration string
-	NumberOfWorkers       int
-	MaxCapacity           float64
-	Timeout               int
+	NotificationProperty       *NotificationProperty
+	JobRunQueuingEnabled       *bool
+	ExecutionClass             string
+	ExecutionRoleSessionPolicy string
+	WorkerType                 string
+	SecurityConfiguration      string
+	NumberOfWorkers            int
+	MaxCapacity                float64
+	Timeout                    int
 }
 
 // JobBookmark holds the bookmark state for a job run.
@@ -717,11 +778,14 @@ type DQRuleRecommendationRun struct {
 
 // ColumnStatisticsTaskSettings represents column statistics task settings.
 type ColumnStatisticsTaskSettings struct {
-	Schedule       CrawlerSchedule `json:"Schedule,omitzero"`
-	DatabaseName   string          `json:"DatabaseName"`
-	TableName      string          `json:"TableName"`
-	RoleArn        string          `json:"RoleArn,omitempty"`
-	ColumnNameList []string        `json:"ColumnNameList,omitempty"`
+	Schedule              CrawlerSchedule `json:"Schedule,omitzero"`
+	DatabaseName          string          `json:"DatabaseName"`
+	TableName             string          `json:"TableName"`
+	RoleArn               string          `json:"RoleArn,omitempty"`
+	CatalogID             string          `json:"CatalogId,omitempty"`
+	SecurityConfiguration string          `json:"SecurityConfiguration,omitempty"`
+	ColumnNameList        []string        `json:"ColumnNameList,omitempty"`
+	SampleSize            float64         `json:"SampleSize,omitempty"`
 }
 
 // ColumnStatisticsTaskRun represents a column statistics task run.
@@ -762,14 +826,25 @@ type MaterializedViewRefreshRun struct {
 
 // Integration represents a Glue integration.
 type Integration struct {
-	CreatedAt       time.Time         `json:"CreateTime"`
-	Tags            map[string]string `json:"Tags,omitempty"`
-	IntegrationName string            `json:"IntegrationName"`
-	IntegrationArn  string            `json:"IntegrationArn,omitempty"`
-	SourceArn       string            `json:"SourceArn"`
-	TargetArn       string            `json:"TargetArn"`
-	Status          string            `json:"Status"`
-	DataFilter      string            `json:"DataFilter,omitempty"`
+	CreatedAt                   time.Time          `json:"CreateTime"`
+	Tags                        map[string]string  `json:"Tags,omitempty"`
+	AdditionalEncryptionContext map[string]string  `json:"AdditionalEncryptionContext,omitempty"`
+	IntegrationConfig           *IntegrationConfig `json:"IntegrationConfig,omitempty"`
+	IntegrationName             string             `json:"IntegrationName"`
+	IntegrationArn              string             `json:"IntegrationArn,omitempty"`
+	SourceArn                   string             `json:"SourceArn"`
+	TargetArn                   string             `json:"TargetArn"`
+	Status                      string             `json:"Status"`
+	DataFilter                  string             `json:"DataFilter,omitempty"`
+	Description                 string             `json:"Description,omitempty"`
+	KmsKeyID                    string             `json:"KmsKeyId,omitempty"`
+}
+
+// IntegrationConfig holds a zero-ETL integration's sync properties.
+type IntegrationConfig struct {
+	ContinuousSync   *bool             `json:"ContinuousSync,omitempty"`
+	SourceProperties map[string]string `json:"SourceProperties,omitempty"`
+	RefreshInterval  string            `json:"RefreshInterval,omitempty"`
 }
 
 // IdentityCenterConfig represents the Glue Identity Center configuration.
@@ -903,16 +978,17 @@ type MLTaskType string
 
 // MLTaskRun represents a single ML transform task run.
 type MLTaskRun struct {
-	Properties    map[string]string `json:"Properties,omitempty"`
-	TransformID   string            `json:"TransformId"`
-	TaskRunID     string            `json:"TaskRunId"`
-	TaskType      string            `json:"TaskType"`
-	Status        string            `json:"Status"`
-	ErrorString   string            `json:"ErrorString,omitempty"`
-	LogGroupName  string            `json:"LogGroupName,omitempty"`
-	StartedOn     float64           `json:"StartedOn,omitempty"`
-	CompletedOn   float64           `json:"CompletedOn,omitempty"`
-	ExecutionTime int               `json:"ExecutionTime,omitempty"`
+	Properties     map[string]string `json:"Properties,omitempty"`
+	TransformID    string            `json:"TransformId"`
+	TaskRunID      string            `json:"TaskRunId"`
+	TaskType       string            `json:"TaskType"`
+	Status         string            `json:"Status"`
+	ErrorString    string            `json:"ErrorString,omitempty"`
+	LogGroupName   string            `json:"LogGroupName,omitempty"`
+	StartedOn      float64           `json:"StartedOn,omitempty"`
+	CompletedOn    float64           `json:"CompletedOn,omitempty"`
+	LastModifiedOn float64           `json:"LastModifiedOn,omitempty"`
+	ExecutionTime  int               `json:"ExecutionTime,omitempty"`
 }
 
 // ResourceURI holds a URI for a UDF resource.
@@ -984,16 +1060,21 @@ type SessionCommand struct {
 
 // Session represents a Glue interactive session.
 type Session struct {
-	DefaultArguments map[string]string `json:"DefaultArguments,omitempty"`
-	Command          SessionCommand    `json:"Command,omitzero"`
-	SessionID        string            `json:"Id"`
-	Role             string            `json:"Role,omitempty"`
-	Status           string            `json:"Status"`
-	Description      string            `json:"Description,omitempty"`
-	CreatedOn        float64           `json:"CreatedOn,omitempty"`
-	MaxCapacity      float64           `json:"MaxCapacity,omitempty"`
-	Timeout          int32             `json:"Timeout,omitempty"`
-	IdleTimeout      int32             `json:"IdleTimeout,omitempty"`
+	DefaultArguments      map[string]string `json:"DefaultArguments,omitempty"`
+	Command               SessionCommand    `json:"Command,omitzero"`
+	Status                string            `json:"Status"`
+	GlueVersion           string            `json:"GlueVersion,omitempty"`
+	WorkerType            string            `json:"WorkerType,omitempty"`
+	SecurityConfiguration string            `json:"SecurityConfiguration,omitempty"`
+	SessionID             string            `json:"Id"`
+	Role                  string            `json:"Role,omitempty"`
+	Description           string            `json:"Description,omitempty"`
+	Connections           ConnectionsList   `json:"Connections,omitzero"`
+	CreatedOn             float64           `json:"CreatedOn,omitempty"`
+	MaxCapacity           float64           `json:"MaxCapacity,omitempty"`
+	NumberOfWorkers       int32             `json:"NumberOfWorkers,omitempty"`
+	Timeout               int32             `json:"Timeout,omitempty"`
+	IdleTimeout           int32             `json:"IdleTimeout,omitempty"`
 }
 
 // Statement represents a statement run within a Glue session.

@@ -120,7 +120,11 @@ func seedFullState(t *testing.T, b *glue.InMemoryBackend) {
 	require.NoError(t, err)
 	_, err = b.StartDataQualityRuleRecommendationRun("s3://bucket/path")
 	require.NoError(t, err)
-	_, err = b.CreateColumnStatisticsTaskSettings("db1", "tbl1", "role1", nil)
+	_, err = b.CreateColumnStatisticsTaskSettings(
+		"db1",
+		"tbl1",
+		glue.ColumnStatisticsTaskSettingsOptions{Role: "role1"},
+	)
 	require.NoError(t, err)
 	_, err = b.StartColumnStatisticsTaskRun("db1", "tbl1", "role")
 	require.NoError(t, err)

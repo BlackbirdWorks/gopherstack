@@ -11,14 +11,16 @@ import (
 )
 
 type createTableInput struct {
-	DatabaseName string     `json:"DatabaseName"`
-	CatalogID    string     `json:"CatalogId,omitempty"`
-	TableInput   TableInput `json:"TableInput"`
+	DatabaseName     string           `json:"DatabaseName"`
+	CatalogID        string           `json:"CatalogId,omitempty"`
+	PartitionIndexes []PartitionIndex `json:"PartitionIndexes,omitempty"`
+	TableInput       TableInput       `json:"TableInput"`
 }
 
 func (h *Handler) handleCreateTable(_ context.Context, in *createTableInput) (*emptyOutput, error) {
 	tableInput := in.TableInput
 	tableInput.CatalogID = in.CatalogID
+	tableInput.PartitionIndexes = in.PartitionIndexes
 
 	if _, err := h.Backend.CreateTable(in.DatabaseName, tableInput); err != nil {
 		return nil, err

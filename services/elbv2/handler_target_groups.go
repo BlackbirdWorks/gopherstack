@@ -52,6 +52,11 @@ func (h *Handler) handleCreateTargetGroup(vals url.Values) (any, error) {
 		hcEnabled = hcEnabledStr != attrValueFalse
 	}
 
+	targetControlPort, err := parseOptionalInt32(vals, "TargetControlPort")
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid TargetControlPort", ErrInvalidParameter)
+	}
+
 	tg, createErr := h.Backend.CreateTargetGroup(CreateTargetGroupInput{
 		Name:                name,
 		Protocol:            vals.Get("Protocol"),
@@ -73,6 +78,7 @@ func (h *Handler) handleCreateTargetGroup(vals url.Values) (any, error) {
 		HealthyThresholdCount:      healthyThreshold,
 		UnhealthyThresholdCount:    unhealthyThreshold,
 		HealthCheckEnabled:         hcEnabled,
+		TargetControlPort:          targetControlPort,
 	})
 	if createErr != nil {
 		return nil, createErr
@@ -338,6 +344,7 @@ func toXMLTargetGroup(tg *TargetGroup) xmlTargetGroup {
 		HealthCheckTimeoutSeconds:  tg.HealthCheckTimeoutSeconds,
 		HealthyThresholdCount:      tg.HealthyThresholdCount,
 		UnhealthyThresholdCount:    tg.UnhealthyThresholdCount,
+		TargetControlPort:          tg.TargetControlPort,
 	}
 
 	if tg.Matcher.HTTPCode != "" || tg.Matcher.GrpcCode != "" {
@@ -380,6 +387,7 @@ type xmlTargetGroup struct {
 	HealthCheckTimeoutSeconds  int32          `xml:"HealthCheckTimeoutSeconds,omitempty"`
 	HealthyThresholdCount      int32          `xml:"HealthyThresholdCount,omitempty"`
 	UnhealthyThresholdCount    int32          `xml:"UnhealthyThresholdCount,omitempty"`
+	TargetControlPort          int32          `xml:"TargetControlPort,omitempty"`
 	HealthCheckEnabled         bool           `xml:"HealthCheckEnabled"`
 }
 

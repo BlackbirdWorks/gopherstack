@@ -233,14 +233,25 @@ func (h *Handler) updateSourceAPIAssociation(
 	}
 
 	var input struct {
-		Description string `json:"description"`
+		SourceAPIAssociationConfig *SourceAPIAssociationConfig `json:"sourceApiAssociationConfig"`
+		Description                string                      `json:"description"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 	}
 
-	assoc, updateErr := h.Backend.UpdateSourceAPIAssociation(mergedAPIID, assocID, input.Description)
+	mergeType := ""
+	if input.SourceAPIAssociationConfig != nil {
+		mergeType = input.SourceAPIAssociationConfig.MergeType
+	}
+
+	assoc, updateErr := h.Backend.UpdateSourceAPIAssociationWithConfig(
+		mergedAPIID,
+		assocID,
+		input.Description,
+		mergeType,
+	)
 	if updateErr != nil {
 		return h.handleError(ctx, c, "UpdateSourceApiAssociation", updateErr)
 	}

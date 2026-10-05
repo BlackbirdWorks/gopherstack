@@ -40,6 +40,7 @@ func (b *InMemoryBackend) startMLTaskRunLocked(transformID string, taskType MLTa
 		Status:      stateRunning,
 		StartedOn:   float64(time.Now().Unix()),
 	}
+	run.LastModifiedOn = run.StartedOn
 	b.mlTaskRuns.Put(run)
 	cp := *run
 
@@ -131,6 +132,7 @@ func (b *InMemoryBackend) CancelMLTaskRun(transformID, taskRunID string) error {
 
 	run.Status = stateStopped
 	run.CompletedOn = float64(time.Now().Unix())
+	run.LastModifiedOn = run.CompletedOn
 
 	return nil
 }

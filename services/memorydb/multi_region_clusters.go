@@ -123,6 +123,22 @@ func (b *InMemoryBackend) DescribeMultiRegionClusters(_ context.Context, name st
 	return result, nil
 }
 
+func validateMultiRegionShardUpdate(req *updateMultiRegionClusterRequest) error {
+	if req.UpdateStrategy != "" && req.UpdateStrategy != "coordinated" && req.UpdateStrategy != "uncoordinated" {
+		return fmt.Errorf("invalid UpdateStrategy %q, must be coordinated or uncoordinated: %w",
+			req.UpdateStrategy, ErrValidation)
+	}
+
+	if req.ShardConfiguration != nil && req.ShardConfiguration.ShardCount != nil {
+		sc := *req.ShardConfiguration.ShardCount
+		if sc < 1 || sc > 500 {
+			return fmt.Errorf("NumShards must be between 1 and 500: %w", ErrValidation)
+		}
+	}
+
+	return nil
+}
+
 // UpdateMultiRegionCluster modifies an existing multi-region cluster.
 func (b *InMemoryBackend) UpdateMultiRegionCluster(
 	_ context.Context,
@@ -134,6 +150,10 @@ func (b *InMemoryBackend) UpdateMultiRegionCluster(
 	mrc, ok := b.multiRegionClusters.Get(req.MultiRegionClusterName)
 	if !ok {
 		return nil, ErrMultiRegionClusterNotFound
+	}
+
+	if err := validateMultiRegionShardUpdate(req); err != nil {
+		return nil, err
 	}
 
 	if req.Description != "" {
@@ -153,6 +173,10 @@ func (b *InMemoryBackend) UpdateMultiRegionCluster(
 		}
 
 		mrc.MultiRegionParameterGroupName = req.MultiRegionParameterGroupName
+	}
+
+	if req.ShardConfiguration != nil && req.ShardConfiguration.ShardCount != nil {
+		mrc.NumShards = *req.ShardConfiguration.ShardCount
 	}
 
 	return cloneMultiRegionCluster(mrc), nil

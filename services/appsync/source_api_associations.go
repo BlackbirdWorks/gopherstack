@@ -11,6 +11,8 @@ import (
 // mergeTypeManual is the default merge type for source API associations.
 const mergeTypeManual = "MANUAL_MERGE"
 
+const mergeTypeAuto = "AUTO_MERGE"
+
 // AssociateMergedGraphqlAPI creates an association from a source API to a merged API.
 func (b *InMemoryBackend) AssociateMergedGraphqlAPI(
 	sourceAPIIdentifier, mergedAPIIdentifier, description, mergeType string,
@@ -158,6 +160,17 @@ func (b *InMemoryBackend) DisassociateSourceGraphqlAPI(mergedAPIID, associationI
 func (b *InMemoryBackend) UpdateSourceAPIAssociation(
 	mergedAPIID, associationID, description string,
 ) (*SourceAPIAssociation, error) {
+	return b.UpdateSourceAPIAssociationWithConfig(mergedAPIID, associationID, description, "")
+}
+
+// UpdateSourceAPIAssociationWithConfig updates the description and, when mergeType is set, the merge type.
+func (b *InMemoryBackend) UpdateSourceAPIAssociationWithConfig(
+	mergedAPIID, associationID, description, mergeType string,
+) (*SourceAPIAssociation, error) {
+	if mergeType != "" && mergeType != mergeTypeManual && mergeType != mergeTypeAuto {
+		return nil, fmt.Errorf("%w: invalid mergeType %q", ErrValidation, mergeType)
+	}
+
 	b.mu.Lock("UpdateSourceApiAssociation")
 	defer b.mu.Unlock()
 
@@ -168,6 +181,10 @@ func (b *InMemoryBackend) UpdateSourceAPIAssociation(
 
 	cp := *assoc
 	cp.Description = description
+
+	if mergeType != "" {
+		cp.SourceAPIAssociationConfig = &SourceAPIAssociationConfig{MergeType: mergeType}
+	}
 
 	b.sourceAssocs.Put(&cp)
 

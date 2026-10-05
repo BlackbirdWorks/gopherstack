@@ -431,11 +431,11 @@ type StorageBackend interface {
 
 	// ColumnStatisticsTask operations.
 	CreateColumnStatisticsTaskSettings(
-		dbName, tableName, roleArn string,
-		columns []string,
+		dbName, tableName string,
+		opts ColumnStatisticsTaskSettingsOptions,
 	) (*ColumnStatisticsTaskSettings, error)
 	GetColumnStatisticsTaskSettings(dbName, tableName string) (*ColumnStatisticsTaskSettings, error)
-	UpdateColumnStatisticsTaskSettings(dbName, tableName, roleArn string) error
+	UpdateColumnStatisticsTaskSettings(dbName, tableName string, opts ColumnStatisticsTaskSettingsOptions) error
 	DeleteColumnStatisticsTaskSettings(dbName, tableName string) error
 	StartColumnStatisticsTaskRunSchedule(dbName, tableName string) error
 	StopColumnStatisticsTaskRunSchedule(dbName, tableName string) error
@@ -462,6 +462,12 @@ type StorageBackend interface {
 		tags map[string]string,
 		dataFilter ...string,
 	) (*Integration, error)
+	CreateIntegrationWithOptions(
+		name, sourceArn, targetArn string,
+		tags map[string]string,
+		opts IntegrationOptions,
+	) (*Integration, error)
+	ModifyIntegrationWithOptions(identifier string, opts IntegrationModifyOptions) (*Integration, error)
 	DeleteIntegration(identifier string) (*Integration, error)
 	ListIntegrations() []*Integration
 	ModifyIntegration(identifier string, dataFilter *string) (*Integration, error)

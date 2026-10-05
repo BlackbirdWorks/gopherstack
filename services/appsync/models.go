@@ -53,6 +53,8 @@ const (
 	DataSourceTypeRelational DataSourceType = "RELATIONAL_DATABASE"
 	// DataSourceTypeOpenSearch queries an OpenSearch domain.
 	DataSourceTypeOpenSearch DataSourceType = "AMAZON_OPENSEARCH_SERVICE"
+	// DataSourceTypeElasticsearch is the deprecated Elasticsearch data source type.
+	DataSourceTypeElasticsearch DataSourceType = "AMAZON_ELASTICSEARCH"
 	// DataSourceTypeEventBridge sends events to an Amazon EventBridge bus.
 	DataSourceTypeEventBridge DataSourceType = "AMAZON_EVENTBRIDGE"
 )
@@ -102,6 +104,12 @@ type OpenSearchServiceDataSourceConfig struct {
 	AWSRegion string `json:"awsRegion"`
 }
 
+// ElasticsearchDataSourceConfig holds the configuration for a deprecated Elasticsearch data source.
+type ElasticsearchDataSourceConfig struct {
+	Endpoint  string `json:"endpoint"`
+	AWSRegion string `json:"awsRegion"`
+}
+
 // EventBridgeDataSourceConfig holds the configuration for an EventBridge data source.
 type EventBridgeDataSourceConfig struct {
 	EventBusARN string `json:"eventBusArn"`
@@ -135,6 +143,7 @@ type DataSource struct {
 	DynamoDBConfig           *DynamoDBDataSourceConfig           `json:"dynamodbConfig,omitempty"`
 	HTTPConfig               *HTTPDataSourceConfig               `json:"httpConfig,omitempty"`
 	OpenSearchConfig         *OpenSearchServiceDataSourceConfig  `json:"openSearchServiceConfig,omitempty"`
+	ElasticsearchConfig      *ElasticsearchDataSourceConfig      `json:"elasticsearchConfig,omitempty"`
 	EventBridgeConfig        *EventBridgeDataSourceConfig        `json:"eventBridgeConfig,omitempty"`
 	RelationalDatabaseConfig *RelationalDatabaseDataSourceConfig `json:"relationalDatabaseConfig,omitempty"`
 	DataSourceARN            string                              `json:"dataSourceArn"`

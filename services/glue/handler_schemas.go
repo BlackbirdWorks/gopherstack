@@ -576,6 +576,15 @@ func (h *Handler) handleGetSchemaVersion(
 		versionNumber = in.SchemaVersionNumber.VersionNumber
 	}
 
+	if in.SchemaVersionNumber != nil && in.SchemaVersionNumber.LatestVersion {
+		sch, err := h.Backend.DescribeSchema(registryName, schemaName)
+		if err != nil {
+			return nil, err
+		}
+
+		versionNumber = sch.LatestSchemaVersion
+	}
+
 	sv, err := h.Backend.GetSchemaVersion(registryName, schemaName, versionNumber)
 	if err != nil {
 		return nil, err
@@ -880,7 +889,47 @@ type putSchemaVersionMetadataInput struct {
 		MetadataKey   string `json:"MetadataKey"`
 		MetadataValue string `json:"MetadataValue"`
 	} `json:"MetadataKeyValue"`
+	schemaVersionRef
+}
+
+// schemaVersionRef is the SchemaVersionId-or-(SchemaId+SchemaVersionNumber) selector the metadata ops share.
+type schemaVersionRef struct {
+	SchemaID            *schemaIDInput `json:"SchemaId"`
+	SchemaVersionNumber *struct {
+		VersionNumber int64 `json:"VersionNumber"`
+		LatestVersion bool  `json:"LatestVersion"`
+	} `json:"SchemaVersionNumber"`
 	SchemaVersionID string `json:"SchemaVersionId"`
+}
+
+// resolve returns the schema version ID, looking it up from SchemaId and SchemaVersionNumber when no ID is given.
+func (r schemaVersionRef) resolve(b StorageBackend) (string, error) {
+	if r.SchemaVersionID != "" {
+		return r.SchemaVersionID, nil
+	}
+
+	if r.SchemaID == nil || r.SchemaVersionNumber == nil {
+		return "", fmt.Errorf("%w: SchemaVersionId or SchemaId with SchemaVersionNumber is required", ErrValidation)
+	}
+
+	registryName, schemaName := schemaIDNames(r.SchemaID)
+	number := r.SchemaVersionNumber.VersionNumber
+
+	if r.SchemaVersionNumber.LatestVersion {
+		sch, err := b.DescribeSchema(registryName, schemaName)
+		if err != nil {
+			return "", err
+		}
+
+		number = sch.LatestSchemaVersion
+	}
+
+	sv, err := b.GetSchemaVersion(registryName, schemaName, number)
+	if err != nil {
+		return "", err
+	}
+
+	return sv.SchemaVersionID, nil
 }
 
 // putSchemaVersionMetadataOutput holds the result for
@@ -904,23 +953,28 @@ func (h *Handler) handlePutSchemaVersionMetadata(
 	_ context.Context,
 	in *putSchemaVersionMetadataInput,
 ) (*putSchemaVersionMetadataOutput, error) {
+	svID, err := in.resolve(h.Backend)
+	if err != nil {
+		return nil, err
+	}
+
 	key, value := "", ""
 	if in.MetadataKeyValue != nil {
 		key = in.MetadataKeyValue.MetadataKey
 		value = in.MetadataKeyValue.MetadataValue
 	}
 
-	if err := h.Backend.PutSchemaVersionMetadata(in.SchemaVersionID, key, value); err != nil {
+	if err = h.Backend.PutSchemaVersionMetadata(svID, key, value); err != nil {
 		return nil, err
 	}
 
 	out := &putSchemaVersionMetadataOutput{
-		SchemaVersionID: in.SchemaVersionID,
+		SchemaVersionID: svID,
 		MetadataKey:     key,
 		MetadataValue:   value,
 	}
 
-	if sv, s, ok := h.Backend.FindSchemaVersionByID(in.SchemaVersionID); ok {
+	if sv, s, ok := h.Backend.FindSchemaVersionByID(svID); ok {
 		out.SchemaArn = sv.SchemaARN
 		out.VersionNumber = sv.VersionNumber
 		out.LatestVersion = sv.VersionNumber == s.LatestSchemaVersion
@@ -933,10 +987,10 @@ func (h *Handler) handlePutSchemaVersionMetadata(
 
 // querySchemaVersionMetadataInput holds input for QuerySchemaVersionMetadata.
 type querySchemaVersionMetadataInput struct {
-	SchemaVersionID string                  `json:"SchemaVersionId"`
-	NextToken       string                  `json:"NextToken,omitempty"`
-	MetadataList    []metadataKeyValueInput `json:"MetadataList,omitempty"`
-	MaxResults      int32                   `json:"MaxResults,omitempty"`
+	schemaVersionRef
+	NextToken    string                  `json:"NextToken,omitempty"`
+	MetadataList []metadataKeyValueInput `json:"MetadataList,omitempty"`
+	MaxResults   int32                   `json:"MaxResults,omitempty"`
 }
 
 type metadataKeyValueInput struct {
@@ -958,7 +1012,12 @@ func (h *Handler) handleQuerySchemaVersionMetadata(
 	_ context.Context,
 	in *querySchemaVersionMetadataInput,
 ) (*querySchemaVersionMetadataOutput, error) {
-	raw := h.Backend.QuerySchemaVersionMetadata(in.SchemaVersionID)
+	svID, err := in.resolve(h.Backend)
+	if err != nil {
+		return nil, err
+	}
+
+	raw := h.Backend.QuerySchemaVersionMetadata(svID)
 
 	keys := make([]string, 0, len(raw))
 
@@ -984,7 +1043,7 @@ func (h *Handler) handleQuerySchemaVersionMetadata(
 
 	return &querySchemaVersionMetadataOutput{
 		MetadataInfo:    meta,
-		SchemaVersionID: in.SchemaVersionID,
+		SchemaVersionID: svID,
 		NextToken:       next,
 	}, nil
 }
@@ -1031,7 +1090,7 @@ type removeSchemaVersionMetadataInput struct {
 		MetadataKey   string `json:"MetadataKey"`
 		MetadataValue string `json:"MetadataValue"`
 	} `json:"MetadataKeyValue"`
-	SchemaVersionID string `json:"SchemaVersionId"`
+	schemaVersionRef
 }
 
 // removeSchemaVersionMetadataOutput holds the result for
@@ -1054,23 +1113,28 @@ func (h *Handler) handleRemoveSchemaVersionMetadata(
 	_ context.Context,
 	in *removeSchemaVersionMetadataInput,
 ) (*removeSchemaVersionMetadataOutput, error) {
+	svID, err := in.resolve(h.Backend)
+	if err != nil {
+		return nil, err
+	}
+
 	key, value := "", ""
 	if in.MetadataKeyValue != nil {
 		key = in.MetadataKeyValue.MetadataKey
 		value = in.MetadataKeyValue.MetadataValue
 	}
 
-	if err := h.Backend.RemoveSchemaVersionMetadata(in.SchemaVersionID, key); err != nil {
+	if err = h.Backend.RemoveSchemaVersionMetadata(svID, key); err != nil {
 		return nil, err
 	}
 
 	out := &removeSchemaVersionMetadataOutput{
-		SchemaVersionID: in.SchemaVersionID,
+		SchemaVersionID: svID,
 		MetadataKey:     key,
 		MetadataValue:   value,
 	}
 
-	if sv, s, ok := h.Backend.FindSchemaVersionByID(in.SchemaVersionID); ok {
+	if sv, s, ok := h.Backend.FindSchemaVersionByID(svID); ok {
 		out.SchemaArn = sv.SchemaARN
 		out.VersionNumber = sv.VersionNumber
 		out.LatestVersion = sv.VersionNumber == s.LatestSchemaVersion

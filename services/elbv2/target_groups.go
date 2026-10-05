@@ -166,6 +166,12 @@ func (b *InMemoryBackend) CreateTargetGroup(input CreateTargetGroupInput) (*Targ
 		return nil, pathErr
 	}
 
+	if input.TargetControlPort != 0 {
+		if portErr := validatePort(input.TargetControlPort); portErr != nil {
+			return nil, portErr
+		}
+	}
+
 	matcher := defaultTGMatcher(input.HealthCheckProtocol, input.Matcher)
 
 	tg := &TargetGroup{
@@ -186,6 +192,7 @@ func (b *InMemoryBackend) CreateTargetGroup(input CreateTargetGroupInput) (*Targ
 		HealthCheckTimeoutSeconds:  input.HealthCheckTimeoutSeconds,
 		HealthyThresholdCount:      input.HealthyThresholdCount,
 		UnhealthyThresholdCount:    input.UnhealthyThresholdCount,
+		TargetControlPort:          input.TargetControlPort,
 		CrossZoneLoadBalancing:     true,
 		Targets:                    []Target{},
 		TargetGroupAttributes: map[string]string{

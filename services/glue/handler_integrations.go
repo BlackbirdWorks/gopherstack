@@ -2,6 +2,7 @@ package glue
 
 import (
 	"context"
+	"maps"
 	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
@@ -9,42 +10,96 @@ import (
 
 // createIntegrationInput holds input for CreateIntegration.
 type createIntegrationInput struct {
-	Tags            map[string]string `json:"Tags,omitempty"`
-	IntegrationName string            `json:"IntegrationName"`
-	SourceArn       string            `json:"SourceArn"`
-	TargetArn       string            `json:"TargetArn"`
-	DataFilter      string            `json:"DataFilter,omitempty"`
+	AdditionalEncryptionContext map[string]string    `json:"AdditionalEncryptionContext,omitempty"`
+	IntegrationConfig           *IntegrationConfig   `json:"IntegrationConfig,omitempty"`
+	IntegrationName             string               `json:"IntegrationName"`
+	SourceArn                   string               `json:"SourceArn"`
+	TargetArn                   string               `json:"TargetArn"`
+	DataFilter                  string               `json:"DataFilter,omitempty"`
+	Description                 string               `json:"Description,omitempty"`
+	KmsKeyID                    string               `json:"KmsKeyId,omitempty"`
+	Tags                        []integrationTagWire `json:"Tags,omitempty"`
 }
 
-// createIntegrationOutput holds the result for CreateIntegration.
-type createIntegrationOutput struct {
-	IntegrationName string  `json:"IntegrationName"`
-	IntegrationArn  string  `json:"IntegrationArn"`
-	SourceArn       string  `json:"SourceArn"`
-	TargetArn       string  `json:"TargetArn"`
-	Status          string  `json:"Status"`
-	DataFilter      string  `json:"DataFilter,omitempty"`
-	CreateTime      float64 `json:"CreateTime"`
+// integrationTagWire is the Key/Value list form Integration.Tags uses on the wire.
+type integrationTagWire struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+// integrationWire is the shared Integration response shape for create, modify, delete and describe.
+type integrationWire struct {
+	AdditionalEncryptionContext map[string]string    `json:"AdditionalEncryptionContext,omitempty"`
+	IntegrationConfig           *IntegrationConfig   `json:"IntegrationConfig,omitempty"`
+	IntegrationName             string               `json:"IntegrationName"`
+	IntegrationArn              string               `json:"IntegrationArn"`
+	SourceArn                   string               `json:"SourceArn"`
+	TargetArn                   string               `json:"TargetArn"`
+	Status                      string               `json:"Status"`
+	DataFilter                  string               `json:"DataFilter,omitempty"`
+	Description                 string               `json:"Description,omitempty"`
+	KmsKeyID                    string               `json:"KmsKeyId,omitempty"`
+	Tags                        []integrationTagWire `json:"Tags,omitempty"`
+	// Epoch number, not RFC3339: the SDK rejects a string ("expected IntegrationTimestamp to be a JSON Number").
+	CreateTime float64 `json:"CreateTime"`
+}
+
+func integrationTagMap(tags []integrationTagWire) map[string]string {
+	if len(tags) == 0 {
+		return nil
+	}
+
+	m := make(map[string]string, len(tags))
+	for _, t := range tags {
+		m[t.Key] = t.Value
+	}
+
+	return m
+}
+
+func toIntegrationWire(ig *Integration) integrationWire {
+	tags := make([]integrationTagWire, 0, len(ig.Tags))
+	for _, k := range slices.Sorted(maps.Keys(ig.Tags)) {
+		tags = append(tags, integrationTagWire{Key: k, Value: ig.Tags[k]})
+	}
+
+	return integrationWire{
+		IntegrationName:             ig.IntegrationName,
+		IntegrationArn:              ig.IntegrationArn,
+		SourceArn:                   ig.SourceArn,
+		TargetArn:                   ig.TargetArn,
+		Status:                      ig.Status,
+		DataFilter:                  ig.DataFilter,
+		Description:                 ig.Description,
+		KmsKeyID:                    ig.KmsKeyID,
+		AdditionalEncryptionContext: ig.AdditionalEncryptionContext,
+		IntegrationConfig:           ig.IntegrationConfig,
+		Tags:                        tags,
+		CreateTime:                  awstime.Epoch(ig.CreatedAt),
+	}
 }
 
 func (h *Handler) handleCreateIntegration(
 	_ context.Context,
 	in *createIntegrationInput,
-) (*createIntegrationOutput, error) {
-	ig, err := h.Backend.CreateIntegration(in.IntegrationName, in.SourceArn, in.TargetArn, in.Tags, in.DataFilter)
+) (*integrationWire, error) {
+	ig, err := h.Backend.CreateIntegrationWithOptions(
+		in.IntegrationName, in.SourceArn, in.TargetArn, integrationTagMap(in.Tags),
+		IntegrationOptions{
+			DataFilter:                  in.DataFilter,
+			Description:                 in.Description,
+			KmsKeyID:                    in.KmsKeyID,
+			AdditionalEncryptionContext: in.AdditionalEncryptionContext,
+			IntegrationConfig:           in.IntegrationConfig,
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	return &createIntegrationOutput{
-		IntegrationName: ig.IntegrationName,
-		IntegrationArn:  ig.IntegrationArn,
-		SourceArn:       ig.SourceArn,
-		TargetArn:       ig.TargetArn,
-		Status:          ig.Status,
-		DataFilter:      ig.DataFilter,
-		CreateTime:      awstime.Epoch(ig.CreatedAt),
-	}, nil
+	w := toIntegrationWire(ig)
+
+	return &w, nil
 }
 
 // createIntegrationResourcePropertyInput holds input for CreateIntegrationResourceProperty.
@@ -111,33 +166,19 @@ type deleteIntegrationInput struct {
 	IntegrationIdentifier string `json:"IntegrationIdentifier"`
 }
 
-// deleteIntegrationOutput holds the result for DeleteIntegration.
-type deleteIntegrationOutput struct {
-	IntegrationName string  `json:"IntegrationName"`
-	IntegrationArn  string  `json:"IntegrationArn"`
-	SourceArn       string  `json:"SourceArn"`
-	TargetArn       string  `json:"TargetArn"`
-	Status          string  `json:"Status"`
-	CreateTime      float64 `json:"CreateTime"`
-}
-
 func (h *Handler) handleDeleteIntegration(
 	_ context.Context,
 	in *deleteIntegrationInput,
-) (*deleteIntegrationOutput, error) {
+) (*integrationWire, error) {
 	ig, err := h.Backend.DeleteIntegration(in.IntegrationIdentifier)
 	if err != nil {
 		return nil, err
 	}
 
-	return &deleteIntegrationOutput{
-		IntegrationName: ig.IntegrationName,
-		IntegrationArn:  ig.IntegrationArn,
-		SourceArn:       ig.SourceArn,
-		TargetArn:       ig.TargetArn,
-		Status:          "DELETING",
-		CreateTime:      awstime.Epoch(ig.CreatedAt),
-	}, nil
+	w := toIntegrationWire(ig)
+	w.Status = "DELETING"
+
+	return &w, nil
 }
 
 // deleteIntegrationResourcePropertyInput holds input for DeleteIntegrationResourceProperty.
@@ -267,40 +308,10 @@ type describeIntegrationsInput struct {
 	MaxRecords            int32               `json:"MaxRecords,omitempty"`
 }
 
-// integrationSummary mirrors the wire-safe subset of
-// aws-sdk-go-v2/service/glue/types.Integration that this backend tracks.
-// CreateTime is an epoch float (via pkgs/awstime), not the raw
-// Integration.CreatedAt time.Time -- that field's plain json tag marshals to
-// an RFC3339 string, which the real client rejects for this unixTimestamp
-// wire shape ("expected IntegrationTimestamp to be a JSON Number"), same
-// class of bug pkgs/awstime exists to prevent. Description, DataFilter,
-// IntegrationConfig, KmsKeyId, Errors, AdditionalEncryptionContext and Tags
-// are real Integration members with no backing state in this backend's
-// Integration model (models.go) and are omitted rather than fabricated.
-type integrationSummary struct {
-	IntegrationName string  `json:"IntegrationName"`
-	IntegrationArn  string  `json:"IntegrationArn"`
-	SourceArn       string  `json:"SourceArn"`
-	TargetArn       string  `json:"TargetArn"`
-	Status          string  `json:"Status"`
-	CreateTime      float64 `json:"CreateTime,omitempty"`
-}
-
-func toIntegrationSummary(ig *Integration) integrationSummary {
-	return integrationSummary{
-		IntegrationName: ig.IntegrationName,
-		IntegrationArn:  ig.IntegrationArn,
-		SourceArn:       ig.SourceArn,
-		TargetArn:       ig.TargetArn,
-		Status:          ig.Status,
-		CreateTime:      awstime.Epoch(ig.CreatedAt),
-	}
-}
-
 // describeIntegrationsOutput holds the result for DescribeIntegrations.
 type describeIntegrationsOutput struct {
-	Marker       string               `json:"Marker,omitempty"`
-	Integrations []integrationSummary `json:"Integrations"`
+	Marker       string            `json:"Marker,omitempty"`
+	Integrations []integrationWire `json:"Integrations"`
 }
 
 func integrationFieldValue(ig *Integration, name string) string {
@@ -361,9 +372,9 @@ func (h *Handler) handleDescribeIntegrations(
 
 	page, next := paginateSlice(matching, in.Marker, limit)
 
-	result := make([]integrationSummary, 0, len(page))
+	result := make([]integrationWire, 0, len(page))
 	for _, ig := range page {
-		result = append(result, toIntegrationSummary(ig))
+		result = append(result, toIntegrationWire(ig))
 	}
 
 	return &describeIntegrationsOutput{Integrations: result, Marker: next}, nil
@@ -485,39 +496,29 @@ func (h *Handler) handleListIntegrationResourceProperties(
 
 // modifyIntegrationInput holds input for ModifyIntegration.
 type modifyIntegrationInput struct {
-	DataFilter            *string `json:"DataFilter,omitempty"`
-	IntegrationIdentifier string  `json:"IntegrationIdentifier"`
-}
-
-// modifyIntegrationOutput holds the result for ModifyIntegration.
-type modifyIntegrationOutput struct {
-	IntegrationName string  `json:"IntegrationName"`
-	IntegrationArn  string  `json:"IntegrationArn"`
-	SourceArn       string  `json:"SourceArn"`
-	TargetArn       string  `json:"TargetArn"`
-	Status          string  `json:"Status"`
-	DataFilter      string  `json:"DataFilter,omitempty"`
-	CreateTime      float64 `json:"CreateTime"`
+	DataFilter            *string            `json:"DataFilter,omitempty"`
+	Description           *string            `json:"Description,omitempty"`
+	IntegrationConfig     *IntegrationConfig `json:"IntegrationConfig,omitempty"`
+	IntegrationIdentifier string             `json:"IntegrationIdentifier"`
 }
 
 func (h *Handler) handleModifyIntegration(
 	_ context.Context,
 	in *modifyIntegrationInput,
-) (*modifyIntegrationOutput, error) {
-	ig, err := h.Backend.ModifyIntegration(in.IntegrationIdentifier, in.DataFilter)
+) (*integrationWire, error) {
+	ig, err := h.Backend.ModifyIntegrationWithOptions(in.IntegrationIdentifier, IntegrationModifyOptions{
+		DataFilter:        in.DataFilter,
+		Description:       in.Description,
+		IntegrationConfig: in.IntegrationConfig,
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	return &modifyIntegrationOutput{
-		IntegrationName: ig.IntegrationName,
-		IntegrationArn:  ig.IntegrationArn,
-		SourceArn:       ig.SourceArn,
-		TargetArn:       ig.TargetArn,
-		Status:          stateActive,
-		DataFilter:      ig.DataFilter,
-		CreateTime:      awstime.Epoch(ig.CreatedAt),
-	}, nil
+	w := toIntegrationWire(ig)
+	w.Status = stateActive
+
+	return &w, nil
 }
 
 // updateIntegrationResourcePropertyInput holds input for UpdateIntegrationResourceProperty.

@@ -53,11 +53,41 @@ func (b *InMemoryBackend) resolveIntegrationName(identifier string) string {
 	return identifier
 }
 
+// IntegrationOptions are the optional CreateIntegration members.
+type IntegrationOptions struct {
+	AdditionalEncryptionContext map[string]string
+	IntegrationConfig           *IntegrationConfig
+	DataFilter                  string
+	Description                 string
+	KmsKeyID                    string
+}
+
+// IntegrationModifyOptions are the ModifyIntegration members; nil leaves a field unchanged.
+type IntegrationModifyOptions struct {
+	DataFilter        *string
+	Description       *string
+	IntegrationConfig *IntegrationConfig
+}
+
 // CreateIntegration stores a new integration.
 func (b *InMemoryBackend) CreateIntegration(
 	name, sourceArn, targetArn string,
 	tags map[string]string,
 	dataFilter ...string,
+) (*Integration, error) {
+	opts := IntegrationOptions{}
+	if len(dataFilter) > 0 {
+		opts.DataFilter = dataFilter[0]
+	}
+
+	return b.CreateIntegrationWithOptions(name, sourceArn, targetArn, tags, opts)
+}
+
+// CreateIntegrationWithOptions stores a new integration with its optional members.
+func (b *InMemoryBackend) CreateIntegrationWithOptions(
+	name, sourceArn, targetArn string,
+	tags map[string]string,
+	opts IntegrationOptions,
 ) (*Integration, error) {
 	b.mu.Lock("CreateIntegration")
 	defer b.mu.Unlock()
@@ -86,9 +116,12 @@ func (b *InMemoryBackend) CreateIntegration(
 		Status:          "CREATING",
 		Tags:            tags,
 		CreatedAt:       now,
-	}
-	if len(dataFilter) > 0 {
-		ig.DataFilter = dataFilter[0]
+		DataFilter:      opts.DataFilter,
+		Description:     opts.Description,
+		KmsKeyID:        opts.KmsKeyID,
+
+		AdditionalEncryptionContext: maps.Clone(opts.AdditionalEncryptionContext),
+		IntegrationConfig:           cloneIntegrationConfig(opts.IntegrationConfig),
 	}
 
 	b.integrations.Put(ig)
@@ -98,9 +131,27 @@ func (b *InMemoryBackend) CreateIntegration(
 	// reconcileLocked exactly like crawlerReadyAt's RUNNING -> READY.
 	b.integrationReadyAt[name] = now.Add(integrationTransitionDelay)
 
-	cp := *ig
+	return cloneIntegration(ig), nil
+}
 
-	return &cp, nil
+func cloneIntegrationConfig(c *IntegrationConfig) *IntegrationConfig {
+	if c == nil {
+		return nil
+	}
+
+	cp := *c
+	cp.SourceProperties = maps.Clone(c.SourceProperties)
+
+	return &cp
+}
+
+func cloneIntegration(ig *Integration) *Integration {
+	cp := *ig
+	cp.Tags = maps.Clone(ig.Tags)
+	cp.AdditionalEncryptionContext = maps.Clone(ig.AdditionalEncryptionContext)
+	cp.IntegrationConfig = cloneIntegrationConfig(ig.IntegrationConfig)
+
+	return &cp
 }
 
 // DeleteIntegration removes an integration, identified by name or ARN
@@ -148,6 +199,14 @@ func (b *InMemoryBackend) ListIntegrations() []*Integration {
 // resolveIntegrationName), and returns the current record so the caller can
 // echo the real required response fields.
 func (b *InMemoryBackend) ModifyIntegration(identifier string, dataFilter *string) (*Integration, error) {
+	return b.ModifyIntegrationWithOptions(identifier, IntegrationModifyOptions{DataFilter: dataFilter})
+}
+
+// ModifyIntegrationWithOptions applies the non-nil ModifyIntegration members.
+func (b *InMemoryBackend) ModifyIntegrationWithOptions(
+	identifier string,
+	opts IntegrationModifyOptions,
+) (*Integration, error) {
 	b.mu.Lock("ModifyIntegration")
 	defer b.mu.Unlock()
 
@@ -158,13 +217,19 @@ func (b *InMemoryBackend) ModifyIntegration(identifier string, dataFilter *strin
 		return nil, ErrIntegrationNotFound
 	}
 
-	if dataFilter != nil {
-		ig.DataFilter = *dataFilter
+	if opts.DataFilter != nil {
+		ig.DataFilter = *opts.DataFilter
 	}
 
-	cp := *ig
+	if opts.Description != nil {
+		ig.Description = *opts.Description
+	}
 
-	return &cp, nil
+	if opts.IntegrationConfig != nil {
+		ig.IntegrationConfig = cloneIntegrationConfig(opts.IntegrationConfig)
+	}
+
+	return cloneIntegration(ig), nil
 }
 
 // cloneIntegrationResourceProperty returns a copy of p with cloned maps, so callers

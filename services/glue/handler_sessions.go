@@ -24,14 +24,19 @@ func (h *Handler) handleCancelStatement(
 
 // createSessionInput holds input for CreateSession.
 type createSessionInput struct {
-	DefaultArguments map[string]string `json:"DefaultArguments,omitempty"`
-	Command          SessionCommand    `json:"Command"`
-	ID               string            `json:"Id"`
-	Role             string            `json:"Role,omitempty"`
-	Description      string            `json:"Description,omitempty"`
-	Timeout          int32             `json:"Timeout,omitempty"`
-	IdleTimeout      int32             `json:"IdleTimeout,omitempty"`
-	MaxCapacity      float64           `json:"MaxCapacity,omitempty"`
+	DefaultArguments      map[string]string `json:"DefaultArguments,omitempty"`
+	Command               SessionCommand    `json:"Command"`
+	Description           string            `json:"Description,omitempty"`
+	GlueVersion           string            `json:"GlueVersion,omitempty"`
+	WorkerType            string            `json:"WorkerType,omitempty"`
+	SecurityConfiguration string            `json:"SecurityConfiguration,omitempty"`
+	ID                    string            `json:"Id"`
+	Role                  string            `json:"Role,omitempty"`
+	Connections           ConnectionsList   `json:"Connections,omitzero"`
+	MaxCapacity           float64           `json:"MaxCapacity,omitempty"`
+	NumberOfWorkers       int32             `json:"NumberOfWorkers,omitempty"`
+	Timeout               int32             `json:"Timeout,omitempty"`
+	IdleTimeout           int32             `json:"IdleTimeout,omitempty"`
 }
 
 // createSessionOutput holds the result for CreateSession.
@@ -44,11 +49,16 @@ func (h *Handler) handleCreateSession(
 	in *createSessionInput,
 ) (*createSessionOutput, error) {
 	opts := Session{
-		Timeout:          in.Timeout,
-		IdleTimeout:      in.IdleTimeout,
-		MaxCapacity:      in.MaxCapacity,
-		Description:      in.Description,
-		DefaultArguments: in.DefaultArguments,
+		Timeout:               in.Timeout,
+		IdleTimeout:           in.IdleTimeout,
+		MaxCapacity:           in.MaxCapacity,
+		Description:           in.Description,
+		DefaultArguments:      in.DefaultArguments,
+		Connections:           in.Connections,
+		GlueVersion:           in.GlueVersion,
+		WorkerType:            in.WorkerType,
+		SecurityConfiguration: in.SecurityConfiguration,
+		NumberOfWorkers:       in.NumberOfWorkers,
 	}
 	s, err := h.Backend.CreateSession(in.ID, in.Role, in.Command, opts)
 	if err != nil {

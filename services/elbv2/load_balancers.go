@@ -267,6 +267,8 @@ func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*Lo
 		Type:                         lbType,
 		IPAddressType:                ipType,
 		EnablePrefixForIpv6SourceNat: sourceNat,
+		IPv4IPAMPoolID:               input.IPv4IPAMPoolID,
+		CustomerOwnedIPv4Pool:        input.CustomerOwnedIPv4Pool,
 		VpcID:                        "vpc-00000000",
 		AvailabilityZones:            azs,
 		SecurityGroups:               input.SecurityGroups,
@@ -496,6 +498,10 @@ func (b *InMemoryBackend) SetSecurityGroups(
 		)
 	}
 
+	if netErr := b.validateNetworkRefs(sgs, nil); netErr != nil {
+		return nil, netErr
+	}
+
 	// Real AWS default is "on" (SetSecurityGroupsInput.
 	// EnforceSecurityGroupInboundRulesOnPrivateLinkTraffic doc comment); an
 	// omitted flag on a later call leaves the load balancer's current value
@@ -524,7 +530,7 @@ func (b *InMemoryBackend) SetSecurityGroups(
 func (b *InMemoryBackend) SetSubnets(
 	lbArn string,
 	mappings []SubnetMapping,
-	enablePrefixForIpv6SourceNat string,
+	enablePrefixForIpv6SourceNat, ipAddressType string,
 ) (*LoadBalancer, error) {
 	b.mu.Lock("SetSubnets")
 	defer b.mu.Unlock()
@@ -534,12 +540,24 @@ func (b *InMemoryBackend) SetSubnets(
 		return nil, ErrLoadBalancerNotFound
 	}
 
+	if netErr := b.validateNetworkRefs(nil, mappings); netErr != nil {
+		return nil, netErr
+	}
+
 	// An omitted flag leaves the load balancer's current value unchanged.
 	sourceNat, err := validateOnOffFlag(
 		"EnablePrefixForIpv6SourceNat", enablePrefixForIpv6SourceNat, lb.EnablePrefixForIpv6SourceNat,
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	if ipAddressType != "" {
+		if ipErr := validateLBIPAddressType(ipAddressType); ipErr != nil {
+			return nil, ipErr
+		}
+
+		lb.IPAddressType = ipAddressType
 	}
 
 	lb.EnablePrefixForIpv6SourceNat = sourceNat
@@ -560,21 +578,27 @@ func (b *InMemoryBackend) SetIPAddressType(lbArn string, ipType string) (*LoadBa
 		return nil, ErrLoadBalancerNotFound
 	}
 
-	switch ipType {
-	case ipAddressTypeIPv4, "dualstack", "dualstack-without-public-ipv4":
-		// valid
-	default:
-		return nil, fmt.Errorf(
-			"%w: invalid IpAddressType %q; must be ipv4, dualstack, or dualstack-without-public-ipv4",
-			ErrInvalidParameter,
-			ipType,
-		)
+	if err := validateLBIPAddressType(ipType); err != nil {
+		return nil, err
 	}
 
 	lb.IPAddressType = ipType
 	cp := *lb
 
 	return &cp, nil
+}
+
+func validateLBIPAddressType(ipType string) error {
+	switch ipType {
+	case ipAddressTypeIPv4, "dualstack", "dualstack-without-public-ipv4":
+		return nil
+	default:
+		return fmt.Errorf(
+			"%w: invalid IpAddressType %q; must be ipv4, dualstack, or dualstack-without-public-ipv4",
+			ErrInvalidParameter,
+			ipType,
+		)
+	}
 }
 
 // ModifyIPPools updates the IPAM pool configuration on a load balancer.
