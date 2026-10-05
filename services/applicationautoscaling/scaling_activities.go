@@ -34,6 +34,10 @@ type DescribeScalingActivitiesFilter struct {
 func (b *InMemoryBackend) DescribeScalingActivities(
 	f DescribeScalingActivitiesFilter,
 ) ([]*ScalingActivity, string, error) {
+	if err := validateEnums(f.ServiceNamespace, f.ScalableDimension); err != nil {
+		return nil, "", err
+	}
+
 	b.mu.RLock("DescribeScalingActivities")
 	defer b.mu.RUnlock()
 

@@ -350,12 +350,8 @@ func (b *InMemoryBackend) deliverSnapshot(ctx context.Context, snap *flushSnapsh
 	if d := snap.redshiftDest; d != nil {
 		b.deliverProcessedNonS3(ctx, snap, streamName,
 			nonS3Target{pc: d.ProcessingConfiguration, backup: d.S3BackupDescription, roleARN: d.RoleARN,
-				failType: errTypeProcessing},
-			func(recs [][]byte) [][]byte {
-				b.deliverToRedshift(ctx, recs, d, snap.streamARN, streamName)
-
-				return nil
-			})
+				cwLog: d.CloudWatchLoggingOptions, failType: errTypeProcessing},
+			func(recs [][]byte) [][]byte { return b.deliverToRedshift(ctx, recs, d, snap.streamARN, streamName) })
 	}
 
 	if d := snap.openSearchDest; d != nil {
@@ -391,22 +387,14 @@ func (b *InMemoryBackend) deliverLakeAndSplunk(ctx context.Context, snap *flushS
 		b.deliverProcessedNonS3(ctx, snap, streamName,
 			nonS3Target{pc: d.ProcessingConfiguration, cwLog: d.CloudWatchLoggingOptions, roleARN: d.RoleARN,
 				failType: errTypeProcessing},
-			func(recs [][]byte) [][]byte {
-				b.deliverToIceberg(ctx, recs, d, streamName)
-
-				return nil
-			})
+			func(recs [][]byte) [][]byte { return b.deliverToIceberg(ctx, recs, d, streamName) })
 	}
 
 	if d := snap.snowflakeDest; d != nil {
 		b.deliverProcessedNonS3(ctx, snap, streamName,
 			nonS3Target{pc: d.ProcessingConfiguration, cwLog: d.CloudWatchLoggingOptions, roleARN: d.RoleARN,
 				failType: errTypeProcessing},
-			func(recs [][]byte) [][]byte {
-				b.deliverToSnowflake(ctx, recs, d, streamName)
-
-				return nil
-			})
+			func(recs [][]byte) [][]byte { return b.deliverToSnowflake(ctx, recs, d, streamName) })
 	}
 }
 
@@ -452,7 +440,7 @@ func (b *InMemoryBackend) writeBackupFailures(
 	}
 
 	prefix := errorPrefix(backup.ErrorOutputPrefix, backup.Prefix, errType)
-	_, _ = b.writeRecordsToBucket(ctx, records, backup.BucketARN, prefix, "", "", streamName)
+	_, _ = b.writeRecordsToBucket(ctx, records, backup.BucketARN, prefix, "", streamName)
 }
 
 // deliverS3Backup delivers the buffered S3 backup copies (accumulated when S3BackupMode is
@@ -475,7 +463,7 @@ func (b *InMemoryBackend) deliverS3Backup(
 	}
 
 	_, _ = b.writeRecordsToBucket(ctx, snap.backupRecords, backup.BucketARN,
-		backup.Prefix, "", backup.CompressionFormat, streamName)
+		backup.Prefix, backup.CompressionFormat, streamName)
 }
 
 // recordFailedRecords increments the FailedRecords delivery metric for a stream.

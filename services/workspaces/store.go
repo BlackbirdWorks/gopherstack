@@ -74,6 +74,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		imagePermissions:  make(map[string]map[string]bool),
 		clientProperties:  make(map[string]storedClientProps),
 		appAssociations:   make(map[string]map[string]*storedAppAssociation),
+		idempotency:       make(map[string]idempotencyEntry),
 		accountID:         accountID,
 		region:            region,
 	}
@@ -109,6 +110,7 @@ func (b *InMemoryBackend) Reset() {
 	b.imagePermissions = make(map[string]map[string]bool)
 	b.clientProperties = make(map[string]storedClientProps)
 	b.appAssociations = make(map[string]map[string]*storedAppAssociation)
+	b.idempotency = make(map[string]idempotencyEntry)
 	b.accountConfig = storedAccountConfig{}
 	b.accountModifications = nil
 	b.counter = 0

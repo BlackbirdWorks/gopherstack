@@ -283,12 +283,13 @@ func (h *Handler) handleCreateWorkspaces(
 // --- DescribeWorkspaces ---
 
 type describeWorkspacesInput struct {
-	DirectoryID  string   `json:"DirectoryId"`
-	UserName     string   `json:"UserName"`
-	BundleID     string   `json:"BundleId"`
-	NextToken    string   `json:"NextToken"`
-	WorkspaceIDs []string `json:"WorkspaceIds"`
-	Limit        int32    `json:"Limit"`
+	DirectoryID   string   `json:"DirectoryId"`
+	UserName      string   `json:"UserName"`
+	BundleID      string   `json:"BundleId"`
+	NextToken     string   `json:"NextToken"`
+	WorkspaceName string   `json:"WorkspaceName"`
+	WorkspaceIDs  []string `json:"WorkspaceIds"`
+	Limit         int32    `json:"Limit"`
 }
 
 type describeWorkspacesOutput struct {
@@ -354,8 +355,8 @@ func (h *Handler) handleDescribeWorkspaces(
 		bundleIDs = []string{req.BundleID}
 	}
 
-	wsList, nextToken, err := h.Backend.DescribeWorkspaces(
-		ctx, req.WorkspaceIDs, directoryIDs, userIDs, bundleIDs, req.Limit, req.NextToken,
+	wsList, nextToken, err := h.Backend.DescribeWorkspacesFiltered(
+		ctx, req.WorkspaceIDs, directoryIDs, userIDs, bundleIDs, req.WorkspaceName, req.Limit, req.NextToken,
 	)
 	if err != nil {
 		return nil, err
@@ -454,6 +455,7 @@ func (h *Handler) handleDescribeWorkspacesConnectionStatus(
 
 type modifyPropertiesInput struct {
 	WorkspaceID         string `json:"WorkspaceId"`
+	DataReplication     string `json:"DataReplication"`
 	WorkspaceProperties struct {
 		ComputeTypeName                     string `json:"ComputeTypeName"`
 		RunningMode                         string `json:"RunningMode"`
@@ -475,7 +477,19 @@ func (h *Handler) handleModifyWorkspaceProperties(
 		UserVolumeSizeGib:                   req.WorkspaceProperties.UserVolumeSizeGib,
 	}
 
-	return &emptyOutput{}, h.Backend.ModifyWorkspaceProperties(req.WorkspaceID, props)
+	if err := validateDataReplication(req.DataReplication); err != nil {
+		return nil, err
+	}
+
+	if err := h.Backend.ModifyWorkspaceProperties(req.WorkspaceID, props); err != nil {
+		return nil, err
+	}
+
+	if req.DataReplication != "" {
+		return &emptyOutput{}, h.Backend.ModifyWorkspaceDataReplication(req.WorkspaceID, req.DataReplication)
+	}
+
+	return &emptyOutput{}, nil
 }
 
 // --- ModifyWorkspaceState ---

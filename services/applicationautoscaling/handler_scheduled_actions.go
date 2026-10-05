@@ -97,7 +97,6 @@ type scalableTargetActionSummary struct {
 type scheduledActionSummary struct {
 	ScalableTargetAction *scalableTargetActionSummary `json:"ScalableTargetAction,omitempty"`
 	CreationTime         *float64                     `json:"CreationTime,omitempty"`
-	LastModifiedTime     *float64                     `json:"LastModifiedTime,omitempty"`
 	StartTime            *float64                     `json:"StartTime,omitempty"`
 	EndTime              *float64                     `json:"EndTime,omitempty"`
 	ServiceNamespace     string                       `json:"ServiceNamespace"`
@@ -141,7 +140,6 @@ func (h *Handler) handleDescribeScheduledActions(
 			Timezone:            a.Timezone,
 			ScheduledActionARN:  a.ARN,
 			CreationTime:        epochSecondsPtr(a.CreationTime),
-			LastModifiedTime:    epochSecondsPtr(a.LastModifiedTime),
 		}
 		if a.StartTime != nil {
 			item.StartTime = epochSecondsPtr(*a.StartTime)

@@ -13,6 +13,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 )
 
 // s3Failures groups records that could not be delivered, by Firehose error-output type.
@@ -47,7 +49,7 @@ func (b *InMemoryBackend) deliverS3Destination(ctx context.Context, snap *flushS
 			"lambda transform invocation failed; routing records to error output", err)
 	}
 
-	f := b.deliverToS3(ctx, out, dest, streamName)
+	f := b.deliverToS3(ctx, out, dest, streamName, snap.region)
 
 	processing := slices.Concat(out.Failed, f.partition, f.delivery)
 	b.routeToErrorOutput(ctx, processing, dest, streamName, errTypeProcessing)
@@ -62,7 +64,7 @@ func (b *InMemoryBackend) deliverToS3(
 	ctx context.Context,
 	out transformOutcome,
 	dest *S3DestinationDescription,
-	streamName string,
+	streamName, region string,
 ) s3Failures {
 	var f s3Failures
 	if b.s3 == nil || len(out.Ok) == 0 {
@@ -82,11 +84,16 @@ func (b *InMemoryBackend) deliverToS3(
 			f.conversion = append(f.conversion, convFailed...)
 		}
 
-		if _, err := b.writeRecordsToBucket(
+		key, size, err := b.putRecordsObject(
 			ctx, recs, dest.BucketARN, group.prefix, dest.FileExtension, dest.CompressionFormat, streamName,
-		); err != nil {
+		)
+		if err != nil {
 			b.logDeliveryIssue(ctx, dest.CloudWatchLoggingOptions, streamName, "S3 delivery failed", err)
 			f.delivery = append(f.delivery, recs...)
+		}
+
+		if key != "" || err != nil {
+			b.emitS3Put(region, streamName, len(recs), size, err == nil)
 		}
 	}
 
@@ -106,7 +113,33 @@ func (b *InMemoryBackend) routeToErrorOutput(
 	}
 
 	prefix := errorPrefix(dest.ErrorOutputPrefix, dest.Prefix, errType)
-	_, _ = b.writeRecordsToBucket(ctx, records, dest.BucketARN, prefix, "", "", streamName)
+	_, _ = b.writeRecordsToBucket(ctx, records, dest.BucketARN, prefix, "", streamName)
+}
+
+// stageToS3 writes records to a destination's S3Configuration staging bucket under its role,
+// returning the object key and, when the role is denied or the write fails, the undelivered records.
+func (b *InMemoryBackend) stageToS3(
+	ctx context.Context,
+	records [][]byte,
+	cfg *S3DestinationDescription,
+	cwLog *CloudWatchLoggingOptions,
+	streamName string,
+) (string, [][]byte) {
+	if code := b.authorizeS3Write(cfg.RoleARN, cfg.BucketARN); code != "" {
+		cause := fmt.Errorf("%w: staging role denied", roleauth.ErrAccessDenied)
+		b.logDeliveryIssue(ctx, cwLog, streamName, code, cause)
+
+		return "", records
+	}
+
+	key, err := b.writeRecordsToBucket(ctx, records, cfg.BucketARN, cfg.Prefix, cfg.CompressionFormat, streamName)
+	if err != nil {
+		b.logDeliveryIssue(ctx, cwLog, streamName, "S3 staging failed", err)
+
+		return "", records
+	}
+
+	return key, nil
 }
 
 // writeRecordsToBucket writes newline-joined, compressed records as one object under
@@ -114,10 +147,21 @@ func (b *InMemoryBackend) routeToErrorOutput(
 func (b *InMemoryBackend) writeRecordsToBucket(
 	ctx context.Context,
 	records [][]byte,
-	bucketARN, prefix, fileExtension, compressionFormat, streamName string,
+	bucketARN, prefix, compressionFormat, streamName string,
 ) (string, error) {
+	key, _, err := b.putRecordsObject(ctx, records, bucketARN, prefix, "", compressionFormat, streamName)
+
+	return key, err
+}
+
+// putRecordsObject is writeRecordsToBucket that also returns the stored object's size in bytes.
+func (b *InMemoryBackend) putRecordsObject(
+	ctx context.Context,
+	records [][]byte,
+	bucketARN, prefix, fileExtension, compressionFormat, streamName string,
+) (string, int, error) {
 	if b.s3 == nil {
-		return "", nil
+		return "", 0, nil
 	}
 
 	var buf bytes.Buffer
@@ -132,12 +176,12 @@ func (b *InMemoryBackend) writeRecordsToBucket(
 	}
 
 	if buf.Len() == 0 {
-		return "", nil
+		return "", 0, nil
 	}
 
 	cb, err := compressBody(compressionFormat, buf.Bytes())
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 
 	if fileExtension == "" {
@@ -157,10 +201,10 @@ func (b *InMemoryBackend) writeRecordsToBucket(
 	}
 
 	if _, err = b.s3.PutObject(ctx, input); err != nil {
-		return "", err
+		return "", 0, err
 	}
 
-	return key, nil
+	return key, len(cb.body), nil
 }
 
 func zoneFromContext(ctx context.Context) *time.Location {

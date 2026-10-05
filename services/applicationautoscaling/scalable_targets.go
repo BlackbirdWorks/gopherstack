@@ -75,6 +75,10 @@ func validateRegisterScalableTargetBasics(
 		return fmt.Errorf("%w: ScalableDimension is required", ErrValidation)
 	}
 
+	if err := validateNamespaceDimension(serviceNamespace, scalableDimension); err != nil {
+		return err
+	}
+
 	// RegisterScalableTarget's modeled error set has LimitExceededException
 	// but no TooManyTagsException (that's only modeled on TagResource -- see
 	// ErrTooManyTags's doc comment), so an over-limit tag count here is
@@ -396,6 +400,10 @@ type DescribeScalableTargetsFilter struct {
 // returns the NextToken for the following page (empty on the last page).
 // Returns ErrInvalidNextToken if f.NextToken fails to decode.
 func (b *InMemoryBackend) DescribeScalableTargets(f DescribeScalableTargetsFilter) ([]*ScalableTarget, string, error) {
+	if err := validateEnums(f.ServiceNamespace, f.ScalableDimension); err != nil {
+		return nil, "", err
+	}
+
 	b.mu.RLock("DescribeScalableTargets")
 
 	var idSet map[string]bool

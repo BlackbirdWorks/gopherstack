@@ -87,9 +87,7 @@ type suspendedStateSummary struct {
 
 type scalableTargetSummary struct {
 	SuspendedState    *suspendedStateSummary `json:"SuspendedState,omitempty"`
-	Tags              map[string]string      `json:"Tags,omitempty"`
 	CreationTime      *float64               `json:"CreationTime,omitempty"`
-	LastModifiedTime  *float64               `json:"LastModifiedTime,omitempty"`
 	PredictedCapacity *int32                 `json:"PredictedCapacity,omitempty"`
 	ServiceNamespace  string                 `json:"ServiceNamespace"`
 	ResourceID        string                 `json:"ResourceId"`
@@ -130,9 +128,7 @@ func (h *Handler) handleDescribeScalableTargets(
 			MaxCapacity:       t.MaxCapacity,
 			ScalableTargetARN: t.ARN,
 			RoleARN:           t.RoleARN,
-			Tags:              t.Tags,
 			CreationTime:      epochSecondsPtr(t.CreationTime),
-			LastModifiedTime:  epochSecondsPtr(t.LastModifiedTime),
 			PredictedCapacity: t.PredictedCapacity,
 		}
 		if t.SuspendedState != nil {

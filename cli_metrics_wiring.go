@@ -12,6 +12,7 @@ import (
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
+	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	snsbackend "github.com/blackbirdworks/gopherstack/services/sns"
@@ -46,7 +47,7 @@ func statisticSetEmitter(cwH *cwbackend.Handler) cwmetric.EmitterFunc {
 }
 
 // wireServiceMetrics publishes in-process AWS metrics for Kinesis, DynamoDB, API Gateway (REST, HTTP,
-// WebSocket), SNS, EventBridge, Step Functions, S3 and EC2 through one bounded async emitter.
+// WebSocket), SNS, EventBridge, Firehose, Step Functions, S3 and EC2 through one bounded async emitter.
 func wireServiceMetrics(ctx context.Context, byName map[string]service.Registerable) {
 	cwH, ok := byName["CloudWatch"].(*cwbackend.Handler)
 	if !ok {
@@ -92,6 +93,12 @@ func wireMessagingMetrics(e cwmetric.Emitter, byName map[string]service.Register
 
 	if h, ok := byName["EventBridge"].(*ebbackend.Handler); ok {
 		if bk, bok := h.Backend.(*ebbackend.InMemoryBackend); bok {
+			bk.SetMetricEmitter(e)
+		}
+	}
+
+	if h, ok := byName["Firehose"].(*firehosebackend.Handler); ok {
+		if bk, bok := h.Backend.(*firehosebackend.InMemoryBackend); bok {
 			bk.SetMetricEmitter(e)
 		}
 	}

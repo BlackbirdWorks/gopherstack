@@ -22,6 +22,8 @@ import (
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	ebtypes "github.com/aws/aws-sdk-go-v2/service/eventbridge/types"
+	"github.com/aws/aws-sdk-go-v2/service/firehose"
+	fhtypes "github.com/aws/aws-sdk-go-v2/service/firehose/types"
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
 	kintypes "github.com/aws/aws-sdk-go-v2/service/kinesis/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -370,6 +372,41 @@ func TestServiceMetrics_SNS(t *testing.T) {
 			namespace: ns, name: "NumberOfNotificationsFilteredOut-NoMessageAttributes", dims: d,
 			unit: cwtypes.StandardUnitCount, sum: 1,
 		},
+	})
+}
+
+func TestServiceMetrics_Firehose(t *testing.T) {
+	t.Parallel()
+
+	fx := newSFNFixture(t)
+	fh := firehose.NewFromConfig(fx.cfg)
+
+	_, err := fh.CreateDeliveryStream(t.Context(), &firehose.CreateDeliveryStreamInput{
+		DeliveryStreamName: aws.String("mt-fh"),
+		ExtendedS3DestinationConfiguration: &fhtypes.ExtendedS3DestinationConfiguration{
+			BucketARN: aws.String("arn:aws:s3:::mt-fh-bucket"),
+			RoleARN:   aws.String("arn:aws:iam::000000000000:role/fh"),
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = fh.PutRecord(t.Context(), &firehose.PutRecordInput{
+		DeliveryStreamName: aws.String("mt-fh"), Record: &fhtypes.Record{Data: []byte("0123")},
+	})
+	require.NoError(t, err)
+
+	_, err = fh.PutRecordBatch(t.Context(), &firehose.PutRecordBatchInput{
+		DeliveryStreamName: aws.String("mt-fh"),
+		Records:            []fhtypes.Record{{Data: []byte("ab")}, {Data: []byte("cde")}},
+	})
+	require.NoError(t, err)
+
+	d := map[string]string{"DeliveryStreamName": "mt-fh"}
+	const ns = "AWS/Firehose"
+
+	assertMetricsEmitted(t, fx, []metricWant{
+		{namespace: ns, name: "IncomingRecords", dims: d, unit: cwtypes.StandardUnitCount, sum: 3},
+		{namespace: ns, name: "IncomingBytes", dims: d, unit: cwtypes.StandardUnitBytes, sum: 9},
 	})
 }
 

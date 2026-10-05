@@ -270,10 +270,10 @@ func TestHandler_DescribeScalableTargets_HasTimestamps(t *testing.T) {
 
 	target := targets[0].(map[string]any)
 	assert.NotEmpty(t, target["CreationTime"], "expected CreationTime in response")
-	assert.NotEmpty(t, target["LastModifiedTime"], "expected LastModifiedTime in response")
+	assert.NotContains(t, target, "LastModifiedTime", "types.ScalableTarget has no LastModifiedTime member")
 }
 
-func TestHandler_DescribeScalableTargets_HasTags(t *testing.T) {
+func TestHandler_DescribeScalableTargets_OmitsTags(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -303,9 +303,11 @@ func TestHandler_DescribeScalableTargets_HasTags(t *testing.T) {
 	require.Len(t, targets, 1)
 
 	target := targets[0].(map[string]any)
-	tags, ok := target["Tags"].(map[string]any)
-	require.True(t, ok, "expected Tags in DescribeScalableTargets response")
-	assert.Equal(t, "prod", tags["env"])
+	assert.NotContains(t, target, "Tags", "types.ScalableTarget has no Tags member; tags come from ListTagsForResource")
+
+	tagRec := doRequest(t, h, "ListTagsForResource", map[string]any{"ResourceARN": registerResp["ScalableTargetARN"]})
+	require.Equal(t, http.StatusOK, tagRec.Code)
+	assert.Contains(t, tagRec.Body.String(), `"env":"prod"`)
 }
 
 func TestHandler_DescribeScalableTargets_ResourceIdsFilter(t *testing.T) {

@@ -36,6 +36,10 @@ func (b *InMemoryBackend) PutScheduledAction(
 		return nil, fmt.Errorf("%w: ScheduledActionName is required", ErrValidation)
 	}
 
+	if err := validateNamespaceDimension(serviceNamespace, scalableDimension); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("PutScheduledAction")
 	defer b.mu.Unlock()
 
@@ -201,6 +205,10 @@ type DescribeScheduledActionsFilter struct {
 func (b *InMemoryBackend) DescribeScheduledActions(
 	f DescribeScheduledActionsFilter,
 ) ([]*ScheduledAction, string, error) {
+	if err := validateEnums(f.ServiceNamespace, f.ScalableDimension); err != nil {
+		return nil, "", err
+	}
+
 	b.mu.RLock("DescribeScheduledActions")
 	defer b.mu.RUnlock()
 

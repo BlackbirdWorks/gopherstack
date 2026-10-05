@@ -92,6 +92,10 @@ func validatePutScalingPolicyBasics(
 		return fmt.Errorf("%w: PolicyName is required", ErrValidation)
 	}
 
+	if err := validateNamespaceDimension(serviceNamespace, scalableDimension); err != nil {
+		return err
+	}
+
 	// Validate PolicyType if provided; do not default yet -- defaulting only
 	// applies when creating a brand-new policy (see PutScalingPolicy).
 	if policyType != "" && !isValidPolicyType(policyType) {
@@ -330,6 +334,10 @@ func policyMatchesFilter(p *ScalingPolicy, f DescribeScalingPoliciesFilter, name
 // returns the NextToken for the following page (empty on the last page).
 // Returns ErrInvalidNextToken if f.NextToken fails to decode.
 func (b *InMemoryBackend) DescribeScalingPolicies(f DescribeScalingPoliciesFilter) ([]*ScalingPolicy, string, error) {
+	if err := validateEnums(f.ServiceNamespace, f.ScalableDimension); err != nil {
+		return nil, "", err
+	}
+
 	b.mu.RLock("DescribeScalingPolicies")
 
 	nameSet := buildStringSet(f.PolicyNames)

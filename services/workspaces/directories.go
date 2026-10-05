@@ -20,9 +20,23 @@ const stateRegistered = "REGISTERED"
 // Only directories that have been registered via RegisterWorkspaceDirectory are returned.
 // Results are sorted by DirectoryID and paginated (max 50 per page, matching AWS).
 func (b *InMemoryBackend) DescribeWorkspaceDirectories(
-	_ context.Context,
+	ctx context.Context,
 	directoryIDs []string, directoryNames []string, limit int32, nextToken string,
 ) ([]*WorkspaceDirectory, string, error) {
+	return b.DescribeWorkspaceDirectoriesFiltered(ctx, directoryIDs, directoryNames, nil, limit, nextToken)
+}
+
+// DescribeWorkspaceDirectoriesFiltered is DescribeWorkspaceDirectories plus the
+// USER_IDENTITY_TYPE / WORKSPACE_TYPE filters (ANDed; values within one filter are ORed).
+func (b *InMemoryBackend) DescribeWorkspaceDirectoriesFiltered(
+	_ context.Context,
+	directoryIDs []string, directoryNames []string, filters []DirectoryFilter, limit int32, nextToken string,
+) ([]*WorkspaceDirectory, string, error) {
+	propFilters, err := directoryFilterProps(filters)
+	if err != nil {
+		return nil, "", err
+	}
+
 	b.mu.RLock("DescribeWorkspaceDirectories")
 	defer b.mu.RUnlock()
 
@@ -33,6 +47,10 @@ func (b *InMemoryBackend) DescribeWorkspaceDirectories(
 	for _, ds := range b.dirSettings.All() {
 		id := ds.DirectoryID
 		if !matchesFilter(idFilter, id) || !matchesFilter(nameFilter, ds.Properties["DirectoryName"]) {
+			continue
+		}
+
+		if !matchesPropFilters(ds, propFilters) {
 			continue
 		}
 
@@ -69,6 +87,15 @@ func (b *InMemoryBackend) DescribeWorkspaceDirectories(
 			SelfservicePermissions:         selfservicePermissionsFromDS(ds),
 			WorkspaceAccessProperties:      workspaceAccessPropertiesFromDS(ds),
 			WorkspaceCreationProperties:    workspaceCreationPropertiesFromDS(ds),
+			StreamingProperties:            streamingPropertiesFromDS(ds),
+			ActiveDirectoryConfig:          activeDirectoryConfigFromDS(ds),
+			MicrosoftEntraConfig:           microsoftEntraConfigFromDS(ds),
+			IDCConfig:                      idcConfigFromDS(ds),
+			UserIdentityType:               dirAttr(ds, attrUserIdentityType),
+			WorkspaceType:                  dirAttr(ds, attrWorkspaceType),
+			Tenancy:                        dirAttr(ds, "Tenancy"),
+			WorkspaceDirectoryName:         ds.Properties["WorkspaceDirectoryName"],
+			WorkspaceDirectoryDescription:  ds.Properties["WorkspaceDirectoryDescription"],
 		})
 	}
 
@@ -280,11 +307,33 @@ func (b *InMemoryBackend) RegisterWorkspaceDirectory(
 	tags map[string]string,
 	requestedName string,
 ) error {
+	_, err := b.RegisterWorkspaceDirectoryWithConfig(DirectoryRegistration{
+		DirectoryID:            directoryID,
+		SubnetIDs:              subnetIDs,
+		Tags:                   tags,
+		WorkspaceDirectoryName: requestedName,
+	})
+
+	return err
+}
+
+// RegisterWorkspaceDirectoryWithConfig registers a directory with the full input member set and
+// returns its DirectoryId, generated for IAM Identity Center / Entra registrations that omit one.
+func (b *InMemoryBackend) RegisterWorkspaceDirectoryWithConfig(reg DirectoryRegistration) (string, error) {
+	if err := validateDirectoryRegistration(reg); err != nil {
+		return "", err
+	}
+
 	b.mu.Lock("RegisterWorkspaceDirectory")
 	defer b.mu.Unlock()
 
+	directoryID := reg.DirectoryID
+	if directoryID == "" {
+		directoryID = b.nextID("wsd-")
+	}
+
 	if ds, ok := b.dirSettings.Get(directoryID); ok && ds.Properties["State"] == stateRegistered {
-		return errDirectoryAlreadyRegistered
+		return "", errDirectoryAlreadyRegistered
 	}
 
 	b.ensureDirSettings(directoryID)
@@ -292,17 +341,18 @@ func (b *InMemoryBackend) RegisterWorkspaceDirectory(
 	ds, _ := b.dirSettings.Get(directoryID)
 	ds.Properties["State"] = stateRegistered
 
-	if len(subnetIDs) > 0 {
-		ds.Properties["SubnetIds"] = strings.Join(subnetIDs, ",")
+	if len(reg.SubnetIDs) > 0 {
+		ds.Properties["SubnetIds"] = strings.Join(reg.SubnetIDs, ",")
 	}
 
-	if len(tags) > 0 {
-		b.tags[directoryID] = cloneTags(tags)
+	if len(reg.Tags) > 0 {
+		b.tags[directoryID] = cloneTags(reg.Tags)
 	}
 
-	b.populateDirectoryInfoLocked(ds, directoryID, requestedName)
+	applyRegistrationAttributes(ds, reg)
+	b.populateDirectoryInfoLocked(ds, directoryID, reg.WorkspaceDirectoryName)
 
-	return nil
+	return directoryID, nil
 }
 
 // populateDirectoryInfoLocked fills in DirectoryName and the other

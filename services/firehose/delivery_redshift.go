@@ -141,16 +141,16 @@ func (b *InMemoryBackend) deliverToRedshift(
 	records [][]byte,
 	dest *RedshiftDestinationDescription,
 	streamARN, streamName string,
-) {
+) [][]byte {
 	if dest.ClusterJDBCURL == "" || dest.CopyCommand == nil || dest.CopyCommand.DataTableName == "" {
-		return
+		return nil
 	}
 
 	if dest.S3Destination == nil || dest.S3Destination.BucketARN == "" {
 		logger.Load(ctx).WarnContext(ctx, "firehose: Redshift destination missing required S3 staging configuration",
 			"stream", streamARN)
 
-		return
+		return nil
 	}
 
 	clusterID, database, parseErr := parseRedshiftJDBCURL(dest.ClusterJDBCURL)
@@ -158,16 +158,12 @@ func (b *InMemoryBackend) deliverToRedshift(
 		logger.Load(ctx).WarnContext(ctx, "firehose: cannot parse Redshift JDBC URL",
 			"url", dest.ClusterJDBCURL, "stream", streamARN, "error", parseErr)
 
-		return
+		return nil
 	}
 
-	key, stageErr := b.writeRecordsToBucket(ctx, records, dest.S3Destination.BucketARN,
-		dest.S3Destination.Prefix, "", dest.S3Destination.CompressionFormat, streamName)
-	if stageErr != nil {
-		logger.Load(ctx).WarnContext(ctx, "firehose: Redshift S3 staging failed",
-			"stream", streamARN, "error", stageErr)
-
-		return
+	key, undelivered := b.stageToS3(ctx, records, dest.S3Destination, dest.CloudWatchLoggingOptions, streamName)
+	if undelivered != nil {
+		return undelivered
 	}
 
 	copySQL, ok := buildRedshiftCopySQL(
@@ -175,7 +171,7 @@ func (b *InMemoryBackend) deliverToRedshift(
 		bucketFromARN(dest.S3Destination.BucketARN), key, dest.RoleARN, dest.CopyCommand.CopyOptions,
 	)
 	if !ok {
-		return
+		return nil
 	}
 
 	maxRetry := redshiftRetryDuration
@@ -184,4 +180,6 @@ func (b *InMemoryBackend) deliverToRedshift(
 	}
 
 	b.executeRedshiftCopyWithRetry(ctx, clusterID, database, dest.Username, copySQL, streamARN, maxRetry)
+
+	return nil
 }

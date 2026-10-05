@@ -55,7 +55,7 @@ func newPersistenceTestBackend(t *testing.T) *workspaces.InMemoryBackend {
 
 	_, err = b.CreateWorkspacesPool(
 		"pool1", "wsb-bh8rsxt14", "d-1234567890", "desc", "ALWAYS_ON", 5,
-		map[string]string{"k": "v"},
+		map[string]string{"k": "v"}, workspaces.PoolSettings{},
 	)
 	require.NoError(t, err)
 
