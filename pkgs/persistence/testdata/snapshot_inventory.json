@@ -16,6 +16,7 @@
       "Analyzer.Arn string `json:\"arn\"`",
       "Analyzer.Configuration json.RawMessage `json:\"configuration,omitempty\"`",
       "Analyzer.CreatedAt time.Time `json:\"createdAt\"`",
+      "Analyzer.LastResourceAnalyzed string `json:\"lastResourceAnalyzed,omitempty\"`",
       "Analyzer.LastResourceAnalyzedAt *time.Time `json:\"lastResourceAnalyzedAt,omitempty\"`",
       "Analyzer.Name string `json:\"name\"`",
       "Analyzer.Status AnalyzerStatus `json:\"status\"`",
