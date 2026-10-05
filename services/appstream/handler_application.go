@@ -3,6 +3,7 @@ package appstream
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
@@ -110,12 +111,15 @@ func (h *Handler) opDescribeApplications(_ context.Context, body []byte) (any, e
 }
 
 type updateApplicationInput struct {
-	Name             string `json:"Name"`
-	DisplayName      string `json:"DisplayName"`
-	Description      string `json:"Description"`
-	LaunchPath       string `json:"LaunchPath"`
-	LaunchParameters string `json:"LaunchParameters"`
-	WorkingDirectory string `json:"WorkingDirectory"`
+	Name               string          `json:"Name"`
+	DisplayName        string          `json:"DisplayName"`
+	Description        string          `json:"Description"`
+	LaunchPath         string          `json:"LaunchPath"`
+	LaunchParameters   string          `json:"LaunchParameters"`
+	WorkingDirectory   string          `json:"WorkingDirectory"`
+	AppBlockArn        string          `json:"AppBlockArn"`
+	IconS3Location     *s3LocationJSON `json:"IconS3Location"`
+	AttributesToDelete []string        `json:"AttributesToDelete"`
 }
 
 func (h *Handler) opUpdateApplication(_ context.Context, body []byte) (any, error) {
@@ -124,8 +128,20 @@ func (h *Handler) opUpdateApplication(_ context.Context, body []byte) (any, erro
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
+	for _, attr := range req.AttributesToDelete {
+		if attr != applicationAttrLaunchParameters && attr != applicationAttrWorkingDirectory {
+			return nil, fmt.Errorf("%w: unknown AttributesToDelete value %q", awserr.ErrInvalidParameter, attr)
+		}
+	}
+
+	opts := UpdateApplicationOptions{AppBlockArn: req.AppBlockArn, AttributesToDelete: req.AttributesToDelete}
+	if req.IconS3Location != nil {
+		icon := req.IconS3Location.toModel()
+		opts.IconS3Location = &icon
+	}
+
 	app, err := h.Backend.UpdateApplication(
-		req.Name, req.DisplayName, req.Description, req.LaunchPath, req.LaunchParameters, req.WorkingDirectory,
+		req.Name, req.DisplayName, req.Description, req.LaunchPath, req.LaunchParameters, req.WorkingDirectory, opts,
 	)
 	if err != nil {
 		return nil, err

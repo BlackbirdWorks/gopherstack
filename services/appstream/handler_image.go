@@ -3,6 +3,7 @@ package appstream
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
@@ -35,9 +36,12 @@ func (h *Handler) opCopyImage(_ context.Context, body []byte) (any, error) {
 }
 
 type createImportedImageInput struct {
-	Tags        map[string]string `json:"Tags"`
-	Name        string            `json:"Name"`
-	Description string            `json:"Description"`
+	DryRun               *bool             `json:"DryRun"`
+	Tags                 map[string]string `json:"Tags"`
+	Name                 string            `json:"Name"`
+	Description          string            `json:"Description"`
+	DisplayName          string            `json:"DisplayName"`
+	AgentSoftwareVersion string            `json:"AgentSoftwareVersion"`
 }
 
 func (h *Handler) opCreateImportedImage(_ context.Context, body []byte) (any, error) {
@@ -46,7 +50,22 @@ func (h *Handler) opCreateImportedImage(_ context.Context, body []byte) (any, er
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
-	img, err := h.Backend.CreateImportedImage(req.Name, req.Description, req.Tags)
+	switch req.AgentSoftwareVersion {
+	case "", "CURRENT_LATEST", "ALWAYS_LATEST":
+	default:
+		return nil, fmt.Errorf("%w: invalid AgentSoftwareVersion %q",
+			awserr.ErrInvalidParameter, req.AgentSoftwareVersion)
+	}
+
+	if req.DryRun != nil && *req.DryRun {
+		if imgs, _ := h.Backend.DescribeImages([]string{req.Name}, ""); len(imgs) > 0 {
+			return nil, ErrAlreadyExists
+		}
+
+		return map[string]any{}, nil
+	}
+
+	img, err := h.Backend.CreateImportedImage(req.Name, req.Description, req.DisplayName, req.Tags)
 	if err != nil {
 		return nil, err
 	}
@@ -55,9 +74,12 @@ func (h *Handler) opCreateImportedImage(_ context.Context, body []byte) (any, er
 }
 
 type createUpdatedImageInput struct {
-	ExistingImageName   string `json:"ExistingImageName"`
-	NewImageName        string `json:"NewImageName"`
-	NewImageDescription string `json:"NewImageDescription"`
+	DryRun              *bool             `json:"DryRun"`
+	NewImageTags        map[string]string `json:"NewImageTags"`
+	ExistingImageName   string            `json:"ExistingImageName"`
+	NewImageName        string            `json:"NewImageName"`
+	NewImageDescription string            `json:"NewImageDescription"`
+	NewImageDisplayName string            `json:"NewImageDisplayName"`
 }
 
 func (h *Handler) opCreateUpdatedImage(_ context.Context, body []byte) (any, error) {
@@ -66,7 +88,17 @@ func (h *Handler) opCreateUpdatedImage(_ context.Context, body []byte) (any, err
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
-	img, err := h.Backend.CreateUpdatedImage(req.ExistingImageName, req.NewImageName, req.NewImageDescription)
+	if req.DryRun != nil && *req.DryRun {
+		if _, err := h.Backend.DescribeImages([]string{req.ExistingImageName}, ""); err != nil {
+			return nil, err
+		}
+
+		return map[string]any{"canUpdateImage": true}, nil
+	}
+
+	img, err := h.Backend.CreateUpdatedImage(
+		req.ExistingImageName, req.NewImageName, req.NewImageDescription, req.NewImageDisplayName, req.NewImageTags,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -239,6 +271,11 @@ type createImageBuilderInput struct {
 	IamRoleArn                  string               `json:"IamRoleArn"`
 	AppstreamAgentVersion       string               `json:"AppstreamAgentVersion"`
 	AccessEndpoints             []accessEndpointJSON `json:"AccessEndpoints"`
+	DisplayName                 string               `json:"DisplayName"`
+	ImageName                   string               `json:"ImageName"`
+	ImageArn                    string               `json:"ImageArn"`
+	SoftwaresToInstall          []string             `json:"SoftwaresToInstall"`
+	SoftwaresToUninstall        []string             `json:"SoftwaresToUninstall"`
 }
 
 func (h *Handler) opCreateImageBuilder(_ context.Context, body []byte) (any, error) {
@@ -257,6 +294,11 @@ func (h *Handler) opCreateImageBuilder(_ context.Context, body []byte) (any, err
 		AccessEndpoints:             toAccessEndpoints(req.AccessEndpoints),
 		IamRoleArn:                  req.IamRoleArn,
 		AppstreamAgentVersion:       req.AppstreamAgentVersion,
+		DisplayName:                 req.DisplayName,
+		ImageName:                   req.ImageName,
+		ImageArn:                    req.ImageArn,
+		SoftwaresToInstall:          req.SoftwaresToInstall,
+		SoftwaresToUninstall:        req.SoftwaresToUninstall,
 	}
 
 	ib, err := h.Backend.CreateImageBuilder(req.Name, req.Description, "", req.InstanceType, opts)
@@ -582,7 +624,7 @@ func (h *Handler) opListExportImageTasks(_ context.Context, body []byte) (any, e
 // --- Response helpers ---
 
 func imageToResponse(img *Image) map[string]any {
-	return map[string]any{
+	resp := map[string]any{
 		"Name":         img.Name,
 		"Arn":          img.Arn,         //nolint:goconst // existing issue.
 		"Description":  img.Description, //nolint:goconst // existing issue.
@@ -593,6 +635,12 @@ func imageToResponse(img *Image) map[string]any {
 		"CreatedTime":  awstime.Epoch(img.CreatedTime), //nolint:goconst // existing issue.
 		keyTags:        img.Tags,
 	}
+
+	if img.DisplayName != "" {
+		resp["DisplayName"] = img.DisplayName
+	}
+
+	return resp
 }
 
 func imageBuilderToResponse(ib *ImageBuilder) map[string]any {
@@ -603,9 +651,16 @@ func imageBuilderToResponse(ib *ImageBuilder) map[string]any {
 		"Platform":     ib.Platform,
 		"InstanceType": ib.InstanceType, //nolint:goconst // existing issue.
 		"State":        ib.State,
-		"ImageName":    ib.ImageName,
 		"CreatedTime":  awstime.Epoch(ib.CreatedTime),
 		keyTags:        ib.Tags,
+	}
+
+	if ib.ImageArn != "" {
+		resp["ImageArn"] = ib.ImageArn
+	}
+
+	if ib.DisplayName != "" {
+		resp["DisplayName"] = ib.DisplayName
 	}
 
 	if ib.EnableDefaultInternetAccess != nil {

@@ -4,20 +4,72 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
 type createDataMigrationInput struct {
-	DataMigrationName          *string    `json:"DataMigrationName"`
-	MigrationProjectIdentifier *string    `json:"MigrationProjectIdentifier"`
-	DataMigrationType          *string    `json:"DataMigrationType"`
-	ServiceAccessRoleArn       *string    `json:"ServiceAccessRoleArn"`
-	SelectionRules             *string    `json:"SelectionRules"`
-	NumberOfJobs               *int32     `json:"NumberOfJobs"`
-	EnableCloudwatchLogs       *bool      `json:"EnableCloudwatchLogs"`
-	Tags                       []tagEntry `json:"Tags"`
+	DataMigrationName          *string                 `json:"DataMigrationName"`
+	MigrationProjectIdentifier *string                 `json:"MigrationProjectIdentifier"`
+	DataMigrationType          *string                 `json:"DataMigrationType"`
+	ServiceAccessRoleArn       *string                 `json:"ServiceAccessRoleArn"`
+	SelectionRules             *string                 `json:"SelectionRules"`
+	NumberOfJobs               *int32                  `json:"NumberOfJobs"`
+	EnableCloudwatchLogs       *bool                   `json:"EnableCloudwatchLogs"`
+	SourceDataSettings         []sourceDataSettingJSON `json:"SourceDataSettings"`
+	TargetDataSettings         []targetDataSettingJSON `json:"TargetDataSettings"`
+	Tags                       []tagEntry              `json:"Tags"`
+}
+
+type sourceDataSettingJSON struct {
+	CDCStartPosition string `json:"CDCStartPosition,omitempty"`
+	SlotName         string `json:"SlotName,omitempty"`
+	CDCStartTime     string `json:"CDCStartTime,omitempty"`
+	CDCStopTime      string `json:"CDCStopTime,omitempty"`
+}
+
+type targetDataSettingJSON struct {
+	TablePreparationMode string `json:"TablePreparationMode,omitempty"`
+}
+
+func sourceDataSettingsFromJSON(in []sourceDataSettingJSON) ([]SourceDataSetting, error) {
+	if in == nil {
+		return nil, nil
+	}
+
+	out := make([]SourceDataSetting, 0, len(in))
+	for _, s := range in {
+		for _, ts := range []string{s.CDCStartTime, s.CDCStopTime} {
+			if _, err := time.Parse(time.RFC3339Nano, ts); ts != "" && err != nil {
+				return nil, fmt.Errorf("%w: invalid CDC timestamp %q", ErrValidation, ts)
+			}
+		}
+
+		out = append(out, SourceDataSetting(s))
+	}
+
+	return out, nil
+}
+
+func targetDataSettingsFromJSON(in []targetDataSettingJSON) ([]TargetDataSetting, error) {
+	if in == nil {
+		return nil, nil
+	}
+
+	out := make([]TargetDataSetting, 0, len(in))
+	for _, s := range in {
+		switch s.TablePreparationMode {
+		case "", "do-nothing", "truncate", "drop-tables-on-target":
+		default:
+			return nil, fmt.Errorf("%w: invalid TablePreparationMode %q", ErrValidation, s.TablePreparationMode)
+		}
+
+		out = append(out, TargetDataSetting(s))
+	}
+
+	return out, nil
 }
 
 // dataMigrationSettingsJSON mirrors real AWS's DataMigrationSettings, the
@@ -26,8 +78,9 @@ type createDataMigrationInput struct {
 // EnableCloudwatchLogs are flat request-input fields but the response nests
 // them under this object, and renames the latter to CloudwatchLogsEnabled.
 type dataMigrationSettingsJSON struct {
-	NumberOfJobs          int32 `json:"NumberOfJobs"`
-	CloudwatchLogsEnabled bool  `json:"CloudwatchLogsEnabled"`
+	SelectionRules        string `json:"SelectionRules,omitempty"`
+	NumberOfJobs          int32  `json:"NumberOfJobs"`
+	CloudwatchLogsEnabled bool   `json:"CloudwatchLogsEnabled"`
 }
 
 type dataMigrationJSON struct {
@@ -38,6 +91,8 @@ type dataMigrationJSON struct {
 	DataMigrationType     string                     `json:"DataMigrationType"`
 	ServiceAccessRoleArn  string                     `json:"ServiceAccessRoleArn"`
 	DataMigrationStatus   string                     `json:"DataMigrationStatus"`
+	SourceDataSettings    []sourceDataSettingJSON    `json:"SourceDataSettings,omitempty"`
+	TargetDataSettings    []targetDataSettingJSON    `json:"TargetDataSettings,omitempty"`
 }
 
 type createDataMigrationOutput struct {
@@ -57,18 +112,28 @@ func (h *Handler) handleCreateDataMigration(
 		return nil, fmt.Errorf("%w: DataMigrationType is required", ErrValidation)
 	}
 
-	kv := tagsToMap(in.Tags)
-	dm, err := h.Backend.CreateDataMigration(
-		ctx,
-		name,
-		ptrconv.String(in.MigrationProjectIdentifier),
-		migrationType,
-		ptrconv.String(in.ServiceAccessRoleArn),
-		ptrconv.String(in.SelectionRules),
-		ptrInt32(in.NumberOfJobs),
-		ptrconv.Bool(in.EnableCloudwatchLogs),
-		kv,
-	)
+	targets, err := targetDataSettingsFromJSON(in.TargetDataSettings)
+	if err != nil {
+		return nil, err
+	}
+
+	sources, err := sourceDataSettingsFromJSON(in.SourceDataSettings)
+	if err != nil {
+		return nil, err
+	}
+
+	dm, err := h.Backend.CreateDataMigration(ctx, CreateDataMigrationParams{
+		Name:                       name,
+		MigrationProjectIdentifier: ptrconv.String(in.MigrationProjectIdentifier),
+		DataMigrationType:          migrationType,
+		ServiceAccessRoleArn:       ptrconv.String(in.ServiceAccessRoleArn),
+		SelectionRules:             ptrconv.String(in.SelectionRules),
+		NumberOfJobs:               ptrInt32(in.NumberOfJobs),
+		EnableCloudwatchLogs:       ptrconv.Bool(in.EnableCloudwatchLogs),
+		SourceDataSettings:         sources,
+		TargetDataSettings:         targets,
+		Tags:                       tagsToMap(in.Tags),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +142,7 @@ func (h *Handler) handleCreateDataMigration(
 }
 
 func dmToJSON(dm *DataMigration) dataMigrationJSON {
-	return dataMigrationJSON{
+	out := dataMigrationJSON{
 		DataMigrationName:    dm.DataMigrationName,
 		DataMigrationArn:     dm.DataMigrationArn,
 		MigrationProjectArn:  dm.MigrationProjectArn,
@@ -87,8 +152,19 @@ func dmToJSON(dm *DataMigration) dataMigrationJSON {
 		DataMigrationSettings: &dataMigrationSettingsJSON{
 			NumberOfJobs:          dm.NumberOfJobs,
 			CloudwatchLogsEnabled: dm.EnableCloudwatchLogs,
+			SelectionRules:        dm.SelectionRules,
 		},
 	}
+
+	for _, s := range dm.SourceDataSettings {
+		out.SourceDataSettings = append(out.SourceDataSettings, sourceDataSettingJSON(s))
+	}
+
+	for _, s := range dm.TargetDataSettings {
+		out.TargetDataSettings = append(out.TargetDataSettings, targetDataSettingJSON(s))
+	}
+
+	return out
 }
 
 type deleteDataMigrationInput struct {
@@ -158,11 +234,15 @@ func (h *Handler) handleDescribeDataMigrations(
 }
 
 type modifyDataMigrationInput struct {
-	DataMigrationIdentifier *string `json:"DataMigrationIdentifier"`
-	DataMigrationName       *string `json:"DataMigrationName"`
-	DataMigrationType       *string `json:"DataMigrationType"`
-	ServiceAccessRoleArn    *string `json:"ServiceAccessRoleArn"`
-	NumberOfJobs            *int32  `json:"NumberOfJobs"`
+	DataMigrationIdentifier *string                 `json:"DataMigrationIdentifier"`
+	DataMigrationName       *string                 `json:"DataMigrationName"`
+	DataMigrationType       *string                 `json:"DataMigrationType"`
+	ServiceAccessRoleArn    *string                 `json:"ServiceAccessRoleArn"`
+	NumberOfJobs            *int32                  `json:"NumberOfJobs"`
+	EnableCloudwatchLogs    *bool                   `json:"EnableCloudwatchLogs"`
+	SelectionRules          *string                 `json:"SelectionRules"`
+	SourceDataSettings      []sourceDataSettingJSON `json:"SourceDataSettings"`
+	TargetDataSettings      []targetDataSettingJSON `json:"TargetDataSettings"`
 }
 
 type modifyDataMigrationOutput struct {
@@ -172,14 +252,27 @@ type modifyDataMigrationOutput struct {
 func (h *Handler) handleModifyDataMigration(
 	ctx context.Context, in *modifyDataMigrationInput,
 ) (*modifyDataMigrationOutput, error) {
-	dm, err := h.Backend.ModifyDataMigration(
-		ctx,
-		ptrconv.String(in.DataMigrationIdentifier),
-		ptrconv.String(in.DataMigrationName),
-		ptrconv.String(in.DataMigrationType),
-		ptrconv.String(in.ServiceAccessRoleArn),
-		in.NumberOfJobs,
-	)
+	targets, err := targetDataSettingsFromJSON(in.TargetDataSettings)
+	if err != nil {
+		return nil, err
+	}
+
+	sources, err := sourceDataSettingsFromJSON(in.SourceDataSettings)
+	if err != nil {
+		return nil, err
+	}
+
+	dm, err := h.Backend.ModifyDataMigration(ctx, ModifyDataMigrationParams{
+		NameOrArn:            ptrconv.String(in.DataMigrationIdentifier),
+		NewName:              ptrconv.String(in.DataMigrationName),
+		DataMigrationType:    ptrconv.String(in.DataMigrationType),
+		ServiceAccessRoleArn: ptrconv.String(in.ServiceAccessRoleArn),
+		NumberOfJobs:         in.NumberOfJobs,
+		EnableCloudwatchLogs: in.EnableCloudwatchLogs,
+		SelectionRules:       in.SelectionRules,
+		SourceDataSettings:   sources,
+		TargetDataSettings:   targets,
+	})
 	if err != nil {
 		return nil, err
 	}

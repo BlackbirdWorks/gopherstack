@@ -20,6 +20,7 @@ func (b *InMemoryBackend) CreateInstanceProfile(
 	ctx context.Context,
 	instanceProfileName, availabilityZone, kmsKeyArn, networkType, description, subnetGroupIdentifier string,
 	publiclyAccessible bool,
+	vpcSecurityGroups []string,
 	kv map[string]string,
 ) (*InstanceProfile, error) {
 	b.mu.Lock("CreateInstanceProfile")
@@ -63,6 +64,7 @@ func (b *InMemoryBackend) CreateInstanceProfile(
 		Description:           description,
 		SubnetGroupIdentifier: subnetGroupIdentifier,
 		PubliclyAccessible:    publiclyAccessible,
+		VpcSecurityGroups:     vpcSecurityGroups,
 		AccountID:             b.accountID,
 		Region:                region,
 		CreationTime:          time.Now().UTC(),
@@ -146,11 +148,12 @@ func (b *InMemoryBackend) migrationProjectUsesInstanceProfileLocked(region, inst
 // api_op_ModifyInstanceProfile.go:16-17).
 func (b *InMemoryBackend) ModifyInstanceProfile(
 	ctx context.Context,
-	nameOrArn, availabilityZone, description, networkType, kmsKeyArn, subnetGroupIdentifier string,
-	publiclyAccessible *bool,
+	p ModifyInstanceProfileParams,
 ) (*InstanceProfile, error) {
 	b.mu.Lock("ModifyInstanceProfile")
 	defer b.mu.Unlock()
+
+	nameOrArn := p.NameOrArn
 
 	ip := b.findInstanceProfile(ctx, nameOrArn)
 	if ip == nil {
@@ -166,33 +169,49 @@ func (b *InMemoryBackend) ModifyInstanceProfile(
 		)
 	}
 
-	if availabilityZone != "" {
-		ip.AvailabilityZone = availabilityZone
+	if !isValidNetworkType(p.NetworkType) {
+		return nil, fmt.Errorf("%w: invalid NetworkType %q; valid: IPV4, IPV6, DUAL", ErrValidation, p.NetworkType)
 	}
 
-	if description != "" {
-		ip.Description = description
+	if err := rekey(b.instanceProfiles, region, ip.InstanceProfileName, p.NewName, "instance profile", ip,
+		func(n string) { ip.InstanceProfileName = n }); err != nil {
+		return nil, err
 	}
 
-	if networkType != "" {
-		ip.NetworkType = networkType
-	}
-
-	if kmsKeyArn != "" {
-		ip.KmsKeyArn = kmsKeyArn
-	}
-
-	if subnetGroupIdentifier != "" {
-		ip.SubnetGroupIdentifier = subnetGroupIdentifier
-	}
-
-	if publiclyAccessible != nil {
-		ip.PubliclyAccessible = *publiclyAccessible
-	}
-
+	applyInstanceProfileChanges(ip, p)
 	cp := *ip
 
 	return &cp, nil
+}
+
+func applyInstanceProfileChanges(ip *InstanceProfile, p ModifyInstanceProfileParams) {
+	if p.AvailabilityZone != "" {
+		ip.AvailabilityZone = p.AvailabilityZone
+	}
+
+	if p.Description != "" {
+		ip.Description = p.Description
+	}
+
+	if p.NetworkType != "" {
+		ip.NetworkType = p.NetworkType
+	}
+
+	if p.KmsKeyArn != "" {
+		ip.KmsKeyArn = p.KmsKeyArn
+	}
+
+	if p.SubnetGroupIdentifier != "" {
+		ip.SubnetGroupIdentifier = p.SubnetGroupIdentifier
+	}
+
+	if p.PubliclyAccessible != nil {
+		ip.PubliclyAccessible = *p.PubliclyAccessible
+	}
+
+	if p.VpcSecurityGroups != nil {
+		ip.VpcSecurityGroups = p.VpcSecurityGroups
+	}
 }
 
 // findInstanceProfile locates an instance profile by name or ARN within the

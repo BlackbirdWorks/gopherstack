@@ -8,19 +8,63 @@ import (
 
 // DataMigration represents an AWS DMS data migration.
 type DataMigration struct {
-	CreationTime         time.Time  `json:"creationTime"`
-	Tags                 *tags.Tags `json:"-"`
-	DataMigrationName    string     `json:"dataMigrationName"`
-	DataMigrationArn     string     `json:"dataMigrationArn"`
-	MigrationProjectArn  string     `json:"migrationProjectArn"`
-	DataMigrationType    string     `json:"dataMigrationType"`
-	ServiceAccessRoleArn string     `json:"serviceAccessRoleArn"`
-	DataMigrationStatus  string     `json:"dataMigrationStatus"`
-	AccountID            string     `json:"accountId"`
-	Region               string     `json:"region"`
-	SelectionRules       string     `json:"selectionRules,omitempty"`
-	NumberOfJobs         int32      `json:"numberOfJobs"`
-	EnableCloudwatchLogs bool       `json:"enableCloudwatchLogs"`
+	CreationTime         time.Time           `json:"creationTime"`
+	Tags                 *tags.Tags          `json:"-"`
+	DataMigrationName    string              `json:"dataMigrationName"`
+	DataMigrationArn     string              `json:"dataMigrationArn"`
+	MigrationProjectArn  string              `json:"migrationProjectArn"`
+	DataMigrationType    string              `json:"dataMigrationType"`
+	ServiceAccessRoleArn string              `json:"serviceAccessRoleArn"`
+	DataMigrationStatus  string              `json:"dataMigrationStatus"`
+	AccountID            string              `json:"accountId"`
+	Region               string              `json:"region"`
+	SelectionRules       string              `json:"selectionRules,omitempty"`
+	SourceDataSettings   []SourceDataSetting `json:"sourceDataSettings,omitempty"`
+	TargetDataSettings   []TargetDataSetting `json:"targetDataSettings,omitempty"`
+	NumberOfJobs         int32               `json:"numberOfJobs"`
+	EnableCloudwatchLogs bool                `json:"enableCloudwatchLogs"`
+}
+
+// SourceDataSetting mirrors types.SourceDataSetting; its timestamps are
+// Iso8601DateTime strings on the wire (serializers.go:9640).
+type SourceDataSetting struct {
+	CDCStartPosition string `json:"cdcStartPosition,omitempty"`
+	SlotName         string `json:"slotName,omitempty"`
+	CDCStartTime     string `json:"cdcStartTime,omitempty"`
+	CDCStopTime      string `json:"cdcStopTime,omitempty"`
+}
+
+// TargetDataSetting mirrors types.TargetDataSetting.
+type TargetDataSetting struct {
+	TablePreparationMode string `json:"tablePreparationMode,omitempty"`
+}
+
+// CreateDataMigrationParams groups CreateDataMigrationInput's members.
+type CreateDataMigrationParams struct {
+	Tags                       map[string]string
+	Name                       string
+	MigrationProjectIdentifier string
+	DataMigrationType          string
+	ServiceAccessRoleArn       string
+	SelectionRules             string
+	SourceDataSettings         []SourceDataSetting
+	TargetDataSettings         []TargetDataSetting
+	NumberOfJobs               int32
+	EnableCloudwatchLogs       bool
+}
+
+// ModifyDataMigrationParams groups ModifyDataMigrationInput's members; nil
+// pointers, empty strings and nil slices mean "not supplied".
+type ModifyDataMigrationParams struct {
+	NumberOfJobs         *int32
+	EnableCloudwatchLogs *bool
+	SelectionRules       *string
+	NameOrArn            string
+	NewName              string
+	DataMigrationType    string
+	ServiceAccessRoleArn string
+	SourceDataSettings   []SourceDataSetting
+	TargetDataSettings   []TargetDataSetting
 }
 
 // DataProvider represents an AWS DMS data provider.
@@ -33,6 +77,61 @@ type DataProvider struct {
 	Description      string     `json:"description,omitempty"`
 	AccountID        string     `json:"accountId"`
 	Region           string     `json:"region"`
+	Settings         string     `json:"settings,omitempty"`
+	Virtual          bool       `json:"virtual,omitempty"`
+}
+
+// CreateDataProviderParams groups CreateDataProviderInput's members.
+type CreateDataProviderParams struct {
+	Tags        map[string]string
+	Name        string
+	Engine      string
+	Description string
+	Settings    string
+	Virtual     bool
+}
+
+// KerberosAuthenticationSettings mirrors types.KerberosAuthenticationSettings.
+type KerberosAuthenticationSettings struct {
+	KeyCacheSecretIamArn string `json:"keyCacheSecretIamArn,omitempty"`
+	KeyCacheSecretID     string `json:"keyCacheSecretId,omitempty"`
+	Krb5FileContents     string `json:"krb5FileContents,omitempty"`
+}
+
+// ModifyEventSubscriptionParams groups ModifyEventSubscriptionInput's members;
+// nil pointers, empty strings and nil slices mean "not supplied".
+type ModifyEventSubscriptionParams struct {
+	Enabled         *bool
+	Name            string
+	SnsTopicArn     string
+	SourceType      string
+	EventCategories []string
+}
+
+// ModifyInstanceProfileParams groups ModifyInstanceProfileInput's members;
+// empty strings and nil values mean "not supplied".
+type ModifyInstanceProfileParams struct {
+	PubliclyAccessible    *bool
+	NameOrArn             string
+	NewName               string
+	AvailabilityZone      string
+	Description           string
+	NetworkType           string
+	KmsKeyArn             string
+	SubnetGroupIdentifier string
+	VpcSecurityGroups     []string
+}
+
+// ModifyDataProviderParams groups ModifyDataProviderInput's members; nil
+// pointers mean "not supplied" and keep the stored value.
+type ModifyDataProviderParams struct {
+	Virtual       *bool
+	ExactSettings *bool
+	NameOrArn     string
+	NewName       string
+	Engine        string
+	Description   string
+	Settings      string
 }
 
 // EventSubscription represents an AWS DMS event notification subscription.
@@ -81,6 +180,7 @@ type InstanceProfile struct {
 	SubnetGroupIdentifier string     `json:"subnetGroupIdentifier,omitempty"`
 	AccountID             string     `json:"accountId"`
 	Region                string     `json:"region"`
+	VpcSecurityGroups     []string   `json:"vpcSecurityGroups,omitempty"`
 	PubliclyAccessible    bool       `json:"publiclyAccessible"`
 }
 
@@ -89,27 +189,28 @@ type InstanceProfile struct {
 // The Tags field is backend-owned. Callers must treat the returned pointer as
 // read-only; mutate tags only via AddTagsToResource or CreateReplicationInstance.
 type ReplicationInstance struct {
-	CreationTime                  time.Time  `json:"creationTime"`
-	Tags                          *tags.Tags `json:"-"`
-	ReplicationInstanceIdentifier string     `json:"replicationInstanceIdentifier"`
-	ReplicationInstanceArn        string     `json:"replicationInstanceArn"`
-	ReplicationInstanceClass      string     `json:"replicationInstanceClass"`
-	EngineVersion                 string     `json:"engineVersion"`
-	AvailabilityZone              string     `json:"availabilityZone"`
-	ReplicationInstanceStatus     string     `json:"replicationInstanceStatus"`
-	PrivateIPAddress              string     `json:"privateIpAddress"`
-	AccountID                     string     `json:"accountId"`
-	Region                        string     `json:"region"`
-	KmsKeyID                      string     `json:"kmsKeyId,omitempty"`
-	DNSNameServers                string     `json:"dnsNameServers,omitempty"`
-	NetworkType                   string     `json:"networkType,omitempty"`
-	PreferredMaintenanceWindow    string     `json:"preferredMaintenanceWindow,omitempty"`
-	ReplicationSubnetGroupID      string     `json:"replicationSubnetGroupId,omitempty"`
-	VpcSecurityGroupIDs           []string   `json:"vpcSecurityGroupIds,omitempty"`
-	AllocatedStorage              int32      `json:"allocatedStorage"`
-	MultiAZ                       bool       `json:"multiAZ"`
-	AutoMinorVersionUpgrade       bool       `json:"autoMinorVersionUpgrade"`
-	PubliclyAccessible            bool       `json:"publiclyAccessible"`
+	CreationTime                   time.Time                       `json:"creationTime"`
+	Tags                           *tags.Tags                      `json:"-"`
+	KerberosAuthenticationSettings *KerberosAuthenticationSettings `json:"kerberosAuthenticationSettings,omitempty"`
+	ReplicationInstanceIdentifier  string                          `json:"replicationInstanceIdentifier"`
+	ReplicationInstanceArn         string                          `json:"replicationInstanceArn"`
+	ReplicationInstanceClass       string                          `json:"replicationInstanceClass"`
+	EngineVersion                  string                          `json:"engineVersion"`
+	AvailabilityZone               string                          `json:"availabilityZone"`
+	ReplicationInstanceStatus      string                          `json:"replicationInstanceStatus"`
+	PrivateIPAddress               string                          `json:"privateIpAddress"`
+	AccountID                      string                          `json:"accountId"`
+	Region                         string                          `json:"region"`
+	KmsKeyID                       string                          `json:"kmsKeyId,omitempty"`
+	DNSNameServers                 string                          `json:"dnsNameServers,omitempty"`
+	NetworkType                    string                          `json:"networkType,omitempty"`
+	PreferredMaintenanceWindow     string                          `json:"preferredMaintenanceWindow,omitempty"`
+	ReplicationSubnetGroupID       string                          `json:"replicationSubnetGroupId,omitempty"`
+	VpcSecurityGroupIDs            []string                        `json:"vpcSecurityGroupIds,omitempty"`
+	AllocatedStorage               int32                           `json:"allocatedStorage"`
+	MultiAZ                        bool                            `json:"multiAZ"`
+	AutoMinorVersionUpgrade        bool                            `json:"autoMinorVersionUpgrade"`
+	PubliclyAccessible             bool                            `json:"publiclyAccessible"`
 }
 
 // Endpoint represents an AWS DMS endpoint.
@@ -179,6 +280,7 @@ type Certificate struct {
 	CertificateIdentifier string
 	CertificateArn        string
 	CertificatePem        string
+	CertificateWallet     string `json:",omitempty"`
 	KmsKeyID              string
 	AccountID             string
 	Region                string
@@ -208,17 +310,50 @@ type DataProviderDescriptor struct {
 
 // MigrationProject represents a DMS migration project.
 type MigrationProject struct {
-	Tags                          *tags.Tags `json:"-"`
-	MigrationProjectName          string
-	MigrationProjectArn           string
-	MigrationProjectIdentifier    string
-	Description                   string
-	AccountID                     string
-	Region                        string
-	InstanceProfileArn            string
-	InstanceProfileName           string
-	SourceDataProviderDescriptors []DataProviderDescriptor
-	TargetDataProviderDescriptors []DataProviderDescriptor
+	Tags                                  *tags.Tags               `json:"-"`
+	SchemaConversionApplicationAttributes *SCApplicationAttributes `json:",omitempty"`
+	MigrationProjectName                  string
+	MigrationProjectArn                   string
+	MigrationProjectIdentifier            string
+	Description                           string
+	AccountID                             string
+	Region                                string
+	InstanceProfileArn                    string
+	InstanceProfileName                   string
+	TransformationRules                   string `json:",omitempty"`
+	SourceDataProviderDescriptors         []DataProviderDescriptor
+	TargetDataProviderDescriptors         []DataProviderDescriptor
+}
+
+// SCApplicationAttributes mirrors types.SCApplicationAttributes.
+type SCApplicationAttributes struct {
+	S3BucketPath    string
+	S3BucketRoleArn string
+}
+
+// CreateMigrationProjectParams groups CreateMigrationProjectInput's members.
+type CreateMigrationProjectParams struct {
+	SchemaConversionApplicationAttributes *SCApplicationAttributes
+	Tags                                  map[string]string
+	Name                                  string
+	Description                           string
+	InstanceProfileIdentifier             string
+	TransformationRules                   string
+	SourceDescriptors                     []DataProviderDescriptorInput
+	TargetDescriptors                     []DataProviderDescriptorInput
+}
+
+// ModifyMigrationProjectParams groups ModifyMigrationProjectInput's members;
+// nil pointers and nil slices mean "not supplied" and keep the stored value.
+type ModifyMigrationProjectParams struct {
+	SchemaConversionApplicationAttributes *SCApplicationAttributes
+	Description                           *string
+	InstanceProfileIdentifier             *string
+	MigrationProjectName                  *string
+	TransformationRules                   *string
+	NameOrArn                             string
+	SourceDescriptors                     []DataProviderDescriptorInput
+	TargetDescriptors                     []DataProviderDescriptorInput
 }
 
 // ReplicationConfig represents a DMS replication config.
@@ -239,6 +374,8 @@ type ReplicationConfig struct {
 	SourceEndpointArn           string
 	TargetEndpointArn           string
 	TableMappings               string
+	ReplicationSettings         string `json:",omitempty"`
+	SupplementalSettings        string `json:",omitempty"`
 	AccountID                   string
 	Region                      string
 	// Status is the runtime status of the associated Replication resource
@@ -279,6 +416,24 @@ type CreateReplicationConfigParams struct {
 	SourceEndpointArn string
 	TargetEndpointArn string
 	TableMappings     string
+
+	ReplicationSettings  string
+	SupplementalSettings string
+	ResourceIdentifier   string
+}
+
+// ModifyReplicationConfigParams groups the ModifyReplicationConfigInput
+// members this backend models; empty strings leave the stored value alone.
+type ModifyReplicationConfigParams struct {
+	ComputeConfig        *ComputeConfig
+	IdentifierOrArn      string
+	ReplicationType      string
+	TableMappings        string
+	SourceEndpointArn    string
+	TargetEndpointArn    string
+	ReplicationSettings  string
+	SupplementalSettings string
+	NewIdentifier        string
 }
 
 // IndividualAssessment represents one named check run as part of a
@@ -319,7 +474,9 @@ type AssessmentRun struct {
 	ResultLocationBucket            string
 	ResultLocationFolder            string
 	ResultEncryptionMode            string
+	ResultKmsKeyArn                 string `json:",omitempty"`
 	Region                          string
+	Tags                            *tags.Tags `json:"-"`
 	IndividualAssessments           []*IndividualAssessment
 	ResultStatistic                 AssessmentRunResultStatistic
 	IsLatestTaskAssessmentRun       bool

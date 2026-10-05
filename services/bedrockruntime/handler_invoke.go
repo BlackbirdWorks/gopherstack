@@ -25,6 +25,8 @@ const (
 	// clients (which also canonicalize before matching) observe.
 	hdrPerformanceConfigLatency = "X-Amzn-Bedrock-Performanceconfig-Latency"
 	hdrBedrockAccept            = "X-Amzn-Bedrock-Accept"
+	hdrBedrockServiceTier       = "X-Amzn-Bedrock-Service-Tier"
+	hdrBedrockTrace             = "X-Amzn-Bedrock-Trace"
 	hdrBedrockContentType       = "X-Amzn-Bedrock-Content-Type"
 
 	contentTypeJSON = "application/json"
@@ -85,6 +87,37 @@ func validateGuardrailHeaders(r *http.Request) string {
 	return ""
 }
 
+func validServiceTier(v string) bool {
+	switch v {
+	case "priority", "default", "flex", "reserved":
+		return true
+	default:
+		return false
+	}
+}
+
+func validPerformanceLatency(v string) bool { return v == "standard" || v == "optimized" }
+
+func validTrace(v string) bool { return v == "ENABLED" || v == "DISABLED" || v == "ENABLED_FULL" }
+
+// validateInvokeHeaders checks the enum-typed InvokeModel headers
+// (types.ServiceTierType, types.PerformanceConfigLatency, types.Trace).
+func validateInvokeHeaders(r *http.Request) string {
+	if v := r.Header.Get(hdrBedrockServiceTier); v != "" && !validServiceTier(v) {
+		return "serviceTier must be one of priority, default, flex, reserved"
+	}
+
+	if v := r.Header.Get(hdrPerformanceConfigLatency); v != "" && !validPerformanceLatency(v) {
+		return "performanceConfigLatency must be one of standard, optimized"
+	}
+
+	if v := r.Header.Get(hdrBedrockTrace); v != "" && !validTrace(v) {
+		return "trace must be one of ENABLED, DISABLED, ENABLED_FULL"
+	}
+
+	return ""
+}
+
 // echoPerformanceConfigLatency mirrors the request's PerformanceConfigLatency
 // header onto the response, matching {InvokeModel,InvokeModelWithResponseStream}
 // Output.PerformanceConfigLatency (see deserializers.go's
@@ -95,6 +128,10 @@ func validateGuardrailHeaders(r *http.Request) string {
 func echoPerformanceConfigLatency(c *echo.Context) {
 	if v := c.Request().Header.Get(hdrPerformanceConfigLatency); v != "" {
 		c.Response().Header().Set(hdrPerformanceConfigLatency, v)
+	}
+
+	if v := c.Request().Header.Get(hdrBedrockServiceTier); v != "" {
+		c.Response().Header().Set(hdrBedrockServiceTier, v)
 	}
 }
 
@@ -123,6 +160,10 @@ func (h *Handler) handleInvokeModel(
 	body []byte,
 ) error {
 	if msg := validateGuardrailHeaders(c.Request()); msg != "" {
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", msg))
+	}
+
+	if msg := validateInvokeHeaders(c.Request()); msg != "" {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", msg))
 	}
 
@@ -168,6 +209,10 @@ func (h *Handler) handleInvokeModelWithResponseStream(
 	body []byte,
 ) error {
 	if msg := validateGuardrailHeaders(c.Request()); msg != "" {
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", msg))
+	}
+
+	if msg := validateInvokeHeaders(c.Request()); msg != "" {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", msg))
 	}
 

@@ -11,6 +11,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
 )
 
 // startAsyncInvokeInput is the parsed request body for StartAsyncInvoke.
@@ -52,10 +53,16 @@ func (h *Handler) handleStartAsyncInvoke(c *echo.Context, body []byte) error {
 		)
 	}
 
-	inv, err := h.Backend.StartAsyncInvoke(
+	inv, err := h.Backend.StartAsyncInvokeFingerprinted(
 		req.ModelID,
 		s3URI,
 		req.ClientRequestToken,
+		idempotency.Fingerprint(struct {
+			Tags       map[string]string
+			ModelID    string
+			S3URI      string
+			ModelInput string
+		}{req.Tags, req.ModelID, s3URI, string(req.ModelInput)}),
 		req.Tags,
 	)
 	if err != nil {
@@ -125,7 +132,30 @@ func parseListAsyncInvokesFilter(c *echo.Context) ListAsyncInvokesFilter {
 	return filter
 }
 
+// validateListAsyncInvokesQuery checks the enum-typed query bindings
+// (types.SortAsyncInvocationBy, types.SortOrder, types.AsyncInvokeStatus).
+func validateListAsyncInvokesQuery(c *echo.Context) string {
+	if v := c.QueryParam("sortBy"); v != "" && v != "SubmissionTime" {
+		return "sortBy must be SubmissionTime"
+	}
+
+	if v := c.QueryParam("sortOrder"); v != "" && v != "Ascending" && v != asyncInvokeSortOrderDescending {
+		return "sortOrder must be Ascending or Descending"
+	}
+
+	switch c.QueryParam("statusEquals") {
+	case "", AsyncInvokeStatusInProgress, AsyncInvokeStatusCompleted, AsyncInvokeStatusFailed:
+		return ""
+	default:
+		return "statusEquals must be InProgress, Completed or Failed"
+	}
+}
+
 func (h *Handler) handleListAsyncInvokes(c *echo.Context) error {
+	if msg := validateListAsyncInvokesQuery(c); msg != "" {
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", msg))
+	}
+
 	invocations := h.Backend.ListAsyncInvokes(parseListAsyncInvokesFilter(c))
 
 	maxResults := defaultListAsyncInvokesMaxResults

@@ -10,8 +10,35 @@ import (
 
 // applyGuardrailRequest represents the parsed ApplyGuardrail request body.
 type applyGuardrailRequest struct {
-	Source  string                 `json:"source"`
-	Content []guardrailContentItem `json:"content"`
+	Content     *[]guardrailContentItem `json:"content"`
+	Source      string                  `json:"source"`
+	OutputScope string                  `json:"outputScope"`
+}
+
+// validateApplyGuardrail enforces the required source/content members and
+// the source/outputScope enums.
+func validateApplyGuardrail(req *applyGuardrailRequest) string {
+	if req.Source != "INPUT" && req.Source != "OUTPUT" {
+		return "source must be INPUT or OUTPUT"
+	}
+
+	if req.Content == nil {
+		return "content is required"
+	}
+
+	if req.OutputScope != "" && req.OutputScope != "INTERVENTIONS" && req.OutputScope != "FULL" {
+		return "outputScope must be INTERVENTIONS or FULL"
+	}
+
+	return ""
+}
+
+func (r *applyGuardrailRequest) items() []guardrailContentItem {
+	if r.Content == nil {
+		return nil
+	}
+
+	return *r.Content
 }
 
 // guardrailContentItem represents a single item in the guardrail content list.
@@ -134,7 +161,11 @@ func (h *Handler) handleApplyGuardrail(
 		_ = json.Unmarshal(body, &req)
 	}
 
-	action, matchedKeyword := evaluateGuardrailAction(req.Content)
+	if msg := validateApplyGuardrail(&req); msg != "" {
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", msg))
+	}
+
+	action, matchedKeyword := evaluateGuardrailAction(req.items())
 
 	resp := map[string]any{
 		"action":      topLevelGuardrailAction(action),
@@ -165,13 +196,14 @@ func (h *Handler) handleApplyGuardrail(
 // buildGuardrailOutputs reflects filtered content back in the outputs list.
 // For NONE action, outputs mirror the input content unchanged.
 func buildGuardrailOutputs(req applyGuardrailRequest) []map[string]any {
-	if len(req.Content) == 0 {
+	items := req.items()
+	if len(items) == 0 {
 		return []map[string]any{}
 	}
 
-	outputs := make([]map[string]any, 0, len(req.Content))
+	outputs := make([]map[string]any, 0, len(items))
 
-	for _, item := range req.Content {
+	for _, item := range items {
 		if item.Text != nil {
 			outputs = append(outputs, map[string]any{
 				keyText: item.Text.Text,

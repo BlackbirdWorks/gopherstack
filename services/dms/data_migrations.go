@@ -18,18 +18,27 @@ func isValidMigrationType(s string) bool {
 // CreateDataMigration creates a new data migration.
 func (b *InMemoryBackend) CreateDataMigration(
 	ctx context.Context,
-	name, migrationProjectArn, migrationType, serviceAccessRoleArn, selectionRules string,
-	numberOfJobs int32,
-	enableCloudwatchLogs bool,
-	kv map[string]string,
+	p CreateDataMigrationParams,
 ) (*DataMigration, error) {
 	b.mu.Lock("CreateDataMigration")
 	defer b.mu.Unlock()
+
+	name, migrationType, kv := p.Name, p.DataMigrationType, p.Tags
+	migrationProjectArn := p.MigrationProjectIdentifier
 
 	region := getRegion(ctx, b.region)
 
 	if b.dataMigrations.Has(regionKey(region, name)) {
 		return nil, fmt.Errorf("%w: data migration %s already exists", ErrAlreadyExists, name)
+	}
+
+	if migrationProjectArn != "" {
+		mp := b.findMigrationProject(ctx, migrationProjectArn)
+		if mp == nil {
+			return nil, fmt.Errorf("%w: migration project %s not found", ErrNotFound, migrationProjectArn)
+		}
+
+		migrationProjectArn = mp.MigrationProjectArn
 	}
 
 	if !isValidMigrationType(migrationType) {
@@ -46,6 +55,7 @@ func (b *InMemoryBackend) CreateDataMigration(
 		t.Merge(kv)
 	}
 
+	numberOfJobs := p.NumberOfJobs
 	if numberOfJobs == 0 {
 		numberOfJobs = 1
 	}
@@ -55,10 +65,12 @@ func (b *InMemoryBackend) CreateDataMigration(
 		DataMigrationArn:     migrationARN,
 		MigrationProjectArn:  migrationProjectArn,
 		DataMigrationType:    migrationType,
-		ServiceAccessRoleArn: serviceAccessRoleArn,
-		SelectionRules:       selectionRules,
+		ServiceAccessRoleArn: p.ServiceAccessRoleArn,
+		SelectionRules:       p.SelectionRules,
 		NumberOfJobs:         numberOfJobs,
-		EnableCloudwatchLogs: enableCloudwatchLogs,
+		EnableCloudwatchLogs: p.EnableCloudwatchLogs,
+		SourceDataSettings:   p.SourceDataSettings,
+		TargetDataSettings:   p.TargetDataSettings,
 		DataMigrationStatus:  statusReady,
 		AccountID:            b.accountID,
 		Region:               region,
@@ -120,47 +132,66 @@ func (b *InMemoryBackend) DeleteDataMigration(
 	return nil, fmt.Errorf("%w: data migration %s not found", ErrNotFound, nameOrArn)
 }
 
-// ModifyDataMigration updates a data migration. Real ModifyDataMigrationInput
-// (api_op_ModifyDataMigration.go) also accepts DataMigrationName -- dropped
-// entirely until this fix, so a real client's rename request silently did
-// nothing. DataMigrationName is this store's primary key (dataMigrationKeyFn,
-// store_setup.go), so a rename re-keys the table via delete+put rather than
-// mutating the field in place.
+// ModifyDataMigration applies the supplied members; omitted ones keep their
+// values, and a rename re-keys the table.
 func (b *InMemoryBackend) ModifyDataMigration(
 	ctx context.Context,
-	nameOrArn, newName, migrationType, serviceAccessRoleArn string,
-	numberOfJobs *int32,
+	p ModifyDataMigrationParams,
 ) (*DataMigration, error) {
 	b.mu.Lock("ModifyDataMigration")
 	defer b.mu.Unlock()
 
-	dm := b.findDataMigration(ctx, nameOrArn)
+	dm := b.findDataMigration(ctx, p.NameOrArn)
 	if dm == nil {
-		return nil, fmt.Errorf("%w: data migration %s not found", ErrNotFound, nameOrArn)
+		return nil, fmt.Errorf("%w: data migration %s not found", ErrNotFound, p.NameOrArn)
 	}
 
-	if migrationType != "" {
-		dm.DataMigrationType = migrationType
+	region := getRegion(ctx, b.region)
+	if p.NewName != "" && p.NewName != dm.DataMigrationName && b.dataMigrations.Has(regionKey(region, p.NewName)) {
+		return nil, fmt.Errorf("%w: data migration %s already exists", ErrAlreadyExists, p.NewName)
 	}
 
-	if serviceAccessRoleArn != "" {
-		dm.ServiceAccessRoleArn = serviceAccessRoleArn
-	}
+	applyDataMigrationChanges(dm, p)
 
-	if numberOfJobs != nil {
-		dm.NumberOfJobs = *numberOfJobs
-	}
-
-	if newName != "" && newName != dm.DataMigrationName {
-		region := getRegion(ctx, b.region)
+	if p.NewName != "" && p.NewName != dm.DataMigrationName {
 		b.dataMigrations.Delete(regionKey(region, dm.DataMigrationName))
-		dm.DataMigrationName = newName
+		dm.DataMigrationName = p.NewName
 		b.dataMigrations.Put(dm)
 	}
 
 	cp := *dm
 
 	return &cp, nil
+}
+
+func applyDataMigrationChanges(dm *DataMigration, p ModifyDataMigrationParams) {
+	if p.DataMigrationType != "" {
+		dm.DataMigrationType = p.DataMigrationType
+	}
+
+	if p.ServiceAccessRoleArn != "" {
+		dm.ServiceAccessRoleArn = p.ServiceAccessRoleArn
+	}
+
+	if p.NumberOfJobs != nil {
+		dm.NumberOfJobs = *p.NumberOfJobs
+	}
+
+	if p.EnableCloudwatchLogs != nil {
+		dm.EnableCloudwatchLogs = *p.EnableCloudwatchLogs
+	}
+
+	if p.SelectionRules != nil {
+		dm.SelectionRules = *p.SelectionRules
+	}
+
+	if p.SourceDataSettings != nil {
+		dm.SourceDataSettings = p.SourceDataSettings
+	}
+
+	if p.TargetDataSettings != nil {
+		dm.TargetDataSettings = p.TargetDataSettings
+	}
 }
 
 // findDataMigration locates a data migration by name or ARN within the request

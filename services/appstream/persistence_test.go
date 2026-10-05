@@ -58,6 +58,7 @@ func newPersistenceTestBackend(t *testing.T) *appstream.InMemoryBackend {
 		appstream.VpcConfig{SecurityGroupIDs: []string{"sg-1"}, SubnetIDs: []string{"subnet-1", "subnet-2"}},
 		nil,
 		nil,
+		appstream.AppBlockBuilderOptions{},
 	)
 	require.NoError(t, err)
 
@@ -85,7 +86,7 @@ func newPersistenceTestBackend(t *testing.T) *appstream.InMemoryBackend {
 	)
 	require.NoError(t, err)
 
-	_, err = b.CreateImportedImage("image1", "an image", nil)
+	_, err = b.CreateImportedImage("image1", "an image", "", nil)
 	require.NoError(t, err)
 
 	require.NoError(t, b.UpdateImagePermissions("image1", "111111111111", true, false))
@@ -294,7 +295,7 @@ func assertRestoredCountersAndScalar(t *testing.T, fresh *appstream.InMemoryBack
 	require.Len(t, tasks, 1)
 	assert.Equal(t, "export-task-00001", tasks[0].TaskID)
 
-	sessions, _, err := fresh.DescribeSessions("stack1", "fleet1", "user1", "", 0, "")
+	sessions, _, err := fresh.DescribeSessions("stack1", "fleet1", "user1", "", "", 0, "")
 	require.NoError(t, err)
 	require.Len(t, sessions, 1)
 	assert.Equal(t, "session-0000000001", sessions[0].ID)

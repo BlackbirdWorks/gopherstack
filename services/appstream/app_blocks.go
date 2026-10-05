@@ -13,6 +13,10 @@ const (
 	appBlockStateActive   = "ACTIVE"
 	appBlockStateInactive = "INACTIVE"
 
+	appBlockBuilderAttrIamRoleArn       = "IAM_ROLE_ARN"
+	appBlockBuilderAttrAccessEndpoints  = "ACCESS_ENDPOINTS"
+	appBlockBuilderAttrSecurityGroupIDs = "VPC_CONFIGURATION_SECURITY_GROUP_IDS"
+
 	builderStateStopped  = "STOPPED"
 	builderStateRunning  = "RUNNING"
 	builderStateStarting = "STARTING"
@@ -74,6 +78,10 @@ type storedAppBlockBuilder struct {
 	State                       string            `json:"state"`
 	SecurityGroupIDs            []string          `json:"securityGroupIds"`
 	SubnetIDs                   []string          `json:"subnetIds"`
+	DisableIMDSV1               *bool             `json:"disableImdsv1,omitempty"`
+	DisplayName                 string            `json:"displayName,omitempty"`
+	IamRoleArn                  string            `json:"iamRoleArn,omitempty"`
+	AccessEndpoints             []AccessEndpoint  `json:"accessEndpoints,omitempty"`
 }
 
 func (b *storedAppBlockBuilder) toAppBlockBuilder() *AppBlockBuilder {
@@ -90,6 +98,10 @@ func (b *storedAppBlockBuilder) toAppBlockBuilder() *AppBlockBuilder {
 		Platform:                    b.Platform,
 		InstanceType:                b.InstanceType,
 		State:                       b.State,
+		DisableIMDSV1:               b.DisableIMDSV1,
+		DisplayName:                 b.DisplayName,
+		IamRoleArn:                  b.IamRoleArn,
+		AccessEndpoints:             append([]AccessEndpoint(nil), b.AccessEndpoints...),
 		VpcConfig: VpcConfig{
 			SecurityGroupIDs: append([]string(nil), b.SecurityGroupIDs...),
 			SubnetIDs:        append([]string(nil), b.SubnetIDs...),
@@ -226,6 +238,7 @@ func (b *InMemoryBackend) CreateAppBlockBuilder(
 	vpcConfig VpcConfig,
 	tags map[string]string,
 	enableDefaultInternetAccess *bool,
+	opts AppBlockBuilderOptions,
 ) (*AppBlockBuilder, error) {
 	if instanceType == "" {
 		return nil, fmt.Errorf("%w: InstanceType is required", awserr.ErrInvalidParameter)
@@ -254,6 +267,10 @@ func (b *InMemoryBackend) CreateAppBlockBuilder(
 		State:                       builderStateStopped,
 		SecurityGroupIDs:            append([]string(nil), vpcConfig.SecurityGroupIDs...),
 		SubnetIDs:                   append([]string(nil), vpcConfig.SubnetIDs...),
+		DisableIMDSV1:               opts.DisableIMDSV1,
+		DisplayName:                 opts.DisplayName,
+		IamRoleArn:                  opts.IamRoleArn,
+		AccessEndpoints:             append([]AccessEndpoint(nil), opts.AccessEndpoints...),
 	}
 	b.appBlockBuilders.Put(bb)
 	b.tags[arn] = storedTags
@@ -354,6 +371,7 @@ func (b *InMemoryBackend) UpdateAppBlockBuilder(
 	name, description, instanceType string,
 	vpcConfig *VpcConfig,
 	enableDefaultInternetAccess *bool,
+	opts UpdateAppBlockBuilderOptions,
 ) (*AppBlockBuilder, error) {
 	b.mu.Lock("UpdateAppBlockBuilder")
 	defer b.mu.Unlock()
@@ -380,7 +398,42 @@ func (b *InMemoryBackend) UpdateAppBlockBuilder(
 		bb.EnableDefaultInternetAccess = enableDefaultInternetAccess
 	}
 
+	applyAppBlockBuilderOptions(bb, opts)
+
 	return bb.toAppBlockBuilder(), nil
+}
+
+func applyAppBlockBuilderOptions(bb *storedAppBlockBuilder, opts UpdateAppBlockBuilderOptions) {
+	if opts.DisableIMDSV1 != nil {
+		bb.DisableIMDSV1 = opts.DisableIMDSV1
+	}
+
+	if opts.DisplayName != "" {
+		bb.DisplayName = opts.DisplayName
+	}
+
+	if opts.IamRoleArn != "" {
+		bb.IamRoleArn = opts.IamRoleArn
+	}
+
+	if opts.Platform != "" {
+		bb.Platform = opts.Platform
+	}
+
+	if len(opts.AccessEndpoints) > 0 {
+		bb.AccessEndpoints = append([]AccessEndpoint(nil), opts.AccessEndpoints...)
+	}
+
+	for _, attr := range opts.AttributesToDelete {
+		switch attr {
+		case appBlockBuilderAttrIamRoleArn:
+			bb.IamRoleArn = ""
+		case appBlockBuilderAttrAccessEndpoints:
+			bb.AccessEndpoints = nil
+		case appBlockBuilderAttrSecurityGroupIDs:
+			bb.SecurityGroupIDs = nil
+		}
+	}
 }
 
 // CreateAppBlockBuilderStreamingURL returns a streaming URL for the builder

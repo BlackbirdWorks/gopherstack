@@ -46,6 +46,7 @@ type storedImage struct {
 	Visibility   string            `json:"visibility"`
 	State        string            `json:"state"`
 	BaseImageArn string            `json:"baseImageArn"`
+	DisplayName  string            `json:"displayName,omitempty"`
 }
 
 func (i *storedImage) toImage() *Image {
@@ -57,6 +58,7 @@ func (i *storedImage) toImage() *Image {
 		Tags:         tags,
 		Name:         i.Name,
 		Arn:          i.Arn,
+		DisplayName:  i.DisplayName,
 		Description:  i.Description,
 		Platform:     i.Platform,
 		Visibility:   i.Visibility,
@@ -92,6 +94,8 @@ type storedImageBuilder struct {
 	InstanceType                string            `json:"instanceType"`
 	State                       string            `json:"state"`
 	ImageName                   string            `json:"imageName"`
+	ImageArn                    string            `json:"imageArn,omitempty"`
+	DisplayName                 string            `json:"displayName,omitempty"`
 	IamRoleArn                  string            `json:"iamRoleArn,omitempty"`
 	AppstreamAgentVersion       string            `json:"appstreamAgentVersion,omitempty"`
 	VpcConfig                   VpcConfig         `json:"vpcConfig"`
@@ -120,6 +124,8 @@ func (ib *storedImageBuilder) toImageBuilder() *ImageBuilder {
 		InstanceType:          ib.InstanceType,
 		State:                 ib.State,
 		ImageName:             ib.ImageName,
+		ImageArn:              ib.ImageArn,
+		DisplayName:           ib.DisplayName,
 		IamRoleArn:            ib.IamRoleArn,
 		AppstreamAgentVersion: ib.AppstreamAgentVersion,
 	}
@@ -208,7 +214,9 @@ func (b *InMemoryBackend) CopyImage(
 }
 
 // CreateImportedImage creates a new image (e.g. imported from S3).
-func (b *InMemoryBackend) CreateImportedImage(name, description string, tags map[string]string) (*Image, error) {
+func (b *InMemoryBackend) CreateImportedImage(
+	name, description, displayName string, tags map[string]string,
+) (*Image, error) {
 	b.mu.Lock("CreateImportedImage")
 	defer b.mu.Unlock()
 
@@ -225,6 +233,7 @@ func (b *InMemoryBackend) CreateImportedImage(name, description string, tags map
 		Tags:        storedTags,
 		Name:        name,
 		Arn:         arn,
+		DisplayName: displayName,
 		Description: description,
 		Platform:    imagePlatformWindows,
 		Visibility:  "PRIVATE",
@@ -237,7 +246,9 @@ func (b *InMemoryBackend) CreateImportedImage(name, description string, tags map
 }
 
 // CreateUpdatedImage creates a new image based on an existing one with updates applied.
-func (b *InMemoryBackend) CreateUpdatedImage(imageName, newImageName, description string) (*Image, error) {
+func (b *InMemoryBackend) CreateUpdatedImage(
+	imageName, newImageName, description, displayName string, tags map[string]string,
+) (*Image, error) {
 	b.mu.Lock("CreateUpdatedImage")
 	defer b.mu.Unlock()
 
@@ -256,11 +267,15 @@ func (b *InMemoryBackend) CreateUpdatedImage(imageName, newImageName, descriptio
 		desc = src.Description
 	}
 
+	storedTags := make(map[string]string)
+	maps.Copy(storedTags, tags)
+
 	img := &storedImage{
 		CreatedTime:  time.Now().UTC(),
-		Tags:         make(map[string]string),
+		Tags:         storedTags,
 		Name:         newImageName,
 		Arn:          arn,
+		DisplayName:  displayName,
 		Description:  desc,
 		Platform:     src.Platform,
 		Visibility:   "PRIVATE",
@@ -268,7 +283,7 @@ func (b *InMemoryBackend) CreateUpdatedImage(imageName, newImageName, descriptio
 		BaseImageArn: src.Arn,
 	}
 	b.images.Put(img)
-	b.tags[arn] = make(map[string]string)
+	b.tags[arn] = storedTags
 
 	return img.toImage(), nil
 }
@@ -472,6 +487,11 @@ func (b *InMemoryBackend) CreateImageBuilder(
 		plat = imagePlatformWindows
 	}
 
+	imageName, imageArn := opts.ImageName, opts.ImageArn
+	if src, found := b.findImage(cmpOr(imageArn, imageName)); found {
+		imageName, imageArn, plat = src.Name, src.Arn, src.Platform
+	}
+
 	ib := &storedImageBuilder{
 		EnableDefaultInternetAccess: opts.EnableDefaultInternetAccess,
 		DisableIMDSV1:               opts.DisableIMDSV1,
@@ -486,6 +506,9 @@ func (b *InMemoryBackend) CreateImageBuilder(
 		Description:                 description,
 		Platform:                    plat,
 		InstanceType:                instanceType,
+		ImageName:                   imageName,
+		ImageArn:                    imageArn,
+		DisplayName:                 opts.DisplayName,
 		// Real CreateImageBuilder launches the build instance immediately (the
 		// terraform-provider-aws resource waits Pending->Running, never seeing
 		// Stopped after a create); this backend completes deterministically, so
@@ -496,8 +519,38 @@ func (b *InMemoryBackend) CreateImageBuilder(
 	}
 	b.imageBuilders.Put(ib)
 	b.tags[arn] = storedTags
+	b.applyInitialSoftware(name, opts.SoftwaresToInstall, opts.SoftwaresToUninstall)
 
 	return ib.toImageBuilder(), nil
+}
+
+func cmpOr(a, b string) string {
+	if a != "" {
+		return a
+	}
+
+	return b
+}
+
+// applyInitialSoftware records SoftwaresToInstall as associations minus
+// SoftwaresToUninstall. Must hold b.mu.
+func (b *InMemoryBackend) applyInitialSoftware(name string, install, uninstall []string) {
+	if len(install) == 0 {
+		return
+	}
+
+	set := make(map[string]bool, len(install))
+	for _, sw := range install {
+		set[sw] = true
+	}
+
+	for _, sw := range uninstall {
+		delete(set, sw)
+	}
+
+	if len(set) > 0 {
+		b.softwareAssoc[name] = set
+	}
 }
 
 // DeleteImageBuilder removes an image builder and returns the deleted image

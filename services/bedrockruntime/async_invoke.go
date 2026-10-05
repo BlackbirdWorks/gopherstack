@@ -18,6 +18,15 @@ func (b *InMemoryBackend) StartAsyncInvoke(
 	modelID, s3URI, clientToken string,
 	tags map[string]string,
 ) (*AsyncInvoke, error) {
+	return b.StartAsyncInvokeFingerprinted(modelID, s3URI, clientToken, "", tags)
+}
+
+// StartAsyncInvokeFingerprinted is StartAsyncInvoke plus a request fingerprint:
+// replaying a token with a different non-empty fingerprint is a ConflictException.
+func (b *InMemoryBackend) StartAsyncInvokeFingerprinted(
+	modelID, s3URI, clientToken, fingerprint string,
+	tags map[string]string,
+) (*AsyncInvoke, error) {
 	if modelID == "" {
 		return nil, fmt.Errorf("%w: modelId is required", ErrValidation)
 	}
@@ -39,16 +48,8 @@ func (b *InMemoryBackend) StartAsyncInvoke(
 	b.mu.Lock("StartAsyncInvoke")
 	defer b.mu.Unlock()
 
-	// Idempotency: if clientToken is set and already seen, return existing invocation.
-	if clientToken != "" {
-		if existingArn, ok := b.tokenIndex[clientToken]; ok {
-			if existing, found := b.asyncInvokes.Get(existingArn); found {
-				cp := *existing
-				cp.Tags = copyTags(existing.Tags)
-
-				return &cp, nil
-			}
-		}
+	if replay, replayed, err := b.replayAsyncInvoke(clientToken, fingerprint); replayed || err != nil {
+		return replay, err
 	}
 
 	b.asyncInvokeCounter++
@@ -72,6 +73,7 @@ func (b *InMemoryBackend) StartAsyncInvoke(
 		LastModifiedTime:   now,
 		ClientRequestToken: token,
 		Tags:               copyTags(tags),
+		Fingerprint:        fingerprint,
 	}
 
 	b.asyncInvokes.Put(inv)
@@ -84,6 +86,30 @@ func (b *InMemoryBackend) StartAsyncInvoke(
 	cp.Tags = copyTags(inv.Tags)
 
 	return &cp, nil
+}
+
+// replayAsyncInvoke returns the invocation recorded for clientToken, or ConflictException when the
+// token was used with other parameters. Caller holds b.mu.
+func (b *InMemoryBackend) replayAsyncInvoke(clientToken, fingerprint string) (*AsyncInvoke, bool, error) {
+	existingArn, ok := b.tokenIndex[clientToken]
+	if clientToken == "" || !ok {
+		return nil, false, nil
+	}
+
+	existing, found := b.asyncInvokes.Get(existingArn)
+	if !found {
+		return nil, false, nil
+	}
+
+	if fingerprint != "" && existing.Fingerprint != "" && existing.Fingerprint != fingerprint {
+		return nil, false, fmt.Errorf("%w: client request token was already used with different parameters",
+			ErrConflict)
+	}
+
+	cp := *existing
+	cp.Tags = copyTags(existing.Tags)
+
+	return &cp, true, nil
 }
 
 // AdvanceAsyncInvokesForTest is a test helper that immediately advances all InProgress

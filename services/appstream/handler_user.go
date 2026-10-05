@@ -3,6 +3,7 @@ package appstream
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
@@ -15,12 +16,26 @@ type createUserInput struct {
 	FirstName          string `json:"FirstName"`
 	LastName           string `json:"LastName"`
 	AuthenticationType string `json:"AuthenticationType"`
+	MessageAction      string `json:"MessageAction"`
 }
 
 func (h *Handler) opCreateUser(_ context.Context, body []byte) (any, error) {
 	var req createUserInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
+	}
+
+	switch req.MessageAction {
+	case "", messageActionSuppress:
+	case messageActionResend:
+		if req.FirstName != "" || req.LastName != "" {
+			return nil, fmt.Errorf("%w: FirstName and LastName must not be set with MessageAction RESEND",
+				awserr.ErrInvalidParameter)
+		}
+
+		return map[string]any{}, h.Backend.ResendUserWelcome(req.UserName, req.AuthenticationType)
+	default:
+		return nil, fmt.Errorf("%w: invalid MessageAction %q", awserr.ErrInvalidParameter, req.MessageAction)
 	}
 
 	if _, err := h.Backend.CreateUser(
@@ -263,6 +278,7 @@ type describeSessionsInput struct {
 	FleetName          string `json:"FleetName"`
 	UserId             string `json:"UserId"` //nolint:revive,staticcheck // existing issue.
 	AuthenticationType string `json:"AuthenticationType"`
+	InstanceID         string `json:"InstanceId"`
 	NextToken          string `json:"NextToken"`
 	Limit              int    `json:"Limit"`
 }
@@ -280,7 +296,7 @@ func (h *Handler) opDescribeSessions(_ context.Context, body []byte) (any, error
 	}
 
 	sessions, next, err := h.Backend.DescribeSessions(
-		req.StackName, req.FleetName, req.UserId, req.AuthenticationType, req.Limit, req.NextToken,
+		req.StackName, req.FleetName, req.UserId, req.AuthenticationType, req.InstanceID, req.Limit, req.NextToken,
 	)
 	if err != nil {
 		return nil, err
@@ -565,6 +581,10 @@ func sessionToResponse(s *Session) map[string]any {
 
 	if !s.MaxExpirationTime.IsZero() {
 		resp["MaxExpirationTime"] = awstime.Epoch(s.MaxExpirationTime)
+	}
+
+	if s.InstanceID != "" {
+		resp["InstanceId"] = s.InstanceID
 	}
 
 	return resp

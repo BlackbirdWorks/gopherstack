@@ -446,3 +446,46 @@ func TestAsyncInvocation_BodyInputLocationMutualExclusion(t *testing.T) {
 		})
 	}
 }
+
+func TestSDKInvokeEndpointAsync_PathExtensionShapesLocations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		extension     string
+		wantContains  string
+		wantNotInPath string
+	}{
+		{name: "extension_appended", extension: "team-a/run-1", wantContains: "/ep/team-a/run-1/"},
+		{name: "slashes_trimmed", extension: "/team-b/", wantContains: "/ep/team-b/"},
+		{name: "omitted", wantNotInPath: "team"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newTestSDKClient(t, newTestHandler(t))
+
+			in := &sagemakerruntimesdk.InvokeEndpointAsyncInput{
+				EndpointName:  aws.String("ep"),
+				InputLocation: aws.String("s3://input/request"),
+			}
+			if tt.extension != "" {
+				in.S3OutputPathExtension = aws.String(tt.extension)
+			}
+
+			out, err := client.InvokeEndpointAsync(t.Context(), in)
+			require.NoError(t, err)
+
+			if tt.wantContains != "" {
+				assert.Contains(t, aws.ToString(out.OutputLocation), tt.wantContains)
+				assert.Contains(t, aws.ToString(out.FailureLocation), tt.wantContains)
+			}
+
+			if tt.wantNotInPath != "" {
+				assert.NotContains(t, aws.ToString(out.OutputLocation), tt.wantNotInPath)
+			}
+		})
+	}
+}

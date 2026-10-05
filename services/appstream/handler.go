@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"maps"
 	"net/http"
 	"strings"
@@ -499,7 +500,104 @@ func (j *contentRedirectionJSON) toModel() *ContentRedirection {
 	return cr
 }
 
+type agentAccessSettingJSON struct {
+	AgentAction string `json:"AgentAction"`
+	Permission  string `json:"Permission"`
+}
+
+// agentAccessConfigJSON serves both types.AgentAccessConfig (create) and
+// types.AgentAccessConfigForUpdate (update).
+type agentAccessConfigJSON struct {
+	ScreenshotsUploadEnabled *bool                    `json:"ScreenshotsUploadEnabled"`
+	S3BucketArn              string                   `json:"S3BucketArn"`
+	ScreenImageFormat        string                   `json:"ScreenImageFormat"`
+	ScreenResolution         string                   `json:"ScreenResolution"`
+	UserControlMode          string                   `json:"UserControlMode"`
+	Settings                 []agentAccessSettingJSON `json:"Settings"`
+}
+
+// validate checks the enum members shared by create and update.
+func (j *agentAccessConfigJSON) validate() error {
+	if j == nil {
+		return nil
+	}
+
+	if j.ScreenImageFormat != "" && j.ScreenImageFormat != "PNG" && j.ScreenImageFormat != "JPEG" {
+		return fmt.Errorf("%w: invalid ScreenImageFormat %q", awserr.ErrInvalidParameter, j.ScreenImageFormat)
+	}
+
+	if j.ScreenResolution != "" && j.ScreenResolution != "W_1280xH_720" {
+		return fmt.Errorf("%w: invalid ScreenResolution %q", awserr.ErrInvalidParameter, j.ScreenResolution)
+	}
+
+	switch j.UserControlMode {
+	case "", "VIEW_ONLY", "VIEW_STOP", "DISABLED":
+	default:
+		return fmt.Errorf("%w: invalid UserControlMode %q", awserr.ErrInvalidParameter, j.UserControlMode)
+	}
+
+	for _, s := range j.Settings {
+		switch s.AgentAction {
+		case "COMPUTER_VISION", "COMPUTER_INPUT", "FORWARD_MCP_TOOLS":
+		default:
+			return fmt.Errorf("%w: invalid AgentAction %q", awserr.ErrInvalidParameter, s.AgentAction)
+		}
+
+		if s.Permission != "ENABLED" && s.Permission != "DISABLED" {
+			return fmt.Errorf("%w: invalid Permission %q", awserr.ErrInvalidParameter, s.Permission)
+		}
+	}
+
+	return nil
+}
+
+func (j *agentAccessConfigJSON) toModel() *AgentAccessConfig {
+	if j == nil {
+		return nil
+	}
+
+	out := &AgentAccessConfig{
+		ScreenshotsUploadEnabled: j.ScreenshotsUploadEnabled,
+		S3BucketArn:              j.S3BucketArn,
+		ScreenImageFormat:        j.ScreenImageFormat,
+		ScreenResolution:         j.ScreenResolution,
+		UserControlMode:          j.UserControlMode,
+	}
+	for _, s := range j.Settings {
+		out.Settings = append(out.Settings, AgentAccessSetting(s))
+	}
+
+	return out
+}
+
+func agentAccessConfigToJSON(c *AgentAccessConfig) map[string]any {
+	settings := make([]map[string]any, 0, len(c.Settings))
+	for _, s := range c.Settings {
+		settings = append(settings, map[string]any{"AgentAction": s.AgentAction, "Permission": s.Permission})
+	}
+
+	out := map[string]any{"Settings": settings}
+
+	for k, v := range map[string]string{
+		"S3BucketArn":       c.S3BucketArn,
+		"ScreenImageFormat": c.ScreenImageFormat,
+		"ScreenResolution":  c.ScreenResolution,
+		"UserControlMode":   c.UserControlMode,
+	} {
+		if v != "" {
+			out[k] = v
+		}
+	}
+
+	if c.ScreenshotsUploadEnabled != nil {
+		out["ScreenshotsUploadEnabled"] = *c.ScreenshotsUploadEnabled
+	}
+
+	return out
+}
+
 type createStackInput struct {
+	AgentAccessConfig           *agentAccessConfigJSON           `json:"AgentAccessConfig"`
 	Tags                        map[string]string                `json:"Tags"`
 	ApplicationSettings         *applicationSettingsJSON         `json:"ApplicationSettings"`
 	ContentRedirection          *contentRedirectionJSON          `json:"ContentRedirection"`
@@ -521,7 +619,18 @@ func (h *Handler) opCreateStack(_ context.Context, body []byte) (any, error) {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
+	if err := req.AgentAccessConfig.validate(); err != nil {
+		return nil, err
+	}
+
+	if c := req.AgentAccessConfig; c != nil && c.ScreenshotsUploadEnabled != nil && *c.ScreenshotsUploadEnabled &&
+		c.S3BucketArn == "" {
+		return nil, fmt.Errorf("%w: S3BucketArn is required when ScreenshotsUploadEnabled is true",
+			awserr.ErrInvalidParameter)
+	}
+
 	stack, err := h.Backend.CreateStack(req.Name, CreateStackOptions{
+		AgentAccessConfig:           req.AgentAccessConfig.toModel(),
 		Tags:                        req.Tags,
 		DisplayName:                 req.DisplayName,
 		Description:                 req.Description,
@@ -574,6 +683,7 @@ func (h *Handler) opDescribeStacks(_ context.Context, body []byte) (any, error) 
 }
 
 type updateStackInput struct {
+	AgentAccessConfig           *agentAccessConfigJSON           `json:"AgentAccessConfig"`
 	ApplicationSettings         *applicationSettingsJSON         `json:"ApplicationSettings"`
 	ContentRedirection          *contentRedirectionJSON          `json:"ContentRedirection"`
 	StreamingExperienceSettings *streamingExperienceSettingsJSON `json:"StreamingExperienceSettings"`
@@ -596,7 +706,12 @@ func (h *Handler) opUpdateStack(_ context.Context, body []byte) (any, error) {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
+	if err := req.AgentAccessConfig.validate(); err != nil {
+		return nil, err
+	}
+
 	stack, err := h.Backend.UpdateStack(req.Name, UpdateStackOptions{
+		AgentAccessConfig:           req.AgentAccessConfig.toModel(),
 		DeleteStorageConnectors:     req.DeleteStorageConnectors,
 		RedirectURL:                 req.RedirectURL,
 		FeedbackURL:                 req.FeedbackURL,
@@ -813,6 +928,7 @@ type updateFleetInput struct {
 	Description                    string                `json:"Description"`
 	Name                           string                `json:"Name"`
 	AttributesToDelete             []string              `json:"AttributesToDelete"`
+	DeleteVpcConfig                *bool                 `json:"DeleteVpcConfig"`
 	UsbDeviceFilterStrings         []string              `json:"UsbDeviceFilterStrings"`
 	MaxUserDurationInSeconds       int                   `json:"MaxUserDurationInSeconds"`
 	DisconnectTimeoutInSeconds     int                   `json:"DisconnectTimeoutInSeconds"`
@@ -829,6 +945,10 @@ func (h *Handler) opUpdateFleet(_ context.Context, body []byte) (any, error) {
 	desired := 0
 	if req.ComputeCapacity != nil {
 		desired = req.ComputeCapacity.DesiredInstances
+	}
+
+	if req.DeleteVpcConfig != nil && *req.DeleteVpcConfig {
+		req.AttributesToDelete = append(req.AttributesToDelete, fleetAttrVpcConfiguration)
 	}
 
 	fleet, err := h.Backend.UpdateFleet(req.Name, UpdateFleetOptions{
@@ -1112,6 +1232,10 @@ func stackToResponse(s *Stack) map[string]any {
 
 	if s.ContentRedirection != nil {
 		resp["ContentRedirection"] = contentRedirectionToJSON(s.ContentRedirection)
+	}
+
+	if s.AgentAccessConfig != nil {
+		resp["AgentAccessConfig"] = agentAccessConfigToJSON(s.AgentAccessConfig)
 	}
 
 	return resp

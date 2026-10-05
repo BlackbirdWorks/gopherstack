@@ -31,6 +31,7 @@ type storedSession struct {
 	State              string    `json:"state"`
 	ConnectionState    string    `json:"connectionState"`
 	AuthenticationType string    `json:"authenticationType"`
+	InstanceID         string    `json:"instanceId,omitempty"`
 }
 
 func (s *storedSession) toSession() *Session {
@@ -43,6 +44,7 @@ func (s *storedSession) toSession() *Session {
 		State:              s.State,
 		ConnectionState:    s.ConnectionState,
 		AuthenticationType: s.AuthenticationType,
+		InstanceID:         s.InstanceID,
 	}
 }
 
@@ -56,10 +58,9 @@ func (b *InMemoryBackend) nextSessionID() string {
 // authentication type. Every session this backend creates (CreateStreamingURL)
 // has AuthenticationType "API" -- it never models SAML or userpool-originated
 // sessions -- so a non-"API" authenticationType filter always yields an
-// empty result. InstanceId isn't modeled at all (this backend has no
-// streaming-instance concept) and so isn't filterable.
+// empty result. Each session gets its own synthetic instance ID.
 func (b *InMemoryBackend) DescribeSessions(
-	stackName, fleetName, userID, authenticationType string,
+	stackName, fleetName, userID, authenticationType, instanceID string,
 	limit int, nextToken string,
 ) ([]*Session, string, error) {
 	b.mu.RLock("DescribeSessions")
@@ -81,6 +82,10 @@ func (b *InMemoryBackend) DescribeSessions(
 		}
 
 		if authenticationType != "" && s.AuthenticationType != authenticationType {
+			continue
+		}
+
+		if instanceID != "" && s.InstanceID != instanceID {
 			continue
 		}
 
@@ -160,6 +165,7 @@ func (b *InMemoryBackend) CreateStreamingURL(
 		State:              sessionStateActive,
 		ConnectionState:    sessionConnected,
 		AuthenticationType: "API",
+		InstanceID:         fmt.Sprintf("i-%017x", b.sessionSeq),
 	}
 	b.sessions.Put(s)
 

@@ -30,6 +30,7 @@ type ReplicationTaskCDCSettings struct {
 	CdcStopPosition    string
 	TaskData           string
 	ResourceIdentifier string
+	NewIdentifier      string
 }
 
 // CreateReplicationTask creates a new DMS replication task.
@@ -341,6 +342,12 @@ func (b *InMemoryBackend) ModifyReplicationTask(
 			ErrInvalidState,
 			arnOrID,
 		)
+	}
+
+	if err := rekey(b.replicationTasks, getRegion(ctx, b.region), rt.ReplicationTaskIdentifier,
+		cdcSettings.NewIdentifier, "replication task", rt,
+		func(n string) { rt.ReplicationTaskIdentifier = n }); err != nil {
+		return nil, err
 	}
 
 	if migrationType != "" {

@@ -132,10 +132,14 @@ type createAppBlockBuilderInput struct {
 	Tags                        map[string]string              `json:"Tags"`
 	VpcConfig                   *appBlockBuilderVpcConfigInput `json:"VpcConfig"`
 	EnableDefaultInternetAccess *bool                          `json:"EnableDefaultInternetAccess"`
+	DisableIMDSV1               *bool                          `json:"DisableIMDSV1"`
 	Name                        string                         `json:"Name"`
 	Description                 string                         `json:"Description"`
+	DisplayName                 string                         `json:"DisplayName"`
+	IamRoleArn                  string                         `json:"IamRoleArn"`
 	Platform                    string                         `json:"Platform"`
 	InstanceType                string                         `json:"InstanceType"`
+	AccessEndpoints             []accessEndpointJSON           `json:"AccessEndpoints"`
 }
 
 func (h *Handler) opCreateAppBlockBuilder(_ context.Context, body []byte) (any, error) {
@@ -153,6 +157,12 @@ func (h *Handler) opCreateAppBlockBuilder(_ context.Context, body []byte) (any, 
 	bb, err := h.Backend.CreateAppBlockBuilder(
 		req.Name, req.Description, req.Platform, req.InstanceType, vpcConfig, req.Tags,
 		req.EnableDefaultInternetAccess,
+		AppBlockBuilderOptions{
+			DisableIMDSV1:   req.DisableIMDSV1,
+			DisplayName:     req.DisplayName,
+			IamRoleArn:      req.IamRoleArn,
+			AccessEndpoints: toAccessEndpoints(req.AccessEndpoints),
+		},
 	)
 	if err != nil {
 		return nil, err
@@ -252,9 +262,15 @@ func (h *Handler) opStopAppBlockBuilder(_ context.Context, body []byte) (any, er
 type updateAppBlockBuilderInput struct {
 	VpcConfig                   *appBlockBuilderVpcConfigInput `json:"VpcConfig"`
 	EnableDefaultInternetAccess *bool                          `json:"EnableDefaultInternetAccess"`
+	DisableIMDSV1               *bool                          `json:"DisableIMDSV1"`
 	Name                        string                         `json:"Name"`
 	Description                 string                         `json:"Description"`
+	DisplayName                 string                         `json:"DisplayName"`
+	IamRoleArn                  string                         `json:"IamRoleArn"`
 	InstanceType                string                         `json:"InstanceType"`
+	Platform                    string                         `json:"Platform"`
+	AccessEndpoints             []accessEndpointJSON           `json:"AccessEndpoints"`
+	AttributesToDelete          []string                       `json:"AttributesToDelete"`
 }
 
 func (h *Handler) opUpdateAppBlockBuilder(_ context.Context, body []byte) (any, error) {
@@ -268,8 +284,24 @@ func (h *Handler) opUpdateAppBlockBuilder(_ context.Context, body []byte) (any, 
 		vpcConfig = &VpcConfig{SecurityGroupIDs: req.VpcConfig.SecurityGroupIDs, SubnetIDs: req.VpcConfig.SubnetIDs}
 	}
 
+	for _, attr := range req.AttributesToDelete {
+		switch attr {
+		case appBlockBuilderAttrIamRoleArn, appBlockBuilderAttrAccessEndpoints, appBlockBuilderAttrSecurityGroupIDs:
+		default:
+			return nil, fmt.Errorf("%w: unknown AttributesToDelete value %q", awserr.ErrInvalidParameter, attr)
+		}
+	}
+
 	bb, err := h.Backend.UpdateAppBlockBuilder(
 		req.Name, req.Description, req.InstanceType, vpcConfig, req.EnableDefaultInternetAccess,
+		UpdateAppBlockBuilderOptions{
+			DisableIMDSV1:      req.DisableIMDSV1,
+			DisplayName:        req.DisplayName,
+			IamRoleArn:         req.IamRoleArn,
+			AccessEndpoints:    toAccessEndpoints(req.AccessEndpoints),
+			Platform:           req.Platform,
+			AttributesToDelete: req.AttributesToDelete,
+		},
 	)
 	if err != nil {
 		return nil, err
@@ -419,6 +451,22 @@ func appBlockBuilderToResponse(bb *AppBlockBuilder) map[string]any {
 
 	if bb.EnableDefaultInternetAccess != nil {
 		resp["EnableDefaultInternetAccess"] = *bb.EnableDefaultInternetAccess
+	}
+
+	if bb.DisableIMDSV1 != nil {
+		resp["DisableIMDSV1"] = *bb.DisableIMDSV1
+	}
+
+	if bb.DisplayName != "" {
+		resp["DisplayName"] = bb.DisplayName
+	}
+
+	if bb.IamRoleArn != "" {
+		resp["IamRoleArn"] = bb.IamRoleArn
+	}
+
+	if len(bb.AccessEndpoints) > 0 {
+		resp["AccessEndpoints"] = accessEndpointsToJSON(bb.AccessEndpoints)
 	}
 
 	return resp

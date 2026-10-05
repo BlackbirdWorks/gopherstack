@@ -43,6 +43,7 @@ type StorageBackend interface {
 		vpcConfig VpcConfig,
 		tags map[string]string,
 		enableDefaultInternetAccess *bool,
+		opts AppBlockBuilderOptions,
 	) (*AppBlockBuilder, error)
 	DeleteAppBlockBuilder(name string) error
 	DescribeAppBlockBuilders(names []string) ([]*AppBlockBuilder, error)
@@ -52,6 +53,7 @@ type StorageBackend interface {
 		name, description, instanceType string,
 		vpcConfig *VpcConfig,
 		enableDefaultInternetAccess *bool,
+		opts UpdateAppBlockBuilderOptions,
 	) (*AppBlockBuilder, error)
 	CreateAppBlockBuilderStreamingURL(name string, validitySeconds int64) (string, time.Time, error)
 
@@ -70,6 +72,7 @@ type StorageBackend interface {
 	DeleteApplication(name string) error
 	DescribeApplications(arns []string) ([]*Application, error)
 	UpdateApplication(name, displayName, description, launchPath, launchParameters, workingDirectory string,
+		opts UpdateApplicationOptions,
 	) (*Application, error)
 	DescribeAppLicenseUsage() ([]map[string]string, error)
 
@@ -109,8 +112,8 @@ type StorageBackend interface {
 
 	// Images
 	CopyImage(sourceName, destName, destRegion, description string) (*Image, error)
-	CreateImportedImage(name, description string, tags map[string]string) (*Image, error)
-	CreateUpdatedImage(imageName, newImageName, description string) (*Image, error)
+	CreateImportedImage(name, description, displayName string, tags map[string]string) (*Image, error)
+	CreateUpdatedImage(imageName, newImageName, description, displayName string, tags map[string]string) (*Image, error)
 	DeleteImage(name string) (*Image, error)
 	DescribeImages(names []string, visibilityType string) ([]*Image, error)
 	UpdateImagePermissions(imageName, accountID string, allowFleet, allowImageBuilder bool) error
@@ -158,6 +161,7 @@ type StorageBackend interface {
 
 	// Users
 	CreateUser(userName, firstName, lastName, authType string) (*User, error)
+	ResendUserWelcome(userName, authType string) error
 	DeleteUser(userName, authType string) error
 	DescribeUsers(authType string) ([]*User, error)
 	DisableUser(userName, authType string) error
@@ -170,7 +174,7 @@ type StorageBackend interface {
 
 	// Sessions
 	DescribeSessions(
-		stackName, fleetName, userID, authenticationType string,
+		stackName, fleetName, userID, authenticationType, instanceID string,
 		limit int, nextToken string,
 	) ([]*Session, string, error)
 	DrainSessionInstance(sessionID string) error
@@ -207,6 +211,14 @@ type ApplicationSettings struct {
 	SettingsGroup string
 	S3BucketName  string
 	Enabled       bool
+}
+
+// UpdateApplicationOptions carries UpdateApplicationInput's members beyond the
+// string fields positional on UpdateApplication.
+type UpdateApplicationOptions struct {
+	IconS3Location     *S3Location
+	AppBlockArn        string
+	AttributesToDelete []string
 }
 
 // AccessEndpoint mirrors appstream@v1.64.5 types.AccessEndpoint: an
@@ -253,6 +265,7 @@ type ContentRedirection struct {
 
 // Stack holds AppStream 2.0 stack details.
 type Stack struct {
+	AgentAccessConfig           *AgentAccessConfig
 	ApplicationSettings         *ApplicationSettings
 	ContentRedirection          *ContentRedirection
 	StreamingExperienceSettings *StreamingExperienceSettings
@@ -270,14 +283,28 @@ type Stack struct {
 	AccessEndpoints             []AccessEndpoint
 }
 
+// AgentAccessSetting mirrors types.AgentAccessSetting.
+type AgentAccessSetting struct {
+	AgentAction string
+	Permission  string
+}
+
+// AgentAccessConfig mirrors types.AgentAccessConfig (create) and
+// types.AgentAccessConfigForUpdate (update, where every member is optional).
+type AgentAccessConfig struct {
+	ScreenshotsUploadEnabled *bool
+	S3BucketArn              string
+	ScreenImageFormat        string
+	ScreenResolution         string
+	UserControlMode          string
+	Settings                 []AgentAccessSetting
+}
+
 // CreateStackOptions carries CreateStackInput's full member set
 // (api_op_CreateStack.go) beyond the identity fields that stay positional on
-// CreateStack. AgentAccessConfig (types.AgentAccessConfig) is deliberately
-// absent: its nested ScreenResolution/AgentAccessSetting/ScreenImageFormat
-// shape is real CreateStackInput surface with an honest source, but wiring
-// it through was out of scope for this pass -- it stays a genuine (not
-// fabricated) gap, tracked in PARITY.md rather than closed here.
+// CreateStack.
 type CreateStackOptions struct {
+	AgentAccessConfig           *AgentAccessConfig
 	ApplicationSettings         *ApplicationSettings
 	ContentRedirection          *ContentRedirection
 	StreamingExperienceSettings *StreamingExperienceSettings
@@ -301,6 +328,7 @@ type CreateStackOptions struct {
 // set. DeleteStorageConnectors mirrors the real (deprecated in favor of
 // AttributesToDelete, but still modeled) UpdateStackInput member.
 type UpdateStackOptions struct {
+	AgentAccessConfig           *AgentAccessConfig
 	ApplicationSettings         *ApplicationSettings
 	ContentRedirection          *ContentRedirection
 	StreamingExperienceSettings *StreamingExperienceSettings
@@ -452,14 +480,37 @@ type CreateAppBlockOptions struct {
 type AppBlockBuilder struct {
 	CreatedTime                 time.Time
 	EnableDefaultInternetAccess *bool
+	DisableIMDSV1               *bool
 	Tags                        map[string]string
 	Name                        string
 	Arn                         string
 	Description                 string
+	DisplayName                 string
+	IamRoleArn                  string
 	Platform                    string
 	InstanceType                string
 	State                       string
 	VpcConfig                   VpcConfig
+	AccessEndpoints             []AccessEndpoint
+}
+
+// AppBlockBuilderOptions carries the optional CreateAppBlockBuilderInput members.
+type AppBlockBuilderOptions struct {
+	DisableIMDSV1   *bool
+	DisplayName     string
+	IamRoleArn      string
+	AccessEndpoints []AccessEndpoint
+}
+
+// UpdateAppBlockBuilderOptions carries the optional UpdateAppBlockBuilderInput
+// members; zero values leave the stored value unchanged.
+type UpdateAppBlockBuilderOptions struct {
+	DisableIMDSV1      *bool
+	DisplayName        string
+	IamRoleArn         string
+	Platform           string
+	AccessEndpoints    []AccessEndpoint
+	AttributesToDelete []string
 }
 
 // VpcConfig mirrors appstream@v1.64.5 types.VpcConfig: the VPC subnets and
@@ -576,6 +627,7 @@ type Image struct {
 	Tags         map[string]string
 	Name         string
 	Arn          string
+	DisplayName  string
 	Description  string
 	Platform     string
 	Visibility   string
@@ -610,6 +662,8 @@ type ImageBuilder struct {
 	InstanceType                string
 	State                       string
 	ImageName                   string
+	ImageArn                    string
+	DisplayName                 string
 	IamRoleArn                  string
 	AppstreamAgentVersion       string
 	VpcConfig                   VpcConfig
@@ -620,6 +674,11 @@ type ImageBuilder struct {
 // set (api_op_CreateImageBuilder.go) beyond the identity fields that stay
 // positional on CreateImageBuilder.
 type CreateImageBuilderOptions struct {
+	ImageName                   string
+	ImageArn                    string
+	DisplayName                 string
+	SoftwaresToInstall          []string
+	SoftwaresToUninstall        []string
 	EnableDefaultInternetAccess *bool
 	DisableIMDSV1               *bool
 	RootVolumeConfig            *VolumeConfig
@@ -745,6 +804,7 @@ type Session struct {
 	State              string
 	ConnectionState    string
 	AuthenticationType string
+	InstanceID         string
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)

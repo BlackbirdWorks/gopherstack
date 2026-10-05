@@ -20,11 +20,13 @@ const (
 	stackAttrAccessEndpoints             = "ACCESS_ENDPOINTS"
 	stackAttrStreamingExperienceSettings = "STREAMING_EXPERIENCE_SETTINGS"
 	stackAttrContentRedirection          = "CONTENT_REDIRECTION"
+	stackAttrAgentAccessConfig           = "AGENT_ACCESS_CONFIG"
 )
 
 type storedStack struct {
 	ApplicationSettings         *ApplicationSettings         `json:"applicationSettings,omitempty"`
 	ContentRedirection          *ContentRedirection          `json:"contentRedirection,omitempty"`
+	AgentAccessConfig           *AgentAccessConfig           `json:"agentAccessConfig,omitempty"`
 	StreamingExperienceSettings *StreamingExperienceSettings `json:"streamingExperienceSettings,omitempty"`
 	CreatedTime                 time.Time                    `json:"createdTime"`
 	Tags                        map[string]string            `json:"tags"`
@@ -63,6 +65,8 @@ func (s *storedStack) toStack() *Stack {
 		as := *s.ApplicationSettings
 		stack.ApplicationSettings = &as
 	}
+
+	stack.AgentAccessConfig = cloneAgentAccessConfig(s.AgentAccessConfig)
 
 	if s.ContentRedirection != nil {
 		cr := *s.ContentRedirection
@@ -115,6 +119,7 @@ func (b *InMemoryBackend) CreateStack(name string, opts CreateStackOptions) (*St
 		ApplicationSettings:         b.cloneApplicationSettings(opts.ApplicationSettings),
 		ContentRedirection:          cloneContentRedirection(opts.ContentRedirection),
 		StreamingExperienceSettings: cloneStreamingExperienceSettings(opts.StreamingExperienceSettings),
+		AgentAccessConfig:           cloneAgentAccessConfig(opts.AgentAccessConfig),
 	}
 	b.stacks.Put(s)
 	b.tags[stackArn] = storedTags
@@ -138,6 +143,48 @@ func (b *InMemoryBackend) cloneApplicationSettings(as *ApplicationSettings) *App
 	}
 
 	return &out
+}
+
+func cloneAgentAccessConfig(c *AgentAccessConfig) *AgentAccessConfig {
+	if c == nil {
+		return nil
+	}
+
+	out := *c
+	out.Settings = slices.Clone(c.Settings)
+
+	return &out
+}
+
+// mergeAgentAccessConfig applies an AgentAccessConfigForUpdate: supplied
+// members replace the stored ones, omitted members are kept.
+func mergeAgentAccessConfig(cur, upd *AgentAccessConfig) *AgentAccessConfig {
+	if cur == nil {
+		return cloneAgentAccessConfig(upd)
+	}
+
+	out := cloneAgentAccessConfig(cur)
+
+	if upd.ScreenshotsUploadEnabled != nil {
+		out.ScreenshotsUploadEnabled = upd.ScreenshotsUploadEnabled
+	}
+
+	for dst, src := range map[*string]string{
+		&out.S3BucketArn:       upd.S3BucketArn,
+		&out.ScreenImageFormat: upd.ScreenImageFormat,
+		&out.ScreenResolution:  upd.ScreenResolution,
+		&out.UserControlMode:   upd.UserControlMode,
+	} {
+		if src != "" {
+			*dst = src
+		}
+	}
+
+	if len(upd.Settings) > 0 {
+		out.Settings = slices.Clone(upd.Settings)
+	}
+
+	return out
 }
 
 func cloneContentRedirection(cr *ContentRedirection) *ContentRedirection {
@@ -213,7 +260,28 @@ func applyStackAttributesToDelete(s *storedStack, attrs []string) {
 			s.StreamingExperienceSettings = nil
 		case stackAttrContentRedirection:
 			s.ContentRedirection = nil
+		case stackAttrAgentAccessConfig:
+			s.AgentAccessConfig = nil
 		}
+	}
+}
+
+// applyStackSettingUpdates applies the nested-settings members of an UpdateStack.
+func (b *InMemoryBackend) applyStackSettingUpdates(s *storedStack, opts UpdateStackOptions) {
+	if opts.ApplicationSettings != nil {
+		s.ApplicationSettings = b.cloneApplicationSettings(opts.ApplicationSettings)
+	}
+
+	if opts.ContentRedirection != nil {
+		s.ContentRedirection = cloneContentRedirection(opts.ContentRedirection)
+	}
+
+	if opts.AgentAccessConfig != nil {
+		s.AgentAccessConfig = mergeAgentAccessConfig(s.AgentAccessConfig, opts.AgentAccessConfig)
+	}
+
+	if opts.StreamingExperienceSettings != nil {
+		s.StreamingExperienceSettings = cloneStreamingExperienceSettings(opts.StreamingExperienceSettings)
 	}
 }
 
@@ -261,17 +329,7 @@ func (b *InMemoryBackend) UpdateStack(name string, opts UpdateStackOptions) (*St
 		s.AccessEndpoints = slices.Clone(opts.AccessEndpoints)
 	}
 
-	if opts.ApplicationSettings != nil {
-		s.ApplicationSettings = b.cloneApplicationSettings(opts.ApplicationSettings)
-	}
-
-	if opts.ContentRedirection != nil {
-		s.ContentRedirection = cloneContentRedirection(opts.ContentRedirection)
-	}
-
-	if opts.StreamingExperienceSettings != nil {
-		s.StreamingExperienceSettings = cloneStreamingExperienceSettings(opts.StreamingExperienceSettings)
-	}
+	b.applyStackSettingUpdates(s, opts)
 
 	applyStackAttributesToDelete(s, opts.AttributesToDelete)
 

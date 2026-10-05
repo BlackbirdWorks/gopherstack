@@ -11,22 +11,53 @@ import (
 )
 
 type createReplicationInstanceInput struct {
-	ReplicationInstanceIdentifier *string    `json:"ReplicationInstanceIdentifier"`
-	ReplicationInstanceClass      *string    `json:"ReplicationInstanceClass"`
-	EngineVersion                 *string    `json:"EngineVersion"`
-	AvailabilityZone              *string    `json:"AvailabilityZone"`
-	AllocatedStorage              *int32     `json:"AllocatedStorage"`
-	MultiAZ                       *bool      `json:"MultiAZ"`
-	AutoMinorVersionUpgrade       *bool      `json:"AutoMinorVersionUpgrade"`
-	PubliclyAccessible            *bool      `json:"PubliclyAccessible"`
-	KmsKeyID                      *string    `json:"KmsKeyId"`
-	DNSNameServers                *string    `json:"DnsNameServers"`
-	NetworkType                   *string    `json:"NetworkType"`
-	PreferredMaintenanceWindow    *string    `json:"PreferredMaintenanceWindow"`
-	ReplicationSubnetGroupID      *string    `json:"ReplicationSubnetGroupIdentifier"`
-	VpcSecurityGroupIDs           []string   `json:"VpcSecurityGroupIds"`
-	ResourceIdentifier            *string    `json:"ResourceIdentifier"`
-	Tags                          []tagEntry `json:"Tags"`
+	ReplicationInstanceIdentifier  *string               `json:"ReplicationInstanceIdentifier"`
+	ReplicationInstanceClass       *string               `json:"ReplicationInstanceClass"`
+	EngineVersion                  *string               `json:"EngineVersion"`
+	AvailabilityZone               *string               `json:"AvailabilityZone"`
+	AllocatedStorage               *int32                `json:"AllocatedStorage"`
+	MultiAZ                        *bool                 `json:"MultiAZ"`
+	AutoMinorVersionUpgrade        *bool                 `json:"AutoMinorVersionUpgrade"`
+	PubliclyAccessible             *bool                 `json:"PubliclyAccessible"`
+	KmsKeyID                       *string               `json:"KmsKeyId"`
+	DNSNameServers                 *string               `json:"DnsNameServers"`
+	NetworkType                    *string               `json:"NetworkType"`
+	PreferredMaintenanceWindow     *string               `json:"PreferredMaintenanceWindow"`
+	ReplicationSubnetGroupID       *string               `json:"ReplicationSubnetGroupIdentifier"`
+	VpcSecurityGroupIDs            []string              `json:"VpcSecurityGroupIds"`
+	ResourceIdentifier             *string               `json:"ResourceIdentifier"`
+	KerberosAuthenticationSettings *kerberosSettingsJSON `json:"KerberosAuthenticationSettings"`
+	Tags                           []tagEntry            `json:"Tags"`
+}
+
+type kerberosSettingsJSON struct {
+	KeyCacheSecretIamArn *string `json:"KeyCacheSecretIamArn,omitempty"`
+	KeyCacheSecretID     *string `json:"KeyCacheSecretId,omitempty"`
+	Krb5FileContents     *string `json:"Krb5FileContents,omitempty"`
+}
+
+func (k *kerberosSettingsJSON) asDomain() *KerberosAuthenticationSettings {
+	if k == nil {
+		return nil
+	}
+
+	return &KerberosAuthenticationSettings{
+		KeyCacheSecretIamArn: ptrconv.String(k.KeyCacheSecretIamArn),
+		KeyCacheSecretID:     ptrconv.String(k.KeyCacheSecretID),
+		Krb5FileContents:     ptrconv.String(k.Krb5FileContents),
+	}
+}
+
+func kerberosToJSON(k *KerberosAuthenticationSettings) *kerberosSettingsJSON {
+	if k == nil {
+		return nil
+	}
+
+	return &kerberosSettingsJSON{
+		KeyCacheSecretIamArn: ptrconv.NilIfEmpty(k.KeyCacheSecretIamArn),
+		KeyCacheSecretID:     ptrconv.NilIfEmpty(k.KeyCacheSecretID),
+		Krb5FileContents:     ptrconv.NilIfEmpty(k.Krb5FileContents),
+	}
 }
 
 type createReplicationInstanceOutput struct {
@@ -66,6 +97,7 @@ func (h *Handler) handleCreateReplicationInstance(
 			ReplicationSubnetGroupID:   ptrconv.String(in.ReplicationSubnetGroupID),
 			VpcSecurityGroupIDs:        in.VpcSecurityGroupIDs,
 			ResourceIdentifier:         ptrconv.String(in.ResourceIdentifier),
+			Kerberos:                   in.KerberosAuthenticationSettings.asDomain(),
 		},
 	)
 	if err != nil {
@@ -157,25 +189,27 @@ type vpcSecurityGroupMembershipJSON struct {
 }
 
 type replicationInstanceJSON struct {
-	ReplicationSubnetGroup                replicationSubnetGroupJSON       `json:"ReplicationSubnetGroup"`
-	DNSNameServers                        string                           `json:"DnsNameServers,omitempty"`
-	KmsKeyID                              string                           `json:"KmsKeyId,omitempty"`
-	ReplicationInstanceClass              string                           `json:"ReplicationInstanceClass"`
-	EngineVersion                         string                           `json:"EngineVersion"`
-	AvailabilityZone                      string                           `json:"AvailabilityZone"`
-	ReplicationInstanceStatus             string                           `json:"ReplicationInstanceStatus"`
-	PreferredMaintenanceWindow            string                           `json:"PreferredMaintenanceWindow,omitempty"`
-	NetworkType                           string                           `json:"NetworkType,omitempty"`
-	ReplicationInstanceArn                string                           `json:"ReplicationInstanceArn"`
-	ReplicationInstanceIdentifier         string                           `json:"ReplicationInstanceIdentifier"`
-	VpcSecurityGroups                     []vpcSecurityGroupMembershipJSON `json:"VpcSecurityGroups"`
-	ReplicationInstancePublicIPAddresses  []string                         `json:"ReplicationInstancePublicIpAddresses"`
-	ReplicationInstancePrivateIPAddresses []string                         `json:"ReplicationInstancePrivateIpAddresses"`
-	InstanceCreateTime                    float64                          `json:"InstanceCreateTime,omitempty"`
-	AllocatedStorage                      int32                            `json:"AllocatedStorage"`
-	MultiAZ                               bool                             `json:"MultiAZ"`
-	AutoMinorVersionUpgrade               bool                             `json:"AutoMinorVersionUpgrade"`
-	PubliclyAccessible                    bool                             `json:"PubliclyAccessible"`
+	ReplicationSubnetGroup        replicationSubnetGroupJSON       `json:"ReplicationSubnetGroup"`
+	DNSNameServers                string                           `json:"DnsNameServers,omitempty"`
+	KmsKeyID                      string                           `json:"KmsKeyId,omitempty"`
+	ReplicationInstanceClass      string                           `json:"ReplicationInstanceClass"`
+	EngineVersion                 string                           `json:"EngineVersion"`
+	AvailabilityZone              string                           `json:"AvailabilityZone"`
+	ReplicationInstanceStatus     string                           `json:"ReplicationInstanceStatus"`
+	PreferredMaintenanceWindow    string                           `json:"PreferredMaintenanceWindow,omitempty"`
+	NetworkType                   string                           `json:"NetworkType,omitempty"`
+	ReplicationInstanceArn        string                           `json:"ReplicationInstanceArn"`
+	ReplicationInstanceIdentifier string                           `json:"ReplicationInstanceIdentifier"`
+	VpcSecurityGroups             []vpcSecurityGroupMembershipJSON `json:"VpcSecurityGroups"`
+
+	Kerberos                              *kerberosSettingsJSON `json:"KerberosAuthenticationSettings,omitempty"`
+	ReplicationInstancePublicIPAddresses  []string              `json:"ReplicationInstancePublicIpAddresses"`
+	ReplicationInstancePrivateIPAddresses []string              `json:"ReplicationInstancePrivateIpAddresses"`
+	InstanceCreateTime                    float64               `json:"InstanceCreateTime,omitempty"`
+	AllocatedStorage                      int32                 `json:"AllocatedStorage"`
+	MultiAZ                               bool                  `json:"MultiAZ"`
+	AutoMinorVersionUpgrade               bool                  `json:"AutoMinorVersionUpgrade"`
+	PubliclyAccessible                    bool                  `json:"PubliclyAccessible"`
 }
 
 // riToJSON renders ri's wire shape. ReplicationSubnetGroup is always
@@ -218,6 +252,7 @@ func riToJSON(ri *ReplicationInstance) replicationInstanceJSON {
 		ReplicationInstancePublicIPAddresses:  publicIPs,
 		VpcSecurityGroups:                     vpcSecurityGroups,
 		InstanceCreateTime:                    awstime.Epoch(ri.CreationTime),
+		Kerberos:                              kerberosToJSON(ri.KerberosAuthenticationSettings),
 		KmsKeyID:                              ri.KmsKeyID,
 		DNSNameServers:                        ri.DNSNameServers,
 		NetworkType:                           ri.NetworkType,
@@ -402,15 +437,17 @@ func (h *Handler) handleDescribeReplicationInstanceTaskLogs(
 }
 
 type modifyReplicationInstanceInput struct {
-	ReplicationInstanceArn     *string  `json:"ReplicationInstanceArn"`
-	ReplicationInstanceClass   *string  `json:"ReplicationInstanceClass"`
-	EngineVersion              *string  `json:"EngineVersion"`
-	MultiAZ                    *bool    `json:"MultiAZ"`
-	AutoMinorVersionUpgrade    *bool    `json:"AutoMinorVersionUpgrade"`
-	AllocatedStorage           *int32   `json:"AllocatedStorage"`
-	NetworkType                *string  `json:"NetworkType"`
-	PreferredMaintenanceWindow *string  `json:"PreferredMaintenanceWindow"`
-	VpcSecurityGroupIDs        []string `json:"VpcSecurityGroupIds"`
+	ReplicationInstanceArn         *string               `json:"ReplicationInstanceArn"`
+	ReplicationInstanceIdentifier  *string               `json:"ReplicationInstanceIdentifier"`
+	ReplicationInstanceClass       *string               `json:"ReplicationInstanceClass"`
+	EngineVersion                  *string               `json:"EngineVersion"`
+	MultiAZ                        *bool                 `json:"MultiAZ"`
+	AutoMinorVersionUpgrade        *bool                 `json:"AutoMinorVersionUpgrade"`
+	AllocatedStorage               *int32                `json:"AllocatedStorage"`
+	NetworkType                    *string               `json:"NetworkType"`
+	PreferredMaintenanceWindow     *string               `json:"PreferredMaintenanceWindow"`
+	KerberosAuthenticationSettings *kerberosSettingsJSON `json:"KerberosAuthenticationSettings"`
+	VpcSecurityGroupIDs            []string              `json:"VpcSecurityGroupIds"`
 }
 
 type modifyReplicationInstanceOutput struct {
@@ -432,6 +469,8 @@ func (h *Handler) handleModifyReplicationInstance(
 			NetworkType:                ptrconv.String(in.NetworkType),
 			PreferredMaintenanceWindow: ptrconv.String(in.PreferredMaintenanceWindow),
 			VpcSecurityGroupIDs:        in.VpcSecurityGroupIDs,
+			Kerberos:                   in.KerberosAuthenticationSettings.asDomain(),
+			NewIdentifier:              ptrconv.String(in.ReplicationInstanceIdentifier),
 		},
 	)
 	if err != nil {

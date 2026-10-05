@@ -22,21 +22,52 @@ type dataProviderDescriptorJSON struct {
 	SecretsManagerSecretId      string `json:"SecretsManagerSecretId,omitempty"` //nolint:revive,staticcheck // wire name.
 }
 
+type scApplicationAttributesJSON struct {
+	S3BucketPath    *string `json:"S3BucketPath,omitempty"`
+	S3BucketRoleArn *string `json:"S3BucketRoleArn,omitempty"`
+}
+
+func (a *scApplicationAttributesJSON) asDomain() *SCApplicationAttributes {
+	if a == nil {
+		return nil
+	}
+
+	return &SCApplicationAttributes{
+		S3BucketPath:    ptrconv.String(a.S3BucketPath),
+		S3BucketRoleArn: ptrconv.String(a.S3BucketRoleArn),
+	}
+}
+
+func scAttributesToJSON(a *SCApplicationAttributes) *scApplicationAttributesJSON {
+	if a == nil {
+		return nil
+	}
+
+	return &scApplicationAttributesJSON{
+		S3BucketPath:    ptrconv.NilIfEmpty(a.S3BucketPath),
+		S3BucketRoleArn: ptrconv.NilIfEmpty(a.S3BucketRoleArn),
+	}
+}
+
 type createMigrationProjectInput struct {
-	MigrationProjectName          *string                      `json:"MigrationProjectName"`
-	Description                   *string                      `json:"Description"`
-	InstanceProfileIdentifier     *string                      `json:"InstanceProfileIdentifier"`
-	SourceDataProviderDescriptors []dataProviderDescriptorJSON `json:"SourceDataProviderDescriptors"`
-	TargetDataProviderDescriptors []dataProviderDescriptorJSON `json:"TargetDataProviderDescriptors"`
-	Tags                          []tagEntry                   `json:"Tags"`
+	MigrationProjectName                  *string                      `json:"MigrationProjectName"`
+	Description                           *string                      `json:"Description"`
+	InstanceProfileIdentifier             *string                      `json:"InstanceProfileIdentifier"`
+	SourceDataProviderDescriptors         []dataProviderDescriptorJSON `json:"SourceDataProviderDescriptors"`
+	TargetDataProviderDescriptors         []dataProviderDescriptorJSON `json:"TargetDataProviderDescriptors"`
+	SchemaConversionApplicationAttributes *scApplicationAttributesJSON `json:"SchemaConversionApplicationAttributes"`
+	TransformationRules                   *string                      `json:"TransformationRules"`
+	Tags                                  []tagEntry                   `json:"Tags"`
 }
 
 type migrationProjectJSON struct {
+	SCAttributes                  *scApplicationAttributesJSON `json:"SchemaConversionApplicationAttributes,omitempty"`
 	MigrationProjectName          string                       `json:"MigrationProjectName"`
 	MigrationProjectArn           string                       `json:"MigrationProjectArn"`
 	Description                   string                       `json:"Description,omitempty"`
 	InstanceProfileArn            string                       `json:"InstanceProfileArn,omitempty"`
 	InstanceProfileName           string                       `json:"InstanceProfileName,omitempty"`
+	TransformationRules           string                       `json:"TransformationRules,omitempty"`
 	SourceDataProviderDescriptors []dataProviderDescriptorJSON `json:"SourceDataProviderDescriptors,omitempty"`
 	TargetDataProviderDescriptors []dataProviderDescriptorJSON `json:"TargetDataProviderDescriptors,omitempty"`
 }
@@ -85,6 +116,8 @@ func mpToJSON(mp *MigrationProject) migrationProjectJSON {
 		InstanceProfileName:           mp.InstanceProfileName,
 		SourceDataProviderDescriptors: descriptorsToJSON(mp.SourceDataProviderDescriptors),
 		TargetDataProviderDescriptors: descriptorsToJSON(mp.TargetDataProviderDescriptors),
+		SCAttributes:                  scAttributesToJSON(mp.SchemaConversionApplicationAttributes),
+		TransformationRules:           mp.TransformationRules,
 	}
 }
 
@@ -96,16 +129,16 @@ func (h *Handler) handleCreateMigrationProject(
 		return nil, fmt.Errorf("%w: MigrationProjectName is required", ErrValidation)
 	}
 
-	kv := tagsToMap(in.Tags)
-	mp, err := h.Backend.CreateMigrationProject(
-		ctx,
-		name,
-		ptrconv.String(in.Description),
-		ptrconv.String(in.InstanceProfileIdentifier),
-		descriptorsFromJSON(in.SourceDataProviderDescriptors),
-		descriptorsFromJSON(in.TargetDataProviderDescriptors),
-		kv,
-	)
+	mp, err := h.Backend.CreateMigrationProject(ctx, CreateMigrationProjectParams{
+		Name:                                  name,
+		Description:                           ptrconv.String(in.Description),
+		InstanceProfileIdentifier:             ptrconv.String(in.InstanceProfileIdentifier),
+		SourceDescriptors:                     descriptorsFromJSON(in.SourceDataProviderDescriptors),
+		TargetDescriptors:                     descriptorsFromJSON(in.TargetDataProviderDescriptors),
+		SchemaConversionApplicationAttributes: in.SchemaConversionApplicationAttributes.asDomain(),
+		TransformationRules:                   ptrconv.String(in.TransformationRules),
+		Tags:                                  tagsToMap(in.Tags),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -245,8 +278,14 @@ func (h *Handler) handleDescribeMigrationProjects(
 }
 
 type modifyMigrationProjectInput struct {
-	MigrationProjectIdentifier *string `json:"MigrationProjectIdentifier"`
-	Description                *string `json:"Description"`
+	MigrationProjectIdentifier            *string                      `json:"MigrationProjectIdentifier"`
+	Description                           *string                      `json:"Description"`
+	InstanceProfileIdentifier             *string                      `json:"InstanceProfileIdentifier"`
+	MigrationProjectName                  *string                      `json:"MigrationProjectName"`
+	SchemaConversionApplicationAttributes *scApplicationAttributesJSON `json:"SchemaConversionApplicationAttributes"`
+	TransformationRules                   *string                      `json:"TransformationRules"`
+	SourceDataProviderDescriptors         []dataProviderDescriptorJSON `json:"SourceDataProviderDescriptors"`
+	TargetDataProviderDescriptors         []dataProviderDescriptorJSON `json:"TargetDataProviderDescriptors"`
 }
 
 type modifyMigrationProjectOutput struct {
@@ -256,11 +295,16 @@ type modifyMigrationProjectOutput struct {
 func (h *Handler) handleModifyMigrationProject(
 	ctx context.Context, in *modifyMigrationProjectInput,
 ) (*modifyMigrationProjectOutput, error) {
-	mp, err := h.Backend.ModifyMigrationProject(
-		ctx,
-		ptrconv.String(in.MigrationProjectIdentifier),
-		ptrconv.String(in.Description),
-	)
+	mp, err := h.Backend.ModifyMigrationProject(ctx, ModifyMigrationProjectParams{
+		NameOrArn:                             ptrconv.String(in.MigrationProjectIdentifier),
+		Description:                           in.Description,
+		InstanceProfileIdentifier:             in.InstanceProfileIdentifier,
+		MigrationProjectName:                  in.MigrationProjectName,
+		SchemaConversionApplicationAttributes: in.SchemaConversionApplicationAttributes.asDomain(),
+		SourceDescriptors:                     descriptorsFromJSON(in.SourceDataProviderDescriptors),
+		TargetDescriptors:                     descriptorsFromJSON(in.TargetDataProviderDescriptors),
+		TransformationRules:                   in.TransformationRules,
+	})
 	if err != nil {
 		return nil, err
 	}

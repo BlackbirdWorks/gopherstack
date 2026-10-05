@@ -82,11 +82,11 @@ func seedFullBackend(t *testing.T, b *dms.InMemoryBackend) map[string]string {
 	require.NoError(t, err)
 	ids["replicationTaskArn"] = rt.ReplicationTaskArn
 
-	dm, err := b.CreateDataMigration(ctx, "dm-1", "", "full-load", "", "", 0, false, nil)
+	dm, err := b.CreateDataMigration(ctx, dms.CreateDataMigrationParams{Name: "dm-1", DataMigrationType: "full-load"})
 	require.NoError(t, err)
 	ids["dataMigrationArn"] = dm.DataMigrationArn
 
-	dp, err := b.CreateDataProvider(ctx, "dp-1", "mysql", "", nil)
+	dp, err := b.CreateDataProvider(ctx, dms.CreateDataProviderParams{Name: "dp-1", Engine: "mysql"})
 	require.NoError(t, err)
 	ids["dataProviderArn"] = dp.DataProviderArn
 
@@ -106,18 +106,19 @@ func seedFullBackend(t *testing.T, b *dms.InMemoryBackend) map[string]string {
 	require.NoError(t, err)
 	ids["collectorReferencedID"] = col.CollectorReferencedID
 
-	ip, err := b.CreateInstanceProfile(ctx, "ip-1", "", "", "", "", "", false, nil)
+	ip, err := b.CreateInstanceProfile(ctx, "ip-1", "", "", "", "", "", false, nil, nil)
 	require.NoError(t, err)
 	ids["instanceProfileArn"] = ip.InstanceProfileArn
 
-	cert, err := b.ImportCertificate(ctx, "cert-1", "-----BEGIN CERTIFICATE-----", "", nil)
+	cert, err := b.ImportCertificate(ctx, "cert-1", "-----BEGIN CERTIFICATE-----", "", "", nil)
 	require.NoError(t, err)
 	ids["certificateArn"] = cert.CertificateArn
 
-	mp, err := b.CreateMigrationProject(ctx, "mp-1", "", ip.InstanceProfileName,
-		[]dms.DataProviderDescriptorInput{{DataProviderIdentifier: dp.DataProviderName}},
-		[]dms.DataProviderDescriptorInput{{DataProviderIdentifier: dp.DataProviderName}},
-		nil)
+	mp, err := b.CreateMigrationProject(ctx, dms.CreateMigrationProjectParams{
+		Name: "mp-1", InstanceProfileIdentifier: ip.InstanceProfileName,
+		SourceDescriptors: []dms.DataProviderDescriptorInput{{DataProviderIdentifier: dp.DataProviderName}},
+		TargetDescriptors: []dms.DataProviderDescriptorInput{{DataProviderIdentifier: dp.DataProviderName}},
+	})
 	require.NoError(t, err)
 	ids["migrationProjectArn"] = mp.MigrationProjectArn
 

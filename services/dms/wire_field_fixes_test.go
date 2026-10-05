@@ -26,6 +26,7 @@ func TestCreateDataMigration_SettingsNestUnderDataMigrationSettings_RealClient(t
 	b := dms.NewInMemoryBackend("123456789012", "us-east-1")
 	h := dms.NewHandler(b)
 	client := newTestDMSClient(t, h)
+	seedMigrationProject(t, b, "proj-1")
 
 	out, err := client.CreateDataMigration(t.Context(), &dmssdk.CreateDataMigrationInput{
 		DataMigrationName:          aws.String("wire-dm"),

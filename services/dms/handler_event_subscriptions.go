@@ -344,8 +344,11 @@ func (h *Handler) handleDescribeEvents(
 }
 
 type modifyEventSubscriptionInput struct {
-	SubscriptionName *string `json:"SubscriptionName"`
-	Enabled          *bool   `json:"Enabled"`
+	SubscriptionName *string  `json:"SubscriptionName"`
+	Enabled          *bool    `json:"Enabled"`
+	SnsTopicArn      *string  `json:"SnsTopicArn"`
+	SourceType       *string  `json:"SourceType"`
+	EventCategories  []string `json:"EventCategories"`
 }
 
 type modifyEventSubscriptionOutput struct {
@@ -355,7 +358,13 @@ type modifyEventSubscriptionOutput struct {
 func (h *Handler) handleModifyEventSubscription(
 	ctx context.Context, in *modifyEventSubscriptionInput,
 ) (*modifyEventSubscriptionOutput, error) {
-	es, err := h.Backend.ModifyEventSubscription(ctx, ptrconv.String(in.SubscriptionName), in.Enabled)
+	es, err := h.Backend.ModifyEventSubscription(ctx, ModifyEventSubscriptionParams{
+		Name:            ptrconv.String(in.SubscriptionName),
+		Enabled:         in.Enabled,
+		SnsTopicArn:     ptrconv.String(in.SnsTopicArn),
+		SourceType:      ptrconv.String(in.SourceType),
+		EventCategories: in.EventCategories,
+	})
 	if err != nil {
 		return nil, err
 	}

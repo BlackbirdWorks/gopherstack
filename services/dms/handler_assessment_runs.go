@@ -33,6 +33,7 @@ type assessmentRunJSON struct {
 	ResultLocationBucket            string `json:"ResultLocationBucket,omitempty"`
 	ResultLocationFolder            string `json:"ResultLocationFolder,omitempty"`
 	ResultEncryptionMode            string `json:"ResultEncryptionMode,omitempty"`
+	ResultKmsKeyArn                 string `json:"ResultKmsKeyArn,omitempty"`
 	ServiceAccessRoleArn            string `json:"ServiceAccessRoleArn,omitempty"`
 	Status                          string `json:"Status,omitempty"`
 
@@ -62,6 +63,7 @@ func runToJSON(run *AssessmentRun) assessmentRunJSON {
 		ResultLocationBucket:                     run.ResultLocationBucket,
 		ResultLocationFolder:                     run.ResultLocationFolder,
 		ResultEncryptionMode:                     run.ResultEncryptionMode,
+		ResultKmsKeyArn:                          run.ResultKmsKeyArn,
 		ResultStatistic: assessmentRunResultStatisticJSON{
 			Cancelled: run.ResultStatistic.Cancelled,
 			Error:     run.ResultStatistic.Error,
@@ -325,9 +327,17 @@ func taskIdentifierOrEmpty(tasks []*ReplicationTask) string {
 	return tasks[0].ReplicationTaskIdentifier
 }
 
+func assessmentResultsFile(run *AssessmentRun) string {
+	if run.ResultLocationFolder != "" {
+		return run.ResultLocationFolder
+	}
+
+	return run.AssessmentRunName
+}
+
 func assessmentResultToJSON(run *AssessmentRun, tasks []*ReplicationTask) assessmentResultJSON {
 	return assessmentResultJSON{
-		AssessmentResultsFile:             run.ResultLocationFolder,
+		AssessmentResultsFile:             assessmentResultsFile(run),
 		AssessmentStatus:                  run.Status,
 		ReplicationTaskArn:                run.ReplicationTaskArn,
 		ReplicationTaskIdentifier:         taskIdentifierOrEmpty(tasks),
@@ -347,13 +357,16 @@ func (h *Handler) handleStartReplicationTaskAssessment(
 }
 
 type startReplicationTaskAssessmentRunInput struct {
-	ReplicationTaskArn   *string  `json:"ReplicationTaskArn"`
-	ServiceAccessRoleArn *string  `json:"ServiceAccessRoleArn"`
-	ResultLocationBucket *string  `json:"ResultLocationBucket"`
-	AssessmentRunName    *string  `json:"AssessmentRunName"`
-	ResultEncryptionMode *string  `json:"ResultEncryptionMode"`
-	IncludeOnly          []string `json:"IncludeOnly"`
-	Exclude              []string `json:"Exclude"`
+	ReplicationTaskArn   *string    `json:"ReplicationTaskArn"`
+	ServiceAccessRoleArn *string    `json:"ServiceAccessRoleArn"`
+	ResultLocationBucket *string    `json:"ResultLocationBucket"`
+	AssessmentRunName    *string    `json:"AssessmentRunName"`
+	ResultEncryptionMode *string    `json:"ResultEncryptionMode"`
+	ResultKmsKeyArn      *string    `json:"ResultKmsKeyArn"`
+	ResultLocationFolder *string    `json:"ResultLocationFolder"`
+	IncludeOnly          []string   `json:"IncludeOnly"`
+	Exclude              []string   `json:"Exclude"`
+	Tags                 []tagEntry `json:"Tags"`
 }
 
 type startReplicationTaskAssessmentRunOutput struct {
@@ -367,16 +380,18 @@ func (h *Handler) handleStartReplicationTaskAssessmentRun(
 		return nil, err
 	}
 
-	run, err := h.Backend.startAssessmentRunWithSelection(
-		ctx,
-		ptrconv.String(in.ReplicationTaskArn),
-		ptrconv.String(in.ServiceAccessRoleArn),
-		ptrconv.String(in.ResultLocationBucket),
-		ptrconv.String(in.AssessmentRunName),
-		ptrconv.String(in.ResultEncryptionMode),
-		in.IncludeOnly,
-		in.Exclude,
-	)
+	run, err := h.Backend.startAssessmentRunWithSelection(ctx, StartAssessmentRunParams{
+		TaskArn:              ptrconv.String(in.ReplicationTaskArn),
+		ServiceAccessRoleArn: ptrconv.String(in.ServiceAccessRoleArn),
+		ResultLocationBucket: ptrconv.String(in.ResultLocationBucket),
+		ResultLocationFolder: ptrconv.String(in.ResultLocationFolder),
+		AssessmentRunName:    ptrconv.String(in.AssessmentRunName),
+		ResultEncryptionMode: ptrconv.String(in.ResultEncryptionMode),
+		ResultKmsKeyArn:      ptrconv.String(in.ResultKmsKeyArn),
+		IncludeOnly:          in.IncludeOnly,
+		Exclude:              in.Exclude,
+		Tags:                 tagsToMap(in.Tags),
+	})
 	if err != nil {
 		return nil, err
 	}

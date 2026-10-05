@@ -29,7 +29,12 @@ func (b *InMemoryBackend) CreateReplicationConfig(
 		)
 	}
 
-	configARN := arn.Build("dms", region, b.accountID, "replication-config:"+uuid.NewString())
+	arnSuffix := params.ResourceIdentifier
+	if arnSuffix == "" {
+		arnSuffix = uuid.NewString()
+	}
+
+	configARN := arn.Build("dms", region, b.accountID, "replication-config:"+arnSuffix)
 	t := tags.New("dms.replication-config." + params.Identifier + ".tags")
 	if len(kv) > 0 {
 		t.Merge(kv)
@@ -41,6 +46,8 @@ func (b *InMemoryBackend) CreateReplicationConfig(
 		SourceEndpointArn:           params.SourceEndpointArn,
 		TargetEndpointArn:           params.TargetEndpointArn,
 		TableMappings:               params.TableMappings,
+		ReplicationSettings:         params.ReplicationSettings,
+		SupplementalSettings:        params.SupplementalSettings,
 		ComputeConfig:               params.ComputeConfig,
 		AccountID:                   b.accountID,
 		Region:                      region,
@@ -103,73 +110,60 @@ func (b *InMemoryBackend) DescribeReplicationConfigs(ctx context.Context) ([]*Re
 	return list, nil
 }
 
-// modifyReplicationConfigFields applies every ModifyReplicationConfigInput
-// member this backend models onto an existing ReplicationConfig. Real
-// ModifyReplicationConfigInput (api_op_ModifyReplicationConfig.go) also
-// accepts ReplicationSettings/SupplementalSettings/ResourceIdentifier, which
-// this backend doesn't model on ReplicationConfig at all (pre-existing,
-// unrelated to this fix) so they're not applied here either.
-func modifyReplicationConfigFields(
-	rc *ReplicationConfig,
-	replicationType, tableMappings, sourceEndpointArn, targetEndpointArn string,
-	computeConfig *ComputeConfig,
-) {
-	if replicationType != "" {
-		rc.ReplicationType = replicationType
+func modifyReplicationConfigFields(rc *ReplicationConfig, p ModifyReplicationConfigParams) {
+	if p.ReplicationType != "" {
+		rc.ReplicationType = p.ReplicationType
 	}
 
-	if tableMappings != "" {
-		rc.TableMappings = tableMappings
+	if p.TableMappings != "" {
+		rc.TableMappings = p.TableMappings
 	}
 
-	if sourceEndpointArn != "" {
-		rc.SourceEndpointArn = sourceEndpointArn
+	if p.SourceEndpointArn != "" {
+		rc.SourceEndpointArn = p.SourceEndpointArn
 	}
 
-	if targetEndpointArn != "" {
-		rc.TargetEndpointArn = targetEndpointArn
+	if p.TargetEndpointArn != "" {
+		rc.TargetEndpointArn = p.TargetEndpointArn
 	}
 
-	if computeConfig != nil {
-		rc.ComputeConfig = computeConfig
+	if p.ReplicationSettings != "" {
+		rc.ReplicationSettings = p.ReplicationSettings
+	}
+
+	if p.SupplementalSettings != "" {
+		rc.SupplementalSettings = p.SupplementalSettings
+	}
+
+	if p.ComputeConfig != nil {
+		rc.ComputeConfig = p.ComputeConfig
 	}
 }
 
-// ModifyReplicationConfig updates an existing replication config. Real AWS
-// (api_op_ModifyReplicationConfig.go) accepts ComputeConfig, TableMappings,
-// SourceEndpointArn, and TargetEndpointArn alongside ReplicationType --
-// gopherstack silently dropped all four until this fix, so a real client's
-// ModifyReplicationConfig call never actually changed anything but the
-// replication type.
+// ModifyReplicationConfig applies the supplied members to an existing
+// replication config; omitted members keep their stored values.
 func (b *InMemoryBackend) ModifyReplicationConfig(
 	ctx context.Context,
-	identifierOrArn, replicationType, tableMappings, sourceEndpointArn, targetEndpointArn string,
-	computeConfig *ComputeConfig,
+	p ModifyReplicationConfigParams,
 ) (*ReplicationConfig, error) {
 	b.mu.Lock("ModifyReplicationConfig")
 	defer b.mu.Unlock()
 
-	region := getRegion(ctx, b.region)
-
-	if rc, ok := b.replicationConfigs.Get(regionKey(region, identifierOrArn)); ok {
-		modifyReplicationConfigFields(
-			rc, replicationType, tableMappings, sourceEndpointArn, targetEndpointArn, computeConfig,
-		)
-		cp := *rc
-
-		return &cp, nil
+	rc := b.findReplicationConfig(ctx, p.IdentifierOrArn)
+	if rc == nil {
+		return nil, fmt.Errorf("%w: replication config %s not found", ErrNotFound, p.IdentifierOrArn)
 	}
 
-	if rc, ok := lookupUnique(b.replicationConfigsByARN, regionKey(region, identifierOrArn)); ok {
-		modifyReplicationConfigFields(
-			rc, replicationType, tableMappings, sourceEndpointArn, targetEndpointArn, computeConfig,
-		)
-		cp := *rc
-
-		return &cp, nil
+	if err := rekey(b.replicationConfigs, getRegion(ctx, b.region), rc.ReplicationConfigIdentifier,
+		p.NewIdentifier, "replication config", rc,
+		func(n string) { rc.ReplicationConfigIdentifier = n }); err != nil {
+		return nil, err
 	}
 
-	return nil, fmt.Errorf("%w: replication config %s not found", ErrNotFound, identifierOrArn)
+	modifyReplicationConfigFields(rc, p)
+	cp := *rc
+
+	return &cp, nil
 }
 
 // findReplicationConfig locates a replication config by identifier or ARN

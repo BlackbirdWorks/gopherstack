@@ -20,6 +20,7 @@ type createReplicationTaskInput struct {
 	TableMappings             *string    `json:"TableMappings"`
 	ReplicationTaskSettings   *string    `json:"ReplicationTaskSettings"`
 	CdcStartPosition          *string    `json:"CdcStartPosition"`
+	CdcStartTime              *float64   `json:"CdcStartTime"`
 	CdcStopPosition           *string    `json:"CdcStopPosition"`
 	TaskData                  *string    `json:"TaskData"`
 	ResourceIdentifier        *string    `json:"ResourceIdentifier"`
@@ -65,6 +66,10 @@ func (h *Handler) handleCreateReplicationTask(
 			ErrValidation,
 			migrationType,
 		)
+	}
+
+	if err := validateCdcStartExclusive(in.CdcStartPosition, in.CdcStartTime); err != nil {
+		return nil, err
 	}
 
 	kv := tagsToMap(in.Tags)
@@ -135,8 +140,20 @@ func (h *Handler) handleDescribeReplicationTasks(
 }
 
 type startReplicationTaskInput struct {
-	ReplicationTaskArn       *string `json:"ReplicationTaskArn"`
-	StartReplicationTaskType *string `json:"StartReplicationTaskType"`
+	ReplicationTaskArn       *string  `json:"ReplicationTaskArn"`
+	StartReplicationTaskType *string  `json:"StartReplicationTaskType"`
+	CdcStartPosition         *string  `json:"CdcStartPosition"`
+	CdcStartTime             *float64 `json:"CdcStartTime"`
+}
+
+// validateCdcStartExclusive enforces the documented rule that CdcStartPosition
+// and CdcStartTime can't both be specified.
+func validateCdcStartExclusive(position *string, startTime *float64) error {
+	if ptrconv.String(position) != "" && startTime != nil {
+		return fmt.Errorf("%w: CdcStartPosition and CdcStartTime can't both be specified", ErrValidation)
+	}
+
+	return nil
 }
 
 type startReplicationTaskOutput struct {
@@ -165,6 +182,10 @@ func (h *Handler) handleStartReplicationTask(
 			ErrValidation,
 			taskType,
 		)
+	}
+
+	if err := validateCdcStartExclusive(in.CdcStartPosition, in.CdcStartTime); err != nil {
+		return nil, err
 	}
 
 	rt, err := h.Backend.StartReplicationTask(ctx, ptrconv.String(in.ReplicationTaskArn))
@@ -413,13 +434,15 @@ func (h *Handler) handleDescribeTableStatistics(
 }
 
 type modifyReplicationTaskInput struct {
-	ReplicationTaskArn      *string `json:"ReplicationTaskArn"`
-	MigrationType           *string `json:"MigrationType"`
-	TableMappings           *string `json:"TableMappings"`
-	ReplicationTaskSettings *string `json:"ReplicationTaskSettings"`
-	CdcStartPosition        *string `json:"CdcStartPosition"`
-	CdcStopPosition         *string `json:"CdcStopPosition"`
-	TaskData                *string `json:"TaskData"`
+	ReplicationTaskArn        *string  `json:"ReplicationTaskArn"`
+	ReplicationTaskIdentifier *string  `json:"ReplicationTaskIdentifier"`
+	MigrationType             *string  `json:"MigrationType"`
+	TableMappings             *string  `json:"TableMappings"`
+	ReplicationTaskSettings   *string  `json:"ReplicationTaskSettings"`
+	CdcStartPosition          *string  `json:"CdcStartPosition"`
+	CdcStartTime              *float64 `json:"CdcStartTime"`
+	CdcStopPosition           *string  `json:"CdcStopPosition"`
+	TaskData                  *string  `json:"TaskData"`
 }
 
 type modifyReplicationTaskOutput struct {
@@ -429,6 +452,10 @@ type modifyReplicationTaskOutput struct {
 func (h *Handler) handleModifyReplicationTask(
 	ctx context.Context, in *modifyReplicationTaskInput,
 ) (*modifyReplicationTaskOutput, error) {
+	if err := validateCdcStartExclusive(in.CdcStartPosition, in.CdcStartTime); err != nil {
+		return nil, err
+	}
+
 	rt, err := h.Backend.ModifyReplicationTask(
 		ctx,
 		ptrconv.String(in.ReplicationTaskArn),
@@ -439,6 +466,7 @@ func (h *Handler) handleModifyReplicationTask(
 			CdcStartPosition: ptrconv.String(in.CdcStartPosition),
 			CdcStopPosition:  ptrconv.String(in.CdcStopPosition),
 			TaskData:         ptrconv.String(in.TaskData),
+			NewIdentifier:    ptrconv.String(in.ReplicationTaskIdentifier),
 		},
 	)
 	if err != nil {
