@@ -687,3 +687,20 @@ CreateRecommenderConfiguration stores RecommendationProviderIdType PINPOINT_ENDP
 ## 2026-10-05 (reqfielddiff tier-1/2 pass 8)
 
 RECORDED: the seven *DateRangeKpi / journey execution metrics ops ignore page-size/next-token; they always return empty rows (no analytics engine), so there is nothing to page.
+
+## 2026-10-05 (reqfielddiff -adjudicated tier-2)
+
+- GetApplicationDateRangeKpi.NextToken: always-empty, there is no analytics subsystem so the result carries no rows and no page is ever due.
+- GetApplicationDateRangeKpi.PageSize: always-empty, there is no analytics subsystem so the result carries no rows and no page is ever due.
+- GetCampaignDateRangeKpi.NextToken: always-empty, there is no analytics subsystem so the result carries no rows and no page is ever due.
+- GetCampaignDateRangeKpi.PageSize: always-empty, there is no analytics subsystem so the result carries no rows and no page is ever due.
+- GetJourneyDateRangeKpi.NextToken: always-empty, there is no analytics subsystem so the result carries no rows and no page is ever due.
+- GetJourneyDateRangeKpi.PageSize: always-empty, there is no analytics subsystem so the result carries no rows and no page is ever due.
+- GetJourneyExecutionActivityMetrics.NextToken: unmodeled subsystem, there is no analytics engine so the result is one fixed metrics map with no row list, so no page is ever due.
+- GetJourneyExecutionActivityMetrics.PageSize: unmodeled subsystem, there is no analytics engine so the result is one fixed metrics map with no row list, so no page is ever due.
+- GetJourneyExecutionMetrics.NextToken: unmodeled subsystem, there is no analytics engine so the result is one fixed metrics map with no row list, so no page is ever due.
+- GetJourneyExecutionMetrics.PageSize: unmodeled subsystem, there is no analytics engine so the result is one fixed metrics map with no row list, so no page is ever due.
+- GetJourneyRunExecutionActivityMetrics.NextToken: unmodeled subsystem, there is no analytics engine so the result is one fixed metrics map with no row list, so no page is ever due.
+- GetJourneyRunExecutionActivityMetrics.PageSize: unmodeled subsystem, there is no analytics engine so the result is one fixed metrics map with no row list, so no page is ever due.
+- GetJourneyRunExecutionMetrics.NextToken: unmodeled subsystem, there is no analytics engine so the result is one fixed metrics map with no row list, so no page is ever due.
+- GetJourneyRunExecutionMetrics.PageSize: unmodeled subsystem, there is no analytics engine so the result is one fixed metrics map with no row list, so no page is ever due.

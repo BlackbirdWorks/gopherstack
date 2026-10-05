@@ -869,3 +869,8 @@ The option is now validated (SEND_INTERRUPT or TERMINATE_PROCESS, anything else 
 ## 2026-10-05 (gopherstack-uox6 pass 7, value semantics)
 
 RunJobFlow defaults VisibleToAllUsers true (api_op_RunJobFlow.go:283), RepoUpgradeOnBoot SECURITY with CustomAmiId (:210) and ScaleDownBehavior by release (:214; INSTANCE_HOUR from 5.1.0). ModifyCluster without StepConcurrencyLevel keeps the level instead of failing validation. The SDK says VisibleToAllUsers=false has no effect; an explicit false is still stored. Studios round-trip clean.
+
+## 2026-10-05 (reqfielddiff -adjudicated tier-2)
+
+- DescribeReleaseLabel.MaxResults: unsupported per SDK, documented "Reserved for future use. Currently set to null." (api_op_DescribeReleaseLabel.go:33); the output NextToken is likewise always null.
+- DescribeReleaseLabel.NextToken: unsupported per SDK, same "Reserved for future use. Currently set to null." doc (api_op_DescribeReleaseLabel.go:36).

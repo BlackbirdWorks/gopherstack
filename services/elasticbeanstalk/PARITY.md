@@ -461,3 +461,7 @@ elasticbeanstalk already keys its resources by region; same-named resources in t
 ## 2026-10-04 (reqfielddiff tier-1 re-examined: TerminateEnvironment.TerminateResources)
 
 Still recorded: false retains the environment's Auto Scaling group and load balancer outside Beanstalk management (api_op_TerminateEnvironment.go:66), but this backend creates no EC2/ELB resources and the environment becomes Terminated either way, so no Beanstalk or EC2 call can observe the flag.
+
+## 2026-10-05 (reqfielddiff -adjudicated tier-2)
+
+- DescribeInstancesHealth.NextToken: always-empty, the backend models no EC2 instances so InstanceHealthList is always empty and no token is ever due (handler_instances_health.go).

@@ -1715,3 +1715,7 @@ All 11 flagged MaxItems members (ListDistributionsByAnycastIpListId, ByCachePoli
 ## 2026-10-05 (gopherstack-uox6 pass 6, value semantics)
 
 CreateCachePolicy/UpdateCachePolicy apply the documented TTL defaults when omitted: DefaultTTL 86400 (or MinTTL if larger), MaxTTL 31536000 (types.go:784-800). DistributionConfig stays a byte passthrough, so omitted HttpVersion/PriceClass are not echoed by GetDistributionConfig; the summary view still falls back to http2/PriceClass_All.
+
+## 2026-10-05 (reqfielddiff -adjudicated tier-2)
+
+- ListDistributionsByRealtimeLogConfig.MaxItems: tool false positive, it is an XML body member (serializers.go awsRestxml_serializeOpDocumentListDistributionsByRealtimeLogConfigInput) decoded by `listDistributionsByRealtimeLogConfigBody` and paged by `paginateByMarkerValue`; `TestListDistributionsByRealtimeLogConfig_SDKRoundTrip_Pagination`.

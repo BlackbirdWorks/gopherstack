@@ -1650,3 +1650,16 @@ The ~19 ops left out of the original audit were field-diffed on 2026-09-11 (sect
 ## 2026-10-05 (reqfielddiff tier-2 pagination)
 
 DescribeReservedInstances, DescribeReservedInstanceOfferings, GetPackageVersionHistory, GetUpgradeHistory, ListDirectQueryDataSources (query key is lower-case `nexttoken`, serializers.go opensearch@v1.75.4), ListDomainsForPackage, ListInstanceTypeDetails, ListPackagesForDomain, ListScheduledActions, ListVpcEndpointAccess, ListVpcEndpoints and ListVpcEndpointsForDomain page through `writePagedList` (paging.go): sorted, no maxResults means the whole list (the SDK documents no default), `NextToken` only when truncated except the three VPC list ops whose required `NextToken` stays `""` (gopherstack-r80d); a malformed token returns InvalidPaginationTokenException on ListScheduledActions and ValidationException elsewhere. ListVpcEndpoints and the two VPC siblings send no `maxResults`. ListInsights stays always-empty (no analytics engine; see insights.go). Proof: `TestListOps_PageAndRejectBadTokens`.
+
+## 2026-10-05 (reqfielddiff -adjudicated tier-2)
+
+Tool false positives: each op below pages through `writePagedList` (paging.go), which reads the `maxResults` query member (int32, query-bound in opensearch@v1.75.4 serializers.go) generically, so the field scan never sees it.
+
+- DescribeReservedInstanceOfferings.MaxResults: `TestListOps_PageAndRejectBadTokens` (reserved_instance_offerings).
+- DescribeReservedInstances.MaxResults: `TestListOps_PageAndRejectBadTokens` (reserved_instances).
+- ListInstanceTypeDetails.MaxResults: `TestListOps_PageAndRejectBadTokens` (instance_type_details).
+- GetPackageVersionHistory.MaxResults: `TestListOps_MaxResultsPagesEveryItemOnce` (package_version_history).
+- GetUpgradeHistory.MaxResults: `TestListOps_MaxResultsPagesEveryItemOnce` (upgrade_history).
+- ListDomainsForPackage.MaxResults: `TestListOps_MaxResultsPagesEveryItemOnce` (domains_for_package).
+- ListPackagesForDomain.MaxResults: `TestListOps_MaxResultsPagesEveryItemOnce` (packages_for_domain).
+- ListScheduledActions.MaxResults: `TestListOps_MaxResultsPagesEveryItemOnce` (scheduled_actions).

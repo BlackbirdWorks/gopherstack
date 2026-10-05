@@ -538,3 +538,7 @@ xray is region-isolated: Groups, sampling rules, traces and encryption config li
 ## 2026-10-05 (gopherstack-uox6 pass 7, value semantics)
 
 PutResourcePolicy revision IDs now increment ("1", "2", ...) per api_op_PutResourcePolicy.go:50, and PolicyRevisionId "0" fails with InvalidPolicyRevisionIdException when the policy already exists. Groups and sampling rules round-trip clean; SamplingRule Version stays 1.
+
+## 2026-10-05 (reqfielddiff -adjudicated tier-2)
+
+- BatchGetTraces.NextToken: unsupported per SDK, it carries no page size (api_op_BatchGetTraces.go:41); the call is capped at 5 trace IDs and the emulator tracks no response-size limit, so every call returns all requested traces and no token is due.

@@ -1701,3 +1701,7 @@ The Resource Groups Tagging API bridge now lists the request region's tagged res
 ## 2026-10-05 (gopherstack-uox6 pass 5, value semantics)
 
 UpdateUserPoolClient and UpdateUserPool reset omitted attributes to defaults instead of keeping stale values (api_op_UpdateUserPoolClient.go, api_op_UpdateUserPool.go); CreateUserPoolClient stores RefreshTokenValidity 30 and EnableTokenRevocation true when omitted. Recorded: UpdateUserPool still ignores pool members this backend does not model.
+
+## 2026-10-05 (reqfielddiff -adjudicated tier-2)
+
+- ListUserPoolClientSecrets.NextToken: unsupported per SDK, the doc says all secrets return in one response with no pagination token (api_op_ListUserPoolClientSecrets.go:13,57); the list is capped by `maxExtraClientSecrets`, so paging is never needed.

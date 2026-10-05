@@ -2270,3 +2270,12 @@ StartAssetBundleExportJob now stores ValidationStrategy.StrictModeForAllResource
 ## 2026-10-05 (reqfielddiff tier-2 pagination)
 
 FIXED: DescribeFolderPermissions and DescribeFolderResolvedPermissions page through max-results/next-token and return InvalidNextTokenException for a malformed token (deserializers.go declares it); ListIdentityPropagationConfigs pages the same way and returns InvalidParameterValueException (it declares no token error). RECORDED: the `namespace` query member of the two folder permission ops is ignored. Proof: `TestListOps_PageAndRejectBadTokens`.
+
+## 2026-10-05 (reqfielddiff -adjudicated tier-2)
+
+Tool false positives: both folder-permission ops page through `writePagedFolderPermissions` (handler_folders.go:311) using the shared `maxResultsParam`/`nextTokenParam` readers the scan does not follow; proven by `list_page_tokens_test.go`.
+
+- DescribeFolderPermissions.MaxResults: paged, token only when truncated, `InvalidNextTokenException` on a bad token.
+- DescribeFolderPermissions.NextToken: same path as MaxResults.
+- DescribeFolderResolvedPermissions.MaxResults: paged through the same helper.
+- DescribeFolderResolvedPermissions.NextToken: same path as MaxResults.

@@ -918,3 +918,15 @@ ListAssets, ListAssetInstances, GetOutpostInstanceTypes, GetOutpostSupportedInst
 ## 2026-10-05 (reqfielddiff tier-2 filters)
 
 All 17 flagged filter members (ListAssets, ListAssetInstances, ListCapacityTasks, ListCatalogItems, ListOutposts, ListSites) are false positives: the handlers read them as multi-value query keys (`q["HostIdFilter"]`) and the backends apply them. New typed proof for the previously untested AZ, AZ-ID, city and state filters: `TestListOutposts_AZFilters`, `TestListSites_AddressFilters`.
+
+## 2026-10-05 (reqfielddiff -adjudicated tier-2)
+
+Tool false positives: the handlers read these multi-valued query members with `q["Name"]` (handler_capacity.go, handler_catalog.go, handler_sites.go), a shape the scan does not follow.
+
+- ListCapacityTasks.CapacityTaskStatusFilter: applied, `TestListCapacityTasks_FiltersByStatus`.
+- ListCatalogItems.EC2FamilyFilter: applied by `matchesCatalogItemFilter`, `TestListCatalogItems_FilterMembers`.
+- ListCatalogItems.ItemClassFilter: applied, `TestListCatalogItems_FilterMembers`.
+- ListCatalogItems.SupportedStorageFilter: applied, `TestListCatalogItems_FilterMembers`.
+- ListSites.OperatingAddressCityFilter: applied, `TestListSites_AddressFilters`.
+- ListSites.OperatingAddressCountryCodeFilter: applied, `TestListSites_FiltersByCountryCode`.
+- ListSites.OperatingAddressStateOrRegionFilter: applied, `TestListSites_AddressFilters`.

@@ -1150,3 +1150,9 @@ All 20 flagged members (GetAuthorizers, GetDeployments, GetIntegrationResponses,
 ## 2026-10-05 (reqfielddiff tier-2 pagination, follow-up)
 
 GetIntegrationResponses, GetRouteResponses, GetVpcLinks and ListRoutingRules were re-checked: all page through `validateAPIGWPaging`/`page.New` and are covered by `TestGetIntegrationResponses_Limit`, `TestGetRouteResponses_Limit`, `TestGetVpcLinks_Limit` and `TestListRoutingRules_MaxResultsAndNextToken`; false positives.
+
+## 2026-10-05 (reqfielddiff -adjudicated tier-2)
+
+- GetIntegrationResponses.MaxResults: tool false positive, the handler pages through the shared `listConfig` closure (handler.go:926) that the field scan cannot follow; `TestGetIntegrationResponses_Limit`.
+- GetRouteResponses.MaxResults: tool false positive, same `listConfig` closure (handler.go:944); `TestGetRouteResponses_Limit`.
+- GetVpcLinks.MaxResults: tool false positive, handler_vpc_links.go:59 pages via `page.New` over a helper-read query param; `TestGetVpcLinks_Limit`.

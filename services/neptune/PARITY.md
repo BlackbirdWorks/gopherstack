@@ -888,3 +888,19 @@ applyNeptuneMarker restarts at page one on a malformed Marker. neptune@v1.48.4 d
 ## 2026-10-05 (reqfielddiff tier-1/2 pass 8)
 
 False positives: every flagged Describe*/ListTagsForResource Filters member is documented 'Not currently supported' in neptune@v1.48.4. IncludePublic/IncludeShared stay recorded (single account).
+
+## 2026-10-05 (reqfielddiff -adjudicated tier-2)
+
+- DescribeDBClusterParameterGroups.Filters: unsupported per SDK, documented "not currently supported" (neptune@v1.48.4 api_op_DescribeDBClusterParameterGroups.go:42).
+- DescribeDBClusterParameters.Filters: unsupported per SDK, documented "not currently supported" (neptune@v1.48.4 api_op_DescribeDBClusterParameters.go:42).
+- DescribeDBClusterSnapshots.Filters: unsupported per SDK, documented "not currently supported" (neptune@v1.48.4 api_op_DescribeDBClusterSnapshots.go:54).
+- DescribeDBEngineVersions.Filters: unsupported per SDK, documented "not currently supported" (neptune@v1.48.4 api_op_DescribeDBEngineVersions.go:51).
+- DescribeDBParameterGroups.Filters: unsupported per SDK, documented "not currently supported" (neptune@v1.48.4 api_op_DescribeDBParameterGroups.go:41).
+- DescribeDBParameters.Filters: unsupported per SDK, documented "not currently supported" (neptune@v1.48.4 api_op_DescribeDBParameters.go:41).
+- DescribeDBSubnetGroups.Filters: unsupported per SDK, documented "not currently supported" (neptune@v1.48.4 api_op_DescribeDBSubnetGroups.go:41).
+- DescribeEngineDefaultClusterParameters.Filters: unsupported per SDK, documented "not currently supported" (neptune@v1.48.4 api_op_DescribeEngineDefaultClusterParameters.go:38).
+- DescribeEngineDefaultParameters.Filters: unsupported per SDK, documented "not currently supported" (neptune@v1.48.4 api_op_DescribeEngineDefaultParameters.go:38).
+- DescribeEventCategories.Filters: unsupported per SDK, documented "not currently supported" (neptune@v1.48.4 api_op_DescribeEventCategories.go:32).
+- DescribeEventSubscriptions.Filters: unsupported per SDK, documented "not currently supported" (neptune@v1.48.4 api_op_DescribeEventSubscriptions.go:36).
+- DescribeEvents.Filters: unsupported per SDK, documented "not currently supported" (neptune@v1.48.4 api_op_DescribeEvents.go:54).
+- DescribeOrderableDBInstanceOptions.Filters: unsupported per SDK, documented "not currently supported" (neptune@v1.48.4 api_op_DescribeOrderableDBInstanceOptions.go:45).

@@ -843,3 +843,8 @@ rekognition is region-isolated: collections, datasets and stream processors live
 ## 2026-10-04 (reqfielddiff tier-1 pass)
 
 IndexFaces now validates QualityFilter (enum), DetectionAttributes (Attribute enum) and MaxFaces (>= 1) with InvalidParameterException; GetPersonTracking validates SortBy (INDEX/TIMESTAMP). Filtering/sorting/attribute output stays unmodeled because the mock has no per-face quality or person data (recorded in items_still_open). Proof: `TestIndexFaces_OptionValidation`, `TestGetPersonTracking_SortByValidation`.
+
+## 2026-10-05 (reqfielddiff -adjudicated tier-2)
+
+- StartSegmentDetection.Filters: always-empty, only constrains the detected Segments (minimum shot/technical-cue confidence, api_op_StartSegmentDetection.go:67) and the video analysis engine is unmodeled, so GetSegmentDetection always returns no Segments.
+- StartTextDetection.Filters: always-empty, only constrains the detected TextDetections (confidence/region, api_op_StartTextDetection.go:55) and the video analysis engine is unmodeled, so GetTextDetection always returns no TextDetections.

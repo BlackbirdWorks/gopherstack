@@ -1854,3 +1854,10 @@ Cluster role ops verified clean against rds@v1.124.1 (api_op_AddRoleToDBCluster.
 ## 2026-10-05 (reqfielddiff tier-1/2 pass 8)
 
 False positives, all re-read against rds@v1.124.1: every flagged Describe* Filters member except DescribeDBShardGroups/DescribeIntegrations documents 'This parameter isn't currently supported'; DescribeDBClusterParameters applies parameter-name through applyDBParameterFilters (shared.go). DescribeDBShardGroups/DescribeIntegrations filter names are undocumented in the SDK and stay recorded. Tool blind spots: doc text 'not currently supported', and filters applied through a shared helper.
+
+## 2026-10-05 (reqfielddiff -adjudicated tier-2)
+
+- DescribeDBProxyEndpoints.Filters: unsupported per SDK, documented "This parameter is not currently supported." (api_op_DescribeDBProxyEndpoints.go:41).
+- DescribeDBProxyTargetGroups.Filters: unsupported per SDK, same doc (api_op_DescribeDBProxyTargetGroups.go:37).
+- DescribeDBProxyTargets.Filters: unsupported per SDK, same doc (api_op_DescribeDBProxyTargets.go:36).
+- DescribeReservedDBInstancesOfferings.Filters: unsupported per SDK, documented "This parameter isn't currently supported." (api_op_DescribeReservedDBInstancesOfferings.go:41).

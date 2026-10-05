@@ -709,3 +709,7 @@ mediatailor is region-isolated: source locations, channels, playback configurati
 ## 2026-10-04 (gopherstack-uox6 value-semantics)
 
 MaxResults defaults to 100 on the eight List* ops documented "The default value is 100" (was 20); GetChannelSchedule documents none and keeps 20.
+
+## 2026-10-05 (reqfielddiff -adjudicated tier-2)
+
+- ListAlerts.NextToken: always-empty, alerts are an unmodeled subsystem so Items is always empty and no token is ever due (handler_alerts.go).

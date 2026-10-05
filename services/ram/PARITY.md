@@ -932,3 +932,7 @@ ListResourceTypes now honours maxResults/nextToken over the static catalogue (a 
 - `CreateResourceShare` no longer rejects a duplicate share name (`ResourceShareAlreadyExistsException` is declared by no ram op; RAM keys shares by ARN). Test: `TestCreateResourceShare_DuplicateNameAllowed`.
 - `AcceptResourceShareInvitation`, `RejectResourceShareInvitation`, `DeletePermission`: a missing required ARN now returns declared `MalformedArnException` (was `InvalidParameterException`, undeclared on these ops). Typed proof: `TestMissingArn_MalformedArnTyped`.
 - Recorded, not changed: malformed JSON bodies on Accept/RejectResourceShareInvitation still return `InvalidParameterException` (generic 400, unreachable from a real SDK client).
+
+## 2026-10-05 (reqfielddiff -adjudicated tier-2)
+
+- ListSourceAssociations.MaxResults: always-empty, no op creates a source association (service-principal source scoping is unmodeled), so the list is always empty and no page is due (handler_resources.go).
