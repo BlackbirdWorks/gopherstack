@@ -298,3 +298,32 @@ func TestRealClient_SearchUsersByImageQualityFilterValidation(t *testing.T) {
 	})
 	require.NoError(t, err)
 }
+
+func TestRealClient_GetCelebrityInfoKnownGenderIsEnumMember(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		id   string
+	}{
+		{name: "any id", id: "abc123"},
+		{name: "another id", id: "zzz"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			client := newTestRekognitionClient(t, h)
+
+			out, err := client.GetCelebrityInfo(
+				t.Context(), &rekognitionsdk.GetCelebrityInfoInput{Id: aws.String(tt.id)},
+			)
+			require.NoError(t, err)
+			require.NotNil(t, out.KnownGender)
+			assert.Contains(t, types.KnownGenderType("").Values(), out.KnownGender.Type)
+			assert.Equal(t, types.KnownGenderTypeUnlisted, out.KnownGender.Type)
+		})
+	}
+}

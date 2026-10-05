@@ -854,3 +854,7 @@ IndexFaces now validates QualityFilter (enum), DetectionAttributes (Attribute en
 - GetCelebrityRecognition SortBy, GetFaceSearch SortBy: result arrays are always empty, nothing to sort.
 - DetectModerationLabels HumanLoopConfig and ProjectVersion: no A2I or custom-model inference.
 - StartStreamProcessor StartSelector and StopSelector: no Kinesis Video fragment source.
+
+## 2026-10-05 (enumcheck re-census)
+
+- GetCelebrityInfo KnownGender.Type emitted "Unknown", which is not a types.KnownGenderType member (Male, Female, Nonbinary, Unlisted); now "Unlisted". Proof: `TestRealClient_GetCelebrityInfoKnownGenderIsEnumMember`.

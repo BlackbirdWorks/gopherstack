@@ -72,7 +72,7 @@ func (h *Handler) handleGetCelebrityInfo(
 	return &getCelebrityInfoResp{
 		Name:        "Celebrity " + req.Id,
 		Urls:        []string{},
-		KnownGender: &knownGender{Type: "Unknown"},
+		KnownGender: &knownGender{Type: "Unlisted"},
 	}, nil
 }
 
