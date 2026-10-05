@@ -27768,6 +27768,7 @@
       "backendSnapshot.ResourcePolicies map[string]map[string][]*ResourcePolicy `json:\"resource_policies\"`",
       "backendSnapshot.Tables map[string]json.RawMessage `json:\"tables\"`",
       "backendSnapshot.Tags map[string]map[string]*tags.Tags `json:\"tags\"`",
+      "idempotencyRecord.CreatedAt time.Time `json:\"createdAt,omitzero\"`",
       "idempotencyRecord.Fingerprint string `json:\"fingerprint\"`",
       "idempotencyRecord.ID string `json:\"id\"`"
     ],
