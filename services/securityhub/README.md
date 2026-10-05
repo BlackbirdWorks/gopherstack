@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 116 (115 ok, 1 partial) |
 | Feature families | 2 (2 ok) |
-| Known gaps | 3 |
+| Known gaps | 4 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -18,6 +18,7 @@
 - GetFindingsV2 OCSF filter fields with no ASFF backing stay unevaluated (accepted, not applied): evidences.*, vendor_attributes.*, resources.image.*, databucket.tags, compliance.assessments.meets_criteria, class_name, and is_fix_available (FixAvailable is three-valued). vulnerabilities.cve.cvss.base_score is now evaluated (2026-10-01, TestRealClient_GetFindingsV2_CvssBaseScore).
 - BatchUpdateFindingsV2 MetadataUids never resolve (ResourceNotFoundException): findings carry no OCSF metadata.uid because ingestion is ASFF-only. Same reason: ListMembers(onlyAssociated=true) needs cross-account invitation acceptance; CSPM Connector status stays PENDING/UNKNOWN (no out-of-band Azure signal); Scopes.AwsOrganizations is accepted-and-dropped (no OU tree).
 - GetFindingsV2 OcsfMapFilter entries with a repeated field are combined by the CompositeFilter Operator, not V1's implicit CONTAINS-OR/NOT-AND rule; AWS docs do not say which applies, so not guessed.
+- GetFindingsTrendsV2.Filters and GetResourcesTrendsV2.Filters are not evaluated: trend points cover every stored finding/resource (2026-10-05 tier-2 pass).
 
 ## More
 

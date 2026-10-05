@@ -607,7 +607,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [KMS](services/kms/README.md) | A | 54 | 3 gaps; 1 deferred |
 | [Macie](services/macie2/README.md) | A | 81 | clean |
 | [Secrets Manager](services/secretsmanager/README.md) | A | 24 | 3 gaps; 2 deferred |
-| [Security Hub](services/securityhub/README.md) | A | 116 | 3 gaps |
+| [Security Hub](services/securityhub/README.md) | A | 116 | 4 gaps |
 | [Shield](services/shield/README.md) | A | 36 | 4 gaps; 3 deferred |
 | [Verified Permissions](services/verifiedpermissions/README.md) | A | 34 | 5 gaps |
 | [WAF](services/waf/README.md) | A | 4 | 2 gaps; 2 structural gaps |
@@ -636,7 +636,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [AppConfig Data](services/appconfigdata/README.md) | A | 2 | 2 gaps |
 | [Application Auto Scaling](services/applicationautoscaling/README.md) | A | 14 | 4 gaps; 2 deferred |
 | [Cloud Control API](services/cloudcontrol/README.md) | A | 8 | 4 gaps |
-| [CloudFormation](services/cloudformation/README.md) | A | 73 | 10 gaps |
+| [CloudFormation](services/cloudformation/README.md) | A | 73 | 11 gaps |
 | [CloudTrail](services/cloudtrail/README.md) | A | 60 | 7 gaps |
 | [CloudWatch](services/cloudwatch/README.md) | A | 50 | 2 gaps; 5 deferred |
 | [CloudWatch Logs](services/cloudwatchlogs/README.md) | A | 86 | 15 gaps |

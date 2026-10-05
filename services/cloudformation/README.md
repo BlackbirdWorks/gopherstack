@@ -9,12 +9,13 @@
 | --- | --- |
 | PARITY entries audited | 73 (72 ok, 1 partial) |
 | Feature families | 18 (18 ok) |
-| Known gaps | 10 |
+| Known gaps | 11 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
+- ListTypes Filters.Category/PublisherId and ListStackRefactors ExecutionStatusFilter are not evaluated: types carry no publisher/category data and refactor summaries hold one merged Status (2026-10-05 tier-2 pass).
 - changeset_diff.go requiresRecreation() covers only a curated subset of resource types' replacement-forcing properties; expanding it is ongoing work (gopherstack-e5h).
 - SetTypeConfiguration accepts configuration for any type name without prior registration, intentionally, since first-party AWS types are not fully cataloged (gopherstack-e5h).
 - StackSets DeploymentTargets.AccountsUrl is accepted but not fetched: no S3 client is wired for it, same gap as TemplateURL elsewhere (gopherstack-g7b5).
