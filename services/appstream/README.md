@@ -9,9 +9,18 @@
 | --- | --- |
 | PARITY entries audited | 44 (44 ok) |
 | Feature families | 14 (14 ok) |
-| Known gaps | none |
+| Known gaps | 6 |
 | Deferred items | 0 |
 | Resource leaks | clean |
+
+### Known gaps
+
+- CreateImportedImage: AppCatalogConfig, IamRoleArn, RuntimeValidationConfig, SourceAmiId and WorkspaceImageId are accepted but unobservable -- no AMI/WorkSpaces image import pipeline exists and types.Image has no member for them; DryRun validates the name only.
+- CreateStreamingURL.ApplicationId and SessionContext are accepted but unobservable: no application launch is modeled and types.Session has no member for either.
+- StartSoftwareDeploymentToImageBuilder.RetryFailedDeployments has no effect: software associations are recorded directly and no deployment can fail.
+- DescribeAppLicenseUsage.BillingPeriod filters nothing: no license-usage state is modeled.
+- Application.AppBlockArn is not existence-checked on CreateApplication/UpdateApplication (existing flows pass unregistered ARNs); CreateImageBuilder ImageName/ImageArn naming a public base image is stored as given because no public image catalog exists.
+- CreateImageBuilder SoftwaresToUninstall can only remove names from the same request's SoftwaresToInstall: there is no pre-installed software model.
 
 ## More
 

@@ -8,7 +8,7 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 70 (70 ok) |
-| Known gaps | 4 |
+| Known gaps | 6 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
@@ -17,6 +17,8 @@
 - EKS docker engine: IAM (k8s-aws-v1) token authentication, managed nodegroup/Fargate/addon workloads and Insights computed from the live API server are not modeled (gopherstack-7neth follow-up).
 - Needs a live Kubernetes API server or hybrid-nodes model (bd gopherstack-7neth): Insight/DescribeInsight content beyond the two derivable UPGRADE_READINESS checks, Nodegroup.Health.Issues and FargateProfile.Health.Issues (always empty), and DeleteCertificateAuthority's only-successor protection (every CA here is CreatedBy=CUSTOMER).
 - No published derivation: ArgoCd IdcManagedApplicationArn/ServerUrl, CertificateAuthority.ScheduledEvents, the CA RollbackAvailable expiry window (no duration documented), and EksAnywhereSubscription.LicenseArns/Licenses (no per-license record) are left empty rather than fabricated.
+- UpdateClusterVersion Force/RollbackConfig and UpdateNodegroupVersion Force have no effect: no upgrade-readiness blocking, Pod disruption budgets or rollback timers are modeled. CreateCluster/UpdateClusterConfig kube-apiserver, kube-controller-manager, kube-scheduler, zonal-shift, scaling-tier, remote-network and outpost members are stored and echoed, not enforced. DescribeClusterVersions IncludeAll has no documented default exclusion, so it is a no-op.
+- DescribeAddonVersions rows report owner aws and publisher eks (recalled from AWS behaviour, not the pinned SDK); UpdateParam values for the new ConfigUpdate params are this emulator's own encoding.
 - CreateCluster.BootstrapSelfManagedAddons has no effect: no default addons are auto-installed, and types.Cluster does not echo the flag, so a client cannot observe it.
 
 ### Deferred

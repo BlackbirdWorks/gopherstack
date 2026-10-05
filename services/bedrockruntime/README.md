@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 11 (10 ok, 1 partial) |
 | Feature families | 6 (6 ok) |
-| Known gaps | 4 |
+| Known gaps | 8 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -19,6 +19,10 @@
 - No real inference or classifier: CountTokens estimates from byte length, Converse/InvokeModel return a canned reply, InvokeGuardrailChecks contentFilter/promptAttack return empty results and sensitiveInformation matches only the literal-format entity types (EMAIL/PHONE/IP_ADDRESS/URL/AWS_ACCESS_KEY/MAC_ADDRESS/US_SSN/CREDIT_DEBIT_CARD_NUMBER), never NER-based ones.
 - AsyncInvokeStatusFailed/FailureMessage are unreachable: the janitor only moves InProgress -> Completed and no AWS-documented trigger exists to key a Failed transition off.
 - Converse guardrailConfig is opaque and not checked for identifier-requires-version: no AWS doc states that rule for the Converse body (InvokeModel's header rule is documented).
+- No model behind Converse/ConverseStream/InvokeModel: InvokeModel.Body is never interpreted; AdditionalModelRequestFields, AdditionalModelResponseFieldPaths (so no AdditionalModelResponseFields), OutputConfig (structured output), PromptVariables (prompt-management modelId) and RequestMetadata (invocation-log filtering) are accepted but cannot change a canned reply.
+- InvokeModel/InvokeModelWithResponseStream Trace is enum-validated but no guardrail trace is ever produced, and RequestMetadata is not validated (no documented bounds in the pinned SDK).
+- ApplyGuardrail.OutputScope is enum-validated; FULL has no extra output to add because only word-policy assessments exist (the SDK says FULL does not apply to word filters).
+- Converse/InvokeModel serviceTier and performanceConfig latency are echoed from the request, not negotiated: no tiers or latency-optimized hosting exist to fall back from.
 
 ## More
 

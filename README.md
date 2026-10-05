@@ -504,7 +504,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [ECR](services/ecr/README.md) | A | 58 | 3 gaps; 2 deferred |
 | [ECS](services/ecs/README.md) | A | 65 | 6 gaps; 1 deferred |
-| [EKS](services/eks/README.md) | A | 70 | 4 gaps; 1 deferred |
+| [EKS](services/eks/README.md) | A | 70 | 6 gaps; 1 deferred |
 
 ### Storage
 
@@ -514,7 +514,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Data Lifecycle Manager](services/dlm/README.md) | A | 8 | clean |
 | [EFS](services/efs/README.md) | A | 31 | 3 gaps; 1 deferred |
 | [FSx](services/fsx/README.md) | A | — | 13 families; 8 gaps |
-| [S3](services/s3/README.md) | A | 26 | 6 gaps |
+| [S3](services/s3/README.md) | A | 26 | 7 gaps |
 | [S3 Control](services/s3control/README.md) | A | 44 | 4 gaps; 3 deferred |
 | [S3 Glacier](services/glacier/README.md) | A | 33 | 2 gaps |
 | [S3 Tables](services/s3tables/README.md) | A | 49 | 1 gap |
@@ -645,7 +645,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Fault Injection Simulator](services/fis/README.md) | A | 26 | 3 gaps; 1 deferred |
 | [OpsWorks](services/opsworks/README.md) | A | 32 | 5 gaps; 1 deferred |
 | [Organizations](services/organizations/README.md) | A | 63 | 3 gaps |
-| [Resource Access Manager](services/ram/README.md) | A | 36 | 2 gaps; 2 deferred |
+| [Resource Access Manager](services/ram/README.md) | A | 36 | 3 gaps; 2 deferred |
 | [Resource Groups](services/resourcegroups/README.md) | A | 23 | 3 gaps |
 | [Resource Groups Tagging API](services/resourcegroupstaggingapi/README.md) | A | 9 | 3 gaps; 1 deferred |
 | [Systems Manager](services/ssm/README.md) | A | 105 | 24 gaps |
@@ -671,14 +671,14 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [Bedrock](services/bedrock/README.md) | A | 80 | 3 gaps |
 | [Bedrock Agent](services/bedrockagent/README.md) | A | 77 | 5 gaps; 2 deferred |
-| [Bedrock Runtime](services/bedrockruntime/README.md) | A | 11 | 4 gaps |
+| [Bedrock Runtime](services/bedrockruntime/README.md) | A | 11 | 8 gaps |
 | [Comprehend](services/comprehend/README.md) | A | 28 | 4 gaps; 1 deferred |
 | [Forecast](services/forecast/README.md) | A | 21 | 3 gaps |
 | [Personalize](services/personalize/README.md) | A | 74 | clean |
 | [Polly](services/polly/README.md) | A | 10 | 1 gap |
 | [Rekognition](services/rekognition/README.md) | A | 50 | 3 gaps; 3 deferred |
 | [SageMaker](services/sagemaker/README.md) | A | 69 | 24 gaps |
-| [SageMaker Runtime](services/sagemakerruntime/README.md) | A | 3 | 2 gaps |
+| [SageMaker Runtime](services/sagemakerruntime/README.md) | A | 3 | 3 gaps |
 | [Textract](services/textract/README.md) | A | 25 | 2 gaps; 1 structural gap; 1 deferred |
 | [Transcribe](services/transcribe/README.md) | A | 43 | 3 gaps |
 | [Translate](services/translate/README.md) | A | 19 | 3 gaps |
@@ -708,7 +708,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [DataSync](services/datasync/README.md) | A | 53 | 5 gaps; 1 deferred |
-| [Database Migration Service](services/dms/README.md) | A | 97 | 4 gaps |
+| [Database Migration Service](services/dms/README.md) | A | 97 | 7 gaps |
 | [Transfer Family](services/transfer/README.md) | A | — | 20 families |
 
 ### Azure
@@ -725,7 +725,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
-| [AppStream 2.0](services/appstream/README.md) | A | 44 | clean |
+| [AppStream 2.0](services/appstream/README.md) | A | 44 | 6 gaps |
 | [Azurearm](services/azurearm/README.md) | B | 16 | 8 gaps; 3 deferred |
 | [Azurestoragevhost](services/azurestoragevhost/README.md) | B | 2 | 2 gaps; 1 deferred |
 | [Cloudfrontkeyvaluestore](services/cloudfrontkeyvaluestore/README.md) | A | 6 | 2 structural gaps |

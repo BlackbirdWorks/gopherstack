@@ -9,18 +9,19 @@
 | --- | --- |
 | PARITY entries audited | 36 (35 ok, 1 partial) |
 | Feature families | 3 (3 ok) |
-| Known gaps | 2 |
+| Known gaps | 3 |
 | Deferred items | 2 |
 | Resource leaks | clean |
 
 ### Known gaps
 
 - gopherstack-kvyy (2026-09-11): Glue's PutResourcePolicy(EnableHybrid=TRUE) with any cross-account Principal.AWS grant is treated as the trigger for creating a RAM CREATED_FROM_POLICY resource share. Real AWS documents CREATED_FROM_POLICY generically as 'when you attach a resource-based policy to a resource', and the Glue/Lake-Formation-specific path is actually mediated by Lake Formation's own cross-account grant flow, not a literal 'any cross-account Glue policy triggers a RAM share' rule -- disclosed as broader than real Lake-Formation-mediated Glue sharing since Glue has no other concrete, emulatable wire path to the general mechanism. Revisit if a narrower, Lake-Formation-grant-shaped trigger becomes emulatable.
+- ClientToken replays CreateResourceShare, CreatePermission and CreatePermissionVersion (pkgs/idempotency, IdempotentParameterMismatchException on changed parameters). The other ClientToken ops are accepted but not replayed: their natural idempotency covers a retry, yet a retried Delete/Disassociate returns the current state's error, not the original result. Sources and ResourceShareConfiguration are stored and echoed, not enforced; ListSourceAssociations has no sourceType.
 - gopherstack-kvyy (2026-09-11): PromoteResourceShareCreatedFromPolicy's UnmatchedPolicyPermissionException is not modeled -- it requires simulating 'no existing customer-managed permission exactly matches' the derived policy-based permission, out of scope for this pass.
 
 ### Deferred
 
-- DISCLOSED not fixed (2026-08-19 sweep, out of scope per sweep charter -- Layer 3 never-emitted members are only fixed if incidental): ResourceShare never emits resourceShareConfiguration (deserializers.go:8642+, types.ResourceShareConfiguration); Resource never emits resourceGroupArn (deserializers.go's awsRestjson1_deserializeDocumentResource); ResourceShareInvitation never emits receiverArn or resourceShareAssociations (deserializers.go's awsRestjson1_deserializeDocumentResourceShareInvitation). None of these surfaced incidentally while fixing the 3 genuine bugs this session, so left alone per the sweep's Layer-3-out-of-scope rule.
+- DISCLOSED not fixed (2026-08-19 sweep, out of scope per sweep charter -- Layer 3 never-emitted members are only fixed if incidental): Resource never emits resourceGroupArn (deserializers.go's awsRestjson1_deserializeDocumentResource); ResourceShareInvitation never emits receiverArn or resourceShareAssociations (deserializers.go's awsRestjson1_deserializeDocumentResourceShareInvitation). None of these surfaced incidentally while fixing the 3 genuine bugs this session, so left alone per the sweep's Layer-3-out-of-scope rule.
 - ResourceShareStatus never reaches PENDING/FAILED/DELETING and ResourceShareAssociationStatus never reaches ASSOCIATING/FAILED/DISASSOCIATING/SUSPENDED/SUSPENDING/RESTORING: each needs async backend processing or Organizations SCP state this backend cannot represent, and invalid ARNs surface synchronously as MalformedArnException.
 
 ## More
