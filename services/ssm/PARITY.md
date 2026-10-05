@@ -1698,3 +1698,7 @@ Earlier note called this a false positive because the entry-level field is read,
 ## 2026-10-04 (gopherstack-cpztm/r3pr)
 
 StartExecutionPreview now reports Status "InProgress" (was "Running", not an ExecutionPreviewStatus member); GetExecutionPreview on an unknown id returns a typed ResourceNotFoundException instead of a fabricated Running preview (`TestExecutionPreview_SDKShapes`).
+
+## 2026-10-05 errtargetaudit triage (gopherstack-3fvxc)
+
+76 findings. 75 are `ValidationException`: SSM operations do not model it in the SDK but the service returns it for argument-constraint failures; no declared code fits, so recorded rather than changed. The 1 `ParameterNotFound` on GetParameters is a false positive: `resolveParameterSelector` errors are folded into `InvalidParameters` (`parameter_selector_test.go`), never returned as an error.

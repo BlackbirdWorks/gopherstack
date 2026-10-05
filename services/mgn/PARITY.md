@@ -1805,3 +1805,7 @@ Launch and cutover jobs resolve the EC2 backend of the service's own region thro
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 mgn is region-isolated: applications, waves, source servers and jobs live per region; each region's launch and cutover jobs use that region's EC2. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/mgn`. Limitation: the dashboard shows the home region only. The tagging bridge lists the request region and resolves Tag/Untag by ARN region. Sibling workers stop on Reset, Shutdown and restore (`TestHandler_SiblingTimersStopWithSibling`). `TestHandler_MultiRegionReset` covers Reset.
+
+## 2026-10-05 errtargetaudit triage (gopherstack-3fvxc)
+
+122 findings, none fixed. `InternalServerException` (90) is only the `marshalResponse` failure path, unreachable for well-typed wire structs. `ValidationException` (32) covers malformed JSON bodies and empty required fields (CreateApplication/CreateWave name); most mgn ops do not model it but REST-JSON services return it for body validation, and no declared code fits.

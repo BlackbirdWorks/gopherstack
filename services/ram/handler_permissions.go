@@ -168,7 +168,7 @@ type deletePermissionResponse struct {
 func (h *Handler) handleDeletePermission(_ context.Context, c *echo.Context) ([]byte, error) {
 	permissionARN := c.Request().URL.Query().Get("permissionArn")
 	if permissionARN == "" {
-		return nil, fmt.Errorf("%w: permissionArn query parameter is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: permissionArn query parameter is required", ErrMalformedArn)
 	}
 
 	if err := h.Backend.DeletePermission(permissionARN); err != nil {

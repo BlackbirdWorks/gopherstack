@@ -86,7 +86,7 @@ func TestRestoreOldShapeSnapshot_DeleteVaultGuard(t *testing.T) {
 
 		rec = doRequest(t, h2, http.MethodDelete, "/"+testAccountID+"/vaults/old-shape-vault", "")
 		t.Logf("DeleteVault on restored old-shape non-empty vault: status=%d body=%s", rec.Code, rec.Body.String())
-		assert.Equal(t, http.StatusConflict, rec.Code, "restored old-shape non-empty vault must not be deletable")
+		assert.Equal(t, http.StatusBadRequest, rec.Code, "restored old-shape non-empty vault must not be deletable")
 
 		rec = doRequest(t, h2, http.MethodGet, "/"+testAccountID+"/vaults/old-shape-vault", "")
 		assert.Equal(t, http.StatusOK, rec.Code, "vault must still exist after refused delete")
@@ -126,6 +126,6 @@ func TestRestoreOldShapeSnapshot_DeleteVaultGuard(t *testing.T) {
 		require.NoError(t, h2.Restore(t.Context(), snap))
 
 		rec := doRequest(t, h2, http.MethodDelete, "/"+testAccountID+"/vaults/new-shape-vault", "")
-		assert.Equal(t, http.StatusConflict, rec.Code, "new-shape restored non-empty vault must stay refused")
+		assert.Equal(t, http.StatusBadRequest, rec.Code, "new-shape restored non-empty vault must stay refused")
 	})
 }

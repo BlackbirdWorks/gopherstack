@@ -926,3 +926,9 @@ ram is region-isolated: resource shares and their associations live per region; 
 ## 2026-10-05 (reqfielddiff tier-2 pagination)
 
 ListResourceTypes now honours maxResults/nextToken over the static catalogue (a client passing maxResults=5 got all 21 types and no cursor). Proof: `TestListResourceTypes_Pagination`. ListSourceAssociations stays always-empty (no op creates one).
+
+## 2026-10-05 errtargetaudit fixes (gopherstack-3fvxc)
+
+- `CreateResourceShare` no longer rejects a duplicate share name (`ResourceShareAlreadyExistsException` is declared by no ram op; RAM keys shares by ARN). Test: `TestCreateResourceShare_DuplicateNameAllowed`.
+- `AcceptResourceShareInvitation`, `RejectResourceShareInvitation`, `DeletePermission`: a missing required ARN now returns declared `MalformedArnException` (was `InvalidParameterException`, undeclared on these ops). Typed proof: `TestMissingArn_MalformedArnTyped`.
+- Recorded, not changed: malformed JSON bodies on Accept/RejectResourceShareInvitation still return `InvalidParameterException` (generic 400, unreachable from a real SDK client).

@@ -757,3 +757,7 @@ entry is kept and resolves inside the window and is swept/forgotten after it.
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 acmpca already keys its resources by region; same-named resources in two regions coexist with region-correct ARNs. Proof: `TestRegionIsolation/acmpca`. No code change to the resource store.
+
+## 2026-10-05 errtargetaudit re-triage (gopherstack-3fvxc)
+
+6 findings, the same 3 sites recorded 2026-08-31 (`InvalidArgsException` on CreatePermission, DeleteCertificateAuthority, ListCertificateAuthorities). `InvalidArgsException` is a real ACM PCA code returned for bad arguments although those ops do not model it; no declared code fits, so left unchanged.

@@ -23,7 +23,7 @@ func (b *InMemoryBackend) CreateImpersonationRole(
 
 	for _, r := range b.impersonationByOrg.Get(orgID) {
 		if r.Name == name {
-			return nil, fmt.Errorf("%w: impersonation role %q already exists", ErrConflict, name)
+			return nil, fmt.Errorf("%w: impersonation role %q already exists", ErrValidation, name)
 		}
 	}
 

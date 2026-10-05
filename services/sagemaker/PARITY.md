@@ -6894,3 +6894,7 @@ sagemaker already keys its resources by region; same-named resources in two regi
 ## 2026-10-04 (reqfielddiff tier-1 pass)
 
 CreateImageVersion now honours ClientToken as an idempotency token: replaying a token returns the original version instead of creating a new one (the token is stored on the version, additive, and stripped from DescribeImageVersion). DeleteDomain validates RetentionPolicy.HomeEfsFileSystem. ListTrainingJobs.SortBy/SortOrder is a tool false positive (decoded by `listTrainingJobsInput` and applied by `ListTrainingJobsFiltered`). UpdateProject.ServiceCatalogProvisioningUpdateDetails stays recorded: applying it needs a real Service Catalog provisioned-product update. Proof: `TestCreateImageVersion_ClientTokenIdempotent`, `TestDeleteDomain_RetentionPolicyValidation`.
+
+## 2026-10-05 errtargetaudit triage (gopherstack-3fvxc)
+
+Orphan `InstanceGroupNotFound` (cluster.go) is a valid `BatchAddClusterNodesErrorCode` enum value in a per-node failure entry, not an exception code: false positive.

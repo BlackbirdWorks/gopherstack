@@ -130,11 +130,6 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		code, status = "MailDomainNotFoundException", http.StatusBadRequest
 	case errors.Is(err, ErrNotFound):
 		code, status = "EntityNotFoundException", http.StatusBadRequest
-	case errors.Is(err, ErrConflict):
-		// CreateImpersonationRole: see ErrConflict's doc in errors.go -- its
-		// own model has no AlreadyExists-shaped exception, so no
-		// replacement code is invented.
-		code, status = "EntityAlreadyExistsException", http.StatusBadRequest
 	case errors.Is(err, ErrNameUnavailable):
 		code, status = "NameAvailabilityException", http.StatusBadRequest
 	case errors.Is(err, ErrEmailInUse):

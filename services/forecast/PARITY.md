@@ -617,3 +617,7 @@ failing pre-fix; see tests. Gates clean (0 lint, new and full-run).
 ## 2026-10-04 (gopherstack-0kk8)
 
 ListMonitorEvaluations no longer emits CreationTime/MonitorName/Status, which PredictorMonitorEvaluation does not define (`TestListMonitorEvaluations_RealClient`).
+
+## 2026-10-05 errtargetaudit triage (gopherstack-3fvxc)
+
+127 findings, all false positives from the mode-generic dispatcher: one `handleError` mapper serves create/describe/delete/list specs, so the tool attributes every sentinel to every op. Per-op reachability holds: Describe/Delete emit only not-found (Delete also in-use), List only invalid-next-token, Create only validation/already-exists/not-found-for-referenced-ARN. Typed proof: `TestTypedErrors_PerOperationCodes`.

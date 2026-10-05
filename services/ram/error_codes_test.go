@@ -15,10 +15,7 @@ import (
 // CreatePermission twice with the same name. RAM's own CreatePermission
 // error model (ram@v1.39.4 deserializers.go
 // awsRestjson1_deserializeOpErrorCreatePermission) defines
-// PermissionAlreadyExistsException for this; the handler previously emitted
-// the shared "ResourceShareAlreadyExistsException" (real only for
-// CreateResourceShare, which models no AlreadyExists error at all), which
-// names no type CreatePermission's client can match via errors.As.
+// PermissionAlreadyExistsException for this.
 func TestCreatePermission_AlreadyExists(t *testing.T) {
 	t.Parallel()
 
@@ -151,4 +148,45 @@ func TestCreateResourceShare_MalformedResourceArn(t *testing.T) {
 
 	var apiErr *ramtypes.MalformedArnException
 	require.ErrorAs(t, err, &apiErr, "expected a real MalformedArnException from the SDK deserializer")
+}
+
+// TestMissingArn_MalformedArnTyped sends an empty required ARN through a real client.
+func TestMissingArn_MalformedArnTyped(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		call func(*ramsdk.Client) error
+		name string
+	}{
+		{name: "accept_invitation", call: func(c *ramsdk.Client) error {
+			_, err := c.AcceptResourceShareInvitation(t.Context(), &ramsdk.AcceptResourceShareInvitationInput{
+				ResourceShareInvitationArn: aws.String(""),
+			})
+
+			return err
+		}},
+		{name: "reject_invitation", call: func(c *ramsdk.Client) error {
+			_, err := c.RejectResourceShareInvitation(t.Context(), &ramsdk.RejectResourceShareInvitationInput{
+				ResourceShareInvitationArn: aws.String(""),
+			})
+
+			return err
+		}},
+		{name: "delete_permission", call: func(c *ramsdk.Client) error {
+			_, err := c.DeletePermission(t.Context(), &ramsdk.DeletePermissionInput{PermissionArn: aws.String("")})
+
+			return err
+		}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newRoundTripClient(t, ram.NewHandler(ram.NewInMemoryBackend("000000000000", "us-east-1")))
+
+			var apiErr *ramtypes.MalformedArnException
+			require.ErrorAs(t, tt.call(client), &apiErr)
+		})
+	}
 }

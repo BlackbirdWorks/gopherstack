@@ -1642,3 +1642,7 @@ Tool false positives: both are decoded and applied (`handler_domain_options.go` 
 ## 2026-10-04 (gopherstack-rbmx re-verification)
 
 The ~19 ops left out of the original audit were field-diffed on 2026-09-11 (section above); nothing new found. `cmd/keycheck` cannot re-verify this service (it conflates the opensearch and opensearchserverless op names and reports PARTIAL), so the check stays hand-diffed against the pinned `opensearch@v1.75.4` output types. The opensearchserverless SDK module is already in go.mod (v1.34.4, since 2026-07-31) and its 19 ops are implemented; no new dependency was added here. A full field-diff of the opensearchserverless Collection/Policy/SecurityConfig shapes against that module's types remains its own audit pass.
+
+## 2026-10-05 errtargetaudit triage (gopherstack-3fvxc)
+
+7 findings, none fixed. False positives: AddTags/RemoveTags/ListMigrations (handlers already emit declared `ValidationException`; the tool follows the shared sentinel) and CreateIndex (serverless AOSS op; `ConflictException` is declared by opensearchserverless, the tool compared against the opensearch module). Recorded: empty ConnectionId/ConnectionAlias/DomainName checks on Accept/RejectInboundConnection and CreateOutboundConnection return `ValidationException` (undeclared there; unreachable from a real client, required members).

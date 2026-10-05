@@ -147,9 +147,7 @@ func TestAllowExternalPrincipals_FalseAllowsSameAccountIAMPrincipal(t *testing.T
 // AllowExternalPrincipals is false) does not leave a partially created resource
 // share behind. Previously the share (and any associations for principals
 // processed before the rejected one) were committed before validation ran,
-// so a failed call still left orphaned state -- including reserving the
-// share name, which made every retry with the same name fail with
-// ResourceShareAlreadyExistsException.
+// so a failed call still left orphaned state.
 func TestCreateResourceShare_RejectedExternalPrincipalLeavesNoOrphan(t *testing.T) {
 	t.Parallel()
 
@@ -167,9 +165,6 @@ func TestCreateResourceShare_RejectedExternalPrincipalLeavesNoOrphan(t *testing.
 	shares := b.ListResourceShares("SELF", "")
 	assert.Empty(t, shares, "rejected CreateResourceShare must not leave an orphaned share")
 
-	// Retrying with the same name must succeed -- it would previously fail
-	// with ResourceShareAlreadyExistsException because the first (failed)
-	// call had already reserved the name.
 	rs, err := b.CreateResourceShare("no-orphan-create", true, nil, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "no-orphan-create", rs.Name)
@@ -256,17 +251,31 @@ func TestAddResourceShareInternal(t *testing.T) {
 	assert.Equal(t, 1, ram.ResourceShareCount(b))
 }
 
-// TestRefinement1_ErrAlreadyExists_ShareName verifies name collision on CreateResourceShare.
-func TestErrAlreadyExists_ShareName(t *testing.T) {
+// TestCreateResourceShare_DuplicateNameAllowed pins that RAM keys shares by ARN, not name.
+func TestCreateResourceShare_DuplicateNameAllowed(t *testing.T) {
 	t.Parallel()
 
-	b := ram.NewInMemoryBackend("000000000000", "us-east-1")
+	tests := []struct {
+		name  string
+		share string
+	}{
+		{name: "same_name_twice", share: "duplicate"},
+	}
 
-	_, err := b.CreateResourceShare("duplicate", false, nil, nil, nil)
-	require.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	_, err = b.CreateResourceShare("duplicate", false, nil, nil, nil)
-	require.ErrorIs(t, err, ram.ErrAlreadyExists)
+			b := ram.NewInMemoryBackend("000000000000", "us-east-1")
+
+			first, err := b.CreateResourceShare(tt.share, false, nil, nil, nil)
+			require.NoError(t, err)
+
+			second, err := b.CreateResourceShare(tt.share, false, nil, nil, nil)
+			require.NoError(t, err)
+			assert.NotEqual(t, first.ARN, second.ARN)
+		})
+	}
 }
 
 // TestRefinement1_UpdateResourceShare_SyncAssocName verifies that updating the share name

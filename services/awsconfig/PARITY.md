@@ -921,3 +921,7 @@ Recorded: ListDiscoveredResources `resourceName` is unmodeled (config items carr
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 awsconfig is region-isolated: Rules, recorders, delivery channels, aggregators, conformance packs and discovered resources live per region; siblings inherit the S3 snapshot writer and SNS publisher. Tagging bridge covers every region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/awsconfig`. Limitation: the dashboard shows the home region only.
+
+## 2026-10-05 errtargetaudit triage (gopherstack-3fvxc)
+
+11 findings, all empty-required-name checks (`ValidationException`) on Delete*/Start/Stop/PutDeliveryChannel. Recorded, not changed: the SDK client blocks nil required members, and real AWS Config returns `ValidationException` for constraint violations even where the op's deserializer does not model it; no declared code fits.

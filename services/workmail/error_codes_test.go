@@ -245,3 +245,45 @@ func TestRegisterToWorkMail_NoOpWhenAlreadyEnabled(t *testing.T) {
 		})
 	}
 }
+
+// TestCreateImpersonationRole_DuplicateNameTyped checks the duplicate maps to a declared type.
+func TestCreateImpersonationRole_DuplicateNameTyped(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		role string
+	}{
+		{name: "same_name_twice", role: "dup-role"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newWorkMailSDKClient(
+				t, workmail.NewHandler(workmail.NewInMemoryBackend("000000000000", "us-east-1")),
+			)
+			orgID := newWorkMailOrg(t, client)
+
+			in := &workmailsdk.CreateImpersonationRoleInput{
+				OrganizationId: orgID,
+				Name:           aws.String(tt.role),
+				Type:           types.ImpersonationRoleTypeFullAccess,
+				Rules: []types.ImpersonationRule{{
+					ImpersonationRuleId: aws.String("r1"),
+					Effect:              types.AccessEffectAllow,
+					TargetUsers:         []string{"u"},
+				}},
+			}
+
+			_, err := client.CreateImpersonationRole(t.Context(), in)
+			require.NoError(t, err)
+
+			_, err = client.CreateImpersonationRole(t.Context(), in)
+
+			var apiErr *types.InvalidParameterException
+			require.ErrorAs(t, err, &apiErr)
+		})
+	}
+}

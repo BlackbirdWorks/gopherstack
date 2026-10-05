@@ -676,11 +676,7 @@ const codeInvalidParameter = "InvalidParameterException"
 
 // errCodeLookup maps every ram sentinel error to the exact wire code its
 // raising op's own deserializeOpError switch models (deserializers.go@
-// ram v1.39.4). All entries are HTTP 400. ErrAlreadyExists is the one
-// documented exception: CreateResourceShare's own model defines no
-// AlreadyExists-shaped exception at all (see its doc in errors.go), so the
-// code here is left as the pre-existing fabricated string -- no replacement
-// invented, per audit policy.
+// ram v1.39.4). All entries are HTTP 400.
 //
 //nolint:gochecknoglobals // read-only lookup table initialized once at startup
 var errCodeLookup = []struct {
@@ -691,7 +687,6 @@ var errCodeLookup = []struct {
 	{ErrPermissionNotFound, "UnknownResourceException"},
 	{ErrPermissionVersionNotFound, codeInvalidParameter},
 	{ErrInvitationNotFound, "ResourceShareInvitationArnNotFoundException"},
-	{ErrAlreadyExists, "ResourceShareAlreadyExistsException"},
 	{ErrPermissionAlreadyExists, "PermissionAlreadyExistsException"},
 	{ErrInvitationAlreadyAccepted, "ResourceShareInvitationAlreadyAcceptedException"},
 	{ErrInvitationAlreadyRejected, "ResourceShareInvitationAlreadyRejectedException"},

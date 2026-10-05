@@ -39,7 +39,7 @@ func TestHandler_CreateResourceShare(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name: "duplicate name",
+			name: "duplicate name allowed",
 			setup: func(t *testing.T, h *ram.Handler) {
 				t.Helper()
 				_, err := h.Backend.CreateResourceShare("dup-share", true, nil, nil, nil)
@@ -48,7 +48,7 @@ func TestHandler_CreateResourceShare(t *testing.T) {
 			body: map[string]any{
 				"name": "dup-share",
 			},
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusOK,
 		},
 	}
 

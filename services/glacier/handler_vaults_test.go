@@ -356,7 +356,7 @@ func TestDeleteVault_RejectsNonEmpty(t *testing.T) {
 		name       string
 		wantStatus int
 	}{
-		{name: "non_empty_vault_returns_409", wantStatus: http.StatusConflict},
+		{name: "non_empty_vault_returns_400", wantStatus: http.StatusBadRequest},
 	}
 
 	for _, tt := range tests {
@@ -408,14 +408,14 @@ func TestDeleteVault_AllowsEmpty(t *testing.T) {
 	}
 }
 
-func TestDeleteVault_NotEmpty_Returns409(t *testing.T) {
+func TestDeleteVault_NotEmpty_Returns400(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name       string
 		wantStatus int
 	}{
-		{name: "409_on_non_empty", wantStatus: http.StatusConflict},
+		{name: "400_on_non_empty", wantStatus: http.StatusBadRequest},
 	}
 
 	for _, tt := range tests {
@@ -488,16 +488,15 @@ func deleteVaultHTTP(t *testing.T, h *glacier.Handler, vaultName string) *httpte
 	return doRequest(t, h, http.MethodDelete, "/"+testAccountID+"/vaults/"+vaultName, "")
 }
 
-// assertVaultDeleteRejected asserts a DeleteVault response is a 409 carrying
-// the declared ConflictException code, and that the vault survives.
+// assertVaultDeleteRejected asserts a 400 InvalidParameterValueException and that the vault survives.
 func assertVaultDeleteRejected(t *testing.T, h *glacier.Handler, vaultName string, rec *httptest.ResponseRecorder) {
 	t.Helper()
 
-	require.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
+	require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 
 	var errResp map[string]string
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
-	assert.Equal(t, "ConflictException", errResp["code"])
+	assert.Equal(t, "InvalidParameterValueException", errResp["code"])
 
 	descRec := doRequest(t, h, http.MethodGet, "/"+testAccountID+"/vaults/"+vaultName, "")
 	assert.Equal(t, http.StatusOK, descRec.Code, "vault must survive a rejected delete")
@@ -530,7 +529,7 @@ func TestDeleteVault_InventorySemantics(t *testing.T) {
 				initiateInventoryJob(t, h, vaultName)
 				deleteArchive(t, h, vaultName, archiveID)
 			},
-			wantStatus: http.StatusConflict,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			// The doc's second clause -- "no writes ... since the last
@@ -546,7 +545,7 @@ func TestDeleteVault_InventorySemantics(t *testing.T) {
 				archiveID := uploadArchive(t, h, vaultName)
 				deleteArchive(t, h, vaultName, archiveID)
 			},
-			wantStatus: http.StatusConflict,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "zero_archives_at_inventory_no_writes_since",
@@ -578,10 +577,10 @@ func TestDeleteVault_InventorySemantics(t *testing.T) {
 			rec := doRequest(t, h, http.MethodDelete, "/"+testAccountID+"/vaults/"+vaultName, "")
 			require.Equal(t, tt.wantStatus, rec.Code, rec.Body.String())
 
-			if tt.wantStatus == http.StatusConflict {
+			if tt.wantStatus == http.StatusBadRequest {
 				var errResp map[string]string
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
-				assert.Equal(t, "ConflictException", errResp["code"])
+				assert.Equal(t, "InvalidParameterValueException", errResp["code"])
 
 				descRec := doRequest(t, h, http.MethodGet, "/"+testAccountID+"/vaults/"+vaultName, "")
 				assert.Equal(t, http.StatusOK, descRec.Code, "vault must survive a rejected delete")
@@ -761,11 +760,7 @@ func TestCreateVault_Idempotent(t *testing.T) {
 			for i := range tt.createCount {
 				rec := doRequestWithHeaders(t, h, http.MethodPut,
 					"/"+testAccountID+"/vaults/"+tt.vaultName, "", nil)
-				if i == 0 {
-					assert.Equal(t, http.StatusCreated, rec.Code)
-				} else {
-					assert.Equal(t, http.StatusConflict, rec.Code)
-				}
+				assert.Equal(t, http.StatusCreated, rec.Code, "attempt %d", i)
 			}
 
 			// Only one vault should exist.

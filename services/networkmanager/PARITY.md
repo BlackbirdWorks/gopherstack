@@ -1398,3 +1398,7 @@ networkmanager is a global service homed in US West (Oregon) (AWS docs, "Network
 ## 2026-10-05 (reqfielddiff tier-2 pagination)
 
 GetCoreNetworkChangeSet, GetCoreNetworkChangeEvents and GetNetworkResourceCounts honour the query-bound maxResults/nextToken (serializers.go, networkmanager@v1.44.4; default 100) and emit NextToken only when truncated. ListOrganizationServiceAccessStatus no longer echoes the request nextToken back. Proof: `TestRoundTrip_GetOpsHonourMaxResults`. The other 40 flagged page members are tool misses: those handlers already page through `queryMaxResults`/`queryNextToken`. Recorded: ListCoreNetworkRoutingInformation (MaxResults/NextHopFilters), GetNetworkRoutes.DestinationFilters and ListOrganizationServiceAccessStatus.MaxResults stay unconsulted since the first two always return an empty list (no route engine) and the last returns one status object.
+
+## 2026-10-05 errtargetaudit triage (gopherstack-3fvxc)
+
+Orphan `InvalidPolicyDocument` (corenetworks.go) is the free-form `CoreNetworkPolicyError.ErrorCode` body field, not an exception code: false positive.

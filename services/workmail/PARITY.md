@@ -691,3 +691,8 @@ found to disclose).
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 workmail already isolates regions internally: organizations record their region and listings filter by the request region; organization aliases stay unique across regions. Proof: `TestRegionIsolation/workmail`; no sibling handlers needed.
+
+## 2026-10-05 errtargetaudit pass (gopherstack-3fvxc)
+
+- Fixed: `CreateImpersonationRole` duplicate name returned `EntityAlreadyExistsException`, a code no WorkMail op declares. Now declared `InvalidParameterException`. Typed proof: `TestCreateImpersonationRole_DuplicateNameTyped`.
+- Recorded (unchanged, same as the 2026-08-31/09-07 refusals): the 10 remaining class-A findings are `Delete*`/`DeregisterMailDomain` entity-not-found paths whose op declares no not-found type; `EntityNotFoundException` is kept as the closest real WorkMail code.

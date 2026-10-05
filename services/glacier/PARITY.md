@@ -438,9 +438,8 @@ correct throughout (`formatDate` in models.go).
   handlers for these ops never call the JSON-body document deserializer, only
   the HTTP-bindings (header) one, so the body is simply never parsed by a real
   client. Do not flag the body-in-a-header-only-op pattern as a bug.
-- `ErrResourceInUse` → `ResourceInUseException` and `ErrVaultNotEmpty` /
-  `ErrLockConflict` / `ErrLockAlreadyLocked` → `ConflictException` /
-  `InvalidParameterValueException`, and (added this pass) `ErrVaultLockDenied`
+- `ErrVaultNotEmpty` / `ErrLockConflict` / `ErrLockAlreadyLocked` →
+  `InvalidParameterValueException` (2026-10-05; was `ConflictException`), and (added this pass) `ErrVaultLockDenied`
   → `AccessDeniedException`, are **not** modeled exception types in
   `aws-sdk-go-v2/service/glacier/types/errors.go` (the SDK only models
   `InsufficientCapacityException`, `InvalidParameterValueException`,
@@ -579,12 +578,10 @@ reverting the `vaults.go` check alone, running, and restoring);
 `zero_archives_at_inventory_no_writes_since` (204, and a second untouched
 vault is confirmed present) passes both before and after since it never
 exercised the bug. Rejected-path subtests also assert the declared error
-code (`ConflictException`, from the existing `ErrVaultNotEmpty`) and that
+code (`InvalidParameterValueException` since 2026-10-05) and that
 `DescribeVault` still returns the vault afterward.
 
-Error code: no new error was introduced. `ErrVaultNotEmpty` already maps to
-`ConflictException` (`errors.go`/`handler.go`'s `writeBackendError`), kept
-as-is. Raw `deserializeOpErrorDeleteVault` extraction (for reference; it
+Error code: `ErrVaultNotEmpty` maps to `InvalidParameterValueException` (see 2026-10-05). Raw `deserializeOpErrorDeleteVault` extraction (for reference; it
 has no `ConflictException` case, which is expected -- that switch only
 picks a typed Go error struct, an unmatched code still round-trips as
 `smithy.GenericAPIError` with the real `Code`/`Message`):
@@ -996,3 +993,8 @@ glacier is region-isolated: vaults, archives, jobs and multipart uploads live pe
 ## 2026-10-04 (reqfielddiff tier-1 pass)
 
 `GetJobOutput.Range` re-confirmed as a tool false positive: `serveWithRange` reads the `Range` request header (handler_jobs.go:389) and returns 206 with Content-Range.
+
+## 2026-10-05 errtargetaudit orphan-code fixes (gopherstack-3fvxc)
+
+- `CreateVault` on an existing vault no longer returns `ResourceInUseException` (declared by no glacier op): the op is documented idempotent, so it returns 201 with the existing vault.
+- `DeleteVault` on a non-empty/recently-written vault returns 400 `InvalidParameterValueException` (declared by DeleteVault, glacier@v1.35.4) instead of 409 `ConflictException` (declared by no op). Typed proof: `TestDeleteVault_NonEmptyTypedError`.

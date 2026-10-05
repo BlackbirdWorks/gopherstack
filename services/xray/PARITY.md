@@ -529,3 +529,8 @@ GetTraceSummaries FilterExpression grammar: the SDK doc (api_op_GetTraceSummarie
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 xray is region-isolated: Groups, sampling rules, traces and encryption config live per region; each sibling runs its own trace janitor. Tagging bridge covers every region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/xray`. Limitation: the dashboard shows the home region only.
+
+## 2026-10-05 errtargetaudit triage (gopherstack-3fvxc)
+
+- `PutResourcePolicy` empty PolicyName -> `InvalidRequestException` (undeclared there; unreachable from a real client, PolicyName is required). Recorded, no declared code fits.
+- Orphan `InvalidSegment` in `handler_trace_segments.go` is the free-form `UnprocessedTraceSegment.ErrorCode` body field, not an exception code: false positive.
