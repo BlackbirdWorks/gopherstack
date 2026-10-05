@@ -196,6 +196,8 @@ type AuthenticateOidcConfig struct {
 type MutualAuthentication struct {
 	TrustStoreArn                     string `json:"trustStoreArn,omitempty"`
 	Mode                              string `json:"mode"`
+	AdvertiseTrustStoreCaNames        string `json:"advertiseTrustStoreCaNames,omitempty"`
+	TrustStoreAssociationStatus       string `json:"trustStoreAssociationStatus,omitempty"`
 	IgnoreClientCertificateExpiration bool   `json:"ignoreClientCertificateExpiration,omitempty"`
 }
 

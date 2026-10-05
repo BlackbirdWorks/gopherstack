@@ -404,7 +404,7 @@ func documentMatchesFilters(doc Document, tags map[string]string, filters []Docu
 				return false
 			}
 		case f.Key == filterKeyName:
-			if !slices.Contains(f.Values, doc.Name) {
+			if !slices.ContainsFunc(f.Values, func(v string) bool { return strings.HasPrefix(doc.Name, v) }) {
 				return false
 			}
 		case f.Key == "TargetType":

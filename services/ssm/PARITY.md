@@ -265,8 +265,8 @@ ops:
   ResetServiceSetting: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED -- see GetServiceSetting; ARN now populated on the Default response too"}
   PutComplianceItems: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "FIXED -- ExecutionSummary (types.ComplianceExecutionSummary, api_op_PutComplianceItems.go: required) had NO Go struct member at all and was never validated; ComplianceType/ResourceType (also required) were never validated either, and per-item Severity/Status (required on types.ComplianceItemEntry) were never validated. Now all enforced with ValidationException. UploadType (COMPLETE/PARTIAL) is accepted but not evaluated -- see gaps."}
   ListComplianceItems: {wire: fixed, errors: ok, state: fixed, persist: n/a, note: "FIXED (two bugs) -- (1) ComplianceItem.Id and .ExecutionSummary had NO Go struct members at all, so real ComplianceItem output fields silently never round-tripped. (2) ListComplianceItemsInput modeled a singular \"ResourceId\"/\"ResourceType\" wire key that does not exist on the real, and-until-now-never-checked, wire shape -- the real members are ResourceIds/ResourceTypes, both LISTS (api_op_ListComplianceItems.go). A real SDK client's ResourceIds filter was silently discarded by every prior version of this handler; filtering never worked for a real caller. Now ResourceIds/ResourceTypes (both []string) are modeled and applied. Filters ([]ComplianceStringFilter) still unmodeled -- see gaps."}
-  ListComplianceSummaries: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "re-verified via structfielddiff -- MaxResults/NextToken match; Filters unmodeled, see gaps (shared with ListComplianceItems/ListResourceComplianceSummaries). FIXED 2026-09-18 (list-summary-shapes sweep): CompliantSummary/NonCompliantSummary were missing the real SeveritySummary breakdown (types.CompliantSummary/types.NonCompliantSummary both carry one) -- added, tallied from each ComplianceItem's own Severity, no fabricated data."}
-  ListResourceComplianceSummaries: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "re-verified -- MaxResults/NextToken match, no ResourceId/ResourceType top-level filter on the real input either so no wire-key bug here (unlike ListComplianceItems); Filters unmodeled, see gaps. FIXED 2026-09-18 (list-summary-shapes sweep): same SeveritySummary gap as ListComplianceSummaries, fixed the same way; OverallSeverity was ALSO hardcoded to \"INFORMATIONAL\" for every resource regardless of its items' real severities -- now the resource's highest real severity."}
+  ListComplianceSummaries: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "re-verified via structfielddiff -- MaxResults/NextToken match; Filters real (2026-09-30). FIXED 2026-09-18 (list-summary-shapes sweep): CompliantSummary/NonCompliantSummary were missing the real SeveritySummary breakdown (types.CompliantSummary/types.NonCompliantSummary both carry one) -- added, tallied from each ComplianceItem's own Severity, no fabricated data."}
+  ListResourceComplianceSummaries: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "re-verified -- MaxResults/NextToken match, no ResourceId/ResourceType top-level filter on the real input either so no wire-key bug here (unlike ListComplianceItems); Filters real (2026-09-30). FIXED 2026-09-18 (list-summary-shapes sweep): same SeveritySummary gap as ListComplianceSummaries, fixed the same way; OverallSeverity was ALSO hardcoded to \"INFORMATIONAL\" for every resource regardless of its items' real severities -- now the resource's highest real severity."}
   PutInventory: {wire: ok, errors: ok, state: ok, persist: ok, note: "re-verified -- Context/TypeName/SchemaVersion/CaptureTime/ContentHash/Content all match. PutInventoryOutput.Message (informational only, no behavioral content) not modeled -- low-value, disclosed. Merge-by-TypeName semantics proven correct."}
   GetInventory: {wire: ok, errors: ok, state: ok, persist: n/a, note: "re-verified, existing fields correct; Aggregators/Filters/ResultAttributes unmodeled (no query/filter engine over inventory data) -- disclosed, not rushed, see gaps"}
   GetInventorySchema: {wire: ok, errors: ok, state: n/a, persist: n/a, note: "static built-in AWS:/Custom: schema catalog, matches real SSM's documented inventory types (TypeName/Version only, confirmed against InventorySchemaItem in models_inventory.go). real InventoryItemSchema.Attributes ([]InventoryItemAttribute, required) is not modeled -- gopherstack's static built-in schema catalog has no per-type attribute list to draw from without fabricating AWS's actual field names, disclosed rather than invented, see gaps. (2026-08-23, gopherstack-fg0u: merges a duplicate entry that omitted this disclosed gap -- verified against source, the gap is real and current.)"}
@@ -392,7 +392,7 @@ items_still_open:
     remains round-trip-only, same class."
   - "ServiceSetting.LastModifiedUser (the ARN of the last-writing caller) can't be populated
     -- this emulator has no caller-identity/SigV4-principal tracking."
-  - "GetInventory's Aggregators/ResultAttributes are unmodeled (aggregation engine); Filters on it, ListInventoryEntries, ListComplianceItems, ListComplianceSummaries and ListResourceComplianceSummaries are real (2026-09-30)."
+  - "GetInventory's Aggregators/ResultAttributes are unmodeled (needs an aggregation engine)."
   - "GetInventorySchema's real per-type Attributes ([]InventoryItemAttribute) aren't
     modeled -- AWS hasn't published the exact attribute list for the 13 built-in types
     outside web docs, so fabricating names would invent wire content rather than verify it."
@@ -424,12 +424,10 @@ items_still_open:
     synchronous unit) -- CommandPlugins/PluginName/ResponseCode,
     AlarmConfiguration/CloudWatchOutputConfig/NotificationConfig/TriggeredAlarms (no
     CloudWatch-alarm/notification infra), and DocumentHash/DocumentHashType remain
-    unmodeled. ListCommands/ListCommandInvocations' CommandFilter-based Filters (Status,
-    DocumentName, InvokedAfter, InvokedBefore, ExecutionStage) are real."
+    unmodeled."
   - "GetParameter/GetParameters/GetParametersByPath's SourceResult (advanced-parameter
     source resolution) and GetParameterHistory/DescribeParameters' LastModifiedUser (no
-    caller-identity infra) remain unmodeled; the deprecated ParametersFilter (superseded by
-    ParameterFilters, already modeled) is also unmodeled."
+    caller-identity infra) remain unmodeled."
   - "DocumentDescription's review-approval workflow (ApprovedVersion/PendingReviewVersion/
     ReviewInformation/ReviewStatus) and Category/CategoryEnum remain entirely unmodeled --
     no review state machine exists in this backend. Author/Owner need the same
@@ -447,8 +445,7 @@ items_still_open:
     has no per-step Waiting/InProgress state (every step goes straight to Success)."
   - "RegisterTaskWithMaintenanceWindowInput/UpdateMaintenanceWindowTaskInput's
     AlarmConfiguration (no CloudWatch-alarm infra) and ClientToken (also on CreatePatchBaseline/
-    StartAutomationExecution; idempotency/reuse semantics undocumented) remain unmodeled. LoggingInfo/TaskInvocationParameters/
-    TaskParameters round-trip (2026-10-01)."
+    StartAutomationExecution; idempotency/reuse semantics undocumented) remain unmodeled."
   - "GetMaintenanceWindowExecutionTaskInvocationOutput.Parameters (the actual
     command/automation parameters used for one invocation) is unmodeled -- this backend has
     no per-invocation parameter snapshot, only task-level defaults."
@@ -468,9 +465,9 @@ items_still_open:
     is a distinct opaque identifier from the KB number/Name this synthetic catalogue
     already models, and fabricating one would invent data with nothing real to verify it
     against."
-  - "documentMatchesFilters' DocumentKeyValuesFilter Owner key ('Self' vs. other accounts)
-    is unmodeled -- this backend has no caller-identity infra to resolve 'Self' against,
-    same disclosed-gap class as ServiceSetting.LastModifiedUser."
+  - "ListDocuments' Owner filter key (Self/Amazon/Public/Private/ThirdParty) is ignored --
+    CreateDocument does not reserve the AWS- prefix, so built-in vs. user ownership cannot be
+    derived without also adding that name validation."
   - "ListCommandInvocationsInput.Details is declared but inert -- real AWS only populates
     CommandInvocation.CommandPlugins (per-plugin status/output) when Details=true, and this
     backend has no CommandPlugin type or per-plugin execution state."

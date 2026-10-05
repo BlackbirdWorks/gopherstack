@@ -52,21 +52,7 @@ func (h *Handler) handleCreateListener(vals url.Values) (any, error) {
 		certs[0].IsDefault = true
 	}
 
-	var mutualAuth *MutualAuthentication
-	if mode := vals.Get("MutualAuthentication.Mode"); mode != "" {
-		mutualAuth = &MutualAuthentication{
-			Mode:          mode,
-			TrustStoreArn: vals.Get("MutualAuthentication.TrustStoreArn"),
-			IgnoreClientCertificateExpiration: vals.Get(
-				"MutualAuthentication.IgnoreClientCertificateExpiration",
-			) == attrValueTrue,
-		}
-	} else if tsArn := vals.Get("MutualAuthentication.TrustStoreArn"); tsArn != "" {
-		mutualAuth = &MutualAuthentication{
-			Mode:          "verify",
-			TrustStoreArn: tsArn,
-		}
-	}
+	mutualAuth := parseMutualAuthentication(vals)
 
 	listener, createErr := h.Backend.CreateListener(CreateListenerInput{
 		LoadBalancerArn:      lbArn,
@@ -190,21 +176,7 @@ func (h *Handler) handleModifyListener(vals url.Values) (any, error) {
 		port = &p
 	}
 
-	var mutualAuth *MutualAuthentication
-	if mode := vals.Get("MutualAuthentication.Mode"); mode != "" {
-		mutualAuth = &MutualAuthentication{
-			Mode:          mode,
-			TrustStoreArn: vals.Get("MutualAuthentication.TrustStoreArn"),
-			IgnoreClientCertificateExpiration: vals.Get(
-				"MutualAuthentication.IgnoreClientCertificateExpiration",
-			) == attrValueTrue,
-		}
-	} else if tsArn := vals.Get("MutualAuthentication.TrustStoreArn"); tsArn != "" {
-		mutualAuth = &MutualAuthentication{
-			Mode:          "verify",
-			TrustStoreArn: tsArn,
-		}
-	}
+	mutualAuth := parseMutualAuthentication(vals)
 
 	listener, err := h.Backend.ModifyListener(ModifyListenerInput{
 		ListenerArn:          listenerArn,
@@ -521,9 +493,11 @@ func toXMLListener(l *Listener) xmlListener {
 
 	if l.MutualAuthentication != nil {
 		xl.MutualAuthentication = &xmlMutualAuthentication{
-			Mode:                              l.MutualAuthentication.Mode,
-			TrustStoreArn:                     l.MutualAuthentication.TrustStoreArn,
-			IgnoreClientCertificateExpiration: l.MutualAuthentication.IgnoreClientCertificateExpiration,
+			Mode:                          l.MutualAuthentication.Mode,
+			TrustStoreArn:                 l.MutualAuthentication.TrustStoreArn,
+			IgnoreClientCertificateExpiry: l.MutualAuthentication.IgnoreClientCertificateExpiration,
+			AdvertiseTrustStoreCaNames:    l.MutualAuthentication.AdvertiseTrustStoreCaNames,
+			TrustStoreAssociationStatus:   l.MutualAuthentication.TrustStoreAssociationStatus,
 		}
 	}
 
@@ -607,9 +581,44 @@ type xmlAuthenticateOidcConfig struct {
 
 // xmlMutualAuthentication serialises MutualAuthentication for XML responses.
 type xmlMutualAuthentication struct {
-	TrustStoreArn                     string `xml:"TrustStoreArn,omitempty"`
-	Mode                              string `xml:"Mode"`
-	IgnoreClientCertificateExpiration bool   `xml:"IgnoreClientCertificateExpiration,omitempty"`
+	TrustStoreArn                 string `xml:"TrustStoreArn,omitempty"`
+	Mode                          string `xml:"Mode"`
+	AdvertiseTrustStoreCaNames    string `xml:"AdvertiseTrustStoreCaNames,omitempty"`
+	TrustStoreAssociationStatus   string `xml:"TrustStoreAssociationStatus,omitempty"`
+	IgnoreClientCertificateExpiry bool   `xml:"IgnoreClientCertificateExpiry,omitempty"`
+}
+
+const (
+	mutualAuthKeyPrefix   = "MutualAuthentication."
+	mutualAuthModeVerify  = "verify"
+	trustStoreAssocActive = "active"
+)
+
+// parseMutualAuthentication reads MutualAuthenticationAttributes (elbv2 v1.58.5 serializers.go:4197).
+func parseMutualAuthentication(vals url.Values) *MutualAuthentication {
+	mode := vals.Get(mutualAuthKeyPrefix + "Mode")
+	tsArn := vals.Get(mutualAuthKeyPrefix + "TrustStoreArn")
+
+	if mode == "" && tsArn == "" {
+		return nil
+	}
+
+	if mode == "" {
+		mode = mutualAuthModeVerify
+	}
+
+	ma := &MutualAuthentication{
+		Mode:                       mode,
+		TrustStoreArn:              tsArn,
+		AdvertiseTrustStoreCaNames: vals.Get(mutualAuthKeyPrefix + "AdvertiseTrustStoreCaNames"),
+		IgnoreClientCertificateExpiration: vals.Get(mutualAuthKeyPrefix+"IgnoreClientCertificateExpiry") ==
+			attrValueTrue,
+	}
+	if tsArn != "" {
+		ma.TrustStoreAssociationStatus = trustStoreAssocActive
+	}
+
+	return ma
 }
 
 // xmlMatcher serialises Matcher for XML responses.
