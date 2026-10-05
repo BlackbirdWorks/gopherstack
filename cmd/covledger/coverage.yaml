@@ -3070,3 +3070,51 @@ rows:
     date: "2026-10-05"
     commit: ac29acf5f
     source: "commit"
+  - service: transfer
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: c4ec75cab
+    source: "commit"
+  - service: xray
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: c4ec75cab
+    source: "commit"
+  - service: firehose
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: c4ec75cab
+    source: "commit"
+  - service: emr
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: c4ec75cab
+    source: "commit"
+  - service: appstream
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: c4ec75cab
+    source: "commit"
+  - service: waf
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: c4ec75cab
+    source: "commit"
+  - service: directoryservice
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: c4ec75cab
+    source: "commit"
+  - service: cognitoidentity
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: c4ec75cab
+    source: "commit"
