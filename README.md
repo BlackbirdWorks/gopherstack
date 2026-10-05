@@ -572,7 +572,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [SQS](services/sqs/README.md) | A | 20 | 3 gaps |
 | [SWF](services/swf/README.md) | A | 39 | 4 gaps |
 | [Step Functions](services/stepfunctions/README.md) | A | 37 | 9 gaps |
-| [WorkMail](services/workmail/README.md) | A | 92 | 3 gaps |
+| [WorkMail](services/workmail/README.md) | A | 92 | 5 gaps |
 
 ### Analytics
 
@@ -709,7 +709,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [DataSync](services/datasync/README.md) | A | 53 | 5 gaps; 1 deferred |
 | [Database Migration Service](services/dms/README.md) | A | 97 | 7 gaps |
-| [Transfer Family](services/transfer/README.md) | A | — | 20 families |
+| [Transfer Family](services/transfer/README.md) | A | — | 20 families; 1 gap |
 
 ### Azure
 
@@ -739,7 +739,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Lightsail](services/lightsail/README.md) | A | — | 28 families; 5 gaps; 2 deferred |
 | [Managed Blockchain](services/managedblockchain/README.md) | A | 27 | 4 gaps |
 | [Mgn](services/mgn/README.md) | A | 95 | 3 gaps; 5 structural gaps; 1 deferred |
-| [Networkmanager](services/networkmanager/README.md) | A | 95 | 3 gaps; 2 structural gaps |
+| [Networkmanager](services/networkmanager/README.md) | A | 95 | 4 gaps; 2 structural gaps |
 | [Outposts](services/outposts/README.md) | A | 43 | 3 gaps; 7 structural gaps |
 | [Resiliencehub](services/resiliencehub/README.md) | A | 63 | 1 gap; 7 structural gaps |
 | [Support](services/support/README.md) | A | 16 | 1 gap; 1 deferred |

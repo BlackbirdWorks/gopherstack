@@ -8,9 +8,13 @@
 | Metric | Value |
 | --- | --- |
 | Feature families | 20 (20 ok) |
-| Known gaps | none |
+| Known gaps | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
+
+### Known gaps
+
+- StartFileTransfer.CustomHttpHeaders is accepted but not applied: the emulator never sends AS2 messages and no SDK output (ListFileTransferResults) echoes request headers, so there is nothing observable to model.
 
 ## More
 
