@@ -571,7 +571,7 @@ type EC2InstanceAttributes struct {
 // enabled using a security configuration.
 type KerberosAttributes struct {
 	Realm                            string `json:"Realm"`
-	KdcAdminPassword                 string `json:"KdcAdminPassword,omitempty"`
+	KdcAdminPassword                 string `json:"KdcAdminPassword"`
 	ADDomainJoinUser                 string `json:"ADDomainJoinUser,omitempty"`
 	ADDomainJoinPassword             string `json:"ADDomainJoinPassword,omitempty"`
 	CrossRealmTrustPrincipalPassword string `json:"CrossRealmTrustPrincipalPassword,omitempty"`
@@ -581,11 +581,21 @@ type KerberosAttributes struct {
 func (k KerberosAttributes) MarshalJSON() ([]byte, error) {
 	type plain KerberosAttributes
 
-	k.KdcAdminPassword = ""
-	k.ADDomainJoinPassword = ""
-	k.CrossRealmTrustPrincipalPassword = ""
+	raw, err := json.Marshal(plain(k))
+	if err != nil {
+		return nil, err
+	}
 
-	return json.Marshal(plain(k))
+	var fields map[string]json.RawMessage
+	if err = json.Unmarshal(raw, &fields); err != nil {
+		return nil, err
+	}
+
+	for _, secret := range []string{"KdcAdminPassword", "ADDomainJoinPassword", "CrossRealmTrustPrincipalPassword"} {
+		delete(fields, secret)
+	}
+
+	return json.Marshal(fields)
 }
 
 // PlacementGroupConfig is the placement group configuration for a single
