@@ -196,6 +196,7 @@ type ConnectorV2 struct {
 	ConnectorArn     string            `json:"ConnectorArn"`
 	Name             string            `json:"Name"`
 	Description      string            `json:"Description"`
+	KmsKeyArn        string            `json:"KmsKeyArn,omitempty"`
 	CreatedAt        string            `json:"CreatedAt"`
 	UpdatedAt        string            `json:"UpdatedAt"`
 	ConnectorStatus  string            `json:"ConnectorStatus"`

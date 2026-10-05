@@ -1,6 +1,7 @@
 package pinpoint
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
@@ -24,12 +25,11 @@ const (
 
 	// maxPutEventsRequestBytes is the Event ingestion quotas section's
 	// "maximum size of a request", which supersedes the general 7 MB ceiling
-	// for PutEvents. The same table's "maximum size of an individual event"
-	// (1,000 KB) is deliberately NOT enforced: once the body is JSON-decoded
-	// into putEventsRequest, an individual event's raw byte length is no
-	// longer observable without a raw-message decode path this handler
-	// doesn't have -- see PARITY.md.
+	// for PutEvents.
 	maxPutEventsRequestBytes = 4 * 1024 * 1024
+
+	// maxPutEventBytes is the same table's "maximum size of an individual event".
+	maxPutEventBytes = 1000 * 1024
 
 	// maxEndpointRequestBytes is the Endpoint quotas section's "maximum
 	// endpoint size", which supersedes the general 7 MB ceiling for a
@@ -46,6 +46,28 @@ func checkPayloadSize(c *echo.Context, body []byte, limit int) bool {
 
 	_ = writeErrorResponse(c, http.StatusRequestEntityTooLarge, "PayloadTooLargeException",
 		"the request payload exceeds the maximum allowed size")
+
+	return false
+}
+
+// putEventsExceedsEventQuota reports whether any single event in a PutEvents body is over the per-event quota.
+func putEventsExceedsEventQuota(body []byte) bool {
+	var raw struct {
+		BatchItem map[string]struct {
+			Events map[string]json.RawMessage `json:"Events"`
+		} `json:"BatchItem"`
+	}
+	if json.Unmarshal(body, &raw) != nil {
+		return false
+	}
+
+	for _, item := range raw.BatchItem {
+		for _, ev := range item.Events {
+			if len(ev) > maxPutEventBytes {
+				return true
+			}
+		}
+	}
 
 	return false
 }

@@ -20,7 +20,7 @@ ops:
   DeleteVoiceTemplate: {wire: ok, errors: ok, state: ok, persist: ok, note: "was leaking its templateVersionHistory entry (only Delete{Email,InApp,Push,Sms}Template cleaned it up) — fixed; locked by TestDeleteVoiceTemplate_ReleasesVersionHistory"}
   CreateEmailTemplate: {wire: ok, errors: ok, state: ok, persist: ok, note: "DefaultSubstitutions was wire-typed as a nested JSON object (map[string]any); the real EmailTemplateRequest/Response serializers/deserializers treat it as a JSON-*encoded string* — fixed. Added missing required TemplateType field"}
   GetEmailTemplate: {wire: ok, errors: ok, state: ok, persist: ok, note: "same DefaultSubstitutions + TemplateType fixes; simplified to return the model directly instead of a hand-built map (cloneEmailTemplateToResponse deleted, now redundant)"}
-  UpdateEmailTemplate: {wire: ok, errors: ok, state: ok, persist: ok, note: "same DefaultSubstitutions fix"}
+  UpdateEmailTemplate: {wire: ok, errors: ok, state: fixed, persist: ok, note: "same DefaultSubstitutions fix; create-new-version (query) now decides whether the update overwrites the latest version or appends one (every update used to append); true together with version is BadRequestException. Same for the InApp/Push/Sms/Voice updates. Locked by TestUpdateTemplate_CreateNewVersion"}
   CreateInAppTemplate: {wire: ok, errors: ok, state: ok, persist: ok, note: "added missing TemplateType (required) and CustomConfig (map[string]string) fields vs InAppTemplateResponse/InAppTemplateRequest"}
   GetInAppTemplate: {wire: ok, errors: ok, state: ok, persist: ok, note: "same TemplateType/CustomConfig fix"}
   UpdateInAppTemplate: {wire: ok, errors: ok, state: ok, persist: ok, note: "now applies CustomConfig updates"}
@@ -88,7 +88,7 @@ families:
   Persistence: {status: ok, note: "was the biggest structural gap: persistRegistry() excluded voiceTemplates/endpoints/eventStreams/channels (all store.Table-backed — mechanical fix, just needed registering) and appSettings/campaignVersions/segmentVersions/templateVersionHistory/campaignActivities/journeyRuns/appEvents/sentMessages/otpCodes (map-shaped state, added as direct JSON fields on backendSnapshot since every value type is already plain-JSON-friendly). Snapshot version bumped 1->2 so an old on-disk snapshot is cleanly discarded (not partially misdecoded) rather than silently accepted with a shape mismatch. Locked by the rewritten TestSnapshotRestore_FullStateRoundTrip, which now asserts these resource kinds SURVIVE a restart instead of asserting they don't"}
 gaps: []
 items_still_open:
-  - "gopherstack-coib: PutEvents' documented per-individual-event size quota (1,000 KB) is not enforced -- only its request-level 4 MB quota is. See the gopherstack-coib Notes section."
+  - "Template versions are history entries only: each version's content is not stored, so the version query parameter on Get/Update/Delete{Email,InApp,Push,Sms,Voice}Template and UpdateTemplateActiveVersion's Version body member select nothing (the latest content is always used)."
   - "gopherstack-coib: PayloadTooLargeException size checks are wired for the 39 ops that both model the exception (digit-safe-extracted from deserializers.go: 113 of 122 ops) and have an observable non-trivial request body in this handler. The other 74 modeled ops (GET/DELETE with an empty body) and TagResource/UntagResource/ListTagsForResource/Create{Email,InApp,Push,Sms,Voice}Template (the 9 ops that don't model the exception at all) are left unenforced -- see Notes."
 deferred:                 # consciously not audited this pass (scope) — next pass targets
   - "GetApplicationDateRangeKpi/GetCampaignDateRangeKpi/GetJourneyDateRangeKpi always return an empty KpiResult.Rows — acceptable stub-shaped-but-real-state pattern (queries real backend, returns AWS-accurate empty analytics), not re-flagged"
@@ -282,9 +282,8 @@ cheap either way).
   compute real KPI rows, and an empty-but-correctly-shaped result is the honest emulation choice
   (not a disguised no-op, since the ops do validate the parent resource exists and return the
   real response envelope). Do not re-flag without a concrete plan for synthesizing KPI data.
-- `UpdateTemplateActiveVersion` is a genuine no-op on the version-history data structure (the
-  last entry in `templateVersionHistory` already *is* the active version by construction — every
-  `Update*Template` call appends), but it still validates the template exists and returns
+- `UpdateTemplateActiveVersion` is a no-op on the version-history data structure (the last
+  entry in `templateVersionHistory` is always the active version; its Version member is not read), but it still validates the template exists and returns
   `NotFoundException` correctly, and returns the real `202 Accepted` envelope. Confirmed correct,
   not a stub.
 - `tags` uses a lowercase JSON key while everything else is PascalCase (see protocol note above)
@@ -478,12 +477,7 @@ Baidu,Email,Gcm,Sms,Voice}Channel`, `UpdateApplicationSettings`, `UpdateCampaign
   principle apply to these read ops' output, but this backend has no chokepoint that measures
   an assembled response body's size before writing it, and retrofitting one is a materially
   larger change than wiring the modeled-but-unemitted exception this bug is about.
-- `PutEvents`' per-individual-event quota ("Maximum size of an individual event | 1,000 KB",
-  same Event ingestion quotas table) is not enforced. Once the raw body is JSON-decoded into
-  `putEventsRequest` (`wire.go`), an individual event's raw byte length is no longer observable
-  without a raw-message decode path (e.g. `map[string]json.RawMessage`) this handler doesn't
-  have; adding one is a distinct, larger change than the request-level check, which reuses the
-  same raw-`body`-length pattern already used everywhere else in this fix.
+- `PutEvents`' per-individual-event quota (1,000 KB) is enforced by `putEventsExceedsEventQuota`, which measures each event's raw bytes.
 
 7 MB / 4 MB are implemented as `7 * 1024 * 1024` / `4 * 1024 * 1024` bytes (binary, not decimal)
 to match this repo's existing convention for AWS's own "MB" quota language

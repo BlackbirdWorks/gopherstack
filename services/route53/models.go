@@ -119,6 +119,8 @@ type HostedZone struct {
 	ID              string    `json:"id"`
 	CallerReference string    `json:"callerReference"`
 	Comment         string    `json:"comment"`
+	// AcceleratedRecoveryStatus is "" until UpdateHostedZoneFeatures sets it to ENABLED or DISABLED.
+	AcceleratedRecoveryStatus string `json:"acceleratedRecoveryStatus,omitempty"`
 	// DelegationSetID is the ID of the reusable delegation set this zone
 	// was created with, or "" if the zone uses a system-assigned (non
 	// reusable) delegation set. Not part of the wire "HostedZone" element

@@ -288,7 +288,7 @@ func TestBackend_SmsTemplate_FullCRUD(t *testing.T) {
 		require.NoError(t, err)
 
 		updated, err := b.UpdateSmsTemplate("be-sms-2",
-			pinpoint.ExportedCreateSmsTemplateRequest{Body: "New body"})
+			pinpoint.ExportedCreateSmsTemplateRequest{Body: "New body", CreateNewVersion: true})
 		require.NoError(t, err)
 
 		assert.Equal(t, "New body", updated.Body)

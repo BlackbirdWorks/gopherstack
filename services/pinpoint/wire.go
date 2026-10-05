@@ -42,6 +42,7 @@ type createEmailTemplateRequest struct {
 	Subject              string            `json:"Subject,omitempty"`
 	TemplateDescription  string            `json:"TemplateDescription,omitempty"`
 	TextPart             string            `json:"TextPart,omitempty"`
+	CreateNewVersion     bool              `json:"-"`
 }
 
 // createExportJobRequest is the request body for CreateExportJob.
@@ -66,6 +67,7 @@ type createInAppTemplateRequest struct {
 	Layout              string            `json:"Layout,omitempty"`
 	TemplateDescription string            `json:"TemplateDescription,omitempty"`
 	Content             []map[string]any  `json:"Content,omitempty"`
+	CreateNewVersion    bool              `json:"-"`
 }
 
 // createJourneyRequest is the request body for CreateJourney.
@@ -100,6 +102,7 @@ type createPushTemplateRequest struct {
 	DefaultSubstitutions string            `json:"DefaultSubstitutions,omitempty"`
 	RecommenderID        string            `json:"RecommenderId,omitempty"`
 	TemplateDescription  string            `json:"TemplateDescription,omitempty"`
+	CreateNewVersion     bool              `json:"-"`
 }
 
 // createRecommenderConfigRequest is the request body for CreateRecommenderConfiguration.
@@ -133,6 +136,7 @@ type createSmsTemplateRequest struct {
 	RecommenderID        string            `json:"RecommenderId,omitempty"`
 	Tags                 map[string]string `json:"tags,omitempty"`
 	TemplateDescription  string            `json:"TemplateDescription,omitempty"`
+	CreateNewVersion     bool              `json:"-"`
 }
 
 // ──────────────────────────────────────────────────
@@ -336,6 +340,7 @@ type createVoiceTemplateRequest struct {
 	LanguageCode         string            `json:"LanguageCode,omitempty"`
 	TemplateDescription  string            `json:"TemplateDescription,omitempty"`
 	VoiceID              string            `json:"VoiceId,omitempty"`
+	CreateNewVersion     bool              `json:"-"`
 }
 
 // updateCampaignRequest is the request body for UpdateCampaign.

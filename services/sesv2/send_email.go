@@ -22,6 +22,7 @@ const emailCompactionHighWater = maxRetainedEmails + maxRetainedEmails
 // Email captures a sent email for local inspection.
 type Email struct {
 	Timestamp time.Time    `json:"timestamp"`
+	Options   SendOptions  `json:"options,omitzero"`
 	From      string       `json:"from"`
 	Subject   string       `json:"subject"`
 	BodyHTML  string       `json:"bodyHTML"`
@@ -39,6 +40,7 @@ type MessageTag struct {
 
 // OutboundEmail is everything one SendEmail call carries; Cc/Bcc/ReplyTo/Raw only feed SMTP relay.
 type OutboundEmail struct {
+	Options  SendOptions
 	Template *bulkEmailTemplate
 	From     string
 	Subject  string
@@ -70,6 +72,10 @@ func (b *InMemoryBackend) SendMessage(out OutboundEmail) (string, error) {
 		return "", fmt.Errorf("%w: FromEmailAddress is required", ErrInvalidInput)
 	}
 
+	if err := b.validateSendOptions(out.From, storedTemplateName(out.Template), out.Options); err != nil {
+		return "", err
+	}
+
 	if out.Template != nil {
 		tmplSubject, tmplHTML, tmplText, vars, err := b.resolveBulkTemplate(out.Template)
 		if err != nil {
@@ -91,6 +97,7 @@ func (b *InMemoryBackend) SendMessage(out OutboundEmail) (string, error) {
 		BodyHTML:  out.BodyHTML,
 		BodyText:  out.BodyText,
 		Tags:      out.Tags,
+		Options:   out.Options,
 		Timestamp: time.Now(),
 	}
 
@@ -227,9 +234,14 @@ func (b *InMemoryBackend) SendBulkEmail(
 	defaultContent *bulkEmailContent,
 	bulkEmailEntries []bulkEmailEntry,
 	defaultTags []messageTag,
+	opts SendOptions,
 ) ([]bulkEmailEntryResultOutput, error) {
 	if defaultContent == nil || defaultContent.Template == nil {
 		return nil, fmt.Errorf("%w: DefaultContent.Template is required", ErrInvalidInput)
+	}
+
+	if err := b.validateSendOptions(fromEmailAddress, storedTemplateName(defaultContent.Template), opts); err != nil {
+		return nil, err
 	}
 
 	baseSubject, baseHTML, baseText, defaultVars, err := b.resolveBulkTemplate(defaultContent.Template)
@@ -266,7 +278,7 @@ func (b *InMemoryBackend) SendBulkEmail(
 		msgID, _ := b.SendMessage(OutboundEmail{
 			From: fromEmailAddress, To: entry.Destination.ToAddresses, Cc: entry.Destination.CcAddresses,
 			Bcc: entry.Destination.BccAddresses, Subject: subject, BodyHTML: html, BodyText: text,
-			Tags: mergeMessageTags(defaultTags, entry.ReplacementTags),
+			Tags: mergeMessageTags(defaultTags, entry.ReplacementTags), Options: opts,
 		})
 		if msgID == "" {
 			msgID = "sesv2-bulk-" + uuid.New().String()

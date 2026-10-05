@@ -180,9 +180,16 @@ type StorageBackend interface {
 	DeleteAutomationRuleV2(identifier string) error
 
 	// Connectors V2
-	CreateConnectorV2(name, description string, provider map[string]any, tags map[string]string) (*ConnectorV2, error)
+	CreateConnectorV2(
+		name, description, kmsKeyArn string,
+		provider map[string]any,
+		tags map[string]string,
+	) (*ConnectorV2, error)
 	GetConnectorV2(connectorID string) (*ConnectorV2, error)
-	ListConnectorsV2(nextToken string, maxResults int) ([]*ConnectorV2, string)
+	ListConnectorsV2(
+		connectorStatus, enablementStatus, providerName, nextToken string,
+		maxResults int,
+	) ([]*ConnectorV2, string)
 	UpdateConnectorV2(connectorID, name, description string, provider map[string]any) (*ConnectorV2, error)
 	DeleteConnectorV2(connectorID string) error
 	RegisterConnectorV2(authCode, authState string) (*ConnectorV2, error)

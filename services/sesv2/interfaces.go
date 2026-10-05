@@ -76,6 +76,7 @@ type StorageBackend interface {
 		defaultContent *bulkEmailContent,
 		bulkEmailEntries []bulkEmailEntry,
 		defaultTags []messageTag,
+		opts SendOptions,
 	) ([]bulkEmailEntryResultOutput, error)
 	SendCustomVerificationEmail(emailAddress, templateName string) (string, error)
 	ListEmails() []Email

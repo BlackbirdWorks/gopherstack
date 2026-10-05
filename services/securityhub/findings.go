@@ -18,8 +18,10 @@ import (
 // they're managed by Security Hub customers/automation rules, not finding
 // providers.
 // https://docs.aws.amazon.com/securityhub/1.0/APIReference/API_BatchImportFindings.html
+const keyFindingNote = "Note"
+
 var findingCustomerManagedFields = []string{ //nolint:gochecknoglobals // read-only lookup data
-	"Note", "UserDefinedFields", "VerificationState", "Workflow",
+	keyFindingNote, "UserDefinedFields", "VerificationState", "Workflow",
 }
 
 // findingHistoryIgnoredFields are ASFF fields GetFindingHistory documents as
@@ -460,7 +462,7 @@ func (b *InMemoryBackend) UpdateFindings(filters map[string]any, note map[string
 		maps.Copy(before, f)
 
 		if note != nil {
-			f["Note"] = note
+			applyFindingUpdates(f, map[string]any{keyFindingNote: note})
 		}
 
 		if recordState != "" {
@@ -475,6 +477,33 @@ func (b *InMemoryBackend) UpdateFindings(filters map[string]any, note map[string
 	}
 
 	return nil
+}
+
+// applyFindingUpdates writes BatchUpdateFindings members onto finding f. Severity is
+// merged so Original/Product survive a Label/Normalized update, and Note gains UpdatedAt.
+func applyFindingUpdates(f, updates map[string]any) {
+	for k, v := range updates {
+		patch, isMap := v.(map[string]any)
+
+		switch {
+		case k == "Severity" && isMap:
+			merged, _ := f[k].(map[string]any)
+			merged = maps.Clone(merged)
+
+			if merged == nil {
+				merged = make(map[string]any, len(patch))
+			}
+
+			maps.Copy(merged, patch)
+			f[k] = merged
+		case k == keyFindingNote && isMap:
+			note := maps.Clone(patch)
+			note["UpdatedAt"] = time.Now().UTC().Format(time.RFC3339)
+			f[k] = note
+		default:
+			f[k] = v
+		}
+	}
 }
 
 func (b *InMemoryBackend) BatchUpdateFindings(
@@ -506,8 +535,7 @@ func (b *InMemoryBackend) BatchUpdateFindings(
 		before := make(map[string]any, len(f))
 		maps.Copy(before, f)
 
-		// Apply updates
-		maps.Copy(f, updates)
+		applyFindingUpdates(f, updates)
 
 		b.findings[key] = f
 		processedFindings = append(processedFindings, ident)

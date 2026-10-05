@@ -215,13 +215,13 @@ func TestListConnectorsV2_BoundaryWalk(t *testing.T) {
 
 	want := make([]string, 0, 23)
 	for i := range 23 {
-		c, err := b.CreateConnectorV2(fmt.Sprintf("conn-%02d", i), "d", map[string]any{}, nil)
+		c, err := b.CreateConnectorV2(fmt.Sprintf("conn-%02d", i), "d", "", map[string]any{}, nil)
 		require.NoError(t, err)
 		want = append(want, c.ConnectorArn)
 	}
 
 	got := walkStrings(t, func(token string) ([]string, string) {
-		page, next := b.ListConnectorsV2(token, 5)
+		page, next := b.ListConnectorsV2("", "", "", token, 5)
 		ids := make([]string, len(page))
 		for i, c := range page {
 			ids[i] = c.ConnectorArn

@@ -50,7 +50,7 @@ func TestConnectorsV2(t *testing.T) {
 						id, _ := resp["ConnectorId"].(string)
 						assert.NotEmpty(t, id)
 						assert.Equal(t, "TestConnector", resp["Name"])
-						assert.Equal(t, "ACTIVE", resp["ConnectorStatus"])
+						assert.Equal(t, "CONNECTED", resp["ConnectorStatus"])
 
 						return id
 					},
@@ -106,7 +106,7 @@ func TestConnectorsV2(t *testing.T) {
 					check: func(t *testing.T, code int, resp map[string]any) string {
 						t.Helper()
 						assert.Equal(t, http.StatusOK, code)
-						assert.Equal(t, "REGISTERED", resp["ConnectorStatus"])
+						assert.Equal(t, "CONNECTED", resp["ConnectorStatus"])
 
 						return ""
 					},
@@ -278,7 +278,7 @@ func TestGetConnectorV2_RoundTrip(t *testing.T) {
 	require.NotNil(t, out.CreatedAt)
 	require.NotNil(t, out.LastUpdatedAt, "LastUpdatedAt is required on the real wire")
 	require.NotNil(t, out.Health, "Health is required on the real wire")
-	assert.Equal(t, securityhubtypes.ConnectorStatus("ACTIVE"), out.Health.ConnectorStatus)
+	assert.Equal(t, securityhubtypes.ConnectorStatus("CONNECTED"), out.Health.ConnectorStatus)
 	require.NotNil(t, out.Health.LastCheckedAt)
 	require.NotNil(t, out.ProviderDetail, "ProviderDetail is required on the real wire")
 
@@ -320,7 +320,7 @@ func TestRegisterConnectorV2_RoundTrip(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotNil(t, got.Health)
-	assert.Equal(t, securityhubtypes.ConnectorStatus("REGISTERED"), got.Health.ConnectorStatus)
+	assert.Equal(t, securityhubtypes.ConnectorStatus("CONNECTED"), got.Health.ConnectorStatus)
 }
 
 // TestRegisterConnectorV2_MissingFields verifies AuthCode/AuthState are

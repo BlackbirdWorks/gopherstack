@@ -355,20 +355,7 @@ func (b *InMemoryBackend) UpdateVoiceTemplate(
 		t.Tags = nonNilTagsCopy(req.Tags)
 	}
 
-	versionKey := templateName + "/VOICE"
-	nextVersion := strconv.Itoa(len(b.templateVersionHistory[versionKey]) + 1)
-	b.templateVersionHistory[versionKey] = append(
-		b.templateVersionHistory[versionKey],
-		templateVersionItem{
-			TemplateName:    templateName,
-			TemplateType:    ChannelTypeVoice,
-			TemplateVersion: nextVersion,
-		},
-	)
-
-	if h := b.templateVersionHistory[versionKey]; len(h) > maxTemplateVersions {
-		b.templateVersionHistory[versionKey] = h[len(h)-maxTemplateVersions:]
-	}
+	nextVersion := b.nextTemplateVersionLocked(templateName, ChannelTypeVoice, req.CreateNewVersion, t.Version)
 
 	t.LastModifiedDate = nowRFC3339()
 	t.Version = nextVersion
@@ -490,20 +477,7 @@ func (b *InMemoryBackend) UpdateEmailTemplate(
 		return nil, ErrAppNotFound
 	}
 
-	versionKey := templateName + "/EMAIL"
-	nextVersion := strconv.Itoa(len(b.templateVersionHistory[versionKey]) + 1)
-	b.templateVersionHistory[versionKey] = append(
-		b.templateVersionHistory[versionKey],
-		templateVersionItem{
-			TemplateName:    templateName,
-			TemplateType:    ChannelTypeEmail,
-			TemplateVersion: nextVersion,
-		},
-	)
-
-	if h := b.templateVersionHistory[versionKey]; len(h) > maxTemplateVersions {
-		b.templateVersionHistory[versionKey] = h[len(h)-maxTemplateVersions:]
-	}
+	nextVersion := b.nextTemplateVersionLocked(templateName, ChannelTypeEmail, req.CreateNewVersion, t.Version)
 
 	if req.Subject != "" {
 		t.Subject = req.Subject
@@ -578,20 +552,7 @@ func (b *InMemoryBackend) UpdateInAppTemplate(
 		return nil, ErrAppNotFound
 	}
 
-	versionKey := templateName + "/INAPP"
-	nextVersion := strconv.Itoa(len(b.templateVersionHistory[versionKey]) + 1)
-	b.templateVersionHistory[versionKey] = append(
-		b.templateVersionHistory[versionKey],
-		templateVersionItem{
-			TemplateName:    templateName,
-			TemplateType:    templateTypeINAPP,
-			TemplateVersion: nextVersion,
-		},
-	)
-
-	if h := b.templateVersionHistory[versionKey]; len(h) > maxTemplateVersions {
-		b.templateVersionHistory[versionKey] = h[len(h)-maxTemplateVersions:]
-	}
+	nextVersion := b.nextTemplateVersionLocked(templateName, templateTypeINAPP, req.CreateNewVersion, t.Version)
 
 	if len(req.Content) > 0 {
 		t.Content = cloneContentSlice(req.Content)
@@ -658,20 +619,7 @@ func (b *InMemoryBackend) UpdatePushTemplate(
 		return nil, ErrAppNotFound
 	}
 
-	versionKey := templateName + "/PUSH"
-	nextVersion := strconv.Itoa(len(b.templateVersionHistory[versionKey]) + 1)
-	b.templateVersionHistory[versionKey] = append(
-		b.templateVersionHistory[versionKey],
-		templateVersionItem{
-			TemplateName:    templateName,
-			TemplateType:    templateTypePUSH,
-			TemplateVersion: nextVersion,
-		},
-	)
-
-	if h := b.templateVersionHistory[versionKey]; len(h) > maxTemplateVersions {
-		b.templateVersionHistory[versionKey] = h[len(h)-maxTemplateVersions:]
-	}
+	nextVersion := b.nextTemplateVersionLocked(templateName, templateTypePUSH, req.CreateNewVersion, t.Version)
 
 	applyPushTemplateUpdate(t, req)
 
@@ -762,20 +710,7 @@ func (b *InMemoryBackend) UpdateSmsTemplate(
 		return nil, ErrAppNotFound
 	}
 
-	versionKey := templateName + "/SMS"
-	nextVersion := strconv.Itoa(len(b.templateVersionHistory[versionKey]) + 1)
-	b.templateVersionHistory[versionKey] = append(
-		b.templateVersionHistory[versionKey],
-		templateVersionItem{
-			TemplateName:    templateName,
-			TemplateType:    ChannelTypeSMS,
-			TemplateVersion: nextVersion,
-		},
-	)
-
-	if h := b.templateVersionHistory[versionKey]; len(h) > maxTemplateVersions {
-		b.templateVersionHistory[versionKey] = h[len(h)-maxTemplateVersions:]
-	}
+	nextVersion := b.nextTemplateVersionLocked(templateName, ChannelTypeSMS, req.CreateNewVersion, t.Version)
 
 	if req.Body != "" {
 		t.Body = req.Body
@@ -860,4 +795,29 @@ func (b *InMemoryBackend) UpdateTemplateActiveVersion(templateName, templateType
 	_ = history[len(history)-1]
 
 	return nil
+}
+
+// nextTemplateVersionLocked returns the version an update lands on: the current one
+// (overwritten in place) unless createNewVersion appends a new history entry.
+func (b *InMemoryBackend) nextTemplateVersionLocked(
+	templateName, templateType string,
+	createNewVersion bool,
+	current string,
+) string {
+	if !createNewVersion {
+		return current
+	}
+
+	versionKey := templateName + "/" + templateType
+	nextVersion := strconv.Itoa(len(b.templateVersionHistory[versionKey]) + 1)
+	b.templateVersionHistory[versionKey] = append(
+		b.templateVersionHistory[versionKey],
+		templateVersionItem{TemplateName: templateName, TemplateType: templateType, TemplateVersion: nextVersion},
+	)
+
+	if h := b.templateVersionHistory[versionKey]; len(h) > maxTemplateVersions {
+		b.templateVersionHistory[versionKey] = h[len(h)-maxTemplateVersions:]
+	}
+
+	return nextVersion
 }

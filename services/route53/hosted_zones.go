@@ -138,6 +138,14 @@ func (b *InMemoryBackend) registerChange() string {
 	return id
 }
 
+// RegisterChange is registerChange for callers not holding b.mu.
+func (b *InMemoryBackend) RegisterChange() string {
+	b.mu.Lock("RegisterChange")
+	defer b.mu.Unlock()
+
+	return b.registerChange()
+}
+
 // matchExistingHostedZone implements CreateHostedZone's CallerReference
 // idempotency: reusing a CallerReference with the exact same
 // Name/Comment/PrivateZone/DelegationSetID is a safe retry and returns the
@@ -429,6 +437,27 @@ func (b *InMemoryBackend) UpdateHostedZoneComment(zoneID, comment string) (*Host
 	return &cp, nil
 }
 
+// UpdateHostedZoneFeatures applies EnableAcceleratedRecovery; nil leaves the setting unchanged.
+func (b *InMemoryBackend) UpdateHostedZoneFeatures(zoneID string, enableAcceleratedRecovery *bool) error {
+	b.mu.Lock("UpdateHostedZoneFeatures")
+	defer b.mu.Unlock()
+
+	zd, ok := b.zones.Get(zoneID)
+	if !ok {
+		return fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, zoneID)
+	}
+
+	switch {
+	case enableAcceleratedRecovery == nil:
+	case *enableAcceleratedRecovery:
+		zd.zone.AcceleratedRecoveryStatus = acceleratedRecoveryEnabled
+	default:
+		zd.zone.AcceleratedRecoveryStatus = acceleratedRecoveryDisabled
+	}
+
+	return nil
+}
+
 // GetHostedZoneCount returns the total number of hosted zones.
 func (b *InMemoryBackend) GetHostedZoneCount() int {
 	b.mu.RLock("GetHostedZoneCount")
@@ -436,3 +465,8 @@ func (b *InMemoryBackend) GetHostedZoneCount() int {
 
 	return b.zones.Len()
 }
+
+const (
+	acceleratedRecoveryEnabled  = "ENABLED"
+	acceleratedRecoveryDisabled = "DISABLED"
+)

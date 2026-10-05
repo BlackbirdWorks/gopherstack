@@ -30,9 +30,11 @@ func (h *Handler) handleCreateAggregatorV2(c *echo.Context, body map[string]any)
 	regionLinkingMode, _ := body["RegionLinkingMode"].(string)
 	regions := stringListFromBody(body, "LinkedRegions")
 
-	agg, err := h.Backend.CreateAggregatorV2(regionLinkingMode, regions)
+	agg, err := idemCreate(h, opCreateAggregatorV2, body,
+		func(a *AggregatorV2) string { return a.AggregatorV2Arn }, h.Backend.GetAggregatorV2,
+		func() (*AggregatorV2, error) { return h.Backend.CreateAggregatorV2(regionLinkingMode, regions) })
 	if err != nil {
-		return typedErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
+		return createErrorResponse(c, err)
 	}
 
 	if tags, ok := body["Tags"].(map[string]any); ok {

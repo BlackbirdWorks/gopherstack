@@ -41,6 +41,7 @@ func classifyTicketsV2Path(method, path string) (string, string) {
 func (h *Handler) handleCreateConnectorV2(c *echo.Context, body map[string]any) error {
 	name, _ := body["Name"].(string)
 	description, _ := body["Description"].(string)
+	kmsKeyArn, _ := body["KmsKeyArn"].(string)
 
 	var provider map[string]any
 
@@ -58,9 +59,13 @@ func (h *Handler) handleCreateConnectorV2(c *echo.Context, body map[string]any) 
 		}
 	}
 
-	conn, err := h.Backend.CreateConnectorV2(name, description, provider, tags)
+	conn, err := idemCreate(h, opCreateConnectorV2, body,
+		func(cn *ConnectorV2) string { return cn.ConnectorId }, h.Backend.GetConnectorV2,
+		func() (*ConnectorV2, error) {
+			return h.Backend.CreateConnectorV2(name, description, kmsKeyArn, provider, tags)
+		})
 	if err != nil {
-		return typedErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
+		return createErrorResponse(c, err)
 	}
 
 	return c.JSON(http.StatusOK, connectorV2ToResponse(conn))
@@ -90,7 +95,10 @@ func (h *Handler) handleListConnectorsV2(c *echo.Context) error {
 		maxResults, _ = strconv.Atoi(v)
 	}
 
-	connectors, next := h.Backend.ListConnectorsV2(nextToken, maxResults)
+	connectors, next := h.Backend.ListConnectorsV2(
+		c.QueryParam(keyConnectorStatus), c.QueryParam(keyEnablementStatus), c.QueryParam("ProviderName"),
+		nextToken, maxResults,
+	)
 
 	var out []map[string]any //nolint:prealloc // existing issue.
 
@@ -193,8 +201,6 @@ func connectorV2ToResponse(conn *ConnectorV2) map[string]any {
 // (extractCspmProviderTag + strings.ToUpper, connectors.go) since ConnectorV2
 // has no dedicated ProviderName field of its own to read.
 func connectorV2ToSummaryResponse(conn *ConnectorV2) map[string]any {
-	tag, _ := extractCspmProviderTag(conn.Provider)
-
 	return map[string]any{
 		keyConnectorID:  conn.ConnectorId,
 		keyConnectorArn: conn.ConnectorArn,
@@ -204,9 +210,20 @@ func connectorV2ToSummaryResponse(conn *ConnectorV2) map[string]any {
 		"ProviderSummary": map[string]any{
 			keyConnectorStatus:      conn.ConnectorStatus,
 			"ProviderConfiguration": conn.Provider,
-			"ProviderName":          strings.ToUpper(tag),
+			"ProviderName":          connectorV2ProviderName(conn.Provider),
 		},
 	}
+}
+
+// connectorV2ProviderName maps the stored provider union tag to types.ConnectorProviderName.
+func connectorV2ProviderName(provider map[string]any) string {
+	tag, _ := extractCspmProviderTag(provider)
+
+	if tag == "JiraCloud" {
+		return "JIRA_CLOUD"
+	}
+
+	return strings.ToUpper(tag)
 }
 
 // connectorV2ToGetResponse builds the GetConnectorV2 wire shape: ConnectorId,
@@ -224,7 +241,7 @@ func connectorV2ToSummaryResponse(conn *ConnectorV2) map[string]any {
 // member tags (Azure/JiraCloud/ServiceNow -- types.go:17161-17220), so the
 // stored value is already wire-correct for this key.
 func connectorV2ToGetResponse(conn *ConnectorV2) map[string]any {
-	return map[string]any{
+	resp := map[string]any{
 		keyConnectorID:  conn.ConnectorId,
 		keyConnectorArn: conn.ConnectorArn,
 		keyName:         conn.Name,
@@ -237,6 +254,12 @@ func connectorV2ToGetResponse(conn *ConnectorV2) map[string]any {
 		},
 		"ProviderDetail": conn.Provider,
 	}
+
+	if conn.KmsKeyArn != "" {
+		resp["KmsKeyArn"] = conn.KmsKeyArn
+	}
+
+	return resp
 }
 
 func (h *Handler) handleCreateTicketV2(c *echo.Context, body map[string]any) error {

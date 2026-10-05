@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -352,7 +353,12 @@ func (h *Handler) handleUpdateTemplate(c *echo.Context, templateName, templateTy
 		return nil
 	}
 
-	if updateErr := h.applyTemplateUpdate(body, templateName, templateType); updateErr != nil {
+	createNew, queryErr := parseCreateNewVersion(c)
+	if queryErr != nil {
+		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", queryErr.Error())
+	}
+
+	if updateErr := h.applyTemplateUpdate(body, templateName, templateType, createNew); updateErr != nil {
 		if errors.Is(updateErr, errInvalidRequestBody) {
 			return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
 		}
@@ -386,29 +392,31 @@ var errUnknownTemplateType = errors.New("unknown template type")
 // tested it before continuing, so the rejection was silently treated as
 // success and a second response got written on top of the committed one
 // (gopherstack-246v, the gopherstack-8haq shape).
-func (h *Handler) applyTemplateUpdate(body []byte, templateName, templateType string) error {
+func (h *Handler) applyTemplateUpdate(body []byte, templateName, templateType string, createNew bool) error {
 	switch templateType {
 	case templateTypeEmail:
-		return h.updateEmailTemplateFromBody(body, templateName)
+		return h.updateEmailTemplateFromBody(body, templateName, createNew)
 	case templateTypeInApp:
-		return h.updateInAppTemplateFromBody(body, templateName)
+		return h.updateInAppTemplateFromBody(body, templateName, createNew)
 	case templateTypePush:
-		return h.updatePushTemplateFromBody(body, templateName)
+		return h.updatePushTemplateFromBody(body, templateName, createNew)
 	case templateTypeSMS:
-		return h.updateSMSTemplateFromBody(body, templateName)
+		return h.updateSMSTemplateFromBody(body, templateName, createNew)
 	case templateTypeVoice:
-		return h.updateVoiceTemplateFromBody(body, templateName)
+		return h.updateVoiceTemplateFromBody(body, templateName, createNew)
 	}
 
 	return errUnknownTemplateType
 }
 
 // updateEmailTemplateFromBody parses and applies an email template update.
-func (h *Handler) updateEmailTemplateFromBody(body []byte, name string) error {
+func (h *Handler) updateEmailTemplateFromBody(body []byte, name string, createNew bool) error {
 	var req createEmailTemplateRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return errInvalidRequestBody
 	}
+
+	req.CreateNewVersion = createNew
 
 	_, err := h.Backend.UpdateEmailTemplate(name, req)
 
@@ -416,11 +424,13 @@ func (h *Handler) updateEmailTemplateFromBody(body []byte, name string) error {
 }
 
 // updateInAppTemplateFromBody parses and applies an in-app template update.
-func (h *Handler) updateInAppTemplateFromBody(body []byte, name string) error {
+func (h *Handler) updateInAppTemplateFromBody(body []byte, name string, createNew bool) error {
 	var req createInAppTemplateRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return errInvalidRequestBody
 	}
+
+	req.CreateNewVersion = createNew
 
 	_, err := h.Backend.UpdateInAppTemplate(name, req)
 
@@ -428,11 +438,13 @@ func (h *Handler) updateInAppTemplateFromBody(body []byte, name string) error {
 }
 
 // updatePushTemplateFromBody parses and applies a push template update.
-func (h *Handler) updatePushTemplateFromBody(body []byte, name string) error {
+func (h *Handler) updatePushTemplateFromBody(body []byte, name string, createNew bool) error {
 	var req createPushTemplateRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return errInvalidRequestBody
 	}
+
+	req.CreateNewVersion = createNew
 
 	_, err := h.Backend.UpdatePushTemplate(name, req)
 
@@ -440,11 +452,13 @@ func (h *Handler) updatePushTemplateFromBody(body []byte, name string) error {
 }
 
 // updateSMSTemplateFromBody parses and applies an SMS template update.
-func (h *Handler) updateSMSTemplateFromBody(body []byte, name string) error {
+func (h *Handler) updateSMSTemplateFromBody(body []byte, name string, createNew bool) error {
 	var req createSmsTemplateRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return errInvalidRequestBody
 	}
+
+	req.CreateNewVersion = createNew
 
 	_, err := h.Backend.UpdateSmsTemplate(name, req)
 
@@ -452,11 +466,13 @@ func (h *Handler) updateSMSTemplateFromBody(body []byte, name string) error {
 }
 
 // updateVoiceTemplateFromBody parses and applies a voice template update.
-func (h *Handler) updateVoiceTemplateFromBody(body []byte, name string) error {
+func (h *Handler) updateVoiceTemplateFromBody(body []byte, name string, createNew bool) error {
 	var req createVoiceTemplateRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return errInvalidRequestBody
 	}
+
+	req.CreateNewVersion = createNew
 
 	_, err := h.Backend.UpdateVoiceTemplate(name, req)
 
@@ -586,3 +602,28 @@ func (h *Handler) handleUpdateTemplateActiveVersion(c *echo.Context, templateNam
 // ──────────────────────────────────────────────────
 // Endpoint handlers
 // ──────────────────────────────────────────────────
+
+// parseCreateNewVersion reads the create-new-version query parameter; per the SDK it
+// cannot be combined with a version.
+func parseCreateNewVersion(c *echo.Context) (bool, error) {
+	raw := c.QueryParam("create-new-version")
+	if raw == "" {
+		return false, nil
+	}
+
+	createNew, err := strconv.ParseBool(raw)
+	if err != nil {
+		return false, errInvalidCreateNewVersion
+	}
+
+	if createNew && c.QueryParam("version") != "" {
+		return false, errCreateNewVersionWithVersion
+	}
+
+	return createNew, nil
+}
+
+var (
+	errInvalidCreateNewVersion     = errors.New("create-new-version must be true or false")
+	errCreateNewVersionWithVersion = errors.New("create-new-version cannot be combined with version")
+)
