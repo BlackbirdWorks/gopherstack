@@ -634,7 +634,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Account](services/account/README.md) | A | 16 | 5 gaps; 1 deferred |
 | [AppConfig](services/appconfig/README.md) | A | 56 | 3 gaps; 1 deferred |
 | [AppConfig Data](services/appconfigdata/README.md) | A | 2 | 2 gaps |
-| [Application Auto Scaling](services/applicationautoscaling/README.md) | A | 14 | 4 gaps; 2 deferred |
+| [Application Auto Scaling](services/applicationautoscaling/README.md) | A | 14 | 3 gaps; 2 deferred |
 | [Cloud Control API](services/cloudcontrol/README.md) | A | 8 | 4 gaps |
 | [CloudFormation](services/cloudformation/README.md) | A | 73 | 11 gaps |
 | [CloudTrail](services/cloudtrail/README.md) | A | 60 | 7 gaps |
@@ -743,7 +743,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Outposts](services/outposts/README.md) | A | 43 | 3 gaps; 7 structural gaps |
 | [Resiliencehub](services/resiliencehub/README.md) | A | 63 | 1 gap; 7 structural gaps |
 | [Support](services/support/README.md) | A | 16 | 1 gap; 1 deferred |
-| [WorkSpaces](services/workspaces/README.md) | A | 34 | 5 gaps |
+| [WorkSpaces](services/workspaces/README.md) | A | 34 | 6 gaps |
 <!-- END GENERATED SERVICES -->
 
 ## Using Gopherstack
