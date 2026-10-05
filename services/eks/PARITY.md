@@ -1292,3 +1292,7 @@ EKS is region-isolated: each non-home region gets a lazily built sibling `Handle
 ## 2026-10-04 (reqfielddiff tier-1 re-examined: CreateCluster.BootstrapSelfManagedAddons)
 
 Still recorded: with the default (true) EKS installs vpc-cni, coredns and kube-proxy as self-managed add-ons, which ListAddons/DescribeAddon never report (they are visible only through the Kubernetes API), and types.Cluster does not echo the flag; no EKS API call can observe the difference.
+
+## 2026-10-05 (gopherstack-uox6 pass 5, value semantics)
+
+CreateCluster stores EndpointPublicAccess true, PublicAccessCidrs 0.0.0.0/0 and ipv4 KubernetesNetworkConfig when omitted; CreateNodegroup stores t3.medium, diskSize 20 (50 for Windows AMIs) and scaling 1/2/2 when omitted without a launch template; addons carry ModifiedAt, advanced by UpdateAddon.

@@ -904,3 +904,7 @@ The Resource Groups Tagging API bridge now lists the request region's tagged res
 ## 2026-10-05 (reqfielddiff tier-2 PageSize)
 
 ListConfigurationSets, ListContactLists, ListEmailIdentities, ListEmailTemplates, ListCustomVerificationEmailTemplates, ListDeliverabilityTestReports, ListDomainDeliverabilityCampaigns and ListMultiRegionEndpoints passed a hardcoded 0 page size; the query-bound `PageSize` (serializers.go SetQuery("PageSize")) is now read (`queryPageSize`). ListContactLists/ListEmailTemplates/ListCustomVerificationEmailTemplates/ListDeliverabilityTestReports iterated a map unsorted, so paging was unstable; they now sort by name/ID. Proof: `TestList_HonoursPageSize` (5 ops; the other three share the same one-line wiring).
+
+## 2026-10-05 (gopherstack-uox6 pass 5, value semantics)
+
+CreateConfigurationSet now persists SendingOptions, ReputationOptions, DeliveryOptions, TrackingOptions, SuppressionOptions, ArchivingOptions and VdmOptions; PutAccountDetails no longer overwrites the other account attributes and an account first touched by a Put keeps SendingEnabled true.

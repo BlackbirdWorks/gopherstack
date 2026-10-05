@@ -439,9 +439,10 @@ func (b *InMemoryBackend) UpdateUserPoolWithOpts(
 		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	if mfaConfiguration != "" {
-		pool.MfaConfiguration = mfaConfiguration
-	}
+	// UpdateUserPool resets every omitted attribute to its default.
+	pool.MfaConfiguration = mfaConfiguration
+	pool.PasswordPolicy = nil
+	pool.SignInPolicy = nil
 
 	if opts.PasswordPolicy != nil {
 		pp := *opts.PasswordPolicy
@@ -454,27 +455,11 @@ func (b *InMemoryBackend) UpdateUserPoolWithOpts(
 		pool.SignInPolicy = &sp
 	}
 
-	if opts.AutoVerifiedAttributes != nil {
-		av := make([]string, len(opts.AutoVerifiedAttributes))
-		copy(av, opts.AutoVerifiedAttributes)
-		pool.AutoVerifiedAttributes = av
-	}
-
-	if opts.LambdaConfig != nil {
-		pool.LambdaConfig = opts.LambdaConfig
-	}
-
-	if opts.EmailConfiguration != nil {
-		pool.EmailConfiguration = opts.EmailConfiguration
-	}
-
-	if opts.AccountRecoverySetting != nil {
-		pool.AccountRecoverySetting = opts.AccountRecoverySetting
-	}
-
-	if opts.DeletionProtection != "" {
-		pool.DeletionProtection = opts.DeletionProtection
-	}
+	pool.AutoVerifiedAttributes = slices.Clone(opts.AutoVerifiedAttributes)
+	pool.LambdaConfig = opts.LambdaConfig
+	pool.EmailConfiguration = opts.EmailConfiguration
+	pool.AccountRecoverySetting = opts.AccountRecoverySetting
+	pool.DeletionProtection = opts.DeletionProtection
 
 	pool.UpdatedAt = time.Now()
 

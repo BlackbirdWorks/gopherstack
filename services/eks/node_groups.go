@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -24,6 +25,20 @@ type NodegroupInput struct {
 	Subnets        []string
 	Taints         []NodegroupTaint
 	DiskSize       int32
+}
+
+const (
+	defaultNodegroupInstanceType = "t3.medium"
+	nodegroupWindowsDiskSize     = 50
+)
+
+// defaultNodegroupDiskSize is 50 GiB for Windows AMIs and 20 GiB otherwise (api_op_CreateNodegroup.go DiskSize).
+func defaultNodegroupDiskSize(amiType string) int32 {
+	if strings.Contains(amiType, "WINDOWS") {
+		return nodegroupWindowsDiskSize
+	}
+
+	return nodegroupDiskSizeMin
 }
 
 const (
@@ -77,6 +92,17 @@ func (b *InMemoryBackend) newNodegroupLocked(
 		capacityType = "ON_DEMAND"
 	}
 
+	diskSize := input.DiskSize
+	if input.LaunchTemplate == nil {
+		if len(instanceTypes) == 0 {
+			instanceTypes = []string{defaultNodegroupInstanceType}
+		}
+
+		if diskSize == 0 {
+			diskSize = defaultNodegroupDiskSize(amiType)
+		}
+	}
+
 	asgName := "eks-" + nodegroupName + "-" + stableID(clusterName+"/"+nodegroupName)
 
 	var updateCfg *NodegroupUpdateConfig
@@ -101,7 +127,7 @@ func (b *InMemoryBackend) newNodegroupLocked(
 		DesiredSize:    desiredSize,
 		MinSize:        minSize,
 		MaxSize:        maxSize,
-		DiskSize:       input.DiskSize,
+		DiskSize:       diskSize,
 		Subnets:        cloneStrings(input.Subnets),
 		Labels:         cloneStringMap(input.Labels),
 		Taints:         cloneTaints(input.Taints),

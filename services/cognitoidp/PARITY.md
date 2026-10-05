@@ -1697,3 +1697,7 @@ ListUsers Filter: `=` is exact and `^=` is prefix for every attribute (api_op_Li
 ## 2026-10-03 (gopherstack-taq78 multi-region)
 
 The Resource Groups Tagging API bridge now lists the request region's tagged resources and resolves TagResources/UntagResources by the ARN's region, superseding the earlier home-region-only limitation. Proof: `TestInitializeServices_TaggingBridgeFollowsRegion`.
+
+## 2026-10-05 (gopherstack-uox6 pass 5, value semantics)
+
+UpdateUserPoolClient and UpdateUserPool reset omitted attributes to defaults instead of keeping stale values (api_op_UpdateUserPoolClient.go, api_op_UpdateUserPool.go); CreateUserPoolClient stores RefreshTokenValidity 30 and EnableTokenRevocation true when omitted. Recorded: UpdateUserPool still ignores pool members this backend does not model.

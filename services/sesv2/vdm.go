@@ -34,11 +34,7 @@ func (b *InMemoryBackend) PutAccountVdmAttributes(vdmAttributes map[string]any) 
 	b.mu.Lock("PutAccountVdmAttributes")
 	defer b.mu.Unlock()
 
-	if b.accountDetails == nil {
-		b.accountDetails = &AccountDetails{}
-	}
-
-	b.accountDetails.VdmAttributes = vdmAttributes
+	b.accountLocked().VdmAttributes = vdmAttributes
 
 	return nil
 }

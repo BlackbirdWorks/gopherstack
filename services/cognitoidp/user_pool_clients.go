@@ -3,6 +3,7 @@ package cognitoidp
 import (
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"time"
 )
@@ -237,7 +238,7 @@ func (b *InMemoryBackend) CreateUserPoolClientWithOpts(
 		DefaultRedirectURI:              opts.DefaultRedirectURI,
 		AccessTokenValidity:             opts.AccessTokenValidity,
 		IDTokenValidity:                 opts.IDTokenValidity,
-		RefreshTokenValidity:            opts.RefreshTokenValidity,
+		RefreshTokenValidity:            refreshTokenValidityOrDefault(opts.RefreshTokenValidity),
 		TokenValidityUnits:              tvu,
 		EnableTokenRevocation:           opts.EnableTokenRevocation,
 		AllowedOAuthFlowsUserPoolClient: opts.AllowedOAuthFlowsUserPoolClient,
@@ -254,57 +255,27 @@ func (b *InMemoryBackend) CreateUserPoolClientWithOpts(
 	return &cp, nil
 }
 
-// applyUserPoolClientListOpts copies each non-nil list field from opts onto client,
-// leaving fields the caller omitted (nil) untouched. Split out of
-// UpdateUserPoolClientWithOpts to keep that function's branching within lint limits.
+// defaultRefreshTokenValidity is 30 days (api_op_CreateUserPoolClient.go: RefreshTokenValidity).
+const defaultRefreshTokenValidity = 30
+
+func refreshTokenValidityOrDefault(v int32) int32 {
+	if v == 0 {
+		return defaultRefreshTokenValidity
+	}
+
+	return v
+}
+
+// applyUserPoolClientListOpts overwrites every list field: UpdateUserPoolClient resets omitted attributes to defaults.
 func applyUserPoolClientListOpts(client *UserPoolClient, opts UserPoolClientOptions) {
-	if opts.AllowedOAuthFlows != nil {
-		flows := make([]string, len(opts.AllowedOAuthFlows))
-		copy(flows, opts.AllowedOAuthFlows)
-		client.AllowedOAuthFlows = flows
-	}
-
-	if opts.AllowedOAuthScopes != nil {
-		scopes := make([]string, len(opts.AllowedOAuthScopes))
-		copy(scopes, opts.AllowedOAuthScopes)
-		client.AllowedOAuthScopes = scopes
-	}
-
-	if opts.ExplicitAuthFlows != nil {
-		ef := make([]string, len(opts.ExplicitAuthFlows))
-		copy(ef, opts.ExplicitAuthFlows)
-		client.ExplicitAuthFlows = ef
-	}
-
-	if opts.CallbackURLs != nil {
-		cb := make([]string, len(opts.CallbackURLs))
-		copy(cb, opts.CallbackURLs)
-		client.CallbackURLs = cb
-	}
-
-	if opts.LogoutURLs != nil {
-		lo := make([]string, len(opts.LogoutURLs))
-		copy(lo, opts.LogoutURLs)
-		client.LogoutURLs = lo
-	}
-
-	if opts.SupportedIdentityProviders != nil {
-		idps := make([]string, len(opts.SupportedIdentityProviders))
-		copy(idps, opts.SupportedIdentityProviders)
-		client.SupportedIdentityProviders = idps
-	}
-
-	if opts.ReadAttributes != nil {
-		ra := make([]string, len(opts.ReadAttributes))
-		copy(ra, opts.ReadAttributes)
-		client.ReadAttributes = ra
-	}
-
-	if opts.WriteAttributes != nil {
-		wa := make([]string, len(opts.WriteAttributes))
-		copy(wa, opts.WriteAttributes)
-		client.WriteAttributes = wa
-	}
+	client.AllowedOAuthFlows = slices.Clone(opts.AllowedOAuthFlows)
+	client.AllowedOAuthScopes = slices.Clone(opts.AllowedOAuthScopes)
+	client.ExplicitAuthFlows = slices.Clone(opts.ExplicitAuthFlows)
+	client.CallbackURLs = slices.Clone(opts.CallbackURLs)
+	client.LogoutURLs = slices.Clone(opts.LogoutURLs)
+	client.SupportedIdentityProviders = slices.Clone(opts.SupportedIdentityProviders)
+	client.ReadAttributes = slices.Clone(opts.ReadAttributes)
+	client.WriteAttributes = slices.Clone(opts.WriteAttributes)
 }
 
 // UpdateUserPoolClientWithOpts updates app client fields including OAuth flows and scopes.
@@ -332,9 +303,7 @@ func (b *InMemoryBackend) UpdateUserPoolClientWithOpts(
 		client.ClientName = clientName
 	}
 
-	if opts.DefaultRedirectURI != "" {
-		client.DefaultRedirectURI = opts.DefaultRedirectURI
-	}
+	client.DefaultRedirectURI = opts.DefaultRedirectURI
 
 	applyUserPoolClientListOpts(client, opts)
 
@@ -344,18 +313,10 @@ func (b *InMemoryBackend) UpdateUserPoolClientWithOpts(
 
 	client.EnableTokenRevocation = opts.EnableTokenRevocation
 	client.AllowedOAuthFlowsUserPoolClient = opts.AllowedOAuthFlowsUserPoolClient
-	if opts.AccessTokenValidity != 0 {
-		client.AccessTokenValidity = opts.AccessTokenValidity
-	}
-	if opts.IDTokenValidity != 0 {
-		client.IDTokenValidity = opts.IDTokenValidity
-	}
-	if opts.RefreshTokenValidity != 0 {
-		client.RefreshTokenValidity = opts.RefreshTokenValidity
-	}
-	if opts.TokenValidityUnits != nil {
-		client.TokenValidityUnits = maps.Clone(opts.TokenValidityUnits)
-	}
+	client.AccessTokenValidity = opts.AccessTokenValidity
+	client.IDTokenValidity = opts.IDTokenValidity
+	client.RefreshTokenValidity = refreshTokenValidityOrDefault(opts.RefreshTokenValidity)
+	client.TokenValidityUnits = maps.Clone(opts.TokenValidityUnits)
 	client.UpdatedAt = time.Now()
 	cp := *client
 

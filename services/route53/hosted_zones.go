@@ -25,8 +25,10 @@ const (
 
 func randomZoneID() string { return randomID(zoneIDChars, zoneIDLength) }
 
-// normaliseName ensures the zone/record name ends with a dot.
+// normaliseName lowercases a zone/record name and ensures it ends with a dot, as Route 53 stores them.
 func normaliseName(name string) string {
+	name = strings.ToLower(name)
+
 	if !strings.HasSuffix(name, ".") {
 		return name + "."
 	}

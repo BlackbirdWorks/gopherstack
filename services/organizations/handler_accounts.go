@@ -51,6 +51,7 @@ type accountObject struct {
 	Name                   string   `json:"Name"`
 	Email                  string   `json:"Email"`
 	Status                 string   `json:"Status"`
+	State                  string   `json:"State,omitempty"`
 	JoinedMethod           string   `json:"JoinedMethod"`
 	RoleName               string   `json:"RoleName,omitempty"`
 	IamUserAccessToBilling string   `json:"IamUserAccessToBilling,omitempty"`
@@ -380,6 +381,7 @@ func toAccountObject(a *Account) accountObject {
 		Name:                   a.Name,
 		Email:                  a.Email,
 		Status:                 a.Status,
+		State:                  a.Status,
 		JoinedMethod:           a.JoinedMethod,
 		JoinedAt:               epochSeconds(a.JoinedAt),
 		RoleName:               a.RoleName,

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"strings"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
@@ -26,6 +27,7 @@ func (b *InMemoryBackend) CreateTemplate(tmpl EmailTemplate) error {
 		return limitExceeded("email templates")
 	}
 
+	tmpl.CreatedAt = time.Now().UTC()
 	b.templates.Put(&tmpl)
 
 	return nil
@@ -40,10 +42,12 @@ func (b *InMemoryBackend) UpdateTemplate(tmpl EmailTemplate) error {
 	b.mu.Lock("UpdateTemplate")
 	defer b.mu.Unlock()
 
-	if !b.templates.Has(tmpl.TemplateName) {
+	existing, ok := b.templates.Get(tmpl.TemplateName)
+	if !ok {
 		return fmt.Errorf("%w: %s", ErrTemplateNotFound, tmpl.TemplateName)
 	}
 
+	tmpl.CreatedAt = existing.CreatedAt
 	b.templates.Put(&tmpl)
 
 	return nil

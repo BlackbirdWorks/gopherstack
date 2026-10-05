@@ -46,6 +46,9 @@ const (
 	ClusterTypeServerless = "SERVERLESS"
 )
 
+// brokerAZDistributionDefault is the only value BrokerNodeGroupInfo.BrokerAZDistribution accepts.
+const brokerAZDistributionDefault = "DEFAULT"
+
 const (
 	// EnhancedMonitoringDefault is the default monitoring level.
 	EnhancedMonitoringDefault = "DEFAULT"
@@ -355,15 +358,17 @@ type Cluster struct {
 // must match that contract, not just DescribeConfiguration/CreateConfiguration's
 // own (unrequired) op-level shapes.
 type Configuration struct {
-	Tags             map[string]string      `json:"-"`
-	LatestRevision   *ConfigurationRevision `json:"latestRevision"`
-	Arn              string                 `json:"arn"`
-	Name             string                 `json:"name"`
-	Description      string                 `json:"description"`
-	ServerProperties string                 `json:"serverProperties"`
-	CreationTime     string                 `json:"creationTime"`
-	State            string                 `json:"state"`
-	KafkaVersions    []string               `json:"kafkaVersions"`
+	Tags           map[string]string      `json:"-"`
+	LatestRevision *ConfigurationRevision `json:"latestRevision"`
+	// PriorRevisions holds superseded revisions, oldest first.
+	PriorRevisions   []*ConfigurationRevision `json:"priorRevisions,omitempty"`
+	Arn              string                   `json:"arn"`
+	Name             string                   `json:"name"`
+	Description      string                   `json:"description"`
+	ServerProperties string                   `json:"serverProperties"`
+	CreationTime     string                   `json:"creationTime"`
+	State            string                   `json:"state"`
+	KafkaVersions    []string                 `json:"kafkaVersions"`
 }
 
 // ConfigurationRevision represents a revision of an MSK configuration.

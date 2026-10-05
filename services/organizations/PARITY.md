@@ -609,3 +609,7 @@ both clean after the fix.
 ## 2026-10-03 (gopherstack-uox6 value-semantics pass)
 
 ListHandshakesForAccount/ForOrganization reject a Filter carrying both ActionType and ParentHandshakeId with InvalidInputException (types.HandshakeFilter: "If you specify ParentHandshakeId, you cannot also specify ActionType").
+
+## 2026-10-05 (gopherstack-uox6 pass 5, value semantics)
+
+UpdateOrganizationalUnit with Name omitted no longer blanks the OU name; accounts report State alongside Status.

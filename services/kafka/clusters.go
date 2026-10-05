@@ -53,6 +53,14 @@ func (b *InMemoryBackend) CreateCluster(
 	}
 
 	clusterArn := b.clusterARN(region, name)
+	if brokerInfo.BrokerAZDistribution == "" {
+		brokerInfo.BrokerAZDistribution = brokerAZDistributionDefault
+	}
+
+	if createOpts.EnhancedMonitoring == "" {
+		createOpts.EnhancedMonitoring = EnhancedMonitoringDefault
+	}
+
 	safeInfo := BrokerNodeGroupInfo{
 		BrokerAZDistribution: brokerInfo.BrokerAZDistribution,
 		InstanceType:         brokerInfo.InstanceType,

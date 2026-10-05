@@ -163,7 +163,9 @@ func (b *InMemoryBackend) UpdateOrganizationalUnit(ouID, name string) (*Organiza
 		b.ousByParent[parentID][name] = ouID
 	}
 
-	ou.Name = name
+	if name != "" {
+		ou.Name = name
+	}
 
 	cp := copyOU(ou)
 	cp.Path = b.ouPathLocked(cp)

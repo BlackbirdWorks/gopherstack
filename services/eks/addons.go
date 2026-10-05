@@ -100,6 +100,8 @@ func (b *InMemoryBackend) CreateAddon(
 		addonVersion = defaultAddonVersion(addonName)
 	}
 
+	now := time.Now().UTC()
+
 	addon := &Addon{
 		ClusterName:        clusterName,
 		AddonName:          addonName,
@@ -111,7 +113,8 @@ func (b *InMemoryBackend) CreateAddon(
 		},
 		ServiceAccountRoleARN: serviceAccountRoleARN,
 		Status:                statusCreating,
-		CreatedAt:             time.Now().UTC(),
+		CreatedAt:             now,
+		ModifiedAt:            now,
 		Tags:                  t,
 		Configuration:         configuration,
 		ResolveConflicts:      resolveConflicts,
@@ -262,6 +265,8 @@ func (b *InMemoryBackend) UpdateAddon(
 	if podIdentityAssociations != nil {
 		b.replaceAddonPodIdentityAssociationsLocked(clusterName, addon, *podIdentityAssociations)
 	}
+
+	addon.ModifiedAt = time.Now().UTC()
 
 	cp := *addon
 

@@ -355,24 +355,6 @@ func TestCreateNodegroup_Version_DefaultsToClusterVersion(t *testing.T) {
 	assert.Equal(t, "1.32", ng.Version, "an omitted nodegroup version must default to the cluster's Kubernetes version")
 }
 
-func TestNodegroupDiskSize_Zero_Omitted(t *testing.T) {
-	t.Parallel()
-
-	h := newTestEKSHandler(t)
-	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "c1"})
-	doREST(t, h, http.MethodPost, "/clusters/c1/node-groups", map[string]any{
-		"nodegroupName": "ng-nodisk",
-		"nodeRole":      "arn:aws:iam::123456789012:role/ng",
-		"subnets":       []string{"subnet-abc"},
-		"scalingConfig": map[string]any{"desiredSize": 1, "minSize": 1, "maxSize": 3},
-	})
-
-	rec := doREST(t, h, http.MethodGet, "/clusters/c1/node-groups/ng-nodisk", nil)
-	ng := parseResp(t, rec)["nodegroup"].(map[string]any)
-	_, hasDisk := ng["diskSize"]
-	assert.False(t, hasDisk, "diskSize must be absent when zero")
-}
-
 func TestNodegroupASG_PresentOnDescribe(t *testing.T) {
 	t.Parallel()
 

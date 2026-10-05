@@ -738,3 +738,7 @@ Audited for region isolation: same-named resources in two regions coexist and li
 ## 2026-10-05 (reqfielddiff tier-2 pagination)
 
 ListNodes, ListKafkaVersions, ListScramSecrets, ListVpcConnections, ListClientVpcConnections, ListClusterOperations and ListClusterOperationsV2 now honour maxResults/nextToken (`kafkaPage`, handler_paging.go) and ListReplicators applies ReplicatorNameFilter as a name prefix (api_op_ListReplicators.go:40). Proof: `TestList_HonoursMaxResultsAndNextToken`, `TestListReplicators_NameFilterIsPrefix`. Supersedes the earlier "nextToken unmodeled" disclosure for ListKafkaVersions/ListNodes.
+
+## 2026-10-05 (gopherstack-uox6 pass 5, value semantics)
+
+UpdateConfiguration creates a new revision (LatestRevision, ListConfigurationRevisions and DescribeConfigurationRevision keep history); CreateCluster stores EnhancedMonitoring DEFAULT and BrokerAZDistribution DEFAULT when omitted (types.BrokerNodeGroupInfo).

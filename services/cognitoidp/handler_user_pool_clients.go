@@ -101,7 +101,7 @@ func (h *Handler) handleCreateUserPoolClientWithOpts(
 		ReadAttributes:                  in.ReadAttributes,
 		WriteAttributes:                 in.WriteAttributes,
 		GenerateSecret:                  in.GenerateSecret,
-		EnableTokenRevocation:           in.EnableTokenRevocation,
+		EnableTokenRevocation:           tokenRevocationOrDefault(in.EnableTokenRevocation),
 		AllowedOAuthFlowsUserPoolClient: in.AllowedOAuthFlowsUserPoolClient,
 		AccessTokenValidity:             in.AccessTokenValidity,
 		IDTokenValidity:                 in.IDTokenValidity,
@@ -132,7 +132,7 @@ func (h *Handler) handleUpdateUserPoolClientWithOpts(
 		WriteAttributes:                 in.WriteAttributes,
 		PreventUserExistenceErrors:      in.PreventUserExistenceErrors,
 		DefaultRedirectURI:              in.DefaultRedirectURI,
-		EnableTokenRevocation:           in.EnableTokenRevocation,
+		EnableTokenRevocation:           tokenRevocationOrDefault(in.EnableTokenRevocation),
 		AllowedOAuthFlowsUserPoolClient: in.AllowedOAuthFlowsUserPoolClient,
 		AccessTokenValidity:             in.AccessTokenValidity,
 		IDTokenValidity:                 in.IDTokenValidity,
@@ -239,4 +239,9 @@ func (h *Handler) userPoolClientsOpsC() map[string]service.JSONOpFunc {
 		opDescribeUserPoolClient: wrapAccuracy(h.handleDescribeUserPoolClientAccurate),
 		opListUserPoolClients:    wrapAccuracy(h.handleListUserPoolClientsAccurate),
 	}
+}
+
+// tokenRevocationOrDefault applies the documented default: revocation is on unless disabled.
+func tokenRevocationOrDefault(v *bool) bool {
+	return v == nil || *v
 }

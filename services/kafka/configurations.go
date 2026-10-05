@@ -7,20 +7,22 @@ import (
 	"time"
 )
 
-// revisionOf builds the ConfigurationRevision snapshot for c's current
-// (and, in this stub, only) revision. Real MSK bumps the revision number on
-// every UpdateConfiguration call; this backend keeps the single-revision
-// simplification ListConfigurationRevisions/DescribeConfigurationRevision's
-// doc comments already documented before this fix, so revision is always 1
-// and CreationTime mirrors the configuration's own (not the revision's own,
-// distinct in real MSK) creation time.
+// revisionOf snapshots c's current state as its latest revision (number 1 until updated).
 func revisionOf(c *Configuration) *ConfigurationRevision {
+	number := int64(1)
+	creationTime := c.CreationTime
+
+	if c.LatestRevision != nil {
+		number = c.LatestRevision.Revision
+		creationTime = c.LatestRevision.CreationTime
+	}
+
 	return &ConfigurationRevision{
 		ConfigurationArn: c.Arn,
-		Revision:         1,
+		Revision:         number,
 		Description:      c.Description,
 		ServerProperties: c.ServerProperties,
-		CreationTime:     c.CreationTime,
+		CreationTime:     creationTime,
 	}
 }
 
@@ -118,7 +120,6 @@ func (b *InMemoryBackend) DeleteConfiguration(_ context.Context, configArn strin
 }
 
 // DescribeConfigurationRevision retrieves a configuration revision.
-// In this stub, revision 1 always refers to the current configuration state.
 func (b *InMemoryBackend) DescribeConfigurationRevision(
 	_ context.Context,
 	configArn string,
@@ -132,10 +133,19 @@ func (b *InMemoryBackend) DescribeConfigurationRevision(
 		return nil, ErrNotFound
 	}
 
-	rev := revisionOf(c)
-	rev.Revision = revision
+	for _, r := range c.PriorRevisions {
+		if r.Revision == revision {
+			cp := *r
 
-	return rev, nil
+			return &cp, nil
+		}
+	}
+
+	if latest := revisionOf(c); latest.Revision == revision {
+		return latest, nil
+	}
+
+	return nil, ErrNotFound
 }
 
 // UpdateConfiguration updates a configuration's server properties and description.
@@ -151,6 +161,9 @@ func (b *InMemoryBackend) UpdateConfiguration(
 		return nil, ErrNotFound
 	}
 
+	prev := revisionOf(c)
+	c.PriorRevisions = append(c.PriorRevisions, prev)
+
 	if description != "" {
 		c.Description = description
 	}
@@ -160,12 +173,14 @@ func (b *InMemoryBackend) UpdateConfiguration(
 	}
 
 	c.LatestRevision = revisionOf(c)
+	c.LatestRevision.Revision = prev.Revision + 1
+	c.LatestRevision.CreationTime = time.Now().UTC().Format(time.RFC3339)
 
 	return cloneConfiguration(c), nil
 }
 
 // ListConfigurationRevisions lists revisions for a configuration.
-// In this stub, every configuration has a single revision (revision 1).
+// Revisions are returned oldest first, ending with the latest.
 func (b *InMemoryBackend) ListConfigurationRevisions(
 	_ context.Context,
 	configArn string,
@@ -178,7 +193,13 @@ func (b *InMemoryBackend) ListConfigurationRevisions(
 		return nil, ErrNotFound
 	}
 
-	return []*ConfigurationRevision{revisionOf(c)}, nil
+	revs := make([]*ConfigurationRevision, 0, len(c.PriorRevisions)+1)
+	for _, r := range c.PriorRevisions {
+		cp := *r
+		revs = append(revs, &cp)
+	}
+
+	return append(revs, revisionOf(c)), nil
 }
 
 func (b *InMemoryBackend) AddConfigurationInternal(name string) *Configuration {

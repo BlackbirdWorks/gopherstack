@@ -186,20 +186,6 @@ func TestKubernetesNetworkConfig_IPv6(t *testing.T) {
 	assert.Equal(t, "fd00::/112", c.KubernetesNetworkConfig.ServiceIPv6CIDR)
 }
 
-func TestKubernetesNetworkConfig_Absent_When_Not_Provided(t *testing.T) {
-	t.Parallel()
-
-	h := newTestEKSHandler(t)
-	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "plain"})
-
-	rec := doREST(t, h, http.MethodGet, "/clusters/plain", nil)
-	resp := parseResp(t, rec)
-	cluster := resp["cluster"].(map[string]any)
-
-	_, hasNet := cluster["kubernetesNetworkConfig"]
-	assert.False(t, hasNet)
-}
-
 func TestCluster_CreateAndDescribe_AllNewFields(t *testing.T) {
 	t.Parallel()
 

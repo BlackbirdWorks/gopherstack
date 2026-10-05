@@ -852,3 +852,7 @@ ListHostedZonesByName and ListResourceRecordSets now order by reversed labels (`
 ## 2026-10-05 (reqfielddiff tier-2 pagination)
 
 ListQueryLoggingConfigs now reads `maxresults`/`nexttoken` (default 100, api_op_ListQueryLoggingConfigs.go:53) and emits NextToken; this closes the 2026-08-29 disclosed gap. Proof: `TestListQueryLoggingConfigs_Pagination`.
+
+## 2026-10-05 (gopherstack-uox6 pass 5, value semantics)
+
+Hosted zone, record and alias names are stored lowercase with a trailing dot; CreateHealthCheck stores RequestInterval 30 and FailureThreshold 3 for endpoint checks when omitted (types.HealthCheckConfig). Recorded: wildcard labels are not returned in the escaped \052 form.

@@ -82,6 +82,10 @@ func addonToJSON(a *Addon) map[string]any {
 		"addonVersion": a.AddonVersion,
 	}
 
+	if !a.ModifiedAt.IsZero() {
+		m["modifiedAt"] = a.ModifiedAt.Unix()
+	}
+
 	if a.Tags != nil {
 		m["tags"] = a.Tags.Clone()
 	} else {

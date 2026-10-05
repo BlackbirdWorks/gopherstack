@@ -553,3 +553,7 @@ SendBounce now records the bounce as a captured Email (retrievable by the return
 ## 2026-10-05 errcodeaudit note (gopherstack-r3pr)
 
 - ErrEmailNotFound ("EmailNotFound") comes from GetEmailByID, which no handler routes; never written to the wire (dead sentinel, tool false positive).
+
+## 2026-10-05 (gopherstack-uox6 pass 5, value semantics)
+
+ListTemplates reports TemplateMetadata.CreatedTimestamp, set at CreateTemplate and kept across UpdateTemplate.

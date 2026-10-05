@@ -236,11 +236,11 @@ func clusterTagsMap(c *Cluster) map[string]string {
 }
 
 type vpcConfigJSON struct {
+	EndpointPublicAccess  *bool    `json:"endpointPublicAccess"`
 	SubnetIDs             []string `json:"subnetIds"`
 	SecurityGroupIDs      []string `json:"securityGroupIds"`
 	PublicAccessCIDRs     []string `json:"publicAccessCidrs"`
 	EndpointPrivateAccess bool     `json:"endpointPrivateAccess"`
-	EndpointPublicAccess  bool     `json:"endpointPublicAccess"`
 }
 
 type kubernetesNetworkConfigJSON struct {
@@ -315,7 +315,11 @@ func (h *Handler) handleCreateCluster(c *echo.Context, body []byte) error {
 			SecurityGroupIDs:      in.ResourcesVpcConfig.SecurityGroupIDs,
 			PublicAccessCIDRs:     in.ResourcesVpcConfig.PublicAccessCIDRs,
 			EndpointPrivateAccess: in.ResourcesVpcConfig.EndpointPrivateAccess,
-			EndpointPublicAccess:  in.ResourcesVpcConfig.EndpointPublicAccess,
+			EndpointPublicAccess: in.ResourcesVpcConfig.EndpointPublicAccess == nil ||
+				*in.ResourcesVpcConfig.EndpointPublicAccess,
+		}
+		if len(vpcCfg.PublicAccessCIDRs) == 0 {
+			vpcCfg.PublicAccessCIDRs = []string{defaultPublicAccessCIDR}
 		}
 	}
 
@@ -334,6 +338,8 @@ func (h *Handler) handleCreateCluster(c *echo.Context, body []byte) error {
 			}
 		}
 	}
+
+	netCfg = withNetworkDefaults(netCfg)
 
 	return h.withIdempotency(c, opCreateCluster, in.ClientRequestToken, body, func() (int, any, error) {
 		cluster, err := h.Backend.CreateCluster(
@@ -486,4 +492,27 @@ func (h *Handler) handleDescribeClusterVersions(c *echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{
 		"clusterVersions": versions,
 	})
+}
+
+const (
+	defaultPublicAccessCIDR = "0.0.0.0/0"
+	defaultServiceIPv4CIDR  = "10.100.0.0/16"
+	ipFamilyIPv4            = "ipv4"
+)
+
+// withNetworkDefaults applies the documented ipFamily default (ipv4) and its service CIDR.
+func withNetworkDefaults(cfg *KubernetesNetworkConfig) *KubernetesNetworkConfig {
+	if cfg == nil {
+		cfg = &KubernetesNetworkConfig{}
+	}
+
+	if cfg.IPFamily == "" {
+		cfg.IPFamily = ipFamilyIPv4
+	}
+
+	if cfg.IPFamily == ipFamilyIPv4 && cfg.ServiceIPv4CIDR == "" {
+		cfg.ServiceIPv4CIDR = defaultServiceIPv4CIDR
+	}
+
+	return cfg
 }

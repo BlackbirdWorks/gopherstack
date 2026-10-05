@@ -119,23 +119,23 @@ type clientDataAccurate struct {
 
 type createUserPoolClientWithOptsInput struct {
 	TokenValidityUnits              map[string]string `json:"TokenValidityUnits,omitempty"`
+	EnableTokenRevocation           *bool             `json:"EnableTokenRevocation,omitempty"`
 	UserPoolID                      string            `json:"UserPoolId,omitempty"`
 	ClientName                      string            `json:"ClientName,omitempty"`
 	PreventUserExistenceErrors      string            `json:"PreventUserExistenceErrors,omitempty"`
 	DefaultRedirectURI              string            `json:"DefaultRedirectURI,omitempty"`
-	AllowedOAuthFlows               []string          `json:"AllowedOAuthFlows,omitempty"`
-	AllowedOAuthScopes              []string          `json:"AllowedOAuthScopes,omitempty"`
-	ExplicitAuthFlows               []string          `json:"ExplicitAuthFlows,omitempty"`
 	CallbackURLs                    []string          `json:"CallbackURLs,omitempty"`
+	ExplicitAuthFlows               []string          `json:"ExplicitAuthFlows,omitempty"`
+	AllowedOAuthScopes              []string          `json:"AllowedOAuthScopes,omitempty"`
 	LogoutURLs                      []string          `json:"LogoutURLs,omitempty"`
 	SupportedIdentityProviders      []string          `json:"SupportedIdentityProviders,omitempty"`
 	ReadAttributes                  []string          `json:"ReadAttributes,omitempty"`
 	WriteAttributes                 []string          `json:"WriteAttributes,omitempty"`
+	AllowedOAuthFlows               []string          `json:"AllowedOAuthFlows,omitempty"`
 	AccessTokenValidity             int32             `json:"AccessTokenValidity,omitempty"`
 	IDTokenValidity                 int32             `json:"IdTokenValidity,omitempty"`
 	RefreshTokenValidity            int32             `json:"RefreshTokenValidity,omitempty"`
 	GenerateSecret                  bool              `json:"GenerateSecret,omitempty"`
-	EnableTokenRevocation           bool              `json:"EnableTokenRevocation,omitempty"`
 	AllowedOAuthFlowsUserPoolClient bool              `json:"AllowedOAuthFlowsUserPoolClient,omitempty"`
 }
 
@@ -145,23 +145,23 @@ type createUserPoolClientWithOptsOutput struct {
 
 type updateUserPoolClientWithOptsInput struct {
 	TokenValidityUnits              map[string]string `json:"TokenValidityUnits,omitempty"`
+	EnableTokenRevocation           *bool             `json:"EnableTokenRevocation,omitempty"`
 	UserPoolID                      string            `json:"UserPoolId,omitempty"`
 	ClientID                        string            `json:"ClientId,omitempty"`
 	ClientName                      string            `json:"ClientName,omitempty"`
 	PreventUserExistenceErrors      string            `json:"PreventUserExistenceErrors,omitempty"`
 	DefaultRedirectURI              string            `json:"DefaultRedirectURI,omitempty"`
-	AllowedOAuthFlows               []string          `json:"AllowedOAuthFlows,omitempty"`
-	AllowedOAuthScopes              []string          `json:"AllowedOAuthScopes,omitempty"`
 	ExplicitAuthFlows               []string          `json:"ExplicitAuthFlows,omitempty"`
+	AllowedOAuthScopes              []string          `json:"AllowedOAuthScopes,omitempty"`
 	CallbackURLs                    []string          `json:"CallbackURLs,omitempty"`
 	LogoutURLs                      []string          `json:"LogoutURLs,omitempty"`
 	SupportedIdentityProviders      []string          `json:"SupportedIdentityProviders,omitempty"`
 	ReadAttributes                  []string          `json:"ReadAttributes,omitempty"`
 	WriteAttributes                 []string          `json:"WriteAttributes,omitempty"`
+	AllowedOAuthFlows               []string          `json:"AllowedOAuthFlows,omitempty"`
 	AccessTokenValidity             int32             `json:"AccessTokenValidity,omitempty"`
 	IDTokenValidity                 int32             `json:"IdTokenValidity,omitempty"`
 	RefreshTokenValidity            int32             `json:"RefreshTokenValidity,omitempty"`
-	EnableTokenRevocation           bool              `json:"EnableTokenRevocation,omitempty"`
 	AllowedOAuthFlowsUserPoolClient bool              `json:"AllowedOAuthFlowsUserPoolClient,omitempty"`
 }
 

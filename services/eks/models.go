@@ -369,6 +369,7 @@ type AddonHealth struct {
 // Addon represents an EKS managed add-on.
 type Addon struct {
 	CreatedAt               time.Time    `json:"createdAt"`
+	ModifiedAt              time.Time    `json:"modifiedAt,omitzero"`
 	Health                  *AddonHealth `json:"health,omitempty"`
 	Tags                    *tags.Tags   `json:"tags,omitempty"`
 	ARN                     string       `json:"addonArn"`
