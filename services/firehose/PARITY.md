@@ -726,3 +726,7 @@ UpdateDestination merges same-type updates onto the stored destination, so omitt
 ## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
 
 ProcessingFailed (transform.go:30) is a per-record result value in a success response, not an error code.
+
+## 2026-10-05 (secret-leak audit)
+
+DescribeDeliveryStream no longer echoes HttpEndpointConfiguration.AccessKey: the SDK's HttpEndpointDescription has only Name and Url (types.go:1752). The key is still stored and sent as X-Amz-Firehose-Access-Key on delivery. Proof: `TestDescribeDeliveryStream_HTTPEndpointOmitsAccessKey`.

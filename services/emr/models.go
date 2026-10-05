@@ -1,6 +1,7 @@
 package emr
 
 import (
+	"encoding/json"
 	"time"
 )
 
@@ -570,10 +571,21 @@ type EC2InstanceAttributes struct {
 // enabled using a security configuration.
 type KerberosAttributes struct {
 	Realm                            string `json:"Realm"`
-	KdcAdminPassword                 string `json:"KdcAdminPassword"`
+	KdcAdminPassword                 string `json:"KdcAdminPassword,omitempty"`
 	ADDomainJoinUser                 string `json:"ADDomainJoinUser,omitempty"`
 	ADDomainJoinPassword             string `json:"ADDomainJoinPassword,omitempty"`
 	CrossRealmTrustPrincipalPassword string `json:"CrossRealmTrustPrincipalPassword,omitempty"`
+}
+
+// MarshalJSON drops the passwords; DescribeCluster never returns them and nothing reads them back.
+func (k KerberosAttributes) MarshalJSON() ([]byte, error) {
+	type plain KerberosAttributes
+
+	k.KdcAdminPassword = ""
+	k.ADDomainJoinPassword = ""
+	k.CrossRealmTrustPrincipalPassword = ""
+
+	return json.Marshal(plain(k))
 }
 
 // PlacementGroupConfig is the placement group configuration for a single

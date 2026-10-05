@@ -878,3 +878,7 @@ RunJobFlow defaults VisibleToAllUsers true (api_op_RunJobFlow.go:283), RepoUpgra
 ## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
 
 ClientException is a sentinel text only; handler.go:343-346 writes InvalidRequestException.
+
+## 2026-10-05 (secret-leak audit)
+
+KerberosAttributes passwords (KdcAdminPassword, ADDomainJoinPassword, CrossRealmTrustPrincipalPassword) are no longer echoed on DescribeCluster or written to snapshots (`KerberosAttributes.MarshalJSON`); nothing reads them back. The shared SDK type marks KdcAdminPassword required on input, but AWS does not return it on Describe (the Terraform provider preserves it from config for the same reason) -- this is a recollection, not SDK-verified. Proof: `TestDescribeCluster_KerberosAttributesOmitPasswords`.
