@@ -570,7 +570,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [SES v2](services/sesv2/README.md) | A | 112 | 3 gaps |
 | [SNS](services/sns/README.md) | A | 34 | 2 gaps; 1 deferred |
 | [SQS](services/sqs/README.md) | A | 20 | 3 gaps |
-| [SWF](services/swf/README.md) | A | 39 | 4 gaps |
+| [SWF](services/swf/README.md) | A | 39 | 5 gaps |
 | [Step Functions](services/stepfunctions/README.md) | A | 37 | 9 gaps |
 | [WorkMail](services/workmail/README.md) | A | 92 | 5 gaps |
 
@@ -609,7 +609,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Secrets Manager](services/secretsmanager/README.md) | A | 24 | 3 gaps; 2 deferred |
 | [Security Hub](services/securityhub/README.md) | A | 116 | 5 gaps |
 | [Shield](services/shield/README.md) | A | 36 | 2 gaps; 1 deferred |
-| [Verified Permissions](services/verifiedpermissions/README.md) | A | 34 | 5 gaps |
+| [Verified Permissions](services/verifiedpermissions/README.md) | A | 34 | 6 gaps |
 | [WAF](services/waf/README.md) | A | 4 | 2 gaps; 2 structural gaps |
 | [WAFv2](services/wafv2/README.md) | A | 59 | 3 gaps; 1 structural gap |
 
@@ -681,7 +681,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [SageMaker Runtime](services/sagemakerruntime/README.md) | A | 3 | 3 gaps |
 | [Textract](services/textract/README.md) | A | 25 | 2 gaps; 1 structural gap; 1 deferred |
 | [Transcribe](services/transcribe/README.md) | A | 43 | 3 gaps |
-| [Translate](services/translate/README.md) | A | 19 | 3 gaps |
+| [Translate](services/translate/README.md) | A | 19 | 2 gaps |
 
 ### Media
 

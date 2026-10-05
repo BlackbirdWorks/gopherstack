@@ -9,12 +9,13 @@
 | --- | --- |
 | PARITY entries audited | 39 (37 ok, 2 partial) |
 | Feature families | 3 (2 ok, 1 partial) |
-| Known gaps | 4 |
+| Known gaps | 5 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
+- RespondDecisionTaskCompleted.TaskList and TaskListScheduleToStartTimeout (sticky decision tasks) are accepted but not applied; sticky task lists are not modeled.
 - (2026-09-18) TaskStartToCloseTimeout and every activity-task timeout kind (ScheduleToStart/ScheduleToClose/StartToClose/Heartbeat) remain unenforced -- accepted, stored, echoed on Describe, never acted on. Deliberate scope limit: DecisionTaskTimedOut/ActivityTaskTimedOut close the *task* and re-enqueue, a materially different mechanism than the execution-closing sweep this service already has for EXECUTION_START_TO_CLOSE and TimerFired. (bd: TODO)
 - (2026-09-18) ScheduleLambdaFunction decision type and openLambdaFunctions are not implemented -- SWF Lambda task support is out of scope for this service (no Lambda cross-service wiring exists).
 - (2026-09-18) ListActivityTypes/ListWorkflowTypes/ListDomains's RegistrationStatus is documented required but an empty value is accepted as no-filter server-side -- moot in practice: the pinned SDK's own client-side validateOpListActivityTypesInput/etc. reject an empty RegistrationStatus before any request is sent, so no real typed client can ever reach this code path.
