@@ -608,3 +608,7 @@ issues.
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 managedblockchain is region-isolated: networks, members, nodes and proposals live per region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/managedblockchain`. Limitation: the dashboard shows the home region only. The tagging bridge lists the request region and resolves Tag/Untag by ARN region. `TestHandler_MultiRegionReset` covers Reset.
+
+## 2026-10-05 (gopherstack-uox6 pass 10, value semantics)
+
+Round trips clean. Recorded, unchanged: UpdateMember/UpdateNode replace the whole LogPublishingConfiguration rather than merging Fabric sub-blocks; the SDK is silent on merge behaviour.

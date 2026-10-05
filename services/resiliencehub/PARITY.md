@@ -1121,3 +1121,7 @@ resiliencehub is region-isolated: apps, resiliency policies and assessments live
 ## 2026-10-05 (reqfielddiff tier-2 pagination)
 
 ListAppComponentCompliances now pages (name-sorted, body-bound maxResults/nextToken, `pageOf` in pagination.go). ListAlarmRecommendations, ListSopRecommendations, ListTestRecommendations, ListAppComponentRecommendations, ListAppAssessmentComplianceDrifts, ListAppAssessmentResourceDrifts, ListMetrics and ListResourceGroupingRecommendations are always-empty by design (no assessment, drift, metrics or grouping engine) and are recorded as such; they now reject a negative maxResults or a malformed nextToken with ValidationException instead of ignoring them. Proof: `TestRealClient_ListOpsPageAndRejectBadPaging`.
+
+## 2026-10-05 (gopherstack-uox6 pass 10, value semantics)
+
+UpdateApp and UpdateResiliencyPolicy distinguish an explicit empty Description/PolicyDescription (clears) from an omitted one (api_op_UpdateApp.go:47, *string members). Proof: `TestUpdateApp_DescriptionExplicitEmptyClears`.

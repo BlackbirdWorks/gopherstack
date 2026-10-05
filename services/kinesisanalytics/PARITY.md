@@ -493,3 +493,7 @@ Added `leak_main_test.go` (goleak TestMain). No leak found.
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 kinesisanalytics already isolates regions internally: applications live per region (applications are keyed by region and name). Proof: `TestRegionIsolation/kinesisanalytics`; no sibling handlers needed.
+
+## 2026-10-05 (gopherstack-uox6 pass 10, value semantics)
+
+UpdateApplication Kinesis stream/firehose/lambda input, output, processor and S3 reference updates keep whichever ARN or role the request omits (ResourceARNUpdate/RoleARNUpdate are independently optional, types.go:710). Proof: `TestUpdateApplication_OutputUpdateKeepsOmittedARN`.

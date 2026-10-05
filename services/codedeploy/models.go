@@ -284,6 +284,10 @@ type DeploymentGroupInput struct {
 	ECSServices                      []ECSService
 	Ec2TagFilters                    []TagFilter
 	TerminationHookEnabled           bool
+	TerminationHookEnabledSet        bool
+	AutoScalingGroupsSet             bool
+	TriggerConfigurationsSet         bool
+	ECSServicesSet                   bool
 }
 
 // DeploymentOptions holds optional per-deployment settings.

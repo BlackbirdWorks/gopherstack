@@ -710,3 +710,7 @@ DescribeMountTargets requires one of FileSystemId, MountTargetId or AccessPointI
 ## 2026-10-04 (reqfielddiff tier-1 pass)
 
 ListTagsForResource now honours MaxResults (default 100) and NextToken (api_op_ListTagsForResource.go), superseding the earlier "bounded 50-tag cap, ignored" note. DeleteReplicationConfiguration validates deletionMode (ALL_CONFIGURATIONS / LOCAL_CONFIGURATION_ONLY) and rejects LOCAL_CONFIGURATION_ONLY for same-account, same-region replication with BadRequest, as documented; there is still no destination-side configuration to leave behind for cross-region/account. DescribeAccountPreferences.MaxResults stays structurally non-paginated (a single ResourceIdPreference object). Proof: `TestListTagsForResource_Pagination`, `TestDeleteReplicationConfiguration_DeletionMode`.
+
+## 2026-10-05 (gopherstack-uox6 pass 10, value semantics)
+
+UpdateFileSystem leaving provisioned throughput mode now clears ProvisionedThroughputInMibps ("Valid for file systems using ThroughputMode set to provisioned", types.go:332). Proof: `TestUpdateFileSystem_LeavingProvisionedClearsThroughput`. Recorded, unchanged: an access point created without RootDirectory reports none; the "/" default is API-docs-only.

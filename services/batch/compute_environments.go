@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"slices"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -275,11 +277,84 @@ func (b *InMemoryBackend) DescribeComputeEnvironments(
 	)
 }
 
+// ComputeResourcesUpdate mirrors types.ComputeResourceUpdate: nil members are left unchanged.
+type ComputeResourcesUpdate struct {
+	Tags               map[string]string
+	LaunchTemplate     *LaunchTemplate
+	AllocationStrategy *string
+	InstanceRole       *string
+	Ec2KeyPair         *string
+	ImageID            *string
+	PlacementGroup     *string
+	MinvCpus           *int32
+	MaxvCpus           *int32
+	DesiredvCpus       *int32
+	BidPercentage      *int32
+	InstanceTypes      []string
+	Subnets            []string
+	SecurityGroupIDs   []string
+	Ec2Configuration   []Ec2Configuration
+}
+
+func (u *ComputeResourcesUpdate) apply(cur *ComputeResources) *ComputeResources {
+	var cr ComputeResources
+	if cur != nil {
+		cr = *cloneComputeResources(cur)
+	}
+
+	// SDK: an empty Fargate subnet/security-group list means no change.
+	fargate := strings.HasPrefix(cr.Type, "FARGATE")
+
+	setStr := func(dst *string, v *string) {
+		if v != nil {
+			*dst = *v
+		}
+	}
+	setInt := func(dst *int32, v *int32) {
+		if v != nil {
+			*dst = *v
+		}
+	}
+	setList := func(dst *[]string, v []string) {
+		if v != nil && (!fargate || len(v) > 0) {
+			*dst = slices.Clone(v)
+		}
+	}
+
+	setStr(&cr.AllocationStrategy, u.AllocationStrategy)
+	setStr(&cr.InstanceRole, u.InstanceRole)
+	setStr(&cr.Ec2KeyPair, u.Ec2KeyPair)
+	setStr(&cr.ImageID, u.ImageID)
+	setStr(&cr.PlacementGroup, u.PlacementGroup)
+	setInt(&cr.MinvCpus, u.MinvCpus)
+	setInt(&cr.MaxvCpus, u.MaxvCpus)
+	setInt(&cr.DesiredvCpus, u.DesiredvCpus)
+	setInt(&cr.BidPercentage, u.BidPercentage)
+	setList(&cr.InstanceTypes, u.InstanceTypes)
+	setList(&cr.Subnets, u.Subnets)
+	setList(&cr.SecurityGroupIDs, u.SecurityGroupIDs)
+
+	if u.Tags != nil {
+		cr.Tags = maps.Clone(u.Tags)
+	}
+
+	if u.LaunchTemplate != nil {
+		lt := *u.LaunchTemplate
+		cr.LaunchTemplate = &lt
+	}
+
+	if u.Ec2Configuration != nil {
+		cr.Ec2Configuration = slices.Clone(u.Ec2Configuration)
+	}
+
+	return &cr
+}
+
 // UpdateComputeEnvironment updates the state, service role, compute resources, and/or update policy.
 func (b *InMemoryBackend) UpdateComputeEnvironment(
 	ctx context.Context,
 	nameOrARN, state, serviceRole string,
-	computeResources *ComputeResources,
+	computeResources *ComputeResourcesUpdate,
 	updatePolicy *UpdatePolicy,
 	unmanagedvCpus *int32,
 ) (*ComputeEnvironment, error) {
@@ -306,7 +381,7 @@ func (b *InMemoryBackend) UpdateComputeEnvironment(
 	}
 
 	if computeResources != nil {
-		ce.ComputeResources = cloneComputeResources(computeResources)
+		ce.ComputeResources = computeResources.apply(ce.ComputeResources)
 	}
 
 	if updatePolicy != nil {

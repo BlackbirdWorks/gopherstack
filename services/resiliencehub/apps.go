@@ -109,8 +109,8 @@ func (b *InMemoryBackend) UpdateApp(appArn string, req *updateAppRequest) (*App,
 		}
 	}
 
-	if req.Description != "" {
-		a.Description = req.Description
+	if req.Description != nil {
+		a.Description = *req.Description
 	}
 
 	if req.AssessmentSchedule != "" {

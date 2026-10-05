@@ -306,3 +306,7 @@ dimension QueueName only) via the shared `pkgs/cwmetric` emitter. Published: Num
 NumberOfMessagesReceived, NumberOfMessagesDeleted, NumberOfEmptyReceives (Count), SentMessageSize
 (Bytes), and the ApproximateNumberOfMessagesVisible/NotVisible/Delayed gauges (Count) sampled for
 every queue on each janitor tick.
+
+## 2026-10-05 (gopherstack-uox6 pass 10, value semantics)
+
+SetQueueAttributes partial updates keep unrelated attributes. Proof: `TestSetQueueAttributes_PartialUpdateKeepsRest`. Recorded, unchanged: an empty attribute value unsets the attribute (SDK silent).

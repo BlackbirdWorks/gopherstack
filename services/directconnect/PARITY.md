@@ -912,3 +912,7 @@ directconnect is region-isolated: connections, LAGs, interconnects, virtual inte
 ## 2026-10-04 (gopherstack-uox6 value-semantics)
 
 MaxResults above 100 is capped at 100 ("only 100 results are returned", api_op_DescribeConnections.go:36). Previously honoured as given.
+
+## 2026-10-05 (gopherstack-uox6 pass 10, value semantics)
+
+Round trips clean. Recorded, unchanged: UpdateLag cannot set MinimumLinks to 0 because the SDK field is a non-pointer int32 and omits zero on the wire.

@@ -715,6 +715,8 @@ type applicationConfigFields struct {
 // applicationConfigFields, used to size the map toMap builds.
 const applicationConfigFieldCount = 14
 
+const defaultIdleTimeoutMinutes = 15
+
 // toMap returns the subset of fields present in the request, keyed by their
 // AWS wire field name, ready to merge into Application.ExtraConfig.
 func (f applicationConfigFields) toMap() map[string]any {
@@ -772,6 +774,8 @@ func (h *Handler) handleCreateApplication(c *echo.Context, body []byte) error {
 	if err := validateAutoStopConfig(extra); err != nil {
 		return h.handleError(c, err)
 	}
+
+	applyAutoConfigDefaults(extra, true)
 
 	app, err := h.Backend.CreateApplication(in.Name, in.Type, in.ReleaseLabel, in.Architecture, in.Tags,
 		CreateApplicationOptions{ClientToken: in.ClientToken, ExtraConfig: extra})
@@ -833,6 +837,36 @@ func (h *Handler) handleListApplications(c *echo.Context) error {
 type updateApplicationBody struct {
 	applicationConfigFields
 	ReleaseLabel string `json:"releaseLabel"`
+	Architecture string `json:"architecture"`
+}
+
+// applyAutoConfigDefaults fills types.AutoStartConfig/AutoStopConfig's documented defaults (enabled true, idle 15 min).
+// With whenAbsent, a missing sub-object is created too.
+func applyAutoConfigDefaults(extra map[string]any, whenAbsent bool) {
+	fill := func(key string, defaults map[string]any) {
+		raw, present := extra[key]
+		if !present {
+			if whenAbsent {
+				extra[key] = defaults
+			}
+
+			return
+		}
+
+		cfg, ok := raw.(map[string]any)
+		if !ok {
+			return
+		}
+
+		for k, v := range defaults {
+			if _, set := cfg[k]; !set {
+				cfg[k] = v
+			}
+		}
+	}
+
+	fill("autoStartConfiguration", map[string]any{"enabled": true})
+	fill("autoStopConfiguration", map[string]any{"enabled": true, "idleTimeoutMinutes": defaultIdleTimeoutMinutes})
 }
 
 func (h *Handler) handleUpdateApplication(c *echo.Context, applicationID string, body []byte) error {
@@ -848,9 +882,15 @@ func (h *Handler) handleUpdateApplication(c *echo.Context, applicationID string,
 		return h.handleError(c, err)
 	}
 
+	applyAutoConfigDefaults(extra, false)
+
 	app, err := h.Backend.UpdateApplication(applicationID, func(a *Application) {
 		if in.ReleaseLabel != "" {
 			a.ReleaseLabel = in.ReleaseLabel
+		}
+
+		if in.Architecture != "" {
+			a.Architecture = in.Architecture
 		}
 
 		if len(extra) > 0 {

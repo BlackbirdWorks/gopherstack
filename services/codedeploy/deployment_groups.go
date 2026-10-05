@@ -116,12 +116,28 @@ func (b *InMemoryBackend) UpdateDeploymentGroup(
 
 	// Track whether hooks/alarms were previously configured and are now being removed.
 	hooksNotCleanedUp := dg.AlarmConfiguration != nil && dg.AlarmConfiguration.Enabled &&
-		(input.AlarmConfiguration == nil || !input.AlarmConfiguration.Enabled)
+		input.AlarmConfiguration != nil && !input.AlarmConfiguration.Enabled
 
-	if len(dg.TriggerConfigurations) > 0 && len(input.TriggerConfigurations) == 0 {
+	if len(dg.TriggerConfigurations) > 0 && input.TriggerConfigurationsSet && len(input.TriggerConfigurations) == 0 {
 		hooksNotCleanedUp = true
 	}
 
+	applyDeploymentGroupUpdate(dg, input)
+
+	if newDGName != "" && newDGName != currentDGName {
+		// DeploymentGroupName is part of the store.Table primary key (see
+		// dgKey), so Put-after-in-place-mutate would leave a stale entry at
+		// oldKey: delete first, then mutate, then Put under the new key.
+		b.deploymentGroups.Delete(oldKey)
+		dg.DeploymentGroupName = newDGName
+		b.deploymentGroups.Put(dg)
+	}
+
+	return hooksNotCleanedUp, nil
+}
+
+// applyDeploymentGroupUpdate merges input into dg, keeping members the request omitted.
+func applyDeploymentGroupUpdate(dg *DeploymentGroup, input DeploymentGroupInput) {
 	if input.ServiceRoleArn != "" {
 		dg.ServiceRoleArn = input.ServiceRoleArn
 	}
@@ -134,28 +150,53 @@ func (b *InMemoryBackend) UpdateDeploymentGroup(
 
 	dg.Ec2TagFilters = input.Ec2TagFilters
 	dg.OnPremisesInstanceTagFilters = input.OnPremisesInstanceTagFilters
-	dg.AutoScalingGroups = input.AutoScalingGroups
-	dg.LoadBalancerInfo = input.LoadBalancerInfo
-	dg.DeploymentStyle = input.DeploymentStyle
-	dg.Ec2TagSet = input.Ec2TagSet
-	dg.OnPremisesTagSet = input.OnPremisesTagSet
-	dg.BlueGreenDeploymentConfiguration = input.BlueGreenDeploymentConfiguration
-	dg.AlarmConfiguration = input.AlarmConfiguration
-	dg.AutoRollbackConfiguration = input.AutoRollbackConfiguration
-	dg.TriggerConfigurations = input.TriggerConfigurations
-	dg.ECSServices = input.ECSServices
-	dg.TerminationHookEnabled = input.TerminationHookEnabled
 
-	if newDGName != "" && newDGName != currentDGName {
-		// DeploymentGroupName is part of the store.Table primary key (see
-		// dgKey), so Put-after-in-place-mutate would leave a stale entry at
-		// oldKey: delete first, then mutate, then Put under the new key.
-		b.deploymentGroups.Delete(oldKey)
-		dg.DeploymentGroupName = newDGName
-		b.deploymentGroups.Put(dg)
+	// Interpretation: SDK is silent on omitted triggers/ecsServices; keep them, an explicit empty list clears.
+	if input.TriggerConfigurationsSet {
+		dg.TriggerConfigurations = input.TriggerConfigurations
 	}
 
-	return hooksNotCleanedUp, nil
+	if input.ECSServicesSet {
+		dg.ECSServices = input.ECSServices
+	}
+
+	// api_op_UpdateDeploymentGroup.go: omitted AutoScalingGroups keeps them; a non-null empty list removes them.
+	if input.AutoScalingGroupsSet {
+		dg.AutoScalingGroups = input.AutoScalingGroups
+	}
+
+	if input.TerminationHookEnabledSet {
+		dg.TerminationHookEnabled = input.TerminationHookEnabled
+	}
+
+	// Interpretation: structured members are "add or change" in the SDK docs, so omitted keeps.
+	if input.LoadBalancerInfo != nil {
+		dg.LoadBalancerInfo = input.LoadBalancerInfo
+	}
+
+	if input.DeploymentStyle != nil {
+		dg.DeploymentStyle = input.DeploymentStyle
+	}
+
+	if input.Ec2TagSet != nil {
+		dg.Ec2TagSet = input.Ec2TagSet
+	}
+
+	if input.OnPremisesTagSet != nil {
+		dg.OnPremisesTagSet = input.OnPremisesTagSet
+	}
+
+	if input.BlueGreenDeploymentConfiguration != nil {
+		dg.BlueGreenDeploymentConfiguration = input.BlueGreenDeploymentConfiguration
+	}
+
+	if input.AlarmConfiguration != nil {
+		dg.AlarmConfiguration = input.AlarmConfiguration
+	}
+
+	if input.AutoRollbackConfiguration != nil {
+		dg.AutoRollbackConfiguration = input.AutoRollbackConfiguration
+	}
 }
 
 // ListDeploymentGroups returns all deployment group names for an application in sorted order.

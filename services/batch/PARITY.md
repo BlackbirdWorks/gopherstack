@@ -647,3 +647,7 @@ batch already keys its resources by region; same-named resources in two regions 
 ## 2026-10-05 (reqfielddiff tier-1/2 pass 8)
 
 ListJobsByConsumableResource applies Filters JOB_STATUS and JOB_NAME (case-insensitive, trailing `*` prefix; api_op_ListJobsByConsumableResource.go:36-49): entries AND, values within an entry OR. Proof: `TestListJobsByConsumableResource_Filters`.
+
+## 2026-10-05 (gopherstack-uox6 pass 10, value semantics)
+
+UpdateComputeEnvironment merges ComputeResources member by member (types.ComputeResourceUpdate, types.go:658) instead of replacing the whole object, so a MinvCpus-only update keeps type, role, subnets and MaxvCpus. An empty Fargate subnet or security-group list means no change (types.go:925-990). Proof: `TestUpdateComputeEnvironment_ComputeResourcesMerge`. Recorded, unchanged: ScalingPolicy is not modelled.

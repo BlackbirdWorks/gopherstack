@@ -669,3 +669,7 @@ Recorded: the SDK query encoder sorts repeated values, so request order of `stat
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 emrserverless is region-isolated: Applications, job runs and sessions live per region. Tagging bridge covers every region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/emrserverless`. Limitation: the dashboard shows the home region only.
+
+## 2026-10-05 (gopherstack-uox6 pass 10, value semantics)
+
+Application autoStartConfiguration and autoStopConfiguration now carry the documented defaults (enabled true, idle 15 minutes; types.go:171-188) on Create and when a partial sub-object is supplied; UpdateApplication applies Architecture. Proof: `TestApplication_AutoConfigDefaultsAndArchitectureUpdate`. Changed test: TestHandler_UpdateApplication_ConfigMerge expects the filled idleTimeoutMinutes.

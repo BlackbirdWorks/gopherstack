@@ -199,13 +199,59 @@ func (h *Handler) handleDescribeComputeEnvironments(
 	return out, nil
 }
 
+type computeResourcesUpdateInput struct {
+	AllocationStrategy *string                 `json:"allocationStrategy,omitempty"`
+	InstanceRole       *string                 `json:"instanceRole,omitempty"`
+	Ec2KeyPair         *string                 `json:"ec2KeyPair,omitempty"`
+	ImageID            *string                 `json:"imageId,omitempty"`
+	PlacementGroup     *string                 `json:"placementGroup,omitempty"`
+	MinvCpus           *int32                  `json:"minvCpus,omitempty"`
+	MaxvCpus           *int32                  `json:"maxvCpus,omitempty"`
+	DesiredvCpus       *int32                  `json:"desiredvCpus,omitempty"`
+	BidPercentage      *int32                  `json:"bidPercentage,omitempty"`
+	Tags               map[string]string       `json:"tags,omitempty"`
+	LaunchTemplate     *launchTemplateInput    `json:"launchTemplate,omitempty"`
+	InstanceTypes      []string                `json:"instanceTypes,omitempty"`
+	Subnets            []string                `json:"subnets,omitempty"`
+	SecurityGroupIDs   []string                `json:"securityGroupIds,omitempty"`
+	Ec2Configuration   []ec2ConfigurationInput `json:"ec2Configuration,omitempty"`
+}
+
+func computeResourcesUpdateFromInput(in *computeResourcesUpdateInput) *ComputeResourcesUpdate {
+	if in == nil {
+		return nil
+	}
+
+	full := computeResourcesFromInput(&computeResourcesInput{
+		LaunchTemplate: in.LaunchTemplate, Ec2Configuration: in.Ec2Configuration,
+	})
+
+	return &ComputeResourcesUpdate{
+		AllocationStrategy: in.AllocationStrategy,
+		InstanceRole:       in.InstanceRole,
+		Ec2KeyPair:         in.Ec2KeyPair,
+		ImageID:            in.ImageID,
+		PlacementGroup:     in.PlacementGroup,
+		MinvCpus:           in.MinvCpus,
+		MaxvCpus:           in.MaxvCpus,
+		DesiredvCpus:       in.DesiredvCpus,
+		BidPercentage:      in.BidPercentage,
+		Tags:               in.Tags,
+		LaunchTemplate:     full.LaunchTemplate,
+		InstanceTypes:      in.InstanceTypes,
+		Subnets:            in.Subnets,
+		SecurityGroupIDs:   in.SecurityGroupIDs,
+		Ec2Configuration:   full.Ec2Configuration,
+	}
+}
+
 type updateComputeEnvironmentInput struct {
-	ComputeResources   *computeResourcesInput `json:"computeResources,omitempty"`
-	UpdatePolicy       *updatePolicyInput     `json:"updatePolicy,omitempty"`
-	UnmanagedvCpus     *int32                 `json:"unmanagedvCpus,omitempty"`
-	ComputeEnvironment string                 `json:"computeEnvironment"`
-	State              string                 `json:"state"`
-	ServiceRole        string                 `json:"serviceRole,omitempty"`
+	ComputeResources   *computeResourcesUpdateInput `json:"computeResources,omitempty"`
+	UpdatePolicy       *updatePolicyInput           `json:"updatePolicy,omitempty"`
+	UnmanagedvCpus     *int32                       `json:"unmanagedvCpus,omitempty"`
+	ComputeEnvironment string                       `json:"computeEnvironment"`
+	State              string                       `json:"state"`
+	ServiceRole        string                       `json:"serviceRole,omitempty"`
 }
 
 type updateComputeEnvironmentOutput struct {
@@ -220,7 +266,7 @@ func (h *Handler) handleUpdateComputeEnvironment(
 	ce, err := h.Backend.UpdateComputeEnvironment(
 		ctx,
 		in.ComputeEnvironment, in.State, in.ServiceRole,
-		computeResourcesFromInput(in.ComputeResources),
+		computeResourcesUpdateFromInput(in.ComputeResources),
 		updatePolicyFromInput(in.UpdatePolicy),
 		in.UnmanagedvCpus,
 	)
