@@ -729,3 +729,7 @@ Fixed (describe_filter_semantics_test.go): DescribeWorkspaceBundles Owner AMAZON
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 workspaces is region-isolated: directories, workspaces, IP groups and bundles live per region; the sibling inherits the home handler's cross-service config. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/workspaces`. Limitation: the dashboard shows the home region only. `TestHandler_MultiRegionReset` covers Reset.
+
+## 2026-10-05 (gopherstack-uox6 pass 6, value semantics)
+
+ModifyWorkspaceProperties merges the supplied members instead of replacing the whole WorkspaceProperties (a RunningMode-only call used to wipe volume sizes and compute type). The SDK doc comments state no defaults for these members.

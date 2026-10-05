@@ -48,7 +48,7 @@ func (b *InMemoryBackend) CreateTask(
 		CloudWatchLogGroupArn:  cloudWatchLogGroupArn,
 		CreationTime:           now,
 		Tags:                   taskTags,
-		Options:                settings.Options,
+		Options:                withTaskOptionDefaults(nil, settings.Options, taskMode),
 		ManifestConfig:         settings.ManifestConfig,
 		TaskReportConfig:       settings.TaskReportConfig,
 		Excludes:               toStoredFilterRules(settings.Excludes),
@@ -89,15 +89,8 @@ func (b *InMemoryBackend) DescribeTask(taskArn string) (*Task, error) {
 	return &cp, nil
 }
 
-// UpdateTask updates a task's mutable settings. AWS's UpdateTaskInput has no
-// TaskArn-only "clear the log group" convention like some other fields, so
-// CloudWatchLogGroupArn is always assigned (empty clears it, matching prior
-// behavior). Options/Excludes/Includes/Schedule/ManifestConfig/
-// TaskReportConfig follow AWS's "only supplied fields change" semantics: a
-// nil field in settings means "not supplied, leave unchanged"; a non-nil
-// (possibly empty) field means "set to this value" -- which also covers the
-// documented "specify this parameter as empty to remove" behavior for
-// ManifestConfig/TaskReportConfig, since an explicit empty map is non-nil.
+// UpdateTask changes only the supplied fields; an explicit empty ManifestConfig or
+// TaskReportConfig removes it (api_op_UpdateTask.go:67,102).
 func (b *InMemoryBackend) UpdateTask(taskArn, name, cloudWatchLogGroupArn string, settings TaskSettings) error {
 	b.mu.Lock("UpdateTask")
 	defer b.mu.Unlock()
@@ -111,19 +104,18 @@ func (b *InMemoryBackend) UpdateTask(taskArn, name, cloudWatchLogGroupArn string
 		t.Name = name
 	}
 
-	t.CloudWatchLogGroupArn = cloudWatchLogGroupArn
+	if cloudWatchLogGroupArn != "" {
+		t.CloudWatchLogGroupArn = cloudWatchLogGroupArn
+	}
 
 	applyTaskSettings(t, settings)
 
 	return nil
 }
 
-// applyTaskSettings merges TaskSettings onto a stored task, following AWS's
-// "only supplied fields change" semantics for UpdateTask (see UpdateTask doc
-// comment).
 func applyTaskSettings(t *storedTask, settings TaskSettings) {
 	if settings.Options != nil {
-		t.Options = settings.Options
+		t.Options = withTaskOptionDefaults(t.Options, settings.Options, t.TaskMode)
 	}
 
 	if settings.Excludes != nil {
@@ -482,4 +474,40 @@ func extractTaskArnFromExecution(execArn string) string {
 	}
 
 	return before
+}
+
+const optionPreserve = "PRESERVE"
+
+func taskOptionDefaults() map[string]any {
+	return map[string]any{
+		"Atime":                       "BEST_EFFORT",
+		"Gid":                         "INT_VALUE",
+		"Mtime":                       optionPreserve,
+		"ObjectTags":                  optionPreserve,
+		"OverwriteMode":               "ALWAYS",
+		"PosixPermissions":            optionPreserve,
+		"PreserveDeletedFiles":        optionPreserve,
+		"PreserveDevices":             "NONE",
+		"SecurityDescriptorCopyFlags": "OWNER_DACL",
+		"TaskQueueing":                "ENABLED",
+		"TransferMode":                "CHANGED",
+		"Uid":                         "INT_VALUE",
+	}
+}
+
+// withTaskOptionDefaults overlays supplied on current, filling members with the
+// defaults documented on types.Options (types.go:497-740).
+func withTaskOptionDefaults(current, supplied map[string]any, taskMode string) map[string]any {
+	out := taskOptionDefaults()
+
+	if taskMode == taskModeBasic {
+		out["VerifyMode"] = "POINT_IN_TIME_CONSISTENT"
+	} else {
+		out["VerifyMode"] = "ONLY_FILES_TRANSFERRED"
+	}
+
+	maps.Copy(out, current)
+	maps.Copy(out, supplied)
+
+	return out
 }

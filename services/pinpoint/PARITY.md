@@ -679,3 +679,7 @@ pinpoint is region-isolated: apps, campaigns, segments and journeys live per reg
 ## 2026-10-05 (reqfielddiff tier-2 pagination)
 
 GetApps, GetCampaigns, GetSegments, GetJourneys, GetCampaignActivities, GetCampaignVersions, GetSegmentVersions, GetExportJobs, GetImportJobs, GetSegmentExportJobs, GetSegmentImportJobs, GetJourneyRuns, GetRecommenderConfigurations, ListTemplates and ListTemplateVersions page through `pageSlice` (handler.go): query members `page-size` and `token` (`next-token` on the template ops), serializers.go:3485,6978 pinpoint@v1.42.4; default 100; NextToken only when truncated; malformed values return 400 BadRequestException. GetApps previously read the wrong key (`pageSize`) and is fixed. Export and import jobs sort by ID; export jobs now record the request SegmentId so GetSegmentExportJobs filters by segment. The *DateRangeKpi and Journey*ExecutionMetrics page members are documented "not supported for application, campaign, and journey metrics" (types doc), so those findings are recorded false positives. Proof: `TestRealClient_ListOpsHonourPageSize`, `TestRealClient_SegmentExportJobsFilterBySegment`, `TestRealClient_ListOpsRejectBadPaging`.
+
+## 2026-10-05 (gopherstack-uox6 pass 6, value semantics)
+
+CreateRecommenderConfiguration stores RecommendationProviderIdType PINPOINT_ENDPOINT_ID and RecommendationsPerMessage 5 when omitted (types.go:1900-1940). Campaign, segment, journey and application-settings updates were read against their shapes: the SDK doc comments state no further defaults.

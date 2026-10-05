@@ -33,6 +33,10 @@ func (b *InMemoryBackend) CreateClassificationJob(
 		status = jobStatusIdle
 	}
 
+	if managedDataIdentifierSelector == "" {
+		managedDataIdentifierSelector = "RECOMMENDED"
+	}
+
 	pct := samplingPercentage
 	if pct == 0 {
 		pct = 100

@@ -610,3 +610,7 @@ re-verified accurate. yusn is fully adjudicated.
 ## Notes (2026-10-03 pass — gopherstack-uox6 value-semantics audit)
 
 Fixed (describe_engine_versions_default_test.go): DescribeEngineVersions DefaultOnly returns one version per engine instead of one overall. Recorded: DescribeEngineVersions EngineVersion ("The Redis OSS engine version") is not read; the major-version semantics implied by DefaultOnly are unspecified.
+
+## 2026-10-05 (gopherstack-uox6 pass 6, value semantics)
+
+Create->Describe->UpdateCluster round trip audited (shards 1, TLS on, port 6379, retention kept on partial update); no divergences found.

@@ -184,7 +184,8 @@ type StorageBackend interface {
 	) (*FindingsFilterSummary, error)
 	GetFindingsFilter(id string) (*FindingsFilterDetail, error)
 	UpdateFindingsFilter(
-		id, name, description, action string,
+		id, name, action string,
+		description *string,
 		position *int32,
 		criteria map[string]any,
 	) (*FindingsFilterSummary, error)

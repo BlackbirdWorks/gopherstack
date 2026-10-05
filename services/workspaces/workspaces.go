@@ -462,10 +462,36 @@ func (b *InMemoryBackend) ModifyWorkspaceProperties(
 		return ErrWorkspaceNotFound
 	}
 
-	p := props
-	w.Properties = &p
+	if w.Properties == nil {
+		w.Properties = &WorkspaceProperties{}
+	}
+
+	mergeWorkspaceProperties(w.Properties, props)
 
 	return nil
+}
+
+// mergeWorkspaceProperties overlays the members the caller set; omitted members keep their value.
+func mergeWorkspaceProperties(dst *WorkspaceProperties, src WorkspaceProperties) {
+	if src.ComputeTypeName != "" {
+		dst.ComputeTypeName = src.ComputeTypeName
+	}
+
+	if src.RunningMode != "" {
+		dst.RunningMode = src.RunningMode
+	}
+
+	if src.RootVolumeSizeGib != 0 {
+		dst.RootVolumeSizeGib = src.RootVolumeSizeGib
+	}
+
+	if src.RunningModeAutoStopTimeoutInMinutes != 0 {
+		dst.RunningModeAutoStopTimeoutInMinutes = src.RunningModeAutoStopTimeoutInMinutes
+	}
+
+	if src.UserVolumeSizeGib != 0 {
+		dst.UserVolumeSizeGib = src.UserVolumeSizeGib
+	}
 }
 
 // ModifyWorkspaceState updates the administrative state of a WorkSpace.

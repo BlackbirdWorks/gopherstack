@@ -43,6 +43,8 @@ func (b *InMemoryBackend) CreateTargetGroup(
 		return nil, ErrAlreadyExists
 	}
 
+	config = withTargetGroupDefaults(tgType, config)
+
 	now := time.Now().UTC()
 	id := newID(idPrefixTargetGroup)
 	region := b.regionFor(ctx)
@@ -102,7 +104,7 @@ func (b *InMemoryBackend) UpdateTargetGroup(
 	}
 
 	if healthCheck != nil {
-		tg.Config.HealthCheck = healthCheck
+		tg.Config.HealthCheck = withHealthCheckDefaults(healthCheck, tg.Config.Port)
 	}
 
 	tg.LastUpdatedAt = time.Now().UTC()
@@ -197,4 +199,80 @@ func (b *InMemoryBackend) ListTargetGroups(
 	p := page.New(all, nextToken, int(maxResults), defaultMaxResults)
 
 	return p.Data, p.Next, nil
+}
+
+// withTargetGroupDefaults fills the defaults documented on types.TargetGroupConfig (types.go:1010-1045).
+func withTargetGroupDefaults(tgType string, in *TargetGroupConfig) *TargetGroupConfig {
+	if in == nil {
+		return nil
+	}
+
+	cfg := *in
+
+	switch tgType {
+	case "LAMBDA":
+		if cfg.LambdaEventStructureVersion == "" {
+			cfg.LambdaEventStructureVersion = "V1"
+		}
+
+		return &cfg
+	case "IP":
+		if cfg.IPAddressType == "" {
+			cfg.IPAddressType = "IPV4"
+		}
+	}
+
+	if cfg.ProtocolVersion == "" {
+		cfg.ProtocolVersion = "HTTP1"
+	}
+
+	if cfg.Port == 0 {
+		switch cfg.Protocol {
+		case "HTTP":
+			cfg.Port = 80
+		case protocolHTTPS:
+			cfg.Port = 443
+		}
+	}
+
+	if cfg.HealthCheck != nil {
+		cfg.HealthCheck = withHealthCheckDefaults(cfg.HealthCheck, cfg.Port)
+	}
+
+	return &cfg
+}
+
+// withHealthCheckDefaults fills the defaults documented on types.HealthCheckConfig (types.go:255-295).
+func withHealthCheckDefaults(in *HealthCheckConfig, targetPort int32) *HealthCheckConfig {
+	hc := *in
+
+	if hc.HealthCheckIntervalSeconds == 0 {
+		hc.HealthCheckIntervalSeconds = 30
+	}
+
+	if hc.HealthCheckTimeoutSeconds == 0 {
+		hc.HealthCheckTimeoutSeconds = 5
+	}
+
+	if hc.HealthyThresholdCount == 0 {
+		hc.HealthyThresholdCount = 5
+	}
+
+	if hc.UnhealthyThresholdCount == 0 {
+		hc.UnhealthyThresholdCount = 2
+	}
+
+	if hc.Path == "" {
+		hc.Path = "/"
+	}
+
+	if hc.Protocol == "" {
+		hc.Protocol = "HTTP"
+	}
+
+	if hc.Port == 0 {
+		hc.Port = targetPort
+	}
+
+	return &hc
 }

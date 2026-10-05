@@ -1711,3 +1711,7 @@ stays at 0 FAIL.
 ## 2026-10-05 (reqfielddiff tier-2 pagination)
 
 All 11 flagged MaxItems members (ListDistributionsByAnycastIpListId, ByCachePolicyId, ByConnectionFunction, ByConnectionMode, ByKeyGroup, ByOriginRequestPolicyId, ByOwnedResource, ByRealtimeLogConfig, ByResponseHeadersPolicyId, ByTrustStore, ByVpcOriginId) are false positives. Marker/MaxItems are query-bound for every one of them except ByRealtimeLogConfig, which carries them in the XML body (serializers.go:8821-9654, cloudfront@v1.67.4); each handler reads them through `paginateByMarkerID` / `paginateByMarkerValue` (pagination_helper.go) over an ID-sorted backend list (`distributionsByConfigSearch`).
+
+## 2026-10-05 (gopherstack-uox6 pass 6, value semantics)
+
+CreateCachePolicy/UpdateCachePolicy apply the documented TTL defaults when omitted: DefaultTTL 86400 (or MinTTL if larger), MaxTTL 31536000 (types.go:784-800). DistributionConfig stays a byte passthrough, so omitted HttpVersion/PriceClass are not echoed by GetDistributionConfig; the summary view still falls back to http2/PriceClass_All.

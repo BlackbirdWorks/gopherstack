@@ -395,3 +395,7 @@ Audited clean: SNRA IncludeChildren, ListTargets target filter, association filt
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 vpclattice is region-isolated: Service networks, services, listeners, rules and target groups live per region. Tagging bridge covers every region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/vpclattice`. Limitation: the dashboard shows the home region only.
+
+## 2026-10-05 (gopherstack-uox6 pass 6, value semantics)
+
+CreateTargetGroup stores the documented defaults (ProtocolVersion HTTP1, IP ipAddressType IPV4, LAMBDA lambdaEventStructureVersion V1, port 80/443 by protocol, health check interval 30, timeout 5, healthy 5, unhealthy 2, path /, protocol HTTP); UpdateTargetGroup applies the same health-check defaults; UpdateService keeps CertificateArn when omitted. Not modelled: HealthCheckConfig.Enabled has no documented default.

@@ -299,3 +299,7 @@ Recorded: the SDK docs give no semantics for `LocationId` against a task's two l
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 datasync is region-isolated: agents, locations, tasks and executions live per region. The tagging bridge and CloudFormation (`forRegion`) follow the region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/datasync`. Limitation: the dashboard shows the home region only.
+
+## 2026-10-05 (gopherstack-uox6 pass 6, value semantics)
+
+CreateTask/UpdateTask store the Options defaults documented on types.Options (Atime BEST_EFFORT, TransferMode CHANGED, VerifyMode POINT_IN_TIME_CONSISTENT for BASIC and ONLY_FILES_TRANSFERRED otherwise, and so on); UpdateTask overlays supplied options and no longer clears CloudWatchLogGroupArn when omitted; UpdateAgent keeps the name when omitted; NFS/SMB locations default MountOptions.Version to AUTOMATIC. Not modelled: Options.LogLevel and BytesPerSecond have no documented default.

@@ -81,7 +81,9 @@ func (b *InMemoryBackend) UpdateAgent(agentArn, name string) error {
 		return ErrNotFound
 	}
 
-	a.Name = name
+	if name != "" {
+		a.Name = name
+	}
 
 	return nil
 }
