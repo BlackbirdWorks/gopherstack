@@ -20,167 +20,12 @@ type osKeyPageFn func(
 func TestListOps_MaxResultsPagesEveryItemOnce(t *testing.T) {
 	t.Parallel()
 
-	const (
-		domain = "paged-ops-domain"
-		pkgID  = "F1"
-	)
-
-	tests := []struct {
-		list osKeyPageFn
-		seed func(t *testing.T, b *opensearch.InMemoryBackend)
-		name string
-	}{
-		{
-			name: "package_version_history",
-			seed: func(t *testing.T, b *opensearch.InMemoryBackend) {
-				t.Helper()
-
-				_, err := b.CreatePackage("pkg", "TXT-DICTIONARY", "d", nil, nil)
-				require.NoError(t, err)
-
-				for range 2 {
-					_, err = b.UpdatePackage(pkgID, "next")
-					require.NoError(t, err)
-				}
-			},
-			list: func(ctx context.Context, c *opensearchsdk.Client, sz int32, tok *string) ([]string, *string, error) {
-				out, err := c.GetPackageVersionHistory(ctx, &opensearchsdk.GetPackageVersionHistoryInput{
-					PackageID: aws.String(pkgID), MaxResults: sz, NextToken: tok,
-				})
-				if err != nil {
-					return nil, nil, err
-				}
-
-				ids := make([]string, 0, len(out.PackageVersionHistoryList))
-				for _, v := range out.PackageVersionHistoryList {
-					ids = append(ids, aws.ToString(v.PackageVersion))
-				}
-
-				return ids, out.NextToken, nil
-			},
-		},
-		{
-			name: "upgrade_history",
-			seed: func(t *testing.T, b *opensearch.InMemoryBackend) {
-				t.Helper()
-
-				_, err := b.CreateDomain(opensearch.CreateDomainInput{Name: domain})
-				require.NoError(t, err)
-
-				for _, n := range []string{"up-a", "up-b", "up-c"} {
-					require.NoError(t, b.UpgradeDomain(domain, n))
-				}
-			},
-			list: func(ctx context.Context, c *opensearchsdk.Client, sz int32, tok *string) ([]string, *string, error) {
-				out, err := c.GetUpgradeHistory(ctx, &opensearchsdk.GetUpgradeHistoryInput{
-					DomainName: aws.String(domain), MaxResults: sz, NextToken: tok,
-				})
-				if err != nil {
-					return nil, nil, err
-				}
-
-				ids := make([]string, 0, len(out.UpgradeHistories))
-				for _, v := range out.UpgradeHistories {
-					ids = append(ids, aws.ToString(v.UpgradeName))
-				}
-
-				return ids, out.NextToken, nil
-			},
-		},
-		{
-			name: "domains_for_package",
-			seed: func(t *testing.T, b *opensearch.InMemoryBackend) {
-				t.Helper()
-
-				_, err := b.CreatePackage("pkg", "TXT-DICTIONARY", "d", nil, nil)
-				require.NoError(t, err)
-
-				for _, n := range []string{"dom-a", "dom-b", "dom-c"} {
-					_, err = b.CreateDomain(opensearch.CreateDomainInput{Name: n})
-					require.NoError(t, err)
-
-					_, err = b.AssociatePackage(pkgID, n)
-					require.NoError(t, err)
-				}
-			},
-			list: func(ctx context.Context, c *opensearchsdk.Client, sz int32, tok *string) ([]string, *string, error) {
-				out, err := c.ListDomainsForPackage(ctx, &opensearchsdk.ListDomainsForPackageInput{
-					PackageID: aws.String(pkgID), MaxResults: sz, NextToken: tok,
-				})
-				if err != nil {
-					return nil, nil, err
-				}
-
-				ids := make([]string, 0, len(out.DomainPackageDetailsList))
-				for _, v := range out.DomainPackageDetailsList {
-					ids = append(ids, aws.ToString(v.DomainName))
-				}
-
-				return ids, out.NextToken, nil
-			},
-		},
-		{
-			name: "packages_for_domain",
-			seed: func(t *testing.T, b *opensearch.InMemoryBackend) {
-				t.Helper()
-
-				_, err := b.CreateDomain(opensearch.CreateDomainInput{Name: domain})
-				require.NoError(t, err)
-
-				for _, id := range []string{"F1", "F2", "F3"} {
-					_, err = b.CreatePackage("pkg-"+id, "TXT-DICTIONARY", "d", nil, nil)
-					require.NoError(t, err)
-
-					_, err = b.AssociatePackage(id, domain)
-					require.NoError(t, err)
-				}
-			},
-			list: func(ctx context.Context, c *opensearchsdk.Client, sz int32, tok *string) ([]string, *string, error) {
-				out, err := c.ListPackagesForDomain(ctx, &opensearchsdk.ListPackagesForDomainInput{
-					DomainName: aws.String(domain), MaxResults: sz, NextToken: tok,
-				})
-				if err != nil {
-					return nil, nil, err
-				}
-
-				ids := make([]string, 0, len(out.DomainPackageDetailsList))
-				for _, v := range out.DomainPackageDetailsList {
-					ids = append(ids, aws.ToString(v.PackageID))
-				}
-
-				return ids, out.NextToken, nil
-			},
-		},
-		{
-			name: "scheduled_actions",
-			seed: func(t *testing.T, b *opensearch.InMemoryBackend) {
-				t.Helper()
-
-				_, err := b.CreateDomain(opensearch.CreateDomainInput{Name: domain})
-				require.NoError(t, err)
-
-				for _, id := range []string{"sa-1", "sa-2", "sa-3"} {
-					opensearch.AddScheduledActionInternal(b, domain, &opensearch.ScheduledAction{
-						ID: id, Type: "SERVICE_SOFTWARE_UPDATE", Severity: "LOW", Status: "PENDING_UPDATE",
-					})
-				}
-			},
-			list: func(ctx context.Context, c *opensearchsdk.Client, sz int32, tok *string) ([]string, *string, error) {
-				out, err := c.ListScheduledActions(ctx, &opensearchsdk.ListScheduledActionsInput{
-					DomainName: aws.String(domain), MaxResults: sz, NextToken: tok,
-				})
-				if err != nil {
-					return nil, nil, err
-				}
-
-				ids := make([]string, 0, len(out.ScheduledActions))
-				for _, v := range out.ScheduledActions {
-					ids = append(ids, aws.ToString(v.Id))
-				}
-
-				return ids, out.NextToken, nil
-			},
-		},
+	tests := []osPageCase{
+		osPageCasePackageVersionHistory(),
+		osPageCaseUpgradeHistory(),
+		osPageCaseDomainsForPackage(),
+		osPageCasePackagesForDomain(),
+		osPageCaseScheduledActions(),
 	}
 
 	for _, tt := range tests {
@@ -206,5 +51,182 @@ func TestListOps_MaxResultsPagesEveryItemOnce(t *testing.T) {
 			assert.Equal(t, all[2:], rest)
 			assert.Empty(t, aws.ToString(next))
 		})
+	}
+}
+
+const (
+	osPagedDomain = "paged-ops-domain"
+	osPagedPkgID  = "F1"
+)
+
+type osPageCase struct {
+	list osKeyPageFn
+	seed func(t *testing.T, b *opensearch.InMemoryBackend)
+	name string
+}
+
+func osPageCasePackageVersionHistory() osPageCase {
+	return osPageCase{
+		name: "package_version_history",
+		seed: func(t *testing.T, b *opensearch.InMemoryBackend) {
+			t.Helper()
+
+			_, err := b.CreatePackage("pkg", "TXT-DICTIONARY", "d", nil, nil)
+			require.NoError(t, err)
+
+			for range 2 {
+				_, err = b.UpdatePackage(osPagedPkgID, "next")
+				require.NoError(t, err)
+			}
+		},
+		list: func(ctx context.Context, c *opensearchsdk.Client, sz int32, tok *string) ([]string, *string, error) {
+			out, err := c.GetPackageVersionHistory(ctx, &opensearchsdk.GetPackageVersionHistoryInput{
+				PackageID: aws.String(osPagedPkgID), MaxResults: sz, NextToken: tok,
+			})
+			if err != nil {
+				return nil, nil, err
+			}
+
+			ids := make([]string, 0, len(out.PackageVersionHistoryList))
+			for _, v := range out.PackageVersionHistoryList {
+				ids = append(ids, aws.ToString(v.PackageVersion))
+			}
+
+			return ids, out.NextToken, nil
+		},
+	}
+}
+
+func osPageCaseUpgradeHistory() osPageCase {
+	return osPageCase{
+		name: "upgrade_history",
+		seed: func(t *testing.T, b *opensearch.InMemoryBackend) {
+			t.Helper()
+
+			_, err := b.CreateDomain(opensearch.CreateDomainInput{Name: osPagedDomain})
+			require.NoError(t, err)
+
+			for _, n := range []string{"up-a", "up-b", "up-c"} {
+				require.NoError(t, b.UpgradeDomain(osPagedDomain, n))
+			}
+		},
+		list: func(ctx context.Context, c *opensearchsdk.Client, sz int32, tok *string) ([]string, *string, error) {
+			out, err := c.GetUpgradeHistory(ctx, &opensearchsdk.GetUpgradeHistoryInput{
+				DomainName: aws.String(osPagedDomain), MaxResults: sz, NextToken: tok,
+			})
+			if err != nil {
+				return nil, nil, err
+			}
+
+			ids := make([]string, 0, len(out.UpgradeHistories))
+			for _, v := range out.UpgradeHistories {
+				ids = append(ids, aws.ToString(v.UpgradeName))
+			}
+
+			return ids, out.NextToken, nil
+		},
+	}
+}
+
+func osPageCaseDomainsForPackage() osPageCase {
+	return osPageCase{
+		name: "domains_for_package",
+		seed: func(t *testing.T, b *opensearch.InMemoryBackend) {
+			t.Helper()
+
+			_, err := b.CreatePackage("pkg", "TXT-DICTIONARY", "d", nil, nil)
+			require.NoError(t, err)
+
+			for _, n := range []string{"dom-a", "dom-b", "dom-c"} {
+				_, err = b.CreateDomain(opensearch.CreateDomainInput{Name: n})
+				require.NoError(t, err)
+
+				_, err = b.AssociatePackage(osPagedPkgID, n)
+				require.NoError(t, err)
+			}
+		},
+		list: func(ctx context.Context, c *opensearchsdk.Client, sz int32, tok *string) ([]string, *string, error) {
+			out, err := c.ListDomainsForPackage(ctx, &opensearchsdk.ListDomainsForPackageInput{
+				PackageID: aws.String(osPagedPkgID), MaxResults: sz, NextToken: tok,
+			})
+			if err != nil {
+				return nil, nil, err
+			}
+
+			ids := make([]string, 0, len(out.DomainPackageDetailsList))
+			for _, v := range out.DomainPackageDetailsList {
+				ids = append(ids, aws.ToString(v.DomainName))
+			}
+
+			return ids, out.NextToken, nil
+		},
+	}
+}
+
+func osPageCasePackagesForDomain() osPageCase {
+	return osPageCase{
+		name: "packages_for_domain",
+		seed: func(t *testing.T, b *opensearch.InMemoryBackend) {
+			t.Helper()
+
+			_, err := b.CreateDomain(opensearch.CreateDomainInput{Name: osPagedDomain})
+			require.NoError(t, err)
+
+			for _, id := range []string{"F1", "F2", "F3"} {
+				_, err = b.CreatePackage("pkg-"+id, "TXT-DICTIONARY", "d", nil, nil)
+				require.NoError(t, err)
+
+				_, err = b.AssociatePackage(id, osPagedDomain)
+				require.NoError(t, err)
+			}
+		},
+		list: func(ctx context.Context, c *opensearchsdk.Client, sz int32, tok *string) ([]string, *string, error) {
+			out, err := c.ListPackagesForDomain(ctx, &opensearchsdk.ListPackagesForDomainInput{
+				DomainName: aws.String(osPagedDomain), MaxResults: sz, NextToken: tok,
+			})
+			if err != nil {
+				return nil, nil, err
+			}
+
+			ids := make([]string, 0, len(out.DomainPackageDetailsList))
+			for _, v := range out.DomainPackageDetailsList {
+				ids = append(ids, aws.ToString(v.PackageID))
+			}
+
+			return ids, out.NextToken, nil
+		},
+	}
+}
+
+func osPageCaseScheduledActions() osPageCase {
+	return osPageCase{
+		name: "scheduled_actions",
+		seed: func(t *testing.T, b *opensearch.InMemoryBackend) {
+			t.Helper()
+
+			_, err := b.CreateDomain(opensearch.CreateDomainInput{Name: osPagedDomain})
+			require.NoError(t, err)
+
+			for _, id := range []string{"sa-1", "sa-2", "sa-3"} {
+				opensearch.AddScheduledActionInternal(b, osPagedDomain, &opensearch.ScheduledAction{
+					ID: id, Type: "SERVICE_SOFTWARE_UPDATE", Severity: "LOW", Status: "PENDING_UPDATE",
+				})
+			}
+		},
+		list: func(ctx context.Context, c *opensearchsdk.Client, sz int32, tok *string) ([]string, *string, error) {
+			out, err := c.ListScheduledActions(ctx, &opensearchsdk.ListScheduledActionsInput{
+				DomainName: aws.String(osPagedDomain), MaxResults: sz, NextToken: tok,
+			})
+			if err != nil {
+				return nil, nil, err
+			}
+
+			ids := make([]string, 0, len(out.ScheduledActions))
+			for _, v := range out.ScheduledActions {
+				ids = append(ids, aws.ToString(v.Id))
+			}
+
+			return ids, out.NextToken, nil
+		},
 	}
 }
