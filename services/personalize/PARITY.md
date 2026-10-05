@@ -657,3 +657,7 @@ personalize is region-isolated: dataset groups, datasets, solutions and campaign
 ## 2026-10-05 (reqfielddiff tier-1/2 pass 8)
 
 CreateBatchInferenceJob and CreateBatchSegmentJob read FilterArn (types.go: BatchInferenceJob.FilterArn, BatchSegmentJob.FilterArn): an unknown filter returns ResourceNotFoundException, the ARN is echoed by Describe. Applying the filter to recommendations needs a data engine and stays unmodeled. Persistence: additive FilterArn (omitempty) on both job types. Proof: `TestBatchJobs_FilterArn`.
+
+## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
+
+InternalServerException (handler.go:245,283) is the default 500 clause; the pinned SDK models no internal-error type.

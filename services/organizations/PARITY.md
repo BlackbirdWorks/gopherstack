@@ -617,3 +617,7 @@ UpdateOrganizationalUnit with Name omitted no longer blanks the OU name; account
 ## 2026-10-05 (reqfielddiff tier-2 pagination)
 
 FIXED: ListRoots, ListParents, ListAccountsWithInvalidEffectivePolicy and ListEffectivePolicyValidationErrors read MaxResults/NextToken (ListRoots and ListParents ignored them) and reject MaxResults outside 1-20 or a malformed token with InvalidInputException. RECORDED: the lists are structurally one root, one parent, and the two effective-policy lists are always empty (no policy validation state), so truncation is never observable. Proof: `TestSingletonLists_PagingInputs`.
+
+## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
+
+InvalidParameterException (handler.go:165) is the missing-X-Amz-Target routing fallback, matched by no operation.

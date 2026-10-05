@@ -400,8 +400,8 @@ func (h *Handler) serveWithRange(c *echo.Context, payload []byte) error {
 	if !strings.HasPrefix(rangeHeader, rangePrefix) {
 		return h.writeError(
 			c,
-			http.StatusRequestedRangeNotSatisfiable,
-			"InvalidRange",
+			http.StatusBadRequest,
+			"InvalidParameterValueException",
 			"invalid Range header",
 		)
 	}
@@ -411,8 +411,8 @@ func (h *Handler) serveWithRange(c *echo.Context, payload []byte) error {
 	if len(parts) != rangeParts {
 		return h.writeError(
 			c,
-			http.StatusRequestedRangeNotSatisfiable,
-			"InvalidRange",
+			http.StatusBadRequest,
+			"InvalidParameterValueException",
 			"invalid Range header",
 		)
 	}
@@ -423,7 +423,7 @@ func (h *Handler) serveWithRange(c *echo.Context, payload []byte) error {
 	total := int64(len(payload))
 
 	if err1 != nil || err2 != nil || start < 0 || end < start || end >= total {
-		return h.writeError(c, http.StatusRequestedRangeNotSatisfiable, "InvalidRange",
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
 			fmt.Sprintf("Range %s not satisfiable for %d-byte resource", rangeHeader, total))
 	}
 

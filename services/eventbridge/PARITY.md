@@ -1117,3 +1117,7 @@ Every region now has its own `default` event bus (AWS creates one per account pe
 ## 2026-10-04 (gopherstack-9lr6d, SSM policy events)
 
 `NotifyParameterPolicyAction` runs in the region of the parameter (the SSM janitor puts it on the context), so the `aws.ssm` event lands on that region's default bus. Proof: `TestSSMJanitor_PolicyNotificationCarriesParameterRegion`.
+
+## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
+
+EventSizeLimitExceeded is a per-entry ErrorCode in a PutEvents 200 body (put_events.go:217), not an error envelope. ErrCannotDeleteDefaultBus text IllegalArgumentException is never written; handler_dispatch.go:467 emits IllegalStatusException.

@@ -1545,3 +1545,7 @@ InspectionLevel is validated (INFO, DEBUG, TRACE; otherwise ValidationException)
 ## 2026-10-05 (reqfielddiff tier-1/2 pass 8)
 
 ListExecutions applies redriveFilter (REDRIVEN/NOT_REDRIVEN on RedriveCount; api_op_ListExecutions.go:80-92) to mapRunArn listings and returns ValidationException for it with a stateMachineArn or for an unknown value. Proof: `TestListExecutions_RedriveFilter`.
+
+## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
+
+Removed dead ErrInvalidExecutionType (never raised) and its mapper row. TaskTokenAlreadyExists and ActivityTaskFailed come from the in-engine WaitForTaskToken path (activities.go:347,368), not from an API op, so no op deserializer applies. StateMachineVersionReferencedByAlias maps to ConflictException; TaskTokenNotFound maps to TaskDoesNotExist.

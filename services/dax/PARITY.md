@@ -774,3 +774,7 @@ dax is region-isolated: Clusters, parameter groups and subnet groups live per re
 ## 2026-10-05 (gopherstack-uox6 pass 9, value semantics)
 
 Round trips clean. Recorded, unchanged: UpdateCluster does not move a cluster through "modifying" and an omitted SecurityGroupIds leaves the node group list empty rather than assigning a default VPC group (api_op_CreateCluster.go:139 names a default group but no ID to report; API-docs-only).
+
+## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
+
+ParameterGroupInUseFault is a sentinel text only; handler.go maps it to InvalidParameterGroupStateFault.

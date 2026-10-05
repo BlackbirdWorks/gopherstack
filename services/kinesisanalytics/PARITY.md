@@ -497,3 +497,7 @@ kinesisanalytics already isolates regions internally: applications live per regi
 ## 2026-10-05 (gopherstack-uox6 pass 10, value semantics)
 
 UpdateApplication Kinesis stream/firehose/lambda input, output, processor and S3 reference updates keep whichever ARN or role the request omits (ResourceARNUpdate/RoleARNUpdate are independently optional, types.go:710). Proof: `TestUpdateApplication_OutputUpdateKeepsOmittedARN`.
+
+## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
+
+InternalServiceException (handler.go:251) is the default 500 clause; the pinned SDK models no internal-error type.

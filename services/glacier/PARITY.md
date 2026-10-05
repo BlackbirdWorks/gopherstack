@@ -998,3 +998,7 @@ glacier is region-isolated: vaults, archives, jobs and multipart uploads live pe
 
 - `CreateVault` on an existing vault no longer returns `ResourceInUseException` (declared by no glacier op): the op is documented idempotent, so it returns 201 with the existing vault.
 - `DeleteVault` on a non-empty/recently-written vault returns 400 `InvalidParameterValueException` (declared by DeleteVault, glacier@v1.35.4) instead of 409 `ConflictException` (declared by no op). Typed proof: `TestDeleteVault_NonEmptyTypedError`.
+
+## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
+
+FIXED: GetJobOutput invalid or unsatisfiable Range emitted InvalidRange, which names no type in glacier@v1.35.4; GetJobOutput models InvalidParameterValueException (deserializers.go:1889 error switch), now emitted as 400, the status AWS documents for that exception. Test: TestGetJobOutput_BadRangeIsModelledError (errors.As).

@@ -874,3 +874,7 @@ RunJobFlow defaults VisibleToAllUsers true (api_op_RunJobFlow.go:283), RepoUpgra
 
 - DescribeReleaseLabel.MaxResults: unsupported per SDK, documented "Reserved for future use. Currently set to null." (api_op_DescribeReleaseLabel.go:33); the output NextToken is likewise always null.
 - DescribeReleaseLabel.NextToken: unsupported per SDK, same "Reserved for future use. Currently set to null." doc (api_op_DescribeReleaseLabel.go:36).
+
+## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
+
+ClientException is a sentinel text only; handler.go:343-346 writes InvalidRequestException.

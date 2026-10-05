@@ -6350,3 +6350,7 @@ Recorded again, each with the missing observable: CreateImage.NoReboot, StopInst
   DescribeCapacityBlockOfferings Start/EndDateRange and DescribeTrafficMirrorFilterRules TrafficMirrorFilterRuleIds
   are now applied. DryRun already has a shared handler (dispatch, 412 DryRunOperation). Unmodeled leftovers are in
   items_still_open.
+
+## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
+
+EC2 SDK models no exception types (query protocol), so every code is checked against AWS error-code docs, not the SDK. VolumeInUse, IncorrectInstanceState, InsufficientInstanceCapacity, ResourceCountExceeded and VpcClassicLinkDisabled are documented EC2 codes. UNVERIFIED offline: CapacityReservationFull (capacity_reservation_ops.go:40,104).

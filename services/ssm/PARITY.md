@@ -1710,3 +1710,7 @@ FIXED: DescribeAssociationExecutions (`ExecutionId`/`Status`/`CreatedTime`), Des
 ## 2026-10-05 (reqfielddiff tier-2 pagination)
 
 RECORDED, no code change: GetOpsSummary Filters/MaxResults/NextToken stay unsupported (the op returns one fixed OpsItem count entity, no OpsData dataset to filter or page), and DescribeMaintenanceWindowSchedule Filters stay unsupported (the SDK names no keys and the one scheduled execution is synthesized at now+N hours).
+
+## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
+
+Removed dead ErrInventoryNotFound (never raised). CommandNotFound is a sentinel text; handler.go:311 writes InvalidCommandId.

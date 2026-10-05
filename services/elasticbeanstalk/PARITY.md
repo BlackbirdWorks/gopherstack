@@ -465,3 +465,7 @@ Still recorded: false retains the environment's Auto Scaling group and load bala
 ## 2026-10-05 (reqfielddiff -adjudicated tier-2)
 
 - DescribeInstancesHealth.NextToken: always-empty, the backend models no EC2 instances so InstanceHealthList is always empty and no token is ever due (handler_instances_health.go).
+
+## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
+
+ClientException is a sentinel text only; the handler maps ErrAlreadyExists to InvalidParameterValue.

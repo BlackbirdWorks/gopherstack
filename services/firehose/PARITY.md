@@ -722,3 +722,7 @@ Still recorded: the flag bypasses a failure to retire the KMS grant Firehose tak
 ## 2026-10-05 (gopherstack-uox6 pass 7, value semantics)
 
 UpdateDestination merges same-type updates onto the stored destination, so omitted members (prefix, compression, buffering, backup, ...) are retained as api_op_UpdateDestination.go documents; a different destination type still replaces it. Merge is per top-level member (nested S3 destination/backup merge member-wise), so a supplied nested block such as BufferingHints replaces the stored one whole. S3BackupMode default Disabled is not modelled (SDK silent).
+
+## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
+
+ProcessingFailed (transform.go:30) is a per-record result value in a success response, not an error code.

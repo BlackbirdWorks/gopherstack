@@ -1335,3 +1335,7 @@ Both required fields were already read (tool false positives: plain strings, not
 ## 2026-10-05 (reqfielddiff tier-1/2 pass 8)
 
 ListCapacityProviders honours Marker, MaxItems and State (api_op_ListCapacityProviders.go:29-38; serializers.go query keys); it returned every provider unfiltered. RECORDED: ListFunctionUrlConfigs MaxItems/Marker have nothing to page (one URL config per function). Proof: `TestListCapacityProviders_PagingAndState`.
+
+## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
+
+Handled and Unhandled (invocation.go:211,215) are X-Amz-Function-Error header values, not error codes. Forbidden (errors.go:61) is the 403 body of an AWS_IAM function-URL data-plane request, not an API operation.

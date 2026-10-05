@@ -1086,3 +1086,7 @@ DescribeAppBlocks, DescribeAppBlockBuilders (max 25, `api_op_DescribeAppBlockBui
 ## 2026-10-05 (gopherstack-uox6 pass 7, value semantics)
 
 UpdateFleet no longer wipes IdleDisconnectTimeoutInSeconds when omitted (explicit 0 still disables it); CreateFleet defaults StreamView APP (api_op_CreateFleet.go:271); CreateStack with no UserSettings enables the documented actions and clipboard actions default MaximumLength 20971520 (types.go:1907). SMART_CARD and AUTO_TIME_ZONE defaults are only in the AWS API docs, so left unset. FleetType/timeouts defaults have no SDK text and are unchanged.
+
+## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
+
+OperationNotPermitted (handler.go:149) is the unknown-action routing fallback and InternalServiceError the default classifier clause; the SDK models neither for the failing ops, no per-op code applies.

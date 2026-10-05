@@ -188,3 +188,7 @@ mediastoredata already isolates regions internally: objects live in a per-region
 ## 2026-10-05 errcodeaudit note (gopherstack-r3pr)
 
 - XAmzContentSHA256Mismatch is the real S3-family wire code for a declared payload hash that does not match the body (S3 API ErrorResponses); mediastoredata models only 4 exceptions, so it is absent from the SDK by design.
+
+## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
+
+XAmzContentSHA256Mismatch (handler.go:200) is the S3-family payload-hash error code that real MediaStore Data returns; the 4-exception SDK model does not list it.

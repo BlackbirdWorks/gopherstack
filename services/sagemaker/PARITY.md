@@ -6898,3 +6898,7 @@ CreateImageVersion now honours ClientToken as an idempotency token: replaying a 
 ## 2026-10-05 errtargetaudit triage (gopherstack-3fvxc)
 
 Orphan `InstanceGroupNotFound` (cluster.go) is a valid `BatchAddClusterNodesErrorCode` enum value in a per-node failure entry, not an exception code: false positive.
+
+## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
+
+InstanceIdNotFound, NodeIdNotFound are per-item BatchReplaceClusterNodes error codes (types.BatchReplaceClusterNodesErrorCode enum members) in a 200 body, not error envelopes.

@@ -731,7 +731,7 @@ func TestGetJobOutput_RangeOnInventory(t *testing.T) {
 		{
 			name:        "invalid_range",
 			rangeHeader: "bytes=9999-10000",
-			wantStatus:  http.StatusRequestedRangeNotSatisfiable,
+			wantStatus:  http.StatusBadRequest,
 		},
 	}
 

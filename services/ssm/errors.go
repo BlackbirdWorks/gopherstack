@@ -64,8 +64,6 @@ var (
 	ErrResourceDataSyncExists = errors.New("ResourceDataSyncAlreadyExistsException")
 )
 var (
-	// ErrInventoryNotFound is returned when inventory for a type is not found.
-	ErrInventoryNotFound = errors.New("InventoryTypeNotFound")
 	// ErrDocumentVersionNotFound is returned when a document version is not found.
 	ErrDocumentVersionNotFound = errors.New("InvalidDocumentVersion")
 	// ErrInvalidAggregator is returned by ListNodesSummary when Aggregators is

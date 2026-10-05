@@ -625,3 +625,7 @@ ListMonitorEvaluations no longer emits CreationTime/MonitorName/Status, which Pr
 ## 2026-10-05 (reqfielddiff tier-2 pagination)
 
 ListMonitorEvaluations Filters/MaxResults/NextToken are false positives (the tool misses the map-based dispatcher); already applied and the bad token is InvalidNextTokenException. Proof: `TestListMonitorEvaluations_FilterAndPaging`.
+
+## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
+
+InternalServerException (handler.go:606) is the default 500 clause; the pinned SDK models no internal-error type.

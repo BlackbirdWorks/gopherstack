@@ -526,3 +526,7 @@ Create->Update->Get round trip audited (visibility GLOBAL, introspection ENABLED
 ## 2026-10-05 (reqfielddiff tier-1/2 pass 8)
 
 RECORDED: GetDataSourceIntrospection MaxResults/NextToken have nothing to page; the models list is always empty (no RDS Data API to introspect).
+
+## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
+
+InvalidSchemaError is a sentinel text only; handler_errors.go:44 writes BadRequestException.

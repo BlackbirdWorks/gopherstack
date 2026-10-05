@@ -1137,3 +1137,7 @@ FIXED 2026-10-03 (gopherstack-twwrp): CreateAccessGrant now sets GrantScope to t
 ## 2026-10-05 (gopherstack-uox6 pass 8, value semantics)
 
 GetBucketVersioning returned a fabricated Suspended status for a bucket whose versioning was never set; the SDK says no status is returned in that case (api_op_GetBucketVersioning.go:24-26), so Status is now omitted until PutBucketVersioning runs. Two tests that asserted the fabricated Suspended were changed to expect empty. Proof: `TestBucketVersioning_NoStatusUntilConfigured`. Recorded: MFADelete is not modeled.
+
+## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
+
+Sparse-model SDK. AccessGrantsInstanceNotExistsError, NoSuchBucket, ReplicationConfigurationNotFoundError and NoSuchConfiguration are S3 Control wire codes the SDK does not model per op. UNVERIFIED offline: NoSuchStorageLensGroup (the SDK models only NotFoundException); handler_jobs.go InvalidArgument is the S3 generic code.

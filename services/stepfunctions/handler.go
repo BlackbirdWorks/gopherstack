@@ -366,7 +366,6 @@ func classifyError(reqErr error) (string, int) {
 		{ErrActivityAlreadyExists, "ActivityAlreadyExists", http.StatusConflict},
 		{ErrExecutionNotRedrivable, "ExecutionNotRedrivable", http.StatusBadRequest},
 		{ErrInvalidDefinition, "InvalidDefinition", http.StatusBadRequest},
-		{ErrInvalidExecutionType, "InvalidExecutionType", http.StatusBadRequest},
 		{ErrStateMachineTypeNotSupported, "StateMachineTypeNotSupported", http.StatusBadRequest},
 		{ErrInvalidExecutionInput, "InvalidExecutionInput", http.StatusBadRequest},
 		{ErrInvalidName, "InvalidName", http.StatusBadRequest},

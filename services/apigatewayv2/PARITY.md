@@ -1156,3 +1156,7 @@ GetIntegrationResponses, GetRouteResponses, GetVpcLinks and ListRoutingRules wer
 - GetIntegrationResponses.MaxResults: tool false positive, the handler pages through the shared `listConfig` closure (handler.go:926) that the field scan cannot follow; `TestGetIntegrationResponses_Limit`.
 - GetRouteResponses.MaxResults: tool false positive, same `listConfig` closure (handler.go:944); `TestGetRouteResponses_Limit`.
 - GetVpcLinks.MaxResults: tool false positive, handler_vpc_links.go:59 pages via `page.New` over a helper-read query param; `TestGetVpcLinks_Limit`.
+
+## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
+
+InternalServerErrorException (errors.go:30) is a generic 500 fallback; the pinned SDK models no internal-error type, so no replacement exists.

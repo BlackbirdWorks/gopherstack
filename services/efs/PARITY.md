@@ -714,3 +714,7 @@ ListTagsForResource now honours MaxResults (default 100) and NextToken (api_op_L
 ## 2026-10-05 (gopherstack-uox6 pass 10, value semantics)
 
 UpdateFileSystem leaving provisioned throughput mode now clears ProvisionedThroughputInMibps ("Valid for file systems using ThroughputMode set to provisioned", types.go:332). Proof: `TestUpdateFileSystem_LeavingProvisionedClearsThroughput`. Recorded, unchanged: an access point created without RootDirectory reports none; the "/" default is API-docs-only.
+
+## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
+
+UnsupportedOperation (handler.go:492) is the unknown-route fallback, matched by no operation deserializer.
