@@ -1,6 +1,10 @@
 package cloudformation
 
-import "fmt"
+import (
+	"fmt"
+
+	kinesisvideobackend "github.com/blackbirdworks/gopherstack/services/kinesisvideo"
+)
 
 const (
 	resTypeKinesisVideoStream           = "AWS::KinesisVideo::Stream"
@@ -42,9 +46,27 @@ func (rc *ResourceCreator) deleteKinesisVideoResource(resourceType, physicalID s
 
 	switch resourceType {
 	case resTypeKinesisVideoStream:
-		return true, rc.backends.KinesisVideo.Backend.DeleteStream(physicalID, "")
+		be := rc.backends.KinesisVideo.Backend
+		if err := be.DeleteStream(physicalID, ""); err != nil {
+			return true, err
+		}
+
+		return true, awaitGone("KinesisVideo stream "+physicalID, func() error {
+			_, err := be.DescribeStream("", physicalID)
+
+			return err
+		}, kinesisvideobackend.ErrStreamNotFound)
 	case resTypeKinesisVideoSignalingChannel:
-		return true, rc.backends.KinesisVideo.Backend.DeleteSignalingChannel(physicalID, "")
+		be := rc.backends.KinesisVideo.Backend
+		if err := be.DeleteSignalingChannel(physicalID, ""); err != nil {
+			return true, err
+		}
+
+		return true, awaitGone("KinesisVideo signaling channel "+physicalID, func() error {
+			_, err := be.DescribeSignalingChannel("", physicalID)
+
+			return err
+		}, kinesisvideobackend.ErrChannelNotFound)
 	default:
 		return false, nil
 	}
@@ -88,6 +110,18 @@ func (rc *ResourceCreator) createKinesisVideoStream(
 		return "", fmt.Errorf("create KinesisVideo stream %s: %w", name, err)
 	}
 
+	err = awaitResource("KinesisVideo stream "+s.ARN, func() (bool, error) {
+		cur, derr := rc.backends.KinesisVideo.Backend.DescribeStream("", s.ARN)
+		if derr != nil {
+			return false, derr
+		}
+
+		return cur.Status == statusActive, nil
+	})
+	if err != nil {
+		return "", fmt.Errorf("create KinesisVideo stream %s: %w", name, err)
+	}
+
 	physicalIDs[logicalID+"/Arn"] = s.ARN
 
 	return s.ARN, nil
@@ -119,6 +153,18 @@ func (rc *ResourceCreator) createKinesisVideoSignalingChannel(
 		int32Prop(props, "MessageTtlSeconds", params, physicalIDs),
 		tagListProp(props, params, physicalIDs),
 	)
+	if err != nil {
+		return "", fmt.Errorf("create KinesisVideo signaling channel %s: %w", name, err)
+	}
+
+	err = awaitResource("KinesisVideo signaling channel "+c.ARN, func() (bool, error) {
+		cur, derr := rc.backends.KinesisVideo.Backend.DescribeSignalingChannel("", c.ARN)
+		if derr != nil {
+			return false, derr
+		}
+
+		return cur.Status == statusActive, nil
+	})
 	if err != nil {
 		return "", fmt.Errorf("create KinesisVideo signaling channel %s: %w", name, err)
 	}
