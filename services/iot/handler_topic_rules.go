@@ -437,7 +437,7 @@ func (h *Handler) handleListTopicRuleDestinations(c *echo.Context) error {
 		out = append(out, topicRuleDestinationSummaryFields(d))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"destinationSummaries": out})
+	return respondListPage(c, "destinationSummaries", out)
 }
 
 func (h *Handler) handleUpdateTopicRuleDestination(c *echo.Context) error {

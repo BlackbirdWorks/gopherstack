@@ -80,7 +80,7 @@ func (h *Handler) handleListJobExecutionsForJob(c *echo.Context) error {
 		}
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"executionSummaries": summaries})
+	return respondListPage(c, "executionSummaries", summaries)
 }
 
 // handleListJobExecutionsForThing: same nested-shape fix as
@@ -100,7 +100,7 @@ func (h *Handler) handleListJobExecutionsForThing(c *echo.Context) error {
 		}
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"executionSummaries": summaries})
+	return respondListPage(c, "executionSummaries", summaries)
 }
 
 func resolveJobOps(path, method string) string {
@@ -236,7 +236,7 @@ func (h *Handler) handleListJobs(c *echo.Context) error {
 		}
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"jobs": summaries})
+	return respondListPage(c, "jobs", summaries)
 }
 
 func (h *Handler) handleUpdateJob(c *echo.Context) error {
@@ -464,7 +464,7 @@ func (h *Handler) handleListJobTemplates(c *echo.Context) error {
 		}
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"jobTemplates": summaries})
+	return respondListPage(c, "jobTemplates", summaries)
 }
 
 func (h *Handler) handleDeleteJobTemplate(c *echo.Context) error {

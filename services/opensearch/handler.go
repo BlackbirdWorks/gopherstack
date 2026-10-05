@@ -395,7 +395,8 @@ func (h *Handler) handleListPackagesForDomainRoute(w http.ResponseWriter, r *htt
 		})
 	}
 
-	h.writeJSON(r, w, map[string]any{jsonKeyPkgDetailsList: outList})
+	writePagedList(h, w, r, listSpec(jsonKeyPkgDetailsList), outList,
+		func(d domainPackageDetailsJSON) string { return d.PackageID })
 }
 
 // dispatchDomainDeleteRoutes handles DELETE under a domain path.
@@ -643,7 +644,9 @@ func (h *Handler) dispatchDomainGetResourceRoutes(
 		if actions == nil {
 			actions = []*ScheduledAction{}
 		}
-		h.writeJSON(r, w, map[string]any{"ScheduledActions": actions})
+		spec := listSpec("ScheduledActions")
+		spec.tokenCode = errInvalidPaginationToken
+		writePagedList(h, w, r, spec, actions, func(a *ScheduledAction) string { return a.ID })
 	default:
 		return false
 	}

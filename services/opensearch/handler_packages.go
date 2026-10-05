@@ -308,10 +308,9 @@ func (h *Handler) handlePackageSubResourceRoutes(
 		// PackageID is a real GetPackageVersionHistoryOutput member
 		// (deserializers.go:9816-9823, awsRestjson1_deserializeOpDocumentGetPackageVersionHistoryOutput)
 		// that was previously never echoed.
-		h.writeJSON(r, w, map[string]any{
-			"PackageID":                 pkgID,
-			"PackageVersionHistoryList": history,
-		})
+		spec := listSpec("PackageVersionHistoryList")
+		spec.extra = map[string]any{"PackageID": pkgID}
+		writePagedList(h, w, r, spec, history, nil)
 
 		return true
 	// GET /packages/{packageId}/domains → ListDomainsForPackage
@@ -337,7 +336,7 @@ func (h *Handler) handlePackageSubResourceRoutes(
 			})
 		}
 
-		h.writeJSON(r, w, map[string]any{jsonKeyPkgDetailsList: outList})
+		writePagedList(h, w, r, listSpec(jsonKeyPkgDetailsList), outList, nil)
 
 		return true
 	}

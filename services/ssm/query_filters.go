@@ -104,11 +104,11 @@ func complianceItemAttr(item ComplianceItem, key string) (string, bool) {
 	switch key {
 	case "ComplianceType":
 		return item.ComplianceType, true
-	case "ResourceType":
+	case fkResourceType:
 		return item.ResourceType, true
-	case "ResourceId":
+	case fkResourceID:
 		return item.ResourceID, true
-	case "Status":
+	case filterKeyStatus:
 		return item.Status, true
 	case "Severity":
 		return item.Severity, item.Severity != ""
@@ -116,7 +116,7 @@ func complianceItemAttr(item ComplianceItem, key string) (string, bool) {
 		return item.Title, item.Title != ""
 	case "Id":
 		return item.ID, item.ID != ""
-	case "ExecutionId":
+	case fkExecutionID:
 		if item.ExecutionSummary != nil {
 			return item.ExecutionSummary.ExecutionID, item.ExecutionSummary.ExecutionID != ""
 		}

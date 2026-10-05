@@ -3,6 +3,8 @@ package awsconfig
 import (
 	"context"
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -265,18 +267,36 @@ func (h *Handler) handleDescribeConfigRuleEvaluationStatus(
 
 // DescribeComplianceByConfigRule request/response types and handler.
 type describeComplianceByConfigRuleInput struct {
+	NextToken       string   `json:"NextToken,omitempty"`
 	ConfigRuleNames []string `json:"ConfigRuleNames"`
+	ComplianceTypes []string `json:"ComplianceTypes,omitempty"`
 }
 type describeComplianceByConfigRuleOutput struct {
+	NextToken               string                   `json:"NextToken,omitempty"`
 	ComplianceByConfigRules []ComplianceByConfigRule `json:"ComplianceByConfigRules"`
 }
 
 func (h *Handler) handleDescribeComplianceByConfigRule(
 	_ context.Context, in *describeComplianceByConfigRuleInput,
 ) (*describeComplianceByConfigRuleOutput, error) {
-	return &describeComplianceByConfigRuleOutput{
-		ComplianceByConfigRules: h.Backend.DescribeComplianceByConfigRule(in.ConfigRuleNames),
-	}, nil
+	rules := h.Backend.DescribeComplianceByConfigRule(in.ConfigRuleNames)
+	if len(in.ComplianceTypes) > 0 {
+		rules = slices.DeleteFunc(rules, func(r ComplianceByConfigRule) bool {
+			return !slices.Contains(in.ComplianceTypes, r.Compliance.ComplianceType)
+		})
+	}
+
+	slices.SortFunc(
+		rules,
+		func(a, b ComplianceByConfigRule) int { return strings.Compare(a.ConfigRuleName, b.ConfigRuleName) },
+	)
+
+	p, err := paginate(rules, in.NextToken, 0, unboundedPageDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeComplianceByConfigRuleOutput{ComplianceByConfigRules: p.Data, NextToken: p.Next}, nil
 }
 
 // DescribeComplianceByResource request/response types and handler.
@@ -405,10 +425,11 @@ func (h *Handler) handleGetAggregateComplianceDetailsByConfigRule(
 // api_op_GetAggregateConfigRuleComplianceSummary.go) -- this was never
 // emitted at all.
 type getAggregateConfigRuleComplianceSummaryInput struct {
-	ConfigurationAggregatorName string `json:"ConfigurationAggregatorName"`
-	GroupByKey                  string `json:"GroupByKey,omitempty"`
-	NextToken                   string `json:"NextToken,omitempty"`
-	Limit                       int32  `json:"Limit,omitempty"`
+	Filters                     *aggregateScopeFilters `json:"Filters,omitempty"`
+	ConfigurationAggregatorName string                 `json:"ConfigurationAggregatorName"`
+	GroupByKey                  string                 `json:"GroupByKey,omitempty"`
+	NextToken                   string                 `json:"NextToken,omitempty"`
+	Limit                       int32                  `json:"Limit,omitempty"`
 }
 type getAggregateConfigRuleComplianceSummaryOutput struct {
 	GroupByKey                string                     `json:"GroupByKey,omitempty"`
@@ -429,6 +450,10 @@ func (h *Handler) handleGetAggregateConfigRuleComplianceSummary(
 		return nil, err
 	}
 
+	if !h.Backend.aggregateScopeMatches(in.Filters) {
+		counts = []AggregateComplianceCount{}
+	}
+
 	p, err := paginate(counts, in.NextToken, in.Limit, getAggregateConfigRuleComplianceSummaryPageDefault)
 	if err != nil {
 		return nil, err
@@ -443,6 +468,12 @@ func (h *Handler) handleGetAggregateConfigRuleComplianceSummary(
 
 // DescribeAggregateComplianceByConfigRules request/response types and handler.
 type describeAggregateComplianceByConfigRulesInput struct {
+	Filters *struct {
+		ConfigRuleName string `json:"ConfigRuleName,omitempty"`
+		ComplianceType string `json:"ComplianceType,omitempty"`
+		AccountID      string `json:"AccountId,omitempty"`
+		AwsRegion      string `json:"AwsRegion,omitempty"`
+	} `json:"Filters,omitempty"`
 	NextToken string `json:"NextToken,omitempty"`
 	Limit     int32  `json:"Limit,omitempty"`
 }
@@ -454,9 +485,27 @@ type describeAggregateComplianceByConfigRulesOutput struct {
 func (h *Handler) handleDescribeAggregateComplianceByConfigRules(
 	_ context.Context, in *describeAggregateComplianceByConfigRulesInput,
 ) (*describeAggregateComplianceByConfigRulesOutput, error) {
-	p, err := paginate(
-		h.Backend.DescribeAggregateComplianceByConfigRules(), in.NextToken, in.Limit, unboundedPageDefault,
-	)
+	all := h.Backend.DescribeAggregateComplianceByConfigRules()
+	if f := in.Filters; f != nil {
+		all = slices.DeleteFunc(all, func(v any) bool {
+			r, _ := v.(ComplianceByConfigRule)
+
+			return !h.Backend.aggregateScopeMatches(
+				&aggregateScopeFilters{AccountID: f.AccountID, AwsRegion: f.AwsRegion},
+			) ||
+				(f.ConfigRuleName != "" && r.ConfigRuleName != f.ConfigRuleName) ||
+				(f.ComplianceType != "" && r.Compliance.ComplianceType != f.ComplianceType)
+		})
+	}
+
+	slices.SortFunc(all, func(a, b any) int {
+		ra, _ := a.(ComplianceByConfigRule)
+		rb, _ := b.(ComplianceByConfigRule)
+
+		return strings.Compare(ra.ConfigRuleName, rb.ConfigRuleName)
+	})
+
+	p, err := paginate(all, in.NextToken, in.Limit, unboundedPageDefault)
 	if err != nil {
 		return nil, err
 	}

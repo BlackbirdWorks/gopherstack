@@ -876,3 +876,7 @@ Recorded: DBClusterIdentifier/DBInstanceIdentifier are documented "not case-sens
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 Audited for region isolation: same-named resources in two regions coexist and list per region; no code change. Proof: `TestRegionIsolation/neptune`.
+
+## 2026-10-05 (reqfielddiff tier-2 filters)
+
+FIXED: DescribeDBClusterEndpoints applies `db-cluster-endpoint-type`/`-custom-type`/`-id`/`-status` (neptune@v1.48.4 api_op_DescribeDBClusterEndpoints.go:42-51), results ordered by identifier. The other 14 flagged `Filters` members are false positives: the SDK documents them as not currently supported. Proof: `TestDescribeDBClusterEndpoints_Filters`.

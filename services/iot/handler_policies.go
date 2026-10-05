@@ -362,7 +362,12 @@ func (h *Handler) handleListAttachedPolicies(c *echo.Context) error {
 		out = append(out, map[string]string{keyPolicyName: p.PolicyName, keyPolicyArn: p.ARN})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"policies": out})
+	size, start, perr := pageParams(c, "pageSize", "marker")
+	if perr != nil {
+		return respondInvalidPageToken(c, perr)
+	}
+
+	return respondPage(c, "policies", "nextMarker", out, size, start)
 }
 
 // policyVersionCollectionName extracts the policy name from a

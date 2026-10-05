@@ -445,3 +445,7 @@ are no foreign-account snapshots to include.
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 Audited for region isolation: same-named resources in two regions coexist and list per region; no code change. Proof: `TestRegionIsolation/docdb`.
+
+## 2026-10-05 (reqfielddiff tier-2 filters)
+
+All 12 flagged `Filters` members (DescribeCertificates, DescribeDBClusterParameterGroups, DescribeDBClusterParameters, DescribeDBClusterSnapshots, DescribeDBEngineVersions, DescribeDBSubnetGroups, DescribeEngineDefaultClusterParameters, DescribeEventCategories, DescribeEventSubscriptions, DescribeEvents, DescribeOrderableDBInstanceOptions, ListTagsForResource) are false positives: docdb@v1.51.4 documents "This parameter is not currently supported." for each.

@@ -26,7 +26,8 @@ func (h *Handler) handleReservedInstancesRoutes(w http.ResponseWriter, r *http.R
 		instances = []*ReservedInstance{}
 	}
 
-	h.writeJSON(r, w, map[string]any{"ReservedInstances": instances})
+	writePagedList(h, w, r, listSpec("ReservedInstances"), instances,
+		func(ri *ReservedInstance) string { return ri.ReservedInstanceID })
 }
 
 // handleReservedInstanceOfferings serves DescribeReservedInstanceOfferings:
@@ -39,7 +40,8 @@ func (h *Handler) handleReservedInstanceOfferings(w http.ResponseWriter, r *http
 	}
 
 	offerings := h.Backend.DescribeReservedInstanceOfferings(r.URL.Query().Get("offeringId"))
-	h.writeJSON(r, w, map[string]any{"ReservedInstanceOfferings": offerings})
+	writePagedList(h, w, r, listSpec("ReservedInstanceOfferings"), offerings,
+		func(o *ReservedInstanceOffering) string { return o.ReservedInstanceOfferingID })
 }
 
 // handlePurchaseReservedInstanceOffering serves PurchaseReservedInstanceOffering:

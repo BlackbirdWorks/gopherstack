@@ -230,7 +230,7 @@ func (b *InMemoryBackend) GetOpsSummary(
 // every other key matches every entry (accept-and-echo, mirroring ListNodes'
 // unknown-key handling, instances.go).
 func matchesOpsMetadataFilter(m OpsMetadata, f OpsMetadataFilterEntry) bool {
-	if f.Key != "ResourceId" {
+	if f.Key != fkResourceID {
 		return true
 	}
 
@@ -425,7 +425,24 @@ func (b *InMemoryBackend) GetOpsMetadata(
 		return nil, ErrOpsMetadataNotFound
 	}
 
-	return &GetOpsMetadataOutput{Metadata: meta.Metadata, ResourceID: meta.ResourceID}, nil
+	keys := slices.Sorted(maps.Keys(meta.Metadata))
+
+	pageKeys, next, err := pageChecked(
+		keys, input.NextToken, maxOrZero(input.MaxResults), defaultDescribeMaxResults, ErrOpsMetadataInvalidArgument,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	var page map[string]MetadataValue
+	if len(pageKeys) > 0 {
+		page = make(map[string]MetadataValue, len(pageKeys))
+		for _, k := range pageKeys {
+			page[k] = meta.Metadata[k]
+		}
+	}
+
+	return &GetOpsMetadataOutput{Metadata: page, NextToken: next, ResourceID: meta.ResourceID}, nil
 }
 
 // nextOpsItemVersion returns current+1, defaulting to 1 for an unparseable
@@ -666,8 +683,9 @@ func (b *InMemoryBackend) ListOpsItemRelatedItems(
 		}
 	}
 
-	if all == nil {
-		all = []OpsItemRelatedItem{}
+	all, err := filterOpsItemRelatedItems(all, input.Filters)
+	if err != nil {
+		return nil, err
 	}
 
 	// AssociationID is assigned via uuid.NewString() (AssociateOpsItemRelatedItem)
@@ -687,28 +705,14 @@ func (b *InMemoryBackend) ListOpsItemRelatedItems(
 		}
 	}
 
-	startIdx := parseNextToken(input.NextToken)
-	limit := int64(maxOpsItemRelatedItems)
-
-	if input.MaxResults != nil {
-		limit = *input.MaxResults
+	page, nextToken, err := pageChecked(
+		all, input.NextToken, maxOrZero64(input.MaxResults), maxOpsItemRelatedItems, ErrOpsItemInvalidParameter,
+	)
+	if err != nil {
+		return nil, err
 	}
 
-	if startIdx >= len(all) {
-		return &ListOpsItemRelatedItemsOutput{Summaries: []OpsItemRelatedItem{}}, nil
-	}
-
-	end := startIdx + int(limit)
-
-	var nextToken string
-
-	if end < len(all) {
-		nextToken = strconv.Itoa(end)
-	} else {
-		end = len(all)
-	}
-
-	return &ListOpsItemRelatedItemsOutput{NextToken: nextToken, Summaries: all[startIdx:end]}, nil
+	return &ListOpsItemRelatedItemsOutput{NextToken: nextToken, Summaries: page}, nil
 }
 
 // ListOpsItemEvents returns tracked events for OpsItems, optionally filtered by OpsItemID.
@@ -731,9 +735,18 @@ func (b *InMemoryBackend) ListOpsItemEvents(
 		summaries = append(summaries, event)
 	}
 
-	if summaries == nil {
-		summaries = []OpsItemEventSummary{}
+	summaries, err := filterOpsItemEvents(summaries, input.Filters)
+	if err != nil {
+		return nil, err
 	}
+
+	sort.Slice(summaries, func(i, j int) bool {
+		if summaries[i].CreatedTime != summaries[j].CreatedTime {
+			return summaries[i].CreatedTime < summaries[j].CreatedTime
+		}
+
+		return summaries[i].EventID < summaries[j].EventID
+	})
 
 	const maxOpsItemEvents = 50
 
@@ -747,28 +760,14 @@ func (b *InMemoryBackend) ListOpsItemEvents(
 		}
 	}
 
-	startIdx := parseNextToken(input.NextToken)
-	limit := int64(maxOpsItemEvents)
-
-	if input.MaxResults != nil {
-		limit = *input.MaxResults
+	page, nextToken, err := pageChecked(
+		summaries, input.NextToken, maxOrZero64(input.MaxResults), maxOpsItemEvents, ErrOpsItemInvalidParameter,
+	)
+	if err != nil {
+		return nil, err
 	}
 
-	if startIdx >= len(summaries) {
-		return &ListOpsItemEventsOutput{Summaries: []OpsItemEventSummary{}}, nil
-	}
-
-	end := startIdx + int(limit)
-
-	var nextToken string
-
-	if end < len(summaries) {
-		nextToken = strconv.Itoa(end)
-	} else {
-		end = len(summaries)
-	}
-
-	return &ListOpsItemEventsOutput{NextToken: nextToken, Summaries: summaries[startIdx:end]}, nil
+	return &ListOpsItemEventsOutput{NextToken: nextToken, Summaries: page}, nil
 }
 
 // DeleteOpsMetadata removes OpsMetadata by ARN.

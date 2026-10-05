@@ -382,10 +382,13 @@ func (h *Handler) handleListAggregateDiscoveredResources(
 // SelectResourceConfig request/response types and handler.
 type selectResourceConfigInput struct {
 	Expression string `json:"Expression"`
+	NextToken  string `json:"NextToken,omitempty"`
+	Limit      int32  `json:"Limit,omitempty"`
 }
 
 type selectResourceConfigOutput struct {
-	Results []string `json:"Results"`
+	NextToken string   `json:"NextToken,omitempty"`
+	Results   []string `json:"Results"`
 }
 
 func (h *Handler) handleSelectResourceConfig(
@@ -396,16 +399,25 @@ func (h *Handler) handleSelectResourceConfig(
 		return nil, err
 	}
 
-	return &selectResourceConfigOutput{Results: results}, nil
+	p, err := paginate(results, in.NextToken, in.Limit, unboundedPageDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	return &selectResourceConfigOutput{Results: p.Data, NextToken: p.Next}, nil
 }
 
 // SelectAggregateResourceConfig request/response types and handler.
 type selectAggregateResourceConfigInput struct {
 	Expression string `json:"Expression"`
+	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults int32  `json:"MaxResults,omitempty"`
+	Limit      int32  `json:"Limit,omitempty"`
 }
 
 type selectAggregateResourceConfigOutput struct {
-	Results []string `json:"Results"`
+	NextToken string   `json:"NextToken,omitempty"`
+	Results   []string `json:"Results"`
 }
 
 func (h *Handler) handleSelectAggregateResourceConfig(
@@ -416,7 +428,17 @@ func (h *Handler) handleSelectAggregateResourceConfig(
 		return nil, err
 	}
 
-	return &selectAggregateResourceConfigOutput{Results: results}, nil
+	size := in.MaxResults
+	if size == 0 {
+		size = in.Limit
+	}
+
+	p, err := paginate(results, in.NextToken, size, unboundedPageDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	return &selectAggregateResourceConfigOutput{Results: p.Data, NextToken: p.Next}, nil
 }
 
 // GetResourceEvaluationSummary request/response types and handler.
@@ -467,6 +489,13 @@ type resourceEvaluationSummary struct {
 	EvaluationStartTimestamp float64 `json:"EvaluationStartTimestamp"`
 }
 type listResourceEvaluationsInput struct {
+	Filters *struct {
+		TimeWindow *struct {
+			StartTime float64 `json:"StartTime"`
+			EndTime   float64 `json:"EndTime"`
+		} `json:"TimeWindow,omitempty"`
+		EvaluationMode string `json:"EvaluationMode,omitempty"`
+	} `json:"Filters,omitempty"`
 	NextToken string `json:"NextToken,omitempty"`
 	Limit     int32  `json:"Limit,omitempty"`
 }
@@ -487,6 +516,17 @@ func (h *Handler) handleListResourceEvaluations(
 
 	out := make([]resourceEvaluationSummary, 0, len(evals))
 	for _, e := range evals {
+		if f := in.Filters; f != nil {
+			if f.EvaluationMode != "" && e.EvaluationMode != f.EvaluationMode {
+				continue
+			}
+
+			if w := f.TimeWindow; w != nil &&
+				(e.StartTime < w.StartTime || (w.EndTime != 0 && e.StartTime > w.EndTime)) {
+				continue
+			}
+		}
+
 		out = append(out, resourceEvaluationSummary{
 			ResourceEvaluationID:     e.ResourceEvaluationID,
 			EvaluationMode:           e.EvaluationMode,

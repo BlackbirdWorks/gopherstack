@@ -6,6 +6,9 @@ import (
 
 // StorageBackend is the interface for Macie2 storage operations.
 type StorageBackend interface {
+	// PaginationSecret is the HMAC secret signing this backend's page tokens.
+	PaginationSecret() string
+
 	// Session management
 	GetSession() *Session
 	EnableMacie(clientToken, frequency, status string) error

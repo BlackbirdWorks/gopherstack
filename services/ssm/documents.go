@@ -493,10 +493,12 @@ func (b *InMemoryBackend) ListDocuments(
 	b.mu.RLock("ListDocuments")
 	defer b.mu.RUnlock()
 
-	// Merge Filters and DocumentFilters (both carry the same shape).
-	allFilters := make([]DocumentFilter, 0, len(input.Filters)+len(input.DocumentFilters))
+	allFilters := make([]DocumentFilter, 0, len(input.Filters)+len(input.DocumentFilterList))
 	allFilters = append(allFilters, input.Filters...)
-	allFilters = append(allFilters, input.DocumentFilters...)
+
+	for _, f := range input.DocumentFilterList {
+		allFilters = append(allFilters, DocumentFilter{Key: f.Key, Values: []string{f.Value}})
+	}
 
 	docsTable := b.documentsStore(region)
 	all := make([]DocumentIdentifier, 0, docsTable.Len())
@@ -523,31 +525,14 @@ func (b *InMemoryBackend) ListDocuments(
 
 	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
 
-	startIdx := parseNextToken(input.NextToken)
-
-	maxResults := int64(defaultListDocMaxResults)
-	if input.MaxResults != nil && *input.MaxResults > 0 {
-		maxResults = *input.MaxResults
+	page, nextToken, err := pageChecked(
+		all, input.NextToken, maxOrZero64(input.MaxResults), defaultListDocMaxResults, ErrInvalidNextToken,
+	)
+	if err != nil {
+		return nil, err
 	}
 
-	if startIdx >= len(all) {
-		return &ListDocumentsOutput{DocumentIdentifiers: []DocumentIdentifier{}}, nil
-	}
-
-	end := startIdx + int(maxResults)
-
-	var nextToken string
-
-	if end < len(all) {
-		nextToken = strconv.Itoa(end)
-	} else {
-		end = len(all)
-	}
-
-	return &ListDocumentsOutput{
-		DocumentIdentifiers: all[startIdx:end],
-		NextToken:           nextToken,
-	}, nil
+	return &ListDocumentsOutput{DocumentIdentifiers: page, NextToken: nextToken}, nil
 }
 
 // UpdateDocument increments the document version and updates content.

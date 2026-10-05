@@ -478,7 +478,7 @@ func (h *Handler) handleDescribeDomainAutoTunes(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	h.writeJSON(r, w, map[string]any{"AutoTunes": []any{}})
+	writePagedList(h, w, r, listSpec("AutoTunes"), []any{}, nil)
 }
 
 func (h *Handler) handleDescribeDomainChangeProgress(w http.ResponseWriter, r *http.Request, domainName string) {

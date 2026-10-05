@@ -27,10 +27,11 @@ type DescribeAutomationExecutionsOutput struct{}
 
 // DescribeAutomationStepExecutionsInput is the request for DescribeAutomationStepExecutions.
 type DescribeAutomationStepExecutionsInput struct {
-	MaxResults            *int32 `json:"MaxResults,omitempty"`
-	ReverseOrder          *bool  `json:"ReverseOrder,omitempty"`
-	AutomationExecutionID string `json:"AutomationExecutionId"`
-	NextToken             string `json:"NextToken,omitempty"`
+	MaxResults            *int32                `json:"MaxResults,omitempty"`
+	ReverseOrder          *bool                 `json:"ReverseOrder,omitempty"`
+	AutomationExecutionID string                `json:"AutomationExecutionId"`
+	NextToken             string                `json:"NextToken,omitempty"`
+	Filters               []StepExecutionFilter `json:"Filters,omitempty"`
 }
 
 // DescribeAutomationStepExecutionsOutput is the response for DescribeAutomationStepExecutions.

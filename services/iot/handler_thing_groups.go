@@ -184,9 +184,13 @@ func (h *Handler) handleDescribeThingGroup(c *echo.Context) error {
 }
 
 func (h *Handler) handleListThingGroups(c *echo.Context) error {
+	prefix := c.QueryParam("namePrefixFilter")
 	groups := h.Backend.ListThingGroups()
 	out := make([]map[string]string, 0, len(groups))
 	for _, tg := range groups {
+		if !strings.HasPrefix(tg.ThingGroupName, prefix) {
+			continue
+		}
 		// ListThingGroups' items deserialize as types.GroupNameAndArn
 		// (iot@v1.77.4 deserializers.go's awsRestjson1_deserializeDocumentGroupNameAndArn:
 		// "groupName"/"groupArn"), a different shape from
@@ -199,7 +203,7 @@ func (h *Handler) handleListThingGroups(c *echo.Context) error {
 		})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyThingGroups: out})
+	return respondListPage(c, keyThingGroups, out)
 }
 
 func (h *Handler) handleUpdateThingGroup(c *echo.Context) error {
@@ -278,7 +282,7 @@ func (h *Handler) handleListThingsInThingGroup(c *echo.Context) error {
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"things": things})
+	return respondListPage(c, "things", things)
 }
 
 func (h *Handler) handleListThingGroupsForThing(c *echo.Context) error {

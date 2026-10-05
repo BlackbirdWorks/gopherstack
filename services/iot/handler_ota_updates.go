@@ -87,7 +87,7 @@ func (h *Handler) handleListOTAUpdates(c *echo.Context) error {
 		}
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"otaUpdates": summaries})
+	return respondListPage(c, "otaUpdates", summaries)
 }
 
 func (h *Handler) dispatchOTAUpdateOps(c *echo.Context, op string) (bool, error) {

@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -266,6 +267,10 @@ func (h *Handler) handleListCommandExecutions(c *echo.Context) error {
 		// Real route: POST /command-executions, filters in the JSON body
 		// (iot@v1.77.4 serializers.go:13840, awsRestjson1_serializeOpDocumentListCommandExecutionsInput).
 		var body struct {
+			StartedTimeFilter *struct {
+				After  string `json:"after"`
+				Before string `json:"before"`
+			} `json:"startedTimeFilter"`
 			CommandArn string `json:"commandArn"`
 			TargetArn  string `json:"targetArn"`
 			Status     string `json:"status"`
@@ -275,6 +280,9 @@ func (h *Handler) handleListCommandExecutions(c *echo.Context) error {
 			return err
 		}
 		items = h.Backend.ListCommandExecutionsByFilter(body.CommandArn, body.TargetArn, body.Status)
+		if f := body.StartedTimeFilter; f != nil {
+			items = filterCommandExecutionsStartedBetween(items, f.After, f.Before)
+		}
 
 		// Default order is descending by creation time (ListCommandExecutionsInput's
 		// sortOrder doc comment); "ASCENDING" is the only other real enum value.
@@ -298,7 +306,32 @@ func (h *Handler) handleListCommandExecutions(c *echo.Context) error {
 		out = append(out, commandExecutionSummaryFields(ex))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"commandExecutions": out})
+	return respondListPage(c, "commandExecutions", out)
+}
+
+// parseCommandTime reads a TimeFilter value ("yyyy-MM-dd'T'HH:mm" per the SDK doc, or RFC3339).
+func parseCommandTime(s string) (float64, bool) {
+	for _, l := range []string{"2006-01-02T15:04", time.RFC3339} {
+		if t, err := time.Parse(l, s); err == nil {
+			return float64(t.Unix()), true
+		}
+	}
+
+	return 0, false
+}
+
+func filterCommandExecutionsStartedBetween(items []*IoTCommandExecution, after, before string) []*IoTCommandExecution {
+	lo, hasLo := parseCommandTime(after)
+	hi, hasHi := parseCommandTime(before)
+	out := make([]*IoTCommandExecution, 0, len(items))
+	for _, ex := range items {
+		if (hasLo && ex.CreationDate < lo) || (hasHi && ex.CreationDate > hi) {
+			continue
+		}
+		out = append(out, ex)
+	}
+
+	return out
 }
 
 func (h *Handler) handleDeleteCommandExecution(c *echo.Context) error {

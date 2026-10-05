@@ -353,7 +353,8 @@ func (h *Handler) handleListDomainsForPackage(w http.ResponseWriter, r *http.Req
 		})
 	}
 
-	h.writeJSON(r, w, map[string]any{"DomainPackageDetailsList": result})
+	writePagedList(h, w, r, listSpec("DomainPackageDetailsList"), result,
+		func(d domainPackageJSON) string { return d.PackageID + "/" + d.DomainName })
 }
 
 func (h *Handler) handleListPackagesForDomain(w http.ResponseWriter, r *http.Request) {
@@ -377,5 +378,6 @@ func (h *Handler) handleListPackagesForDomain(w http.ResponseWriter, r *http.Req
 		})
 	}
 
-	h.writeJSON(r, w, map[string]any{"DomainPackageDetailsList": result})
+	writePagedList(h, w, r, listSpec("DomainPackageDetailsList"), result,
+		func(d domainPackageJSON) string { return d.PackageID + "/" + d.DomainName })
 }

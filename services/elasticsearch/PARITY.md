@@ -868,3 +868,7 @@ elasticsearch already keys its resources by region; same-named resources in two 
 ## 2026-10-04 (reqfielddiff tier-1: DescribeDomainChangeProgress.ChangeId)
 
 DescribeDomainChangeProgress now returns ChangeId, Status (COMPLETED), ConfigChangeStatus and, for the latest change, StartTime/LastUpdatedTime. A change is one domain configuration version; its ChangeId is derived deterministically from the domain and version (no stored history), the last 100 versions resolve, an omitted `changeid` selects the latest, and an unknown id is ResourceNotFoundException (declared by the op). Earlier changes carry no times because none were stored. Proof: `TestDescribeDomainChangeProgress_ChangeId_RealClient`. The earlier note that the response has no Status member was wrong for v1.45.4 (deserializers.go:10169 reads it).
+
+## 2026-10-05 (reqfielddiff tier-2 pagination)
+
+DescribeDomainAutoTunes (always empty, validates the token), ListDomainsForPackage, ListElasticsearchInstanceTypes, ListElasticsearchVersions, ListPackagesForDomain, ListVpcEndpointAccess, ListVpcEndpoints and ListVpcEndpointsForDomain page through `writePagedList` (paging.go, elasticsearchservice@v1.45.4 query members): sorted, no default size documented so a missing maxResults returns the whole list, `NextToken` only when truncated except the VPC list ops whose required `NextToken` stays `""`, a malformed token returns ValidationException. Proof: `TestListOps_PageAndRejectBadTokens`.

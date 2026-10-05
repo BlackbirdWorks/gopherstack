@@ -216,7 +216,7 @@ func (h *Handler) handleListPackages(c *echo.Context) error {
 	// Real ListPackagesOutput wraps the list under "packageSummaries"
 	// (deserializers.go: awsRestjson1_deserializeOpDocumentListPackagesOutput),
 	// not "packageList".
-	return c.JSON(http.StatusOK, map[string]any{"packageSummaries": out})
+	return respondListPage(c, "packageSummaries", out)
 }
 
 func packageAndVersion(path string) (string, string) {
@@ -327,7 +327,7 @@ func (h *Handler) handleListPackageVersions(c *echo.Context) error {
 	// "packageVersionSummaries"
 	// (deserializers.go: awsRestjson1_deserializeOpDocumentListPackageVersionsOutput),
 	// not "packageVersionList".
-	return c.JSON(http.StatusOK, map[string]any{"packageVersionSummaries": out})
+	return respondListPage(c, "packageVersionSummaries", out)
 }
 
 func (h *Handler) handleGetPackageConfiguration(c *echo.Context) error {

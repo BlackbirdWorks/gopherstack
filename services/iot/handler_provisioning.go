@@ -316,7 +316,7 @@ func (h *Handler) handleListProvisioningTemplates(c *echo.Context) error {
 		}
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"templates": summaries})
+	return respondListPage(c, "templates", summaries)
 }
 
 func (h *Handler) handleUpdateProvisioningTemplate(c *echo.Context) error {
@@ -402,7 +402,7 @@ func (h *Handler) handleListProvisioningTemplateVersions(c *echo.Context) error 
 		}
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{pathSegmentVersions: summaries})
+	return respondListPage(c, pathSegmentVersions, summaries)
 }
 
 func (h *Handler) handleDeleteProvisioningTemplateVersion(c *echo.Context) error {

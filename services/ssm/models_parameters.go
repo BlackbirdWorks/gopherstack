@@ -272,9 +272,10 @@ type DescribeParametersInput struct {
 	// account. This backend has no cross-account resource sharing for
 	// parameters, so Shared=true always yields an empty list -- an honest
 	// answer (nothing is ever shared), not a fabricated one.
-	Shared           *bool             `json:"Shared,omitempty"`
-	NextToken        string            `json:"NextToken,omitempty"`
-	ParameterFilters []ParameterFilter `json:"ParameterFilters,omitempty"`
+	Shared           *bool              `json:"Shared,omitempty"`
+	NextToken        string             `json:"NextToken,omitempty"`
+	ParameterFilters []ParameterFilter  `json:"ParameterFilters,omitempty"`
+	Filters          []ParametersFilter `json:"Filters,omitempty"`
 }
 
 // DescribeParametersOutput is the response payload for DescribeParameters.

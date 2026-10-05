@@ -36,8 +36,10 @@ type DeregisterTaskFromMaintenanceWindowInput struct {
 // name suggesting it might be optional given DescribeMaintenanceWindowExecutionTasks
 // already scopes to WindowExecutionId alone.
 type DescribeMaintenanceWindowExecutionTaskInvocationsInput struct {
+	MaxResults        *int32                    `json:"MaxResults,omitempty"`
 	WindowExecutionID string                    `json:"WindowExecutionId"`
 	TaskID            string                    `json:"TaskId"`
+	NextToken         string                    `json:"NextToken,omitempty"`
 	Filters           []MaintenanceWindowFilter `json:"Filters,omitempty"`
 }
 
@@ -66,8 +68,10 @@ type DescribeMaintenanceWindowExecutionTasksOutput struct{}
 
 // DescribeMaintenanceWindowExecutionsInput is the request payload.
 type DescribeMaintenanceWindowExecutionsInput struct {
-	WindowID string                    `json:"WindowId"`
-	Filters  []MaintenanceWindowFilter `json:"Filters,omitempty"`
+	MaxResults *int32                    `json:"MaxResults,omitempty"`
+	WindowID   string                    `json:"WindowId"`
+	NextToken  string                    `json:"NextToken,omitempty"`
+	Filters    []MaintenanceWindowFilter `json:"Filters,omitempty"`
 }
 
 // DescribeMaintenanceWindowExecutionsOutput is the response payload.
@@ -75,7 +79,9 @@ type DescribeMaintenanceWindowExecutionsOutput struct{}
 
 // DescribeMaintenanceWindowScheduleInput is the request payload.
 type DescribeMaintenanceWindowScheduleInput struct {
-	WindowID string `json:"WindowId,omitempty"`
+	MaxResults *int32 `json:"MaxResults,omitempty"`
+	WindowID   string `json:"WindowId,omitempty"`
+	NextToken  string `json:"NextToken,omitempty"`
 }
 
 // DescribeMaintenanceWindowScheduleOutput is the response payload.
@@ -111,8 +117,9 @@ type DescribeMaintenanceWindowTasksOutput struct {
 
 // DescribeMaintenanceWindowsInput is the request payload for DescribeMaintenanceWindows.
 type DescribeMaintenanceWindowsInput struct {
-	MaxResults *int64 `json:"MaxResults,omitempty"`
-	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults *int64                    `json:"MaxResults,omitempty"`
+	NextToken  string                    `json:"NextToken,omitempty"`
+	Filters    []MaintenanceWindowFilter `json:"Filters,omitempty"`
 }
 
 // DescribeMaintenanceWindowsOutput is the response payload for DescribeMaintenanceWindows.

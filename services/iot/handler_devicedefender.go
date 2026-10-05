@@ -216,9 +216,21 @@ func (h *Handler) handleListAuditMitigationActionsTasks(c *echo.Context) error {
 	taskStatus := c.QueryParam(keyTaskStatus)
 
 	tasks := h.Backend.ListAuditMitigationActionsTasks(auditTaskID, taskStatus)
+	findingID := c.QueryParam("findingId")
+	startTime := parseIoTTimeQueryParam(c, "startTime")
+	endTime := parseIoTTimeQueryParam(c, "endTime")
 
 	summaries := make([]map[string]any, 0, len(tasks))
 	for _, t := range tasks {
+		if startTime != 0 && t.StartTime < startTime {
+			continue
+		}
+		if endTime != 0 && max(t.StartTime, t.EndTime) > endTime {
+			continue
+		}
+		if findingID != "" && len(h.Backend.ListAuditMitigationActionsExecutions(t.TaskID, findingID, "")) == 0 {
+			continue
+		}
 		summaries = append(summaries, map[string]any{
 			keyTaskID:     t.TaskID,
 			keyTaskStatus: t.TaskStatus,
@@ -226,15 +238,7 @@ func (h *Handler) handleListAuditMitigationActionsTasks(c *echo.Context) error {
 		})
 	}
 
-	pageSize, start := parseIoTPagination(c)
-	page, nextToken := paginateMaps(summaries, pageSize, start)
-
-	resp := map[string]any{keyTasksField: page}
-	if nextToken != "" {
-		resp["nextToken"] = nextToken
-	}
-
-	return c.JSON(http.StatusOK, resp)
+	return respondListPage(c, keyTasksField, summaries)
 }
 
 func (h *Handler) handleListAuditMitigationActionsExecutions(c *echo.Context) error {
@@ -326,8 +330,8 @@ func (h *Handler) handleDescribeDetectMitigationActionsTask(c *echo.Context) err
 // DescribeDetectMitigationActionsTask returns (v1.77.4), not a narrower
 // list-only summary — hence sharing detectMitigationTaskSummaryWire.
 func (h *Handler) handleListDetectMitigationActionsTasks(c *echo.Context) error {
-	startTime := parseIoTEpochQueryParam(c, "startTime")
-	endTime := parseIoTEpochQueryParam(c, "endTime")
+	startTime := parseIoTTimeQueryParam(c, "startTime")
+	endTime := parseIoTTimeQueryParam(c, "endTime")
 
 	tasks := h.Backend.ListDetectMitigationActionsTasks(startTime, endTime)
 
@@ -364,16 +368,17 @@ func (h *Handler) handleListDetectMitigationActionsExecutions(c *echo.Context) e
 	thingName := c.QueryParam("thingName")
 
 	execs := h.Backend.ListDetectMitigationActionsExecutions(taskID, violationID, thingName)
+	startTime := parseIoTTimeQueryParam(c, "startTime")
+	endTime := parseIoTTimeQueryParam(c, "endTime")
 
-	pageSize, start := parseIoTPagination(c)
-	page, nextToken := paginateMaps(execs, pageSize, start)
-
-	resp := map[string]any{"actionsExecutions": page}
-	if nextToken != "" {
-		resp["nextToken"] = nextToken
+	filtered := make([]*DetectMitigationActionExecution, 0, len(execs))
+	for _, e := range execs {
+		if inTimeRange(e.ExecutionStartDate, startTime, endTime) {
+			filtered = append(filtered, e)
+		}
 	}
 
-	return c.JSON(http.StatusOK, resp)
+	return respondListPage(c, "actionsExecutions", filtered)
 }
 
 // ---------------------------------------------------------------------------
@@ -410,8 +415,8 @@ func (h *Handler) handleListViolationEvents(c *echo.Context) error {
 	thingName := c.QueryParam("thingName")
 	securityProfileName := c.QueryParam("securityProfileName")
 	verificationState := c.QueryParam("verificationState")
-	startTime := parseIoTEpochQueryParam(c, "startTime")
-	endTime := parseIoTEpochQueryParam(c, "endTime")
+	startTime := parseIoTTimeQueryParam(c, "startTime")
+	endTime := parseIoTTimeQueryParam(c, "endTime")
 	listSuppressedAlerts := parseIoTBoolQueryParam(c, "listSuppressedAlerts")
 	behaviorCriteriaType := c.QueryParam("behaviorCriteriaType")
 
@@ -475,23 +480,7 @@ func (h *Handler) handleListRelatedResourcesForAuditFinding(c *echo.Context) err
 		return respondErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"relatedResources": resources})
-}
-
-// parseIoTEpochQueryParam parses a query parameter as a float64 epoch-seconds
-// timestamp, returning 0 (unbounded) if absent or invalid.
-func parseIoTEpochQueryParam(c *echo.Context, name string) float64 {
-	v := c.QueryParam(name)
-	if v == "" {
-		return 0
-	}
-
-	f, err := strconv.ParseFloat(v, 64)
-	if err != nil {
-		return 0
-	}
-
-	return f
+	return respondListPage(c, "relatedResources", resources)
 }
 
 // parseIoTBoolQueryParam parses a query parameter as a tri-state *bool,

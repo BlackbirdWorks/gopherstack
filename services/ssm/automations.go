@@ -135,7 +135,7 @@ func (b *InMemoryBackend) GetAutomationExecution(
 // untracked (see matchesAutomationExecutionFilter).
 func automationExecutionAttr(exec AutomationExecution, key string) (string, bool) {
 	switch key {
-	case "ExecutionId":
+	case fkExecutionID:
 		return exec.AutomationExecutionID, true
 	case "ExecutionStatus":
 		return exec.Status, true
@@ -331,12 +331,17 @@ func (b *InMemoryBackend) DescribeAutomationStepExecutions(
 		steps = reversed
 	}
 
-	maxResults := 0
-	if input.MaxResults != nil {
-		maxResults = int(*input.MaxResults)
+	steps, err := filterStepExecutions(steps, input.Filters)
+	if err != nil {
+		return nil, err
 	}
 
-	page, next := paginateSlice(steps, input.NextToken, maxResults, defaultDescribeMaxResults)
+	page, next, err := pageChecked(
+		steps, input.NextToken, maxOrZero(input.MaxResults), defaultDescribeMaxResults, ErrInvalidNextToken,
+	)
+	if err != nil {
+		return nil, err
+	}
 
 	return &DescribeAutomationStepExecutionsOutputFull{StepExecutions: page, NextToken: next}, nil
 }

@@ -135,7 +135,9 @@ type OpsItemOutput struct {
 
 // GetOpsMetadataInput is the request payload for GetOpsMetadata.
 type GetOpsMetadataInput struct {
+	MaxResults     *int32 `json:"MaxResults,omitempty"`
 	OpsMetadataArn string `json:"OpsMetadataArn"`
+	NextToken      string `json:"NextToken,omitempty"`
 }
 
 // GetOpsMetadataOutput is the response payload for GetOpsMetadata (real
@@ -391,9 +393,10 @@ type DisassociateOpsItemRelatedItemInput struct {
 
 // ListOpsItemRelatedItemsInput is the request payload.
 type ListOpsItemRelatedItemsInput struct {
-	MaxResults *int64 `json:"MaxResults,omitempty"`
-	OpsItemID  string `json:"OpsItemId,omitempty"`
-	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults *int64            `json:"MaxResults,omitempty"`
+	OpsItemID  string            `json:"OpsItemId,omitempty"`
+	NextToken  string            `json:"NextToken,omitempty"`
+	Filters    []OpsItemFilterKV `json:"Filters,omitempty"`
 }
 
 // ListOpsItemRelatedItemsOutput is the response payload.
@@ -404,9 +407,10 @@ type ListOpsItemRelatedItemsOutput struct {
 
 // ListOpsItemEventsInput is the request payload.
 type ListOpsItemEventsInput struct {
-	MaxResults *int64 `json:"MaxResults,omitempty"`
-	OpsItemID  string `json:"OpsItemId,omitempty"`
-	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults *int64            `json:"MaxResults,omitempty"`
+	OpsItemID  string            `json:"OpsItemId,omitempty"`
+	NextToken  string            `json:"NextToken,omitempty"`
+	Filters    []OpsItemFilterKV `json:"Filters,omitempty"`
 }
 
 // OpsItemEventSummary is a summary of an OpsItem event.

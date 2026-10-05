@@ -456,6 +456,7 @@ func classifySSMErrorExtended(reqErr error) (string, int) {
 		classifySSMOpsError,
 		classifySSMMiscNotFoundError,
 		classifySSMResourceIdentityError,
+		classifySSMPagingError,
 	}
 
 	for _, classify := range classifiers {

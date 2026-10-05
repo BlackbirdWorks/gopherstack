@@ -114,7 +114,7 @@ func (h *Handler) dispatchMemberOps(op, path, query string, body []byte) (any, i
 	return nil, 0, false, nil
 }
 
-func (h *Handler) dispatchInvitationOps(op string, body []byte) (any, int, bool, error) {
+func (h *Handler) dispatchInvitationOps(op, query string, body []byte) (any, int, bool, error) {
 	switch op {
 	case opCreateInvitations:
 		result, code, err := h.handleCreateInvitations(body)
@@ -142,7 +142,7 @@ func (h *Handler) dispatchInvitationOps(op string, body []byte) (any, int, bool,
 		return result, code, true, err
 
 	case opListInvitations:
-		result, code, err := h.handleListInvitations()
+		result, code, err := h.handleListInvitations(query)
 
 		return result, code, true, err
 	}
@@ -350,13 +350,13 @@ func (h *Handler) handleGetInvitationsCount() (any, int, error) {
 	return map[string]int64{"invitationsCount": count}, http.StatusOK, nil
 }
 
-func (h *Handler) handleListInvitations() (any, int, error) {
+func (h *Handler) handleListInvitations(query string) (any, int, error) {
 	invitations, err := h.Backend.ListInvitations()
 	if err != nil {
 		return nil, http.StatusInternalServerError, err
 	}
 
-	return map[string]any{"invitations": invitations}, http.StatusOK, nil
+	return pagedQueryResponse(h.Backend, "invitations", query, invitations)
 }
 
 func extractDisassociateMemberID(path string) string {

@@ -169,7 +169,20 @@ type ConfigurationAggregator struct {
 	ConfigurationAggregatorArn    string                         `json:"ConfigurationAggregatorArn,omitempty"`
 	ConfigurationAggregatorName   string                         `json:"ConfigurationAggregatorName"`
 	CreationTime                  string                         `json:"CreationTime,omitempty"`
+	AggregatorFilters             *AggregatorFilters             `json:"AggregatorFilters,omitempty"`
 	AccountAggregationSources     []AccountAggregationSource     `json:"AccountAggregationSources,omitempty"`
+}
+
+// AggregatorFilters mirrors types.AggregatorFilters; stored and echoed, not applied (no recorder fan-in).
+type AggregatorFilters struct {
+	ResourceType     *AggregatorFilter `json:"ResourceType,omitempty"`
+	ServicePrincipal *AggregatorFilter `json:"ServicePrincipal,omitempty"`
+}
+
+// AggregatorFilter mirrors types.AggregatorFilterResourceType / AggregatorFilterServicePrincipal.
+type AggregatorFilter struct {
+	Type  string   `json:"Type,omitempty"`
+	Value []string `json:"Value,omitempty"`
 }
 
 // ConformancePack represents an AWS Config conformance pack.

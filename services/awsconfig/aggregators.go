@@ -126,6 +126,17 @@ func (b *InMemoryBackend) PutConfigurationAggregator(
 	return nil
 }
 
+func (b *InMemoryBackend) setAggregatorFilters(name string, f *AggregatorFilters) {
+	b.mu.Lock("setAggregatorFilters")
+	defer b.mu.Unlock()
+
+	if agg, ok := b.aggregators.Get(name); ok {
+		cp := *agg
+		cp.AggregatorFilters = f
+		b.aggregators.Put(&cp)
+	}
+}
+
 // GetConfigurationAggregator returns the named configuration aggregator.
 // PutConfigurationAggregatorOutput echoes the full ConfigurationAggregator
 // back on the wire (configservice@v1.68.4's own struct field, not an empty

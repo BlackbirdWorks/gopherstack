@@ -421,7 +421,7 @@ func (h *Handler) handleListCertificateProviders(c *echo.Context) error {
 		})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"certificateProviders": out})
+	return respondListPage(c, "certificateProviders", out)
 }
 
 func (h *Handler) handleUpdateCertificateProvider(c *echo.Context) error {

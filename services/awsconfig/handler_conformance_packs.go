@@ -2,6 +2,9 @@ package awsconfig
 
 import (
 	"context"
+	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -37,16 +40,43 @@ func conformancePackSupportedOps() []string {
 }
 
 // DescribeConformancePacks request/response types and handler.
+type describeConformancePacksInput struct {
+	NextToken            string   `json:"NextToken,omitempty"`
+	ConformancePackNames []string `json:"ConformancePackNames,omitempty"`
+	Limit                int32    `json:"Limit,omitempty"`
+}
 type describeConformancePacksOutput struct {
+	NextToken              string            `json:"NextToken,omitempty"`
 	ConformancePackDetails []ConformancePack `json:"ConformancePackDetails"`
 }
 
 func (h *Handler) handleDescribeConformancePacks(
-	_ context.Context, _ *emptyInput,
+	_ context.Context, in *describeConformancePacksInput,
 ) (*describeConformancePacksOutput, error) {
-	return &describeConformancePacksOutput{
-		ConformancePackDetails: h.Backend.DescribeConformancePacks(),
-	}, nil
+	packs := h.Backend.DescribeConformancePacks()
+	if len(in.ConformancePackNames) > 0 {
+		for _, n := range in.ConformancePackNames {
+			if !slices.ContainsFunc(packs, func(p ConformancePack) bool { return p.ConformancePackName == n }) {
+				return nil, fmt.Errorf("%w: %s", ErrNoSuchConformancePack, n)
+			}
+		}
+
+		packs = slices.DeleteFunc(packs, func(p ConformancePack) bool {
+			return !slices.Contains(in.ConformancePackNames, p.ConformancePackName)
+		})
+	}
+
+	slices.SortFunc(
+		packs,
+		func(a, b ConformancePack) int { return strings.Compare(a.ConformancePackName, b.ConformancePackName) },
+	)
+
+	p, err := paginate(packs, in.NextToken, in.Limit, unboundedPageDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeConformancePacksOutput{ConformancePackDetails: p.Data, NextToken: p.Next}, nil
 }
 
 // DeleteConformancePack request/response types and handler.
@@ -107,18 +137,29 @@ func (h *Handler) handlePutConformancePack(
 
 // DescribeConformancePackStatus request/response types and handler.
 type describeConformancePackStatusInput struct {
+	NextToken            string   `json:"NextToken,omitempty"`
 	ConformancePackNames []string `json:"ConformancePackNames"`
+	Limit                int32    `json:"Limit,omitempty"`
 }
 type describeConformancePackStatusOutput struct {
+	NextToken                    string                  `json:"NextToken,omitempty"`
 	ConformancePackStatusDetails []ConformancePackStatus `json:"ConformancePackStatusDetails"`
 }
 
 func (h *Handler) handleDescribeConformancePackStatus(
 	_ context.Context, in *describeConformancePackStatusInput,
 ) (*describeConformancePackStatusOutput, error) {
-	return &describeConformancePackStatusOutput{
-		ConformancePackStatusDetails: h.Backend.DescribeConformancePackStatus(in.ConformancePackNames),
-	}, nil
+	statuses := h.Backend.DescribeConformancePackStatus(in.ConformancePackNames)
+	slices.SortFunc(statuses, func(a, b ConformancePackStatus) int {
+		return strings.Compare(a.ConformancePackName, b.ConformancePackName)
+	})
+
+	p, err := paginate(statuses, in.NextToken, in.Limit, unboundedPageDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeConformancePackStatusOutput{ConformancePackStatusDetails: p.Data, NextToken: p.Next}, nil
 }
 
 // DescribeConformancePackCompliance request/response types and handler.
@@ -129,8 +170,11 @@ type describeConformancePackComplianceFiltersBody struct {
 type describeConformancePackComplianceInput struct {
 	Filters             *describeConformancePackComplianceFiltersBody `json:"Filters,omitempty"`
 	ConformancePackName string                                        `json:"ConformancePackName"`
+	NextToken           string                                        `json:"NextToken,omitempty"`
+	Limit               int32                                         `json:"Limit,omitempty"`
 }
 type describeConformancePackComplianceOutput struct {
+	NextToken                         string                          `json:"NextToken,omitempty"`
 	ConformancePackName               string                          `json:"ConformancePackName"`
 	ConformancePackRuleComplianceList []ConformancePackComplianceItem `json:"ConformancePackRuleComplianceList"`
 }
@@ -151,9 +195,15 @@ func (h *Handler) handleDescribeConformancePackCompliance(
 		return nil, err
 	}
 
+	p, err := paginate(items, in.NextToken, in.Limit, unboundedPageDefault)
+	if err != nil {
+		return nil, err
+	}
+
 	return &describeConformancePackComplianceOutput{
 		ConformancePackName:               in.ConformancePackName,
-		ConformancePackRuleComplianceList: items,
+		ConformancePackRuleComplianceList: p.Data,
+		NextToken:                         p.Next,
 	}, nil
 }
 
@@ -215,9 +265,12 @@ func (h *Handler) handleGetConformancePackComplianceDetails(
 
 // GetConformancePackComplianceSummary request/response types and handler.
 type getConformancePackComplianceSummaryInput struct {
+	NextToken            string   `json:"NextToken,omitempty"`
 	ConformancePackNames []string `json:"ConformancePackNames"`
+	Limit                int32    `json:"Limit,omitempty"`
 }
 type getConformancePackComplianceSummaryOutput struct {
+	NextToken string                                  `json:"NextToken,omitempty"`
 	Summaries []ConformancePackComplianceSummaryEntry `json:"ConformancePackComplianceSummaryList"`
 }
 
@@ -229,7 +282,12 @@ func (h *Handler) handleGetConformancePackComplianceSummary(
 		return nil, err
 	}
 
-	return &getConformancePackComplianceSummaryOutput{Summaries: summaries}, nil
+	p, err := paginate(summaries, in.NextToken, in.Limit, unboundedPageDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getConformancePackComplianceSummaryOutput{Summaries: p.Data, NextToken: p.Next}, nil
 }
 
 // GetAggregateConformancePackComplianceSummary request/response types and
@@ -237,10 +295,11 @@ func (h *Handler) handleGetConformancePackComplianceSummary(
 // the request's GroupByKey (api_op_GetAggregateConformancePackComplianceSummary.go)
 // -- this was never emitted at all.
 type getAggregateConformancePackComplianceSummaryInput struct {
-	ConfigurationAggregatorName string `json:"ConfigurationAggregatorName"`
-	GroupByKey                  string `json:"GroupByKey,omitempty"`
-	NextToken                   string `json:"NextToken,omitempty"`
-	Limit                       int32  `json:"Limit,omitempty"`
+	Filters                     *aggregateScopeFilters `json:"Filters,omitempty"`
+	ConfigurationAggregatorName string                 `json:"ConfigurationAggregatorName"`
+	GroupByKey                  string                 `json:"GroupByKey,omitempty"`
+	NextToken                   string                 `json:"NextToken,omitempty"`
+	Limit                       int32                  `json:"Limit,omitempty"`
 }
 type getAggregateConformancePackComplianceSummaryOutput struct {
 	GroupByKey string                                      `json:"GroupByKey,omitempty"`
@@ -256,6 +315,10 @@ func (h *Handler) handleGetAggregateConformancePackComplianceSummary(
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	if !h.Backend.aggregateScopeMatches(in.Filters) {
+		summaries = []AggregateConformancePackComplianceSummary{}
 	}
 
 	p, err := paginate(summaries, in.NextToken, in.Limit, unboundedPageDefault)

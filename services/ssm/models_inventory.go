@@ -88,8 +88,9 @@ type GetInventoryOutput struct {
 
 // GetInventorySchemaInput is the request payload for GetInventorySchema.
 type GetInventorySchemaInput struct {
-	TypeName  string `json:"TypeName,omitempty"`
-	NextToken string `json:"NextToken,omitempty"`
+	MaxResults *int32 `json:"MaxResults,omitempty"`
+	TypeName   string `json:"TypeName,omitempty"`
+	NextToken  string `json:"NextToken,omitempty"`
 }
 
 // GetInventorySchemaOutput is the response payload for GetInventorySchema.

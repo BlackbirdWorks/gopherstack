@@ -153,7 +153,7 @@ func (h *Handler) handleListThingTypes(c *echo.Context) error {
 		})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"thingTypes": out})
+	return respondListPage(c, "thingTypes", out)
 }
 
 func (h *Handler) handleDeprecateThingType(c *echo.Context) error {

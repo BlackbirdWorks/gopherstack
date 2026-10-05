@@ -170,6 +170,7 @@ func (h *Handler) handleDeleteConfigurationAggregator(
 type putConfigurationAggregatorInput struct {
 	OrganizationAggregationSource *OrganizationAggregationSource `json:"OrganizationAggregationSource,omitempty"`
 	ConfigurationAggregatorName   string                         `json:"ConfigurationAggregatorName"`
+	AggregatorFilters             *AggregatorFilters             `json:"AggregatorFilters,omitempty"`
 	AccountAggregationSources     []AccountAggregationSource     `json:"AccountAggregationSources,omitempty"`
 	Tags                          []Tag                          `json:"Tags,omitempty"`
 }
@@ -189,6 +190,8 @@ func (h *Handler) handlePutConfigurationAggregator(
 	); err != nil {
 		return nil, err
 	}
+
+	h.Backend.setAggregatorFilters(in.ConfigurationAggregatorName, in.AggregatorFilters)
 
 	agg, _ := h.Backend.GetConfigurationAggregator(in.ConfigurationAggregatorName)
 

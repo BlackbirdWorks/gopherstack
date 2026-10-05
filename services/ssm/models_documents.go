@@ -173,10 +173,10 @@ type DescribeDocumentOutput struct {
 
 // ListDocumentsInput is the request payload for ListDocuments.
 type ListDocumentsInput struct {
-	MaxResults      *int64           `json:"MaxResults,omitempty"`
-	NextToken       string           `json:"NextToken,omitempty"`
-	Filters         []DocumentFilter `json:"Filters,omitempty"`
-	DocumentFilters []DocumentFilter `json:"DocumentFilters,omitempty"`
+	MaxResults         *int64                   `json:"MaxResults,omitempty"`
+	NextToken          string                   `json:"NextToken,omitempty"`
+	Filters            []DocumentFilter         `json:"Filters,omitempty"`
+	DocumentFilterList []DocumentFilterListItem `json:"DocumentFilterList,omitempty"`
 }
 
 // ListDocumentsOutput is the response payload for ListDocuments.
