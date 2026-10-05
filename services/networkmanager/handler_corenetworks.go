@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -390,7 +391,7 @@ func (h *Handler) dispatchRestoreCoreNetworkPolicyVersion(
 
 func (h *Handler) dispatchGetCoreNetworkChangeSet(
 	_ context.Context,
-	_ *http.Request,
+	r *http.Request,
 	params routeParams,
 	_ []byte,
 ) ([]byte, error) {
@@ -401,12 +402,15 @@ func (h *Handler) dispatchGetCoreNetworkChangeSet(
 		return nil, err
 	}
 
-	return marshalResponse(getCoreNetworkChangeSetResponse{CoreNetworkChanges: toCoreNetworkChangesWire(changes)})
+	q := r.URL.Query()
+	p := page.New(toCoreNetworkChangesWire(changes), queryNextToken(q), queryMaxResults(q), defaultPageLimit)
+
+	return marshalResponse(getCoreNetworkChangeSetResponse{CoreNetworkChanges: p.Data, NextToken: p.Next})
 }
 
 func (h *Handler) dispatchGetCoreNetworkChangeEvents(
 	_ context.Context,
-	_ *http.Request,
+	r *http.Request,
 	params routeParams,
 	_ []byte,
 ) ([]byte, error) {
@@ -418,9 +422,10 @@ func (h *Handler) dispatchGetCoreNetworkChangeEvents(
 		return nil, err
 	}
 
-	return marshalResponse(
-		getCoreNetworkChangeEventsResponse{CoreNetworkChangeEvents: toCoreNetworkChangeEventsWire(events)},
-	)
+	q := r.URL.Query()
+	p := page.New(toCoreNetworkChangeEventsWire(events), queryNextToken(q), queryMaxResults(q), defaultPageLimit)
+
+	return marshalResponse(getCoreNetworkChangeEventsResponse{CoreNetworkChangeEvents: p.Data, NextToken: p.Next})
 }
 
 func (h *Handler) dispatchExecuteCoreNetworkChangeSet(

@@ -929,3 +929,7 @@ Backup is region-isolated: per-region sibling handlers: each non-home region get
 ## 2026-10-03 (gopherstack-taq78 multi-region)
 
 The Resource Groups Tagging API bridge now lists the request region's tagged resources and resolves TagResources/UntagResources by the ARN's region, superseding the earlier home-region-only limitation. Proof: `TestInitializeServices_TaggingBridgeFollowsRegion`.
+
+## 2026-10-05 (reqfielddiff tier-2 pagination)
+
+ListBackupJobSummaries, ListCopyJobSummaries, ListRestoreJobSummaries, ListScanJobSummaries (now state-sorted), ListBackupPlanVersions, ListRecoveryPointsByLegalHold, ListRecoveryPointsByResource, ListIndexedRecoveryPoints, ListReportJobs, ListRestoreAccessBackupVaults, ListRestoreJobsByProtectedResource, ListTags and ListTieringConfigurations honour maxResults/nextToken (`pageQuery`, filters.go; each Input binds them as query members, serializers.go backup@v1.59.4). ListIndexedRecoveryPoints applies createdAfter/createdBefore and ListReportJobs reads ReportPlanName. Proof: `TestRealClient_ListOpsHonourMaxResults`, `TestRealClient_ListIndexedRecoveryPointsCreatedRange`. ListRestoreJobs and ListScanJobs findings are tool misses (their filter-from-query helpers already read them).

@@ -37,18 +37,30 @@ type sessionIDInput struct {
 	SessionID string `json:"SessionId"`
 }
 
+// listPageInput carries only the paging members.
+type listPageInput struct {
+	NextToken  string `json:"NextToken"`
+	MaxResults int    `json:"MaxResults"`
+}
+
 type listSessionsInput struct {
+	NextToken   string `json:"NextToken"`
 	WorkGroup   string `json:"WorkGroup"`
 	StateFilter string `json:"StateFilter"`
+	MaxResults  int    `json:"MaxResults"`
 }
 
 type listNotebookSessionsInput struct {
+	NextToken  string `json:"NextToken"`
 	NotebookID string `json:"NotebookId"`
+	MaxResults int    `json:"MaxResults"`
 }
 
 type listExecutorsInput struct {
+	NextToken     string `json:"NextToken"`
 	SessionID     string `json:"SessionId"`
 	ExecutorState string `json:"ExecutorStateFilter"`
+	MaxResults    int    `json:"MaxResults"`
 }
 
 type getResourceDashboardInput struct {
@@ -168,7 +180,18 @@ func (h *Handler) sessionListOps() map[string]athenaActionFn {
 				return nil, err
 			}
 
-			return map[string]any{"Sessions": sums}, nil
+			page, next, pageErr := pageByKey(
+				h.tokens,
+				sums,
+				func(s SessionSummary) string { return s.SessionID },
+				input.MaxResults,
+				input.NextToken,
+			)
+			if pageErr != nil {
+				return nil, pageErr
+			}
+
+			return withNextToken(map[string]any{"Sessions": page}, next), nil
 		},
 		"ListNotebookSessions": func(b []byte) (any, error) {
 			var input listNotebookSessionsInput
@@ -181,7 +204,18 @@ func (h *Handler) sessionListOps() map[string]athenaActionFn {
 				return nil, err
 			}
 
-			return map[string]any{"NotebookSessionsList": sums}, nil
+			page, next, pageErr := pageByKey(
+				h.tokens,
+				sums,
+				func(s NotebookSessionSummary) string { return s.SessionID },
+				input.MaxResults,
+				input.NextToken,
+			)
+			if pageErr != nil {
+				return nil, pageErr
+			}
+
+			return withNextToken(map[string]any{"NotebookSessionsList": page}, next), nil
 		},
 	}
 }
@@ -201,13 +235,53 @@ func (h *Handler) sessionInfoOps() map[string]athenaActionFn {
 				return nil, err
 			}
 
-			return map[string]any{"ExecutorsSummary": execs, keySessionID: input.SessionID}, nil
+			page, next, pageErr := pageByKey(
+				h.tokens,
+				execs,
+				func(e Executor) string { return e.ExecutorID },
+				input.MaxResults,
+				input.NextToken,
+			)
+			if pageErr != nil {
+				return nil, pageErr
+			}
+
+			return withNextToken(map[string]any{"ExecutorsSummary": page, keySessionID: input.SessionID}, next), nil
 		},
-		"ListEngineVersions": func(_ []byte) (any, error) {
-			return map[string]any{"EngineVersions": h.Backend.ListEngineVersions()}, nil
+		"ListEngineVersions": func(b []byte) (any, error) {
+			var input listPageInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			page, next, err := pageByKey(
+				h.tokens,
+				h.Backend.ListEngineVersions(),
+				func(e EngineVersionDescriptor) string { return e.SelectedEngineVersion },
+				input.MaxResults,
+				input.NextToken,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			return withNextToken(map[string]any{"EngineVersions": page}, next), nil
 		},
-		"ListApplicationDPUSizes": func(_ []byte) (any, error) {
-			return map[string]any{"ApplicationDPUSizes": h.Backend.ListApplicationDPUSizes()}, nil
+		"ListApplicationDPUSizes": func(b []byte) (any, error) {
+			var input listPageInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			page, next, err := pageByKey(
+				h.tokens, h.Backend.ListApplicationDPUSizes(),
+				func(a ApplicationDPUSizes) string { return a.ApplicationRuntimeID }, input.MaxResults, input.NextToken,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			return withNextToken(map[string]any{"ApplicationDPUSizes": page}, next), nil
 		},
 		"GetResourceDashboard": func(b []byte) (any, error) {
 			var input getResourceDashboardInput

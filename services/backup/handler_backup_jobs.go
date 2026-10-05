@@ -167,9 +167,10 @@ func (h *Handler) handleListBackupJobs(c *echo.Context) error {
 func (h *Handler) dispatchBackupJobSummaryOps(c *echo.Context, route backupRoute) (bool, error) {
 	switch route.operation {
 	case opListBackupJobSummaries:
-		summaries := h.Backend.ListBackupJobSummaries(NewJobSummaryFilter(c.Request().URL.Query()))
+		q := c.Request().URL.Query()
+		summaries, next := pageQuery(q, h.Backend.ListBackupJobSummaries(NewJobSummaryFilter(q)), summaryStateKey)
 
-		return true, c.JSON(http.StatusOK, map[string]any{"BackupJobSummaries": summaries})
+		return true, c.JSON(http.StatusOK, withNextToken(map[string]any{"BackupJobSummaries": summaries}, next))
 	case opStopBackupJob:
 		if err := h.Backend.StopBackupJob(route.resource); err != nil {
 			return true, c.JSON(http.StatusBadRequest, errResp("ResourceNotFoundException", err.Error()))

@@ -110,7 +110,9 @@ func (h *Handler) handleListMembers(c *echo.Context) error {
 	}
 
 	var req struct {
-		OnlyAssociated bool `json:"onlyAssociated"`
+		NextToken      string `json:"nextToken"`
+		MaxResults     int32  `json:"maxResults"`
+		OnlyAssociated bool   `json:"onlyAssociated"`
 	}
 
 	if len(body) > 0 {
@@ -122,15 +124,17 @@ func (h *Handler) handleListMembers(c *echo.Context) error {
 		}
 	}
 
-	members, listErr := h.Backend.ListMembers(req.OnlyAssociated)
+	all, listErr := h.Backend.ListMembers(req.OnlyAssociated)
 	if listErr != nil {
 		return h.mapError(c, listErr)
 	}
+
+	members, next := pageItems(all, func(m *Member) string { return m.AccountID }, req.MaxResults, req.NextToken)
 
 	wire := make([]map[string]any, 0, len(members))
 	for _, m := range members {
 		wire = append(wire, memberToWire(m))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"members": wire})
+	return c.JSON(http.StatusOK, withPageToken(map[string]any{"members": wire}, next))
 }

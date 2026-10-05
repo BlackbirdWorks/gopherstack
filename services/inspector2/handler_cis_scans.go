@@ -128,16 +128,24 @@ func (h *Handler) handleUpdateCisScanConfiguration(c *echo.Context) error {
 }
 
 func (h *Handler) handleListCisScanConfigurations(c *echo.Context) error {
+	pr, reqErr := readPageRequest(c)
+	if reqErr != nil {
+		return h.mapError(c, reqErr)
+	}
+
 	cfgs, err := h.Backend.ListCisScanConfigurations()
 	if err != nil {
 		return h.mapError(c, err)
 	}
 
-	if cfgs == nil {
-		cfgs = []*CisScanConfiguration{}
-	}
+	page, next := pageItems(
+		cfgs,
+		func(cfg *CisScanConfiguration) string { return cfg.Arn },
+		pr.MaxResults,
+		pr.NextToken,
+	)
 
-	return c.JSON(http.StatusOK, map[string]any{keyScanConfigurations: cfgs})
+	return c.JSON(http.StatusOK, withPageToken(map[string]any{keyScanConfigurations: page}, next))
 }
 
 func (h *Handler) handleStartCisSession(c *echo.Context) error {
@@ -282,6 +290,8 @@ func (h *Handler) handleGetCisScanResultDetails(c *echo.Context) error {
 		ScanArn          string `json:"scanArn"`
 		AccountID        string `json:"accountId"`
 		TargetResourceID string `json:"targetResourceId"`
+		NextToken        string `json:"nextToken"`
+		MaxResults       int32  `json:"maxResults"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
@@ -293,16 +303,30 @@ func (h *Handler) handleGetCisScanResultDetails(c *echo.Context) error {
 		return h.mapError(c, err)
 	}
 
+	if rows, ok := details["scanResultDetails"].([]map[string]any); ok {
+		page, next := pageItems(rows, cisDetailKey, req.MaxResults, req.NextToken)
+		details["scanResultDetails"] = page
+
+		return c.JSON(http.StatusOK, withPageToken(details, next))
+	}
+
 	return c.JSON(http.StatusOK, details)
 }
 
 func (h *Handler) handleListCisScans(c *echo.Context) error {
+	pr, reqErr := readPageRequest(c)
+	if reqErr != nil {
+		return h.mapError(c, reqErr)
+	}
+
 	scans, err := h.Backend.ListCisScans()
 	if err != nil {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"scans": scans})
+	page, next := pageItems(scans, mapKey(keyScanArn), pr.MaxResults, pr.NextToken)
+
+	return c.JSON(http.StatusOK, withPageToken(map[string]any{"scans": page}, next))
 }
 
 func (h *Handler) handleListCisScanResultsAggregatedByChecks(c *echo.Context) error {
@@ -312,7 +336,9 @@ func (h *Handler) handleListCisScanResultsAggregatedByChecks(c *echo.Context) er
 	}
 
 	var req struct {
-		ScanArn string `json:"scanArn"`
+		ScanArn    string `json:"scanArn"`
+		NextToken  string `json:"nextToken"`
+		MaxResults int32  `json:"maxResults"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
@@ -324,7 +350,9 @@ func (h *Handler) handleListCisScanResultsAggregatedByChecks(c *echo.Context) er
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"checkAggregations": results})
+	page, next := pageItems(results, mapKey("checkId"), req.MaxResults, req.NextToken)
+
+	return c.JSON(http.StatusOK, withPageToken(map[string]any{"checkAggregations": page}, next))
 }
 
 func (h *Handler) handleListCisScanResultsAggregatedByTargetResource(c *echo.Context) error {
@@ -334,7 +362,9 @@ func (h *Handler) handleListCisScanResultsAggregatedByTargetResource(c *echo.Con
 	}
 
 	var req struct {
-		ScanArn string `json:"scanArn"`
+		ScanArn    string `json:"scanArn"`
+		NextToken  string `json:"nextToken"`
+		MaxResults int32  `json:"maxResults"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
@@ -346,5 +376,19 @@ func (h *Handler) handleListCisScanResultsAggregatedByTargetResource(c *echo.Con
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"targetResourceAggregations": results})
+	page, next := pageItems(results, mapKey("targetResourceId"), req.MaxResults, req.NextToken)
+
+	return c.JSON(http.StatusOK, withPageToken(map[string]any{"targetResourceAggregations": page}, next))
+}
+
+func mapKey(field string) func(map[string]any) string {
+	return func(m map[string]any) string {
+		s, _ := m[field].(string)
+
+		return s
+	}
+}
+
+func cisDetailKey(m map[string]any) string {
+	return mapKey("checkId")(m) + "|" + mapKey("targetResourceId")(m)
 }

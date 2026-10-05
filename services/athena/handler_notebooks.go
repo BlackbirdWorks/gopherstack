@@ -27,8 +27,10 @@ type notebookIDInput struct {
 }
 
 type listNotebookMetadataInput struct {
-	WorkGroup string                     `json:"WorkGroup"`
-	Filters   listNotebookMetadataFilter `json:"Filters"`
+	NextToken  string                     `json:"NextToken"`
+	WorkGroup  string                     `json:"WorkGroup"`
+	Filters    listNotebookMetadataFilter `json:"Filters"`
+	MaxResults int                        `json:"MaxResults"`
 }
 
 type listNotebookMetadataFilter struct {
@@ -146,7 +148,18 @@ func (h *Handler) notebookExtraOps() map[string]athenaActionFn {
 				return nil, err
 			}
 
-			return map[string]any{"NotebookMetadataList": list}, nil
+			page, next, pageErr := pageByKey(
+				h.tokens,
+				list,
+				func(n NotebookMetadata) string { return n.NotebookID },
+				input.MaxResults,
+				input.NextToken,
+			)
+			if pageErr != nil {
+				return nil, pageErr
+			}
+
+			return withNextToken(map[string]any{"NotebookMetadataList": page}, next), nil
 		},
 		"ImportNotebook": func(b []byte) (any, error) {
 			var input importNotebookInput

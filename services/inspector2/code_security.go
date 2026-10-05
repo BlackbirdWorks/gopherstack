@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -489,6 +490,10 @@ func (b *InMemoryBackend) ListCodeSecurityScanConfigurationAssociations(
 		cp := *assoc
 		result = append(result, &cp)
 	}
+
+	slices.SortFunc(result, func(a, b *CodeSecurityScanConfigurationAssociation) int {
+		return strings.Compare(a.Resource, b.Resource)
+	})
 
 	return result, nil
 }

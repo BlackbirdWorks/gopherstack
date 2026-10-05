@@ -292,13 +292,16 @@ func (h *Handler) dispatchReportJobOps(
 
 		return true, c.JSON(http.StatusOK, map[string]any{"ReportJob": reportJobToJSON(job)})
 	case opListReportJobs:
-		jobs := h.Backend.ListReportJobs("")
+		q := c.Request().URL.Query()
+		jobs, next := pageQuery(
+			q, h.Backend.ListReportJobs(q.Get("ReportPlanName")), func(j *ReportJob) string { return j.ReportJobID },
+		)
 		items := make([]map[string]any, 0, len(jobs))
 		for _, j := range jobs {
 			items = append(items, reportJobToJSON(j))
 		}
 
-		return true, c.JSON(http.StatusOK, map[string]any{"ReportJobs": items})
+		return true, c.JSON(http.StatusOK, withNextToken(map[string]any{"ReportJobs": items}, next))
 	case opStartReportJob:
 		job := h.Backend.StartReportJob(route.resource)
 
@@ -327,9 +330,10 @@ func (h *Handler) dispatchReportJobOps(
 
 		return true, c.JSON(http.StatusOK, resp)
 	case opListScanJobSummaries:
-		summaries := h.Backend.ListScanJobSummaries(NewJobSummaryFilter(c.Request().URL.Query()))
+		q := c.Request().URL.Query()
+		summaries, next := pageQuery(q, h.Backend.ListScanJobSummaries(NewJobSummaryFilter(q)), summaryStateKey)
 
-		return true, c.JSON(http.StatusOK, map[string]any{"ScanJobSummaries": summaries})
+		return true, c.JSON(http.StatusOK, withNextToken(map[string]any{"ScanJobSummaries": summaries}, next))
 	case opStartScanJob:
 		return true, h.handleStartScanJob(c, body)
 	case opGetPITRMalwareScanResults:

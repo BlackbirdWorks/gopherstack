@@ -875,3 +875,7 @@ Fixed: DeleteFilter on a SUPPRESS filter returns matching SUPPRESSED findings to
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 inspector2 is region-isolated: filters, scans, CIS configurations and findings live per region. The tagging bridge follows the region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/inspector2`. Limitation: the dashboard shows the home region only.
+
+## 2026-10-05 (reqfielddiff tier-2 pagination)
+
+ListMembers, ListDelegatedAdminAccounts, ListAccountPermissions, ListUsageTotals, ListCisScanConfigurations, ListCisScans, ListCisScanResultsAggregatedByChecks, ListCisScanResultsAggregatedByTargetResource, GetCisScanResultDetails, ListCodeSecurityIntegrations, ListCodeSecurityScanConfigurations and ListCodeSecurityScanConfigurationAssociations honour the body maxResults/nextToken (`pageItems`, paging.go; default 100, no default is documented). ListCodeSecurityScanConfigurationAssociations also now emits each association as `{"resource":{"projectId":...}}` (a bare string failed the SDK union deserializer). Proof: `TestRoundTrip_ListOpsHonourMaxResults`. Recorded: GetClustersForImage (always empty, nothing to page), ListFindingAggregations/ListCoverageStatistics paging, and the four CIS FilterCriteria members stay unconsulted.

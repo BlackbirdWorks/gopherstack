@@ -460,6 +460,8 @@ func (b *InMemoryBackend) ListScanJobSummaries(f JobSummaryFilter) []map[string]
 		})
 	}
 
+	sortSummaries(summaries)
+
 	return summaries
 }
 

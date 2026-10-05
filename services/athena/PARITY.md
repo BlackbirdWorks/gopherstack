@@ -605,3 +605,7 @@ Fixed (list_default_workgroup_test.go): ListNamedQueries and ListQueryExecutions
 ## 2026-10-03 (gopherstack-taq78 multi-region)
 
 The Resource Groups Tagging API bridge now lists the request region's tagged resources and resolves TagResources/UntagResources by the ARN's region, superseding the earlier home-region-only limitation. Proof: `TestInitializeServices_TaggingBridgeFollowsRegion`.
+
+## 2026-10-05 (reqfielddiff tier-2 pagination)
+
+ListDatabases, ListTableMetadata, ListCalculationExecutions, ListNotebookMetadata, ListSessions, ListNotebookSessions, ListExecutors, ListCapacityReservations, ListEngineVersions and ListApplicationDPUSizes honour body MaxResults/NextToken (`pageByKey`, pagination.go: key-sorted, HMAC-signed token, default 50, forged token is InvalidRequestException). Proof: `TestRealClient_ListOpsHonourMaxResults`, `TestRealClient_ListOpsRejectForgedToken`.

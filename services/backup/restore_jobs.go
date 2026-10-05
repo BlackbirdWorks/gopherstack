@@ -148,6 +148,8 @@ func (b *InMemoryBackend) ListRestoreJobSummaries(f JobSummaryFilter) []map[stri
 		})
 	}
 
+	sortSummaries(summaries)
+
 	return summaries
 }
 

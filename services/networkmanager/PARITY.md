@@ -1394,3 +1394,7 @@ Recorded: `registeredGatewayArn` is still unread (no registered-gateway model).
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 networkmanager is a global service homed in US West (Oregon) (AWS docs, "Network Manager is a global service"; its ARNs carry no region), so it keeps a single backend and ignores the request region; `TestRegionIsolation/networkmanager` asserts creation works from any region.
+
+## 2026-10-05 (reqfielddiff tier-2 pagination)
+
+GetCoreNetworkChangeSet, GetCoreNetworkChangeEvents and GetNetworkResourceCounts honour the query-bound maxResults/nextToken (serializers.go, networkmanager@v1.44.4; default 100) and emit NextToken only when truncated. ListOrganizationServiceAccessStatus no longer echoes the request nextToken back. Proof: `TestRoundTrip_GetOpsHonourMaxResults`. The other 40 flagged page members are tool misses: those handlers already page through `queryMaxResults`/`queryNextToken`. Recorded: ListCoreNetworkRoutingInformation (MaxResults/NextHopFilters), GetNetworkRoutes.DestinationFilters and ListOrganizationServiceAccessStatus.MaxResults stay unconsulted since the first two always return an empty list (no route engine) and the last returns one status object.

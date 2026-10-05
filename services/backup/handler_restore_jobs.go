@@ -162,17 +162,21 @@ func (h *Handler) dispatchRestoreJobOps(
 
 		return true, c.JSON(http.StatusOK, resp)
 	case opListRestoreJobsByProtectedResource:
-		jobs := h.Backend.ListRestoreJobsByProtectedResource(route.resource)
+		jobs, next := pageQuery(
+			c.Request().URL.Query(), h.Backend.ListRestoreJobsByProtectedResource(route.resource),
+			func(j *RestoreJob) string { return j.RestoreJobID },
+		)
 		items := make([]map[string]any, 0, len(jobs))
 		for _, j := range jobs {
 			items = append(items, restoreJobToJSON(j))
 		}
 
-		return true, c.JSON(http.StatusOK, map[string]any{"RestoreJobs": items})
+		return true, c.JSON(http.StatusOK, withNextToken(map[string]any{"RestoreJobs": items}, next))
 	case opListRestoreJobSummaries:
-		summaries := h.Backend.ListRestoreJobSummaries(NewJobSummaryFilter(c.Request().URL.Query()))
+		q := c.Request().URL.Query()
+		summaries, next := pageQuery(q, h.Backend.ListRestoreJobSummaries(NewJobSummaryFilter(q)), summaryStateKey)
 
-		return true, c.JSON(http.StatusOK, map[string]any{"RestoreJobSummaries": summaries})
+		return true, c.JSON(http.StatusOK, withNextToken(map[string]any{"RestoreJobSummaries": summaries}, next))
 	case opGetRestoreJobMetadata:
 
 		return true, h.handleGetRestoreJobMetadata(c, route.resource)
