@@ -35,6 +35,8 @@ type handlerResolveCtx struct {
 	pkgConsts             map[string]string
 	switchBodies          map[string][]ast.Expr
 	dispatchAlts          map[string][]ast.Expr
+	wrapperKeys           map[string][]string
+	sdkOps                map[string]bool
 	opName                string
 }
 

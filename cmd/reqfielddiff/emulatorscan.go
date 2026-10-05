@@ -81,6 +81,8 @@ func buildPackageIndexFromFiles(files []*ast.File, fset *token.FileSet, dir stri
 		pkgConsts:             consts,
 	}
 
+	ctx.wrapperKeys = collectWrapperKeyCredits(files, structs, consts)
+
 	dispatch, alts := collectDispatchEntries(files, consts, funcTypeNames, namedMapTypes)
 	ctx.dispatchAlts = alts
 	ctx.switchBodies = map[string][]ast.Expr{}
@@ -169,6 +171,12 @@ func collectInRepoSubPackages(files []*ast.File, dir string) map[string]string {
 // formreads.go.
 func (p *packageIndex) resolveOps(ops []sdkOp) map[string]opResolution {
 	out := make(map[string]opResolution, len(ops))
+	p.ctx.sdkOps = make(map[string]bool, len(ops))
+
+	for _, op := range ops {
+		p.ctx.sdkOps[op.Name] = true
+	}
+
 	for _, op := range ops {
 		out[op.Name] = resolveOp(op, p.dispatch, p.ctx)
 	}
