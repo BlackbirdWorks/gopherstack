@@ -15,7 +15,7 @@
 
 ### Known gaps
 
-- gopherstack-coib: PutEvents' documented per-individual-event size quota (1,000 KB) is not enforced -- only its request-level 4 MB quota is. See the gopherstack-coib Notes section.
+- Template versions are history entries only: each version's content is not stored, so the version query parameter on Get/Update/Delete{Email,InApp,Push,Sms,Voice}Template and UpdateTemplateActiveVersion's Version body member select nothing (the latest content is always used).
 - gopherstack-coib: PayloadTooLargeException size checks are wired for the 39 ops that both model the exception (digit-safe-extracted from deserializers.go: 113 of 122 ops) and have an observable non-trivial request body in this handler. The other 74 modeled ops (GET/DELETE with an empty body) and TagResource/UntagResource/ListTagsForResource/Create{Email,InApp,Push,Sms,Voice}Template (the 9 ops that don't model the exception at all) are left unenforced -- see Notes.
 
 ### Deferred

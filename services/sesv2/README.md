@@ -9,12 +9,13 @@
 | --- | --- |
 | PARITY entries audited | 112 (110 ok, 2 partial) |
 | Feature families | 1 (1 ok) |
-| Known gaps | 2 |
+| Known gaps | 3 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
+- gopherstack-w6ndj: SendEmail/SendBulkEmail EndpointId, FromEmailAddressIdentityArn and FeedbackForwardingEmailAddressIdentityArn are not read (no multi-region endpoint routing or sending-authorization policy evaluation); FeedbackForwardingEmailAddress is recorded but no bounce/complaint feedback is generated; the code for a tenant-association mismatch is unconfirmed.
 - GetDeliverabilityTestReportOutput.OverallPlacement (api_op_GetDeliverabilityTestReport.go: required *types.PlacementStatistics) is never emitted -- handleGetDeliverabilityTestReport (handler_deliverability.go) only sends DeliverabilityTestReport/IspPlacements (the latter a real, disclosed always-empty list). OverallPlacement's InboxPercentage/SpamPercentage/etc. are real AWS's own predictive-inbox-placement-test results, computed by sending the test message to seed mailboxes at several ISPs and measuring where it landed -- this backend has no such per-ISP delivery simulation to honestly derive a placement percentage from, so a synthesized value would be fabricated. Found 2026-09-24 (requiredoutputfields census). Not synthesized.
 - ListContacts Filter.FilteredStatus without a TopicFilter is not applied: the SDK does not say what it filters against. With both set it matches the topic preference, falling back to the topic default only when UseDefaultIfPreferenceUnavailable is true; that fallback and the status-alone case are from the SDK prose, not observed AWS.
 
