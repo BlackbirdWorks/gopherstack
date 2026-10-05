@@ -79,3 +79,7 @@ Grade moves B to A on `TestIntegration_KinesisVideo_StreamLifecycle` and `TestIn
 - Streams and signaling channels now pass through CREATING, UPDATING and DELETING (types.StatusCreating/Updating/Deleting) on 500ms lazy deadlines (`sweepLocked`, lifecycle.go), evaluated on every backend call instead of by a goroutine. DELETING keeps the name reserved until removal. UpdateStream, UpdateDataRetention and UpdateSignalingChannel move an ACTIVE resource to UPDATING. Mutations are not gated on a transitioning resource: this emulator does not reject them. Covered by `TestStreamLifecycle` and `TestChannelLifecycle` (lifecycle_test.go); the existing describe/delete tests now wait for ACTIVE and for NotFound.
 - Persistence is additive: `Stream.PendingUntil` and `Channel.PendingUntil` (snapshot inventory rows added, no version bump).
 - The media data plane, edge-agent status and DescribeMappedResourceConfiguration remain, recorded in structural_gaps. The last is the closest call: the mapping data exists (the signaling channel whose media storage targets the stream) but the response's Type string cannot be sourced, so the op stays unimplemented rather than half-working.
+
+## 2026-10-05 errcodeaudit note (gopherstack-r3pr)
+
+- Default-branch InternalFailureException: the pinned kinesisvideo SDK models no 5xx type, so a client sees a generic smithy APIError with that code; left as is.

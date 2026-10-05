@@ -1327,3 +1327,7 @@ Lambda is region-isolated: each non-home region gets a lazily built sibling Hand
 ## 2026-10-04 (reqfielddiff tier-1: PutFunctionRecursionConfig / PutRuntimeManagementConfig)
 
 Both required fields were already read (tool false positives: plain strings, not pointers). The real gap was missing validation and a fabricated mode: RecursiveLoop now accepts only Allow/Terminate and UpdateRuntimeOn only Auto/FunctionUpdate/Manual (Manual requires RuntimeVersionArn), each InvalidParameterValueException otherwise. The invocation guard keyed on a non-existent `Deny` value; it now stops a function already present 16 times in its invocation chain unless RecursiveLoop is Allow (`TestRecursiveLoop_TerminatesDeepLoops`, `TestRecursionConfig_RejectsUnknownValues`). The depth of 16 comes from Lambda's recursive-loop documentation, not the SDK.
+
+## 2026-10-05 errcodeaudit note (gopherstack-r3pr)
+
+- Function-URL "Forbidden" is the HTTP 403 body a real AWS_IAM function URL returns for an unsigned or badly signed request; it is not an SDK API error, so no SDK type exists.

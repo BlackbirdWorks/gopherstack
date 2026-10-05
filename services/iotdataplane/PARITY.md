@@ -417,3 +417,7 @@ iotdataplane is region-isolated: shadows, retained messages and connections live
 ## 2026-10-04 (reqfielddiff tier-1 re-examined)
 
 ListSubscriptions.MaxResults is a tool false positive (read through `parsePageSize`, handler.go). SendDirectMessage.Timeout stays recorded: honoring it needs a PUBACK wait (and the 504 on expiry), which requires a packet hook in the services/iot broker behind MQTTPublisher; that package is outside this pass's ownership.
+
+## 2026-10-05 errcodeaudit note (gopherstack-r3pr)
+
+- Admin-only RegisterConnection duplicate now emits ConflictException (409), a type the SDK declares; the old ResourceAlreadyExistsException is not in iotdataplane@v1.35.4.

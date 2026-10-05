@@ -562,7 +562,7 @@ func Test_ErrorShapes_AllTypes(t *testing.T) {
 			method:    http.MethodPost,
 			path:      "/_admin/connections/dup-client",
 			wantCode:  http.StatusConflict,
-			wantError: "ResourceAlreadyExistsException",
+			wantError: "ConflictException",
 		},
 		{
 			name:      "get_connection_unknown_client_not_found",

@@ -549,3 +549,7 @@ SES v1 is region-isolated: each non-home region gets a lazily built sibling `Han
 ## 2026-10-04 (reqfielddiff tier-1: SendBounce.Explanation / MessageDsn)
 
 SendBounce now records the bounce as a captured Email (retrievable by the returned MessageId): From is BounceSender, To the bounced recipients, subject "Delivery Status Notification (Failure)", body the Explanation (or an auto-generated text naming the original message and recipients) followed by Reporting-MTA (default `dns; inbound-smtp.<region>.amazonaws.com`, as the SDK documents), Arrival-Date and the MessageDsn extension fields. Proof: `TestSendBounce_ExplanationAndMessageDsn_RealClient`. Per-recipient BounceType/RecipientDsnFields are still not read.
+
+## 2026-10-05 errcodeaudit note (gopherstack-r3pr)
+
+- ErrEmailNotFound ("EmailNotFound") comes from GetEmailByID, which no handler routes; never written to the wire (dead sentinel, tool false positive).

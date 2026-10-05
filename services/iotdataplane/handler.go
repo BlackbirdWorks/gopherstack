@@ -379,11 +379,7 @@ const amznErrorTypeHeader = "X-Amzn-Errortype"
 // are verified per sentinel against this service's own deserializer error
 // lists (iotdataplane@v1.35.4 deserializers.go), which use
 // strings.EqualFold comparisons rather than literal case labels.
-// ErrConnectionExists is the one exception: RegisterConnection is a
-// gopherstack-only admin extension with no real AWS operation (see
-// adminConnectionsPath's doc comment), so "ResourceAlreadyExistsException"
-// isn't verified against any deserializer list -- no real SDK client can
-// reach it.
+// ErrConnectionExists comes from the gopherstack-only admin RegisterConnection (no SDK op).
 func (h *Handler) handleError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, ErrShadowNotFound),
@@ -395,7 +391,7 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 			keyError:   "ResourceNotFoundException",
 			keyMessage: err.Error(),
 		})
-	case errors.Is(err, ErrVersionConflict):
+	case errors.Is(err, ErrVersionConflict), errors.Is(err, ErrConnectionExists):
 		c.Response().Header().Set(amznErrorTypeHeader, "ConflictException")
 
 		return c.JSON(http.StatusConflict, map[string]any{
@@ -415,13 +411,6 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			keyError:   "InvalidRequestException",
-			keyMessage: err.Error(),
-		})
-	case errors.Is(err, ErrConnectionExists):
-		c.Response().Header().Set(amznErrorTypeHeader, "ResourceAlreadyExistsException")
-
-		return c.JSON(http.StatusConflict, map[string]string{
-			keyError:   "ResourceAlreadyExistsException",
 			keyMessage: err.Error(),
 		})
 	default:

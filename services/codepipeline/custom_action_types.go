@@ -58,7 +58,7 @@ func (b *InMemoryBackend) CreateCustomActionType(
 // not evidence either way. No declared code fits "not found". NOTE: this
 // does not break errors.As for a real caller -- see
 // undeclared_error_codes_test.go.
-// Returns ResourceInUseException if any pipeline references the type.
+// Returns ErrResourceInUse (wire ValidationException) if any pipeline references the type.
 func (b *InMemoryBackend) DeleteCustomActionType(ctx context.Context, category, provider, version string) error {
 	b.mu.Lock("DeleteCustomActionType")
 	defer b.mu.Unlock()

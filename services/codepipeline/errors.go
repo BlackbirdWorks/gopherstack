@@ -54,3 +54,5 @@ var (
 	// PollForThirdPartyJobs.
 	ErrInvalidClientToken = awserr.New("InvalidClientTokenException", awserr.ErrInvalidParameter)
 )
+
+const errTypeValidation = "ValidationException"

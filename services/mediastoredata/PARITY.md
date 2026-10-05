@@ -184,3 +184,7 @@ issues; `GOTOOLCHAIN=go1.27.0 go test -race ./services/mediastoredata/...` ok.
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 mediastoredata already isolates regions internally: objects live in a per-region table resolved from the request region; it does not call MediaStore, so there is no container lookup to route. Proof: `TestRegionIsolation/mediastoredata`; no sibling handlers needed.
+
+## 2026-10-05 errcodeaudit note (gopherstack-r3pr)
+
+- XAmzContentSHA256Mismatch is the real S3-family wire code for a declared payload hash that does not match the body (S3 API ErrorResponses); mediastoredata models only 4 exceptions, so it is absent from the SDK by design.
