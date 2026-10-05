@@ -21,11 +21,17 @@ func (h *Handler) handleDeleteClusterPolicy(
 }
 
 type getClusterPolicyOutput struct {
-	Policy string `json:"policy"`
+	CurrentVersion string `json:"currentVersion,omitempty"`
+	Policy         string `json:"policy"`
 }
 
 type putClusterPolicyInput struct {
-	Policy string `json:"policy"`
+	CurrentVersion string `json:"currentVersion"`
+	Policy         string `json:"policy"`
+}
+
+type putClusterPolicyOutput struct {
+	CurrentVersion string `json:"currentVersion"`
 }
 
 func (h *Handler) handleGetClusterPolicy(
@@ -33,12 +39,12 @@ func (h *Handler) handleGetClusterPolicy(
 	c *echo.Context,
 	clusterArn string,
 ) error {
-	policy, err := h.Backend.GetClusterPolicy(ctx, clusterArn)
+	policy, version, err := h.Backend.GetClusterPolicy(ctx, clusterArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, getClusterPolicyOutput{Policy: policy})
+	return c.JSON(http.StatusOK, getClusterPolicyOutput{Policy: policy, CurrentVersion: version})
 }
 
 func (h *Handler) handlePutClusterPolicy(
@@ -57,9 +63,10 @@ func (h *Handler) handlePutClusterPolicy(
 		)
 	}
 
-	if err := h.Backend.PutClusterPolicy(ctx, clusterArn, in.Policy); err != nil {
+	version, err := h.Backend.PutClusterPolicy(ctx, clusterArn, in.Policy, in.CurrentVersion)
+	if err != nil {
 		return h.writeBackendError(c, err)
 	}
 
-	return c.NoContent(http.StatusOK)
+	return c.JSON(http.StatusOK, putClusterPolicyOutput{CurrentVersion: version})
 }

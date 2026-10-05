@@ -2,6 +2,7 @@ package athena
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 )
 
@@ -103,6 +104,30 @@ func (b *InMemoryBackend) StartSession(workGroup, description, notebookVersion s
 	})
 
 	return id, sessionStateIdle, nil
+}
+
+// TagSession tags a new session with tags, plus the workgroup's tags when copyWorkGroupTags is set.
+func (b *InMemoryBackend) TagSession(sessionID string, copyWorkGroupTags bool, tags map[string]string) error {
+	b.mu.Lock("TagSession")
+	defer b.mu.Unlock()
+
+	s, ok := b.sessions.Get(sessionID)
+	if !ok {
+		return fmt.Errorf("%w: session %q not found", ErrResourceNotFound, sessionID)
+	}
+
+	merged := make(map[string]string, len(tags))
+	if copyWorkGroupTags {
+		maps.Copy(merged, b.resourceTags[b.workGroupARN(s.WorkGroup)])
+	}
+
+	maps.Copy(merged, tags)
+
+	if len(merged) > 0 {
+		b.resourceTags[b.sessionARN(sessionID)] = merged
+	}
+
+	return nil
 }
 
 // GetSession returns the session matching the given ID.

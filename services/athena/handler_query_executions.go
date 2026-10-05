@@ -11,6 +11,7 @@ type startQueryExecutionInput struct {
 	QueryExecutionContext    QueryExecutionContext     `json:"QueryExecutionContext"`
 	QueryString              string                    `json:"QueryString"`
 	WorkGroup                string                    `json:"WorkGroup"`
+	ClientRequestToken       string                    `json:"ClientRequestToken"`
 	ExecutionParameters      []string                  `json:"ExecutionParameters"`
 }
 
@@ -48,13 +49,19 @@ func (h *Handler) queryExecutionOps() map[string]athenaActionFn {
 				return nil, err
 			}
 
-			id, err := h.Backend.StartQueryExecution(
-				input.QueryString,
-				input.WorkGroup,
-				input.QueryExecutionContext,
-				input.ResultConfiguration,
-				input.ExecutionParameters,
-				input.ResultReuseConfiguration,
+			id, err := h.replayCreate(
+				"StartQueryExecution", input.ClientRequestToken, input,
+				found(h.Backend.GetQueryExecution),
+				func() (string, error) {
+					return h.Backend.StartQueryExecution(
+						input.QueryString,
+						input.WorkGroup,
+						input.QueryExecutionContext,
+						input.ResultConfiguration,
+						input.ExecutionParameters,
+						input.ResultReuseConfiguration,
+					)
+				},
 			)
 			if err != nil {
 				return nil, err

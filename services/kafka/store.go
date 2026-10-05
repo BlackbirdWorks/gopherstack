@@ -73,6 +73,7 @@ type InMemoryBackend struct {
 	channelsByCluster          *store.Index[Channel]
 	scramSecrets               map[string][]string // clusterArn → []secretArn (raw: slice-valued, not *T)
 	clusterPolicies            map[string]string   // clusterArn → policy document (raw: string-valued, not *T)
+	clusterPolicyVersions      map[string]string   // clusterArn → policy version token
 	engine                     *brokerEngine
 	mu                         *lockmetrics.RWMutex
 	accountID                  string
@@ -82,12 +83,13 @@ type InMemoryBackend struct {
 // NewInMemoryBackend creates a new in-memory MSK backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		registry:        store.NewRegistry(),
-		scramSecrets:    make(map[string][]string),
-		clusterPolicies: make(map[string]string),
-		mu:              lockmetrics.New("kafka"),
-		accountID:       accountID,
-		region:          region,
+		registry:              store.NewRegistry(),
+		scramSecrets:          make(map[string][]string),
+		clusterPolicies:       make(map[string]string),
+		clusterPolicyVersions: make(map[string]string),
+		mu:                    lockmetrics.New("kafka"),
+		accountID:             accountID,
+		region:                region,
 	}
 	registerAllTables(b)
 
@@ -113,6 +115,7 @@ func (b *InMemoryBackend) Reset() {
 	b.registry.ResetAll()
 	b.scramSecrets = make(map[string][]string)
 	b.clusterPolicies = make(map[string]string)
+	b.clusterPolicyVersions = make(map[string]string)
 }
 
 // clusterARN builds an ARN for an MSK cluster in region.
@@ -239,7 +242,24 @@ func cloneMutableClusterInfo(m *MutableClusterInfo) *MutableClusterInfo {
 		Rebalancing:          cloneRebalancing(m.Rebalancing),
 		StorageMode:          m.StorageMode,
 		EnhancedMonitoring:   m.EnhancedMonitoring,
+		InstanceType:         m.InstanceType,
+		KafkaVersion:         m.KafkaVersion,
 		NumberOfBrokerNodes:  m.NumberOfBrokerNodes,
+	}
+
+	if m.ConfigurationInfo != nil {
+		ci := *m.ConfigurationInfo
+		clone.ConfigurationInfo = &ci
+	}
+
+	if m.ZookeeperAccess != nil {
+		za := *m.ZookeeperAccess
+		if za.Enabled != nil {
+			enabled := *za.Enabled
+			za.Enabled = &enabled
+		}
+
+		clone.ZookeeperAccess = &za
 	}
 
 	if len(m.BrokerEBSVolumeInfo) > 0 {

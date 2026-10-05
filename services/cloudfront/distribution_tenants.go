@@ -112,11 +112,35 @@ func (b *InMemoryBackend) findDomainConflicts(domain, excludeTenantID, excludeDi
 	return conflicts
 }
 
+// TenantOption sets an optional CreateDistributionTenant member.
+type TenantOption func(*DistributionTenant)
+
+// WithTenantConnectionGroup sets the tenant's connection group.
+func WithTenantConnectionGroup(id string) TenantOption {
+	return func(t *DistributionTenant) { t.ConnectionGroupID = id }
+}
+
+// WithTenantEnabled sets whether the tenant starts enabled.
+func WithTenantEnabled(enabled bool) TenantOption {
+	return func(t *DistributionTenant) { t.Enabled = enabled }
+}
+
+// WithTenantParameters sets the tenant's parameter values.
+func WithTenantParameters(params map[string]string) TenantOption {
+	return func(t *DistributionTenant) { t.Parameters = maps.Clone(params) }
+}
+
+// WithTenantCustomizations sets the tenant's customizations.
+func WithTenantCustomizations(c map[string]any) TenantOption {
+	return func(t *DistributionTenant) { t.Customizations = c }
+}
+
 // CreateDistributionTenant creates a new distribution tenant.
 func (b *InMemoryBackend) CreateDistributionTenant(
 	distributionID, name string,
 	domains []string,
 	tags map[string]string,
+	opts ...TenantOption,
 ) (*DistributionTenant, error) {
 	b.mu.Lock("CreateDistributionTenant")
 	defer b.mu.Unlock()
@@ -158,6 +182,11 @@ func (b *InMemoryBackend) CreateDistributionTenant(
 	if t.Tags == nil {
 		t.Tags = make(map[string]string)
 	}
+
+	for _, opt := range opts {
+		opt(t)
+	}
+
 	b.distributionTenants.Put(t)
 	b.distributionTenantARNs[t.ARN] = id
 	for _, d := range domains {
@@ -244,6 +273,14 @@ func (b *InMemoryBackend) UpdateDistributionTenant(
 
 	if upd.Customizations != nil {
 		t.Customizations = upd.Customizations
+	}
+
+	if upd.Parameters != nil {
+		t.Parameters = maps.Clone(upd.Parameters)
+	}
+
+	if upd.DistributionID != "" {
+		t.DistributionID = upd.DistributionID
 	}
 
 	t.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)
@@ -455,7 +492,7 @@ func (b *InMemoryBackend) updateDomainAssociationToDistribution(
 // may be a distribution tenant ID or a distribution ID. A domain is reported PASSED when it is
 // syntactically well-formed (contains a dot and no whitespace) and FAILED otherwise. When
 // identifier is empty, a single generic PASSED entry is returned.
-func (b *InMemoryBackend) VerifyDNSConfiguration(identifier string) ([]DNSConfiguration, error) {
+func (b *InMemoryBackend) VerifyDNSConfiguration(identifier, domain string) ([]DNSConfiguration, error) {
 	b.mu.RLock("VerifyDNSConfiguration")
 	defer b.mu.RUnlock()
 
@@ -475,6 +512,10 @@ func (b *InMemoryBackend) VerifyDNSConfiguration(identifier string) ([]DNSConfig
 
 	out := make([]DNSConfiguration, 0, len(domains))
 	for _, d := range domains {
+		if domain != "" && d != domain {
+			continue
+		}
+
 		out = append(out, DNSConfiguration{Domain: d, Status: dnsCheckStatus(d)})
 	}
 

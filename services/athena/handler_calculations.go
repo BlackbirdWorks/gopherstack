@@ -28,12 +28,27 @@ func (h *Handler) calcCoreOps() map[string]athenaActionFn {
 				return nil, err
 			}
 
-			id, state, err := h.Backend.StartCalculationExecution(input.SessionID, input.Description, input.CodeBlock)
+			id, err := h.replayCreate(
+				"StartCalculationExecution", input.ClientRequestToken, input,
+				found(h.Backend.GetCalculationExecution),
+				func() (string, error) {
+					id, _, err := h.Backend.StartCalculationExecution(
+						input.SessionID, input.Description, input.CodeBlock,
+					)
+
+					return id, err
+				},
+			)
 			if err != nil {
 				return nil, err
 			}
 
-			return map[string]any{"CalculationExecutionId": id, keyState: state}, nil
+			calc, err := h.Backend.GetCalculationExecution(id)
+			if err != nil {
+				return nil, err
+			}
+
+			return map[string]any{"CalculationExecutionId": id, keyState: calc.Status.State}, nil
 		},
 		"GetCalculationExecution": func(b []byte) (any, error) {
 			var input calculationIDInput

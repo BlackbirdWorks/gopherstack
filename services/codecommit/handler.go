@@ -13,6 +13,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -38,6 +39,7 @@ const (
 	keyFilePath          = "filePath"
 	keyFileMode          = "fileMode"
 	keyAfterCommitID     = "afterCommitId"
+	keyLocation          = "location"
 	keyPullRequestID     = "pullRequestId"
 	keyAbsolutePath      = "absolutePath"
 	keyApprovalRuleID    = "approvalRuleId"
@@ -82,7 +84,9 @@ func paginateSlice[T any](items []T, nextToken string, maxResults int) ([]T, str
 type Handler struct {
 	Backend *InMemoryBackend
 	ops     map[string]func([]byte) (any, error)
+	ctxOps  map[string]func(context.Context, []byte) (any, error)
 	peers   *regionpeers.Set[Handler]
+	idem    *idempotency.Memo
 }
 
 // EnableRegions makes h serve every other region through lazily built per-region siblings.
@@ -94,8 +98,13 @@ func (h *Handler) EnableRegions() {
 
 // NewHandler creates a new CodeCommit handler.
 func NewHandler(backend *InMemoryBackend) *Handler {
-	h := &Handler{Backend: backend}
+	h := &Handler{Backend: backend, idem: idempotency.New("codecommit")}
 	h.ops = h.buildOps()
+	h.ctxOps = map[string]func(context.Context, []byte) (any, error){
+		"PostCommentForComparedCommit": h.handlePostCommentForComparedCommit,
+		"PostCommentForPullRequest":    h.handlePostCommentForPullRequest,
+		"PostCommentReply":             h.handlePostCommentReply,
+	}
 
 	return h
 }
@@ -170,12 +179,7 @@ func (h *Handler) buildOps() map[string]func([]byte) (any, error) {
 		"MergeBranchesByFastForward":                       h.handleMergeBranchesByFastForward,
 		"MergeBranchesBySquash":                            h.handleMergeBranchesBySquash,
 		"MergeBranchesByThreeWay":                          h.handleMergeBranchesByThreeWay,
-		// OverridePullRequestApprovalRules is dispatched directly from
-		// dispatch(), not through this table -- it needs ctx (see dispatch's
-		// doc comment).
-		"PostCommentForComparedCommit":          h.handlePostCommentForComparedCommit,
-		"PostCommentForPullRequest":             h.handlePostCommentForPullRequest,
-		"PostCommentReply":                      h.handlePostCommentReply,
+		// Ops needing ctx are dispatched through h.ctxOps, not this table.
 		"PutFile":                               h.handlePutFile,
 		"PutRepositoryTriggers":                 h.handlePutRepositoryTriggers,
 		"TestRepositoryTriggers":                h.handleTestRepositoryTriggers,
@@ -381,6 +385,15 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 		return json.Marshal(resp)
 	}
 
+	if ctxFn, isCtxOp := h.ctxOps[action]; isCtxOp {
+		resp, err := ctxFn(ctx, body)
+		if err != nil {
+			return nil, err
+		}
+
+		return json.Marshal(resp)
+	}
+
 	fn, ok := h.ops[action]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
@@ -418,6 +431,16 @@ var errCodeLookup = []errCodeEntry{
 		sentinel: ErrApprovalRuleTemplateAlreadyExists,
 		code:     http.StatusBadRequest,
 		errType:  "ApprovalRuleTemplateNameAlreadyExistsException",
+	},
+	{
+		sentinel: ErrIdempotencyMismatch,
+		code:     http.StatusBadRequest,
+		errType:  "IdempotencyParameterMismatchException",
+	},
+	{
+		sentinel: ErrInvalidRelativeFileVersion,
+		code:     http.StatusBadRequest,
+		errType:  "InvalidRelativeFileVersionEnumException",
 	},
 	{sentinel: ErrBranchNotFound, code: http.StatusNotFound, errType: "BranchDoesNotExistException"},
 	{sentinel: ErrBranchAlreadyExists, code: http.StatusBadRequest, errType: "BranchNameExistsException"},

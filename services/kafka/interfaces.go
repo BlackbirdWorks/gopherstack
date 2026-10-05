@@ -70,6 +70,7 @@ type StorageBackend interface {
 		replicatorArn, currentVersion, sourceKafkaClusterArn, targetKafkaClusterArn string,
 		topicReplication *TopicReplicationConfig,
 		consumerGroupReplication *ConsumerGroupReplicationConfig,
+		logDelivery *LogDelivery,
 	) (*Replicator, error)
 
 	// Topic operations
@@ -102,8 +103,8 @@ type StorageBackend interface {
 
 	// Cluster policy operations
 	DeleteClusterPolicy(ctx context.Context, clusterArn string) error
-	GetClusterPolicy(ctx context.Context, clusterArn string) (string, error)
-	PutClusterPolicy(ctx context.Context, clusterArn, policy string) error
+	GetClusterPolicy(ctx context.Context, clusterArn string) (policy, version string, err error)
+	PutClusterPolicy(ctx context.Context, clusterArn, policy, currentVersion string) (string, error)
 
 	// Cluster operation operations
 	DescribeClusterOperation(ctx context.Context, clusterOperationArn string) (*ClusterOperation, error)
@@ -125,7 +126,11 @@ type StorageBackend interface {
 		clusterArn, configArn string,
 		revision int64,
 	) (*ClusterOperation, error)
-	UpdateClusterKafkaVersion(ctx context.Context, clusterArn, targetKafkaVersion string) (*ClusterOperation, error)
+	UpdateClusterKafkaVersion(
+		ctx context.Context,
+		clusterArn, targetKafkaVersion string,
+		configuration *ConfigurationInfo,
+	) (*ClusterOperation, error)
 	UpdateConnectivity(
 		ctx context.Context,
 		clusterArn string,

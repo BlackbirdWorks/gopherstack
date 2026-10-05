@@ -394,7 +394,7 @@ func TestCreateAnycastIPList(t *testing.T) {
 			wantStatus: http.StatusCreated,
 			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				t.Helper()
-				assert.Contains(t, rec.Body.String(), "<AnycastIPList")
+				assert.Contains(t, rec.Body.String(), "<AnycastIpList")
 				assert.Contains(t, rec.Body.String(), "<Name>my-anycast-list</Name>")
 				assert.Contains(t, rec.Body.String(), "<Status>Deployed</Status>")
 				assert.NotEmpty(t, rec.Header().Get("Location"))

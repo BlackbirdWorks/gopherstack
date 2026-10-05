@@ -10,13 +10,16 @@ const (
 )
 
 type startSessionInput struct {
-	MonitoringConfiguration     MonitoringConfiguration `json:"MonitoringConfiguration"`
 	WorkGroup                   string                  `json:"WorkGroup"`
+	ClientRequestToken          string                  `json:"ClientRequestToken"`
 	Description                 string                  `json:"Description"`
 	NotebookVersion             string                  `json:"NotebookVersion"`
 	ExecutionRole               string                  `json:"ExecutionRole"`
+	MonitoringConfiguration     MonitoringConfiguration `json:"MonitoringConfiguration"`
+	Tags                        []Tag                   `json:"Tags"`
 	EngineConfiguration         EngineConfiguration     `json:"EngineConfiguration"`
 	SessionIdleTimeoutInMinutes int32                   `json:"SessionIdleTimeoutInMinutes"`
+	CopyWorkGroupTags           bool                    `json:"CopyWorkGroupTags"`
 }
 
 // notebookID extracts the session's linked notebook ID. StartSessionInput has
@@ -67,36 +70,57 @@ type getResourceDashboardInput struct {
 	ResourceARN string `json:"ResourceARN"`
 }
 
-func (h *Handler) sessionCoreOps() map[string]athenaActionFn {
-	return map[string]athenaActionFn{
-		"StartSession": func(b []byte) (any, error) {
-			var input startSessionInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
+func (h *Handler) handleStartSession(b []byte) (any, error) {
+	var input startSessionInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
 
-			const secondsPerMinute = 60
+	const secondsPerMinute = 60
 
-			sessionCfg := SessionConfiguration{
-				ExecutionRole: input.ExecutionRole,
-				// StartSessionInput only carries SessionIdleTimeoutInMinutes; the
-				// stored/returned model tracks IdleTimeoutSeconds (aws-sdk-go-v2
-				// athena@v1.60.4 types.SessionConfiguration carries both, this
-				// converts the one real clients actually send).
-				IdleTimeoutSeconds: int64(input.SessionIdleTimeoutInMinutes) * secondsPerMinute,
-			}
+	sessionCfg := SessionConfiguration{
+		ExecutionRole: input.ExecutionRole,
+		// StartSessionInput only carries minutes; the model stores IdleTimeoutSeconds (athena@v1.60.4).
+		IdleTimeoutSeconds: int64(input.SessionIdleTimeoutInMinutes) * secondsPerMinute,
+	}
 
-			id, state, err := h.Backend.StartSession(
+	id, err := h.replayCreate(
+		"StartSession", input.ClientRequestToken, input,
+		found(h.Backend.GetSession),
+		func() (string, error) {
+			id, _, err := h.Backend.StartSession(
 				input.WorkGroup, input.Description, input.NotebookVersion,
 				input.EngineConfiguration, sessionCfg,
 				input.MonitoringConfiguration, input.notebookID(),
 			)
-			if err != nil {
-				return nil, err
-			}
 
-			return map[string]any{keySessionID: id, keyState: state}, nil
+			return id, err
 		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	tags := make(map[string]string, len(input.Tags))
+	for _, t := range input.Tags {
+		tags[t.Key] = t.Value
+	}
+
+	if err = h.Backend.TagSession(id, input.CopyWorkGroupTags, tags); err != nil {
+		return nil, err
+	}
+
+	s, err := h.Backend.GetSession(id)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{keySessionID: id, keyState: s.Status.State}, nil
+}
+
+func (h *Handler) sessionCoreOps() map[string]athenaActionFn {
+	return map[string]athenaActionFn{
+		"StartSession": h.handleStartSession,
 		"GetSession": func(b []byte) (any, error) {
 			var input sessionIDInput
 			if err := json.Unmarshal(b, &input); err != nil {

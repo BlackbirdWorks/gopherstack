@@ -1,9 +1,11 @@
 package codecommit
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -25,12 +27,44 @@ func commentToMap(c *Comment) map[string]any {
 	}
 }
 
-func (h *Handler) handlePostCommentForComparedCommit(body []byte) (any, error) {
+func (l *CommentLocation) toMap() map[string]any {
+	out := map[string]any{}
+	if l.FilePath != "" {
+		out["filePath"] = l.FilePath
+	}
+
+	if l.FilePosition != 0 {
+		out["filePosition"] = l.FilePosition
+	}
+
+	if l.RelativeFileVersion != "" {
+		out["relativeFileVersion"] = l.RelativeFileVersion
+	}
+
+	return out
+}
+
+func (h *Handler) postComment(
+	ctx context.Context, op, token string, cc CommentContext, req any, content string,
+) (*Comment, error) {
+	cc.AuthorARN = awsmeta.CallerArn(ctx)
+
+	return replayCreate(
+		h, op, token, req,
+		func(c *Comment) string { return c.CommentID },
+		h.Backend.GetComment,
+		func() (*Comment, error) { return h.Backend.PostComment(cc, content) },
+	)
+}
+
+func (h *Handler) handlePostCommentForComparedCommit(ctx context.Context, body []byte) (any, error) {
 	var req struct {
-		RepositoryName string `json:"repositoryName"`
-		BeforeCommitID string `json:"beforeCommitId"`
-		AfterCommitID  string `json:"afterCommitId"`
-		Content        string `json:"content"`
+		Location           *CommentLocation `json:"location"`
+		RepositoryName     string           `json:"repositoryName"`
+		BeforeCommitID     string           `json:"beforeCommitId"`
+		AfterCommitID      string           `json:"afterCommitId"`
+		Content            string           `json:"content"`
+		ClientRequestToken string           `json:"clientRequestToken"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
@@ -39,28 +73,36 @@ func (h *Handler) handlePostCommentForComparedCommit(body []byte) (any, error) {
 		return nil, fmt.Errorf("%w: repositoryName and content are required", errInvalidRequest)
 	}
 
-	c, err := h.Backend.PostCommentForComparedCommit(
-		req.RepositoryName, req.BeforeCommitID, req.AfterCommitID, req.Content,
-	)
+	c, err := h.postComment(ctx, "PostCommentForComparedCommit", req.ClientRequestToken, CommentContext{
+		RepoName: req.RepositoryName, BeforeCommitID: req.BeforeCommitID,
+		AfterCommitID: req.AfterCommitID, Location: req.Location,
+	}, req, req.Content)
 	if err != nil {
 		return nil, err
 	}
 
-	return map[string]any{
+	out := map[string]any{
 		keyComment:        commentToMap(c),
 		keyRepositoryName: req.RepositoryName,
 		keyAfterCommitID:  req.AfterCommitID,
 		"beforeCommitId":  req.BeforeCommitID,
-	}, nil
+	}
+	if c.Location != nil {
+		out[keyLocation] = c.Location.toMap()
+	}
+
+	return out, nil
 }
 
-func (h *Handler) handlePostCommentForPullRequest(body []byte) (any, error) {
+func (h *Handler) handlePostCommentForPullRequest(ctx context.Context, body []byte) (any, error) {
 	var req struct {
-		PullRequestID  string `json:"pullRequestId"`
-		RepositoryName string `json:"repositoryName"`
-		BeforeCommitID string `json:"beforeCommitId"`
-		AfterCommitID  string `json:"afterCommitId"`
-		Content        string `json:"content"`
+		Location           *CommentLocation `json:"location"`
+		PullRequestID      string           `json:"pullRequestId"`
+		RepositoryName     string           `json:"repositoryName"`
+		BeforeCommitID     string           `json:"beforeCommitId"`
+		AfterCommitID      string           `json:"afterCommitId"`
+		Content            string           `json:"content"`
+		ClientRequestToken string           `json:"clientRequestToken"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
@@ -69,24 +111,33 @@ func (h *Handler) handlePostCommentForPullRequest(body []byte) (any, error) {
 		return nil, fmt.Errorf("%w: pullRequestId and content are required", errInvalidRequest)
 	}
 
-	c, err := h.Backend.PostCommentForPullRequest(req.PullRequestID, req.RepositoryName, req.Content)
+	c, err := h.postComment(ctx, "PostCommentForPullRequest", req.ClientRequestToken, CommentContext{
+		PullRequestID: req.PullRequestID, RepoName: req.RepositoryName,
+		BeforeCommitID: req.BeforeCommitID, AfterCommitID: req.AfterCommitID, Location: req.Location,
+	}, req, req.Content)
 	if err != nil {
 		return nil, err
 	}
 
-	return map[string]any{
+	out := map[string]any{
 		keyComment:        commentToMap(c),
 		keyPullRequestID:  req.PullRequestID,
 		keyRepositoryName: req.RepositoryName,
 		keyAfterCommitID:  req.AfterCommitID,
 		"beforeCommitId":  req.BeforeCommitID,
-	}, nil
+	}
+	if c.Location != nil {
+		out[keyLocation] = c.Location.toMap()
+	}
+
+	return out, nil
 }
 
-func (h *Handler) handlePostCommentReply(body []byte) (any, error) {
+func (h *Handler) handlePostCommentReply(ctx context.Context, body []byte) (any, error) {
 	var req struct {
-		InReplyTo string `json:"inReplyTo"`
-		Content   string `json:"content"`
+		InReplyTo          string `json:"inReplyTo"`
+		Content            string `json:"content"`
+		ClientRequestToken string `json:"clientRequestToken"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
@@ -95,7 +146,14 @@ func (h *Handler) handlePostCommentReply(body []byte) (any, error) {
 		return nil, fmt.Errorf("%w: inReplyTo and content are required", errInvalidRequest)
 	}
 
-	c, err := h.Backend.PostCommentReply(req.InReplyTo, req.Content)
+	author := awsmeta.CallerArn(ctx)
+
+	c, err := replayCreate(
+		h, "PostCommentReply", req.ClientRequestToken, req,
+		func(c *Comment) string { return c.CommentID },
+		h.Backend.GetComment,
+		func() (*Comment, error) { return h.Backend.PostCommentReply(req.InReplyTo, req.Content, author) },
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -126,6 +184,43 @@ func (h *Handler) handleGetComment(body []byte) (any, error) {
 	}, nil
 }
 
+// groupComments splits a page of comments into one group per comment location, oldest first.
+func groupComments(comments []*Comment, base func(*Comment) map[string]any) []map[string]any {
+	var order []string
+
+	items := map[string][]map[string]any{}
+	heads := map[string]*Comment{}
+
+	for _, c := range comments {
+		key := ""
+		if c.Location != nil {
+			key = fmt.Sprintf("%s|%d|%s", c.Location.FilePath, c.Location.FilePosition, c.Location.RelativeFileVersion)
+		}
+
+		if _, seen := heads[key]; !seen {
+			order = append(order, key)
+			heads[key] = c
+		}
+
+		items[key] = append(items[key], commentToMap(c))
+	}
+
+	data := make([]map[string]any, 0, len(order))
+
+	for _, key := range order {
+		group := base(heads[key])
+		group["comments"] = items[key]
+
+		if heads[key].Location != nil {
+			group[keyLocation] = heads[key].Location.toMap()
+		}
+
+		data = append(data, group)
+	}
+
+	return data
+}
+
 func (h *Handler) handleGetCommentsForComparedCommit(body []byte) (any, error) {
 	var req struct {
 		RepositoryName string `json:"repositoryName"`
@@ -144,33 +239,24 @@ func (h *Handler) handleGetCommentsForComparedCommit(body []byte) (any, error) {
 		return nil, fmt.Errorf("%w: invalid nextToken", ErrInvalidContinuationToken)
 	}
 
-	comments, err := h.Backend.GetCommentsForComparedCommit(req.RepositoryName, req.AfterCommitID)
+	comments, err := h.Backend.GetCommentsForComparedCommit(req.RepositoryName, req.AfterCommitID, req.BeforeCommitID)
 	if err != nil {
 		return nil, err
 	}
 
-	// This backend groups every comment for a commit pair into one
-	// CommentsForComparedCommit entry (see PARITY.md -- no per-diff-position
-	// grouping is modeled), so MaxResults/NextToken paginate the comments
-	// nested inside that single group rather than the (always <=1) outer list.
 	pg := page.New(comments, req.NextToken, req.MaxResults, getCommentsForComparedCommitDefaultMaxResults)
 
-	data := []map[string]any{}
-	if len(pg.Data) > 0 {
-		items := make([]map[string]any, 0, len(pg.Data))
-		for _, c := range pg.Data {
-			items = append(items, commentToMap(c))
-		}
+	data := groupComments(pg.Data, func(c *Comment) map[string]any {
 		group := map[string]any{
 			keyRepositoryName: req.RepositoryName,
 			keyAfterCommitID:  req.AfterCommitID,
-			"comments":        items,
 		}
-		if req.BeforeCommitID != "" {
-			group["beforeCommitId"] = req.BeforeCommitID
+		if c.BeforeCommitID != "" {
+			group["beforeCommitId"] = c.BeforeCommitID
 		}
-		data = append(data, group)
-	}
+
+		return group
+	})
 
 	out := map[string]any{"commentsForComparedCommitData": data}
 	if pg.Next != "" {
@@ -182,9 +268,12 @@ func (h *Handler) handleGetCommentsForComparedCommit(body []byte) (any, error) {
 
 func (h *Handler) handleGetCommentsForPullRequest(body []byte) (any, error) {
 	var req struct {
-		PullRequestID string `json:"pullRequestId"`
-		NextToken     string `json:"nextToken"`
-		MaxResults    int    `json:"maxResults"`
+		PullRequestID  string `json:"pullRequestId"`
+		RepositoryName string `json:"repositoryName"`
+		BeforeCommitID string `json:"beforeCommitId"`
+		AfterCommitID  string `json:"afterCommitId"`
+		NextToken      string `json:"nextToken"`
+		MaxResults     int    `json:"maxResults"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
@@ -196,30 +285,31 @@ func (h *Handler) handleGetCommentsForPullRequest(body []byte) (any, error) {
 		return nil, fmt.Errorf("%w: invalid nextToken", ErrInvalidContinuationToken)
 	}
 
-	comments, err := h.Backend.GetCommentsForPullRequest(req.PullRequestID)
+	comments, err := h.Backend.GetCommentsForPullRequest(
+		req.PullRequestID, req.RepositoryName, req.BeforeCommitID, req.AfterCommitID,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	// Same single-group simplification as GetCommentsForComparedCommit --
-	// MaxResults/NextToken paginate the nested comments list.
 	pg := page.New(comments, req.NextToken, req.MaxResults, getCommentsForComparedCommitDefaultMaxResults)
 
-	data := []map[string]any{}
-	if len(pg.Data) > 0 {
-		items := make([]map[string]any, 0, len(pg.Data))
-		for _, c := range pg.Data {
-			items = append(items, commentToMap(c))
+	data := groupComments(pg.Data, func(c *Comment) map[string]any {
+		group := map[string]any{keyPullRequestID: req.PullRequestID}
+		if c.RepoName != "" {
+			group[keyRepositoryName] = c.RepoName
 		}
-		group := map[string]any{
-			keyPullRequestID: req.PullRequestID,
-			"comments":       items,
+
+		if c.BeforeCommitID != "" {
+			group["beforeCommitId"] = c.BeforeCommitID
 		}
-		if pg.Data[0].RepoName != "" {
-			group[keyRepositoryName] = pg.Data[0].RepoName
+
+		if c.AfterCommitID != "" {
+			group[keyAfterCommitID] = c.AfterCommitID
 		}
-		data = append(data, group)
-	}
+
+		return group
+	})
 
 	out := map[string]any{"commentsForPullRequestData": data}
 	if pg.Next != "" {

@@ -38,8 +38,19 @@ func generateAnycastIPs(id string, ipCount int32) []string {
 func (b *InMemoryBackend) CreateAnycastIPList(
 	name string, ipCount int32, ipamCidrConfigs []IpamCidrConfig, tags ...map[string]string,
 ) (*AnycastIPList, error) {
+	return b.CreateAnycastIPListWithAddressType(name, "", ipCount, ipamCidrConfigs, tags...)
+}
+
+// CreateAnycastIPListWithAddressType is CreateAnycastIPList with the optional IpAddressType.
+func (b *InMemoryBackend) CreateAnycastIPListWithAddressType(
+	name, ipAddressType string, ipCount int32, ipamCidrConfigs []IpamCidrConfig, tags ...map[string]string,
+) (*AnycastIPList, error) {
 	b.mu.Lock("CreateAnycastIpList")
 	defer b.mu.Unlock()
+
+	if !isValidAnycastIPAddressType(ipAddressType) {
+		return nil, fmt.Errorf("%w: IpAddressType must be one of ipv4, ipv6, dualstack", ErrValidation)
+	}
 
 	if name == "" {
 		return nil, fmt.Errorf("%w: Name must not be empty", ErrValidation)
@@ -65,6 +76,7 @@ func (b *InMemoryBackend) CreateAnycastIPList(
 		ARN:              b.anycastIPListARN(id),
 		Name:             name,
 		Status:           statusDeployed,
+		IPAddressType:    ipAddressType,
 		ETag:             uuid.NewString(),
 		LastModifiedTime: time.Now().UTC().Format(time.RFC3339),
 		IPCount:          ipCount,

@@ -247,7 +247,7 @@ func TestUpdateReplicationInfo_Backend(t *testing.T) {
 		b, replicator, sourceArn, targetArn := replicationInfoFixture(t)
 
 		_, err := b.UpdateReplicationInfo(
-			context.Background(), replicator.ReplicatorArn, "WRONG", sourceArn, targetArn, nil, nil,
+			context.Background(), replicator.ReplicatorArn, "WRONG", sourceArn, targetArn, nil, nil, nil,
 		)
 		require.ErrorIs(t, err, kafka.ErrValidation)
 	})
@@ -259,7 +259,7 @@ func TestUpdateReplicationInfo_Backend(t *testing.T) {
 
 		_, err := b.UpdateReplicationInfo(
 			context.Background(), replicator.ReplicatorArn, replicator.CurrentVersion,
-			"arn:aws:kafka:us-east-1:000000000000:cluster/no-such/uuid", targetArn, nil, nil,
+			"arn:aws:kafka:us-east-1:000000000000:cluster/no-such/uuid", targetArn, nil, nil, nil,
 		)
 		require.ErrorIs(t, err, kafka.ErrNotFound)
 	})
@@ -272,7 +272,7 @@ func TestUpdateReplicationInfo_Backend(t *testing.T) {
 
 		updated, err := b.UpdateReplicationInfo(
 			context.Background(), replicator.ReplicatorArn, replicator.CurrentVersion,
-			sourceArn, targetArn, newTopicReplication, nil,
+			sourceArn, targetArn, newTopicReplication, nil, nil,
 		)
 		require.NoError(t, err)
 		assert.NotEqual(t, replicator.CurrentVersion, updated.CurrentVersion)
@@ -287,7 +287,7 @@ func TestUpdateReplicationInfo_Backend(t *testing.T) {
 
 		_, err := b.UpdateReplicationInfo(
 			context.Background(), "arn:aws:kafka:us-east-1:000000000000:replicator/missing/uuid",
-			"v1", sourceArn, targetArn, nil, nil,
+			"v1", sourceArn, targetArn, nil, nil, nil,
 		)
 		require.ErrorIs(t, err, kafka.ErrNotFound)
 	})

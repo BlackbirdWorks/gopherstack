@@ -120,12 +120,13 @@ func TestKafkaTopicAndPolicyRegionIsolation(t *testing.T) {
 	assert.Empty(t, westTopics)
 
 	// Cluster policy isolation.
-	require.NoError(t, backend.PutClusterPolicy(ctxEast, eastCluster.ClusterArn, `{"east":true}`))
+	_, err = backend.PutClusterPolicy(ctxEast, eastCluster.ClusterArn, `{"east":true}`, "")
+	require.NoError(t, err)
 
-	_, err = backend.GetClusterPolicy(ctxWest, westCluster.ClusterArn)
+	_, _, err = backend.GetClusterPolicy(ctxWest, westCluster.ClusterArn)
 	require.ErrorIs(t, err, ErrNotFound)
 
-	policy, err := backend.GetClusterPolicy(ctxEast, eastCluster.ClusterArn)
+	policy, _, err := backend.GetClusterPolicy(ctxEast, eastCluster.ClusterArn)
 	require.NoError(t, err)
 	assert.Equal(t, `{"east":true}`, policy)
 

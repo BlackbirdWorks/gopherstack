@@ -216,6 +216,7 @@ func (b *InMemoryBackend) DeleteCluster(_ context.Context, clusterArn string) er
 	lb = b.detachBrokerLocked(clusterArn)
 	delete(b.scramSecrets, clusterArn)
 	delete(b.clusterPolicies, clusterArn)
+	delete(b.clusterPolicyVersions, clusterArn)
 
 	// Remove all topics/VPC connections/channels belonging to this cluster.
 	// Each index's slice is cloned before deleting from it, since Table.Delete

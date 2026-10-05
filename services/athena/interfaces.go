@@ -141,6 +141,7 @@ type StorageBackend interface {
 		notebookID string,
 	) (string, string, error)
 	GetSession(id string) (*Session, error)
+	TagSession(sessionID string, copyWorkGroupTags bool, tags map[string]string) error
 	GetSessionStatus(id string) (SessionStatus, error)
 	GetSessionEndpoint(id string) (url, authToken string, authTokenExpiration float64, err error)
 	TerminateSession(id string) (string, error)

@@ -56,6 +56,8 @@ func (b *InMemoryBackend) resourceExistsForARN(resourceARN string) bool {
 		return b.capacityReservations.Has(id)
 	case "notebook":
 		return b.notebooks.Has(id)
+	case "session":
+		return b.sessions.Has(id)
 	default:
 		return false
 	}

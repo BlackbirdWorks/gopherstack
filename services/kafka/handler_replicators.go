@@ -272,6 +272,18 @@ func (h *Handler) handleDeleteReplicator(
 	c *echo.Context,
 	replicatorArn string,
 ) error {
+	if v := c.QueryParam("currentVersion"); v != "" {
+		r, err := h.Backend.DescribeReplicator(ctx, replicatorArn)
+		if err != nil {
+			return h.writeBackendError(c, err)
+		}
+
+		if r.CurrentVersion != v {
+			return h.writeError(c, http.StatusBadRequest, "BadRequestException",
+				"The specified replicator version is not current. Current version: "+r.CurrentVersion+".")
+		}
+	}
+
 	if err := h.Backend.DeleteReplicator(ctx, replicatorArn); err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -443,6 +455,7 @@ func (h *Handler) handleListReplicators(ctx context.Context, c *echo.Context) er
 type updateReplicationInfoInput struct {
 	ConsumerGroupReplication *consumerGroupReplicationDTO `json:"consumerGroupReplication,omitempty"`
 	TopicReplication         *topicReplicationUpdateDTO   `json:"topicReplication,omitempty"`
+	LogDelivery              *LogDelivery                 `json:"logDelivery,omitempty"`
 	CurrentVersion           string                       `json:"currentVersion"`
 	SourceKafkaClusterArn    string                       `json:"sourceKafkaClusterArn"`
 	TargetKafkaClusterArn    string                       `json:"targetKafkaClusterArn"`
@@ -491,6 +504,7 @@ func (h *Handler) handleUpdateReplicationInfo(
 		in.TargetKafkaClusterArn,
 		topicReplication,
 		consumerGroupReplication,
+		in.LogDelivery,
 	)
 	if err != nil {
 		return h.writeBackendError(c, err)

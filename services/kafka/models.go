@@ -392,9 +392,15 @@ type ConfigurationRevision struct {
 	Revision         int64  `json:"revision"`
 }
 
+// ZookeeperAccess mirrors types.ZookeeperAccess.
+type ZookeeperAccess struct {
+	Enabled *bool `json:"enabled,omitempty"`
+}
+
 // UpdateConnectivitySettings is the payload for UpdateConnectivity.
 type UpdateConnectivitySettings struct {
 	ConnectivityInfo *ConnectivityInfo
+	ZookeeperAccess  *ZookeeperAccess
 }
 
 // UpdateMonitoringSettings is the payload for UpdateMonitoring.
@@ -659,8 +665,12 @@ type MutableClusterInfo struct {
 	ClientAuthentication *ClientAuthentication `json:"clientAuthentication,omitempty"`
 	EncryptionInfo       *EncryptionInfo       `json:"encryptionInfo,omitempty"`
 	Rebalancing          *Rebalancing          `json:"rebalancing,omitempty"`
+	ConfigurationInfo    *ConfigurationInfo    `json:"configurationInfo,omitempty"`
+	ZookeeperAccess      *ZookeeperAccess      `json:"zookeeperAccess,omitempty"`
 	StorageMode          string                `json:"storageMode,omitempty"`
 	EnhancedMonitoring   string                `json:"enhancedMonitoring,omitempty"`
+	InstanceType         string                `json:"instanceType,omitempty"`
+	KafkaVersion         string                `json:"kafkaVersion,omitempty"`
 	BrokerEBSVolumeInfo  []BrokerEBSVolumeInfo `json:"brokerEBSVolumeInfo,omitempty"`
 	NumberOfBrokerNodes  int32                 `json:"numberOfBrokerNodes,omitempty"`
 }

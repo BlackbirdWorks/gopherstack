@@ -226,6 +226,10 @@ func (h *Handler) handleUpdateFieldLevelEncryption(c *echo.Context, id string) e
 		return h.handleError(c, getErr)
 	}
 
+	if failed, resp := ifMatchFailure(c, current.ETag, "field-level encryption config"); failed {
+		return resp
+	}
+
 	name := req.CallerReference
 	if name == "" {
 		name = current.Name
@@ -505,6 +509,10 @@ func (h *Handler) handleUpdateFieldLevelEncryptionProfile(c *echo.Context, id st
 	current, getErr := h.Backend.GetFieldLevelEncryptionProfile(id)
 	if getErr != nil {
 		return h.handleError(c, getErr)
+	}
+
+	if failed, resp := ifMatchFailure(c, current.ETag, "field-level encryption profile"); failed {
+		return resp
 	}
 
 	name := req.Name

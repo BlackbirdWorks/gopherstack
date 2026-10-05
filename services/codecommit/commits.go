@@ -2,6 +2,7 @@ package codecommit
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 	"time"
@@ -154,43 +155,96 @@ func (b *InMemoryBackend) CreateCommit(
 	repositoryName, branchName, authorName, authorEmail, message, parentCommitID string,
 	putFiles []PutFileEntry, deleteFiles []string, keepEmptyFolders bool,
 ) (*Commit, map[string]string, map[string]string, error) {
-	b.mu.Lock("CreateCommit")
-	defer b.mu.Unlock()
-
-	if !b.repositories.Has(repositoryName) {
-		return nil, nil, nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repositoryName)
+	res, err := b.CreateCommitDetailed(
+		repositoryName, branchName, authorName, authorEmail, message, parentCommitID,
+		putFiles, deleteFiles, nil, keepEmptyFolders,
+	)
+	if err != nil {
+		return nil, nil, nil, err
 	}
 
-	// Determine current branch tip (if any).
+	added := make(map[string]string, len(res.Added)+len(res.Updated))
+	maps.Copy(added, res.Added)
+	maps.Copy(added, res.Updated)
+
+	return res.Commit, added, res.Deleted, nil
+}
+
+// branchTipLocked returns the branch's current tip, rejecting an outdated parentCommitID
+// (ParentCommitIdOutdatedException); parentCommitID is optional.
+func (b *InMemoryBackend) branchTipLocked(repositoryName, branchName, parentCommitID string) (string, error) {
 	var currentTip string
+
 	if branchName != "" {
 		if existing, ok := b.branches.Get(branchKey(repositoryName, branchName)); ok {
 			currentTip = existing.CommitID
 		}
 	}
 
-	// Validate parentCommitId when provided — AWS returns ParentCommitIdOutdatedException
-	// when the provided value does not match the current branch tip.
-	// parentCommitId is optional; omitting it is allowed (no race detection in that case).
 	if parentCommitID != "" && currentTip != "" && parentCommitID != currentTip {
-		return nil, nil, nil, fmt.Errorf(
+		return "", fmt.Errorf(
 			"%w: parentCommitId %s does not match current branch tip %s",
 			ErrParentCommitIDOutdated, parentCommitID, currentTip,
 		)
 	}
 
-	// AWS rejects a commit whose putFiles entry has content identical to
-	// what's already at that path with NoChangeException (CreateCommit's own
-	// declared error set has no SameFileContentException; that's PutFile's),
-	// checked before any mutation so a rejected commit leaves no partial state.
-	tree := b.parentTreeLocked(repositoryName, currentTip)
+	return currentTip, nil
+}
 
+// checkCommitChangesLocked rejects unchanged putFiles (NoChangeException, which is CreateCommit's
+// own code; SameFileContentException is PutFile's) and setFileModes of missing files, before any mutation.
+func (b *InMemoryBackend) checkCommitChangesLocked(
+	repositoryName string, tree map[string]TreeEntry, putFiles []PutFileEntry, setFileModes []SetFileModeEntry,
+) error {
 	for _, pf := range putFiles {
 		if b.treeFileContentEquals(repositoryName, tree, pf.FilePath, pf.FileContent) {
-			return nil, nil, nil, fmt.Errorf(
-				"%w: file %s content is unchanged", ErrNoChange, pf.FilePath,
-			)
+			return fmt.Errorf("%w: file %s content is unchanged", ErrNoChange, pf.FilePath)
 		}
+	}
+
+	for _, sm := range setFileModes {
+		if _, ok := tree[sm.FilePath]; !ok {
+			return fmt.Errorf("%w: file %s does not exist", ErrFileNotFound, sm.FilePath)
+		}
+	}
+
+	return nil
+}
+
+// CommitChanges is CreateCommit's result: blob IDs by path for added, updated and deleted files.
+type CommitChanges struct {
+	Commit  *Commit
+	Added   map[string]string
+	Updated map[string]string
+	Deleted map[string]string
+}
+
+// CreateCommitDetailed is CreateCommit that also applies setFileModes and reports updated files separately.
+func (b *InMemoryBackend) CreateCommitDetailed(
+	repositoryName, branchName, authorName, authorEmail, message, parentCommitID string,
+	putFiles []PutFileEntry, deleteFiles []string, setFileModes []SetFileModeEntry, keepEmptyFolders bool,
+) (*CommitChanges, error) {
+	b.mu.Lock("CreateCommit")
+	defer b.mu.Unlock()
+
+	if !b.repositories.Has(repositoryName) {
+		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repositoryName)
+	}
+
+	currentTip, err := b.branchTipLocked(repositoryName, branchName, parentCommitID)
+	if err != nil {
+		return nil, err
+	}
+
+	tree := b.parentTreeLocked(repositoryName, currentTip)
+
+	if err = b.checkCommitChangesLocked(repositoryName, tree, putFiles, setFileModes); err != nil {
+		return nil, err
+	}
+
+	existing := make(map[string]bool, len(putFiles))
+	for _, pf := range putFiles {
+		_, existing[pf.FilePath] = tree[pf.FilePath]
 	}
 
 	commitID := uuid.NewString()
@@ -222,7 +276,18 @@ func (b *InMemoryBackend) CreateCommit(
 	blobIDsAdded, blobIDsDeleted := b.applyFileChanges(
 		repositoryName, commitID, putFiles, deleteFiles, keepEmptyFolders, tree,
 	)
+	updated := b.applySetFileModesLocked(repositoryName, commitID, setFileModes, tree)
 	setCommitTree(commit, tree)
+
+	added := make(map[string]string, len(blobIDsAdded))
+
+	for path, blobID := range blobIDsAdded {
+		if existing[path] {
+			updated[path] = blobID
+		} else {
+			added[path] = blobID
+		}
+	}
 
 	// Update the branch tip to the new commit.
 	if branchName != "" {
@@ -239,7 +304,29 @@ func (b *InMemoryBackend) CreateCommit(
 		copy(cp.Parents, parents)
 	}
 
-	return &cp, blobIDsAdded, blobIDsDeleted, nil
+	return &CommitChanges{Commit: &cp, Added: added, Updated: updated, Deleted: blobIDsDeleted}, nil
+}
+
+// applySetFileModesLocked changes file modes in place, returning each touched path's blob ID.
+func (b *InMemoryBackend) applySetFileModesLocked(
+	repoName, commitID string, modes []SetFileModeEntry, tree map[string]TreeEntry,
+) map[string]string {
+	touched := make(map[string]string, len(modes))
+
+	for _, sm := range modes {
+		entry := tree[sm.FilePath]
+		entry.Mode = sm.FileMode
+		tree[sm.FilePath] = entry
+
+		if f, ok := b.files.Get(fileKey(repoName, sm.FilePath)); ok {
+			f.FileMode = sm.FileMode
+		}
+
+		b.recordFileHistory(repoName, sm.FilePath, commitID, entry.BlobID)
+		touched[sm.FilePath] = entry.BlobID
+	}
+
+	return touched
 }
 
 // BatchGetCommits retrieves multiple commits by ID from a repository.
