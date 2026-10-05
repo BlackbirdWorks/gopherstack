@@ -160,6 +160,7 @@ func nodeToView(
 	return map[string]any{
 		"ReferenceId":       node.ReferenceID,
 		"Name":              node.Name,
+		"Names":             []string{node.Name},
 		"Type":              node.Type,
 		"State":             "active",
 		"Root":              node.IsRoot,

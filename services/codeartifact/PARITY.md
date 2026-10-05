@@ -79,12 +79,12 @@ items_still_open:
   - "Package-group weak-match confusable-character normalization needs the full Unicode confusables table (external data, not vendored); such packages match neither STRONG nor WEAK."
   - "Package-group origin restrictions are stored and returned but not enforced on publish/ingestion: AWS documents no error code for a blocked publish in the pinned SDK to emit."
   - "No implicit root package group ('/*') is auto-created; existing tests assert an empty group list."
-  - "GetPackageVersionReadme/ListPackageVersionDependencies only parse a standalone package.json asset: PublishPackageVersion is generic-only per the SDK docs, and archive ingestion belongs to the unmodeled native npm/maven clients."
+  - "GetPackageVersionReadme/ListPackageVersionDependencies and DescribePackageVersion's summary/homePage/sourceCodeRepository/licenses only read a standalone package.json asset: PublishPackageVersion is generic-only per the SDK docs, and archive ingestion belongs to the unmodeled native npm/maven clients."
+  - "DescribePackageVersion displayName is set for npm only (the one format the SDK documents); the package.json-to-summary/homePage/sourceCodeRepository/licenses key mapping is not SDK-documented (authored from npm metadata conventions, unverified against real AWS), and other formats' fields stay unset."
+  - "GetRepositoryEndpoint validates endpointType (ipv4|dualstack) but returns the same hostname for both: the dualstack hostname is not documented in the pinned SDK."
+  - "PackageVersionError.errorMessage is never populated on failedVersions: only errorCode is emitted."
   - "domain-owner is not read on any op: single-account emulator, and the pinned SDK documents no cross-account error to emit."
-deferred:                 # consciously not audited this pass (scope) — next pass targets
-  - "Package-group weak-match confusable-character normalization and origin-restriction enforcement against publish/ingestion (see gaps above)"
-  - "Root package-group auto-creation (see gaps above)"
-  - "store_setup.go was read but not modified — no bugs found, not exhaustively re-audited"
+deferred: []
 leaks: {status: clean, note: "FIXED (this pass) — DeleteDomain never cascade-deleted the domain's package groups (ghost store rows) or closed their Tags (a pkgs/tags leak), despite deleting everything else the domain owned; every other resource path (repositories/packages/versions/policies/external-connections) was already covered by pre-existing cascade logic. Re-verified: no goroutines/janitors in this service; store.Table-backed state is snapshot/restored via existing Handler.Snapshot/Restore delegation to InMemoryBackend; new Restrictions/Assets/OriginConfig fields are plain JSON-tagged struct fields and round-trip automatically."}
 ---
 
@@ -388,3 +388,4 @@ codeartifact already region-isolated: same-named resources in two regions stay s
 ## 2026-10-05 (reqfielddiff tier-2 pagination)
 
 FIXED: ListPackageVersionAssets pages by max-results/next-token and ListPackageVersionDependencies by next-token (the SDK has no max-results there), both in stable name order through `paginateSlice`. Proof: `TestListPackageVersion_Paging`.
+- **2026-10-05 (pass 6, gopherstack-9x62)**: Delete/Dispose/Update/CopyPackageVersions now honour expectedStatus and versionRevisions (MISMATCHED_STATUS/MISMATCHED_REVISION), Copy honours allowOverwrite and rejects versions together with versionRevisions; DescribePackageVersion emits npm displayName and package.json-derived fields.

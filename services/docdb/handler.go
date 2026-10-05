@@ -386,7 +386,8 @@ func docdbErrorCode(opErr error) string {
 		ErrClusterSnapshotNotFound, ErrClusterSnapshotAlreadyExists,
 		ErrEventSubscriptionNotFound, ErrEventSubscriptionAlreadyExists,
 		ErrGlobalClusterNotFound, ErrGlobalClusterAlreadyExists,
-		ErrInvalidParameter, ErrInvalidClusterState, ErrInvalidGlobalClusterState, ErrUnknownAction,
+		ErrInvalidParameter, ErrInvalidParameterCombination, ErrInvalidClusterState, ErrInvalidInstanceState,
+		ErrInvalidGlobalClusterState, ErrUnknownAction,
 	}
 	for _, s := range sentinels {
 		if errors.Is(opErr, s) {

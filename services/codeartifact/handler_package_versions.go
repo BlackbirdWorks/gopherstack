@@ -25,8 +25,37 @@ func packageVersionToMap(pv *PackageVersion) map[string]any {
 		m["namespace"] = pv.Namespace
 	}
 	m["origin"] = packageVersionOriginToMap(pv)
+	addNpmDescriptionFields(m, pv)
 
 	return m
+}
+
+// addNpmDescriptionFields adds displayName and the package.json-derived summary, homePage,
+// sourceCodeRepository and licenses; the field-to-key mapping is not SDK-documented.
+func addNpmDescriptionFields(m map[string]any, pv *PackageVersion) {
+	if pv.Format != "npm" {
+		return
+	}
+	m["displayName"] = pv.PackageName
+	if pv.Namespace != "" {
+		m["displayName"] = "@" + pv.Namespace + "/" + pv.PackageName
+	}
+	meta := findPackageJSONMetadata(pv.Assets)
+	if meta == nil {
+		return
+	}
+	if meta.Description != "" {
+		m["summary"] = meta.Description
+	}
+	if meta.Homepage != "" {
+		m["homePage"] = meta.Homepage
+	}
+	if u := meta.repositoryURL(); u != "" {
+		m["sourceCodeRepository"] = u
+	}
+	if l := meta.licenseName(); l != "" {
+		m["licenses"] = []map[string]any{{"name": l}}
+	}
 }
 
 func packageVersionOriginToMap(pv *PackageVersion) map[string]any {
@@ -114,7 +143,8 @@ func packageVersionOutcomesToWire(
 }
 
 type deletePackageVersionsBody struct {
-	Versions []string `json:"versions"`
+	ExpectedStatus string   `json:"expectedStatus"`
+	Versions       []string `json:"versions"`
 }
 
 func (h *Handler) handleDeletePackageVersions(
@@ -149,7 +179,7 @@ func (h *Handler) handleDeletePackageVersions(
 		format,
 		namespace,
 		name,
-		in.Versions,
+		VersionSelector{Versions: in.Versions, ExpectedStatus: in.ExpectedStatus},
 	)
 	if err != nil {
 		return h.handleError(c, err)
@@ -164,8 +194,10 @@ func (h *Handler) handleDeletePackageVersions(
 }
 
 type copyPackageVersionsBody struct {
-	IncludeFromUpstream *bool    `json:"includeFromUpstream"`
-	Versions            []string `json:"versions"`
+	IncludeFromUpstream *bool             `json:"includeFromUpstream"`
+	AllowOverwrite      *bool             `json:"allowOverwrite"`
+	VersionRevisions    map[string]string `json:"versionRevisions"`
+	Versions            []string          `json:"versions"`
 }
 
 func (h *Handler) handleCopyPackageVersions(
@@ -204,8 +236,9 @@ func (h *Handler) handleCopyPackageVersions(
 		format,
 		namespace,
 		name,
-		in.Versions,
+		VersionSelector{Versions: in.Versions, Revisions: in.VersionRevisions},
 		in.IncludeFromUpstream != nil && *in.IncludeFromUpstream,
+		in.AllowOverwrite != nil && *in.AllowOverwrite,
 	)
 	if err != nil {
 		return h.handleError(c, err)
@@ -220,7 +253,9 @@ func (h *Handler) handleCopyPackageVersions(
 }
 
 type disposeVersionsBody struct {
-	Versions []string `json:"versions"`
+	VersionRevisions map[string]string `json:"versionRevisions"`
+	ExpectedStatus   string            `json:"expectedStatus"`
+	Versions         []string          `json:"versions"`
 }
 
 func (h *Handler) handleDisposePackageVersions(
@@ -251,7 +286,7 @@ func (h *Handler) handleDisposePackageVersions(
 		format,
 		namespace,
 		name,
-		in.Versions,
+		VersionSelector{Versions: in.Versions, Revisions: in.VersionRevisions, ExpectedStatus: in.ExpectedStatus},
 	)
 	if err != nil {
 		return h.handleError(c, err)
@@ -668,8 +703,10 @@ func publishPackageVersionToMap(pv *PackageVersion, asset AssetInfo) map[string]
 // awsRestjson1_serializeOpDocumentPutPackageOriginConfigurationInput.
 
 type updateVersionsStatusBody struct {
-	TargetStatus string   `json:"targetStatus"`
-	Versions     []string `json:"versions"`
+	VersionRevisions map[string]string `json:"versionRevisions"`
+	TargetStatus     string            `json:"targetStatus"`
+	ExpectedStatus   string            `json:"expectedStatus"`
+	Versions         []string          `json:"versions"`
 }
 
 func (h *Handler) handleUpdatePackageVersionsStatus(
@@ -698,7 +735,8 @@ func (h *Handler) handleUpdatePackageVersionsStatus(
 	}
 
 	successful, failed, err := h.Backend.UpdatePackageVersionsStatus(
-		c.Request().Context(), domainName, repoName, format, namespace, name, in.TargetStatus, in.Versions,
+		c.Request().Context(), domainName, repoName, format, namespace, name, in.TargetStatus,
+		VersionSelector{Versions: in.Versions, Revisions: in.VersionRevisions, ExpectedStatus: in.ExpectedStatus},
 	)
 	if err != nil {
 		return h.handleError(c, err)

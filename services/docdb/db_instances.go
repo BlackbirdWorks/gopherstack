@@ -212,6 +212,9 @@ func (b *InMemoryBackend) ModifyDBInstance(
 	if opts == nil {
 		return copyInstance(inst), nil
 	}
+	if err := b.applyInstanceRename(region, id, inst, opts.NewDBInstanceIdentifier); err != nil {
+		return nil, err
+	}
 	if opts.CACertificateIdentifier != "" {
 		inst.CACertificateIdentifier = opts.CACertificateIdentifier
 	}
@@ -247,4 +250,31 @@ func (b *InMemoryBackend) RebootDBInstance(ctx context.Context, id string) (*DBI
 	}
 
 	return copyInstance(inst), nil
+}
+
+// applyInstanceRename renames inst to newID when set; an existing target id is rejected.
+func (b *InMemoryBackend) applyInstanceRename(region, oldID string, inst *DBInstance, newID string) error {
+	if newID == "" || newID == oldID {
+		return nil
+	}
+	if b.instanceHas(region, newID) {
+		return fmt.Errorf("%w: instance %s already exists", ErrInstanceAlreadyExists, newID)
+	}
+	b.renameInstance(region, oldID, inst, newID)
+
+	return nil
+}
+
+// renameInstance re-keys inst under newID and re-derives its ARN, endpoint and tags.
+func (b *InMemoryBackend) renameInstance(region, oldID string, inst *DBInstance, newID string) {
+	oldARN := b.instanceARN(region, oldID)
+	b.instanceDelete(region, oldID)
+	inst.DBInstanceIdentifier = newID
+	inst.DBInstanceArn = b.instanceARN(region, newID)
+	inst.Endpoint = fmt.Sprintf("%s.docdb.%s.amazonaws.com", newID, region)
+	if tags, ok := b.tagsStore(region)[oldARN]; ok {
+		delete(b.tagsStore(region), oldARN)
+		b.tagsStore(region)[inst.DBInstanceArn] = tags
+	}
+	b.instancePut(inst)
 }

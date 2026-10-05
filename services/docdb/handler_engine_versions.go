@@ -13,7 +13,7 @@ func (h *Handler) handleDescribeDBEngineVersions(ctx context.Context, vals url.V
 	versions := h.Backend.DescribeDBEngineVersions(ctx, engine, engineVersion, defaultOnly)
 	members := make([]xmlDBEngineVersion, 0, len(versions))
 	for _, v := range versions {
-		members = append(members, xmlDBEngineVersion(v))
+		members = append(members, toXMLEngineVersion(v))
 	}
 
 	members, nextMarker := applyDocDBMarker(members, vals.Get("Marker"), vals.Get("MaxRecords"))
@@ -26,9 +26,24 @@ func (h *Handler) handleDescribeDBEngineVersions(ctx context.Context, vals url.V
 }
 
 type xmlDBEngineVersion struct {
-	Engine              string `xml:"Engine"`
-	EngineVersion       string `xml:"EngineVersion"`
-	DBEngineDescription string `xml:"DBEngineDescription"`
+	Engine                             string   `xml:"Engine"`
+	EngineVersion                      string   `xml:"EngineVersion"`
+	DBEngineDescription                string   `xml:"DBEngineDescription"`
+	SupportsLogExportsToCloudwatchLogs *bool    `xml:"SupportsLogExportsToCloudwatchLogs,omitempty"`
+	ExportableLogTypes                 []string `xml:"ExportableLogTypes>member,omitempty"`
+}
+
+func toXMLEngineVersion(v DBEngineVersion) xmlDBEngineVersion {
+	out := xmlDBEngineVersion{
+		Engine: v.Engine, EngineVersion: v.EngineVersion, DBEngineDescription: v.DBEngineDescription,
+	}
+	if len(v.ExportableLogTypes) > 0 {
+		supported := true
+		out.ExportableLogTypes = v.ExportableLogTypes
+		out.SupportsLogExportsToCloudwatchLogs = &supported
+	}
+
+	return out
 }
 
 type xmlDBEngineVersionList struct {
