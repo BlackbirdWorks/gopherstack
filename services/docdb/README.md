@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 55 (55 ok) |
 | Feature families | 9 (9 ok) |
-| Known gaps | 7 |
+| Known gaps | 9 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
@@ -17,6 +17,8 @@
 
 - Unmodeled subsystems (no backing state, no database engine): DBCluster AssociatedRoles/CloneGroupId/IOOptimizedNextAllowedModificationTime/PercentProgress; DBInstance CertificateDetails/PendingModifiedValues/StatusInfos; DBSubnetGroup SupportedNetworkTypes; GlobalCluster FailoverState (failover applies synchronously).
 - OPEN 2026-10-03: ManageMasterUserPassword/MasterUserSecretKmsKeyId record MasterUserSecret on the cluster but create no secret in services/secretsmanager, RotateMasterUserPassword is unread, and an unset key leaves KmsKeyId empty.
+- Error code InvalidParameterCombination is used for a major EngineVersion change without AllowMajorVersionUpgrade, for copy-on-write with RestoreToTime and for AllowDataLoss with Switchover: the pinned SDK documents the constraints but no error code, so the code is unverified against real AWS.
+- Accepted but unmodeled request members: CreateDBCluster/CopyDBClusterSnapshot SourceRegion and PreSignedUrl (no cross-region copy), RebootDBInstance ForceFailover (no Multi-AZ model), RestoreDBClusterToPointInTime copy-on-write clone semantics (restores a full copy), DescribeDBEngineVersions ListSupportedCharacterSets/ListSupportedTimezones and DBEngineVersion ValidUpgradeTarget (no catalog), DescribeOrderableDBInstanceOptions LicenseModel/Vpc filters.
 - ReplicationSourceIdentifier/ReadReplicaIdentifiers stay empty: CreateDBClusterInput has no such member and docdb has no PromoteReadReplicaDBCluster, so only an unbuilt global-cluster secondary-attach path could populate them.
 - DBClusterSnapshot.VpcId stays empty: CreateDBSubnetGroupInput has no VpcId and this backend cannot resolve subnet-to-VPC without EC2, so every subnet group's VpcId is empty.
 - Parameter AllowedValues/MinimumEngineVersion and Certificate.CertificateArn: no authoritative source for the built-in catalog values or ARN format; not guessed.

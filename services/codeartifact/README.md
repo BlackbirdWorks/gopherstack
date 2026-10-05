@@ -9,8 +9,8 @@
 | --- | --- |
 | PARITY entries audited | 48 (41 ok, 7 partial) |
 | Feature families | 4 (4 ok) |
-| Known gaps | 5 |
-| Deferred items | 3 |
+| Known gaps | 8 |
+| Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
@@ -18,14 +18,11 @@
 - Package-group weak-match confusable-character normalization needs the full Unicode confusables table (external data, not vendored); such packages match neither STRONG nor WEAK.
 - Package-group origin restrictions are stored and returned but not enforced on publish/ingestion: AWS documents no error code for a blocked publish in the pinned SDK to emit.
 - No implicit root package group ('/*') is auto-created; existing tests assert an empty group list.
-- GetPackageVersionReadme/ListPackageVersionDependencies only parse a standalone package.json asset: PublishPackageVersion is generic-only per the SDK docs, and archive ingestion belongs to the unmodeled native npm/maven clients.
+- GetPackageVersionReadme/ListPackageVersionDependencies and DescribePackageVersion's summary/homePage/sourceCodeRepository/licenses only read a standalone package.json asset: PublishPackageVersion is generic-only per the SDK docs, and archive ingestion belongs to the unmodeled native npm/maven clients.
+- DescribePackageVersion displayName is set for npm only (the one format the SDK documents); the package.json-to-summary/homePage/sourceCodeRepository/licenses key mapping is not SDK-documented (authored from npm metadata conventions, unverified against real AWS), and other formats' fields stay unset.
+- GetRepositoryEndpoint validates endpointType (ipv4|dualstack) but returns the same hostname for both: the dualstack hostname is not documented in the pinned SDK.
+- PackageVersionError.errorMessage is never populated on failedVersions: only errorCode is emitted.
 - domain-owner is not read on any op: single-account emulator, and the pinned SDK documents no cross-account error to emit.
-
-### Deferred
-
-- Package-group weak-match confusable-character normalization and origin-restriction enforcement against publish/ingestion (see gaps above)
-- Root package-group auto-creation (see gaps above)
-- store_setup.go was read but not modified — no bugs found, not exhaustively re-audited
 
 ## More
 
