@@ -534,7 +534,7 @@ func successfulAssociations(scanConfigARN string, resources []string, failed []m
 		}
 
 		successful = append(successful, map[string]any{
-			"resource":             map[string]any{"projectId": r},
+			keyResource:            map[string]any{keyProjectID: r},
 			"scanConfigurationArn": scanConfigARN,
 		})
 	}
@@ -631,14 +631,20 @@ func (h *Handler) handleStartCodeSecurityScan(c *echo.Context) error {
 	}
 
 	var req struct {
-		ResourceID string `json:"resourceId"`
+		Resource struct {
+			ProjectID string `json:"projectId"`
+		} `json:"resource"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 
-	result, startErr := h.Backend.StartCodeSecurityScan(req.ResourceID)
+	if req.Resource.ProjectID == "" {
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "resource.projectId is required"))
+	}
+
+	result, startErr := h.Backend.StartCodeSecurityScan(req.Resource.ProjectID)
 	if startErr != nil {
 		return h.mapError(c, startErr)
 	}
@@ -653,6 +659,9 @@ func (h *Handler) handleGetCodeSecurityScan(c *echo.Context) error {
 	}
 
 	var req struct {
+		Resource struct {
+			ProjectID string `json:"projectId"`
+		} `json:"resource"`
 		ScanID string `json:"scanId"`
 	}
 
@@ -660,7 +669,7 @@ func (h *Handler) handleGetCodeSecurityScan(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 
-	scan, getErr := h.Backend.GetCodeSecurityScan(req.ScanID)
+	scan, getErr := h.Backend.GetCodeSecurityScan(req.ScanID, req.Resource.ProjectID)
 	if getErr != nil {
 		return h.mapError(c, getErr)
 	}

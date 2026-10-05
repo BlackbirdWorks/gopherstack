@@ -452,6 +452,7 @@ type ChildShard struct {
 // ListShardsInput is the input for ListShards.
 type ListShardsInput struct {
 	ShardFilterTimestamp  *time.Time
+	StreamCreationTime    *time.Time
 	StreamName            string
 	NextToken             string
 	ExclusiveStartShardID string

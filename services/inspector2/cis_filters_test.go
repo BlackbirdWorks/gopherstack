@@ -198,7 +198,7 @@ func TestCisListFilters(t *testing.T) {
 			accounts := map[string]string{"cis-a": "111111111111", "cis-b": "222222222222", "cis-c": "222222222222"}
 
 			for _, n := range []string{"cis-a", "cis-b", "cis-c"} {
-				_, err := backend.CreateCisScanConfiguration(n, map[string]any{},
+				_, err := backend.CreateCisScanConfiguration(n, "", map[string]any{},
 					map[string]any{"accountIds": []any{accounts[n]}}, nil)
 				require.NoError(t, err)
 			}

@@ -142,6 +142,7 @@ type StorageBackend interface {
 	DescribeEventBus(ctx context.Context, name string) (*EventBus, error)
 	PutRule(ctx context.Context, input PutRuleInput) (*Rule, error)
 	DeleteRule(ctx context.Context, name, eventBusName string) error
+	DeleteRuleForce(ctx context.Context, name, eventBusName string, force bool) error
 	ListRules(
 		ctx context.Context,
 		eventBusName, namePrefix, nextToken string,
@@ -159,6 +160,12 @@ type StorageBackend interface {
 		ctx context.Context,
 		ruleName, eventBusName string,
 		ids []string,
+	) ([]FailedEntry, error)
+	RemoveTargetsForce(
+		ctx context.Context,
+		ruleName, eventBusName string,
+		ids []string,
+		force bool,
 	) ([]FailedEntry, error)
 	ListTargetsByRule(
 		ctx context.Context,

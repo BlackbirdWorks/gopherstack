@@ -172,6 +172,11 @@ func (b *InMemoryBackend) PutRule(ctx context.Context, input PutRuleInput) (*Rul
 
 // DeleteRule removes a rule from an event bus.
 func (b *InMemoryBackend) DeleteRule(ctx context.Context, name, eventBusName string) error {
+	return b.DeleteRuleForce(ctx, name, eventBusName, false)
+}
+
+// DeleteRuleForce is DeleteRule; force allows deleting a service-managed rule.
+func (b *InMemoryBackend) DeleteRuleForce(ctx context.Context, name, eventBusName string, force bool) error {
 	if eventBusName == "" {
 		eventBusName = defaultEventBusName
 	}
@@ -192,8 +197,10 @@ func (b *InMemoryBackend) DeleteRule(ctx context.Context, name, eventBusName str
 		return fmt.Errorf("%w: Rule %s not found", ErrRuleNotFound, name)
 	}
 
-	if err := checkManagedRule(rule); err != nil {
-		return err
+	if !force {
+		if err := checkManagedRule(rule); err != nil {
+			return err
+		}
 	}
 
 	b.removeRuleFromIndex(region, busKey, rule)

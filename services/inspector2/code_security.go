@@ -2,6 +2,7 @@ package inspector2
 
 import (
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
 
 // codeSecurityNameMinLen/codeSecurityNameMaxLen enforce the real, documented
@@ -499,15 +501,19 @@ func (b *InMemoryBackend) ListCodeSecurityScanConfigurationAssociations(
 }
 
 // StartCodeSecurityScan starts a code security scan.
-func (b *InMemoryBackend) StartCodeSecurityScan(resourceID string) (map[string]any, error) {
+func (b *InMemoryBackend) StartCodeSecurityScan(projectID string) (map[string]any, error) {
 	b.mu.Lock("StartCodeSecurityScan")
 	defer b.mu.Unlock()
 
 	scanID := uuid.New().String()
+	now := awstime.Epoch(time.Now())
 	scan := map[string]any{
-		"scanId":      scanID,
-		keyResourceID: resourceID,
-		keyStatus:     codeScanStatusInProgress,
+		"scanId":     scanID,
+		keyResource:  map[string]any{keyProjectID: projectID},
+		keyAccountID: b.accountID,
+		"createdAt":  now,
+		"updatedAt":  now,
+		keyStatus:    codeScanStatusInProgress,
 	}
 	b.codeSecurityScans[scanID] = scan
 
@@ -526,7 +532,7 @@ func (b *InMemoryBackend) StartCodeSecurityScan(resourceID string) (map[string]a
 // that only means a caller must hand-roll its own poll loop; it does not
 // make an unadvancing status correct. Mirrors the reap-on-read pattern
 // services/omics uses for its own Get*-advances-Creating resources.
-func (b *InMemoryBackend) GetCodeSecurityScan(scanID string) (map[string]any, error) {
+func (b *InMemoryBackend) GetCodeSecurityScan(scanID, projectID string) (map[string]any, error) {
 	b.mu.Lock("GetCodeSecurityScan")
 	defer b.mu.Unlock()
 
@@ -535,9 +541,14 @@ func (b *InMemoryBackend) GetCodeSecurityScan(scanID string) (map[string]any, er
 		return nil, fmt.Errorf("%w: scanId %q not found", ErrReportNotFound, scanID)
 	}
 
-	if scan[keyStatus] == codeScanStatusInProgress {
-		scan[keyStatus] = codeScanStatusSuccessful
+	if res, _ := scan[keyResource].(map[string]any); projectID != "" && res[keyProjectID] != projectID {
+		return nil, fmt.Errorf("%w: scanId %q not found for project %q", ErrReportNotFound, scanID, projectID)
 	}
 
-	return scan, nil
+	if scan[keyStatus] == codeScanStatusInProgress {
+		scan[keyStatus] = codeScanStatusSuccessful
+		scan["updatedAt"] = awstime.Epoch(time.Now())
+	}
+
+	return maps.Clone(scan), nil
 }

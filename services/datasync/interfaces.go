@@ -9,6 +9,7 @@ import (
 type StorageBackend interface {
 	// Agent operations
 	CreateAgent(name string, activationKey string, tags map[string]string) (*Agent, error)
+	CreateAgentWithEndpoint(name string, tags map[string]string, privateLink *PrivateLinkConfig) (*Agent, error)
 	DescribeAgent(agentArn string) (*Agent, error)
 	UpdateAgent(agentArn, name string) error
 	DeleteAgent(agentArn string) error
@@ -160,6 +161,7 @@ type StorageBackend interface {
 	CreateLocationObjectStorage(
 		serverHostname, serverProtocol, bucketName, subdirectory, accessKey, secretKey string,
 		serverPort int32,
+		serverCertificate []byte,
 		agentArns []string,
 		tags map[string]string,
 		secretConfig SecretConfig,
@@ -168,6 +170,7 @@ type StorageBackend interface {
 	UpdateLocationObjectStorage(
 		locationArn, serverHostname, serverProtocol, subdirectory, accessKey, secretKey string,
 		serverPort int32,
+		serverCertificate []byte,
 		agentArns []string,
 		secretConfig SecretConfig,
 	) error
@@ -206,11 +209,19 @@ type StorageBackend interface {
 // CreationTime is first: time.Time's non-pointer prefix reduces GC pointer bytes.
 type Agent struct {
 	CreationTime time.Time
+	PrivateLink  *PrivateLinkConfig
 	Tags         map[string]string
 	AgentArn     string
 	Name         string
 	Status       string
 	EndpointType string
+}
+
+// PrivateLinkConfig is the VPC endpoint an agent connects through.
+type PrivateLinkConfig struct {
+	VpcEndpointID     string   `json:"vpcEndpointId,omitempty"`
+	SecurityGroupArns []string `json:"securityGroupArns,omitempty"`
+	SubnetArns        []string `json:"subnetArns,omitempty"`
 }
 
 // AgentListEntry is an agent entry in a list response.
@@ -575,6 +586,7 @@ type LocationObjectStorage struct {
 	BucketName         string
 	AccessKey          string
 	Subdirectory       string
+	ServerCertificate  []byte
 	AgentArns          []string
 	ServerPort         int32
 }

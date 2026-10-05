@@ -1,6 +1,7 @@
 package fsx
 
 import (
+	"cmp"
 	"fmt"
 	"maps"
 	"sort"
@@ -27,6 +28,7 @@ type storedBackup struct {
 	BackupType   string            `json:"backupType"`
 	Lifecycle    string            `json:"lifecycle"`
 	ResourceARN  string            `json:"resourceArn"`
+	KmsKeyID     string            `json:"kmsKeyId,omitempty"`
 }
 
 // cloneStoredFileSystem deep-copies fs so a snapshot embedded in a
@@ -68,6 +70,11 @@ func (b *storedBackup) toBackup(fallbackFS *storedFileSystem) *Backup {
 		bk.FileSystem = b.FileSystem.toFileSystem()
 	case fallbackFS != nil:
 		bk.FileSystem = fallbackFS.toFileSystem()
+	}
+
+	bk.KmsKeyID = b.KmsKeyID
+	if bk.KmsKeyID == "" && bk.FileSystem != nil {
+		bk.KmsKeyID = bk.FileSystem.KmsKeyID
 	}
 
 	return bk
@@ -296,7 +303,9 @@ func (b *InMemoryBackend) DeleteBackup(backupID string) error {
 // copyBackupInput holds parameters for CopyBackup.
 type copyBackupInput struct {
 	SourceBackupID string `json:"SourceBackupId"`
+	KmsKeyID       string `json:"KmsKeyId,omitempty"`
 	Tags           []Tag  `json:"Tags,omitempty"`
+	CopyTags       bool   `json:"CopyTags,omitempty"`
 }
 
 // CopyBackup creates a copy of an existing backup.
@@ -318,6 +327,23 @@ func (b *InMemoryBackend) CopyBackup(input *copyBackupInput) (*Backup, error) {
 	now := time.Now().UTC()
 
 	tags := tagsSliceToMap(input.Tags)
+
+	if input.CopyTags {
+		merged := maps.Clone(src.Tags)
+		if merged == nil {
+			merged = make(map[string]string, len(tags))
+		}
+
+		maps.Copy(merged, tags)
+
+		if len(merged) > maxTagsPerResource {
+			return nil, fmt.Errorf(
+				"%w: %d tag(s) exceeds the %d-tag limit", ErrTagLimitExceeded, len(merged), maxTagsPerResource,
+			)
+		}
+
+		tags = merged
+	}
 
 	// Prefer the source backup's own frozen snapshot over a fresh live lookup:
 	// src's source file system may itself have been deleted since src was
@@ -343,6 +369,7 @@ func (b *InMemoryBackend) CopyBackup(input *copyBackupInput) (*Backup, error) {
 		Tags:         tags,
 		FileSystemID: src.FileSystemID,
 		FileSystem:   fs,
+		KmsKeyID:     cmp.Or(input.KmsKeyID, src.KmsKeyID),
 	}
 
 	if src.Volume != nil {

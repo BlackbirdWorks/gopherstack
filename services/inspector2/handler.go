@@ -66,6 +66,8 @@ const (
 	keyScanConfigurations = "scanConfigurations"
 	keyLevel              = "level"
 	keyResourceID         = "resourceId"
+	keyProjectID          = "projectId"
+	keyResource           = "resource"
 	keySeverityCounts     = "severityCounts"
 	keyAggregationType    = "aggregationType"
 	keyResponses          = "responses"

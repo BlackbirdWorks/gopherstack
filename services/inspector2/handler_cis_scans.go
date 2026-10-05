@@ -50,10 +50,11 @@ func (h *Handler) handleCreateCisScanConfiguration(c *echo.Context) error {
 	}
 
 	var req struct {
-		Schedule map[string]any    `json:"schedule"`
-		Targets  map[string]any    `json:"targets"`
-		Tags     map[string]string `json:"tags"`
-		ScanName string            `json:"scanName"`
+		Schedule      map[string]any    `json:"schedule"`
+		Targets       map[string]any    `json:"targets"`
+		Tags          map[string]string `json:"tags"`
+		ScanName      string            `json:"scanName"`
+		SecurityLevel string            `json:"securityLevel"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
@@ -62,6 +63,7 @@ func (h *Handler) handleCreateCisScanConfiguration(c *echo.Context) error {
 
 	cfg, createErr := h.Backend.CreateCisScanConfiguration(
 		req.ScanName,
+		req.SecurityLevel,
 		req.Schedule,
 		req.Targets,
 		req.Tags,
@@ -108,6 +110,7 @@ func (h *Handler) handleUpdateCisScanConfiguration(c *echo.Context) error {
 		Targets              map[string]any `json:"targets"`
 		ScanConfigurationArn string         `json:"scanConfigurationArn"`
 		ScanName             string         `json:"scanName"`
+		SecurityLevel        string         `json:"securityLevel"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
@@ -117,6 +120,7 @@ func (h *Handler) handleUpdateCisScanConfiguration(c *echo.Context) error {
 	cfg, updateErr := h.Backend.UpdateCisScanConfiguration(
 		req.ScanConfigurationArn,
 		req.ScanName,
+		req.SecurityLevel,
 		req.Schedule,
 		req.Targets,
 	)

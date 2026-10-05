@@ -9,31 +9,35 @@ import (
 )
 
 type storedDataRepositoryTask struct {
-	CreationTime  time.Time         `json:"creationTime"`
-	DeadlineAt    time.Time         `json:"deadlineAt"`
-	EndTime       time.Time         `json:"endTime"`
-	Report        *CompletionReport `json:"report,omitempty"`
-	Tags          map[string]string `json:"tags"`
-	TaskID        string            `json:"taskId"`
-	AssociationID string            `json:"associationId,omitempty"`
-	FileSystemID  string            `json:"fileSystemId"`
-	Type          string            `json:"type"`
-	Lifecycle     string            `json:"lifecycle"`
-	ResourceARN   string            `json:"resourceArn"`
-	Paths         []string          `json:"paths,omitempty"`
+	CreationTime         time.Time             `json:"creationTime"`
+	DeadlineAt           time.Time             `json:"deadlineAt"`
+	EndTime              time.Time             `json:"endTime"`
+	Report               *CompletionReport     `json:"report,omitempty"`
+	CapacityToRelease    *int64                `json:"capacityToRelease,omitempty"`
+	ReleaseConfiguration *ReleaseConfiguration `json:"releaseConfiguration,omitempty"`
+	Tags                 map[string]string     `json:"tags"`
+	TaskID               string                `json:"taskId"`
+	AssociationID        string                `json:"associationId,omitempty"`
+	FileSystemID         string                `json:"fileSystemId"`
+	Type                 string                `json:"type"`
+	Lifecycle            string                `json:"lifecycle"`
+	ResourceARN          string                `json:"resourceArn"`
+	Paths                []string              `json:"paths,omitempty"`
 }
 
 func (t *storedDataRepositoryTask) toPublic() *DataRepositoryTask {
 	pub := &DataRepositoryTask{
-		CreationTime: epochTime(t.CreationTime),
-		Report:       t.Report,
-		TaskID:       t.TaskID,
-		FileSystemID: t.FileSystemID,
-		Type:         t.Type,
-		Lifecycle:    t.Lifecycle,
-		ResourceARN:  t.ResourceARN,
-		Paths:        t.Paths,
-		Tags:         tagsMapToSlice(t.Tags),
+		CreationTime:         epochTime(t.CreationTime),
+		Report:               t.Report,
+		CapacityToRelease:    t.CapacityToRelease,
+		ReleaseConfiguration: t.ReleaseConfiguration,
+		TaskID:               t.TaskID,
+		FileSystemID:         t.FileSystemID,
+		Type:                 t.Type,
+		Lifecycle:            t.Lifecycle,
+		ResourceARN:          t.ResourceARN,
+		Paths:                t.Paths,
+		Tags:                 tagsMapToSlice(t.Tags),
 	}
 
 	if !t.EndTime.IsZero() {
@@ -69,11 +73,13 @@ func (t *storedDataRepositoryTask) status() *DataRepositoryTaskStatus {
 }
 
 type createDataRepositoryTaskInput struct {
-	Report       *CompletionReport `json:"Report"`
-	FileSystemID string            `json:"FileSystemId"`
-	Type         string            `json:"Type"`
-	Paths        []string          `json:"Paths,omitempty"`
-	Tags         []Tag             `json:"Tags,omitempty"`
+	Report               *CompletionReport     `json:"Report"`
+	CapacityToRelease    *int64                `json:"CapacityToRelease,omitempty"`
+	ReleaseConfiguration *ReleaseConfiguration `json:"ReleaseConfiguration,omitempty"`
+	FileSystemID         string                `json:"FileSystemId"`
+	Type                 string                `json:"Type"`
+	Paths                []string              `json:"Paths,omitempty"`
+	Tags                 []Tag                 `json:"Tags,omitempty"`
 }
 
 // CreateDataRepositoryTask creates a data repository task. Report is a
@@ -113,16 +119,18 @@ func (b *InMemoryBackend) CreateDataRepositoryTask(input *createDataRepositoryTa
 	tags := tagsSliceToMap(input.Tags)
 
 	t := &storedDataRepositoryTask{
-		CreationTime: now,
-		DeadlineAt:   now.Add(dataRepositoryTaskCompletionDelay),
-		Report:       input.Report,
-		Tags:         tags,
-		Paths:        input.Paths,
-		TaskID:       id,
-		FileSystemID: input.FileSystemID,
-		Type:         input.Type,
-		Lifecycle:    drtLifecycleExecuting,
-		ResourceARN:  arn,
+		CreationTime:         now,
+		DeadlineAt:           now.Add(dataRepositoryTaskCompletionDelay),
+		Report:               input.Report,
+		CapacityToRelease:    input.CapacityToRelease,
+		ReleaseConfiguration: input.ReleaseConfiguration,
+		Tags:                 tags,
+		Paths:                input.Paths,
+		TaskID:               id,
+		FileSystemID:         input.FileSystemID,
+		Type:                 input.Type,
+		Lifecycle:            drtLifecycleExecuting,
+		ResourceARN:          arn,
 	}
 
 	b.dataRepositoryTasks.Put(t)

@@ -61,7 +61,7 @@ func newPersistenceTestBackend(t *testing.T) (*inspector2.InMemoryBackend, persi
 	))
 
 	// ec2DeepConfig raw struct.
-	require.NoError(t, b.UpdateEc2DeepInspectionConfiguration([]string{"/opt/pkg"}))
+	require.NoError(t, b.UpdateEc2DeepInspectionConfiguration([]string{"/opt/pkg"}, nil))
 
 	// orgEc2Config raw struct.
 	require.NoError(t, b.UpdateOrgEc2DeepInspectionConfiguration([]string{"/opt/org-pkg"}))
@@ -76,7 +76,7 @@ func newPersistenceTestBackend(t *testing.T) (*inspector2.InMemoryBackend, persi
 
 	// cisScanConfigs table + cisScans table/index (CreateCisScanConfiguration
 	// materializes a completed scan for the config).
-	cisCfg, err := b.CreateCisScanConfiguration("cis1", nil, map[string]any{
+	cisCfg, err := b.CreateCisScanConfiguration("cis1", "", nil, map[string]any{
 		"accountIds": []any{"111111111111"},
 	}, nil)
 	require.NoError(t, err)
@@ -273,9 +273,9 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, "repo1", assocs[0].Resource)
 
 	// codeSecurityScans raw map.
-	scan, err := fresh.GetCodeSecurityScan(ids.codeSecurityScanID)
+	scan, err := fresh.GetCodeSecurityScan(ids.codeSecurityScanID, "repo1")
 	require.NoError(t, err)
-	assert.Equal(t, "repo1", scan["resourceId"])
+	assert.Equal(t, map[string]any{"projectId": "repo1"}, scan["resource"])
 
 	// findingsReports table.
 	report, err := fresh.GetFindingsReportStatus("")

@@ -240,7 +240,7 @@ func seedCisScanConfigurations(t *testing.T, b *inspector2.InMemoryBackend) {
 	t.Helper()
 
 	for _, n := range []string{"cis-a", "cis-b", "cis-c"} {
-		_, err := b.CreateCisScanConfiguration(n, map[string]any{}, map[string]any{}, nil)
+		_, err := b.CreateCisScanConfiguration(n, "", map[string]any{}, map[string]any{}, nil)
 		require.NoError(t, err)
 	}
 }
