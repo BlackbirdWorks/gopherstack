@@ -68,6 +68,7 @@ func setPermanentPasswordLocked(user *User, newPassword string) error {
 	}
 
 	user.PasswordHash = hash
+	user.TemporaryPassword = ""
 	user.SRPSalt = saltHex
 	user.SRPVerifier = verifierHex
 	user.Status = UserStatusConfirmed

@@ -362,6 +362,7 @@ func (b *InMemoryBackend) ConfirmForgotPassword(clientID, username, code, newPas
 	}
 
 	user.PasswordHash = hash
+	user.TemporaryPassword = ""
 	user.SRPSalt = saltHex
 	user.SRPVerifier = verifierHex
 	user.ConfirmCode = ""
@@ -398,6 +399,7 @@ func (b *InMemoryBackend) ChangePassword(accessToken, previousPassword, proposed
 	}
 
 	u.PasswordHash = hash
+	u.TemporaryPassword = ""
 	u.SRPSalt = saltHex
 	u.SRPVerifier = verifierHex
 

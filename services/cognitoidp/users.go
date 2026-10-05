@@ -64,6 +64,7 @@ func (b *InMemoryBackend) AdminSetUserPassword(userPoolID, username, password st
 	}
 
 	user.PasswordHash = hash
+	user.TemporaryPassword = ""
 	user.SRPSalt = saltHex
 	user.SRPVerifier = verifierHex
 	user.UpdatedAt = time.Now()
@@ -448,10 +449,6 @@ func (b *InMemoryBackend) buildAndStoreUserLocked(
 	attrs := make(map[string]string, len(userAttributes))
 	maps.Copy(attrs, userAttributes)
 
-	if tempPassword != "" {
-		attrs["custom:temporaryPassword"] = tempPassword
-	}
-
 	saltHex, verifierHex, err := computeSRPVerifier(userPoolID, username, tempPassword)
 	if err != nil {
 		return nil, err
@@ -466,6 +463,7 @@ func (b *InMemoryBackend) buildAndStoreUserLocked(
 		SRPSalt:              saltHex,
 		SRPVerifier:          verifierHex,
 		Status:               UserStatusForceChangePassword,
+		TemporaryPassword:    tempPassword,
 		Attributes:           attrs,
 		CreatedAt:            now,
 		UpdatedAt:            now,
@@ -554,10 +552,6 @@ func (b *InMemoryBackend) AdminCreateUserWithTriggerData(
 	attrs := make(map[string]string, len(userAttributes))
 	maps.Copy(attrs, userAttributes)
 
-	if messageAction != "SUPPRESS" && tempPassword != "" {
-		attrs["custom:temporaryPassword"] = tempPassword
-	}
-
 	if verifyErr := b.applyAdminCreateUserAutoVerifyLocked(pool, username, attrs, td); verifyErr != nil {
 		return nil, verifyErr
 	}
@@ -576,17 +570,18 @@ func (b *InMemoryBackend) AdminCreateUserWithTriggerData(
 	_ = forceAliasCreation
 
 	user := &User{
-		Sub:          uuid.New().String(),
-		Username:     username,
-		UserPoolID:   userPoolID,
-		PasswordHash: importHash,
-		SRPSalt:      srpSaltHex,
-		SRPVerifier:  srpVerifierHex,
-		Status:       UserStatusForceChangePassword,
-		Attributes:   attrs,
-		CreatedAt:    time.Now(),
-		UpdatedAt:    time.Now(),
-		Enabled:      true,
+		Sub:               uuid.New().String(),
+		Username:          username,
+		UserPoolID:        userPoolID,
+		PasswordHash:      importHash,
+		SRPSalt:           srpSaltHex,
+		SRPVerifier:       srpVerifierHex,
+		Status:            UserStatusForceChangePassword,
+		Attributes:        attrs,
+		TemporaryPassword: tempPassword,
+		CreatedAt:         time.Now(),
+		UpdatedAt:         time.Now(),
+		Enabled:           true,
 	}
 
 	b.users.Put(user)
@@ -663,6 +658,7 @@ func (b *InMemoryBackend) AdminSetUserPasswordFull(userPoolID, username, passwor
 	}
 
 	user.PasswordHash = hash
+	user.TemporaryPassword = ""
 	user.SRPSalt = saltHex
 	user.SRPVerifier = verifierHex
 	user.UpdatedAt = time.Now()
@@ -672,7 +668,7 @@ func (b *InMemoryBackend) AdminSetUserPasswordFull(userPoolID, username, passwor
 	} else {
 		user.Status = UserStatusForceChangePassword
 		user.TempPasswordIssuedAt = user.UpdatedAt
-		user.Attributes["custom:temporaryPassword"] = password
+		user.TemporaryPassword = password
 	}
 
 	return nil

@@ -865,7 +865,7 @@ agent had that file locked for restjson1 path-dispatch work this session):
    documented Cognito Lambda trigger event shape, not the op's own
    response. A related sub-case: several ops build an internal
    `map[string]string` of user attributes (`attrs["sub"]`,
-   `attrs["custom:temporaryPassword"]`, `attrs["phone_number_verified"]`,
+   `attrs["phone_number_verified"]`,
    `attrs["device_name"]`) later converted via `sortedAttributeList` into a
    `[]AttributeType{Name,Value}` list -- the map's keys become attribute
    `Name` *values*, never JSON keys.
@@ -1714,3 +1714,7 @@ UpdateUserPool now stores and echoes AdminCreateUserConfig, DeviceConfiguration,
 - CreateUserPoolClient/UpdateUserPoolClient keep AnalyticsConfiguration, AuthSessionValidity, EnablePropagateAdditionalUserContextData (requires a secret) and RefreshTokenRotation; CreateUserPoolClient honours a caller-supplied ClientSecret (conflicts with GenerateSecret).
 - GetTokensFromRefreshToken rotates the refresh token only when RefreshTokenRotation.Feature is ENABLED (api_op_GetTokensFromRefreshToken.go:12-16) and checks ClientSecret; RevokeToken checks ClientSecret (UnauthorizedException).
 - SignUp and AdminCreateUser pass ClientMetadata and ValidationData to PreSignUp; ListUsers applies AttributesToGet; Set*MFAPreference accept EmailMfaSettings (EMAIL_OTP); SetUserPoolMfaConfig keeps WebAuthnConfiguration; SetUICustomization reads ImageFile (the invented ImageData key is gone).
+
+## 2026-10-05 (gopherstack-1zitl temporary password)
+
+The temporary password no longer lives in `custom:temporaryPassword`, so no user-returning op (AdminCreateUser, AdminGetUser, GetUser, ListUsers, ListUsersInGroup) or Lambda trigger payload carries it. It is kept in a dedicated persisted `User.TemporaryPassword` field, cleared whenever the user sets a password; snapshots that still carry the attribute are migrated on restore.

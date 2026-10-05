@@ -91,6 +91,7 @@ type userSnapshot struct {
 	Username             string            `json:"username,omitempty"`
 	UserPoolID           string            `json:"userPoolId,omitempty"`
 	PasswordHash         string            `json:"passwordHash,omitempty"`
+	TemporaryPassword    string            `json:"temporaryPassword,omitempty"`
 	SRPSalt              string            `json:"srpSalt,omitempty"`
 	SRPVerifier          string            `json:"srpVerifier,omitempty"`
 	Status               string            `json:"status,omitempty"`
@@ -261,6 +262,7 @@ func buildUserSnapshot(u *User) *userSnapshot {
 		Username:             u.Username,
 		UserPoolID:           u.UserPoolID,
 		PasswordHash:         u.PasswordHash,
+		TemporaryPassword:    u.TemporaryPassword,
 		SRPSalt:              u.SRPSalt,
 		SRPVerifier:          u.SRPVerifier,
 		Status:               u.Status,
@@ -629,6 +631,25 @@ func restorePoolsFromSnapshot(poolSnapshots []*userPoolSnapshot) ([]*UserPool, e
 	return pools, nil
 }
 
+// splitLegacyTempPassword strips the old custom:temporaryPassword attribute from a
+// restored attribute map and returns its value for the dedicated field.
+func splitLegacyTempPassword(in map[string]string) (map[string]string, string) {
+	legacy, ok := in[legacyTempPasswordAttr]
+	if !ok {
+		return in, ""
+	}
+
+	out := make(map[string]string, len(in))
+
+	for k, v := range in {
+		if k != legacyTempPasswordAttr {
+			out[k] = v
+		}
+	}
+
+	return out, legacy
+}
+
 // restoreUsersFromSnapshot rebuilds live Users from persisted DTOs.
 func restoreUsersFromSnapshot(userSnapshots []*userSnapshot) []*User {
 	users := make([]*User, 0, len(userSnapshots))
@@ -644,13 +665,21 @@ func restoreUsersFromSnapshot(userSnapshots []*userSnapshot) []*User {
 			updatedAt = createdAt
 		}
 
+		attrs, legacyTemp := splitLegacyTempPassword(us.Attributes)
+
+		temporaryPassword := us.TemporaryPassword
+		if temporaryPassword == "" {
+			temporaryPassword = legacyTemp
+		}
+
 		users = append(users, &User{
 			CreatedAt:            createdAt,
 			UpdatedAt:            updatedAt,
 			ConfirmCodeExpiresAt: codeExpiry,
 			LastAuthTime:         lastAuth,
 			TempPasswordIssuedAt: tempPasswordIssuedAt,
-			Attributes:           us.Attributes,
+			Attributes:           attrs,
+			TemporaryPassword:    temporaryPassword,
 			Sub:                  us.Sub,
 			Username:             us.Username,
 			UserPoolID:           us.UserPoolID,

@@ -2,6 +2,9 @@ package cognitoidp
 
 import "time"
 
+// legacyTempPasswordAttr is where older versions leaked the temporary password.
+const legacyTempPasswordAttr = "custom:temporaryPassword"
+
 // User represents a Cognito user within a pool.
 type User struct {
 	CreatedAt            time.Time `json:"createdAt"`
@@ -17,6 +20,7 @@ type User struct {
 	Sub                  string            `json:"sub,omitempty"`
 	Username             string            `json:"username,omitempty"`
 	PasswordHash         string            `json:"passwordHash,omitempty"`
+	TemporaryPassword    string            `json:"temporaryPassword,omitempty"`
 	Status               string            `json:"status,omitempty"`
 	ConfirmCode          string            `json:"confirmCode,omitempty"`
 	PreferredMfaSetting  string            `json:"preferredMfaSetting,omitempty"`
