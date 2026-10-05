@@ -418,8 +418,10 @@ func (b *InMemoryBackend) GetBundles(appCategory string, includeInactive bool) [
 }
 
 // GetRelationalDatabaseBlueprints returns the seed RDS blueprint catalog.
-func (b *InMemoryBackend) GetRelationalDatabaseBlueprints() []RelationalDatabaseBlueprint {
-	return seedRDSBlueprints
+func (b *InMemoryBackend) GetRelationalDatabaseBlueprints(
+	token string,
+) (page.Page[RelationalDatabaseBlueprint], error) {
+	return paginateGeneric(seedRDSBlueprints, token)
 }
 
 // GetRelationalDatabaseBundles returns the seed RDS bundle catalog.

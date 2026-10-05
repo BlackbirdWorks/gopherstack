@@ -187,7 +187,7 @@ func (b *InMemoryBackend) newCertificateAuthorityLocked(
 		return nil, fmt.Errorf("generate CA key: %w", err)
 	}
 
-	csrPEM, err := generateCSR(privKey, cfg.Subject)
+	csrPEM, err := generateCSR(privKey, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("generate CSR: %w", err)
 	}

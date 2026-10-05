@@ -187,6 +187,9 @@ type Statement struct {
 	SecretARN         string    `json:"secretARN"`
 	StatementName     string    `json:"statementName"`
 	ResultFormat      string    `json:"resultFormat"`
+	// Owner and OwnerSession are the IAM role and session that ran the statement.
+	Owner        string `json:"owner,omitempty"`
+	OwnerSession string `json:"ownerSession,omitempty"`
 	// ExecutionMode is BatchExecuteStatementInput.ExecutionMode, echoed back on
 	// DescribeStatement (TRANSACTION | AUTO_COMMIT). Empty for ExecuteStatement,
 	// which has no such input member.
@@ -215,6 +218,7 @@ type Statement struct {
 
 // ListStatementsFilter controls statement filtering and pagination.
 type ListStatementsFilter struct {
+	RoleLevel         *bool
 	ClusterIdentifier string
 	WorkgroupName     string
 	Database          string
@@ -251,6 +255,7 @@ type SessionData struct {
 
 // ListSessionsFilter controls session filtering and pagination.
 type ListSessionsFilter struct {
+	RoleLevel         *bool
 	ClusterIdentifier string
 	WorkgroupName     string
 	Database          string

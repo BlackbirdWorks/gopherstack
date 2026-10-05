@@ -21,8 +21,6 @@ const (
 	ceTargetPrefix          = "AWSInsightsIndexService."
 	defaultStartDate        = "2024-01-01"
 	defaultEndDate          = "2024-02-01"
-	defaultForecastStart    = "2024-02-01"
-	defaultForecastEnd      = "2024-03-01"
 	defaultGranularity      = "MONTHLY"
 	handlerZeroAmount       = "0.0000"
 	handlerSavingsPlansType = "COMPUTE_SP"

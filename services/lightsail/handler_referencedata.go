@@ -119,15 +119,24 @@ type rdsBlueprintsListResponse struct {
 	Blueprints    []rdsBlueprintWire `json:"blueprints,omitempty"`
 }
 
-func (h *Handler) handleGetRelationalDatabaseBlueprints(_ context.Context, _ []byte) ([]byte, error) {
-	bps := h.Backend.GetRelationalDatabaseBlueprints()
-	out := make([]rdsBlueprintWire, len(bps))
+func (h *Handler) handleGetRelationalDatabaseBlueprints(_ context.Context, body []byte) ([]byte, error) {
+	req, err := decodeBody[pageTokenRequest](body)
+	if err != nil {
+		return nil, err
+	}
 
-	for i, bp := range bps {
+	pg, pgErr := h.Backend.GetRelationalDatabaseBlueprints(req.PageToken)
+	if pgErr != nil {
+		return nil, pgErr
+	}
+
+	out := make([]rdsBlueprintWire, len(pg.Data))
+
+	for i, bp := range pg.Data {
 		out[i] = rdsBlueprintWire(bp)
 	}
 
-	return marshalResponse(rdsBlueprintsListResponse{Blueprints: out})
+	return marshalResponse(rdsBlueprintsListResponse{Blueprints: out, NextPageToken: pg.Next})
 }
 
 type rdsBundleWire struct {

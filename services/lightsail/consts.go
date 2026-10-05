@@ -14,6 +14,11 @@ const asyncTransitionDelay = 100 * time.Millisecond
 // PageToken-out -- so this bounds page size independent of caller input).
 const defaultPageLimit = 100
 
+const (
+	accessTypePublic  = "public"
+	accessTypePrivate = "private"
+)
+
 // defaultPreferredBackupWindow/defaultPreferredMaintenanceWindow are
 // CreateRelationalDatabaseInput's documented defaults ("a 30-minute window
 // selected at random from an 8-hour block of time for each AWS Region")

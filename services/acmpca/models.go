@@ -99,19 +99,43 @@ const (
 
 // CertificateAuthoritySubject holds the subject fields for a Certificate Authority.
 type CertificateAuthoritySubject struct {
-	CommonName         string `json:"CommonName,omitempty"`
-	Country            string `json:"Country,omitempty"`
-	Organization       string `json:"Organization,omitempty"`
-	OrganizationalUnit string `json:"OrganizationalUnit,omitempty"`
-	State              string `json:"State,omitempty"`
-	Locality           string `json:"Locality,omitempty"`
+	CommonName                 string                          `json:"CommonName,omitempty"`
+	Country                    string                          `json:"Country,omitempty"`
+	Organization               string                          `json:"Organization,omitempty"`
+	OrganizationalUnit         string                          `json:"OrganizationalUnit,omitempty"`
+	State                      string                          `json:"State,omitempty"`
+	Locality                   string                          `json:"Locality,omitempty"`
+	SerialNumber               string                          `json:"SerialNumber,omitempty"`
+	DistinguishedNameQualifier string                          `json:"DistinguishedNameQualifier,omitempty"`
+	GenerationQualifier        string                          `json:"GenerationQualifier,omitempty"`
+	GivenName                  string                          `json:"GivenName,omitempty"`
+	Initials                   string                          `json:"Initials,omitempty"`
+	Pseudonym                  string                          `json:"Pseudonym,omitempty"`
+	Surname                    string                          `json:"Surname,omitempty"`
+	Title                      string                          `json:"Title,omitempty"`
+	CustomAttributes           []APIPassthroughCustomAttribute `json:"CustomAttributes,omitempty"`
 }
 
 // CertificateAuthorityConfiguration holds the configuration for a Certificate Authority.
 type CertificateAuthorityConfiguration struct {
-	Subject          CertificateAuthoritySubject `json:"Subject"`
+	CsrExtensions    *CsrExtensions              `json:"CsrExtensions,omitempty"`
 	KeyAlgorithm     string                      `json:"KeyAlgorithm"`
 	SigningAlgorithm string                      `json:"SigningAlgorithm"`
+	Subject          CertificateAuthoritySubject `json:"Subject"`
+}
+
+// CsrExtensions mirrors aws-sdk-go-v2 types.CsrExtensions.
+type CsrExtensions struct {
+	KeyUsage                 *APIPassthroughKeyUsage `json:"KeyUsage,omitempty"`
+	SubjectInformationAccess []AccessDescription     `json:"SubjectInformationAccess,omitempty"`
+}
+
+// AccessDescription mirrors aws-sdk-go-v2 types.AccessDescription; exactly one
+// of AccessMethodType and CustomObjectIdentifier is set.
+type AccessDescription struct {
+	AccessMethodType       string            `json:"AccessMethodType,omitempty"`
+	CustomObjectIdentifier string            `json:"CustomObjectIdentifier,omitempty"`
+	AccessLocation         APIPassthroughSAN `json:"AccessLocation"`
 }
 
 // CrlConfiguration mirrors aws-sdk-go-v2 types.CrlConfiguration: certificate
@@ -305,9 +329,8 @@ type CertificateAuthority struct {
 	// the CA's certificate material (Create, Import, self-sign-activate,
 	// Update, Delete, Restore), mirroring types.CertificateAuthority's
 	// LastStateChangeAt field.
-	LastStateChangeAt                 time.Time `json:"lastStateChangeAt"`
-	privKey                           *ecdsa.PrivateKey
-	CertificateAuthorityConfiguration CertificateAuthorityConfiguration `json:"certificateAuthorityConfiguration"`
+	LastStateChangeAt time.Time `json:"lastStateChangeAt"`
+	privKey           *ecdsa.PrivateKey
 	// RevocationConfiguration holds the CRL/OCSP settings accepted by
 	// CreateCertificateAuthority/UpdateCertificateAuthority; nil means "not
 	// configured" (DescribeCertificateAuthority omits the field entirely, as
@@ -331,7 +354,8 @@ type CertificateAuthority struct {
 	// region is the store.Table composite-key qualifier (see regionKey); it is
 	// unexported so it is never marshaled by a plain json.Marshal(CertificateAuthority)
 	// and is instead carried through persistence via caDTO (see persistence.go).
-	region string
+	region                            string
+	CertificateAuthorityConfiguration CertificateAuthorityConfiguration `json:"certificateAuthorityConfiguration"`
 }
 
 // IssuedCertificate represents a certificate issued by an ACM PCA Certificate Authority.

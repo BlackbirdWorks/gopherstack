@@ -144,15 +144,25 @@ func (h *Handler) handleGetReservationCoverage(
 	}, nil
 }
 
+type ec2Specification struct {
+	OfferingClass string `json:"OfferingClass"`
+}
+
+type reservationServiceSpecification struct {
+	EC2Specification *ec2Specification `json:"EC2Specification"`
+}
+
 type getReservationPurchaseRecommendationInput struct {
-	Filter               *ceExpression `json:"Filter"`
-	Service              string        `json:"Service"`
-	AccountScope         string        `json:"AccountScope"`
-	LookbackPeriodInDays string        `json:"LookbackPeriodInDays"`
-	TermInYears          string        `json:"TermInYears"`
-	PaymentOption        string        `json:"PaymentOption"`
-	NextPageToken        string        `json:"NextPageToken"`
-	PageSize             int           `json:"PageSize"`
+	Filter               *ceExpression                    `json:"Filter"`
+	ServiceSpecification *reservationServiceSpecification `json:"ServiceSpecification"`
+	AccountID            string                           `json:"AccountId"`
+	Service              string                           `json:"Service"`
+	AccountScope         string                           `json:"AccountScope"`
+	LookbackPeriodInDays string                           `json:"LookbackPeriodInDays"`
+	TermInYears          string                           `json:"TermInYears"`
+	PaymentOption        string                           `json:"PaymentOption"`
+	NextPageToken        string                           `json:"NextPageToken"`
+	PageSize             int                              `json:"PageSize"`
 }
 
 type getReservationPurchaseRecommendationOutput struct {
@@ -176,6 +186,14 @@ func matchesLinkedAccountFilter(filter *ceExpression, accountID string) bool {
 	return stringSliceContainsFold(filter.Dimensions.Values, accountID)
 }
 
+func requestedOfferingClass(spec *reservationServiceSpecification) string {
+	if spec == nil || spec.EC2Specification == nil {
+		return ""
+	}
+
+	return spec.EC2Specification.OfferingClass
+}
+
 func (h *Handler) handleGetReservationPurchaseRecommendation(
 	_ context.Context,
 	in *getReservationPurchaseRecommendationInput,
@@ -190,12 +208,27 @@ func (h *Handler) handleGetReservationPurchaseRecommendation(
 		return nil, fmt.Errorf("%w: AccountScope must be PAYER or LINKED", ErrValidation)
 	}
 
+	switch requestedOfferingClass(in.ServiceSpecification) {
+	case "", offeringClassStandard, offeringClassConvertible:
+	default:
+		return nil, fmt.Errorf("%w: OfferingClass must be STANDARD or CONVERTIBLE", ErrValidation)
+	}
+
 	recs := h.Backend.GetReservationPurchaseRecommendations(
 		in.Service, in.LookbackPeriodInDays, in.TermInYears, in.PaymentOption,
 	)
 
-	if !matchesLinkedAccountFilter(in.Filter, h.Backend.accountID) {
+	if !matchesLinkedAccountFilter(in.Filter, h.Backend.accountID) ||
+		(in.AccountID != "" && in.AccountID != h.Backend.accountID) {
 		recs = nil
+	}
+
+	if class := requestedOfferingClass(in.ServiceSpecification); class != "" {
+		for i := range recs {
+			recs[i].ServiceSpecification = map[string]any{
+				"EC2Specification": map[string]string{"OfferingClass": class},
+			}
+		}
 	}
 
 	if recs == nil {
