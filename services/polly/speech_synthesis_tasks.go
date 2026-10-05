@@ -192,14 +192,19 @@ func (b *InMemoryBackend) ListSpeechSynthesisTasks(
 	}
 
 	out := make([]*SpeechSynthesisTask, 0, len(tasks))
-	for _, task := range tasks[offset:] {
-		advanceTask(task)
-		if status == "" || task.TaskStatus == status {
-			out = append(out, cloneTask(task))
+
+	for i := offset; i < len(tasks); i++ {
+		advanceTask(tasks[i])
+
+		if status != "" && tasks[i].TaskStatus != status {
+			continue
 		}
+
 		if len(out) == maxResults {
-			return out, encodeToken(offset + len(out)), nil
+			return out, encodeToken(i), nil
 		}
+
+		out = append(out, cloneTask(tasks[i]))
 	}
 
 	return out, "", nil

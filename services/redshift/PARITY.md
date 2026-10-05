@@ -2301,3 +2301,7 @@ Redshift (classic and Serverless) is region-isolated: each non-home region gets 
 ## 2026-10-04 (reqfielddiff tier-1: GetClusterCredentials.DbGroups, RestoreTableFromClusterSnapshot.EnableCaseSensitiveIdentifier)
 
 DbGroups (wire key `DbGroups.DbGroup.N`) is now validated against the documented name rules (`^[a-z][a-z0-9_+.@-]{0,63}$`, api_op_GetClusterCredentials.go:116); reserved words are not checked (`TestGetClusterCredentials_DbGroups_RealClient`). Group membership for the session has no observable effect without a SQL engine. EnableCaseSensitiveIdentifier stays recorded: it governs identifier case in the restored database objects, which this backend does not create, and TableRestoreStatus echoes names as supplied.
+
+## 2026-10-05 (reqfielddiff tier-2 filters)
+
+FIXED: DescribeEvents applies StartTime/EndTime (ISO 8601; api_op_DescribeEvents.go:42-48,104-110) on top of Duration; DescribeScheduledActions applies the cluster-identifier and iam-role Filters (types/enums.go:519-520); DescribeNodeConfigurationOptions applies Mode and EstimatedDiskUtilizationPercent beside NumberOfNodes (NodeType selects the generated type). RECORDED: DescribeScheduledActions StartTime/EndTime are ignored (scheduled actions store no start/end window). Proof: `TestDescribeEvents_StartEndTime`, `TestDescribeScheduledActions_Filters`, `TestDescribeNodeConfigurationOptions_ModeAndUtilizationFilters`.

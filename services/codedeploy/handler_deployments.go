@@ -243,6 +243,7 @@ type listDeploymentsInput struct {
 	ApplicationName     string          `json:"applicationName"`
 	DeploymentGroupName string          `json:"deploymentGroupName"`
 	ExternalID          string          `json:"externalId"`
+	NextToken           string          `json:"nextToken"`
 	IncludeOnlyStatuses []string        `json:"includeOnlyStatuses"`
 }
 
@@ -254,6 +255,10 @@ func (h *Handler) handleListDeployments(
 	_ context.Context,
 	in *listDeploymentsInput,
 ) (*listDeploymentsOutput, error) {
+	if err := rejectNextToken(in.NextToken); err != nil {
+		return nil, err
+	}
+
 	if err := h.validateListDeploymentsScope(in); err != nil {
 		return nil, err
 	}

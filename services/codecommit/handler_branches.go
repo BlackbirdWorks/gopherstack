@@ -103,7 +103,10 @@ func (h *Handler) handleListBranches(body []byte) (any, error) {
 	}
 
 	// Apply pagination.
-	page, nextToken := paginateStrings(branches, in.NextToken, in.MaxResults)
+	page, nextToken, pageErr := paginateSlice(branches, in.NextToken, in.MaxResults)
+	if pageErr != nil {
+		return nil, pageErr
+	}
 
 	resp := map[string]any{
 		"branches": page,

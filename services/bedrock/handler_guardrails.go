@@ -201,7 +201,7 @@ func (h *Handler) handleListGuardrails(c *echo.Context) error {
 	q := c.Request().URL.Query()
 	nextToken := q.Get("nextToken")
 	guardrailIdentifier := q.Get("guardrailIdentifier")
-	guardrails, outToken := h.Backend.ListGuardrails(nextToken, guardrailIdentifier)
+	guardrails, outToken := h.Backend.ListGuardrails(nextToken, guardrailIdentifier, queryMaxResults(q))
 	summaries := make([]guardrailSummaryOutput, 0, len(guardrails))
 
 	for _, g := range guardrails {

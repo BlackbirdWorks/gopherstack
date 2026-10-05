@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -185,6 +186,10 @@ func (h *Handler) handleGetQueryResults(c *echo.Context, body []byte) error {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "QueryId is required"))
 	}
 
+	if badPageToken(in.NextToken) {
+		return writeInvalidNextToken(c)
+	}
+
 	q, err := h.Backend.GetQueryResults(in.QueryID)
 	if err != nil {
 		return h.handleError(c, err)
@@ -215,10 +220,12 @@ func (h *Handler) handleGetQueryResults(c *echo.Context, body []byte) error {
 // --- ListQueries ---
 
 type listQueriesBody struct {
-	EventDataStore string `json:"EventDataStore"`
-	QueryStatus    string `json:"QueryStatus"`
-	NextToken      string `json:"NextToken"`
-	MaxResults     int    `json:"MaxResults"`
+	StartTime      *float64 `json:"StartTime"`
+	EndTime        *float64 `json:"EndTime"`
+	EventDataStore string   `json:"EventDataStore"`
+	QueryStatus    string   `json:"QueryStatus"`
+	NextToken      string   `json:"NextToken"`
+	MaxResults     int      `json:"MaxResults"`
 }
 
 func (h *Handler) handleListQueries(c *echo.Context, body []byte) error {
@@ -246,6 +253,10 @@ func (h *Handler) handleListQueries(c *echo.Context, body []byte) error {
 		return h.handleError(c, err)
 	}
 
+	if badPageToken(in.NextToken) {
+		return writeInvalidNextToken(c)
+	}
+
 	list := h.Backend.ListQueries()
 	filtered := make([]*Query, 0, len(list))
 
@@ -254,6 +265,9 @@ func (h *Handler) handleListQueries(c *echo.Context, body []byte) error {
 			continue
 		}
 		if in.EventDataStore != "" && !queryMatchesEventDataStore(q, in.EventDataStore) {
+			continue
+		}
+		if !queryInTimeRange(q, in.StartTime, in.EndTime) {
 			continue
 		}
 		filtered = append(filtered, q)
@@ -275,6 +289,13 @@ func (h *Handler) handleListQueries(c *echo.Context, body []byte) error {
 	}
 
 	return c.JSON(http.StatusOK, resp)
+}
+
+// queryInTimeRange applies ListQueries StartTime/EndTime to the query's creation time (api_op_ListQueries.go).
+func queryInTimeRange(q *Query, start, end *float64) bool {
+	created := float64(q.CreationTime.UnixNano()) / float64(time.Second)
+
+	return (start == nil || created >= *start) && (end == nil || created <= *end)
 }
 
 // queryMatchesEventDataStore reports whether q belongs to the requested

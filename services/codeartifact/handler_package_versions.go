@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -395,12 +396,18 @@ func (h *Handler) handleListPackageVersionAssets(
 		return h.handleError(c, err)
 	}
 
-	items := make([]map[string]any, 0, len(assets))
-	for _, a := range assets {
+	slices.SortFunc(assets, func(x, y AssetInfo) int { return strings.Compare(x.Name, y.Name) })
+
+	q := c.Request().URL.Query()
+	page, next := paginateSlice(assets, parseMaxResults(q.Get("max-results")), q.Get("next-token"),
+		func(a AssetInfo) string { return a.Name })
+
+	items := make([]map[string]any, 0, len(page))
+	for _, a := range page {
 		items = append(items, assetSummaryToMap(a))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"assets": items})
+	return c.JSON(http.StatusOK, withNextToken(map[string]any{"assets": items}, next))
 }
 
 // assetSummaryToMap builds the wire shape of AssetSummary -- verified against
@@ -457,8 +464,17 @@ func (h *Handler) handleListPackageVersionDependencies(
 		return h.handleError(c, err)
 	}
 
-	items := make([]map[string]any, 0, len(deps))
-	for _, d := range deps {
+	depKey := func(d PackageDependencyInfo) string {
+		return d.DependencyType + "/" + d.Namespace + "/" + d.PackageName
+	}
+
+	slices.SortFunc(deps, func(x, y PackageDependencyInfo) int { return strings.Compare(depKey(x), depKey(y)) })
+
+	q := c.Request().URL.Query()
+	page, next := paginateSlice(deps, parseMaxResults(q.Get("max-results")), q.Get("next-token"), depKey)
+
+	items := make([]map[string]any, 0, len(page))
+	for _, d := range page {
 		items = append(items, packageDependencyToMap(d))
 	}
 
@@ -472,7 +488,15 @@ func (h *Handler) handleListPackageVersionDependencies(
 		resp["namespace"] = namespace
 	}
 
-	return c.JSON(http.StatusOK, resp)
+	return c.JSON(http.StatusOK, withNextToken(resp, next))
+}
+
+func withNextToken(resp map[string]any, token string) map[string]any {
+	if token != "" {
+		resp["nextToken"] = token
+	}
+
+	return resp
 }
 
 func (h *Handler) handleListPackageVersions(

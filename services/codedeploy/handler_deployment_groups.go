@@ -667,6 +667,7 @@ func (h *Handler) handleGetDeploymentGroup(
 
 type listDeploymentGroupsInput struct {
 	ApplicationName string `json:"applicationName"`
+	NextToken       string `json:"nextToken"`
 }
 
 type listDeploymentGroupsOutput struct {
@@ -678,6 +679,10 @@ func (h *Handler) handleListDeploymentGroups(
 	_ context.Context,
 	in *listDeploymentGroupsInput,
 ) (*listDeploymentGroupsOutput, error) {
+	if err := rejectNextToken(in.NextToken); err != nil {
+		return nil, err
+	}
+
 	if in.ApplicationName == "" {
 		return nil, fmt.Errorf("%w: applicationName is required", ErrApplicationNameRequired)
 	}

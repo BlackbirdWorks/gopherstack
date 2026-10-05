@@ -861,7 +861,10 @@ func (h *Handler) handleGetARPBuildWorkflow(c *echo.Context, path string) error 
 
 func (h *Handler) handleListARPBuildWorkflows(c *echo.Context, path string) error {
 	policyARN := extractARPPolicyARN(path, "/build-workflows")
-	workflows := h.Backend.ListAutomatedReasoningPolicyBuildWorkflows(policyARN)
+	q := c.Request().URL.Query()
+	workflows, nextToken := h.Backend.ListAutomatedReasoningPolicyBuildWorkflows(
+		policyARN, queryMaxResults(q), q.Get("nextToken"),
+	)
 	summaries := make([]map[string]any, 0, len(workflows))
 
 	for _, wf := range workflows {
@@ -877,7 +880,9 @@ func (h *Handler) handleListARPBuildWorkflows(c *echo.Context, path string) erro
 
 	// Real key is automatedReasoningPolicyBuildWorkflowSummaries (bedrock@v1.66.4
 	// deserializers.go, awsRestjson1_deserializeOpDocumentListAutomatedReasoningPolicyBuildWorkflowsOutput).
-	return c.JSON(http.StatusOK, map[string]any{"automatedReasoningPolicyBuildWorkflowSummaries": summaries})
+	return c.JSON(http.StatusOK, withNextToken(
+		map[string]any{"automatedReasoningPolicyBuildWorkflowSummaries": summaries}, nextToken,
+	))
 }
 
 func (h *Handler) handleDeleteARPBuildWorkflow(c *echo.Context, path string) error {
@@ -944,14 +949,19 @@ func (h *Handler) handleGetARPTestCase(c *echo.Context, path string) error {
 
 func (h *Handler) handleListARPTestCases(c *echo.Context, path string) error {
 	policyARN := extractARPPolicyARN(path, "/test-cases")
-	cases := h.Backend.ListAutomatedReasoningPolicyTestCases(policyARN)
+	q := c.Request().URL.Query()
+	cases, nextToken := h.Backend.ListAutomatedReasoningPolicyTestCases(
+		policyARN,
+		queryMaxResults(q),
+		q.Get("nextToken"),
+	)
 	summaries := make([]map[string]any, 0, len(cases))
 
 	for _, tc := range cases {
 		summaries = append(summaries, arpTestCaseToMap(tc))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"testCases": summaries})
+	return c.JSON(http.StatusOK, withNextToken(map[string]any{"testCases": summaries}, nextToken))
 }
 
 type updateARPTestCaseInput struct {
@@ -1034,7 +1044,10 @@ func (h *Handler) handleGetARPTestResult(c *echo.Context, path string) error {
 func (h *Handler) handleListARPTestResults(c *echo.Context, path string) error {
 	policyARN, workflowID := extractARPWorkflowIDs(path)
 
-	results, err := h.Backend.ListAutomatedReasoningPolicyTestResults(policyARN, workflowID)
+	q := c.Request().URL.Query()
+	results, nextToken, err := h.Backend.ListAutomatedReasoningPolicyTestResults(
+		policyARN, workflowID, queryMaxResults(q), q.Get("nextToken"),
+	)
 	if err != nil {
 		return h.writeError(c, err)
 	}
@@ -1043,7 +1056,7 @@ func (h *Handler) handleListARPTestResults(c *echo.Context, path string) error {
 		results = []map[string]any{}
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"testResults": results})
+	return c.JSON(http.StatusOK, withNextToken(map[string]any{"testResults": results}, nextToken))
 }
 
 func (h *Handler) handleExportARPVersion(c *echo.Context, path string) error {

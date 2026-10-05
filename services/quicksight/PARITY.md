@@ -2266,3 +2266,7 @@ quicksight is region-isolated: groups, users, data sources, analyses and dashboa
 ## 2026-10-04 (reqfielddiff tier-1 pass)
 
 StartAssetBundleExportJob now stores ValidationStrategy.StrictModeForAllResources and CloudFormationOverridePropertyConfiguration (opaque pass-through) and DescribeAssetBundleExportJob echoes both; persistence additive on `storedAssetBundleExportJob`. Strict mode still performs no dependency validation, so no Errors are ever produced. GetDashboardEmbedUrl.ResetDisabled/StatePersistenceEnabled/UndoRedoDisabled and CreateDashboard.Parameters stay recorded. Proof: `TestAssetBundleExportJob_ValidationStrategyAndOverridesEchoed`.
+
+## 2026-10-05 (reqfielddiff tier-2 pagination)
+
+FIXED: DescribeFolderPermissions and DescribeFolderResolvedPermissions page through max-results/next-token and return InvalidNextTokenException for a malformed token (deserializers.go declares it); ListIdentityPropagationConfigs pages the same way and returns InvalidParameterValueException (it declares no token error). RECORDED: the `namespace` query member of the two folder permission ops is ignored. Proof: `TestListOps_PageAndRejectBadTokens`.

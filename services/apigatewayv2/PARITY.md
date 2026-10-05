@@ -1146,3 +1146,7 @@ WebSocket connections register with the Management API backend of the API's regi
 ## 2026-10-05 (reqfielddiff tier-2 pagination)
 
 All 20 flagged members (GetAuthorizers, GetDeployments, GetIntegrationResponses, GetIntegrations, GetModels, GetRouteResponses, GetRoutes, GetStages, GetVpcLinks, ListRoutingRules maxResults/nextToken) were false positives: every list already pages through `apigwPaginationParams` (query members, serializers.go:4218 apigatewayv2@v1.37.4) over stable-sorted backend lists. The one real gap was a malformed token or non-positive maxResults silently restarting at page 1; `validateAPIGWPaging` now returns 400 BadRequestException. Proof: `TestRealClient_GetOpsPageAndRejectBadTokens`.
+
+## 2026-10-05 (reqfielddiff tier-2 pagination, follow-up)
+
+GetIntegrationResponses, GetRouteResponses, GetVpcLinks and ListRoutingRules were re-checked: all page through `validateAPIGWPaging`/`page.New` and are covered by `TestGetIntegrationResponses_Limit`, `TestGetRouteResponses_Limit`, `TestGetVpcLinks_Limit` and `TestListRoutingRules_MaxResultsAndNextToken`; false positives.

@@ -285,6 +285,7 @@ var errorMappings = []errorMapping{
 	{ErrOnPremisesInstanceNotRegistered, "InstanceNotRegisteredException", http.StatusNotFound},
 	{ErrRevisionNotFound, "RevisionDoesNotExistException", http.StatusNotFound},
 	{ErrDeploymentTargetNotFound, "DeploymentTargetDoesNotExistException", http.StatusNotFound},
+	{ErrInvalidNextToken, "InvalidNextTokenException", http.StatusBadRequest},
 	{ErrAlreadyExists, "ApplicationAlreadyExistsException", http.StatusConflict},
 	{ErrDeploymentGroupAlreadyExists, "DeploymentGroupAlreadyExistsException", http.StatusConflict},
 	{ErrDeploymentConfigAlreadyExists, "DeploymentConfigAlreadyExistsException", http.StatusConflict},

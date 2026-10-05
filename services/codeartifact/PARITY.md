@@ -384,3 +384,7 @@ codeartifact already region-isolated: same-named resources in two regions stay s
 - **2026-10-04**: CopyPackageVersions.includeFromUpstream implemented: a version absent from the source repository is looked up breadth-first through its upstreams and copied (`TestCopyPackageVersions_IncludeFromUpstream_RealClient`). Other ops still do not resolve through upstreams.
 
 - **2026-10-04** (gopherstack-cpztm): ExternalConnection.status now "Available" (types.ExternalConnectionStatusAvailable), was "AVAILABLE" (`TestAssociateExternalConnection_StatusIsSDKEnum`).
+
+## 2026-10-05 (reqfielddiff tier-2 pagination)
+
+FIXED: ListPackageVersionAssets pages by max-results/next-token and ListPackageVersionDependencies by next-token (the SDK has no max-results there), both in stable name order through `paginateSlice`. Proof: `TestListPackageVersion_Paging`.

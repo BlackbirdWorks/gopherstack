@@ -139,7 +139,7 @@ func (h *Handler) handleListCisScanConfigurations(c *echo.Context) error {
 	}
 
 	page, next := pageItems(
-		cfgs,
+		filterCis(cfgs, pr.FilterCriteria, cisScanConfigAccessors()),
 		func(cfg *CisScanConfiguration) string { return cfg.Arn },
 		pr.MaxResults,
 		pr.NextToken,
@@ -287,11 +287,12 @@ func (h *Handler) handleGetCisScanResultDetails(c *echo.Context) error {
 	}
 
 	var req struct {
-		ScanArn          string `json:"scanArn"`
-		AccountID        string `json:"accountId"`
-		TargetResourceID string `json:"targetResourceId"`
-		NextToken        string `json:"nextToken"`
-		MaxResults       int32  `json:"maxResults"`
+		FilterCriteria   cisCriteria `json:"filterCriteria"`
+		ScanArn          string      `json:"scanArn"`
+		AccountID        string      `json:"accountId"`
+		TargetResourceID string      `json:"targetResourceId"`
+		NextToken        string      `json:"nextToken"`
+		MaxResults       int32       `json:"maxResults"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
@@ -304,6 +305,7 @@ func (h *Handler) handleGetCisScanResultDetails(c *echo.Context) error {
 	}
 
 	if rows, ok := details["scanResultDetails"].([]map[string]any); ok {
+		rows = filterCis(rows, req.FilterCriteria, cisDetailAccessors())
 		page, next := pageItems(rows, cisDetailKey, req.MaxResults, req.NextToken)
 		details["scanResultDetails"] = page
 
@@ -324,61 +326,71 @@ func (h *Handler) handleListCisScans(c *echo.Context) error {
 		return h.mapError(c, err)
 	}
 
-	page, next := pageItems(scans, mapKey(keyScanArn), pr.MaxResults, pr.NextToken)
+	page, next := pageItems(
+		filterCis(scans, pr.FilterCriteria, cisScanAccessors()),
+		mapKey(keyScanArn),
+		pr.MaxResults,
+		pr.NextToken,
+	)
 
 	return c.JSON(http.StatusOK, withPageToken(map[string]any{"scans": page}, next))
 }
 
+type cisAggregationListing struct {
+	fetch     func(scanArn string) ([]map[string]any, error)
+	accessors cisAccessors[map[string]any]
+	keyField  string
+	respKey   string
+}
+
 func (h *Handler) handleListCisScanResultsAggregatedByChecks(c *echo.Context) error {
-	body, err := httputils.ReadBody(c.Request())
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid body"))
-	}
-
-	var req struct {
-		ScanArn    string `json:"scanArn"`
-		NextToken  string `json:"nextToken"`
-		MaxResults int32  `json:"maxResults"`
-	}
-
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
-	}
-
-	results, err := h.Backend.ListCisScanResultsAggregatedByChecks(req.ScanArn)
-	if err != nil {
-		return h.mapError(c, err)
-	}
-
-	page, next := pageItems(results, mapKey("checkId"), req.MaxResults, req.NextToken)
-
-	return c.JSON(http.StatusOK, withPageToken(map[string]any{"checkAggregations": page}, next))
+	return h.listCisAggregation(c, cisAggregationListing{
+		fetch:     h.Backend.ListCisScanResultsAggregatedByChecks,
+		accessors: cisCheckAccessors(),
+		keyField:  keyCheckID,
+		respKey:   "checkAggregations",
+	})
 }
 
 func (h *Handler) handleListCisScanResultsAggregatedByTargetResource(c *echo.Context) error {
+	return h.listCisAggregation(c, cisAggregationListing{
+		fetch:     h.Backend.ListCisScanResultsAggregatedByTargetResource,
+		accessors: cisTargetAccessors(),
+		keyField:  keyTargetResourceID,
+		respKey:   "targetResourceAggregations",
+	})
+}
+
+func (h *Handler) listCisAggregation(c *echo.Context, l cisAggregationListing) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid body"))
 	}
 
 	var req struct {
-		ScanArn    string `json:"scanArn"`
-		NextToken  string `json:"nextToken"`
-		MaxResults int32  `json:"maxResults"`
+		FilterCriteria cisCriteria `json:"filterCriteria"`
+		ScanArn        string      `json:"scanArn"`
+		NextToken      string      `json:"nextToken"`
+		MaxResults     int32       `json:"maxResults"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 
-	results, err := h.Backend.ListCisScanResultsAggregatedByTargetResource(req.ScanArn)
+	results, err := l.fetch(req.ScanArn)
 	if err != nil {
 		return h.mapError(c, err)
 	}
 
-	page, next := pageItems(results, mapKey("targetResourceId"), req.MaxResults, req.NextToken)
+	page, next := pageItems(
+		filterCis(results, req.FilterCriteria, l.accessors),
+		mapKey(l.keyField),
+		req.MaxResults,
+		req.NextToken,
+	)
 
-	return c.JSON(http.StatusOK, withPageToken(map[string]any{"targetResourceAggregations": page}, next))
+	return c.JSON(http.StatusOK, withPageToken(map[string]any{l.respKey: page}, next))
 }
 
 func mapKey(field string) func(map[string]any) string {
@@ -390,5 +402,5 @@ func mapKey(field string) func(map[string]any) string {
 }
 
 func cisDetailKey(m map[string]any) string {
-	return mapKey("checkId")(m) + "|" + mapKey("targetResourceId")(m)
+	return mapKey(keyCheckID)(m) + "|" + mapKey(keyTargetResourceID)(m)
 }

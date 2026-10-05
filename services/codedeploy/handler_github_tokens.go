@@ -28,7 +28,9 @@ func (h *Handler) handleDeleteGitHubAccountToken(
 	return &deleteGitHubAccountTokenOutput{TokenName: in.TokenName}, nil
 }
 
-type listGitHubAccountTokenNamesInput struct{}
+type listGitHubAccountTokenNamesInput struct {
+	NextToken string `json:"nextToken"`
+}
 
 type listGitHubAccountTokenNamesOutput struct {
 	TokenNameList []string `json:"tokenNameList"`
@@ -36,8 +38,12 @@ type listGitHubAccountTokenNamesOutput struct {
 
 func (h *Handler) handleListGitHubAccountTokenNames(
 	_ context.Context,
-	_ *listGitHubAccountTokenNamesInput,
+	in *listGitHubAccountTokenNamesInput,
 ) (*listGitHubAccountTokenNamesOutput, error) {
+	if err := rejectNextToken(in.NextToken); err != nil {
+		return nil, err
+	}
+
 	return &listGitHubAccountTokenNamesOutput{TokenNameList: h.Backend.ListGitHubAccountTokenNames()}, nil
 }
 

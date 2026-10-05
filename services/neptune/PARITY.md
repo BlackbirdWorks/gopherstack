@@ -880,3 +880,7 @@ Audited for region isolation: same-named resources in two regions coexist and li
 ## 2026-10-05 (reqfielddiff tier-2 filters)
 
 FIXED: DescribeDBClusterEndpoints applies `db-cluster-endpoint-type`/`-custom-type`/`-id`/`-status` (neptune@v1.48.4 api_op_DescribeDBClusterEndpoints.go:42-51), results ordered by identifier. The other 14 flagged `Filters` members are false positives: the SDK documents them as not currently supported. Proof: `TestDescribeDBClusterEndpoints_Filters`.
+
+## 2026-10-05 (gopherstack-1jkv Marker check)
+
+applyNeptuneMarker restarts at page one on a malformed Marker. neptune@v1.48.4 declares no invalid-Marker error (types/errors.go has no InvalidParameterValue), so there is no documented code to return; recorded, not changed.

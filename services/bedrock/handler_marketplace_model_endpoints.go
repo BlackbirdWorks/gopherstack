@@ -271,7 +271,9 @@ type listMarketplaceModelEndpointsOutput struct {
 
 func (h *Handler) handleListMarketplaceModelEndpoints(c *echo.Context) error {
 	q := c.Request().URL.Query()
-	endpoints, outToken := h.Backend.ListMarketplaceModelEndpoints(q.Get("nextToken"), q.Get("modelSourceIdentifier"))
+	endpoints, outToken := h.Backend.ListMarketplaceModelEndpoints(
+		q.Get("nextToken"), q.Get("modelSourceIdentifier"), queryMaxResults(q),
+	)
 	summaries := make([]marketplaceEndpointSummaryOutput, 0, len(endpoints))
 
 	for _, ep := range endpoints {

@@ -914,3 +914,7 @@ outposts is region-isolated: sites, outposts and orders live per region. Per-reg
 ## 2026-10-05 (list pagination)
 
 ListAssets, ListAssetInstances, GetOutpostInstanceTypes, GetOutpostSupportedInstanceTypes and GetOutpostBillingInformation now honour MaxResults/NextToken (query-bound, `serializers.go:1361` outposts@v1.66.1; default 100, max 1000 per the API reference). All paged ops reject MaxResults outside 1-1000 and a malformed NextToken with ValidationException. Items are sorted by ID before paging. Filter-member findings on ListAssets/ListAssetInstances/ListCapacityTasks/ListCatalogItems/ListOutposts/ListSites were false positives: `q["...Filter"]` reads were already wired. ListBlockingInstancesForCapacityTask validates paging but is always empty (no EC2 placement data). Proof: `TestRealClient_ListOpsHonourMaxResults`, `TestRealClient_ListOpsRejectBadPaging`.
+
+## 2026-10-05 (reqfielddiff tier-2 filters)
+
+All 17 flagged filter members (ListAssets, ListAssetInstances, ListCapacityTasks, ListCatalogItems, ListOutposts, ListSites) are false positives: the handlers read them as multi-value query keys (`q["HostIdFilter"]`) and the backends apply them. New typed proof for the previously untested AZ, AZ-ID, city and state filters: `TestListOutposts_AZFilters`, `TestListSites_AddressFilters`.

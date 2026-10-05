@@ -91,6 +91,7 @@ func (b *InMemoryBackend) GetGuardrail(idOrARN string) (*Guardrail, error) {
 // ID, ARN, or name equals the identifier (case-sensitive).
 func (b *InMemoryBackend) ListGuardrails(
 	nextToken, guardrailIdentifier string,
+	maxResults int,
 ) ([]*GuardrailSummary, string) {
 	b.mu.RLock("ListGuardrails")
 	defer b.mu.RUnlock()
@@ -119,7 +120,7 @@ func (b *InMemoryBackend) ListGuardrails(
 
 	sort.Slice(list, func(i, j int) bool { return list[i].GuardrailID < list[j].GuardrailID })
 
-	return paginateBedrockSlice(list, nextToken)
+	return paginate(list, maxResults, nextToken)
 }
 
 // UpdateGuardrail updates a guardrail's name, description, messaging, and policies.

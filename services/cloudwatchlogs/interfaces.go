@@ -143,7 +143,7 @@ type StorageBackend interface {
 	// UpdateLogAnomalyDetector updates evaluation frequency and/or anomaly
 	// visibility time, and pauses/resumes the detector via enabled.
 	UpdateLogAnomalyDetector(
-		detectorArn, evaluationFrequency string,
+		detectorArn, evaluationFrequency, filterPattern string,
 		anomalyVisibilityTime int64,
 		enabled bool,
 	) error

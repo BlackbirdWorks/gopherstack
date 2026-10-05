@@ -653,3 +653,7 @@ changes; `pollySnapshotVersion` unchanged.
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 polly is region-isolated: lexicons and speech synthesis tasks live per region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/polly`. Limitation: the dashboard shows the home region only. `TestHandler_MultiRegionReset` covers Reset.
+
+## 2026-10-05 (reqfielddiff tier-2 pagination)
+
+FIXED: ListSpeechSynthesisTasks resumed at the match count instead of the scanned position, so a Status filter skipped or repeated tasks, and it returned a token after the last matching task; the token now names the next matching task and is emitted only when one exists. DescribeVoices NextToken is a false positive (the SDK has no page size and the catalog is not truncated). Proof: `TestListSpeechSynthesisTasks_StatusPaging`.

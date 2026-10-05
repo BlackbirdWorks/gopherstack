@@ -149,7 +149,7 @@ type listInferenceProfilesOutput struct {
 
 func (h *Handler) handleListInferenceProfiles(c *echo.Context) error {
 	q := c.Request().URL.Query()
-	profiles, outToken := h.Backend.ListInferenceProfiles(q.Get("nextToken"), q.Get("type"))
+	profiles, outToken := h.Backend.ListInferenceProfiles(q.Get("nextToken"), q.Get("type"), queryMaxResults(q))
 	summaries := make([]inferenceProfileOutput, 0, len(profiles))
 
 	for _, p := range profiles {

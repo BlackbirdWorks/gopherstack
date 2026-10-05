@@ -1194,3 +1194,7 @@ bedrock is region-isolated: guardrails, custom models, jobs, provisioned through
 ## 2026-10-04 (reqfielddiff tier-1 pass)
 
 CreatePromptRouter now honours ClientRequestToken as an idempotency token: replaying a token with identical parameters returns the original router, changed parameters under the same token return ConflictException, and a new token with an existing name still conflicts. The token persists additively on the router (`clientRequestToken`). Proof: `TestCreatePromptRouter_ClientRequestToken`.
+
+## 2026-10-05 (reqfielddiff tier-2 pagination)
+
+FIXED: ListGuardrails, ListInferenceProfiles, ListMarketplaceModelEndpoints, ListPromptRouters honour maxResults (bedrock@v1.66.4 serializers.go:6585-7285); ListAutomatedReasoningPolicyBuildWorkflows, ListAutomatedReasoningPolicyTestCases and ListAutomatedReasoningPolicyTestResults now page through maxResults/nextToken (they returned everything). paginateBedrockSlice is folded into the generic `paginate`. RECORDED: a malformed nextToken still restarts at page one on every bedrock list op (shared `paginate`); the 1-100 range of the AR ops is not enforced. Proof: `TestListOps_HonourMaxResultsAndNextToken`.

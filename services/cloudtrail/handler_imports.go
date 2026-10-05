@@ -118,6 +118,10 @@ func (h *Handler) handleListImports(c *echo.Context, body []byte) error {
 		}
 	}
 
+	if badPageToken(in.NextToken) {
+		return writeInvalidNextToken(c)
+	}
+
 	list := h.Backend.ListImports()
 	filtered := make([]*Import, 0, len(list))
 
@@ -207,13 +211,19 @@ func importToMap(imp *Import) map[string]any {
 // --- ListImportFailures ---
 
 type listImportFailuresBody struct {
-	ImportID string `json:"ImportId"`
+	ImportID   string `json:"ImportId"`
+	NextToken  string `json:"NextToken"`
+	MaxResults int    `json:"MaxResults"`
 }
 
 func (h *Handler) handleListImportFailures(c *echo.Context, body []byte) error {
 	var in listImportFailuresBody
 	if err := json.Unmarshal(body, &in); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
+	}
+
+	if badPageToken(in.NextToken) {
+		return writeInvalidNextToken(c)
 	}
 
 	failures := h.Backend.ListImportFailures(in.ImportID)

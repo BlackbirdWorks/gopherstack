@@ -13,8 +13,9 @@ const defaultPageSize = 100
 
 // pageRequest holds the body maxResults/nextToken members every paged op binds.
 type pageRequest struct {
-	NextToken  string `json:"nextToken"`
-	MaxResults int32  `json:"maxResults"`
+	FilterCriteria cisCriteria `json:"filterCriteria"`
+	NextToken      string      `json:"nextToken"`
+	MaxResults     int32       `json:"maxResults"`
 }
 
 func readPageRequest(c *echo.Context) (pageRequest, error) {
@@ -72,4 +73,29 @@ func withPageToken(resp map[string]any, next string) map[string]any {
 	}
 
 	return resp
+}
+
+func aggregationKey(m map[string]any) string {
+	for _, inner := range m {
+		fields, _ := inner.(map[string]any)
+		for _, k := range []string{"title", "repository", "instanceId", keyResourceID, "projectNames", keyAccountID} {
+			if v, ok := fields[k].(string); ok {
+				return v
+			}
+		}
+	}
+
+	return ""
+}
+
+func pageAggregationResponses(result map[string]any, maxResults int32, nextToken string) map[string]any {
+	rows, ok := result[keyResponses].([]map[string]any)
+	if !ok {
+		return result
+	}
+
+	page, next := pageItems(rows, aggregationKey, maxResults, nextToken)
+	result[keyResponses] = page
+
+	return withPageToken(result, next)
 }

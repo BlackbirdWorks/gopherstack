@@ -55,6 +55,8 @@ var (
 	// TagLimitExceededException (that code belongs to AddTagsToOnPremisesInstances/
 	// RemoveTagsFromOnPremisesInstances/UpdateDeploymentGroup instead).
 	ErrInvalidTagsToAdd = awserr.New("InvalidTagsToAddException", awserr.ErrInvalidParameter)
+	// ErrInvalidNextToken is the SDK's InvalidNextTokenException (types/errors.go:3694).
+	ErrInvalidNextToken = awserr.New("InvalidNextTokenException", awserr.ErrInvalidParameter)
 	// ErrBatchLimitExceeded is BatchGetApplicationRevisions' own modeled code for
 	// exceeding the 25-revision batch cap.
 	ErrBatchLimitExceeded = awserr.New("BatchLimitExceededException", awserr.ErrInvalidParameter)

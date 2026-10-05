@@ -67,7 +67,7 @@ func (b *InMemoryBackend) ListFoundationModels(
 		list = append(list, &cp)
 	}
 
-	return paginateBedrockSlice(list, f.NextToken)
+	return paginate(list, 0, f.NextToken)
 }
 
 // GetFoundationModel returns a single foundation model by model ID or full ARN.

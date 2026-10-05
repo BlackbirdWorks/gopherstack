@@ -127,6 +127,27 @@ type describeEventsResponse struct {
 // default ("Default: 60" -- redshift@v1.65.4 api_op_DescribeEvents.go).
 const defaultEventDurationMinutes = 60
 
+// parseEventTimeRange reads the ISO 8601 StartTime/EndTime members (api_op_DescribeEvents.go:42-48,104-110).
+func parseEventTimeRange(vals url.Values) (time.Time, time.Time, error) {
+	var start, end time.Time
+
+	for key, dst := range map[string]*time.Time{"StartTime": &start, "EndTime": &end} {
+		v := vals.Get(key)
+		if v == "" {
+			continue
+		}
+
+		t, err := time.Parse(time.RFC3339, v)
+		if err != nil {
+			return start, end, fmt.Errorf("%w: %s must be an ISO 8601 timestamp", ErrInvalidParameter, key)
+		}
+
+		*dst = t
+	}
+
+	return start, end, nil
+}
+
 func (h *Handler) handleDescribeEvents(vals url.Values) (any, error) {
 	sourceID := vals.Get("SourceIdentifier")
 	sourceType := vals.Get("SourceType")
@@ -153,9 +174,14 @@ func (h *Handler) handleDescribeEvents(vals url.Values) (any, error) {
 
 	cutoff := time.Now().Add(-time.Duration(durationMinutes) * time.Minute)
 
+	start, end, err := parseEventTimeRange(vals)
+	if err != nil {
+		return nil, err
+	}
+
 	members := make([]xmlEvent, 0, len(events))
 	for _, e := range events {
-		if e.Date.Before(cutoff) {
+		if e.Date.Before(cutoff) || (!start.IsZero() && e.Date.Before(start)) || (!end.IsZero() && e.Date.After(end)) {
 			continue
 		}
 

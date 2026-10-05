@@ -86,6 +86,11 @@ func (h *Handler) handleListIdentityPropagationConfigs(c *echo.Context) error {
 		return httpErr(c, err)
 	}
 
+	configs, next, pageErr := pageSliceStrict(configs, maxResultsParam(c), nextTokenParam(c))
+	if pageErr != nil {
+		return writeError(c, http.StatusBadRequest, errInvalidParam, pageErr.Error())
+	}
+
 	items := make([]map[string]any, 0, len(configs))
 	for _, cfg := range configs {
 		items = append(items, map[string]any{
@@ -94,11 +99,16 @@ func (h *Handler) handleListIdentityPropagationConfigs(c *echo.Context) error {
 		})
 	}
 
-	return writeJSON(c, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		keyServices:  items,
 		keyRequestID: reqIDPlaceholder,
 		keyStatus:    http.StatusOK,
-	})
+	}
+	if next != "" {
+		resp[keyNextToken] = next
+	}
+
+	return writeJSON(c, http.StatusOK, resp)
 }
 
 // classifyIdentityPropagationPaths routes /accounts/{id}/identity-propagation-config/... paths.

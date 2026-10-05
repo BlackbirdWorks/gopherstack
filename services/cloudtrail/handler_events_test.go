@@ -169,7 +169,7 @@ func TestLookupEvents(t *testing.T) {
 		{
 			name: "lookup_with_next_token",
 			body: map[string]any{
-				"NextToken":  "some-continuation-token",
+				"NextToken":  "0",
 				"MaxResults": 50,
 			},
 		},

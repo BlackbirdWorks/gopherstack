@@ -51,30 +51,31 @@ var (
 	errInvalidRequest = errors.New("invalid request")
 )
 
-// paginateStrings slices a sorted string slice using the nextToken cursor and maxResults limit.
-// The nextToken is an opaque decimal index into the slice.
-// Returns the page and the next token (empty string if no more pages).
-func paginateStrings(items []string, nextToken string, maxResults int) ([]string, string) {
+// paginateSlice pages a sorted slice by a decimal-offset token; a malformed token is
+// InvalidContinuationTokenException and the returned token is empty when not truncated.
+func paginateSlice[T any](items []T, nextToken string, maxResults int) ([]T, string, error) {
 	start := 0
+
 	if nextToken != "" {
-		if idx, err := strconv.Atoi(nextToken); err == nil && idx >= 0 {
-			start = idx
+		idx, err := strconv.Atoi(nextToken)
+		if err != nil || idx < 0 {
+			return nil, "", fmt.Errorf("%w: invalid nextToken", ErrInvalidContinuationToken)
 		}
+
+		start = min(idx, len(items))
 	}
-	if start > len(items) {
-		start = len(items)
-	}
+
 	end := len(items)
 	if maxResults > 0 && start+maxResults < end {
 		end = start + maxResults
 	}
-	page := items[start:end]
+
 	token := ""
 	if end < len(items) {
 		token = strconv.Itoa(end)
 	}
 
-	return page, token
+	return items[start:end], token, nil
 }
 
 // Handler is the Echo HTTP handler for AWS CodeCommit operations.

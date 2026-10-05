@@ -184,7 +184,10 @@ func (h *Handler) handleListPullRequests(body []byte) (any, error) {
 	}
 
 	// Apply pagination.
-	ids, nextToken := paginateStrings(ids, in.NextToken, in.MaxResults)
+	ids, nextToken, pageErr := paginateSlice(ids, in.NextToken, in.MaxResults)
+	if pageErr != nil {
+		return nil, pageErr
+	}
 
 	resp := map[string]any{
 		"pullRequestIds": ids,

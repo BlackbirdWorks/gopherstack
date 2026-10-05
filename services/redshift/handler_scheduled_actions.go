@@ -2,7 +2,9 @@ package redshift
 
 import (
 	"encoding/xml"
+	"fmt"
 	"net/url"
+	"slices"
 	"sort"
 	"strconv"
 	"time"
@@ -237,6 +239,53 @@ type describeScheduledActionsResponse struct {
 	} `xml:"DescribeScheduledActionsResult"`
 }
 
+// parseScheduledActionFilters reads Filters.ScheduledActionFilter.N.{Name,Values.item.M}.
+func parseScheduledActionFilters(vals url.Values) map[string][]string {
+	filters := map[string][]string{}
+
+	for i := 1; i <= maxListItems; i++ {
+		prefix := fmt.Sprintf("Filters.ScheduledActionFilter.%d.", i)
+
+		name := vals.Get(prefix + "Name")
+		if name == "" {
+			break
+		}
+
+		filters[name] = append(filters[name], parseStringList(vals, prefix+"Values.item.")...)
+	}
+
+	return filters
+}
+
+// scheduledActionMatchesFilters applies the cluster-identifier and iam-role filters (types/enums.go:519-520).
+func scheduledActionMatchesFilters(a *ScheduledAction, filters map[string][]string) bool {
+	if want, ok := filters["cluster-identifier"]; ok &&
+		!slices.Contains(want, scheduledActionClusterID(a.TargetAction)) {
+		return false
+	}
+
+	if want, ok := filters["iam-role"]; ok && !slices.Contains(want, a.IamRole) {
+		return false
+	}
+
+	return true
+}
+
+func scheduledActionClusterID(t *ScheduledActionTarget) string {
+	switch {
+	case t == nil:
+		return ""
+	case t.ResizeCluster != nil:
+		return t.ResizeCluster.ClusterIdentifier
+	case t.PauseCluster != nil:
+		return t.PauseCluster.ClusterIdentifier
+	case t.ResumeCluster != nil:
+		return t.ResumeCluster.ClusterIdentifier
+	default:
+		return ""
+	}
+}
+
 func (h *Handler) handleDescribeScheduledActions(vals url.Values) (any, error) {
 	name := vals.Get("ScheduledActionName")
 	actions, err := h.Backend.DescribeScheduledActions(name)
@@ -256,6 +305,7 @@ func (h *Handler) handleDescribeScheduledActions(vals url.Values) (any, error) {
 	}
 
 	targetActionType := vals.Get("TargetActionType")
+	filters := parseScheduledActionFilters(vals)
 
 	members := make([]scheduledActionXML, 0, len(actions))
 
@@ -265,6 +315,10 @@ func (h *Handler) handleDescribeScheduledActions(vals url.Values) (any, error) {
 		}
 
 		if targetActionType != "" && scheduledActionTargetType(actions[i].TargetAction) != targetActionType {
+			continue
+		}
+
+		if !scheduledActionMatchesFilters(&actions[i], filters) {
 			continue
 		}
 

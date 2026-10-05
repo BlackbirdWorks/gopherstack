@@ -232,6 +232,7 @@ func (h *Handler) handleGetDeploymentTarget(
 
 type listDeploymentInstancesInput struct {
 	DeploymentID         string   `json:"deploymentId"`
+	NextToken            string   `json:"nextToken"`
 	InstanceStatusFilter []string `json:"instanceStatusFilter"`
 	InstanceTypeFilter   []string `json:"instanceTypeFilter"`
 }
@@ -244,6 +245,10 @@ func (h *Handler) handleListDeploymentInstances(
 	_ context.Context,
 	in *listDeploymentInstancesInput,
 ) (*listDeploymentInstancesOutput, error) {
+	if err := rejectNextToken(in.NextToken); err != nil {
+		return nil, err
+	}
+
 	if in.DeploymentID == "" {
 		return nil, fmt.Errorf("%w: deploymentId is required", ErrDeploymentIDRequired)
 	}
@@ -262,6 +267,7 @@ func (h *Handler) handleListDeploymentInstances(
 type listDeploymentTargetsInput struct {
 	TargetFilters map[string][]string `json:"targetFilters"`
 	DeploymentID  string              `json:"deploymentId"`
+	NextToken     string              `json:"nextToken"`
 }
 
 type listDeploymentTargetsOutput struct {
@@ -272,6 +278,10 @@ func (h *Handler) handleListDeploymentTargets(
 	_ context.Context,
 	in *listDeploymentTargetsInput,
 ) (*listDeploymentTargetsOutput, error) {
+	if err := rejectNextToken(in.NextToken); err != nil {
+		return nil, err
+	}
+
 	if in.DeploymentID == "" {
 		return nil, fmt.Errorf("%w: deploymentId is required", ErrDeploymentIDRequired)
 	}

@@ -28,8 +28,10 @@ const (
 	cisPlatform      = "AMAZON_LINUX_2"
 	cisReportSuccess = "SUCCEEDED"
 
-	keyScanArn  = "scanArn"
-	keyPlatform = "platform"
+	keyScanArn          = "scanArn"
+	keyPlatform         = "platform"
+	keyCheckID          = "checkId"
+	keyTargetResourceID = "targetResourceId"
 )
 
 // cisScanNameMinLen/cisScanNameMaxLen enforce the real, documented length
@@ -385,14 +387,14 @@ func (b *InMemoryBackend) GetCisScanResultDetails(scanArn, accountID, targetReso
 			continue
 		}
 		entry := map[string]any{
-			keyScanArn:         scan.ScanArn,
-			"checkId":          r.CheckID,
-			"checkDescription": r.CheckDescr,
-			keyLevel:           r.Level,
-			keyPlatform:        r.Platform,
-			keyStatus:          r.Status,
-			keyAccountID:       r.AccountID,
-			"targetResourceId": r.TargetID,
+			keyScanArn:          scan.ScanArn,
+			keyCheckID:          r.CheckID,
+			"checkDescription":  r.CheckDescr,
+			keyLevel:            r.Level,
+			keyPlatform:         r.Platform,
+			keyStatus:           r.Status,
+			keyAccountID:        r.AccountID,
+			keyTargetResourceID: r.TargetID,
 		}
 		if r.StatusReason != "" {
 			entry["statusReason"] = r.StatusReason
@@ -490,7 +492,7 @@ func (b *InMemoryBackend) ListCisScanResultsAggregatedByChecks(scanArn string) (
 		a := aggs[id]
 		result = append(result, map[string]any{
 			keyScanArn:         scan.ScanArn,
-			"checkId":          id,
+			keyCheckID:         id,
 			"checkDescription": a.descr,
 			keyLevel:           a.level,
 			keyPlatform:        a.platform,
@@ -554,10 +556,10 @@ func (b *InMemoryBackend) ListCisScanResultsAggregatedByTargetResource(
 	for _, tid := range order {
 		a := aggs[tid]
 		result = append(result, map[string]any{
-			keyScanArn:         scan.ScanArn,
-			"targetResourceId": tid,
-			keyAccountID:       a.accountID,
-			keyPlatform:        a.platform,
+			keyScanArn:          scan.ScanArn,
+			keyTargetResourceID: tid,
+			keyAccountID:        a.accountID,
+			keyPlatform:         a.platform,
 			"statusCounts": map[string]any{
 				"passed":  a.passed,
 				"failed":  a.failed,

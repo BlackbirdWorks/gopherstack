@@ -449,3 +449,7 @@ Audited for region isolation: same-named resources in two regions coexist and li
 ## 2026-10-05 (reqfielddiff tier-2 filters)
 
 All 12 flagged `Filters` members (DescribeCertificates, DescribeDBClusterParameterGroups, DescribeDBClusterParameters, DescribeDBClusterSnapshots, DescribeDBEngineVersions, DescribeDBSubnetGroups, DescribeEngineDefaultClusterParameters, DescribeEventCategories, DescribeEventSubscriptions, DescribeEvents, DescribeOrderableDBInstanceOptions, ListTagsForResource) are false positives: docdb@v1.51.4 documents "This parameter is not currently supported." for each.
+
+## 2026-10-05 (gopherstack-1jkv Marker check)
+
+applyDocDBMarker restarts at page one on a malformed Marker. The pinned docdb SDK declares no invalid-Marker error (types/errors.go has no InvalidParameterValue), so there is no documented code to return; recorded, not changed.

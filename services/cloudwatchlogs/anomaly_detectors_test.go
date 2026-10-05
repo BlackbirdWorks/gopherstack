@@ -101,7 +101,7 @@ func TestCloudWatchLogsBackend_LogAnomalyDetectorLifecycle(t *testing.T) {
 			case "delete":
 				err = b.DeleteLogAnomalyDetector(tt.arnToOp)
 			case "update":
-				err = b.UpdateLogAnomalyDetector(tt.arnToOp, tt.newFreq, 0, true)
+				err = b.UpdateLogAnomalyDetector(tt.arnToOp, tt.newFreq, "", 0, true)
 			}
 
 			if tt.wantErr != nil {
@@ -532,7 +532,7 @@ func TestCloudWatchLogsBackend_UpdateLogAnomalyDetector_SetsLastModified(t *test
 
 		time.Sleep(2 * time.Millisecond)
 
-		err = b.UpdateLogAnomalyDetector(arn, "FIVE_MIN", 30, true)
+		err = b.UpdateLogAnomalyDetector(arn, "FIVE_MIN", "", 30, true)
 		require.NoError(t, err)
 
 		after, err := b.GetLogAnomalyDetector(arn)
@@ -575,7 +575,7 @@ func TestCloudWatchLogsBackend_UpdateLogAnomalyDetector_VisibilityTimeValidation
 			)
 			require.NoError(t, err)
 
-			err = b.UpdateLogAnomalyDetector(arn, "", tt.anomalyVisibilityTime, true)
+			err = b.UpdateLogAnomalyDetector(arn, "", "", tt.anomalyVisibilityTime, true)
 
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
