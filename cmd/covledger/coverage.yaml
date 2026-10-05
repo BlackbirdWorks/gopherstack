@@ -3329,3 +3329,87 @@ rows:
     verdict: clean
     date: "2026-10-05"
     commit: 04f4c331a
+  - service: dsql
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: a8af9ded8
+    source: "commit+parity"
+  - service: iotdataplane
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: a8af9ded8
+    source: "commit+parity"
+  - service: polly
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: a8af9ded8
+    source: "commit+parity"
+  - service: cloudfrontkeyvaluestore
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: a8af9ded8
+    source: "commit+parity"
+  - service: mediastore
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: a8af9ded8
+    source: "commit+parity"
+  - service: serverlessrepo
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: a8af9ded8
+    source: "commit+parity"
+  - service: networkmonitor
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: a8af9ded8
+    source: "commit+parity"
+  - service: cloudcontrol
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: a8af9ded8
+    source: "commit+parity"
+  - service: ecrpublic
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: a8af9ded8
+    source: "commit+parity"
+  - service: textract
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: a8af9ded8
+    source: "commit+parity"
+  - service: sts
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: a8af9ded8
+    source: "commit+parity"
+  - service: rdsdata
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: a8af9ded8
+    source: "commit+parity"
+  - service: bedrockruntime
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: a8af9ded8
+    source: "commit+parity"
+  - service: redshiftdata
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: a8af9ded8
+    source: "commit+parity"
