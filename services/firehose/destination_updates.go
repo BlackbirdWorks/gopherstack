@@ -3,6 +3,7 @@ package firehose
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strconv"
 	"time"
 
@@ -60,18 +61,46 @@ func applyDestinationUpdate(s *DeliveryStream, input UpdateDestinationInput) err
 	// Preserve the existing DestinationId across the switch when present.
 	destID := currentDestinationID(s)
 
-	s.S3Destination = input.S3Destination
-	s.HTTPEndpointDestination = input.HTTPEndpointDestination
-	s.RedshiftDestination = input.RedshiftDestination
-	s.OpenSearchDestination = input.OpenSearchDestination
-	s.ElasticsearchDestination = input.ElasticsearchDestination
-	s.SplunkDestination = input.SplunkDestination
-	s.IcebergDestination = input.IcebergDestination
-	s.SnowflakeDestination = input.SnowflakeDestination
+	s.S3Destination = mergeDestination(s.S3Destination, input.S3Destination)
+	s.HTTPEndpointDestination = mergeDestination(s.HTTPEndpointDestination, input.HTTPEndpointDestination)
+	s.RedshiftDestination = mergeDestination(s.RedshiftDestination, input.RedshiftDestination)
+	s.OpenSearchDestination = mergeDestination(s.OpenSearchDestination, input.OpenSearchDestination)
+	s.ElasticsearchDestination = mergeDestination(s.ElasticsearchDestination, input.ElasticsearchDestination)
+	s.SplunkDestination = mergeDestination(s.SplunkDestination, input.SplunkDestination)
+	s.IcebergDestination = mergeDestination(s.IcebergDestination, input.IcebergDestination)
+	s.SnowflakeDestination = mergeDestination(s.SnowflakeDestination, input.SnowflakeDestination)
 
 	setDestinationID(s, destID)
 
 	return nil
+}
+
+// mergeDestination overlays the non-zero members of upd onto old (SDK UpdateDestination
+// doc: same-type updates merge, omitted members are retained); nil upd clears the slot.
+func mergeDestination[T any](old, upd *T) *T {
+	if upd == nil || old == nil {
+		return upd
+	}
+
+	merged := *old
+	mv := reflect.ValueOf(&merged).Elem()
+	uv := reflect.ValueOf(upd).Elem()
+
+	for i := range uv.NumField() {
+		f := uv.Field(i)
+		if f.IsZero() {
+			continue
+		}
+
+		o := mv.Field(i)
+		if f.Kind() == reflect.Pointer && !o.IsNil() && mergeNested(o, f) {
+			continue
+		}
+
+		o.Set(f)
+	}
+
+	return &merged
 }
 
 // activeDestinationIDField returns a pointer to the DestinationId field of the stream's
@@ -165,4 +194,26 @@ func (b *InMemoryBackend) UpdateDestination(
 	s.VersionID = strconv.Itoa(v + 1)
 
 	return nil
+}
+
+// mergeNested member-wise merges the S3 sub-descriptions and reports whether it handled f.
+func mergeNested(o, f reflect.Value) bool {
+	switch nv := f.Interface().(type) {
+	case *S3DestinationDescription:
+		old, ok := reflect.TypeAssert[*S3DestinationDescription](o)
+		if ok {
+			o.Set(reflect.ValueOf(mergeDestination(old, nv)))
+		}
+
+		return ok
+	case *S3BackupDescription:
+		old, ok := reflect.TypeAssert[*S3BackupDescription](o)
+		if ok {
+			o.Set(reflect.ValueOf(mergeDestination(old, nv)))
+		}
+
+		return ok
+	default:
+		return false
+	}
 }

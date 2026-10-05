@@ -802,20 +802,20 @@ type updateFleetInput struct {
 	DomainJoinInfo                 *domainJoinInfoJSON   `json:"DomainJoinInfo"`
 	RootVolumeConfig               *volumeConfigJSON     `json:"RootVolumeConfig"`
 	SessionScriptS3Location        *s3LocationJSON       `json:"SessionScriptS3Location"`
-	Name                           string                `json:"Name"`
-	DisplayName                    string                `json:"DisplayName"`
-	Description                    string                `json:"Description"`
+	IdleDisconnectTimeoutInSeconds *int                  `json:"IdleDisconnectTimeoutInSeconds"`
 	InstanceType                   string                `json:"InstanceType"`
+	Platform                       string                `json:"Platform"`
+	DisplayName                    string                `json:"DisplayName"`
 	ImageName                      string                `json:"ImageName"`
 	ImageArn                       string                `json:"ImageArn"`
 	IamRoleArn                     string                `json:"IamRoleArn"`
 	StreamView                     string                `json:"StreamView"`
-	Platform                       string                `json:"Platform"`
-	UsbDeviceFilterStrings         []string              `json:"UsbDeviceFilterStrings"`
+	Description                    string                `json:"Description"`
+	Name                           string                `json:"Name"`
 	AttributesToDelete             []string              `json:"AttributesToDelete"`
+	UsbDeviceFilterStrings         []string              `json:"UsbDeviceFilterStrings"`
 	MaxUserDurationInSeconds       int                   `json:"MaxUserDurationInSeconds"`
 	DisconnectTimeoutInSeconds     int                   `json:"DisconnectTimeoutInSeconds"`
-	IdleDisconnectTimeoutInSeconds int                   `json:"IdleDisconnectTimeoutInSeconds"`
 	MaxSessionsPerInstance         int                   `json:"MaxSessionsPerInstance"`
 	MaxConcurrentSessions          int                   `json:"MaxConcurrentSessions"`
 }

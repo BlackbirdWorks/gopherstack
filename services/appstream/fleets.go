@@ -158,6 +158,11 @@ func (b *InMemoryBackend) CreateFleet(name string, opts CreateFleetOptions) (*Fl
 		dt = defaultDisconnectTimeout
 	}
 
+	streamView := opts.StreamView
+	if streamView == "" {
+		streamView = "APP"
+	}
+
 	desired := opts.DesiredInstances
 	if desired == 0 {
 		desired = 1
@@ -183,7 +188,7 @@ func (b *InMemoryBackend) CreateFleet(name string, opts CreateFleetOptions) (*Fl
 		ImageName:                   opts.ImageName,
 		ImageArn:                    opts.ImageArn,
 		IamRoleArn:                  opts.IamRoleArn,
-		StreamView:                  opts.StreamView,
+		StreamView:                  streamView,
 		Platform:                    opts.Platform,
 		DesiredInstances:            desired,
 		MaxUserDurationSecs:         mux,
@@ -305,8 +310,8 @@ func applyFleetCoreUpdates(f *storedFleet, opts UpdateFleetOptions) {
 		f.DisconnectTimeoutSecs = opts.DisconnectTimeoutSecs
 	}
 
-	if opts.IdleDisconnectTimeoutSecs >= 0 && opts.IdleDisconnectTimeoutSecs != f.IdleDisconnectTimeoutSecs {
-		f.IdleDisconnectTimeoutSecs = opts.IdleDisconnectTimeoutSecs
+	if opts.IdleDisconnectTimeoutSecs != nil {
+		f.IdleDisconnectTimeoutSecs = *opts.IdleDisconnectTimeoutSecs
 	}
 
 	if opts.EnableDefaultInternetAccess != nil {

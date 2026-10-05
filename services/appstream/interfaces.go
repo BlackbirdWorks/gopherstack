@@ -400,23 +400,23 @@ type UpdateFleetOptions struct {
 	DisableIMDSV1               *bool
 	RootVolumeConfig            *VolumeConfig
 	EnableDefaultInternetAccess *bool
+	IdleDisconnectTimeoutSecs   *int
 	DomainJoinInfo              DomainJoinInfo
 	SessionScriptS3Location     S3Location
+	StreamView                  string
 	InstanceType                string
-	IamRoleArn                  string
-	Platform                    string
 	DisplayName                 string
 	Description                 string
-	StreamView                  string
+	IamRoleArn                  string
 	ImageName                   string
 	ImageArn                    string
+	Platform                    string
 	VpcConfig                   VpcConfig
-	UsbDeviceFilterStrings      []string
 	AttributesToDelete          []string
+	UsbDeviceFilterStrings      []string
 	DesiredInstances            int
 	MaxUserDurationSecs         int
 	DisconnectTimeoutSecs       int
-	IdleDisconnectTimeoutSecs   int
 	MaxSessionsPerInstance      int
 	MaxConcurrentSessions       int
 }

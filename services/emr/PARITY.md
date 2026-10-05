@@ -865,3 +865,7 @@ emr already keys its resources by region; same-named resources in two regions co
 ## 2026-10-04 (reqfielddiff tier-1: CancelSteps.StepCancellationOption)
 
 The option is now validated (SEND_INTERRUPT or TERMINATE_PROCESS, anything else InvalidRequestException; `TestCancelSteps_StepCancellationOption_RealClient`). The distinction itself still has nothing to act on: steps go PENDING to COMPLETED/CANCELLED with no RUNNING state, so the structural gap above stands for the semantics.
+
+## 2026-10-05 (gopherstack-uox6 pass 7, value semantics)
+
+RunJobFlow defaults VisibleToAllUsers true (api_op_RunJobFlow.go:283), RepoUpgradeOnBoot SECURITY with CustomAmiId (:210) and ScaleDownBehavior by release (:214; INSTANCE_HOUR from 5.1.0). ModifyCluster without StepConcurrencyLevel keeps the level instead of failing validation. The SDK says VisibleToAllUsers=false has no effect; an explicit false is still stored. Studios round-trip clean.

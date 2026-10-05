@@ -5,11 +5,12 @@ import (
 	"fmt"
 )
 
-// ModifyCluster updates StepConcurrencyLevel on a cluster.
+// ModifyCluster updates StepConcurrencyLevel on a cluster; 0 (omitted) keeps the current level.
 func (b *InMemoryBackend) ModifyCluster(
 	ctx context.Context, clusterID string, stepConcurrencyLevel int,
 ) (int, error) {
-	if stepConcurrencyLevel < minStepConcurrency || stepConcurrencyLevel > maxStepConcurrency {
+	if stepConcurrencyLevel != 0 &&
+		(stepConcurrencyLevel < minStepConcurrency || stepConcurrencyLevel > maxStepConcurrency) {
 		return 0, fmt.Errorf(
 			"%w: StepConcurrencyLevel must be between %d and %d",
 			ErrValidation,
@@ -28,9 +29,11 @@ func (b *InMemoryBackend) ModifyCluster(
 		return 0, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
 	}
 
-	cluster.StepConcurrencyLevel = stepConcurrencyLevel
+	if stepConcurrencyLevel != 0 {
+		cluster.StepConcurrencyLevel = stepConcurrencyLevel
+	}
 
-	return stepConcurrencyLevel, nil
+	return cluster.StepConcurrencyLevel, nil
 }
 
 // SetTerminationProtection sets the TerminationProtected flag on clusters.

@@ -398,3 +398,7 @@ Audited clean: ListProfiles ProfileType ("If not supplied in the request, the co
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 transfer is region-isolated: Servers, users, connectors, agreements and workflows live per region; each sibling schedules its own server state timers. Tagging bridge covers every region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/transfer`. Limitation: the dashboard shows the home region only.
+
+## 2026-10-05 (gopherstack-uox6 pass 7, value semantics)
+
+CreateServer defaults IpAddressType IPV4 (api_op_CreateServer.go:162) and, for FTP/FTPS, ProtocolDetails.PassiveIp AUTO and, for FTPS, TlsSessionResumptionMode ENFORCED (types.go:2236, 2280); UpdateServer merges supplied ProtocolDetails members instead of replacing the struct. SetStatOption DEFAULT is only in the AWS API docs, not modelled. Users, access, connectors, agreements and web apps round-trip clean.

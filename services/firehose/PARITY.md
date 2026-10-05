@@ -718,3 +718,7 @@ Delivery streams were already region-keyed. The backend now also reads the regio
 ## 2026-10-04 (reqfielddiff tier-1 re-examined: DeleteDeliveryStream.AllowForceDelete)
 
 Still recorded: the flag bypasses a failure to retire the KMS grant Firehose takes for a customer-managed key (api_op_DeleteDeliveryStream.go:62). This backend creates no KMS grants on StartDeliveryStreamEncryption, so retirement cannot fail and a forced delete is indistinguishable from a normal one.
+
+## 2026-10-05 (gopherstack-uox6 pass 7, value semantics)
+
+UpdateDestination merges same-type updates onto the stored destination, so omitted members (prefix, compression, buffering, backup, ...) are retained as api_op_UpdateDestination.go documents; a different destination type still replaces it. Merge is per top-level member (nested S3 destination/backup merge member-wise), so a supplied nested block such as BufferingHints replaces the stored one whole. S3BackupMode default Disabled is not modelled (SDK silent).

@@ -109,7 +109,7 @@ func (b *InMemoryBackend) CreateStack(name string, opts CreateStackOptions) (*St
 		RedirectURL:                 opts.RedirectURL,
 		FeedbackURL:                 opts.FeedbackURL,
 		EmbedHostDomains:            append([]string(nil), opts.EmbedHostDomains...),
-		UserSettings:                append([]UserSetting(nil), opts.UserSettings...),
+		UserSettings:                normalizeUserSettings(opts.UserSettings, true),
 		StorageConnectors:           append([]StorageConnector(nil), opts.StorageConnectors...),
 		AccessEndpoints:             append([]AccessEndpoint(nil), opts.AccessEndpoints...),
 		ApplicationSettings:         b.cloneApplicationSettings(opts.ApplicationSettings),
@@ -248,7 +248,7 @@ func (b *InMemoryBackend) UpdateStack(name string, opts UpdateStackOptions) (*St
 	}
 
 	if len(opts.UserSettings) > 0 {
-		s.UserSettings = slices.Clone(opts.UserSettings)
+		s.UserSettings = normalizeUserSettings(opts.UserSettings, false)
 	}
 
 	if opts.DeleteStorageConnectors != nil && *opts.DeleteStorageConnectors {
@@ -298,4 +298,36 @@ func (b *InMemoryBackend) DeleteStack(name string) error {
 	b.stacks.Delete(name)
 
 	return nil
+}
+
+const (
+	defaultClipboardMaxLength = 20971520
+	permissionEnabled         = "ENABLED"
+)
+
+// normalizeUserSettings applies the SDK defaults (actions enabled, MaximumLength 20 MB);
+// SMART_CARD and AUTO_TIME_ZONE stay unset since their default is only in the API docs.
+func normalizeUserSettings(in []UserSetting, withDefaults bool) []UserSetting {
+	if len(in) == 0 && withDefaults {
+		in = []UserSetting{
+			{Action: "CLIPBOARD_COPY_FROM_LOCAL_DEVICE", Permission: permissionEnabled},
+			{Action: "CLIPBOARD_COPY_TO_LOCAL_DEVICE", Permission: permissionEnabled},
+			{Action: "FILE_UPLOAD", Permission: permissionEnabled},
+			{Action: "FILE_DOWNLOAD", Permission: permissionEnabled},
+			{Action: "PRINTING_TO_LOCAL_DEVICE", Permission: permissionEnabled},
+			{Action: "DOMAIN_PASSWORD_SIGNIN", Permission: permissionEnabled},
+		}
+	}
+
+	out := slices.Clone(in)
+
+	for i := range out {
+		clipboard := out[i].Action == "CLIPBOARD_COPY_FROM_LOCAL_DEVICE" ||
+			out[i].Action == "CLIPBOARD_COPY_TO_LOCAL_DEVICE"
+		if clipboard && out[i].Permission == permissionEnabled && out[i].MaximumLength == 0 {
+			out[i].MaximumLength = defaultClipboardMaxLength
+		}
+	}
+
+	return out
 }

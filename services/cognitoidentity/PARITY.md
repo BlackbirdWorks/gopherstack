@@ -478,3 +478,7 @@ stays at 0 FAIL. No persisted-struct/snapshot changes.
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 Audited for region isolation: same-named resources in two regions coexist and list per region; no code change. Proof: `TestRegionIsolation/cognitoidentity`.
+
+## 2026-10-05 (gopherstack-uox6 pass 7, value semantics)
+
+UpdateIdentityPool resets omitted members to defaults as api_op_UpdateIdentityPool.go documents (test added). IdentityPoolTags omitted on Update is left untouched: the SDK is silent on whether tags reset.

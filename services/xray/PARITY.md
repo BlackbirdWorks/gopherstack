@@ -534,3 +534,7 @@ xray is region-isolated: Groups, sampling rules, traces and encryption config li
 
 - `PutResourcePolicy` empty PolicyName -> `InvalidRequestException` (undeclared there; unreachable from a real client, PolicyName is required). Recorded, no declared code fits.
 - Orphan `InvalidSegment` in `handler_trace_segments.go` is the free-form `UnprocessedTraceSegment.ErrorCode` body field, not an exception code: false positive.
+
+## 2026-10-05 (gopherstack-uox6 pass 7, value semantics)
+
+PutResourcePolicy revision IDs now increment ("1", "2", ...) per api_op_PutResourcePolicy.go:50, and PolicyRevisionId "0" fails with InvalidPolicyRevisionIdException when the policy already exists. Groups and sampling rules round-trip clean; SamplingRule Version stays 1.

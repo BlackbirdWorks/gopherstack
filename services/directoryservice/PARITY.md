@@ -696,3 +696,7 @@ Fixed (describe_empty_id_lists_test.go): DescribeDirectories DirectoryIds and De
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 directoryservice already region-isolated: same-named resources in two regions stay separate and each region lists only its own. No code change. Proof: `TestRegionIsolation/directoryservice`.
+
+## 2026-10-05 (gopherstack-uox6 pass 7, value semantics)
+
+Create->Describe->Update round trip audited: CreateMicrosoftAD Edition Enterprise (api_op_CreateMicrosoftAD.go:64), CreateTrust type Forest (api_op_CreateTrust.go:78), UpdateTrust keeps SelectiveAuth when omitted. UpdateRadius and UpdateConditionalForwarder replace their settings whole; the SDK does not say whether real AWS merges, so unchanged.
