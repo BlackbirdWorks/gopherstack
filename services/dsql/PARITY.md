@@ -5,18 +5,18 @@ last_audit_commit: 5bb0d02ee
 last_audit_date: 2026-10-05
 overall: A            # A: SDK-driven test/integration suite TestIntegration_DSQL_ClusterLifecycle + TestIntegration_DSQL_MultiRegionPeering (test/integration/dsql_test.go) + every buildable gap closed; remaining divergences are structural_gaps.
 ops:
-  CreateCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "CREATING, lazily flips to ACTIVE on next read after a short fixed deadline (750ms); a multi-Region cluster settles to PENDING_SETUP until peering completes; multiRegionProperties.clusters peers must exist, be in another Region and share the witness Region"}
+  CreateCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "a replayed clientToken returns the same cluster; CREATING, lazily flips to ACTIVE on next read after a short fixed deadline (750ms); a multi-Region cluster settles to PENDING_SETUP until peering completes; multiRegionProperties.clusters peers must exist, be in another Region and share the witness Region"}
   GetCluster: {wire: ok, errors: ok, state: ok, persist: ok}
   ListClusters: {wire: ok, errors: ok, state: ok, persist: ok, note: "opaque nextToken via pkgs/page"}
-  UpdateCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "UPDATING, lazily flips back to ACTIVE; multiRegionProperties.clusters peers are validated, and a mutual link (each cluster lists the other) moves both PENDING_SETUP clusters to ACTIVE; KmsEncryptionKey=AWS_OWNED_KMS_KEY reverts to the AWS-owned key per SDK doc comment"}
-  DeleteCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "DeletionProtectionEnabled blocks delete (ValidationException, reason=deletionProtectionEnabled); otherwise DELETING, lazily removed on next read; the cluster is unlinked from every peer's multiRegionProperties.clusters"}
+  UpdateCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "clientToken replays the recorded response; UPDATING, lazily flips back to ACTIVE; multiRegionProperties.clusters peers are validated, and a mutual link (each cluster lists the other) moves both PENDING_SETUP clusters to ACTIVE; KmsEncryptionKey=AWS_OWNED_KMS_KEY reverts to the AWS-owned key per SDK doc comment"}
+  DeleteCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "clientToken (query client-token) replays the recorded response; DeletionProtectionEnabled blocks delete (ValidationException, reason=deletionProtectionEnabled); otherwise DELETING, lazily removed on next read; the cluster is unlinked from every peer's multiRegionProperties.clusters"}
   GetClusterPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
-  PutClusterPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "expectedPolicyVersion optimistic lock; bypassPolicyLockoutSafetyCheck accepted but not evaluated -- see structural_gaps"}
-  DeleteClusterPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "expectedPolicyVersion optimistic lock"}
+  PutClusterPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "expectedPolicyVersion optimistic lock; bypassPolicyLockoutSafetyCheck accepted but not evaluated -- see structural_gaps; clientToken replays the recorded response (a reused token with different parameters is ConflictException)"}
+  DeleteClusterPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "expectedPolicyVersion optimistic lock; clientToken (query client-token) replays the recorded response"}
   GetVpcEndpointServiceName: {wire: ok, errors: ok, state: ok, persist: ok, note: "wire-shaped names only; no real PrivateLink plane -- see structural_gaps"}
-  CreateStream: {wire: ok, errors: ok, state: ok, persist: ok, note: "CREATING, lazily flips to ACTIVE on next read"}
+  CreateStream: {wire: ok, errors: ok, state: ok, persist: ok, note: "a replayed clientToken returns the same stream; CREATING, lazily flips to ACTIVE on next read"}
   GetStream: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteStream: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-10-01: marks DELETING (StreamStatusDeleting), lazily removed after 500ms; owned streams are also removed when their cluster is purged"}
+  DeleteStream: {wire: ok, errors: ok, state: ok, persist: ok, note: "clientToken (query client-token) replays the recorded response. FIXED 2026-10-01: marks DELETING (StreamStatusDeleting), lazily removed after 500ms; owned streams are also removed when their cluster is purged"}
   ListStreams: {wire: ok, errors: ok, state: ok, persist: ok, note: "opaque nextToken via pkgs/page"}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "cluster ARN only, per SDK doc comment"}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -30,7 +30,7 @@ gaps: []
 items_still_open: []
 structural_gaps:
   - "No PostgreSQL data plane: a cluster's <id>.dsql.<region>.on.aws endpoint is wire-shaped but nothing listens, so SQL cannot be run. Authentication tokens (the SDK's feature/dsql/auth GenerateDbConnectAuthToken) are client-side SigV4 presigns, not an API operation, and need no server support."
-  - "PutClusterPolicy's bypassPolicyLockoutSafetyCheck is stored but not evaluated: the lockout check asks whether the calling principal keeps access, and the emulator has no authenticated caller identity or IAM policy evaluation (same stance as services/kms)."
+  - "bypassPolicyLockoutSafetyCheck (CreateCluster, PutClusterPolicy) is accepted but not evaluated: the lockout check asks whether the calling principal keeps access, and the emulator has no authenticated caller identity or IAM policy evaluation (same stance as services/kms)."
   - "GetVpcEndpointServiceName returns wire-shaped names only: there is no PrivateLink / VPC endpoint plane to back them."
 deferred: []
 leaks: {status: clean, note: "leak_main_test.go runs goleak over the package; cluster and stream transitions are lazy deadlines evaluated on read, no goroutines or timers."}
@@ -96,3 +96,7 @@ Grade moves B to A on `TestIntegration_DSQL_ClusterLifecycle` and `TestIntegrati
 ## 2026-10-05 (gopherstack-uox6 pass 12, value semantics)
 
 GetCluster/CreateCluster EncryptionDetails.KmsKeyArn now reports an ARN for a KmsEncryptionKey given as key ID or alias (CreateClusterInput.KmsEncryptionKey accepts ARN, ID or alias, api_op_CreateCluster.go:94-97; EncryptionDetails.KmsKeyArn, types.go:70). Proof: `TestCluster_KmsKeyReportedAsARN`. Recorded, unchanged: DeletionProtectionEnabled has no SDK-stated default (the API docs say true), so it stays false when omitted.
+
+## 2026-10-05 (zeroguard omitted-vs-zero audit)
+
+Tool false positives (cmd/zeroguard): required path/identifier members (Name, *Id, *Arn), Put* operations that replace the whole resource (PutRule, PutPermission, PutResourcePolicy, PutCodeBinding), and PatchOperations-based Update* ops.

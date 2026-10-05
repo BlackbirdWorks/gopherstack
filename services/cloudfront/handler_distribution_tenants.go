@@ -152,11 +152,10 @@ func (h *Handler) distributionTenantXML(t *DistributionTenant) string {
 		`<Domains>%s</Domains>`+
 		`<ConnectionGroupId>%s</ConnectionGroupId>`+
 		`<Enabled>%v</Enabled>`+
-		`<WebACLArn>%s</WebACLArn>`+
 		`<Status>%s</Status>%s`+
 		`</DistributionTenant>`,
 		cfNS, t.ID, t.ARN, t.DistributionID, t.Name, domainsXML.String(),
-		t.ConnectionGroupID, t.Enabled, h.Backend.TenantWebACLArn(t.ID), t.Status, optional.String())
+		t.ConnectionGroupID, t.Enabled, t.Status, optional.String())
 }
 
 // ---------------------------------------------------------------------------
@@ -710,9 +709,18 @@ func (h *Handler) handleDisassociateDistributionTenantWebACL(
 		return h.handleError(c, disErr)
 	}
 
-	c.Response().Header().Set("ETag", t.ETag)
+	updated, getErr := h.Backend.GetDistributionTenant(tenantID)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
 
-	return xmlResp(c, http.StatusOK, h.distributionTenantXML(t))
+	c.Response().Header().Set("ETag", updated.ETag)
+
+	return xmlResp(c, http.StatusOK, fmt.Sprintf(
+		`<?xml version="1.0" encoding="UTF-8"?>`+
+			`<DisassociateDistributionTenantWebACLResult xmlns="%s"><Id>%s</Id>`+
+			`</DisassociateDistributionTenantWebACLResult>`,
+		cfNS, tenantID))
 }
 
 // ---------------------------------------------------------------------------

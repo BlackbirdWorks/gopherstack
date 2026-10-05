@@ -77,7 +77,6 @@ type InMemoryBackend struct {
 	distributionCallerRefs            map[string]string          // CallerReference → distribution ID (idempotency)
 	distributionAliases               map[string][]string        // distribution ID → aliases
 	distributionWebACLs               map[string]string          // distribution ID → web ACL ID
-	distributionTenantWebACLs         map[string]string          // tenant ID → web ACL ID
 	invalidations                     *store.Table[Invalidation] // composite key: distID + "#" + invID
 	invalidationsByDist               *store.Index[Invalidation]
 	oais                              *store.Table[OriginAccessIdentity]
@@ -191,7 +190,6 @@ func NewInMemoryBackend(ctx context.Context, accountID, region string) *InMemory
 		distributionCallerRefs:              make(map[string]string),
 		distributionAliases:                 make(map[string][]string),
 		distributionWebACLs:                 make(map[string]string),
-		distributionTenantWebACLs:           make(map[string]string),
 		oaiCallerRefs:                       make(map[string]string),
 		anycastIPListARNs:                   make(map[string]string),
 		anycastIPListByName:                 make(map[string]string),
@@ -336,7 +334,6 @@ func (b *InMemoryBackend) resetDistributions() {
 	b.distributionCallerRefs = make(map[string]string)
 	b.distributionAliases = make(map[string][]string)
 	b.distributionWebACLs = make(map[string]string)
-	b.distributionTenantWebACLs = make(map[string]string)
 	b.oaiCallerRefs = make(map[string]string)
 	b.anycastIPListARNs = make(map[string]string)
 	b.anycastIPListByName = make(map[string]string)

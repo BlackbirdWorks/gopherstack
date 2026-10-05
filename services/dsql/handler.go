@@ -10,6 +10,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -19,20 +20,24 @@ const dsqlMatchPriority = service.PriorityPathVersioned
 // Handler is the HTTP handler for the Aurora DSQL REST-JSON control-plane API.
 type Handler struct {
 	Backend       StorageBackend
+	idem          *idempotency.Memo
 	AccountID     string
 	DefaultRegion string
 }
 
 // NewHandler creates a new Aurora DSQL handler backed by backend.
 func NewHandler(backend StorageBackend) *Handler {
-	return &Handler{Backend: backend}
+	return &Handler{Backend: backend, idem: idempotency.New("dsql")}
 }
 
 // Name returns the service name.
 func (h *Handler) Name() string { return "DSQL" }
 
 // Reset clears all backend state.
-func (h *Handler) Reset() { h.Backend.Reset() }
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+	h.idem = idempotency.New("dsql")
+}
 
 // GetSupportedOperations returns the list of supported operations.
 func (h *Handler) GetSupportedOperations() []string {

@@ -372,8 +372,9 @@ func TestInMemoryBackend_NewOperations(t *testing.T) {
 			name: "associate_distribution_tenant_web_acl_success",
 			run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
 				t.Helper()
-				err := b.AssociateDistributionTenantWebACL("tenant-001", "acl-001")
+				tenant, err := b.CreateDistributionTenant("dist-001", "t", []string{"acl.example.com"}, nil)
 				require.NoError(t, err)
+				require.NoError(t, b.AssociateDistributionTenantWebACL(tenant.ID, "acl-001"))
 			},
 		},
 	}

@@ -13,8 +13,8 @@ import (
 	"github.com/google/uuid"
 )
 
-// AssociateDistributionTenantWebACL associates a WAF web ACL with a distribution tenant.
-func (b *InMemoryBackend) AssociateDistributionTenantWebACL(tenantID, webACLID string) error {
+// AssociateDistributionTenantWebACL sets the tenant's Customizations.WebAcl to override with webACLArn.
+func (b *InMemoryBackend) AssociateDistributionTenantWebACL(tenantID, webACLArn string) error {
 	b.mu.Lock("AssociateDistributionTenantWebACL")
 	defer b.mu.Unlock()
 
@@ -22,9 +22,34 @@ func (b *InMemoryBackend) AssociateDistributionTenantWebACL(tenantID, webACLID s
 		return fmt.Errorf("%w: tenantId must not be empty", ErrValidation)
 	}
 
-	b.distributionTenantWebACLs[tenantID] = webACLID
+	if webACLArn == "" {
+		return fmt.Errorf("%w: WebACLArn must not be empty", ErrValidation)
+	}
+
+	t, ok := b.distributionTenants.Get(tenantID)
+	if !ok {
+		return fmt.Errorf("%w: tenant %s not found", ErrDistributionTenantNotFound, tenantID)
+	}
+
+	cust := maps.Clone(t.Customizations)
+	if cust == nil {
+		cust = make(map[string]any, 1)
+	}
+
+	cust["WebAcl"] = map[string]any{"Action": "override", "Arn": webACLArn}
+	t.Customizations = cust
+	t.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)
+	t.ETag = uuid.NewString()
 
 	return nil
+}
+
+// tenantWebACLArn returns Customizations.WebAcl.Arn, or "" when none is set.
+func tenantWebACLArn(t *DistributionTenant) string {
+	w, _ := t.Customizations["WebAcl"].(map[string]any)
+	arn, _ := w["Arn"].(string)
+
+	return arn
 }
 
 // dnsStatusPassed and dnsStatusFailed are the two outcomes of the syntactic domain-validation
@@ -304,7 +329,6 @@ func (b *InMemoryBackend) DeleteDistributionTenant(id string) error {
 	}
 	delete(b.distributionTenantsByDomain, t.Domain)
 	delete(b.distributionTenantARNs, t.ARN)
-	delete(b.distributionTenantWebACLs, id)
 	b.distributionTenants.Delete(id)
 	b.deleteInvalidationsForTenant(id)
 	delete(b.tenantInvalidationReadyAt, id)
@@ -326,15 +350,6 @@ func (b *InMemoryBackend) ListDistributionTenants() []*DistributionTenant {
 	return out
 }
 
-// TenantWebACLArn returns the WAF web ACL ARN currently associated with a distribution tenant,
-// or "" if none is associated.
-func (b *InMemoryBackend) TenantWebACLArn(tenantID string) string {
-	b.mu.RLock("TenantWebACLArn")
-	defer b.mu.RUnlock()
-
-	return b.distributionTenantWebACLs[tenantID]
-}
-
 // TenantCertificateArn returns the ARN of the certificate a distribution tenant uses, or "" if
 // the tenant does not exist. Real AWS lets a tenant use either a customer-supplied ACM
 // certificate (Customizations.Certificate.Arn) or CloudFront's own managed certificate;
@@ -352,15 +367,14 @@ func (b *InMemoryBackend) TenantCertificateArn(tenantID string) string {
 }
 
 // ListDistributionTenantsByCustomization returns distribution tenants filtered by an associated
-// WAF web ACL ARN. When webACLArn is empty, all tenants are returned (same as
-// ListDistributionTenants), since no customization filter was supplied.
+// Customizations.WebAcl.Arn. An empty webACLArn matches every tenant.
 func (b *InMemoryBackend) ListDistributionTenantsByCustomization(webACLArn string) []*DistributionTenant {
 	b.mu.RLock("ListDistributionTenantsByCustomization")
 	defer b.mu.RUnlock()
 
 	out := make([]*DistributionTenant, 0, b.distributionTenants.Len())
 	for _, t := range b.distributionTenants.All() {
-		if webACLArn != "" && b.distributionTenantWebACLs[t.ID] != webACLArn {
+		if webACLArn != "" && tenantWebACLArn(t) != webACLArn {
 			continue
 		}
 		out = append(out, b.copyTenant(t))
@@ -532,12 +546,30 @@ func dnsCheckStatus(domain string) string {
 	return dnsStatusPassed
 }
 
-// DisassociateDistributionTenantWebACL clears the web ACL association for a distribution tenant.
+// DisassociateDistributionTenantWebACL removes Customizations.WebAcl from a distribution tenant.
 func (b *InMemoryBackend) DisassociateDistributionTenantWebACL(tenantID string) error {
 	b.mu.Lock("DisassociateDistributionTenantWebACL")
 	defer b.mu.Unlock()
 
-	delete(b.distributionTenantWebACLs, tenantID)
+	t, ok := b.distributionTenants.Get(tenantID)
+	if !ok {
+		return fmt.Errorf("%w: tenant %s not found", ErrDistributionTenantNotFound, tenantID)
+	}
+
+	if _, has := t.Customizations["WebAcl"]; !has {
+		return nil
+	}
+
+	cust := maps.Clone(t.Customizations)
+	delete(cust, "WebAcl")
+
+	if len(cust) == 0 {
+		cust = nil
+	}
+
+	t.Customizations = cust
+	t.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)
+	t.ETag = uuid.NewString()
 
 	return nil
 }

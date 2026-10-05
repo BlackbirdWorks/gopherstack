@@ -13,7 +13,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/cloudfront"
 )
 
-const testWebACLArn = "arn:aws:wafv2:us-east-1:123456789012:global/webacl/x/1"
+const (
+	testWebACLArn = "arn:aws:wafv2:us-east-1:123456789012:global/webacl/x/1"
+	testCertArn   = "arn:aws:acm:us-east-1:123456789012:certificate/abc"
+)
 
 func createTestDistribution(t *testing.T, client *cfsdk.Client, ref string) string {
 	t.Helper()
@@ -333,6 +336,82 @@ func TestListDistributionsByRealtimeLogConfigName(t *testing.T) {
 			if tt.wantDist {
 				assert.Contains(t, rec.Body.String(), "<Quantity>1</Quantity>")
 			}
+		})
+	}
+}
+
+func TestDistributionTenantWebACLAssociation(t *testing.T) {
+	t.Parallel()
+
+	const otherArn = "arn:aws:wafv2:us-east-1:123456789012:global/webacl/y/2"
+
+	tests := []struct {
+		name       string
+		associate  string
+		wantArn    string
+		wantAction types.CustomizationActionType
+		disassoc   bool
+		wantListed bool
+	}{
+		{name: "associate", associate: testWebACLArn, wantAction: types.CustomizationActionTypeOverride,
+			wantArn: testWebACLArn, wantListed: true},
+		{name: "associate_then_disassociate", associate: testWebACLArn, disassoc: true},
+		{name: "reassociate_other_arn", associate: otherArn, wantAction: types.CustomizationActionTypeOverride,
+			wantArn: otherArn},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newRealClient(t)
+			distID := createTestDistribution(t, client, "webacl-"+tt.name)
+
+			created, err := client.CreateDistributionTenant(t.Context(), &cfsdk.CreateDistributionTenantInput{
+				DistributionId: aws.String(distID),
+				Name:           aws.String("webacl"),
+				Domains:        domainItems("webacl-" + tt.name + ".example.com"),
+				Customizations: &types.Customizations{
+					Certificate: &types.Certificate{Arn: aws.String(testCertArn)},
+				},
+			})
+			require.NoError(t, err)
+
+			id := created.DistributionTenant.Id
+			assoc, err := client.AssociateDistributionTenantWebACL(
+				t.Context(),
+				&cfsdk.AssociateDistributionTenantWebACLInput{
+					Id: id, WebACLArn: aws.String(tt.associate), IfMatch: created.ETag,
+				},
+			)
+			require.NoError(t, err)
+
+			etag := assoc.ETag
+			if tt.disassoc {
+				dis, disErr := client.DisassociateDistributionTenantWebACL(t.Context(),
+					&cfsdk.DisassociateDistributionTenantWebACLInput{Id: id, IfMatch: etag})
+				require.NoError(t, disErr)
+				etag = dis.ETag
+			}
+
+			got, err := client.GetDistributionTenant(t.Context(), &cfsdk.GetDistributionTenantInput{Identifier: id})
+			require.NoError(t, err)
+			assert.Equal(t, aws.ToString(etag), aws.ToString(got.ETag))
+			require.NotNil(t, got.DistributionTenant.Customizations)
+			assert.NotNil(t, got.DistributionTenant.Customizations.Certificate)
+
+			if tt.wantArn == "" {
+				assert.Nil(t, got.DistributionTenant.Customizations.WebAcl)
+			} else {
+				require.NotNil(t, got.DistributionTenant.Customizations.WebAcl)
+				assert.Equal(t, tt.wantAction, got.DistributionTenant.Customizations.WebAcl.Action)
+				assert.Equal(t, tt.wantArn, aws.ToString(got.DistributionTenant.Customizations.WebAcl.Arn))
+			}
+
+			byCust, err := client.ListDistributionTenantsByCustomization(t.Context(),
+				&cfsdk.ListDistributionTenantsByCustomizationInput{WebACLArn: aws.String(testWebACLArn)})
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantListed, len(byCust.DistributionTenantList) == 1)
 		})
 	}
 }

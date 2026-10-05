@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"slices"
 
 	"github.com/labstack/echo/v5"
 )
@@ -113,12 +114,17 @@ func (h *Handler) handleListExperimentResolvedTargets(c *echo.Context, id string
 		return h.writeBackendError(c, err, id)
 	}
 
+	q := c.Request().URL.Query()
+	if want := q.Get("targetName"); want != "" {
+		resolved = slices.DeleteFunc(resolved, func(rt ExperimentResolvedTarget) bool { return rt.TargetName != want })
+	}
+
 	names := make([]string, len(resolved))
 	for i, rt := range resolved {
 		names[i] = rt.TargetName
 	}
 
-	page, nextTok := paginatePage(resolved, names, c.Request().URL.Query())
+	page, nextTok := paginatePage(resolved, names, q)
 	dtos := make([]resolvedTargetDTO, len(page))
 
 	for i, rt := range page {

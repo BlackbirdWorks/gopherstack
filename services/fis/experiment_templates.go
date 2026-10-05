@@ -67,6 +67,12 @@ func validateTemplate(input *createExperimentTemplateRequest) error {
 		return err
 	}
 
+	if o := input.ExperimentOptions; o != nil {
+		if err := validateExperimentOptions(o.AccountTargeting, o.EmptyTargetResolutionMode); err != nil {
+			return err
+		}
+	}
+
 	if len(input.Tags) > maxTagsPerResource {
 		return fmt.Errorf(
 			"%w: tags must have at most %d entries; got %d",
@@ -114,6 +120,23 @@ func validateUpdateTemplate(input *updateExperimentTemplateRequest) error {
 
 	if err := validateReportConfiguration(input.ExperimentReportConfiguration); err != nil {
 		return err
+	}
+
+	if o := input.ExperimentOptions; o != nil {
+		return validateExperimentOptions("", o.EmptyTargetResolutionMode)
+	}
+
+	return nil
+}
+
+// validateExperimentOptions checks the AccountTargeting and EmptyTargetResolutionMode enums (types/enums.go).
+func validateExperimentOptions(accountTargeting, emptyTargetMode string) error {
+	if accountTargeting != "" && accountTargeting != "single-account" && accountTargeting != "multi-account" {
+		return fmt.Errorf("%w: accountTargeting must be single-account or multi-account", ErrValidation)
+	}
+
+	if emptyTargetMode != "" && emptyTargetMode != "fail" && emptyTargetMode != "skip" {
+		return fmt.Errorf("%w: emptyTargetResolutionMode must be fail or skip", ErrValidation)
 	}
 
 	return nil

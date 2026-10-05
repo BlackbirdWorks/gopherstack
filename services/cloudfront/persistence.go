@@ -117,7 +117,8 @@ type backendSnapshot struct {
 	DistributionFunctionAssociations map[string][]FunctionAssociation `json:"distributionFunctionAssociations,omitempty"`
 	DistributionAliases              map[string][]string              `json:"distributionAliases,omitempty"`
 	DistributionWebACLs              map[string]string                `json:"distributionWebACLs,omitempty"`
-	DistributionTenantWebACLs        map[string]string                `json:"distributionTenantWebACLs,omitempty"`
+	// DistributionTenantWebACLs is read-only legacy; the ARN now lives in tenant Customizations.
+	DistributionTenantWebACLs map[string]string `json:"distributionTenantWebACLs,omitempty"`
 
 	MonitoringSubscriptions map[string]*MonitoringSubscription    `json:"monitoringSubscriptions,omitempty"`
 	ResourcePolicies        map[string]*resourcePolicyEntry       `json:"resourcePolicies,omitempty"`
@@ -185,7 +186,6 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		DistributionFunctionAssociations:    b.distributionFunctionAssociations,
 		DistributionAliases:                 b.distributionAliases,
 		DistributionWebACLs:                 b.distributionWebACLs,
-		DistributionTenantWebACLs:           b.distributionTenantWebACLs,
 		MonitoringSubscriptions:             b.monitoringSubscriptions,
 		ResourcePolicies:                    b.resourcePolicies,
 		ManagedCertificates:                 b.managedCertificates,
@@ -256,6 +256,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	ensureNonNil(&snap)
 	idx := rebuildIndexes(&snap)
 	b.restoreAssociationMaps(&snap)
+	b.foldLegacyTenantWebACLs(snap.DistributionTenantWebACLs)
 	b.restoreIndexes(&idx)
 	// The managed cache/origin-request/response-headers policies always exist in a
 	// real AWS account regardless of what a snapshot happened to capture (e.g. a
@@ -308,7 +309,6 @@ func (b *InMemoryBackend) restoreAssociationMaps(snap *backendSnapshot) {
 	b.distributionFunctionAssociations = snap.DistributionFunctionAssociations
 	b.distributionAliases = snap.DistributionAliases
 	b.distributionWebACLs = snap.DistributionWebACLs
-	b.distributionTenantWebACLs = snap.DistributionTenantWebACLs
 	b.monitoringSubscriptions = snap.MonitoringSubscriptions
 	b.resourcePolicies = snap.ResourcePolicies
 	b.managedCertificates = snap.ManagedCertificates
@@ -601,10 +601,6 @@ func ensureNonNil(snap *backendSnapshot) {
 	if snap.DistributionWebACLs == nil {
 		snap.DistributionWebACLs = make(map[string]string)
 	}
-
-	if snap.DistributionTenantWebACLs == nil {
-		snap.DistributionTenantWebACLs = make(map[string]string)
-	}
 }
 
 // ensureNonNilTenantExtras initialises the per-distribution-tenant and per-distribution maps
@@ -665,4 +661,22 @@ func (h *Handler) Snapshot(ctx context.Context) []byte { return h.Backend.Snapsh
 // Restore implements persistence.Persistable by delegating to the backend.
 func (h *Handler) Restore(ctx context.Context, data []byte) error {
 	return h.Backend.Restore(ctx, data)
+}
+
+// foldLegacyTenantWebACLs moves pre-Customizations tenant ID -> web ACL ARN entries into Customizations.WebAcl.
+func (b *InMemoryBackend) foldLegacyTenantWebACLs(legacy map[string]string) {
+	for id, arn := range legacy {
+		t, ok := b.distributionTenants.Get(id)
+		if !ok || arn == "" || tenantWebACLArn(t) != "" {
+			continue
+		}
+
+		cust := maps.Clone(t.Customizations)
+		if cust == nil {
+			cust = make(map[string]any, 1)
+		}
+
+		cust["WebAcl"] = map[string]any{"Action": "override", "Arn": arn}
+		t.Customizations = cust
+	}
 }

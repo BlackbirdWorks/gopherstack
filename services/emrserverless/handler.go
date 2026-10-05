@@ -15,6 +15,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -84,11 +85,12 @@ const (
 type Handler struct {
 	Backend *InMemoryBackend
 	peers   *regionpeers.Set[Handler]
+	idem    *idempotency.Memo
 }
 
 // NewHandler creates a new EMR Serverless handler.
 func NewHandler(backend *InMemoryBackend) *Handler {
-	return &Handler{Backend: backend}
+	return &Handler{Backend: backend, idem: idempotency.New("emrserverless")}
 }
 
 // Reset clears all backend state. Used for test isolation.
@@ -581,7 +583,6 @@ func jobRunToMap(jr *JobRun) map[string]any {
 	m := map[string]any{
 		keyApplicationID: jr.ApplicationID,
 		"jobRunId":       jr.JobRunID,
-		"id":             jr.JobRunID, // JobRunSummary.id in AWS SDK ListJobRuns response
 		keyArn:           jr.Arn,
 		keyName:          jr.Name,
 		keyState:         jr.State,
@@ -836,6 +837,7 @@ func (h *Handler) handleListApplications(c *echo.Context) error {
 
 type updateApplicationBody struct {
 	applicationConfigFields
+	ClientToken  string `json:"clientToken"`
 	ReleaseLabel string `json:"releaseLabel"`
 	Architecture string `json:"architecture"`
 }
@@ -884,7 +886,23 @@ func (h *Handler) handleUpdateApplication(c *echo.Context, applicationID string,
 
 	applyAutoConfigDefaults(extra, false)
 
-	app, err := h.Backend.UpdateApplication(applicationID, func(a *Application) {
+	app, err := idempotency.Replay(h.idem, "UpdateApplication", in.ClientToken,
+		idempotency.Fingerprint([2]any{applicationID, in}), func() (*Application, error) {
+			return h.Backend.UpdateApplication(applicationID, applyUpdate(in, extra))
+		})
+	if errors.Is(err, idempotency.ErrParamsMismatch) {
+		err = fmt.Errorf("%w: %s", ErrConflict, err.Error())
+	}
+
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"application": applicationToMap(app)})
+}
+
+func applyUpdate(in updateApplicationBody, extra map[string]any) func(*Application) {
+	return func(a *Application) {
 		if in.ReleaseLabel != "" {
 			a.ReleaseLabel = in.ReleaseLabel
 		}
@@ -900,12 +918,7 @@ func (h *Handler) handleUpdateApplication(c *echo.Context, applicationID string,
 
 			maps.Copy(a.ExtraConfig, extra)
 		}
-	})
-	if err != nil {
-		return h.handleError(c, err)
 	}
-
-	return c.JSON(http.StatusOK, map[string]any{"application": applicationToMap(app)})
 }
 
 func (h *Handler) handleDeleteApplication(c *echo.Context, applicationID string) error {
