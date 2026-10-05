@@ -3166,3 +3166,51 @@ rows:
     date: "2026-10-05"
     commit: a0b49e3c1
     source: "parity"
+  - service: s3tables
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 7da0a893d
+    source: "commit"
+  - service: elasticsearch
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 7da0a893d
+    source: "commit"
+  - service: fis
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 7da0a893d
+    source: "commit"
+  - service: kinesisvideo
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 7da0a893d
+    source: "commit"
+  - service: elb
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: 7da0a893d
+    source: "commit"
+  - service: identitystore
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: 7da0a893d
+    source: "commit"
+  - service: dax
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: 7da0a893d
+    source: "commit"
+  - service: mwaa
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: 7da0a893d
+    source: "commit"
