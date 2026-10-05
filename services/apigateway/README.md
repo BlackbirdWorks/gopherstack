@@ -16,7 +16,7 @@
 ### Known gaps
 
 - AWS/ApiGateway REST metrics Count/4XXError/5XXError/Latency/IntegrationLatency are emitted; CacheHitCount/CacheMissCount are not (no stage response cache is modelled). (gopherstack-4m1qr)
-- UpdateAuthorizer's PATCH table documents "/authType" (types.Authorizer.AuthType, distinct from the existing "Type"/authorizerType) and UpdateRestApi's documents "/securityPolicy" (only DomainName has SecurityPolicy today) -- both real, doc-documented PATCH paths with no backing model field anywhere in this backend. Unmodeled, not a casing or plumbing bug; not fabricated. (gopherstack-6q5h)
+- Accepted and ignored: GetResource/GetResources/GetDeployment Embed (resourceMethods is always returned), GetExport Accepts and Parameters, GetSdk Parameters, GetSdkTypes Position, CreateRestApi CloneFrom, TestInvokeMethod/TestInvokeAuthorizer extra members, DomainNameId (private custom domains), CreateDomainName certificate upload members (CertificateBody/Chain/PrivateKey, no certificateUploadDate).
 - 'AWS' (non-proxy) integration target: sqs path-style and sns action-style dispatch for real (gopherstack-is2a); every other target (DynamoDB, Step Functions, S3, ...) is still accepted at PutIntegration with no validation and unconditionally invoked as Lambda at request time. Fixing the rest needs per-service invoker interfaces or a real VTL + AWS query-protocol encoder -- out of a targeted pass's scope. (gopherstack-fum)
 
 ### Deferred

@@ -9,14 +9,13 @@
 | --- | --- |
 | PARITY entries audited | 19 (18 ok, 1 partial) |
 | Feature families | 13 (13 ok) |
-| Known gaps | 2 |
+| Known gaps | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
 - ListMigrations' MigrationSummary.Error member (real, deserializers.go) is never emitted: this backend's migration state machine (migrations.go) only ever transitions PENDING->IN_PROGRESS->SUCCEEDED, so there is no failure state to source Error from. Correct-by-absence, not fabricated; would need a real migration-failure trigger to wire up (gopherstack-dv4s, 2026-09-19).
-- UpdateCollectionInput's DeletionProtection and VectorOptions (real fields, api_op_UpdateCollection.go) are accepted but unmodeled -- ServerlessCollection tracks neither (CreateCollection doesn't set them either), so UpdateCollection only applies Description. Would need both fields added to ServerlessCollection and CreateCollection's parsing extended first (2026-09-19).
 
 ## More
 

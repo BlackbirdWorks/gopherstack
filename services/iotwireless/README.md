@@ -9,12 +9,13 @@
 | --- | --- |
 | PARITY entries audited | 21 (21 ok) |
 | Feature families | 21 (21 ok) |
-| Known gaps | 1 |
+| Known gaps | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
+- Accepted and ignored: StartBulkAssociate/DisassociateWirelessDevice QueryString and Tags (no search-expression evaluator, so bulk ops act on every device), StartSingleWirelessDeviceImportTask DeviceName/Sidewalk/Positioning/Tags (no read API), ListDevicesForWirelessDeviceImportTask Status (the device list is always empty), WirelessDeviceType on ListQueuedMessages/DeleteQueuedMessages/DeregisterWirelessDevice, GetPositionEstimate inputs, UpdateResourcePosition GeoJsonPayload.
 - ClientRequestToken replay is held in memory per region (1024 tokens, FIFO) and is not persisted, so a token is forgotten across a restart.
 
 ## More
