@@ -25,6 +25,7 @@ var (
 	ErrGrantNotFound                   = errors.New("ResourceNotFoundException")
 	ErrACAAlreadyExists                = errors.New("ConflictException")
 	ErrPermissionsBoundaryNotFound     = errors.New("ResourceNotFoundException")
+	errTokenMismatch                   = errors.New("ConflictException")
 	// ErrServiceQuotaExceeded is returned when a resource would exceed the
 	// 50-tags-per-resource limit. Real ssoadmin has no TooManyTagsException in
 	// its error model (see types/errors.go) -- quota overruns map to

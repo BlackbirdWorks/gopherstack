@@ -98,11 +98,15 @@ func (h *Handler) startTextTranslationJob(input map[string]any) (map[string]any,
 		return nil, err
 	}
 
-	job, err := h.Backend.StartTextTranslationJob(
-		jobName, dataAccessRoleARN, sourceLang,
-		targetLangs, terminologyNames, parallelDataNames,
-		inputCfg, outputCfg, settings, tags,
-	)
+	job, err := replayCreate(h, "StartTextTranslationJob", input, ErrValidation,
+		func(j *TranslationJob) string { return j.JobID }, h.Backend.DescribeTextTranslationJob,
+		func() (*TranslationJob, error) {
+			return h.Backend.StartTextTranslationJob(
+				jobName, dataAccessRoleARN, sourceLang,
+				targetLangs, terminologyNames, parallelDataNames,
+				inputCfg, outputCfg, settings, tags,
+			)
+		})
 	if err != nil {
 		return nil, err
 	}

@@ -11,6 +11,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -46,11 +47,12 @@ type Handler struct {
 	peers   *regionpeers.Set[Handler]
 	Backend *InMemoryBackend
 	ops     map[string]opFunc
+	idem    *idempotency.Memo
 }
 
 // NewHandler creates a Translate handler backed by in-memory state.
 func NewHandler(backend *InMemoryBackend) *Handler {
-	h := &Handler{Backend: backend}
+	h := &Handler{Backend: backend, idem: idempotency.New("translate")}
 	h.ops = h.buildOps()
 
 	return h

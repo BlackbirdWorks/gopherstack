@@ -31,6 +31,7 @@ func (h *Handler) handleCreateTrustedTokenIssuer(c *echo.Context, body []byte) e
 		InstanceArn            string    `json:"InstanceArn"`
 		Name                   string    `json:"Name"`
 		TrustedTokenIssuerType string    `json:"TrustedTokenIssuerType"`
+		ClientToken            string    `json:"ClientToken"`
 		Tags                   []tagView `json:"Tags"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -65,7 +66,11 @@ func (h *Handler) handleCreateTrustedTokenIssuer(c *echo.Context, body []byte) e
 		}
 	}
 
-	ti, err := h.Backend.CreateTrustedTokenIssuer(req.InstanceArn, req.Name, req.TrustedTokenIssuerType, tags, cfg)
+	ti, err := replayCreate(h, "CreateTrustedTokenIssuer", req.ClientToken, req,
+		func(t *TrustedTokenIssuer) string { return t.TrustedTokenIssuerArn }, h.Backend.DescribeTrustedTokenIssuer,
+		func() (*TrustedTokenIssuer, error) {
+			return h.Backend.CreateTrustedTokenIssuer(req.InstanceArn, req.Name, req.TrustedTokenIssuerType, tags, cfg)
+		})
 	if err != nil {
 		if errors.Is(err, ErrTrustedTokenIssuerAlreadyExists) {
 			return writeError(

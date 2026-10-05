@@ -15,9 +15,12 @@ func (h *Handler) createBatchInferenceJob(input map[string]any) (map[string]any,
 	jobInput, _ := input["jobInput"].(map[string]any)
 	jobOutput, _ := input["jobOutput"].(map[string]any)
 	tags := extractTags(input)
+	extras := JobExtras{NumResults: int32Field(input, "numResults")}
+	extras.BatchInferenceJobConfig, _ = input["batchInferenceJobConfig"].(map[string]any)
+	extras.ThemeGenerationConfig, _ = input["themeGenerationConfig"].(map[string]any)
 
 	job, err := h.Backend.CreateBatchInferenceJob(
-		jobName, solutionVersionArn, roleArn, filterArn, jobMode, jobInput, jobOutput, tags,
+		jobName, solutionVersionArn, roleArn, filterArn, jobMode, jobInput, jobOutput, tags, extras,
 	)
 	if err != nil {
 		return nil, err
@@ -73,6 +76,15 @@ func batchInferenceJobToMap(job *BatchInferenceJob) map[string]any {
 	if job.FilterArn != "" {
 		m[keyFilterArn] = job.FilterArn
 	}
+	if job.BatchInferenceJobConfig != nil {
+		m["batchInferenceJobConfig"] = job.BatchInferenceJobConfig
+	}
+	if job.ThemeGenerationConfig != nil {
+		m["themeGenerationConfig"] = job.ThemeGenerationConfig
+	}
+	if job.NumResults != 0 {
+		m["numResults"] = job.NumResults
+	}
 
 	return m
 }
@@ -108,7 +120,7 @@ func (h *Handler) createBatchSegmentJob(input map[string]any) (map[string]any, e
 	tags := extractTags(input)
 
 	job, err := h.Backend.CreateBatchSegmentJob(
-		jobName, solutionVersionArn, roleArn, filterArn, jobInput, jobOutput, tags,
+		jobName, solutionVersionArn, roleArn, filterArn, jobInput, jobOutput, tags, int32Field(input, "numResults"),
 	)
 	if err != nil {
 		return nil, err
@@ -162,6 +174,9 @@ func batchSegmentJobToMap(job *BatchSegmentJob) map[string]any {
 	}
 	if job.FilterArn != "" {
 		m[keyFilterArn] = job.FilterArn
+	}
+	if job.NumResults != 0 {
+		m["numResults"] = job.NumResults
 	}
 
 	return m

@@ -44,6 +44,7 @@ func (b *InMemoryBackend) CreateBatchInferenceJob(
 	jobName, solutionVersionArn, roleArn, filterArn, jobMode string,
 	jobInput, jobOutput map[string]any,
 	tags map[string]string,
+	extras JobExtras,
 ) (*BatchInferenceJob, error) {
 	b.mu.Lock("CreateBatchInferenceJob")
 	defer b.mu.Unlock()
@@ -72,17 +73,20 @@ func (b *InMemoryBackend) CreateBatchInferenceJob(
 	now := time.Now().UTC()
 	jobArn := b.personalizeARN("batch-inference-job", jobName)
 	job := &BatchInferenceJob{
-		BatchInferenceJobArn:  jobArn,
-		JobName:               jobName,
-		SolutionVersionArn:    solutionVersionArn,
-		RoleArn:               roleArn,
-		FilterArn:             filterArn,
-		JobInput:              jobInput,
-		JobOutput:             jobOutput,
-		Status:                statusActive,
-		CreationDateTime:      now,
-		LastUpdatedDateTime:   now,
-		BatchInferenceJobMode: jobMode,
+		BatchInferenceJobArn:    jobArn,
+		JobName:                 jobName,
+		SolutionVersionArn:      solutionVersionArn,
+		RoleArn:                 roleArn,
+		FilterArn:               filterArn,
+		JobInput:                jobInput,
+		JobOutput:               jobOutput,
+		Status:                  statusActive,
+		CreationDateTime:        now,
+		LastUpdatedDateTime:     now,
+		BatchInferenceJobMode:   jobMode,
+		BatchInferenceJobConfig: extras.BatchInferenceJobConfig,
+		ThemeGenerationConfig:   extras.ThemeGenerationConfig,
+		NumResults:              extras.NumResults,
 	}
 	b.batchInferenceJobs.Put(job)
 	if len(tags) > 0 {
@@ -132,6 +136,7 @@ func (b *InMemoryBackend) CreateBatchSegmentJob(
 	jobName, solutionVersionArn, roleArn, filterArn string,
 	jobInput, jobOutput map[string]any,
 	tags map[string]string,
+	numResults int32,
 ) (*BatchSegmentJob, error) {
 	b.mu.Lock("CreateBatchSegmentJob")
 	defer b.mu.Unlock()
@@ -159,6 +164,7 @@ func (b *InMemoryBackend) CreateBatchSegmentJob(
 		Status:              statusActive,
 		CreationDateTime:    now,
 		LastUpdatedDateTime: now,
+		NumResults:          numResults,
 	}
 	b.batchSegmentJobs.Put(job)
 	if len(tags) > 0 {

@@ -154,6 +154,7 @@ func (b *InMemoryBackend) CreateDatasetImportJob(
 	jobName, datasetArn, roleArn, importMode string,
 	dataSource map[string]any,
 	tags map[string]string,
+	publishAttributionMetricsToS3 *bool,
 ) (*DatasetImportJob, error) {
 	b.mu.Lock("CreateDatasetImportJob")
 	defer b.mu.Unlock()
@@ -185,6 +186,8 @@ func (b *InMemoryBackend) CreateDatasetImportJob(
 		CreationDateTime:    now,
 		LastUpdatedDateTime: now,
 		ImportMode:          importMode,
+
+		PublishAttributionMetricsToS3: publishAttributionMetricsToS3,
 	}
 	b.datasetImportJobs.Put(job)
 	if len(tags) > 0 {

@@ -127,6 +127,7 @@ type StorageBackend interface {
 	// DescribeRegion returns metadata for a region previously added via AddRegion.
 	DescribeRegion(instanceArn, regionName string) (*RegionMetadata, error)
 	UpdateInstance(instanceArn, name string, permissionSetsEnabled *bool) error
+	UpdateInstanceEncryption(instanceArn, keyType, kmsKeyArn string) error
 	UpdateInstanceAccessControlAttributeConfiguration(instanceArn string, attributes []AccessControlAttribute) error
 	ListAccountsForProvisionedPermissionSet(instanceArn, permissionSetArn, filterStatus string) ([]string, error)
 	ListApplicationAssignmentsForPrincipal(instanceArn, principalID, principalType string) []*ApplicationAssignment
