@@ -119,7 +119,8 @@ func TestSetupOnlySentinelDemoted(t *testing.T) {
 		{
 			name: "also raised from a handler path is not demoted",
 			body: `func (s *Svc) Init(x any) error { return ErrNilCtx }
-func (s *Svc) handle() error { return ErrNilCtx }`,
+func (s *Svc) handle() error { return ErrNilCtx }
+var _ = (*Svc).handle`,
 		},
 		{
 			name: "referenced from a package-level table is not demoted",

@@ -21,3 +21,5 @@ var (
 )
 
 func raise() error { return ErrLiveThing }
+
+var _ = raise

@@ -20,41 +20,52 @@ func writeJSON(path string, findings []finding) error {
 }
 
 func printReport(findings []finding) {
-	var confident, review []finding
+	var confident, review, notCode, recorded []finding
 
 	for _, f := range findings {
-		if f.Confident {
+		switch {
+		case f.Recorded:
+			recorded = append(recorded, f)
+		case f.Kind != "":
+			notCode = append(notCode, f)
+		case f.Confident:
 			confident = append(confident, f)
-		} else {
+		default:
 			review = append(review, f)
 		}
 	}
 
 	fmt.Fprintf(
 		os.Stdout,
-		"# %d findings: %d confident, %d needs review\n\n",
-		len(findings), len(confident), len(review),
+		"# %d findings: %d confident, %d needs review, %d not an error code, %d recorded in PARITY.md\n\n",
+		len(findings), len(confident), len(review), len(notCode), len(recorded),
 	)
 
-	if len(confident) > 0 {
-		fmt.Fprintln(os.Stdout, "## CONFIDENT")
+	printSection("CONFIDENT", confident)
+	printSection("NEEDS REVIEW", review)
+	printSection("NOT AN ERROR CODE", notCode)
+	printSection("RECORDED IN PARITY.md", recorded)
+}
 
-		for _, f := range confident {
-			printFinding(f)
-		}
-
-		fmt.Fprintln(os.Stdout)
+func printSection(title string, fs []finding) {
+	if len(fs) == 0 {
+		return
 	}
 
-	if len(review) > 0 {
-		fmt.Fprintln(os.Stdout, "## NEEDS REVIEW")
+	fmt.Fprintln(os.Stdout, "## "+title)
 
-		for _, f := range review {
-			printFinding(f)
-		}
+	for _, f := range fs {
+		printFinding(f)
 	}
+
+	fmt.Fprintln(os.Stdout)
 }
 
 func printFinding(f finding) {
-	fmt.Fprintf(os.Stdout, "%s:%d  %s  [%s]  %s\n", f.File, f.Line, f.Code, f.Mechanism, f.Reason)
+	kind := ""
+	if f.Kind != "" {
+		kind = " <" + f.Kind + ">"
+	}
+
+	fmt.Fprintf(os.Stdout, "%s:%d  %s  [%s]%s  %s\n", f.File, f.Line, f.Code, f.Mechanism, kind, f.Reason)
 }
