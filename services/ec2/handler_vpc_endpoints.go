@@ -18,6 +18,7 @@ type createVpcEndpointConnectionNotificationResponse struct {
 type describeVpcEndpointConnectionNotificationsResponse struct {
 	XMLName                   xml.Name `xml:"DescribeVpcEndpointConnectionNotificationsResponse"`
 	RequestID                 string   `xml:"requestId"`
+	NextToken                 string   `xml:"nextToken,omitempty"`
 	ConnectionNotificationSet struct {
 		Items []connectionNotifItem `xml:"item"`
 	} `xml:"connectionNotificationSet"`
@@ -32,6 +33,7 @@ type modifyVpcEndpointConnectionNotificationResponse struct {
 type describeVpcEndpointConnectionsResponse struct {
 	XMLName                  xml.Name `xml:"DescribeVpcEndpointConnectionsResponse"`
 	RequestID                string   `xml:"requestId"`
+	NextToken                string   `xml:"nextToken,omitempty"`
 	VpcEndpointConnectionSet struct {
 		Items []vpcEndpointConnectionItem `xml:"item"`
 	} `xml:"vpcEndpointConnectionSet"`
@@ -47,6 +49,7 @@ type vpcEndpointAssocItem struct {
 type describeVpcEndpointAssociationsResponse struct {
 	XMLName                   xml.Name `xml:"DescribeVpcEndpointAssociationsResponse"`
 	RequestID                 string   `xml:"requestId"`
+	NextToken                 string   `xml:"nextToken,omitempty"`
 	VpcEndpointAssociationSet struct {
 		Items []vpcEndpointAssocItem `xml:"item"`
 	} `xml:"vpcEndpointAssociationSet"`
@@ -62,6 +65,7 @@ type allowedPrincipalItem struct {
 type describeVpcEndpointServicePermissionsResponse struct {
 	XMLName           xml.Name `xml:"DescribeVpcEndpointServicePermissionsResponse"`
 	RequestID         string   `xml:"requestId"`
+	NextToken         string   `xml:"nextToken,omitempty"`
 	AllowedPrincipals struct {
 		Items []allowedPrincipalItem `xml:"item"`
 	} `xml:"allowedPrincipals"`
@@ -153,7 +157,7 @@ func (h *Handler) handleDescribeVpcEndpointConnectionNotifications(
 		)
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 func (h *Handler) handleDeleteVpcEndpointConnectionNotifications(
@@ -209,7 +213,7 @@ func (h *Handler) handleDescribeVpcEndpointConnections(vals url.Values, reqID st
 		)
 	}
 
-	return resp, nil
+	return finishDescribe(vals, resp, describeOpts{spec: specClamp5()})
 }
 
 func (h *Handler) handleDescribeVpcEndpointAssociations(
@@ -233,7 +237,7 @@ func (h *Handler) handleDescribeVpcEndpointAssociations(
 		)
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 type payerResponsibilityEntryItem struct {
@@ -312,7 +316,7 @@ func (h *Handler) handleDescribeVpcEndpointServicePermissions(
 		})
 	}
 
-	return resp, nil
+	return finishDescribe(vals, resp, describeOpts{spec: specClamp5()})
 }
 
 func (h *Handler) handleModifyVpcEndpointServicePermissions(
@@ -433,6 +437,7 @@ type deleteVpcEndpointsResponse struct {
 type describeVpcEndpointServicesResponse struct {
 	XMLName      xml.Name `xml:"DescribeVpcEndpointServicesResponse"`
 	RequestID    string   `xml:"requestId"`
+	NextToken    string   `xml:"nextToken,omitempty"`
 	ServiceNames struct {
 		Items []string `xml:"item"`
 	} `xml:"serviceNameSet"`
@@ -540,7 +545,7 @@ func (h *Handler) handleDescribeVpcEndpointServices(vals url.Values, reqID strin
 		})
 	}
 
-	return resp, nil
+	return finishDescribe(vals, resp, describeOpts{spec: specClampParallel()})
 }
 
 type rejectVpcEndpointConnectionsResponse struct {

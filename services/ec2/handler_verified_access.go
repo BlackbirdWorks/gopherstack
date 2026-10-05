@@ -20,6 +20,7 @@ type createVerifiedAccessEndpointResponse struct {
 type describeVerifiedAccessEndpointsResponse struct {
 	XMLName                   xml.Name `xml:"DescribeVerifiedAccessEndpointsResponse"`
 	RequestID                 string   `xml:"requestId"`
+	NextToken                 string   `xml:"nextToken,omitempty"`
 	VerifiedAccessEndpointSet struct {
 		Items []verifiedAccessEndpointItem `xml:"item"`
 	} `xml:"verifiedAccessEndpointSet"`
@@ -54,6 +55,7 @@ type createVerifiedAccessGroupResponse struct {
 type describeVerifiedAccessGroupsResponse struct {
 	XMLName                xml.Name `xml:"DescribeVerifiedAccessGroupsResponse"`
 	RequestID              string   `xml:"requestId"`
+	NextToken              string   `xml:"nextToken,omitempty"`
 	VerifiedAccessGroupSet struct {
 		Items []verifiedAccessGroupItem `xml:"item"`
 	} `xml:"verifiedAccessGroupSet"`
@@ -115,6 +117,7 @@ type createVerifiedAccessInstanceResponse struct {
 type describeVerifiedAccessInstancesResponse struct {
 	XMLName                   xml.Name `xml:"DescribeVerifiedAccessInstancesResponse"`
 	RequestID                 string   `xml:"requestId"`
+	NextToken                 string   `xml:"nextToken,omitempty"`
 	VerifiedAccessInstanceSet struct {
 		Items []verifiedAccessInstanceItem `xml:"item"`
 	} `xml:"verifiedAccessInstanceSet"`
@@ -138,6 +141,7 @@ type createVerifiedAccessTrustProviderResponse struct {
 type describeVerifiedAccessTrustProvidersResponse struct {
 	XMLName                        xml.Name `xml:"DescribeVerifiedAccessTrustProvidersResponse"`
 	RequestID                      string   `xml:"requestId"`
+	NextToken                      string   `xml:"nextToken,omitempty"`
 	VerifiedAccessTrustProviderSet struct {
 		Items []verifiedAccessTrustProviderItem `xml:"item"`
 	} `xml:"verifiedAccessTrustProviderSet"`
@@ -234,7 +238,7 @@ func (h *Handler) handleDescribeVerifiedAccessEndpoints(vals url.Values, reqID s
 		)
 	}
 
-	return resp, nil
+	return finishPagedFiltered(vals, resp)
 }
 
 func (h *Handler) handleModifyVerifiedAccessEndpoint(vals url.Values, reqID string) (any, error) {
@@ -327,7 +331,7 @@ func (h *Handler) handleDescribeVerifiedAccessGroups(vals url.Values, reqID stri
 		)
 	}
 
-	return resp, nil
+	return finishPagedFiltered(vals, resp)
 }
 
 func (h *Handler) handleCreateVerifiedAccessInstance(vals url.Values, reqID string) (any, error) {
@@ -389,7 +393,7 @@ func (h *Handler) handleDescribeVerifiedAccessInstances(vals url.Values, reqID s
 		)
 	}
 
-	return resp, nil
+	return finishPagedFiltered(vals, resp)
 }
 
 func (h *Handler) handleCreateVerifiedAccessTrustProvider(vals url.Values, reqID string) (any, error) {
@@ -456,7 +460,7 @@ func (h *Handler) handleDescribeVerifiedAccessTrustProviders(
 		)
 	}
 
-	return resp, nil
+	return finishPagedFiltered(vals, resp)
 }
 
 type attachVerifiedAccessTrustProviderResponse struct {

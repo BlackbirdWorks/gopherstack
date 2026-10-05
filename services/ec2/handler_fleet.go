@@ -41,6 +41,7 @@ type deleteFleetsResponse struct {
 type describeFleetsResponse struct {
 	XMLName   xml.Name `xml:"DescribeFleetsResponse"`
 	RequestID string   `xml:"requestId"`
+	NextToken string   `xml:"nextToken,omitempty"`
 	FleetSet  struct {
 		Items []fleetItem `xml:"item"`
 	} `xml:"fleetSet"`
@@ -340,7 +341,7 @@ func (h *Handler) handleDescribeFleets(vals url.Values, reqID string) (any, erro
 		resp.FleetSet.Items = append(resp.FleetSet.Items, item)
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 func (h *Handler) handleModifyFleet(vals url.Values, reqID string) (any, error) {

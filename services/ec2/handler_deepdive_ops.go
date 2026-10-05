@@ -125,11 +125,11 @@ func (h *Handler) handleDescribeImageUsageReports(vals url.Values, reqID string)
 		items = append(items, item)
 	}
 
-	return &describeImageUsageReportsResponse{
+	return finishPaged(vals, &describeImageUsageReportsResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
 		Reports:   imageUsageReportSet{Items: items},
-	}, nil
+	})
 }
 
 func (h *Handler) handleCreateLaunchTemplate(vals url.Values, reqID string) (any, error) {
@@ -219,11 +219,11 @@ func (h *Handler) handleDescribeVpcEndpoints(vals url.Values, reqID string) (any
 		items = append(items, h.toVpcEndpointItem(endpoint, h.Backend.TagsForResource(endpoint.ID)))
 	}
 
-	return &describeVpcEndpointsResponse{
+	return finishDescribe(vals, &describeVpcEndpointsResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
 		Endpoints: vpcEndpointSet{Items: items},
-	}, nil
+	}, describeOpts{spec: specClamp()})
 }
 
 func (h *Handler) handleDescribeNetworkAcls(vals url.Values, reqID string) (any, error) {
@@ -392,6 +392,7 @@ type describeImageUsageReportsResponse struct {
 	XMLName   xml.Name            `xml:"DescribeImageUsageReportsResponse"`
 	Xmlns     string              `xml:"xmlns,attr"`
 	RequestID string              `xml:"requestId"`
+	NextToken string              `xml:"nextToken,omitempty"`
 	Reports   imageUsageReportSet `xml:"imageUsageReportSet"`
 }
 
@@ -443,6 +444,7 @@ type describeVpcEndpointsResponse struct {
 	XMLName   xml.Name       `xml:"DescribeVpcEndpointsResponse"`
 	Xmlns     string         `xml:"xmlns,attr"`
 	RequestID string         `xml:"requestId"`
+	NextToken string         `xml:"nextToken,omitempty"`
 	Endpoints vpcEndpointSet `xml:"vpcEndpointSet"`
 }
 

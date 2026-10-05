@@ -15,6 +15,7 @@ type createNetworkInsightsPathResponse struct {
 type describeNetworkInsightsPathsResponse struct {
 	XMLName              xml.Name `xml:"DescribeNetworkInsightsPathsResponse"`
 	RequestID            string   `xml:"requestId"`
+	NextToken            string   `xml:"nextToken,omitempty"`
 	NetworkInsightsPaths struct {
 		Items []networkInsightsPathItem `xml:"item"`
 	} `xml:"networkInsightsPathSet"`
@@ -38,6 +39,7 @@ type startNetworkInsightsAnalysisResponse struct {
 type describeNetworkInsightsAnalysesResponse struct {
 	XMLName                 xml.Name `xml:"DescribeNetworkInsightsAnalysesResponse"`
 	RequestID               string   `xml:"requestId"`
+	NextToken               string   `xml:"nextToken,omitempty"`
 	NetworkInsightsAnalyses struct {
 		Items []networkInsightsAnalysisItem `xml:"item"`
 	} `xml:"networkInsightsAnalysisSet"`
@@ -58,6 +60,7 @@ type createNetworkInsightsAccessScopeResponse struct {
 type describeNetworkInsightsAccessScopesResponse struct {
 	XMLName                     xml.Name `xml:"DescribeNetworkInsightsAccessScopesResponse"`
 	RequestID                   string   `xml:"requestId"`
+	NextToken                   string   `xml:"nextToken,omitempty"`
 	NetworkInsightsAccessScopes struct {
 		Items []networkInsightsAccessScopeItem `xml:"item"`
 	} `xml:"networkInsightsAccessScopeSet"`
@@ -94,6 +97,7 @@ type startNetworkInsightsAccessScopeAnalysisResponse struct {
 type describeNetworkInsightsAccessScopeAnalysesResponse struct {
 	XMLName                            xml.Name `xml:"DescribeNetworkInsightsAccessScopeAnalysesResponse"`
 	RequestID                          string   `xml:"requestId"`
+	NextToken                          string   `xml:"nextToken,omitempty"`
 	NetworkInsightsAccessScopeAnalyses struct {
 		Items []networkInsightsAccessScopeAnalysisItem `xml:"item"`
 	} `xml:"networkInsightsAccessScopeAnalysisSet"`
@@ -102,6 +106,7 @@ type describeNetworkInsightsAccessScopeAnalysesResponse struct {
 type getNetworkInsightsAccessScopeAnalysisFindingsResponse struct {
 	XMLName        xml.Name `xml:"GetNetworkInsightsAccessScopeAnalysisFindingsResponse"`
 	RequestID      string   `xml:"requestId"`
+	NextToken      string   `xml:"nextToken,omitempty"`
 	AnalysisID     string   `xml:"networkInsightsAccessScopeAnalysisId,omitempty"`
 	AnalysisStatus string   `xml:"analysisStatus,omitempty"`
 	Findings       struct {
@@ -178,7 +183,7 @@ func (h *Handler) handleDescribeNetworkInsightsPaths(vals url.Values, reqID stri
 		)
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 // ---- Network Insights Analysis handlers ----
@@ -246,7 +251,7 @@ func (h *Handler) handleDescribeNetworkInsightsAnalyses(
 		)
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 // ---- Network Insights Access Scope handlers ----
@@ -317,7 +322,7 @@ func (h *Handler) handleDescribeNetworkInsightsAccessScopes(
 		)
 	}
 
-	return resp, nil
+	return finishPagedFiltered(vals, resp)
 }
 
 func (h *Handler) handleGetNetworkInsightsAccessScopeContent(
@@ -405,7 +410,7 @@ func (h *Handler) handleDescribeNetworkInsightsAccessScopeAnalyses(
 		)
 	}
 
-	return resp, nil
+	return finishPagedFiltered(vals, resp)
 }
 
 func (h *Handler) handleGetNetworkInsightsAccessScopeAnalysisFindings(
@@ -414,11 +419,11 @@ func (h *Handler) handleGetNetworkInsightsAccessScopeAnalysisFindings(
 ) (any, error) {
 	analysisID := vals.Get("NetworkInsightsAccessScopeAnalysisId")
 
-	return &getNetworkInsightsAccessScopeAnalysisFindingsResponse{
+	return finishPaged(vals, &getNetworkInsightsAccessScopeAnalysisFindingsResponse{
 		RequestID:      reqID,
 		AnalysisID:     analysisID,
 		AnalysisStatus: "succeeded",
-	}, nil
+	})
 }
 
 // ---- BYOIP handlers ----

@@ -580,10 +580,9 @@ items_still_open:
     same treatment as the ops already fixed (read the op's SDK doc comment for its
     documented filter names, cross-check against what this backend's struct actually
     stores, add an applyXxxFilters/xxxMatchesFilter pair, wire it in after any existing
-    requireAllIDsPresent check): the rest of the transit gateway family
-    (DescribeTransitGatewayMeteringPolicies/PolicyTables/RouteTableAnnouncements and their
-    GetTransitGatewayMeteringPolicyEntries/PolicyTableAssociations sub-ops, whose SDK
-    docs list no names); partial leftovers on ops fixed 2026-10-01: DescribeCapacityBlocks
+    requireAllIDsPresent check): the transit gateway metering/policy-table family and
+    the other ops whose SDK docs list no filter names are done (2026-10-05, wire-field
+    filters, see the Notes entry); partial leftovers on ops fixed 2026-10-01: DescribeCapacityBlocks
     ultraserver-type/tags, DescribeCapacityBlockExtensionHistory instance-type/
     availability-zone-id, DescribeInstanceEventWindows instance-tag (value syntax
     undocumented), DescribeInstanceImageMetadata image-allowed/owner-alias,
@@ -710,6 +709,13 @@ structural_gaps:
     discovery or RPKI route-validation pipeline exists in this emulator -- both ops validate
     their real FK (IpamResourceDiscoveryId / IpamId, correct NotFound on an unknown one) but
     always return an empty, correctly-shaped result rather than fabricate routes or findings."
+  - "Request fields still unread (2026-10-05): DescribeNetworkInsightsAnalyses AnalysisStartTime/AnalysisEndTime
+    (analysis items carry startDate only, no end date; the SDK does not say which bound each field
+    compares), DescribeNetworkInsightsAccessScopeAnalyses AnalysisStartTimeBegin/End (items carry no start
+    time), CreateNetworkInsightsPath FilterAtSource/FilterAtDestination and StartNetworkInsightsAnalysis
+    FilterInArns/FilterOutArns (no path-analysis engine consumes them), GetCapacityManagerMetricData/
+    Dimensions FilterBy (no metric data modeled), ExportTransitGatewayRoutes Filters (shapes an S3 file this
+    backend does not render)."
 deferred:
   - trunk_enclave.go's TrunkInterfaceAssociation.Tags: genuinely cannot migrate to the shared tag store — see tag_dual_storage note above (no TagSpecifications on the real create call, no ResourceType enum entry, so CreateTags could never target it even if registered). Left as the single remaining embedded-Tags field in the codebase, by design. RE-VERIFIED (gopherstack-8pce, 2026-07-31 pass): re-read AssociateTrunkInterfaceInput and the ResourceType enum in the installed SDK directly — the constraint still holds exactly as documented. This is NOT a reason to hold the grade at B: the reasoning is a genuine, unchanged real-API limitation (same treatment sql_ha.go's fabricated Tags field got — deleted, not migrated, in the prior pass), not an unaudited gap.
   - "RestoreImageFromRecycleBin (images.go): STALE ENTRY, already fixed before this deferred note was written. Commit 2d47b51d4 (2026-07-29, part of this same gopherstack-8pce ticket) rewrote the op to report InvalidAMIID.NotFound for an image genuinely absent from the bin and to re-create the AMI (guarding against clobbering a live image with the same ID) rather than unconditionally returning success — read directly in images.go:406-433 this pass, confirmed still correct. The deferred bullet describing it as a live disguised-stub bug was written into a later PARITY.md revision without re-checking the code and was wrong. FIXED this pass: added the test coverage that was missing (TestHandler_RestoreImageFromRecycleBin in handler_image_ops_test.go), since the fix had shipped with none."
@@ -6328,3 +6334,16 @@ Implemented: ProvisionByoipCidr.PubliclyAdvertisable (IPv6 only, api_op_Provisio
 
 Recorded again, each with the missing observable: CreateImage.NoReboot, StopInstances.Force/SkipOsShutdown and TerminateInstances.SkipOsShutdown (no guest OS; the Compute interface has no graceful-versus-forced knob); CreateNatGateway.AvailabilityZoneAddresses (regional NAT gateways are not modeled: no AvailabilityMode/VpcId, NatGateway is a single zonal address); DescribeInstanceTypes.IncludeUnsupportedInRegion (one global catalog, no per-region availability); DescribeReservedInstancesOfferings.MaxInstanceCount (offerings have no instance-count dimension); GetConsoleOutput.Latest (one static console string); GetIpamAddressHistory.StartTime/EndTime and GetIpamDiscoveredRoutes/GetIpamRouteProtectionFindings.MaxResults (these ops always return an empty set, no discovery pipeline); ImportImage.RoleName/ImportSnapshot.RoleName (no output echoes it and the import path checks no IAM role); ModifyCapacityReservation.Accept (documented Reserved).
 
+- **2026-10-05 (reqfielddiff ec2 tier-2 sweep, 348 -> 16)**: Filters and MaxResults/NextToken on ~145 Describe*/Get*
+  ops now go through one post-processor (describe_post.go, wire_filters.go) that each handler calls last via
+  finishDescribe. Filters match the response item's own wire fields (filter name hyphen-folded to the xml element,
+  dotted names descend, tag:/tag-key/tag-value read tagSet) because the pinned SDK documents no names for these ops;
+  a name that resolves to no wire field is InvalidParameterValue. Values are case-sensitive with `*`/`?`/`\`
+  wildcards, OR within a filter, AND across filters; anyEqual now has the same wildcard semantics for every
+  hand-written filter. Pages sort by wire content first so offsets are stable across calls. MaxResults ranges come
+  from each op's SDK doc (hosts 5-500, launch templates 1-200, tags 5-1000, VPC endpoint family clamped to 1000);
+  MaxResults with explicit IDs is InvalidParameterCombination on DescribeHosts/InstanceStatus/NetworkInterfaces/
+  StoreImageTasks. DescribeSpotPriceHistory EndTime, DescribeScheduledInstances SlotStartTimeRange,
+  DescribeCapacityBlockOfferings Start/EndDateRange and DescribeTrafficMirrorFilterRules TrafficMirrorFilterRuleIds
+  are now applied. DryRun already has a shared handler (dispatch, 412 DryRunOperation). Unmodeled leftovers are in
+  items_still_open.

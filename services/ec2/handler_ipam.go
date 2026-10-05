@@ -66,7 +66,7 @@ func (h *Handler) handleDescribeIpams(vals url.Values, reqID string) (any, error
 		resp.IpamSet.Items = append(resp.IpamSet.Items, h.toIpamItem(ipam))
 	}
 
-	return resp, nil
+	return finishPagedFiltered(vals, resp)
 }
 
 func (h *Handler) handleModifyIpam(vals url.Values, reqID string) (any, error) {
@@ -147,7 +147,7 @@ func (h *Handler) handleDescribeIpamScopes(vals url.Values, reqID string) (any, 
 		resp.IpamScopeSet.Items = append(resp.IpamScopeSet.Items, h.toIpamScopeItem(scope))
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 func (h *Handler) handleModifyIpamScope(vals url.Values, reqID string) (any, error) {
@@ -290,7 +290,7 @@ func (h *Handler) handleDescribeIpamPools(vals url.Values, reqID string) (any, e
 		resp.IpamPoolSet.Items = append(resp.IpamPoolSet.Items, h.toIpamPoolItem(pool))
 	}
 
-	return resp, nil
+	return finishPagedFiltered(vals, resp)
 }
 
 func (h *Handler) handleModifyIpamPool(vals url.Values, reqID string) (any, error) {
@@ -394,7 +394,7 @@ func (h *Handler) handleGetIpamPoolCidrs(vals url.Values, reqID string) (any, er
 		resp.IpamPoolCidrSet.Items = append(resp.IpamPoolCidrSet.Items, toIpamPoolCidrItem(c))
 	}
 
-	return resp, nil
+	return finishPagedFiltered(vals, resp)
 }
 
 func (h *Handler) handleAllocateIpamPoolCidr(vals url.Values, reqID string) (any, error) {
@@ -439,7 +439,7 @@ func (h *Handler) handleGetIpamPoolAllocations(vals url.Values, reqID string) (a
 		)
 	}
 
-	return resp, nil
+	return finishPagedFiltered(vals, resp)
 }
 
 func (h *Handler) handleReleaseIpamPoolAllocation(vals url.Values, reqID string) (any, error) {
@@ -473,7 +473,7 @@ func (h *Handler) handleDescribeIpamPoolAllocations(vals url.Values, reqID strin
 		resp.IpamPoolAllocationSet.Items = append(resp.IpamPoolAllocationSet.Items, toIpamPoolAllocationItem(alloc))
 	}
 
-	return resp, nil
+	return finishPagedFiltered(vals, resp)
 }
 
 type modifyIpamPoolAllocationResponse struct {
@@ -512,7 +512,7 @@ func (h *Handler) handleDescribeIpamResourceDiscoveries(vals url.Values, reqID s
 		)
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 func (h *Handler) handleDescribeIpamResourceDiscoveryAssociations(
@@ -530,27 +530,35 @@ func (h *Handler) handleDescribeIpamResourceDiscoveryAssociations(
 		)
 	}
 
-	return resp, nil
+	return finishPagedFiltered(vals, resp)
 }
 
 // handleGetIpamAddressHistory always returns an empty (but correctly shaped) history record
 // set: modeling real IPAM address-usage history requires a live discovery pipeline this mock
 // does not implement.
-func (h *Handler) handleGetIpamAddressHistory(_ url.Values, reqID string) (any, error) {
-	return &getIpamAddressHistoryResponse{Xmlns: ec2XMLNS, RequestID: reqID}, nil
+func (h *Handler) handleGetIpamAddressHistory(vals url.Values, reqID string) (any, error) {
+	resp := &getIpamAddressHistoryResponse{Xmlns: ec2XMLNS, RequestID: reqID}
+
+	return finishDescribe(vals, resp, describeOpts{spec: specIpamHistory()})
 }
 
 // handleGetIpamDiscoveredAccounts always returns an empty (but correctly shaped) account set.
-func (h *Handler) handleGetIpamDiscoveredAccounts(_ url.Values, reqID string) (any, error) {
-	return &getIpamDiscoveredAccountsResponse{Xmlns: ec2XMLNS, RequestID: reqID}, nil
+func (h *Handler) handleGetIpamDiscoveredAccounts(vals url.Values, reqID string) (any, error) {
+	resp := &getIpamDiscoveredAccountsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
+
+	return finishPagedFiltered(vals, resp)
 }
 
 // handleGetIpamDiscoveredResourceCidrs always returns an empty (but correctly shaped) CIDR set.
-func (h *Handler) handleGetIpamDiscoveredResourceCidrs(_ url.Values, reqID string) (any, error) {
-	return &getIpamDiscoveredResourceCidrsResponse{Xmlns: ec2XMLNS, RequestID: reqID}, nil
+func (h *Handler) handleGetIpamDiscoveredResourceCidrs(vals url.Values, reqID string) (any, error) {
+	resp := &getIpamDiscoveredResourceCidrsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
+
+	return finishPagedFiltered(vals, resp)
 }
 
 // handleGetIpamDiscoveredPublicAddresses always returns an empty (but correctly shaped) address set.
-func (h *Handler) handleGetIpamDiscoveredPublicAddresses(_ url.Values, reqID string) (any, error) {
-	return &getIpamDiscoveredPublicAddressesResponse{Xmlns: ec2XMLNS, RequestID: reqID}, nil
+func (h *Handler) handleGetIpamDiscoveredPublicAddresses(vals url.Values, reqID string) (any, error) {
+	resp := &getIpamDiscoveredPublicAddressesResponse{Xmlns: ec2XMLNS, RequestID: reqID}
+
+	return finishPagedFiltered(vals, resp)
 }

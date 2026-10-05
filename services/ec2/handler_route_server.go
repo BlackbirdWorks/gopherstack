@@ -70,6 +70,7 @@ type describeRouteServersResponse struct {
 	XMLName      xml.Name `xml:"DescribeRouteServersResponse"`
 	Xmlns        string   `xml:"xmlns,attr"`
 	RequestID    string   `xml:"requestId"`
+	NextToken    string   `xml:"nextToken,omitempty"`
 	RouteServers struct {
 		Items []routeServerItem `xml:"item"`
 	} `xml:"routeServerSet"`
@@ -131,6 +132,7 @@ type describeRouteServerEndpointsResponse struct {
 	XMLName              xml.Name `xml:"DescribeRouteServerEndpointsResponse"`
 	Xmlns                string   `xml:"xmlns,attr"`
 	RequestID            string   `xml:"requestId"`
+	NextToken            string   `xml:"nextToken,omitempty"`
 	RouteServerEndpoints struct {
 		Items []routeServerEndpointItem `xml:"item"`
 	} `xml:"routeServerEndpointSet"`
@@ -220,6 +222,7 @@ type describeRouteServerPeersResponse struct {
 	XMLName          xml.Name `xml:"DescribeRouteServerPeersResponse"`
 	Xmlns            string   `xml:"xmlns,attr"`
 	RequestID        string   `xml:"requestId"`
+	NextToken        string   `xml:"nextToken,omitempty"`
 	RouteServerPeers struct {
 		Items []routeServerPeerItem `xml:"item"`
 	} `xml:"routeServerPeerSet"`
@@ -351,6 +354,7 @@ type getRouteServerRoutingDatabaseResponse struct {
 	XMLName   xml.Name `xml:"GetRouteServerRoutingDatabaseResponse"`
 	Xmlns     string   `xml:"xmlns,attr"`
 	RequestID string   `xml:"requestId"`
+	NextToken string   `xml:"nextToken,omitempty"`
 	Routes    struct {
 		Items []routeServerRouteItem `xml:"item"`
 	} `xml:"routeSet"`
@@ -424,7 +428,7 @@ func (h *Handler) handleDescribeRouteServers(vals url.Values, reqID string) (any
 		)
 	}
 
-	return resp, nil
+	return finishPagedFiltered(vals, resp)
 }
 
 func (h *Handler) handleDeleteRouteServer(vals url.Values, reqID string) (any, error) {
@@ -496,7 +500,7 @@ func (h *Handler) handleDescribeRouteServerEndpoints(vals url.Values, reqID stri
 		)
 	}
 
-	return resp, nil
+	return finishPagedFiltered(vals, resp)
 }
 
 func (h *Handler) handleDeleteRouteServerEndpoint(vals url.Values, reqID string) (any, error) {
@@ -550,7 +554,7 @@ func (h *Handler) handleDescribeRouteServerPeers(vals url.Values, reqID string) 
 		)
 	}
 
-	return resp, nil
+	return finishPagedFiltered(vals, resp)
 }
 
 func (h *Handler) handleDeleteRouteServerPeer(vals url.Values, reqID string) (any, error) {
@@ -676,5 +680,5 @@ func (h *Handler) handleGetRouteServerRoutingDatabase(vals url.Values, reqID str
 		resp.Routes.Items = append(resp.Routes.Items, toRouteServerRouteItem(r))
 	}
 
-	return resp, nil
+	return finishPagedFiltered(vals, resp)
 }

@@ -16,6 +16,7 @@ type createTransitGatewayPeeringAttachmentResponse struct {
 type describeTransitGatewayPeeringAttachmentsResponse struct {
 	XMLName                          xml.Name `xml:"DescribeTransitGatewayPeeringAttachmentsResponse"`
 	RequestID                        string   `xml:"requestId"`
+	NextToken                        string   `xml:"nextToken,omitempty"`
 	TransitGatewayPeeringAttachments struct {
 		Items []tgwPeeringAttachmentItem `xml:"item"`
 	} `xml:"transitGatewayPeeringAttachments"`
@@ -49,6 +50,7 @@ type createTransitGatewayConnectResponse struct {
 type describeTransitGatewayConnectsResponse struct {
 	XMLName                xml.Name `xml:"DescribeTransitGatewayConnectsResponse"`
 	RequestID              string   `xml:"requestId"`
+	NextToken              string   `xml:"nextToken,omitempty"`
 	TransitGatewayConnects struct {
 		Items []tgwConnectItem `xml:"item"`
 	} `xml:"transitGatewayConnectSet"`
@@ -103,6 +105,7 @@ type createTransitGatewayConnectPeerResponse struct {
 type describeTransitGatewayConnectPeersResponse struct {
 	XMLName                    xml.Name `xml:"DescribeTransitGatewayConnectPeersResponse"`
 	RequestID                  string   `xml:"requestId"`
+	NextToken                  string   `xml:"nextToken,omitempty"`
 	TransitGatewayConnectPeers struct {
 		Items []tgwConnectPeerItem `xml:"item"`
 	} `xml:"transitGatewayConnectPeerSet"`
@@ -153,6 +156,7 @@ type createTransitGatewayPrefixListReferenceResponse struct {
 type getTransitGatewayPrefixListReferencesResponse struct {
 	XMLName                              xml.Name `xml:"GetTransitGatewayPrefixListReferencesResponse"`
 	RequestID                            string   `xml:"requestId"`
+	NextToken                            string   `xml:"nextToken,omitempty"`
 	TransitGatewayPrefixListReferenceSet struct {
 		Items []tgwPrefixListRefItem `xml:"item"`
 	} `xml:"transitGatewayPrefixListReferenceSet"`
@@ -271,7 +275,7 @@ func (h *Handler) handleDescribeTransitGatewayPeeringAttachments(
 		)
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 // ---- TGW Connect handlers ----
@@ -360,7 +364,7 @@ func (h *Handler) handleDescribeTransitGatewayConnects(vals url.Values, reqID st
 		)
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 func toTGWBgpConfigurationItems(configs []TransitGatewayBgpConfiguration) []tgwBgpConfigurationItem {
@@ -447,7 +451,7 @@ func (h *Handler) handleDescribeTransitGatewayConnectPeers(
 		)
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 // ---- TGW PrefixListRef handlers ----
@@ -516,7 +520,7 @@ func (h *Handler) handleGetTransitGatewayPrefixListReferences(
 		)
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 // ---- VerifiedAccess handlers ----

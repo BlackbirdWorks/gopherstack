@@ -738,21 +738,13 @@ func (h *Handler) handleDescribeTransitGatewayMeteringPolicies(
 	ids := parseMemberList(vals, "TransitGatewayMeteringPolicyIds")
 	policies := h.Backend.DescribeTransitGatewayMeteringPolicies(ids)
 
-	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
-	if err != nil {
-		return nil, err
-	}
-
-	var nextToken string
-	policies, nextToken = pageSlice(policies, offset, maxResults)
-
-	resp := &describeTransitGatewayMeteringPoliciesResponse{Xmlns: ec2XMLNS, RequestID: reqID, NextToken: nextToken}
+	resp := &describeTransitGatewayMeteringPoliciesResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 
 	for _, p := range policies {
 		resp.Policies.Items = append(resp.Policies.Items, tgwMeteringPolicyToItem(p, h.Backend.TagsForResource(p.ID)))
 	}
 
-	return resp, nil
+	return finishPagedFiltered(vals, resp)
 }
 
 func (h *Handler) handleDeleteTransitGatewayMeteringPolicy(vals url.Values, reqID string) (any, error) {

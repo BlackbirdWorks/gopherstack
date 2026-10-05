@@ -1194,11 +1194,15 @@ func instanceMatchesFilter(inst *Instance, filterName string, values []string, t
 	return true
 }
 
-// anyEqual returns true if target equals any element in vals.
-
-// anyEqual returns true if target equals any element in vals.
+// anyEqual reports whether target matches any value; case-sensitive with * and ? wildcards.
 func anyEqual(target string, vals []string) bool {
-	return slices.Contains(vals, target)
+	for _, v := range vals {
+		if wildcardMatch(v, target) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // applySecurityGroupFilters filters security groups by named EC2 filter values.

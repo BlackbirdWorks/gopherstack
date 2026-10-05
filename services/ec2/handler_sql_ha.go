@@ -75,6 +75,7 @@ type describeInstanceSQLHaStatesResponse struct {
 	XMLName     xml.Name `xml:"DescribeInstanceSqlHaStatesResponse"`
 	Xmlns       string   `xml:"xmlns,attr"`
 	RequestID   string   `xml:"requestId"`
+	NextToken   string   `xml:"nextToken,omitempty"`
 	InstanceSet struct {
 		Items []registeredSQLHaInstanceItem `xml:"item"`
 	} `xml:"instanceSet"`
@@ -84,6 +85,7 @@ type describeInstanceSQLHaHistoryStatesResponse struct {
 	XMLName     xml.Name `xml:"DescribeInstanceSqlHaHistoryStatesResponse"`
 	Xmlns       string   `xml:"xmlns,attr"`
 	RequestID   string   `xml:"requestId"`
+	NextToken   string   `xml:"nextToken,omitempty"`
 	InstanceSet struct {
 		Items []registeredSQLHaInstanceItem `xml:"item"`
 	} `xml:"instanceSet"`
@@ -141,7 +143,7 @@ func (h *Handler) handleDescribeInstanceSQLHaStates(vals url.Values, reqID strin
 		)
 	}
 
-	return resp, nil
+	return finishPagedFiltered(vals, resp)
 }
 
 func (h *Handler) handleDescribeInstanceSQLHaHistoryStates(vals url.Values, reqID string) (any, error) {
@@ -161,5 +163,5 @@ func (h *Handler) handleDescribeInstanceSQLHaHistoryStates(vals url.Values, reqI
 		)
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }

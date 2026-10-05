@@ -43,6 +43,7 @@ type describeMacHostsResponse struct {
 	XMLName    xml.Name `xml:"DescribeMacHostsResponse"`
 	Xmlns      string   `xml:"xmlns,attr"`
 	RequestID  string   `xml:"requestId"`
+	NextToken  string   `xml:"nextToken,omitempty"`
 	MacHostSet struct {
 		Items []macHostItem `xml:"item"`
 	} `xml:"macHostSet"`
@@ -113,6 +114,7 @@ type describeMacModificationTasksResponse struct {
 	XMLName                xml.Name `xml:"DescribeMacModificationTasksResponse"`
 	Xmlns                  string   `xml:"xmlns,attr"`
 	RequestID              string   `xml:"requestId"`
+	NextToken              string   `xml:"nextToken,omitempty"`
 	MacModificationTaskSet struct {
 		Items []macModificationTaskItem `xml:"item"`
 	} `xml:"macModificationTaskSet"`
@@ -130,7 +132,7 @@ func (h *Handler) handleDescribeMacHosts(vals url.Values, reqID string) (any, er
 		resp.MacHostSet.Items = append(resp.MacHostSet.Items, toMacHostItem(hst))
 	}
 
-	return resp, nil
+	return finishDescribe(vals, resp, describeOpts{spec: spec5to500()})
 }
 
 func parseMacSIPConfig(vals url.Values) *MacSIPConfig {
@@ -202,5 +204,5 @@ func (h *Handler) handleDescribeMacModificationTasks(vals url.Values, reqID stri
 		)
 	}
 
-	return resp, nil
+	return finishDescribe(vals, resp, describeOpts{spec: spec5to500()})
 }

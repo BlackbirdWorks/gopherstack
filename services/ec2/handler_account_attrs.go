@@ -22,6 +22,7 @@ type prefixListItem struct {
 type describePrefixListsResponse struct {
 	XMLName       xml.Name `xml:"DescribePrefixListsResponse"`
 	RequestID     string   `xml:"requestId"`
+	NextToken     string   `xml:"nextToken,omitempty"`
 	PrefixListSet struct {
 		Items []prefixListItem `xml:"item"`
 	} `xml:"prefixListSet"`
@@ -70,6 +71,7 @@ type principalIDFormatItem struct {
 type describePrincipalIDFormatResponse struct {
 	XMLName      xml.Name `xml:"DescribePrincipalIdFormatResponse"`
 	RequestID    string   `xml:"requestId"`
+	NextToken    string   `xml:"nextToken,omitempty"`
 	PrincipalSet struct {
 		Items []principalIDFormatItem `xml:"item"`
 	} `xml:"principalSet"`
@@ -122,7 +124,7 @@ func (h *Handler) handleDescribePrefixLists(vals url.Values, reqID string) (any,
 		resp.PrefixListSet.Items = append(resp.PrefixListSet.Items, item)
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 func (h *Handler) handleDescribeIDFormat(vals url.Values, reqID string) (any, error) {
@@ -222,7 +224,7 @@ func (h *Handler) handleDescribePrincipalIDFormat(vals url.Values, reqID string)
 	}
 	resp.PrincipalSet.Items = append(resp.PrincipalSet.Items, principal)
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 func (h *Handler) handleDescribeInstanceEventNotificationAttributes(

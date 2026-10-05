@@ -110,11 +110,11 @@ func (h *Handler) handleDescribeLaunchTemplateVersions(vals url.Values, reqID st
 
 	items = applyLaunchTemplateVersionFilters(items, parseEC2Filters(vals))
 
-	return &describeLaunchTemplateVersionsResponse{
+	return finishDescribe(vals, &describeLaunchTemplateVersionsResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
 		Versions:  launchTemplateVersionSet{Items: items},
-	}, nil
+	}, describeOpts{spec: specLaunchTemplates()})
 }
 
 // ---- VPC endpoint delete handler ----
@@ -130,6 +130,7 @@ type describeLaunchTemplateVersionsResponse struct {
 	XMLName   xml.Name                 `xml:"DescribeLaunchTemplateVersionsResponse"`
 	Xmlns     string                   `xml:"xmlns,attr"`
 	RequestID string                   `xml:"requestId"`
+	NextToken string                   `xml:"nextToken,omitempty"`
 	Versions  launchTemplateVersionSet `xml:"launchTemplateVersionSet"`
 }
 
@@ -210,11 +211,11 @@ func (h *Handler) handleDescribeLaunchTemplates(vals url.Values, reqID string) (
 		})
 	}
 
-	return &describeLaunchTemplatesResponse{
+	return finishDescribe(vals, &describeLaunchTemplatesResponse{
 		Xmlns:             ec2XMLNS,
 		RequestID:         reqID,
 		LaunchTemplateSet: launchTemplateSet{Items: items},
-	}, nil
+	}, describeOpts{spec: specLaunchTemplates()})
 }
 
 type launchTemplateItem struct {
@@ -235,5 +236,6 @@ type describeLaunchTemplatesResponse struct {
 	XMLName           xml.Name          `xml:"DescribeLaunchTemplatesResponse"`
 	Xmlns             string            `xml:"xmlns,attr"`
 	RequestID         string            `xml:"requestId"`
+	NextToken         string            `xml:"nextToken,omitempty"`
 	LaunchTemplateSet launchTemplateSet `xml:"launchTemplates"`
 }

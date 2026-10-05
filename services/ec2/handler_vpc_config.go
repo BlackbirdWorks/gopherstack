@@ -165,7 +165,7 @@ func (h *Handler) handleDescribeClassicLinkInstances(vals url.Values, reqID stri
 		})
 	}
 
-	return resp, nil
+	return finishDescribe(vals, resp, describeOpts{spec: specClamp()})
 }
 
 type enableVpcClassicLinkResponse struct {
@@ -292,7 +292,7 @@ func (h *Handler) handleDescribeVpcClassicLinkDNSSupport(vals url.Values, reqID 
 		})
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 // ---- VPC Block Public Access ----
@@ -493,5 +493,5 @@ func (h *Handler) handleDescribeVpcBlockPublicAccessExclusions(vals url.Values, 
 		)
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }

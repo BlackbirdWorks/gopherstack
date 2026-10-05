@@ -522,6 +522,7 @@ type describeVpcEndpointServiceConfigurationsResponse struct {
 	XMLName          xml.Name `xml:"DescribeVpcEndpointServiceConfigurationsResponse"`
 	Xmlns            string   `xml:"xmlns,attr"`
 	RequestID        string   `xml:"requestId"`
+	NextToken        string   `xml:"nextToken,omitempty"`
 	ServiceConfigSet struct {
 		Items []vpcEndpointServiceConfigItem `xml:"item"`
 	} `xml:"serviceConfigurationSet"`
@@ -610,6 +611,7 @@ type describeIpamsResponse struct {
 	XMLName   xml.Name `xml:"DescribeIpamsResponse"`
 	Xmlns     string   `xml:"xmlns,attr"`
 	RequestID string   `xml:"requestId"`
+	NextToken string   `xml:"nextToken,omitempty"`
 	IpamSet   struct {
 		Items []ipamItem `xml:"item"`
 	} `xml:"ipamSet"`
@@ -670,6 +672,7 @@ type describeIpamScopesResponse struct {
 	XMLName      xml.Name `xml:"DescribeIpamScopesResponse"`
 	Xmlns        string   `xml:"xmlns,attr"`
 	RequestID    string   `xml:"requestId"`
+	NextToken    string   `xml:"nextToken,omitempty"`
 	IpamScopeSet struct {
 		Items []ipamScopeItem `xml:"item"`
 	} `xml:"ipamScopeSet"`
@@ -744,6 +747,7 @@ type describeIpamPoolsResponse struct {
 	XMLName     xml.Name `xml:"DescribeIpamPoolsResponse"`
 	Xmlns       string   `xml:"xmlns,attr"`
 	RequestID   string   `xml:"requestId"`
+	NextToken   string   `xml:"nextToken,omitempty"`
 	IpamPoolSet struct {
 		Items []ipamPoolItem `xml:"item"`
 	} `xml:"ipamPoolSet"`
@@ -790,6 +794,7 @@ type getIpamPoolCidrsResponse struct {
 	XMLName         xml.Name `xml:"GetIpamPoolCidrsResponse"`
 	Xmlns           string   `xml:"xmlns,attr"`
 	RequestID       string   `xml:"requestId"`
+	NextToken       string   `xml:"nextToken,omitempty"`
 	IpamPoolCidrSet struct {
 		Items []ipamPoolCidrItem `xml:"item"`
 	} `xml:"ipamPoolCidrSet"`
@@ -828,6 +833,7 @@ type getIpamPoolAllocationsResponse struct {
 	XMLName               xml.Name `xml:"GetIpamPoolAllocationsResponse"`
 	Xmlns                 string   `xml:"xmlns,attr"`
 	RequestID             string   `xml:"requestId"`
+	NextToken             string   `xml:"nextToken,omitempty"`
 	IpamPoolAllocationSet struct {
 		Items []ipamPoolAllocationItem `xml:"item"`
 	} `xml:"ipamPoolAllocationSet"`
@@ -860,6 +866,7 @@ type describeIpamResourceDiscoveriesResponse struct {
 	XMLName                  xml.Name `xml:"DescribeIpamResourceDiscoveriesResponse"`
 	Xmlns                    string   `xml:"xmlns,attr"`
 	RequestID                string   `xml:"requestId"`
+	NextToken                string   `xml:"nextToken,omitempty"`
 	IpamResourceDiscoverySet struct {
 		Items []ipamResourceDiscoveryItem `xml:"item"`
 	} `xml:"ipamResourceDiscoverySet"`
@@ -899,6 +906,7 @@ type describeIpamResourceDiscoveryAssociationsResponse struct {
 	XMLName                             xml.Name `xml:"DescribeIpamResourceDiscoveryAssociationsResponse"`
 	Xmlns                               string   `xml:"xmlns,attr"`
 	RequestID                           string   `xml:"requestId"`
+	NextToken                           string   `xml:"nextToken,omitempty"`
 	IpamResourceDiscoveryAssociationSet struct {
 		Items []ipamResourceDiscoveryAssociationItem `xml:"item"`
 	} `xml:"ipamResourceDiscoveryAssociationSet"`
@@ -911,6 +919,7 @@ type getIpamAddressHistoryResponse struct {
 	XMLName          xml.Name `xml:"GetIpamAddressHistoryResponse"`
 	Xmlns            string   `xml:"xmlns,attr"`
 	RequestID        string   `xml:"requestId"`
+	NextToken        string   `xml:"nextToken,omitempty"`
 	HistoryRecordSet struct {
 		Items []struct{} `xml:"item"`
 	} `xml:"historyRecordSet"`
@@ -922,6 +931,7 @@ type getIpamDiscoveredAccountsResponse struct {
 	XMLName                  xml.Name `xml:"GetIpamDiscoveredAccountsResponse"`
 	Xmlns                    string   `xml:"xmlns,attr"`
 	RequestID                string   `xml:"requestId"`
+	NextToken                string   `xml:"nextToken,omitempty"`
 	IpamDiscoveredAccountSet struct {
 		Items []struct{} `xml:"item"`
 	} `xml:"ipamDiscoveredAccountSet"`
@@ -932,6 +942,7 @@ type getIpamDiscoveredResourceCidrsResponse struct {
 	XMLName                       xml.Name `xml:"GetIpamDiscoveredResourceCidrsResponse"`
 	Xmlns                         string   `xml:"xmlns,attr"`
 	RequestID                     string   `xml:"requestId"`
+	NextToken                     string   `xml:"nextToken,omitempty"`
 	IpamDiscoveredResourceCidrSet struct {
 		Items []struct{} `xml:"item"`
 	} `xml:"ipamDiscoveredResourceCidrSet"`
@@ -942,6 +953,7 @@ type getIpamDiscoveredPublicAddressesResponse struct {
 	XMLName                        xml.Name `xml:"GetIpamDiscoveredPublicAddressesResponse"`
 	Xmlns                          string   `xml:"xmlns,attr"`
 	RequestID                      string   `xml:"requestId"`
+	NextToken                      string   `xml:"nextToken,omitempty"`
 	OldestSampleTime               string   `xml:"oldestSampleTime,omitempty"`
 	IpamDiscoveredPublicAddressSet struct {
 		Items []struct{} `xml:"item"`

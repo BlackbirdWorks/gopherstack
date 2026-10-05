@@ -190,7 +190,7 @@ func (h *Handler) handleDescribeHostReservationOfferings(vals url.Values, reqID 
 		resp.OfferingSet = append(resp.OfferingSet, hostOfferingToItem(o))
 	}
 
-	return resp, nil
+	return finishDescribe(vals, resp, describeOpts{spec: spec5to500(), filters: true})
 }
 
 func (h *Handler) handleGetHostReservationPurchasePreview(vals url.Values, reqID string) (any, error) {
@@ -250,7 +250,7 @@ func (h *Handler) handleDescribeHostReservations(vals url.Values, reqID string) 
 		)
 	}
 
-	return resp, nil
+	return finishDescribe(vals, resp, describeOpts{spec: spec5to500(), filters: true})
 }
 
 func (h *Handler) handleReleaseHosts(vals url.Values, reqID string) (any, error) {
