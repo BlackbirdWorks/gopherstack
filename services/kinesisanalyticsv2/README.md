@@ -15,7 +15,7 @@
 
 ### Known gaps
 
-- JobPlanDescription (DescribeApplicationRequest.IncludeAdditionalDetails) accepted-but-ignored: needs a real Flink job compiler to produce the plan (structural).
+- DescribeApplication.IncludeAdditionalDetails is accepted-but-ignored, so JobPlanDescription is never returned: needs a real Flink job compiler to produce the plan (structural).
 - StopApplication Force: the pre-stop auto-snapshot is not modeled; AWS does not publicly document its naming/visibility, so it is not invented.
 - Zeppelin Glue/S3 ARNs (and every other ARN field here) are not cross-service validated; could adopt the SetAppConfig/siblingServices pattern (gopherstack-osg7).
 - DeleteApplication is synchronous (no DELETING status), matching the repo-wide convention; ApplicationStatusDeleting is unused.
@@ -23,7 +23,7 @@
 
 ### Deferred
 
-- DiscoverInputSchema (inherently synthetic without live stream sampling)
+- DiscoverInputSchema returns placeholder columns (no live sampling); InputProcessingConfiguration is not applied, so ProcessedInputRecords is never returned.
 
 ## More
 

@@ -16,8 +16,8 @@
 ### Known gaps
 
 - Statements always complete synchronously to FINISHED: CancelStatement therefore always returns ValidationException (matching AWS for a non-running query), and ListSessions never reports BUSY/CLOSED/SessionTtl/CurrentStatementId. Needs an async statement state machine and session-lifetime model; unmodeled.
-- SessionKeepAliveSeconds is accepted but inert and no SessionId is minted when absent; SessionId is pure passthrough. Needs session-scoped state (temp tables, TTL) that does not exist here.
-- RoleLevel on ListStatements/ListSessions is parsed but never applied: there is no per-IAM-identity model to filter on, so all statements/sessions are visible (the true default).
+- SessionKeepAliveSeconds mints a session but never expires it (no TTL, temp tables or forced close after 24h).
+- WaitTimeSeconds (ExecuteStatement, BatchExecuteStatement, DescribeStatement, GetStatementResult, GetStatementResultV2) is undeclared: statements finish synchronously, so there is nothing to wait for.
 - DescribeStatement omits RedshiftPid and ExecuteStatement/BatchExecuteStatement omit DbGroups (optional fields): no pid/group registry to source real values from.
 - ActiveStatementsExceeded/ActiveSessionsExceeded/ActiveWaitingRequestsExceeded/DatabaseConnection/QueryTimeout/ExecuteStatement/BatchExecuteStatement exceptions are modeled in the SDK but unreachable: no real cluster, concurrency limit or wait queue exists, and inventing triggers would fabricate behaviour.
 

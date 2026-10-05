@@ -600,7 +600,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [ACM](services/acm/README.md) | A | 39 | 5 gaps; 2 deferred |
-| [ACM PCA](services/acmpca/README.md) | A | 23 | 6 gaps |
+| [ACM PCA](services/acmpca/README.md) | A | 23 | 4 gaps |
 | [Detective](services/detective/README.md) | A | 29 | 4 gaps; 2 deferred |
 | [GuardDuty](services/guardduty/README.md) | A | 66 | 5 gaps |
 | [Inspector](services/inspector2/README.md) | A | 13 | 7 gaps; 1 deferred |
@@ -656,11 +656,11 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [Amplify](services/amplify/README.md) | A | 37 | 2 gaps |
 | [CodeArtifact](services/codeartifact/README.md) | A | 48 | 8 gaps |
-| [CodeBuild](services/codebuild/README.md) | A | 59 | 5 gaps; 1 deferred |
+| [CodeBuild](services/codebuild/README.md) | A | 59 | 4 gaps; 1 deferred |
 | [CodeCommit](services/codecommit/README.md) | A | 79 | 2 gaps |
 | [CodeConnections](services/codeconnections/README.md) | A | 27 | 2 gaps |
 | [CodeDeploy](services/codedeploy/README.md) | A | 47 | 4 gaps; 2 deferred |
-| [CodePipeline](services/codepipeline/README.md) | A | 22 | 5 gaps; 1 deferred |
+| [CodePipeline](services/codepipeline/README.md) | A | 22 | 7 gaps; 1 deferred |
 | [CodeStar Connections](services/codestarconnections/README.md) | A | 27 | 1 gap; 2 structural gaps |
 | [Serverless Application Repository](services/serverlessrepo/README.md) | A | 14 | clean |
 | [X-Ray](services/xray/README.md) | A | 38 | 7 gaps; 1 deferred |
@@ -736,7 +736,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [HealthOmics](services/omics/README.md) | A | — | 25 families; 3 gaps; 1 deferred |
 | [Kafkaconnect](services/kafkaconnect/README.md) | A | 19 | 3 structural gaps |
 | [Kinesisvideo](services/kinesisvideo/README.md) | A | 32 | 3 structural gaps |
-| [Lightsail](services/lightsail/README.md) | A | — | 28 families; 4 gaps; 2 deferred |
+| [Lightsail](services/lightsail/README.md) | A | — | 28 families; 5 gaps; 2 deferred |
 | [Managed Blockchain](services/managedblockchain/README.md) | A | 27 | 4 gaps |
 | [Mgn](services/mgn/README.md) | A | 95 | 3 gaps; 5 structural gaps; 1 deferred |
 | [Networkmanager](services/networkmanager/README.md) | A | 95 | 3 gaps; 2 structural gaps |

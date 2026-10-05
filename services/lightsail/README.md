@@ -8,7 +8,7 @@
 | Metric | Value |
 | --- | --- |
 | Feature families | 28 (19 ok, 9 partial) |
-| Known gaps | 4 |
+| Known gaps | 5 |
 | Deferred items | 2 |
 | Resource leaks | clean |
 
@@ -18,6 +18,7 @@
 - InstanceState and RelationalDatabaseState have no typed SDK enum; the constants in consts.go are commented UNCONFIRMED conventions pending external evidence.
 - Point-in-time restore (RestoreTime/UseLatestRestorableTime/SourceRelationalDatabaseName), UpdateRelationalDatabase.ApplyImmediately and PendingMaintenanceActions/PendingModifiedValues need an automated-backup and maintenance-window state machine that is not modeled.
 - GetRelationalDatabaseLogEvents always returns an empty page (no real database engine backs it), so StartFromHead is moot; Domain.RegisteredDomainDelegationInfo and CertificateDetail validation/renewal fields have no registrar or ACM-style state machine to source them.
+- GetBuckets omits AccountLevelBpaSync and does not model account-level block-public-access or bucket-level BPA state.
 
 ### Deferred
 
