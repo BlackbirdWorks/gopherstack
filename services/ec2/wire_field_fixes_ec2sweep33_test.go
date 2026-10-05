@@ -2,6 +2,7 @@ package ec2_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	ec2sdk "github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -188,4 +189,82 @@ func TestDescribeNetworkInsightsAccessScopeAnalyses_ScopeIdFilter_RealClient(t *
 		aws.ToString(scopeA.NetworkInsightsAccessScope.NetworkInsightsAccessScopeId),
 		aws.ToString(out.NetworkInsightsAccessScopeAnalyses[0].NetworkInsightsAccessScopeId),
 	)
+}
+
+func TestDescribeAccessScopeAnalysesAndCapacityOfferings_DateRanges_RealClient(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	hour := time.Hour
+
+	tests := []struct {
+		begin *time.Time
+		end   *time.Time
+		name  string
+		want  int
+	}{
+		{name: "no bounds", want: 1},
+		{name: "begin before start", begin: aws.Time(now.Add(-hour)), want: 1},
+		{name: "begin after start", begin: aws.Time(now.Add(hour)), want: 0},
+		{name: "end after start", end: aws.Time(now.Add(hour)), want: 1},
+		{name: "end before start", end: aws.Time(now.Add(-hour)), want: 0},
+		{name: "window containing start", begin: aws.Time(now.Add(-hour)), end: aws.Time(now.Add(hour)), want: 1},
+	}
+
+	for _, tt := range tests {
+		t.Run("analyses "+tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newTestEC2Client(t, ec2.NewHandler(ec2.NewInMemoryBackend("000000000000", "us-east-1")))
+			ctx := t.Context()
+
+			scope, err := client.CreateNetworkInsightsAccessScope(
+				ctx, &ec2sdk.CreateNetworkInsightsAccessScopeInput{},
+			)
+			require.NoError(t, err)
+
+			_, err = client.StartNetworkInsightsAccessScopeAnalysis(
+				ctx, &ec2sdk.StartNetworkInsightsAccessScopeAnalysisInput{
+					NetworkInsightsAccessScopeId: scope.NetworkInsightsAccessScope.NetworkInsightsAccessScopeId,
+				})
+			require.NoError(t, err)
+
+			out, err := client.DescribeNetworkInsightsAccessScopeAnalyses(
+				ctx, &ec2sdk.DescribeNetworkInsightsAccessScopeAnalysesInput{
+					AnalysisStartTimeBegin: tt.begin,
+					AnalysisStartTimeEnd:   tt.end,
+				})
+			require.NoError(t, err)
+			assert.Len(t, out.NetworkInsightsAccessScopeAnalyses, tt.want)
+		})
+	}
+
+	offerStart := now.Add(24 * hour)
+	offerTests := []struct {
+		start *time.Time
+		name  string
+		want  bool
+	}{
+		{name: "no range", want: true},
+		{name: "earliest before offering", start: aws.Time(offerStart.Add(-2 * hour)), want: true},
+		{name: "earliest after offering", start: aws.Time(offerStart.Add(2 * hour)), want: false},
+	}
+
+	for _, tt := range offerTests {
+		t.Run("offerings "+tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newTestEC2Client(t, ec2.NewHandler(ec2.NewInMemoryBackend("000000000000", "us-east-1")))
+
+			out, err := client.DescribeCapacityBlockOfferings(
+				t.Context(), &ec2sdk.DescribeCapacityBlockOfferingsInput{
+					InstanceType:          aws.String("p4d.24xlarge"),
+					CapacityDurationHours: aws.Int32(24),
+					InstanceCount:         aws.Int32(1),
+					StartDateRange:        tt.start,
+				})
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, len(out.CapacityBlockOfferings) > 0)
+		})
+	}
 }

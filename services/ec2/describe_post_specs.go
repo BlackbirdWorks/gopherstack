@@ -10,6 +10,8 @@ const (
 	pageDefaultIpamHist   = 100    // api_op_GetIpamAddressHistory.go: "Defaults to 100"
 )
 
+const boundFieldStartDate = "startDate"
+
 func specHosts() pageSpec {
 	return pageSpec{min: ec2PageMinSecurityGroups, max: pageMaxHosts, idParam: "HostId"}
 }
@@ -71,7 +73,15 @@ func boundsScheduledInstances(vals url.Values) []timeBound {
 
 func boundsCapacityBlockOfferings(vals url.Values) []timeBound {
 	return timeBoundsOf(
-		timeBoundSpec{vals.Get("StartDateRange"), "startDate", true},
+		timeBoundSpec{vals.Get("StartDateRange"), boundFieldStartDate, true},
 		timeBoundSpec{vals.Get("EndDateRange"), "endDate", false},
+	)
+}
+
+// Inclusive on both ends: api_op_DescribeNetworkInsightsAccessScopeAnalyses.go:31-37 "on or after/before".
+func boundsAccessScopeAnalyses(vals url.Values) []timeBound {
+	return timeBoundsOf(
+		timeBoundSpec{vals.Get("AnalysisStartTimeBegin"), boundFieldStartDate, true},
+		timeBoundSpec{vals.Get("AnalysisStartTimeEnd"), boundFieldStartDate, false},
 	)
 }

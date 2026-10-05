@@ -9351,6 +9351,7 @@
       "NetworkInsightsAccessScopeAnalysis.AnalyzedEniCount int `json:\"analyzedEniCount,omitempty\"`",
       "NetworkInsightsAccessScopeAnalysis.NetworkInsightsAccessScopeAnalysisID string `json:\"networkInsightsAccessScopeAnalysisId,omitempty\"`",
       "NetworkInsightsAccessScopeAnalysis.NetworkInsightsAccessScopeID string `json:\"networkInsightsAccessScopeId,omitempty\"`",
+      "NetworkInsightsAccessScopeAnalysis.StartDate time.Time `json:\"startDate,omitzero\"`",
       "NetworkInsightsAccessScopeAnalysis.Status string `json:\"status,omitempty\"`",
       "NetworkInsightsAnalysis.NetworkInsightsAnalysisARN string `json:\"networkInsightsAnalysisArn,omitempty\"`",
       "NetworkInsightsAnalysis.NetworkInsightsAnalysisID string `json:\"networkInsightsAnalysisId,omitempty\"`",

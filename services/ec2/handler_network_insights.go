@@ -85,6 +85,7 @@ type networkInsightsAccessScopeAnalysisItem struct {
 	NetworkInsightsAccessScopeAnalysisID string `xml:"networkInsightsAccessScopeAnalysisId"`
 	NetworkInsightsAccessScopeID         string `xml:"networkInsightsAccessScopeId,omitempty"`
 	Status                               string `xml:"status,omitempty"`
+	StartDate                            string `xml:"startDate,omitempty"`
 	AnalyzedEniCount                     int    `xml:"analyzedEniCount,omitempty"`
 }
 
@@ -349,12 +350,17 @@ func (h *Handler) handleGetNetworkInsightsAccessScopeContent(
 func toNetworkInsightsAccessScopeAnalysisItem(
 	a *NetworkInsightsAccessScopeAnalysis,
 ) networkInsightsAccessScopeAnalysisItem {
-	return networkInsightsAccessScopeAnalysisItem{
+	item := networkInsightsAccessScopeAnalysisItem{
 		NetworkInsightsAccessScopeAnalysisID: a.NetworkInsightsAccessScopeAnalysisID,
 		NetworkInsightsAccessScopeID:         a.NetworkInsightsAccessScopeID,
 		Status:                               a.Status,
 		AnalyzedEniCount:                     a.AnalyzedEniCount,
 	}
+	if !a.StartDate.IsZero() {
+		item.StartDate = a.StartDate.Format(time.RFC3339)
+	}
+
+	return item
 }
 
 func (h *Handler) handleStartNetworkInsightsAccessScopeAnalysis(
@@ -410,7 +416,9 @@ func (h *Handler) handleDescribeNetworkInsightsAccessScopeAnalyses(
 		)
 	}
 
-	return finishPagedFiltered(vals, resp)
+	return finishDescribe(vals, resp, describeOpts{
+		spec: stdPageSpec(), filters: true, bounds: boundsAccessScopeAnalyses,
+	})
 }
 
 func (h *Handler) handleGetNetworkInsightsAccessScopeAnalysisFindings(

@@ -201,6 +201,7 @@ func (b *InMemoryBackend) StartNetworkInsightsAccessScopeAnalysis(
 		NetworkInsightsAccessScopeID:         scopeID,
 		Status:                               stateAnalysisSucceeded,
 		AnalyzedEniCount:                     0,
+		StartDate:                            time.Now().UTC(),
 	}
 	b.networkInsightsAccessScopeAnalyses.Put(a)
 

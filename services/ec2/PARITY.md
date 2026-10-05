@@ -711,11 +711,14 @@ structural_gaps:
     always return an empty, correctly-shaped result rather than fabricate routes or findings."
   - "Request fields still unread (2026-10-05): DescribeNetworkInsightsAnalyses AnalysisStartTime/AnalysisEndTime
     (analysis items carry startDate only, no end date; the SDK does not say which bound each field
-    compares), DescribeNetworkInsightsAccessScopeAnalyses AnalysisStartTimeBegin/End (items carry no start
-    time), CreateNetworkInsightsPath FilterAtSource/FilterAtDestination and StartNetworkInsightsAnalysis
-    FilterInArns/FilterOutArns (no path-analysis engine consumes them), GetCapacityManagerMetricData/
-    Dimensions FilterBy (no metric data modeled), ExportTransitGatewayRoutes Filters (shapes an S3 file this
-    backend does not render)."
+    compares), CreateNetworkInsightsPath FilterAtSource/FilterAtDestination (no path-analysis engine consumes
+    them), ExportTransitGatewayRoutes Filters (shapes an S3 file this backend does not render)."
+  - "DescribeNetworkInsightsAccessScopeAnalyses.AnalysisStartTimeBegin/AnalysisStartTimeEnd (2026-10-05): analyses now carry startDate and both bounds are inclusive per api_op_DescribeNetworkInsightsAccessScopeAnalyses.go:31-37 (\"on or after\"/\"on or before\")."
+  - "DescribeCapacityBlockOfferings.StartDateRange (2026-10-05): tool false positive, applied via the boundsCapacityBlockOfferings spec table in describe_post_specs.go and covered by a typed SDK test."
+  - "GetCapacityManagerMetricData.FilterBy (2026-10-05): always-empty, no capacity-manager metric data is modeled to filter."
+  - "GetCapacityManagerMetricDimensions.FilterBy (2026-10-05): always-empty, no capacity-manager metric data is modeled to filter."
+  - "StartNetworkInsightsAnalysis.FilterInArns (2026-10-05): no path-analysis engine exists to consume it."
+  - "StartNetworkInsightsAnalysis.FilterOutArns (2026-10-05): no path-analysis engine exists to consume it."
 deferred:
   - trunk_enclave.go's TrunkInterfaceAssociation.Tags: genuinely cannot migrate to the shared tag store — see tag_dual_storage note above (no TagSpecifications on the real create call, no ResourceType enum entry, so CreateTags could never target it even if registered). Left as the single remaining embedded-Tags field in the codebase, by design. RE-VERIFIED (gopherstack-8pce, 2026-07-31 pass): re-read AssociateTrunkInterfaceInput and the ResourceType enum in the installed SDK directly — the constraint still holds exactly as documented. This is NOT a reason to hold the grade at B: the reasoning is a genuine, unchanged real-API limitation (same treatment sql_ha.go's fabricated Tags field got — deleted, not migrated, in the prior pass), not an unaudited gap.
   - "RestoreImageFromRecycleBin (images.go): STALE ENTRY, already fixed before this deferred note was written. Commit 2d47b51d4 (2026-07-29, part of this same gopherstack-8pce ticket) rewrote the op to report InvalidAMIID.NotFound for an image genuinely absent from the bin and to re-create the AMI (guarding against clobbering a live image with the same ID) rather than unconditionally returning success — read directly in images.go:406-433 this pass, confirmed still correct. The deferred bullet describing it as a live disguised-stub bug was written into a later PARITY.md revision without re-checking the code and was wrong. FIXED this pass: added the test coverage that was missing (TestHandler_RestoreImageFromRecycleBin in handler_image_ops_test.go), since the fix had shipped with none."
