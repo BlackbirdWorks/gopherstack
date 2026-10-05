@@ -530,3 +530,7 @@ RECORDED: GetDataSourceIntrospection MaxResults/NextToken have nothing to page; 
 ## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
 
 InvalidSchemaError is a sentinel text only; handler_errors.go:44 writes BadRequestException.
+
+## 2026-10-05 (gopherstack-dcyg9 value semantics)
+
+Recorded, not fixed: UpdateResolver/UpdateFunction/UpdateDataSource describe members only as "The new description ..." / "The Function description" (api_op_UpdateDataSource.go:44, api_op_UpdateFunction.go:53) and say nothing on omission, so the merge-supplied-members behaviour stays.

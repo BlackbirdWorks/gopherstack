@@ -621,3 +621,7 @@ FIXED: ListRoots, ListParents, ListAccountsWithInvalidEffectivePolicy and ListEf
 ## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
 
 InvalidParameterException (handler.go:165) is the missing-X-Amz-Target routing fallback, matched by no operation.
+
+## 2026-10-05 (gopherstack-dcyg9 value semantics)
+
+FIXED: UpdatePolicy Description is a pointer end to end. "If provided, the new description for the policy" (api_op_UpdatePolicy.go:56) means an explicit empty string clears it and an omitted member keeps it. Proof: `TestRealClient_UpdatePolicyDescription`.

@@ -723,3 +723,7 @@ ListAutomatedDiscoveryAccounts, ListClassificationScopes (also applies `name`), 
 ## 2026-10-05 (gopherstack-uox6 pass 6, value semantics)
 
 UpdateFindingsFilter keeps Description when omitted (an explicit empty string clears it); CreateClassificationJob stores managedDataIdentifierSelector RECOMMENDED when omitted (api_op_CreateClassificationJob.go:108-112). UpdateAllowList still replaces Description: the SDK is silent on whether omission clears it.
+
+## 2026-10-05 (gopherstack-dcyg9 value semantics)
+
+Recorded, not fixed: api_op_UpdateAllowList.go:53-55 describes Description only as "A custom description of the allow list" with no omit/clear rule, so UpdateAllowList keeps replacing it with the supplied value.

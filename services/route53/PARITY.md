@@ -856,3 +856,7 @@ ListQueryLoggingConfigs now reads `maxresults`/`nexttoken` (default 100, api_op_
 ## 2026-10-05 (gopherstack-uox6 pass 5, value semantics)
 
 Hosted zone, record and alias names are stored lowercase with a trailing dot; CreateHealthCheck stores RequestInterval 30 and FailureThreshold 3 for endpoint checks when omitted (types.HealthCheckConfig). Recorded: wildcard labels are not returned in the escaped \052 form.
+
+## 2026-10-05 (gopherstack-dcyg9 value semantics)
+
+Recorded, not fixed: the pinned SDK documents `*` as the leftmost-label wildcard (types.ResourceRecordSet.Name, types.go:1609-1621) but never says responses return it as `\052`, so the escape is not settled offline. Records keep the `*` form; no test/terraform fixture uses a wildcard record name, so drift behaviour could not be checked either.

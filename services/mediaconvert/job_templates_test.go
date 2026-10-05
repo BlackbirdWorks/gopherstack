@@ -134,7 +134,7 @@ func TestUpdateJobTemplate_SettingsDeepCopy(t *testing.T) {
 
 	newSettings := map[string]any{"key": "val1"}
 
-	jt, err := b.UpdateJobTemplate("jt-settings", "", "", "", nil, newSettings)
+	jt, err := b.UpdateJobTemplate("jt-settings", nil, "", "", nil, newSettings)
 	require.NoError(t, err)
 
 	// Mutate the returned copy.
@@ -201,7 +201,7 @@ func TestUpdateJobTemplate_AccelerationHopDestinationsStatusUpdateInterval(t *te
 
 	hops := []mediaconvert.HopDestination{{Queue: "q2", WaitMinutes: 30}}
 	jt, err := b.UpdateJobTemplateFull(
-		"update-accel-tpl", "", "", "", nil, nil,
+		"update-accel-tpl", nil, "", "", nil, nil,
 		&mediaconvert.AccelerationSettings{Mode: "ENABLED"},
 		"SECONDS_120",
 		hops,

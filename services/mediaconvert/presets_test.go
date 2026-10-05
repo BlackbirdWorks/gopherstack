@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -238,7 +239,7 @@ func TestUpdatePreset_Direct(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		desc        string
+		desc        *string
 		category    string
 		wantDesc    string
 		wantCat     string
@@ -248,7 +249,7 @@ func TestUpdatePreset_Direct(t *testing.T) {
 		{
 			name:        "update_description",
 			setupPreset: true,
-			desc:        "new desc",
+			desc:        aws.String("new desc"),
 			category:    "",
 			wantDesc:    "new desc",
 			wantCat:     "Old",
@@ -256,10 +257,17 @@ func TestUpdatePreset_Direct(t *testing.T) {
 		{
 			name:        "update_category",
 			setupPreset: true,
-			desc:        "",
+			desc:        nil,
 			category:    "NewCat",
 			wantDesc:    "orig",
 			wantCat:     "NewCat",
+		},
+		{
+			name:        "clear_description",
+			setupPreset: true,
+			desc:        aws.String(""),
+			wantDesc:    "",
+			wantCat:     "Old",
 		},
 		{
 			name:        "not_found",
@@ -304,7 +312,7 @@ func TestUpdatePreset_SettingsUpdated(t *testing.T) {
 	require.NoError(t, err)
 
 	settings := map[string]any{"codec": "AAC"}
-	p, err := b.UpdatePreset("p-settings", "", "", settings)
+	p, err := b.UpdatePreset("p-settings", nil, "", settings)
 	require.NoError(t, err)
 	assert.Equal(t, "AAC", p.Settings["codec"])
 }
@@ -317,7 +325,7 @@ func TestUpdatePreset_LastUpdatedChanges(t *testing.T) {
 	original, err := b.CreatePreset("lu-preset", "", "", nil, nil)
 	require.NoError(t, err)
 
-	updated, err := b.UpdatePreset("lu-preset", "new", "", nil)
+	updated, err := b.UpdatePreset("lu-preset", aws.String("new"), "", nil)
 	require.NoError(t, err)
 
 	assert.GreaterOrEqual(t, updated.LastUpdated, original.LastUpdated)

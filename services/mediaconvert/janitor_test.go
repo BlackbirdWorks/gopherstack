@@ -255,7 +255,7 @@ func TestAdvanceJobPhase_PausedQueueBlocksSubmittedJob(t *testing.T) {
 	assert.Equal(t, "SUBMITTED", got.Status, "job on a PAUSED queue must not begin processing")
 
 	// Reactivating the queue lets the job proceed on the next tick.
-	_, err = b.UpdateQueue("paused-queue", "", "ACTIVE", nil, nil, nil)
+	_, err = b.UpdateQueue("paused-queue", nil, "ACTIVE", nil, nil, nil)
 	require.NoError(t, err)
 
 	advanced = b.AdvanceJobPhase()

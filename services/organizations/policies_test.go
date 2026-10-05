@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -131,7 +132,7 @@ func TestBackend_UpdatePolicy(t *testing.T) {
 			updated, err := b.UpdatePolicy(
 				policy.PolicySummary.ID,
 				"updated-name",
-				"updated-desc",
+				aws.String("updated-desc"),
 				`{"Version":"2012-10-17"}`,
 			)
 
@@ -1027,7 +1028,7 @@ func TestUpdatePolicy_MalformedContent(t *testing.T) {
 	p, err := b.CreatePolicy("orig-name", "orig-desc", `{"Version":"2012-10-17"}`, "SERVICE_CONTROL_POLICY", nil)
 	require.NoError(t, err)
 
-	_, err = b.UpdatePolicy(p.PolicySummary.ID, "new-name", "new-desc", "not json")
+	_, err = b.UpdatePolicy(p.PolicySummary.ID, "new-name", aws.String("new-desc"), "not json")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "MalformedPolicyDocumentException")
 
@@ -1049,7 +1050,7 @@ func TestUpdatePolicy_ContentSizeLimit(t *testing.T) {
 	require.NoError(t, err)
 
 	oversized := `{"k":"` + strings.Repeat("a", 10240) + `"}`
-	_, err = b.UpdatePolicy(p.PolicySummary.ID, "", "", oversized)
+	_, err = b.UpdatePolicy(p.PolicySummary.ID, "", nil, oversized)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "POLICY_CONTENT_LIMIT_EXCEEDED")
 }

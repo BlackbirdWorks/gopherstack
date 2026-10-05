@@ -121,7 +121,7 @@ func (b *InMemoryBackend) ListJobTemplates() []*JobTemplate {
 
 // UpdateJobTemplate updates a job template's description, category, queue, priority, and settings.
 func (b *InMemoryBackend) UpdateJobTemplate(
-	name, description, category, queue string,
+	name string, description *string, category, queue string,
 	priority *int,
 	settings map[string]any,
 ) (*JobTemplate, error) {
@@ -137,7 +137,7 @@ func (b *InMemoryBackend) UpdateJobTemplate(
 // unchanged" here. statusUpdateInterval == "" and hopDestinations == nil are
 // likewise treated as "not specified".
 func (b *InMemoryBackend) UpdateJobTemplateFull(
-	name, description, category, queue string,
+	name string, description *string, category, queue string,
 	priority *int,
 	settings map[string]any,
 	accelerationSettings *AccelerationSettings,
@@ -152,8 +152,8 @@ func (b *InMemoryBackend) UpdateJobTemplateFull(
 		return nil, fmt.Errorf("%w: job template %s not found", ErrNotFound, name)
 	}
 
-	if description != "" {
-		jt.Description = description
+	if description != nil {
+		jt.Description = *description
 	}
 
 	if category != "" {

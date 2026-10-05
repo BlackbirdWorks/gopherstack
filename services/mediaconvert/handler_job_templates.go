@@ -121,10 +121,10 @@ func (h *Handler) handleListJobTemplates(c *echo.Context) error {
 }
 
 type updateJobTemplateInput struct {
+	Description          *string               `json:"description,omitempty"`
 	Priority             *int                  `json:"priority,omitempty"`
 	Settings             map[string]any        `json:"settings,omitempty"`
 	AccelerationSettings *AccelerationSettings `json:"accelerationSettings,omitempty"`
-	Description          string                `json:"description,omitempty"`
 	Category             string                `json:"category,omitempty"`
 	Queue                string                `json:"queue,omitempty"`
 	StatusUpdateInterval string                `json:"statusUpdateInterval,omitempty"`

@@ -1705,3 +1705,7 @@ UpdateUserPoolClient and UpdateUserPool reset omitted attributes to defaults ins
 ## 2026-10-05 (reqfielddiff -adjudicated tier-2)
 
 - ListUserPoolClientSecrets.NextToken: unsupported per SDK, the doc says all secrets return in one response with no pagination token (api_op_ListUserPoolClientSecrets.go:13,57); the list is capped by `maxExtraClientSecrets`, so paging is never needed.
+
+## 2026-10-05 (gopherstack-dcyg9 value semantics)
+
+Recorded, not fixed: api_op_UpdateUserPool.go:15 says an omitted attribute resets to its default, which the backend does for every member it models. The other UpdateUserPoolInput members (AdminCreateUserConfig, DeviceConfiguration, SmsConfiguration, VerificationMessageTemplate, UserPoolAddOns, UserPoolTier, UserAttributeUpdateSettings, email/SMS message members) are not stored by CreateUserPool or returned by DescribeUserPool either, so ignoring them on update is unobservable; modeling them is a separate feature, not an update-semantics fix.
