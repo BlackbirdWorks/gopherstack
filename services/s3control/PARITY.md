@@ -1141,3 +1141,7 @@ GetBucketVersioning returned a fabricated Suspended status for a bucket whose ve
 ## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
 
 Sparse-model SDK. AccessGrantsInstanceNotExistsError, NoSuchBucket, ReplicationConfigurationNotFoundError and NoSuchConfiguration are S3 Control wire codes the SDK does not model per op. UNVERIFIED offline: NoSuchStorageLensGroup (the SDK models only NotFoundException); handler_jobs.go InvalidArgument is the S3 generic code.
+
+## 2026-10-05 errcodeaudit needs-review adjudication (gopherstack-r3pr)
+
+NoSuchAccessGrant (access_grants.go:260/276): the pinned s3control v1.73.4 declares no error for any Access Grants op (GetAccessGrant deserializer has only the generic default), so the code cannot be verified offline; kept, consistent with NoSuchAccessGrantsLocation.

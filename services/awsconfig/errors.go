@@ -4,7 +4,7 @@ import "github.com/blackbirdworks/gopherstack/pkgs/awserr"
 
 var (
 	// ErrNotFound is returned when a configuration recorder is not found.
-	ErrNotFound = awserr.New("NoSuchConfigurationRecorder", awserr.ErrNotFound)
+	ErrNotFound = awserr.New("NoSuchConfigurationRecorderException", awserr.ErrNotFound)
 	// ErrNoSuchDeliveryChannel is returned when a delivery channel is not found.
 	ErrNoSuchDeliveryChannel = awserr.New("NoSuchDeliveryChannelException", awserr.ErrNotFound)
 	// ErrNoSuchConfigRule is returned when a config rule is not found.

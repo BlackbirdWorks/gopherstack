@@ -1,6 +1,10 @@
 package s3tables
 
-import "github.com/blackbirdworks/gopherstack/pkgs/awserr"
+import (
+	"errors"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+)
 
 var (
 	// ErrTableBucketNotFound is returned when a TableBucket does not exist.
@@ -26,7 +30,7 @@ var (
 	// ErrInvalidTableMetadataLocation is returned when an Iceberg metadata URI is invalid.
 	ErrInvalidTableMetadataLocation = awserr.New("BadRequestException", awserr.ErrInvalidParameter)
 	// ErrNilAppContext is returned when a nil AppContext is passed to Init.
-	ErrNilAppContext = awserr.New("InvalidParameter", awserr.ErrInvalidParameter)
+	ErrNilAppContext = errors.New("AppContext is required")
 	// ErrInvalidContinuationToken is returned when a list operation's
 	// continuation token is malformed.
 	ErrInvalidContinuationToken = awserr.New("BadRequestException", awserr.ErrInvalidParameter)

@@ -6354,3 +6354,7 @@ Recorded again, each with the missing observable: CreateImage.NoReboot, StopInst
 ## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
 
 EC2 SDK models no exception types (query protocol), so every code is checked against AWS error-code docs, not the SDK. VolumeInUse, IncorrectInstanceState, InsufficientInstanceCapacity, ResourceCountExceeded and VpcClassicLinkDisabled are documented EC2 codes. UNVERIFIED offline: CapacityReservationFull (capacity_reservation_ops.go:40,104).
+
+## 2026-10-05 errcodeaudit needs-review adjudication (gopherstack-r3pr)
+
+Sparse-model SDK (ec2 v1.329.0 declares no error types). LimitExceeded (handler.go:783, trunk_enclave.go:31, AssociateEnclaveCertificateIamRole over-limit) and InvalidPaginationToken (handler.go:797, store.go:67, forged NextToken) are kept as EC2 wire codes; NOT verifiable offline (the pinned SDK doc comments never mention either), so unconfirmed against the EC2 error-code reference.

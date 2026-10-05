@@ -1714,3 +1714,7 @@ RECORDED, no code change: GetOpsSummary Filters/MaxResults/NextToken stay unsupp
 ## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
 
 Removed dead ErrInventoryNotFound (never raised). CommandNotFound is a sentinel text; handler.go:311 writes InvalidCommandId.
+
+## 2026-10-05 errcodeaudit needs-review adjudication (gopherstack-r3pr)
+
+DocumentNotFound (errors.go:15) is a sentinel identity string only; handler.go maps it to InvalidDocument, which the pinned ssm v1.77.0 declares (types.InvalidDocument).

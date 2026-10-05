@@ -155,7 +155,7 @@ func TestChannel_DeleteRunning(t *testing.T) {
 	doRequest(t, h, http.MethodPut, "/channel/ch1/start", nil)
 
 	rec := doRequest(t, h, http.MethodDelete, "/channel/ch1", nil)
-	assert.Equal(t, http.StatusConflict, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestChannel_DuplicateCreate(t *testing.T) {
@@ -164,7 +164,7 @@ func TestChannel_DuplicateCreate(t *testing.T) {
 	h := newTestHandler(t)
 	doRequest(t, h, http.MethodPost, "/channel/ch1", map[string]any{})
 	rec := doRequest(t, h, http.MethodPost, "/channel/ch1", map[string]any{})
-	assert.Equal(t, http.StatusConflict, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestChannel_NotFound(t *testing.T) {

@@ -686,9 +686,7 @@ func errStatus(err error) int {
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
 		return http.StatusNotFound
-	case errors.Is(err, awserr.ErrAlreadyExists):
-		return http.StatusConflict
-	case errors.Is(err, awserr.ErrInvalidParameter):
+	case errors.Is(err, awserr.ErrAlreadyExists), errors.Is(err, awserr.ErrInvalidParameter):
 		return http.StatusBadRequest
 	default:
 		return http.StatusInternalServerError
@@ -706,9 +704,7 @@ func errType(err error) string {
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
 		return "NotFoundException"
-	case errors.Is(err, awserr.ErrAlreadyExists):
-		return "ConflictException"
-	case errors.Is(err, awserr.ErrInvalidParameter):
+	case errors.Is(err, awserr.ErrAlreadyExists), errors.Is(err, awserr.ErrInvalidParameter):
 		return "BadRequestException"
 	default:
 		return "InternalFailure"
