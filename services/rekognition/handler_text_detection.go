@@ -78,11 +78,12 @@ func (h *Handler) handleStartTextDetection(
 	bucket, name, version := videoRefS3(req.Video)
 
 	jobID, err := h.Backend.StartAsyncJob(StartAsyncJobParams{
-		JobType:        "text_detection",
-		JobTag:         req.JobTag,
-		VideoS3Bucket:  bucket,
-		VideoS3Name:    name,
-		VideoS3Version: version,
+		JobType:            "text_detection",
+		ClientRequestToken: req.ClientRequestToken,
+		JobTag:             req.JobTag,
+		VideoS3Bucket:      bucket,
+		VideoS3Name:        name,
+		VideoS3Version:     version,
 	})
 	if err != nil {
 		return nil, err

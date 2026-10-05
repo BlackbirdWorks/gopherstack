@@ -88,21 +88,24 @@ func (h *Handler) handleCloneStack(_ context.Context, body []byte) (any, error) 
 			BerkshelfVersion string `json:"BerkshelfVersion"`
 			ManageBerkshelf  bool   `json:"ManageBerkshelf"`
 		} `json:"ChefConfiguration"`
-		UseOpsworksSecurityGroups *bool  `json:"UseOpsworksSecurityGroups"`
-		CustomJSON                string `json:"CustomJson"`
-		DefaultInstanceProfileArn string `json:"DefaultInstanceProfileArn"`
-		ServiceRoleArn            string `json:"ServiceRoleArn"`
-		VpcID                     string `json:"VpcId"`
-		AgentVersion              string `json:"AgentVersion"`
-		Name                      string `json:"Name"`
-		DefaultAvailabilityZone   string `json:"DefaultAvailabilityZone"`
-		Region                    string `json:"Region"`
-		DefaultOs                 string `json:"DefaultOs"`
-		DefaultRootDeviceType     string `json:"DefaultRootDeviceType"`
-		DefaultSSHKeyName         string `json:"DefaultSshKeyName"`
-		DefaultSubnetID           string `json:"DefaultSubnetId"`
-		HostnameTheme             string `json:"HostnameTheme"`
-		SourceStackID             string `json:"SourceStackId"`
+		UseOpsworksSecurityGroups *bool             `json:"UseOpsworksSecurityGroups"`
+		CustomJSON                string            `json:"CustomJson"`
+		DefaultInstanceProfileArn string            `json:"DefaultInstanceProfileArn"`
+		ServiceRoleArn            string            `json:"ServiceRoleArn"`
+		VpcID                     string            `json:"VpcId"`
+		AgentVersion              string            `json:"AgentVersion"`
+		Name                      string            `json:"Name"`
+		DefaultAvailabilityZone   string            `json:"DefaultAvailabilityZone"`
+		Region                    string            `json:"Region"`
+		DefaultOs                 string            `json:"DefaultOs"`
+		DefaultRootDeviceType     string            `json:"DefaultRootDeviceType"`
+		DefaultSSHKeyName         string            `json:"DefaultSshKeyName"`
+		DefaultSubnetID           string            `json:"DefaultSubnetId"`
+		HostnameTheme             string            `json:"HostnameTheme"`
+		SourceStackID             string            `json:"SourceStackId"`
+		ClonePermissions          *bool             `json:"ClonePermissions"`
+		Attributes                map[string]string `json:"Attributes"`
+		CloneAppIDs               []string          `json:"CloneAppIds"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -110,6 +113,9 @@ func (h *Handler) handleCloneStack(_ context.Context, body []byte) (any, error) 
 	}
 
 	opts := CloneStackOptions{
+		ClonePermissions:          req.ClonePermissions,
+		Attributes:                req.Attributes,
+		CloneAppIDs:               req.CloneAppIDs,
 		VpcID:                     req.VpcID,
 		AgentVersion:              req.AgentVersion,
 		CustomJSON:                req.CustomJSON,

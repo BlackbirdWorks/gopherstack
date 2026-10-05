@@ -70,9 +70,9 @@ gaps: []
 items_still_open:
   - CreateProjectVersion still drops TrainingData/TestingData contents (Custom Labels external-manifest structures: TrainingData/TestingData -> []Asset -> GroundTruthManifest -> S3Object, 3-4 levels, no unions, structurally simple but pointless to store -- the only place they'd resurface is TrainingDataResult/TestingDataResult, which requires a training-completion lifecycle this backend never reaches; both-or-neither presence is still cross-validated) — see Notes #6
   - "Needs real video/image ML (2026-10-04): GetPersonTracking.SortBy ordering (Persons always empty), IndexFaces.DetectionAttributes detail output and QualityFilter/MaxFaces filtering (no FaceDetail or per-face quality is ever produced; one synthetic face per call), DetectLabels IMAGE_PROPERTIES (dominant colors/quality would be fabricated). The request values are now validated (enums, MaxFaces >= 1) but cannot change results."
+  - "Unmodeled subsystems (2026-10-05): Start* job notification channels (no SNS completion publish from the job state machine), GetCelebrityRecognition/GetFaceSearch SortBy (result arrays always empty), StartLabelDetection Features/Settings and DetectLabels Settings (no ML to filter on), CreateFaceLivenessSession KmsKeyId/Settings (no audit-image output to encrypt or limit), DetectModerationLabels HumanLoopConfig/ProjectVersion (no A2I or custom-model inference), StartStreamProcessor StartSelector/StopSelector (no Kinesis Video fragment source)."
 deferred:
   - ProjectVersionDescription's BaseModelVersion (needs data this emulator cannot have: an AWS-internal base-model-catalog string, not derivable or user-supplied) and BillableTrainingTimeInSeconds/TrainingEndTimestamp/EvaluationResult/ManifestSummary/TestingDataResult/TrainingDataResult (needs a lifecycle that does not exist: all are documented as populated only once training completes, and this backend's Status never advances past TRAINING_IN_PROGRESS; EvaluationResult additionally requires a fabricated F1 score, which the no-fabrication rule forbids outright) — see Notes #6
-  - ProjectVersionDescription.Feature / DescribeProjects' Feature (large mechanical surface deferred for size: Feature is set at CreateProject time, which does not currently accept or store it at all; modeling ProjectVersionDescription.Feature honestly requires a CreateProject signature change cascading through DescribeProjects too, a separate op family from this sweep's CreateProjectVersion/StartProjectVersion/CopyProjectVersion scope) — see Notes #6
   - SegmentTypeInfo.ModelVersion (needs data this emulator cannot have: AWS-internal segment-detection model build string) — Type is modeled, ModelVersion is not, see Notes #6
   - Detection-result arrays (Celebrities/ModerationLabels/Faces/Labels/Persons/Segments/TextDetections) stay synthesized-empty; acceptable per the ML-mock exemption, not individually wire-diffed field-by-field this sweep (this sweep's scope was CreateProjectVersion/ProjectVersionDescription/async-video envelope fields, not the ML detection payloads themselves)
 leaks: {status: clean, note: "no goroutines/janitors in this service; lockmetrics.RWMutex coarse lock verified around every backend mutation; Snapshot/Restore delegation (Handler->Backend) verified wired (persistence.go)"}
@@ -376,13 +376,8 @@ parameter, structurally unable to read anything:**
 **Verified, structural (whole capability class not implemented anywhere in
 this service), not fixed:**
 
-- **`ClientRequestToken`** on all ten `Start*`/`CreateFaceLivenessSession`
-  ops (`CreateFaceLivenessSession`, `StartCelebrityRecognition`,
-  `StartContentModeration`, `StartFaceDetection`, `StartFaceSearch`,
-  `StartLabelDetection`, `StartMediaAnalysisJob`, `StartPersonTracking`,
-  `StartSegmentDetection`, `StartTextDetection`). No idempotency-token dedup
-  pattern exists anywhere in this service (or, per the same pass's ecs
-  finding, in ecs either) -- a systemic gap, not an isolated one.
+- **`ClientRequestToken`** on the ten `Start*`/`CreateFaceLivenessSession` ops was
+  unimplemented; FIXED 2026-10-05 (see the pass-11 section below).
 - **`DetectText.Filters`.** Declared as `*struct{}` -- a Go empty-struct
   type with zero members, so the *sub-fields* real AWS's `DetectTextFilters`
   actually carries (`WordFilter.MinConfidence`, region-of-interest boxes)
@@ -848,3 +843,14 @@ IndexFaces now validates QualityFilter (enum), DetectionAttributes (Attribute en
 
 - StartSegmentDetection.Filters: always-empty, only constrains the detected Segments (minimum shot/technical-cue confidence, api_op_StartSegmentDetection.go:67) and the video analysis engine is unmodeled, so GetSegmentDetection always returns no Segments.
 - StartTextDetection.Filters: always-empty, only constrains the detected TextDetections (confidence/region, api_op_StartTextDetection.go:55) and the video analysis engine is unmodeled, so GetTextDetection always returns no TextDetections.
+
+## 2026-10-05 pass 11 (gopherstack-9x62)
+
+- ClientRequestToken now dedups: the eight async Start* ops and StartMediaAnalysisJob return the same JobId for a repeated token (IdempotentParameterMismatchException when parameters differ), CreateFaceLivenessSession returns the same SessionId, and CreateUser/DeleteUser/AssociateFaces/DisassociateFaces replay the first response from an in-memory memo that is not persisted. Proof: `TestSDK_ClientRequestTokenIdempotency`, `TestSDK_FaceLivenessTokenReturnsSameSession`, `TestSDK_UserOpsClientRequestToken`, `TestSDK_DeleteUserTokenReplaysSuccess`.
+- CreateProject/CreateDataset/CopyProjectVersion Tags are applied (datasets are now taggable) and cleared on delete; CopyProjectVersion and StartMediaAnalysisJob KmsKeyId round-trip (DescribeProjectVersions, GetMediaAnalysisJob); CopyProjectVersion onto an existing name returns ResourceInUseException; DescribeProjectVersions emits Feature from the owning project. Proof: `TestSDK_CreateTagsAndKmsAreApplied`, `TestSDK_MediaAnalysisKmsKeyRoundTrip`, `TestSDK_ProjectVersionFeatureFollowsProject`.
+- CreateFaceLivenessSession KmsKeyId and Settings: not echoed by any Get output and no audit images are produced, so there is nothing to apply them to.
+- Start* NotificationChannel (StartCelebrityRecognition, StartContentModeration, StartFaceDetection, StartFaceSearch, StartLabelDetection, StartPersonTracking, StartSegmentDetection, StartTextDetection): no SNS publish exists on job completion.
+- StartLabelDetection Features and Settings, DetectLabels Settings: filter synthetic labels that are not real ML output.
+- GetCelebrityRecognition SortBy, GetFaceSearch SortBy: result arrays are always empty, nothing to sort.
+- DetectModerationLabels HumanLoopConfig and ProjectVersion: no A2I or custom-model inference.
+- StartStreamProcessor StartSelector and StopSelector: no Kinesis Video fragment source.

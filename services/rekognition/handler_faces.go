@@ -473,11 +473,12 @@ func (h *Handler) handleStartFaceDetection(
 	bucket, name, version := videoRefS3(req.Video)
 
 	jobID, err := h.Backend.StartAsyncJob(StartAsyncJobParams{
-		JobType:        "face_detection",
-		JobTag:         req.JobTag,
-		VideoS3Bucket:  bucket,
-		VideoS3Name:    name,
-		VideoS3Version: version,
+		JobType:            "face_detection",
+		ClientRequestToken: req.ClientRequestToken,
+		JobTag:             req.JobTag,
+		VideoS3Bucket:      bucket,
+		VideoS3Name:        name,
+		VideoS3Version:     version,
 	})
 	if err != nil {
 		return nil, err
@@ -523,12 +524,13 @@ func (h *Handler) handleStartFaceSearch(
 	bucket, name, version := videoRefS3(req.Video)
 
 	jobID, err := h.Backend.StartAsyncJob(StartAsyncJobParams{
-		JobType:        "face_search",
-		CollectionID:   req.CollectionId,
-		JobTag:         req.JobTag,
-		VideoS3Bucket:  bucket,
-		VideoS3Name:    name,
-		VideoS3Version: version,
+		JobType:            "face_search",
+		ClientRequestToken: req.ClientRequestToken,
+		CollectionID:       req.CollectionId,
+		JobTag:             req.JobTag,
+		VideoS3Bucket:      bucket,
+		VideoS3Name:        name,
+		VideoS3Version:     version,
 	})
 	if err != nil {
 		return nil, err

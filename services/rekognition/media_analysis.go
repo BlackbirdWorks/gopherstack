@@ -42,19 +42,42 @@ func (b *InMemoryBackend) StartAsyncJob(params StartAsyncJobParams) (string, err
 	b.mu.Lock("StartAsyncJob")
 	defer b.mu.Unlock()
 
+	if params.ClientRequestToken != "" {
+		var prior *storedAsyncJob
+
+		b.asyncJobs.Range(func(j *storedAsyncJob) bool {
+			if j.ClientRequestToken == params.ClientRequestToken && j.JobType == params.JobType {
+				prior = j
+
+				return false
+			}
+
+			return true
+		})
+
+		if prior != nil {
+			if !prior.sameStartParams(params) {
+				return "", ErrIdempotentParameterMismatch
+			}
+
+			return prior.JobID, nil
+		}
+	}
+
 	evictOneIfAtCapacity(b.asyncJobs, maxAsyncJobs, asyncJobKeyFn)
 
 	jobID := uuid.NewString()
 	b.asyncJobs.Put(&storedAsyncJob{
-		JobID:          jobID,
-		JobType:        params.JobType,
-		CollectionID:   params.CollectionID,
-		JobStatus:      "IN_PROGRESS",
-		JobTag:         params.JobTag,
-		VideoS3Bucket:  params.VideoS3Bucket,
-		VideoS3Name:    params.VideoS3Name,
-		VideoS3Version: params.VideoS3Version,
-		SegmentTypes:   params.SegmentTypes,
+		JobID:              jobID,
+		ClientRequestToken: params.ClientRequestToken,
+		JobType:            params.JobType,
+		CollectionID:       params.CollectionID,
+		JobStatus:          "IN_PROGRESS",
+		JobTag:             params.JobTag,
+		VideoS3Bucket:      params.VideoS3Bucket,
+		VideoS3Name:        params.VideoS3Name,
+		VideoS3Version:     params.VideoS3Version,
+		SegmentTypes:       params.SegmentTypes,
 	})
 
 	return jobID, nil
@@ -98,10 +121,34 @@ func (b *InMemoryBackend) StartMediaAnalysisJob(jobName string, params StartMedi
 	b.mu.Lock("StartMediaAnalysisJob")
 	defer b.mu.Unlock()
 
+	if params.ClientRequestToken != "" {
+		var prior *storedMediaAnalysisJob
+
+		b.mediaAnalysisJobs.Range(func(j *storedMediaAnalysisJob) bool {
+			if j.ClientRequestToken == params.ClientRequestToken {
+				prior = j
+
+				return false
+			}
+
+			return true
+		})
+
+		if prior != nil {
+			if prior.JobName != jobName || !prior.sameStartParams(params) {
+				return "", ErrIdempotentParameterMismatch
+			}
+
+			return prior.JobID, nil
+		}
+	}
+
 	evictOneIfAtCapacity(b.mediaAnalysisJobs, maxMediaAnalysisJobs, mediaAnalysisJobKeyFn)
 
 	jobID := uuid.NewString()
 	b.mediaAnalysisJobs.Put(&storedMediaAnalysisJob{
+		ClientRequestToken:                   params.ClientRequestToken,
+		KmsKeyID:                             params.KmsKeyID,
 		CreationTimestamp:                    time.Now(),
 		JobID:                                jobID,
 		JobName:                              jobName,

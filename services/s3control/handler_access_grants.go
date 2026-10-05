@@ -524,11 +524,12 @@ func (h *Handler) handleDeleteAccessGrantsInstance(c *echo.Context) error {
 // PutAccessGrantsInstanceResourcePolicyOutput. Both real outputs also carry
 // CreatedAt and Organization (confirmed via
 // awsRestxml_deserializeOpDocumentGetAccessGrantsInstanceResourcePolicyOutput),
-// but this backend's resource-policy store is a bare string map with no
-// timestamp or organization-ID tracking -- GAP, not fabricated.
+// but the response members are echoed from what the Put recorded.
 type getAccessGrantsInstanceResourcePolicyResponseXML struct {
-	XMLName xml.Name `xml:"GetAccessGrantsInstanceResourcePolicyResult"`
-	Policy  string   `xml:"Policy"`
+	XMLName      xml.Name `xml:"GetAccessGrantsInstanceResourcePolicyResult"`
+	Policy       string   `xml:"Policy"`
+	Organization string   `xml:"Organization,omitempty"`
+	CreatedAt    string   `xml:"CreatedAt,omitempty"`
 }
 
 func (h *Handler) handleGetAccessGrantsInstanceResourcePolicy(c *echo.Context) error {
@@ -539,12 +540,17 @@ func (h *Handler) handleGetAccessGrantsInstanceResourcePolicy(c *echo.Context) e
 		return handleBackendError(c, err)
 	}
 
-	return writeXML(c, getAccessGrantsInstanceResourcePolicyResponseXML{Policy: policy})
+	meta := h.Backend.GetAccessGrantsInstanceResourcePolicyMeta(accountID)
+
+	return writeXML(c, getAccessGrantsInstanceResourcePolicyResponseXML{
+		Policy: policy, Organization: meta.Organization, CreatedAt: meta.CreatedAt,
+	})
 }
 
 type putAccessGrantsInstanceResourcePolicyRequestXML struct {
-	XMLName xml.Name `xml:"PutAccessGrantsInstanceResourcePolicyRequest"`
-	Policy  string   `xml:"Policy"`
+	XMLName      xml.Name `xml:"PutAccessGrantsInstanceResourcePolicyRequest"`
+	Policy       string   `xml:"Policy"`
+	Organization string   `xml:"Organization"`
 }
 
 func (h *Handler) handlePutAccessGrantsInstanceResourcePolicy(c *echo.Context) error {
@@ -555,12 +561,14 @@ func (h *Handler) handlePutAccessGrantsInstanceResourcePolicy(c *echo.Context) e
 		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
 	}
 
-	h.Backend.PutAccessGrantsInstanceResourcePolicy(accountID, body.Policy)
+	meta := h.Backend.PutAccessGrantsInstanceResourcePolicyWithOrganization(accountID, body.Policy, body.Organization)
 
 	return writeXML(c, struct {
-		XMLName xml.Name `xml:"PutAccessGrantsInstanceResourcePolicyResult"`
-		Policy  string   `xml:"Policy"`
-	}{Policy: body.Policy})
+		XMLName      xml.Name `xml:"PutAccessGrantsInstanceResourcePolicyResult"`
+		Policy       string   `xml:"Policy"`
+		Organization string   `xml:"Organization,omitempty"`
+		CreatedAt    string   `xml:"CreatedAt,omitempty"`
+	}{Policy: body.Policy, Organization: meta.Organization, CreatedAt: meta.CreatedAt})
 }
 
 func (h *Handler) handleDeleteAccessGrantsInstanceResourcePolicy(c *echo.Context) error {

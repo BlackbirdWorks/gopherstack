@@ -97,7 +97,7 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 }
 
 // resourceExists reports whether resourceARN is a taggable collection, stream
-// processor, project version or project (CreateProjectInput.Tags).
+// processor, project version, project or dataset.
 func (b *InMemoryBackend) resourceExists(resourceARN string) bool {
 	for _, c := range b.collections.All() {
 		if c.CollectionARN == resourceARN {
@@ -117,7 +117,7 @@ func (b *InMemoryBackend) resourceExists(resourceARN string) bool {
 		}
 	}
 
-	return b.projects.Has(resourceARN)
+	return b.projects.Has(resourceARN) || b.datasets.Has(resourceARN)
 }
 
 // TaggedEntry pairs a resource ARN with its tags.

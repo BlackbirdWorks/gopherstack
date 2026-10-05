@@ -24,8 +24,29 @@ func (h *Handler) userOps() map[string]service.JSONOpFunc {
 // =============================================================================
 
 type createUserReq struct {
-	CollectionId string `json:"CollectionId"` //nolint:revive,staticcheck // existing issue.
-	UserId       string `json:"UserId"`       //nolint:revive,staticcheck // existing issue.
+	CollectionId       string `json:"CollectionId"` //nolint:revive,staticcheck // existing issue.
+	UserId             string `json:"UserId"`       //nolint:revive,staticcheck // existing issue.
+	ClientRequestToken string `json:"ClientRequestToken"`
+}
+
+// withIdempotency replays the recorded response for a repeated ClientRequestToken, else runs do and records it.
+func withIdempotency[T any](h *Handler, op, token, fingerprint string, do func() (*T, error)) (*T, error) {
+	if prior, found, err := h.Backend.IdempotencyLookup(op, token, fingerprint); err != nil {
+		return nil, err
+	} else if found {
+		if r, ok := prior.(*T); ok {
+			return r, nil
+		}
+	}
+
+	resp, err := do()
+	if err != nil {
+		return nil, err
+	}
+
+	h.Backend.IdempotencyStore(op, token, fingerprint, resp)
+
+	return resp, nil
 }
 
 func (h *Handler) handleCreateUser(_ context.Context, req *createUserReq) (*struct{}, error) {
@@ -37,16 +58,20 @@ func (h *Handler) handleCreateUser(_ context.Context, req *createUserReq) (*stru
 		return nil, fmt.Errorf("%w: UserId is required", ErrValidation)
 	}
 
-	if err := h.Backend.CreateUser(req.CollectionId, req.UserId); err != nil {
-		return nil, err
-	}
+	return withIdempotency(h, "CreateUser", req.ClientRequestToken, req.CollectionId+"|"+req.UserId,
+		func() (*struct{}, error) {
+			if err := h.Backend.CreateUser(req.CollectionId, req.UserId); err != nil {
+				return nil, err
+			}
 
-	return &struct{}{}, nil
+			return &struct{}{}, nil
+		})
 }
 
 type deleteUserReq struct {
-	CollectionId string `json:"CollectionId"` //nolint:revive,staticcheck // existing issue.
-	UserId       string `json:"UserId"`       //nolint:revive,staticcheck // existing issue.
+	CollectionId       string `json:"CollectionId"` //nolint:revive,staticcheck // existing issue.
+	UserId             string `json:"UserId"`       //nolint:revive,staticcheck // existing issue.
+	ClientRequestToken string `json:"ClientRequestToken"`
 }
 
 func (h *Handler) handleDeleteUser(_ context.Context, req *deleteUserReq) (*struct{}, error) {
@@ -58,11 +83,14 @@ func (h *Handler) handleDeleteUser(_ context.Context, req *deleteUserReq) (*stru
 		return nil, fmt.Errorf("%w: UserId is required", ErrValidation)
 	}
 
-	if err := h.Backend.DeleteUser(req.CollectionId, req.UserId); err != nil {
-		return nil, err
-	}
+	return withIdempotency(h, "DeleteUser", req.ClientRequestToken, req.CollectionId+"|"+req.UserId,
+		func() (*struct{}, error) {
+			if err := h.Backend.DeleteUser(req.CollectionId, req.UserId); err != nil {
+				return nil, err
+			}
 
-	return &struct{}{}, nil
+			return &struct{}{}, nil
+		})
 }
 
 type listUsersReq struct {
@@ -109,6 +137,7 @@ type associateFacesReq struct {
 	UserMatchThreshold *float32 `json:"UserMatchThreshold"`
 	CollectionID       string   `json:"CollectionId"`
 	UserID             string   `json:"UserId"`
+	ClientRequestToken string   `json:"ClientRequestToken"`
 	FaceIDs            []string `json:"FaceIds"`
 }
 
@@ -130,6 +159,14 @@ func (h *Handler) handleAssociateFaces(
 	_ context.Context,
 	req *associateFacesReq,
 ) (*associateFacesResp, error) {
+	fp := fmt.Sprint(req.CollectionID, "|", req.UserID, "|", req.FaceIDs, "|", req.UserMatchThreshold != nil)
+
+	return withIdempotency(h, "AssociateFaces", req.ClientRequestToken, fp, func() (*associateFacesResp, error) {
+		return h.associateFaces(req)
+	})
+}
+
+func (h *Handler) associateFaces(req *associateFacesReq) (*associateFacesResp, error) {
 	if req.CollectionID == "" {
 		return nil, fmt.Errorf("%w: CollectionId is required", ErrValidation)
 	}
@@ -168,9 +205,10 @@ func (h *Handler) handleAssociateFaces(
 }
 
 type disassociateFacesReq struct {
-	CollectionId string   `json:"CollectionId"` //nolint:revive,staticcheck // existing issue.
-	UserId       string   `json:"UserId"`       //nolint:revive,staticcheck // existing issue.
-	FaceIds      []string `json:"FaceIds"`      //nolint:revive // existing issue.
+	CollectionId       string   `json:"CollectionId"` //nolint:revive,staticcheck // existing issue.
+	UserId             string   `json:"UserId"`       //nolint:revive,staticcheck // existing issue.
+	ClientRequestToken string   `json:"ClientRequestToken"`
+	FaceIds            []string `json:"FaceIds"` //nolint:revive // existing issue.
 }
 
 type disassociatedFaceEntry struct {
@@ -190,6 +228,14 @@ type disassociateFacesResp struct {
 func (h *Handler) handleDisassociateFaces(
 	_ context.Context, req *disassociateFacesReq,
 ) (*disassociateFacesResp, error) {
+	fp := fmt.Sprint(req.CollectionId, "|", req.UserId, "|", req.FaceIds)
+
+	return withIdempotency(h, "DisassociateFaces", req.ClientRequestToken, fp, func() (*disassociateFacesResp, error) {
+		return h.disassociateFaces(req)
+	})
+}
+
+func (h *Handler) disassociateFaces(req *disassociateFacesReq) (*disassociateFacesResp, error) {
 	if req.CollectionId == "" {
 		return nil, fmt.Errorf("%w: CollectionId is required", ErrValidation)
 	}

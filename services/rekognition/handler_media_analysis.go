@@ -37,11 +37,12 @@ func (h *Handler) handleStartPersonTracking(
 	bucket, name, version := videoRefS3(req.Video)
 
 	jobID, err := h.Backend.StartAsyncJob(StartAsyncJobParams{
-		JobType:        "person_tracking",
-		JobTag:         req.JobTag,
-		VideoS3Bucket:  bucket,
-		VideoS3Name:    name,
-		VideoS3Version: version,
+		JobType:            "person_tracking",
+		ClientRequestToken: req.ClientRequestToken,
+		JobTag:             req.JobTag,
+		VideoS3Bucket:      bucket,
+		VideoS3Name:        name,
+		VideoS3Version:     version,
 	})
 	if err != nil {
 		return nil, err
@@ -97,12 +98,13 @@ func (h *Handler) handleStartSegmentDetection(
 	bucket, name, version := videoRefS3(req.Video)
 
 	jobID, err := h.Backend.StartAsyncJob(StartAsyncJobParams{
-		JobType:        "segment_detection",
-		JobTag:         req.JobTag,
-		VideoS3Bucket:  bucket,
-		VideoS3Name:    name,
-		VideoS3Version: version,
-		SegmentTypes:   req.SegmentTypes,
+		JobType:            "segment_detection",
+		ClientRequestToken: req.ClientRequestToken,
+		JobTag:             req.JobTag,
+		VideoS3Bucket:      bucket,
+		VideoS3Name:        name,
+		VideoS3Version:     version,
+		SegmentTypes:       req.SegmentTypes,
 	})
 	if err != nil {
 		return nil, err
@@ -196,6 +198,7 @@ type startMediaAnalysisJobReq struct {
 	OutputConfig       *mediaAnalysisOutputConfigWire     `json:"OutputConfig"`
 	JobName            string                             `json:"JobName"`
 	ClientRequestToken string                             `json:"ClientRequestToken"`
+	KmsKeyID           string                             `json:"KmsKeyId"`
 }
 
 type startMediaAnalysisJobResp struct {
@@ -238,6 +241,8 @@ func (h *Handler) handleStartMediaAnalysisJob(
 	}
 
 	params := StartMediaAnalysisJobParams{
+		ClientRequestToken:      req.ClientRequestToken,
+		KmsKeyID:                req.KmsKeyID,
 		InputS3Bucket:           req.Input.S3Object.Bucket,
 		InputS3Name:             req.Input.S3Object.Name,
 		InputS3Version:          req.Input.S3Object.Version,
@@ -306,7 +311,7 @@ func mediaAnalysisOutputConfigFromDomain(job *MediaAnalysisJob) *mediaAnalysisOu
 // (types.go:1606), shared by GetMediaAnalysisJobOutput (flattened onto the
 // response root, no httpPayload member) and each entry of
 // ListMediaAnalysisJobsOutput.MediaAnalysisJobs. ManifestSummary/Results/
-// FailureDetails/CompletionTimestamp/KmsKeyId are optional response members
+// FailureDetails/CompletionTimestamp are optional response members
 // left absent: this backend runs every job to SUCCEEDED synchronously with no
 // manifest/model-inference pipeline behind it, so there is no genuine result
 // to report rather than fabricate one.
@@ -316,6 +321,7 @@ type mediaAnalysisJobDescription struct {
 	OutputConfig      *mediaAnalysisOutputConfigWire     `json:"OutputConfig"`
 	JobId             string                             `json:"JobId"` //nolint:revive,staticcheck // existing issue.
 	JobName           string                             `json:"JobName,omitempty"`
+	KmsKeyID          string                             `json:"KmsKeyId,omitempty"`
 	Status            string                             `json:"Status"`
 	CreationTimestamp float64                            `json:"CreationTimestamp"`
 }
@@ -324,6 +330,7 @@ func mediaAnalysisJobDescriptionFromDomain(job *MediaAnalysisJob) mediaAnalysisJ
 	return mediaAnalysisJobDescription{
 		JobId:             job.JobID,
 		JobName:           job.JobName,
+		KmsKeyID:          job.KmsKeyID,
 		Status:            job.Status,
 		CreationTimestamp: epochSeconds(job.CreationTimestamp),
 		Input:             mediaAnalysisInputFromDomain(job),

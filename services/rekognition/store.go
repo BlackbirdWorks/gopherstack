@@ -31,6 +31,7 @@ type InMemoryBackend struct {
 	// they do not fit store.Table's keyed-by-identity-value shape. See
 	// persistence.go.
 	datasetEntries map[string][]string // datasetArn -> jsonLines
+	idemResponses  map[string]idemEntry
 
 	users             *store.Table[storedUser]
 	usersByCollection *store.Index[storedUser]
@@ -51,6 +52,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		region:         region,
 		tags:           make(map[string]map[string]string),
 		datasetEntries: make(map[string][]string),
+		idemResponses:  make(map[string]idemEntry),
 	}
 
 	registerAllTables(b)
@@ -120,4 +122,5 @@ func (b *InMemoryBackend) Reset() {
 	b.registry.ResetAll()
 	b.tags = make(map[string]map[string]string)
 	b.datasetEntries = make(map[string][]string)
+	b.idemResponses = make(map[string]idemEntry)
 }

@@ -4,20 +4,25 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 )
 
 // handleCreateInstance handles CreateInstance requests.
 func (h *Handler) handleCreateInstance(_ context.Context, body []byte) (any, error) {
 	var req struct {
-		InstallUpdatesOnBoot *bool    `json:"InstallUpdatesOnBoot"`
-		StackID              string   `json:"StackId"`
-		InstanceType         string   `json:"InstanceType"`
-		AgentVersion         string   `json:"AgentVersion"`
-		Architecture         string   `json:"Architecture"`
-		Os                   string   `json:"Os"`
-		SubnetID             string   `json:"SubnetId"`
-		Tenancy              string   `json:"Tenancy"`
-		LayerIDs             []string `json:"LayerIds"`
+		InstallUpdatesOnBoot *bool `json:"InstallUpdatesOnBoot"`
+		InstanceExtras
+		StackID      string   `json:"StackId"`
+		InstanceType string   `json:"InstanceType"`
+		AgentVersion string   `json:"AgentVersion"`
+		Architecture string   `json:"Architecture"`
+		Os           string   `json:"Os"`
+		SubnetID     string   `json:"SubnetId"`
+		Tenancy      string   `json:"Tenancy"`
+		Hostname     string   `json:"Hostname"`
+		LayerIDs     []string `json:"LayerIds"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -25,6 +30,8 @@ func (h *Handler) handleCreateInstance(_ context.Context, body []byte) (any, err
 	}
 
 	opts := CreateInstanceOptions{
+		Extras:               req.InstanceExtras,
+		Hostname:             req.Hostname,
 		InstallUpdatesOnBoot: req.InstallUpdatesOnBoot,
 		AgentVersion:         req.AgentVersion,
 		Architecture:         req.Architecture,
@@ -46,13 +53,14 @@ func (h *Handler) handleRegisterInstance(_ context.Context, body []byte) (any, e
 	var req struct {
 		StackID  string `json:"StackId"`
 		Hostname string `json:"Hostname"`
+		InstanceExtras
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	instanceID, err := h.Backend.RegisterInstance(req.StackID, req.Hostname)
+	instanceID, err := h.Backend.RegisterInstance(req.StackID, req.Hostname, req.InstanceExtras)
 	if err != nil {
 		return nil, err
 	}
@@ -137,11 +145,15 @@ func (h *Handler) handleDescribeInstances(_ context.Context, body []byte) (any, 
 // handleUpdateInstance handles UpdateInstance requests.
 func (h *Handler) handleUpdateInstance(_ context.Context, body []byte) (any, error) {
 	var req struct {
-		InstallUpdatesOnBoot *bool  `json:"InstallUpdatesOnBoot"`
-		InstanceID           string `json:"InstanceId"`
-		Hostname             string `json:"Hostname"`
-		AgentVersion         string `json:"AgentVersion"`
-		Os                   string `json:"Os"`
+		InstallUpdatesOnBoot *bool `json:"InstallUpdatesOnBoot"`
+		InstanceExtras
+		InstanceID   string   `json:"InstanceId"`
+		Hostname     string   `json:"Hostname"`
+		AgentVersion string   `json:"AgentVersion"`
+		Os           string   `json:"Os"`
+		InstanceType string   `json:"InstanceType"`
+		Architecture string   `json:"Architecture"`
+		LayerIDs     []string `json:"LayerIds"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -149,6 +161,10 @@ func (h *Handler) handleUpdateInstance(_ context.Context, body []byte) (any, err
 	}
 
 	opts := UpdateInstanceOptions{
+		Architecture:         req.Architecture,
+		Extras:               req.InstanceExtras,
+		InstanceType:         req.InstanceType,
+		LayerIDs:             req.LayerIDs,
 		InstallUpdatesOnBoot: req.InstallUpdatesOnBoot,
 		AgentVersion:         req.AgentVersion,
 		Os:                   req.Os,
@@ -164,14 +180,18 @@ func (h *Handler) handleUpdateInstance(_ context.Context, body []byte) (any, err
 // handleDeleteInstance handles DeleteInstance requests.
 func (h *Handler) handleDeleteInstance(_ context.Context, body []byte) (any, error) {
 	var req struct {
-		InstanceID string `json:"InstanceId"`
+		DeleteElasticIP *bool  `json:"DeleteElasticIp"`
+		DeleteVolumes   *bool  `json:"DeleteVolumes"`
+		InstanceID      string `json:"InstanceId"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	if err := h.Backend.DeleteInstance(req.InstanceID); err != nil {
+	if err := h.Backend.DeleteInstance(
+		req.InstanceID, ptrconv.Bool(req.DeleteElasticIP), ptrconv.Bool(req.DeleteVolumes),
+	); err != nil {
 		return nil, err
 	}
 
@@ -232,7 +252,7 @@ func (h *Handler) handleRebootInstance(_ context.Context, body []byte) (any, err
 func instancesToJSON(instances []*Instance) []map[string]any {
 	result := make([]map[string]any, 0, len(instances))
 	for _, i := range instances {
-		result = append(result, map[string]any{
+		m := map[string]any{
 			keyInstanceID:          i.InstanceID,
 			keyStackID:             i.StackID,
 			"LayerIds":             instanceLayerIDs(i.LayerIDs),
@@ -254,7 +274,16 @@ func instancesToJSON(instances []*Instance) []map[string]any {
 			// member fields (Family/Name/Version) are themselves optional strings, so
 			// an empty object is a faithful "nothing reported yet" shape.
 			"ReportedOs": map[string]any{},
-		})
+		}
+
+		if raw, err := json.Marshal(i.Extras); err == nil {
+			var extra map[string]any
+			if json.Unmarshal(raw, &extra) == nil {
+				maps.Copy(m, extra)
+			}
+		}
+
+		result = append(result, m)
 	}
 
 	return result

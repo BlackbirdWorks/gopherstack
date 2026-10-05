@@ -193,6 +193,34 @@ func (b *InMemoryBackend) DeleteAccessGrantsInstance(accountID string) error {
 	return nil
 }
 
+// AccessGrantsPolicyMeta is the Organization and creation time recorded by a resource-policy Put.
+type AccessGrantsPolicyMeta struct {
+	Organization string `json:"organization,omitempty"`
+	CreatedAt    string `json:"createdAt,omitempty"`
+}
+
+// GetAccessGrantsInstanceResourcePolicyMeta returns what the last Put recorded for accountID.
+func (b *InMemoryBackend) GetAccessGrantsInstanceResourcePolicyMeta(accountID string) AccessGrantsPolicyMeta {
+	b.mu.RLock("GetAccessGrantsInstanceResourcePolicyMeta")
+	defer b.mu.RUnlock()
+
+	return b.accessGrantsPolicyMeta[accountID]
+}
+
+// PutAccessGrantsInstanceResourcePolicyWithOrganization sets the policy and records Organization and CreatedAt.
+func (b *InMemoryBackend) PutAccessGrantsInstanceResourcePolicyWithOrganization(
+	accountID, policy, organization string,
+) AccessGrantsPolicyMeta {
+	b.mu.Lock("PutAccessGrantsInstanceResourcePolicy")
+	defer b.mu.Unlock()
+
+	meta := AccessGrantsPolicyMeta{Organization: organization, CreatedAt: nowRFC3339()}
+	b.accessGrantsInstancePolicies[accountID] = policy
+	b.accessGrantsPolicyMeta[accountID] = meta
+
+	return meta
+}
+
 // GetAccessGrantsInstanceResourcePolicy returns the resource policy for an AGI.
 func (b *InMemoryBackend) GetAccessGrantsInstanceResourcePolicy(accountID string) (string, error) {
 	b.mu.RLock("GetAccessGrantsInstanceResourcePolicy")
@@ -209,6 +237,7 @@ func (b *InMemoryBackend) PutAccessGrantsInstanceResourcePolicy(accountID, polic
 	defer b.mu.Unlock()
 
 	b.accessGrantsInstancePolicies[accountID] = policy
+	delete(b.accessGrantsPolicyMeta, accountID)
 }
 
 // DeleteAccessGrantsInstanceResourcePolicy removes the resource policy.
@@ -217,6 +246,7 @@ func (b *InMemoryBackend) DeleteAccessGrantsInstanceResourcePolicy(accountID str
 	defer b.mu.Unlock()
 
 	delete(b.accessGrantsInstancePolicies, accountID)
+	delete(b.accessGrantsPolicyMeta, accountID)
 }
 
 // DissociateAccessGrantsIdentityCenter removes the identity center association.
