@@ -417,6 +417,11 @@ func (b *InMemoryBackend) CreateUserPoolWithOpts(name string, opts UserPoolOptio
 		DeletionProtection:     opts.DeletionProtection,
 		MfaConfiguration:       opts.MfaConfiguration,
 		CustomAttributes:       customSchema,
+		Settings:               opts.Settings,
+	}
+
+	if pool.Settings.UserPoolTier == "" {
+		pool.Settings.UserPoolTier = defaultUserPoolTier
 	}
 
 	b.pools.Put(pool)
@@ -460,6 +465,21 @@ func (b *InMemoryBackend) UpdateUserPoolWithOpts(
 	pool.EmailConfiguration = opts.EmailConfiguration
 	pool.AccountRecoverySetting = opts.AccountRecoverySetting
 	pool.DeletionProtection = opts.DeletionProtection
+
+	settings := opts.Settings
+	settings.UsernameConfiguration = pool.Settings.UsernameConfiguration
+	settings.UsernameAttributes = pool.Settings.UsernameAttributes
+	settings.AliasAttributes = pool.Settings.AliasAttributes
+
+	if settings.UserPoolTier == "" {
+		settings.UserPoolTier = defaultUserPoolTier
+	}
+
+	pool.Settings = settings
+
+	if opts.PoolName != "" {
+		pool.Name = opts.PoolName
+	}
 
 	pool.UpdatedAt = time.Now()
 

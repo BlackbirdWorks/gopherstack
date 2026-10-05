@@ -10,6 +10,15 @@ import (
 
 // CreateDeployment creates a deployment and associated stage.
 func (b *InMemoryBackend) CreateDeployment(restAPIID, stageName, description string) (*Deployment, error) {
+	return b.CreateDeploymentWithCanary(restAPIID, stageName, description, nil)
+}
+
+// CreateDeploymentWithCanary is CreateDeployment that makes the new deployment a canary on an existing stage when
+// canary is set, leaving the stage's primary deployment untouched.
+func (b *InMemoryBackend) CreateDeploymentWithCanary(
+	restAPIID, stageName, description string,
+	canary *CanarySettings,
+) (*Deployment, error) {
 	b.mu.Lock("CreateDeployment")
 	defer b.mu.Unlock()
 
@@ -29,7 +38,20 @@ func (b *InMemoryBackend) CreateDeployment(restAPIID, stageName, description str
 	}
 	b.deployments.Put(depl)
 
-	if stageName != "" {
+	if existing, found := b.stages.Get(stageKey(restAPIID, stageName)); stageName != "" && found {
+		existing.LastUpdatedDate = now
+
+		if canary != nil {
+			existing.CanarySettings = &CanarySettings{
+				DeploymentID:           deplID,
+				PercentTraffic:         canary.PercentTraffic,
+				UseStageCache:          canary.UseStageCache,
+				StageVariableOverrides: canary.StageVariableOverrides,
+			}
+		} else {
+			existing.DeploymentID = deplID
+		}
+	} else if stageName != "" {
 		// AWS: stage description comes from stageDescription (a separate field),
 		// not from the deployment description. New stages start with empty description.
 		stage := &Stage{

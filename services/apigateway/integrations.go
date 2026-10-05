@@ -49,6 +49,9 @@ func (b *InMemoryBackend) PutIntegration(
 		Credentials:          input.Credentials,
 		CacheNamespace:       cacheNamespace,
 		TimeoutInMillis:      timeout,
+		TLSConfig:            input.TLSConfig,
+		IntegrationTarget:    input.IntegrationTarget,
+		ResponseTransferMode: input.ResponseTransferMode,
 		IntegrationResponses: make(map[string]*IntegrationResponse),
 	}
 	m.MethodIntegration = integ

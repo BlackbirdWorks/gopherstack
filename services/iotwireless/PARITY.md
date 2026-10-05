@@ -64,6 +64,7 @@ gaps: []
   # reflected in this file. Corrected in ops/families above; TestExtractOperation_SDKRouteTable
   # (handler_paths_sdk_diff_test.go) now guards all 112 real ops against regressing.
 items_still_open:
+  - "Accepted and ignored: StartBulkAssociate/DisassociateWirelessDevice QueryString and Tags (no search-expression evaluator, so bulk ops act on every device), StartSingleWirelessDeviceImportTask DeviceName/Sidewalk/Positioning/Tags (no read API), ListDevicesForWirelessDeviceImportTask Status (the device list is always empty), WirelessDeviceType on ListQueuedMessages/DeleteQueuedMessages/DeregisterWirelessDevice, GetPositionEstimate inputs, UpdateResourcePosition GeoJsonPayload."
   - "ClientRequestToken replay is held in memory per region (1024 tokens, FIFO) and is not persisted, so a token is forgotten across a restart."
 leaks: {status: clean, note: "no goroutines/janitors in this service; all state is plain in-memory maps/store.Table under the single mu *lockmetrics.RWMutex, released on Reset(). DeleteWirelessDevice/DeleteWirelessGateway/DeleteMulticastGroup/DeleteFuotaTask now cascade-clean every dependent association map (thing associations, queued messages, multicast/FUOTA membership sets, gateway tasks) so no ghost row survives a parent resource's deletion — this was NOT the case before this pass. FIXED (gopherstack-8907, 2026-09-06): DeleteWirelessDevice/DeleteWirelessGateway also missed the positions map (GetPosition/UpdatePosition). GetPosition has no existence check, so it still returned the stale position for a deleted device/gateway's own ID, and positions is persisted verbatim in Snapshot() regardless (device/gateway IDs are uuid.NewString(), so this is unbounded growth rather than a wrong-answer-on-recreate case). Now cleared in both delete paths. See TestDelete_ClearsPosition."}
 ---
@@ -451,3 +452,9 @@ The earlier reason (no mismatch error type in the module) was wrong: each op's d
 ## 2026-10-05 (reqfielddiff tier-1/2 pass 8)
 
 RECORDED: ListDevicesForWirelessDeviceImportTask MaxResults/NextToken have nothing to page: import tasks record no per-device list, so ImportedWirelessDeviceList is always empty (no import engine).
+
+
+## 2026-10-05 (dropped-member burn-down)
+
+- DeleteQueuedMessages honours MessageId: "*" clears the queue, any other value removes only that message (api_op_DeleteQueuedMessages.go:36); a missing messageId is a 400.
+- ListWirelessGatewayTaskDefinitions applies TaskDefinitionType; UPDATE is the only value the SDK defines, so any other value lists nothing.

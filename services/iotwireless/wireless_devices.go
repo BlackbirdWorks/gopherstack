@@ -308,6 +308,25 @@ func (b *InMemoryBackend) ListQueuedMessages(wirelessDeviceID string) []QueuedMe
 	return result
 }
 
+// DeleteQueuedMessage removes one queued message, or every queued message when messageID is "*".
+func (b *InMemoryBackend) DeleteQueuedMessage(wirelessDeviceID, messageID string) error {
+	if messageID == allQueuedMessages {
+		return b.DeleteQueuedMessages(wirelessDeviceID)
+	}
+
+	b.mu.Lock("DeleteQueuedMessage")
+	defer b.mu.Unlock()
+
+	b.queuedMessages[wirelessDeviceID] = slices.DeleteFunc(
+		b.queuedMessages[wirelessDeviceID], func(m QueuedMessage) bool { return m.MessageID == messageID },
+	)
+
+	return nil
+}
+
+// allQueuedMessages is the DeleteQueuedMessages MessageId that selects the whole queue.
+const allQueuedMessages = "*"
+
 // DeleteQueuedMessages clears the message queue for a wireless device.
 func (b *InMemoryBackend) DeleteQueuedMessages(wirelessDeviceID string) error {
 	b.mu.Lock("DeleteQueuedMessages")

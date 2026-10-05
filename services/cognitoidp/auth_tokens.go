@@ -2,6 +2,7 @@ package cognitoidp
 
 import (
 	"crypto/rsa"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -304,17 +305,32 @@ func (b *InMemoryBackend) issueScopedTokensLocked(
 
 // InitiateAuthRefreshToken exchanges a valid refresh token for new ID/Access tokens.
 func (b *InMemoryBackend) InitiateAuthRefreshToken(clientID, refreshToken string) (*TokenResult, error) {
-	b.mu.Lock("InitiateAuthRefreshToken")
-	defer b.mu.Unlock()
+	return b.exchangeRefreshToken(clientID, refreshToken, refreshOpts{})
+}
 
-	if refreshToken == "" {
-		return nil, fmt.Errorf("%w: Missing required parameter REFRESH_TOKEN", ErrInvalidParameter)
-	}
+// GetTokensFromRefreshToken mirrors the GetTokensFromRefreshToken API: it checks the client
+// secret and rotates the refresh token only when the client enables RefreshTokenRotation.
+func (b *InMemoryBackend) GetTokensFromRefreshToken(clientID, refreshToken, clientSecret string) (*TokenResult, error) {
+	return b.exchangeRefreshToken(clientID, refreshToken, refreshOpts{
+		verifySecret:  true,
+		clientSecret:  clientSecret,
+		honorRotation: true,
+	})
+}
 
+type refreshOpts struct {
+	clientSecret  string
+	verifySecret  bool
+	honorRotation bool
+}
+
+// liveRefreshEntryLocked returns the unexpired refresh-token entry issued to clientID, evicting an expired one.
+func (b *InMemoryBackend) liveRefreshEntryLocked(refreshToken, clientID string) (*refreshTokenEntry, error) {
 	entry, ok := b.refreshTokens[refreshToken]
 	if !ok {
 		return nil, fmt.Errorf("%w: refresh token not found or expired", ErrNotAuthorized)
 	}
+
 	if !entry.ExpiresAt.IsZero() && !entry.ExpiresAt.After(time.Now().UTC()) {
 		b.deleteRefreshTokenLocked(refreshToken)
 
@@ -323,6 +339,79 @@ func (b *InMemoryBackend) InitiateAuthRefreshToken(clientID, refreshToken string
 
 	if entry.ClientID != clientID {
 		return nil, fmt.Errorf("%w: refresh token was issued for a different client", ErrNotAuthorized)
+	}
+
+	return entry, nil
+}
+
+// finishRefreshLocked rotates the refresh token, or withholds a new one when rotation is off.
+func (b *InMemoryBackend) finishRefreshLocked(
+	tokens *TokenResult, oldToken string, entry *refreshTokenEntry, expiresAt time.Time, rotate bool,
+) {
+	if !rotate {
+		tokens.RefreshToken = ""
+
+		return
+	}
+
+	b.deleteRefreshTokenLocked(oldToken)
+	entry.ExpiresAt = expiresAt
+	b.storeRefreshTokenLocked(tokens.RefreshToken, entry)
+}
+
+// refreshRotationLocked verifies the client secret when asked and reports whether the refresh token rotates.
+func (b *InMemoryBackend) refreshRotationLocked(clientID string, opts refreshOpts) (bool, error) {
+	if !opts.verifySecret {
+		return true, nil
+	}
+
+	client, err := b.checkClientSecretLocked(clientID, opts.clientSecret, ErrNotAuthorized)
+	if err != nil {
+		return false, err
+	}
+
+	return !opts.honorRotation || rotationEnabled(client), nil
+}
+
+// checkClientSecretLocked returns the client when secret matches its client secret (or it has none).
+func (b *InMemoryBackend) checkClientSecretLocked(clientID, secret string, mismatch error) (*UserPoolClient, error) {
+	client, found := b.clients.Get(clientID)
+	if !found {
+		return nil, fmt.Errorf("%w: client %q not found", ErrClientNotFound, clientID)
+	}
+
+	if client.ClientSecret != "" && subtle.ConstantTimeCompare([]byte(client.ClientSecret), []byte(secret)) != 1 {
+		return nil, fmt.Errorf("%w: unable to verify client secret", mismatch)
+	}
+
+	return client, nil
+}
+
+func rotationEnabled(client *UserPoolClient) bool {
+	feature, _ := client.RefreshTokenRotation["Feature"].(string)
+
+	return feature == "ENABLED"
+}
+
+func (b *InMemoryBackend) exchangeRefreshToken(
+	clientID, refreshToken string,
+	opts refreshOpts,
+) (*TokenResult, error) {
+	b.mu.Lock("InitiateAuthRefreshToken")
+	defer b.mu.Unlock()
+
+	if refreshToken == "" {
+		return nil, fmt.Errorf("%w: Missing required parameter REFRESH_TOKEN", ErrInvalidParameter)
+	}
+
+	rotate, err := b.refreshRotationLocked(clientID, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	entry, err := b.liveRefreshEntryLocked(refreshToken, clientID)
+	if err != nil {
+		return nil, err
 	}
 
 	pool, ok := b.pools.Get(entry.PoolID)
@@ -398,10 +487,7 @@ func (b *InMemoryBackend) InitiateAuthRefreshToken(clientID, refreshToken string
 		return nil, commitErr
 	}
 
-	// Rotate the refresh token: invalidate old, store new.
-	b.deleteRefreshTokenLocked(refreshToken)
-	entry.ExpiresAt = now.UTC().Add(settings.refreshTokenTTL)
-	b.storeRefreshTokenLocked(tokens.RefreshToken, entry)
+	b.finishRefreshLocked(tokens, refreshToken, entry, now.UTC().Add(settings.refreshTokenTTL), rotate)
 
 	return tokens, nil
 }
@@ -440,8 +526,23 @@ func (b *InMemoryBackend) refreshStillValidLocked(
 
 // RevokeToken revokes a refresh token, preventing further use.
 func (b *InMemoryBackend) RevokeToken(token, clientID string) error {
+	return b.revokeToken(token, clientID, nil)
+}
+
+// RevokeTokenWithSecret is RevokeToken plus the client-secret check the RevokeToken API performs.
+func (b *InMemoryBackend) RevokeTokenWithSecret(token, clientID, clientSecret string) error {
+	return b.revokeToken(token, clientID, &clientSecret)
+}
+
+func (b *InMemoryBackend) revokeToken(token, clientID string, clientSecret *string) error {
 	b.mu.Lock("RevokeToken")
 	defer b.mu.Unlock()
+
+	if clientSecret != nil {
+		if _, err := b.checkClientSecretLocked(clientID, *clientSecret, ErrTokenUnauthorized); err != nil {
+			return err
+		}
+	}
 
 	entry, ok := b.refreshTokens[token]
 	if !ok {

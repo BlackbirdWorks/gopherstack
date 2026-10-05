@@ -279,7 +279,10 @@ func (h *Handler) handleSignUpAccurate(
 
 	attrs := attributeListToMap(in.UserAttributes)
 
-	user, err := h.Backend.SignUpWithValidation(in.ClientID, in.Username, in.Password, attrs)
+	user, err := h.Backend.SignUpWithTriggerData(in.ClientID, in.Username, in.Password, attrs, TriggerData{
+		ClientMetadata: in.ClientMetadata,
+		ValidationData: attributeListToMap(in.ValidationData),
+	})
 	if err != nil {
 		return nil, err
 	}

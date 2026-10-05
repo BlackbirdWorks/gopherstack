@@ -17,6 +17,13 @@ import (
 type Cluster struct {
 	CreatedAt                  time.Time
 	Tags                       *tags.Tags
+	AutoMinorVersionUpgrade    *bool
+	LogDeliveryConfigurations  []LogDeliveryConfig
+	SecurityGroupIDs           []string
+	NotificationTopicArn       string
+	NotificationTopicStatus    string
+	NetworkType                string
+	IPDiscovery                string
 	mini                       *miniredis.Miniredis
 	ClusterID                  string
 	Engine                     string
@@ -50,9 +57,26 @@ type Cluster struct {
 	AuthTokenEnabled           bool
 }
 
+// ClusterSettings are the optional CreateCacheCluster/ModifyCacheCluster members applied after the cluster exists.
+type ClusterSettings struct {
+	AutoMinorVersionUpgrade   *bool
+	NotificationTopicArn      string
+	NotificationTopicStatus   string
+	NetworkType               string
+	IPDiscovery               string
+	SecurityGroupIDs          []string
+	CacheSecurityGroupNames   []string
+	LogDeliveryConfigurations []LogDeliveryConfig
+}
+
 // ReplicationGroup represents an ElastiCache replication group.
 type ReplicationGroup struct {
 	CreatedAt                  time.Time                `json:"createdAt"`
+	AutoMinorVersionUpgrade    *bool                    `json:"autoMinorVersionUpgrade,omitempty"`
+	NetworkType                string                   `json:"networkType,omitempty"`
+	IPDiscovery                string                   `json:"ipDiscovery,omitempty"`
+	ClusterMode                string                   `json:"clusterMode,omitempty"`
+	SnapshottingClusterID      string                   `json:"snapshottingClusterId,omitempty"`
 	AuthTokenLastModifiedDate  *time.Time               `json:"authTokenLastModifiedDate,omitempty"`
 	AvailableAt                time.Time                `json:"availableAt,omitzero"`
 	PendingModifiedValues      *RGPendingModifiedValues `json:"pendingModifiedValues,omitempty"`
@@ -205,7 +229,12 @@ type StorageBackend interface {
 		snapshotName, clusterID, replicationGroupID, snapshotSource, marker string,
 		maxRecords int,
 	) (page.Page[CacheSnapshot], error)
+	ApplyClusterSettings(ctx context.Context, id string, settings ClusterSettings) (*Cluster, error)
 	CopySnapshot(ctx context.Context, sourceSnapshotName, targetSnapshotName string) (*CacheSnapshot, error)
+	CreateSnapshotFull(
+		ctx context.Context,
+		snapshotName, clusterID, replicationGroupID, kmsKeyID string,
+	) (*CacheSnapshot, error)
 	CopySnapshotFull(
 		ctx context.Context,
 		sourceSnapshotName, targetSnapshotName, kmsKeyID string,
@@ -327,6 +356,11 @@ type StorageBackend interface {
 		id, cacheNodeType, offeringType, duration, productDescription, marker string,
 		maxRecords int,
 	) (page.Page[ReservedCacheNode], error)
+	DescribeReservedCacheNodesByOffering(
+		ctx context.Context,
+		id, cacheNodeType, offeringType, duration, productDescription, offeringID, marker string,
+		maxRecords int,
+	) (page.Page[ReservedCacheNode], error)
 	DescribeReservedCacheNodesOfferings(
 		ctx context.Context,
 		offeringID, cacheNodeType, offeringType, duration, productDescription, marker string,
@@ -421,6 +455,12 @@ type StorageBackend interface {
 		serviceUpdateName, marker string,
 		maxRecords int,
 		cacheClusterIDs, replicationGroupIDs, updateActionStatus []string,
+	) (page.Page[UpdateAction], error)
+	DescribeUpdateActionsByServiceStatus(
+		ctx context.Context,
+		serviceUpdateName, marker string,
+		maxRecords int,
+		cacheClusterIDs, replicationGroupIDs, updateActionStatus, serviceUpdateStatus []string,
 	) (page.Page[UpdateAction], error)
 	ListAllowedNodeTypeModifications(
 		ctx context.Context,
@@ -563,12 +603,13 @@ type LogDeliveryConfig struct {
 
 // ReplicationGroupCreateOpts carries all fields for full replication-group creation.
 type ReplicationGroupCreateOpts struct {
-	Tags               map[string]string
-	Engine             string
-	EngineVersion      string
-	ID                 string
-	Description        string
-	ParameterGroupName string
+	Tags                    map[string]string
+	AutoMinorVersionUpgrade *bool
+	Engine                  string
+	EngineVersion           string
+	ID                      string
+	Description             string
+	ParameterGroupName      string
 	// SnapshotName, when set, restores the new replication group from an
 	// existing snapshot: the snapshot must exist, and its engine/node type
 	// become defaults for any field the caller didn't explicitly set.
@@ -581,6 +622,9 @@ type ReplicationGroupCreateOpts struct {
 	CacheNodeType             string
 	SnapshotWindow            string
 	Durability                string
+	NetworkType               string
+	IPDiscovery               string
+	ClusterMode               string
 	UserGroupIDs              []string
 	LogDeliveryConfigurations []LogDeliveryConfig
 	SnapshotRetentionLimit    int
@@ -597,10 +641,14 @@ type ReplicationGroupCreateOpts struct {
 
 // ReplicationGroupModifyOpts carries all fields for full replication-group modification.
 type ReplicationGroupModifyOpts struct {
+	AutoMinorVersionUpgrade   *bool
 	SnapshotRetentionLimit    *int
 	ReplicaCount              *int32
 	AutomaticFailoverEnabled  *bool
 	MultiAZEnabled            *bool
+	IPDiscovery               string
+	ClusterMode               string
+	SnapshottingClusterID     string
 	Description               string
 	ParameterGroupName        string
 	EngineVersion             string
@@ -616,6 +664,7 @@ type ReplicationGroupModifyOpts struct {
 	UserGroupIDsToAdd         []string
 	UserGroupIDsToRemove      []string
 	CacheSecurityGroupNames   []string
+	RemoveUserGroups          bool
 	ApplyImmediately          bool
 }
 
@@ -825,19 +874,20 @@ type UserGroup struct {
 
 // ReservedCacheNode represents a purchased reserved cache node.
 type ReservedCacheNode struct {
-	StartTime           time.Time `json:"startTime"`
-	ReservationID       string    `json:"reservationID,omitempty"`
-	ReservedCacheNodeID string    `json:"reservedCacheNodeID"`
-	ARN                 string    `json:"arn"`
-	CacheNodeType       string    `json:"cacheNodeType"`
-	OfferingType        string    `json:"offeringType"`
-	ProductDescription  string    `json:"productDescription"`
-	State               string    `json:"state"`
-	OfferingID          string    `json:"offeringID"`
-	FixedPrice          float64   `json:"fixedPrice"`
-	UsagePrice          float64   `json:"usagePrice"`
-	Duration            int32     `json:"duration"`
-	CacheNodeCount      int32     `json:"cacheNodeCount"`
+	StartTime           time.Time  `json:"startTime"`
+	Tags                *tags.Tags `json:"tags,omitempty"`
+	ReservationID       string     `json:"reservationID,omitempty"`
+	ReservedCacheNodeID string     `json:"reservedCacheNodeID"`
+	ARN                 string     `json:"arn"`
+	CacheNodeType       string     `json:"cacheNodeType"`
+	OfferingType        string     `json:"offeringType"`
+	ProductDescription  string     `json:"productDescription"`
+	State               string     `json:"state"`
+	OfferingID          string     `json:"offeringID"`
+	FixedPrice          float64    `json:"fixedPrice"`
+	UsagePrice          float64    `json:"usagePrice"`
+	Duration            int32      `json:"duration"`
+	CacheNodeCount      int32      `json:"cacheNodeCount"`
 }
 
 // ReservedCacheNodesOffering represents a reserved node offering.

@@ -11,7 +11,7 @@ func (h *Handler) handleSetUICustomizationFull(
 	_ context.Context,
 	in *setUICustomizationFullInput,
 ) (*setUICustomizationFullOutput, error) {
-	ui, err := h.Backend.SetUICustomizationFull(in.UserPoolID, in.ClientID, in.CSS, in.ImageData)
+	ui, err := h.Backend.SetUICustomizationImage(in.UserPoolID, in.ClientID, in.CSS, in.ImageFile)
 	if err != nil {
 		return nil, err
 	}

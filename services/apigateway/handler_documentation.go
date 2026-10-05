@@ -17,7 +17,9 @@ type getDocumentationPartsInput struct {
 	NameQuery string `json:"name"`
 	Path      string `json:"path"`
 	Type      string `json:"type"`
-	Limit     int    `json:"limit"`
+	// LocationStatus filters on whether a part has content (DOCUMENTED) or not (UNDOCUMENTED).
+	LocationStatus string `json:"locationStatus"`
+	Limit          int    `json:"limit"`
 }
 
 type deleteDocumentationPartInput struct {
@@ -167,6 +169,7 @@ func (h *Handler) getDocumentationPartsAction(b []byte) (int, any, error) {
 		return 0, nil, err
 	}
 	ps = filterDocumentationParts(ps, input.NameQuery, input.Path, input.Type)
+	ps = filterDocumentationPartsByStatus(ps, input.LocationStatus)
 	if input.Limit == 0 && input.Position == "" {
 		return http.StatusOK, map[string]any{keyItem: ps}, nil
 	}
@@ -204,6 +207,23 @@ func filterDocumentationParts(parts []DocumentationPart, nameQuery, path, locTyp
 			continue
 		}
 		out = append(out, p)
+	}
+
+	return out
+}
+
+func filterDocumentationPartsByStatus(parts []DocumentationPart, status string) []DocumentationPart {
+	if status == "" {
+		return parts
+	}
+
+	out := make([]DocumentationPart, 0, len(parts))
+
+	for _, p := range parts {
+		documented := p.Properties != "" && p.Properties != "{}"
+		if (status == "DOCUMENTED") == documented {
+			out = append(out, p)
+		}
 	}
 
 	return out

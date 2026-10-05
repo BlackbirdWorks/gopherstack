@@ -21,6 +21,8 @@ type UserPoolClient struct {
 	CreatedAt                       time.Time            `json:"createdAt"`
 	UpdatedAt                       time.Time            `json:"updatedAt"`
 	TokenValidityUnits              map[string]string    `json:"tokenValidityUnits,omitempty"`
+	AnalyticsConfiguration          map[string]any       `json:"analyticsConfiguration,omitempty"`
+	RefreshTokenRotation            map[string]any       `json:"refreshTokenRotation,omitempty"`
 	ClientID                        string               `json:"clientId,omitempty"`
 	ClientName                      string               `json:"clientName,omitempty"`
 	UserPoolID                      string               `json:"userPoolId,omitempty"`
@@ -39,13 +41,18 @@ type UserPoolClient struct {
 	AccessTokenValidity             int32                `json:"accessTokenValidity,omitempty"`
 	IDTokenValidity                 int32                `json:"idTokenValidity,omitempty"`
 	RefreshTokenValidity            int32                `json:"refreshTokenValidity,omitempty"`
+	AuthSessionValidity             int32                `json:"authSessionValidity,omitempty"`
 	EnableTokenRevocation           bool                 `json:"enableTokenRevocation,omitempty"`
+	EnablePropagateUserContext      bool                 `json:"enablePropagateUserContext,omitempty"`
 	AllowedOAuthFlowsUserPoolClient bool                 `json:"allowedOAuthFlowsUserPoolClient,omitempty"`
 }
 
 // UserPoolClientOptions holds optional parameters for CreateUserPoolClientWithOpts and UpdateUserPoolClientWithOpts.
 type UserPoolClientOptions struct {
 	TokenValidityUnits              map[string]string `json:"tokenValidityUnits,omitempty"`
+	AnalyticsConfiguration          map[string]any    `json:"analyticsConfiguration,omitempty"`
+	RefreshTokenRotation            map[string]any    `json:"refreshTokenRotation,omitempty"`
+	ClientSecret                    string            `json:"clientSecret,omitempty"`
 	PreventUserExistenceErrors      string            `json:"preventUserExistenceErrors,omitempty"`
 	DefaultRedirectURI              string            `json:"defaultRedirectUri,omitempty"`
 	SupportedIdentityProviders      []string          `json:"supportedIdentityProviders,omitempty"`
@@ -56,9 +63,11 @@ type UserPoolClientOptions struct {
 	AllowedOAuthFlows               []string          `json:"allowedOAuthFlows,omitempty"`
 	ReadAttributes                  []string          `json:"readAttributes,omitempty"`
 	WriteAttributes                 []string          `json:"writeAttributes,omitempty"`
+	AuthSessionValidity             int32             `json:"authSessionValidity,omitempty"`
 	AccessTokenValidity             int32             `json:"accessTokenValidity,omitempty"`
 	IDTokenValidity                 int32             `json:"idTokenValidity,omitempty"`
 	RefreshTokenValidity            int32             `json:"refreshTokenValidity,omitempty"`
+	EnablePropagateUserContext      bool              `json:"enablePropagateUserContext,omitempty"`
 	GenerateSecret                  bool              `json:"generateSecret,omitempty"`
 	EnableTokenRevocation           bool              `json:"enableTokenRevocation,omitempty"`
 	AllowedOAuthFlowsUserPoolClient bool              `json:"allowedOAuthFlowsUserPoolClient,omitempty"`
@@ -94,6 +103,8 @@ type addUserPoolClientSecretOutput struct {
 // clientDataAccurate is the wire format for UserPoolClient including OAuth fields.
 type clientDataAccurate struct {
 	TokenValidityUnits              map[string]string `json:"TokenValidityUnits,omitempty"`
+	AnalyticsConfiguration          map[string]any    `json:"AnalyticsConfiguration,omitempty"`
+	RefreshTokenRotation            map[string]any    `json:"RefreshTokenRotation,omitempty"`
 	ClientID                        string            `json:"ClientId,omitempty"`
 	ClientName                      string            `json:"ClientName,omitempty"`
 	UserPoolID                      string            `json:"UserPoolId,omitempty"`
@@ -113,13 +124,18 @@ type clientDataAccurate struct {
 	AccessTokenValidity             int32             `json:"AccessTokenValidity,omitempty"`
 	IDTokenValidity                 int32             `json:"IdTokenValidity,omitempty"`
 	RefreshTokenValidity            int32             `json:"RefreshTokenValidity,omitempty"`
+	AuthSessionValidity             int32             `json:"AuthSessionValidity,omitempty"`
 	EnableTokenRevocation           bool              `json:"EnableTokenRevocation,omitempty"`
+	EnablePropagateUserContext      bool              `json:"EnablePropagateAdditionalUserContextData,omitempty"`
 	AllowedOAuthFlowsUserPoolClient bool              `json:"AllowedOAuthFlowsUserPoolClient,omitempty"`
 }
 
 type createUserPoolClientWithOptsInput struct {
 	TokenValidityUnits              map[string]string `json:"TokenValidityUnits,omitempty"`
+	AnalyticsConfiguration          map[string]any    `json:"AnalyticsConfiguration,omitempty"`
+	RefreshTokenRotation            map[string]any    `json:"RefreshTokenRotation,omitempty"`
 	EnableTokenRevocation           *bool             `json:"EnableTokenRevocation,omitempty"`
+	ClientSecret                    string            `json:"ClientSecret,omitempty"`
 	UserPoolID                      string            `json:"UserPoolId,omitempty"`
 	ClientName                      string            `json:"ClientName,omitempty"`
 	PreventUserExistenceErrors      string            `json:"PreventUserExistenceErrors,omitempty"`
@@ -132,9 +148,11 @@ type createUserPoolClientWithOptsInput struct {
 	ReadAttributes                  []string          `json:"ReadAttributes,omitempty"`
 	WriteAttributes                 []string          `json:"WriteAttributes,omitempty"`
 	AllowedOAuthFlows               []string          `json:"AllowedOAuthFlows,omitempty"`
+	AuthSessionValidity             int32             `json:"AuthSessionValidity,omitempty"`
 	AccessTokenValidity             int32             `json:"AccessTokenValidity,omitempty"`
 	IDTokenValidity                 int32             `json:"IdTokenValidity,omitempty"`
 	RefreshTokenValidity            int32             `json:"RefreshTokenValidity,omitempty"`
+	EnablePropagateUserContext      bool              `json:"EnablePropagateAdditionalUserContextData,omitempty"`
 	GenerateSecret                  bool              `json:"GenerateSecret,omitempty"`
 	AllowedOAuthFlowsUserPoolClient bool              `json:"AllowedOAuthFlowsUserPoolClient,omitempty"`
 }
@@ -145,6 +163,8 @@ type createUserPoolClientWithOptsOutput struct {
 
 type updateUserPoolClientWithOptsInput struct {
 	TokenValidityUnits              map[string]string `json:"TokenValidityUnits,omitempty"`
+	AnalyticsConfiguration          map[string]any    `json:"AnalyticsConfiguration,omitempty"`
+	RefreshTokenRotation            map[string]any    `json:"RefreshTokenRotation,omitempty"`
 	EnableTokenRevocation           *bool             `json:"EnableTokenRevocation,omitempty"`
 	UserPoolID                      string            `json:"UserPoolId,omitempty"`
 	ClientID                        string            `json:"ClientId,omitempty"`
@@ -159,9 +179,11 @@ type updateUserPoolClientWithOptsInput struct {
 	ReadAttributes                  []string          `json:"ReadAttributes,omitempty"`
 	WriteAttributes                 []string          `json:"WriteAttributes,omitempty"`
 	AllowedOAuthFlows               []string          `json:"AllowedOAuthFlows,omitempty"`
+	AuthSessionValidity             int32             `json:"AuthSessionValidity,omitempty"`
 	AccessTokenValidity             int32             `json:"AccessTokenValidity,omitempty"`
 	IDTokenValidity                 int32             `json:"IdTokenValidity,omitempty"`
 	RefreshTokenValidity            int32             `json:"RefreshTokenValidity,omitempty"`
+	EnablePropagateUserContext      bool              `json:"EnablePropagateAdditionalUserContextData,omitempty"`
 	AllowedOAuthFlowsUserPoolClient bool              `json:"AllowedOAuthFlowsUserPoolClient,omitempty"`
 }
 

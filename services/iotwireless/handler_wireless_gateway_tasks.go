@@ -43,6 +43,9 @@ type taskDefEntry struct {
 	Arn     string                         `json:"Arn"`
 }
 
+// taskDefinitionTypeUpdate is the only WirelessGatewayTaskDefinitionType the SDK defines.
+const taskDefinitionTypeUpdate = "UPDATE"
+
 type listWirelessGatewayTaskDefinitionsResponse struct {
 	NextToken       string         `json:"NextToken"`
 	TaskDefinitions []taskDefEntry `json:"TaskDefinitions"`
@@ -135,6 +138,10 @@ func (h *Handler) getWirelessGatewayTaskDefinition(c *echo.Context, id string) e
 
 func (h *Handler) listWirelessGatewayTaskDefinitions(c *echo.Context) error {
 	defs := h.Backend.ListWirelessGatewayTaskDefinitions()
+	if t := c.QueryParam("taskDefinitionType"); t != "" && t != taskDefinitionTypeUpdate {
+		defs = nil
+	}
+
 	page, next := paginateQuery(c, defs)
 
 	entries := make([]taskDefEntry, 0, len(page))

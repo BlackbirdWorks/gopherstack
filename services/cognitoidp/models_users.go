@@ -57,10 +57,11 @@ type adminDeleteUserInput struct {
 type adminDeleteUserOutput struct{}
 
 type listUsersInput struct {
-	UserPoolID      string `json:"UserPoolId,omitempty"`
-	Filter          string `json:"Filter,omitempty"`
-	PaginationToken string `json:"PaginationToken,omitempty"`
-	Limit           int    `json:"Limit,omitempty"`
+	UserPoolID      string   `json:"UserPoolId,omitempty"`
+	Filter          string   `json:"Filter,omitempty"`
+	PaginationToken string   `json:"PaginationToken,omitempty"`
+	AttributesToGet []string `json:"AttributesToGet,omitempty"`
+	Limit           int      `json:"Limit,omitempty"`
 }
 
 type listUsersOutput struct {
@@ -121,13 +122,15 @@ type getUserAccurateInput struct {
 }
 
 type adminCreateUserFullInput struct {
-	UserPoolID             string          `json:"UserPoolId,omitempty"`
-	Username               string          `json:"Username,omitempty"`
-	TemporaryPassword      string          `json:"TemporaryPassword,omitempty"`
-	UserAttributes         []attributeType `json:"UserAttributes,omitempty"`
-	MessageAction          string          `json:"MessageAction,omitempty"`
-	DesiredDeliveryMediums []string        `json:"DesiredDeliveryMediums,omitempty"`
-	ForceAliasCreation     bool            `json:"ForceAliasCreation,omitempty"`
+	ClientMetadata         map[string]string `json:"ClientMetadata,omitempty"`
+	ValidationData         []attributeType   `json:"ValidationData,omitempty"`
+	UserPoolID             string            `json:"UserPoolId,omitempty"`
+	Username               string            `json:"Username,omitempty"`
+	TemporaryPassword      string            `json:"TemporaryPassword,omitempty"`
+	UserAttributes         []attributeType   `json:"UserAttributes,omitempty"`
+	MessageAction          string            `json:"MessageAction,omitempty"`
+	DesiredDeliveryMediums []string          `json:"DesiredDeliveryMediums,omitempty"`
+	ForceAliasCreation     bool              `json:"ForceAliasCreation,omitempty"`
 }
 
 type adminCreateUserFullOutput struct {

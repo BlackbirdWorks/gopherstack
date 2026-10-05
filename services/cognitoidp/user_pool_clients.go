@@ -242,10 +242,26 @@ func (b *InMemoryBackend) CreateUserPoolClientWithOpts(
 		TokenValidityUnits:              tvu,
 		EnableTokenRevocation:           opts.EnableTokenRevocation,
 		AllowedOAuthFlowsUserPoolClient: opts.AllowedOAuthFlowsUserPoolClient,
+		AnalyticsConfiguration:          maps.Clone(opts.AnalyticsConfiguration),
+		RefreshTokenRotation:            maps.Clone(opts.RefreshTokenRotation),
+		AuthSessionValidity:             opts.AuthSessionValidity,
+		EnablePropagateUserContext:      opts.EnablePropagateUserContext,
 	}
 
-	if opts.GenerateSecret {
+	switch {
+	case opts.GenerateSecret && opts.ClientSecret != "":
+		return nil, fmt.Errorf("%w: GenerateSecret and ClientSecret are mutually exclusive", ErrInvalidParameter)
+	case opts.GenerateSecret:
 		client.ClientSecret = randomAlphanumeric(clientSecretLen)
+	case opts.ClientSecret != "":
+		client.ClientSecret = opts.ClientSecret
+	}
+
+	if client.EnablePropagateUserContext && client.ClientSecret == "" {
+		return nil, fmt.Errorf(
+			"%w: EnablePropagateAdditionalUserContextData requires an app client with a client secret",
+			ErrInvalidParameter,
+		)
 	}
 
 	b.clients.Put(client)
@@ -299,6 +315,13 @@ func (b *InMemoryBackend) UpdateUserPoolClientWithOpts(
 		return nil, fmt.Errorf("%w: client %q does not belong to pool %q", ErrClientNotFound, clientID, userPoolID)
 	}
 
+	if opts.EnablePropagateUserContext && client.ClientSecret == "" {
+		return nil, fmt.Errorf(
+			"%w: EnablePropagateAdditionalUserContextData requires an app client with a client secret",
+			ErrInvalidParameter,
+		)
+	}
+
 	if clientName != "" {
 		client.ClientName = clientName
 	}
@@ -317,6 +340,10 @@ func (b *InMemoryBackend) UpdateUserPoolClientWithOpts(
 	client.IDTokenValidity = opts.IDTokenValidity
 	client.RefreshTokenValidity = refreshTokenValidityOrDefault(opts.RefreshTokenValidity)
 	client.TokenValidityUnits = maps.Clone(opts.TokenValidityUnits)
+	client.AnalyticsConfiguration = maps.Clone(opts.AnalyticsConfiguration)
+	client.RefreshTokenRotation = maps.Clone(opts.RefreshTokenRotation)
+	client.AuthSessionValidity = opts.AuthSessionValidity
+	client.EnablePropagateUserContext = opts.EnablePropagateUserContext
 	client.UpdatedAt = time.Now()
 	cp := *client
 

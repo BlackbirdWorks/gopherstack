@@ -61,6 +61,7 @@ type userPoolSnapshot struct {
 	AccountRecoverySetting map[string]any    `json:"accountRecoverySetting,omitempty"`
 	PasswordPolicy         *PasswordPolicy   `json:"passwordPolicy,omitempty"`
 	SignInPolicy           *SignInPolicy     `json:"signInPolicy,omitempty"`
+	Settings               PoolSettings      `json:"settings,omitzero"`
 	CreatedAt              string            `json:"createdAt,omitempty"`
 	ID                     string            `json:"id,omitempty"`
 	Name                   string            `json:"name,omitempty"`
@@ -225,6 +226,7 @@ func buildPoolSnapshot(ctx context.Context, p *UserPool) *userPoolSnapshot {
 		LambdaConfig:           p.LambdaConfig,
 		EmailConfiguration:     p.EmailConfiguration,
 		AccountRecoverySetting: p.AccountRecoverySetting,
+		Settings:               p.Settings,
 	}
 }
 
@@ -614,6 +616,7 @@ func restorePoolsFromSnapshot(poolSnapshots []*userPoolSnapshot) ([]*UserPool, e
 			LambdaConfig:           ps.LambdaConfig,
 			EmailConfiguration:     ps.EmailConfiguration,
 			AccountRecoverySetting: ps.AccountRecoverySetting,
+			Settings:               ps.Settings,
 		}
 
 		if rsaKey != nil {

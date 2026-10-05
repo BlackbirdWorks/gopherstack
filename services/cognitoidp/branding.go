@@ -2,11 +2,26 @@ package cognitoidp
 
 import (
 	"fmt"
+	"slices"
 	"time"
 )
 
 // SetUICustomizationFull stores extended UI customization including image URL.
 func (b *InMemoryBackend) SetUICustomizationFull(poolID, clientID, css, imageURL string) (*UICustomization, error) {
+	return b.setUICustomization(poolID, clientID, css, imageURL, nil)
+}
+
+// SetUICustomizationImage stores the CSS and the uploaded ImageFile bytes; ImageUrl is not hosted.
+func (b *InMemoryBackend) SetUICustomizationImage(
+	poolID, clientID, css string,
+	imageFile []byte,
+) (*UICustomization, error) {
+	return b.setUICustomization(poolID, clientID, css, "", imageFile)
+}
+
+func (b *InMemoryBackend) setUICustomization(
+	poolID, clientID, css, imageURL string, imageFile []byte,
+) (*UICustomization, error) {
 	b.mu.Lock("SetUICustomizationFull")
 	defer b.mu.Unlock()
 
@@ -27,6 +42,7 @@ func (b *InMemoryBackend) SetUICustomizationFull(poolID, clientID, css, imageURL
 
 	existing.CSS = css
 	existing.ImageURL = imageURL
+	existing.ImageFile = slices.Clone(imageFile)
 	existing.LastModifiedAt = now
 	b.uiCustomizations.Put(existing)
 

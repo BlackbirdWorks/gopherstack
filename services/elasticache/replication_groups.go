@@ -457,6 +457,14 @@ func (b *InMemoryBackend) buildReplicationGroupFromCreateOpts(
 		SnapshotRetentionLimit:     opts.SnapshotRetentionLimit,
 		LogDeliveryConfigurations:  opts.LogDeliveryConfigurations,
 		Durability:                 opts.Durability,
+		AutoMinorVersionUpgrade:    opts.AutoMinorVersionUpgrade,
+		NetworkType:                opts.NetworkType,
+		IPDiscovery:                opts.IPDiscovery,
+		ClusterMode:                opts.ClusterMode,
+	}
+
+	if opts.ClusterMode != "" {
+		rg.ClusterModeEnabled = opts.ClusterMode == clusterModeEnabled
 	}
 
 	applyAuthToken(rg, opts.AuthToken, opts.AuthTokenEnabled)
@@ -633,10 +641,38 @@ func (b *InMemoryBackend) applyModifyOptsLocked(rg *ReplicationGroup, opts Repli
 		rg.ReplicaCount = *opts.ReplicaCount
 	}
 
+	applyModifyExtras(rg, opts)
+
 	applyUserGroupIDsModify(rg, opts.UserGroupIDsToAdd, opts.UserGroupIDsToRemove)
 	applyAuthTokenModify(rg, opts.AuthToken, opts.AuthTokenUpdateStrategy)
 	applyTransitEncryptionModify(rg, opts.TransitEncryptionMode)
 	applyPendingChanges(rg, opts)
+}
+
+const clusterModeEnabled = "enabled"
+
+// applyModifyExtras applies the network, cluster-mode, snapshotting-cluster and user-group-removal members.
+func applyModifyExtras(rg *ReplicationGroup, opts ReplicationGroupModifyOpts) {
+	if opts.AutoMinorVersionUpgrade != nil {
+		rg.AutoMinorVersionUpgrade = opts.AutoMinorVersionUpgrade
+	}
+
+	if opts.IPDiscovery != "" {
+		rg.IPDiscovery = opts.IPDiscovery
+	}
+
+	if opts.ClusterMode != "" {
+		rg.ClusterMode = opts.ClusterMode
+		rg.ClusterModeEnabled = opts.ClusterMode == clusterModeEnabled
+	}
+
+	if opts.SnapshottingClusterID != "" {
+		rg.SnapshottingClusterID = opts.SnapshottingClusterID
+	}
+
+	if opts.RemoveUserGroups {
+		rg.UserGroupIDs = nil
+	}
 }
 
 func applyAutoFailoverModify(rg *ReplicationGroup, enabled *bool) {

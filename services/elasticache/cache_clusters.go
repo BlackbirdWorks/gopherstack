@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net"
+	"slices"
 	"strconv"
 	"time"
 
@@ -540,6 +541,65 @@ func (b *InMemoryBackend) ModifyCluster(
 
 	b.markTransitionLocked(&c.PendingStatus, &c.AvailableAt, statusModifying)
 	b.appendEventLocked(id, "cache-cluster", "cluster modified")
+
+	return b.clusterView(c), nil
+}
+
+// ApplyClusterSettings records the optional Create/ModifyCacheCluster members on an existing cluster.
+func (b *InMemoryBackend) ApplyClusterSettings(
+	ctx context.Context,
+	id string,
+	settings ClusterSettings,
+) (*Cluster, error) {
+	b.mu.Lock("ApplyClusterSettings")
+	defer b.mu.Unlock()
+
+	region := getRegion(ctx, b.region)
+
+	c, exists := b.clustersStore(region).Get(id)
+	if !exists {
+		return nil, ErrClusterNotFound
+	}
+
+	if len(settings.CacheSecurityGroupNames) > 0 {
+		sgStore := b.cacheSecurityGroupsStoreRO(region)
+		for _, name := range settings.CacheSecurityGroupNames {
+			if _, ok := sgStore.Get(name); !ok {
+				return nil, ErrCacheSecurityGroupNotFound
+			}
+		}
+
+		c.CacheSecurityGroupNames = slices.Clone(settings.CacheSecurityGroupNames)
+	}
+
+	if len(settings.SecurityGroupIDs) > 0 {
+		c.SecurityGroupIDs = slices.Clone(settings.SecurityGroupIDs)
+	}
+
+	if len(settings.LogDeliveryConfigurations) > 0 {
+		c.LogDeliveryConfigurations = slices.Clone(settings.LogDeliveryConfigurations)
+	}
+
+	if settings.AutoMinorVersionUpgrade != nil {
+		c.AutoMinorVersionUpgrade = settings.AutoMinorVersionUpgrade
+	}
+
+	if settings.NotificationTopicArn != "" {
+		c.NotificationTopicArn = settings.NotificationTopicArn
+		c.NotificationTopicStatus = statusActive
+	}
+
+	if settings.NotificationTopicStatus != "" {
+		c.NotificationTopicStatus = settings.NotificationTopicStatus
+	}
+
+	if settings.NetworkType != "" {
+		c.NetworkType = settings.NetworkType
+	}
+
+	if settings.IPDiscovery != "" {
+		c.IPDiscovery = settings.IPDiscovery
+	}
 
 	return b.clusterView(c), nil
 }

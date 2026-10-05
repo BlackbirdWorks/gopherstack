@@ -32,6 +32,7 @@ type snapshotXML struct {
 	SnapshotSource         string `xml:"SnapshotSource"`
 	Durability             string `xml:"Durability,omitempty"`
 	CacheClusterCreateTime string `xml:"CacheClusterCreateTime,omitempty"`
+	KmsKeyID               string `xml:"KmsKeyId,omitempty"`
 }
 
 func snapshotToXML(snap *CacheSnapshot) snapshotXML {
@@ -45,6 +46,7 @@ func snapshotToXML(snap *CacheSnapshot) snapshotXML {
 		EngineVersion:      snap.EngineVersion,
 		CacheNodeType:      snap.NodeType,
 		SnapshotSource:     snap.SnapshotSource,
+		KmsKeyID:           snap.KmsKeyID,
 	}
 	if !snap.SourceClusterCreatedAt.IsZero() {
 		x.CacheClusterCreateTime = snap.SourceClusterCreatedAt.UTC().Format(time.RFC3339)
@@ -58,7 +60,7 @@ func (h *Handler) createSnapshot(ctx context.Context, c *echo.Context, form url.
 	clusterID := form.Get("CacheClusterId")
 	replicationGroupID := form.Get("ReplicationGroupId")
 
-	snap, err := h.Backend.CreateSnapshot(ctx, snapshotName, clusterID, replicationGroupID)
+	snap, err := h.Backend.CreateSnapshotFull(ctx, snapshotName, clusterID, replicationGroupID, form.Get("KmsKeyId"))
 	if err != nil {
 		if errors.Is(err, ErrInvalidSnapshotSource) {
 			return xmlError(
@@ -166,7 +168,7 @@ func (h *Handler) copySnapshot(ctx context.Context, c *echo.Context, form url.Va
 	sourceSnapshotName := form.Get("SourceSnapshotName")
 	targetSnapshotName := form.Get("TargetSnapshotName")
 
-	snap, err := h.Backend.CopySnapshot(ctx, sourceSnapshotName, targetSnapshotName)
+	snap, err := h.Backend.CopySnapshotFull(ctx, sourceSnapshotName, targetSnapshotName, form.Get("KmsKeyId"))
 	if err != nil {
 		if errors.Is(err, ErrSnapshotNotFound) {
 			return xmlError(c, http.StatusNotFound, "SnapshotNotFoundFault", "Source snapshot not found")
@@ -178,6 +180,8 @@ func (h *Handler) copySnapshot(ctx context.Context, c *echo.Context, form url.Va
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
+	h.applyCreateTimeTags(ctx, form, snap.ARN)
+
 	type result struct {
 		XMLName  xml.Name    `xml:"CopySnapshotResponse"`
 		Xmlns    string      `xml:"xmlns,attr"`
@@ -188,4 +192,29 @@ func (h *Handler) copySnapshot(ctx context.Context, c *echo.Context, form url.Va
 		Xmlns:    elasticacheNS,
 		Snapshot: snapshotToXML(snap),
 	})
+}
+
+// takeFinalSnapshot creates the snapshot named by FinalSnapshotIdentifier before a delete and returns an
+// undo func that removes it again when the delete then fails.
+func (h *Handler) takeFinalSnapshot(
+	ctx context.Context, form url.Values, clusterID, replicationGroupID string,
+) (func(), error) {
+	name := form.Get("FinalSnapshotIdentifier")
+	if name == "" {
+		return func() {}, nil
+	}
+
+	if _, err := h.Backend.CreateSnapshot(ctx, name, clusterID, replicationGroupID); err != nil {
+		return nil, err
+	}
+
+	return func() { _, _ = h.Backend.DeleteSnapshot(ctx, name) }, nil
+}
+
+func finalSnapshotErrorResponse(c *echo.Context, err error) error {
+	if errors.Is(err, ErrSnapshotAlreadyExists) {
+		return xmlError(c, http.StatusBadRequest, "SnapshotAlreadyExistsFault", "Snapshot already exists")
+	}
+
+	return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 }

@@ -56,6 +56,12 @@ func (b *InMemoryBackend) appendClusterTagCandidates(candidates []tagCandidate) 
 				tagCandidate{snap.ARN, tagEntry{&snap.Tags, "elasticache.snapshot." + snap.SnapshotName + ".tags"}})
 		}
 	}
+	for _, regionRCNs := range b.reservedCacheNodes {
+		for _, rcn := range regionRCNs.All() {
+			candidates = append(candidates,
+				tagCandidate{rcn.ARN, tagEntry{&rcn.Tags, "elasticache.reserved." + rcn.ReservedCacheNodeID + ".tags"}})
+		}
+	}
 	for _, regionCSGs := range b.cacheSecurityGroups {
 		for _, sg := range regionCSGs.All() {
 			candidates = append(candidates,

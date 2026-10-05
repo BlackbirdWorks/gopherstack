@@ -109,6 +109,10 @@ func parseCreateReplicationGroupOpts(form url.Values) ReplicationGroupCreateOpts
 		TransitEncryptionEnabled: strings.EqualFold(form.Get("TransitEncryptionEnabled"), "true"),
 		ClusterModeEnabled: strings.EqualFold(form.Get("ClusterModeEnabled"), "true") ||
 			strings.EqualFold(form.Get("ClusterMode"), "enabled"),
+		NetworkType:              form.Get("NetworkType"),
+		IPDiscovery:              form.Get("IpDiscovery"),
+		ClusterMode:              form.Get("ClusterMode"),
+		AutoMinorVersionUpgrade:  optionalBool(form, "AutoMinorVersionUpgrade"),
 		DataTieringEnabled:       strings.EqualFold(form.Get("DataTieringEnabled"), "true"),
 		MultiAZEnabled:           strings.EqualFold(form.Get("MultiAZEnabled"), "true"),
 		AutomaticFailoverEnabled: strings.EqualFold(form.Get("AutomaticFailoverEnabled"), "true")}
@@ -140,29 +144,7 @@ func parseCreateReplicationGroupOpts(form url.Values) ReplicationGroupCreateOpts
 		opts.UserGroupIDs = append(opts.UserGroupIDs, id)
 	}
 
-	// Parse LogDeliveryConfigurations.
-	for i := 1; ; i++ {
-		prefix := fmt.Sprintf("LogDeliveryConfigurations.member.%d.", i)
-		logType := form.Get(prefix + "LogType")
-		if logType == "" {
-			break
-		}
-
-		destType := form.Get(prefix + "DestinationType")
-		logFormat := form.Get(prefix + "LogFormat")
-		destDetails := form.Get(prefix + "DestinationDetails.CloudWatchLogsDetails.LogGroup")
-		if destDetails == "" {
-			destDetails = form.Get(prefix + "DestinationDetails.KinesisFirehoseDetails.DeliveryStream")
-		}
-
-		opts.LogDeliveryConfigurations = append(opts.LogDeliveryConfigurations, LogDeliveryConfig{
-			LogType:            logType,
-			DestinationType:    destType,
-			LogFormat:          logFormat,
-			DestinationDetails: destDetails,
-			Status:             statusEnabled,
-		})
-	}
+	opts.LogDeliveryConfigurations = parseLogDeliveryConfigs(form)
 
 	// Parse Tags.
 	if t := parseFormTags(form); len(t) > 0 {
@@ -170,6 +152,40 @@ func parseCreateReplicationGroupOpts(form url.Values) ReplicationGroupCreateOpts
 	}
 
 	return opts
+}
+
+// parseLogDeliveryConfigs reads the LogDeliveryConfigurations.member.N list from a form.
+func parseLogDeliveryConfigs(form url.Values) []LogDeliveryConfig {
+	var out []LogDeliveryConfig
+
+	// The SDK serializes this list under LogDeliveryConfigurationRequest (serializers.go:5589).
+	for i := 1; ; i++ {
+		prefix := fmt.Sprintf("LogDeliveryConfigurations.LogDeliveryConfigurationRequest.%d.", i)
+		logType := form.Get(prefix + "LogType")
+		if logType == "" {
+			prefix = fmt.Sprintf("LogDeliveryConfigurations.member.%d.", i)
+			logType = form.Get(prefix + "LogType")
+		}
+
+		if logType == "" {
+			break
+		}
+
+		destDetails := form.Get(prefix + "DestinationDetails.CloudWatchLogsDetails.LogGroup")
+		if destDetails == "" {
+			destDetails = form.Get(prefix + "DestinationDetails.KinesisFirehoseDetails.DeliveryStream")
+		}
+
+		out = append(out, LogDeliveryConfig{
+			LogType:            logType,
+			DestinationType:    form.Get(prefix + "DestinationType"),
+			LogFormat:          form.Get(prefix + "LogFormat"),
+			DestinationDetails: destDetails,
+			Status:             statusEnabled,
+		})
+	}
+
+	return out
 }
 
 // mapReplicationGroupCreateErr maps backend errors to XML error responses.
@@ -207,7 +223,15 @@ func (h *Handler) deleteReplicationGroup(ctx context.Context, c *echo.Context, f
 	}
 
 	rg := rgs.Data[0]
+
+	undoSnapshot, snapErr := h.takeFinalSnapshot(ctx, form, "", id)
+	if snapErr != nil {
+		return finalSnapshotErrorResponse(c, snapErr)
+	}
+
 	if err := h.Backend.DeleteReplicationGroup(ctx, id); err != nil {
+		undoSnapshot()
+
 		if errors.Is(err, ErrReplicationGroupNotFound) {
 			return xmlError(c, http.StatusNotFound, "ReplicationGroupNotFoundFault", "Replication group not found")
 		}
@@ -297,6 +321,7 @@ type replicationGroupXML struct {
 	NodeGroups                 *nodeGroupsListXML     `xml:"NodeGroups,omitempty"`
 	UserGroupIDs               *rgUserGroupIDsXML     `xml:"UserGroupIds,omitempty"`
 	LogDeliveryConfigurations  *logDeliveryConfigsXML `xml:"LogDeliveryConfigurations,omitempty"`
+	AutoMinorVersionUpgrade    *bool                  `xml:"AutoMinorVersionUpgrade,omitempty"`
 	ReplicationGroupID         string                 `xml:"ReplicationGroupId"`
 	Description                string                 `xml:"Description"`
 	Status                     string                 `xml:"Status"`
@@ -311,14 +336,16 @@ type replicationGroupXML struct {
 	EngineVersion              string                 `xml:"EngineVersion,omitempty"`
 	CreatedAt                  string                 `xml:"ReplicationGroupCreateTime,omitempty"`
 	KmsKeyID                   string                 `xml:"KmsKeyId,omitempty"`
-	NotificationTopicArn       string                 `xml:"NotificationTopicArn,omitempty"`
+	NetworkType                string                 `xml:"NetworkType,omitempty"`
+	IPDiscovery                string                 `xml:"IpDiscovery,omitempty"`
+	ClusterMode                string                 `xml:"ClusterMode,omitempty"`
+	SnapshottingClusterID      string                 `xml:"SnapshottingClusterId,omitempty"`
 	TransitEncryptionMode      string                 `xml:"TransitEncryptionMode,omitempty"`
 	DataTiering                string                 `xml:"DataTiering,omitempty"`
 	Durability                 string                 `xml:"Durability,omitempty"`
 	EffectiveDurability        string                 `xml:"EffectiveDurability,omitempty"`
 	StorageEncryptionType      string                 `xml:"StorageEncryptionType,omitempty"`
 	SnapshotRetentionLimit     int                    `xml:"SnapshotRetentionLimit,omitempty"`
-	NumCacheClusters           int                    `xml:"NumCacheClusters,omitempty"`
 	ClusterEnabled             bool                   `xml:"ClusterEnabled,omitempty"`
 	AuthTokenEnabled           bool                   `xml:"AuthTokenEnabled,omitempty"`
 	AtRestEncryptionEnabled    bool                   `xml:"AtRestEncryptionEnabled,omitempty"`
@@ -390,6 +417,31 @@ func pendingToXML(p *RGPendingModifiedValues) *rgPendingModifiedXML {
 	return x
 }
 
+// rgClusterMode reports the stored ClusterMode, deriving enabled/disabled for groups created without one.
+func rgClusterMode(rg ReplicationGroup) string {
+	if rg.ClusterMode != "" {
+		return rg.ClusterMode
+	}
+
+	if rg.ClusterModeEnabled {
+		return clusterModeEnabled
+	}
+
+	return "disabled"
+}
+
+// optionalBool parses a boolean form field, returning nil when the field is absent.
+func optionalBool(form url.Values, key string) *bool {
+	v := form.Get(key)
+	if v == "" {
+		return nil
+	}
+
+	b := strings.EqualFold(v, "true")
+
+	return &b
+}
+
 // rgToXML converts a ReplicationGroup to its XML representation.
 func rgToXML(rg ReplicationGroup) replicationGroupXML {
 	multiAZ := statusDisabled
@@ -400,11 +452,6 @@ func rgToXML(rg ReplicationGroup) replicationGroupXML {
 	autoFailover := rg.AutomaticFailover
 	if autoFailover == "" {
 		autoFailover = statusDisabled
-	}
-
-	numCacheClusters := int(rg.ReplicaCount) + 1
-	if numCacheClusters <= 1 && !rg.ClusterModeEnabled {
-		numCacheClusters = 1
 	}
 
 	var userGroupIDs *rgUserGroupIDsXML
@@ -427,11 +474,14 @@ func rgToXML(rg ReplicationGroup) replicationGroupXML {
 		EngineVersion:              rg.EngineVersion,
 		CreatedAt:                  rg.CreatedAt.UTC().Format(time.RFC3339),
 		KmsKeyID:                   rg.KmsKeyID,
-		NotificationTopicArn:       rg.NotificationTopicArn,
+		NetworkType:                rg.NetworkType,
+		IPDiscovery:                rg.IPDiscovery,
+		ClusterMode:                rgClusterMode(rg),
+		SnapshottingClusterID:      rg.SnapshottingClusterID,
+		AutoMinorVersionUpgrade:    rg.AutoMinorVersionUpgrade,
 		TransitEncryptionMode:      rg.TransitEncryptionMode,
 		Durability:                 rg.Durability,
 		SnapshotRetentionLimit:     rg.SnapshotRetentionLimit,
-		NumCacheClusters:           numCacheClusters,
 		ClusterEnabled:             rg.ClusterModeEnabled,
 		AuthTokenEnabled:           rg.AuthTokenEnabled,
 		AtRestEncryptionEnabled:    rg.AtRestEncryptionEnabled,
@@ -520,6 +570,11 @@ func parseModifyReplicationGroupOpts(form url.Values) ReplicationGroupModifyOpts
 		NotificationTopicArn:    form.Get("NotificationTopicArn"),
 		TransitEncryptionMode:   form.Get("TransitEncryptionMode"),
 		Durability:              form.Get("Durability"),
+		IPDiscovery:             form.Get("IpDiscovery"),
+		ClusterMode:             form.Get("ClusterMode"),
+		SnapshottingClusterID:   form.Get("SnapshottingClusterId"),
+		RemoveUserGroups:        strings.EqualFold(form.Get("RemoveUserGroups"), "true"),
+		AutoMinorVersionUpgrade: optionalBool(form, "AutoMinorVersionUpgrade"),
 		CacheSecurityGroupNames: parseRepeatedField(form, "CacheSecurityGroupNames.CacheSecurityGroupName"),
 		ApplyImmediately:        strings.EqualFold(form.Get("ApplyImmediately"), "true"),
 	}

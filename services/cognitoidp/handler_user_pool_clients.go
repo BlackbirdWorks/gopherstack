@@ -80,6 +80,10 @@ func clientToAccurateData(c *UserPoolClient) clientDataAccurate {
 		IDTokenValidity:                 c.IDTokenValidity,
 		RefreshTokenValidity:            c.RefreshTokenValidity,
 		TokenValidityUnits:              c.TokenValidityUnits,
+		AnalyticsConfiguration:          c.AnalyticsConfiguration,
+		RefreshTokenRotation:            c.RefreshTokenRotation,
+		AuthSessionValidity:             c.AuthSessionValidity,
+		EnablePropagateUserContext:      c.EnablePropagateUserContext,
 		EnableTokenRevocation:           c.EnableTokenRevocation,
 		AllowedOAuthFlowsUserPoolClient: c.AllowedOAuthFlowsUserPoolClient,
 	}
@@ -107,6 +111,11 @@ func (h *Handler) handleCreateUserPoolClientWithOpts(
 		IDTokenValidity:                 in.IDTokenValidity,
 		RefreshTokenValidity:            in.RefreshTokenValidity,
 		TokenValidityUnits:              in.TokenValidityUnits,
+		AnalyticsConfiguration:          in.AnalyticsConfiguration,
+		RefreshTokenRotation:            in.RefreshTokenRotation,
+		AuthSessionValidity:             in.AuthSessionValidity,
+		EnablePropagateUserContext:      in.EnablePropagateUserContext,
+		ClientSecret:                    in.ClientSecret,
 	}
 
 	client, err := h.Backend.CreateUserPoolClientWithOpts(in.UserPoolID, in.ClientName, opts)
@@ -138,6 +147,10 @@ func (h *Handler) handleUpdateUserPoolClientWithOpts(
 		IDTokenValidity:                 in.IDTokenValidity,
 		RefreshTokenValidity:            in.RefreshTokenValidity,
 		TokenValidityUnits:              in.TokenValidityUnits,
+		AnalyticsConfiguration:          in.AnalyticsConfiguration,
+		RefreshTokenRotation:            in.RefreshTokenRotation,
+		AuthSessionValidity:             in.AuthSessionValidity,
+		EnablePropagateUserContext:      in.EnablePropagateUserContext,
 	}
 
 	client, err := h.Backend.UpdateUserPoolClientWithOpts(in.UserPoolID, in.ClientID, in.ClientName, opts)

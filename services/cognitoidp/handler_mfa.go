@@ -68,6 +68,14 @@ func (h *Handler) handleVerifySoftwareTokenAccurate(
 	return &verifySoftwareTokenAccurateOutput{Status: "SUCCESS", Session: session}, nil
 }
 
+func emailExtra(s *emailMFASetting) []string {
+	if s != nil && s.Enabled {
+		return []string{challengeEmailOTP}
+	}
+
+	return nil
+}
+
 func (h *Handler) handleSetUserMFAPreferenceAccurate(
 	_ context.Context,
 	in *setUserMFAPreferenceAccurateInput,
@@ -82,9 +90,15 @@ func (h *Handler) handleSetUserMFAPreferenceAccurate(
 		preferredMFA = challengeSMSMFA
 	case in.SoftwareTokenMfaSettings != nil && in.SoftwareTokenMfaSettings.PreferredMfa:
 		preferredMFA = challengeSoftwareTokenMFA
+	case in.EmailMfaSettings != nil && in.EmailMfaSettings.PreferredMfa:
+		preferredMFA = challengeEmailOTP
 	}
 
-	if err := h.Backend.SetUserMFAPreference(in.AccessToken, smsEnabled, softwareEnabled, preferredMFA); err != nil {
+	extra := emailExtra(in.EmailMfaSettings)
+
+	if err := h.Backend.SetUserMFAPreference(
+		in.AccessToken, smsEnabled, softwareEnabled, preferredMFA, extra...,
+	); err != nil {
 		return nil, err
 	}
 
@@ -105,10 +119,14 @@ func (h *Handler) handleAdminSetUserMFASetting(
 		preferredMFA = challengeSMSMFA
 	case in.SoftwareTokenMfaSettings != nil && in.SoftwareTokenMfaSettings.PreferredMfa:
 		preferredMFA = challengeSoftwareTokenMFA
+	case in.EmailMfaSettings != nil && in.EmailMfaSettings.PreferredMfa:
+		preferredMFA = challengeEmailOTP
 	}
 
+	extra := emailExtra(in.EmailMfaSettings)
+
 	if err := h.Backend.AdminSetUserMFASetting(
-		in.UserPoolID, in.Username, smsEnabled, softwareEnabled, preferredMFA,
+		in.UserPoolID, in.Username, smsEnabled, softwareEnabled, preferredMFA, extra...,
 	); err != nil {
 		return nil, err
 	}
@@ -130,10 +148,14 @@ func (h *Handler) handleAdminSetUserMFAPreferenceAccurate(
 		preferredMFA = challengeSMSMFA
 	case in.SoftwareTokenMfaSettings != nil && in.SoftwareTokenMfaSettings.PreferredMfa:
 		preferredMFA = challengeSoftwareTokenMFA
+	case in.EmailMfaSettings != nil && in.EmailMfaSettings.PreferredMfa:
+		preferredMFA = challengeEmailOTP
 	}
 
+	extra := emailExtra(in.EmailMfaSettings)
+
 	if err := h.Backend.AdminSetUserMFAPreference(
-		in.UserPoolID, in.Username, smsEnabled, softwareEnabled, preferredMFA,
+		in.UserPoolID, in.Username, smsEnabled, softwareEnabled, preferredMFA, extra...,
 	); err != nil {
 		return nil, err
 	}

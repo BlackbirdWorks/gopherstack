@@ -187,6 +187,7 @@ type StorageBackend interface {
 
 	ListQueuedMessages(wirelessDeviceID string) []QueuedMessage
 	DeleteQueuedMessages(wirelessDeviceID string) error
+	DeleteQueuedMessage(wirelessDeviceID, messageID string) error
 	EnqueueMessage(wirelessDeviceID string, msg QueuedMessage)
 
 	StartWirelessDeviceImportTask(
