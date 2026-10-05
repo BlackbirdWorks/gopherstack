@@ -351,3 +351,7 @@ sagemakerruntime is region-isolated: async invocations and sessions live per reg
 ## 2026-10-04 (reqfielddiff tier-1 pass)
 
 `InvokeEndpoint.TargetVariant` is a tool false positive (read from the `X-Amzn-Sagemaker-Target-Variant` header and echoed as `X-Amzn-Invoked-Production-Variant`). `InvokeEndpointAsync.InvocationTimeoutSeconds`/`RequestTTLSeconds` stay recorded: the pinned SDK documents only their defaults (900 s / 21600 s), and no async queue exists to expire requests against.
+
+## 2026-10-05 (gopherstack-uox6 pass 13, value semantics)
+
+Inapplicable (value semantics). Invoke* operations are data-plane with no Create/Describe/Update surface and no SDK-documented defaults beyond pass-through headers.

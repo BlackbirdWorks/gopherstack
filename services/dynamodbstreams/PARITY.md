@@ -197,3 +197,7 @@ dynamodbstreams reads the DynamoDB tables of the request region (the handler pas
 ## 2026-10-04 (gopherstack-bn4vx, iterator region)
 
 A shard iterator entry now carries the stream's region (taken from the stream ARN), and GetRecords reads the table in that region and chains the region into NextShardIterator, so Lambda ESM and Pipes sources in a non-home region can read. Tokens stay opaque and ephemeral; a token without a region resolves in the request region as before. Proof: `TestStreams_IteratorCarriesTableRegion`, `TestDynamoDBStreamsReaders_ReadNonHomeRegion`.
+
+## 2026-10-05 (gopherstack-uox6 pass 13, value semantics)
+
+Clean. ListStreams/DescribeStream clamp Limit to 100 and GetRecords rejects Limit above 1000 (api_op_ListStreams.go:39, api_op_DescribeStream.go:49, api_op_GetRecords.go:46); pagination covered by existing tests. Whether AWS rejects rather than clamps an over-limit ListStreams/DescribeStream is API-docs-only: recorded, not changed.
