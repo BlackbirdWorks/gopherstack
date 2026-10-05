@@ -20,6 +20,7 @@ const (
 	indexChunks     = 4
 
 	indexVariantsPerCase = 20
+	indexShortStride     = 8
 )
 
 func splitURI(uri string) (string, string) {
@@ -168,6 +169,11 @@ func TestRoutingIndexMatchesLinearScan(t *testing.T) {
 
 	all = append(all, crossCases(cases, indexCrossCases)...)
 
+	// -short (CI unit job) checks every 8th case so the race build stays inside its timeout.
+	if testing.Short() {
+		all = strideSample(all, indexShortStride)
+	}
+
 	chunk := (len(all) + indexChunks - 1) / indexChunks
 
 	for i := range indexChunks {
@@ -259,4 +265,13 @@ func TestRoutingPathGatedAlternatives(t *testing.T) {
 			assert.Equal(t, tt.want, entryName(got))
 		})
 	}
+}
+
+func strideSample(in []routingCase, stride int) []routingCase {
+	out := make([]routingCase, 0, len(in)/stride+1)
+	for i := 0; i < len(in); i += stride {
+		out = append(out, in[i])
+	}
+
+	return out
 }
