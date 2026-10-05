@@ -19,7 +19,12 @@ func (h *Handler) handleCreateSNSA(c *echo.Context, body map[string]any) error {
 	ctx := c.Request().Context()
 	tags := extractTags(body)
 
-	assoc, err := h.Backend.CreateServiceNetworkServiceAssociation(ctx, snID, svcID, tags)
+	assoc, err := idemCreate(h, "CreateServiceNetworkServiceAssociation", "", body,
+		func(a *ServiceNetworkServiceAssociation) string { return a.ID },
+		h.Backend.GetServiceNetworkServiceAssociation,
+		func() (*ServiceNetworkServiceAssociation, error) {
+			return h.Backend.CreateServiceNetworkServiceAssociation(ctx, snID, svcID, tags)
+		})
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -100,9 +105,14 @@ func (h *Handler) handleCreateSNVA(c *echo.Context, body map[string]any) error {
 	ctx := c.Request().Context()
 	tags := extractTags(body)
 
-	assoc, err := h.Backend.CreateServiceNetworkVpcAssociation(
-		ctx, snID, vpcID, sgs, privateDNSEnabled, dnsOptions, tags,
-	)
+	assoc, err := idemCreate(h, "CreateServiceNetworkVpcAssociation", "", body,
+		func(a *ServiceNetworkVpcAssociation) string { return a.ID },
+		h.Backend.GetServiceNetworkVpcAssociation,
+		func() (*ServiceNetworkVpcAssociation, error) {
+			return h.Backend.CreateServiceNetworkVpcAssociation(
+				ctx, snID, vpcID, sgs, privateDNSEnabled, dnsOptions, tags,
+			)
+		})
 	if err != nil {
 		return h.handleError(c, err)
 	}

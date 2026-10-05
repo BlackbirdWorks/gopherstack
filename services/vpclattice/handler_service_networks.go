@@ -18,7 +18,13 @@ func (h *Handler) handleCreateServiceNetwork(c *echo.Context, body map[string]an
 	authType, _ := body["authType"].(string)
 	tags := extractTags(body)
 
-	sn, err := h.Backend.CreateServiceNetwork(ctx, name, authType, tags)
+	sharing := extractSharingConfig(body)
+
+	sn, err := idemCreate(h, "CreateServiceNetwork", "", body,
+		func(s *ServiceNetwork) string { return s.ID }, h.Backend.GetServiceNetwork,
+		func() (*ServiceNetwork, error) {
+			return h.Backend.CreateServiceNetworkWithSharing(ctx, name, authType, tags, sharing)
+		})
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -83,8 +89,19 @@ func (h *Handler) handleListServiceNetworks(c *echo.Context) error {
 
 // ------- ServiceNetwork JSON serialization -------
 
+func extractSharingConfig(body map[string]any) *SharingConfig {
+	raw, ok := body["sharingConfig"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	enabled, _ := raw["enabled"].(bool)
+
+	return &SharingConfig{Enabled: enabled}
+}
+
 func serviceNetworkToJSON(s *ServiceNetwork) map[string]any {
-	return map[string]any{
+	out := map[string]any{
 		keyARN:                       s.ARN,
 		"id":                         s.ID,
 		keyName:                      s.Name,
@@ -94,6 +111,11 @@ func serviceNetworkToJSON(s *ServiceNetwork) map[string]any {
 		keyCreatedAt:                 s.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 		keyLastUpdatedAt:             s.LastUpdatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 	}
+	if s.SharingConfig != nil {
+		out["sharingConfig"] = s.SharingConfig
+	}
+
+	return out
 }
 
 func serviceNetworkSummaryToJSON(s *ServiceNetworkSummary) map[string]any {

@@ -20,7 +20,9 @@ func (h *Handler) handleCreateTargetGroup(c *echo.Context, body map[string]any) 
 	config := extractTargetGroupConfig(body)
 	tags := extractTags(body)
 
-	tg, err := h.Backend.CreateTargetGroup(ctx, name, tgType, config, tags)
+	tg, err := idemCreate(h, "CreateTargetGroup", "", body,
+		func(t *TargetGroup) string { return t.ID }, h.Backend.GetTargetGroup,
+		func() (*TargetGroup, error) { return h.Backend.CreateTargetGroup(ctx, name, tgType, config, tags) })
 	if err != nil {
 		return h.handleError(c, err)
 	}

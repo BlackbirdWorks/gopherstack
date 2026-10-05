@@ -58,6 +58,7 @@ type storedServiceNetwork struct {
 	CreatedAt                  time.Time         `json:"createdAt"`
 	LastUpdatedAt              time.Time         `json:"lastUpdatedAt"`
 	Tags                       map[string]string `json:"tags"`
+	SharingConfig              *SharingConfig    `json:"sharingConfig,omitempty"`
 	ARN                        string            `json:"arn"`
 	ID                         string            `json:"id"`
 	Name                       string            `json:"name"`
@@ -68,7 +69,14 @@ type storedServiceNetwork struct {
 }
 
 func (s *storedServiceNetwork) toServiceNetwork() *ServiceNetwork {
+	var sharing *SharingConfig
+	if s.SharingConfig != nil {
+		cp := *s.SharingConfig
+		sharing = &cp
+	}
+
 	return &ServiceNetwork{
+		SharingConfig:              sharing,
 		ARN:                        s.ARN,
 		ID:                         s.ID,
 		Name:                       s.Name,

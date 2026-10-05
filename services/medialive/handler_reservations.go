@@ -19,15 +19,7 @@ func toOfferingOutput(o *Offering) map[string]any {
 		"offeringDescription": o.OfferingDescription, "offeringType": o.OfferingType,
 		"currencyCode": o.CurrencyCode, "fixedPrice": o.FixedPrice, "usagePrice": o.UsagePrice,
 		"duration": o.Duration, "durationUnits": o.DurationUnits, "region": o.Region,
-		"resourceSpecification": map[string]any{
-			"resourceType":     o.ResourceSpecification.ResourceType,
-			"videoQuality":     o.ResourceSpecification.VideoQuality,
-			"resolution":       o.ResourceSpecification.Resolution,
-			"maximumBitrate":   o.ResourceSpecification.MaximumBitrate,
-			"maximumFramerate": o.ResourceSpecification.MaximumFramerate,
-			"codec":            o.ResourceSpecification.Codec,
-			"specialFeature":   o.ResourceSpecification.SpecialFeature,
-		},
+		"resourceSpecification": toResourceSpecificationOutput(o.ResourceSpecification),
 	}
 }
 
@@ -36,6 +28,7 @@ func (h *Handler) handleListOfferings(c *echo.Context) error {
 	filter := OfferingFilter{
 		Duration:         c.QueryParam("duration"),
 		Codec:            c.QueryParam("codec"),
+		ChannelClass:     c.QueryParam("channelClass"),
 		MaximumBitrate:   c.QueryParam("maximumBitrate"),
 		MaximumFramerate: c.QueryParam("maximumFramerate"),
 		Resolution:       c.QueryParam("resolution"),
@@ -134,17 +127,9 @@ func toReservationOutput(r *Reservation) map[string]any {
 		"fixedPrice": r.FixedPrice, "usagePrice": r.UsagePrice,
 		"duration": r.Duration, "durationUnits": r.DurationUnits,
 		"start": r.Start, "end": r.End, "region": r.Region, keyState: r.State,
-		"count": r.Count,
-		"resourceSpecification": map[string]any{
-			"resourceType":     r.ResourceSpecification.ResourceType,
-			"videoQuality":     r.ResourceSpecification.VideoQuality,
-			"resolution":       r.ResourceSpecification.Resolution,
-			"maximumBitrate":   r.ResourceSpecification.MaximumBitrate,
-			"maximumFramerate": r.ResourceSpecification.MaximumFramerate,
-			"codec":            r.ResourceSpecification.Codec,
-			"specialFeature":   r.ResourceSpecification.SpecialFeature,
-		},
-		keyTags: tags,
+		"count":                 r.Count,
+		"resourceSpecification": toResourceSpecificationOutput(r.ResourceSpecification),
+		keyTags:                 tags,
 	}
 	if rs := toRenewalSettingsOutput(r.RenewalSettings); rs != nil {
 		out["renewalSettings"] = rs
@@ -157,6 +142,7 @@ func (h *Handler) handleListReservations(c *echo.Context) error {
 	maxResults, nextTokenParam := paginationParams(c)
 	filter := ReservationFilter{
 		Codec:            c.QueryParam("codec"),
+		ChannelClass:     c.QueryParam("channelClass"),
 		MaximumBitrate:   c.QueryParam("maximumBitrate"),
 		MaximumFramerate: c.QueryParam("maximumFramerate"),
 		Resolution:       c.QueryParam("resolution"),
@@ -211,4 +197,21 @@ func (h *Handler) handleUpdateReservation(
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{"reservation": toReservationOutput(r)})
+}
+
+func toResourceSpecificationOutput(spec OfferingResourceSpecification) map[string]any {
+	out := map[string]any{
+		"resourceType":     spec.ResourceType,
+		"videoQuality":     spec.VideoQuality,
+		"resolution":       spec.Resolution,
+		"maximumBitrate":   spec.MaximumBitrate,
+		"maximumFramerate": spec.MaximumFramerate,
+		"codec":            spec.Codec,
+		"specialFeature":   spec.SpecialFeature,
+	}
+	if spec.ChannelClass != "" {
+		out["channelClass"] = spec.ChannelClass
+	}
+
+	return out
 }

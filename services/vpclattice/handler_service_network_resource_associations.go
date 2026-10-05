@@ -26,7 +26,12 @@ func (h *Handler) handleCreateSNRA(c *echo.Context, body map[string]any) error {
 	ctx := c.Request().Context()
 	tags := extractTags(body)
 
-	assoc, err := h.Backend.CreateServiceNetworkResourceAssociation(ctx, snID, rcID, privateDNSEnabled, tags)
+	assoc, err := idemCreate(h, "CreateServiceNetworkResourceAssociation", "", body,
+		func(a *ServiceNetworkResourceAssociation) string { return a.ID },
+		h.Backend.GetServiceNetworkResourceAssociation,
+		func() (*ServiceNetworkResourceAssociation, error) {
+			return h.Backend.CreateServiceNetworkResourceAssociation(ctx, snID, rcID, privateDNSEnabled, tags)
+		})
 	if err != nil {
 		return h.handleError(c, err)
 	}

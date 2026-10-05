@@ -367,7 +367,7 @@ func TestBackendPutConfigSetSuppressionOptions(t *testing.T) {
 	_, err := backend.CreateConfigurationSet("supp-test", nil)
 	require.NoError(t, err)
 
-	err = backend.PutConfigurationSetSuppressionOptions("supp-test", []string{"BOUNCE", "COMPLAINT"}, "")
+	err = backend.PutConfigurationSetSuppressionOptions("supp-test", []string{"BOUNCE", "COMPLAINT"}, "", nil)
 	require.NoError(t, err)
 
 	cs, err := backend.GetConfigurationSet("supp-test")
@@ -475,7 +475,7 @@ func TestGetConfigurationSetDeepCopy(t *testing.T) {
 			_, err := backend.CreateConfigurationSet("copy-set", map[string]string{"k1": "v1"})
 			require.NoError(t, err)
 
-			err = backend.PutConfigurationSetSuppressionOptions("copy-set", []string{"BOUNCE"}, "")
+			err = backend.PutConfigurationSetSuppressionOptions("copy-set", []string{"BOUNCE"}, "", nil)
 			require.NoError(t, err)
 
 			err = backend.PutConfigurationSetVdmOptions("copy-set", map[string]any{"EngagementMetrics": "ENABLED"}, nil)

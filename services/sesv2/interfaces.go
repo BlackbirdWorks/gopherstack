@@ -42,7 +42,9 @@ type StorageBackend interface {
 	PutConfigurationSetDeliveryOptions(name, tlsPolicy, sendingPoolName string) error
 	PutConfigurationSetReputationOptions(name string, metricsEnabled bool) error
 	PutConfigurationSetSendingOptions(name string, sendingEnabled bool) error
-	PutConfigurationSetSuppressionOptions(name string, suppressedReasons []string, suppressionScope string) error
+	PutConfigurationSetSuppressionOptions(
+		name string, suppressedReasons []string, suppressionScope string, validation *SuppressionValidation,
+	) error
 	PutConfigurationSetTrackingOptions(name, customRedirectDomain, httpsPolicy string) error
 	PutConfigurationSetVdmOptions(
 		name string,
@@ -73,6 +75,7 @@ type StorageBackend interface {
 		fromEmailAddress string,
 		defaultContent *bulkEmailContent,
 		bulkEmailEntries []bulkEmailEntry,
+		defaultTags []messageTag,
 	) ([]bulkEmailEntryResultOutput, error)
 	SendCustomVerificationEmail(emailAddress, templateName string) (string, error)
 	ListEmails() []Email
@@ -97,7 +100,7 @@ type StorageBackend interface {
 		topicPreferences []TopicPreference,
 		unsubscribeAll bool,
 	) error
-	ListContacts(contactListName, nextToken string, pageSize int) (page.Page[*Contact], error)
+	ListContacts(contactListName, nextToken string, pageSize int, filter ContactFilter) (page.Page[*Contact], error)
 
 	// Custom verification template ops
 	CreateCustomVerificationEmailTemplate(

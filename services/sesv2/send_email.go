@@ -2,6 +2,7 @@ package sesv2
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -20,13 +21,20 @@ const emailCompactionHighWater = maxRetainedEmails + maxRetainedEmails
 
 // Email captures a sent email for local inspection.
 type Email struct {
-	Timestamp time.Time `json:"timestamp"`
-	From      string    `json:"from"`
-	Subject   string    `json:"subject"`
-	BodyHTML  string    `json:"bodyHTML"`
-	BodyText  string    `json:"bodyText"`
-	MessageID string    `json:"messageID"`
-	To        []string  `json:"to"`
+	Timestamp time.Time    `json:"timestamp"`
+	From      string       `json:"from"`
+	Subject   string       `json:"subject"`
+	BodyHTML  string       `json:"bodyHTML"`
+	BodyText  string       `json:"bodyText"`
+	MessageID string       `json:"messageID"`
+	To        []string     `json:"to"`
+	Tags      []MessageTag `json:"emailTags,omitempty"`
+}
+
+// MessageTag is a SendEmail/SendBulkEmail EmailTags entry (types.MessageTag).
+type MessageTag struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
 }
 
 // OutboundEmail is everything one SendEmail call carries; Cc/Bcc/ReplyTo/Raw only feed SMTP relay.
@@ -41,6 +49,7 @@ type OutboundEmail struct {
 	Cc       []string
 	Bcc      []string
 	ReplyTo  []string
+	Tags     []MessageTag
 }
 
 // SendEmail captures an outbound email and returns a message ID.
@@ -81,6 +90,7 @@ func (b *InMemoryBackend) SendMessage(out OutboundEmail) (string, error) {
 		Subject:   out.Subject,
 		BodyHTML:  out.BodyHTML,
 		BodyText:  out.BodyText,
+		Tags:      out.Tags,
 		Timestamp: time.Now(),
 	}
 
@@ -216,6 +226,7 @@ func (b *InMemoryBackend) SendBulkEmail(
 	fromEmailAddress string,
 	defaultContent *bulkEmailContent,
 	bulkEmailEntries []bulkEmailEntry,
+	defaultTags []messageTag,
 ) ([]bulkEmailEntryResultOutput, error) {
 	if defaultContent == nil || defaultContent.Template == nil {
 		return nil, fmt.Errorf("%w: DefaultContent.Template is required", ErrInvalidInput)
@@ -255,6 +266,7 @@ func (b *InMemoryBackend) SendBulkEmail(
 		msgID, _ := b.SendMessage(OutboundEmail{
 			From: fromEmailAddress, To: entry.Destination.ToAddresses, Cc: entry.Destination.CcAddresses,
 			Bcc: entry.Destination.BccAddresses, Subject: subject, BodyHTML: html, BodyText: text,
+			Tags: mergeMessageTags(defaultTags, entry.ReplacementTags),
 		})
 		if msgID == "" {
 			msgID = "sesv2-bulk-" + uuid.New().String()
@@ -327,4 +339,25 @@ func (b *InMemoryBackend) ClearEmails() {
 	defer b.mu.Unlock()
 
 	b.emails = nil
+}
+
+// mergeMessageTags applies replacement tags over defaults, replacing a default with the same Name.
+func mergeMessageTags(defaults, replacements []messageTag) []MessageTag {
+	out := make([]MessageTag, 0, len(defaults)+len(replacements))
+
+	for _, d := range defaults {
+		if !slices.ContainsFunc(replacements, func(r messageTag) bool { return r.Name == d.Name }) {
+			out = append(out, MessageTag(d))
+		}
+	}
+
+	for _, r := range replacements {
+		out = append(out, MessageTag(r))
+	}
+
+	return out
+}
+
+func toMessageTags(in []messageTag) []MessageTag {
+	return mergeMessageTags(nil, in)
 }

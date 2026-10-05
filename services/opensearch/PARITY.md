@@ -479,7 +479,6 @@ families:
 gaps: []
 items_still_open:
   - "ListMigrations' MigrationSummary.Error member (real, deserializers.go) is never emitted: this backend's migration state machine (migrations.go) only ever transitions PENDING->IN_PROGRESS->SUCCEEDED, so there is no failure state to source Error from. Correct-by-absence, not fabricated; would need a real migration-failure trigger to wire up (gopherstack-dv4s, 2026-09-19)."
-  - "UpdateCollectionInput's DeletionProtection and VectorOptions (real fields, api_op_UpdateCollection.go) are accepted but unmodeled -- ServerlessCollection tracks neither (CreateCollection doesn't set them either), so UpdateCollection only applies Description. Would need both fields added to ServerlessCollection and CreateCollection's parsing extended first (2026-09-19)."
 deferred: []
 leaks: {status: clean, note: "no goroutines/janitors in this service; coarse lockmetrics.RWMutex per backend, no per-map locks introduced. This pass's DeleteDomain connection-cascade iterates Table.All() (a fresh snapshot slice per the existing convention) while deleting, same safe pattern as the pre-existing package/index/data-source cascades. New this pass: DeleteApplication now cascades data source attachments, capabilities, and migration jobs using the identical clone-then-delete pattern (Table.All()/Index.Get results are fresh/cloned slices, safe to range over while deleting)."}
 ---
@@ -1663,3 +1662,7 @@ Tool false positives: each op below pages through `writePagedList` (paging.go), 
 - ListDomainsForPackage.MaxResults: `TestListOps_MaxResultsPagesEveryItemOnce` (domains_for_package).
 - ListPackagesForDomain.MaxResults: `TestListOps_MaxResultsPagesEveryItemOnce` (packages_for_domain).
 - ListScheduledActions.MaxResults: `TestListOps_MaxResultsPagesEveryItemOnce` (scheduled_actions).
+
+## 2026-10-05 (serverless collection settings)
+
+CreateCollection and UpdateCollection store DeletionProtection, VectorOptions and (create only) StandbyReplicas, and return them on Create/BatchGet/Update; the wire key is `ServerlessVectorAcceleration`, capitalised (serializers.go:3259). DeleteCollection on a protected collection returns ConflictException (code chosen from DeleteCollection's declared set; AWS' exact code is not in the SDK). CreateCollection replays on `clientToken` (a reused token with other parameters is ConflictException) and a duplicate collection name is now ConflictException instead of silently overwriting. Proof: `serverless_collection_settings_test.go`.

@@ -111,6 +111,7 @@ func (h *Handler) handleServerlessCollectionCreate(w http.ResponseWriter, r *htt
 		req.KmsKeyArn,
 		"",
 		req.Tags,
+		CollectionSettings{},
 	)
 	if err != nil {
 		h.writeError(r, w, http.StatusBadRequest, "ValidationException", err.Error())

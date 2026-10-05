@@ -31,6 +31,8 @@ const openSearchServerlessJSONContentType = "application/x-amz-json-1.0"
 // AccessPolicy/SecurityPolicy/SecurityConfig JSON-RPC request and response.
 const jsonKeyPolicyTypeJR = "type"
 
+const codeConflict = "ConflictException"
+
 // JSON-RPC field keys shared across several serverless response shapes
 // (lifecycle policies, collection groups, account settings, VPC endpoints).
 const (
@@ -135,7 +137,7 @@ func serverlessErrorTable() map[error]awserr.APIError {
 			Code:       "ResourceNotFoundException",
 			HTTPStatus: http.StatusNotFound,
 		},
-		ErrApplicationAlreadyExists: {Code: "ConflictException", HTTPStatus: http.StatusConflict},
+		ErrApplicationAlreadyExists: {Code: codeConflict, HTTPStatus: http.StatusConflict},
 		// DeleteServerlessCollection (serverless.go) reuses the shared
 		// domain-not-found sentinel; without this entry it fell through to
 		// serverlessInternalError() (500 InternalServerException) instead of
@@ -148,8 +150,9 @@ func serverlessErrorTable() map[error]awserr.APIError {
 			Code:       "ServiceQuotaExceededException",
 			HTTPStatus: http.StatusPaymentRequired,
 		},
+		ErrServerlessDeletionProtected: {Code: codeConflict, HTTPStatus: http.StatusConflict},
 		ErrServerlessPolicyVersionConflict: {
-			Code:       "ConflictException",
+			Code:       codeConflict,
 			HTTPStatus: http.StatusConflict,
 		},
 	}
@@ -234,7 +237,8 @@ func (h *Handler) jrCreateCollection(input map[string]any) (map[string]any, erro
 		kmsKeyArn, _ = enc["kmsKeyArn"].(string)
 	}
 
-	coll, err := h.Backend.CreateServerlessCollection(name, typ, desc, kmsKeyArn, collectionGroupName, tags)
+	st := collectionSettingsJR(input)
+	coll, err := h.Backend.CreateServerlessCollection(name, typ, desc, kmsKeyArn, collectionGroupName, tags, st)
 	if err != nil {
 		return nil, err
 	}
@@ -242,12 +246,21 @@ func (h *Handler) jrCreateCollection(input map[string]any) (map[string]any, erro
 	return map[string]any{"createCollectionDetail": toWireServerlessCollection(coll)}, nil
 }
 
-// updateCollectionDetailJR mirrors types.UpdateCollectionDetail
-// (types.go:921-955): arn, createdDate, deletionProtection, description, id,
-// lastModifiedDate, name, status, type, vectorOptions. deletionProtection
-// and vectorOptions are omitted -- neither is modeled on ServerlessCollection
-// (see UpdateServerlessCollection's doc comment); the real deserializer
-// tolerates a missing key for either, leaving the SDK struct's zero value.
+func collectionSettingsJR(input map[string]any) CollectionSettings {
+	st := CollectionSettings{}
+	st.ClientToken, _ = input["clientToken"].(string)
+	st.DeletionProtection, _ = input["deletionProtection"].(string)
+	st.StandbyReplicas, _ = input["standbyReplicas"].(string)
+
+	if vo, ok := input["vectorOptions"].(map[string]any); ok {
+		accel, _ := vo["ServerlessVectorAcceleration"].(string)
+		st.VectorOptions = &VectorOptions{ServerlessVectorAcceleration: accel}
+	}
+
+	return st
+}
+
+// updateCollectionDetailJR mirrors types.UpdateCollectionDetail (types.go:921-955).
 func updateCollectionDetailJR(c *ServerlessCollection) map[string]any {
 	m := map[string]any{
 		jsonKeyAppArn:             c.Arn,
@@ -263,6 +276,14 @@ func updateCollectionDetailJR(c *ServerlessCollection) map[string]any {
 		m["description"] = c.Description
 	}
 
+	if c.DeletionProtection != "" {
+		m["deletionProtection"] = c.DeletionProtection
+	}
+
+	if c.VectorOptions != nil {
+		m["vectorOptions"] = c.VectorOptions
+	}
+
 	return m
 }
 
@@ -270,7 +291,7 @@ func (h *Handler) jrUpdateCollection(input map[string]any) (map[string]any, erro
 	id, _ := input["id"].(string)
 	desc, _ := input["description"].(string)
 
-	c, err := h.Backend.UpdateServerlessCollection(id, desc)
+	c, err := h.Backend.UpdateServerlessCollection(id, desc, collectionSettingsJR(input))
 	if err != nil {
 		return nil, err
 	}

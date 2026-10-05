@@ -24,7 +24,12 @@ func (h *Handler) handleCreateListener(
 	defaultAction := extractRuleAction(body, "defaultAction")
 	tags := extractTags(body)
 
-	l, err := h.Backend.CreateListener(serviceID, name, protocol, port, defaultAction, tags)
+	l, err := idemCreate(h, "CreateListener", serviceID, body,
+		func(l *Listener) string { return l.ID },
+		func(id string) (*Listener, error) { return h.Backend.GetListener(serviceID, id) },
+		func() (*Listener, error) {
+			return h.Backend.CreateListener(serviceID, name, protocol, port, defaultAction, tags)
+		})
 	if err != nil {
 		return h.handleError(c, err)
 	}

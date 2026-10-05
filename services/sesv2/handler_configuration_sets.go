@@ -22,11 +22,8 @@ type createConfigurationSetInput struct {
 	SendingOptions *struct {
 		SendingEnabled bool `json:"SendingEnabled"`
 	} `json:"SendingOptions"`
-	SuppressionOptions *struct {
-		SuppressionScope  string   `json:"SuppressionScope"`
-		SuppressedReasons []string `json:"SuppressedReasons"`
-	} `json:"SuppressionOptions"`
-	ArchivingOptions *struct {
+	SuppressionOptions *suppressionOptionsInput `json:"SuppressionOptions"`
+	ArchivingOptions   *struct {
 		ArchiveARN string `json:"ArchiveArn"`
 	} `json:"ArchivingOptions"`
 	VdmOptions *struct {
@@ -66,7 +63,9 @@ func (h *Handler) applyCreateOptions(name string, in *createConfigurationSetInpu
 	}
 
 	if o := in.SuppressionOptions; o != nil {
-		if err := b.PutConfigurationSetSuppressionOptions(name, o.SuppressedReasons, o.SuppressionScope); err != nil {
+		if err := b.PutConfigurationSetSuppressionOptions(
+			name, o.SuppressedReasons, o.SuppressionScope, o.validation(),
+		); err != nil {
 			return err
 		}
 	}
@@ -108,9 +107,64 @@ type sendingOptionsOutput struct {
 	SendingEnabled bool `json:"SendingEnabled"`
 }
 
+type suppressionOptionsInput struct {
+	ValidationOptions *struct {
+		ConditionThreshold *struct {
+			OverallConfidenceThreshold *struct {
+				ConfidenceVerdictThreshold string `json:"ConfidenceVerdictThreshold"`
+			} `json:"OverallConfidenceThreshold"`
+			ConditionThresholdEnabled string `json:"ConditionThresholdEnabled"`
+		} `json:"ConditionThreshold"`
+	} `json:"ValidationOptions"`
+	SuppressionScope  string   `json:"SuppressionScope"`
+	SuppressedReasons []string `json:"SuppressedReasons"`
+}
+
+func (o *suppressionOptionsInput) validation() *SuppressionValidation {
+	if o.ValidationOptions == nil || o.ValidationOptions.ConditionThreshold == nil {
+		return nil
+	}
+
+	ct := o.ValidationOptions.ConditionThreshold
+	v := &SuppressionValidation{ConditionThresholdEnabled: ct.ConditionThresholdEnabled}
+
+	if ct.OverallConfidenceThreshold != nil {
+		v.ConfidenceVerdictThreshold = ct.OverallConfidenceThreshold.ConfidenceVerdictThreshold
+	}
+
+	return v
+}
+
 type suppressionOptionsOutput struct {
-	SuppressionScope  string   `json:"SuppressionScope,omitempty"`
-	SuppressedReasons []string `json:"SuppressedReasons,omitempty"`
+	ValidationOptions *suppressionValidationOutput `json:"ValidationOptions,omitempty"`
+	SuppressionScope  string                       `json:"SuppressionScope,omitempty"`
+	SuppressedReasons []string                     `json:"SuppressedReasons,omitempty"`
+}
+
+type suppressionValidationOutput struct {
+	ConditionThreshold struct {
+		OverallConfidenceThreshold *struct {
+			ConfidenceVerdictThreshold string `json:"ConfidenceVerdictThreshold"`
+		} `json:"OverallConfidenceThreshold,omitempty"`
+		ConditionThresholdEnabled string `json:"ConditionThresholdEnabled"`
+	} `json:"ConditionThreshold"`
+}
+
+func toSuppressionValidationOutput(v *SuppressionValidation) *suppressionValidationOutput {
+	if v == nil {
+		return nil
+	}
+
+	out := &suppressionValidationOutput{}
+	out.ConditionThreshold.ConditionThresholdEnabled = v.ConditionThresholdEnabled
+
+	if v.ConfidenceVerdictThreshold != "" {
+		out.ConditionThreshold.OverallConfidenceThreshold = &struct {
+			ConfidenceVerdictThreshold string `json:"ConfidenceVerdictThreshold"`
+		}{v.ConfidenceVerdictThreshold}
+	}
+
+	return out
 }
 
 type archivingOptionsOutput struct {
@@ -189,10 +243,11 @@ func (h *Handler) handleGetConfigurationSet(name string) (any, error) {
 		}
 	}
 
-	if len(cs.SuppressionReasons) > 0 || cs.SuppressionScope != "" {
+	if len(cs.SuppressionReasons) > 0 || cs.SuppressionScope != "" || cs.SuppressionValidation != nil {
 		out.SuppressionOptions = &suppressionOptionsOutput{
 			SuppressedReasons: cs.SuppressionReasons,
 			SuppressionScope:  cs.SuppressionScope,
+			ValidationOptions: toSuppressionValidationOutput(cs.SuppressionValidation),
 		}
 	}
 
@@ -313,10 +368,7 @@ func (h *Handler) handlePutConfigurationSetSuppressionOptions(
 	c *echo.Context,
 	name string,
 ) (any, error) {
-	var in struct {
-		SuppressionScope  string   `json:"SuppressionScope"`
-		SuppressedReasons []string `json:"SuppressedReasons"`
-	}
+	var in suppressionOptionsInput
 
 	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
@@ -326,6 +378,7 @@ func (h *Handler) handlePutConfigurationSetSuppressionOptions(
 		name,
 		in.SuppressedReasons,
 		in.SuppressionScope,
+		in.validation(),
 	)
 }
 

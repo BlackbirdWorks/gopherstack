@@ -56,4 +56,6 @@ var (
 	// is a ConflictException, deserializers.go
 	// awsAwsjson10_deserializeOpErrorUpdateLifecyclePolicy).
 	ErrServerlessPolicyVersionConflict = errors.New("ConflictException")
+	// ErrServerlessDeletionProtected is DeleteCollection on a collection with deletion protection enabled.
+	ErrServerlessDeletionProtected = errors.New("ConflictException")
 )

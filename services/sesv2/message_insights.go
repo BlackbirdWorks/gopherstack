@@ -186,12 +186,23 @@ func (b *InMemoryBackend) GetMessageInsights(messageID string) (map[string]any, 
 			})
 		}
 
-		return map[string]any{
+		out := map[string]any{
 			keyMessageID:       e.MessageID,
 			"FromEmailAddress": e.From,
 			keySubject:         e.Subject,
 			"Insights":         insights,
-		}, nil
+		}
+
+		if len(e.Tags) > 0 {
+			tags := make([]map[string]string, 0, len(e.Tags))
+			for _, t := range e.Tags {
+				tags = append(tags, map[string]string{"Name": t.Name, "Value": t.Value})
+			}
+
+			out["EmailTags"] = tags
+		}
+
+		return out, nil
 	}
 
 	return nil, fmt.Errorf("%w: message %s not found", ErrNotFound, messageID)

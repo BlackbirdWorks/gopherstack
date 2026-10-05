@@ -707,7 +707,7 @@ families:
       FIXED this pass. ListAlerts/ListMultiplexAlerts/ListClusterAlerts'
       wrapper (keyAlerts: "Alerts" -> "alerts") fixed via the shared
       constant. ListAlerts/ListMultiplexAlerts always return an empty list
-      in this emulator (unchanged, no per-item casing to fix). See Cluster
+      in this emulator (no alert source; StateFilter is vacuous over the empty list). See Cluster
       above for the ListClusterAlerts synthetic-alert field-name fix.
   AccountConfiguration:
     status: ok
@@ -748,7 +748,7 @@ gaps: []
 items_still_open:
   - "Channel.Vpc response-side availabilityZones/networkInterfaceIds are omitted: MediaLive derives them from a real VPC/ENI integration this backend lacks."
   - "Members with no backing source, not fabricated: ChannelSummary.UsedChannelEngineVersions (no engine-version history); InputDeviceSummary AvailabilityZone/HdDeviceSettings/MedialiveInputArns/NetworkSettings/OutputType/UhdDeviceSettings (hardware-registered devices); Node NodeInterfaceMapping.PhysicalInterfaceIpAddresses and DescribeNodeSummary InstanceArn/ManagedInstanceId (node hardware)."
-  - "ListOfferings ChannelClass/ChannelConfiguration and the CW/EB template-group Scope filter are unimplemented: no channel-class on Offering/Reservation, and Scope's wire values appear only in an SDK prose comment (no enum), so a filter risks the wrong-vocabulary bug. ListReservations ChannelClass likewise."
+  - "ListOfferings ChannelConfiguration (match a channel's configuration) and the CW/EB template-group Scope filter are unimplemented: the offering catalog has no channel-derived matching, and Scope's wire values appear only in an SDK prose comment (no enum), so a filter risks the wrong-vocabulary bug. ChannelClass filters ListOfferings/ListReservations over ResourceSpecification.ChannelClass, which no seeded offering sets."
   - "DeleteReservation hard-deletes (after a transient CANCELED) rather than reaching the real DELETED state; unproven without AWS evidence, tested as deliberate."
   - "Op-by-op state/error-code audit of Cluster, Node, SignalMap and Batch beyond the fixes in the dated notes was not re-performed."
 leaks: {status: clean, note: "No goroutines/janitors in this service (re-confirmed sweep 5: no `go func`/time.NewTicker/time.AfterFunc/context.WithCancel anywhere in non-test files). Two real leaks found and fixed this pass: (1) b.tags[ARN] rows were never removed on delete for every resource family outside the Channel/Input/InputSecurityGroup/Multiplex/InputDevice fast path (taggableResourceTags) -- Cluster/Node/SignalMap/CloudWatchAlarmTemplate(Group)/EventBridgeRuleTemplate(Group)/Reservation/Network/SdiSource/ChannelPlacementGroup all now clear their b.tags entry in their respective Delete method; regression-tested via TestTags_LegacyStoreClearedOnDelete. (2) DeleteCluster never cascade-deleted its ChannelPlacementGroups -- unlike Nodes (embedded in storedCluster.Nodes, removed automatically with their parent), ChannelPlacementGroup lives in its own top-level table keyed by \"clusterID/groupID\"; fixed via cascadeDeleteChannelPlacementGroups, regression-tested via TestChannelPlacementGroup_CascadeDeletedWithCluster. Every b.mu.Lock/RLock call site was re-verified this pass to have an immediately-following `defer b.mu.Unlock()`/`RUnlock()` (125 call sites, no exceptions)."}

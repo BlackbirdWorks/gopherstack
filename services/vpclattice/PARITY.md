@@ -399,3 +399,7 @@ vpclattice is region-isolated: Service networks, services, listeners, rules and 
 ## 2026-10-05 (gopherstack-uox6 pass 6, value semantics)
 
 CreateTargetGroup stores the documented defaults (ProtocolVersion HTTP1, IP ipAddressType IPV4, LAMBDA lambdaEventStructureVersion V1, port 80/443 by protocol, health check interval 30, timeout 5, healthy 5, unhealthy 2, path /, protocol HTTP); UpdateTargetGroup applies the same health-check defaults; UpdateService keeps CertificateArn when omitted. Not modelled: HealthCheckConfig.Enabled has no documented default.
+
+## 2026-10-05 (dropped members: clientToken, SharingConfig, domain-verification filter)
+
+The twelve creates that document `clientToken` (CreateService, CreateServiceNetwork, CreateListener, CreateRule, CreateTargetGroup, CreateAccessLogSubscription, CreateResourceGateway, CreateResourceConfiguration, CreateServiceNetwork{Resource,Service,Vpc}Association, StartDomainVerification) replay on a reused token and return ConflictException when it is reused with other parameters. CreateServiceNetwork stores and returns `sharingConfig`. ListResourceConfigurations applies `domainVerificationIdentifier` (a CHILD inherits its group's). Proof: `client_token_test.go`.
