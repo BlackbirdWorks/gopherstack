@@ -121,7 +121,7 @@ func mergeConfig(base, update map[string]any) map[string]any {
 		return base
 	}
 
-	out := make(map[string]any, len(base)+len(update))
+	out := make(map[string]any, max(len(base), len(update)))
 	maps.Copy(out, base)
 	maps.Copy(out, update)
 
