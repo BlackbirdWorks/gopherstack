@@ -134,11 +134,8 @@
 //     services/*/PARITY.md predate this class taxonomy and name no class
 //     of the classes, so they were not mined for rows even where they read
 //     as a clean verdict).
-//   - VerdictInapplicable records a refusal. A row with a Subject (the
-//     operation.parameter it is about) is one structural refusal inside a
-//     pass and does not mark the service as covered for the class; a row
-//     without one means the whole class has no surface. List them with
-//     -inapplicable; the Reasoning keeps the wording that stopped the pass.
+//   - VerdictInapplicable records a refusal: with a Subject, one refusal inside a pass;
+//     without, the class has no surface. List them with -inapplicable.
 //   - conflicts: (top-level, alongside rows in coverage.yaml) records a
 //     (service, class) pair where two evidence sources disagree, rather
 //     than one being picked silently -- see ValidateConflicts. None exist

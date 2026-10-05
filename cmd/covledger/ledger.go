@@ -78,12 +78,8 @@ var knownVerdicts = map[Verdict]bool{ //nolint:gochecknoglobals // immutable loo
 // should be treated with correspondingly less confidence than one also
 // corroborated by a commit subject or a bd comment.
 //
-// Subject narrows a row below service x class: the operation, parameter or
-// field the verdict is about (e.g. "ListRuleTypes.ruleOwnerFilter"). A row
-// with a Subject records one refusal or one finding inside a pass; it does
-// NOT count as covering the class for the service, so MissingForClass
-// still lists the service. Several rows may share (service, class) when
-// their subjects differ.
+// Subject names the operation.parameter a row is about; such rows never count as covering
+// the class for the service, and may repeat (service, class) with different subjects.
 //
 // Reasoning carries the structural wording behind a VerdictInapplicable
 // row -- e.g. "the enum has exactly one legal value and every record
@@ -212,9 +208,8 @@ func MissingForClass(rows []Row, class string, allServices []string) []string {
 	return missing
 }
 
-// InapplicableRows returns every inapplicable row, sorted by service,
-// class, subject: the recorded refusals a targeting step must not
-// re-dispatch.
+// InapplicableRows returns every inapplicable row sorted by service, class, subject:
+// recorded refusals a targeting step must not re-dispatch.
 func InapplicableRows(rows []Row) []Row {
 	var out []Row
 
@@ -243,9 +238,8 @@ func InapplicableRows(rows []Row) []Row {
 // ErrRowRejected is returned by AppendRow when validation fails.
 var ErrRowRejected = errors.New("row rejected")
 
-// AppendRow validates r against knownServices and the existing rows, then
-// appends it to the ledger file at path as one YAML entry. rows is the
-// current content, used for the duplicate check.
+// AppendRow validates r against knownServices and the existing rows (duplicate check),
+// then appends it to the ledger file at path as one YAML entry.
 func AppendRow(path string, rows []Row, r Row, knownServices map[string]bool) error {
 	if errs := Validate(append(slices.Clone(rows), r), knownServices); len(errs) > 0 {
 		return fmt.Errorf("%w: %s", ErrRowRejected, strings.Join(errs, "; "))
