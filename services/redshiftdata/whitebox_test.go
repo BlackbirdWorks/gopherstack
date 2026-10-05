@@ -1,35 +1,22 @@
 package redshiftdata
 
 import (
-	"fmt"
+	"strconv"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 )
 
-// TestRedshiftData_IdempotencyEviction proves storeIdempotentStatement
-// opportunistically sweeps expired entries once the cache grows past
-// idempotencyEvictThreshold, so an ExecuteStatement/BatchExecuteStatement
-// call whose ClientToken is never replayed does not sit in the cache forever
-// (only lookupIdempotentStatement pruned before this fix, and only for the
-// exact key it was asked about).
-func TestRedshiftData_IdempotencyEviction(t *testing.T) {
+func TestRedshiftData_IdempotencyIsBounded(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		seedExpired int
-		inserts     int
-		wantSwept   bool
+		name       string
+		inserts    int
+		wantOldest bool
 	}{
-		{name: "below threshold keeps expired", seedExpired: 1, inserts: 1},
-		{
-			name:        "threshold and sweep interval evicts expired",
-			seedExpired: idempotencyEvictThreshold + 16,
-			inserts:     idempotencyEvictSweepInterval,
-			wantSwept:   true,
-		},
+		{name: "below cap keeps oldest", inserts: 10, wantOldest: true},
+		{name: "past cap evicts oldest", inserts: idempotencyEntries + 16},
 	}
 
 	for _, tt := range tests {
@@ -37,25 +24,17 @@ func TestRedshiftData_IdempotencyEviction(t *testing.T) {
 			t.Parallel()
 
 			h := NewHandler(NewInMemoryBackend("000000000000", "us-east-1"))
-			past := time.Now().Add(-time.Hour)
-
-			for i := range tt.seedExpired {
-				h.idempotency.Set(
-					fmt.Sprintf("expired-%d", i),
-					idempotentStatement{id: "stmt-expired", expiresAt: past},
-				)
-			}
 
 			for i := range tt.inserts {
-				h.storeIdempotentStatement(fmt.Sprintf("live-%d", i), "stmt-live")
+				h.storeIdempotentStatement("k-"+strconv.Itoa(i), "stmt")
 			}
 
-			_, stillPresent := h.idempotency.Get("expired-0")
-			if tt.wantSwept {
-				assert.False(t, stillPresent, "expired entry should have been swept")
-			} else {
-				assert.True(t, stillPresent, "expired entry should remain below the eviction threshold")
-			}
+			_, oldest := h.lookupIdempotentStatement("k-0")
+			_, newest := h.lookupIdempotentStatement("k-" + strconv.Itoa(tt.inserts-1))
+
+			assert.Equal(t, tt.wantOldest, oldest)
+			assert.True(t, newest)
+			assert.LessOrEqual(t, h.idem.Len(), idempotencyEntries)
 		})
 	}
 }

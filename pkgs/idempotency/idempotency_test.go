@@ -105,3 +105,127 @@ func TestCreateBoundsAndExpiry(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEqual(t, first.id, again.id)
 }
+
+func TestReplay(t *testing.T) {
+	t.Parallel()
+
+	type call struct{ token, print string }
+
+	tests := []struct {
+		name      string
+		calls     []call
+		wantRuns  int
+		wantErrAt int
+	}{
+		{"no_token_runs_each", []call{{"", "a"}, {"", "a"}}, 2, -1},
+		{"same_token_replays", []call{{"t", "a"}, {"t", "a"}}, 1, -1},
+		{"different_tokens_run", []call{{"t1", "a"}, {"t2", "a"}}, 2, -1},
+		{"mismatch_conflicts", []call{{"t", "a"}, {"t", "b"}}, 1, 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			m := idempotency.New("test")
+			runs := 0
+			do := func() (*res, error) {
+				runs++
+
+				return &res{id: "r" + strconv.Itoa(runs)}, nil
+			}
+
+			var first *res
+
+			for i, cl := range tt.calls {
+				r, err := idempotency.Replay(m, "Op", cl.token, cl.print, do)
+				if i == tt.wantErrAt {
+					require.ErrorIs(t, err, idempotency.ErrParamsMismatch)
+
+					continue
+				}
+
+				require.NoError(t, err)
+
+				if first == nil {
+					first = r
+				} else if tt.wantRuns == 1 {
+					assert.Same(t, first, r)
+				}
+			}
+
+			assert.Equal(t, tt.wantRuns, runs)
+		})
+	}
+}
+
+func TestReplayErrorNotRecordedAndClear(t *testing.T) {
+	t.Parallel()
+
+	m := idempotency.New("test")
+	runs := 0
+	fail := true
+	do := func() (*res, error) {
+		runs++
+
+		if fail {
+			return nil, errGone
+		}
+
+		return &res{id: "ok"}, nil
+	}
+
+	_, err := idempotency.Replay(m, "Op", "t", "p", do)
+	require.ErrorIs(t, err, errGone)
+	assert.Equal(t, 0, m.Len())
+
+	fail = false
+
+	_, err = idempotency.Replay(m, "Op", "t", "p", do)
+	require.NoError(t, err)
+	assert.Equal(t, 1, m.Len())
+
+	m.Clear()
+	assert.Equal(t, 0, m.Len())
+}
+
+func TestLookupRecord(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		token     string
+		print     string
+		wantID    string
+		recorded  bool
+		wantHit   bool
+		wantError bool
+	}{
+		{"hit", "t", "a", "id1", true, true, false},
+		{"empty_token_misses", "", "a", "", true, false, false},
+		{"unrecorded_misses", "t", "a", "", false, false, false},
+		{"mismatch_errors", "t", "b", "", true, false, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			m := idempotency.New("test")
+			if tt.recorded {
+				m.Record("Op", "t", "a", "id1")
+			}
+
+			id, hit, err := m.Lookup("Op", tt.token, tt.print)
+			if tt.wantError {
+				require.ErrorIs(t, err, idempotency.ErrParamsMismatch)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantHit, hit)
+			assert.Equal(t, tt.wantID, id)
+		})
+	}
+}

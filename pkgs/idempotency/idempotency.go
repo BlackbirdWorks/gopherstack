@@ -22,6 +22,7 @@ var ErrParamsMismatch = errors.New("client token was already used with different
 type entry struct {
 	expires     time.Time
 	fingerprint string
+	resp        any
 	id          string
 }
 
@@ -85,12 +86,10 @@ func Create[T any](
 	defer m.mu.Unlock()
 
 	key := op + "|" + token
-	if e, ok := m.entries[key]; ok && m.now().Before(e.expires) {
-		if e.fingerprint != fingerprint {
-			return nil, ErrParamsMismatch
-		}
-
-		if res, err := get(e.id); err == nil {
+	if e, live, err := m.liveLocked(key, fingerprint); err != nil {
+		return nil, err
+	} else if live {
+		if res, gerr := get(e.id); gerr == nil {
 			return res, nil
 		}
 	}
@@ -100,12 +99,51 @@ func Create[T any](
 		return nil, err
 	}
 
-	m.record(key, fingerprint, idOf(res))
+	m.record(key, fingerprint, idOf(res), nil)
 
 	return res, nil
 }
 
-func (m *Memo) record(key, fingerprint, id string) {
+func (m *Memo) liveLocked(key, fingerprint string) (entry, bool, error) {
+	e, ok := m.entries[key]
+	if !ok || !m.now().Before(e.expires) {
+		return entry{}, false, nil
+	}
+
+	if e.fingerprint != fingerprint {
+		return entry{}, false, ErrParamsMismatch
+	}
+
+	return e, true, nil
+}
+
+// Lookup returns the ID recorded for a live (op, token); ErrParamsMismatch when fingerprints differ.
+func (m *Memo) Lookup(op, token, fingerprint string) (string, bool, error) {
+	if token == "" {
+		return "", false, nil
+	}
+
+	m.mu.RLock("Lookup")
+	defer m.mu.RUnlock()
+
+	e, live, err := m.liveLocked(op+"|"+token, fingerprint)
+
+	return e.id, live, err
+}
+
+// Record remembers id as the resource (op, token) created.
+func (m *Memo) Record(op, token, fingerprint, id string) {
+	if token == "" {
+		return
+	}
+
+	m.mu.Lock("Record")
+	defer m.mu.Unlock()
+
+	m.record(op+"|"+token, fingerprint, id, nil)
+}
+
+func (m *Memo) record(key, fingerprint, id string, resp any) {
 	now := m.now()
 
 	for len(m.entries) >= m.max {
@@ -130,7 +168,44 @@ func (m *Memo) record(key, fingerprint, id string) {
 		}
 	}
 
-	m.entries[key] = entry{expires: now.Add(m.ttl), fingerprint: fingerprint, id: id}
+	m.entries[key] = entry{expires: now.Add(m.ttl), fingerprint: fingerprint, id: id, resp: resp}
+}
+
+// Replay returns the response recorded for (op, token) or runs do and records its response.
+// An empty token always runs do; a reused token with a different fingerprint yields ErrParamsMismatch.
+func Replay[T any](m *Memo, op, token, fingerprint string, do func() (*T, error)) (*T, error) {
+	if token == "" {
+		return do()
+	}
+
+	m.mu.Lock("Replay")
+	defer m.mu.Unlock()
+
+	key := op + "|" + token
+	if e, live, err := m.liveLocked(key, fingerprint); err != nil {
+		return nil, err
+	} else if live {
+		if r, isT := e.resp.(*T); isT {
+			return r, nil
+		}
+	}
+
+	res, err := do()
+	if err != nil {
+		return nil, err
+	}
+
+	m.record(key, fingerprint, "", res)
+
+	return res, nil
+}
+
+// Clear forgets every remembered token.
+func (m *Memo) Clear() {
+	m.mu.Lock("Clear")
+	defer m.mu.Unlock()
+
+	clear(m.entries)
 }
 
 // Len reports the number of remembered tokens.

@@ -3,6 +3,7 @@ package workspaces
 import (
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
@@ -65,7 +66,7 @@ type InMemoryBackend struct {
 	mu                *lockmetrics.RWMutex
 	clientProperties  map[string]storedClientProps
 	appAssociations   map[string]map[string]*storedAppAssociation
-	idempotency       map[string]idempotencyEntry
+	idem              *idempotency.Memo
 	// appConfig is service.AppContext.Config, captured for lazy sibling-service
 	// lookup (the Directory Service backend) -- see cross_service.go.
 	appConfig            any

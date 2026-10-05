@@ -1,6 +1,7 @@
 package rekognition
 
 import (
+	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
@@ -31,7 +32,7 @@ type InMemoryBackend struct {
 	// they do not fit store.Table's keyed-by-identity-value shape. See
 	// persistence.go.
 	datasetEntries map[string][]string // datasetArn -> jsonLines
-	idemResponses  map[string]idemEntry
+	idem           *idempotency.Memo
 
 	users             *store.Table[storedUser]
 	usersByCollection *store.Index[storedUser]
@@ -52,7 +53,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		region:         region,
 		tags:           make(map[string]map[string]string),
 		datasetEntries: make(map[string][]string),
-		idemResponses:  make(map[string]idemEntry),
+		idem:           idempotency.New("rekognition"),
 	}
 
 	registerAllTables(b)
@@ -122,5 +123,5 @@ func (b *InMemoryBackend) Reset() {
 	b.registry.ResetAll()
 	b.tags = make(map[string]map[string]string)
 	b.datasetEntries = make(map[string][]string)
-	b.idemResponses = make(map[string]idemEntry)
+	b.idem.Clear()
 }

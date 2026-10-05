@@ -5,6 +5,8 @@ import (
 	"time"
 
 	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
 )
 
 // S3Backend is the subset of S3 operations Rekognition needs to validate
@@ -110,8 +112,7 @@ type StorageBackend interface {
 	GetMediaAnalysisJob(jobID string) (*MediaAnalysisJob, error)
 	ListMediaAnalysisJobs(maxResults int32, nextToken string) ([]*MediaAnalysisJob, string, error)
 
-	IdempotencyLookup(op, token, fingerprint string) (resp any, found bool, err error)
-	IdempotencyStore(op, token, fingerprint string, resp any)
+	Idempotency() *idempotency.Memo
 
 	AccountID() string
 	Region() string

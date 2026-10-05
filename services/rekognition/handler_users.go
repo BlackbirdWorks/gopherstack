@@ -2,8 +2,10 @@ package rekognition
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -31,22 +33,12 @@ type createUserReq struct {
 
 // withIdempotency replays the recorded response for a repeated ClientRequestToken, else runs do and records it.
 func withIdempotency[T any](h *Handler, op, token, fingerprint string, do func() (*T, error)) (*T, error) {
-	if prior, found, err := h.Backend.IdempotencyLookup(op, token, fingerprint); err != nil {
-		return nil, err
-	} else if found {
-		if r, ok := prior.(*T); ok {
-			return r, nil
-		}
+	r, err := idempotency.Replay(h.Backend.Idempotency(), op, token, fingerprint, do)
+	if errors.Is(err, idempotency.ErrParamsMismatch) {
+		return nil, fmt.Errorf("%w: %s", ErrIdempotentParameterMismatch, err.Error())
 	}
 
-	resp, err := do()
-	if err != nil {
-		return nil, err
-	}
-
-	h.Backend.IdempotencyStore(op, token, fingerprint, resp)
-
-	return resp, nil
+	return r, err
 }
 
 func (h *Handler) handleCreateUser(_ context.Context, req *createUserReq) (*struct{}, error) {

@@ -3,6 +3,7 @@ package codebuild
 import (
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
@@ -44,7 +45,7 @@ type InMemoryBackend struct {
 	sourceCredentials          *store.Table[SourceCredentials]
 	registry                   *store.Registry
 	resourcePolicies           map[string]string // ARN → policy JSON
-	idempotency                map[string]idempotencyEntry
+	idem                       *idempotency.Memo
 	// buildBatchNumbers tracks the next BuildBatchNumber per project, matching
 	// real AWS's per-project monotonic numbering (aws-sdk-go-v2/service/
 	// codebuild/types.BuildBatch.BuildBatchNumber, types/types.go:313 -- "If a
@@ -60,7 +61,7 @@ type InMemoryBackend struct {
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
 		resourcePolicies:  make(map[string]string),
-		idempotency:       make(map[string]idempotencyEntry),
+		idem:              idempotency.New("codebuild"),
 		buildBatchNumbers: make(map[string]int64),
 		registry:          store.NewRegistry(),
 		accountID:         accountID,
@@ -83,7 +84,7 @@ func (b *InMemoryBackend) Reset() {
 
 	b.registry.ResetAll()
 	b.resourcePolicies = make(map[string]string)
-	b.idempotency = make(map[string]idempotencyEntry)
+	b.idem.Clear()
 	b.buildBatchNumbers = make(map[string]int64)
 }
 

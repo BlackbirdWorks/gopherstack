@@ -5,13 +5,18 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"time"
 )
+
+// maxIdempotencyRecords caps remembered tokens per region; the oldest are evicted first.
+const maxIdempotencyRecords = 1024
 
 // idempotencyRecord remembers the request fingerprint and created resource ID
 // for one ClientToken.
 type idempotencyRecord struct {
-	Fingerprint string `json:"fingerprint"`
-	ID          string `json:"id"`
+	CreatedAt   time.Time `json:"createdAt,omitzero"`
+	Fingerprint string    `json:"fingerprint"`
+	ID          string    `json:"id"`
 }
 
 func idempotencyFingerprint(req any) string {
@@ -65,9 +70,32 @@ func (b *InMemoryBackend) recordIdempotentLocked(region, op, token string, req a
 		return
 	}
 
-	if b.idempotency[region] == nil {
-		b.idempotency[region] = make(map[string]idempotencyRecord)
+	recs := b.idempotency[region]
+	if recs == nil {
+		recs = make(map[string]idempotencyRecord)
+		b.idempotency[region] = recs
 	}
 
-	b.idempotency[region][op+"|"+token] = idempotencyRecord{Fingerprint: idempotencyFingerprint(req), ID: id}
+	key := op + "|" + token
+	if _, replaced := recs[key]; !replaced {
+		evictOldestIdempotency(recs, maxIdempotencyRecords-1)
+	}
+
+	recs[key] = idempotencyRecord{CreatedAt: timeNow(), Fingerprint: idempotencyFingerprint(req), ID: id}
+}
+
+func evictOldestIdempotency(recs map[string]idempotencyRecord, keep int) {
+	for len(recs) > keep {
+		var oldestKey string
+
+		var oldest time.Time
+
+		for k, r := range recs {
+			if oldestKey == "" || r.CreatedAt.Before(oldest) {
+				oldestKey, oldest = k, r.CreatedAt
+			}
+		}
+
+		delete(recs, oldestKey)
+	}
 }
