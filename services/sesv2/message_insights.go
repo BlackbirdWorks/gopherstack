@@ -109,8 +109,8 @@ func matchesIdentityFilter(from, identity string) bool {
 		return true
 	}
 
-	if at := strings.LastIndex(from, "@"); at >= 0 {
-		return from[at+1:] == identity
+	if _, after, ok := strings.CutLast(from, "@"); ok {
+		return after == identity
 	}
 
 	return false

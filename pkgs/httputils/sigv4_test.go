@@ -196,8 +196,8 @@ func TestSigV4Validator_EchoMiddleware(t *testing.T) {
 // flipLastHexNibble flips the final hex character of the Signature= value so the
 // signature no longer matches while remaining well-formed.
 func flipLastHexNibble(auth string) string {
-	idx := strings.LastIndex(auth, "Signature=")
-	if idx < 0 {
+	found := strings.Contains(auth, "Signature=")
+	if !found {
 		return auth
 	}
 

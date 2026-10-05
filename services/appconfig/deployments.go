@@ -263,12 +263,12 @@ func (b *InMemoryBackend) appliedExtensionsLocked(
 // extensionIDFromArn extracts the trailing "extension/{id}" segment's id
 // from an extension ARN built by appconfigARN.
 func extensionIDFromArn(extensionArn string) string {
-	i := strings.LastIndex(extensionArn, "/")
-	if i < 0 {
+	_, after, ok := strings.CutLast(extensionArn, "/")
+	if !ok {
 		return ""
 	}
 
-	return extensionArn[i+1:]
+	return after
 }
 
 // appendDeploymentEvent prepends a new event to the deployment's EventLog,

@@ -74,8 +74,8 @@ func (b *InMemoryBackend) clusterARN(region, id string) string {
 // cluster ARN built by clusterARN (arn:partition:neptune:region:account:cluster:id).
 func clusterIdentifierFromARN(clusterARN string) string {
 	const marker = "cluster:"
-	if idx := strings.LastIndex(clusterARN, marker); idx != -1 {
-		return clusterARN[idx+len(marker):]
+	if _, after, ok := strings.CutLast(clusterARN, marker); ok {
+		return after
 	}
 
 	return clusterARN

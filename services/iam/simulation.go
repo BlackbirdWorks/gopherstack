@@ -477,13 +477,13 @@ func (b *InMemoryBackend) collectBoundaryDoc(principalArn string) string {
 
 	switch {
 	case strings.Contains(principalArn, userPrefix):
-		idx := strings.LastIndex(principalArn, userPrefix)
+		_, after, _ := strings.CutLast(principalArn, userPrefix)
 
-		return b.boundaryDocForUser(principalArn[idx+len(userPrefix):])
+		return b.boundaryDocForUser(after)
 	case strings.Contains(principalArn, rolePrefix):
-		idx := strings.LastIndex(principalArn, rolePrefix)
+		_, after, _ := strings.CutLast(principalArn, rolePrefix)
 
-		return b.boundaryDocForRole(principalArn[idx+len(rolePrefix):])
+		return b.boundaryDocForRole(after)
 	}
 
 	return ""
@@ -502,8 +502,8 @@ func (b *InMemoryBackend) collectNamedPrincipalPolicies(
 
 	switch {
 	case strings.Contains(principalArn, userPrefix):
-		idx := strings.LastIndex(principalArn, userPrefix)
-		userName := principalArn[idx+len(userPrefix):]
+		_, after, _ := strings.CutLast(principalArn, userPrefix)
+		userName := after
 
 		if _, exists := b.users.Get(userName); !exists {
 			return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
@@ -531,8 +531,8 @@ func (b *InMemoryBackend) collectNamedPrincipalPolicies(
 		return named, nil
 
 	case strings.Contains(principalArn, rolePrefix):
-		idx := strings.LastIndex(principalArn, rolePrefix)
-		roleName := principalArn[idx+len(rolePrefix):]
+		_, after, _ := strings.CutLast(principalArn, rolePrefix)
+		roleName := after
 
 		if _, exists := b.roles.Get(roleName); !exists {
 			return nil, fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)

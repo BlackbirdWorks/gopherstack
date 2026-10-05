@@ -42,8 +42,8 @@ func (r *recordingInvoker) InvokeFunction(
 	_ context.Context, name, _ string, payload []byte,
 ) ([]byte, int, error) {
 	fn := name
-	if i := strings.LastIndex(name, ":function:"); i >= 0 {
-		fn = name[i+len(":function:"):]
+	if _, after, ok := strings.CutLast(name, ":function:"); ok {
+		fn = after
 	}
 	if strings.HasPrefix(fn, "AuthFn") {
 		effect := "Deny"

@@ -269,8 +269,8 @@ func (b *InMemoryBackend) DescribeConfigurationRecorderStatus(names []string) []
 // AssociateResourceTypes/DisassociateResourceTypes accept both forms (real
 // SDK callers always send the full ARN; unit tests exercise the bare name).
 func recorderNameFromArn(recorderARN string) string {
-	if idx := strings.LastIndex(recorderARN, "/"); idx >= 0 {
-		return recorderARN[idx+1:]
+	if _, after, ok := strings.CutLast(recorderARN, "/"); ok {
+		return after
 	}
 
 	return recorderARN

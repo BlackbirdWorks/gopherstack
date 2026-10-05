@@ -20,8 +20,8 @@ func (b *InMemoryBackend) CreateUserProfile(
 	defer b.mu.Unlock()
 
 	name := iamUserArn
-	if idx := strings.LastIndex(iamUserArn, "/"); idx >= 0 {
-		name = iamUserArn[idx+1:]
+	if _, after, ok := strings.CutLast(iamUserArn, "/"); ok {
+		name = after
 	}
 
 	u := &storedUserProfile{

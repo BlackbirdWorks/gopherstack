@@ -395,8 +395,8 @@ func (b *InMemoryBackend) createJobLocked(input *CreateJobInput) (*Job, error) {
 // parse as a "<type>/<name>" resource.
 func parseJobTargetARN(target string) (string, string) {
 	resource := target
-	if idx := strings.LastIndex(target, ":"); idx != -1 {
-		resource = target[idx+1:]
+	if _, after, ok := strings.CutLast(target, ":"); ok {
+		resource = after
 	}
 
 	parts := strings.SplitN(resource, "/", twoparts)

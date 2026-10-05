@@ -407,14 +407,14 @@ func extractARPBuildWorkflowIDs(path string) (string, string) {
 	rest, _ := strings.CutPrefix(path, automatedReasoningPrefix+"/")
 	// rest = {policyArn}/build-workflows/{buildWorkflowId}/cancel
 	beforeCancel := strings.TrimSuffix(rest, "/cancel")
-	idx := strings.LastIndex(beforeCancel, "/build-workflows/")
+	before, after, ok := strings.CutLast(beforeCancel, "/build-workflows/")
 
-	if idx < 0 {
+	if !ok {
 		return "", ""
 	}
 
-	policyARN := decodePath(beforeCancel[:idx])
-	workflowID := beforeCancel[idx+len("/build-workflows/"):]
+	policyARN := decodePath(before)
+	workflowID := after
 
 	return policyARN, workflowID
 }

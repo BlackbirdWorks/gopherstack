@@ -531,12 +531,12 @@ func securityGroupIDFromRuleID(ruleID string) (string, bool) {
 		return "", false
 	}
 
-	if idx := strings.LastIndex(rest, "-in-"); idx >= 0 {
-		return rest[:idx], true
+	if before, _, found := strings.CutLast(rest, "-in-"); found {
+		return before, true
 	}
 
-	if idx := strings.LastIndex(rest, "-out-"); idx >= 0 {
-		return rest[:idx], true
+	if before, _, found := strings.CutLast(rest, "-out-"); found {
+		return before, true
 	}
 
 	return "", false

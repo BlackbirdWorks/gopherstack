@@ -105,8 +105,8 @@ func (b *InMemoryBackend) recordTreeHistoryLocked(repo, commitID string, before,
 }
 
 func parentDir(path string) string {
-	if i := strings.LastIndexByte(path, '/'); i >= 0 {
-		return path[:i]
+	if before, _, ok := strings.CutLast(path, "/"); ok {
+		return before
 	}
 
 	return ""

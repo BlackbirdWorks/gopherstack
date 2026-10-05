@@ -211,12 +211,12 @@ func applyGrantRevoke(existing, grant, revoke []ResourcePermission) []ResourcePe
 // folderIDFromArn extracts the FolderId component of a folder ARN, or "" if arn
 // does not look like a folder ARN.
 func folderIDFromArn(arn string) string {
-	idx := strings.LastIndex(arn, folderArnMarker)
-	if idx < 0 {
+	_, after, ok := strings.CutLast(arn, folderArnMarker)
+	if !ok {
 		return ""
 	}
 
-	return arn[idx+len(folderArnMarker):]
+	return after
 }
 
 // ---- Folders ----

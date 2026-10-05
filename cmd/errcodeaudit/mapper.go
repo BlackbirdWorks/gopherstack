@@ -346,8 +346,8 @@ func nestedRowCodeExpr(expr ast.Expr, structTypes map[string]*ast.StructType) as
 
 // wireTypeCode strips a smithy-style "com.amazonaws.svc#" namespace prefix.
 func wireTypeCode(v string) string {
-	if i := strings.LastIndex(v, "#"); i >= 0 {
-		return v[i+1:]
+	if _, after, ok := strings.CutLast(v, "#"); ok {
+		return after
 	}
 
 	return v

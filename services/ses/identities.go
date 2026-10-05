@@ -124,8 +124,8 @@ func (b *InMemoryBackend) resolveVerifiedIdentityLocked(from string) (*IdentityR
 	}
 
 	// Domain-level check: strip the local-part and check the domain.
-	if at := strings.LastIndex(from, "@"); at >= 0 {
-		if rec, ok := b.identities.Get(from[at+1:]); ok && rec.Verified {
+	if _, after, found := strings.CutLast(from, "@"); found {
+		if rec, ok := b.identities.Get(after); ok && rec.Verified {
 			return rec, true
 		}
 	}
@@ -181,8 +181,8 @@ func (b *InMemoryBackend) checkMailFromLocked(from string) error {
 // identityDomain returns the domain portion of identity: identity itself if
 // it is already a domain, or the part after '@' if it is an email address.
 func identityDomain(identity string) string {
-	if at := strings.LastIndex(identity, "@"); at >= 0 {
-		return identity[at+1:]
+	if _, after, ok := strings.CutLast(identity, "@"); ok {
+		return after
 	}
 
 	return identity

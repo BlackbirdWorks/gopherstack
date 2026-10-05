@@ -173,8 +173,8 @@ func getManagedTypesAttribute(resType, physID, attrName, accountID, region strin
 	case resTypeCWInsightRule:
 		// physID is the rule ARN (Ref); RuleName is the "insight-rule/" tail.
 		if attrName == "RuleName" {
-			if idx := strings.LastIndex(physID, "/"); idx >= 0 {
-				return physID[idx+1:], true
+			if _, after, ok := strings.CutLast(physID, "/"); ok {
+				return after, true
 			}
 		}
 
@@ -190,21 +190,20 @@ func getManagedTypesAttribute(resType, physID, attrName, accountID, region strin
 func kinesisStreamConsumerAttribute(physID, attrName string) string {
 	const marker = "/consumer/"
 
-	idx := strings.LastIndex(physID, marker)
-	if idx < 0 {
+	before, after, ok := strings.CutLast(physID, marker)
+	if !ok {
 		return physID
 	}
 
 	switch attrName {
 	case "StreamARN":
-		return physID[:idx]
+		return before
 	case "ConsumerName":
-		name := physID[idx+len(marker):]
-		if colon := strings.LastIndex(name, ":"); colon >= 0 {
-			return name[:colon]
+		if name, _, found := strings.CutLast(after, ":"); found {
+			return name
 		}
 
-		return name
+		return after
 	case "ConsumerStatus":
 		// RegisterStreamConsumer's in-memory model activates consumers
 		// synchronously -- no CREATING transition exists to observe.

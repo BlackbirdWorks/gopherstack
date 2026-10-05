@@ -29,8 +29,8 @@ func (b *InMemoryBackend) CreateLocationEfs(
 	// length 1". region+"a" matches this package's established synthetic-AZ
 	// convention (see services/efs/mount_targets.go).
 	fsID := efsFilesystemArn
-	if idx := strings.LastIndex(efsFilesystemArn, "/"); idx >= 0 {
-		fsID = efsFilesystemArn[idx+1:]
+	if _, after, ok := strings.CutLast(efsFilesystemArn, "/"); ok {
+		fsID = after
 	}
 
 	sub := strings.TrimPrefix(subdirectory, "/")

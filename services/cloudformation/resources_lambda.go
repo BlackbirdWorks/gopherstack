@@ -153,13 +153,13 @@ func (rc *ResourceCreator) deleteLambdaLayerVersionPermission(physicalID string)
 	}
 
 	// physicalID format: {layerVersionARN}:{statementID}
-	lastColon := strings.LastIndex(physicalID, ":")
-	if lastColon < 0 {
+	before, after, ok := strings.CutLast(physicalID, ":")
+	if !ok {
 		return nil
 	}
 
-	layerVersionARN := physicalID[:lastColon]
-	statementID := physicalID[lastColon+1:]
+	layerVersionARN := before
+	statementID := after
 
 	layerName, version := parseLayerVersionARN(layerVersionARN)
 	if layerName == "" {

@@ -548,8 +548,8 @@ func protoTypesCompatible(r, w string) bool {
 }
 
 func protoShortName(t string) string {
-	if i := strings.LastIndex(t, "."); i >= 0 {
-		return t[i+1:]
+	if _, after, ok := strings.CutLast(t, "."); ok {
+		return after
 	}
 
 	return t

@@ -754,12 +754,12 @@ func (b *InMemoryBackend) GetAutomatedReasoningPolicyBuildWorkflowResultAssets(
 // splitVersionedARN splits a versioned ARN (policyARN + "/version/" + version,
 // the shape CreateAutomatedReasoningPolicyVersion builds) back into its parts.
 func splitVersionedARN(versionedARN string) (string, string, bool) {
-	idx := strings.LastIndex(versionedARN, "/version/")
-	if idx < 0 {
+	before, after, ok := strings.CutLast(versionedARN, "/version/")
+	if !ok {
 		return "", "", false
 	}
 
-	return versionedARN[:idx], versionedARN[idx+len("/version/"):], true
+	return before, after, true
 }
 
 // ExportAutomatedReasoningPolicyVersion exports a policy version definition. arnParam

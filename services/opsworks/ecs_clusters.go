@@ -24,8 +24,8 @@ func (b *InMemoryBackend) RegisterEcsCluster(ecsClusterArn, stackID string) (str
 	}
 
 	name := ecsClusterArn
-	if idx := strings.LastIndex(ecsClusterArn, "/"); idx >= 0 {
-		name = ecsClusterArn[idx+1:]
+	if _, after, ok := strings.CutLast(ecsClusterArn, "/"); ok {
+		name = after
 	}
 
 	b.ecsClusters.Put(&storedEcsCluster{

@@ -73,8 +73,8 @@ func extractFunctionNameFromARN(arn string) string {
 	}
 
 	// Fallback: take the last colon-separated segment.
-	if idx := strings.LastIndex(arn, ":"); idx >= 0 {
-		return arn[idx+1:]
+	if _, after, ok := strings.CutLast(arn, ":"); ok {
+		return after
 	}
 
 	return arn

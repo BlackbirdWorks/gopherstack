@@ -474,8 +474,8 @@ func (h *DynamoDBHandler) ExtractResource(c *echo.Context) string {
 // Returns the full ARN string unchanged if the expected structure is not found.
 func extractTableFromBackupARN(arnStr string) string {
 	// Resource component follows the last ':' in the ARN.
-	if idx := strings.LastIndex(arnStr, ":"); idx >= 0 {
-		resource := arnStr[idx+1:]
+	if _, after, ok := strings.CutLast(arnStr, ":"); ok {
+		resource := after
 		if strings.HasPrefix(resource, "table/") {
 			rest := resource[len("table/"):]
 			if tableName, _, found := strings.Cut(rest, "/"); found {

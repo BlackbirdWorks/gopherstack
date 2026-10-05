@@ -61,8 +61,8 @@ func instanceIDsFromARNs(arns []string) []string {
 	ids := make([]string, 0, len(arns))
 
 	for _, a := range arns {
-		if idx := strings.LastIndex(a, "/"); idx >= 0 {
-			ids = append(ids, a[idx+1:])
+		if _, after, ok := strings.CutLast(a, "/"); ok {
+			ids = append(ids, after)
 		} else {
 			// Not an ARN — treat as a bare instance ID.
 			ids = append(ids, a)

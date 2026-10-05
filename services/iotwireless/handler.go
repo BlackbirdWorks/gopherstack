@@ -1028,12 +1028,12 @@ func handleError(c *echo.Context, err error) error {
 // AssociateWirelessGatewayWithThing (the request never carries ThingName
 // directly). Returns "" if thingArn is empty or has no "/" separator.
 func thingNameFromArn(thingArn string) string {
-	idx := strings.LastIndex(thingArn, "/")
-	if idx < 0 {
+	_, after, ok := strings.CutLast(thingArn, "/")
+	if !ok {
 		return ""
 	}
 
-	return thingArn[idx+1:]
+	return after
 }
 
 // maxStubBodyBytes caps stub request body reads to prevent unbounded memory
@@ -1065,10 +1065,10 @@ func stubNoContent(c *echo.Context) error {
 func lastPathSegment(c *echo.Context) string {
 	path := c.Request().URL.Path
 
-	idx := strings.LastIndex(path, "/")
-	if idx < 0 {
+	_, after, ok := strings.CutLast(path, "/")
+	if !ok {
 		return ""
 	}
 
-	return path[idx+1:]
+	return after
 }

@@ -342,8 +342,8 @@ func (b *InMemoryBackend) GetPolicyVersion(
 // after the final "/" -- not everything after "policy/", which for a
 // non-default Path (e.g. "/team/") wrongly includes the path segments too.
 func policyNameFromARN(arn string) string {
-	if i := strings.LastIndex(arn, "/"); i >= 0 {
-		return arn[i+1:]
+	if _, after, ok := strings.CutLast(arn, "/"); ok {
+		return after
 	}
 
 	return arn

@@ -210,12 +210,12 @@ func parameterARN(region, account, name string) string {
 // so any ":" delimits a selector. Returns (baseName, selector) where selector
 // is the part after the colon ("" when no selector is present).
 func splitParameterSelector(name string) (string, string) {
-	idx := strings.LastIndex(name, ":")
-	if idx < 0 {
+	before, after, ok := strings.CutLast(name, ":")
+	if !ok {
 		return name, ""
 	}
 
-	return name[:idx], name[idx+1:]
+	return before, after
 }
 
 // resolveParameterSelector returns the Parameter for the given base name and

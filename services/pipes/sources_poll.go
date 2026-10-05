@@ -17,12 +17,12 @@ const millisToSeconds = 1000.0
 func kinesisStreamNameFromARN(arn string) string {
 	const marker = "stream/"
 
-	idx := strings.LastIndex(arn, marker)
-	if idx < 0 {
+	_, after, ok := strings.CutLast(arn, marker)
+	if !ok {
 		return ""
 	}
 
-	return arn[idx+len(marker):]
+	return after
 }
 
 // shardIteratorKey builds the safemap key used to cache a shard's in-flight
@@ -40,11 +40,11 @@ func (r *Runner) sweepStaleShardIterators(runningARNs map[string]struct{}) {
 		// The pipe ARN itself contains colons, so the pipe ARN portion of the
 		// "<pipeARN>:<shardID>" key is everything before the trailing segment
 		// appended by shardIteratorKey.
-		lastColon := strings.LastIndex(key, ":")
-		if lastColon < 0 {
+		before, _, ok := strings.CutLast(key, ":")
+		if !ok {
 			continue
 		}
-		pipeARN := key[:lastColon]
+		pipeARN := before
 
 		if _, active := runningARNs[pipeARN]; !active {
 			r.shardIterators.Delete(key)

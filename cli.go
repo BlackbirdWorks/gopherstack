@@ -3312,8 +3312,8 @@ func wireDirectConnectEC2(directconnectReg, ec2Reg service.Registerable) {
 // networkManagerEC2ResolverAdapter/networkManagerDirectConnectResolverAdapter
 // look up by. A bare (non-ARN) id string passes through unchanged.
 func arnResourceID(arnStr string) string {
-	if i := strings.LastIndex(arnStr, "/"); i >= 0 {
-		return arnStr[i+1:]
+	if _, after, ok := strings.CutLast(arnStr, "/"); ok {
+		return after
 	}
 
 	return arnStr
@@ -7052,12 +7052,12 @@ func parseECRImageURI(imageURI string) (string, ecrbackend.ImageIdentifier, bool
 		return "", ecrbackend.ImageIdentifier{}, false
 	}
 
-	if idx := strings.LastIndex(rest, "@"); idx >= 0 {
-		return rest[:idx], ecrbackend.ImageIdentifier{ImageDigest: rest[idx+1:]}, true
+	if before, after, ok := strings.CutLast(rest, "@"); ok {
+		return before, ecrbackend.ImageIdentifier{ImageDigest: after}, true
 	}
 
-	if idx := strings.LastIndex(rest, ":"); idx >= 0 {
-		return rest[:idx], ecrbackend.ImageIdentifier{ImageTag: rest[idx+1:]}, true
+	if before, after, ok := strings.CutLast(rest, ":"); ok {
+		return before, ecrbackend.ImageIdentifier{ImageTag: after}, true
 	}
 
 	return rest, ecrbackend.ImageIdentifier{}, true
@@ -14079,12 +14079,12 @@ func (a *pipesCloudWatchLogsPutterAdapter) PutLogEvents(
 func logGroupNameFromLogsARN(id string) string {
 	const marker = ":log-group:"
 
-	idx := strings.LastIndex(id, marker)
-	if idx < 0 {
+	_, after, ok := strings.CutLast(id, marker)
+	if !ok {
 		return id
 	}
 
-	return strings.TrimSuffix(id[idx+len(marker):], ":*")
+	return strings.TrimSuffix(after, ":*")
 }
 
 // pipesFirehosePutterAdapter adapts the Firehose backend to the

@@ -128,8 +128,7 @@ func (b *InMemoryBackend) checkFromIdentityLocked(from string) error {
 	if id, ok := b.identities.Get(from); ok && id.VerifiedForSending {
 		return nil
 	}
-	if at := strings.LastIndex(from, "@"); at >= 0 {
-		domain := from[at+1:]
+	if _, domain, found := strings.CutLast(from, "@"); found {
 		if id, ok := b.identities.Get(domain); ok && id.VerifiedForSending {
 			return nil
 		}

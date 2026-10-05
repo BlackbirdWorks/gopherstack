@@ -202,8 +202,8 @@ func (b *InMemoryBackend) UpdateLocationS3(locationArn, subdirectory, s3StorageC
 // parsing outright (confirmed via terraform-provider-aws: it errors trying
 // to parse the embedded ARN as an S3-on-Outposts access point resource).
 func fsxShortResourceID(fsxArn string) string {
-	if idx := strings.LastIndex(fsxArn, "/"); idx >= 0 {
-		return fsxArn[idx+1:]
+	if _, after, ok := strings.CutLast(fsxArn, "/"); ok {
+		return after
 	}
 
 	return fsxArn

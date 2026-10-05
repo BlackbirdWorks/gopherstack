@@ -326,8 +326,8 @@ type KeyValueFilter struct {
 // job_definitions.go's RegisterJobDefinition (arn.Build(..., "job-definition/%s:%d", ...)).
 func jobDefinitionNameFromARN(jdARN string) string {
 	resource := jdARN
-	if i := strings.LastIndex(jdARN, "job-definition/"); i >= 0 {
-		resource = jdARN[i+len("job-definition/"):]
+	if _, after, ok := strings.CutLast(jdARN, "job-definition/"); ok {
+		resource = after
 	}
 
 	if i := strings.LastIndex(resource, ":"); i >= 0 {

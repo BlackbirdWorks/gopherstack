@@ -62,8 +62,8 @@ func iamNameFromRefValue(s string) string {
 		return s
 	}
 
-	if idx := strings.LastIndex(s, "/"); idx >= 0 {
-		return s[idx+1:]
+	if _, after, ok := strings.CutLast(s, "/"); ok {
+		return after
 	}
 
 	return s

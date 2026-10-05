@@ -476,10 +476,10 @@ func (b *InMemoryBackend) UpdateTaskExecution(taskExecutionArn string, options m
 // Execution ARN format: arn:aws:datasync:region:account:task/<task-id>/execution/<exec-id>.
 func extractTaskArnFromExecution(execArn string) string {
 	// Find /execution/ suffix and strip it.
-	idx := strings.LastIndex(execArn, "/execution/")
-	if idx < 0 {
+	before, _, ok := strings.CutLast(execArn, "/execution/")
+	if !ok {
 		return ""
 	}
 
-	return execArn[:idx]
+	return before
 }

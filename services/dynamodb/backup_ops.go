@@ -280,12 +280,12 @@ func resumeIndexAfterBackupCursor(summaries []models.BackupSummary, startArn str
 func backupArnCreatedAtSeconds(backupArn string) (float64, bool) {
 	const marker = "/backup/"
 
-	idx := strings.LastIndex(backupArn, marker)
-	if idx < 0 {
+	_, after, ok := strings.CutLast(backupArn, marker)
+	if !ok {
 		return 0, false
 	}
 
-	suffix := backupArn[idx+len(marker):]
+	suffix := after
 
 	millisStr, _, found := strings.Cut(suffix, "-")
 	if !found {

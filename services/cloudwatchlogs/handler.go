@@ -296,8 +296,8 @@ type actionFn func(ctx context.Context, body []byte) (any, error)
 // log group name is extracted. Non-ARN identifiers are returned unchanged.
 func normalizeLogGroupIdentifier(id string) string {
 	const logGroupToken = ":log-group:"
-	if idx := strings.LastIndex(id, logGroupToken); idx >= 0 {
-		return id[idx+len(logGroupToken):]
+	if _, after, ok := strings.CutLast(id, logGroupToken); ok {
+		return after
 	}
 
 	return id

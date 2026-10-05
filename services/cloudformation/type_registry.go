@@ -42,17 +42,17 @@ var typeVersionIDPattern = regexp.MustCompile(`^\d{8}$`)
 // (.../type/resource/Name/00000001) into its base ARN and version id. The
 // third return is false when typeARN has no such trailing version segment.
 func splitTypeVersionARN(typeARN string) (string, string, bool) {
-	idx := strings.LastIndex(typeARN, "/")
-	if idx < 0 {
+	before, after, ok := strings.CutLast(typeARN, "/")
+	if !ok {
 		return "", "", false
 	}
 
-	candidate := typeARN[idx+1:]
+	candidate := after
 	if !typeVersionIDPattern.MatchString(candidate) {
 		return "", "", false
 	}
 
-	return typeARN[:idx], candidate, true
+	return before, candidate, true
 }
 
 func (b *InMemoryBackend) ActivateType(typeName, typeArn string, opts ActivateTypeOptions) (string, error) {

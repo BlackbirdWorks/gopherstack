@@ -361,12 +361,12 @@ func scheduleFieldsFromBody(body map[string]any) (string, string, string, map[st
 // datasetIDFromArn extracts the DataSetId component of a dataset ARN
 // ("arn:...:dataset/<id>" -> "<id>").
 func datasetIDFromArn(arn string) string {
-	idx := strings.LastIndex(arn, "/")
-	if idx < 0 {
+	_, after, ok := strings.CutLast(arn, "/")
+	if !ok {
 		return ""
 	}
 
-	return arn[idx+1:]
+	return after
 }
 
 func (h *Handler) handleCreateTopicRefreshSchedule(c *echo.Context) error {

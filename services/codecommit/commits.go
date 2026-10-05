@@ -48,12 +48,12 @@ const gitkeepFileName = ".gitkeep"
 // parentFolder returns the directory portion of filePath, or "" if filePath
 // has no folder component (lives at the repository root).
 func parentFolder(filePath string) string {
-	idx := strings.LastIndexByte(filePath, '/')
-	if idx < 0 {
+	before, _, ok := strings.CutLast(filePath, "/")
+	if !ok {
 		return ""
 	}
 
-	return filePath[:idx]
+	return before
 }
 
 // keepEmptyFoldersLocked adds a .gitkeep (tree and file view) to each folder a

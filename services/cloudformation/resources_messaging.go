@@ -288,8 +288,8 @@ func (rc *ResourceCreator) deleteEventsAPIDestination(
 	}
 	// physicalID is the ARN; extract the name from the trailing segment.
 	name := physicalID
-	if idx := strings.LastIndex(physicalID, "/"); idx >= 0 {
-		name = physicalID[idx+1:]
+	if _, after, ok := strings.CutLast(physicalID, "/"); ok {
+		name = after
 	}
 
 	return rc.backends.EventBridge.Backend.DeleteAPIDestination(ctx, name)
