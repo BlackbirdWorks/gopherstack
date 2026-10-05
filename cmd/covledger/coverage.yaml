@@ -3274,3 +3274,58 @@ rows:
     date: "2026-10-05"
     commit: 9de8c9d2f
     source: "commit"
+  - service: iotanalytics
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 04f4c331a
+  - service: kinesisanalyticsv2
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 04f4c331a
+  - service: mediatailor
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 04f4c331a
+  - service: databrew
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 04f4c331a
+  - service: acm
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 04f4c331a
+  - service: applicationautoscaling
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 04f4c331a
+  - service: rolesanywhere
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 04f4c331a
+  - service: dlm
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 04f4c331a
+  - service: detective
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 04f4c331a
+  - service: kafkaconnect
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 04f4c331a
+  - service: opsworks
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: 04f4c331a
