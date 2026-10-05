@@ -79,9 +79,8 @@ func buildPackageIndexFromFiles(files []*ast.File, fset *token.FileSet, dir stri
 		queryKeyForwarders:    collectQueryKeyForwarders(files, collectQueryAccessorWrappers(files)),
 		subPackages:           buildSubPackageIndexes(files, dir),
 		pkgConsts:             consts,
+		wrapperKeys:           collectWrapperKeyCredits(files, structs, consts),
 	}
-
-	ctx.wrapperKeys = collectWrapperKeyCredits(files, structs, consts)
 
 	dispatch, alts := collectDispatchEntries(files, consts, funcTypeNames, namedMapTypes)
 	ctx.dispatchAlts = alts
