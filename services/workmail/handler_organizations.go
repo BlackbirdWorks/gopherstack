@@ -18,6 +18,8 @@ type domainReq struct {
 
 type createOrgReq struct {
 	Alias                  string      `json:"Alias"`
+	DirectoryID            string      `json:"DirectoryId"`
+	ClientToken            string      `json:"ClientToken"`
 	Domains                []domainReq `json:"Domains"`
 	EnableInteroperability bool        `json:"EnableInteroperability"`
 }
@@ -32,7 +34,16 @@ func (h *Handler) handleCreateOrganization(ctx context.Context, req *createOrgRe
 		domains = append(domains, d.DomainName)
 	}
 
-	org, err := h.Backend.CreateOrganization(ctx, req.Alias, domains, req.EnableInteroperability)
+	token := req.ClientToken
+	req.ClientToken = ""
+
+	org, err := replayCreate(h, "CreateOrganization", token, req,
+		func(o *Organization) string { return o.OrgID }, h.Backend.DescribeOrganization,
+		func() (*Organization, error) {
+			return h.Backend.CreateOrganizationWithDirectory(
+				ctx, req.Alias, req.DirectoryID, domains, req.EnableInteroperability,
+			)
+		})
 	if err != nil {
 		return nil, err
 	}

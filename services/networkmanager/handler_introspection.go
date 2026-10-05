@@ -71,6 +71,8 @@ func queryFilter(q map[string][]string) networkResourceFilter {
 		CoreNetworkID: get("coreNetworkId"),
 		ResourceArn:   get("resourceArn"),
 		ResourceType:  get("resourceType"),
+
+		RegisteredGatewayArn: get("registeredGatewayArn"),
 	}
 }
 

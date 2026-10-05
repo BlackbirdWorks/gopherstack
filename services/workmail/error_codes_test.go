@@ -62,15 +62,17 @@ func TestRegisterMailDomain_InUse(t *testing.T) {
 	client := newWorkMailSDKClient(t, workmail.NewHandler(workmail.NewInMemoryBackend("000000000000", "us-east-1")))
 	orgID := newWorkMailOrg(t, client)
 
-	in := &workmailsdk.RegisterMailDomainInput{
-		OrganizationId: orgID,
-		DomainName:     aws.String("dup-domain.example"),
+	newInput := func() *workmailsdk.RegisterMailDomainInput {
+		return &workmailsdk.RegisterMailDomainInput{
+			OrganizationId: orgID,
+			DomainName:     aws.String("dup-domain.example"),
+		}
 	}
 
-	_, err := client.RegisterMailDomain(t.Context(), in)
+	_, err := client.RegisterMailDomain(t.Context(), newInput())
 	require.NoError(t, err)
 
-	_, err = client.RegisterMailDomain(t.Context(), in)
+	_, err = client.RegisterMailDomain(t.Context(), newInput())
 	require.Error(t, err)
 
 	var apiErr *types.MailDomainInUseException
@@ -266,21 +268,23 @@ func TestCreateImpersonationRole_DuplicateNameTyped(t *testing.T) {
 			)
 			orgID := newWorkMailOrg(t, client)
 
-			in := &workmailsdk.CreateImpersonationRoleInput{
-				OrganizationId: orgID,
-				Name:           aws.String(tt.role),
-				Type:           types.ImpersonationRoleTypeFullAccess,
-				Rules: []types.ImpersonationRule{{
-					ImpersonationRuleId: aws.String("r1"),
-					Effect:              types.AccessEffectAllow,
-					TargetUsers:         []string{"u"},
-				}},
+			newInput := func() *workmailsdk.CreateImpersonationRoleInput {
+				return &workmailsdk.CreateImpersonationRoleInput{
+					OrganizationId: orgID,
+					Name:           aws.String(tt.role),
+					Type:           types.ImpersonationRoleTypeFullAccess,
+					Rules: []types.ImpersonationRule{{
+						ImpersonationRuleId: aws.String("r1"),
+						Effect:              types.AccessEffectAllow,
+						TargetUsers:         []string{"u"},
+					}},
+				}
 			}
 
-			_, err := client.CreateImpersonationRole(t.Context(), in)
+			_, err := client.CreateImpersonationRole(t.Context(), newInput())
 			require.NoError(t, err)
 
-			_, err = client.CreateImpersonationRole(t.Context(), in)
+			_, err = client.CreateImpersonationRole(t.Context(), newInput())
 
 			var apiErr *types.InvalidParameterException
 			require.ErrorAs(t, err, &apiErr)

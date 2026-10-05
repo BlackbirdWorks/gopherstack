@@ -127,6 +127,7 @@ type startMailboxExportJobReq struct {
 	KmsKeyArn      string `json:"KmsKeyArn"`
 	S3BucketName   string `json:"S3BucketName"`
 	S3Prefix       string `json:"S3Prefix"`
+	ClientToken    string `json:"ClientToken"`
 }
 
 type startMailboxExportJobResp struct {
@@ -136,10 +137,20 @@ type startMailboxExportJobResp struct {
 func (h *Handler) handleStartMailboxExportJob(
 	_ context.Context, req *startMailboxExportJobReq,
 ) (*startMailboxExportJobResp, error) {
-	job, err := h.Backend.StartMailboxExportJob(
-		req.OrganizationID, req.EntityId, req.Description, req.RoleArn, req.KmsKeyArn,
-		req.S3BucketName, req.S3Prefix,
-	)
+	token := req.ClientToken
+	req.ClientToken = ""
+
+	job, err := replayCreate(h, "StartMailboxExportJob", token, req,
+		func(j *MailboxExportJob) string { return j.JobID },
+		func(id string) (*MailboxExportJob, error) {
+			return h.Backend.DescribeMailboxExportJob(req.OrganizationID, id)
+		},
+		func() (*MailboxExportJob, error) {
+			return h.Backend.StartMailboxExportJob(
+				req.OrganizationID, req.EntityId, req.Description, req.RoleArn, req.KmsKeyArn,
+				req.S3BucketName, req.S3Prefix,
+			)
+		})
 	if err != nil {
 		return nil, err
 	}

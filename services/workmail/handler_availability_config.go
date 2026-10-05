@@ -3,6 +3,7 @@ package workmail
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 )
 
 // ---- Availability Configurations ----
@@ -22,6 +23,7 @@ type createAvailabilityConfigReq struct {
 	LambdaProvider *lambdaProviderJSON `json:"LambdaProvider"`
 	OrganizationID string              `json:"OrganizationId"`
 	DomainName     string              `json:"DomainName"`
+	ClientToken    string              `json:"ClientToken"`
 }
 
 func (h *Handler) handleCreateAvailabilityConfiguration(
@@ -38,7 +40,28 @@ func (h *Handler) handleCreateAvailabilityConfiguration(
 	} else if req.LambdaProvider != nil {
 		lambdaARN = req.LambdaProvider.LambdaArn
 	}
-	_, err := h.Backend.CreateAvailabilityConfiguration(req.OrganizationID, req.DomainName, ewsProv, lambdaARN)
+	token := req.ClientToken
+	req.ClientToken = ""
+
+	_, err := replayCreate(h, "CreateAvailabilityConfiguration", token, req,
+		func(c *AvailabilityConfiguration) string { return c.DomainName },
+		func(domain string) (*AvailabilityConfiguration, error) {
+			cfgs, _, listErr := h.Backend.ListAvailabilityConfigurations(req.OrganizationID, 0, "")
+			if listErr != nil {
+				return nil, listErr
+			}
+
+			for _, c := range cfgs {
+				if c.DomainName == domain {
+					return c, nil
+				}
+			}
+
+			return nil, fmt.Errorf("%w: availability configuration %q not found", ErrNotFound, domain)
+		},
+		func() (*AvailabilityConfiguration, error) {
+			return h.Backend.CreateAvailabilityConfiguration(req.OrganizationID, req.DomainName, ewsProv, lambdaARN)
+		})
 	if err != nil {
 		return nil, err
 	}

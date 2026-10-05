@@ -10,6 +10,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -25,12 +26,13 @@ const (
 type Handler struct {
 	Backend StorageBackend
 	ops     map[string]service.JSONOpFunc
+	idem    *idempotency.Memo
 	region  string
 }
 
 // NewHandler creates a WorkMail handler backed by the provided storage backend.
 func NewHandler(backend StorageBackend) *Handler {
-	h := &Handler{Backend: backend, region: backend.Region()}
+	h := &Handler{Backend: backend, region: backend.Region(), idem: idempotency.New("workmail")}
 	h.ops = h.buildOps()
 
 	return h

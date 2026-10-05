@@ -110,6 +110,8 @@ type StorageBackend interface {
 	// Reveal configuration
 	GetRevealConfiguration() (*RevealConfiguration, error)
 	UpdateRevealConfiguration(kmsKeyID, status string) error
+	GetRetrievalConfiguration() *RetrievalConfiguration
+	UpdateRetrievalConfiguration(mode, roleName string) (*RetrievalConfiguration, error)
 
 	// Sensitive data occurrences
 	GetSensitiveDataOccurrences(findingID string) (map[string]any, error)
@@ -193,7 +195,7 @@ type StorageBackend interface {
 	ListFindingsFilters(limit int, token string) ([]*FindingsFilterSummary, string, error)
 
 	// Finding operations
-	GetFindings(findingIDs []string) ([]*Finding, error)
+	GetFindings(findingIDs []string, sortBy *FindingSortCriteria) ([]*Finding, error)
 	ListFindings(
 		criteria map[string]any,
 		sortBy *FindingSortCriteria,
@@ -201,7 +203,9 @@ type StorageBackend interface {
 		nextToken string,
 	) ([]string, string, error)
 	CreateSampleFindings(findingTypes []string) error
-	GetFindingStatistics(groupBy string, criteria map[string]any) ([]FindingStatisticsGroup, error)
+	GetFindingStatistics(
+		groupBy string, criteria map[string]any, sortBy *FindingSortCriteria, size int,
+	) ([]FindingStatisticsGroup, error)
 
 	// Tag operations
 	TagResource(resourceARN string, tags map[string]string) error

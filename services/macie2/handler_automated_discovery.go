@@ -3,6 +3,8 @@ package macie2
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
+	"slices"
 )
 
 func parseAutomatedDiscoveryPath(method string, parts []string) (string, string) {
@@ -90,6 +92,15 @@ func (h *Handler) handleListAutomatedDiscoveryAccounts(query string) (any, int, 
 	accounts, err := h.Backend.ListAutomatedDiscoveryAccounts()
 	if err != nil {
 		return nil, http.StatusInternalServerError, err
+	}
+
+	if ids, _ := url.ParseQuery(query); len(ids["accountIds"]) > 0 {
+		want := make(map[string]bool, len(ids["accountIds"]))
+		for _, id := range ids["accountIds"] {
+			want[id] = true
+		}
+
+		accounts = slices.DeleteFunc(accounts, func(a *AutoDiscoveryAccount) bool { return !want[a.AccountID] })
 	}
 
 	return pagedQueryResponse(h.Backend, keyItems, query, accounts)

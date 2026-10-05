@@ -85,8 +85,9 @@ type updateResourceReq struct {
 	HiddenFromGlobalAddressList *bool           `json:"HiddenFromGlobalAddressList,omitempty"`
 	OrganizationID              string          `json:"OrganizationId"`
 	ResourceID                  string          `json:"ResourceId"`
+	Description                 *string         `json:"Description"`
 	Name                        string          `json:"Name"`
-	Description                 string          `json:"Description"`
+	Type                        string          `json:"Type"`
 }
 
 func (h *Handler) handleUpdateResource(_ context.Context, req *updateResourceReq) (*emptyResp, error) {
@@ -95,6 +96,7 @@ func (h *Handler) handleUpdateResource(_ context.Context, req *updateResourceReq
 		req.ResourceID,
 		req.Name,
 		req.Description,
+		req.Type,
 		req.HiddenFromGlobalAddressList,
 		req.BookingOptions,
 	); err != nil {

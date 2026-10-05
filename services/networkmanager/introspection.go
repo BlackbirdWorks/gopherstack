@@ -42,6 +42,8 @@ type networkResourceItem struct {
 	ResourceType  string
 	CoreNetworkID string
 	Definition    string
+	// RegisteredGatewayArn stays empty: no modelled resource is registered under a gateway.
+	RegisteredGatewayArn string
 }
 
 // gatherNetworkResources collects every NetworkManager-side resource
@@ -210,11 +212,12 @@ func mustJSON(v any) string {
 // networkResourceFilter is the common optional-filter set every family T
 // op takes.
 type networkResourceFilter struct {
-	AccountID     string
-	AwsRegion     string
-	CoreNetworkID string
-	ResourceArn   string
-	ResourceType  string
+	AccountID            string
+	AwsRegion            string
+	CoreNetworkID        string
+	RegisteredGatewayArn string
+	ResourceArn          string
+	ResourceType         string
 }
 
 func (f networkResourceFilter) matches(item networkResourceItem) bool {
@@ -227,6 +230,10 @@ func (f networkResourceFilter) matches(item networkResourceItem) bool {
 	}
 
 	if f.ResourceType != "" && item.ResourceType != f.ResourceType {
+		return false
+	}
+
+	if f.RegisteredGatewayArn != "" && item.RegisteredGatewayArn != f.RegisteredGatewayArn {
 		return false
 	}
 
@@ -422,9 +429,24 @@ func (b *InMemoryBackend) GetNetworkResourceRelationships(
 
 	out := rels[:0:0]
 
-	for _, r := range rels {
-		if filter.ResourceArn == "" || r.From == filter.ResourceArn || r.To == filter.ResourceArn {
-			out = append(out, r)
+	if b.inScope(filter) {
+		byArn := make(map[string]networkResourceItem)
+		for _, item := range b.gatherNetworkResources(globalNetworkID) {
+			byArn[item.Arn] = item
+		}
+
+		endpoint := func(arn string) networkResourceItem {
+			if item, ok := byArn[arn]; ok {
+				return item
+			}
+
+			return networkResourceItem{Arn: arn}
+		}
+
+		for _, r := range rels {
+			if filter.matches(endpoint(r.From)) || filter.matches(endpoint(r.To)) {
+				out = append(out, r)
+			}
 		}
 	}
 

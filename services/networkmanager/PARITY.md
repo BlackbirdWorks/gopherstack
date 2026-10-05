@@ -275,6 +275,7 @@ items_still_open:
   - "AttachmentState PENDING_NETWORK_UPDATE/PENDING_TAG_ACCEPTANCE/UPDATING/FAILED are never entered: needs unmodeled segment-reassignment and tag-acceptance workflows (2026-10-01)"
   - "StartRouteAnalysis is single-hop (no TGW-peering chaining, so CYCLIC_PATH_DETECTED/MAX_HOPS_EXCEEDED never fire) and the change-set diff covers 5 of 14 ChangeType values: both need real network-topology/attachment-membership resolution (2026-10-01)"
   - "No AWS::NetworkManager::* resource type in services/cloudformation (2026-10-01): cross-service work, outside this service"
+  - "GetNetworkResources/Relationships/Telemetry accept the RegisteredGatewayArn filter, but no modelled resource is registered under a gateway, so a non-empty value matches nothing and NetworkResource.RegisteredGatewayArn is never populated"
 deferred: []
 leaks: {status: clean, note: "Handler.Reset()/InMemoryBackend.Close() wiring confirmed present (store.go: Close() calls b.work.Stop(), stopping the pkgs/worker.Group backing every scheduleAdvance/scheduleRemoval timer -- global network/site/device/link/connection/core-network/attachment/connect-peer/peering/policy-changeset state machines). `go test -race -count=1 ./services/networkmanager/...` run this pass: clean."}
 structural_gaps:

@@ -14,6 +14,21 @@ func (b *InMemoryBackend) CreateProfile(
 	profileType, as2ID string,
 	tags map[string]string,
 ) (*Profile, error) {
+	return b.CreateProfileFull(&CreateProfileInput{ProfileType: profileType, As2ID: as2ID, Tags: tags})
+}
+
+// CreateProfileInput holds the CreateProfile members.
+type CreateProfileInput struct {
+	Tags           map[string]string
+	ProfileType    string
+	As2ID          string
+	CertificateIDs []string
+}
+
+// CreateProfileFull creates an AS2 profile with certificates.
+func (b *InMemoryBackend) CreateProfileFull(in *CreateProfileInput) (*Profile, error) {
+	profileType, as2ID, tags := in.ProfileType, in.As2ID, in.Tags
+
 	switch profileType {
 	case profileTypeLocal, profileTypePartner:
 		// valid
@@ -42,6 +57,11 @@ func (b *InMemoryBackend) CreateProfile(
 		AccountID:   b.accountID,
 		Region:      b.region,
 	}
+
+	if len(in.CertificateIDs) > 0 {
+		p.CertificateIDs = append([]string(nil), in.CertificateIDs...)
+	}
+
 	b.profiles.Put(p)
 	b.initTagsStore(profileARN(b.accountID, b.region, profileID), merged)
 

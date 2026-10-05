@@ -70,6 +70,7 @@ type StorageBackend interface {
 	) (*Connector, error)
 	UpdateConnectorFull(in *UpdateConnectorInput) (*Connector, error)
 	CreateProfile(profileType, as2ID string, tags map[string]string) (*Profile, error)
+	CreateProfileFull(in *CreateProfileInput) (*Profile, error)
 	DeleteProfile(profileID string) error
 	DescribeProfile(profileID string) (*Profile, error)
 	ListProfiles() []*Profile

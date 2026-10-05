@@ -43,7 +43,16 @@ func (h *Handler) dispatchCreateTransitGatewayPeering(
 		return nil, err
 	}
 
-	p, err := h.Backend.CreateTransitGatewayPeering(req.CoreNetworkID, req.TransitGatewayArn, tags.MapFromKV(req.Tags))
+	token := req.ClientToken
+	req.ClientToken = ""
+
+	p, err := replayCreate(h, opCreateTransitGatewayPeering, resourcePeering, token, req,
+		func(p *Peering) string { return p.PeeringID }, h.Backend.GetTransitGatewayPeering,
+		func() (*Peering, error) {
+			return h.Backend.CreateTransitGatewayPeering(
+				req.CoreNetworkID, req.TransitGatewayArn, tags.MapFromKV(req.Tags),
+			)
+		})
 	if err != nil {
 		return nil, err
 	}

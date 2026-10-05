@@ -70,6 +70,7 @@ func (b *InMemoryBackend) DisableMacie() error {
 	b.sensitivityTemplates.Reset()
 	b.resourceDetections = make(map[string][]ResourceProfileDetection)
 	b.revealConfig = nil
+	b.retrievalConfig = nil
 	b.classExportConfig = nil
 	b.findingsPubConfig = nil
 	b.autoDiscoveryConfig = &AutoDiscoveryConfig{Status: statusDisabled}

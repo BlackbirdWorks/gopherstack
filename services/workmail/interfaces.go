@@ -14,6 +14,12 @@ type StorageBackend interface {
 		domains []string,
 		enableInteroperability bool,
 	) (*Organization, error)
+	CreateOrganizationWithDirectory(
+		ctx context.Context,
+		alias, directoryID string,
+		domains []string,
+		enableInteroperability bool,
+	) (*Organization, error)
 	DescribeOrganization(orgID string) (*Organization, error)
 	DeleteOrganization(orgID string, deleteDirectory bool) error
 	ListOrganizations(ctx context.Context, maxResults int32, nextToken string) ([]*OrgSummary, string, error)
@@ -54,7 +60,9 @@ type StorageBackend interface {
 	) (*Resource, error)
 	DescribeResource(orgID, entityID string) (*Resource, error)
 	UpdateResource(
-		orgID, entityID, name, description string,
+		orgID, entityID, name string,
+		description *string,
+		resourceType string,
 		hiddenFromGAL *bool,
 		bookingOptions *BookingOptions,
 	) error
@@ -179,6 +187,7 @@ type StorageBackend interface {
 
 	// Identity center applications
 	CreateIdentityCenterApplication(instanceARN, name string) (string, error)
+	HasIdentityCenterApplication(applicationARN string) bool
 	DeleteIdentityCenterApplication(applicationARN string) error
 
 	// Identity provider configuration

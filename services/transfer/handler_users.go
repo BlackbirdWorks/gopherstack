@@ -52,6 +52,7 @@ type createUserInput struct {
 	Role                  string                       `json:"Role"`
 	HomeDirectoryType     string                       `json:"HomeDirectoryType,omitempty"`
 	Policy                string                       `json:"Policy,omitempty"`
+	SSHPublicKeyBody      string                       `json:"SshPublicKeyBody,omitempty"`
 	HomeDirectoryMappings []homeDirectoryMapEntryInput `json:"HomeDirectoryMappings,omitempty"`
 	Tags                  []map[string]string          `json:"Tags"`
 }
@@ -88,6 +89,12 @@ func (h *Handler) handleCreateUser(
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	if in.SSHPublicKeyBody != "" {
+		if _, err = h.Backend.ImportSSHPublicKey(in.ServerID, in.UserName, in.SSHPublicKeyBody); err != nil {
+			return nil, err
+		}
 	}
 
 	return &createUserOutput{ServerID: u.ServerID, UserName: u.UserName}, nil

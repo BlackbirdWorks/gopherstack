@@ -78,6 +78,7 @@ type InMemoryBackend struct {
 	resourceProfiles      *store.Table[ResourceProfile]               // resourceArn → profile
 	resourceDetections    map[string][]ResourceProfileDetection       // resourceArn → detections
 	revealConfig          *RevealConfiguration                        // reveal config
+	retrievalConfig       *RetrievalConfiguration                     // reveal retrieval config
 	sensitivityTemplates  *store.Table[SensitivityInspectionTemplate] // templateID → template
 	paginationSecret      string
 	accountID             string
@@ -177,4 +178,5 @@ func (b *InMemoryBackend) Reset() {
 	b.findingsPubConfig = nil
 	b.resourceDetections = make(map[string][]ResourceProfileDetection)
 	b.revealConfig = nil
+	b.retrievalConfig = nil
 }

@@ -23,11 +23,11 @@ const sampleFindingSchemaVersion = "1.0"
 const sampleObjectSizeBytes = 1024
 
 // GetFindings retrieves findings by ID.
-func (b *InMemoryBackend) GetFindings(findingIDs []string) ([]*Finding, error) {
+func (b *InMemoryBackend) GetFindings(findingIDs []string, sortBy *FindingSortCriteria) ([]*Finding, error) {
 	b.mu.RLock("GetFindings")
 	defer b.mu.RUnlock()
 
-	result := make([]*Finding, 0, len(findingIDs))
+	stored := make([]*storedFinding, 0, len(findingIDs))
 
 	for _, id := range findingIDs {
 		f, ok := b.findings.Get(id)
@@ -35,6 +35,16 @@ func (b *InMemoryBackend) GetFindings(findingIDs []string) ([]*Finding, error) {
 			return nil, ErrFindingNotFound
 		}
 
+		stored = append(stored, f)
+	}
+
+	if sortBy != nil {
+		sortFindings(stored, sortBy)
+	}
+
+	result := make([]*Finding, 0, len(stored))
+
+	for _, f := range stored {
 		cp := f.Finding
 		result = append(result, &cp)
 	}
@@ -338,7 +348,7 @@ func (b *InMemoryBackend) CreateSampleFindings(findingTypes []string) error {
 
 // GetFindingStatistics returns statistics grouped by the given field.
 func (b *InMemoryBackend) GetFindingStatistics(
-	groupBy string, criteria map[string]any,
+	groupBy string, criteria map[string]any, sortBy *FindingSortCriteria, size int,
 ) ([]FindingStatisticsGroup, error) {
 	b.mu.RLock("GetFindingStatistics")
 	defer b.mu.RUnlock()
@@ -374,9 +384,32 @@ func (b *InMemoryBackend) GetFindingStatistics(
 		result = append(result, FindingStatisticsGroup{GroupKey: k, Count: v})
 	}
 
-	sort.Slice(result, func(i, j int) bool { return result[i].GroupKey < result[j].GroupKey })
+	return orderStatisticsGroups(result, sortBy, size), nil
+}
 
-	return result, nil
+func orderStatisticsGroups(
+	result []FindingStatisticsGroup, sortBy *FindingSortCriteria, size int,
+) []FindingStatisticsGroup {
+	desc := sortBy != nil && sortBy.OrderBy == sortOrderDesc
+	byCount := sortBy != nil && sortBy.AttributeName == findingFieldCount
+
+	sort.Slice(result, func(i, j int) bool {
+		if byCount && result[i].Count != result[j].Count {
+			return (result[i].Count < result[j].Count) != desc
+		}
+
+		if byCount || !desc {
+			return result[i].GroupKey < result[j].GroupKey
+		}
+
+		return result[i].GroupKey > result[j].GroupKey
+	})
+
+	if size > 0 && size < len(result) {
+		result = result[:size]
+	}
+
+	return result
 }
 
 func bucketNameOf(f Finding) string {

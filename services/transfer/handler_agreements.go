@@ -17,6 +17,7 @@ type createAgreementInput struct {
 	Status                string              `json:"Status,omitempty"`
 	EnforceMessageSigning string              `json:"EnforceMessageSigning,omitempty"`
 	PreserveFilename      string              `json:"PreserveFilename,omitempty"`
+	CustomDirectories     *CustomDirectories  `json:"CustomDirectories,omitempty"`
 	Tags                  []map[string]string `json:"Tags"`
 }
 
@@ -51,6 +52,7 @@ func (h *Handler) handleCreateAgreement(
 		AgreementCreateExtras{
 			EnforceMessageSigning: in.EnforceMessageSigning,
 			PreserveFilename:      in.PreserveFilename,
+			CustomDirectories:     in.CustomDirectories,
 		},
 	)
 	if err != nil {
@@ -110,22 +112,26 @@ func (h *Handler) handleDescribeAgreement(
 		return nil, err
 	}
 
-	return &describeAgreementOutput{
-		Agreement: map[string]any{
-			"AgreementId":           ag.AgreementID,
-			keyServerID:             ag.ServerID,
-			keyDescription:          ag.Description,
-			keyStatus:               ag.Status,
-			keyLocalProfileID:       ag.LocalProfileID,
-			keyPartnerProfileID:     ag.PartnerProfileID,
-			"BaseDirectory":         ag.BaseDirectory,
-			"AccessRole":            ag.AccessRole,
-			keyArn:                  agreementARN(ag.AccountID, ag.Region, ag.ServerID, ag.AgreementID),
-			keyTags:                 tagsToList(ag.Tags),
-			"EnforceMessageSigning": ag.EnforceMessageSigning,
-			"PreserveFilename":      ag.PreserveFilename,
-		},
-	}, nil
+	desc := map[string]any{
+		"AgreementId":           ag.AgreementID,
+		keyServerID:             ag.ServerID,
+		keyDescription:          ag.Description,
+		keyStatus:               ag.Status,
+		keyLocalProfileID:       ag.LocalProfileID,
+		keyPartnerProfileID:     ag.PartnerProfileID,
+		"BaseDirectory":         ag.BaseDirectory,
+		"AccessRole":            ag.AccessRole,
+		keyArn:                  agreementARN(ag.AccountID, ag.Region, ag.ServerID, ag.AgreementID),
+		keyTags:                 tagsToList(ag.Tags),
+		"EnforceMessageSigning": ag.EnforceMessageSigning,
+		"PreserveFilename":      ag.PreserveFilename,
+	}
+
+	if ag.CustomDirectories != nil {
+		desc["CustomDirectories"] = ag.CustomDirectories
+	}
+
+	return &describeAgreementOutput{Agreement: desc}, nil
 }
 
 type listAgreementsInput struct {
@@ -171,12 +177,17 @@ func (h *Handler) handleListAgreements(
 }
 
 type updateAgreementInput struct {
-	ServerID              string `json:"ServerId"`
-	AgreementID           string `json:"AgreementId"`
-	Description           string `json:"Description"`
-	Status                string `json:"Status"`
-	EnforceMessageSigning string `json:"EnforceMessageSigning,omitempty"`
-	PreserveFilename      string `json:"PreserveFilename,omitempty"`
+	CustomDirectories     *CustomDirectories `json:"CustomDirectories,omitempty"`
+	ServerID              string             `json:"ServerId"`
+	AgreementID           string             `json:"AgreementId"`
+	Description           string             `json:"Description"`
+	Status                string             `json:"Status"`
+	EnforceMessageSigning string             `json:"EnforceMessageSigning,omitempty"`
+	PreserveFilename      string             `json:"PreserveFilename,omitempty"`
+	LocalProfileID        string             `json:"LocalProfileId,omitempty"`
+	PartnerProfileID      string             `json:"PartnerProfileId,omitempty"`
+	BaseDirectory         string             `json:"BaseDirectory,omitempty"`
+	AccessRole            string             `json:"AccessRole,omitempty"`
 }
 
 type updateAgreementOutput struct {
@@ -200,6 +211,11 @@ func (h *Handler) handleUpdateAgreement(
 		AgreementUpdateExtras{
 			EnforceMessageSigning: in.EnforceMessageSigning,
 			PreserveFilename:      in.PreserveFilename,
+			LocalProfileID:        in.LocalProfileID,
+			PartnerProfileID:      in.PartnerProfileID,
+			BaseDirectory:         in.BaseDirectory,
+			AccessRole:            in.AccessRole,
+			CustomDirectories:     in.CustomDirectories,
 		},
 	)
 	if err != nil {

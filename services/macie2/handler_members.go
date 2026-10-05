@@ -288,7 +288,7 @@ func (h *Handler) handleAcceptInvitation(body []byte) (int, error) {
 	var req struct {
 		AdministratorAccountID string `json:"administratorAccountId"`
 		InvitationID           string `json:"invitationId"`
-		MasterId               string `json:"masterId"` //nolint:revive,staticcheck // existing issue.
+		MasterAccount          string `json:"masterAccount"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -297,7 +297,7 @@ func (h *Handler) handleAcceptInvitation(body []byte) (int, error) {
 
 	adminID := req.AdministratorAccountID
 	if adminID == "" {
-		adminID = req.MasterId
+		adminID = req.MasterAccount
 	}
 
 	if err := h.Backend.AcceptInvitation(adminID, req.InvitationID); err != nil {
