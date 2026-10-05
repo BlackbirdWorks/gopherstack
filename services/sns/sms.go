@@ -171,11 +171,8 @@ func (b *InMemoryBackend) CheckIfPhoneNumberIsOptedOut(phoneNumber string) (bool
 
 // ListPhoneNumbersOptedOut returns a paginated list of phone numbers opted out of SMS,
 // a next-page token (empty when the last page is reached), and any error.
-// maxResults controls the page size; 0 means the default (100). Values exceeding 100 are clamped.
-func (b *InMemoryBackend) ListPhoneNumbersOptedOut(
-	nextToken string,
-	maxResults int,
-) ([]string, string, error) {
+// The real input has no MaxResults, so the page size is fixed.
+func (b *InMemoryBackend) ListPhoneNumbersOptedOut(nextToken string) ([]string, string, error) {
 	b.mu.RLock("ListPhoneNumbersOptedOut")
 	defer b.mu.RUnlock()
 
@@ -186,7 +183,7 @@ func (b *InMemoryBackend) ListPhoneNumbersOptedOut(
 		return nil, "", ErrInvalidParameter
 	}
 
-	size := resolvePageSize(maxResults, defaultListOptedOutResults, maxListOptedOutResults)
+	size := defaultListOptedOutResults
 	nums, next := paginate(all, offset, size)
 
 	return nums, next, nil
@@ -237,7 +234,9 @@ func (b *InMemoryBackend) GetSMSAttributes(names []string) (map[string]string, e
 
 	result := make(map[string]string, len(names))
 	for _, name := range names {
-		result[name] = b.smsAttributes[name]
+		if v, ok := b.smsAttributes[name]; ok {
+			result[name] = v
+		}
 	}
 
 	return result, nil

@@ -316,6 +316,10 @@ func analyzerToJSON(a *Analyzer, includeConfiguration bool) map[string]any {
 		m[keyTags] = a.Tags
 	}
 
+	if a.LastResourceAnalyzed != "" {
+		m["lastResourceAnalyzed"] = a.LastResourceAnalyzed
+	}
+
 	if a.LastResourceAnalyzedAt != nil {
 		m["lastResourceAnalyzedAt"] = a.LastResourceAnalyzedAt.Format(time.RFC3339)
 	}

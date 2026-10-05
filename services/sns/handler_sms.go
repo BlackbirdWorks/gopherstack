@@ -105,9 +105,8 @@ func (h *Handler) handleListOriginationNumbers(c *echo.Context) error {
 
 func (h *Handler) handleListPhoneNumbersOptedOut(c *echo.Context) error {
 	nextToken := c.Request().FormValue("nextToken")
-	maxResults := parseIntParam(c, "maxResults", 0)
 
-	nums, token, err := h.Backend.ListPhoneNumbersOptedOut(nextToken, maxResults)
+	nums, token, err := h.Backend.ListPhoneNumbersOptedOut(nextToken)
 	if err != nil {
 		return h.handleBackendError(c, err)
 	}

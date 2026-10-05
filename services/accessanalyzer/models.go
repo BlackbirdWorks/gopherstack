@@ -67,6 +67,7 @@ type Analyzer struct {
 	CreatedAt              time.Time         `json:"createdAt"`
 	Tags                   map[string]string `json:"tags,omitempty"`
 	LastResourceAnalyzedAt *time.Time        `json:"lastResourceAnalyzedAt,omitempty"`
+	LastResourceAnalyzed   string            `json:"lastResourceAnalyzed,omitempty"`
 	Arn                    string            `json:"arn"`
 	Name                   string            `json:"name"`
 	Type                   AnalyzerType      `json:"type"`

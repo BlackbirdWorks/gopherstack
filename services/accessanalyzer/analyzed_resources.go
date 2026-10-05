@@ -5,16 +5,29 @@ import (
 	"time"
 )
 
-// StartResourceScan records that a scan was initiated for a resource (no-op in simulation).
-func (b *InMemoryBackend) StartResourceScan(analyzerARN string, _ string) error {
-	b.mu.RLock("StartResourceScan")
-	defer b.mu.RUnlock()
+// StartResourceScan re-analyzes a known analyzed resource and records it as the
+// analyzer's most recently analyzed resource; an unknown resource is not scanned.
+func (b *InMemoryBackend) StartResourceScan(analyzerARN, resourceARN string) error {
+	b.mu.Lock("StartResourceScan")
+	defer b.mu.Unlock()
 
-	// Verify the analyzer exists by ARN.
 	for _, a := range b.analyzers.All() {
-		if a.Arn == analyzerARN {
+		if a.Arn != analyzerARN {
+			continue
+		}
+
+		ar, ok := b.analyzedResources.Get(analyzedResourceKey(analyzerARN, resourceARN))
+		if !ok {
 			return nil
 		}
+
+		now := time.Now().UTC()
+		ar.AnalyzedAt = now
+		ar.UpdatedAt = now
+		a.LastResourceAnalyzed = resourceARN
+		a.LastResourceAnalyzedAt = &now
+
+		return nil
 	}
 
 	return ErrAnalyzerNotFound

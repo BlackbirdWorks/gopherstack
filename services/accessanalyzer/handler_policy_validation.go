@@ -3,6 +3,7 @@ package accessanalyzer
 import (
 	"encoding/json"
 	"net/http"
+	"slices"
 )
 
 const (
@@ -138,9 +139,16 @@ func (h *Handler) handleValidatePolicy(body []byte, query string) (any, int, err
 	var req struct {
 		PolicyDocument string `json:"policyDocument"`
 		PolicyType     string `json:"policyType"`
+		Locale         string `json:"locale"`
+		ResourceType   string `json:"validatePolicyResourceType"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, 0, ErrValidation
+	}
+
+	if (req.Locale != "" && !validLocale(req.Locale)) ||
+		(req.ResourceType != "" && !validPolicyResourceType(req.ResourceType)) {
 		return nil, 0, ErrValidation
 	}
 
@@ -209,4 +217,17 @@ func parsePolicyPath(method string, segments []string) (string, string, bool) {
 	}
 
 	return "", "", false
+}
+
+// validLocale and validPolicyResourceType check the members of types.Locale and
+// types.ValidatePolicyResourceType (accessanalyzer@v1.51.4).
+func validLocale(v string) bool {
+	return slices.Contains([]string{"DE", "EN", "ES", "FR", "IT", "JA", "KO", "PT_BR", "ZH_CN", "ZH_TW"}, v)
+}
+
+func validPolicyResourceType(v string) bool {
+	return slices.Contains([]string{
+		"AWS::S3::Bucket", "AWS::S3::AccessPoint", "AWS::S3::MultiRegionAccessPoint",
+		"AWS::S3ObjectLambda::AccessPoint", "AWS::IAM::AssumeRolePolicyDocument", "AWS::DynamoDB::Table",
+	}, v)
 }

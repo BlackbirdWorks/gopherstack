@@ -3,6 +3,8 @@ package accessanalyzer
 import (
 	"slices"
 	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -59,44 +61,75 @@ func (b *InMemoryBackend) GetFinding(analyzerName, findingID string) (*Finding, 
 	return copyFinding(f), nil
 }
 
-// matchesFindingFilter reports whether f satisfies every criterion in
-// filter, using the Eq operator on the finding attributes this backend
-// tracks as scalar/list fields ("status", "resourceType", "resource", "id").
-// A criterion using Contains/Neq/Exists, or keyed by an attribute this
-// backend does not model as a direct Finding field (e.g. "principal.AWS",
-// "condition.KEY", "action", "isPublic", "createdAt", "resourceRegion"), is
-// not evaluated -- the finding is treated as matching that one criterion
-// rather than silently excluded, since gopherstack has no honest way to
-// decide it doesn't match. See PARITY.md.
+// matchesFindingFilter reports whether f satisfies every criterion in filter.
+// Eq/Neq/Exists are evaluated for modeled keys; Contains has no documented
+// semantics and, like unmodeled keys, is treated as matching.
 func matchesFindingFilter(f *Finding, filter map[string]FilterCriterion) bool {
 	for key, crit := range filter {
-		if len(crit.Eq) == 0 {
+		actual, known := findingFilterValues(f, key)
+		if !known {
 			continue
 		}
 
-		var actual string
-
-		switch key {
-		case "status":
-			actual = string(f.Status)
-		case "resourceType":
-			actual = f.ResourceType
-		case "resource":
-			actual = f.ResourceArn
-		case "id":
-			actual = f.ID
-		default:
-			continue
+		if len(crit.Eq) > 0 && !anyIn(actual, crit.Eq) {
+			return false
 		}
 
-		matched := slices.Contains(crit.Eq, actual)
+		if len(crit.Neq) > 0 && anyIn(actual, crit.Neq) {
+			return false
+		}
 
-		if !matched {
+		if crit.Exists != nil && (len(actual) > 0) != *crit.Exists {
 			return false
 		}
 	}
 
 	return true
+}
+
+// findingFilterValues returns the values f has for a filter key; known is
+// false for keys this backend does not model (createdAt, resourceRegion, ...).
+func findingFilterValues(f *Finding, key string) ([]string, bool) {
+	switch key {
+	case "status":
+		return []string{string(f.Status)}, true
+	case "resourceType":
+		return []string{f.ResourceType}, true
+	case "resource":
+		return []string{f.ResourceArn}, true
+	case "id":
+		return []string{f.ID}, true
+	case "action":
+		return f.Action, true
+	case "isPublic":
+		if f.IsPublic == nil {
+			return nil, true
+		}
+
+		return []string{strconv.FormatBool(*f.IsPublic)}, true
+	}
+
+	if k, ok := strings.CutPrefix(key, "principal."); ok {
+		return mapValue(f.Principal, k), true
+	}
+
+	if k, ok := strings.CutPrefix(key, "condition."); ok {
+		return mapValue(f.Condition, k), true
+	}
+
+	return nil, false
+}
+
+func anyIn(actual, set []string) bool {
+	return slices.ContainsFunc(actual, func(v string) bool { return slices.Contains(set, v) })
+}
+
+func mapValue(m map[string]string, k string) []string {
+	if v, ok := m[k]; ok {
+		return []string{v}
+	}
+
+	return nil
 }
 
 // sortFindingAttribute reports the value of the finding attribute named by
