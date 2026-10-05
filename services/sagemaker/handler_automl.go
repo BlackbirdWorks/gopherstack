@@ -13,8 +13,11 @@ import (
 // autoMLJobConfigRequest is the V1 AutoMLJobConfig wire shape (types.AutoMLJobConfig).
 // DataSplitConfig/SecurityConfig reuse the same types V2 already models.
 type autoMLJobConfigRequest struct {
-	DataSplitConfig *AutoMLDataSplitConfig `json:"DataSplitConfig,omitempty"`
-	SecurityConfig  *AutoMLSecurityConfig  `json:"SecurityConfig,omitempty"`
+	DataSplitConfig           *AutoMLDataSplitConfig `json:"DataSplitConfig,omitempty"`
+	SecurityConfig            *AutoMLSecurityConfig  `json:"SecurityConfig,omitempty"`
+	Mode                      string                 `json:"Mode,omitempty"`
+	CandidateGenerationConfig json.RawMessage        `json:"CandidateGenerationConfig,omitempty"`
+	CompletionCriteria        json.RawMessage        `json:"CompletionCriteria,omitempty"`
 }
 
 type createAutoMLJobRequest struct {
@@ -25,7 +28,10 @@ type createAutoMLJobRequest struct {
 	AutoMLJobConfig    *autoMLJobConfigRequest `json:"AutoMLJobConfig,omitempty"`
 	AutoMLJobName      string                  `json:"AutoMLJobName"`
 	RoleArn            string                  `json:"RoleArn"`
+	ProblemType        string                  `json:"ProblemType,omitempty"`
 	InputDataConfig    []AutoMLChannel         `json:"InputDataConfig"`
+
+	GenerateCandidateDefinitionsOnly bool `json:"GenerateCandidateDefinitionsOnly,omitempty"`
 }
 
 func (h *Handler) handleCreateAutoMLJob(ctx context.Context, body []byte) ([]byte, error) {
@@ -76,6 +82,19 @@ func (h *Handler) handleCreateAutoMLJob(ctx context.Context, body []byte) ([]byt
 		securityConfig,
 	); extErr != nil {
 		return nil, extErr
+	}
+
+	v1 := AutoMLV1Options{
+		ProblemType: req.ProblemType, GenerateCandidateDefinitionsOnly: req.GenerateCandidateDefinitionsOnly,
+	}
+	if req.AutoMLJobConfig != nil {
+		v1.Mode = req.AutoMLJobConfig.Mode
+		v1.CandidateGenerationConfig = req.AutoMLJobConfig.CandidateGenerationConfig
+		v1.CompletionCriteria = req.AutoMLJobConfig.CompletionCriteria
+	}
+
+	if optErr := h.Backend.SetAutoMLJobV1Options(ctx, req.AutoMLJobName, v1); optErr != nil {
+		return nil, optErr
 	}
 
 	return json.Marshal(map[string]any{keyAutoMLJobArn: result.AutoMLJobArn})
@@ -133,12 +152,7 @@ func (h *Handler) handleDescribeAutoMLJob(ctx context.Context, body []byte) ([]b
 		resp["ModelDeployConfig"] = j.ModelDeployConfig
 	}
 
-	if j.DataSplitConfig != nil || j.SecurityConfig != nil {
-		resp["AutoMLJobConfig"] = autoMLJobConfigRequest{
-			DataSplitConfig: j.DataSplitConfig,
-			SecurityConfig:  j.SecurityConfig,
-		}
-	}
+	describeAutoMLV1Config(resp, j)
 
 	return json.Marshal(resp)
 }
@@ -215,4 +229,27 @@ func (h *Handler) handleListAutoMLJobs(ctx context.Context, body []byte) ([]byte
 		"AutoMLJobSummaries": summaries,
 		keyNextToken:         next,
 	})
+}
+
+func describeAutoMLV1Config(resp map[string]any, j *AutoMLJob) {
+	cfg := autoMLJobConfigRequest{DataSplitConfig: j.DataSplitConfig, SecurityConfig: j.SecurityConfig}
+
+	if v := j.V1Options; v != nil {
+		cfg.Mode = v.Mode
+		cfg.CandidateGenerationConfig = v.CandidateGenerationConfig
+		cfg.CompletionCriteria = v.CompletionCriteria
+
+		if v.ProblemType != "" {
+			resp["ProblemType"] = v.ProblemType
+		}
+
+		if v.GenerateCandidateDefinitionsOnly {
+			resp["GenerateCandidateDefinitionsOnly"] = true
+		}
+	}
+
+	if cfg.DataSplitConfig != nil || cfg.SecurityConfig != nil || cfg.Mode != "" ||
+		cfg.CandidateGenerationConfig != nil || cfg.CompletionCriteria != nil {
+		resp["AutoMLJobConfig"] = cfg
+	}
 }

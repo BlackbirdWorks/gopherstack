@@ -45,6 +45,7 @@ type backendSnapshot struct {
 	DocumentSharedVersions     map[string]map[string]map[string]string            `json:"document_shared_versions"`
 	CommandInvocations         map[string]map[string][]CommandInvocation          `json:"command_invocations"`
 	PatchGroupToBaseline       map[string]map[string]string                       `json:"patch_group_to_baseline"`
+	Idempotency                map[string]map[string]idempotencyRecord            `json:"idempotency,omitempty"`
 	OpsItemRelatedItems        map[string]map[string][]OpsItemRelatedItem         `json:"ops_item_related_items"`
 	Inventory                  map[string]map[string][]InventoryItem              `json:"inventory"`
 	Compliance                 map[string]map[string][]ComplianceItem             `json:"compliance"`
@@ -90,6 +91,10 @@ func initSnapshotDefaults(snap *backendSnapshot) {
 func initSnapshotNewFields(snap *backendSnapshot) {
 	if snap.PatchGroupToBaseline == nil {
 		snap.PatchGroupToBaseline = make(map[string]map[string]string)
+	}
+
+	if snap.Idempotency == nil {
+		snap.Idempotency = make(map[string]map[string]idempotencyRecord)
 	}
 
 	if snap.DocumentSharedVersions == nil {
@@ -192,6 +197,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		DocumentSharedVersions:     b.documentSharedVersions,
 		CommandInvocations:         b.commandInvocations,
 		PatchGroupToBaseline:       b.patchGroupToBaseline,
+		Idempotency:                b.idempotency,
 		OpsItemRelatedItems:        b.opsItemRelatedItems,
 		Inventory:                  b.inventory,
 		Compliance:                 b.compliance,
@@ -302,6 +308,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.documentSharedVersions = snap.DocumentSharedVersions
 	b.commandInvocations = snap.CommandInvocations
 	b.patchGroupToBaseline = snap.PatchGroupToBaseline
+	b.idempotency = snap.Idempotency
 	b.opsItemRelatedItems = snap.OpsItemRelatedItems
 	b.inventory = snap.Inventory
 	b.compliance = snap.Compliance

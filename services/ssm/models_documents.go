@@ -23,8 +23,10 @@ type AttachmentInformation struct {
 
 // DocumentRequires describes a document dependency.
 type DocumentRequires struct {
-	Name    string `json:"Name"`
-	Version string `json:"Version,omitempty"`
+	Name        string `json:"Name"`
+	Version     string `json:"Version,omitempty"`
+	RequireType string `json:"RequireType,omitempty"`
+	VersionName string `json:"VersionName,omitempty"`
 }
 
 // Document represents an SSM document.
@@ -79,6 +81,7 @@ type DocumentDescription struct {
 	Requires               []DocumentRequires      `json:"Requires,omitempty"`
 	Tags                   []Tag                   `json:"Tags,omitempty"`
 	PlatformTypes          []string                `json:"PlatformTypes,omitempty"`
+	Parameters             []DocumentParameter     `json:"Parameters,omitempty"`
 	CreatedDate            float64                 `json:"CreatedDate"`
 }
 

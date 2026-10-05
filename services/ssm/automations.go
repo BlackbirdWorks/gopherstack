@@ -68,7 +68,16 @@ func (b *InMemoryBackend) StartAutomationExecution(
 	b.mu.Lock("StartAutomationExecution")
 	defer b.mu.Unlock()
 
+	if id, replay, err := b.idempotentReplayLocked(
+		region, "StartAutomationExecution", input.ClientToken, input, b.automationExecutionsStore(region).Has,
+	); err != nil {
+		return nil, err
+	} else if replay {
+		return &StartAutomationExecutionOutputFull{AutomationExecutionID: id}, nil
+	}
+
 	execID := "auto-" + uuid.NewString()
+	b.recordIdempotentLocked(region, "StartAutomationExecution", input.ClientToken, input, execID)
 
 	mode := input.Mode
 	if mode == "" {
@@ -100,20 +109,30 @@ func (b *InMemoryBackend) StartAutomationExecution(
 
 	b.automationExecutionsStore(region).Put(exec)
 
-	if len(input.Tags) > 0 {
-		if b.miscResourceTags[region] == nil {
-			b.miscResourceTags[region] = make(map[string]map[string]string)
-		}
-
-		miscTags := b.miscResourceTagsStore(region)
-		miscTags[execID] = make(map[string]string, len(input.Tags))
-
-		for _, t := range input.Tags {
-			miscTags[execID][t.Key] = t.Value
-		}
-	}
+	b.setMiscTagsLocked(region, execID, input.Tags)
 
 	return &StartAutomationExecutionOutputFull{AutomationExecutionID: execID}, nil
+}
+
+// automationTypeLocal is the AutomationType of a single-account, single-Region run.
+const automationTypeLocal = "Local"
+
+// setMiscTagsLocked stores tags for a misc resource ID. Caller holds b.mu.
+func (b *InMemoryBackend) setMiscTagsLocked(region, id string, tags []Tag) {
+	if len(tags) == 0 {
+		return
+	}
+
+	if b.miscResourceTags[region] == nil {
+		b.miscResourceTags[region] = make(map[string]map[string]string)
+	}
+
+	miscTags := b.miscResourceTagsStore(region)
+	miscTags[id] = make(map[string]string, len(tags))
+
+	for _, t := range tags {
+		miscTags[id][t.Key] = t.Value
+	}
 }
 
 // GetAutomationExecution returns an automation execution by ID.
@@ -137,6 +156,7 @@ func (b *InMemoryBackend) GetAutomationExecution(
 	materializeAutomationLocked(exec, time.Now().UTC())
 
 	cp := *exec
+	cp.ProgressCounters = automationProgressCounters(cp.Steps)
 
 	return &GetAutomationExecutionOutputFull{AutomationExecution: &cp}, nil
 }
@@ -212,7 +232,9 @@ func (b *InMemoryBackend) DescribeAutomationExecutions(
 		}
 
 		if matched {
-			list = append(list, *exec)
+			meta := *exec
+			meta.AutomationType = automationTypeLocal
+			list = append(list, meta)
 		}
 	}
 
@@ -392,7 +414,16 @@ func (b *InMemoryBackend) StartChangeRequestExecution(
 	b.mu.Lock("StartChangeRequestExecution")
 	defer b.mu.Unlock()
 
+	if id, replay, err := b.idempotentReplayLocked(
+		region, "StartChangeRequestExecution", input.ClientToken, input, b.automationExecutionsStore(region).Has,
+	); err != nil {
+		return nil, err
+	} else if replay {
+		return &StartChangeRequestExecutionOutputFull{AutomationExecutionID: id}, nil
+	}
+
 	execID := "auto-cr-" + uuid.NewString()
+	b.recordIdempotentLocked(region, "StartChangeRequestExecution", input.ClientToken, input, execID)
 	// Change requests remain InProgress pending approval (SendAutomationSignal),
 	// mirroring AWS — but their steps are populated up front, built from the
 	// first runbook's document (this backend's AutomationExecution models a
@@ -400,6 +431,10 @@ func (b *InMemoryBackend) StartChangeRequestExecution(
 	exec := &AutomationExecution{
 		AutomationExecutionID: execID,
 		DocumentName:          input.DocumentName,
+		DocumentVersion:       input.DocumentVersion,
+		Parameters:            input.Parameters,
+		ChangeRequestName:     input.ChangeRequestName,
+		ScheduledTime:         input.ScheduledTime,
 		Status:                automationStatusInProgress,
 		StartTime:             UnixTimeFloat(time.Now().UTC()),
 		AutomationSubtype:     "ChangeRequest",
@@ -409,6 +444,7 @@ func (b *InMemoryBackend) StartChangeRequestExecution(
 		Steps:                 b.buildAutomationSteps(region, input.Runbooks[0].DocumentName),
 	}
 	b.automationExecutionsStore(region).Put(exec)
+	b.setMiscTagsLocked(region, execID, input.Tags)
 
 	return &StartChangeRequestExecutionOutputFull{AutomationExecutionID: execID}, nil
 }

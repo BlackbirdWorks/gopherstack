@@ -41,8 +41,8 @@ type databaseNameInput struct {
 }
 
 type updateDatabaseInput struct {
-	DatabaseName string `json:"DatabaseName"`
-	KmsKeyID     string `json:"KmsKeyId"`
+	KmsKeyID     *string `json:"KmsKeyId"`
+	DatabaseName string  `json:"DatabaseName"`
 }
 
 func toDatabaseView(db *Database) databaseView {
@@ -154,7 +154,11 @@ func (h *Handler) handleUpdateDatabase(
 		return nil, fmt.Errorf("%w: DatabaseName is required", errInvalidRequest)
 	}
 
-	db, err := h.Backend.UpdateDatabase(in.DatabaseName, in.KmsKeyID)
+	if in.KmsKeyID == nil {
+		return nil, fmt.Errorf("%w: KmsKeyId is required", errInvalidRequest)
+	}
+
+	db, err := h.Backend.UpdateDatabase(in.DatabaseName, *in.KmsKeyID)
 	if err != nil {
 		return nil, err
 	}

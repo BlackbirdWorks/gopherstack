@@ -806,6 +806,7 @@ type ModelPackage struct {
 	SourceURI                         string                    `json:"SourceUri,omitempty"`
 	Task                              string                    `json:"Task,omitempty"`
 	ModelPackageStatusDetails         ModelPackageStatusDetails `json:"ModelPackageStatusDetails"`
+	ModelPackageVersion               int32                     `json:"ModelPackageVersion,omitempty"`
 	CertifyForMarketplace             bool                      `json:"CertifyForMarketplace,omitempty"`
 }
 

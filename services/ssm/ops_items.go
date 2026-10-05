@@ -490,6 +490,10 @@ func applyOpsItemCoreUpdates(item *OpsItem, input *UpdateOpsItemInput) {
 
 		maps.Copy(item.OperationalData, input.OperationalData)
 	}
+
+	for _, key := range input.OperationalDataToDelete {
+		delete(item.OperationalData, key)
+	}
 }
 
 // applyOpsItemChangeManagerUpdates applies the Change-Manager-oriented fields

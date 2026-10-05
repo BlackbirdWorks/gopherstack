@@ -98,8 +98,18 @@ func (b *InMemoryBackend) CreateMaintenanceWindow(
 	b.mu.Lock("CreateMaintenanceWindow")
 	defer b.mu.Unlock()
 
+	if id, replay, err := b.idempotentReplayLocked(
+		region, "CreateMaintenanceWindow", input.ClientToken, input,
+		b.maintenanceWindowsStore(region).Has,
+	); err != nil {
+		return nil, err
+	} else if replay {
+		return &CreateMaintenanceWindowOutput{WindowID: id}, nil
+	}
+
 	windowID := windowIDPrefix + uuid.NewString()
 	now := UnixTimeFloat(time.Now())
+	b.recordIdempotentLocked(region, "CreateMaintenanceWindow", input.ClientToken, input, windowID)
 
 	mw := MaintenanceWindow{
 		WindowID:                 windowID,
@@ -913,7 +923,17 @@ func (b *InMemoryBackend) RegisterTargetWithMaintenanceWindow(
 		return nil, ErrMaintenanceWindowNotFound
 	}
 
+	if id, replay, err := b.idempotentReplayLocked(
+		region, "RegisterTargetWithMaintenanceWindow", input.ClientToken, input,
+		b.maintenanceWindowTargetsStore(region).Has,
+	); err != nil {
+		return nil, err
+	} else if replay {
+		return &RegisterTargetWithMaintenanceWindowOutput{WindowTargetID: id}, nil
+	}
+
 	targetID := windowTargetIDPrefix + uuid.NewString()
+	b.recordIdempotentLocked(region, "RegisterTargetWithMaintenanceWindow", input.ClientToken, input, targetID)
 	target := MaintenanceWindowTarget{
 		WindowID:       input.WindowID,
 		WindowTargetID: targetID,
@@ -954,7 +974,17 @@ func (b *InMemoryBackend) RegisterTaskWithMaintenanceWindow(
 		return nil, ErrMaintenanceWindowNotFound
 	}
 
+	if id, replay, err := b.idempotentReplayLocked(
+		region, "RegisterTaskWithMaintenanceWindow", input.ClientToken, input,
+		b.maintenanceWindowTasksStore(region).Has,
+	); err != nil {
+		return nil, err
+	} else if replay {
+		return &RegisterTaskWithMaintenanceWindowOutput{WindowTaskID: id}, nil
+	}
+
 	taskID := windowTaskIDPrefix + uuid.NewString()
+	b.recordIdempotentLocked(region, "RegisterTaskWithMaintenanceWindow", input.ClientToken, input, taskID)
 	task := MaintenanceWindowTask{
 		WindowID:       input.WindowID,
 		WindowTaskID:   taskID,

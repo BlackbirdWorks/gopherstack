@@ -377,6 +377,10 @@ func (h *Handler) handleCreateBatchLoadTask(
 		return nil, fmt.Errorf("%w: DataSourceConfiguration is required", errInvalidRequest)
 	}
 
+	if in.ReportConfiguration == nil {
+		return nil, fmt.Errorf("%w: ReportConfiguration is required", errInvalidRequest)
+	}
+
 	var dataSourceCfg *DataSourceConfiguration
 
 	if in.DataSourceConfiguration != nil {
@@ -410,7 +414,13 @@ func (h *Handler) handleCreateBatchLoadTask(
 	dataModelCfg := dataModelConfigFromInput(in.DataModelConfiguration)
 
 	task, err := h.Backend.CreateBatchLoadTask(
-		in.TargetDatabaseName, in.TargetTableName, dataSourceCfg, reportCfg, dataModelCfg, in.RecordVersion,
+		in.TargetDatabaseName,
+		in.TargetTableName,
+		dataSourceCfg,
+		reportCfg,
+		dataModelCfg,
+		in.RecordVersion,
+		in.ClientToken,
 	)
 	if err != nil {
 		return nil, err

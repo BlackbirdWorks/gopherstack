@@ -28,6 +28,7 @@ func (b *InMemoryBackend) CreateBatchLoadTask(
 	reportCfg *ReportConfiguration,
 	dataModelCfg *DataModelConfiguration,
 	recordVersion int64,
+	clientToken string,
 ) (*BatchLoadTask, error) {
 	b.mu.Lock("CreateBatchLoadTask")
 	defer b.mu.Unlock()
@@ -38,6 +39,16 @@ func (b *InMemoryBackend) CreateBatchLoadTask(
 
 	if !b.tables.Has(tableKey(targetDatabase, targetTable)) {
 		return nil, fmt.Errorf("%w: table %s not found", ErrTableNotFound, targetTable)
+	}
+
+	if clientToken != "" {
+		for _, t := range b.batchLoadTasks.All() {
+			if t.ClientToken == clientToken {
+				cp := *t
+
+				return &cp, nil
+			}
+		}
 	}
 
 	b.nextTaskID++
@@ -55,6 +66,7 @@ func (b *InMemoryBackend) CreateBatchLoadTask(
 		ReportConfiguration:     reportCfg,
 		DataModelConfiguration:  dataModelCfg,
 		RecordVersion:           recordVersion,
+		ClientToken:             clientToken,
 	}
 	b.batchLoadTasks.Put(task)
 

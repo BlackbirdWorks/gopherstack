@@ -51,7 +51,7 @@ func (h *Handler) iamReportingDispatchTable() map[string]iamActionFn {
 					}}
 				}
 
-				policies = append(policies, toManagedPolicyDetailXML(pol, versions))
+				policies = append(policies, toManagedPolicyDetailXML(pol, versions, h.boundaryUsageCount(pol.Arn)))
 			}
 
 			return &GetAccountAuthorizationDetailsResponse{

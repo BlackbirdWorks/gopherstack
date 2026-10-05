@@ -805,6 +805,7 @@ func simResultsToXML(results []SimulationResult) []SimulationEvalResultXML {
 			EvalResourceDecision:              r.Decision,
 			EvalDecisionDetails:               evalDetailEntries(r.EvalDecisionDetails),
 			PermissionsBoundaryDecisionDetail: boundaryDetailXML(r.AllowedByPermissionsBoundary),
+			MissingContextValues:              r.MissingContextValues,
 		}
 
 		idx, seen := byAction[r.ActionName]
@@ -815,6 +816,7 @@ func simResultsToXML(results []SimulationResult) []SimulationEvalResultXML {
 				EvalResourceName:                  "*",
 				EvalDecision:                      r.Decision,
 				EvalDecisionDetails:               slices.Clone(perResource.EvalDecisionDetails),
+				MissingContextValues:              slices.Clone(r.MissingContextValues),
 				PermissionsBoundaryDecisionDetail: boundaryDetailXML(r.AllowedByPermissionsBoundary),
 				ResourceSpecificResults:           []ResourceSpecificResultXML{perResource},
 			})
@@ -826,6 +828,9 @@ func simResultsToXML(results []SimulationResult) []SimulationEvalResultXML {
 		agg.ResourceSpecificResults = append(agg.ResourceSpecificResults, perResource)
 		agg.EvalDecision = mostRestrictiveDecision(agg.EvalDecision, r.Decision)
 		agg.EvalDecisionDetails = mergeDecisionDetails(agg.EvalDecisionDetails, perResource.EvalDecisionDetails)
+		agg.MissingContextValues = slices.Compact(slices.Sorted(slices.Values(
+			slices.Concat(agg.MissingContextValues, r.MissingContextValues),
+		)))
 
 		if agg.PermissionsBoundaryDecisionDetail != nil && perResource.PermissionsBoundaryDecisionDetail != nil {
 			agg.PermissionsBoundaryDecisionDetail.AllowedByPermissionsBoundary =

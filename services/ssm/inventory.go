@@ -344,13 +344,15 @@ func (b *InMemoryBackend) DeleteInventory(
 
 	// Record a real deletion job so DescribeInventoryDeletions can report it.
 	deletionID := "deletion-" + uuid.NewString()
+	deletedAt := UnixTimeFloat(time.Now())
 	deletion := InventoryDeletion{
-		DeletionID:        deletionID,
-		TypeName:          input.TypeName,
-		LastStatus:        "Complete",
-		LastStatusMessage: "The inventory deletion has completed.",
-		DeletionStartTime: UnixTimeFloat(time.Now()),
-		DeletionSummary:   summary,
+		DeletionID:           deletionID,
+		TypeName:             input.TypeName,
+		LastStatus:           "Complete",
+		LastStatusMessage:    "The inventory deletion has completed.",
+		DeletionStartTime:    deletedAt,
+		LastStatusUpdateTime: deletedAt,
+		DeletionSummary:      summary,
 	}
 	b.inventoryDeletions[region] = append(b.inventoryDeletions[region], deletion)
 

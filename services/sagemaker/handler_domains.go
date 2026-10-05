@@ -24,6 +24,7 @@ type createDomainInput struct {
 	AppSecurityGroupManagement string          `json:"AppSecurityGroupManagement"`
 	HomeEfsFileSystemCreation  string          `json:"HomeEfsFileSystemCreation"`
 	KmsKeyID                   string          `json:"KmsKeyId"`
+	HomeEfsFileSystemKmsKeyID  string          `json:"HomeEfsFileSystemKmsKeyId"`
 	VpcID                      string          `json:"VpcId"`
 	TagPropagation             string          `json:"TagPropagation"`
 	SubnetIDs                  []string        `json:"SubnetIds"`
@@ -55,6 +56,7 @@ func (h *Handler) handleCreateDomain(ctx context.Context, body []byte) ([]byte, 
 		AppSecurityGroupManagement: req.AppSecurityGroupManagement,
 		HomeEfsFileSystemCreation:  req.HomeEfsFileSystemCreation,
 		KmsKeyID:                   req.KmsKeyID,
+		HomeEfsFileSystemKmsKeyID:  req.HomeEfsFileSystemKmsKeyID,
 		VpcID:                      req.VpcID,
 		TagPropagation:             req.TagPropagation,
 		SubnetIDs:                  req.SubnetIDs,
@@ -119,6 +121,10 @@ func (h *Handler) handleDescribeDomain(ctx context.Context, body []byte) ([]byte
 
 	if d.KmsKeyID != "" {
 		resp["KmsKeyId"] = d.KmsKeyID
+	}
+
+	if d.HomeEfsFileSystemKmsKeyID != "" {
+		resp["HomeEfsFileSystemKmsKeyId"] = d.HomeEfsFileSystemKmsKeyID
 	}
 
 	if d.VpcID != "" {

@@ -227,6 +227,7 @@ func (d Document) asDocumentDescription(docTags []Tag) DocumentDescription {
 		VersionName:            d.VersionName,
 		Tags:                   docTags,
 		Owner:                  documentOwner(d.Name),
+		Parameters:             parseDocumentParameters(d.Content, d.DocumentFormat),
 		CreatedDate:            d.CreatedDate,
 	}
 }
@@ -492,6 +493,7 @@ func (b *InMemoryBackend) DescribeDocument(
 				description.VersionName = v.VersionName
 				description.Hash, description.Sha1 = documentHashes(v.Content)
 				description.HashType = documentHashTypeSha256
+				description.Parameters = parseDocumentParameters(v.Content, v.DocumentFormat)
 				found = true
 
 				break

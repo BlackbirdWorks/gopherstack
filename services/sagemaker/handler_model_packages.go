@@ -47,8 +47,10 @@ func (h *Handler) handleCreateModelPackage(ctx context.Context, body []byte) ([]
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	if req.ModelPackageName == "" {
-		return nil, fmt.Errorf("%w: ModelPackageName is required", errInvalidRequest)
+	if req.ModelPackageName == "" && req.ModelPackageGroupName == "" {
+		return nil, fmt.Errorf(
+			"%w: ModelPackageName is required for unversioned model packages", errInvalidRequest,
+		)
 	}
 
 	certify := false
@@ -185,6 +187,10 @@ func (h *Handler) handleListModelPackages(ctx context.Context, body []byte) ([]b
 			keyModelPackageGroupName:       mp.ModelPackageGroupName,
 			"ModelPackageRegistrationType": mp.ModelPackageRegistrationType,
 		}
+		if mp.ModelPackageVersion > 0 {
+			s["ModelPackageVersion"] = mp.ModelPackageVersion
+		}
+
 		if len(mp.ModelLifeCycle) > 0 {
 			s["ModelLifeCycle"] = mp.ModelLifeCycle
 		}

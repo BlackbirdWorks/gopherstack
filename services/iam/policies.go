@@ -581,6 +581,9 @@ func simulateCustomPolicyOne(
 		ResourceName:        resource,
 		Decision:            evalDecisionStr(evalResult),
 		EvalDecisionDetails: detail,
+		MissingContextValues: MissingContextKeys(
+			slices.Concat(policyInputList, permissionsBoundaryPolicyInputList), action, resource, ctx,
+		),
 	}
 }
 

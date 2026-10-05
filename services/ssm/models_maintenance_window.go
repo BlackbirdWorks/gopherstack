@@ -211,6 +211,7 @@ type WindowTarget struct {
 
 // RegisterTargetWithMaintenanceWindowInput is the request payload.
 type RegisterTargetWithMaintenanceWindowInput struct {
+	ClientToken  string         `json:"ClientToken,omitempty"`
 	WindowID     string         `json:"WindowId"`
 	ResourceType string         `json:"ResourceType"`
 	OwnerInfo    string         `json:"OwnerInformation,omitempty"`
@@ -226,6 +227,7 @@ type RegisterTargetWithMaintenanceWindowOutput struct {
 
 // RegisterTaskWithMaintenanceWindowInput is the request payload.
 type RegisterTaskWithMaintenanceWindowInput struct {
+	ClientToken              string                                         `json:"ClientToken,omitempty"`
 	LoggingInfo              *MaintenanceWindowLoggingInfo                  `json:"LoggingInfo,omitempty"`
 	TaskInvocationParameters *MaintenanceWindowTaskInvocationParameters     `json:"TaskInvocationParameters,omitempty"`
 	TaskParameters           map[string]MaintenanceWindowTaskParameterValue `json:"TaskParameters,omitempty"`
@@ -293,6 +295,7 @@ type MaintenanceWindow struct {
 
 // CreateMaintenanceWindowInput is the request payload for CreateMaintenanceWindow.
 type CreateMaintenanceWindowInput struct {
+	ClientToken              string `json:"ClientToken,omitempty"`
 	Name                     string `json:"Name"`
 	Description              string `json:"Description,omitempty"`
 	Schedule                 string `json:"Schedule"`

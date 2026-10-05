@@ -25,7 +25,7 @@ func (h *Handler) handleCreatePolicy(vals url.Values, reqID string) (any, error)
 
 	return &CreatePolicyResponse{
 		Xmlns:              iamXMLNS,
-		CreatePolicyResult: CreatePolicyResult{Policy: toPolicyXML(pol)},
+		CreatePolicyResult: CreatePolicyResult{Policy: toPolicyXML(pol, h.boundaryUsageCount(pol.Arn))},
 		ResponseMetadata:   ResponseMetadata{RequestID: reqID},
 	}, nil
 }
@@ -48,7 +48,7 @@ func (h *Handler) iamPolicyBasicDispatchTable() map[string]iamActionFn {
 
 			xmlPolicies := make([]PolicyXML, 0, len(p.Data))
 			for i := range p.Data {
-				xmlPolicies = append(xmlPolicies, toPolicyXML(&p.Data[i]))
+				xmlPolicies = append(xmlPolicies, toPolicyXML(&p.Data[i], h.boundaryUsageCount(p.Data[i].Arn)))
 			}
 
 			return &ListPoliciesResponse{
@@ -69,7 +69,7 @@ func (h *Handler) iamPolicyBasicDispatchTable() map[string]iamActionFn {
 
 			return &GetPolicyResponse{
 				Xmlns:            iamXMLNS,
-				GetPolicyResult:  GetPolicyResult{Policy: toPolicyXML(pol)},
+				GetPolicyResult:  GetPolicyResult{Policy: toPolicyXML(pol, h.boundaryUsageCount(pol.Arn))},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
@@ -222,7 +222,7 @@ func (h *Handler) handleListAttachedRolePolicies(vals url.Values, reqID string) 
 	}, nil
 }
 
-func toPolicyXML(p *Policy) PolicyXML {
+func toPolicyXML(p *Policy, boundaryUsageCount int) PolicyXML {
 	defaultVersionID := p.DefaultVersionID
 	if defaultVersionID == "" {
 		defaultVersionID = "v1"
@@ -244,7 +244,15 @@ func toPolicyXML(p *Policy) PolicyXML {
 		Tags:             tagsToXML(p.Tags),
 		AttachmentCount:  p.AttachmentCount,
 		IsAttachable:     p.IsAttachable,
+
+		PermissionsBoundaryUsageCount: boundaryUsageCount,
 	}
+}
+
+func (h *Handler) boundaryUsageCount(policyArn string) int {
+	users, roles := h.Backend.PermissionsBoundaryEntities(policyArn)
+
+	return len(users) + len(roles)
 }
 
 // toManagedPolicyDetailXML builds the ManagedPolicyDetail XML element for
@@ -252,7 +260,9 @@ func toPolicyXML(p *Policy) PolicyXML {
 // the policy (as returned by StorageBackend.ListPolicyVersions) — real AWS
 // includes every stored version here, not just the default, and each
 // version's Document is URL-encoded like GetPolicyVersion.
-func toManagedPolicyDetailXML(p *Policy, versions []StoredPolicyVersion) ManagedPolicyDetailXML {
+func toManagedPolicyDetailXML(
+	p *Policy, versions []StoredPolicyVersion, boundaryUsageCount int,
+) ManagedPolicyDetailXML {
 	xmlVersions := make([]PolicyVersionXML, 0, len(versions))
 	for _, v := range versions {
 		xmlVersions = append(xmlVersions, PolicyVersionXML{
@@ -284,6 +294,8 @@ func toManagedPolicyDetailXML(p *Policy, versions []StoredPolicyVersion) Managed
 		PolicyVersionList: xmlVersions,
 		AttachmentCount:   p.AttachmentCount,
 		IsAttachable:      p.IsAttachable,
+
+		PermissionsBoundaryUsageCount: boundaryUsageCount,
 	}
 }
 

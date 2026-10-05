@@ -396,14 +396,8 @@ items_still_open:
   - "GetInventorySchema's real per-type Attributes ([]InventoryItemAttribute) aren't
     modeled -- AWS hasn't published the exact attribute list for the 13 built-in types
     outside web docs, so fabricating names would invent wire content rather than verify it."
-  - "CreateActivationInput.RegistrationMetadata is accepted-and-discarded -- real AWS's own
-    Activation/DescribeActivations types never echo it either, so there is no wire location
-    to round-trip it to."
-  - "DeleteInventoryInput's ClientToken (idempotency) and SchemaDeleteOption
-    (DisableSchema/DeleteSchema) are unmodeled -- this backend tracks only inventory items,
-    not versioned schema state, so SchemaDeleteOption has nothing distinct to act on."
-  - "PutInventoryOutput.Message (free-text, no documented behavioral meaning) is unmodeled
-    -- low value; fabricating placeholder text would add nothing verifiable."
+  - "DeleteInventoryInput.SchemaDeleteOption (DisableSchema/DeleteSchema) has nothing distinct to act on: this backend tracks
+    inventory items only, not versioned schema state."
   - "ValidateCloudConnector can't make a real outbound Azure call (no Azure tenant,
     credentials, or egress in this emulator) -- ValidationFindings are deterministically
     derived from the connector's own stored Configuration instead, an inherent sandbox
@@ -438,14 +432,15 @@ items_still_open:
     multi-account/key-value targeting schemes this backend's Targets-only model doesn't
     support; ScheduleOffset/LastExecutionDate/LastSuccessfulExecutionDate need a real
     scheduler (associations run synchronously on demand, not on a cron loop)."
-  - "StartAutomationExecutionInput's AlarmConfiguration/ClientToken/TargetLocations/
+  - "StartAutomationExecutionInput's AlarmConfiguration/TargetLocations/
     TargetMaps/TargetParameterName/Targets remain unmodeled (this backend runs one
     synchronous single-account/region execution, nothing for multi-target fan-out to plug
     into); SendAutomationSignal's Payload is stored but not consulted since this backend
     has no per-step Waiting/InProgress state (every step goes straight to Success)."
-  - "RegisterTaskWithMaintenanceWindowInput/UpdateMaintenanceWindowTaskInput's
-    AlarmConfiguration (no CloudWatch-alarm infra) and ClientToken (also on CreatePatchBaseline/
-    StartAutomationExecution; idempotency/reuse semantics undocumented) remain unmodeled."
+  - "RegisterTaskWithMaintenanceWindowInput/UpdateMaintenanceWindowTaskInput AlarmConfiguration needs CloudWatch-alarm
+    infrastructure this backend lacks."
+  - "StartChangeRequestExecution AutoApprove/ChangeDetails/ScheduledEndTime are unmodeled: they need a change-template
+    approval workflow (no review state machine exists)."
   - "GetMaintenanceWindowExecutionTaskInvocationOutput.Parameters (the actual
     command/automation parameters used for one invocation) is unmodeled -- this backend has
     no per-invocation parameter snapshot, only task-level defaults."

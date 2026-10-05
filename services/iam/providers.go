@@ -1,6 +1,7 @@
 package iam
 
 import (
+	"encoding/pem"
 	"encoding/xml"
 	"fmt"
 	"net/url"
@@ -8,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
@@ -17,6 +20,18 @@ import (
 // CreateSAMLProvider creates a new IAM SAML identity provider.
 // The provider name is used to build the ARN; it must be unique.
 func (b *InMemoryBackend) CreateSAMLProvider(name, samlMetadataDocument string) (*SAMLProvider, error) {
+	return b.CreateSAMLProviderWithEncryption(name, samlMetadataDocument, "", "")
+}
+
+// CreateSAMLProviderWithEncryption creates a SAML provider with an optional
+// AssertionEncryptionMode and an initial AddPrivateKey PEM.
+func (b *InMemoryBackend) CreateSAMLProviderWithEncryption(
+	name, samlMetadataDocument, mode, addPrivateKey string,
+) (*SAMLProvider, error) {
+	if err := validateSAMLEncryption(mode, addPrivateKey); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateSAMLProvider")
 	defer b.mu.Unlock()
 
@@ -30,11 +45,19 @@ func (b *InMemoryBackend) CreateSAMLProvider(name, samlMetadataDocument string) 
 		return nil, fmt.Errorf("%w: SAML provider %q already exists", ErrSAMLProviderAlreadyExists, name)
 	}
 
+	now := time.Now().UTC()
 	p := SAMLProvider{
 		Arn:                  providerArn,
 		SAMLMetadataDocument: samlMetadataDocument,
-		CreateDate:           time.Now().UTC(),
+		CreateDate:           now,
+		SAMLProviderUUID:     uuid.New().String(),
+		AssertionEncryption:  mode,
 	}
+
+	if addPrivateKey != "" {
+		p.PrivateKeys = []SAMLPrivateKey{{KeyID: newID("SPK"), Timestamp: now}}
+	}
+
 	b.samlProviders.Put(&p)
 
 	return &p, nil
@@ -42,6 +65,18 @@ func (b *InMemoryBackend) CreateSAMLProvider(name, samlMetadataDocument string) 
 
 // UpdateSAMLProvider replaces the SAML metadata document for an existing provider.
 func (b *InMemoryBackend) UpdateSAMLProvider(providerArn, samlMetadataDocument string) (*SAMLProvider, error) {
+	return b.UpdateSAMLProviderWithEncryption(providerArn, samlMetadataDocument, "", "", "")
+}
+
+// UpdateSAMLProviderWithEncryption applies the optional metadata, encryption mode,
+// private-key addition and private-key removal in one step.
+func (b *InMemoryBackend) UpdateSAMLProviderWithEncryption(
+	providerArn, samlMetadataDocument, mode, addPrivateKey, removePrivateKey string,
+) (*SAMLProvider, error) {
+	if err := validateSAMLEncryption(mode, addPrivateKey); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("UpdateSAMLProvider")
 	defer b.mu.Unlock()
 
@@ -50,14 +85,54 @@ func (b *InMemoryBackend) UpdateSAMLProvider(providerArn, samlMetadataDocument s
 		return nil, fmt.Errorf("%w: SAML provider %q not found", ErrSAMLProviderNotFound, providerArn)
 	}
 
-	if err := validateSAMLMetadata(samlMetadataDocument); err != nil {
-		return nil, err
+	if samlMetadataDocument != "" {
+		if err := validateSAMLMetadata(samlMetadataDocument); err != nil {
+			return nil, err
+		}
 	}
 
-	p.SAMLMetadataDocument = samlMetadataDocument
+	keyIdx := -1
+	if removePrivateKey != "" {
+		keyIdx = slices.IndexFunc(p.PrivateKeys, func(k SAMLPrivateKey) bool { return k.KeyID == removePrivateKey })
+		if keyIdx < 0 {
+			return nil, fmt.Errorf("%w: private key %q not found", ErrSAMLProviderNotFound, removePrivateKey)
+		}
+	}
+
+	if samlMetadataDocument != "" {
+		p.SAMLMetadataDocument = samlMetadataDocument
+	}
+
+	if mode != "" {
+		p.AssertionEncryption = mode
+	}
+
+	if keyIdx >= 0 {
+		p.PrivateKeys = slices.Delete(slices.Clone(p.PrivateKeys), keyIdx, keyIdx+1)
+	}
+
+	if addPrivateKey != "" {
+		added := SAMLPrivateKey{KeyID: newID("SPK"), Timestamp: time.Now().UTC()}
+		p.PrivateKeys = append(slices.Clone(p.PrivateKeys), added)
+	}
+
 	b.samlProviders.Put(p)
 
 	return p, nil
+}
+
+func validateSAMLEncryption(mode, addPrivateKey string) error {
+	if mode != "" && mode != samlEncryptionAllowed && mode != samlEncryptionRequired {
+		return fmt.Errorf("%w: AssertionEncryptionMode must be Allowed or Required", ErrInvalidInput)
+	}
+
+	if addPrivateKey != "" {
+		if blk, _ := pem.Decode([]byte(addPrivateKey)); blk == nil {
+			return fmt.Errorf("%w: AddPrivateKey must be a PEM-encoded private key", ErrInvalidInput)
+		}
+	}
+
+	return nil
 }
 
 // DeleteSAMLProvider removes a SAML provider by ARN.

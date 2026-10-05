@@ -104,7 +104,12 @@ func (h *Handler) handleListTagsForResource(
 		return nil, fmt.Errorf("%w: invalid MaxResults or NextToken", errInvalidRequest)
 	}
 
+	if !h.Backend.ResourceExists(in.ResourceARN) {
+		return nil, fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, in.ResourceARN)
+	}
+
 	tagsMap := h.Backend.ListTagsForResource(in.ResourceARN)
+
 	tags := make([]tagInput, 0, len(tagsMap))
 
 	for k, v := range tagsMap {

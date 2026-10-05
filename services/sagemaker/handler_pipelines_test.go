@@ -613,7 +613,10 @@ func TestHandler_Pipeline_Duplicate_RealClient(t *testing.T) {
 	_, err := client.CreatePipeline(t.Context(), in)
 	require.NoError(t, err)
 
-	_, err = client.CreatePipeline(t.Context(), in)
+	dup := *in
+	dup.ClientRequestToken = aws.String("a-different-token")
+
+	_, err = client.CreatePipeline(t.Context(), &dup)
 	require.Error(t, err)
 
 	var conflict *smtypes.ConflictException

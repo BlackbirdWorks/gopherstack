@@ -72,6 +72,7 @@ type SimulationResult struct {
 	ActionName                   string            `json:"actionName,omitempty"`
 	ResourceName                 string            `json:"resourceName,omitempty"`
 	Decision                     string            `json:"decision,omitempty"`
+	MissingContextValues         []string          `json:"missingContextValues,omitempty"`
 }
 
 // namedPolicyDoc pairs a policy source ID with its JSON document.
@@ -139,6 +140,8 @@ type ManagedPolicyDetailXML struct {
 	PolicyVersionList []PolicyVersionXML `xml:"PolicyVersionList>member"`
 	AttachmentCount   int                `xml:"AttachmentCount"`
 	IsAttachable      bool               `xml:"IsAttachable"`
+
+	PermissionsBoundaryUsageCount int `xml:"PermissionsBoundaryUsageCount"`
 }
 
 // GetAccountAuthorizationDetailsResponse is the XML response for GetAccountAuthorizationDetails.
@@ -176,6 +179,7 @@ type ResourceSpecificResultXML struct {
 	EvalResourceName                  string                    `xml:"EvalResourceName"`
 	EvalResourceDecision              string                    `xml:"EvalResourceDecision"`
 	EvalDecisionDetails               []EvalDecisionDetailEntry `xml:"EvalDecisionDetails>entry,omitempty"`
+	MissingContextValues              []string                  `xml:"MissingContextValues>member,omitempty"`
 }
 
 // SimulationEvalResultXML is a single evaluation result in SimulatePrincipalPolicy.
@@ -186,6 +190,7 @@ type SimulationEvalResultXML struct {
 	EvalResourceName                  string                      `xml:"EvalResourceName"`
 	EvalDecision                      string                      `xml:"EvalDecision"`
 	EvalDecisionDetails               []EvalDecisionDetailEntry   `xml:"EvalDecisionDetails>entry,omitempty"`
+	MissingContextValues              []string                    `xml:"MissingContextValues>member,omitempty"`
 	ResourceSpecificResults           []ResourceSpecificResultXML `xml:"ResourceSpecificResults>member,omitempty"`
 }
 

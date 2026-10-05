@@ -2,6 +2,7 @@ package iam
 
 import (
 	"net/url"
+	"time"
 )
 
 // toServiceSpecificCredentialXML converts a ServiceSpecificCredential to its XML representation.
@@ -14,7 +15,16 @@ func toServiceSpecificCredentialXML(cred *ServiceSpecificCredential) ServiceSpec
 		ServiceSpecificCredentialID: cred.ServiceSpecificCredentialID,
 		Status:                      cred.Status,
 		CreateDate:                  isoTime(cred.CreateDate),
+		ExpirationDate:              isoTimeIfSet(cred.ExpirationDate),
 	}
+}
+
+func isoTimeIfSet(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+
+	return isoTime(t)
 }
 
 // iamSSCResetDispatch wires ResetServiceSpecificCredential to real credential storage.
@@ -71,6 +81,7 @@ func (h *Handler) iamServiceSpecificCredDispatch() map[string]iamActionFn {
 					ServiceSpecificCredentialID: c.ServiceSpecificCredentialID,
 					Status:                      c.Status,
 					CreateDate:                  isoTime(c.CreateDate),
+					ExpirationDate:              isoTimeIfSet(c.ExpirationDate),
 				})
 			}
 

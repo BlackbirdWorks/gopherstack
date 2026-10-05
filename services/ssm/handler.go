@@ -316,6 +316,8 @@ func classifySSMError(reqErr error) (string, int) {
 		return "HierarchyLevelLimitExceededException", statusCode
 	case errors.Is(reqErr, ErrParameterMaxVersionLimitExceeded):
 		return "ParameterMaxVersionLimitExceeded", statusCode
+	case errors.Is(reqErr, ErrIdempotentParameterMismatch):
+		return "IdempotentParameterMismatch", statusCode
 	}
 
 	return classifySSMErrorExtended(reqErr)

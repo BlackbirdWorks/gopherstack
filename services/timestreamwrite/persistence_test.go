@@ -86,7 +86,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	require.NoError(t, original.TagResource(db1Created.ARN, map[string]string{"k": "v"}))
 
-	task1, err := original.CreateBatchLoadTask("db1", "tbl1", nil, nil, nil, 0)
+	task1, err := original.CreateBatchLoadTask("db1", "tbl1", nil, nil, nil, 0, "")
 	require.NoError(t, err)
 
 	snap, err := original.Snapshot()
@@ -128,7 +128,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	// nextTaskID must have survived the round trip so a post-restore task ID
 	// continues the sequence instead of colliding with task1's.
-	task2, err := fresh.CreateBatchLoadTask("db1", "tbl1", nil, nil, nil, 0)
+	task2, err := fresh.CreateBatchLoadTask("db1", "tbl1", nil, nil, nil, 0, "")
 	require.NoError(t, err)
 	assert.NotEqual(t, task1.TaskID, task2.TaskID)
 
@@ -220,7 +220,7 @@ func TestInMemoryBackend_SnapshotRestore_BasicRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	_, err = b.CreateTable("snap-db", "snap-tbl", nil, nil)
 	require.NoError(t, err)
-	_, err = b.CreateBatchLoadTask("snap-db", "snap-tbl", nil, nil, nil, 0)
+	_, err = b.CreateBatchLoadTask("snap-db", "snap-tbl", nil, nil, nil, 0, "")
 	require.NoError(t, err)
 
 	data, err := b.Snapshot()
@@ -463,6 +463,7 @@ func TestInMemoryBackend_SnapshotRestore_PreservesDataSourceConfig(t *testing.T)
 			},
 		},
 		7,
+		"",
 	)
 	require.NoError(t, err)
 

@@ -202,6 +202,7 @@ type BatchLoadTask struct {
 	TaskID                  string                   `json:"task_id"`
 	TaskStatus              string                   `json:"task_status"`
 	ErrorMessage            string                   `json:"error_message,omitempty"`
+	ClientToken             string                   `json:"client_token,omitempty"`
 	RecordVersion           int64                    `json:"record_version,omitempty"`
 }
 

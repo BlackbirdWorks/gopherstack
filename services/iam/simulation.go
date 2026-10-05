@@ -407,12 +407,15 @@ func (b *InMemoryBackend) evaluateSingleSimulation(
 		allowedByBoundary = &allowed
 	}
 
+	allDocs := slices.Concat(docs, resDocs, boundaryDocs)
+
 	return SimulationResult{
 		ActionName:                   action,
 		ResourceName:                 resource,
 		Decision:                     evalDecisionStr(evalResult),
 		EvalDecisionDetails:          detail,
 		AllowedByPermissionsBoundary: allowedByBoundary,
+		MissingContextValues:         MissingContextKeys(allDocs, action, resource, ctx),
 	}
 }
 

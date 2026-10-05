@@ -9,10 +9,30 @@ import (
 
 // SAMLProvider represents an IAM SAML identity provider.
 type SAMLProvider struct {
-	CreateDate           time.Time `json:"CreateDate"`
-	ValidUntil           time.Time `json:"ValidUntil"`
-	Arn                  string    `json:"Arn,omitempty"`
-	SAMLMetadataDocument string    `json:"SAMLMetadataDocument,omitempty"`
+	CreateDate           time.Time        `json:"CreateDate"`
+	ValidUntil           time.Time        `json:"ValidUntil"`
+	Arn                  string           `json:"Arn,omitempty"`
+	SAMLMetadataDocument string           `json:"SAMLMetadataDocument,omitempty"`
+	SAMLProviderUUID     string           `json:"SAMLProviderUUID,omitempty"`
+	AssertionEncryption  string           `json:"AssertionEncryptionMode,omitempty"`
+	PrivateKeys          []SAMLPrivateKey `json:"PrivateKeys,omitempty"`
+}
+
+const (
+	samlEncryptionAllowed  = "Allowed"
+	samlEncryptionRequired = "Required"
+)
+
+// SAMLPrivateKey is a decryption key registered on a SAML provider.
+type SAMLPrivateKey struct {
+	Timestamp time.Time `json:"Timestamp"`
+	KeyID     string    `json:"KeyId"`
+}
+
+// SAMLPrivateKeyXML is the XML form of a SAMLPrivateKey.
+type SAMLPrivateKeyXML struct {
+	KeyID     string `xml:"KeyId"`
+	Timestamp string `xml:"Timestamp"`
 }
 
 // SAMLProviderListEntryXML is the XML representation of a SAML provider in list responses.
@@ -57,17 +77,21 @@ type DeleteSAMLProviderResponse struct {
 
 // GetSAMLProviderResult contains the SAML provider details.
 type GetSAMLProviderResult struct {
-	SAMLMetadataDocument string `xml:"SAMLMetadataDocument"`
-	ValidUntil           string `xml:"ValidUntil,omitempty"`
-	CreateDate           string `xml:"CreateDate"`
+	SAMLMetadataDocument    string              `xml:"SAMLMetadataDocument"`
+	ValidUntil              string              `xml:"ValidUntil,omitempty"`
+	CreateDate              string              `xml:"CreateDate"`
+	SAMLProviderUUID        string              `xml:"SAMLProviderUUID,omitempty"`
+	AssertionEncryptionMode string              `xml:"AssertionEncryptionMode,omitempty"`
+	Tags                    []TagXML            `xml:"Tags>member,omitempty"`
+	PrivateKeyList          []SAMLPrivateKeyXML `xml:"PrivateKeyList>member,omitempty"`
 }
 
 // GetSAMLProviderResponse is the XML response for GetSAMLProvider.
 type GetSAMLProviderResponse struct {
 	XMLName               xml.Name              `xml:"GetSAMLProviderResponse"`
 	Xmlns                 string                `xml:"xmlns,attr"`
-	GetSAMLProviderResult GetSAMLProviderResult `xml:"GetSAMLProviderResult"`
 	ResponseMetadata      ResponseMetadata      `xml:"ResponseMetadata"`
+	GetSAMLProviderResult GetSAMLProviderResult `xml:"GetSAMLProviderResult"`
 }
 
 // ListSAMLProvidersResult contains the list of SAML providers.
@@ -125,6 +149,7 @@ type GetOpenIDConnectProviderResult struct {
 	CreateDate     string   `xml:"CreateDate"`
 	ClientIDList   []string `xml:"ClientIDList>member"`
 	ThumbprintList []string `xml:"ThumbprintList>member"`
+	Tags           []TagXML `xml:"Tags>member,omitempty"`
 }
 
 // GetOpenIDConnectProviderResponse is the XML response for GetOpenIDConnectProvider.
