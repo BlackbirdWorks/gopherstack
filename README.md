@@ -730,12 +730,12 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Azurestoragevhost](services/azurestoragevhost/README.md) | B | 2 | 2 gaps; 1 deferred |
 | [Cloudfrontkeyvaluestore](services/cloudfrontkeyvaluestore/README.md) | A | 6 | 2 structural gaps |
 | [Directconnect](services/directconnect/README.md) | A | 64 | 4 gaps; 8 structural gaps; 1 deferred |
-| [Dsql](services/dsql/README.md) | B | 16 | 3 gaps |
-| [Ecrpublic](services/ecrpublic/README.md) | B | 23 | 5 gaps |
+| [Dsql](services/dsql/README.md) | A | 16 | 3 structural gaps |
+| [Ecrpublic](services/ecrpublic/README.md) | A | 23 | 3 structural gaps |
 | [Grafana](services/grafana/README.md) | A | 25 | 2 gaps; 1 structural gap |
 | [HealthOmics](services/omics/README.md) | A | — | 25 families; 4 gaps; 1 deferred |
-| [Kafkaconnect](services/kafkaconnect/README.md) | B | 19 | 3 gaps |
-| [Kinesisvideo](services/kinesisvideo/README.md) | B | 31 | 3 gaps |
+| [Kafkaconnect](services/kafkaconnect/README.md) | A | 19 | 3 structural gaps |
+| [Kinesisvideo](services/kinesisvideo/README.md) | A | 32 | 3 structural gaps |
 | [Lightsail](services/lightsail/README.md) | A | — | 28 families; 4 gaps; 2 deferred |
 | [Managed Blockchain](services/managedblockchain/README.md) | A | 27 | 4 gaps |
 | [Mgn](services/mgn/README.md) | A | 95 | 3 gaps; 5 structural gaps; 1 deferred |
