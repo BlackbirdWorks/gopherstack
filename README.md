@@ -513,7 +513,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Backup](services/backup/README.md) | A | 66 | 3 gaps |
 | [Data Lifecycle Manager](services/dlm/README.md) | A | 8 | clean |
 | [EFS](services/efs/README.md) | A | 31 | 3 gaps; 1 deferred |
-| [FSx](services/fsx/README.md) | A | — | 13 families; 6 gaps |
+| [FSx](services/fsx/README.md) | A | — | 13 families; 8 gaps |
 | [S3](services/s3/README.md) | A | 26 | 6 gaps |
 | [S3 Control](services/s3control/README.md) | A | 44 | 4 gaps; 3 deferred |
 | [S3 Glacier](services/glacier/README.md) | A | 33 | 2 gaps |
@@ -585,7 +585,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Elasticsearch](services/elasticsearch/README.md) | A | 51 | 4 gaps |
 | [Glue](services/glue/README.md) | A | 59 | 5 gaps; 2 deferred |
 | [Glue DataBrew](services/databrew/README.md) | A | 44 | 2 gaps |
-| [Kinesis](services/kinesis/README.md) | A | 39 | 6 gaps |
+| [Kinesis](services/kinesis/README.md) | A | 39 | 7 gaps |
 | [Kinesis Analytics](services/kinesisanalytics/README.md) | A | 20 | 1 gap |
 | [Kinesis Analytics v2](services/kinesisanalyticsv2/README.md) | A | 33 | 5 gaps; 1 deferred |
 | [Kinesis Data Firehose](services/firehose/README.md) | A | 12 | 6 gaps |
@@ -603,7 +603,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [ACM PCA](services/acmpca/README.md) | A | 23 | 6 gaps |
 | [Detective](services/detective/README.md) | A | 29 | 4 gaps; 2 deferred |
 | [GuardDuty](services/guardduty/README.md) | A | 66 | 5 gaps |
-| [Inspector](services/inspector2/README.md) | A | 13 | 5 gaps; 1 deferred |
+| [Inspector](services/inspector2/README.md) | A | 13 | 7 gaps; 1 deferred |
 | [KMS](services/kms/README.md) | A | 54 | 3 gaps; 1 deferred |
 | [Macie](services/macie2/README.md) | A | 81 | clean |
 | [Secrets Manager](services/secretsmanager/README.md) | A | 24 | 3 gaps; 2 deferred |

@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 39 (39 ok) |
 | Feature families | 9 (9 ok) |
-| Known gaps | 6 |
+| Known gaps | 7 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -21,6 +21,7 @@
 - Buffered-but-unflushed channel records are not persisted (channelBuffers is in-memory by design); Shutdown/DeleteChannel/DeleteStream flush first, only a crash loses them. (gopherstack-s781r)
 - Channel control-plane 5 TPS throttle (LimitExceededException) and S3Tables PartitionSpec verification are not modeled (no Iceberg partitioning backend).
 - KMSAccessDeniedException (Start/StopStreamEncryption) and AccessDeniedException (UpdateMaxRecordSize/UpdateStreamWarmThroughput) are wire-mapped but have no trigger: no IAM policy engine exists. UpdateMaxRecordSize applies synchronously (SDK docs state no UPDATING transition for it). (gopherstack-ud2, gopherstack-nbg8)
+- DryRun (PutRecord, PutRecords, GetRecords, GetShardIterator, SubscribeToShard) is accepted but not honoured: the SDK doc says only 'Checks if your request will succeed' and the dry-run response shape is undocumented, so a DryRun PutRecord still writes. StreamId is 'Not Implemented. Reserved for future use.' in the SDK.
 
 ## More
 

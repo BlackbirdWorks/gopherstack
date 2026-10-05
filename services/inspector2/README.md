@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 13 (13 ok) |
 | Feature families | 25 (24 ok, 1 partial) |
-| Known gaps | 5 |
+| Known gaps | 7 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
@@ -20,6 +20,8 @@
 - ListConnectors accounts/connectorType facets, Connector PENDING_DELETION, ScopeConfiguration ACTIVE/ERROR/DISABLED, CreateCodeSecurityIntegration authorizationUrl and GetClustersForImage results all depend on external Azure OAuth flows or ECS/EKS image tracking that gopherstack does not model.
 - CoverageFilterCriteria's ~20 resourceMetadata-backed facets (ec2InstanceTags, ecrImageTags, lambdaFunctionTags, cloud*/code* facets) have no backing data; scanStatusCode/scanStatusReason/scanMode/lastScannedAt are implemented.
 - FindingDetail's CisaData/Evidences/ExploitObserved objects are not modeled (SeedFinding scalars only); Vulnerability's nested objects are modeled.
+- Enable, Disable and BatchGetAccountStatus ignore AccountIds (only the calling account's status exists); Enable/EnableDelegatedAdminAccount/StartCodeSecurityScan ignore ClientToken; GetCisScanReport ignores ReportFormat/TargetAccounts; ListFindingAggregations ignores AccountIds.
+- CIS list ops ignore SortBy/SortOrder (ListCisScanConfigurations, ListCisScans, GetCisScanResultDetails, ListCisScanResultsAggregatedByChecks/ByTargetResource) and ListCisScans.DetailLevel: pageItems pages by key order, so a sorted cursor is needed.
 
 ### Deferred
 
