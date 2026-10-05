@@ -524,7 +524,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [DAX](services/dax/README.md) | A | 21 | 1 gap; 1 deferred |
-| [DocumentDB](services/docdb/README.md) | A | 55 | 7 gaps; 1 deferred |
+| [DocumentDB](services/docdb/README.md) | A | 55 | 9 gaps; 1 deferred |
 | [DynamoDB](services/dynamodb/README.md) | A | — | 15 families; 3 gaps; 2 deferred |
 | [DynamoDB Streams](services/dynamodbstreams/README.md) | A | 4 | clean |
 | [ElastiCache](services/elasticache/README.md) | A | 75 | 3 gaps; 2 deferred |
@@ -655,7 +655,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [Amplify](services/amplify/README.md) | A | 37 | 2 gaps |
-| [CodeArtifact](services/codeartifact/README.md) | A | 48 | 5 gaps; 3 deferred |
+| [CodeArtifact](services/codeartifact/README.md) | A | 48 | 8 gaps |
 | [CodeBuild](services/codebuild/README.md) | A | 59 | 5 gaps; 1 deferred |
 | [CodeCommit](services/codecommit/README.md) | A | 79 | 2 gaps |
 | [CodeConnections](services/codeconnections/README.md) | A | 27 | 2 gaps |
