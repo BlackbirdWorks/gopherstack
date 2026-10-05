@@ -93,7 +93,7 @@ func (h *Handler) createDomainAssociation(ctx context.Context, c *echo.Context, 
 		return h.handleBackendError(ctx, c, "CreateDomainAssociation", createErr)
 	}
 
-	return c.JSON(http.StatusCreated, map[string]any{keyDomainAssociation: toDomainAssociationView(domain)})
+	return c.JSON(http.StatusCreated, map[string]any{keyDomainAssociation: domainAssociationToView(domain)})
 }
 
 // listDomainAssociations handles GET /apps/{appId}/domains.
@@ -113,7 +113,7 @@ func (h *Handler) listDomainAssociations(ctx context.Context, c *echo.Context, a
 		return h.handleBackendError(ctx, c, opListDomainAssociations, err)
 	}
 
-	resp := map[string]any{"domainAssociations": toDomainAssociationViews(domains)}
+	resp := map[string]any{"domainAssociations": domainAssociationsToViews(domains)}
 	if outToken != "" {
 		resp["nextToken"] = outToken
 	}
@@ -132,7 +132,7 @@ func (h *Handler) getDomainAssociation(
 		return h.handleBackendError(ctx, c, "GetDomainAssociation", err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyDomainAssociation: toDomainAssociationView(domain)})
+	return c.JSON(http.StatusOK, map[string]any{keyDomainAssociation: domainAssociationToView(domain)})
 }
 
 // deleteDomainAssociation handles DELETE /apps/{appId}/domains/{domainName}.
@@ -146,7 +146,7 @@ func (h *Handler) deleteDomainAssociation(
 		return h.handleBackendError(ctx, c, "DeleteDomainAssociation", err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyDomainAssociation: toDomainAssociationView(domain)})
+	return c.JSON(http.StatusOK, map[string]any{keyDomainAssociation: domainAssociationToView(domain)})
 }
 
 // updateDomainAssociation handles POST /apps/{appId}/domains/{domainName}.
@@ -181,7 +181,7 @@ func (h *Handler) updateDomainAssociation(
 		return h.handleBackendError(ctx, c, "UpdateDomainAssociation", updateErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyDomainAssociation: toDomainAssociationView(domain)})
+	return c.JSON(http.StatusOK, map[string]any{keyDomainAssociation: domainAssociationToView(domain)})
 }
 
 type subDomainSettingView struct {
@@ -216,7 +216,7 @@ type domainAssociationView struct {
 	EnableAutoSubDomain              bool                   `json:"enableAutoSubDomain"`
 }
 
-func toDomainAssociationView(d *DomainAssociation) domainAssociationView {
+func domainAssociationToView(d *DomainAssociation) domainAssociationView {
 	subs := make([]subDomainView, len(d.SubDomains))
 	for i, sd := range d.SubDomains {
 		subs[i] = subDomainView{
@@ -252,10 +252,10 @@ func toDomainAssociationView(d *DomainAssociation) domainAssociationView {
 	}
 }
 
-func toDomainAssociationViews(ds []*DomainAssociation) []domainAssociationView {
+func domainAssociationsToViews(ds []*DomainAssociation) []domainAssociationView {
 	views := make([]domainAssociationView, len(ds))
 	for i, d := range ds {
-		views[i] = toDomainAssociationView(d)
+		views[i] = domainAssociationToView(d)
 	}
 
 	return views

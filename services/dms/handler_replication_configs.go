@@ -42,7 +42,7 @@ func computeConfigFromDomain(c *ComputeConfig) *computeConfigJSON {
 	}
 }
 
-func (c *computeConfigJSON) toDomain() *ComputeConfig {
+func (c *computeConfigJSON) asDomain() *ComputeConfig {
 	if c == nil {
 		return nil
 	}
@@ -126,7 +126,7 @@ func (h *Handler) handleCreateReplicationConfig(
 			SourceEndpointArn: ptrconv.String(in.SourceEndpointArn),
 			TargetEndpointArn: ptrconv.String(in.TargetEndpointArn),
 			TableMappings:     tableMappings,
-			ComputeConfig:     in.ComputeConfig.toDomain(),
+			ComputeConfig:     in.ComputeConfig.asDomain(),
 		},
 		kv,
 	)
@@ -261,7 +261,7 @@ func (h *Handler) handleModifyReplicationConfig(
 		ptrconv.String(in.TableMappings),
 		ptrconv.String(in.SourceEndpointArn),
 		ptrconv.String(in.TargetEndpointArn),
-		in.ComputeConfig.toDomain(),
+		in.ComputeConfig.asDomain(),
 	)
 	if err != nil {
 		return nil, err

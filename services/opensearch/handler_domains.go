@@ -178,7 +178,7 @@ func (h *Handler) handleCreateDomain(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.writeJSON(r, w, domainStatusWrapJSON{
-		DomainStatus: toDomainStatusJSON(domain),
+		DomainStatus: domainStatusToJSON(domain),
 	})
 }
 
@@ -195,7 +195,7 @@ func (h *Handler) handleDescribeDomain(w http.ResponseWriter, r *http.Request, n
 	}
 
 	h.writeJSON(r, w, domainStatusWrapJSON{
-		DomainStatus: toDomainStatusJSON(domain),
+		DomainStatus: domainStatusToJSON(domain),
 	})
 }
 
@@ -212,7 +212,7 @@ func (h *Handler) handleDeleteDomain(w http.ResponseWriter, r *http.Request, nam
 	}
 
 	h.writeJSON(r, w, domainStatusWrapJSON{
-		DomainStatus: toDomainStatusJSON(domain),
+		DomainStatus: domainStatusToJSON(domain),
 	})
 }
 
@@ -256,13 +256,13 @@ func (h *Handler) handleDescribeDomains(w http.ResponseWriter, r *http.Request) 
 	list := make([]domainStatusJSON, 0, len(domains))
 
 	for _, d := range domains {
-		list = append(list, toDomainStatusJSON(d))
+		list = append(list, domainStatusToJSON(d))
 	}
 
 	h.writeJSON(r, w, map[string]any{"DomainStatusList": list})
 }
 
-func toDomainStatusJSON(d *Domain) domainStatusJSON {
+func domainStatusToJSON(d *Domain) domainStatusJSON {
 	processing, upgradeProcessing, dps := domainProcessing(d, time.Now())
 
 	out := domainStatusJSON{

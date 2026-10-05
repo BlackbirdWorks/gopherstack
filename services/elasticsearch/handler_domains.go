@@ -349,7 +349,7 @@ func (h *Handler) handleCreateDomain(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.writeJSON(r, w, domainStatusWrapJSON{
-		DomainStatus: toDomainStatusJSON(domain),
+		DomainStatus: domainStatusToJSON(domain),
 	})
 }
 
@@ -483,7 +483,7 @@ func (h *Handler) handleDescribeDomain(w http.ResponseWriter, r *http.Request, n
 	}
 
 	h.writeJSON(r, w, domainStatusWrapJSON{
-		DomainStatus: toDomainStatusJSON(domain),
+		DomainStatus: domainStatusToJSON(domain),
 	})
 }
 
@@ -500,7 +500,7 @@ func (h *Handler) handleDeleteDomain(w http.ResponseWriter, r *http.Request, nam
 	}
 
 	h.writeJSON(r, w, domainStatusWrapJSON{
-		DomainStatus: toDomainStatusJSON(domain),
+		DomainStatus: domainStatusToJSON(domain),
 	})
 }
 
@@ -578,7 +578,7 @@ func (h *Handler) handleDescribeElasticsearchDomains(w http.ResponseWriter, r *h
 			continue
 		}
 
-		list = append(list, toDomainStatusJSON(d))
+		list = append(list, domainStatusToJSON(d))
 	}
 
 	// AWS always emits both arrays (never null), even when empty.
@@ -946,7 +946,7 @@ func toLogPublishingOptionsJSON(opts map[string]LogPublishingOption) map[string]
 	return out
 }
 
-func toDomainStatusJSON(d *Domain) domainStatusJSON {
+func domainStatusToJSON(d *Domain) domainStatusJSON {
 	advOpts := d.AdvancedOptions
 	if advOpts == nil {
 		advOpts = map[string]string{}

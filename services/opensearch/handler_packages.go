@@ -25,7 +25,7 @@ func (h *Handler) handleDissociatePackage(
 		return
 	}
 
-	h.writeJSON(r, w, map[string]any{"DomainPackageDetails": toDomainPackageDetailsJSON(details)})
+	h.writeJSON(r, w, map[string]any{"DomainPackageDetails": domainPackageDetailsToJSON(details)})
 }
 
 func (h *Handler) handleDissociatePackages(w http.ResponseWriter, r *http.Request) {
@@ -65,7 +65,7 @@ func (h *Handler) handleDissociatePackages(w http.ResponseWriter, r *http.Reques
 	outList := make([]domainPackageDetailsJSON, 0, len(details))
 
 	for i := range details {
-		outList = append(outList, toDomainPackageDetailsJSON(&details[i]))
+		outList = append(outList, domainPackageDetailsToJSON(&details[i]))
 	}
 
 	h.writeJSON(r, w, map[string]any{"DomainPackageDetailsList": outList})
@@ -445,7 +445,7 @@ type domainPackageDetailsJSON struct {
 
 // Converts a DomainPackageDetails into the wire-shape types.DomainPackageDetails
 // object.
-func toDomainPackageDetailsJSON(d *DomainPackageDetails) domainPackageDetailsJSON {
+func domainPackageDetailsToJSON(d *DomainPackageDetails) domainPackageDetailsJSON {
 	return domainPackageDetailsJSON{
 		PackageID:           d.PackageID,
 		DomainName:          d.DomainName,
@@ -473,7 +473,7 @@ func (h *Handler) handleAssociatePackage(
 	}
 
 	h.writeJSON(r, w, associatePackageOutput{
-		DomainPackageDetails: toDomainPackageDetailsJSON(details),
+		DomainPackageDetails: domainPackageDetailsToJSON(details),
 	})
 }
 
@@ -526,7 +526,7 @@ func (h *Handler) handleAssociatePackages(w http.ResponseWriter, r *http.Request
 
 	outList := make([]domainPackageDetailsJSON, 0, len(details))
 	for i := range details {
-		outList = append(outList, toDomainPackageDetailsJSON(&details[i]))
+		outList = append(outList, domainPackageDetailsToJSON(&details[i]))
 	}
 
 	h.writeJSON(r, w, associatePackagesOutput{DomainPackageDetailsList: outList})

@@ -162,7 +162,7 @@ func domainIndexSnapshotKey(v *domainIndexSnapshot) string {
 	return domainIndexKey(v.DomainName, v.IndexName)
 }
 
-func toDomainIndexSnapshot(v *DomainIndex) *domainIndexSnapshot {
+func domainIndexToSnapshot(v *DomainIndex) *domainIndexSnapshot {
 	return &domainIndexSnapshot{
 		Mappings:      v.Mappings,
 		Settings:      v.Settings,
@@ -459,7 +459,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	}
 
 	for _, v := range b.domainIndexes.Snapshot() {
-		domainIndexDTOs.Put(toDomainIndexSnapshot(v))
+		domainIndexDTOs.Put(domainIndexToSnapshot(v))
 	}
 
 	for _, v := range b.vpcEndpoints.Snapshot() {

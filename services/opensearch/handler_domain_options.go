@@ -556,7 +556,7 @@ func toLogPublishingOptionsJSON(
 	return out
 }
 
-// Shared, immutable empty option structs. toDomainStatusJSON emits these when a
+// Shared, immutable empty option structs. domainStatusToJSON emits these when a
 // domain has no configured value, so the common case allocates nothing per call.
 // They are only ever read (for marshalling) and replaced wholesale — never
 // mutated in place — by applyDomainOptionalFields, so sharing is safe.

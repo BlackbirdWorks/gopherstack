@@ -50,7 +50,7 @@ func ExpireVpcEndpoint(b *InMemoryBackend, id string) {
 
 // DomainProcessingState resolves the (Processing, UpgradeProcessing,
 // DomainProcessingStatus) reported for a domain copy at the current instant,
-// mirroring what toDomainStatusJSON emits over the wire.
+// mirroring what domainStatusToJSON emits over the wire.
 func DomainProcessingState(d *Domain) (bool, bool, string) {
 	return domainProcessing(d, time.Now())
 }

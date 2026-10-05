@@ -47,9 +47,9 @@ func TestRealClient_ManagedLoginAndProvisioning(t *testing.T) {
 	}
 }
 
-// decodeCognitoDocument unmarshals a response smithy document.Interface field
+// decodeIdpDocument unmarshals a response smithy document.Interface field
 // back to its JSON text so tests can assert on its content.
-func decodeCognitoDocument(t *testing.T, doc interface{ UnmarshalSmithyDocument(v any) error }) string {
+func decodeIdpDocument(t *testing.T, doc interface{ UnmarshalSmithyDocument(v any) error }) string {
 	t.Helper()
 
 	var v any
@@ -97,7 +97,7 @@ func testManagedLoginBrandingRealClient(t *testing.T) {
 	require.Len(t, created.ManagedLoginBranding.Assets, 1)
 	assert.Equal(t, types.AssetCategoryTypeFaviconIco, created.ManagedLoginBranding.Assets[0].Category)
 	assert.Equal(t, "favicon-1", aws.ToString(created.ManagedLoginBranding.Assets[0].ResourceId))
-	assert.JSONEq(t, `{"components":{"favicon":"on"}}`, decodeCognitoDocument(t, created.ManagedLoginBranding.Settings))
+	assert.JSONEq(t, `{"components":{"favicon":"on"}}`, decodeIdpDocument(t, created.ManagedLoginBranding.Settings))
 
 	described, err := client.DescribeManagedLoginBranding(t.Context(), &cognitoidpsdk.DescribeManagedLoginBrandingInput{
 		UserPoolId: aws.String(poolID), ManagedLoginBrandingId: aws.String(brandingID),

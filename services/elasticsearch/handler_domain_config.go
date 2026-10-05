@@ -246,11 +246,11 @@ func applySecurityConfigFields(out *describeDomainConfigOutput, d *Domain, statu
 		Options: toAdvancedSecurityOptionsJSON(d.AdvancedSecurityOptions), Status: status,
 	}
 	out.DomainConfig.AutoTuneOptions = autoTuneConfigValue{
-		Options: toDomainConfigAutoTuneOptionsJSON(d.AutoTuneOptions),
+		Options: autoTuneOptionsToJSON(d.AutoTuneOptions),
 		Status:  autoTuneConfigStatus(d),
 	}
 	out.DomainConfig.DeploymentStrategyOptions = elasticsearchConfigValue{
-		Options: toDomainConfigDeploymentStrategyOptionsJSON(d.DeploymentStrategyOptions), Status: status,
+		Options: deploymentStrategyOptionsToJSON(d.DeploymentStrategyOptions), Status: status,
 	}
 	out.DomainConfig.LogPublishingOptions = elasticsearchConfigValue{
 		Options: toLogPublishingOptionsJSON(d.LogPublishingOptions), Status: status,
@@ -266,7 +266,7 @@ func applySecurityConfigFields(out *describeDomainConfigOutput, d *Domain, statu
 // RollbackOnDisable), which is DIFFERENT from the DomainStatus response's
 // shape (types.AutoTuneOptionsOutput, see toAutoTuneOptionsJSON in
 // handler_domains.go). RollbackOnDisable is stored and echoed verbatim.
-func toDomainConfigAutoTuneOptionsJSON(a *AutoTuneOptions) domainConfigAutoTuneOptionsJSON {
+func autoTuneOptionsToJSON(a *AutoTuneOptions) domainConfigAutoTuneOptionsJSON {
 	if a == nil {
 		return domainConfigAutoTuneOptionsJSON{DesiredState: autoTuneStateDisabled}
 	}
@@ -331,7 +331,7 @@ func autoTuneConfigStatus(d *Domain) autoTuneStatusJSON {
 // Converts a backend DeploymentStrategyOptions to its DomainConfig wire
 // representation, defaulting to "Default" when the domain never set one
 // (matching types.DeploymentStrategy's Default value).
-func toDomainConfigDeploymentStrategyOptionsJSON(d *DeploymentStrategyOptions) deploymentStrategyOptionsJSON {
+func deploymentStrategyOptionsToJSON(d *DeploymentStrategyOptions) deploymentStrategyOptionsJSON {
 	if d == nil {
 		return deploymentStrategyOptionsJSON{DeploymentStrategy: "Default"}
 	}
@@ -398,7 +398,7 @@ type autoTuneStatusJSON struct {
 }
 
 // domainConfigAutoTuneOptionsJSON mirrors types.AutoTuneOptions (the Options
-// member of AutoTuneOptionsStatus) -- see toDomainConfigAutoTuneOptionsJSON's
+// member of AutoTuneOptionsStatus) -- see autoTuneOptionsToJSON's
 // doc comment for why this differs from the DomainStatus response's shape.
 type domainConfigAutoTuneOptionsJSON struct {
 	DesiredState         string                            `json:"DesiredState,omitempty"`

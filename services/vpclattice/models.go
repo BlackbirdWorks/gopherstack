@@ -575,7 +575,7 @@ type storedDomainVerification struct {
 	Region           string            `json:"region"`
 }
 
-func (d *storedDomainVerification) toDomainVerification() *DomainVerification {
+func (d *storedDomainVerification) asDomainVerification() *DomainVerification {
 	return &DomainVerification{
 		ARN:              d.ARN,
 		ID:               d.ID,

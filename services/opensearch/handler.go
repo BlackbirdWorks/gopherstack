@@ -468,7 +468,7 @@ func (h *Handler) handleConfigPostRoute(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	h.writeJSON(r, w, map[string]any{jsonKeyDomainConfig: toDomainConfigJSON(domain)})
+	h.writeJSON(r, w, map[string]any{jsonKeyDomainConfig: domainConfigToJSON(domain)})
 }
 
 // dispatchDomainGetRoutes handles GET requests under a domain path.
