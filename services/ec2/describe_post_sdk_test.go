@@ -196,231 +196,15 @@ func TestDescribeFilters_WireFields(t *testing.T) {
 func TestDescribePagination_Families(t *testing.T) {
 	t.Parallel()
 
-	const seeded = 3
-
-	type pageFn func(ctx context.Context, c *ec2sdk.Client, limit *int32, token *string) ([]string, *string, error)
-
-	tests := []struct {
-		seed func(ctx context.Context, t *testing.T, c *ec2sdk.Client)
-		page pageFn
-		name string
-	}{
-		{
-			name: "vpcs",
-			seed: func(ctx context.Context, t *testing.T, c *ec2sdk.Client) {
-				t.Helper()
-				for i := range seeded {
-					_, err := c.CreateVpc(
-						ctx,
-						&ec2sdk.CreateVpcInput{CidrBlock: aws.String(fmt.Sprintf("10.%d.0.0/16", i+10))},
-					)
-					require.NoError(t, err)
-				}
-			},
-			page: func(ctx context.Context, c *ec2sdk.Client, m *int32, tok *string) ([]string, *string, error) {
-				out, err := c.DescribeVpcs(ctx, &ec2sdk.DescribeVpcsInput{MaxResults: m, NextToken: tok})
-				if err != nil {
-					return nil, nil, err
-				}
-
-				var ids []string
-				for _, v := range out.Vpcs {
-					ids = append(ids, aws.ToString(v.VpcId))
-				}
-
-				return ids, out.NextToken, nil
-			},
-		},
-		{
-			name: "ipams",
-			seed: func(ctx context.Context, t *testing.T, c *ec2sdk.Client) {
-				t.Helper()
-				for range seeded {
-					_, err := c.CreateIpam(ctx, &ec2sdk.CreateIpamInput{})
-					require.NoError(t, err)
-				}
-			},
-			page: func(ctx context.Context, c *ec2sdk.Client, m *int32, tok *string) ([]string, *string, error) {
-				out, err := c.DescribeIpams(ctx, &ec2sdk.DescribeIpamsInput{MaxResults: m, NextToken: tok})
-				if err != nil {
-					return nil, nil, err
-				}
-
-				var ids []string
-				for _, v := range out.Ipams {
-					ids = append(ids, aws.ToString(v.IpamId))
-				}
-
-				return ids, out.NextToken, nil
-			},
-		},
-		{
-			name: "verified_access_instances",
-			seed: func(ctx context.Context, t *testing.T, c *ec2sdk.Client) {
-				t.Helper()
-				for range seeded {
-					_, err := c.CreateVerifiedAccessInstance(ctx, &ec2sdk.CreateVerifiedAccessInstanceInput{})
-					require.NoError(t, err)
-				}
-			},
-			page: func(ctx context.Context, c *ec2sdk.Client, m *int32, tok *string) ([]string, *string, error) {
-				out, err := c.DescribeVerifiedAccessInstances(
-					ctx,
-					&ec2sdk.DescribeVerifiedAccessInstancesInput{MaxResults: m, NextToken: tok},
-				)
-				if err != nil {
-					return nil, nil, err
-				}
-
-				var ids []string
-				for _, v := range out.VerifiedAccessInstances {
-					ids = append(ids, aws.ToString(v.VerifiedAccessInstanceId))
-				}
-
-				return ids, out.NextToken, nil
-			},
-		},
-		{
-			name: "route_servers",
-			seed: func(ctx context.Context, t *testing.T, c *ec2sdk.Client) {
-				t.Helper()
-				for i := range seeded {
-					_, err := c.CreateRouteServer(
-						ctx,
-						&ec2sdk.CreateRouteServerInput{AmazonSideAsn: aws.Int64(int64(64512 + i))},
-					)
-					require.NoError(t, err)
-				}
-			},
-			page: func(ctx context.Context, c *ec2sdk.Client, m *int32, tok *string) ([]string, *string, error) {
-				out, err := c.DescribeRouteServers(
-					ctx,
-					&ec2sdk.DescribeRouteServersInput{MaxResults: m, NextToken: tok},
-				)
-				if err != nil {
-					return nil, nil, err
-				}
-
-				var ids []string
-				for _, v := range out.RouteServers {
-					ids = append(ids, aws.ToString(v.RouteServerId))
-				}
-
-				return ids, out.NextToken, nil
-			},
-		},
-		{
-			name: "transit_gateways",
-			seed: func(ctx context.Context, t *testing.T, c *ec2sdk.Client) {
-				t.Helper()
-				for range seeded {
-					_, err := c.CreateTransitGateway(ctx, &ec2sdk.CreateTransitGatewayInput{})
-					require.NoError(t, err)
-				}
-			},
-			page: func(ctx context.Context, c *ec2sdk.Client, m *int32, tok *string) ([]string, *string, error) {
-				out, err := c.DescribeTransitGateways(
-					ctx,
-					&ec2sdk.DescribeTransitGatewaysInput{MaxResults: m, NextToken: tok},
-				)
-				if err != nil {
-					return nil, nil, err
-				}
-
-				var ids []string
-				for _, v := range out.TransitGateways {
-					ids = append(ids, aws.ToString(v.TransitGatewayId))
-				}
-
-				return ids, out.NextToken, nil
-			},
-		},
-		{
-			name: "dhcp_options",
-			seed: func(ctx context.Context, t *testing.T, c *ec2sdk.Client) {
-				t.Helper()
-				for range seeded {
-					_, err := c.CreateDhcpOptions(
-						ctx,
-						&ec2sdk.CreateDhcpOptionsInput{DhcpConfigurations: []types.NewDhcpConfiguration{
-							{Key: aws.String("domain-name"), Values: []string{"example.com"}},
-						}},
-					)
-					require.NoError(t, err)
-				}
-			},
-			page: func(ctx context.Context, c *ec2sdk.Client, m *int32, tok *string) ([]string, *string, error) {
-				out, err := c.DescribeDhcpOptions(ctx, &ec2sdk.DescribeDhcpOptionsInput{MaxResults: m, NextToken: tok})
-				if err != nil {
-					return nil, nil, err
-				}
-
-				var ids []string
-				for _, v := range out.DhcpOptions {
-					ids = append(ids, aws.ToString(v.DhcpOptionsId))
-				}
-
-				return ids, out.NextToken, nil
-			},
-		},
-		{
-			name: "volumes",
-			seed: func(ctx context.Context, t *testing.T, c *ec2sdk.Client) {
-				t.Helper()
-				for range seeded {
-					_, err := c.CreateVolume(
-						ctx,
-						&ec2sdk.CreateVolumeInput{AvailabilityZone: aws.String("us-east-1a"), Size: aws.Int32(8)},
-					)
-					require.NoError(t, err)
-				}
-			},
-			page: func(ctx context.Context, c *ec2sdk.Client, m *int32, tok *string) ([]string, *string, error) {
-				out, err := c.DescribeVolumes(ctx, &ec2sdk.DescribeVolumesInput{MaxResults: m, NextToken: tok})
-				if err != nil {
-					return nil, nil, err
-				}
-
-				var ids []string
-				for _, v := range out.Volumes {
-					ids = append(ids, aws.ToString(v.VolumeId))
-				}
-
-				return ids, out.NextToken, nil
-			},
-		},
-		{
-			name: "launch_templates",
-			seed: func(ctx context.Context, t *testing.T, c *ec2sdk.Client) {
-				t.Helper()
-				for i := range seeded {
-					_, err := c.CreateLaunchTemplate(ctx, &ec2sdk.CreateLaunchTemplateInput{
-						LaunchTemplateName: aws.String(fmt.Sprintf("lt-%d", i)),
-						LaunchTemplateData: &types.RequestLaunchTemplateData{
-							ImageId:      aws.String("ami-12345678"),
-							InstanceType: types.InstanceTypeT3Micro,
-						},
-					})
-					require.NoError(t, err)
-				}
-			},
-			page: func(ctx context.Context, c *ec2sdk.Client, m *int32, tok *string) ([]string, *string, error) {
-				out, err := c.DescribeLaunchTemplates(
-					ctx,
-					&ec2sdk.DescribeLaunchTemplatesInput{MaxResults: m, NextToken: tok},
-				)
-				if err != nil {
-					return nil, nil, err
-				}
-
-				var ids []string
-				for _, v := range out.LaunchTemplates {
-					ids = append(ids, aws.ToString(v.LaunchTemplateId))
-				}
-
-				return ids, out.NextToken, nil
-			},
-		},
+	tests := []pageFamilyCase{
+		pageFamilyVpcs(),
+		pageFamilyIpams(),
+		pageFamilyVerifiedAccessInstances(),
+		pageFamilyRouteServers(),
+		pageFamilyTransitGateways(),
+		pageFamilyDhcpOptions(),
+		pageFamilyVolumes(),
+		pageFamilyLaunchTemplates(),
 	}
 
 	for _, tt := range tests {
@@ -456,7 +240,7 @@ func TestDescribePagination_Families(t *testing.T) {
 			}
 
 			assertDisjointPages(t, pages, total)
-			assert.GreaterOrEqual(t, total, seeded)
+			assert.GreaterOrEqual(t, total, pageFamilySeeded)
 			assert.LessOrEqual(t, len(pages[0]), 2)
 		})
 	}
@@ -765,5 +549,255 @@ func TestDescribeFilters_SharedEngineWildcards(t *testing.T) {
 			_, client := newTestBackendAndClient(t)
 			assert.ElementsMatch(t, tt.want, tt.run(t.Context(), t, client))
 		})
+	}
+}
+
+const pageFamilySeeded = 3
+
+type pageFamilyFn func(ctx context.Context, c *ec2sdk.Client, limit *int32, token *string) ([]string, *string, error)
+
+type pageFamilyCase struct {
+	seed func(ctx context.Context, t *testing.T, c *ec2sdk.Client)
+	page pageFamilyFn
+	name string
+}
+
+func pageFamilyVpcs() pageFamilyCase {
+	return pageFamilyCase{
+		name: "vpcs",
+		seed: func(ctx context.Context, t *testing.T, c *ec2sdk.Client) {
+			t.Helper()
+			for i := range pageFamilySeeded {
+				_, err := c.CreateVpc(
+					ctx,
+					&ec2sdk.CreateVpcInput{CidrBlock: aws.String(fmt.Sprintf("10.%d.0.0/16", i+10))},
+				)
+				require.NoError(t, err)
+			}
+		},
+		page: func(ctx context.Context, c *ec2sdk.Client, m *int32, tok *string) ([]string, *string, error) {
+			out, err := c.DescribeVpcs(ctx, &ec2sdk.DescribeVpcsInput{MaxResults: m, NextToken: tok})
+			if err != nil {
+				return nil, nil, err
+			}
+
+			var ids []string
+			for _, v := range out.Vpcs {
+				ids = append(ids, aws.ToString(v.VpcId))
+			}
+
+			return ids, out.NextToken, nil
+		},
+	}
+}
+
+func pageFamilyIpams() pageFamilyCase {
+	return pageFamilyCase{
+		name: "ipams",
+		seed: func(ctx context.Context, t *testing.T, c *ec2sdk.Client) {
+			t.Helper()
+			for range pageFamilySeeded {
+				_, err := c.CreateIpam(ctx, &ec2sdk.CreateIpamInput{})
+				require.NoError(t, err)
+			}
+		},
+		page: func(ctx context.Context, c *ec2sdk.Client, m *int32, tok *string) ([]string, *string, error) {
+			out, err := c.DescribeIpams(ctx, &ec2sdk.DescribeIpamsInput{MaxResults: m, NextToken: tok})
+			if err != nil {
+				return nil, nil, err
+			}
+
+			var ids []string
+			for _, v := range out.Ipams {
+				ids = append(ids, aws.ToString(v.IpamId))
+			}
+
+			return ids, out.NextToken, nil
+		},
+	}
+}
+
+func pageFamilyVerifiedAccessInstances() pageFamilyCase {
+	return pageFamilyCase{
+		name: "verified_access_instances",
+		seed: func(ctx context.Context, t *testing.T, c *ec2sdk.Client) {
+			t.Helper()
+			for range pageFamilySeeded {
+				_, err := c.CreateVerifiedAccessInstance(ctx, &ec2sdk.CreateVerifiedAccessInstanceInput{})
+				require.NoError(t, err)
+			}
+		},
+		page: func(ctx context.Context, c *ec2sdk.Client, m *int32, tok *string) ([]string, *string, error) {
+			out, err := c.DescribeVerifiedAccessInstances(
+				ctx,
+				&ec2sdk.DescribeVerifiedAccessInstancesInput{MaxResults: m, NextToken: tok},
+			)
+			if err != nil {
+				return nil, nil, err
+			}
+
+			var ids []string
+			for _, v := range out.VerifiedAccessInstances {
+				ids = append(ids, aws.ToString(v.VerifiedAccessInstanceId))
+			}
+
+			return ids, out.NextToken, nil
+		},
+	}
+}
+
+func pageFamilyRouteServers() pageFamilyCase {
+	return pageFamilyCase{
+		name: "route_servers",
+		seed: func(ctx context.Context, t *testing.T, c *ec2sdk.Client) {
+			t.Helper()
+			for i := range pageFamilySeeded {
+				_, err := c.CreateRouteServer(
+					ctx,
+					&ec2sdk.CreateRouteServerInput{AmazonSideAsn: aws.Int64(int64(64512 + i))},
+				)
+				require.NoError(t, err)
+			}
+		},
+		page: func(ctx context.Context, c *ec2sdk.Client, m *int32, tok *string) ([]string, *string, error) {
+			out, err := c.DescribeRouteServers(
+				ctx,
+				&ec2sdk.DescribeRouteServersInput{MaxResults: m, NextToken: tok},
+			)
+			if err != nil {
+				return nil, nil, err
+			}
+
+			var ids []string
+			for _, v := range out.RouteServers {
+				ids = append(ids, aws.ToString(v.RouteServerId))
+			}
+
+			return ids, out.NextToken, nil
+		},
+	}
+}
+
+func pageFamilyTransitGateways() pageFamilyCase {
+	return pageFamilyCase{
+		name: "transit_gateways",
+		seed: func(ctx context.Context, t *testing.T, c *ec2sdk.Client) {
+			t.Helper()
+			for range pageFamilySeeded {
+				_, err := c.CreateTransitGateway(ctx, &ec2sdk.CreateTransitGatewayInput{})
+				require.NoError(t, err)
+			}
+		},
+		page: func(ctx context.Context, c *ec2sdk.Client, m *int32, tok *string) ([]string, *string, error) {
+			out, err := c.DescribeTransitGateways(
+				ctx,
+				&ec2sdk.DescribeTransitGatewaysInput{MaxResults: m, NextToken: tok},
+			)
+			if err != nil {
+				return nil, nil, err
+			}
+
+			var ids []string
+			for _, v := range out.TransitGateways {
+				ids = append(ids, aws.ToString(v.TransitGatewayId))
+			}
+
+			return ids, out.NextToken, nil
+		},
+	}
+}
+
+func pageFamilyDhcpOptions() pageFamilyCase {
+	return pageFamilyCase{
+		name: "dhcp_options",
+		seed: func(ctx context.Context, t *testing.T, c *ec2sdk.Client) {
+			t.Helper()
+			for range pageFamilySeeded {
+				_, err := c.CreateDhcpOptions(
+					ctx,
+					&ec2sdk.CreateDhcpOptionsInput{DhcpConfigurations: []types.NewDhcpConfiguration{
+						{Key: aws.String("domain-name"), Values: []string{"example.com"}},
+					}},
+				)
+				require.NoError(t, err)
+			}
+		},
+		page: func(ctx context.Context, c *ec2sdk.Client, m *int32, tok *string) ([]string, *string, error) {
+			out, err := c.DescribeDhcpOptions(ctx, &ec2sdk.DescribeDhcpOptionsInput{MaxResults: m, NextToken: tok})
+			if err != nil {
+				return nil, nil, err
+			}
+
+			var ids []string
+			for _, v := range out.DhcpOptions {
+				ids = append(ids, aws.ToString(v.DhcpOptionsId))
+			}
+
+			return ids, out.NextToken, nil
+		},
+	}
+}
+
+func pageFamilyVolumes() pageFamilyCase {
+	return pageFamilyCase{
+		name: "volumes",
+		seed: func(ctx context.Context, t *testing.T, c *ec2sdk.Client) {
+			t.Helper()
+			for range pageFamilySeeded {
+				_, err := c.CreateVolume(
+					ctx,
+					&ec2sdk.CreateVolumeInput{AvailabilityZone: aws.String("us-east-1a"), Size: aws.Int32(8)},
+				)
+				require.NoError(t, err)
+			}
+		},
+		page: func(ctx context.Context, c *ec2sdk.Client, m *int32, tok *string) ([]string, *string, error) {
+			out, err := c.DescribeVolumes(ctx, &ec2sdk.DescribeVolumesInput{MaxResults: m, NextToken: tok})
+			if err != nil {
+				return nil, nil, err
+			}
+
+			var ids []string
+			for _, v := range out.Volumes {
+				ids = append(ids, aws.ToString(v.VolumeId))
+			}
+
+			return ids, out.NextToken, nil
+		},
+	}
+}
+
+func pageFamilyLaunchTemplates() pageFamilyCase {
+	return pageFamilyCase{
+		name: "launch_templates",
+		seed: func(ctx context.Context, t *testing.T, c *ec2sdk.Client) {
+			t.Helper()
+			for i := range pageFamilySeeded {
+				_, err := c.CreateLaunchTemplate(ctx, &ec2sdk.CreateLaunchTemplateInput{
+					LaunchTemplateName: aws.String(fmt.Sprintf("lt-%d", i)),
+					LaunchTemplateData: &types.RequestLaunchTemplateData{
+						ImageId:      aws.String("ami-12345678"),
+						InstanceType: types.InstanceTypeT3Micro,
+					},
+				})
+				require.NoError(t, err)
+			}
+		},
+		page: func(ctx context.Context, c *ec2sdk.Client, m *int32, tok *string) ([]string, *string, error) {
+			out, err := c.DescribeLaunchTemplates(
+				ctx,
+				&ec2sdk.DescribeLaunchTemplatesInput{MaxResults: m, NextToken: tok},
+			)
+			if err != nil {
+				return nil, nil, err
+			}
+
+			var ids []string
+			for _, v := range out.LaunchTemplates {
+				ids = append(ids, aws.ToString(v.LaunchTemplateId))
+			}
+
+			return ids, out.NextToken, nil
+		},
 	}
 }
