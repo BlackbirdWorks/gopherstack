@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 66 (64 ok, 2 partial) |
 | Feature families | 18 (17 ok, 1 partial) |
-| Known gaps | 3 |
+| Known gaps | 4 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -18,6 +18,7 @@
 - List*JobSummaries: AggregationPeriod bucketing, AGGREGATE_ALL sums and per-row ResourceType/StartTime/EndTime need a historical-bucketing model; copy MessageCategory and ScanResultStatus filters have no backing job field.
 - Unmodeled subsystems: MPA session approval (DescribeBackupVault MpaSessionArn/LatestMpaApprovalTeamUpdate), GuardDuty malware scanning (GetPITRMalwareScanResults, ScanActions/ScanSettings, PITR eligibility), the search-index subsystem (IndexActions), and cross-account vaults (TargetLogicallyAirGappedBackupVaultArn).
 - DescribeScanJob/ListScanJobs CreatedBy and ProtectedResource.ResourceName have no source: no plan/rule lineage on recovery points and no resource-name field on jobs.
+- StartBackupJob CompleteWindowMinutes and LogicallyAirGappedBackupVaultArn, StartRestoreJob CopySourceTagsToRestoredResource, ListRecoveryPointsByBackupVault ByBackupPlanId and ListRecoveryPointsByResource ManagedByAWSBackupOnly are accepted without effect: jobs finish instantly (no window to cancel), restored resources are not materialised (no tags to copy), recovery points carry no plan lineage.
 
 ## More
 

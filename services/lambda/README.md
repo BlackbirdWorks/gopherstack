@@ -8,7 +8,7 @@
 | Metric | Value |
 | --- | --- |
 | Feature families | 10 (10 ok) |
-| Known gaps | 4 |
+| Known gaps | 5 |
 | Deferred items | 0 |
 | Resource leaks | ok |
 
@@ -18,6 +18,7 @@
 - Kafka ESM: MSK sources are polled only when services/kafka runs a real broker (--kafka-engine=docker); metadata-only MSK clusters stay unpolled with a warning, and MSK auth settings (IAM/SCRAM/TLS) are ignored (gopherstack-ce985).
 - MQ ESM: Amazon MQ sources are polled only when services/mq runs a real broker (--mq-engine=docker); metadata-only brokers stay unpolled with a warning. ActiveMQ is consumed over STOMP (AWS uses OpenWire/JMS), so brokerInTime is the message timestamp and messageType is inferred from STOMP content-length; one queue per mapping (Queues[0]); no TLS; the BASIC_AUTH secret must be JSON with username/password keys (the Lambda guide does not show its layout) and is read from services/secretsmanager in the secret ARN's region.
 - Kafka ESM (self-managed): SourceAccessConfigurations (SASL/SCRAM, mTLS, TLS root CA, VPC) are ignored -- only plaintext brokers are reachable; ProvisionedPollersConfig, DestinationConfig.OnFailure and per-partition concurrency are not honored (gopherstack-ce985).
+- Qualifier-scoped function URLs (Create/Get/Update/Delete/ListFunctionUrlConfigs) are keyed by function only, and async-invoke retry/destination resolution reads only the unqualified event invoke config, never the version/alias one. ESM ScalingConfig/MetricsConfig/ProvisionedPollerConfig/LoggingConfig and function-level KMSKeyArn are stored and echoed but not enforced (no poller concurrency cap, no metrics emission, no env-var encryption). Not applied: CreateFunction/UpdateFunctionCode PublishTo, CapacityProviderConfig, TenancyConfig, UpdateFunctionCode DryRun/S3ObjectVersion/SourceKMSKeyArn, Invoke TenantId, ListFunctions MasterRegion.
 
 ## More
 
