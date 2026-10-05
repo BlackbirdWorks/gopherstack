@@ -95,3 +95,7 @@ layers.go). Covered by `layer_upload_ttl_test.go`
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 ecrpublic stays global by design: AWS serves ECR Public only from us-east-1, so a repository created through any region lands in the one store. Proof: `TestRegionIsolation/ecrpublic` (global case).
+
+## 2026-10-04 (gopherstack-uox6 value-semantics)
+
+DescribeRepositories/DescribeImages/DescribeImageTags now paginate: maxResults 1-1000 (default 100), nextToken honoured; maxResults/nextToken combined with repositoryNames/imageIds is rejected ("you can't use this option"). DescribeImageTags orders by tag.

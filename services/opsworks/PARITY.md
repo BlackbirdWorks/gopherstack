@@ -926,3 +926,7 @@ was retyped or removed.
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 opsworks is region-isolated: stacks, layers, instances and apps live per region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/opsworks`. Limitation: the dashboard shows the home region only. The tagging bridge lists the request region and resolves Tag/Untag by ARN region. `TestHandler_MultiRegionReset` covers Reset.
+
+## 2026-10-04 (gopherstack-uox6 value-semantics)
+
+Recorded, not fixed: 11 Describe* ops document "This call accepts only one resource-identifying parameter" (e.g. api_op_DescribeInstances.go:18). The backend ANDs combined identifiers (pinned by `TestDescribeVolumes_RaidArrayIDExcludesAll`); the real rejection code and message are not in the SDK, so the combination is not rejected.

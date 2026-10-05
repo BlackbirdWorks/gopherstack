@@ -110,7 +110,7 @@ func TestBackend_ApplicationVersionHistory(t *testing.T) {
 		"arn:aws:logs:us-east-1:000000000000:log-group:g:log-stream:s", "")
 	require.NoError(t, err)
 
-	versions, _, err := b.ListApplicationVersions(ctx, "version-history-app", "")
+	versions, _, err := b.ListApplicationVersions(ctx, "version-history-app", "", 0)
 	require.NoError(t, err)
 	require.Len(t, versions, 2, "expected a version-history entry for both CreateApplication and the Add* call")
 	assert.Equal(t, int64(1), versions[0].ApplicationVersionID)

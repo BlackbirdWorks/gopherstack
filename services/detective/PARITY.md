@@ -424,3 +424,7 @@ detective is region-isolated: each region has its own behavior graph (one per re
 ## 2026-10-04 (reqfielddiff tier-1 re-examined: CreateMembers.DisableEmailNotification)
 
 Still recorded: the flag only suppresses the invitation email Detective sends to the invited account's root address (api_op_CreateMembers.go:79); no mailbox the caller can read exists in this emulator and no response member echoes the flag, so there is nothing observable to implement.
+
+## 2026-10-04 (gopherstack-uox6 value-semantics)
+
+ListInvestigations now applies FilterCriteria (members ANDed, StringFilter exact, CreatedTime inclusive on both bounds) and SortCriteria (default order unchanged: InvestigationId). Severity sorts INFORMATIONAL..CRITICAL, Status lexically; the SDK specifies neither ordering.

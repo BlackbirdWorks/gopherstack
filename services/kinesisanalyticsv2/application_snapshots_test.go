@@ -29,7 +29,7 @@ func TestBackend_SnapshotLifecycle(t *testing.T) {
 	assert.Equal(t, "READY", snap.SnapshotStatus)
 
 	// List snapshots.
-	snaps, _, err := b.ListApplicationSnapshots(ctx, "snap-app", "")
+	snaps, _, err := b.ListApplicationSnapshots(ctx, "snap-app", "", 0)
 	require.NoError(t, err)
 	assert.Len(t, snaps, 1)
 
@@ -41,7 +41,7 @@ func TestBackend_SnapshotLifecycle(t *testing.T) {
 	err = b.DeleteApplicationSnapshot(ctx, "snap-app", "snap-1")
 	require.NoError(t, err)
 
-	snaps, _, err = b.ListApplicationSnapshots(ctx, "snap-app", "")
+	snaps, _, err = b.ListApplicationSnapshots(ctx, "snap-app", "", 0)
 	require.NoError(t, err)
 	assert.Empty(t, snaps)
 }
@@ -110,7 +110,7 @@ func TestBackend_ListApplicationSnapshotsPagination(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			snaps, outToken, err := b.ListApplicationSnapshots(ctx, "paged-snap-app", "")
+			snaps, outToken, err := b.ListApplicationSnapshots(ctx, "paged-snap-app", "", 0)
 			require.NoError(t, err)
 
 			if tt.wantNextToken {
@@ -120,7 +120,7 @@ func TestBackend_ListApplicationSnapshotsPagination(t *testing.T) {
 				// Second page.
 				var snaps2 []*kinesisanalyticsv2.Snapshot
 				var outToken2 string
-				snaps2, outToken2, err = b.ListApplicationSnapshots(ctx, "paged-snap-app", outToken)
+				snaps2, outToken2, err = b.ListApplicationSnapshots(ctx, "paged-snap-app", outToken, 0)
 				require.NoError(t, err)
 				assert.Len(t, snaps2, tt.count-50)
 				assert.Empty(t, outToken2)
@@ -152,7 +152,7 @@ func TestBackend_ListApplicationSnapshots_SortedByCreationTime(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	snaps, _, err := b.ListApplicationSnapshots(ctx, "sort-snap-app", "")
+	snaps, _, err := b.ListApplicationSnapshots(ctx, "sort-snap-app", "", 0)
 	require.NoError(t, err)
 	require.Len(t, snaps, 3)
 

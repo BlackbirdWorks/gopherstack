@@ -2,7 +2,6 @@ package kinesisanalyticsv2
 
 import (
 	"context"
-	"strconv"
 	"time"
 )
 
@@ -35,6 +34,8 @@ func (b *InMemoryBackend) DescribeApplicationOperation(
 func (b *InMemoryBackend) ListApplicationOperations(
 	ctx context.Context,
 	name, nextToken string,
+	limit int,
+	operation, status string,
 ) ([]*ApplicationOperation, string, error) {
 	region := getRegion(ctx, b.defaultRegion)
 
@@ -46,23 +47,17 @@ func (b *InMemoryBackend) ListApplicationOperations(
 	}
 
 	ops := b.operations[region][name]
-	out := make([]*ApplicationOperation, len(ops))
-	copy(out, ops)
+	out := make([]*ApplicationOperation, 0, len(ops))
 
-	startIdx := parseNextToken(nextToken)
-	if startIdx >= len(out) {
-		return []*ApplicationOperation{}, "", nil
-	}
-	end := startIdx + kav2DefaultPageSize
-	var outToken string
-
-	if end < len(out) {
-		outToken = strconv.Itoa(end)
-	} else {
-		end = len(out)
+	for _, op := range ops {
+		if (operation == "" || op.Operation == operation) && (status == "" || op.OperationStatus == status) {
+			out = append(out, op)
+		}
 	}
 
-	return out[startIdx:end], outToken, nil
+	page, outToken := pageSlice(out, nextToken, limit)
+
+	return page, outToken, nil
 }
 
 // DescribeApplicationVersion returns the application state at a specific version ID.
@@ -93,6 +88,7 @@ func (b *InMemoryBackend) DescribeApplicationVersion(
 func (b *InMemoryBackend) ListApplicationVersions(
 	ctx context.Context,
 	name, nextToken string,
+	limit int,
 ) ([]*ApplicationVersionSummary, string, error) {
 	region := getRegion(ctx, b.defaultRegion)
 
@@ -113,20 +109,9 @@ func (b *InMemoryBackend) ListApplicationVersions(
 		})
 	}
 
-	startIdx := parseNextToken(nextToken)
-	if startIdx >= len(summaries) {
-		return []*ApplicationVersionSummary{}, "", nil
-	}
-	end := startIdx + kav2DefaultPageSize
-	var outToken string
+	page, outToken := pageSlice(summaries, nextToken, limit)
 
-	if end < len(summaries) {
-		outToken = strconv.Itoa(end)
-	} else {
-		end = len(summaries)
-	}
-
-	return summaries[startIdx:end], outToken, nil
+	return page, outToken, nil
 }
 
 // RollbackApplication rolls back an application to its previous version,

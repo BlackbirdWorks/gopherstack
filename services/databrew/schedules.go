@@ -3,6 +3,7 @@ package databrew
 import (
 	"context"
 	"maps"
+	"slices"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -57,7 +58,7 @@ func (b *InMemoryBackend) DescribeSchedule(ctx context.Context, name string) (*S
 func (b *InMemoryBackend) ListSchedules(
 	ctx context.Context,
 	maxResults int,
-	nextToken string,
+	nextToken, jobName string,
 ) ([]*Schedule, string) {
 	b.mu.RLock("ListSchedules")
 	defer b.mu.RUnlock()
@@ -65,6 +66,15 @@ func (b *InMemoryBackend) ListSchedules(
 	region := getRegion(ctx, b.defaultRegion)
 	t := b.schedulesTable(region)
 	keys := snapshotKeys(t, scheduleKeyFn)
+
+	if jobName != "" {
+		keys = slices.DeleteFunc(keys, func(k string) bool {
+			v, _ := t.Get(k)
+
+			return !slices.Contains(v.JobNames, jobName)
+		})
+	}
+
 	pageKeys, next := paginateKeys(keys, maxResults, nextToken)
 	out := make([]*Schedule, 0, len(pageKeys))
 	for _, k := range pageKeys {

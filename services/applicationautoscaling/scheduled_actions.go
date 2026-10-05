@@ -234,7 +234,7 @@ func (b *InMemoryBackend) DescribeScheduledActions(
 		list = append(list, &cp)
 	}
 
-	return paginate(list, f.MaxResults, f.NextToken, func(a *ScheduledAction) string {
+	return paginate(list, f.MaxResults, maxDescribeScheduled, f.NextToken, func(a *ScheduledAction) string {
 		return a.ServiceNamespace + "|" + a.ResourceID + "|" + a.ScalableDimension + "|" + a.ScheduledActionName
 	})
 }

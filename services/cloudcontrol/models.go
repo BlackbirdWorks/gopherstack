@@ -13,6 +13,9 @@ const (
 // defaultListMaxResults is the default page size for list operations.
 const defaultListMaxResults = 100
 
+// defaultListResourceRequestsMaxResults is documented at api_op_ListResourceRequests.go:42.
+const defaultListResourceRequestsMaxResults = 20
+
 // unixEpochTime wraps [time.Time] and marshals to/from a JSON number (Unix seconds),
 // which is the format expected by the AWS CloudControl SDK v2 client.
 type unixEpochTime struct {

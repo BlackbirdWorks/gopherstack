@@ -908,3 +908,7 @@ table's existing verdicts.
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 directconnect is region-isolated: connections, LAGs, interconnects, virtual interfaces and gateways live per region. Direct Connect gateways are account-global in AWS ("a Direct Connect gateway is a globally available resource"), so gateway, association, proposal and attachment operations and gateway tags always use the home backend; associations to a VGW or TGW of any region work, and virtual interfaces in a region find the global gateway. Snapshots keep each gateway once, in the home backend. Each region runs its own transition timers, stopped on Reset, Shutdown or restore. The tagging bridge follows the region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestHandler_GatewaysAreAccountGlobal`, `TestRegionIsolation/directconnect`. Limitation: the dashboard shows the home region only.
+
+## 2026-10-04 (gopherstack-uox6 value-semantics)
+
+MaxResults above 100 is capped at 100 ("only 100 results are returned", api_op_DescribeConnections.go:36). Previously honoured as given.

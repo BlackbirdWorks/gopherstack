@@ -215,3 +215,7 @@ delayed transition fires. No `items_still_open` changes; no
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 databrew already region-isolated: same-named resources in two regions stay separate and each region lists only its own. No code change. Proof: `TestRegionIsolation/databrew`.
+
+## 2026-10-04 (gopherstack-uox6 value-semantics)
+
+ListSchedules now honours `jobName` (schedules whose JobNames contains it); the query parameter was never merged into the request body.

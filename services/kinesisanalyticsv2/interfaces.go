@@ -13,7 +13,7 @@ type StorageBackend interface {
 	) (*Application, error)
 	SeedApplicationConfiguration(ctx context.Context, name string, cfg SeedConfig) error
 	DescribeApplication(ctx context.Context, name string) (*Application, error)
-	ListApplications(ctx context.Context, nextToken string) ([]*Application, string)
+	ListApplications(ctx context.Context, nextToken string, limit int) ([]*Application, string)
 	UpdateApplication(ctx context.Context, params UpdateApplicationParams) (*Application, string, error)
 	DeleteApplication(ctx context.Context, name string, createTimestampSeconds *float64) error
 	StartApplication(
@@ -23,7 +23,7 @@ type StorageBackend interface {
 
 	CreateApplicationSnapshot(ctx context.Context, appName, snapshotName string) (*Snapshot, error)
 	DescribeApplicationSnapshot(ctx context.Context, appName, snapshotName string) (*Snapshot, error)
-	ListApplicationSnapshots(ctx context.Context, appName, nextToken string) ([]*Snapshot, string, error)
+	ListApplicationSnapshots(ctx context.Context, appName, nextToken string, limit int) ([]*Snapshot, string, error)
 	DeleteApplicationSnapshot(ctx context.Context, appName, snapshotName string) error
 
 	TagResource(ctx context.Context, resourceARN string, tags []Tag) error
@@ -69,9 +69,13 @@ type StorageBackend interface {
 	) (string, error)
 
 	DescribeApplicationOperation(ctx context.Context, name, operationID string) (*ApplicationOperation, error)
-	ListApplicationOperations(ctx context.Context, name, nextToken string) ([]*ApplicationOperation, string, error)
+	ListApplicationOperations(
+		ctx context.Context, name, nextToken string, limit int, operation, status string,
+	) ([]*ApplicationOperation, string, error)
 	DescribeApplicationVersion(ctx context.Context, name string, versionID int64) (*Application, error)
-	ListApplicationVersions(ctx context.Context, name, nextToken string) ([]*ApplicationVersionSummary, string, error)
+	ListApplicationVersions(
+		ctx context.Context, name, nextToken string, limit int,
+	) ([]*ApplicationVersionSummary, string, error)
 	RollbackApplication(ctx context.Context, name string, currentVersionID int64) (*Application, string, error)
 	UpdateApplicationMaintenanceConfiguration(
 		ctx context.Context, name string, maintenanceWindowStartTime string,

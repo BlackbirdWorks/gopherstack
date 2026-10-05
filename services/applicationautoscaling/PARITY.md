@@ -261,3 +261,7 @@ Gates: `go build ./...`, `go vet ./services/applicationautoscaling/...`,
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 applicationautoscaling is region-isolated: Scalable targets, policies and scheduled actions live per region; the DynamoDB bridge resolves tables in the target region. Tagging bridge covers every region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/applicationautoscaling`. Limitation: the dashboard shows the home region only.
+
+## 2026-10-04 (gopherstack-uox6 value-semantics)
+
+Describe* MaxResults now defaults to and caps at the documented 50 (targets, scheduled actions, activities) and 10 (policies). Recorded: DescribeScalingActivities is documented nowhere in the SDK as newest-first, and the paginator orders by ActivityId, so the "most recent first" intent in the code is not honoured.

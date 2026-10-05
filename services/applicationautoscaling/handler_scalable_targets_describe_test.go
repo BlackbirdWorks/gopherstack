@@ -487,13 +487,12 @@ func TestHandler_MaxResults_DescribeScalableTargets(t *testing.T) {
 	}
 }
 
-func TestHandler_ApplyMaxResults_CapAt100(t *testing.T) {
+func TestHandler_ApplyMaxResults_CapAt50(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
 
-	// Register 110 scalable targets
-	for i := range 110 {
+	for i := range 60 {
 		doRequest(t, h, "RegisterScalableTarget", map[string]any{
 			"ServiceNamespace":  "ecs",
 			"ResourceId":        fmt.Sprintf("service/default/svc-%d", i),
@@ -513,5 +512,5 @@ func TestHandler_ApplyMaxResults_CapAt100(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	targets, _ := resp["ScalableTargets"].([]any)
-	assert.Len(t, targets, 100, "MaxResults=200 should be capped at 100")
+	assert.Len(t, targets, 50, "MaxResults=200 should be capped at 50")
 }

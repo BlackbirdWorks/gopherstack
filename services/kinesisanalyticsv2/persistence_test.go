@@ -185,7 +185,7 @@ func Test_InMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	// applicationsByRegion index: ListApplications only returns the
 	// us-east-1 application, not the eu-west-1 one.
-	list, _ := fresh.ListApplications(t.Context(), "")
+	list, _ := fresh.ListApplications(t.Context(), "", 0)
 	require.Len(t, list, 1)
 	assert.Equal(t, ids.appName, list[0].ApplicationName)
 
@@ -207,7 +207,7 @@ func Test_InMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, ids.snapshotName, snapDetail.SnapshotName)
 	assert.Equal(t, "READY", snapDetail.SnapshotStatus)
 
-	snapList, _, err := fresh.ListApplicationSnapshots(t.Context(), ids.appName, "")
+	snapList, _, err := fresh.ListApplicationSnapshots(t.Context(), ids.appName, "", 0)
 	require.NoError(t, err)
 	require.Len(t, snapList, 1)
 	assert.Equal(t, ids.snapshotName, snapList[0].SnapshotName)

@@ -78,3 +78,7 @@ TagResource/UntagResource/ListTagsForResource use PascalCase URI paths
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 kinesisvideo is region-isolated: streams, signaling channels and edge configurations live per region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/kinesisvideo`. Limitation: the dashboard shows the home region only. CloudFormation provisions it in the stack's region. `TestHandler_MultiRegionReset` covers Reset.
+
+## 2026-10-04 (gopherstack-uox6 value-semantics)
+
+ListStreams MaxResults defaults to 10,000 and ListEdgeAgentConfigurations to 5 per the SDK docs (were 500); ListSignalingChannels stays 500.

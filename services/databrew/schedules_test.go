@@ -77,7 +77,7 @@ func TestListSchedules(t *testing.T) {
 	require.NoError(t, err)
 	_, err = b.CreateSchedule(context.Background(), "sc2", nil, "cron(...)", nil)
 	require.NoError(t, err)
-	list, _ := b.ListSchedules(context.Background(), 100, "")
+	list, _ := b.ListSchedules(context.Background(), 100, "", "")
 	assert.Len(t, list, 2)
 }
 

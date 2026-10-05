@@ -250,12 +250,12 @@ func newProposalID() string { return uuid.NewString() }
 // "arn:aws:directconnect:us-east-1:000000000000:dxcon/dxcon-abc12345"),
 // returning ok=false if arnStr does not contain marker.
 func resourceIDFromARN(arnStr, marker string) (string, bool) {
-	idx := strings.LastIndex(arnStr, marker)
-	if idx < 0 {
+	_, after, ok := strings.CutLast(arnStr, marker)
+	if !ok {
 		return "", false
 	}
 
-	id := arnStr[idx+len(marker):]
+	id := after
 	if id == "" {
 		return "", false
 	}

@@ -218,6 +218,7 @@ type describeApplicationOutput struct {
 
 type listApplicationsInput struct {
 	NextToken string `json:"NextToken,omitempty"`
+	Limit     int    `json:"Limit,omitempty"`
 }
 
 type listApplicationsOutput struct {
@@ -588,7 +589,7 @@ func (h *Handler) handleListApplications(ctx context.Context, c *echo.Context, b
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
-	apps, outToken := h.Backend.ListApplications(ctx, in.NextToken)
+	apps, outToken := h.Backend.ListApplications(ctx, in.NextToken, in.Limit)
 	summaries := make([]applicationSummary, 0, len(apps))
 
 	for _, app := range apps {

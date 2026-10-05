@@ -195,7 +195,7 @@ func TestBackend_ListApplications(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			apps, _ := b.ListApplications(ctx, "")
+			apps, _ := b.ListApplications(ctx, "", 0)
 			assert.Len(t, apps, tt.wantLen)
 		})
 	}
@@ -238,13 +238,13 @@ func TestBackend_ListApplicationsPagination(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			apps, outToken := b.ListApplications(ctx, "")
+			apps, outToken := b.ListApplications(ctx, "", 0)
 			if tt.wantNextToken {
 				assert.Len(t, apps, 50)
 				assert.NotEmpty(t, outToken)
 
 				// Second page.
-				apps2, outToken2 := b.ListApplications(ctx, outToken)
+				apps2, outToken2 := b.ListApplications(ctx, outToken, 0)
 				assert.Len(t, apps2, tt.count-50)
 				assert.Empty(t, outToken2)
 			} else {
@@ -470,7 +470,7 @@ func TestBackend_StartStopApplication(t *testing.T) {
 			require.NoError(t, opErr)
 			assert.Equal(t, kinesisanalyticsv2.OperationStatusSuccessful, op.OperationStatus)
 
-			ops, _, listErr := b.ListApplicationOperations(ctx, "app-lifecycle", "")
+			ops, _, listErr := b.ListApplicationOperations(ctx, "app-lifecycle", "", 0, "", "")
 			require.NoError(t, listErr)
 			assert.NotEmpty(t, ops)
 		})

@@ -588,3 +588,7 @@ No behavior change: lookups already filter/delete expired sessions on access.
 
 Added `leak_main_test.go`. Janitor StartWorker call sites already cancel
 their ctx via `context.WithCancel(t.Context())`. `go test -race -count=2` clean.
+
+## 2026-10-04 (gopherstack-uox6 value-semantics)
+
+Recorded, not fixed: GetSessionToken/GetFederationToken document "Sessions for Amazon Web Services account owners are restricted to a maximum of 3,600 seconds ... defaults to one hour" (api_op_GetSessionToken.go:86); the backend has no root-caller identity, so the 43,200s default applies to every caller. Durations, ranges and defaults otherwise match.

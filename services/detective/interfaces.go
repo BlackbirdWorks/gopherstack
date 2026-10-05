@@ -27,7 +27,9 @@ type StorageBackend interface {
 
 	StartInvestigation(graphARN, entityARN string, scopeStart, scopeEnd time.Time) (string, error)
 	GetInvestigation(graphARN, investigationID string) (*Investigation, error)
-	ListInvestigations(graphARN string, maxResults int32, nextToken string) ([]*InvestigationDetail, string, error)
+	ListInvestigations(
+		graphARN string, filter InvestigationFilter, sortBy InvestigationSort, maxResults int32, nextToken string,
+	) ([]*InvestigationDetail, string, error)
 	UpdateInvestigationState(graphARN, investigationID, state string) error
 	ListIndicators(
 		graphARN, investigationID, indicatorType string,

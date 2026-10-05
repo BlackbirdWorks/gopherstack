@@ -14,8 +14,14 @@ import (
 // maxTagsPerResource is the AWS limit on the number of tags per resource.
 const maxTagsPerResource = 50
 
-// maxDescribeResults is the upper bound for MaxResults on Describe* operations.
-const maxDescribeResults = 100
+// Documented MaxResults default/max per Describe* op (api_op_DescribeScalableTargets.go:40,
+// DescribeScheduledActions.go:46, DescribeScalingPolicies.go:47, DescribeScalingActivities.go:55).
+const (
+	maxDescribeTargets    = 50
+	maxDescribeScheduled  = 50
+	maxDescribePolicies   = 10
+	maxDescribeActivities = 50
+)
 
 // maxForecastWindow is the maximum allowed [startTime, endTime) range for
 // GetPredictiveScalingForecast, matching the real AWS constraint of 14 days.
@@ -159,7 +165,13 @@ func decodePageToken(token string) (string, bool) {
 // keyFn is unique and ordering is deterministic. This is what lets Application
 // Auto Scaling Describe* ops report a real NextToken rather than always-empty.
 // Returns ErrInvalidNextToken if nextToken is non-empty and fails to decode.
-func paginate[T any](list []T, maxResults int32, nextToken string, keyFn func(T) string) ([]T, string, error) {
+func paginate[T any](
+	list []T,
+	maxResults int32,
+	maxLimit int,
+	nextToken string,
+	keyFn func(T) string,
+) ([]T, string, error) {
 	sort.Slice(list, func(i, j int) bool {
 		return keyFn(list[i]) < keyFn(list[j])
 	})
@@ -184,8 +196,8 @@ func paginate[T any](list []T, maxResults int32, nextToken string, keyFn func(T)
 	}
 
 	limit := int(maxResults)
-	if limit <= 0 || limit > int(maxDescribeResults) {
-		limit = int(maxDescribeResults)
+	if limit <= 0 || limit > maxLimit {
+		limit = maxLimit
 	}
 
 	end := min(start+limit, len(list))

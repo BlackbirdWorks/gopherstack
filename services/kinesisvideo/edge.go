@@ -169,7 +169,7 @@ func (b *InMemoryBackend) ListEdgeAgentConfigurations(
 
 	sort.Slice(matched, func(i, j int) bool { return matched[i].StreamName < matched[j].StreamName })
 
-	p := page.New(matched, nextToken, maxResults, defaultListLimit)
+	p := page.New(matched, nextToken, maxResults, defaultListEdgeLimit)
 
 	return p.Data, p.Next, nil
 }

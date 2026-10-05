@@ -190,9 +190,9 @@ func TestCreateSourceLocation_MissingBaseURL(t *testing.T) {
 func TestDeleteSourceLocation_WithAttachedSources(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // fieldalignment: readability over micro-optimization
-		name       string
+	tests := []struct {
 		setup      func(t *testing.T, h *mediatailor.Handler)
+		name       string
 		wantStatus int
 	}{
 		{

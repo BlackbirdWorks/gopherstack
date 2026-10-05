@@ -350,7 +350,7 @@ func (b *InMemoryBackend) DescribeScalingPolicies(f DescribeScalingPoliciesFilte
 	// A policy set via DynamoDB's own API must show up here too.
 	list = append(list, b.dynamodbSiblingScalingPolicies(f, known)...)
 
-	return paginate(list, f.MaxResults, f.NextToken, func(p *ScalingPolicy) string {
+	return paginate(list, f.MaxResults, maxDescribePolicies, f.NextToken, func(p *ScalingPolicy) string {
 		return p.ARN
 	})
 }

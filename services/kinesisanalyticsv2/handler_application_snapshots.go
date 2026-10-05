@@ -25,6 +25,7 @@ type describeSnapshotOutput struct {
 type listSnapshotsInput struct {
 	ApplicationName string `json:"ApplicationName"`
 	NextToken       string `json:"NextToken,omitempty"`
+	Limit           int    `json:"Limit,omitempty"`
 }
 
 type listSnapshotsOutput struct {
@@ -74,7 +75,7 @@ func (h *Handler) handleListApplicationSnapshots(ctx context.Context, c *echo.Co
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
-	snaps, outToken, err := h.Backend.ListApplicationSnapshots(ctx, in.ApplicationName, in.NextToken)
+	snaps, outToken, err := h.Backend.ListApplicationSnapshots(ctx, in.ApplicationName, in.NextToken, in.Limit)
 	if err != nil {
 		return h.handleError(c, err)
 	}

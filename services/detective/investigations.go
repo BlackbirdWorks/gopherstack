@@ -178,9 +178,15 @@ func (b *InMemoryBackend) GetInvestigation(graphARN, investigationID string) (*I
 // ListInvestigations returns investigations for a graph.
 func (b *InMemoryBackend) ListInvestigations(
 	graphARN string,
+	filter InvestigationFilter,
+	sortBy InvestigationSort,
 	maxResults int32,
 	nextToken string,
 ) ([]*InvestigationDetail, string, error) {
+	if err := validateInvestigationSort(sortBy); err != nil {
+		return nil, "", err
+	}
+
 	b.mu.RLock("ListInvestigations")
 	defer b.mu.RUnlock()
 
@@ -188,8 +194,14 @@ func (b *InMemoryBackend) ListInvestigations(
 		return nil, "", ErrGraphNotFound
 	}
 
-	items := slices.Clone(b.investigationsByGraph.Get(graphARN))
+	items := slices.DeleteFunc(
+		slices.Clone(b.investigationsByGraph.Get(graphARN)),
+		func(inv *storedInvestigation) bool {
+			return !filter.matches(inv)
+		},
+	)
 	sort.Slice(items, func(i, j int) bool { return items[i].InvestigationID < items[j].InvestigationID })
+	sortInvestigations(items, sortBy)
 
 	start, err := decodePageToken(nextToken)
 	if err != nil {

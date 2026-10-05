@@ -606,3 +606,7 @@ rather than on empty sub-slices. No `items_still_open` changes; no
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 kinesisanalyticsv2 already keys its resources by region; same-named resources in two regions coexist with region-correct ARNs. Proof: `TestRegionIsolation/kinesisanalyticsv2`. No code change to the resource store.
+
+## 2026-10-04 (gopherstack-uox6 value-semantics)
+
+ListApplications/ListApplicationVersions/ListApplicationSnapshots/ListApplicationOperations now honour `Limit`; ListApplicationOperations honours `Operation` and `OperationStatus` (exact match). The SDK documents no default or maximum for Limit; the page default stays 50.

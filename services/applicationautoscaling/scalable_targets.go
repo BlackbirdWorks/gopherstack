@@ -338,7 +338,7 @@ type DescribeScalableTargetsFilter struct {
 	// NextToken is the opaque pagination cursor returned by a prior call.
 	NextToken   string
 	ResourceIDs []string
-	// MaxResults, when > 0, limits the number of returned items. Capped at maxDescribeResults.
+	// MaxResults, when > 0, limits the number of returned items. Defaults to and is capped at the documented maximum.
 	MaxResults int32
 }
 
@@ -385,7 +385,7 @@ func (b *InMemoryBackend) DescribeScalableTargets(f DescribeScalableTargetsFilte
 	// A target set via DynamoDB's own API must show up here too.
 	list = append(list, b.dynamodbSiblingScalableTargets(f, known)...)
 
-	return paginate(list, f.MaxResults, f.NextToken, func(t *ScalableTarget) string {
+	return paginate(list, f.MaxResults, maxDescribeTargets, f.NextToken, func(t *ScalableTarget) string {
 		return t.ResourceID + "|" + t.ScalableDimension
 	})
 }

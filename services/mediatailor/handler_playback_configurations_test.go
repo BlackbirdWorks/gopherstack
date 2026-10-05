@@ -200,9 +200,9 @@ func TestListPlaybackConfigurations_WithNextToken(t *testing.T) {
 func TestPutPlaybackConfiguration_RequiredFields(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // fieldalignment: readability over micro-optimization
-		name       string
+	tests := []struct {
 		body       map[string]any
+		name       string
 		wantStatus int
 	}{
 		{
