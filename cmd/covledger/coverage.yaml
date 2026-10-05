@@ -3214,3 +3214,63 @@ rows:
     date: "2026-10-05"
     commit: 7da0a893d
     source: "commit"
+  - service: batch
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 9de8c9d2f
+    source: "commit"
+  - service: codedeploy
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 9de8c9d2f
+    source: "commit"
+  - service: kinesisanalytics
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 9de8c9d2f
+    source: "commit"
+  - service: resiliencehub
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 9de8c9d2f
+    source: "commit"
+  - service: mediaconvert
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 9de8c9d2f
+    source: "commit"
+  - service: emrserverless
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 9de8c9d2f
+    source: "commit"
+  - service: efs
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 9de8c9d2f
+    source: "commit"
+  - service: managedblockchain
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: 9de8c9d2f
+    source: "commit"
+  - service: sqs
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: 9de8c9d2f
+    source: "commit"
+  - service: directconnect
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: 9de8c9d2f
+    source: "commit"
