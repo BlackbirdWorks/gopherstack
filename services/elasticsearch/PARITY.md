@@ -872,3 +872,7 @@ DescribeDomainChangeProgress now returns ChangeId, Status (COMPLETED), ConfigCha
 ## 2026-10-05 (reqfielddiff tier-2 pagination)
 
 DescribeDomainAutoTunes (always empty, validates the token), ListDomainsForPackage, ListElasticsearchInstanceTypes, ListElasticsearchVersions, ListPackagesForDomain, ListVpcEndpointAccess, ListVpcEndpoints and ListVpcEndpointsForDomain page through `writePagedList` (paging.go, elasticsearchservice@v1.45.4 query members): sorted, no default size documented so a missing maxResults returns the whole list, `NextToken` only when truncated except the VPC list ops whose required `NextToken` stays `""`, a malformed token returns ValidationException. Proof: `TestListOps_PageAndRejectBadTokens`.
+
+## 2026-10-05 (gopherstack-uox6 pass 9, value semantics)
+
+UpdateElasticsearchDomainConfig replaced ElasticsearchClusterConfig, EBSOptions and DomainEndpointOptions wholesale and treated an omitted EncryptionAtRest/NodeToNode Enabled as false, wiping stored members (every member is an optional pointer, types.go:579-609, 732-750). Omitted members now keep their value (interpretation of the optional-pointer shape; the SDK states no merge rule). Proof: `TestUpdateDomainConfig_PartialMembersKeepStoredValues`. Recorded: SnapshotOptions has one member so an empty one still resets to 0.

@@ -770,3 +770,7 @@ Audited clean: DescribeEvents source/time filters, DescribeParameters Source, or
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 dax is region-isolated: Clusters, parameter groups and subnet groups live per region. The data-plane listener serves only the home region. Tagging bridge covers every region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/dax`. Limitation: the dashboard shows the home region only.
+
+## 2026-10-05 (gopherstack-uox6 pass 9, value semantics)
+
+Round trips clean. Recorded, unchanged: UpdateCluster does not move a cluster through "modifying" and an omitted SecurityGroupIds leaves the node group list empty rather than assigning a default VPC group (api_op_CreateCluster.go:139 names a default group but no ID to report; API-docs-only).

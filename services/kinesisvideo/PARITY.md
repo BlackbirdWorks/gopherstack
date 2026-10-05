@@ -83,3 +83,7 @@ Grade moves B to A on `TestIntegration_KinesisVideo_StreamLifecycle` and `TestIn
 ## 2026-10-05 errcodeaudit note (gopherstack-r3pr)
 
 - Default-branch InternalFailureException: the pinned kinesisvideo SDK models no 5xx type, so a client sees a generic smithy APIError with that code; left as is.
+
+## 2026-10-05 (gopherstack-uox6 pass 9, value semantics)
+
+UpdateImageGenerationConfiguration now stores JPEGQuality 80 for JPEG when FormatConfig omits it (types.go:162 "default value of the JPEGQuality key will be set to 80"; applied to JPEG only, an interpretation). Proof: `TestUpdateImageGenerationConfiguration_JPEGQualityDefault`.

@@ -492,11 +492,12 @@ func (b *InMemoryBackend) UpdateExperimentTemplate(
 		tpl.LogConfiguration = convertTemplateLogConfigDTO(input.LogConfiguration)
 	}
 
-	if input.ExperimentOptions != nil {
-		tpl.ExperimentOptions = &ExperimentTemplateExperimentOptions{
-			AccountTargeting:          input.ExperimentOptions.AccountTargeting,
-			EmptyTargetResolutionMode: input.ExperimentOptions.EmptyTargetResolutionMode,
+	if input.ExperimentOptions != nil && input.ExperimentOptions.EmptyTargetResolutionMode != "" {
+		if tpl.ExperimentOptions == nil {
+			tpl.ExperimentOptions = &ExperimentTemplateExperimentOptions{}
 		}
+
+		tpl.ExperimentOptions.EmptyTargetResolutionMode = input.ExperimentOptions.EmptyTargetResolutionMode
 	}
 
 	if input.ExperimentReportConfiguration != nil {

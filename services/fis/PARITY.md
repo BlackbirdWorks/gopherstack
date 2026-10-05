@@ -548,3 +548,7 @@ real bugs (ListActions/ListTargetResourceTypes fabricated `parameters`
 field). No new bug found; false-positive census hits. Locked in via
 list_summary_shapes_test.go. Gates: `go build`/`go vet`/`go test -race`
 clean, `golangci-lint run` 0 issues.
+
+## 2026-10-05 (gopherstack-uox6 pass 9, value semantics)
+
+UpdateExperimentTemplate replaced the whole ExperimentOptions, wiping AccountTargeting although the update shape carries only EmptyTargetResolutionMode (types.go:1103-1109). It now updates just that member. Recorded, unchanged: an empty Description cannot clear the stored one (SDK silent). Proof: `TestUpdateExperimentTemplate_OptionsKeepAccountTargeting`.

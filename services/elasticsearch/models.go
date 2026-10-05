@@ -412,6 +412,8 @@ type CreateDomainInput struct {
 
 // UpdateConfig holds the fields that can be updated via UpdateDomainConfig.
 type UpdateConfig struct {
+	ClusterConfigPatch          func(*ClusterConfig)
+	EBSOptionsPatch             func(*EBSOptions)
 	ClusterConfig               *ClusterConfig
 	EBSOptions                  *EBSOptions
 	SnapshotOptions             *SnapshotOptions

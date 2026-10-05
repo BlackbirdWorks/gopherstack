@@ -12,12 +12,12 @@ import (
 
 // updateDomainConfigRequest is the request body for UpdateElasticsearchDomainConfig.
 type updateDomainConfigRequest struct {
-	ClusterConfig             *domainClusterConfig                `json:"ElasticsearchClusterConfig"`
-	EBSOptions                *domainEBSOptions                   `json:"EBSOptions"`
+	ClusterConfig             *updateClusterConfig                `json:"ElasticsearchClusterConfig"`
+	EBSOptions                *updateEBSOptions                   `json:"EBSOptions"`
 	SnapshotOptions           *domainSnapshotOptions              `json:"SnapshotOptions"`
-	EncryptionAtRest          *domainEncryptionAtRestOptions      `json:"EncryptionAtRestOptions"`
-	NodeToNodeEncryption      *domainNodeToNodeEncryptionOptions  `json:"NodeToNodeEncryptionOptions"`
-	DomainEndpointOpts        *domainEndpointOptions              `json:"DomainEndpointOptions"`
+	EncryptionAtRest          *updateEnabledOption                `json:"EncryptionAtRestOptions"`
+	NodeToNodeEncryption      *updateEnabledOption                `json:"NodeToNodeEncryptionOptions"`
+	DomainEndpointOpts        *updateEndpointOptions              `json:"DomainEndpointOptions"`
 	VPCOptions                *vpcOptionsRequestJSON              `json:"VPCOptions"`
 	CognitoOptions            *cognitoOptionsJSON                 `json:"CognitoOptions"`
 	AdvancedSecurityOptions   *advancedSecurityOptionsRequestJSON `json:"AdvancedSecurityOptions"`
@@ -46,13 +46,11 @@ func (h *Handler) handleUpdateDomainConfig(w http.ResponseWriter, r *http.Reques
 	upd := UpdateConfig{}
 
 	if req.ClusterConfig != nil {
-		cfg := clusterConfigFromRequest(req.ClusterConfig)
-		upd.ClusterConfig = &cfg
+		upd.ClusterConfigPatch = req.ClusterConfig.apply
 	}
 
 	if req.EBSOptions != nil {
-		opts := ebsOptsFromRequest(req.EBSOptions)
-		upd.EBSOptions = &opts
+		upd.EBSOptionsPatch = req.EBSOptions.apply
 	}
 
 	if req.SnapshotOptions != nil {
@@ -61,16 +59,16 @@ func (h *Handler) handleUpdateDomainConfig(w http.ResponseWriter, r *http.Reques
 	}
 
 	if req.EncryptionAtRest != nil {
-		upd.EncryptionAtRestEnabled = &req.EncryptionAtRest.Enabled
+		upd.EncryptionAtRestEnabled = req.EncryptionAtRest.Enabled
 	}
 
 	if req.NodeToNodeEncryption != nil {
-		upd.NodeToNodeEncryptionEnabled = &req.NodeToNodeEncryption.Enabled
+		upd.NodeToNodeEncryptionEnabled = req.NodeToNodeEncryption.Enabled
 	}
 
 	if req.DomainEndpointOpts != nil {
-		upd.EnforceHTTPS = &req.DomainEndpointOpts.EnforceHTTPS
-		upd.TLSSecurityPolicy = &req.DomainEndpointOpts.TLSSecurityPolicy
+		upd.EnforceHTTPS = req.DomainEndpointOpts.EnforceHTTPS
+		upd.TLSSecurityPolicy = req.DomainEndpointOpts.TLSSecurityPolicy
 	}
 
 	if req.AdvancedOptions != nil {
@@ -503,4 +501,68 @@ func (h *Handler) handleDescribeDomainChangeProgress(w http.ResponseWriter, r *h
 	}
 
 	h.writeJSON(r, w, map[string]any{"ChangeProgressStatus": status})
+}
+
+// updateClusterConfig carries only the members present in an update request.
+type updateClusterConfig struct {
+	ZoneAwarenessConfig    *domainZoneAwarenessConfig `json:"ZoneAwarenessConfig"`
+	InstanceType           *string                    `json:"InstanceType"`
+	InstanceCount          *int                       `json:"InstanceCount"`
+	DedicatedMasterEnabled *bool                      `json:"DedicatedMasterEnabled"`
+	DedicatedMasterType    *string                    `json:"DedicatedMasterType"`
+	DedicatedMasterCount   *int                       `json:"DedicatedMasterCount"`
+	ZoneAwarenessEnabled   *bool                      `json:"ZoneAwarenessEnabled"`
+	WarmEnabled            *bool                      `json:"WarmEnabled"`
+	WarmType               *string                    `json:"WarmType"`
+	WarmCount              *int                       `json:"WarmCount"`
+	ColdStorageEnabled     *bool                      `json:"ColdStorageEnabled"`
+}
+
+func setIfPresent[T any](dst *T, src *T) {
+	if src != nil {
+		*dst = *src
+	}
+}
+
+func (u *updateClusterConfig) apply(c *ClusterConfig) {
+	setIfPresent(&c.InstanceType, u.InstanceType)
+	setIfPresent(&c.InstanceCount, u.InstanceCount)
+	setIfPresent(&c.DedicatedMasterEnabled, u.DedicatedMasterEnabled)
+	setIfPresent(&c.DedicatedMasterType, u.DedicatedMasterType)
+	setIfPresent(&c.DedicatedMasterCount, u.DedicatedMasterCount)
+	setIfPresent(&c.ZoneAwarenessEnabled, u.ZoneAwarenessEnabled)
+	setIfPresent(&c.WarmEnabled, u.WarmEnabled)
+	setIfPresent(&c.WarmType, u.WarmType)
+	setIfPresent(&c.WarmCount, u.WarmCount)
+	setIfPresent(&c.ColdStorageEnabled, u.ColdStorageEnabled)
+
+	if u.ZoneAwarenessConfig != nil {
+		c.ZoneAwarenessConfig = ZoneAwarenessConfig{AvailabilityZoneCount: u.ZoneAwarenessConfig.AvailabilityZoneCount}
+	}
+}
+
+// updateEBSOptions carries only the members present in an update request.
+type updateEBSOptions struct {
+	VolumeType *string `json:"VolumeType"`
+	VolumeSize *int    `json:"VolumeSize"`
+	Iops       *int    `json:"Iops"`
+	Throughput *int    `json:"Throughput"`
+	EBSEnabled *bool   `json:"EBSEnabled"`
+}
+
+func (u *updateEBSOptions) apply(o *EBSOptions) {
+	setIfPresent(&o.VolumeType, u.VolumeType)
+	setIfPresent(&o.VolumeSize, u.VolumeSize)
+	setIfPresent(&o.Iops, u.Iops)
+	setIfPresent(&o.Throughput, u.Throughput)
+	setIfPresent(&o.EBSEnabled, u.EBSEnabled)
+}
+
+type updateEnabledOption struct {
+	Enabled *bool `json:"Enabled"`
+}
+
+type updateEndpointOptions struct {
+	EnforceHTTPS      *bool   `json:"EnforceHTTPS"`
+	TLSSecurityPolicy *string `json:"TLSSecurityPolicy"`
 }
