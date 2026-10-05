@@ -20,6 +20,7 @@ type placementConstraintInput struct {
 }
 
 type registerTaskDefinitionInput struct {
+	ProxyConfiguration      *ProxyConfiguration        `json:"proxyConfiguration,omitempty"`
 	RuntimePlatform         *RuntimePlatform           `json:"runtimePlatform,omitempty"`
 	EphemeralStorage        *EphemeralStorage          `json:"ephemeralStorage,omitempty"`
 	Family                  string                     `json:"family"`
@@ -65,6 +66,7 @@ func (h *Handler) handleRegisterTaskDefinition(
 		RequiresCompatibilities: in.RequiresCompatibilities,
 		Tags:                    in.Tags,
 		RuntimePlatform:         in.RuntimePlatform,
+		ProxyConfiguration:      in.ProxyConfiguration,
 		EphemeralStorage:        in.EphemeralStorage,
 		InferenceAccelerators:   in.InferenceAccelerators,
 		EnableFaultInjection:    in.EnableFaultInjection,
@@ -185,6 +187,7 @@ type placementConstraintView struct {
 }
 
 type taskDefinitionView struct {
+	ProxyConfiguration      *ProxyConfiguration       `json:"proxyConfiguration,omitempty"`
 	RuntimePlatform         *RuntimePlatform          `json:"runtimePlatform,omitempty"`
 	EphemeralStorage        *EphemeralStorage         `json:"ephemeralStorage,omitempty"`
 	TaskDefinitionArn       string                    `json:"taskDefinitionArn"`
@@ -232,6 +235,7 @@ func toTaskDefinitionView(td TaskDefinition) taskDefinitionView {
 		RegisteredAt:            float64(td.RegisteredAt.Unix()),
 		Revision:                td.Revision,
 		RuntimePlatform:         td.RuntimePlatform,
+		ProxyConfiguration:      td.ProxyConfiguration,
 		EphemeralStorage:        td.EphemeralStorage,
 		InferenceAccelerators:   td.InferenceAccelerators,
 		EnableFaultInjection:    td.EnableFaultInjection,

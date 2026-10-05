@@ -653,6 +653,9 @@ func directoryToJSON(d *Directory) map[string]any {
 	if d.DesiredNumberOfDomainControllers != nil {
 		out["DesiredNumberOfDomainControllers"] = *d.DesiredNumberOfDomainControllers
 	}
+	if d.OsVersion != "" {
+		out["OsVersion"] = string(d.OsVersion)
+	}
 	if hs := directoryHybridSettingsJSON(d.HybridSettings); hs != nil {
 		out["HybridSettings"] = hs
 	}

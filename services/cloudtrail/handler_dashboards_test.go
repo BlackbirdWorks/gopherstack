@@ -235,8 +235,8 @@ func TestDashboard_RawBody_PerOpShape(t *testing.T) {
 			setup: func(t *testing.T, h *cloudtrail.Handler, _ string) map[string]any {
 				t.Helper()
 				rec := doCloudTrailOp(t, h, "CreateDashboard", map[string]any{
-					"Name": "shape-create",
-					"Tags": []any{map[string]any{"Key": "env", "Value": "prod"}},
+					"Name":     "shape-create",
+					"TagsList": []any{map[string]any{"Key": "env", "Value": "prod"}},
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 

@@ -26,9 +26,12 @@ const describeContainerInstanceIncludeTags = "TAGS"
 // instanceIdentityDocumentSignature is accepted for wire-shape completeness
 // but not cryptographically verified by this emulator.
 type registerContainerInstanceInput struct {
-	Cluster                           string `json:"cluster,omitempty"`
-	InstanceIdentityDocument          string `json:"instanceIdentityDocument,omitempty"`
-	InstanceIdentityDocumentSignature string `json:"instanceIdentityDocumentSignature,omitempty"`
+	VersionInfo                       *VersionInfo     `json:"versionInfo,omitempty"`
+	Cluster                           string           `json:"cluster,omitempty"`
+	InstanceIdentityDocument          string           `json:"instanceIdentityDocument,omitempty"`
+	InstanceIdentityDocumentSignature string           `json:"instanceIdentityDocumentSignature,omitempty"`
+	Attributes                        []attributeInput `json:"attributes,omitempty"`
+	Tags                              []Tag            `json:"tags,omitempty"`
 }
 
 type registerContainerInstanceOutput struct {
@@ -63,7 +66,16 @@ func (h *Handler) handleRegisterContainerInstance(
 ) (*registerContainerInstanceOutput, error) {
 	ec2InstanceID := ec2InstanceIDFromIdentityDocument(in.InstanceIdentityDocument)
 
-	ci, err := h.Backend.RegisterContainerInstance(in.Cluster, ec2InstanceID)
+	attrs := make([]Attribute, 0, len(in.Attributes))
+	for _, a := range in.Attributes {
+		attrs = append(attrs, Attribute(a))
+	}
+
+	ci, err := h.Backend.RegisterContainerInstanceWithDetails(in.Cluster, ec2InstanceID, ContainerInstanceDetails{
+		VersionInfo: in.VersionInfo,
+		Attributes:  attrs,
+		Tags:        in.Tags,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -205,21 +217,30 @@ func (h *Handler) handleUpdateContainerInstancesState(
 // ----- View types -----
 
 type containerInstanceView struct {
-	ContainerInstanceArn string  `json:"containerInstanceArn"`
-	EC2InstanceID        string  `json:"ec2InstanceId"`
-	ClusterArn           string  `json:"clusterArn"`
-	Status               string  `json:"status"`
-	AgentUpdateStatus    string  `json:"agentUpdateStatus,omitempty"`
-	Tags                 []Tag   `json:"tags,omitempty"`
-	RegisteredAt         float64 `json:"registeredAt"`
-	Version              int64   `json:"version"`
-	RunningTasksCount    int     `json:"runningTasksCount"`
-	PendingTasksCount    int     `json:"pendingTasksCount"`
-	AgentConnected       bool    `json:"agentConnected"`
+	VersionInfo          *VersionInfo     `json:"versionInfo,omitempty"`
+	ContainerInstanceArn string           `json:"containerInstanceArn"`
+	EC2InstanceID        string           `json:"ec2InstanceId"`
+	ClusterArn           string           `json:"clusterArn"`
+	Status               string           `json:"status"`
+	AgentUpdateStatus    string           `json:"agentUpdateStatus,omitempty"`
+	Attributes           []attributeInput `json:"attributes,omitempty"`
+	Tags                 []Tag            `json:"tags,omitempty"`
+	RegisteredAt         float64          `json:"registeredAt"`
+	Version              int64            `json:"version"`
+	RunningTasksCount    int              `json:"runningTasksCount"`
+	PendingTasksCount    int              `json:"pendingTasksCount"`
+	AgentConnected       bool             `json:"agentConnected"`
 }
 
 func toContainerInstanceView(ci ContainerInstance) containerInstanceView {
+	attrs := make([]attributeInput, 0, len(ci.Attributes))
+	for _, a := range ci.Attributes {
+		attrs = append(attrs, attributeInput(a))
+	}
+
 	return containerInstanceView{
+		VersionInfo:          ci.VersionInfo,
+		Attributes:           attrs,
 		ContainerInstanceArn: ci.ContainerInstanceArn,
 		EC2InstanceID:        ci.EC2InstanceID,
 		ClusterArn:           ci.ClusterArn,

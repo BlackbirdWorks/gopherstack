@@ -75,7 +75,7 @@ families:
 gaps: []
 items_still_open:
   - "AWS/ECS CPUUtilization/MemoryUtilization are not emitted: there is no container runtime producing utilisation, and fabricating values would be a stub (gopherstack-4m1qr)."
-  - "Blue/green lifecycle is unmodeled (PAUSE-stage hooks, Lambda hook invocation): ContinueServiceDeployment always returns ClientException, and ServiceDeployment/ServiceRevisionOverrides lack LifecycleStage, SourceServiceRevisions, Rollback, Alarms, and output-only RuntimePlatform."
+  - "Blue/green lifecycle is unmodeled (PAUSE-stage hooks, Lambda hook invocation): ContinueServiceDeployment always returns ClientException, StopServiceDeployment.StopType=ROLLBACK is not applied (no ROLLBACK_* deployment statuses), and ServiceDeployment/ServiceRevisionOverrides lack LifecycleStage, SourceServiceRevisions, Rollback, Alarms, and output-only RuntimePlatform."
   - "ELBv2 registration is one-directional (ELB health never feeds ECS health), placement never retries another instance on host-port collision, and containerPortRange/hostPortRange are not allocated."
   - "ASG capacity providers are config-only: AutoScalingGroupProvider is never validated against or scaled via services/autoscaling (cross-service)."
   - "ListTasksInput.daemonName and ListServicesInput.resourceManagementType are not declared: no daemon-launched tasks or ECS-managed (Express) Service rows exist to filter on."
@@ -1213,3 +1213,36 @@ Recorded, not emitted: AWS/ECS CPUUtilization/MemoryUtilization (ClusterName, Se
 ## 2026-10-04 (reqfielddiff tier-1 pass)
 
 StartTask now honours Overrides (echoed on the task; TaskRoleArn override resolves the task role like RunTask), NetworkConfiguration and EnableExecuteCommand (api_op_StartTask.go). Proof: `TestStartTask_OverridesPersisted_RealClient`. The earlier StartTask Containers/host-port gap is unchanged.
+
+## 2026-10-05 (pass 9, gopherstack-9x62)
+
+FIXED: RunTask applies placementConstraints/placementStrategy (binpack/spread/random now steer EC2 placement). StartTask applies tags, propagateTags and enableECSManagedTags. DescribeTasks returns tags only with include=TAGS (api_op_DescribeTasks.go: "If this field is omitted, tags aren't included"); `wire_field_fixes_ecs1_test.go` now passes Include. CreateService/UpdateService apply platformVersion (service, deployments and service-launched tasks; a change rotates the PRIMARY deployment), enableECSManagedTags (service-launched tasks follow it), UpdateService serviceRegistries, and CreateService role/clientToken (same token on an existing service returns it, any other re-create still fails). CreateCluster/UpdateCluster persist and echo configuration (executeCommandConfiguration, managedStorageConfiguration; logging validated against NONE/DEFAULT/OVERRIDE). RegisterContainerInstance applies attributes and tags and echoes versionInfo; DescribeContainerInstances returns attributes. RegisterTaskDefinition echoes proxyConfiguration (containerName must name a container, type APPMESH). Proof: `dropped_members_sdk_test.go`.
+
+Adjudicated (reqfielddiff -adjudicated), unchanged:
+- CreateCapacityProvider.Cluster: only scopes ECS Managed Instances providers to a cluster (api_op_CreateCapacityProvider.go:44); Managed Instances is not modeled.
+- DeleteCapacityProvider.Cluster: see CreateCapacityProvider.Cluster.
+- UpdateCapacityProvider.Cluster: see CreateCapacityProvider.Cluster.
+- CreateCapacityProvider.ManagedInstancesProvider: Managed Instances capacity is not modeled (no EC2 fleet to launch).
+- UpdateCapacityProvider.ManagedInstancesProvider: see CreateCapacityProvider.ManagedInstancesProvider.
+- CreateTaskSet.ClientToken: idempotency needs a persisted token table and the real conflict error is undocumented; unverified against real AWS.
+- RunTask.ClientToken: see CreateTaskSet.ClientToken.
+- RunTask.ReferenceId: documented "not intended for use by customers" (api_op_RunTask.go:243).
+- StartTask.ReferenceId: see RunTask.ReferenceId.
+- DeleteTaskSet.Force: the not-scaled-to-zero rejection AWS applies without it is undocumented in the SDK; unverified, so deletion stays unconditional.
+- ListTasks.DaemonName: no daemon-launched tasks exist to filter on (see items_still_open).
+- ListServices.ResourceManagementType: no ECS-managed (Express) Service rows exist to filter on (see items_still_open).
+- UpdateService.DeploymentController: the SDK documents no switchable controller transitions; unverified against real AWS.
+- CreateService.VolumeConfigurations: EBS volume attachment at launch is not modeled.
+- UpdateService.VolumeConfigurations: see CreateService.VolumeConfigurations.
+- RunTask.VolumeConfigurations: see CreateService.VolumeConfigurations.
+- StartTask.VolumeConfigurations: see CreateService.VolumeConfigurations.
+- CreateService.VpcLatticeConfigurations: VPC Lattice target-group registration is not modeled.
+- UpdateService.VpcLatticeConfigurations: see CreateService.VpcLatticeConfigurations.
+- RegisterContainerInstance.ContainerInstanceArn: an agent-supplied ARN for re-registration; ARNs are always minted here.
+- RegisterContainerInstance.PlatformDevices: GPU/FPGA device inventory is not modeled.
+- RegisterContainerInstance.TotalResources: registeredResources/remainingResources accounting is not modeled, so none is invented.
+- StopServiceDeployment.StopType: ROLLBACK needs the ROLLBACK_* deployment statuses (see items_still_open).
+- SubmitTaskStateChange.ExecutionStoppedAt: agent-reported timing with no output member to read it back.
+- SubmitTaskStateChange.PullStartedAt: see ExecutionStoppedAt.
+- SubmitTaskStateChange.PullStoppedAt: see ExecutionStoppedAt.
+- SubmitTaskStateChange.ManagedAgents: agent-reported state with no read-back output member.

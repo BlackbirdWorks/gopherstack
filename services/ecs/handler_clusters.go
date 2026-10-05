@@ -22,6 +22,7 @@ func toClusterServiceConnectDefaults(in *clusterServiceConnectDefaultsInput) *Cl
 
 type createClusterInput struct {
 	ServiceConnectDefaults          *clusterServiceConnectDefaultsInput `json:"serviceConnectDefaults,omitempty"`
+	Configuration                   *ClusterConfiguration               `json:"configuration,omitempty"`
 	ClusterName                     string                              `json:"clusterName"`
 	Settings                        []clusterSettingView                `json:"settings,omitempty"`
 	CapacityProviders               []string                            `json:"capacityProviders,omitempty"`
@@ -49,6 +50,7 @@ func (h *Handler) handleCreateCluster(
 		DefaultCapacityProviderStrategy: toCPStrategyItems(in.DefaultCapacityProviderStrategy),
 		Tags:                            in.Tags,
 		ServiceConnectDefaults:          toClusterServiceConnectDefaults(in.ServiceConnectDefaults),
+		Configuration:                   in.Configuration,
 	})
 	if err != nil {
 		return nil, err
@@ -189,6 +191,7 @@ type failureView struct {
 
 type clusterView struct {
 	ServiceConnectDefaults            *clusterServiceConnectDefaultsInput `json:"serviceConnectDefaults,omitempty"`
+	Configuration                     *ClusterConfiguration               `json:"configuration,omitempty"`
 	ClusterArn                        string                              `json:"clusterArn"`
 	ClusterName                       string                              `json:"clusterName"`
 	Status                            string                              `json:"status"`
@@ -214,6 +217,7 @@ func toClusterView(c Cluster) clusterView {
 		RegisteredContainerInstancesCount: c.RegisteredContainerInstancesCount,
 		RunningTasksCount:                 c.RunningTasksCount,
 		DefaultCapacityProviderStrategy:   []cpStrategyItemInput{},
+		Configuration:                     c.Configuration,
 	}
 
 	if c.ServiceConnectDefaults != nil {
@@ -335,11 +339,11 @@ func (h *Handler) handleUpdateClusterSettings(
 // The real UpdateClusterRequest has only cluster, settings, configuration, and
 // serviceConnectDefaults -- no capacityProviders or
 // defaultCapacityProviderStrategy, which are managed exclusively via the
-// separate PutClusterCapacityProviders operation. configuration is still not
-// modeled by this backend.
+// separate PutClusterCapacityProviders operation.
 
 type updateClusterInput struct {
 	ServiceConnectDefaults *clusterServiceConnectDefaultsInput `json:"serviceConnectDefaults,omitempty"`
+	Configuration          *ClusterConfiguration               `json:"configuration,omitempty"`
 	Cluster                string                              `json:"cluster"`
 	Settings               []clusterSettingView                `json:"settings,omitempty"`
 }
@@ -355,6 +359,7 @@ func (h *Handler) handleUpdateCluster(
 	input := UpdateClusterInput{
 		Cluster:                in.Cluster,
 		ServiceConnectDefaults: toClusterServiceConnectDefaults(in.ServiceConnectDefaults),
+		Configuration:          in.Configuration,
 	}
 
 	for _, s := range in.Settings {

@@ -113,6 +113,9 @@ type createServiceInput struct {
 	SchedulingStrategy            string                            `json:"schedulingStrategy,omitempty"`
 	PropagateTags                 string                            `json:"propagateTags,omitempty"`
 	AvailabilityZoneRebalancing   string                            `json:"availabilityZoneRebalancing,omitempty"`
+	PlatformVersion               string                            `json:"platformVersion,omitempty"`
+	Role                          string                            `json:"role,omitempty"`
+	ClientToken                   string                            `json:"clientToken,omitempty"`
 	Tags                          []Tag                             `json:"tags,omitempty"`
 	LoadBalancers                 []loadBalancerInput               `json:"loadBalancers,omitempty"`
 	ServiceRegistries             []serviceRegistryInput            `json:"serviceRegistries,omitempty"`
@@ -121,6 +124,7 @@ type createServiceInput struct {
 	PlacementStrategy             []placementStrategyInput          `json:"placementStrategy,omitempty"`
 	DesiredCount                  int                               `json:"desiredCount"`
 	EnableExecuteCommand          bool                              `json:"enableExecuteCommand,omitempty"`
+	EnableECSManagedTags          bool                              `json:"enableECSManagedTags,omitempty"`
 }
 
 type createServiceOutput struct {
@@ -139,6 +143,10 @@ func (h *Handler) handleCreateService(
 		SchedulingStrategy:            in.SchedulingStrategy,
 		PropagateTags:                 in.PropagateTags,
 		AvailabilityZoneRebalancing:   in.AvailabilityZoneRebalancing,
+		PlatformVersion:               in.PlatformVersion,
+		RoleArn:                       in.Role,
+		ClientToken:                   in.ClientToken,
+		EnableECSManagedTags:          in.EnableECSManagedTags,
 		Tags:                          in.Tags,
 		LoadBalancers:                 toLoadBalancers(in.LoadBalancers),
 		ServiceRegistries:             toServiceRegistries(in.ServiceRegistries),
@@ -216,6 +224,7 @@ func (h *Handler) handleDescribeServices(
 
 type updateServiceInput struct {
 	EnableExecuteCommand          *bool                             `json:"enableExecuteCommand,omitempty"`
+	EnableECSManagedTags          *bool                             `json:"enableECSManagedTags,omitempty"`
 	DesiredCount                  *int                              `json:"desiredCount,omitempty"`
 	HealthCheckGracePeriodSeconds *int                              `json:"healthCheckGracePeriodSeconds,omitempty"`
 	DeploymentConfiguration       *deploymentConfigurationInput     `json:"deploymentConfiguration,omitempty"`
@@ -227,7 +236,9 @@ type updateServiceInput struct {
 	TaskDefinition                *string                           `json:"taskDefinition,omitempty"`
 	PropagateTags                 string                            `json:"propagateTags,omitempty"`
 	AvailabilityZoneRebalancing   string                            `json:"availabilityZoneRebalancing,omitempty"`
+	PlatformVersion               string                            `json:"platformVersion,omitempty"`
 	LoadBalancers                 []loadBalancerInput               `json:"loadBalancers,omitempty"`
+	ServiceRegistries             []serviceRegistryInput            `json:"serviceRegistries,omitempty"`
 	CapacityProviderStrategy      []cpStrategyItemInput             `json:"capacityProviderStrategy,omitempty"`
 	PlacementConstraints          []placementConstraintInput        `json:"placementConstraints,omitempty"`
 	PlacementStrategy             []placementStrategyInput          `json:"placementStrategy,omitempty"`
@@ -247,7 +258,10 @@ func (h *Handler) handleUpdateService(
 		Service:                       in.Service,
 		PropagateTags:                 in.PropagateTags,
 		AvailabilityZoneRebalancing:   in.AvailabilityZoneRebalancing,
+		PlatformVersion:               in.PlatformVersion,
+		EnableECSManagedTags:          in.EnableECSManagedTags,
 		LoadBalancers:                 toLoadBalancers(in.LoadBalancers),
+		ServiceRegistries:             toServiceRegistries(in.ServiceRegistries),
 		NetworkConfiguration:          toNetworkConfiguration(in.NetworkConfiguration),
 		TaskDefinition:                in.TaskDefinition,
 		DesiredCount:                  in.DesiredCount,
@@ -466,6 +480,8 @@ type serviceView struct {
 	SchedulingStrategy          string                    `json:"schedulingStrategy,omitempty"`
 	PropagateTags               string                    `json:"propagateTags,omitempty"`
 	AvailabilityZoneRebalancing string                    `json:"availabilityZoneRebalancing,omitempty"`
+	PlatformVersion             string                    `json:"platformVersion,omitempty"`
+	RoleArn                     string                    `json:"roleArn,omitempty"`
 	ServiceArn                  string                    `json:"serviceArn"`
 	ServiceName                 string                    `json:"serviceName"`
 	LoadBalancers               []loadBalancerView        `json:"loadBalancers"`
@@ -480,6 +496,7 @@ type serviceView struct {
 	PendingCount                int                       `json:"pendingCount"`
 	RunningCount                int                       `json:"runningCount"`
 	EnableExecuteCommand        bool                      `json:"enableExecuteCommand,omitempty"`
+	EnableECSManagedTags        bool                      `json:"enableECSManagedTags,omitempty"`
 }
 
 func toServiceView(s Service) serviceView {
@@ -493,6 +510,9 @@ func toServiceView(s Service) serviceView {
 		SchedulingStrategy:            s.SchedulingStrategy,
 		PropagateTags:                 s.PropagateTags,
 		AvailabilityZoneRebalancing:   s.AvailabilityZoneRebalancing,
+		PlatformVersion:               s.PlatformVersion,
+		RoleArn:                       s.RoleArn,
+		EnableECSManagedTags:          s.EnableECSManagedTags,
 		HealthCheckGracePeriodSeconds: s.HealthCheckGracePeriodSeconds,
 		CreatedAt:                     float64(s.CreatedAt.Unix()),
 		DeploymentConfiguration:       toDeploymentConfigurationView(s.DeploymentConfiguration),

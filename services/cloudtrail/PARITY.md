@@ -595,3 +595,13 @@ FIXED: ListQueries applies StartTime/EndTime to the query creation time (api_op_
 ## 2026-10-05 (reqfielddiff tier-1/2 pass 8)
 
 RECORDED: ListPublicKeys StartTime/EndTime are ignored; the op always returns an empty list (no digest signing keys are modeled).
+
+## 2026-10-05 (pass 9, gopherstack-9x62)
+
+FIXED: CreateDashboard read the creation tags from `Tags`, but the wire member is `TagsList` (api_op_CreateDashboard.go), so every tag a real client sent was dropped; `handler_dashboards_test.go` sent the same wrong key and now sends `TagsList`. StartImport with ImportId retries a STOPPED or FAILED import (back to INITIALIZING; ImportNotFoundException for an unknown ID; InvalidParameterCombinationException when combined with Destinations/ImportSource/event times). Proof: `dropped_members_sdk_test.go`. UNVERIFIED against real AWS: the rejection of a retry on an import that is not STOPPED or FAILED.
+
+Adjudicated (reqfielddiff -adjudicated), unchanged:
+- GetQueryResults.EventDataStoreOwnerAccountId: cross-account (delegated administrator) queries; this backend is single-account.
+- ListInsightsData.Dimensions: no Insight events are generated to filter (see items_still_open).
+- StartDashboardRefresh.QueryParameterValues: dashboard-internal and echoed by no output (see items_still_open).
+- SearchSampleQueries.SearchPhrase: the AWS-owned sample-query catalog is unmodeled (see items_still_open).
