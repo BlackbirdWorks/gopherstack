@@ -441,9 +441,14 @@ const (
 func main() {
 	dirFlag := flag.String("dir", "", "comma-separated services/<dir> basenames to scan (default: all)")
 	jsonOut := flag.String("json", "", "write the full scan list to this path as JSON")
+	noReach := flag.Bool(
+		"no-reachability",
+		false,
+		"skip the per-operation mapper-branch reachability filter (before/after measurement)",
+	)
 	flag.Parse()
 
-	scans, err := run(*dirFlag)
+	scans, err := run(*dirFlag, *noReach)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(exitRunError)
@@ -499,7 +504,7 @@ func summarize(scans []serviceScan, findings, orphans, warned int) {
 	)
 }
 
-func run(dirFlag string) ([]serviceScan, error) {
+func run(dirFlag string, noReachability bool) ([]serviceScan, error) {
 	repoRoot, err := repoRootDir()
 	if err != nil {
 		return nil, err
@@ -523,7 +528,7 @@ func run(dirFlag string) ([]serviceScan, error) {
 	var scans []serviceScan
 
 	for _, dir := range dirs {
-		sr, scanErr := scanServiceDir(dir, repoRoot, cache, goModVersions)
+		sr, scanErr := scanServiceDirOpts(dir, repoRoot, cache, goModVersions, noReachability)
 		if scanErr != nil {
 			return nil, fmt.Errorf("%s: %w", dir, scanErr)
 		}

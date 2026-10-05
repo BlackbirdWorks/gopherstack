@@ -86,7 +86,7 @@ func TestValidate(t *testing.T) {
 				},
 			},
 			wantErr: []string{
-				"row 1: duplicate row for (service=opensearch, class=wrong_wire_key) -- also at commit a576f56ca " +
+				"row 1: duplicate row for (service=opensearch, class=wrong_wire_key, subject=\"\") -- also at commit a576f56ca " +
 					"(2026-08-29), this one at commit dd3cbde76 (2026-08-30)",
 			},
 		},

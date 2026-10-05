@@ -35,18 +35,20 @@ var knownSourceTags = map[string]bool{ //nolint:gochecknoglobals // immutable lo
 func Validate(rows []Row, knownServices map[string]bool) []string {
 	var errs []string
 
-	seen := make(map[[2]string]Row, len(rows))
+	seen := make(map[[3]string]Row, len(rows))
 
 	for i, r := range rows {
 		errs = append(errs, validateRow(i, r, knownServices)...)
 
-		key := [2]string{r.Service, r.Class}
+		key := [3]string{r.Service, r.Class, r.Subject}
 		if prev, ok := seen[key]; ok {
 			errs = append(errs, fmt.Sprintf(
-				"row %d: duplicate row for (service=%s, class=%s) -- also at commit %s (%s), this one at commit %s (%s)",
+				"row %d: duplicate row for (service=%s, class=%s, subject=%q) -- "+
+					"also at commit %s (%s), this one at commit %s (%s)",
 				i,
 				r.Service,
 				r.Class,
+				r.Subject,
 				prev.Commit,
 				prev.Date,
 				r.Commit,
