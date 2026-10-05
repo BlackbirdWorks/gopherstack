@@ -551,7 +551,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [CloudFront](services/cloudfront/README.md) | A | 60 | 1 gap; 4 deferred |
 | [CloudWatch Network Monitor](services/networkmonitor/README.md) | A | 12 | 1 gap; 1 deferred |
 | [ELB (Classic)](services/elb/README.md) | A | 29 | 2 gaps; 1 deferred |
-| [ELBv2](services/elbv2/README.md) | A | 51 | 5 gaps; 4 deferred |
+| [ELBv2](services/elbv2/README.md) | A | 51 | 3 gaps; 2 deferred |
 | [Route 53](services/route53/README.md) | A | 67 | 1 gap; 3 deferred |
 | [Route 53 Resolver](services/route53resolver/README.md) | A | 72 | 3 gaps; 1 deferred |
 | [VPC Lattice](services/vpclattice/README.md) | A | 73 | 5 gaps |
@@ -583,7 +583,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [EMR](services/emr/README.md) | A | 65 | 1 gap; 7 structural gaps |
 | [EMR Serverless](services/emrserverless/README.md) | A | 22 | 2 gaps |
 | [Elasticsearch](services/elasticsearch/README.md) | A | 51 | 4 gaps |
-| [Glue](services/glue/README.md) | A | 59 | 4 gaps; 4 deferred |
+| [Glue](services/glue/README.md) | A | 59 | 5 gaps; 2 deferred |
 | [Glue DataBrew](services/databrew/README.md) | A | 44 | 2 gaps |
 | [Kinesis](services/kinesis/README.md) | A | 39 | 6 gaps |
 | [Kinesis Analytics](services/kinesisanalytics/README.md) | A | 20 | 1 gap |
