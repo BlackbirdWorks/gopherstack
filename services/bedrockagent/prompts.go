@@ -79,9 +79,8 @@ func (b *InMemoryBackend) UpdatePrompt(
 		p.Name = cfg.Name
 	}
 
-	if cfg.Description != "" {
-		p.Description = cfg.Description
-	}
+	// api_op_UpdatePrompt.go:13: omitted fields are not kept
+	p.Description = cfg.Description
 
 	if cfg.DefaultVariant != "" {
 		p.DefaultVariant = cfg.DefaultVariant

@@ -488,3 +488,7 @@ ssoadmin is region-isolated: IAM Identity Center instances are regional (an inst
 ## 2026-10-05 (reqfielddiff tier-2 pagination)
 
 ListApplicationAuthenticationMethods, ListApplicationGrants and ListTagsForResource read the body NextToken and page through `paginateBy` (key-sorted, opaque base64 cursor, page cap `maxPageSize` 100); these inputs carry NextToken only, no MaxResults. The finite grant/auth-method enums and the 50-tag limit keep every real result inside one page, so a NextToken is only ever resumed by a client-supplied cursor. Proof: `TestApplicationLists_NextTokenCursor`.
+
+## 2026-10-05 (gopherstack-uox6 pass 8, value semantics)
+
+CreateApplication ignored its Status input and always stored ENABLED; it now persists ENABLED or DISABLED (default ENABLED) and rejects other values (api_op_CreateApplication.go:80). Partial UpdateApplication keeps Status. Recorded, unchanged: CreatePermissionSet SessionDuration has no SDK default text. Proof: `TestApplication_CreateStatusPersistsAndPartialUpdateKeepsIt`.

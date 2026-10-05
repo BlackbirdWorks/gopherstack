@@ -1568,3 +1568,7 @@ The Resource Groups Tagging API bridge now lists the request region's tagged res
 ## 2026-10-04: CloudFormation export by region (gopherstack-12q3n)
 
 `CreateCloudFormationStack` hands the export's region to the CloudFormation adapter, which creates the stack in that region's CloudFormation backend. The `CloudFormationBackend` interface method gains a region argument.
+
+## 2026-10-05 (gopherstack-uox6 pass 8, value semantics)
+
+CreateInstancesFromSnapshot defaulted IpAddressType to empty instead of dualstack (api_op_CreateInstancesFromSnapshot.go:80). New instances now report HttpTokens optional, and UpdateInstanceMetadataOptions resets an omitted HttpTokens to optional (api_op_UpdateInstanceMetadataOptions.go:54-55); HttpEndpoint and the hop limit keep their value when omitted (same file: "existing state is maintained"). Recorded, unchanged: UpdateRelationalDatabase ApplyImmediately=false has no pending-modification model, changes apply at once. Proof: `TestInstance_DefaultsAndMetadataOptionsUpdate`.

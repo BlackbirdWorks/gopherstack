@@ -24,9 +24,15 @@ func (b *InMemoryBackend) PutIntegration(
 		return nil, fmt.Errorf("%w: method %s not found", ErrMethodNotFound, httpMethod)
 	}
 
+	// api_op_PutIntegration.go:56: the resource ID is the default cacheNamespace.
 	timeout := input.TimeoutInMillis
 	if timeout == 0 {
 		timeout = defaultIntegrationTimeoutMs
+	}
+
+	cacheNamespace := input.CacheNamespace
+	if cacheNamespace == "" {
+		cacheNamespace = resourceID
 	}
 
 	integ := &Integration{
@@ -41,7 +47,7 @@ func (b *InMemoryBackend) PutIntegration(
 		ConnectionID:         input.ConnectionID,
 		ContentHandling:      input.ContentHandling,
 		Credentials:          input.Credentials,
-		CacheNamespace:       input.CacheNamespace,
+		CacheNamespace:       cacheNamespace,
 		TimeoutInMillis:      timeout,
 		IntegrationResponses: make(map[string]*IntegrationResponse),
 	}

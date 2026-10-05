@@ -96,7 +96,7 @@ type StorageBackend interface {
 		cfg *TrustedTokenIssuerUpdateConfiguration,
 	) (*TrustedTokenIssuer, error)
 	CreateApplication(
-		instanceArn, applicationProviderArn, name, description string,
+		instanceArn, applicationProviderArn, name, description, status string,
 		tags map[string]string,
 		portalOptions *PortalOptions,
 	) (*Application, error)

@@ -1139,3 +1139,7 @@ Clean for filters (ListIngestionJobs STATUS/EQ is the only SDK-defined attribute
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 bedrockagent is region-isolated: agents, knowledge bases, flows and prompts live per region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/bedrockagent`. Limitation: the dashboard shows the home region only.
+
+## 2026-10-05 (gopherstack-uox6 pass 8, value semantics)
+
+UpdateKnowledgeBase now clears an omitted Description (api_op_UpdateKnowledgeBase.go:12 "all fields will be overwritten"); UpdatePrompt and UpdateFlow do the same for Description ("include both fields that you want to keep", api_op_UpdatePrompt.go:13, api_op_UpdateFlow.go:13). Recorded, unchanged: prompt variants/defaultVariant and flow definition keep their value when omitted since the text does not say they are dropped; UpdateAgent and the other Update ops are silent; PromptOverrideConfiguration (and its documented per-promptType PromptState defaults, types.go:4374) is never read from Create/Update. Proof: `TestUpdate_OmittedDescriptionIsCleared`.

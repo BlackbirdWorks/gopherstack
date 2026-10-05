@@ -149,8 +149,9 @@ func (b *InMemoryBackend) UpdateInstanceMetadataOptions(name string, opts Instan
 		i.MetadataOptions.HTTPEndpoint = opts.HTTPEndpoint
 	}
 
-	if opts.HTTPTokens != "" {
-		i.MetadataOptions.HTTPTokens = opts.HTTPTokens
+	i.MetadataOptions.HTTPTokens = opts.HTTPTokens
+	if i.MetadataOptions.HTTPTokens == "" {
+		i.MetadataOptions.HTTPTokens = httpTokensOptional
 	}
 
 	if opts.HTTPProtocolIpv6 != "" {

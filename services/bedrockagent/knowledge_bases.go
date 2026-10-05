@@ -81,9 +81,8 @@ func (b *InMemoryBackend) UpdateKnowledgeBase(
 		kb.Name = cfg.Name
 	}
 
-	if cfg.Description != "" {
-		kb.Description = cfg.Description
-	}
+	// api_op_UpdateKnowledgeBase.go:12: all fields are overwritten
+	kb.Description = cfg.Description
 
 	if cfg.RoleARN != "" {
 		kb.RoleARN = cfg.RoleARN

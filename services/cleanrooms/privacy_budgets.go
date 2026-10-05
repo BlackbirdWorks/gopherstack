@@ -9,6 +9,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
+const keyDifferentialPrivacy = "differentialPrivacy"
+
 func (b *InMemoryBackend) privacyBudgetTemplateARN(membershipID, id string) string {
 	return arn.Build(
 		"cleanrooms",
@@ -149,11 +151,25 @@ func (b *InMemoryBackend) UpdatePrivacyBudgetTemplate(
 		tmpl.AutoRefresh = autoRefresh
 	}
 	if parameters != nil {
-		tmpl.Parameters = parameters
+		tmpl.Parameters = mergeBudgetParameters(tmpl.Parameters, parameters)
 	}
 	tmpl.UpdateTime = b.now()
 
 	return tmpl, nil
+}
+
+// mergeBudgetParameters keeps unset differentialPrivacy members (types.DifferentialPrivacyTemplateUpdateParameters).
+func mergeBudgetParameters(current, update map[string]any) map[string]any {
+	upd, updOK := update[keyDifferentialPrivacy].(map[string]any)
+	cur, curOK := current[keyDifferentialPrivacy].(map[string]any)
+	if !updOK || !curOK {
+		return update
+	}
+
+	merged := maps.Clone(cur)
+	maps.Copy(merged, upd)
+
+	return map[string]any{keyDifferentialPrivacy: merged}
 }
 
 func (b *InMemoryBackend) DeletePrivacyBudgetTemplate(membershipID, templateID string) error {
@@ -212,7 +228,7 @@ func asInt64(v any) (int64, bool) {
 // real wire shape verified against
 // awsRestjson1_serializeDocumentDifferentialPrivacyTemplateParametersInput).
 func extractDPEpsilonNoise(parameters map[string]any) (int64, int64, bool) {
-	dp, isMap := parameters["differentialPrivacy"].(map[string]any)
+	dp, isMap := parameters[keyDifferentialPrivacy].(map[string]any)
 	if !isMap {
 		return 0, 0, false
 	}
@@ -252,7 +268,7 @@ func differentialPrivacyBudgetPayload(epsilon, usersNoisePerQuery int64) map[str
 	}
 
 	return map[string]any{
-		"differentialPrivacy": map[string]any{
+		keyDifferentialPrivacy: map[string]any{
 			"epsilon":      epsilon,
 			"aggregations": aggregations,
 		},
@@ -455,7 +471,7 @@ func (b *InMemoryBackend) PreviewPrivacyImpact(
 
 	return map[string]any{
 		"privacyImpact": map[string]any{
-			"differentialPrivacy": map[string]any{"aggregations": aggregations},
+			keyDifferentialPrivacy: map[string]any{"aggregations": aggregations},
 		},
 	}, nil
 }

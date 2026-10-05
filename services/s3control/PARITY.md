@@ -1133,3 +1133,7 @@ FIXED 2026-10-03 (gopherstack-twwrp): CreateAccessGrant now sets GrantScope to t
 ## 2026-10-04 (reqfielddiff tier-1 pass)
 
 `DeleteAccessGrantsLocation`/`GetAccessGrantsLocation`/`UpdateAccessGrantsLocation.AccessGrantsLocationId` are tool false positives (httpLabel path segments, read from the URL). `ListAccessPoints.DataSourceType` stays recorded: every access point is bucket-backed so the filter cannot change the output.
+
+## 2026-10-05 (gopherstack-uox6 pass 8, value semantics)
+
+GetBucketVersioning returned a fabricated Suspended status for a bucket whose versioning was never set; the SDK says no status is returned in that case (api_op_GetBucketVersioning.go:24-26), so Status is now omitted until PutBucketVersioning runs. Two tests that asserted the fabricated Suspended were changed to expect empty. Proof: `TestBucketVersioning_NoStatusUntilConfigured`. Recorded: MFADelete is not modeled.

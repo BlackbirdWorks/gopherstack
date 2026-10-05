@@ -696,3 +696,7 @@ workmail already isolates regions internally: organizations record their region 
 
 - Fixed: `CreateImpersonationRole` duplicate name returned `EntityAlreadyExistsException`, a code no WorkMail op declares. Now declared `InvalidParameterException`. Typed proof: `TestCreateImpersonationRole_DuplicateNameTyped`.
 - Recorded (unchanged, same as the 2026-08-31/09-07 refusals): the 10 remaining class-A findings are `Delete*`/`DeregisterMailDomain` entity-not-found paths whose op declares no not-found type; `EntityNotFoundException` is kept as the closest real WorkMail code.
+
+## 2026-10-05 (gopherstack-uox6 pass 8, value semantics)
+
+Create->Describe->Update round trips audited, no change. CreateUser already defaults Role USER (api_op_CreateUser.go:66). Recorded, unchanged: UpdateUser and UpdateResource say the request "should be the one expected when performing another Describe call" (api_op_UpdateUser.go:12), which can be read as full replacement, but it does not say omitted members are cleared, so the keep-when-omitted behaviour stays.

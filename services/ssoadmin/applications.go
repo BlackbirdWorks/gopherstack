@@ -68,16 +68,32 @@ func (b *InMemoryBackend) AddApplicationInternal(instanceArn, name string) *Appl
 	return copyApplication(app)
 }
 
+func normalizeApplicationStatus(status string) (string, error) {
+	switch status {
+	case "":
+		return appStatusEnabled, nil
+	case appStatusEnabled, appStatusDisabled:
+		return status, nil
+	}
+
+	return "", fmt.Errorf("%w: Application Status must be ENABLED or DISABLED", awserr.ErrInvalidParameter)
+}
+
 // CreateApplication creates a new application within an SSO instance.
 func (b *InMemoryBackend) CreateApplication(
-	instanceArn, applicationProviderArn, name, description string,
+	instanceArn, applicationProviderArn, name, description, status string,
 	tags map[string]string,
 	portalOptions *PortalOptions,
 ) (*Application, error) {
 	b.mu.Lock("CreateApplication")
 	defer b.mu.Unlock()
 
-	if err := validateApplicationProviderArn(applicationProviderArn); err != nil {
+	status, err := normalizeApplicationStatus(status)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = validateApplicationProviderArn(applicationProviderArn); err != nil {
 		return nil, err
 	}
 
@@ -122,7 +138,7 @@ func (b *InMemoryBackend) CreateApplication(
 		Description:            description,
 		InstanceArn:            instanceArn,
 		Name:                   name,
-		Status:                 appStatusEnabled,
+		Status:                 status,
 		Tags:                   make(map[string]string),
 		PortalOptions:          portalOptions,
 		ApplicationAccount:     b.accountID,

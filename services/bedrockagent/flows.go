@@ -85,9 +85,8 @@ func applyFlowConfig(f *Flow, cfg FlowConfig) {
 		f.Name = cfg.Name
 	}
 
-	if cfg.Description != "" {
-		f.Description = cfg.Description
-	}
+	// api_op_UpdateFlow.go:13: omitted fields are not kept
+	f.Description = cfg.Description
 
 	if cfg.RoleARN != "" {
 		f.RoleARN = cfg.RoleARN

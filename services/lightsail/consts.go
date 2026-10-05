@@ -311,6 +311,9 @@ const (
 // when a caller omits it on a create call.
 const ipAddressTypeDualStack = "dualstack"
 
+// httpTokensOptional is the unspecified-HttpTokens state (api_op_UpdateInstanceMetadataOptions.go:54-55).
+const httpTokensOptional = "optional"
+
 // blueprintGroupUbuntu names the seed Ubuntu blueprint's Group value,
 // shared between referencedata.go's seed and instances.go's
 // defaultUsernameForBlueprint lookup.

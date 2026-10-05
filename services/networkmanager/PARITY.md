@@ -1402,3 +1402,7 @@ GetCoreNetworkChangeSet, GetCoreNetworkChangeEvents and GetNetworkResourceCounts
 ## 2026-10-05 errtargetaudit triage (gopherstack-3fvxc)
 
 Orphan `InvalidPolicyDocument` (corenetworks.go) is the free-form `CoreNetworkPolicyError.ErrorCode` body field, not an exception code: false positive.
+
+## 2026-10-05 (gopherstack-uox6 pass 8, value semantics)
+
+UpdateGlobalNetwork, UpdateSite, UpdateDevice and UpdateLink now keep an omitted string member and clear it when sent as an empty string, per "To remove information for any of the parameters, specify an empty string" (api_op_UpdateSite.go:12, same text on the other three). Previously an empty string was ignored and UpdateGlobalNetwork wiped an omitted Description. UpdateConnection got the same pointer handling. Recorded, unchanged: UpdateCoreNetwork (its SDK doc is silent). Proof: `TestUpdate_OmittedKeepsEmptyStringClears`.

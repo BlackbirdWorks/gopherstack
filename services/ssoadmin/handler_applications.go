@@ -36,6 +36,7 @@ func (h *Handler) handleCreateApplication(c *echo.Context, body []byte) error {
 		ApplicationProviderArn string    `json:"ApplicationProviderArn"`
 		Name                   string    `json:"Name"`
 		Description            string    `json:"Description"`
+		Status                 string    `json:"Status"`
 		Tags                   []tagView `json:"Tags"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -73,6 +74,7 @@ func (h *Handler) handleCreateApplication(c *echo.Context, body []byte) error {
 		req.ApplicationProviderArn,
 		req.Name,
 		req.Description,
+		req.Status,
 		tags,
 		portalOptions,
 	)

@@ -1290,3 +1290,7 @@ Emits AWS/ApiGateway (ApiName; ApiName+Stage; ApiName+Method+Resource+Stage when
 ## 2026-10-04 (reqfielddiff tier-1 pass)
 
 `GetTags.Limit` is a tool false positive for a real gap: the pinned SDK documents it "(Not currently supported)" (api_op_GetTags.go), so ignoring it matches the service.
+
+## 2026-10-05 (gopherstack-uox6 pass 8, value semantics)
+
+PutIntegration now defaults CacheNamespace to the resource ID (api_op_PutIntegration.go:56: "By default, API Gateway uses the resource ID as the cacheNamespace"). Recorded, unchanged: CreateRestApi ApiKeySource and EndpointConfiguration have no SDK default text. Proof: `TestPutIntegration_CacheNamespaceDefaultsToResourceID`.

@@ -56,7 +56,7 @@ type createGlobalNetworkReq struct {
 }
 
 type updateGlobalNetworkReq struct {
-	Description string `json:"Description,omitempty"`
+	Description *string `json:"Description,omitempty"`
 }
 
 type describeGlobalNetworksResponse struct {
@@ -89,7 +89,7 @@ type createSiteReq struct {
 
 type updateSiteReq struct {
 	Location    *locationWire `json:"Location,omitempty"`
-	Description string        `json:"Description,omitempty"`
+	Description *string       `json:"Description,omitempty"`
 }
 
 type getSitesResponse struct {
@@ -135,12 +135,12 @@ type createDeviceReq struct {
 type updateDeviceReq struct {
 	AWSLocation  *awsLocationWire `json:"AWSLocation,omitempty"`
 	Location     *locationWire    `json:"Location,omitempty"`
-	Description  string           `json:"Description,omitempty"`
-	Model        string           `json:"Model,omitempty"`
-	SerialNumber string           `json:"SerialNumber,omitempty"`
-	SiteID       string           `json:"SiteId,omitempty"`
-	Type         string           `json:"Type,omitempty"`
-	Vendor       string           `json:"Vendor,omitempty"`
+	Description  *string          `json:"Description,omitempty"`
+	Model        *string          `json:"Model,omitempty"`
+	SerialNumber *string          `json:"SerialNumber,omitempty"`
+	SiteID       *string          `json:"SiteId,omitempty"`
+	Type         *string          `json:"Type,omitempty"`
+	Vendor       *string          `json:"Vendor,omitempty"`
 }
 
 type getDevicesResponse struct {
@@ -179,9 +179,9 @@ type createLinkReq struct {
 
 type updateLinkReq struct {
 	Bandwidth   *bandwidthWire `json:"Bandwidth,omitempty"`
-	Description string         `json:"Description,omitempty"`
-	Provider    string         `json:"Provider,omitempty"`
-	Type        string         `json:"Type,omitempty"`
+	Description *string        `json:"Description,omitempty"`
+	Provider    *string        `json:"Provider,omitempty"`
+	Type        *string        `json:"Type,omitempty"`
 }
 
 type getLinksResponse struct {
@@ -242,9 +242,9 @@ type createConnectionReq struct {
 }
 
 type updateConnectionReq struct {
-	ConnectedLinkID string `json:"ConnectedLinkId,omitempty"`
-	Description     string `json:"Description,omitempty"`
-	LinkID          string `json:"LinkId,omitempty"`
+	ConnectedLinkID *string `json:"ConnectedLinkId,omitempty"`
+	Description     *string `json:"Description,omitempty"`
+	LinkID          *string `json:"LinkId,omitempty"`
 }
 
 type getConnectionsResponse struct {
