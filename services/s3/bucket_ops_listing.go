@@ -15,6 +15,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // parseListObjectsMaxKeys parses ListObjects (V1)'s max-keys query param. The
@@ -383,9 +384,10 @@ type s3DirectoryBucketEntry struct {
 
 // s3DirectoryBucketsResult is the XML response for ListDirectoryBuckets.
 type s3DirectoryBucketsResult struct {
-	XMLName xml.Name                 `xml:"ListDirectoryBucketsResult"`
-	Xmlns   string                   `xml:"xmlns,attr"`
-	Buckets []s3DirectoryBucketEntry `xml:"Buckets>Bucket,omitempty"`
+	XMLName           xml.Name                 `xml:"ListDirectoryBucketsResult"`
+	Xmlns             string                   `xml:"xmlns,attr"`
+	ContinuationToken string                   `xml:"ContinuationToken,omitempty"`
+	Buckets           []s3DirectoryBucketEntry `xml:"Buckets>Bucket,omitempty"`
 }
 
 // handleListDirectoryBuckets handles GET / with ?list-type=directory.
@@ -405,8 +407,12 @@ func (h *S3Handler) handleListDirectoryBuckets(
 		return
 	}
 
-	entries := make([]s3DirectoryBucketEntry, 0, len(buckets))
-	for _, b := range buckets {
+	q := r.URL.Query()
+	maxBuckets, _ := strconv.Atoi(q.Get("max-directory-buckets"))
+	p := page.New(buckets, q.Get("continuation-token"), max(maxBuckets, 0), s3DefaultMaxBuckets)
+
+	entries := make([]s3DirectoryBucketEntry, 0, len(p.Data))
+	for _, b := range p.Data {
 		entry := s3DirectoryBucketEntry{Name: aws.ToString(b.Name)}
 		if b.CreationDate != nil {
 			entry.CreationDate = b.CreationDate.UTC().Format(time.RFC3339)
@@ -416,7 +422,7 @@ func (h *S3Handler) handleListDirectoryBuckets(
 	}
 
 	httputils.WriteXML(ctx, w, http.StatusOK,
-		s3DirectoryBucketsResult{Xmlns: xmlNamespaceS3, Buckets: entries})
+		s3DirectoryBucketsResult{Xmlns: xmlNamespaceS3, Buckets: entries, ContinuationToken: p.Next})
 }
 
 // isListDirectoryBucketsRequest returns true when the request targets

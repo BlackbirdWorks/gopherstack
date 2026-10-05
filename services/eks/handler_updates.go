@@ -138,7 +138,11 @@ type updateClusterConfigBody struct {
 	AccessConfig       *accessConfigJSON             `json:"accessConfig"`
 	ComputeConfig      *computeConfigJSON            `json:"computeConfig"`
 	StorageConfig      *storageConfigJSON            `json:"storageConfig"`
-	ClientRequestToken string                        `json:"clientRequestToken"`
+	DeletionProtection *bool                         `json:"deletionProtection"`
+	UpgradePolicy      *createClusterUpgradePolicy   `json:"upgradePolicy"`
+	// Only elasticLoadBalancing is updatable on kubernetesNetworkConfig.
+	KubernetesNetworkConfig *kubernetesNetworkConfigJSON `json:"kubernetesNetworkConfig"`
+	ClientRequestToken      string                       `json:"clientRequestToken"`
 }
 
 func (h *Handler) handleUpdateClusterConfig(c *echo.Context, clusterName string, body []byte) error {
@@ -151,6 +155,10 @@ func (h *Handler) handleUpdateClusterConfig(c *echo.Context, clusterName string,
 	}
 
 	cfgUpd := buildClusterConfigUpdate(in)
+
+	var blocksIn clusterConfigBlocksBody
+	_ = json.Unmarshal(body, &blocksIn)
+	cfgUpd.ConfigBlocks = blocksIn.blocks(false)
 
 	return h.withIdempotency(c, opUpdateClusterConfig, in.ClientRequestToken, body, func() (int, any, error) {
 		update, err := h.Backend.UpdateClusterConfig(clusterName, cfgUpd)
@@ -201,6 +209,16 @@ func buildClusterConfigUpdate(in updateClusterConfigBody) ClusterConfigUpdate {
 			sc.BlockStorage.Enabled = *in.StorageConfig.BlockStorage.Enabled
 		}
 		cfgUpd.StorageConfig = sc
+	}
+
+	cfgUpd.DeletionProtection = in.DeletionProtection
+
+	if in.UpgradePolicy != nil {
+		cfgUpd.UpgradeSupportType = in.UpgradePolicy.SupportType
+	}
+
+	if in.KubernetesNetworkConfig != nil && in.KubernetesNetworkConfig.ElasticLoadBalancing != nil {
+		cfgUpd.ElasticLoadBalancing = in.KubernetesNetworkConfig.ElasticLoadBalancing.Enabled
 	}
 
 	return cfgUpd

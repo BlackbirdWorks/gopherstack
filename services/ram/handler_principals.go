@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 )
 
 type principalObject struct {
@@ -27,7 +28,10 @@ func toPrincipalObject(a *ResourceShareAssociation) principalObject {
 type listPrincipalsRequest struct {
 	MaxResults        *int32   `json:"maxResults,omitempty"`
 	ResourceOwner     string   `json:"resourceOwner"`
+	ResourceArn       string   `json:"resourceArn"`
+	ResourceType      string   `json:"resourceType"`
 	NextToken         string   `json:"nextToken"`
+	Principals        []string `json:"principals"`
 	ResourceShareArns []string `json:"resourceShareArns"`
 }
 
@@ -49,7 +53,22 @@ func (h *Handler) handleListPrincipals(_ context.Context, body []byte) ([]byte, 
 	assocs := h.Backend.ListPrincipals(req.ResourceOwner, req.ResourceShareArns)
 	objs := make([]principalObject, 0, len(assocs))
 
+	var resourceARNs []string
+	if req.ResourceArn != "" {
+		resourceARNs = []string{req.ResourceArn}
+	}
+
+	allowed := h.Backend.ResourceShareARNsFor(ShareFilter{ResourceARNs: resourceARNs, ResourceType: req.ResourceType})
+
 	for _, a := range assocs {
+		if _, ok := allowed[a.ResourceShareARN]; allowed != nil && !ok {
+			continue
+		}
+
+		if len(req.Principals) > 0 && !slices.Contains(req.Principals, a.AssociatedEntity) {
+			continue
+		}
+
 		objs = append(objs, toPrincipalObject(a))
 	}
 

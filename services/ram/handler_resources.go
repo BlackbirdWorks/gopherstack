@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
+	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
@@ -37,7 +39,9 @@ type listResourcesRequest struct {
 	MaxResults        *int32   `json:"maxResults,omitempty"`
 	ResourceOwner     string   `json:"resourceOwner"`
 	ResourceType      string   `json:"resourceType"`
+	Principal         string   `json:"principal"`
 	NextToken         string   `json:"nextToken"`
+	ResourceArns      []string `json:"resourceArns"`
 	ResourceShareArns []string `json:"resourceShareArns"`
 }
 
@@ -58,8 +62,17 @@ func (h *Handler) handleListResources(_ context.Context, body []byte) ([]byte, e
 
 	assocs := h.Backend.ListResources(req.ResourceOwner, req.ResourceShareArns, req.ResourceType)
 	objs := make([]resourceObject, 0, len(assocs))
+	withPrincipal := h.Backend.ResourceShareARNsFor(ShareFilter{Principal: req.Principal})
 
 	for _, a := range assocs {
+		if _, ok := withPrincipal[a.ResourceShareARN]; withPrincipal != nil && !ok {
+			continue
+		}
+
+		if len(req.ResourceArns) > 0 && !slices.Contains(req.ResourceArns, a.AssociatedEntity) {
+			continue
+		}
+
 		objs = append(objs, toResourceObject(a))
 	}
 
@@ -119,6 +132,7 @@ func (h *Handler) handleListPendingInvitationResources(
 type getResourcePoliciesRequest struct {
 	MaxResults   *int32   `json:"maxResults,omitempty"`
 	NextToken    string   `json:"nextToken"`
+	Principal    string   `json:"principal"`
 	ResourceArns []string `json:"resourceArns"`
 }
 
@@ -133,7 +147,26 @@ func (h *Handler) handleGetResourcePolicies(_ context.Context, body []byte) ([]b
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	policies := h.Backend.GetResourcePolicies(req.ResourceArns)
+	resourceARNs := req.ResourceArns
+
+	if req.Principal != "" {
+		sharedWith := make(map[string]struct{})
+		shares := slices.Collect(maps.Keys(h.Backend.ResourceShareARNsFor(ShareFilter{Principal: req.Principal})))
+
+		if len(shares) > 0 {
+			for _, a := range h.Backend.ListResources("", shares, "") {
+				sharedWith[a.AssociatedEntity] = struct{}{}
+			}
+		}
+
+		resourceARNs = slices.DeleteFunc(slices.Clone(resourceARNs), func(arn string) bool {
+			_, ok := sharedWith[arn]
+
+			return !ok
+		})
+	}
+
+	policies := h.Backend.GetResourcePolicies(resourceARNs)
 
 	page, nextToken, err := ramPaginate(policies, req.NextToken, req.MaxResults)
 	if err != nil {
@@ -327,7 +360,7 @@ func (h *Handler) handleListResourceTypes(_ context.Context, body []byte) ([]byt
 type associatedSourceObject struct {
 	ResourceShareArn string  `json:"resourceShareArn"`
 	SourceID         string  `json:"sourceId"`
-	SourceType       string  `json:"sourceType"`
+	SourceType       string  `json:"sourceType,omitempty"`
 	Status           string  `json:"status"`
 	StatusMessage    string  `json:"statusMessage,omitempty"`
 	CreationTime     float64 `json:"creationTime"`
@@ -339,8 +372,37 @@ type listSourceAssociationsResponse struct {
 	SourceAssociations []associatedSourceObject `json:"sourceAssociations"`
 }
 
-func (h *Handler) handleListSourceAssociations(_ context.Context, _ []byte) ([]byte, error) {
-	return json.Marshal(listSourceAssociationsResponse{
-		SourceAssociations: []associatedSourceObject{},
-	})
+type listSourceAssociationsRequest struct {
+	MaxResults        *int32   `json:"maxResults,omitempty"`
+	AssociationStatus string   `json:"associationStatus"`
+	NextToken         string   `json:"nextToken"`
+	SourceID          string   `json:"sourceId"`
+	ResourceShareArns []string `json:"resourceShareArns"`
+}
+
+func (h *Handler) handleListSourceAssociations(_ context.Context, body []byte) ([]byte, error) {
+	var req listSourceAssociationsRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	sources := h.Backend.ListSourceAssociations(req.ResourceShareArns, req.SourceID, req.AssociationStatus)
+	objs := make([]associatedSourceObject, 0, len(sources))
+
+	for _, s := range sources {
+		objs = append(objs, associatedSourceObject{
+			ResourceShareArn: s.ResourceShareARN,
+			SourceID:         s.SourceID,
+			Status:           s.Status,
+			CreationTime:     epochSeconds(s.CreationTime),
+			LastUpdatedTime:  epochSeconds(s.LastUpdatedTime),
+		})
+	}
+
+	page, nextToken, err := ramPaginate(objs, req.NextToken, req.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(listSourceAssociationsResponse{NextToken: nextToken, SourceAssociations: page})
 }

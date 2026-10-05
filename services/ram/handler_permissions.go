@@ -7,6 +7,8 @@ import (
 	"strconv"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
 )
 
 // permissionStatusAttachable is the steady-state PermissionStatus for every
@@ -122,6 +124,7 @@ type createPermissionRequest struct {
 	Name           string      `json:"name"`
 	ResourceType   string      `json:"resourceType"`
 	PolicyTemplate string      `json:"policyTemplate"`
+	ClientToken    string      `json:"clientToken"`
 	Tags           []tagObject `json:"tags"`
 }
 
@@ -147,11 +150,20 @@ func (h *Handler) handleCreatePermission(_ context.Context, body []byte) ([]byte
 		return nil, fmt.Errorf("%w: policyTemplate is required", errInvalidRequest)
 	}
 
-	p, err := h.Backend.CreatePermission(
-		req.Name,
-		req.ResourceType,
-		req.PolicyTemplate,
-		fromTagObjects(req.Tags),
+	token := req.ClientToken
+	req.ClientToken = ""
+
+	p, err := idempotency.Create(
+		h.idem, opCreatePermission, token, idempotency.Fingerprint(req),
+		func(p *Permission) string { return p.ARN },
+		func(permARN string) (*Permission, error) {
+			p, _, getErr := h.Backend.GetPermission(permARN, nil)
+
+			return p, getErr
+		},
+		func() (*Permission, error) {
+			return h.Backend.CreatePermission(req.Name, req.ResourceType, req.PolicyTemplate, fromTagObjects(req.Tags))
+		},
 	)
 	if err != nil {
 		return nil, err

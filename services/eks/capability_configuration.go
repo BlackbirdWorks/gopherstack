@@ -435,7 +435,7 @@ func (c *Capability) UnmarshalJSON(data []byte) error {
 
 	c.Configuration = nil
 
-	if len(aux.Configuration) == 0 || string(aux.Configuration) == "null" {
+	if len(aux.Configuration) == 0 || string(aux.Configuration) == jsonNull {
 		return nil
 	}
 

@@ -18,9 +18,8 @@ last_audit_date: 2026-09-24
 # both reads req.NextToken/MaxResults and returns a real base64-offset cursor -- no exceptions, no
 # bypasses. ListResourceTypes (declares NextToken) is correctly left unpopulated: its content is a
 # static 21-entry compiled-in catalogue of shareable resource types, well under any page size.
-# ListSourceAssociations (declares NextToken) is also correctly left unpopulated -- already
-# documented above (its own ops: entry, 2026-07-23) as provably always empty: no op in this SDK's
-# entire surface can ever create a source association. No fixes needed this pass; 0 code changes.
+# ListSourceAssociations (declares NextToken) was unpopulated then; it now lists the Sources
+# given to CreateResourceShare/AssociateResourceShare (see its ops: entry).
 # 2026-08-30 sort-totality sweep (Class F: a sort that exists but is not total,
 # and Class G: parallel result lists truncated independently). Most ops sort on
 # a real unique key (Version per permission, ARN, Name-as-primary-key, ShareARN
@@ -95,7 +94,7 @@ ops:
   ListResources: {wire: ok, errors: ok, state: ok, persist: ok, note: "ResourceOwner is now enforced as required (see GetResourceShares note)"}
   ListPrincipals: {wire: ok, errors: ok, state: ok, persist: ok, note: "ResourceOwner is now enforced as required (see GetResourceShares note)"}
   ListResourceTypes: {wire: ok, errors: ok, state: ok, persist: n/a, note: "static table of shareable resource types, matches AWS's documented list; FIXED (2026-09-18, gopherstack-xhu2t): ResourceRegionScope (documented ALL/GLOBAL/REGIONAL filter, api_op_ListResourceTypes.go:46-58) was never read at all -- the handler ignored its request body entirely. Now filters the static catalogue by the requested scope, ALL (the default) returning it unfiltered. MaxResults/NextToken are honoured as of 2026-10-05. Proven via TestListResourceTypes_ResourceRegionScopeFilter (real SDK client round trip)."}
-  ListSourceAssociations: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED (2026-07-23) - wire-shape bug: response used a fabricated 'associations' key holding associationObject (principal/resource-association) shapes; the real deserializer reads 'sourceAssociations' holding AssociatedSource shapes (sourceId/sourceType/status/statusMessage/resourceShareArn). Fixed the shape; the list itself is correctly always empty -- confirmed by enumerating every api_op_*.go in the SDK module, there is no CreateSourceAssociation (or any) operation that could ever populate one via the RAM API, so an empty list is the only value this backend's public surface can ever produce, not a disguised stub"}
+  ListSourceAssociations: {wire: ok, errors: ok, state: ok, persist: ok, note: "Lists the Sources given to CreateResourceShare/AssociateResourceShare (ShareSource on the share, DISASSOCIATED after DisassociateResourceShare); sourceId, resourceShareArns, associationStatus and maxResults/nextToken are applied. sourceType is neither emitted nor filterable: the pinned SDK names no source-type values. Proof: TestRealClient_ShareConfigurationAndSources"}
   GetResourcePolicies: {wire: ok, errors: ok, state: ok, persist: ok}
   EnableSharingWithAwsOrganization: {wire: ok, errors: ok, state: ok, persist: n/a, note: "no organization/delegated-admin model exists in this backend; op remains a ReturnValue:true ack over the RAM API surface itself. FIXED 2026-09-24: now also creates the real AWSServiceRoleForResourceAccessManager service-linked role in the IAM backend (cross_service.go, siblingServices pattern from services/grafana), the cross-service side effect terraform-provider-aws's aws_ram_sharing_with_organization Read depends on via iam:GetRole. Idempotent; a no-op when IAM isn't wired."}
 families:
@@ -105,9 +104,10 @@ families:
 gaps: []
 items_still_open:
   - "gopherstack-kvyy (2026-09-11): Glue's PutResourcePolicy(EnableHybrid=TRUE) with any cross-account Principal.AWS grant is treated as the trigger for creating a RAM CREATED_FROM_POLICY resource share. Real AWS documents CREATED_FROM_POLICY generically as 'when you attach a resource-based policy to a resource', and the Glue/Lake-Formation-specific path is actually mediated by Lake Formation's own cross-account grant flow, not a literal 'any cross-account Glue policy triggers a RAM share' rule -- disclosed as broader than real Lake-Formation-mediated Glue sharing since Glue has no other concrete, emulatable wire path to the general mechanism. Revisit if a narrower, Lake-Formation-grant-shaped trigger becomes emulatable."
+  - "ClientToken replays CreateResourceShare, CreatePermission and CreatePermissionVersion (pkgs/idempotency, IdempotentParameterMismatchException on changed parameters). The other ClientToken ops are accepted but not replayed: their natural idempotency covers a retry, yet a retried Delete/Disassociate returns the current state's error, not the original result. Sources and ResourceShareConfiguration are stored and echoed, not enforced; ListSourceAssociations has no sourceType."
   - "gopherstack-kvyy (2026-09-11): PromoteResourceShareCreatedFromPolicy's UnmatchedPolicyPermissionException is not modeled -- it requires simulating 'no existing customer-managed permission exactly matches' the derived policy-based permission, out of scope for this pass."
 deferred:
-  - "DISCLOSED not fixed (2026-08-19 sweep, out of scope per sweep charter -- Layer 3 never-emitted members are only fixed if incidental): ResourceShare never emits resourceShareConfiguration (deserializers.go:8642+, types.ResourceShareConfiguration); Resource never emits resourceGroupArn (deserializers.go's awsRestjson1_deserializeDocumentResource); ResourceShareInvitation never emits receiverArn or resourceShareAssociations (deserializers.go's awsRestjson1_deserializeDocumentResourceShareInvitation). None of these surfaced incidentally while fixing the 3 genuine bugs this session, so left alone per the sweep's Layer-3-out-of-scope rule."
+  - "DISCLOSED not fixed (2026-08-19 sweep, out of scope per sweep charter -- Layer 3 never-emitted members are only fixed if incidental): Resource never emits resourceGroupArn (deserializers.go's awsRestjson1_deserializeDocumentResource); ResourceShareInvitation never emits receiverArn or resourceShareAssociations (deserializers.go's awsRestjson1_deserializeDocumentResourceShareInvitation). None of these surfaced incidentally while fixing the 3 genuine bugs this session, so left alone per the sweep's Layer-3-out-of-scope rule."
   - "ResourceShareStatus never reaches PENDING/FAILED/DELETING and ResourceShareAssociationStatus never reaches ASSOCIATING/FAILED/DISASSOCIATING/SUSPENDED/SUSPENDING/RESTORING: each needs async backend processing or Organizations SCP state this backend cannot represent, and invalid ARNs surface synchronously as MalformedArnException."
 leaks: {status: clean, note: "no goroutines/janitors in this backend; all state is plain maps/slices (plus the new replaceWorks store.Table) behind the single lockmetrics.RWMutex, snapshotted/restored atomically under that lock. DisassociateResourceSharePermission now prunes an empty sharePermissions[shareARN] map entry when its last permission is removed, closing a minor unbounded-empty-map-entry accumulation path. DisassociateResourceShare/AssociateResourceShare no longer produce duplicate association rows for repeated disassociate/re-associate cycles on the same entity (see AssociateResourceShare note) -- previously this was bounded (hard-delete kept the slice from growing) but the status-aware reactivation is now also memory-neutral, reusing the existing row instead of allocating a new one."}
 ---
@@ -412,7 +412,7 @@ addressing the 1 deferred item recorded in the 2026-07-13 audit:
    principal/resource-association shape) instead of the real
    `sourceAssociations` field holding `AssociatedSource` objects
    (`sourceId`/`sourceType`/`status`/`statusMessage`/`resourceShareArn`).
-   Fixed the shape. The list itself correctly stays always-empty: verified
+   Fixed the shape. The list was then always empty (since populated from Sources): verified
    by enumerating every `api_op_*.go` in the SDK module that there is no
    RAM operation capable of ever creating a source association (they're
    populated by other AWS services acting behind the scenes, not via the
@@ -921,7 +921,7 @@ ram is region-isolated: resource shares and their associations live per region; 
 
 ## 2026-10-05 (reqfielddiff tier-2 pagination)
 
-ListResourceTypes now honours maxResults/nextToken over the static catalogue (a client passing maxResults=5 got all 21 types and no cursor). Proof: `TestListResourceTypes_Pagination`. ListSourceAssociations stays always-empty (no op creates one).
+ListResourceTypes now honours maxResults/nextToken over the static catalogue (a client passing maxResults=5 got all 21 types and no cursor). Proof: `TestListResourceTypes_Pagination`. ListSourceAssociations is populated from Sources.
 
 ## 2026-10-05 errtargetaudit fixes (gopherstack-3fvxc)
 
@@ -931,7 +931,7 @@ ListResourceTypes now honours maxResults/nextToken over the static catalogue (a 
 
 ## 2026-10-05 (reqfielddiff -adjudicated tier-2)
 
-- ListSourceAssociations.MaxResults: always-empty, no op creates a source association (service-principal source scoping is unmodeled), so the list is always empty and no page is due (handler_resources.go).
+- ListSourceAssociations.MaxResults: paginated over the stored Sources (handler_resources.go).
 
 ### 2026-10-05 gap-list burn-down
 

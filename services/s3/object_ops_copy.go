@@ -14,6 +14,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 )
 
 // copyDirectiveReplace is the REPLACE value for X-Amz-Metadata-Directive and
@@ -163,16 +164,23 @@ func (h *S3Handler) copyObject(
 		"metadataDirective", r.Header.Get("X-Amz-Metadata-Directive"),
 		"taggingDirective", r.Header.Get("X-Amz-Tagging-Directive"))
 
+	hdrs := buildCopyContentHeaders(r, srcVer)
+
 	putInput := &s3.PutObjectInput{
-		Bucket:            aws.String(destBucket),
-		Key:               aws.String(destKey),
-		Body:              srcVer.Body,
-		Metadata:          userMeta,
-		ContentType:       contentType,
-		Expires:           expires,
-		StorageClass:      types.StorageClass(r.Header.Get("X-Amz-Storage-Class")),
-		ACL:               types.ObjectCannedACL(r.Header.Get("X-Amz-Acl")),
-		ChecksumAlgorithm: copyChecksumAlgorithm(r, srcVer),
+		Bucket:                  aws.String(destBucket),
+		Key:                     aws.String(destKey),
+		Body:                    srcVer.Body,
+		Metadata:                userMeta,
+		ContentType:             contentType,
+		ContentEncoding:         hdrs.contentEncoding,
+		ContentDisposition:      hdrs.contentDisposition,
+		CacheControl:            hdrs.cacheControl,
+		ContentLanguage:         hdrs.contentLanguage,
+		WebsiteRedirectLocation: ptrconv.NilIfEmpty(r.Header.Get("X-Amz-Website-Redirect-Location")),
+		Expires:                 expires,
+		StorageClass:            types.StorageClass(r.Header.Get("X-Amz-Storage-Class")),
+		ACL:                     types.ObjectCannedACL(r.Header.Get("X-Amz-Acl")),
+		ChecksumAlgorithm:       copyChecksumAlgorithm(r, srcVer),
 	}
 	h.resolveCopyTagging(ctx, r, putInput, tagging, taggingReplace)
 
@@ -353,6 +361,30 @@ func buildCopyMetadata(
 	}
 
 	return parseUserMetadata(r.Header), destContentType
+}
+
+// copyContentHeaders are the destination's content headers after the metadata directive.
+type copyContentHeaders struct {
+	contentEncoding, contentDisposition, cacheControl, contentLanguage *string
+}
+
+// buildCopyContentHeaders applies the metadata directive: REPLACE takes the request's headers, COPY the source's.
+func buildCopyContentHeaders(r *http.Request, src *s3.GetObjectOutput) copyContentHeaders {
+	if r.Header.Get("X-Amz-Metadata-Directive") == copyDirectiveReplace {
+		return copyContentHeaders{
+			contentEncoding:    ptrconv.NilIfEmpty(r.Header.Get("Content-Encoding")),
+			contentDisposition: ptrconv.NilIfEmpty(r.Header.Get("Content-Disposition")),
+			cacheControl:       ptrconv.NilIfEmpty(r.Header.Get("Cache-Control")),
+			contentLanguage:    ptrconv.NilIfEmpty(r.Header.Get("Content-Language")),
+		}
+	}
+
+	return copyContentHeaders{
+		contentEncoding:    src.ContentEncoding,
+		contentDisposition: src.ContentDisposition,
+		cacheControl:       src.CacheControl,
+		contentLanguage:    src.ContentLanguage,
+	}
 }
 
 // buildCopyExpires returns the Expires value for the destination object,

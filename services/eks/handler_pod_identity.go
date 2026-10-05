@@ -89,6 +89,10 @@ func podIdentityToJSON(a *PodIdentityAssociation) map[string]any {
 		m["policy"] = a.Policy
 	}
 
+	if a.TargetRoleARN != "" {
+		m["targetRoleArn"] = a.TargetRoleARN
+	}
+
 	if a.Tags != nil {
 		m["tags"] = a.Tags.Clone()
 	} else {
@@ -125,6 +129,7 @@ type createPodIdentityAssociationBody struct {
 	ServiceAccount     string            `json:"serviceAccount"`
 	RoleArn            string            `json:"roleArn"`
 	Policy             string            `json:"policy"`
+	TargetRoleArn      string            `json:"targetRoleArn"`
 	ClientRequestToken string            `json:"clientRequestToken"`
 	DisableSessionTags bool              `json:"disableSessionTags"`
 }
@@ -150,7 +155,9 @@ func (h *Handler) handleCreatePodIdentityAssociation(c *echo.Context, clusterNam
 			in.ServiceAccount,
 			in.RoleArn,
 			in.Tags,
-			PodIdentityAssociationInput{Policy: in.Policy, DisableSessionTags: in.DisableSessionTags},
+			PodIdentityAssociationInput{
+				Policy: in.Policy, TargetRoleARN: in.TargetRoleArn, DisableSessionTags: in.DisableSessionTags,
+			},
 		)
 		if err != nil {
 			return 0, nil, err
@@ -216,6 +223,7 @@ type updatePodIdentityBody struct {
 	Policy             *string `json:"policy"`
 	DisableSessionTags *bool   `json:"disableSessionTags"`
 	RoleArn            string  `json:"roleArn"`
+	TargetRoleArn      string  `json:"targetRoleArn"`
 	ClientRequestToken string  `json:"clientRequestToken"`
 }
 
@@ -230,6 +238,7 @@ func (h *Handler) handleUpdatePodIdentityAssociation(c *echo.Context, clusterNam
 	return h.withIdempotency(c, opUpdatePodIdentityAssociation, in.ClientRequestToken, body, func() (int, any, error) {
 		assoc, err := h.Backend.UpdatePodIdentityAssociation(clusterName, assocID, PodIdentityAssociationUpdate{
 			RoleARN:            in.RoleArn,
+			TargetRoleARN:      in.TargetRoleArn,
 			Policy:             in.Policy,
 			DisableSessionTags: in.DisableSessionTags,
 		})

@@ -499,9 +499,10 @@ func (h *Handler) handleUpdateNodegroupConfig(
 }
 
 type updateNodegroupVersionBody struct {
-	Version            string `json:"version"`
-	ReleaseVersion     string `json:"releaseVersion"`
-	ClientRequestToken string `json:"clientRequestToken"`
+	LaunchTemplate     *launchTemplateJSON `json:"launchTemplate"`
+	Version            string              `json:"version"`
+	ReleaseVersion     string              `json:"releaseVersion"`
+	ClientRequestToken string              `json:"clientRequestToken"`
 }
 
 func (h *Handler) handleUpdateNodegroupVersion(c *echo.Context, clusterName, nodegroupName string, body []byte) error {
@@ -513,7 +514,14 @@ func (h *Handler) handleUpdateNodegroupVersion(c *echo.Context, clusterName, nod
 	}
 
 	return h.withIdempotency(c, opUpdateNodegroupVersion, in.ClientRequestToken, body, func() (int, any, error) {
-		update, err := h.Backend.UpdateNodegroupVersion(clusterName, nodegroupName, in.Version, in.ReleaseVersion)
+		var lt *LaunchTemplate
+		if in.LaunchTemplate != nil {
+			lt = &LaunchTemplate{
+				ID: in.LaunchTemplate.ID, Name: in.LaunchTemplate.Name, Version: in.LaunchTemplate.Version,
+			}
+		}
+
+		update, err := h.Backend.UpdateNodegroupVersion(clusterName, nodegroupName, in.Version, in.ReleaseVersion, lt)
 		if err != nil {
 			return 0, nil, err
 		}

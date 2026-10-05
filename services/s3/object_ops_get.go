@@ -162,11 +162,28 @@ func (h *S3Handler) setGetObjectResponseHeaders(
 		w.Header().Set("Content-Disposition", cd)
 	}
 
+	setObjectContentHeaders(w, ver.CacheControl, ver.ContentLanguage, ver.WebsiteRedirectLocation)
+
 	if r.Header.Get("X-Amz-Checksum-Mode") == "ENABLED" {
 		h.handleChecksumMode(w, ver, details)
 	}
 
 	applyResponseOverrideHeaders(w, r)
+}
+
+// setObjectContentHeaders writes the stored Cache-Control, Content-Language and website redirect headers.
+func setObjectContentHeaders(w http.ResponseWriter, cacheControl, contentLanguage, redirect *string) {
+	if v := aws.ToString(cacheControl); v != "" {
+		w.Header().Set("Cache-Control", v)
+	}
+
+	if v := aws.ToString(contentLanguage); v != "" {
+		w.Header().Set("Content-Language", v)
+	}
+
+	if v := aws.ToString(redirect); v != "" {
+		w.Header().Set("X-Amz-Website-Redirect-Location", v)
+	}
 }
 
 // responseOverrideParams maps the AWS GetObject/HeadObject response-override

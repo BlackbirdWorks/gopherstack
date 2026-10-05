@@ -334,6 +334,13 @@ func (h *Handler) handleDescribeAddonVersions(c *echo.Context) error {
 	versions := filterAddonVersions(
 		h.Backend.DescribeAddonVersions(), q.Get("addonName"), q.Get("kubernetesVersion"), q["types"],
 	)
+	versions = slices.DeleteFunc(versions, func(a map[string]any) bool {
+		owner, _ := a["owner"].(string)
+		publisher, _ := a["publisher"].(string)
+
+		return (len(q["owners"]) > 0 && !slices.Contains(q["owners"], owner)) ||
+			(len(q["publishers"]) > 0 && !slices.Contains(q["publishers"], publisher))
+	})
 
 	p, err := eksVersionsPage(c, versions)
 	if err != nil {

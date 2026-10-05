@@ -1,8 +1,10 @@
 package eks
 
 import (
+	"encoding/json"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -18,13 +20,16 @@ type ClusterOptionalConfig struct {
 	AccessConfig  *AccessConfig
 	ComputeConfig *ComputeConfig
 	StorageConfig *StorageConfig
+	// ConfigBlocks are the opaque config members (zonal shift, scaling tier, kube-*, remote network, outpost).
+	ConfigBlocks map[string]json.RawMessage
 	// UpgradePolicySupportType is CreateClusterInput.UpgradePolicy.SupportType
 	// ("STANDARD" or "EXTENDED"); empty means "not specified", resolved to
 	// the real default of EXTENDED by resolveClusterOptionalConfig.
 	UpgradePolicySupportType string
 	// LogEntries is CreateClusterInput.Logging.ClusterLogging -- the same
 	// shape UpdateClusterConfig already applies via ClusterConfigUpdate.
-	LogEntries []ClusterLogEntry
+	LogEntries       []ClusterLogEntry
+	EncryptionConfig []EncryptionConfig
 	// DeletionProtection is CreateClusterInput.DeletionProtection; enforced
 	// by DeleteCluster.
 	DeletionProtection bool
@@ -112,12 +117,19 @@ func (b *InMemoryBackend) newClusterLocked(
 	accessCfg, computeCfg, storageCfg, logEntries, supportType, deletionProtection := resolveClusterOptionalConfig(
 		opts...)
 
+	var extra ClusterOptionalConfig
+	if len(opts) > 0 {
+		extra = opts[0]
+	}
+
 	return &Cluster{
-		Name:    name,
-		ARN:     clusterARN,
-		Version: version,
-		RoleARN: roleARN,
-		Status:  statusCreating,
+		ConfigBlocks:     cloneConfigBlocks(extra.ConfigBlocks),
+		EncryptionConfig: slices.Clone(extra.EncryptionConfig),
+		Name:             name,
+		ARN:              clusterARN,
+		Version:          version,
+		RoleARN:          roleARN,
+		Status:           statusCreating,
 		Endpoint: fmt.Sprintf(
 			"https://%s.%s.eks.amazonaws.com",
 			stableID(name),
@@ -172,6 +184,8 @@ func (c *Cluster) clone() *Cluster {
 		cp.AccessConfig = &ac
 	}
 
+	cp.ConfigBlocks = cloneConfigBlocks(c.ConfigBlocks)
+
 	return &cp
 }
 
@@ -223,6 +237,16 @@ func (b *InMemoryBackend) CreateCluster(
 		}
 	}
 
+	if len(opts) > 0 {
+		if err := validateEncryptionConfigs(opts[0].EncryptionConfig); err != nil {
+			return nil, err
+		}
+
+		if err := validateConfigBlocks(opts[0].ConfigBlocks); err != nil {
+			return nil, err
+		}
+	}
+
 	if version == "" {
 		version = defaultK8sVersion
 	}
@@ -230,7 +254,7 @@ func (b *InMemoryBackend) CreateCluster(
 	c := b.newClusterLocked(name, version, roleARN, vpcConfig, networkConfig, kv, opts...)
 	b.clusters.Put(c)
 	b.accessPolicies[name] = make(map[string][]*AccessPolicyAssociation)
-	b.encryptionConfigs[name] = nil
+	b.encryptionConfigs[name] = c.EncryptionConfig
 
 	if b.clusterEng != nil {
 		b.launchClusterLocked(name, version)
@@ -550,6 +574,7 @@ func clusterVersionSupportFor(version string) (clusterVersionSupport, bool) {
 func (b *InMemoryBackend) DescribeClusterVersions(defaultOnly bool) []map[string]any {
 	table := clusterVersionSupportTable()
 	out := make([]map[string]any, 0, len(table))
+	now := time.Now()
 
 	for _, v := range table {
 		if defaultOnly && !v.Default {
@@ -561,10 +586,25 @@ func (b *InMemoryBackend) DescribeClusterVersions(defaultOnly bool) []map[string
 			keyDefaultVersion:           v.Default,
 			keyEndOfStandardSupportDate: awstime.Epoch(v.EndOfStandardSupport),
 			keyEndOfExtendedSupportDate: awstime.Epoch(v.EndOfExtendedSupport),
+			"clusterType":               serviceNameEKS,
+			"versionStatus":             versionStatusAt(v, now),
+			keyStatusField:              strings.ReplaceAll(strings.ToLower(versionStatusAt(v, now)), "_", "-"),
 		})
 	}
 
 	return out
+}
+
+// versionStatusAt derives types.VersionStatus from the support dates.
+func versionStatusAt(v clusterVersionSupport, now time.Time) string {
+	switch {
+	case now.Before(v.EndOfStandardSupport):
+		return "STANDARD_SUPPORT"
+	case now.Before(v.EndOfExtendedSupport):
+		return "EXTENDED_SUPPORT"
+	default:
+		return "UNSUPPORTED"
+	}
 }
 
 // AddClusterInternal inserts a pre-built cluster directly into the backend.

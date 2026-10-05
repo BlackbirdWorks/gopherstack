@@ -16,6 +16,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -97,6 +98,7 @@ var (
 // Handler is the HTTP handler for the AWS RAM REST API.
 type Handler struct {
 	peers     *regionpeers.Set[Handler]
+	idem      *idempotency.Memo
 	Backend   StorageBackend
 	AccountID string
 	Region    string
@@ -105,6 +107,7 @@ type Handler struct {
 // NewHandler creates a new RAM handler.
 func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{
+		idem:      idempotency.New("ram"),
 		Backend:   backend,
 		AccountID: backend.AccountID(),
 		Region:    backend.Region(),
@@ -700,6 +703,14 @@ var errCodeLookup = []struct {
 }
 
 func (h *Handler) handleError(c *echo.Context, err error) error {
+	if errors.Is(err, idempotency.ErrParamsMismatch) {
+		payload, _ := json.Marshal(map[string]string{
+			keyTypeField: "IdempotentParameterMismatchException", keyMessageField: err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusBadRequest, payload)
+	}
+
 	for _, e := range errCodeLookup {
 		if errors.Is(err, e.err) {
 			payload, _ := json.Marshal(map[string]string{keyTypeField: e.code, keyMessageField: err.Error()})

@@ -146,6 +146,8 @@ func (h *S3Handler) writeHeadObjectResponse(
 		w.Header().Set("Content-Disposition", cd)
 	}
 
+	setObjectContentHeaders(w, out.CacheControl, out.ContentLanguage, out.WebsiteRedirectLocation)
+
 	applyResponseOverrideHeaders(w, r)
 
 	h.dispatchAccessLog(ctx, r, bucketName, "REST.HEAD.OBJECT", key, http.StatusOK, 0)

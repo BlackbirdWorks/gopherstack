@@ -2,6 +2,7 @@ package ram
 
 import (
 	"maps"
+	"slices"
 	"time"
 )
 
@@ -10,11 +11,13 @@ type ResourceShare struct {
 	LastUpdatedTime time.Time         `json:"lastUpdatedTime"`
 	CreationTime    time.Time         `json:"creationTime"`
 	Tags            map[string]string `json:"tags,omitempty"`
-	Name            string            `json:"name"`
-	ARN             string            `json:"arn"`
-	OwningAccountID string            `json:"owningAccountId"`
-	Status          string            `json:"status"`
-	StatusMessage   string            `json:"statusMessage,omitempty"`
+	// RetainSharingOnAccountLeaveOrganization is CreateResourceShare's ResourceShareConfiguration member.
+	RetainSharingOnAccountLeaveOrganization *bool  `json:"retainSharingOnAccountLeaveOrganization,omitempty"`
+	Name                                    string `json:"name"`
+	ARN                                     string `json:"arn"`
+	OwningAccountID                         string `json:"owningAccountId"`
+	Status                                  string `json:"status"`
+	StatusMessage                           string `json:"statusMessage,omitempty"`
 	// FeatureSet is one of STANDARD/CREATED_FROM_POLICY/PROMOTING_TO_STANDARD
 	// (ram@v1.39.4 types/enums.go ResourceShareFeatureSet). Empty decodes as
 	// STANDARD (see featureSetOf) so pre-existing snapshots stay valid without a
@@ -25,8 +28,18 @@ type ResourceShare struct {
 	// PutPolicyBasedShare). Empty for every ordinary STANDARD share. Not part of
 	// the AWS wire shape -- internal bookkeeping only, never read by
 	// toResourceShareObject.
-	PolicyResourceARN       string `json:"policyResourceArn,omitempty"`
-	AllowExternalPrincipals bool   `json:"allowExternalPrincipals"`
+	PolicyResourceARN string `json:"policyResourceArn,omitempty"`
+	// Sources are the service-principal source constraints (CreateResourceShare/AssociateResourceShare Sources).
+	Sources                 []ShareSource `json:"sources,omitempty"`
+	AllowExternalPrincipals bool          `json:"allowExternalPrincipals"`
+}
+
+// ShareSource is one source constraint on a resource share.
+type ShareSource struct {
+	CreationTime    time.Time `json:"creationTime"`
+	LastUpdatedTime time.Time `json:"lastUpdatedTime"`
+	ID              string    `json:"id"`
+	Status          string    `json:"status"`
 }
 
 // ResourceShareAssociation represents a principal or resource associated with a resource share.
@@ -104,6 +117,7 @@ func cloneInvitation(inv *ResourceShareInvitation) *ResourceShareInvitation {
 func cloneResourceShare(rs *ResourceShare) *ResourceShare {
 	cp := *rs
 	cp.Tags = maps.Clone(rs.Tags)
+	cp.Sources = slices.Clone(rs.Sources)
 
 	return &cp
 }

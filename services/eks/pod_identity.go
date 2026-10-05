@@ -16,6 +16,7 @@ import (
 // serviceAccount, and roleARN.
 type PodIdentityAssociationInput struct {
 	Policy             string
+	TargetRoleARN      string
 	DisableSessionTags bool
 }
 
@@ -59,6 +60,7 @@ func (b *InMemoryBackend) CreatePodIdentityAssociation(
 		Tags:               t,
 		ExternalID:         uuid.NewString(),
 		Policy:             opt.Policy,
+		TargetRoleARN:      opt.TargetRoleARN,
 		DisableSessionTags: opt.DisableSessionTags,
 	}
 	b.podIdentityAssociations.Put(assoc)
@@ -154,6 +156,7 @@ type PodIdentityAssociationUpdate struct {
 	Policy             *string
 	DisableSessionTags *bool
 	RoleARN            string
+	TargetRoleARN      string
 }
 
 // UpdatePodIdentityAssociation updates a pod identity association.
@@ -184,6 +187,10 @@ func (b *InMemoryBackend) UpdatePodIdentityAssociation(
 
 	if upd.Policy != nil {
 		assoc.Policy = *upd.Policy
+	}
+
+	if upd.TargetRoleARN != "" {
+		assoc.TargetRoleARN = upd.TargetRoleARN
 	}
 
 	if upd.DisableSessionTags != nil {

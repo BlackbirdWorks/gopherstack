@@ -47,6 +47,7 @@ items_still_open:
   - "AWS/S3 request metrics are emitted per bucket metrics configuration (FilterId; key-prefix filters honoured, tag filters not); FirstByteLatency, SelectRequests/SelectBytes*, replication and per-storage-class request metrics are not. (gopherstack-4m1qr)"
   - "GetBucketMetadataConfiguration echoes the CREATE body instead of a MetadataConfigurationResult with a server-computed DestinationResult; needs S3 Tables table-bucket ARN/namespace/status modeling (gopherstack-6flj)."
   - "Rejections the pinned SDK lists no error code for, so none is invented: Object Annotations 1 B-1 MiB payload window and ObjectIfMatch; RenameObject and CreateSession accepted on non-directory buckets; CreateSession SessionMode ReadOnly not enforced; directory buckets still accept ACL/tagging/versioning/lifecycle/website/CORS."
+  - "Accepted but not applied (no model behind them): PutObject x-amz-write-offset-bytes (append needs re-sealing the compressed/encrypted body), List* x-amz-optional-object-attributes (RestoreStatus is not carried by the listing slab), x-amz-mfa (MFA delete is stored, never enforced), CreateBucket x-amz-bucket-namespace, PutBucketPolicy x-amz-confirm-remove-self-bucket-access, and the MD5, SHA512 and XXHASH checksum algorithms."
   - "ListBucketIntelligentTieringConfigurations is unpaginated (the SDK documents no page size)."
   - "object_lambda: GetObject only resolves a Lambda wired by bucket name, not access-point-ARN routing; needs ARN-as-bucket routing on every route plus an s3control lookup."
   - "Notification destinations are validated only at PutBucketNotificationConfiguration; per-configuration error details are not emitted (2026-10-03)."
@@ -55,6 +56,13 @@ leaks: {status: clean, note: janitor ctx-parented w/ <-ctx.Done() stop; replicat
 ---
 
 ## Notes
+
+## 2026-10-05: object content headers, multipart metadata, directory-bucket members
+
+- Cache-Control, Content-Language and x-amz-website-redirect-location are stored on PutObject, POST object, replication, CopyObject and multipart uploads, and returned by GetObject/HeadObject. Proof: `TestRealClient_ObjectMetadataHeaders`.
+- CreateMultipartUpload now keeps Content-Type, Content-Encoding, Content-Disposition, user metadata and the headers above through CompleteMultipartUpload (they were dropped before).
+- CopyObject copies the source's Content-Encoding/Disposition/Cache-Control/Language on COPY, takes the request's on REPLACE; the website redirect is only ever taken from the request (s3@v1.111.0 api_op_CopyObject.go).
+- CompleteMultipartUpload honours x-amz-mp-object-size (400 InvalidRequest on mismatch, per the SDK doc). ListDirectoryBuckets honours max-directory-buckets and continuation-token. DeleteObject on a directory bucket honours x-amz-if-match-size and x-amz-if-match-last-modified-time, and `If-Match: *` matches any ETag.
 
 ## 2026-10-03: PutBucketNotificationConfiguration destination validation under --enforce-iam
 
