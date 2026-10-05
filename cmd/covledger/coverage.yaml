@@ -2974,3 +2974,51 @@ rows:
     date: "2026-08-31"
     commit: 9cf2d2292
     source: "bd_comment"
+  - service: scheduler
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 8ff066a66
+    source: "commit"
+  - service: cognitoidp
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 8ff066a66
+    source: "commit"
+  - service: sesv2
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 8ff066a66
+    source: "commit"
+  - service: route53
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 8ff066a66
+    source: "commit"
+  - service: eks
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 8ff066a66
+    source: "commit"
+  - service: organizations
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 8ff066a66
+    source: "commit"
+  - service: ses
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 8ff066a66
+    source: "commit"
+  - service: kafka
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 8ff066a66
+    source: "commit"
