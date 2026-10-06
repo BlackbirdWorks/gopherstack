@@ -910,3 +910,23 @@ either service existed), `services/ec2` had no such coupling and building it was
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 outposts is region-isolated: sites, outposts and orders live per region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/outposts`. Limitation: the dashboard shows the home region only. The tagging bridge lists the request region and resolves Tag/Untag by ARN region. Sibling workers stop on Reset, Shutdown and restore (`TestHandler_SiblingTimersStopWithSibling`). `TestHandler_MultiRegionReset` covers Reset.
+
+## 2026-10-05 (list pagination)
+
+ListAssets, ListAssetInstances, GetOutpostInstanceTypes, GetOutpostSupportedInstanceTypes and GetOutpostBillingInformation now honour MaxResults/NextToken (query-bound, `serializers.go:1361` outposts@v1.66.1; default 100, max 1000 per the API reference). All paged ops reject MaxResults outside 1-1000 and a malformed NextToken with ValidationException. Items are sorted by ID before paging. Filter-member findings on ListAssets/ListAssetInstances/ListCapacityTasks/ListCatalogItems/ListOutposts/ListSites were false positives: `q["...Filter"]` reads were already wired. ListBlockingInstancesForCapacityTask validates paging but is always empty (no EC2 placement data). Proof: `TestRealClient_ListOpsHonourMaxResults`, `TestRealClient_ListOpsRejectBadPaging`.
+
+## 2026-10-05 (reqfielddiff tier-2 filters)
+
+All 17 flagged filter members (ListAssets, ListAssetInstances, ListCapacityTasks, ListCatalogItems, ListOutposts, ListSites) are false positives: the handlers read them as multi-value query keys (`q["HostIdFilter"]`) and the backends apply them. New typed proof for the previously untested AZ, AZ-ID, city and state filters: `TestListOutposts_AZFilters`, `TestListSites_AddressFilters`.
+
+## 2026-10-05 (reqfielddiff -adjudicated tier-2)
+
+Tool false positives: the handlers read these multi-valued query members with `q["Name"]` (handler_capacity.go, handler_catalog.go, handler_sites.go), a shape the scan does not follow.
+
+- ListCapacityTasks.CapacityTaskStatusFilter: applied, `TestListCapacityTasks_FiltersByStatus`.
+- ListCatalogItems.EC2FamilyFilter: applied by `matchesCatalogItemFilter`, `TestListCatalogItems_FilterMembers`.
+- ListCatalogItems.ItemClassFilter: applied, `TestListCatalogItems_FilterMembers`.
+- ListCatalogItems.SupportedStorageFilter: applied, `TestListCatalogItems_FilterMembers`.
+- ListSites.OperatingAddressCityFilter: applied, `TestListSites_AddressFilters`.
+- ListSites.OperatingAddressCountryCodeFilter: applied, `TestListSites_FiltersByCountryCode`.
+- ListSites.OperatingAddressStateOrRegionFilter: applied, `TestListSites_AddressFilters`.

@@ -40,7 +40,7 @@ func (h *S3Handler) headObject(
 	}
 	ctx = newCtx
 
-	versionID := r.URL.Query().Get("versionId")
+	versionID := queryParam(r, "versionId")
 	var vid *string
 
 	if versionID != "" {
@@ -145,6 +145,8 @@ func (h *S3Handler) writeHeadObjectResponse(
 	if cd := aws.ToString(out.ContentDisposition); cd != "" {
 		w.Header().Set("Content-Disposition", cd)
 	}
+
+	setObjectContentHeaders(w, out.CacheControl, out.ContentLanguage, out.WebsiteRedirectLocation)
 
 	applyResponseOverrideHeaders(w, r)
 
@@ -298,7 +300,7 @@ func (h *S3Handler) handleGetObjectAttributes(
 		return
 	}
 
-	versionID := r.URL.Query().Get("versionId")
+	versionID := queryParam(r, "versionId")
 	maxParts, partMarker := parseObjectAttributesPagination(r)
 
 	attrs, err := h.Backend.GetObjectAttributes(ctx, bucket, key, versionID, maxParts, partMarker)

@@ -402,6 +402,7 @@ func (b *InMemoryBackend) ImportCertificate(
 		existing.Status = statusIssued
 		existing.KeyUsage = meta.keyUsage
 		existing.ExtendedKeyUsage = meta.extKeyUsage
+		existing.SubjectAlternativeNames = meta.dnsNames
 
 		cp := copyCert(existing)
 
@@ -433,6 +434,7 @@ func (b *InMemoryBackend) ImportCertificate(
 		NotAfter:                           notAfter,
 		KeyUsage:                           meta.keyUsage,
 		ExtendedKeyUsage:                   meta.extKeyUsage,
+		SubjectAlternativeNames:            meta.dnsNames,
 		CertificateTransparencyLoggingPref: transparencyLoggingEnabled,
 		region:                             region,
 	}

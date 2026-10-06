@@ -1,7 +1,9 @@
 package opsworks
 
 import (
+	"encoding/json"
 	"maps"
+	"reflect"
 	"slices"
 	"time"
 
@@ -28,7 +30,7 @@ func isValidLayerType(layerType string) bool {
 // api_op_CreateLayer.go), and Type is restricted to the LayerType enum, not
 // a free string.
 func (b *InMemoryBackend) CreateLayer(
-	stackID, layerType, name, shortname string, installUpdatesOnBoot *bool, attributes map[string]string,
+	stackID, layerType, name, shortname string, settings LayerSettings,
 ) (*Layer, error) {
 	if name == "" || shortname == "" || stackID == "" || !isValidLayerType(layerType) {
 		return nil, ErrValidation
@@ -44,23 +46,16 @@ func (b *InMemoryBackend) CreateLayer(
 	id := uuid.NewString()
 	now := time.Now().UTC()
 
-	var storedAttrs map[string]string
-	if len(attributes) > 0 {
-		storedAttrs = make(map[string]string, len(attributes))
-		maps.Copy(storedAttrs, attributes)
-	}
-
 	l := &storedLayer{
-		CreatedAt:            now,
-		InstallUpdatesOnBoot: installUpdatesOnBoot,
-		Attributes:           storedAttrs,
-		StackID:              stackID,
-		LayerID:              id,
-		Arn:                  b.layerARN(id),
-		Type:                 layerType,
-		Name:                 name,
-		Shortname:            shortname,
+		CreatedAt: now,
+		StackID:   stackID,
+		LayerID:   id,
+		Arn:       b.layerARN(id),
+		Type:      layerType,
+		Name:      name,
+		Shortname: shortname,
 	}
+	applyLayerSettings(l, settings)
 	b.layers.Put(l)
 
 	return l.toLayer(), nil
@@ -94,8 +89,8 @@ func (b *InMemoryBackend) DescribeLayers(stackID string, layerIDs []string) ([]*
 	return result, nil
 }
 
-// UpdateLayer updates a layer's name and installUpdatesOnBoot setting.
-func (b *InMemoryBackend) UpdateLayer(layerID, name string, installUpdatesOnBoot *bool) error {
+// UpdateLayer applies the name, shortname and every optional member that is set.
+func (b *InMemoryBackend) UpdateLayer(layerID, name, shortname string, settings LayerSettings) error {
 	b.mu.Lock("UpdateLayer")
 	defer b.mu.Unlock()
 
@@ -107,11 +102,95 @@ func (b *InMemoryBackend) UpdateLayer(layerID, name string, installUpdatesOnBoot
 	if name != "" {
 		l.Name = name
 	}
-	if installUpdatesOnBoot != nil {
-		l.InstallUpdatesOnBoot = installUpdatesOnBoot
+
+	if shortname != "" {
+		l.Shortname = shortname
 	}
 
+	applyLayerSettings(l, settings)
+
 	return nil
+}
+
+func cloneLayerSettings(s LayerSettings) LayerSettings {
+	out := s
+	out.Attributes = maps.Clone(s.Attributes)
+	out.CustomSecurityGroupIDs = slices.Clone(s.CustomSecurityGroupIDs)
+	out.Packages = slices.Clone(s.Packages)
+	out.CustomRecipes = slices.Clone(s.CustomRecipes)
+	out.CloudWatchLogsConfiguration = slices.Clone(s.CloudWatchLogsConfiguration)
+	out.LifecycleEventConfiguration = slices.Clone(s.LifecycleEventConfiguration)
+	out.VolumeConfigurations = slices.Clone(s.VolumeConfigurations)
+
+	return out
+}
+
+// applyLayerSettings overlays the set members of in on l; lists and maps replace wholesale.
+func applyLayerSettings(l *storedLayer, in LayerSettings) {
+	in = cloneLayerSettings(in)
+
+	if in.InstallUpdatesOnBoot != nil {
+		l.InstallUpdatesOnBoot = in.InstallUpdatesOnBoot
+	}
+
+	if in.Attributes != nil {
+		l.Attributes = in.Attributes
+	}
+
+	var cur LayerSettings
+	if l.Settings != nil {
+		cur = *l.Settings
+	}
+
+	overlayBool(&cur.AutoAssignElasticIps, in.AutoAssignElasticIps)
+	overlayBool(&cur.AutoAssignPublicIps, in.AutoAssignPublicIps)
+	overlayBool(&cur.EnableAutoHealing, in.EnableAutoHealing)
+	overlayBool(&cur.UseEbsOptimizedInstances, in.UseEbsOptimizedInstances)
+
+	cur.CustomRecipes = overlayRaw(cur.CustomRecipes, in.CustomRecipes)
+	cur.CloudWatchLogsConfiguration = overlayRaw(cur.CloudWatchLogsConfiguration, in.CloudWatchLogsConfiguration)
+	cur.LifecycleEventConfiguration = overlayRaw(cur.LifecycleEventConfiguration, in.LifecycleEventConfiguration)
+	cur.VolumeConfigurations = overlayRaw(cur.VolumeConfigurations, in.VolumeConfigurations)
+
+	if in.CustomSecurityGroupIDs != nil {
+		cur.CustomSecurityGroupIDs = in.CustomSecurityGroupIDs
+	}
+
+	if in.Packages != nil {
+		cur.Packages = in.Packages
+	}
+
+	if in.CustomInstanceProfileArn != "" {
+		cur.CustomInstanceProfileArn = in.CustomInstanceProfileArn
+	}
+
+	if in.CustomJSON != "" {
+		cur.CustomJSON = in.CustomJSON
+	}
+
+	cur.InstallUpdatesOnBoot, cur.Attributes = nil, nil
+
+	if reflect.DeepEqual(cur, LayerSettings{}) {
+		l.Settings = nil
+
+		return
+	}
+
+	l.Settings = &cur
+}
+
+func overlayBool(dst **bool, src *bool) {
+	if src != nil {
+		*dst = src
+	}
+}
+
+func overlayRaw(cur, in json.RawMessage) json.RawMessage {
+	if len(in) > 0 {
+		return in
+	}
+
+	return cur
 }
 
 // DeleteLayer deletes a layer. AWS requires all associated instances be

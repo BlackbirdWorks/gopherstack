@@ -556,6 +556,15 @@ func TestPaginationParams_HonourMalformedNextToken(t *testing.T) {
 			})
 			require.Error(t, tcErr)
 		}},
+		{name: "DescribeCodeCoverages", run: func(t *testing.T) {
+			t.Helper()
+
+			_, ccErr := client.DescribeCodeCoverages(t.Context(), &codebuildsdk.DescribeCodeCoveragesInput{
+				ReportArn: aws.String(reportArn),
+				NextToken: aws.String(badToken),
+			})
+			require.ErrorContains(t, ccErr, "InvalidInputException")
+		}},
 		{name: "ListSharedProjects", run: func(t *testing.T) {
 			t.Helper()
 

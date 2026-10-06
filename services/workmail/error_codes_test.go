@@ -62,15 +62,17 @@ func TestRegisterMailDomain_InUse(t *testing.T) {
 	client := newWorkMailSDKClient(t, workmail.NewHandler(workmail.NewInMemoryBackend("000000000000", "us-east-1")))
 	orgID := newWorkMailOrg(t, client)
 
-	in := &workmailsdk.RegisterMailDomainInput{
-		OrganizationId: orgID,
-		DomainName:     aws.String("dup-domain.example"),
+	newInput := func() *workmailsdk.RegisterMailDomainInput {
+		return &workmailsdk.RegisterMailDomainInput{
+			OrganizationId: orgID,
+			DomainName:     aws.String("dup-domain.example"),
+		}
 	}
 
-	_, err := client.RegisterMailDomain(t.Context(), in)
+	_, err := client.RegisterMailDomain(t.Context(), newInput())
 	require.NoError(t, err)
 
-	_, err = client.RegisterMailDomain(t.Context(), in)
+	_, err = client.RegisterMailDomain(t.Context(), newInput())
 	require.Error(t, err)
 
 	var apiErr *types.MailDomainInUseException
@@ -242,6 +244,50 @@ func TestRegisterToWorkMail_NoOpWhenAlreadyEnabled(t *testing.T) {
 
 			assert.Equal(t, origEmail, tc.email(t, client, orgID, entityID),
 				"already-ENABLED entity's email must not change on re-registration")
+		})
+	}
+}
+
+// TestCreateImpersonationRole_DuplicateNameTyped checks the duplicate maps to a declared type.
+func TestCreateImpersonationRole_DuplicateNameTyped(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		role string
+	}{
+		{name: "same_name_twice", role: "dup-role"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newWorkMailSDKClient(
+				t, workmail.NewHandler(workmail.NewInMemoryBackend("000000000000", "us-east-1")),
+			)
+			orgID := newWorkMailOrg(t, client)
+
+			newInput := func() *workmailsdk.CreateImpersonationRoleInput {
+				return &workmailsdk.CreateImpersonationRoleInput{
+					OrganizationId: orgID,
+					Name:           aws.String(tt.role),
+					Type:           types.ImpersonationRoleTypeFullAccess,
+					Rules: []types.ImpersonationRule{{
+						ImpersonationRuleId: aws.String("r1"),
+						Effect:              types.AccessEffectAllow,
+						TargetUsers:         []string{"u"},
+					}},
+				}
+			}
+
+			_, err := client.CreateImpersonationRole(t.Context(), newInput())
+			require.NoError(t, err)
+
+			_, err = client.CreateImpersonationRole(t.Context(), newInput())
+
+			var apiErr *types.InvalidParameterException
+			require.ErrorAs(t, err, &apiErr)
 		})
 	}
 }

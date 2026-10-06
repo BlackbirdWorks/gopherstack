@@ -3,7 +3,7 @@
 // autocomplete). Backed by GET /dashboard/api/system/regions, contract:
 // `{ "regions": ["us-east-1", "eu-west-1"] }`, sorted, deduplicated,
 // possibly empty.
-import { DEFAULT_REGION } from "$lib/region.svelte";
+import { DEFAULT_REGION } from "#lib/region.svelte.ts";
 
 type RegionsWithDataResponse = { regions?: unknown };
 

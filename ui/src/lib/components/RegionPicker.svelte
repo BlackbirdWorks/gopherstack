@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { ALL_REGIONS, currentRegionSelection, setStoredRegion } from '$lib/region.svelte';
-	import { fetchRegionCatalog } from '$lib/region-catalog';
+	import { ALL_REGIONS, currentRegionSelection, setStoredRegion } from '#lib/region.svelte.ts';
+	import { fetchRegionCatalog } from '#lib/region-catalog.ts';
 
 	let open = $state(false);
 	let query = $state('');

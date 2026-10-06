@@ -584,7 +584,7 @@ func TestDeleteCertificate_NotFound_Error(t *testing.T) {
 	t.Parallel()
 
 	_, b := newR3Handler()
-	err := b.DeleteCertificate(strings.Repeat("0", 64))
+	err := b.DeleteCertificate(strings.Repeat("0", 64), false)
 	require.ErrorIs(t, err, iot.ErrCertificateNotFound)
 }
 
@@ -701,7 +701,7 @@ func TestDeleteCertificate_ActiveBlocked(t *testing.T) {
 			cert, err := b.CreateCertificateFromCsr(&iot.CreateCertificateFromCsrInput{SetAsActive: tt.setActive})
 			require.NoError(t, err)
 
-			err = b.DeleteCertificate(cert.CertificateID)
+			err = b.DeleteCertificate(cert.CertificateID, false)
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
 			} else {

@@ -52,7 +52,10 @@ func (h *Handler) handleCreateCluster(ctx context.Context, c *echo.Context, body
 		Tags:                      req.Tags,
 	}
 
-	cluster, err := h.Backend.CreateCluster(h.AccountID, region, in)
+	cluster, err := idemCreate(h, opCreateCluster, req.ClientToken, req,
+		func(c *Cluster) string { return c.Identifier },
+		h.Backend.GetCluster,
+		func() (*Cluster, error) { return h.Backend.CreateCluster(h.AccountID, region, in) })
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -106,7 +109,8 @@ func (h *Handler) handleUpdateCluster(c *echo.Context, identifier string, body [
 		MultiRegion:               multiRegionFromDTO(req.MultiRegionProperties),
 	}
 
-	cluster, err := h.Backend.UpdateCluster(identifier, in)
+	cluster, err := idemReplay(h, opUpdateCluster, req.ClientToken, [2]any{identifier, req},
+		func() (*Cluster, error) { return h.Backend.UpdateCluster(identifier, in) })
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -115,7 +119,10 @@ func (h *Handler) handleUpdateCluster(c *echo.Context, identifier string, body [
 }
 
 func (h *Handler) handleDeleteCluster(c *echo.Context, identifier string) error {
-	cluster, err := h.Backend.DeleteCluster(identifier)
+	token := c.Request().URL.Query().Get("client-token")
+
+	cluster, err := idemReplay(h, opDeleteCluster, token, identifier,
+		func() (*Cluster, error) { return h.Backend.DeleteCluster(identifier) })
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}

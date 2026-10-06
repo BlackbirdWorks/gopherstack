@@ -143,6 +143,10 @@ func (b *InMemoryBackend) triggerReplication(ctx context.Context, bucketName, ke
 		if getOut.ContentDisposition != nil {
 			putIn.ContentDisposition = getOut.ContentDisposition
 		}
+
+		putIn.CacheControl = getOut.CacheControl
+		putIn.ContentLanguage = getOut.ContentLanguage
+		putIn.WebsiteRedirectLocation = getOut.WebsiteRedirectLocation
 		if _, putErr := b.PutObject(ctx, putIn); putErr != nil {
 			logger.Load(ctx).WarnContext(ctx, "replication: dest PutObject failed",
 				"src", bucketName, "dest", destBucket, "key", key, "error", putErr)

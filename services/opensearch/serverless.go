@@ -1,11 +1,13 @@
 package opensearch
 
 import (
+	"errors"
 	"fmt"
 	"maps"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
 	"github.com/google/uuid"
 )
 
@@ -22,8 +24,9 @@ const (
 
 // ServerlessCollection represents an OpenSearch Serverless collection.
 type ServerlessCollection struct {
-	StatusUntil         time.Time         `json:"statusUntil,omitzero"`
 	Tags                map[string]string `json:"tags,omitempty"`
+	VectorOptions       *VectorOptions    `json:"vectorOptions,omitempty"`
+	StatusUntil         time.Time         `json:"statusUntil,omitzero"`
 	KmsKeyArn           string            `json:"kmsKeyArn,omitempty"`
 	DashboardEndpoint   string            `json:"dashboardEndpoint,omitempty"`
 	Description         string            `json:"description,omitempty"`
@@ -34,8 +37,58 @@ type ServerlessCollection struct {
 	Type                string            `json:"type"`
 	Arn                 string            `json:"arn"`
 	CollectionGroupName string            `json:"collectionGroupName,omitempty"`
+	DeletionProtection  string            `json:"deletionProtection,omitempty"`
+	StandbyReplicas     string            `json:"standbyReplicas,omitempty"`
 	CreatedDate         float64           `json:"createdDate"`
 	LastModifiedDate    float64           `json:"lastModifiedDate"`
+}
+
+// VectorOptions mirrors types.VectorOptions; the SDK wire key is capitalised (serializers.go:3259).
+type VectorOptions struct {
+	ServerlessVectorAcceleration string `json:"ServerlessVectorAcceleration"`
+}
+
+// CollectionSettings carries the optional CreateCollection/UpdateCollection members.
+type CollectionSettings struct {
+	VectorOptions      *VectorOptions
+	DeletionProtection string
+	StandbyReplicas    string
+	ClientToken        string
+}
+
+const (
+	slProtectionEnabled  = "ENABLED"
+	slProtectionDisabled = "DISABLED"
+)
+
+func validateCollectionSettings(st CollectionSettings, create bool) error {
+	for _, f := range []struct{ name, val string }{
+		{"deletionProtection", st.DeletionProtection},
+		{"standbyReplicas", st.StandbyReplicas},
+	} {
+		if f.val == "" || f.val == slProtectionEnabled || f.val == slProtectionDisabled {
+			continue
+		}
+
+		return fmt.Errorf("%w: %s must be ENABLED or DISABLED", ErrInvalidParameter, f.name)
+	}
+
+	if !create && st.StandbyReplicas != "" {
+		return fmt.Errorf("%w: standbyReplicas cannot be updated", ErrInvalidParameter)
+	}
+
+	if v := st.VectorOptions; v != nil {
+		switch v.ServerlessVectorAcceleration {
+		case "ENABLED", "DISABLED", "ALLOWED":
+		default:
+			return fmt.Errorf(
+				"%w: vectorOptions.serverlessVectorAcceleration must be ENABLED, DISABLED or ALLOWED",
+				ErrInvalidParameter,
+			)
+		}
+	}
+
+	return nil
 }
 
 // wireServerlessCollection is ServerlessCollection's wire twin for every AOSS
@@ -152,12 +205,59 @@ func serverlessNetworkPolicyKey(policyType, name string) string {
 // (see UpdateServerlessCollection).
 func (b *InMemoryBackend) CreateServerlessCollection(
 	name, collectionType, description, kmsKeyArn, collectionGroupName string,
-	tagMap map[string]string,
+	tagMap map[string]string, st CollectionSettings,
 ) (*ServerlessCollection, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
 
+	if err := validateCollectionSettings(st, true); err != nil {
+		return nil, err
+	}
+
+	fp := idempotency.Fingerprint(struct {
+		Tags                                                    map[string]string
+		Settings                                                CollectionSettings
+		Name, Type, Description, KmsKeyArn, CollectionGroupName string
+	}{tagMap, CollectionSettings{
+		VectorOptions: st.VectorOptions, DeletionProtection: st.DeletionProtection, StandbyReplicas: st.StandbyReplicas,
+	}, name, collectionType, description, kmsKeyArn, collectionGroupName})
+
+	coll, err := idempotency.Create(
+		b.collIdem, "CreateCollection", st.ClientToken, fp,
+		func(c *ServerlessCollection) string { return c.ID },
+		b.getServerlessCollectionByID,
+		func() (*ServerlessCollection, error) {
+			return b.createServerlessCollection(
+				name,
+				collectionType,
+				description,
+				kmsKeyArn,
+				collectionGroupName,
+				tagMap,
+				st,
+			)
+		},
+	)
+	if errors.Is(err, idempotency.ErrParamsMismatch) {
+		return nil, fmt.Errorf("%w: clientToken already used with different parameters", ErrApplicationAlreadyExists)
+	}
+
+	return coll, err
+}
+
+func (b *InMemoryBackend) getServerlessCollectionByID(id string) (*ServerlessCollection, error) {
+	if got := b.BatchGetServerlessCollections([]string{id}, nil); len(got) > 0 {
+		return got[0], nil
+	}
+
+	return nil, ErrApplicationNotFound
+}
+
+func (b *InMemoryBackend) createServerlessCollection(
+	name, collectionType, description, kmsKeyArn, collectionGroupName string,
+	tagMap map[string]string, st CollectionSettings,
+) (*ServerlessCollection, error) {
 	b.mu.Lock("CreateServerlessCollection")
 	defer b.mu.Unlock()
 
@@ -173,6 +273,11 @@ func (b *InMemoryBackend) CreateServerlessCollection(
 				"%w: collection group %s not found", ErrInvalidParameter, collectionGroupName,
 			)
 		}
+	}
+
+	if existing, ok := b.slCollections.Get(serverlessCollectionKey(name)); ok &&
+		!collectionDeleteElapsed(existing, b.clock()) {
+		return nil, fmt.Errorf("%w: collection %s already exists", ErrApplicationAlreadyExists, name)
 	}
 
 	b.slCollCounter++
@@ -198,6 +303,9 @@ func (b *InMemoryBackend) CreateServerlessCollection(
 		Description:         description,
 		KmsKeyArn:           kmsKeyArn,
 		CollectionGroupName: collectionGroupName,
+		DeletionProtection:  st.DeletionProtection,
+		StandbyReplicas:     st.StandbyReplicas,
+		VectorOptions:       st.VectorOptions,
 		CollectionEndpoint:  collEndpoint,
 		DashboardEndpoint:   dashEndpoint,
 		CreatedDate:         now,
@@ -308,6 +416,14 @@ func (b *InMemoryBackend) DeleteServerlessCollection(id string) (*ServerlessColl
 			continue
 		}
 
+		if c.DeletionProtection == slProtectionEnabled {
+			return nil, fmt.Errorf(
+				"%w: collection %s has deletion protection enabled",
+				ErrServerlessDeletionProtected,
+				id,
+			)
+		}
+
 		if b.processingDelay == 0 {
 			cp := *c
 			cp.Tags = maps.Clone(c.Tags)
@@ -341,15 +457,16 @@ func (b *InMemoryBackend) serverlessCollectionByIDLocked(id string) (*Serverless
 	return nil, false
 }
 
-// UpdateServerlessCollection updates a collection's description. Real
-// UpdateCollectionInput (api_op_UpdateCollection.go) also carries
-// DeletionProtection and VectorOptions -- neither is modeled elsewhere on
-// ServerlessCollection (CreateCollection doesn't accept them either), so
-// they're accepted-and-ignored the same way ClientToken already is on every
-// other serverless mutation, rather than half-modeled here alone.
-func (b *InMemoryBackend) UpdateServerlessCollection(id, description string) (*ServerlessCollection, error) {
+// UpdateServerlessCollection applies description, deletion protection and vector options.
+func (b *InMemoryBackend) UpdateServerlessCollection(
+	id, description string, st CollectionSettings,
+) (*ServerlessCollection, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: Id is required", ErrInvalidParameter)
+	}
+
+	if err := validateCollectionSettings(st, false); err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("UpdateServerlessCollection")
@@ -369,6 +486,14 @@ func (b *InMemoryBackend) UpdateServerlessCollection(id, description string) (*S
 
 	if description != "" {
 		c.Description = description
+	}
+
+	if st.DeletionProtection != "" {
+		c.DeletionProtection = st.DeletionProtection
+	}
+
+	if st.VectorOptions != nil {
+		c.VectorOptions = st.VectorOptions
 	}
 
 	c.LastModifiedDate = float64(time.Now().Unix())

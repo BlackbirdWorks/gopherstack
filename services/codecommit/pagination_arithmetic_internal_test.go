@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestPaginateStrings_BoundaryWalk(t *testing.T) {
+func TestPaginateSlice_BoundaryWalk(t *testing.T) {
 	t.Parallel()
 
 	items := make([]string, 0, 25)
@@ -18,8 +18,11 @@ func TestPaginateStrings_BoundaryWalk(t *testing.T) {
 	var collected []string
 
 	token := ""
+
 	for {
-		page, next := paginateStrings(items, token, 6)
+		page, next, err := paginateSlice(items, token, 6)
+		require.NoError(t, err)
+
 		collected = append(collected, page...)
 
 		if next == "" {
@@ -32,72 +35,45 @@ func TestPaginateStrings_BoundaryWalk(t *testing.T) {
 	require.Equal(t, items, collected)
 }
 
-func TestPaginateStrings_ExactDivisionNoTrailingCursor(t *testing.T) {
+// The token is a plain decimal offset; malformed or negative ones are InvalidContinuationToken.
+func TestPaginateSlice_Cases(t *testing.T) {
 	t.Parallel()
 
-	items := []string{"a", "b", "c", "d"}
+	abcde := []string{"a", "b", "c", "d", "e"}
 
-	page1, tok1 := paginateStrings(items, "", 2)
-	require.Equal(t, []string{"a", "b"}, page1)
-	require.NotEmpty(t, tok1)
+	tests := []struct {
+		name     string
+		token    string
+		wantNext string
+		items    []string
+		wantPage []string
+		max      int
+		wantErr  bool
+	}{
+		{name: "first_page", items: abcde, max: 2, wantPage: []string{"a", "b"}, wantNext: "2"},
+		{name: "exact_division_no_cursor", items: abcde[:4], token: "2", max: 2, wantPage: []string{"c", "d"}},
+		{name: "single_page", items: abcde[:2], max: 10, wantPage: []string{"a", "b"}},
+		{name: "empty", max: 10, wantPage: nil},
+		{name: "plain_offset", items: abcde, token: "2", max: 2, wantPage: []string{"c", "d"}, wantNext: "4"},
+		{name: "past_end", items: abcde[:3], token: "100", max: 10, wantPage: []string{}},
+		{name: "negative", items: abcde[:3], token: "-5", max: 2, wantErr: true},
+		{name: "malformed", items: abcde[:3], token: "not-a-number", max: 2, wantErr: true},
+	}
 
-	page2, tok2 := paginateStrings(items, tok1, 2)
-	require.Equal(t, []string{"c", "d"}, page2)
-	assert.Empty(t, tok2)
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-func TestPaginateStrings_SinglePage(t *testing.T) {
-	t.Parallel()
+			page, next, err := paginateSlice(tt.items, tt.token, tt.max)
+			if tt.wantErr {
+				require.ErrorIs(t, err, ErrInvalidContinuationToken)
 
-	items := []string{"a", "b"}
+				return
+			}
 
-	page, tok := paginateStrings(items, "", 10)
-	require.Equal(t, items, page)
-	assert.Empty(t, tok)
-}
-
-func TestPaginateStrings_Empty(t *testing.T) {
-	t.Parallel()
-
-	page, tok := paginateStrings(nil, "", 10)
-	assert.Empty(t, page)
-	assert.Empty(t, tok)
-}
-
-// TestPaginateStrings_TokenIsAPlainOffset documents this helper's cursor
-// contract: the token is a decimal slice offset, not an opaque or
-// item-identity-derived value. A stale token surviving a deletion still
-// works arithmetically (it just skips or repeats the one item whose
-// position shifted), but it is not tamper-evident and a caller could pass an
-// arbitrary integer directly. Contrast with pkgs/page, which encodes the
-// same offset contract but wraps it in base64 to signal "opaque, do not
-// construct by hand" -- this helper accepts a bare decimal string.
-func TestPaginateStrings_TokenIsAPlainOffset(t *testing.T) {
-	t.Parallel()
-
-	items := []string{"a", "b", "c", "d", "e"}
-
-	page, tok := paginateStrings(items, "2", 2)
-	assert.Equal(t, []string{"c", "d"}, page)
-	assert.Equal(t, "4", tok)
-}
-
-func TestPaginateStrings_CursorPastEnd(t *testing.T) {
-	t.Parallel()
-
-	page, tok := paginateStrings([]string{"a", "b", "c"}, "100", 10)
-	assert.Empty(t, page)
-	assert.Empty(t, tok)
-}
-
-func TestPaginateStrings_NegativeOrMalformedTokenResetsToStart(t *testing.T) {
-	t.Parallel()
-
-	items := []string{"a", "b", "c"}
-
-	page, _ := paginateStrings(items, "-5", 2)
-	assert.Equal(t, []string{"a", "b"}, page, "negative offset is invalid, so it must reset to the start")
-
-	page2, _ := paginateStrings(items, "not-a-number", 2)
-	assert.Equal(t, []string{"a", "b"}, page2, "malformed offset must reset to the start")
+			require.NoError(t, err)
+			assert.Len(t, page, len(tt.wantPage))
+			assert.Equal(t, tt.wantNext, next)
+		})
+	}
 }

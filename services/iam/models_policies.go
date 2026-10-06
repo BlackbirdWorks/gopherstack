@@ -90,6 +90,7 @@ type ListEntitiesForPolicyResponse struct {
 
 // SimulateCustomPolicyResult contains all evaluation results for SimulateCustomPolicy.
 type SimulateCustomPolicyResult struct {
+	Marker            string                    `xml:"Marker,omitempty"`
 	EvaluationResults []SimulationEvalResultXML `xml:"EvaluationResults>member"`
 	IsTruncated       bool                      `xml:"IsTruncated"`
 }

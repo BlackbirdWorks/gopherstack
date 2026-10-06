@@ -2,30 +2,56 @@ package glue
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+
+	gluetypes "github.com/aws/aws-sdk-go-v2/service/glue/types"
 )
 
 type createJobInput struct {
-	Tags                 map[string]string    `json:"Tags,omitempty"`
-	DefaultArguments     map[string]string    `json:"DefaultArguments,omitempty"`
+	Tags                 map[string]string     `json:"Tags,omitempty"`
+	DefaultArguments     map[string]string     `json:"DefaultArguments,omitempty"`
+	SourceControlDetails *SourceControlDetails `json:"SourceControlDetails,omitempty"`
+	jobExtraMembers
 	Command              JobCommand           `json:"Command,omitzero"`
-	WorkerType           string               `json:"WorkerType,omitempty"`
-	Role                 string               `json:"Role,omitempty"`
-	GlueVersion          string               `json:"GlueVersion,omitempty"`
+	JobMode              string               `json:"JobMode,omitempty"`
 	Name                 string               `json:"Name"`
 	Description          string               `json:"Description,omitempty"`
-	JobMode              string               `json:"JobMode,omitempty"`
+	GlueVersion          string               `json:"GlueVersion,omitempty"`
+	WorkerType           string               `json:"WorkerType,omitempty"`
+	Role                 string               `json:"Role,omitempty"`
 	Connections          ConnectionsList      `json:"Connections,omitzero"`
-	NotificationProperty NotificationProperty `json:"NotificationProperty,omitzero"`
-	NumberOfWorkers      int                  `json:"NumberOfWorkers,omitempty"`
 	MaxRetries           int                  `json:"MaxRetries,omitempty"`
 	Timeout              int                  `json:"Timeout,omitempty"`
 	MaxCapacity          float64              `json:"MaxCapacity,omitempty"`
+	ExecutionProperty    ExecutionProperty    `json:"ExecutionProperty,omitzero"`
+	NumberOfWorkers      int                  `json:"NumberOfWorkers,omitempty"`
+	NotificationProperty NotificationProperty `json:"NotificationProperty,omitzero"`
 	// AllocatedCapacity is deprecated in favor of MaxCapacity (glue@v1.157.0
 	// api_op_CreateJob.go), but a client can still send it; used only when
 	// MaxCapacity is unset.
-	AllocatedCapacity int32             `json:"AllocatedCapacity,omitempty"`
-	ExecutionProperty ExecutionProperty `json:"ExecutionProperty,omitzero"`
+	AllocatedCapacity int32 `json:"AllocatedCapacity,omitempty"`
+}
+
+// jobExtraMembers are the CreateJob/JobUpdate members shared by both inputs.
+type jobExtraMembers struct {
+	NonOverridableArguments   map[string]string          `json:"NonOverridableArguments,omitempty"`
+	CodeGenConfigurationNodes map[string]json.RawMessage `json:"CodeGenConfigurationNodes,omitempty"`
+	JobRunQueuingEnabled      *bool                      `json:"JobRunQueuingEnabled,omitempty"`
+	LogURI                    string                     `json:"LogUri,omitempty"`
+	SecurityConfiguration     string                     `json:"SecurityConfiguration,omitempty"`
+	ExecutionClass            string                     `json:"ExecutionClass,omitempty"`
+	MaintenanceWindow         string                     `json:"MaintenanceWindow,omitempty"`
+}
+
+func (m jobExtraMembers) apply(j *Job) {
+	j.NonOverridableArguments = m.NonOverridableArguments
+	j.CodeGenConfigurationNodes = m.CodeGenConfigurationNodes
+	j.JobRunQueuingEnabled = m.JobRunQueuingEnabled
+	j.LogURI = m.LogURI
+	j.SecurityConfiguration = m.SecurityConfiguration
+	j.ExecutionClass = m.ExecutionClass
+	j.MaintenanceWindow = m.MaintenanceWindow
 }
 
 type createJobOutput struct {
@@ -33,12 +59,21 @@ type createJobOutput struct {
 }
 
 func (h *Handler) handleCreateJob(_ context.Context, in *createJobInput) (*createJobOutput, error) {
+	if err := firstErr(
+		checkEnum("ExecutionClass", gluetypes.ExecutionClass(in.ExecutionClass)),
+		checkEnum("JobMode", gluetypes.JobMode(in.JobMode)),
+		checkEnum("WorkerType", gluetypes.WorkerType(in.WorkerType)),
+	); err != nil {
+		return nil, err
+	}
+
 	maxCapacity := in.MaxCapacity
 	if maxCapacity == 0 && in.AllocatedCapacity != 0 {
 		maxCapacity = float64(in.AllocatedCapacity)
 	}
 
-	j, err := h.Backend.CreateJob(Job{
+	job := Job{
+		SourceControlDetails: in.SourceControlDetails,
 		Name:                 in.Name,
 		Description:          in.Description,
 		Role:                 in.Role,
@@ -55,7 +90,10 @@ func (h *Handler) handleCreateJob(_ context.Context, in *createJobInput) (*creat
 		ExecutionProperty:    in.ExecutionProperty,
 		Connections:          in.Connections,
 		NotificationProperty: in.NotificationProperty,
-	})
+	}
+	in.apply(&job)
+
+	j, err := h.Backend.CreateJob(job)
 	if err != nil {
 		return nil, err
 	}
@@ -109,19 +147,20 @@ func (h *Handler) handleGetJobs(_ context.Context, in *getJobsInput) (*getJobsOu
 // jobUpdatePayload models the allowed fields for Glue's JobUpdate shape.
 // It intentionally omits create-only fields such as Name and Tags.
 type jobUpdatePayload struct {
-	DefaultArguments     map[string]string    `json:"DefaultArguments,omitempty"`
+	DefaultArguments map[string]string `json:"DefaultArguments,omitempty"`
+	jobExtraMembers
 	Command              JobCommand           `json:"Command,omitzero"`
 	WorkerType           string               `json:"WorkerType,omitempty"`
 	Role                 string               `json:"Role,omitempty"`
 	GlueVersion          string               `json:"GlueVersion,omitempty"`
 	Description          string               `json:"Description,omitempty"`
 	Connections          ConnectionsList      `json:"Connections,omitzero"`
-	NotificationProperty NotificationProperty `json:"NotificationProperty,omitzero"`
 	NumberOfWorkers      int                  `json:"NumberOfWorkers,omitempty"`
 	MaxRetries           int                  `json:"MaxRetries,omitempty"`
 	Timeout              int                  `json:"Timeout,omitempty"`
 	MaxCapacity          float64              `json:"MaxCapacity,omitempty"`
 	ExecutionProperty    ExecutionProperty    `json:"ExecutionProperty,omitzero"`
+	NotificationProperty NotificationProperty `json:"NotificationProperty,omitzero"`
 }
 
 type updateJobInput struct {
@@ -134,7 +173,7 @@ type updateJobOutput struct {
 }
 
 func (h *Handler) handleUpdateJob(_ context.Context, in *updateJobInput) (*updateJobOutput, error) {
-	if err := h.Backend.UpdateJob(in.JobName, Job{
+	upd := Job{
 		Description:          in.JobUpdate.Description,
 		Role:                 in.JobUpdate.Role,
 		Command:              in.JobUpdate.Command,
@@ -148,7 +187,10 @@ func (h *Handler) handleUpdateJob(_ context.Context, in *updateJobInput) (*updat
 		ExecutionProperty:    in.JobUpdate.ExecutionProperty,
 		Connections:          in.JobUpdate.Connections,
 		NotificationProperty: in.JobUpdate.NotificationProperty,
-	}); err != nil {
+	}
+	in.JobUpdate.apply(&upd)
+
+	if err := h.Backend.UpdateJob(in.JobName, upd); err != nil {
 		return nil, err
 	}
 
@@ -172,14 +214,17 @@ func (h *Handler) handleDeleteJob(_ context.Context, in *deleteJobInput) (*delet
 }
 
 type startJobRunInput struct {
-	Arguments             map[string]string     `json:"Arguments,omitempty"`
-	NotificationProperty  *NotificationProperty `json:"NotificationProperty,omitempty"`
-	JobName               string                `json:"JobName"`
-	WorkerType            string                `json:"WorkerType,omitempty"`
-	SecurityConfiguration string                `json:"SecurityConfiguration,omitempty"`
-	NumberOfWorkers       int                   `json:"NumberOfWorkers,omitempty"`
-	MaxCapacity           float64               `json:"MaxCapacity,omitempty"`
-	Timeout               int                   `json:"Timeout,omitempty"`
+	Arguments                  map[string]string     `json:"Arguments,omitempty"`
+	NotificationProperty       *NotificationProperty `json:"NotificationProperty,omitempty"`
+	JobRunQueuingEnabled       *bool                 `json:"JobRunQueuingEnabled,omitempty"`
+	JobName                    string                `json:"JobName"`
+	WorkerType                 string                `json:"WorkerType,omitempty"`
+	SecurityConfiguration      string                `json:"SecurityConfiguration,omitempty"`
+	ExecutionClass             string                `json:"ExecutionClass,omitempty"`
+	ExecutionRoleSessionPolicy string                `json:"ExecutionRoleSessionPolicy,omitempty"`
+	NumberOfWorkers            int                   `json:"NumberOfWorkers,omitempty"`
+	MaxCapacity                float64               `json:"MaxCapacity,omitempty"`
+	Timeout                    int                   `json:"Timeout,omitempty"`
 	// AllocatedCapacity is deprecated in favor of MaxCapacity (glue@v1.157.0
 	// api_op_StartJobRun.go); used only when MaxCapacity is unset.
 	AllocatedCapacity int32 `json:"AllocatedCapacity,omitempty"`
@@ -190,18 +235,28 @@ type startJobRunOutput struct {
 }
 
 func (h *Handler) handleStartJobRun(_ context.Context, in *startJobRunInput) (*startJobRunOutput, error) {
+	if err := firstErr(
+		checkEnum("ExecutionClass", gluetypes.ExecutionClass(in.ExecutionClass)),
+		checkEnum("WorkerType", gluetypes.WorkerType(in.WorkerType)),
+	); err != nil {
+		return nil, err
+	}
+
 	maxCapacity := in.MaxCapacity
 	if maxCapacity == 0 && in.AllocatedCapacity != 0 {
 		maxCapacity = float64(in.AllocatedCapacity)
 	}
 
 	run, err := h.Backend.StartJobRunWithOptions(in.JobName, in.Arguments, StartJobRunOptions{
-		WorkerType:            in.WorkerType,
-		SecurityConfiguration: in.SecurityConfiguration,
-		NotificationProperty:  in.NotificationProperty,
-		NumberOfWorkers:       in.NumberOfWorkers,
-		MaxCapacity:           maxCapacity,
-		Timeout:               in.Timeout,
+		WorkerType:                 in.WorkerType,
+		SecurityConfiguration:      in.SecurityConfiguration,
+		NotificationProperty:       in.NotificationProperty,
+		NumberOfWorkers:            in.NumberOfWorkers,
+		MaxCapacity:                maxCapacity,
+		Timeout:                    in.Timeout,
+		JobRunQueuingEnabled:       in.JobRunQueuingEnabled,
+		ExecutionClass:             in.ExecutionClass,
+		ExecutionRoleSessionPolicy: in.ExecutionRoleSessionPolicy,
 	})
 	if err != nil {
 		return nil, err
@@ -229,11 +284,14 @@ func (h *Handler) handleGetJobRun(_ context.Context, in *getJobRunInput) (*getJo
 }
 
 type getJobRunsInput struct {
-	JobName string `json:"JobName"`
+	JobName    string `json:"JobName"`
+	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults int32  `json:"MaxResults,omitempty"`
 }
 
 type getJobRunsOutput struct {
-	JobRuns []*JobRun `json:"JobRuns"`
+	NextToken string    `json:"NextToken,omitempty"`
+	JobRuns   []*JobRun `json:"JobRuns"`
 }
 
 func (h *Handler) handleGetJobRuns(_ context.Context, in *getJobRunsInput) (*getJobRunsOutput, error) {
@@ -242,7 +300,12 @@ func (h *Handler) handleGetJobRuns(_ context.Context, in *getJobRunsInput) (*get
 		return nil, err
 	}
 
-	return &getJobRunsOutput{JobRuns: runs}, nil
+	runs, next, err := pagedSlice(runs, in.NextToken, in.MaxResults, defaultListPageSize)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getJobRunsOutput{JobRuns: runs, NextToken: next}, nil
 }
 
 type batchStopJobRunInput struct {

@@ -144,10 +144,11 @@ type Email struct {
 
 // EmailTemplate represents a stored SES email template.
 type EmailTemplate struct {
-	TemplateName string `json:"templateName"`
-	SubjectPart  string `json:"subjectPart"`
-	TextPart     string `json:"textPart"`
-	HTMLPart     string `json:"htmlPart"`
+	CreatedAt    time.Time `json:"createdAt,omitzero"`
+	TemplateName string    `json:"templateName"`
+	SubjectPart  string    `json:"subjectPart"`
+	TextPart     string    `json:"textPart"`
+	HTMLPart     string    `json:"htmlPart"`
 }
 
 // ReceiptRuleSet represents an SES receipt rule set.

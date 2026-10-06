@@ -312,6 +312,12 @@ func stringMapToAny(m map[string]string) map[string]any {
 	return out
 }
 
+// TriggerData carries the request-supplied ClientMetadata and ValidationData into a trigger event.
+type TriggerData struct {
+	ClientMetadata map[string]string
+	ValidationData map[string]string
+}
+
 // stringsToAny converts []string to []any for embedding into a trigger event.
 func stringsToAny(s []string) []any {
 	out := make([]any, len(s))

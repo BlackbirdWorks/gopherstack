@@ -86,6 +86,8 @@ func (b *InMemoryBackend) ListDatasets(
 	return out, next
 }
 
+// UpdateDataset replaces Input (required) and keeps optional Format,
+// FormatOptions and PathOptions when omitted, like UpdateJob/UpdateSchedule.
 func (b *InMemoryBackend) UpdateDataset(
 	ctx context.Context,
 	name, format string,
@@ -100,10 +102,16 @@ func (b *InMemoryBackend) UpdateDataset(
 	if !ok {
 		return ErrNotFound
 	}
-	ds.Format = format
 	ds.Input = input
-	ds.FormatOptions = formatOpts
-	ds.PathOptions = pathOptions
+	if format != "" {
+		ds.Format = format
+	}
+	if formatOpts != (DatasetFormatOptions{}) {
+		ds.FormatOptions = formatOpts
+	}
+	if pathOptions != nil {
+		ds.PathOptions = pathOptions
+	}
 	ds.LastModifiedDate = float64(time.Now().Unix())
 
 	return nil

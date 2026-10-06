@@ -50,6 +50,7 @@ func (b *InMemoryBackend) CreateEvaluationJob(
 		job.JobDescription = opt.JobDescription
 		job.RoleArn = opt.RoleArn
 		job.ApplicationType = opt.ApplicationType
+		job.CustomerKeyID = opt.CustomerKeyID
 		job.InferenceConfig = opt.InferenceConfig
 		job.EvaluationConfig = opt.EvaluationConfig
 		job.OutputDataConfig = opt.OutputDataConfig

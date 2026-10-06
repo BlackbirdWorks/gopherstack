@@ -82,9 +82,10 @@ func (h *Handler) handleDescribeCopyJob(c *echo.Context, copyJobID string) error
 func (h *Handler) dispatchCopyJobExtraOps(c *echo.Context, route backupRoute, body []byte) (bool, error) {
 	switch route.operation {
 	case opListCopyJobSummaries:
-		summaries := h.Backend.ListCopyJobSummaries(NewJobSummaryFilter(c.Request().URL.Query()))
+		q := c.Request().URL.Query()
+		summaries, next := pageQuery(q, h.Backend.ListCopyJobSummaries(NewJobSummaryFilter(q)), summaryStateKey)
 
-		return true, c.JSON(http.StatusOK, map[string]any{"CopyJobSummaries": summaries})
+		return true, c.JSON(http.StatusOK, withNextToken(map[string]any{"CopyJobSummaries": summaries}, next))
 	case opStartCopyJob:
 		var copyJobReq struct {
 			RecoveryPointArn          string `json:"RecoveryPointArn"`

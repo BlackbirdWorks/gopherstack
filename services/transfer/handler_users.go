@@ -52,6 +52,7 @@ type createUserInput struct {
 	Role                  string                       `json:"Role"`
 	HomeDirectoryType     string                       `json:"HomeDirectoryType,omitempty"`
 	Policy                string                       `json:"Policy,omitempty"`
+	SSHPublicKeyBody      string                       `json:"SshPublicKeyBody,omitempty"`
 	HomeDirectoryMappings []homeDirectoryMapEntryInput `json:"HomeDirectoryMappings,omitempty"`
 	Tags                  []map[string]string          `json:"Tags"`
 }
@@ -90,6 +91,12 @@ func (h *Handler) handleCreateUser(
 		return nil, err
 	}
 
+	if in.SSHPublicKeyBody != "" {
+		if _, err = h.Backend.ImportSSHPublicKey(in.ServerID, in.UserName, in.SSHPublicKeyBody); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createUserOutput{ServerID: u.ServerID, UserName: u.UserName}, nil
 }
 
@@ -101,7 +108,6 @@ type describeUserInput struct {
 type sshKeyView struct {
 	SSHPublicKeyID   string  `json:"SshPublicKeyId"`
 	SSHPublicKeyBody string  `json:"SshPublicKeyBody"`
-	KeyType          string  `json:"KeyType,omitempty"`
 	DateImported     float64 `json:"DateImported"`
 }
 
@@ -160,7 +166,6 @@ func (h *Handler) handleDescribeUser(
 			SSHPublicKeyID:   k.SSHPublicKeyID,
 			SSHPublicKeyBody: k.SSHPublicKeyBody,
 			DateImported:     awstime.Epoch(k.DateImported),
-			KeyType:          k.KeyType,
 		}
 	}
 

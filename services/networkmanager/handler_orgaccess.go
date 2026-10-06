@@ -41,14 +41,13 @@ func (h *Handler) dispatchStartOrganizationServiceAccessUpdate(
 
 func (h *Handler) dispatchListOrganizationServiceAccessStatus(
 	_ context.Context,
-	r *http.Request,
+	_ *http.Request,
 	_ routeParams,
 	_ []byte,
 ) ([]byte, error) {
-	q := r.URL.Query()
 	status := h.Backend.ListOrganizationServiceAccessStatus()
 
 	return marshalResponse(listOrganizationServiceAccessStatusResponse{
-		OrganizationStatus: toOrganizationStatusWire(status), NextToken: queryNextToken(q),
+		OrganizationStatus: toOrganizationStatusWire(status),
 	})
 }

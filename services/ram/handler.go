@@ -16,6 +16,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -97,6 +98,7 @@ var (
 // Handler is the HTTP handler for the AWS RAM REST API.
 type Handler struct {
 	peers     *regionpeers.Set[Handler]
+	idem      *idempotency.Memo
 	Backend   StorageBackend
 	AccountID string
 	Region    string
@@ -105,6 +107,7 @@ type Handler struct {
 // NewHandler creates a new RAM handler.
 func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{
+		idem:      idempotency.New("ram"),
 		Backend:   backend,
 		AccountID: backend.AccountID(),
 		Region:    backend.Region(),
@@ -676,11 +679,7 @@ const codeInvalidParameter = "InvalidParameterException"
 
 // errCodeLookup maps every ram sentinel error to the exact wire code its
 // raising op's own deserializeOpError switch models (deserializers.go@
-// ram v1.39.4). All entries are HTTP 400. ErrAlreadyExists is the one
-// documented exception: CreateResourceShare's own model defines no
-// AlreadyExists-shaped exception at all (see its doc in errors.go), so the
-// code here is left as the pre-existing fabricated string -- no replacement
-// invented, per audit policy.
+// ram v1.39.4). All entries are HTTP 400.
 //
 //nolint:gochecknoglobals // read-only lookup table initialized once at startup
 var errCodeLookup = []struct {
@@ -691,7 +690,6 @@ var errCodeLookup = []struct {
 	{ErrPermissionNotFound, "UnknownResourceException"},
 	{ErrPermissionVersionNotFound, codeInvalidParameter},
 	{ErrInvitationNotFound, "ResourceShareInvitationArnNotFoundException"},
-	{ErrAlreadyExists, "ResourceShareAlreadyExistsException"},
 	{ErrPermissionAlreadyExists, "PermissionAlreadyExistsException"},
 	{ErrInvitationAlreadyAccepted, "ResourceShareInvitationAlreadyAcceptedException"},
 	{ErrInvitationAlreadyRejected, "ResourceShareInvitationAlreadyRejectedException"},
@@ -705,6 +703,14 @@ var errCodeLookup = []struct {
 }
 
 func (h *Handler) handleError(c *echo.Context, err error) error {
+	if errors.Is(err, idempotency.ErrParamsMismatch) {
+		payload, _ := json.Marshal(map[string]string{
+			keyTypeField: "IdempotentParameterMismatchException", keyMessageField: err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusBadRequest, payload)
+	}
+
 	for _, e := range errCodeLookup {
 		if errors.Is(err, e.err) {
 			payload, _ := json.Marshal(map[string]string{keyTypeField: e.code, keyMessageField: err.Error()})

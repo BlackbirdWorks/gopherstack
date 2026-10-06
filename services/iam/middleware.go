@@ -115,12 +115,12 @@ const userArnResourcePrefix = ":user/"
 // extractUserNameFromArn returns the IAM user name embedded in an
 // "arn:...:user/NAME" ARN, or "" if arn does not reference a user resource.
 func extractUserNameFromArn(arn string) string {
-	idx := strings.LastIndex(arn, userArnResourcePrefix)
-	if idx < 0 {
+	_, after, ok := strings.CutLast(arn, userArnResourcePrefix)
+	if !ok {
 		return ""
 	}
 
-	return arn[idx+len(userArnResourcePrefix):]
+	return after
 }
 
 // permissionsBoundaryLookup is an optional capability an EnforcementBackend may
@@ -527,12 +527,12 @@ func splitHostPort(addr string) (string, string, error) {
 	}
 
 	// IPv4 / hostname.
-	lastColon := strings.LastIndex(addr, ":")
-	if lastColon < 0 {
+	before, after, ok := strings.CutLast(addr, ":")
+	if !ok {
 		return addr, "", nil
 	}
 
-	return addr[:lastColon], addr[lastColon+1:], nil
+	return before, after, nil
 }
 
 // errNoPort is returned when an IPv6 address is malformed.

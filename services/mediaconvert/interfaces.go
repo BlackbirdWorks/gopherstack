@@ -17,7 +17,7 @@ type StorageBackend interface {
 	GetQueue(name string) (*Queue, error)
 	ListQueues() []*Queue
 	UpdateQueue(
-		name, description, status string,
+		name string, description *string, status string,
 		concurrentJobs *int,
 		reservationPlanSettings *ReservationPlan,
 		maximumConcurrentFeeds *int,
@@ -42,12 +42,12 @@ type StorageBackend interface {
 	GetJobTemplate(name string) (*JobTemplate, error)
 	ListJobTemplates() []*JobTemplate
 	UpdateJobTemplate(
-		name, description, category, queue string,
+		name string, description *string, category, queue string,
 		priority *int,
 		settings map[string]any,
 	) (*JobTemplate, error)
 	UpdateJobTemplateFull(
-		name, description, category, queue string,
+		name string, description *string, category, queue string,
 		priority *int,
 		settings map[string]any,
 		accelerationSettings *AccelerationSettings,
@@ -84,7 +84,7 @@ type StorageBackend interface {
 	CreatePreset(name, description, category string, settings map[string]any, tags map[string]string) (*Preset, error)
 	GetPreset(name string) (*Preset, error)
 	ListPresets() []*Preset
-	UpdatePreset(name, description, category string, settings map[string]any) (*Preset, error)
+	UpdatePreset(name string, description *string, category string, settings map[string]any) (*Preset, error)
 	DeletePreset(name string) error
 
 	// Policy operations
@@ -98,7 +98,8 @@ type StorageBackend interface {
 
 	// Jobs query / resource share operations
 	GetJobsQueryResults(queryID string) []*Job
-	StartJobsQuery(filterList []map[string]any, maxResults int, order string) (string, error)
+	GetJobsQueryPage(queryID string) ([]*Job, string)
+	StartJobsQuery(filterList []map[string]any, maxResults int, order, nextToken string) (string, error)
 	CreateResourceShare(jobID, supportCaseID string) (string, error)
 
 	// Tag operations

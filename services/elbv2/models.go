@@ -51,6 +51,7 @@ type LoadBalancer struct {
 	Type                               string               `json:"type"`
 	IPAddressType                      string               `json:"ipAddressType"`
 	IPv4IPAMPoolID                     string               `json:"ipv4IpamPoolId,omitempty"`
+	CustomerOwnedIPv4Pool              string               `json:"customerOwnedIpv4Pool,omitempty"`
 	EnablePrefixForIpv6SourceNat       string               `json:"enablePrefixForIpv6SourceNat,omitempty"`
 	EnforceSGInboundRulesOnPrivateLink string               `json:"enforceSgInboundRulesOnPrivateLink,omitempty"`
 	AvailabilityZones                  []AvailabilityZone   `json:"availabilityZones"`
@@ -79,6 +80,7 @@ type TargetGroup struct {
 	HealthCheckTimeoutSeconds  int32             `json:"healthCheckTimeoutSeconds"`
 	HealthyThresholdCount      int32             `json:"healthyThresholdCount"`
 	UnhealthyThresholdCount    int32             `json:"unhealthyThresholdCount"`
+	TargetControlPort          int32             `json:"targetControlPort,omitempty"`
 	HealthCheckEnabled         bool              `json:"healthCheckEnabled"`
 	CrossZoneLoadBalancing     bool              `json:"crossZoneLoadBalancing"`
 }
@@ -107,9 +109,24 @@ type Action struct {
 	ForwardConfig             *ForwardConfig             `json:"forwardConfig,omitempty"`
 	AuthenticateCognitoConfig *AuthenticateCognitoConfig `json:"authenticateCognitoConfig,omitempty"`
 	AuthenticateOidcConfig    *AuthenticateOidcConfig    `json:"authenticateOidcConfig,omitempty"`
+	JwtValidationConfig       *JwtValidationConfig       `json:"jwtValidationConfig,omitempty"`
 	Type                      string                     `json:"type"`
 	TargetGroupArn            string                     `json:"targetGroupArn"`
 	Order                     int32                      `json:"order,omitempty"`
+}
+
+// JwtValidationConfig holds configuration for jwt-validation actions.
+type JwtValidationConfig struct {
+	Issuer           string               `json:"issuer"`
+	JwksEndpoint     string               `json:"jwksEndpoint"`
+	AdditionalClaims []JwtAdditionalClaim `json:"additionalClaims,omitempty"`
+}
+
+// JwtAdditionalClaim is a claim a jwt-validation action must find in the token.
+type JwtAdditionalClaim struct {
+	Format string   `json:"format"`
+	Name   string   `json:"name"`
+	Values []string `json:"values"`
 }
 
 // RedirectConfig holds configuration for redirect actions.
@@ -196,6 +213,8 @@ type AuthenticateOidcConfig struct {
 type MutualAuthentication struct {
 	TrustStoreArn                     string `json:"trustStoreArn,omitempty"`
 	Mode                              string `json:"mode"`
+	AdvertiseTrustStoreCaNames        string `json:"advertiseTrustStoreCaNames,omitempty"`
+	TrustStoreAssociationStatus       string `json:"trustStoreAssociationStatus,omitempty"`
 	IgnoreClientCertificateExpiration bool   `json:"ignoreClientCertificateExpiration,omitempty"`
 }
 
@@ -311,6 +330,8 @@ type CreateLoadBalancerInput struct {
 	Type                         string
 	IPAddressType                string
 	EnablePrefixForIpv6SourceNat string
+	IPv4IPAMPoolID               string
+	CustomerOwnedIPv4Pool        string
 	Subnets                      []string        // plain subnet IDs (Subnets.member.N)
 	SubnetMappings               []SubnetMapping // rich subnet mappings (SubnetMappings.member.N)
 	SecurityGroups               []string
@@ -335,6 +356,7 @@ type CreateTargetGroupInput struct {
 	HealthCheckTimeoutSeconds  int32
 	HealthyThresholdCount      int32
 	UnhealthyThresholdCount    int32
+	TargetControlPort          int32
 	HealthCheckEnabled         bool
 }
 

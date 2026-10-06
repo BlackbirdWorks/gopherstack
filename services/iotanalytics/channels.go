@@ -38,6 +38,16 @@ func cloneChannel(c *Channel) *Channel {
 	return &cp
 }
 
+// defaultChannelStorage defaults an unset storage to serviceManagedS3
+// (types.go:108 of the SDK, "If not specified, the default is serviceManagedS3").
+func defaultChannelStorage(s *ChannelStorage) *ChannelStorage {
+	if s == nil || (s.ServiceManagedS3 == nil && s.CustomerManagedS3 == nil) {
+		return &ChannelStorage{ServiceManagedS3: &ServiceManagedS3Storage{}}
+	}
+
+	return cloneChannelStorage(s)
+}
+
 // CreateChannel creates a new IoT Analytics channel.
 func (b *InMemoryBackend) CreateChannel(
 	ctx context.Context,
@@ -70,7 +80,7 @@ func (b *InMemoryBackend) CreateChannel(
 		CreationTime:    now,
 		LastUpdate:      now,
 		Tags:            make(map[string]string),
-		Storage:         cloneChannelStorage(storage),
+		Storage:         defaultChannelStorage(storage),
 		RetentionPeriod: cloneRetentionPeriod(retention),
 	}
 	maps.Copy(c.Tags, tags)

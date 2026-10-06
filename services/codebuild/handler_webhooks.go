@@ -3,6 +3,8 @@ package codebuild
 import (
 	"context"
 	"fmt"
+
+	cbtypes "github.com/aws/aws-sdk-go-v2/service/codebuild/types"
 )
 
 type createWebhookInput struct {
@@ -23,6 +25,12 @@ func (h *Handler) handleCreateWebhook(
 	_ context.Context,
 	in *createWebhookInput,
 ) (*createWebhookOutput, error) {
+	if err := firstErr(
+		checkEnum("buildType", cbtypes.WebhookBuildType(in.BuildType)),
+	); err != nil {
+		return nil, err
+	}
+
 	if in.ProjectName == "" {
 		return nil, fmt.Errorf("%w: projectName is required", errInvalidRequest)
 	}
@@ -71,6 +79,12 @@ type updateWebhookOutput struct {
 }
 
 func (h *Handler) handleUpdateWebhook(_ context.Context, in *updateWebhookInput) (*updateWebhookOutput, error) {
+	if err := firstErr(
+		checkEnum("buildType", cbtypes.WebhookBuildType(in.BuildType)),
+	); err != nil {
+		return nil, err
+	}
+
 	if in.ProjectName == "" {
 		return nil, fmt.Errorf("%w: projectName is required", errInvalidRequest)
 	}

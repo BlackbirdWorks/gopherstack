@@ -210,12 +210,12 @@ func parameterARN(region, account, name string) string {
 // so any ":" delimits a selector. Returns (baseName, selector) where selector
 // is the part after the colon ("" when no selector is present).
 func splitParameterSelector(name string) (string, string) {
-	idx := strings.LastIndex(name, ":")
-	if idx < 0 {
+	before, after, ok := strings.CutLast(name, ":")
+	if !ok {
 		return name, ""
 	}
 
-	return name[:idx], name[idx+1:]
+	return before, after
 }
 
 // resolveParameterSelector returns the Parameter for the given base name and
@@ -948,22 +948,18 @@ func (b *InMemoryBackend) DescribeParameters(
 		})
 	}
 
-	// Apply filters
-	if len(input.ParameterFilters) > 0 {
-		var filtered []ParameterMetadata
-
-		for _, meta := range all {
-			if paramMatchesFilters(meta, input.ParameterFilters) {
-				filtered = append(filtered, meta)
-			}
-		}
-
-		all = filtered
+	all, err := filterParameterMetadata(all, input)
+	if err != nil {
+		return nil, err
 	}
 
 	sort.Slice(all, func(i, j int) bool {
 		return all[i].Name < all[j].Name
 	})
+
+	if tokenErr := validateNextToken(input.NextToken, ErrInvalidNextToken); tokenErr != nil {
+		return nil, tokenErr
+	}
 
 	startIdx := parseNextToken(input.NextToken)
 
@@ -1024,9 +1020,9 @@ func paramMatchesFilter(meta ParameterMetadata, f ParameterFilter) bool {
 	switch f.Key {
 	case filterKeyName:
 		fieldValue = meta.Name
-	case "Type":
+	case fkType:
 		fieldValue = meta.Type
-	case "KeyId":
+	case fkKeyID:
 		fieldValue = meta.KeyID
 	case "Tier":
 		fieldValue = meta.Tier

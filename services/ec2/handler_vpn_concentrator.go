@@ -133,7 +133,7 @@ func (h *Handler) handleDescribeVpnConcentrators(vals url.Values, reqID string) 
 		)
 	}
 
-	return resp, nil
+	return finishPagedFiltered(vals, resp)
 }
 
 func (h *Handler) handleGetActiveVpnTunnelStatus(vals url.Values, reqID string) (any, error) {

@@ -59,7 +59,7 @@ func TestListSummaryFields(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	flowVersion, err := backend.CreateFlowVersion(ctx, flow.FlowID, "v1")
+	flowVersion, err := backend.CreateFlowVersion(ctx, flow.FlowID, bedrockagent.VersionConfig{Description: "v1"})
 	require.NoError(t, err)
 
 	flowAlias, err := backend.CreateFlowAlias(ctx, flow.FlowID, bedrockagent.FlowAliasConfig{

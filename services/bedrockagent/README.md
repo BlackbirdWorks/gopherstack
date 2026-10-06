@@ -7,9 +7,9 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 77 (75 ok, 2 partial) |
+| PARITY entries audited | 77 (77 ok) |
 | Feature families | 3 (3 ok) |
-| Known gaps | 3 |
+| Known gaps | 5 |
 | Deferred items | 2 |
 | Resource leaks | clean |
 
@@ -17,7 +17,9 @@
 
 - DeleteAgentActionGroup.SkipResourceInUseCheck is accepted and ignored: action groups are DRAFT-only and aliases route to numbered versions holding their own copy, so no in-use reference can exist.
 - ValidateFlowDefinition covers only top-level graph structure (see its ops row); cycle, unreachable-node, node-type and expression validation are not modeled.
-- FailureReasons, StatusReason, AliasInvocationState, ConcurrencyConfiguration and ParentActionGroupSignature(Params) are unmodeled: no FAILED state paths, invocation control, concurrency limits or built-in action groups exist in this backend.
+- FailureReasons and StatusReason are unmodeled: no FAILED state paths exist in this backend.
+- Stored and echoed only, no runtime applies them: AliasInvocationState, FlowAlias ConcurrencyConfiguration, ParentActionGroupSignature(Params), CustomOrchestration, PromptOverrideConfiguration, CustomerEncryptionKeyArn (no KMS).
+- ClientToken replay is honoured for Create/Update members whose resource carries it (agent, action group, alias, collaborator, knowledge base, data source, ingestion job, flow, flow version, flow alias, prompt, prompt version); tokens on KB, data source, ingestion job, flow, flow version, flow alias and prompt resources are not persisted across restart, and Ingest/DeleteKnowledgeBaseDocuments ClientToken is not tracked.
 
 ### Deferred
 

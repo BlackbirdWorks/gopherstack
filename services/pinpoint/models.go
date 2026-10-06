@@ -90,6 +90,7 @@ type EmailTemplate struct {
 type ExportJob struct {
 	ARN           string `json:"Arn,omitempty"`
 	ApplicationID string `json:"ApplicationId"`
+	SegmentID     string `json:"SegmentId,omitempty"`
 	ID            string `json:"Id"`
 	RoleArn       string `json:"RoleArn,omitempty"`
 	S3UrlPrefix   string `json:"S3UrlPrefix,omitempty"`

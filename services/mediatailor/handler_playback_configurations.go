@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
+	"strings"
 
 	"github.com/labstack/echo/v5"
 )
@@ -39,6 +40,7 @@ func (h *Handler) handlePutPlaybackConfiguration(c *echo.Context, body map[strin
 		extra = make(map[string]any)
 	}
 	extra["InsertionMode"] = insertionMode
+	applyPlaybackConfigDefaults(extra)
 
 	cfg, err := h.Backend.PutPlaybackConfiguration(name, adsURL, videoURL, tags, extra)
 	if err != nil {
@@ -135,8 +137,59 @@ func toPlaybackConfigOutput(cfg *PlaybackConfiguration) map[string]any {
 	}
 
 	mergeExtraConfig(out, cfg.Extra)
+	addDashManifestEndpointPrefix(out, cfg.HlsManifestEndpointPrefix)
 
 	return out
+}
+
+// applyPlaybackConfigDefaults fills the documented defaults of the dash,
+// concurrency and timeout sub-configs (types.go:199-234, 551-580).
+func applyPlaybackConfigDefaults(extra map[string]any) {
+	fill := func(key string, defaults map[string]any) {
+		sub, _ := extra[key].(map[string]any)
+		out := make(map[string]any, len(defaults))
+		maps.Copy(out, defaults)
+
+		for k, v := range sub {
+			if v != nil {
+				out[k] = v
+			}
+		}
+
+		extra[key] = out
+	}
+
+	fill("DashConfiguration", map[string]any{"MpdLocation": "EMT_DEFAULT", "OriginManifestType": "MULTI_PERIOD"})
+
+	if _, ok := extra["AdsPersonalizationConcurrency"]; ok {
+		fill("AdsPersonalizationConcurrency", map[string]any{
+			"EnableVodVastParallelization": false, "MaxConcurrentAdsRequests": float64(1),
+		})
+	}
+
+	if _, ok := extra["AdsPersonalizationTimeouts"]; ok {
+		const adsRequestTimeoutMs, maxPersonalizationTimeMs = 3000, 10000
+
+		fill("AdsPersonalizationTimeouts", map[string]any{
+			"AdsRequestTimeoutMilliseconds":                 float64(adsRequestTimeoutMs),
+			"LiveMaximumAdsPersonalizationTimeMilliseconds": float64(maxPersonalizationTimeMs),
+			"VodMaximumAdsPersonalizationTimeMilliseconds":  float64(maxPersonalizationTimeMs),
+		})
+	}
+}
+
+// addDashManifestEndpointPrefix adds the output-only DASH manifest prefix,
+// derived from the HLS prefix, to a stored DashConfiguration.
+func addDashManifestEndpointPrefix(out map[string]any, hlsPrefix string) {
+	stored, ok := out["DashConfiguration"].(map[string]any)
+	if !ok || hlsPrefix == "" {
+		return
+	}
+
+	dash := make(map[string]any, len(stored)+1)
+	maps.Copy(dash, stored)
+	dash["ManifestEndpointPrefix"] = strings.Replace(hlsPrefix, "/v1/master/", "/v1/dash/", 1)
+	out["DashConfiguration"] = dash
 }
 
 // mergeExtraConfig writes every key from extra (PutPlaybackConfiguration's

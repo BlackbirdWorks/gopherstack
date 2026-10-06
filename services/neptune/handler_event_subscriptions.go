@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/url"
+	"slices"
 	"strconv"
 )
 
@@ -140,32 +141,30 @@ func (h *Handler) handleRemoveSourceIdentifierFromSubscription(
 	}, nil
 }
 
-func (h *Handler) handleDescribeEventCategories(_ context.Context, _ url.Values) (any, error) {
+func (h *Handler) handleDescribeEventCategories(_ context.Context, vals url.Values) (any, error) {
+	sourceType := vals.Get("SourceType")
+	all := []xmlEventCategoriesMap{
+		{SourceType: "db-cluster", EventCategories: xmlEventCategoryList{Members: []string{
+			"failover", "maintenance", sourceTypeNotification, "failure", "availability",
+		}}},
+		{SourceType: "db-instance", EventCategories: xmlEventCategoryList{Members: []string{
+			"availability", "deletion", "failover", "failure", "maintenance",
+			sourceTypeNotification, "recovery", "restoration",
+		}}},
+		{SourceType: "db-parameter-group", EventCategories: xmlEventCategoryList{Members: []string{
+			"configuration change",
+		}}},
+		{SourceType: "db-cluster-snapshot", EventCategories: xmlEventCategoryList{Members: []string{
+			"backup", sourceTypeNotification,
+		}}},
+	}
+	all = slices.DeleteFunc(all, func(m xmlEventCategoriesMap) bool {
+		return !matchesOptional(sourceType, m.SourceType)
+	})
+
 	return &describeEventCategoriesResponse{
-		Xmlns: neptuneXMLNS,
-		EventCategoriesMapList: xmlEventCategoriesMapList{
-			Members: []xmlEventCategoriesMap{
-				{SourceType: "db-cluster", EventCategories: xmlEventCategoryList{Members: []string{
-					"failover", "maintenance", sourceTypeNotification, "failure", "availability",
-				}}},
-				{SourceType: "db-instance", EventCategories: xmlEventCategoryList{Members: []string{
-					"availability", "deletion", "failover", "failure", "maintenance",
-					sourceTypeNotification, "recovery", "restoration",
-				}}},
-				{
-					SourceType: "db-parameter-group",
-					EventCategories: xmlEventCategoryList{Members: []string{
-						"configuration change",
-					}},
-				},
-				{
-					SourceType: "db-cluster-snapshot",
-					EventCategories: xmlEventCategoryList{Members: []string{
-						"backup", sourceTypeNotification,
-					}},
-				},
-			},
-		},
+		Xmlns:                  neptuneXMLNS,
+		EventCategoriesMapList: xmlEventCategoriesMapList{Members: all},
 	}, nil
 }
 

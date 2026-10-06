@@ -9,10 +9,24 @@ import (
 type registerMailDomainReq struct {
 	OrganizationID string `json:"OrganizationId"`
 	DomainName     string `json:"DomainName"`
+	ClientToken    string `json:"ClientToken"`
 }
 
 func (h *Handler) handleRegisterMailDomain(_ context.Context, req *registerMailDomainReq) (*emptyResp, error) {
-	if err := h.Backend.RegisterMailDomain(req.OrganizationID, req.DomainName); err != nil {
+	token := req.ClientToken
+	req.ClientToken = ""
+
+	_, err := replayCreate(h, "RegisterMailDomain", token, req,
+		func(d *MailDomain) string { return d.DomainName },
+		func(name string) (*MailDomain, error) { return h.Backend.GetMailDomain(req.OrganizationID, name) },
+		func() (*MailDomain, error) {
+			if regErr := h.Backend.RegisterMailDomain(req.OrganizationID, req.DomainName); regErr != nil {
+				return nil, regErr
+			}
+
+			return h.Backend.GetMailDomain(req.OrganizationID, req.DomainName)
+		})
+	if err != nil {
 		return nil, err
 	}
 
@@ -45,7 +59,6 @@ type dnsRecordResp struct {
 }
 
 type getMailDomainResp struct {
-	DomainName                  string          `json:"DomainName,omitempty"`
 	OwnershipVerificationStatus string          `json:"OwnershipVerificationStatus,omitempty"`
 	DkimVerificationStatus      string          `json:"DkimVerificationStatus,omitempty"`
 	Records                     []dnsRecordResp `json:"Records,omitempty"`
@@ -65,7 +78,6 @@ func (h *Handler) handleGetMailDomain(_ context.Context, req *getMailDomainReq) 
 	}
 
 	return &getMailDomainResp{
-		DomainName:                  d.DomainName,
 		IsDefault:                   d.IsDefault,
 		IsTestDomain:                d.IsTestDomain,
 		OwnershipVerificationStatus: d.OwnershipVerificationStatus,

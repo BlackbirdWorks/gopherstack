@@ -238,8 +238,9 @@ func TestNewOperations_PersistenceRoundTrip(t *testing.T) {
 	err = b.AssociateDistributionWebACL(d.ID, "arn:aws:wafv2:us-east-1:123:global/webacl/test/abc")
 	require.NoError(t, err)
 
-	err = b.AssociateDistributionTenantWebACL("tenant-persist-001", "acl-for-tenant")
+	tenant, err := b.CreateDistributionTenant(d.ID, "persist-tenant", []string{"persist-tenant.example.com"}, nil)
 	require.NoError(t, err)
+	require.NoError(t, b.AssociateDistributionTenantWebACL(tenant.ID, "acl-for-tenant"))
 
 	// Copy the distribution.
 	_, err = b.CopyDistribution(d.ID, "copy-persist-ref", nil)
@@ -271,6 +272,10 @@ func TestNewOperations_PersistenceRoundTrip(t *testing.T) {
 	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	// Distribution is restored.
+	tenant2, err := b2.GetDistributionTenant(tenant.ID)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]any{"Action": "override", "Arn": "acl-for-tenant"}, tenant2.Customizations["WebAcl"])
+
 	d2, err := b2.GetDistribution(d.ID)
 	require.NoError(t, err)
 	assert.Equal(t, "persist-dist", d2.Comment)

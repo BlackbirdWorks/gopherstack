@@ -579,6 +579,8 @@ type modifyEndpointInput struct {
 	ServiceAccessRoleArn      *string `json:"ServiceAccessRoleArn"`
 	SslMode                   *string `json:"SslMode"`
 	ExternalTableDefinition   *string `json:"ExternalTableDefinition"`
+	ExactSettings             *bool   `json:"ExactSettings"`
+	EndpointIdentifier        *string `json:"EndpointIdentifier"`
 	engineSettingsFields
 }
 
@@ -628,6 +630,8 @@ func (h *Handler) handleModifyEndpoint(
 			SslMode:                   sslMode,
 			ExternalTableDefinition:   ptrconv.String(in.ExternalTableDefinition),
 			S3Settings:                string(in.S3Settings),
+			ExactSettings:             ptrconv.Bool(in.ExactSettings),
+			NewIdentifier:             ptrconv.String(in.EndpointIdentifier),
 		},
 	)
 	if err != nil {

@@ -13,6 +13,7 @@ import (
 	"hash"
 	"hash/crc32"
 	"io"
+	"maps"
 	"slices"
 	"sort"
 	"strconv"
@@ -103,6 +104,15 @@ func (b *InMemoryBackend) CreateMultipartUpload(
 		ACL:          string(input.ACL),
 		Expires:      aws.ToTime(input.Expires),
 		mu:           lockmetrics.New("s3.upload"),
+		Headers: multipartObjectHeaders{
+			Metadata:                maps.Clone(input.Metadata),
+			ContentType:             aws.ToString(input.ContentType),
+			ContentEncoding:         aws.ToString(input.ContentEncoding),
+			ContentDisposition:      aws.ToString(input.ContentDisposition),
+			CacheControl:            aws.ToString(input.CacheControl),
+			ContentLanguage:         aws.ToString(input.ContentLanguage),
+			WebsiteRedirectLocation: aws.ToString(input.WebsiteRedirectLocation),
+		},
 	})
 
 	out := &s3.CreateMultipartUploadOutput{
@@ -237,6 +247,7 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 	var storageClass string
 	var acl string
 	var expires time.Time
+	var headers multipartObjectHeaders
 	func() {
 		upload.mu.RLock("CompleteMultipartUpload.tagging")
 		defer upload.mu.RUnlock()
@@ -246,6 +257,8 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 		storageClass = upload.StorageClass
 		acl = upload.ACL
 		expires = upload.Expires
+		headers = upload.Headers
+		headers.Metadata = maps.Clone(upload.Headers.Metadata)
 	}()
 
 	// 2. Assemble and compress data. If this fails, the upload is untouched and
@@ -253,6 +266,10 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 	assembled, err := b.assembleMultipartData(upload, input)
 	if err != nil {
 		return nil, err
+	}
+
+	if input.MpuObjectSize != nil && *input.MpuObjectSize != assembled.size {
+		return nil, ErrMpuObjectSizeMismatch
 	}
 
 	// 3. Atomically claim the upload: verify it is still present (wasn't aborted
@@ -275,7 +292,7 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 	}
 
 	versionID, err := b.commitMultipartObject(
-		bucket, bucketName, key, assembled, tagging, sse, storageClass, acl, expires,
+		bucket, bucketName, key, assembled, tagging, sse, storageClass, acl, expires, headers,
 	)
 	if err != nil {
 		return nil, err
@@ -504,6 +521,7 @@ func (b *InMemoryBackend) commitMultipartObject(
 	storageClass string,
 	acl string,
 	expires time.Time,
+	headers multipartObjectHeaders,
 ) (string, error) {
 	var obj *StoredObject
 	var newVersion *StoredObjectVersion
@@ -571,6 +589,7 @@ func (b *InMemoryBackend) commitMultipartObject(
 			ACL:             acl,
 			Expires:         expires,
 		}
+		headers.applyTo(newVersion)
 
 		// Acquire obj.mu while bucket.mu is still held (the defer above releases
 		// bucket.mu as soon as this closure returns, i.e. right after obj.mu is

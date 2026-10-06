@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
-	import { getFSxClient } from '$lib/aws-client';
+	import { onRegionChange, regionalClient } from '#lib/region-effect.svelte.ts';
+	import { getFSxClient } from '#lib/aws-client.ts';
 	import {
 		DescribeFileSystemsCommand,
 		DescribeBackupsCommand,
@@ -12,7 +12,7 @@
 		type Backup
 	} from '@aws-sdk/client-fsx';
 	import { toast } from 'svelte-sonner';
-	import { confirmDestructive } from '$lib/confirm-dialog';
+	import { confirmDestructive } from '#lib/confirm-dialog.ts';
 	import { HardDrive, RefreshCw, Search, Database, Shield, Plus, Trash2, ChevronRight, Copy } from 'lucide-svelte';
 
 	const client = regionalClient(getFSxClient);

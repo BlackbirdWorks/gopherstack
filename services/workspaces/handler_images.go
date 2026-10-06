@@ -181,6 +181,7 @@ type importCustomWorkspaceImageInput struct {
 	OsVersion                      string           `json:"OsVersion"`
 	Platform                       string           `json:"Platform"`
 	Protocol                       string           `json:"Protocol"`
+	Tags                           []tagItem        `json:"Tags"`
 }
 
 type importCustomWorkspaceImageOutput struct {
@@ -198,6 +199,7 @@ func (h *Handler) handleImportCustomWorkspaceImage(
 		OsVersion:                      req.OsVersion,
 		Platform:                       req.Platform,
 		Protocol:                       req.Protocol,
+		Tags:                           tagsToMap(req.Tags),
 	}
 
 	img, err := h.Backend.ImportCustomWorkspaceImage(req.ImageName, req.ImageDescription, spec)

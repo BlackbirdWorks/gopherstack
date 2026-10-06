@@ -463,12 +463,12 @@ func delegationRequestConsoleDeepLink(delegationID string) string {
 // EntityArn built by delegationRequestArnResource, e.g.
 // "arn:aws:iam::123456789012:delegation-request/abc" -> "abc".
 func delegationRequestIDFromArn(entityArn string) (string, bool) {
-	idx := strings.LastIndex(entityArn, delegationRequestArnResource)
-	if idx == -1 {
+	_, after, ok := strings.CutLast(entityArn, delegationRequestArnResource)
+	if !ok {
 		return "", false
 	}
 
-	id := entityArn[idx+len(delegationRequestArnResource):]
+	id := after
 	if id == "" {
 		return "", false
 	}

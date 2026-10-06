@@ -3,7 +3,9 @@ package iam
 import (
 	"encoding/xml"
 	"errors"
+	"fmt"
 	"net/url"
+	"strconv"
 )
 
 // iamNewOpsRoleAndCredentialActions returns dispatch entries for role/credential new operations.
@@ -29,9 +31,15 @@ func (h *Handler) iamNewOpsRoleAndCredentialActions() map[string]iamActionFn {
 		},
 
 		"CreateServiceSpecificCredential": func(vals url.Values, reqID string) (any, error) {
-			cred, err := h.Backend.CreateServiceSpecificCredential(
+			ageDays, convErr := strconv.Atoi(vals.Get("CredentialAgeDays"))
+			if vals.Get("CredentialAgeDays") != "" && (convErr != nil || ageDays < 1) {
+				return nil, fmt.Errorf("%w: CredentialAgeDays must be a positive integer", ErrInvalidInput)
+			}
+
+			cred, err := h.Backend.CreateServiceSpecificCredentialWithAge(
 				vals.Get("UserName"),
 				vals.Get("ServiceName"),
+				ageDays,
 			)
 			if err != nil {
 				return nil, err

@@ -61,6 +61,7 @@ func (b *InMemoryBackend) newAgentVersionLocked(agentID, description string) (*A
 		IdleSessionTTLInSeconds:     a.IdleSessionTTLInSeconds,
 		Description:                 description,
 		Collaboration:               a.Collaboration,
+		CustomerEncryptionKeyArn:    a.CustomerEncryptionKeyArn,
 		Guardrail:                   maps.Clone(a.Guardrail),
 		Memory:                      maps.Clone(a.Memory),
 		PromptOverrideConfiguration: maps.Clone(a.PromptOverrideConfiguration),

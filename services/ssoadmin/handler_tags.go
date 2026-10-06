@@ -57,6 +57,7 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, body []byte) error 
 	var req struct {
 		InstanceArn string `json:"InstanceArn"`
 		ResourceArn string `json:"ResourceArn"`
+		NextToken   string `json:"NextToken"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
@@ -73,8 +74,10 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, body []byte) error 
 	}
 	sort.Slice(tagList, func(i, j int) bool { return tagList[i].Key < tagList[j].Key })
 
+	page, next := paginateBy(tagList, 0, req.NextToken, func(t tagView) string { return t.Key })
+
 	return writeJSON(c, http.StatusOK, map[string]any{
-		keyTags:      tagList,
-		keyNextToken: nil,
+		keyTags:      page,
+		keyNextToken: next,
 	})
 }

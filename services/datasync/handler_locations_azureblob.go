@@ -3,6 +3,8 @@ package datasync
 import (
 	"context"
 	"fmt"
+
+	dstypes "github.com/aws/aws-sdk-go-v2/service/datasync/types"
 )
 
 // --- AzureBlob location ---
@@ -32,6 +34,14 @@ func (h *Handler) handleCreateLocationAzureBlob(
 	_ context.Context,
 	in *createLocationAzureBlobInput,
 ) (*createLocationAzureBlobOutput, error) {
+	if err := firstErr(
+		checkEnum("AuthenticationType", dstypes.AzureBlobAuthenticationType(in.AuthenticationType)),
+		checkEnum("AccessTier", dstypes.AzureAccessTier(in.AccessTier)),
+		checkEnum("BlobType", dstypes.AzureBlobType(in.BlobType)),
+	); err != nil {
+		return nil, err
+	}
+
 	if in.ContainerURL == "" {
 		return nil, fmt.Errorf("%w: ContainerUrl is required", errInvalidRequest)
 	}
@@ -140,6 +150,14 @@ func (h *Handler) handleUpdateLocationAzureBlob(
 	_ context.Context,
 	in *updateLocationAzureBlobInput,
 ) (*updateLocationAzureBlobOutput, error) {
+	if err := firstErr(
+		checkEnum("AccessTier", dstypes.AzureAccessTier(in.AccessTier)),
+		checkEnum("AuthenticationType", dstypes.AzureBlobAuthenticationType(in.AuthenticationType)),
+		checkEnum("BlobType", dstypes.AzureBlobType(in.BlobType)),
+	); err != nil {
+		return nil, err
+	}
+
 	if in.LocationArn == "" {
 		return nil, fmt.Errorf("%w: LocationArn is required", errInvalidRequest)
 	}

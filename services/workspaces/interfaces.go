@@ -34,10 +34,17 @@ type StorageBackend interface {
 		workspaceIDs, directoryID, userID, bundleID []string,
 		limit int32, nextToken string,
 	) ([]*Workspace, string, error)
+	DescribeWorkspacesFiltered(
+		ctx context.Context,
+		workspaceIDs, directoryID, userID, bundleID []string,
+		workspaceName string,
+		limit int32, nextToken string,
+	) ([]*Workspace, string, error)
 	GetWorkspacesConnectionStatus(
 		workspaceIDs []string, nextToken string,
 	) ([]*WorkspaceConnectionStatus, string, error)
 	ModifyWorkspaceProperties(workspaceID string, props WorkspaceProperties) error
+	ModifyWorkspaceDataReplication(workspaceID, mode string) error
 	ModifyWorkspaceState(workspaceID, state string) error
 	RebootWorkspaces(workspaceIDs []string) ([]FailedRequest, error)
 	RebuildWorkspaces(workspaceIDs []string) ([]FailedRequest, error)
@@ -59,6 +66,14 @@ type StorageBackend interface {
 		ctx context.Context,
 		directoryIDs []string,
 		directoryNames []string,
+		limit int32,
+		nextToken string,
+	) ([]*WorkspaceDirectory, string, error)
+	DescribeWorkspaceDirectoriesFiltered(
+		ctx context.Context,
+		directoryIDs []string,
+		directoryNames []string,
+		filters []DirectoryFilter,
 		limit int32,
 		nextToken string,
 	) ([]*WorkspaceDirectory, string, error)
@@ -147,9 +162,16 @@ type StorageBackend interface {
 		poolName, bundleID, directoryID, description, runningMode string,
 		desiredUserSessions int32,
 		tags map[string]string,
+		settings PoolSettings,
 	) (*storedPool, error)
 	DescribeWorkspacesPools(
 		poolIDs []string,
+		limit int32,
+		nextToken string,
+	) ([]*storedPool, string, error)
+	DescribeWorkspacesPoolsFiltered(
+		poolIDs []string,
+		filters []PoolFilter,
 		limit int32,
 		nextToken string,
 	) ([]*storedPool, string, error)
@@ -159,6 +181,7 @@ type StorageBackend interface {
 	UpdateWorkspacesPool(
 		poolID, description, bundleID, directoryID, runningMode string,
 		desiredUserSessions int32,
+		settings PoolSettings,
 	) (*storedPool, error)
 	DescribeWorkspacesPoolSessions(
 		poolID, userID string,
@@ -171,6 +194,7 @@ type StorageBackend interface {
 	RegisterWorkspaceDirectory(
 		directoryID string, subnetIDs []string, tags map[string]string, requestedName string,
 	) error
+	RegisterWorkspaceDirectoryWithConfig(reg DirectoryRegistration) (string, error)
 	DeregisterWorkspaceDirectory(directoryID string) error
 
 	// Account
@@ -205,9 +229,9 @@ type StorageBackend interface {
 
 	// Directory modify ops
 	ModifyCertificateBasedAuthProperties(directoryID string, props map[string]string, propertiesToDelete []string) error
-	ModifySamlProperties(directoryID string, props map[string]string) error
+	ModifySamlProperties(directoryID string, props map[string]string, propertiesToDelete []string) error
 	ModifySelfservicePermissions(directoryID string, props map[string]string) error
-	ModifyStreamingProperties(directoryID string, props map[string]string) error
+	ModifyStreamingProperties(directoryID string, props StreamingProperties) error
 	ModifyWorkspaceAccessProperties(directoryID string, props map[string]string) error
 	ModifyWorkspaceCreationProperties(directoryID string, props map[string]string) error
 
@@ -217,6 +241,8 @@ type StorageBackend interface {
 	RejectAccountLinkInvitation(linkID string) (*storedAccountLink, error)
 	DeleteAccountLinkInvitation(linkID string) (*storedAccountLink, error)
 	GetAccountLink(linkID string) (*storedAccountLink, error)
+	GetAccountLinkBy(linkID, linkedAccountID string) (*storedAccountLink, error)
+	CreateAccountLinkInvitationWithToken(targetAccountID, clientToken string) (*storedAccountLink, error)
 	ListAccountLinks(
 		statusFilter string,
 		maxResults int32,
@@ -351,14 +377,18 @@ type BundleStorage struct {
 
 // WorkspaceBundle holds WorkSpace bundle details.
 type WorkspaceBundle struct {
-	ComputeType BundleComputeType
-	BundleID    string
-	Name        string
-	Owner       string
-	Description string
-	ImageID     string
-	UserStorage BundleStorage
-	RootStorage BundleStorage
+	CreationTime    time.Time
+	LastUpdatedTime time.Time
+	ComputeType     BundleComputeType
+	BundleType      string
+	State           string
+	BundleID        string
+	Name            string
+	Owner           string
+	Description     string
+	ImageID         string
+	UserStorage     BundleStorage
+	RootStorage     BundleStorage
 }
 
 // StandbyWorkspaceSpec holds the fields for creating a single standby
@@ -478,6 +508,15 @@ type WorkspaceDirectory struct {
 	SelfservicePermissions         *SelfservicePermissions
 	WorkspaceAccessProperties      *WorkspaceAccessProperties
 	WorkspaceCreationProperties    *WorkspaceCreationProperties
+	StreamingProperties            *StreamingProperties
+	ActiveDirectoryConfig          *DirectoryActiveDirectoryConfig
+	MicrosoftEntraConfig           *DirectoryMicrosoftEntraConfig
+	IDCConfig                      *DirectoryIDCConfig
+	UserIdentityType               string
+	WorkspaceType                  string
+	Tenancy                        string
+	WorkspaceDirectoryName         string
+	WorkspaceDirectoryDescription  string
 	DirectoryID                    string
 	DirectoryName                  string
 	DirectoryType                  string
@@ -488,6 +527,52 @@ type WorkspaceDirectory struct {
 	SubnetIDs                      []string
 	IPGroupIDs                     []string
 	DNSIPAddresses                 []string
+}
+
+// PoolApplicationSettings mirrors types.ApplicationSettingsRequest.
+type PoolApplicationSettings struct {
+	Status        string `json:"Status"`
+	SettingsGroup string `json:"SettingsGroup,omitempty"`
+}
+
+// PoolTimeoutSettings mirrors types.TimeoutSettings.
+type PoolTimeoutSettings struct {
+	DisconnectTimeoutInSeconds     *int32 `json:"DisconnectTimeoutInSeconds,omitempty"`
+	IdleDisconnectTimeoutInSeconds *int32 `json:"IdleDisconnectTimeoutInSeconds,omitempty"`
+	MaxUserDurationInSeconds       *int32 `json:"MaxUserDurationInSeconds,omitempty"`
+}
+
+// PoolSettings groups the optional pool members accepted by Create/UpdateWorkspacesPool.
+type PoolSettings struct {
+	ApplicationSettings *PoolApplicationSettings
+	TimeoutSettings     *PoolTimeoutSettings
+}
+
+// StreamingProperties mirrors types.StreamingProperties; the JSON tags are the wire keys.
+type StreamingProperties struct {
+	GlobalAccelerator                    *StreamingAccelerator  `json:"GlobalAccelerator,omitempty"`
+	StreamingExperiencePreferredProtocol string                 `json:"StreamingExperiencePreferredProtocol,omitempty"`
+	UserSettings                         []StreamingUserSetting `json:"UserSettings,omitempty"`
+	StorageConnectors                    []StreamingConnector   `json:"StorageConnectors,omitempty"`
+}
+
+// StreamingUserSetting mirrors types.UserSetting.
+type StreamingUserSetting struct {
+	MaximumLength *int32 `json:"MaximumLength,omitempty"`
+	Action        string `json:"Action"`
+	Permission    string `json:"Permission"`
+}
+
+// StreamingConnector mirrors types.StorageConnector.
+type StreamingConnector struct {
+	ConnectorType string `json:"ConnectorType"`
+	Status        string `json:"Status"`
+}
+
+// StreamingAccelerator mirrors types.GlobalAcceleratorForDirectory.
+type StreamingAccelerator struct {
+	Mode              string `json:"Mode"`
+	PreferredProtocol string `json:"PreferredProtocol,omitempty"`
 }
 
 // CertificateBasedAuthProperties mirrors types.CertificateBasedAuthProperties.

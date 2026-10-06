@@ -16,6 +16,7 @@ type jsonShardFilter struct {
 
 type jsonListShardsReq struct {
 	ShardFilter           *jsonShardFilter `json:"ShardFilter,omitempty"`
+	StreamCreationTime    *float64         `json:"StreamCreationTimestamp,omitempty"`
 	StreamName            string           `json:"StreamName"`
 	StreamARN             string           `json:"StreamARN"`
 	NextToken             string           `json:"NextToken"`
@@ -46,6 +47,16 @@ type jsonListShardsResp struct {
 	Shards    []jsonShardDescription `json:"Shards"`
 }
 
+func epochSecondsToTime(sec *float64) *time.Time {
+	if sec == nil {
+		return nil
+	}
+
+	ts := time.UnixMilli(int64(*sec * millisPerSecond))
+
+	return &ts
+}
+
 func (h *Handler) handleListShards(
 	ctx context.Context,
 	_ *http.Request,
@@ -60,7 +71,8 @@ func (h *Handler) handleListShards(
 	// StreamARN, ExclusiveStartShardID, or ShardFilter — the token already
 	// encodes stream context.
 	if req.NextToken != "" &&
-		(req.StreamName != "" || req.StreamARN != "" || req.ExclusiveStartShardID != "" || req.ShardFilter != nil) {
+		(req.StreamName != "" || req.StreamARN != "" || req.ExclusiveStartShardID != "" || req.ShardFilter != nil ||
+			req.StreamCreationTime != nil) {
 		return nil, ErrValidation
 	}
 
@@ -87,12 +99,12 @@ func (h *Handler) handleListShards(
 	if req.ShardFilter != nil {
 		shardFilterType = req.ShardFilter.Type
 		shardFilterShardID = req.ShardFilter.ShardID
-		if req.ShardFilter.Timestamp != nil {
-			ts := time.UnixMilli(int64(*req.ShardFilter.Timestamp * millisPerSecond))
-			shardFilterTimestamp = &ts
-		}
+		shardFilterTimestamp = epochSecondsToTime(req.ShardFilter.Timestamp)
 	}
+	streamCreationTime := epochSecondsToTime(req.StreamCreationTime)
+
 	out, err := h.Backend.ListShards(ctx, &ListShardsInput{
+		StreamCreationTime:    streamCreationTime,
 		StreamName:            streamName,
 		NextToken:             backendNextToken,
 		MaxResults:            req.MaxResults,

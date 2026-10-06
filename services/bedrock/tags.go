@@ -149,6 +149,15 @@ var taggableResolvers = []func(*InMemoryBackend, string) (*[]Tag, bool){
 		return nil, false
 	},
 	func(b *InMemoryBackend, resourceARN string) (*[]Tag, bool) {
+		for _, j := range b.modelImportJobs.All() {
+			if j.ImportedModelArn == resourceARN {
+				return &j.ImportedModelTags, true
+			}
+		}
+
+		return nil, false
+	},
+	func(b *InMemoryBackend, resourceARN string) (*[]Tag, bool) {
 		if v, ok := b.modelCustomizationJobs.Get(resourceARN); ok {
 			return &v.Tags, true
 		}

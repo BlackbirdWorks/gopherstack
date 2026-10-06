@@ -3,6 +3,7 @@ package servicediscovery
 import (
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -212,11 +213,7 @@ func (b *InMemoryBackend) UpdateService(
 			svc.DNSConfig = &DNSConfig{}
 		}
 
-		for i, newRec := range dnsConfig.DNSRecords {
-			if i < len(svc.DNSConfig.DNSRecords) {
-				svc.DNSConfig.DNSRecords[i].TTL = newRec.TTL
-			}
-		}
+		svc.DNSConfig.DNSRecords = slices.Clone(dnsConfig.DNSRecords)
 	} else if svc.DNSConfig != nil {
 		// Omitting DnsRecords deletes them (api_op_UpdateService.go:22-23).
 		// DnsConfigChange carries only DnsRecords -- RoutingPolicy/NamespaceID

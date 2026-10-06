@@ -65,9 +65,11 @@ func (h *Handler) handleCreateConnector(c *echo.Context, body map[string]any) er
 		return typedErrorResponse(c, http.StatusBadRequest, "ValidationException", "Provider is required")
 	}
 
-	conn, err := h.Backend.CreateConnector(name, description, provider, tags)
+	conn, err := idemCreate(h, opCreateConnector, body,
+		func(cn *CspmConnector) string { return cn.ConnectorId }, h.Backend.GetConnector,
+		func() (*CspmConnector, error) { return h.Backend.CreateConnector(name, description, provider, tags) })
 	if err != nil {
-		return typedErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
+		return createErrorResponse(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{

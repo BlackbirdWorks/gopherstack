@@ -34,6 +34,9 @@ type describeApplicationOperationOutput struct {
 type listApplicationOperationsInput struct {
 	ApplicationName string `json:"ApplicationName"`
 	NextToken       string `json:"NextToken,omitempty"`
+	Operation       string `json:"Operation,omitempty"`
+	OperationStatus string `json:"OperationStatus,omitempty"`
+	Limit           int    `json:"Limit,omitempty"`
 }
 
 // applicationOperationInfo mirrors real AWS's ApplicationOperationInfo shape
@@ -65,6 +68,7 @@ type describeApplicationVersionOutput struct {
 type listApplicationVersionsInput struct {
 	ApplicationName string `json:"ApplicationName"`
 	NextToken       string `json:"NextToken,omitempty"`
+	Limit           int    `json:"Limit,omitempty"`
 }
 
 type applicationVersionSummaryOutput struct {
@@ -114,7 +118,9 @@ func (h *Handler) handleListApplicationOperations(ctx context.Context, c *echo.C
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
-	ops, outToken, err := h.Backend.ListApplicationOperations(ctx, in.ApplicationName, in.NextToken)
+	ops, outToken, err := h.Backend.ListApplicationOperations(
+		ctx, in.ApplicationName, in.NextToken, in.Limit, in.Operation, in.OperationStatus,
+	)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -158,7 +164,7 @@ func (h *Handler) handleListApplicationVersions(ctx context.Context, c *echo.Con
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
-	vers, outToken, err := h.Backend.ListApplicationVersions(ctx, in.ApplicationName, in.NextToken)
+	vers, outToken, err := h.Backend.ListApplicationVersions(ctx, in.ApplicationName, in.NextToken, in.Limit)
 	if err != nil {
 		return h.handleError(c, err)
 	}

@@ -14,8 +14,13 @@ type automationDoc struct {
 }
 
 type automationDocStep struct {
-	Name   string `json:"name"`
-	Action string `json:"action"`
+	IsCritical  *bool  `json:"isCritical"`
+	IsEnd       *bool  `json:"isEnd"`
+	MaxAttempts *int32 `json:"maxAttempts"`
+	Name        string `json:"name"`
+	Action      string `json:"action"`
+	NextStep    string `json:"nextStep"`
+	OnFailure   string `json:"onFailure"`
 }
 
 // extractAutomationSteps parses an automation document body and returns its
@@ -47,10 +52,63 @@ func extractAutomationSteps(docName, content string) []AutomationStepExec {
 			Action:          s.Action,
 			StepStatus:      automationStatusPending,
 			StepExecutionID: uuid.NewString(),
+			IsCritical:      stepBoolDefault(s.IsCritical, true),
+			IsEnd:           stepBoolDefault(s.IsEnd, false),
+			MaxAttempts:     stepMaxAttempts(s.MaxAttempts),
+			NextStep:        s.NextStep,
+			OnFailure:       stepOnFailure(s.OnFailure),
 		})
 	}
 
 	return out
+}
+
+func stepBoolDefault(v *bool, def bool) *bool {
+	if v != nil {
+		return v
+	}
+
+	return &def
+}
+
+func stepMaxAttempts(v *int32) *int32 {
+	if v != nil {
+		return v
+	}
+
+	one := int32(1)
+
+	return &one
+}
+
+func stepOnFailure(v string) string {
+	if v == "" {
+		return "Abort"
+	}
+
+	return v
+}
+
+// automationProgressCounters tallies step outcomes for GetAutomationExecution.
+func automationProgressCounters(steps []AutomationStepExec) *ProgressCounters {
+	pc := &ProgressCounters{}
+
+	for i := range steps {
+		pc.TotalSteps++
+
+		switch steps[i].StepStatus {
+		case automationStatusSuccess:
+			pc.SuccessSteps++
+		case automationStatusFailed:
+			pc.FailedSteps++
+		case automationStatusCancelled:
+			pc.CancelledSteps++
+		case automationStatusTimedOut:
+			pc.TimedOutSteps++
+		}
+	}
+
+	return pc
 }
 
 func parseAutomationDocSteps(content string) []automationDocStep {

@@ -98,15 +98,6 @@ func (h *Handler) handleCreateDBInstance(vals url.Values) (any, error) {
 	dbSGNames := parseMultiValueParam(vals, "DBSecurityGroups.DBSecurityGroupName")
 	logExports := parseMultiValueParam(vals, "EnableCloudwatchLogsExports.member")
 
-	promotionTier := 0
-	if v, perr := strconv.Atoi(vals.Get("PromotionTier")); perr == nil {
-		promotionTier = v
-	}
-	piRetention := 0
-	if v, perr := strconv.Atoi(vals.Get("PerformanceInsightsRetentionPeriod")); perr == nil {
-		piRetention = v
-	}
-
 	opts := DBInstanceOptions{
 		MasterSecretRequest:                parseMasterSecretRequest(vals),
 		MasterUserPassword:                 vals.Get("MasterUserPassword"),
@@ -141,9 +132,11 @@ func (h *Handler) handleCreateDBInstance(vals url.Values) (any, error) {
 		AutoMinorVersionUpgrade:            vals.Get("AutoMinorVersionUpgrade") == formTrue,
 		BackupTarget:                       vals.Get("BackupTarget"),
 		MultiTenant:                        vals.Get("MultiTenant") == formTrue,
-		PromotionTier:                      promotionTier,
+		PromotionTier:                      atoiOrZero(vals.Get("PromotionTier")),
 		PerformanceInsightsKMSKeyID:        vals.Get("PerformanceInsightsKMSKeyId"),
-		PerformanceInsightsRetentionPeriod: piRetention,
+		PerformanceInsightsRetentionPeriod: atoiOrZero(vals.Get("PerformanceInsightsRetentionPeriod")),
+		NetworkType:                        vals.Get("NetworkType"),
+		MaxAllocatedStorage:                atoiOrZero(vals.Get("MaxAllocatedStorage")),
 	}
 
 	inst, err := h.Backend.CreateDBInstance(
@@ -323,6 +316,9 @@ func (h *Handler) handleModifyDBInstance(vals url.Values) (any, error) {
 		PerformanceInsightsKMSKeyID:        vals.Get("PerformanceInsightsKMSKeyId"),
 		PerformanceInsightsRetentionPeriod: piRetention,
 		DBPortNumber:                       port,
+		DBSubnetGroupName:                  vals.Get("DBSubnetGroupName"),
+		NetworkType:                        vals.Get("NetworkType"),
+		MaxAllocatedStorage:                atoiOrZero(vals.Get("MaxAllocatedStorage")),
 	}
 
 	inst, err := h.Backend.ModifyDBInstance(id, instanceClass, allocatedStorage, opts)
@@ -390,8 +386,6 @@ func toXMLInstance(inst *DBInstance, roles []DBInstanceRole) xmlDBInstance {
 		CopyTagsToSnapshot:                 inst.CopyTagsToSnapshot,
 		PubliclyAccessible:                 inst.PubliclyAccessible,
 		PerformanceInsightsEnabled:         inst.PerformanceInsightsEnabled,
-		StorageOptimized:                   inst.StorageOptimized,
-		OptimizedWrites:                    inst.OptimizedWrites,
 		EngineLifecycleSupport:             inst.EngineLifecycleSupport,
 		InstanceCreateTime:                 instanceCreateTime,
 		AutoMinorVersionUpgrade:            inst.AutoMinorVersionUpgrade,
@@ -404,6 +398,7 @@ func toXMLInstance(inst *DBInstance, roles []DBInstanceRole) xmlDBInstance {
 	}
 
 	applyXMLInstanceGroups(inst, &result)
+	result.NetworkType, result.MaxAllocatedStorage = inst.NetworkType, inst.MaxAllocatedStorage
 
 	if len(inst.VpcSecurityGroups) > 0 {
 		members := make([]xmlVpcSecurityGroupMembership, 0, len(inst.VpcSecurityGroups))
@@ -622,6 +617,7 @@ type xmlDBInstance struct {
 	Endpoint                          string `xml:"Endpoint>Address"`
 	VpcID                             string `xml:"DBSubnetGroup>VpcId,omitempty"`
 	DBSubnetGroupName                 string `xml:"DBSubnetGroup>DBSubnetGroupName,omitempty"`
+	NetworkType                       string `xml:"NetworkType,omitempty"`
 	ReplicaSourceDBInstanceIdentifier string `xml:"ReadReplicaSourceDBInstanceIdentifier,omitempty"`
 	StorageType                       string `xml:"StorageType,omitempty"`
 	AvailabilityZone                  string `xml:"AvailabilityZone,omitempty"`
@@ -640,6 +636,7 @@ type xmlDBInstance struct {
 
 	AllocatedStorage                   int `xml:"AllocatedStorage"`
 	Iops                               int `xml:"Iops,omitempty"`
+	MaxAllocatedStorage                int `xml:"MaxAllocatedStorage,omitempty"`
 	StorageThroughput                  int `xml:"StorageThroughput,omitempty"`
 	BackupRetentionPeriod              int `xml:"BackupRetentionPeriod"`
 	MonitoringInterval                 int `xml:"MonitoringInterval,omitempty"`
@@ -653,8 +650,6 @@ type xmlDBInstance struct {
 	CopyTagsToSnapshot               bool `xml:"CopyTagsToSnapshot,omitempty"`
 	PubliclyAccessible               bool `xml:"PubliclyAccessible,omitempty"`
 	PerformanceInsightsEnabled       bool `xml:"PerformanceInsightsEnabled,omitempty"`
-	StorageOptimized                 bool `xml:"StorageOptimized,omitempty"`
-	OptimizedWrites                  bool `xml:"OptimizedWritesEnabled,omitempty"`
 	MultiAZ                          bool `xml:"MultiAZ"`
 	AutoMinorVersionUpgrade          bool `xml:"AutoMinorVersionUpgrade,omitempty"`
 	MultiTenant                      bool `xml:"MultiTenant,omitempty"`
@@ -709,6 +704,24 @@ func (h *Handler) handleCreateDBInstanceReadReplica(vals url.Values) (any, error
 		UseDefaultProcessorFeatures:        vals.Get("UseDefaultProcessorFeatures") == formTrue,
 		PerformanceInsightsKMSKeyID:        vals.Get("PerformanceInsightsKMSKeyId"),
 		PerformanceInsightsRetentionPeriod: piRetention,
+		DBInstanceClass:                    vals.Get("DBInstanceClass"),
+		DBSubnetGroupName:                  vals.Get("DBSubnetGroupName"),
+		StorageType:                        vals.Get("StorageType"),
+		KmsKeyID:                           vals.Get("KmsKeyId"),
+		MonitoringRoleArn:                  vals.Get("MonitoringRoleArn"),
+		AvailabilityZone:                   vals.Get("AvailabilityZone"),
+		NetworkType:                        vals.Get("NetworkType"),
+		EnabledCloudwatchLogsExports:       parseMultiValueParam(vals, "EnableCloudwatchLogsExports.member"),
+		Iops:                               atoiOrZero(vals.Get("Iops")),
+		StorageThroughput:                  atoiOrZero(vals.Get("StorageThroughput")),
+		MonitoringInterval:                 atoiOrZero(vals.Get("MonitoringInterval")),
+		DBPortNumber:                       atoiOrZero(vals.Get("Port")),
+		MaxAllocatedStorage:                atoiOrZero(vals.Get("MaxAllocatedStorage")),
+		MultiAZ:                            vals.Get("MultiAZ") == formTrue,
+		PubliclyAccessible:                 vals.Get("PubliclyAccessible") == formTrue,
+		DeletionProtection:                 vals.Get("DeletionProtection") == formTrue,
+		CopyTagsToSnapshot:                 vals.Get("CopyTagsToSnapshot") == formTrue,
+		PerformanceInsightsEnabled:         vals.Get("EnablePerformanceInsights") == formTrue,
 	}
 
 	inst, err := h.Backend.CreateDBInstanceReadReplica(
@@ -848,6 +861,7 @@ func parseRestoreDBInstanceOptions(vals url.Values) DBInstanceOptions {
 		IAMDatabaseAuthenticationEnabled: vals.Get("EnableIAMDatabaseAuthentication") == formTrue,
 		UseDefaultProcessorFeatures:      vals.Get("UseDefaultProcessorFeatures") == formTrue,
 		BackupTarget:                     vals.Get("BackupTarget"),
+		EnabledCloudwatchLogsExports:     parseMultiValueParam(vals, "EnableCloudwatchLogsExports.member"),
 	}
 }
 
@@ -863,6 +877,8 @@ func (h *Handler) handleRestoreDBInstanceToPointInTime(vals url.Values) (any, er
 	if err != nil {
 		return nil, err
 	}
+
+	h.applyCreateTags(vals, inst.DBInstanceArn)
 
 	return &restoreDBInstanceToPointInTimeResponse{
 		Xmlns:      rdsXMLNS,
@@ -947,6 +963,9 @@ func (h *Handler) handleRestoreDBInstanceFromS3(vals url.Values) (any, error) {
 		UseDefaultProcessorFeatures:        vals.Get("UseDefaultProcessorFeatures") == formTrue,
 		PerformanceInsightsKMSKeyID:        vals.Get("PerformanceInsightsKMSKeyId"),
 		PerformanceInsightsRetentionPeriod: piRetention,
+		PerformanceInsightsEnabled:         vals.Get("EnablePerformanceInsights") == formTrue,
+		VpcSecurityGroupIDs:                parseMultiValueParam(vals, "VpcSecurityGroupIds.VpcSecurityGroupId"),
+		EnabledCloudwatchLogsExports:       parseMultiValueParam(vals, "EnableCloudwatchLogsExports.member"),
 	}
 
 	inst, err := h.Backend.RestoreDBInstanceFromS3(
@@ -956,6 +975,8 @@ func (h *Handler) handleRestoreDBInstanceFromS3(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	h.applyCreateTags(vals, inst.DBInstanceArn)
 
 	return &restoreDBInstanceFromS3Response{
 		Xmlns:      rdsXMLNS,

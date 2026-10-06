@@ -97,11 +97,8 @@ type MemberSummary struct {
 // ListMembers, tags only from ListTagsForResource, and
 // "collaborationIdentifier" is exclusively a *request* parameter name (used
 // by Get/Update/Delete/etc, see the handler_*.go request DTOs), never a
-// response field. CollaborationIdentifier/MemberAbilities/Members/Tags are
-// kept as Go-only bookkeeping fields (json:"-") since they back real
-// internal behavior (composite-key derivation, ListMembers/DeleteMember
-// backing store, tagsByArn population at create time) -- only their
-// wire presence was invented.
+// response field. Members keeps its tag for the snapshot; collaborationWire
+// drops it from responses.
 type Collaboration struct {
 	Tags                    map[string]string       `json:"-"`
 	DataEncryptionMetadata  *DataEncryptionMetadata `json:"dataEncryptionMetadata,omitempty"`
@@ -324,13 +321,14 @@ type ConfiguredTableAssociationAnalysisRule struct {
 // UpdateAnalysisTemplate (Summary is its List shape). Verified against
 // awsRestjson1_deserializeDocumentAnalysisTemplate(Summary): real keys use
 // "id"/"collaborationId"/"membershipId", never the "*Identifier" forms
-// (request-parameter-only names). sourceMetadata, syntheticDataParameters,
-// validations and isSyntheticData are not modeled (see PARITY.md).
+// (request-parameter-only names). sourceMetadata and validations are not
+// modeled (see PARITY.md).
 type AnalysisTemplate struct {
 	Source                     map[string]any             `json:"source,omitempty"`
 	Tags                       map[string]string          `json:"-"`
 	Schema                     map[string]any             `json:"schema,omitempty"`
 	ErrorMessageConfiguration  *ErrorMessageConfiguration `json:"errorMessageConfiguration,omitempty"`
+	SyntheticDataParameters    map[string]any             `json:"syntheticDataParameters,omitempty"`
 	CollaborationIdentifier    string                     `json:"-"`
 	Arn                        string                     `json:"arn"`
 	Name                       string                     `json:"name"`
@@ -362,6 +360,7 @@ type AnalysisTemplateSummary struct {
 	CollaborationID            string  `json:"collaborationId"`
 	CreateTime                 float64 `json:"createTime,omitempty"`
 	UpdateTime                 float64 `json:"updateTime,omitempty"`
+	IsSyntheticData            bool    `json:"isSyntheticData,omitempty"`
 }
 
 // CollaborationAnalysisTemplateSummary is the wire shape for
@@ -379,6 +378,7 @@ type CollaborationAnalysisTemplateSummary struct {
 	Description      string  `json:"description,omitempty"`
 	CreateTime       float64 `json:"createTime,omitempty"`
 	UpdateTime       float64 `json:"updateTime,omitempty"`
+	IsSyntheticData  bool    `json:"isSyntheticData,omitempty"`
 }
 
 type BatchError struct {

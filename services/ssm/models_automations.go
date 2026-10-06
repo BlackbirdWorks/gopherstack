@@ -27,10 +27,11 @@ type DescribeAutomationExecutionsOutput struct{}
 
 // DescribeAutomationStepExecutionsInput is the request for DescribeAutomationStepExecutions.
 type DescribeAutomationStepExecutionsInput struct {
-	MaxResults            *int32 `json:"MaxResults,omitempty"`
-	ReverseOrder          *bool  `json:"ReverseOrder,omitempty"`
-	AutomationExecutionID string `json:"AutomationExecutionId"`
-	NextToken             string `json:"NextToken,omitempty"`
+	MaxResults            *int32                `json:"MaxResults,omitempty"`
+	ReverseOrder          *bool                 `json:"ReverseOrder,omitempty"`
+	AutomationExecutionID string                `json:"AutomationExecutionId"`
+	NextToken             string                `json:"NextToken,omitempty"`
+	Filters               []StepExecutionFilter `json:"Filters,omitempty"`
 }
 
 // DescribeAutomationStepExecutionsOutput is the response for DescribeAutomationStepExecutions.
@@ -72,12 +73,14 @@ type SendAutomationSignalInput struct {
 
 // StartAutomationExecutionInput is the request payload.
 type StartAutomationExecutionInput struct {
+	ClientToken     string              `json:"ClientToken,omitempty"`
 	Parameters      map[string][]string `json:"Parameters,omitempty"`
 	DocumentName    string              `json:"DocumentName"`
 	DocumentVersion string              `json:"DocumentVersion,omitempty"`
 	Mode            string              `json:"Mode,omitempty"`
 	MaxConcurrency  string              `json:"MaxConcurrency,omitempty"`
 	MaxErrors       string              `json:"MaxErrors,omitempty"`
+	Tags            []Tag               `json:"Tags,omitempty"`
 }
 
 // StartAutomationExecutionOutput is the response payload.
@@ -98,8 +101,14 @@ type Runbook struct {
 
 // StartChangeRequestExecutionInput is the request payload.
 type StartChangeRequestExecutionInput struct {
-	DocumentName string    `json:"DocumentName"`
-	Runbooks     []Runbook `json:"Runbooks"`
+	ClientToken       string              `json:"ClientToken,omitempty"`
+	Parameters        map[string][]string `json:"Parameters,omitempty"`
+	DocumentName      string              `json:"DocumentName"`
+	DocumentVersion   string              `json:"DocumentVersion,omitempty"`
+	ChangeRequestName string              `json:"ChangeRequestName,omitempty"`
+	Runbooks          []Runbook           `json:"Runbooks"`
+	Tags              []Tag               `json:"Tags,omitempty"`
+	ScheduledTime     float64             `json:"ScheduledTime,omitempty"`
 }
 
 // StartChangeRequestExecutionOutput is the response payload.
@@ -132,40 +141,50 @@ type StopAutomationExecutionInput struct {
 // AutomationExecution represents a running or completed SSM automation execution.
 // Also serialized as AutomationExecutionMetadata for DescribeAutomationExecutions.
 type AutomationExecution struct {
-	Parameters            map[string][]string `json:"Parameters,omitempty"`
-	Mode                  string              `json:"Mode,omitempty"`
-	DocumentName          string              `json:"DocumentName"`
-	DocumentVersion       string              `json:"DocumentVersion"`
-	Status                string              `json:"AutomationExecutionStatus"`
-	AutomationExecutionID string              `json:"AutomationExecutionId"`
-	FailureMessage        string              `json:"FailureMessage,omitempty"`
-	// AutomationSubtype (real SDK types.AutomationExecution.AutomationSubtype,
-	// types.go:874) -- "Currently, the only supported value is ChangeRequest";
-	// omitted for standard executions, matching real AWS. There is no real
-	// "ExecutionType" member on either AutomationExecution or
-	// AutomationExecutionMetadata at all -- that wire key belongs to the
-	// unrelated ComplianceExecutionSummary type
-	// (deserializers.go:27630/models_inventory.go's own ExecutionType field).
+	Parameters map[string][]string `json:"Parameters,omitempty"`
+	// ProgressCounters is derived on GetAutomationExecution, never stored.
+	ProgressCounters  *ProgressCounters `json:"ProgressCounters,omitempty"`
+	ChangeRequestName string            `json:"ChangeRequestName,omitempty"`
+	// AutomationType is set on DescribeAutomationExecutions metadata only, never stored.
+	AutomationType        string `json:"AutomationType,omitempty"`
+	Status                string `json:"AutomationExecutionStatus"`
+	AutomationExecutionID string `json:"AutomationExecutionId"`
+	FailureMessage        string `json:"FailureMessage,omitempty"`
+	// AutomationSubtype is "ChangeRequest" for change requests (types.go:874) and omitted otherwise.
 	AutomationSubtype string `json:"AutomationSubtype,omitempty"`
 	MaxConcurrency    string `json:"MaxConcurrency,omitempty"`
 	MaxErrors         string `json:"MaxErrors,omitempty"`
-	// Never populated: real SSM sets this for a non-critical issue its engine
-	// detects mid-run (types.go:801-803), but every execution here always
-	// completes every step to Success (completeAutomationLocked) with no
-	// partial-failure/degraded path to report one from.
+	DocumentName      string `json:"DocumentName"`
+	DocumentVersion   string `json:"DocumentVersion"`
+	Mode              string `json:"Mode,omitempty"`
+	// WarningMessage is never populated: every execution completes all steps to Success.
 	WarningMessage string `json:"WarningMessage,omitempty"`
-	// Runbooks is populated only by StartChangeRequestExecution (the only op
-	// whose real Input carries Runbooks); always empty for executions started
-	// via StartAutomationExecution, matching real AWS.
+	// Runbooks is set only by StartChangeRequestExecution.
 	Runbooks      []Runbook            `json:"Runbooks,omitempty"`
 	Steps         []AutomationStepExec `json:"StepExecutions,omitempty"`
+	ScheduledTime float64              `json:"ScheduledTime,omitempty"`
 	StartTime     float64              `json:"ExecutionStartTime"`
 	EndTime       float64              `json:"ExecutionEndTime,omitempty"`
 	completeAfter float64
 }
 
+// ProgressCounters mirrors types.ProgressCounters.
+type ProgressCounters struct {
+	CancelledSteps int32 `json:"CancelledSteps"`
+	FailedSteps    int32 `json:"FailedSteps"`
+	SuccessSteps   int32 `json:"SuccessSteps"`
+	TimedOutSteps  int32 `json:"TimedOutSteps"`
+	TotalSteps     int32 `json:"TotalSteps"`
+}
+
 // AutomationStepExec represents a single step in an automation execution.
 type AutomationStepExec struct {
+	IsCritical  *bool  `json:"IsCritical,omitempty"`
+	IsEnd       *bool  `json:"IsEnd,omitempty"`
+	MaxAttempts *int32 `json:"MaxAttempts,omitempty"`
+	NextStep    string `json:"NextStep,omitempty"`
+	OnFailure   string `json:"OnFailure,omitempty"`
+
 	StepName        string `json:"StepName"`
 	Action          string `json:"Action"`
 	StepStatus      string `json:"StepStatus"`

@@ -6,8 +6,8 @@ import {
   DEFAULT_REGION,
   currentRegionSelection,
   setStoredRegion,
-} from "$lib/region.svelte";
-import { resetRegionCatalogCache } from "$lib/region-catalog";
+} from "#lib/region.svelte.ts";
+import { resetRegionCatalogCache } from "#lib/region-catalog.ts";
 
 describe("RegionPicker", () => {
   beforeEach(() => {

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
-	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
-	import { getCloudControlClient } from '$lib/aws-client';
+	import { onRegionChange, regionalClient } from '#lib/region-effect.svelte.ts';
+	import { getCloudControlClient } from '#lib/aws-client.ts';
 	import {
 		ListResourcesCommand,
 		ListResourceRequestsCommand,

@@ -117,6 +117,11 @@ func (h *Handler) handleCreateTopicV2(c *echo.Context) error {
 	name, description, dataSets, dataSetRelations := topicV2FieldsFromBody(body)
 	customInstructions := customInstructionsFromBody(body)
 
+	folderArns := stringsFromBody(body, "FolderArns")
+	if folderErr := h.Backend.CheckFolderArns(accountID, folderArns); folderErr != nil {
+		return httpErr(c, folderErr)
+	}
+
 	t, err := h.Backend.CreateTopicV2(
 		accountID, topicID, name, description, customInstructions,
 		dataSets, dataSetRelations, tagsFromBody(body),
@@ -127,6 +132,10 @@ func (h *Handler) handleCreateTopicV2(c *echo.Context) error {
 		}
 
 		return httpErr(c, err)
+	}
+
+	if folderErr := h.Backend.AddToFolders(accountID, folderMemberTypeTopic, t.TopicID, folderArns); folderErr != nil {
+		return httpErr(c, folderErr)
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{

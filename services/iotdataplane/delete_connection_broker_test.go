@@ -33,8 +33,7 @@ func TestDeleteConnection_DisconnectsLiveBrokerSession(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			port := freeTCPPort(t)
-			broker := startRealBroker(t, port)
+			broker, port := startRealBroker(t)
 			url := fmt.Sprintf("tcp://127.0.0.1:%d", port)
 
 			willSeen := make(chan struct{}, 1)
@@ -120,8 +119,7 @@ func TestGetConnection_ReportsLiveBrokerSession(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			port := freeTCPPort(t)
-			broker := startRealBroker(t, port)
+			broker, port := startRealBroker(t)
 
 			c := pahomqtt.NewClient(pahomqtt.NewClientOptions().
 				AddBroker(fmt.Sprintf("tcp://127.0.0.1:%d", port)).SetClientID("dev").SetAutoReconnect(false).

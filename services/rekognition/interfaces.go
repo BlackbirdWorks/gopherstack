@@ -5,6 +5,8 @@ import (
 	"time"
 
 	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
 )
 
 // S3Backend is the subset of S3 operations Rekognition needs to validate
@@ -70,7 +72,7 @@ type StorageBackend interface {
 	DeleteProjectPolicy(projectARN, policyName, policyRevisionID string) error
 
 	// Datasets
-	CreateDataset(projectARN, datasetType string) (*Dataset, error)
+	CreateDataset(projectARN, datasetType string, tags map[string]string) (*Dataset, error)
 	DeleteDataset(datasetARN string) error
 	DescribeDataset(datasetARN string) (*Dataset, error)
 	ListDatasetEntries(
@@ -100,7 +102,7 @@ type StorageBackend interface {
 	) ([]*UserMatch, error)
 
 	// Face Liveness
-	CreateFaceLivenessSession() (string, error)
+	CreateFaceLivenessSession(clientRequestToken string) (string, error)
 	GetFaceLivenessSessionResults(sessionID string) (*LivenessSessionResult, error)
 
 	// Async video jobs
@@ -109,6 +111,8 @@ type StorageBackend interface {
 	StartMediaAnalysisJob(jobName string, params StartMediaAnalysisJobParams) (string, error)
 	GetMediaAnalysisJob(jobID string) (*MediaAnalysisJob, error)
 	ListMediaAnalysisJobs(maxResults int32, nextToken string) ([]*MediaAnalysisJob, string, error)
+
+	Idempotency() *idempotency.Memo
 
 	AccountID() string
 	Region() string
@@ -265,6 +269,7 @@ type Project struct {
 // default, so an empty value is stored and echoed back as empty rather
 // than guessed.
 type CreateProjectParams struct {
+	Tags       map[string]string
 	AutoUpdate string
 	Feature    string
 }
@@ -272,6 +277,7 @@ type CreateProjectParams struct {
 // ProjectVersion represents a model version within a project.
 type ProjectVersion struct {
 	CreationTimestamp                       time.Time
+	Feature                                 string
 	Tags                                    map[string]string
 	FeatureConfigContentModConfidenceThresh *float32
 	StatusMessage                           string
@@ -313,6 +319,8 @@ type CreateProjectVersionParams struct {
 // (the source project the copied version must belong to) and OutputConfig
 // (where the copied training results are stored in the destination account).
 type CopyProjectVersionParams struct {
+	Tags                    map[string]string
+	KmsKeyID                string
 	SourceProjectARN        string
 	OutputConfigS3Bucket    string
 	OutputConfigS3KeyPrefix string
@@ -420,13 +428,14 @@ type AsyncJob struct {
 // matching GetXxx response; SegmentTypes only applies to
 // StartSegmentDetection but is harmless zero-valued for the others).
 type StartAsyncJobParams struct {
-	JobType        string
-	CollectionID   string
-	JobTag         string
-	VideoS3Bucket  string
-	VideoS3Name    string
-	VideoS3Version string
-	SegmentTypes   []string
+	JobType            string
+	ClientRequestToken string
+	CollectionID       string
+	JobTag             string
+	VideoS3Bucket      string
+	VideoS3Name        string
+	VideoS3Version     string
+	SegmentTypes       []string
 }
 
 // MediaAnalysisJob represents a Rekognition media analysis job.
@@ -442,6 +451,7 @@ type MediaAnalysisJob struct {
 	OutputConfigS3Bucket                 string
 	OutputConfigS3KeyPrefix              string
 	DetectModerationLabelsProjectVersion string
+	KmsKeyID                             string
 	HasDetectModerationLabels            bool
 }
 
@@ -450,6 +460,8 @@ type MediaAnalysisJob struct {
 // StartMediaAnalysisJob backend method signature stays manageable.
 type StartMediaAnalysisJobParams struct {
 	DetectModerationLabelsMinConfidence  *float32
+	ClientRequestToken                   string
+	KmsKeyID                             string
 	InputS3Bucket                        string
 	InputS3Name                          string
 	InputS3Version                       string

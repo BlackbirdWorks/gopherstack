@@ -16,6 +16,7 @@ type CreateEventBusParams struct {
 	Name             string
 	Description      string
 	KmsKeyIdentifier string
+	EventSourceName  string
 }
 
 // CreateEventBus creates a new event bus.
@@ -34,7 +35,14 @@ func (b *InMemoryBackend) CreateEventBus(ctx context.Context, params CreateEvent
 		)
 	}
 
-	if strings.HasPrefix(name, "aws.") {
+	if params.EventSourceName != "" && name != params.EventSourceName {
+		return nil, fmt.Errorf(
+			"%w: Name must exactly match EventSourceName for a partner event bus",
+			ErrInvalidParameter,
+		)
+	}
+
+	if params.EventSourceName == "" && strings.HasPrefix(name, "aws.") {
 		return nil, fmt.Errorf(
 			"%w: Event bus name cannot start with the reserved prefix \"aws.\"",
 			ErrInvalidParameter,
@@ -45,6 +53,10 @@ func (b *InMemoryBackend) CreateEventBus(ctx context.Context, params CreateEvent
 
 	b.mu.Lock("CreateEventBus")
 	defer b.mu.Unlock()
+
+	if params.EventSourceName != "" && !b.eventSourcesTable(region).Has(params.EventSourceName) {
+		return nil, fmt.Errorf("%w: event source %s not found", ErrNotFound, params.EventSourceName)
+	}
 
 	buses := b.busesTable(region)
 	if buses.Has(ebBusKey(name)) {

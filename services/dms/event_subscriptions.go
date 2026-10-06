@@ -137,19 +137,30 @@ func (b *InMemoryBackend) DeleteEventSubscription(ctx context.Context, name stri
 // ModifyEventSubscription updates an event subscription.
 func (b *InMemoryBackend) ModifyEventSubscription(
 	ctx context.Context,
-	name string,
-	enabled *bool,
+	p ModifyEventSubscriptionParams,
 ) (*EventSubscription, error) {
 	b.mu.Lock("ModifyEventSubscription")
 	defer b.mu.Unlock()
 
-	es, ok := b.eventSubscriptions.Get(regionKey(getRegion(ctx, b.region), name))
+	es, ok := b.eventSubscriptions.Get(regionKey(getRegion(ctx, b.region), p.Name))
 	if !ok {
-		return nil, fmt.Errorf("%w: event subscription %s not found", ErrNotFound, name)
+		return nil, fmt.Errorf("%w: event subscription %s not found", ErrNotFound, p.Name)
 	}
 
-	if enabled != nil {
-		es.Enabled = *enabled
+	if p.Enabled != nil {
+		es.Enabled = *p.Enabled
+	}
+
+	if p.SnsTopicArn != "" {
+		es.SnsTopicArn = p.SnsTopicArn
+	}
+
+	if p.SourceType != "" {
+		es.SourceType = p.SourceType
+	}
+
+	if p.EventCategories != nil {
+		es.EventCategories = copyStringsOrEmpty(p.EventCategories)
 	}
 
 	cp := *es

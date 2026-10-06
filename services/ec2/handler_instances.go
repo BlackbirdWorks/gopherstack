@@ -791,15 +791,7 @@ func (h *Handler) handleDescribeElasticGpus(vals url.Values, reqID string) (any,
 
 	gpus := h.Backend.DescribeElasticGpus(ids)
 
-	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinElasticGpus, ec2PageMaxDefault, ec2PageMaxDefault)
-	if err != nil {
-		return nil, err
-	}
-
-	var nextToken string
-	gpus, nextToken = pageSlice(gpus, offset, maxResults)
-
-	resp := &describeElasticGpusResponse{RequestID: reqID, NextToken: nextToken}
+	resp := &describeElasticGpusResponse{RequestID: reqID}
 	for _, g := range gpus {
 		resp.ElasticGpuSet.Items = append(resp.ElasticGpuSet.Items, elasticGpuItem{
 			ElasticGpuID:   g.ElasticGpuID,
@@ -808,7 +800,7 @@ func (h *Handler) handleDescribeElasticGpus(vals url.Values, reqID string) (any,
 		})
 	}
 
-	return resp, nil
+	return finishDescribe(vals, resp, describeOpts{spec: specElasticGpus(), filters: true})
 }
 
 // registerInstancesOps registers the Instances operation handlers.
@@ -934,6 +926,7 @@ type describeInstanceStatusResponse struct {
 	XMLName           xml.Name          `xml:"DescribeInstanceStatusResponse"`
 	Xmlns             string            `xml:"xmlns,attr"`
 	RequestID         string            `xml:"requestId"`
+	NextToken         string            `xml:"nextToken,omitempty"`
 	InstanceStatusSet instanceStatusSet `xml:"instanceStatusSet"`
 }
 
@@ -1026,6 +1019,10 @@ func (h *Handler) handleRebootInstances(vals url.Values, reqID string) (any, err
 // is documented but left unread: this backend has no concept of an
 // Amazon Web Services-managed instance to hide or reveal.
 func (h *Handler) handleDescribeInstanceStatus(vals url.Values, reqID string) (any, error) {
+	if err := checkPageIDCombo(vals, specWithIDs("InstanceId")); err != nil {
+		return nil, err
+	}
+
 	ids := parseMemberList(vals, "InstanceId")
 	instances := h.Backend.DescribeInstanceStatus(ids)
 
@@ -1063,11 +1060,11 @@ func (h *Handler) handleDescribeInstanceStatus(vals url.Values, reqID string) (a
 		})
 	}
 
-	return &describeInstanceStatusResponse{
+	return finishDescribe(vals, &describeInstanceStatusResponse{
 		Xmlns:             ec2XMLNS,
 		RequestID:         reqID,
 		InstanceStatusSet: instanceStatusSet{Items: items},
-	}, nil
+	}, describeOpts{spec: specWithIDs("InstanceId")})
 }
 
 // instanceHealthForState returns the AWS-style status summary for an instance in

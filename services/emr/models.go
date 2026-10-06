@@ -1,6 +1,7 @@
 package emr
 
 import (
+	"encoding/json"
 	"time"
 )
 
@@ -574,6 +575,27 @@ type KerberosAttributes struct {
 	ADDomainJoinUser                 string `json:"ADDomainJoinUser,omitempty"`
 	ADDomainJoinPassword             string `json:"ADDomainJoinPassword,omitempty"`
 	CrossRealmTrustPrincipalPassword string `json:"CrossRealmTrustPrincipalPassword,omitempty"`
+}
+
+// MarshalJSON drops the passwords; DescribeCluster never returns them and nothing reads them back.
+func (k KerberosAttributes) MarshalJSON() ([]byte, error) {
+	type plain KerberosAttributes
+
+	raw, err := json.Marshal(plain(k))
+	if err != nil {
+		return nil, err
+	}
+
+	var fields map[string]json.RawMessage
+	if err = json.Unmarshal(raw, &fields); err != nil {
+		return nil, err
+	}
+
+	for _, secret := range []string{"KdcAdminPassword", "ADDomainJoinPassword", "CrossRealmTrustPrincipalPassword"} {
+		delete(fields, secret)
+	}
+
+	return json.Marshal(fields)
 }
 
 // PlacementGroupConfig is the placement group configuration for a single

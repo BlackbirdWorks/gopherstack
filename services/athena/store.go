@@ -208,6 +208,10 @@ func (b *InMemoryBackend) capacityReservationARN(name string) string {
 }
 
 // copyTags returns a shallow copy of the given tag map.
+func (b *InMemoryBackend) sessionARN(id string) string {
+	return arn.Build("athena", b.region, b.accountID, "session/"+id)
+}
+
 func copyTags(tags map[string]string) map[string]string {
 	cp := make(map[string]string, len(tags))
 	maps.Copy(cp, tags)

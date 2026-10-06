@@ -1,8 +1,8 @@
 <script lang="ts">
-	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
-	import { getDetectiveClient } from '$lib/aws-client';
-	import { currentRegion } from '$lib/region.svelte';
-	import RegionChip from '$lib/components/RegionChip.svelte';
+	import { onRegionChange, regionalClient } from '#lib/region-effect.svelte.ts';
+	import { getDetectiveClient } from '#lib/aws-client.ts';
+	import { currentRegion } from '#lib/region.svelte.ts';
+	import RegionChip from '#lib/components/RegionChip.svelte';
 	import {
 		ListGraphsCommand,
 		CreateGraphCommand,
@@ -43,17 +43,17 @@
 		type State as InvestigationState
 	} from '@aws-sdk/client-detective';
 	import { toast } from 'svelte-sonner';
-	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { createTabLoader } from '$lib/tab-loader.svelte';
-	import { formatDate } from '$lib/format';
-	import PageHeader from '$lib/components/PageHeader.svelte';
-	import Tabs from '$lib/components/Tabs.svelte';
-	import type { Tab as TabDef } from '$lib/components/Tabs.svelte';
-	import SearchInput from '$lib/components/SearchInput.svelte';
-	import DataTable from '$lib/components/DataTable.svelte';
-	import { defineColumns } from '$lib/components/data-table';
-	import LoadMore from '$lib/components/LoadMore.svelte';
-	import Modal from '$lib/components/Modal.svelte';
+	import { confirmDestructive } from '#lib/confirm-dialog.ts';
+	import { createTabLoader } from '#lib/tab-loader.svelte.ts';
+	import { formatDate } from '#lib/format.ts';
+	import PageHeader from '#lib/components/PageHeader.svelte';
+	import Tabs from '#lib/components/Tabs.svelte';
+	import type { Tab as TabDef } from '#lib/components/Tabs.svelte';
+	import SearchInput from '#lib/components/SearchInput.svelte';
+	import DataTable from '#lib/components/DataTable.svelte';
+	import { defineColumns } from '#lib/components/data-table.ts';
+	import LoadMore from '#lib/components/LoadMore.svelte';
+	import Modal from '#lib/components/Modal.svelte';
 	import { Search, Plus, Trash2, Eye, Check, X, Play, LogOut } from 'lucide-svelte';
 
 	const client = regionalClient(getDetectiveClient);

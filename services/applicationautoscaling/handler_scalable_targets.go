@@ -7,9 +7,9 @@ import (
 // --- Input/Output types ---
 
 type suspendedStateInput struct {
-	DynamicScalingInSuspended  bool `json:"DynamicScalingInSuspended"`
-	DynamicScalingOutSuspended bool `json:"DynamicScalingOutSuspended"`
-	ScheduledScalingSuspended  bool `json:"ScheduledScalingSuspended"`
+	DynamicScalingInSuspended  *bool `json:"DynamicScalingInSuspended,omitempty"`
+	DynamicScalingOutSuspended *bool `json:"DynamicScalingOutSuspended,omitempty"`
+	ScheduledScalingSuspended  *bool `json:"ScheduledScalingSuspended,omitempty"`
 }
 
 type registerScalableTargetInput struct {
@@ -31,16 +31,16 @@ func (h *Handler) handleRegisterScalableTarget(
 	_ context.Context,
 	in *registerScalableTargetInput,
 ) (*registerScalableTargetOutput, error) {
-	var ss *SuspendedState
+	var ss *suspendedStatePatch
 	if in.SuspendedState != nil {
-		ss = &SuspendedState{
+		ss = &suspendedStatePatch{
 			DynamicScalingInSuspended:  in.SuspendedState.DynamicScalingInSuspended,
 			DynamicScalingOutSuspended: in.SuspendedState.DynamicScalingOutSuspended,
 			ScheduledScalingSuspended:  in.SuspendedState.ScheduledScalingSuspended,
 		}
 	}
 
-	t, err := h.Backend.RegisterScalableTarget(
+	t, err := h.Backend.registerScalableTarget(
 		in.ServiceNamespace, in.ResourceID, in.ScalableDimension,
 		in.MinCapacity, in.MaxCapacity,
 		in.Tags, in.RoleARN, ss,
@@ -87,9 +87,7 @@ type suspendedStateSummary struct {
 
 type scalableTargetSummary struct {
 	SuspendedState    *suspendedStateSummary `json:"SuspendedState,omitempty"`
-	Tags              map[string]string      `json:"Tags,omitempty"`
 	CreationTime      *float64               `json:"CreationTime,omitempty"`
-	LastModifiedTime  *float64               `json:"LastModifiedTime,omitempty"`
 	PredictedCapacity *int32                 `json:"PredictedCapacity,omitempty"`
 	ServiceNamespace  string                 `json:"ServiceNamespace"`
 	ResourceID        string                 `json:"ResourceId"`
@@ -130,9 +128,7 @@ func (h *Handler) handleDescribeScalableTargets(
 			MaxCapacity:       t.MaxCapacity,
 			ScalableTargetARN: t.ARN,
 			RoleARN:           t.RoleARN,
-			Tags:              t.Tags,
 			CreationTime:      epochSecondsPtr(t.CreationTime),
-			LastModifiedTime:  epochSecondsPtr(t.LastModifiedTime),
 			PredictedCapacity: t.PredictedCapacity,
 		}
 		if t.SuspendedState != nil {

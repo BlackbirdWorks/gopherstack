@@ -19,6 +19,8 @@ func (h *Handler) handleCreateAgentAlias(
 		Tags                 map[string]string `json:"tags"`
 		AgentAliasName       string            `json:"agentAliasName"`
 		Description          string            `json:"description"`
+		ClientToken          string            `json:"clientToken"`
+		AliasInvocationState string            `json:"aliasInvocationState"`
 		RoutingConfiguration []AliasRouting    `json:"routingConfiguration"`
 	}
 
@@ -31,6 +33,8 @@ func (h *Handler) handleCreateAgentAlias(
 		Description:          req.Description,
 		RoutingConfiguration: req.RoutingConfiguration,
 		Tags:                 req.Tags,
+		ClientToken:          req.ClientToken,
+		AliasInvocationState: req.AliasInvocationState,
 	})
 	if err != nil {
 		return handleErr(c, err)
@@ -57,6 +61,8 @@ func (h *Handler) handleUpdateAgentAlias(
 		Tags                 map[string]string `json:"tags"`
 		AgentAliasName       string            `json:"agentAliasName"`
 		Description          string            `json:"description"`
+		ClientToken          string            `json:"clientToken"`
+		AliasInvocationState string            `json:"aliasInvocationState"`
 		RoutingConfiguration []AliasRouting    `json:"routingConfiguration"`
 	}
 
@@ -69,6 +75,8 @@ func (h *Handler) handleUpdateAgentAlias(
 		Description:          req.Description,
 		RoutingConfiguration: req.RoutingConfiguration,
 		Tags:                 req.Tags,
+		ClientToken:          req.ClientToken,
+		AliasInvocationState: req.AliasInvocationState,
 	})
 	if err != nil {
 		return handleErr(c, err)

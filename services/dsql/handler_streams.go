@@ -37,7 +37,10 @@ func (h *Handler) handleCreateStream(c *echo.Context, clusterIdentifier string, 
 		Target:   targetFromDTO(req.TargetDefinition),
 	}
 
-	stream, err := h.Backend.CreateStream(clusterIdentifier, in)
+	stream, err := idemCreate(h, opCreateStream, req.ClientToken, [2]any{clusterIdentifier, req},
+		func(s *Stream) string { return s.StreamIdentifier },
+		func(id string) (*Stream, error) { return h.Backend.GetStream(clusterIdentifier, id) },
+		func() (*Stream, error) { return h.Backend.CreateStream(clusterIdentifier, in) })
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -59,7 +62,10 @@ func (h *Handler) handleGetStream(c *echo.Context, key string) error {
 func (h *Handler) handleDeleteStream(c *echo.Context, key string) error {
 	clusterIdentifier, streamIdentifier := splitStreamKey(key)
 
-	stream, err := h.Backend.DeleteStream(clusterIdentifier, streamIdentifier)
+	token := c.Request().URL.Query().Get("client-token")
+
+	stream, err := idemReplay(h, opDeleteStream, token, key,
+		func() (*Stream, error) { return h.Backend.DeleteStream(clusterIdentifier, streamIdentifier) })
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}

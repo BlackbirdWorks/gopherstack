@@ -810,3 +810,7 @@ Stub clusters and ExecuteSql keep the SQLite engine.
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 rdsdata already isolates regions internally: transactions, statements and SQLite databases are keyed per region; the real-engine resolver now finds the Aurora cluster in the region its ARN names (`rds.Handler.BackendFor`). The harness has no list API to drive here, so isolation stays covered by the existing region-keyed unit tests; the regional resolver rests on `rds` `TestHandler_BackendFor`.
+
+## 2026-10-05 (gopherstack-uox6 pass 12, value semantics)
+
+Clean. ResultSetOptions defaults match the SDK docs (DecimalReturnType STRING, LongReturnType LONG; types.go ResultSetOptions). No update surface.

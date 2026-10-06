@@ -5,6 +5,7 @@ import (
 	"go/ast"
 	"go/token"
 	"strconv"
+	"strings"
 )
 
 // applyMapperDetection finds every sentinel error this service dir declares
@@ -44,7 +45,7 @@ func applyMapperDetection(
 
 	consumed, outputs := scanMappers(files, structTypes, pkgStrings, fset, repoRoot)
 	if len(decls) == 0 || len(consumed) == 0 {
-		return outputs
+		return append(outputs, applyCategoryRouting(files, fset, repoRoot, cands)...)
 	}
 
 	for i := range cands {
@@ -67,7 +68,7 @@ func applyMapperDetection(
 		)
 	}
 
-	return outputs
+	return append(outputs, applyCategoryRouting(files, fset, repoRoot, cands)...)
 }
 
 // collectSentinelDecls maps the position of the message literal in every
@@ -255,11 +256,19 @@ func markMapperTableConsumed(
 	}
 
 	errField, strField := errorAndStringFieldNames(st)
-	if errField == "" || strField == "" {
+	if errField == "" {
 		return candidate{}, false
 	}
 
 	fieldNames := positionalFieldNames(cl.Type, structTypes)
+	nestedField := ""
+
+	if strField == "" {
+		nestedField = nestedStructFieldName(st, structTypes)
+		if nestedField == "" {
+			return candidate{}, false
+		}
+	}
 
 	var sentinelSeen bool
 
@@ -279,6 +288,8 @@ func markMapperTableConsumed(
 			}
 		case strField:
 			codeExpr = valueExpr
+		case nestedField:
+			codeExpr = nestedRowCodeExpr(valueExpr, structTypes)
 		}
 	}
 
@@ -287,6 +298,59 @@ func markMapperTableConsumed(
 	}
 
 	return mapperOutputCandidate(codeExpr, pkgStrings, fset, repoRoot)
+}
+
+// nestedStructFieldName returns the first field of st whose type is a local
+// struct holding a string field (sqs's errRow{sentinel; entry errorEntry}).
+func nestedStructFieldName(st *ast.StructType, structTypes map[string]*ast.StructType) string {
+	for _, field := range st.Fields.List {
+		id, isIdent := field.Type.(*ast.Ident)
+		if !isIdent || len(field.Names) == 0 {
+			continue
+		}
+
+		if inner := structTypes[id.Name]; inner != nil {
+			if _, innerStr := errorAndStringFieldNames(inner); innerStr != "" {
+				return field.Names[0].Name
+			}
+		}
+	}
+
+	return ""
+}
+
+// nestedRowCodeExpr returns the first string-typed field's value of a nested
+// row literal, positional or keyed.
+func nestedRowCodeExpr(expr ast.Expr, structTypes map[string]*ast.StructType) ast.Expr {
+	cl, ok := expr.(*ast.CompositeLit)
+	if !ok {
+		return nil
+	}
+
+	inner := resolveStructType(cl.Type, structTypes)
+	if inner == nil {
+		return nil
+	}
+
+	_, strField := errorAndStringFieldNames(inner)
+	names := positionalFieldNames(cl.Type, structTypes)
+
+	for i, elt := range cl.Elts {
+		if name, value, found := mapperRowElement(elt, i, names); found && name == strField {
+			return value
+		}
+	}
+
+	return nil
+}
+
+// wireTypeCode strips a smithy-style "com.amazonaws.svc#" namespace prefix.
+func wireTypeCode(v string) string {
+	if _, after, ok := strings.CutLast(v, "#"); ok {
+		return after
+	}
+
+	return v
 }
 
 func mapperOutputCandidate(
@@ -299,6 +363,7 @@ func mapperOutputCandidate(
 		}
 
 		v, err := strconv.Unquote(e.Value)
+		v = wireTypeCode(v)
 		if err != nil || !looksLikeCode(v) {
 			return candidate{}, false
 		}

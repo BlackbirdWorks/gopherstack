@@ -14,8 +14,10 @@ type calculationIDInput struct {
 }
 
 type listCalculationsInput struct {
+	NextToken   string `json:"NextToken"`
 	SessionID   string `json:"SessionId"`
 	StateFilter string `json:"StateFilter"`
+	MaxResults  int    `json:"MaxResults"`
 }
 
 func (h *Handler) calcCoreOps() map[string]athenaActionFn {
@@ -26,12 +28,27 @@ func (h *Handler) calcCoreOps() map[string]athenaActionFn {
 				return nil, err
 			}
 
-			id, state, err := h.Backend.StartCalculationExecution(input.SessionID, input.Description, input.CodeBlock)
+			id, err := h.replayCreate(
+				"StartCalculationExecution", input.ClientRequestToken, input,
+				found(h.Backend.GetCalculationExecution),
+				func() (string, error) {
+					id, _, err := h.Backend.StartCalculationExecution(
+						input.SessionID, input.Description, input.CodeBlock,
+					)
+
+					return id, err
+				},
+			)
 			if err != nil {
 				return nil, err
 			}
 
-			return map[string]any{"CalculationExecutionId": id, keyState: state}, nil
+			calc, err := h.Backend.GetCalculationExecution(id)
+			if err != nil {
+				return nil, err
+			}
+
+			return map[string]any{"CalculationExecutionId": id, keyState: calc.Status.State}, nil
 		},
 		"GetCalculationExecution": func(b []byte) (any, error) {
 			var input calculationIDInput
@@ -109,7 +126,18 @@ func (h *Handler) calcControlOps() map[string]athenaActionFn {
 				return nil, err
 			}
 
-			return map[string]any{"Calculations": sums}, nil
+			page, next, pageErr := pageByKey(
+				h.tokens,
+				sums,
+				func(s CalculationSummary) string { return s.CalculationID },
+				input.MaxResults,
+				input.NextToken,
+			)
+			if pageErr != nil {
+				return nil, pageErr
+			}
+
+			return withNextToken(map[string]any{"Calculations": page}, next), nil
 		},
 	}
 }

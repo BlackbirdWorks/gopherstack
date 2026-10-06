@@ -99,8 +99,7 @@ func (b *InMemoryBackend) DescribeApplicationProvider(
 		return &cp, nil
 	}
 	// Account-scoped ARN: try matching by provider path suffix.
-	if idx := strings.LastIndex(applicationProviderArn, ":applicationProvider/"); idx >= 0 {
-		suffix := applicationProviderArn[idx+len(":applicationProvider/"):]
+	if _, suffix, found := strings.CutLast(applicationProviderArn, ":applicationProvider/"); found {
 		canonicalArn := "arn:aws:sso::aws:applicationProvider/" + suffix
 		if p, ok := awsProvidersByARN[canonicalArn]; ok {
 			cp := *p

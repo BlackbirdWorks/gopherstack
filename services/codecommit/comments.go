@@ -2,6 +2,7 @@ package codecommit
 
 import (
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -11,60 +12,78 @@ func newCommentID() string {
 	return uuid.NewString()
 }
 
-// PostCommentForComparedCommit creates a comment on a compared commit.
-func (b *InMemoryBackend) PostCommentForComparedCommit(repoName, _, afterCommitID, content string) (*Comment, error) {
-	b.mu.Lock("PostCommentForComparedCommit")
+// CommentContext is the request context a new comment is anchored to.
+type CommentContext struct {
+	Location       *CommentLocation
+	RepoName       string
+	BeforeCommitID string
+	AfterCommitID  string
+	PullRequestID  string
+	AuthorARN      string
+}
+
+func validateLocation(loc *CommentLocation) error {
+	if loc == nil {
+		return nil
+	}
+
+	switch loc.RelativeFileVersion {
+	case "", "BEFORE", "AFTER":
+		return nil
+	default:
+		return fmt.Errorf("%w: relativeFileVersion %q", ErrInvalidRelativeFileVersion, loc.RelativeFileVersion)
+	}
+}
+
+// PostComment creates a comment on a compared commit or, when ctx.PullRequestID is set, a pull request.
+func (b *InMemoryBackend) PostComment(cc CommentContext, content string) (*Comment, error) {
+	if err := validateLocation(cc.Location); err != nil {
+		return nil, err
+	}
+
+	b.mu.Lock("PostComment")
 	defer b.mu.Unlock()
 
-	if !b.repositories.Has(repoName) {
-		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
+	if cc.PullRequestID != "" && !b.pullRequests.Has(cc.PullRequestID) {
+		return nil, fmt.Errorf("%w: pull request %s not found", ErrPullRequestNotFound, cc.PullRequestID)
+	}
+
+	checkRepo := cc.PullRequestID == "" || cc.RepoName != ""
+	if checkRepo && !b.repositories.Has(cc.RepoName) {
+		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, cc.RepoName)
 	}
 
 	now := time.Now().UTC()
 	c := &Comment{
 		CommentID:        newCommentID(),
 		Content:          content,
+		AuthorARN:        cc.AuthorARN,
 		CreationDate:     now,
 		LastModifiedDate: now,
-		RepoName:         repoName,
-		AfterCommitID:    afterCommitID,
+		PRid:             cc.PullRequestID,
+		RepoName:         cc.RepoName,
+		BeforeCommitID:   cc.BeforeCommitID,
+		AfterCommitID:    cc.AfterCommitID,
 	}
+
+	if cc.Location != nil {
+		loc := *cc.Location
+		c.Location = &loc
+	}
+
 	b.comments.Put(c)
 	cp := *c
 
 	return &cp, nil
 }
 
-// PostCommentForPullRequest creates a comment on a pull request.
-func (b *InMemoryBackend) PostCommentForPullRequest(prID, repoName, content string) (*Comment, error) {
-	b.mu.Lock("PostCommentForPullRequest")
-	defer b.mu.Unlock()
-
-	if !b.pullRequests.Has(prID) {
-		return nil, fmt.Errorf("%w: pull request %s not found", ErrPullRequestNotFound, prID)
-	}
-
-	now := time.Now().UTC()
-	c := &Comment{
-		CommentID:        newCommentID(),
-		Content:          content,
-		CreationDate:     now,
-		LastModifiedDate: now,
-		PRid:             prID,
-		RepoName:         repoName,
-	}
-	b.comments.Put(c)
-	cp := *c
-
-	return &cp, nil
-}
-
-// PostCommentReply creates a reply to an existing comment.
-func (b *InMemoryBackend) PostCommentReply(inReplyTo, content string) (*Comment, error) {
+// PostCommentReply creates a reply that inherits its parent's commit or pull request context.
+func (b *InMemoryBackend) PostCommentReply(inReplyTo, content, authorARN string) (*Comment, error) {
 	b.mu.Lock("PostCommentReply")
 	defer b.mu.Unlock()
 
-	if !b.comments.Has(inReplyTo) {
+	parent, ok := b.comments.Get(inReplyTo)
+	if !ok {
 		return nil, fmt.Errorf("%w: comment %s not found", ErrCommentNotFound, inReplyTo)
 	}
 
@@ -72,9 +91,15 @@ func (b *InMemoryBackend) PostCommentReply(inReplyTo, content string) (*Comment,
 	c := &Comment{
 		CommentID:        newCommentID(),
 		Content:          content,
+		AuthorARN:        authorARN,
 		CreationDate:     now,
 		LastModifiedDate: now,
 		InReplyTo:        inReplyTo,
+		PRid:             parent.PRid,
+		RepoName:         parent.RepoName,
+		BeforeCommitID:   parent.BeforeCommitID,
+		AfterCommitID:    parent.AfterCommitID,
+		Location:         parent.Location,
 	}
 	b.comments.Put(c)
 	cp := *c
@@ -96,8 +121,11 @@ func (b *InMemoryBackend) GetComment(commentID string) (*Comment, error) {
 	return &cp, nil
 }
 
-// GetCommentsForComparedCommit returns comments for a compared commit.
-func (b *InMemoryBackend) GetCommentsForComparedCommit(repoName, afterCommitID string) ([]*Comment, error) {
+// GetCommentsForComparedCommit returns comments on a commit pair, oldest first.
+// An empty beforeCommitID matches any.
+func (b *InMemoryBackend) GetCommentsForComparedCommit(
+	repoName, afterCommitID, beforeCommitID string,
+) ([]*Comment, error) {
 	b.mu.RLock("GetCommentsForComparedCommit")
 	defer b.mu.RUnlock()
 
@@ -105,19 +133,17 @@ func (b *InMemoryBackend) GetCommentsForComparedCommit(repoName, afterCommitID s
 		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
 	}
 
-	var result []*Comment
-	for _, c := range b.comments.All() {
-		if c.RepoName == repoName && c.AfterCommitID == afterCommitID {
-			cp := *c
-			result = append(result, &cp)
-		}
-	}
-
-	return result, nil
+	return b.collectCommentsLocked(func(c *Comment) bool {
+		return c.PRid == "" && c.RepoName == repoName && c.AfterCommitID == afterCommitID &&
+			(beforeCommitID == "" || c.BeforeCommitID == beforeCommitID)
+	}), nil
 }
 
-// GetCommentsForPullRequest returns comments for a pull request.
-func (b *InMemoryBackend) GetCommentsForPullRequest(prID string) ([]*Comment, error) {
+// GetCommentsForPullRequest returns comments on a pull request, oldest first, optionally
+// narrowed to a repository and commit pair.
+func (b *InMemoryBackend) GetCommentsForPullRequest(
+	prID, repoName, beforeCommitID, afterCommitID string,
+) ([]*Comment, error) {
 	b.mu.RLock("GetCommentsForPullRequest")
 	defer b.mu.RUnlock()
 
@@ -125,15 +151,33 @@ func (b *InMemoryBackend) GetCommentsForPullRequest(prID string) ([]*Comment, er
 		return nil, fmt.Errorf("%w: pull request %s not found", ErrPullRequestNotFound, prID)
 	}
 
+	return b.collectCommentsLocked(func(c *Comment) bool {
+		return c.PRid == prID &&
+			(repoName == "" || c.RepoName == repoName) &&
+			(beforeCommitID == "" || c.BeforeCommitID == beforeCommitID) &&
+			(afterCommitID == "" || c.AfterCommitID == afterCommitID)
+	}), nil
+}
+
+func (b *InMemoryBackend) collectCommentsLocked(keep func(*Comment) bool) []*Comment {
 	var result []*Comment
+
 	for _, c := range b.comments.All() {
-		if c.PRid == prID {
+		if keep(c) {
 			cp := *c
 			result = append(result, &cp)
 		}
 	}
 
-	return result, nil
+	sort.Slice(result, func(i, j int) bool {
+		if !result[i].CreationDate.Equal(result[j].CreationDate) {
+			return result[i].CreationDate.Before(result[j].CreationDate)
+		}
+
+		return result[i].CommentID < result[j].CommentID
+	})
+
+	return result
 }
 
 // UpdateComment updates the content of a comment.

@@ -1,6 +1,10 @@
 package lightsail
 
-import "context"
+import (
+	"context"
+
+	lstypes "github.com/aws/aws-sdk-go-v2/service/lightsail/types"
+)
 
 // instanceExtrasOps returns the dispatch table for family D+E+F (10 ops).
 func (h *Handler) instanceExtrasOps() map[string]opFunc {
@@ -161,6 +165,10 @@ func (h *Handler) handleGetInstanceMetricData(_ context.Context, body []byte) ([
 		return nil, err
 	}
 
+	if vErr := checkEnum("metricName", lstypes.InstanceMetricName(req.MetricName)); vErr != nil {
+		return nil, vErr
+	}
+
 	if getErr := h.Backend.GetInstanceMetricData(req.InstanceName); getErr != nil {
 		return nil, getErr
 	}
@@ -180,6 +188,14 @@ func (h *Handler) handleUpdateInstanceMetadataOptions(_ context.Context, body []
 	req, err := decodeBody[updateInstanceMetadataOptionsRequest](body)
 	if err != nil {
 		return nil, err
+	}
+
+	if vErr := firstErr(
+		checkEnum("httpEndpoint", lstypes.HttpEndpoint(req.HTTPEndpoint)),
+		checkEnum("httpProtocolIpv6", lstypes.HttpProtocolIpv6(req.HTTPProtocolIpv6)),
+		checkEnum("httpTokens", lstypes.HttpTokens(req.HTTPTokens)),
+	); vErr != nil {
+		return nil, vErr
 	}
 
 	op, updateErr := h.Backend.UpdateInstanceMetadataOptions(req.InstanceName, InstanceMetadataOptions{

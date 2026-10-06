@@ -9,19 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestListReservations_RealClient_FilterByCodec drives ListReservations
-// through the real aws-sdk-go-v2 client with the "codec" query filter
-// (ListReservationsInput.Codec, api_op_ListReservations.go, bound as
-// httpQuery in awsRestjson1_serializeOpHttpBindingsListReservationsInput).
-// The handler read only maxResults/nextToken and discarded every other
-// ListReservationsInput filter entirely, so a client asking for AVC
-// reservations got HEVC ones back too. Reservations inherit their
-// ResourceSpecification (codec/resolution/resourceType/etc.) from the
-// offering purchased, which this backend does track per reservation --
-// unlike ChannelClass (never modeled on Offering/Reservation at all, left
-// as a disclosed gap) -- and an account can purchase an unbounded number of
-// reservations, so this is not the "at most a few values" case that
-// justifies leaving a filter unimplemented.
+// ListReservations must honour the codec query filter (ListReservationsInput.Codec is httpQuery-bound).
 func TestListReservations_RealClient_FilterByCodec(t *testing.T) {
 	t.Parallel()
 
@@ -49,4 +37,39 @@ func TestListReservations_RealClient_FilterByCodec(t *testing.T) {
 	require.Len(t, out.Reservations, 1)
 	assert.Equal(t, aws.ToString(avc.Reservation.ReservationId), aws.ToString(out.Reservations[0].ReservationId))
 	assert.NotEqual(t, aws.ToString(hevc.Reservation.ReservationId), aws.ToString(out.Reservations[0].ReservationId))
+}
+
+func TestListReservations_RealClient_FilterByChannelClass(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		channelClass string
+		want         int
+	}{
+		{"standard_matches_none", "STANDARD", 0},
+		{"single_pipeline_matches_none", "SINGLE_PIPELINE", 0},
+		{"unset_matches_all", "", 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newTestMediaLiveClient(t, newTestHandler(t))
+			_, err := client.PurchaseOffering(t.Context(), &medialivesdk.PurchaseOfferingInput{
+				OfferingId: aws.String("87654321"), Count: aws.Int32(1), Name: aws.String("r"),
+			})
+			require.NoError(t, err)
+
+			in := &medialivesdk.ListReservationsInput{}
+			if tt.channelClass != "" {
+				in.ChannelClass = aws.String(tt.channelClass)
+			}
+
+			out, err := client.ListReservations(t.Context(), in)
+			require.NoError(t, err)
+			assert.Len(t, out.Reservations, tt.want)
+		})
+	}
 }

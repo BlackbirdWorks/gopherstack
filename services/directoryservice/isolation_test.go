@@ -182,15 +182,13 @@ func TestDependentResourceRegionIsolation(t *testing.T) {
 	require.ErrorIs(t, backend.DeleteSnapshot(ctxWest, eastSnap.SnapshotID), ErrSnapshotNotFound)
 
 	// Trust isolation.
-	eastTrust, err := backend.CreateTrust(
-		ctxEast,
-		eastDir.DirectoryID,
-		"remote.example.com",
-		"pw",
-		"Two-Way",
-		"Forest",
-		"",
-	)
+	eastTrust, err := backend.CreateTrust(ctxEast, CreateTrustInput{
+		DirectoryID:      eastDir.DirectoryID,
+		RemoteDomainName: "remote.example.com",
+		TrustPassword:    "pw",
+		TrustDirection:   "Two-Way",
+		TrustType:        "Forest",
+	})
 	require.NoError(t, err)
 
 	_, err = backend.UpdateTrust(ctxWest, eastTrust, "Enabled")

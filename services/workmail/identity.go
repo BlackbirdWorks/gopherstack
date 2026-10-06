@@ -21,6 +21,16 @@ func (b *InMemoryBackend) CreateIdentityCenterApplication(
 	return appARN, nil
 }
 
+// HasIdentityCenterApplication reports whether the application exists.
+func (b *InMemoryBackend) HasIdentityCenterApplication(applicationARN string) bool {
+	b.mu.RLock("HasIdentityCenterApplication")
+	defer b.mu.RUnlock()
+
+	_, ok := b.identityCenterApps[applicationARN]
+
+	return ok
+}
+
 // DeleteIdentityCenterApplication removes an IAM Identity Center application.
 func (b *InMemoryBackend) DeleteIdentityCenterApplication(applicationARN string) error {
 	b.mu.Lock("DeleteIdentityCenterApplication")

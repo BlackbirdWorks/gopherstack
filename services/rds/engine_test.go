@@ -313,6 +313,12 @@ func TestEngineAuroraClusterSharesOneContainer(t *testing.T) {
 	t.Parallel()
 
 	f := newEngineFixture(t, engineWait)
+
+	// Hold the probe so the async engine cannot mark the cluster available before the read.
+	f.mu.Lock()
+	f.probeErr = assert.AnError
+	f.mu.Unlock()
+
 	_, err := f.b.CreateDBCluster("c1", "aurora-mysql", "master", "appdb", "", 0, nil,
 		rds.DBClusterOptions{MasterUserPassword: "pw", EngineVersion: "8.0.mysql_aurora.3.05.2"})
 	require.NoError(t, err)
@@ -323,6 +329,10 @@ func TestEngineAuroraClusterSharesOneContainer(t *testing.T) {
 			rds.DBInstanceOptions{DBClusterIdentifier: "c1"})
 		require.NoError(t, err)
 	}
+
+	f.mu.Lock()
+	f.probeErr = nil
+	f.mu.Unlock()
 
 	require.Eventually(t, func() bool { return f.cluster(t, "c1").Status == "available" },
 		engineWait, 5*time.Millisecond)

@@ -85,7 +85,7 @@ type StorageBackend interface {
 	VerifySMSSandboxPhoneNumber(phoneNumber, oneTimePassword string) error
 	// SMS opt-out operations.
 	CheckIfPhoneNumberIsOptedOut(phoneNumber string) (bool, error)
-	ListPhoneNumbersOptedOut(nextToken string, maxResults int) ([]string, string, error)
+	ListPhoneNumbersOptedOut(nextToken string) ([]string, string, error)
 	OptInPhoneNumber(phoneNumber string) error
 	// SMS attribute operations.
 	GetSMSAttributes(names []string) (map[string]string, error)

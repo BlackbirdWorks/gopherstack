@@ -20,8 +20,13 @@ func (h *Handler) handleListAssets(_ context.Context, r *http.Request, _ []byte)
 		return nil, err
 	}
 
-	resp := listAssetsResponse{Assets: make([]assetInfoWire, 0, len(assets))}
-	for _, a := range assets {
+	p, err := paginate(assets, q)
+	if err != nil {
+		return nil, err
+	}
+
+	resp := listAssetsResponse{NextToken: p.Next, Assets: make([]assetInfoWire, 0, len(p.Data))}
+	for _, a := range p.Data {
 		resp.Assets = append(resp.Assets, toAssetInfoWire(a))
 	}
 
@@ -44,8 +49,13 @@ func (h *Handler) handleListAssetInstances(_ context.Context, r *http.Request, _
 		return nil, err
 	}
 
-	resp := listAssetInstancesResponse{AssetInstances: make([]assetInstanceWire, 0, len(instances))}
-	for _, ri := range instances {
+	p, err := paginate(instances, q)
+	if err != nil {
+		return nil, err
+	}
+
+	resp := listAssetInstancesResponse{NextToken: p.Next, AssetInstances: make([]assetInstanceWire, 0, len(p.Data))}
+	for _, ri := range p.Data {
 		resp.AssetInstances = append(resp.AssetInstances, assetInstanceWire{
 			AccountId:      ri.AccountID,
 			AssetId:        ri.AssetID,

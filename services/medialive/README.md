@@ -16,7 +16,7 @@
 
 - Channel.Vpc response-side availabilityZones/networkInterfaceIds are omitted: MediaLive derives them from a real VPC/ENI integration this backend lacks.
 - Members with no backing source, not fabricated: ChannelSummary.UsedChannelEngineVersions (no engine-version history); InputDeviceSummary AvailabilityZone/HdDeviceSettings/MedialiveInputArns/NetworkSettings/OutputType/UhdDeviceSettings (hardware-registered devices); Node NodeInterfaceMapping.PhysicalInterfaceIpAddresses and DescribeNodeSummary InstanceArn/ManagedInstanceId (node hardware).
-- ListOfferings ChannelClass/ChannelConfiguration and the CW/EB template-group Scope filter are unimplemented: no channel-class on Offering/Reservation, and Scope's wire values appear only in an SDK prose comment (no enum), so a filter risks the wrong-vocabulary bug. ListReservations ChannelClass likewise.
+- ListOfferings ChannelConfiguration (match a channel's configuration) and the CW/EB template-group Scope filter are unimplemented: the offering catalog has no channel-derived matching, and Scope's wire values appear only in an SDK prose comment (no enum), so a filter risks the wrong-vocabulary bug. ChannelClass filters ListOfferings/ListReservations over ResourceSpecification.ChannelClass, which no seeded offering sets.
 - DeleteReservation hard-deletes (after a transient CANCELED) rather than reaching the real DELETED state; unproven without AWS evidence, tested as deliberate.
 - Op-by-op state/error-code audit of Cluster, Node, SignalMap and Batch beyond the fixes in the dated notes was not re-performed.
 

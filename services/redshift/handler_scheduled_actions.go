@@ -2,7 +2,9 @@ package redshift
 
 import (
 	"encoding/xml"
+	"fmt"
 	"net/url"
+	"slices"
 	"sort"
 	"strconv"
 	"time"
@@ -48,6 +50,8 @@ type scheduledActionXML struct {
 	IamRole                    string                    `xml:"IamRole,omitempty"`
 	ScheduledActionDescription string                    `xml:"ScheduledActionDescription,omitempty"`
 	State                      string                    `xml:"State"`
+	StartTime                  string                    `xml:"StartTime,omitempty"`
+	EndTime                    string                    `xml:"EndTime,omitempty"`
 	NextInvocations            []string                  `xml:"NextInvocations>ScheduledActionTime,omitempty"`
 }
 
@@ -89,7 +93,7 @@ func targetActionToXML(t *ScheduledActionTarget) *xmlScheduledActionTarget {
 }
 
 func scheduledActionToXML(a *ScheduledAction) scheduledActionXML {
-	return scheduledActionXML{
+	x := scheduledActionXML{
 		ScheduledActionName:        a.ScheduledActionName,
 		Schedule:                   a.Schedule,
 		IamRole:                    a.IamRole,
@@ -98,6 +102,15 @@ func scheduledActionToXML(a *ScheduledAction) scheduledActionXML {
 		TargetAction:               targetActionToXML(a.TargetAction),
 		NextInvocations:            nextInvocationsXML(a.Schedule),
 	}
+	if a.StartTime != nil {
+		x.StartTime = a.StartTime.UTC().Format(time.RFC3339)
+	}
+
+	if a.EndTime != nil {
+		x.EndTime = a.EndTime.UTC().Format(time.RFC3339)
+	}
+
+	return x
 }
 
 // nextInvocationsXML formats nextInvocations' computed times the same way this
@@ -181,6 +194,46 @@ func parseTargetAction(vals url.Values) *ScheduledActionTarget {
 	return &target
 }
 
+// windowOf maps zero (absent) times to nil bounds.
+func windowOf(start, end time.Time) ScheduleWindow {
+	var w ScheduleWindow
+
+	if !start.IsZero() {
+		w.Start = &start
+	}
+
+	if !end.IsZero() {
+		w.End = &end
+	}
+
+	return w
+}
+
+// scheduledActionHasInvocationInRange reports whether an ACTIVE action fires after lo and before hi
+// (zero bounds are open), within its own StartTime/EndTime window (api_op_DescribeScheduledActions.go:36-65).
+func scheduledActionHasInvocationInRange(a *ScheduledAction, lo, hi time.Time) bool {
+	if a.State != scheduledActionStateActiveValue {
+		return false
+	}
+
+	from := lo
+	if from.IsZero() {
+		from = time.Now().UTC()
+	}
+
+	if a.StartTime != nil && a.StartTime.After(from) {
+		from = *a.StartTime
+	}
+
+	for _, t := range nextInvocations(a.Schedule, from) {
+		if t.After(from) && (hi.IsZero() || t.Before(hi)) && (a.EndTime == nil || !t.After(*a.EndTime)) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // parseEnable parses the optional Enable request parameter into a tri-state *bool,
 // matching CreateScheduledActionInput/ModifyScheduledActionInput's *bool Enable
 // field (nil means "not specified" as distinct from explicit false).
@@ -196,6 +249,11 @@ func parseEnable(vals url.Values) *bool {
 }
 
 func (h *Handler) handleCreateScheduledAction(vals url.Values) (any, error) {
+	start, end, err := parseEventTimeRange(vals)
+	if err != nil {
+		return nil, err
+	}
+
 	action, err := h.Backend.CreateScheduledAction(
 		vals.Get("ScheduledActionName"),
 		vals.Get("Schedule"),
@@ -203,6 +261,7 @@ func (h *Handler) handleCreateScheduledAction(vals url.Values) (any, error) {
 		vals.Get("ScheduledActionDescription"),
 		parseTargetAction(vals),
 		parseEnable(vals),
+		windowOf(start, end),
 	)
 	if err != nil {
 		return nil, err
@@ -237,6 +296,53 @@ type describeScheduledActionsResponse struct {
 	} `xml:"DescribeScheduledActionsResult"`
 }
 
+// parseScheduledActionFilters reads Filters.ScheduledActionFilter.N.{Name,Values.item.M}.
+func parseScheduledActionFilters(vals url.Values) map[string][]string {
+	filters := map[string][]string{}
+
+	for i := 1; i <= maxListItems; i++ {
+		prefix := fmt.Sprintf("Filters.ScheduledActionFilter.%d.", i)
+
+		name := vals.Get(prefix + "Name")
+		if name == "" {
+			break
+		}
+
+		filters[name] = append(filters[name], parseStringList(vals, prefix+"Values.item.")...)
+	}
+
+	return filters
+}
+
+// scheduledActionMatchesFilters applies the cluster-identifier and iam-role filters (types/enums.go:519-520).
+func scheduledActionMatchesFilters(a *ScheduledAction, filters map[string][]string) bool {
+	if want, ok := filters["cluster-identifier"]; ok &&
+		!slices.Contains(want, scheduledActionClusterID(a.TargetAction)) {
+		return false
+	}
+
+	if want, ok := filters["iam-role"]; ok && !slices.Contains(want, a.IamRole) {
+		return false
+	}
+
+	return true
+}
+
+func scheduledActionClusterID(t *ScheduledActionTarget) string {
+	switch {
+	case t == nil:
+		return ""
+	case t.ResizeCluster != nil:
+		return t.ResizeCluster.ClusterIdentifier
+	case t.PauseCluster != nil:
+		return t.PauseCluster.ClusterIdentifier
+	case t.ResumeCluster != nil:
+		return t.ResumeCluster.ClusterIdentifier
+	default:
+		return ""
+	}
+}
+
 func (h *Handler) handleDescribeScheduledActions(vals url.Values) (any, error) {
 	name := vals.Get("ScheduledActionName")
 	actions, err := h.Backend.DescribeScheduledActions(name)
@@ -256,6 +362,14 @@ func (h *Handler) handleDescribeScheduledActions(vals url.Values) (any, error) {
 	}
 
 	targetActionType := vals.Get("TargetActionType")
+	filters := parseScheduledActionFilters(vals)
+
+	rangeStart, rangeEnd, err := parseEventTimeRange(vals)
+	if err != nil {
+		return nil, err
+	}
+
+	hasRange := !rangeStart.IsZero() || !rangeEnd.IsZero()
 
 	members := make([]scheduledActionXML, 0, len(actions))
 
@@ -265,6 +379,14 @@ func (h *Handler) handleDescribeScheduledActions(vals url.Values) (any, error) {
 		}
 
 		if targetActionType != "" && scheduledActionTargetType(actions[i].TargetAction) != targetActionType {
+			continue
+		}
+
+		if !scheduledActionMatchesFilters(&actions[i], filters) {
+			continue
+		}
+
+		if hasRange && !scheduledActionHasInvocationInRange(&actions[i], rangeStart, rangeEnd) {
 			continue
 		}
 
@@ -290,6 +412,11 @@ type modifyScheduledActionResponse struct {
 }
 
 func (h *Handler) handleModifyScheduledAction(vals url.Values) (any, error) {
+	start, end, err := parseEventTimeRange(vals)
+	if err != nil {
+		return nil, err
+	}
+
 	action, err := h.Backend.ModifyScheduledAction(
 		vals.Get("ScheduledActionName"),
 		vals.Get("Schedule"),
@@ -297,6 +424,7 @@ func (h *Handler) handleModifyScheduledAction(vals url.Values) (any, error) {
 		vals.Get("ScheduledActionDescription"),
 		parseTargetAction(vals),
 		parseEnable(vals),
+		windowOf(start, end),
 	)
 	if err != nil {
 		return nil, err

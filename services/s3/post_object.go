@@ -138,6 +138,7 @@ func buildPostPutInput(
 		ContentDisposition: ptrconv.NilIfEmpty(fields["Content-Disposition"]),
 		ContentEncoding:    ptrconv.NilIfEmpty(fields["Content-Encoding"]),
 		CacheControl:       ptrconv.NilIfEmpty(fields["Cache-Control"]),
+		ContentLanguage:    ptrconv.NilIfEmpty(fields["Content-Language"]),
 		StorageClass:       types.StorageClass(fields["x-amz-storage-class"]),
 		Metadata:           userMeta,
 	}

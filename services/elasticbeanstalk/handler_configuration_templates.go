@@ -429,6 +429,22 @@ func (h *Handler) handleValidateConfigurationSettings(ctx context.Context, vals 
 		return nil, fmt.Errorf("%w: no application found named %s", ErrInvalidParameter, appName)
 	}
 
+	if tmpl := vals.Get("TemplateName"); tmpl != "" {
+		if vals.Get("EnvironmentName") != "" {
+			return nil, fmt.Errorf("%w: TemplateName and EnvironmentName cannot both be specified", ErrInvalidParameter)
+		}
+
+		if !h.Backend.HasConfigurationTemplate(ctx, appName, tmpl) {
+			return nil, fmt.Errorf("%w: no configuration template named %s", ErrNotFound, tmpl)
+		}
+	}
+
+	if vals.Get("EnvironmentName") != "" {
+		if _, err := h.resolveSingleEnvironment(ctx, vals); err != nil {
+			return nil, err
+		}
+	}
+
 	messages := make([]validationMessage, 0)
 
 	// Validate option settings namespaces (improvement #13)

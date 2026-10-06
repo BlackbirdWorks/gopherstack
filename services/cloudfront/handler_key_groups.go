@@ -147,6 +147,15 @@ func (h *Handler) handleUpdatePublicKey(c *echo.Context, id string) error {
 		}
 	}
 
+	current, getErr := h.Backend.GetPublicKey(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	if failed, resp := ifMatchFailure(c, current.ETag, "PublicKey"); failed {
+		return resp
+	}
+
 	pk, updateErr := h.Backend.UpdatePublicKey(id, req.Comment)
 	if updateErr != nil {
 		return h.handleError(c, updateErr)
@@ -342,6 +351,10 @@ func (h *Handler) handleUpdateKeyGroup(c *echo.Context, id string) error {
 	current, getErr := h.Backend.GetKeyGroup(id)
 	if getErr != nil {
 		return h.handleError(c, getErr)
+	}
+
+	if failed, resp := ifMatchFailure(c, current.ETag, "KeyGroup"); failed {
+		return resp
 	}
 
 	if req.Name == "" {

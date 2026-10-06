@@ -45,7 +45,7 @@ func selectBugfixesDrainExpectErr(t *testing.T, out *sdk_s3.SelectObjectContentO
 	t.Helper()
 	defer out.GetStream().Close()
 
-	for range out.GetStream().Events() { //nolint:revive // draining the channel is the point
+	for range out.GetStream().Events() {
 	}
 
 	return out.GetStream().Err()

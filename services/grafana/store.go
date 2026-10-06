@@ -113,12 +113,12 @@ func (b *InMemoryBackend) WorkspaceARN(id string) string {
 func workspaceIDFromARN(arnStr string) (string, bool) {
 	const marker = ":/workspaces/"
 
-	idx := strings.LastIndex(arnStr, marker)
-	if idx < 0 {
+	_, after, ok := strings.CutLast(arnStr, marker)
+	if !ok {
 		return "", false
 	}
 
-	id := arnStr[idx+len(marker):]
+	id := after
 	if id == "" {
 		return "", false
 	}

@@ -3,6 +3,7 @@ package quicksight
 import (
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"strings"
 
@@ -16,9 +17,14 @@ import (
 func (b *InMemoryBackend) RegisterUser(
 	accountID, namespace, userName, email, role, identityType, sessionName, customPermissionsName string,
 	tags map[string]string,
+	federation UserFederation,
 ) (*User, error) {
 	if userName == "" || email == "" {
 		return nil, ErrValidation
+	}
+
+	if err := validateUserFederation(federation, false); err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("RegisterUser")
@@ -54,6 +60,10 @@ func (b *InMemoryBackend) RegisterUser(
 		PrincipalID:  uuid.New().String(),
 		SessionName:  sessionName,
 		Active:       true,
+
+		ExternalLoginProviderType: federation.ProviderType,
+		ExternalLoginProviderURL:  federation.ProviderURL,
+		ExternalLoginID:           federation.LoginID,
 	}
 	b.users.Put(u)
 
@@ -88,7 +98,12 @@ func (b *InMemoryBackend) DescribeUser(accountID, namespace, userName string) (*
 
 func (b *InMemoryBackend) UpdateUser(
 	accountID, namespace, userName, email, role, customPermissionsName string,
+	federation UserFederation,
 ) (*User, error) {
+	if err := validateUserFederation(federation, true); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("UpdateUser")
 	defer b.mu.Unlock()
 
@@ -103,6 +118,12 @@ func (b *InMemoryBackend) UpdateUser(
 	}
 	if role != "" {
 		u.Role = role
+	}
+
+	applyUserFederation(u, federation)
+
+	if federation.UnapplyCustomPermissions {
+		delete(b.userCustomPermissions, userCustomPermissionKey(accountID, namespace, userName))
 	}
 
 	if customPermissionsName != "" {
@@ -241,4 +262,43 @@ func (b *InMemoryBackend) ListUserGroups(
 	result, next := paginateGroups(all, maxResults, nextToken)
 
 	return result, next, nil
+}
+
+const externalLoginProviderNone = "NONE"
+
+func externalLoginProviderTypes() []string { return []string{"COGNITO", "CUSTOM_OIDC"} }
+
+// validateUserFederation checks the provider type and that a provider URL goes only with CUSTOM_OIDC.
+func validateUserFederation(f UserFederation, allowNone bool) error {
+	known := slices.Contains(externalLoginProviderTypes(), f.ProviderType) ||
+		(allowNone && f.ProviderType == externalLoginProviderNone)
+	if f.ProviderType != "" && !known {
+		return fmt.Errorf("%w: unsupported ExternalLoginFederationProviderType %q", ErrValidation, f.ProviderType)
+	}
+
+	if f.ProviderURL != "" && f.ProviderType != "CUSTOM_OIDC" {
+		return fmt.Errorf(
+			"%w: CustomFederationProviderUrl needs ExternalLoginFederationProviderType CUSTOM_OIDC", ErrValidation,
+		)
+	}
+
+	return nil
+}
+
+// applyUserFederation updates the stored login provider; NONE clears all saved external login information.
+func applyUserFederation(u *storedUser, f UserFederation) {
+	if f.ProviderType == externalLoginProviderNone {
+		u.ExternalLoginProviderType, u.ExternalLoginProviderURL, u.ExternalLoginID = "", "", ""
+
+		return
+	}
+
+	if f.ProviderType != "" {
+		u.ExternalLoginProviderType = f.ProviderType
+		u.ExternalLoginProviderURL = f.ProviderURL
+	}
+
+	if f.LoginID != "" {
+		u.ExternalLoginID = f.LoginID
+	}
 }

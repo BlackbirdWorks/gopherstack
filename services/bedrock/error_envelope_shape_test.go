@@ -42,7 +42,10 @@ func TestCreateCustomModelDeployment_DuplicateName_TypesAsValidationException(t 
 	_, err := client.CreateCustomModelDeployment(t.Context(), in)
 	require.NoError(t, err)
 
-	_, err = client.CreateCustomModelDeployment(t.Context(), in)
+	dup := *in
+	dup.ClientRequestToken = aws.String("a-different-request")
+
+	_, err = client.CreateCustomModelDeployment(t.Context(), &dup)
 	require.Error(t, err)
 
 	var typed *types.ValidationException
@@ -71,7 +74,10 @@ func TestCreateProvisionedModelThroughput_DuplicateName_TypesAsValidationExcepti
 	_, err := client.CreateProvisionedModelThroughput(t.Context(), in)
 	require.NoError(t, err)
 
-	_, err = client.CreateProvisionedModelThroughput(t.Context(), in)
+	dup := *in
+	dup.ClientRequestToken = aws.String("a-different-request")
+
+	_, err = client.CreateProvisionedModelThroughput(t.Context(), &dup)
 	require.Error(t, err)
 
 	var typed *types.ValidationException

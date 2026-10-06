@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 9 (9 ok) |
 | Feature families | 33 (32 ok, 1 partial) |
-| Known gaps | 3 |
+| Known gaps | 10 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -18,6 +18,13 @@
 - No SQL engine or cluster nodes (2026-10-01): RestoreTableFromClusterSnapshot.EnableCaseSensitiveIdentifier and GetClusterCredentials.DbGroups have no observable effect to gate; the two terraform datashare resources (aws_redshift_data_share_authorization/_consumer_association) need CREATE DATASHARE SQL.
 - GetReservedNodeExchangeConfigurationOptions is not scoped by ClusterIdentifier/SnapshotIdentifier: reservations are not tracked per cluster/snapshot (2026-09-12).
 - Serverless Workgroup.CrossAccountVpcs/PatchVersion/PendingTrackName/WorkgroupVersion and Endpoint.VpcEndpoints are unmodeled: they need a patch catalog, track-upgrade scheduler and real ENI allocation (2026-09-18).
+- ModifyCluster.NewClusterIdentifier is not applied: a rename must re-key the cluster-keyed stores (snapshots, snapshot copy and logging configs, usage limits, endpoint access, partners, lakehouse config, resizes, tags, scheduled actions).
+- CreateCluster.LoadSampleData, CreateCluster.AdditionalInfo and RestoreFromClusterSnapshot.AdditionalInfo have no effect: there is no SQL engine to load sample data and AdditionalInfo is documented as Reserved.
+- DeleteClusterSnapshot, AuthorizeSnapshotAccess and RevokeSnapshotAccess SnapshotClusterIdentifier, CopyClusterSnapshot.SourceSnapshotClusterIdentifier and RestoreFromClusterSnapshot.OwnerAccount are accepted and ignored: the SDK docs say they only scope IAM resource ARNs, and snapshot identifiers are unique per account here.
+- CreateRedshiftIdcApplication.ServiceIntegrations and ModifyRedshiftIdcApplication.ServiceIntegrations stay unmodeled (3-level tagged union). Tags on CreateClusterParameterGroup, CreateClusterSnapshot, CreateEventSubscription, CreateRedshiftIdcApplication and CreateUsageLimit, and the TagKeys/TagValues filters on DescribeClusterParameterGroups, DescribeClusterSnapshots and DescribeEventSubscriptions, need a non-cluster tag store: CreateTags, DeleteTags and DescribeTags are cluster-only.
+- DescribeAccountAttributes.AttributeNames is not applied: the response is a static empty envelope with nothing to filter.
+- ModifyCluster.MaintenanceTrackName stays in PendingModifiedValues (as the SDK docs say) and is never applied: no maintenance window runs. ElasticIp is syntax-checked only (no EC2 elastic IP lookup) and MasterPasswordSecretArn is minted without a Secrets Manager secret, as for serverless.
+- Defaults and codes taken from memory, not the SDK docs: new clusters report MaintenanceTrackName current and IpAddressType ipv4, ElasticIpStatus and HsmStatus Status report active, AvailabilityZoneRelocationStatus is enabled or disabled, and InvalidParameterCombination is the code for ManageMasterPassword/MasterUserPassword, MasterPasswordSecretKmsKeyId and ElasticIp conflicts.
 
 ## More
 

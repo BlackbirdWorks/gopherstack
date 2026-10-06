@@ -190,7 +190,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	ctx := t.Context()
 
 	// ReferenceStore + references + referenceImportJobs + referenceBytes(raw).
-	refStore, err := original.CreateReferenceStore("ref-store-1", "desc", map[string]string{"env": "test"})
+	refStore, err := original.CreateReferenceStore("ref-store-1", "desc", nil, map[string]string{"env": "test"})
 	require.NoError(t, err)
 
 	refImportJob, err := original.StartReferenceImportJob(refStore.ID, "role-arn", []omics.ReferenceImportJobSource{
@@ -208,7 +208,9 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.NotNil(t, refBytes)
 
 	// SequenceStore + readSets + readSetImportJobs.
-	seqStore, err := original.CreateSequenceStore("seq-store-1", "desc", "", "", map[string]string{"env": "test"})
+	seqStore, err := original.CreateSequenceStore(omics.CreateSequenceStoreInput{
+		Name: "seq-store-1", Description: "desc", Tags: map[string]string{"env": "test"},
+	})
 	require.NoError(t, err)
 
 	readSetImportJob, err := original.StartReadSetImportJob(seqStore.ID, "role-arn", []omics.ReadSetImportJobSource{
@@ -290,12 +292,12 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	// AnnotationStore + annotationVersions + annotationImportJobs.
 	annStore, err := original.CreateAnnotationStore(
-		"ann-store-1", "VCF", nil, nil, nil, map[string]string{"env": "test"},
+		"ann-store-1", "", "VCF", "", nil, nil, nil, map[string]string{"env": "test"},
 	)
 	require.NoError(t, err)
 
 	annVersion, err := original.CreateAnnotationStoreVersion(
-		annStore.Name, "v1", "desc", map[string]string{"env": "test"},
+		annStore.Name, "v1", "desc", nil, map[string]string{"env": "test"},
 	)
 	require.NoError(t, err)
 
@@ -306,7 +308,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 
 	// VariantStore + variantImportJobs.
-	varStore, err := original.CreateVariantStore("var-store-1", nil, nil, map[string]string{"env": "test"})
+	varStore, err := original.CreateVariantStore("var-store-1", "", nil, nil, map[string]string{"env": "test"})
 	require.NoError(t, err)
 
 	varImportJob, err := original.StartVariantImportJob(
@@ -320,7 +322,9 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 
 	// RunCache.
-	runCache, err := original.CreateRunCache("run-cache-1", "s3://bucket/cache", "", map[string]string{"env": "test"})
+	runCache, err := original.CreateRunCache(
+		"run-cache-1", "", "s3://bucket/cache", "", "", map[string]string{"env": "test"},
+	)
 	require.NoError(t, err)
 
 	// RunBatch.
@@ -400,7 +404,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.Len(t, uploads, 1)
 	assert.Equal(t, upload.UploadID, uploads[0].UploadID)
 
-	parts, _, err := fresh.ListReadSetUploadParts(seqStore.ID, upload.UploadID, 10, "")
+	parts, _, err := fresh.ListReadSetUploadParts(seqStore.ID, upload.UploadID, "", nil, 10, "")
 	require.NoError(t, err)
 	require.Len(t, parts, 1)
 	assert.Equal(t, 1, parts[0].PartNumber)

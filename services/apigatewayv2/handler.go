@@ -683,6 +683,28 @@ func handleUpdate[I, O any](
 // apigwDefaultPageSize is the default page size for API Gateway v2 list operations.
 const apigwDefaultPageSize = 500
 
+var (
+	errInvalidMaxResults = errors.New("maxResults must be a positive integer")
+	errInvalidNextToken  = errors.New("invalid nextToken")
+)
+
+// validateAPIGWPaging rejects a non-positive maxResults or a malformed nextToken before paging.
+func validateAPIGWPaging(c *echo.Context) error {
+	q := c.Request().URL.Query()
+
+	if s := q.Get("maxResults"); s != "" {
+		if n, err := strconv.Atoi(s); err != nil || n < 1 {
+			return errInvalidMaxResults
+		}
+	}
+
+	if err := page.ValidateToken(q.Get("nextToken")); err != nil {
+		return errInvalidNextToken
+	}
+
+	return nil
+}
+
 // apigwPaginationParams extracts maxResults and nextToken from query parameters.
 func apigwPaginationParams(c *echo.Context) (int, string) {
 	q := c.Request().URL.Query()
@@ -715,6 +737,10 @@ func handleGetList[T any](
 		}
 
 		return writeErr(c, http.StatusInternalServerError, err.Error())
+	}
+
+	if pageErr := validateAPIGWPaging(c); pageErr != nil {
+		return writeErr(c, http.StatusBadRequest, pageErr.Error())
 	}
 
 	maxResults, nextToken := apigwPaginationParams(c)
@@ -756,7 +782,7 @@ func handleCreateNoParent[I, O any](
 
 // handleGetChildList is a generic helper for GET-collection handlers on a
 // resource nested two levels deep (e.g. GetIntegrationResponses,
-// GetRouteResponses) that do not paginate.
+// GetRouteResponses).
 func handleGetChildList[T any](
 	c *echo.Context,
 	logMsg string,
@@ -778,6 +804,10 @@ func handleGetChildList[T any](
 		}
 
 		return writeErr(c, http.StatusInternalServerError, err.Error())
+	}
+
+	if pageErr := validateAPIGWPaging(c); pageErr != nil {
+		return writeErr(c, http.StatusBadRequest, pageErr.Error())
 	}
 
 	maxResults, nextToken := apigwPaginationParams(c)

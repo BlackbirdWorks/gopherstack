@@ -41,6 +41,12 @@ func assertAPIErrorCode(t *testing.T, err error, code string) {
 func newTestClient(t *testing.T, h *dsql.Handler) *dsqlsdk.Client {
 	t.Helper()
 
+	return newRegionClient(t, h, testRegion)
+}
+
+func newRegionClient(t *testing.T, h *dsql.Handler, region string) *dsqlsdk.Client {
+	t.Helper()
+
 	e := echo.New()
 	registry := service.NewRegistry()
 	require.NoError(t, registry.Register(h))
@@ -51,7 +57,7 @@ func newTestClient(t *testing.T, h *dsql.Handler) *dsqlsdk.Client {
 
 	cfg, err := awscfg.LoadDefaultConfig(
 		t.Context(),
-		awscfg.WithRegion(testRegion),
+		awscfg.WithRegion(region),
 		awscfg.WithCredentialsProvider(
 			credentials.NewStaticCredentialsProvider("test", "test", ""),
 		),

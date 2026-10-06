@@ -16,7 +16,7 @@
 ### Known gaps
 
 - AWS/ECS CPUUtilization/MemoryUtilization are not emitted: there is no container runtime producing utilisation, and fabricating values would be a stub (gopherstack-4m1qr).
-- Blue/green lifecycle is unmodeled (PAUSE-stage hooks, Lambda hook invocation): ContinueServiceDeployment always returns ClientException, and ServiceDeployment/ServiceRevisionOverrides lack LifecycleStage, SourceServiceRevisions, Rollback, Alarms, and output-only RuntimePlatform.
+- Blue/green lifecycle is unmodeled (PAUSE-stage hooks, Lambda hook invocation): ContinueServiceDeployment always returns ClientException, StopServiceDeployment.StopType=ROLLBACK is not applied (no ROLLBACK_* deployment statuses), and ServiceDeployment/ServiceRevisionOverrides lack LifecycleStage, SourceServiceRevisions, Rollback, Alarms, and output-only RuntimePlatform.
 - ELBv2 registration is one-directional (ELB health never feeds ECS health), placement never retries another instance on host-port collision, and containerPortRange/hostPortRange are not allocated.
 - ASG capacity providers are config-only: AutoScalingGroupProvider is never validated against or scaled via services/autoscaling (cross-service).
 - ListTasksInput.daemonName and ListServicesInput.resourceManagementType are not declared: no daemon-launched tasks or ECS-managed (Express) Service rows exist to filter on.

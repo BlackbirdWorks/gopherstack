@@ -109,8 +109,13 @@ type ClusterConfigUpdate struct {
 	AccessConfig  *AccessConfig
 	ComputeConfig *ComputeConfig
 	StorageConfig *StorageConfig
-	LogEntries    []ClusterLogEntry
-	SubnetIDs     []string
+	// ConfigBlocks are the opaque config members, keyed by wire name.
+	ConfigBlocks         map[string]json.RawMessage
+	DeletionProtection   *bool
+	ElasticLoadBalancing *bool
+	UpgradeSupportType   string
+	LogEntries           []ClusterLogEntry
+	SubnetIDs            []string
 }
 
 // UpdateClusterConfig updates the cluster configuration including logging, subnets, and access settings.
@@ -121,6 +126,10 @@ func (b *InMemoryBackend) UpdateClusterConfig(clusterName string, upd ClusterCon
 	c, ok := b.clusters.Get(clusterName)
 	if !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+	}
+
+	if err := validateConfigBlocks(upd.ConfigBlocks); err != nil {
+		return nil, err
 	}
 
 	if upd.LogEntries != nil {
@@ -159,7 +168,11 @@ func (b *InMemoryBackend) UpdateClusterConfig(clusterName string, upd ClusterCon
 		c.StorageConfig = upd.StorageConfig
 	}
 
+	params := applyClusterConfigScalarsLocked(c, upd)
+	params = append(params, applyConfigBlocksLocked(c, upd.ConfigBlocks)...)
+
 	u := &Update{
+		Params:      params,
 		ID:          stableID(clusterName + "/config-update/" + time.Now().String()),
 		ClusterName: clusterName,
 		Status:      statusInProgress,
@@ -170,6 +183,37 @@ func (b *InMemoryBackend) UpdateClusterConfig(clusterName string, upd ClusterCon
 	b.scheduleUpdateTransition(clusterName, u.ID)
 
 	return u.clone(), nil
+}
+
+// applyClusterConfigScalarsLocked applies deletion protection, upgrade policy and ELB settings.
+func applyClusterConfigScalarsLocked(c *Cluster, upd ClusterConfigUpdate) []UpdateParam {
+	var params []UpdateParam
+
+	if upd.DeletionProtection != nil {
+		c.DeletionProtection = *upd.DeletionProtection
+		params = append(params, UpdateParam{
+			Type: "DeletionProtection", Value: strconv.FormatBool(*upd.DeletionProtection),
+		})
+	}
+
+	if upd.UpgradeSupportType != "" {
+		c.UpgradePolicySupportType = upd.UpgradeSupportType
+		params = append(params, UpdateParam{Type: "UpgradePolicy", Value: upd.UpgradeSupportType})
+	}
+
+	if upd.ElasticLoadBalancing != nil {
+		cfg := cloneKubernetesNetworkConfig(c.KubernetesNetworkConfig)
+		if cfg == nil {
+			cfg = &KubernetesNetworkConfig{}
+		}
+
+		cfg.ElasticLoadBalancing = &ElasticLoadBalancingConfig{Enabled: *upd.ElasticLoadBalancing}
+		c.KubernetesNetworkConfig = cfg
+		elb := fmt.Sprintf(`{"elasticLoadBalancing":{"enabled":%t}}`, *upd.ElasticLoadBalancing)
+		params = append(params, UpdateParam{Type: "KubernetesNetworkConfig", Value: elb})
+	}
+
+	return params
 }
 
 // VpcEndpointUpdate carries optional VPC endpoint access changes for UpdateClusterVpcEndpoint.

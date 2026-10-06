@@ -33,6 +33,7 @@ func toAnalysisTemplateSummary(t *AnalysisTemplate) *AnalysisTemplateSummary {
 		ID:                         t.ID,
 		MembershipID:               t.MembershipID,
 		CollaborationID:            t.CollaborationID,
+		IsSyntheticData:            t.SyntheticDataParameters != nil,
 	}
 }
 
@@ -52,6 +53,7 @@ func toCollaborationAnalysisTemplateSummary(
 		Description:      t.Description,
 		CreateTime:       t.CreateTime,
 		UpdateTime:       t.UpdateTime,
+		IsSyntheticData:  t.SyntheticDataParameters != nil,
 	}
 }
 
@@ -64,11 +66,20 @@ func (b *InMemoryBackend) CreateAnalysisTemplate(
 ) (*AnalysisTemplate, error) {
 	b.mu.Lock("CreateAnalysisTemplate")
 	defer b.mu.Unlock()
-	var emc *ErrorMessageConfiguration
+	var (
+		emc    *ErrorMessageConfiguration
+		sdp    map[string]any
+		schema map[string]any
+	)
 	if len(settings) > 0 {
 		emc = settings[0].ErrorMessageConfiguration
+		sdp = settings[0].SyntheticDataParameters
+		schema = settings[0].Schema
 	}
 	if err := validateErrorMessageConfiguration(emc); err != nil {
+		return nil, err
+	}
+	if err := validateSyntheticDataParameters(sdp); err != nil {
 		return nil, err
 	}
 	mem, ok := b.memberships.Get(membershipID)
@@ -95,6 +106,8 @@ func (b *InMemoryBackend) CreateAnalysisTemplate(
 		Source:                     source,
 		AnalysisParameters:         analysisParameters,
 		ErrorMessageConfiguration:  emc,
+		SyntheticDataParameters:    sdp,
+		Schema:                     schema,
 		CreateTime:                 ts,
 		UpdateTime:                 ts,
 		Tags:                       tags,

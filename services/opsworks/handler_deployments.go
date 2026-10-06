@@ -14,14 +14,20 @@ func (h *Handler) handleCreateDeployment(_ context.Context, body []byte) (any, e
 		Command struct {
 			Name string `json:"Name"`
 		} `json:"Command"`
-		CustomJSON string `json:"CustomJson"`
+		CustomJSON  string   `json:"CustomJson"`
+		Comment     string   `json:"Comment"`
+		InstanceIDs []string `json:"InstanceIds"`
+		LayerIDs    []string `json:"LayerIds"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	deployment, err := h.Backend.CreateDeployment(req.StackID, req.AppID, req.Command.Name, req.CustomJSON)
+	deployment, err := h.Backend.CreateDeployment(
+		req.StackID, req.AppID, req.Command.Name, req.CustomJSON,
+		DeploymentOptions{Comment: req.Comment, InstanceIDs: req.InstanceIDs, LayerIDs: req.LayerIDs},
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -59,7 +65,7 @@ func deploymentsToJSON(deployments []*Deployment) []map[string]any {
 			completedAt = formatOpsWorksTime(d.CompletedAt)
 		}
 
-		result = append(result, map[string]any{
+		m := map[string]any{
 			keyDeploymentID: d.DeploymentID,
 			keyStackID:      d.StackID,
 			keyAppID:        d.AppID,
@@ -69,7 +75,16 @@ func deploymentsToJSON(deployments []*Deployment) []map[string]any {
 			keyCreatedAt:    formatOpsWorksTime(d.CreatedAt),
 			"CompletedAt":   completedAt,
 			"CustomJson":    d.CustomJSON,
-		})
+		}
+		if d.Comment != "" {
+			m["Comment"] = d.Comment
+		}
+
+		if len(d.InstanceIDs) > 0 {
+			m["InstanceIds"] = d.InstanceIDs
+		}
+
+		result = append(result, m)
 	}
 
 	return result

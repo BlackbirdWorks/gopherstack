@@ -206,7 +206,7 @@ func (b *InMemoryBackend) DescribePolicy(policyID string) (*Policy, error) {
 
 // UpdatePolicy updates a policy.
 func (b *InMemoryBackend) UpdatePolicy(
-	policyID, name, description, content string,
+	policyID, name string, description *string, content string,
 ) (*Policy, error) {
 	b.mu.Lock("UpdatePolicy")
 	defer b.mu.Unlock()
@@ -230,8 +230,8 @@ func (b *InMemoryBackend) UpdatePolicy(
 		p.PolicySummary.Name = name
 	}
 
-	if description != "" {
-		p.PolicySummary.Description = description
+	if description != nil {
+		p.PolicySummary.Description = *description
 	}
 
 	if content != "" {

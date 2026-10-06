@@ -12,6 +12,7 @@ import (
 func (b *InMemoryBackend) CreateLocationObjectStorage(
 	serverHostname, serverProtocol, bucketName, subdirectory, accessKey, secretKey string,
 	serverPort int32,
+	serverCertificate []byte,
 	agentArns []string,
 	tags map[string]string,
 	secretConfig SecretConfig,
@@ -47,6 +48,7 @@ func (b *InMemoryBackend) CreateLocationObjectStorage(
 			AccessKey:          accessKey,
 			SecretKey:          secretKey,
 			ServerPort:         serverPort,
+			ServerCertificate:  serverCertificate,
 			AgentArns:          agentArns,
 			CmkSecretConfig:    toStoredCmkSecretConfig(secretConfig.Cmk),
 			CustomSecretConfig: toStoredCustomSecretConfig(secretConfig.Custom),
@@ -86,6 +88,7 @@ func (b *InMemoryBackend) DescribeLocationObjectStorage(locationArn string) (*Lo
 		out.BucketName = l.ObjectStorage.BucketName
 		out.AccessKey = l.ObjectStorage.AccessKey
 		out.ServerPort = l.ObjectStorage.ServerPort
+		out.ServerCertificate = l.ObjectStorage.ServerCertificate
 		out.AgentArns = l.ObjectStorage.AgentArns
 		out.CmkSecretConfig = fromStoredCmkSecretConfig(l.ObjectStorage.CmkSecretConfig)
 		out.CustomSecretConfig = fromStoredCustomSecretConfig(l.ObjectStorage.CustomSecretConfig)
@@ -97,6 +100,7 @@ func (b *InMemoryBackend) DescribeLocationObjectStorage(locationArn string) (*Lo
 func (b *InMemoryBackend) UpdateLocationObjectStorage(
 	locationArn, serverHostname, serverProtocol, subdirectory, accessKey, secretKey string,
 	serverPort int32,
+	serverCertificate []byte,
 	agentArns []string,
 	secretConfig SecretConfig,
 ) error {
@@ -135,6 +139,11 @@ func (b *InMemoryBackend) UpdateLocationObjectStorage(
 	}
 
 	updateObjectStorageFields(l.ObjectStorage, serverProtocol, accessKey, secretKey, serverPort, agentArns)
+
+	if serverCertificate != nil {
+		l.ObjectStorage.ServerCertificate = serverCertificate
+	}
+
 	updateObjectStorageSecretConfig(l.ObjectStorage, secretConfig)
 
 	return nil

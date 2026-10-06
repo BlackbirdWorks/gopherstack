@@ -467,7 +467,7 @@ func (h *Handler) handleGetBucketVersioning(c *echo.Context) error {
 	// string per bucket (see bucket.go), not MFA delete state.
 	return writeXML(c, struct {
 		XMLName xml.Name `xml:"GetBucketVersioningResult"`
-		Status  string   `xml:"Status"`
+		Status  string   `xml:"Status,omitempty"`
 	}{Status: status})
 }
 

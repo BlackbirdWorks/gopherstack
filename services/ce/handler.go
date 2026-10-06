@@ -21,8 +21,6 @@ const (
 	ceTargetPrefix          = "AWSInsightsIndexService."
 	defaultStartDate        = "2024-01-01"
 	defaultEndDate          = "2024-02-01"
-	defaultForecastStart    = "2024-02-01"
-	defaultForecastEnd      = "2024-03-01"
 	defaultGranularity      = "MONTHLY"
 	handlerZeroAmount       = "0.0000"
 	handlerSavingsPlansType = "COMPUTE_SP"
@@ -211,6 +209,13 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		// Real AWS CE returns HTTP 400 for every modeled client-fault exception (verified
 		// against API_DeleteAnomalyMonitor/API_UpdateAnomalyMonitor/API_GetAnomalyMonitors),
 		// not the generic 404/409 an unstyled REST mapping might suggest.
+		return c.JSONBlob(http.StatusBadRequest, payload)
+	case errors.Is(err, ErrInvalidNextToken):
+		payload, _ := json.Marshal(service.JSONErrorResponse{
+			Type:    "InvalidNextTokenException",
+			Message: err.Error(),
+		})
+
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, ErrUnknownSubscription):
 		payload, _ := json.Marshal(service.JSONErrorResponse{

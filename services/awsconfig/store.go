@@ -134,6 +134,7 @@ type InMemoryBackend struct {
 	region                 string
 	ruleCounter            int
 	orgRuleCounter         int
+	orgPackCounter         int
 	conformancePackCounter int
 	aggregatorCounter      int
 	resourceEvalCounter    int
@@ -214,6 +215,7 @@ func (b *InMemoryBackend) Reset() {
 	b.captureCounter = 0
 	b.ruleCounter = 0
 	b.orgRuleCounter = 0
+	b.orgPackCounter = 0
 	b.conformancePackCounter = 0
 	b.aggregatorCounter = 0
 	b.resourceTags = make(map[string][]Tag)

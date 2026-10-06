@@ -20,7 +20,11 @@ const (
 	maxTagsPerStream  = 50
 	minDataRetention  = 0
 	maxDataRetention  = 87600
-	defaultListLimit  = 500
+	// MaxResults defaults per api_op_ListStreams.go:32, ListSignalingChannels.go:35,
+	// ListEdgeAgentConfigurations.go:39.
+	defaultListStreamsLimit  = 10000
+	defaultListChannelsLimit = 500
+	defaultListEdgeLimit     = 5
 
 	channelTypeSingleMaster = "SINGLE_MASTER"
 	defaultMessageTTLSecs   = int32(60)

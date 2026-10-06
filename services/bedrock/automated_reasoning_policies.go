@@ -47,6 +47,21 @@ func (b *InMemoryBackend) CreateAutomatedReasoningPolicy(
 	name, description string,
 	tags []Tag,
 ) (*AutomatedReasoningPolicy, error) {
+	return b.CreateAutomatedReasoningPolicyWithOptions(name, description, tags, ARPCreateOptions{})
+}
+
+// ARPCreateOptions carries CreateAutomatedReasoningPolicy's optional policyDefinition and kmsKeyId.
+type ARPCreateOptions struct {
+	KmsKeyID         string
+	PolicyDefinition json.RawMessage
+}
+
+// CreateAutomatedReasoningPolicyWithOptions is CreateAutomatedReasoningPolicy with ARPCreateOptions.
+func (b *InMemoryBackend) CreateAutomatedReasoningPolicyWithOptions(
+	name, description string,
+	tags []Tag,
+	opts ARPCreateOptions,
+) (*AutomatedReasoningPolicy, error) {
 	b.mu.Lock("CreateAutomatedReasoningPolicy")
 	defer b.mu.Unlock()
 
@@ -76,6 +91,10 @@ func (b *InMemoryBackend) CreateAutomatedReasoningPolicy(
 		DefinitionHash: fmt.Sprintf("%x", now.UnixNano()),
 		Version:        "DRAFT",
 		Tags:           copyTags(tags),
+		KmsKeyArn:      kmsKeyARN(b.region, b.accountID, opts.KmsKeyID),
+	}
+	if len(opts.PolicyDefinition) > 0 {
+		policy.PolicyDefinition = opts.PolicyDefinition
 	}
 	b.automatedReasoningPolicies.Put(policy)
 	b.arpByName[name] = policyARN
@@ -462,8 +481,8 @@ func (b *InMemoryBackend) GetAutomatedReasoningPolicyBuildWorkflow(
 
 // ListAutomatedReasoningPolicyBuildWorkflows returns all workflows for a policy.
 func (b *InMemoryBackend) ListAutomatedReasoningPolicyBuildWorkflows(
-	policyARN string,
-) []*AutomatedReasoningPolicyBuildWorkflow {
+	policyARN string, maxResults int, nextToken string,
+) ([]*AutomatedReasoningPolicyBuildWorkflow, string) {
 	b.mu.RLock("ListAutomatedReasoningPolicyBuildWorkflows")
 	defer b.mu.RUnlock()
 
@@ -479,7 +498,7 @@ func (b *InMemoryBackend) ListAutomatedReasoningPolicyBuildWorkflows(
 		return workflows[i].BuildWorkflowID < workflows[k].BuildWorkflowID
 	})
 
-	return workflows
+	return paginate(workflows, maxResults, nextToken)
 }
 
 // DeleteAutomatedReasoningPolicyBuildWorkflow removes a build workflow.
@@ -516,7 +535,9 @@ func (b *InMemoryBackend) GetAutomatedReasoningPolicyTestCase(
 }
 
 // ListAutomatedReasoningPolicyTestCases returns all test cases for a policy.
-func (b *InMemoryBackend) ListAutomatedReasoningPolicyTestCases(policyARN string) []*AutomatedReasoningPolicyTestCase {
+func (b *InMemoryBackend) ListAutomatedReasoningPolicyTestCases(
+	policyARN string, maxResults int, nextToken string,
+) ([]*AutomatedReasoningPolicyTestCase, string) {
 	b.mu.RLock("ListAutomatedReasoningPolicyTestCases")
 	defer b.mu.RUnlock()
 
@@ -532,7 +553,7 @@ func (b *InMemoryBackend) ListAutomatedReasoningPolicyTestCases(policyARN string
 		return cases[i].TestCaseID < cases[k].TestCaseID
 	})
 
-	return cases
+	return paginate(cases, maxResults, nextToken)
 }
 
 // UpdateAutomatedReasoningPolicyTestCase updates a test case's content, query,
@@ -754,12 +775,12 @@ func (b *InMemoryBackend) GetAutomatedReasoningPolicyBuildWorkflowResultAssets(
 // splitVersionedARN splits a versioned ARN (policyARN + "/version/" + version,
 // the shape CreateAutomatedReasoningPolicyVersion builds) back into its parts.
 func splitVersionedARN(versionedARN string) (string, string, bool) {
-	idx := strings.LastIndex(versionedARN, "/version/")
-	if idx < 0 {
+	before, after, ok := strings.CutLast(versionedARN, "/version/")
+	if !ok {
 		return "", "", false
 	}
 
-	return versionedARN[:idx], versionedARN[idx+len("/version/"):], true
+	return before, after, true
 }
 
 // ExportAutomatedReasoningPolicyVersion exports a policy version definition. arnParam
@@ -869,13 +890,13 @@ func (b *InMemoryBackend) GetAutomatedReasoningPolicyTestResult(
 // GetAutomatedReasoningPolicyTestResult (types.go:2055-2092), not the flat
 // shape used before this fix.
 func (b *InMemoryBackend) ListAutomatedReasoningPolicyTestResults(
-	policyARN, buildWorkflowID string,
-) ([]map[string]any, error) {
+	policyARN, buildWorkflowID string, maxResults int, nextToken string,
+) ([]map[string]any, string, error) {
 	b.mu.RLock("ListAutomatedReasoningPolicyTestResults")
 	defer b.mu.RUnlock()
 
 	if err := b.mustGetARPBuildWorkflow(policyARN, buildWorkflowID); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	type resultWithID struct {
@@ -902,5 +923,7 @@ func (b *InMemoryBackend) ListAutomatedReasoningPolicyTestResults(
 		wire = append(wire, r.wire)
 	}
 
-	return wire, nil
+	page, next := paginate(wire, maxResults, nextToken)
+
+	return page, next, nil
 }

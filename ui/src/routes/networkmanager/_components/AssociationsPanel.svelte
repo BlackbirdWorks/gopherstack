@@ -17,8 +17,8 @@
 	// an inline note (in its own panel) pointing at the Cloud WAN Connect
 	// Peers tab for the other side.
 	import type { NetworkManagerClient } from '@aws-sdk/client-networkmanager';
-	import Tabs from '$lib/components/Tabs.svelte';
-	import type { Tab } from '$lib/components/Tabs.svelte';
+	import Tabs from '#lib/components/Tabs.svelte';
+	import type { Tab } from '#lib/components/Tabs.svelte';
 	import GlobalNetworkSelect from './GlobalNetworkSelect.svelte';
 	import LinkAssociationPanel from './LinkAssociationPanel.svelte';
 	import CustomerGatewayAssociationPanel from './CustomerGatewayAssociationPanel.svelte';

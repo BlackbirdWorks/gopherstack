@@ -36,9 +36,9 @@ ops:
     a hard trait), and validateOpExecuteStatementInput has no Database check at all (unlike
     ListDatabasesInput/ListSchemasInput/ListTablesInput/DescribeTableInput, which DO have
     "This member is required" + a matching validator check). Requirement removed to match.
-    SessionId remains pure passthrough (no session-scoped state exists to gate minting a
-    fresh id when absent, see gaps). SessionKeepAliveSeconds remains accepted-but-inert --
-    see gaps. DbGroups still not returned (optional field, gap).}
+    2026-10-05: a positive SessionKeepAliveSeconds (0-86400, else ValidationException) without a
+    SessionId mints one; keep-alive expiry is not modelled (see gaps). DbGroups still not
+    returned (optional field, gap).}
   BatchExecuteStatement: {wire: ok, errors: ok, state: ok, persist: ok, note: >
     QueryString=Sqls[0] matches AWS; sub-statements built with fixed HasResultSet=false
     (AWS doesn't run real SQL so this is a simplification, see gaps). FIXED 2026-08-20:
@@ -97,8 +97,8 @@ ops:
     alongside the already-correct Id/Status/QueryString/IsBatchStatement/CreatedAt/UpdatedAt/
     ResultFormat/StatementName/SecretArn. FIXED 2026-08-13: deleted the six non-real fields
     (ClusterIdentifier/WorkgroupName/Database/DbUser/HasResultSet/Duration) that were being
-    sent beyond StatementData -- see gaps below for the SDK citation. RoleLevel accepted but
-    unused (see gaps). FIXED 2026-09-04 (gopherstack-2v1): ListStatementsInput's
+    sent beyond StatementData -- see gaps below for the SDK citation. 2026-10-05: RoleLevel is applied -- statements record the caller's IAM role and session; true (default)
+    matches the role, false also the session; unauthenticated callers and records see everything. FIXED 2026-09-04 (gopherstack-2v1): ListStatementsInput's
     ClusterIdentifier/WorkgroupName field docs each unambiguously state "When
     providing ClusterIdentifier, then WorkgroupName can't be specified" (and the
     mirrored sentence on WorkgroupName) -- confirmed against
@@ -165,12 +165,9 @@ ops:
     ExecuteStatement/BatchExecuteStatement complete synchronously (same root cause as the
     pre-existing CancelStatement gap), and CLOSED is unreachable because
     SessionAliveSeconds/SessionTtl are not tracked (see gaps) so no expiry can ever fire.
-    RoleLevel is accepted on the wire but not applied as a filter, identical to the
-    pre-existing ListStatements RoleLevel gap. Sessions only appear here when the caller
-    explicitly supplied SessionId to ExecuteStatement/BatchExecuteStatement -- this mock
-    does not mint a session id when only SessionKeepAliveSeconds is given (pre-existing
-    gap, see ExecuteStatement note above), so such sessions are invisible to ListSessions
-    too; that is a real, if narrow, gap, hence state: partial rather than ok.}
+    RoleLevel is applied as on ListStatements. Sessions appear once a statement carries a
+    SessionId, supplied or minted from SessionKeepAliveSeconds; they never expire, hence
+    state: partial rather than ok.}
 # Families audited as a group (when per-op is impractical):
 families:
   statement-lifecycle: {status: ok, note: "unchanged this pass -- SUBMITTED/PICKED/STARTED never observable -- ExecuteStatement/BatchExecuteStatement complete to FINISHED synchronously within the same call, so no client ever polls a non-terminal state (no hang bug). CancelStatement is real code but practically unreachable given synchronous completion (see gaps)."}
@@ -194,8 +191,8 @@ families:
 gaps: []
 items_still_open:
   - "Statements always complete synchronously to FINISHED: CancelStatement therefore always returns ValidationException (matching AWS for a non-running query), and ListSessions never reports BUSY/CLOSED/SessionTtl/CurrentStatementId. Needs an async statement state machine and session-lifetime model; unmodeled."
-  - "SessionKeepAliveSeconds is accepted but inert and no SessionId is minted when absent; SessionId is pure passthrough. Needs session-scoped state (temp tables, TTL) that does not exist here."
-  - "RoleLevel on ListStatements/ListSessions is parsed but never applied: there is no per-IAM-identity model to filter on, so all statements/sessions are visible (the true default)."
+  - "SessionKeepAliveSeconds mints a session but never expires it (no TTL, temp tables or forced close after 24h)."
+  - "WaitTimeSeconds (ExecuteStatement, BatchExecuteStatement, DescribeStatement, GetStatementResult, GetStatementResultV2) is undeclared: statements finish synchronously, so there is nothing to wait for."
   - "DescribeStatement omits RedshiftPid and ExecuteStatement/BatchExecuteStatement omit DbGroups (optional fields): no pid/group registry to source real values from."
   - "ActiveStatementsExceeded/ActiveSessionsExceeded/ActiveWaitingRequestsExceeded/DatabaseConnection/QueryTimeout/ExecuteStatement/BatchExecuteStatement exceptions are modeled in the SDK but unreachable: no real cluster, concurrency limit or wait queue exists, and inventing triggers would fabricate behaviour."
 deferred:
@@ -602,10 +599,8 @@ echoed them back -- extended this pass to assert the round-trip).
   mock data OK, no real query engine" parity rule; not a stub since the ops still apply
   real filtering/pagination logic to that demo data, and now (this pass) real
   required-field validation too.
-- `SessionId` is real and round-trips, but is NOT minted by this mock when absent -- don't
-  "fix" `ExecuteStatement` to generate one whenever `SessionKeepAliveSeconds > 0` without
-  re-reading the gaps entry above; there is no session-scoped state that would make a
-  synthetic id meaningfully different from omitting it.
+- `SessionId` is minted only when `SessionKeepAliveSeconds > 0` and none was supplied; the
+  minting rule comes from the API Reference, not the SDK doc comments (unverified live).
 - `ListSessions` always reports `Status: "AVAILABLE"` and never emits `SessionAliveSeconds`/
   `SessionTtl`/`CurrentStatementId`. This is not an oversight to "complete" -- it is the
   direct, correct consequence of ExecuteStatement/BatchExecuteStatement completing
@@ -760,3 +755,11 @@ Gates: `go build ./services/redshiftdata/...`, `go vet`, `go test -race
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 redshiftdata already isolates regions internally: statements are keyed per region; Firehose COPY statements now run in the delivery stream's region. Proof: `TestRegionIsolation/redshiftdata`; no sibling handlers needed.
+
+## 2026-10-05 (reqfielddiff tier-2 pagination)
+
+FIXED: DescribeTable pages its ColumnList by MaxResults (0-1000)/NextToken and rejects an unknown token with ValidationException; GetStatementResult/GetStatementResultV2 reject any NextToken with ValidationException because the single-row result never issues one. Proof: `TestDescribeTableAndStatementResult_Paging`. RECORDED: DescribeTable returns the same fixed demo columns for any table and the statement results are one fixed row, so a real column/row paging effect is limited to that fixed data.
+
+## 2026-10-05 (gopherstack-uox6 pass 12, value semantics)
+
+Recorded, unchanged: ListStatements/ListSessions accept RoleLevel but do not apply it (SDK default true, api_op_ListStatements.go:63-66); no role/session identity is modeled. Statements complete synchronously, so there is no update surface.

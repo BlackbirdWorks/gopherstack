@@ -179,7 +179,8 @@ func (h *Handler) handleVpcEndpointRootRoutes(w http.ResponseWriter, r *http.Req
 		// NextToken is also a required member of that same struct; this backend
 		// is single-page, so it is always emitted empty rather than omitted
 		// (gopherstack-r80d).
-		h.writeJSON(r, w, map[string]any{"VpcEndpointSummaryList": summaries, jsonKeyNextToken: ""})
+		writePagedList(h, w, r, withEmptyToken(listSpec("VpcEndpointSummaryList")), summaries,
+			func(s vpcEndpointSummaryJSON) string { return s.VpcEndpointID })
 	default:
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 	}
@@ -229,15 +230,8 @@ func (h *Handler) dispatchDomainGetVpcRoutes(w http.ResponseWriter, r *http.Requ
 		for _, ep := range endpoints {
 			summaries = append(summaries, toVpcEndpointSummary(ep))
 		}
-		httputils.WriteJSON(
-			r.Context(),
-			w,
-			http.StatusOK,
-			// NextToken is a required member of ListVpcEndpointsForDomainOutput;
-			// this backend is single-page, so it is always emitted empty rather
-			// than omitted (gopherstack-r80d).
-			map[string]any{"VpcEndpointSummaryList": summaries, jsonKeyNextToken: ""},
-		)
+		writePagedList(h, w, r, withEmptyToken(listSpec("VpcEndpointSummaryList")), summaries,
+			func(s vpcEndpointSummaryJSON) string { return s.VpcEndpointID })
 	case strings.HasSuffix(trimmed, "/listVpcEndpointAccess"):
 		// ListVpcEndpointAccess
 		domainName, _ := strings.CutSuffix(trimmed, "/listVpcEndpointAccess")
@@ -245,15 +239,8 @@ func (h *Handler) dispatchDomainGetVpcRoutes(w http.ResponseWriter, r *http.Requ
 		if principals == nil {
 			principals = []AuthorizedPrincipal{}
 		}
-		httputils.WriteJSON(
-			r.Context(),
-			w,
-			http.StatusOK,
-			// NextToken is a required member of ListVpcEndpointAccessOutput;
-			// this backend is single-page, so it is always emitted empty rather
-			// than omitted (gopherstack-r80d).
-			map[string]any{"AuthorizedPrincipalList": principals, jsonKeyNextToken: ""},
-		)
+		writePagedList(h, w, r, withEmptyToken(listSpec("AuthorizedPrincipalList")), principals,
+			func(p AuthorizedPrincipal) string { return p.Principal })
 	default:
 		return false
 	}

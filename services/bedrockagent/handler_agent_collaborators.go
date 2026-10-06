@@ -20,6 +20,7 @@ func (h *Handler) handleAssociateCollaborator(
 		CollaboratorName         string         `json:"collaboratorName"`
 		CollaborationInstruction string         `json:"collaborationInstruction"`
 		RelayConversationHistory string         `json:"relayConversationHistory"`
+		ClientToken              string         `json:"clientToken"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -31,6 +32,7 @@ func (h *Handler) handleAssociateCollaborator(
 		CollaborationInstruction: req.CollaborationInstruction,
 		RelayConversationHistory: req.RelayConversationHistory,
 		AgentDescriptor:          req.AgentDescriptor,
+		ClientToken:              req.ClientToken,
 	})
 	if err != nil {
 		return handleErr(c, err)

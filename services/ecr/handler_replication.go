@@ -27,11 +27,10 @@ type describeImageReplicationStatusOutput struct {
 }
 
 type imageReplicationStatus struct {
-	Region        string `json:"region,omitempty"`
-	RegistryID    string `json:"registryId,omitempty"`
-	Status        string `json:"status"`
-	FailureCode   string `json:"failureCode,omitempty"`
-	FailureReason string `json:"failureReason,omitempty"`
+	Region      string `json:"region,omitempty"`
+	RegistryID  string `json:"registryId,omitempty"`
+	Status      string `json:"status"`
+	FailureCode string `json:"failureCode,omitempty"`
 }
 
 func (h *Handler) handleDescribeImageReplicationStatus(
@@ -45,7 +44,9 @@ func (h *Handler) handleDescribeImageReplicationStatus(
 
 	statuses := make([]imageReplicationStatus, 0, len(result.ReplicationStatuses))
 	for _, s := range result.ReplicationStatuses {
-		statuses = append(statuses, imageReplicationStatus(s))
+		statuses = append(statuses, imageReplicationStatus{
+			Region: s.Region, RegistryID: s.RegistryID, Status: s.Status, FailureCode: s.FailureCode,
+		})
 	}
 
 	return &describeImageReplicationStatusOutput{

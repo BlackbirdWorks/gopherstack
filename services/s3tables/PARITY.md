@@ -732,3 +732,7 @@ version bump.
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 s3tables is region-isolated: table buckets, namespaces and tables live per region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/s3tables`. Limitation: the dashboard shows the home region only. The tagging bridge lists the request region and resolves Tag/Untag by ARN region. `TestHandler_MultiRegionReset` covers Reset.
+
+## 2026-10-05 (gopherstack-uox6 pass 9, value semantics)
+
+CreateTable now inherits the table bucket storage class when StorageClassConfiguration is omitted (api_op_CreateTable.go:86-88); it previously reported STANDARD regardless of the bucket. Proof: `TestCreateTable_StorageClassInheritsBucket`.

@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"net/url"
 	"strconv"
+	"time"
 )
 
 func (h *Handler) handleCreateTemplate(vals url.Values, reqID string) (any, error) {
@@ -53,7 +54,10 @@ func (h *Handler) handleGetTemplate(vals url.Values, reqID string) (any, error) 
 	return &getTemplateResponse{
 		Xmlns: sesXMLNS,
 		Result: getTemplateResult{
-			Template: xmlTemplate(tmpl),
+			Template: xmlTemplate{
+				TemplateName: tmpl.TemplateName, SubjectPart: tmpl.SubjectPart,
+				TextPart: tmpl.TextPart, HTMLPart: tmpl.HTMLPart,
+			},
 		},
 		RequestID: reqID,
 	}, nil
@@ -73,7 +77,12 @@ func (h *Handler) handleListTemplates(vals url.Values, reqID string) any {
 	members := make([]xmlTemplateMetadataMember, 0, len(p.Data))
 
 	for _, name := range p.Data {
-		members = append(members, xmlTemplateMetadataMember{Name: name})
+		m := xmlTemplateMetadataMember{Name: name}
+		if tmpl, err := h.Backend.GetTemplate(name); err == nil && !tmpl.CreatedAt.IsZero() {
+			m.CreatedAt = tmpl.CreatedAt.Format(time.RFC3339)
+		}
+
+		members = append(members, m)
 	}
 
 	return &listTemplatesResponse{
@@ -134,13 +143,14 @@ type getTemplateResponse struct {
 }
 
 // xmlTemplateMetadataMember mirrors types.TemplateMetadata, an object
-// carrying Name (and CreatedTimestamp, not tracked by this backend), not a
+// carrying Name and CreatedTimestamp, not a
 // bare string -- confirmed against
 // awsAwsquery_deserializeDocumentTemplateMetadata in the pinned SDK's
 // deserializers.go. The generic xmlMemberList chardata shape left
 // TemplateMetadata.Name nil for every item on a real client.
 type xmlTemplateMetadataMember struct {
-	Name string `xml:"Name"`
+	Name      string `xml:"Name"`
+	CreatedAt string `xml:"CreatedTimestamp,omitempty"`
 }
 
 type xmlTemplateMetadataList struct {

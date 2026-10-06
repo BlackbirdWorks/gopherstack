@@ -94,6 +94,10 @@ func extractDynamoDBResourceARN(tableName, region, accountID string) string {
 		return ""
 	}
 
+	if strings.HasPrefix(tableName, "arn:") {
+		return tableName
+	}
+
 	return "arn:aws:dynamodb:" + region + ":" + accountID + ":table/" + tableName
 }
 
@@ -103,6 +107,10 @@ func extractKMSResourceARN(keyID, region, accountID string) string {
 	}
 	if strings.HasPrefix(keyID, "arn:") {
 		return keyID
+	}
+
+	if strings.HasPrefix(keyID, "alias/") {
+		return "arn:aws:kms:" + region + ":" + accountID + ":" + keyID
 	}
 
 	return "arn:aws:kms:" + region + ":" + accountID + ":key/" + keyID
@@ -331,6 +339,10 @@ func extractPathBasedResourceARN(path, region, accountID string) string {
 	}
 
 	if fnName, ok := extractLambdaFunctionName(path); ok && fnName != "" {
+		if strings.HasPrefix(fnName, "arn:") {
+			return fnName
+		}
+
 		if region != "" && accountID != "" {
 			return "arn:aws:lambda:" + region + ":" + accountID + ":function:" + fnName
 		}

@@ -1,14 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/svelte";
 import RDSPage from "./+page.svelte";
-import { ALL_REGIONS, DEFAULT_REGION, setStoredRegion } from "$lib/region.svelte";
+import { ALL_REGIONS, DEFAULT_REGION, setStoredRegion } from "#lib/region.svelte.ts";
 
 const mockSend = vi.fn();
-vi.mock("$lib/aws-client", () => ({ getRDSClient: () => ({ send: mockSend }) }));
+vi.mock("#lib/aws-client.ts", () => ({ getRDSClient: () => ({ send: mockSend }) }));
 vi.mock("svelte-sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 
 const confirmDestructive = vi.fn().mockResolvedValue(true);
-vi.mock("$lib/confirm-dialog", () => ({
+vi.mock("#lib/confirm-dialog.ts", () => ({
   confirmDestructive: (...args: unknown[]) => confirmDestructive(...args),
 }));
 

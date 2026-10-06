@@ -163,7 +163,16 @@ func (b *InMemoryBackend) CreatePatchBaseline(
 	b.mu.Lock("CreatePatchBaseline")
 	defer b.mu.Unlock()
 
+	if id, replay, err := b.idempotentReplayLocked(
+		region, "CreatePatchBaseline", input.ClientToken, input, b.patchBaselinesStore(region).Has,
+	); err != nil {
+		return nil, err
+	} else if replay {
+		return &CreatePatchBaselineOutput{BaselineID: id}, nil
+	}
+
 	baselineID := baselineIDPrefix + strings.ReplaceAll(uuid.NewString(), "-", "")[:baselineIDHexLen]
+	b.recordIdempotentLocked(region, "CreatePatchBaseline", input.ClientToken, input, baselineID)
 	now := UnixTimeFloat(time.Now())
 
 	bl := PatchBaseline{
@@ -455,6 +464,7 @@ func (b *InMemoryBackend) DescribePatchBaselines(
 			BaselineName:    bl.Name,
 			OperatingSystem: bl.OperatingSystem,
 			Description:     bl.Description,
+			DefaultBaseline: b.isDefaultBaselineLocked(region, &bl),
 		})
 	}
 
@@ -724,6 +734,16 @@ func (b *InMemoryBackend) GetDefaultPatchBaseline(
 	}, nil
 }
 
+// isDefaultBaselineLocked reports whether bl is the default baseline for its
+// OS: the registered one, else the AWS-managed fallback. Caller holds b.mu.
+func (b *InMemoryBackend) isDefaultBaselineLocked(region string, bl *PatchBaseline) bool {
+	if id, ok := b.patchGroupToBaselineStore(region)["default-"+bl.OperatingSystem]; ok {
+		return id == bl.BaselineID
+	}
+
+	return bl.BaselineID == defaultBaselineID(bl.OperatingSystem)
+}
+
 // GetPatchBaselineForPatchGroup looks up the baseline for a given patch group.
 // PatchGroup is required (confirmed via validateOpGetPatchBaselineForPatchGroupInput
 // in aws-sdk-go-v2/service/ssm@v1.73.4's validators.go).
@@ -931,6 +951,7 @@ func (b *InMemoryBackend) DescribePatchGroups(
 			identity.BaselineName = bl.Name
 			identity.OperatingSystem = bl.OperatingSystem
 			identity.Description = bl.Description
+			identity.DefaultBaseline = b.isDefaultBaselineLocked(region, bl)
 		}
 
 		mapping := PatchGroupPatchBaselineMapping{

@@ -865,3 +865,20 @@ emr already keys its resources by region; same-named resources in two regions co
 ## 2026-10-04 (reqfielddiff tier-1: CancelSteps.StepCancellationOption)
 
 The option is now validated (SEND_INTERRUPT or TERMINATE_PROCESS, anything else InvalidRequestException; `TestCancelSteps_StepCancellationOption_RealClient`). The distinction itself still has nothing to act on: steps go PENDING to COMPLETED/CANCELLED with no RUNNING state, so the structural gap above stands for the semantics.
+
+## 2026-10-05 (gopherstack-uox6 pass 7, value semantics)
+
+RunJobFlow defaults VisibleToAllUsers true (api_op_RunJobFlow.go:283), RepoUpgradeOnBoot SECURITY with CustomAmiId (:210) and ScaleDownBehavior by release (:214; INSTANCE_HOUR from 5.1.0). ModifyCluster without StepConcurrencyLevel keeps the level instead of failing validation. The SDK says VisibleToAllUsers=false has no effect; an explicit false is still stored. Studios round-trip clean.
+
+## 2026-10-05 (reqfielddiff -adjudicated tier-2)
+
+- DescribeReleaseLabel.MaxResults: unsupported per SDK, documented "Reserved for future use. Currently set to null." (api_op_DescribeReleaseLabel.go:33); the output NextToken is likewise always null.
+- DescribeReleaseLabel.NextToken: unsupported per SDK, same "Reserved for future use. Currently set to null." doc (api_op_DescribeReleaseLabel.go:36).
+
+## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
+
+ClientException is a sentinel text only; handler.go:343-346 writes InvalidRequestException.
+
+## 2026-10-05 (secret-leak audit)
+
+KerberosAttributes passwords (KdcAdminPassword, ADDomainJoinPassword, CrossRealmTrustPrincipalPassword) are no longer echoed on DescribeCluster or written to snapshots (`KerberosAttributes.MarshalJSON`); nothing reads them back. The shared SDK type marks KdcAdminPassword required on input, but AWS does not return it on Describe (the Terraform provider preserves it from config for the same reason) -- this is a recollection, not SDK-verified. Proof: `TestDescribeCluster_KerberosAttributesOmitPasswords`.

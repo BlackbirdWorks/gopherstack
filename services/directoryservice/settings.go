@@ -135,36 +135,79 @@ func (b *InMemoryBackend) DescribeSettings(
 	return result, "", nil
 }
 
-// UpdateDirectorySetup initiates a directory setup update.
-func (b *InMemoryBackend) UpdateDirectorySetup(ctx context.Context, directoryID, updateType string, _ bool) error {
+// UpdateDirectorySetup applies an OS, network or size update and records the update activity.
+func (b *InMemoryBackend) UpdateDirectorySetup(
+	ctx context.Context,
+	directoryID string,
+	update DirectorySetupUpdate,
+) error {
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("UpdateDirectorySetup")
 	defer b.mu.Unlock()
 
-	if _, ok := b.directoryGet(region, directoryID); !ok {
+	dir, ok := b.directoryGet(region, directoryID)
+	if !ok {
 		return ErrDirectoryNotFoundDDNE
 	}
 
+	previous := dir.OSVersion
+	applyDirectorySetupUpdate(dir, update)
+
+	entry := &storedUpdateInfo{
+		DirectoryID: directoryID,
+		UpdateType:  update.UpdateType,
+		Status:      "Updated",
+		Region:      region,
+		InitiatedBy: b.accountID,
+	}
+
+	if update.UpdateType == string(UpdateTypeOS) && update.OSVersion != "" {
+		entry.PreviousValue = previous
+		entry.NewValue = update.OSVersion
+	}
+
 	now := time.Now().UTC()
+	entry.StartTime = now
+	entry.LastUpdatedDateTime = now
+
 	entries := b.updateInfoEntriesStore(region)
-	entries[directoryID] = append(entries[directoryID], &storedUpdateInfo{
-		DirectoryID:         directoryID,
-		UpdateType:          updateType,
-		Status:              "Updated",
-		StartTime:           now,
-		LastUpdatedDateTime: now,
-		Region:              region,
-		InitiatedBy:         b.accountID,
-	})
+	entries[directoryID] = append(entries[directoryID], entry)
 
 	return nil
+}
+
+func applyDirectorySetupUpdate(dir *storedDirectory, update DirectorySetupUpdate) {
+	switch update.UpdateType {
+	case string(UpdateTypeOS):
+		if update.OSVersion != "" {
+			dir.OSVersion = update.OSVersion
+		}
+	case string(UpdateTypeSize):
+		if update.DirectorySize != "" {
+			dir.Size = update.DirectorySize
+		}
+	case string(UpdateTypeNetwork):
+		if update.NetworkType != "" {
+			dir.NetworkType = update.NetworkType
+
+			nt := NetworkType(update.NetworkType)
+			if (nt == NetworkTypeDualStack || nt == NetworkTypeIPv6Only) && len(dir.DNSIPv6Addrs) == 0 {
+				dir.DNSIPv6Addrs = synthesizeDNSIPv6Addrs(dir.DirectoryID)
+			}
+		}
+
+		if len(update.CustomerDNSIPsV6) > 0 && dir.ConnectSettings != nil {
+			dir.ConnectSettings.CustomerDNSIPsV6 = append([]string(nil), update.CustomerDNSIPsV6...)
+			dir.DNSIPv6Addrs = append([]string(nil), update.CustomerDNSIPsV6...)
+		}
+	}
 }
 
 // DescribeUpdateDirectory returns update info entries for a directory.
 func (b *InMemoryBackend) DescribeUpdateDirectory(
 	ctx context.Context,
-	directoryID, updateType, nextToken string, //nolint:revive // existing issue.
+	directoryID, updateType, regionName, nextToken string, //nolint:revive // existing issue.
 ) ([]UpdateInfoEntry, string, error) {
 	region := getRegion(ctx, b.region)
 
@@ -178,6 +221,9 @@ func (b *InMemoryBackend) DescribeUpdateDirectory(
 	var result []UpdateInfoEntry
 	for _, u := range b.updateInfoEntriesStoreRO(region)[directoryID] {
 		if updateType != "" && u.UpdateType != updateType {
+			continue
+		}
+		if regionName != "" && u.Region != regionName {
 			continue
 		}
 		result = append(result, UpdateInfoEntry{

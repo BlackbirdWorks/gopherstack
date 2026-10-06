@@ -83,9 +83,11 @@ func resolveOp(op sdkOp, dispatch map[string]ast.Expr, ctx handlerResolveCtx) op
 		}
 	}
 
-	if fd, _ := findHandlerByName(op.Name, ctx); fd != nil && !res.HasSignal {
-		mergeResolution(&res, scanTopLevel(fromFuncDecl(fd), ctx, funcKey(fd), formKeys))
+	if !res.HasSignal {
+		mergeResolution(&res, resolveFallback(op, ctx, formKeys))
 	}
+
+	creditWrapperKeys(op, ctx, &res)
 
 	if res.sdkInputDecoded {
 		for _, f := range op.Fields {
@@ -95,6 +97,54 @@ func resolveOp(op sdkOp, dispatch map[string]ast.Expr, ctx handlerResolveCtx) op
 
 	return res
 }
+
+// resolveFallback picks, among the name-convention handler and every switch
+// case body for op, the candidate overlapping op's SDK fields most.
+func resolveFallback(op sdkOp, ctx handlerResolveCtx, formKeys map[string]string) opResolution {
+	var best opResolution
+
+	exportedHandler := false
+
+	if fd, _ := findHandlerByName(op.Name, ctx); fd != nil {
+		exportedHandler = fd.Name.IsExported()
+		best = scanTopLevel(fromFuncDecl(fd), ctx, funcKey(fd), formKeys)
+	}
+
+	for _, lit := range ctx.switchBodies[op.Name] {
+		if cand, ok := resolveDispatchValue(lit, ctx, formKeys); ok && sdkOverlap(op, cand) > sdkOverlap(op, best) {
+			best = cand
+		}
+	}
+
+	if !best.HasSignal || exportedHandler {
+		if fd := findFamilyHandler(op.Name, ctx); fd != nil {
+			mergeResolution(&best, scanTopLevel(fromFuncDecl(fd), ctx, funcKey(fd), formKeys))
+		}
+	}
+
+	return best
+}
+
+// findFamilyHandler finds a shared handler named for op's leading words (handleMergePullRequest
+// for MergePullRequestBySquash), skipping prefixes that are themselves SDK operations.
+func findFamilyHandler(op string, ctx handlerResolveCtx) *ast.FuncDecl {
+	words := pascalWords(op)
+
+	for n := len(words) - 1; n >= minFamilyWords; n-- {
+		prefix := strings.Join(words[:n], "")
+		if ctx.sdkOps[prefix] {
+			continue
+		}
+
+		if fd := lookupByExactName("handle"+prefix, ctx); fd != nil {
+			return fd
+		}
+	}
+
+	return nil
+}
+
+const minFamilyWords = 2
 
 // resolveBestDispatchValue keeps whichever same-keyed dispatch entry best overlaps op's
 // SDK fields (redshift classic vs serverless tables).
@@ -162,7 +212,7 @@ func resolveDispatchValue(expr ast.Expr, ctx handlerResolveCtx, formKeys map[str
 
 	if lit, isLit := expr.(*ast.FuncLit); isLit {
 		if ret := firstReturnExpr(lit.Body); ret != nil {
-			if res, ok := resolveCallLikeValue(ret, ctx, formKeys); ok {
+			if res, ok := resolveCallLikeValue(ret, ctx, formKeys); ok && res.HasSignal {
 				return res, true
 			}
 		}
@@ -358,6 +408,7 @@ func scanBody(
 		matchDecodeDstWrapperCall(call, bindings, ctx, res)
 		matchQueryParamCall(call, res)
 		matchQueryAccessorWrapperCall(call, ctx, res)
+		matchKeyReaderHelperCall(call, ctx, res)
 		matchReturnsStructCall(call, ctx, res)
 		matchGenericCallbackCall(call, ctx, res)
 		matchFormReadCall(call, urlValuesNames, formKeys, ctx, res, localLits, formChainVisited)

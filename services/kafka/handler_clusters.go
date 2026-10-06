@@ -448,6 +448,12 @@ func (h *Handler) handleDeleteCluster(
 	c *echo.Context,
 	clusterArn string,
 ) error {
+	if v := c.QueryParam("currentVersion"); v != "" {
+		if ok, err := h.requireCurrentVersion(ctx, c, clusterArn, v); !ok {
+			return err
+		}
+	}
+
 	if err := h.Backend.DeleteCluster(ctx, clusterArn); err != nil {
 		return h.writeBackendError(c, err)
 	}

@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
-	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
-	import { multiRegionList } from '$lib/multi-region';
-	import RegionChip from '$lib/components/RegionChip.svelte';
-	import WriteRegionHint from '$lib/components/WriteRegionHint.svelte';
-	import { getDAXClient } from '$lib/aws-client';
+	import { onRegionChange, regionalClient } from '#lib/region-effect.svelte.ts';
+	import { multiRegionList } from '#lib/multi-region.ts';
+	import RegionChip from '#lib/components/RegionChip.svelte';
+	import WriteRegionHint from '#lib/components/WriteRegionHint.svelte';
+	import { getDAXClient } from '#lib/aws-client.ts';
 	import {
 		DescribeClustersCommand,
 		DescribeParameterGroupsCommand,
@@ -25,7 +25,7 @@
 		type SubnetGroup
 	} from '@aws-sdk/client-dax';
 	import { toast } from 'svelte-sonner';
-	import { confirmDestructive } from '$lib/confirm-dialog';
+	import { confirmDestructive } from '#lib/confirm-dialog.ts';
 	import { RefreshCw, Search, Zap, Plus, Trash2 } from 'lucide-svelte';
 
 	const client = regionalClient(getDAXClient);

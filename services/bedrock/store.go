@@ -1,6 +1,7 @@
 package bedrock
 
 import (
+	"net/url"
 	"strconv"
 	"time"
 
@@ -301,38 +302,8 @@ func (b *InMemoryBackend) seedFoundationModels() {
 	}
 }
 
-// paginateBedrockSlice applies pagination to a slice using an integer-offset NextToken.
-func paginateBedrockSlice[T any](list []T, nextToken string) ([]T, string) {
-	startIdx := parseNextToken(nextToken)
-	if startIdx >= len(list) {
-		return []T{}, ""
-	}
-	end := startIdx + bedrockDefaultPageSize
-	var outToken string
-	if end < len(list) {
-		outToken = strconv.Itoa(end)
-	} else {
-		end = len(list)
-	}
-
-	return list[startIdx:end], outToken
-}
-
-// parseNextToken parses a pagination token (integer offset) into a slice index.
-func parseNextToken(token string) int {
-	if token == "" {
-		return 0
-	}
-
-	idx, err := strconv.Atoi(token)
-	if err != nil || idx < 0 {
-		return 0
-	}
-
-	return idx
-}
-
-func paginate[T any](list []*T, maxResults int, nextToken string) ([]*T, string) {
+// paginate pages list by an integer-offset token; maxResults <= 0 means bedrockDefaultPageSize.
+func paginate[T any](list []T, maxResults int, nextToken string) ([]T, string) {
 	if maxResults <= 0 {
 		maxResults = bedrockDefaultPageSize
 	}
@@ -345,7 +316,7 @@ func paginate[T any](list []*T, maxResults int, nextToken string) ([]*T, string)
 	}
 
 	if startIdx >= len(list) {
-		return []*T{}, ""
+		return []T{}, ""
 	}
 
 	end := startIdx + maxResults
@@ -358,4 +329,22 @@ func paginate[T any](list []*T, maxResults int, nextToken string) ([]*T, string)
 	}
 
 	return list[startIdx:end], outToken
+}
+
+// queryMaxResults reads the "maxResults" query member; absent or malformed means 0 (default).
+func queryMaxResults(q url.Values) int {
+	n, err := strconv.Atoi(q.Get("maxResults"))
+	if err != nil {
+		return 0
+	}
+
+	return n
+}
+
+func withNextToken(resp map[string]any, token string) map[string]any {
+	if token != "" {
+		resp["nextToken"] = token
+	}
+
+	return resp
 }

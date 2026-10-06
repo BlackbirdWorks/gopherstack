@@ -7,12 +7,16 @@ import (
 
 // Stream status values (shared with Channel -- AWS models both under one "Status" enum).
 const (
-	statusActive = "ACTIVE"
+	statusCreating = "CREATING"
+	statusActive   = "ACTIVE"
+	statusUpdating = "UPDATING"
+	statusDeleting = "DELETING"
 )
 
 // Stream is the persisted representation of a Kinesis video stream.
 type Stream struct {
 	CreationTime         time.Time
+	PendingUntil         time.Time
 	ImageGeneration      *ImageGenerationConfig
 	Notification         *NotificationConfig
 	Edge                 *EdgeState
@@ -76,6 +80,7 @@ type NotificationConfig struct {
 // Channel is the persisted representation of a signaling channel.
 type Channel struct {
 	CreationTime      time.Time
+	PendingUntil      time.Time
 	MediaStorage      *MediaStorage
 	Tags              map[string]string
 	Name              string

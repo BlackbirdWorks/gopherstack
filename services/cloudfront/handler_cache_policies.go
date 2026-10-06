@@ -41,13 +41,40 @@ type cachePolicyParamsXML struct {
 }
 
 type cachePolicyConfigXML struct {
+	DefaultTTL *int64               `xml:"DefaultTTL"`
+	MaxTTL     *int64               `xml:"MaxTTL"`
 	XMLName    xml.Name             `xml:"CachePolicyConfig"`
 	Name       string               `xml:"Name"`
 	Comment    string               `xml:"Comment"`
 	Params     cachePolicyParamsXML `xml:"ParametersInCacheKeyAndForwardedToOrigin"`
-	DefaultTTL int64                `xml:"DefaultTTL"`
-	MaxTTL     int64                `xml:"MaxTTL"`
 	MinTTL     int64                `xml:"MinTTL"`
+}
+
+const (
+	cachePolicyDefaultTTLSeconds = 86400
+	cachePolicyMaxTTLSeconds     = 31536000
+)
+
+// ttls applies the documented DefaultTTL/MaxTTL defaults (types.go:784-800).
+func (x cachePolicyConfigXML) ttls() (int64, int64, int64) {
+	minTTL := x.MinTTL
+	defTTL := int64(cachePolicyDefaultTTLSeconds)
+
+	if x.DefaultTTL != nil {
+		defTTL = *x.DefaultTTL
+	} else if minTTL > defTTL {
+		defTTL = minTTL
+	}
+
+	maxTTL := int64(cachePolicyMaxTTLSeconds)
+
+	if x.MaxTTL != nil {
+		maxTTL = *x.MaxTTL
+	} else if minTTL > maxTTL || defTTL > maxTTL {
+		maxTTL = max(minTTL, defTTL)
+	}
+
+	return defTTL, maxTTL, minTTL
 }
 
 // cachePolicyParamsFromXML converts the XML params struct to the backend model.
@@ -161,12 +188,13 @@ func (h *Handler) handleCreateCachePolicy(c *echo.Context) error {
 	}
 
 	params := cachePolicyParamsFromXML(req.Params)
+	defTTL, maxTTL, minTTL := req.ttls()
 	policy, createErr := h.Backend.CreateCachePolicy(
 		req.Name,
 		req.Comment,
-		req.DefaultTTL,
-		req.MaxTTL,
-		req.MinTTL,
+		defTTL,
+		maxTTL,
+		minTTL,
 		params,
 	)
 	if createErr != nil {
@@ -318,13 +346,14 @@ func (h *Handler) handleUpdateCachePolicy(c *echo.Context, id string) error {
 	}
 
 	params := cachePolicyParamsFromXML(req.Params)
+	defTTL, maxTTL, minTTL := req.ttls()
 	p, updateErr := h.Backend.UpdateCachePolicy(
 		id,
 		req.Name,
 		req.Comment,
-		req.DefaultTTL,
-		req.MaxTTL,
-		req.MinTTL,
+		defTTL,
+		maxTTL,
+		minTTL,
 		params,
 	)
 	if updateErr != nil {

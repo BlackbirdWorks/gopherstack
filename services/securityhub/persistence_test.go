@@ -124,7 +124,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	connV2, err := b.CreateConnectorV2("my-connector", "desc", map[string]any{"k": "v"}, nil)
+	connV2, err := b.CreateConnectorV2("my-connector", "desc", "", map[string]any{"k": "v"}, nil)
 	require.NoError(t, err)
 
 	ticketV2, err := b.CreateTicketV2(connV2.ConnectorId, "finding-metadata-uid-1", "")

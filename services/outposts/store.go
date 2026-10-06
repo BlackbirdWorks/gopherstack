@@ -131,12 +131,12 @@ func (b *InMemoryBackend) SiteARN(id string) string {
 // form "arn:{partition}:outposts:{region}:{account}:{kind}/{id}", returning
 // ok=false if arnStr does not contain marker.
 func resourceIDFromARN(arnStr, marker string) (string, bool) {
-	idx := strings.LastIndex(arnStr, marker)
-	if idx < 0 {
+	_, after, ok := strings.CutLast(arnStr, marker)
+	if !ok {
 		return "", false
 	}
 
-	id := arnStr[idx+len(marker):]
+	id := after
 	if id == "" {
 		return "", false
 	}

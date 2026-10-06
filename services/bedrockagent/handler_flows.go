@@ -16,11 +16,13 @@ import (
 
 func (h *Handler) handleCreateFlow(ctx context.Context, c *echo.Context, body []byte) error {
 	var req struct {
-		Tags        map[string]string `json:"tags"`
-		Definition  map[string]any    `json:"definition"`
-		Name        string            `json:"name"`
-		Description string            `json:"description"`
-		RoleARN     string            `json:"executionRoleArn"`
+		Tags                     map[string]string `json:"tags"`
+		Definition               map[string]any    `json:"definition"`
+		Name                     string            `json:"name"`
+		Description              string            `json:"description"`
+		RoleARN                  string            `json:"executionRoleArn"`
+		ClientToken              string            `json:"clientToken"`
+		CustomerEncryptionKeyArn string            `json:"customerEncryptionKeyArn"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -33,6 +35,9 @@ func (h *Handler) handleCreateFlow(ctx context.Context, c *echo.Context, body []
 		RoleARN:     req.RoleARN,
 		Definition:  req.Definition,
 		Tags:        req.Tags,
+
+		ClientToken:              req.ClientToken,
+		CustomerEncryptionKeyArn: req.CustomerEncryptionKeyArn,
 	})
 	if err != nil {
 		return handleErr(c, err)
@@ -42,9 +47,18 @@ func (h *Handler) handleCreateFlow(ctx context.Context, c *echo.Context, body []
 }
 
 func (h *Handler) handleGetFlow(ctx context.Context, c *echo.Context, flowID string) error {
+	included := c.QueryParam("includedData")
+	if err := validateIncludedData(included); err != nil {
+		return handleErr(c, err)
+	}
+
 	f, err := h.Backend.GetFlow(ctx, flowID)
 	if err != nil {
 		return handleErr(c, err)
+	}
+
+	if included == includedDataMetadata {
+		f.Definition = nil
 	}
 
 	return c.JSON(http.StatusOK, f)
@@ -54,11 +68,13 @@ func (h *Handler) handleUpdateFlow(
 	ctx context.Context, c *echo.Context, flowID string, body []byte,
 ) error {
 	var req struct {
-		Tags        map[string]string `json:"tags"`
-		Definition  map[string]any    `json:"definition"`
-		Name        string            `json:"name"`
-		Description string            `json:"description"`
-		RoleARN     string            `json:"executionRoleArn"`
+		Tags                     map[string]string `json:"tags"`
+		Definition               map[string]any    `json:"definition"`
+		Name                     string            `json:"name"`
+		Description              string            `json:"description"`
+		RoleARN                  string            `json:"executionRoleArn"`
+		ClientToken              string            `json:"clientToken"`
+		CustomerEncryptionKeyArn string            `json:"customerEncryptionKeyArn"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -71,6 +87,9 @@ func (h *Handler) handleUpdateFlow(
 		RoleARN:     req.RoleARN,
 		Definition:  req.Definition,
 		Tags:        req.Tags,
+
+		ClientToken:              req.ClientToken,
+		CustomerEncryptionKeyArn: req.CustomerEncryptionKeyArn,
 	})
 	if err != nil {
 		return handleErr(c, err)
@@ -133,11 +152,14 @@ func (h *Handler) handleCreateFlowVersion(
 ) error {
 	var req struct {
 		Description string `json:"description"`
+		ClientToken string `json:"clientToken"`
 	}
 
 	_ = json.Unmarshal(body, &req)
 
-	fv, err := h.Backend.CreateFlowVersion(ctx, flowID, req.Description)
+	fv, err := h.Backend.CreateFlowVersion(ctx, flowID, VersionConfig{
+		Description: req.Description, ClientToken: req.ClientToken,
+	})
 	if err != nil {
 		return handleErr(c, err)
 	}
@@ -148,9 +170,18 @@ func (h *Handler) handleCreateFlowVersion(
 func (h *Handler) handleGetFlowVersion(
 	ctx context.Context, c *echo.Context, flowID, flowVersion string,
 ) error {
+	included := c.QueryParam("includedData")
+	if err := validateIncludedData(included); err != nil {
+		return handleErr(c, err)
+	}
+
 	fv, err := h.Backend.GetFlowVersion(ctx, flowID, flowVersion)
 	if err != nil {
 		return handleErr(c, err)
+	}
+
+	if included == includedDataMetadata {
+		fv.Definition = nil
 	}
 
 	return c.JSON(http.StatusOK, fv)
@@ -165,7 +196,7 @@ func (h *Handler) handleDeleteFlowVersion(
 		return handleErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"id": flowID, "version": flowVersion})
+	return c.JSON(http.StatusOK, map[string]any{"id": flowID, keyVersionField: flowVersion})
 }
 
 func (h *Handler) handleListFlowVersions(
@@ -190,8 +221,10 @@ func (h *Handler) handleCreateFlowAlias(
 ) error {
 	var req struct {
 		Tags                 map[string]string  `json:"tags"`
+		Concurrency          map[string]any     `json:"concurrencyConfiguration"`
 		Name                 string             `json:"name"`
 		Description          string             `json:"description"`
+		ClientToken          string             `json:"clientToken"`
 		RoutingConfiguration []FlowAliasRouting `json:"routingConfiguration"`
 	}
 
@@ -200,10 +233,12 @@ func (h *Handler) handleCreateFlowAlias(
 	}
 
 	al, err := h.Backend.CreateFlowAlias(ctx, flowID, FlowAliasConfig{
-		Name:                 req.Name,
-		Description:          req.Description,
-		RoutingConfiguration: req.RoutingConfiguration,
-		Tags:                 req.Tags,
+		Name:                     req.Name,
+		Description:              req.Description,
+		RoutingConfiguration:     req.RoutingConfiguration,
+		Tags:                     req.Tags,
+		ConcurrencyConfiguration: req.Concurrency,
+		ClientToken:              req.ClientToken,
 	})
 	if err != nil {
 		return handleErr(c, err)
@@ -228,8 +263,10 @@ func (h *Handler) handleUpdateFlowAlias(
 ) error {
 	var req struct {
 		Tags                 map[string]string  `json:"tags"`
+		Concurrency          map[string]any     `json:"concurrencyConfiguration"`
 		Name                 string             `json:"name"`
 		Description          string             `json:"description"`
+		ClientToken          string             `json:"clientToken"`
 		RoutingConfiguration []FlowAliasRouting `json:"routingConfiguration"`
 	}
 
@@ -238,10 +275,12 @@ func (h *Handler) handleUpdateFlowAlias(
 	}
 
 	al, err := h.Backend.UpdateFlowAlias(ctx, flowID, aliasID, FlowAliasConfig{
-		Name:                 req.Name,
-		Description:          req.Description,
-		RoutingConfiguration: req.RoutingConfiguration,
-		Tags:                 req.Tags,
+		Name:                     req.Name,
+		Description:              req.Description,
+		RoutingConfiguration:     req.RoutingConfiguration,
+		Tags:                     req.Tags,
+		ConcurrencyConfiguration: req.Concurrency,
+		ClientToken:              req.ClientToken,
 	})
 	if err != nil {
 		return handleErr(c, err)

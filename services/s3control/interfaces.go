@@ -59,6 +59,8 @@ type StorageBackend interface {
 	DeleteAccessGrantsInstance(accountID string) error
 	GetAccessGrantsInstanceResourcePolicy(accountID string) (string, error)
 	PutAccessGrantsInstanceResourcePolicy(accountID, policy string)
+	PutAccessGrantsInstanceResourcePolicyWithOrganization(accountID, policy, organization string) AccessGrantsPolicyMeta
+	GetAccessGrantsInstanceResourcePolicyMeta(accountID string) AccessGrantsPolicyMeta
 	DeleteAccessGrantsInstanceResourcePolicy(accountID string)
 	DissociateAccessGrantsIdentityCenter(accountID string)
 	GetAccessGrantsInstanceForPrefix(accountID, prefix string) (*AccessGrantsInstance, error)

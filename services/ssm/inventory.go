@@ -7,6 +7,7 @@ import (
 	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -170,24 +171,21 @@ func (b *InMemoryBackend) GetInventorySchema(
 		{TypeName: "Custom:Application", Version: inventorySchemaV10},
 	}
 
-	if input.TypeName == "" {
-		schemas := make([]any, len(all))
-		for i, s := range all {
-			schemas[i] = s
-		}
-
-		return &GetInventorySchemaOutput{Schemas: schemas}, nil
-	}
-
-	filtered := make([]any, 0)
+	schemas := make([]any, 0, len(all))
 	for _, s := range all {
-		if s.TypeName == input.TypeName || len(s.TypeName) >= len(input.TypeName) &&
-			s.TypeName[:len(input.TypeName)] == input.TypeName {
-			filtered = append(filtered, s)
+		if strings.HasPrefix(s.TypeName, input.TypeName) {
+			schemas = append(schemas, s)
 		}
 	}
 
-	return &GetInventorySchemaOutput{Schemas: filtered}, nil
+	page, next, err := pageChecked(
+		schemas, input.NextToken, maxOrZero(input.MaxResults), len(all), ErrInvalidNextToken,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &GetInventorySchemaOutput{Schemas: page, NextToken: next}, nil
 }
 
 // matchingInventoryEntries returns copies of typeName's content entries that satisfy filters.
@@ -346,13 +344,15 @@ func (b *InMemoryBackend) DeleteInventory(
 
 	// Record a real deletion job so DescribeInventoryDeletions can report it.
 	deletionID := "deletion-" + uuid.NewString()
+	deletedAt := UnixTimeFloat(time.Now())
 	deletion := InventoryDeletion{
-		DeletionID:        deletionID,
-		TypeName:          input.TypeName,
-		LastStatus:        "Complete",
-		LastStatusMessage: "The inventory deletion has completed.",
-		DeletionStartTime: UnixTimeFloat(time.Now()),
-		DeletionSummary:   summary,
+		DeletionID:           deletionID,
+		TypeName:             input.TypeName,
+		LastStatus:           "Complete",
+		LastStatusMessage:    "The inventory deletion has completed.",
+		DeletionStartTime:    deletedAt,
+		LastStatusUpdateTime: deletedAt,
+		DeletionSummary:      summary,
 	}
 	b.inventoryDeletions[region] = append(b.inventoryDeletions[region], deletion)
 

@@ -30,7 +30,19 @@ func (h *Handler) handleCreateLaunchConfiguration(vals url.Values) (any, error) 
 	classicLinkSGs := parseMembers(vals, "ClassicLinkVPCSecurityGroups.member")
 	blockDeviceMappings := parseBlockDeviceMappings(vals)
 
+	var metadata *InstanceMetadataOptions
+
+	if hasMetadataOptions(vals) {
+		opts, err := parseMetadataOptions(vals)
+		if err != nil {
+			return nil, err
+		}
+
+		metadata = &opts
+	}
+
 	input := CreateLaunchConfigurationInput{
+		MetadataOptions:              metadata,
 		LaunchConfigurationName:      name,
 		ImageID:                      imageID,
 		InstanceType:                 instanceType,
@@ -130,7 +142,6 @@ func toXMLLaunchConfiguration(lc *LaunchConfiguration) xmlLaunchConfiguration {
 			xmlBDM.Ebs = &xmlEbsBlockDevice{
 				SnapshotID:          bdm.Ebs.SnapshotID,
 				VolumeType:          bdm.Ebs.VolumeType,
-				KmsKeyID:            bdm.Ebs.KmsKeyID,
 				VolumeSize:          bdm.Ebs.VolumeSize,
 				Iops:                bdm.Ebs.Iops,
 				Throughput:          bdm.Ebs.Throughput,
@@ -162,13 +173,64 @@ func toXMLLaunchConfiguration(lc *LaunchConfiguration) xmlLaunchConfiguration {
 		InstanceMonitoring:           xmlInstanceMonitoring{Enabled: lc.InstanceMonitoring},
 		AssociatePublicIPAddress:     lc.AssociatePublicIPAddress,
 		EbsOptimized:                 lc.EbsOptimized,
+		MetadataOptions:              toXMLMetadataOptions(lc.MetadataOptions),
 	}
+}
+
+type xmlMetadataOptions struct {
+	HTTPEndpoint            string `xml:"HttpEndpoint,omitempty"`
+	HTTPTokens              string `xml:"HttpTokens,omitempty"`
+	HTTPPutResponseHopLimit int32  `xml:"HttpPutResponseHopLimit,omitempty"`
+}
+
+func toXMLMetadataOptions(m *InstanceMetadataOptions) *xmlMetadataOptions {
+	if m == nil {
+		return nil
+	}
+
+	return &xmlMetadataOptions{
+		HTTPEndpoint: m.HTTPEndpoint, HTTPTokens: m.HTTPTokens, HTTPPutResponseHopLimit: m.HTTPPutResponseHopLimit,
+	}
+}
+
+const maxMetadataHopLimit = 64
+
+func hasMetadataOptions(vals url.Values) bool {
+	return vals.Get("MetadataOptions.HttpEndpoint") != "" || vals.Get("MetadataOptions.HttpTokens") != "" ||
+		vals.Get("MetadataOptions.HttpPutResponseHopLimit") != ""
+}
+
+// parseMetadataOptions reads and validates MetadataOptions.* against the SDK enums and 1-64 hop range.
+func parseMetadataOptions(vals url.Values) (InstanceMetadataOptions, error) {
+	endpoint := vals.Get("MetadataOptions.HttpEndpoint")
+	tokens := vals.Get("MetadataOptions.HttpTokens")
+	hops := vals.Get("MetadataOptions.HttpPutResponseHopLimit")
+
+	if endpoint != "" && endpoint != "enabled" && endpoint != "disabled" {
+		return InstanceMetadataOptions{}, fmt.Errorf(
+			"%w: invalid MetadataOptions.HttpEndpoint %q", ErrInvalidParameter, endpoint,
+		)
+	}
+
+	if tokens != "" && tokens != "optional" && tokens != "required" {
+		return InstanceMetadataOptions{}, fmt.Errorf(
+			"%w: invalid MetadataOptions.HttpTokens %q", ErrInvalidParameter, tokens,
+		)
+	}
+
+	n, err := parseIntVal(hops)
+	if err != nil || (hops != "" && (n < 1 || n > maxMetadataHopLimit)) {
+		return InstanceMetadataOptions{}, fmt.Errorf(
+			"%w: invalid MetadataOptions.HttpPutResponseHopLimit", ErrInvalidParameter,
+		)
+	}
+
+	return InstanceMetadataOptions{HTTPEndpoint: endpoint, HTTPTokens: tokens, HTTPPutResponseHopLimit: n}, nil
 }
 
 type xmlEbsBlockDevice struct {
 	SnapshotID          string `xml:"SnapshotId,omitempty"`
 	VolumeType          string `xml:"VolumeType,omitempty"`
-	KmsKeyID            string `xml:"KmsKeyId,omitempty"`
 	VolumeSize          int32  `xml:"VolumeSize,omitempty"`
 	Iops                int32  `xml:"Iops,omitempty"`
 	Throughput          int32  `xml:"Throughput,omitempty"`
@@ -192,22 +254,23 @@ type xmlInstanceMonitoring struct {
 }
 
 type xmlLaunchConfiguration struct {
-	LaunchConfigurationName      string                    `xml:"LaunchConfigurationName"`
-	LaunchConfigurationARN       string                    `xml:"LaunchConfigurationARN"`
-	ImageID                      string                    `xml:"ImageId"`
+	MetadataOptions              *xmlMetadataOptions       `xml:"MetadataOptions,omitempty"`
+	PlacementTenancy             string                    `xml:"PlacementTenancy,omitempty"`
+	ClassicLinkVPCID             string                    `xml:"ClassicLinkVPCId,omitempty"`
 	InstanceType                 string                    `xml:"InstanceType"`
-	KeyName                      string                    `xml:"KeyName,omitempty"`
+	LaunchConfigurationName      string                    `xml:"LaunchConfigurationName"`
 	IAMInstanceProfile           string                    `xml:"IamInstanceProfile,omitempty"`
 	UserData                     string                    `xml:"UserData,omitempty"`
 	KernelID                     string                    `xml:"KernelId,omitempty"`
 	RamdiskID                    string                    `xml:"RamdiskId,omitempty"`
+	ImageID                      string                    `xml:"ImageId"`
 	SpotPrice                    string                    `xml:"SpotPrice,omitempty"`
-	PlacementTenancy             string                    `xml:"PlacementTenancy,omitempty"`
-	ClassicLinkVPCID             string                    `xml:"ClassicLinkVPCId,omitempty"`
+	KeyName                      string                    `xml:"KeyName,omitempty"`
 	CreatedTime                  string                    `xml:"CreatedTime"`
-	SecurityGroups               xmlStringValueList        `xml:"SecurityGroups"`
+	LaunchConfigurationARN       string                    `xml:"LaunchConfigurationARN"`
 	ClassicLinkVPCSecurityGroups xmlStringValueList        `xml:"ClassicLinkVPCSecurityGroups,omitempty"`
 	BlockDeviceMappings          xmlBlockDeviceMappingList `xml:"BlockDeviceMappings,omitempty"`
+	SecurityGroups               xmlStringValueList        `xml:"SecurityGroups"`
 	InstanceMonitoring           xmlInstanceMonitoring     `xml:"InstanceMonitoring"`
 	AssociatePublicIPAddress     bool                      `xml:"AssociatePublicIpAddress,omitempty"`
 	EbsOptimized                 bool                      `xml:"EbsOptimized,omitempty"`

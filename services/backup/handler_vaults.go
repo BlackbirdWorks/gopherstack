@@ -298,10 +298,14 @@ func (h *Handler) handleCreateRestoreAccessBackupVault(c *echo.Context, body []b
 func (h *Handler) dispatchRestoreAccessVaultOps(c *echo.Context, route backupRoute) (bool, error) {
 	switch route.operation {
 	case opListRestoreAccessBackupVaults:
-		vaults, err := h.Backend.ListRestoreAccessBackupVaults(route.resource)
+		all, err := h.Backend.ListRestoreAccessBackupVaults(route.resource)
 		if err != nil {
 			return true, h.handleError(c, err)
 		}
+
+		vaults, next := pageQuery(
+			c.Request().URL.Query(), all, func(v *RestoreAccessVault) string { return v.RestoreAccessBackupVaultName },
+		)
 		items := make([]map[string]any, 0, len(vaults))
 		for _, v := range vaults {
 			items = append(items, map[string]any{
@@ -311,7 +315,7 @@ func (h *Handler) dispatchRestoreAccessVaultOps(c *echo.Context, route backupRou
 			})
 		}
 
-		return true, c.JSON(http.StatusOK, map[string]any{"RestoreAccessBackupVaults": items})
+		return true, c.JSON(http.StatusOK, withNextToken(map[string]any{"RestoreAccessBackupVaults": items}, next))
 	case opRevokeRestoreAccessBackupVault:
 		vaultName, restoreAccessArn, ok := strings.Cut(route.resource, "|")
 		if !ok {

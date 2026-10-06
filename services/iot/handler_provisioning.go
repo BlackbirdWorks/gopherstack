@@ -244,17 +244,11 @@ func (h *Handler) handleListDomainConfigurations(c *echo.Context) error {
 
 func (h *Handler) handleUpdateDomainConfiguration(c *echo.Context) error {
 	name := strings.TrimPrefix(c.Request().URL.Path, "/domainConfigurations/")
-	var req struct {
-		DomainConfigurationStatus string `json:"domainConfigurationStatus"`
-		ApplicationProtocol       string `json:"applicationProtocol"`
-		AuthenticationType        string `json:"authenticationType"`
-	}
+	var req UpdateDomainConfigurationInput
 	if err := readBody(c, &req); err != nil {
 		return err
 	}
-	dc, err := h.Backend.UpdateDomainConfiguration(
-		name, req.DomainConfigurationStatus, req.ApplicationProtocol, req.AuthenticationType,
-	)
+	dc, err := h.Backend.UpdateDomainConfiguration(name, &req)
 	if err != nil {
 		return respondErr(c, err)
 	}
@@ -316,7 +310,7 @@ func (h *Handler) handleListProvisioningTemplates(c *echo.Context) error {
 		}
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"templates": summaries})
+	return respondListPage(c, "templates", summaries)
 }
 
 func (h *Handler) handleUpdateProvisioningTemplate(c *echo.Context) error {
@@ -402,7 +396,7 @@ func (h *Handler) handleListProvisioningTemplateVersions(c *echo.Context) error 
 		}
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{pathSegmentVersions: summaries})
+	return respondListPage(c, pathSegmentVersions, summaries)
 }
 
 func (h *Handler) handleDeleteProvisioningTemplateVersion(c *echo.Context) error {

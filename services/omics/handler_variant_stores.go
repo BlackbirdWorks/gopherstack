@@ -8,22 +8,29 @@ import (
 
 func (h *Handler) handleCreateVariantStore(c *echo.Context) error {
 	var req struct {
-		Tags      map[string]string `json:"tags"`
-		Reference map[string]any    `json:"reference"`
-		SseConfig map[string]any    `json:"sseConfig"`
-		Name      string            `json:"name"`
+		Tags        map[string]string `json:"tags"`
+		Reference   map[string]any    `json:"reference"`
+		SseConfig   map[string]any    `json:"sseConfig"`
+		Name        string            `json:"name"`
+		Description string            `json:"description"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
 		return err
 	}
 
-	vs, err := h.Backend.CreateVariantStore(req.Name, req.Reference, req.SseConfig, req.Tags)
+	vs, err := h.Backend.CreateVariantStore(req.Name, req.Description, req.Reference, req.SseConfig, req.Tags)
 	if err != nil {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusCreated, vs)
+	return c.JSON(http.StatusCreated, map[string]any{
+		"id":           vs.ID,
+		"name":         vs.Name,
+		keyStatus:      vs.Status,
+		"creationTime": vs.CreationTime,
+		"reference":    vs.Reference,
+	})
 }
 
 func (h *Handler) handleDeleteVariantStore(c *echo.Context, name string) error {
@@ -74,7 +81,7 @@ func (h *Handler) handleListVariantStores(c *echo.Context) error {
 
 func (h *Handler) handleUpdateVariantStore(c *echo.Context, name string) error {
 	var req struct {
-		Description string `json:"description"`
+		Description *string `json:"description"`
 	}
 
 	if err := readJSON(c, &req); err != nil {

@@ -27,6 +27,7 @@ type DBClusterCreateOptions struct {
 	PreferredMaintenanceWindow      string
 	AvailabilityZones               []string
 	VpcSecurityGroupIDs             []string
+	EnableCloudwatchLogsExports     []string
 	BackupRetentionPeriod           int
 	EnableIAMDatabaseAuthentication bool
 	ManageMasterUserPassword        bool
@@ -43,6 +44,9 @@ type DBClusterModifyOptions struct {
 	PreferredBackupWindow           string
 	PreferredMaintenanceWindow      string
 	DBInstanceParameterGroupName    string
+	NewDBClusterIdentifier          string
+	EnableLogTypes                  []string
+	DisableLogTypes                 []string
 	VpcSecurityGroupIDs             []string
 	BackupRetentionPeriod           int
 	EnableIAMDatabaseAuthentication bool
@@ -53,6 +57,7 @@ type DBClusterModifyOptions struct {
 	CopyTagsToSnapshot              bool
 	CopyTagsToSnapshotSet           bool
 	BackupRetentionPeriodSet        bool
+	AllowMajorVersionUpgrade        bool
 	// ApplyImmediately is read for wire-declaration parity but this backend
 	// always applies modifications immediately, same disclosed
 	// simplification as docdb's ModifyDBCluster.ApplyImmediately
@@ -108,6 +113,8 @@ type DBCluster struct {
 	AvailabilityZones               []string                          `json:"AvailabilityZones"`
 	VpcSecurityGroupIDs             []string                          `json:"VpcSecurityGroupIds"`
 	AssociatedRoles                 []string                          `json:"AssociatedRoles"`
+	EnabledCloudwatchLogsExports    []string                          `json:"EnabledCloudwatchLogsExports,omitempty"`
+	RoleFeatures                    map[string]string                 `json:"RoleFeatures,omitempty"`
 	DBClusterMembers                []DBClusterMember                 `json:"DBClusterMembers"`
 	Port                            int                               `json:"Port"`
 	BackupRetentionPeriod           int                               `json:"BackupRetentionPeriod"`
@@ -131,6 +138,7 @@ type DBInstance struct {
 	DBInstanceStatus                string `json:"DBInstanceStatus"`
 	InstanceCreateTime              string `json:"InstanceCreateTime"`
 	MonitoringRoleArn               string `json:"MonitoringRoleArn,omitempty"`
+	CACertificateIdentifier         string `json:"CACertificateIdentifier,omitempty"`
 	DBSubnetGroupName               string `json:"DBSubnetGroupName"`
 	DBParameterGroupName            string `json:"DBParameterGroupName"`
 	PreferredMaintenanceWindow      string `json:"PreferredMaintenanceWindow"`
@@ -175,6 +183,8 @@ type DBInstanceCreateOptions struct {
 
 // DBInstanceModifyOptions holds optional fields for ModifyDBInstance.
 type DBInstanceModifyOptions struct {
+	NewDBInstanceIdentifier         string
+	CACertificateIdentifier         string
 	DBParameterGroupName            string
 	PreferredMaintenanceWindow      string
 	PreferredBackupWindow           string
@@ -215,6 +225,7 @@ type RestoreClusterOptions struct {
 	DBClusterParameterGroupName string
 	AvailabilityZones           []string
 	VpcSecurityGroupIDs         []string
+	EnableCloudwatchLogsExports []string
 	Port                        int
 	EnableIAMAuth               bool
 	DeletionProtection          bool
@@ -227,6 +238,7 @@ type RestoreClusterOptions struct {
 // api_op_RestoreDBClusterToPointInTime.go:145-192.
 type RestoreToPointInTimeOptions struct {
 	RestoreToTime string
+	RestoreType   string
 	RestoreClusterOptions
 	UseLatestRestorableTime bool
 }

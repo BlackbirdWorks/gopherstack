@@ -305,12 +305,26 @@ func (h *Handler) handleDescribeFolderPermissions(c *echo.Context) error {
 		return httpErr(c, err)
 	}
 
-	return writeJSON(c, http.StatusOK, map[string]any{
+	return h.writePagedFolderPermissions(c, folderID, perms)
+}
+
+func (h *Handler) writePagedFolderPermissions(c *echo.Context, folderID string, perms []ResourcePermission) error {
+	page, next, err := pageSliceStrict(perms, maxResultsParam(c), nextTokenParam(c))
+	if err != nil {
+		return writeError(c, http.StatusBadRequest, "InvalidNextTokenException", err.Error())
+	}
+
+	resp := map[string]any{
 		keyFolderID:    folderID,
-		keyPermissions: permissionsToMaps(perms),
+		keyPermissions: permissionsToMaps(page),
 		keyRequestID:   reqIDPlaceholder,
 		keyStatus:      http.StatusOK,
-	})
+	}
+	if next != "" {
+		resp[keyNextToken] = next
+	}
+
+	return writeJSON(c, http.StatusOK, resp)
 }
 
 func (h *Handler) handleUpdateFolderPermissions(c *echo.Context) error {
@@ -351,12 +365,7 @@ func (h *Handler) handleDescribeFolderResolvedPermissions(c *echo.Context) error
 		return httpErr(c, err)
 	}
 
-	return writeJSON(c, http.StatusOK, map[string]any{
-		keyFolderID:    folderID,
-		keyPermissions: permissionsToMaps(perms),
-		keyRequestID:   reqIDPlaceholder,
-		keyStatus:      http.StatusOK,
-	})
+	return h.writePagedFolderPermissions(c, folderID, perms)
 }
 
 // ---- shared helpers ----

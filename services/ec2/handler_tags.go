@@ -116,11 +116,11 @@ func (h *Handler) handleDescribeTags(vals url.Values, reqID string) (any, error)
 		}
 	}
 
-	return &describeTagsResponse{
+	return finishDescribe(vals, &describeTagsResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
 		TagSet:    tagItemSet{Items: items},
-	}, nil
+	}, describeOpts{spec: specTags()})
 }
 
 // handleCreateTags applies tags to one or more resources.
@@ -170,6 +170,7 @@ type describeTagsResponse struct {
 	XMLName   xml.Name   `xml:"DescribeTagsResponse"`
 	Xmlns     string     `xml:"xmlns,attr"`
 	RequestID string     `xml:"requestId"`
+	NextToken string     `xml:"nextToken,omitempty"`
 	TagSet    tagItemSet `xml:"tagSet"`
 }
 

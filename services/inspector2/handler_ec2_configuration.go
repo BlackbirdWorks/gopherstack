@@ -44,7 +44,8 @@ func (h *Handler) handleUpdateEc2DeepInspectionConfiguration(c *echo.Context) er
 	}
 
 	var req struct {
-		PackagePaths []string `json:"packagePaths"`
+		ActivateDeepInspection *bool    `json:"activateDeepInspection"`
+		PackagePaths           []string `json:"packagePaths"`
 	}
 
 	if len(body) > 0 {
@@ -56,7 +57,8 @@ func (h *Handler) handleUpdateEc2DeepInspectionConfiguration(c *echo.Context) er
 		}
 	}
 
-	if updateErr := h.Backend.UpdateEc2DeepInspectionConfiguration(req.PackagePaths); updateErr != nil {
+	updateErr := h.Backend.UpdateEc2DeepInspectionConfiguration(req.PackagePaths, req.ActivateDeepInspection)
+	if updateErr != nil {
 		return h.mapError(c, updateErr)
 	}
 

@@ -32,11 +32,8 @@ func (h *Handler) handleListSessions(ctx context.Context, body []byte) ([]byte, 
 		return nil, err
 	}
 
-	// RoleLevel is accepted on the wire but not applied as a filter, matching the
-	// identical, already-documented gap on ListStatements' RoleLevel (see
-	// PARITY.md gaps): this mock has no per-caller-identity or per-IAM-session
-	// model of session ownership to filter on.
 	sessions, nextToken, err := h.Backend.ListSessions(ctx, ListSessionsFilter{
+		RoleLevel:         req.RoleLevel,
 		ClusterIdentifier: req.ClusterIdentifier,
 		WorkgroupName:     req.WorkgroupName,
 		Database:          req.Database,

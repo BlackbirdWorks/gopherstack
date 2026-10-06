@@ -1,18 +1,26 @@
 package opsworks
 
 import (
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
 )
 
 // CreateDeployment creates a new deployment.
-func (b *InMemoryBackend) CreateDeployment(stackID, appID, command, customJSON string) (*Deployment, error) {
+func (b *InMemoryBackend) CreateDeployment(
+	stackID, appID, command, customJSON string, opts DeploymentOptions,
+) (*Deployment, error) {
 	b.mu.Lock("CreateDeployment")
 	defer b.mu.Unlock()
 
 	if !b.stacks.Has(stackID) {
 		return nil, ErrStackNotFound
+	}
+
+	targets, err := b.deploymentTargets(stackID, opts)
+	if err != nil {
+		return nil, err
 	}
 
 	id := uuid.NewString()
@@ -22,6 +30,8 @@ func (b *InMemoryBackend) CreateDeployment(stackID, appID, command, customJSON s
 	d := &storedDeployment{
 		CreatedAt:    now,
 		CompletedAt:  completedAt,
+		InstanceIDs:  targets,
+		Comment:      opts.Comment,
 		StackID:      stackID,
 		AppID:        appID,
 		DeploymentID: id,
@@ -32,19 +42,24 @@ func (b *InMemoryBackend) CreateDeployment(stackID, appID, command, customJSON s
 	}
 	b.deployments.Put(d)
 
-	cmdID := uuid.NewString()
-	cmd := &storedCommand{
-		CreatedAt:      now,
-		AcknowledgedAt: now,
-		CompletedAt:    completedAt,
-		DeploymentID:   id,
-		InstanceID:     "",
-		CommandID:      cmdID,
-		Type:           command,
-		Status:         commandStatusSuccessful,
-		ExitCode:       0,
+	cmdTargets := targets
+	if len(cmdTargets) == 0 {
+		cmdTargets = []string{""}
 	}
-	b.commands.Put(cmd)
+
+	for _, instanceID := range cmdTargets {
+		b.commands.Put(&storedCommand{
+			CreatedAt:      now,
+			AcknowledgedAt: now,
+			CompletedAt:    completedAt,
+			DeploymentID:   id,
+			InstanceID:     instanceID,
+			CommandID:      uuid.NewString(),
+			Type:           command,
+			Status:         commandStatusSuccessful,
+			ExitCode:       0,
+		})
+	}
 
 	return d.toDeployment(), nil
 }
@@ -78,4 +93,47 @@ func (b *InMemoryBackend) DescribeDeployments(stackID, appID string, deploymentI
 	}
 
 	return result, nil
+}
+
+// deploymentTargets resolves explicit InstanceIds plus the instances of LayerIds, all within stackID.
+func (b *InMemoryBackend) deploymentTargets(stackID string, opts DeploymentOptions) ([]string, error) {
+	var out []string
+
+	add := func(id string) {
+		if !slices.Contains(out, id) {
+			out = append(out, id)
+		}
+	}
+
+	for _, id := range opts.InstanceIDs {
+		i, ok := b.instances.Get(id)
+		if !ok {
+			return nil, ErrInstanceNotFound
+		}
+
+		if i.StackID != stackID {
+			return nil, ErrValidation
+		}
+
+		add(id)
+	}
+
+	for _, layerID := range opts.LayerIDs {
+		l, ok := b.layers.Get(layerID)
+		if !ok {
+			return nil, ErrLayerNotFound
+		}
+
+		if l.StackID != stackID {
+			return nil, ErrValidation
+		}
+
+		for _, i := range b.instancesByStack.Get(stackID) {
+			if slices.Contains(i.LayerIDs, layerID) {
+				add(i.InstanceID)
+			}
+		}
+	}
+
+	return out, nil
 }

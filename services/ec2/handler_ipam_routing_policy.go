@@ -338,7 +338,7 @@ func (h *Handler) handleGetIpamDiscoveredRoutes(vals url.Values, reqID string) (
 		return nil, err
 	}
 
-	return &getIpamDiscoveredRoutesResponse{Xmlns: ec2XMLNS, RequestID: reqID}, nil
+	return finishPagedFiltered(vals, &getIpamDiscoveredRoutesResponse{Xmlns: ec2XMLNS, RequestID: reqID})
 }
 
 // getIpamRouteProtectionFindingsResponse always returns an empty (but correctly shaped)
@@ -360,5 +360,8 @@ func (h *Handler) handleGetIpamRouteProtectionFindings(vals url.Values, reqID st
 		return nil, err
 	}
 
-	return &getIpamRouteProtectionFindingsResponse{Xmlns: ec2XMLNS, RequestID: reqID, IpamID: ipamID}, nil
+	return finishPagedFiltered(
+		vals,
+		&getIpamRouteProtectionFindingsResponse{Xmlns: ec2XMLNS, RequestID: reqID, IpamID: ipamID},
+	)
 }

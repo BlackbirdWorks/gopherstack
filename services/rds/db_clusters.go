@@ -44,6 +44,19 @@ func (b *InMemoryBackend) CreateDBCluster(
 		}
 	}
 
+	var globalCluster *GlobalCluster
+	if opts.GlobalClusterIdentifier != "" {
+		var gcExists bool
+		if globalCluster, gcExists = b.globalClusters.Get(opts.GlobalClusterIdentifier); !gcExists {
+			return nil, fmt.Errorf(
+				"%w: global cluster %s not found", ErrGlobalClusterNotFound, opts.GlobalClusterIdentifier)
+		}
+	}
+
+	if opts.DBSubnetGroupName != "" && !b.subnetGroups.Has(opts.DBSubnetGroupName) {
+		return nil, fmt.Errorf("%w: subnet group %s not found", ErrSubnetGroupNotFound, opts.DBSubnetGroupName)
+	}
+
 	if err := b.validateEngineLogin(engine, masterUser); err != nil {
 		return nil, err
 	}
@@ -57,6 +70,10 @@ func (b *InMemoryBackend) CreateDBCluster(
 	cluster.MasterSecret = secret
 	b.provisionClusterLocked(cluster, opts.MasterUserPassword)
 	b.clusters.Put(cluster)
+
+	if globalCluster != nil {
+		joinGlobalCluster(globalCluster, cluster.DBClusterArn)
+	}
 
 	if replicationSource != nil {
 		replicationSource.ReadReplicaIdentifiers = append(
@@ -157,6 +174,10 @@ func (b *InMemoryBackend) newDBCluster(
 		ClusterScalabilityType:             opts.ClusterScalabilityType,
 		PerformanceInsightsKMSKeyID:        opts.PerformanceInsightsKMSKeyID,
 		PerformanceInsightsRetentionPeriod: opts.PerformanceInsightsRetentionPeriod,
+		DBSubnetGroupName:                  opts.DBSubnetGroupName,
+		VpcSecurityGroups:                  vpcSecurityGroupMemberships(opts.VpcSecurityGroupIDs),
+		AllocatedStorage:                   opts.AllocatedStorage,
+		Iops:                               opts.Iops,
 		AutoMinorVersionUpgrade:            opts.AutoMinorVersionUpgrade,
 		PubliclyAccessible:                 opts.PubliclyAccessible,
 		IAMDatabaseAuthenticationEnabled:   opts.EnableIAMDatabaseAuthentication,
@@ -357,6 +378,7 @@ func (b *InMemoryBackend) DeleteDBClusterWithOptions(
 	}
 
 	b.clusters.Delete(normalizeID(id))
+	b.leaveGlobalClustersLocked(cp.DBClusterArn)
 	b.dropUnitLocked(unitKeyForCluster(canonicalID))
 	delete(b.tags, b.rdsARN("cluster", canonicalID))
 	delete(b.fisFailoverFaults, canonicalID)
@@ -403,6 +425,15 @@ func applyDBClusterStringOpts(cluster *DBCluster, paramGroupName string, opts DB
 	}
 	if opts.EngineVersion != "" {
 		cluster.EngineVersion = opts.EngineVersion
+	}
+	if len(opts.VpcSecurityGroupIDs) > 0 {
+		cluster.VpcSecurityGroups = vpcSecurityGroupMemberships(opts.VpcSecurityGroupIDs)
+	}
+	if opts.AllocatedStorage > 0 {
+		cluster.AllocatedStorage = opts.AllocatedStorage
+	}
+	if opts.Iops > 0 {
+		cluster.Iops = opts.Iops
 	}
 	if opts.KmsKeyID != "" {
 		cluster.KmsKeyID = opts.KmsKeyID
@@ -516,6 +547,9 @@ func (b *InMemoryBackend) ModifyDBCluster(
 	cluster, exists := b.clusters.Get(normalizeID(id))
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
+	}
+	if err := guardClusterMajorUpgrade(cluster, opts); err != nil {
+		return nil, err
 	}
 	secret, err := b.updateMasterSecret(
 		cluster.MasterSecret,
@@ -633,6 +667,9 @@ func (b *InMemoryBackend) RestoreDBClusterFromSnapshot(
 		PerformanceInsightsKMSKeyID:        opts.PerformanceInsightsKMSKeyID,
 		PerformanceInsightsRetentionPeriod: opts.PerformanceInsightsRetentionPeriod,
 	}
+	if err := b.applyRestoreClusterOpts(cluster, opts); err != nil {
+		return nil, err
+	}
 	b.clusters.Put(cluster)
 	cp := *cluster
 	cloneDBClusterMutableSlices(&cp)
@@ -683,6 +720,9 @@ func (b *InMemoryBackend) RestoreDBClusterToPointInTime(
 		IAMDatabaseAuthenticationEnabled:   opts.EnableIAMDatabaseAuthentication,
 		PerformanceInsightsKMSKeyID:        opts.PerformanceInsightsKMSKeyID,
 		PerformanceInsightsRetentionPeriod: opts.PerformanceInsightsRetentionPeriod,
+	}
+	if err := b.applyRestoreClusterOpts(cluster, opts); err != nil {
+		return nil, err
 	}
 	b.clusters.Put(cluster)
 	cp := *cluster
@@ -1171,6 +1211,10 @@ func (b *InMemoryBackend) RestoreDBClusterFromS3(
 		MasterUsername:                   masterUsername,
 		Status:                           "creating",
 		IAMDatabaseAuthenticationEnabled: opts.EnableIAMDatabaseAuthentication,
+		OptionGroupName:                  opts.OptionGroupName,
+	}
+	if err = b.applyRestoreClusterOpts(cluster, opts); err != nil {
+		return nil, err
 	}
 	b.clusters.Put(cluster)
 	cp := *cluster
@@ -1222,4 +1266,31 @@ func (b *InMemoryBackend) overlayFailoverStatusRLocked(cluster *DBCluster) {
 	if b.clusterFailoverActiveRLocked(cluster.DBClusterIdentifier) {
 		cluster.Status = clusterStatusFailingOver
 	}
+}
+
+// guardClusterMajorUpgrade rejects a major engine-version change unless AllowMajorVersionUpgrade is set.
+func guardClusterMajorUpgrade(cluster *DBCluster, opts DBClusterOptions) error {
+	if opts.EngineVersion == "" || cluster.EngineVersion == "" || opts.AllowMajorVersionUpgrade ||
+		majorVersion(opts.EngineVersion) == majorVersion(cluster.EngineVersion) {
+		return nil
+	}
+
+	return fmt.Errorf(
+		"%w: engine version upgrade from %s to %s changes the major version; set AllowMajorVersionUpgrade to upgrade",
+		ErrInvalidParameterCombination, cluster.EngineVersion, opts.EngineVersion,
+	)
+}
+
+// applyRestoreClusterOpts sets the network, log-export and Performance Insights members shared by the cluster restores.
+func (b *InMemoryBackend) applyRestoreClusterOpts(cluster *DBCluster, opts DBClusterOptions) error {
+	if opts.DBSubnetGroupName != "" && !b.subnetGroups.Has(opts.DBSubnetGroupName) {
+		return fmt.Errorf("%w: subnet group %s not found", ErrSubnetGroupNotFound, opts.DBSubnetGroupName)
+	}
+
+	cluster.DBSubnetGroupName = opts.DBSubnetGroupName
+	cluster.VpcSecurityGroups = vpcSecurityGroupMemberships(opts.VpcSecurityGroupIDs)
+	cluster.EnabledCloudwatchLogsExports = opts.EnabledCloudwatchLogsExports
+	cluster.PerformanceInsightsEnabled = opts.PerformanceInsightsEnabled
+
+	return nil
 }

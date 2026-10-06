@@ -30,6 +30,8 @@ var (
 	// same operations' deserializers.go error switches model as
 	// ResourceInUseException.
 	ErrNameInUse = errors.New("resource name already in use")
+	// ErrIdempotentParameterMismatch is a ClientRequestToken reused with different parameters.
+	ErrIdempotentParameterMismatch = errors.New("idempotency token reused with different parameters")
 	// ErrUserConflict is returned when CreateUser is called with a UserId
 	// that already exists; AWS reports this as ConflictException (not
 	// ResourceAlreadyExistsException).

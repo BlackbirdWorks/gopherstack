@@ -149,11 +149,56 @@ func (b *InMemoryBackend) UpdateContact(
 	return nil
 }
 
-// ListContacts returns all contacts in a contact list.
+// ContactFilter is ListContacts' Filter; it applies only when both FilteredStatus and TopicName are set.
+type ContactFilter struct {
+	FilteredStatus string
+	TopicName      string
+	UseDefault     bool
+}
+
+func (f ContactFilter) validate() error {
+	switch f.FilteredStatus {
+	case "", "OPT_IN", "OPT_OUT":
+		return nil
+	}
+
+	return fmt.Errorf("%w: Filter.FilteredStatus must be OPT_IN or OPT_OUT", ErrInvalidInput)
+}
+
+func (f ContactFilter) matches(c *Contact, topics []Topic) bool {
+	if f.FilteredStatus == "" || f.TopicName == "" {
+		return true
+	}
+
+	for _, p := range c.TopicPreferences {
+		if p.TopicName == f.TopicName {
+			return p.SubscriptionStatus == f.FilteredStatus
+		}
+	}
+
+	if !f.UseDefault {
+		return false
+	}
+
+	for _, t := range topics {
+		if t.TopicName == f.TopicName {
+			return t.DefaultSubscriptionStatus == f.FilteredStatus
+		}
+	}
+
+	return false
+}
+
+// ListContacts returns the contacts in a contact list that match filter.
 func (b *InMemoryBackend) ListContacts(
 	contactListName, nextToken string,
 	pageSize int,
+	filter ContactFilter,
 ) (page.Page[*Contact], error) {
+	if err := filter.validate(); err != nil {
+		return page.Page[*Contact]{}, err
+	}
+
 	b.mu.RLock("ListContacts")
 	defer b.mu.RUnlock()
 
@@ -165,6 +210,8 @@ func (b *InMemoryBackend) ListContacts(
 		)
 	}
 
+	cl, _ := b.contactLists.Get(contactListName)
+
 	listContacts := slices.Clone(b.contactsByList.Get(contactListName))
 	sort.Slice(listContacts, func(i, j int) bool {
 		return listContacts[i].EmailAddress < listContacts[j].EmailAddress
@@ -172,6 +219,10 @@ func (b *InMemoryBackend) ListContacts(
 
 	items := make([]*Contact, 0, len(listContacts))
 	for _, c := range listContacts {
+		if !filter.matches(c, cl.Topics) {
+			continue
+		}
+
 		cp := *c
 		items = append(items, &cp)
 	}

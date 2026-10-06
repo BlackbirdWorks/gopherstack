@@ -190,17 +190,22 @@ type RevisionLocation struct {
 
 // Deployment represents a CodeDeploy deployment.
 type Deployment struct {
-	CreateTime           time.Time         `json:"createTime"`
-	CompleteTime         *time.Time        `json:"completeTime,omitempty"`
-	Revision             *RevisionLocation `json:"revision,omitempty"`
-	Status               string            `json:"status"`
-	ApplicationName      string            `json:"applicationName"`
-	DeploymentGroupName  string            `json:"deploymentGroupName"`
-	DeploymentConfigName string            `json:"deploymentConfigName"`
-	DeploymentID         string            `json:"deploymentId"`
-	Creator              string            `json:"creator"`
-	Description          string            `json:"description,omitempty"`
-	FileExistsBehavior   string            `json:"fileExistsBehavior,omitempty"`
+	CreateTime                 time.Time                  `json:"createTime"`
+	CompleteTime               *time.Time                 `json:"completeTime,omitempty"`
+	Revision                   *RevisionLocation          `json:"revision,omitempty"`
+	AutoRollbackConfiguration  *AutoRollbackConfiguration `json:"autoRollbackConfiguration,omitempty"`
+	OverrideAlarmConfiguration *AlarmConfiguration        `json:"overrideAlarmConfiguration,omitempty"`
+	TargetInstances            *TargetInstances           `json:"targetInstances,omitempty"`
+	DeploymentStyle            *DeploymentStyle           `json:"deploymentStyle,omitempty"`
+	ComputePlatform            string                     `json:"computePlatform,omitempty"`
+	Status                     string                     `json:"status"`
+	ApplicationName            string                     `json:"applicationName"`
+	DeploymentGroupName        string                     `json:"deploymentGroupName"`
+	DeploymentConfigName       string                     `json:"deploymentConfigName"`
+	DeploymentID               string                     `json:"deploymentId"`
+	Creator                    string                     `json:"creator"`
+	Description                string                     `json:"description,omitempty"`
+	FileExistsBehavior         string                     `json:"fileExistsBehavior,omitempty"`
 	// ExternalID is never populated: CreateDeploymentInput has no field for
 	// it (api_op_CreateDeployment.go), so it stays empty so ListDeployments'
 	// externalId filter matches zero deployments instead of being ignored.
@@ -209,6 +214,13 @@ type Deployment struct {
 	Region                        string `json:"-"`
 	UpdateOutdatedInstancesOnly   bool   `json:"updateOutdatedInstancesOnly,omitempty"`
 	IgnoreApplicationStopFailures bool   `json:"ignoreApplicationStopFailures,omitempty"`
+}
+
+// TargetInstances identifies the replacement environment of a blue/green deployment.
+type TargetInstances struct {
+	Ec2TagSet         *Ec2TagSet  `json:"ec2TagSet,omitempty"`
+	AutoScalingGroups []string    `json:"autoScalingGroups,omitempty"`
+	TagFilters        []TagFilter `json:"tagFilters,omitempty"`
 }
 
 // OnPremisesInstance represents an on-premises instance registered with CodeDeploy.
@@ -284,11 +296,18 @@ type DeploymentGroupInput struct {
 	ECSServices                      []ECSService
 	Ec2TagFilters                    []TagFilter
 	TerminationHookEnabled           bool
+	TerminationHookEnabledSet        bool
+	AutoScalingGroupsSet             bool
+	TriggerConfigurationsSet         bool
+	ECSServicesSet                   bool
 }
 
 // DeploymentOptions holds optional per-deployment settings.
 type DeploymentOptions struct {
 	Revision                      *RevisionLocation
+	AutoRollbackConfiguration     *AutoRollbackConfiguration
+	OverrideAlarmConfiguration    *AlarmConfiguration
+	TargetInstances               *TargetInstances
 	FileExistsBehavior            string
 	Description                   string
 	Creator                       string

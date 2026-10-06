@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
-	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
-	import { getNeptuneClient } from '$lib/aws-client';
+	import { onRegionChange, regionalClient } from '#lib/region-effect.svelte.ts';
+	import { getNeptuneClient } from '#lib/aws-client.ts';
 	import {
 		DescribeDBClustersCommand,
 		DescribeDBInstancesCommand,
@@ -38,7 +38,7 @@
 		PlayCircle,
 		Globe
 	} from 'lucide-svelte';
-	import { confirmDestructive } from '$lib/confirm-dialog';
+	import { confirmDestructive } from '#lib/confirm-dialog.ts';
 
 	const neptune = regionalClient(getNeptuneClient);
 

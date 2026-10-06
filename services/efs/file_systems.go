@@ -365,6 +365,11 @@ func (b *InMemoryBackend) applyThroughputModeChange(
 	fs.ThroughputMode = req.ThroughputMode
 	fs.LastThroughputChange = time.Now().UTC()
 
+	// types.FileSystemDescription: provisioned throughput is "Valid for ... ThroughputMode set to provisioned".
+	if req.ThroughputMode != throughputModeProvisioned {
+		fs.ProvisionedThroughputMib = 0
+	}
+
 	return nil
 }
 

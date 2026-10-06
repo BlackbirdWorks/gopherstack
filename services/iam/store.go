@@ -126,6 +126,10 @@ type StorageBackend interface {
 	// SAML Providers
 	CreateSAMLProvider(name, samlMetadataDocument string) (*SAMLProvider, error)
 	UpdateSAMLProvider(providerArn, samlMetadataDocument string) (*SAMLProvider, error)
+	CreateSAMLProviderWithEncryption(name, samlMetadataDocument, mode, addPrivateKey string) (*SAMLProvider, error)
+	UpdateSAMLProviderWithEncryption(
+		providerArn, samlMetadataDocument, mode, addPrivateKey, removePrivateKey string,
+	) (*SAMLProvider, error)
 	DeleteSAMLProvider(providerArn string) error
 	GetSAMLProvider(providerArn string) (*SAMLProvider, error)
 	ListSAMLProviders() ([]SAMLProvider, error)
@@ -172,6 +176,9 @@ type StorageBackend interface {
 	// Service-Specific Credentials
 	CreateServiceSpecificCredential(
 		userName, serviceName string,
+	) (*ServiceSpecificCredential, error)
+	CreateServiceSpecificCredentialWithAge(
+		userName, serviceName string, ageDays int,
 	) (*ServiceSpecificCredential, error)
 	ListServiceSpecificCredentials(
 		userName, serviceName, marker string, maxItems int,

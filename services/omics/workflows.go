@@ -36,20 +36,23 @@ func (b *InMemoryBackend) CreateWorkflow(input CreateWorkflowInput) (*Workflow, 
 
 	id := newID()
 	wf := &Workflow{
-		ID:                id,
-		Name:              input.Name,
-		Description:       input.Description,
-		Engine:            input.Engine,
-		Type:              workflowTypePrivate,
-		StorageType:       input.StorageType,
-		StorageCapacity:   input.StorageCapacity,
-		ParameterTemplate: input.ParameterTemplate,
-		Readme:            input.ReadmeMarkdown,
-		ReadmePath:        input.ReadmePath,
-		UUID:              newUUID(),
-		Status:            statusCreating,
-		Tags:              copyTags(input.Tags),
-		CreationTime:      time.Now().UTC(),
+		ID:                   id,
+		Name:                 input.Name,
+		Description:          input.Description,
+		Engine:               input.Engine,
+		Type:                 workflowTypePrivate,
+		StorageType:          input.StorageType,
+		StorageCapacity:      input.StorageCapacity,
+		ParameterTemplate:    input.ParameterTemplate,
+		Readme:               input.ReadmeMarkdown,
+		ReadmePath:           input.ReadmePath,
+		Accelerators:         input.Accelerators,
+		Main:                 input.Main,
+		ContainerRegistryMap: input.ContainerRegistryMap,
+		UUID:                 newUUID(),
+		Status:               statusCreating,
+		Tags:                 copyTags(input.Tags),
+		CreationTime:         time.Now().UTC(),
 	}
 	wf.Arn = arn.Build("omics", b.defaultRegion, b.accountID, "workflow/"+id)
 
@@ -154,7 +157,9 @@ func newWorkflowSummary(wf *Workflow) WorkflowSummary {
 }
 
 // UpdateWorkflow updates a workflow.
-func (b *InMemoryBackend) UpdateWorkflow(id, name, description, storageType string, storageCapacity *int) error {
+func (b *InMemoryBackend) UpdateWorkflow(
+	id, name, description, storageType, readmeMarkdown string, storageCapacity *int,
+) error {
 	b.mu.Lock("UpdateWorkflow")
 	defer b.mu.Unlock()
 
@@ -173,6 +178,10 @@ func (b *InMemoryBackend) UpdateWorkflow(id, name, description, storageType stri
 
 	if storageType != "" {
 		wf.StorageType = storageType
+	}
+
+	if readmeMarkdown != "" {
+		wf.Readme = readmeMarkdown
 	}
 
 	if storageCapacity != nil {
@@ -211,21 +220,30 @@ func (b *InMemoryBackend) CreateWorkflowVersion(input CreateWorkflowVersionInput
 		)
 	}
 
+	engine := input.Engine
+	if engine == "" {
+		engine = wf.Engine
+	}
+
 	wv := &WorkflowVersion{
-		WorkflowID:        input.WorkflowID,
-		VersionName:       input.VersionName,
-		Description:       input.Description,
-		Engine:            wf.Engine,
-		Type:              wf.Type,
-		StorageType:       input.StorageType,
-		StorageCapacity:   input.StorageCapacity,
-		ParameterTemplate: input.ParameterTemplate,
-		Readme:            input.ReadmeMarkdown,
-		ReadmePath:        input.ReadmePath,
-		BucketOwnerID:     input.WorkflowBucketOwnerID,
-		Status:            statusCreating,
-		Tags:              copyTags(input.Tags),
-		CreationTime:      time.Now().UTC(),
+		WorkflowID:           input.WorkflowID,
+		VersionName:          input.VersionName,
+		Description:          input.Description,
+		Engine:               engine,
+		Type:                 wf.Type,
+		UUID:                 newUUID(),
+		Accelerators:         input.Accelerators,
+		Main:                 input.Main,
+		ContainerRegistryMap: input.ContainerRegistryMap,
+		StorageType:          input.StorageType,
+		StorageCapacity:      input.StorageCapacity,
+		ParameterTemplate:    input.ParameterTemplate,
+		Readme:               input.ReadmeMarkdown,
+		ReadmePath:           input.ReadmePath,
+		BucketOwnerID:        input.WorkflowBucketOwnerID,
+		Status:               statusCreating,
+		Tags:                 copyTags(input.Tags),
+		CreationTime:         time.Now().UTC(),
 	}
 	wv.Arn = arn.Build(
 		"omics",
@@ -341,7 +359,7 @@ func newWorkflowVersionSummary(wv *WorkflowVersion) WorkflowVersionSummary {
 
 // UpdateWorkflowVersion updates a workflow version.
 func (b *InMemoryBackend) UpdateWorkflowVersion(
-	workflowID, versionName, description, storageType string, storageCapacity *int,
+	workflowID, versionName, description, storageType, readmeMarkdown string, storageCapacity *int,
 ) error {
 	b.mu.Lock("UpdateWorkflowVersion")
 	defer b.mu.Unlock()
@@ -361,6 +379,10 @@ func (b *InMemoryBackend) UpdateWorkflowVersion(
 
 	if storageType != "" {
 		wv.StorageType = storageType
+	}
+
+	if readmeMarkdown != "" {
+		wv.Readme = readmeMarkdown
 	}
 
 	if storageCapacity != nil {

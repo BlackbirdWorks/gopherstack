@@ -309,6 +309,8 @@ type PolicyXML struct {
 	Tags             []TagXML `xml:"Tags>member,omitempty"`
 	AttachmentCount  int      `xml:"AttachmentCount"`
 	IsAttachable     bool     `xml:"IsAttachable"`
+
+	PermissionsBoundaryUsageCount int `xml:"PermissionsBoundaryUsageCount"`
 }
 
 // CreatePolicyResponse is the XML response for CreatePolicy.
@@ -415,6 +417,7 @@ type RemoveUserFromGroupResponse struct {
 // GetGroupResult wraps a single group.
 type GetGroupResult struct {
 	Group       GroupXML  `xml:"Group"`
+	Marker      string    `xml:"Marker,omitempty"`
 	Users       []UserXML `xml:"Users>member"`
 	IsTruncated bool      `xml:"IsTruncated"`
 }
@@ -631,7 +634,9 @@ type GetPolicyVersionResult struct {
 
 // ListPolicyVersionsResult contains the policy version list.
 type ListPolicyVersionsResult struct {
-	Versions []PolicyVersionXML `xml:"Versions>member"`
+	Marker      string             `xml:"Marker,omitempty"`
+	Versions    []PolicyVersionXML `xml:"Versions>member"`
+	IsTruncated bool               `xml:"IsTruncated"`
 }
 
 // ListPolicyVersionsResponse is the XML response for ListPolicyVersions.

@@ -1,6 +1,10 @@
 package lightsail
 
-import "context"
+import (
+	"context"
+
+	lstypes "github.com/aws/aws-sdk-go-v2/service/lightsail/types"
+)
 
 // distributionCertOps returns the dispatch table for family T+V (13 ops).
 func (h *Handler) distributionCertOps() map[string]opFunc {
@@ -255,6 +259,16 @@ func (h *Handler) handleCreateDistribution(_ context.Context, body []byte) ([]by
 		return nil, err
 	}
 
+	if vErr := firstErr(
+		checkEnum("ipAddressType", lstypes.IpAddressType(req.IPAddressType)),
+		checkEnum(
+			"viewerMinimumTlsProtocolVersion",
+			lstypes.ViewerMinimumTlsProtocolVersionEnum(req.ViewerMinimumTLSProtocolVersion),
+		),
+	); vErr != nil {
+		return nil, vErr
+	}
+
 	ops, createErr := h.Backend.CreateDistribution(CreateDistributionRequest{
 		Name:                  req.DistributionName,
 		BundleID:              req.BundleID,
@@ -314,6 +328,13 @@ func (h *Handler) handleUpdateDistribution(_ context.Context, body []byte) ([]by
 	req, err := decodeBody[updateDistributionRequest](body)
 	if err != nil {
 		return nil, err
+	}
+
+	if vErr := checkEnum(
+		"viewerMinimumTlsProtocolVersion",
+		lstypes.ViewerMinimumTlsProtocolVersionEnum(req.ViewerMinimumTLSProtocolVersion),
+	); vErr != nil {
+		return nil, vErr
 	}
 
 	var defaultCacheBehavior *CacheBehavior
@@ -474,6 +495,10 @@ func (h *Handler) handleGetDistributionMetricData(_ context.Context, body []byte
 	req, err := decodeBody[distributionMetricDataRequest](body)
 	if err != nil {
 		return nil, err
+	}
+
+	if vErr := checkEnum("metricName", lstypes.DistributionMetricName(req.MetricName)); vErr != nil {
+		return nil, vErr
 	}
 
 	if getErr := h.Backend.GetDistributionMetricData(req.DistributionName); getErr != nil {

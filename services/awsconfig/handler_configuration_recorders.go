@@ -3,6 +3,8 @@ package awsconfig
 import (
 	"context"
 	"encoding/json"
+	"slices"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -88,6 +90,7 @@ type configurationRecorderBody struct {
 
 type putConfigurationRecorderRequest struct {
 	ConfigurationRecorder configurationRecorderBody `json:"ConfigurationRecorder"`
+	Tags                  []Tag                     `json:"Tags,omitempty"`
 }
 
 type putConfigurationRecorderOutput struct{}
@@ -96,10 +99,11 @@ func (h *Handler) handlePutConfigurationRecorder(
 	_ context.Context,
 	in *putConfigurationRecorderRequest,
 ) (*putConfigurationRecorderOutput, error) {
-	if err := h.Backend.PutConfigurationRecorder(
+	if err := h.Backend.PutConfigurationRecorderTagged(
 		in.ConfigurationRecorder.Name,
 		in.ConfigurationRecorder.RoleARN,
 		in.ConfigurationRecorder.RecordingGroup,
+		in.Tags,
 	); err != nil {
 		return nil, err
 	}
@@ -108,6 +112,8 @@ func (h *Handler) handlePutConfigurationRecorder(
 }
 
 type describeConfigurationRecordersInput struct {
+	Arn                        string   `json:"Arn,omitempty"`
+	ServicePrincipal           string   `json:"ServicePrincipal,omitempty"`
 	ConfigurationRecorderNames []string `json:"ConfigurationRecorderNames,omitempty"`
 }
 
@@ -119,7 +125,12 @@ func (h *Handler) handleDescribeConfigurationRecorders(
 	_ context.Context,
 	in *describeConfigurationRecordersInput,
 ) (*describeConfigurationRecordersOutput, error) {
-	recorders := h.Backend.DescribeConfigurationRecorders(in.ConfigurationRecorderNames)
+	names, ok := h.Backend.RecorderNamesForFilter(in.ConfigurationRecorderNames, in.Arn, in.ServicePrincipal)
+	if !ok {
+		return &describeConfigurationRecordersOutput{ConfigurationRecorders: []wireConfigurationRecorder{}}, nil
+	}
+
+	recorders := h.Backend.DescribeConfigurationRecorders(names)
 
 	return &describeConfigurationRecordersOutput{ConfigurationRecorders: toWireConfigurationRecorders(recorders)}, nil
 }
@@ -168,6 +179,8 @@ func (h *Handler) handleDeleteConfigurationRecorder(
 }
 
 type describeConfigurationRecorderStatusInput struct {
+	Arn                        string   `json:"Arn,omitempty"`
+	ServicePrincipal           string   `json:"ServicePrincipal,omitempty"`
 	ConfigurationRecorderNames []string `json:"ConfigurationRecorderNames,omitempty"`
 }
 
@@ -179,7 +192,14 @@ func (h *Handler) handleDescribeConfigurationRecorderStatus(
 	_ context.Context,
 	in *describeConfigurationRecorderStatusInput,
 ) (*describeConfigurationRecorderStatusOutput, error) {
-	statuses := h.Backend.DescribeConfigurationRecorderStatus(in.ConfigurationRecorderNames)
+	names, ok := h.Backend.RecorderNamesForFilter(in.ConfigurationRecorderNames, in.Arn, in.ServicePrincipal)
+	if !ok {
+		return &describeConfigurationRecorderStatusOutput{
+			ConfigurationRecordersStatus: []ConfigurationRecorderStatus{},
+		}, nil
+	}
+
+	statuses := h.Backend.DescribeConfigurationRecorderStatus(names)
 
 	return &describeConfigurationRecorderStatusOutput{ConfigurationRecordersStatus: statuses}, nil
 }
@@ -314,16 +334,41 @@ func (h *Handler) handlePutThirdPartyServiceLinkedConfigurationRecorder(
 }
 
 // ListConfigurationRecorders request/response types and handler.
+type listConfigurationRecordersInput struct {
+	NextToken string `json:"NextToken,omitempty"`
+	Filters   []struct {
+		FilterName  string   `json:"filterName"`
+		FilterValue []string `json:"filterValue"`
+	} `json:"Filters,omitempty"`
+	MaxResults int32 `json:"MaxResults,omitempty"`
+}
 type listConfigurationRecordersOutput struct {
+	NextToken                      string                         `json:"NextToken,omitempty"`
 	ConfigurationRecorderSummaries []ConfigurationRecorderSummary `json:"ConfigurationRecorderSummaries"`
 }
 
 func (h *Handler) handleListConfigurationRecorders(
-	_ context.Context, _ *emptyInput,
+	_ context.Context, in *listConfigurationRecordersInput,
 ) (*listConfigurationRecordersOutput, error) {
-	return &listConfigurationRecordersOutput{
-		ConfigurationRecorderSummaries: h.Backend.ListConfigurationRecorders(),
-	}, nil
+	recorders := h.Backend.ListConfigurationRecorders()
+	for _, f := range in.Filters {
+		if f.FilterName != "recordingScope" {
+			continue
+		}
+
+		recorders = slices.DeleteFunc(recorders, func(r ConfigurationRecorderSummary) bool {
+			return !slices.Contains(f.FilterValue, r.RecordingScope)
+		})
+	}
+
+	slices.SortFunc(recorders, func(a, b ConfigurationRecorderSummary) int { return strings.Compare(a.Name, b.Name) })
+
+	p, err := paginate(recorders, in.NextToken, in.MaxResults, unboundedPageDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listConfigurationRecordersOutput{ConfigurationRecorderSummaries: p.Data, NextToken: p.Next}, nil
 }
 
 // buildConfigurationRecorderDispatch returns dispatch entries for configuration recorder ops.

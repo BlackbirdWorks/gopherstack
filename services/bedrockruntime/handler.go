@@ -505,6 +505,8 @@ func handleError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, ErrValidation):
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", err.Error()))
+	case errors.Is(err, ErrConflict):
+		return c.JSON(http.StatusConflict, errorResponse("ConflictException", err.Error()))
 	case errors.Is(err, awserr.ErrNotFound):
 		return c.JSON(http.StatusNotFound, errorResponse("ResourceNotFoundException", err.Error()))
 	default:

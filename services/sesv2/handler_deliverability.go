@@ -89,7 +89,7 @@ func (h *Handler) handleGetDeliverabilityTestReport(reportID string) (any, error
 
 func (h *Handler) handleListDeliverabilityTestReports(c *echo.Context) (any, error) {
 	nextToken := c.QueryParam("NextToken")
-	pg := h.Backend.ListDeliverabilityTestReports(nextToken, 0)
+	pg := h.Backend.ListDeliverabilityTestReports(nextToken, queryPageSize(c))
 
 	items := make([]deliverabilityTestReportItemOutput, 0, len(pg.Data))
 	for _, r := range pg.Data {
@@ -140,6 +140,7 @@ func (h *Handler) handleListDomainDeliverabilityCampaigns(
 		endDate,
 		domain,
 		nextToken,
+		queryPageSize(c),
 	)
 	if err != nil {
 		return nil, err

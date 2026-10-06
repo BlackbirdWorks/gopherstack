@@ -3,6 +3,7 @@ package bedrockagent
 import (
 	"context"
 	"fmt"
+	"maps"
 	"time"
 )
 
@@ -34,11 +35,22 @@ func (b *InMemoryBackend) CreateAgentActionGroup(
 		)
 	}
 
+	if err := validateActionGroupSignature(cfg); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateAgentActionGroup")
 	defer b.mu.Unlock()
 
 	if !b.agents.Has(agentID) {
 		return nil, fmt.Errorf("%w: agent %q not found", ErrNotFound, agentID)
+	}
+
+	if prior := findByClientToken(b.actionGroups, cfg.ClientToken,
+		func(g *AgentActionGroup) string { return g.ClientToken },
+		func(g *AgentActionGroup) bool { return g.AgentID == agentID && g.AgentVersion == agentVersion },
+	); prior != nil {
+		return actionGroupCopy(prior), nil
 	}
 
 	id := b.nextID("ag", &b.actionGroupCounter)
@@ -56,6 +68,10 @@ func (b *InMemoryBackend) CreateAgentActionGroup(
 		FunctionSchema:      cfg.FunctionSchema,
 		CreatedAt:           now,
 		UpdatedAt:           now,
+
+		ParentActionSignature:            cfg.ParentActionGroupSignature,
+		ParentActionGroupSignatureParams: maps.Clone(cfg.ParentActionGroupSignatureParams),
+		ClientToken:                      cfg.ClientToken,
 	}
 
 	if cfg.ActionGroupState != "" {
@@ -94,6 +110,10 @@ func (b *InMemoryBackend) UpdateAgentActionGroup(
 		return nil, fmt.Errorf(
 			"%w: agentVersion must be %q, got %q", ErrValidation, defaultAgentVersion, agentVersion,
 		)
+	}
+
+	if err := validateActionGroupSignature(cfg); err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("UpdateAgentActionGroup")
@@ -135,6 +155,14 @@ func applyActionGroupConfig(ag *AgentActionGroup, cfg ActionGroupConfig) {
 
 	if cfg.FunctionSchema != nil {
 		ag.FunctionSchema = cfg.FunctionSchema
+	}
+
+	if cfg.ParentActionGroupSignature != "" {
+		ag.ParentActionSignature = cfg.ParentActionGroupSignature
+	}
+
+	if cfg.ParentActionGroupSignatureParams != nil {
+		ag.ParentActionGroupSignatureParams = maps.Clone(cfg.ParentActionGroupSignatureParams)
 	}
 }
 

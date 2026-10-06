@@ -238,8 +238,8 @@ func streamNamesFromARNs(arns []string) []string {
 	names := make([]string, 0, len(arns))
 
 	for _, a := range arns {
-		if idx := strings.LastIndex(a, "/"); idx >= 0 {
-			name := a[idx+1:]
+		if _, after, ok := strings.CutLast(a, "/"); ok {
+			name := after
 			if name != "" {
 				names = append(names, name)
 

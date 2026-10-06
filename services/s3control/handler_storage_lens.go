@@ -224,6 +224,7 @@ func (h *Handler) handleGetStorageLensConfiguration(c *echo.Context) error {
 type putStorageLensConfigRequestXML struct {
 	XMLName              xml.Name            `xml:"PutStorageLensConfigurationRequest"`
 	StorageLensConfigRaw createJobXMLCapture `xml:"StorageLensConfiguration"`
+	Tags                 storageLensTagsXML  `xml:"Tags"`
 }
 
 func (h *Handler) handlePutStorageLensConfiguration(c *echo.Context) error {
@@ -237,6 +238,17 @@ func (h *Handler) handlePutStorageLensConfiguration(c *echo.Context) error {
 
 	if err := h.Backend.PutStorageLensConfiguration(accountID, configName, body.StorageLensConfigRaw.Raw); err != nil {
 		return handleBackendError(c, err)
+	}
+
+	if len(body.Tags.Tags) > 0 {
+		tags := make(TagSet, len(body.Tags.Tags))
+		for _, t := range body.Tags.Tags {
+			tags[t.Key] = t.Value
+		}
+
+		if err := h.Backend.PutStorageLensConfigurationTagging(accountID, configName, tags); err != nil {
+			return handleBackendError(c, err)
+		}
 	}
 
 	return c.NoContent(http.StatusOK)

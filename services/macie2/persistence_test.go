@@ -249,7 +249,7 @@ func assertRestoredState(t *testing.T, fresh *macie2.InMemoryBackend, ids restor
 	require.NoError(t, err)
 	assert.Equal(t, "ARCHIVE", ffDetail.Action)
 
-	findings, err := fresh.GetFindings([]string{ids.findingID})
+	findings, err := fresh.GetFindings([]string{ids.findingID}, nil)
 	require.NoError(t, err)
 	require.Len(t, findings, 1)
 

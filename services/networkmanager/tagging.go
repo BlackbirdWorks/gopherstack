@@ -22,12 +22,12 @@ import (
 // resourceKindFromARN extracts the resource-kind segment (e.g. "site",
 // "device") from a NetworkManager ARN's resource part.
 func resourceKindFromARN(resourceArn string) string {
-	idx := strings.LastIndex(resourceArn, ":")
-	if idx < 0 {
+	_, after, ok := strings.CutLast(resourceArn, ":")
+	if !ok {
 		return ""
 	}
 
-	resourcePart := resourceArn[idx+1:]
+	resourcePart := after
 
 	kind, _, _ := strings.Cut(resourcePart, "/")
 
@@ -38,12 +38,12 @@ func resourceKindFromARN(resourceArn string) string {
 // the resource's own ID, regardless of whether the kind nests under a
 // GlobalNetworkId (site/device/link/connection) or not.
 func lastARNSegment(resourceArn string) string {
-	idx := strings.LastIndex(resourceArn, "/")
-	if idx < 0 {
+	_, after, ok := strings.CutLast(resourceArn, "/")
+	if !ok {
 		return resourceArn
 	}
 
-	return resourceArn[idx+1:]
+	return after
 }
 
 // tagResolver looks up one taggable resource kind's *tags.Tags by ID.

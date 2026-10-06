@@ -186,7 +186,7 @@ func TestRoutingEquivalence(t *testing.T) {
 	reg, entries := routingFixture(t)
 	cases := loadRoutingCorpus(t)
 
-	router := service.NewServiceRouter(reg).WithTargetGates(routeTargetGates())
+	router := service.NewServiceRouter(reg).WithTargetGates(routeTargetGates()).WithPathGates(routePathGates())
 	scan := selectAll(t, cases, func(c *echo.Context) string { return scanSelect(entries, c) })
 	lookup := selectAll(t, cases, func(c *echo.Context) string { return entryName(router.Lookup(c)) })
 

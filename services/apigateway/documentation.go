@@ -60,6 +60,16 @@ func (b *InMemoryBackend) CreateDocumentationVersion(
 		return nil, fmt.Errorf("%w: documentation version %q already exists", ErrAlreadyExists, input.Version)
 	}
 
+	stage, hasStage := b.stages.Get(stageKey(input.RestAPIID, input.StageName))
+	if input.StageName != "" && !hasStage {
+		return nil, fmt.Errorf("%w: stage %q not found", ErrStageNotFound, input.StageName)
+	}
+
+	if hasStage {
+		stage.DocumentationVersion = input.Version
+		stage.LastUpdatedDate = unixEpochTime{time.Now()}
+	}
+
 	ver := &DocumentationVersion{
 		RestAPIID:   input.RestAPIID,
 		Version:     input.Version,

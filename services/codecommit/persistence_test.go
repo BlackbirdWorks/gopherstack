@@ -118,15 +118,18 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 		pr.PullRequestID, "OVERRIDE", "arn:aws:iam::111122223333:user/bob",
 	))
 
-	prComment, err := original.PostCommentForPullRequest(pr.PullRequestID, repo.RepositoryName, "pr comment")
+	prComment, err := original.PostComment(
+		codecommit.CommentContext{PullRequestID: pr.PullRequestID, RepoName: repo.RepositoryName}, "pr comment",
+	)
 	require.NoError(t, err)
 	require.NoError(t, original.PutCommentReaction(
 		prComment.CommentID, "THUMBSUP", "arn:aws:iam::111122223333:user/bob",
 	))
 
-	commitComment, err := original.PostCommentForComparedCommit(
-		repo.RepositoryName, "", commit1.CommitID, "commit comment",
-	)
+	commitComment, err := original.PostComment(codecommit.CommentContext{
+		RepoName: repo.RepositoryName, BeforeCommitID: "before-1", AfterCommitID: commit1.CommitID,
+		Location: &codecommit.CommentLocation{FilePath: "a.txt", FilePosition: 3, RelativeFileVersion: "AFTER"},
+	}, "commit comment")
 	require.NoError(t, err)
 
 	snap := original.Snapshot(t.Context())
@@ -233,7 +236,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, "PULL_REQUEST_APPROVAL_RULE_OVERRIDDEN", events[0].PullRequestEventType)
 
 	// comments table (PRid/RepoName/AfterCommitID hidden fields) + commentReactions plain map.
-	prComments, err := fresh.GetCommentsForPullRequest(pr.PullRequestID)
+	prComments, err := fresh.GetCommentsForPullRequest(pr.PullRequestID, "", "", "")
 	require.NoError(t, err)
 	require.Len(t, prComments, 1)
 	assert.Equal(t, "pr comment", prComments[0].Content)
@@ -242,10 +245,13 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.Len(t, reactions, 1)
 	assert.Equal(t, "THUMBSUP", reactions[0].Emoji)
 
-	commitComments, err := fresh.GetCommentsForComparedCommit(repo.RepositoryName, commit1.CommitID)
+	commitComments, err := fresh.GetCommentsForComparedCommit(repo.RepositoryName, commit1.CommitID, "")
 	require.NoError(t, err)
 	require.Len(t, commitComments, 1)
 	assert.Equal(t, commitComment.CommentID, commitComments[0].CommentID)
+	assert.Equal(t, "before-1", commitComments[0].BeforeCommitID)
+	require.NotNil(t, commitComments[0].Location)
+	assert.Equal(t, int64(3), commitComments[0].Location.FilePosition)
 }
 
 // TestHandler_SnapshotRestoreDelegate verifies the Handler-level Snapshot and

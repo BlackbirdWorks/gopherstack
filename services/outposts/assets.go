@@ -1,6 +1,9 @@
 package outposts
 
-import "slices"
+import (
+	"slices"
+	"strings"
+)
 
 // seedAssetForOutpostLocked provisions exactly one COMPUTE asset for a
 // newly-created Outpost. Real Outposts assets arrive via physical hardware
@@ -84,6 +87,8 @@ func (b *InMemoryBackend) ListAssets(outpostIdentifier string, f assetFilter) ([
 		}
 	}
 
+	slices.SortFunc(out, func(x, y *Asset) int { return strings.Compare(x.ID, y.ID) })
+
 	return out, nil
 }
 
@@ -162,6 +167,8 @@ func (b *InMemoryBackend) ListAssetInstances(
 			out = append(out, &cp)
 		}
 	}
+
+	slices.SortFunc(out, func(x, y *runningInstance) int { return strings.Compare(x.InstanceID, y.InstanceID) })
 
 	return out, nil
 }

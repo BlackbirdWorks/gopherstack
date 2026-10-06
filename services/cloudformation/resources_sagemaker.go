@@ -224,8 +224,8 @@ func ignoreNotFound(err error, sentinel error) error {
 // Delete methods are name-keyed (same class as AWS::Backup::Framework's Ref,
 // see PARITY.md).
 func sagemakerNameFromARN(arnStr string) string {
-	if i := strings.LastIndex(arnStr, "/"); i >= 0 {
-		return arnStr[i+1:]
+	if _, after, ok := strings.CutLast(arnStr, "/"); ok {
+		return after
 	}
 
 	return arnStr

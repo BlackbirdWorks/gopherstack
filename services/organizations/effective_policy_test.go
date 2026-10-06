@@ -278,7 +278,7 @@ func TestHandler_DescribeEffectivePolicy(t *testing.T) {
 				ep, ok := resp["EffectivePolicy"].(map[string]any)
 				require.True(t, ok, "response must have EffectivePolicy")
 				assert.NotEmpty(t, ep["PolicyContent"])
-				assert.NotEmpty(t, ep["PolicyId"])
+				assert.NotContains(t, ep, "PolicyId")
 				assert.Equal(t, tt.policyType, ep["PolicyType"])
 				assert.NotZero(t, ep["LastUpdatedTimestamp"])
 			}

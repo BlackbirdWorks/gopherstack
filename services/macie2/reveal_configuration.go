@@ -1,5 +1,11 @@
 package macie2
 
+import (
+	"fmt"
+
+	"github.com/google/uuid"
+)
+
 // GetRevealConfiguration returns the sensitive data reveal configuration.
 func (b *InMemoryBackend) GetRevealConfiguration() (*RevealConfiguration, error) {
 	b.mu.RLock("GetRevealConfiguration")
@@ -25,6 +31,57 @@ func (b *InMemoryBackend) UpdateRevealConfiguration(kmsKeyID, status string) err
 	}
 
 	return nil
+}
+
+const (
+	retrievalModeAssumeRole = "ASSUME_ROLE"
+	retrievalModeCaller     = "CALLER_CREDENTIALS"
+)
+
+// GetRetrievalConfiguration returns the sensitive-data retrieval settings; CALLER_CREDENTIALS until configured.
+func (b *InMemoryBackend) GetRetrievalConfiguration() *RetrievalConfiguration {
+	b.mu.RLock("GetRetrievalConfiguration")
+	defer b.mu.RUnlock()
+
+	if b.retrievalConfig == nil {
+		return &RetrievalConfiguration{RetrievalMode: retrievalModeCaller}
+	}
+
+	cp := *b.retrievalConfig
+
+	return &cp
+}
+
+// UpdateRetrievalConfiguration applies the retrieval mode; the external ID is generated on first ASSUME_ROLE.
+func (b *InMemoryBackend) UpdateRetrievalConfiguration(mode, roleName string) (*RetrievalConfiguration, error) {
+	switch mode {
+	case retrievalModeAssumeRole:
+		if roleName == "" {
+			return nil, fmt.Errorf("%w: roleName is required when retrievalMode is ASSUME_ROLE", ErrValidation)
+		}
+	case retrievalModeCaller:
+		roleName = ""
+	default:
+		return nil, fmt.Errorf("%w: retrievalMode must be ASSUME_ROLE or CALLER_CREDENTIALS", ErrValidation)
+	}
+
+	b.mu.Lock("UpdateRetrievalConfiguration")
+	defer b.mu.Unlock()
+
+	next := &RetrievalConfiguration{RetrievalMode: mode, RoleName: roleName}
+
+	if mode == retrievalModeAssumeRole {
+		next.ExternalID = uuid.NewString()
+
+		if b.retrievalConfig != nil && b.retrievalConfig.ExternalID != "" {
+			next.ExternalID = b.retrievalConfig.ExternalID
+		}
+	}
+
+	b.retrievalConfig = next
+	cp := *next
+
+	return &cp, nil
 }
 
 // GetSensitiveDataOccurrences returns redacted occurrences for a finding.

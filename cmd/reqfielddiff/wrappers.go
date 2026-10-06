@@ -2,6 +2,7 @@ package main
 
 import (
 	"go/ast"
+	"go/token"
 	"slices"
 )
 
@@ -371,6 +372,10 @@ func paramForwardedToQuery(fd *ast.FuncDecl, param string, known map[string][]in
 	found := false
 
 	ast.Inspect(fd.Body, func(n ast.Node) bool {
+		if isRawQueryKeyConcat(n, param) {
+			found = true
+		}
+
 		call, ok := n.(*ast.CallExpr)
 		if found || !ok {
 			return !found
@@ -396,4 +401,18 @@ func isQueryReadCall(call *ast.CallExpr) bool {
 	sel, ok := call.Fun.(*ast.SelectorExpr)
 
 	return ok && (queryParamSelectors[sel.Sel.Name] || isInlineQueryGet(sel))
+}
+
+// isRawQueryKeyConcat matches `key + "="`, the prefix a hand-rolled raw
+// query-string parser builds from its key parameter.
+func isRawQueryKeyConcat(n ast.Node, param string) bool {
+	be, ok := n.(*ast.BinaryExpr)
+	if !ok || be.Op != token.ADD {
+		return false
+	}
+
+	id, isIdent := be.X.(*ast.Ident)
+	lit, isLit := be.Y.(*ast.BasicLit)
+
+	return isIdent && isLit && id.Name == param && lit.Kind == token.STRING && lit.Value == `"="`
 }

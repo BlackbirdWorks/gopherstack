@@ -1,6 +1,10 @@
 package kinesisvideo
 
-import "github.com/blackbirdworks/gopherstack/pkgs/awstime"
+import (
+	"maps"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+)
 
 // Wire DTOs for the Kinesis Video Streams REST-JSON control plane. Field
 // names match the AWS smithy model exactly (aws-sdk-go-v2/service/
@@ -266,6 +270,10 @@ func imageGenerationConfigFromDTO(dto *imageGenerationConfigurationDTO) *ImageGe
 		cfg.URI = dto.DestinationConfig.URI
 	}
 
+	if cfg.Format == formatJPEG {
+		cfg.FormatConfig = withDefaultJPEGQuality(cfg.FormatConfig)
+	}
+
 	return cfg
 }
 
@@ -355,4 +363,22 @@ type updateNotificationConfigurationRequest struct {
 type errorResponse struct {
 	Type    string `json:"__type"`
 	Message string `json:"Message"`
+}
+
+const (
+	formatJPEG         = "JPEG"
+	keyJPEGQuality     = "JPEGQuality"
+	defaultJPEGQuality = "80"
+)
+
+// withDefaultJPEGQuality fills JPEGQuality when absent (types.go:162 of the SDK).
+func withDefaultJPEGQuality(in map[string]string) map[string]string {
+	out := make(map[string]string, len(in)+1)
+	maps.Copy(out, in)
+
+	if _, ok := out[keyJPEGQuality]; !ok {
+		out[keyJPEGQuality] = defaultJPEGQuality
+	}
+
+	return out
 }

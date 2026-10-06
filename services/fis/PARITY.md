@@ -14,7 +14,7 @@ ops:
   GetExperiment: {wire: ok, errors: ok, state: ok, persist: ok, note: 'experimentReport/experimentReportConfiguration now returned; ExperimentTarget now carries filters/resourceTags/selectionMode; ExperimentAction now carries description; this sweep added ExperimentAction.startAfter (see Notes)'}
   StopExperiment: {wire: ok, errors: ok, state: ok, persist: ok, note: 'was wrongly 409 ConflictException on not-running; StopExperiment has no ConflictException case in the SDK — fixed to 400 ValidationException (prior sweep); this sweep confirmed no regression'}
   ListExperiments: {wire: ok, errors: ok, state: ok, persist: ok, note: "experimentTemplateId/status query filters applied before pagination. Re-verified 2026-09-19 (gopherstack-dv4s over-wide-response census): member set still exact against v1.40.4, see list_summary_shapes_test.go."}
-  ListExperimentResolvedTargets: {wire: ok, errors: ok, state: ok, persist: n/a, note: 'resolvedTargetDTO emitted invented resolvedArns/targetResourcesCount fields that do not exist on types.ResolvedTarget, and never paginated despite declaring nextToken; both fixed prior sweep; this sweep confirmed no regression'}
+  ListExperimentResolvedTargets: {wire: ok, errors: ok, state: ok, persist: n/a, note: 'resolvedTargetDTO emitted invented resolvedArns/targetResourcesCount fields that do not exist on types.ResolvedTarget, and never paginated despite declaring nextToken; both fixed prior sweep; the targetName query filter is applied'}
   GetAction: {wire: ok, errors: ok, state: ok, persist: n/a}
   ListActions: {wire: ok, errors: ok, state: ok, persist: n/a, note: 'reused the full actionDTO (with a "parameters" field) for the list response; the real types.ActionSummary has no parameters field, only types.Action (GetAction) does -- fixed this sweep with a dedicated actionSummaryDTO; see Notes. Re-verified 2026-09-19 (gopherstack-dv4s over-wide-response census): member set still exact against v1.40.4, see list_summary_shapes_test.go.'}
   GetTargetResourceType: {wire: ok, errors: ok, state: ok, persist: n/a}
@@ -24,7 +24,7 @@ ops:
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: 50-tag quota + aws:-prefix rejection enforced; safety-lever tag storage retained internally (see Notes)}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: n/a}
-  CreateTargetAccountConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateTargetAccountConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: 'a second create for the same account is ConflictException (declared by the SDK; previously overwrote silently); clientToken replays the existing configuration, other parameters under the same token are ConflictException'}
   DeleteTargetAccountConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   GetTargetAccountConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateTargetAccountConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -42,7 +42,7 @@ gaps: []
 items_still_open:
   - Experiment report generation is synchronous/immediate (terminal state computed the instant the owning experiment reaches a terminal status) rather than modeling the real async pending→running→completed/failed report lifecycle with its own timing. There is no real S3/CloudWatch backend to wait on in this emulator, so this is a reasonable simplification, not a wire-shape defect — the four modeled ExperimentReportStatus values pending/completed/cancelled/failed are all reachable (in the exact wire shape), "running" is skipped over.
   - CloudWatch dashboard snapshot capture (ExperimentReportConfigurationDataSources.CloudWatchDashboards) is accepted, validated, and echoed back on both the template and the running experiment's report configuration, but does not influence report generation (gopherstack has no real CloudWatch dashboard rendering to snapshot) — only the S3 output destination affects the generated ExperimentReportS3Report.
-  - experimentOptions.accountTargeting / emptyTargetResolutionMode (CreateExperimentTemplate) are accepted, validated only as opaque strings (no enum check), and echoed on the wire, but never consulted: gopherstack has no multi-account fan-out and no dynamic tag/filter-based resource discovery (ResourceTags/Filters are stored as informational metadata only -- see buildExperimentTargets), so there is no "empty target" or "multi-account" condition for these fields to actually govern. Implementing either requires building resource discovery/multi-account execution infrastructure that does not exist -- a design decision, not something the terse SDK doc comments (types.go:364,371: "The account/empty target resolution... setting/mode for an experiment") unambiguously specify how to build. Not fixed; not guessed at.
+  - "experimentOptions.accountTargeting and emptyTargetResolutionMode are validated against their SDK enums and echoed, but never govern behaviour: there is no multi-account fan-out and no tag/filter resource discovery (resourceTags/filters are stored as metadata), so no empty-target or multi-account condition ever arises."
 deferred:                 # consciously not audited this pass (scope) — next pass targets
   - Built-in action catalog completeness vs the full real AWS FIS action list (gopherstack ships a curated subset across EC2/RDS/ECS/EKS/DynamoDB/Lambda/SSM/network/CloudWatch/Kinesis + the aws:fis:inject-api-*/wait built-ins; real AWS has more actions per service and evolves this list independently of the API shape)
 leaks: {status: clean, note: 'Restore() cancels in-flight experiment goroutines before replacing state; Shutdown() (service.Shutdowner) cancels all running experiments; janitor sweeps terminal experiments (completed/stopped/failed/cancelled) past TTL under the coarse lock with a pre-snapshotted slice so Delete-while-iterating is safe. No new goroutines/tickers were introduced for report generation — it is computed synchronously inside the same locked critical section that already finalizes the experiment''s terminal status (cleanupActions / markExperimentFailed), so there is nothing new to leak or drain on Shutdown.'}
@@ -548,3 +548,7 @@ real bugs (ListActions/ListTargetResourceTypes fabricated `parameters`
 field). No new bug found; false-positive census hits. Locked in via
 list_summary_shapes_test.go. Gates: `go build`/`go vet`/`go test -race`
 clean, `golangci-lint run` 0 issues.
+
+## 2026-10-05 (gopherstack-uox6 pass 9, value semantics)
+
+UpdateExperimentTemplate replaced the whole ExperimentOptions, wiping AccountTargeting although the update shape carries only EmptyTargetResolutionMode (types.go:1103-1109). It now updates just that member. Recorded, unchanged: an empty Description cannot clear the stored one (SDK silent). Proof: `TestUpdateExperimentTemplate_OptionsKeepAccountTargeting`.

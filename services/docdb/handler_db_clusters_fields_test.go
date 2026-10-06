@@ -297,6 +297,8 @@ func TestModifyCluster_EngineVersion(t *testing.T) {
 				"Action":              {"ModifyDBCluster"},
 				"Version":             {"2014-10-31"},
 				"DBClusterIdentifier": {"modify-ev-cluster"},
+				// a major change (4.0.0 -> 5.0.0) requires AllowMajorVersionUpgrade
+				"AllowMajorVersionUpgrade": {"true"},
 			}
 			if tt.engineVersion != "" {
 				vals.Set("EngineVersion", tt.engineVersion)

@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/svelte";
 import SQSPage from "./+page.svelte";
-import { ALL_REGIONS, DEFAULT_REGION, setStoredRegion } from "$lib/region.svelte";
+import { ALL_REGIONS, DEFAULT_REGION, setStoredRegion } from "#lib/region.svelte.ts";
 
 const mockSend = vi.fn();
 
-vi.mock("$lib/aws-client", () => ({
+vi.mock("#lib/aws-client.ts", () => ({
   getSQSClient: () => ({ send: mockSend }),
 }));
 
@@ -22,6 +22,27 @@ function stubRegionsWithData(regions: string[]): void {
       json: () => Promise.resolve({ regions }),
     }),
   );
+}
+
+// Both regions' ListQueues calls fire before either's per-URL
+// GetQueueAttributes calls (Promise.all starts every region's async
+// function synchronously up to its first await), so an ordered
+// mockResolvedValueOnce queue would be racy. Key ListQueues off call
+// count instead, which is order-independent; GetQueueAttributes returns
+// generic attributes since the tests below only care about queue identity.
+function mockQueuesPerRegion(urlsByCallOrder: string[][]): void {
+  let listCalls = 0;
+  mockSend.mockImplementation((cmd: { constructor: { name: string } }) => {
+    if (cmd.constructor.name === "ListQueuesCommand") {
+      const urls = urlsByCallOrder[listCalls] ?? [];
+      listCalls++;
+      return Promise.resolve({ QueueUrls: urls });
+    }
+    if (cmd.constructor.name === "GetQueueAttributesCommand") {
+      return Promise.resolve({ Attributes: { ApproximateNumberOfMessages: "0" } });
+    }
+    return Promise.resolve({});
+  });
 }
 
 describe("SQS Page", () => {
@@ -131,27 +152,6 @@ describe("SQS Page", () => {
       { timeout: 3000 },
     );
   });
-
-  // Both regions' ListQueues calls fire before either's per-URL
-  // GetQueueAttributes calls (Promise.all starts every region's async
-  // function synchronously up to its first await), so an ordered
-  // mockResolvedValueOnce queue would be racy. Key ListQueues off call
-  // count instead, which is order-independent; GetQueueAttributes returns
-  // generic attributes since the tests below only care about queue identity.
-  function mockQueuesPerRegion(urlsByCallOrder: string[][]): void {
-    let listCalls = 0;
-    mockSend.mockImplementation((cmd: { constructor: { name: string } }) => {
-      if (cmd.constructor.name === "ListQueuesCommand") {
-        const urls = urlsByCallOrder[listCalls] ?? [];
-        listCalls++;
-        return Promise.resolve({ QueueUrls: urls });
-      }
-      if (cmd.constructor.name === "GetQueueAttributesCommand") {
-        return Promise.resolve({ Attributes: { ApproximateNumberOfMessages: "0" } });
-      }
-      return Promise.resolve({});
-    });
-  }
 
   describe("All regions mode", () => {
     it("fans ListQueues out across every region with data and tags each row", async () => {

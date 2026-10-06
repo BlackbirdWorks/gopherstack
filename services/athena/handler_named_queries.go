@@ -11,6 +11,8 @@ type createNamedQueryInput struct {
 	Database    string `json:"Database"`
 	QueryString string `json:"QueryString"`
 	WorkGroup   string `json:"WorkGroup"`
+
+	ClientRequestToken string `json:"ClientRequestToken"`
 }
 
 type getNamedQueryInput struct {
@@ -46,8 +48,14 @@ func (h *Handler) namedQueryOps() map[string]athenaActionFn {
 				return nil, err
 			}
 
-			id, err := h.Backend.CreateNamedQuery(
-				input.Name, input.Description, input.Database, input.QueryString, input.WorkGroup,
+			id, err := h.replayCreate(
+				"CreateNamedQuery", input.ClientRequestToken, input,
+				found(h.Backend.GetNamedQuery),
+				func() (string, error) {
+					return h.Backend.CreateNamedQuery(
+						input.Name, input.Description, input.Database, input.QueryString, input.WorkGroup,
+					)
+				},
 			)
 			if err != nil {
 				return nil, err

@@ -727,7 +727,7 @@ func (b *InMemoryBackend) ListExecutions(
 // MapRunDoesNotExist, matching DescribeMapRun's error for the same
 // condition.
 func (b *InMemoryBackend) ListExecutionsByMapRun(
-	mapRunARN, statusFilter, nextToken string, maxResults int,
+	mapRunARN, statusFilter, redriveFilter, nextToken string, maxResults int,
 ) ([]Execution, string, error) {
 	b.mu.RLock("ListExecutionsByMapRun")
 	defer b.mu.RUnlock()
@@ -741,7 +741,7 @@ func (b *InMemoryBackend) ListExecutionsByMapRun(
 	ptrs := make([]*Execution, 0, len(execs))
 
 	for _, exec := range execs {
-		if statusFilter == "" || exec.Status == statusFilter {
+		if (statusFilter == "" || exec.Status == statusFilter) && matchesRedriveFilter(exec, redriveFilter) {
 			ptrs = append(ptrs, exec)
 		}
 	}
@@ -982,4 +982,15 @@ func (b *InMemoryBackend) addToStatusBucket(smARN, status, execARN string) {
 		b.smExecsByStatus[smARN] = make(map[string][]string)
 	}
 	b.smExecsByStatus[smARN][status] = append(b.smExecsByStatus[smARN][status], execARN)
+}
+
+func matchesRedriveFilter(exec *Execution, filter string) bool {
+	switch filter {
+	case redriveFilterRedriven:
+		return exec.RedriveCount > 0
+	case redriveFilterNotRedriven:
+		return exec.RedriveCount == 0
+	default:
+		return true
+	}
 }

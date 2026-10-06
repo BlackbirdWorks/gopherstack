@@ -73,7 +73,7 @@ func WrapOp[In, Out any](fn func(context.Context, *In) (*Out, error)) JSONOpFunc
 func HandleTarget(
 	c *echo.Context,
 	log *slog.Logger,
-	serviceName, contentType string,
+	_, contentType string,
 	supportedOps []string,
 	dispatch DispatchFunc,
 	handleErr ErrorHandlerFunc,
@@ -112,8 +112,6 @@ func HandleTarget(
 		return writeDispatchError(c, contentType, http.StatusInternalServerError,
 			"InternalFailure", "internal server error")
 	}
-
-	log.DebugContext(ctx, serviceName+" request", "action", action)
 
 	response, reqErr := dispatch(ctx, action, body)
 	if reqErr != nil {

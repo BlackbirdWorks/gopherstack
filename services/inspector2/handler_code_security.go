@@ -180,17 +180,26 @@ func (h *Handler) handleUpdateCodeSecurityIntegration(c *echo.Context) error {
 }
 
 func (h *Handler) handleListCodeSecurityIntegrations(c *echo.Context) error {
-	integrations, err := h.Backend.ListCodeSecurityIntegrations()
+	pr, reqErr := readPageRequest(c)
+	if reqErr != nil {
+		return h.mapError(c, reqErr)
+	}
+
+	all, err := h.Backend.ListCodeSecurityIntegrations()
 	if err != nil {
 		return h.mapError(c, err)
 	}
+
+	integrations, next := pageItems(
+		all, func(i *CodeSecurityIntegration) string { return i.IntegrationArn }, pr.MaxResults, pr.NextToken,
+	)
 
 	wire := make([]map[string]any, 0, len(integrations))
 	for _, integ := range integrations {
 		wire = append(wire, codeSecurityIntegrationToWire(integ))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"integrations": wire})
+	return c.JSON(http.StatusOK, withPageToken(map[string]any{"integrations": wire}, next))
 }
 
 func (h *Handler) handleCreateCodeSecurityScanConfiguration(c *echo.Context) error {
@@ -399,10 +408,19 @@ func codeSecurityScanConfigSummaryToWire(cfg *CodeSecurityScanConfiguration, own
 }
 
 func (h *Handler) handleListCodeSecurityScanConfigurations(c *echo.Context) error {
-	cfgs, err := h.Backend.ListCodeSecurityScanConfigurations()
+	pr, reqErr := readPageRequest(c)
+	if reqErr != nil {
+		return h.mapError(c, reqErr)
+	}
+
+	all, err := h.Backend.ListCodeSecurityScanConfigurations()
 	if err != nil {
 		return h.mapError(c, err)
 	}
+
+	cfgs, next := pageItems(
+		all, func(cfg *CodeSecurityScanConfiguration) string { return cfg.Arn }, pr.MaxResults, pr.NextToken,
+	)
 
 	ownerAccountID := h.Backend.AccountID()
 
@@ -416,7 +434,7 @@ func (h *Handler) handleListCodeSecurityScanConfigurations(c *echo.Context) erro
 	// -- that key belongs to the unrelated CIS/connector scan-configuration
 	// list endpoints (see keyScanConfigurations's other call sites), reusing it
 	// here would leave a real client's Configurations field unpopulated.
-	return c.JSON(http.StatusOK, map[string]any{"configurations": wire})
+	return c.JSON(http.StatusOK, withPageToken(map[string]any{"configurations": wire}, next))
 }
 
 // codeSecurityBatchItemRequest is the wire shape of one
@@ -516,7 +534,7 @@ func successfulAssociations(scanConfigARN string, resources []string, failed []m
 		}
 
 		successful = append(successful, map[string]any{
-			"resource":             map[string]any{"projectId": r},
+			keyResource:            map[string]any{keyProjectID: r},
 			"scanConfigurationArn": scanConfigARN,
 		})
 	}
@@ -572,6 +590,8 @@ func (h *Handler) handleListCodeSecurityScanConfigurationAssociations(c *echo.Co
 
 	var req struct {
 		ScanConfigurationArn string `json:"scanConfigurationArn"`
+		NextToken            string `json:"nextToken"`
+		MaxResults           int32  `json:"maxResults"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
@@ -589,7 +609,19 @@ func (h *Handler) handleListCodeSecurityScanConfigurationAssociations(c *echo.Co
 		assocs = []*CodeSecurityScanConfigurationAssociation{}
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"associations": assocs})
+	page, next := pageItems(
+		assocs,
+		func(a *CodeSecurityScanConfigurationAssociation) string { return a.Resource },
+		req.MaxResults,
+		req.NextToken,
+	)
+
+	wire := make([]map[string]any, 0, len(page))
+	for _, a := range page {
+		wire = append(wire, map[string]any{"resource": map[string]any{"projectId": a.Resource}})
+	}
+
+	return c.JSON(http.StatusOK, withPageToken(map[string]any{"associations": wire}, next))
 }
 
 func (h *Handler) handleStartCodeSecurityScan(c *echo.Context) error {
@@ -599,14 +631,20 @@ func (h *Handler) handleStartCodeSecurityScan(c *echo.Context) error {
 	}
 
 	var req struct {
-		ResourceID string `json:"resourceId"`
+		Resource struct {
+			ProjectID string `json:"projectId"`
+		} `json:"resource"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 
-	result, startErr := h.Backend.StartCodeSecurityScan(req.ResourceID)
+	if req.Resource.ProjectID == "" {
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "resource.projectId is required"))
+	}
+
+	result, startErr := h.Backend.StartCodeSecurityScan(req.Resource.ProjectID)
 	if startErr != nil {
 		return h.mapError(c, startErr)
 	}
@@ -621,6 +659,9 @@ func (h *Handler) handleGetCodeSecurityScan(c *echo.Context) error {
 	}
 
 	var req struct {
+		Resource struct {
+			ProjectID string `json:"projectId"`
+		} `json:"resource"`
 		ScanID string `json:"scanId"`
 	}
 
@@ -628,7 +669,7 @@ func (h *Handler) handleGetCodeSecurityScan(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 
-	scan, getErr := h.Backend.GetCodeSecurityScan(req.ScanID)
+	scan, getErr := h.Backend.GetCodeSecurityScan(req.ScanID, req.Resource.ProjectID)
 	if getErr != nil {
 		return h.mapError(c, getErr)
 	}

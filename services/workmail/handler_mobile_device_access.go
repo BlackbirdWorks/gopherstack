@@ -2,6 +2,7 @@ package workmail
 
 import (
 	"context"
+	"fmt"
 )
 
 // ---- Mobile Device Access Rules ----
@@ -11,6 +12,7 @@ type createMobileDeviceAccessRuleReq struct {
 	Name                      string   `json:"Name"`
 	Effect                    string   `json:"Effect"`
 	Description               string   `json:"Description"`
+	ClientToken               string   `json:"ClientToken"`
 	DeviceModels              []string `json:"DeviceModels"`
 	NotDeviceModels           []string `json:"NotDeviceModels"`
 	DeviceTypes               []string `json:"DeviceTypes"`
@@ -28,11 +30,41 @@ type createMobileDeviceAccessRuleResp struct {
 func (h *Handler) handleCreateMobileDeviceAccessRule(
 	_ context.Context, req *createMobileDeviceAccessRuleReq,
 ) (*createMobileDeviceAccessRuleResp, error) {
-	rule, err := h.Backend.CreateMobileDeviceAccessRule(
-		req.OrganizationID, req.Name, req.Effect, req.Description,
-		req.DeviceModels, req.NotDeviceModels, req.DeviceTypes, req.NotDeviceTypes,
-		req.DeviceOperatingSystems, req.NotDeviceOperatingSystems, req.DeviceUserAgents, req.NotDeviceUserAgents,
-	)
+	token := req.ClientToken
+	req.ClientToken = ""
+
+	rule, err := replayCreate(h, "CreateMobileDeviceAccessRule", token, req,
+		func(r *MobileDeviceAccessRule) string { return r.RuleID },
+		func(id string) (*MobileDeviceAccessRule, error) {
+			rules, listErr := h.Backend.ListMobileDeviceAccessRules(req.OrganizationID)
+			if listErr != nil {
+				return nil, listErr
+			}
+
+			for _, r := range rules {
+				if r.RuleID == id {
+					return r, nil
+				}
+			}
+
+			return nil, fmt.Errorf("%w: mobile device access rule %q not found", ErrNotFound, id)
+		},
+		func() (*MobileDeviceAccessRule, error) {
+			return h.Backend.CreateMobileDeviceAccessRule(
+				req.OrganizationID,
+				req.Name,
+				req.Effect,
+				req.Description,
+				req.DeviceModels,
+				req.NotDeviceModels,
+				req.DeviceTypes,
+				req.NotDeviceTypes,
+				req.DeviceOperatingSystems,
+				req.NotDeviceOperatingSystems,
+				req.DeviceUserAgents,
+				req.NotDeviceUserAgents,
+			)
+		})
 	if err != nil {
 		return nil, err
 	}

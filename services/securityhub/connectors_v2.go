@@ -26,7 +26,7 @@ func (c *ConnectorV2) clone() *ConnectorV2 {
 }
 
 func (b *InMemoryBackend) CreateConnectorV2(
-	name, description string,
+	name, description, kmsKeyArn string,
 	provider map[string]any,
 	tags map[string]string,
 ) (*ConnectorV2, error) {
@@ -43,9 +43,10 @@ func (b *InMemoryBackend) CreateConnectorV2(
 		ConnectorArn:     arn,
 		Name:             name,
 		Description:      description,
+		KmsKeyArn:        kmsKeyArn,
 		CreatedAt:        now,
 		UpdatedAt:        now,
-		ConnectorStatus:  "ACTIVE",
+		ConnectorStatus:  "CONNECTED",
 		EnablementStatus: "ENABLED",
 		Provider:         provider,
 		Tags:             tags,
@@ -77,7 +78,10 @@ func (b *InMemoryBackend) GetConnectorV2(connectorID string) (*ConnectorV2, erro
 	return c.clone(), nil
 }
 
-func (b *InMemoryBackend) ListConnectorsV2(nextToken string, maxResults int) ([]*ConnectorV2, string) {
+func (b *InMemoryBackend) ListConnectorsV2(
+	connectorStatus, enablementStatus, providerName, nextToken string,
+	maxResults int,
+) ([]*ConnectorV2, string) {
 	b.mu.RLock("ListConnectorsV2")
 	defer b.mu.RUnlock()
 
@@ -85,6 +89,12 @@ func (b *InMemoryBackend) ListConnectorsV2(nextToken string, maxResults int) ([]
 	all := make([]*ConnectorV2, 0, len(snap))
 
 	for _, c := range snap {
+		if connectorStatus != "" && c.ConnectorStatus != connectorStatus ||
+			enablementStatus != "" && c.EnablementStatus != enablementStatus ||
+			providerName != "" && connectorV2ProviderName(c.Provider) != providerName {
+			continue
+		}
+
 		all = append(all, c.clone())
 	}
 
@@ -187,7 +197,7 @@ func (b *InMemoryBackend) RegisterConnectorV2(_, authState string) (*ConnectorV2
 		return nil, ErrNotFound
 	}
 
-	target.ConnectorStatus = "REGISTERED"
+	target.ConnectorStatus = "CONNECTED"
 	target.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 
 	return target.clone(), nil

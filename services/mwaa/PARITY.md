@@ -564,3 +564,7 @@ fields changed, no version bump. `cmd/paritylint` stays at 0 FAIL.
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 mwaa already isolates regions internally: environments are keyed per region. Proof: `TestRegionIsolation/mwaa`; no sibling handlers needed.
+
+## 2026-10-05 (gopherstack-uox6 pass 9, value semantics)
+
+Round trips clean. Recorded, unchanged (SDK silent): UpdateEnvironment replaces LoggingConfiguration wholesale, so a module omitted from the update disappears from Describe; AWS-web-docs-only: Describe lists all five modules with Enabled=false.

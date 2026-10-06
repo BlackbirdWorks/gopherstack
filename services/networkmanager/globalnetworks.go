@@ -43,8 +43,15 @@ func (b *InMemoryBackend) CreateGlobalNetwork(description string, tagMap map[str
 	return g.clone()
 }
 
+// setIfPresent keeps dst when v is nil; an empty string clears it (api_op_UpdateSite.go:12-13).
+func setIfPresent(dst, v *string) {
+	if v != nil {
+		*dst = *v
+	}
+}
+
 // UpdateGlobalNetwork updates description, transitioning through UPDATING.
-func (b *InMemoryBackend) UpdateGlobalNetwork(id, description string) (*GlobalNetwork, error) {
+func (b *InMemoryBackend) UpdateGlobalNetwork(id string, description *string) (*GlobalNetwork, error) {
 	b.mu.Lock("UpdateGlobalNetwork")
 	defer b.mu.Unlock()
 
@@ -53,7 +60,7 @@ func (b *InMemoryBackend) UpdateGlobalNetwork(id, description string) (*GlobalNe
 		return nil, notFoundError(resourceGlobalNetwork, id)
 	}
 
-	g.Description = description
+	setIfPresent(&g.Description, description)
 	g.State = stateUpdating
 
 	scheduleAdvance(b, "GlobalNetworkUpdated", b.globalNetworks, id,
@@ -224,7 +231,7 @@ func (b *InMemoryBackend) CreateSite(
 	return s.clone(), nil
 }
 
-func (b *InMemoryBackend) UpdateSite(globalNetworkID, id, description string, loc *Location) (*Site, error) {
+func (b *InMemoryBackend) UpdateSite(globalNetworkID, id string, description *string, loc *Location) (*Site, error) {
 	b.mu.Lock("UpdateSite")
 	defer b.mu.Unlock()
 
@@ -233,9 +240,7 @@ func (b *InMemoryBackend) UpdateSite(globalNetworkID, id, description string, lo
 		return nil, notFoundError(resourceSite, id)
 	}
 
-	if description != "" {
-		s.Description = description
-	}
+	setIfPresent(&s.Description, description)
 
 	if loc != nil {
 		s.Location = loc
@@ -346,7 +351,7 @@ func (b *InMemoryBackend) CreateDevice(
 
 func (b *InMemoryBackend) UpdateDevice(
 	globalNetworkID, id string, awsLoc *AWSLocation, loc *Location,
-	description, model, serialNumber, siteID, devType, vendor string,
+	description, model, serialNumber, siteID, devType, vendor *string,
 ) (*Device, error) {
 	b.mu.Lock("UpdateDevice")
 	defer b.mu.Unlock()
@@ -364,29 +369,17 @@ func (b *InMemoryBackend) UpdateDevice(
 		d.Location = loc
 	}
 
-	if description != "" {
-		d.Description = description
-	}
+	setIfPresent(&d.Description, description)
 
-	if model != "" {
-		d.Model = model
-	}
+	setIfPresent(&d.Model, model)
 
-	if serialNumber != "" {
-		d.SerialNumber = serialNumber
-	}
+	setIfPresent(&d.SerialNumber, serialNumber)
 
-	if siteID != "" {
-		d.SiteID = siteID
-	}
+	setIfPresent(&d.SiteID, siteID)
 
-	if devType != "" {
-		d.Type = devType
-	}
+	setIfPresent(&d.Type, devType)
 
-	if vendor != "" {
-		d.Vendor = vendor
-	}
+	setIfPresent(&d.Vendor, vendor)
 
 	d.State = stateUpdating
 	scheduleAdvance(b, "DeviceUpdated", b.devices, id,
@@ -503,7 +496,7 @@ func (b *InMemoryBackend) CreateLink(
 }
 
 func (b *InMemoryBackend) UpdateLink(
-	globalNetworkID, id string, bw *Bandwidth, description, provider, linkType string,
+	globalNetworkID, id string, bw *Bandwidth, description, provider, linkType *string,
 ) (*Link, error) {
 	b.mu.Lock("UpdateLink")
 	defer b.mu.Unlock()
@@ -517,17 +510,11 @@ func (b *InMemoryBackend) UpdateLink(
 		l.Bandwidth = bw
 	}
 
-	if description != "" {
-		l.Description = description
-	}
+	setIfPresent(&l.Description, description)
 
-	if provider != "" {
-		l.Provider = provider
-	}
+	setIfPresent(&l.Provider, provider)
 
-	if linkType != "" {
-		l.Type = linkType
-	}
+	setIfPresent(&l.Type, linkType)
 
 	l.State = stateUpdating
 	scheduleAdvance(
@@ -734,7 +721,7 @@ func (b *InMemoryBackend) CreateConnection(
 }
 
 func (b *InMemoryBackend) UpdateConnection(
-	globalNetworkID, id, connectedLinkID, description, linkID string,
+	globalNetworkID, id string, connectedLinkID, description, linkID *string,
 ) (*Connection, error) {
 	b.mu.Lock("UpdateConnection")
 	defer b.mu.Unlock()
@@ -744,17 +731,11 @@ func (b *InMemoryBackend) UpdateConnection(
 		return nil, notFoundError(resourceConnection, id)
 	}
 
-	if connectedLinkID != "" {
-		c.ConnectedLinkID = connectedLinkID
-	}
+	setIfPresent(&c.ConnectedLinkID, connectedLinkID)
 
-	if description != "" {
-		c.Description = description
-	}
+	setIfPresent(&c.Description, description)
 
-	if linkID != "" {
-		c.LinkID = linkID
-	}
+	setIfPresent(&c.LinkID, linkID)
 
 	c.State = stateUpdating
 	scheduleAdvance(b, "ConnectionUpdated", b.connections, id,

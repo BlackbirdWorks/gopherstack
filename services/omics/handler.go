@@ -13,6 +13,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -192,12 +193,13 @@ const (
 // Handler handles HealthOmics HTTP requests.
 type Handler struct {
 	peers   *regionpeers.Set[Handler]
+	idem    *idempotency.Memo
 	Backend StorageBackend
 }
 
 // NewHandler constructs a new Handler.
 func NewHandler(b StorageBackend) *Handler {
-	return &Handler{Backend: b}
+	return &Handler{Backend: b, idem: idempotency.New("omics")}
 }
 
 // Name returns the service name.

@@ -91,6 +91,17 @@ func (b *InMemoryBackend) DescribeReservedCacheNodes(
 	id, cacheNodeType, offeringType, duration, productDescription, marker string,
 	maxRecords int,
 ) (page.Page[ReservedCacheNode], error) {
+	return b.DescribeReservedCacheNodesByOffering(
+		ctx, id, cacheNodeType, offeringType, duration, productDescription, "", marker, maxRecords,
+	)
+}
+
+// DescribeReservedCacheNodesByOffering is DescribeReservedCacheNodes that also filters on the offering ID.
+func (b *InMemoryBackend) DescribeReservedCacheNodesByOffering(
+	ctx context.Context,
+	id, cacheNodeType, offeringType, duration, productDescription, offeringID, marker string,
+	maxRecords int,
+) (page.Page[ReservedCacheNode], error) {
 	b.mu.RLock("DescribeReservedCacheNodes")
 	defer b.mu.RUnlock()
 
@@ -104,7 +115,8 @@ func (b *InMemoryBackend) DescribeReservedCacheNodes(
 			return (cacheNodeType == "" || rcn.CacheNodeType == cacheNodeType) &&
 				(offeringType == "" || rcn.OfferingType == offeringType) &&
 				matchesReservedDuration(duration, rcn.Duration) &&
-				(productDescription == "" || rcn.ProductDescription == productDescription)
+				(productDescription == "" || rcn.ProductDescription == productDescription) &&
+				(offeringID == "" || rcn.OfferingID == offeringID)
 		},
 		func(rcn ReservedCacheNode) string { return rcn.ReservedCacheNodeID },
 		marker,

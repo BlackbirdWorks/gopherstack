@@ -261,6 +261,13 @@ type EphemeralStorage struct {
 	SizeInGiB int `json:"sizeInGiB"`
 }
 
+// ProxyConfiguration is the App Mesh proxy configuration of a task definition.
+type ProxyConfiguration struct {
+	ContainerName string         `json:"containerName"`
+	Type          string         `json:"type,omitempty"`
+	Properties    []KeyValuePair `json:"properties,omitempty"`
+}
+
 // InferenceAccelerator specifies an Elastic Inference accelerator for a task definition.
 type InferenceAccelerator struct {
 	DeviceName string `json:"deviceName"`
@@ -296,6 +303,7 @@ type DeploymentAlarms struct {
 // configuration is still not modeled by this backend.
 type UpdateClusterInput struct {
 	ServiceConnectDefaults *ClusterServiceConnectDefaults
+	Configuration          *ClusterConfiguration
 	Cluster                string
 	Settings               []ClusterSetting
 }
@@ -316,8 +324,11 @@ type StartTaskInput struct {
 	TaskDefinition       string
 	Group                string
 	StartedBy            string
+	PropagateTags        string
 	ContainerInstances   []string
+	Tags                 []Tag
 	EnableExecuteCommand bool
+	EnableECSManagedTags bool
 }
 
 // ---- Tag, capacity provider, account setting, and attribute models ----
@@ -655,6 +666,7 @@ type ClusterServiceConnectDefaults struct {
 type Cluster struct {
 	CreatedAt                         time.Time                      `json:"createdAt"`
 	ServiceConnectDefaults            *ClusterServiceConnectDefaults `json:"serviceConnectDefaults,omitempty"`
+	Configuration                     *ClusterConfiguration          `json:"configuration,omitempty"`
 	ClusterArn                        string                         `json:"clusterArn"`
 	ClusterName                       string                         `json:"clusterName"`
 	Status                            string                         `json:"status"`
@@ -665,6 +677,34 @@ type Cluster struct {
 	PendingTasksCount                 int                            `json:"pendingTasksCount"`
 	RegisteredContainerInstancesCount int                            `json:"registeredContainerInstancesCount"`
 	RunningTasksCount                 int                            `json:"runningTasksCount"`
+}
+
+// ClusterConfiguration is a cluster's execute-command and managed-storage settings.
+type ClusterConfiguration struct {
+	ExecuteCommandConfiguration *ExecuteCommandConfiguration `json:"executeCommandConfiguration,omitempty"`
+	ManagedStorageConfiguration *ManagedStorageConfiguration `json:"managedStorageConfiguration,omitempty"`
+}
+
+// ExecuteCommandConfiguration configures ECS Exec for a cluster.
+type ExecuteCommandConfiguration struct {
+	LogConfiguration *ExecuteCommandLogConfiguration `json:"logConfiguration,omitempty"`
+	KmsKeyID         string                          `json:"kmsKeyId,omitempty"`
+	Logging          string                          `json:"logging,omitempty"`
+}
+
+// ExecuteCommandLogConfiguration is the OVERRIDE log destination for ECS Exec.
+type ExecuteCommandLogConfiguration struct {
+	CloudWatchLogGroupName      string `json:"cloudWatchLogGroupName,omitempty"`
+	S3BucketName                string `json:"s3BucketName,omitempty"`
+	S3KeyPrefix                 string `json:"s3KeyPrefix,omitempty"`
+	CloudWatchEncryptionEnabled bool   `json:"cloudWatchEncryptionEnabled,omitempty"`
+	S3EncryptionEnabled         bool   `json:"s3EncryptionEnabled,omitempty"`
+}
+
+// ManagedStorageConfiguration holds the KMS keys encrypting a cluster's managed storage.
+type ManagedStorageConfiguration struct {
+	FargateEphemeralStorageKmsKeyID string `json:"fargateEphemeralStorageKmsKeyId,omitempty"`
+	KmsKeyID                        string `json:"kmsKeyId,omitempty"`
 }
 
 // ContainerDefinition represents a container definition in a task definition.
@@ -733,6 +773,7 @@ type PortMapping struct {
 
 // TaskDefinition represents an ECS task definition.
 type TaskDefinition struct {
+	ProxyConfiguration      *ProxyConfiguration    `json:"proxyConfiguration,omitempty"`
 	RuntimePlatform         *RuntimePlatform       `json:"runtimePlatform,omitempty"`
 	EphemeralStorage        *EphemeralStorage      `json:"ephemeralStorage,omitempty"`
 	RegisteredAt            time.Time              `json:"registeredAt"`
@@ -797,6 +838,9 @@ type Service struct {
 	SchedulingStrategy            string                         `json:"schedulingStrategy,omitempty"`
 	PropagateTags                 string                         `json:"propagateTags,omitempty"`
 	AvailabilityZoneRebalancing   string                         `json:"availabilityZoneRebalancing,omitempty"`
+	PlatformVersion               string                         `json:"platformVersion,omitempty"`
+	RoleArn                       string                         `json:"roleArn,omitempty"`
+	ClientToken                   string                         `json:"clientToken,omitempty"`
 	Tags                          []Tag                          `json:"tags,omitempty"`
 	LoadBalancers                 []LoadBalancer                 `json:"loadBalancers,omitempty"`
 	ServiceRegistries             []ServiceRegistry              `json:"serviceRegistries,omitempty"`
@@ -808,6 +852,7 @@ type Service struct {
 	PendingCount                  int                            `json:"pendingCount"`
 	RunningCount                  int                            `json:"runningCount"`
 	EnableExecuteCommand          bool                           `json:"enableExecuteCommand,omitempty"`
+	EnableECSManagedTags          bool                           `json:"enableECSManagedTags,omitempty"`
 }
 
 // Task represents an ECS task.
@@ -849,6 +894,7 @@ type Task struct {
 // CreateClusterInput holds input for CreateCluster.
 type CreateClusterInput struct {
 	ServiceConnectDefaults          *ClusterServiceConnectDefaults
+	Configuration                   *ClusterConfiguration
 	ClusterName                     string
 	Settings                        []ClusterSetting
 	CapacityProviders               []string
@@ -858,6 +904,7 @@ type CreateClusterInput struct {
 
 // RegisterTaskDefinitionInput holds input for RegisterTaskDefinition.
 type RegisterTaskDefinitionInput struct {
+	ProxyConfiguration      *ProxyConfiguration    `json:"proxyConfiguration,omitempty"`
 	RuntimePlatform         *RuntimePlatform       `json:"runtimePlatform,omitempty"`
 	EphemeralStorage        *EphemeralStorage      `json:"ephemeralStorage,omitempty"`
 	Family                  string                 `json:"family"`
@@ -893,6 +940,9 @@ type CreateServiceInput struct {
 	SchedulingStrategy            string                         `json:"schedulingStrategy,omitempty"`
 	PropagateTags                 string                         `json:"propagateTags,omitempty"`
 	AvailabilityZoneRebalancing   string                         `json:"availabilityZoneRebalancing,omitempty"`
+	PlatformVersion               string                         `json:"platformVersion,omitempty"`
+	RoleArn                       string                         `json:"roleArn,omitempty"`
+	ClientToken                   string                         `json:"clientToken,omitempty"`
 	Tags                          []Tag                          `json:"tags,omitempty"`
 	LoadBalancers                 []LoadBalancer                 `json:"loadBalancers,omitempty"`
 	ServiceRegistries             []ServiceRegistry              `json:"serviceRegistries,omitempty"`
@@ -901,11 +951,13 @@ type CreateServiceInput struct {
 	PlacementStrategy             []PlacementStrategy            `json:"placementStrategy,omitempty"`
 	DesiredCount                  int                            `json:"desiredCount"`
 	EnableExecuteCommand          bool                           `json:"enableExecuteCommand,omitempty"`
+	EnableECSManagedTags          bool                           `json:"enableECSManagedTags,omitempty"`
 }
 
 // UpdateServiceInput holds input for UpdateService.
 type UpdateServiceInput struct {
 	EnableExecuteCommand          *bool                          `json:"enableExecuteCommand,omitempty"`
+	EnableECSManagedTags          *bool                          `json:"enableECSManagedTags,omitempty"`
 	DesiredCount                  *int                           `json:"desiredCount,omitempty"`
 	HealthCheckGracePeriodSeconds *int                           `json:"healthCheckGracePeriodSeconds,omitempty"`
 	DeploymentConfiguration       *DeploymentConfiguration       `json:"deploymentConfiguration,omitempty"`
@@ -917,7 +969,9 @@ type UpdateServiceInput struct {
 	TaskDefinition                *string                        `json:"taskDefinition,omitempty"`
 	PropagateTags                 string                         `json:"propagateTags,omitempty"`
 	AvailabilityZoneRebalancing   string                         `json:"availabilityZoneRebalancing,omitempty"`
+	PlatformVersion               string                         `json:"platformVersion,omitempty"`
 	LoadBalancers                 []LoadBalancer                 `json:"loadBalancers,omitempty"`
+	ServiceRegistries             []ServiceRegistry              `json:"serviceRegistries,omitempty"`
 	CapacityProviderStrategy      []CapacityProviderStrategyItem `json:"capacityProviderStrategy,omitempty"`
 	PlacementConstraints          []PlacementConstraint          `json:"placementConstraints,omitempty"`
 	PlacementStrategy             []PlacementStrategy            `json:"placementStrategy,omitempty"`
@@ -971,15 +1025,32 @@ type ContainerInstance struct {
 	// placement-bookkeeping, persisted additively so reservations survive a
 	// restart instead of going stale.
 	AllocatedPorts       map[string]bool `json:"allocatedPorts,omitempty"`
+	VersionInfo          *VersionInfo    `json:"versionInfo,omitempty"`
 	ContainerInstanceArn string          `json:"containerInstanceArn"`
 	EC2InstanceID        string          `json:"ec2InstanceId"`
 	ClusterArn           string          `json:"clusterArn"`
 	Status               string          `json:"status"`
 	AgentUpdateStatus    string          `json:"agentUpdateStatus,omitempty"`
-	Version              int64           `json:"version"`
-	RunningTasksCount    int             `json:"runningTasksCount"`
-	PendingTasksCount    int             `json:"pendingTasksCount"`
-	AgentConnected       bool            `json:"agentConnected"`
+	// Attributes is derived from the cluster attribute table on read.
+	Attributes        []Attribute `json:"-"`
+	Version           int64       `json:"version"`
+	RunningTasksCount int         `json:"runningTasksCount"`
+	PendingTasksCount int         `json:"pendingTasksCount"`
+	AgentConnected    bool        `json:"agentConnected"`
+}
+
+// VersionInfo is the container agent and Docker version reported at registration.
+type VersionInfo struct {
+	AgentHash     string `json:"agentHash,omitempty"`
+	AgentVersion  string `json:"agentVersion,omitempty"`
+	DockerVersion string `json:"dockerVersion,omitempty"`
+}
+
+// ContainerInstanceDetails carries the optional RegisterContainerInstance members.
+type ContainerInstanceDetails struct {
+	VersionInfo *VersionInfo
+	Attributes  []Attribute
+	Tags        []Tag
 }
 
 // TaskSetScale specifies a scale for a task set.

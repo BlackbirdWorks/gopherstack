@@ -78,7 +78,7 @@ func newPersistenceTestBackend(t *testing.T) (*rekognition.InMemoryBackend, pers
 	_, err = b.PutProjectPolicy(proj.ProjectARN, "policy2", `{"Version":"2012-10-17"}`, "")
 	require.NoError(t, err)
 
-	ds, err := b.CreateDataset(proj.ProjectARN, "TRAIN")
+	ds, err := b.CreateDataset(proj.ProjectARN, "TRAIN", nil)
 	require.NoError(t, err)
 	require.NoError(t, b.UpdateDatasetEntries(ds.DatasetARN, []byte(`{"source-ref":"s3://bucket/1.jpg"}`)))
 
@@ -89,7 +89,7 @@ func newPersistenceTestBackend(t *testing.T) (*rekognition.InMemoryBackend, pers
 	require.Len(t, associated, 1)
 	require.Empty(t, unsuccessful)
 
-	livenessSessionID, err := b.CreateFaceLivenessSession()
+	livenessSessionID, err := b.CreateFaceLivenessSession("")
 	require.NoError(t, err)
 
 	asyncJobID, err := b.StartAsyncJob(rekognition.StartAsyncJobParams{

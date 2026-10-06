@@ -55,7 +55,7 @@ func TestAccuracy_MarketplaceEndpoint_CreateStartsAsCreating(t *testing.T) {
 				assert.Equal(t, "REGISTERED", ep["status"])
 				assert.Equal(t, "Creating", ep["endpointStatus"])
 				assert.NotEmpty(t, ep["endpointArn"])
-				assert.Equal(t, tt.endpointName, ep["endpointName"])
+				assert.NotContains(t, ep, "endpointName")
 				assert.Equal(t, tt.modelSourceID, ep["modelSourceIdentifier"])
 				assert.NotEmpty(t, ep["createdAt"])
 				assert.NotEmpty(t, ep["updatedAt"])

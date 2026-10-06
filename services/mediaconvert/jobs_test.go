@@ -262,8 +262,8 @@ func TestCreateJob_UnknownQueueBackend(t *testing.T) {
 	assert.Contains(t, err.Error(), "not found")
 }
 
-// TestListJobs_TotalCountInResponse verifies totalCount in list response.
-func TestListJobs_TotalCountInResponse(t *testing.T) {
+// TestListJobs_OmitsTotalCount verifies the list response carries no totalCount member.
+func TestListJobs_OmitsTotalCount(t *testing.T) {
 	t.Parallel()
 
 	b := mediaconvert.NewInMemoryBackend(testAccountID, testRegion)
@@ -280,7 +280,8 @@ func TestListJobs_TotalCountInResponse(t *testing.T) {
 
 	var out map[string]any
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
-	assert.InDelta(t, float64(2), out["totalCount"], 0)
+	assert.NotContains(t, out, "totalCount")
+	assert.Len(t, out["jobs"], 2)
 }
 
 // TestCloneJob_UserMetadataIndependent ensures cloneJob deep-copies userMetadata.

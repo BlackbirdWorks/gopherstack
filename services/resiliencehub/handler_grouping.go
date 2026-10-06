@@ -59,6 +59,10 @@ func (h *Handler) handleListResourceGroupingRecommendations(
 ) ([]byte, error) {
 	q := r.URL.Query()
 
+	if err := validatePage(q.Get("nextToken"), queryMaxResults(q)); err != nil {
+		return nil, err
+	}
+
 	if err := h.Backend.ListResourceGroupingRecommendations(q.Get("appArn")); err != nil {
 		return nil, err
 	}

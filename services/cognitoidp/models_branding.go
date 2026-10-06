@@ -10,6 +10,7 @@ type UICustomization struct {
 	ClientID       string    `json:"clientID,omitempty"`
 	CSS            string    `json:"css,omitempty"`
 	ImageURL       string    `json:"imageURL,omitempty"`
+	ImageFile      []byte    `json:"imageFile,omitempty"`
 }
 
 // ManagedLoginBranding stores managed login branding for a pool client.
@@ -28,7 +29,7 @@ type setUICustomizationFullInput struct {
 	UserPoolID string `json:"UserPoolId,omitempty"`
 	ClientID   string `json:"ClientId,omitempty"`
 	CSS        string `json:"CSS,omitempty"`
-	ImageData  string `json:"ImageData,omitempty"`
+	ImageFile  []byte `json:"ImageFile,omitempty"`
 }
 
 type uiCustomizationJSON struct {

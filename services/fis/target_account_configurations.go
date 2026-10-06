@@ -25,6 +25,10 @@ func (b *InMemoryBackend) CreateTargetAccountConfiguration(
 		return nil, fmt.Errorf("%w: %s", ErrTemplateNotFound, templateID)
 	}
 
+	if b.targetAccountConfigs.Has(targetAccountConfigKey(templateID, accountID)) {
+		return nil, fmt.Errorf("%w: template=%s account=%s", ErrTargetAccountConfigExists, templateID, accountID)
+	}
+
 	cfg := &TargetAccountConfiguration{
 		ExperimentTemplateID: templateID,
 		AccountID:            accountID,

@@ -14,14 +14,15 @@ type putLogEventsInput struct {
 }
 
 type getLogEventsInput struct {
-	StartTime     *int64 `json:"startTime"`
-	EndTime       *int64 `json:"endTime"`
-	LogGroupName  string `json:"logGroupName"`
-	LogStreamName string `json:"logStreamName"`
-	NextToken     string `json:"nextToken"`
-	Limit         int    `json:"limit"`
-	StartFromHead bool   `json:"startFromHead"`
-	Unmask        bool   `json:"unmask"`
+	StartTime          *int64 `json:"startTime"`
+	EndTime            *int64 `json:"endTime"`
+	LogGroupName       string `json:"logGroupName"`
+	LogGroupIdentifier string `json:"logGroupIdentifier"`
+	LogStreamName      string `json:"logStreamName"`
+	NextToken          string `json:"nextToken"`
+	Limit              int    `json:"limit"`
+	StartFromHead      bool   `json:"startFromHead"`
+	Unmask             bool   `json:"unmask"`
 }
 
 type filterLogEventsInput struct {
@@ -29,6 +30,7 @@ type filterLogEventsInput struct {
 	EndTime             *int64   `json:"endTime"`
 	StartFromHead       *bool    `json:"startFromHead"`
 	LogGroupName        string   `json:"logGroupName"`
+	LogGroupIdentifier  string   `json:"logGroupIdentifier"`
 	FilterPattern       string   `json:"filterPattern"`
 	NextToken           string   `json:"nextToken"`
 	LogStreamNamePrefix string   `json:"logStreamNamePrefix"`
@@ -92,8 +94,12 @@ func (h *Handler) logEventActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
+			groupName, err := resolveLogGroupRef(input.LogGroupName, input.LogGroupIdentifier)
+			if err != nil {
+				return nil, err
+			}
 			evts, fwd, bwd, err := h.Backend.GetLogEvents(withUnmask(ctx, input.Unmask),
-				input.LogGroupName, input.LogStreamName, input.StartTime, input.EndTime,
+				groupName, input.LogStreamName, input.StartTime, input.EndTime,
 				input.Limit, input.NextToken, input.StartFromHead)
 			if err != nil {
 				return nil, err
@@ -110,8 +116,12 @@ func (h *Handler) logEventActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
+			groupName, err := resolveLogGroupRef(input.LogGroupName, input.LogGroupIdentifier)
+			if err != nil {
+				return nil, err
+			}
 			evts, next, searched, err := h.Backend.FilterLogEvents(withUnmask(ctx, input.Unmask), FilterLogEventsParams{
-				GroupName:           input.LogGroupName,
+				GroupName:           groupName,
 				StreamNames:         input.LogStreamNames,
 				LogStreamNamePrefix: input.LogStreamNamePrefix,
 				FilterPattern:       input.FilterPattern,

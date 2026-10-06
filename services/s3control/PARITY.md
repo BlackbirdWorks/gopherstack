@@ -226,6 +226,7 @@ items_still_open:
     failed with 'operation error S3 Control: GetBucketTagging ... NoSuchTagSetError'. Aws_s3control_
     directory_bucket_access_point_scope (S3 Express One Zone / Local Zone) not attempted: needs a
     zone-suffixed directory bucket the emulator's S3 side does not model."
+  - "Unmodeled (2026-10-05): PutBucketVersioning MFA and the MfaDelete member (no MFA device model, and the bucket versioning store tracks Status only), PutBucketPolicy ConfirmRemoveSelfBucketAccess (no policy evaluation to detect a self-lockout), CreateBucket ACL/GrantFullControl/GrantRead/GrantReadACP/GrantWrite/GrantWriteACP/ObjectLockEnabledForBucket (S3 Control has no op that reads them back), ListCallerAccessGrants AllowedByApplication (no caller Identity Center application identity), the access-grant S3PrefixType request member and GetDataAccess TargetType/AuditContext (grant-scope matching against object paths is not modeled), the ListAccessPoints data-source id filter (same gap as the data-source type filter above), the multi-region access point delete and put-policy ClientToken members (no idempotent async-request replay)."
 deferred:
   - "AccessGrantsInstance / IdentityCenter association flows: state machine correctness beyond basic CRUD
     (the delete-grants-and-locations-first precondition IS enforced -- see the DeleteAccessGrantsInstance
@@ -1133,3 +1134,37 @@ FIXED 2026-10-03 (gopherstack-twwrp): CreateAccessGrant now sets GrantScope to t
 ## 2026-10-04 (reqfielddiff tier-1 pass)
 
 `DeleteAccessGrantsLocation`/`GetAccessGrantsLocation`/`UpdateAccessGrantsLocation.AccessGrantsLocationId` are tool false positives (httpLabel path segments, read from the URL). `ListAccessPoints.DataSourceType` stays recorded: every access point is bucket-backed so the filter cannot change the output.
+
+## 2026-10-05 (gopherstack-uox6 pass 8, value semantics)
+
+GetBucketVersioning returned a fabricated Suspended status for a bucket whose versioning was never set; the SDK says no status is returned in that case (api_op_GetBucketVersioning.go:24-26), so Status is now omitted until PutBucketVersioning runs. Two tests that asserted the fabricated Suspended were changed to expect empty. Proof: `TestBucketVersioning_NoStatusUntilConfigured`. Recorded: MFADelete is not modeled.
+
+## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
+
+Sparse-model SDK. AccessGrantsInstanceNotExistsError, NoSuchBucket, ReplicationConfigurationNotFoundError and NoSuchConfiguration are S3 Control wire codes the SDK does not model per op. UNVERIFIED offline: NoSuchStorageLensGroup (the SDK models only NotFoundException); handler_jobs.go InvalidArgument is the S3 generic code.
+
+## 2026-10-05 errcodeaudit needs-review adjudication (gopherstack-r3pr)
+
+NoSuchAccessGrant (access_grants.go:260/276): the pinned s3control v1.73.4 declares no error for any Access Grants op (GetAccessGrant deserializer has only the generic default), so the code cannot be verified offline; kept, consistent with NoSuchAccessGrantsLocation.
+
+## 2026-10-05 pass 11 (gopherstack-9x62)
+
+- PutAccessGrantsInstanceResourcePolicy keeps Organization and records CreatedAt; Get/Put return both. PutStorageLensConfiguration applies its Tags. ListAccessPointsForDirectoryBuckets honours DirectoryBucket. ListJobs JobStatuses was already applied. Proof: `TestSDK_AccessGrantsPolicyOrganizationAndCreatedAt`, `TestSDK_PutStorageLensConfigurationAppliesTags`, `TestSDK_ListAccessPointsForDirectoryBucketsFilter`, `TestSDK_ListJobsStatusFilter`.
+- reqfielddiff adjudication: these members are bound to the path, header or query string rather than the body.
+- AccessGrantId (DeleteAccessGrant, GetAccessGrant): read from the URL path, not the request body; routing tests cover each op.
+- AccountId (DeleteBucketLifecycleConfiguration, DeleteBucketPolicy, DeleteBucketReplication, DeleteBucketTagging, GetBucketPolicy, GetBucketReplication, GetBucketTagging, GetBucketVersioning, ListTagsForResource, PutBucketLifecycleConfiguration, PutBucketReplication, PutBucketTagging, PutBucketVersioning, TagResource, UntagResource): read from the account header (accountIDFromRequest), not the request body; routing tests cover each op.
+- Bucket (CreateBucket, DeleteBucket, DeleteBucketLifecycleConfiguration, DeleteBucketPolicy, DeleteBucketReplication, DeleteBucketTagging, GetBucket, GetBucketReplication, GetBucketTagging, GetBucketVersioning, PutBucketLifecycleConfiguration, PutBucketPolicy, PutBucketReplication, PutBucketTagging, PutBucketVersioning): read from the URL path, not the request body; routing tests cover each op.
+- ConfigId (DeleteStorageLensConfiguration, DeleteStorageLensConfigurationTagging, GetStorageLensConfiguration, GetStorageLensConfigurationTagging, PutStorageLensConfiguration, PutStorageLensConfigurationTagging): read from the URL path, not the request body; routing tests cover each op.
+- JobId (DeleteJobTagging, DescribeJob, GetJobTagging, PutJobTagging, UpdateJobStatus): read from the URL path, not the request body; routing tests cover each op.
+- Mrap (GetMultiRegionAccessPointRoutes, SubmitMultiRegionAccessPointRoutes): read from the URL path, not the request body; routing tests cover each op.
+- Name (CreateAccessPoint, CreateAccessPointForObjectLambda, DeleteAccessPointPolicy, DeleteAccessPointPolicyForObjectLambda, DeleteAccessPointScope, GetAccessPoint, GetAccessPointConfigurationForObjectLambda, GetAccessPointForObjectLambda, GetAccessPointPolicy, GetAccessPointPolicyForObjectLambda, GetAccessPointPolicyStatus, GetAccessPointPolicyStatusForObjectLambda, GetAccessPointScope, GetMultiRegionAccessPointPolicy, PutAccessPointConfigurationForObjectLambda, PutAccessPointPolicy, PutAccessPointPolicyForObjectLambda, PutAccessPointScope, UpdateStorageLensGroup): read from the URL path, not the request body; routing tests cover each op.
+- RequestTokenARN (DescribeMultiRegionAccessPointOperation): read from the URL path, not the request body; routing tests cover each op.
+- ResourceArn (ListTagsForResource, TagResource, UntagResource): read from the URL path, not the request body; routing tests cover each op.
+- TagKeys (UntagResource): read from the query string, not the request body; routing tests cover each op.
+- PutStorageLensConfiguration StorageLensConfiguration is the XML body, stored verbatim as raw XML.
+- ListJobs JobStatuses is the repeated query parameter jobStatuses, applied in handleListJobs.
+- Remaining accepted-but-ignored members are listed in items_still_open.
+- DeleteMultiRegionAccessPoint Details is the XML body member; its Name is read in handleDeleteMultiRegionAccessPoint.
+- DeleteMultiRegionAccessPoint and PutMultiRegionAccessPointPolicy ClientToken: accepted and ignored, no idempotent request replay (items_still_open).
+- CreateAccessGrant S3PrefixType: accepted and ignored, grant-scope object matching is not modeled (items_still_open).
+- ListAccessPoints DataSourceId: accepted and ignored, every access point is bucket-backed (items_still_open).

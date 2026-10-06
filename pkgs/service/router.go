@@ -9,14 +9,20 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
-const amzTargetHeader = "X-Amz-Target"
+const (
+	amzTargetHeader  = "X-Amz-Target"
+	minTargetGateLen = 1
+	minPathGateLen   = 2
+)
 
 // Router evaluates matchers by priority and routes requests to the
 // first matching service. Implements centralized routing logic that replaces
 // scattered pre-middleware and manual routing checks.
 type Router struct {
-	services []*Entry
-	gates    [][]string
+	services    []*Entry
+	targetGates [][]string
+	pathGates   [][]string
+	idx         routeIndex
 }
 
 // NewServiceRouter creates a router from the registered services.
@@ -24,26 +30,43 @@ type Router struct {
 func NewServiceRouter(registry *Registry) *Router {
 	services := registry.GetAll()
 
-	// Sort by priority (descending). Use SliceStable so that services registered at the
-	// same priority retain their original registration order. This prevents new service
-	// additions from non-deterministically reordering existing services at the same
-	// priority level, which would cause intermittent routing conflicts.
+	// SliceStable keeps registration order within a priority tier so adding a service
+	// never reorders existing ones at the same priority.
 	sort.SliceStable(services, func(i, j int) bool {
 		return services[i].Priority > services[j].Priority
 	})
 
-	return &Router{
-		services: services,
-		gates:    make([][]string, len(services)),
+	r := &Router{
+		services:    services,
+		targetGates: make([][]string, len(services)),
+		pathGates:   make([][]string, len(services)),
 	}
+	r.idx = buildRouteIndex(r.targetGates, r.pathGates)
+
+	return r
 }
 
 // WithTargetGates declares, by service name, X-Amz-Target prefixes outside which that
 // service's matcher is known to return false, so the scan can skip it without calling it.
+// Call before serving: the router is immutable afterwards.
 func (r *Router) WithTargetGates(gates map[string][]string) *Router {
 	for i, entry := range r.services {
-		r.gates[i] = gates[entry.Registerable.Name()]
+		r.targetGates[i] = validGate(gates[entry.Registerable.Name()], minTargetGateLen)
 	}
+
+	r.idx = buildRouteIndex(r.targetGates, r.pathGates)
+
+	return r
+}
+
+// WithPathGates declares path prefixes outside which a service's matcher returns false; a
+// prefix needs "/" plus one byte or the service stays ungated. Call before serving.
+func (r *Router) WithPathGates(gates map[string][]string) *Router {
+	for i, entry := range r.services {
+		r.pathGates[i] = validGate(gates[entry.Registerable.Name()], minPathGateLen)
+	}
+
+	r.idx = buildRouteIndex(r.targetGates, r.pathGates)
 
 	return r
 }
@@ -65,14 +88,46 @@ func (r *Router) RouteHandler() echo.MiddlewareFunc {
 }
 
 // Lookup returns the service entry the router selects for c, or nil if none matches.
+// Only services whose gate keys fit the request are tried, in priority order.
 func (r *Router) Lookup(c *echo.Context) *Entry {
 	target := extractTargetHeader(c)
+	path := extractPath(c)
 
-	for i, entry := range r.services {
-		if gate := r.gates[i]; gate != nil && !hasAnyPrefix(target, gate) {
+	var pathBucket, targetBucket []int
+
+	if len(path) > 1 && path[0] == '/' {
+		pathBucket = r.idx.byPath[path[1]]
+	}
+
+	if target != "" {
+		targetBucket = r.idx.byTarget[target[0]]
+	}
+
+	var ia, ip, it int
+
+	for {
+		i := nextCandidate(r.idx.always, pathBucket, targetBucket, &ia, &ip, &it)
+		if i < 0 {
+			return nil
+		}
+
+		if g := r.targetGates[i]; g != nil && !hasAnyPrefix(target, g) {
 			continue
 		}
 
+		if g := r.pathGates[i]; g != nil && !hasAnyPrefix(path, g) {
+			continue
+		}
+
+		if entry := r.services[i]; entry.Matcher(c) {
+			return entry
+		}
+	}
+}
+
+// lookupLinear is the reference ungated first-match scan the index must agree with.
+func (r *Router) lookupLinear(c *echo.Context) *Entry {
+	for _, entry := range r.services {
 		if entry.Matcher(c) {
 			return entry
 		}
@@ -98,4 +153,13 @@ func extractTargetHeader(c *echo.Context) string {
 	}
 
 	return httputils.HeaderValue(req.Header, amzTargetHeader)
+}
+
+func extractPath(c *echo.Context) string {
+	req := c.Request()
+	if req == nil || req.URL == nil {
+		return ""
+	}
+
+	return req.URL.Path
 }

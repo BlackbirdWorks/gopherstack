@@ -198,8 +198,8 @@ func (b *InMemoryBackend) Reset() {
 
 // resolveGroupName extracts the group name from a name-or-ARN value.
 func resolveGroupName(nameOrARN string) string {
-	if idx := strings.LastIndex(nameOrARN, "group/"); idx >= 0 {
-		return nameOrARN[idx+len("group/"):]
+	if _, after, ok := strings.CutLast(nameOrARN, "group/"); ok {
+		return after
 	}
 
 	return nameOrARN

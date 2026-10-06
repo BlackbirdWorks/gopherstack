@@ -41,6 +41,14 @@ func WithKmsKeyArn(arn string) ScheduleOption {
 	return func(s *Schedule) { s.KmsKeyArn = arn }
 }
 
+func defaultTimezone(tz string) string {
+	if tz == "" {
+		return "UTC"
+	}
+
+	return tz
+}
+
 // scheduleKey returns the composite map key for a schedule: "groupName/name".
 func scheduleKey(groupName, name string) string {
 	return groupName + "/" + name
@@ -140,7 +148,8 @@ func (b *InMemoryBackend) CreateSchedule(
 		GroupName:                  groupName,
 		ARN:                        schedARN,
 		ScheduleExpression:         expr,
-		ScheduleExpressionTimezone: timezone,
+		ScheduleExpressionTimezone: defaultTimezone(timezone),
+		ActionAfterCompletion:      actionAfterCompletionNone,
 		Description:                description,
 		Target:                     target,
 		State:                      state,
@@ -265,19 +274,16 @@ func (b *InMemoryBackend) UpdateSchedule(
 	}
 
 	s.ScheduleExpression = expr
-	s.ScheduleExpressionTimezone = timezone
+	s.ScheduleExpressionTimezone = defaultTimezone(timezone)
 	s.Description = description
 	s.Target = target
-	// State is optional on UpdateSchedule (unlike CreateSchedule, which defaults an
-	// omitted State to ENABLED in the handler): the real UpdateScheduleInput document
-	// serializer omits the "State" JSON key entirely when it's the zero value, so
-	// real clients can update a schedule without touching its enabled/disabled
-	// status. Overwriting with "" here would leave the schedule in an invalid state
-	// that matches neither ENABLED nor DISABLED and silently stops the runner from
-	// ever firing it again (see checkAndFireSchedules's `s.State != "ENABLED"` gate).
-	if state != "" {
-		s.State = state
+	// UpdateSchedule overwrites every field; omitted State falls back to ENABLED.
+	s.State = state
+	if s.State == "" {
+		s.State = scheduleStateEnabled
 	}
+
+	s.ActionAfterCompletion = actionAfterCompletionNone
 	s.FlexibleTimeWindow = ftw
 	// UpdateSchedule is a full replacement (api_op_UpdateSchedule.go:16-19: "uses all
 	// values, including empty values... if you do not set an optional field in your

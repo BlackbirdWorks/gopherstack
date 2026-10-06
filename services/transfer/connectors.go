@@ -15,6 +15,7 @@ import (
 type CreateConnectorInput struct {
 	SftpConfig         *ConnectorSftpConfig
 	As2Config          *ConnectorAs2Config
+	EgressConfig       *ConnectorEgressConfig
 	Tags               map[string]string
 	URL                string
 	AccessRole         string
@@ -62,6 +63,7 @@ func (b *InMemoryBackend) CreateConnectorFull(in *CreateConnectorInput) (*Connec
 		LoggingRole:        in.LoggingRole,
 		SecurityPolicyName: in.SecurityPolicyName,
 		IPAddressType:      in.IPAddressType,
+		EgressConfig:       normalizeEgressConfig(in.EgressConfig),
 		CreatedAt:          time.Now(),
 		Tags:               merged,
 		AccountID:          b.accountID,
@@ -124,6 +126,7 @@ func (b *InMemoryBackend) ListConnectors() []*Connector {
 type UpdateConnectorInput struct {
 	SftpConfig         *ConnectorSftpConfig
 	As2Config          *ConnectorAs2Config
+	EgressConfig       *ConnectorEgressConfig
 	URL                *string
 	AccessRole         *string
 	LoggingRole        *string
@@ -185,6 +188,13 @@ func (b *InMemoryBackend) UpdateConnectorFull(in *UpdateConnectorInput) (*Connec
 	if in.SetIPAddressType {
 		c.IPAddressType = in.IPAddressType
 	}
+
+	merged, err := mergeEgressConfig(c.EgressConfig, in.EgressConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	c.EgressConfig = merged
 
 	return cloneConnector(c), nil
 }
@@ -278,4 +288,46 @@ func (b *InMemoryBackend) AddConnectorInternal(connectorID, url string) {
 		AccountID:   b.accountID,
 		Region:      b.region,
 	})
+}
+
+// defaultSFTPPort is the documented VPC_LATTICE connector default port.
+const defaultSFTPPort = 22
+
+func normalizeEgressConfig(in *ConnectorEgressConfig) *ConnectorEgressConfig {
+	if in == nil || in.VpcLattice == nil {
+		return nil
+	}
+
+	vl := *in.VpcLattice
+	if vl.PortNumber == 0 {
+		vl.PortNumber = defaultSFTPPort
+	}
+
+	return &ConnectorEgressConfig{VpcLattice: &vl}
+}
+
+// mergeEgressConfig applies a partial VpcLattice update over the current egress configuration.
+func mergeEgressConfig(current, update *ConnectorEgressConfig) (*ConnectorEgressConfig, error) {
+	if update == nil || update.VpcLattice == nil {
+		return current, nil
+	}
+
+	merged := ConnectorVpcLatticeEgress{}
+	if current != nil && current.VpcLattice != nil {
+		merged = *current.VpcLattice
+	}
+
+	if arn := update.VpcLattice.ResourceConfigurationArn; arn != "" {
+		merged.ResourceConfigurationArn = arn
+	}
+
+	if port := update.VpcLattice.PortNumber; port != 0 {
+		merged.PortNumber = port
+	}
+
+	if merged.ResourceConfigurationArn == "" {
+		return nil, fmt.Errorf("%w: EgressConfig.VpcLattice.ResourceConfigurationArn is required", ErrValidation)
+	}
+
+	return normalizeEgressConfig(&ConnectorEgressConfig{VpcLattice: &merged}), nil
 }

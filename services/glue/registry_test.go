@@ -270,7 +270,7 @@ func Test_RegisterSchemaVersion_DisabledCompatibility(t *testing.T) {
 	}{
 		{name: "disabled_blocks_second_version", compatibility: "DISABLED", wantSecondErr: true},
 		{name: "none_allows_second_version", compatibility: "NONE"},
-		{name: "backward_allows_second_version_unchecked", compatibility: "BACKWARD"},
+		{name: "backward_rejects_added_required_field", compatibility: "BACKWARD", wantSecondErr: true},
 	}
 
 	for _, tt := range tests {

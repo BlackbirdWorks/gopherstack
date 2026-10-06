@@ -274,19 +274,21 @@ func TestResourceNumberLimitExceeded_SchemaVersions(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, schemaRec.Code)
 
-	definition := `{"type":"record","name":"T","fields":[{"name":"id","type":"int"}]}`
+	definitionFor := func(i int) string {
+		return fmt.Sprintf(`{"type":"record","name":"T","fields":[{"name":"id%d","type":"int"}]}`, i)
+	}
 
 	for i := range testResourceCap {
 		rec := doGlueRequest(t, h, "RegisterSchemaVersion", map[string]any{
 			"SchemaId":         map[string]any{"RegistryName": "sv-limit-reg", "SchemaName": "sv-limit-schema"},
-			"SchemaDefinition": definition,
+			"SchemaDefinition": definitionFor(i),
 		})
 		require.Equal(t, http.StatusOK, rec.Code, "version %d should succeed under the limit", i)
 	}
 
 	assertResourceLimitExceeded(t, h, "RegisterSchemaVersion", map[string]any{
 		"SchemaId":         map[string]any{"RegistryName": "sv-limit-reg", "SchemaName": "sv-limit-schema"},
-		"SchemaDefinition": definition,
+		"SchemaDefinition": definitionFor(testResourceCap),
 	})
 }
 

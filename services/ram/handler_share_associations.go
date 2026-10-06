@@ -37,6 +37,7 @@ type associateResourceShareRequest struct {
 	ResourceShareArn string   `json:"resourceShareArn"`
 	Principals       []string `json:"principals"`
 	ResourceArns     []string `json:"resourceArns"`
+	Sources          []string `json:"sources"`
 }
 
 type associateResourceShareResponse struct {
@@ -62,6 +63,10 @@ func (h *Handler) handleAssociateResourceShare(_ context.Context, body []byte) (
 		return nil, err
 	}
 
+	if srcErr := h.Backend.AssociateResourceShareSources(req.ResourceShareArn, req.Sources); srcErr != nil {
+		return nil, srcErr
+	}
+
 	if len(req.ResourceArns) > 0 {
 		// AssociateResourceShare has no permissionArns parameter in the real API: AWS
 		// always auto-associates the default managed permission for any resource type
@@ -84,6 +89,7 @@ type disassociateResourceShareRequest struct {
 	ResourceShareArn string   `json:"resourceShareArn"`
 	Principals       []string `json:"principals"`
 	ResourceArns     []string `json:"resourceArns"`
+	Sources          []string `json:"sources"`
 }
 
 type disassociateResourceShareResponse struct {
@@ -107,6 +113,10 @@ func (h *Handler) handleDisassociateResourceShare(_ context.Context, body []byte
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	if srcErr := h.Backend.DisassociateResourceShareSources(req.ResourceShareArn, req.Sources); srcErr != nil {
+		return nil, srcErr
 	}
 
 	objs := make([]associationObject, 0, len(associations))

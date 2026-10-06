@@ -46,6 +46,19 @@ type modifyCertificateBasedAuthPropertiesInput struct {
 	PropertiesToDelete []string `json:"PropertiesToDelete"`
 }
 
+// nonEmptyProps drops unset members so a partial Modify* call keeps the stored rest.
+func nonEmptyProps(in map[string]string) map[string]string {
+	out := make(map[string]string, len(in))
+
+	for k, v := range in {
+		if v != "" {
+			out[k] = v
+		}
+	}
+
+	return out
+}
+
 func (h *Handler) handleModifyCertificateBasedAuthProperties(
 	_ context.Context, req *modifyCertificateBasedAuthPropertiesInput,
 ) (*emptyOutput, error) {
@@ -55,7 +68,7 @@ func (h *Handler) handleModifyCertificateBasedAuthProperties(
 	}
 
 	return &emptyOutput{}, h.Backend.ModifyCertificateBasedAuthProperties(
-		req.ResourceId, props, req.PropertiesToDelete,
+		req.ResourceId, nonEmptyProps(props), req.PropertiesToDelete,
 	)
 }
 
@@ -66,6 +79,7 @@ type modifySamlPropertiesInput struct {
 		UserAccessUrl           string `json:"UserAccessUrl"` //nolint:revive,staticcheck // existing issue.
 		RelayStateParameterName string `json:"RelayStateParameterName"`
 	} `json:"SamlProperties"`
+	PropertiesToDelete []string `json:"PropertiesToDelete"`
 }
 
 func (h *Handler) handleModifySamlProperties(
@@ -77,7 +91,9 @@ func (h *Handler) handleModifySamlProperties(
 		"RelayStateParameterName": req.SamlProperties.RelayStateParameterName,
 	}
 
-	return &emptyOutput{}, h.Backend.ModifySamlProperties(req.ResourceId, props)
+	return &emptyOutput{}, h.Backend.ModifySamlProperties(
+		req.ResourceId, nonEmptyProps(props), req.PropertiesToDelete,
+	)
 }
 
 type modifySelfservicePermissionsInput struct {
@@ -102,28 +118,18 @@ func (h *Handler) handleModifySelfservicePermissions(
 		"RebuildWorkspace":   req.SelfservicePermissions.RebuildWorkspace,
 	}
 
-	return &emptyOutput{}, h.Backend.ModifySelfservicePermissions(req.ResourceId, props)
+	return &emptyOutput{}, h.Backend.ModifySelfservicePermissions(req.ResourceId, nonEmptyProps(props))
 }
 
 type modifyStreamingPropertiesInput struct {
-	ResourceId          string `json:"ResourceId"` //nolint:revive,staticcheck // existing issue.
-	StreamingProperties struct {
-		StreamingExperiencePreferredProtocol string `json:"StreamingExperiencePreferredProtocol"`
-		UserSettings                         []struct {
-			Action     string `json:"Action"`
-			Permission string `json:"Permission"`
-		} `json:"UserSettings"`
-	} `json:"StreamingProperties"`
+	ResourceId          string              `json:"ResourceId"` //nolint:revive,staticcheck // existing issue.
+	StreamingProperties StreamingProperties `json:"StreamingProperties"`
 }
 
 func (h *Handler) handleModifyStreamingProperties(
 	_ context.Context, req *modifyStreamingPropertiesInput,
 ) (*emptyOutput, error) {
-	props := map[string]string{
-		"StreamingExperiencePreferredProtocol": req.StreamingProperties.StreamingExperiencePreferredProtocol,
-	}
-
-	return &emptyOutput{}, h.Backend.ModifyStreamingProperties(req.ResourceId, props)
+	return &emptyOutput{}, h.Backend.ModifyStreamingProperties(req.ResourceId, req.StreamingProperties)
 }
 
 type modifyWorkspaceAccessPropertiesInput struct {
@@ -154,5 +160,5 @@ func (h *Handler) handleModifyWorkspaceAccessProperties(
 		"DeviceTypeLinux":      req.WorkspaceAccessProperties.DeviceTypeLinux,
 	}
 
-	return &emptyOutput{}, h.Backend.ModifyWorkspaceAccessProperties(req.ResourceId, props)
+	return &emptyOutput{}, h.Backend.ModifyWorkspaceAccessProperties(req.ResourceId, nonEmptyProps(props))
 }

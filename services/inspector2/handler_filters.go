@@ -69,6 +69,7 @@ func (h *Handler) handleUpdateFilter(c *echo.Context) error {
 		Action         string         `json:"action"`
 		Description    string         `json:"description"`
 		Reason         string         `json:"reason"`
+		Name           string         `json:"name"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
@@ -84,6 +85,7 @@ func (h *Handler) handleUpdateFilter(c *echo.Context) error {
 
 	f, updateErr := h.Backend.UpdateFilter(
 		req.FilterArn,
+		req.Name,
 		req.Action,
 		req.Description,
 		req.Reason,

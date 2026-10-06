@@ -39,22 +39,22 @@ ops:
   DescribeAppBlocks: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same DescribeApplications bug class; added findAppBlock() resolver"}
   DescribeImages: {wire: fixed, errors: ok, state: ok, persist: ok, note: "real request supports both Names and Arns filters; the Arns-only path was mis-resolved through the Name-keyed table -- added findImage() resolver so either identifier works. FIXED 2026-08-30 (wrapper-key-sweep): the Type filter (VisibilityType, wire key \"Type\" per serializeCBOR_DescribeImagesInput) was declared on the real input and never read at all -- a Type=PUBLIC request silently got back every private image instead of an empty list (this backend only ever creates PRIVATE images). Now filtered."}
   DescribeImagePermissions: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-30 (wrapper-key-sweep): SharedAwsAccountIds (wire key \"SharedAwsAccountIds\") was declared on the real input and never read -- filtering by an account an image was never shared with returned every shared account instead of an empty list. Now filtered."}
-  DescribeSessions: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-30 (wrapper-key-sweep): AuthenticationType (wire key \"AuthenticationType\") was declared on the real input and never read -- every session this backend creates (CreateStreamingURL) has AuthenticationType API, so a USERPOOL-filtered request silently got back the API session instead of an empty list. Now filtered. InstanceId remains unfilterable: this backend has no streaming-instance concept to filter on (undocumented-by-model-absence gap, not a misread key)."}
+  DescribeSessions: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-30 (wrapper-key-sweep): AuthenticationType (wire key \"AuthenticationType\") was declared on the real input and never read -- every session this backend creates (CreateStreamingURL) has AuthenticationType API, so a USERPOOL-filtered request silently got back the API session instead of an empty list. Now filtered. InstanceId remains unfilterable: this backend has no streaming-instance concept to filter on (undocumented-by-model-absence gap, not a misread key). InstanceId filters on a synthetic per-session instance ID that is also echoed on the session."}
   AssociateApplicationFleet: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "real request carries ApplicationArn (not application Name); association was stored/looked-up under the raw ARN in a Name-keyed map -- resolved to canonical Name via findApplication() before storing"}
   DisassociateApplicationFleet: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "same AssociateApplicationFleet bug class"}
   DescribeApplicationFleetAssociations: {wire: fixed, errors: ok, state: ok, persist: ok, note: "ApplicationArn filter now resolved to canonical Name before matching map keys"}
   AssociateAppBlockBuilderAppBlock: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "same AssociateApplicationFleet bug class, real request carries AppBlockArn"}
   DisassociateAppBlockBuilderAppBlock: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "same bug class"}
   DescribeAppBlockBuilderAppBlockAssociations: {wire: fixed, errors: ok, state: ok, persist: ok, note: "AppBlockArn filter now resolved to canonical Name before matching map keys"}
-  CreateUser: {wire: fixed, errors: ok, state: ok, persist: ok, note: "userARN() hand-formatted \"arn:aws:appstream:...\" bypassing pkgs/arn -- always emitted the standard partition even for GovCloud/China/ISO regions; switched to arn.Build()"}
+  CreateUser: {wire: fixed, errors: ok, state: ok, persist: ok, note: "userARN() hand-formatted \"arn:aws:appstream:...\" bypassing pkgs/arn -- always emitted the standard partition even for GovCloud/China/ISO regions; switched to arn.Build() MessageAction is enum-validated; RESEND rejects names and, with no email transport, only requires the user to exist."}
   CreateApplication: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "required members IconS3Location and InstanceFamilies (api_op_CreateApplication.go:47,53) were accepted nowhere -- neither stored nor returned, so every created application had no icon and no supported instance families. Now validated (including IconS3Location.S3Key, itself required specifically for this op per types/types.go:1434-1451) and echoed on Describe. Missing-required-member requests now return SerializationException: this op's own deserializer switch (rpc2_deserializeOpErrorCreateApplication) declares only ConcurrentModificationException/LimitExceededException/OperationNotPermittedException/ResourceAlreadyExistsException/ResourceNotFoundException -- no validation-style exception -- consistent with the SDK client blocking such requests before they're ever sent (gopherstack-ii4c)."}
-  CreateStack: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateStack: {wire: ok, errors: ok, state: ok, persist: ok, note: "AgentAccessConfig stored/echoed and enum-validated (TestRealClient_StackAgentAccessConfig)."}
   DescribeStacks: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateStack: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateStack: {wire: ok, errors: ok, state: ok, persist: ok, note: "AgentAccessConfig merged; AGENT_ACCESS_CONFIG attribute delete honored."}
   DeleteStack: {wire: ok, errors: ok, state: ok, persist: ok, note: "correctly ResourceInUseException when an associated fleet exists (verified against real model in a prior audit)"}
   CreateFleet: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeFleets: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateFleet: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateFleet: {wire: ok, errors: ok, state: ok, persist: ok, note: "DeleteVpcConfig (deprecated) clears the VPC configuration."}
   AssociateFleet: {wire: ok, errors: ok, state: ok, persist: ok, note: "Fleet-Stack association correctly uses Names on both sides per real AssociateFleetInput -- no ARN-resolution bug here"}
   DisassociateFleet: {wire: ok, errors: ok, state: ok, persist: ok}
   ListAssociatedFleets: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -87,7 +87,14 @@ families:
   UsageReportSubscription: {status: ok, note: "single scalar record, verified against real shape"}
   ExportImageTask: {status: fixed, note: "MAJOR rewrite this pass -- prior 'ok' verdict was wrong; the entire request/response shape was gopherstack-invented (S3-based export instead of real AMI export). See CreateExportImageTask/GetExportImageTask/ListExportImageTasks ops above for the full diff. Any real aws-sdk-go-v2 client hitting the old handler would have gotten a response with none of the fields it expects populated"}
 gaps: []                # no unfixed divergences found; all confirmed bugs were fixed this pass
-items_still_open: []
+items_still_open:
+  - "CreateImportedImage: AppCatalogConfig, IamRoleArn, RuntimeValidationConfig, SourceAmiId and WorkspaceImageId are accepted but unobservable -- no AMI/WorkSpaces image import pipeline exists and types.Image has no member for them; DryRun validates the name only."
+  - "CreateStreamingURL.ApplicationId and SessionContext are accepted but unobservable: no application launch is modeled and types.Session has no member for either."
+  - "StartSoftwareDeploymentToImageBuilder.RetryFailedDeployments has no effect: software associations are recorded directly and no deployment can fail."
+  - "DescribeAppLicenseUsage.BillingPeriod filters nothing: no license-usage state is modeled."
+  - "Application.AppBlockArn is not existence-checked on CreateApplication/UpdateApplication (existing flows pass unregistered ARNs); CreateImageBuilder ImageName/ImageArn naming a public base image is stored as given because no public image catalog exists."
+  - "CreateImageBuilder SoftwaresToUninstall can only remove names from the same request's SoftwaresToInstall: there is no pre-installed software model."
+
 deferred: []              # both prior deferred items resolved this pass (see below)
 resolved_this_pass:
   - CreatedTime/StartTime/CreatedDate wire encoding switched from time.Time.Unix() (whole-
@@ -566,26 +573,12 @@ or a different-axis gap):**
    commit. Not removed this pass, recorded rather than fixed (matches this
    campaign's precedent of disclosing rather than touching a dormant,
    cost-free field).
-2. `ImageBuilder.ImageName` is emitted under the wire key `"ImageName"`;
-   the real `types.ImageBuilder` has no such member -- the real field is
-   `ImageArn` (`deserializers.go:7851`, `types/types.go`). This mismatch is
-   currently **unobservable**: `CreateImageBuilder`'s request-decode struct
-   (`createImageBuilderInput`, handler_image.go) never reads `ImageArn` or
-   `ImageName` from the request at all, even though real
-   `CreateImageBuilderInput` declares both (either identifies the source
-   image, `api_op_CreateImageBuilder.go:181,184`) -- so this backend's
-   `ImageBuilder.ImageName` field is always the empty string regardless of
-   what a real client sends. Fixing the wire key alone would still emit an
-   always-empty field; the real gap is that `CreateImageBuilder` never
-   captures a source-image identifier at all, a Create-side feature gap
-   distinct from this sweep's wrapper-key/per-item-name scope. Also found,
-   same op: `AppBlockBuilder`'s real type declares `VpcConfig` as a
-   **required** response member (`types/types.go:248`) that this service
-   does not model anywhere (no VPC concept in this backend at all, and
-   `CreateAppBlockBuilder` doesn't accept one either) -- disclosed as a
-   structural gap, not fixed (same class as the ImageBuilder source-image
-   gap: a feature absence, not a wire-shape defect on an otherwise-modeled
-   field).
+2. FIXED (later pass): `ImageBuilder` no longer emits the invented `"ImageName"`
+   key; `CreateImageBuilder` now reads `ImageName`/`ImageArn` (resolved
+   against stored images, adopting the image's platform), `DisplayName`,
+   `SoftwaresToInstall` and `SoftwaresToUninstall`, and the response carries
+   `ImageArn`/`DisplayName`. `AppBlockBuilder.VpcConfig` is modeled (see the
+   AppBlockBuilder section).
 
 **No bugs fixed this pass.** No wrapper-key mismatch, no fixable per-item
 mismatch, no transposition, no case-only mismatch (CBOR/JSON-family, not
@@ -812,13 +805,12 @@ disclosed above) were left absent, per this file's no-invented-data rule.
   `EMBED_HOST_DOMAINS`/`ACCESS_ENDPOINTS`/`STREAMING_EXPERIENCE_SETTINGS`/
   `CONTENT_REDIRECTION` -- every `types.StackAttribute` value this backend
   models) plus the deprecated-but-still-real `DeleteStorageConnectors` bool.
-  **Deliberately deferred, not fixed**: `AgentAccessConfig`. It is real
-  `CreateStackInput`/`UpdateStackInput` surface with an honest source, but
-  its shape nests `ScreenResolution` x `AgentAccessSetting` x
-  `ScreenImageFormat`/`UserControlMode` enums several levels deep and wiring
-  it through was out of scope for this pass's time budget -- tracked as a
-  genuine gap (not a fabricated absence) for a follow-up pass, not folded
-  into the "structural, unfixable" category above. `THEME_NAME` (a
+  `AgentAccessConfig` is now modeled: `CreateStack` validates the
+  `ScreenImageFormat`/`ScreenResolution`/`UserControlMode`/`AgentAction`/
+  `Permission` enums and requires `S3BucketArn` when
+  `ScreenshotsUploadEnabled`; `UpdateStack` merges the supplied members
+  (`AgentAccessConfigForUpdate`) and honors the `AGENT_ACCESS_CONFIG`
+  attribute delete. `THEME_NAME` (a
   `StackAttribute` enum value) is intentionally not handled by
   `UpdateStack`'s `AttributesToDelete` -- that attribute belongs to
   `DeleteThemeForStack`, an already-implemented separate op. Still absent,
@@ -1078,3 +1070,15 @@ FIXED: DescribeSessions accepted `UserId` without `AuthenticationType`; `api_op_
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 appstream is region-isolated: fleets, stacks, image builders and entitlements live per region. The tagging bridge follows the region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/appstream`. Limitation: the dashboard shows the home region only.
+
+## 2026-10-05 (reqfielddiff tier-2 pagination)
+
+DescribeAppBlocks, DescribeAppBlockBuilders (max 25, `api_op_DescribeAppBlockBuilders.go:31`), DescribeAppBlockBuilderAppBlockAssociations, DescribeApplications, DescribeApplicationFleetAssociations, DescribeEntitlements, ListEntitledApplications, DescribeDirectoryConfigs, DescribeImages, DescribeImagePermissions, DescribeImageBuilders, DescribeSoftwareAssociations, DescribeUsers, DescribeUserStackAssociations, DescribeUsageReportSubscriptions, DescribeStacks, DescribeFleets, ListAssociatedFleets and ListAssociatedStacks page through `pageOf` (pagination.go): key-sorted, body-bound MaxResults/NextToken (rpcv2cbor serializers, appstream@v1.64.5), NextToken only when truncated, bad MaxResults/NextToken return InvalidParameterCombinationException. Default 50 / max 100 where the SDK gives no number (DescribeFleets, DescribeStacks and ListAssociated* carry NextToken only). ListExportImageTasks caps MaxResults at 500 (`api_op_ListExportImageTasks.go:35`) and evaluates the State filter; other filter names are undocumented. DescribeAppLicenseUsage validates paging but is always empty (no license data). Proof: `TestRealClient_DescribeOpsHonourPaging`, `TestRealClient_DescribeOpsRejectBadToken`.
+
+## 2026-10-05 (gopherstack-uox6 pass 7, value semantics)
+
+UpdateFleet no longer wipes IdleDisconnectTimeoutInSeconds when omitted (explicit 0 still disables it); CreateFleet defaults StreamView APP (api_op_CreateFleet.go:271); CreateStack with no UserSettings enables the documented actions and clipboard actions default MaximumLength 20971520 (types.go:1907). SMART_CARD and AUTO_TIME_ZONE defaults are only in the AWS API docs, so left unset. FleetType/timeouts defaults have no SDK text and are unchanged.
+
+## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
+
+OperationNotPermitted (handler.go:149) is the unknown-action routing fallback and InternalServiceError the default classifier clause; the SDK models neither for the failing ops, no per-op code applies.

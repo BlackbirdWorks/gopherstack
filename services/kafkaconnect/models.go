@@ -6,16 +6,19 @@ import (
 	"time"
 )
 
-// Connector state values (types.ConnectorState). This backend only ever
-// produces RUNNING -- see PARITY.md for the CREATING/UPDATING/DELETING
-// transient states it deliberately does not model.
+// Connector state values (types.ConnectorState); transitions settle lazily, see lifecycle.go.
 const (
-	connectorStateRunning = "RUNNING"
-	deletingState         = "DELETING"
+	connectorStateRunning    = "RUNNING"
+	connectorStateCreating   = "CREATING"
+	connectorStateUpdating   = "UPDATING"
+	connectorStateRestarting = "RESTARTING"
+	deletingState            = "DELETING"
 )
 
 // CustomPluginState and WorkerConfigurationState values this backend produces.
 const (
+	customPluginStateCreating      = "CREATING"
+	customPluginStateCreateFailed  = "CREATE_FAILED"
 	customPluginStateActive        = "ACTIVE"
 	workerConfigurationStateActive = "ACTIVE"
 )
@@ -23,6 +26,8 @@ const (
 // ConnectorOperationState/Type values this backend produces for UpdateConnector.
 const (
 	connectorOperationStateComplete           = "UPDATE_COMPLETE"
+	connectorOperationStateInProgress         = "UPDATE_IN_PROGRESS"
+	connectorOperationStepStateInProgress     = "IN_PROGRESS"
 	connectorOperationTypeConfiguration       = "UPDATE_CONNECTOR_CONFIGURATION"
 	connectorOperationTypeWorkerSetting       = "UPDATE_WORKER_SETTING"
 	connectorOperationStepUpdateConfiguration = "UPDATE_CONNECTOR_CONFIGURATION"
@@ -32,8 +37,9 @@ const (
 
 // ConnectorOperationState/Type values this backend produces for RestartConnector.
 const (
-	connectorOperationStateRestartComplete = "RESTART_COMPLETE"
-	connectorOperationTypeRestart          = "RESTART_CONNECTOR"
+	connectorOperationStateRestartComplete   = "RESTART_COMPLETE"
+	connectorOperationStateRestartInProgress = "RESTART_IN_PROGRESS"
+	connectorOperationTypeRestart            = "RESTART_CONNECTOR"
 )
 
 // AutoScaling mirrors types.AutoScalingDescription.
@@ -150,6 +156,7 @@ func (w *WorkerLogDelivery) clone() *WorkerLogDelivery {
 // Connector is the persisted representation of an MSK Connect connector.
 type Connector struct {
 	CreationTime                     time.Time
+	PendingUntil                     time.Time
 	Capacity                         Capacity
 	WorkerConfiguration              *WorkerConfigRef
 	WorkerLogDelivery                *WorkerLogDelivery
@@ -193,19 +200,21 @@ func (c *Connector) clone() *Connector {
 
 // CustomPlugin is the persisted representation of an MSK Connect custom plugin.
 type CustomPlugin struct {
-	CreationTime  time.Time
-	Tags          map[string]string
-	Name          string
-	ARN           string
-	Description   string
-	State         string
-	ContentType   string
-	BucketArn     string
-	FileKey       string
-	ObjectVersion string
-	FileMD5       string
-	FileSizeBytes int64
-	Revision      int64
+	CreationTime   time.Time
+	PendingUntil   time.Time
+	Tags           map[string]string
+	Name           string
+	ARN            string
+	Description    string
+	State          string
+	FailureMessage string
+	ContentType    string
+	BucketArn      string
+	FileKey        string
+	ObjectVersion  string
+	FileMD5        string
+	FileSizeBytes  int64
+	Revision       int64
 }
 
 func (p *CustomPlugin) clone() *CustomPlugin {
@@ -233,6 +242,7 @@ type WorkerConfigRevision struct {
 // WorkerConfiguration is the persisted representation of an MSK Connect worker configuration.
 type WorkerConfiguration struct {
 	CreationTime   time.Time
+	PendingUntil   time.Time
 	Tags           map[string]string
 	Name           string
 	ARN            string

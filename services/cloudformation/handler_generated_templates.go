@@ -241,8 +241,21 @@ func (h *Handler) handleListGeneratedTemplates(form url.Values, c *echo.Context)
 	)
 }
 
-func (h *Handler) handleStartResourceScan(_ url.Values, c *echo.Context) error {
-	scanID, err := h.Backend.StartResourceScan()
+func (h *Handler) handleStartResourceScan(form url.Values, c *echo.Context) error {
+	var types []string
+
+	for i := 1; ; i++ {
+		prefix := fmt.Sprintf("ScanFilters.member.%d.Types.", i)
+
+		group := parseMemberList(form, prefix)
+		if len(group) == 0 {
+			break
+		}
+
+		types = append(types, group...)
+	}
+
+	scanID, err := h.Backend.StartResourceScan(types)
 	if err != nil {
 		return h.xmlError(c, "ValidationError", err.Error())
 	}

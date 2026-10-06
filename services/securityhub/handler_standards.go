@@ -2,6 +2,7 @@ package securityhub
 
 import (
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -95,7 +96,14 @@ func (h *Handler) handleGetEnabledStandards(c *echo.Context, body map[string]any
 	nextToken, _ := body["NextToken"].(string)
 	maxResults := intFromBody(body)
 
-	subscriptions, nextOut := h.Backend.GetEnabledStandards(arns, nextToken, maxResults)
+	var subscriptions []*StandardsSubscription
+
+	var nextOut string
+
+	if providersIncludeAWS(stringListFromBody(body, "Providers")) {
+		subscriptions, nextOut = h.Backend.GetEnabledStandards(arns, nextToken, maxResults)
+	}
+
 	items := standardsSubscriptionsToMaps(subscriptions)
 
 	resp := map[string]any{keyStandardsSubscriptions: items}
@@ -132,7 +140,14 @@ func (h *Handler) handleDescribeStandards(c *echo.Context) error {
 	nextToken := c.QueryParam("NextToken")
 	maxResults := queryInt(c)
 
-	standards, nextOut := h.Backend.DescribeStandards(nextToken, maxResults)
+	var standards []*Standard
+
+	var nextOut string
+
+	if providersIncludeAWS(c.QueryParams()["Providers"]) {
+		standards, nextOut = h.Backend.DescribeStandards(nextToken, maxResults)
+	}
+
 	items := make([]map[string]any, len(standards))
 
 	for i, s := range standards {
@@ -304,4 +319,10 @@ func (h *Handler) standardsOpHandlers(
 		opBatchGetStdCtlAssocs:    func() error { return h.handleBatchGetStdCtlAssociations(c, body) },
 		opBatchUpdateStdCtlAssocs: func() error { return h.handleBatchUpdateStdCtlAssociations(c, body) },
 	}
+}
+
+// providersIncludeAWS reports whether a Providers filter admits AWS; every emulated
+// standard and control is an AWS one, so an Azure-only filter matches nothing.
+func providersIncludeAWS(providers []string) bool {
+	return len(providers) == 0 || slices.Contains(providers, "AWS")
 }

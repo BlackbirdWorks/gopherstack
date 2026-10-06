@@ -553,10 +553,11 @@ type NetworkInsightsAccessScope struct {
 // NetworkInsightsAccessScopeAnalysis holds an access scope analysis.
 
 type NetworkInsightsAccessScopeAnalysis struct {
-	NetworkInsightsAccessScopeAnalysisID string `json:"networkInsightsAccessScopeAnalysisId,omitempty"`
-	NetworkInsightsAccessScopeID         string `json:"networkInsightsAccessScopeId,omitempty"`
-	Status                               string `json:"status,omitempty"`
-	AnalyzedEniCount                     int    `json:"analyzedEniCount,omitempty"`
+	StartDate                            time.Time `json:"startDate,omitzero"`
+	NetworkInsightsAccessScopeAnalysisID string    `json:"networkInsightsAccessScopeAnalysisId,omitempty"`
+	NetworkInsightsAccessScopeID         string    `json:"networkInsightsAccessScopeId,omitempty"`
+	Status                               string    `json:"status,omitempty"`
+	AnalyzedEniCount                     int       `json:"analyzedEniCount,omitempty"`
 }
 
 // ---- Carrier Gateways ----

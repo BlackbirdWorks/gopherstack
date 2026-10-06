@@ -2,6 +2,8 @@ package iam
 
 import (
 	"encoding/json"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/safemap"
@@ -149,6 +151,41 @@ func EvaluatePolicies(policyDocs []string, action, resource string, ctx Conditio
 	}
 
 	return result
+}
+
+// MissingContextKeys lists the condition keys referenced by statements that match
+// action and resource but that ctx cannot resolve, sorted and de-duplicated.
+func MissingContextKeys(policyDocs []string, action, resource string, ctx ConditionContext) []string {
+	seen := make(map[string]struct{})
+
+	for _, doc := range policyDocs {
+		pd, ok := parsePolicyDocumentCached(SubstituteVariables(doc, ctx))
+		if !ok {
+			continue
+		}
+
+		for _, stmt := range pd.Statement {
+			if stmtActionMatches(stmt, action) && stmtResourceMatches(stmt, resource) {
+				collectUnresolvedKeys(seen, stmt.Condition, ctx)
+			}
+		}
+	}
+
+	if len(seen) == 0 {
+		return nil
+	}
+
+	return slices.Sorted(maps.Keys(seen))
+}
+
+func collectUnresolvedKeys(seen map[string]struct{}, condition map[string]map[string]any, ctx ConditionContext) {
+	for _, keyValues := range condition {
+		for key := range keyValues {
+			if resolveContextKey(key, ctx) == "" {
+				seen[key] = struct{}{}
+			}
+		}
+	}
 }
 
 // stmtActionMatches returns true if the statement's Action/NotAction covers the given action.

@@ -91,6 +91,7 @@ func (h *Handler) opDeleteAppBlock(_ context.Context, body []byte) (any, error) 
 }
 
 type describeAppBlocksInput struct {
+	pageReq
 	Arns []string `json:"Arns"`
 }
 
@@ -107,12 +108,17 @@ func (h *Handler) opDescribeAppBlocks(_ context.Context, body []byte) (any, erro
 		return nil, err
 	}
 
+	abs, next, err := pageOf(abs, func(v *AppBlock) string { return v.Arn }, req.pageReq, maxDescribePageSize)
+	if err != nil {
+		return nil, err
+	}
+
 	resp := make([]any, 0, len(abs))
 	for _, ab := range abs {
 		resp = append(resp, appBlockToResponse(ab))
 	}
 
-	return map[string]any{"AppBlocks": resp}, nil
+	return withNext(map[string]any{"AppBlocks": resp}, next), nil
 }
 
 // --- AppBlockBuilder handlers ---
@@ -126,10 +132,14 @@ type createAppBlockBuilderInput struct {
 	Tags                        map[string]string              `json:"Tags"`
 	VpcConfig                   *appBlockBuilderVpcConfigInput `json:"VpcConfig"`
 	EnableDefaultInternetAccess *bool                          `json:"EnableDefaultInternetAccess"`
+	DisableIMDSV1               *bool                          `json:"DisableIMDSV1"`
 	Name                        string                         `json:"Name"`
 	Description                 string                         `json:"Description"`
+	DisplayName                 string                         `json:"DisplayName"`
+	IamRoleArn                  string                         `json:"IamRoleArn"`
 	Platform                    string                         `json:"Platform"`
 	InstanceType                string                         `json:"InstanceType"`
+	AccessEndpoints             []accessEndpointJSON           `json:"AccessEndpoints"`
 }
 
 func (h *Handler) opCreateAppBlockBuilder(_ context.Context, body []byte) (any, error) {
@@ -147,6 +157,12 @@ func (h *Handler) opCreateAppBlockBuilder(_ context.Context, body []byte) (any, 
 	bb, err := h.Backend.CreateAppBlockBuilder(
 		req.Name, req.Description, req.Platform, req.InstanceType, vpcConfig, req.Tags,
 		req.EnableDefaultInternetAccess,
+		AppBlockBuilderOptions{
+			DisableIMDSV1:   req.DisableIMDSV1,
+			DisplayName:     req.DisplayName,
+			IamRoleArn:      req.IamRoleArn,
+			AccessEndpoints: toAccessEndpoints(req.AccessEndpoints),
+		},
 	)
 	if err != nil {
 		return nil, err
@@ -173,6 +189,7 @@ func (h *Handler) opDeleteAppBlockBuilder(_ context.Context, body []byte) (any, 
 }
 
 type describeAppBlockBuildersInput struct {
+	pageReq
 	Names []string `json:"Names"`
 }
 
@@ -189,12 +206,17 @@ func (h *Handler) opDescribeAppBlockBuilders(_ context.Context, body []byte) (an
 		return nil, err
 	}
 
+	bbs, next, err := pageOf(bbs, func(v *AppBlockBuilder) string { return v.Name }, req.pageReq, maxBlockBuilderPage)
+	if err != nil {
+		return nil, err
+	}
+
 	resp := make([]any, 0, len(bbs))
 	for _, bb := range bbs {
 		resp = append(resp, appBlockBuilderToResponse(bb))
 	}
 
-	return map[string]any{"AppBlockBuilders": resp}, nil
+	return withNext(map[string]any{"AppBlockBuilders": resp}, next), nil
 }
 
 type appBlockBuilderNameInput struct {
@@ -240,9 +262,15 @@ func (h *Handler) opStopAppBlockBuilder(_ context.Context, body []byte) (any, er
 type updateAppBlockBuilderInput struct {
 	VpcConfig                   *appBlockBuilderVpcConfigInput `json:"VpcConfig"`
 	EnableDefaultInternetAccess *bool                          `json:"EnableDefaultInternetAccess"`
+	DisableIMDSV1               *bool                          `json:"DisableIMDSV1"`
 	Name                        string                         `json:"Name"`
 	Description                 string                         `json:"Description"`
+	DisplayName                 string                         `json:"DisplayName"`
+	IamRoleArn                  string                         `json:"IamRoleArn"`
 	InstanceType                string                         `json:"InstanceType"`
+	Platform                    string                         `json:"Platform"`
+	AccessEndpoints             []accessEndpointJSON           `json:"AccessEndpoints"`
+	AttributesToDelete          []string                       `json:"AttributesToDelete"`
 }
 
 func (h *Handler) opUpdateAppBlockBuilder(_ context.Context, body []byte) (any, error) {
@@ -256,8 +284,24 @@ func (h *Handler) opUpdateAppBlockBuilder(_ context.Context, body []byte) (any, 
 		vpcConfig = &VpcConfig{SecurityGroupIDs: req.VpcConfig.SecurityGroupIDs, SubnetIDs: req.VpcConfig.SubnetIDs}
 	}
 
+	for _, attr := range req.AttributesToDelete {
+		switch attr {
+		case appBlockBuilderAttrIamRoleArn, appBlockBuilderAttrAccessEndpoints, appBlockBuilderAttrSecurityGroupIDs:
+		default:
+			return nil, fmt.Errorf("%w: unknown AttributesToDelete value %q", awserr.ErrInvalidParameter, attr)
+		}
+	}
+
 	bb, err := h.Backend.UpdateAppBlockBuilder(
 		req.Name, req.Description, req.InstanceType, vpcConfig, req.EnableDefaultInternetAccess,
+		UpdateAppBlockBuilderOptions{
+			DisableIMDSV1:      req.DisableIMDSV1,
+			DisplayName:        req.DisplayName,
+			IamRoleArn:         req.IamRoleArn,
+			AccessEndpoints:    toAccessEndpoints(req.AccessEndpoints),
+			Platform:           req.Platform,
+			AttributesToDelete: req.AttributesToDelete,
+		},
 	)
 	if err != nil {
 		return nil, err
@@ -328,6 +372,7 @@ func (h *Handler) opDisassociateAppBlockBuilderAppBlock(_ context.Context, body 
 type describeAppBlockBuilderAppBlockAssociationsInput struct {
 	AppBlockBuilderName string `json:"AppBlockBuilderName"`
 	AppBlockArn         string `json:"AppBlockArn"`
+	pageReq
 }
 
 func (h *Handler) opDescribeAppBlockBuilderAppBlockAssociations(_ context.Context, body []byte) (any, error) {
@@ -343,16 +388,18 @@ func (h *Handler) opDescribeAppBlockBuilderAppBlockAssociations(_ context.Contex
 		return nil, err
 	}
 
-	resp := make([]any, 0, len(assocs))
-	for _, a := range assocs {
-		resp = append(resp, map[string]any{
-			"AppBlockBuilderName": a.AppBlockBuilderName,
-			keyAppBlockArn:        a.AppBlockArn,
-			"State":               a.State, //nolint:goconst // existing issue.
-		})
-	}
-
-	return map[string]any{"AppBlockBuilderAppBlockAssociations": resp}, nil
+	return pagedResponse(
+		assocs,
+		func(v *AppBlockBuilderAppBlockAssociation) string { return v.AppBlockBuilderName + "|" + v.AppBlockArn },
+		req.pageReq, "AppBlockBuilderAppBlockAssociations",
+		func(a *AppBlockBuilderAppBlockAssociation) map[string]any {
+			return map[string]any{
+				"AppBlockBuilderName": a.AppBlockBuilderName,
+				keyAppBlockArn:        a.AppBlockArn,
+				"State":               a.State, //nolint:goconst // existing issue.
+			}
+		},
+	)
 }
 
 // --- Response helpers ---
@@ -404,6 +451,22 @@ func appBlockBuilderToResponse(bb *AppBlockBuilder) map[string]any {
 
 	if bb.EnableDefaultInternetAccess != nil {
 		resp["EnableDefaultInternetAccess"] = *bb.EnableDefaultInternetAccess
+	}
+
+	if bb.DisableIMDSV1 != nil {
+		resp["DisableIMDSV1"] = *bb.DisableIMDSV1
+	}
+
+	if bb.DisplayName != "" {
+		resp["DisplayName"] = bb.DisplayName
+	}
+
+	if bb.IamRoleArn != "" {
+		resp["IamRoleArn"] = bb.IamRoleArn
+	}
+
+	if len(bb.AccessEndpoints) > 0 {
+		resp["AccessEndpoints"] = accessEndpointsToJSON(bb.AccessEndpoints)
 	}
 
 	return resp

@@ -350,6 +350,26 @@ func decodeCorpus() []string {
 			`"ConsistentRead":true,"AttributesToGet":["pk"],"ExpressionAttributeNames":{"#a":"b"}}},` +
 			`"ReturnConsumedCapacity":"INDEXES"}`,
 		`{"RequestItems":{"t":{"Keys":[]},"u":{}}}`,
+		`{"TransactItems":[{"Put":{"TableName":"t","Item":{"pk":{"S":"a"}},` +
+			`"ConditionExpression":"attribute_not_exists(pk)","ExpressionAttributeNames":{"#a":"pk"},` +
+			`"ExpressionAttributeValues":{":v":{"S":"x"}},` +
+			`"ReturnValuesOnConditionCheckFailure":"ALL_OLD"}},{"Delete":{"TableName":"t","Key":{"pk":{"S":"b"}}}},` +
+			`{"Update":{"TableName":"t","Key":{"pk":{"S":"c"}},"UpdateExpression":"SET a = :v",` +
+			`"ExpressionAttributeValues":{":v":{"N":"1"}}}},{"ConditionCheck":{"TableName":"t","Key":{"pk":{"S":"d"}},` +
+			`"ConditionExpression":"attribute_exists(pk)"}}],"ClientRequestToken":"tok","ReturnConsumedCapacity":"TOTAL",` +
+			`"ReturnItemCollectionMetrics":"SIZE"}`,
+		`{"TransactItems":[{"ConditionCheck":{"TableName":"t","Key":{"pk":{"S":"d"}}}},{},{"Put":{"TableName":"t"}}]}`,
+		`{"TransactItems":[{"Put":{"TableName":"t","Item":{"pk":{"S":"a"}}},"Delete":{"TableName":"t","Key":{}}}],` +
+			`"ClientRequestToken":""}`,
+		`{"TransactItems":[{"Update":{"TableName":"t","Key":{"pk":{"S":"c"}},"ExpressionAttributeNames":{},` +
+			`"ExpressionAttributeValues":{}}}]}`,
+		`{"TransactItems":[]}`,
+		`{"TransactItems":[{"Put":{"TableName":"t","Item":{"pk":{"S":"a"}},"ReturnValues":"ALL_OLD"}}]}`,
+		`{"TransactItems":[{"Put":{"TableName":"t","Item":{"pk":{"S":"a"}},"Expected":{}}}]}`,
+		`{"TransactItems":[{"Delete":{"TableName":"t","Item":{"pk":{"S":"a"}}}}]}`,
+		`{"TransactItems":[{"Put":{"TableName":"t","Item":{"pk":{"S":"a"}}},"Put":{"TableName":"u","Item":{}}}]}`,
+		`{"TransactItems":null}`,
+		`{"TransactItems":[null]}`,
 		`{"TableName":"t","Item":{"pk":{"S":"a"},"pk":{"S":"b"}}}`,
 		`{"TableName":"t","TableName":"u","Item":{}}`,
 		`{"tablename":"t","Item":{}}`,
@@ -440,6 +460,11 @@ func TestDecoders_MatchLegacy(t *testing.T) {
 			t.Helper()
 
 			return checkDecoder(t, body, models.ToSDKBatchGetItemInput, decodeBatchGetItem)
+		}},
+		{name: "TransactWriteItems", run: func(t *testing.T, body string) bool {
+			t.Helper()
+
+			return checkDecoder(t, body, toSDKTransactWriteItemsInputChecked, decodeTransactWriteItems)
 		}},
 	}
 

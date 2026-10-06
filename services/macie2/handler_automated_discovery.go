@@ -3,6 +3,8 @@ package macie2
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
+	"slices"
 )
 
 func parseAutomatedDiscoveryPath(method string, parts []string) (string, string) {
@@ -32,7 +34,7 @@ func parseAutomatedDiscoveryPath(method string, parts []string) (string, string)
 	return opUnknown, ""
 }
 
-func (h *Handler) dispatchAutomatedDiscoveryOps(op string, body []byte) (any, int, bool, error) {
+func (h *Handler) dispatchAutomatedDiscoveryOps(op, query string, body []byte) (any, int, bool, error) {
 	switch op {
 	case opGetAutomatedDiscoveryConfiguration:
 		result, code, err := h.handleGetAutomatedDiscoveryConfiguration()
@@ -45,7 +47,7 @@ func (h *Handler) dispatchAutomatedDiscoveryOps(op string, body []byte) (any, in
 		return nil, code, true, err
 
 	case opListAutomatedDiscoveryAccounts:
-		result, code, err := h.handleListAutomatedDiscoveryAccounts()
+		result, code, err := h.handleListAutomatedDiscoveryAccounts(query)
 
 		return result, code, true, err
 
@@ -86,13 +88,22 @@ func (h *Handler) handleUpdateAutomatedDiscoveryConfiguration(body []byte) (int,
 	return http.StatusOK, nil
 }
 
-func (h *Handler) handleListAutomatedDiscoveryAccounts() (any, int, error) {
+func (h *Handler) handleListAutomatedDiscoveryAccounts(query string) (any, int, error) {
 	accounts, err := h.Backend.ListAutomatedDiscoveryAccounts()
 	if err != nil {
 		return nil, http.StatusInternalServerError, err
 	}
 
-	return map[string]any{keyItems: accounts}, http.StatusOK, nil
+	if ids, _ := url.ParseQuery(query); len(ids["accountIds"]) > 0 {
+		want := make(map[string]bool, len(ids["accountIds"]))
+		for _, id := range ids["accountIds"] {
+			want[id] = true
+		}
+
+		accounts = slices.DeleteFunc(accounts, func(a *AutoDiscoveryAccount) bool { return !want[a.AccountID] })
+	}
+
+	return pagedQueryResponse(h.Backend, keyItems, query, accounts)
 }
 
 func (h *Handler) handleBatchUpdateAutomatedDiscoveryAccounts(body []byte) (int, error) {

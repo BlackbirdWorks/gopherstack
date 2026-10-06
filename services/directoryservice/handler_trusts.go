@@ -24,6 +24,9 @@ func (h *Handler) handleCreateTrust(c *echo.Context) error {
 		TrustDirection   string `json:"TrustDirection"`
 		TrustType        string `json:"TrustType"`
 		SelectiveAuth    string `json:"SelectiveAuth"`
+
+		ConditionalForwarderIPAddrs   []string `json:"ConditionalForwarderIpAddrs"`
+		ConditionalForwarderIPv6Addrs []string `json:"ConditionalForwarderIpv6Addrs"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
@@ -54,10 +57,16 @@ func (h *Handler) handleCreateTrust(c *echo.Context) error {
 		trustType = string(TrustTypeForest)
 	}
 
-	trustID, createErr := h.Backend.CreateTrust(
-		h.contextWithRegion(c),
-		req.DirectoryID, req.RemoteDomainName, req.TrustPassword, req.TrustDirection, trustType, req.SelectiveAuth,
-	)
+	trustID, createErr := h.Backend.CreateTrust(h.contextWithRegion(c), CreateTrustInput{
+		DirectoryID:                   req.DirectoryID,
+		RemoteDomainName:              req.RemoteDomainName,
+		TrustPassword:                 req.TrustPassword,
+		TrustDirection:                req.TrustDirection,
+		TrustType:                     trustType,
+		SelectiveAuth:                 req.SelectiveAuth,
+		ConditionalForwarderIPAddrs:   req.ConditionalForwarderIPAddrs,
+		ConditionalForwarderIPv6Addrs: req.ConditionalForwarderIPv6Addrs,
+	})
 	if createErr != nil {
 		return h.mapError(c, createErr)
 	}
@@ -75,7 +84,8 @@ func (h *Handler) handleDeleteTrust(c *echo.Context) error {
 	}
 
 	var req struct {
-		TrustID string `json:"TrustId"`
+		TrustID                              string `json:"TrustId"`
+		DeleteAssociatedConditionalForwarder bool   `json:"DeleteAssociatedConditionalForwarder"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
@@ -86,7 +96,9 @@ func (h *Handler) handleDeleteTrust(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "TrustId is required"))
 	}
 
-	trustID, delErr := h.Backend.DeleteTrust(h.contextWithRegion(c), req.TrustID)
+	trustID, delErr := h.Backend.DeleteTrust(
+		h.contextWithRegion(c), req.TrustID, req.DeleteAssociatedConditionalForwarder,
+	)
 	if delErr != nil {
 		return h.mapError(c, delErr)
 	}

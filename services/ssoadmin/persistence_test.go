@@ -49,7 +49,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 
 	app, err := original.CreateApplication(
-		instanceArn, "arn:aws:sso::aws:applicationProvider/custom", "full-state-app", "app desc",
+		instanceArn, "arn:aws:sso::aws:applicationProvider/custom", "full-state-app", "app desc", "",
 		map[string]string{"team": "platform"}, nil,
 	)
 	require.NoError(t, err)

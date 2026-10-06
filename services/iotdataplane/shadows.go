@@ -97,21 +97,50 @@ func isJSONNull(v json.RawMessage) bool {
 	return json.Unmarshal(v, &x) == nil && x == nil
 }
 
-// mergeStateFields merges patch into base: null-valued keys are deleted.
-// The result is a new map; base and patch are not modified.
+// mergeStateFields deep-merges patch into base: null deletes a key, nested
+// objects merge recursively, other values replace. base and patch are unchanged.
 func mergeStateFields(base, patch map[string]json.RawMessage) map[string]json.RawMessage {
 	result := make(map[string]json.RawMessage, len(base))
 	maps.Copy(result, base)
 
 	for k, v := range patch {
-		if isJSONNull(v) {
+		switch {
+		case isJSONNull(v):
 			delete(result, k)
-		} else {
-			result[k] = v
+		default:
+			result[k] = mergeJSONValue(result[k], v)
 		}
 	}
 
 	return result
+}
+
+func mergeJSONValue(existing, patch json.RawMessage) json.RawMessage {
+	patchObj, ok := decodeJSONObject(patch)
+	if !ok {
+		return patch
+	}
+
+	existingObj, ok := decodeJSONObject(existing)
+	if !ok {
+		existingObj = nil
+	}
+
+	merged, err := json.Marshal(mergeStateFields(existingObj, patchObj))
+	if err != nil {
+		return patch
+	}
+
+	return merged
+}
+
+func decodeJSONObject(raw json.RawMessage) (map[string]json.RawMessage, bool) {
+	var obj map[string]json.RawMessage
+	if len(raw) == 0 || json.Unmarshal(raw, &obj) != nil || obj == nil {
+		return nil, false
+	}
+
+	return obj, true
 }
 
 // updateMetaFields returns a copy of meta with timestamps updated for keys present in patch.
@@ -131,18 +160,33 @@ func updateMetaFields(meta map[string]int64, patch map[string]json.RawMessage, t
 	return result
 }
 
-// computeDelta returns a map of fields where desired differs from reported (or is absent in reported).
-// Returns nil when there is no delta.
+// computeDelta returns the fields where desired differs from reported, recursing
+// into nested objects so only the differing members appear. nil means no delta.
 func computeDelta(desired, reported map[string]json.RawMessage) map[string]json.RawMessage {
-	if len(desired) == 0 {
-		return nil
-	}
-
 	delta := make(map[string]json.RawMessage)
 
 	for k, dv := range desired {
 		rv, ok := reported[k]
-		if !ok || string(rv) != string(dv) {
+		if !ok {
+			delta[k] = dv
+
+			continue
+		}
+
+		dObj, dIsObj := decodeJSONObject(dv)
+		rObj, rIsObj := decodeJSONObject(rv)
+
+		if dIsObj && rIsObj {
+			if sub := computeDelta(dObj, rObj); sub != nil {
+				if raw, err := json.Marshal(sub); err == nil {
+					delta[k] = raw
+				}
+			}
+
+			continue
+		}
+
+		if !jsonRawEqual(dv, rv) {
 			delta[k] = dv
 		}
 	}
@@ -152,6 +196,18 @@ func computeDelta(desired, reported map[string]json.RawMessage) map[string]json.
 	}
 
 	return delta
+}
+
+func jsonRawEqual(a, b json.RawMessage) bool {
+	var av, bv any
+	if json.Unmarshal(a, &av) != nil || json.Unmarshal(b, &bv) != nil {
+		return string(a) == string(b)
+	}
+
+	ab, errA := json.Marshal(av)
+	bb, errB := json.Marshal(bv)
+
+	return errA == nil && errB == nil && string(ab) == string(bb)
 }
 
 // buildMetaTimestamps converts a flat field→epoch map to the AWS metadata format:

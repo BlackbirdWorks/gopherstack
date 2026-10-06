@@ -1,6 +1,7 @@
 package iotdataplane
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -58,6 +59,10 @@ func (h *Handler) handleListRetainedMessages(c *echo.Context) error {
 	topics := make([]string, len(msgs))
 	for i, m := range msgs {
 		topics[i] = m.Topic
+	}
+
+	if cursorUnknown(topics, nextTokenIn) {
+		return h.handleError(c, fmt.Errorf("%w: invalid nextToken", ErrValidation))
 	}
 
 	startIdx := findCursorIndex(topics, nextTokenIn)

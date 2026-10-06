@@ -16,7 +16,7 @@ func TestTagUntagListTagsForResource(t *testing.T) {
 	client := newTestClient(t, newTestHandler())
 	ctx := t.Context()
 
-	created, err := client.CreateConnector(ctx, minimalCreateConnectorInput("tag-me"))
+	created, err := client.CreateConnector(ctx, connectorInput(t, client, "tag-me"))
 	require.NoError(t, err)
 
 	_, err = client.TagResource(ctx, &kafkaconnectsdk.TagResourceInput{
@@ -68,7 +68,7 @@ func TestCreateConnectorWithTags(t *testing.T) {
 	client := newTestClient(t, newTestHandler())
 	ctx := t.Context()
 
-	input := minimalCreateConnectorInput("tagged-on-create")
+	input := connectorInput(t, client, "tagged-on-create")
 	input.Tags = map[string]string{"Environment": "test"}
 
 	created, err := client.CreateConnector(ctx, input)

@@ -417,3 +417,15 @@ iotdataplane is region-isolated: shadows, retained messages and connections live
 ## 2026-10-04 (reqfielddiff tier-1 re-examined)
 
 ListSubscriptions.MaxResults is a tool false positive (read through `parsePageSize`, handler.go). SendDirectMessage.Timeout stays recorded: honoring it needs a PUBACK wait (and the 504 on expiry), which requires a packet hook in the services/iot broker behind MQTTPublisher; that package is outside this pass's ownership.
+
+## 2026-10-05 errcodeaudit note (gopherstack-r3pr)
+
+- Admin-only RegisterConnection duplicate now emits ConflictException (409), a type the SDK declares; the old ResourceAlreadyExistsException is not in iotdataplane@v1.35.4.
+
+## 2026-10-05 (reqfielddiff tier-2 pagination)
+
+ListNamedShadowsForThing PageSize/NextToken and ListRetainedMessages MaxResults are false positives (read through `parsePageSize`, handler.go); both now reject a NextToken that names no item with InvalidRequestException (declared by both ops) instead of restarting at page one. Proof: `TestListOps_PagingAndUnknownCursor`.
+
+## 2026-10-05 (gopherstack-uox6 pass 12, value semantics)
+
+UpdateThingShadow now deep-merges nested objects (a patch to `a.y` keeps sibling `a.x`; nested null removes only that member; arrays replace) and the delta is computed per nested member. Interpretation: the SDK (api_op_UpdateThingShadow.go) is silent; behaviour follows the IoT shadow service docs. Proof: `TestShadow_NestedUpdatesMergeAndDeltaIsMinimal`. Recorded, unchanged: metadata timestamps stay per top-level key, not per nested member.

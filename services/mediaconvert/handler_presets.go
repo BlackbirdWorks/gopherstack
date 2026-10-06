@@ -109,7 +109,7 @@ func (h *Handler) handleDeletePreset(c *echo.Context, name string) error {
 
 type updatePresetInput struct {
 	Settings    map[string]any `json:"settings,omitempty"`
-	Description string         `json:"description,omitempty"`
+	Description *string        `json:"description,omitempty"`
 	Category    string         `json:"category,omitempty"`
 }
 

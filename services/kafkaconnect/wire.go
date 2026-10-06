@@ -437,6 +437,7 @@ func customPluginToSummaryDTO(p *CustomPlugin) customPluginSummaryDTO {
 
 type describeCustomPluginResponse struct {
 	LatestRevision    *customPluginRevisionSummaryDTO `json:"latestRevision,omitempty"`
+	StateDescription  *stateDescriptionDTO            `json:"stateDescription,omitempty"`
 	CreationTime      string                          `json:"creationTime,omitempty"`
 	CustomPluginArn   string                          `json:"customPluginArn,omitempty"`
 	CustomPluginState string                          `json:"customPluginState,omitempty"`

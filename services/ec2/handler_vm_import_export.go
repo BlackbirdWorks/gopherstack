@@ -453,7 +453,7 @@ func (h *Handler) handleDescribeExportTasks(vals url.Values, reqID string) (any,
 		)
 	}
 
-	return resp, nil
+	return finishDescribe(vals, resp, describeOpts{noPage: true, filters: true})
 }
 
 // ---- Handlers: CancelImportTask ----

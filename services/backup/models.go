@@ -168,6 +168,9 @@ type Job struct {
 	ExpectedCompletionDate    *time.Time        `json:"expectedCompletionDate,omitempty"`
 	StartBy                   *time.Time        `json:"startBy,omitempty"`
 	BackupOptions             map[string]string `json:"backupOptions,omitempty"`
+	RecoveryPointTags         map[string]string `json:"recoveryPointTags,omitempty"`
+	Lifecycle                 *Lifecycle        `json:"lifecycle,omitempty"`
+	IdempotencyToken          string            `json:"idempotencyToken,omitempty"`
 	ResourceArn               string            `json:"resourceArn,omitempty"`
 	BackupJobID               string            `json:"backupJobId"`
 	BackupVaultName           string            `json:"backupVaultName"`
@@ -203,6 +206,7 @@ type Selection struct {
 // Framework represents an AWS Backup audit framework.
 type Framework struct {
 	CreationTime         time.Time          `json:"creationTime"`
+	IdempotencyToken     string             `json:"idempotencyToken,omitempty"`
 	Tags                 *tags.Tags         `json:"tags,omitempty"`
 	FrameworkName        string             `json:"frameworkName"`
 	FrameworkArn         string             `json:"frameworkArn"`
@@ -215,12 +219,16 @@ type Framework struct {
 // LegalHold represents an AWS Backup legal hold.
 type LegalHold struct {
 	CreationDate           time.Time               `json:"creationDate"`
+	CancellationDate       *time.Time              `json:"cancellationDate,omitempty"`
+	RetainRecordUntil      *time.Time              `json:"retainRecordUntil,omitempty"`
 	RecoveryPointSelection *RecoveryPointSelection `json:"recoveryPointSelection,omitempty"`
 	Title                  string                  `json:"title"`
 	Description            string                  `json:"description"`
 	LegalHoldID            string                  `json:"legalHoldId"`
 	LegalHoldArn           string                  `json:"legalHoldArn"`
 	Status                 string                  `json:"status"`
+	CancelDescription      string                  `json:"cancelDescription,omitempty"`
+	IdempotencyToken       string                  `json:"idempotencyToken,omitempty"`
 }
 
 // DateRange is an inclusive Unix-time window ([FromDate, ToDate]) used to
@@ -243,6 +251,7 @@ type RecoveryPointSelection struct {
 // ReportPlan represents an AWS Backup report plan.
 type ReportPlan struct {
 	Tags                  *tags.Tags             `json:"tags,omitempty"`
+	IdempotencyToken      string                 `json:"idempotencyToken,omitempty"`
 	ReportDeliveryChannel *ReportDeliveryChannel `json:"reportDeliveryChannel,omitempty"`
 	ReportSetting         *ReportSetting         `json:"reportSetting,omitempty"`
 	CreationTime          time.Time              `json:"creationTime"`
@@ -373,6 +382,7 @@ type RestoreTestingSelectionInput struct {
 // RecoveryPoint represents an AWS Backup recovery point.
 type RecoveryPoint struct {
 	CreationDate              time.Time            `json:"creationDate"`
+	Tags                      map[string]string    `json:"tags,omitempty"`
 	CompletionDate            *time.Time           `json:"completionDate,omitempty"`
 	Lifecycle                 *Lifecycle           `json:"lifecycle,omitempty"`
 	CalculatedLifecycle       *CalculatedLifecycle `json:"calculatedLifecycle,omitempty"`
@@ -508,6 +518,7 @@ type RestoreJob struct {
 	BackupVaultName  string            `json:"backupVaultName,omitempty"`
 	BackupVaultArn   string            `json:"backupVaultArn,omitempty"`
 	AccountID        string            `json:"accountId,omitempty"`
+	IdempotencyToken string            `json:"idempotencyToken,omitempty"`
 	// CreatedResourceArn is the ARN of the resource StartRestoreJob created
 	// once the restore completes -- real AWS would provision an actual new
 	// resource of ResourceType; this emulator synthesizes a plausible ARN
@@ -647,3 +658,10 @@ type RegionSettings struct {
 }
 
 // ---- Global/Region settings ----
+
+// CreateOptions carries the optional Create* request members that sit
+// beside a resource's identity: initial tags and the idempotency token.
+type CreateOptions struct {
+	Tags             map[string]string
+	IdempotencyToken string
+}

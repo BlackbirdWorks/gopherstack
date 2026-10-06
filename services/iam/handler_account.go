@@ -51,7 +51,7 @@ func (h *Handler) iamReportingDispatchTable() map[string]iamActionFn {
 					}}
 				}
 
-				policies = append(policies, toManagedPolicyDetailXML(pol, versions))
+				policies = append(policies, toManagedPolicyDetailXML(pol, versions, h.boundaryUsageCount(pol.Arn)))
 			}
 
 			return &GetAccountAuthorizationDetailsResponse{
@@ -67,28 +67,7 @@ func (h *Handler) iamReportingDispatchTable() map[string]iamActionFn {
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
-		"SimulatePrincipalPolicy": func(vals url.Values, reqID string) (any, error) {
-			actionNames := parseIndexedValues(vals, "ActionNames.member.")
-			resourceArns := parseIndexedValues(vals, "ResourceArns.member.")
-			resourcePolicyList := parseIndexedValues(vals, "ResourcePolicyList.member.")
-
-			results, err := h.Backend.SimulatePrincipalPolicy(
-				vals.Get("PolicySourceArn"), vals.Get("CallerArn"), vals.Get("ResourceOwner"),
-				resourcePolicyList, actionNames, resourceArns,
-				parseConditionContext(vals),
-			)
-			if err != nil {
-				return nil, err
-			}
-
-			return &SimulatePrincipalPolicyResponse{
-				Xmlns: iamXMLNS,
-				SimulatePrincipalPolicyResult: SimulatePrincipalPolicyResult{
-					EvaluationResults: simResultsToXML(results),
-				},
-				ResponseMetadata: ResponseMetadata{RequestID: reqID},
-			}, nil
-		},
+		"SimulatePrincipalPolicy": h.handleSimulatePrincipalPolicy,
 		"GenerateCredentialReport": func(_ url.Values, reqID string) (any, error) {
 			return &GenerateCredentialReportResponse{
 				Xmlns: iamXMLNS,
@@ -328,14 +307,15 @@ func parseDelegationPermissionParameters(vals url.Values) []DelegationPolicyPara
 // iamAccountAliasRefinementDispatch adds ListAccountAliases and DeleteAccountAlias.
 func (h *Handler) iamAccountAliasRefinementDispatch() map[string]iamActionFn {
 	return map[string]iamActionFn{
-		"ListAccountAliases": func(_ url.Values, reqID string) (any, error) {
-			aliases := h.Backend.ListAccountAliases()
+		"ListAccountAliases": func(vals url.Values, reqID string) (any, error) {
+			pg := pageForm(h.Backend.ListAccountAliases(), vals)
 
 			return &ListAccountAliasesResponse{
 				Xmlns: iamXMLNS,
 				ListAccountAliasesResult: ListAccountAliasesResult{
-					AccountAliases: aliases,
-					IsTruncated:    false,
+					AccountAliases: pg.Data,
+					Marker:         pg.Next,
+					IsTruncated:    pg.Next != "",
 				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
@@ -702,4 +682,29 @@ func (h *Handler) iamOrgsReportDispatch() map[string]iamActionFn {
 			}, nil
 		},
 	}
+}
+
+func (h *Handler) handleSimulatePrincipalPolicy(vals url.Values, reqID string) (any, error) {
+	actionNames := parseIndexedValues(vals, "ActionNames.member.")
+	resourceArns := parseIndexedValues(vals, "ResourceArns.member.")
+	resourcePolicyList := parseIndexedValues(vals, "ResourcePolicyList.member.")
+
+	results, err := h.Backend.SimulatePrincipalPolicy(
+		vals.Get("PolicySourceArn"), vals.Get("CallerArn"), vals.Get("ResourceOwner"),
+		resourcePolicyList, actionNames, resourceArns,
+		parseConditionContext(vals),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	pg := pageForm(simResultsToXML(results), vals)
+
+	return &SimulatePrincipalPolicyResponse{
+		Xmlns: iamXMLNS,
+		SimulatePrincipalPolicyResult: SimulatePrincipalPolicyResult{
+			EvaluationResults: pg.Data, Marker: pg.Next, IsTruncated: pg.Next != "",
+		},
+		ResponseMetadata: ResponseMetadata{RequestID: reqID},
+	}, nil
 }

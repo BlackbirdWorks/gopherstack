@@ -268,12 +268,7 @@ func runVPCAndNetworkExtras(t *testing.T, backend *ec2.InMemoryBackend, client *
 	require.NoError(t, err)
 	require.NotNil(t, replaceEntryOut)
 
-	// ReplaceNetworkAclAssociation: this backend does not model a
-	// NetworkAclAssociationId distinct from the associated SubnetId (a
-	// disclosed simplification, handler_filters.go's applyNetworkACLFilters
-	// doc comment) -- the handler reads the request's AssociationId
-	// parameter as the subnet to (re)associate. Exercised as the handler
-	// actually expects, per that documented simplification.
+	// A bare subnet ID is accepted as AssociationId alongside aclassoc- IDs.
 	replaceAssocOut, err := client.ReplaceNetworkAclAssociation(
 		t.Context(),
 		&ec2sdk.ReplaceNetworkAclAssociationInput{

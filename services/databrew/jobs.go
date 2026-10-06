@@ -142,7 +142,7 @@ func (b *InMemoryBackend) UpdateJob(
 	if maxCapacity > 0 {
 		j.MaxCapacity = maxCapacity
 	}
-	if maxRetries >= 0 {
+	if maxRetries > 0 {
 		j.MaxRetries = maxRetries
 	}
 	if timeout > 0 {

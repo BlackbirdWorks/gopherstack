@@ -8,12 +8,13 @@ import (
 // storedAgent holds an agent with all fields.
 // CreationTime is first so its non-pointer prefix (wall, ext) reduces GC pointer bytes.
 type storedAgent struct {
-	CreationTime time.Time         `json:"creationTime"`
-	Tags         map[string]string `json:"tags"`
-	AgentArn     string            `json:"agentArn"`
-	Name         string            `json:"name"`
-	Status       string            `json:"status"`
-	EndpointType string            `json:"endpointType"`
+	CreationTime time.Time          `json:"creationTime"`
+	PrivateLink  *PrivateLinkConfig `json:"privateLink,omitempty"`
+	Tags         map[string]string  `json:"tags"`
+	AgentArn     string             `json:"agentArn"`
+	Name         string             `json:"name"`
+	Status       string             `json:"status"`
+	EndpointType string             `json:"endpointType"`
 }
 
 func (a *storedAgent) toAgent() Agent {
@@ -23,6 +24,7 @@ func (a *storedAgent) toAgent() Agent {
 		Status:       a.Status,
 		EndpointType: a.EndpointType,
 		CreationTime: a.CreationTime,
+		PrivateLink:  a.PrivateLink,
 		Tags:         maps.Clone(a.Tags),
 	}
 }
@@ -217,6 +219,7 @@ type storedObjectStorageConfig struct {
 	BucketName         string                    `json:"bucketName"`
 	AccessKey          string                    `json:"accessKey,omitempty"`
 	SecretKey          string                    `json:"secretKey,omitempty"`
+	ServerCertificate  []byte                    `json:"serverCertificate,omitempty"`
 	ServerProtocol     string                    `json:"serverProtocol,omitempty"`
 	AgentArns          []string                  `json:"agentArns,omitempty"`
 	ServerPort         int32                     `json:"serverPort,omitempty"`

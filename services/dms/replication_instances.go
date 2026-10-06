@@ -28,12 +28,14 @@ func (b *InMemoryBackend) mustDescribeReplicationInstances(ctx context.Context) 
 // ignored by ModifyReplicationInstance. VpcSecurityGroupIDs is accepted by
 // both.
 type ReplicationInstanceSettings struct {
+	Kerberos                   *KerberosAuthenticationSettings
 	KmsKeyID                   string
 	DNSNameServers             string
 	NetworkType                string
 	PreferredMaintenanceWindow string
 	ReplicationSubnetGroupID   string
 	ResourceIdentifier         string
+	NewIdentifier              string
 	VpcSecurityGroupIDs        []string
 }
 
@@ -88,27 +90,28 @@ func (b *InMemoryBackend) CreateReplicationInstance(
 	}
 
 	ri := &ReplicationInstance{
-		ReplicationInstanceIdentifier: identifier,
-		ReplicationInstanceArn:        instanceARN,
-		ReplicationInstanceClass:      class,
-		EngineVersion:                 engineVersion,
-		AvailabilityZone:              availabilityZone,
-		AllocatedStorage:              allocatedStorage,
-		MultiAZ:                       multiAZ,
-		AutoMinorVersionUpgrade:       autoMinorVersionUpgrade,
-		PubliclyAccessible:            publiclyAccessible,
-		ReplicationInstanceStatus:     statusAvailable,
-		PrivateIPAddress:              "10.0.0.1",
-		AccountID:                     b.accountID,
-		Region:                        region,
-		CreationTime:                  time.Now().UTC(),
-		Tags:                          t,
-		KmsKeyID:                      settings.KmsKeyID,
-		DNSNameServers:                settings.DNSNameServers,
-		NetworkType:                   settings.NetworkType,
-		PreferredMaintenanceWindow:    settings.PreferredMaintenanceWindow,
-		ReplicationSubnetGroupID:      settings.ReplicationSubnetGroupID,
-		VpcSecurityGroupIDs:           settings.VpcSecurityGroupIDs,
+		ReplicationInstanceIdentifier:  identifier,
+		ReplicationInstanceArn:         instanceARN,
+		ReplicationInstanceClass:       class,
+		EngineVersion:                  engineVersion,
+		AvailabilityZone:               availabilityZone,
+		AllocatedStorage:               allocatedStorage,
+		MultiAZ:                        multiAZ,
+		AutoMinorVersionUpgrade:        autoMinorVersionUpgrade,
+		PubliclyAccessible:             publiclyAccessible,
+		ReplicationInstanceStatus:      statusAvailable,
+		PrivateIPAddress:               "10.0.0.1",
+		AccountID:                      b.accountID,
+		Region:                         region,
+		CreationTime:                   time.Now().UTC(),
+		Tags:                           t,
+		KmsKeyID:                       settings.KmsKeyID,
+		DNSNameServers:                 settings.DNSNameServers,
+		NetworkType:                    settings.NetworkType,
+		PreferredMaintenanceWindow:     settings.PreferredMaintenanceWindow,
+		ReplicationSubnetGroupID:       settings.ReplicationSubnetGroupID,
+		VpcSecurityGroupIDs:            settings.VpcSecurityGroupIDs,
+		KerberosAuthenticationSettings: settings.Kerberos,
 	}
 	b.replicationInstances.Put(ri)
 	cp := *ri
@@ -220,6 +223,12 @@ func (b *InMemoryBackend) ModifyReplicationInstance(
 		return nil, fmt.Errorf("%w: replication instance %s not found", ErrNotFound, arnOrID)
 	}
 
+	if err := rekey(b.replicationInstances, getRegion(ctx, b.region), ri.ReplicationInstanceIdentifier,
+		settings.NewIdentifier, "replication instance", ri,
+		func(n string) { ri.ReplicationInstanceIdentifier = n }); err != nil {
+		return nil, err
+	}
+
 	if class != "" {
 		ri.ReplicationInstanceClass = class
 	}
@@ -250,6 +259,10 @@ func (b *InMemoryBackend) ModifyReplicationInstance(
 
 	if settings.VpcSecurityGroupIDs != nil {
 		ri.VpcSecurityGroupIDs = settings.VpcSecurityGroupIDs
+	}
+
+	if settings.Kerberos != nil {
+		ri.KerberosAuthenticationSettings = settings.Kerberos
 	}
 
 	cp := *ri

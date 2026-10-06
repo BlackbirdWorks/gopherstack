@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/svelte";
 import CodePipelinePage from "./+page.svelte";
-import { ALL_REGIONS, DEFAULT_REGION, setStoredRegion } from "$lib/region.svelte";
+import { ALL_REGIONS, DEFAULT_REGION, setStoredRegion } from "#lib/region.svelte.ts";
 
 const mockSend = vi.fn();
 
-vi.mock("$lib/aws-client", () => ({
+vi.mock("#lib/aws-client.ts", () => ({
   getCodePipelineClient: () => ({ send: mockSend }),
 }));
 
@@ -24,6 +24,28 @@ function stubRegionsWithData(regions: string[]): void {
       status: 200,
       json: () => Promise.resolve({ regions }),
     }),
+  );
+}
+
+// Both regions' ListPipelines calls fire before either's per-name
+// GetPipeline calls (Promise.all starts every region's async function
+// synchronously up to its first await), so an ordered mockResolvedValueOnce
+// queue would be racy. Key ListPipelines off call count and GetPipeline
+// off the requested name instead, which is order-independent.
+function mockPipelinesPerRegion(namesByCallOrder: string[][]): void {
+  let listCalls = 0;
+  mockSend.mockImplementation(
+    (cmd: { constructor: { name: string }; input?: { name?: string } }) => {
+      if (cmd.constructor.name === "ListPipelinesCommand") {
+        const names = namesByCallOrder[listCalls] ?? [];
+        listCalls++;
+        return Promise.resolve({ pipelines: names.map((name) => ({ name })) });
+      }
+      if (cmd.constructor.name === "GetPipelineCommand") {
+        return Promise.resolve({ pipeline: { name: cmd.input?.name, stages: [] } });
+      }
+      return Promise.resolve({});
+    },
   );
 }
 
@@ -196,28 +218,6 @@ describe("CodePipeline Page", () => {
       { timeout: 3000 },
     );
   });
-
-  // Both regions' ListPipelines calls fire before either's per-name
-  // GetPipeline calls (Promise.all starts every region's async function
-  // synchronously up to its first await), so an ordered mockResolvedValueOnce
-  // queue would be racy. Key ListPipelines off call count and GetPipeline
-  // off the requested name instead, which is order-independent.
-  function mockPipelinesPerRegion(namesByCallOrder: string[][]): void {
-    let listCalls = 0;
-    mockSend.mockImplementation(
-      (cmd: { constructor: { name: string }; input?: { name?: string } }) => {
-        if (cmd.constructor.name === "ListPipelinesCommand") {
-          const names = namesByCallOrder[listCalls] ?? [];
-          listCalls++;
-          return Promise.resolve({ pipelines: names.map((name) => ({ name })) });
-        }
-        if (cmd.constructor.name === "GetPipelineCommand") {
-          return Promise.resolve({ pipeline: { name: cmd.input?.name, stages: [] } });
-        }
-        return Promise.resolve({});
-      },
-    );
-  }
 
   describe("All regions mode", () => {
     it("fans ListPipelines out across every region with data and tags each row", async () => {

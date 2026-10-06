@@ -4,7 +4,7 @@ import XRayPage from "./+page.svelte";
 
 const mockSend = vi.fn();
 
-vi.mock("$lib/aws-client", () => ({
+vi.mock("#lib/aws-client.ts", () => ({
   getXRayClient: () => ({ send: mockSend }),
 }));
 
@@ -12,7 +12,7 @@ vi.mock("svelte-sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 
-vi.mock("$lib/confirm-dialog", () => ({
+vi.mock("#lib/confirm-dialog.ts", () => ({
   confirmDestructive: vi.fn(() => Promise.resolve(true)),
 }));
 

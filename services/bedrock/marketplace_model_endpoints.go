@@ -102,6 +102,7 @@ func (b *InMemoryBackend) GetMarketplaceModelEndpoint(
 // modelSourceEquals matches every endpoint.
 func (b *InMemoryBackend) ListMarketplaceModelEndpoints(
 	nextToken, modelSourceEquals string,
+	maxResults int,
 ) ([]*MarketplaceModelEndpoint, string) {
 	b.mu.RLock("ListMarketplaceModelEndpoints")
 	defer b.mu.RUnlock()
@@ -121,7 +122,7 @@ func (b *InMemoryBackend) ListMarketplaceModelEndpoints(
 
 	sort.Slice(list, func(i, j int) bool { return list[i].EndpointArn < list[j].EndpointArn })
 
-	return paginateBedrockSlice(list, nextToken)
+	return paginate(list, maxResults, nextToken)
 }
 
 // DeleteMarketplaceModelEndpoint removes a marketplace endpoint by ARN or name.

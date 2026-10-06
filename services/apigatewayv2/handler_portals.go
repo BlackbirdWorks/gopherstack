@@ -326,6 +326,10 @@ func (h *Handler) handleListPortals(c *echo.Context) error {
 		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
+	if pageErr := validateAPIGWPaging(c); pageErr != nil {
+		return writeErr(c, http.StatusBadRequest, pageErr.Error())
+	}
+
 	maxResults, nextToken := apigwPaginationParams(c)
 	p := page.New(items, nextToken, maxResults, apigwDefaultPageSize)
 
@@ -357,6 +361,10 @@ func (h *Handler) handleListPortalProducts(c *echo.Context) error {
 		log.Error("apigatewayv2: list portal products failed", "error", err)
 
 		return writeErr(c, http.StatusInternalServerError, err.Error())
+	}
+
+	if pageErr := validateAPIGWPaging(c); pageErr != nil {
+		return writeErr(c, http.StatusBadRequest, pageErr.Error())
 	}
 
 	maxResults, nextToken := apigwPaginationParams(c)
@@ -396,6 +404,10 @@ func (h *Handler) handleListProductPages(c *echo.Context, portalProductID string
 		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
+	if pageErr := validateAPIGWPaging(c); pageErr != nil {
+		return writeErr(c, http.StatusBadRequest, pageErr.Error())
+	}
+
 	maxResults, nextToken := apigwPaginationParams(c)
 	p := page.New(items, nextToken, maxResults, apigwDefaultPageSize)
 
@@ -415,6 +427,10 @@ func (h *Handler) handleListProductRestEndpointPages(c *echo.Context, portalProd
 		}
 
 		return writeErr(c, http.StatusInternalServerError, err.Error())
+	}
+
+	if pageErr := validateAPIGWPaging(c); pageErr != nil {
+		return writeErr(c, http.StatusBadRequest, pageErr.Error())
 	}
 
 	maxResults, nextToken := apigwPaginationParams(c)

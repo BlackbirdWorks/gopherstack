@@ -1,6 +1,10 @@
 package backup
 
-import "time"
+import (
+	"net/url"
+	"sort"
+	"time"
+)
 
 const (
 	keySummaryCount  = "Count"
@@ -78,4 +82,43 @@ func ParseTimeFilter(s string) *time.Time {
 	}
 
 	return &t
+}
+
+// pageParams reads maxResults/nextToken, whose casing differs per operation.
+func pageParams(q url.Values) (int, string) {
+	maxResults, nextToken := q.Get("maxResults"), q.Get("nextToken")
+	if maxResults == "" {
+		maxResults = q.Get("MaxResults")
+	}
+
+	if nextToken == "" {
+		nextToken = q.Get("NextToken")
+	}
+
+	return parseInt(maxResults), nextToken
+}
+
+// pageQuery paginates a key-sorted list per the request's maxResults/nextToken.
+func pageQuery[T any](q url.Values, list []T, key func(T) string) ([]T, string) {
+	maxResults, nextToken := pageParams(q)
+
+	return paginateByID(list, key, maxResults, nextToken)
+}
+
+func withNextToken(resp map[string]any, next string) map[string]any {
+	if next != "" {
+		resp["NextToken"] = next
+	}
+
+	return resp
+}
+
+func summaryStateKey(m map[string]any) string {
+	s, _ := m[keyState].(string)
+
+	return s
+}
+
+func sortSummaries(s []map[string]any) {
+	sort.Slice(s, func(i, j int) bool { return summaryStateKey(s[i]) < summaryStateKey(s[j]) })
 }

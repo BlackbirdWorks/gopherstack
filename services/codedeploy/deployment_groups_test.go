@@ -447,7 +447,7 @@ func TestDeploymentGroups_Update(t *testing.T) {
 			input: map[string]any{
 				"applicationName":            "app3",
 				"currentDeploymentGroupName": "dg",
-				// alarmConfiguration omitted → removing alarms
+				"alarmConfiguration":         map[string]any{"enabled": false},
 			},
 			wantStatus:     http.StatusOK,
 			wantHooksClean: true,

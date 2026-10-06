@@ -57,13 +57,25 @@ func (b *InMemoryBackend) ListSandboxes() []string {
 // inherits them onto a Build (aws-sdk-go-v2/service/codebuild@v1.72.4's
 // types.Sandbox carries the identical set of project-derived fields as
 // types.Build).
-func (b *InMemoryBackend) StartSandbox(projectName string) (*Sandbox, error) {
+func (b *InMemoryBackend) StartSandbox(projectName, idempotencyToken string) (*Sandbox, error) {
 	b.mu.Lock("StartSandbox")
 	defer b.mu.Unlock()
 
 	proj, ok := b.projects.Get(projectName)
 	if !ok {
 		return nil, ErrNotFound
+	}
+
+	fp := idemFingerprint(projectName)
+
+	if priorID, hit, err := b.idemReplay("StartSandbox", idempotencyToken, fp); err != nil {
+		return nil, err
+	} else if hit {
+		if prior, found := b.sandboxes.Get(priorID); found {
+			out := *prior
+
+			return &out, nil
+		}
 	}
 
 	id := uuid.NewString()
@@ -89,6 +101,7 @@ func (b *InMemoryBackend) StartSandbox(projectName string) (*Sandbox, error) {
 		QueuedTimeoutInMinutes:  proj.QueuedTimeoutInMinutes,
 	}
 	b.sandboxes.Put(sb)
+	b.idemRecord("StartSandbox", idempotencyToken, fp, id)
 
 	out := *sb
 

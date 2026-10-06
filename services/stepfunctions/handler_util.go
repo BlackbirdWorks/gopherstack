@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 	"github.com/blackbirdworks/gopherstack/services/stepfunctions/asl"
 )
 
@@ -90,10 +91,67 @@ func (h *Handler) utilActions() map[string]actionFn {
 const bareStateName = "TestStateName"
 
 type testStateInput struct {
-	Definition      string `json:"definition"`
-	Input           string `json:"input"`
-	RoleArn         string `json:"roleArn,omitempty"`
-	InspectionLevel string `json:"inspectionLevel,omitempty"`
+	Mock               *testStateMock          `json:"mock,omitempty"`
+	StateConfiguration *testStateConfiguration `json:"stateConfiguration,omitempty"`
+	Context            *string                 `json:"context,omitempty"`
+	Definition         string                  `json:"definition"`
+	Input              string                  `json:"input"`
+	RoleArn            string                  `json:"roleArn,omitempty"`
+	InspectionLevel    string                  `json:"inspectionLevel,omitempty"`
+}
+
+type testStateMock struct {
+	Result      *string `json:"result,omitempty"`
+	ErrorOutput *struct {
+		Error *string `json:"error,omitempty"`
+		Cause *string `json:"cause,omitempty"`
+	} `json:"errorOutput,omitempty"`
+}
+
+type testStateConfiguration struct {
+	RetrierRetryCount *int `json:"retrierRetryCount,omitempty"`
+}
+
+// testStateMockRun turns a TestState mock into a one-shot MockRun for stateName.
+func testStateMockRun(m *testStateMock, stateName string) (*asl.MockRun, error) {
+	if (m.Result == nil) == (m.ErrorOutput == nil) {
+		return nil, fmt.Errorf("%w: mock needs exactly one of result or errorOutput", ErrValidation)
+	}
+
+	var step map[string]any
+
+	if m.Result != nil {
+		if !json.Valid([]byte(*m.Result)) {
+			return nil, fmt.Errorf("%w: mock result is not valid JSON", ErrValidation)
+		}
+
+		step = map[string]any{"Return": json.RawMessage(*m.Result)}
+	} else {
+		if m.ErrorOutput.Error == nil || *m.ErrorOutput.Error == "" {
+			return nil, fmt.Errorf("%w: mock errorOutput.error is required", ErrValidation)
+		}
+
+		step = map[string]any{"Throw": map[string]string{
+			"Error": *m.ErrorOutput.Error, "Cause": ptrconv.String(m.ErrorOutput.Cause),
+		}}
+	}
+
+	cfg, err := json.Marshal(map[string]any{
+		"MockedResponses": map[string]any{"m": map[string]any{"0": step}},
+		"StateMachines": map[string]any{
+			"s": map[string]any{"TestCases": map[string]any{"t": map[string]string{stateName: "m"}}},
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	parsed, err := asl.ParseMockConfig(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrValidation, err)
+	}
+
+	return parsed.TestCase("s", "t")
 }
 
 type testStateOutput struct {
@@ -125,6 +183,31 @@ func inspectionDataFor(level string, executor *asl.Executor) map[string]string {
 
 func validInspectionLevel(level string) bool {
 	return level == "" || level == "INFO" || level == "DEBUG" || level == "TRACE"
+}
+
+// detachNext swaps Next for End:true so TestState can run a non-terminal
+// state without a synthetic next state, returning the new definition and Next.
+func detachNext(definition, stateName string, raw json.RawMessage) (string, string) {
+	var (
+		next     string
+		rawState map[string]json.RawMessage
+	)
+
+	if json.Unmarshal(raw, &rawState) != nil {
+		return definition, next
+	}
+
+	if nextRaw, hasNext := rawState["Next"]; hasNext {
+		_ = json.Unmarshal(nextRaw, &next)
+		delete(rawState, "Next")
+		rawState["End"] = json.RawMessage(`true`)
+	}
+
+	if modified, err := json.Marshal(map[string]any{stateName: rawState}); err == nil {
+		definition = string(modified)
+	}
+
+	return definition, next
 }
 
 // handleTestState executes a single state definition in isolation and returns its output.
@@ -162,22 +245,9 @@ func (h *Handler) handleTestState(body []byte) (any, error) {
 		stateName = k
 	}
 
-	// Extract Next field and replace with End:true so TestState can run
-	// non-terminal states without a synthetic next state in the SM.
 	var nextStateName string
 
-	var rawState map[string]json.RawMessage
-	if unmarshalErr := json.Unmarshal(states[stateName], &rawState); unmarshalErr == nil {
-		if nextRaw, hasNext := rawState["Next"]; hasNext {
-			_ = json.Unmarshal(nextRaw, &nextStateName)
-			delete(rawState, "Next")
-			rawState["End"] = json.RawMessage(`true`)
-		}
-
-		if modifiedDef, marshalErr := json.Marshal(map[string]any{stateName: rawState}); marshalErr == nil {
-			input.Definition = string(modifiedDef)
-		}
-	}
+	input.Definition, nextStateName = detachNext(input.Definition, stateName, states[stateName])
 
 	smDef := fmt.Sprintf(`{"StartAt":%q,"States":%s}`, stateName, input.Definition)
 
@@ -196,6 +266,11 @@ func (h *Handler) handleTestState(body []byte) (any, error) {
 
 	executor := asl.NewExecutor(sm, lambdaInvoker, nil)
 	executor.EnableInspection()
+	executor.EnableSingleState()
+
+	if cfgErr := configureTestStateExecutor(executor, &input, stateName, states[stateName]); cfgErr != nil {
+		return nil, cfgErr
+	}
 
 	stateInput := input.Input
 	if stateInput == "" {
@@ -214,18 +289,75 @@ func (h *Handler) handleTestState(body []byte) (any, error) {
 	}
 
 	if result.Failed {
+		status := "FAILED"
+		if result.Retriable {
+			status = "RETRIABLE"
+		}
+
 		return &testStateOutput{
-			Status: "FAILED", Error: result.Error, Cause: result.Cause,
+			Status: status, Error: result.Error, Cause: result.Cause,
 			InspectionData: inspectionDataFor(input.InspectionLevel, executor),
 		}, nil
 	}
 
 	outputBytes, _ := json.Marshal(result.Output)
 
-	return &testStateOutput{
+	out := &testStateOutput{
 		Status:         "SUCCEEDED",
 		Output:         string(outputBytes),
 		NextState:      nextStateName,
 		InspectionData: inspectionDataFor(input.InspectionLevel, executor),
-	}, nil
+	}
+
+	if result.Caught {
+		out.Status, out.Error, out.Cause, out.NextState = "CAUGHT_ERROR", result.Error, result.Cause, result.NextState
+	}
+
+	return out, nil
+}
+
+// configureTestStateExecutor applies the request's mock, context and
+// stateConfiguration to executor, rejecting combinations AWS rejects.
+func configureTestStateExecutor(
+	executor *asl.Executor, input *testStateInput, stateName string, rawState json.RawMessage,
+) error {
+	if input.Context != nil && input.Mock == nil {
+		return fmt.Errorf("%w: context may only be specified together with a mock", ErrValidation)
+	}
+
+	if input.Context != nil {
+		var ctxObj map[string]any
+		if err := json.Unmarshal([]byte(*input.Context), &ctxObj); err != nil {
+			return fmt.Errorf("%w: context must be a JSON object", ErrValidation)
+		}
+
+		executor.SetContextOverride(ctxObj)
+	}
+
+	if input.StateConfiguration != nil && input.StateConfiguration.RetrierRetryCount != nil {
+		executor.SetRetrierRetryCount(*input.StateConfiguration.RetrierRetryCount)
+	}
+
+	if input.Mock == nil {
+		return nil
+	}
+
+	var typed struct {
+		Type string `json:"Type"`
+	}
+
+	_ = json.Unmarshal(rawState, &typed)
+
+	if typed.Type != stateTypeTask {
+		return fmt.Errorf("%w: mock is supported for Task states only", ErrValidation)
+	}
+
+	run, err := testStateMockRun(input.Mock, stateName)
+	if err != nil {
+		return err
+	}
+
+	executor.SetMockRun(run)
+
+	return nil
 }

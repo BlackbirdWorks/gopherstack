@@ -240,6 +240,7 @@ func (b *InMemoryBackend) ListConsumableResources(ctx context.Context, filters [
 func (b *InMemoryBackend) ListJobsByConsumableResource(
 	ctx context.Context,
 	consumableResource string,
+	filters []KeyValueFilter,
 ) ([]*Job, error) {
 	region := getRegion(ctx, b.region)
 
@@ -249,7 +250,7 @@ func (b *InMemoryBackend) ListJobsByConsumableResource(
 	list := make([]*Job, 0)
 
 	for _, j := range b.jobsByRegion.Get(region) {
-		if jobReferencesConsumableResource(j, consumableResource) {
+		if jobReferencesConsumableResource(j, consumableResource) && jobMatchesAllConsumableFilters(j, filters) {
 			cp := *j
 			cp.Tags = tagsCloneOrEmpty(j.Tags)
 			list = append(list, &cp)
@@ -259,6 +260,29 @@ func (b *InMemoryBackend) ListJobsByConsumableResource(
 	sort.Slice(list, func(i, j int) bool { return list[i].CreatedAt < list[j].CreatedAt })
 
 	return list, nil
+}
+
+// jobMatchesAllConsumableFilters ANDs the JOB_STATUS and JOB_NAME entries
+// (api_op_ListJobsByConsumableResource.go); values within an entry are OR'd.
+func jobMatchesAllConsumableFilters(j *Job, filters []KeyValueFilter) bool {
+	for _, f := range filters {
+		matched := false
+
+		for _, v := range f.Values {
+			switch f.Name {
+			case filterJobName:
+				matched = matched || filterValueMatches(j.JobName, v, true)
+			case filterJobStatus:
+				matched = matched || j.Status == v
+			}
+		}
+
+		if !matched {
+			return false
+		}
+	}
+
+	return true
 }
 
 // jobReferencesConsumableResource reports whether a job's ConsumableResourceProperties

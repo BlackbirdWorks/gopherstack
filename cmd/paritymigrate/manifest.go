@@ -76,14 +76,17 @@ func discoverManifests(servicesDir string) ([]manifest, error) {
 	}
 	sort.Strings(slugs)
 
+	root, err := os.OpenRoot(servicesDir)
+	if err != nil {
+		return nil, fmt.Errorf("open root %s: %w", servicesDir, err)
+	}
+	defer root.Close()
+
 	manifests := make([]manifest, 0, len(slugs))
 	for _, slug := range slugs {
-		// filepath.Clean breaks gosec's G703 (path traversal via taint
-		// analysis) dataflow chain, matching cmd/gendocs/readmetable.go's
-		// established pattern for a locally-controlled (not user-supplied) path.
-		path := filepath.Clean(filepath.Join(servicesDir, slug, parityFileName))
+		path := filepath.Join(servicesDir, slug, parityFileName)
 
-		data, readErr := os.ReadFile(path)
+		data, readErr := root.ReadFile(filepath.Join(slug, parityFileName))
 		if readErr != nil {
 			if os.IsNotExist(readErr) {
 				continue

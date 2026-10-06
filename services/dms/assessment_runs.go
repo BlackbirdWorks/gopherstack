@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // defaultApplicableIndividualAssessments is the static catalog of individual
@@ -168,20 +169,37 @@ func (b *InMemoryBackend) StartAssessmentRun(
 	ctx context.Context,
 	taskArn, serviceAccessRoleArn, resultLocationBucket, assessmentRunName string,
 ) (*AssessmentRun, error) {
-	return b.startAssessmentRunWithSelection(
-		ctx, taskArn, serviceAccessRoleArn, resultLocationBucket, assessmentRunName, "", nil, nil,
-	)
+	return b.startAssessmentRunWithSelection(ctx, StartAssessmentRunParams{
+		TaskArn:              taskArn,
+		ServiceAccessRoleArn: serviceAccessRoleArn,
+		ResultLocationBucket: resultLocationBucket,
+		AssessmentRunName:    assessmentRunName,
+	})
+}
+
+// StartAssessmentRunParams groups StartReplicationTaskAssessmentRunInput's members.
+type StartAssessmentRunParams struct {
+	Tags                 map[string]string
+	TaskArn              string
+	ServiceAccessRoleArn string
+	ResultLocationBucket string
+	ResultLocationFolder string
+	AssessmentRunName    string
+	ResultEncryptionMode string
+	ResultKmsKeyArn      string
+	IncludeOnly          []string
+	Exclude              []string
 }
 
 // startAssessmentRunWithSelection is the full StartAssessmentRun
-// implementation, including IncludeOnly/Exclude support. Split out so the
-// simpler StartAssessmentRun signature (used by persistence_test.go's
-// programmatic seeding) stays stable.
+// implementation, including IncludeOnly/Exclude support.
 func (b *InMemoryBackend) startAssessmentRunWithSelection(
 	ctx context.Context,
-	taskArn, serviceAccessRoleArn, resultLocationBucket, assessmentRunName, resultEncryptionMode string,
-	includeOnly, exclude []string,
+	p StartAssessmentRunParams,
 ) (*AssessmentRun, error) {
+	taskArn, assessmentRunName := p.TaskArn, p.AssessmentRunName
+	includeOnly, exclude := p.IncludeOnly, p.Exclude
+
 	b.mu.Lock("StartAssessmentRun")
 	defer b.mu.Unlock()
 
@@ -198,10 +216,6 @@ func (b *InMemoryBackend) startAssessmentRunWithSelection(
 		if existing.ReplicationTaskArn == rt.ReplicationTaskArn {
 			existing.IsLatestTaskAssessmentRun = false
 		}
-	}
-
-	if resultEncryptionMode == "" {
-		resultEncryptionMode = "SSE_S3"
 	}
 
 	names := resolveAssessmentNames(includeOnly, exclude)
@@ -224,15 +238,22 @@ func (b *InMemoryBackend) startAssessmentRunWithSelection(
 
 	passedCount := int32(len(individual)) //nolint:gosec // bounded by request input
 
+	runTags := tags.New("dms.assessment-run." + runARN + ".tags")
+	if len(p.Tags) > 0 {
+		runTags.Merge(p.Tags)
+	}
+
 	run := &AssessmentRun{
 		ReplicationTaskAssessmentRunArn: runARN,
 		ReplicationTaskArn:              rt.ReplicationTaskArn,
 		AssessmentRunName:               assessmentRunName,
 		Status:                          statusPassed,
-		ServiceAccessRoleArn:            serviceAccessRoleArn,
-		ResultLocationBucket:            resultLocationBucket,
-		ResultLocationFolder:            assessmentRunName,
-		ResultEncryptionMode:            resultEncryptionMode,
+		ServiceAccessRoleArn:            p.ServiceAccessRoleArn,
+		ResultLocationBucket:            p.ResultLocationBucket,
+		ResultLocationFolder:            p.ResultLocationFolder,
+		ResultEncryptionMode:            p.ResultEncryptionMode,
+		ResultKmsKeyArn:                 p.ResultKmsKeyArn,
+		Tags:                            runTags,
 		CreationDate:                    now,
 		Region:                          region,
 		IndividualAssessments:           individual,
@@ -258,6 +279,7 @@ func (b *InMemoryBackend) DeleteAssessmentRun(ctx context.Context, runArn string
 	}
 
 	cp := *run
+	run.Tags.Close()
 	b.assessmentRuns.Delete(regionKey(region, runArn))
 
 	return &cp, nil

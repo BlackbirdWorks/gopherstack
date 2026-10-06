@@ -22,6 +22,7 @@ items_still_open:
   - "Kafka ESM: MSK sources are polled only when services/kafka runs a real broker (--kafka-engine=docker); metadata-only MSK clusters stay unpolled with a warning, and MSK auth settings (IAM/SCRAM/TLS) are ignored (gopherstack-ce985)."
   - "MQ ESM: Amazon MQ sources are polled only when services/mq runs a real broker (--mq-engine=docker); metadata-only brokers stay unpolled with a warning. ActiveMQ is consumed over STOMP (AWS uses OpenWire/JMS), so brokerInTime is the message timestamp and messageType is inferred from STOMP content-length; one queue per mapping (Queues[0]); no TLS; the BASIC_AUTH secret must be JSON with username/password keys (the Lambda guide does not show its layout) and is read from services/secretsmanager in the secret ARN's region."
   - "Kafka ESM (self-managed): SourceAccessConfigurations (SASL/SCRAM, mTLS, TLS root CA, VPC) are ignored -- only plaintext brokers are reachable; ProvisionedPollersConfig, DestinationConfig.OnFailure and per-partition concurrency are not honored (gopherstack-ce985)."
+  - "Qualifier-scoped function URLs (Create/Get/Update/Delete/ListFunctionUrlConfigs) are keyed by function only, and async-invoke retry/destination resolution reads only the unqualified event invoke config, never the version/alias one. ESM ScalingConfig/MetricsConfig/ProvisionedPollerConfig/LoggingConfig and function-level KMSKeyArn are stored and echoed but not enforced (no poller concurrency cap, no metrics emission, no env-var encryption). Not applied: CreateFunction/UpdateFunctionCode PublishTo, CapacityProviderConfig, TenancyConfig, UpdateFunctionCode DryRun/S3ObjectVersion/SourceKMSKeyArn, Invoke TenantId, ListFunctions MasterRegion."
 deferred: []
 leaks: {status: ok, note: "gopherstack-9zx (2026-09-03): 2 real leak-class bugs found + fixed, see dated section below -- cleanupTimedOutRuntime silently dropped container/port/tempdir cleanup when b.cleanupSem was saturated (its two sibling call sites already fell back to inline cleanup; this one just returned), and a genuine async-invocation timeout skipped both retry and DLQ/on-failure destination delivery entirely (AWS treats a runtime timeout as a function error for async purposes). Everything else re-verified clean this pass: event-source pollers + janitor + container lifecycle otherwise leak-conscious; go test -race passes (3/3 clean runs). New PublishVersionWithRevision path adds no new goroutines/locks (reuses the existing PublishVersion lock); layerPolicyRevisionID/policyRevisionID are pure functions with no new backend state (derived from already-persisted b.permissions / b.layerPolicies, so no new persistence surface either). durable_execution rewrite: durableExecutionStore starts no goroutines and holds no live resources (pure in-memory map + mutex), so Shutdown has nothing to drain; every Lock/RLock is immediately followed by a deferred Unlock/RUnlock with no intervening early return; b.durableExecs.reset() (lifecycle.go) clears both the executions map and the callbackOwner index together, so no ghost callbackOwner entries survive a Reset."}
 ---
@@ -1327,3 +1328,19 @@ Lambda is region-isolated: each non-home region gets a lazily built sibling Hand
 ## 2026-10-04 (reqfielddiff tier-1: PutFunctionRecursionConfig / PutRuntimeManagementConfig)
 
 Both required fields were already read (tool false positives: plain strings, not pointers). The real gap was missing validation and a fabricated mode: RecursiveLoop now accepts only Allow/Terminate and UpdateRuntimeOn only Auto/FunctionUpdate/Manual (Manual requires RuntimeVersionArn), each InvalidParameterValueException otherwise. The invocation guard keyed on a non-existent `Deny` value; it now stops a function already present 16 times in its invocation chain unless RecursiveLoop is Allow (`TestRecursiveLoop_TerminatesDeepLoops`, `TestRecursionConfig_RejectsUnknownValues`). The depth of 16 comes from Lambda's recursive-loop documentation, not the SDK.
+
+## 2026-10-05 errcodeaudit note (gopherstack-r3pr)
+
+- Function-URL "Forbidden" is the HTTP 403 body a real AWS_IAM function URL returns for an unsigned or badly signed request; it is not an SDK API error, so no SDK type exists.
+
+## 2026-10-05 (reqfielddiff tier-1/2 pass 8)
+
+ListCapacityProviders honours Marker, MaxItems and State (api_op_ListCapacityProviders.go:29-38; serializers.go query keys); it returned every provider unfiltered. RECORDED: ListFunctionUrlConfigs MaxItems/Marker have nothing to page (one URL config per function). Proof: `TestListCapacityProviders_PagingAndState`.
+
+## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
+
+Handled and Unhandled (invocation.go:211,215) are X-Amz-Function-Error header values, not error codes. Forbidden (errors.go:61) is the 403 body of an AWS_IAM function-URL data-plane request, not an API operation.
+
+## 2026-10-05 (zeroguard omitted-vs-zero pass)
+
+UpdateFunctionConfiguration, UpdateFunctionCode and UpdateAlias decode RevisionId as *string: omitted skips the check, an explicit empty value is a PreconditionFailedException (cmd/zeroguard). UpdateFunctionCode ImageUri/S3Bucket/S3Key and UpdateEventSourceMapping FunctionName/UUID rows are selectors with no clear semantics: tool false positives. Proof: `TestUpdate_RevisionIDOmittedVsEmpty`.

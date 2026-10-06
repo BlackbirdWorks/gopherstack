@@ -112,6 +112,9 @@ type StoredObjectVersion struct {
 	ContentType             string                       `json:"contentType"`
 	ContentEncoding         string                       `json:"contentEncoding,omitempty"`
 	ContentDisposition      string                       `json:"contentDisposition,omitempty"`
+	CacheControl            string                       `json:"cacheControl,omitempty"`
+	ContentLanguage         string                       `json:"contentLanguage,omitempty"`
+	WebsiteRedirectLocation string                       `json:"websiteRedirectLocation,omitempty"`
 	RetentionMode           string                       `json:"retentionMode,omitempty"`
 	StorageClass            string                       `json:"storageClass,omitempty"`
 	ACL                     string                       `json:"acl,omitempty"`
@@ -165,18 +168,41 @@ type StorageClassTransition struct {
 
 // StoredMultipartUpload represents an ongoing multipart upload session.
 type StoredMultipartUpload struct {
-	Initiated    time.Time             `json:"initiated"`
-	Expires      time.Time             `json:"expires,omitzero"`
-	Parts        map[int32]*StoredPart `json:"parts,omitempty"`
-	mu           *lockmetrics.RWMutex  `json:"-"`
-	SSE          sseInfo               `json:"sse"`
-	UploadID     string                `json:"uploadID"`
-	Bucket       string                `json:"bucket"`
-	Key          string                `json:"key"`
-	Tagging      string                `json:"tagging,omitempty"`
-	StorageClass string                `json:"storageClass,omitempty"`
-	ACL          string                `json:"acl,omitempty"`
-	closed       bool                  `json:"-"`
+	Initiated time.Time             `json:"initiated"`
+	Expires   time.Time             `json:"expires,omitzero"`
+	Parts     map[int32]*StoredPart `json:"parts,omitempty"`
+	mu        *lockmetrics.RWMutex  `json:"-"`
+	SSE       sseInfo               `json:"sse"`
+	// Headers are the object headers and user metadata chosen at CreateMultipartUpload.
+	Headers      multipartObjectHeaders `json:"headers,omitzero"`
+	UploadID     string                 `json:"uploadID"`
+	Bucket       string                 `json:"bucket"`
+	Key          string                 `json:"key"`
+	Tagging      string                 `json:"tagging,omitempty"`
+	StorageClass string                 `json:"storageClass,omitempty"`
+	ACL          string                 `json:"acl,omitempty"`
+	closed       bool                   `json:"-"`
+}
+
+// multipartObjectHeaders are the content headers and user metadata a multipart upload applies to its object.
+type multipartObjectHeaders struct {
+	Metadata                map[string]string `json:"metadata,omitempty"`
+	ContentType             string            `json:"contentType,omitempty"`
+	ContentEncoding         string            `json:"contentEncoding,omitempty"`
+	ContentDisposition      string            `json:"contentDisposition,omitempty"`
+	CacheControl            string            `json:"cacheControl,omitempty"`
+	ContentLanguage         string            `json:"contentLanguage,omitempty"`
+	WebsiteRedirectLocation string            `json:"websiteRedirectLocation,omitempty"`
+}
+
+func (h multipartObjectHeaders) applyTo(v *StoredObjectVersion) {
+	v.Metadata = h.Metadata
+	v.ContentType = h.ContentType
+	v.ContentEncoding = h.ContentEncoding
+	v.ContentDisposition = h.ContentDisposition
+	v.CacheControl = h.CacheControl
+	v.ContentLanguage = h.ContentLanguage
+	v.WebsiteRedirectLocation = h.WebsiteRedirectLocation
 }
 
 // StoredPart represents a single part of a multipart upload.

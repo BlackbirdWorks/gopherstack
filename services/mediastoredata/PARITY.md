@@ -184,3 +184,15 @@ issues; `GOTOOLCHAIN=go1.27.0 go test -race ./services/mediastoredata/...` ok.
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 mediastoredata already isolates regions internally: objects live in a per-region table resolved from the request region; it does not call MediaStore, so there is no container lookup to route. Proof: `TestRegionIsolation/mediastoredata`; no sibling handlers needed.
+
+## 2026-10-05 errcodeaudit note (gopherstack-r3pr)
+
+- XAmzContentSHA256Mismatch is the real S3-family wire code for a declared payload hash that does not match the body (S3 API ErrorResponses); mediastoredata models only 4 exceptions, so it is absent from the SDK by design.
+
+## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
+
+XAmzContentSHA256Mismatch (handler.go:200) is the S3-family payload-hash error code that real MediaStore Data returns; the 4-exception SDK model does not list it.
+
+## 2026-10-05 (gopherstack-uox6 pass 13, value semantics)
+
+Clean. Put -> Describe -> overwrite -> Describe replaces ContentType/ContentLength wholesale; StorageClass defaults to TEMPORAL (api_op_PutObject.go:75); ListItems with no MaxResults pages at 1,000 (api_op_ListItems.go:38). Proof: `TestValueSemantics_PutDescribeOverwriteAndListDefaults`. SDK silent on the ContentType of an object put without one: unchanged.

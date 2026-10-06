@@ -112,7 +112,7 @@ type StorageBackend interface {
 		tags map[string]string,
 	) (*Schedule, error)
 	DescribeSchedule(ctx context.Context, name string) (*Schedule, error)
-	ListSchedules(ctx context.Context, maxResults int, nextToken string) ([]*Schedule, string)
+	ListSchedules(ctx context.Context, maxResults int, nextToken, jobName string) ([]*Schedule, string)
 	UpdateSchedule(ctx context.Context, name string, jobNames []string, cron string) error
 	DeleteSchedule(ctx context.Context, name string) error
 

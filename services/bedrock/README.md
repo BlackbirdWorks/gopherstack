@@ -9,14 +9,15 @@
 | --- | --- |
 | PARITY entries audited | 80 (80 ok) |
 | Feature families | 10 (9 ok, 1 partial) |
-| Known gaps | 2 |
+| Known gaps | 3 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
 - EvaluationJob AutomatedEvaluationConfig.CustomMetricConfig and RAGConfig's knowledgeBaseConfig/precomputedRagSourceConfig are stored verbatim as json.RawMessage, not modeled field by field: they wrap further unions plus a recursive RetrievalFilter tree (types/types.go:196, 6165-6344), and the job store never runs an evaluation, so nothing interprets them (round trip: evaluation_job_unions_test.go). Revisit if the backend starts interpreting evaluation content.
-- List-summary members with no domain source, not fabricated (no cross-region replication, KMS, per-phase job status, batch record processing or capability detection modeled): GuardrailSummary.CrossRegionDetails; EvaluationSummary.ModelIdentifiers/RagIdentifiers/CustomMetricsEvaluatorModelIdentifiers/InferenceConfigSummary; ImportedModelSummary.InstructSupported/ModelArchitecture; ModelCopyJobSummary.SourceModelName/TargetModelKmsKeyArn; ModelCustomizationJobSummary.StatusDetails; ModelInvocationJobSummary.ErrorRecordCount/JobExpirationTime/ModelInvocationType/ProcessedRecordCount/SuccessRecordCount/TimeoutDurationInHours/TotalRecordCount/VpcConfig; CustomModelDeploymentSummary.FailureMessage.
+- List-summary members with no domain source, not fabricated (no per-phase job status, batch record processing or capability detection modeled): EvaluationSummary.ModelIdentifiers/RagIdentifiers/CustomMetricsEvaluatorModelIdentifiers/InferenceConfigSummary; ImportedModelSummary.InstructSupported/ModelArchitecture; ModelCopyJobSummary.SourceModelName; ModelCustomizationJobSummary.StatusDetails; ModelInvocationJobSummary.ErrorRecordCount/JobExpirationTime/ProcessedRecordCount/SuccessRecordCount/TotalRecordCount; CustomModelDeploymentSummary.FailureMessage.
+- ClientRequestToken is not honoured on CreateAutomatedReasoningPolicyVersion/TestCase, StartAutomatedReasoningPolicyBuild/TestWorkflow, UpdateAutomatedReasoningPolicyTestCase or UpdateMarketplaceModelEndpoint, and CreateModelInvocationJob/CreateEvaluationJob replays are bounded by a 5-minute in-memory token memo. Still dropped: CreateMarketplaceModelEndpoint.AcceptEula, CreateCustomModel RoleArn/ModelSourceConfig/CustomModelDataSource, CreateAutomatedReasoningPolicyTestCase body members, ListFoundationModelAgreementOffers.OfferType. KMS ids are reported as ARNs built from the account/region (key id -> key/ARN, alias/ -> alias ARN) without any key existence check or encryption.
 
 ## More
 

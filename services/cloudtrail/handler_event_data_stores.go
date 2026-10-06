@@ -158,6 +158,10 @@ func (h *Handler) handleListEventDataStores(c *echo.Context, body []byte) error 
 		}
 	}
 
+	if badPageToken(in.NextToken) {
+		return writeInvalidNextToken(c)
+	}
+
 	list := h.Backend.ListEventDataStores()
 	p := page.New(list, in.NextToken, in.MaxResults, defaultEDSPageSize)
 

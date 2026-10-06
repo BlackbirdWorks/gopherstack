@@ -22,6 +22,7 @@ func (e *Executor) runJSONataState(
 	defer func() {
 		e.jx = prev
 		e.jxNums = nil
+		e.jxPctSet = false
 	}()
 
 	switch state.Type {
@@ -262,6 +263,12 @@ func (e *Executor) jxResolveNumbers(state *State, scope *jxScope) error {
 
 		if f < 0 {
 			return queryEvalError(fmt.Errorf("%w: %s must not be negative", errJSONataEval, field))
+		}
+
+		if field == fieldToleratedFailurePercentage {
+			e.jxPct, e.jxPctSet = f, true
+
+			continue
 		}
 
 		if e.jxNums == nil {

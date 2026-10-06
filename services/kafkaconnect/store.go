@@ -12,6 +12,7 @@ type InMemoryBackend struct {
 	workerConfigurations *store.Table[WorkerConfiguration]
 	connectorOperations  *store.Table[ConnectorOperation]
 	registry             *store.Registry
+	appConfig            any
 	mu                   *lockmetrics.RWMutex
 }
 

@@ -9,8 +9,9 @@ import (
 )
 
 type tagEntry struct {
-	Key   string `json:"Key"`
-	Value string `json:"Value"`
+	Key         string `json:"Key"`
+	Value       string `json:"Value"`
+	ResourceArn string `json:"ResourceArn,omitempty"`
 }
 
 type addTagsToResourceInput struct {
@@ -32,7 +33,8 @@ func (h *Handler) handleAddTagsToResource(
 }
 
 type listTagsForResourceInput struct {
-	ResourceArn *string `json:"ResourceArn"`
+	ResourceArn     *string  `json:"ResourceArn"`
+	ResourceArnList []string `json:"ResourceArnList"`
 }
 
 type listTagsForResourceOutput struct {
@@ -42,6 +44,10 @@ type listTagsForResourceOutput struct {
 func (h *Handler) handleListTagsForResource(
 	ctx context.Context, in *listTagsForResourceInput,
 ) (*listTagsForResourceOutput, error) {
+	if len(in.ResourceArnList) > 0 {
+		return h.listTagsForResourceArns(ctx, in.ResourceArnList)
+	}
+
 	kv, err := h.Backend.ListTagsForResource(ctx, ptrconv.String(in.ResourceArn))
 	if err != nil {
 		return nil, err
@@ -52,6 +58,31 @@ func (h *Handler) handleListTagsForResource(
 		list = append(list, tagEntry{Key: k, Value: v})
 	}
 	sort.Slice(list, func(i, j int) bool { return list[i].Key < list[j].Key })
+
+	return &listTagsForResourceOutput{TagList: list}, nil
+}
+
+// listTagsForResourceArns serves ResourceArnList: every tag carries the
+// ARN of the resource it belongs to.
+func (h *Handler) listTagsForResourceArns(
+	ctx context.Context, arns []string,
+) (*listTagsForResourceOutput, error) {
+	list := make([]tagEntry, 0)
+
+	for _, resourceArn := range arns {
+		kv, err := h.Backend.ListTagsForResource(ctx, resourceArn)
+		if err != nil {
+			return nil, err
+		}
+
+		start := len(list)
+		for k, v := range kv {
+			list = append(list, tagEntry{Key: k, Value: v, ResourceArn: resourceArn})
+		}
+
+		part := list[start:]
+		sort.Slice(part, func(i, j int) bool { return part[i].Key < part[j].Key })
+	}
 
 	return &listTagsForResourceOutput{TagList: list}, nil
 }

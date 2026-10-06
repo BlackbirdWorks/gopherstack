@@ -139,7 +139,7 @@ func DeleteEmailTemplateForTest(b *InMemoryBackend, templateName string) error {
 
 // UpdateEmailTemplateForTest updates an email template (increments its version).
 func UpdateEmailTemplateForTest(b *InMemoryBackend, templateName string) error {
-	_, err := b.UpdateEmailTemplate(templateName, createEmailTemplateRequest{})
+	_, err := b.UpdateEmailTemplate(templateName, createEmailTemplateRequest{CreateNewVersion: true})
 
 	return err
 }

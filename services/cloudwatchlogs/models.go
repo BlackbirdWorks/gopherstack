@@ -530,10 +530,8 @@ type QueryParameter struct {
 // (gopherstack-enpq): Parameters (a real, accepted PutQueryDefinitionInput
 // member) had no Go field at all, so a real client's Parameters were
 // silently dropped on every PutQueryDefinition call and never echoed back
-// by DescribeQueryDefinitions. QueryLanguage is also modeled: this backend
-// has no query-language detection, so it always reports the default CWLI
-// (PutQueryDefinitionInput itself has no queryLanguage member to set it
-// from -- confirmed against api_op_PutQueryDefinition.go).
+// by DescribeQueryDefinitions. QueryLanguage is the stored PutQueryDefinition
+// value (CWLI when omitted).
 type QueryDefinition struct {
 	QueryDefinitionID string           `json:"queryDefinitionId"`
 	Name              string           `json:"name"`
@@ -789,9 +787,7 @@ const (
 	StorageTierIntelligentTiering = "INTELLIGENT_TIERING"
 )
 
-// queryLanguageCWLI is the default query language: PutQueryDefinitionInput
-// has no queryLanguage member, so every query definition this backend
-// creates is the classic CloudWatch Logs Insights QL (types.QueryLanguageCwli).
+// queryLanguageCWLI is the default query language (types.QueryLanguageCwli).
 const queryLanguageCWLI = "CWLI"
 
 // PolicyScope constants match the real aws-sdk-go-v2 types.PolicyScope enum.

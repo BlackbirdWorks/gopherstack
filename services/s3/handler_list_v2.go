@@ -138,6 +138,7 @@ func (h *S3Handler) renderListObjectsV2Response(
 
 	buf := httputils.GetBuffer()
 	defer httputils.PutBuffer(buf)
+	growListBuffer(buf, resp.Contents)
 	buf.WriteString(xml.Header)
 	writeListBucketV2XML(buf, &resp)
 	writeListXMLResponse(ctx, w, http.StatusOK, buf)

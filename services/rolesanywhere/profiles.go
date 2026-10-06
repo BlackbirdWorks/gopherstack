@@ -14,6 +14,10 @@ func (b *InMemoryBackend) profileARN(region, id string) string {
 	return arn.Build("rolesanywhere", region, b.accountID, fmt.Sprintf("profile/%s", id))
 }
 
+// defaultDurationSeconds is the documented DurationSeconds default
+// (api_op_CreateProfile.go:50, "the default value will be 3600").
+const defaultDurationSeconds int32 = 3600
+
 // CreateProfile creates a new profile. enabled defaults to true when nil,
 // matching the AWS CreateProfileRequest.enabled default (the same pattern
 // CreateTrustAnchor and ImportCrl already use).
@@ -46,6 +50,10 @@ func (b *InMemoryBackend) CreateProfile(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
+
+	if durationSeconds == nil {
+		durationSeconds = new(defaultDurationSeconds)
+	}
 
 	id := uuid.NewString()
 	now := time.Now().UTC()

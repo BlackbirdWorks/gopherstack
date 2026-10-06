@@ -70,6 +70,10 @@ func (h *Handler) handleListOutposts(_ context.Context, r *http.Request, _ []byt
 		lifeCycleStatuses:   q["LifeCycleStatusFilter"],
 	}
 
+	if err := validatePage(q); err != nil {
+		return nil, err
+	}
+
 	p := h.Backend.ListOutposts(f, q.Get("NextToken"), queryMaxResults(q))
 
 	resp := listOutpostsResponse{NextToken: p.Next, Outposts: make([]outpostWire, 0, len(p.Data))}
@@ -104,7 +108,16 @@ func (h *Handler) handleStartOutpostDecommission(_ context.Context, r *http.Requ
 func (h *Handler) handleGetOutpostBillingInformation(_ context.Context, r *http.Request, _ []byte) ([]byte, error) {
 	segs := rawPathSegments(r)
 
+	if err := validatePage(r.URL.Query()); err != nil {
+		return nil, err
+	}
+
 	o, err := h.Backend.GetOutpostBillingInformation(segs[1])
+	if err != nil {
+		return nil, err
+	}
+
+	subs, err := paginate(o.Subscriptions, r.URL.Query())
 	if err != nil {
 		return nil, err
 	}
@@ -112,14 +125,15 @@ func (h *Handler) handleGetOutpostBillingInformation(_ context.Context, r *http.
 	resp := getOutpostBillingInformationResponse{
 		PaymentOption: o.PaymentOption,
 		PaymentTerm:   o.PaymentTerm,
-		Subscriptions: make([]subscriptionWire, 0, len(o.Subscriptions)),
+		NextToken:     subs.Next,
+		Subscriptions: make([]subscriptionWire, 0, len(subs.Data)),
 	}
 
 	if !o.ContractEndDate.IsZero() {
 		resp.ContractEndDate = o.ContractEndDate.Format("2006-01-02")
 	}
 
-	for _, s := range o.Subscriptions {
+	for _, s := range subs.Data {
 		resp.Subscriptions = append(resp.Subscriptions, toSubscriptionWire(s))
 	}
 
@@ -129,14 +143,22 @@ func (h *Handler) handleGetOutpostBillingInformation(_ context.Context, r *http.
 func (h *Handler) handleGetOutpostInstanceTypes(_ context.Context, r *http.Request, _ []byte) ([]byte, error) {
 	segs := rawPathSegments(r)
 
-	o, capacities, err := h.Backend.GetOutpostInstanceTypes(segs[1])
+	o, all, err := h.Backend.GetOutpostInstanceTypes(segs[1])
 	if err != nil {
 		return nil, err
 	}
 
+	pg, err := paginate(all, r.URL.Query())
+	if err != nil {
+		return nil, err
+	}
+
+	capacities := pg.Data
+
 	resp := getOutpostInstanceTypesResponse{
 		OutpostArn:    o.ARN,
 		OutpostId:     o.ID,
+		NextToken:     pg.Next,
 		InstanceTypes: make([]instanceTypeItemWire, 0, len(capacities)),
 	}
 
@@ -158,13 +180,21 @@ func (h *Handler) handleGetOutpostSupportedInstanceTypes(
 	segs := rawPathSegments(r)
 	q := r.URL.Query()
 
-	types, err := h.Backend.GetOutpostSupportedInstanceTypes(segs[1], q.Get("AssetId"), q.Get("OrderId"))
+	all, err := h.Backend.GetOutpostSupportedInstanceTypes(segs[1], q.Get("AssetId"), q.Get("OrderId"))
 	if err != nil {
 		return nil, err
 	}
 
-	resp := getOutpostSupportedInstanceTypesResponse{InstanceTypes: make([]instanceTypeItemWire, 0, len(types))}
-	for _, it := range types {
+	types, err := paginate(all, q)
+	if err != nil {
+		return nil, err
+	}
+
+	resp := getOutpostSupportedInstanceTypesResponse{
+		NextToken:     types.Next,
+		InstanceTypes: make([]instanceTypeItemWire, 0, len(types.Data)),
+	}
+	for _, it := range types.Data {
 		resp.InstanceTypes = append(resp.InstanceTypes, toInstanceTypeItemWire(it))
 	}
 

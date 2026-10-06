@@ -13,6 +13,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -81,6 +82,34 @@ func paginateStrings(items []string, maxResults int, nextToken string) ([]string
 	}
 
 	return page, next
+}
+
+// listApplicationItems decodes {ApplicationArn, NextToken}, lists, pages and renders the items under listKey.
+func listApplicationItems[T any](
+	c *echo.Context, body []byte, list func(applicationArn string) ([]T, error),
+	key func(T) string, listKey string, render func(T) map[string]any,
+) error {
+	var req struct {
+		ApplicationArn string `json:"ApplicationArn"`
+		NextToken      string `json:"NextToken"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+
+	all, err := list(req.ApplicationArn)
+	if err != nil {
+		return handleBackendError(c, err, "application not found: "+req.ApplicationArn)
+	}
+
+	page, next := paginateBy(all, 0, req.NextToken, key)
+
+	out := make([]map[string]any, 0, len(page))
+	for _, it := range page {
+		out = append(out, render(it))
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{listKey: out, keyNextToken: next})
 }
 
 // paginateBy sorts items by keyFn, then applies MaxResults + NextToken
@@ -259,11 +288,12 @@ func listPermissionSetSubItems[T any](
 type Handler struct {
 	peers   *regionpeers.Set[Handler]
 	Backend StorageBackend
+	idem    *idempotency.Memo
 }
 
 // NewHandler creates a new SSO Admin handler.
 func NewHandler(backend StorageBackend) *Handler {
-	return &Handler{Backend: backend}
+	return &Handler{Backend: backend, idem: idempotency.New("ssoadmin")}
 }
 
 // Name returns the handler name.
@@ -618,6 +648,10 @@ type tagView struct {
 func handleBackendError(c *echo.Context, err error, notFoundMsg string) error {
 	if errors.Is(err, awserr.ErrInvalidParameter) {
 		return writeError(c, http.StatusBadRequest, "ValidationException", err.Error())
+	}
+
+	if errors.Is(err, errTokenMismatch) {
+		return writeError(c, http.StatusBadRequest, "ConflictException", err.Error())
 	}
 
 	switch err.Error() {

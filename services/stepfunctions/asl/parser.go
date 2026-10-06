@@ -465,10 +465,7 @@ func hasDistributedMapFields(st *State) bool {
 	return st.ItemReader != nil ||
 		st.ResultWriter != nil ||
 		st.ItemBatcher != nil ||
-		st.ToleratedFailureCount != nil ||
-		st.ToleratedFailurePercentage != nil ||
-		st.ToleratedFailureCountPath != "" ||
-		st.ToleratedFailurePercentagePath != ""
+		st.hasToleratedFailure()
 }
 
 type stateAlias State
@@ -480,6 +477,23 @@ var numExprFieldTypes = map[string]string{ //nolint:gochecknoglobals // static l
 	"TimeoutSeconds":   stateTypeTask,
 	"HeartbeatSeconds": stateTypeTask,
 	"MaxConcurrency":   StateTypeMap,
+
+	fieldToleratedFailureCount:      StateTypeMap,
+	fieldToleratedFailurePercentage: StateTypeMap,
+}
+
+const (
+	fieldToleratedFailureCount      = "ToleratedFailureCount"
+	fieldToleratedFailurePercentage = "ToleratedFailurePercentage"
+)
+
+func (s *State) hasToleratedFailure() bool {
+	_, countExpr := s.numExprs[fieldToleratedFailureCount]
+	_, pctExpr := s.numExprs[fieldToleratedFailurePercentage]
+
+	return s.ToleratedFailureCount != nil || s.ToleratedFailurePercentage != nil ||
+		s.ToleratedFailureCountPath != "" || s.ToleratedFailurePercentagePath != "" ||
+		countExpr || pctExpr
 }
 
 // UnmarshalJSON lifts JSONata strings out of integer-typed fields (Seconds,

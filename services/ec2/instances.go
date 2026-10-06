@@ -400,7 +400,7 @@ func (b *InMemoryBackend) DescribeInstanceTopology(ids []string) []InstanceTopol
 			InstanceType:     inst.InstanceType,
 			GroupName:        inst.Placement.GroupName,
 			AvailabilityZone: az,
-			ZoneID:           az + "1",
+			ZoneID:           availabilityZoneID(az),
 			NetworkNodes:     []string{"nn-" + inst.ID[:8]},
 		})
 	}

@@ -3,6 +3,8 @@ package codebuild
 import (
 	"context"
 	"fmt"
+
+	cbtypes "github.com/aws/aws-sdk-go-v2/service/codebuild/types"
 )
 
 type deleteSourceCredentialsInput struct {
@@ -44,6 +46,13 @@ func (h *Handler) handleImportSourceCredentials(
 	_ context.Context,
 	in *importSourceCredentialsInput,
 ) (*importSourceCredentialsOutput, error) {
+	if err := firstErr(
+		checkEnum("authType", cbtypes.AuthType(in.AuthType)),
+		checkEnum("serverType", cbtypes.ServerType(in.ServerType)),
+	); err != nil {
+		return nil, err
+	}
+
 	if in.Token == "" {
 		return nil, fmt.Errorf("%w: token is required", errInvalidRequest)
 	}

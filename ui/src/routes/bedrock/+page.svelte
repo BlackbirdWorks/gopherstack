@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
-	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
-	import { getBedrockClient, getBedrockRuntimeClient } from '$lib/aws-client';
+	import { onRegionChange, regionalClient } from '#lib/region-effect.svelte.ts';
+	import { getBedrockClient, getBedrockRuntimeClient } from '#lib/aws-client.ts';
 	import {
 		ListFoundationModelsCommand,
 		ListCustomModelsCommand,

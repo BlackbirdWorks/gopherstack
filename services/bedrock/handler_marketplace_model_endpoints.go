@@ -155,6 +155,7 @@ type createMarketplaceModelEndpointInput struct {
 	EndpointConfig        *endpointConfigWire `json:"endpointConfig,omitempty"`
 	EndpointName          string              `json:"endpointName"`
 	ModelSourceIdentifier string              `json:"modelSourceIdentifier"`
+	ClientRequestToken    string              `json:"clientRequestToken,omitempty"`
 	Tags                  []Tag               `json:"tags,omitempty"`
 }
 
@@ -178,7 +179,6 @@ type marketplaceEndpointOutput struct {
 	CreatedAt      string              `json:"createdAt"`
 	UpdatedAt      string              `json:"updatedAt"`
 	EndpointArn    string              `json:"endpointArn"`
-	EndpointName   string              `json:"endpointName"`
 	// EndpointStatus is the real, required member (bedrock@v1.66.4 types.go:5208,
 	// deserializers.go:31926) -- previously never emitted at all, so a real
 	// client's EndpointStatus always decoded empty regardless of lifecycle state.
@@ -190,7 +190,6 @@ type marketplaceEndpointOutput struct {
 func marketplaceEndpointToOutput(ep *MarketplaceModelEndpoint) marketplaceEndpointOutput {
 	return marketplaceEndpointOutput{
 		EndpointArn:           ep.EndpointArn,
-		EndpointName:          ep.EndpointName,
 		ModelSourceIdentifier: ep.ModelSourceID,
 		Status:                marketplaceEndpointStatusRegistered,
 		EndpointStatus:        ep.Status,
@@ -209,11 +208,14 @@ func (h *Handler) handleCreateMarketplaceModelEndpoint(c *echo.Context, body []b
 		)
 	}
 
-	ep, opErr := h.Backend.CreateMarketplaceModelEndpoint(
-		in.EndpointName,
-		in.ModelSourceIdentifier,
-		endpointConfigFromWire(in.EndpointConfig),
-		in.Tags,
+	ep, opErr := idemCreate(
+		h.idem, "CreateMarketplaceModelEndpoint", in.ClientRequestToken, idemFingerprint(in), ErrAlreadyExists,
+		func(e *MarketplaceModelEndpoint) string { return e.EndpointArn }, h.Backend.GetMarketplaceModelEndpoint,
+		func() (*MarketplaceModelEndpoint, error) {
+			return h.Backend.CreateMarketplaceModelEndpoint(
+				in.EndpointName, in.ModelSourceIdentifier, endpointConfigFromWire(in.EndpointConfig), in.Tags,
+			)
+		},
 	)
 	if opErr != nil {
 		return h.writeError(c, opErr)
@@ -271,7 +273,9 @@ type listMarketplaceModelEndpointsOutput struct {
 
 func (h *Handler) handleListMarketplaceModelEndpoints(c *echo.Context) error {
 	q := c.Request().URL.Query()
-	endpoints, outToken := h.Backend.ListMarketplaceModelEndpoints(q.Get("nextToken"), q.Get("modelSourceIdentifier"))
+	endpoints, outToken := h.Backend.ListMarketplaceModelEndpoints(
+		q.Get("nextToken"), q.Get("modelSourceIdentifier"), queryMaxResults(q),
+	)
 	summaries := make([]marketplaceEndpointSummaryOutput, 0, len(endpoints))
 
 	for _, ep := range endpoints {

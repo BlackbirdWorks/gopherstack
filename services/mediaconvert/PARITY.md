@@ -650,3 +650,19 @@ StartJobsQuery filter keys: queue matches name or ARN, fileInput is a partial-na
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 mediaconvert is region-isolated: queues, presets, job templates and jobs live per region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/mediaconvert`. Limitation: the dashboard shows the home region only. The tagging bridge lists the request region and resolves Tag/Untag by ARN region. `TestHandler_MultiRegionReset` covers Reset.
+
+## 2026-10-05 (reqfielddiff tier-2 pagination)
+
+FIXED: StartJobsQuery nextToken starts the new query at that offset and GetJobsQueryResults returns the next token when truncated (maxResults default/cap 20, CreatedAt order now tie-broken by job ID); ListVersions pages by maxResults/nextToken. Malformed tokens give BadRequestException (neither op declares a narrower token error). The queries table stays unpersisted. Proof: `TestJobsQueryAndVersions_Paging`.
+
+## 2026-10-05 (gopherstack-uox6 pass 10, value semantics)
+
+CreateJob without Queue inherits the job template queue (api_op_CreateJobTemplate.go:66). Proof: `TestCreateJob_InheritsTemplateQueue`. Recorded, unchanged: UpdateQueue/UpdatePreset/UpdateJobTemplate cannot clear a description to empty (backend takes plain strings); job-template Priority/AccelerationSettings/HopDestinations are not inherited because the SDK does not say jobs inherit them.
+
+## 2026-10-05 (gopherstack-dcyg9 value semantics)
+
+FIXED: UpdateQueue/UpdatePreset/UpdateJobTemplate take Description as a pointer, so an explicit empty string clears it and an omitted member keeps it. SDK: "The new description for the queue, if you are changing it" (api_op_UpdateQueue.go:42; same wording in api_op_UpdatePreset.go:38 and api_op_UpdateJobTemplate.go:44). Proof: `TestRealClient_UpdateDescriptionSemantics`. Supersedes the "cannot clear" note in the 2026-10-05 pass 10 entry.
+
+## 2026-10-05 (undeclared response members)
+
+ListJobs no longer emits totalCount (ListJobsOutput has only jobs/nextToken).

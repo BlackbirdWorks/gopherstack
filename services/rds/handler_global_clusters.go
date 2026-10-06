@@ -59,7 +59,7 @@ type xmlGlobalCluster struct {
 	Engine                  string                      `xml:"Engine,omitempty"`
 	EngineVersion           string                      `xml:"EngineVersion,omitempty"`
 	Status                  string                      `xml:"Status,omitempty"`
-	PrimaryRegion           string                      `xml:"PrimaryRegion,omitempty"`
+	DatabaseName            string                      `xml:"DatabaseName,omitempty"`
 	EngineLifecycleSupport  string                      `xml:"EngineLifecycleSupport,omitempty"`
 	StorageEncrypted        bool                        `xml:"StorageEncrypted,omitempty"`
 	DeletionProtection      bool                        `xml:"DeletionProtection,omitempty"`
@@ -102,8 +102,10 @@ func (h *Handler) handleCreateGlobalCluster(vals url.Values) (any, error) {
 	storageEncrypted := vals.Get("StorageEncrypted") == formTrue
 	deletionProtection := vals.Get("DeletionProtection") == formTrue
 
-	gc, err := h.Backend.CreateGlobalCluster(
-		id, engine, engineVersion, engineLifecycleSupport, storageEncrypted, deletionProtection,
+	gc, err := h.Backend.CreateGlobalClusterFromSource(
+		id, engine, engineVersion, engineLifecycleSupport,
+		vals.Get("SourceDBClusterIdentifier"), vals.Get("DatabaseName"),
+		storageEncrypted, deletionProtection,
 	)
 	if err != nil {
 		return nil, err
@@ -154,10 +156,7 @@ func (h *Handler) handleModifyGlobalCluster(vals url.Values) (any, error) {
 	}, nil
 }
 
-// AddGlobalClusterMemberInternal appends a member directly to an existing
-// global cluster, bypassing normal validation. Used for seeding tests: no
-// gopherstack API currently populates GlobalClusterMembers (CreateDBCluster
-// never wires a DB cluster into a global cluster's membership).
+// AddGlobalClusterMemberInternal seeds a member (e.g. a secondary in another region), bypassing validation.
 func (b *InMemoryBackend) AddGlobalClusterMemberInternal(globalClusterID string, member GlobalClusterMember) {
 	b.mu.Lock("AddGlobalClusterMemberInternal")
 	defer b.mu.Unlock()
@@ -176,7 +175,7 @@ func toXMLGlobalCluster(gc *GlobalCluster) xmlGlobalCluster {
 		Engine:                  gc.Engine,
 		EngineVersion:           gc.EngineVersion,
 		Status:                  gc.Status,
-		PrimaryRegion:           gc.PrimaryRegion,
+		DatabaseName:            gc.DatabaseName,
 		EngineLifecycleSupport:  gc.EngineLifecycleSupport,
 		StorageEncrypted:        gc.StorageEncrypted,
 		DeletionProtection:      gc.DeletionProtection,

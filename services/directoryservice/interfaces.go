@@ -105,11 +105,8 @@ type StorageBackend interface {
 	) ([]DomainController, string, error)
 	UpdateNumberOfDomainControllers(ctx context.Context, directoryID string, desiredNumber int32) error
 
-	CreateTrust(
-		ctx context.Context,
-		directoryID, remoteDomainName, trustPassword, trustDirection, trustType, selectiveAuth string,
-	) (string, error)
-	DeleteTrust(ctx context.Context, trustID string) (string, error)
+	CreateTrust(ctx context.Context, in CreateTrustInput) (string, error)
+	DeleteTrust(ctx context.Context, trustID string, deleteConditionalForwarder bool) (string, error)
 	DescribeTrusts(
 		ctx context.Context,
 		directoryID string,
@@ -191,14 +188,18 @@ type StorageBackend interface {
 		directoryID, updateType string,
 	) (hybridAdministratorAccount, selfManagedInstances []HybridADUpdateEntry, err error)
 
-	CreateComputer(ctx context.Context, directoryID, computerName, password string) (*ComputerInfo, error)
+	CreateComputer(
+		ctx context.Context,
+		directoryID, computerName, password string,
+		attributes []ComputerAttribute,
+	) (*ComputerInfo, error)
 
 	UpdateSettings(ctx context.Context, directoryID string, settings []DirectorySetting) (string, error)
 	DescribeSettings(ctx context.Context, directoryID, status, nextToken string) ([]SettingEntry, string, error)
-	UpdateDirectorySetup(ctx context.Context, directoryID, updateType string, createSnapshotBeforeUpdate bool) error
+	UpdateDirectorySetup(ctx context.Context, directoryID string, update DirectorySetupUpdate) error
 	DescribeUpdateDirectory(
 		ctx context.Context,
-		directoryID, updateType, nextToken string,
+		directoryID, updateType, regionName, nextToken string,
 	) ([]UpdateInfoEntry, string, error)
 
 	ResetUserPassword(ctx context.Context, directoryID, userName, newPassword string) error
@@ -361,11 +362,37 @@ const (
 	ShareStatusDeleting          ShareStatus = "Deleting"
 )
 
-// OSVersion matches the AWS OSVersion enum. This backend does not track a
-// directory's underlying OS version (AWS assigns it internally and does not
-// document a deterministic default), so Directory.OsVersion is always left
-// as the zero value; see PARITY.md.
+// OSVersion matches the AWS OSVersion enum. Directory.OsVersion is empty until
+// an UpdateDirectorySetup OS update sets it; AWS documents no default.
 type OSVersion string
+
+// CreateTrustInput holds the CreateTrust request members.
+type CreateTrustInput struct {
+	DirectoryID                   string
+	RemoteDomainName              string
+	TrustPassword                 string
+	TrustDirection                string
+	TrustType                     string
+	SelectiveAuth                 string
+	ConditionalForwarderIPAddrs   []string
+	ConditionalForwarderIPv6Addrs []string
+}
+
+// DirectorySetupUpdate holds the UpdateDirectorySetup request members.
+type DirectorySetupUpdate struct {
+	UpdateType                 string
+	OSVersion                  string
+	NetworkType                string
+	DirectorySize              string
+	CustomerDNSIPsV6           []string
+	CreateSnapshotBeforeUpdate bool
+}
+
+// ComputerAttribute is a name/value attribute of a computer account.
+type ComputerAttribute struct {
+	Name  string
+	Value string
+}
 
 const (
 	OSVersionVersion2012 OSVersion = "SERVER_2012"

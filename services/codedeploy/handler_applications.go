@@ -75,7 +75,9 @@ func (h *Handler) handleGetApplication(
 	}, nil
 }
 
-type listApplicationsInput struct{}
+type listApplicationsInput struct {
+	NextToken string `json:"nextToken"`
+}
 
 type listApplicationsOutput struct {
 	Applications []string `json:"applications"`
@@ -83,8 +85,12 @@ type listApplicationsOutput struct {
 
 func (h *Handler) handleListApplications(
 	_ context.Context,
-	_ *listApplicationsInput,
+	in *listApplicationsInput,
 ) (*listApplicationsOutput, error) {
+	if err := rejectNextToken(in.NextToken); err != nil {
+		return nil, err
+	}
+
 	return &listApplicationsOutput{Applications: h.Backend.ListApplications()}, nil
 }
 

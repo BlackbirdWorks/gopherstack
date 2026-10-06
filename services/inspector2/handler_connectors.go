@@ -36,7 +36,7 @@ type azureScopeSettingWire struct {
 	ScopeValues []string `json:"scopeValues"`
 }
 
-func (w *azureScopeSettingWire) toDomain() *ConnectorScopeSetting {
+func (w *azureScopeSettingWire) asDomain() *ConnectorScopeSetting {
 	if w == nil {
 		return nil
 	}
@@ -51,15 +51,15 @@ type azureScopeConfigWire struct {
 	VMScanning             *azureScopeSettingWire `json:"vmScanning"`
 }
 
-func (w *azureScopeConfigWire) toDomain() *ConnectorScopeConfiguration {
+func (w *azureScopeConfigWire) asDomain() *ConnectorScopeConfiguration {
 	if w == nil {
 		return nil
 	}
 
 	return &ConnectorScopeConfiguration{
-		ContainerImageScanning: w.ContainerImageScanning.toDomain(),
-		ServerlessScanning:     w.ServerlessScanning.toDomain(),
-		VMScanning:             w.VMScanning.toDomain(),
+		ContainerImageScanning: w.ContainerImageScanning.asDomain(),
+		ServerlessScanning:     w.ServerlessScanning.asDomain(),
+		VMScanning:             w.VMScanning.asDomain(),
 	}
 }
 
@@ -113,7 +113,7 @@ func (h *Handler) handleCreateConnector(c *echo.Context) error {
 		awsConfigConnectorArn = az.AwsConfigConnectorArn
 		azureRegions = az.AzureRegions
 		autoInstallVMScanner = az.AutoInstallVMScanner
-		scopeConfig = az.ScopeConfiguration.toDomain()
+		scopeConfig = az.ScopeConfiguration.asDomain()
 	}
 
 	connector, createErr := h.Backend.CreateConnector(
@@ -165,7 +165,7 @@ func (h *Handler) handleUpdateConnector(c *echo.Context) error {
 	if az := req.ProviderDetail.Azure; az != nil {
 		azureRegions = az.AzureRegions
 		autoInstallVMScanner = az.AutoInstallVMScanner
-		scopeConfig = az.ScopeConfiguration.toDomain()
+		scopeConfig = az.ScopeConfiguration.asDomain()
 	}
 
 	connector, updateErr := h.Backend.UpdateConnector(

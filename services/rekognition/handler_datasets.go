@@ -29,8 +29,9 @@ type createDatasetReq struct {
 			S3Object *s3RefWire `json:"S3Object"`
 		} `json:"GroundTruthManifest"`
 	} `json:"DatasetSource"`
-	ProjectArn  string `json:"ProjectArn"`
-	DatasetType string `json:"DatasetType"`
+	Tags        map[string]string `json:"Tags"`
+	ProjectArn  string            `json:"ProjectArn"`
+	DatasetType string            `json:"DatasetType"`
 }
 
 type createDatasetResp struct {
@@ -52,7 +53,7 @@ func (h *Handler) handleCreateDataset(ctx context.Context, req *createDatasetReq
 		}
 	}
 
-	ds, err := h.Backend.CreateDataset(req.ProjectArn, req.DatasetType)
+	ds, err := h.Backend.CreateDataset(req.ProjectArn, req.DatasetType, req.Tags)
 	if err != nil {
 		return nil, err
 	}

@@ -6,6 +6,9 @@ import (
 	"github.com/google/uuid"
 )
 
+// defaultRecommendationsPerMessage is documented on types.CreateRecommenderConfigurationInput (types.go:1937).
+const defaultRecommendationsPerMessage = 5
+
 // CreateRecommenderConfiguration creates a new Pinpoint recommender configuration.
 func (b *InMemoryBackend) CreateRecommenderConfiguration(
 	req createRecommenderConfigRequest,
@@ -15,6 +18,14 @@ func (b *InMemoryBackend) CreateRecommenderConfiguration(
 
 	if !isValidRecommenderIDType(req.RecommendationProviderIDType) {
 		return nil, ErrValidation
+	}
+
+	if req.RecommendationProviderIDType == "" {
+		req.RecommendationProviderIDType = "PINPOINT_ENDPOINT_ID"
+	}
+
+	if req.RecommendationsPerMessage == 0 {
+		req.RecommendationsPerMessage = defaultRecommendationsPerMessage
 	}
 
 	id := uuid.NewString()

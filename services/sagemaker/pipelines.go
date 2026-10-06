@@ -62,6 +62,7 @@ type Pipeline struct {
 	PipelineDisplayName      string                    `json:"PipelineDisplayName,omitempty"`
 	PipelineDescription      string                    `json:"PipelineDescription,omitempty"`
 	RoleArn                  string                    `json:"RoleArn,omitempty"`
+	ClientRequestToken       string                    `json:"ClientRequestToken,omitempty"`
 }
 
 func clonePipeline(p *Pipeline) *Pipeline {
@@ -87,14 +88,15 @@ type PipelineExecution struct {
 	StartTime                    time.Time                 `json:"StartTime"`
 	ParallelismConfiguration     *ParallelismConfiguration `json:"ParallelismConfiguration,omitempty"`
 	SelectiveExecutionConfig     *SelectiveExecutionConfig `json:"SelectiveExecutionConfig,omitempty"`
-	PipelineExecutionDisplayName string                    `json:"PipelineExecutionDisplayName,omitempty"`
+	PipelineArn                  string                    `json:"PipelineArn"`
 	PipelineExecutionArn         string                    `json:"PipelineExecutionArn"`
 	PipelineExecutionStatus      string                    `json:"PipelineExecutionStatus"`
-	PipelineArn                  string                    `json:"PipelineArn"`
+	PipelineExecutionDisplayName string                    `json:"PipelineExecutionDisplayName,omitempty"`
 	PipelineExecutionDescription string                    `json:"PipelineExecutionDescription,omitempty"`
 	FailureReason                string                    `json:"FailureReason,omitempty"`
 	PipelineDefinition           string                    `json:"PipelineDefinition,omitempty"`
 	MlflowExperimentName         string                    `json:"MlflowExperimentName,omitempty"`
+	ClientRequestToken           string                    `json:"ClientRequestToken,omitempty"`
 	PipelineParameters           []PipelineParameter       `json:"PipelineParameters,omitempty"`
 	PipelineVersionID            int64                     `json:"PipelineVersionId,omitempty"`
 }
@@ -474,6 +476,7 @@ type CreatePipelineOptions struct {
 	PipelineDisplayName      string
 	PipelineDescription      string
 	RoleArn                  string
+	ClientRequestToken       string
 }
 
 // CreatePipelineFull creates a pipeline with full AWS input fields.
@@ -482,6 +485,11 @@ func (b *InMemoryBackend) CreatePipelineFull(ctx context.Context, opts CreatePip
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
+
+	if existing, ok := b.pipelinesStore(region).Get(opts.PipelineName); ok &&
+		opts.ClientRequestToken != "" && existing.ClientRequestToken == opts.ClientRequestToken {
+		return clonePipeline(existing), nil
+	}
 
 	if _, ok := b.pipelinesStore(region).Get(opts.PipelineName); ok {
 		return nil, fmt.Errorf(
@@ -503,6 +511,7 @@ func (b *InMemoryBackend) CreatePipelineFull(ctx context.Context, opts CreatePip
 		PipelineDescription:      opts.PipelineDescription,
 		RoleArn:                  opts.RoleArn,
 		ParallelismConfiguration: opts.ParallelismConfiguration,
+		ClientRequestToken:       opts.ClientRequestToken,
 		CreationTime:             now,
 		LastModifiedTime:         now,
 		Tags:                     mergeTags(nil, opts.Tags),
@@ -558,6 +567,7 @@ type StartPipelineExecutionOptions struct {
 	PipelineExecutionDisplayName string
 	PipelineExecutionDescription string
 	MlflowExperimentName         string
+	ClientRequestToken           string
 	PipelineParameters           []PipelineParameter
 	PipelineVersionID            int64
 }
@@ -575,6 +585,14 @@ func (b *InMemoryBackend) StartPipelineExecutionFull(
 	p, ok := b.pipelinesStore(region).Get(opts.PipelineName)
 	if !ok {
 		return nil, fmt.Errorf("%w: pipeline %q not found", ErrPipelineNotFound, opts.PipelineName)
+	}
+
+	if opts.ClientRequestToken != "" {
+		for _, prior := range b.pipelineExecutionsStore(region).All() {
+			if prior.PipelineArn == p.PipelineArn && prior.ClientRequestToken == opts.ClientRequestToken {
+				return clonePipelineExecution(prior), nil
+			}
+		}
 	}
 
 	execID := generateID()
@@ -595,6 +613,7 @@ func (b *InMemoryBackend) StartPipelineExecutionFull(
 		SelectiveExecutionConfig:     opts.SelectiveExecutionConfig,
 		PipelineVersionID:            opts.PipelineVersionID,
 		MlflowExperimentName:         opts.MlflowExperimentName,
+		ClientRequestToken:           opts.ClientRequestToken,
 		StartTime:                    time.Now(),
 	}
 	b.pipelineExecutionsStore(region).Put(pe)

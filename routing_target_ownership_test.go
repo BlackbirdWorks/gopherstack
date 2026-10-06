@@ -14,7 +14,7 @@ func TestRoutingTargetOwnership(t *testing.T) {
 	t.Parallel()
 
 	reg, _ := routingFixture(t)
-	router := service.NewServiceRouter(reg).WithTargetGates(routeTargetGates())
+	router := service.NewServiceRouter(reg).WithTargetGates(routeTargetGates()).WithPathGates(routePathGates())
 
 	const (
 		local     = "localhost:4566"

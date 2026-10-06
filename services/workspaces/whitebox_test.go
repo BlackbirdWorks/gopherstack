@@ -72,12 +72,8 @@ func TestInMemoryBackend_ModifyCertificateBasedAuthProperties_PropertiesToDelete
 	assert.False(t, present, "PropertiesToDelete should remove the key, not merely blank its value")
 }
 
-// TestInMemoryBackend_SnapshotRestore_DirectoryIpGroupsPersisted documents
-// that directoryIpGroups (unlike imagePermissions, clientProperties, and
-// appAssociations, which remain ephemeral) now survives a Snapshot -> Restore
-// round trip -- fixed alongside the AssociateIpGroups/DisassociateIpGroups
-// persistence gap (see PARITY.md gaps history; previously all four raw maps
-// were ephemeral, matching pre-Phase-3.3 behavior).
+// TestInMemoryBackend_SnapshotRestore_DirectoryIpGroupsPersisted checks that
+// directoryIpGroups survives a Snapshot -> Restore round trip.
 func TestInMemoryBackend_SnapshotRestore_DirectoryIpGroupsPersisted(t *testing.T) {
 	t.Parallel()
 

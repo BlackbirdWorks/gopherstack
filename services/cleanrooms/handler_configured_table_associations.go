@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
+	crtypes "github.com/aws/aws-sdk-go-v2/service/cleanrooms/types"
 	"github.com/labstack/echo/v5"
 )
 
@@ -131,6 +132,13 @@ func (h *Handler) handleCreateConfiguredTableAssociationAnalysisRule(
 		AnalysisRuleType                     string         `json:"analysisRuleType"`
 	}
 	_ = json.Unmarshal(body, &req)
+	if err := checkEnum(
+		"analysisRuleType",
+		crtypes.ConfiguredTableAssociationAnalysisRuleType(req.AnalysisRuleType),
+	); err != nil {
+		return nil, err
+	}
+
 	r, err := h.Backend.CreateConfiguredTableAssociationAnalysisRule(
 		req.MembershipIdentifier,
 		req.ConfiguredTableAssociationIdentifier,
@@ -154,6 +162,13 @@ func (h *Handler) handleGetConfiguredTableAssociationAnalysisRule(
 		AnalysisRuleType                     string `json:"analysisRuleType"`
 	}
 	_ = json.Unmarshal(body, &req)
+	if err := checkEnum(
+		"analysisRuleType",
+		crtypes.ConfiguredTableAssociationAnalysisRuleType(req.AnalysisRuleType),
+	); err != nil {
+		return nil, err
+	}
+
 	r, err := h.Backend.GetConfiguredTableAssociationAnalysisRule(
 		req.MembershipIdentifier,
 		req.ConfiguredTableAssociationIdentifier,
@@ -177,6 +192,13 @@ func (h *Handler) handleUpdateConfiguredTableAssociationAnalysisRule(
 		AnalysisRuleType                     string         `json:"analysisRuleType"`
 	}
 	_ = json.Unmarshal(body, &req)
+	if err := checkEnum(
+		"analysisRuleType",
+		crtypes.ConfiguredTableAssociationAnalysisRuleType(req.AnalysisRuleType),
+	); err != nil {
+		return nil, err
+	}
+
 	r, err := h.Backend.UpdateConfiguredTableAssociationAnalysisRule(
 		req.MembershipIdentifier,
 		req.ConfiguredTableAssociationIdentifier,
@@ -200,6 +222,12 @@ func (h *Handler) handleDeleteConfiguredTableAssociationAnalysisRule(
 		AnalysisRuleType                     string `json:"analysisRuleType"`
 	}
 	_ = json.Unmarshal(body, &req)
+	if err := checkEnum(
+		"analysisRuleType",
+		crtypes.ConfiguredTableAssociationAnalysisRuleType(req.AnalysisRuleType),
+	); err != nil {
+		return nil, err
+	}
 
 	return nil, h.Backend.DeleteConfiguredTableAssociationAnalysisRule(
 		req.MembershipIdentifier,

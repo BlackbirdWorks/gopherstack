@@ -71,16 +71,16 @@ ops:
   DeleteMetricAttribution: {wire: ok, errors: ok, state: ok, persist: ok}
   ListMetricAttributions: {wire: fixed, errors: ok, state: ok, persist: ok, note: 'gopherstack-sm02: now emits types.MetricAttributionSummary via metricAttributionSummaryToMap -- dropped datasetGroupArn/metricsOutputConfig (2 leaked members)'}
   ListMetricAttributionMetrics: {wire: fixed, errors: ok, state: fixed, persist: ok, note: 'was a hardcoded fabricated 2-entry list ignoring the actual attribution; now returns the attribution''s real, paginated Metrics'}
-  CreateDatasetImportJob: {wire: fixed, errors: ok, state: fixed, persist: ok, note: added FK validation on datasetArn}
+  CreateDatasetImportJob: {wire: fixed, errors: ok, state: fixed, persist: ok, note: added FK validation on datasetArn, and publishAttributionMetricsToS3 round-trips on Describe}
   DescribeDatasetImportJob: {wire: ok, errors: ok, state: ok, persist: ok}
   ListDatasetImportJobs: {wire: fixed, errors: ok, state: ok, persist: ok, note: 'gopherstack-sm02: now emits types.DatasetImportJobSummary via datasetImportJobSummaryToMap -- dropped datasetArn/roleArn/dataSource (3 leaked members). FIXED 2026-09-18 (gopherstack-dv4s): importMode (real Summary member, sourced since gopherstack-xhu2t added CreateDatasetImportJob.ImportMode validation but only wired it through to Describe) was still missing from the List summary -- added.'}
   CreateDatasetExportJob: {wire: fixed, errors: ok, state: fixed, persist: ok, note: added FK validation on datasetArn}
   DescribeDatasetExportJob: {wire: ok, errors: ok, state: ok, persist: ok}
   ListDatasetExportJobs: {wire: fixed, errors: ok, state: ok, persist: ok, note: 'gopherstack-sm02: now emits types.DatasetExportJobSummary via datasetExportJobSummaryToMap -- dropped datasetArn/roleArn/jobOutput (3 leaked members)'}
-  CreateBatchInferenceJob: {wire: fixed, errors: ok, state: fixed, persist: ok, note: added FK validation on solutionVersionArn}
+  CreateBatchInferenceJob: {wire: fixed, errors: ok, state: fixed, persist: ok, note: added FK validation on solutionVersionArn, and batchInferenceJobConfig/themeGenerationConfig/numResults round-trip on Describe}
   DescribeBatchInferenceJob: {wire: ok, errors: ok, state: ok, persist: ok}
   ListBatchInferenceJobs: {wire: fixed, errors: ok, state: ok, persist: ok, note: 'gopherstack-sm02: now emits types.BatchInferenceJobSummary via batchInferenceJobSummaryToMap -- dropped roleArn/jobInput/jobOutput (3 leaked members). batchInferenceJobMode and failureReason are real Summary members but the backend model has no source for either, so both stay absent rather than fabricated'}
-  CreateBatchSegmentJob: {wire: fixed, errors: ok, state: fixed, persist: ok, note: added FK validation on solutionVersionArn}
+  CreateBatchSegmentJob: {wire: fixed, errors: ok, state: fixed, persist: ok, note: added FK validation on solutionVersionArn, and numResults round-trips on Describe}
   DescribeBatchSegmentJob: {wire: ok, errors: ok, state: ok, persist: ok}
   ListBatchSegmentJobs: {wire: fixed, errors: ok, state: ok, persist: ok, note: 'gopherstack-sm02: now emits types.BatchSegmentJobSummary via batchSegmentJobSummaryToMap -- dropped roleArn/jobInput/jobOutput (3 leaked members). failureReason is a real Summary member but the backend model has no source for it, so it stays absent rather than fabricated'}
   CreateDataDeletionJob: {wire: fixed, errors: ok, state: fixed, persist: ok, note: added FK validation on datasetGroupArn}
@@ -653,3 +653,11 @@ changes; no version bump.
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 personalize is region-isolated: dataset groups, datasets, solutions and campaigns live per region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/personalize`. Limitation: the dashboard shows the home region only. The tagging bridge lists the request region and resolves Tag/Untag by ARN region. `TestHandler_MultiRegionReset` covers Reset.
+
+## 2026-10-05 (reqfielddiff tier-1/2 pass 8)
+
+CreateBatchInferenceJob and CreateBatchSegmentJob read FilterArn (types.go: BatchInferenceJob.FilterArn, BatchSegmentJob.FilterArn): an unknown filter returns ResourceNotFoundException, the ARN is echoed by Describe. Applying the filter to recommendations needs a data engine and stays unmodeled. Persistence: additive FilterArn (omitempty) on both job types. Proof: `TestBatchJobs_FilterArn`.
+
+## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
+
+InternalServerException (handler.go:245,283) is the default 500 clause; the pinned SDK models no internal-error type.

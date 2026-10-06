@@ -97,17 +97,40 @@ type ReferenceImportJobSource struct {
 
 // SequenceStore represents an HealthOmics sequence store.
 type SequenceStore struct {
-	CreationTime  time.Time         `json:"creationTime"`
-	UpdateTime    time.Time         `json:"updateTime"`
-	SseConfig     map[string]any    `json:"sseConfig,omitempty"`
-	S3Access      map[string]any    `json:"s3Access,omitempty"`
-	Tags          map[string]string `json:"tags"`
-	Arn           string            `json:"arn"`
-	ID            string            `json:"id"`
-	Name          string            `json:"name"`
-	Description   string            `json:"description"`
-	ETagAlgorithm string            `json:"eTagAlgorithm,omitempty"`
-	Status        string            `json:"status"`
+	SseConfig              map[string]any    `json:"sseConfig,omitempty"`
+	S3Access               map[string]any    `json:"s3Access,omitempty"`
+	Tags                   map[string]string `json:"tags"`
+	CreationTime           time.Time         `json:"creationTime"`
+	UpdateTime             time.Time         `json:"updateTime"`
+	Arn                    string            `json:"arn"`
+	ID                     string            `json:"id"`
+	Name                   string            `json:"name"`
+	Description            string            `json:"description"`
+	ETagAlgorithm          string            `json:"eTagAlgorithm,omitempty"`
+	FallbackLocation       string            `json:"fallbackLocation,omitempty"`
+	Status                 string            `json:"status"`
+	PropagatedSetLevelTags []string          `json:"propagatedSetLevelTags,omitempty"`
+}
+
+// CreateSequenceStoreInput holds CreateSequenceStore's request members.
+type CreateSequenceStoreInput struct {
+	SseConfig              map[string]any
+	Tags                   map[string]string
+	Name                   string
+	Description            string
+	ETagAlgorithmFamily    string
+	AccessLogLocation      string
+	FallbackLocation       string
+	PropagatedSetLevelTags []string
+}
+
+// UpdateSequenceStoreInput holds UpdateSequenceStore's optional members; nil means unchanged.
+type UpdateSequenceStoreInput struct {
+	FallbackLocation       *string
+	AccessLogLocation      *string
+	Name                   *string
+	Description            *string
+	PropagatedSetLevelTags []string
 }
 
 // SequenceStoreFilter is filter criteria for listing sequence stores.
@@ -367,6 +390,8 @@ type RunFilter struct {
 
 // Run represents an HealthOmics workflow run.
 type Run struct {
+	Priority        *int32                `json:"priority,omitempty"`
+	EngineSettings  any                   `json:"engineSettings,omitempty"`
 	StartTime       *time.Time            `json:"startTime,omitempty"`
 	StopTime        *time.Time            `json:"stopTime,omitempty"`
 	StorageCapacity *int                  `json:"storageCapacity,omitempty"`
@@ -410,6 +435,8 @@ type Run struct {
 	StorageType         string `json:"storageType,omitempty"`
 	WorkflowType        string `json:"workflowType,omitempty"`
 	WorkflowVersionName string `json:"workflowVersionName,omitempty"`
+	LogLevel            string `json:"logLevel,omitempty"`
+	WorkflowOwnerID     string `json:"workflowOwnerId,omitempty"`
 	UUID                string `json:"uuid,omitempty"`
 	Status              string `json:"status"`
 	pollCount           int    // tracks PENDING→RUNNING→COMPLETED progression; not serialized
@@ -423,11 +450,9 @@ type Run struct {
 //
 // WorkflowName is a real RunListItem-only member -- GetRunOutput has no such
 // field -- resolved from the run's stored WorkflowID by the caller (see
-// newRunSummary). priority is a real RunListItem member this backend has no
-// source for: neither StartRunInput nor StartRunBatch's
-// DefaultRunSetting/InlineRunSetting ever thread their Priority field
-// through to a stored Run -- see PARITY.md items_still_open.
+// newRunSummary).
 type RunSummary struct {
+	Priority            *int32     `json:"priority,omitempty"`
 	StartTime           *time.Time `json:"startTime,omitempty"`
 	StopTime            *time.Time `json:"stopTime,omitempty"`
 	StorageCapacity     *int       `json:"storageCapacity,omitempty"`
@@ -465,6 +490,10 @@ type RunInBatchSummary struct {
 // creation, never by a direct StartRun caller.
 type StartRunInput struct {
 	StorageCapacity     *int
+	Priority            *int32
+	EngineSettings      any
+	LogLevel            string
+	WorkflowOwnerID     string
 	Tags                map[string]string
 	Params              map[string]any
 	CacheID             string
@@ -550,6 +579,10 @@ type WorkflowParameter struct {
 type Workflow struct {
 	CreationTime time.Time         `json:"creationTime"`
 	Tags         map[string]string `json:"tags"`
+	// ContainerRegistryMap is echoed as given; no image pulls happen here.
+	ContainerRegistryMap map[string]any `json:"containerRegistryMap,omitempty"`
+	Accelerators         string         `json:"accelerators,omitempty"`
+	Main                 string         `json:"main,omitempty"`
 	// ParameterTemplate is stored/echoed only when explicitly supplied on
 	// CreateWorkflow -- when blank, real AWS auto-parses it from the
 	// workflow definition file, which this backend cannot honestly
@@ -593,6 +626,7 @@ type WorkflowSummary struct {
 // discarded -- this backend does not store or execute workflow definition
 // content, see the Engine doc comment in PARITY.md).
 type CreateWorkflowInput struct {
+	ContainerRegistryMap  map[string]any
 	ParameterTemplate     map[string]WorkflowParameter
 	StorageCapacity       *int
 	Tags                  map[string]string
@@ -604,11 +638,14 @@ type CreateWorkflowInput struct {
 	StorageType           string
 	ReadmeMarkdown        string
 	ReadmePath            string
+	Accelerators          string
+	Main                  string
 	WorkflowBucketOwnerID string
 }
 
 // CreateWorkflowVersionInput holds input for CreateWorkflowVersion.
 type CreateWorkflowVersionInput struct {
+	ContainerRegistryMap  map[string]any
 	ParameterTemplate     map[string]WorkflowParameter
 	StorageCapacity       *int
 	Tags                  map[string]string
@@ -619,6 +656,9 @@ type CreateWorkflowVersionInput struct {
 	DefinitionURI         string
 	ReadmeMarkdown        string
 	ReadmePath            string
+	Accelerators          string
+	Main                  string
+	Engine                string
 	WorkflowBucketOwnerID string
 }
 
@@ -629,22 +669,26 @@ type WorkflowVersionFilter struct {
 
 // WorkflowVersion represents a version of a workflow.
 type WorkflowVersion struct {
-	CreationTime      time.Time                    `json:"creationTime"`
-	Tags              map[string]string            `json:"tags"`
-	ParameterTemplate map[string]WorkflowParameter `json:"parameterTemplate,omitempty"`
-	StorageCapacity   *int                         `json:"storageCapacity,omitempty"`
-	Arn               string                       `json:"arn"`
-	WorkflowID        string                       `json:"workflowId"`
-	VersionName       string                       `json:"versionName"`
-	Description       string                       `json:"description"`
-	Engine            string                       `json:"engine,omitempty"`
-	Type              string                       `json:"type,omitempty"`
-	StorageType       string                       `json:"storageType,omitempty"`
-	Status            string                       `json:"status"`
-	Readme            string                       `json:"readme,omitempty"`
-	ReadmePath        string                       `json:"readmePath,omitempty"`
-	BucketOwnerID     string                       `json:"workflowBucketOwnerId,omitempty"`
-	pollCount         int                          // tracks CREATING→ACTIVE progression; not serialized
+	CreationTime         time.Time                    `json:"creationTime"`
+	ContainerRegistryMap map[string]any               `json:"containerRegistryMap,omitempty"`
+	Accelerators         string                       `json:"accelerators,omitempty"`
+	Main                 string                       `json:"main,omitempty"`
+	UUID                 string                       `json:"uuid,omitempty"`
+	Tags                 map[string]string            `json:"tags"`
+	ParameterTemplate    map[string]WorkflowParameter `json:"parameterTemplate,omitempty"`
+	StorageCapacity      *int                         `json:"storageCapacity,omitempty"`
+	Arn                  string                       `json:"arn"`
+	WorkflowID           string                       `json:"workflowId"`
+	VersionName          string                       `json:"versionName"`
+	Description          string                       `json:"description"`
+	Engine               string                       `json:"engine,omitempty"`
+	Type                 string                       `json:"type,omitempty"`
+	StorageType          string                       `json:"storageType,omitempty"`
+	Status               string                       `json:"status"`
+	Readme               string                       `json:"readme,omitempty"`
+	ReadmePath           string                       `json:"readmePath,omitempty"`
+	BucketOwnerID        string                       `json:"workflowBucketOwnerId,omitempty"`
+	pollCount            int                          // tracks CREATING→ACTIVE progression; not serialized
 }
 
 // WorkflowVersionSummary is the real ListWorkflowVersionsOutput element
@@ -721,11 +765,25 @@ type AnnotationStore struct {
 // (also real, optional, api_op_CreateAnnotationStore.go:61-62) verbatim;
 // left empty rather than fabricated when the caller didn't supply one.
 type CreateAnnotationStoreResponse struct {
-	CreationTime time.Time `json:"creationTime"`
-	ID           string    `json:"id"`
-	Name         string    `json:"name"`
-	Status       string    `json:"status"`
-	VersionName  string    `json:"versionName"`
+	CreationTime time.Time      `json:"creationTime"`
+	Reference    map[string]any `json:"reference,omitempty"`
+	StoreOptions map[string]any `json:"storeOptions,omitempty"`
+	ID           string         `json:"id"`
+	Name         string         `json:"name"`
+	Status       string         `json:"status"`
+	VersionName  string         `json:"versionName"`
+	StoreFormat  string         `json:"storeFormat,omitempty"`
+}
+
+// CreateAnnotationStoreVersionResponse is CreateAnnotationStoreVersionOutput.
+type CreateAnnotationStoreVersionResponse struct {
+	CreationTime   time.Time      `json:"creationTime"`
+	VersionOptions map[string]any `json:"versionOptions,omitempty"`
+	ID             string         `json:"id"`
+	StoreID        string         `json:"storeId"`
+	Name           string         `json:"name"`
+	VersionName    string         `json:"versionName"`
+	Status         string         `json:"status"`
 }
 
 // AnnotationStoreSummary is the real ListAnnotationStoresOutput element
@@ -765,16 +823,17 @@ type AnnotationStoreSummary struct {
 // left unfixed by two prior passes (lx5h/kb66, dv4s) as "the opposite class"
 // from what those passes targeted; this is exactly gopherstack-r80d's cut.
 type AnnotationStoreVersion struct {
-	CreationTime time.Time         `json:"creationTime"`
-	UpdateTime   time.Time         `json:"updateTime"`
-	Tags         map[string]string `json:"tags"`
-	VersionArn   string            `json:"versionArn"`
-	ID           string            `json:"id"`
-	StoreID      string            `json:"storeId"`
-	StoreName    string            `json:"name"`
-	VersionName  string            `json:"versionName"`
-	Description  string            `json:"description"`
-	Status       string            `json:"status"`
+	CreationTime   time.Time         `json:"creationTime"`
+	UpdateTime     time.Time         `json:"updateTime"`
+	VersionOptions map[string]any    `json:"versionOptions,omitempty"`
+	Tags           map[string]string `json:"tags"`
+	VersionArn     string            `json:"versionArn"`
+	ID             string            `json:"id"`
+	StoreID        string            `json:"storeId"`
+	StoreName      string            `json:"name"`
+	VersionName    string            `json:"versionName"`
+	Description    string            `json:"description"`
+	Status         string            `json:"status"`
 	// StatusMessage is real GetAnnotationStoreVersionOutput's required
 	// "statusMessage" -- previously absent from this struct entirely, the
 	// same gap fixed for import jobs in c41d36cb6 but missed here. Always
@@ -1064,14 +1123,15 @@ type Share struct {
 
 // RunCache represents an HealthOmics run cache.
 type RunCache struct {
-	CreationTime    time.Time         `json:"creationTime"`
-	Tags            map[string]string `json:"tags"`
-	Arn             string            `json:"arn"`
-	ID              string            `json:"id"`
-	Name            string            `json:"name"`
-	Description     string            `json:"description,omitempty"`
-	CacheS3Location string            `json:"cacheS3Uri"`
-	Status          string            `json:"status"`
+	CreationTime       time.Time         `json:"creationTime"`
+	Tags               map[string]string `json:"tags"`
+	Arn                string            `json:"arn"`
+	ID                 string            `json:"id"`
+	Name               string            `json:"name"`
+	Description        string            `json:"description,omitempty"`
+	CacheBucketOwnerID string            `json:"cacheBucketOwnerId,omitempty"`
+	CacheS3Location    string            `json:"cacheS3Uri"`
+	Status             string            `json:"status"`
 	// CacheBehavior is the cache's own documented default behavior for runs
 	// that use it and don't override CacheBehavior on StartRun (real
 	// CreateRunCacheInput.CacheBehavior: "If you don't specify a value, the
@@ -1098,19 +1158,20 @@ type RunCacheSummary struct {
 // backend creates/completes them synchronously and a stored, independently-updated
 // counter would drift from the real Run rows it's meant to summarize).
 type RunBatch struct {
-	CreationTime  time.Time         `json:"creationTime"`
-	SubmittedTime time.Time         `json:"submittedTime,omitzero"`
-	ProcessedTime time.Time         `json:"processedTime,omitzero"`
-	Tags          map[string]string `json:"tags"`
-	Arn           string            `json:"arn"`
-	ID            string            `json:"id"`
-	UUID          string            `json:"uuid"`
-	Name          string            `json:"name,omitempty"`
-	WorkflowID    string            `json:"workflowId"`
-	RoleARN       string            `json:"roleArn"`
-	RunGroupID    string            `json:"runGroupId,omitempty"`
-	OutputURI     string            `json:"outputUri,omitempty"`
-	Status        string            `json:"status"`
+	Defaults      *DefaultRunSetting `json:"defaultRunSetting,omitempty"`
+	CreationTime  time.Time          `json:"creationTime"`
+	SubmittedTime time.Time          `json:"submittedTime,omitzero"`
+	ProcessedTime time.Time          `json:"processedTime,omitzero"`
+	Tags          map[string]string  `json:"tags"`
+	Arn           string             `json:"arn"`
+	ID            string             `json:"id"`
+	UUID          string             `json:"uuid"`
+	Name          string             `json:"name,omitempty"`
+	WorkflowID    string             `json:"workflowId"`
+	RoleARN       string             `json:"roleArn"`
+	RunGroupID    string             `json:"runGroupId,omitempty"`
+	OutputURI     string             `json:"outputUri,omitempty"`
+	Status        string             `json:"status"`
 	// TotalRuns is the number of constituent runs requested at submission time
 	// (len(InlineSettings)). SubmissionSuccessCount/SubmissionFailureCount and
 	// DeletedRunCount are one-time/monotonic outcomes of synchronous events
@@ -1127,20 +1188,29 @@ type RunBatch struct {
 }
 
 // DefaultRunSetting is the shared configuration StartRunBatch applies to every run in
-// the batch (real types.DefaultRunSetting). Only the subset of fields this backend's
-// StartRun already models is accepted -- see the RunBatch family note in PARITY.md for
-// the rest (CacheBehavior/CacheId/ConfigurationName/EngineSettings/LogLevel/
-// NetworkingMode/OutputBucketOwnerId/Parameters/RetentionMode/ScratchStorageMode/
-// StorageCapacity/StorageType/WorkflowOwnerId), which are accepted on the wire but not
-// wired to real behavior.
+// the batch (real types.DefaultRunSetting). ConfigurationName and OutputBucketOwnerId
+// are accepted on the wire but not stored -- see PARITY.md items_still_open.
 type DefaultRunSetting struct {
-	RunTags    map[string]string
-	RoleARN    string
-	WorkflowID string
-	Name       string
-	OutputURI  string
-	RunGroupID string
-	Priority   int32
+	Priority            *int32
+	StorageCapacity     *int
+	EngineSettings      any
+	Parameters          map[string]any
+	RunTags             map[string]string
+	CacheID             string
+	CacheBehavior       string
+	LogLevel            string
+	NetworkingMode      string
+	RetentionMode       string
+	ScratchStorageMode  string
+	StorageType         string
+	WorkflowOwnerID     string
+	WorkflowType        string
+	WorkflowVersionName string
+	RoleARN             string
+	WorkflowID          string
+	Name                string
+	OutputURI           string
+	RunGroupID          string
 }
 
 // InlineRunSetting is one caller-supplied per-run override within a
@@ -1148,11 +1218,13 @@ type DefaultRunSetting struct {
 // types.InlineSetting). Overrides Name/OutputURI/Priority/RunTags from
 // DefaultRunSetting when set; RunSettingID is required and has no default.
 type InlineRunSetting struct {
-	RunTags      map[string]string
-	Priority     *int32
-	RunSettingID string
-	Name         string
-	OutputURI    string
+	RunTags        map[string]string
+	Parameters     map[string]any
+	EngineSettings any
+	Priority       *int32
+	RunSettingID   string
+	Name           string
+	OutputURI      string
 }
 
 // RunBatchFilter is filter criteria for listing run batches (ListBatch).

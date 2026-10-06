@@ -347,9 +347,12 @@ func (h *Handler) routeARPSingleItem(
 }
 
 type createAutomatedReasoningPolicyInput struct {
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	Tags        []Tag  `json:"tags,omitempty"`
+	Name               string          `json:"name"`
+	Description        string          `json:"description,omitempty"`
+	KmsKeyID           string          `json:"kmsKeyId,omitempty"`
+	ClientRequestToken string          `json:"clientRequestToken,omitempty"`
+	PolicyDefinition   json.RawMessage `json:"policyDefinition,omitempty"`
+	Tags               []Tag           `json:"tags,omitempty"`
 }
 
 type createAutomatedReasoningPolicyOutput struct {
@@ -357,7 +360,7 @@ type createAutomatedReasoningPolicyOutput struct {
 	UpdatedAt      isoTime `json:"updatedAt"`
 	PolicyArn      string  `json:"policyArn"`
 	Name           string  `json:"name"`
-	Status         string  `json:"status"`
+	Description    string  `json:"description,omitempty"`
 	DefinitionHash string  `json:"definitionHash,omitempty"`
 	Version        string  `json:"version,omitempty"`
 }
@@ -371,7 +374,16 @@ func (h *Handler) handleCreateAutomatedReasoningPolicy(c *echo.Context, body []b
 		)
 	}
 
-	policy, opErr := h.Backend.CreateAutomatedReasoningPolicy(in.Name, in.Description, in.Tags)
+	policy, opErr := idemCreate(
+		h.idem, "CreateAutomatedReasoningPolicy", in.ClientRequestToken, idemFingerprint(in), ErrAlreadyExists,
+		func(p *AutomatedReasoningPolicy) string { return p.PolicyArn }, h.Backend.GetAutomatedReasoningPolicy,
+		func() (*AutomatedReasoningPolicy, error) {
+			return h.Backend.CreateAutomatedReasoningPolicyWithOptions(
+				in.Name, in.Description, in.Tags,
+				ARPCreateOptions{KmsKeyID: in.KmsKeyID, PolicyDefinition: in.PolicyDefinition},
+			)
+		},
+	)
 	if opErr != nil {
 		return h.writeError(c, opErr)
 	}
@@ -379,7 +391,7 @@ func (h *Handler) handleCreateAutomatedReasoningPolicy(c *echo.Context, body []b
 	return c.JSON(http.StatusCreated, createAutomatedReasoningPolicyOutput{
 		PolicyArn:      policy.PolicyArn,
 		Name:           policy.Name,
-		Status:         policy.Status,
+		Description:    policy.Description,
 		CreatedAt:      isoTime{policy.CreatedAt},
 		UpdatedAt:      isoTime{policy.UpdatedAt},
 		DefinitionHash: policy.DefinitionHash,
@@ -407,14 +419,14 @@ func extractARPBuildWorkflowIDs(path string) (string, string) {
 	rest, _ := strings.CutPrefix(path, automatedReasoningPrefix+"/")
 	// rest = {policyArn}/build-workflows/{buildWorkflowId}/cancel
 	beforeCancel := strings.TrimSuffix(rest, "/cancel")
-	idx := strings.LastIndex(beforeCancel, "/build-workflows/")
+	before, after, ok := strings.CutLast(beforeCancel, "/build-workflows/")
 
-	if idx < 0 {
+	if !ok {
 		return "", ""
 	}
 
-	policyARN := decodePath(beforeCancel[:idx])
-	workflowID := beforeCancel[idx+len("/build-workflows/"):]
+	policyARN := decodePath(before)
+	workflowID := after
 
 	return policyARN, workflowID
 }
@@ -715,7 +727,7 @@ func (h *Handler) handleGetAutomatedReasoningPolicy(c *echo.Context, policyARN s
 		return h.writeError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
+	out := map[string]any{
 		keyPolicyArn:      policy.PolicyArn,
 		"policyId":        policyIDFromARN(policy.PolicyArn),
 		keyName:           policy.Name,
@@ -724,7 +736,12 @@ func (h *Handler) handleGetAutomatedReasoningPolicy(c *echo.Context, policyARN s
 		keyVersion:        policy.Version,
 		keyCreatedAt:      isoTime{policy.CreatedAt},
 		keyUpdatedAt:      isoTime{policy.UpdatedAt},
-	})
+	}
+	if policy.KmsKeyArn != "" {
+		out["kmsKeyArn"] = policy.KmsKeyArn
+	}
+
+	return c.JSON(http.StatusOK, out)
 }
 
 func (h *Handler) handleListAutomatedReasoningPolicies(c *echo.Context) error {
@@ -861,7 +878,10 @@ func (h *Handler) handleGetARPBuildWorkflow(c *echo.Context, path string) error 
 
 func (h *Handler) handleListARPBuildWorkflows(c *echo.Context, path string) error {
 	policyARN := extractARPPolicyARN(path, "/build-workflows")
-	workflows := h.Backend.ListAutomatedReasoningPolicyBuildWorkflows(policyARN)
+	q := c.Request().URL.Query()
+	workflows, nextToken := h.Backend.ListAutomatedReasoningPolicyBuildWorkflows(
+		policyARN, queryMaxResults(q), q.Get("nextToken"),
+	)
 	summaries := make([]map[string]any, 0, len(workflows))
 
 	for _, wf := range workflows {
@@ -877,7 +897,9 @@ func (h *Handler) handleListARPBuildWorkflows(c *echo.Context, path string) erro
 
 	// Real key is automatedReasoningPolicyBuildWorkflowSummaries (bedrock@v1.66.4
 	// deserializers.go, awsRestjson1_deserializeOpDocumentListAutomatedReasoningPolicyBuildWorkflowsOutput).
-	return c.JSON(http.StatusOK, map[string]any{"automatedReasoningPolicyBuildWorkflowSummaries": summaries})
+	return c.JSON(http.StatusOK, withNextToken(
+		map[string]any{"automatedReasoningPolicyBuildWorkflowSummaries": summaries}, nextToken,
+	))
 }
 
 func (h *Handler) handleDeleteARPBuildWorkflow(c *echo.Context, path string) error {
@@ -944,14 +966,19 @@ func (h *Handler) handleGetARPTestCase(c *echo.Context, path string) error {
 
 func (h *Handler) handleListARPTestCases(c *echo.Context, path string) error {
 	policyARN := extractARPPolicyARN(path, "/test-cases")
-	cases := h.Backend.ListAutomatedReasoningPolicyTestCases(policyARN)
+	q := c.Request().URL.Query()
+	cases, nextToken := h.Backend.ListAutomatedReasoningPolicyTestCases(
+		policyARN,
+		queryMaxResults(q),
+		q.Get("nextToken"),
+	)
 	summaries := make([]map[string]any, 0, len(cases))
 
 	for _, tc := range cases {
 		summaries = append(summaries, arpTestCaseToMap(tc))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"testCases": summaries})
+	return c.JSON(http.StatusOK, withNextToken(map[string]any{"testCases": summaries}, nextToken))
 }
 
 type updateARPTestCaseInput struct {
@@ -1034,7 +1061,10 @@ func (h *Handler) handleGetARPTestResult(c *echo.Context, path string) error {
 func (h *Handler) handleListARPTestResults(c *echo.Context, path string) error {
 	policyARN, workflowID := extractARPWorkflowIDs(path)
 
-	results, err := h.Backend.ListAutomatedReasoningPolicyTestResults(policyARN, workflowID)
+	q := c.Request().URL.Query()
+	results, nextToken, err := h.Backend.ListAutomatedReasoningPolicyTestResults(
+		policyARN, workflowID, queryMaxResults(q), q.Get("nextToken"),
+	)
 	if err != nil {
 		return h.writeError(c, err)
 	}
@@ -1043,7 +1073,7 @@ func (h *Handler) handleListARPTestResults(c *echo.Context, path string) error {
 		results = []map[string]any{}
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"testResults": results})
+	return c.JSON(http.StatusOK, withNextToken(map[string]any{"testResults": results}, nextToken))
 }
 
 func (h *Handler) handleExportARPVersion(c *echo.Context, path string) error {

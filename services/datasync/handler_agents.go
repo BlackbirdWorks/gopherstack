@@ -8,9 +8,12 @@ import (
 // --- Agent operations ---
 
 type createAgentInput struct {
-	ActivationKey string     `json:"ActivationKey"`
-	AgentName     string     `json:"AgentName"`
-	Tags          []tagInput `json:"Tags"`
+	ActivationKey     string     `json:"ActivationKey"`
+	AgentName         string     `json:"AgentName"`
+	Tags              []tagInput `json:"Tags"`
+	VpcEndpointID     string     `json:"VpcEndpointId"`
+	SecurityGroupArns []string   `json:"SecurityGroupArns"`
+	SubnetArns        []string   `json:"SubnetArns"`
 }
 
 type createAgentOutput struct {
@@ -24,7 +27,20 @@ func (h *Handler) handleCreateAgent(_ context.Context, in *createAgentInput) (*c
 
 	tags := tagsFromInput(in.Tags)
 
-	a, err := h.Backend.CreateAgent(in.AgentName, in.ActivationKey, tags)
+	if len(in.SecurityGroupArns) > 1 || len(in.SubnetArns) > 1 {
+		return nil, fmt.Errorf("%w: only one security group and one subnet ARN may be specified", errInvalidRequest)
+	}
+
+	var privateLink *PrivateLinkConfig
+	if in.VpcEndpointID != "" || len(in.SecurityGroupArns) > 0 || len(in.SubnetArns) > 0 {
+		privateLink = &PrivateLinkConfig{
+			VpcEndpointID:     in.VpcEndpointID,
+			SecurityGroupArns: in.SecurityGroupArns,
+			SubnetArns:        in.SubnetArns,
+		}
+	}
+
+	a, err := h.Backend.CreateAgentWithEndpoint(in.AgentName, tags, privateLink)
 	if err != nil {
 		return nil, err
 	}
@@ -36,12 +52,19 @@ type describeAgentInput struct {
 	AgentArn string `json:"AgentArn"`
 }
 
+type privateLinkConfigWire struct {
+	VpcEndpointID     string   `json:"VpcEndpointId,omitempty"`
+	SecurityGroupArns []string `json:"SecurityGroupArns,omitempty"`
+	SubnetArns        []string `json:"SubnetArns,omitempty"`
+}
+
 type describeAgentOutput struct {
-	AgentArn     string `json:"AgentArn"`
-	Name         string `json:"Name"`
-	Status       string `json:"Status"`
-	EndpointType string `json:"EndpointType"`
-	CreationTime int64  `json:"CreationTime"`
+	PrivateLinkConfig *privateLinkConfigWire `json:"PrivateLinkConfig,omitempty"`
+	AgentArn          string                 `json:"AgentArn"`
+	Name              string                 `json:"Name"`
+	Status            string                 `json:"Status"`
+	EndpointType      string                 `json:"EndpointType"`
+	CreationTime      int64                  `json:"CreationTime"`
 }
 
 func (h *Handler) handleDescribeAgent(_ context.Context, in *describeAgentInput) (*describeAgentOutput, error) {
@@ -54,13 +77,23 @@ func (h *Handler) handleDescribeAgent(_ context.Context, in *describeAgentInput)
 		return nil, err
 	}
 
-	return &describeAgentOutput{
+	out := &describeAgentOutput{
 		AgentArn:     a.AgentArn,
 		Name:         a.Name,
 		Status:       a.Status,
 		EndpointType: a.EndpointType,
 		CreationTime: a.CreationTime.Unix(),
-	}, nil
+	}
+
+	if pl := a.PrivateLink; pl != nil {
+		out.PrivateLinkConfig = &privateLinkConfigWire{
+			VpcEndpointID:     pl.VpcEndpointID,
+			SecurityGroupArns: pl.SecurityGroupArns,
+			SubnetArns:        pl.SubnetArns,
+		}
+	}
+
+	return out, nil
 }
 
 type updateAgentInput struct {

@@ -62,6 +62,7 @@ type backendSnapshot struct {
 	FindingsPubConfig   *FindingsPublicationConfig            `json:"findingsPubConfig,omitempty"`
 	ResourceDetections  map[string][]ResourceProfileDetection `json:"resourceDetections"`
 	RevealConfig        *RevealConfiguration                  `json:"revealConfig,omitempty"`
+	RetrievalConfig     *RetrievalConfiguration               `json:"retrievalConfig,omitempty"`
 	AccountID           string                                `json:"accountId"`
 	Region              string                                `json:"region"`
 	Version             int                                   `json:"version"`
@@ -92,6 +93,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		FindingsPubConfig:   b.findingsPubConfig,
 		ResourceDetections:  b.resourceDetections,
 		RevealConfig:        b.revealConfig,
+		RetrievalConfig:     b.retrievalConfig,
 		AccountID:           b.accountID,
 		Region:              b.region,
 	}
@@ -131,6 +133,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.findingsPubConfig = nil
 		b.resourceDetections = make(map[string][]ResourceProfileDetection)
 		b.revealConfig = nil
+		b.retrievalConfig = nil
 
 		return nil
 	}
@@ -170,6 +173,7 @@ func (b *InMemoryBackend) restorePlainFields(snap *backendSnapshot) {
 	}
 
 	b.revealConfig = snap.RevealConfig
+	b.retrievalConfig = snap.RetrievalConfig
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 }

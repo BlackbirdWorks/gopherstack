@@ -142,6 +142,7 @@ type FileSystem struct {
 	Lifecycle             string                `json:"Lifecycle"`
 	ResourceARN           string                `json:"ResourceARN"`
 	DNSName               string                `json:"DNSName,omitempty"`
+	KmsKeyID              string                `json:"KmsKeyId,omitempty"`
 	StorageType           string                `json:"StorageType,omitempty"`
 	VpcID                 string                `json:"VpcId,omitempty"`
 	OwnersID              string                `json:"OwnerId,omitempty"`
@@ -248,6 +249,7 @@ type Backup struct {
 	BackupType   string      `json:"Type"`
 	Lifecycle    string      `json:"Lifecycle"`
 	ResourceARN  string      `json:"ResourceARN"`
+	KmsKeyID     string      `json:"KmsKeyId,omitempty"`
 	Tags         []Tag       `json:"Tags,omitempty"`
 }
 
@@ -285,22 +287,35 @@ type CompletionReport struct {
 	Scope   string `json:"Scope,omitempty"`
 }
 
+// ReleaseConfiguration selects the files a RELEASE_DATA_FROM_FILESYSTEM task releases.
+type ReleaseConfiguration struct {
+	DurationSinceLastAccess *DurationSinceLastAccess `json:"DurationSinceLastAccess,omitempty"`
+}
+
+// DurationSinceLastAccess is the minimum time since a file was last accessed.
+type DurationSinceLastAccess struct {
+	Value *int64 `json:"Value,omitempty"`
+	Unit  string `json:"Unit,omitempty"`
+}
+
 // DataRepositoryTask represents a task that moves data between FSx and a data repository.
 // CreationTime is first so its non-pointer prefix reduces GC pointer bytes.
 // CreationTime uses epochTime: the real FSx deserializer requires a JSON
 // number of epoch seconds here, not an RFC3339 string.
 type DataRepositoryTask struct {
-	CreationTime epochTime                 `json:"CreationTime"`
-	EndTime      *epochTime                `json:"EndTime,omitempty"`
-	Report       *CompletionReport         `json:"Report,omitempty"`
-	Status       *DataRepositoryTaskStatus `json:"Status,omitempty"`
-	TaskID       string                    `json:"TaskId"`
-	FileSystemID string                    `json:"FileSystemId"`
-	Type         string                    `json:"Type"`
-	Lifecycle    string                    `json:"Lifecycle"`
-	ResourceARN  string                    `json:"ResourceARN"`
-	Paths        []string                  `json:"Paths,omitempty"`
-	Tags         []Tag                     `json:"Tags,omitempty"`
+	CreationTime         epochTime                 `json:"CreationTime"`
+	EndTime              *epochTime                `json:"EndTime,omitempty"`
+	Report               *CompletionReport         `json:"Report,omitempty"`
+	Status               *DataRepositoryTaskStatus `json:"Status,omitempty"`
+	CapacityToRelease    *int64                    `json:"CapacityToRelease,omitempty"`
+	ReleaseConfiguration *ReleaseConfiguration     `json:"ReleaseConfiguration,omitempty"`
+	TaskID               string                    `json:"TaskId"`
+	FileSystemID         string                    `json:"FileSystemId"`
+	Type                 string                    `json:"Type"`
+	Lifecycle            string                    `json:"Lifecycle"`
+	ResourceARN          string                    `json:"ResourceARN"`
+	Paths                []string                  `json:"Paths,omitempty"`
+	Tags                 []Tag                     `json:"Tags,omitempty"`
 }
 
 // DataRepositoryTaskStatus mirrors types.DataRepositoryTaskStatus
@@ -327,6 +342,7 @@ type FileCache struct {
 	FileCacheID          string                        `json:"FileCacheId"`
 	FileCacheType        string                        `json:"FileCacheType"`
 	FileCacheTypeVersion string                        `json:"FileCacheTypeVersion,omitempty"`
+	KmsKeyID             string                        `json:"KmsKeyId,omitempty"`
 	Lifecycle            string                        `json:"Lifecycle"`
 	ResourceARN          string                        `json:"ResourceARN"`
 	SubnetIDs            []string                      `json:"SubnetIds,omitempty"`
@@ -363,6 +379,7 @@ type FileCacheCreating struct {
 	FileCacheID          string                        `json:"FileCacheId"`
 	FileCacheType        string                        `json:"FileCacheType"`
 	FileCacheTypeVersion string                        `json:"FileCacheTypeVersion,omitempty"`
+	KmsKeyID             string                        `json:"KmsKeyId,omitempty"`
 	Lifecycle            string                        `json:"Lifecycle"`
 	ResourceARN          string                        `json:"ResourceARN"`
 	SubnetIDs            []string                      `json:"SubnetIds,omitempty"`

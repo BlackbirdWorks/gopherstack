@@ -231,6 +231,8 @@ func (h *Handler) handleListFindingAggregations(c *echo.Context) error {
 	var req struct {
 		AggregationRequest map[string]any `json:"aggregationRequest"`
 		AggregationType    string         `json:"aggregationType"`
+		NextToken          string         `json:"nextToken"`
+		MaxResults         int32          `json:"maxResults"`
 	}
 
 	if len(body) > 0 {
@@ -247,7 +249,7 @@ func (h *Handler) handleListFindingAggregations(c *echo.Context) error {
 		return h.mapError(c, aggErr)
 	}
 
-	return c.JSON(http.StatusOK, result)
+	return c.JSON(http.StatusOK, pageAggregationResponses(result, req.MaxResults, req.NextToken))
 }
 
 func (h *Handler) handleSearchVulnerabilities(c *echo.Context) error {

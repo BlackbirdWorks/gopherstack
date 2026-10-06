@@ -26,6 +26,10 @@ func (b *InMemoryBackend) CreateCluster(accountID, region string, in CreateClust
 	b.mu.Lock("CreateCluster")
 	defer b.mu.Unlock()
 
+	if err := b.validatePeersLocked(in.MultiRegion, nil, region); err != nil {
+		return nil, err
+	}
+
 	if b.countClustersLocked(accountID, region) >= maxClustersPerAccountRegion {
 		return nil, ErrClusterQuotaExceeded
 	}
@@ -129,6 +133,10 @@ func (b *InMemoryBackend) UpdateCluster(identifier string, in UpdateClusterInput
 			return nil, validateErr
 		}
 
+		if validateErr := b.validatePeersLocked(in.MultiRegion, c, c.Region); validateErr != nil {
+			return nil, validateErr
+		}
+
 		c.MultiRegion = in.MultiRegion.clone()
 	}
 
@@ -147,6 +155,7 @@ func (b *InMemoryBackend) UpdateCluster(identifier string, in UpdateClusterInput
 	now := time.Now().UTC()
 	c.Status = statusUpdating
 	c.PendingUntil = now.Add(clusterActivationDelay)
+	b.activatePeersLocked(c, c.PendingUntil)
 
 	return c.clone(), nil
 }
@@ -170,6 +179,7 @@ func (b *InMemoryBackend) DeleteCluster(identifier string) (*Cluster, error) {
 	now := time.Now().UTC()
 	c.Status = statusDeleting
 	c.PendingUntil = now.Add(clusterDeletionDelay)
+	b.unlinkPeersLocked(c)
 
 	return c.clone(), nil
 }

@@ -353,7 +353,7 @@ func TestHandler_QueuedMessages_SendListDelete(t *testing.T) {
 	assert.Equal(t, sentMessageID, msgs[0].(map[string]any)["MessageId"])
 
 	// Delete queued messages
-	rec = doIoTWRequest(t, h, http.MethodDelete, "/wireless-devices/"+devID+"/data", "")
+	rec = doIoTWRequest(t, h, http.MethodDelete, "/wireless-devices/"+devID+"/data?messageId=*", "")
 	assert.Equal(t, http.StatusNoContent, rec.Code)
 
 	// After deletion, the queue must be empty again.

@@ -62,7 +62,7 @@ func seedFullState(t *testing.T, b *glue.InMemoryBackend) {
 	b.AddDataQualityResultInternal(&glue.DataQualityResult{ResultID: "dqr1"})
 	_, err = b.CreateDevEndpoint("dep1", glue.DevEndpointInput{}, "arn:aws:iam::123456789012:role/dep-role", nil)
 	require.NoError(t, err)
-	_, err = b.CreateDataQualityRuleset("ruleset1", "rules", nil)
+	_, err = b.CreateDataQualityRuleset("ruleset1", "Rules = [IsComplete \"id\"]", nil)
 	require.NoError(t, err)
 	_, err = b.StartDataQualityRulesetEvaluationRun([]string{"ruleset1"})
 	require.NoError(t, err)
@@ -120,7 +120,11 @@ func seedFullState(t *testing.T, b *glue.InMemoryBackend) {
 	require.NoError(t, err)
 	_, err = b.StartDataQualityRuleRecommendationRun("s3://bucket/path")
 	require.NoError(t, err)
-	_, err = b.CreateColumnStatisticsTaskSettings("db1", "tbl1", "role1", nil)
+	_, err = b.CreateColumnStatisticsTaskSettings(
+		"db1",
+		"tbl1",
+		glue.ColumnStatisticsTaskSettingsOptions{Role: "role1"},
+	)
 	require.NoError(t, err)
 	_, err = b.StartColumnStatisticsTaskRun("db1", "tbl1", "role")
 	require.NoError(t, err)

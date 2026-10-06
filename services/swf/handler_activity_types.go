@@ -67,6 +67,7 @@ type handleListActivityTypesInput struct {
 	Domain             string `json:"domain"`
 	RegistrationStatus string `json:"registrationStatus,omitempty"`
 	NextPageToken      string `json:"nextPageToken,omitempty"`
+	Name               string `json:"name,omitempty"`
 	MaximumPageSize    int    `json:"maximumPageSize,omitempty"`
 	ReverseOrder       bool   `json:"reverseOrder,omitempty"`
 }
@@ -80,22 +81,29 @@ func (h *Handler) handleListActivityTypes(
 	if err != nil {
 		return nil, err
 	}
-	infos := make([]activityTypeInfoOutput, len(ats))
-	for i, at := range ats {
-		infos[i] = activityTypeInfoOutput{
+	infos := make([]activityTypeInfoOutput, 0, len(ats))
+	for _, at := range ats {
+		if in.Name != "" && at.Name != in.Name {
+			continue
+		}
+		infos = append(infos, activityTypeInfoOutput{
 			ActivityType:    &activityTypeRef{Name: at.Name, Version: at.Version},
 			Status:          at.Status,
 			Description:     at.Description,
 			CreationDate:    at.CreationDate,
 			DeprecationDate: at.DeprecationDate,
-		}
+		})
 	}
 	sort.Slice(infos, func(i, j int) bool {
+		a, b := infos[i], infos[j]
+		if a.ActivityType.Name == b.ActivityType.Name {
+			return a.ActivityType.Version < b.ActivityType.Version
+		}
 		if in.ReverseOrder {
-			return infos[i].ActivityType.Name > infos[j].ActivityType.Name
+			return a.ActivityType.Name > b.ActivityType.Name
 		}
 
-		return infos[i].ActivityType.Name < infos[j].ActivityType.Name
+		return a.ActivityType.Name < b.ActivityType.Name
 	})
 	infos, nextPageToken := applyPageTokenSlice(infos, in.NextPageToken, in.MaximumPageSize)
 

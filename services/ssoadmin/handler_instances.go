@@ -70,6 +70,7 @@ func (h *Handler) handleCreateInstance(c *echo.Context, body []byte) error {
 		Name            string    `json:"Name"`
 		OwnerAccountID  string    `json:"OwnerAccountId"`
 		IdentityStoreID string    `json:"IdentityStoreId"`
+		ClientToken     string    `json:"ClientToken"`
 		Tags            []tagView `json:"Tags"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -81,7 +82,11 @@ func (h *Handler) handleCreateInstance(c *echo.Context, body []byte) error {
 		tags[t.Key] = t.Value
 	}
 
-	inst, err := h.Backend.CreateInstance(req.Name, req.OwnerAccountID, req.IdentityStoreID, tags)
+	inst, err := replayCreate(h, "CreateInstance", req.ClientToken, req,
+		func(i *Instance) string { return i.InstanceArn }, h.Backend.DescribeInstance,
+		func() (*Instance, error) {
+			return h.Backend.CreateInstance(req.Name, req.OwnerAccountID, req.IdentityStoreID, tags)
+		})
 	if err != nil {
 		return handleBackendError(c, err, "failed to create instance")
 	}
@@ -113,13 +118,7 @@ func (h *Handler) handleDescribeInstance(c *echo.Context, body []byte) error {
 	// see awsAwsjson11_deserializeOpDocumentDescribeInstanceOutput in the real
 	// SDK's deserializers.go.
 	//
-	// EncryptionConfigurationDetails: this SDK version has no
-	// Put/UpdateInstanceEncryptionConfiguration op at all -- encryption
-	// configuration is read-only via this API -- so every instance this
-	// backend can produce has the one true default state real AWS documents
-	// for an instance that was never (and can never be, via this API)
-	// switched to a customer-managed KMS key: ENABLED / AWS_OWNED_KMS_KEY,
-	// no KmsKeyArn. This is a real constant, not per-instance fabricated data.
+	// EncryptionConfigurationDetails defaults to ENABLED/AWS_OWNED_KMS_KEY until UpdateInstance sets a key.
 	//
 	// StatusReason (top-level, distinct from EncryptionConfigurationDetails'
 	// own EncryptionStatusReason) is documented as "particularly useful when
@@ -127,22 +126,31 @@ func (h *Handler) handleDescribeInstance(c *echo.Context, body []byte) error {
 	// always ACTIVE (no CREATE_FAILED/DELETING-with-error path modeled), so
 	// omitting it is wire-correct, not a gap.
 	resp := map[string]any{
-		keyInstanceArn:    inst.InstanceArn,
-		"OwnerAccountId":  inst.OwnerAccountID,
-		"IdentityStoreId": inst.IdentityStoreID,
-		keyName:           inst.Name,
-		keyStatus:         inst.Status,
-		"CreatedDate":     float64(inst.CreatedDate.Unix()),
-		"EncryptionConfigurationDetails": map[string]any{
-			"EncryptionStatus": "ENABLED",
-			"KeyType":          "AWS_OWNED_KMS_KEY",
-		},
+		keyInstanceArn:                   inst.InstanceArn,
+		"OwnerAccountId":                 inst.OwnerAccountID,
+		"IdentityStoreId":                inst.IdentityStoreID,
+		keyName:                          inst.Name,
+		keyStatus:                        inst.Status,
+		"CreatedDate":                    float64(inst.CreatedDate.Unix()),
+		"EncryptionConfigurationDetails": encryptionDetails(inst),
 	}
 	if inst.PermissionSetsEnabled != nil {
 		resp["PermissionSetsEnabled"] = *inst.PermissionSetsEnabled
 	}
 
 	return writeJSON(c, http.StatusOK, resp)
+}
+
+func encryptionDetails(inst *Instance) map[string]any {
+	d := map[string]any{"EncryptionStatus": "ENABLED", "KeyType": keyTypeAWSOwned}
+	if inst.EncryptionKeyType != "" {
+		d["KeyType"] = inst.EncryptionKeyType
+	}
+	if inst.EncryptionKmsKeyArn != "" {
+		d["KmsKeyArn"] = inst.EncryptionKmsKeyArn
+	}
+
+	return d
 }
 
 func (h *Handler) handleDeleteInstance(c *echo.Context, body []byte) error {
@@ -165,15 +173,30 @@ func (h *Handler) handleDeleteInstance(c *echo.Context, body []byte) error {
 
 func (h *Handler) handleUpdateInstance(c *echo.Context, body []byte) error {
 	var req struct {
-		PermissionSetsEnabled *bool  `json:"PermissionSetsEnabled"`
-		InstanceArn           string `json:"InstanceArn"`
-		Name                  string `json:"Name"`
+		PermissionSetsEnabled   *bool `json:"PermissionSetsEnabled"`
+		EncryptionConfiguration *struct {
+			KeyType   string `json:"KeyType"`
+			KmsKeyArn string `json:"KmsKeyArn"`
+		} `json:"EncryptionConfiguration"`
+		InstanceArn string `json:"InstanceArn"`
+		Name        string `json:"Name"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 	if req.InstanceArn == "" {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "InstanceArn is required")
+	}
+	if req.EncryptionConfiguration != nil && req.PermissionSetsEnabled != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException",
+			"EncryptionConfiguration and PermissionSetsEnabled cannot be set in the same request")
+	}
+	if req.EncryptionConfiguration != nil {
+		if err := h.Backend.UpdateInstanceEncryption(
+			req.InstanceArn, req.EncryptionConfiguration.KeyType, req.EncryptionConfiguration.KmsKeyArn,
+		); err != nil {
+			return handleBackendError(c, err, "instance not found: "+req.InstanceArn)
+		}
 	}
 	if err := h.Backend.UpdateInstance(req.InstanceArn, req.Name, req.PermissionSetsEnabled); err != nil {
 		return handleBackendError(c, err, "instance not found: "+req.InstanceArn)

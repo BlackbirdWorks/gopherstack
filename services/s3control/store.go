@@ -55,6 +55,7 @@ type InMemoryBackend struct {
 	// handling (see SetObjectLambdaConfigSink).
 	objectLambdaSink             ObjectLambdaConfigSink
 	accessGrantsInstancePolicies map[string]string
+	accessGrantsPolicyMeta       map[string]AccessGrantsPolicyMeta
 	objectLambdaAPPolicies       map[string]string
 	accessGrants                 *store.Table[AccessGrant]
 	accessGrantsLocations        *store.Table[AccessGrantsLocation]
@@ -102,6 +103,7 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		accessPointPolicies:          make(map[string]string),
 		jobTags:                      make(map[string]TagSet),
 		accessGrantsInstancePolicies: make(map[string]string),
+		accessGrantsPolicyMeta:       make(map[string]AccessGrantsPolicyMeta),
 		accessPointScopes:            make(map[string]string),
 		objectLambdaAPPolicies:       make(map[string]string),
 		objectLambdaAPConfigs:        make(map[string]string),
@@ -135,11 +137,17 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
+	b.resetAllLocked()
+}
+
+// resetAllLocked empties every table and map; the caller MUST hold b.mu for writing.
+func (b *InMemoryBackend) resetAllLocked() {
 	b.resetTablesLocked()
 
 	b.accessPointPolicies = make(map[string]string)
 	b.jobTags = make(map[string]TagSet)
 	b.accessGrantsInstancePolicies = make(map[string]string)
+	b.accessGrantsPolicyMeta = make(map[string]AccessGrantsPolicyMeta)
 	b.accessPointScopes = make(map[string]string)
 	b.objectLambdaAPPolicies = make(map[string]string)
 	b.objectLambdaAPConfigs = make(map[string]string)

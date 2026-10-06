@@ -100,7 +100,12 @@ type getPolicyStoreOutput struct {
 	DeletionProtection string                 `json:"deletionProtection,omitempty"`
 }
 
-func (h *Handler) handleGetPolicyStore(_ context.Context, in *policyStoreIDInput) (*getPolicyStoreOutput, error) {
+type getPolicyStoreInput struct {
+	PolicyStoreID string `json:"policyStoreId"`
+	Tags          bool   `json:"tags,omitempty"`
+}
+
+func (h *Handler) handleGetPolicyStore(_ context.Context, in *getPolicyStoreInput) (*getPolicyStoreOutput, error) {
 	if in.PolicyStoreID == "" {
 		return nil, fmt.Errorf("%w: policyStoreId is required", errInvalidRequest)
 	}
@@ -115,6 +120,11 @@ func (h *Handler) handleGetPolicyStore(_ context.Context, in *policyStoreIDInput
 		return nil, err
 	}
 
+	var tags map[string]string
+	if in.Tags {
+		tags = ps.Tags
+	}
+
 	return &getPolicyStoreOutput{
 		PolicyStoreID:      ps.PolicyStoreID,
 		Arn:                ps.Arn,
@@ -124,7 +134,7 @@ func (h *Handler) handleGetPolicyStore(_ context.Context, in *policyStoreIDInput
 		ValidationSettings: validationSettingsJSON{Mode: ps.ValidationMode},
 		CedarVersion:       cedarVersion,
 		DeletionProtection: ps.DeletionProtection,
-		Tags:               ps.Tags,
+		Tags:               tags,
 	}, nil
 }
 

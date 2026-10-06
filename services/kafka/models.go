@@ -46,6 +46,9 @@ const (
 	ClusterTypeServerless = "SERVERLESS"
 )
 
+// brokerAZDistributionDefault is the only value BrokerNodeGroupInfo.BrokerAZDistribution accepts.
+const brokerAZDistributionDefault = "DEFAULT"
+
 const (
 	// EnhancedMonitoringDefault is the default monitoring level.
 	EnhancedMonitoringDefault = "DEFAULT"
@@ -355,15 +358,17 @@ type Cluster struct {
 // must match that contract, not just DescribeConfiguration/CreateConfiguration's
 // own (unrequired) op-level shapes.
 type Configuration struct {
-	Tags             map[string]string      `json:"-"`
-	LatestRevision   *ConfigurationRevision `json:"latestRevision"`
-	Arn              string                 `json:"arn"`
-	Name             string                 `json:"name"`
-	Description      string                 `json:"description"`
-	ServerProperties string                 `json:"serverProperties"`
-	CreationTime     string                 `json:"creationTime"`
-	State            string                 `json:"state"`
-	KafkaVersions    []string               `json:"kafkaVersions"`
+	Tags           map[string]string      `json:"-"`
+	LatestRevision *ConfigurationRevision `json:"latestRevision"`
+	// PriorRevisions holds superseded revisions, oldest first.
+	PriorRevisions   []*ConfigurationRevision `json:"priorRevisions,omitempty"`
+	Arn              string                   `json:"arn"`
+	Name             string                   `json:"name"`
+	Description      string                   `json:"description"`
+	ServerProperties string                   `json:"serverProperties"`
+	CreationTime     string                   `json:"creationTime"`
+	State            string                   `json:"state"`
+	KafkaVersions    []string                 `json:"kafkaVersions"`
 }
 
 // ConfigurationRevision represents a revision of an MSK configuration.
@@ -387,9 +392,15 @@ type ConfigurationRevision struct {
 	Revision         int64  `json:"revision"`
 }
 
+// ZookeeperAccess mirrors types.ZookeeperAccess.
+type ZookeeperAccess struct {
+	Enabled *bool `json:"enabled,omitempty"`
+}
+
 // UpdateConnectivitySettings is the payload for UpdateConnectivity.
 type UpdateConnectivitySettings struct {
 	ConnectivityInfo *ConnectivityInfo
+	ZookeeperAccess  *ZookeeperAccess
 }
 
 // UpdateMonitoringSettings is the payload for UpdateMonitoring.
@@ -654,8 +665,12 @@ type MutableClusterInfo struct {
 	ClientAuthentication *ClientAuthentication `json:"clientAuthentication,omitempty"`
 	EncryptionInfo       *EncryptionInfo       `json:"encryptionInfo,omitempty"`
 	Rebalancing          *Rebalancing          `json:"rebalancing,omitempty"`
+	ConfigurationInfo    *ConfigurationInfo    `json:"configurationInfo,omitempty"`
+	ZookeeperAccess      *ZookeeperAccess      `json:"zookeeperAccess,omitempty"`
 	StorageMode          string                `json:"storageMode,omitempty"`
 	EnhancedMonitoring   string                `json:"enhancedMonitoring,omitempty"`
+	InstanceType         string                `json:"instanceType,omitempty"`
+	KafkaVersion         string                `json:"kafkaVersion,omitempty"`
 	BrokerEBSVolumeInfo  []BrokerEBSVolumeInfo `json:"brokerEBSVolumeInfo,omitempty"`
 	NumberOfBrokerNodes  int32                 `json:"numberOfBrokerNodes,omitempty"`
 }

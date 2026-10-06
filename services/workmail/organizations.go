@@ -17,6 +17,16 @@ func (b *InMemoryBackend) CreateOrganization(
 	domains []string,
 	enableInteroperability bool,
 ) (*Organization, error) {
+	return b.CreateOrganizationWithDirectory(ctx, alias, "", domains, enableInteroperability)
+}
+
+// CreateOrganizationWithDirectory creates an organization bound to directoryID, or a new directory when empty.
+func (b *InMemoryBackend) CreateOrganizationWithDirectory(
+	ctx context.Context,
+	alias, directoryID string,
+	domains []string,
+	enableInteroperability bool,
+) (*Organization, error) {
 	region := b.regionFor(ctx)
 
 	b.mu.Lock("CreateOrganization")
@@ -30,6 +40,10 @@ func (b *InMemoryBackend) CreateOrganization(
 	}
 
 	orgID := "m-" + strings.ReplaceAll(newID(), "-", "")[:20]
+	if directoryID == "" {
+		directoryID = "d-" + strings.ReplaceAll(newID(), "-", "")[:10]
+	}
+
 	defaultDomain := alias + ".awsapps.com"
 	now := time.Now().UTC()
 
@@ -40,7 +54,7 @@ func (b *InMemoryBackend) CreateOrganization(
 		Alias:                   alias,
 		ARN:                     b.orgARN(orgID, region),
 		State:                   stateActive,
-		DirectoryID:             "d-" + strings.ReplaceAll(newID(), "-", "")[:10],
+		DirectoryID:             directoryID,
 		DirectoryType:           "SimpleAD",
 		DefaultMailDomain:       defaultDomain,
 		Region:                  region,

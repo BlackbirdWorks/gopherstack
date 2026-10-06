@@ -38,10 +38,12 @@ func TestListUsersIndexCapacityCrossNamespaceSortIsTotal(t *testing.T) {
 
 	userA, err := b.RegisterUser(
 		accountID, "ns-a", "alice", "alice@ns-a.example.com", "READER", "QUICKSIGHT", "", "", nil,
+		quicksight.UserFederation{},
 	)
 	require.NoError(t, err)
 	userB, err := b.RegisterUser(
 		accountID, "ns-b", "alice", "alice@ns-b.example.com", "READER", "QUICKSIGHT", "", "", nil,
+		quicksight.UserFederation{},
 	)
 	require.NoError(t, err)
 

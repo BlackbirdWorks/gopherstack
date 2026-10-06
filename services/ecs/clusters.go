@@ -53,6 +53,10 @@ func (b *InMemoryBackend) CreateCluster(input CreateClusterInput) (*Cluster, err
 		return &cp, nil
 	}
 
+	if err := validateClusterConfiguration(input.Configuration); err != nil {
+		return nil, err
+	}
+
 	if err := b.validateCapacityProviderNamesLocked(input.CapacityProviders); err != nil {
 		return nil, err
 	}
@@ -70,6 +74,7 @@ func (b *InMemoryBackend) CreateCluster(input CreateClusterInput) (*Cluster, err
 		CapacityProviders:               input.CapacityProviders,
 		DefaultCapacityProviderStrategy: input.DefaultCapacityProviderStrategy,
 		ServiceConnectDefaults:          input.ServiceConnectDefaults,
+		Configuration:                   input.Configuration,
 	}
 	b.clusters.Put(cluster)
 
@@ -364,7 +369,31 @@ func (b *InMemoryBackend) UpdateCluster(input UpdateClusterInput) (*Cluster, err
 		c.ServiceConnectDefaults = input.ServiceConnectDefaults
 	}
 
+	if input.Configuration != nil {
+		if err := validateClusterConfiguration(input.Configuration); err != nil {
+			return nil, err
+		}
+
+		c.Configuration = input.Configuration
+	}
+
 	cp := b.enrichCluster(c)
 
 	return &cp, nil
+}
+
+// validateClusterConfiguration enforces the documented ExecuteCommandLogging values.
+func validateClusterConfiguration(cfg *ClusterConfiguration) error {
+	if cfg == nil || cfg.ExecuteCommandConfiguration == nil {
+		return nil
+	}
+
+	switch cfg.ExecuteCommandConfiguration.Logging {
+	case "", "NONE", "DEFAULT", "OVERRIDE":
+		return nil
+	}
+
+	return fmt.Errorf(
+		"%w: executeCommandConfiguration.logging must be NONE, DEFAULT or OVERRIDE", ErrInvalidParameter,
+	)
 }

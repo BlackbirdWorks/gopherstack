@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/svelte";
 import ECRPage from "./+page.svelte";
-import { ALL_REGIONS, DEFAULT_REGION, setStoredRegion } from "$lib/region.svelte";
+import { ALL_REGIONS, DEFAULT_REGION, setStoredRegion } from "#lib/region.svelte.ts";
 
 const mockSend = vi.fn();
 
-vi.mock("$lib/aws-client", () => ({
+vi.mock("#lib/aws-client.ts", () => ({
   getECRClient: () => ({ send: mockSend }),
 }));
 
@@ -22,6 +22,16 @@ function stubRegionsWithData(regions: string[]): void {
       json: () => Promise.resolve({ regions }),
     }),
   );
+}
+
+// ECR's onRegionChange also fires loadRegistryFeatures (6 unrelated
+// calls), so these tests key responses off the command name rather than
+// call order -- an ordered mockResolvedValueOnce queue would be racy
+// against those unrelated calls.
+function describeReposCallCount(): number {
+  return mockSend.mock.calls.filter(
+    ([cmd]) => cmd?.constructor?.name === "DescribeRepositoriesCommand",
+  ).length;
 }
 
 describe("ECR Page", () => {
@@ -151,16 +161,6 @@ describe("ECR Page", () => {
       { timeout: 3000 },
     );
   });
-
-  // ECR's onRegionChange also fires loadRegistryFeatures (6 unrelated
-  // calls), so these tests key responses off the command name rather than
-  // call order -- an ordered mockResolvedValueOnce queue would be racy
-  // against those unrelated calls.
-  function describeReposCallCount(): number {
-    return mockSend.mock.calls.filter(
-      ([cmd]) => cmd?.constructor?.name === "DescribeRepositoriesCommand",
-    ).length;
-  }
 
   describe("All regions mode", () => {
     it("fans DescribeRepositories out across every region with data and tags each row", async () => {

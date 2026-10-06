@@ -47,12 +47,12 @@ func apiIDFromResourceARN(arnSegs []string) (string, bool) {
 
 	const apisResourcePrefix = "apis/"
 
-	idx := strings.LastIndex(full, apisResourcePrefix)
-	if idx == -1 {
+	_, after, ok := strings.CutLast(full, apisResourcePrefix)
+	if !ok {
 		return "", false
 	}
 
-	id := full[idx+len(apisResourcePrefix):]
+	id := after
 	if id == "" {
 		return "", false
 	}

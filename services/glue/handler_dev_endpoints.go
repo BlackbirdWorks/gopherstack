@@ -2,6 +2,8 @@ package glue
 
 import (
 	"context"
+
+	gluetypes "github.com/aws/aws-sdk-go-v2/service/glue/types"
 )
 
 type batchGetDevEndpointsInput struct {
@@ -64,6 +66,10 @@ func (h *Handler) handleCreateDevEndpoint(
 	_ context.Context,
 	in *createDevEndpointInput,
 ) (*createDevEndpointOutput, error) {
+	if err := checkEnum("WorkerType", gluetypes.WorkerType(in.WorkerType)); err != nil {
+		return nil, err
+	}
+
 	dep, err := h.Backend.CreateDevEndpoint(in.EndpointName, DevEndpointInput{
 		Arguments:             in.Arguments,
 		SecurityGroupIDs:      in.SecurityGroupIDs,

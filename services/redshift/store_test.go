@@ -104,7 +104,7 @@ func TestRedshiftDeleteCluster_ClearsLoggingStatuses(t *testing.T) {
 	_, err := b.CreateCluster("reused-cluster", "", "", "", nil, "", redshift.CreateClusterOptions{})
 	require.NoError(t, err)
 
-	_, err = b.EnableLogging("reused-cluster", "my-bucket", "")
+	_, err = b.EnableLogging("reused-cluster", "my-bucket", "", redshift.LoggingOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, 1, redshift.LoggingStatusCount(b))
 

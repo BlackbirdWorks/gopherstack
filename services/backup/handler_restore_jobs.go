@@ -90,6 +90,7 @@ func (h *Handler) handleStartRestoreJob(c *echo.Context, defaultRecoveryPointArn
 		RecoveryPointArn string            `json:"RecoveryPointArn"`
 		IamRoleArn       string            `json:"IamRoleArn"`
 		ResourceType     string            `json:"ResourceType"`
+		IdempotencyToken string            `json:"IdempotencyToken"`
 	}
 	if err := json.Unmarshal(body, &reqBody); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterValueException", "invalid request body"))
@@ -98,11 +99,12 @@ func (h *Handler) handleStartRestoreJob(c *echo.Context, defaultRecoveryPointArn
 		reqBody.RecoveryPointArn = defaultRecoveryPointArn
 	}
 
-	job, err := h.Backend.StartRestoreJob(
+	job, err := h.Backend.StartRestoreJobWithToken(
 		reqBody.RecoveryPointArn,
 		reqBody.IamRoleArn,
 		reqBody.ResourceType,
 		reqBody.Metadata,
+		reqBody.IdempotencyToken,
 	)
 	if err != nil {
 		return h.handleError(c, err)
@@ -162,17 +164,26 @@ func (h *Handler) dispatchRestoreJobOps(
 
 		return true, c.JSON(http.StatusOK, resp)
 	case opListRestoreJobsByProtectedResource:
-		jobs := h.Backend.ListRestoreJobsByProtectedResource(route.resource)
+		q := c.Request().URL.Query()
+		jobs, next := pageQuery(
+			q, h.Backend.ListRestoreJobsByProtectedResourceFiltered(route.resource, ProtectedResourceRestoreFilter{
+				Status:                     q.Get("status"),
+				RecoveryPointCreatedAfter:  ParseTimeFilter(q.Get("recoveryPointCreationDateAfter")),
+				RecoveryPointCreatedBefore: ParseTimeFilter(q.Get("recoveryPointCreationDateBefore")),
+			}),
+			func(j *RestoreJob) string { return j.RestoreJobID },
+		)
 		items := make([]map[string]any, 0, len(jobs))
 		for _, j := range jobs {
 			items = append(items, restoreJobToJSON(j))
 		}
 
-		return true, c.JSON(http.StatusOK, map[string]any{"RestoreJobs": items})
+		return true, c.JSON(http.StatusOK, withNextToken(map[string]any{"RestoreJobs": items}, next))
 	case opListRestoreJobSummaries:
-		summaries := h.Backend.ListRestoreJobSummaries(NewJobSummaryFilter(c.Request().URL.Query()))
+		q := c.Request().URL.Query()
+		summaries, next := pageQuery(q, h.Backend.ListRestoreJobSummaries(NewJobSummaryFilter(q)), summaryStateKey)
 
-		return true, c.JSON(http.StatusOK, map[string]any{"RestoreJobSummaries": summaries})
+		return true, c.JSON(http.StatusOK, withNextToken(map[string]any{"RestoreJobSummaries": summaries}, next))
 	case opGetRestoreJobMetadata:
 
 		return true, h.handleGetRestoreJobMetadata(c, route.resource)

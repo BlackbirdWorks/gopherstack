@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/labstack/echo/v5"
 )
@@ -493,6 +494,10 @@ func (h *Handler) handleAssociateDistributionWebACL(c *echo.Context, distributio
 		return h.handleWebACLAssociationError(c, getErr)
 	}
 
+	if failed, resp := ifMatchFailure(c, d.ETag, "distribution"); failed {
+		return resp
+	}
+
 	if assocErr := h.Backend.AssociateDistributionWebACL(distributionID, req.WebACLArn); assocErr != nil {
 		return h.handleWebACLAssociationError(c, assocErr)
 	}
@@ -525,6 +530,15 @@ func (h *Handler) handleCopyDistribution(c *echo.Context, primaryDistID string) 
 				cfErrorXML("MalformedXML", "invalid CopyDistributionRequest XML"),
 			)
 		}
+	}
+
+	primary, getErr := h.Backend.GetDistribution(primaryDistID)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	if failed, resp := ifMatchFailure(c, primary.ETag, "distribution"); failed {
+		return resp
 	}
 
 	d, copyErr := h.Backend.CopyDistribution(primaryDistID, req.CallerReference, req.Enabled)
@@ -609,6 +623,10 @@ func (h *Handler) handleDisassociateDistributionWebACL(c *echo.Context, distID s
 	d, err := h.Backend.GetDistribution(distID)
 	if err != nil {
 		return h.handleWebACLAssociationError(c, err)
+	}
+
+	if failed, resp := ifMatchFailure(c, d.ETag, "distribution"); failed {
+		return resp
 	}
 
 	if disErr := h.Backend.DisassociateDistributionWebACL(distID); disErr != nil {
@@ -733,6 +751,10 @@ func (h *Handler) handleUpdateDistributionWithStagingConfig(c *echo.Context, pri
 		req.StagingID = primaryID
 	}
 
+	if failed, resp := h.stagingIfMatchFailure(c, primaryID, req.StagingID); failed {
+		return resp
+	}
+
 	d, updateErr := h.Backend.UpdateDistributionWithStagingConfig(primaryID, req.StagingID)
 	if updateErr != nil {
 		return h.handleError(c, updateErr)
@@ -741,6 +763,35 @@ func (h *Handler) handleUpdateDistributionWithStagingConfig(c *echo.Context, pri
 	c.Response().Header().Set("ETag", d.ETag)
 
 	return xmlResp(c, http.StatusOK, distributionResponseXML(d, h.Backend.CountInProgressInvalidations(d.ID)))
+}
+
+// stagingIfMatchFailure checks the "<primary ETag>, <staging ETag>" If-Match value of
+// UpdateDistributionWithStagingConfig against both distributions.
+func (h *Handler) stagingIfMatchFailure(c *echo.Context, primaryID, stagingID string) (bool, error) {
+	given := c.Request().Header.Get("If-Match")
+	if given == "" {
+		return false, nil
+	}
+
+	primary, err := h.Backend.GetDistribution(primaryID)
+	if err != nil {
+		return true, h.handleError(c, err)
+	}
+
+	staging, err := h.Backend.GetDistribution(stagingID)
+	if err != nil {
+		return true, h.handleError(c, err)
+	}
+
+	want := []string{primary.ETag, staging.ETag}
+	for i, part := range strings.Split(given, ",") {
+		if i >= len(want) || strings.TrimSpace(part) != want[i] {
+			return true, xmlResp(c, http.StatusPreconditionFailed,
+				cfErrorXML("PreconditionFailed", "If-Match ETags did not match the current primary and staging ETags"))
+		}
+	}
+
+	return false, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -880,9 +931,10 @@ func (h *Handler) handleListDistributionsByResponseHeadersPolicyID(c *echo.Conte
 // awsRestxml_serializeOpDocumentListDistributionsByRealtimeLogConfigInput), unlike every other
 // operation in the ListDistributionsBy* family, which binds Marker/MaxItems to the query string.
 type listDistributionsByRealtimeLogConfigBody struct {
-	RealtimeLogConfigArn string `xml:"RealtimeLogConfigArn"`
-	Marker               string `xml:"Marker"`
-	MaxItems             int    `xml:"MaxItems"`
+	RealtimeLogConfigArn  string `xml:"RealtimeLogConfigArn"`
+	RealtimeLogConfigName string `xml:"RealtimeLogConfigName"`
+	Marker                string `xml:"Marker"`
+	MaxItems              int    `xml:"MaxItems"`
 }
 
 func decodeListDistributionsByRealtimeLogConfigBody(c *echo.Context) listDistributionsByRealtimeLogConfigBody {
@@ -900,7 +952,17 @@ func decodeListDistributionsByRealtimeLogConfigBody(c *echo.Context) listDistrib
 func (h *Handler) handleListDistributionsByRealtimeLogConfig(
 	c *echo.Context, req listDistributionsByRealtimeLogConfigBody,
 ) error {
-	dists := h.Backend.ListDistributionsByRealtimeLogConfigARN(req.RealtimeLogConfigArn)
+	cfgARN := req.RealtimeLogConfigArn
+	if cfgARN == "" && req.RealtimeLogConfigName != "" {
+		cfg, err := h.Backend.GetRealtimeLogConfigByName(req.RealtimeLogConfigName)
+		if err != nil {
+			return h.handleError(c, err)
+		}
+
+		cfgARN = cfg.ARN
+	}
+
+	dists := h.Backend.ListDistributionsByRealtimeLogConfigARN(cfgARN)
 
 	page, pageSize, isTruncated := paginateByMarkerValue(
 		dists,

@@ -385,8 +385,8 @@ func resultFolderKey(prefix, mapRunARN string) string {
 	const marker = ":mapRun:"
 
 	id := "unknown"
-	if idx := strings.LastIndex(mapRunARN, marker); idx >= 0 {
-		id = mapRunARN[idx+len(marker):]
+	if _, after, ok := strings.CutLast(mapRunARN, marker); ok {
+		id = after
 	}
 
 	if prefix == "" {

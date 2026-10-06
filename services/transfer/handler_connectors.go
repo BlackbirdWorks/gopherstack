@@ -59,6 +59,7 @@ type createConnectorInput struct {
 	LoggingRole        string                    `json:"LoggingRole,omitempty"`
 	SecurityPolicyName string                    `json:"SecurityPolicyName,omitempty"`
 	IPAddressType      string                    `json:"IpAddressType,omitempty"`
+	EgressConfig       *ConnectorEgressConfig    `json:"EgressConfig,omitempty"`
 	Tags               []map[string]string       `json:"Tags"`
 }
 
@@ -84,6 +85,7 @@ func (h *Handler) handleCreateConnector(
 		LoggingRole:        in.LoggingRole,
 		SecurityPolicyName: in.SecurityPolicyName,
 		IPAddressType:      in.IPAddressType,
+		EgressConfig:       in.EgressConfig,
 		Tags:               tags,
 	})
 	if err != nil {
@@ -146,6 +148,12 @@ func (h *Handler) handleDescribeConnector(
 		keyTags:               tagsToList(c.Tags),
 		"LoggingRole":         c.LoggingRole,
 		keySecurityPolicyName: c.SecurityPolicyName,
+		"EgressType":          connectorEgressType(c),
+		keyStatus:             connectorStatusActive,
+	}
+
+	if c.EgressConfig != nil {
+		connMap["EgressConfig"] = c.EgressConfig
 	}
 
 	if c.SftpConfig != nil {
@@ -210,6 +218,7 @@ func (h *Handler) handleListConnectors(
 type updateConnectorInput struct {
 	SftpConfig         *connectorSftpConfigInput `json:"SftpConfig,omitempty"`
 	As2Config          *connectorAs2ConfigInput  `json:"As2Config,omitempty"`
+	EgressConfig       *ConnectorEgressConfig    `json:"EgressConfig,omitempty"`
 	URL                *string                   `json:"Url,omitempty"`
 	AccessRole         *string                   `json:"AccessRole,omitempty"`
 	LoggingRole        *string                   `json:"LoggingRole,omitempty"`
@@ -240,6 +249,7 @@ func (h *Handler) handleUpdateConnector(
 		SecurityPolicyName: in.SecurityPolicyName,
 		IPAddressType:      in.IPAddressType,
 		SetIPAddressType:   in.IPAddressType != "",
+		EgressConfig:       in.EgressConfig,
 	})
 	if err != nil {
 		return nil, err
@@ -406,4 +416,18 @@ func (h *Handler) handleTestConnection(
 		keyStatus:       "OK",
 		"StatusMessage": "Connection to remote server is successful",
 	}, nil
+}
+
+const (
+	connectorStatusActive         = "ACTIVE"
+	connectorEgressServiceManaged = "SERVICE_MANAGED"
+	connectorEgressVpcLattice     = "VPC_LATTICE"
+)
+
+func connectorEgressType(c *Connector) string {
+	if c.EgressConfig != nil && c.EgressConfig.VpcLattice != nil {
+		return connectorEgressVpcLattice
+	}
+
+	return connectorEgressServiceManaged
 }

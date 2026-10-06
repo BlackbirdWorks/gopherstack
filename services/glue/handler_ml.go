@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+
+	gluetypes "github.com/aws/aws-sdk-go-v2/service/glue/types"
 )
 
 // cancelMLTaskRunInput holds input for CancelMLTaskRun.
@@ -51,6 +53,10 @@ func (h *Handler) handleCreateMLTransform(
 	_ context.Context,
 	in *createMLTransformInput,
 ) (*createMLTransformOutput, error) {
+	if err := checkEnum("WorkerType", gluetypes.WorkerType(in.WorkerType)); err != nil {
+		return nil, err
+	}
+
 	m, err := h.Backend.CreateMLTransformWithOptions(
 		in.Name,
 		in.Description,
@@ -108,14 +114,15 @@ type getMLTaskRunInput struct {
 // (api_op_GetMLTaskRun.go) backed by real state already tracked on MLTaskRun
 // (models.go) -- previously dropped entirely by this narrower response struct.
 type getMLTaskRunOutput struct {
-	TransformID   string  `json:"TransformId"`
-	TaskRunID     string  `json:"TaskRunId"`
-	Status        string  `json:"Status"`
-	ErrorString   string  `json:"ErrorString,omitempty"`
-	LogGroupName  string  `json:"LogGroupName,omitempty"`
-	StartedOn     float64 `json:"StartedOn,omitempty"`
-	CompletedOn   float64 `json:"CompletedOn,omitempty"`
-	ExecutionTime int     `json:"ExecutionTime,omitempty"`
+	TransformID    string  `json:"TransformId"`
+	TaskRunID      string  `json:"TaskRunId"`
+	Status         string  `json:"Status"`
+	ErrorString    string  `json:"ErrorString,omitempty"`
+	LogGroupName   string  `json:"LogGroupName,omitempty"`
+	StartedOn      float64 `json:"StartedOn,omitempty"`
+	CompletedOn    float64 `json:"CompletedOn,omitempty"`
+	ExecutionTime  int     `json:"ExecutionTime,omitempty"`
+	LastModifiedOn float64 `json:"LastModifiedOn,omitempty"`
 }
 
 func (h *Handler) handleGetMLTaskRun(
@@ -123,7 +130,7 @@ func (h *Handler) handleGetMLTaskRun(
 	in *getMLTaskRunInput,
 ) (*getMLTaskRunOutput, error) {
 	if in.TransformID == "" || in.TaskRunID == "" {
-		return &getMLTaskRunOutput{Status: stateSucceeded}, nil
+		return nil, fmt.Errorf("%w: TransformId and TaskRunId are required", ErrValidation)
 	}
 
 	run, err := h.Backend.GetMLTaskRun(in.TransformID, in.TaskRunID)
@@ -132,14 +139,15 @@ func (h *Handler) handleGetMLTaskRun(
 	}
 
 	return &getMLTaskRunOutput{
-		TransformID:   run.TransformID,
-		TaskRunID:     run.TaskRunID,
-		Status:        run.Status,
-		ErrorString:   run.ErrorString,
-		LogGroupName:  run.LogGroupName,
-		StartedOn:     run.StartedOn,
-		CompletedOn:   run.CompletedOn,
-		ExecutionTime: run.ExecutionTime,
+		TransformID:    run.TransformID,
+		TaskRunID:      run.TaskRunID,
+		Status:         run.Status,
+		ErrorString:    run.ErrorString,
+		LogGroupName:   run.LogGroupName,
+		StartedOn:      run.StartedOn,
+		CompletedOn:    run.CompletedOn,
+		ExecutionTime:  run.ExecutionTime,
+		LastModifiedOn: run.LastModifiedOn,
 	}, nil
 }
 
@@ -631,6 +639,10 @@ func (h *Handler) handleUpdateMLTransform(
 	_ context.Context,
 	in *updateMLTransformInput,
 ) (*updateMLTransformOutput, error) {
+	if err := checkEnum("WorkerType", gluetypes.WorkerType(in.WorkerType)); err != nil {
+		return nil, err
+	}
+
 	update := MLTransform{
 		Name:                in.Name,
 		Description:         in.Description,

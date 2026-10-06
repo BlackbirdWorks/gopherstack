@@ -37,7 +37,7 @@ const (
 // dispatchArchiveRuleOps routes archive rule operations. None of the archive
 // rule handlers need the raw query string (analyzer/rule identity comes from
 // the path or the request body), so that parameter is unused here.
-func (h *Handler) dispatchArchiveRuleOps(op, path, _ string, body []byte) (any, int, bool, error) {
+func (h *Handler) dispatchArchiveRuleOps(op, path, query string, body []byte) (any, int, bool, error) {
 	switch op {
 	case opCreateArchiveRule:
 		c, e := h.handleCreateArchiveRule(path, body)
@@ -48,7 +48,7 @@ func (h *Handler) dispatchArchiveRuleOps(op, path, _ string, body []byte) (any, 
 
 		return r, c, true, e
 	case opListArchiveRules:
-		r, c, e := h.handleListArchiveRules(path)
+		r, c, e := h.handleListArchiveRules(path, query)
 
 		return r, c, true, e
 	case opDeleteArchiveRule:
@@ -100,7 +100,7 @@ func (h *Handler) handleGetArchiveRule(path string) (any, int, error) {
 	return map[string]any{keyArchiveRule: archiveRuleToJSON(rule)}, http.StatusOK, nil
 }
 
-func (h *Handler) handleListArchiveRules(path string) (any, int, error) {
+func (h *Handler) handleListArchiveRules(path, query string) (any, int, error) {
 	analyzerName := extractAnalyzerName(path)
 
 	rules, err := h.Backend.ListArchiveRules(analyzerName)
@@ -118,13 +118,23 @@ func (h *Handler) handleListArchiveRules(path string) (any, int, error) {
 		return nil, 0, err
 	}
 
-	list := make([]any, 0, len(rules))
+	pg, err := pageByQuery(rules, query)
+	if err != nil {
+		return nil, 0, err
+	}
 
-	for _, r := range rules {
+	list := make([]any, 0, len(pg.Data))
+
+	for _, r := range pg.Data {
 		list = append(list, archiveRuleToJSON(r))
 	}
 
-	return map[string]any{"archiveRules": list}, http.StatusOK, nil
+	resp := map[string]any{"archiveRules": list}
+	if pg.Next != "" {
+		resp["nextToken"] = pg.Next
+	}
+
+	return resp, http.StatusOK, nil
 }
 
 func (h *Handler) handleDeleteArchiveRule(path string) (int, error) {

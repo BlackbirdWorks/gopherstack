@@ -56,12 +56,7 @@ func TestAccuracy_ModelImportJob_Lifecycle(t *testing.T) {
 	mustUnmarshal(t, rec, &createOut)
 	jobARN := createOut["jobArn"].(string)
 	assert.NotEmpty(t, jobARN)
-	assert.Equal(t, "InProgress", createOut["status"])
-	assert.NotEmpty(t, createOut["creationTime"])
-	assert.NotEmpty(t, createOut["lastModifiedTime"])
-	assert.NotEmpty(t, createOut["importedModelArn"])
-	assert.Equal(t, "my-import-job-model", createOut["importedModelName"])
-	assert.Equal(t, "arn:aws:iam::000000000000:role/import-role", createOut["roleArn"])
+	assert.Len(t, createOut, 1, "CreateModelImportJobOutput carries only jobArn")
 
 	// List.
 	recList := doRequest(t, h, http.MethodGet, "/model-import-jobs", nil)
@@ -80,6 +75,12 @@ func TestAccuracy_ModelImportJob_Lifecycle(t *testing.T) {
 	var getOut map[string]any
 	mustUnmarshal(t, recGet, &getOut)
 	assert.Equal(t, jobARN, getOut["jobArn"])
+	assert.Equal(t, "InProgress", getOut["status"])
+	assert.NotEmpty(t, getOut["creationTime"])
+	assert.NotEmpty(t, getOut["lastModifiedTime"])
+	assert.NotEmpty(t, getOut["importedModelArn"])
+	assert.Equal(t, "my-import-job-model", getOut["importedModelName"])
+	assert.Equal(t, "arn:aws:iam::000000000000:role/import-role", getOut["roleArn"])
 }
 
 // TestAccuracy_ModelImportJob_ListOmitsGetOnlyFields verifies gopherstack-uult:

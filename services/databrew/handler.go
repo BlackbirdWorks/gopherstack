@@ -369,6 +369,7 @@ var onceSimpleQueryParamToJSONKey = sync.OnceValue(func() map[string]string {
 		"nextToken":     nextTokenKey,
 		"datasetName":   "DatasetName",
 		"projectName":   "ProjectName",
+		"jobName":       "JobName",
 		"targetArn":     "TargetArn",
 		"recipeVersion": "RecipeVersion",
 	}

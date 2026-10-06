@@ -3,13 +3,13 @@
 	import { Toaster } from 'svelte-sonner';
 	import './layout.css';
 	import { page } from '$app/state';
-	import { sidebarCategories, implementedDashboardRouteIds, getCommonServices, getUncommonCategories } from '$lib/nav';
+	import { sidebarCategories, implementedDashboardRouteIds, getCommonServices, getUncommonCategories } from '#lib/nav.ts';
 	import { goto } from '$app/navigation';
-	import { initializeTheme, isDarkTheme, setTheme, themes, type ThemeName } from '$lib/theme';
-	import ServiceIcon from '$lib/components/ServiceIcon.svelte';
-	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
-	import RegionPicker from '$lib/components/RegionPicker.svelte';
-	import { registerConfirmDialog, unregisterConfirmDialog } from '$lib/confirm-dialog';
+	import { initializeTheme, isDarkTheme, setTheme, themes, type ThemeName } from '#lib/theme.ts';
+	import ServiceIcon from '#lib/components/ServiceIcon.svelte';
+	import ConfirmDialog from '#lib/components/ConfirmDialog.svelte';
+	import RegionPicker from '#lib/components/RegionPicker.svelte';
+	import { registerConfirmDialog, unregisterConfirmDialog } from '#lib/confirm-dialog.ts';
 
 	let { children } = $props();
 	let theme = $state<ThemeName>('light');
@@ -70,28 +70,30 @@
 		goto(href);
 	}
 
-	onMount(() => {
-		const confirmHandler = (options: Parameters<ConfirmDialog['show']>[0]) => {
-			if (!confirmDialog) {
-				return Promise.resolve(false);
-			}
+	function confirmHandler(options: Parameters<ConfirmDialog['show']>[0]) {
+		if (!confirmDialog) {
+			return Promise.resolve(false);
+		}
 
-			return confirmDialog.show(options);
-		};
+		return confirmDialog.show(options);
+	}
+
+	// Close search on escape
+	function handleKeydown(e: KeyboardEvent) {
+		if (e.key === 'Escape') searchOpen = false;
+		if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+			e.preventDefault();
+			searchOpen = true;
+			document.querySelector<HTMLInputElement>('#global-search')?.focus();
+		}
+	}
+
+	onMount(() => {
 		registerConfirmDialog(confirmHandler);
 		theme = initializeTheme(document, window.localStorage, window.matchMedia('(prefers-color-scheme: dark)').matches);
 		sidebarMini = window.localStorage.getItem('gopherstack-sidebar-mini') === 'true';
 		showAllServices = window.localStorage.getItem('gopherstack-sidebar-show-all') === 'true';
 
-		// Close search on escape
-		const handleKeydown = (e: KeyboardEvent) => {
-			if (e.key === 'Escape') searchOpen = false;
-			if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-				e.preventDefault();
-				searchOpen = true;
-				document.querySelector<HTMLInputElement>('#global-search')?.focus();
-			}
-		};
 		document.addEventListener('keydown', handleKeydown);
 		return () => {
 			unregisterConfirmDialog(confirmHandler);

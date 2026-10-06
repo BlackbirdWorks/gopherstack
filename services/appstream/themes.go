@@ -106,7 +106,7 @@ func (b *InMemoryBackend) CreateThemeForStack(
 	th := &storedTheme{
 		CreatedTime:                time.Now().UTC(),
 		StackName:                  stackName,
-		State:                      "ENABLED",
+		State:                      permissionEnabled,
 		ThemeStyling:               themeStyling,
 		ThemeTitleText:             titleText,
 		FaviconS3Location:          faviconS3Location,

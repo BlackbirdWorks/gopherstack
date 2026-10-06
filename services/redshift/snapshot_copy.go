@@ -147,9 +147,15 @@ func (b *InMemoryBackend) DisableSnapshotCopy(clusterID string) (*Cluster, error
 }
 
 // ModifySnapshotCopyRetentionPeriod modifies the retention period for cross-region snapshot copy.
-func (b *InMemoryBackend) ModifySnapshotCopyRetentionPeriod(clusterID string, retentionPeriod int) (*Cluster, error) {
+func (b *InMemoryBackend) ModifySnapshotCopyRetentionPeriod(
+	clusterID string, retentionPeriod int, manual bool,
+) (*Cluster, error) {
 	if clusterID == "" {
 		return nil, fmt.Errorf("%w: ClusterIdentifier is required", ErrInvalidParameter)
+	}
+
+	if err := validateCopyRetention(retentionPeriod, manual); err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("ModifySnapshotCopyRetentionPeriod")
@@ -165,7 +171,12 @@ func (b *InMemoryBackend) ModifySnapshotCopyRetentionPeriod(clusterID string, re
 		return nil, fmt.Errorf("%w: snapshot copy not enabled for cluster %s", ErrSnapshotCopyNotEnabled, clusterID)
 	}
 
-	cfg.RetentionPeriod = retentionPeriod
+	if manual {
+		cfg.ManualRetentionPeriod = retentionPeriod
+	} else {
+		cfg.RetentionPeriod = retentionPeriod
+	}
+
 	cp := cloneCluster(cluster)
 
 	return &cp, nil
@@ -189,4 +200,28 @@ func (b *InMemoryBackend) SnapshotCopyConfigFor(clusterID string) *SnapshotCopyC
 	cp := *cfg
 
 	return &cp
+}
+
+const (
+	maxAutomatedCopyRetentionPeriod = 35
+	minCopyRetentionPeriod          = 1
+)
+
+// validateCopyRetention applies the documented RetentionPeriod ranges for automated and manual copies.
+func validateCopyRetention(days int, manual bool) error {
+	switch {
+	case manual && days != indefiniteManualSnapshotRetentionPeriod &&
+		(days < minManualSnapshotRetentionPeriod || days > maxManualSnapshotRetentionPeriod):
+		return fmt.Errorf(
+			"%w: RetentionPeriod must be -1 or between %d and %d for manual snapshots",
+			ErrInvalidParameter, minManualSnapshotRetentionPeriod, maxManualSnapshotRetentionPeriod,
+		)
+	case !manual && (days < minCopyRetentionPeriod || days > maxAutomatedCopyRetentionPeriod):
+		return fmt.Errorf(
+			"%w: RetentionPeriod must be between %d and %d for automated snapshots",
+			ErrInvalidParameter, minCopyRetentionPeriod, maxAutomatedCopyRetentionPeriod,
+		)
+	}
+
+	return nil
 }

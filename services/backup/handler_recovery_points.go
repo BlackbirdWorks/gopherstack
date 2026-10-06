@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 )
@@ -232,7 +233,8 @@ func (h *Handler) handleDisassociateRecoveryPointFromParent(
 func (h *Handler) dispatchRecoveryPointQueryOps(c *echo.Context, route backupRoute) (bool, error) {
 	switch route.operation {
 	case opListRecoveryPointsByLegalHold:
-		rps := h.Backend.ListRecoveryPointsByLegalHold(route.resource)
+		q := c.Request().URL.Query()
+		rps, next := pageQuery(q, h.Backend.ListRecoveryPointsByLegalHold(route.resource), rpArnKey)
 		items := make([]map[string]any, 0, len(rps))
 		for _, rp := range rps {
 			// Real AWS wire shape is RecoveryPointMember: BackupVaultName,
@@ -245,9 +247,10 @@ func (h *Handler) dispatchRecoveryPointQueryOps(c *echo.Context, route backupRou
 			})
 		}
 
-		return true, c.JSON(http.StatusOK, map[string]any{keyRecoveryPoints: items})
+		return true, c.JSON(http.StatusOK, withNextToken(map[string]any{keyRecoveryPoints: items}, next))
 	case opListRecoveryPointsByResource:
-		rps := h.Backend.ListRecoveryPointsByResource(route.resource)
+		q := c.Request().URL.Query()
+		rps, next := pageQuery(q, h.Backend.ListRecoveryPointsByResource(route.resource), rpArnKey)
 		items := make([]map[string]any, 0, len(rps))
 		for _, rp := range rps {
 			// Real AWS wire shape is RecoveryPointByResource
@@ -270,9 +273,15 @@ func (h *Handler) dispatchRecoveryPointQueryOps(c *echo.Context, route backupRou
 			items = append(items, item)
 		}
 
-		return true, c.JSON(http.StatusOK, map[string]any{keyRecoveryPoints: items})
+		return true, c.JSON(http.StatusOK, withNextToken(map[string]any{keyRecoveryPoints: items}, next))
 	case opListIndexedRecoveryPoints:
-		rps := h.Backend.ListIndexedRecoveryPoints()
+		q := c.Request().URL.Query()
+		rps, next := pageQuery(
+			q, indexedRecoveryPointsCreatedBetween(
+				h.Backend.ListIndexedRecoveryPoints(), ParseTimeFilter(q.Get("createdAfter")),
+				ParseTimeFilter(q.Get("createdBefore")),
+			), rpArnKey,
+		)
 		items := make([]map[string]any, 0, len(rps))
 		for _, rp := range rps {
 			// Real AWS wire shape is IndexedRecoveryPoint (backup@v1.59.4
@@ -295,7 +304,7 @@ func (h *Handler) dispatchRecoveryPointQueryOps(c *echo.Context, route backupRou
 			items = append(items, item)
 		}
 
-		return true, c.JSON(http.StatusOK, map[string]any{"IndexedRecoveryPoints": items})
+		return true, c.JSON(http.StatusOK, withNextToken(map[string]any{"IndexedRecoveryPoints": items}, next))
 	}
 
 	return false, nil
@@ -399,4 +408,22 @@ func (h *Handler) handleUpdateRecoveryPointLifecycle(
 		"Lifecycle":           lifecycleToJSON(rp.Lifecycle),
 		"CalculatedLifecycle": calculatedLifecycleToJSON(rp.CalculatedLifecycle),
 	})
+}
+
+func rpArnKey(rp *RecoveryPoint) string { return rp.RecoveryPointArn }
+
+func indexedRecoveryPointsCreatedBetween(rps []*RecoveryPoint, after, before *time.Time) []*RecoveryPoint {
+	if after == nil && before == nil {
+		return rps
+	}
+
+	out := make([]*RecoveryPoint, 0, len(rps))
+
+	for _, rp := range rps {
+		if inTimeRange(rp.CreationDate, after, before) {
+			out = append(out, rp)
+		}
+	}
+
+	return out
 }

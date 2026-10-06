@@ -154,7 +154,7 @@ func (h *Handler) handleDisableAwsNetworkPerformanceMetricSubscription(vals url.
 	}, nil
 }
 
-func (h *Handler) handleDescribeAwsNetworkPerformanceMetricSubscriptions(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleDescribeAwsNetworkPerformanceMetricSubscriptions(vals url.Values, reqID string) (any, error) {
 	subs := h.Backend.DescribeAwsNetworkPerformanceMetricSubscriptions()
 
 	resp := &describeAwsNetworkPerformanceMetricSubscriptionsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
@@ -162,7 +162,7 @@ func (h *Handler) handleDescribeAwsNetworkPerformanceMetricSubscriptions(_ url.V
 		resp.Subscriptions = append(resp.Subscriptions, networkPerformanceSubscriptionToItem(s))
 	}
 
-	return resp, nil
+	return finishPagedFiltered(vals, resp)
 }
 
 // parseNetworkPerformanceDataQueries extracts DataQuery.N.{Id,Source,Destination,
@@ -208,5 +208,5 @@ func (h *Handler) handleGetAwsNetworkPerformanceData(vals url.Values, reqID stri
 		resp.DataResponses = append(resp.DataResponses, dataResponseToItem(r))
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }

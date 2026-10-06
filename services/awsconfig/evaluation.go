@@ -58,6 +58,8 @@ type ResourceEvaluation struct {
 	Status               string  `json:"Status"`
 	Compliance           string  `json:"Compliance,omitempty"`
 	Configuration        string  `json:"-"`
+	ClientToken          string  `json:"ClientToken,omitempty"`
+	ContextIdentifier    string  `json:"EvaluationContextIdentifier,omitempty"`
 	StartTime            float64 `json:"EvaluationStartTimestamp"`
 }
 
@@ -525,6 +527,13 @@ func (b *InMemoryBackend) StartConfigRulesEvaluationFor(names []string) error {
 	defer b.mu.Unlock()
 
 	targets := names
+
+	for _, name := range names {
+		if _, ok := b.configRules.Get(name); !ok {
+			return fmt.Errorf("%w: %s", ErrNoSuchConfigRule, name)
+		}
+	}
+
 	if len(targets) == 0 {
 		all := b.configRules.All()
 		targets = make([]string, 0, len(all))
@@ -659,8 +668,38 @@ func (b *InMemoryBackend) GetComplianceDetailsByResource(
 func (b *InMemoryBackend) StartResourceEvaluation(
 	resourceType, resourceID, evaluationMode, configuration string,
 ) string {
+	id, _ := b.StartResourceEvaluationIdempotent(resourceType, resourceID, evaluationMode, configuration, "", "")
+
+	return id
+}
+
+// StartResourceEvaluationIdempotent is StartResourceEvaluation honouring ClientToken and EvaluationContextIdentifier.
+func (b *InMemoryBackend) StartResourceEvaluationIdempotent(
+	resourceType, resourceID, evaluationMode, configuration, clientToken, contextID string,
+) (string, error) {
 	b.mu.Lock("StartResourceEvaluation")
 	defer b.mu.Unlock()
+
+	if evaluationMode == "" {
+		evaluationMode = "DETAILED"
+	}
+
+	if clientToken != "" {
+		for _, e := range b.resourceEvaluations.All() {
+			if e.ClientToken != clientToken {
+				continue
+			}
+
+			if e.ResourceType != resourceType || e.ResourceID != resourceID ||
+				e.EvaluationMode != evaluationMode || e.Configuration != configuration ||
+				e.ContextIdentifier != contextID {
+				return "", fmt.Errorf(
+					"%w: ClientToken reused with different parameters", ErrIdempotentParameterMismatch)
+			}
+
+			return e.ResourceEvaluationID, nil
+		}
+	}
 
 	b.resourceEvalCounter++
 
@@ -668,10 +707,6 @@ func (b *InMemoryBackend) StartResourceEvaluation(
 		"%s-%08d-%d",
 		b.accountID, b.resourceEvalCounter, time.Now().UnixNano(),
 	)
-
-	if evaluationMode == "" {
-		evaluationMode = "DETAILED"
-	}
 
 	compliance := ""
 	if configuration != "" {
@@ -686,10 +721,12 @@ func (b *InMemoryBackend) StartResourceEvaluation(
 		Status:               statusSucceeded,
 		Compliance:           compliance,
 		Configuration:        configuration,
+		ClientToken:          clientToken,
+		ContextIdentifier:    contextID,
 		StartTime:            float64(time.Now().Unix()),
 	})
 
-	return id
+	return id, nil
 }
 
 // GetResourceEvaluationSummaryByID returns the recorded resource evaluation, or

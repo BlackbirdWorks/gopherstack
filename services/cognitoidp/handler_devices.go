@@ -43,7 +43,6 @@ func toDeviceType(d *Device) *deviceType {
 
 	return &deviceType{
 		DeviceKey:                   d.DeviceKey,
-		DeviceStatus:                d.Status,
 		DeviceCreateDate:            &created,
 		DeviceLastModifiedDate:      &modified,
 		DeviceLastAuthenticatedDate: &lastAuth,

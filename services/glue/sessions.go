@@ -3,6 +3,7 @@ package glue
 import (
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"time"
 )
@@ -17,6 +18,8 @@ func cloneSession(s *Session) *Session {
 		cp.DefaultArguments = make(map[string]string, len(s.DefaultArguments))
 		maps.Copy(cp.DefaultArguments, s.DefaultArguments)
 	}
+
+	cp.Connections.Connections = slices.Clone(s.Connections.Connections)
 
 	return &cp
 }
@@ -51,6 +54,12 @@ func (b *InMemoryBackend) CreateSession(
 		MaxCapacity:      opts.MaxCapacity,
 		Description:      opts.Description,
 		DefaultArguments: opts.DefaultArguments,
+		Connections:      opts.Connections,
+		GlueVersion:      opts.GlueVersion,
+		WorkerType:       opts.WorkerType,
+
+		SecurityConfiguration: opts.SecurityConfiguration,
+		NumberOfWorkers:       opts.NumberOfWorkers,
 	}
 	b.sessions.Put(s)
 	b.sessionStatements[id] = nil

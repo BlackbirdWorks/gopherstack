@@ -95,6 +95,7 @@ type describeCoipPoolsResponse struct {
 	XMLName     xml.Name `xml:"DescribeCoipPoolsResponse"`
 	Xmlns       string   `xml:"xmlns,attr"`
 	RequestID   string   `xml:"requestId"`
+	NextToken   string   `xml:"nextToken,omitempty"`
 	CoipPoolSet struct {
 		Items []coipPoolItem `xml:"item"`
 	} `xml:"coipPoolSet"`
@@ -132,6 +133,7 @@ type getCoipPoolUsageResponse struct {
 	XMLName                  xml.Name `xml:"GetCoipPoolUsageResponse"`
 	Xmlns                    string   `xml:"xmlns,attr"`
 	RequestID                string   `xml:"requestId"`
+	NextToken                string   `xml:"nextToken,omitempty"`
 	CoipPoolID               string   `xml:"coipPoolId,omitempty"`
 	LocalGatewayRouteTableID string   `xml:"localGatewayRouteTableId,omitempty"`
 	CoipAddressUsageSet      struct {
@@ -204,6 +206,7 @@ type describePublicIpv4PoolsResponse struct {
 	XMLName           xml.Name `xml:"DescribePublicIpv4PoolsResponse"`
 	Xmlns             string   `xml:"xmlns,attr"`
 	RequestID         string   `xml:"requestId"`
+	NextToken         string   `xml:"nextToken,omitempty"`
 	PublicIpv4PoolSet struct {
 		Items []publicIpv4PoolItem `xml:"item"`
 	} `xml:"publicIpv4PoolSet"`
@@ -262,6 +265,7 @@ type describeIpv6PoolsResponse struct {
 	XMLName     xml.Name `xml:"DescribeIpv6PoolsResponse"`
 	Xmlns       string   `xml:"xmlns,attr"`
 	RequestID   string   `xml:"requestId"`
+	NextToken   string   `xml:"nextToken,omitempty"`
 	Ipv6PoolSet struct {
 		Items []ipv6PoolItem `xml:"item"`
 	} `xml:"ipv6PoolSet"`
@@ -276,6 +280,7 @@ type getAssociatedIpv6PoolCidrsResponse struct {
 	XMLName                xml.Name `xml:"GetAssociatedIpv6PoolCidrsResponse"`
 	Xmlns                  string   `xml:"xmlns,attr"`
 	RequestID              string   `xml:"requestId"`
+	NextToken              string   `xml:"nextToken,omitempty"`
 	Ipv6CidrAssociationSet struct {
 		Items []ipv6CidrAssociationItem `xml:"item"`
 	} `xml:"ipv6CidrAssociationSet"`
@@ -321,7 +326,7 @@ func (h *Handler) handleDescribeCoipPools(vals url.Values, reqID string) (any, e
 		)
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 func (h *Handler) handleCreateCoipCidr(vals url.Values, reqID string) (any, error) {
@@ -348,10 +353,10 @@ func (h *Handler) handleGetCoipPoolUsage(vals url.Values, reqID string) (any, er
 		return nil, err
 	}
 
-	return &getCoipPoolUsageResponse{
+	return finishPaged(vals, &getCoipPoolUsageResponse{
 		Xmlns: ec2XMLNS, RequestID: reqID,
 		CoipPoolID: pool.PoolID, LocalGatewayRouteTableID: pool.LocalGatewayRouteTableID,
-	}, nil
+	})
 }
 
 // ---- Handlers: Public IPv4 pools ----
@@ -382,7 +387,7 @@ func (h *Handler) handleDescribePublicIpv4Pools(vals url.Values, reqID string) (
 		)
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 func (h *Handler) handleProvisionPublicIpv4PoolCidr(vals url.Values, reqID string) (any, error) {
@@ -427,7 +432,7 @@ func (h *Handler) handleDescribeIpv6Pools(vals url.Values, reqID string) (any, e
 		)
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 func (h *Handler) handleGetAssociatedIpv6PoolCidrs(vals url.Values, reqID string) (any, error) {
@@ -441,5 +446,5 @@ func (h *Handler) handleGetAssociatedIpv6PoolCidrs(vals url.Values, reqID string
 		resp.Ipv6CidrAssociationSet.Items = append(resp.Ipv6CidrAssociationSet.Items, ipv6CidrAssociationItem(a))
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }

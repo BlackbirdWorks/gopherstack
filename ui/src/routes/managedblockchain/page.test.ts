@@ -4,11 +4,11 @@ import ManagedBlockchainPage from "./+page.svelte";
 
 const mockSend = vi.fn();
 
-vi.mock("$lib/aws-client", () => ({
+vi.mock("#lib/aws-client.ts", () => ({
   getManagedBlockchainClient: () => ({ send: mockSend }),
 }));
 
-vi.mock("$lib/confirm-dialog", () => ({
+vi.mock("#lib/confirm-dialog.ts", () => ({
   confirmDestructive: vi.fn().mockResolvedValue(true),
 }));
 

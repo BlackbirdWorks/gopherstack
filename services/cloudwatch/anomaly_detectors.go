@@ -1,8 +1,12 @@
 package cloudwatch
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 
@@ -15,6 +19,53 @@ import (
 // Dimensions are included so different dimension sets produce distinct detectors.
 func anomalyDetectorKey(namespace, metricName, stat string, dims []Dimension) string {
 	return namespace + "/" + metricName + "/" + stat + "/" + dimensionSetKey(dims)
+}
+
+// detectorKey keys metric-math detectors by their queries and single-metric ones by metric identity.
+func detectorKey(d *AnomalyDetector) string {
+	if len(d.MetricMath) == 0 {
+		return anomalyDetectorKey(d.Namespace, d.MetricName, d.Stat, d.Dimensions)
+	}
+
+	raw, err := json.Marshal(d.MetricMath)
+	if err != nil {
+		return "math/" + d.ID
+	}
+
+	sum := sha256.Sum256(raw)
+
+	return "math/" + hex.EncodeToString(sum[:])
+}
+
+// DeleteAnomalyDetectorByID removes the detector with the given AnomalyDetectorId.
+func (b *InMemoryBackend) DeleteAnomalyDetectorByID(id string) error {
+	b.mu.Lock("DeleteAnomalyDetectorByID")
+	defer b.mu.Unlock()
+
+	for _, d := range b.anomalyDetectors.All() {
+		if d.ID == id {
+			b.anomalyDetectors.Delete(detectorKey(d))
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: anomaly detector %s", ErrAnomalyDetectorNotFound, id)
+}
+
+// DeleteMetricMathAnomalyDetector removes the metric-math detector defined by queries.
+func (b *InMemoryBackend) DeleteMetricMathAnomalyDetector(queries []MetricDataQuery) error {
+	b.mu.Lock("DeleteMetricMathAnomalyDetector")
+	defer b.mu.Unlock()
+
+	key := detectorKey(&AnomalyDetector{MetricMath: queries})
+	if !b.anomalyDetectors.Has(key) {
+		return fmt.Errorf("%w: metric math anomaly detector", ErrAnomalyDetectorNotFound)
+	}
+
+	b.anomalyDetectors.Delete(key)
+
+	return nil
 }
 
 // DeleteAnomalyDetector removes an anomaly detector.
@@ -43,7 +94,7 @@ func (b *InMemoryBackend) PutAnomalyDetectorInternal(detector *AnomalyDetector) 
 	b.mu.Lock("PutAnomalyDetectorInternal")
 	defer b.mu.Unlock()
 
-	key := anomalyDetectorKey(detector.Namespace, detector.MetricName, detector.Stat, detector.Dimensions)
+	key := detectorKey(detector)
 	if existing, ok := b.anomalyDetectors.Get(key); ok && existing.ID != "" {
 		detector.ID = existing.ID
 	} else if detector.ID == "" {
@@ -59,9 +110,51 @@ func (b *InMemoryBackend) PutAnomalyDetectorInternal(detector *AnomalyDetector) 
 	b.anomalyDetectors.Put(&cp)
 }
 
+// AnomalyDetectorFilter holds the DescribeAnomalyDetectors request filters.
+type AnomalyDetectorFilter struct {
+	Namespace  string
+	MetricName string
+	IDs        []string
+	Types      []string
+	Dimensions []Dimension
+}
+
 // DescribeAnomalyDetectors returns a filtered, paginated list of anomaly detectors.
 func (b *InMemoryBackend) DescribeAnomalyDetectors(
 	namespace, metricName, nextToken string,
+	maxResults int,
+) (page.Page[AnomalyDetector], error) {
+	return b.DescribeAnomalyDetectorsFiltered(
+		AnomalyDetectorFilter{Namespace: namespace, MetricName: metricName}, nextToken, maxResults,
+	)
+}
+
+// matches reports whether d passes the filter; IDs, when set, replace every other filter.
+func (f AnomalyDetectorFilter) matches(d *AnomalyDetector) bool {
+	if len(f.IDs) > 0 {
+		return slices.Contains(f.IDs, d.ID)
+	}
+
+	isMath := len(d.MetricMath) > 0
+	if isMath && !slices.Contains(f.Types, anomalyTypeMetricMath) {
+		return false
+	}
+
+	if !isMath && len(f.Types) > 0 && !slices.Contains(f.Types, anomalyTypeSingleMetric) {
+		return false
+	}
+
+	if len(f.Dimensions) > 0 && dimensionSetKey(d.Dimensions) != dimensionSetKey(f.Dimensions) {
+		return false
+	}
+
+	return (f.Namespace == "" || d.Namespace == f.Namespace) && (f.MetricName == "" || d.MetricName == f.MetricName)
+}
+
+// DescribeAnomalyDetectorsFiltered applies Ids, Types, Dimensions, Namespace and MetricName filters.
+func (b *InMemoryBackend) DescribeAnomalyDetectorsFiltered(
+	f AnomalyDetectorFilter,
+	nextToken string,
 	maxResults int,
 ) (page.Page[AnomalyDetector], error) {
 	b.mu.RLock("DescribeAnomalyDetectors")
@@ -75,15 +168,11 @@ func (b *InMemoryBackend) DescribeAnomalyDetectors(
 	var entries []entry
 
 	for _, d := range b.anomalyDetectors.All() {
-		if namespace != "" && d.Namespace != namespace {
+		if !f.matches(d) {
 			continue
 		}
 
-		if metricName != "" && d.MetricName != metricName {
-			continue
-		}
-
-		k := anomalyDetectorKey(d.Namespace, d.MetricName, d.Stat, d.Dimensions)
+		k := detectorKey(d)
 		entries = append(entries, entry{key: k, detector: *d})
 	}
 
@@ -100,8 +189,13 @@ func (b *InMemoryBackend) DescribeAnomalyDetectors(
 	return page.New(result, nextToken, maxResults, cwDefaultDescribeAnomalyDetectorLimit), nil
 }
 
+const (
+	anomalyTypeSingleMetric = "SINGLE_METRIC"
+	anomalyTypeMetricMath   = "METRIC_MATH"
+)
+
 func (b *InMemoryBackend) PutAnomalyDetector(detector *AnomalyDetector) error {
-	if detector.Namespace == "" || detector.MetricName == "" {
+	if len(detector.MetricMath) == 0 && (detector.Namespace == "" || detector.MetricName == "") {
 		return fmt.Errorf("%w: Namespace and MetricName are required", ErrValidation)
 	}
 

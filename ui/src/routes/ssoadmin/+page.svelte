@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+	import { onRegionChange, regionalClient } from '#lib/region-effect.svelte.ts';
 	import {
 		AddRegionCommand,
 		CreateAccountAssignmentCommand,
@@ -33,8 +33,8 @@
 	} from '@aws-sdk/client-sso-admin';
 	import { toast } from 'svelte-sonner';
 
-	import { getSSOAdminClient } from '$lib/aws-client';
-	import { confirmDestructive } from '$lib/confirm-dialog';
+	import { getSSOAdminClient } from '#lib/aws-client.ts';
+	import { confirmDestructive } from '#lib/confirm-dialog.ts';
 
 	const ssoadmin = regionalClient(getSSOAdminClient);
 	const defaultAccountID = '123456789012';

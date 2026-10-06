@@ -1,13 +1,13 @@
 <script lang="ts">
-	import { confirmDestructive } from '$lib/confirm-dialog';
+	import { confirmDestructive } from '#lib/confirm-dialog.ts';
 import { goto } from '$app/navigation';
-import { getS3Client } from '$lib/aws-client';
-import { currentRegion } from '$lib/region.svelte';
-import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
-import { urlState } from '$lib/url-state.svelte';
-import LiveDot from '$lib/components/LiveDot.svelte';
-import RegionChip from '$lib/components/RegionChip.svelte';
-import WriteRegionHint from '$lib/components/WriteRegionHint.svelte';
+import { getS3Client } from '#lib/aws-client.ts';
+import { currentRegion } from '#lib/region.svelte.ts';
+import { onRegionChange, regionalClient } from '#lib/region-effect.svelte.ts';
+import { urlState } from '#lib/url-state.svelte.ts';
+import LiveDot from '#lib/components/LiveDot.svelte';
+import RegionChip from '#lib/components/RegionChip.svelte';
+import WriteRegionHint from '#lib/components/WriteRegionHint.svelte';
 import {
 ListBucketsCommand,
 CreateBucketCommand,

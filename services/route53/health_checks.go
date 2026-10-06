@@ -50,9 +50,30 @@ const (
 	healthCheckIDChars  = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	healthCheckIDLength = 36
 	defaultHealthStatus = "Healthy"
+
+	defaultHealthCheckRequestInterval  = 30
+	defaultHealthCheckFailureThreshold = 3
 )
 
 func randomHealthCheckID() string { return randomID(healthCheckIDChars, healthCheckIDLength) }
+
+// applyHealthCheckDefaults fills RequestInterval (30) and FailureThreshold (3) for endpoint checks.
+func applyHealthCheckDefaults(cfg HealthCheckConfig) HealthCheckConfig {
+	if cfg.Type == HealthCheckTypeCalculated || cfg.Type == HealthCheckTypeCloudWatchMetric ||
+		cfg.Type == HealthCheckTypeRecoveryControl {
+		return cfg
+	}
+
+	if cfg.RequestInterval == 0 {
+		cfg.RequestInterval = defaultHealthCheckRequestInterval
+	}
+
+	if cfg.FailureThreshold == 0 {
+		cfg.FailureThreshold = defaultHealthCheckFailureThreshold
+	}
+
+	return cfg
+}
 
 // CreateHealthCheck creates a new health check.
 func (b *InMemoryBackend) CreateHealthCheck(
@@ -70,6 +91,8 @@ func (b *InMemoryBackend) CreateHealthCheck(
 	if err := validateHealthCheckConfig(cfg); err != nil {
 		return nil, err
 	}
+
+	cfg = applyHealthCheckDefaults(cfg)
 
 	b.mu.Lock("CreateHealthCheck")
 	defer b.mu.Unlock()

@@ -18,6 +18,7 @@ type domainZoneAwarenessConfig struct {
 // domainClusterConfig holds the cluster configuration request parameters.
 type domainClusterConfig struct {
 	ZoneAwarenessConfig    *domainZoneAwarenessConfig `json:"ZoneAwarenessConfig,omitempty"`
+	ColdStorageOptions     *coldStorageOptionsJSON    `json:"ColdStorageOptions,omitempty"`
 	InstanceType           string                     `json:"InstanceType"`
 	DedicatedMasterType    string                     `json:"DedicatedMasterType,omitempty"`
 	WarmType               string                     `json:"WarmType,omitempty"`
@@ -27,7 +28,11 @@ type domainClusterConfig struct {
 	DedicatedMasterEnabled bool                       `json:"DedicatedMasterEnabled"`
 	ZoneAwarenessEnabled   bool                       `json:"ZoneAwarenessEnabled"`
 	WarmEnabled            bool                       `json:"WarmEnabled"`
-	ColdStorageEnabled     bool                       `json:"ColdStorageEnabled"`
+}
+
+// coldStorageOptionsJSON is types.ColdStorageOptions.
+type coldStorageOptionsJSON struct {
+	Enabled bool `json:"Enabled"`
 }
 
 // domainEBSOptions holds the EBS options request parameters.
@@ -266,6 +271,7 @@ type ebsOptionsJSON struct {
 // clusterConfigJSON is the JSON representation of cluster config.
 type clusterConfigJSON struct {
 	ZoneAwarenessConfig    *domainZoneAwarenessConfig `json:"ZoneAwarenessConfig,omitempty"`
+	ColdStorageOptions     *coldStorageOptionsJSON    `json:"ColdStorageOptions"`
 	InstanceType           string                     `json:"InstanceType"`
 	DedicatedMasterType    string                     `json:"DedicatedMasterType,omitempty"`
 	WarmType               string                     `json:"WarmType,omitempty"`
@@ -275,7 +281,6 @@ type clusterConfigJSON struct {
 	DedicatedMasterEnabled bool                       `json:"DedicatedMasterEnabled"`
 	ZoneAwarenessEnabled   bool                       `json:"ZoneAwarenessEnabled"`
 	WarmEnabled            bool                       `json:"WarmEnabled"`
-	ColdStorageEnabled     bool                       `json:"ColdStorageEnabled"`
 }
 
 // domainStatusWrapJSON wraps the domain status in a DomainStatus key.
@@ -349,7 +354,7 @@ func (h *Handler) handleCreateDomain(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.writeJSON(r, w, domainStatusWrapJSON{
-		DomainStatus: toDomainStatusJSON(domain),
+		DomainStatus: domainStatusToJSON(domain),
 	})
 }
 
@@ -483,7 +488,7 @@ func (h *Handler) handleDescribeDomain(w http.ResponseWriter, r *http.Request, n
 	}
 
 	h.writeJSON(r, w, domainStatusWrapJSON{
-		DomainStatus: toDomainStatusJSON(domain),
+		DomainStatus: domainStatusToJSON(domain),
 	})
 }
 
@@ -500,7 +505,7 @@ func (h *Handler) handleDeleteDomain(w http.ResponseWriter, r *http.Request, nam
 	}
 
 	h.writeJSON(r, w, domainStatusWrapJSON{
-		DomainStatus: toDomainStatusJSON(domain),
+		DomainStatus: domainStatusToJSON(domain),
 	})
 }
 
@@ -578,7 +583,7 @@ func (h *Handler) handleDescribeElasticsearchDomains(w http.ResponseWriter, r *h
 			continue
 		}
 
-		list = append(list, toDomainStatusJSON(d))
+		list = append(list, domainStatusToJSON(d))
 	}
 
 	// AWS always emits both arrays (never null), even when empty.
@@ -601,7 +606,7 @@ func clusterConfigFromRequest(req *domainClusterConfig) ClusterConfig {
 		WarmEnabled:            req.WarmEnabled,
 		WarmType:               req.WarmType,
 		WarmCount:              req.WarmCount,
-		ColdStorageEnabled:     req.ColdStorageEnabled,
+		ColdStorageEnabled:     req.ColdStorageOptions != nil && req.ColdStorageOptions.Enabled,
 	}
 
 	if req.ZoneAwarenessConfig != nil {
@@ -636,7 +641,7 @@ func toClusterConfigJSON(c ClusterConfig) clusterConfigJSON {
 		WarmEnabled:            c.WarmEnabled,
 		WarmType:               c.WarmType,
 		WarmCount:              c.WarmCount,
-		ColdStorageEnabled:     c.ColdStorageEnabled,
+		ColdStorageOptions:     &coldStorageOptionsJSON{Enabled: c.ColdStorageEnabled},
 	}
 
 	if c.ZoneAwarenessEnabled {
@@ -946,7 +951,7 @@ func toLogPublishingOptionsJSON(opts map[string]LogPublishingOption) map[string]
 	return out
 }
 
-func toDomainStatusJSON(d *Domain) domainStatusJSON {
+func domainStatusToJSON(d *Domain) domainStatusJSON {
 	advOpts := d.AdvancedOptions
 	if advOpts == nil {
 		advOpts = map[string]string{}

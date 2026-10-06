@@ -3,6 +3,7 @@ package ce
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -49,8 +50,9 @@ func buildTimeSeriesResponse[T, A any](
 	timePeriod func(T) map[string]string,
 	totalOf func(T) A,
 	sortBy *ceSortDefinition,
+	maxResults int,
 	nextPageToken string,
-) ([]T, *A, string) {
+) ([]T, *A, string, error) {
 	if sortBy != nil && strings.EqualFold(sortBy.Key, "Time") {
 		sortByTime(items, timePeriod, sortDescending(sortBy.SortOrder))
 	}
@@ -61,11 +63,14 @@ func buildTimeSeriesResponse[T, A any](
 		total = &t
 	}
 
-	page, nextToken := paginateOrdered(items, 0, nextPageToken, func(item T) string {
-		return timePeriod(item)[timePeriodKeyStart]
-	})
+	keyFn := func(item T) string { return timePeriod(item)[timePeriodKeyStart] }
+	if nextPageToken != "" && !slices.ContainsFunc(items, func(item T) bool { return keyFn(item) == nextPageToken }) {
+		return nil, nil, "", fmt.Errorf("%w: unknown NextPageToken", ErrInvalidNextToken)
+	}
 
-	return page, total, nextToken
+	page, nextToken := paginateOrdered(items, maxResults, nextPageToken, keyFn)
+
+	return page, total, nextToken, nil
 }
 
 // resolveCoverageTimeRange extracts start/end/granularity from a
@@ -105,6 +110,7 @@ type getReservationCoverageInput struct {
 	Granularity   string            `json:"Granularity"`
 	NextPageToken string            `json:"NextPageToken"`
 	GroupBy       []groupBySpec     `json:"GroupBy"`
+	MaxResults    int               `json:"MaxResults"`
 }
 
 type getReservationCoverageOutput struct {
@@ -121,12 +127,15 @@ func (h *Handler) handleGetReservationCoverage(
 
 	coverages := h.Backend.GetReservationCoverageFiltered(start, end, granularity, serviceDimensionFilter(in.Filter))
 
-	page, total, nextToken := buildTimeSeriesResponse(
+	page, total, nextToken, err := buildTimeSeriesResponse(
 		coverages,
 		func(c ReservationCoverageByTime) map[string]string { return c.TimePeriod },
 		func(c ReservationCoverageByTime) ReservationCoverageAgg { return c.Total },
-		in.SortBy, in.NextPageToken,
+		in.SortBy, in.MaxResults, in.NextPageToken,
 	)
+	if err != nil {
+		return nil, err
+	}
 
 	return &getReservationCoverageOutput{
 		CoveragesByTime: page,
@@ -135,15 +144,25 @@ func (h *Handler) handleGetReservationCoverage(
 	}, nil
 }
 
+type ec2Specification struct {
+	OfferingClass string `json:"OfferingClass"`
+}
+
+type reservationServiceSpecification struct {
+	EC2Specification *ec2Specification `json:"EC2Specification"`
+}
+
 type getReservationPurchaseRecommendationInput struct {
-	Filter               *ceExpression `json:"Filter"`
-	Service              string        `json:"Service"`
-	AccountScope         string        `json:"AccountScope"`
-	LookbackPeriodInDays string        `json:"LookbackPeriodInDays"`
-	TermInYears          string        `json:"TermInYears"`
-	PaymentOption        string        `json:"PaymentOption"`
-	NextPageToken        string        `json:"NextPageToken"`
-	PageSize             int           `json:"PageSize"`
+	Filter               *ceExpression                    `json:"Filter"`
+	ServiceSpecification *reservationServiceSpecification `json:"ServiceSpecification"`
+	AccountID            string                           `json:"AccountId"`
+	Service              string                           `json:"Service"`
+	AccountScope         string                           `json:"AccountScope"`
+	LookbackPeriodInDays string                           `json:"LookbackPeriodInDays"`
+	TermInYears          string                           `json:"TermInYears"`
+	PaymentOption        string                           `json:"PaymentOption"`
+	NextPageToken        string                           `json:"NextPageToken"`
+	PageSize             int                              `json:"PageSize"`
 }
 
 type getReservationPurchaseRecommendationOutput struct {
@@ -167,6 +186,14 @@ func matchesLinkedAccountFilter(filter *ceExpression, accountID string) bool {
 	return stringSliceContainsFold(filter.Dimensions.Values, accountID)
 }
 
+func requestedOfferingClass(spec *reservationServiceSpecification) string {
+	if spec == nil || spec.EC2Specification == nil {
+		return ""
+	}
+
+	return spec.EC2Specification.OfferingClass
+}
+
 func (h *Handler) handleGetReservationPurchaseRecommendation(
 	_ context.Context,
 	in *getReservationPurchaseRecommendationInput,
@@ -181,12 +208,27 @@ func (h *Handler) handleGetReservationPurchaseRecommendation(
 		return nil, fmt.Errorf("%w: AccountScope must be PAYER or LINKED", ErrValidation)
 	}
 
+	switch requestedOfferingClass(in.ServiceSpecification) {
+	case "", offeringClassStandard, offeringClassConvertible:
+	default:
+		return nil, fmt.Errorf("%w: OfferingClass must be STANDARD or CONVERTIBLE", ErrValidation)
+	}
+
 	recs := h.Backend.GetReservationPurchaseRecommendations(
 		in.Service, in.LookbackPeriodInDays, in.TermInYears, in.PaymentOption,
 	)
 
-	if !matchesLinkedAccountFilter(in.Filter, h.Backend.accountID) {
+	if !matchesLinkedAccountFilter(in.Filter, h.Backend.accountID) ||
+		(in.AccountID != "" && in.AccountID != h.Backend.accountID) {
 		recs = nil
+	}
+
+	if class := requestedOfferingClass(in.ServiceSpecification); class != "" {
+		for i := range recs {
+			recs[i].ServiceSpecification = map[string]any{
+				"EC2Specification": map[string]string{"OfferingClass": class},
+			}
+		}
 	}
 
 	if recs == nil {
@@ -217,6 +259,7 @@ type getReservationUtilizationInput struct {
 	Granularity   string            `json:"Granularity"`
 	NextPageToken string            `json:"NextPageToken"`
 	GroupBy       []groupBySpec     `json:"GroupBy"`
+	MaxResults    int               `json:"MaxResults"`
 }
 
 type getReservationUtilizationOutput struct {
@@ -233,12 +276,15 @@ func (h *Handler) handleGetReservationUtilization(
 
 	utils := h.Backend.GetReservationUtilizationFiltered(start, end, granularity, serviceDimensionFilter(in.Filter))
 
-	page, total, nextToken := buildTimeSeriesResponse(
+	page, total, nextToken, err := buildTimeSeriesResponse(
 		utils,
 		func(u ReservationUtilizationByTime) map[string]string { return u.TimePeriod },
 		func(u ReservationUtilizationByTime) ReservationUtilizationAgg { return u.Total },
-		in.SortBy, in.NextPageToken,
+		in.SortBy, in.MaxResults, in.NextPageToken,
 	)
+	if err != nil {
+		return nil, err
+	}
 
 	return &getReservationUtilizationOutput{
 		UtilizationsByTime: page,

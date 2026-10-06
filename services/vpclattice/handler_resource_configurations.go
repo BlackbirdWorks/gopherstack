@@ -29,10 +29,14 @@ func (h *Handler) handleCreateResourceConfiguration(c *echo.Context, body map[st
 	ctx := c.Request().Context()
 	tags := extractTags(body)
 
-	rc, err := h.Backend.CreateResourceConfiguration(
-		ctx, name, resourceType, protocol, rgID, groupID, allowShare, portRanges, definition,
-		customDomainName, domainVerificationID, groupDomain, tags,
-	)
+	rc, err := idemCreate(h, "CreateResourceConfiguration", "", body,
+		func(r *ResourceConfiguration) string { return r.ID }, h.Backend.GetResourceConfiguration,
+		func() (*ResourceConfiguration, error) {
+			return h.Backend.CreateResourceConfiguration(
+				ctx, name, resourceType, protocol, rgID, groupID, allowShare, portRanges, definition,
+				customDomainName, domainVerificationID, groupDomain, tags,
+			)
+		})
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -88,7 +92,11 @@ func (h *Handler) handleListResourceConfigurations(c *echo.Context) error {
 	rgID := c.QueryParam("resourceGatewayIdentifier")
 	groupID := c.QueryParam("resourceConfigurationGroupIdentifier")
 
-	items, next, err := h.Backend.ListResourceConfigurations(ctx, rgID, groupID, maxResults, nextToken)
+	domainVerificationID := c.QueryParam("domainVerificationIdentifier")
+
+	items, next, err := h.Backend.ListResourceConfigurations(
+		ctx, rgID, groupID, domainVerificationID, maxResults, nextToken,
+	)
 	if err != nil {
 		return h.handleError(c, err)
 	}

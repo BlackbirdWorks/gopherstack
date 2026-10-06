@@ -452,6 +452,10 @@ func (b *InMemoryBackend) ListShards(ctx context.Context, input *ListShardsInput
 	b.mu.RUnlock()
 	defer stream.mu.RUnlock()
 
+	if ts := input.StreamCreationTime; ts != nil && ts.Unix() != stream.CreatedAt.Unix() {
+		return nil, ErrStreamNotFound
+	}
+
 	includeAll, predicate, err := resolveShardFilter(input, stream, b.nowFunc())
 	if err != nil {
 		return nil, err

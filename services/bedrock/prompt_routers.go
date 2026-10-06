@@ -130,7 +130,7 @@ func (b *InMemoryBackend) GetPromptRouter(routerARN string) (*PromptRouter, erro
 
 // ListPromptRouters returns prompt routers optionally filtered by type
 // ("default" or "custom"), sorted and paginated.
-func (b *InMemoryBackend) ListPromptRouters(typeEquals, nextToken string) ([]*PromptRouter, string) {
+func (b *InMemoryBackend) ListPromptRouters(typeEquals, nextToken string, maxResults int) ([]*PromptRouter, string) {
 	b.mu.RLock("ListPromptRouters")
 	defer b.mu.RUnlock()
 
@@ -150,7 +150,7 @@ func (b *InMemoryBackend) ListPromptRouters(typeEquals, nextToken string) ([]*Pr
 		return routers[i].PromptRouterName < routers[k].PromptRouterName
 	})
 
-	return paginateBedrockSlice(routers, nextToken)
+	return paginate(routers, maxResults, nextToken)
 }
 
 // DeletePromptRouter removes a prompt router.

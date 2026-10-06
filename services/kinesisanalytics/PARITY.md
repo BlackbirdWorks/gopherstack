@@ -37,7 +37,6 @@ families:
 gaps: []
 items_still_open:
   - "DiscoverInputSchema now does real sampling+inference (discover_schema.go: newline-delimited-JSON sampling, per-key BOOLEAN/INTEGER/DOUBLE/VARCHAR(N) type inference, sorted-alphabetical column order) instead of a fixed synthetic schema, and cli.go wires both readers it needs: S3 directly (kaBk.SetS3ObjectReader(s3Bk), no adapter -- s3.InMemoryBackend.GetObject satisfies S3ObjectReader with the real SDK types) and Kinesis via kinesisAnalyticsStreamReaderAdapter (cli.go), which bridges kinesis.InMemoryBackend's real ctx+typed-struct ListShards/GetShardIterator/GetRecords (services/kinesis/records.go, shards.go) onto KinesisStreamReader's narrow (streamName string, limit int) shape. Both proven through the actual composition root (not the wiring helper called directly) by TestInitializeServices_KinesisAnalyticsKinesisS3Wiring (cli_kinesisanalytics_kinesis_s3_wiring_test.go), which deletes its own wireKinesisAnalyticsCrossService call site to confirm the test goes red. Firehose delivery streams as a DiscoverInputSchema source remain genuinely unimplemented, not just unwired: firehose.InMemoryBackend has no accessor to read back buffered/recently-ingested records at all (it's flush-oriented), and adding one is outside services/kinesisanalytics. A Firehose-sourced request (and any request before either reader existed) correctly reports UnableToDetectSchemaException (a real, previously-unused SDK error type for this exact op -- see errors.go) instead of fabricating a 200 -- covered by the same wiring test's firehose_source_reports_unable_to_detect_schema subtest."
-  - "statusUpdating (\"UPDATING\", a real ApplicationStatus enum value per types/enums.go) is unused by design, not by omission: it is present in source (matches the wire enum exactly, not a gap in the enum itself), but UpdateApplication is genuinely synchronous here -- it validates, applies, and bumps ApplicationVersionId/LastUpdateTimestamp atomically under the backend lock before returning, so a client can never observe an intermediate state where those fields disagree. This is the same shape as the emrserverless-SUBMITTED and elasticsearch-Processing precedents judged legitimate simplifications: the transient state is unreachable because nothing async ever exists to be caught mid-transition, not because a field is missing or inconsistent. No code change made for this item."
 deferred: []
 leaks: {status: clean, note: "launchTransition/DeleteApplication background goroutines remain bounded by b.svcCtx (NewInMemoryBackendWithContext) and tracked in b.cancelFuncs, canceled on Reset(). No new goroutines, maps, or per-request state introduced this sweep -- all changes were request-validation logic in the existing conversion helpers (applications.go/handler_*.go), which return early with an error and mutate no backend state on the rejected path."}
 ---
@@ -493,3 +492,11 @@ Added `leak_main_test.go` (goleak TestMain). No leak found.
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 kinesisanalytics already isolates regions internally: applications live per region (applications are keyed by region and name). Proof: `TestRegionIsolation/kinesisanalytics`; no sibling handlers needed.
+
+## 2026-10-05 (gopherstack-uox6 pass 10, value semantics)
+
+UpdateApplication Kinesis stream/firehose/lambda input, output, processor and S3 reference updates keep whichever ARN or role the request omits (ResourceARNUpdate/RoleARNUpdate are independently optional, types.go:710). Proof: `TestUpdateApplication_OutputUpdateKeepsOmittedARN`.
+
+## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
+
+InternalServiceException (handler.go:251) is the default 500 clause; the pinned SDK models no internal-error type.

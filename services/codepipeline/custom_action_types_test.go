@@ -263,7 +263,7 @@ func TestHandler_DeleteCustomActionType_InUse(t *testing.T) {
 				"category": "Build", "provider": "InUseBuilder", "version": "1",
 			},
 			wantStatus: http.StatusBadRequest,
-			wantType:   "ResourceInUseException",
+			wantType:   "ValidationException",
 		},
 		{
 			name: "type not in use deleted ok",

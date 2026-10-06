@@ -829,3 +829,7 @@ issues) all clean. No persisted struct fields changed; no version bump.
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 comprehend is region-isolated: flywheels, classifiers, recognizers, endpoints and jobs live per region. The tagging bridge follows the region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/comprehend`. Limitation: the dashboard shows the home region only.
+
+## 2026-10-04 (gopherstack-0kk8)
+
+DetectPiiEntities no longer emits a Text member; types.PiiEntity has only BeginOffset, EndOffset, Score and Type.

@@ -27,6 +27,7 @@ type ModifyClusterOptions struct {
 	MasterUserPassword                   string
 	ClusterVersion                       string
 	ClusterParameterGroupName            string
+	Settings                             ClusterSettings
 	VpcSecurityGroupIDs                  []string
 	NumberOfNodes                        int
 	Port                                 int
@@ -66,17 +67,21 @@ func (b *InMemoryBackend) ModifyCluster(id string, opts ModifyClusterOptions) (*
 		return nil, err
 	}
 
-	applyModifyClusterUnconditional(cluster, opts)
-
-	if !opts.ApplyImmediately {
-		cluster.PendingModifiedValues = pendingModifiedValuesFrom(opts)
-		cp := cloneCluster(cluster)
-
-		return &cp, nil
+	if err := b.validateModifyClusterSettingsLocked(cluster, opts.Settings); err != nil {
+		return nil, err
 	}
 
-	applyModifyClusterImmediate(cluster, opts)
-	cluster.PendingModifiedValues = nil
+	applyModifyClusterUnconditional(cluster, opts)
+
+	if opts.ApplyImmediately {
+		applyModifyClusterImmediate(cluster, opts)
+		cluster.PendingModifiedValues = nil
+	} else {
+		cluster.PendingModifiedValues = pendingModifiedValuesFrom(opts)
+	}
+
+	b.applyModifyClusterSettingsLocked(cluster, opts.Settings)
+
 	cp := cloneCluster(cluster)
 
 	return &cp, nil
@@ -423,32 +428,6 @@ func (b *InMemoryBackend) ModifyClusterIamRoles(
 
 	if defaultIamRoleArn != "" {
 		cluster.DefaultIamRoleArn = defaultIamRoleArn
-	}
-
-	cp := cloneCluster(cluster)
-
-	return &cp, nil
-}
-
-// ModifyClusterMaintenance modifies the maintenance settings of a cluster.
-func (b *InMemoryBackend) ModifyClusterMaintenance(
-	id, maintenanceTrack string,
-	_ bool,
-) (*Cluster, error) {
-	if id == "" {
-		return nil, fmt.Errorf("%w: ClusterIdentifier is required", ErrInvalidParameter)
-	}
-
-	b.mu.Lock("ModifyClusterMaintenance")
-	defer b.mu.Unlock()
-
-	cluster, exists := b.clusters.Get(id)
-	if !exists {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
-	}
-
-	if maintenanceTrack != "" {
-		cluster.PreferredMaintenanceWindow = maintenanceTrack
 	}
 
 	cp := cloneCluster(cluster)

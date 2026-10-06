@@ -19,11 +19,8 @@ func customPluginARN(region, accountID, name string) string {
 	return arn.Build("kafkaconnect", region, accountID, fmt.Sprintf("custom-plugin/%s/%s", name, uuid.NewString()))
 }
 
-// CreateCustomPlugin creates a custom plugin. Plugins become ACTIVE
-// immediately -- see PARITY.md for the CREATING/UPDATING/DELETING transient
-// states this backend deliberately does not model, and for the S3 object
-// coupling this backend does not perform (BucketArn/FileKey/ObjectVersion
-// are stored and echoed back as given, never read from S3).
+// CreateCustomPlugin creates a plugin in CREATING that settles to ACTIVE, or CREATE_FAILED
+// without its S3 object; FileMd5/FileSize come from S3 when wired, else are derived.
 func (b *InMemoryBackend) CreateCustomPlugin(
 	accountID, region, name, description, contentType, bucketArn, fileKey, objectVersion string,
 	tags map[string]string,
@@ -32,8 +29,12 @@ func (b *InMemoryBackend) CreateCustomPlugin(
 		return nil, ErrValidation
 	}
 
+	obj, s3Wired := b.readPluginObject(bucketArn, fileKey, objectVersion)
+
 	b.mu.Lock("CreateCustomPlugin")
 	defer b.mu.Unlock()
+
+	b.settleLocked(time.Now())
 
 	if _, ok := b.customPluginByName(name); ok {
 		return nil, ErrCustomPluginNameInUse
@@ -46,7 +47,8 @@ func (b *InMemoryBackend) CreateCustomPlugin(
 		Name:          name,
 		ARN:           customPluginARN(region, accountID, name),
 		Description:   description,
-		State:         customPluginStateActive,
+		State:         customPluginStateCreating,
+		PendingUntil:  time.Now().UTC().Add(provisionDelay),
 		ContentType:   contentType,
 		BucketArn:     bucketArn,
 		FileKey:       fileKey,
@@ -58,6 +60,15 @@ func (b *InMemoryBackend) CreateCustomPlugin(
 		Tags:          t,
 	}
 
+	if s3Wired {
+		p.FileMD5, p.FileSizeBytes = obj.md5, obj.size
+
+		if obj.missing {
+			p.FileMD5, p.FileSizeBytes = "", 0
+			p.FailureMessage = "the custom plugin file could not be read from " + bucketArn + "/" + fileKey
+		}
+	}
+
 	b.customPlugins.Put(p)
 
 	return p.clone(), nil
@@ -65,8 +76,10 @@ func (b *InMemoryBackend) CreateCustomPlugin(
 
 // DescribeCustomPlugin returns the current information about a custom plugin.
 func (b *InMemoryBackend) DescribeCustomPlugin(customPluginArn string) (*CustomPlugin, error) {
-	b.mu.RLock("DescribeCustomPlugin")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeCustomPlugin")
+	defer b.mu.Unlock()
+
+	b.settleLocked(time.Now())
 
 	p, ok := b.customPlugins.Get(customPluginArn)
 	if !ok {
@@ -81,8 +94,10 @@ func (b *InMemoryBackend) ListCustomPlugins(
 	namePrefix, nextToken string,
 	maxResults int,
 ) ([]*CustomPlugin, string, error) {
-	b.mu.RLock("ListCustomPlugins")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListCustomPlugins")
+	defer b.mu.Unlock()
+
+	b.settleLocked(time.Now())
 
 	all := b.customPlugins.All()
 
@@ -103,21 +118,22 @@ func (b *InMemoryBackend) ListCustomPlugins(
 	return pg.Data, pg.Next, nil
 }
 
-// DeleteCustomPlugin deletes a custom plugin, returning a snapshot with State
-// set to DELETING to mirror AWS's synchronous delete response.
+// DeleteCustomPlugin marks a custom plugin DELETING; it is removed once deletionDelay elapses.
 func (b *InMemoryBackend) DeleteCustomPlugin(customPluginArn string) (*CustomPlugin, error) {
 	b.mu.Lock("DeleteCustomPlugin")
 	defer b.mu.Unlock()
+
+	b.settleLocked(time.Now())
 
 	p, ok := b.customPlugins.Get(customPluginArn)
 	if !ok {
 		return nil, ErrCustomPluginNotFound
 	}
 
-	out := p.clone()
-	out.State = deletingState
+	if p.State != deletingState {
+		p.State = deletingState
+		p.PendingUntil = time.Now().UTC().Add(deletionDelay)
+	}
 
-	b.customPlugins.Delete(customPluginArn)
-
-	return out, nil
+	return p.clone(), nil
 }

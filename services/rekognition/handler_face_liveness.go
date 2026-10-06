@@ -27,9 +27,9 @@ type createFaceLivenessSessionResp struct {
 }
 
 func (h *Handler) handleCreateFaceLivenessSession(
-	_ context.Context, _ *createFaceLivenessSessionReq,
+	_ context.Context, req *createFaceLivenessSessionReq,
 ) (*createFaceLivenessSessionResp, error) {
-	sessionID, err := h.Backend.CreateFaceLivenessSession()
+	sessionID, err := h.Backend.CreateFaceLivenessSession(req.ClientRequestToken)
 	if err != nil {
 		return nil, err
 	}

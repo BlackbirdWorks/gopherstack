@@ -370,7 +370,7 @@ func TestListResourceScans_PageWalkReproducesFullSet(t *testing.T) {
 	want := make(map[string]bool, total)
 
 	for range total {
-		scanID, err := b.StartResourceScan()
+		scanID, err := b.StartResourceScan(nil)
 		require.NoError(t, err)
 		want[scanID] = true
 	}

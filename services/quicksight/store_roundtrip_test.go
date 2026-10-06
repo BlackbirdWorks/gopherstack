@@ -36,10 +36,13 @@ func TestQuickSight_Phase3_3_StoreRoundTrip(t *testing.T) {
 	_, err = b.CreateGroupMembership(testAccountID, ns, "group1", "user1")
 	require.NoError(t, err)
 
-	_, err = b.RegisterUser(testAccountID, ns, "user1", "user1@example.com", "READER", "QUICKSIGHT", "", "", nil)
+	_, err = b.RegisterUser(
+		testAccountID, ns, "user1", "user1@example.com", "READER", "QUICKSIGHT", "", "", nil,
+		quicksight.UserFederation{},
+	)
 	require.NoError(t, err)
 
-	_, err = b.CreateDataSource(testAccountID, "ds1", "DataSource1", "MYSQL", nil, nil)
+	_, err = b.CreateDataSource(testAccountID, "ds1", "DataSource1", "MYSQL", nil, nil, quicksight.DataSourceOptions{})
 	require.NoError(t, err)
 
 	_, _, err = b.CreateDataSet(
@@ -54,10 +57,11 @@ func TestQuickSight_Phase3_3_StoreRoundTrip(t *testing.T) {
 		},
 		nil,
 		quicksight.DataSetSecurity{},
+		quicksight.DataSetOptions{},
 	)
 	require.NoError(t, err)
 
-	_, err = b.CreateIngestion(testAccountID, "dset1", "ingest1")
+	_, err = b.CreateIngestion(testAccountID, "dset1", "ingest1", "")
 	require.NoError(t, err)
 
 	dash, err := b.CreateDashboard(testAccountID, "dash1", "Dashboard1", "", "", nil, nil, nil, nil, "")

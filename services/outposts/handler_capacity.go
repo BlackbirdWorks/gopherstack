@@ -49,6 +49,10 @@ func (h *Handler) handleListCapacityTasks(_ context.Context, r *http.Request, _ 
 		outpostIdentifierFilter: q.Get("OutpostIdentifierFilter"),
 	}
 
+	if err := validatePage(q); err != nil {
+		return nil, err
+	}
+
 	p := h.Backend.ListCapacityTasks(f, q.Get("NextToken"), queryMaxResults(q))
 
 	resp := listCapacityTasksResponse{NextToken: p.Next, CapacityTasks: make([]capacityTaskSummaryWire, 0, len(p.Data))}
@@ -63,6 +67,10 @@ func (h *Handler) handleListBlockingInstancesForCapacityTask(
 	_ context.Context, r *http.Request, _ []byte,
 ) ([]byte, error) {
 	segs := rawPathSegments(r)
+
+	if err := validatePage(r.URL.Query()); err != nil {
+		return nil, err
+	}
 
 	if err := h.Backend.ListBlockingInstancesForCapacityTask(segs[1], segs[3]); err != nil {
 		return nil, err

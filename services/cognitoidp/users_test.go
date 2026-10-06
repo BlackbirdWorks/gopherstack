@@ -568,7 +568,6 @@ func TestAdminCreateUser_Backend_Full(t *testing.T) {
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "FORCE_CHANGE_PASSWORD", user.Status)
-	// SUPPRESS: custom:temporaryPassword should NOT be set.
 	assert.Empty(t, user.Attributes["custom:temporaryPassword"])
 
 	// Duplicate should fail (not RESEND).

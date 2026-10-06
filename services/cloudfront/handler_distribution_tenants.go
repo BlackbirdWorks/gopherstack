@@ -1,6 +1,7 @@
 package cloudfront
 
 import (
+	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -39,6 +40,19 @@ type associateDistributionTenantWebACLRequestXML struct {
 	WebACLArn string   `xml:"WebACLArn"`
 }
 
+func (h *Handler) tenantIfMatchFailure(c *echo.Context, tenantID string) (bool, error) {
+	if c.Request().Header.Get("If-Match") == "" {
+		return false, nil
+	}
+
+	current, err := h.Backend.GetDistributionTenant(tenantID)
+	if err != nil {
+		return true, h.handleError(c, err)
+	}
+
+	return ifMatchFailure(c, current.ETag, "distribution tenant")
+}
+
 func (h *Handler) handleAssociateDistributionTenantWebACL(c *echo.Context, tenantID string) error {
 	body, err := readBody(c)
 	if err != nil {
@@ -58,6 +72,10 @@ func (h *Handler) handleAssociateDistributionTenantWebACL(c *echo.Context, tenan
 				cfErrorXML("MalformedXML", "invalid AssociateDistributionTenantWebACLRequest XML"),
 			)
 		}
+	}
+
+	if failed, resp := h.tenantIfMatchFailure(c, tenantID); failed {
+		return resp
 	}
 
 	if assocErr := h.Backend.AssociateDistributionTenantWebACL(tenantID, req.WebACLArn); assocErr != nil {
@@ -86,7 +104,44 @@ func (h *Handler) distributionTenantXML(t *DistributionTenant) string {
 		fmt.Fprintf(&domainsXML, `<member><Domain>%s</Domain><Status>Active</Status></member>`, d)
 	}
 
-	webACLArn := h.Backend.TenantWebACLArn(t.ID)
+	var optional strings.Builder
+
+	if t.CreationTime != "" {
+		fmt.Fprintf(&optional, `<CreatedTime>%s</CreatedTime>`, t.CreationTime)
+	}
+
+	if t.LastModifiedTime != "" {
+		fmt.Fprintf(&optional, `<LastModifiedTime>%s</LastModifiedTime>`, t.LastModifiedTime)
+	}
+
+	if len(t.Parameters) > 0 {
+		names := make([]string, 0, len(t.Parameters))
+		for name := range t.Parameters {
+			names = append(names, name)
+		}
+
+		sort.Strings(names)
+
+		optional.WriteString(`<Parameters>`)
+
+		for _, name := range names {
+			var esc strings.Builder
+			_ = xml.EscapeText(&esc, []byte(t.Parameters[name]))
+
+			var escName strings.Builder
+			_ = xml.EscapeText(&escName, []byte(name))
+
+			fmt.Fprintf(&optional, `<member><Name>%s</Name><Value>%s</Value></member>`, escName.String(), esc.String())
+		}
+
+		optional.WriteString(`</Parameters>`)
+	}
+
+	if cust := tenantCustomizationsFromMap(t.Customizations); cust != nil {
+		if raw, err := xml.Marshal(cust); err == nil {
+			optional.Write(raw)
+		}
+	}
 
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<DistributionTenant xmlns="%s">`+
@@ -94,27 +149,105 @@ func (h *Handler) distributionTenantXML(t *DistributionTenant) string {
 		`<Arn>%s</Arn>`+
 		`<DistributionId>%s</DistributionId>`+
 		`<Name>%s</Name>`+
-		`<Domain>%s</Domain>`+
 		`<Domains>%s</Domains>`+
 		`<ConnectionGroupId>%s</ConnectionGroupId>`+
 		`<Enabled>%v</Enabled>`+
-		`<WebACLArn>%s</WebACLArn>`+
-		`<Status>%s</Status>`+
+		`<Status>%s</Status>%s`+
 		`</DistributionTenant>`,
-		cfNS, t.ID, t.ARN, t.DistributionID, t.Name, t.Domain, domainsXML.String(),
-		t.ConnectionGroupID, t.Enabled, webACLArn, t.Status)
+		cfNS, t.ID, t.ARN, t.DistributionID, t.Name, domainsXML.String(),
+		t.ConnectionGroupID, t.Enabled, t.Status, optional.String())
 }
 
 // ---------------------------------------------------------------------------
 // DistributionTenant request XML types
 // ---------------------------------------------------------------------------
 
+// tenantCustomizationsXML is types.Customizations; its JSON form is the stored Customizations map.
+type tenantCertificateXML struct {
+	Arn string `xml:"Arn" json:"Arn"`
+}
+
+type tenantGeoRestrictionsXML struct {
+	RestrictionType string   `xml:"RestrictionType"    json:"RestrictionType"`
+	Locations       []string `xml:"Locations>Location" json:"Locations,omitempty"`
+}
+
+type tenantWebACLXML struct {
+	Action string `xml:"Action"        json:"Action"`
+	Arn    string `xml:"Arn,omitempty" json:"Arn,omitempty"`
+}
+
+type tenantCustomizationsXML struct {
+	Certificate     *tenantCertificateXML     `xml:"Certificate"     json:"Certificate,omitempty"`
+	GeoRestrictions *tenantGeoRestrictionsXML `xml:"GeoRestrictions" json:"GeoRestrictions,omitempty"`
+	WebACL          *tenantWebACLXML          `xml:"WebAcl"          json:"WebAcl,omitempty"`
+	XMLName         xml.Name                  `xml:"Customizations"  json:"-"`
+}
+
+type tenantParameterXML struct {
+	Name  string `xml:"Name"`
+	Value string `xml:"Value"`
+}
+
+func (c *tenantCustomizationsXML) toMap() map[string]any {
+	if c == nil {
+		return nil
+	}
+
+	raw, err := json.Marshal(c)
+	if err != nil {
+		return nil
+	}
+
+	var out map[string]any
+	if json.Unmarshal(raw, &out) != nil {
+		return nil
+	}
+
+	return out
+}
+
+func tenantCustomizationsFromMap(m map[string]any) *tenantCustomizationsXML {
+	if len(m) == 0 {
+		return nil
+	}
+
+	raw, err := json.Marshal(m)
+	if err != nil {
+		return nil
+	}
+
+	var out tenantCustomizationsXML
+	if json.Unmarshal(raw, &out) != nil {
+		return nil
+	}
+
+	return &out
+}
+
+func tenantParameters(list []tenantParameterXML) map[string]string {
+	if list == nil {
+		return nil
+	}
+
+	out := make(map[string]string, len(list))
+	for _, p := range list {
+		out[p.Name] = p.Value
+	}
+
+	return out
+}
+
 type createDistributionTenantXML struct {
-	XMLName        xml.Name `xml:"CreateDistributionTenantRequest"`
-	DistributionID string   `xml:"DistributionId"`
-	Name           string   `xml:"Name"`
-	Domain         string   `xml:"Domain"`
-	Domains        []string `xml:"Domains>member>Domain"`
+	Enabled           *bool                    `xml:"Enabled"`
+	Customizations    *tenantCustomizationsXML `xml:"Customizations"`
+	XMLName           xml.Name                 `xml:"CreateDistributionTenantRequest"`
+	DistributionID    string                   `xml:"DistributionId"`
+	Name              string                   `xml:"Name"`
+	Domain            string                   `xml:"Domain"`
+	ConnectionGroupID string                   `xml:"ConnectionGroupId"`
+	Parameters        []tenantParameterXML     `xml:"Parameters>member"`
+	Domains           []string                 `xml:"Domains>member>Domain"`
 	// Tags is *types.Tags on the wire: Items wraps the Tag list, not a bare
 	// Tags>Tag path (cloudfront@v1.67.4 serializers.go
 	// awsRestxml_serializeDocumentTags).
@@ -122,11 +255,14 @@ type createDistributionTenantXML struct {
 }
 
 type updateDistributionTenantXML struct {
-	Enabled           *bool    `xml:"Enabled"`
-	XMLName           xml.Name `xml:"UpdateDistributionTenantRequest"`
-	Domain            string   `xml:"Domain"`
-	ConnectionGroupID string   `xml:"ConnectionGroupId"`
-	Domains           []string `xml:"Domains>member>Domain"`
+	Enabled           *bool                    `xml:"Enabled"`
+	Customizations    *tenantCustomizationsXML `xml:"Customizations"`
+	XMLName           xml.Name                 `xml:"UpdateDistributionTenantRequest"`
+	Domain            string                   `xml:"Domain"`
+	ConnectionGroupID string                   `xml:"ConnectionGroupId"`
+	DistributionID    string                   `xml:"DistributionId"`
+	Parameters        []tenantParameterXML     `xml:"Parameters>member"`
+	Domains           []string                 `xml:"Domains>member>Domain"`
 }
 
 // ---------------------------------------------------------------------------
@@ -164,7 +300,16 @@ func (h *Handler) handleCreateDistributionTenant(c *echo.Context) error {
 		domains = append([]string{req.Domain}, domains...)
 	}
 
-	t, createErr := h.Backend.CreateDistributionTenant(req.DistributionID, req.Name, domains, tags)
+	opts := []TenantOption{
+		WithTenantConnectionGroup(req.ConnectionGroupID),
+		WithTenantParameters(tenantParameters(req.Parameters)),
+		WithTenantCustomizations(req.Customizations.toMap()),
+	}
+	if req.Enabled != nil {
+		opts = append(opts, WithTenantEnabled(*req.Enabled))
+	}
+
+	t, createErr := h.Backend.CreateDistributionTenant(req.DistributionID, req.Name, domains, tags, opts...)
 	if createErr != nil {
 		return h.handleError(c, createErr)
 	}
@@ -253,6 +398,9 @@ func (h *Handler) handleUpdateDistributionTenant(c *echo.Context, id string) err
 		Domains:           domains,
 		ConnectionGroupID: req.ConnectionGroupID,
 		Enabled:           req.Enabled,
+		DistributionID:    req.DistributionID,
+		Parameters:        tenantParameters(req.Parameters),
+		Customizations:    req.Customizations.toMap(),
 	})
 	if updateErr != nil {
 		return h.handleError(c, updateErr)
@@ -302,18 +450,19 @@ type domainResultXML struct {
 // to an always-empty Domains slice on a real client, even though the singular
 // distributionTenantXML above already emits the list correctly.
 type tenantSummaryXML struct {
-	XMLName           xml.Name          `xml:"DistributionTenantSummary"`
-	ID                string            `xml:"Id"`
-	ARN               string            `xml:"Arn"`
-	DistributionID    string            `xml:"DistributionId"`
-	Name              string            `xml:"Name,omitempty"`
-	ConnectionGroupID string            `xml:"ConnectionGroupId,omitempty"`
-	Status            string            `xml:"Status"`
-	ETag              string            `xml:"ETag,omitempty"`
-	CreatedTime       string            `xml:"CreatedTime,omitempty"`
-	LastModifiedTime  string            `xml:"LastModifiedTime,omitempty"`
-	Domains           []domainResultXML `xml:"Domains>member"`
-	Enabled           bool              `xml:"Enabled"`
+	Customizations    *tenantCustomizationsXML `xml:"Customizations"`
+	XMLName           xml.Name                 `xml:"DistributionTenantSummary"`
+	ID                string                   `xml:"Id"`
+	ARN               string                   `xml:"Arn"`
+	DistributionID    string                   `xml:"DistributionId"`
+	Name              string                   `xml:"Name,omitempty"`
+	ConnectionGroupID string                   `xml:"ConnectionGroupId,omitempty"`
+	Status            string                   `xml:"Status"`
+	ETag              string                   `xml:"ETag,omitempty"`
+	CreatedTime       string                   `xml:"CreatedTime,omitempty"`
+	LastModifiedTime  string                   `xml:"LastModifiedTime,omitempty"`
+	Domains           []domainResultXML        `xml:"Domains>member"`
+	Enabled           bool                     `xml:"Enabled"`
 }
 
 // tenantListXML models the real ListDistributionTenants response shape (see
@@ -358,6 +507,7 @@ func tenantsToSummaryList(tenants []*DistributionTenant) tenantListResultXML {
 			ETag:              t.ETag,
 			CreatedTime:       t.CreationTime,
 			LastModifiedTime:  t.LastModifiedTime,
+			Customizations:    tenantCustomizationsFromMap(t.Customizations),
 		})
 	}
 
@@ -551,13 +701,26 @@ func (h *Handler) handleDisassociateDistributionTenantWebACL(
 		return h.handleError(c, err)
 	}
 
+	if failed, resp := ifMatchFailure(c, t.ETag, "distribution tenant"); failed {
+		return resp
+	}
+
 	if disErr := h.Backend.DisassociateDistributionTenantWebACL(tenantID); disErr != nil {
 		return h.handleError(c, disErr)
 	}
 
-	c.Response().Header().Set("ETag", t.ETag)
+	updated, getErr := h.Backend.GetDistributionTenant(tenantID)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
 
-	return xmlResp(c, http.StatusOK, h.distributionTenantXML(t))
+	c.Response().Header().Set("ETag", updated.ETag)
+
+	return xmlResp(c, http.StatusOK, fmt.Sprintf(
+		`<?xml version="1.0" encoding="UTF-8"?>`+
+			`<DisassociateDistributionTenantWebACLResult xmlns="%s"><Id>%s</Id>`+
+			`</DisassociateDistributionTenantWebACLResult>`,
+		cfNS, tenantID))
 }
 
 // ---------------------------------------------------------------------------
@@ -575,6 +738,32 @@ type updateDomainAssociationXML struct {
 	XMLName        xml.Name                         `xml:"UpdateDomainAssociationRequest"`
 	Domain         string                           `xml:"Domain"`
 	TargetResource updateDomainAssociationTargetXML `xml:"TargetResource"`
+}
+
+// domainTargetIfMatchFailure checks If-Match against the ETag of the distribution or tenant being associated.
+func (h *Handler) domainTargetIfMatchFailure(c *echo.Context, target updateDomainAssociationTargetXML) (bool, error) {
+	if c.Request().Header.Get("If-Match") == "" {
+		return false, nil
+	}
+
+	switch {
+	case target.DistributionTenantID != "":
+		t, err := h.Backend.GetDistributionTenant(target.DistributionTenantID)
+		if err != nil {
+			return true, h.handleError(c, err)
+		}
+
+		return ifMatchFailure(c, t.ETag, "distribution tenant")
+	case target.DistributionID != "":
+		d, err := h.Backend.GetDistribution(target.DistributionID)
+		if err != nil {
+			return true, h.handleError(c, err)
+		}
+
+		return ifMatchFailure(c, d.ETag, "distribution")
+	default:
+		return false, nil
+	}
 }
 
 // handleUpdateDomainAssociation moves a Domain's association to the distribution or distribution
@@ -599,6 +788,10 @@ func (h *Handler) handleUpdateDomainAssociation(c *echo.Context) error {
 				cfErrorXML("MalformedXML", "invalid UpdateDomainAssociationRequest XML"),
 			)
 		}
+	}
+
+	if failed, resp := h.domainTargetIfMatchFailure(c, req.TargetResource); failed {
+		return resp
 	}
 
 	result, updateErr := h.Backend.UpdateDomainAssociation(
@@ -633,6 +826,7 @@ func (h *Handler) handleUpdateDomainAssociation(c *echo.Context) error {
 type verifyDNSConfigurationXML struct {
 	XMLName    xml.Name `xml:"VerifyDnsConfigurationRequest"`
 	Identifier string   `xml:"Identifier"`
+	Domain     string   `xml:"Domain"`
 }
 
 // handleVerifyDNSConfiguration verifies the DNS configuration for the distribution tenant (or
@@ -659,7 +853,7 @@ func (h *Handler) handleVerifyDNSConfiguration(c *echo.Context) error {
 		}
 	}
 
-	configs, verifyErr := h.Backend.VerifyDNSConfiguration(req.Identifier)
+	configs, verifyErr := h.Backend.VerifyDNSConfiguration(req.Identifier, req.Domain)
 	if verifyErr != nil {
 		return h.handleError(c, verifyErr)
 	}

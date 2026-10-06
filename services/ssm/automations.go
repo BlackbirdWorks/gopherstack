@@ -68,7 +68,16 @@ func (b *InMemoryBackend) StartAutomationExecution(
 	b.mu.Lock("StartAutomationExecution")
 	defer b.mu.Unlock()
 
+	if id, replay, err := b.idempotentReplayLocked(
+		region, "StartAutomationExecution", input.ClientToken, input, b.automationExecutionsStore(region).Has,
+	); err != nil {
+		return nil, err
+	} else if replay {
+		return &StartAutomationExecutionOutputFull{AutomationExecutionID: id}, nil
+	}
+
 	execID := "auto-" + uuid.NewString()
+	b.recordIdempotentLocked(region, "StartAutomationExecution", input.ClientToken, input, execID)
 
 	mode := input.Mode
 	if mode == "" {
@@ -100,7 +109,30 @@ func (b *InMemoryBackend) StartAutomationExecution(
 
 	b.automationExecutionsStore(region).Put(exec)
 
+	b.setMiscTagsLocked(region, execID, input.Tags)
+
 	return &StartAutomationExecutionOutputFull{AutomationExecutionID: execID}, nil
+}
+
+// automationTypeLocal is the AutomationType of a single-account, single-Region run.
+const automationTypeLocal = "Local"
+
+// setMiscTagsLocked stores tags for a misc resource ID. Caller holds b.mu.
+func (b *InMemoryBackend) setMiscTagsLocked(region, id string, tags []Tag) {
+	if len(tags) == 0 {
+		return
+	}
+
+	if b.miscResourceTags[region] == nil {
+		b.miscResourceTags[region] = make(map[string]map[string]string)
+	}
+
+	miscTags := b.miscResourceTagsStore(region)
+	miscTags[id] = make(map[string]string, len(tags))
+
+	for _, t := range tags {
+		miscTags[id][t.Key] = t.Value
+	}
 }
 
 // GetAutomationExecution returns an automation execution by ID.
@@ -124,6 +156,7 @@ func (b *InMemoryBackend) GetAutomationExecution(
 	materializeAutomationLocked(exec, time.Now().UTC())
 
 	cp := *exec
+	cp.ProgressCounters = automationProgressCounters(cp.Steps)
 
 	return &GetAutomationExecutionOutputFull{AutomationExecution: &cp}, nil
 }
@@ -135,7 +168,7 @@ func (b *InMemoryBackend) GetAutomationExecution(
 // untracked (see matchesAutomationExecutionFilter).
 func automationExecutionAttr(exec AutomationExecution, key string) (string, bool) {
 	switch key {
-	case "ExecutionId":
+	case fkExecutionID:
 		return exec.AutomationExecutionID, true
 	case "ExecutionStatus":
 		return exec.Status, true
@@ -199,7 +232,9 @@ func (b *InMemoryBackend) DescribeAutomationExecutions(
 		}
 
 		if matched {
-			list = append(list, *exec)
+			meta := *exec
+			meta.AutomationType = automationTypeLocal
+			list = append(list, meta)
 		}
 	}
 
@@ -331,12 +366,17 @@ func (b *InMemoryBackend) DescribeAutomationStepExecutions(
 		steps = reversed
 	}
 
-	maxResults := 0
-	if input.MaxResults != nil {
-		maxResults = int(*input.MaxResults)
+	steps, err := filterStepExecutions(steps, input.Filters)
+	if err != nil {
+		return nil, err
 	}
 
-	page, next := paginateSlice(steps, input.NextToken, maxResults, defaultDescribeMaxResults)
+	page, next, err := pageChecked(
+		steps, input.NextToken, maxOrZero(input.MaxResults), defaultDescribeMaxResults, ErrInvalidNextToken,
+	)
+	if err != nil {
+		return nil, err
+	}
 
 	return &DescribeAutomationStepExecutionsOutputFull{StepExecutions: page, NextToken: next}, nil
 }
@@ -374,7 +414,16 @@ func (b *InMemoryBackend) StartChangeRequestExecution(
 	b.mu.Lock("StartChangeRequestExecution")
 	defer b.mu.Unlock()
 
+	if id, replay, err := b.idempotentReplayLocked(
+		region, "StartChangeRequestExecution", input.ClientToken, input, b.automationExecutionsStore(region).Has,
+	); err != nil {
+		return nil, err
+	} else if replay {
+		return &StartChangeRequestExecutionOutputFull{AutomationExecutionID: id}, nil
+	}
+
 	execID := "auto-cr-" + uuid.NewString()
+	b.recordIdempotentLocked(region, "StartChangeRequestExecution", input.ClientToken, input, execID)
 	// Change requests remain InProgress pending approval (SendAutomationSignal),
 	// mirroring AWS — but their steps are populated up front, built from the
 	// first runbook's document (this backend's AutomationExecution models a
@@ -382,6 +431,10 @@ func (b *InMemoryBackend) StartChangeRequestExecution(
 	exec := &AutomationExecution{
 		AutomationExecutionID: execID,
 		DocumentName:          input.DocumentName,
+		DocumentVersion:       input.DocumentVersion,
+		Parameters:            input.Parameters,
+		ChangeRequestName:     input.ChangeRequestName,
+		ScheduledTime:         input.ScheduledTime,
 		Status:                automationStatusInProgress,
 		StartTime:             UnixTimeFloat(time.Now().UTC()),
 		AutomationSubtype:     "ChangeRequest",
@@ -391,6 +444,7 @@ func (b *InMemoryBackend) StartChangeRequestExecution(
 		Steps:                 b.buildAutomationSteps(region, input.Runbooks[0].DocumentName),
 	}
 	b.automationExecutionsStore(region).Put(exec)
+	b.setMiscTagsLocked(region, execID, input.Tags)
 
 	return &StartChangeRequestExecutionOutputFull{AutomationExecutionID: execID}, nil
 }
@@ -411,7 +465,7 @@ func (b *InMemoryBackend) StartExecutionPreview(
 	previewID := previewIDPrefix + uuid.NewString()
 	b.executionPreviewsStore(region).Put(&ExecutionPreview{
 		ExecutionPreviewID: previewID,
-		Status:             "Running",
+		Status:             executionPreviewStatusInProgress,
 		DocumentName:       input.DocumentName,
 	})
 
@@ -433,10 +487,7 @@ func (b *InMemoryBackend) GetExecutionPreview(
 
 	preview, exists := b.executionPreviewsStore(region).Get(input.ExecutionPreviewID)
 	if !exists {
-		return &GetExecutionPreviewOutputFull{
-			ExecutionPreviewID: input.ExecutionPreviewID,
-			Status:             "Running",
-		}, nil
+		return nil, fmt.Errorf("%w: %q", ErrExecutionPreviewNotFound, input.ExecutionPreviewID)
 	}
 
 	cp := *preview
@@ -487,3 +538,5 @@ func (b *InMemoryBackend) GetCalendarState(
 
 	return &GetCalendarStateOutputFull{State: calendarStateOpen, AtTime: atTime}, nil
 }
+
+const executionPreviewStatusInProgress = "InProgress"

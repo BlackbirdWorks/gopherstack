@@ -108,6 +108,27 @@ func cloneDatastore(d *Datastore) *Datastore {
 	return &cp
 }
 
+// defaultDatastoreStorage defaults an unset storage to serviceManagedS3
+// (api_op_CreateDatastore.go:47, "The default is serviceManagedS3").
+func defaultDatastoreStorage(s *DatastoreStorage) *DatastoreStorage {
+	if s == nil || (s.ServiceManagedS3 == nil && s.CustomerManagedS3 == nil &&
+		s.IotSiteWiseMultiLayerStorage == nil) {
+		return &DatastoreStorage{ServiceManagedS3: &ServiceManagedS3Storage{}}
+	}
+
+	return cloneDatastoreStorage(s)
+}
+
+// defaultFileFormat defaults an unset file format to JSON
+// (api_op_CreateDatastore.go:57, "The default file format is JSON").
+func defaultFileFormat(f *FileFormatConfiguration) *FileFormatConfiguration {
+	if f == nil || (f.JSONConfiguration == nil && f.ParquetConfiguration == nil) {
+		return &FileFormatConfiguration{JSONConfiguration: &JSONConfiguration{}}
+	}
+
+	return cloneFileFormatConfiguration(f)
+}
+
 // CreateDatastore creates a new IoT Analytics datastore.
 func (b *InMemoryBackend) CreateDatastore(
 	ctx context.Context,
@@ -146,9 +167,9 @@ func (b *InMemoryBackend) CreateDatastore(
 		CreationTime:            now,
 		LastUpdate:              now,
 		Tags:                    make(map[string]string),
-		Storage:                 cloneDatastoreStorage(storage),
+		Storage:                 defaultDatastoreStorage(storage),
 		RetentionPeriod:         cloneRetentionPeriod(retention),
-		FileFormatConfiguration: cloneFileFormatConfiguration(fileFormat),
+		FileFormatConfiguration: defaultFileFormat(fileFormat),
 		Partitions:              cloneDatastorePartitions(partitions),
 	}
 	maps.Copy(d.Tags, tags)

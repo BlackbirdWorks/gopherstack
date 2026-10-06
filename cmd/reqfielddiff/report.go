@@ -36,6 +36,7 @@ type serviceReport struct {
 	Module            string          `json:"module"`
 	ModuleErr         string          `json:"moduleErr,omitempty"`
 	Findings          []triageFinding `json:"findings,omitempty"`
+	Recorded          []triageFinding `json:"recorded,omitempty"`
 	Warnings          []string        `json:"warnings,omitempty"`
 	OpsTotal          int             `json:"opsTotal"`
 	OpsHandlerFound   int             `json:"opsHandlerFound"`
@@ -180,16 +181,26 @@ func printServiceReport(r serviceReport) {
 		fmt.Fprintf(os.Stdout, "excluded as deprecated in the SDK: %d\n", r.DeprecatedSkipped)
 	}
 
-	if len(r.Findings) == 0 {
+	if len(r.Findings) == 0 && len(r.Recorded) == 0 {
 		fmt.Fprintln(os.Stdout, "no undeclared SDK input fields found")
 		fmt.Fprintln(os.Stdout)
 
 		return
 	}
 
-	fmt.Fprintf(os.Stdout, "undeclared SDK input fields (%d), ranked:\n", len(r.Findings))
+	printFindingList("undeclared SDK input fields", r.Findings)
+	printFindingList("recorded in PARITY.md", r.Recorded)
+	fmt.Fprintln(os.Stdout)
+}
 
-	for _, f := range r.Findings {
+func printFindingList(title string, findings []triageFinding) {
+	if len(findings) == 0 {
+		return
+	}
+
+	fmt.Fprintf(os.Stdout, "%s (%d), ranked:\n", title, len(findings))
+
+	for _, f := range findings {
 		req := ""
 		if f.Field.Required {
 			req = " [required]"
@@ -197,8 +208,6 @@ func printServiceReport(r serviceReport) {
 
 		fmt.Fprintf(os.Stdout, "  tier%d  %s.%s%s  (%s)\n", f.Tier, f.Op, f.Field.Name, req, signalsText(f.Signals))
 	}
-
-	fmt.Fprintln(os.Stdout)
 }
 
 func signalsText(signals []string) string {

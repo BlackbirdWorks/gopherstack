@@ -1852,3 +1852,1610 @@ rows:
     date: "2026-08-30"
     commit: 20ac224ab
     source: parity+bd_comment
+  - service: codepipeline
+    class: filter_default_semantics
+    verdict: inapplicable
+    date: "2026-08-30"
+    commit: c75ee725b
+    source: "parity+bd_comment"
+    subject: "ListRuleTypes.ruleOwnerFilter"
+    reasoning: "types.RuleOwner has exactly one legal value (AWS) and every rule type carries it, so no legal filter value can change the result"
+  - service: codepipeline
+    class: filter_default_semantics
+    verdict: inapplicable
+    date: "2026-08-30"
+    commit: c75ee725b
+    source: "parity+bd_comment"
+    subject: "PollForJobs.queryParam"
+    reasoning: "Job tracks no per-job action-configuration data, so there is nothing honest to match queryParam against"
+  - service: codeartifact
+    class: filter_default_semantics
+    verdict: inapplicable
+    date: "2026-08-30"
+    commit: c75ee725b
+    source: "parity+bd_comment"
+    subject: "DomainOwner (all list ops)"
+    reasoning: "cross-account domain-sharing field; this single-account backend has no cross-account data model"
+  - service: medialive
+    class: filter_default_semantics
+    verdict: inapplicable
+    date: "2026-08-30"
+    commit: ac5c674d2
+    source: "parity+bd_comment"
+    subject: "ListAlerts.StateFilter"
+    reasoning: "listing returns an empty slice unconditionally (no channel-alert generation exists), so no legal StateFilter value can change the result"
+  - service: medialive
+    class: filter_default_semantics
+    verdict: inapplicable
+    date: "2026-08-30"
+    commit: ac5c674d2
+    source: "parity+bd_comment"
+    subject: "ListMultiplexAlerts.StateFilter"
+    reasoning: "listing returns an empty slice unconditionally (no multiplex-alert generation exists), so no legal StateFilter value can change the result"
+  - service: personalize
+    class: filter_default_semantics
+    verdict: inapplicable
+    date: "2026-08-30"
+    commit: ac5c674d2
+    source: "parity+bd_comment"
+    subject: "ListRecipes.RecipeProvider"
+    reasoning: "enum has exactly one legal value (SERVICE) and the whole static catalog carries it, so no legal input can change the result"
+  - service: opensearch
+    class: filter_default_semantics
+    verdict: inapplicable
+    date: "2026-08-30"
+    commit: ac5c674d2
+    source: "parity+bd_comment"
+    subject: "ListInstanceTypeDetails.RetrieveAZs"
+    reasoning: "static hardcoded catalogue has no availability-zone data to return or filter"
+  - service: opensearch
+    class: filter_default_semantics
+    verdict: inapplicable
+    date: "2026-08-30"
+    commit: ac5c674d2
+    source: "parity+bd_comment"
+    subject: "DescribeDryRunProgress.LoadDryRunConfig"
+    reasoning: "backend tracks dry-run status but keeps no snapshot of the planned domain config to echo"
+  - service: opensearch
+    class: filter_default_semantics
+    verdict: inapplicable
+    date: "2026-08-30"
+    commit: ac5c674d2
+    source: "parity+bd_comment"
+    subject: "DescribeDomainChangeProgress.ChangeId"
+    reasoning: "only Domain.LastChangeID is stored; no change history exists to look an older ChangeId up in"
+  - service: quicksight
+    class: filter_default_semantics
+    verdict: inapplicable
+    date: "2026-08-30"
+    commit: 45183c6f8
+    source: "parity+bd_comment"
+    subject: "SearchSpaces.CONTRIBUTED_BY"
+    reasoning: "storedSpace tracks no resource contributor, so there is no backing data to filter on"
+  - service: quicksight
+    class: filter_default_semantics
+    verdict: inapplicable
+    date: "2026-08-30"
+    commit: 45183c6f8
+    source: "parity+bd_comment"
+    subject: "SearchSpaces.CONSUMED_SOURCE_SIZE"
+    reasoning: "storedSpace tracks no consumed-size figure, so there is no backing data to filter on"
+  - service: quicksight
+    class: filter_default_semantics
+    verdict: inapplicable
+    date: "2026-08-30"
+    commit: 45183c6f8
+    source: "parity+bd_comment"
+    subject: "SearchSpaces.CREATED_BY"
+    reasoning: "principal-derived: CreateSpaceInput has no request field for it, so it never arrives on a request"
+  - service: iotwireless
+    class: filter_default_semantics
+    verdict: inapplicable
+    date: "2026-08-30"
+    commit: 92d569c91
+    source: "parity+bd_comment"
+    subject: "ListWirelessGatewayTaskDefinitions.taskDefinitionType"
+    reasoning: "WirelessGatewayTaskDefinitionType has exactly one legal value (UPDATE) and the backend has no type-selecting field, so no legal value can change the result"
+  - service: iotwireless
+    class: filter_default_semantics
+    verdict: inapplicable
+    date: "2026-08-30"
+    commit: 92d569c91
+    source: "parity+bd_comment"
+    subject: "ListDevicesForWirelessDeviceImportTask.status"
+    reasoning: "handler returns an unconditionally empty list; no per-device import records are modeled to filter over"
+  - service: codebuild
+    class: filter_default_semantics
+    verdict: inapplicable
+    date: "2026-08-31"
+    commit: ee25924d7
+    source: "parity"
+    subject: "DescribeTestCases.Filter"
+    reasoning: "provably inert: the only TestCase construction is an unconditional empty return, so no legal filter value can change the result"
+  - service: codebuild
+    class: filter_default_semantics
+    verdict: inapplicable
+    date: "2026-08-31"
+    commit: ee25924d7
+    source: "parity"
+    subject: "DescribeCodeCoverages.coverage-range-and-sort"
+    reasoning: "provably inert: the only CodeCoverage construction is an unconditional empty return, so no legal value can change the result"
+  - service: redshift
+    class: filter_default_semantics
+    verdict: inapplicable
+    date: "2026-08-31"
+    commit: ee25924d7
+    source: "parity"
+    subject: "DescribeClusterVersions.ClusterVersion"
+    reasoning: "static catalog has exactly one entry (modelVersion10), so filtering is provably inert"
+  - service: redshift
+    class: filter_default_semantics
+    verdict: inapplicable
+    date: "2026-08-31"
+    commit: ee25924d7
+    source: "parity"
+    subject: "DescribeAccountAttributes.AttributeNames"
+    reasoning: "response is a static empty envelope with no account-quota data modeled, so filtering is provably inert"
+  - service: opensearch
+    class: filter_default_semantics
+    verdict: inapplicable
+    date: "2026-08-31"
+    commit: ee25924d7
+    source: "parity"
+    subject: "ListInsights.SortOrder-TimeRange"
+    reasoning: "no analytics engine generates insights, so no legal input can change the always-empty result"
+  - service: accessanalyzer
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: acm
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: acmpca
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: amplify
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: apigateway
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: apigatewayv2
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: appconfig
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: applicationautoscaling
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: appmesh
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: apprunner
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: appstream
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: appsync
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: athena
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: autoscaling
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: awsconfig
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: backup
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: batch
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: bedrock
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: bedrockagent
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: bedrockruntime
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: cleanrooms
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: cloudformation
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: cloudtrail
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: cloudwatch
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: cloudwatchlogs
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: codeartifact
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: codebuild
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: codecommit
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: codeconnections
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: codedeploy
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: codepipeline
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: codestarconnections
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: cognitoidentity
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: cognitoidp
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: comprehend
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: databrew
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: datasync
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: dax
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: detective
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: directconnect
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: directoryservice
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: dlm
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: dms
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: docdb
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: dynamodb
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: dynamodbstreams
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: ec2
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: ecr
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: ecrpublic
+    class: region_isolation
+    verdict: inapplicable
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+    reasoning: "resources are not region-scoped by AWS definition (harness case marked global)"
+  - service: ecs
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: efs
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: eks
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: elasticache
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: elasticbeanstalk
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: elasticsearch
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: elb
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: elbv2
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: emr
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: emrserverless
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: eventbridge
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: firehose
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: fsx
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: glacier
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: glue
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: grafana
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: guardduty
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: iam
+    class: region_isolation
+    verdict: inapplicable
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+    reasoning: "resources are not region-scoped by AWS definition (harness case marked global)"
+  - service: identitystore
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: inspector2
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: iot
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: iotanalytics
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: iotdataplane
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: iotwireless
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: kafka
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: kafkaconnect
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: kinesis
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: kinesisanalytics
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: kinesisanalyticsv2
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: kinesisvideo
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: kms
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: lakeformation
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: lambda
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: lightsail
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: macie2
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: managedblockchain
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: mediaconvert
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: medialive
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: mediapackage
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: mediastore
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: mediastoredata
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: mediatailor
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: memorydb
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: mgn
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: mq
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: mwaa
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: neptune
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: networkmanager
+    class: region_isolation
+    verdict: inapplicable
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+    reasoning: "resources are not region-scoped by AWS definition (harness case marked global)"
+  - service: networkmonitor
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: omics
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: opensearch
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: opsworks
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: outposts
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: personalize
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: pinpoint
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: pipes
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: polly
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: quicksight
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: ram
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: rds
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: redshift
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: redshiftdata
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: rekognition
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: resiliencehub
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: resourcegroups
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: rolesanywhere
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: route53
+    class: region_isolation
+    verdict: inapplicable
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+    reasoning: "resources are not region-scoped by AWS definition (harness case marked global)"
+  - service: route53resolver
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: s3
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: s3control
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: s3tables
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: sagemaker
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: scheduler
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: secretsmanager
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: securityhub
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: serverlessrepo
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: servicediscovery
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: ses
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: sesv2
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: sns
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: sqs
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: ssm
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: ssoadmin
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: stepfunctions
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: swf
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: textract
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: timestreamquery
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: timestreamwrite
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: transcribe
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: transfer
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: translate
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: verifiedpermissions
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: vpclattice
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: wafv2
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: workmail
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: workspaces
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: xray
+    class: region_isolation
+    verdict: clean
+    date: "2026-10-04"
+    commit: 52537ce32
+    source: "commit"
+  - service: iot
+    class: undeclared_error_code
+    verdict: fixed
+    date: "2026-08-31"
+    commit: d7149d0f8
+    source: "commit+bd_comment"
+  - service: backup
+    class: undeclared_error_code
+    verdict: fixed
+    date: "2026-08-31"
+    commit: d7149d0f8
+    source: "commit+bd_comment"
+  - service: networkmanager
+    class: undeclared_error_code
+    verdict: fixed
+    date: "2026-08-31"
+    commit: d7149d0f8
+    source: "commit+bd_comment"
+  - service: bedrock
+    class: undeclared_error_code
+    verdict: fixed
+    date: "2026-08-31"
+    commit: 19f3d65f0
+    source: "commit+bd_comment"
+  - service: iotwireless
+    class: undeclared_error_code
+    verdict: clean
+    date: "2026-08-31"
+    commit: 19f3d65f0
+    source: "bd_comment"
+  - service: workmail
+    class: undeclared_error_code
+    verdict: fixed
+    date: "2026-08-31"
+    commit: 3ab42ee7c
+    source: "commit+bd_comment"
+  - service: appstream
+    class: undeclared_error_code
+    verdict: fixed
+    date: "2026-08-31"
+    commit: 3ab42ee7c
+    source: "commit+bd_comment"
+  - service: acmpca
+    class: undeclared_error_code
+    verdict: fixed
+    date: "2026-08-31"
+    commit: 3ab42ee7c
+    source: "bd_comment"
+  - service: route53resolver
+    class: undeclared_error_code
+    verdict: fixed
+    date: "2026-08-31"
+    commit: d488c8337
+    source: "commit+bd_comment"
+  - service: xray
+    class: undeclared_error_code
+    verdict: fixed
+    date: "2026-08-31"
+    commit: d488c8337
+    source: "commit+bd_comment"
+  - service: account
+    class: undeclared_error_code
+    verdict: clean
+    date: "2026-08-31"
+    commit: d488c8337
+    source: "bd_comment"
+  - service: cloudwatchlogs
+    class: undeclared_error_code
+    verdict: fixed
+    date: "2026-08-31"
+    commit: 43416bbd7
+    source: "commit+bd_comment"
+  - service: fsx
+    class: undeclared_error_code
+    verdict: fixed
+    date: "2026-08-31"
+    commit: 9cf2d2292
+    source: "commit+bd_comment"
+  - service: codestarconnections
+    class: undeclared_error_code
+    verdict: fixed
+    date: "2026-08-31"
+    commit: 9cf2d2292
+    source: "commit+bd_comment"
+  - service: bedrockagent
+    class: undeclared_error_code
+    verdict: clean
+    date: "2026-08-31"
+    commit: 9cf2d2292
+    source: "bd_comment"
+  - service: scheduler
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 8ff066a66
+    source: "commit"
+  - service: cognitoidp
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 8ff066a66
+    source: "commit"
+  - service: sesv2
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 8ff066a66
+    source: "commit"
+  - service: route53
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 8ff066a66
+    source: "commit"
+  - service: eks
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 8ff066a66
+    source: "commit"
+  - service: organizations
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 8ff066a66
+    source: "commit"
+  - service: ses
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 8ff066a66
+    source: "commit"
+  - service: kafka
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 8ff066a66
+    source: "commit"
+  - service: datasync
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: ac29acf5f
+    source: "commit"
+  - service: pinpoint
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: ac29acf5f
+    source: "commit"
+  - service: workspaces
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: ac29acf5f
+    source: "commit"
+  - service: macie2
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: ac29acf5f
+    source: "commit"
+  - service: cloudfront
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: ac29acf5f
+    source: "commit"
+  - service: vpclattice
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: ac29acf5f
+    source: "commit"
+  - service: memorydb
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: ac29acf5f
+    source: "commit"
+  - service: appsync
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: ac29acf5f
+    source: "commit"
+  - service: transfer
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: c4ec75cab
+    source: "commit"
+  - service: xray
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: c4ec75cab
+    source: "commit"
+  - service: firehose
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: c4ec75cab
+    source: "commit"
+  - service: emr
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: c4ec75cab
+    source: "commit"
+  - service: appstream
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: c4ec75cab
+    source: "commit"
+  - service: waf
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: c4ec75cab
+    source: "commit"
+  - service: directoryservice
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: c4ec75cab
+    source: "commit"
+  - service: cognitoidentity
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: c4ec75cab
+    source: "commit"
+  - service: cleanrooms
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: a0b49e3c1
+    source: "commit"
+  - service: bedrockagent
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: a0b49e3c1
+    source: "commit"
+  - service: networkmanager
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: a0b49e3c1
+    source: "commit"
+  - service: s3control
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: a0b49e3c1
+    source: "commit"
+  - service: ssoadmin
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: a0b49e3c1
+    source: "commit"
+  - service: lightsail
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: a0b49e3c1
+    source: "commit"
+  - service: apigateway
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: a0b49e3c1
+    source: "commit"
+  - service: workmail
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: a0b49e3c1
+    source: "parity"
+  - service: s3tables
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 7da0a893d
+    source: "commit"
+  - service: elasticsearch
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 7da0a893d
+    source: "commit"
+  - service: fis
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 7da0a893d
+    source: "commit"
+  - service: kinesisvideo
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 7da0a893d
+    source: "commit"
+  - service: elb
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: 7da0a893d
+    source: "commit"
+  - service: identitystore
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: 7da0a893d
+    source: "commit"
+  - service: dax
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: 7da0a893d
+    source: "commit"
+  - service: mwaa
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: 7da0a893d
+    source: "commit"
+  - service: batch
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 9de8c9d2f
+    source: "commit"
+  - service: codedeploy
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 9de8c9d2f
+    source: "commit"
+  - service: kinesisanalytics
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 9de8c9d2f
+    source: "commit"
+  - service: resiliencehub
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 9de8c9d2f
+    source: "commit"
+  - service: mediaconvert
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 9de8c9d2f
+    source: "commit"
+  - service: emrserverless
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 9de8c9d2f
+    source: "commit"
+  - service: efs
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 9de8c9d2f
+    source: "commit"
+  - service: managedblockchain
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: 9de8c9d2f
+    source: "commit"
+  - service: sqs
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: 9de8c9d2f
+    source: "commit"
+  - service: directconnect
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: 9de8c9d2f
+    source: "commit"
+  - service: iotanalytics
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 04f4c331a
+  - service: kinesisanalyticsv2
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 04f4c331a
+  - service: mediatailor
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 04f4c331a
+  - service: databrew
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 04f4c331a
+  - service: acm
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 04f4c331a
+  - service: applicationautoscaling
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 04f4c331a
+  - service: rolesanywhere
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 04f4c331a
+  - service: dlm
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 04f4c331a
+  - service: detective
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 04f4c331a
+  - service: kafkaconnect
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: 04f4c331a
+  - service: opsworks
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: 04f4c331a
+  - service: dsql
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: a8af9ded8
+    source: "commit+parity"
+  - service: iotdataplane
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: a8af9ded8
+    source: "commit+parity"
+  - service: polly
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: a8af9ded8
+    source: "commit+parity"
+  - service: cloudfrontkeyvaluestore
+    class: filter_default_semantics
+    verdict: fixed
+    date: "2026-10-05"
+    commit: a8af9ded8
+    source: "commit+parity"
+  - service: mediastore
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: a8af9ded8
+    source: "commit+parity"
+  - service: serverlessrepo
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: a8af9ded8
+    source: "commit+parity"
+  - service: networkmonitor
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: a8af9ded8
+    source: "commit+parity"
+  - service: cloudcontrol
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: a8af9ded8
+    source: "commit+parity"
+  - service: ecrpublic
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: a8af9ded8
+    source: "commit+parity"
+  - service: textract
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: a8af9ded8
+    source: "commit+parity"
+  - service: sts
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: a8af9ded8
+    source: "commit+parity"
+  - service: rdsdata
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: a8af9ded8
+    source: "commit+parity"
+  - service: bedrockruntime
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: a8af9ded8
+    source: "commit+parity"
+  - service: redshiftdata
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: a8af9ded8
+    source: "commit+parity"
+  - service: mediastoredata
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: 7c496c00b
+    source: "commit+parity"
+  - service: dynamodbstreams
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: 7c496c00b
+    source: "parity"
+  - service: appconfigdata
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-10-05"
+    commit: 7c496c00b
+    source: "parity"
+  - service: sagemakerruntime
+    class: filter_default_semantics
+    verdict: inapplicable
+    date: "2026-10-05"
+    commit: 7c496c00b
+    source: "parity"
+    reasoning: "Invoke operations are data-plane: no Create/Describe/Update surface and no SDK-documented filter or default."
+  - service: apigatewaymanagementapi
+    class: filter_default_semantics
+    verdict: inapplicable
+    date: "2026-10-05"
+    commit: 7c496c00b
+    source: "parity"
+    reasoning: "Post/Get/DeleteConnection are data-plane: no Update surface and no SDK-documented filter or default."
+  - service: qldb
+    class: filter_default_semantics
+    verdict: inapplicable
+    date: "2026-10-05"
+    commit: 7c496c00b
+    source: "commit"
+    reasoning: "README-only directory: no implementation and no SDK dependency, so there is no behaviour to check."
+  - service: qldbsession
+    class: filter_default_semantics
+    verdict: inapplicable
+    date: "2026-10-05"
+    commit: 7c496c00b
+    source: "commit"
+    reasoning: "README-only directory: no implementation and no SDK dependency, so there is no behaviour to check."

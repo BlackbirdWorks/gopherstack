@@ -250,6 +250,17 @@ type defaultPolicyFields struct {
 	CrossRegionCopyTargets []any
 }
 
+// defaultPolicyDefaults returns the documented defaults for a new default
+// policy (api_op_CreateLifecyclePolicy.go:65-137).
+func defaultPolicyDefaults() map[string]any {
+	const createInterval, retainInterval int32 = 1, 7
+
+	return map[string]any{
+		"CopyTags": false, "CreateInterval": createInterval, "ExtendDeletion": false,
+		"RetainInterval": retainInterval,
+	}
+}
+
 // defaultPolicyOverrideCount is the number of PolicyDetails keys overrides
 // can set: CopyTags, CreateInterval, RetainInterval, ExtendDeletion,
 // CrossRegionCopyTargets, Exclusions.
@@ -307,6 +318,11 @@ func (f defaultPolicyFields) applyTo(details map[string]any) map[string]any {
 	const resourceTypeAndPolicyLanguage = 2
 
 	merged := make(map[string]any, len(details)+defaultPolicyOverrideCount+resourceTypeAndPolicyLanguage)
+
+	if f.DefaultPolicy != "" {
+		maps.Copy(merged, defaultPolicyDefaults())
+	}
+
 	maps.Copy(merged, details)
 
 	if f.DefaultPolicy != "" {

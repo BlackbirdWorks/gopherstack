@@ -115,3 +115,9 @@ type removeTagsFromResourceResponse struct {
 	XMLName xml.Name `xml:"RemoveTagsFromResourceResponse"`
 	Xmlns   string   `xml:"xmlns,attr"`
 }
+
+func (h *Handler) applyNewTags(ctx context.Context, resourceARN string, tags []Tag) {
+	if len(tags) > 0 {
+		_ = h.Backend.AddTagsToResource(ctx, resourceARN, tags)
+	}
+}

@@ -9,14 +9,29 @@ func (h *Handler) ssmPatchBaselineOps() map[string]ssmActionFn {
 		"DescribePatchBaselines":                   jsonOp(h.Backend.DescribePatchBaselines),
 		"DescribePatchGroupState":                  jsonOp(h.Backend.DescribePatchGroupState),
 		"DescribePatchGroups":                      jsonOp(h.Backend.DescribePatchGroups),
-		"DescribePatchProperties":                  jsonOp(h.Backend.DescribePatchProperties),
-		"GetDefaultPatchBaseline":                  jsonOp(h.Backend.GetDefaultPatchBaseline),
-		"GetDeployablePatchSnapshotForInstance":    jsonOp(h.Backend.GetDeployablePatchSnapshotForInstance),
-		"GetPatchBaseline":                         jsonOp(h.Backend.GetPatchBaseline),
-		"GetPatchBaselineForPatchGroup":            jsonOp(h.Backend.GetPatchBaselineForPatchGroup),
-		"RegisterDefaultPatchBaseline":             jsonOp(h.Backend.RegisterDefaultPatchBaseline),
-		"RegisterPatchBaselineForPatchGroup":       jsonOp(h.Backend.RegisterPatchBaselineForPatchGroup),
-		"UpdatePatchBaseline":                      jsonOp(h.Backend.UpdatePatchBaseline),
-		"CreatePatchBaseline":                      jsonOp(h.Backend.CreatePatchBaseline),
+		"DescribePatchProperties": jsonOp(
+			h.Backend.DescribePatchProperties,
+			validateDescribePatchPropertiesEnums,
+		),
+		"GetDefaultPatchBaseline": jsonOp(
+			h.Backend.GetDefaultPatchBaseline,
+			validateGetDefaultPatchBaselineEnums,
+		),
+		"GetDeployablePatchSnapshotForInstance": jsonOp(h.Backend.GetDeployablePatchSnapshotForInstance),
+		"GetPatchBaseline":                      jsonOp(h.Backend.GetPatchBaseline),
+		"GetPatchBaselineForPatchGroup": jsonOp(
+			h.Backend.GetPatchBaselineForPatchGroup,
+			validateGetPatchBaselineForPatchGroupEnums,
+		),
+		"RegisterDefaultPatchBaseline":       jsonOp(h.Backend.RegisterDefaultPatchBaseline),
+		"RegisterPatchBaselineForPatchGroup": jsonOp(h.Backend.RegisterPatchBaselineForPatchGroup),
+		"UpdatePatchBaseline": jsonOp(
+			h.Backend.UpdatePatchBaseline,
+			validateUpdatePatchBaselineEnums,
+		),
+		"CreatePatchBaseline": jsonOp(
+			h.Backend.CreatePatchBaseline,
+			validateCreatePatchBaselineEnums,
+		),
 	}
 }

@@ -38,6 +38,7 @@ var (
 	ErrDeploymentNotInReadyState  = awserr.New("DeploymentIsNotInReadyStateException", awserr.ErrConflict)
 	ErrInvalidDeploymentWaitType  = awserr.New("InvalidDeploymentWaitTypeException", awserr.ErrInvalidParameter)
 	ErrInvalidFileExistsBehavior  = awserr.New("InvalidFileExistsBehaviorException", awserr.ErrInvalidParameter)
+	ErrInvalidTargetInstances     = awserr.New("InvalidTargetInstancesException", awserr.ErrInvalidParameter)
 	// ErrInvalidEC2TagCombination and ErrInvalidOnPremisesTagCombination guard
 	// CreateDeploymentGroup/UpdateDeploymentGroup's own modeled rule that at
 	// most one of each Ec2TagFilters/Ec2TagSet and
@@ -55,6 +56,8 @@ var (
 	// TagLimitExceededException (that code belongs to AddTagsToOnPremisesInstances/
 	// RemoveTagsFromOnPremisesInstances/UpdateDeploymentGroup instead).
 	ErrInvalidTagsToAdd = awserr.New("InvalidTagsToAddException", awserr.ErrInvalidParameter)
+	// ErrInvalidNextToken is the SDK's InvalidNextTokenException (types/errors.go:3694).
+	ErrInvalidNextToken = awserr.New("InvalidNextTokenException", awserr.ErrInvalidParameter)
 	// ErrBatchLimitExceeded is BatchGetApplicationRevisions' own modeled code for
 	// exceeding the 25-revision batch cap.
 	ErrBatchLimitExceeded = awserr.New("BatchLimitExceededException", awserr.ErrInvalidParameter)

@@ -417,6 +417,11 @@ func (b *InMemoryBackend) CreateUserPoolWithOpts(name string, opts UserPoolOptio
 		DeletionProtection:     opts.DeletionProtection,
 		MfaConfiguration:       opts.MfaConfiguration,
 		CustomAttributes:       customSchema,
+		Settings:               opts.Settings,
+	}
+
+	if pool.Settings.UserPoolTier == "" {
+		pool.Settings.UserPoolTier = defaultUserPoolTier
 	}
 
 	b.pools.Put(pool)
@@ -439,9 +444,10 @@ func (b *InMemoryBackend) UpdateUserPoolWithOpts(
 		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	if mfaConfiguration != "" {
-		pool.MfaConfiguration = mfaConfiguration
-	}
+	// UpdateUserPool resets every omitted attribute to its default.
+	pool.MfaConfiguration = mfaConfiguration
+	pool.PasswordPolicy = nil
+	pool.SignInPolicy = nil
 
 	if opts.PasswordPolicy != nil {
 		pp := *opts.PasswordPolicy
@@ -454,26 +460,25 @@ func (b *InMemoryBackend) UpdateUserPoolWithOpts(
 		pool.SignInPolicy = &sp
 	}
 
-	if opts.AutoVerifiedAttributes != nil {
-		av := make([]string, len(opts.AutoVerifiedAttributes))
-		copy(av, opts.AutoVerifiedAttributes)
-		pool.AutoVerifiedAttributes = av
+	pool.AutoVerifiedAttributes = slices.Clone(opts.AutoVerifiedAttributes)
+	pool.LambdaConfig = opts.LambdaConfig
+	pool.EmailConfiguration = opts.EmailConfiguration
+	pool.AccountRecoverySetting = opts.AccountRecoverySetting
+	pool.DeletionProtection = opts.DeletionProtection
+
+	settings := opts.Settings
+	settings.UsernameConfiguration = pool.Settings.UsernameConfiguration
+	settings.UsernameAttributes = pool.Settings.UsernameAttributes
+	settings.AliasAttributes = pool.Settings.AliasAttributes
+
+	if settings.UserPoolTier == "" {
+		settings.UserPoolTier = defaultUserPoolTier
 	}
 
-	if opts.LambdaConfig != nil {
-		pool.LambdaConfig = opts.LambdaConfig
-	}
+	pool.Settings = settings
 
-	if opts.EmailConfiguration != nil {
-		pool.EmailConfiguration = opts.EmailConfiguration
-	}
-
-	if opts.AccountRecoverySetting != nil {
-		pool.AccountRecoverySetting = opts.AccountRecoverySetting
-	}
-
-	if opts.DeletionProtection != "" {
-		pool.DeletionProtection = opts.DeletionProtection
+	if opts.PoolName != "" {
+		pool.Name = opts.PoolName
 	}
 
 	pool.UpdatedAt = time.Now()

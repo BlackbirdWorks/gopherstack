@@ -8,6 +8,7 @@ import (
 type deleteRuleInput struct {
 	Name         string `json:"Name"`
 	EventBusName string `json:"EventBusName"`
+	Force        bool   `json:"Force"`
 }
 
 type listRulesInput struct {
@@ -102,7 +103,7 @@ func (h *Handler) ruleActions() map[string]actionFn {
 			}
 			// Capture ARN before deletion so we can clean up tags.
 			rule, _ := h.Backend.DescribeRule(ctx, input.Name, input.EventBusName)
-			if err := h.Backend.DeleteRule(ctx, input.Name, input.EventBusName); err != nil {
+			if err := h.Backend.DeleteRuleForce(ctx, input.Name, input.EventBusName, input.Force); err != nil {
 				return nil, err
 			}
 			if rule != nil {

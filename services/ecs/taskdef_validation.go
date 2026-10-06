@@ -33,7 +33,33 @@ func validateRegisterTaskDefinition(input RegisterTaskDefinitionInput) error {
 		return err
 	}
 
+	if err := validateProxyConfiguration(input); err != nil {
+		return err
+	}
+
 	return validateCompatibilities(input)
+}
+
+// validateProxyConfiguration requires the proxy container to exist and the type to be APPMESH.
+func validateProxyConfiguration(input RegisterTaskDefinitionInput) error {
+	pc := input.ProxyConfiguration
+	if pc == nil {
+		return nil
+	}
+
+	if pc.Type != "" && pc.Type != "APPMESH" {
+		return fmt.Errorf("%w: proxyConfiguration.type must be APPMESH", ErrClient)
+	}
+
+	for _, c := range input.ContainerDefinitions {
+		if c.Name == pc.ContainerName {
+			return nil
+		}
+	}
+
+	return fmt.Errorf(
+		"%w: proxyConfiguration.containerName %q does not match a container definition", ErrClient, pc.ContainerName,
+	)
 }
 
 // validateNetworkMode rejects unknown network modes. An empty network mode is

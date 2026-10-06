@@ -8,6 +8,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
+const (
+	applicationAttrLaunchParameters = "LAUNCH_PARAMETERS"
+	applicationAttrWorkingDirectory = "WORKING_DIRECTORY"
+)
+
 type storedApplication struct {
 	CreatedTime      time.Time         `json:"createdTime"`
 	Tags             map[string]string `json:"tags"`
@@ -183,6 +188,7 @@ func (b *InMemoryBackend) DescribeApplications(arns []string) ([]*Application, e
 // UpdateApplication updates mutable application fields.
 func (b *InMemoryBackend) UpdateApplication(
 	name, displayName, description, launchPath, launchParameters, workingDirectory string,
+	opts UpdateApplicationOptions,
 ) (*Application, error) {
 	b.mu.Lock("UpdateApplication")
 	defer b.mu.Unlock()
@@ -210,6 +216,23 @@ func (b *InMemoryBackend) UpdateApplication(
 
 	if workingDirectory != "" {
 		app.WorkingDirectory = workingDirectory
+	}
+
+	if opts.AppBlockArn != "" {
+		app.AppBlockArn = opts.AppBlockArn
+	}
+
+	if opts.IconS3Location != nil {
+		app.IconS3Location = *opts.IconS3Location
+	}
+
+	for _, attr := range opts.AttributesToDelete {
+		switch attr {
+		case applicationAttrLaunchParameters:
+			app.LaunchParameters = ""
+		case applicationAttrWorkingDirectory:
+			app.WorkingDirectory = ""
+		}
 	}
 
 	return app.toApplication(), nil

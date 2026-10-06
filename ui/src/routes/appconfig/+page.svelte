@@ -1,8 +1,8 @@
 <script lang="ts">
-	import { confirmDestructive } from '$lib/confirm-dialog';
+	import { confirmDestructive } from '#lib/confirm-dialog.ts';
 	import { untrack } from 'svelte';
-	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
-	import { getAppConfigClient } from '$lib/aws-client';
+	import { onRegionChange, regionalClient } from '#lib/region-effect.svelte.ts';
+	import { getAppConfigClient } from '#lib/aws-client.ts';
 	import {
 		ListApplicationsCommand,
 		ListEnvironmentsCommand,

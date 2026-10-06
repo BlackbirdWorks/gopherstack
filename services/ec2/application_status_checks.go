@@ -222,12 +222,10 @@ type ApplicationStatusSuppressionFailure struct {
 // as returned by DescribeApplicationStatus. See computeApplicationStatusLocked
 // for why Status is only ever one of "not-applicable"/"insufficient-data"/"suppressed".
 type InstanceApplicationStatus struct {
-	StatusTimeStamp  time.Time
-	ResumeAt         time.Time
-	InstanceID       string
-	AvailabilityZone string
-	// AvailabilityZoneID is never populated: this backend does not track a
-	// separate AZ-ID from AZ-name for instances. Documented gap, not fabricated.
+	StatusTimeStamp    time.Time
+	ResumeAt           time.Time
+	InstanceID         string
+	AvailabilityZone   string
 	AvailabilityZoneID string
 	Status             string
 }
@@ -957,9 +955,10 @@ func (b *InMemoryBackend) computeApplicationStatusLocked(
 	includedChecks []*ApplicationStatusCheck,
 ) *InstanceApplicationStatus {
 	result := &InstanceApplicationStatus{
-		InstanceID:       inst.ID,
-		AvailabilityZone: inst.Placement.AvailabilityZone,
-		StatusTimeStamp:  time.Now().UTC(),
+		InstanceID:         inst.ID,
+		AvailabilityZone:   inst.Placement.AvailabilityZone,
+		AvailabilityZoneID: availabilityZoneID(inst.Placement.AvailabilityZone),
+		StatusTimeStamp:    time.Now().UTC(),
 	}
 
 	if sup, ok := b.applicationStatusSuppressions.Get(inst.ID); ok && applicationStatusSuppressionActiveLocked(sup) {

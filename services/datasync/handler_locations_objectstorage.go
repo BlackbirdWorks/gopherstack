@@ -3,6 +3,8 @@ package datasync
 import (
 	"context"
 	"fmt"
+
+	dstypes "github.com/aws/aws-sdk-go-v2/service/datasync/types"
 )
 
 // --- ObjectStorage location ---
@@ -18,6 +20,7 @@ type createLocationObjectStorageInput struct {
 	ServerProtocol     string                  `json:"ServerProtocol,omitempty"`
 	AgentArns          []string                `json:"AgentArns"`
 	Tags               []tagInput              `json:"Tags"`
+	ServerCertificate  []byte                  `json:"ServerCertificate,omitempty"`
 	ServerPort         int32                   `json:"ServerPort,omitempty"`
 }
 
@@ -29,6 +32,10 @@ func (h *Handler) handleCreateLocationObjectStorage(
 	_ context.Context,
 	in *createLocationObjectStorageInput,
 ) (*createLocationObjectStorageOutput, error) {
+	if err := checkEnum("ServerProtocol", dstypes.ObjectStorageServerProtocol(in.ServerProtocol)); err != nil {
+		return nil, err
+	}
+
 	if in.ServerHostname == "" {
 		return nil, fmt.Errorf("%w: ServerHostname is required", errInvalidRequest)
 	}
@@ -50,7 +57,7 @@ func (h *Handler) handleCreateLocationObjectStorage(
 
 	l, err := h.Backend.CreateLocationObjectStorage(
 		in.ServerHostname, in.ServerProtocol, in.BucketName, in.Subdirectory,
-		in.AccessKey, in.SecretKey, in.ServerPort, in.AgentArns, tags, secretConfig,
+		in.AccessKey, in.SecretKey, in.ServerPort, in.ServerCertificate, in.AgentArns, tags, secretConfig,
 	)
 	if err != nil {
 		return nil, err
@@ -80,6 +87,7 @@ type describeLocationObjectStorageOutput struct {
 	LocationURI        string                  `json:"LocationUri"`
 	AccessKey          string                  `json:"AccessKey,omitempty"`
 	ServerProtocol     string                  `json:"ServerProtocol,omitempty"`
+	ServerCertificate  []byte                  `json:"ServerCertificate,omitempty"`
 	AgentArns          []string                `json:"AgentArns,omitempty"`
 	CreationTime       int64                   `json:"CreationTime"`
 	ServerPort         int32                   `json:"ServerPort,omitempty"`
@@ -104,6 +112,7 @@ func (h *Handler) handleDescribeLocationObjectStorage(
 		AccessKey:          l.AccessKey,
 		ServerProtocol:     l.ServerProtocol,
 		ServerPort:         l.ServerPort,
+		ServerCertificate:  l.ServerCertificate,
 		AgentArns:          l.AgentArns,
 		CreationTime:       l.CreationTime.Unix(),
 		CmkSecretConfig:    cmkSecretConfigToWire(l.CmkSecretConfig),
@@ -121,6 +130,7 @@ type updateLocationObjectStorageInput struct {
 	SecretKey          string                  `json:"SecretKey,omitempty"`
 	ServerProtocol     string                  `json:"ServerProtocol,omitempty"`
 	AgentArns          []string                `json:"AgentArns"`
+	ServerCertificate  []byte                  `json:"ServerCertificate,omitempty"`
 	ServerPort         int32                   `json:"ServerPort,omitempty"`
 }
 
@@ -130,6 +140,10 @@ func (h *Handler) handleUpdateLocationObjectStorage(
 	_ context.Context,
 	in *updateLocationObjectStorageInput,
 ) (*updateLocationObjectStorageOutput, error) {
+	if err := checkEnum("ServerProtocol", dstypes.ObjectStorageServerProtocol(in.ServerProtocol)); err != nil {
+		return nil, err
+	}
+
 	if in.LocationArn == "" {
 		return nil, fmt.Errorf("%w: LocationArn is required", errInvalidRequest)
 	}
@@ -145,7 +159,7 @@ func (h *Handler) handleUpdateLocationObjectStorage(
 
 	if err := h.Backend.UpdateLocationObjectStorage(
 		in.LocationArn, in.ServerHostname, in.ServerProtocol, in.Subdirectory,
-		in.AccessKey, in.SecretKey, in.ServerPort, in.AgentArns, secretConfig,
+		in.AccessKey, in.SecretKey, in.ServerPort, in.ServerCertificate, in.AgentArns, secretConfig,
 	); err != nil {
 		return nil, err
 	}

@@ -3,6 +3,7 @@ package glue
 import (
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -40,6 +41,26 @@ func cloneStorageDescriptor(sd StorageDescriptor) StorageDescriptor {
 		cp.SortColumns = append([]Order(nil), sd.SortColumns...)
 	}
 
+	cp.AdditionalLocations = slices.Clone(sd.AdditionalLocations)
+
+	if sd.SchemaReference != nil {
+		sr := *sd.SchemaReference
+		if sd.SchemaReference.SchemaID != nil {
+			id := *sd.SchemaReference.SchemaID
+			sr.SchemaID = &id
+		}
+
+		cp.SchemaReference = &sr
+	}
+
+	if sd.SkewedInfo != nil {
+		si := *sd.SkewedInfo
+		si.SkewedColumnNames = slices.Clone(sd.SkewedInfo.SkewedColumnNames)
+		si.SkewedColumnValues = slices.Clone(sd.SkewedInfo.SkewedColumnValues)
+		si.SkewedColumnValueLocationMaps = maps.Clone(sd.SkewedInfo.SkewedColumnValueLocationMaps)
+		cp.SkewedInfo = &si
+	}
+
 	if sd.SerdeInfo != nil {
 		si := *sd.SerdeInfo
 		si.Parameters = maps.Clone(sd.SerdeInfo.Parameters)
@@ -55,6 +76,11 @@ func cloneTable(t *Table) *Table {
 	cp.StorageDescriptor = cloneStorageDescriptor(t.StorageDescriptor)
 	cp.PartitionKeys = cloneColumns(t.PartitionKeys)
 	cp.Parameters = maps.Clone(t.Parameters)
+
+	if t.TargetTable != nil {
+		tt := *t.TargetTable
+		cp.TargetTable = &tt
+	}
 
 	return &cp
 }
@@ -82,6 +108,19 @@ func (b *InMemoryBackend) countTablesInDatabase(dbName string) int {
 	})
 
 	return n
+}
+
+func applyTableInputExtras(t *Table, input TableInput) {
+	t.ViewOriginalText = input.ViewOriginalText
+	t.ViewExpandedText = input.ViewExpandedText
+	t.LastAccessTime = input.LastAccessTime
+	t.LastAnalyzedTime = input.LastAnalyzedTime
+
+	t.TargetTable = nil
+	if input.TargetTable != nil {
+		tt := *input.TargetTable
+		t.TargetTable = &tt
+	}
 }
 
 // CreateTable creates a new Glue table in a database.
@@ -120,7 +159,20 @@ func (b *InMemoryBackend) CreateTable(dbName string, input TableInput) (*Table, 
 		CreateTime:        now,
 		UpdateTime:        now,
 	}
+	applyTableInputExtras(t, input)
+
+	for _, idx := range input.PartitionIndexes {
+		if err := validatePartitionIndex(t, idx); err != nil {
+			return nil, err
+		}
+	}
+
 	b.tables.Put(t)
+	for _, idx := range input.PartitionIndexes {
+		idx.IndexStatus = stateActive
+		b.partitionIndexes[partitionIndexKey(dbName, input.Name, idx.IndexName)] = clonePartitionIndex(&idx)
+	}
+
 	b.addTableVersionLocked(t)
 
 	return t, nil
@@ -206,6 +258,7 @@ func (b *InMemoryBackend) UpdateTable(dbName string, input TableInput) error {
 	t.StorageDescriptor = input.StorageDescriptor
 	t.PartitionKeys = input.PartitionKeys
 	t.TableType = input.TableType
+	applyTableInputExtras(t, input)
 	t.UpdateTime = float64(time.Now().Unix())
 
 	if !input.SkipArchive {

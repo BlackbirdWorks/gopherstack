@@ -60,20 +60,12 @@ func (h *Handler) handleDescribeCapacityBlockOfferings(vals url.Values, reqID st
 		return nil, err
 	}
 
-	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
-	if err != nil {
-		return nil, err
-	}
-
-	var nextToken string
-	offerings, nextToken = pageSlice(offerings, offset, maxResults)
-
-	resp := &describeCapacityBlockOfferingsResponse{Xmlns: ec2XMLNS, RequestID: reqID, NextToken: nextToken}
+	resp := &describeCapacityBlockOfferingsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, o := range offerings {
 		resp.Offerings.Items = append(resp.Offerings.Items, toCapacityBlockOfferingItem(o))
 	}
 
-	return resp, nil
+	return finishDescribe(vals, resp, describeOpts{spec: stdPageSpec(), bounds: boundsCapacityBlockOfferings})
 }
 
 type capacityBlockItem struct {
@@ -193,7 +185,7 @@ func (h *Handler) handleDescribeCapacityBlockExtensionOfferings(vals url.Values,
 		resp.Offerings.Items = append(resp.Offerings.Items, toCapacityBlockExtensionOfferingItem(o))
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 type capacityBlockExtensionItem struct {

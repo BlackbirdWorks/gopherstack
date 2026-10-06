@@ -51,7 +51,7 @@ func (h *Handler) handleDescribeVpcEndpointServiceConfigurations(
 		)
 	}
 
-	return resp, nil
+	return finishDescribe(vals, resp, describeOpts{spec: specClamp5()})
 }
 
 func (h *Handler) handleDeleteVpcEndpointServiceConfigurations(

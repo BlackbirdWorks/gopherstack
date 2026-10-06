@@ -92,6 +92,8 @@ gaps: []
 items_still_open:
   - "Unmodeled subsystems (no backing state, no database engine): DBCluster AssociatedRoles/CloneGroupId/IOOptimizedNextAllowedModificationTime/PercentProgress; DBInstance CertificateDetails/PendingModifiedValues/StatusInfos; DBSubnetGroup SupportedNetworkTypes; GlobalCluster FailoverState (failover applies synchronously)."
   - "OPEN 2026-10-03: ManageMasterUserPassword/MasterUserSecretKmsKeyId record MasterUserSecret on the cluster but create no secret in services/secretsmanager, RotateMasterUserPassword is unread, and an unset key leaves KmsKeyId empty."
+  - "Error code InvalidParameterCombination is used for a major EngineVersion change without AllowMajorVersionUpgrade, for copy-on-write with RestoreToTime and for AllowDataLoss with Switchover: the pinned SDK documents the constraints but no error code, so the code is unverified against real AWS."
+  - "Accepted but unmodeled request members: CreateDBCluster/CopyDBClusterSnapshot SourceRegion and PreSignedUrl (no cross-region copy), RebootDBInstance ForceFailover (no Multi-AZ model), RestoreDBClusterToPointInTime copy-on-write clone semantics (restores a full copy), DescribeDBEngineVersions ListSupportedCharacterSets/ListSupportedTimezones and DBEngineVersion ValidUpgradeTarget (no catalog), DescribeOrderableDBInstanceOptions LicenseModel/Vpc filters."
   - "ReplicationSourceIdentifier/ReadReplicaIdentifiers stay empty: CreateDBClusterInput has no such member and docdb has no PromoteReadReplicaDBCluster, so only an unbuilt global-cluster secondary-attach path could populate them."
   - "DBClusterSnapshot.VpcId stays empty: CreateDBSubnetGroupInput has no VpcId and this backend cannot resolve subnet-to-VPC without EC2, so every subnet group's VpcId is empty."
   - "Parameter AllowedValues/MinimumEngineVersion and Certificate.CertificateArn: no authoritative source for the built-in catalog values or ARN format; not guessed."
@@ -445,3 +447,16 @@ are no foreign-account snapshots to include.
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 Audited for region isolation: same-named resources in two regions coexist and list per region; no code change. Proof: `TestRegionIsolation/docdb`.
+
+## 2026-10-05 (reqfielddiff tier-2 filters)
+
+All 12 flagged `Filters` members (DescribeCertificates, DescribeDBClusterParameterGroups, DescribeDBClusterParameters, DescribeDBClusterSnapshots, DescribeDBEngineVersions, DescribeDBSubnetGroups, DescribeEngineDefaultClusterParameters, DescribeEventCategories, DescribeEventSubscriptions, DescribeEvents, DescribeOrderableDBInstanceOptions, ListTagsForResource) are false positives: docdb@v1.51.4 documents "This parameter is not currently supported." for each.
+
+## 2026-10-05 (gopherstack-1jkv Marker check)
+
+applyDocDBMarker restarts at page one on a malformed Marker. The pinned docdb SDK declares no invalid-Marker error (types/errors.go has no InvalidParameterValue), so there is no documented code to return; recorded, not changed.
+
+## 2026-10-05 (reqfielddiff tier-1/2 pass 8)
+
+False positives: every flagged Describe*/ListTagsForResource Filters member is documented 'isn't currently supported' in docdb@v1.51.4. IncludePublic/IncludeShared stay recorded (single account).
+- **2026-10-05 (pass 6, gopherstack-9x62)**: ModifyDBInstance/ModifyDBCluster NewDB*Identifier re-key with new ARN, endpoints, tags and member links (rename onto an existing id is rejected); ModifyDBCluster enforces AllowMajorVersionUpgrade; RestoreType is validated; DescribeDBEngineVersions reports ExportableLogTypes (audit, profiler per the CreateDBCluster SDK doc); InvalidParameterCombination and InvalidDBInstanceState now map to 400 instead of InternalFailure.

@@ -1,6 +1,10 @@
 package lightsail
 
-import "context"
+import (
+	"context"
+
+	lstypes "github.com/aws/aws-sdk-go-v2/service/lightsail/types"
+)
 
 // instanceOps returns the dispatch table for family B (9 ops).
 func (h *Handler) instanceOps() map[string]opFunc {
@@ -226,6 +230,10 @@ func (h *Handler) handleCreateInstances(_ context.Context, body []byte) ([]byte,
 		return nil, err
 	}
 
+	if vErr := checkEnum("ipAddressType", lstypes.IpAddressType(req.IPAddressType)); vErr != nil {
+		return nil, vErr
+	}
+
 	ops, createErr := h.Backend.CreateInstances(CreateInstancesRequest{
 		Names: req.InstanceNames, AvailabilityZone: req.AvailabilityZone, BlueprintID: req.BlueprintID,
 		BundleID: req.BundleID, KeyPairName: req.KeyPairName, IPAddressType: req.IPAddressType,
@@ -261,6 +269,10 @@ func (h *Handler) handleCreateInstancesFromSnapshot(_ context.Context, body []by
 	req, err := decodeBody[createInstancesFromSnapshotRequestWire](body)
 	if err != nil {
 		return nil, err
+	}
+
+	if vErr := checkEnum("ipAddressType", lstypes.IpAddressType(req.IPAddressType)); vErr != nil {
+		return nil, vErr
 	}
 
 	ops, createErr := h.Backend.CreateInstancesFromSnapshot(CreateInstancesFromSnapshotRequest{

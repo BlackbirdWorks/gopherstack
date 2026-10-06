@@ -215,3 +215,11 @@ delayed transition fires. No `items_still_open` changes; no
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 databrew already region-isolated: same-named resources in two regions stay separate and each region lists only its own. No code change. Proof: `TestRegionIsolation/databrew`.
+
+## 2026-10-04 (gopherstack-uox6 value-semantics)
+
+ListSchedules now honours `jobName` (schedules whose JobNames contains it); the query parameter was never merged into the request body.
+
+## 2026-10-05 (gopherstack-uox6 pass 11, value semantics)
+
+UpdateProject keeps an omitted Sample, UpdateDataset keeps omitted Format/FormatOptions/PathOptions, and UpdateRecipeJob/UpdateProfileJob keep MaxRetries when omitted (the SDK's plain int32 cannot send 0, so every other update zeroed it). Interpretation: the SDK is silent on omission; this follows the package's own UpdateSchedule/UpdateJob convention. Proof: `TestPartialUpdatesKeepOmittedMembers`. Recorded, unchanged: UpdateProject's output omits LastModifiedDate (optional member).

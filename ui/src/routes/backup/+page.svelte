@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { confirmDestructive } from '$lib/confirm-dialog';
+	import { confirmDestructive } from '#lib/confirm-dialog.ts';
 	import { untrack } from 'svelte';
-	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
-	import { multiRegionList } from '$lib/multi-region';
-	import RegionChip from '$lib/components/RegionChip.svelte';
-	import WriteRegionHint from '$lib/components/WriteRegionHint.svelte';
-	import { getBackupClient } from '$lib/aws-client';
+	import { onRegionChange, regionalClient } from '#lib/region-effect.svelte.ts';
+	import { multiRegionList } from '#lib/multi-region.ts';
+	import RegionChip from '#lib/components/RegionChip.svelte';
+	import WriteRegionHint from '#lib/components/WriteRegionHint.svelte';
+	import { getBackupClient } from '#lib/aws-client.ts';
 	import {
 		ListBackupPlansCommand,
 		ListBackupVaultsCommand,

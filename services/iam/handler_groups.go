@@ -98,16 +98,19 @@ func (h *Handler) iamGroupDispatchTable() map[string]iamActionFn {
 			}
 
 			members, _ := h.Backend.GetGroupUsers(vals.Get("GroupName"))
-			xmlUsers := make([]UserXML, 0, len(members))
-			for i := range members {
-				xmlUsers = append(xmlUsers, toUserXML(&members[i]))
+			pg := pageForm(members, vals)
+			xmlUsers := make([]UserXML, 0, len(pg.Data))
+			for i := range pg.Data {
+				xmlUsers = append(xmlUsers, toUserXML(&pg.Data[i]))
 			}
 
 			return &GetGroupResponse{
 				Xmlns: iamXMLNS,
 				GetGroupResult: GetGroupResult{
-					Group: toGroupXML(g),
-					Users: xmlUsers,
+					Group:       toGroupXML(g),
+					Users:       xmlUsers,
+					Marker:      pg.Next,
+					IsTruncated: pg.Next != "",
 				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil

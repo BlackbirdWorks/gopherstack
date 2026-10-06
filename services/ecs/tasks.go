@@ -310,7 +310,8 @@ func (b *InMemoryBackend) createTaskEntriesLocked(
 		var hostPortBindings map[string][]NetworkBinding
 
 		if launchType == launchTypeFargate {
-			task.Attachments = []TaskAttachment{newFargateTaskAttachment(task.TaskArn)}
+			subnet := firstRequestedSubnet(input.NetworkConfiguration)
+			task.Attachments = []TaskAttachment{newFargateTaskAttachment(task.TaskArn, subnet)}
 		} else {
 			bindings, failure := b.placeEC2TaskLocked(clusterName, task, td, input)
 			if failure != nil {
@@ -818,36 +819,7 @@ func (b *InMemoryBackend) StartTask(input StartTaskInput) ([]Task, []Failure, er
 				continue
 			}
 
-			taskID := uuid.New().String()
-			taskArn := arn.Build(
-				"ecs",
-				b.region,
-				b.accountID,
-				fmt.Sprintf("task/%s/%s", clusterName, taskID),
-			)
-			now := time.Now()
-
-			taskRoleArn := td.TaskRoleArn
-			if input.Overrides != nil && input.Overrides.TaskRoleArn != "" {
-				taskRoleArn = input.Overrides.TaskRoleArn
-			}
-
-			t := &Task{
-				Overrides:            input.Overrides,
-				NetworkConfiguration: input.NetworkConfiguration,
-				EnableExecuteCommand: input.EnableExecuteCommand,
-				TaskRoleArn:          taskRoleArn,
-				TaskArn:              taskArn,
-				ClusterArn:           clusterArn,
-				TaskDefinitionArn:    td.TaskDefinitionArn,
-				LastStatus:           statusRunning,
-				DesiredStatus:        statusRunning,
-				Group:                input.Group,
-				LaunchType:           "EC2",
-				ContainerInstanceArn: ciArn,
-				StartedBy:            input.StartedBy,
-				StartedAt:            &now,
-			}
+			t := b.newStartedTaskLocked(clusterName, clusterArn, ciArn, td, input)
 
 			b.tasks.Put(t)
 			tasks = append(tasks, *t)
@@ -863,6 +835,49 @@ func (b *InMemoryBackend) StartTask(input StartTaskInput) ([]Task, []Failure, er
 	}
 
 	return tasks, failures, nil
+}
+
+// newStartedTaskLocked builds and tags one RUNNING task on a chosen container instance.
+func (b *InMemoryBackend) newStartedTaskLocked(
+	clusterName, clusterArn, ciArn string,
+	td *TaskDefinition,
+	input StartTaskInput,
+) *Task {
+	taskArn := arn.Build("ecs", b.region, b.accountID, fmt.Sprintf("task/%s/%s", clusterName, uuid.New().String()))
+	now := time.Now()
+
+	taskRoleArn := td.TaskRoleArn
+	if input.Overrides != nil && input.Overrides.TaskRoleArn != "" {
+		taskRoleArn = input.Overrides.TaskRoleArn
+	}
+
+	resolvedTags := resolveTaskTags(
+		input.Tags, input.PropagateTags, input.EnableECSManagedTags,
+		clusterName, "", td, b.resourceTags[resourceTagKey(td.TaskDefinitionArn)], nil,
+	)
+
+	if len(resolvedTags) > 0 {
+		b.setResourceTagsLocked(taskArn, resolvedTags)
+	}
+
+	return &Task{
+		PropagateTags:        input.PropagateTags,
+		Tags:                 resolvedTags,
+		Overrides:            input.Overrides,
+		NetworkConfiguration: input.NetworkConfiguration,
+		EnableExecuteCommand: input.EnableExecuteCommand,
+		TaskRoleArn:          taskRoleArn,
+		TaskArn:              taskArn,
+		ClusterArn:           clusterArn,
+		TaskDefinitionArn:    td.TaskDefinitionArn,
+		LastStatus:           statusRunning,
+		DesiredStatus:        statusRunning,
+		Group:                input.Group,
+		LaunchType:           "EC2",
+		ContainerInstanceArn: ciArn,
+		StartedBy:            input.StartedBy,
+		StartedAt:            &now,
+	}
 }
 
 // GetTaskProtection returns the protection state for the given tasks on a cluster.
@@ -1072,4 +1087,13 @@ func markContainerStopped(task *Task, containerName string, exitCode int) {
 			return
 		}
 	}
+}
+
+// firstRequestedSubnet returns the first awsvpc subnet in nc, or "".
+func firstRequestedSubnet(nc *NetworkConfiguration) string {
+	if nc == nil || nc.AwsvpcConfiguration == nil || len(nc.AwsvpcConfiguration.Subnets) == 0 {
+		return ""
+	}
+
+	return nc.AwsvpcConfiguration.Subnets[0]
 }

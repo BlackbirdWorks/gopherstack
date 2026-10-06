@@ -254,8 +254,8 @@ func parseShardFilter(filter *streamstypes.ShardFilter) (*string, error) {
 // The label is the last path segment after /stream/: e.g. "2024-01-01T00:00:00.000".
 func streamLabelFromARN(streamARN string) string {
 	const sep = "/stream/"
-	if idx := strings.LastIndex(streamARN, sep); idx >= 0 {
-		return streamARN[idx+len(sep):]
+	if _, after, ok := strings.CutLast(streamARN, sep); ok {
+		return after
 	}
 
 	return streamARN

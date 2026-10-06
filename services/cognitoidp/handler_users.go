@@ -3,6 +3,7 @@ package cognitoidp
 import (
 	"context"
 	"maps"
+	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -131,7 +132,14 @@ func (h *Handler) handleListUsers(
 
 	summaries := make([]*userSummary, 0, len(users))
 	for _, u := range users {
-		summaries = append(summaries, toUserSummary(u))
+		sum := toUserSummary(u)
+		if len(in.AttributesToGet) > 0 {
+			sum.Attributes = slices.DeleteFunc(sum.Attributes, func(a attributeType) bool {
+				return !slices.Contains(in.AttributesToGet, a.Name)
+			})
+		}
+
+		summaries = append(summaries, sum)
 	}
 
 	return &listUsersOutput{Users: summaries, PaginationToken: nextToken}, nil
@@ -191,7 +199,7 @@ func (h *Handler) handleAdminCreateUserFull(
 ) (*adminCreateUserFullOutput, error) {
 	attrs := attributeListToMap(in.UserAttributes)
 
-	user, err := h.Backend.AdminCreateUserFull(
+	user, err := h.Backend.AdminCreateUserWithTriggerData(
 		in.UserPoolID,
 		in.Username,
 		in.TemporaryPassword,
@@ -199,6 +207,7 @@ func (h *Handler) handleAdminCreateUserFull(
 		in.MessageAction,
 		in.DesiredDeliveryMediums,
 		in.ForceAliasCreation,
+		TriggerData{ClientMetadata: in.ClientMetadata, ValidationData: attributeListToMap(in.ValidationData)},
 	)
 	if err != nil {
 		return nil, err

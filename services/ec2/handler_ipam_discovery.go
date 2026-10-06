@@ -261,6 +261,7 @@ type getIpamResourceCidrsResponse struct {
 	XMLName             xml.Name `xml:"GetIpamResourceCidrsResponse"`
 	Xmlns               string   `xml:"xmlns,attr"`
 	RequestID           string   `xml:"requestId"`
+	NextToken           string   `xml:"nextToken,omitempty"`
 	IpamResourceCidrSet struct {
 		Items []ipamResourceCidrItem `xml:"item"`
 	} `xml:"ipamResourceCidrSet"`
@@ -304,6 +305,7 @@ type describeIpamByoasnResponse struct {
 	XMLName   xml.Name `xml:"DescribeIpamByoasnResponse"`
 	Xmlns     string   `xml:"xmlns,attr"`
 	RequestID string   `xml:"requestId"`
+	NextToken string   `xml:"nextToken,omitempty"`
 	ByoasnSet struct {
 		Items []byoasnItem `xml:"item"`
 	} `xml:"byoasnSet"`
@@ -392,6 +394,7 @@ type describeIpamExternalResourceVerificationTokensResponse struct {
 	XMLName                                  xml.Name `xml:"DescribeIpamExternalResourceVerificationTokensResponse"`
 	Xmlns                                    string   `xml:"xmlns,attr"`
 	RequestID                                string   `xml:"requestId"`
+	NextToken                                string   `xml:"nextToken,omitempty"`
 	IpamExternalResourceVerificationTokenSet struct {
 		Items []ipamExternalResourceVerificationTokenItem `xml:"item"`
 	} `xml:"ipamExternalResourceVerificationTokenSet"`
@@ -490,6 +493,7 @@ type describeIpamPrefixListResolversResponse struct {
 	XMLName                   xml.Name `xml:"DescribeIpamPrefixListResolversResponse"`
 	Xmlns                     string   `xml:"xmlns,attr"`
 	RequestID                 string   `xml:"requestId"`
+	NextToken                 string   `xml:"nextToken,omitempty"`
 	IpamPrefixListResolverSet struct {
 		Items []ipamPrefixListResolverItem `xml:"item"`
 	} `xml:"ipamPrefixListResolverSet"`
@@ -499,6 +503,7 @@ type getIpamPrefixListResolverRulesResponse struct {
 	XMLName   xml.Name `xml:"GetIpamPrefixListResolverRulesResponse"`
 	Xmlns     string   `xml:"xmlns,attr"`
 	RequestID string   `xml:"requestId"`
+	NextToken string   `xml:"nextToken,omitempty"`
 	RuleSet   struct {
 		Items []ipamPrefixListResolverRuleItem `xml:"item"`
 	} `xml:"ruleSet"`
@@ -512,6 +517,7 @@ type getIpamPrefixListResolverVersionsResponse struct {
 	XMLName                          xml.Name `xml:"GetIpamPrefixListResolverVersionsResponse"`
 	Xmlns                            string   `xml:"xmlns,attr"`
 	RequestID                        string   `xml:"requestId"`
+	NextToken                        string   `xml:"nextToken,omitempty"`
 	IpamPrefixListResolverVersionSet struct {
 		Items []ipamPrefixListResolverVersionItem `xml:"item"`
 	} `xml:"ipamPrefixListResolverVersionSet"`
@@ -525,6 +531,7 @@ type getIpamPrefixListResolverVersionEntriesResponse struct {
 	XMLName   xml.Name `xml:"GetIpamPrefixListResolverVersionEntriesResponse"`
 	Xmlns     string   `xml:"xmlns,attr"`
 	RequestID string   `xml:"requestId"`
+	NextToken string   `xml:"nextToken,omitempty"`
 	EntrySet  struct {
 		Items []ipamPrefixListResolverVersionEntryItem `xml:"item"`
 	} `xml:"entrySet"`
@@ -598,6 +605,7 @@ type describeIpamPrefixListResolverTargetsResponse struct {
 	XMLName                         xml.Name `xml:"DescribeIpamPrefixListResolverTargetsResponse"`
 	Xmlns                           string   `xml:"xmlns,attr"`
 	RequestID                       string   `xml:"requestId"`
+	NextToken                       string   `xml:"nextToken,omitempty"`
 	IpamPrefixListResolverTargetSet struct {
 		Items []ipamPrefixListResolverTargetItem `xml:"item"`
 	} `xml:"ipamPrefixListResolverTargetSet"`
@@ -695,7 +703,7 @@ func (h *Handler) handleGetIpamResourceCidrs(vals url.Values, reqID string) (any
 		resp.IpamResourceCidrSet.Items = append(resp.IpamResourceCidrSet.Items, toIpamResourceCidrItem(c))
 	}
 
-	return resp, nil
+	return finishPagedFiltered(vals, resp)
 }
 
 func (h *Handler) handleModifyIpamResourceCidr(vals url.Values, reqID string) (any, error) {
@@ -749,7 +757,7 @@ func (h *Handler) handleDeprovisionIpamByoasn(vals url.Values, reqID string) (an
 	return &deprovisionIpamByoasnResponse{Xmlns: ec2XMLNS, RequestID: reqID, Byoasn: toByoasnItem(b)}, nil
 }
 
-func (h *Handler) handleDescribeIpamByoasn(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleDescribeIpamByoasn(vals url.Values, reqID string) (any, error) {
 	items := h.Backend.DescribeIpamByoasn()
 
 	resp := &describeIpamByoasnResponse{Xmlns: ec2XMLNS, RequestID: reqID}
@@ -757,7 +765,7 @@ func (h *Handler) handleDescribeIpamByoasn(_ url.Values, reqID string) (any, err
 		resp.ByoasnSet.Items = append(resp.ByoasnSet.Items, toByoasnItem(a))
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 func (h *Handler) handleAssociateIpamByoasn(vals url.Values, reqID string) (any, error) {
@@ -829,7 +837,7 @@ func (h *Handler) handleDescribeIpamExternalResourceVerificationTokens(vals url.
 		)
 	}
 
-	return resp, nil
+	return finishPagedFiltered(vals, resp)
 }
 
 // ---- Prefix List Resolver handlers ----
@@ -878,7 +886,7 @@ func (h *Handler) handleDescribeIpamPrefixListResolvers(vals url.Values, reqID s
 		)
 	}
 
-	return resp, nil
+	return finishPagedFiltered(vals, resp)
 }
 
 func (h *Handler) handleModifyIpamPrefixListResolver(vals url.Values, reqID string) (any, error) {
@@ -907,7 +915,7 @@ func (h *Handler) handleGetIpamPrefixListResolverRules(vals url.Values, reqID st
 		resp.RuleSet.Items = append(resp.RuleSet.Items, toIpamPrefixListResolverRuleItem(r))
 	}
 
-	return resp, nil
+	return finishPagedFiltered(vals, resp)
 }
 
 func (h *Handler) handleGetIpamPrefixListResolverVersions(vals url.Values, reqID string) (any, error) {
@@ -931,7 +939,7 @@ func (h *Handler) handleGetIpamPrefixListResolverVersions(vals url.Values, reqID
 		)
 	}
 
-	return resp, nil
+	return finishPagedFiltered(vals, resp)
 }
 
 // parseIpamPrefixListResolverVersionFilter reads the FlatKey
@@ -966,7 +974,7 @@ func (h *Handler) handleGetIpamPrefixListResolverVersionEntries(vals url.Values,
 		resp.EntrySet.Items = append(resp.EntrySet.Items, ipamPrefixListResolverVersionEntryItem{Cidr: cidr})
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 // ---- Prefix List Resolver Target handlers ----
@@ -1017,7 +1025,7 @@ func (h *Handler) handleDescribeIpamPrefixListResolverTargets(vals url.Values, r
 		)
 	}
 
-	return resp, nil
+	return finishPagedFiltered(vals, resp)
 }
 
 func (h *Handler) handleModifyIpamPrefixListResolverTarget(vals url.Values, reqID string) (any, error) {

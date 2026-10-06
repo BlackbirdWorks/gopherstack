@@ -173,7 +173,7 @@ func (b *InMemoryBackend) adjustQueueCounterLocked(queueArn, status string, delt
 // when the caller doesn't want to change that field (matches the real
 // UpdateQueueInput, whose members are all optional).
 func (b *InMemoryBackend) UpdateQueue(
-	name, description, status string,
+	name string, description *string, status string,
 	concurrentJobs *int,
 	reservationPlanSettings *ReservationPlan,
 	maximumConcurrentFeeds *int,
@@ -190,8 +190,8 @@ func (b *InMemoryBackend) UpdateQueue(
 		return nil, fmt.Errorf("%w: status must be ACTIVE or PAUSED", ErrValidation)
 	}
 
-	if description != "" {
-		q.Description = description
+	if description != nil {
+		q.Description = *description
 	}
 
 	if status != "" {

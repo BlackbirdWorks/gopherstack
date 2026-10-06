@@ -64,6 +64,7 @@ func (b *InMemoryBackend) AdminSetUserPassword(userPoolID, username, password st
 	}
 
 	user.PasswordHash = hash
+	user.TemporaryPassword = ""
 	user.SRPSalt = saltHex
 	user.SRPVerifier = verifierHex
 	user.UpdatedAt = time.Now()
@@ -448,10 +449,6 @@ func (b *InMemoryBackend) buildAndStoreUserLocked(
 	attrs := make(map[string]string, len(userAttributes))
 	maps.Copy(attrs, userAttributes)
 
-	if tempPassword != "" {
-		attrs["custom:temporaryPassword"] = tempPassword
-	}
-
 	saltHex, verifierHex, err := computeSRPVerifier(userPoolID, username, tempPassword)
 	if err != nil {
 		return nil, err
@@ -466,6 +463,7 @@ func (b *InMemoryBackend) buildAndStoreUserLocked(
 		SRPSalt:              saltHex,
 		SRPVerifier:          verifierHex,
 		Status:               UserStatusForceChangePassword,
+		TemporaryPassword:    tempPassword,
 		Attributes:           attrs,
 		CreatedAt:            now,
 		UpdatedAt:            now,
@@ -492,6 +490,21 @@ func (b *InMemoryBackend) AdminCreateUserFull(
 	messageAction string,
 	desiredDeliveryMediums []string,
 	forceAliasCreation bool,
+) (*User, error) {
+	return b.AdminCreateUserWithTriggerData(
+		userPoolID, username, tempPassword, userAttributes, messageAction,
+		desiredDeliveryMediums, forceAliasCreation, TriggerData{},
+	)
+}
+
+// AdminCreateUserWithTriggerData is AdminCreateUserFull that also hands ClientMetadata and ValidationData to PreSignUp.
+func (b *InMemoryBackend) AdminCreateUserWithTriggerData(
+	userPoolID, username, tempPassword string,
+	userAttributes map[string]string,
+	messageAction string,
+	desiredDeliveryMediums []string,
+	forceAliasCreation bool,
+	td TriggerData,
 ) (*User, error) {
 	b.mu.Lock("AdminCreateUserFull")
 	defer b.mu.Unlock()
@@ -539,11 +552,7 @@ func (b *InMemoryBackend) AdminCreateUserFull(
 	attrs := make(map[string]string, len(userAttributes))
 	maps.Copy(attrs, userAttributes)
 
-	if messageAction != "SUPPRESS" && tempPassword != "" {
-		attrs["custom:temporaryPassword"] = tempPassword
-	}
-
-	if verifyErr := b.applyAdminCreateUserAutoVerifyLocked(pool, username, attrs); verifyErr != nil {
+	if verifyErr := b.applyAdminCreateUserAutoVerifyLocked(pool, username, attrs, td); verifyErr != nil {
 		return nil, verifyErr
 	}
 
@@ -561,17 +570,18 @@ func (b *InMemoryBackend) AdminCreateUserFull(
 	_ = forceAliasCreation
 
 	user := &User{
-		Sub:          uuid.New().String(),
-		Username:     username,
-		UserPoolID:   userPoolID,
-		PasswordHash: importHash,
-		SRPSalt:      srpSaltHex,
-		SRPVerifier:  srpVerifierHex,
-		Status:       UserStatusForceChangePassword,
-		Attributes:   attrs,
-		CreatedAt:    time.Now(),
-		UpdatedAt:    time.Now(),
-		Enabled:      true,
+		Sub:               uuid.New().String(),
+		Username:          username,
+		UserPoolID:        userPoolID,
+		PasswordHash:      importHash,
+		SRPSalt:           srpSaltHex,
+		SRPVerifier:       srpVerifierHex,
+		Status:            UserStatusForceChangePassword,
+		Attributes:        attrs,
+		TemporaryPassword: tempPassword,
+		CreatedAt:         time.Now(),
+		UpdatedAt:         time.Now(),
+		Enabled:           true,
 	}
 
 	b.users.Put(user)
@@ -589,7 +599,7 @@ func (b *InMemoryBackend) AdminCreateUserFull(
 // UNCONFIRMED, and are never in the SignUp confirmation flow), so only
 // autoVerifyEmail/autoVerifyPhone are applied. Caller must hold b.mu.
 func (b *InMemoryBackend) applyAdminCreateUserAutoVerifyLocked(
-	pool *UserPool, username string, attrs map[string]string,
+	pool *UserPool, username string, attrs map[string]string, td TriggerData,
 ) error {
 	for _, attr := range pool.AutoVerifiedAttributes {
 		if _, hasAttr := attrs[attr]; hasAttr {
@@ -601,8 +611,8 @@ func (b *InMemoryBackend) applyAdminCreateUserAutoVerifyLocked(
 		pool, triggerKeyPreSignUp, triggerSourcePreSignUpAdminCreateUser, "", username,
 		map[string]any{
 			eventKeyUserAttributes: stringMapToAny(attrs),
-			eventKeyValidationData: map[string]any{},
-			eventKeyClientMetadata: map[string]any{},
+			eventKeyValidationData: stringMapToAny(td.ValidationData),
+			eventKeyClientMetadata: stringMapToAny(td.ClientMetadata),
 		},
 		map[string]any{"autoConfirmUser": false, "autoVerifyEmail": false, "autoVerifyPhone": false},
 	)
@@ -648,6 +658,7 @@ func (b *InMemoryBackend) AdminSetUserPasswordFull(userPoolID, username, passwor
 	}
 
 	user.PasswordHash = hash
+	user.TemporaryPassword = ""
 	user.SRPSalt = saltHex
 	user.SRPVerifier = verifierHex
 	user.UpdatedAt = time.Now()
@@ -657,7 +668,7 @@ func (b *InMemoryBackend) AdminSetUserPasswordFull(userPoolID, username, passwor
 	} else {
 		user.Status = UserStatusForceChangePassword
 		user.TempPasswordIssuedAt = user.UpdatedAt
-		user.Attributes["custom:temporaryPassword"] = password
+		user.TemporaryPassword = password
 	}
 
 	return nil

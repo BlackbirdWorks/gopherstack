@@ -5,12 +5,12 @@ import { DescribeScalableTargetsCommand } from "@aws-sdk/client-application-auto
 
 const mockSend = vi.fn();
 
-vi.mock("$lib/aws-client", () => ({
+vi.mock("#lib/aws-client.ts", () => ({
   getApplicationAutoScalingClient: () => ({ send: mockSend }),
 }));
 
 const confirmDestructive = vi.fn().mockResolvedValue(true);
-vi.mock("$lib/confirm-dialog", () => ({
+vi.mock("#lib/confirm-dialog.ts", () => ({
   confirmDestructive: (...args: unknown[]) => confirmDestructive(...args),
 }));
 

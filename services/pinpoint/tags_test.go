@@ -236,8 +236,10 @@ func TestTagJourneyViaARN(t *testing.T) {
 
 	var jResp map[string]any
 	require.NoError(t, json.NewDecoder(recJ.Body).Decode(&jResp))
-	journeyARN, _ := jResp["Arn"].(string)
-	require.NotEmpty(t, journeyARN)
+	assert.NotContains(t, jResp, "Arn")
+
+	journeyARN := "arn:aws:mobiletargeting:" + testRegion + ":" + testAccountID +
+		":apps/" + appID + "/journeys/" + jResp["Id"].(string)
 
 	tagRec := doPinpointRequest(t, h, http.MethodPost, "/v1/tags/"+journeyARN,
 		map[string]any{"tags": map[string]string{"team": "growth"}})

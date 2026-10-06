@@ -36,7 +36,7 @@ func (h *Handler) handleUpdateDomainConfigDryRun(
 	}
 
 	h.writeJSON(r, w, map[string]any{
-		jsonKeyDomainConfig: toDomainConfigJSON(domain),
+		jsonKeyDomainConfig: domainConfigToJSON(domain),
 		"DryRunResults": dryRunResultsJSON{
 			DeploymentType: "DynamicUpdate",
 			Message:        "Deployment type is not fully validated in this dry run.",
@@ -45,9 +45,9 @@ func (h *Handler) handleUpdateDomainConfigDryRun(
 }
 
 // Builds the DescribeDomainConfig / UpdateDomainConfig response body.
-func toDomainConfigJSON(d *Domain) domainConfigFields {
+func domainConfigToJSON(d *Domain) domainConfigFields {
 	active := opensearchConfigStatus{State: domainStatusActive}
-	st := toDomainStatusJSON(d)
+	st := domainStatusToJSON(d)
 
 	cfg := domainConfigFields{
 		EngineVersion:   opensearchConfigValue{Options: d.EngineVersion, Status: active},
@@ -181,7 +181,7 @@ func (h *Handler) handleDescribeDomainConfig(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	h.writeJSON(r, w, map[string]any{jsonKeyDomainConfig: toDomainConfigJSON(domain)})
+	h.writeJSON(r, w, map[string]any{jsonKeyDomainConfig: domainConfigToJSON(domain)})
 }
 
 // cancelDomainConfigChangeRequest is the JSON request body for CancelDomainConfigChange.

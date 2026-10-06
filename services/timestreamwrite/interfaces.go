@@ -24,6 +24,7 @@ type StorageBackend interface {
 	TagResource(arn string, tags map[string]string) error
 	UntagResource(arn string, tagKeys []string) error
 	ListTagsForResource(arn string) map[string]string
+	ResourceExists(arn string) bool
 
 	// Batch load task operations.
 	CreateBatchLoadTask(
@@ -32,6 +33,7 @@ type StorageBackend interface {
 		reportCfg *ReportConfiguration,
 		dataModelCfg *DataModelConfiguration,
 		recordVersion int64,
+		clientToken string,
 	) (*BatchLoadTask, error)
 	DescribeBatchLoadTask(taskID string) (*BatchLoadTask, error)
 	ListBatchLoadTasks(statusFilter string) []BatchLoadTask

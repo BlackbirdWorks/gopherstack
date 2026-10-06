@@ -148,14 +148,19 @@ func selectInstanceType(matches []string) string {
 // they were with the pre-existing free-function makeInstances/adjustInstances
 // helpers this replaces. Must be called with b.mu held (write lock).
 func (b *InMemoryBackend) makeInstances(g *AutoScalingGroup, count int32) []Instance {
-	n := max(0, min(maxDesiredCapacity, int(count)))
-	if n == 0 {
-		return []Instance{}
-	}
-
 	az := b.defaultAvailabilityZone()
 	if len(g.AvailabilityZones) > 0 {
 		az = g.AvailabilityZones[0]
+	}
+
+	return b.makeInstancesIn(g, count, az)
+}
+
+// makeInstancesIn is makeInstances pinned to one Availability Zone.
+func (b *InMemoryBackend) makeInstancesIn(g *AutoScalingGroup, count int32, az string) []Instance {
+	n := max(0, min(maxDesiredCapacity, int(count)))
+	if n == 0 {
+		return []Instance{}
 	}
 
 	instanceType := lcInstanceType(b.launchConfigurations, g.LaunchConfigurationName)

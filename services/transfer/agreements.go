@@ -12,6 +12,7 @@ import (
 // AgreementCreateExtras holds optional CreateAgreement fields that don't fit
 // CreateAgreementFull's positional parameter list.
 type AgreementCreateExtras struct {
+	CustomDirectories     *CustomDirectories
 	EnforceMessageSigning string
 	PreserveFilename      string
 }
@@ -131,6 +132,7 @@ func (b *InMemoryBackend) CreateAgreementFull(
 		Region:                b.region,
 		EnforceMessageSigning: enforceMessageSigning,
 		PreserveFilename:      preserveFilename,
+		CustomDirectories:     extra.CustomDirectories,
 	}
 	b.agreements.Put(ag)
 	b.initTagsStore(agreementARN(b.accountID, b.region, serverID, agreementID), merged)
@@ -207,6 +209,11 @@ func (b *InMemoryBackend) ListAgreements(serverID string) ([]*Agreement, error) 
 // AgreementUpdateExtras holds optional UpdateAgreement fields that don't fit
 // UpdateAgreement's positional parameter list.
 type AgreementUpdateExtras struct {
+	CustomDirectories     *CustomDirectories
+	LocalProfileID        string
+	PartnerProfileID      string
+	BaseDirectory         string
+	AccessRole            string
 	EnforceMessageSigning string
 	PreserveFilename      string
 }
@@ -253,6 +260,8 @@ func (b *InMemoryBackend) UpdateAgreement(
 		extra = extras[0]
 	}
 
+	applyAgreementUpdateExtras(ag, &extra)
+
 	if extra.EnforceMessageSigning != "" {
 		enforceMessageSigning, err := validateEnforceMessageSigning(extra.EnforceMessageSigning)
 		if err != nil {
@@ -272,4 +281,26 @@ func (b *InMemoryBackend) UpdateAgreement(
 	}
 
 	return cloneAgreement(ag), nil
+}
+
+func applyAgreementUpdateExtras(ag *Agreement, extra *AgreementUpdateExtras) {
+	if extra.LocalProfileID != "" {
+		ag.LocalProfileID = extra.LocalProfileID
+	}
+
+	if extra.PartnerProfileID != "" {
+		ag.PartnerProfileID = extra.PartnerProfileID
+	}
+
+	if extra.BaseDirectory != "" {
+		ag.BaseDirectory = extra.BaseDirectory
+	}
+
+	if extra.AccessRole != "" {
+		ag.AccessRole = extra.AccessRole
+	}
+
+	if extra.CustomDirectories != nil {
+		ag.CustomDirectories = extra.CustomDirectories
+	}
 }

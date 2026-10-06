@@ -14,6 +14,7 @@ type createCarrierGatewayResponse struct {
 type describeCarrierGatewaysResponse struct {
 	XMLName         xml.Name `xml:"DescribeCarrierGatewaysResponse"`
 	RequestID       string   `xml:"requestId"`
+	NextToken       string   `xml:"nextToken,omitempty"`
 	CarrierGateways struct {
 		Items []carrierGatewayItem `xml:"item"`
 	} `xml:"carrierGatewaySet"`
@@ -98,7 +99,7 @@ func (h *Handler) handleDescribeCarrierGateways(vals url.Values, reqID string) (
 		)
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 // ---- Reserved Instances handlers ----

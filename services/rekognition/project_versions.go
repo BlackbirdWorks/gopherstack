@@ -82,6 +82,7 @@ func (b *InMemoryBackend) DeleteProjectVersion(projectVersionARN string) error {
 	}
 
 	b.projectVersions.Delete(projectVersionARN)
+	delete(b.tags, projectVersionARN)
 
 	return nil
 }
@@ -143,7 +144,12 @@ func (b *InMemoryBackend) DescribeProjectVersions(
 			break
 		}
 
-		result = append(result, v.toProjectVersion())
+		pv := v.toProjectVersion()
+		if p, ok := b.projects.Get(projectARN); ok {
+			pv.Feature = p.Feature
+		}
+
+		result = append(result, pv)
 		count++
 	}
 
@@ -159,6 +165,10 @@ func (b *InMemoryBackend) CopyProjectVersion(
 	sourceProjectVersionARN, destinationProjectARN, versionName string,
 	params CopyProjectVersionParams,
 ) (*ProjectVersion, error) {
+	if err := validateTags(params.Tags); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CopyProjectVersion")
 	defer b.mu.Unlock()
 
@@ -178,8 +188,14 @@ func (b *InMemoryBackend) CopyProjectVersion(
 
 	newARN := b.projectVersionARN(destinationProjectARN, name)
 
+	if b.projectVersions.Has(newARN) {
+		return nil, ErrProjectVersionAlreadyExists
+	}
+
 	v := &storedProjectVersion{
 		CreationTimestamp:       time.Now(),
+		Tags:                    maps.Clone(params.Tags),
+		KmsKeyID:                params.KmsKeyID,
 		ProjectVersionARN:       newARN,
 		ProjectARN:              destinationProjectARN,
 		VersionName:             name,
@@ -189,6 +205,10 @@ func (b *InMemoryBackend) CopyProjectVersion(
 		OutputConfigS3KeyPrefix: params.OutputConfigS3KeyPrefix,
 	}
 	b.projectVersions.Put(v)
+
+	if len(params.Tags) > 0 {
+		b.tags[newARN] = maps.Clone(params.Tags)
+	}
 
 	return v.toProjectVersion(), nil
 }

@@ -2,6 +2,7 @@ package dms
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 
@@ -10,17 +11,21 @@ import (
 )
 
 type createDataProviderInput struct {
-	DataProviderName *string    `json:"DataProviderName"`
-	Engine           *string    `json:"Engine"`
-	Description      *string    `json:"Description"`
-	Tags             []tagEntry `json:"Tags"`
+	DataProviderName *string         `json:"DataProviderName"`
+	Engine           *string         `json:"Engine"`
+	Description      *string         `json:"Description"`
+	Settings         json.RawMessage `json:"Settings"`
+	Virtual          *bool           `json:"Virtual"`
+	Tags             []tagEntry      `json:"Tags"`
 }
 
 type dataProviderJSON struct {
-	DataProviderName string `json:"DataProviderName"`
-	DataProviderArn  string `json:"DataProviderArn"`
-	Engine           string `json:"Engine"`
-	Description      string `json:"Description,omitempty"`
+	DataProviderName string          `json:"DataProviderName"`
+	DataProviderArn  string          `json:"DataProviderArn"`
+	Engine           string          `json:"Engine"`
+	Description      string          `json:"Description,omitempty"`
+	Settings         json.RawMessage `json:"Settings,omitempty"`
+	Virtual          bool            `json:"Virtual,omitempty"`
 }
 
 type createDataProviderOutput struct {
@@ -40,8 +45,19 @@ func (h *Handler) handleCreateDataProvider(
 		return nil, fmt.Errorf("%w: Engine is required", ErrValidation)
 	}
 
-	kv := tagsToMap(in.Tags)
-	dp, err := h.Backend.CreateDataProvider(ctx, name, engine, ptrconv.String(in.Description), kv)
+	settings, err := validateDataProviderSettings(in.Settings)
+	if err != nil {
+		return nil, err
+	}
+
+	dp, err := h.Backend.CreateDataProvider(ctx, CreateDataProviderParams{
+		Name:        name,
+		Engine:      engine,
+		Description: ptrconv.String(in.Description),
+		Settings:    settings,
+		Virtual:     ptrconv.Bool(in.Virtual),
+		Tags:        tagsToMap(in.Tags),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -49,13 +65,53 @@ func (h *Handler) handleCreateDataProvider(
 	return &createDataProviderOutput{DataProvider: dpToJSON(dp)}, nil
 }
 
+// isDataProviderSettingsArm reports whether arm is a DataProviderSettings
+// union member (types.DataProviderSettingsMember*).
+func isDataProviderSettingsArm(arm string) bool {
+	switch arm {
+	case "DocDbSettings", "IbmDb2LuwSettings", "IbmDb2zOsSettings", "MariaDbSettings",
+		"MicrosoftSqlServerSettings", "MongoDbSettings", "MySqlSettings", "OracleSettings",
+		"PostgreSqlSettings", "RedshiftSettings", "SybaseAseSettings":
+		return true
+	default:
+		return false
+	}
+}
+
+// validateDataProviderSettings checks that a supplied Settings document is a
+// union with exactly one known member and returns it as a string.
+func validateDataProviderSettings(raw json.RawMessage) (string, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return "", nil
+	}
+
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &doc); err != nil || len(doc) != 1 {
+		return "", fmt.Errorf("%w: Settings must be a union with exactly one member", ErrValidation)
+	}
+
+	for arm := range doc {
+		if !isDataProviderSettingsArm(arm) {
+			return "", fmt.Errorf("%w: unknown Settings member %q", ErrValidation, arm)
+		}
+	}
+
+	return string(raw), nil
+}
+
 func dpToJSON(dp *DataProvider) dataProviderJSON {
-	return dataProviderJSON{
+	out := dataProviderJSON{
 		DataProviderName: dp.DataProviderName,
 		DataProviderArn:  dp.DataProviderArn,
 		Engine:           dp.Engine,
 		Description:      dp.Description,
+		Virtual:          dp.Virtual,
 	}
+	if dp.Settings != "" {
+		out.Settings = json.RawMessage(dp.Settings)
+	}
+
+	return out
 }
 
 type deleteDataProviderInput struct {
@@ -117,9 +173,13 @@ func (h *Handler) handleDescribeDataProviders(
 }
 
 type modifyDataProviderInput struct {
-	DataProviderIdentifier *string `json:"DataProviderIdentifier"`
-	Engine                 *string `json:"Engine"`
-	Description            *string `json:"Description"`
+	DataProviderIdentifier *string         `json:"DataProviderIdentifier"`
+	DataProviderName       *string         `json:"DataProviderName"`
+	Engine                 *string         `json:"Engine"`
+	Description            *string         `json:"Description"`
+	Virtual                *bool           `json:"Virtual"`
+	ExactSettings          *bool           `json:"ExactSettings"`
+	Settings               json.RawMessage `json:"Settings"`
 }
 
 type modifyDataProviderOutput struct {
@@ -129,12 +189,20 @@ type modifyDataProviderOutput struct {
 func (h *Handler) handleModifyDataProvider(
 	ctx context.Context, in *modifyDataProviderInput,
 ) (*modifyDataProviderOutput, error) {
-	dp, err := h.Backend.ModifyDataProvider(
-		ctx,
-		ptrconv.String(in.DataProviderIdentifier),
-		ptrconv.String(in.Engine),
-		ptrconv.String(in.Description),
-	)
+	settings, err := validateDataProviderSettings(in.Settings)
+	if err != nil {
+		return nil, err
+	}
+
+	dp, err := h.Backend.ModifyDataProvider(ctx, ModifyDataProviderParams{
+		NameOrArn:     ptrconv.String(in.DataProviderIdentifier),
+		NewName:       ptrconv.String(in.DataProviderName),
+		Engine:        ptrconv.String(in.Engine),
+		Description:   ptrconv.String(in.Description),
+		Settings:      settings,
+		Virtual:       in.Virtual,
+		ExactSettings: in.ExactSettings,
+	})
 	if err != nil {
 		return nil, err
 	}

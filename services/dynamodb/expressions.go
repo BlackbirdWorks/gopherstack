@@ -6,10 +6,68 @@ import (
 	"maps"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/expr"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 )
+
+const parsedExprCacheSize = 512
+
+var (
+	conditionASTCache = sync.OnceValue(func() *ExpressionCache { //nolint:gochecknoglobals // process-wide AST cache
+		return NewExpressionCache(parsedExprCacheSize)
+	})
+	updateASTCache = sync.OnceValue(func() *ExpressionCache { //nolint:gochecknoglobals // process-wide AST cache
+		return NewExpressionCache(parsedExprCacheSize)
+	})
+)
+
+// parseConditionCached returns the reserved-word-checked AST; callers must treat it as read-only.
+func parseConditionCached(expression string) (expr.Node, error) {
+	cache := conditionASTCache()
+	if v, ok := cache.Get(expression); ok {
+		if node, isNode := v.(expr.Node); isNode {
+			return node, nil
+		}
+	}
+
+	node, err := expr.NewParser(expr.NewLexer(expression)).ParseCondition()
+	if err == nil {
+		err = expr.CheckReservedWords(node)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	cache.Put(expression, node)
+
+	return node, nil
+}
+
+// parseUpdateCached is the UpdateExpression counterpart of parseConditionCached.
+func parseUpdateCached(expression string) (*expr.UpdateExpr, error) {
+	cache := updateASTCache()
+	if v, ok := cache.Get(expression); ok {
+		if u, isUpdate := v.(*expr.UpdateExpr); isUpdate {
+			return u, nil
+		}
+	}
+
+	u, err := expr.NewParser(expr.NewLexer(expression)).ParseUpdate()
+	if err == nil {
+		err = expr.CheckReservedWords(u)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	cache.Put(expression, u)
+
+	return u, nil
+}
 
 // EvaluateExpression evaluates a DynamoDB condition expression against an item.
 func EvaluateExpression(
@@ -22,12 +80,7 @@ func EvaluateExpression(
 		return true, nil
 	}
 
-	l := expr.NewLexer(expression)
-	p := expr.NewParser(l)
-	node, err := p.ParseCondition()
-	if err == nil {
-		err = expr.CheckReservedWords(node)
-	}
+	node, err := parseConditionCached(expression)
 	if err != nil {
 		return false, NewValidationException("Invalid ConditionExpression: " + err.Error())
 	}
@@ -57,17 +110,13 @@ func applyUpdate(
 	expression string,
 	attrNames map[string]string,
 	attrValues map[string]any,
+	snapshot map[string]any,
 ) (map[string]struct{}, error) {
 	if expression == "" {
 		return nil, nil //nolint:nilnil // no paths touched when expression is empty
 	}
 
-	l := expr.NewLexer(expression)
-	p := expr.NewParser(l)
-	u, err := p.ParseUpdate()
-	if err == nil {
-		err = expr.CheckReservedWords(u)
-	}
+	u, err := parseUpdateCached(expression)
 	if err != nil {
 		return nil, NewValidationException("Invalid UpdateExpression: " + err.Error())
 	}
@@ -76,6 +125,7 @@ func applyUpdate(
 		Item:       item,
 		AttrNames:  attrNames,
 		AttrValues: attrValues,
+		Snapshot:   snapshot,
 	}
 
 	if applyErr := eval.ApplyUpdate(u); applyErr != nil {
@@ -196,12 +246,7 @@ func ParseConditionStr(expression string) (*ParsedCondition, error) {
 		return &ParsedCondition{}, nil
 	}
 
-	l := expr.NewLexer(expression)
-	p := expr.NewParser(l)
-	node, err := p.ParseCondition()
-	if err == nil {
-		err = expr.CheckReservedWords(node)
-	}
+	node, err := parseConditionCached(expression)
 	if err != nil {
 		return nil, err
 	}

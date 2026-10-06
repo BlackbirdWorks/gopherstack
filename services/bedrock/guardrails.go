@@ -23,6 +23,22 @@ func (b *InMemoryBackend) CreateGuardrail(
 	tags []Tag,
 	policies ...*GuardrailPolicies,
 ) (*Guardrail, error) {
+	var pol *GuardrailPolicies
+	if len(policies) > 0 {
+		pol = policies[0]
+	}
+
+	return b.CreateGuardrailWithExtras(name, description, blockedInput, blockedOutput, tags, pol, nil)
+}
+
+// CreateGuardrailWithExtras is CreateGuardrail with the KMS key, cross-region profile and
+// automated reasoning members.
+func (b *InMemoryBackend) CreateGuardrailWithExtras(
+	name, description, blockedInput, blockedOutput string,
+	tags []Tag,
+	pol *GuardrailPolicies,
+	extras *GuardrailExtras,
+) (*Guardrail, error) {
 	b.mu.Lock("CreateGuardrail")
 	defer b.mu.Unlock()
 
@@ -41,10 +57,7 @@ func (b *InMemoryBackend) CreateGuardrail(
 	tagsCopy := make([]Tag, len(tags))
 	copy(tagsCopy, tags)
 
-	var pol *GuardrailPolicies
-	if len(policies) > 0 {
-		pol = copyGuardrailPolicies(policies[0])
-	}
+	pol = copyGuardrailPolicies(pol)
 
 	g := &Guardrail{
 		GuardrailID:             id,
@@ -57,6 +70,7 @@ func (b *InMemoryBackend) CreateGuardrail(
 		BlockedOutputsMessaging: blockedOutput,
 		Tags:                    tagsCopy,
 		Policies:                pol,
+		Extras:                  b.resolveGuardrailExtras(extras),
 		CreatedAt:               now,
 		UpdatedAt:               now,
 	}
@@ -66,8 +80,35 @@ func (b *InMemoryBackend) CreateGuardrail(
 	cp := *g
 	cp.Tags = copyTags(g.Tags)
 	cp.Policies = copyGuardrailPolicies(g.Policies)
+	cp.Extras = copyGuardrailExtras(g.Extras)
 
 	return &cp, nil
+}
+
+// resolveGuardrailExtras turns the request's kmsKeyId into the stored ARN; nil stays nil.
+func (b *InMemoryBackend) resolveGuardrailExtras(in *GuardrailExtras) *GuardrailExtras {
+	out := copyGuardrailExtras(in)
+	if out != nil {
+		out.KmsKeyArn = kmsKeyARN(b.region, b.accountID, out.KmsKeyArn)
+	}
+
+	return out
+}
+
+// copyGuardrailExtras deep-copies e.
+func copyGuardrailExtras(e *GuardrailExtras) *GuardrailExtras {
+	if e == nil {
+		return nil
+	}
+
+	cp := *e
+	if e.AutomatedReasoning != nil {
+		ar := *e.AutomatedReasoning
+		ar.Policies = append([]string(nil), e.AutomatedReasoning.Policies...)
+		cp.AutomatedReasoning = &ar
+	}
+
+	return &cp
 }
 
 func (b *InMemoryBackend) GetGuardrail(idOrARN string) (*Guardrail, error) {
@@ -82,6 +123,7 @@ func (b *InMemoryBackend) GetGuardrail(idOrARN string) (*Guardrail, error) {
 	cp := *g
 	cp.Tags = copyTags(g.Tags)
 	cp.Policies = copyGuardrailPolicies(g.Policies)
+	cp.Extras = copyGuardrailExtras(g.Extras)
 
 	return &cp, nil
 }
@@ -91,6 +133,7 @@ func (b *InMemoryBackend) GetGuardrail(idOrARN string) (*Guardrail, error) {
 // ID, ARN, or name equals the identifier (case-sensitive).
 func (b *InMemoryBackend) ListGuardrails(
 	nextToken, guardrailIdentifier string,
+	maxResults int,
 ) ([]*GuardrailSummary, string) {
 	b.mu.RLock("ListGuardrails")
 	defer b.mu.RUnlock()
@@ -105,21 +148,27 @@ func (b *InMemoryBackend) ListGuardrails(
 			continue
 		}
 
+		var crossRegion string
+		if g.Extras != nil {
+			crossRegion = g.Extras.CrossRegionProfileID
+		}
+
 		list = append(list, &GuardrailSummary{
-			GuardrailID: g.GuardrailID,
-			Arn:         g.GuardrailArn,
-			Name:        g.Name,
-			Description: g.Description,
-			Status:      g.Status,
-			Version:     g.Version,
-			CreatedAt:   g.CreatedAt,
-			UpdatedAt:   g.UpdatedAt,
+			CrossRegionProfileID: crossRegion,
+			GuardrailID:          g.GuardrailID,
+			Arn:                  g.GuardrailArn,
+			Name:                 g.Name,
+			Description:          g.Description,
+			Status:               g.Status,
+			Version:              g.Version,
+			CreatedAt:            g.CreatedAt,
+			UpdatedAt:            g.UpdatedAt,
 		})
 	}
 
 	sort.Slice(list, func(i, j int) bool { return list[i].GuardrailID < list[j].GuardrailID })
 
-	return paginateBedrockSlice(list, nextToken)
+	return paginate(list, maxResults, nextToken)
 }
 
 // UpdateGuardrail updates a guardrail's name, description, messaging, and policies.
@@ -130,6 +179,24 @@ func (b *InMemoryBackend) ListGuardrails(
 func (b *InMemoryBackend) UpdateGuardrail(
 	idOrARN, name, description, blockedInput, blockedOutput string,
 	policies ...*GuardrailPolicies,
+) (*Guardrail, error) {
+	var pol *GuardrailPolicies
+	if len(policies) > 0 {
+		pol = policies[0]
+	}
+
+	return b.UpdateGuardrailWithExtras(
+		idOrARN, name, description, blockedInput, blockedOutput, pol, nil, len(policies) > 0,
+	)
+}
+
+// UpdateGuardrailWithExtras is UpdateGuardrail plus the extras (replaced when non-nil);
+// setPolicies replaces the policies with pol.
+func (b *InMemoryBackend) UpdateGuardrailWithExtras(
+	idOrARN, name, description, blockedInput, blockedOutput string,
+	pol *GuardrailPolicies,
+	extras *GuardrailExtras,
+	setPolicies bool,
 ) (*Guardrail, error) {
 	b.mu.Lock("UpdateGuardrail")
 	defer b.mu.Unlock()
@@ -162,13 +229,18 @@ func (b *InMemoryBackend) UpdateGuardrail(
 		g.BlockedOutputsMessaging = blockedOutput
 	}
 
-	if len(policies) > 0 {
-		g.Policies = copyGuardrailPolicies(policies[0])
+	if setPolicies {
+		g.Policies = copyGuardrailPolicies(pol)
+	}
+
+	if extras != nil {
+		g.Extras = b.resolveGuardrailExtras(extras)
 	}
 
 	g.UpdatedAt = time.Now().UTC()
 	cp := *g
 	cp.Tags = copyTags(g.Tags)
+	cp.Extras = copyGuardrailExtras(g.Extras)
 
 	return &cp, nil
 }
@@ -314,6 +386,7 @@ func (b *InMemoryBackend) CreateGuardrailVersion(
 		BlockedOutputsMessaging: g.BlockedOutputsMessaging,
 		Policies:                copyGuardrailPolicies(g.Policies),
 		Tags:                    copyTags(g.Tags),
+		Extras:                  copyGuardrailExtras(g.Extras),
 		CreatedAt:               time.Now().UTC(),
 	}
 
@@ -356,5 +429,6 @@ func (b *InMemoryBackend) GetGuardrailVersion(idOrARN, version string) (*Guardra
 		BlockedInputMessaging:   gv.BlockedInputMessaging,
 		BlockedOutputsMessaging: gv.BlockedOutputsMessaging,
 		Tags:                    copyTags(gv.Tags),
+		Extras:                  copyGuardrailExtras(gv.Extras),
 	}, nil
 }

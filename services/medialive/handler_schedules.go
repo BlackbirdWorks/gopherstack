@@ -4,22 +4,36 @@ import (
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // --- Schedule handlers ---
 
 func (h *Handler) handleDescribeSchedule(c *echo.Context, channelID string) error {
+	if err := validPaging(c); err != nil {
+		return respondErr(c, err)
+	}
+
 	actions, err := h.Backend.DescribeSchedule(channelID)
 	if err != nil {
 		return respondErr(c, err)
 	}
 
-	out := make([]map[string]any, 0, len(actions))
-	for _, a := range actions {
+	maxResults, token := paginationParams(c)
+	pg := page.New(actions, token, maxResults, defaultMaxResults)
+
+	out := make([]map[string]any, 0, len(pg.Data))
+	for _, a := range pg.Data {
 		out = append(out, scheduleActionToResponse(a))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyScheduleActions: out})
+	resp := map[string]any{keyScheduleActions: out}
+	if pg.Next != "" {
+		resp["nextToken"] = pg.Next
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 // scheduleActionToResponse builds the real ScheduleAction wire shape.

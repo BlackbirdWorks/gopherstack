@@ -4,7 +4,6 @@ import (
 	"context"
 	"slices"
 	"sort"
-	"strconv"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
@@ -194,7 +193,11 @@ func (b *InMemoryBackend) DescribeApplication(ctx context.Context, name string) 
 }
 
 // ListApplications returns applications with optional pagination.
-func (b *InMemoryBackend) ListApplications(ctx context.Context, nextToken string) ([]*Application, string) {
+func (b *InMemoryBackend) ListApplications(
+	ctx context.Context,
+	nextToken string,
+	limit int,
+) ([]*Application, string) {
 	region := getRegion(ctx, b.defaultRegion)
 
 	b.mu.RLock("ListApplications")
@@ -204,19 +207,9 @@ func (b *InMemoryBackend) ListApplications(ctx context.Context, nextToken string
 
 	sort.Slice(out, func(i, j int) bool { return out[i].ApplicationName < out[j].ApplicationName })
 
-	startIdx := parseNextToken(nextToken)
-	if startIdx >= len(out) {
-		return []*Application{}, ""
-	}
-	end := startIdx + kav2DefaultPageSize
-	var outToken string
-	if end < len(out) {
-		outToken = strconv.Itoa(end)
-	} else {
-		end = len(out)
-	}
+	page, outToken := pageSlice(out, nextToken, limit)
 
-	return out[startIdx:end], outToken
+	return page, outToken
 }
 
 // UpdateApplication updates an application, returning the OperationID of the

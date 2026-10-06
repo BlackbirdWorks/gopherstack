@@ -94,8 +94,8 @@
 	// this page does not claim a live-streaming-while-uploading experience
 	// the backend cannot produce.
 	import { untrack } from 'svelte';
-	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
-	import { getMediaStoreDataClient } from '$lib/aws-client';
+	import { onRegionChange, regionalClient } from '#lib/region-effect.svelte.ts';
+	import { getMediaStoreDataClient } from '#lib/aws-client.ts';
 	import {
 		PutObjectCommand,
 		GetObjectCommand,
@@ -106,15 +106,15 @@
 		type DescribeObjectCommandOutput
 	} from '@aws-sdk/client-mediastore-data';
 	import { toast } from 'svelte-sonner';
-	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { createTabLoader } from '$lib/tab-loader.svelte';
-	import { formatDate, formatBytes } from '$lib/format';
-	import PageHeader from '$lib/components/PageHeader.svelte';
-	import SearchInput from '$lib/components/SearchInput.svelte';
-	import DataTable from '$lib/components/DataTable.svelte';
-	import { defineColumns } from '$lib/components/data-table';
-	import LoadMore from '$lib/components/LoadMore.svelte';
-	import Modal from '$lib/components/Modal.svelte';
+	import { confirmDestructive } from '#lib/confirm-dialog.ts';
+	import { createTabLoader } from '#lib/tab-loader.svelte.ts';
+	import { formatDate, formatBytes } from '#lib/format.ts';
+	import PageHeader from '#lib/components/PageHeader.svelte';
+	import SearchInput from '#lib/components/SearchInput.svelte';
+	import DataTable from '#lib/components/DataTable.svelte';
+	import { defineColumns } from '#lib/components/data-table.ts';
+	import LoadMore from '#lib/components/LoadMore.svelte';
+	import Modal from '#lib/components/Modal.svelte';
 	import { Film, Upload, Download, Trash2, Folder, File as FileIcon, Home, ChevronRight, Info, Scissors } from 'lucide-svelte';
 
 	const client = regionalClient(getMediaStoreDataClient);

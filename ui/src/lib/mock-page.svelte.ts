@@ -3,7 +3,7 @@
 // finer-grained assertions.
 //
 // `page.url` has to be backed by a REAL Svelte rune, not a plain mutable
-// object: `$lib/url-state.svelte.ts`'s `urlState()` reads `page.url` inside
+// object: `#lib/url-state.svelte.ts`'s `urlState()` reads `page.url` inside
 // `$derived`s that page components create (e.g. `let searchQuery =
 // $derived(searchQueryParam.get())`), and only a rune notifies Svelte's
 // reactivity when it changes. A plain object mutated in place is invisible

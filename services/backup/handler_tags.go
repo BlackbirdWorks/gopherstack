@@ -2,7 +2,9 @@ package backup
 
 import (
 	"encoding/json"
+	"maps"
 	"net/http"
+	"slices"
 
 	"github.com/labstack/echo/v5"
 )
@@ -34,9 +36,15 @@ func (h *Handler) handleListTags(c *echo.Context, resourceArn string) error {
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"Tags": t,
-	})
+	keys := slices.Sorted(maps.Keys(t))
+	keys, next := pageQuery(c.Request().URL.Query(), keys, func(k string) string { return k })
+
+	pageTags := make(map[string]string, len(keys))
+	for _, k := range keys {
+		pageTags[k] = t[k]
+	}
+
+	return c.JSON(http.StatusOK, withNextToken(map[string]any{"Tags": pageTags}, next))
 }
 
 type untagResourceBody struct {

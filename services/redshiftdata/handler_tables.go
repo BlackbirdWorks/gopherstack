@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 )
 
 func (h *Handler) handleListTables(_ context.Context, body []byte) ([]byte, error) {
@@ -90,6 +91,8 @@ func (h *Handler) handleDescribeTable(_ context.Context, body []byte) ([]byte, e
 		ConnectedDatabase string `json:"ConnectedDatabase"`
 		Schema            string `json:"Schema"`
 		Table             string `json:"Table"`
+		NextToken         string `json:"NextToken"`
+		MaxResults        int    `json:"MaxResults"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -100,15 +103,26 @@ func (h *Handler) handleDescribeTable(_ context.Context, body []byte) ([]byte, e
 		return nil, fmt.Errorf("%w: Database is required", ErrValidation)
 	}
 
-	// DescribeTableOutput.TableName is a plain string in the real API (see
-	// aws-sdk-go-v2/service/redshiftdata's DescribeTableOutput), not a nested
-	// schema/name/type object. Sending an object here would be silently
-	// ignored by the SDK's deserializer (unknown-field default case),
-	// leaving TableName unset for callers.
-	return json.Marshal(map[string]any{
-		"ColumnList": buildDemoColumns(),
-		"TableName":  req.Table,
-	})
+	if req.MaxResults < 0 || req.MaxResults > maxListTablesResults {
+		return nil, fmt.Errorf("%w: MaxResults must be between 0 and %d", ErrValidation, maxListTablesResults)
+	}
+
+	columns := buildDemoColumns()
+
+	known := func(m map[string]any) bool { return m[keyName] == req.NextToken }
+	if req.NextToken != "" && !slices.ContainsFunc(columns, known) {
+		return nil, fmt.Errorf("%w: invalid NextToken", ErrValidation)
+	}
+
+	page, next := paginateMaps(columns, req.NextToken, req.MaxResults, defaultListTablesResults)
+	// TableName is a plain string on DescribeTableOutput, not a nested object.
+	resp := map[string]any{"ColumnList": page, "TableName": req.Table}
+
+	if next != "" {
+		resp[keyNextToken] = next
+	}
+
+	return json.Marshal(resp)
 }
 
 // paginateMaps applies cursor-based pagination to a slice of maps keyed by "name".

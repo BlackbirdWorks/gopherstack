@@ -2,6 +2,9 @@ package cognitoidp
 
 import "time"
 
+// legacyTempPasswordAttr is where older versions leaked the temporary password.
+const legacyTempPasswordAttr = "custom:temporaryPassword"
+
 // User represents a Cognito user within a pool.
 type User struct {
 	CreatedAt            time.Time `json:"createdAt"`
@@ -17,6 +20,7 @@ type User struct {
 	Sub                  string            `json:"sub,omitempty"`
 	Username             string            `json:"username,omitempty"`
 	PasswordHash         string            `json:"passwordHash,omitempty"`
+	TemporaryPassword    string            `json:"temporaryPassword,omitempty"`
 	Status               string            `json:"status,omitempty"`
 	ConfirmCode          string            `json:"confirmCode,omitempty"`
 	PreferredMfaSetting  string            `json:"preferredMfaSetting,omitempty"`
@@ -57,10 +61,11 @@ type adminDeleteUserInput struct {
 type adminDeleteUserOutput struct{}
 
 type listUsersInput struct {
-	UserPoolID      string `json:"UserPoolId,omitempty"`
-	Filter          string `json:"Filter,omitempty"`
-	PaginationToken string `json:"PaginationToken,omitempty"`
-	Limit           int    `json:"Limit,omitempty"`
+	UserPoolID      string   `json:"UserPoolId,omitempty"`
+	Filter          string   `json:"Filter,omitempty"`
+	PaginationToken string   `json:"PaginationToken,omitempty"`
+	AttributesToGet []string `json:"AttributesToGet,omitempty"`
+	Limit           int      `json:"Limit,omitempty"`
 }
 
 type listUsersOutput struct {
@@ -121,13 +126,15 @@ type getUserAccurateInput struct {
 }
 
 type adminCreateUserFullInput struct {
-	UserPoolID             string          `json:"UserPoolId,omitempty"`
-	Username               string          `json:"Username,omitempty"`
-	TemporaryPassword      string          `json:"TemporaryPassword,omitempty"`
-	UserAttributes         []attributeType `json:"UserAttributes,omitempty"`
-	MessageAction          string          `json:"MessageAction,omitempty"`
-	DesiredDeliveryMediums []string        `json:"DesiredDeliveryMediums,omitempty"`
-	ForceAliasCreation     bool            `json:"ForceAliasCreation,omitempty"`
+	ClientMetadata         map[string]string `json:"ClientMetadata,omitempty"`
+	ValidationData         []attributeType   `json:"ValidationData,omitempty"`
+	UserPoolID             string            `json:"UserPoolId,omitempty"`
+	Username               string            `json:"Username,omitempty"`
+	TemporaryPassword      string            `json:"TemporaryPassword,omitempty"`
+	UserAttributes         []attributeType   `json:"UserAttributes,omitempty"`
+	MessageAction          string            `json:"MessageAction,omitempty"`
+	DesiredDeliveryMediums []string          `json:"DesiredDeliveryMediums,omitempty"`
+	ForceAliasCreation     bool              `json:"ForceAliasCreation,omitempty"`
 }
 
 type adminCreateUserFullOutput struct {

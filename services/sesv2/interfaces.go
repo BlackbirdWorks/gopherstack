@@ -42,7 +42,9 @@ type StorageBackend interface {
 	PutConfigurationSetDeliveryOptions(name, tlsPolicy, sendingPoolName string) error
 	PutConfigurationSetReputationOptions(name string, metricsEnabled bool) error
 	PutConfigurationSetSendingOptions(name string, sendingEnabled bool) error
-	PutConfigurationSetSuppressionOptions(name string, suppressedReasons []string, suppressionScope string) error
+	PutConfigurationSetSuppressionOptions(
+		name string, suppressedReasons []string, suppressionScope string, validation *SuppressionValidation,
+	) error
 	PutConfigurationSetTrackingOptions(name, customRedirectDomain, httpsPolicy string) error
 	PutConfigurationSetVdmOptions(
 		name string,
@@ -73,6 +75,8 @@ type StorageBackend interface {
 		fromEmailAddress string,
 		defaultContent *bulkEmailContent,
 		bulkEmailEntries []bulkEmailEntry,
+		defaultTags []messageTag,
+		opts SendOptions,
 	) ([]bulkEmailEntryResultOutput, error)
 	SendCustomVerificationEmail(emailAddress, templateName string) (string, error)
 	ListEmails() []Email
@@ -97,7 +101,7 @@ type StorageBackend interface {
 		topicPreferences []TopicPreference,
 		unsubscribeAll bool,
 	) error
-	ListContacts(contactListName, nextToken string, pageSize int) (page.Page[*Contact], error)
+	ListContacts(contactListName, nextToken string, pageSize int, filter ContactFilter) (page.Page[*Contact], error)
 
 	// Custom verification template ops
 	CreateCustomVerificationEmailTemplate(
@@ -142,6 +146,7 @@ type StorageBackend interface {
 	GetDomainStatisticsReport(domain, startDate, endDate string) (map[string]any, error)
 	ListDomainDeliverabilityCampaigns(
 		startDate, endDate, domain, nextToken string,
+		pageSize int,
 	) ([]map[string]any, string, error)
 
 	// Email template ops

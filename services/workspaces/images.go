@@ -182,6 +182,7 @@ type customWorkspaceImageImportSpec struct {
 	ComputeType                    string
 	InfrastructureConfigurationArn string
 	OsVersion                      string
+	Tags                           map[string]string
 	Platform                       string
 	Protocol                       string
 }
@@ -233,7 +234,7 @@ func (b *InMemoryBackend) ImportCustomWorkspaceImage(
 		return nil, awserr.Newf("invalid Protocol: %q", awserr.ErrInvalidParameter, spec.Protocol)
 	}
 
-	img := b.createImageLocked(name, description, "", nil, imageImportSpec{
+	img := b.createImageLocked(name, description, "", spec.Tags, imageImportSpec{
 		ImageSource:                    spec.ImageSource,
 		ComputeType:                    spec.ComputeType,
 		InfrastructureConfigurationArn: spec.InfrastructureConfigurationArn,

@@ -34,7 +34,7 @@ func TestWorkMail_MailDomains(t *testing.T) {
 				))
 				require.Equal(t, http.StatusOK, rec2.Code)
 				m := decodeJSON(t, rec2)
-				assert.Equal(t, "example.com", m["DomainName"])
+				assert.NotContains(t, m, "DomainName")
 				assert.Equal(t, false, m["IsDefault"])
 				assert.NotEmpty(t, m["OwnershipVerificationStatus"])
 			},

@@ -104,6 +104,7 @@ type vaLoggingConfigXML struct {
 type describeVerifiedAccessInstanceLoggingConfigurationsResponse struct {
 	XMLName                 xml.Name `xml:"DescribeVerifiedAccessInstanceLoggingConfigurationsResponse"`
 	RequestID               string   `xml:"requestId"`
+	NextToken               string   `xml:"nextToken,omitempty"`
 	LoggingConfigurationSet struct {
 		Items []vaLoggingConfigXML `xml:"item"`
 	} `xml:"loggingConfigurationSet"`
@@ -124,6 +125,7 @@ type verifiedAccessEndpointTargetXML struct {
 type getVerifiedAccessEndpointTargetsResponse struct {
 	XMLName                         xml.Name `xml:"GetVerifiedAccessEndpointTargetsResponse"`
 	RequestID                       string   `xml:"requestId"`
+	NextToken                       string   `xml:"nextToken,omitempty"`
 	VerifiedAccessEndpointTargetSet struct {
 		Items []verifiedAccessEndpointTargetXML `xml:"item"`
 	} `xml:"verifiedAccessEndpointTargetSet"`
@@ -261,7 +263,7 @@ func (h *Handler) handleDescribeVerifiedAccessInstanceLoggingConfigurations(
 		)
 	}
 
-	return resp, nil
+	return finishPagedFiltered(vals, resp)
 }
 
 // parseVerifiedAccessLogOptions parses the AccessLogs.* form fields sent by
@@ -339,7 +341,7 @@ func (h *Handler) handleGetVerifiedAccessEndpointTargets(vals url.Values, reqID 
 		)
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 func (h *Handler) handleExportVerifiedAccessInstanceClientConfiguration(

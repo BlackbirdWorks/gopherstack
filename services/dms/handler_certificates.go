@@ -2,6 +2,7 @@ package dms
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"sort"
 
@@ -17,6 +18,7 @@ type certificateJSON struct {
 	CertificateIdentifier string `json:"CertificateIdentifier"`
 	CertificateArn        string `json:"CertificateArn"`
 	CertificatePem        string `json:"CertificatePem,omitempty"`
+	CertificateWallet     string `json:"CertificateWallet,omitempty"`
 	KmsKeyID              string `json:"KmsKeyId,omitempty"`
 }
 
@@ -29,6 +31,7 @@ func certToJSON(c *Certificate) certificateJSON {
 		CertificateIdentifier: c.CertificateIdentifier,
 		CertificateArn:        c.CertificateArn,
 		CertificatePem:        c.CertificatePem,
+		CertificateWallet:     c.CertificateWallet,
 		KmsKeyID:              c.KmsKeyID,
 	}
 }
@@ -90,6 +93,7 @@ func (h *Handler) handleDescribeCertificates(
 type importCertificateInput struct {
 	CertificateIdentifier *string    `json:"CertificateIdentifier"`
 	CertificatePem        *string    `json:"CertificatePem"`
+	CertificateWallet     *string    `json:"CertificateWallet"`
 	KmsKeyID              *string    `json:"KmsKeyId"`
 	Tags                  []tagEntry `json:"Tags"`
 }
@@ -106,12 +110,18 @@ func (h *Handler) handleImportCertificate(
 		return nil, fmt.Errorf("%w: CertificateIdentifier is required", ErrValidation)
 	}
 
+	wallet := ptrconv.String(in.CertificateWallet)
+	if _, err := base64.StdEncoding.DecodeString(wallet); err != nil {
+		return nil, fmt.Errorf("%w: CertificateWallet must be base64-encoded", ErrValidation)
+	}
+
 	kv := tagsToMap(in.Tags)
 
 	cert, err := h.Backend.ImportCertificate(
 		ctx,
 		identifier,
 		ptrconv.String(in.CertificatePem),
+		wallet,
 		ptrconv.String(in.KmsKeyID),
 		kv,
 	)

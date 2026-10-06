@@ -833,7 +833,15 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	_, err = original.PurchaseReservedInstanceOffering("ri-offering-1", "full-ri", 1)
 	require.NoError(t, err)
 
-	_, err = original.CreateServerlessCollection("full-coll", "SEARCH", "a collection", "", "", nil)
+	_, err = original.CreateServerlessCollection(
+		"full-coll",
+		"SEARCH",
+		"a collection",
+		"",
+		"",
+		nil,
+		opensearch.CollectionSettings{},
+	)
 	require.NoError(t, err)
 
 	_, err = original.CreateServerlessAccessPolicy("data", "full-ap", "an access policy", "{}")

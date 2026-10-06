@@ -14,16 +14,34 @@ func (b *InMemoryBackend) CreateFramework(
 	name, description string,
 	controls []FrameworkControl,
 ) (*Framework, error) {
+	return b.CreateFrameworkWithOptions(name, description, controls, CreateOptions{})
+}
+
+// CreateFrameworkWithOptions is CreateFramework with FrameworkTags and
+// IdempotencyToken; a retry with the same token returns the existing framework.
+func (b *InMemoryBackend) CreateFrameworkWithOptions(
+	name, description string,
+	controls []FrameworkControl,
+	opts CreateOptions,
+) (*Framework, error) {
 	b.mu.Lock("CreateFramework")
 	defer b.mu.Unlock()
 
-	if b.frameworks.Has(name) {
+	if existing, ok := b.frameworks.Get(name); ok {
+		if opts.IdempotencyToken != "" && existing.IdempotencyToken == opts.IdempotencyToken {
+			cp := *existing
+
+			return &cp, nil
+		}
+
 		return nil, fmt.Errorf("%w: framework %s already exists", ErrAlreadyExists, name)
 	}
 
 	frameworkARN := arn.Build("backup", b.region, b.accountID, "framework:"+name)
 	t := tags.New("backup.framework." + name + ".tags")
+	t.Merge(opts.Tags)
 	f := &Framework{
+		IdempotencyToken:     opts.IdempotencyToken,
 		FrameworkName:        name,
 		FrameworkArn:         frameworkARN,
 		FrameworkDescription: description,

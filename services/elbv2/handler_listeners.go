@@ -3,7 +3,9 @@ package elbv2
 import (
 	"encoding/xml"
 	"fmt"
+	"maps"
 	"net/url"
+	"slices"
 	"sort"
 	"strconv"
 )
@@ -52,21 +54,7 @@ func (h *Handler) handleCreateListener(vals url.Values) (any, error) {
 		certs[0].IsDefault = true
 	}
 
-	var mutualAuth *MutualAuthentication
-	if mode := vals.Get("MutualAuthentication.Mode"); mode != "" {
-		mutualAuth = &MutualAuthentication{
-			Mode:          mode,
-			TrustStoreArn: vals.Get("MutualAuthentication.TrustStoreArn"),
-			IgnoreClientCertificateExpiration: vals.Get(
-				"MutualAuthentication.IgnoreClientCertificateExpiration",
-			) == attrValueTrue,
-		}
-	} else if tsArn := vals.Get("MutualAuthentication.TrustStoreArn"); tsArn != "" {
-		mutualAuth = &MutualAuthentication{
-			Mode:          "verify",
-			TrustStoreArn: tsArn,
-		}
-	}
+	mutualAuth := parseMutualAuthentication(vals)
 
 	listener, createErr := h.Backend.CreateListener(CreateListenerInput{
 		LoadBalancerArn:      lbArn,
@@ -190,21 +178,7 @@ func (h *Handler) handleModifyListener(vals url.Values) (any, error) {
 		port = &p
 	}
 
-	var mutualAuth *MutualAuthentication
-	if mode := vals.Get("MutualAuthentication.Mode"); mode != "" {
-		mutualAuth = &MutualAuthentication{
-			Mode:          mode,
-			TrustStoreArn: vals.Get("MutualAuthentication.TrustStoreArn"),
-			IgnoreClientCertificateExpiration: vals.Get(
-				"MutualAuthentication.IgnoreClientCertificateExpiration",
-			) == attrValueTrue,
-		}
-	} else if tsArn := vals.Get("MutualAuthentication.TrustStoreArn"); tsArn != "" {
-		mutualAuth = &MutualAuthentication{
-			Mode:          "verify",
-			TrustStoreArn: tsArn,
-		}
-	}
+	mutualAuth := parseMutualAuthentication(vals)
 
 	listener, err := h.Backend.ModifyListener(ModifyListenerInput{
 		ListenerArn:          listenerArn,
@@ -324,7 +298,8 @@ func parseActions(vals url.Values, prefix string) []Action {
 // isValidActionType returns true if the action type is a recognized ELBv2 value.
 func isValidActionType(t string) bool {
 	switch t {
-	case actionTypeForward, "redirect", "fixed-response", "authenticate-cognito", "authenticate-oidc":
+	case actionTypeForward, "redirect", "fixed-response", "authenticate-cognito", "authenticate-oidc",
+		actionTypeJwtValidation:
 		return true
 	}
 
@@ -358,7 +333,55 @@ func applyActionConfig(vals url.Values, p, actionType string, action *Action) {
 		applyAuthCognitoConfig(vals, p, action)
 	case "authenticate-oidc":
 		applyAuthOidcConfig(vals, p, action)
+	case actionTypeJwtValidation:
+		applyJwtValidationConfig(vals, p, action)
 	}
+}
+
+const actionTypeJwtValidation = "jwt-validation"
+
+func parseExtraParams(vals url.Values, prefix string) map[string]string {
+	var out map[string]string
+
+	for i := 1; ; i++ {
+		k := vals.Get(fmt.Sprintf("%s.entry.%d.key", prefix, i))
+		if k == "" {
+			break
+		}
+
+		if out == nil {
+			out = make(map[string]string)
+		}
+
+		out[k] = vals.Get(fmt.Sprintf("%s.entry.%d.value", prefix, i))
+	}
+
+	return out
+}
+
+func applyJwtValidationConfig(vals url.Values, p string, action *Action) {
+	cfg := &JwtValidationConfig{
+		Issuer:       vals.Get(p + ".JwtValidationConfig.Issuer"),
+		JwksEndpoint: vals.Get(p + ".JwtValidationConfig.JwksEndpoint"),
+	}
+
+	for i := 1; ; i++ {
+		cp := fmt.Sprintf("%s.JwtValidationConfig.AdditionalClaims.member.%d", p, i)
+		name := vals.Get(cp + ".Name")
+		format := vals.Get(cp + ".Format")
+
+		if name == "" && format == "" {
+			break
+		}
+
+		cfg.AdditionalClaims = append(cfg.AdditionalClaims, JwtAdditionalClaim{
+			Format: format,
+			Name:   name,
+			Values: parseMembers(vals, cp+".Values.member"),
+		})
+	}
+
+	action.JwtValidationConfig = cfg
 }
 
 // validateActionTypes returns an error if any action has an unknown type.
@@ -366,10 +389,43 @@ func validateActionTypes(actions []Action) error {
 	for _, a := range actions {
 		if !isValidActionType(a.Type) {
 			return fmt.Errorf(
-				"%w: invalid action type %q; must be forward, redirect, fixed-response, authenticate-cognito, or authenticate-oidc",
+				"%w: invalid action type %q; must be forward, redirect, fixed-response, "+
+					"authenticate-cognito, authenticate-oidc, or jwt-validation",
 				ErrInvalidParameter,
 				a.Type,
 			)
+		}
+
+		if err := validateJwtValidationConfig(a); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func validateJwtValidationConfig(a Action) error {
+	if a.Type != actionTypeJwtValidation {
+		return nil
+	}
+
+	cfg := a.JwtValidationConfig
+	if cfg == nil || cfg.Issuer == "" || cfg.JwksEndpoint == "" {
+		return fmt.Errorf("%w: JwtValidationConfig requires Issuer and JwksEndpoint", ErrInvalidParameter)
+	}
+
+	for _, c := range cfg.AdditionalClaims {
+		switch c.Format {
+		case "single-string", "string-array", "space-separated-values":
+		default:
+			return fmt.Errorf(
+				"%w: invalid claim Format %q; must be single-string, string-array, or space-separated-values",
+				ErrInvalidParameter, c.Format,
+			)
+		}
+
+		if c.Name == "" || len(c.Values) == 0 {
+			return fmt.Errorf("%w: each additional claim requires Name and Values", ErrInvalidParameter)
 		}
 	}
 
@@ -384,6 +440,11 @@ func applyAuthCognitoConfig(vals url.Values, p string, action *Action) {
 		SessionCookieName:        vals.Get(p + ".AuthenticateCognitoConfig.SessionCookieName"),
 		Scope:                    vals.Get(p + ".AuthenticateCognitoConfig.Scope"),
 		OnUnauthenticatedRequest: vals.Get(p + ".AuthenticateCognitoConfig.OnUnauthenticatedRequest"),
+
+		AuthenticationRequestExtraParams: parseExtraParams(
+			vals,
+			p+".AuthenticateCognitoConfig.AuthenticationRequestExtraParams",
+		),
 	}
 
 	if st := vals.Get(p + ".AuthenticateCognitoConfig.SessionTimeout"); st != "" {
@@ -405,6 +466,11 @@ func applyAuthOidcConfig(vals url.Values, p string, action *Action) {
 		SessionCookieName:        vals.Get(p + ".AuthenticateOidcConfig.SessionCookieName"),
 		Scope:                    vals.Get(p + ".AuthenticateOidcConfig.Scope"),
 		OnUnauthenticatedRequest: vals.Get(p + ".AuthenticateOidcConfig.OnUnauthenticatedRequest"),
+
+		AuthenticationRequestExtraParams: parseExtraParams(
+			vals,
+			p+".AuthenticateOidcConfig.AuthenticationRequestExtraParams",
+		),
 	}
 
 	if st := vals.Get(p + ".AuthenticateOidcConfig.SessionTimeout"); st != "" {
@@ -484,6 +550,10 @@ func toXMLAction(a Action) xmlAction {
 			Scope:                    a.AuthenticateCognitoConfig.Scope,
 			OnUnauthenticatedRequest: a.AuthenticateCognitoConfig.OnUnauthenticatedRequest,
 			SessionTimeout:           a.AuthenticateCognitoConfig.SessionTimeout,
+
+			AuthenticationRequestExtraParams: toXMLExtraParams(
+				a.AuthenticateCognitoConfig.AuthenticationRequestExtraParams,
+			),
 		}
 	}
 
@@ -498,7 +568,15 @@ func toXMLAction(a Action) xmlAction {
 			Scope:                    a.AuthenticateOidcConfig.Scope,
 			OnUnauthenticatedRequest: a.AuthenticateOidcConfig.OnUnauthenticatedRequest,
 			SessionTimeout:           a.AuthenticateOidcConfig.SessionTimeout,
+
+			AuthenticationRequestExtraParams: toXMLExtraParams(
+				a.AuthenticateOidcConfig.AuthenticationRequestExtraParams,
+			),
 		}
+	}
+
+	if a.JwtValidationConfig != nil {
+		xa.JwtValidationConfig = toXMLJwtValidationConfig(a.JwtValidationConfig)
 	}
 
 	return xa
@@ -521,9 +599,11 @@ func toXMLListener(l *Listener) xmlListener {
 
 	if l.MutualAuthentication != nil {
 		xl.MutualAuthentication = &xmlMutualAuthentication{
-			Mode:                              l.MutualAuthentication.Mode,
-			TrustStoreArn:                     l.MutualAuthentication.TrustStoreArn,
-			IgnoreClientCertificateExpiration: l.MutualAuthentication.IgnoreClientCertificateExpiration,
+			Mode:                          l.MutualAuthentication.Mode,
+			TrustStoreArn:                 l.MutualAuthentication.TrustStoreArn,
+			IgnoreClientCertificateExpiry: l.MutualAuthentication.IgnoreClientCertificateExpiration,
+			AdvertiseTrustStoreCaNames:    l.MutualAuthentication.AdvertiseTrustStoreCaNames,
+			TrustStoreAssociationStatus:   l.MutualAuthentication.TrustStoreAssociationStatus,
 		}
 	}
 
@@ -583,33 +663,129 @@ type xmlForwardConfig struct {
 
 // xmlAuthenticateCognitoConfig serialises AuthenticateCognitoConfig.
 type xmlAuthenticateCognitoConfig struct {
-	UserPoolArn              string `xml:"UserPoolArn"`
-	UserPoolClientID         string `xml:"UserPoolClientId"`
-	UserPoolDomain           string `xml:"UserPoolDomain"`
-	SessionCookieName        string `xml:"SessionCookieName,omitempty"`
-	Scope                    string `xml:"Scope,omitempty"`
-	OnUnauthenticatedRequest string `xml:"OnUnauthenticatedRequest,omitempty"`
-	SessionTimeout           int64  `xml:"SessionTimeout,omitempty"`
+	AuthenticationRequestExtraParams *xmlExtraParams `xml:"AuthenticationRequestExtraParams,omitempty"`
+	UserPoolArn                      string          `xml:"UserPoolArn"`
+	UserPoolClientID                 string          `xml:"UserPoolClientId"`
+	UserPoolDomain                   string          `xml:"UserPoolDomain"`
+	SessionCookieName                string          `xml:"SessionCookieName,omitempty"`
+	Scope                            string          `xml:"Scope,omitempty"`
+	OnUnauthenticatedRequest         string          `xml:"OnUnauthenticatedRequest,omitempty"`
+	SessionTimeout                   int64           `xml:"SessionTimeout,omitempty"`
+}
+
+type xmlExtraParams struct {
+	Entries []xmlExtraParamEntry `xml:"entry"`
+}
+
+type xmlExtraParamEntry struct {
+	Key   string `xml:"key"`
+	Value string `xml:"value"`
+}
+
+func toXMLExtraParams(m map[string]string) *xmlExtraParams {
+	if len(m) == 0 {
+		return nil
+	}
+
+	out := &xmlExtraParams{}
+	for _, k := range slices.Sorted(maps.Keys(m)) {
+		out.Entries = append(out.Entries, xmlExtraParamEntry{Key: k, Value: m[k]})
+	}
+
+	return out
+}
+
+type xmlJwtValidationConfig struct {
+	AdditionalClaims *xmlJwtClaimList `xml:"AdditionalClaims,omitempty"`
+	Issuer           string           `xml:"Issuer"`
+	JwksEndpoint     string           `xml:"JwksEndpoint"`
+}
+
+type xmlJwtClaimList struct {
+	Members []xmlJwtClaim `xml:"member"`
+}
+
+type xmlJwtClaim struct {
+	Values *xmlStringList `xml:"Values,omitempty"`
+	Format string         `xml:"Format"`
+	Name   string         `xml:"Name"`
+}
+
+func toXMLJwtValidationConfig(c *JwtValidationConfig) *xmlJwtValidationConfig {
+	out := &xmlJwtValidationConfig{Issuer: c.Issuer, JwksEndpoint: c.JwksEndpoint}
+
+	if len(c.AdditionalClaims) > 0 {
+		out.AdditionalClaims = &xmlJwtClaimList{}
+
+		for _, cl := range c.AdditionalClaims {
+			vals := make([]xmlStringValue, 0, len(cl.Values))
+			for _, v := range cl.Values {
+				vals = append(vals, xmlStringValue{Value: v})
+			}
+
+			out.AdditionalClaims.Members = append(out.AdditionalClaims.Members, xmlJwtClaim{
+				Format: cl.Format, Name: cl.Name, Values: &xmlStringList{Members: vals},
+			})
+		}
+	}
+
+	return out
 }
 
 // xmlAuthenticateOidcConfig serialises AuthenticateOidcConfig.
 type xmlAuthenticateOidcConfig struct {
-	Issuer                   string `xml:"Issuer"`
-	AuthorizationEndpoint    string `xml:"AuthorizationEndpoint"`
-	TokenEndpoint            string `xml:"TokenEndpoint"`
-	UserInfoEndpoint         string `xml:"UserInfoEndpoint"`
-	ClientID                 string `xml:"ClientId"`
-	SessionCookieName        string `xml:"SessionCookieName,omitempty"`
-	Scope                    string `xml:"Scope,omitempty"`
-	OnUnauthenticatedRequest string `xml:"OnUnauthenticatedRequest,omitempty"`
-	SessionTimeout           int64  `xml:"SessionTimeout,omitempty"`
+	AuthenticationRequestExtraParams *xmlExtraParams `xml:"AuthenticationRequestExtraParams,omitempty"`
+	Issuer                           string          `xml:"Issuer"`
+	AuthorizationEndpoint            string          `xml:"AuthorizationEndpoint"`
+	TokenEndpoint                    string          `xml:"TokenEndpoint"`
+	UserInfoEndpoint                 string          `xml:"UserInfoEndpoint"`
+	ClientID                         string          `xml:"ClientId"`
+	SessionCookieName                string          `xml:"SessionCookieName,omitempty"`
+	Scope                            string          `xml:"Scope,omitempty"`
+	OnUnauthenticatedRequest         string          `xml:"OnUnauthenticatedRequest,omitempty"`
+	SessionTimeout                   int64           `xml:"SessionTimeout,omitempty"`
 }
 
 // xmlMutualAuthentication serialises MutualAuthentication for XML responses.
 type xmlMutualAuthentication struct {
-	TrustStoreArn                     string `xml:"TrustStoreArn,omitempty"`
-	Mode                              string `xml:"Mode"`
-	IgnoreClientCertificateExpiration bool   `xml:"IgnoreClientCertificateExpiration,omitempty"`
+	TrustStoreArn                 string `xml:"TrustStoreArn,omitempty"`
+	Mode                          string `xml:"Mode"`
+	AdvertiseTrustStoreCaNames    string `xml:"AdvertiseTrustStoreCaNames,omitempty"`
+	TrustStoreAssociationStatus   string `xml:"TrustStoreAssociationStatus,omitempty"`
+	IgnoreClientCertificateExpiry bool   `xml:"IgnoreClientCertificateExpiry,omitempty"`
+}
+
+const (
+	mutualAuthKeyPrefix   = "MutualAuthentication."
+	mutualAuthModeVerify  = "verify"
+	trustStoreAssocActive = "active"
+)
+
+// parseMutualAuthentication reads MutualAuthenticationAttributes (elbv2 v1.58.5 serializers.go:4197).
+func parseMutualAuthentication(vals url.Values) *MutualAuthentication {
+	mode := vals.Get(mutualAuthKeyPrefix + "Mode")
+	tsArn := vals.Get(mutualAuthKeyPrefix + "TrustStoreArn")
+
+	if mode == "" && tsArn == "" {
+		return nil
+	}
+
+	if mode == "" {
+		mode = mutualAuthModeVerify
+	}
+
+	ma := &MutualAuthentication{
+		Mode:                       mode,
+		TrustStoreArn:              tsArn,
+		AdvertiseTrustStoreCaNames: vals.Get(mutualAuthKeyPrefix + "AdvertiseTrustStoreCaNames"),
+		IgnoreClientCertificateExpiration: vals.Get(mutualAuthKeyPrefix+"IgnoreClientCertificateExpiry") ==
+			attrValueTrue,
+	}
+	if tsArn != "" {
+		ma.TrustStoreAssociationStatus = trustStoreAssocActive
+	}
+
+	return ma
 }
 
 // xmlMatcher serialises Matcher for XML responses.
@@ -624,6 +800,7 @@ type xmlAction struct {
 	ForwardConfig             *xmlForwardConfig             `xml:"ForwardConfig,omitempty"`
 	AuthenticateCognitoConfig *xmlAuthenticateCognitoConfig `xml:"AuthenticateCognitoConfig,omitempty"`
 	AuthenticateOidcConfig    *xmlAuthenticateOidcConfig    `xml:"AuthenticateOidcConfig,omitempty"`
+	JwtValidationConfig       *xmlJwtValidationConfig       `xml:"JwtValidationConfig,omitempty"`
 	Type                      string                        `xml:"Type"`
 	TargetGroupArn            string                        `xml:"TargetGroupArn,omitempty"`
 	Order                     int32                         `xml:"Order,omitempty"`

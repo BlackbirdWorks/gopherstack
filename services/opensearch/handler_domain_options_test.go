@@ -68,10 +68,10 @@ func TestCreateDomain_FullClusterConfig(t *testing.T) {
 				"WarmEnabled":        true,
 				"WarmType":           "ultrawarm1.medium.search",
 				"WarmCount":          2,
-				"ColdStorageEnabled": true,
+				"ColdStorageOptions": map[string]any{"Enabled": true},
 			},
 			wantCC: map[string]any{
-				"ColdStorageEnabled": true,
+				"ColdStorageOptions": map[string]any{"Enabled": true},
 			},
 		},
 		{

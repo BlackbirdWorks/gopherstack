@@ -31,10 +31,7 @@ func TestAccuracy_ModelCopyJob_Lifecycle(t *testing.T) {
 	mustUnmarshal(t, rec, &createOut)
 	jobARN := createOut["jobArn"].(string)
 	assert.NotEmpty(t, jobARN)
-	assert.Equal(t, "InProgress", createOut["status"])
-	assert.NotEmpty(t, createOut["creationTime"])
-	assert.NotEmpty(t, createOut["lastModifiedTime"])
-	assert.Contains(t, createOut["targetModelArn"], "my-lifecycle-copy")
+	assert.Len(t, createOut, 1, "CreateModelCopyJobOutput carries only jobArn")
 
 	// List.
 	recList := doRequest(t, h, http.MethodGet, "/model-copy-jobs", nil)
@@ -54,6 +51,9 @@ func TestAccuracy_ModelCopyJob_Lifecycle(t *testing.T) {
 	mustUnmarshal(t, recGet, &getOut)
 	assert.Equal(t, jobARN, getOut["jobArn"])
 	assert.Equal(t, "InProgress", getOut["status"])
+	assert.NotEmpty(t, getOut["creationTime"])
+	assert.Contains(t, getOut["targetModelArn"], "my-lifecycle-copy")
+	assert.Equal(t, "my-lifecycle-copy", getOut["targetModelName"])
 }
 
 func TestAccuracy_ModelCopyJob_MissingSourceModelArn(t *testing.T) {

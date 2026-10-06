@@ -137,11 +137,13 @@ type listAllowedMultiRegionClusterUpdatesResponse struct {
 // -- UpdateMultiRegionCluster request/response types -------------------------
 
 type updateMultiRegionClusterRequest struct {
-	MultiRegionClusterName        string `json:"MultiRegionClusterName"`
-	Description                   string `json:"Description,omitempty"`
-	NodeType                      string `json:"NodeType,omitempty"`
-	EngineVersion                 string `json:"EngineVersion,omitempty"`
-	MultiRegionParameterGroupName string `json:"MultiRegionParameterGroupName,omitempty"`
+	ShardConfiguration            *shardConfigurationRequest `json:"ShardConfiguration,omitempty"`
+	MultiRegionClusterName        string                     `json:"MultiRegionClusterName"`
+	Description                   string                     `json:"Description,omitempty"`
+	NodeType                      string                     `json:"NodeType,omitempty"`
+	EngineVersion                 string                     `json:"EngineVersion,omitempty"`
+	MultiRegionParameterGroupName string                     `json:"MultiRegionParameterGroupName,omitempty"`
+	UpdateStrategy                string                     `json:"UpdateStrategy,omitempty"`
 }
 
 type updateMultiRegionClusterResponse struct {

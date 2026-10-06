@@ -14,6 +14,7 @@ type storedFileCache struct {
 	FileCacheID                      string            `json:"fileCacheId"`
 	FileCacheType                    string            `json:"fileCacheType"`
 	FileCacheTypeVersion             string            `json:"fileCacheTypeVersion,omitempty"`
+	KmsKeyID                         string            `json:"kmsKeyId,omitempty"`
 	Lifecycle                        string            `json:"lifecycle"`
 	ResourceARN                      string            `json:"resourceArn"`
 	LustreDeploymentType             string            `json:"lustreDeploymentType,omitempty"`
@@ -47,6 +48,7 @@ func (c *storedFileCache) toPublic() *FileCache {
 		FileCacheID:          c.FileCacheID,
 		FileCacheType:        c.FileCacheType,
 		FileCacheTypeVersion: c.FileCacheTypeVersion,
+		KmsKeyID:             c.KmsKeyID,
 		Lifecycle:            c.Lifecycle,
 		ResourceARN:          c.ResourceARN,
 		SubnetIDs:            c.SubnetIDs,
@@ -64,6 +66,7 @@ func (c *storedFileCache) toPublicCreating() *FileCacheCreating {
 		FileCacheID:          c.FileCacheID,
 		FileCacheType:        c.FileCacheType,
 		FileCacheTypeVersion: c.FileCacheTypeVersion,
+		KmsKeyID:             c.KmsKeyID,
 		Lifecycle:            c.Lifecycle,
 		ResourceARN:          c.ResourceARN,
 		SubnetIDs:            c.SubnetIDs,
@@ -94,6 +97,7 @@ type createFileCacheInput struct {
 	LustreConfiguration  *createFileCacheLustreConfigurationInput `json:"LustreConfiguration"`
 	FileCacheType        string                                   `json:"FileCacheType"`
 	FileCacheTypeVersion string                                   `json:"FileCacheTypeVersion"`
+	KmsKeyID             string                                   `json:"KmsKeyId,omitempty"`
 	Tags                 []Tag                                    `json:"Tags,omitempty"`
 	SubnetIDs            []string                                 `json:"SubnetIds"`
 	StorageCapacityGiB   int32                                    `json:"StorageCapacity,omitempty"`
@@ -175,6 +179,7 @@ func (b *InMemoryBackend) CreateFileCache(input *createFileCacheInput) (*FileCac
 		FileCacheID:          id,
 		FileCacheType:        input.FileCacheType,
 		FileCacheTypeVersion: input.FileCacheTypeVersion,
+		KmsKeyID:             input.KmsKeyID,
 		Lifecycle:            lifecycleAvailable,
 		ResourceARN:          arn,
 		SubnetIDs:            input.SubnetIDs,

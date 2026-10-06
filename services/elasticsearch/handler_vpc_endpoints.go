@@ -203,11 +203,11 @@ func (h *Handler) handleUpdateVpcEndpoint(w http.ResponseWriter, r *http.Request
 	h.writeJSON(r, w, map[string]any{"VpcEndpoint": toVpcEndpointJSON(endpoint)})
 }
 
+func vpcEndpointSummaryKey(s vpcEndpointSummaryJSON) string { return s.VpcEndpointID }
+
 func (h *Handler) handleListVpcEndpoints(w http.ResponseWriter, r *http.Request) {
-	h.writeJSON(r, w, map[string]any{
-		"VpcEndpointSummaryList": toVpcEndpointSummariesJSON(h.Backend.ListVpcEndpoints(h.reqContext(r))),
-		keyNextToken:             "",
-	})
+	writePagedList(h, w, r, withEmptyToken(listSpec("VpcEndpointSummaryList")),
+		toVpcEndpointSummariesJSON(h.Backend.ListVpcEndpoints(h.reqContext(r))), vpcEndpointSummaryKey)
 }
 
 func (h *Handler) handleDeleteVpcEndpoint(w http.ResponseWriter, r *http.Request) {
@@ -235,16 +235,14 @@ func (h *Handler) handleListVpcEndpointAccess(w http.ResponseWriter, r *http.Req
 		principals = append(principals, authorizedPrincipalJSON{PrincipalType: "AWS_ACCOUNT", Principal: account})
 	}
 
-	h.writeJSON(r, w, map[string]any{"AuthorizedPrincipalList": principals, keyNextToken: ""})
+	writePagedList(h, w, r, withEmptyToken(listSpec("AuthorizedPrincipalList")), principals,
+		func(p authorizedPrincipalJSON) string { return p.Principal })
 }
 
 func (h *Handler) handleListVpcEndpointsForDomain(w http.ResponseWriter, r *http.Request, domainName string) {
-	h.writeJSON(r, w, map[string]any{
-		"VpcEndpointSummaryList": toVpcEndpointSummariesJSON(
-			h.Backend.ListVpcEndpointsForDomain(h.reqContext(r), domainName),
-		),
-		keyNextToken: "",
-	})
+	writePagedList(h, w, r, withEmptyToken(listSpec("VpcEndpointSummaryList")),
+		toVpcEndpointSummariesJSON(h.Backend.ListVpcEndpointsForDomain(h.reqContext(r), domainName)),
+		vpcEndpointSummaryKey)
 }
 
 func (h *Handler) handleRevokeVpcEndpointAccess(w http.ResponseWriter, r *http.Request, domainName string) {

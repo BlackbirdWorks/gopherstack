@@ -27,6 +27,7 @@ func TestRealClient_BatchDescribeUserLimits(t *testing.T) {
 
 	_, err := backend.RegisterUser(
 		appTestAccountID, "default", "alice", "alice@example.com", "READER", "QUICKSIGHT", "", "", nil,
+		quicksight.UserFederation{},
 	)
 	require.NoError(t, err)
 
@@ -89,11 +90,13 @@ func TestRealClient_BatchDescribeUserLimits_EnterpriseEdition(t *testing.T) {
 
 	_, err := backend.CreateAccountSubscription(
 		appTestAccountID, "enterprise-acct", "ENTERPRISE", "IAM_AND_QUICKSIGHT", "notify@example.com",
+		quicksight.AccountSubscriptionOptions{},
 	)
 	require.NoError(t, err)
 
 	_, err = backend.RegisterUser(
 		appTestAccountID, "default", "bob", "bob@example.com", "AUTHOR", "QUICKSIGHT", "", "", nil,
+		quicksight.UserFederation{},
 	)
 	require.NoError(t, err)
 

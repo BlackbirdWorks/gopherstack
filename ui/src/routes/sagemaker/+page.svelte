@@ -1,9 +1,9 @@
 <script lang="ts">
-	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
-	import { multiRegionList } from '$lib/multi-region';
-	import RegionChip from '$lib/components/RegionChip.svelte';
-	import WriteRegionHint from '$lib/components/WriteRegionHint.svelte';
-	import { getSageMakerClient } from '$lib/aws-client';
+	import { onRegionChange, regionalClient } from '#lib/region-effect.svelte.ts';
+	import { multiRegionList } from '#lib/multi-region.ts';
+	import RegionChip from '#lib/components/RegionChip.svelte';
+	import WriteRegionHint from '#lib/components/WriteRegionHint.svelte';
+	import { getSageMakerClient } from '#lib/aws-client.ts';
 	import {
 		ListNotebookInstancesCommand,
 		ListTrainingJobsCommand,

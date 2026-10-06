@@ -135,7 +135,9 @@ type OpsItemOutput struct {
 
 // GetOpsMetadataInput is the request payload for GetOpsMetadata.
 type GetOpsMetadataInput struct {
+	MaxResults     *int32 `json:"MaxResults,omitempty"`
 	OpsMetadataArn string `json:"OpsMetadataArn"`
+	NextToken      string `json:"NextToken,omitempty"`
 }
 
 // GetOpsMetadataOutput is the response payload for GetOpsMetadata (real
@@ -204,10 +206,8 @@ type UpdateOpsItemInput struct {
 	PlannedStartTime *float64                    `json:"PlannedStartTime,omitempty"`
 	PlannedEndTime   *float64                    `json:"PlannedEndTime,omitempty"`
 	RelatedOpsItems  []RelatedOpsItemRef         `json:"RelatedOpsItems,omitempty"`
-	// OperationalDataToDelete removes keys from OperationalData. Confirmed
-	// present in aws-sdk-go-v2 v1.73.4's api_op_UpdateOpsItem.go but out of
-	// scope for this pass (tracked separately, not part of bd gopherstack-iq4m's
-	// field list).
+
+	OperationalDataToDelete []string `json:"OperationalDataToDelete,omitempty"`
 }
 
 // UpdateOpsMetadataInput is the request payload for UpdateOpsMetadata.
@@ -391,9 +391,10 @@ type DisassociateOpsItemRelatedItemInput struct {
 
 // ListOpsItemRelatedItemsInput is the request payload.
 type ListOpsItemRelatedItemsInput struct {
-	MaxResults *int64 `json:"MaxResults,omitempty"`
-	OpsItemID  string `json:"OpsItemId,omitempty"`
-	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults *int64            `json:"MaxResults,omitempty"`
+	OpsItemID  string            `json:"OpsItemId,omitempty"`
+	NextToken  string            `json:"NextToken,omitempty"`
+	Filters    []OpsItemFilterKV `json:"Filters,omitempty"`
 }
 
 // ListOpsItemRelatedItemsOutput is the response payload.
@@ -404,9 +405,10 @@ type ListOpsItemRelatedItemsOutput struct {
 
 // ListOpsItemEventsInput is the request payload.
 type ListOpsItemEventsInput struct {
-	MaxResults *int64 `json:"MaxResults,omitempty"`
-	OpsItemID  string `json:"OpsItemId,omitempty"`
-	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults *int64            `json:"MaxResults,omitempty"`
+	OpsItemID  string            `json:"OpsItemId,omitempty"`
+	NextToken  string            `json:"NextToken,omitempty"`
+	Filters    []OpsItemFilterKV `json:"Filters,omitempty"`
 }
 
 // OpsItemEventSummary is a summary of an OpsItem event.

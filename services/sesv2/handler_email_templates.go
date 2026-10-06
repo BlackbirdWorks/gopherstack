@@ -67,7 +67,7 @@ func (h *Handler) handleUpdateEmailTemplate(c *echo.Context, name string) (any, 
 
 func (h *Handler) handleListEmailTemplates(c *echo.Context) (any, error) {
 	nextToken := c.QueryParam("NextToken")
-	pg := h.Backend.ListEmailTemplates(nextToken, 0)
+	pg := h.Backend.ListEmailTemplates(nextToken, queryPageSize(c))
 
 	items := make([]emailTemplateMetadataOutput, 0, len(pg.Data))
 	for _, t := range pg.Data {

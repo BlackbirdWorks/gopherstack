@@ -59,7 +59,9 @@ type listOrganizationalUnitsForParentResponse struct {
 }
 
 type listParentsRequest struct {
-	ChildID string `json:"ChildId"`
+	ChildID    string `json:"ChildId"`
+	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults int    `json:"MaxResults,omitempty"`
 }
 
 type listParentsResponse struct {
@@ -228,12 +230,18 @@ func (h *Handler) handleListParents(c *echo.Context, body []byte) error {
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
+	if rejected, err := h.checkPaging(c, req.MaxResults, req.NextToken); rejected {
+		return err
+	}
+
 	parents, err := h.Backend.ListParents(req.ChildID)
 	if err != nil {
 		return h.handleBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, listParentsResponse{Parents: parents})
+	p := page.New(parents, req.NextToken, req.MaxResults, defaultMaxResults)
+
+	return c.JSON(http.StatusOK, listParentsResponse{Parents: p.Data, NextToken: p.Next})
 }
 
 func (h *Handler) handleListChildren(c *echo.Context, body []byte) error {

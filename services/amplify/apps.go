@@ -100,6 +100,14 @@ func applyAppOptionsCreate(app *App, opts AppOptions) {
 // Split out of applyAppOptionsUpdate to keep both functions under the
 // cyclomatic complexity budget.
 func applyAppOptionsUpdateStrings(app *App, opts AppOptions) {
+	if opts.Description != nil {
+		app.Description = *opts.Description
+	}
+
+	if opts.Repository != nil {
+		app.Repository = *opts.Repository
+	}
+
 	if opts.EnvironmentVariables != nil {
 		app.EnvironmentVariables = opts.EnvironmentVariables
 	}

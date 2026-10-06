@@ -60,7 +60,7 @@ func (h *Handler) handleDeleteMultiRegionEndpoint(name string) (any, error) {
 func (h *Handler) handleListMultiRegionEndpoints(c *echo.Context) (any, error) {
 	nextToken := c.QueryParam("NextToken")
 
-	items, next, err := h.Backend.ListMultiRegionEndpoints(nextToken, 0)
+	items, next, err := h.Backend.ListMultiRegionEndpoints(nextToken, queryPageSize(c))
 	if err != nil {
 		return nil, err
 	}

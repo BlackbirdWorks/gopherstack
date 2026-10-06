@@ -160,6 +160,7 @@ type lgwVifGroupAssocItem struct {
 type describeLocalGatewaysResponse struct {
 	XMLName       xml.Name `xml:"DescribeLocalGatewaysResponse"`
 	RequestID     string   `xml:"requestId"`
+	NextToken     string   `xml:"nextToken,omitempty"`
 	LocalGateways struct {
 		Items []localGatewayItem `xml:"item"`
 	} `xml:"localGatewaySet"`
@@ -168,6 +169,7 @@ type describeLocalGatewaysResponse struct {
 type describeLocalGatewayVirtualInterfacesResponse struct {
 	XMLName                       xml.Name `xml:"DescribeLocalGatewayVirtualInterfacesResponse"`
 	RequestID                     string   `xml:"requestId"`
+	NextToken                     string   `xml:"nextToken,omitempty"`
 	LocalGatewayVirtualInterfaces struct {
 		Items []localGatewayVifItem `xml:"item"`
 	} `xml:"localGatewayVirtualInterfaceSet"`
@@ -176,6 +178,7 @@ type describeLocalGatewayVirtualInterfacesResponse struct {
 type describeLocalGatewayVirtualInterfaceGroupsResponse struct {
 	XMLName                            xml.Name `xml:"DescribeLocalGatewayVirtualInterfaceGroupsResponse"`
 	RequestID                          string   `xml:"requestId"`
+	NextToken                          string   `xml:"nextToken,omitempty"`
 	LocalGatewayVirtualInterfaceGroups struct {
 		Items []localGatewayVifGroupItem `xml:"item"`
 	} `xml:"localGatewayVirtualInterfaceGroupSet"`
@@ -190,6 +193,7 @@ type createLocalGatewayRouteTableResponse struct {
 type describeLocalGatewayRouteTablesResponse struct {
 	XMLName                 xml.Name `xml:"DescribeLocalGatewayRouteTablesResponse"`
 	RequestID               string   `xml:"requestId"`
+	NextToken               string   `xml:"nextToken,omitempty"`
 	LocalGatewayRouteTables struct {
 		Items []localGatewayRouteTableItem `xml:"item"`
 	} `xml:"localGatewayRouteTableSet"`
@@ -222,6 +226,7 @@ type modifyLocalGatewayRouteResponse struct {
 type searchLocalGatewayRoutesResponse struct {
 	XMLName   xml.Name `xml:"SearchLocalGatewayRoutesResponse"`
 	RequestID string   `xml:"requestId"`
+	NextToken string   `xml:"nextToken,omitempty"`
 	Routes    struct {
 		Items []localGatewayRouteItem `xml:"item"`
 	} `xml:"routeSet"`
@@ -242,6 +247,7 @@ type deleteLocalGatewayRouteTableVpcAssociationResponse struct {
 type describeLocalGatewayRouteTableVpcAssociationsResponse struct {
 	XMLName                               xml.Name `xml:"DescribeLocalGatewayRouteTableVpcAssociationsResponse"`
 	RequestID                             string   `xml:"requestId"`
+	NextToken                             string   `xml:"nextToken,omitempty"`
 	LocalGatewayRouteTableVpcAssociations struct {
 		Items []localGatewayVpcAssociationItem `xml:"item"`
 	} `xml:"localGatewayRouteTableVpcAssociationSet"`
@@ -262,6 +268,7 @@ type deleteLGWVifGroupAssocResponse struct {
 type describeLGWVifGroupAssocsResponse struct {
 	XMLName   xml.Name `xml:"DescribeLocalGatewayRouteTableVirtualInterfaceGroupAssociationsResponse"`
 	RequestID string   `xml:"requestId"`
+	NextToken string   `xml:"nextToken,omitempty"`
 	Assocs    struct {
 		Items []lgwVifGroupAssocItem `xml:"item"`
 	} `xml:"localGatewayRouteTableVirtualInterfaceGroupAssociationSet"`
@@ -385,7 +392,7 @@ func (h *Handler) handleDescribeLocalGateways(vals url.Values, reqID string) (an
 		resp.LocalGateways.Items = append(resp.LocalGateways.Items, localGatewayToItem(lg))
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 func (h *Handler) handleDescribeLocalGatewayVirtualInterfaces(
@@ -404,7 +411,7 @@ func (h *Handler) handleDescribeLocalGatewayVirtualInterfaces(
 		)
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 func (h *Handler) handleDescribeLocalGatewayVirtualInterfaceGroups(
@@ -423,7 +430,7 @@ func (h *Handler) handleDescribeLocalGatewayVirtualInterfaceGroups(
 		)
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 // ---- handlers: Local Gateway Route Tables ----
@@ -463,7 +470,7 @@ func (h *Handler) handleDescribeLocalGatewayRouteTables(vals url.Values, reqID s
 		)
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 func (h *Handler) handleDeleteLocalGatewayRouteTable(vals url.Values, reqID string) (any, error) {
@@ -588,7 +595,7 @@ func (h *Handler) handleSearchLocalGatewayRoutes(vals url.Values, reqID string) 
 		resp.Routes.Items = append(resp.Routes.Items, localGatewayRouteToItem(r))
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 // ---- handlers: Local Gateway Route Table VPC Associations ----
@@ -652,7 +659,7 @@ func (h *Handler) handleDescribeLocalGatewayRouteTableVpcAssociations(
 		)
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 // ---- handlers: Local Gateway Route Table Virtual Interface Group Associations ----
@@ -707,7 +714,7 @@ func (h *Handler) handleDescribeLGWVifGroupAssocs(vals url.Values, reqID string)
 		resp.Assocs.Items = append(resp.Assocs.Items, lgwVifGroupAssocToItem(a, tags))
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 // ---- Local Gateway Virtual Interfaces / Virtual Interface Groups (Create/Delete API) ----

@@ -25,6 +25,12 @@ func (b *InMemoryBackend) CreateKnowledgeBase(
 	b.mu.Lock("CreateKnowledgeBase")
 	defer b.mu.Unlock()
 
+	if prior := findByClientToken(b.knowledgeBases, cfg.ClientToken,
+		func(k *KnowledgeBase) string { return k.ClientToken }, func(*KnowledgeBase) bool { return true },
+	); prior != nil {
+		return kbCopy(prior), nil
+	}
+
 	if _, exists := b.kbsByName[cfg.Name]; exists {
 		return nil, fmt.Errorf("%w: knowledge base %q already exists", ErrAlreadyExists, cfg.Name)
 	}
@@ -41,6 +47,7 @@ func (b *InMemoryBackend) CreateKnowledgeBase(
 		RoleARN:              cfg.RoleARN,
 		KBConfiguration:      cfg.KBConfiguration,
 		StorageConfiguration: cfg.StorageConfiguration,
+		ClientToken:          cfg.ClientToken,
 		CreatedAt:            now,
 		UpdatedAt:            now,
 	}
@@ -81,9 +88,8 @@ func (b *InMemoryBackend) UpdateKnowledgeBase(
 		kb.Name = cfg.Name
 	}
 
-	if cfg.Description != "" {
-		kb.Description = cfg.Description
-	}
+	// api_op_UpdateKnowledgeBase.go:12: all fields are overwritten
+	kb.Description = cfg.Description
 
 	if cfg.RoleARN != "" {
 		kb.RoleARN = cfg.RoleARN

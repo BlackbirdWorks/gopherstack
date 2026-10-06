@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"encoding/xml"
 	"errors"
 	"hash/crc32"
 	"io"
@@ -197,24 +196,20 @@ func WriteJSON(ctx context.Context, w http.ResponseWriter, code int, payload any
 func WriteXML(ctx context.Context, w http.ResponseWriter, code int, payload any) {
 	log := logger.Load(ctx)
 
-	buf := GetBuffer()
-	defer PutBuffer(buf)
+	err := withXML(payload, func(body []byte) error {
+		w.Header().Set("Content-Type", "application/xml")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.WriteHeader(code)
 
-	buf.WriteString(xml.Header)
+		if _, wErr := w.Write(body); wErr != nil {
+			log.ErrorContext(ctx, "failed to write XML response", "error", wErr)
+		}
 
-	encoder := xml.NewEncoder(buf)
-	if err := encoder.Encode(payload); err != nil {
+		return nil
+	})
+	if err != nil {
 		log.ErrorContext(ctx, "failed to marshal XML response", "error", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
-
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/xml")
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.WriteHeader(code)
-	if _, err := buf.WriteTo(w); err != nil {
-		log.ErrorContext(ctx, "failed to write XML response", "error", err)
 	}
 }
 

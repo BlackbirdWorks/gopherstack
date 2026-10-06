@@ -2,6 +2,7 @@ package cloudtrail
 
 import (
 	"encoding/json"
+	"math"
 	"net/http"
 	"time"
 
@@ -13,8 +14,8 @@ import (
 // --- LookupEvents ---
 
 type lookupEventsBody struct {
-	StartTime        *int64            `json:"StartTime"`
-	EndTime          *int64            `json:"EndTime"`
+	StartTime        *float64          `json:"StartTime"`
+	EndTime          *float64          `json:"EndTime"`
 	NextToken        string            `json:"NextToken"`
 	EventCategory    string            `json:"EventCategory"`
 	LookupAttributes []LookupAttribute `json:"LookupAttributes"`
@@ -32,6 +33,10 @@ func (h *Handler) handleLookupEvents(c *echo.Context, body []byte) error {
 		}
 	}
 
+	if badOffsetToken(in.NextToken) {
+		return writeInvalidNextToken(c)
+	}
+
 	input := LookupEventsInput{
 		LookupAttributes: in.LookupAttributes,
 		MaxResults:       in.MaxResults,
@@ -39,11 +44,11 @@ func (h *Handler) handleLookupEvents(c *echo.Context, body []byte) error {
 		EventCategory:    in.EventCategory,
 	}
 	if in.StartTime != nil {
-		t := time.Unix(*in.StartTime, 0).UTC()
+		t := epochToTime(*in.StartTime)
 		input.StartTime = &t
 	}
 	if in.EndTime != nil {
-		t := time.Unix(*in.EndTime, 0).UTC()
+		t := epochToTime(*in.EndTime)
 		input.EndTime = &t
 	}
 
@@ -55,6 +60,12 @@ func (h *Handler) handleLookupEvents(c *echo.Context, body []byte) error {
 	}
 
 	return c.JSON(http.StatusOK, resp)
+}
+
+func epochToTime(sec float64) time.Time {
+	whole, frac := math.Modf(sec)
+
+	return time.Unix(int64(whole), int64(frac*float64(time.Second))).UTC()
 }
 
 // lookupEventsEventWire is the real LookupEventsOutput Event shape

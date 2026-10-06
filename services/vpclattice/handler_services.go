@@ -21,7 +21,11 @@ func (h *Handler) handleCreateService(c *echo.Context, body map[string]any) erro
 	idleTimeoutSeconds := bodyInt32(body, "idleTimeoutSeconds")
 	tags := extractTags(body)
 
-	svc, err := h.Backend.CreateService(ctx, name, authType, certArn, customDomain, idleTimeoutSeconds, tags)
+	svc, err := idemCreate(h, "CreateService", "", body,
+		func(s *Service) string { return s.ID }, h.Backend.GetService,
+		func() (*Service, error) {
+			return h.Backend.CreateService(ctx, name, authType, certArn, customDomain, idleTimeoutSeconds, tags)
+		})
 	if err != nil {
 		return h.handleError(c, err)
 	}

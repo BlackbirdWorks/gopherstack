@@ -274,10 +274,21 @@ func (b *InMemoryBackend) DescribeWorkspaces(
 	workspaceIDs, directoryIDs, userIDs, bundleIDs []string,
 	limit int32, nextToken string,
 ) ([]*Workspace, string, error) {
+	return b.DescribeWorkspacesFiltered(ctx, workspaceIDs, directoryIDs, userIDs, bundleIDs, "", limit, nextToken)
+}
+
+// DescribeWorkspacesFiltered is DescribeWorkspaces plus the user-decoupled
+// WorkspaceName filter (empty means no name filter).
+func (b *InMemoryBackend) DescribeWorkspacesFiltered(
+	ctx context.Context,
+	workspaceIDs, directoryIDs, userIDs, bundleIDs []string,
+	workspaceName string,
+	limit int32, nextToken string,
+) ([]*Workspace, string, error) {
 	b.mu.RLock("DescribeWorkspaces")
 	defer b.mu.RUnlock()
 
-	matched := b.filterWorkspaces(b.regionFor(ctx), workspaceIDs, directoryIDs, userIDs, bundleIDs)
+	matched := b.filterWorkspaces(b.regionFor(ctx), workspaceIDs, directoryIDs, userIDs, bundleIDs, workspaceName)
 
 	sort.Slice(matched, func(i, j int) bool {
 		return matched[i].WorkspaceID < matched[j].WorkspaceID
@@ -307,6 +318,7 @@ func (b *InMemoryBackend) DescribeWorkspaces(
 func (b *InMemoryBackend) filterWorkspaces(
 	region string,
 	workspaceIDs, directoryIDs, userIDs, bundleIDs []string,
+	workspaceName string,
 ) []*storedWorkspace {
 	idFilter := buildFilter(workspaceIDs)
 	dirFilter := buildFilter(directoryIDs)
@@ -317,6 +329,10 @@ func (b *InMemoryBackend) filterWorkspaces(
 
 	for _, w := range b.workspaces.All() {
 		if region != "" && w.Region != "" && w.Region != region {
+			continue
+		}
+
+		if workspaceName != "" && w.WorkspaceName != workspaceName {
 			continue
 		}
 
@@ -462,10 +478,67 @@ func (b *InMemoryBackend) ModifyWorkspaceProperties(
 		return ErrWorkspaceNotFound
 	}
 
-	p := props
-	w.Properties = &p
+	if w.Properties == nil {
+		w.Properties = &WorkspaceProperties{}
+	}
+
+	mergeWorkspaceProperties(w.Properties, props)
 
 	return nil
+}
+
+func validateDataReplication(mode string) error {
+	if mode != "" && mode != "NO_REPLICATION" && mode != "PRIMARY_AS_SOURCE" {
+		return awserr.Newf("invalid DataReplication: %q", awserr.ErrInvalidParameter, mode)
+	}
+
+	return nil
+}
+
+// ModifyWorkspaceDataReplication sets the workspace's DataReplication mode.
+func (b *InMemoryBackend) ModifyWorkspaceDataReplication(workspaceID, mode string) error {
+	if err := validateDataReplication(mode); err != nil {
+		return err
+	}
+
+	b.mu.Lock("ModifyWorkspaceDataReplication")
+	defer b.mu.Unlock()
+
+	w, ok := b.workspaces.Get(workspaceID)
+	if !ok {
+		return ErrWorkspaceNotFound
+	}
+
+	if w.DataReplicationSettings == nil {
+		w.DataReplicationSettings = &DataReplicationSettings{}
+	}
+
+	w.DataReplicationSettings.DataReplication = mode
+
+	return nil
+}
+
+// mergeWorkspaceProperties overlays the members the caller set; omitted members keep their value.
+func mergeWorkspaceProperties(dst *WorkspaceProperties, src WorkspaceProperties) {
+	if src.ComputeTypeName != "" {
+		dst.ComputeTypeName = src.ComputeTypeName
+	}
+
+	if src.RunningMode != "" {
+		dst.RunningMode = src.RunningMode
+	}
+
+	if src.RootVolumeSizeGib != 0 {
+		dst.RootVolumeSizeGib = src.RootVolumeSizeGib
+	}
+
+	if src.RunningModeAutoStopTimeoutInMinutes != 0 {
+		dst.RunningModeAutoStopTimeoutInMinutes = src.RunningModeAutoStopTimeoutInMinutes
+	}
+
+	if src.UserVolumeSizeGib != 0 {
+		dst.UserVolumeSizeGib = src.UserVolumeSizeGib
+	}
 }
 
 // ModifyWorkspaceState updates the administrative state of a WorkSpace.

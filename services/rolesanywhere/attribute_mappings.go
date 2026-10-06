@@ -1,6 +1,9 @@
 package rolesanywhere
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // validCertificateField reports whether f is one of the values the real
 // CertificateField enum shape allows (botocore's
@@ -59,6 +62,7 @@ func (b *InMemoryBackend) PutAttributeMapping(
 	}
 
 	amStore[profileID] = mappings
+	p.UpdatedAt = time.Now().UTC()
 
 	return copyProfile(p), nil
 }
@@ -93,6 +97,8 @@ func (b *InMemoryBackend) DeleteAttributeMapping(
 	} else {
 		amStore[profileID] = removeSpecifiers(amStore[profileID], certificateField, specifiers)
 	}
+
+	p.UpdatedAt = time.Now().UTC()
 
 	return copyProfile(p), nil
 }

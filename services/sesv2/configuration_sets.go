@@ -19,19 +19,46 @@ type ArchivingOptions struct {
 
 // ConfigurationSet represents a SES v2 configuration set.
 type ConfigurationSet struct {
-	CreatedAt                    time.Time         `json:"createdAt"`
-	VdmOptions                   *VdmOptions       `json:"vdmOptions,omitempty"`
-	Tags                         map[string]string `json:"tags,omitempty"`
-	ArchivingOptions             *ArchivingOptions `json:"archivingOptions,omitempty"`
-	DeliverySendingPoolName      string            `json:"deliverySendingPoolName,omitempty"`
-	DeliveryTLSPolicy            string            `json:"deliveryTlsPolicy,omitempty"`
-	TrackingHTTPSPolicy          string            `json:"trackingHttpsPolicy,omitempty"`
-	TrackingCustomRedirectDomain string            `json:"trackingCustomRedirectDomain,omitempty"`
-	Name                         string            `json:"name"`
-	SuppressionScope             string            `json:"suppressionScope,omitempty"`
-	SuppressionReasons           []string          `json:"suppressionReasons,omitempty"`
-	SendingEnabled               bool              `json:"sendingEnabled"`
-	ReputationMetricsEnabled     bool              `json:"reputationMetricsEnabled"`
+	CreatedAt                    time.Time              `json:"createdAt"`
+	VdmOptions                   *VdmOptions            `json:"vdmOptions,omitempty"`
+	Tags                         map[string]string      `json:"tags,omitempty"`
+	ArchivingOptions             *ArchivingOptions      `json:"archivingOptions,omitempty"`
+	SuppressionValidation        *SuppressionValidation `json:"suppressionValidation,omitempty"`
+	DeliverySendingPoolName      string                 `json:"deliverySendingPoolName,omitempty"`
+	DeliveryTLSPolicy            string                 `json:"deliveryTlsPolicy,omitempty"`
+	TrackingHTTPSPolicy          string                 `json:"trackingHttpsPolicy,omitempty"`
+	TrackingCustomRedirectDomain string                 `json:"trackingCustomRedirectDomain,omitempty"`
+	Name                         string                 `json:"name"`
+	SuppressionScope             string                 `json:"suppressionScope,omitempty"`
+	SuppressionReasons           []string               `json:"suppressionReasons,omitempty"`
+	SendingEnabled               bool                   `json:"sendingEnabled"`
+	ReputationMetricsEnabled     bool                   `json:"reputationMetricsEnabled"`
+}
+
+// SuppressionValidation is SuppressionOptions.ValidationOptions: the Auto Validation switch and confidence verdict.
+type SuppressionValidation struct {
+	ConditionThresholdEnabled  string `json:"conditionThresholdEnabled"`
+	ConfidenceVerdictThreshold string `json:"confidenceVerdictThreshold,omitempty"`
+}
+
+func (v *SuppressionValidation) validate() error {
+	if v == nil {
+		return nil
+	}
+
+	if v.ConditionThresholdEnabled != "ENABLED" && v.ConditionThresholdEnabled != "DISABLED" {
+		return fmt.Errorf(
+			"%w: ValidationOptions.ConditionThreshold.ConditionThresholdEnabled must be ENABLED or DISABLED",
+			ErrInvalidInput,
+		)
+	}
+
+	switch v.ConfidenceVerdictThreshold {
+	case "", "MEDIUM", "HIGH", "MANAGED":
+		return nil
+	}
+
+	return fmt.Errorf("%w: ConfidenceVerdictThreshold must be MEDIUM, HIGH or MANAGED", ErrInvalidInput)
 }
 
 // Clone returns a deep copy of ConfigurationSet.
@@ -60,6 +87,11 @@ func (cs *ConfigurationSet) Clone() *ConfigurationSet {
 	}
 	if cs.SuppressionReasons != nil {
 		cp.SuppressionReasons = slices.Clone(cs.SuppressionReasons)
+	}
+
+	if cs.SuppressionValidation != nil {
+		v := *cs.SuppressionValidation
+		cp.SuppressionValidation = &v
 	}
 
 	return &cp
@@ -234,18 +266,17 @@ func (b *InMemoryBackend) PutConfigurationSetSendingOptions(
 	return nil
 }
 
-// PutConfigurationSetSuppressionOptions stores the suppression reason list
-// and scope. ValidationOptions (predictive-suppression mailbox validation,
-// PutConfigurationSetSuppressionOptionsInput.ValidationOptions) is not
-// modeled: this backend has no mailbox-validation engine to derive a
-// confidence verdict from, and there is nothing else it could return besides
-// the client's own submitted threshold, so it's disclosed as a gap in
-// PARITY.md instead of echoed as if enforced.
+// PutConfigurationSetSuppressionOptions stores the suppression reasons, scope and validation options.
 func (b *InMemoryBackend) PutConfigurationSetSuppressionOptions(
 	name string,
 	suppressedReasons []string,
 	suppressionScope string,
+	validation *SuppressionValidation,
 ) error {
+	if err := validation.validate(); err != nil {
+		return err
+	}
+
 	b.mu.Lock("PutConfigurationSetSuppressionOptions")
 	defer b.mu.Unlock()
 
@@ -258,6 +289,7 @@ func (b *InMemoryBackend) PutConfigurationSetSuppressionOptions(
 	copy(reasons, suppressedReasons)
 	cs.SuppressionReasons = reasons
 	cs.SuppressionScope = suppressionScope
+	cs.SuppressionValidation = validation
 
 	return nil
 }

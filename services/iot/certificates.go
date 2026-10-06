@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -166,6 +167,9 @@ func (b *InMemoryBackend) RegisterCertificate(input *RegisterCertificateInput) (
 	defer b.mu.Unlock()
 
 	status := input.Status
+	if status == "" && input.SetAsActive {
+		status = certStatusActive
+	}
 	if status == "" {
 		status = certStatusInactive
 	}
@@ -176,6 +180,7 @@ func (b *InMemoryBackend) RegisterCertificate(input *RegisterCertificateInput) (
 	}
 
 	cert := b.newCertificate(pem, status, certModeDefault)
+	cert.CACertificateID = b.caCertificateIDByPEMLocked(input.CACertificatePem)
 	b.certificates.Put(cert)
 
 	return cert, nil
@@ -273,7 +278,7 @@ func (b *InMemoryBackend) UpdateCertificate(input *UpdateCertificateInput) error
 }
 
 // DeleteCertificate deletes a certificate by ID.
-func (b *InMemoryBackend) DeleteCertificate(certificateID string) error {
+func (b *InMemoryBackend) DeleteCertificate(certificateID string, forceDelete bool) error {
 	b.mu.Lock("DeleteCertificate")
 	defer b.mu.Unlock()
 
@@ -286,7 +291,47 @@ func (b *InMemoryBackend) DeleteCertificate(certificateID string) error {
 		return fmt.Errorf("%w: certificate %q must be deactivated before deletion", ErrDeleteConflict, certificateID)
 	}
 
+	if err := b.checkCertificateDetachableLocked(cert, forceDelete); err != nil {
+		return err
+	}
+
 	b.certificates.Delete(certificateID)
+
+	return nil
+}
+
+// checkCertificateDetachableLocked rejects deleting a certificate that is attached to a thing, or to a
+// policy unless forceDelete, and detaches its policies when forceDelete allows the delete.
+func (b *InMemoryBackend) checkCertificateDetachableLocked(cert *Certificate, forceDelete bool) error {
+	for thing, principals := range b.thingPrincipals {
+		if slices.Contains(principals, cert.ARN) {
+			return fmt.Errorf(
+				"%w: certificate %q is attached to thing %q",
+				ErrDeleteConflict,
+				cert.CertificateID,
+				thing,
+			)
+		}
+	}
+
+	for policyName, targets := range b.policyTargets {
+		if !slices.Contains(targets, cert.ARN) {
+			continue
+		}
+
+		if !forceDelete {
+			return fmt.Errorf(
+				"%w: certificate %q has policy %q attached",
+				ErrDeleteConflict,
+				cert.CertificateID,
+				policyName,
+			)
+		}
+
+		b.policyTargets[policyName] = slices.DeleteFunc(slices.Clone(targets), func(t string) bool {
+			return t == cert.ARN
+		})
+	}
 
 	return nil
 }
@@ -398,6 +443,7 @@ func (b *InMemoryBackend) DeleteCertificateProvider(name string) error {
 	}
 
 	b.certificateProviders.Delete(name)
+	b.releaseClientTokensLocked(tokenKindCertProvider, name)
 	delete(b.resourceTags, arn.Build("iot", b.region, b.accountID, fmt.Sprintf("certificateprovider/%s", name)))
 
 	return nil
@@ -447,6 +493,7 @@ func (b *InMemoryBackend) RegisterCACertificate(
 	pem, status, certificateMode, verificationCertificate string,
 	tags map[string]string,
 	regConfig RegistrationConfig,
+	allowAutoRegistration bool,
 ) (*CACertificate, error) {
 	b.mu.Lock("RegisterCACertificate")
 	defer b.mu.Unlock()
@@ -479,7 +526,7 @@ func (b *InMemoryBackend) RegisterCACertificate(
 		CreationDate:       now,
 		LastModifiedDate:   now,
 		OwnedBy:            b.accountID,
-		AutoRegistration:   "DISABLE",
+		AutoRegistration:   autoRegistrationStatus(allowAutoRegistration),
 		RegistrationConfig: regConfig,
 	}
 	if ca.Status == "" {
@@ -740,4 +787,33 @@ func (b *InMemoryBackend) ListOutgoingCertificates() []*OutgoingCertificate {
 	}
 
 	return out
+}
+
+func autoRegistrationStatus(allow bool) string {
+	if allow {
+		return "ENABLE"
+	}
+
+	return "DISABLE"
+}
+
+// caCertificateIDByPEMLocked returns the registered CA certificate holding pem, or "" when none does.
+func (b *InMemoryBackend) caCertificateIDByPEMLocked(pem string) string {
+	if pem == "" {
+		return ""
+	}
+
+	var id string
+
+	b.caCertificates.Range(func(ca *CACertificate) bool {
+		if ca.CertificatePem == pem {
+			id = ca.CertificateID
+
+			return false
+		}
+
+		return true
+	})
+
+	return id
 }

@@ -215,6 +215,8 @@ func (h *Handler) handleCopyDBParameterGroup(vals url.Values) (any, error) {
 		return nil, err
 	}
 
+	h.applyCreateTags(vals, pg.DBParameterGroupArn)
+
 	return &copyDBParameterGroupResponse{
 		Xmlns:            rdsXMLNS,
 		DBParameterGroup: toXMLParameterGroup(pg),

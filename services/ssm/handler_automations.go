@@ -7,10 +7,16 @@ func (h *Handler) ssmAutomationOps() map[string]ssmActionFn {
 		"GetAutomationExecution":           jsonOp(h.Backend.GetAutomationExecution),
 		"GetCalendarState":                 jsonOp(h.Backend.GetCalendarState),
 		"GetExecutionPreview":              jsonOp(h.Backend.GetExecutionPreview),
-		"SendAutomationSignal":             jsonOp(h.Backend.SendAutomationSignal),
-		"StartAutomationExecution":         jsonOp(h.Backend.StartAutomationExecution),
-		"StartChangeRequestExecution":      jsonOp(h.Backend.StartChangeRequestExecution),
-		"StartExecutionPreview":            jsonOp(h.Backend.StartExecutionPreview),
-		"StopAutomationExecution":          jsonOp(h.Backend.StopAutomationExecution),
+		"SendAutomationSignal":             jsonOp(h.Backend.SendAutomationSignal, validateSendAutomationSignalEnums),
+		"StartAutomationExecution": jsonOp(
+			h.Backend.StartAutomationExecution,
+			validateStartAutomationExecutionEnums,
+		),
+		"StartChangeRequestExecution": jsonOp(h.Backend.StartChangeRequestExecution),
+		"StartExecutionPreview":       jsonOp(h.Backend.StartExecutionPreview),
+		"StopAutomationExecution": jsonOp(
+			h.Backend.StopAutomationExecution,
+			validateStopAutomationExecutionEnums,
+		),
 	}
 }

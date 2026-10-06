@@ -419,9 +419,16 @@ func (h *Handler) handleBatchDescribeTypeConfigurations(form url.Values, c *echo
 }
 
 func (h *Handler) handleListTypes(form url.Values, c *echo.Context) error {
-	p, err := h.Backend.ListTypes(
-		form.Get("Visibility"), form.Get("ProvisioningType"), parseFormMaxResults(form), form.Get("NextToken"),
-	)
+	p, err := h.Backend.ListTypesFiltered(ListTypesOptions{
+		Visibility:       form.Get("Visibility"),
+		ProvisioningType: form.Get("ProvisioningType"),
+		TypeNamePrefix:   form.Get("Filters.TypeNamePrefix"),
+		Type:             form.Get("Type"),
+		Category:         form.Get("Filters.Category"),
+		DeprecatedStatus: form.Get("DeprecatedStatus"),
+		MaxResults:       parseFormMaxResults(form),
+		NextToken:        form.Get("NextToken"),
+	})
 	if err != nil {
 		return h.xmlError(c, "CFNRegistryException", err.Error())
 	}
@@ -669,10 +676,8 @@ func (h *Handler) describeTypeFromRegistry(form url.Values, c *echo.Context) (bo
 			LoggingConfig    *loggingConfigXML `xml:"LoggingConfig,omitempty"`
 			Schema           string            `xml:"Schema,omitempty"`
 			Visibility       string            `xml:"Visibility,omitempty"`
-			Status           string            `xml:"TypeVersionStatus,omitempty"`
 			Description      string            `xml:"Description,omitempty"`
 			TypeName         string            `xml:"TypeName,omitempty"`
-			VersionID        string            `xml:"VersionId,omitempty"`
 			DefaultVersionID string            `xml:"DefaultVersionId,omitempty"`
 			DeprecatedStatus string            `xml:"DeprecatedStatus,omitempty"`
 			Type             string            `xml:"Type,omitempty"`
@@ -693,10 +698,8 @@ func (h *Handler) describeTypeFromRegistry(form url.Values, c *echo.Context) (bo
 			TypeArn:          details.TypeArn,
 			Type:             details.Type,
 			Visibility:       details.Visibility,
-			Status:           details.Status,
 			Description:      details.Description,
 			Schema:           details.Schema,
-			VersionID:        details.VersionID,
 			DefaultVersionID: details.DefaultVersionID,
 			IsActivated:      details.IsActivated,
 			IsDefaultVersion: details.IsDefaultVersion,

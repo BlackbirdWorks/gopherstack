@@ -221,12 +221,12 @@ func (b *InMemoryBackend) CreateAcmeExternalAccountBinding(
 // from an endpoint ARN, for building nested EAB/domain-validation ARNs. The
 // caller has already validated epARN's shape.
 func endpointIDFromArn(epARN string) string {
-	idx := strings.LastIndex(epARN, "/")
-	if idx < 0 {
+	_, after, ok := strings.CutLast(epARN, "/")
+	if !ok {
 		return epARN
 	}
 
-	return epARN[idx+1:]
+	return after
 }
 
 // generateEABCredentials returns a deterministic-shape (but randomly

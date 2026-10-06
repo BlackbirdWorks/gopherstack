@@ -3,6 +3,8 @@ package resiliencehub
 import (
 	"context"
 	"net/http"
+	"slices"
+	"strings"
 )
 
 func (h *Handler) handleStartAppAssessment(_ context.Context, _ *http.Request, body []byte) ([]byte, error) {
@@ -73,8 +75,12 @@ func (h *Handler) handleListAppAssessmentComplianceDrifts(
 	_ *http.Request,
 	body []byte,
 ) ([]byte, error) {
-	var req assessmentArnRequest
+	var req assessmentPageRequest
 	if err := decodeJSONBody(body, &req); err != nil {
+		return nil, err
+	}
+
+	if err := validatePage(req.NextToken, int(req.MaxResults)); err != nil {
 		return nil, err
 	}
 
@@ -90,8 +96,12 @@ func (h *Handler) handleListAppAssessmentResourceDrifts(
 	_ *http.Request,
 	body []byte,
 ) ([]byte, error) {
-	var req assessmentArnRequest
+	var req assessmentPageRequest
 	if err := decodeJSONBody(body, &req); err != nil {
+		return nil, err
+	}
+
+	if err := validatePage(req.NextToken, int(req.MaxResults)); err != nil {
 		return nil, err
 	}
 
@@ -103,21 +113,29 @@ func (h *Handler) handleListAppAssessmentResourceDrifts(
 }
 
 func (h *Handler) handleListAppComponentCompliances(_ context.Context, _ *http.Request, body []byte) ([]byte, error) {
-	var req assessmentArnRequest
+	var req assessmentPageRequest
 	if err := decodeJSONBody(body, &req); err != nil {
 		return nil, err
 	}
 
-	asmt, components, err := h.Backend.ListAppComponentCompliances(req.AssessmentArn)
+	asmt, all, err := h.Backend.ListAppComponentCompliances(req.AssessmentArn)
+	if err != nil {
+		return nil, err
+	}
+
+	slices.SortFunc(all, func(a, b *AppComponent) int { return strings.Compare(a.Name, b.Name) })
+
+	components, err := pageOf(all, req.NextToken, req.MaxResults)
 	if err != nil {
 		return nil, err
 	}
 
 	resp := listAppComponentCompliancesResponse{
-		ComponentCompliances: make([]appComponentComplianceWire, 0, len(components)),
+		NextToken:            components.Next,
+		ComponentCompliances: make([]appComponentComplianceWire, 0, len(components.Data)),
 	}
 
-	for _, c := range components {
+	for _, c := range components.Data {
 		resp.ComponentCompliances = append(resp.ComponentCompliances, appComponentComplianceWire{
 			AppComponentName: c.Name,
 			Compliance:       toComplianceMapWire(asmt.Compliance),

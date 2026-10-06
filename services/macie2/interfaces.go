@@ -6,6 +6,9 @@ import (
 
 // StorageBackend is the interface for Macie2 storage operations.
 type StorageBackend interface {
+	// PaginationSecret is the HMAC secret signing this backend's page tokens.
+	PaginationSecret() string
+
 	// Session management
 	GetSession() *Session
 	EnableMacie(clientToken, frequency, status string) error
@@ -107,6 +110,8 @@ type StorageBackend interface {
 	// Reveal configuration
 	GetRevealConfiguration() (*RevealConfiguration, error)
 	UpdateRevealConfiguration(kmsKeyID, status string) error
+	GetRetrievalConfiguration() *RetrievalConfiguration
+	UpdateRetrievalConfiguration(mode, roleName string) (*RetrievalConfiguration, error)
 
 	// Sensitive data occurrences
 	GetSensitiveDataOccurrences(findingID string) (map[string]any, error)
@@ -181,7 +186,8 @@ type StorageBackend interface {
 	) (*FindingsFilterSummary, error)
 	GetFindingsFilter(id string) (*FindingsFilterDetail, error)
 	UpdateFindingsFilter(
-		id, name, description, action string,
+		id, name, action string,
+		description *string,
 		position *int32,
 		criteria map[string]any,
 	) (*FindingsFilterSummary, error)
@@ -189,7 +195,7 @@ type StorageBackend interface {
 	ListFindingsFilters(limit int, token string) ([]*FindingsFilterSummary, string, error)
 
 	// Finding operations
-	GetFindings(findingIDs []string) ([]*Finding, error)
+	GetFindings(findingIDs []string, sortBy *FindingSortCriteria) ([]*Finding, error)
 	ListFindings(
 		criteria map[string]any,
 		sortBy *FindingSortCriteria,
@@ -197,7 +203,9 @@ type StorageBackend interface {
 		nextToken string,
 	) ([]string, string, error)
 	CreateSampleFindings(findingTypes []string) error
-	GetFindingStatistics(groupBy string, criteria map[string]any) ([]FindingStatisticsGroup, error)
+	GetFindingStatistics(
+		groupBy string, criteria map[string]any, sortBy *FindingSortCriteria, size int,
+	) ([]FindingStatisticsGroup, error)
 
 	// Tag operations
 	TagResource(resourceARN string, tags map[string]string) error

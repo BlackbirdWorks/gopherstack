@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 88 (88 ok) |
 | Feature families | 21 (21 ok) |
-| Known gaps | 5 |
+| Known gaps | 11 |
 | Deferred items | 0 |
 | Resource leaks | found_and_fixed |
 
@@ -20,6 +20,12 @@
 - Needs an unmodeled device fleet (no job agent, no StartCommandExecution, no connection tracking): GetThingConnectivityData IncludeSocketInformation and socket fields; Job CompletedAt/IsConcurrent/ThingGroupId on ListJobs/DescribeJob (jobs never reach COMPLETED); CommandExecution StartedAt/CompletedAt; TopicRuleDestination StatusReason (no failure path).
 - Rule actions timestream, kafka, location, openSearch, iotEvents, iotSiteWise, influxDB are stored verbatim but not executed (no data-plane backend). The http action runs but not enableBatching/batchConfig (the action fails with an error rather than sending singly). Kinesis, Firehose, S3, SNS and Step Functions deliveries use the home-region backend; DynamoDB, CloudWatch and CloudWatch Logs honour the rule's region. errorAction envelope omits cloudwatchTraceId and clientId.
 - Rule SQL engine gaps: md2(), transform(), decode(...,'proto'), get_thing_shadow reads the single region-agnostic shadow store, get_secret is not cached for 15 minutes, principal() is always Undefined (no certificate/IAM identity reaches the broker), MQTT5 properties (get_mqtt_property, get_user_properties) are Undefined for MQTT 3.1.1 publishers; Int/Int division returns a Decimal when inexact; unaliased non-field SELECT items are keyed by their source text; a bare unaliased @variable is keyed by its source text.
+- ClientToken replay is honoured for CreatePackage, CreatePackageVersion and CreateCertificateProvider (a token held by another resource is a ConflictException, an assumption). UpdatePackage, DeletePackage, UpdatePackageVersion, DeletePackageVersion, UpdatePackageConfiguration, AssociateSbomWithPackageVersion and DisassociateSbomFromPackageVersion accept ClientToken but do not replay: replaying a delete needs a bounded token cache that outlives the resource.
+- DescribeJob.BeforeSubstitution and GetJobDocument.BeforeSubstitution have no effect: documents are stored verbatim and there is no ${aws:iot:s3-presigned-url} substitution engine.
+- GetCommandExecution.IncludeResult and ListCommandExecutions.CompletedTimeFilter have nothing to act on: executions never receive a result or a completion time (no device fleet).
+- GetV2LoggingOptions.Verbose has no effect: event-based logging configurations (the event types Verbose lists) are not modeled. ListMetricValues.DimensionName and DimensionValueOperator are not applied: stored datapoints carry no dimension. TestInvokeAuthorizer.HttpContext and TlsContext are not forwarded: no authorizer Lambda is invoked.
+- CreateDomainConfiguration.ServerCertificateArns and ValidationCertificateArn are not stored: the ServerCertificates summary needs a VALID/INVALID status from validating the ACM certificate, which iot cannot do. ListJobs.NamespaceId is not applied: jobs do not record their namespace.
+- Assumptions from memory, not the SDK docs: ListThingGroups.Recursive defaults to false when parentGroup is set, ListTopicRules.Topic matches the rule topic pattern exactly, and RegisterCertificate.CaCertificatePem links the certificate to a registered CA by PEM equality only (no signature check).
 
 ## More
 

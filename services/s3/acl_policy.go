@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -213,15 +214,17 @@ func currentETagOf(out *s3.HeadObjectOutput) string {
 	return strings.Trim(*out.ETag, `"`)
 }
 
-// enforceDeleteObjectPreconditions checks If-Match on DeleteObject. Matches
-// real S3 semantics: a missing object with If-Match set returns 412
-// PreconditionFailed (not 404). If-None-Match isn't documented on DELETE so
-// we ignore it.
+// enforceDeleteObjectPreconditions checks If-Match (412 on a missing object; If-None-Match is undocumented here)
+// and, on directory buckets only, x-amz-if-match-size/-last-modified-time (a missing object succeeds).
 func (h *S3Handler) enforceDeleteObjectPreconditions(
 	ctx context.Context, r *http.Request, bucketName, key string,
 ) error {
 	ifMatch := strings.Trim(r.Header.Get("If-Match"), `"`)
-	if ifMatch == "" {
+	sizeHdr := r.Header.Get("X-Amz-If-Match-Size")
+	modHdr := r.Header.Get("X-Amz-If-Match-Last-Modified-Time")
+	directory := h.Backend.IsDirectoryBucket(bucketName)
+
+	if ifMatch == "" && (!directory || (sizeHdr == "" && modHdr == "")) {
 		return nil
 	}
 
@@ -230,14 +233,41 @@ func (h *S3Handler) enforceDeleteObjectPreconditions(
 		Key:    &key,
 	})
 	if err != nil {
+		if ifMatch == "" {
+			return nil
+		}
+
 		return ErrPreconditionFailed
 	}
 
-	if currentETagOf(out) != ifMatch {
+	if ifMatch != "" && ifMatch != "*" && currentETagOf(out) != ifMatch {
+		return ErrPreconditionFailed
+	}
+
+	if directory && !directoryDeleteConditionsMet(out, sizeHdr, modHdr) {
 		return ErrPreconditionFailed
 	}
 
 	return nil
+}
+
+// directoryDeleteConditionsMet evaluates x-amz-if-match-size and x-amz-if-match-last-modified-time.
+func directoryDeleteConditionsMet(out *s3.HeadObjectOutput, sizeHdr, modHdr string) bool {
+	if sizeHdr != "" {
+		want, err := strconv.ParseInt(sizeHdr, 10, 64)
+		if err != nil || aws.ToInt64(out.ContentLength) != want {
+			return false
+		}
+	}
+
+	if modHdr != "" {
+		want, err := http.ParseTime(modHdr)
+		if err != nil || !aws.ToTime(out.LastModified).Truncate(time.Second).Equal(want) {
+			return false
+		}
+	}
+
+	return true
 }
 
 // enforceRenameDestinationPreconditions checks RenameObject's four

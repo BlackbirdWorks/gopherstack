@@ -220,12 +220,8 @@ func (b *InMemoryBackend) GetBucketVersioning(bucketName string) (string, error)
 	if !b.outpostsBuckets.Has(bucketName) {
 		return "", fmt.Errorf("%w: %s", errBucketNotFound, bucketName)
 	}
-	state := b.bucketVersioning[bucketName]
-	if state == "" {
-		state = "Suspended"
-	}
-
-	return state, nil
+	// Never-configured buckets return no status (api_op_GetBucketVersioning.go:24-26).
+	return b.bucketVersioning[bucketName], nil
 }
 
 // PutBucketVersioning sets the versioning state for an Outposts bucket.

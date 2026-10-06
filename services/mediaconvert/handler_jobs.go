@@ -61,9 +61,8 @@ type jobWrapper struct {
 }
 
 type jobsListOutput struct {
-	NextToken  string `json:"nextToken,omitempty"`
-	Jobs       []*Job `json:"jobs"`
-	TotalCount int    `json:"totalCount"`
+	NextToken string `json:"nextToken,omitempty"`
+	Jobs      []*Job `json:"jobs"`
 }
 
 func (h *Handler) handleCreateJob(c *echo.Context, body []byte) error {
@@ -150,7 +149,7 @@ func (h *Handler) handleListJobs(c *echo.Context) error {
 	nextTokenIn := q.Get("nextToken")
 	pg := page.New(jobs, nextTokenIn, maxResults, defaultListPageSize)
 
-	out := jobsListOutput{Jobs: pg.Data, TotalCount: len(jobs)}
+	out := jobsListOutput{Jobs: pg.Data}
 	if pg.Next != "" {
 		out.NextToken = pg.Next
 	}

@@ -107,6 +107,7 @@ type describeTransitGatewayPolicyTablesResponse struct {
 	XMLName      xml.Name `xml:"DescribeTransitGatewayPolicyTablesResponse"`
 	Xmlns        string   `xml:"xmlns,attr"`
 	RequestID    string   `xml:"requestId"`
+	NextToken    string   `xml:"nextToken,omitempty"`
 	PolicyTables struct {
 		Items []tgwPolicyTableItem `xml:"item"`
 	} `xml:"transitGatewayPolicyTables"`
@@ -157,6 +158,7 @@ type getTransitGatewayPolicyTableAssociationsResponse struct {
 	XMLName      xml.Name `xml:"GetTransitGatewayPolicyTableAssociationsResponse"`
 	Xmlns        string   `xml:"xmlns,attr"`
 	RequestID    string   `xml:"requestId"`
+	NextToken    string   `xml:"nextToken,omitempty"`
 	Associations struct {
 		Items []tgwPolicyTableAssociationItem `xml:"item"`
 	} `xml:"associations"`
@@ -218,6 +220,7 @@ type getTransitGatewayPolicyTableEntriesResponse struct {
 	XMLName   xml.Name `xml:"GetTransitGatewayPolicyTableEntriesResponse"`
 	Xmlns     string   `xml:"xmlns,attr"`
 	RequestID string   `xml:"requestId"`
+	NextToken string   `xml:"nextToken,omitempty"`
 	Entries   struct {
 		Items []tgwPolicyTableEntryItem `xml:"item"`
 	} `xml:"transitGatewayPolicyTableEntries"`
@@ -293,6 +296,7 @@ type describeTransitGatewayRouteTableAnnouncementsResponse struct {
 	XMLName       xml.Name `xml:"DescribeTransitGatewayRouteTableAnnouncementsResponse"`
 	Xmlns         string   `xml:"xmlns,attr"`
 	RequestID     string   `xml:"requestId"`
+	NextToken     string   `xml:"nextToken,omitempty"`
 	Announcements struct {
 		Items []tgwRouteTableAnnouncementItem `xml:"item"`
 	} `xml:"transitGatewayRouteTableAnnouncements"`
@@ -311,6 +315,7 @@ type getTransitGatewayRouteTableAssociationsResponse struct {
 	XMLName      xml.Name `xml:"GetTransitGatewayRouteTableAssociationsResponse"`
 	Xmlns        string   `xml:"xmlns,attr"`
 	RequestID    string   `xml:"requestId"`
+	NextToken    string   `xml:"nextToken,omitempty"`
 	Associations struct {
 		Items []tgwRTAssociationGetItem `xml:"item"`
 	} `xml:"associations"`
@@ -328,6 +333,7 @@ type getTransitGatewayRouteTablePropagationsResponse struct {
 	XMLName      xml.Name `xml:"GetTransitGatewayRouteTablePropagationsResponse"`
 	Xmlns        string   `xml:"xmlns,attr"`
 	RequestID    string   `xml:"requestId"`
+	NextToken    string   `xml:"nextToken,omitempty"`
 	Propagations struct {
 		Items []tgwRTPropagationItem `xml:"item"`
 	} `xml:"transitGatewayRouteTablePropagations"`
@@ -342,6 +348,7 @@ type getTransitGatewayAttachmentPropagationsResponse struct {
 	XMLName      xml.Name `xml:"GetTransitGatewayAttachmentPropagationsResponse"`
 	Xmlns        string   `xml:"xmlns,attr"`
 	RequestID    string   `xml:"requestId"`
+	NextToken    string   `xml:"nextToken,omitempty"`
 	Propagations struct {
 		Items []tgwAttachmentPropagationItem `xml:"item"`
 	} `xml:"transitGatewayAttachmentPropagations"`
@@ -385,6 +392,7 @@ type getTransitGatewayMeteringPolicyEntriesResponse struct {
 	XMLName   xml.Name `xml:"GetTransitGatewayMeteringPolicyEntriesResponse"`
 	Xmlns     string   `xml:"xmlns,attr"`
 	RequestID string   `xml:"requestId"`
+	NextToken string   `xml:"nextToken,omitempty"`
 	Entries   struct {
 		Items []tgwMeteringPolicyEntryItem `xml:"item"`
 	} `xml:"transitGatewayMeteringPolicyEntries"`
@@ -456,7 +464,7 @@ func (h *Handler) handleDescribeTransitGatewayPolicyTables(
 		resp.PolicyTables.Items = append(resp.PolicyTables.Items, item)
 	}
 
-	return resp, nil
+	return finishPagedFiltered(vals, resp)
 }
 
 func (h *Handler) handleDeleteTransitGatewayPolicyTable(vals url.Values, reqID string) (any, error) {
@@ -530,7 +538,7 @@ func (h *Handler) handleGetTransitGatewayPolicyTableAssociations(
 		resp.Associations.Items = append(resp.Associations.Items, tgwPolicyTableAssociationToItem(a))
 	}
 
-	return resp, nil
+	return finishPagedFiltered(vals, resp)
 }
 
 func (h *Handler) handleGetTransitGatewayPolicyTableEntries(
@@ -551,7 +559,7 @@ func (h *Handler) handleGetTransitGatewayPolicyTableEntries(
 		resp.Entries.Items = append(resp.Entries.Items, tgwPolicyTableEntryToItem(e))
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 // policyRuleFromVals builds the PolicyRule-matching fields of a
@@ -705,7 +713,7 @@ func (h *Handler) handleDescribeTransitGatewayRouteTableAnnouncements(
 		)
 	}
 
-	return resp, nil
+	return finishPagedFiltered(vals, resp)
 }
 
 // ---- Handlers: route table associations / propagations / search / export ----
@@ -733,7 +741,7 @@ func (h *Handler) handleGetTransitGatewayRouteTableAssociations(
 		})
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 func (h *Handler) handleGetTransitGatewayRouteTablePropagations(
@@ -760,7 +768,7 @@ func (h *Handler) handleGetTransitGatewayRouteTablePropagations(
 		})
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 func (h *Handler) handleGetTransitGatewayAttachmentPropagations(
@@ -784,7 +792,7 @@ func (h *Handler) handleGetTransitGatewayAttachmentPropagations(
 		})
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 func (h *Handler) handleSearchTransitGatewayRoutes(vals url.Values, reqID string) (any, error) {
@@ -885,7 +893,7 @@ func (h *Handler) handleGetTransitGatewayMeteringPolicyEntries(
 		resp.Entries.Items = append(resp.Entries.Items, tgwMeteringPolicyEntryToItem(e))
 	}
 
-	return resp, nil
+	return finishPagedFiltered(vals, resp)
 }
 
 func (h *Handler) handleModifyTransitGatewayPrefixListReference(

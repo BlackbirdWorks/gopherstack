@@ -107,8 +107,8 @@ func TestListConnectorsV2_ProviderSummaryShape(t *testing.T) {
 
 	summary := listOut.Connectors[0]
 	require.NotNil(t, summary.ProviderSummary, "ProviderSummary is required on the real ConnectorSummary shape")
-	assert.Equal(t, "JIRACLOUD", string(summary.ProviderSummary.ProviderName))
-	assert.Equal(t, "ACTIVE", string(summary.ProviderSummary.ConnectorStatus))
+	assert.Equal(t, "JIRA_CLOUD", string(summary.ProviderSummary.ProviderName))
+	assert.Equal(t, "CONNECTED", string(summary.ProviderSummary.ConnectorStatus))
 	assert.Equal(t, "test-connector-v2", aws.ToString(summary.Name))
 }
 

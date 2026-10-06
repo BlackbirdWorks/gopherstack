@@ -321,20 +321,41 @@ func cloneAccess(a *Access) *Access {
 
 // Agreement represents an AWS Transfer AS2 agreement.
 type Agreement struct {
-	CreatedAt             time.Time         `json:"created_at"`
-	Tags                  map[string]string `json:"tags"`
-	AgreementID           string            `json:"agreement_id"`
-	ServerID              string            `json:"server_id"`
-	Description           string            `json:"description"`
-	LocalProfileID        string            `json:"local_profile_id"`
-	PartnerProfileID      string            `json:"partner_profile_id"`
-	BaseDirectory         string            `json:"base_directory"`
-	AccessRole            string            `json:"access_role"`
-	AccountID             string            `json:"account_id"`
-	Region                string            `json:"region"`
-	Status                string            `json:"status"`
-	EnforceMessageSigning string            `json:"enforce_message_signing,omitempty"`
-	PreserveFilename      string            `json:"preserve_filename,omitempty"`
+	CustomDirectories     *CustomDirectories `json:"custom_directories,omitempty"`
+	CreatedAt             time.Time          `json:"created_at"`
+	Tags                  map[string]string  `json:"tags"`
+	AgreementID           string             `json:"agreement_id"`
+	ServerID              string             `json:"server_id"`
+	Description           string             `json:"description"`
+	LocalProfileID        string             `json:"local_profile_id"`
+	PartnerProfileID      string             `json:"partner_profile_id"`
+	BaseDirectory         string             `json:"base_directory"`
+	AccessRole            string             `json:"access_role"`
+	AccountID             string             `json:"account_id"`
+	Region                string             `json:"region"`
+	Status                string             `json:"status"`
+	EnforceMessageSigning string             `json:"enforce_message_signing,omitempty"`
+	PreserveFilename      string             `json:"preserve_filename,omitempty"`
+}
+
+// CustomDirectories holds the S3 locations for AS2 message file types.
+type CustomDirectories struct {
+	FailedFilesDirectory    string `json:"FailedFilesDirectory"`
+	MdnFilesDirectory       string `json:"MdnFilesDirectory"`
+	PayloadFilesDirectory   string `json:"PayloadFilesDirectory"`
+	StatusFilesDirectory    string `json:"StatusFilesDirectory"`
+	TemporaryFilesDirectory string `json:"TemporaryFilesDirectory"`
+}
+
+// ConnectorVpcLatticeEgress is the VPC_LATTICE egress configuration of a connector.
+type ConnectorVpcLatticeEgress struct {
+	ResourceConfigurationArn string `json:"ResourceConfigurationArn"`
+	PortNumber               int32  `json:"PortNumber,omitempty"`
+}
+
+// ConnectorEgressConfig is the egress union of a connector.
+type ConnectorEgressConfig struct {
+	VpcLattice *ConnectorVpcLatticeEgress `json:"VpcLattice,omitempty"`
 }
 
 // cloneAgreement returns a deep copy of an Agreement.
@@ -342,6 +363,11 @@ func cloneAgreement(a *Agreement) *Agreement {
 	cp := *a
 	cp.Tags = make(map[string]string, len(a.Tags))
 	maps.Copy(cp.Tags, a.Tags)
+
+	if a.CustomDirectories != nil {
+		cd := *a.CustomDirectories
+		cp.CustomDirectories = &cd
+	}
 
 	return &cp
 }
@@ -366,18 +392,19 @@ type ConnectorAs2Config struct {
 
 // Connector represents an AWS Transfer connector used to initiate file transfers.
 type Connector struct {
-	SftpConfig         *ConnectorSftpConfig `json:"sftp_config,omitempty"`
-	As2Config          *ConnectorAs2Config  `json:"as2_config,omitempty"`
-	CreatedAt          time.Time            `json:"created_at"`
-	Tags               map[string]string    `json:"tags"`
-	ConnectorID        string               `json:"connector_id"`
-	URL                string               `json:"url"`
-	AccessRole         string               `json:"access_role"`
-	AccountID          string               `json:"account_id"`
-	Region             string               `json:"region"`
-	LoggingRole        string               `json:"logging_role,omitempty"`
-	SecurityPolicyName string               `json:"security_policy_name,omitempty"`
-	IPAddressType      string               `json:"ip_address_type,omitempty"`
+	SftpConfig         *ConnectorSftpConfig   `json:"sftp_config,omitempty"`
+	As2Config          *ConnectorAs2Config    `json:"as2_config,omitempty"`
+	EgressConfig       *ConnectorEgressConfig `json:"egress_config,omitempty"`
+	CreatedAt          time.Time              `json:"created_at"`
+	Tags               map[string]string      `json:"tags"`
+	ConnectorID        string                 `json:"connector_id"`
+	URL                string                 `json:"url"`
+	AccessRole         string                 `json:"access_role"`
+	AccountID          string                 `json:"account_id"`
+	Region             string                 `json:"region"`
+	LoggingRole        string                 `json:"logging_role,omitempty"`
+	SecurityPolicyName string                 `json:"security_policy_name,omitempty"`
+	IPAddressType      string                 `json:"ip_address_type,omitempty"`
 }
 
 // FileTransferResult stores state for a file transfer operation started via StartFileTransfer.
@@ -416,6 +443,15 @@ func cloneConnector(c *Connector) *Connector {
 	if c.As2Config != nil {
 		ac := *c.As2Config
 		cp.As2Config = &ac
+	}
+
+	if c.EgressConfig != nil {
+		ec := *c.EgressConfig
+		if c.EgressConfig.VpcLattice != nil {
+			vl := *c.EgressConfig.VpcLattice
+			ec.VpcLattice = &vl
+		}
+		cp.EgressConfig = &ec
 	}
 
 	return &cp

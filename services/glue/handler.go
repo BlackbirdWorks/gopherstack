@@ -292,6 +292,40 @@ func paginateSlice[T any](items []T, nextToken string, limit int) ([]T, string) 
 	return items[start:end], strconv.Itoa(end)
 }
 
+// defaultListPageSize is the page size for list ops whose SDK doc gives no default.
+const defaultListPageSize = 100
+
+// pagedSlice is paginateSlice with request validation: a negative MaxResults or a
+// malformed NextToken is an InvalidInputException instead of silently restarting.
+func pagedSlice[T any](items []T, nextToken string, maxResults int32, defaultLimit int) ([]T, string, error) {
+	if maxResults < 0 {
+		return nil, "", fmt.Errorf("%w: MaxResults must be positive", ErrValidation)
+	}
+
+	start := 0
+
+	if nextToken != "" {
+		n, err := strconv.Atoi(nextToken)
+		if err != nil || n < 0 {
+			return nil, "", fmt.Errorf("%w: invalid NextToken", ErrValidation)
+		}
+
+		start = min(n, len(items))
+	}
+
+	limit := defaultLimit
+	if maxResults > 0 {
+		limit = int(maxResults)
+	}
+
+	end := start + limit
+	if end >= len(items) {
+		return items[start:], "", nil
+	}
+
+	return items[start:end], strconv.Itoa(end), nil
+}
+
 // matchesTagFilter reports whether tags carries every key/value pair in
 // filter. An empty filter matches everything, mirroring the real API's
 // "Tags" list-input members (e.g. ListCrawlersInput.Tags), which specify

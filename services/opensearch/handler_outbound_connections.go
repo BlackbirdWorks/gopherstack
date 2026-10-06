@@ -48,7 +48,7 @@ type domainInformationContainerReq struct {
 	} `json:"AWSDomainInformation"`
 }
 
-func (d domainInformationContainerReq) toDomainInformation() DomainInformation {
+func (d domainInformationContainerReq) asDomainInformation() DomainInformation {
 	return DomainInformation{
 		DomainName: d.AWSDomainInformation.DomainName,
 		OwnerID:    d.AWSDomainInformation.OwnerID,
@@ -139,8 +139,8 @@ func (h *Handler) handleCreateOutboundConnection(w http.ResponseWriter, r *http.
 	conn, createErr := h.Backend.CreateOutboundConnection(
 		req.ConnectionAlias,
 		req.ConnectionMode,
-		req.LocalDomainInfo.toDomainInformation(),
-		req.RemoteDomainInfo.toDomainInformation(),
+		req.LocalDomainInfo.asDomainInformation(),
+		req.RemoteDomainInfo.asDomainInformation(),
 		req.ConnectionProperties.CrossClusterSearch.SkipUnavailable,
 		req.ConnectionProperties.Endpoint,
 	)

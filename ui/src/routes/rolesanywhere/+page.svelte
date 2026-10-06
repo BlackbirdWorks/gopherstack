@@ -11,8 +11,8 @@
 	// list-only with no create button -- that mirrors the real API's shape,
 	// not a UI omission.
 	import { untrack } from 'svelte';
-	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
-	import { getRolesAnywhereClient } from '$lib/aws-client';
+	import { onRegionChange, regionalClient } from '#lib/region-effect.svelte.ts';
+	import { getRolesAnywhereClient } from '#lib/aws-client.ts';
 	import {
 		ListCrlsCommand,
 		ListProfilesCommand,
@@ -42,16 +42,16 @@
 		type TrustAnchorDetail
 	} from '@aws-sdk/client-rolesanywhere';
 	import { toast } from 'svelte-sonner';
-	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { createTabLoader } from '$lib/tab-loader.svelte';
-	import { formatDate } from '$lib/format';
-	import PageHeader from '$lib/components/PageHeader.svelte';
-	import Tabs from '$lib/components/Tabs.svelte';
-	import type { Tab as TabDef } from '$lib/components/Tabs.svelte';
-	import SearchInput from '$lib/components/SearchInput.svelte';
-	import DataTable from '$lib/components/DataTable.svelte';
-	import { defineColumns } from '$lib/components/data-table';
-	import Modal from '$lib/components/Modal.svelte';
+	import { confirmDestructive } from '#lib/confirm-dialog.ts';
+	import { createTabLoader } from '#lib/tab-loader.svelte.ts';
+	import { formatDate } from '#lib/format.ts';
+	import PageHeader from '#lib/components/PageHeader.svelte';
+	import Tabs from '#lib/components/Tabs.svelte';
+	import type { Tab as TabDef } from '#lib/components/Tabs.svelte';
+	import SearchInput from '#lib/components/SearchInput.svelte';
+	import DataTable from '#lib/components/DataTable.svelte';
+	import { defineColumns } from '#lib/components/data-table.ts';
+	import Modal from '#lib/components/Modal.svelte';
 	import { KeyRound, Plus, Trash2, Eye, Pencil, Power, PowerOff } from 'lucide-svelte';
 
 	const client = regionalClient(getRolesAnywhereClient);

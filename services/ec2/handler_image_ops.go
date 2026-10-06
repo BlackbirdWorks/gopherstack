@@ -166,6 +166,7 @@ type describeStoreImageTasksResponse struct {
 	XMLName                 xml.Name `xml:"DescribeStoreImageTasksResponse"`
 	Xmlns                   string   `xml:"xmlns,attr"`
 	RequestID               string   `xml:"requestId"`
+	NextToken               string   `xml:"nextToken,omitempty"`
 	StoreImageTaskResultSet struct {
 		Items []storeImageTaskResultItem `xml:"item"`
 	} `xml:"storeImageTaskResultSet"`
@@ -222,6 +223,7 @@ type describeImageUsageReportEntriesResponse struct {
 	XMLName                  xml.Name `xml:"DescribeImageUsageReportEntriesResponse"`
 	Xmlns                    string   `xml:"xmlns,attr"`
 	RequestID                string   `xml:"requestId"`
+	NextToken                string   `xml:"nextToken,omitempty"`
 	ImageUsageReportEntrySet struct {
 		Items []imageUsageReportEntryItem `xml:"item"`
 	} `xml:"imageUsageReportEntrySet"`
@@ -329,6 +331,10 @@ func (h *Handler) handleCreateStoreImageTask(vals url.Values, reqID string) (any
 }
 
 func (h *Handler) handleDescribeStoreImageTasks(vals url.Values, reqID string) (any, error) {
+	if err := checkPageIDCombo(vals, specWithIDs("ImageId")); err != nil {
+		return nil, err
+	}
+
 	ids := parseMemberList(vals, "ImageId")
 	tasks := h.Backend.DescribeStoreImageTasks(ids)
 	if len(ids) == 0 {
@@ -340,7 +346,7 @@ func (h *Handler) handleDescribeStoreImageTasks(vals url.Values, reqID string) (
 		resp.StoreImageTaskResultSet.Items = append(resp.StoreImageTaskResultSet.Items, toStoreImageTaskResultItem(t))
 	}
 
-	return resp, nil
+	return finishDescribe(vals, resp, describeOpts{spec: specWithIDs("ImageId")})
 }
 
 func (h *Handler) handleCreateRestoreImageTask(vals url.Values, reqID string) (any, error) {
@@ -419,7 +425,7 @@ func (h *Handler) handleDescribeImageUsageReportEntries(vals url.Values, reqID s
 		)
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 // ---- Handlers: ConfirmProductInstance ----

@@ -765,9 +765,9 @@ func ExtractLambdaFunctionName(uri string) string {
 	// API Gateway integration URI: extract the Lambda ARN embedded in the path.
 	// Format: arn:aws:apigateway:...:lambda:path/2015-03-31/functions/{lambdaArn}/invocations
 	const invocations = "/invocations"
-	if idx := strings.LastIndex(uri, invocations); idx != -1 {
+	if before, _, ok := strings.CutLast(uri, invocations); ok {
 		// Everything before "/invocations" is the Lambda ARN.
-		lambdaARN := uri[:idx]
+		lambdaARN := before
 		// The Lambda ARN may itself be within a path like ".../functions/{arn}"
 		const functionsPrefix = "/functions/"
 		if fi := strings.LastIndex(lambdaARN, functionsPrefix); fi != -1 {
@@ -781,8 +781,8 @@ func ExtractLambdaFunctionName(uri string) string {
 	// Extract the name (and optional qualifier) after ":function:".
 	// Use ":function:" (with leading colon) to avoid matching "function:" inside a function name.
 	const functionSegment = ":function:"
-	if fi := strings.LastIndex(uri, functionSegment); fi != -1 {
-		return uri[fi+len(functionSegment):]
+	if _, after, ok := strings.CutLast(uri, functionSegment); ok {
+		return after
 	}
 
 	// Plain name or already-resolved value — return as-is.

@@ -113,15 +113,13 @@ func testRecordersDeliveryRealClient(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, statusOut.ConfigurationRecordersStatus, 1)
 
+	require.NotEmpty(t, aws.ToString(statusOut.ConfigurationRecordersStatus[0].Arn))
+
 	_, err = client.DisassociateResourceTypes(ctx, &configservicesdk.DisassociateResourceTypesInput{
 		ConfigurationRecorderArn: statusOut.ConfigurationRecordersStatus[0].Arn,
 		ResourceTypes:            []types.ResourceType{types.ResourceTypeInstance},
 	})
-	require.Error(
-		t,
-		err,
-		"recorder has no recording group / all-supported, so no resource types to disassociate",
-	)
+	require.NoError(t, err)
 
 	_, err = client.DeleteDeliveryChannel(ctx, &configservicesdk.DeleteDeliveryChannelInput{
 		DeliveryChannelName: aws.String("slice8-channel"),

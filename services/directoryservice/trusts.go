@@ -7,11 +7,10 @@ import (
 )
 
 // CreateTrust creates a trust relationship.
-func (b *InMemoryBackend) CreateTrust(
-	ctx context.Context,
-	directoryID, remoteDomainName, _, trustDirection, trustType, selectiveAuth string,
-) (string, error) {
+func (b *InMemoryBackend) CreateTrust(ctx context.Context, in CreateTrustInput) (string, error) {
 	region := getRegion(ctx, b.region)
+	directoryID, remoteDomainName := in.DirectoryID, in.RemoteDomainName
+	trustDirection, trustType, selectiveAuth := in.TrustDirection, in.TrustType, in.SelectiveAuth
 
 	b.mu.Lock("CreateTrust")
 	defer b.mu.Unlock()
@@ -55,6 +54,8 @@ func (b *InMemoryBackend) CreateTrust(
 			DirectoryID:      directoryID,
 			RemoteDomainName: remoteDomainName,
 			ReplicationScope: "Domain",
+			DNSIPAddrs:       in.ConditionalForwarderIPAddrs,
+			DNSIPv6Addrs:     in.ConditionalForwarderIPv6Addrs,
 		})
 	}
 
@@ -62,7 +63,11 @@ func (b *InMemoryBackend) CreateTrust(
 }
 
 // DeleteTrust deletes a trust relationship.
-func (b *InMemoryBackend) DeleteTrust(ctx context.Context, trustID string) (string, error) {
+func (b *InMemoryBackend) DeleteTrust(
+	ctx context.Context,
+	trustID string,
+	deleteConditionalForwarder bool,
+) (string, error) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("DeleteTrust")
@@ -74,7 +79,10 @@ func (b *InMemoryBackend) DeleteTrust(ctx context.Context, trustID string) (stri
 	}
 
 	b.trustDelete(region, trustID)
-	b.conditionalForwarderDelete(region, trust.DirectoryID, trust.RemoteDomainName)
+
+	if deleteConditionalForwarder {
+		b.conditionalForwarderDelete(region, trust.DirectoryID, trust.RemoteDomainName)
+	}
 
 	return trustID, nil
 }

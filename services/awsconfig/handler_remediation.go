@@ -3,6 +3,7 @@ package awsconfig
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -74,9 +75,10 @@ func (h *Handler) handleDescribeRemediationConfigurations(
 
 // DescribeRemediationExceptions request/response types and handler.
 type describeRemediationExceptionsInput struct {
-	ConfigRuleName string `json:"ConfigRuleName"`
-	NextToken      string `json:"NextToken,omitempty"`
-	Limit          int32  `json:"Limit,omitempty"`
+	ConfigRuleName string                            `json:"ConfigRuleName"`
+	NextToken      string                            `json:"NextToken,omitempty"`
+	ResourceKeys   []RemediationExceptionResourceKey `json:"ResourceKeys,omitempty"`
+	Limit          int32                             `json:"Limit,omitempty"`
 }
 type describeRemediationExceptionsOutput struct {
 	NextToken             string                 `json:"NextToken,omitempty"`
@@ -91,6 +93,14 @@ func (h *Handler) handleDescribeRemediationExceptions(
 	_ context.Context, in *describeRemediationExceptionsInput,
 ) (*describeRemediationExceptionsOutput, error) {
 	all := h.Backend.DescribeRemediationExceptions(in.ConfigRuleName)
+
+	if len(in.ResourceKeys) > 0 {
+		all = slices.DeleteFunc(all, func(e RemediationException) bool {
+			return !slices.Contains(in.ResourceKeys, RemediationExceptionResourceKey{
+				ResourceType: e.ResourceType, ResourceID: e.ResourceID,
+			})
+		})
+	}
 
 	p, err := paginate(all, in.NextToken, in.Limit, describeRemediationExceptionsPageDefault)
 	if err != nil {
@@ -142,15 +152,12 @@ func (h *Handler) handlePutRemediationConfigurations(
 	return &emptyOutput{}, h.Backend.PutRemediationConfigurations(in.RemediationConfigurations)
 }
 
-// PutRemediationExceptions request/response types and handler. ExpirationTime
-// and Message are real optional members of PutRemediationExceptionsInput but
-// aren't modeled: gopherstack's RemediationException has no fields to reflect
-// them into (DescribeRemediationExceptions doesn't report them either), so
-// they're left for the JSON decoder to silently discard rather than accepted
-// into a field nothing reads.
+// PutRemediationExceptions request/response types and handler.
 type putRemediationExceptionsInput struct {
 	ConfigRuleName string                            `json:"ConfigRuleName"`
+	Message        string                            `json:"Message,omitempty"`
 	ResourceKeys   []RemediationExceptionResourceKey `json:"ResourceKeys"`
+	ExpirationTime float64                           `json:"ExpirationTime,omitempty"`
 }
 
 func (h *Handler) handlePutRemediationExceptions(
@@ -164,7 +171,9 @@ func (h *Handler) handlePutRemediationExceptions(
 		return nil, fmt.Errorf("%w: ResourceKeys is required", ErrInvalidParameterValue)
 	}
 
-	return &emptyOutput{}, h.Backend.PutRemediationExceptions(in.ConfigRuleName, in.ResourceKeys)
+	return &emptyOutput{}, h.Backend.PutRemediationExceptionsWithMeta(
+		in.ConfigRuleName, in.ResourceKeys, in.Message, in.ExpirationTime,
+	)
 }
 
 // StartRemediationExecution request/response types and handler.

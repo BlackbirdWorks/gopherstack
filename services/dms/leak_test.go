@@ -38,7 +38,9 @@ func TestDeleteDataMigration_ARNIndexBounded(t *testing.T) {
 			arns := make([]string, 0, len(tc.names))
 
 			for _, name := range tc.names {
-				dm, err := b.CreateDataMigration(ctx, name, "", "full-load", "", "", 1, false, nil)
+				dm, err := b.CreateDataMigration(ctx, dms.CreateDataMigrationParams{
+					Name: name, DataMigrationType: "full-load", NumberOfJobs: 1,
+				})
 				require.NoError(t, err)
 				arns = append(arns, dm.DataMigrationArn)
 			}
@@ -85,7 +87,7 @@ func TestDeleteDataProvider_ARNIndexBounded(t *testing.T) {
 			arns := make([]string, 0, len(tc.names))
 
 			for _, name := range tc.names {
-				dp, err := b.CreateDataProvider(ctx, name, "mysql", "", nil)
+				dp, err := b.CreateDataProvider(ctx, dms.CreateDataProviderParams{Name: name, Engine: "mysql"})
 				require.NoError(t, err)
 				arns = append(arns, dp.DataProviderArn)
 			}
@@ -132,7 +134,7 @@ func TestDeleteInstanceProfile_ARNIndexBounded(t *testing.T) {
 			arns := make([]string, 0, len(tc.names))
 
 			for _, name := range tc.names {
-				ip, err := b.CreateInstanceProfile(ctx, name, "", "", "", "", "", false, nil)
+				ip, err := b.CreateInstanceProfile(ctx, name, "", "", "", "", "", false, nil, nil)
 				require.NoError(t, err)
 				arns = append(arns, ip.InstanceProfileArn)
 			}

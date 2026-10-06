@@ -144,7 +144,10 @@ func (h *Handler) handleGetTieringConfiguration(c *echo.Context, name string) er
 }
 
 func (h *Handler) handleListTieringConfigurations(c *echo.Context) error {
-	tcs := h.Backend.ListTieringConfigurations()
+	tcs, next := pageQuery(
+		c.Request().URL.Query(), h.Backend.ListTieringConfigurations(),
+		func(tc *TieringConfiguration) string { return tc.TieringConfigurationName },
+	)
 	items := make([]map[string]any, 0, len(tcs))
 	for _, tc := range tcs {
 		item := map[string]any{
@@ -159,7 +162,7 @@ func (h *Handler) handleListTieringConfigurations(c *echo.Context) error {
 		items = append(items, item)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyTieringConfigurations: items})
+	return c.JSON(http.StatusOK, withNextToken(map[string]any{keyTieringConfigurations: items}, next))
 }
 
 func (h *Handler) handleUpdateTieringConfiguration(c *echo.Context, name string, body []byte) error {

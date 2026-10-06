@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
-	import { getServerlessRepoClient } from '$lib/aws-client';
+	import { confirmDestructive } from '#lib/confirm-dialog.ts';
+	import { onRegionChange, regionalClient } from '#lib/region-effect.svelte.ts';
+	import { getServerlessRepoClient } from '#lib/aws-client.ts';
 	import {
 		ListApplicationsCommand,
 		GetApplicationCommand,

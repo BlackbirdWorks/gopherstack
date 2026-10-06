@@ -232,6 +232,7 @@ type CreateClusterOptions struct {
 	AvailabilityZone                     string
 	ClusterSubnetGroupName               string
 	DefaultIamRoleArn                    string
+	Settings                             ClusterSettings
 	VpcSecurityGroupIDs                  []string
 	Port                                 int
 	ExtraComputeForAutomaticOptimization bool
@@ -373,6 +374,11 @@ func (b *InMemoryBackend) CreateCluster(
 		ManualSnapshotRetentionPeriod:        manualRetention,
 		ExtraComputeForAutomaticOptimization: opts.ExtraComputeForAutomaticOptimization,
 	}
+
+	if err = b.applyClusterSettingsLocked(cluster, opts.Settings); err != nil {
+		return nil, err
+	}
+
 	b.clusters.Put(cluster)
 
 	// Schedule the creating→available transition instead of spawning an

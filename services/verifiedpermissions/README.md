@@ -8,12 +8,13 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 34 (33 ok, 1 partial) |
-| Known gaps | 5 |
+| Known gaps | 6 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
+- CreatePolicyStore.EncryptionSettings (KMS) is accepted but not stored, and GetPolicyStore reports no EncryptionState.
 - Cedar entity Tags (EntityItem.Tags) are not converted for IsAuthorized*/BatchIsAuthorized*; every entity gets an empty tag set (context and entities are proven by TestSDKRoundTrip_IsAuthorized_*).
 - IsAuthorizedWithToken/BatchIsAuthorizedWithToken do not verify JWT signatures or expiry (needs the issuer's real signing keys); aud/client_id matching is implemented.
 - DeletePolicyStoreAlias never returns InvalidStateException: the SDK's documented trigger is DeletePolicyStore's deletion-protection text, which does not apply to aliases.

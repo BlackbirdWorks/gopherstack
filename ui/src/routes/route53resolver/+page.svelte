@@ -1,7 +1,7 @@
 <script lang="ts">
-import { confirmDestructive } from '$lib/confirm-dialog';
-import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
-import { getRoute53ResolverClient } from '$lib/aws-client';
+import { confirmDestructive } from '#lib/confirm-dialog.ts';
+import { onRegionChange, regionalClient } from '#lib/region-effect.svelte.ts';
+import { getRoute53ResolverClient } from '#lib/aws-client.ts';
 import {
 ListResolverEndpointsCommand,
 ListResolverRulesCommand,

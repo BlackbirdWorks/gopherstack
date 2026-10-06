@@ -85,24 +85,83 @@ func markSelectors(fsys fs.FS, path string, wanted, found map[string]bool) {
 	}
 }
 
+const reasonSetupSentinel = "sentinel is raised only from Init/New* setup functions, never from a request handler"
+
+func isSetupFunc(name string) bool {
+	return name == "Init" || strings.HasPrefix(name, "New") || strings.HasPrefix(name, "init")
+}
+
+// pkgSetupOnlySentinels returns sentinel candidates referenced, besides
+// their declaration, only inside Init/New*/init* functions.
+func pkgSetupOnlySentinels(files []*ast.File, cands []candidate) map[int]string {
+	decls := collectSentinelDecls(files)
+	total := map[string]int{}
+	setup := map[string]int{}
+
+	for _, f := range files {
+		for _, d := range f.Decls {
+			fd, isFn := d.(*ast.FuncDecl)
+			inSetup := isFn && isSetupFunc(fd.Name.Name)
+
+			ast.Inspect(d, func(n ast.Node) bool {
+				if id, isID := n.(*ast.Ident); isID {
+					total[id.Name]++
+
+					if inSetup {
+						setup[id.Name]++
+					}
+				}
+
+				return true
+			})
+		}
+	}
+
+	out := map[int]string{}
+
+	for i, c := range cands {
+		if c.Mechanism != mechAwserrNew && c.Mechanism != mechStdlibErr {
+			continue
+		}
+
+		if name, ok := decls[c.pos]; ok && setup[name] > 0 && total[name]-setup[name] == 1 {
+			out[i] = name
+		}
+	}
+
+	return out
+}
+
 func applyDeadSentinelDemotions(files []*ast.File, dir, repoRoot string, cands []candidate) {
-	dead := pkgDeadSentinels(files, cands)
-	if len(dead) == 0 {
+	reasons := map[int]string{}
+	names := map[int]string{}
+
+	for i, name := range pkgDeadSentinels(files, cands) {
+		reasons[i], names[i] = reasonDeadSentinel, name
+	}
+
+	for i, name := range pkgSetupOnlySentinels(files, cands) {
+		if _, already := reasons[i]; !already {
+			reasons[i], names[i] = reasonSetupSentinel, name
+		}
+	}
+
+	if len(reasons) == 0 {
 		return
 	}
 
 	pkg := filepath.Base(dir)
 	wanted := map[string]bool{}
 
-	for _, name := range dead {
+	for _, name := range names {
 		wanted[pkg+"."+name] = true
 	}
 
 	external := referencedElsewhere(repoRoot, dir, wanted)
 
-	for i, name := range dead {
+	for i, name := range names {
 		if !external[pkg+"."+name] && cands[i].DemoteReason == "" {
-			cands[i].DemoteReason = reasonDeadSentinel
+			cands[i].DemoteReason = reasons[i]
 		}
 	}
 }

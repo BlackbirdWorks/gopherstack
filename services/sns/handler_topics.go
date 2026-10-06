@@ -18,6 +18,14 @@ func (h *Handler) handleCreateTopic(c *echo.Context) error {
 
 	attrs := extractFormAttributes(c)
 
+	if dp := c.Request().FormValue("DataProtectionPolicy"); dp != "" {
+		if err := validateDataProtectionPolicy(dp); err != nil {
+			return h.handleBackendError(c, err)
+		}
+
+		attrs["DataProtectionPolicy"] = dp
+	}
+
 	region := httputils.ExtractRegionFromRequest(c.Request(), h.DefaultRegion)
 	topic, err := h.Backend.CreateTopicInRegion(name, region, attrs)
 	if err != nil {

@@ -9,15 +9,14 @@
 | --- | --- |
 | PARITY entries audited | 19 (19 ok) |
 | Feature families | 5 (5 ok) |
-| Known gaps | 3 |
+| Known gaps | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
 - Mock limitation (no real ML/Comprehend): SourceLanguageCode echoes 'auto' when omitted; DetectedLanguageLowConfidence/TooManyRequests/InternalServer/ServiceUnavailable/ConcurrentModification have no backend trigger (injectable via chaos, see test/integration).
-- Inert encryption: EncryptionKey.Type/Id accepted unvalidated (no KMS cross-service check); TerminologyProperties.SkippedTermCount/Message, ParallelDataProperties record counts/Message and TextTranslationJobProperties.JobDetails counts never populated (no S3 document/record reading); ListLanguages LanguageName ignores DisplayLanguageCode (no i18n table).
-- 2026-10-01: DeleteParallelData now returns DELETING (TestDeleteParallelData_ReportsDeleting).
+- Inert encryption: EncryptionKey.Type/Id accepted unvalidated (no KMS cross-service check); TerminologyProperties.SkippedTermCount/Message, ParallelDataProperties record counts/Message and TextTranslationJobProperties.JobDetails counts never populated (no S3 document/record reading); ListLanguages LanguageName ignores DisplayLanguageCode (no i18n table). UpdateParallelData.ClientToken is not replayed (the update is naturally idempotent) and GetTerminology.TerminologyDataFormat does not change the fabricated TerminologyDataLocation.
 
 ## More
 

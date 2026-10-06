@@ -2,6 +2,7 @@ package polly
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -33,7 +34,7 @@ func (b *InMemoryBackend) PutLexicon(name, content string) error {
 		Content:      content,
 		Alphabet:     lexiconAttribute(content, "alphabet", "ipa"),
 		LanguageCode: lexiconAttribute(content, "xml:lang", defaultLanguageCode),
-		LexemesCount: strings.Count(content, "<lexeme>"),
+		LexemesCount: lexemeCount(content),
 		Size:         len(content),
 		LastModified: time.Now().UTC(),
 	})
@@ -203,19 +204,31 @@ func validLexiconName(name string) bool {
 	return true
 }
 
+var (
+	lexiconRootRE = regexp.MustCompile(`<lexicon[\s>][^>]*>?`)
+	lexemeTagRE   = regexp.MustCompile(`<lexeme[\s>]`)
+)
+
+// lexiconAttribute reads attr from the root <lexicon> tag only, accepting either quote style.
 func lexiconAttribute(content, attr, fallback string) string {
-	token := attr + `="`
-	start := strings.Index(content, token)
-	if start < 0 {
-		return fallback
-	}
-	start += len(token)
-	end := strings.IndexByte(content[start:], '"')
-	if end < 0 {
+	root := lexiconRootRE.FindString(content)
+	if root == "" {
 		return fallback
 	}
 
-	return content[start : start+end]
+	m := regexp.MustCompile(`\s` + regexp.QuoteMeta(attr) + `\s*=\s*(?:"([^"]*)"|'([^']*)')`).FindStringSubmatch(root)
+	switch {
+	case m == nil:
+		return fallback
+	case m[1] != "":
+		return m[1]
+	default:
+		return m[2]
+	}
+}
+
+func lexemeCount(content string) int {
+	return len(lexemeTagRE.FindAllStringIndex(content, -1))
 }
 
 func cloneLexicon(lexicon *Lexicon) *Lexicon {

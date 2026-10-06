@@ -18,16 +18,6 @@ var (
 	// ErrMailDomainNotFound is returned when a mail domain lookup misses on
 	// an operation whose own error model declares MailDomainNotFoundException.
 	ErrMailDomainNotFound = awserr.New("MailDomainNotFoundException", awserr.ErrNotFound)
-	// ErrConflict is returned by CreateImpersonationRole when a role with the
-	// same name already exists. CreateImpersonationRole's own error model
-	// (workmail@v1.39.4 deserializers.go
-	// awsAwsjson11_deserializeOpErrorCreateImpersonationRole) defines no
-	// AlreadyExists-shaped exception at all, so no replacement code is
-	// invented here; every other "already exists"-style caller uses one of
-	// ErrNameUnavailable/ErrEmailInUse/ErrMailDomainInUse below, chosen per
-	// the raising op's own model -- workmail has no single generic
-	// "EntityAlreadyExistsException" type.
-	ErrConflict = awserr.New("EntityAlreadyExistsException", awserr.ErrAlreadyExists)
 	// ErrNameUnavailable is returned when a name is already taken within an
 	// organization (CreateAvailabilityConfiguration, CreateGroup,
 	// CreateOrganization, CreateResource, CreateUser -- all five model

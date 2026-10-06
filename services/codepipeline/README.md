@@ -9,16 +9,18 @@
 | --- | --- |
 | PARITY entries audited | 22 (16 ok, 5 partial, 1 gap) |
 | Feature families | 6 (5 ok, 1 partial) |
-| Known gaps | 5 |
+| Known gaps | 7 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
 ### Known gaps
 
 - gopherstack-wlab (2026-09-08, reconfirmed 2026-09-18): CreateCustomActionType/DeleteCustomActionType/DeletePipeline/UpdatePipeline/OverrideStageCondition/RetryStageExecution/StopPipelineExecution each emit a wire error code (InvalidStructureException/ActionTypeNotFoundException/PipelineNotFoundException x2/PipelineExecutionNotFoundException x3) absent from that op's own declared set per botocore codepipeline/2015-07-09/service-2.json -- kept undeclared: every declared candidate's doc text was checked and none fits (see the landmine comment at each call site). codepipeline's schema-based SDK (v1.54.0, zero deserializeOpError<Op> functions) means a real client's errors.As still resolves each to its own concrete exception type regardless (undeclared_error_codes_test.go), so this is a real-but-lower-severity AWS-error-model divergence, not a client-breaking one. Standing answer; no further follow-up needed absent new evidence.
+- PollForJobs.QueryParam and the PutJobSuccessResult/PutThirdPartyJobSuccessResult members ContinuationToken, CurrentRevision, ExecutionDetails and OutputVariables are not applied: no action-configuration model to match QueryParam against and no job engine to consume the results.
+- ListActionTypes lists only custom action types; the AWS-owned and third-party built-in catalog (with its artifact details and settings) is not modeled, so ActionOwnerFilter=AWS returns nothing.
 - Needs a subsystem this backend lacks (condition-rule engine, artifact store, STS credentials, Job creation from pipeline runs, deploy targets): OverrideStageCondition mutates no state; JobData/ThirdPartyJobData carry only ActionTypeId; Job failure/success details have no read-back (Jobs are only created by test-only AddJobInternal; FailureDetails.ExternalExecutionId unparsed); ListDeployActionExecutionTargets and ListRuleExecutions return empty; PipelineExecution.ArtifactRevisions/StatusSummary are omitted.
-- No AWS-documented derivation or evidence: ListRuleTypes omits RuleType.InputArtifactDetails (no documented per-provider min/max counts); ListWebhookItem.ErrorCode/ErrorMessage are never set (registration always succeeds); ListActionTypes RegionFilter is parsed but unapplied (no cross-region catalog).
-- handleError's ResourceInUseException (DeleteCustomActionType) and InvalidActionException (unknown-action fallback) name no type codepipeline@v1.49.4 declares; see the 2026-08-29 errcodeaudit note.
+- No AWS-documented derivation or evidence: ListRuleTypes omits RuleType.InputArtifactDetails (no documented per-provider min/max counts); ListWebhookItem.ErrorCode/ErrorMessage are never set (registration always succeeds).
+- handleError's InvalidActionException (unknown-action routing fallback) names no type codepipeline@v1.49.4 declares; see the 2026-08-29 errcodeaudit note.
 - Built-in action providers are inert except Build/CodeBuild, Invoke/Lambda and Deploy/CodeDeploy (accept/reject only, not the real job-callback mechanism, gopherstack-ary/cb9l); S3 source/deploy and every other provider always Succeed in runOneAction.
 
 ### Deferred

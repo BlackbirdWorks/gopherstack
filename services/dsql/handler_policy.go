@@ -36,7 +36,10 @@ func (h *Handler) handlePutClusterPolicy(c *echo.Context, identifier string, bod
 		return h.writeInvalidBody(c)
 	}
 
-	policy, err := h.Backend.PutClusterPolicy(identifier, req.Policy, req.ExpectedPolicyVersion)
+	policy, err := idemReplay(h, opPutClusterPolicy, req.ClientToken, [2]any{identifier, req},
+		func() (*ClusterPolicy, error) {
+			return h.Backend.PutClusterPolicy(identifier, req.Policy, req.ExpectedPolicyVersion)
+		})
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -47,7 +50,10 @@ func (h *Handler) handlePutClusterPolicy(c *echo.Context, identifier string, bod
 func (h *Handler) handleDeleteClusterPolicy(c *echo.Context, identifier string) error {
 	q := c.Request().URL.Query()
 
-	policy, err := h.Backend.DeleteClusterPolicy(identifier, q.Get("expected-policy-version"))
+	expected := q.Get("expected-policy-version")
+
+	policy, err := idemReplay(h, opDeleteClusterPolicy, q.Get("client-token"), [2]string{identifier, expected},
+		func() (*ClusterPolicy, error) { return h.Backend.DeleteClusterPolicy(identifier, expected) })
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}

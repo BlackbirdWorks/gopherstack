@@ -162,6 +162,10 @@ func (h *Handler) handleListChannels(c *echo.Context, body []byte) error {
 		}
 	}
 
+	if badPageToken(in.NextToken) {
+		return writeInvalidNextToken(c)
+	}
+
 	list := h.Backend.ListChannels()
 	p := page.New(list, in.NextToken, in.MaxResults, defaultChannelsPageSize)
 

@@ -302,17 +302,10 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		{ErrJobNotFound, "JobNotFoundException"},
 		{ErrWebhookNotFound, "WebhookNotFoundException"},
 		{ErrAlreadyExists, "InvalidStructureException"},
-		{ErrValidation, "ValidationException"},
+		{ErrValidation, errTypeValidation},
 		{ErrConflict, "ConflictException"},
-		// ErrResourceInUse fires only from DeleteCustomActionType (the sole
-		// call site, custom_action_types.go). "ResourceInUseException" names
-		// no type CodePipeline defines anywhere (aws-sdk-go-v2/service/
-		// codepipeline@v1.49.4/types/errors.go has no such type), and
-		// DeleteCustomActionType's own deserializeOpErrorDeleteCustomActionType
-		// (deserializers.go:560) models only ConcurrentModificationException
-		// and ValidationException -- neither fits "referenced by a pipeline".
-		// Left unfixed: no operation here models a code for this failure.
-		{ErrResourceInUse, "ResourceInUseException"},
+		// ValidationException is declared for DeleteCustomActionType (deserializers.go:560).
+		{ErrResourceInUse, errTypeValidation},
 		{ErrResourceNotFound, "ResourceNotFoundException"},
 		{ErrStageNotFound, "StageNotFoundException"},
 		{ErrInvalidStructure, "InvalidStructureException"},
@@ -332,7 +325,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		// code rather than inventing one (same reasoning as codedeploy's
 		// own errUnknownAction row, 5e0b4978a).
 		{errUnknownAction, "InvalidActionException"},
-		{errInvalidRequest, "ValidationException"},
+		{errInvalidRequest, errTypeValidation},
 	}
 
 	for _, m := range sentinels {
@@ -345,7 +338,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	var typeErr *json.UnmarshalTypeError
 
 	if errors.As(err, &syntaxErr) || errors.As(err, &typeErr) {
-		return errorBlob(c, http.StatusBadRequest, "ValidationException", err)
+		return errorBlob(c, http.StatusBadRequest, errTypeValidation, err)
 	}
 
 	return errorBlob(c, http.StatusInternalServerError, "InternalFailure", err)

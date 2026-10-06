@@ -1,16 +1,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/svelte";
 import DaxPage from "./+page.svelte";
-import { DEFAULT_REGION, setStoredRegion } from "$lib/region.svelte";
+import { DEFAULT_REGION, setStoredRegion } from "#lib/region.svelte.ts";
 
 const mockSend = vi.fn();
 
-vi.mock("$lib/aws-client", () => ({
+vi.mock("#lib/aws-client.ts", () => ({
   getDAXClient: () => ({ send: mockSend }),
 }));
 
 const confirmDestructive = vi.fn().mockResolvedValue(true);
-vi.mock("$lib/confirm-dialog", () => ({
+vi.mock("#lib/confirm-dialog.ts", () => ({
   confirmDestructive: (...args: unknown[]) => confirmDestructive(...args),
 }));
 

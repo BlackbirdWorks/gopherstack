@@ -11,32 +11,32 @@ type runJobFlowInput struct {
 	MonitoringConfiguration *MonitoringConfiguration `json:"MonitoringConfiguration"`
 	AutoTerminationPolicy   *AutoTerminationPolicy   `json:"AutoTerminationPolicy"`
 	ManagedScalingPolicy    *ManagedScalingPolicy    `json:"ManagedScalingPolicy"`
-	LogEncryptionKmsKeyID   string                   `json:"LogEncryptionKmsKeyId"`
-	AmiVersion              string                   `json:"AmiVersion"`
-	AutoScalingRole         string                   `json:"AutoScalingRole"`
+	VisibleToAllUsers       *bool                    `json:"VisibleToAllUsers"`
+	ReleaseLabel            string                   `json:"ReleaseLabel"`
+	SecurityConfiguration   string                   `json:"SecurityConfiguration"`
 	Name                    string                   `json:"Name"`
 	ScaleDownBehavior       string                   `json:"ScaleDownBehavior"`
 	CustomAmiID             string                   `json:"CustomAmiId"`
 	JobFlowRole             string                   `json:"JobFlowRole"`
 	RepoUpgradeOnBoot       string                   `json:"RepoUpgradeOnBoot"`
-	SecurityConfiguration   string                   `json:"SecurityConfiguration"`
+	LogEncryptionKmsKeyID   string                   `json:"LogEncryptionKmsKeyId"`
 	StepExecutionRoleArn    string                   `json:"StepExecutionRoleArn"`
-	ReleaseLabel            string                   `json:"ReleaseLabel"`
+	AmiVersion              string                   `json:"AmiVersion"`
 	OSReleaseLabel          string                   `json:"OSReleaseLabel"`
 	ServiceRole             string                   `json:"ServiceRole"`
 	LogURI                  string                   `json:"LogUri"`
+	AutoScalingRole         string                   `json:"AutoScalingRole"`
 	PlacementGroupConfigs   []PlacementGroupConfig   `json:"PlacementGroupConfigs"`
-	BootstrapActions        []BootstrapActionConfig  `json:"BootstrapActions"`
 	Steps                   []StepSpec               `json:"Steps"`
 	Configurations          []Configuration          `json:"Configurations"`
 	Applications            []Application            `json:"Applications"`
 	Tags                    []Tag                    `json:"Tags"`
+	BootstrapActions        []BootstrapActionConfig  `json:"BootstrapActions"`
 	Instances               RunJobFlowInstances      `json:"Instances"`
 	StepConcurrencyLevel    int                      `json:"StepConcurrencyLevel"`
 	EbsRootVolumeSize       int                      `json:"EbsRootVolumeSize"`
 	EbsRootVolumeIops       int                      `json:"EbsRootVolumeIops"`
 	EbsRootVolumeThroughput int                      `json:"EbsRootVolumeThroughput"`
-	VisibleToAllUsers       bool                     `json:"VisibleToAllUsers"`
 	SessionEnabled          bool                     `json:"SessionEnabled"`
 }
 
@@ -76,7 +76,7 @@ func (h *Handler) handleRunJobFlow(ctx context.Context, in *runJobFlowInput) (*r
 		EbsRootVolumeSize:       in.EbsRootVolumeSize,
 		EbsRootVolumeIops:       in.EbsRootVolumeIops,
 		EbsRootVolumeThroughput: in.EbsRootVolumeThroughput,
-		VisibleToAllUsers:       in.VisibleToAllUsers,
+		VisibleToAllUsers:       in.VisibleToAllUsers == nil || *in.VisibleToAllUsers,
 		SessionEnabled:          in.SessionEnabled,
 	})
 	if err != nil {

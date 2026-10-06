@@ -21,8 +21,8 @@
 	// services/personalize/PARITY.md) -- surfaced here as a "Get
 	// Recommendations" tester tab using that second client.
 	import { untrack } from 'svelte';
-	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
-	import { getPersonalizeClient, getPersonalizeRuntimeClient } from '$lib/aws-client';
+	import { onRegionChange, regionalClient } from '#lib/region-effect.svelte.ts';
+	import { getPersonalizeClient, getPersonalizeRuntimeClient } from '#lib/aws-client.ts';
 	import {
 		ListDatasetGroupsCommand,
 		ListDatasetsCommand,
@@ -75,16 +75,16 @@
 	} from '@aws-sdk/client-personalize';
 	import { GetRecommendationsCommand } from '@aws-sdk/client-personalize-runtime';
 	import { toast } from 'svelte-sonner';
-	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { createTabLoader } from '$lib/tab-loader.svelte';
-	import { formatDate } from '$lib/format';
-	import PageHeader from '$lib/components/PageHeader.svelte';
-	import Tabs from '$lib/components/Tabs.svelte';
-	import type { Tab as TabDef } from '$lib/components/Tabs.svelte';
-	import SearchInput from '$lib/components/SearchInput.svelte';
-	import DataTable from '$lib/components/DataTable.svelte';
-	import { defineColumns } from '$lib/components/data-table';
-	import Modal from '$lib/components/Modal.svelte';
+	import { confirmDestructive } from '#lib/confirm-dialog.ts';
+	import { createTabLoader } from '#lib/tab-loader.svelte.ts';
+	import { formatDate } from '#lib/format.ts';
+	import PageHeader from '#lib/components/PageHeader.svelte';
+	import Tabs from '#lib/components/Tabs.svelte';
+	import type { Tab as TabDef } from '#lib/components/Tabs.svelte';
+	import SearchInput from '#lib/components/SearchInput.svelte';
+	import DataTable from '#lib/components/DataTable.svelte';
+	import { defineColumns } from '#lib/components/data-table.ts';
+	import Modal from '#lib/components/Modal.svelte';
 	import { Sparkles, Plus, Trash2, Eye, Pencil, Play, Square, RefreshCw } from 'lucide-svelte';
 
 	const client = regionalClient(getPersonalizeClient);

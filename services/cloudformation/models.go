@@ -128,25 +128,26 @@ type StackResource struct {
 type ChangeSet struct {
 	CreationTime          time.Time              `xml:"CreationTime"                    json:"creationTime"`
 	RollbackConfiguration *RollbackConfiguration `xml:"RollbackConfiguration,omitempty" json:"rollbackConfiguration,omitempty"` //nolint:lll // AWS-compatible JSON field name exceeds line limit
-	ChangeSetID           string                 `xml:"ChangeSetId"                     json:"changeSetID"`
-	ChangeSetName         string                 `xml:"ChangeSetName"                   json:"changeSetName"`
+	Description           string                 `xml:"Description,omitempty"           json:"description,omitempty"`
+	TemplateBody          string                 `xml:"-"                               json:"templateBody,omitempty"`
 	StackID               string                 `xml:"StackId"                         json:"stackID"`
 	StackName             string                 `xml:"StackName"                       json:"stackName"`
 	Status                string                 `xml:"Status"                          json:"status"`
 	StatusReason          string                 `xml:"StatusReason,omitempty"          json:"statusReason,omitempty"`
 	ExecutionStatus       string                 `xml:"ExecutionStatus,omitempty"       json:"executionStatus,omitempty"`
 	ChangeSetType         string                 `xml:"ChangeSetType,omitempty"         json:"changeSetType,omitempty"`
-	Description           string                 `xml:"Description,omitempty"           json:"description,omitempty"`
-	TemplateBody          string                 `xml:"-"                               json:"templateBody,omitempty"`
-	Parameters            []Parameter            `xml:"-"                               json:"parameters,omitempty"`
+	ChangeSetID           string                 `xml:"ChangeSetId"                     json:"changeSetID"`
+	ChangeSetName         string                 `xml:"ChangeSetName"                   json:"changeSetName"`
 	Changes               []Change               `xml:"-"                               json:"changes,omitempty"`
 	Capabilities          []string               `xml:"-"                               json:"capabilities,omitempty"`
 	Tags                  []Tag                  `xml:"-"                               json:"tags,omitempty"`
-	// ResourceTypes/DisableValidation mirror CreateChangeSetInput's own
-	// fields (api_op_CreateChangeSet.go:192,254) -- not part of
-	// DescribeChangeSetOutput's wire shape, threaded through to Execute's
-	// internal CreateStack/UpdateStack call the same way Capabilities is.
+	Parameters            []Parameter            `xml:"-"                               json:"parameters,omitempty"`
+	// ResourceTypes/DisableValidation are CreateChangeSetInput members and
+	// NotificationARNs/RoleARN are applied to the stack on ExecuteChangeSet;
+	// none are part of DescribeChangeSetOutput's wire shape.
+	RoleARN           string   `xml:"-" json:"roleARN,omitempty"`
 	ResourceTypes     []string `xml:"-" json:"resourceTypes,omitempty"`
+	NotificationARNs  []string `xml:"-" json:"notificationARNs,omitempty"`
 	DisableValidation bool     `xml:"-" json:"disableValidation,omitempty"`
 }
 
@@ -414,7 +415,8 @@ type Publisher struct {
 type StackRefactor struct {
 	RefactorID          string
 	Description         string
-	Status              string // CREATE_IN_PROGRESS / CREATE_COMPLETE / EXECUTE_IN_PROGRESS / EXECUTE_COMPLETE
+	Status              string // StackRefactorStatus: CREATE_COMPLETE once created
+	ExecutionStatus     string `json:"ExecutionStatus,omitempty"` // AVAILABLE until executed, then EXECUTE_COMPLETE
 	ResourceMappings    []ResourceMapping
 	StackDefinitions    []StackDefinition
 	EnableStackCreation bool
@@ -540,6 +542,7 @@ type AutoDeploymentTarget struct {
 type StackRefactorSummary struct {
 	StackRefactorID string `xml:"StackRefactorId"`
 	Status          string `xml:"Status,omitempty"`
+	ExecutionStatus string `xml:"ExecutionStatus,omitempty"`
 	Description     string `xml:"Description,omitempty"`
 }
 

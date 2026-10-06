@@ -1,9 +1,9 @@
 <script lang="ts">
-	import { onRegionChange } from '$lib/region-effect.svelte';
-	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { multiRegionList } from '$lib/multi-region';
-	import RegionChip from '$lib/components/RegionChip.svelte';
-	import { getGlueClient } from '$lib/aws-client';
+	import { onRegionChange } from '#lib/region-effect.svelte.ts';
+	import { confirmDestructive } from '#lib/confirm-dialog.ts';
+	import { multiRegionList } from '#lib/multi-region.ts';
+	import RegionChip from '#lib/components/RegionChip.svelte';
+	import { getGlueClient } from '#lib/aws-client.ts';
 	import {
 		GetDatabasesCommand,
 		GetTablesCommand,

@@ -235,3 +235,44 @@ var ErrClusterAlreadyExists = awserr.New("ClusterAlreadyExistsException", awserr
 
 	assert.Empty(t, mapperReasonFor(t, cands, "ClusterAlreadyExistsException"))
 }
+
+func TestDemoteMapperConsumedSentinels_NestedEntryShape(t *testing.T) {
+	t.Parallel()
+
+	src := `package sqs
+
+import "errors"
+
+var ErrMessageTooLarge = errors.New("MessageTooLarge")
+
+type errorEntry struct {
+	errType string
+	message string
+	status  int
+}
+
+type errRow struct {
+	sentinel error
+	entry    errorEntry
+}
+
+func details(err error) (errorEntry, bool) {
+	rows := [...]errRow{
+		{ErrMessageTooLarge, errorEntry{"com.amazonaws.sqs#InvalidMessageContents", "too big", 400}},
+	}
+
+	for _, r := range rows {
+		if errors.Is(err, r.sentinel) {
+			return r.entry, true
+		}
+	}
+
+	return errorEntry{}, false
+}
+`
+
+	cands := extractFixture(t, src)
+
+	assert.NotEmpty(t, mapperReasonFor(t, cands, "MessageTooLarge"))
+	assert.Empty(t, mapperReasonFor(t, cands, "InvalidMessageContents"))
+}

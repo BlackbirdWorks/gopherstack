@@ -7,7 +7,7 @@ const { mockSend, mockConfirm } = vi.hoisted(() => ({
   mockConfirm: vi.fn(),
 }));
 
-vi.mock("$lib/aws-client", () => ({
+vi.mock("#lib/aws-client.ts", () => ({
   getNeptuneClient: () => ({ send: mockSend }),
 }));
 
@@ -15,7 +15,7 @@ vi.mock("svelte-sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() },
 }));
 
-vi.mock("$lib/confirm-dialog", () => ({
+vi.mock("#lib/confirm-dialog.ts", () => ({
   confirmDestructive: mockConfirm,
 }));
 

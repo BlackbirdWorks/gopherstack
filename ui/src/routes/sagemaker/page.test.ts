@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/svelte";
 import SageMakerPage from "./+page.svelte";
-import { ALL_REGIONS, DEFAULT_REGION, setStoredRegion } from "$lib/region.svelte";
+import { ALL_REGIONS, DEFAULT_REGION, setStoredRegion } from "#lib/region.svelte.ts";
 
 const mockSend = vi.fn();
 
-vi.mock("$lib/aws-client", () => ({
+vi.mock("#lib/aws-client.ts", () => ({
   getSageMakerClient: () => ({ send: mockSend }),
 }));
 
@@ -22,6 +22,15 @@ function stubRegionsWithData(regions: string[]): void {
       json: () => Promise.resolve({ regions }),
     }),
   );
+}
+
+// loadData fans out ListNotebookInstances/ListTrainingJobs/ListModels/
+// ListEndpoints/ListPipelines together, so these tests key responses off
+// the command name rather than call order.
+function notebookCallCount(): number {
+  return mockSend.mock.calls.filter(
+    ([cmd]) => cmd?.constructor?.name === "ListNotebookInstancesCommand",
+  ).length;
 }
 
 describe("SageMaker Page", () => {
@@ -109,15 +118,6 @@ describe("SageMaker Page", () => {
     render(SageMakerPage);
     expect(screen.getAllByText("Models")[0]).toBeInTheDocument();
   });
-
-  // loadData fans out ListNotebookInstances/ListTrainingJobs/ListModels/
-  // ListEndpoints/ListPipelines together, so these tests key responses off
-  // the command name rather than call order.
-  function notebookCallCount(): number {
-    return mockSend.mock.calls.filter(
-      ([cmd]) => cmd?.constructor?.name === "ListNotebookInstancesCommand",
-    ).length;
-  }
 
   describe("All regions mode", () => {
     it("fans ListNotebookInstances out across every region with data and tags each row", async () => {

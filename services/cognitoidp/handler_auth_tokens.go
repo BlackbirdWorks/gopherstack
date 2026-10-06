@@ -7,7 +7,7 @@ import (
 )
 
 func (h *Handler) handleRevokeToken(_ context.Context, in *revokeTokenInput) (*revokeTokenOutput, error) {
-	if err := h.Backend.RevokeToken(in.Token, in.ClientID); err != nil {
+	if err := h.Backend.RevokeTokenWithSecret(in.Token, in.ClientID, in.ClientSecret); err != nil {
 		return nil, err
 	}
 
@@ -49,7 +49,7 @@ func (h *Handler) handleGetTokensFromRefreshToken(
 	_ context.Context,
 	in *getTokensFromRefreshTokenInput,
 ) (*getTokensFromRefreshTokenOutput, error) {
-	tokens, err := h.Backend.InitiateAuthRefreshToken(in.ClientID, in.RefreshToken)
+	tokens, err := h.Backend.GetTokensFromRefreshToken(in.ClientID, in.RefreshToken, in.ClientSecret)
 	if err != nil {
 		return nil, err
 	}

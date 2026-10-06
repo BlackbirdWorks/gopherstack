@@ -31,6 +31,7 @@ type createCommitInput struct {
 	ParentCommitID   string                        `json:"parentCommitId"`
 	PutFiles         []createCommitPutFileEntry    `json:"putFiles"`
 	DeleteFiles      []createCommitDeleteFileEntry `json:"deleteFiles"`
+	SetFileModes     []setFileModeEntryWire        `json:"setFileModes"`
 	KeepEmptyFolders bool                          `json:"keepEmptyFolders"`
 }
 
@@ -136,14 +137,29 @@ func (h *Handler) handleCreateCommit(body []byte) (any, error) {
 		deleteFiles = append(deleteFiles, df.FilePath)
 	}
 
-	commit, blobIDsAdded, blobIDsDeleted, err := h.Backend.CreateCommit(
+	setModes := make([]SetFileModeEntry, 0, len(in.SetFileModes))
+	for _, m := range in.SetFileModes {
+		if m.FileMode == "" {
+			return nil, fmt.Errorf("%w: setFileModes entry for %s", ErrFileModeRequired, m.FilePath)
+		}
+
+		if !validFileMode(m.FileMode) {
+			return nil, fmt.Errorf("%w: %q", ErrInvalidFileMode, m.FileMode)
+		}
+
+		setModes = append(setModes, SetFileModeEntry(m))
+	}
+
+	changes, err := h.Backend.CreateCommitDetailed(
 		in.RepositoryName, in.BranchName,
 		in.AuthorName, in.Email, in.CommitMessage,
-		in.ParentCommitID, putFiles, deleteFiles, in.KeepEmptyFolders,
+		in.ParentCommitID, putFiles, deleteFiles, setModes, in.KeepEmptyFolders,
 	)
 	if err != nil {
 		return nil, err
 	}
+
+	commit, blobIDsDeleted := changes.Commit, changes.Deleted
 
 	// filesAdded is built from the backend's assigned blob IDs (not the
 	// request order) so the response reflects the real blob per file — AWS's
@@ -151,14 +167,20 @@ func (h *Handler) handleCreateCommit(body []byte) (any, error) {
 	// on the real wire has exactly three keys -- absolutePath, blobId,
 	// fileMode (deserializers.go's awsAwsjson11_deserializeDocumentFileMetadata)
 	// -- there is no "filePath".
-	filesAdded := make([]any, 0, len(in.PutFiles))
+	filesAdded := make([]any, 0, len(changes.Added))
+	filesUpdated := make([]any, 0, len(changes.Updated))
+
 	for _, pf := range in.PutFiles {
-		filesAdded = append(filesAdded, map[string]any{
-			keyAbsolutePath: pf.FilePath,
-			keyBlobID:       blobIDsAdded[pf.FilePath],
-			keyFileMode:     fileModes[pf.FilePath],
-		})
+		if blobID, ok := changes.Added[pf.FilePath]; ok {
+			filesAdded = append(filesAdded, map[string]any{
+				keyAbsolutePath: pf.FilePath,
+				keyBlobID:       blobID,
+				keyFileMode:     fileModes[pf.FilePath],
+			})
+		}
 	}
+
+	filesUpdated = appendUpdatedFiles(filesUpdated, in.PutFiles, setModes, changes.Updated, fileModes)
 
 	// filesDeleted mirrors filesAdded: built from the backend's reported blob
 	// IDs (the blob each deletion removed from the tree) rather than left
@@ -177,7 +199,7 @@ func (h *Handler) handleCreateCommit(body []byte) (any, error) {
 		keyCommitID:    commit.CommitID,
 		keyTreeID:      commit.TreeID,
 		"filesAdded":   filesAdded,
-		"filesUpdated": []any{},
+		"filesUpdated": filesUpdated,
 		"filesDeleted": filesDeleted,
 	}, nil
 }
@@ -241,4 +263,32 @@ func (h *Handler) handleGetDifferences(body []byte) (any, error) {
 	return map[string]any{
 		"differences": diffs,
 	}, nil
+}
+
+// appendUpdatedFiles lists files rewritten by putFiles or re-moded by setFileModes, each once.
+func appendUpdatedFiles(
+	out []any, put []createCommitPutFileEntry, modes []SetFileModeEntry,
+	updated map[string]string, putModes map[string]string,
+) []any {
+	seen := make(map[string]bool, len(updated))
+
+	for _, pf := range put {
+		if blobID, ok := updated[pf.FilePath]; ok && !seen[pf.FilePath] {
+			seen[pf.FilePath] = true
+			out = append(out, map[string]any{
+				keyAbsolutePath: pf.FilePath, keyBlobID: blobID, keyFileMode: putModes[pf.FilePath],
+			})
+		}
+	}
+
+	for _, m := range modes {
+		if blobID, ok := updated[m.FilePath]; ok && !seen[m.FilePath] {
+			seen[m.FilePath] = true
+			out = append(out, map[string]any{
+				keyAbsolutePath: m.FilePath, keyBlobID: blobID, keyFileMode: m.FileMode,
+			})
+		}
+	}
+
+	return out
 }

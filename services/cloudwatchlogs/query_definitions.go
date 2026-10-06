@@ -1,6 +1,7 @@
 package cloudwatchlogs
 
 import (
+	"cmp"
 	"fmt"
 	"slices"
 	"sort"
@@ -10,12 +11,33 @@ import (
 	"github.com/google/uuid"
 )
 
-// PutQueryDefinition creates or updates a query definition.
+// PutQueryDefinition creates or updates a CWLI query definition.
 func (b *InMemoryBackend) PutQueryDefinition(
 	name, queryString, queryDefinitionID string,
 	logGroupNames []string,
 	parameters []QueryParameter,
 ) (string, error) {
+	return b.PutQueryDefinitionWithLanguage(name, queryString, queryDefinitionID, "", logGroupNames, parameters)
+}
+
+// PutQueryDefinitionWithLanguage is PutQueryDefinition with an explicit queryLanguage (CWLI default).
+func (b *InMemoryBackend) PutQueryDefinitionWithLanguage(
+	name, queryString, queryDefinitionID, queryLanguage string,
+	logGroupNames []string,
+	parameters []QueryParameter,
+) (string, error) {
+	if queryLanguage == "" {
+		queryLanguage = queryLanguageCWLI
+	}
+
+	if _, ok := validScheduledQueryLanguages()[queryLanguage]; !ok {
+		return "", fmt.Errorf(
+			"%w: invalid queryLanguage %q, must be one of CWLI, PPL, SQL",
+			ErrValidation,
+			queryLanguage,
+		)
+	}
+
 	if name == "" {
 		return "", fmt.Errorf("%w: name is required", ErrValidation)
 	}
@@ -44,7 +66,7 @@ func (b *InMemoryBackend) PutQueryDefinition(
 		QueryDefinitionID: id,
 		Name:              name,
 		QueryString:       queryString,
-		QueryLanguage:     queryLanguageCWLI,
+		QueryLanguage:     queryLanguage,
 		LogGroupNames:     slices.Clone(logGroupNames),
 		Parameters:        slices.Clone(parameters),
 		LastModified:      time.Now().UnixMilli(),
@@ -60,6 +82,15 @@ func (b *InMemoryBackend) DescribeQueryDefinitions(
 	limit int,
 	nextToken string,
 ) ([]QueryDefinition, string, error) {
+	return b.DescribeQueryDefinitionsByLanguage(queryDefinitionNamePrefix, "", limit, nextToken)
+}
+
+// DescribeQueryDefinitionsByLanguage is DescribeQueryDefinitions plus a queryLanguage filter.
+func (b *InMemoryBackend) DescribeQueryDefinitionsByLanguage(
+	queryDefinitionNamePrefix, queryLanguage string,
+	limit int,
+	nextToken string,
+) ([]QueryDefinition, string, error) {
 	b.mu.RLock("DescribeQueryDefinitions")
 	defer b.mu.RUnlock()
 
@@ -69,6 +100,11 @@ func (b *InMemoryBackend) DescribeQueryDefinitions(
 			!strings.HasPrefix(qd.Name, queryDefinitionNamePrefix) {
 			continue
 		}
+
+		if queryLanguage != "" && cmp.Or(qd.QueryLanguage, queryLanguageCWLI) != queryLanguage {
+			continue
+		}
+
 		cp := *qd
 		cp.LogGroupNames = slices.Clone(qd.LogGroupNames)
 		cp.Parameters = slices.Clone(qd.Parameters)

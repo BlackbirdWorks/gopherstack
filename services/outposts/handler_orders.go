@@ -47,6 +47,10 @@ func (h *Handler) handleCancelOrder(_ context.Context, r *http.Request, _ []byte
 func (h *Handler) handleListOrders(_ context.Context, r *http.Request, _ []byte) ([]byte, error) {
 	q := r.URL.Query()
 
+	if err := validatePage(q); err != nil {
+		return nil, err
+	}
+
 	p := h.Backend.ListOrders(q.Get("OutpostIdentifierFilter"), q.Get("NextToken"), queryMaxResults(q))
 
 	resp := listOrdersResponse{NextToken: p.Next, Orders: make([]orderSummaryWire, 0, len(p.Data))}

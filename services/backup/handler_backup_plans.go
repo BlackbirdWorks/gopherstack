@@ -277,10 +277,12 @@ func (h *Handler) dispatchPlanTemplateCatalogOps(
 ) (bool, error) {
 	switch route.operation {
 	case opListBackupPlanVersions:
-		versions, err := h.Backend.ListBackupPlanVersions(route.resource)
+		all, err := h.Backend.ListBackupPlanVersions(route.resource)
 		if err != nil {
 			return true, h.handleError(c, err)
 		}
+
+		versions, next := pageQuery(c.Request().URL.Query(), all, func(p *Plan) string { return p.VersionID })
 		items := make([]map[string]any, 0, len(versions))
 		for _, v := range versions {
 			items = append(items, map[string]any{
@@ -291,7 +293,7 @@ func (h *Handler) dispatchPlanTemplateCatalogOps(
 			})
 		}
 
-		return true, c.JSON(http.StatusOK, map[string]any{"BackupPlanVersionsList": items})
+		return true, c.JSON(http.StatusOK, withNextToken(map[string]any{"BackupPlanVersionsList": items}, next))
 	case opExportBackupPlanTemplate:
 		tmpl, err := h.Backend.ExportBackupPlanTemplate(route.resource)
 		if err != nil {

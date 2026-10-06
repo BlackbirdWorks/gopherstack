@@ -5,6 +5,8 @@ import (
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 type describeEffectivePolicyRequest struct {
@@ -14,7 +16,6 @@ type describeEffectivePolicyRequest struct {
 
 type effectivePolicyObject struct {
 	PolicyContent        string  `json:"PolicyContent"`
-	PolicyID             string  `json:"PolicyId"`
 	PolicyType           string  `json:"PolicyType"`
 	TargetID             string  `json:"TargetId"`
 	LastUpdatedTimestamp float64 `json:"LastUpdatedTimestamp"`
@@ -35,6 +36,7 @@ type listEffectivePolicyValidationErrorsRequest struct {
 	PolicyType string `json:"PolicyType"`
 	AccountID  string `json:"AccountId,omitempty"`
 	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults int    `json:"MaxResults,omitempty"`
 }
 
 type listEffectivePolicyValidationErrorsResponse struct {
@@ -77,7 +79,6 @@ func (h *Handler) handleDescribeEffectivePolicy(c *echo.Context, body []byte) er
 		EffectivePolicy: effectivePolicyObject{
 			LastUpdatedTimestamp: epochSeconds(ep.LastUpdatedTimestamp),
 			PolicyContent:        ep.PolicyContent,
-			PolicyID:             ep.PolicyID,
 			PolicyType:           ep.PolicyType,
 			TargetID:             ep.TargetID,
 		},
@@ -94,13 +95,19 @@ func (h *Handler) handleListEffectivePolicyValidationErrors(c *echo.Context, bod
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "PolicyType is required")
 	}
 
+	if rejected, err := h.checkPaging(c, req.MaxResults, req.NextToken); rejected {
+		return err
+	}
+
 	errs, err := h.Backend.ListEffectivePolicyValidationErrors(req.PolicyType, req.AccountID)
 	if err != nil {
 		return h.handleBackendError(c, err)
 	}
 
+	p := page.New(errs, req.NextToken, req.MaxResults, defaultMaxResults)
+
 	return c.JSON(
 		http.StatusOK,
-		listEffectivePolicyValidationErrorsResponse{EffectivePolicyValidationErrors: errs},
+		listEffectivePolicyValidationErrorsResponse{EffectivePolicyValidationErrors: p.Data, NextToken: p.Next},
 	)
 }

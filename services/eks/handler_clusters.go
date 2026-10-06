@@ -3,6 +3,7 @@ package eks
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 
@@ -125,6 +126,10 @@ func appendClusterCoreFields(c *Cluster, m map[string]any) {
 }
 
 func appendClusterOptionalInfra(c *Cluster, m map[string]any) {
+	for key, raw := range c.ConfigBlocks {
+		m[key] = raw
+	}
+
 	if c.AccessConfig != nil {
 		m["accessConfig"] = map[string]any{
 			"authenticationMode":                      c.AccessConfig.AuthenticationMode,
@@ -236,11 +241,11 @@ func clusterTagsMap(c *Cluster) map[string]string {
 }
 
 type vpcConfigJSON struct {
+	EndpointPublicAccess  *bool    `json:"endpointPublicAccess"`
 	SubnetIDs             []string `json:"subnetIds"`
 	SecurityGroupIDs      []string `json:"securityGroupIds"`
 	PublicAccessCIDRs     []string `json:"publicAccessCidrs"`
 	EndpointPrivateAccess bool     `json:"endpointPrivateAccess"`
-	EndpointPublicAccess  bool     `json:"endpointPublicAccess"`
 }
 
 type kubernetesNetworkConfigJSON struct {
@@ -291,6 +296,7 @@ type createClusterBody struct {
 	Version                 string                       `json:"version"`
 	RoleArn                 string                       `json:"roleArn"`
 	ClientRequestToken      string                       `json:"clientRequestToken"`
+	EncryptionConfig        []encryptionConfigItem       `json:"encryptionConfig"`
 }
 
 func (h *Handler) handleCreateCluster(c *echo.Context, body []byte) error {
@@ -315,7 +321,11 @@ func (h *Handler) handleCreateCluster(c *echo.Context, body []byte) error {
 			SecurityGroupIDs:      in.ResourcesVpcConfig.SecurityGroupIDs,
 			PublicAccessCIDRs:     in.ResourcesVpcConfig.PublicAccessCIDRs,
 			EndpointPrivateAccess: in.ResourcesVpcConfig.EndpointPrivateAccess,
-			EndpointPublicAccess:  in.ResourcesVpcConfig.EndpointPublicAccess,
+			EndpointPublicAccess: in.ResourcesVpcConfig.EndpointPublicAccess == nil ||
+				*in.ResourcesVpcConfig.EndpointPublicAccess,
+		}
+		if len(vpcCfg.PublicAccessCIDRs) == 0 {
+			vpcCfg.PublicAccessCIDRs = []string{defaultPublicAccessCIDR}
 		}
 	}
 
@@ -335,6 +345,14 @@ func (h *Handler) handleCreateCluster(c *echo.Context, body []byte) error {
 		}
 	}
 
+	netCfg = withNetworkDefaults(netCfg)
+
+	var blocksIn clusterConfigBlocksBody
+	_ = json.Unmarshal(body, &blocksIn)
+
+	opt := buildClusterOptConfig(in)
+	opt.ConfigBlocks = blocksIn.blocks(true)
+
 	return h.withIdempotency(c, opCreateCluster, in.ClientRequestToken, body, func() (int, any, error) {
 		cluster, err := h.Backend.CreateCluster(
 			in.Name,
@@ -343,7 +361,7 @@ func (h *Handler) handleCreateCluster(c *echo.Context, body []byte) error {
 			vpcCfg,
 			netCfg,
 			in.Tags,
-			buildClusterOptConfig(in),
+			opt,
 		)
 		if err != nil {
 			return 0, nil, err
@@ -393,6 +411,15 @@ func buildClusterOptConfig(in createClusterBody) ClusterOptionalConfig {
 
 	if in.DeletionProtection != nil {
 		opt.DeletionProtection = *in.DeletionProtection
+	}
+
+	opt.EncryptionConfig = make([]EncryptionConfig, len(in.EncryptionConfig))
+	for i, ec := range in.EncryptionConfig {
+		opt.EncryptionConfig[i] = EncryptionConfig(ec)
+	}
+
+	if len(opt.EncryptionConfig) == 0 {
+		opt.EncryptionConfig = nil
 	}
 
 	return opt
@@ -481,9 +508,56 @@ func (h *Handler) handleDeregisterCluster(c *echo.Context, name string) error {
 
 func (h *Handler) handleDescribeClusterVersions(c *echo.Context) error {
 	defaultOnly := c.Request().URL.Query().Get("defaultOnly") == "true"
-	versions := h.Backend.DescribeClusterVersions(defaultOnly)
+	versions := filterClusterVersions(h.Backend.DescribeClusterVersions(defaultOnly), c.Request().URL.Query())
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"clusterVersions": versions,
+	p, err := eksVersionsPage(c, versions)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, eksPageResponse("clusterVersions", p))
+}
+
+// filterClusterVersions applies clusterType, clusterVersions, status and versionStatus.
+func filterClusterVersions(rows []map[string]any, q url.Values) []map[string]any {
+	wantVersions := q["clusterVersions"]
+
+	return slices.DeleteFunc(rows, func(row map[string]any) bool {
+		for key, want := range map[string]string{
+			"clusterType":   q.Get("clusterType"),
+			keyStatusField:  q.Get(keyStatusField),
+			"versionStatus": q.Get("versionStatus"),
+		} {
+			if want != "" && row[key] != want {
+				return true
+			}
+		}
+
+		version, _ := row[keyClusterVersion].(string)
+
+		return len(wantVersions) > 0 && !slices.Contains(wantVersions, version)
 	})
+}
+
+const (
+	defaultPublicAccessCIDR = "0.0.0.0/0"
+	defaultServiceIPv4CIDR  = "10.100.0.0/16"
+	ipFamilyIPv4            = "ipv4"
+)
+
+// withNetworkDefaults applies the documented ipFamily default (ipv4) and its service CIDR.
+func withNetworkDefaults(cfg *KubernetesNetworkConfig) *KubernetesNetworkConfig {
+	if cfg == nil {
+		cfg = &KubernetesNetworkConfig{}
+	}
+
+	if cfg.IPFamily == "" {
+		cfg.IPFamily = ipFamilyIPv4
+	}
+
+	if cfg.IPFamily == ipFamilyIPv4 && cfg.ServiceIPv4CIDR == "" {
+		cfg.ServiceIPv4CIDR = defaultServiceIPv4CIDR
+	}
+
+	return cfg
 }

@@ -2,6 +2,8 @@ package awsconfig
 
 import (
 	"context"
+	"slices"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -52,16 +54,27 @@ func (h *Handler) handleGetStoredQuery(
 }
 
 // ListStoredQueries request/response types and handler.
+type listStoredQueriesInput struct {
+	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults int32  `json:"MaxResults,omitempty"`
+}
 type listStoredQueriesOutput struct {
+	NextToken           string                `json:"NextToken,omitempty"`
 	StoredQueryMetadata []StoredQueryMetadata `json:"StoredQueryMetadata"`
 }
 
 func (h *Handler) handleListStoredQueries(
-	_ context.Context, _ *emptyInput,
+	_ context.Context, in *listStoredQueriesInput,
 ) (*listStoredQueriesOutput, error) {
-	return &listStoredQueriesOutput{
-		StoredQueryMetadata: h.Backend.ListStoredQueries(),
-	}, nil
+	queries := h.Backend.ListStoredQueries()
+	slices.SortFunc(queries, func(a, b StoredQueryMetadata) int { return strings.Compare(a.QueryName, b.QueryName) })
+
+	p, err := paginate(queries, in.NextToken, in.MaxResults, unboundedPageDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listStoredQueriesOutput{StoredQueryMetadata: p.Data, NextToken: p.Next}, nil
 }
 
 // PutStoredQuery request/response types and handler.

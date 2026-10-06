@@ -75,13 +75,6 @@ func (b *InMemoryBackend) CreateResourceShare(
 
 	b.pruneDeletedResourceSharesLocked(time.Now())
 
-	// Check for name collision.
-	for _, rs := range b.resourceShares.All() {
-		if rs.Name == name && rs.Status != statusDeleted {
-			return nil, fmt.Errorf("%w: resource share %s already exists", ErrAlreadyExists, name)
-		}
-	}
-
 	// Validate every principal against AllowExternalPrincipals before
 	// mutating any state. Checking this inside the mutation loop below would
 	// leave an orphaned resource share (and any associations/invitations

@@ -5,13 +5,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
 )
 
 type createPermissionVersionRequest struct {
 	PermissionArn  string `json:"permissionArn"`
 	PolicyTemplate string `json:"policyTemplate"`
+	ClientToken    string `json:"clientToken"`
 }
 
 // createPermissionVersionResponse.Permission is a ResourceSharePermissionDetail, not a
@@ -37,12 +41,35 @@ func (h *Handler) handleCreatePermissionVersion(_ context.Context, body []byte) 
 		return nil, fmt.Errorf("%w: policyTemplate is required", errInvalidRequest)
 	}
 
-	p, err := h.Backend.CreatePermissionVersion(req.PermissionArn, req.PolicyTemplate)
+	token := req.ClientToken
+	req.ClientToken = ""
+
+	var version int32
+
+	p, err := idempotency.Create(
+		h.idem, opCreatePermissionVersion, token, idempotency.Fingerprint(req),
+		func(p *Permission) string { return p.ARN + "|" + strconv.Itoa(int(version)) },
+		func(id string) (*Permission, error) {
+			parsed, _ := strconv.ParseInt(id[strings.LastIndex(id, "|")+1:], 10, 32)
+			version = int32(parsed)
+			p, _, getErr := h.Backend.GetPermission(req.PermissionArn, &version)
+
+			return p, getErr
+		},
+		func() (*Permission, error) {
+			p, createErr := h.Backend.CreatePermissionVersion(req.PermissionArn, req.PolicyTemplate)
+			if createErr == nil {
+				version = p.LatestVersion
+			}
+
+			return p, createErr
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	pv := p.Versions[p.LatestVersion]
+	pv := p.Versions[version]
 
 	return json.Marshal(
 		createPermissionVersionResponse{Permission: toPermissionDetailObject(p, pv)},

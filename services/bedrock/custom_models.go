@@ -23,6 +23,14 @@ func (b *InMemoryBackend) newCustomModelID() string {
 // (bedrock@v1.66.4 api_op_CreateCustomModel.go: "The model appears in
 // ListCustomModels with a customizationType of imported").
 func (b *InMemoryBackend) CreateCustomModel(modelName string, tags []Tag) (*CustomModel, error) {
+	return b.CreateCustomModelWithKey(modelName, "", tags)
+}
+
+// CreateCustomModelWithKey is CreateCustomModel with the model's KMS key (ModelKmsKeyArn).
+func (b *InMemoryBackend) CreateCustomModelWithKey(
+	modelName, modelKmsKeyArn string,
+	tags []Tag,
+) (*CustomModel, error) {
 	b.mu.Lock("CreateCustomModel")
 	defer b.mu.Unlock()
 
@@ -42,6 +50,7 @@ func (b *InMemoryBackend) CreateCustomModel(modelName string, tags []Tag) (*Cust
 		ModelName:         modelName,
 		ModelStatus:       statusActive,
 		CustomizationType: customizationTypeImported,
+		ModelKmsKeyArn:    modelKmsKeyArn,
 		CreationTime:      time.Now().UTC(),
 		Tags:              copyTags(tags),
 	}

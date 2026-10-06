@@ -111,6 +111,7 @@ func (b *InMemoryBackend) CreateInstances(req CreateInstancesRequest) ([]Operati
 			IPAddressType:    ipType,
 			SSHKeyName:       req.KeyPairName,
 			Username:         defaultUsernameForBlueprint(bp),
+			MetadataOptions:  InstanceMetadataOptions{HTTPTokens: httpTokensOptional},
 			StateCode:        InstanceStateCodePending,
 			StateName:        InstanceStateNamePending,
 			CreatedAt:        nowUTC(),
@@ -174,6 +175,11 @@ func (b *InMemoryBackend) CreateInstancesFromSnapshot(req CreateInstancesFromSna
 		az = availabilityZoneA(b.region)
 	}
 
+	ipType := req.IPAddressType
+	if ipType == "" {
+		ipType = ipAddressTypeDualStack
+	}
+
 	for _, name := range req.InstanceNames {
 		inst := &Instance{
 			Name:             name,
@@ -187,8 +193,9 @@ func (b *InMemoryBackend) CreateInstancesFromSnapshot(req CreateInstancesFromSna
 			MonthlyTransfer:  bd.TransferPerMonthInGb,
 			PrivateIPAddress: privateIPForName(name),
 			PublicIPAddress:  publicIPForName(name, 0),
-			IPAddressType:    req.IPAddressType,
+			IPAddressType:    ipType,
 			SSHKeyName:       req.KeyPairName,
+			MetadataOptions:  InstanceMetadataOptions{HTTPTokens: httpTokensOptional},
 			StateCode:        InstanceStateCodePending,
 			StateName:        InstanceStateNamePending,
 			CreatedAt:        nowUTC(),

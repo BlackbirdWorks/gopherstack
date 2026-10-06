@@ -171,6 +171,13 @@ func (b *InMemoryBackend) PutBearerTokenAuthentication(
 func (b *InMemoryBackend) DescribeLogGroups(
 	ctx context.Context, prefix, nextToken, logGroupClass string, limit int,
 ) ([]LogGroup, string, error) {
+	return b.DescribeLogGroupsFiltered(ctx, prefix, nextToken, logGroupClass, limit, nil)
+}
+
+// DescribeLogGroupsFiltered is DescribeLogGroups plus a keep predicate applied before pagination.
+func (b *InMemoryBackend) DescribeLogGroupsFiltered(
+	ctx context.Context, prefix, nextToken, logGroupClass string, limit int, keep func(LogGroup) bool,
+) ([]LogGroup, string, error) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.RLock("DescribeLogGroups")
@@ -188,6 +195,10 @@ func (b *InMemoryBackend) DescribeLogGroups(
 		}
 
 		if logGroupClass != "" && g.LogGroupClass != logGroupClass {
+			continue
+		}
+
+		if keep != nil && !keep(*g) {
 			continue
 		}
 

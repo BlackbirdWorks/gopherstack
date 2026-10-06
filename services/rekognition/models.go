@@ -2,6 +2,7 @@ package rekognition
 
 import (
 	"maps"
+	"slices"
 	"time"
 )
 
@@ -224,23 +225,25 @@ func (u *storedUser) toUser() *User {
 
 // storedLivenessSession holds a face liveness session.
 type storedLivenessSession struct {
-	SessionID  string  `json:"sessionId"`
-	Status     string  `json:"status"`
-	Confidence float32 `json:"confidence"`
+	SessionID          string  `json:"sessionId"`
+	Status             string  `json:"status"`
+	ClientRequestToken string  `json:"clientRequestToken,omitempty"`
+	Confidence         float32 `json:"confidence"`
 }
 
 // storedAsyncJob holds an async video analysis job.
 type storedAsyncJob struct {
-	JobID          string   `json:"jobId"`
-	JobType        string   `json:"jobType"`
-	CollectionID   string   `json:"collectionId"`
-	JobStatus      string   `json:"jobStatus"`
-	JobTag         string   `json:"jobTag,omitempty"`
-	VideoS3Bucket  string   `json:"videoS3Bucket,omitempty"`
-	VideoS3Name    string   `json:"videoS3Name,omitempty"`
-	VideoS3Version string   `json:"videoS3Version,omitempty"`
-	SegmentTypes   []string `json:"segmentTypes,omitempty"`
-	PollCount      int      `json:"pollCount"`
+	JobID              string   `json:"jobId"`
+	JobType            string   `json:"jobType"`
+	CollectionID       string   `json:"collectionId"`
+	JobStatus          string   `json:"jobStatus"`
+	JobTag             string   `json:"jobTag,omitempty"`
+	ClientRequestToken string   `json:"clientRequestToken,omitempty"`
+	VideoS3Bucket      string   `json:"videoS3Bucket,omitempty"`
+	VideoS3Name        string   `json:"videoS3Name,omitempty"`
+	VideoS3Version     string   `json:"videoS3Version,omitempty"`
+	SegmentTypes       []string `json:"segmentTypes,omitempty"`
+	PollCount          int      `json:"pollCount"`
 }
 
 // storedMediaAnalysisJob holds a media analysis job.
@@ -256,7 +259,32 @@ type storedMediaAnalysisJob struct {
 	OutputConfigS3Bucket                 string    `json:"outputConfigS3Bucket,omitempty"`
 	OutputConfigS3KeyPrefix              string    `json:"outputConfigS3KeyPrefix,omitempty"`
 	DetectModerationLabelsProjectVersion string    `json:"detectModerationLabelsProjectVersion,omitempty"`
+	ClientRequestToken                   string    `json:"clientRequestToken,omitempty"`
+	KmsKeyID                             string    `json:"kmsKeyId,omitempty"`
 	HasDetectModerationLabels            bool      `json:"hasDetectModerationLabels,omitempty"`
+}
+
+func (j *storedAsyncJob) sameStartParams(p StartAsyncJobParams) bool {
+	return j.CollectionID == p.CollectionID && j.JobTag == p.JobTag &&
+		j.VideoS3Bucket == p.VideoS3Bucket && j.VideoS3Name == p.VideoS3Name &&
+		j.VideoS3Version == p.VideoS3Version && slices.Equal(j.SegmentTypes, p.SegmentTypes)
+}
+
+func (j *storedMediaAnalysisJob) sameStartParams(p StartMediaAnalysisJobParams) bool {
+	return j.InputS3Bucket == p.InputS3Bucket && j.InputS3Name == p.InputS3Name &&
+		j.InputS3Version == p.InputS3Version && j.OutputConfigS3Bucket == p.OutputConfigS3Bucket &&
+		j.OutputConfigS3KeyPrefix == p.OutputConfigS3KeyPrefix && j.KmsKeyID == p.KmsKeyID &&
+		j.HasDetectModerationLabels == p.HasDetectModerationLabels &&
+		j.DetectModerationLabelsProjectVersion == p.DetectModerationLabelsProjectVersion &&
+		ptrEqual(j.DetectModerationLabelsMinConfidence, p.DetectModerationLabelsMinConfidence)
+}
+
+func ptrEqual(a, b *float32) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+
+	return *a == *b
 }
 
 func (j *storedMediaAnalysisJob) toMediaAnalysisJob() *MediaAnalysisJob {
@@ -272,6 +300,7 @@ func (j *storedMediaAnalysisJob) toMediaAnalysisJob() *MediaAnalysisJob {
 		OutputConfigS3KeyPrefix:              j.OutputConfigS3KeyPrefix,
 		DetectModerationLabelsProjectVersion: j.DetectModerationLabelsProjectVersion,
 		DetectModerationLabelsMinConfidence:  j.DetectModerationLabelsMinConfidence,
+		KmsKeyID:                             j.KmsKeyID,
 		HasDetectModerationLabels:            j.HasDetectModerationLabels,
 	}
 }

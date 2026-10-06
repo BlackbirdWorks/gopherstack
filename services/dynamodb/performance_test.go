@@ -17,6 +17,10 @@ import (
 func TestBatchDeletePerformance(t *testing.T) {
 	t.Parallel()
 
+	if testing.Short() {
+		t.Skip("skipping wall-clock performance test in short mode")
+	}
+
 	tests := []struct {
 		name          string
 		numItems      int

@@ -95,7 +95,8 @@ func (b *InMemoryBackend) GetFindingsFilter(id string) (*FindingsFilterDetail, e
 
 // UpdateFindingsFilter updates an existing findings filter.
 func (b *InMemoryBackend) UpdateFindingsFilter(
-	id, name, description, action string,
+	id, name, action string,
+	description *string,
 	position *int32,
 	criteria map[string]any,
 ) (*FindingsFilterSummary, error) {
@@ -111,7 +112,9 @@ func (b *InMemoryBackend) UpdateFindingsFilter(
 		ff.Name = name
 	}
 
-	ff.Description = description
+	if description != nil {
+		ff.Description = *description
+	}
 
 	if action != "" {
 		ff.Action = action

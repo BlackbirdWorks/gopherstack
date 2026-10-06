@@ -229,3 +229,7 @@ service, and adding one was out of this pass's directed scope (services/
 cloudfrontkeyvaluestore/ and services/resiliencehub/ only). Recorded
 honestly as the sole remaining items_still_open entry rather than
 upgrading the grade without closing the actual reason for it.
+
+## 2026-10-05 (gopherstack-uox6 pass 12, value semantics)
+
+Data-plane PutKey/DeleteKey/UpdateKeys now advance the store's LastModified, which DescribeKeyValueStore documents as when the key value pairs last changed (api_op_DescribeKeyValueStore.go:75-76). The change lives in `services/cloudfront/key_value_store.go` (shared backend) and also moves the control-plane LastModifiedTime; interpretation, the SDK names only the data-plane field. Proof: `TestKeyValueStore_DataPlaneWritesAdvanceLastModified`.

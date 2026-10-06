@@ -72,7 +72,10 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, original.UpdateNumberOfDomainControllers(ctx, dirID, 2))
 
 	// trusts
-	trustID, err := original.CreateTrust(ctx, dirID, "trusted.example.com", "TrustPW1!", "Two-Way", "Forest", "")
+	trustID, err := original.CreateTrust(ctx, directoryservice.CreateTrustInput{
+		DirectoryID: dirID, RemoteDomainName: "trusted.example.com", TrustPassword: "TrustPW1!",
+		TrustDirection: "Two-Way", TrustType: "Forest",
+	})
 	require.NoError(t, err)
 
 	// sharedDirectories
@@ -124,7 +127,10 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 
 	// updateInfoEntries (raw map)
-	require.NoError(t, original.UpdateDirectorySetup(ctx, dirID, "OS", false))
+	require.NoError(
+		t,
+		original.UpdateDirectorySetup(ctx, dirID, directoryservice.DirectorySetupUpdate{UpdateType: "OS"}),
+	)
 
 	// hybridADUpdates: real CreateHybridAD needs an existing successful
 	// assessment to reference (assessmentID, from StartADAssessment above);
@@ -292,7 +298,7 @@ func assertSettingsStateRestored(t *testing.T, b *directoryservice.InMemoryBacke
 	require.Len(t, settings, 1)
 	assert.Equal(t, "TLS_1_0", settings[0].Name)
 
-	updates, _, err := b.DescribeUpdateDirectory(ctx, dirID, "", "")
+	updates, _, err := b.DescribeUpdateDirectory(ctx, dirID, "", "", "")
 	require.NoError(t, err)
 	require.Len(t, updates, 1)
 	assert.Equal(t, "OS", updates[0].UpdateType)

@@ -114,6 +114,10 @@ func applyBranchOptionsCreate(branch *Branch, opts BranchOptions) {
 // Split out of applyBranchOptionsUpdate to keep both functions under the
 // cyclomatic complexity budget.
 func applyBranchOptionsUpdateStrings(branch *Branch, opts BranchOptions) {
+	if opts.Description != nil {
+		branch.Description = *opts.Description
+	}
+
 	if opts.EnvironmentVariables != nil {
 		branch.EnvironmentVariables = opts.EnvironmentVariables
 	}
@@ -276,7 +280,7 @@ func (b *InMemoryBackend) DeleteBranch(appID, branchName string) (*Branch, error
 // BranchOptions); a nil/omitted opts leaves every field it covers unchanged.
 func (b *InMemoryBackend) UpdateBranch(
 	appID, branchName, description, stage string,
-	enableAutoBuild bool,
+	enableAutoBuild *bool,
 	opts ...BranchOptions,
 ) (*Branch, error) {
 	if !isValidStage(stage) && stage != "" {
@@ -299,7 +303,9 @@ func (b *InMemoryBackend) UpdateBranch(
 		branch.Stage = Stage(stage)
 	}
 
-	branch.EnableAutoBuild = enableAutoBuild
+	if enableAutoBuild != nil {
+		branch.EnableAutoBuild = *enableAutoBuild
+	}
 
 	applyBranchOptionsUpdate(branch, firstBranchOptions(opts))
 

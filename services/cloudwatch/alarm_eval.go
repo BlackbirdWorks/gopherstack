@@ -40,7 +40,12 @@ func (b *InMemoryBackend) EvaluateAlarms(ctx context.Context, now time.Time) {
 	}()
 
 	for _, snap := range snaps {
-		newState := b.evaluateMetricAlarmState(snap.alarm, alarmEvaluationTime(snap.alarm, now))
+		warming := snap.alarm.warmingUp(now)
+		if warming && snap.alarm.WarmUp.OnlyAfterEnd {
+			continue
+		}
+
+		newState := b.evaluateMetricAlarmState(snap.alarm, alarmEvaluationTime(snap.alarm, now), warming)
 		if newState == snap.alarm.StateValue {
 			continue
 		}
@@ -131,7 +136,7 @@ func (b *InMemoryBackend) fetchSingleMetricBuckets(
 // breaching periods applying TreatMissingData logic, and returns the resulting state.
 // When alarm.Metrics is set the alarm is a multi-metric / metric-math alarm and
 // GetMetricData is used instead of GetMetricStatistics.
-func (b *InMemoryBackend) evaluateMetricAlarmState(alarm MetricAlarm, now time.Time) string {
+func (b *InMemoryBackend) evaluateMetricAlarmState(alarm MetricAlarm, now time.Time, warming bool) string {
 	evalPeriods := int(alarm.EvaluationPeriods)
 
 	treatMissing := alarm.TreatMissingData
@@ -166,6 +171,11 @@ func (b *InMemoryBackend) evaluateMetricAlarmState(alarm MetricAlarm, now time.T
 		alarm.Threshold,
 		alarm.ComparisonOperator,
 	)
+
+	// Warm-up ends early only once the evaluation window is full of real data.
+	if warming && realDataCount < evalPeriods {
+		return alarm.StateValue
+	}
 
 	// TreatMissingData=ignore: missing datapoints are disregarded and the alarm
 	// is evaluated only against the datapoints that are present. When there is no
@@ -409,4 +419,13 @@ func breachesThreshold(value, lowerBound, upperBound float64, op string) bool {
 	default:
 		return false
 	}
+}
+
+// warmingUp reports whether a warm-up period set on the alarm is still running at now.
+func (a MetricAlarm) warmingUp(now time.Time) bool {
+	if a.WarmUp == nil || a.WarmUp.PeriodMinutes <= 0 {
+		return false
+	}
+
+	return now.Before(a.AlarmConfigurationUpdatedTimestamp.Add(time.Duration(a.WarmUp.PeriodMinutes) * time.Minute))
 }

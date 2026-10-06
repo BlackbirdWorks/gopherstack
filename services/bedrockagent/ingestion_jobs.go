@@ -16,13 +16,20 @@ func jobKey(kbID, dsID, jobID string) string { return kbID + "/" + dsID + "/" + 
 
 // StartIngestionJob creates and starts a new ingestion job.
 func (b *InMemoryBackend) StartIngestionJob(
-	_ context.Context, kbID, dsID, description string,
+	_ context.Context, kbID, dsID, description, clientToken string,
 ) (*IngestionJob, error) {
 	b.mu.Lock("StartIngestionJob")
 	defer b.mu.Unlock()
 
 	if !b.dataSources.Has(dsKey(kbID, dsID)) {
 		return nil, fmt.Errorf("%w: data source %q not found", ErrNotFound, dsID)
+	}
+
+	if prior := findByClientToken(b.ingestionJobs, clientToken,
+		func(j *IngestionJob) string { return j.ClientToken },
+		func(j *IngestionJob) bool { return j.KnowledgeBaseID == kbID && j.DataSourceID == dsID },
+	); prior != nil {
+		return jobCopy(prior), nil
 	}
 
 	id := b.nextID("job", &b.jobCounter)
@@ -34,6 +41,7 @@ func (b *InMemoryBackend) StartIngestionJob(
 		DataSourceID:    dsID,
 		Status:          ingestionJobComplete,
 		Description:     description,
+		ClientToken:     clientToken,
 		StartedAt:       now,
 		UpdatedAt:       now,
 		Statistics:      b.ingestionStatisticsLocked(kbID, dsID),

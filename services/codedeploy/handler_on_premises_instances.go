@@ -155,6 +155,7 @@ func (h *Handler) handleGetOnPremisesInstance(
 
 type listOnPremisesInstancesInput struct {
 	RegistrationStatus string           `json:"registrationStatus"`
+	NextToken          string           `json:"nextToken"`
 	TagFilters         []tagFilterEntry `json:"tagFilters"`
 }
 
@@ -166,6 +167,10 @@ func (h *Handler) handleListOnPremisesInstances(
 	_ context.Context,
 	in *listOnPremisesInstancesInput,
 ) (*listOnPremisesInstancesOutput, error) {
+	if err := rejectNextToken(in.NextToken); err != nil {
+		return nil, err
+	}
+
 	filters := make([]TagFilter, 0, len(in.TagFilters))
 	for _, f := range in.TagFilters {
 		filters = append(filters, TagFilter(f))

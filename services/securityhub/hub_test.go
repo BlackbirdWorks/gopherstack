@@ -468,7 +468,7 @@ func TestSecurityHubV2FeatureDescribeRace(t *testing.T) {
 				continue
 			}
 
-			for range hub.Features { //nolint:revive // exercising the map read deliberately.
+			for range hub.Features {
 			}
 		}
 	}()

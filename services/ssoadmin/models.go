@@ -124,6 +124,8 @@ type Instance struct {
 	CreatedDate           time.Time         `json:"CreatedDate"`
 	Tags                  map[string]string `json:"Tags"`
 	PermissionSetsEnabled *bool             `json:"PermissionSetsEnabled,omitempty"`
+	EncryptionKeyType     string            `json:"EncryptionKeyType,omitempty"`
+	EncryptionKmsKeyArn   string            `json:"EncryptionKmsKeyArn,omitempty"`
 	IdentityStoreID       string            `json:"IdentityStoreId"`
 	InstanceArn           string            `json:"InstanceArn"`
 	Name                  string            `json:"Name"`

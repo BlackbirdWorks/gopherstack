@@ -140,6 +140,8 @@ func (b *InMemoryBackend) ListDeliverabilityTestReports(
 		items = append(items, &cp)
 	}
 
+	sort.Slice(items, func(i, j int) bool { return items[i].ReportID < items[j].ReportID })
+
 	return page.New(items, nextToken, pageSize, sesv2DefaultMaxItems)
 }
 
@@ -388,6 +390,7 @@ func (b *InMemoryBackend) GetDomainStatisticsReport(domain, startDate, endDate s
 // same as GetDomainDeliverabilityCampaign.
 func (b *InMemoryBackend) ListDomainDeliverabilityCampaigns(
 	startDate, endDate, domain, nextToken string,
+	pageSize int,
 ) ([]map[string]any, string, error) {
 	start, hasStart := parseSESv2Timestamp(startDate)
 	end, hasEnd := parseSESv2Timestamp(endDate)
@@ -410,7 +413,7 @@ func (b *InMemoryBackend) ListDomainDeliverabilityCampaigns(
 		all = append(all, domainDeliverabilityCampaignResponse(&c))
 	}
 
-	return paginateMaps(all, nextToken, 0, "CampaignId")
+	return paginateMaps(all, nextToken, pageSize, "CampaignId")
 }
 
 // EmailAddressInsightsConfidenceVerdict values (types.EmailAddressInsightsConfidenceVerdict).

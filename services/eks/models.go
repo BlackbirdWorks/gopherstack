@@ -149,7 +149,7 @@ func (a activationExpiry) MarshalJSON() ([]byte, error) {
 }
 
 func (a *activationExpiry) UnmarshalJSON(data []byte) error {
-	if string(data) == "null" {
+	if string(data) == jsonNull {
 		return nil
 	}
 
@@ -189,29 +189,31 @@ type ConnectorConfig struct {
 // The Tags field is backend-owned. Callers must treat the returned pointer as
 // read-only; mutate tags only via TagResource / CreateCluster.
 type Cluster struct {
-	CreatedAt                time.Time                `json:"createdAt"`
-	Tags                     *tags.Tags               `json:"tags,omitempty"`
-	VpcConfig                *VpcConfig               `json:"resourcesVpcConfig,omitempty"`
-	KubernetesNetworkConfig  *KubernetesNetworkConfig `json:"kubernetesNetworkConfig,omitempty"`
-	AccessConfig             *AccessConfig            `json:"accessConfig,omitempty"`
-	ComputeConfig            *ComputeConfig           `json:"computeConfig,omitempty"`
-	StorageConfig            *StorageConfig           `json:"storageConfig,omitempty"`
-	ConnectorConfig          *ConnectorConfig         `json:"connectorConfig,omitempty"`
-	ARN                      string                   `json:"arn"`
-	Name                     string                   `json:"name"`
-	Endpoint                 string                   `json:"endpoint,omitempty"`
-	OIDCIssuer               string                   `json:"oidcIssuer,omitempty"`
-	Version                  string                   `json:"version"`
-	Status                   string                   `json:"status"`
-	RoleARN                  string                   `json:"roleArn,omitempty"`
-	AccountID                string                   `json:"accountId"`
-	Region                   string                   `json:"region"`
-	PlatformVersion          string                   `json:"platformVersion,omitempty"`
-	CertificateAuthority     string                   `json:"certificateAuthority,omitempty"`
-	UpgradePolicySupportType string                   `json:"upgradePolicySupportType,omitempty"`
-	ClusterLogging           []ClusterLogEntry        `json:"clusterLogging,omitempty"`
-	EncryptionConfig         []EncryptionConfig       `json:"encryptionConfig,omitempty"`
-	DeletionProtection       bool                     `json:"deletionProtection,omitempty"`
+	CreatedAt               time.Time                `json:"createdAt"`
+	Tags                    *tags.Tags               `json:"tags,omitempty"`
+	VpcConfig               *VpcConfig               `json:"resourcesVpcConfig,omitempty"`
+	KubernetesNetworkConfig *KubernetesNetworkConfig `json:"kubernetesNetworkConfig,omitempty"`
+	AccessConfig            *AccessConfig            `json:"accessConfig,omitempty"`
+	ComputeConfig           *ComputeConfig           `json:"computeConfig,omitempty"`
+	StorageConfig           *StorageConfig           `json:"storageConfig,omitempty"`
+	ConnectorConfig         *ConnectorConfig         `json:"connectorConfig,omitempty"`
+	// ConfigBlocks holds the opaque create/update config members keyed by wire name.
+	ConfigBlocks             map[string]json.RawMessage `json:"configBlocks,omitempty"`
+	ARN                      string                     `json:"arn"`
+	Name                     string                     `json:"name"`
+	Endpoint                 string                     `json:"endpoint,omitempty"`
+	OIDCIssuer               string                     `json:"oidcIssuer,omitempty"`
+	Version                  string                     `json:"version"`
+	Status                   string                     `json:"status"`
+	RoleARN                  string                     `json:"roleArn,omitempty"`
+	AccountID                string                     `json:"accountId"`
+	Region                   string                     `json:"region"`
+	PlatformVersion          string                     `json:"platformVersion,omitempty"`
+	CertificateAuthority     string                     `json:"certificateAuthority,omitempty"`
+	UpgradePolicySupportType string                     `json:"upgradePolicySupportType,omitempty"`
+	ClusterLogging           []ClusterLogEntry          `json:"clusterLogging,omitempty"`
+	EncryptionConfig         []EncryptionConfig         `json:"encryptionConfig,omitempty"`
+	DeletionProtection       bool                       `json:"deletionProtection,omitempty"`
 }
 
 // NodegroupTaint represents a Kubernetes taint applied to managed nodes.
@@ -369,6 +371,7 @@ type AddonHealth struct {
 // Addon represents an EKS managed add-on.
 type Addon struct {
 	CreatedAt               time.Time    `json:"createdAt"`
+	ModifiedAt              time.Time    `json:"modifiedAt,omitzero"`
 	Health                  *AddonHealth `json:"health,omitempty"`
 	Tags                    *tags.Tags   `json:"tags,omitempty"`
 	ARN                     string       `json:"addonArn"`
@@ -553,6 +556,7 @@ type PodIdentityAssociation struct {
 	OwnerARN           string     `json:"ownerArn,omitempty"`
 	ExternalID         string     `json:"externalId,omitempty"`
 	Policy             string     `json:"policy,omitempty"`
+	TargetRoleARN      string     `json:"targetRoleArn,omitempty"`
 	DisableSessionTags bool       `json:"disableSessionTags"`
 }
 

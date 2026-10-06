@@ -63,6 +63,7 @@ type createTransitGatewayVpcAttachmentResponse struct {
 type describeTransitGatewayVpcAttachmentsResponse struct {
 	XMLName       xml.Name `xml:"DescribeTransitGatewayVpcAttachmentsResponse"`
 	RequestID     string   `xml:"requestId"`
+	NextToken     string   `xml:"nextToken,omitempty"`
 	AttachmentSet struct {
 		Items []tgwVpcAttachmentItem `xml:"item"`
 	} `xml:"transitGatewayVpcAttachments"`
@@ -100,6 +101,7 @@ type createFlowLogsResponse struct {
 type describeFlowLogsResponse struct {
 	XMLName    xml.Name `xml:"DescribeFlowLogsResponse"`
 	RequestID  string   `xml:"requestId"`
+	NextToken  string   `xml:"nextToken,omitempty"`
 	FlowLogSet struct {
 		Items []flowLogItem `xml:"item"`
 	} `xml:"flowLogSet"`
@@ -137,6 +139,7 @@ type createDhcpOptionsResponse struct {
 type describeDhcpOptionsResponse struct {
 	XMLName       xml.Name `xml:"DescribeDhcpOptionsResponse"`
 	RequestID     string   `xml:"requestId"`
+	NextToken     string   `xml:"nextToken,omitempty"`
 	DhcpOptionSet struct {
 		Items []dhcpOptionsItem `xml:"item"`
 	} `xml:"dhcpOptionsSet"`
@@ -298,7 +301,7 @@ func (h *Handler) handleDescribeTransitGatewayVpcAttachments(
 		)
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 func (h *Handler) handleDeleteTransitGatewayVpcAttachment(
@@ -387,7 +390,7 @@ func (h *Handler) handleDescribeFlowLogs(vals url.Values, reqID string) (any, er
 		)
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 func (h *Handler) handleDeleteFlowLogs(vals url.Values, reqID string) (any, error) {
@@ -466,7 +469,7 @@ func (h *Handler) handleDescribeDhcpOptions(vals url.Values, reqID string) (any,
 		)
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 func (h *Handler) handleAssociateDhcpOptions(vals url.Values, reqID string) (any, error) {

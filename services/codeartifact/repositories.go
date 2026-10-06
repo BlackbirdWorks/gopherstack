@@ -226,7 +226,7 @@ func (b *InMemoryBackend) AssociateExternalConnection(
 	externalConnections[key] = append(externalConnections[key], ExternalConnection{
 		ExternalConnectionName: connectionName,
 		PackageFormat:          externalConnectionFormat(connectionName),
-		Status:                 "AVAILABLE",
+		Status:                 externalConnectionStatusAvailable,
 	})
 	cp := *r
 
@@ -424,3 +424,5 @@ func (b *InMemoryBackend) GetExternalConnections(
 
 	return result
 }
+
+const externalConnectionStatusAvailable = "Available"

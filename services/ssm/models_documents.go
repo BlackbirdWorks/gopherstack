@@ -23,8 +23,10 @@ type AttachmentInformation struct {
 
 // DocumentRequires describes a document dependency.
 type DocumentRequires struct {
-	Name    string `json:"Name"`
-	Version string `json:"Version,omitempty"`
+	Name        string `json:"Name"`
+	Version     string `json:"Version,omitempty"`
+	RequireType string `json:"RequireType,omitempty"`
+	VersionName string `json:"VersionName,omitempty"`
 }
 
 // Document represents an SSM document.
@@ -74,10 +76,12 @@ type DocumentDescription struct {
 	HashType               string                  `json:"HashType,omitempty"`
 	Sha1                   string                  `json:"Sha1,omitempty"`
 	VersionName            string                  `json:"VersionName,omitempty"`
+	Owner                  string                  `json:"Owner,omitempty"`
 	AttachmentsInformation []AttachmentInformation `json:"AttachmentsInformation,omitempty"`
 	Requires               []DocumentRequires      `json:"Requires,omitempty"`
 	Tags                   []Tag                   `json:"Tags,omitempty"`
 	PlatformTypes          []string                `json:"PlatformTypes,omitempty"`
+	Parameters             []DocumentParameter     `json:"Parameters,omitempty"`
 	CreatedDate            float64                 `json:"CreatedDate"`
 }
 
@@ -103,6 +107,7 @@ type DocumentIdentifier struct {
 	DocumentVersion string             `json:"DocumentVersion"`
 	SchemaVersion   string             `json:"SchemaVersion"`
 	TargetType      string             `json:"TargetType,omitempty"`
+	Owner           string             `json:"Owner,omitempty"`
 	PlatformTypes   []string           `json:"PlatformTypes,omitempty"`
 	Requires        []DocumentRequires `json:"Requires,omitempty"`
 	Tags            []Tag              `json:"Tags,omitempty"`
@@ -173,10 +178,10 @@ type DescribeDocumentOutput struct {
 
 // ListDocumentsInput is the request payload for ListDocuments.
 type ListDocumentsInput struct {
-	MaxResults      *int64           `json:"MaxResults,omitempty"`
-	NextToken       string           `json:"NextToken,omitempty"`
-	Filters         []DocumentFilter `json:"Filters,omitempty"`
-	DocumentFilters []DocumentFilter `json:"DocumentFilters,omitempty"`
+	MaxResults         *int64                   `json:"MaxResults,omitempty"`
+	NextToken          string                   `json:"NextToken,omitempty"`
+	Filters            []DocumentFilter         `json:"Filters,omitempty"`
+	DocumentFilterList []DocumentFilterListItem `json:"DocumentFilterList,omitempty"`
 }
 
 // ListDocumentsOutput is the response payload for ListDocuments.

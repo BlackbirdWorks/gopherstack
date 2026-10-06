@@ -6,12 +6,12 @@ import { getMockPage, setMockPageUrl, resetMockPage, fakeRegionEffect } from "./
 
 // $app/state and $app/navigation are already wired globally (vitest.setup.ts)
 // to this same mock-page module, with a REAL reactive `page.url` (see
-// mock-page.svelte.ts for why that matters). Only $app/environment needs a
+// mock-page.svelte.ts for why that matters). Only $app/env needs a
 // local override here, to flip `browser` for the SSR-safety test below —
 // this vi.mock is hoisted above the `urlState` import by Vitest, same as
 // every other mock in this file.
 let browserFlag = true;
-vi.mock("$app/environment", () => ({
+vi.mock("$app/env", () => ({
   get browser() {
     return browserFlag;
   },
@@ -51,7 +51,7 @@ describe("urlState", () => {
     expect(tab.get()).toBe("objects");
   });
 
-  it("writes the new value into the URL via goto({ replaceState: true }), not standalone replaceState", async () => {
+  it("writes the new value into the URL via goto({ replace: true }), not standalone replaceState", async () => {
     const tab = urlState<"objects" | "properties">("tab", "objects");
     tab.set("properties");
     await flushGoto();
@@ -68,7 +68,7 @@ describe("urlState", () => {
     // focus), and that standalone `replaceState` was never touched.
     expect(vi.mocked(goto)).toHaveBeenCalledWith(
       expect.any(URL),
-      expect.objectContaining({ replaceState: true, noScroll: true, keepFocus: true }),
+      expect.objectContaining({ replace: true, reset: false }),
     );
     expect(vi.mocked(replaceState)).not.toHaveBeenCalled();
   });

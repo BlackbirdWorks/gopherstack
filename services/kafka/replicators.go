@@ -153,6 +153,7 @@ func (b *InMemoryBackend) UpdateReplicationInfo(
 	replicatorArn, currentVersion, sourceKafkaClusterArn, targetKafkaClusterArn string,
 	topicReplication *TopicReplicationConfig,
 	consumerGroupReplication *ConsumerGroupReplicationConfig,
+	logDelivery *LogDelivery,
 ) (*Replicator, error) {
 	b.mu.Lock("UpdateReplicationInfo")
 	defer b.mu.Unlock()
@@ -192,6 +193,10 @@ func (b *InMemoryBackend) UpdateReplicationInfo(
 
 	if consumerGroupReplication != nil {
 		r.ReplicationInfoList[idx].ConsumerGroupReplication = *consumerGroupReplication
+	}
+
+	if logDelivery != nil {
+		r.LogDelivery = cloneLogDelivery(logDelivery)
 	}
 
 	r.CurrentVersion = nextVersionToken()

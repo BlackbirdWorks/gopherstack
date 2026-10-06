@@ -31,6 +31,16 @@ func (b *InMemoryBackend) CreateServiceNetwork(
 	name, authType string,
 	tags map[string]string,
 ) (*ServiceNetwork, error) {
+	return b.CreateServiceNetworkWithSharing(ctx, name, authType, tags, nil)
+}
+
+// CreateServiceNetworkWithSharing creates a service network with an optional sharing configuration.
+func (b *InMemoryBackend) CreateServiceNetworkWithSharing(
+	ctx context.Context,
+	name, authType string,
+	tags map[string]string,
+	sharing *SharingConfig,
+) (*ServiceNetwork, error) {
 	if name == "" {
 		return nil, ErrInvalidParameter
 	}
@@ -60,6 +70,7 @@ func (b *InMemoryBackend) CreateServiceNetwork(
 		CreatedAt:     now,
 		LastUpdatedAt: now,
 		Region:        region,
+		SharingConfig: sharing,
 	}
 
 	b.serviceNetworks.Put(sn)

@@ -22,16 +22,61 @@ type redshiftIdcAppXML struct {
 	IdcDisplayName     string `xml:"IdcDisplayName,omitempty"`
 	IamRoleArn         string `xml:"IamRoleArn,omitempty"`
 	ApplicationType    string `xml:"ApplicationType,omitempty"`
+	IdentityNamespace  string `xml:"IdentityNamespace,omitempty"`
+
+	AuthorizedTokenIssuerList []xmlAuthorizedTokenIssuer `xml:"AuthorizedTokenIssuerList>member,omitempty"`
+	SsoTagKeys                []string                   `xml:"SsoTagKeys>TagKey,omitempty"`
+}
+
+type xmlAuthorizedTokenIssuer struct {
+	TrustedTokenIssuerArn   string   `xml:"TrustedTokenIssuerArn"`
+	AuthorizedAudiencesList []string `xml:"AuthorizedAudiencesList>member,omitempty"`
+}
+
+func parseAuthorizedTokenIssuers(vals url.Values) []AuthorizedTokenIssuer {
+	var out []AuthorizedTokenIssuer
+
+	for i := 1; i <= maxListItems; i++ {
+		prefix := fmt.Sprintf("AuthorizedTokenIssuerList.member.%d.", i)
+
+		issuer := vals.Get(prefix + "TrustedTokenIssuerArn")
+		if issuer == "" {
+			return out
+		}
+
+		out = append(out, AuthorizedTokenIssuer{
+			TrustedTokenIssuerArn:   issuer,
+			AuthorizedAudiencesList: parseStringList(vals, prefix+"AuthorizedAudiencesList.member."),
+		})
+	}
+
+	return out
+}
+
+func parseIdcApplicationExtras(vals url.Values) IdcApplicationExtras {
+	return IdcApplicationExtras{
+		IdentityNamespace:         vals.Get("IdentityNamespace"),
+		AuthorizedTokenIssuerList: parseAuthorizedTokenIssuers(vals),
+		SsoTagKeys:                parseStringList(vals, "SsoTagKeys.TagKey."),
+	}
 }
 
 func idcAppToXML(app *IdcApplication) redshiftIdcAppXML {
+	issuers := make([]xmlAuthorizedTokenIssuer, 0, len(app.AuthorizedTokenIssuerList))
+	for _, i := range app.AuthorizedTokenIssuerList {
+		issuers = append(issuers, xmlAuthorizedTokenIssuer(i))
+	}
+
 	return redshiftIdcAppXML{
-		IdcApplicationArn:  app.IdcApplicationArn,
-		IdcApplicationName: app.IdcApplicationName,
-		IdcInstanceArn:     app.IdcInstanceArn,
-		IdcDisplayName:     app.IdcDisplayName,
-		IamRoleArn:         app.IamRoleArn,
-		ApplicationType:    app.ApplicationType,
+		IdentityNamespace:         app.IdentityNamespace,
+		AuthorizedTokenIssuerList: issuers,
+		SsoTagKeys:                app.SsoTagKeys,
+		IdcApplicationArn:         app.IdcApplicationArn,
+		IdcApplicationName:        app.IdcApplicationName,
+		IdcInstanceArn:            app.IdcInstanceArn,
+		IdcDisplayName:            app.IdcDisplayName,
+		IamRoleArn:                app.IamRoleArn,
+		ApplicationType:           app.ApplicationType,
 	}
 }
 
@@ -57,6 +102,7 @@ func (h *Handler) handleCreateIdcApplication(vals url.Values) (any, error) {
 		vals.Get("IdcDisplayName"),
 		vals.Get("IamRoleArn"),
 		vals.Get("ApplicationType"),
+		parseIdcApplicationExtras(vals),
 	)
 	if err != nil {
 		return nil, err
@@ -132,6 +178,7 @@ func (h *Handler) handleModifyIdcApplication(vals url.Values) (any, error) {
 		vals.Get("RedshiftIdcApplicationArn"),
 		vals.Get("IdcDisplayName"),
 		vals.Get("IamRoleArn"),
+		parseIdcApplicationExtras(vals),
 	)
 	if err != nil {
 		return nil, err

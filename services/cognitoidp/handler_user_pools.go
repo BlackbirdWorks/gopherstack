@@ -2,6 +2,7 @@ package cognitoidp
 
 import (
 	"context"
+	"maps"
 	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -91,6 +92,22 @@ func defaultPasswordPolicyData() *passwordPolicyData {
 	}
 }
 
+func (in poolSettingsInput) toSettings() PoolSettings {
+	return PoolSettings{
+		AdminCreateUserConfig:       maps.Clone(in.AdminCreateUserConfig),
+		DeviceConfiguration:         maps.Clone(in.DeviceConfiguration),
+		SmsConfiguration:            maps.Clone(in.SmsConfiguration),
+		UserAttributeUpdateSettings: maps.Clone(in.UserAttributeUpdateSettings),
+		UserPoolAddOns:              maps.Clone(in.UserPoolAddOns),
+		VerificationMessageTemplate: maps.Clone(in.VerificationMessageTemplate),
+		UserPoolTier:                in.UserPoolTier,
+		EmailVerificationMessage:    in.EmailVerificationMessage,
+		EmailVerificationSubject:    in.EmailVerificationSubject,
+		SmsVerificationMessage:      in.SmsVerificationMessage,
+		SmsAuthenticationMessage:    in.SmsAuthenticationMessage,
+	}
+}
+
 func poolToAccurateData(pool *UserPool) userPoolDataAccurate {
 	lastModified := pool.CreatedAt
 	if !pool.UpdatedAt.IsZero() {
@@ -103,18 +120,36 @@ func poolToAccurateData(pool *UserPool) userPoolDataAccurate {
 	}
 
 	data := userPoolDataAccurate{
-		ID:                     pool.ID,
-		Name:                   pool.Name,
-		ARN:                    pool.ARN,
-		CreationDate:           float64(pool.CreatedAt.Unix()),
-		LastModifiedDate:       float64(lastModified.Unix()),
-		DeletionProtection:     deletionProtection,
-		MfaConfiguration:       mfaConfigOrDefault(pool.MfaConfiguration),
-		SchemaAttributes:       sortedCustomAttributes(pool.CustomAttributes),
-		AutoVerifiedAttributes: pool.AutoVerifiedAttributes,
-		LambdaConfig:           pool.LambdaConfig,
-		EmailConfiguration:     pool.EmailConfiguration,
-		AccountRecoverySetting: pool.AccountRecoverySetting,
+		ID:                          pool.ID,
+		Name:                        pool.Name,
+		ARN:                         pool.ARN,
+		CreationDate:                float64(pool.CreatedAt.Unix()),
+		LastModifiedDate:            float64(lastModified.Unix()),
+		DeletionProtection:          deletionProtection,
+		MfaConfiguration:            mfaConfigOrDefault(pool.MfaConfiguration),
+		SchemaAttributes:            sortedCustomAttributes(pool.CustomAttributes),
+		AutoVerifiedAttributes:      pool.AutoVerifiedAttributes,
+		LambdaConfig:                pool.LambdaConfig,
+		EmailConfiguration:          pool.EmailConfiguration,
+		AccountRecoverySetting:      pool.AccountRecoverySetting,
+		UsernameConfiguration:       pool.Settings.UsernameConfiguration,
+		UsernameAttributes:          pool.Settings.UsernameAttributes,
+		AliasAttributes:             pool.Settings.AliasAttributes,
+		AdminCreateUserConfig:       pool.Settings.AdminCreateUserConfig,
+		DeviceConfiguration:         pool.Settings.DeviceConfiguration,
+		SmsConfiguration:            pool.Settings.SmsConfiguration,
+		UserAttributeUpdateSettings: pool.Settings.UserAttributeUpdateSettings,
+		UserPoolAddOns:              pool.Settings.UserPoolAddOns,
+		VerificationMessageTemplate: pool.Settings.VerificationMessageTemplate,
+		UserPoolTier:                pool.Settings.UserPoolTier,
+		EmailVerificationMessage:    pool.Settings.EmailVerificationMessage,
+		EmailVerificationSubject:    pool.Settings.EmailVerificationSubject,
+		SmsVerificationMessage:      pool.Settings.SmsVerificationMessage,
+		SmsAuthenticationMessage:    pool.Settings.SmsAuthenticationMessage,
+	}
+
+	if data.UserPoolTier == "" {
+		data.UserPoolTier = defaultUserPoolTier
 	}
 
 	if pool.PasswordPolicy != nil {
@@ -151,7 +186,11 @@ func (h *Handler) handleCreateUserPoolWithOpts(
 		DeletionProtection:     in.DeletionProtection,
 		MfaConfiguration:       in.MfaConfiguration,
 		Schema:                 in.Schema,
+		Settings:               in.poolSettingsInput.toSettings(),
 	}
+	opts.Settings.UsernameConfiguration = maps.Clone(in.UsernameConfiguration)
+	opts.Settings.UsernameAttributes = slices.Clone(in.UsernameAttributes)
+	opts.Settings.AliasAttributes = slices.Clone(in.AliasAttributes)
 
 	if in.Policies != nil && in.Policies.PasswordPolicy != nil {
 		pp := in.Policies.PasswordPolicy
@@ -199,6 +238,8 @@ func (h *Handler) handleUpdateUserPoolWithOpts(
 		EmailConfiguration:     in.EmailConfiguration,
 		AccountRecoverySetting: in.AccountRecoverySetting,
 		DeletionProtection:     in.DeletionProtection,
+		Settings:               in.poolSettingsInput.toSettings(),
+		PoolName:               in.PoolName,
 	}
 
 	if in.Policies != nil && in.Policies.PasswordPolicy != nil {
@@ -227,6 +268,12 @@ func (h *Handler) handleUpdateUserPoolWithOpts(
 
 	if err := h.Backend.UpdateUserPoolWithOpts(in.UserPoolID, in.MfaConfiguration, opts); err != nil {
 		return nil, err
+	}
+
+	if len(in.UserPoolTags) > 0 {
+		if pool, err := h.Backend.DescribeUserPool(in.UserPoolID); err == nil {
+			h.Backend.TagResource(pool.ARN, in.UserPoolTags)
+		}
 	}
 
 	return &updateUserPoolWithOptsOutput{}, nil
@@ -279,7 +326,10 @@ func (h *Handler) handleGetUserPoolMfaConfigFull(
 		return nil, err
 	}
 
-	out := &getUserPoolMfaConfigFullOutput{MfaConfiguration: cfg.MfaConfiguration}
+	out := &getUserPoolMfaConfigFullOutput{
+		MfaConfiguration:      cfg.MfaConfiguration,
+		WebAuthnConfiguration: maps.Clone(cfg.WebAuthnConfiguration),
+	}
 	if out.MfaConfiguration == "" {
 		out.MfaConfiguration = mfaConfigOFF
 	}
@@ -317,7 +367,8 @@ func (h *Handler) handleSetUserPoolMfaConfigFull(
 	in *setUserPoolMfaConfigFullInput,
 ) (*setUserPoolMfaConfigFullOutput, error) {
 	cfg := UserPoolMfaFullConfig{
-		MfaConfiguration: in.MfaConfiguration,
+		MfaConfiguration:      in.MfaConfiguration,
+		WebAuthnConfiguration: maps.Clone(in.WebAuthnConfiguration),
 	}
 
 	if in.SmsMfaConfiguration != nil {
@@ -355,6 +406,7 @@ func (h *Handler) handleSetUserPoolMfaConfigFull(
 	out.SmsMfaConfiguration = in.SmsMfaConfiguration
 	out.SoftwareTokenMfaConfiguration = in.SoftwareTokenMfaConfiguration
 	out.EmailMfaConfiguration = in.EmailMfaConfiguration
+	out.WebAuthnConfiguration = in.WebAuthnConfiguration
 
 	return out, nil
 }

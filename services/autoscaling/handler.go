@@ -16,6 +16,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -37,6 +38,7 @@ type Handler struct {
 	dispatchTable map[string]func(url.Values) (any, error)
 	scheduler     *ScheduledActionScheduler
 	peers         *regionpeers.Set[Handler]
+	idem          *idempotency.Memo
 	schedulerRun  worker.SingleRun
 }
 
@@ -46,7 +48,7 @@ type Handler struct {
 // BatchPutScheduledUpdateGroupAction actions actually fire at their scheduled
 // time instead of only being reflected by DescribeScheduledActions.
 func NewHandler(backend StorageBackend) *Handler {
-	h := &Handler{Backend: backend}
+	h := &Handler{Backend: backend, idem: idempotency.New("autoscaling")}
 	h.dispatchTable = h.buildDispatchTable()
 
 	if mem, ok := backend.(*InMemoryBackend); ok {

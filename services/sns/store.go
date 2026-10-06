@@ -136,9 +136,6 @@ const (
 	// defaultListSMSSandboxResults is the default page size for ListSMSSandboxPhoneNumbers.
 	defaultListSMSSandboxResults = 100
 
-	// maxListOptedOutResults is the maximum MaxResults value for ListPhoneNumbersOptedOut.
-	maxListOptedOutResults = 100
-
 	// defaultListOptedOutResults is the default page size for ListPhoneNumbersOptedOut.
 	defaultListOptedOutResults = 100
 

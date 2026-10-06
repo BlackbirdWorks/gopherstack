@@ -52,6 +52,10 @@ func (h *Handler) handleCreateChangeSet(form url.Values, c *echo.Context) error 
 			ChangeSetType:     form.Get("ChangeSetType"),
 			ResourceTypes:     parseMemberList(form, "ResourceTypes."),
 			DisableValidation: strings.EqualFold(form.Get("DisableValidation"), "true"),
+
+			NotificationARNs:      parseNotificationARNs(form),
+			RoleARN:               form.Get("RoleARN"),
+			RollbackConfiguration: parseRollbackConfiguration(form),
 		},
 	)
 	if err != nil {
@@ -180,47 +184,46 @@ func (h *Handler) handleListChangeSets(form url.Values, c *echo.Context) error {
 	})
 }
 
+type changeTargetXML struct {
+	Attribute          string `xml:"Attribute,omitempty"`
+	Name               string `xml:"Name,omitempty"`
+	RequiresRecreation string `xml:"RequiresRecreation,omitempty"`
+}
+type changeDetailXML struct {
+	Target       *changeTargetXML `xml:"Target,omitempty"`
+	Evaluation   string           `xml:"Evaluation,omitempty"`
+	ChangeSource string           `xml:"ChangeSource,omitempty"`
+}
+type changeResourceXML struct {
+	Action       string            `xml:"Action"`
+	LogicalID    string            `xml:"LogicalResourceId"`
+	PhysicalID   string            `xml:"PhysicalResourceId,omitempty"`
+	ResourceType string            `xml:"ResourceType"`
+	Replacement  string            `xml:"Replacement,omitempty"`
+	Scope        []string          `xml:"Scope>member,omitempty"`
+	Details      []changeDetailXML `xml:"Details>member,omitempty"`
+}
+type changeEntryXML struct {
+	Type           string            `xml:"Type"`
+	ResourceChange changeResourceXML `xml:"ResourceChange"`
+}
+
 // handleDescribeChangeSet returns the full DescribeChangeSet response including
 // ExecutionStatus and ChangeSetType fields.
 func (h *Handler) handleDescribeChangeSet(form url.Values, c *echo.Context) error {
-	stackName := form.Get("StackName")
-	changeSetName := form.Get("ChangeSetName")
-
-	cs, err := h.Backend.DescribeChangeSet(stackName, changeSetName)
+	cs, err := h.Backend.DescribeChangeSet(form.Get("StackName"), form.Get("ChangeSetName"))
 	if err != nil {
 		return h.xmlError(c, "ChangeSetNotFound", err.Error())
 	}
 
-	type targetXML struct {
-		Attribute          string `xml:"Attribute,omitempty"`
-		Name               string `xml:"Name,omitempty"`
-		RequiresRecreation string `xml:"RequiresRecreation,omitempty"`
-	}
-	type detailXML struct {
-		Target       *targetXML `xml:"Target,omitempty"`
-		Evaluation   string     `xml:"Evaluation,omitempty"`
-		ChangeSource string     `xml:"ChangeSource,omitempty"`
-	}
-	type resourceChangeXML struct {
-		Action       string      `xml:"Action"`
-		LogicalID    string      `xml:"LogicalResourceId"`
-		PhysicalID   string      `xml:"PhysicalResourceId,omitempty"`
-		ResourceType string      `xml:"ResourceType"`
-		Replacement  string      `xml:"Replacement,omitempty"`
-		Scope        []string    `xml:"Scope>member,omitempty"`
-		Details      []detailXML `xml:"Details>member,omitempty"`
-	}
-	type changeXML struct {
-		Type           string            `xml:"Type"`
-		ResourceChange resourceChangeXML `xml:"ResourceChange"`
-	}
-	changes := make([]changeXML, 0, len(cs.Changes))
-	for _, ch := range cs.Changes {
-		details := make([]detailXML, 0, len(ch.ResourceChange.Details))
+	changePage := pageForm(form, cs.Changes)
+	changes := make([]changeEntryXML, 0, len(changePage.Data))
+	for _, ch := range changePage.Data {
+		details := make([]changeDetailXML, 0, len(ch.ResourceChange.Details))
 		for _, d := range ch.ResourceChange.Details {
-			dx := detailXML{Evaluation: d.Evaluation, ChangeSource: d.ChangeSource}
+			dx := changeDetailXML{Evaluation: d.Evaluation, ChangeSource: d.ChangeSource}
 			if d.Target != nil {
-				dx.Target = &targetXML{
+				dx.Target = &changeTargetXML{
 					Attribute:          d.Target.Attribute,
 					Name:               d.Target.Name,
 					RequiresRecreation: d.Target.RequiresRecreation,
@@ -228,9 +231,9 @@ func (h *Handler) handleDescribeChangeSet(form url.Values, c *echo.Context) erro
 			}
 			details = append(details, dx)
 		}
-		changes = append(changes, changeXML{
+		changes = append(changes, changeEntryXML{
 			Type: ch.Type,
-			ResourceChange: resourceChangeXML{
+			ResourceChange: changeResourceXML{
 				Action:       ch.ResourceChange.Action,
 				LogicalID:    ch.ResourceChange.LogicalID,
 				PhysicalID:   ch.ResourceChange.PhysicalID,
@@ -243,19 +246,22 @@ func (h *Handler) handleDescribeChangeSet(form url.Values, c *echo.Context) erro
 	}
 
 	type descResult struct {
-		ChangeSetID     string      `xml:"ChangeSetId"`
-		ChangeSetName   string      `xml:"ChangeSetName"`
-		StackID         string      `xml:"StackId"`
-		StackName       string      `xml:"StackName"`
-		Status          string      `xml:"Status"`
-		StatusReason    string      `xml:"StatusReason,omitempty"`
-		ExecutionStatus string      `xml:"ExecutionStatus,omitempty"`
-		ChangeSetType   string      `xml:"ChangeSetType,omitempty"`
-		CreationTime    string      `xml:"CreationTime"`
-		Description     string      `xml:"Description,omitempty"`
-		Capabilities    []string    `xml:"Capabilities>member,omitempty"`
-		Tags            []Tag       `xml:"Tags>member,omitempty"`
-		Changes         []changeXML `xml:"Changes>member"`
+		NextToken             string                 `xml:"NextToken,omitempty"`
+		ChangeSetID           string                 `xml:"ChangeSetId"`
+		ChangeSetName         string                 `xml:"ChangeSetName"`
+		StackID               string                 `xml:"StackId"`
+		StackName             string                 `xml:"StackName"`
+		Status                string                 `xml:"Status"`
+		StatusReason          string                 `xml:"StatusReason,omitempty"`
+		ExecutionStatus       string                 `xml:"ExecutionStatus,omitempty"`
+		CreationTime          string                 `xml:"CreationTime"`
+		Description           string                 `xml:"Description,omitempty"`
+		Capabilities          []string               `xml:"Capabilities>member,omitempty"`
+		Tags                  []Tag                  `xml:"Tags>member,omitempty"`
+		Parameters            []Parameter            `xml:"Parameters>member,omitempty"`
+		NotificationARNs      []string               `xml:"NotificationARNs>member,omitempty"`
+		RollbackConfiguration *RollbackConfiguration `xml:"RollbackConfiguration,omitempty"`
+		Changes               []changeEntryXML       `xml:"Changes>member"`
 	}
 	type response struct {
 		XMLName   xml.Name   `xml:"DescribeChangeSetResponse"`
@@ -267,19 +273,22 @@ func (h *Handler) handleDescribeChangeSet(form url.Values, c *echo.Context) erro
 	return writeXML(c, response{
 		Xmlns: cfnNS,
 		Result: descResult{
-			ChangeSetID:     cs.ChangeSetID,
-			ChangeSetName:   cs.ChangeSetName,
-			StackID:         cs.StackID,
-			StackName:       cs.StackName,
-			Status:          cs.Status,
-			StatusReason:    cs.StatusReason,
-			ExecutionStatus: cs.ExecutionStatus,
-			ChangeSetType:   cs.ChangeSetType,
-			CreationTime:    cs.CreationTime.UTC().Format("2006-01-02T15:04:05Z"),
-			Description:     cs.Description,
-			Capabilities:    cs.Capabilities,
-			Tags:            cs.Tags,
-			Changes:         changes,
+			ChangeSetID:           cs.ChangeSetID,
+			ChangeSetName:         cs.ChangeSetName,
+			StackID:               cs.StackID,
+			StackName:             cs.StackName,
+			Status:                cs.Status,
+			StatusReason:          cs.StatusReason,
+			ExecutionStatus:       cs.ExecutionStatus,
+			CreationTime:          cs.CreationTime.UTC().Format("2006-01-02T15:04:05Z"),
+			Description:           cs.Description,
+			Capabilities:          cs.Capabilities,
+			Tags:                  cs.Tags,
+			Parameters:            cs.Parameters,
+			NotificationARNs:      cs.NotificationARNs,
+			RollbackConfiguration: cs.RollbackConfiguration,
+			Changes:               changes,
+			NextToken:             changePage.Next,
 		},
 		RequestID: uuid.New().String(),
 	})

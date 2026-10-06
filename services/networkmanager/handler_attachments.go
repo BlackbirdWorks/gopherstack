@@ -200,10 +200,17 @@ func (h *Handler) dispatchCreateVpcAttachment(
 		return nil, err
 	}
 
-	a, err := h.Backend.CreateVpcAttachment(
-		req.CoreNetworkID, req.VpcArn, req.SubnetArns, fromVpcOptionsWire(req.Options), req.RoutingPolicyLabel,
-		tags.MapFromKV(req.Tags),
-	)
+	token := req.ClientToken
+	req.ClientToken = ""
+
+	a, err := replayCreate(h, opCreateVpcAttachment, resourceAttachment, token, req, attachmentIDOf,
+		h.Backend.GetVpcAttachment,
+		func() (*Attachment, error) {
+			return h.Backend.CreateVpcAttachment(
+				req.CoreNetworkID, req.VpcArn, req.SubnetArns, fromVpcOptionsWire(req.Options), req.RoutingPolicyLabel,
+				tags.MapFromKV(req.Tags),
+			)
+		})
 	if err != nil {
 		return nil, err
 	}
@@ -264,10 +271,17 @@ func (h *Handler) dispatchCreateConnectAttachment(
 		protocol = req.Options.Protocol
 	}
 
-	a, err := h.Backend.CreateConnectAttachment(
-		req.CoreNetworkID, req.EdgeLocation, req.TransportAttachmentID, protocol, req.RoutingPolicyLabel,
-		tags.MapFromKV(req.Tags),
-	)
+	token := req.ClientToken
+	req.ClientToken = ""
+
+	a, err := replayCreate(h, opCreateConnectAttachment, resourceAttachment, token, req, attachmentIDOf,
+		h.Backend.GetConnectAttachment,
+		func() (*Attachment, error) {
+			return h.Backend.CreateConnectAttachment(
+				req.CoreNetworkID, req.EdgeLocation, req.TransportAttachmentID, protocol, req.RoutingPolicyLabel,
+				tags.MapFromKV(req.Tags),
+			)
+		})
 	if err != nil {
 		return nil, err
 	}
@@ -302,12 +316,16 @@ func (h *Handler) dispatchCreateSiteToSiteVpnAttachment(
 		return nil, err
 	}
 
-	a, err := h.Backend.CreateSiteToSiteVpnAttachment(
-		req.CoreNetworkID,
-		req.VpnConnectionArn,
-		req.RoutingPolicyLabel,
-		tags.MapFromKV(req.Tags),
-	)
+	token := req.ClientToken
+	req.ClientToken = ""
+
+	a, err := replayCreate(h, opCreateSiteToSiteVpnAttachment, resourceAttachment, token, req, attachmentIDOf,
+		h.Backend.GetSiteToSiteVpnAttachment,
+		func() (*Attachment, error) {
+			return h.Backend.CreateSiteToSiteVpnAttachment(
+				req.CoreNetworkID, req.VpnConnectionArn, req.RoutingPolicyLabel, tags.MapFromKV(req.Tags),
+			)
+		})
 	if err != nil {
 		return nil, err
 	}
@@ -342,13 +360,17 @@ func (h *Handler) dispatchCreateDirectConnectGatewayAttachment(
 		return nil, err
 	}
 
-	a, err := h.Backend.CreateDirectConnectGatewayAttachment(
-		req.CoreNetworkID,
-		req.DirectConnectGatewayArn,
-		req.EdgeLocations,
-		req.RoutingPolicyLabel,
-		tags.MapFromKV(req.Tags),
-	)
+	token := req.ClientToken
+	req.ClientToken = ""
+
+	a, err := replayCreate(h, opCreateDirectConnectGatewayAttachment, resourceAttachment, token, req, attachmentIDOf,
+		h.Backend.GetDirectConnectGatewayAttachment,
+		func() (*Attachment, error) {
+			return h.Backend.CreateDirectConnectGatewayAttachment(
+				req.CoreNetworkID, req.DirectConnectGatewayArn, req.EdgeLocations, req.RoutingPolicyLabel,
+				tags.MapFromKV(req.Tags),
+			)
+		})
 	if err != nil {
 		return nil, err
 	}
@@ -408,9 +430,16 @@ func (h *Handler) dispatchCreateTransitGatewayRouteTableAttachment(
 		return nil, err
 	}
 
-	a, err := h.Backend.CreateTransitGatewayRouteTableAttachment(
-		req.PeeringID, req.TransitGatewayRouteTableArn, req.RoutingPolicyLabel, tags.MapFromKV(req.Tags),
-	)
+	token := req.ClientToken
+	req.ClientToken = ""
+
+	a, err := replayCreate(h, opCreateTransitGatewayRouteTableAttachment, resourceAttachment, token, req,
+		attachmentIDOf, h.Backend.GetTransitGatewayRouteTableAttachment,
+		func() (*Attachment, error) {
+			return h.Backend.CreateTransitGatewayRouteTableAttachment(
+				req.PeeringID, req.TransitGatewayRouteTableArn, req.RoutingPolicyLabel, tags.MapFromKV(req.Tags),
+			)
+		})
 	if err != nil {
 		return nil, err
 	}
@@ -439,3 +468,5 @@ func (h *Handler) dispatchGetTransitGatewayRouteTableAttachment(
 		},
 	)
 }
+
+func attachmentIDOf(a *Attachment) string { return a.AttachmentID }

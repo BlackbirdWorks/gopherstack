@@ -191,9 +191,8 @@ func TestQuickSight_DataSources(t *testing.T) {
 
 // TestQuickSight_DataSourceSummaryOmitsStatus locks the same leak class as
 // FolderPath/TemplateVersions/ThemeVersions/OAuthClientApp/AnalysisSummary:
-// ListDataSources and SearchDataSources reused DescribeDataSource's
-// map-builder, so Status leaked onto types.DataSourceSummary, which has no
-// Status member (confirmed against quicksight@v1.123.1/types/types.go).
+// types.DataSourceSummary (SearchDataSources) has no Status member; ListDataSources returns the full
+// types.DataSource with Status (api_op_ListDataSources.go:48).
 // Checked on the raw response body -- the real SDK client has no field to
 // receive a leaked key into, so a decoded-struct assertion can't see this.
 func TestQuickSight_DataSourceSummaryOmitsStatus(t *testing.T) {
@@ -206,12 +205,6 @@ func TestQuickSight_DataSourceSummaryOmitsStatus(t *testing.T) {
 		body    any
 		wantKey string
 	}{
-		{
-			name:    "list",
-			method:  http.MethodGet,
-			path:    accountPath("/data-sources"),
-			wantKey: "DataSources",
-		},
 		{
 			name:   "search",
 			method: http.MethodPost,

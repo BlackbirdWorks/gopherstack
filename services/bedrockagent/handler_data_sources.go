@@ -16,6 +16,8 @@ func (h *Handler) handleCreateDS(ctx context.Context, c *echo.Context, kbID stri
 	var req struct {
 		DataSourceConfiguration map[string]any `json:"dataSourceConfiguration"`
 		VectorIngestionConfig   map[string]any `json:"vectorIngestionConfiguration"`
+		ServerSideEncryption    map[string]any `json:"serverSideEncryptionConfiguration"`
+		ClientToken             string         `json:"clientToken"`
 		Name                    string         `json:"name"`
 		Description             string         `json:"description"`
 		DataDeletionPolicy      string         `json:"dataDeletionPolicy"`
@@ -31,6 +33,9 @@ func (h *Handler) handleCreateDS(ctx context.Context, c *echo.Context, kbID stri
 		DataDeletionPolicy:      req.DataDeletionPolicy,
 		DataSourceConfiguration: req.DataSourceConfiguration,
 		VectorIngestionConfig:   req.VectorIngestionConfig,
+
+		ServerSideEncryptionConfiguration: req.ServerSideEncryption,
+		ClientToken:                       req.ClientToken,
 	})
 	if err != nil {
 		return handleErr(c, err)
@@ -54,6 +59,8 @@ func (h *Handler) handleUpdateDS(
 	var req struct {
 		DataSourceConfiguration map[string]any `json:"dataSourceConfiguration"`
 		VectorIngestionConfig   map[string]any `json:"vectorIngestionConfiguration"`
+		ServerSideEncryption    map[string]any `json:"serverSideEncryptionConfiguration"`
+		ClientToken             string         `json:"clientToken"`
 		Name                    string         `json:"name"`
 		Description             string         `json:"description"`
 		DataDeletionPolicy      string         `json:"dataDeletionPolicy"`
@@ -69,6 +76,9 @@ func (h *Handler) handleUpdateDS(
 		DataDeletionPolicy:      req.DataDeletionPolicy,
 		DataSourceConfiguration: req.DataSourceConfiguration,
 		VectorIngestionConfig:   req.VectorIngestionConfig,
+
+		ServerSideEncryptionConfiguration: req.ServerSideEncryption,
+		ClientToken:                       req.ClientToken,
 	})
 	if err != nil {
 		return handleErr(c, err)

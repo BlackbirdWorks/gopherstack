@@ -131,16 +131,19 @@ items_still_open:
   - "Privacy budgets: no query-time consumption (remainingCount always equals maxCount) and no ACCESS_BUDGET type; needs a real differential-privacy query engine and StartProtectedQuery has no differentialPrivacy parameter."
   - "Collaboration.Members stays on the wire (json:\"members\") because it is the only persisted backing store for ListMembers/DeleteMember; real clients ignore the extra key. Removing it needs a dedicated persistence DTO."
   - "ADD_PAYER_CANDIDATE/REMOVE_PAYER_CANDIDATE and GRANT_/REVOKE_CAN_RECEIVE_{MODEL,INFERENCE}_OUTPUT change types validate but have no COMMIT effect; the real server-derived Change.types mapping is undocumented."
-  - "Still unmodeled optional fields (omitted, not fabricated): ProtectedQuery/Job differentialPrivacy, AnalysisTemplate sourceMetadata/syntheticDataParameters/validations/isSyntheticData. Implemented 2026-10-01: mlMemberAbilities/mlAbilities, queryComputePayerAccountId, jobComputePayerAccountId (`TestRealClient_MLMemberAbilities`, `TestRealClient_ComputePayerAccountIDs`)."
+  - "Still unmodeled (omitted, not fabricated): ProtectedQuery/Job differentialPrivacy (needs the privacy-budget engine above); AnalysisTemplate sourceMetadata and validations (server-derived from artifacts/ML analysis, nothing here computes them). AnalysisTemplate syntheticDataParameters/schema/isSyntheticData round-trip (`TestRealClient_AnalysisTemplateSyntheticDataAndSchema`); schema is echoed only when supplied, since AWS infers referencedTables from the query text."
   - "ProtectedQuerySummary/ProtectedJobSummary.receiverConfigurations (required) is not emitted: AWS derives it from the result configuration with no documented mapping, and no stored data exists to copy."
   - "PopulateIdMappingTableInput.JobType is not echoed: the op returns only idMappingJobId and no IdMappingJob entity exists to surface it."
   - "IntermediateTable schema/childResources/tableDependencies, UpdateIntermediateTable columns, and DisallowIntermediateTable includeDescendants cascade need a SQL engine and a cross-member dependency graph."
   - "ProtectedJob/ProtectedJobSummary emit a request-only \"type\" key (invisible to typed clients); removing it needs a persistence DTO because the wire struct is also the snapshot encoding."
-deferred:
-  - "Schema creation/projection from ConfiguredTable+ConfiguredTableAssociation state (pre-existing gap noted in persistence_test.go; not touched this pass, out of scope)"
-  - "SchemaAnalysisRule's real wire shape (types.AnalysisRule, a deeper union) is not modeled precisely; unreachable in practice since schemas are never created (see Schema/SchemaAnalysisRule family note)"
+  - "Schemas are never created: AWS derives one per ConfiguredTableAssociation, but Schema.columns need each column's SQL type, which comes from the Glue table and ConfiguredTable.allowedColumns carries names only. GetSchema/ListSchemas/BatchGetSchema stay empty, and SchemaAnalysisRule (a types.AnalysisRule union) is unreachable for the same reason."
+deferred: []
 leaks: {status: clean, note: "Handler.StartWorker is a no-op (no goroutines, no timers, no channels); Reset()/Snapshot()/Restore() only touch store.Registry-managed tables and the plain tagsByArn map. No lifecycle to leak. Re-verified this pass; the createMembershipLocked refactor (shared by CreateMembership and CreateCollaboration) still runs entirely under the caller's already-held b.mu write lock with no additional goroutines."}
 ---
+
+## 2026-10-05 (gap burn-down pass 3, gopherstack-9x62)
+
+CreateAnalysisTemplate now keeps syntheticDataParameters (validated mlSyntheticDataParameters union) and schema, echoes them on Get/GetCollaborationAnalysisTemplate, and sets isSyntheticData on both summary shapes. Proof: `TestRealClient_AnalysisTemplateSyntheticDataAndSchema`.
 
 ## 2026-09-18 pass (gopherstack-dv4s over-wide-response census)
 
@@ -717,3 +720,15 @@ cleanrooms is region-isolated: collaborations, memberships and configured tables
 ## 2026-10-04 (reqfielddiff tier-1: PopulateIdMappingTable.JobType)
 
 JobType (INCREMENTAL/BATCH/DELETE_ONLY, api_op_PopulateIdMappingTable.go:58) was never read. It is now validated (unknown value is ValidationException, `TestPopulateIdMappingTable_JobType_RealClient`). The job itself runs in Entity Resolution, which this backend does not model, so the value selects no processing and the returned idMappingJobId has no readable job state.
+
+## 2026-10-05 (gopherstack-uox6 pass 8, value semantics)
+
+UpdatePrivacyBudgetTemplate merges differentialPrivacy members: an update carrying only Epsilon or only UsersNoisePerQuery no longer drops the other (types.DifferentialPrivacyTemplateUpdateParameters, both optional). accessBudget updates still replace whole (types.go: "completely replaces"). Other Update* ops already keep omitted fields. Proof: `TestPrivacyBudgetTemplate_PartialUpdateKeepsUnsetParameters`.
+
+## 2026-10-05 (input enum validation)
+
+21 request members typed as SDK enums are now checked against `Values()` and an unknown value is ValidationException: Format, CreatorMemberAbilities, Query/JobLogStatus, the analysis-rule `AnalysisRuleType` path member on configured-table, association and intermediate-table rule ops, GetSchemaAnalysisRule type and PrivacyBudgetType on create. Proof: `TestSDK_EnumInputValidation`. RECORDED: StartProtectedJob type and GetIntermediateTableAnalysisRule analysisRuleType are not validated because existing tests send `SQL` and `AGGREGATION` while the SDK lists only `PYSPARK` and `CUSTOM`. RECORDED: the list filters (PrivacyBudgetType, SchemaType, MemberStatus), StartProtectedQuery type and UpdatePrivacyBudgetTemplate PrivacyBudgetType are not read from the request.
+
+## 2026-10-05 (undeclared response members)
+
+Collaboration responses no longer emit `members` (not in awsRestjson1_deserializeDocumentCollaboration); members come from ListMembers. The snapshot tag is unchanged. Proof: `TestHandler_CollaborationOmitsMembersKey`, `TestSDK_CollaborationRoundTripWithoutMembersKey`.

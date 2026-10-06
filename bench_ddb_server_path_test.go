@@ -120,6 +120,33 @@ func ddbBenchPutBatchBody(n int) string {
 	return sb.String()
 }
 
+func ddbBenchTransactBody(n int) string {
+	var sb strings.Builder
+
+	sb.WriteString(`{"TransactItems":[`)
+
+	for i := range n {
+		if i > 0 {
+			sb.WriteByte(',')
+		}
+
+		if i%2 == 0 {
+			fmt.Fprintf(&sb, `{"Put":{"TableName":"`+ddbBenchSmall+
+				`","Item":{"pk":{"S":"tx#%d"},"sk":{"S":"s%d"},"val":{"N":"%d"}}}}`, i, i, i)
+
+			continue
+		}
+
+		fmt.Fprintf(&sb, `{"Update":{"TableName":"`+ddbBenchSmall+
+			`","Key":{"pk":{"S":"cust#1"},"sk":{"S":"order#%05d"}},"UpdateExpression":"SET val = :v",`+
+			`"ExpressionAttributeValues":{":v":{"N":"%d"}}}}`, i, i)
+	}
+
+	sb.WriteString(`]}`)
+
+	return sb.String()
+}
+
 func BenchmarkDynamoDBServerPath(b *testing.B) {
 	e, byName := benchServer(b)
 	ddbBenchSeed(b, byName)
@@ -154,6 +181,7 @@ func BenchmarkDynamoDBServerPath(b *testing.B) {
 				`"UpdateExpression":"SET val = val + :inc ADD cnt :inc","ExpressionAttributeValues":{":inc":{"N":"1"}},` +
 				`"ReturnValues":"ALL_NEW"}`},
 		{"batchwrite_25", pre + "BatchWriteItem", ddbBenchPutBatchBody(25)},
+		{"transactwrite_10", pre + "TransactWriteItems", ddbBenchTransactBody(10)},
 	}
 
 	for _, tc := range cases {

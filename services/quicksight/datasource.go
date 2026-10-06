@@ -15,9 +15,14 @@ func (b *InMemoryBackend) CreateDataSource(
 	accountID, dataSourceID, name, dsType string,
 	permissions []ResourcePermission,
 	tags map[string]string,
+	opts DataSourceOptions,
 ) (*DataSource, error) {
 	if dataSourceID == "" || name == "" {
 		return nil, ErrValidation
+	}
+
+	if err := validateDataSourceType(dsType); err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("CreateDataSource")
@@ -38,7 +43,13 @@ func (b *InMemoryBackend) CreateDataSource(
 		Type:            dsType,
 		Status:          statusCreationSuccessful,
 		Permissions:     clonePermissions(permissions),
+		Config:          cloneJSONValue(opts.Config),
 	}
+
+	if err := b.addToFoldersLocked(accountID, folderMemberTypeDataSource, dataSourceID, opts.FolderArns); err != nil {
+		return nil, err
+	}
+
 	b.dataSources.Put(ds)
 
 	if len(tags) > 0 {
@@ -60,7 +71,9 @@ func (b *InMemoryBackend) DescribeDataSource(accountID, dataSourceID string) (*D
 	return ds.toDataSource(), nil
 }
 
-func (b *InMemoryBackend) UpdateDataSource(accountID, dataSourceID, name string) (*DataSource, error) {
+func (b *InMemoryBackend) UpdateDataSource(
+	accountID, dataSourceID, name string, opts DataSourceOptions,
+) (*DataSource, error) {
 	b.mu.Lock("UpdateDataSource")
 	defer b.mu.Unlock()
 
@@ -73,6 +86,7 @@ func (b *InMemoryBackend) UpdateDataSource(accountID, dataSourceID, name string)
 	if name != "" {
 		ds.Name = name
 	}
+	ds.Config = mergeConfig(ds.Config, cloneJSONValue(opts.Config))
 	ds.LastUpdatedTime = time.Now().UTC()
 	ds.Status = statusUpdateSuccessful
 

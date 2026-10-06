@@ -84,22 +84,48 @@ type AutoMLChannel struct {
 type AutoMLJob struct {
 	CreationTime             time.Time               `json:"CreationTime"`
 	LastModifiedTime         time.Time               `json:"LastModifiedTime"`
-	EndTime                  *time.Time              `json:"EndTime,omitempty"`
+	SecurityConfig           *AutoMLSecurityConfig   `json:"SecurityConfig,omitempty"`
 	Tags                     map[string]string       `json:"Tags,omitempty"`
 	OutputDataConfig         *AutoMLOutputDataConfig `json:"OutputDataConfig,omitempty"`
 	AutoMLJobObjective       *AutoMLJobObjective     `json:"AutoMLJobObjective,omitempty"`
 	AutoMLComputeConfig      *AutoMLComputeConfig    `json:"AutoMLComputeConfig,omitempty"`
 	DataSplitConfig          *AutoMLDataSplitConfig  `json:"DataSplitConfig,omitempty"`
-	SecurityConfig           *AutoMLSecurityConfig   `json:"SecurityConfig,omitempty"`
+	EndTime                  *time.Time              `json:"EndTime,omitempty"`
 	ModelDeployConfig        *ModelDeployConfig      `json:"ModelDeployConfig,omitempty"`
-	AutoMLJobName            string                  `json:"AutoMLJobName"`
+	V1Options                *AutoMLV1Options        `json:"V1Options,omitempty"`
 	AutoMLJobArn             string                  `json:"AutoMLJobArn"`
 	AutoMLJobStatus          string                  `json:"AutoMLJobStatus"`
 	AutoMLJobSecondaryStatus string                  `json:"AutoMLJobSecondaryStatus"`
 	RoleArn                  string                  `json:"RoleArn,omitempty"`
+	AutoMLJobName            string                  `json:"AutoMLJobName"`
 	InputDataConfig          []AutoMLChannel         `json:"InputDataConfig"`
 	AutoMLJobInputDataConfig []AutoMLJobChannel      `json:"AutoMLJobInputDataConfig,omitempty"`
 	AutoMLProblemTypeConfig  json.RawMessage         `json:"AutoMLProblemTypeConfig,omitempty"`
+}
+
+// AutoMLV1Options holds the V1 CreateAutoMLJob members that only round-trip
+// through DescribeAutoMLJob; none of them drives a simulated training run.
+type AutoMLV1Options struct {
+	ProblemType                      string          `json:"ProblemType,omitempty"`
+	Mode                             string          `json:"Mode,omitempty"`
+	CandidateGenerationConfig        json.RawMessage `json:"CandidateGenerationConfig,omitempty"`
+	CompletionCriteria               json.RawMessage `json:"CompletionCriteria,omitempty"`
+	GenerateCandidateDefinitionsOnly bool            `json:"GenerateCandidateDefinitionsOnly,omitempty"`
+}
+
+// SetAutoMLJobV1Options stores the V1-only round-trip members on a created job.
+func (b *InMemoryBackend) SetAutoMLJobV1Options(ctx context.Context, name string, opts AutoMLV1Options) error {
+	b.mu.Lock("SetAutoMLJobV1Options")
+	defer b.mu.Unlock()
+
+	j, ok := b.autoMLJobsStore(getRegion(ctx, b.region)).Get(name)
+	if !ok {
+		return fmt.Errorf("%w: AutoML job %q not found", ErrAutoMLJobNotFound, name)
+	}
+
+	j.V1Options = &opts
+
+	return nil
 }
 
 func cloneAutoMLJob(j *AutoMLJob) *AutoMLJob {
@@ -127,6 +153,13 @@ func cloneAutoMLJob(j *AutoMLJob) *AutoMLJob {
 
 	if j.AutoMLJobInputDataConfig != nil {
 		cp.AutoMLJobInputDataConfig = append([]AutoMLJobChannel{}, j.AutoMLJobInputDataConfig...)
+	}
+
+	if j.V1Options != nil {
+		v1 := *j.V1Options
+		v1.CandidateGenerationConfig = append(json.RawMessage(nil), v1.CandidateGenerationConfig...)
+		v1.CompletionCriteria = append(json.RawMessage(nil), v1.CompletionCriteria...)
+		cp.V1Options = &v1
 	}
 
 	if j.AutoMLProblemTypeConfig != nil {

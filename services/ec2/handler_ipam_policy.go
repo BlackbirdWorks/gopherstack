@@ -136,6 +136,7 @@ type describeIpamPoliciesResponse struct {
 	XMLName       xml.Name `xml:"DescribeIpamPoliciesResponse"`
 	Xmlns         string   `xml:"xmlns,attr"`
 	RequestID     string   `xml:"requestId"`
+	NextToken     string   `xml:"nextToken,omitempty"`
 	IpamPolicySet struct {
 		Items []ipamPolicyItem `xml:"item"`
 	} `xml:"ipamPolicySet"`
@@ -168,6 +169,7 @@ type getIpamPolicyAllocationRulesResponse struct {
 	XMLName               xml.Name `xml:"GetIpamPolicyAllocationRulesResponse"`
 	Xmlns                 string   `xml:"xmlns,attr"`
 	RequestID             string   `xml:"requestId"`
+	NextToken             string   `xml:"nextToken,omitempty"`
 	IpamPolicyDocumentSet struct {
 		Items []ipamPolicyDocumentItem `xml:"item"`
 	} `xml:"ipamPolicyDocumentSet"`
@@ -188,6 +190,7 @@ type getIpamPolicyOrganizationTargetsResponse struct {
 	XMLName               xml.Name `xml:"GetIpamPolicyOrganizationTargetsResponse"`
 	Xmlns                 string   `xml:"xmlns,attr"`
 	RequestID             string   `xml:"requestId"`
+	NextToken             string   `xml:"nextToken,omitempty"`
 	OrganizationTargetSet struct {
 		Items []ipamPolicyOrganizationTargetItem `xml:"item"`
 	} `xml:"organizationTargetSet"`
@@ -250,7 +253,7 @@ func (h *Handler) handleDescribeIpamPolicies(vals url.Values, reqID string) (any
 		resp.IpamPolicySet.Items = append(resp.IpamPolicySet.Items, h.toIpamPolicyItem(p))
 	}
 
-	return resp, nil
+	return finishPagedFiltered(vals, resp)
 }
 
 func (h *Handler) handleEnableIpamPolicy(vals url.Values, reqID string) (any, error) {
@@ -298,7 +301,7 @@ func (h *Handler) handleGetIpamPolicyAllocationRules(vals url.Values, reqID stri
 		resp.IpamPolicyDocumentSet.Items = append(resp.IpamPolicyDocumentSet.Items, toIpamPolicyDocumentItem(d))
 	}
 
-	return resp, nil
+	return finishPagedFiltered(vals, resp)
 }
 
 func (h *Handler) handleModifyIpamPolicyAllocationRules(vals url.Values, reqID string) (any, error) {
@@ -329,7 +332,7 @@ func (h *Handler) handleGetIpamPolicyOrganizationTargets(vals url.Values, reqID 
 		)
 	}
 
-	return resp, nil
+	return finishPagedFiltered(vals, resp)
 }
 
 func (h *Handler) handleEnableIpamOrganizationAdminAccount(vals url.Values, reqID string) (any, error) {

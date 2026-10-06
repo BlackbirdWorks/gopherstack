@@ -88,8 +88,18 @@ func TestSequenceStoreHasStatusAndUpdateTime(t *testing.T) {
 	})
 	require.Equal(t, http.StatusCreated, rec.Code)
 
+	var created map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	assert.Equal(t, "ACTIVE", created["status"])
+
+	id, ok := created["id"].(string)
+	require.True(t, ok)
+
+	getRec := doRequest(t, h, http.MethodGet, "/sequencestore/"+id, nil)
+	require.Equal(t, http.StatusOK, getRec.Code)
+
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
 	assert.Equal(t, "ACTIVE", resp["status"])
 	assert.NotEmpty(t, resp["updateTime"])
 }
@@ -113,7 +123,8 @@ func TestCreateSequenceStoreETagAlgorithmAndS3AccessConfig(t *testing.T) {
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, "SHA256up", resp["eTagAlgorithm"])
+	assert.Equal(t, "SHA256up", resp["eTagAlgorithmFamily"])
+	assert.NotContains(t, resp, "eTagAlgorithm")
 
 	s3Access, ok := resp["s3Access"].(map[string]any)
 	require.True(t, ok, "s3Access missing from response: %v", resp)

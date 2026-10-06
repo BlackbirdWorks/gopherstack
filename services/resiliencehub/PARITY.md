@@ -1117,3 +1117,11 @@ An `ec2` SourceArn is resolved against the EC2 backend of the ARN's region.
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 resiliencehub is region-isolated: apps, resiliency policies and assessments live per region; each region resolves EC2 sources in its own region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/resiliencehub`. Limitation: the dashboard shows the home region only. The tagging bridge lists the request region and resolves Tag/Untag by ARN region. CloudFormation provisions it in the stack's region. Sibling workers stop on Reset, Shutdown and restore (`TestHandler_SiblingTimersStopWithSibling`). `TestHandler_MultiRegionReset` covers Reset.
+
+## 2026-10-05 (reqfielddiff tier-2 pagination)
+
+ListAppComponentCompliances now pages (name-sorted, body-bound maxResults/nextToken, `pageOf` in pagination.go). ListAlarmRecommendations, ListSopRecommendations, ListTestRecommendations, ListAppComponentRecommendations, ListAppAssessmentComplianceDrifts, ListAppAssessmentResourceDrifts, ListMetrics and ListResourceGroupingRecommendations are always-empty by design (no assessment, drift, metrics or grouping engine) and are recorded as such; they now reject a negative maxResults or a malformed nextToken with ValidationException instead of ignoring them. Proof: `TestRealClient_ListOpsPageAndRejectBadPaging`.
+
+## 2026-10-05 (gopherstack-uox6 pass 10, value semantics)
+
+UpdateApp and UpdateResiliencyPolicy distinguish an explicit empty Description/PolicyDescription (clears) from an omitted one (api_op_UpdateApp.go:47, *string members). Proof: `TestUpdateApp_DescriptionExplicitEmptyClears`.

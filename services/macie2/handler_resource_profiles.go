@@ -48,12 +48,12 @@ func (h *Handler) dispatchResourceProfileOps(op, query string, body []byte) (any
 		return nil, code, true, err
 
 	case opListResourceProfileArtifacts:
-		result, code, err := h.handleListResourceProfileArtifacts(resourceARN)
+		result, code, err := h.handleListResourceProfileArtifacts(resourceARN, query)
 
 		return result, code, true, err
 
 	case opListResourceProfileDetections:
-		result, code, err := h.handleListResourceProfileDetections(resourceARN)
+		result, code, err := h.handleListResourceProfileDetections(resourceARN, query)
 
 		return result, code, true, err
 
@@ -93,22 +93,22 @@ func (h *Handler) handleUpdateResourceProfile(resourceARN string, body []byte) (
 	return http.StatusOK, nil
 }
 
-func (h *Handler) handleListResourceProfileArtifacts(resourceARN string) (any, int, error) {
+func (h *Handler) handleListResourceProfileArtifacts(resourceARN, query string) (any, int, error) {
 	artifacts, err := h.Backend.ListResourceProfileArtifacts(resourceARN)
 	if err != nil {
 		return nil, http.StatusInternalServerError, err
 	}
 
-	return map[string]any{"artifacts": artifacts}, http.StatusOK, nil
+	return pagedQueryResponse(h.Backend, "artifacts", query, artifacts)
 }
 
-func (h *Handler) handleListResourceProfileDetections(resourceARN string) (any, int, error) {
+func (h *Handler) handleListResourceProfileDetections(resourceARN, query string) (any, int, error) {
 	detections, err := h.Backend.ListResourceProfileDetections(resourceARN)
 	if err != nil {
 		return nil, http.StatusInternalServerError, err
 	}
 
-	return map[string]any{"detections": detections}, http.StatusOK, nil
+	return pagedQueryResponse(h.Backend, "detections", query, detections)
 }
 
 func (h *Handler) handleUpdateResourceProfileDetections(resourceARN string, body []byte) (int, error) {

@@ -88,7 +88,7 @@ type dataSharingPreferenceWire struct {
 	OptIn bool `json:"OptIn"`
 }
 
-func (w *streamProcessorInputWire) toDomain() *StreamProcessorInput {
+func (w *streamProcessorInputWire) asDomain() *StreamProcessorInput {
 	if w == nil {
 		return nil
 	}
@@ -109,7 +109,7 @@ func streamProcessorInputFromDomain(v *StreamProcessorInput) *streamProcessorInp
 	return &streamProcessorInputWire{KinesisVideoStream: &kinesisVideoStreamWire{Arn: v.KinesisVideoStreamARN}}
 }
 
-func (w *streamProcessorOutputWire) toDomain() *StreamProcessorOutput {
+func (w *streamProcessorOutputWire) asDomain() *StreamProcessorOutput {
 	if w == nil {
 		return nil
 	}
@@ -144,7 +144,7 @@ func streamProcessorOutputFromDomain(v *StreamProcessorOutput) *streamProcessorO
 	return out
 }
 
-func (w *streamProcessorSettingsWire) toDomain() *StreamProcessorSettings {
+func (w *streamProcessorSettingsWire) asDomain() *StreamProcessorSettings {
 	if w == nil {
 		return nil
 	}
@@ -186,7 +186,7 @@ func streamProcessorSettingsFromDomain(v *StreamProcessorSettings) *streamProces
 	return out
 }
 
-func regionsOfInterestToDomain(w []regionOfInterestWire) []RegionOfInterest {
+func regionsOfInterestFromWire(w []regionOfInterestWire) []RegionOfInterest {
 	if w == nil {
 		return nil
 	}
@@ -240,7 +240,7 @@ func regionsOfInterestFromDomain(v []RegionOfInterest) []regionOfInterestWire {
 	return out
 }
 
-func (w *notificationChannelWire) toDomain() *StreamProcessorNotificationChannel {
+func (w *notificationChannelWire) asDomain() *StreamProcessorNotificationChannel {
 	if w == nil {
 		return nil
 	}
@@ -256,7 +256,7 @@ func notificationChannelFromDomain(v *StreamProcessorNotificationChannel) *notif
 	return &notificationChannelWire{SNSTopicArn: v.SNSTopicARN}
 }
 
-func (w *dataSharingPreferenceWire) toDomain() *StreamProcessorDataSharingPreference {
+func (w *dataSharingPreferenceWire) asDomain() *StreamProcessorDataSharingPreference {
 	if w == nil {
 		return nil
 	}
@@ -300,12 +300,12 @@ func (h *Handler) handleCreateStreamProcessor(
 	}
 
 	params := CreateStreamProcessorParams{
-		Input:                 req.Input.toDomain(),
-		Output:                req.Output.toDomain(),
-		Settings:              req.Settings.toDomain(),
-		NotificationChannel:   req.NotificationChannel.toDomain(),
-		DataSharingPreference: req.DataSharingPreference.toDomain(),
-		RegionsOfInterest:     regionsOfInterestToDomain(req.RegionsOfInterest),
+		Input:                 req.Input.asDomain(),
+		Output:                req.Output.asDomain(),
+		Settings:              req.Settings.asDomain(),
+		NotificationChannel:   req.NotificationChannel.asDomain(),
+		DataSharingPreference: req.DataSharingPreference.asDomain(),
+		RegionsOfInterest:     regionsOfInterestFromWire(req.RegionsOfInterest),
 		KmsKeyID:              req.KmsKeyID,
 	}
 
@@ -478,9 +478,9 @@ func (h *Handler) handleUpdateStreamProcessor(
 	}
 
 	params := UpdateStreamProcessorParams{
-		DataSharingPreference: req.DataSharingPreferenceForUpdate.toDomain(),
+		DataSharingPreference: req.DataSharingPreferenceForUpdate.asDomain(),
 		ParametersToDelete:    req.ParametersToDelete,
-		RegionsOfInterest:     regionsOfInterestToDomain(req.RegionsOfInterestForUpdate),
+		RegionsOfInterest:     regionsOfInterestFromWire(req.RegionsOfInterestForUpdate),
 	}
 
 	if req.SettingsForUpdate != nil && req.SettingsForUpdate.ConnectedHomeForUpdate != nil {

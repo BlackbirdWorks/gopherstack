@@ -18,6 +18,8 @@ type publishVersionInput struct {
 	// or the publish is rejected with PreconditionFailedException (optimistic
 	// concurrency) — the function config must not have changed since it was read.
 	RevisionID string `json:"RevisionId"`
+	// CodeSha256, when set, must match the function's current CodeSha256.
+	CodeSha256 string `json:"CodeSha256"`
 }
 
 // isValidAliasName reports whether s is a valid Lambda alias name
@@ -79,6 +81,13 @@ func (h *Handler) handlePublishVersion(c *echo.Context, name string) error {
 	if len(body) > 0 {
 		if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
 			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
+		}
+	}
+
+	if input.CodeSha256 != "" {
+		if fn, getErr := lambdaBk.GetFunction(name); getErr == nil && fn.CodeSha256 != input.CodeSha256 {
+			return h.writeError(c, http.StatusPreconditionFailed, "PreconditionFailedException",
+				"CodeSHA256 hash provided does not match the function's current code hash.")
 		}
 	}
 

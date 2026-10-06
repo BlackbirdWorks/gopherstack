@@ -254,6 +254,9 @@ func (b *InMemoryBackend) CreateTable(
 	tableARN := b.TableARN(tb.Name, nsStr, name)
 
 	storageClass := opts.StorageClass
+	if storageClass == "" {
+		storageClass = tb.StorageClass
+	}
 
 	now := time.Now().UTC()
 	table := &Table{

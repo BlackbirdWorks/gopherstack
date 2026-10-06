@@ -12,7 +12,12 @@ import (
 // EnableRegions makes h serve every other region through lazily built per-region siblings.
 func (h *Handler) EnableRegions() {
 	h.peers = regionpeers.New(h.DefaultRegion, func(region string) *Handler {
-		p := NewHandler(NewInMemoryBackend())
+		nb := NewInMemoryBackend()
+		if home, ok := h.Backend.(*InMemoryBackend); ok {
+			nb.SetAppConfig(home.appConfigValue())
+		}
+
+		p := NewHandler(nb)
 		p.AccountID = h.AccountID
 		p.DefaultRegion = region
 

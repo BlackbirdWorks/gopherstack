@@ -49,6 +49,10 @@ func (h *Handler) handleVpcLinksPath(c *echo.Context, method, path string) error
 				return writeErr(c, http.StatusInternalServerError, err.Error())
 			}
 
+			if pageErr := validateAPIGWPaging(c); pageErr != nil {
+				return writeErr(c, http.StatusBadRequest, pageErr.Error())
+			}
+
 			maxResults, nextToken := apigwPaginationParams(c)
 			p := page.New(links, nextToken, maxResults, apigwDefaultPageSize)
 

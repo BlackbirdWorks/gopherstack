@@ -3,6 +3,8 @@ package codebuild
 import (
 	"context"
 	"fmt"
+
+	cbtypes "github.com/aws/aws-sdk-go-v2/service/codebuild/types"
 )
 
 type startBuildInput struct {
@@ -30,6 +32,7 @@ type startBuildInput struct {
 	ImagePullCredentialsTypeOverride string                 `json:"imagePullCredentialsTypeOverride,omitempty"`
 	HostKernelOverride               string                 `json:"hostKernelOverride,omitempty"`
 	ComputeTypeOverride              string                 `json:"computeTypeOverride,omitempty"`
+	LogsConfigOverride               *LogsConfig            `json:"logsConfigOverride,omitempty"`
 	IdempotencyToken                 string                 `json:"idempotencyToken,omitempty"`
 	ProjectName                      string                 `json:"projectName"`
 	SecondaryArtifactsOverride       []ProjectArtifacts     `json:"secondaryArtifactsOverride,omitempty"`
@@ -49,6 +52,19 @@ func (h *Handler) handleStartBuild(
 	_ context.Context,
 	in *startBuildInput,
 ) (*startBuildOutput, error) {
+	if err := firstErr(
+		checkEnum("computeTypeOverride", cbtypes.ComputeType(in.ComputeTypeOverride)),
+		checkEnum("environmentTypeOverride", cbtypes.EnvironmentType(in.EnvironmentTypeOverride)),
+		checkEnum("hostKernelOverride", cbtypes.HostKernel(in.HostKernelOverride)),
+		checkEnum(
+			"imagePullCredentialsTypeOverride",
+			cbtypes.ImagePullCredentialsType(in.ImagePullCredentialsTypeOverride),
+		),
+		checkEnum("sourceTypeOverride", cbtypes.SourceType(in.SourceTypeOverride)),
+	); err != nil {
+		return nil, err
+	}
+
 	if in.ProjectName == "" {
 		return nil, fmt.Errorf("%w: projectName is required", errInvalidRequest)
 	}
@@ -85,6 +101,8 @@ func (h *Handler) handleStartBuild(
 		SecondarySourcesVersionOverride:  in.SecondarySourcesVersionOverride,
 		QueuedTimeoutInMinutesOverride:   in.QueuedTimeoutInMinutesOverride,
 		AutoRetryLimitOverride:           in.AutoRetryLimitOverride,
+		LogsConfigOverride:               in.LogsConfigOverride,
+		IdempotencyToken:                 in.IdempotencyToken,
 	})
 	if err != nil {
 		return nil, err
@@ -153,6 +171,10 @@ func (h *Handler) handleListBuildsForProject(
 	_ context.Context,
 	in *listBuildsForProjectInput,
 ) (*listBuildsForProjectOutput, error) {
+	if err := checkEnum("sortOrder", cbtypes.SortOrderType(in.SortOrder)); err != nil {
+		return nil, err
+	}
+
 	if in.ProjectName == "" {
 		return nil, fmt.Errorf("%w: projectName is required", errInvalidRequest)
 	}
@@ -245,7 +267,8 @@ func (h *Handler) handleBatchDeleteBuilds(
 }
 
 type retryBuildInput struct {
-	ID string `json:"id"`
+	ID               string `json:"id"`
+	IdempotencyToken string `json:"idempotencyToken,omitempty"`
 }
 
 type retryBuildOutput struct {
@@ -260,7 +283,7 @@ func (h *Handler) handleRetryBuild(
 		return nil, fmt.Errorf("%w: id is required", errInvalidRequest)
 	}
 
-	build, err := h.Backend.RetryBuild(in.ID)
+	build, err := h.Backend.RetryBuild(in.ID, in.IdempotencyToken)
 	if err != nil {
 		return nil, err
 	}

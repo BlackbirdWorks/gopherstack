@@ -3,6 +3,7 @@ package s3control
 import (
 	"encoding/xml"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -548,6 +549,10 @@ func (h *Handler) handleListAccessPointsForDirectoryBuckets(c *echo.Context) err
 	maxResults, _ := strconv.Atoi(q.Get("maxResults"))
 
 	aps := h.Backend.ListAccessPointsForDirectoryBuckets(accountID)
+	if dir := q.Get("directoryBucket"); dir != "" {
+		aps = slices.DeleteFunc(aps, func(ap *AccessPoint) bool { return ap.Bucket != dir })
+	}
+
 	items := make([]listAccessPointItemXML, 0, len(aps))
 	for _, ap := range aps {
 		item := listAccessPointItemXML{

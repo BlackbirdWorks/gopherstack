@@ -37,9 +37,7 @@ func (b *InMemoryBackend) CreateLocationNfs(
 		AgentArns:      agentArns,
 	}
 
-	if mountOptions != nil {
-		cfg.MountOptions = &storedMountOptions{Version: mountOptions.Version}
-	}
+	cfg.MountOptions = &storedMountOptions{Version: mountVersionOrDefault(mountOptions)}
 
 	l := &storedLocation{
 		LocationArn:  locationArn,
@@ -125,7 +123,7 @@ func (b *InMemoryBackend) UpdateLocationNfs(
 	}
 
 	if mountOptions != nil {
-		l.Nfs.MountOptions = &storedMountOptions{Version: mountOptions.Version}
+		l.Nfs.MountOptions = &storedMountOptions{Version: mountVersionOrDefault(mountOptions)}
 	}
 
 	if agentArns != nil {
@@ -133,4 +131,13 @@ func (b *InMemoryBackend) UpdateLocationNfs(
 	}
 
 	return nil
+}
+
+// mountVersionOrDefault applies the AUTOMATIC default (types.go:456,957).
+func mountVersionOrDefault(m *MountOptions) string {
+	if m == nil || m.Version == "" {
+		return "AUTOMATIC"
+	}
+
+	return m.Version
 }

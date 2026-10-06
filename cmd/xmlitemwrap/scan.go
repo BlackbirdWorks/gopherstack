@@ -348,8 +348,8 @@ func isSentinelTag(xmlVal string) bool {
 // "instanceId,omitempty" -> "instanceId".
 func xmlBaseName(xmlVal string) string {
 	namePath, _, _ := strings.Cut(xmlVal, ",")
-	if idx := strings.LastIndex(namePath, ">"); idx >= 0 {
-		return namePath[idx+1:]
+	if _, after, ok := strings.CutLast(namePath, ">"); ok {
+		return after
 	}
 
 	return namePath

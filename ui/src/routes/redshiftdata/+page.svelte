@@ -30,8 +30,8 @@
 	// real AWS "you can only cancel a running query"), it just won't ever
 	// succeed against this backend. Nothing here pretends the mock executes
 	// arbitrary SQL against real data.
-	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
-	import { getRedshiftDataClient } from '$lib/aws-client';
+	import { onRegionChange, regionalClient } from '#lib/region-effect.svelte.ts';
+	import { getRedshiftDataClient } from '#lib/aws-client.ts';
 	import {
 		ExecuteStatementCommand,
 		BatchExecuteStatementCommand,
@@ -52,17 +52,17 @@
 		type DescribeStatementCommandOutput
 	} from '@aws-sdk/client-redshift-data';
 	import { toast } from 'svelte-sonner';
-	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { createTabLoader } from '$lib/tab-loader.svelte';
-	import { formatDate } from '$lib/format';
-	import PageHeader from '$lib/components/PageHeader.svelte';
-	import Tabs from '$lib/components/Tabs.svelte';
-	import type { Tab as TabDef } from '$lib/components/Tabs.svelte';
-	import SearchInput from '$lib/components/SearchInput.svelte';
-	import DataTable from '$lib/components/DataTable.svelte';
-	import { defineColumns } from '$lib/components/data-table';
-	import LoadMore from '$lib/components/LoadMore.svelte';
-	import Modal from '$lib/components/Modal.svelte';
+	import { confirmDestructive } from '#lib/confirm-dialog.ts';
+	import { createTabLoader } from '#lib/tab-loader.svelte.ts';
+	import { formatDate } from '#lib/format.ts';
+	import PageHeader from '#lib/components/PageHeader.svelte';
+	import Tabs from '#lib/components/Tabs.svelte';
+	import type { Tab as TabDef } from '#lib/components/Tabs.svelte';
+	import SearchInput from '#lib/components/SearchInput.svelte';
+	import DataTable from '#lib/components/DataTable.svelte';
+	import { defineColumns } from '#lib/components/data-table.ts';
+	import LoadMore from '#lib/components/LoadMore.svelte';
+	import Modal from '#lib/components/Modal.svelte';
 	import { Database, Play, XCircle, Clock, Table2, Copy, Download, Layers, Users, Eye } from 'lucide-svelte';
 
 	const client = regionalClient(getRedshiftDataClient);

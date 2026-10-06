@@ -43,6 +43,13 @@ func TestEnvironmentDescription_NeverModeledFields(t *testing.T) {
 	client := newWireFixClient(t)
 	createTaggedApp(t, client, "eb-app")
 
+	_, err := client.CreateConfigurationTemplate(t.Context(), &ebsdk.CreateConfigurationTemplateInput{
+		ApplicationName:   aws.String("eb-app"),
+		TemplateName:      aws.String("eb-tmpl"),
+		SolutionStackName: aws.String("64bit Amazon Linux 2023 v4.0.0 running Python 3.11"),
+	})
+	require.NoError(t, err)
+
 	out, err := client.CreateEnvironment(t.Context(), &ebsdk.CreateEnvironmentInput{
 		ApplicationName:   aws.String("eb-app"),
 		EnvironmentName:   aws.String("eb-env"),

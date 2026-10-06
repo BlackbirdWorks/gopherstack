@@ -95,7 +95,9 @@ func TestInMemoryBackend_TagsSurviveRestore(t *testing.T) {
 			create: func(t *testing.T, b *dms.InMemoryBackend) string {
 				t.Helper()
 
-				dm, err := b.CreateDataMigration(t.Context(), "dm-1", "", "full-load", "", "", 0, false, nil)
+				dm, err := b.CreateDataMigration(t.Context(), dms.CreateDataMigrationParams{
+					Name: "dm-1", DataMigrationType: "full-load",
+				})
 				require.NoError(t, err)
 
 				return dm.DataMigrationArn
@@ -106,7 +108,9 @@ func TestInMemoryBackend_TagsSurviveRestore(t *testing.T) {
 			create: func(t *testing.T, b *dms.InMemoryBackend) string {
 				t.Helper()
 
-				dp, err := b.CreateDataProvider(t.Context(), "dp-1", "mysql", "", nil)
+				dp, err := b.CreateDataProvider(
+					t.Context(), dms.CreateDataProviderParams{Name: "dp-1", Engine: "mysql"},
+				)
 				require.NoError(t, err)
 
 				return dp.DataProviderArn
@@ -117,7 +121,7 @@ func TestInMemoryBackend_TagsSurviveRestore(t *testing.T) {
 			create: func(t *testing.T, b *dms.InMemoryBackend) string {
 				t.Helper()
 
-				ip, err := b.CreateInstanceProfile(t.Context(), "ip-1", "", "", "", "", "", false, nil)
+				ip, err := b.CreateInstanceProfile(t.Context(), "ip-1", "", "", "", "", "", false, nil, nil)
 				require.NoError(t, err)
 
 				return ip.InstanceProfileArn
@@ -130,16 +134,17 @@ func TestInMemoryBackend_TagsSurviveRestore(t *testing.T) {
 
 				ctx := t.Context()
 
-				ip, err := b.CreateInstanceProfile(ctx, "ip-mp", "", "", "", "", "", false, nil)
+				ip, err := b.CreateInstanceProfile(ctx, "ip-mp", "", "", "", "", "", false, nil, nil)
 				require.NoError(t, err)
 
-				dp, err := b.CreateDataProvider(ctx, "dp-mp", "mysql", "", nil)
+				dp, err := b.CreateDataProvider(ctx, dms.CreateDataProviderParams{Name: "dp-mp", Engine: "mysql"})
 				require.NoError(t, err)
 
-				mp, err := b.CreateMigrationProject(ctx, "mp-1", "", ip.InstanceProfileName,
-					[]dms.DataProviderDescriptorInput{{DataProviderIdentifier: dp.DataProviderName}},
-					[]dms.DataProviderDescriptorInput{{DataProviderIdentifier: dp.DataProviderName}},
-					nil)
+				mp, err := b.CreateMigrationProject(ctx, dms.CreateMigrationProjectParams{
+					Name: "mp-1", InstanceProfileIdentifier: ip.InstanceProfileName,
+					SourceDescriptors: []dms.DataProviderDescriptorInput{{DataProviderIdentifier: dp.DataProviderName}},
+					TargetDescriptors: []dms.DataProviderDescriptorInput{{DataProviderIdentifier: dp.DataProviderName}},
+				})
 				require.NoError(t, err)
 
 				return mp.MigrationProjectArn

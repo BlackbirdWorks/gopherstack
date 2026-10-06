@@ -216,11 +216,11 @@ type StorageBackend interface {
 	// Serverless collection operations
 	CreateServerlessCollection(
 		name, collectionType, description, kmsKeyArn, collectionGroupName string,
-		tags map[string]string,
+		tags map[string]string, st CollectionSettings,
 	) (*ServerlessCollection, error)
 	BatchGetServerlessCollections(ids, names []string) []*ServerlessCollection
 	DeleteServerlessCollection(id string) (*ServerlessCollection, error)
-	UpdateServerlessCollection(id, description string) (*ServerlessCollection, error)
+	UpdateServerlessCollection(id, description string, st CollectionSettings) (*ServerlessCollection, error)
 
 	// Serverless resource tagging (collections only; see serverless.go's
 	// findServerlessCollectionByARNLocked)

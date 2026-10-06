@@ -20,6 +20,8 @@ var (
 	ErrValidation = errors.New("ValidationError")
 	// ErrDataUnavailable is returned when queried data is not available for the time range.
 	ErrDataUnavailable = awserr.New("DataUnavailableException", awserr.ErrNotFound)
+	// ErrInvalidNextToken is returned for a NextPageToken that matches no page boundary.
+	ErrInvalidNextToken = awserr.New("InvalidNextTokenException", awserr.ErrInvalidParameter)
 	// ErrUnknownMonitor is returned when a referenced cost anomaly monitor ARN does not
 	// exist. Real AWS CE returns this (not the generic ResourceNotFoundException) from
 	// every anomaly-monitor op and from any op whose MonitorArnList references a monitor

@@ -170,7 +170,7 @@ func TestApplicationSettings_CloudWatchMetrics(t *testing.T) {
 
 			var resp map[string]any
 			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
-			assert.Equal(t, tc.wantFlag, resp["CloudWatchMetricsEnabled"])
+			assert.NotContains(t, resp, "CloudWatchMetricsEnabled")
 		})
 	}
 }
@@ -230,24 +230,14 @@ func TestApplicationSettings_EventTaggingCases(t *testing.T) {
 
 			var putResp map[string]any
 			require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putResp))
-			assert.Equal(
-				t,
-				tc.wantFlag,
-				putResp["EventTaggingEnabled"],
-				"PUT response should include EventTaggingEnabled",
-			)
+			assert.NotContains(t, putResp, "EventTaggingEnabled")
 
 			getRec := doPinpointRequest(t, h, http.MethodGet, "/v1/apps/"+appID+"/settings", nil)
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var getResp map[string]any
 			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
-			assert.Equal(
-				t,
-				tc.wantFlag,
-				getResp["EventTaggingEnabled"],
-				"GET response should persist EventTaggingEnabled",
-			)
+			assert.NotContains(t, getResp, "EventTaggingEnabled")
 		})
 	}
 }
@@ -475,8 +465,8 @@ func TestApplicationSettings_FullRoundTrip(t *testing.T) {
 
 			var putResp map[string]any
 			require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putResp))
-			assert.Equal(t, tc.wantCW, putResp["CloudWatchMetricsEnabled"])
-			assert.Equal(t, tc.wantET, putResp["EventTaggingEnabled"])
+			assert.NotContains(t, putResp, "CloudWatchMetricsEnabled")
+			assert.NotContains(t, putResp, "EventTaggingEnabled")
 			assert.NotNil(t, putResp["CampaignHook"])
 			assert.NotNil(t, putResp["Limits"])
 			assert.NotNil(t, putResp["QuietTime"])
@@ -487,8 +477,8 @@ func TestApplicationSettings_FullRoundTrip(t *testing.T) {
 
 			var getResp map[string]any
 			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
-			assert.Equal(t, tc.wantCW, getResp["CloudWatchMetricsEnabled"])
-			assert.Equal(t, tc.wantET, getResp["EventTaggingEnabled"])
+			assert.NotContains(t, getResp, "CloudWatchMetricsEnabled")
+			assert.NotContains(t, getResp, "EventTaggingEnabled")
 		})
 	}
 }
@@ -520,7 +510,7 @@ func TestApplicationSettings_CampaignHook(t *testing.T) {
 	gotHook := settings["CampaignHook"].(map[string]any)
 	assert.Equal(t, "arn:aws:lambda:us-east-1:123456789012:function:SegmentHook", gotHook["LambdaFunctionName"])
 	assert.Equal(t, "FILTER", gotHook["Mode"])
-	assert.Equal(t, true, settings["CloudWatchMetricsEnabled"])
+	assert.NotContains(t, settings, "CloudWatchMetricsEnabled")
 }
 
 func TestApplicationSettings_QuietTime(t *testing.T) {
@@ -632,7 +622,7 @@ func TestApplicationSettings_MultipleUpdates(t *testing.T) {
 	var settings map[string]any
 	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &settings))
 
-	assert.Equal(t, true, settings["CloudWatchMetricsEnabled"])
+	assert.NotContains(t, settings, "CloudWatchMetricsEnabled")
 
 	qt := settings["QuietTime"].(map[string]any)
 	assert.Equal(t, "23:00", qt["Start"])
@@ -660,8 +650,8 @@ func TestApplicationSettings_EventTagging(t *testing.T) {
 	var settings map[string]any
 	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &settings))
 
-	assert.Equal(t, true, settings["EventTaggingEnabled"])
-	assert.Equal(t, false, settings["CloudWatchMetricsEnabled"])
+	assert.NotContains(t, settings, "EventTaggingEnabled")
+	assert.NotContains(t, settings, "CloudWatchMetricsEnabled")
 	assert.Equal(t, appID, settings["ApplicationId"])
 	assert.NotEmpty(t, settings["LastModifiedDate"])
 }

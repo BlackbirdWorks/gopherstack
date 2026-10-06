@@ -505,6 +505,9 @@ linters:
       # isolation_test.go uses unexported types and must be in the same package.
       - path: 'elasticache/isolation_test.go'
         linters: [ testpackage, paralleltest ]
+      # router_index_test.go checks the unexported index against the unexported linear scan.
+      - path: 'pkgs/service/router_index_test.go'
+        linters: [ testpackage ]
       # routing_test.go white-box tests unexported routing helpers and the
       # injectable RNG field, so it must live in the same package.
       - path: 'route53/routing_test.go'
@@ -599,6 +602,9 @@ linters:
       # Same reasoning as opsworks/sdk_roundtrip_test.go above -- reqfielddiff
       # tier-1 campaign (gopherstack-xhu2t).
       - path: 'opsworks/sdk_roundtrip_stack_field_fixes_test.go'
+        linters: [ staticcheck ]
+      # Same reasoning: dropped-member round trips through the typed client.
+      - path: 'opsworks/dropped_members_sdk_test.go'
         linters: [ staticcheck ]
       # Same reasoning as opsworks/sdk_roundtrip_test.go above -- the
       # Docker-backed test/integration/ suite (services/opsworks/PARITY.md's

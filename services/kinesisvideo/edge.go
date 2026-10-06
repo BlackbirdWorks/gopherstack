@@ -75,6 +75,8 @@ func (b *InMemoryBackend) StartEdgeConfigurationUpdate(name, streamARN string, c
 	b.mu.Lock("StartEdgeConfigurationUpdate")
 	defer b.mu.Unlock()
 
+	b.sweepLocked(time.Now())
+
 	s, err := b.resolveStreamLocked(name, streamARN)
 	if err != nil {
 		return nil, err
@@ -111,8 +113,10 @@ func (b *InMemoryBackend) StartEdgeConfigurationUpdate(name, streamARN string, c
 
 // DescribeEdgeConfiguration returns a stream's edge agent configuration.
 func (b *InMemoryBackend) DescribeEdgeConfiguration(name, streamARN string) (*EdgeState, error) {
-	b.mu.RLock("DescribeEdgeConfiguration")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeEdgeConfiguration")
+	defer b.mu.Unlock()
+
+	b.sweepLocked(time.Now())
 
 	s, err := b.resolveStreamLocked(name, streamARN)
 	if err != nil {
@@ -130,6 +134,8 @@ func (b *InMemoryBackend) DescribeEdgeConfiguration(name, streamARN string) (*Ed
 func (b *InMemoryBackend) DeleteEdgeConfiguration(name, streamARN string) error {
 	b.mu.Lock("DeleteEdgeConfiguration")
 	defer b.mu.Unlock()
+
+	b.sweepLocked(time.Now())
 
 	s, err := b.resolveStreamLocked(name, streamARN)
 	if err != nil {
@@ -154,8 +160,10 @@ func (b *InMemoryBackend) ListEdgeAgentConfigurations(
 		return nil, "", ErrValidation
 	}
 
-	b.mu.RLock("ListEdgeAgentConfigurations")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListEdgeAgentConfigurations")
+	defer b.mu.Unlock()
+
+	b.sweepLocked(time.Now())
 
 	now := time.Now().UTC()
 	all := b.streams.All()
@@ -169,7 +177,7 @@ func (b *InMemoryBackend) ListEdgeAgentConfigurations(
 
 	sort.Slice(matched, func(i, j int) bool { return matched[i].StreamName < matched[j].StreamName })
 
-	p := page.New(matched, nextToken, maxResults, defaultListLimit)
+	p := page.New(matched, nextToken, maxResults, defaultListEdgeLimit)
 
 	return p.Data, p.Next, nil
 }

@@ -10,7 +10,7 @@ function openDialog(): HTMLElement {
 
 const mockSend = vi.fn();
 
-vi.mock("$lib/aws-client", async (importOriginal) => ({
+vi.mock("#lib/aws-client.ts", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   getBedrockRuntimeClient: () => ({ send: mockSend }),
 }));

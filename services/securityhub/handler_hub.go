@@ -99,6 +99,10 @@ func (h *Handler) handleDescribeHub(c *echo.Context) error {
 		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
 	}
 
+	if want := c.QueryParam("HubArn"); want != "" && want != hub.HubArn {
+		return typedErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", "Hub not found")
+	}
+
 	return c.JSON(http.StatusOK, map[string]any{
 		"HubArn":                  hub.HubArn,
 		"SubscribedAt":            hub.SubscribedAt,

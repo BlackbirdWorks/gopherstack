@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
+	crtypes "github.com/aws/aws-sdk-go-v2/service/cleanrooms/types"
 	"github.com/labstack/echo/v5"
 )
 
@@ -100,6 +101,13 @@ func (h *Handler) handleCreateConfiguredTableAnalysisRule(
 		AnalysisRuleType          string         `json:"analysisRuleType"`
 	}
 	_ = json.Unmarshal(body, &req)
+	if err := checkEnum(
+		"analysisRuleType",
+		crtypes.ConfiguredTableAnalysisRuleType(req.AnalysisRuleType),
+	); err != nil {
+		return nil, err
+	}
+
 	r, err := h.Backend.CreateConfiguredTableAnalysisRule(
 		req.ConfiguredTableIdentifier,
 		req.AnalysisRuleType,
@@ -121,6 +129,13 @@ func (h *Handler) handleGetConfiguredTableAnalysisRule(
 		AnalysisRuleType          string `json:"analysisRuleType"`
 	}
 	_ = json.Unmarshal(body, &req)
+	if err := checkEnum(
+		"analysisRuleType",
+		crtypes.ConfiguredTableAnalysisRuleType(req.AnalysisRuleType),
+	); err != nil {
+		return nil, err
+	}
+
 	r, err := h.Backend.GetConfiguredTableAnalysisRule(
 		req.ConfiguredTableIdentifier,
 		req.AnalysisRuleType,
@@ -142,6 +157,13 @@ func (h *Handler) handleUpdateConfiguredTableAnalysisRule(
 		AnalysisRuleType          string         `json:"analysisRuleType"`
 	}
 	_ = json.Unmarshal(body, &req)
+	if err := checkEnum(
+		"analysisRuleType",
+		crtypes.ConfiguredTableAnalysisRuleType(req.AnalysisRuleType),
+	); err != nil {
+		return nil, err
+	}
+
 	r, err := h.Backend.UpdateConfiguredTableAnalysisRule(
 		req.ConfiguredTableIdentifier,
 		req.AnalysisRuleType,
@@ -163,6 +185,12 @@ func (h *Handler) handleDeleteConfiguredTableAnalysisRule(
 		AnalysisRuleType          string `json:"analysisRuleType"`
 	}
 	_ = json.Unmarshal(body, &req)
+	if err := checkEnum(
+		"analysisRuleType",
+		crtypes.ConfiguredTableAnalysisRuleType(req.AnalysisRuleType),
+	); err != nil {
+		return nil, err
+	}
 
 	return nil, h.Backend.DeleteConfiguredTableAnalysisRule(
 		req.ConfiguredTableIdentifier,

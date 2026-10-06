@@ -102,6 +102,7 @@ func (b *InMemoryBackend) StartInstanceRefreshWithInput(input StartInstanceRefre
 		Strategy:             strategy,
 		Preferences:          prefs,
 		InstancesToUpdate:    int32(len(g.Instances)), //nolint:gosec // bounded by maxDesiredCapacity
+		DesiredConfiguration: input.DesiredConfiguration,
 	}
 
 	b.instanceRefreshes[input.AutoScalingGroupName] = append(b.instanceRefreshes[input.AutoScalingGroupName], refresh)
@@ -235,6 +236,8 @@ func (b *InMemoryBackend) resolveRefreshTransition(refreshID string) {
 		case statusSuccessful:
 			r.PercentageComplete = completedProgress
 			r.InstancesToUpdate = 0
+
+			b.applyDesiredConfiguration(action.GroupName, r.DesiredConfiguration)
 		case statusRollbackSuccessful:
 			r.PercentageComplete = 0
 			r.InstancesToUpdate = 0
@@ -279,5 +282,27 @@ func (b *InMemoryBackend) rearmPendingRefreshes() {
 
 			b.armRefreshTransition(r.InstanceRefreshID, r.AutoScalingGroupName, next)
 		}
+	}
+}
+
+// applyDesiredConfiguration moves the group onto a succeeded refresh's launch template or mixed policy.
+func (b *InMemoryBackend) applyDesiredConfiguration(groupName string, dc *DesiredConfiguration) {
+	g, ok := b.groups.Get(groupName)
+	if !ok || dc == nil {
+		return
+	}
+
+	if dc.LaunchTemplate != nil {
+		lt := *dc.LaunchTemplate
+		g.LaunchTemplate = &lt
+		g.MixedInstancesPolicy = nil
+		g.LaunchConfigurationName = ""
+	}
+
+	if dc.MixedInstancesPolicy != nil {
+		mip := *dc.MixedInstancesPolicy
+		g.MixedInstancesPolicy = &mip
+		g.LaunchTemplate = nil
+		g.LaunchConfigurationName = ""
 	}
 }

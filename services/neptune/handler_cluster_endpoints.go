@@ -4,7 +4,28 @@ import (
 	"context"
 	"encoding/xml"
 	"net/url"
+	"slices"
+	"strings"
 )
+
+// matchesClusterEndpointFilters applies the documented DescribeDBClusterEndpoints filters
+// (neptune@v1.48.4 api_op_DescribeDBClusterEndpoints.go:42-51); Values are OR-matched.
+func matchesClusterEndpointFilters(vals url.Values, ep *DBClusterEndpoint) bool {
+	fields := map[string]string{
+		"db-cluster-endpoint-type":        ep.EndpointType,
+		"db-cluster-endpoint-custom-type": ep.CustomEndpointType,
+		"db-cluster-endpoint-id":          ep.DBClusterEndpointIdentifier,
+		"db-cluster-endpoint-status":      ep.Status,
+	}
+	for name, field := range fields {
+		want := parseNeptuneFilterValues(vals, name)
+		if len(want) > 0 && !slices.ContainsFunc(want, func(v string) bool { return strings.EqualFold(v, field) }) {
+			return false
+		}
+	}
+
+	return true
+}
 
 func (h *Handler) handleCreateDBClusterEndpoint(ctx context.Context, vals url.Values) (any, error) {
 	endpointID := vals.Get("DBClusterEndpointIdentifier")
@@ -51,9 +72,15 @@ func (h *Handler) handleDescribeDBClusterEndpoints(
 	if err != nil {
 		return nil, err
 	}
+	slices.SortFunc(endpoints, func(a, b DBClusterEndpoint) int {
+		return strings.Compare(a.DBClusterEndpointIdentifier, b.DBClusterEndpointIdentifier)
+	})
 	members := make([]xmlDBClusterEndpoint, 0, len(endpoints))
 	for _, ep := range endpoints {
 		cp := ep
+		if !matchesClusterEndpointFilters(vals, &cp) {
+			continue
+		}
 		members = append(members, toXMLClusterEndpoint(&cp))
 	}
 

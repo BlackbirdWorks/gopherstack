@@ -26,7 +26,9 @@ func (h *Handler) handleListUsageTotals(c *echo.Context) error {
 	}
 
 	var req struct {
+		NextToken  string   `json:"nextToken"`
 		AccountIDs []string `json:"accountIds"`
+		MaxResults int32    `json:"maxResults"`
 	}
 
 	if len(body) > 0 {
@@ -43,7 +45,9 @@ func (h *Handler) handleListUsageTotals(c *echo.Context) error {
 		return h.mapError(c, usageErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"totals": totals})
+	page, next := pageItems(totals, mapKey(keyAccountID), req.MaxResults, req.NextToken)
+
+	return c.JSON(http.StatusOK, withPageToken(map[string]any{"totals": page}, next))
 }
 
 func (h *Handler) handleBatchGetFreeTrialInfo(c *echo.Context) error {

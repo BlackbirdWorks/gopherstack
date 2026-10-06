@@ -215,6 +215,7 @@ func TestHandler_DescribeType_Registered(t *testing.T) {
 			for _, want := range tc.wantContains {
 				assert.Contains(t, resp.Body, want)
 			}
+			assert.NotContains(t, resp.Body, "TypeVersionStatus")
 		})
 	}
 }
@@ -336,7 +337,7 @@ func TestListTypes_Visibility(t *testing.T) {
 			if tc.setup != nil {
 				tc.setup(b)
 			}
-			types, err := b.ListTypes("", "", 0, "")
+			types, err := b.ListTypes("", "", "", 0, "")
 			require.NoError(t, err)
 
 			typeMap := make(map[string]cloudformation.TypeSummary, len(types.Data))
@@ -388,7 +389,6 @@ func TestHandler_DescribeType_RegisteredVsBuiltin(t *testing.T) {
 				"DescribeTypeResponse",
 				"Acme::Network::Router",
 				"RESOURCE",
-				"COMPLETE",
 			},
 		},
 		{

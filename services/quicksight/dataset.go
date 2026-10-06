@@ -32,6 +32,7 @@ func (b *InMemoryBackend) CreateDataSet(
 	physicalTableMap map[string]PhysicalTable,
 	logicalTableMap map[string]LogicalTable,
 	security DataSetSecurity,
+	opts DataSetOptions,
 ) (*DataSet, *Ingestion, error) {
 	if dataSetID == "" || name == "" || len(physicalTableMap) == 0 {
 		return nil, nil, ErrValidation
@@ -65,7 +66,13 @@ func (b *InMemoryBackend) CreateDataSet(
 		PhysicalTableMap: clonePhysicalTableMap(physicalTableMap),
 		LogicalTableMap:  cloneLogicalTableMap(logicalTableMap),
 		Security:         cloneDataSetSecurity(security),
+		Config:           cloneJSONValue(opts.Config),
 	}
+
+	if err := b.addToFoldersLocked(accountID, folderMemberTypeDataSet, dataSetID, opts.FolderArns); err != nil {
+		return nil, nil, err
+	}
+
 	b.dataSets.Put(ds)
 
 	if len(tags) > 0 {
@@ -79,6 +86,8 @@ func (b *InMemoryBackend) CreateDataSet(
 			IngestionID:     uuid.NewString(),
 			DataSetID:       dataSetID,
 			IngestionStatus: statusCompleted,
+			RequestType:     ingestionRequestInitial,
+			RequestSource:   ingestionSourceManual,
 		}
 		ing.Arn = arn.Build(
 			"quicksight",
@@ -118,6 +127,7 @@ func (b *InMemoryBackend) UpdateDataSet(
 	physicalTableMap map[string]PhysicalTable,
 	logicalTableMap map[string]LogicalTable,
 	security DataSetSecurity,
+	opts DataSetOptions,
 ) (*DataSet, *Ingestion, error) {
 	if len(physicalTableMap) == 0 {
 		return nil, nil, ErrValidation
@@ -145,6 +155,7 @@ func (b *InMemoryBackend) UpdateDataSet(
 	ds.LogicalTableMap = cloneLogicalTableMap(logicalTableMap)
 	security.UseAs = ds.Security.UseAs
 	ds.Security = cloneDataSetSecurity(security)
+	ds.Config = cloneJSONValue(opts.Config)
 	ds.LastUpdatedTime = time.Now().UTC()
 
 	var ingestion *Ingestion
@@ -154,6 +165,8 @@ func (b *InMemoryBackend) UpdateDataSet(
 			IngestionID:     uuid.NewString(),
 			DataSetID:       dataSetID,
 			IngestionStatus: statusCompleted,
+			RequestType:     ingestionRequestEdit,
+			RequestSource:   ingestionSourceManual,
 		}
 		ing.Arn = arn.Build(
 			"quicksight",
@@ -317,7 +330,13 @@ func (b *InMemoryBackend) UpdateDataSetPermissions(
 
 // ---- Ingestions ----
 
-func (b *InMemoryBackend) CreateIngestion(accountID, dataSetID, ingestionID string) (*Ingestion, error) {
+func (b *InMemoryBackend) CreateIngestion(
+	accountID, dataSetID, ingestionID, ingestionType string,
+) (*Ingestion, error) {
+	if ingestionType != "" && ingestionType != ingestionRequestIncremental && ingestionType != ingestionRequestFull {
+		return nil, fmt.Errorf("%w: IngestionType must be INCREMENTAL_REFRESH or FULL_REFRESH", ErrValidation)
+	}
+
 	b.mu.Lock("CreateIngestion")
 	defer b.mu.Unlock()
 
@@ -341,6 +360,8 @@ func (b *InMemoryBackend) CreateIngestion(accountID, dataSetID, ingestionID stri
 		),
 		DataSetID:       dataSetID,
 		IngestionStatus: statusRunning,
+		RequestType:     firstNonEmpty(ingestionType, ingestionRequestFull),
+		RequestSource:   ingestionSourceManual,
 	}
 	b.ingestions.Put(ing)
 
@@ -442,4 +463,20 @@ func (b *InMemoryBackend) ListIngestions(
 	}
 
 	return result, next, nil
+}
+
+const (
+	ingestionRequestInitial     = "INITIAL_INGESTION"
+	ingestionRequestEdit        = "EDIT"
+	ingestionRequestIncremental = "INCREMENTAL_REFRESH"
+	ingestionRequestFull        = "FULL_REFRESH"
+	ingestionSourceManual       = "MANUAL"
+)
+
+func firstNonEmpty(v, dflt string) string {
+	if v == "" {
+		return dflt
+	}
+
+	return v
 }

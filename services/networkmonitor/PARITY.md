@@ -290,3 +290,7 @@ backend doesn't have, so it's left unset rather than fabricated.
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 networkmonitor already isolates regions internally: monitors and probes are keyed per region. Proof: `TestRegionIsolation/networkmonitor`; no sibling handlers needed.
+
+## 2026-10-05 (gopherstack-uox6 pass 12, value semantics)
+
+Clean. UpdateProbe keeps omitted Destination/DestinationPort/PacketSize/Protocol and CreatedAt (api_op_UpdateProbe.go:60-77). Recorded, unchanged: switching a probe from TCP to ICMP leaves DestinationPort set and no PacketSize default is applied; the SDK is silent on both. Proof: `TestProbe_PartialUpdateKeepsOmittedFields`.

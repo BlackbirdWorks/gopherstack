@@ -6,6 +6,9 @@ const (
 	tokenKindAuditSuppression = "auditSuppression"
 	tokenKindAuditMitigation  = "auditMitigationTask"
 	tokenKindDetectMitigation = "detectMitigationTask"
+	tokenKindPackage          = "package"
+	tokenKindPackageVersion   = "packageVersion"
+	tokenKindCertProvider     = "certificateProvider"
 )
 
 func clientTokenKey(kind, token string) string { return kind + "|" + token }
@@ -33,4 +36,36 @@ func (b *InMemoryBackend) releaseClientTokensLocked(kind, resourceKey string) {
 			delete(b.clientRequestTokens, k)
 		}
 	}
+}
+
+// CheckCreateToken reports whether token already created resourceKey (a replay); another owner is an error.
+func (b *InMemoryBackend) CheckCreateToken(kind, token, resourceKey string) (bool, error) {
+	if token == "" {
+		return false, nil
+	}
+
+	b.mu.RLock("CheckCreateToken")
+	defer b.mu.RUnlock()
+
+	owner, taken := b.clientRequestTokens[clientTokenKey(kind, token)]
+	switch {
+	case !taken:
+		return false, nil
+	case owner == resourceKey:
+		return true, nil
+	default:
+		return false, fmt.Errorf("client request token %q is already used by %q: %w", token, owner, ErrAlreadyExists)
+	}
+}
+
+// RecordCreateToken remembers that token created resourceKey; the entry dies with the resource.
+func (b *InMemoryBackend) RecordCreateToken(kind, token, resourceKey string) {
+	if token == "" {
+		return
+	}
+
+	b.mu.Lock("RecordCreateToken")
+	defer b.mu.Unlock()
+
+	b.clientRequestTokens[clientTokenKey(kind, token)] = resourceKey
 }

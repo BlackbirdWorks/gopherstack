@@ -74,11 +74,8 @@ type createBranchRequest struct {
 	EnableSkewProtection       bool                `json:"enableSkewProtection"`
 }
 
-// toBranchOptions converts the wire request into the BranchOptions the
-// backend expects. isCreate selects create-vs-update pointer/default
-// semantics for the plain (non-pointer) boolean fields -- see AppOptions's
-// doc comment for the same convention on the App side.
-func (r createBranchRequest) toBranchOptions(isCreate bool) BranchOptions {
+// toBranchOptions converts a CreateBranch body into backend options; absent members take Amplify defaults.
+func (r createBranchRequest) toBranchOptions() BranchOptions {
 	opts := BranchOptions{
 		EnvironmentVariables:       r.EnvironmentVariables,
 		DisplayName:                ptrconv.NilIfEmpty(r.DisplayName),
@@ -96,19 +93,11 @@ func (r createBranchRequest) toBranchOptions(isCreate bool) BranchOptions {
 		opts.BackendStackARN = ptrconv.NilIfEmpty(r.Backend.StackARN)
 	}
 
-	if isCreate {
-		opts.EnableBasicAuth = &r.EnableBasicAuth
-		opts.EnableNotification = &r.EnableNotification
-		opts.EnablePullRequestPreview = &r.EnablePullRequestPreview
-		opts.EnablePerformanceMode = &r.EnablePerformanceMode
-		opts.EnableSkewProtection = &r.EnableSkewProtection
-	} else {
-		opts.EnableBasicAuth = boolPtrIfTrue(r.EnableBasicAuth)
-		opts.EnableNotification = boolPtrIfTrue(r.EnableNotification)
-		opts.EnablePullRequestPreview = boolPtrIfTrue(r.EnablePullRequestPreview)
-		opts.EnablePerformanceMode = boolPtrIfTrue(r.EnablePerformanceMode)
-		opts.EnableSkewProtection = boolPtrIfTrue(r.EnableSkewProtection)
-	}
+	opts.EnableBasicAuth = &r.EnableBasicAuth
+	opts.EnableNotification = &r.EnableNotification
+	opts.EnablePullRequestPreview = &r.EnablePullRequestPreview
+	opts.EnablePerformanceMode = &r.EnablePerformanceMode
+	opts.EnableSkewProtection = &r.EnableSkewProtection
 
 	return opts
 }
@@ -137,7 +126,7 @@ func (h *Handler) createBranch(ctx context.Context, c *echo.Context, appID strin
 		input.Stage,
 		input.EnableAutoBuild,
 		input.Tags,
-		input.toBranchOptions(true),
+		input.toBranchOptions(),
 	)
 	if createErr != nil {
 		return h.handleBackendError(ctx, c, "CreateBranch", createErr)
@@ -204,9 +193,11 @@ func (h *Handler) updateBranch(ctx context.Context, c *echo.Context, appID, bran
 		return amplifyErrorJSON(c, http.StatusBadRequest, "invalid request body")
 	}
 
+	sent := sentKeys(body)
+
 	branch, updateErr := h.Backend.UpdateBranch(
-		appID, branchName, input.Description, input.Stage, input.EnableAutoBuild,
-		input.toBranchOptions(false),
+		appID, branchName, "", input.Stage, sentBool(sent, "enableAutoBuild", input.EnableAutoBuild),
+		input.toBranchUpdateOptions(sent),
 	)
 	if updateErr != nil {
 		return h.handleBackendError(ctx, c, "UpdateBranch", updateErr)

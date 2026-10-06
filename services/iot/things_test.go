@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -449,7 +450,7 @@ func TestUpdateThing_ExpectedVersionMatch(t *testing.T) {
 
 	err = b.UpdateThing(&iot.UpdateThingInput{
 		ThingName:       "ver-thing",
-		ExpectedVersion: 1,
+		ExpectedVersion: aws.Int64(1),
 		AttributePayload: &iot.AttributePayload{
 			Attributes: map[string]string{"env": "test"},
 		},
@@ -470,12 +471,12 @@ func TestUpdateThing_ExpectedVersionMismatch_ReturnsVersionConflict(t *testing.T
 
 	err = b.UpdateThing(&iot.UpdateThingInput{
 		ThingName:       "conflict-thing",
-		ExpectedVersion: 99,
+		ExpectedVersion: aws.Int64(99),
 	})
 	require.ErrorIs(t, err, iot.ErrVersionConflict)
 }
 
-func TestUpdateThing_ZeroExpectedVersion_Ignored(t *testing.T) {
+func TestUpdateThing_OmittedExpectedVersion_Ignored(t *testing.T) {
 	t.Parallel()
 
 	_, b := newR3Handler()
@@ -483,8 +484,7 @@ func TestUpdateThing_ZeroExpectedVersion_Ignored(t *testing.T) {
 	require.NoError(t, err)
 
 	err = b.UpdateThing(&iot.UpdateThingInput{
-		ThingName:       "nocheck-thing",
-		ExpectedVersion: 0,
+		ThingName: "nocheck-thing",
 	})
 	require.NoError(t, err)
 }
@@ -498,13 +498,13 @@ func TestUpdateThing_VersionConflict_AfterSuccessfulUpdate(t *testing.T) {
 
 	err = b.UpdateThing(&iot.UpdateThingInput{
 		ThingName:       "seq-ver-thing",
-		ExpectedVersion: 1,
+		ExpectedVersion: aws.Int64(1),
 	})
 	require.NoError(t, err)
 
 	err = b.UpdateThing(&iot.UpdateThingInput{
 		ThingName:       "seq-ver-thing",
-		ExpectedVersion: 1,
+		ExpectedVersion: aws.Int64(1),
 	})
 	require.ErrorIs(t, err, iot.ErrVersionConflict)
 }

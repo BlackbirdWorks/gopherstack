@@ -296,12 +296,12 @@ func (b *InMemoryBackend) buildNewCluster(region, id, releaseLabel string, param
 		PlacementGroups:             slices.Clone(params.PlacementGroupConfigs),
 		LogURI:                      params.LogURI,
 		LogEncryptionKmsKeyID:       params.LogEncryptionKmsKeyID,
-		RepoUpgradeOnBoot:           params.RepoUpgradeOnBoot,
+		RepoUpgradeOnBoot:           defaultRepoUpgradeOnBoot(params),
 		RequestedAmiVersion:         params.AmiVersion,
 		RunningAmiVersion:           params.AmiVersion,
 		ServiceRole:                 params.ServiceRole,
 		AutoScalingRole:             params.AutoScalingRole,
-		ScaleDownBehavior:           params.ScaleDownBehavior,
+		ScaleDownBehavior:           defaultScaleDownBehavior(params.ScaleDownBehavior, releaseLabel),
 		SecurityConfiguration:       params.SecurityConfiguration,
 		CustomAmiID:                 params.CustomAmiID,
 		InstanceCollectionType:      instanceCollectionType(hasFleets),
@@ -627,4 +627,32 @@ func (b *InMemoryBackend) AddClusterInternal(ctx context.Context, cluster *Clust
 	cp.region = region
 	b.clusterPut(&cp)
 	b.arnIndexStore(region)[cluster.ARN] = cluster.ID
+}
+
+// defaultRepoUpgradeOnBoot applies the RunJobFlowInput.RepoUpgradeOnBoot doc default (SECURITY with CustomAmiId).
+func defaultRepoUpgradeOnBoot(params RunJobFlowParams) string {
+	if params.RepoUpgradeOnBoot == "" && params.CustomAmiID != "" {
+		return "SECURITY"
+	}
+
+	return params.RepoUpgradeOnBoot
+}
+
+// defaultScaleDownBehavior applies the RunJobFlowInput.ScaleDownBehavior doc default per release.
+func defaultScaleDownBehavior(v, releaseLabel string) string {
+	if v != "" {
+		return v
+	}
+
+	var major, minor int
+
+	if _, err := fmt.Sscanf(releaseLabel, "emr-%d.%d", &major, &minor); err != nil {
+		return v
+	}
+
+	if major > 5 || major == 5 && minor >= 1 {
+		return "TERMINATE_AT_INSTANCE_HOUR"
+	}
+
+	return "TERMINATE_AT_TASK_COMPLETION"
 }

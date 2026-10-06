@@ -912,8 +912,8 @@ func buildHTTPAPIHeaders(r *http.Request) map[string]string {
 func extractHTTPAPILambdaARN(uri string) string {
 	const invocations = "/invocations"
 
-	if idx := strings.LastIndex(uri, invocations); idx != -1 {
-		arn := uri[:idx]
+	if before, _, ok := strings.CutLast(uri, invocations); ok {
+		arn := before
 
 		const functionsPrefix = "/functions/"
 		if fi := strings.LastIndex(arn, functionsPrefix); fi != -1 {
@@ -925,8 +925,8 @@ func extractHTTPAPILambdaARN(uri string) string {
 
 	const functionSegment = ":function:"
 
-	if fi := strings.LastIndex(uri, functionSegment); fi != -1 {
-		return uri[fi+len(functionSegment):]
+	if _, after, ok := strings.CutLast(uri, functionSegment); ok {
+		return after
 	}
 
 	// Assume it's already a function name.

@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/svelte";
 import SNSPage from "./+page.svelte";
-import { ALL_REGIONS, DEFAULT_REGION, setStoredRegion } from "$lib/region.svelte";
+import { ALL_REGIONS, DEFAULT_REGION, setStoredRegion } from "#lib/region.svelte.ts";
 
 const mockSend = vi.fn();
 
-vi.mock("$lib/aws-client", () => ({
+vi.mock("#lib/aws-client.ts", () => ({
   getSNSClient: () => ({ send: mockSend }),
 }));
 
@@ -22,6 +22,26 @@ function stubRegionsWithData(regions: string[]): void {
       json: () => Promise.resolve({ regions }),
     }),
   );
+}
+
+// Both regions' ListTopics calls fire before either's per-ARN
+// GetTopicAttributes calls (Promise.all starts every region's async
+// function synchronously up to its first await), so an ordered
+// mockResolvedValueOnce queue would be racy. Key ListTopics off call
+// count instead, which is order-independent.
+function mockTopicsPerRegion(arnsByCallOrder: string[][]): void {
+  let listCalls = 0;
+  mockSend.mockImplementation((cmd: { constructor: { name: string } }) => {
+    if (cmd.constructor.name === "ListTopicsCommand") {
+      const arns = arnsByCallOrder[listCalls] ?? [];
+      listCalls++;
+      return Promise.resolve({ Topics: arns.map((TopicArn) => ({ TopicArn })) });
+    }
+    if (cmd.constructor.name === "GetTopicAttributesCommand") {
+      return Promise.resolve({ Attributes: { SubscriptionsConfirmed: "0" } });
+    }
+    return Promise.resolve({});
+  });
 }
 
 describe("SNS Page", () => {
@@ -130,26 +150,6 @@ describe("SNS Page", () => {
       { timeout: 3000 },
     );
   });
-
-  // Both regions' ListTopics calls fire before either's per-ARN
-  // GetTopicAttributes calls (Promise.all starts every region's async
-  // function synchronously up to its first await), so an ordered
-  // mockResolvedValueOnce queue would be racy. Key ListTopics off call
-  // count instead, which is order-independent.
-  function mockTopicsPerRegion(arnsByCallOrder: string[][]): void {
-    let listCalls = 0;
-    mockSend.mockImplementation((cmd: { constructor: { name: string } }) => {
-      if (cmd.constructor.name === "ListTopicsCommand") {
-        const arns = arnsByCallOrder[listCalls] ?? [];
-        listCalls++;
-        return Promise.resolve({ Topics: arns.map((TopicArn) => ({ TopicArn })) });
-      }
-      if (cmd.constructor.name === "GetTopicAttributesCommand") {
-        return Promise.resolve({ Attributes: { SubscriptionsConfirmed: "0" } });
-      }
-      return Promise.resolve({});
-    });
-  }
 
   describe("All regions mode", () => {
     it("fans ListTopics out across every region with data and tags each row", async () => {

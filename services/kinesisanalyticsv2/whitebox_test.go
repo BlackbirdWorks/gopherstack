@@ -46,7 +46,7 @@ func TestBackend_ListApplicationSnapshots_TieBreak(t *testing.T) {
 	b.snapshots.Put(snapA)
 	b.snapshots.Put(snapB)
 
-	before, _, err := b.ListApplicationSnapshots(ctx, "tie-snap-app", "")
+	before, _, err := b.ListApplicationSnapshots(ctx, "tie-snap-app", "", 0)
 	require.NoError(t, err)
 	require.Len(t, before, 3)
 	require.Equal(t, "snap-a", before[1].SnapshotName)
@@ -57,7 +57,7 @@ func TestBackend_ListApplicationSnapshots_TieBreak(t *testing.T) {
 	// relative to each other despite neither being touched.
 	require.True(t, b.snapshots.Delete(snapshotKey(b.defaultRegion, "tie-snap-app", "snap-padding")))
 
-	after, _, err := b.ListApplicationSnapshots(ctx, "tie-snap-app", "")
+	after, _, err := b.ListApplicationSnapshots(ctx, "tie-snap-app", "", 0)
 	require.NoError(t, err)
 	require.Len(t, after, 2)
 

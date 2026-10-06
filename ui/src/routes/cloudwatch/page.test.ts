@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/svelte";
 import CloudWatchPage from "./+page.svelte";
-import { ALL_REGIONS, DEFAULT_REGION, setStoredRegion } from "$lib/region.svelte";
+import { ALL_REGIONS, DEFAULT_REGION, setStoredRegion } from "#lib/region.svelte.ts";
 
 const mockSend = vi.fn();
 
@@ -10,7 +10,7 @@ const mockSend = vi.fn();
 // (command type, region) instead of relying on call order -- this page's
 // `$effect` and `onRegionChange` both fire on mount, so load functions run
 // twice per render and a strict sequential mock queue is not reliable here.
-vi.mock("$lib/aws-client", () => ({
+vi.mock("#lib/aws-client.ts", () => ({
   getCloudWatchClient: (region?: string) => ({
     send: (cmd: unknown) => mockSend(cmd, region),
   }),
@@ -24,7 +24,7 @@ vi.mock("svelte-sonner", () => ({
 }));
 
 const confirmDestructive = vi.fn().mockResolvedValue(true);
-vi.mock("$lib/confirm-dialog", () => ({
+vi.mock("#lib/confirm-dialog.ts", () => ({
   confirmDestructive: (...args: unknown[]) => confirmDestructive(...args),
 }));
 
@@ -37,6 +37,19 @@ function stubRegionsWithData(regions: string[]): void {
       json: () => Promise.resolve({ regions }),
     }),
   );
+}
+
+// DescribeAlarms is dispatched by region (not call order): this page's
+// `$effect` and `onRegionChange` both fire loadData() on mount, so
+// DescribeAlarms fires twice per region -- a sequential mockResolvedValueOnce
+// queue can't express that reliably, but a per-region response can.
+function alarmsByRegion(byRegion: Record<string, { AlarmName: string }[]>): void {
+  mockSend.mockImplementation((cmd: { constructor: { name: string } }, region: string) => {
+    if (cmd.constructor.name === "DescribeAlarmsCommand") {
+      return Promise.resolve({ MetricAlarms: byRegion[region] ?? [] });
+    }
+    return Promise.resolve({});
+  });
 }
 
 describe("CloudWatch Page", () => {
@@ -186,19 +199,6 @@ describe("CloudWatch Page", () => {
   });
 
   describe("All regions mode", () => {
-    // DescribeAlarms is dispatched by region (not call order): this page's
-    // `$effect` and `onRegionChange` both fire loadData() on mount, so
-    // DescribeAlarms fires twice per region -- a sequential mockResolvedValueOnce
-    // queue can't express that reliably, but a per-region response can.
-    function alarmsByRegion(byRegion: Record<string, { AlarmName: string }[]>): void {
-      mockSend.mockImplementation((cmd: { constructor: { name: string } }, region: string) => {
-        if (cmd.constructor.name === "DescribeAlarmsCommand") {
-          return Promise.resolve({ MetricAlarms: byRegion[region] ?? [] });
-        }
-        return Promise.resolve({});
-      });
-    }
-
     it("fans DescribeAlarms out across every region with data and tags each row", async () => {
       setStoredRegion(ALL_REGIONS);
       stubRegionsWithData(["us-east-1", "eu-west-1"]);

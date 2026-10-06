@@ -2,6 +2,7 @@ package omics
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/labstack/echo/v5"
 )
@@ -30,6 +31,7 @@ func (h *Handler) handleCreateWorkflow(c *echo.Context) error {
 	var req struct {
 		Tags              map[string]string                 `json:"tags"`
 		ParameterTemplate map[string]workflowParameterInput `json:"parameterTemplate"`
+		ContainerRegistry map[string]any                    `json:"containerRegistryMap"`
 		StorageCapacity   *int                              `json:"storageCapacity"`
 		Name              string                            `json:"name"`
 		Description       string                            `json:"description"`
@@ -39,6 +41,9 @@ func (h *Handler) handleCreateWorkflow(c *echo.Context) error {
 		ReadmeMarkdown    string                            `json:"readmeMarkdown"`
 		ReadmePath        string                            `json:"readmePath"`
 		BucketOwnerID     string                            `json:"workflowBucketOwnerId"`
+		RequestID         string                            `json:"requestId"`
+		Accelerators      string                            `json:"accelerators"`
+		Main              string                            `json:"main"`
 		DefinitionZip     []byte                            `json:"definitionZip"`
 	}
 
@@ -46,21 +51,30 @@ func (h *Handler) handleCreateWorkflow(c *echo.Context) error {
 		return err
 	}
 
-	wf, err := h.Backend.CreateWorkflow(CreateWorkflowInput{
-		Name:              req.Name,
-		Description:       req.Description,
-		DefinitionZip:     string(req.DefinitionZip),
-		DefinitionURI:     req.DefinitionURI,
-		Engine:            req.Engine,
-		StorageType:       req.StorageType,
-		StorageCapacity:   req.StorageCapacity,
-		ParameterTemplate: toWorkflowParameterTemplate(req.ParameterTemplate),
-		Tags:              req.Tags,
+	in := CreateWorkflowInput{
+		Accelerators:         req.Accelerators,
+		Main:                 req.Main,
+		ContainerRegistryMap: req.ContainerRegistry,
+		Name:                 req.Name,
+		Description:          req.Description,
+		DefinitionZip:        string(req.DefinitionZip),
+		DefinitionURI:        req.DefinitionURI,
+		Engine:               req.Engine,
+		StorageType:          req.StorageType,
+		StorageCapacity:      req.StorageCapacity,
+		ParameterTemplate:    toWorkflowParameterTemplate(req.ParameterTemplate),
+		Tags:                 req.Tags,
 
 		ReadmeMarkdown:        req.ReadmeMarkdown,
 		ReadmePath:            req.ReadmePath,
 		WorkflowBucketOwnerID: req.BucketOwnerID,
-	})
+	}
+
+	wf, err := idemCreate(
+		h.idem, opCreateWorkflow, req.RequestID, idemFingerprint(req),
+		func(w *Workflow) string { return w.ID }, h.Backend.GetWorkflow,
+		func() (*Workflow, error) { return h.Backend.CreateWorkflow(in) },
+	)
 	if err != nil {
 		return h.mapError(c, err)
 	}
@@ -119,6 +133,7 @@ func (h *Handler) handleUpdateWorkflow(c *echo.Context, id string) error {
 		Name            string `json:"name"`
 		Description     string `json:"description"`
 		StorageType     string `json:"storageType"`
+		ReadmeMarkdown  string `json:"readmeMarkdown"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
@@ -130,6 +145,7 @@ func (h *Handler) handleUpdateWorkflow(c *echo.Context, id string) error {
 		req.Name,
 		req.Description,
 		req.StorageType,
+		req.ReadmeMarkdown,
 		req.StorageCapacity,
 	); err != nil {
 		return h.mapError(c, err)
@@ -147,6 +163,7 @@ func (h *Handler) handleCreateWorkflowVersion(c *echo.Context, workflowID string
 	var req struct {
 		Tags              map[string]string                 `json:"tags"`
 		ParameterTemplate map[string]workflowParameterInput `json:"parameterTemplate"`
+		ContainerRegistry map[string]any                    `json:"containerRegistryMap"`
 		StorageCapacity   *int                              `json:"storageCapacity"`
 		VersionName       string                            `json:"versionName"`
 		Description       string                            `json:"description"`
@@ -155,31 +172,55 @@ func (h *Handler) handleCreateWorkflowVersion(c *echo.Context, workflowID string
 		ReadmeMarkdown    string                            `json:"readmeMarkdown"`
 		ReadmePath        string                            `json:"readmePath"`
 		BucketOwnerID     string                            `json:"workflowBucketOwnerId"`
+		RequestID         string                            `json:"requestId"`
+		Accelerators      string                            `json:"accelerators"`
+		Main              string                            `json:"main"`
+		Engine            string                            `json:"engine"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
 		return err
 	}
 
-	wv, err := h.Backend.CreateWorkflowVersion(CreateWorkflowVersionInput{
-		WorkflowID:        workflowID,
-		VersionName:       req.VersionName,
-		Description:       req.Description,
-		StorageType:       req.StorageType,
-		StorageCapacity:   req.StorageCapacity,
-		ParameterTemplate: toWorkflowParameterTemplate(req.ParameterTemplate),
-		Tags:              req.Tags,
+	in := CreateWorkflowVersionInput{
+		Accelerators:         req.Accelerators,
+		Main:                 req.Main,
+		Engine:               req.Engine,
+		ContainerRegistryMap: req.ContainerRegistry,
+		WorkflowID:           workflowID,
+		VersionName:          req.VersionName,
+		Description:          req.Description,
+		StorageType:          req.StorageType,
+		StorageCapacity:      req.StorageCapacity,
+		ParameterTemplate:    toWorkflowParameterTemplate(req.ParameterTemplate),
+		Tags:                 req.Tags,
 
 		DefinitionURI:         req.DefinitionURI,
 		ReadmeMarkdown:        req.ReadmeMarkdown,
 		ReadmePath:            req.ReadmePath,
 		WorkflowBucketOwnerID: req.BucketOwnerID,
-	})
+	}
+
+	wv, err := idemCreate(
+		h.idem, opCreateWorkflowVersion, req.RequestID, idemFingerprint(req)+workflowID,
+		func(v *WorkflowVersion) string { return parentKey(v.WorkflowID, v.VersionName) },
+		func(key string) (*WorkflowVersion, error) {
+			return h.Backend.GetWorkflowVersion(workflowID, versionNameOf(key))
+		},
+		func() (*WorkflowVersion, error) { return h.Backend.CreateWorkflowVersion(in) },
+	)
 	if err != nil {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusCreated, wv)
+	return c.JSON(http.StatusCreated, map[string]any{
+		keyArn:        wv.Arn,
+		keyStatus:     wv.Status,
+		keyTags:       wv.Tags,
+		keyUUID:       wv.UUID,
+		"versionName": wv.VersionName,
+		"workflowId":  wv.WorkflowID,
+	})
 }
 
 func (h *Handler) handleDeleteWorkflowVersion(
@@ -230,6 +271,7 @@ func (h *Handler) handleUpdateWorkflowVersion(
 		StorageCapacity *int   `json:"storageCapacity"`
 		Description     string `json:"description"`
 		StorageType     string `json:"storageType"`
+		ReadmeMarkdown  string `json:"readmeMarkdown"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
@@ -237,11 +279,18 @@ func (h *Handler) handleUpdateWorkflowVersion(
 	}
 
 	err := h.Backend.UpdateWorkflowVersion(
-		workflowID, versionName, req.Description, req.StorageType, req.StorageCapacity,
+		workflowID, versionName, req.Description, req.StorageType, req.ReadmeMarkdown, req.StorageCapacity,
 	)
 	if err != nil {
 		return h.mapError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{})
+}
+
+// versionNameOf extracts the version name from a parentKey(workflowID, versionName).
+func versionNameOf(key string) string {
+	_, name, _ := strings.Cut(key, "|")
+
+	return name
 }

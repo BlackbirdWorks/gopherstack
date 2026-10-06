@@ -28,6 +28,13 @@ func (b *InMemoryBackend) CreateDataSource(
 		return nil, fmt.Errorf("%w: knowledge base %q not found", ErrNotFound, kbID)
 	}
 
+	if prior := findByClientToken(b.dataSources, cfg.ClientToken,
+		func(d *DataSource) string { return d.ClientToken },
+		func(d *DataSource) bool { return d.KnowledgeBaseID == kbID },
+	); prior != nil {
+		return dsCopy(prior), nil
+	}
+
 	id := b.nextID("ds", &b.dsCounter)
 	now := time.Now().UTC()
 
@@ -40,6 +47,8 @@ func (b *InMemoryBackend) CreateDataSource(
 		DataDeletionPolicy:      cfg.DataDeletionPolicy,
 		DataSourceConfiguration: cfg.DataSourceConfiguration,
 		VectorIngestionConfig:   cfg.VectorIngestionConfig,
+		ServerSideEncryption:    cfg.ServerSideEncryptionConfiguration,
+		ClientToken:             cfg.ClientToken,
 		CreatedAt:               now,
 		UpdatedAt:               now,
 	}
@@ -92,6 +101,10 @@ func (b *InMemoryBackend) UpdateDataSource(
 
 	if cfg.VectorIngestionConfig != nil {
 		ds.VectorIngestionConfig = cfg.VectorIngestionConfig
+	}
+
+	if cfg.ServerSideEncryptionConfiguration != nil {
+		ds.ServerSideEncryption = cfg.ServerSideEncryptionConfiguration
 	}
 
 	ds.UpdatedAt = time.Now().UTC()

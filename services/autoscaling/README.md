@@ -15,9 +15,9 @@
 
 ### Known gaps
 
-- GetPredictiveScalingForecast returns a real, well-shaped, non-empty forecast, but it is a flat naive projection (current DesiredCapacity repeated hourly), not a statistical model - genuinely out of scope for an emulator; documented simplification, see Notes
-- PutScalingPolicy's parsePredictiveScalingMetricSpecifications (gopherstack-r80d batch 29, reviewed not fixed): a MetricSpecifications element carrying only a Customized*/Predefined* sub-field with no TargetValue is accepted with TargetValue defaulted to 0.0 instead of rejected, even though AWS's own doc comment on this exact field says "TargetValue is required ... on every element" and its client-side validator (validators.go:1660 validatePredictiveScalingMetricSpecification) unconditionally rejects a nil TargetValue. Out of scope for this cut (an input-validation permissiveness gap, not a dropped required OUTPUT field -- the wire-side TargetValue member has no omitempty and is always echoed correctly) and, per this campaign's proof standard, not reachable via any real aws-sdk-go-v2 client anyway (the SDK's own validator blocks the request before it is ever sent) -- same "unreachable via any real Go SDK client" class apprunner's batch 10 SourceCodeVersion hit. Left unfixed.
+- GetPredictiveScalingForecast honours StartTime/EndTime (hourly points, up to 30 days) but the series is a flat projection of the current DesiredCapacity, not a statistical model -- out of scope for an emulator.
 - LaunchInstancesOutput.Instances[].AvailabilityZoneId/MarketType/SubnetId (gopherstack-n3zi, 2026-09-12): the real types.InstanceCollection models 6 members, this backend's Instance struct tracks none of AZ-ID/market-type/subnet -- no honest source value exists (no AttachInstances/LaunchInstances caller ever supplies a subnet either). Structural modeling gap, not a dropped value; documented simplification.
+- Unmodelled request members: AvailabilityZoneIds (Create/UpdateAutoScalingGroup, LaunchInstances) and LaunchInstances SubnetIds need an AZ-ID/subnet-to-zone map and a per-instance subnet that this backend lacks; IncludeDeletedGroups needs activity history kept past DeleteAutoScalingGroup; CreateAutoScalingGroup/CreateLaunchConfiguration InstanceId needs a describe-instance link to EC2; PutScheduledUpdateGroupAction.Time is documented as no longer used.
 
 ## More
 

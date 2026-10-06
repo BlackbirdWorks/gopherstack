@@ -6,8 +6,20 @@ import (
 	"errors"
 	"fmt"
 
+	crtypes "github.com/aws/aws-sdk-go-v2/service/cleanrooms/types"
 	"github.com/labstack/echo/v5"
 )
+
+// collaborationWire shadows the embedded Members tag at depth 0 so the
+// zero value is omitted; types.Collaboration declares no members member.
+type collaborationWire struct {
+	*Collaboration
+	Members []*MemberSummary `json:"members,omitempty"`
+}
+
+func toCollaborationWire(c *Collaboration) *collaborationWire {
+	return &collaborationWire{Collaboration: c}
+}
 
 func (h *Handler) handleCreateCollaboration(_ context.Context, body []byte) ([]byte, error) {
 	var req struct {
@@ -27,6 +39,14 @@ func (h *Handler) handleCreateCollaboration(_ context.Context, body []byte) ([]b
 		IsMetricsEnabled            bool                    `json:"isMetricsEnabled"`
 	}
 	_ = json.Unmarshal(body, &req)
+	if err := firstErr(
+		checkEnumList[crtypes.MemberAbility]("creatorMemberAbilities", req.CreatorMemberAbilities),
+		checkEnum("queryLogStatus", crtypes.CollaborationQueryLogStatus(req.QueryLogStatus)),
+		checkEnum("jobLogStatus", crtypes.CollaborationJobLogStatus(req.JobLogStatus)),
+	); err != nil {
+		return nil, err
+	}
+
 	c, err := h.Backend.CreateCollaboration(
 		req.Name,
 		req.Description,
@@ -49,7 +69,7 @@ func (h *Handler) handleCreateCollaboration(_ context.Context, body []byte) ([]b
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{keyCollaboration: c}), nil
+	return mustJSON(map[string]any{keyCollaboration: toCollaborationWire(c)}), nil
 }
 
 // declaredCollaborationError maps not-found to ValidationException: Get/UpdateCollaboration
@@ -72,7 +92,7 @@ func (h *Handler) handleGetCollaboration(_ context.Context, body []byte) ([]byte
 		return nil, declaredCollaborationError(err)
 	}
 
-	return mustJSON(map[string]any{keyCollaboration: c}), nil
+	return mustJSON(map[string]any{keyCollaboration: toCollaborationWire(c)}), nil
 }
 
 func (h *Handler) handleListCollaborations(
@@ -110,7 +130,7 @@ func (h *Handler) handleUpdateCollaboration(_ context.Context, body []byte) ([]b
 		return nil, declaredCollaborationError(err)
 	}
 
-	return mustJSON(map[string]any{keyCollaboration: col}), nil
+	return mustJSON(map[string]any{keyCollaboration: toCollaborationWire(col)}), nil
 }
 
 func (h *Handler) handleDeleteCollaboration(_ context.Context, body []byte) ([]byte, error) {

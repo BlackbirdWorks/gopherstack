@@ -158,6 +158,11 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 			keyTypeField:    "ResourceInUseException",
 			keyMessageField: err.Error(),
 		})
+	case errors.Is(err, ErrIdempotentParameterMismatch):
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			keyTypeField:    "IdempotentParameterMismatchException",
+			keyMessageField: err.Error(),
+		})
 	case errors.Is(err, ErrUserConflict):
 		// CreateUser reports a duplicate UserId as ConflictException, not
 		// ResourceAlreadyExistsException -- see ErrUserConflict.

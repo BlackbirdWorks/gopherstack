@@ -242,8 +242,7 @@ func (h *Handler) handleListPipelineExecutionSteps(ctx context.Context, body []b
 // ---------------------------------------------------------------------------
 
 // createPipelineInput mirrors CreatePipelineInput (api_op_CreatePipeline.go:
-// 29-64, sagemaker@v1.263.2). ClientRequestToken omitted, see
-// retryPipelineExecutionInput's doc comment.
+// 29-64, sagemaker@v1.263.2).
 type createPipelineInput struct {
 	ParallelismConfiguration     *ParallelismConfiguration     `json:"ParallelismConfiguration,omitempty"`
 	PipelineDefinitionS3Location *pipelineDefinitionS3Location `json:"PipelineDefinitionS3Location,omitempty"`
@@ -252,6 +251,7 @@ type createPipelineInput struct {
 	PipelineDisplayName          string                        `json:"PipelineDisplayName,omitempty"`
 	PipelineDescription          string                        `json:"PipelineDescription,omitempty"`
 	RoleArn                      string                        `json:"RoleArn,omitempty"`
+	ClientRequestToken           string                        `json:"ClientRequestToken,omitempty"`
 	Tags                         []tagObject                   `json:"Tags,omitempty"`
 }
 
@@ -284,6 +284,7 @@ func (h *Handler) handleCreatePipelineFull(ctx context.Context, body []byte) ([]
 		PipelineDescription:      req.PipelineDescription,
 		RoleArn:                  req.RoleArn,
 		ParallelismConfiguration: req.ParallelismConfiguration,
+		ClientRequestToken:       req.ClientRequestToken,
 		Tags:                     fromTagObjects(req.Tags),
 	})
 	if err != nil {
@@ -349,7 +350,6 @@ func (h *Handler) handleUpdatePipelineFull(ctx context.Context, body []byte) ([]
 
 // startPipelineExecutionInput mirrors StartPipelineExecutionInput
 // (api_op_StartPipelineExecution.go:29-63, sagemaker@v1.263.2).
-// ClientRequestToken omitted, see retryPipelineExecutionInput's doc comment.
 // Field order and types must stay identical to StartPipelineExecutionOptions
 // (pipelines.go) — handleStartPipelineExecutionFull converts req to it
 // directly rather than copying field by field.
@@ -360,6 +360,7 @@ type startPipelineExecutionInput struct {
 	PipelineExecutionDisplayName string                    `json:"PipelineExecutionDisplayName,omitempty"`
 	PipelineExecutionDescription string                    `json:"PipelineExecutionDescription,omitempty"`
 	MlflowExperimentName         string                    `json:"MlflowExperimentName,omitempty"`
+	ClientRequestToken           string                    `json:"ClientRequestToken,omitempty"`
 	PipelineParameters           []PipelineParameter       `json:"PipelineParameters,omitempty"`
 	PipelineVersionID            int64                     `json:"PipelineVersionId,omitempty"`
 }

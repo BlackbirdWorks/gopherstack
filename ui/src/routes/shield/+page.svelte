@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
-	import { getShieldClient } from '$lib/aws-client';
+	import { confirmDestructive } from '#lib/confirm-dialog.ts';
+	import { onRegionChange, regionalClient } from '#lib/region-effect.svelte.ts';
+	import { getShieldClient } from '#lib/aws-client.ts';
 	import {
 		ListProtectionsCommand,
 		DescribeSubscriptionCommand,

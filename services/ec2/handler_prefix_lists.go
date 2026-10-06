@@ -16,6 +16,7 @@ type createManagedPrefixListResponse struct {
 type describeManagedPrefixListsResponse struct {
 	XMLName       xml.Name `xml:"DescribeManagedPrefixListsResponse"`
 	RequestID     string   `xml:"requestId"`
+	NextToken     string   `xml:"nextToken,omitempty"`
 	PrefixListSet struct {
 		Items []managedPrefixListItem `xml:"item"`
 	} `xml:"prefixListSet"`
@@ -29,6 +30,7 @@ type prefixListEntryItem struct {
 type getManagedPrefixListEntriesResponse struct {
 	XMLName   xml.Name `xml:"GetManagedPrefixListEntriesResponse"`
 	RequestID string   `xml:"requestId"`
+	NextToken string   `xml:"nextToken,omitempty"`
 	EntrySet  struct {
 		Items []prefixListEntryItem `xml:"item"`
 	} `xml:"entrySet"`
@@ -43,6 +45,7 @@ type getManagedPrefixListEntriesResponse struct {
 type getManagedPrefixListAssociationsResponse struct {
 	XMLName        xml.Name `xml:"GetManagedPrefixListAssociationsResponse"`
 	RequestID      string   `xml:"requestId"`
+	NextToken      string   `xml:"nextToken,omitempty"`
 	AssociationSet struct {
 		Items []struct{} `xml:"item"`
 	} `xml:"prefixListAssociationSet"`
@@ -179,7 +182,7 @@ func (h *Handler) handleDescribeManagedPrefixLists(vals url.Values, reqID string
 		)
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 func (h *Handler) handleGetManagedPrefixListEntries(vals url.Values, reqID string) (any, error) {
@@ -204,11 +207,13 @@ func (h *Handler) handleGetManagedPrefixListEntries(vals url.Values, reqID strin
 		resp.EntrySet.Items = append(resp.EntrySet.Items, prefixListEntryItem(e))
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
-func (h *Handler) handleGetManagedPrefixListAssociations(_ url.Values, reqID string) (any, error) {
-	return &getManagedPrefixListAssociationsResponse{RequestID: reqID}, nil
+func (h *Handler) handleGetManagedPrefixListAssociations(vals url.Values, reqID string) (any, error) {
+	resp := &getManagedPrefixListAssociationsResponse{RequestID: reqID}
+
+	return finishPaged(vals, resp)
 }
 
 func (h *Handler) handleModifyManagedPrefixList(vals url.Values, reqID string) (any, error) {

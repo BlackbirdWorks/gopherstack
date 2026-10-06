@@ -67,7 +67,7 @@ type StorageBackend interface {
 	DescribeCertificate(certificateID string) (*Certificate, error)
 	ListCertificates() []*Certificate
 	UpdateCertificate(input *UpdateCertificateInput) error
-	DeleteCertificate(certificateID string) error
+	DeleteCertificate(certificateID string, forceDelete bool) error
 
 	// Policy attachment operations.
 	DetachPolicy(input *DetachPolicyInput) error
@@ -99,7 +99,10 @@ type StorageBackend interface {
 	DescribeJob(jobID string) (*Job, error)
 	ListJobs() []*Job
 	UpdateJob(jobID string, input *UpdateJobInput) error
-	CancelJob(jobID, comment string, force bool) (*Job, error)
+	CancelJob(jobID, comment, reasonCode string, force bool) (*Job, error)
+	CheckCreateToken(kind, token, resourceKey string) (bool, error)
+	RecordCreateToken(kind, token, resourceKey string)
+	ListJobsFiltered(status, targetSelection, thingGroupName, thingGroupID string) []*Job
 	DeleteJob(jobID string, force bool) error
 	GetJobDocument(jobID string) (string, error)
 	DescribeJobExecution(jobID, thingName string) (*JobExecution, error)
@@ -127,9 +130,7 @@ type StorageBackend interface {
 	CreateDomainConfiguration(input *CreateDomainConfigurationInput) (*DomainConfiguration, error)
 	DescribeDomainConfiguration(name string) (*DomainConfiguration, error)
 	ListDomainConfigurations() []*DomainConfiguration
-	UpdateDomainConfiguration(
-		name, status, applicationProtocol, authenticationType string,
-	) (*DomainConfiguration, error)
+	UpdateDomainConfiguration(name string, in *UpdateDomainConfigurationInput) (*DomainConfiguration, error)
 	DeleteDomainConfiguration(name string) error
 
 	// ProvisioningTemplate operations.
@@ -156,7 +157,7 @@ type StorageBackend interface {
 	CreateAuthorizer(input *CreateAuthorizerInput) (*Authorizer, error)
 	DescribeAuthorizer(name string) (*Authorizer, error)
 	ListAuthorizers() []*Authorizer
-	UpdateAuthorizer(name, functionARN, status string) (*Authorizer, error)
+	UpdateAuthorizer(name, functionARN, status string, extras AuthorizerUpdateExtras) (*Authorizer, error)
 	DeleteAuthorizer(name string) error
 
 	// BillingGroup operations.
@@ -193,6 +194,7 @@ type StorageBackend interface {
 		pem, status, certificateMode, verificationCertificate string,
 		tags map[string]string,
 		regConfig RegistrationConfig,
+		allowAutoRegistration bool,
 	) (*CACertificate, error)
 	DescribeCACertificate(id string) (*CACertificate, error)
 	ListCACertificates() []*CACertificate
@@ -236,7 +238,7 @@ type StorageBackend interface {
 	// Batch 2: Audit configuration.
 	UpdateAccountAuditConfiguration(roleARN string, checks map[string]*AuditCheckConfig) error
 	DescribeAccountAuditConfiguration() *AccountAuditConfiguration
-	DeleteAccountAuditConfiguration() error
+	DeleteAccountAuditConfiguration(deleteScheduledAudits bool) error
 
 	// Batch 2: Audit task.
 	StartOnDemandAuditTask(checks []string) (string, error)
@@ -265,7 +267,7 @@ type StorageBackend interface {
 
 	// Batch 3: OTA Updates.
 	CreateOTAUpdate(
-		id, description, roleARN string, targets []string, files []any, tags map[string]string,
+		id, description, roleARN string, targets []string, files []any, tags map[string]string, opts OTAUpdateOptions,
 	) (*OTAUpdate, error)
 	GetOTAUpdate(id string) (*OTAUpdate, error)
 	DeleteOTAUpdate(id string) error
@@ -369,6 +371,7 @@ type StorageBackend interface {
 		payload map[string]any,
 		mandatoryParameters []map[string]any,
 		tags map[string]string,
+		extras CommandExtras,
 	) (*IoTCommand, error)
 	GetCommand(id string) (*IoTCommand, error)
 	UpdateCommand(id, displayName, description string, deprecated bool) error

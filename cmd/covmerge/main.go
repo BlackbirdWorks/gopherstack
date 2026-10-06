@@ -170,14 +170,14 @@ func mergeOneProfile(path string, mode *string, bc *blockCounts) error {
 // "name.go:startLine.startCol,endLine.endCol numStmts count" into its block
 // key (everything before the final field) and the trailing count.
 func parseCoverageLine(line string) (string, int64, error) {
-	idx := strings.LastIndexByte(line, ' ')
-	if idx < 0 {
+	before, after, ok := strings.CutLast(line, " ")
+	if !ok {
 		return "", 0, fmt.Errorf("%w: %q", errMalformedLine, line)
 	}
 
-	key := line[:idx]
+	key := before
 
-	count, err := strconv.ParseInt(line[idx+1:], 10, 64)
+	count, err := strconv.ParseInt(after, 10, 64)
 	if err != nil {
 		return "", 0, fmt.Errorf("invalid count in line %q: %w", line, err)
 	}

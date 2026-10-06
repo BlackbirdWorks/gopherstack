@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"math"
 	"net"
+	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -32,10 +34,13 @@ var ErrBrokerNotStarted = errors.New("mqtt broker not started")
 // Broker wraps a mochi-mqtt server to provide the IoT MQTT endpoint.
 type Broker struct {
 	// server is accessed atomically to avoid data races between Start and Publish.
-	server  atomic.Pointer[mqtt.Server]
-	backend *InMemoryBackend
-	others  func() []*InMemoryBackend
-	port    int
+	server    atomic.Pointer[mqtt.Server]
+	ready     chan struct{}
+	backend   *InMemoryBackend
+	others    func() []*InMemoryBackend
+	boundPort atomic.Int64
+	readyOnce sync.Once
+	port      int
 }
 
 // NewBroker creates a new Broker using the given backend and port.
@@ -43,8 +48,15 @@ func NewBroker(backend *InMemoryBackend, port int) *Broker {
 	return &Broker{
 		backend: backend,
 		port:    port,
+		ready:   make(chan struct{}),
 	}
 }
+
+// Port returns the TCP port the broker is listening on; valid once Ready is closed.
+func (b *Broker) Port() int { return int(b.boundPort.Load()) }
+
+// Ready is closed once Start has bound its listener and begun serving.
+func (b *Broker) Ready() <-chan struct{} { return b.ready }
 
 // Start initialises the MQTT server, registers the rule hook, and begins listening.
 // It blocks until ctx is cancelled.
@@ -87,6 +99,14 @@ func (b *Broker) Start(ctx context.Context) error {
 	if err := s.Serve(); err != nil {
 		return fmt.Errorf("iot broker: serve: %w", err)
 	}
+
+	if _, portStr, err := net.SplitHostPort(tcp.Address()); err == nil {
+		if p, convErr := strconv.Atoi(portStr); convErr == nil {
+			b.boundPort.Store(int64(p))
+		}
+	}
+
+	b.readyOnce.Do(func() { close(b.ready) })
 
 	<-ctx.Done()
 

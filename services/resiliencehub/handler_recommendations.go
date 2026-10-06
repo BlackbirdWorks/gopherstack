@@ -6,8 +6,12 @@ import (
 )
 
 func (h *Handler) handleListAlarmRecommendations(_ context.Context, _ *http.Request, body []byte) ([]byte, error) {
-	var req assessmentArnRequest
+	var req assessmentPageRequest
 	if err := decodeJSONBody(body, &req); err != nil {
+		return nil, err
+	}
+
+	if err := validatePage(req.NextToken, int(req.MaxResults)); err != nil {
 		return nil, err
 	}
 
@@ -19,8 +23,12 @@ func (h *Handler) handleListAlarmRecommendations(_ context.Context, _ *http.Requ
 }
 
 func (h *Handler) handleListSopRecommendations(_ context.Context, _ *http.Request, body []byte) ([]byte, error) {
-	var req assessmentArnRequest
+	var req assessmentPageRequest
 	if err := decodeJSONBody(body, &req); err != nil {
+		return nil, err
+	}
+
+	if err := validatePage(req.NextToken, int(req.MaxResults)); err != nil {
 		return nil, err
 	}
 
@@ -32,8 +40,12 @@ func (h *Handler) handleListSopRecommendations(_ context.Context, _ *http.Reques
 }
 
 func (h *Handler) handleListTestRecommendations(_ context.Context, _ *http.Request, body []byte) ([]byte, error) {
-	var req assessmentArnRequest
+	var req assessmentPageRequest
 	if err := decodeJSONBody(body, &req); err != nil {
+		return nil, err
+	}
+
+	if err := validatePage(req.NextToken, int(req.MaxResults)); err != nil {
 		return nil, err
 	}
 
@@ -49,8 +61,12 @@ func (h *Handler) handleListAppComponentRecommendations(
 	_ *http.Request,
 	body []byte,
 ) ([]byte, error) {
-	var req assessmentArnRequest
+	var req assessmentPageRequest
 	if err := decodeJSONBody(body, &req); err != nil {
+		return nil, err
+	}
+
+	if err := validatePage(req.NextToken, int(req.MaxResults)); err != nil {
 		return nil, err
 	}
 

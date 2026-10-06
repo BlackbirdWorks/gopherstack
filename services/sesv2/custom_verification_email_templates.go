@@ -2,6 +2,7 @@ package sesv2
 
 import (
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -110,6 +111,8 @@ func (b *InMemoryBackend) ListCustomVerificationEmailTemplates(
 		cp := *t
 		items = append(items, &cp)
 	}
+
+	sort.Slice(items, func(i, j int) bool { return items[i].TemplateName < items[j].TemplateName })
 
 	return page.New(items, nextToken, pageSize, sesv2DefaultMaxItems)
 }

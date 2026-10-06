@@ -124,6 +124,7 @@ type copyFpgaImageResponse struct {
 type describeFpgaImagesResponse struct {
 	XMLName      xml.Name `xml:"DescribeFpgaImagesResponse"`
 	RequestID    string   `xml:"requestId"`
+	NextToken    string   `xml:"nextToken,omitempty"`
 	FpgaImageSet struct {
 		Items []fpgaImageItemXML `xml:"item"`
 	} `xml:"fpgaImageSet"`
@@ -253,7 +254,7 @@ func (h *Handler) handleDescribeFpgaImages(vals url.Values, reqID string) (any, 
 		resp.FpgaImageSet.Items = append(resp.FpgaImageSet.Items, h.toFpgaImageItemXML(img))
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 func (h *Handler) handleDescribeFpgaImageAttribute(vals url.Values, reqID string) (any, error) {

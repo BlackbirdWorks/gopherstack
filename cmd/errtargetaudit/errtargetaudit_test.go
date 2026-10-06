@@ -2468,3 +2468,31 @@ func TestPrintSiteGroups_RollupTag_PartialSubset(t *testing.T) {
 
 	require.Contains(t, out, "PARTIAL ROLLUP: a subset of validateWidget's own call-site row(s)")
 }
+
+func TestScanWithIndexOpts_NoReachability(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		wantPair       string
+		noReachability bool
+		wantPresent    bool
+	}{
+		{"filter on drops unreachable", "GetThing/ConflictException", false, false},
+		{"filter off keeps unreachable", "GetThing/ConflictException", true, true},
+		{"filter off keeps reachable", "GetThing/ResourceNotFoundException", true, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			idx := parseSrc(t, qualifiedGuardFixture)
+			sr := scanWithIndex(
+				"fixture", []string{"fixture"}, "/repo", idx, qualifiedGuardTruth(), tt.noReachability,
+			)
+
+			require.Equal(t, tt.wantPresent, findingPairs(sr.Findings)[tt.wantPair])
+		})
+	}
+}

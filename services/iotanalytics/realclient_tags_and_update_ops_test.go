@@ -158,3 +158,57 @@ func TestRealClient_TagsAndUpdateOps(t *testing.T) {
 
 	assert.True(t, sawChannelActivity2, "expected updated pipeline activity name to persist")
 }
+
+func TestChannelDatastore_DefaultStorageAndPartialUpdate(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		days int32
+	}{
+		{name: "retention only update keeps storage", days: 7},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := t.Context()
+			client := newTestIoTAnalyticsClient(t, iotanalytics.NewHandler(iotanalytics.NewInMemoryBackend()))
+
+			_, err := client.CreateChannel(ctx, &iotanalyticssdk.CreateChannelInput{ChannelName: aws.String("ch")})
+			require.NoError(t, err)
+			_, err = client.CreateDatastore(ctx, &iotanalyticssdk.CreateDatastoreInput{DatastoreName: aws.String("ds")})
+			require.NoError(t, err)
+
+			_, err = client.UpdateChannel(ctx, &iotanalyticssdk.UpdateChannelInput{
+				ChannelName:     aws.String("ch"),
+				RetentionPeriod: &iotanalyticstypes.RetentionPeriod{NumberOfDays: aws.Int32(tc.days)},
+			})
+			require.NoError(t, err)
+			_, err = client.UpdateDatastore(ctx, &iotanalyticssdk.UpdateDatastoreInput{
+				DatastoreName:   aws.String("ds"),
+				RetentionPeriod: &iotanalyticstypes.RetentionPeriod{NumberOfDays: aws.Int32(tc.days)},
+			})
+			require.NoError(t, err)
+
+			ch, err := client.DescribeChannel(ctx, &iotanalyticssdk.DescribeChannelInput{ChannelName: aws.String("ch")})
+			require.NoError(t, err)
+			require.NotNil(t, ch.Channel.Storage)
+			assert.NotNil(t, ch.Channel.Storage.ServiceManagedS3)
+			assert.Equal(t, tc.days, aws.ToInt32(ch.Channel.RetentionPeriod.NumberOfDays))
+
+			ds, err := client.DescribeDatastore(
+				ctx,
+				&iotanalyticssdk.DescribeDatastoreInput{DatastoreName: aws.String("ds")},
+			)
+			require.NoError(t, err)
+			require.NotNil(t, ds.Datastore.Storage)
+			_, isManaged := ds.Datastore.Storage.(*iotanalyticstypes.DatastoreStorageMemberServiceManagedS3)
+			assert.True(t, isManaged)
+			require.NotNil(t, ds.Datastore.FileFormatConfiguration)
+			assert.NotNil(t, ds.Datastore.FileFormatConfiguration.JsonConfiguration)
+			assert.Equal(t, tc.days, aws.ToInt32(ds.Datastore.RetentionPeriod.NumberOfDays))
+		})
+	}
+}

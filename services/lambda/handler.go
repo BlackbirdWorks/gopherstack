@@ -646,8 +646,8 @@ func (h *Handler) writeError(c *echo.Context, status int, errType, message strin
 // `!= nil` check on that return value can never detect a written error
 // response and would silently fall through to a second, conflicting write
 // (exactly the bug this function and applyFunctionCodeUpdate both avoid).
-func (h *Handler) checkRevisionID(c *echo.Context, currentRevisionID, providedRevisionID string) bool {
-	if providedRevisionID == "" || providedRevisionID == currentRevisionID {
+func (h *Handler) checkRevisionID(c *echo.Context, currentRevisionID string, providedRevisionID *string) bool {
+	if providedRevisionID == nil || *providedRevisionID == currentRevisionID {
 		return true
 	}
 

@@ -3,6 +3,8 @@ package glue
 import (
 	"context"
 	"fmt"
+
+	gluetypes "github.com/aws/aws-sdk-go-v2/service/glue/types"
 )
 
 // cancelStatementInput holds input for CancelStatement.
@@ -24,14 +26,19 @@ func (h *Handler) handleCancelStatement(
 
 // createSessionInput holds input for CreateSession.
 type createSessionInput struct {
-	DefaultArguments map[string]string `json:"DefaultArguments,omitempty"`
-	Command          SessionCommand    `json:"Command"`
-	ID               string            `json:"Id"`
-	Role             string            `json:"Role,omitempty"`
-	Description      string            `json:"Description,omitempty"`
-	Timeout          int32             `json:"Timeout,omitempty"`
-	IdleTimeout      int32             `json:"IdleTimeout,omitempty"`
-	MaxCapacity      float64           `json:"MaxCapacity,omitempty"`
+	DefaultArguments      map[string]string `json:"DefaultArguments,omitempty"`
+	Command               SessionCommand    `json:"Command"`
+	Description           string            `json:"Description,omitempty"`
+	GlueVersion           string            `json:"GlueVersion,omitempty"`
+	WorkerType            string            `json:"WorkerType,omitempty"`
+	SecurityConfiguration string            `json:"SecurityConfiguration,omitempty"`
+	ID                    string            `json:"Id"`
+	Role                  string            `json:"Role,omitempty"`
+	Connections           ConnectionsList   `json:"Connections,omitzero"`
+	MaxCapacity           float64           `json:"MaxCapacity,omitempty"`
+	NumberOfWorkers       int32             `json:"NumberOfWorkers,omitempty"`
+	Timeout               int32             `json:"Timeout,omitempty"`
+	IdleTimeout           int32             `json:"IdleTimeout,omitempty"`
 }
 
 // createSessionOutput holds the result for CreateSession.
@@ -43,12 +50,21 @@ func (h *Handler) handleCreateSession(
 	_ context.Context,
 	in *createSessionInput,
 ) (*createSessionOutput, error) {
+	if err := checkEnum("WorkerType", gluetypes.WorkerType(in.WorkerType)); err != nil {
+		return nil, err
+	}
+
 	opts := Session{
-		Timeout:          in.Timeout,
-		IdleTimeout:      in.IdleTimeout,
-		MaxCapacity:      in.MaxCapacity,
-		Description:      in.Description,
-		DefaultArguments: in.DefaultArguments,
+		Timeout:               in.Timeout,
+		IdleTimeout:           in.IdleTimeout,
+		MaxCapacity:           in.MaxCapacity,
+		Description:           in.Description,
+		DefaultArguments:      in.DefaultArguments,
+		Connections:           in.Connections,
+		GlueVersion:           in.GlueVersion,
+		WorkerType:            in.WorkerType,
+		SecurityConfiguration: in.SecurityConfiguration,
+		NumberOfWorkers:       in.NumberOfWorkers,
 	}
 	s, err := h.Backend.CreateSession(in.ID, in.Role, in.Command, opts)
 	if err != nil {
@@ -109,7 +125,29 @@ type getStatementInput struct {
 
 // getStatementOutput holds the result for GetStatement.
 type getStatementOutput struct {
-	Statement *Statement `json:"Statement"`
+	Statement *statementWire `json:"Statement"`
+}
+
+// statementWire is Statement without SessionId, which types.Statement does not declare.
+type statementWire struct {
+	Output      any     `json:"Output,omitempty"`
+	Code        string  `json:"Code,omitempty"`
+	State       string  `json:"State"`
+	Progress    float64 `json:"Progress,omitempty"`
+	StartedOn   float64 `json:"StartedOn,omitempty"`
+	CompletedOn float64 `json:"CompletedOn,omitempty"`
+	ID          int32   `json:"Id"`
+}
+
+func toStatementWire(s *Statement) *statementWire {
+	if s == nil {
+		return nil
+	}
+
+	return &statementWire{
+		Output: s.Output, Code: s.Code, State: s.State, Progress: s.Progress,
+		StartedOn: s.StartedOn, CompletedOn: s.CompletedOn, ID: s.Id,
+	}
 }
 
 func (h *Handler) handleGetStatement(
@@ -121,7 +159,7 @@ func (h *Handler) handleGetStatement(
 		return nil, err
 	}
 
-	return &getStatementOutput{Statement: st}, nil
+	return &getStatementOutput{Statement: toStatementWire(st)}, nil
 }
 
 // defaultListSessionsLimit is used when ListSessionsInput.MaxResults is unset.
@@ -172,11 +210,13 @@ func (h *Handler) handleListSessions(
 // listStatementsInput holds input for ListStatements.
 type listStatementsInput struct {
 	SessionID string `json:"SessionId"`
+	NextToken string `json:"NextToken,omitempty"`
 }
 
 // listStatementsOutput holds the result for ListStatements.
 type listStatementsOutput struct {
-	Statements []*Statement `json:"Statements"`
+	NextToken  string           `json:"NextToken,omitempty"`
+	Statements []*statementWire `json:"Statements"`
 }
 
 func (h *Handler) handleListStatements(
@@ -191,7 +231,17 @@ func (h *Handler) handleListStatements(
 		stmts = []*Statement{}
 	}
 
-	return &listStatementsOutput{Statements: stmts}, nil
+	stmts, next, err := pagedSlice(stmts, in.NextToken, 0, defaultListPageSize)
+	if err != nil {
+		return nil, err
+	}
+
+	wire := make([]*statementWire, 0, len(stmts))
+	for _, st := range stmts {
+		wire = append(wire, toStatementWire(st))
+	}
+
+	return &listStatementsOutput{Statements: wire, NextToken: next}, nil
 }
 
 // runStatementInput holds input for RunStatement.

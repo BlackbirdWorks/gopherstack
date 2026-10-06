@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 38 (34 ok, 2 partial, 2 deferred) |
 | Feature families | 3 (3 ok) |
-| Known gaps | 6 |
+| Known gaps | 7 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
@@ -20,7 +20,8 @@
 - GetTraceSummaries Sampling/SamplingStrategy and GetTimeSeriesServiceStatistics EntitySelectorExpression/ForecastStatistics are accepted with no effect: AWS documents no SamplingStrategy semantics (API_SamplingStrategy.html) and no selector or forecast engine exists.
 - SamplingTargetDocument.SamplingBoost is never set: AWS does not publish the boost-rate algorithm; boost statistics are accepted and unknown rules reported as unprocessed.
 - PutResourcePolicy LockoutPreventionException and ThrottledException are never raised: the request pipeline carries no calling principal and no rate limiting is modeled.
-- Default trace TTL is 30 minutes (XRAY_TRACE_TTL) vs AWS's 30 days to bound memory; PutTelemetryRecords entries sit in an unpersisted 100-entry ring (X-Ray has no read-back operation).
+- Default trace TTL is 30 minutes (XRAY_TRACE_TTL) vs AWS's 30 days to bound memory; PutTelemetryRecords entries sit in an unpersisted 100-entry ring (X-Ray has no read-back operation), and the ring drops Hostname/EC2InstanceId/BackendConnectionErrors.
+- GetServiceGraph Service/Edge ResponseTimeHistogram and DurationHistogram stay empty: AWS documents no bucketing scheme for HistogramEntry values, so none is invented; Service.AccountId and Service.Names beyond the canonical name are unmodeled.
 
 ### Deferred
 

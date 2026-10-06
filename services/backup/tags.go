@@ -2,6 +2,7 @@ package backup
 
 import (
 	"fmt"
+	"maps"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -61,7 +62,24 @@ func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
 		out = appendBackupTaggedEntry(out, rtp.RestoreTestingPlanArn, rtp.Tags)
 	}
 
+	for _, rp := range b.recoveryPoints.All() {
+		if len(rp.Tags) > 0 {
+			out = append(out, TaggedEntry{ARN: rp.RecoveryPointArn, Tags: maps.Clone(rp.Tags)})
+		}
+	}
+
 	return out
+}
+
+// recoveryPointByArnLocked finds a recovery point by ARN across vaults.
+func (b *InMemoryBackend) recoveryPointByArnLocked(resourceArn string) (*RecoveryPoint, bool) {
+	for _, rp := range b.recoveryPoints.All() {
+		if rp.RecoveryPointArn == resourceArn {
+			return rp, true
+		}
+	}
+
+	return nil, false
 }
 
 // TagResource adds tags to a resource by ARN.
@@ -132,6 +150,15 @@ func (b *InMemoryBackend) TagResource(resourceArn string, kv map[string]string) 
 		return nil
 	}
 
+	if rp, ok := b.recoveryPointByArnLocked(resourceArn); ok {
+		if rp.Tags == nil {
+			rp.Tags = make(map[string]string, len(kv))
+		}
+		maps.Copy(rp.Tags, kv)
+
+		return nil
+	}
+
 	return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceArn)
 }
 
@@ -193,6 +220,10 @@ func (b *InMemoryBackend) ListTags(resourceArn string) (map[string]string, error
 		}
 
 		return rtp.Tags.Clone(), nil
+	}
+
+	if rp, ok := b.recoveryPointByArnLocked(resourceArn); ok {
+		return maps.Clone(rp.Tags), nil
 	}
 
 	return nil, fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceArn)
@@ -257,6 +288,14 @@ func (b *InMemoryBackend) UntagResource(resourceArn string, tagKeys []string) er
 
 		if rtp.Tags != nil {
 			rtp.Tags.DeleteKeys(tagKeys)
+		}
+
+		return nil
+	}
+
+	if rp, ok := b.recoveryPointByArnLocked(resourceArn); ok {
+		for _, k := range tagKeys {
+			delete(rp.Tags, k)
 		}
 
 		return nil

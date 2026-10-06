@@ -25,7 +25,7 @@ func (h *S3Handler) getObjectACL(
 	h.setOperation(ctx, "GetObjectAcl")
 
 	// Verify the object exists before returning an ACL.
-	versionID := r.URL.Query().Get("versionId")
+	versionID := queryParam(r, "versionId")
 
 	// If a stored ACL exists for the version, return it verbatim. AWS returns
 	// the persisted XML; if a canned ACL was set we still need to synthesise
@@ -43,7 +43,7 @@ func (h *S3Handler) getObjectACL(
 		// here since the destination is an XML response on a trusted endpoint.
 		w.Header().Set("Content-Type", "application/xml")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(stored)) //nolint:gosec // pre-stored XML body is trusted
+		_, _ = w.Write([]byte(stored))
 
 		return
 	}
@@ -78,7 +78,7 @@ func (h *S3Handler) putObjectACL(
 ) {
 	h.setOperation(ctx, "PutObjectAcl")
 
-	versionID := r.URL.Query().Get("versionId")
+	versionID := queryParam(r, "versionId")
 
 	// Caller can use either a canned ACL header or supply an XML body. Persist
 	// whichever we received; on read we'll synthesise default XML when empty.

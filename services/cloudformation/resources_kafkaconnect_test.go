@@ -55,7 +55,13 @@ func testKafkaConnectConnector(t *testing.T) {
 	backends, client := newKafkaConnectTestClient(t)
 
 	tmpl := `{
-"Resources": {"Connector": {"Type": "AWS::KafkaConnect::Connector", "Properties": {
+"Resources": {
+"Plugin": {"Type": "AWS::KafkaConnect::CustomPlugin", "Properties": {
+  "ContentType": "ZIP",
+  "Name": "p",
+  "Location": {"S3Location": {"BucketArn": "arn:aws:s3:::my-bucket", "FileKey": "plugin.zip"}}
+}},
+"Connector": {"Type": "AWS::KafkaConnect::Connector", "Properties": {
   "Capacity": {"ProvisionedCapacity": {"McuCount": 1, "WorkerCount": 1}},
   "ConnectorConfiguration": {"connector.class": "com.example.Connector"},
   "ConnectorName": "test-connector",
@@ -67,7 +73,7 @@ func testKafkaConnectConnector(t *testing.T) {
   "KafkaClusterEncryptionInTransit": {"EncryptionType": "PLAINTEXT"},
   "KafkaConnectVersion": "2.7.1",
   "Plugins": [{"CustomPlugin": {
-    "CustomPluginArn": "arn:aws:kafkaconnect:us-east-1:000000000000:custom-plugin/p/abc",
+    "CustomPluginArn": {"Ref": "Plugin"},
     "Revision": 1
   }}],
   "ServiceExecutionRoleArn": "arn:aws:iam::000000000000:role/connect-role"

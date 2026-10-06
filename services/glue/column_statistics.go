@@ -2,6 +2,7 @@ package glue
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 
@@ -15,24 +16,62 @@ func columnStatTaskKey(dbName, tableName string) string {
 	return dbName + "|" + tableName
 }
 
+// ColumnStatisticsTaskSettingsOptions are the Create/UpdateColumnStatisticsTaskSettings members; empty means unset.
+type ColumnStatisticsTaskSettingsOptions struct {
+	CatalogID             string
+	Role                  string
+	SecurityConfiguration string
+	Schedule              string
+	ColumnNameList        []string
+	SampleSize            float64
+}
+
+func (o ColumnStatisticsTaskSettingsOptions) applyTo(s *ColumnStatisticsTaskSettings) {
+	if o.CatalogID != "" {
+		s.CatalogID = o.CatalogID
+	}
+
+	if o.Role != "" {
+		s.RoleArn = o.Role
+	}
+
+	if o.SecurityConfiguration != "" {
+		s.SecurityConfiguration = o.SecurityConfiguration
+	}
+
+	if o.SampleSize != 0 {
+		s.SampleSize = o.SampleSize
+	}
+
+	if o.ColumnNameList != nil {
+		s.ColumnNameList = slices.Clone(o.ColumnNameList)
+	}
+
+	if o.Schedule != "" {
+		s.Schedule = CrawlerSchedule{ScheduleExpression: o.Schedule, State: stateScheduled}
+	}
+}
+
 // CreateColumnStatisticsTaskSettings stores task settings.
 func (b *InMemoryBackend) CreateColumnStatisticsTaskSettings(
-	dbName, tableName, roleArn string,
-	columns []string,
+	dbName, tableName string,
+	opts ColumnStatisticsTaskSettingsOptions,
 ) (*ColumnStatisticsTaskSettings, error) {
 	b.mu.Lock("CreateColumnStatisticsTaskSettings")
 	defer b.mu.Unlock()
 
-	settings := &ColumnStatisticsTaskSettings{
-		DatabaseName:   dbName,
-		TableName:      tableName,
-		ColumnNameList: columns,
-		RoleArn:        roleArn,
-	}
+	settings := &ColumnStatisticsTaskSettings{DatabaseName: dbName, TableName: tableName}
+	opts.applyTo(settings)
 	b.columnStatTaskSettings.Put(settings)
-	cp := *settings
 
-	return &cp, nil
+	return cloneColumnStatisticsTaskSettings(settings), nil
+}
+
+func cloneColumnStatisticsTaskSettings(s *ColumnStatisticsTaskSettings) *ColumnStatisticsTaskSettings {
+	cp := *s
+	cp.ColumnNameList = slices.Clone(s.ColumnNameList)
+
+	return &cp
 }
 
 // GetColumnStatisticsTaskSettings returns task settings.
@@ -46,25 +85,30 @@ func (b *InMemoryBackend) GetColumnStatisticsTaskSettings(
 	s, ok := b.columnStatTaskSettings.Get(key)
 
 	if !ok {
-		return &ColumnStatisticsTaskSettings{DatabaseName: dbName, TableName: tableName}, nil
+		return nil, fmt.Errorf(
+			"column statistics task settings not found for %s.%s: %w", dbName, tableName, ErrNotFound,
+		)
 	}
 
-	cp := *s
-
-	return &cp, nil
+	return cloneColumnStatisticsTaskSettings(s), nil
 }
 
-// UpdateColumnStatisticsTaskSettings updates task settings.
+// UpdateColumnStatisticsTaskSettings updates the members that are set.
 func (b *InMemoryBackend) UpdateColumnStatisticsTaskSettings(
-	dbName, tableName, roleArn string,
+	dbName, tableName string,
+	opts ColumnStatisticsTaskSettingsOptions,
 ) error {
 	b.mu.Lock("UpdateColumnStatisticsTaskSettings")
 	defer b.mu.Unlock()
 
-	key := columnStatTaskKey(dbName, tableName)
-	if s, ok := b.columnStatTaskSettings.Get(key); ok {
-		s.RoleArn = roleArn
+	s, ok := b.columnStatTaskSettings.Get(columnStatTaskKey(dbName, tableName))
+	if !ok {
+		return fmt.Errorf(
+			"column statistics task settings not found for %s.%s: %w", dbName, tableName, ErrNotFound,
+		)
 	}
+
+	opts.applyTo(s)
 
 	return nil
 }

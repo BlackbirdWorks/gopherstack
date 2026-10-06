@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
-	import { getELBClient } from '$lib/aws-client';
+	import { onRegionChange, regionalClient } from '#lib/region-effect.svelte.ts';
+	import { getELBClient } from '#lib/aws-client.ts';
 	import {
 		DescribeLoadBalancersCommand,
 		DescribeLoadBalancerAttributesCommand,
@@ -29,7 +29,7 @@
 		type PolicyDescription
 	} from '@aws-sdk/client-elastic-load-balancing';
 	import { toast } from 'svelte-sonner';
-	import { confirmDestructive } from '$lib/confirm-dialog';
+	import { confirmDestructive } from '#lib/confirm-dialog.ts';
 
 	const elb = regionalClient(getELBClient);
 

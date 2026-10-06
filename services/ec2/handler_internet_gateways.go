@@ -25,6 +25,7 @@ type describeInternetGatewaysResponse struct {
 	XMLName            xml.Name   `xml:"DescribeInternetGatewaysResponse"`
 	Xmlns              string     `xml:"xmlns,attr"`
 	RequestID          string     `xml:"requestId"`
+	NextToken          string     `xml:"nextToken,omitempty"`
 	InternetGatewaySet igwItemSet `xml:"internetGatewaySet"`
 }
 
@@ -122,11 +123,11 @@ func (h *Handler) handleDescribeInternetGateways(vals url.Values, reqID string) 
 		items = append(items, toIGWItem(igw, h.Backend.TagsForResource(igw.ID)))
 	}
 
-	return &describeInternetGatewaysResponse{
+	return finishPaged(vals, &describeInternetGatewaysResponse{
 		Xmlns:              ec2XMLNS,
 		RequestID:          reqID,
 		InternetGatewaySet: igwItemSet{Items: items},
-	}, nil
+	})
 }
 
 func (h *Handler) handleAttachInternetGateway(vals url.Values, reqID string) (any, error) {

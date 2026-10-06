@@ -177,7 +177,9 @@ func (h *Handler) handleModifySnapshotCopyRetentionPeriod(vals url.Values) (any,
 	clusterID := vals.Get("ClusterIdentifier")
 	retentionPeriod, _ := strconv.Atoi(vals.Get("RetentionPeriod"))
 
-	cluster, err := h.Backend.ModifySnapshotCopyRetentionPeriod(clusterID, retentionPeriod)
+	cluster, err := h.Backend.ModifySnapshotCopyRetentionPeriod(
+		clusterID, retentionPeriod, vals.Get("Manual") == paramValueTrue,
+	)
 	if err != nil {
 		return nil, err
 	}

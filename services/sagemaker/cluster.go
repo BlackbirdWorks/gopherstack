@@ -585,6 +585,7 @@ type UpdateClusterOptions struct {
 	TieredStorageConfig            *ClusterTieredStorageConfig
 	RestrictedInstanceGroupsConfig *ClusterRestrictedInstanceGroupsConfig
 	NameOrArn                      string
+	ClusterRole                    string
 	NodeRecovery                   string
 	NodeProvisioningMode           string
 	InstanceGroups                 []ClusterInstanceGroup
@@ -637,6 +638,10 @@ func (b *InMemoryBackend) UpdateCluster(ctx context.Context, opts UpdateClusterO
 // instance-group slices, which are merged by upsertInstanceGroupLocked/
 // upsertRestrictedInstanceGroupLocked).
 func applyClusterScalarUpdatesLocked(c *Cluster, opts UpdateClusterOptions) {
+	if opts.ClusterRole != "" {
+		c.ClusterRole = opts.ClusterRole
+	}
+
 	if opts.NodeRecovery != "" {
 		c.NodeRecovery = opts.NodeRecovery
 	}

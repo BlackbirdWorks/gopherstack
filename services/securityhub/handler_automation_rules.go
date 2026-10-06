@@ -232,17 +232,15 @@ func (h *Handler) handleCreateAutomationRuleV2(c *echo.Context, body map[string]
 		ruleStatus = statusEnabled
 	}
 
-	rule, err := h.Backend.CreateAutomationRuleV2(
-		ruleName,
-		ruleStatus,
-		description,
-		criteria,
-		actions,
-		ruleOrder,
-		tags,
-	)
+	rule, err := idemCreate(h, opCreateAutomationRuleV2, body,
+		func(r *AutomationRuleV2) string { return r.Identifier }, h.Backend.GetAutomationRuleV2,
+		func() (*AutomationRuleV2, error) {
+			return h.Backend.CreateAutomationRuleV2(
+				ruleName, ruleStatus, description, criteria, actions, ruleOrder, tags,
+			)
+		})
 	if err != nil {
-		return typedErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
+		return createErrorResponse(c, err)
 	}
 
 	return c.JSON(http.StatusOK, automationRuleV2ToResponse(rule))

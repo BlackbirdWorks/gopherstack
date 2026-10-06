@@ -5,7 +5,7 @@
 // doesn't change within a session, and every page could otherwise trigger
 // its own DescribeRegions call.
 import { DescribeRegionsCommand } from "@aws-sdk/client-ec2";
-import { getEC2Client } from "$lib/aws-client";
+import { getEC2Client } from "#lib/aws-client.ts";
 
 let cache: string[] | null = null;
 let inflight: Promise<string[]> | null = null;

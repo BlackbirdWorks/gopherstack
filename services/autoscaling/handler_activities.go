@@ -3,6 +3,7 @@ package autoscaling
 import (
 	"encoding/xml"
 	"net/url"
+	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
@@ -14,6 +15,12 @@ func (h *Handler) handleDescribeScalingActivities(vals url.Values) (any, error) 
 	activities, err := h.Backend.DescribeScalingActivities(groupName, statuses)
 	if err != nil {
 		return nil, err
+	}
+
+	if ids := parseMembers(vals, "ActivityIds.member"); len(ids) > 0 {
+		activities = slices.DeleteFunc(activities, func(a ScalingActivity) bool {
+			return !slices.Contains(ids, a.ActivityID)
+		})
 	}
 
 	maxRecords := defaultActivitiesMaxRecords

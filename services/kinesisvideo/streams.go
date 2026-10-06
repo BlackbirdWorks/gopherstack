@@ -3,16 +3,10 @@ package kinesisvideo
 import (
 	"fmt"
 	"maps"
-	"sort"
-	"strings"
 	"time"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
-// CreateStream creates a new Kinesis video stream. New streams become ACTIVE
-// immediately -- see PARITY.md for the CREATING/UPDATING/DELETING transient
-// states this backend deliberately does not model.
+// CreateStream creates a stream in CREATING; it settles to ACTIVE after transitionDelay.
 func (b *InMemoryBackend) CreateStream(
 	accountID, region, name, deviceName, mediaType, kmsKeyID, defaultStorageTier string,
 	dataRetentionInHours int32,
@@ -33,6 +27,8 @@ func (b *InMemoryBackend) CreateStream(
 	b.mu.Lock("CreateStream")
 	defer b.mu.Unlock()
 
+	b.sweepLocked(time.Now())
+
 	if b.streams.Has(name) {
 		return nil, ErrStreamAlreadyExists
 	}
@@ -45,7 +41,8 @@ func (b *InMemoryBackend) CreateStream(
 	s := &Stream{
 		Name:                 name,
 		ARN:                  streamARN(region, accountID, name, now.UnixMilli()),
-		Status:               statusActive,
+		Status:               statusCreating,
+		PendingUntil:         now.Add(transitionDelay),
 		Version:              newVersion(),
 		CreationTime:         now,
 		DeviceName:           deviceName,
@@ -63,8 +60,10 @@ func (b *InMemoryBackend) CreateStream(
 
 // DescribeStream returns the most current information about a stream.
 func (b *InMemoryBackend) DescribeStream(name, streamARN string) (*Stream, error) {
-	b.mu.RLock("DescribeStream")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeStream")
+	defer b.mu.Unlock()
+
+	b.sweepLocked(time.Now())
 
 	s, err := b.resolveStreamLocked(name, streamARN)
 	if err != nil {
@@ -80,34 +79,28 @@ func (b *InMemoryBackend) ListStreams(
 	maxResults int,
 	condition *StreamNameCondition,
 ) ([]*Stream, string, error) {
-	b.mu.RLock("ListStreams")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListStreams")
+	defer b.mu.Unlock()
 
-	all := b.streams.All()
+	b.sweepLocked(time.Now())
 
-	matched := make([]*Stream, 0, len(all))
-
-	for _, s := range all {
-		if condition != nil && condition.ComparisonOperator == comparisonOperatorBeginsWith {
-			if !strings.HasPrefix(s.Name, condition.ComparisonValue) {
-				continue
-			}
-		}
-
-		matched = append(matched, s.clone())
+	var op, value string
+	if condition != nil {
+		op, value = condition.ComparisonOperator, condition.ComparisonValue
 	}
 
-	sort.Slice(matched, func(i, j int) bool { return matched[i].Name < matched[j].Name })
+	data, next := listByName(b.streams.All(), func(s *Stream) string { return s.Name }, (*Stream).clone,
+		op, value, nextToken, maxResults, defaultListStreamsLimit)
 
-	p := page.New(matched, nextToken, maxResults, defaultListLimit)
-
-	return p.Data, p.Next, nil
+	return data, next, nil
 }
 
 // UpdateStream updates a stream's metadata under optimistic-lock (CurrentVersion).
 func (b *InMemoryBackend) UpdateStream(name, streamARN, currentVersion, deviceName, mediaType string) error {
 	b.mu.Lock("UpdateStream")
 	defer b.mu.Unlock()
+
+	b.sweepLocked(time.Now())
 
 	s, err := b.resolveStreamLocked(name, streamARN)
 	if err != nil {
@@ -117,6 +110,8 @@ func (b *InMemoryBackend) UpdateStream(name, streamARN, currentVersion, deviceNa
 	if s.Version != currentVersion {
 		return ErrVersionMismatch
 	}
+
+	s.markUpdating(time.Now().UTC())
 
 	if deviceName != "" {
 		s.DeviceName = deviceName
@@ -131,10 +126,12 @@ func (b *InMemoryBackend) UpdateStream(name, streamARN, currentVersion, deviceNa
 	return nil
 }
 
-// DeleteStream deletes a stream under optimistic-lock (CurrentVersion, when supplied).
+// DeleteStream marks a stream DELETING under optimistic-lock (CurrentVersion, when supplied).
 func (b *InMemoryBackend) DeleteStream(streamARN, currentVersion string) error {
 	b.mu.Lock("DeleteStream")
 	defer b.mu.Unlock()
+
+	b.sweepLocked(time.Now())
 
 	s, err := b.resolveStreamLocked("", streamARN)
 	if err != nil {
@@ -145,7 +142,10 @@ func (b *InMemoryBackend) DeleteStream(streamARN, currentVersion string) error {
 		return ErrVersionMismatch
 	}
 
-	b.streams.Delete(s.Name)
+	if s.Status != statusDeleting {
+		s.Status = statusDeleting
+		s.PendingUntil = time.Now().UTC().Add(transitionDelay)
+	}
 
 	return nil
 }
@@ -157,6 +157,8 @@ func (b *InMemoryBackend) UpdateDataRetention(
 ) error {
 	b.mu.Lock("UpdateDataRetention")
 	defer b.mu.Unlock()
+
+	b.sweepLocked(time.Now())
 
 	s, err := b.resolveStreamLocked(name, streamARN)
 	if err != nil {
@@ -183,6 +185,7 @@ func (b *InMemoryBackend) UpdateDataRetention(
 	}
 
 	s.DataRetentionInHours = next
+	s.markUpdating(time.Now().UTC())
 	s.Version = newVersion()
 
 	return nil
@@ -193,8 +196,10 @@ func (b *InMemoryBackend) UpdateDataRetention(
 // for this backend -- see PARITY.md -- so the endpoint is wire-accurate but
 // not backed by a functioning media data plane.
 func (b *InMemoryBackend) GetDataEndpoint(name, streamARN, apiName, region string) (string, error) {
-	b.mu.RLock("GetDataEndpoint")
-	defer b.mu.RUnlock()
+	b.mu.Lock("GetDataEndpoint")
+	defer b.mu.Unlock()
+
+	b.sweepLocked(time.Now())
 
 	s, err := b.resolveStreamLocked(name, streamARN)
 	if err != nil {
@@ -206,8 +211,10 @@ func (b *InMemoryBackend) GetDataEndpoint(name, streamARN, apiName, region strin
 
 // DescribeImageGenerationConfiguration returns a stream's image generation config.
 func (b *InMemoryBackend) DescribeImageGenerationConfiguration(name, streamARN string) (*ImageGenerationConfig, error) {
-	b.mu.RLock("DescribeImageGenerationConfiguration")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeImageGenerationConfiguration")
+	defer b.mu.Unlock()
+
+	b.sweepLocked(time.Now())
 
 	s, err := b.resolveStreamLocked(name, streamARN)
 	if err != nil {
@@ -222,6 +229,8 @@ func (b *InMemoryBackend) UpdateImageGenerationConfiguration(name, streamARN str
 	b.mu.Lock("UpdateImageGenerationConfiguration")
 	defer b.mu.Unlock()
 
+	b.sweepLocked(time.Now())
+
 	s, err := b.resolveStreamLocked(name, streamARN)
 	if err != nil {
 		return err
@@ -234,8 +243,10 @@ func (b *InMemoryBackend) UpdateImageGenerationConfiguration(name, streamARN str
 
 // DescribeNotificationConfiguration returns a stream's notification config.
 func (b *InMemoryBackend) DescribeNotificationConfiguration(name, streamARN string) (*NotificationConfig, error) {
-	b.mu.RLock("DescribeNotificationConfiguration")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeNotificationConfiguration")
+	defer b.mu.Unlock()
+
+	b.sweepLocked(time.Now())
 
 	s, err := b.resolveStreamLocked(name, streamARN)
 	if err != nil {
@@ -249,6 +260,8 @@ func (b *InMemoryBackend) DescribeNotificationConfiguration(name, streamARN stri
 func (b *InMemoryBackend) UpdateNotificationConfiguration(name, streamARN string, cfg *NotificationConfig) error {
 	b.mu.Lock("UpdateNotificationConfiguration")
 	defer b.mu.Unlock()
+
+	b.sweepLocked(time.Now())
 
 	s, err := b.resolveStreamLocked(name, streamARN)
 	if err != nil {

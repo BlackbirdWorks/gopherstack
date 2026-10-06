@@ -1,6 +1,9 @@
 package kinesisvideo
 
-import "maps"
+import (
+	"maps"
+	"time"
+)
 
 // TagStream adds or replaces tags on a stream.
 func (b *InMemoryBackend) TagStream(name, streamARN string, tags map[string]string) error {
@@ -10,6 +13,8 @@ func (b *InMemoryBackend) TagStream(name, streamARN string, tags map[string]stri
 
 	b.mu.Lock("TagStream")
 	defer b.mu.Unlock()
+
+	b.sweepLocked(time.Now())
 
 	s, err := b.resolveStreamLocked(name, streamARN)
 	if err != nil {
@@ -30,6 +35,8 @@ func (b *InMemoryBackend) UntagStream(name, streamARN string, tagKeys []string) 
 	b.mu.Lock("UntagStream")
 	defer b.mu.Unlock()
 
+	b.sweepLocked(time.Now())
+
 	s, err := b.resolveStreamLocked(name, streamARN)
 	if err != nil {
 		return err
@@ -44,8 +51,10 @@ func (b *InMemoryBackend) UntagStream(name, streamARN string, tagKeys []string) 
 
 // ListTagsForStream returns all tags on a stream.
 func (b *InMemoryBackend) ListTagsForStream(name, streamARN string) (map[string]string, error) {
-	b.mu.RLock("ListTagsForStream")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListTagsForStream")
+	defer b.mu.Unlock()
+
+	b.sweepLocked(time.Now())
 
 	s, err := b.resolveStreamLocked(name, streamARN)
 	if err != nil {
@@ -67,6 +76,8 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
+	b.sweepLocked(time.Now())
+
 	c, err := b.resolveChannelLocked("", resourceARN)
 	if err != nil {
 		return err
@@ -86,6 +97,8 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
+	b.sweepLocked(time.Now())
+
 	c, err := b.resolveChannelLocked("", resourceARN)
 	if err != nil {
 		return err
@@ -100,8 +113,10 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 
 // ListTagsForResource returns all tags on a signaling channel.
 func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]string, error) {
-	b.mu.RLock("ListTagsForResource")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListTagsForResource")
+	defer b.mu.Unlock()
+
+	b.sweepLocked(time.Now())
 
 	c, err := b.resolveChannelLocked("", resourceARN)
 	if err != nil {

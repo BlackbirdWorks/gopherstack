@@ -55,9 +55,10 @@ type inferenceProfileModelSourceInput struct {
 }
 
 type createInferenceProfileInput struct {
-	InferenceProfileName string                            `json:"inferenceProfileName"`
 	ModelSource          *inferenceProfileModelSourceInput `json:"modelSource"`
+	InferenceProfileName string                            `json:"inferenceProfileName"`
 	Description          string                            `json:"description,omitempty"`
+	ClientRequestToken   string                            `json:"clientRequestToken,omitempty"`
 	Tags                 []Tag                             `json:"tags,omitempty"`
 }
 
@@ -80,11 +81,12 @@ func (h *Handler) handleCreateInferenceProfile(c *echo.Context, body []byte) err
 		modelSource = in.ModelSource.CopyFrom
 	}
 
-	profile, opErr := h.Backend.CreateInferenceProfile(
-		in.InferenceProfileName,
-		in.Description,
-		modelSource,
-		in.Tags,
+	profile, opErr := idemCreate(
+		h.idem, "CreateInferenceProfile", in.ClientRequestToken, idemFingerprint(in), ErrAlreadyExists,
+		func(p *InferenceProfile) string { return p.InferenceProfileArn }, h.Backend.GetInferenceProfile,
+		func() (*InferenceProfile, error) {
+			return h.Backend.CreateInferenceProfile(in.InferenceProfileName, in.Description, modelSource, in.Tags)
+		},
 	)
 	if opErr != nil {
 		return h.writeError(c, opErr)
@@ -149,7 +151,7 @@ type listInferenceProfilesOutput struct {
 
 func (h *Handler) handleListInferenceProfiles(c *echo.Context) error {
 	q := c.Request().URL.Query()
-	profiles, outToken := h.Backend.ListInferenceProfiles(q.Get("nextToken"), q.Get("type"))
+	profiles, outToken := h.Backend.ListInferenceProfiles(q.Get("nextToken"), q.Get("type"), queryMaxResults(q))
 	summaries := make([]inferenceProfileOutput, 0, len(profiles))
 
 	for _, p := range profiles {

@@ -15,6 +15,14 @@ import (
 func (b *InMemoryBackend) RecordAsyncInvocation(
 	endpointName, requestedID, input, outputLocation, filename string,
 ) *AsyncInvocation {
+	return b.RecordAsyncInvocationWithExtension(endpointName, requestedID, input, outputLocation, filename, "")
+}
+
+// RecordAsyncInvocationWithExtension is RecordAsyncInvocation plus the
+// S3OutputPathExtension, appended to the synthesised output path.
+func (b *InMemoryBackend) RecordAsyncInvocationWithExtension(
+	endpointName, requestedID, input, outputLocation, filename, pathExtension string,
+) *AsyncInvocation {
 	b.mu.Lock("RecordAsyncInvocation")
 	defer b.mu.Unlock()
 
@@ -32,8 +40,13 @@ func (b *InMemoryBackend) RecordAsyncInvocation(
 			filename = "output"
 		}
 
-		loc = fmt.Sprintf("s3://sagemaker-runtime-mock/%s/%s/%s", endpointName, inferenceID, filename)
-		failureLoc = fmt.Sprintf("s3://sagemaker-runtime-mock/%s/%s/failure", endpointName, inferenceID)
+		base := "s3://sagemaker-runtime-mock/" + endpointName
+		if ext := strings.Trim(pathExtension, "/"); ext != "" {
+			base += "/" + ext
+		}
+
+		loc = fmt.Sprintf("%s/%s/%s", base, inferenceID, filename)
+		failureLoc = fmt.Sprintf("%s/%s/failure", base, inferenceID)
 	} else {
 		failureLoc = deriveFailureLocation(loc)
 	}

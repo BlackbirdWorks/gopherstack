@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
-	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
-	import { multiRegionList } from '$lib/multi-region';
-	import RegionChip from '$lib/components/RegionChip.svelte';
-	import WriteRegionHint from '$lib/components/WriteRegionHint.svelte';
+	import { onRegionChange, regionalClient } from '#lib/region-effect.svelte.ts';
+	import { multiRegionList } from '#lib/multi-region.ts';
+	import RegionChip from '#lib/components/RegionChip.svelte';
+	import WriteRegionHint from '#lib/components/WriteRegionHint.svelte';
 	import {
 		Globe,
 		Plus,
@@ -22,8 +22,8 @@
 		Check,
 	} from 'lucide-svelte';
 	import { toast } from 'svelte-sonner';
-	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { getAPIGatewayV2Client } from '$lib/aws-client';
+	import { confirmDestructive } from '#lib/confirm-dialog.ts';
+	import { getAPIGatewayV2Client } from '#lib/aws-client.ts';
 	import {
 		CreateApiCommand,
 		DeleteApiCommand,

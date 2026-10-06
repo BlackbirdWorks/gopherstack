@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -429,20 +430,20 @@ func (b *InMemoryBackend) CreateModelPackage(
 
 	region := getRegion(ctx, b.region)
 
-	if opts.Name == "" {
-		return nil, fmt.Errorf("%w: ModelPackageName is required", ErrValidation)
+	name, groupName, mpARN, version, err := b.resolveModelPackageIdentityLocked(region, opts)
+	if err != nil {
+		return nil, err
 	}
 
-	mpARN := arn.Build("sagemaker", region, b.accountID, "model-package/"+opts.Name)
-
 	if _, ok := b.modelPackagesStore(region).Get(mpARN); ok {
-		return nil, fmt.Errorf("%w: model package %q already exists", ErrValidation, opts.Name)
+		return nil, fmt.Errorf("%w: model package %q already exists", ErrValidation, name)
 	}
 
 	mp := &ModelPackage{
-		ModelPackageName:                  opts.Name,
+		ModelPackageName:                  name,
 		ModelPackageArn:                   mpARN,
-		ModelPackageGroupName:             opts.GroupName,
+		ModelPackageGroupName:             groupName,
+		ModelPackageVersion:               version,
 		ModelPackageStatus:                "Completed",
 		ModelApprovalStatus:               opts.ApprovalStatus,
 		ModelPackageDescription:           opts.Description,
@@ -472,9 +473,49 @@ func (b *InMemoryBackend) CreateModelPackage(
 		},
 	}
 	b.modelPackagesStore(region).Put(mp)
-	b.modelPackageARNIndexStore(region)[opts.Name] = mpARN
+
+	if version == 0 {
+		b.modelPackageARNIndexStore(region)[name] = mpARN
+	}
 
 	return cloneModelPackage(mp), nil
+}
+
+// resolveModelPackageIdentityLocked returns name, group, ARN and version for a new package; with only
+// ModelPackageGroupName it is versioned as model-package/<group>/<n>, n one past the group's highest.
+func (b *InMemoryBackend) resolveModelPackageIdentityLocked(
+	region string, opts CreateModelPackageOptions,
+) (string, string, string, int32, error) {
+	groupName := opts.GroupName
+
+	if opts.Name != "" {
+		return opts.Name, groupName, arn.Build("sagemaker", region, b.accountID, "model-package/"+opts.Name), 0, nil
+	}
+
+	if groupName == "" {
+		return "", "", "", 0, fmt.Errorf("%w: ModelPackageName is required", ErrValidation)
+	}
+
+	if resolved, ok := b.modelPackageGroupARNIndexStore(region)[groupName]; ok {
+		groupName = resolved
+	}
+
+	if _, ok := b.modelPackageGroupsStore(region).Get(groupName); !ok {
+		return "", "", "", 0, fmt.Errorf("%w: model package group %q not found", ErrValidation, groupName)
+	}
+
+	var highest int32
+
+	for _, mp := range b.modelPackagesStore(region).All() {
+		if mp.ModelPackageGroupName == groupName && mp.ModelPackageVersion > highest {
+			highest = mp.ModelPackageVersion
+		}
+	}
+
+	version := highest + 1
+	mpARN := arn.Build("sagemaker", region, b.accountID, "model-package/"+groupName+"/"+strconv.Itoa(int(version)))
+
+	return groupName, groupName, mpARN, version, nil
 }
 
 // DescribeModelPackage returns a model package by name or ARN. includedData

@@ -7,19 +7,29 @@ import (
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
-type caConfigSubjectInput struct {
-	CommonName         string `json:"CommonName"`
-	Country            string `json:"Country"`
-	Organization       string `json:"Organization"`
-	OrganizationalUnit string `json:"OrganizationalUnit"`
-	State              string `json:"State"`
-	Locality           string `json:"Locality"`
+// accessMethodWire mirrors types.AccessMethod.
+type accessMethodWire struct {
+	AccessMethodType       string `json:"AccessMethodType,omitempty"`
+	CustomObjectIdentifier string `json:"CustomObjectIdentifier,omitempty"`
+}
+
+// accessDescriptionWire mirrors types.AccessDescription.
+type accessDescriptionWire struct {
+	AccessMethod   *accessMethodWire `json:"AccessMethod,omitempty"`
+	AccessLocation *generalNameWire  `json:"AccessLocation,omitempty"`
+}
+
+// csrExtensionsWire mirrors types.CsrExtensions.
+type csrExtensionsWire struct {
+	KeyUsage                 *keyUsageWire           `json:"KeyUsage,omitempty"`
+	SubjectInformationAccess []accessDescriptionWire `json:"SubjectInformationAccess,omitempty"`
 }
 
 type caConfigInput struct {
-	Subject          caConfigSubjectInput `json:"Subject"`
-	KeyAlgorithm     string               `json:"KeyAlgorithm"`
-	SigningAlgorithm string               `json:"SigningAlgorithm"`
+	CsrExtensions    *csrExtensionsWire `json:"CsrExtensions,omitempty"`
+	KeyAlgorithm     string             `json:"KeyAlgorithm"`
+	SigningAlgorithm string             `json:"SigningAlgorithm"`
+	Subject          asn1SubjectWire    `json:"Subject"`
 }
 
 // crlDistributionPointExtConfigWire mirrors types.CrlDistributionPointExtensionConfiguration.
@@ -140,23 +150,14 @@ type describeCertificateAuthorityInput struct {
 	CertificateAuthorityArn string `json:"CertificateAuthorityArn"`
 }
 
-type caConfigSubjectOutput struct {
-	CommonName         string `json:"CommonName,omitempty"`
-	Country            string `json:"Country,omitempty"`
-	Organization       string `json:"Organization,omitempty"`
-	OrganizationalUnit string `json:"OrganizationalUnit,omitempty"`
-	State              string `json:"State,omitempty"`
-	Locality           string `json:"Locality,omitempty"`
-}
-
 type caConfigOutput struct {
-	Subject          caConfigSubjectOutput `json:"Subject"`
-	KeyAlgorithm     string                `json:"KeyAlgorithm"`
-	SigningAlgorithm string                `json:"SigningAlgorithm"`
+	CsrExtensions    *csrExtensionsWire `json:"CsrExtensions,omitempty"`
+	KeyAlgorithm     string             `json:"KeyAlgorithm"`
+	SigningAlgorithm string             `json:"SigningAlgorithm"`
+	Subject          asn1SubjectWire    `json:"Subject"`
 }
 
 type certAuthorityOutput struct {
-	CertificateAuthorityConfiguration caConfigOutput        `json:"CertificateAuthorityConfiguration"`
 	RevocationConfiguration           *revocationConfigWire `json:"RevocationConfiguration,omitempty"`
 	Arn                               string                `json:"Arn"`
 	OwnerAccount                      string                `json:"OwnerAccount,omitempty"`
@@ -165,6 +166,7 @@ type certAuthorityOutput struct {
 	Serial                            string                `json:"Serial,omitempty"`
 	KeyStorageSecurityStandard        string                `json:"KeyStorageSecurityStandard,omitempty"`
 	UsageMode                         string                `json:"UsageMode,omitempty"`
+	CertificateAuthorityConfiguration caConfigOutput        `json:"CertificateAuthorityConfiguration"`
 	CreatedAt                         int64                 `json:"CreatedAt"`
 	NotBefore                         int64                 `json:"NotBefore,omitempty"`
 	NotAfter                          int64                 `json:"NotAfter,omitempty"`
@@ -264,15 +266,14 @@ func (h *Handler) jsonCreateCA(ctx context.Context, body []byte) (any, error) {
 		return nil, ErrInvalidArgs
 	}
 
+	csrExt, err := input.CertificateAuthorityConfiguration.CsrExtensions.toModel()
+	if err != nil {
+		return nil, err
+	}
+
 	cfg := CertificateAuthorityConfiguration{
-		Subject: CertificateAuthoritySubject{
-			CommonName:         input.CertificateAuthorityConfiguration.Subject.CommonName,
-			Country:            input.CertificateAuthorityConfiguration.Subject.Country,
-			Organization:       input.CertificateAuthorityConfiguration.Subject.Organization,
-			OrganizationalUnit: input.CertificateAuthorityConfiguration.Subject.OrganizationalUnit,
-			State:              input.CertificateAuthorityConfiguration.Subject.State,
-			Locality:           input.CertificateAuthorityConfiguration.Subject.Locality,
-		},
+		Subject:          decodeCASubject(&input.CertificateAuthorityConfiguration.Subject),
+		CsrExtensions:    csrExt,
 		KeyAlgorithm:     input.CertificateAuthorityConfiguration.KeyAlgorithm,
 		SigningAlgorithm: input.CertificateAuthorityConfiguration.SigningAlgorithm,
 	}
@@ -454,14 +455,8 @@ func toCAOutput(ca *CertificateAuthority) certAuthorityOutput {
 		CreatedAt:                  ca.CreatedAt.Unix(),
 		RevocationConfiguration:    revocationConfigFromModel(ca.RevocationConfiguration),
 		CertificateAuthorityConfiguration: caConfigOutput{
-			Subject: caConfigSubjectOutput{
-				CommonName:         ca.CertificateAuthorityConfiguration.Subject.CommonName,
-				Country:            ca.CertificateAuthorityConfiguration.Subject.Country,
-				Organization:       ca.CertificateAuthorityConfiguration.Subject.Organization,
-				OrganizationalUnit: ca.CertificateAuthorityConfiguration.Subject.OrganizationalUnit,
-				State:              ca.CertificateAuthorityConfiguration.Subject.State,
-				Locality:           ca.CertificateAuthorityConfiguration.Subject.Locality,
-			},
+			Subject:          *subjectToWire(ca.CertificateAuthorityConfiguration.Subject.passthrough()),
+			CsrExtensions:    csrExtensionsToWire(ca.CertificateAuthorityConfiguration.CsrExtensions),
 			KeyAlgorithm:     ca.CertificateAuthorityConfiguration.KeyAlgorithm,
 			SigningAlgorithm: ca.CertificateAuthorityConfiguration.SigningAlgorithm,
 		},

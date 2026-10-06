@@ -101,16 +101,21 @@ func (h *Handler) handleGetDelegatedAdminAccount(c *echo.Context) error {
 }
 
 func (h *Handler) handleListDelegatedAdminAccounts(c *echo.Context) error {
-	accounts, err := h.Backend.ListDelegatedAdminAccounts()
+	pr, reqErr := readPageRequest(c)
+	if reqErr != nil {
+		return h.mapError(c, reqErr)
+	}
+
+	all, err := h.Backend.ListDelegatedAdminAccounts()
 	if err != nil {
 		return h.mapError(c, err)
 	}
 
-	if accounts == nil {
-		accounts = []*DelegatedAdminAccount{}
-	}
+	accounts, next := pageItems(
+		all, func(a *DelegatedAdminAccount) string { return a.AccountID }, pr.MaxResults, pr.NextToken,
+	)
 
-	return c.JSON(http.StatusOK, map[string]any{"delegatedAdminAccounts": accounts})
+	return c.JSON(http.StatusOK, withPageToken(map[string]any{"delegatedAdminAccounts": accounts}, next))
 }
 
 func (h *Handler) handleDescribeOrganizationConfiguration(c *echo.Context) error {

@@ -13,6 +13,14 @@ import (
 func (b *InMemoryBackend) RegisterContainerInstance(
 	cluster, ec2InstanceID string,
 ) (*ContainerInstance, error) {
+	return b.RegisterContainerInstanceWithDetails(cluster, ec2InstanceID, ContainerInstanceDetails{})
+}
+
+// RegisterContainerInstanceWithDetails registers an instance and applies its attributes, tags and version info.
+func (b *InMemoryBackend) RegisterContainerInstanceWithDetails(
+	cluster, ec2InstanceID string,
+	details ContainerInstanceDetails,
+) (*ContainerInstance, error) {
 	clusterName := clusterKey(b.resolveCluster(cluster))
 
 	b.mu.Lock("RegisterContainerInstance")
@@ -40,13 +48,37 @@ func (b *InMemoryBackend) RegisterContainerInstance(
 		Status:               statusActive,
 		AgentConnected:       true,
 		Version:              1,
+		VersionInfo:          details.VersionInfo,
 	}
 
 	b.containerInstances.Put(ci)
 
-	cp := *ci
+	if len(details.Tags) > 0 {
+		b.setResourceTagsLocked(instanceArn, details.Tags)
+	}
+
+	b.putInstanceAttributesLocked(clusterName, instanceArn, details.Attributes)
+
+	cp := b.enrichContainerInstance(ci, clusterName)
 
 	return &cp, nil
+}
+
+func (b *InMemoryBackend) putInstanceAttributesLocked(clusterName, instanceArn string, attrs []Attribute) {
+	if len(attrs) == 0 {
+		return
+	}
+
+	if b.attributes[clusterName] == nil {
+		b.attributes[clusterName] = make(map[string]*Attribute)
+	}
+
+	for _, attr := range attrs {
+		a := attr
+		a.TargetID = instanceArn
+		a.TargetType = attributeTargetContainerInstance
+		b.attributes[clusterName][attributeKey(a.Name, a.TargetID)] = &a
+	}
 }
 
 // DeregisterContainerInstance removes a container instance from a cluster.
@@ -151,6 +183,7 @@ func (b *InMemoryBackend) enrichContainerInstance(
 	clusterName string,
 ) ContainerInstance {
 	cp := *ci
+	cp.Attributes = b.instanceAttributesLocked(clusterName, ci.ContainerInstanceArn)
 
 	running := 0
 	pending := 0
@@ -458,4 +491,20 @@ func (b *InMemoryBackend) activeContainerInstanceCountLocked(clusterName string)
 	}
 
 	return n
+}
+
+const attributeTargetContainerInstance = "container-instance"
+
+func (b *InMemoryBackend) instanceAttributesLocked(clusterName, instanceArn string) []Attribute {
+	var out []Attribute
+
+	for _, a := range b.attributes[clusterName] {
+		if a.TargetID == instanceArn {
+			out = append(out, *a)
+		}
+	}
+
+	slices.SortFunc(out, func(x, y Attribute) int { return cmp.Compare(x.Name, y.Name) })
+
+	return out
 }

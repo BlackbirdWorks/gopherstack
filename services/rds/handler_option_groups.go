@@ -206,6 +206,8 @@ func (h *Handler) handleCopyOptionGroup(vals url.Values) (any, error) {
 		return nil, err
 	}
 
+	h.applyCreateTags(vals, og.OptionGroupArn)
+
 	return &copyOptionGroupResponse{
 		Xmlns:       rdsXMLNS,
 		OptionGroup: toXMLOptionGroup(og),

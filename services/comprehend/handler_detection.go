@@ -291,7 +291,9 @@ func (h *Handler) detectPIIEntities(input map[string]any) (map[string]any, error
 	entities := make([]map[string]any, 0)
 	for _, pattern := range patterns {
 		for _, match := range pattern.expression.FindAllString(text, -1) {
-			entities = append(entities, matchResult(text, match, pattern.kind))
+			entity := matchResult(text, match, pattern.kind)
+			delete(entity, fieldText)
+			entities = append(entities, entity)
 		}
 	}
 

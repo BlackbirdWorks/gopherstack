@@ -87,7 +87,7 @@ func TestFilterSuppression(t *testing.T) {
 				require.NoError(t, err)
 				require.Equal(t, "ACTIVE", findingStatusesByARN(t, b)[f.FindingArn])
 
-				_, err = b.UpdateFilter(created.Arn, "SUPPRESS", "", "", nil)
+				_, err = b.UpdateFilter(created.Arn, "", "SUPPRESS", "", "", nil)
 				require.NoError(t, err)
 
 				assert.Equal(t, "SUPPRESSED", findingStatusesByARN(t, b)[f.FindingArn])

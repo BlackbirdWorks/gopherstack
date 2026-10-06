@@ -529,6 +529,8 @@ func (r DomainAssociationResult) ResourceID() string {
 // non-nil value to take effect.
 type DistributionTenantUpdate struct {
 	Customizations    map[string]any
+	Parameters        map[string]string
+	DistributionID    string
 	Enabled           *bool
 	ConnectionGroupID string
 	Domains           []string

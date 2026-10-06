@@ -21,6 +21,17 @@ func (b *InMemoryBackend) PutOrganizationConfigRule(
 	managed *OrganizationManagedRuleMetadata,
 	custom *OrganizationCustomRuleMetadata,
 ) (string, error) {
+	return b.PutOrganizationConfigRuleWithPolicy(name, excludedAccounts, managed, custom, nil)
+}
+
+// PutOrganizationConfigRuleWithPolicy is PutOrganizationConfigRule plus custom-policy metadata.
+func (b *InMemoryBackend) PutOrganizationConfigRuleWithPolicy(
+	name string,
+	excludedAccounts []string,
+	managed *OrganizationManagedRuleMetadata,
+	custom *OrganizationCustomRuleMetadata,
+	customPolicy *OrganizationCustomPolicyRuleMetadata,
+) (string, error) {
 	if name == "" {
 		return "", fmt.Errorf("%w: OrganizationConfigRuleName is required", ErrValidation)
 	}
@@ -36,6 +47,8 @@ func (b *InMemoryBackend) PutOrganizationConfigRule(
 		ExcludedAccounts:                excludedAccounts,
 		OrganizationManagedRuleMetadata: managed,
 		OrganizationCustomRuleMetadata:  custom,
+
+		CustomPolicy: customPolicy,
 	})
 
 	return arnStr, nil
@@ -80,16 +93,38 @@ func (b *InMemoryBackend) DeleteOrganizationConfigRule(name string) error {
 
 // PutOrganizationConformancePack creates or updates an organization conformance pack.
 func (b *InMemoryBackend) PutOrganizationConformancePack(name string) error {
-	if name == "" {
-		return fmt.Errorf("%w: OrganizationConformancePackName is required", ErrValidation)
+	_, err := b.PutOrganizationConformancePackFull(
+		&OrganizationConformancePack{OrganizationConformancePackName: name}, nil)
+
+	return err
+}
+
+// PutOrganizationConformancePackFull stores pack (ARN and update time are assigned here) and returns its ARN.
+func (b *InMemoryBackend) PutOrganizationConformancePackFull(
+	pack *OrganizationConformancePack, tags []Tag,
+) (string, error) {
+	if pack.OrganizationConformancePackName == "" {
+		return "", fmt.Errorf("%w: OrganizationConformancePackName is required", ErrValidation)
 	}
 
 	b.mu.Lock("PutOrganizationConformancePack")
 	defer b.mu.Unlock()
 
-	b.orgConformancePacks.Put(&OrganizationConformancePack{OrganizationConformancePackName: name})
+	if existing, ok := b.orgConformancePacks.Get(pack.OrganizationConformancePackName); ok {
+		pack.OrganizationConformancePackArn = existing.OrganizationConformancePackArn
+	} else {
+		b.orgPackCounter++
+		pack.OrganizationConformancePackArn = fmt.Sprintf(
+			"arn:aws:config:%s:%s:organization-conformance-pack/%s-%08d",
+			b.region, b.accountID, pack.OrganizationConformancePackName, b.orgPackCounter,
+		)
+	}
 
-	return nil
+	pack.LastUpdateTime = float64(b.now().Unix())
+	b.orgConformancePacks.Put(pack)
+	b.setResourceTagsLocked(pack.OrganizationConformancePackArn, tags)
+
+	return pack.OrganizationConformancePackArn, nil
 }
 
 // DeleteOrganizationConformancePack deletes an organization conformance pack by name.
@@ -305,6 +340,10 @@ func (b *InMemoryBackend) DescribeOrganizationConformancePackStatuses(
 func (b *InMemoryBackend) GetOrganizationCustomRulePolicy(ruleName string) string {
 	b.mu.RLock("GetOrganizationCustomRulePolicy")
 	defer b.mu.RUnlock()
+
+	if r, ok := b.orgConfigRules.Get(ruleName); ok && r.CustomPolicy != nil {
+		return r.CustomPolicy.PolicyText
+	}
 
 	return b.orgCustomRulePolicies[ruleName]
 }

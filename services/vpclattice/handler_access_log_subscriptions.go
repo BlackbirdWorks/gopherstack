@@ -20,7 +20,11 @@ func (h *Handler) handleCreateALS(c *echo.Context, body map[string]any) error {
 	ctx := c.Request().Context()
 	tags := extractTags(body)
 
-	als, err := h.Backend.CreateAccessLogSubscription(ctx, resourceID, destArn, logType, tags)
+	als, err := idemCreate(h, "CreateAccessLogSubscription", "", body,
+		func(a *AccessLogSubscription) string { return a.ID }, h.Backend.GetAccessLogSubscription,
+		func() (*AccessLogSubscription, error) {
+			return h.Backend.CreateAccessLogSubscription(ctx, resourceID, destArn, logType, tags)
+		})
 	if err != nil {
 		return h.handleError(c, err)
 	}

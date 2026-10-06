@@ -68,10 +68,14 @@ func (h *Handler) handleCopyDBClusterSnapshot(vals url.Values) (any, error) {
 	sourceSnapshotID := vals.Get("SourceDBClusterSnapshotIdentifier")
 	targetSnapshotID := vals.Get("TargetDBClusterSnapshotIdentifier")
 	copyTags := vals.Get("CopyTags") == formTrue
-	snap, err := h.Backend.CopyDBClusterSnapshot(sourceSnapshotID, targetSnapshotID, copyTags)
+	snap, err := h.Backend.CopyDBClusterSnapshotWithKMS(
+		sourceSnapshotID, targetSnapshotID, copyTags, vals.Get("KmsKeyId"),
+	)
 	if err != nil {
 		return nil, err
 	}
+
+	h.applyCreateTags(vals, snap.DBClusterSnapshotArn)
 
 	return &copyDBClusterSnapshotResponse{
 		Xmlns:             rdsXMLNS,
@@ -94,6 +98,7 @@ func toXMLClusterSnapshot(s *DBClusterSnapshot) xmlDBClusterSnapshot {
 		EngineVersion:               s.EngineVersion,
 		Status:                      s.Status,
 		SnapshotType:                s.SnapshotType,
+		KmsKeyID:                    s.KmsKeyID,
 		SnapshotCreateTime:          snapshotCreateTime,
 		PercentProgress:             s.PercentProgress,
 		StorageEncrypted:            s.StorageEncrypted,
@@ -110,6 +115,7 @@ type xmlDBClusterSnapshot struct {
 	EngineVersion               string `xml:"EngineVersion,omitempty"`
 	Status                      string `xml:"Status"`
 	SnapshotType                string `xml:"SnapshotType,omitempty"`
+	KmsKeyID                    string `xml:"KmsKeyId,omitempty"`
 	SnapshotCreateTime          string `xml:"SnapshotCreateTime,omitempty"`
 	SourceDBClusterSnapshotArn  string `xml:"SourceDBClusterSnapshotArn,omitempty"`
 	PercentProgress             int    `xml:"PercentProgress,omitempty"`

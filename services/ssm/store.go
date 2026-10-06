@@ -59,6 +59,7 @@ type InMemoryBackend struct {
 	sessions                    map[string]*store.Table[Session]
 	accessRequests              map[string]*store.Table[AccessRequest]
 	patchGroupToBaseline        map[string]map[string]string
+	idempotency                 map[string]map[string]idempotencyRecord
 	tags                        map[string]map[string]*tags.Tags
 	associations                map[string]*store.Table[Association]
 	documentVersions            map[string]map[string][]DocumentVersion
@@ -125,6 +126,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		sessions:                    make(map[string]*store.Table[Session]),
 		accessRequests:              make(map[string]*store.Table[AccessRequest]),
 		patchGroupToBaseline:        make(map[string]map[string]string),
+		idempotency:                 make(map[string]map[string]idempotencyRecord),
 		opsItems:                    make(map[string]*store.Table[OpsItem]),
 		opsItemRelatedItems:         make(map[string]map[string][]OpsItemRelatedItem),
 		opsMetadata:                 make(map[string]*store.Table[OpsMetadata]),
@@ -335,6 +337,7 @@ func (b *InMemoryBackend) Reset() {
 	b.sessions = make(map[string]*store.Table[Session])
 	b.accessRequests = make(map[string]*store.Table[AccessRequest])
 	b.patchGroupToBaseline = make(map[string]map[string]string)
+	b.idempotency = make(map[string]map[string]idempotencyRecord)
 	b.opsItems = make(map[string]*store.Table[OpsItem])
 	b.opsItemRelatedItems = make(map[string]map[string][]OpsItemRelatedItem)
 	b.opsMetadata = make(map[string]*store.Table[OpsMetadata])

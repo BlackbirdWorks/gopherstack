@@ -259,6 +259,25 @@ func (b *InMemoryBackend) recordOperation(region, appName, opType string) string
 	return opID
 }
 
+// pageSlice returns the nextToken-offset page of items; limit <= 0 uses the default page size.
+func pageSlice[T any](items []T, nextToken string, limit int) ([]T, string) {
+	if limit <= 0 {
+		limit = kav2DefaultPageSize
+	}
+
+	startIdx := parseNextToken(nextToken)
+	if startIdx >= len(items) {
+		return []T{}, ""
+	}
+
+	end := startIdx + limit
+	if end >= len(items) {
+		return items[startIdx:], ""
+	}
+
+	return items[startIdx:end], strconv.Itoa(end)
+}
+
 // parseNextToken parses a pagination token (integer offset) into a slice index.
 func parseNextToken(token string) int {
 	if token == "" {

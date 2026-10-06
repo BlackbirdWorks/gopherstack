@@ -1,5 +1,10 @@
 package workspaces
 
+import (
+	"encoding/json"
+	"fmt"
+)
+
 // ModifyEndpointEncryptionMode stores the endpoint encryption mode for a
 // registered directory. Returns errDirectoryNotFound for a DirectoryId that
 // was never registered, matching real AWS (ResourceNotFoundException is in
@@ -52,9 +57,25 @@ func (b *InMemoryBackend) ModifyCertificateBasedAuthProperties(
 	return nil
 }
 
-// ModifySamlProperties stores SAML properties for a registered directory.
-// See ModifyEndpointEncryptionMode.
-func (b *InMemoryBackend) ModifySamlProperties(directoryID string, props map[string]string) error {
+// samlPropertyKey maps a DeletableSamlProperty enum value to its ds.Properties key.
+func samlPropertyKey(p string) string {
+	switch p {
+	case "SAML_PROPERTIES_USER_ACCESS_URL":
+		return "Saml_UserAccessUrl"
+	case "SAML_PROPERTIES_RELAY_STATE_PARAMETER_NAME":
+		return "Saml_RelayStateParameterName"
+	default:
+		return ""
+	}
+}
+
+// ModifySamlProperties stores SAML properties for a registered directory and
+// clears the members named in propertiesToDelete. See ModifyEndpointEncryptionMode.
+func (b *InMemoryBackend) ModifySamlProperties(
+	directoryID string,
+	props map[string]string,
+	propertiesToDelete []string,
+) error {
 	b.mu.Lock("ModifySamlProperties")
 	defer b.mu.Unlock()
 
@@ -65,6 +86,12 @@ func (b *InMemoryBackend) ModifySamlProperties(directoryID string, props map[str
 	ds, _ := b.dirSettings.Get(directoryID)
 	for k, v := range props {
 		ds.Properties["Saml_"+k] = v
+	}
+
+	for _, p := range propertiesToDelete {
+		if key := samlPropertyKey(p); key != "" {
+			delete(ds.Properties, key)
+		}
 	}
 
 	return nil
@@ -91,12 +118,9 @@ func (b *InMemoryBackend) ModifySelfservicePermissions(
 	return nil
 }
 
-// ModifyStreamingProperties stores streaming properties for a registered
-// directory. See ModifyEndpointEncryptionMode.
-func (b *InMemoryBackend) ModifyStreamingProperties(
-	directoryID string,
-	props map[string]string,
-) error {
+// ModifyStreamingProperties merges streaming properties into a registered
+// directory: set members replace, unset members keep their stored value.
+func (b *InMemoryBackend) ModifyStreamingProperties(directoryID string, props StreamingProperties) error {
 	b.mu.Lock("ModifyStreamingProperties")
 	defer b.mu.Unlock()
 
@@ -105,9 +129,34 @@ func (b *InMemoryBackend) ModifyStreamingProperties(
 	}
 
 	ds, _ := b.dirSettings.Get(directoryID)
-	for k, v := range props {
-		ds.Properties["Streaming_"+k] = v
+
+	merged := StreamingProperties{}
+	if cur := streamingPropertiesFromDS(ds); cur != nil {
+		merged = *cur
 	}
+
+	if props.StreamingExperiencePreferredProtocol != "" {
+		merged.StreamingExperiencePreferredProtocol = props.StreamingExperiencePreferredProtocol
+	}
+
+	if props.UserSettings != nil {
+		merged.UserSettings = props.UserSettings
+	}
+
+	if props.StorageConnectors != nil {
+		merged.StorageConnectors = props.StorageConnectors
+	}
+
+	if props.GlobalAccelerator != nil {
+		merged.GlobalAccelerator = props.GlobalAccelerator
+	}
+
+	raw, err := json.Marshal(merged)
+	if err != nil {
+		return fmt.Errorf("encode streaming properties: %w", err)
+	}
+
+	ds.Properties[streamingPropertiesKey] = string(raw)
 
 	return nil
 }

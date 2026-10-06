@@ -1,6 +1,7 @@
 package kafkaconnect_test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -32,7 +33,7 @@ func TestCreateCustomPlugin(t *testing.T) {
 	out, err := client.CreateCustomPlugin(t.Context(), minimalCreateCustomPluginInput("plugin-one"))
 	require.NoError(t, err)
 	assert.Contains(t, aws.ToString(out.CustomPluginArn), "custom-plugin/plugin-one/")
-	assert.Equal(t, types.CustomPluginStateActive, out.CustomPluginState)
+	assert.Equal(t, types.CustomPluginStateCreating, out.CustomPluginState)
 	assert.EqualValues(t, 1, out.Revision)
 }
 
@@ -68,7 +69,7 @@ func TestDescribeCustomPlugin(t *testing.T) {
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "describe-plugin", aws.ToString(out.Name))
-	assert.Equal(t, types.CustomPluginStateActive, out.CustomPluginState)
+	assert.Equal(t, types.CustomPluginStateCreating, out.CustomPluginState)
 	require.NotNil(t, out.LatestRevision)
 	assert.EqualValues(t, 1, out.LatestRevision.Revision)
 	require.NotNil(t, out.LatestRevision.Location)
@@ -125,13 +126,14 @@ func TestDeleteCustomPlugin(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, types.CustomPluginStateDeleting, out.CustomPluginState)
 
-	_, err = client.DescribeCustomPlugin(
-		ctx,
-		&kafkaconnectsdk.DescribeCustomPluginInput{CustomPluginArn: created.CustomPluginArn},
-	)
-	require.Error(t, err)
+	require.Eventually(t, func() bool {
+		_, descErr := client.DescribeCustomPlugin(
+			ctx,
+			&kafkaconnectsdk.DescribeCustomPluginInput{CustomPluginArn: created.CustomPluginArn},
+		)
 
-	var apiErr smithy.APIError
-	require.ErrorAs(t, err, &apiErr)
-	assert.Equal(t, "NotFoundException", apiErr.ErrorCode())
+		var apiErr smithy.APIError
+
+		return errors.As(descErr, &apiErr) && apiErr.ErrorCode() == "NotFoundException"
+	}, waitTimeout, waitTick)
 }

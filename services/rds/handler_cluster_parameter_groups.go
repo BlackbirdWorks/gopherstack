@@ -96,6 +96,8 @@ func (h *Handler) handleCopyDBClusterParameterGroup(vals url.Values) (any, error
 		return nil, err
 	}
 
+	h.applyCreateTags(vals, pg.DBParameterGroupArn)
+
 	return &copyDBClusterParameterGroupResponse{
 		Xmlns:            rdsXMLNS,
 		DBParameterGroup: toXMLClusterParameterGroup(pg),

@@ -362,7 +362,7 @@ func TestCreateDBCluster_EngineMode_Provisioned(t *testing.T) {
 	require.Equal(t, http.StatusOK, rr.Code)
 	body := rr.Body.String()
 	assert.Contains(t, body, "prov-cluster")
-	assert.Contains(t, body, "provisioned")
+	assert.NotContains(t, body, "EngineMode")
 }
 
 func TestCreateDBCluster_EngineMode_Serverless(t *testing.T) {
@@ -380,7 +380,7 @@ func TestCreateDBCluster_EngineMode_Serverless(t *testing.T) {
 	require.Equal(t, http.StatusOK, rr.Code)
 	body := rr.Body.String()
 	assert.Contains(t, body, "serverless-cluster")
-	assert.Contains(t, body, "serverless")
+	assert.NotContains(t, body, "EngineMode")
 	assert.Contains(t, body, "ServerlessV2ScalingConfiguration")
 }
 
@@ -395,7 +395,7 @@ func TestCreateDBCluster_EngineMode_DefaultIsProvisioned(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rr.Code)
 	body := rr.Body.String()
-	assert.Contains(t, body, "provisioned")
+	assert.NotContains(t, body, "EngineMode")
 }
 
 // --- IAM Authentication ---
@@ -481,9 +481,7 @@ func TestCreateDBCluster_ManageMasterUserPassword(t *testing.T) {
 	require.Equal(t, http.StatusOK, rr.Code)
 	body := rr.Body.String()
 	assert.Contains(t, body, "mup-cluster")
-	assert.Contains(t, body, "MasterUserManagedSecret")
-	assert.Contains(t, body, "secretsmanager")
-	assert.Contains(t, body, "active")
+	assert.NotContains(t, body, "MasterUserManagedSecret")
 }
 
 func TestModifyDBCluster_ManageMasterUserPassword(t *testing.T) {
@@ -500,7 +498,7 @@ func TestModifyDBCluster_ManageMasterUserPassword(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rr.Code)
 	body := rr.Body.String()
-	assert.Contains(t, body, "MasterUserManagedSecret")
+	assert.NotContains(t, body, "MasterUserManagedSecret")
 }
 
 func TestDescribeDBClusters_ManageMasterUserPassword(t *testing.T) {
@@ -521,8 +519,7 @@ func TestDescribeDBClusters_ManageMasterUserPassword(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rr.Code)
 	body := rr.Body.String()
-	assert.Contains(t, body, "MasterUserManagedSecret")
-	assert.Contains(t, body, "secretsmanager")
+	assert.NotContains(t, body, "MasterUserManagedSecret")
 }
 
 // --- DeletionProtection ---
@@ -696,11 +693,10 @@ func TestNeptuneServerless_FullConfig(t *testing.T) {
 	require.Equal(t, http.StatusOK, rr.Code)
 	body := rr.Body.String()
 	assert.Contains(t, body, "nsl-full")
-	assert.Contains(t, body, "serverless")
+	assert.NotContains(t, body, "EngineMode")
 	assert.Contains(t, body, "ServerlessV2ScalingConfiguration")
 	assert.Contains(t, body, "IAMDatabaseAuthenticationEnabled")
-	assert.Contains(t, body, "MasterUserManagedSecret")
-	assert.Contains(t, body, "secretsmanager")
+	assert.NotContains(t, body, "MasterUserManagedSecret")
 	assert.Contains(t, body, "DeletionProtection")
 	assert.Contains(t, body, "01:00-02:00")
 
@@ -712,7 +708,7 @@ func TestNeptuneServerless_FullConfig(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rr.Code)
 	body = rr.Body.String()
-	assert.Contains(t, body, "serverless")
+	assert.NotContains(t, body, "EngineMode")
 	assert.Contains(t, body, "2")
 	assert.Contains(t, body, "128")
 }

@@ -101,6 +101,7 @@ func (h *Handler) handleDeleteVpcConnection(
 // clientVpcConnectionOutput below, a DISTINCT shape under a DISTINCT
 // "clientVpcConnections" JSON key, not a naming variant of this one).
 type listVpcConnectionsOutput struct {
+	NextToken      string           `json:"nextToken,omitempty"`
 	VpcConnections []*VpcConnection `json:"vpcConnections"`
 }
 
@@ -142,9 +143,9 @@ func (h *Handler) handleDescribeVpcConnection(
 }
 
 func (h *Handler) handleListVpcConnections(ctx context.Context, c *echo.Context) error {
-	conns := h.Backend.ListVpcConnections(ctx)
+	conns, next := kafkaPage(c, h.Backend.ListVpcConnections(ctx))
 
-	return c.JSON(http.StatusOK, listVpcConnectionsOutput{VpcConnections: conns})
+	return c.JSON(http.StatusOK, listVpcConnectionsOutput{VpcConnections: conns, NextToken: next})
 }
 
 // clientVpcConnectionOutput mirrors types.ClientVpcConnection, the
@@ -165,6 +166,7 @@ type clientVpcConnectionOutput struct {
 // ListVpcConnections are different operations with different response
 // shapes, not the same shape reused across two paths.
 type listClientVpcConnectionsOutput struct {
+	NextToken            string                      `json:"nextToken,omitempty"`
 	ClientVpcConnections []clientVpcConnectionOutput `json:"clientVpcConnections"`
 }
 
@@ -173,11 +175,12 @@ func (h *Handler) handleListClientVpcConnections(
 	c *echo.Context,
 	clusterArn string,
 ) error {
-	conns, err := h.Backend.ListClientVpcConnections(ctx, clusterArn)
+	all, err := h.Backend.ListClientVpcConnections(ctx, clusterArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
 
+	conns, next := kafkaPage(c, all)
 	out := make([]clientVpcConnectionOutput, len(conns))
 	for i, v := range conns {
 		out[i] = clientVpcConnectionOutput{
@@ -189,7 +192,7 @@ func (h *Handler) handleListClientVpcConnections(
 		}
 	}
 
-	return c.JSON(http.StatusOK, listClientVpcConnectionsOutput{ClientVpcConnections: out})
+	return c.JSON(http.StatusOK, listClientVpcConnectionsOutput{ClientVpcConnections: out, NextToken: next})
 }
 
 type rejectClientVpcConnectionInput struct {

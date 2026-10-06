@@ -12,12 +12,10 @@ var (
 	ErrJobNotFound = errors.New("ResourceNotFoundException: Job not found")
 	// ErrUploadNotFound is returned when a multipart upload does not exist.
 	ErrUploadNotFound = errors.New("ResourceNotFoundException: Multipart upload not found")
-	// ErrResourceInUse is returned when creating a vault that already exists.
-	ErrResourceInUse = errors.New("ResourceInUseException: vault already exists")
 	// ErrValidation is returned when an invalid parameter is supplied.
 	ErrValidation = errors.New("InvalidParameterValueException: invalid parameter")
 	// ErrVaultNotEmpty is returned when deleting a vault that still has archives.
-	ErrVaultNotEmpty = errors.New("ConflictException: Vault not empty")
+	ErrVaultNotEmpty = errors.New("InvalidParameterValueException: Vault not empty or recently written to")
 	// ErrLockConflict is returned when a vault lock is already in progress.
 	ErrLockConflict = errors.New("InvalidParameterValueException: Vault lock already in progress")
 	// ErrLockAlreadyLocked is returned when attempting to initiate a lock on an already-locked vault.

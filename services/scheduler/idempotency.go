@@ -1,6 +1,10 @@
 package scheduler
 
-import "time"
+import (
+	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
+)
 
 // clientTokenTTL bounds how long a successful CreateSchedule/CreateScheduleGroup
 // response is cached for idempotent replay by ClientToken. Real EventBridge
@@ -10,17 +14,10 @@ import "time"
 // caching results indefinitely.
 const clientTokenTTL = 5 * time.Minute
 
-// idempotencyEvictThreshold: cache size that arms the expired-entry sweep;
-// unreplayed tokens otherwise live until process exit.
-const idempotencyEvictThreshold = 256
+const idempotencyEntries = 1024
 
-// idempotencyEvictSweepInterval: inserts between sweeps once armed.
-const idempotencyEvictSweepInterval = 64
-
-// idempotentResult is a cached successful Create*'s ARN, keyed by clientTokenKey.
-type idempotentResult struct {
-	expiresAt time.Time
-	arn       string
+func newIdempotencyMemo() *idempotency.Memo {
+	return idempotency.New("scheduler", idempotency.WithLimits(clientTokenTTL, idempotencyEntries))
 }
 
 // clientTokenKey scopes a ClientToken to the operation kind and the resource name
@@ -36,62 +33,12 @@ func clientTokenKey(kind, groupName, name, clientToken string) string {
 	return kind + ":" + groupName + "/" + name + ":" + clientToken
 }
 
-// lookupIdempotent returns the cached ARN for key, if present and unexpired. A
-// blank key (no ClientToken supplied) always misses.
+// lookupIdempotent returns the ARN cached for key; a blank key always misses.
 func (h *Handler) lookupIdempotent(key string) (string, bool) {
-	if key == "" {
-		return "", false
-	}
+	arn, ok, _ := h.idem.Lookup("scheduler", key, "")
 
-	res, ok := h.idempotency.Get(key)
-	if !ok {
-		return "", false
-	}
-
-	if time.Now().After(res.expiresAt) {
-		h.idempotency.Delete(key)
-
-		return "", false
-	}
-
-	return res.arn, true
+	return arn, ok
 }
 
-// storeIdempotent caches arn under key for clientTokenTTL. A blank key (no
-// ClientToken supplied) is a no-op.
-func (h *Handler) storeIdempotent(key, arn string) {
-	if key == "" {
-		return
-	}
-
-	h.idempotency.Set(key, idempotentResult{arn: arn, expiresAt: time.Now().Add(clientTokenTTL)})
-	h.maybeEvictExpiredIdempotency()
-}
-
-// maybeEvictExpiredIdempotency drops expired entries once the cache is large.
-func (h *Handler) maybeEvictExpiredIdempotency() {
-	if h.idempotency.Len() < idempotencyEvictThreshold {
-		return
-	}
-
-	if h.idempotencyInsertsSinceSweep.Add(1) < idempotencyEvictSweepInterval {
-		return
-	}
-
-	h.idempotencyInsertsSinceSweep.Store(0)
-
-	now := time.Now()
-
-	var expired []string
-	h.idempotency.Range(func(key string, res idempotentResult) bool {
-		if now.After(res.expiresAt) {
-			expired = append(expired, key)
-		}
-
-		return true
-	})
-
-	for _, key := range expired {
-		h.idempotency.Delete(key)
-	}
-}
+// storeIdempotent caches arn under key; a blank key is a no-op.
+func (h *Handler) storeIdempotent(key, arn string) { h.idem.Record("scheduler", key, "", arn) }

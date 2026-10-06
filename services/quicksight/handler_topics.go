@@ -144,6 +144,11 @@ func (h *Handler) handleCreateTopic(c *echo.Context) error {
 	topicID := strField(body, keyTopicID)
 	name, description, uxVersion, dataSets := topicFieldsFromBody(body)
 
+	folderArns := stringsFromBody(body, "FolderArns")
+	if folderErr := h.Backend.CheckFolderArns(accountID, folderArns); folderErr != nil {
+		return httpErr(c, folderErr)
+	}
+
 	t, err := h.Backend.CreateTopic(
 		accountID, topicID, name, description, uxVersion, dataSets,
 		permissionsField(body, keyPermissions), tagsFromBody(body),
@@ -154,6 +159,9 @@ func (h *Handler) handleCreateTopic(c *echo.Context) error {
 		}
 
 		return httpErr(c, err)
+	}
+	if folderErr := h.Backend.AddToFolders(accountID, folderMemberTypeTopic, t.TopicID, folderArns); folderErr != nil {
+		return httpErr(c, folderErr)
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
@@ -361,12 +369,12 @@ func scheduleFieldsFromBody(body map[string]any) (string, string, string, map[st
 // datasetIDFromArn extracts the DataSetId component of a dataset ARN
 // ("arn:...:dataset/<id>" -> "<id>").
 func datasetIDFromArn(arn string) string {
-	idx := strings.LastIndex(arn, "/")
-	if idx < 0 {
+	_, after, ok := strings.CutLast(arn, "/")
+	if !ok {
 		return ""
 	}
 
-	return arn[idx+1:]
+	return after
 }
 
 func (h *Handler) handleCreateTopicRefreshSchedule(c *echo.Context) error {

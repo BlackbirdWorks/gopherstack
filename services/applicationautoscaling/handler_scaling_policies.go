@@ -77,7 +77,6 @@ type scalingPolicySummary struct {
 	StepScalingPolicyConfiguration           map[string]any `json:"StepScalingPolicyConfiguration,omitempty"`
 	PredictiveScalingPolicyConfiguration     map[string]any `json:"PredictiveScalingPolicyConfiguration,omitempty"`
 	CreationTime                             *float64       `json:"CreationTime,omitempty"`
-	LastModifiedTime                         *float64       `json:"LastModifiedTime,omitempty"`
 	ServiceNamespace                         string         `json:"ServiceNamespace"`
 	ResourceID                               string         `json:"ResourceId"`
 	ScalableDimension                        string         `json:"ScalableDimension"`
@@ -140,7 +139,6 @@ func (h *Handler) handleDescribeScalingPolicies(
 			PolicyType:                               p.PolicyType,
 			PolicyARN:                                p.ARN,
 			CreationTime:                             epochSecondsPtr(p.CreationTime),
-			LastModifiedTime:                         epochSecondsPtr(p.LastModifiedTime),
 			TargetTrackingScalingPolicyConfiguration: p.TargetTrackingConfig,
 			StepScalingPolicyConfiguration:           p.StepScalingConfig,
 			PredictiveScalingPolicyConfiguration:     p.PredictiveScalingConfig,

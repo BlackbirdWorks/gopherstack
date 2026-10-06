@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
-	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { getMediaStoreClient } from '$lib/aws-client';
+	import { onRegionChange, regionalClient } from '#lib/region-effect.svelte.ts';
+	import { confirmDestructive } from '#lib/confirm-dialog.ts';
+	import { getMediaStoreClient } from '#lib/aws-client.ts';
 	import {
 		ListContainersCommand,
 		CreateContainerCommand,

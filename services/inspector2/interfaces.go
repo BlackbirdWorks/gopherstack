@@ -14,7 +14,7 @@ type StorageBackend interface {
 		criteria map[string]any,
 		tags map[string]string,
 	) (*Filter, error)
-	UpdateFilter(arn, action, description, reason string, criteria map[string]any) (*Filter, error)
+	UpdateFilter(arn, name, action, description, reason string, criteria map[string]any) (*Filter, error)
 	DeleteFilter(arn string) error
 	ListFilters(arns []string, action string, maxResults int, nextToken string) ([]*Filter, string, error)
 
@@ -53,7 +53,7 @@ type StorageBackend interface {
 
 	// EC2 deep inspection
 	GetEc2DeepInspectionConfiguration() Ec2DeepInspectionConfig
-	UpdateEc2DeepInspectionConfiguration(paths []string) error
+	UpdateEc2DeepInspectionConfiguration(paths []string, activate *bool) error
 	UpdateOrgEc2DeepInspectionConfiguration(paths []string) error
 	BatchGetMemberEc2DeepInspectionStatus(accountIDs []string) []*MemberEc2DeepInspectionStatus
 	BatchUpdateMemberEc2DeepInspectionStatus(updates []*MemberEc2DeepInspectionStatus) []*MemberEc2DeepInspectionStatus
@@ -65,15 +65,14 @@ type StorageBackend interface {
 
 	// CIS scan configuration
 	CreateCisScanConfiguration(
-		name string,
+		name, securityLevel string,
 		schedule map[string]any,
 		targets map[string]any,
 		tags map[string]string,
 	) (*CisScanConfiguration, error)
 	DeleteCisScanConfiguration(configARN string) error
 	UpdateCisScanConfiguration(
-		configARN string,
-		name string,
+		configARN, name, securityLevel string,
 		schedule map[string]any,
 		targets map[string]any,
 	) (*CisScanConfiguration, error)
@@ -124,8 +123,8 @@ type StorageBackend interface {
 	ListCodeSecurityScanConfigurationAssociations(
 		scanConfigARN string,
 	) ([]*CodeSecurityScanConfigurationAssociation, error)
-	StartCodeSecurityScan(resourceID string) (map[string]any, error)
-	GetCodeSecurityScan(scanID string) (map[string]any, error)
+	StartCodeSecurityScan(projectID string) (map[string]any, error)
+	GetCodeSecurityScan(scanID, projectID string) (map[string]any, error)
 
 	// Findings report
 	CreateFindingsReport(destination, filterCriteria map[string]any, reportFormat string) (*FindingsReport, error)

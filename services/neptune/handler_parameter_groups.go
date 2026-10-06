@@ -11,10 +11,15 @@ func (h *Handler) handleCopyDBParameterGroup(ctx context.Context, vals url.Value
 	sourceName := vals.Get("SourceDBParameterGroupIdentifier")
 	targetName := vals.Get("TargetDBParameterGroupIdentifier")
 	targetDescription := vals.Get("TargetDBParameterGroupDescription")
+	tags := parseTagEntries(vals)
+	if err := validateTagEntries(tags); err != nil {
+		return nil, err
+	}
 	pg, err := h.Backend.CopyDBParameterGroup(ctx, sourceName, targetName, targetDescription)
 	if err != nil {
 		return nil, err
 	}
+	h.applyNewTags(ctx, pg.DBParameterGroupArn, tags)
 
 	return &copyDBParameterGroupResponse{
 		Xmlns:            neptuneXMLNS,

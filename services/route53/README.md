@@ -9,13 +9,9 @@
 | --- | --- |
 | PARITY entries audited | 67 (67 ok) |
 | Feature families | 4 (4 ok) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Deferred items | 3 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- DeactivateKeySigningKey/DeleteKeySigningKey (handler_key_signing_keys.go) still fabricate never-registered ChangeInfo IDs ("/change/deactivate-ksk-...", "/change/delete-ksk-..."), same bug class as EnableHostedZoneDNSSEC before this pass's fix -- a real client's GetChange wait on either would 404. Not hit by any current fixture (cloudfront-and-route53 only exercises Create, which reuses the zone's own registered change ID). CreateKeySigningKey/ActivateKeySigningKey and AssociateVPCWithHostedZone/DisassociateVPCFromHostedZone/DeleteHostedZone all reuse "/change/C"+zoneID, which coincidentally resolves (same ID the zone's own creation registered) rather than registering a distinct change per real AWS semantics -- functionally passes GetChange today but is not a fresh change record (gopherstack-101r).
 
 ### Deferred
 

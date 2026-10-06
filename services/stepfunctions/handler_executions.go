@@ -31,6 +31,7 @@ type describeExecutionInput struct {
 type listExecutionsInput struct {
 	StateMachineArn string `json:"stateMachineArn"`
 	StatusFilter    string `json:"statusFilter"`
+	RedriveFilter   string `json:"redriveFilter"`
 	NextToken       string `json:"nextToken"`
 	// MapRunArn lists a Distributed Map Run's child executions instead of a
 	// state machine's top-level ones. Mutually exclusive with
@@ -236,6 +237,25 @@ func (h *Handler) handleDescribeExecution(b []byte) (any, error) {
 	return h.Backend.DescribeExecution(input.ExecutionArn)
 }
 
+const (
+	redriveFilterRedriven    = "REDRIVEN"
+	redriveFilterNotRedriven = "NOT_REDRIVEN"
+)
+
+// validateRedriveFilter enforces api_op_ListExecutions.go: redriveFilter is only valid with mapRunArn.
+func validateRedriveFilter(filter string, hasMapRun bool) error {
+	switch {
+	case filter == "":
+		return nil
+	case filter != redriveFilterRedriven && filter != redriveFilterNotRedriven:
+		return fmt.Errorf("%w: invalid redriveFilter %q", ErrValidation, filter)
+	case !hasMapRun:
+		return fmt.Errorf("%w: redriveFilter requires mapRunArn", ErrValidation)
+	}
+
+	return nil
+}
+
 func (h *Handler) handleListExecutions(b []byte) (any, error) {
 	var input listExecutionsInput
 	if err := json.Unmarshal(b, &input); err != nil {
@@ -249,6 +269,10 @@ func (h *Handler) handleListExecutions(b []byte) (any, error) {
 		)
 	}
 
+	if err := validateRedriveFilter(input.RedriveFilter, input.MapRunArn != ""); err != nil {
+		return nil, err
+	}
+
 	var (
 		execs []Execution
 		next  string
@@ -257,7 +281,7 @@ func (h *Handler) handleListExecutions(b []byte) (any, error) {
 
 	if input.MapRunArn != "" {
 		execs, next, err = h.Backend.ListExecutionsByMapRun(
-			input.MapRunArn, input.StatusFilter, input.NextToken, input.MaxResults,
+			input.MapRunArn, input.StatusFilter, input.RedriveFilter, input.NextToken, input.MaxResults,
 		)
 	} else {
 		execs, next, err = h.Backend.ListExecutions(

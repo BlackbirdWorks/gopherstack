@@ -75,6 +75,7 @@ func TestDescribeStream(t *testing.T) {
 		DataRetentionInHours: aws.Int32(5),
 	})
 	require.NoError(t, createErr)
+	waitStreamActive(t, client, created.StreamARN)
 
 	tests := []struct {
 		name  string
@@ -199,12 +200,15 @@ func TestDeleteStream(t *testing.T) {
 	_, err = client.DeleteStream(ctx, &kinesisvideosdk.DeleteStreamInput{StreamARN: created.StreamARN})
 	require.NoError(t, err)
 
-	_, err = client.DescribeStream(ctx, &kinesisvideosdk.DescribeStreamInput{StreamARN: created.StreamARN})
-	require.Error(t, err)
+	deleting, err := client.DescribeStream(ctx, &kinesisvideosdk.DescribeStreamInput{StreamARN: created.StreamARN})
+	require.NoError(t, err)
+	assert.Equal(t, types.StatusDeleting, deleting.StreamInfo.Status)
 
-	var apiErr smithy.APIError
-	require.ErrorAs(t, err, &apiErr)
-	assert.Equal(t, "ResourceNotFoundException", apiErr.ErrorCode())
+	requireNotFoundEventually(t, func() error {
+		_, descErr := client.DescribeStream(ctx, &kinesisvideosdk.DescribeStreamInput{StreamARN: created.StreamARN})
+
+		return descErr
+	})
 }
 
 func TestDeleteStream_VersionMismatch(t *testing.T) {

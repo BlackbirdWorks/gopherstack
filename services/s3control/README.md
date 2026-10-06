@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 44 (44 ok) |
 | Feature families | 10 (10 ok) |
-| Known gaps | 3 |
+| Known gaps | 4 |
 | Deferred items | 3 |
 | Resource leaks | fixed |
 
@@ -18,6 +18,7 @@
 - "s3control.ErrAlreadyExists dead sentinel (errors.go) REMOVED this pass -- verified unreachable (repo-wide grep, zero call sites) and its real-AWS duplicate-CreateAccessPoint behavior is unverifiable (deserializers.go's awsRestxml_deserializeOpErrorCreateAccessPoint has zero modeled error cases, generic fallback only), so wiring it up would be a guess, not a fix."
 - "2026-09-13 (gopherstack-xhu2t): ListAccessPoints.DataSourceType (real semantics: default lists only S3-bucket-backed access points, 'ALL' lists every data source type) has no observable effect -- AccessPoint (models.go) has no DataSourceType/DataSourceId field and every access point this backend can create is bucket-backed, so both filter values are always byte-identical. Not fixed: a filter that can never change the output is dead plumbing, not a real fix. Needs a non-bucket data-source-type access point (e.g. S3 Tables) modeled first."
 - "2026-09-19: aws_s3control_bucket/_lifecycle_configuration/_policy (S3 on Outposts) tried once via real terraform apply and left out. CreateBucket's OutpostsBucket.BucketArn hardcodes a literal op-00000000 outpost segment (bucket.go/arnFmtOutpostsBucket) instead of the caller-supplied outpost_id, and real CreateBucketInput carries no AccountId (already documented on CreateBucket) so the ARN's account segment is whatever accountIDFromRequest resolves to off a header the real op doesn't have -- with skip_requesting_account_id in the test provider that surfaced as literal 'default'. terraform-provider-aws's post-create Read then calls GetBucketTagging, which this backend correctly returns as NoSuchTagSetError (documented real AWS behavior, errors.go), but the provider's own error-handling for that path did not tolerate it in this sandbox and the apply failed with 'operation error S3 Control: GetBucketTagging ... NoSuchTagSetError'. Aws_s3control_ directory_bucket_access_point_scope (S3 Express One Zone / Local Zone) not attempted: needs a zone-suffixed directory bucket the emulator's S3 side does not model."
+- Unmodeled (2026-10-05): PutBucketVersioning MFA and the MfaDelete member (no MFA device model, and the bucket versioning store tracks Status only), PutBucketPolicy ConfirmRemoveSelfBucketAccess (no policy evaluation to detect a self-lockout), CreateBucket ACL/GrantFullControl/GrantRead/GrantReadACP/GrantWrite/GrantWriteACP/ObjectLockEnabledForBucket (S3 Control has no op that reads them back), ListCallerAccessGrants AllowedByApplication (no caller Identity Center application identity), the access-grant S3PrefixType request member and GetDataAccess TargetType/AuditContext (grant-scope matching against object paths is not modeled), the ListAccessPoints data-source id filter (same gap as the data-source type filter above), the multi-region access point delete and put-policy ClientToken members (no idempotent async-request replay).
 
 ### Deferred
 

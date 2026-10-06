@@ -7,19 +7,32 @@ import (
 
 // createColumnStatisticsTaskSettingsInput holds input for CreateColumnStatisticsTaskSettings.
 type createColumnStatisticsTaskSettingsInput struct {
-	DatabaseName   string   `json:"DatabaseName"`
-	TableName      string   `json:"TableName"`
-	RoleArn        string   `json:"Role,omitempty"`
-	ColumnNameList []string `json:"ColumnNameList,omitempty"`
+	DatabaseName          string   `json:"DatabaseName"`
+	TableName             string   `json:"TableName"`
+	RoleArn               string   `json:"Role,omitempty"`
+	CatalogID             string   `json:"CatalogID,omitempty"`
+	Schedule              string   `json:"Schedule,omitempty"`
+	SecurityConfiguration string   `json:"SecurityConfiguration,omitempty"`
+	ColumnNameList        []string `json:"ColumnNameList,omitempty"`
+	SampleSize            float64  `json:"SampleSize,omitempty"`
+}
+
+func (in createColumnStatisticsTaskSettingsInput) options() ColumnStatisticsTaskSettingsOptions {
+	return ColumnStatisticsTaskSettingsOptions{
+		CatalogID:             in.CatalogID,
+		Role:                  in.RoleArn,
+		SecurityConfiguration: in.SecurityConfiguration,
+		Schedule:              in.Schedule,
+		ColumnNameList:        in.ColumnNameList,
+		SampleSize:            in.SampleSize,
+	}
 }
 
 func (h *Handler) handleCreateColumnStatisticsTaskSettings(
 	_ context.Context,
 	in *createColumnStatisticsTaskSettingsInput,
 ) (*emptyOutput, error) {
-	_, err := h.Backend.CreateColumnStatisticsTaskSettings(
-		in.DatabaseName, in.TableName, in.RoleArn, in.ColumnNameList,
-	)
+	_, err := h.Backend.CreateColumnStatisticsTaskSettings(in.DatabaseName, in.TableName, in.options())
 
 	return &emptyOutput{}, err
 }
@@ -273,16 +286,55 @@ type getColumnStatisticsTaskSettingsInput struct {
 
 // getColumnStatisticsTaskSettingsOutput holds the result for GetColumnStatisticsTaskSettings.
 type getColumnStatisticsTaskSettingsOutput struct {
-	ColumnStatisticsTaskSettings any `json:"ColumnStatisticsTaskSettings"`
+	ColumnStatisticsTaskSettings columnStatisticsTaskSettingsWire `json:"ColumnStatisticsTaskSettings"`
+}
+
+// columnStatisticsTaskSettingsWire uses the SDK's Role/CatalogID keys, which differ from the persisted names.
+type columnStatisticsTaskSettingsWire struct {
+	Schedule              *CrawlerSchedule `json:"Schedule,omitempty"`
+	DatabaseName          string           `json:"DatabaseName"`
+	TableName             string           `json:"TableName"`
+	Role                  string           `json:"Role,omitempty"`
+	CatalogID             string           `json:"CatalogID,omitempty"`
+	ScheduleType          string           `json:"ScheduleType,omitempty"`
+	SecurityConfiguration string           `json:"SecurityConfiguration,omitempty"`
+	ColumnNameList        []string         `json:"ColumnNameList,omitempty"`
+	SampleSize            float64          `json:"SampleSize,omitempty"`
+}
+
+func toColumnStatisticsTaskSettingsWire(s *ColumnStatisticsTaskSettings) columnStatisticsTaskSettingsWire {
+	w := columnStatisticsTaskSettingsWire{
+		DatabaseName:          s.DatabaseName,
+		TableName:             s.TableName,
+		Role:                  s.RoleArn,
+		CatalogID:             s.CatalogID,
+		SecurityConfiguration: s.SecurityConfiguration,
+		ColumnNameList:        s.ColumnNameList,
+		SampleSize:            s.SampleSize,
+	}
+	if s.Schedule != (CrawlerSchedule{}) {
+		w.Schedule = &s.Schedule
+	}
+
+	if s.Schedule.ScheduleExpression != "" {
+		w.ScheduleType = "CRON"
+	}
+
+	return w
 }
 
 func (h *Handler) handleGetColumnStatisticsTaskSettings(
 	_ context.Context,
 	in *getColumnStatisticsTaskSettingsInput,
 ) (*getColumnStatisticsTaskSettingsOutput, error) {
-	s, _ := h.Backend.GetColumnStatisticsTaskSettings(in.DatabaseName, in.TableName)
+	s, err := h.Backend.GetColumnStatisticsTaskSettings(in.DatabaseName, in.TableName)
+	if err != nil {
+		return nil, err
+	}
 
-	return &getColumnStatisticsTaskSettingsOutput{ColumnStatisticsTaskSettings: s}, nil
+	return &getColumnStatisticsTaskSettingsOutput{
+		ColumnStatisticsTaskSettings: toColumnStatisticsTaskSettingsWire(s),
+	}, nil
 }
 
 // defaultListColumnStatisticsTaskRunsLimit is used when
@@ -512,16 +564,12 @@ func (h *Handler) handleUpdateColumnStatisticsForTable(
 
 // updateColumnStatisticsTaskSettingsInput holds input for UpdateColumnStatisticsTaskSettings.
 type updateColumnStatisticsTaskSettingsInput struct {
-	DatabaseName string `json:"DatabaseName"`
-	TableName    string `json:"TableName"`
-	RoleArn      string `json:"Role,omitempty"`
+	createColumnStatisticsTaskSettingsInput
 }
 
 func (h *Handler) handleUpdateColumnStatisticsTaskSettings(
 	_ context.Context,
 	in *updateColumnStatisticsTaskSettingsInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, h.Backend.UpdateColumnStatisticsTaskSettings(
-		in.DatabaseName, in.TableName, in.RoleArn,
-	)
+	return &emptyOutput{}, h.Backend.UpdateColumnStatisticsTaskSettings(in.DatabaseName, in.TableName, in.options())
 }

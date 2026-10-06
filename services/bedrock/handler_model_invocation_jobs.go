@@ -62,7 +62,10 @@ type createModelInvocationJobInput struct {
 	InputDataConfig  map[string]any `json:"inputDataConfig,omitempty"`
 	OutputDataConfig map[string]any `json:"outputDataConfig,omitempty"`
 	ClientToken      string         `json:"clientRequestToken,omitempty"`
+	InvocationType   string         `json:"modelInvocationType,omitempty"`
+	VpcConfig        map[string]any `json:"vpcConfig,omitempty"`
 	Tags             []Tag          `json:"tags,omitempty"`
+	TimeoutHours     int32          `json:"timeoutDurationInHours,omitempty"`
 }
 
 func (h *Handler) handleCreateModelInvocationJob(c *echo.Context) error {
@@ -76,13 +79,22 @@ func (h *Handler) handleCreateModelInvocationJob(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
 	}
 
-	job, opErr := h.Backend.CreateModelInvocationJob(in.JobName, in.Tags, &CreateModelInvocationJobInput{
-		RoleArn:          in.RoleArn,
-		ModelID:          in.ModelID,
-		InputDataConfig:  in.InputDataConfig,
-		OutputDataConfig: in.OutputDataConfig,
-		ClientToken:      in.ClientToken,
-	})
+	job, opErr := idemCreate(
+		h.idem, "CreateModelInvocationJob", in.ClientToken, idemFingerprint(in), ErrAlreadyExists,
+		func(j *ModelInvocationJob) string { return j.JobArn }, h.Backend.GetModelInvocationJob,
+		func() (*ModelInvocationJob, error) {
+			return h.Backend.CreateModelInvocationJob(in.JobName, in.Tags, &CreateModelInvocationJobInput{
+				RoleArn:          in.RoleArn,
+				ModelID:          in.ModelID,
+				InputDataConfig:  in.InputDataConfig,
+				OutputDataConfig: in.OutputDataConfig,
+				ClientToken:      in.ClientToken,
+				InvocationType:   in.InvocationType,
+				VpcConfig:        in.VpcConfig,
+				TimeoutHours:     in.TimeoutHours,
+			})
+		},
+	)
 	if opErr != nil {
 		return h.writeError(c, opErr)
 	}
@@ -129,6 +141,18 @@ func modelInvocationJobToSummary(j *ModelInvocationJob) map[string]any {
 
 	if j.FailureMessage != "" {
 		out["message"] = j.FailureMessage
+	}
+
+	if j.InvocationType != "" {
+		out["modelInvocationType"] = j.InvocationType
+	}
+
+	if j.TimeoutHours > 0 {
+		out["timeoutDurationInHours"] = j.TimeoutHours
+	}
+
+	if len(j.VpcConfig) > 0 {
+		out["vpcConfig"] = j.VpcConfig
 	}
 
 	return out

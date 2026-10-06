@@ -99,6 +99,7 @@ type ListUserPoliciesResponse struct {
 
 // ListUserPoliciesResult contains the list of inline policy names for a user.
 type ListUserPoliciesResult struct {
+	Marker      string   `xml:"Marker,omitempty"`
 	PolicyNames []string `xml:"PolicyNames>member"`
 	IsTruncated bool     `xml:"IsTruncated"`
 }
@@ -113,6 +114,7 @@ type ListRolePoliciesResponse struct {
 
 // ListRolePoliciesResult contains the list of inline policy names for a role.
 type ListRolePoliciesResult struct {
+	Marker      string   `xml:"Marker,omitempty"`
 	PolicyNames []string `xml:"PolicyNames>member"`
 	IsTruncated bool     `xml:"IsTruncated"`
 }
@@ -127,6 +129,7 @@ type ListGroupPoliciesResponse struct {
 
 // ListGroupPoliciesResult contains the list of inline policy names for a group.
 type ListGroupPoliciesResult struct {
+	Marker      string   `xml:"Marker,omitempty"`
 	PolicyNames []string `xml:"PolicyNames>member"`
 	IsTruncated bool     `xml:"IsTruncated"`
 }

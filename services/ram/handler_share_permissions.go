@@ -209,6 +209,9 @@ type listPermissionAssociationsRequest struct {
 	MaxResults        *int32 `json:"maxResults,omitempty"`
 	PermissionArn     string `json:"permissionArn"`
 	NextToken         string `json:"nextToken"`
+	AssociationStatus string `json:"associationStatus"`
+	FeatureSet        string `json:"featureSet"`
+	ResourceType      string `json:"resourceType"`
 }
 
 type listPermissionAssociationsResponse struct {
@@ -224,8 +227,17 @@ func (h *Handler) handleListPermissionAssociations(_ context.Context, body []byt
 
 	assocs := h.Backend.ListPermissionAssociations(req.PermissionArn, req.PermissionVersion, req.DefaultVersion)
 	objs := make([]permissionAssociationObject, 0, len(assocs))
+	withType := h.Backend.ResourceShareARNsFor(ShareFilter{ResourceType: req.ResourceType})
 
 	for _, a := range assocs {
+		if _, ok := withType[a.ShareARN]; withType != nil && !ok {
+			continue
+		}
+
+		if !h.shareMatchesPermissionFilter(a.ShareARN, req) {
+			continue
+		}
+
 		objs = append(objs, permissionAssociationObject{
 			Arn:               a.PermissionARN,
 			ResourceShareArn:  a.ShareARN,
@@ -239,6 +251,21 @@ func (h *Handler) handleListPermissionAssociations(_ context.Context, body []byt
 	}
 
 	return json.Marshal(listPermissionAssociationsResponse{NextToken: nextToken, Permissions: page})
+}
+
+// shareMatchesPermissionFilter applies the featureSet and associationStatus filters.
+func (h *Handler) shareMatchesPermissionFilter(shareARN string, req listPermissionAssociationsRequest) bool {
+	if req.AssociationStatus != "" && req.AssociationStatus != associationStatusAssociated {
+		return false
+	}
+
+	if req.FeatureSet == "" {
+		return true
+	}
+
+	rs, err := h.Backend.GetResourceShare(shareARN)
+
+	return err == nil && featureSetOf(rs) == req.FeatureSet
 }
 
 // listReplacePermissionAssociationsWorkResponse's list field is plural

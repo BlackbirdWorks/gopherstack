@@ -24,8 +24,17 @@ func (b *InMemoryBackend) validateAgentArns(agentArns []string) error {
 	return nil
 }
 
-// CreateAgent creates a new DataSync agent.
+// CreateAgent creates a new DataSync agent on the public endpoint.
 func (b *InMemoryBackend) CreateAgent(name, _ string, tags map[string]string) (*Agent, error) {
+	return b.CreateAgentWithEndpoint(name, tags, nil)
+}
+
+// CreateAgentWithEndpoint creates an agent; a VPC endpoint makes it a PRIVATE_LINK agent.
+func (b *InMemoryBackend) CreateAgentWithEndpoint(
+	name string,
+	tags map[string]string,
+	privateLink *PrivateLinkConfig,
+) (*Agent, error) {
 	b.mu.Lock("CreateAgent")
 	defer b.mu.Unlock()
 
@@ -36,11 +45,17 @@ func (b *InMemoryBackend) CreateAgent(name, _ string, tags map[string]string) (*
 	agentTags := make(map[string]string)
 	maps.Copy(agentTags, tags)
 
+	endpointType := "PUBLIC"
+	if privateLink != nil {
+		endpointType = "PRIVATE_LINK"
+	}
+
 	a := &storedAgent{
 		AgentArn:     agentArn,
 		Name:         name,
 		Status:       agentStatusOnline,
-		EndpointType: "PUBLIC",
+		EndpointType: endpointType,
+		PrivateLink:  privateLink,
 		CreationTime: now,
 		Tags:         agentTags,
 	}
@@ -81,7 +96,9 @@ func (b *InMemoryBackend) UpdateAgent(agentArn, name string) error {
 		return ErrNotFound
 	}
 
-	a.Name = name
+	if name != "" {
+		a.Name = name
+	}
 
 	return nil
 }

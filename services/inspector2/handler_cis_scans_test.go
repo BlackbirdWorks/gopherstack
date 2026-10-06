@@ -240,7 +240,7 @@ func TestCisScans_SnapshotRestoreRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	src := inspector2.NewInMemoryBackend("123456789012", "us-east-1")
-	cfg, err := src.CreateCisScanConfiguration("rt", nil, map[string]any{
+	cfg, err := src.CreateCisScanConfiguration("rt", "", nil, map[string]any{
 		"accountIds": []any{"333333333333"},
 	}, nil)
 	require.NoError(t, err)
@@ -271,7 +271,7 @@ func TestCisScans_ResetClearsState(t *testing.T) {
 	t.Parallel()
 
 	b := inspector2.NewInMemoryBackend("123456789012", "us-east-1")
-	_, err := b.CreateCisScanConfiguration("r", nil, nil, nil)
+	_, err := b.CreateCisScanConfiguration("r", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	scans, err := b.ListCisScans()

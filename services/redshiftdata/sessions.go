@@ -78,7 +78,16 @@ func (b *InMemoryBackend) ListSessions(
 		return nil, "", nil
 	}
 
-	sessions := groupSessions(store.statements)
+	caller := callerFromContext(ctx)
+	visible := make(map[string]*Statement, len(store.statements))
+
+	for id, stmt := range store.statements {
+		if caller.sees(stmt.Owner, stmt.OwnerSession, filter.RoleLevel) {
+			visible[id] = stmt
+		}
+	}
+
+	sessions := groupSessions(visible)
 
 	result := make([]*SessionData, 0, len(sessions))
 

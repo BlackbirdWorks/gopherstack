@@ -93,10 +93,15 @@ func (h *Handler) handleCopyDBClusterParameterGroup(
 	sourceName := vals.Get("SourceDBClusterParameterGroupIdentifier")
 	targetName := vals.Get("TargetDBClusterParameterGroupIdentifier")
 	targetDescription := vals.Get("TargetDBClusterParameterGroupDescription")
+	tags := parseTagEntries(vals)
+	if err := validateTagEntries(tags); err != nil {
+		return nil, err
+	}
 	pg, err := h.Backend.CopyDBClusterParameterGroup(ctx, sourceName, targetName, targetDescription)
 	if err != nil {
 		return nil, err
 	}
+	h.applyNewTags(ctx, pg.DBClusterParameterGroupArn, tags)
 
 	return &copyDBClusterParameterGroupResponse{
 		Xmlns:                   neptuneXMLNS,

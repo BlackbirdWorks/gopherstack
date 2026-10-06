@@ -22,12 +22,14 @@ type StorageBackend interface {
 	ListHostedZonesByName(dnsName, zoneID string, maxItems int) ([]HostedZone, string, string, error)
 	GetHostedZoneCount() int
 	UpdateHostedZoneComment(zoneID, comment string) (*HostedZone, error)
+	UpdateHostedZoneFeatures(zoneID string, enableAcceleratedRecovery *bool) error
 
 	// Record set operations
 	ChangeResourceRecordSets(zoneID string, changes []Change) (string, error)
 	ListResourceRecordSets(zoneID, startName, startType, startIdentifier string, maxItems int) (RRSetPage, error)
 	CountResourceRecordSets(zoneID string) (int, error)
 	GetChange(changeID string) (*ChangeInfo, error)
+	RegisterChange() string
 
 	// Health check operations
 	CreateHealthCheck(callerRef string, cfg HealthCheckConfig) (*HealthCheck, error)

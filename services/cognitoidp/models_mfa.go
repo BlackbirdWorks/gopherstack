@@ -121,6 +121,11 @@ type smsMFASetting struct {
 	PreferredMfa bool `json:"PreferredMfa,omitempty"`
 }
 
+type emailMFASetting struct {
+	Enabled      bool `json:"Enabled,omitempty"`
+	PreferredMfa bool `json:"PreferredMfa,omitempty"`
+}
+
 type softwareTokenMFASetting struct {
 	Enabled      bool `json:"Enabled,omitempty"`
 	PreferredMfa bool `json:"PreferredMfa,omitempty"`
@@ -129,6 +134,7 @@ type softwareTokenMFASetting struct {
 type setUserMFAPreferenceAccurateInput struct {
 	SMSMfaSettings           *smsMFASetting           `json:"SMSMfaSettings,omitempty"`
 	SoftwareTokenMfaSettings *softwareTokenMFASetting `json:"SoftwareTokenMfaSettings,omitempty"`
+	EmailMfaSettings         *emailMFASetting         `json:"EmailMfaSettings,omitempty"`
 	AccessToken              string                   `json:"AccessToken,omitempty"`
 }
 
@@ -137,6 +143,7 @@ type setUserMFAPreferenceAccurateOutput struct{}
 type adminSetUserMFASettingInput struct {
 	SMSMfaSettings           *smsMFASetting           `json:"SMSMfaSettings,omitempty"`
 	SoftwareTokenMfaSettings *softwareTokenMFASetting `json:"SoftwareTokenMfaSettings,omitempty"`
+	EmailMfaSettings         *emailMFASetting         `json:"EmailMfaSettings,omitempty"`
 	UserPoolID               string                   `json:"UserPoolId,omitempty"`
 	Username                 string                   `json:"Username,omitempty"`
 }
@@ -146,6 +153,7 @@ type adminSetUserMFASettingOutput struct{}
 type adminSetUserMFAPreferenceAccurateInput struct {
 	SMSMfaSettings           *smsMFASetting           `json:"SMSMfaSettings,omitempty"`
 	SoftwareTokenMfaSettings *softwareTokenMFASetting `json:"SoftwareTokenMfaSettings,omitempty"`
+	EmailMfaSettings         *emailMFASetting         `json:"EmailMfaSettings,omitempty"`
 	UserPoolID               string                   `json:"UserPoolId,omitempty"`
 	Username                 string                   `json:"Username,omitempty"`
 }

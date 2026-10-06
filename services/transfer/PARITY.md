@@ -66,7 +66,8 @@ families:
   ListFileTransferResults: {status: ok, note: "gopherstack-tp8x (2026-08-21), fixed: was one row per TRANSFER with a 'FilePaths' array of every file (this backend's r.Files); real types.ConnectorFileTransferResult's member is the singular 'FilePath' -- one row per file, not a list. Also: TransferId is a required ListFileTransferResultsInput member (api_op_ListFileTransferResults.go) and the handler was ignoring it entirely, listing every transfer for the connector instead of the one specified -- added GetFileTransferResult(connectorID, transferID) and required-field validation for both ConnectorId and TransferId. Locked by TestListFileTransferResults_OneRowPerFile_RealClient (3-file transfer, real SDK client), TestListFileTransferResults_SingleFile_RealClient, TestHandler_StartFileTransferPersistsRecord. FIXED 2026-08-29 (filter/pagination parameter audit): MaxResults/NextToken (also real ListFileTransferResultsInput members) were read into the handler's input struct but never applied -- every call returned every file in the transfer regardless of MaxResults, with no NextToken ever emitted. Now routed through applyNextTokenItems. In practice the real per-transfer file count is capped at 10 (StartFileTransfer's own SendFilePaths/RetrieveFilePaths limit, per that op's docs), so this bounds how much truncation ever mattered, but the parameter is real and is now honoured rather than silently ignored. Proven via TestListFileTransferResults_SDKRoundTrip_Pagination, hand-reverted/confirmed-failing/restored."}
   Persistence: {status: ok, note: "unchanged since 2026-07-12 audit; new WebApp/Certificate fields ride the existing store.Table[T] generic Snapshot/Restore, no manual persistence.go wiring needed (confirmed via TestPersistence_FullStateRoundTrip)."}
 gaps: []
-items_still_open: []
+items_still_open:
+  - "StartFileTransfer.CustomHttpHeaders is accepted but not applied: the emulator never sends AS2 messages and no SDK output (ListFileTransferResults) echoes request headers, so there is nothing observable to model."
 deferred: []
 leaks: {status: clean, note: "Shutdown(ctx) stops the backend's worker (StartServer/StopServer async-transition timer) via Backend.Close(); no goroutine or timer outlives the service. leak_test.go / leak_main_test.go already cover this. No new goroutines/tickers were introduced this pass."}
 ---
@@ -398,3 +399,15 @@ Audited clean: ListProfiles ProfileType ("If not supplied in the request, the co
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 transfer is region-isolated: Servers, users, connectors, agreements and workflows live per region; each sibling schedules its own server state timers. Tagging bridge covers every region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/transfer`. Limitation: the dashboard shows the home region only.
+
+## 2026-10-05 (gopherstack-uox6 pass 7, value semantics)
+
+CreateServer defaults IpAddressType IPV4 (api_op_CreateServer.go:162) and, for FTP/FTPS, ProtocolDetails.PassiveIp AUTO and, for FTPS, TlsSessionResumptionMode ENFORCED (types.go:2236, 2280); UpdateServer merges supplied ProtocolDetails members instead of replacing the struct. SetStatOption DEFAULT is only in the AWS API docs, not modelled. Users, access, connectors, agreements and web apps round-trip clean.
+
+## 2026-10-05 (zeroguard omitted-vs-zero audit)
+
+Tool false positives (cmd/zeroguard): required path/identifier members (Name, *Id, *Arn), Put* operations that replace the whole resource (PutRule, PutPermission, PutResourcePolicy, PutCodeBinding), and PatchOperations-based Update* ops.
+
+## 2026-10-05 (undeclared response members)
+
+SshPublicKey no longer emits KeyType (SDK type has only DateImported/SshPublicKeyBody/SshPublicKeyId).

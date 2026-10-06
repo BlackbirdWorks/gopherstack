@@ -157,7 +157,7 @@ func (b *InMemoryBackend) ListLogAnomalyDetectors(
 // paused detector to ANALYZING and is a no-op on the status of a detector
 // that isn't currently paused (e.g. still INITIALIZING).
 func (b *InMemoryBackend) UpdateLogAnomalyDetector(
-	detectorArn, evaluationFrequency string,
+	detectorArn, evaluationFrequency, filterPattern string,
 	anomalyVisibilityTime int64,
 	enabled bool,
 ) error {
@@ -187,6 +187,9 @@ func (b *InMemoryBackend) UpdateLogAnomalyDetector(
 	}
 	if evaluationFrequency != "" {
 		d.EvaluationFrequency = evaluationFrequency
+	}
+	if filterPattern != "" {
+		d.FilterPattern = filterPattern
 	}
 	if anomalyVisibilityTime > 0 {
 		if anomalyVisibilityTime < anomalyVisibilityTimeMinDays ||

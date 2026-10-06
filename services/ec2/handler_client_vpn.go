@@ -589,7 +589,7 @@ func (h *Handler) handleDescribeClientVpnConnections(vals url.Values, reqID stri
 		return nil, err
 	}
 
-	return &describeClientVpnConnectionsResponse{RequestID: reqID}, nil
+	return finishPagedFiltered(vals, &describeClientVpnConnectionsResponse{RequestID: reqID})
 }
 
 func (h *Handler) handleTerminateClientVpnConnections(vals url.Values, reqID string) (any, error) {

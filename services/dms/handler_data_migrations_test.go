@@ -85,6 +85,7 @@ func TestHandler_CreateDataMigration(t *testing.T) {
 			name: "create_success",
 			run: func(t *testing.T, h *dms.Handler) {
 				t.Helper()
+				seedMigrationProject(t, h.Backend, "proj-1")
 				rec := doDMS(t, h, "CreateDataMigration", map[string]any{
 					"DataMigrationName":          "my-migration",
 					"MigrationProjectIdentifier": "proj-1",

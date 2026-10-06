@@ -4,7 +4,7 @@ import LiveDot from "./LiveDot.svelte";
 
 const streamConsole = vi.fn();
 
-vi.mock("$lib/api/connect-client", () => ({
+vi.mock("#lib/api/connect-client.ts", () => ({
   dashboardClient: {
     streamConsole: (...args: unknown[]) => streamConsole(...args),
   },

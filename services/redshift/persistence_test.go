@@ -263,6 +263,7 @@ func TestInMemoryBackend_FullStateRoundTrip(t *testing.T) {
 
 	_, err = b.CreateIdcApplication(
 		"rt-idcapp", "arn:aws:sso::000000000000:instance/1", "display", "arn:aws:iam::000000000000:role/r", "None",
+		redshift.IdcApplicationExtras{},
 	)
 	require.NoError(t, err)
 
@@ -348,7 +349,7 @@ func TestInMemoryBackend_FullStateRoundTrip(t *testing.T) {
 	_, err = b.EnableSnapshotCopy("rt-cluster", "us-west-2", "rt-copygrant", 7)
 	require.NoError(t, err)
 
-	_, err = b.EnableLogging("rt-cluster", "rt-bucket", "prefix/")
+	_, err = b.EnableLogging("rt-cluster", "rt-bucket", "prefix/", redshift.LoggingOptions{})
 	require.NoError(t, err)
 
 	// Snapshot and restore into a fresh backend.
@@ -567,7 +568,11 @@ func TestBackend_SnapshotRestore_NewMaps(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify data share round-trip
-	_, err = fresh.AuthorizeDataShare("arn:aws:redshift:us-east-1:000000000000:datashare:ds-persist", "consumer-id")
+	_, err = fresh.AuthorizeDataShare(
+		"arn:aws:redshift:us-east-1:000000000000:datashare:ds-persist",
+		"consumer-id",
+		false,
+	)
 	require.NoError(t, err)
 
 	// Verify security group round-trip

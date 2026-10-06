@@ -71,6 +71,7 @@ type handleListWorkflowTypesInput struct {
 	Domain             string `json:"domain"`
 	RegistrationStatus string `json:"registrationStatus,omitempty"`
 	NextPageToken      string `json:"nextPageToken,omitempty"`
+	Name               string `json:"name,omitempty"`
 	MaximumPageSize    int    `json:"maximumPageSize,omitempty"`
 	ReverseOrder       bool   `json:"reverseOrder,omitempty"`
 }
@@ -84,22 +85,29 @@ func (h *Handler) handleListWorkflowTypes(
 	if err != nil {
 		return nil, err
 	}
-	infos := make([]workflowTypeInfoOutput, len(wts))
-	for i, wt := range wts {
-		infos[i] = workflowTypeInfoOutput{
+	infos := make([]workflowTypeInfoOutput, 0, len(wts))
+	for _, wt := range wts {
+		if in.Name != "" && wt.Name != in.Name {
+			continue
+		}
+		infos = append(infos, workflowTypeInfoOutput{
 			WorkflowType:    &workflowTypeRef{Name: wt.Name, Version: wt.Version},
 			Status:          wt.Status,
 			Description:     wt.Description,
 			CreationDate:    wt.CreationDate,
 			DeprecationDate: wt.DeprecationDate,
-		}
+		})
 	}
 	sort.Slice(infos, func(i, j int) bool {
+		a, b := infos[i], infos[j]
+		if a.WorkflowType.Name == b.WorkflowType.Name {
+			return a.WorkflowType.Version < b.WorkflowType.Version
+		}
 		if in.ReverseOrder {
-			return infos[i].WorkflowType.Name > infos[j].WorkflowType.Name
+			return a.WorkflowType.Name > b.WorkflowType.Name
 		}
 
-		return infos[i].WorkflowType.Name < infos[j].WorkflowType.Name
+		return a.WorkflowType.Name < b.WorkflowType.Name
 	})
 	infos, nextPageToken := applyPageTokenSlice(infos, in.NextPageToken, in.MaximumPageSize)
 

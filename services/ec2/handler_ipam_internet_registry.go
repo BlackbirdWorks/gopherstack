@@ -173,21 +173,14 @@ func (h *Handler) handleGetIpamInternetRegistryAssociationAsns(vals url.Values, 
 		return nil, err
 	}
 
-	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
-	if err != nil {
-		return nil, err
-	}
-
-	page, nextToken := pageSlice(asns, offset, maxResults)
-
-	resp := &getIpamInternetRegistryAssociationAsnsResponse{Xmlns: ec2XMLNS, RequestID: reqID, NextToken: nextToken}
-	for _, a := range page {
+	resp := &getIpamInternetRegistryAssociationAsnsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
+	for _, a := range asns {
 		resp.IpamInternetRegistryAssociationAsnSet.Items = append(
 			resp.IpamInternetRegistryAssociationAsnSet.Items, ipamInternetRegistryAssociationAsnItem{Asn: a.Asn},
 		)
 	}
 
-	return resp, nil
+	return finishPagedFiltered(vals, resp)
 }
 
 type ipamInternetRegistryAssociationCidrItem struct {
@@ -211,19 +204,12 @@ func (h *Handler) handleGetIpamInternetRegistryAssociationCidrs(vals url.Values,
 		return nil, err
 	}
 
-	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
-	if err != nil {
-		return nil, err
-	}
-
-	page, nextToken := pageSlice(cidrs, offset, maxResults)
-
-	resp := &getIpamInternetRegistryAssociationCidrsResponse{Xmlns: ec2XMLNS, RequestID: reqID, NextToken: nextToken}
-	for _, c := range page {
+	resp := &getIpamInternetRegistryAssociationCidrsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
+	for _, c := range cidrs {
 		resp.IpamInternetRegistryAssociationCidrSet.Items = append(
 			resp.IpamInternetRegistryAssociationCidrSet.Items, ipamInternetRegistryAssociationCidrItem{Cidr: c.Cidr},
 		)
 	}
 
-	return resp, nil
+	return finishPagedFiltered(vals, resp)
 }

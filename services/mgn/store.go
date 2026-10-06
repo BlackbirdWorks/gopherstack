@@ -216,12 +216,12 @@ func (b *InMemoryBackend) nmExecutionARN(id string) string {
 // resourceIDFromARN extracts the resource ID from an MGN ARN of the form
 // ".../{marker}{id}", returning ok=false if arnStr does not contain marker.
 func resourceIDFromARN(arnStr, marker string) (string, bool) {
-	idx := strings.LastIndex(arnStr, marker)
-	if idx < 0 {
+	_, after, ok := strings.CutLast(arnStr, marker)
+	if !ok {
 		return "", false
 	}
 
-	id := arnStr[idx+len(marker):]
+	id := after
 	if id == "" {
 		return "", false
 	}

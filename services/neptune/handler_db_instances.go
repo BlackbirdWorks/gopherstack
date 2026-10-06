@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/url"
+	"slices"
 	"strconv"
 )
 
@@ -168,6 +169,8 @@ func (h *Handler) handleModifyDBInstance(ctx context.Context, vals url.Values) (
 	}
 	opts := DBInstanceModifyOptions{
 		DBParameterGroupName:       vals.Get("DBParameterGroupName"),
+		NewDBInstanceIdentifier:    vals.Get("NewDBInstanceIdentifier"),
+		CACertificateIdentifier:    vals.Get("CACertificateIdentifier"),
 		PreferredMaintenanceWindow: vals.Get("PreferredMaintenanceWindow"),
 		PreferredBackupWindow:      vals.Get("PreferredBackupWindow"),
 		MonitoringRoleArn:          vals.Get("MonitoringRoleArn"),
@@ -274,15 +277,13 @@ func (h *Handler) handleDescribeDBEngineVersions(_ context.Context, vals url.Val
 			DBParameterGroupFamily: pgFamilyNeptune14,
 		},
 	}
-	if vals.Get("DefaultOnly") == formTrue {
-		filtered := make([]xmlDBEngineVersion, 0, 1)
-		for _, m := range members {
-			if m.EngineVersion == defaultEngineVersion {
-				filtered = append(filtered, m)
-			}
-		}
-		members = filtered
-	}
+	defaultOnly := vals.Get("DefaultOnly") == formTrue
+	members = slices.DeleteFunc(members, func(m xmlDBEngineVersion) bool {
+		return (defaultOnly && m.EngineVersion != defaultEngineVersion) ||
+			!matchesOptional(vals.Get("Engine"), m.Engine) ||
+			!matchesOptional(vals.Get("EngineVersion"), m.EngineVersion) ||
+			!matchesOptional(vals.Get("DBParameterGroupFamily"), m.DBParameterGroupFamily)
+	})
 	members, nextMarker := applyNeptuneMarker(members, vals.Get("Marker"), vals.Get("MaxRecords"))
 
 	return &describeDBEngineVersionsResponse{
@@ -468,6 +469,7 @@ func (h *Handler) toXMLInstance(ctx context.Context, inst *DBInstance) xmlDBInst
 		DBSecurityGroups:                xmlDBSecurityGroupMembershipList{Members: dbSGs},
 		MonitoringInterval:              inst.MonitoringInterval,
 		MonitoringRoleArn:               inst.MonitoringRoleArn,
+		CACertificateIdentifier:         inst.CACertificateIdentifier,
 		Iops:                            inst.Iops,
 	}
 }
@@ -502,6 +504,7 @@ type xmlDBInstance struct {
 	InstanceCreateTime              string                            `xml:"InstanceCreateTime,omitempty"`
 	Endpoint                        string                            `xml:"Endpoint>Address,omitempty"`
 	MonitoringRoleArn               string                            `xml:"MonitoringRoleArn,omitempty"`
+	CACertificateIdentifier         string                            `xml:"CACertificateIdentifier,omitempty"`
 	DBParameterGroupName            string                            `xml:"DBParameterGroups>DBParameterGroup>DBParameterGroupName,omitempty"` //nolint:lll // nested query-protocol tag path, cannot be shortened
 	PreferredMaintenanceWindow      string                            `xml:"PreferredMaintenanceWindow,omitempty"`
 	PreferredBackupWindow           string                            `xml:"PreferredBackupWindow,omitempty"`
@@ -733,3 +736,5 @@ func (h *Handler) dispatchDBInstanceAction(
 		return h.dispatchSubnetAndClusterParamGroupAction(ctx, action, vals)
 	}
 }
+
+func matchesOptional(want, got string) bool { return want == "" || want == got }

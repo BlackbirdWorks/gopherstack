@@ -78,7 +78,8 @@ type PatchBaselineIdentity struct {
 	BaselineID      string `json:"BaselineId"`
 	BaselineName    string `json:"BaselineName"`
 	OperatingSystem string `json:"OperatingSystem,omitempty"`
-	Description     string `json:"Description,omitempty"`
+	Description     string `json:"BaselineDescription,omitempty"`
+	DefaultBaseline bool   `json:"DefaultBaseline"`
 }
 
 // GetPatchBaselineInput is the request payload for GetPatchBaseline.
@@ -180,6 +181,7 @@ type PatchBaseline struct {
 
 // CreatePatchBaselineInput is the request payload for CreatePatchBaseline.
 type CreatePatchBaselineInput struct {
+	ClientToken                              string            `json:"ClientToken,omitempty"`
 	ApprovalRules                            *PatchRuleGroup   `json:"ApprovalRules,omitempty"`
 	ApprovedPatchesEnableNonSecurity         *bool             `json:"ApprovedPatchesEnableNonSecurity,omitempty"`
 	GlobalFilters                            *PatchFilterGroup `json:"GlobalFilters,omitempty"`
@@ -269,8 +271,8 @@ type DescribePatchGroupsInput struct {
 
 // PatchGroupPatchBaselineMapping maps a patch group to a baseline identity.
 type PatchGroupPatchBaselineMapping struct {
-	BaselineIdentity PatchBaselineIdentity `json:"BaselineIdentity"`
 	PatchGroup       string                `json:"PatchGroup"`
+	BaselineIdentity PatchBaselineIdentity `json:"BaselineIdentity"`
 }
 
 // DescribePatchGroupsOutput is the response payload for DescribePatchGroups.

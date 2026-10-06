@@ -1,8 +1,8 @@
 <script lang="ts">
-	import { confirmDestructive } from '$lib/confirm-dialog';
+	import { confirmDestructive } from '#lib/confirm-dialog.ts';
 	import { untrack } from 'svelte';
-	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
-	import { getIoTClient } from '$lib/aws-client';
+	import { onRegionChange, regionalClient } from '#lib/region-effect.svelte.ts';
+	import { getIoTClient } from '#lib/aws-client.ts';
 	import {
 		ListThingsCommand,
 		DescribeThingCommand,

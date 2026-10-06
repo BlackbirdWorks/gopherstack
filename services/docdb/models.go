@@ -476,7 +476,8 @@ type ModifyDBClusterOptions struct {
 	// value -- same disclosed simplification as rds's ModifyDBCluster (see
 	// services/rds/handler_db_clusters.go), no deferred/pending-reboot state
 	// is modeled here either.
-	ApplyImmediately bool
+	ApplyImmediately         bool
+	AllowMajorVersionUpgrade bool
 }
 
 // CreateDBInstanceOptions holds optional parameters for CreateDBInstance.
@@ -500,6 +501,7 @@ type ModifyDBInstanceOptions struct {
 	EnablePerformanceInsights   *bool
 	PromotionTier               *int
 	CACertificateIdentifier     string
+	NewDBInstanceIdentifier     string
 	PerformanceInsightsKMSKeyID string
 	// ApplyImmediately and CertificateRotationRestart are read for
 	// wire-declaration parity but this backend applies every ModifyDBInstance
@@ -515,4 +517,5 @@ type DBEngineVersion struct {
 	Engine              string
 	EngineVersion       string
 	DBEngineDescription string
+	ExportableLogTypes  []string
 }

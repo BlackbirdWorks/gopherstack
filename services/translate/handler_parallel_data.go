@@ -19,7 +19,11 @@ func (h *Handler) createParallelData(input map[string]any) (map[string]any, erro
 	encKey := extractEncryptionKey(input)
 	tags := extractTags(input)
 
-	pd, err := h.Backend.CreateParallelData(name, description, cfg, encKey, tags)
+	pd, err := replayCreate(h, "CreateParallelData", input, ErrConflict,
+		func(p *ParallelData) string { return p.Name }, h.Backend.GetParallelData,
+		func() (*ParallelData, error) {
+			return h.Backend.CreateParallelData(name, description, cfg, encKey, tags)
+		})
 	if err != nil {
 		return nil, err
 	}

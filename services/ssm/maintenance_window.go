@@ -98,8 +98,18 @@ func (b *InMemoryBackend) CreateMaintenanceWindow(
 	b.mu.Lock("CreateMaintenanceWindow")
 	defer b.mu.Unlock()
 
+	if id, replay, err := b.idempotentReplayLocked(
+		region, "CreateMaintenanceWindow", input.ClientToken, input,
+		b.maintenanceWindowsStore(region).Has,
+	); err != nil {
+		return nil, err
+	} else if replay {
+		return &CreateMaintenanceWindowOutput{WindowID: id}, nil
+	}
+
 	windowID := windowIDPrefix + uuid.NewString()
 	now := UnixTimeFloat(time.Now())
+	b.recordIdempotentLocked(region, "CreateMaintenanceWindow", input.ClientToken, input, windowID)
 
 	mw := MaintenanceWindow{
 		WindowID:                 windowID,
@@ -225,7 +235,14 @@ func (b *InMemoryBackend) DescribeMaintenanceWindowExecutions(
 		},
 	}, input.Filters)
 
-	return &DescribeMaintenanceWindowExecutionsOutputFull{WindowExecutions: executions}, nil
+	page, next, err := pageChecked(
+		executions, input.NextToken, maxOrZero(input.MaxResults), defaultDescribeMaxResults, ErrValidationException,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &DescribeMaintenanceWindowExecutionsOutputFull{WindowExecutions: page, NextToken: next}, nil
 }
 
 // filterWindowExecutions applies DescribeMaintenanceWindowExecutions' documented filter
@@ -387,8 +404,16 @@ func (b *InMemoryBackend) DescribeMaintenanceWindowExecutionTaskInvocations(
 		},
 	}, input.Filters)
 
+	page, next, err := pageChecked(
+		invocations, input.NextToken, maxOrZero(input.MaxResults), defaultDescribeMaxResults, ErrValidationException,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &DescribeMaintenanceWindowExecutionTaskInvocationsOutputFull{
-		WindowExecutionTaskInvocationIdentities: invocations,
+		WindowExecutionTaskInvocationIdentities: page,
+		NextToken:                               next,
 	}, nil
 }
 
@@ -441,18 +466,25 @@ func (b *InMemoryBackend) DescribeMaintenanceWindowSchedule(
 		}, nil
 	}
 
-	return &DescribeMaintenanceWindowScheduleOutputFull{
-		ScheduledWindowExecutions: []ScheduledWindowExecution{
-			{
-				WindowID: win.WindowID,
-				Name:     win.Name,
-				ExecutionTime: time.Now().
-					UTC().
-					Add(mwExecutionScheduleHours * time.Hour).
-					Format(time.RFC3339),
-			},
+	scheduled := []ScheduledWindowExecution{
+		{
+			WindowID: win.WindowID,
+			Name:     win.Name,
+			ExecutionTime: time.Now().
+				UTC().
+				Add(mwExecutionScheduleHours * time.Hour).
+				Format(time.RFC3339),
 		},
-	}, nil
+	}
+
+	page, next, err := pageChecked(
+		scheduled, input.NextToken, maxOrZero(input.MaxResults), defaultDescribeMaxResults, ErrValidationException,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &DescribeMaintenanceWindowScheduleOutputFull{ScheduledWindowExecutions: page, NextToken: next}, nil
 }
 
 // GetMaintenanceWindowExecution returns a specific window execution.
@@ -711,7 +743,7 @@ func matchesTargetFilters(t MaintenanceWindowTarget, filters []MaintenanceWindow
 		var value string
 
 		switch f.Key {
-		case "Type":
+		case fkType:
 			value = t.ResourceType
 		case "WindowTargetId":
 			value = t.WindowTargetID
@@ -844,36 +876,18 @@ func (b *InMemoryBackend) DescribeMaintenanceWindows(
 	}
 
 	sort.Slice(all, func(i, j int) bool { return all[i].WindowID < all[j].WindowID })
-
-	startIdx := parseNextToken(input.NextToken)
+	all = filterMaintenanceWindows(all, input.Filters)
 
 	const defaultMWMaxResults = 50
 
-	maxResults := int64(defaultMWMaxResults)
-	if input.MaxResults != nil && *input.MaxResults > 0 {
-		maxResults = *input.MaxResults
+	page, nextToken, err := pageChecked(
+		all, input.NextToken, maxOrZero64(input.MaxResults), defaultMWMaxResults, ErrValidationException,
+	)
+	if err != nil {
+		return nil, err
 	}
 
-	if startIdx >= len(all) {
-		return &DescribeMaintenanceWindowsOutput{
-			WindowIdentities: []MaintenanceWindowIdentity{},
-		}, nil
-	}
-
-	end := startIdx + int(maxResults)
-
-	var nextToken string
-
-	if end < len(all) {
-		nextToken = strconv.Itoa(end)
-	} else {
-		end = len(all)
-	}
-
-	return &DescribeMaintenanceWindowsOutput{
-		WindowIdentities: all[startIdx:end],
-		NextToken:        nextToken,
-	}, nil
+	return &DescribeMaintenanceWindowsOutput{WindowIdentities: page, NextToken: nextToken}, nil
 }
 
 // GetMaintenanceWindow retrieves a maintenance window by ID.
@@ -909,7 +923,17 @@ func (b *InMemoryBackend) RegisterTargetWithMaintenanceWindow(
 		return nil, ErrMaintenanceWindowNotFound
 	}
 
+	if id, replay, err := b.idempotentReplayLocked(
+		region, "RegisterTargetWithMaintenanceWindow", input.ClientToken, input,
+		b.maintenanceWindowTargetsStore(region).Has,
+	); err != nil {
+		return nil, err
+	} else if replay {
+		return &RegisterTargetWithMaintenanceWindowOutput{WindowTargetID: id}, nil
+	}
+
 	targetID := windowTargetIDPrefix + uuid.NewString()
+	b.recordIdempotentLocked(region, "RegisterTargetWithMaintenanceWindow", input.ClientToken, input, targetID)
 	target := MaintenanceWindowTarget{
 		WindowID:       input.WindowID,
 		WindowTargetID: targetID,
@@ -950,7 +974,17 @@ func (b *InMemoryBackend) RegisterTaskWithMaintenanceWindow(
 		return nil, ErrMaintenanceWindowNotFound
 	}
 
+	if id, replay, err := b.idempotentReplayLocked(
+		region, "RegisterTaskWithMaintenanceWindow", input.ClientToken, input,
+		b.maintenanceWindowTasksStore(region).Has,
+	); err != nil {
+		return nil, err
+	} else if replay {
+		return &RegisterTaskWithMaintenanceWindowOutput{WindowTaskID: id}, nil
+	}
+
 	taskID := windowTaskIDPrefix + uuid.NewString()
+	b.recordIdempotentLocked(region, "RegisterTaskWithMaintenanceWindow", input.ClientToken, input, taskID)
 	task := MaintenanceWindowTask{
 		WindowID:       input.WindowID,
 		WindowTaskID:   taskID,

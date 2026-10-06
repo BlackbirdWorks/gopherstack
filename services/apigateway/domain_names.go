@@ -2,6 +2,7 @@ package apigateway
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 	"time"
 )
@@ -56,6 +57,14 @@ func (b *InMemoryBackend) CreateDomainName(input CreateDomainNameInput) (*Domain
 		DomainNameStatus:         statusAvailable,
 		Tags:                     backendTags,
 		CreatedDate:              &now,
+
+		CertificateName:                     input.CertificateName,
+		RegionalCertificateName:             input.RegionalCertificateName,
+		OwnershipVerificationCertificateARN: input.OwnershipVerificationCertificateARN,
+		Policy:                              input.Policy,
+		RoutingMode:                         input.RoutingMode,
+		EndpointAccessMode:                  input.EndpointAccessMode,
+		MutualTLSAuthentication:             input.MutualTLSAuthentication,
 	}
 	b.domainNames.Put(dn)
 
@@ -89,6 +98,7 @@ func (b *InMemoryBackend) CreateDomainNameAccessAssociation(
 		DomainNameARN:                  input.DomainNameARN,
 		AccessAssociationSource:        input.AccessAssociationSource,
 		AccessAssociationSourceType:    input.AccessAssociationSourceType,
+		Tags:                           maps.Clone(input.Tags),
 	}
 	b.domainNameAccessAssociations.Put(assoc)
 

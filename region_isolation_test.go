@@ -75,7 +75,10 @@ func regionIsolationURL(t *testing.T) string {
 
 		e := echo.New()
 		e.Pre(awsMetaMiddleware(regionA, "000000000000"))
-		e.Use(service.NewServiceRouter(registry).WithTargetGates(routeTargetGates()).RouteHandler())
+		router := service.NewServiceRouter(registry).
+			WithTargetGates(routeTargetGates()).
+			WithPathGates(routePathGates())
+		e.Use(router.RouteHandler())
 		regionSrvURL = httptest.NewServer(e).URL
 	})
 

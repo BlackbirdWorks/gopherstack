@@ -64,10 +64,10 @@ type createDashboardBody struct {
 	RefreshSchedule *refreshScheduleBody `json:"RefreshSchedule"`
 	Name            string               `json:"Name"`
 	Type            string               `json:"Type"`
-	Tags            []struct {
+	TagsList        []struct {
 		Key   string `json:"Key"`
 		Value string `json:"Value"`
-	} `json:"Tags"`
+	} `json:"TagsList"`
 	Widgets                      []widgetBody `json:"Widgets"`
 	TerminationProtectionEnabled bool         `json:"TerminationProtectionEnabled"`
 }
@@ -78,8 +78,8 @@ func (h *Handler) handleCreateDashboard(c *echo.Context, body []byte) error {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
-	kv := make(map[string]string, len(in.Tags))
-	for _, tag := range in.Tags {
+	kv := make(map[string]string, len(in.TagsList))
+	for _, tag := range in.TagsList {
 		kv[tag.Key] = tag.Value
 	}
 

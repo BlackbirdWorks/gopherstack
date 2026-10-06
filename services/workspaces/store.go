@@ -8,6 +8,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
@@ -74,6 +75,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		imagePermissions:  make(map[string]map[string]bool),
 		clientProperties:  make(map[string]storedClientProps),
 		appAssociations:   make(map[string]map[string]*storedAppAssociation),
+		idem:              idempotency.New("workspaces"),
 		accountID:         accountID,
 		region:            region,
 	}
@@ -109,6 +111,7 @@ func (b *InMemoryBackend) Reset() {
 	b.imagePermissions = make(map[string]map[string]bool)
 	b.clientProperties = make(map[string]storedClientProps)
 	b.appAssociations = make(map[string]map[string]*storedAppAssociation)
+	b.idem.Clear()
 	b.accountConfig = storedAccountConfig{}
 	b.accountModifications = nil
 	b.counter = 0

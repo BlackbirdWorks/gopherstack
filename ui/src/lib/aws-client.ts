@@ -90,7 +90,7 @@ import { RolesAnywhereClient } from "@aws-sdk/client-rolesanywhere";
 import { WorkMailClient } from "@aws-sdk/client-workmail";
 import { S3Client } from "@aws-sdk/client-s3";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { regionProvider } from "$lib/region.svelte";
+import { regionProvider } from "#lib/region.svelte.ts";
 
 function endpointURL(): string {
   if (typeof window === "undefined" || !window.location) {

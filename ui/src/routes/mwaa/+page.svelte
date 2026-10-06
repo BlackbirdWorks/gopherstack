@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
-	import { getMWAAClient } from '$lib/aws-client';
+	import { onRegionChange, regionalClient } from '#lib/region-effect.svelte.ts';
+	import { getMWAAClient } from '#lib/aws-client.ts';
 	import {
 		ListEnvironmentsCommand,
 		GetEnvironmentCommand,

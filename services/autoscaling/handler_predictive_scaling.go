@@ -2,21 +2,24 @@ package autoscaling
 
 import (
 	"encoding/xml"
+	"fmt"
 	"net/url"
 	"strconv"
 	"time"
 )
 
-// forecastHorizonHours and forecastIntervalHours bound the synthetic forecast series
-// generated below: AWS forecasts up to 2 days ahead in hourly points.
-const (
-	forecastHorizonHours  = 48
-	forecastIntervalHours = 1
-)
+// forecastMaxWindow is the longest StartTime-to-EndTime span the API accepts
+// (api_op_GetPredictiveScalingForecast.go: "no more than 30 days").
+const forecastMaxWindow = 30 * 24 * time.Hour
 
 func (h *Handler) handleGetPredictiveScalingForecast(vals url.Values) (any, error) {
 	groupName := vals.Get("AutoScalingGroupName")
 	policyName := vals.Get("PolicyName")
+
+	start, end := parseTimeVal(vals.Get("StartTime")), parseTimeVal(vals.Get("EndTime"))
+	if start.IsZero() || end.IsZero() || !end.After(start) || end.Sub(start) > forecastMaxWindow {
+		return nil, fmt.Errorf("%w: StartTime and EndTime must span up to 30 days", ErrInvalidParameter)
+	}
 
 	if err := h.Backend.GetPredictiveScalingForecast(groupName); err != nil {
 		return nil, err
@@ -35,13 +38,10 @@ func (h *Handler) handleGetPredictiveScalingForecast(vals url.Values) (any, erro
 	desired := groups[0].DesiredCapacity
 	now := time.Now().UTC()
 
-	timestamps := make([]xmlStringValue, 0, forecastHorizonHours)
-	values := make([]xmlStringValue, 0, forecastHorizonHours)
+	var timestamps, values []xmlStringValue
 
-	for i := range forecastHorizonHours {
-		timestamps = append(timestamps, xmlStringValue{
-			Value: now.Add(time.Duration(i*forecastIntervalHours) * time.Hour).Format(time.RFC3339),
-		})
+	for ts := start.UTC(); ts.Before(end); ts = ts.Add(time.Hour) {
+		timestamps = append(timestamps, xmlStringValue{Value: ts.Format(time.RFC3339)})
 		values = append(values, xmlStringValue{Value: strconv.FormatInt(int64(desired), 10)})
 	}
 

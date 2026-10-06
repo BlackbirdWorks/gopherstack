@@ -137,6 +137,7 @@ type describeApplicationStatusChecksResponse struct {
 	XMLName   xml.Name `xml:"DescribeApplicationStatusChecksResponse"`
 	Xmlns     string   `xml:"xmlns,attr"`
 	RequestID string   `xml:"requestId"`
+	NextToken string   `xml:"nextToken,omitempty"`
 	Checks    struct {
 		Items []applicationStatusCheckItem `xml:"item"`
 	} `xml:"applicationStatusCheckSet"`
@@ -173,6 +174,7 @@ type describeApplicationStatusCheckAssociationsResponse struct {
 	XMLName      xml.Name `xml:"DescribeApplicationStatusCheckAssociationsResponse"`
 	Xmlns        string   `xml:"xmlns,attr"`
 	RequestID    string   `xml:"requestId"`
+	NextToken    string   `xml:"nextToken,omitempty"`
 	Associations struct {
 		Items []applicationStatusCheckAssociationItem `xml:"item"`
 	} `xml:"associationSet"`
@@ -363,6 +365,7 @@ type describeApplicationStatusResponse struct {
 	XMLName             xml.Name `xml:"DescribeApplicationStatusResponse"`
 	Xmlns               string   `xml:"xmlns,attr"`
 	RequestID           string   `xml:"requestId"`
+	NextToken           string   `xml:"nextToken,omitempty"`
 	ApplicationStatuses struct {
 		Instances []instanceApplicationStatusItem `xml:"instanceSet>item"`
 	} `xml:"applicationStatusesResponseType"`
@@ -574,7 +577,7 @@ func (h *Handler) handleDescribeApplicationStatusChecks(vals url.Values, reqID s
 		resp.Checks.Items = append(resp.Checks.Items, applicationStatusCheckToItem(c, tags, tagAssocs))
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 func (h *Handler) handleAssociateApplicationStatusCheck(vals url.Values, reqID string) (any, error) {
@@ -650,7 +653,7 @@ func (h *Handler) handleDescribeApplicationStatusCheckAssociations(
 		)
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 func (h *Handler) handleEnableApplicationStatusCheckSuppression(
@@ -698,5 +701,5 @@ func (h *Handler) handleDescribeApplicationStatus(vals url.Values, reqID string)
 		)
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }

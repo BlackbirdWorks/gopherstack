@@ -97,7 +97,7 @@ func newPersistenceTestBackend(t *testing.T) (*bedrockagent.InMemoryBackend, per
 	})
 	require.NoError(t, err)
 
-	job, err := b.StartIngestionJob(ctx, kb.KnowledgeBaseID, ds.DataSourceID, "test job")
+	job, err := b.StartIngestionJob(ctx, kb.KnowledgeBaseID, ds.DataSourceID, "test job", "")
 	require.NoError(t, err)
 
 	docs, err := b.IngestKnowledgeBaseDocuments(ctx, kb.KnowledgeBaseID, ds.DataSourceID, []bedrockagent.KBDocument{
@@ -116,7 +116,7 @@ func newPersistenceTestBackend(t *testing.T) (*bedrockagent.InMemoryBackend, per
 	})
 	require.NoError(t, err)
 
-	fv, err := b.CreateFlowVersion(ctx, flow.FlowID, "v1 snapshot")
+	fv, err := b.CreateFlowVersion(ctx, flow.FlowID, bedrockagent.VersionConfig{Description: "v1 snapshot"})
 	require.NoError(t, err)
 
 	falias, err := b.CreateFlowAlias(ctx, flow.FlowID, bedrockagent.FlowAliasConfig{
@@ -130,7 +130,7 @@ func newPersistenceTestBackend(t *testing.T) (*bedrockagent.InMemoryBackend, per
 	})
 	require.NoError(t, err)
 
-	pv, err := b.CreatePromptVersion(ctx, prompt.PromptID, "v1 snapshot")
+	pv, err := b.CreatePromptVersion(ctx, prompt.PromptID, bedrockagent.VersionConfig{Description: "v1 snapshot"})
 	require.NoError(t, err)
 
 	rp, err := b.PutResourcePolicy(ctx, kb.KnowledgeBaseARN, `{"Version":"2012-10-17","Statement":[]}`, "")

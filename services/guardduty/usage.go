@@ -107,9 +107,9 @@ func usageByFeature(features []string, fieldName, unit string) []any {
 // of the feature-only names are among them.
 func dataSourceForFeature(feature string) string {
 	switch feature {
-	case "S3_DATA_EVENTS":
+	case featureS3DataEvents:
 		return "S3_LOGS"
-	case "EKS_AUDIT_LOGS":
+	case featureEKSAuditLogs:
 		return "KUBERNETES_AUDIT_LOGS"
 	default:
 		return ""
@@ -229,7 +229,7 @@ func (b *InMemoryBackend) GetRemainingFreeTrialDays(detectorID string, accountID
 
 		accounts = append(accounts, map[string]any{
 			keyAccountIDField: id,
-			"features":        freeTrialFeatures(m.UpdatedAt), //nolint:goconst // existing issue.
+			keyFeatures:       freeTrialFeatures(m.UpdatedAt),
 		})
 	}
 
@@ -244,7 +244,7 @@ func freeTrialFeatures(since time.Time) []map[string]any {
 	out := make([]map[string]any, 0, len(freeTrialBaseFeatures))
 
 	for _, name := range freeTrialBaseFeatures {
-		out = append(out, map[string]any{"name": name, "freeTrialDaysRemaining": remaining})
+		out = append(out, map[string]any{keyName: name, "freeTrialDaysRemaining": remaining})
 	}
 
 	return out

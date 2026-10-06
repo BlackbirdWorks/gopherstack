@@ -324,7 +324,7 @@ func (b *InMemoryBackend) GetChannelSchedule(
 		})
 	}
 
-	pg := page.New(all, nextToken, maxResults, defaultMaxResults)
+	pg := page.New(all, nextToken, maxResults, defaultScheduleMaxResults)
 
 	out := make([]*ProgramScheduleEntry, 0, len(pg.Data))
 	for _, prog := range pg.Data {

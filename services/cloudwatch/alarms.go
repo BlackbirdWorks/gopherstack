@@ -34,6 +34,10 @@ func (b *InMemoryBackend) PutMetricAlarm(alarm *MetricAlarm) error {
 		)
 	}
 
+	if err := validateAlarmExtras(alarm); err != nil {
+		return err
+	}
+
 	if !validStandardUnit(alarm.Unit) {
 		return fmt.Errorf("%w: Unit %q is not a valid StandardUnit", ErrValidation, alarm.Unit)
 	}
@@ -84,6 +88,36 @@ func (b *InMemoryBackend) PutMetricAlarm(alarm *MetricAlarm) error {
 		historySummary = fmt.Sprintf("Alarm %q created", alarm.AlarmName)
 	}
 	b.appendHistory(alarm.AlarmName, "MetricAlarm", histType, historySummary, "")
+
+	return nil
+}
+
+// validateAlarmExtras checks EvaluateLowSampleCountPercentile and WarmUpConfiguration.
+func validateAlarmExtras(alarm *MetricAlarm) error {
+	if v := alarm.EvaluateLowSampleCountPercentile; v != "" && v != "evaluate" && v != "ignore" {
+		return fmt.Errorf("%w: EvaluateLowSampleCountPercentile must be evaluate or ignore", ErrValidation)
+	}
+
+	if alarm.WarmUp != nil && alarm.WarmUp.PeriodMinutes <= 0 {
+		return fmt.Errorf("%w: WarmUpPeriodDurationInMinutes must be positive", ErrValidation)
+	}
+
+	return nil
+}
+
+// checkUnsupportedAlarmMembers rejects PromQL EvaluationCriteria (no PromQL engine) and an
+// EvaluationInterval on a MetricName/Metrics alarm (the SDK documents it as criteria-only).
+func checkUnsupportedAlarmMembers(hasCriteria, hasInterval bool) error {
+	if hasCriteria {
+		return fmt.Errorf("%w: PromQL EvaluationCriteria alarms are not supported", ErrValidation)
+	}
+
+	if hasInterval {
+		return fmt.Errorf(
+			"%w: EvaluationInterval cannot be specified for alarms configured with MetricName or Metrics",
+			ErrValidation,
+		)
+	}
 
 	return nil
 }

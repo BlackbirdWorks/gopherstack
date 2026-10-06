@@ -329,9 +329,8 @@ func (b *InMemoryBackend) GetMemberDetectors(
 	for _, id := range accountIDs {
 		if m, ok := b.members.Get(detectorKey(detectorID, id)); ok {
 			memberDetails = append(memberDetails, map[string]any{
-				"accountId":  m.AccountID,
-				"detectorId": m.DetectorID, //nolint:goconst // existing issue.
-				"features":   []any{},      //nolint:goconst // existing issue.
+				"accountId": m.AccountID,
+				keyFeatures: memberFeaturesWire(m.Features),
 			})
 
 			continue
@@ -350,6 +349,7 @@ func (b *InMemoryBackend) GetMemberDetectors(
 func (b *InMemoryBackend) UpdateMemberDetectors(
 	detectorID string,
 	accountIDs []string,
+	features []DetectorFeature,
 ) ([]map[string]any, error) {
 	b.mu.Lock("UpdateMemberDetectors")
 	defer b.mu.Unlock()
@@ -358,15 +358,26 @@ func (b *InMemoryBackend) UpdateMemberDetectors(
 		return nil, ErrDetectorNotFound
 	}
 
+	if err := validateMemberFeatures(features); err != nil {
+		return nil, err
+	}
+
 	var unprocessed []map[string]any
 
+	now := time.Now().UTC()
+
 	for _, id := range accountIDs {
-		if !b.members.Has(detectorKey(detectorID, id)) {
+		m, ok := b.members.Get(detectorKey(detectorID, id))
+		if !ok {
 			unprocessed = append(unprocessed, map[string]any{
 				"accountId": id,
 				"result":    "ResourceNotFoundException",
 			})
+
+			continue
 		}
+
+		m.Features = applyMemberFeatures(m.Features, features, now)
 	}
 
 	return unprocessed, nil

@@ -111,20 +111,59 @@ func (h *Handler) handleListInvestigations(c *echo.Context) error {
 	}
 
 	var req struct {
-		GraphArn   string `json:"GraphArn"`
-		NextToken  string `json:"NextToken"`
-		MaxResults int32  `json:"MaxResults"`
+		GraphArn       string `json:"GraphArn"`
+		NextToken      string `json:"NextToken"`
+		FilterCriteria struct {
+			CreatedTime *struct {
+				StartInclusive string `json:"StartInclusive"`
+				EndInclusive   string `json:"EndInclusive"`
+			} `json:"CreatedTime"`
+			EntityArn *stringFilterWire `json:"EntityArn"`
+			Severity  *stringFilterWire `json:"Severity"`
+			State     *stringFilterWire `json:"State"`
+			Status    *stringFilterWire `json:"Status"`
+		} `json:"FilterCriteria"`
+		SortCriteria struct {
+			Field     string `json:"Field"`
+			SortOrder string `json:"SortOrder"`
+		} `json:"SortCriteria"`
+		MaxResults int32 `json:"MaxResults"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 
+	fc := req.FilterCriteria
+	filter := InvestigationFilter{
+		EntityARN: fc.EntityArn.value(),
+		Severity:  fc.Severity.value(),
+		State:     fc.State.value(),
+		Status:    fc.Status.value(),
+	}
+
+	if fc.CreatedTime != nil {
+		start, startErr := parseTime(fc.CreatedTime.StartInclusive)
+		end, endErr := parseTime(fc.CreatedTime.EndInclusive)
+
+		if startErr != nil || endErr != nil {
+			return c.JSON(
+				http.StatusBadRequest,
+				errorResponse("ValidationException", "invalid FilterCriteria.CreatedTime"),
+			)
+		}
+
+		filter.CreatedStart, filter.CreatedEnd = &start, &end
+	}
+
 	if req.GraphArn == "" {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "GraphArn is required"))
 	}
 
-	investigations, nextToken, listErr := h.Backend.ListInvestigations(req.GraphArn, req.MaxResults, req.NextToken)
+	investigations, nextToken, listErr := h.Backend.ListInvestigations(
+		req.GraphArn, filter, InvestigationSort{Field: req.SortCriteria.Field, Order: req.SortCriteria.SortOrder},
+		req.MaxResults, req.NextToken,
+	)
 	if listErr != nil {
 		return h.mapError(c, listErr)
 	}

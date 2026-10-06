@@ -139,6 +139,10 @@ func (h *Handler) handleListNamedShadows(c *echo.Context) error {
 	nextTokenIn := q.Get("nextToken")
 	pageSize := parsePageSize(q, defaultPageSize)
 
+	if cursorUnknown(names, nextTokenIn) {
+		return h.handleError(c, fmt.Errorf("%w: invalid nextToken", ErrValidation))
+	}
+
 	startIdx := findCursorIndex(names, nextTokenIn)
 	end := min(startIdx+pageSize, len(names))
 
