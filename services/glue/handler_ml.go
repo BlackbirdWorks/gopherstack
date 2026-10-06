@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+
+	gluetypes "github.com/aws/aws-sdk-go-v2/service/glue/types"
 )
 
 // cancelMLTaskRunInput holds input for CancelMLTaskRun.
@@ -51,6 +53,10 @@ func (h *Handler) handleCreateMLTransform(
 	_ context.Context,
 	in *createMLTransformInput,
 ) (*createMLTransformOutput, error) {
+	if err := checkEnum("WorkerType", gluetypes.WorkerType(in.WorkerType)); err != nil {
+		return nil, err
+	}
+
 	m, err := h.Backend.CreateMLTransformWithOptions(
 		in.Name,
 		in.Description,
@@ -633,6 +639,10 @@ func (h *Handler) handleUpdateMLTransform(
 	_ context.Context,
 	in *updateMLTransformInput,
 ) (*updateMLTransformOutput, error) {
+	if err := checkEnum("WorkerType", gluetypes.WorkerType(in.WorkerType)); err != nil {
+		return nil, err
+	}
+
 	update := MLTransform{
 		Name:                in.Name,
 		Description:         in.Description,

@@ -3,6 +3,8 @@ package codebuild
 import (
 	"fmt"
 
+	cbtypes "github.com/aws/aws-sdk-go-v2/service/codebuild/types"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -32,6 +34,10 @@ func paginateIDs(all []string, nextToken, sortOrder string, maxResults int32) (p
 		return page.Page[string]{}, fmt.Errorf("%w: invalid nextToken", ErrValidation)
 	}
 
+	if err := checkEnum("sortOrder", cbtypes.SortOrderType(sortOrder)); err != nil {
+		return page.Page[string]{}, err
+	}
+
 	ordered := all
 	if sortOrder == sortOrderDescending {
 		ordered = make([]string, len(all))
@@ -53,6 +59,10 @@ func paginateCommandExecutions(
 ) (page.Page[*CommandExecution], error) {
 	if err := page.ValidateToken(nextToken); err != nil {
 		return page.Page[*CommandExecution]{}, fmt.Errorf("%w: invalid nextToken", ErrValidation)
+	}
+
+	if err := checkEnum("sortOrder", cbtypes.SortOrderType(sortOrder)); err != nil {
+		return page.Page[*CommandExecution]{}, err
 	}
 
 	ordered := all

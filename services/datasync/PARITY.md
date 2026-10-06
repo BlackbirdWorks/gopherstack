@@ -303,3 +303,7 @@ datasync is region-isolated: agents, locations, tasks and executions live per re
 ## 2026-10-05 (gopherstack-uox6 pass 6, value semantics)
 
 CreateTask/UpdateTask store the Options defaults documented on types.Options (Atime BEST_EFFORT, TransferMode CHANGED, VerifyMode POINT_IN_TIME_CONSISTENT for BASIC and ONLY_FILES_TRANSFERRED otherwise, and so on); UpdateTask overlays supplied options and no longer clears CloudWatchLogGroupArn when omitted; UpdateAgent keeps the name when omitted; NFS/SMB locations default MountOptions.Version to AUTOMATIC. Not modelled: Options.LogLevel and BytesPerSecond have no documented default.
+
+## 2026-10-05 (input enum validation)
+
+15 request members typed as SDK enums are now checked against `Values()` and an unknown value is InvalidRequestException: AuthenticationType, AccessTier and BlobType on Azure Blob locations, HDFS AuthenticationType, EFS InTransitEncryption, object-storage ServerProtocol, S3StorageClass and CreateTask TaskMode (Create and Update where the op takes them). Proof: `TestSDK_EnumInputValidation`.

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
+	gluetypes "github.com/aws/aws-sdk-go-v2/service/glue/types"
 )
 
 type createJobInput struct {
@@ -57,6 +59,14 @@ type createJobOutput struct {
 }
 
 func (h *Handler) handleCreateJob(_ context.Context, in *createJobInput) (*createJobOutput, error) {
+	if err := firstErr(
+		checkEnum("ExecutionClass", gluetypes.ExecutionClass(in.ExecutionClass)),
+		checkEnum("JobMode", gluetypes.JobMode(in.JobMode)),
+		checkEnum("WorkerType", gluetypes.WorkerType(in.WorkerType)),
+	); err != nil {
+		return nil, err
+	}
+
 	maxCapacity := in.MaxCapacity
 	if maxCapacity == 0 && in.AllocatedCapacity != 0 {
 		maxCapacity = float64(in.AllocatedCapacity)
@@ -225,6 +235,13 @@ type startJobRunOutput struct {
 }
 
 func (h *Handler) handleStartJobRun(_ context.Context, in *startJobRunInput) (*startJobRunOutput, error) {
+	if err := firstErr(
+		checkEnum("ExecutionClass", gluetypes.ExecutionClass(in.ExecutionClass)),
+		checkEnum("WorkerType", gluetypes.WorkerType(in.WorkerType)),
+	); err != nil {
+		return nil, err
+	}
+
 	maxCapacity := in.MaxCapacity
 	if maxCapacity == 0 && in.AllocatedCapacity != 0 {
 		maxCapacity = float64(in.AllocatedCapacity)

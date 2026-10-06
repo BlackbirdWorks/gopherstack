@@ -1,6 +1,10 @@
 package lightsail
 
-import "context"
+import (
+	"context"
+
+	lstypes "github.com/aws/aws-sdk-go-v2/service/lightsail/types"
+)
 
 // loadBalancerOps returns the dispatch table for family L+M (14 ops).
 func (h *Handler) loadBalancerOps() map[string]opFunc {
@@ -97,6 +101,10 @@ func (h *Handler) handleCreateLoadBalancer(_ context.Context, body []byte) ([]by
 	req, err := decodeBody[createLoadBalancerRequest](body)
 	if err != nil {
 		return nil, err
+	}
+
+	if vErr := checkEnum("ipAddressType", lstypes.IpAddressType(req.IPAddressType)); vErr != nil {
+		return nil, vErr
 	}
 
 	ops, createErr := h.Backend.CreateLoadBalancer(
@@ -242,6 +250,10 @@ func (h *Handler) handleSetIPAddressType(_ context.Context, body []byte) ([]byte
 		return nil, err
 	}
 
+	if vErr := checkEnum("ipAddressType", lstypes.IpAddressType(req.IPAddressType)); vErr != nil {
+		return nil, vErr
+	}
+
 	ops, setErr := h.Backend.SetIPAddressType(req.ResourceName, req.ResourceType, req.IPAddressType)
 	if setErr != nil {
 		return nil, setErr
@@ -264,6 +276,10 @@ func (h *Handler) handleGetLoadBalancerMetricData(_ context.Context, body []byte
 	req, err := decodeBody[loadBalancerMetricDataRequest](body)
 	if err != nil {
 		return nil, err
+	}
+
+	if vErr := checkEnum("metricName", lstypes.LoadBalancerMetricName(req.MetricName)); vErr != nil {
+		return nil, vErr
 	}
 
 	if getErr := h.Backend.GetLoadBalancerMetricData(req.LoadBalancerName); getErr != nil {

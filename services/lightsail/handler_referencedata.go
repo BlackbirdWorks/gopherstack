@@ -1,6 +1,10 @@
 package lightsail
 
-import "context"
+import (
+	"context"
+
+	lstypes "github.com/aws/aws-sdk-go-v2/service/lightsail/types"
+)
 
 // referenceDataOps returns the dispatch table for family A (9 ops).
 func (h *Handler) referenceDataOps() map[string]opFunc {
@@ -48,6 +52,10 @@ func (h *Handler) handleGetBlueprints(_ context.Context, body []byte) ([]byte, e
 		return nil, err
 	}
 
+	if vErr := checkEnum("appCategory", lstypes.AppCategory(req.AppCategory)); vErr != nil {
+		return nil, vErr
+	}
+
 	bps := h.Backend.GetBlueprints(req.AppCategory, req.IncludeInactive)
 	out := make([]blueprintWire, len(bps))
 
@@ -87,6 +95,10 @@ func (h *Handler) handleGetBundles(_ context.Context, body []byte) ([]byte, erro
 	req, err := decodeBody[getBlueprintsRequest](body)
 	if err != nil {
 		return nil, err
+	}
+
+	if vErr := checkEnum("appCategory", lstypes.AppCategory(req.AppCategory)); vErr != nil {
+		return nil, vErr
 	}
 
 	bds := h.Backend.GetBundles(req.AppCategory, req.IncludeInactive)

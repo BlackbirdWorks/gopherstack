@@ -3,6 +3,8 @@ package datasync
 import (
 	"context"
 	"fmt"
+
+	dstypes "github.com/aws/aws-sdk-go-v2/service/datasync/types"
 )
 
 // --- Task operations ---
@@ -93,6 +95,10 @@ type createTaskOutput struct {
 }
 
 func (h *Handler) handleCreateTask(_ context.Context, in *createTaskInput) (*createTaskOutput, error) {
+	if err := checkEnum("TaskMode", dstypes.TaskMode(in.TaskMode)); err != nil {
+		return nil, err
+	}
+
 	if in.SourceLocationArn == "" {
 		return nil, fmt.Errorf("%w: SourceLocationArn is required", errInvalidRequest)
 	}

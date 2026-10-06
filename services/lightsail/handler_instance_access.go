@@ -1,6 +1,10 @@
 package lightsail
 
-import "context"
+import (
+	"context"
+
+	lstypes "github.com/aws/aws-sdk-go-v2/service/lightsail/types"
+)
 
 // instanceAccessOps returns the dispatch table for family C (8 ops).
 func (h *Handler) instanceAccessOps() map[string]opFunc {
@@ -185,6 +189,10 @@ func (h *Handler) handleSetupInstanceHTTPS(_ context.Context, body []byte) ([]by
 	req, err := decodeBody[setupInstanceHTTPSRequest](body)
 	if err != nil {
 		return nil, err
+	}
+
+	if vErr := checkEnum("certificateProvider", lstypes.CertificateProvider(req.CertificateProvider)); vErr != nil {
+		return nil, vErr
 	}
 
 	// req.EmailAddress is real (SetupInstanceHttpsInput.EmailAddress) but

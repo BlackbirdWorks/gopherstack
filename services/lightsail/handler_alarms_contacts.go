@@ -1,6 +1,10 @@
 package lightsail
 
-import "context"
+import (
+	"context"
+
+	lstypes "github.com/aws/aws-sdk-go-v2/service/lightsail/types"
+)
 
 // alarmContactOps returns the dispatch table for family W (8 ops).
 func (h *Handler) alarmContactOps() map[string]opFunc {
@@ -80,6 +84,14 @@ func (h *Handler) handlePutAlarm(_ context.Context, body []byte) ([]byte, error)
 	req, err := decodeBody[putAlarmRequest](body)
 	if err != nil {
 		return nil, err
+	}
+
+	if vErr := firstErr(
+		checkEnum("comparisonOperator", lstypes.ComparisonOperator(req.ComparisonOperator)),
+		checkEnum("metricName", lstypes.MetricName(req.MetricName)),
+		checkEnum("treatMissingData", lstypes.TreatMissingData(req.TreatMissingData)),
+	); vErr != nil {
+		return nil, vErr
 	}
 
 	ops, putErr := h.Backend.PutAlarm(

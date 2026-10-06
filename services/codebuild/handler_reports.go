@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"slices"
+
+	cbtypes "github.com/aws/aws-sdk-go-v2/service/codebuild/types"
 )
 
 type createReportGroupInput struct {
@@ -21,6 +23,12 @@ func (h *Handler) handleCreateReportGroup(
 	_ context.Context,
 	in *createReportGroupInput,
 ) (*createReportGroupOutput, error) {
+	if err := firstErr(
+		checkEnum("type", cbtypes.ReportType(in.Type)),
+	); err != nil {
+		return nil, err
+	}
+
 	if in.Name == "" {
 		return nil, fmt.Errorf("%w: name is required", errInvalidRequest)
 	}
@@ -121,6 +129,8 @@ func (h *Handler) handleDeleteReportGroup(
 
 type describeCodeCoveragesInput struct {
 	ReportArn  string `json:"reportArn"`
+	SortBy     string `json:"sortBy,omitempty"`
+	SortOrder  string `json:"sortOrder,omitempty"`
 	NextToken  string `json:"nextToken,omitempty"`
 	MaxResults int32  `json:"maxResults,omitempty"`
 }
@@ -134,6 +144,13 @@ func (h *Handler) handleDescribeCodeCoverages(
 	_ context.Context,
 	in *describeCodeCoveragesInput,
 ) (*describeCodeCoveragesOutput, error) {
+	if err := firstErr(
+		checkEnum("sortBy", cbtypes.ReportCodeCoverageSortByType(in.SortBy)),
+		checkEnum("sortOrder", cbtypes.SortOrderType(in.SortOrder)),
+	); err != nil {
+		return nil, err
+	}
+
 	if in.ReportArn == "" {
 		return nil, fmt.Errorf("%w: reportArn is required", errInvalidRequest)
 	}
@@ -298,6 +315,10 @@ func (h *Handler) handleListReportsForReportGroup(
 	_ context.Context,
 	in *listReportsForReportGroupInput,
 ) (*listReportsForReportGroupOutput, error) {
+	if err := checkEnum("sortOrder", cbtypes.SortOrderType(in.SortOrder)); err != nil {
+		return nil, err
+	}
+
 	if in.ReportGroupArn == "" {
 		return nil, fmt.Errorf("%w: reportGroupArn is required", errInvalidRequest)
 	}
@@ -336,6 +357,12 @@ func (h *Handler) handleListSharedReportGroups(
 	_ context.Context,
 	in *listSharedReportGroupsInput,
 ) (*listSharedReportGroupsOutput, error) {
+	if err := firstErr(
+		checkEnum("sortBy", cbtypes.SharedResourceSortByType(in.SortBy)),
+	); err != nil {
+		return nil, err
+	}
+
 	pg, err := paginateIDs(h.Backend.ListSharedReportGroups(), in.NextToken, in.SortOrder, in.MaxResults)
 	if err != nil {
 		return nil, err

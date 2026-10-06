@@ -3,6 +3,8 @@ package codebuild
 import (
 	"context"
 	"fmt"
+
+	cbtypes "github.com/aws/aws-sdk-go-v2/service/codebuild/types"
 )
 
 type batchGetBuildBatchesInput struct {
@@ -103,6 +105,10 @@ func (h *Handler) handleListBuildBatchesForProject(
 	_ context.Context,
 	in *listBuildBatchesForProjectInput,
 ) (*listBuildBatchesForProjectOutput, error) {
+	if err := checkEnum("sortOrder", cbtypes.SortOrderType(in.SortOrder)); err != nil {
+		return nil, err
+	}
+
 	if in.ProjectName == "" {
 		return nil, fmt.Errorf("%w: projectName is required", errInvalidRequest)
 	}
@@ -139,6 +145,12 @@ type retryBuildBatchOutput struct {
 }
 
 func (h *Handler) handleRetryBuildBatch(_ context.Context, in *retryBuildBatchInput) (*retryBuildBatchOutput, error) {
+	if err := firstErr(
+		checkEnum("retryType", cbtypes.RetryBuildBatchType(in.RetryType)),
+	); err != nil {
+		return nil, err
+	}
+
 	if in.ID == "" {
 		return nil, fmt.Errorf("%w: id is required", errInvalidRequest)
 	}
@@ -192,6 +204,18 @@ type startBuildBatchOutput struct {
 }
 
 func (h *Handler) handleStartBuildBatch(_ context.Context, in *startBuildBatchInput) (*startBuildBatchOutput, error) {
+	if err := firstErr(
+		checkEnum("computeTypeOverride", cbtypes.ComputeType(in.ComputeTypeOverride)),
+		checkEnum("environmentTypeOverride", cbtypes.EnvironmentType(in.EnvironmentTypeOverride)),
+		checkEnum(
+			"imagePullCredentialsTypeOverride",
+			cbtypes.ImagePullCredentialsType(in.ImagePullCredentialsTypeOverride),
+		),
+		checkEnum("sourceTypeOverride", cbtypes.SourceType(in.SourceTypeOverride)),
+	); err != nil {
+		return nil, err
+	}
+
 	if in.ProjectName == "" {
 		return nil, fmt.Errorf("%w: projectName is required", errInvalidRequest)
 	}

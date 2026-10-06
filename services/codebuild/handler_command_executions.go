@@ -3,6 +3,8 @@ package codebuild
 import (
 	"context"
 	"fmt"
+
+	cbtypes "github.com/aws/aws-sdk-go-v2/service/codebuild/types"
 )
 
 type batchGetCommandExecutionsInput struct {
@@ -73,6 +75,10 @@ func (h *Handler) handleListCommandExecutionsForSandbox(
 	_ context.Context,
 	in *listCommandExecutionsForSandboxInput,
 ) (*listCommandExecutionsForSandboxOutput, error) {
+	if err := checkEnum("sortOrder", cbtypes.SortOrderType(in.SortOrder)); err != nil {
+		return nil, err
+	}
+
 	if in.SandboxID == "" {
 		return nil, fmt.Errorf("%w: sandboxId is required", errInvalidRequest)
 	}

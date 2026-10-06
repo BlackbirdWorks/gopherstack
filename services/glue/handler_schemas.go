@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	gluetypes "github.com/aws/aws-sdk-go-v2/service/glue/types"
 )
 
 // validateSchemaDefinition checks a schema definition string against its DataFormat.
@@ -645,6 +647,10 @@ func (h *Handler) handleGetSchemaVersionsDiff(
 	_ context.Context,
 	in *getSchemaVersionsDiffInput,
 ) (*getSchemaVersionsDiffOutput, error) {
+	if err := checkEnum("SchemaDiffType", gluetypes.SchemaDiffType(in.SchemaDiffType)); err != nil {
+		return nil, err
+	}
+
 	if in.SchemaID == nil {
 		return &getSchemaVersionsDiffOutput{}, nil
 	}

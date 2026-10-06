@@ -3,6 +3,8 @@ package glue
 import (
 	"context"
 	"fmt"
+
+	gluetypes "github.com/aws/aws-sdk-go-v2/service/glue/types"
 )
 
 // cancelStatementInput holds input for CancelStatement.
@@ -48,6 +50,10 @@ func (h *Handler) handleCreateSession(
 	_ context.Context,
 	in *createSessionInput,
 ) (*createSessionOutput, error) {
+	if err := checkEnum("WorkerType", gluetypes.WorkerType(in.WorkerType)); err != nil {
+		return nil, err
+	}
+
 	opts := Session{
 		Timeout:               in.Timeout,
 		IdleTimeout:           in.IdleTimeout,

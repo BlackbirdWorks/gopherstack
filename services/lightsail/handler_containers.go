@@ -1,6 +1,10 @@
 package lightsail
 
-import "context"
+import (
+	"context"
+
+	lstypes "github.com/aws/aws-sdk-go-v2/service/lightsail/types"
+)
 
 // containerOps returns the dispatch table for family Q+R (12 ops).
 func (h *Handler) containerOps() map[string]opFunc {
@@ -355,6 +359,10 @@ func (h *Handler) handleGetContainerServiceMetricData(_ context.Context, body []
 	req, err := decodeBody[containerServiceMetricDataRequest](body)
 	if err != nil {
 		return nil, err
+	}
+
+	if vErr := checkEnum("metricName", lstypes.ContainerServiceMetricName(req.MetricName)); vErr != nil {
+		return nil, vErr
 	}
 
 	if getErr := h.Backend.GetContainerServiceMetricData(req.ServiceName); getErr != nil {

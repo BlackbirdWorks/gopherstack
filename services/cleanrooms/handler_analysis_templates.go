@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
+	crtypes "github.com/aws/aws-sdk-go-v2/service/cleanrooms/types"
 	"github.com/labstack/echo/v5"
 )
 
@@ -86,6 +87,10 @@ func (h *Handler) handleCreateAnalysisTemplate(_ context.Context, body []byte) (
 		AnalysisParameters   []map[string]any           `json:"analysisParameters"`
 	}
 	_ = json.Unmarshal(body, &req)
+	if err := checkEnum("format", crtypes.AnalysisFormat(req.Format)); err != nil {
+		return nil, err
+	}
+
 	t, err := h.Backend.CreateAnalysisTemplate(
 		req.MembershipIdentifier,
 		req.Name,

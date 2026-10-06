@@ -3,6 +3,8 @@ package codebuild
 import (
 	"context"
 	"fmt"
+
+	cbtypes "github.com/aws/aws-sdk-go-v2/service/codebuild/types"
 )
 
 type startBuildInput struct {
@@ -50,6 +52,19 @@ func (h *Handler) handleStartBuild(
 	_ context.Context,
 	in *startBuildInput,
 ) (*startBuildOutput, error) {
+	if err := firstErr(
+		checkEnum("computeTypeOverride", cbtypes.ComputeType(in.ComputeTypeOverride)),
+		checkEnum("environmentTypeOverride", cbtypes.EnvironmentType(in.EnvironmentTypeOverride)),
+		checkEnum("hostKernelOverride", cbtypes.HostKernel(in.HostKernelOverride)),
+		checkEnum(
+			"imagePullCredentialsTypeOverride",
+			cbtypes.ImagePullCredentialsType(in.ImagePullCredentialsTypeOverride),
+		),
+		checkEnum("sourceTypeOverride", cbtypes.SourceType(in.SourceTypeOverride)),
+	); err != nil {
+		return nil, err
+	}
+
 	if in.ProjectName == "" {
 		return nil, fmt.Errorf("%w: projectName is required", errInvalidRequest)
 	}
@@ -156,6 +171,10 @@ func (h *Handler) handleListBuildsForProject(
 	_ context.Context,
 	in *listBuildsForProjectInput,
 ) (*listBuildsForProjectOutput, error) {
+	if err := checkEnum("sortOrder", cbtypes.SortOrderType(in.SortOrder)); err != nil {
+		return nil, err
+	}
+
 	if in.ProjectName == "" {
 		return nil, fmt.Errorf("%w: projectName is required", errInvalidRequest)
 	}

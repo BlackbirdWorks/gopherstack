@@ -1,6 +1,10 @@
 package lightsail
 
-import "context"
+import (
+	"context"
+
+	lstypes "github.com/aws/aws-sdk-go-v2/service/lightsail/types"
+)
 
 // bucketOps returns the dispatch table for family S (10 ops).
 func (h *Handler) bucketOps() map[string]opFunc {
@@ -335,6 +339,10 @@ func (h *Handler) handleSetResourceAccessForBucket(_ context.Context, body []byt
 		return nil, err
 	}
 
+	if vErr := checkEnum("access", lstypes.ResourceBucketAccess(req.Access)); vErr != nil {
+		return nil, vErr
+	}
+
 	ops, setErr := h.Backend.SetResourceAccessForBucket(req.ResourceName, req.BucketName, req.Access)
 	if setErr != nil {
 		return nil, setErr
@@ -357,6 +365,10 @@ func (h *Handler) handleGetBucketMetricData(_ context.Context, body []byte) ([]b
 	req, err := decodeBody[bucketMetricDataRequest](body)
 	if err != nil {
 		return nil, err
+	}
+
+	if vErr := checkEnum("metricName", lstypes.BucketMetricName(req.MetricName)); vErr != nil {
+		return nil, vErr
 	}
 
 	if getErr := h.Backend.GetBucketMetricData(req.BucketName); getErr != nil {

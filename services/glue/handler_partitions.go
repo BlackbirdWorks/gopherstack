@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	gluetypes "github.com/aws/aws-sdk-go-v2/service/glue/types"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
@@ -410,6 +412,13 @@ func (h *Handler) handleGetUnfilteredPartitionMetadata(
 	_ context.Context,
 	in *getUnfilteredPartitionMetadataInput,
 ) (*getUnfilteredPartitionMetadataOutput, error) {
+	if err := checkEnumList[gluetypes.PermissionType](
+		"SupportedPermissionTypes",
+		in.SupportedPermissionTypes,
+	); err != nil {
+		return nil, err
+	}
+
 	if in.DatabaseName == "" || in.TableName == "" {
 		return &getUnfilteredPartitionMetadataOutput{AuthorizedColumns: []string{}}, nil
 	}
@@ -454,6 +463,13 @@ func (h *Handler) handleGetUnfilteredPartitionsMetadata(
 	_ context.Context,
 	in *getUnfilteredPartitionsMetadataInput,
 ) (*getUnfilteredPartitionsMetadataOutput, error) {
+	if err := checkEnumList[gluetypes.PermissionType](
+		"SupportedPermissionTypes",
+		in.SupportedPermissionTypes,
+	); err != nil {
+		return nil, err
+	}
+
 	if in.DatabaseName == "" || in.TableName == "" {
 		return &getUnfilteredPartitionsMetadataOutput{UnfilteredPartitions: []any{}}, nil
 	}

@@ -3,6 +3,8 @@ package codebuild
 import (
 	"context"
 	"fmt"
+
+	cbtypes "github.com/aws/aws-sdk-go-v2/service/codebuild/types"
 )
 
 // projectConfigFields holds the CodeBuild project configuration fields shared
@@ -199,6 +201,12 @@ func (h *Handler) handleUpdateProjectVisibility(
 	_ context.Context,
 	in *updateProjectVisibilityInput,
 ) (*updateProjectVisibilityOutput, error) {
+	if err := firstErr(
+		checkEnum("projectVisibility", cbtypes.ProjectVisibilityType(in.ProjectVisibility)),
+	); err != nil {
+		return nil, err
+	}
+
 	if in.ProjectArn == "" {
 		return nil, fmt.Errorf("%w: projectArn is required", errInvalidRequest)
 	}
@@ -252,6 +260,12 @@ func (h *Handler) handleListSharedProjects(
 	_ context.Context,
 	in *listSharedProjectsInput,
 ) (*listSharedProjectsOutput, error) {
+	if err := firstErr(
+		checkEnum("sortBy", cbtypes.SharedResourceSortByType(in.SortBy)),
+	); err != nil {
+		return nil, err
+	}
+
 	pg, err := paginateIDs(h.Backend.ListSharedProjects(), in.NextToken, in.SortOrder, in.MaxResults)
 	if err != nil {
 		return nil, err

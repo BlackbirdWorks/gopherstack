@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+
+	gluetypes "github.com/aws/aws-sdk-go-v2/service/glue/types"
 )
 
 type createTableInput struct {
@@ -47,6 +49,10 @@ type getTableOutput struct {
 }
 
 func (h *Handler) handleGetTable(_ context.Context, in *getTableInput) (*getTableOutput, error) {
+	if err := checkEnumList[gluetypes.TableAttributes]("AttributesToGet", in.AttributesToGet); err != nil {
+		return nil, err
+	}
+
 	t, err := h.Backend.GetTable(in.DatabaseName, in.Name)
 	if err != nil {
 		return nil, err
@@ -376,6 +382,13 @@ func (h *Handler) handleGetUnfilteredTableMetadata(
 	_ context.Context,
 	in *getUnfilteredTableMetadataInput,
 ) (*getUnfilteredTableMetadataOutput, error) {
+	if err := checkEnumList[gluetypes.PermissionType](
+		"SupportedPermissionTypes",
+		in.SupportedPermissionTypes,
+	); err != nil {
+		return nil, err
+	}
+
 	if in.DatabaseName == "" || in.Name == "" {
 		return &getUnfilteredTableMetadataOutput{AuthorizedColumns: []string{}}, nil
 	}

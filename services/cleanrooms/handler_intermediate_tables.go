@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
+	crtypes "github.com/aws/aws-sdk-go-v2/service/cleanrooms/types"
 	"github.com/labstack/echo/v5"
 )
 
@@ -184,6 +185,13 @@ func (h *Handler) handleCreateIntermediateTableAnalysisRule(_ context.Context, b
 		AnalysisRuleType            string         `json:"analysisRuleType"`
 	}
 	_ = json.Unmarshal(body, &req)
+	if err := checkEnum(
+		"analysisRuleType",
+		crtypes.IntermediateTableAnalysisRuleType(req.AnalysisRuleType),
+	); err != nil {
+		return nil, err
+	}
+
 	r, err := h.Backend.CreateIntermediateTableAnalysisRule(
 		req.MembershipIdentifier,
 		req.IntermediateTableIdentifier,
@@ -224,6 +232,13 @@ func (h *Handler) handleUpdateIntermediateTableAnalysisRule(_ context.Context, b
 		AnalysisRuleType            string         `json:"analysisRuleType"`
 	}
 	_ = json.Unmarshal(body, &req)
+	if err := checkEnum(
+		"analysisRuleType",
+		crtypes.IntermediateTableAnalysisRuleType(req.AnalysisRuleType),
+	); err != nil {
+		return nil, err
+	}
+
 	r, err := h.Backend.UpdateIntermediateTableAnalysisRule(
 		req.MembershipIdentifier,
 		req.IntermediateTableIdentifier,
@@ -244,6 +259,12 @@ func (h *Handler) handleDeleteIntermediateTableAnalysisRule(_ context.Context, b
 		AnalysisRuleType            string `json:"analysisRuleType"`
 	}
 	_ = json.Unmarshal(body, &req)
+	if err := checkEnum(
+		"analysisRuleType",
+		crtypes.IntermediateTableAnalysisRuleType(req.AnalysisRuleType),
+	); err != nil {
+		return nil, err
+	}
 
 	return nil, h.Backend.DeleteIntermediateTableAnalysisRule(
 		req.MembershipIdentifier,

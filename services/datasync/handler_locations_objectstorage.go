@@ -3,6 +3,8 @@ package datasync
 import (
 	"context"
 	"fmt"
+
+	dstypes "github.com/aws/aws-sdk-go-v2/service/datasync/types"
 )
 
 // --- ObjectStorage location ---
@@ -30,6 +32,10 @@ func (h *Handler) handleCreateLocationObjectStorage(
 	_ context.Context,
 	in *createLocationObjectStorageInput,
 ) (*createLocationObjectStorageOutput, error) {
+	if err := checkEnum("ServerProtocol", dstypes.ObjectStorageServerProtocol(in.ServerProtocol)); err != nil {
+		return nil, err
+	}
+
 	if in.ServerHostname == "" {
 		return nil, fmt.Errorf("%w: ServerHostname is required", errInvalidRequest)
 	}
@@ -134,6 +140,10 @@ func (h *Handler) handleUpdateLocationObjectStorage(
 	_ context.Context,
 	in *updateLocationObjectStorageInput,
 ) (*updateLocationObjectStorageOutput, error) {
+	if err := checkEnum("ServerProtocol", dstypes.ObjectStorageServerProtocol(in.ServerProtocol)); err != nil {
+		return nil, err
+	}
+
 	if in.LocationArn == "" {
 		return nil, fmt.Errorf("%w: LocationArn is required", errInvalidRequest)
 	}

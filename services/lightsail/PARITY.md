@@ -1573,3 +1573,7 @@ The Resource Groups Tagging API bridge now lists the request region's tagged res
 ## 2026-10-05 (gopherstack-uox6 pass 8, value semantics)
 
 CreateInstancesFromSnapshot defaulted IpAddressType to empty instead of dualstack (api_op_CreateInstancesFromSnapshot.go:80). New instances now report HttpTokens optional, and UpdateInstanceMetadataOptions resets an omitted HttpTokens to optional (api_op_UpdateInstanceMetadataOptions.go:54-55); HttpEndpoint and the hop limit keep their value when omitted (same file: "existing state is maintained"). Recorded, unchanged: UpdateRelationalDatabase ApplyImmediately=false has no pending-modification model, changes apply at once. Proof: `TestInstance_DefaultsAndMetadataOptionsUpdate`.
+
+## 2026-10-05 (input enum validation)
+
+23 request members typed as SDK enums are now checked against `Values()` and an unknown value is InvalidInputException: IpAddressType on the create/set ops, ViewerMinimumTlsProtocolVersion, AppCategory, every `Get*MetricData` MetricName, PutAlarm ComparisonOperator/MetricName/TreatMissingData, SetResourceAccessForBucket Access, UpdateInstanceMetadataOptions HttpEndpoint/HttpProtocolIpv6/HttpTokens, SetupInstanceHttps CertificateProvider. Proof: `TestSDK_EnumInputValidation`. RECORDED: the metric-data Statistics and Unit members are not decoded from the request, so they are not validated.

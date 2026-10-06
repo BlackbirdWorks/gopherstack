@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
+	crtypes "github.com/aws/aws-sdk-go-v2/service/cleanrooms/types"
 	"github.com/labstack/echo/v5"
 )
 
@@ -97,6 +98,10 @@ func (h *Handler) handleGetSchemaAnalysisRule(_ context.Context, body []byte) ([
 		Type                    string `json:"type"`
 	}
 	_ = json.Unmarshal(body, &req)
+	if err := checkEnum("type", crtypes.AnalysisRuleType(req.Type)); err != nil {
+		return nil, err
+	}
+
 	r, err := h.Backend.GetSchemaAnalysisRule(req.CollaborationIdentifier, req.Name, req.Type)
 	if err != nil {
 		return nil, err

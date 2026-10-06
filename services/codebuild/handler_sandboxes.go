@@ -3,6 +3,8 @@ package codebuild
 import (
 	"context"
 	"fmt"
+
+	cbtypes "github.com/aws/aws-sdk-go-v2/service/codebuild/types"
 )
 
 type batchGetSandboxesInput struct {
@@ -64,6 +66,10 @@ func (h *Handler) handleListSandboxesForProject(
 	_ context.Context,
 	in *listSandboxesForProjectInput,
 ) (*listSandboxesForProjectOutput, error) {
+	if err := checkEnum("sortOrder", cbtypes.SortOrderType(in.SortOrder)); err != nil {
+		return nil, err
+	}
+
 	if in.ProjectName == "" {
 		return nil, fmt.Errorf("%w: projectName is required", errInvalidRequest)
 	}

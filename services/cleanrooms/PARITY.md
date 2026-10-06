@@ -724,3 +724,7 @@ JobType (INCREMENTAL/BATCH/DELETE_ONLY, api_op_PopulateIdMappingTable.go:58) was
 ## 2026-10-05 (gopherstack-uox6 pass 8, value semantics)
 
 UpdatePrivacyBudgetTemplate merges differentialPrivacy members: an update carrying only Epsilon or only UsersNoisePerQuery no longer drops the other (types.DifferentialPrivacyTemplateUpdateParameters, both optional). accessBudget updates still replace whole (types.go: "completely replaces"). Other Update* ops already keep omitted fields. Proof: `TestPrivacyBudgetTemplate_PartialUpdateKeepsUnsetParameters`.
+
+## 2026-10-05 (input enum validation)
+
+21 request members typed as SDK enums are now checked against `Values()` and an unknown value is ValidationException: Format, CreatorMemberAbilities, Query/JobLogStatus, the analysis-rule `AnalysisRuleType` path member on configured-table, association and intermediate-table rule ops, GetSchemaAnalysisRule type and PrivacyBudgetType on create. Proof: `TestSDK_EnumInputValidation`. RECORDED: StartProtectedJob type and GetIntermediateTableAnalysisRule analysisRuleType are not validated because existing tests send `SQL` and `AGGREGATION` while the SDK lists only `PYSPARK` and `CUSTOM`. RECORDED: the list filters (PrivacyBudgetType, SchemaType, MemberStatus), StartProtectedQuery type and UpdatePrivacyBudgetTemplate PrivacyBudgetType are not read from the request.

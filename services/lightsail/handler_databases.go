@@ -1,6 +1,10 @@
 package lightsail
 
-import "context"
+import (
+	"context"
+
+	lstypes "github.com/aws/aws-sdk-go-v2/service/lightsail/types"
+)
 
 // mysqlDefaultPort is the real, well-known default MySQL listener port --
 // this backend's Engine is always "mysql" for now (PARITY.md 4.3), so
@@ -467,6 +471,10 @@ func (h *Handler) handleGetRelationalDatabaseMetricData(_ context.Context, body 
 	req, err := decodeBody[relationalDatabaseMetricDataRequest](body)
 	if err != nil {
 		return nil, err
+	}
+
+	if vErr := checkEnum("metricName", lstypes.RelationalDatabaseMetricName(req.MetricName)); vErr != nil {
+		return nil, vErr
 	}
 
 	if getErr := h.Backend.GetRelationalDatabaseMetricData(req.RelationalDatabaseName); getErr != nil {

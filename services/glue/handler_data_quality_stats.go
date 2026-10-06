@@ -6,6 +6,8 @@ import (
 	"slices"
 	"time"
 
+	gluetypes "github.com/aws/aws-sdk-go-v2/service/glue/types"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
@@ -334,6 +336,13 @@ func (h *Handler) handlePutDataQualityProfileAnnotation(
 	_ context.Context,
 	in *putDataQualityProfileAnnotationInput,
 ) (*emptyOutput, error) {
+	if err := checkEnum(
+		"InclusionAnnotation",
+		gluetypes.InclusionAnnotationValue(in.InclusionAnnotation),
+	); err != nil {
+		return nil, err
+	}
+
 	if in.ProfileID == "" {
 		return nil, fmt.Errorf("%w: ProfileId is required", ErrValidation)
 	}

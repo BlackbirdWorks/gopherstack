@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	crtypes "github.com/aws/aws-sdk-go-v2/service/cleanrooms/types"
 	"github.com/labstack/echo/v5"
 )
 
@@ -27,6 +28,14 @@ func (h *Handler) handleCreateCollaboration(_ context.Context, body []byte) ([]b
 		IsMetricsEnabled            bool                    `json:"isMetricsEnabled"`
 	}
 	_ = json.Unmarshal(body, &req)
+	if err := firstErr(
+		checkEnumList[crtypes.MemberAbility]("creatorMemberAbilities", req.CreatorMemberAbilities),
+		checkEnum("queryLogStatus", crtypes.CollaborationQueryLogStatus(req.QueryLogStatus)),
+		checkEnum("jobLogStatus", crtypes.CollaborationJobLogStatus(req.JobLogStatus)),
+	); err != nil {
+		return nil, err
+	}
+
 	c, err := h.Backend.CreateCollaboration(
 		req.Name,
 		req.Description,
