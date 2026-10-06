@@ -995,3 +995,8 @@ The earlier claim that CustomKeyStoresListEntry had no field for XksProxyVpcEndp
 ## 2026-10-05 (zeroguard omitted-vs-zero audit)
 
 Tool false positives (cmd/zeroguard): required path/identifier members (Name, *Id, *Arn), Put* operations that replace the whole resource (PutRule, PutPermission, PutResourcePolicy, PutCodeBinding), and PatchOperations-based Update* ops.
+
+## 2026-10-05 (undeclared response members)
+
+KeyMetadata no longer emits `PrimaryRegion` and `MultiRegionKeyType` directly (they belong under `MultiRegionConfiguration`). Proof: `TestHandler_KeyMetadataOmitsDirectMultiRegionFields`.
+

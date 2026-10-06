@@ -540,7 +540,6 @@ func (b *InMemoryBackend) keyToMetadata(k *Key) KeyMetadata {
 		KeyManager:            keyManager,
 		Origin:                origin,
 		MultiRegion:           k.MultiRegion,
-		PrimaryRegion:         k.PrimaryRegion,
 		CustomKeyStoreID:      k.CustomKeyStoreID,
 		Enabled:               k.Enabled,
 	}
@@ -552,7 +551,6 @@ func (b *InMemoryBackend) keyToMetadata(k *Key) KeyMetadata {
 	}
 
 	applyExpirationFields(k, &meta)
-	applyMultiRegionType(k, &meta)
 	applyAlgorithmFields(k, &meta)
 
 	return meta
@@ -578,19 +576,6 @@ func applyExpirationFields(k *Key, meta *KeyMetadata) {
 	}
 
 	meta.ExpirationModel = k.ExpirationModel
-}
-
-// applyMultiRegionType sets MultiRegionKeyType on meta for multi-region keys.
-func applyMultiRegionType(k *Key, meta *KeyMetadata) {
-	if !k.MultiRegion || k.PrimaryRegion == "" {
-		return
-	}
-
-	if k.PrimaryRegion == extractRegionFromARN(k.Arn) {
-		meta.MultiRegionKeyType = "PRIMARY"
-	} else {
-		meta.MultiRegionKeyType = "REPLICA"
-	}
 }
 
 // buildMultiRegionConfig constructs the MultiRegionConfiguration for a key, following

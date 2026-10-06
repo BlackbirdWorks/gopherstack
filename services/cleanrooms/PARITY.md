@@ -728,3 +728,7 @@ UpdatePrivacyBudgetTemplate merges differentialPrivacy members: an update carryi
 ## 2026-10-05 (input enum validation)
 
 21 request members typed as SDK enums are now checked against `Values()` and an unknown value is ValidationException: Format, CreatorMemberAbilities, Query/JobLogStatus, the analysis-rule `AnalysisRuleType` path member on configured-table, association and intermediate-table rule ops, GetSchemaAnalysisRule type and PrivacyBudgetType on create. Proof: `TestSDK_EnumInputValidation`. RECORDED: StartProtectedJob type and GetIntermediateTableAnalysisRule analysisRuleType are not validated because existing tests send `SQL` and `AGGREGATION` while the SDK lists only `PYSPARK` and `CUSTOM`. RECORDED: the list filters (PrivacyBudgetType, SchemaType, MemberStatus), StartProtectedQuery type and UpdatePrivacyBudgetTemplate PrivacyBudgetType are not read from the request.
+
+## 2026-10-05 (undeclared response members)
+
+Collaboration responses no longer emit `members` (not in awsRestjson1_deserializeDocumentCollaboration); members come from ListMembers. The snapshot tag is unchanged. Proof: `TestHandler_CollaborationOmitsMembersKey`, `TestSDK_CollaborationRoundTripWithoutMembersKey`.

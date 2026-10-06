@@ -10,16 +10,9 @@ import (
 )
 
 // TestCollaborationWireShape verifies a Collaboration response uses only the
-// real AWS keys, with one documented exception. Verified against
-// aws-sdk-go-v2/service/cleanrooms's
-// awsRestjson1_deserializeDocumentCollaboration: there is no
-// "collaborationIdentifier", "memberAbilities", or "tags" key on this shape
-// -- "collaborationIdentifier" is exclusively a *request* parameter name,
-// and tags come only from ListTagsForResource. "members" is also not a real
-// key (members come only from ListMembers) but is kept on the wire
-// deliberately -- see the Collaboration.Members doc comment in models.go --
-// since it is the only persisted backing store for ListMembers/DeleteMember
-// and real AWS clients ignore unrecognized JSON fields.
+// real AWS keys. awsRestjson1_deserializeDocumentCollaboration declares no
+// "collaborationIdentifier", "memberAbilities", "members" or "tags" key;
+// members come only from ListMembers and tags from ListTagsForResource.
 func TestCollaborationWireShape(t *testing.T) {
 	t.Parallel()
 
@@ -41,7 +34,7 @@ func TestCollaborationWireShape(t *testing.T) {
 	assert.True(t, hasID, "collaboration must have 'id' key (AWS canonical)")
 	assert.NotEmpty(t, id)
 
-	for _, invented := range []string{"collaborationIdentifier", "memberAbilities", "tags"} {
+	for _, invented := range []string{"collaborationIdentifier", "memberAbilities", "members", "tags"} {
 		_, present := collab[invented]
 		assert.False(t, present, "collaboration must not have invented %q key", invented)
 	}
@@ -95,8 +88,7 @@ func TestCollaborationQueryLogStatusRoundtrip(t *testing.T) {
 // TestCollaborationCreatorMemberAbilities verifies creator abilities
 // roundtrip. Real AWS has no top-level "memberAbilities" key on
 // Collaboration (see TestCollaborationWireShape) -- abilities are per-member,
-// so this checks the creator's entry in the (deliberately-kept, see
-// Collaboration.Members doc comment) "members" array instead.
+// so this checks the creator's entry in ListMembers instead.
 func TestCollaborationCreatorMemberAbilities(t *testing.T) {
 	t.Parallel()
 
@@ -110,9 +102,13 @@ func TestCollaborationCreatorMemberAbilities(t *testing.T) {
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	collab := resp["collaboration"].(map[string]any)
-	members, ok := collab["members"].([]any)
-	require.True(t, ok, "collaboration must have members")
+	collabID := resp["collaboration"].(map[string]any)["id"].(string)
+	listRec := doRequest(t, e, "GET", "/collaborations/"+collabID+"/members", nil)
+	require.Equal(t, http.StatusOK, listRec.Code)
+	var listResp map[string]any
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	members, ok := listResp["memberSummaries"].([]any)
+	require.True(t, ok, "ListMembers must return memberSummaries")
 	require.Len(t, members, 1)
 	creator := members[0].(map[string]any)
 	abilities, ok := creator["abilities"].([]any)
@@ -257,11 +253,11 @@ func TestCollaborationChangeRequest_Lifecycle(t *testing.T) {
 
 	// COMMIT applies the change's real semantic effect: the ADD_MEMBER change
 	// must actually add the member to the collaboration, not just flip status.
-	getRec := doRequest(t, e, "GET", "/collaborations/"+collabID, nil)
+	getRec := doRequest(t, e, "GET", "/collaborations/"+collabID+"/members", nil)
 	require.Equal(t, http.StatusOK, getRec.Code)
 	var getResp map[string]any
 	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
-	members, _ := getResp["collaboration"].(map[string]any)["members"].([]any)
+	members, _ := getResp["memberSummaries"].([]any)
 	var found bool
 	for _, m := range members {
 		if m.(map[string]any)["accountId"] == "222222222222" {

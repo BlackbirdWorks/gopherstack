@@ -102,7 +102,6 @@ type MultiRegionConfiguration struct {
 // KeyMetadata is the metadata for a KMS key returned in API responses.
 type KeyMetadata struct {
 	MultiRegionConfiguration    *MultiRegionConfiguration `json:"MultiRegionConfiguration,omitempty"`
-	PrimaryRegion               string                    `json:"PrimaryRegion,omitempty"`
 	Arn                         string                    `json:"Arn"`
 	Description                 string                    `json:"Description,omitempty"`
 	KeyState                    string                    `json:"KeyState"`
@@ -114,7 +113,6 @@ type KeyMetadata struct {
 	AWSAccountID                string                    `json:"AWSAccountId,omitempty"`
 	CustomKeyStoreID            string                    `json:"CustomKeyStoreId,omitempty"`
 	CustomerMasterKeySpec       string                    `json:"CustomerMasterKeySpec,omitempty"`
-	MultiRegionKeyType          string                    `json:"MultiRegionKeyType,omitempty"`
 	ExpirationModel             string                    `json:"ExpirationModel,omitempty"`
 	MacAlgorithms               []string                  `json:"MacAlgorithms,omitempty"`
 	SigningAlgorithms           []string                  `json:"SigningAlgorithms,omitempty"`

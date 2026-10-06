@@ -2730,3 +2730,8 @@ CreateJob/UpdateJob now keep LogUri, SecurityConfiguration, ExecutionClass, Main
 ## 2026-10-05 (input enum validation)
 
 21 request members typed as SDK enums are now checked against `Values()` at the handler and an unknown value is InvalidInputException (WorkerType, ExecutionClass, JobMode, table-optimizer and trigger types, SchemaDiffType, SupportedPermissionTypes, AttributesToGet on GetTable, InclusionAnnotation). Proof: `TestSDK_EnumInputValidation`. RECORDED: CreateScript and GetPlan Language are not validated because existing tests send `Python`/`Scala` while the SDK lists the upper-case forms (the backend matches case-insensitively). RECORDED: SessionType, ResourceShareType, AttributesToGet on GetDatabases/GetTables, FunctionType, Permissions, ApplyOverrideForComputeEnvironment, ViewUpdateAction and the source-control Provider/AuthStrategy members are not decoded from the request at all, so there is nothing to validate yet.
+
+## 2026-10-05 (undeclared response members)
+
+GetStatement and ListStatements responses no longer emit internal fields on Statement (only Output, Code, State, Progress, StartedOn, CompletedOn, Id). Proof: `TestHandler_StatementOmitsInternalMembers`.
+

@@ -125,7 +125,29 @@ type getStatementInput struct {
 
 // getStatementOutput holds the result for GetStatement.
 type getStatementOutput struct {
-	Statement *Statement `json:"Statement"`
+	Statement *statementWire `json:"Statement"`
+}
+
+// statementWire is Statement without SessionId, which types.Statement does not declare.
+type statementWire struct {
+	Output      any     `json:"Output,omitempty"`
+	Code        string  `json:"Code,omitempty"`
+	State       string  `json:"State"`
+	Progress    float64 `json:"Progress,omitempty"`
+	StartedOn   float64 `json:"StartedOn,omitempty"`
+	CompletedOn float64 `json:"CompletedOn,omitempty"`
+	ID          int32   `json:"Id"`
+}
+
+func toStatementWire(s *Statement) *statementWire {
+	if s == nil {
+		return nil
+	}
+
+	return &statementWire{
+		Output: s.Output, Code: s.Code, State: s.State, Progress: s.Progress,
+		StartedOn: s.StartedOn, CompletedOn: s.CompletedOn, ID: s.Id,
+	}
 }
 
 func (h *Handler) handleGetStatement(
@@ -137,7 +159,7 @@ func (h *Handler) handleGetStatement(
 		return nil, err
 	}
 
-	return &getStatementOutput{Statement: st}, nil
+	return &getStatementOutput{Statement: toStatementWire(st)}, nil
 }
 
 // defaultListSessionsLimit is used when ListSessionsInput.MaxResults is unset.
@@ -193,8 +215,8 @@ type listStatementsInput struct {
 
 // listStatementsOutput holds the result for ListStatements.
 type listStatementsOutput struct {
-	NextToken  string       `json:"NextToken,omitempty"`
-	Statements []*Statement `json:"Statements"`
+	NextToken  string           `json:"NextToken,omitempty"`
+	Statements []*statementWire `json:"Statements"`
 }
 
 func (h *Handler) handleListStatements(
@@ -214,7 +236,12 @@ func (h *Handler) handleListStatements(
 		return nil, err
 	}
 
-	return &listStatementsOutput{Statements: stmts, NextToken: next}, nil
+	wire := make([]*statementWire, 0, len(stmts))
+	for _, st := range stmts {
+		wire = append(wire, toStatementWire(st))
+	}
+
+	return &listStatementsOutput{Statements: wire, NextToken: next}, nil
 }
 
 // runStatementInput holds input for RunStatement.

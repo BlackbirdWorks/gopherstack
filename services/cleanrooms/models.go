@@ -97,11 +97,8 @@ type MemberSummary struct {
 // ListMembers, tags only from ListTagsForResource, and
 // "collaborationIdentifier" is exclusively a *request* parameter name (used
 // by Get/Update/Delete/etc, see the handler_*.go request DTOs), never a
-// response field. CollaborationIdentifier/MemberAbilities/Members/Tags are
-// kept as Go-only bookkeeping fields (json:"-") since they back real
-// internal behavior (composite-key derivation, ListMembers/DeleteMember
-// backing store, tagsByArn population at create time) -- only their
-// wire presence was invented.
+// response field. Members keeps its tag for the snapshot; collaborationWire
+// drops it from responses.
 type Collaboration struct {
 	Tags                    map[string]string       `json:"-"`
 	DataEncryptionMetadata  *DataEncryptionMetadata `json:"dataEncryptionMetadata,omitempty"`
