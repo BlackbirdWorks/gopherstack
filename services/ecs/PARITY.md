@@ -1250,3 +1250,7 @@ Adjudicated (reqfielddiff -adjudicated), unchanged:
 ## 2026-10-05 (zeroguard omitted-vs-zero audit)
 
 Tool false positives (cmd/zeroguard): required path/identifier members (Name, *Id, *Arn), Put* operations that replace the whole resource (PutRule, PutPermission, PutResourcePolicy, PutCodeBinding), and PatchOperations-based Update* ops.
+
+## 2026-10-05 (undeclared response members)
+
+Dropped invented members: cluster/capacityProvider createdAt, managedScaling.targetCapacityUtilization, containerInstance.clusterArn, taskDefinition.platformFamily, task networkConfiguration/propagateTags/runtimeId. Service.serviceConnectConfiguration moved to the PRIMARY deployment; awsvpc task subnetId now comes from the requested subnet.

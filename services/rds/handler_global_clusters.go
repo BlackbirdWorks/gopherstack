@@ -59,7 +59,6 @@ type xmlGlobalCluster struct {
 	Engine                  string                      `xml:"Engine,omitempty"`
 	EngineVersion           string                      `xml:"EngineVersion,omitempty"`
 	Status                  string                      `xml:"Status,omitempty"`
-	PrimaryRegion           string                      `xml:"PrimaryRegion,omitempty"`
 	DatabaseName            string                      `xml:"DatabaseName,omitempty"`
 	EngineLifecycleSupport  string                      `xml:"EngineLifecycleSupport,omitempty"`
 	StorageEncrypted        bool                        `xml:"StorageEncrypted,omitempty"`
@@ -176,7 +175,6 @@ func toXMLGlobalCluster(gc *GlobalCluster) xmlGlobalCluster {
 		Engine:                  gc.Engine,
 		EngineVersion:           gc.EngineVersion,
 		Status:                  gc.Status,
-		PrimaryRegion:           gc.PrimaryRegion,
 		DatabaseName:            gc.DatabaseName,
 		EngineLifecycleSupport:  gc.EngineLifecycleSupport,
 		StorageEncrypted:        gc.StorageEncrypted,

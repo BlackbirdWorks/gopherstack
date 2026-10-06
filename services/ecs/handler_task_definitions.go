@@ -198,7 +198,6 @@ type taskDefinitionView struct {
 	Status                  string                    `json:"status"`
 	CPU                     string                    `json:"cpu,omitempty"`
 	Memory                  string                    `json:"memory,omitempty"`
-	PlatformFamily          string                    `json:"platformFamily,omitempty"`
 	IpcMode                 string                    `json:"ipcMode,omitempty"`
 	PidMode                 string                    `json:"pidMode,omitempty"`
 	ContainerDefinitions    []ContainerDefinition     `json:"containerDefinitions"`
@@ -226,7 +225,6 @@ func toTaskDefinitionView(td TaskDefinition) taskDefinitionView {
 		Status:                  td.Status,
 		CPU:                     td.CPU,
 		Memory:                  td.Memory,
-		PlatformFamily:          td.PlatformFamily,
 		IpcMode:                 td.IpcMode,
 		PidMode:                 td.PidMode,
 		ContainerDefinitions:    td.ContainerDefinitions,

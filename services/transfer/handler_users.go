@@ -108,7 +108,6 @@ type describeUserInput struct {
 type sshKeyView struct {
 	SSHPublicKeyID   string  `json:"SshPublicKeyId"`
 	SSHPublicKeyBody string  `json:"SshPublicKeyBody"`
-	KeyType          string  `json:"KeyType,omitempty"`
 	DateImported     float64 `json:"DateImported"`
 }
 
@@ -167,7 +166,6 @@ func (h *Handler) handleDescribeUser(
 			SSHPublicKeyID:   k.SSHPublicKeyID,
 			SSHPublicKeyBody: k.SSHPublicKeyBody,
 			DateImported:     awstime.Epoch(k.DateImported),
-			KeyType:          k.KeyType,
 		}
 	}
 

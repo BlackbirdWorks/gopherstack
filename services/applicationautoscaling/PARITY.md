@@ -270,3 +270,7 @@ Describe* MaxResults now defaults to and caps at the documented 50 (targets, sch
 ## 2026-10-05 (gopherstack-uox6 pass 11, value semantics)
 
 RegisterScalableTarget merges SuspendedState member by member on update ("Any parameters that you don't specify are not changed", api_op_RegisterScalableTarget.go:36-39) and a new target defaults each member to false (line 306). Proof: `TestRegisterScalableTarget_SuspendedStateSemantics`. Clean: PutScheduledAction start/end full replacement matches api_op_PutScheduledAction.go:25-26; PutScalingPolicy re-put replaces the config maps and keeps PolicyType when omitted.
+
+## 2026-10-05 (undeclared response members)
+
+DescribeScalingPolicies no longer emits LastModifiedTime (types.ScalingPolicy has CreationTime only).

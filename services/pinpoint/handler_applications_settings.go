@@ -108,14 +108,12 @@ func (h *Handler) handleUpdateApplicationSettings(c *echo.Context, appID string)
 // CampaignHook/Limits/QuietTime/JourneyLimits with non-nil empty objects.
 func toAppSettingsResponse(appID string, settings *StoredAppSettings) appSettingsResponse {
 	resp := appSettingsResponse{
-		ApplicationID:            appID,
-		LastModifiedDate:         settings.LastModifiedDate,
-		CampaignHook:             settings.CampaignHook,
-		Limits:                   settings.Limits,
-		QuietTime:                settings.QuietTime,
-		JourneyLimits:            settings.JourneyLimits,
-		CloudWatchMetricsEnabled: settings.CloudWatchMetrics,
-		EventTaggingEnabled:      settings.EventTaggingEnabled,
+		ApplicationID:    appID,
+		LastModifiedDate: settings.LastModifiedDate,
+		CampaignHook:     settings.CampaignHook,
+		Limits:           settings.Limits,
+		QuietTime:        settings.QuietTime,
+		JourneyLimits:    settings.JourneyLimits,
 	}
 
 	if resp.CampaignHook == nil {

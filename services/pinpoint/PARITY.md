@@ -708,3 +708,7 @@ RECORDED: the seven *DateRangeKpi / journey execution metrics ops ignore page-si
 - GetJourneyRunExecutionActivityMetrics.PageSize: unmodeled subsystem, there is no analytics engine so the result is one fixed metrics map with no row list, so no page is ever due.
 - GetJourneyRunExecutionMetrics.NextToken: unmodeled subsystem, there is no analytics engine so the result is one fixed metrics map with no row list, so no page is ever due.
 - GetJourneyRunExecutionMetrics.PageSize: unmodeled subsystem, there is no analytics engine so the result is one fixed metrics map with no row list, so no page is ever due.
+
+## 2026-10-05 (undeclared response members)
+
+Dropped CloudWatchMetricsEnabled/EventTaggingEnabled from ApplicationSettingsResource and Arn from JourneyResponse; renamed CleansedPhoneNumberNationalFormat to CleansedPhoneNumberNational and ActivityId to JourneyActivityId to match the SDK.

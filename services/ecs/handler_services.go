@@ -461,12 +461,11 @@ type serviceConnectConfigurationView struct {
 }
 
 type serviceView struct {
-	ServiceConnectConfiguration   *serviceConnectConfigurationView `json:"serviceConnectConfiguration,omitempty"`
-	DeploymentConfiguration       *deploymentConfigurationView     `json:"deploymentConfiguration,omitempty"`
-	DeploymentController          *deploymentControllerView        `json:"deploymentController,omitempty"`
-	NetworkConfiguration          *networkConfigurationView        `json:"networkConfiguration,omitempty"`
-	HealthCheckGracePeriodSeconds *int                             `json:"healthCheckGracePeriodSeconds,omitempty"`
-	ClusterArn                    string                           `json:"clusterArn"`
+	DeploymentConfiguration       *deploymentConfigurationView `json:"deploymentConfiguration,omitempty"`
+	DeploymentController          *deploymentControllerView    `json:"deploymentController,omitempty"`
+	NetworkConfiguration          *networkConfigurationView    `json:"networkConfiguration,omitempty"`
+	HealthCheckGracePeriodSeconds *int                         `json:"healthCheckGracePeriodSeconds,omitempty"`
+	ClusterArn                    string                       `json:"clusterArn"`
 	// omitempty: an EXTERNAL-controller service has no task definition of its
 	// own (task sets carry theirs) and real AWS omits the field entirely
 	// rather than sending "". terraform-provider-aws's flatten
@@ -516,14 +515,11 @@ func toServiceView(s Service) serviceView {
 		HealthCheckGracePeriodSeconds: s.HealthCheckGracePeriodSeconds,
 		CreatedAt:                     float64(s.CreatedAt.Unix()),
 		DeploymentConfiguration:       toDeploymentConfigurationView(s.DeploymentConfiguration),
-		ServiceConnectConfiguration: toServiceConnectConfigurationView(
-			s.ServiceConnectConfiguration,
-		),
-		NetworkConfiguration: toNetworkConfigurationView(s.NetworkConfiguration),
-		DesiredCount:         s.DesiredCount,
-		PendingCount:         s.PendingCount,
-		RunningCount:         s.RunningCount,
-		EnableExecuteCommand: s.EnableExecuteCommand,
+		NetworkConfiguration:          toNetworkConfigurationView(s.NetworkConfiguration),
+		DesiredCount:                  s.DesiredCount,
+		PendingCount:                  s.PendingCount,
+		RunningCount:                  s.RunningCount,
+		EnableExecuteCommand:          s.EnableExecuteCommand,
 	}
 
 	if s.DeploymentController != nil {
@@ -553,7 +549,12 @@ func toServiceView(s Service) serviceView {
 	}
 
 	for _, d := range s.Deployments {
-		v.Deployments = append(v.Deployments, toDeploymentView(d))
+		dv := toDeploymentView(d)
+		if d.Status == deploymentStatusPrimary {
+			dv.ServiceConnectConfiguration = toServiceConnectConfigurationView(s.ServiceConnectConfiguration)
+		}
+
+		v.Deployments = append(v.Deployments, dv)
 	}
 
 	return v
@@ -561,19 +562,20 @@ func toServiceView(s Service) serviceView {
 
 // deploymentView is the handler view of a service deployment record.
 type deploymentView struct {
-	CreatedAt          *float64 `json:"createdAt,omitempty"`
-	UpdatedAt          *float64 `json:"updatedAt,omitempty"`
-	ID                 string   `json:"id"`
-	Status             string   `json:"status"`
-	TaskDefinition     string   `json:"taskDefinition"`
-	LaunchType         string   `json:"launchType,omitempty"`
-	PlatformVersion    string   `json:"platformVersion,omitempty"`
-	RolloutState       string   `json:"rolloutState,omitempty"`
-	RolloutStateReason string   `json:"rolloutStateReason,omitempty"`
-	DesiredCount       int      `json:"desiredCount"`
-	PendingCount       int      `json:"pendingCount"`
-	RunningCount       int      `json:"runningCount"`
-	FailedTasks        int      `json:"failedTasks"`
+	ServiceConnectConfiguration *serviceConnectConfigurationView `json:"serviceConnectConfiguration,omitempty"`
+	CreatedAt                   *float64                         `json:"createdAt,omitempty"`
+	UpdatedAt                   *float64                         `json:"updatedAt,omitempty"`
+	ID                          string                           `json:"id"`
+	Status                      string                           `json:"status"`
+	TaskDefinition              string                           `json:"taskDefinition"`
+	LaunchType                  string                           `json:"launchType,omitempty"`
+	PlatformVersion             string                           `json:"platformVersion,omitempty"`
+	RolloutState                string                           `json:"rolloutState,omitempty"`
+	RolloutStateReason          string                           `json:"rolloutStateReason,omitempty"`
+	DesiredCount                int                              `json:"desiredCount"`
+	PendingCount                int                              `json:"pendingCount"`
+	RunningCount                int                              `json:"runningCount"`
+	FailedTasks                 int                              `json:"failedTasks"`
 }
 
 // toDeploymentView maps a backend Deployment onto the wire view. ServiceRevisionArn

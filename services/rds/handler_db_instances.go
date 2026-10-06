@@ -386,8 +386,6 @@ func toXMLInstance(inst *DBInstance, roles []DBInstanceRole) xmlDBInstance {
 		CopyTagsToSnapshot:                 inst.CopyTagsToSnapshot,
 		PubliclyAccessible:                 inst.PubliclyAccessible,
 		PerformanceInsightsEnabled:         inst.PerformanceInsightsEnabled,
-		StorageOptimized:                   inst.StorageOptimized,
-		OptimizedWrites:                    inst.OptimizedWrites,
 		EngineLifecycleSupport:             inst.EngineLifecycleSupport,
 		InstanceCreateTime:                 instanceCreateTime,
 		AutoMinorVersionUpgrade:            inst.AutoMinorVersionUpgrade,
@@ -652,8 +650,6 @@ type xmlDBInstance struct {
 	CopyTagsToSnapshot               bool `xml:"CopyTagsToSnapshot,omitempty"`
 	PubliclyAccessible               bool `xml:"PubliclyAccessible,omitempty"`
 	PerformanceInsightsEnabled       bool `xml:"PerformanceInsightsEnabled,omitempty"`
-	StorageOptimized                 bool `xml:"StorageOptimized,omitempty"`
-	OptimizedWrites                  bool `xml:"OptimizedWritesEnabled,omitempty"`
 	MultiAZ                          bool `xml:"MultiAZ"`
 	AutoMinorVersionUpgrade          bool `xml:"AutoMinorVersionUpgrade,omitempty"`
 	MultiTenant                      bool `xml:"MultiTenant,omitempty"`

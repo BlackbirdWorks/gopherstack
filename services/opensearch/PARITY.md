@@ -1666,3 +1666,7 @@ Tool false positives: each op below pages through `writePagedList` (paging.go), 
 ## 2026-10-05 (serverless collection settings)
 
 CreateCollection and UpdateCollection store DeletionProtection, VectorOptions and (create only) StandbyReplicas, and return them on Create/BatchGet/Update; the wire key is `ServerlessVectorAcceleration`, capitalised (serializers.go:3259). DeleteCollection on a protected collection returns ConflictException (code chosen from DeleteCollection's declared set; AWS' exact code is not in the SDK). CreateCollection replays on `clientToken` (a reused token with other parameters is ConflictException) and a duplicate collection name is now ConflictException instead of silently overwriting. Proof: `serverless_collection_settings_test.go`.
+
+## 2026-10-05 (undeclared response members)
+
+ClusterConfig is now read and written as ColdStorageOptions{Enabled}; the flat ColdStorageEnabled key and ClusterConfig.BlueGreenDeploymentOptions are no longer emitted (neither is in the SDK type).

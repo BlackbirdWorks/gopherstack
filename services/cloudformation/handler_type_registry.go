@@ -676,10 +676,8 @@ func (h *Handler) describeTypeFromRegistry(form url.Values, c *echo.Context) (bo
 			LoggingConfig    *loggingConfigXML `xml:"LoggingConfig,omitempty"`
 			Schema           string            `xml:"Schema,omitempty"`
 			Visibility       string            `xml:"Visibility,omitempty"`
-			Status           string            `xml:"TypeVersionStatus,omitempty"`
 			Description      string            `xml:"Description,omitempty"`
 			TypeName         string            `xml:"TypeName,omitempty"`
-			VersionID        string            `xml:"VersionId,omitempty"`
 			DefaultVersionID string            `xml:"DefaultVersionId,omitempty"`
 			DeprecatedStatus string            `xml:"DeprecatedStatus,omitempty"`
 			Type             string            `xml:"Type,omitempty"`
@@ -700,10 +698,8 @@ func (h *Handler) describeTypeFromRegistry(form url.Values, c *echo.Context) (bo
 			TypeArn:          details.TypeArn,
 			Type:             details.Type,
 			Visibility:       details.Visibility,
-			Status:           details.Status,
 			Description:      details.Description,
 			Schema:           details.Schema,
-			VersionID:        details.VersionID,
 			DefaultVersionID: details.DefaultVersionID,
 			IsActivated:      details.IsActivated,
 			IsDefaultVersion: details.IsDefaultVersion,

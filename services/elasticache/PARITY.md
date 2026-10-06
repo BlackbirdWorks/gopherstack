@@ -897,3 +897,7 @@ Still recorded, with the root cause stated precisely: non-cluster-mode replicati
 - CreateReplicationGroup/ModifyReplicationGroup keep NetworkType, IpDiscovery, AutoMinorVersionUpgrade, ClusterMode (ClusterEnabled follows it), SnapshottingClusterId and RemoveUserGroups. The invented NumCacheClusters and NotificationTopicArn keys are gone from the ReplicationGroup response (types.ReplicationGroup has neither).
 - CreateSnapshot/CopySnapshot keep KmsKeyId (now in the Snapshot response); CopySnapshot applies Tags; PurchaseReservedCacheNodesOffering applies Tags and DescribeReservedCacheNodes filters on ReservedCacheNodesOfferingId; DescribeUpdateActions filters on ServiceUpdateStatus.
 - DeleteCacheCluster and DeleteReplicationGroup create the FinalSnapshotIdentifier snapshot first (SnapshotAlreadyExistsFault leaves the source intact).
+
+## 2026-10-05 (undeclared response members)
+
+ReplicationGroup no longer emits CacheParameterGroupName/PreferredMaintenanceWindow/EngineVersion, its PendingModifiedValues keeps only AuthTokenStatus/AutomaticFailoverStatus, and GlobalReplicationGroup.NodeGroupCount and ReservedCacheNode.ReservationId are dropped (none are declared by the pinned SDK).

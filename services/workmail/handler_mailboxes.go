@@ -181,7 +181,6 @@ type describeMailboxExportJobResp struct {
 	RoleArn           string `json:"RoleArn,omitempty"`
 	KmsKeyArn         string `json:"KmsKeyArn,omitempty"`
 	S3BucketName      string `json:"S3BucketName,omitempty"`
-	JobId             string `json:"JobId,omitempty"` //nolint:revive,staticcheck // existing issue.
 	S3Path            string `json:"S3Path,omitempty"`
 	State             string `json:"State,omitempty"`
 	ErrorInfo         string `json:"ErrorInfo,omitempty"`
@@ -198,7 +197,6 @@ func (h *Handler) handleDescribeMailboxExportJob(
 		return nil, err
 	}
 	resp := &describeMailboxExportJobResp{
-		JobId:             job.JobID,
 		EntityId:          job.EntityID,
 		Description:       job.Description,
 		RoleArn:           job.RoleARN,

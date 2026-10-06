@@ -59,7 +59,6 @@ type dnsRecordResp struct {
 }
 
 type getMailDomainResp struct {
-	DomainName                  string          `json:"DomainName,omitempty"`
 	OwnershipVerificationStatus string          `json:"OwnershipVerificationStatus,omitempty"`
 	DkimVerificationStatus      string          `json:"DkimVerificationStatus,omitempty"`
 	Records                     []dnsRecordResp `json:"Records,omitempty"`
@@ -79,7 +78,6 @@ func (h *Handler) handleGetMailDomain(_ context.Context, req *getMailDomainReq) 
 	}
 
 	return &getMailDomainResp{
-		DomainName:                  d.DomainName,
 		IsDefault:                   d.IsDefault,
 		IsTestDomain:                d.IsTestDomain,
 		OwnershipVerificationStatus: d.OwnershipVerificationStatus,

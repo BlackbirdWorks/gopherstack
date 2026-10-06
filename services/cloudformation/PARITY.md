@@ -2653,3 +2653,7 @@ FIXED: ListStackRefactors ExecutionStatusFilter (query form `ExecutionStatusFilt
 ## 2026-10-05 (PARITY burn-down, gopherstack-9x62)
 
 FIXED: CreateChangeSet Tags/NotificationARNs/RoleARN/RollbackConfiguration are stored, DescribeChangeSet echoes Parameters/NotificationARNs/RollbackConfiguration, and ExecuteChangeSet applies tags, notification ARNs, role and rollback configuration to the stack (change set tags were silently dropped before); GetTemplate honours ChangeSetName (name with StackName, or ARN); ListTypes honours Type, Filters.Category (REGISTERED/ACTIVATED/THIRD_PARTY) and DeprecatedStatus. Proof: change_set_stack_options_test.go. ChangeSet gains additive omitempty notificationARNs/roleARN.
+
+## 2026-10-05 (undeclared response members)
+
+DescribeChangeSet no longer emits ChangeSetType, DescribeType drops TypeVersionStatus/VersionId, and GetTemplateSummary drops AllowedPattern/ConstraintDescription and moves AllowedValues under ParameterConstraints (cloudformation SDK ParameterDeclaration).

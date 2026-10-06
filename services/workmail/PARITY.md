@@ -700,3 +700,7 @@ workmail already isolates regions internally: organizations record their region 
 ## 2026-10-05 (gopherstack-uox6 pass 8, value semantics)
 
 Create->Describe->Update round trips audited, no change. CreateUser already defaults Role USER (api_op_CreateUser.go:66). Recorded, unchanged: UpdateUser and UpdateResource say the request "should be the one expected when performing another Describe call" (api_op_UpdateUser.go:12), which can be read as full replacement, but it does not say omitted members are cleared, so the keep-when-omitted behaviour stays.
+
+## 2026-10-05 (undeclared response members)
+
+GetMailDomain drops DomainName and DescribeMailboxExportJob drops JobId; neither is on the SDK output.

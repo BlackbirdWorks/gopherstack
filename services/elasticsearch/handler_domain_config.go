@@ -515,7 +515,7 @@ type updateClusterConfig struct {
 	WarmEnabled            *bool                      `json:"WarmEnabled"`
 	WarmType               *string                    `json:"WarmType"`
 	WarmCount              *int                       `json:"WarmCount"`
-	ColdStorageEnabled     *bool                      `json:"ColdStorageEnabled"`
+	ColdStorageOptions     *coldStorageOptionsJSON    `json:"ColdStorageOptions"`
 }
 
 func setIfPresent[T any](dst *T, src *T) {
@@ -534,7 +534,9 @@ func (u *updateClusterConfig) apply(c *ClusterConfig) {
 	setIfPresent(&c.WarmEnabled, u.WarmEnabled)
 	setIfPresent(&c.WarmType, u.WarmType)
 	setIfPresent(&c.WarmCount, u.WarmCount)
-	setIfPresent(&c.ColdStorageEnabled, u.ColdStorageEnabled)
+	if u.ColdStorageOptions != nil {
+		c.ColdStorageEnabled = u.ColdStorageOptions.Enabled
+	}
 
 	if u.ZoneAwarenessConfig != nil {
 		c.ZoneAwarenessConfig = ZoneAwarenessConfig{AvailabilityZoneCount: u.ZoneAwarenessConfig.AvailabilityZoneCount}

@@ -46,7 +46,6 @@ type getEmailIdentityOutput struct {
 	DkimAttributes       *dkimAttributesOutput     `json:"DkimAttributes,omitempty"`
 	MailFromAttributes   *mailFromAttributesOutput `json:"MailFromAttributes,omitempty"`
 	Policies             map[string]string         `json:"Policies,omitempty"`
-	EmailIdentity        string                    `json:"EmailIdentity"`
 	IdentityType         string                    `json:"IdentityType"`
 	ConfigurationSetName string                    `json:"ConfigurationSetName,omitempty"`
 	VerificationStatus   string                    `json:"VerificationStatus,omitempty"`
@@ -109,7 +108,6 @@ func (h *Handler) handleGetEmailIdentity(identity string) (any, error) {
 	policies, _ := h.Backend.GetEmailIdentityPolicies(identity)
 
 	out := &getEmailIdentityOutput{
-		EmailIdentity:        ei.Identity,
 		IdentityType:         ei.IdentityType,
 		VerifiedForSending:   ei.VerifiedForSending,
 		FeedbackForwarding:   ei.FeedbackForwarding,

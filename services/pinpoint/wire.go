@@ -239,7 +239,6 @@ type journeyResponse struct {
 	OpenHours              map[string]any            `json:"OpenHours,omitempty"`
 	ClosedDays             map[string]any            `json:"ClosedDays,omitempty"`
 	ApplicationID          string                    `json:"ApplicationId"`
-	ARN                    string                    `json:"Arn,omitempty"`
 	ID                     string                    `json:"Id"`
 	Name                   string                    `json:"Name"`
 	StartActivity          string                    `json:"StartActivity,omitempty"`
@@ -312,19 +311,14 @@ type tagResourceRequest struct {
 // objects so the Terraform provider's flatten helpers do not dereference nil
 // pointers. JourneyLimits is a real member (types.ApplicationSettingsResource,
 // pinpoint@v1.42.4 types/types.go) that a prior version never emitted at all.
-// CloudWatchMetricsEnabled/EventTaggingEnabled are NOT real members of this
-// type (confirmed: absent from both types.ApplicationSettingsResource and the
-// deserializer's case list) -- kept here since they're harmless extra JSON
-// fields a real client simply ignores, not worth an unrelated behavior change.
+// CloudWatchMetricsEnabled/EventTaggingEnabled are request-only and never echoed.
 type appSettingsResponse struct {
-	CampaignHook             map[string]any `json:"CampaignHook"`
-	Limits                   map[string]any `json:"Limits"`
-	QuietTime                map[string]any `json:"QuietTime"`
-	JourneyLimits            map[string]any `json:"JourneyLimits"`
-	ApplicationID            string         `json:"ApplicationId"`
-	LastModifiedDate         string         `json:"LastModifiedDate,omitempty"`
-	CloudWatchMetricsEnabled bool           `json:"CloudWatchMetricsEnabled"`
-	EventTaggingEnabled      bool           `json:"EventTaggingEnabled"`
+	CampaignHook     map[string]any `json:"CampaignHook"`
+	Limits           map[string]any `json:"Limits"`
+	QuietTime        map[string]any `json:"QuietTime"`
+	JourneyLimits    map[string]any `json:"JourneyLimits"`
+	ApplicationID    string         `json:"ApplicationId"`
+	LastModifiedDate string         `json:"LastModifiedDate,omitempty"`
 }
 
 // New request types for additional operations
@@ -701,7 +695,7 @@ type numberValidateResponse struct {
 	Carrier                           string `json:"Carrier,omitempty"`
 	City                              string `json:"City,omitempty"`
 	CleansedPhoneNumberE164           string `json:"CleansedPhoneNumberE164,omitempty"`
-	CleansedPhoneNumberNationalFormat string `json:"CleansedPhoneNumberNationalFormat,omitempty"`
+	CleansedPhoneNumberNationalFormat string `json:"CleansedPhoneNumberNational,omitempty"`
 	Country                           string `json:"Country,omitempty"`
 	CountryCodeIso2                   string `json:"CountryCodeIso2,omitempty"`
 	CountryCodeNumeric                string `json:"CountryCodeNumeric,omitempty"`
@@ -791,7 +785,7 @@ type journeyExecutionActivityMetricsResponse struct {
 	Metrics           map[string]string `json:"Metrics"`
 	ApplicationID     string            `json:"ApplicationId"`
 	JourneyID         string            `json:"JourneyId"`
-	ActivityID        string            `json:"ActivityId"`
+	ActivityID        string            `json:"JourneyActivityId"`
 	LastEvaluatedTime string            `json:"LastEvaluatedTime"`
 }
 

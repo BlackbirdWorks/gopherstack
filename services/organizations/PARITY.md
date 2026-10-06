@@ -625,3 +625,7 @@ InvalidParameterException (handler.go:165) is the missing-X-Amz-Target routing f
 ## 2026-10-05 (gopherstack-dcyg9 value semantics)
 
 FIXED: UpdatePolicy Description is a pointer end to end. "If provided, the new description for the policy" (api_op_UpdatePolicy.go:56) means an explicit empty string clears it and an omitted member keeps it. Proof: `TestRealClient_UpdatePolicyDescription`.
+
+## 2026-10-05 (undeclared response members)
+
+Account drops RoleName/IamUserAccessToBilling and EffectivePolicy drops PolicyId; all three are request-only or absent from the pinned SDK output types. State is kept in the backend.

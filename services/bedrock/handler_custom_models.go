@@ -133,7 +133,6 @@ type customModelOutput struct {
 	JobArn            string `json:"jobArn,omitempty"`
 	JobName           string `json:"jobName,omitempty"`
 	ModelKmsKeyArn    string `json:"modelKmsKeyArn,omitempty"`
-	Tags              []Tag  `json:"tags,omitempty"`
 }
 
 func customModelToOutput(m *CustomModel) customModelOutput {
@@ -147,7 +146,6 @@ func customModelToOutput(m *CustomModel) customModelOutput {
 		JobName:           m.JobName,
 		ModelKmsKeyArn:    m.ModelKmsKeyArn,
 		CreationTime:      m.CreationTime.Format(time.RFC3339),
-		Tags:              m.Tags,
 	}
 }
 

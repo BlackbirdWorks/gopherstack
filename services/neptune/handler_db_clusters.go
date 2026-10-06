@@ -419,7 +419,6 @@ func toXMLCluster(c *DBCluster) xmlDBCluster {
 		ClusterCreateTime:               c.ClusterCreateTime,
 		Engine:                          c.Engine,
 		EngineVersion:                   c.EngineVersion,
-		EngineMode:                      c.EngineMode,
 		Status:                          c.Status,
 		DBClusterParameterGroupName:     c.DBClusterParameterGroupName,
 		DBSubnetGroupName:               c.DBSubnetGroupName,
@@ -455,12 +454,6 @@ func toXMLCluster(c *DBCluster) xmlDBCluster {
 			MaxCapacity: c.ServerlessV2ScalingConfig.MaxCapacity,
 		}
 	}
-	if c.MasterUserManagedSecret != nil {
-		x.MasterUserManagedSecret = &xmlMasterUserManagedSecret{
-			SecretARN:    c.MasterUserManagedSecret.SecretARN,
-			SecretStatus: c.MasterUserManagedSecret.SecretStatus,
-		}
-	}
 
 	return x
 }
@@ -477,11 +470,6 @@ type xmlDBClusterMemberList struct {
 type xmlServerlessV2ScalingConfiguration struct {
 	MinCapacity float64 `xml:"MinCapacity"`
 	MaxCapacity float64 `xml:"MaxCapacity"`
-}
-
-type xmlMasterUserManagedSecret struct {
-	SecretARN    string `xml:"SecretArn,omitempty"`
-	SecretStatus string `xml:"SecretStatus,omitempty"`
 }
 
 // xmlSV2Ref is a type alias to keep xmlDBCluster field definitions within line-length limits.
@@ -520,7 +508,6 @@ type xmlLogTypeList struct {
 type xmlDBCluster struct {
 	EnabledCloudwatchLogsExports     *xmlLogTypeList                   `xml:"EnabledCloudwatchLogsExports,omitempty"`
 	ServerlessV2ScalingConfiguration *xmlSV2Ref                        `xml:"ServerlessV2ScalingConfiguration,omitempty"`
-	MasterUserManagedSecret          *xmlMasterUserManagedSecret       `xml:"MasterUserManagedSecret,omitempty"`
 	VpcSecurityGroups                xmlVpcSecurityGroupMembershipList `xml:"VpcSecurityGroups,omitempty"`
 	AssociatedRoles                  xmlDBRoleList                     `xml:"AssociatedRoles,omitempty"`
 	AvailabilityZones                xmlAvailabilityZoneList           `xml:"AvailabilityZones,omitempty"`
@@ -530,7 +517,6 @@ type xmlDBCluster struct {
 	ClusterCreateTime                string                            `xml:"ClusterCreateTime,omitempty"`
 	Engine                           string                            `xml:"Engine"`
 	EngineVersion                    string                            `xml:"EngineVersion,omitempty"`
-	EngineMode                       string                            `xml:"EngineMode,omitempty"`
 	Status                           string                            `xml:"Status"`
 	DBClusterParameterGroupName      string                            `xml:"DBClusterParameterGroup,omitempty"`
 	DBSubnetGroupName                string                            `xml:"DBSubnetGroup,omitempty"`

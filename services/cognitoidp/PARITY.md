@@ -1718,3 +1718,7 @@ UpdateUserPool now stores and echoes AdminCreateUserConfig, DeviceConfiguration,
 ## 2026-10-05 (gopherstack-1zitl temporary password)
 
 The temporary password no longer lives in `custom:temporaryPassword`, so no user-returning op (AdminCreateUser, AdminGetUser, GetUser, ListUsers, ListUsersInGroup) or Lambda trigger payload carries it. It is kept in a dedicated persisted `User.TemporaryPassword` field, cleared whenever the user sets a password; snapshots that still carry the attribute are migrated on restore.
+
+## 2026-10-05 (undeclared response members)
+
+DeviceType no longer emits DeviceStatus (SDK DeviceType has no such member).

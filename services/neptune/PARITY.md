@@ -959,3 +959,7 @@ Adjudicated (reqfielddiff -adjudicated), unchanged:
 - DescribeDBEngineVersions.ListSupportedTimezones: the catalog carries no time zones for Neptune.
 - DescribeOrderableDBInstanceOptions.LicenseModel: orderable options emit no LicenseModel/Vpc values; real values are unverified, so none are invented or filtered.
 - DescribeOrderableDBInstanceOptions.Vpc: see LicenseModel: orderable options emit no Vpc value, so the filter has nothing to match.
+
+## 2026-10-05 (undeclared response members)
+
+DBCluster no longer emits EngineMode or MasterUserManagedSecret; neither exists on neptune@v1.48.4 DBCluster or Create/ModifyDBClusterInput. The backend fields stay.

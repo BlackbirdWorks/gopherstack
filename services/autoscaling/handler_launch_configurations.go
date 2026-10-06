@@ -142,7 +142,6 @@ func toXMLLaunchConfiguration(lc *LaunchConfiguration) xmlLaunchConfiguration {
 			xmlBDM.Ebs = &xmlEbsBlockDevice{
 				SnapshotID:          bdm.Ebs.SnapshotID,
 				VolumeType:          bdm.Ebs.VolumeType,
-				KmsKeyID:            bdm.Ebs.KmsKeyID,
 				VolumeSize:          bdm.Ebs.VolumeSize,
 				Iops:                bdm.Ebs.Iops,
 				Throughput:          bdm.Ebs.Throughput,
@@ -232,7 +231,6 @@ func parseMetadataOptions(vals url.Values) (InstanceMetadataOptions, error) {
 type xmlEbsBlockDevice struct {
 	SnapshotID          string `xml:"SnapshotId,omitempty"`
 	VolumeType          string `xml:"VolumeType,omitempty"`
-	KmsKeyID            string `xml:"KmsKeyId,omitempty"`
 	VolumeSize          int32  `xml:"VolumeSize,omitempty"`
 	Iops                int32  `xml:"Iops,omitempty"`
 	Throughput          int32  `xml:"Throughput,omitempty"`

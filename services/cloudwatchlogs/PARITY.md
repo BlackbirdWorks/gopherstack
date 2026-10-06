@@ -1092,3 +1092,7 @@ FIXED: UpdateLogAnomalyDetector now applies FilterPattern (api_op_UpdateLogAnoma
 ## 2026-10-05 (PARITY burn-down, gopherstack-9x62)
 
 FIXED: DescribeLogGroups logGroupNamePattern (case-sensitive substring, exclusive with the prefix, trims to arn/creationTime/logGroupName) and logGroupIdentifiers (names or ARNs); logGroupIdentifier on DescribeLogStreams/GetLogEvents/FilterLogEvents (ARN accepted, both name and identifier rejected); PutDestination Tags; PutQueryDefinition/DescribeQueryDefinitions queryLanguage (stored, validated, filterable). REMOVED as already fixed: MetricTransformation.Dimensions forwarding (cli_metric_dimensions_test.go).
+
+## 2026-10-05 (undeclared response members)
+
+DescribeExportTasks no longer emits logStreamNamePrefix (not a member of types.ExportTask).

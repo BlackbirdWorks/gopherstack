@@ -215,6 +215,7 @@ func TestHandler_DescribeType_Registered(t *testing.T) {
 			for _, want := range tc.wantContains {
 				assert.Contains(t, resp.Body, want)
 			}
+			assert.NotContains(t, resp.Body, "TypeVersionStatus")
 		})
 	}
 }
@@ -388,7 +389,6 @@ func TestHandler_DescribeType_RegisteredVsBuiltin(t *testing.T) {
 				"DescribeTypeResponse",
 				"Acme::Network::Router",
 				"RESOURCE",
-				"COMPLETE",
 			},
 		},
 		{

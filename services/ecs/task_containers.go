@@ -181,7 +181,7 @@ func safeLastN(s string, n int) string {
 // newFargateTaskAttachment builds a simulated Fargate ENI attachment for a task ARN.
 // Each task gets a unique ENI ID, MAC address, and private IP derived from a random UUID
 // so that callers can distinguish attachments across tasks.
-func newFargateTaskAttachment(taskArn string) TaskAttachment {
+func newFargateTaskAttachment(taskArn, requestedSubnet string) TaskAttachment {
 	id := uuid.NewString()
 
 	// Derive a stable but unique 12-hex-char "MAC" from the first 12 chars of the UUID
@@ -202,6 +202,9 @@ func newFargateTaskAttachment(taskArn string) TaskAttachment {
 	// Use the task ARN suffix as a stable subnet hint (all tasks in the same cluster
 	// share a synthetic subnet derived from that cluster's tasks).
 	subnetID := "subnet-" + safeLastN(taskArn, eniSubnetSuffixLen)
+	if requestedSubnet != "" {
+		subnetID = requestedSubnet
+	}
 
 	// Build a unique private IP from the attachment UUID bytes.
 	octet3 := int(id[0]) % ipOctetMod

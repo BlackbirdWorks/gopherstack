@@ -183,7 +183,6 @@ type guardrailDetailOutput struct {
 	BlockedInputMessaging      string                                     `json:"blockedInputMessaging"`
 	BlockedOutputsMessaging    string                                     `json:"blockedOutputsMessaging"`
 	KmsKeyArn                  string                                     `json:"kmsKeyArn,omitempty"`
-	Tags                       []Tag                                      `json:"tags,omitempty"`
 }
 
 // guardrailCrossRegionDetails is types.GuardrailCrossRegionDetails.
@@ -218,7 +217,6 @@ func guardrailToDetailOutput(g *Guardrail) guardrailDetailOutput {
 		Version:                 g.Version,
 		BlockedInputMessaging:   g.BlockedInputMessaging,
 		BlockedOutputsMessaging: g.BlockedOutputsMessaging,
-		Tags:                    g.Tags,
 		CreatedAt:               isoTime{g.CreatedAt},
 		UpdatedAt:               isoTime{g.UpdatedAt},
 	}

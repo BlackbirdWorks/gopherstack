@@ -254,7 +254,6 @@ func (h *Handler) handleDescribeChangeSet(form url.Values, c *echo.Context) erro
 		Status                string                 `xml:"Status"`
 		StatusReason          string                 `xml:"StatusReason,omitempty"`
 		ExecutionStatus       string                 `xml:"ExecutionStatus,omitempty"`
-		ChangeSetType         string                 `xml:"ChangeSetType,omitempty"`
 		CreationTime          string                 `xml:"CreationTime"`
 		Description           string                 `xml:"Description,omitempty"`
 		Capabilities          []string               `xml:"Capabilities>member,omitempty"`
@@ -281,7 +280,6 @@ func (h *Handler) handleDescribeChangeSet(form url.Values, c *echo.Context) erro
 			Status:                cs.Status,
 			StatusReason:          cs.StatusReason,
 			ExecutionStatus:       cs.ExecutionStatus,
-			ChangeSetType:         cs.ChangeSetType,
 			CreationTime:          cs.CreationTime.UTC().Format("2006-01-02T15:04:05Z"),
 			Description:           cs.Description,
 			Capabilities:          cs.Capabilities,

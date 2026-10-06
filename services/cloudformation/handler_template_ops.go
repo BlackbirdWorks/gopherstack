@@ -97,20 +97,32 @@ func (h *Handler) handleGetTemplateSummary(form url.Values, c *echo.Context) err
 		return h.xmlError(c, "ValidationError", err.Error())
 	}
 
+	type paramConstraintsXML struct {
+		AllowedValues []string `xml:"AllowedValues>member,omitempty"`
+	}
 	type paramXML struct {
-		ParameterKey          string   `xml:"ParameterKey"`
-		ParameterType         string   `xml:"ParameterType,omitempty"`
-		DefaultValue          string   `xml:"DefaultValue,omitempty"`
-		Description           string   `xml:"Description,omitempty"`
-		ConstraintDescription string   `xml:"ConstraintDescription,omitempty"`
-		AllowedPattern        string   `xml:"AllowedPattern,omitempty"`
-		AllowedValues         []string `xml:"AllowedValues>member,omitempty"`
-		NoEcho                bool     `xml:"NoEcho,omitempty"`
+		ParameterConstraints *paramConstraintsXML `xml:"ParameterConstraints,omitempty"`
+		ParameterKey         string               `xml:"ParameterKey"`
+		ParameterType        string               `xml:"ParameterType,omitempty"`
+		DefaultValue         string               `xml:"DefaultValue,omitempty"`
+		Description          string               `xml:"Description,omitempty"`
+		NoEcho               bool                 `xml:"NoEcho,omitempty"`
 	}
 
 	params := make([]paramXML, 0, len(summary.Parameters))
 	for _, p := range summary.Parameters {
-		params = append(params, paramXML(p))
+		x := paramXML{
+			ParameterKey:  p.ParameterKey,
+			ParameterType: p.ParameterType,
+			DefaultValue:  p.DefaultValue,
+			Description:   p.Description,
+			NoEcho:        p.NoEcho,
+		}
+		if len(p.AllowedValues) > 0 {
+			x.ParameterConstraints = &paramConstraintsXML{AllowedValues: p.AllowedValues}
+		}
+
+		params = append(params, x)
 	}
 
 	type summaryResult struct {

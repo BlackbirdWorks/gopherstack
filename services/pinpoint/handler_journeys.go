@@ -405,7 +405,6 @@ func (h *Handler) handleGetJourneyRunExecutionActivityMetrics(
 func toJourneyResponse(j *Journey) journeyResponse {
 	return journeyResponse{
 		ApplicationID:          j.ApplicationID,
-		ARN:                    j.ARN,
 		ID:                     j.ID,
 		Name:                   j.Name,
 		State:                  j.State,

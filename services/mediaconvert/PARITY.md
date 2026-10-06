@@ -662,3 +662,7 @@ CreateJob without Queue inherits the job template queue (api_op_CreateJobTemplat
 ## 2026-10-05 (gopherstack-dcyg9 value semantics)
 
 FIXED: UpdateQueue/UpdatePreset/UpdateJobTemplate take Description as a pointer, so an explicit empty string clears it and an omitted member keeps it. SDK: "The new description for the queue, if you are changing it" (api_op_UpdateQueue.go:42; same wording in api_op_UpdatePreset.go:38 and api_op_UpdateJobTemplate.go:44). Proof: `TestRealClient_UpdateDescriptionSemantics`. Supersedes the "cannot clear" note in the 2026-10-05 pass 10 entry.
+
+## 2026-10-05 (undeclared response members)
+
+ListJobs no longer emits totalCount (ListJobsOutput has only jobs/nextToken).

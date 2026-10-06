@@ -956,7 +956,7 @@ func TestECS_RegisterTaskDefinition_CPU_Memory(t *testing.T) {
 			}
 
 			if tt.wantPlatFamily != "" {
-				assert.Equal(t, tt.wantPlatFamily, td["platformFamily"])
+				assert.NotContains(t, td, "platformFamily", "types.TaskDefinition has no platformFamily member")
 			}
 		})
 	}

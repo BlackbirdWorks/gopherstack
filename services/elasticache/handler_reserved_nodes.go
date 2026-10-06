@@ -23,7 +23,6 @@ type describeRCNsResultXML struct {
 }
 
 type reservedCacheNodeXML struct {
-	ReservationID       string  `xml:"ReservationId,omitempty"`
 	ReservedCacheNodeID string  `xml:"ReservedCacheNodeId"`
 	ARN                 string  `xml:"ReservationARN,omitempty"`
 	CacheNodeType       string  `xml:"CacheNodeType"`
@@ -45,7 +44,6 @@ func reservedCacheNodeToXML(rcn *ReservedCacheNode) reservedCacheNodeXML {
 	}
 
 	return reservedCacheNodeXML{
-		ReservationID:       rcn.ReservationID,
 		ReservedCacheNodeID: rcn.ReservedCacheNodeID,
 		ARN:                 rcn.ARN,
 		CacheNodeType:       rcn.CacheNodeType,

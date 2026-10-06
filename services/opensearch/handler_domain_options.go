@@ -6,6 +6,7 @@ import "github.com/blackbirdworks/gopherstack/pkgs/awstime"
 type domainClusterConfig struct {
 	ZoneAwarenessConfig        *zoneAwarenessConfigJSON        `json:"ZoneAwarenessConfig,omitempty"`
 	BlueGreenDeploymentOptions *blueGreenDeploymentOptionsJSON `json:"BlueGreenDeploymentOptions,omitempty"`
+	ColdStorageOptions         *coldStorageOptionsJSON         `json:"ColdStorageOptions,omitempty"`
 	InstanceType               string                          `json:"InstanceType"`
 	DedicatedMasterType        string                          `json:"DedicatedMasterType,omitempty"`
 	WarmType                   string                          `json:"WarmType,omitempty"`
@@ -15,7 +16,6 @@ type domainClusterConfig struct {
 	DedicatedMasterEnabled     bool                            `json:"DedicatedMasterEnabled,omitempty"`
 	ZoneAwarenessEnabled       bool                            `json:"ZoneAwarenessEnabled,omitempty"`
 	WarmEnabled                bool                            `json:"WarmEnabled,omitempty"`
-	ColdStorageEnabled         bool                            `json:"ColdStorageEnabled,omitempty"`
 	MultiAZWithStandbyEnabled  bool                            `json:"MultiAZWithStandbyEnabled,omitempty"`
 }
 
@@ -152,6 +152,11 @@ type enableSoftwareUpdateOptionsJSON struct {
 	AutoSoftwareUpdateEnabled bool `json:"AutoSoftwareUpdateEnabled"`
 }
 
+// coldStorageOptionsJSON is types.ColdStorageOptions.
+type coldStorageOptionsJSON struct {
+	Enabled bool `json:"Enabled"`
+}
+
 // blueGreenDeploymentOptionsJSON is the JSON representation of blue-green deployment options.
 type blueGreenDeploymentOptionsJSON struct {
 	Enabled bool `json:"Enabled"`
@@ -255,19 +260,18 @@ func toAutoTuneOptionsStatusJSON(cfg *AutoTuneConfig) *autoTuneOptionsStatusJSON
 
 // clusterConfigJSON is the JSON representation of cluster config.
 type clusterConfigJSON struct {
-	ZoneAwarenessConfig        *zoneAwarenessConfigJSON        `json:"ZoneAwarenessConfig,omitempty"`
-	BlueGreenDeploymentOptions *blueGreenDeploymentOptionsJSON `json:"BlueGreenDeploymentOptions,omitempty"`
-	InstanceType               string                          `json:"InstanceType"`
-	DedicatedMasterType        string                          `json:"DedicatedMasterType,omitempty"`
-	WarmType                   string                          `json:"WarmType,omitempty"`
-	InstanceCount              int                             `json:"InstanceCount"`
-	DedicatedMasterCount       int                             `json:"DedicatedMasterCount,omitempty"`
-	WarmCount                  int                             `json:"WarmCount,omitempty"`
-	DedicatedMasterEnabled     bool                            `json:"DedicatedMasterEnabled"`
-	ZoneAwarenessEnabled       bool                            `json:"ZoneAwarenessEnabled"`
-	WarmEnabled                bool                            `json:"WarmEnabled"`
-	ColdStorageEnabled         bool                            `json:"ColdStorageEnabled"`
-	MultiAZWithStandbyEnabled  bool                            `json:"MultiAZWithStandbyEnabled"`
+	ZoneAwarenessConfig       *zoneAwarenessConfigJSON `json:"ZoneAwarenessConfig,omitempty"`
+	ColdStorageOptions        *coldStorageOptionsJSON  `json:"ColdStorageOptions"`
+	InstanceType              string                   `json:"InstanceType"`
+	DedicatedMasterType       string                   `json:"DedicatedMasterType,omitempty"`
+	WarmType                  string                   `json:"WarmType,omitempty"`
+	InstanceCount             int                      `json:"InstanceCount"`
+	DedicatedMasterCount      int                      `json:"DedicatedMasterCount,omitempty"`
+	WarmCount                 int                      `json:"WarmCount,omitempty"`
+	DedicatedMasterEnabled    bool                     `json:"DedicatedMasterEnabled"`
+	ZoneAwarenessEnabled      bool                     `json:"ZoneAwarenessEnabled"`
+	WarmEnabled               bool                     `json:"WarmEnabled"`
+	MultiAZWithStandbyEnabled bool                     `json:"MultiAZWithStandbyEnabled"`
 }
 
 // parseClusterConfigFromReq converts a JSON cluster config to backend ClusterConfig.
@@ -285,7 +289,7 @@ func parseClusterConfigFromReq(cc *domainClusterConfig) ClusterConfig {
 		WarmEnabled:               cc.WarmEnabled,
 		WarmType:                  cc.WarmType,
 		WarmCount:                 cc.WarmCount,
-		ColdStorageEnabled:        cc.ColdStorageEnabled,
+		ColdStorageEnabled:        cc.ColdStorageOptions != nil && cc.ColdStorageOptions.Enabled,
 		MultiAZWithStandbyEnabled: cc.MultiAZWithStandbyEnabled,
 	}
 	if cc.ZoneAwarenessConfig != nil {
@@ -495,17 +499,12 @@ func toClusterConfigJSON(cc ClusterConfig) clusterConfigJSON {
 		WarmEnabled:               cc.WarmEnabled,
 		WarmType:                  cc.WarmType,
 		WarmCount:                 cc.WarmCount,
-		ColdStorageEnabled:        cc.ColdStorageEnabled,
+		ColdStorageOptions:        &coldStorageOptionsJSON{Enabled: cc.ColdStorageEnabled},
 		MultiAZWithStandbyEnabled: cc.MultiAZWithStandbyEnabled,
 	}
 	if cc.ZoneAwarenessConfig != nil {
 		out.ZoneAwarenessConfig = &zoneAwarenessConfigJSON{
 			AvailabilityZoneCount: cc.ZoneAwarenessConfig.AvailabilityZoneCount,
-		}
-	}
-	if cc.BlueGreenDeploymentOptions != nil {
-		out.BlueGreenDeploymentOptions = &blueGreenDeploymentOptionsJSON{
-			Enabled: cc.BlueGreenDeploymentOptions.Enabled,
 		}
 	}
 

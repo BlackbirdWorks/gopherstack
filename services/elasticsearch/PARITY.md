@@ -876,3 +876,7 @@ DescribeDomainAutoTunes (always empty, validates the token), ListDomainsForPacka
 ## 2026-10-05 (gopherstack-uox6 pass 9, value semantics)
 
 UpdateElasticsearchDomainConfig replaced ElasticsearchClusterConfig, EBSOptions and DomainEndpointOptions wholesale and treated an omitted EncryptionAtRest/NodeToNode Enabled as false, wiping stored members (every member is an optional pointer, types.go:579-609, 732-750). Omitted members now keep their value (interpretation of the optional-pointer shape; the SDK states no merge rule). Proof: `TestUpdateDomainConfig_PartialMembersKeepStoredValues`. Recorded: SnapshotOptions has one member so an empty one still resets to 0.
+
+## 2026-10-05 (undeclared response members)
+
+ElasticsearchClusterConfig is now read and written as ColdStorageOptions{Enabled}; the flat ColdStorageEnabled key was not an SDK member.

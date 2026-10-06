@@ -179,7 +179,6 @@ type marketplaceEndpointOutput struct {
 	CreatedAt      string              `json:"createdAt"`
 	UpdatedAt      string              `json:"updatedAt"`
 	EndpointArn    string              `json:"endpointArn"`
-	EndpointName   string              `json:"endpointName"`
 	// EndpointStatus is the real, required member (bedrock@v1.66.4 types.go:5208,
 	// deserializers.go:31926) -- previously never emitted at all, so a real
 	// client's EndpointStatus always decoded empty regardless of lifecycle state.
@@ -191,7 +190,6 @@ type marketplaceEndpointOutput struct {
 func marketplaceEndpointToOutput(ep *MarketplaceModelEndpoint) marketplaceEndpointOutput {
 	return marketplaceEndpointOutput{
 		EndpointArn:           ep.EndpointArn,
-		EndpointName:          ep.EndpointName,
 		ModelSourceIdentifier: ep.ModelSourceID,
 		Status:                marketplaceEndpointStatusRegistered,
 		EndpointStatus:        ep.Status,

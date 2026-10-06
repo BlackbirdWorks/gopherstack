@@ -920,3 +920,7 @@ CreateConfigurationSet now persists SendingOptions, ReputationOptions, DeliveryO
 ## 2026-10-05 (dropped members: ListContacts filter, suppression validation, EmailTags)
 
 ListContacts applies Filter.TopicFilter with FilteredStatus (`list_contacts_filter_test.go`). PutConfigurationSetSuppressionOptions and CreateConfigurationSet store and echo SuppressionOptions.ValidationOptions; no validation verdict is computed (`suppression_validation_options_test.go`). SendEmail EmailTags and SendBulkEmail DefaultEmailTags/ReplacementTags are stored and returned by GetMessageInsights; a ReplacementTags entry replaces a default tag of the same Name (merge rule not stated in the SDK) (`email_tags_test.go`).
+
+## 2026-10-05 (undeclared response members)
+
+GetEmailIdentity no longer emits EmailIdentity (not on GetEmailIdentityOutput).

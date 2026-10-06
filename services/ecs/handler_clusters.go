@@ -199,7 +199,6 @@ type clusterView struct {
 	Settings                          []clusterSettingView                `json:"settings,omitempty"`
 	CapacityProviders                 []string                            `json:"capacityProviders"`
 	Tags                              []Tag                               `json:"tags,omitempty"`
-	CreatedAt                         float64                             `json:"createdAt"`
 	ActiveServicesCount               int                                 `json:"activeServicesCount"`
 	PendingTasksCount                 int                                 `json:"pendingTasksCount"`
 	RegisteredContainerInstancesCount int                                 `json:"registeredContainerInstancesCount"`
@@ -211,7 +210,6 @@ func toClusterView(c Cluster) clusterView {
 		ClusterArn:                        c.ClusterArn,
 		ClusterName:                       c.ClusterName,
 		Status:                            c.Status,
-		CreatedAt:                         float64(c.CreatedAt.Unix()),
 		ActiveServicesCount:               c.ActiveServicesCount,
 		PendingTasksCount:                 c.PendingTasksCount,
 		RegisteredContainerInstancesCount: c.RegisteredContainerInstancesCount,

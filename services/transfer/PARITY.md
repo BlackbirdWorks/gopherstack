@@ -407,3 +407,7 @@ CreateServer defaults IpAddressType IPV4 (api_op_CreateServer.go:162) and, for F
 ## 2026-10-05 (zeroguard omitted-vs-zero audit)
 
 Tool false positives (cmd/zeroguard): required path/identifier members (Name, *Id, *Arn), Put* operations that replace the whole resource (PutRule, PutPermission, PutResourcePolicy, PutCodeBinding), and PatchOperations-based Update* ops.
+
+## 2026-10-05 (undeclared response members)
+
+SshPublicKey no longer emits KeyType (SDK type has only DateImported/SshPublicKeyBody/SshPublicKeyId).

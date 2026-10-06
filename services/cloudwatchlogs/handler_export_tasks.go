@@ -85,30 +85,28 @@ type wireExportTaskExecutionInfo struct {
 // shape would see Status and ExecutionInfo as nil, since it expects nested
 // objects under those keys, not scalars.
 type wireExportTask struct {
-	Status              *wireExportTaskStatus        `json:"status,omitempty"`
-	ExecutionInfo       *wireExportTaskExecutionInfo `json:"executionInfo,omitempty"`
-	TaskID              string                       `json:"taskId,omitempty"`
-	TaskName            string                       `json:"taskName,omitempty"`
-	LogGroupName        string                       `json:"logGroupName,omitempty"`
-	LogStreamNamePrefix string                       `json:"logStreamNamePrefix,omitempty"`
-	Destination         string                       `json:"destination,omitempty"`
-	DestinationPrefix   string                       `json:"destinationPrefix,omitempty"`
-	From                int64                        `json:"from,omitempty"`
-	To                  int64                        `json:"to,omitempty"`
+	Status            *wireExportTaskStatus        `json:"status,omitempty"`
+	ExecutionInfo     *wireExportTaskExecutionInfo `json:"executionInfo,omitempty"`
+	TaskID            string                       `json:"taskId,omitempty"`
+	TaskName          string                       `json:"taskName,omitempty"`
+	LogGroupName      string                       `json:"logGroupName,omitempty"`
+	Destination       string                       `json:"destination,omitempty"`
+	DestinationPrefix string                       `json:"destinationPrefix,omitempty"`
+	From              int64                        `json:"from,omitempty"`
+	To                int64                        `json:"to,omitempty"`
 }
 
 // toWireExportTask maps the internal flat ExportTask model to the nested AWS
 // wire shape (see wireExportTask doc comment).
 func toWireExportTask(t ExportTask) wireExportTask {
 	w := wireExportTask{
-		TaskID:              t.TaskID,
-		TaskName:            t.TaskName,
-		LogGroupName:        t.LogGroupName,
-		LogStreamNamePrefix: t.LogStreamNamePrefix,
-		Destination:         t.Destination,
-		DestinationPrefix:   t.DestinationPrefix,
-		From:                t.From,
-		To:                  t.To,
+		TaskID:            t.TaskID,
+		TaskName:          t.TaskName,
+		LogGroupName:      t.LogGroupName,
+		Destination:       t.Destination,
+		DestinationPrefix: t.DestinationPrefix,
+		From:              t.From,
+		To:                t.To,
 	}
 
 	if t.Status != "" {

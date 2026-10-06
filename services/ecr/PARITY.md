@@ -971,3 +971,7 @@ ListImageReferrers now computes referrers from the subject digest in pushed mani
 ## 2026-10-05 (reqfielddiff tier-1/2 pass 8)
 
 CreateRepository stores imageTagMutabilityExclusionFilters (api_op_CreateRepository.go:61-63); they were dropped, so a later retag of an excluded tag in an IMMUTABLE repository failed. Proof: `TestCreateRepository_ExclusionFilters`.
+
+## 2026-10-05 (undeclared response members)
+
+ImageReplicationStatus no longer emits failureReason (SDK has failureCode only).

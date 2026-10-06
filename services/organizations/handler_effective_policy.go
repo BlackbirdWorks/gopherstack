@@ -16,7 +16,6 @@ type describeEffectivePolicyRequest struct {
 
 type effectivePolicyObject struct {
 	PolicyContent        string  `json:"PolicyContent"`
-	PolicyID             string  `json:"PolicyId"`
 	PolicyType           string  `json:"PolicyType"`
 	TargetID             string  `json:"TargetId"`
 	LastUpdatedTimestamp float64 `json:"LastUpdatedTimestamp"`
@@ -80,7 +79,6 @@ func (h *Handler) handleDescribeEffectivePolicy(c *echo.Context, body []byte) er
 		EffectivePolicy: effectivePolicyObject{
 			LastUpdatedTimestamp: epochSeconds(ep.LastUpdatedTimestamp),
 			PolicyContent:        ep.PolicyContent,
-			PolicyID:             ep.PolicyID,
 			PolicyType:           ep.PolicyType,
 			TargetID:             ep.TargetID,
 		},

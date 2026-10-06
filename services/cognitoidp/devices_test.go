@@ -12,8 +12,7 @@ import (
 )
 
 type deviceWire struct {
-	DeviceKey    string `json:"DeviceKey,omitempty"`
-	DeviceStatus string `json:"DeviceStatus,omitempty"`
+	DeviceKey string `json:"DeviceKey,omitempty"`
 }
 
 func TestDevices_CRUD(t *testing.T) {
@@ -46,7 +45,7 @@ func TestDevices_CRUD(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
 	require.Len(t, listResp.Devices, 1)
-	assert.Equal(t, "not_remembered", listResp.Devices[0].DeviceStatus)
+	assert.NotContains(t, rec.Body.String(), "DeviceStatus")
 	deviceKey := listResp.Devices[0].DeviceKey
 	require.NotEmpty(t, deviceKey)
 
@@ -77,7 +76,7 @@ func TestDevices_CRUD(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
-	assert.Equal(t, "remembered", getResp.Device.DeviceStatus)
+	assert.NotContains(t, rec.Body.String(), "DeviceStatus")
 
 	// ForgetDevice
 	rec = doCognitoRequest(t, h, "ForgetDevice", map[string]any{
@@ -212,7 +211,7 @@ func TestAdminDevices_CRUD(t *testing.T) {
 		Device deviceWire `json:"Device"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
-	assert.Equal(t, "remembered", getResp.Device.DeviceStatus)
+	assert.NotContains(t, rec.Body.String(), "DeviceStatus")
 
 	// AdminForgetDevice — real deletion when the device exists.
 	rec = doCognitoRequest(t, h, "AdminForgetDevice", map[string]any{

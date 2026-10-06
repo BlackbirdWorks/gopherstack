@@ -1193,3 +1193,7 @@ Auto Scaling is region-isolated: each non-home region gets a lazily built siblin
 ## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
 
 AutoScalingGroupNotFound and LaunchConfigurationNotFound are sentinel texts matched via errors.Is; the wire code is the mapper output (ValidationError), never the sentinel text.
+
+## 2026-10-05 (undeclared response members)
+
+LaunchConfiguration BlockDeviceMapping Ebs no longer emits KmsKeyId (not on types.Ebs).

@@ -547,3 +547,7 @@ PutResourcePolicy revision IDs now increment ("1", "2", ...) per api_op_PutResou
 - **2026-10-05 (pass 6, gopherstack-9x62)**: GetServiceGraph services now carry Names (canonical name).
 
 - **2026-10-05 (pass 7, gopherstack-9x62)**: CreateGroup and CreateSamplingRule apply Tags (TooManyTagsException above 50); proof create_tags_sdk_test.go. PutTelemetryRecords.ResourceARN is accepted and dropped: the ring has no read-back operation.
+
+## 2026-10-05 (undeclared response members)
+
+TraceSummary no longer emits ForecastStatistics (types.TraceSummary has no such member).

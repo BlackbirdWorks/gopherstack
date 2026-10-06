@@ -46,17 +46,15 @@ type describeAccountRequest struct {
 }
 
 type accountObject struct {
-	ID                     string   `json:"Id"`
-	ARN                    string   `json:"Arn"`
-	Name                   string   `json:"Name"`
-	Email                  string   `json:"Email"`
-	Status                 string   `json:"Status"`
-	State                  string   `json:"State,omitempty"`
-	JoinedMethod           string   `json:"JoinedMethod"`
-	RoleName               string   `json:"RoleName,omitempty"`
-	IamUserAccessToBilling string   `json:"IamUserAccessToBilling,omitempty"`
-	Paths                  []string `json:"Paths,omitempty"`
-	JoinedAt               float64  `json:"JoinedTimestamp"`
+	ID           string   `json:"Id"`
+	ARN          string   `json:"Arn"`
+	Name         string   `json:"Name"`
+	Email        string   `json:"Email"`
+	Status       string   `json:"Status"`
+	State        string   `json:"State,omitempty"`
+	JoinedMethod string   `json:"JoinedMethod"`
+	Paths        []string `json:"Paths,omitempty"`
+	JoinedAt     float64  `json:"JoinedTimestamp"`
 }
 
 type describeAccountResponse struct {
@@ -383,16 +381,14 @@ func (h *Handler) handleListAccountsWithInvalidEffectivePolicy(c *echo.Context, 
 
 func toAccountObject(a *Account) accountObject {
 	return accountObject{
-		ID:                     a.ID,
-		ARN:                    a.ARN,
-		Name:                   a.Name,
-		Email:                  a.Email,
-		Status:                 a.Status,
-		State:                  a.Status,
-		JoinedMethod:           a.JoinedMethod,
-		JoinedAt:               epochSeconds(a.JoinedAt),
-		RoleName:               a.RoleName,
-		IamUserAccessToBilling: a.IamUserAccessToBilling,
-		Paths:                  a.Paths,
+		ID:           a.ID,
+		ARN:          a.ARN,
+		Name:         a.Name,
+		Email:        a.Email,
+		Status:       a.Status,
+		State:        a.Status,
+		JoinedMethod: a.JoinedMethod,
+		JoinedAt:     epochSeconds(a.JoinedAt),
+		Paths:        a.Paths,
 	}
 }

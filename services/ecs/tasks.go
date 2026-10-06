@@ -310,7 +310,8 @@ func (b *InMemoryBackend) createTaskEntriesLocked(
 		var hostPortBindings map[string][]NetworkBinding
 
 		if launchType == launchTypeFargate {
-			task.Attachments = []TaskAttachment{newFargateTaskAttachment(task.TaskArn)}
+			subnet := firstRequestedSubnet(input.NetworkConfiguration)
+			task.Attachments = []TaskAttachment{newFargateTaskAttachment(task.TaskArn, subnet)}
 		} else {
 			bindings, failure := b.placeEC2TaskLocked(clusterName, task, td, input)
 			if failure != nil {
@@ -1086,4 +1087,13 @@ func markContainerStopped(task *Task, containerName string, exitCode int) {
 			return
 		}
 	}
+}
+
+// firstRequestedSubnet returns the first awsvpc subnet in nc, or "".
+func firstRequestedSubnet(nc *NetworkConfiguration) string {
+	if nc == nil || nc.AwsvpcConfiguration == nil || len(nc.AwsvpcConfiguration.Subnets) == 0 {
+		return ""
+	}
+
+	return nc.AwsvpcConfiguration.Subnets[0]
 }

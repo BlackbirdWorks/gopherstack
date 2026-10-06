@@ -455,7 +455,6 @@ func toXMLCluster(c *DBCluster, roles []DBClusterRole) xmlDBCluster {
 		StorageEncrypted:                   c.StorageEncrypted,
 		CopyTagsToSnapshot:                 c.CopyTagsToSnapshot,
 		DeletionProtection:                 c.DeletionProtection,
-		OptimizedWrites:                    c.OptimizedWrites,
 		HTTPEndpointEnabled:                c.HTTPEndpointEnabled,
 		ReplicationSourceIdentifier:        c.ReplicationSourceIdentifier,
 		AutoMinorVersionUpgrade:            c.AutoMinorVersionUpgrade,
@@ -712,7 +711,6 @@ type xmlDBCluster struct {
 	StorageEncrypted                 bool `xml:"StorageEncrypted,omitempty"`
 	CopyTagsToSnapshot               bool `xml:"CopyTagsToSnapshot,omitempty"`
 	DeletionProtection               bool `xml:"DeletionProtection,omitempty"`
-	OptimizedWrites                  bool `xml:"OptimizedWritesEnabled,omitempty"`
 	HTTPEndpointEnabled              bool `xml:"HttpEndpointEnabled,omitempty"`
 	AutoMinorVersionUpgrade          bool `xml:"AutoMinorVersionUpgrade,omitempty"`
 	PubliclyAccessible               bool `xml:"PubliclyAccessible,omitempty"`

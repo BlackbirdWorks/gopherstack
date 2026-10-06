@@ -220,7 +220,6 @@ type containerInstanceView struct {
 	VersionInfo          *VersionInfo     `json:"versionInfo,omitempty"`
 	ContainerInstanceArn string           `json:"containerInstanceArn"`
 	EC2InstanceID        string           `json:"ec2InstanceId"`
-	ClusterArn           string           `json:"clusterArn"`
 	Status               string           `json:"status"`
 	AgentUpdateStatus    string           `json:"agentUpdateStatus,omitempty"`
 	Attributes           []attributeInput `json:"attributes,omitempty"`
@@ -243,7 +242,6 @@ func toContainerInstanceView(ci ContainerInstance) containerInstanceView {
 		Attributes:           attrs,
 		ContainerInstanceArn: ci.ContainerInstanceArn,
 		EC2InstanceID:        ci.EC2InstanceID,
-		ClusterArn:           ci.ClusterArn,
 		Status:               ci.Status,
 		AgentUpdateStatus:    ci.AgentUpdateStatus,
 		RegisteredAt:         float64(ci.RegisteredAt.Unix()),

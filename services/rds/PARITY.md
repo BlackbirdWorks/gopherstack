@@ -1872,3 +1872,7 @@ CreateGlobalCluster.SourceDBClusterIdentifier/DatabaseName; Copy{DBParameterGrou
 and CopyDBClusterSnapshot.KmsKeyId; DBInstance NetworkType/MaxAllocatedStorage and ModifyDBInstance.DBSubnetGroupName; CreateDBInstanceReadReplica
 now honours class, subnet group, storage, KMS, monitoring, PI, log exports, network type, AZ and port; cluster/instance restore ops apply Tags,
 subnet group, VPC security groups and log exports. CopyOptionGroup now assigns the copy an OptionGroupArn.
+
+## 2026-10-05 (undeclared response members)
+
+OptimizedWritesEnabled (DBInstance, DBCluster), StorageOptimized and GlobalCluster.PrimaryRegion are not in rds@v1.124.1 output shapes (deserializers.go); dropped from the wire. Backend fields are unchanged.

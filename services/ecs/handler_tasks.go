@@ -463,31 +463,28 @@ type containerView struct {
 }
 
 type taskView struct {
-	Overrides            *taskOverrideView         `json:"overrides,omitempty"`
-	NetworkConfiguration *networkConfigurationView `json:"networkConfiguration,omitempty"`
-	TaskArn              string                    `json:"taskArn"`
-	ClusterArn           string                    `json:"clusterArn"`
-	TaskDefinitionArn    string                    `json:"taskDefinitionArn"`
-	LastStatus           string                    `json:"lastStatus"`
-	DesiredStatus        string                    `json:"desiredStatus"`
-	Connectivity         string                    `json:"connectivity,omitempty"`
-	StoppedReason        string                    `json:"stoppedReason,omitempty"`
-	Group                string                    `json:"group,omitempty"`
-	LaunchType           string                    `json:"launchType,omitempty"`
-	ContainerInstanceArn string                    `json:"containerInstanceArn,omitempty"`
-	StartedBy            string                    `json:"startedBy,omitempty"`
-	PlatformVersion      string                    `json:"platformVersion,omitempty"`
-	PlatformFamily       string                    `json:"platformFamily,omitempty"`
-	RuntimeID            string                    `json:"runtimeId,omitempty"`
-	PropagateTags        string                    `json:"propagateTags,omitempty"`
-	CapacityProviderName string                    `json:"capacityProviderName,omitempty"`
-	Attachments          []taskAttachmentView      `json:"attachments,omitempty"`
-	Containers           []containerView           `json:"containers,omitempty"`
-	Tags                 []Tag                     `json:"tags,omitempty"`
-	StartedAt            float64                   `json:"startedAt,omitempty"`
-	StoppedAt            float64                   `json:"stoppedAt,omitempty"`
-	ConnectivityAt       float64                   `json:"connectivityAt,omitempty"`
-	EnableExecuteCommand bool                      `json:"enableExecuteCommand,omitempty"`
+	Overrides            *taskOverrideView    `json:"overrides,omitempty"`
+	TaskArn              string               `json:"taskArn"`
+	ClusterArn           string               `json:"clusterArn"`
+	TaskDefinitionArn    string               `json:"taskDefinitionArn"`
+	LastStatus           string               `json:"lastStatus"`
+	DesiredStatus        string               `json:"desiredStatus"`
+	Connectivity         string               `json:"connectivity,omitempty"`
+	StoppedReason        string               `json:"stoppedReason,omitempty"`
+	Group                string               `json:"group,omitempty"`
+	LaunchType           string               `json:"launchType,omitempty"`
+	ContainerInstanceArn string               `json:"containerInstanceArn,omitempty"`
+	StartedBy            string               `json:"startedBy,omitempty"`
+	PlatformVersion      string               `json:"platformVersion,omitempty"`
+	PlatformFamily       string               `json:"platformFamily,omitempty"`
+	CapacityProviderName string               `json:"capacityProviderName,omitempty"`
+	Attachments          []taskAttachmentView `json:"attachments,omitempty"`
+	Containers           []containerView      `json:"containers,omitempty"`
+	Tags                 []Tag                `json:"tags,omitempty"`
+	StartedAt            float64              `json:"startedAt,omitempty"`
+	StoppedAt            float64              `json:"stoppedAt,omitempty"`
+	ConnectivityAt       float64              `json:"connectivityAt,omitempty"`
+	EnableExecuteCommand bool                 `json:"enableExecuteCommand,omitempty"`
 }
 
 func toTaskView(t Task) taskView {
@@ -505,12 +502,9 @@ func toTaskView(t Task) taskView {
 		StartedBy:            t.StartedBy,
 		PlatformVersion:      t.PlatformVersion,
 		PlatformFamily:       t.PlatformFamily,
-		RuntimeID:            t.RuntimeID,
-		PropagateTags:        t.PropagateTags,
 		CapacityProviderName: t.CapacityProviderName,
 		Tags:                 t.Tags,
 		Overrides:            toTaskOverrideView(t.Overrides),
-		NetworkConfiguration: toNetworkConfigurationView(t.NetworkConfiguration),
 		EnableExecuteCommand: t.EnableExecuteCommand,
 	}
 

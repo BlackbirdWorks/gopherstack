@@ -1199,3 +1199,7 @@ CreatePromptRouter now honours ClientRequestToken as an idempotency token: repla
 ## 2026-10-05 (reqfielddiff tier-2 pagination)
 
 FIXED: ListGuardrails, ListInferenceProfiles, ListMarketplaceModelEndpoints, ListPromptRouters honour maxResults (bedrock@v1.66.4 serializers.go:6585-7285); ListAutomatedReasoningPolicyBuildWorkflows, ListAutomatedReasoningPolicyTestCases and ListAutomatedReasoningPolicyTestResults now page through maxResults/nextToken (they returned everything). paginateBedrockSlice is folded into the generic `paginate`. RECORDED: a malformed nextToken still restarts at page one on every bedrock list op (shared `paginate`); the 1-100 range of the AR ops is not enforced. Proof: `TestListOps_HonourMaxResultsAndNextToken`.
+
+## 2026-10-05 (undeclared response members)
+
+GetCustomModel, GetGuardrail and GetModelCustomizationJob no longer emit tags (read them via ListTagsForResource), and marketplace endpoint outputs drop endpointName.

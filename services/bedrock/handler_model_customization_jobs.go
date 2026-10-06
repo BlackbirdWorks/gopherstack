@@ -279,11 +279,10 @@ type modelCustomizationJobOutput struct {
 	Status               string                     `json:"status"`
 	CustomizationType    string                     `json:"customizationType,omitempty"`
 	RoleArn              string                     `json:"roleArn"`
+	OutputModelKmsKeyArn string                     `json:"outputModelKmsKeyArn,omitempty"`
 	OutputDataConfig     outputDataConfigOutput     `json:"outputDataConfig"`
 	TrainingDataConfig   trainingDataConfigOutput   `json:"trainingDataConfig"`
 	ValidationDataConfig validationDataConfigOutput `json:"validationDataConfig"`
-	OutputModelKmsKeyArn string                     `json:"outputModelKmsKeyArn,omitempty"`
-	Tags                 []Tag                      `json:"tags,omitempty"`
 }
 
 func customizationJobToOutput(j *ModelCustomizationJob) modelCustomizationJobOutput {
@@ -301,7 +300,6 @@ func customizationJobToOutput(j *ModelCustomizationJob) modelCustomizationJobOut
 		ValidationDataConfig: validationDataConfigToOutput(j.ValidatorS3Uris),
 		CreationTime:         j.CreationTime.Format(time.RFC3339),
 		LastModifiedTime:     j.LastModifiedTime.Format(time.RFC3339),
-		Tags:                 j.Tags,
 		HyperParameters:      j.HyperParameters,
 		CustomizationConfig:  j.CustomizationConfig,
 		VpcConfig:            j.VpcConfig,
