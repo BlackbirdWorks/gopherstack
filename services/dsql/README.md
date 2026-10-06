@@ -19,7 +19,7 @@
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
 - No PostgreSQL data plane: a cluster's <id>.dsql.<region>.on.aws endpoint is wire-shaped but nothing listens, so SQL cannot be run. Authentication tokens (the SDK's feature/dsql/auth GenerateDbConnectAuthToken) are client-side SigV4 presigns, not an API operation, and need no server support.
-- PutClusterPolicy's bypassPolicyLockoutSafetyCheck is stored but not evaluated: the lockout check asks whether the calling principal keeps access, and the emulator has no authenticated caller identity or IAM policy evaluation (same stance as services/kms).
+- bypassPolicyLockoutSafetyCheck (CreateCluster, PutClusterPolicy) is accepted but not evaluated: the lockout check asks whether the calling principal keeps access, and the emulator has no authenticated caller identity or IAM policy evaluation (same stance as services/kms).
 - GetVpcEndpointServiceName returns wire-shaped names only: there is no PrivateLink / VPC endpoint plane to back them.
 
 ## More
