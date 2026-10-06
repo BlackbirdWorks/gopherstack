@@ -62,6 +62,8 @@ func (b *InMemoryBackend) PutRecord(ctx context.Context, streamName string, data
 		return err
 	}
 
+	b.emitIncoming(getRegionFromContext(ctx, b), streamName, 1, len(data))
+
 	if snap != nil {
 		b.deliverSnapshot(b.svcCtx, snap, streamName)
 	}
@@ -172,6 +174,8 @@ func (b *InMemoryBackend) PutRecordBatch(ctx context.Context, streamName string,
 	if err != nil {
 		return 0, err
 	}
+
+	b.emitIncoming(getRegionFromContext(ctx, b), streamName, len(records), totalBytes)
 
 	if snap != nil {
 		b.deliverSnapshot(b.svcCtx, snap, streamName)

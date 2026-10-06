@@ -282,6 +282,12 @@ func (h *Handler) handleCreateComputer(c *echo.Context) error {
 		DirectoryID  string `json:"DirectoryId"`
 		ComputerName string `json:"ComputerName"`
 		Password     string `json:"Password"`
+
+		OrganizationalUnitDistinguishedName string `json:"OrganizationalUnitDistinguishedName"`
+		ComputerAttributes                  []struct {
+			Name  string `json:"Name"`
+			Value string `json:"Value"`
+		} `json:"ComputerAttributes"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
@@ -295,22 +301,42 @@ func (h *Handler) handleCreateComputer(c *echo.Context) error {
 		)
 	}
 
+	attrs := make([]ComputerAttribute, 0, len(req.ComputerAttributes))
+	for _, a := range req.ComputerAttributes {
+		attrs = append(attrs, ComputerAttribute{Name: a.Name, Value: a.Value})
+	}
+
 	computer, createErr := h.Backend.CreateComputer(
 		h.contextWithRegion(c),
 		req.DirectoryID,
 		req.ComputerName,
 		req.Password,
+		attrs,
 	)
 	if createErr != nil {
 		return h.mapError(c, createErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"Computer": map[string]any{
-			"ComputerId":   computer.ComputerID,
-			"ComputerName": computer.ComputerName,
-		},
-	})
+	out := map[string]any{
+		"ComputerId":   computer.ComputerID,
+		"ComputerName": computer.ComputerName,
+	}
+
+	if len(computer.Attributes) > 0 {
+		type attrJSON struct {
+			Name  string `json:"Name"`
+			Value string `json:"Value"`
+		}
+
+		list := make([]attrJSON, 0, len(computer.Attributes))
+		for _, a := range computer.Attributes {
+			list = append(list, attrJSON(a))
+		}
+
+		out["ComputerAttributes"] = list
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"Computer": out})
 }
 
 func (h *Handler) handleResetUserPassword(c *echo.Context) error {

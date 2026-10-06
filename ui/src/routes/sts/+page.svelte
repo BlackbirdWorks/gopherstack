@@ -27,8 +27,8 @@
 	// API for it, it is this browser tab's own record of the credentials IT
 	// personally requested, kept in plain $state (not localStorage, not
 	// logged) and cleared on reload — never presented as server truth.
-	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
-	import { getSTSClient } from '$lib/aws-client';
+	import { onRegionChange, regionalClient } from '#lib/region-effect.svelte.ts';
+	import { getSTSClient } from '#lib/aws-client.ts';
 	import {
 		AssumeRoleCommand,
 		AssumeRoleWithSAMLCommand,
@@ -44,14 +44,14 @@
 		type Credentials
 	} from '@aws-sdk/client-sts';
 	import { toast } from 'svelte-sonner';
-	import { createTabLoader } from '$lib/tab-loader.svelte';
-	import { formatDate } from '$lib/format';
-	import PageHeader from '$lib/components/PageHeader.svelte';
-	import Tabs from '$lib/components/Tabs.svelte';
-	import type { Tab as TabDef } from '$lib/components/Tabs.svelte';
-	import SearchInput from '$lib/components/SearchInput.svelte';
-	import DataTable from '$lib/components/DataTable.svelte';
-	import { defineColumns } from '$lib/components/data-table';
+	import { createTabLoader } from '#lib/tab-loader.svelte.ts';
+	import { formatDate } from '#lib/format.ts';
+	import PageHeader from '#lib/components/PageHeader.svelte';
+	import Tabs from '#lib/components/Tabs.svelte';
+	import type { Tab as TabDef } from '#lib/components/Tabs.svelte';
+	import SearchInput from '#lib/components/SearchInput.svelte';
+	import DataTable from '#lib/components/DataTable.svelte';
+	import { defineColumns } from '#lib/components/data-table.ts';
 	import {
 		Shield,
 		Key,

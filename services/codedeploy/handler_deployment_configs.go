@@ -186,7 +186,9 @@ func (h *Handler) handleGetDeploymentConfig(
 	return &getDeploymentConfigOutput{DeploymentConfigInfo: deploymentConfigToInfo(cfg)}, nil
 }
 
-type listDeploymentConfigsInput struct{}
+type listDeploymentConfigsInput struct {
+	NextToken string `json:"nextToken"`
+}
 
 type listDeploymentConfigsOutput struct {
 	DeploymentConfigsList []string `json:"deploymentConfigsList"`
@@ -194,8 +196,12 @@ type listDeploymentConfigsOutput struct {
 
 func (h *Handler) handleListDeploymentConfigs(
 	_ context.Context,
-	_ *listDeploymentConfigsInput,
+	in *listDeploymentConfigsInput,
 ) (*listDeploymentConfigsOutput, error) {
+	if err := rejectNextToken(in.NextToken); err != nil {
+		return nil, err
+	}
+
 	return &listDeploymentConfigsOutput{DeploymentConfigsList: h.Backend.ListDeploymentConfigs()}, nil
 }
 

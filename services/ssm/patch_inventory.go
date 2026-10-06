@@ -25,6 +25,8 @@ type InventoryDeletion struct {
 	LastStatus        string                    `json:"LastStatus"`
 	LastStatusMessage string                    `json:"LastStatusMessage,omitempty"`
 	DeletionStartTime float64                   `json:"DeletionStartTime"`
+
+	LastStatusUpdateTime float64 `json:"LastStatusUpdateTime,omitempty"`
 }
 
 // --- Default (AWS-managed) patch baselines ---

@@ -52,8 +52,10 @@ func (h *Handler) routeCustomModel(
 }
 
 type createCustomModelInput struct {
-	ModelName string `json:"modelName"`
-	Tags      []Tag  `json:"modelTags,omitempty"`
+	ModelName          string `json:"modelName"`
+	ModelKmsKeyArn     string `json:"modelKmsKeyArn,omitempty"`
+	ClientRequestToken string `json:"clientRequestToken,omitempty"`
+	Tags               []Tag  `json:"modelTags,omitempty"`
 }
 
 type createCustomModelOutput struct {
@@ -69,7 +71,13 @@ func (h *Handler) handleCreateCustomModel(c *echo.Context, body []byte) error {
 		)
 	}
 
-	model, opErr := h.Backend.CreateCustomModel(in.ModelName, in.Tags)
+	model, opErr := idemCreate(
+		h.idem, "CreateCustomModel", in.ClientRequestToken, idemFingerprint(in), ErrAlreadyExists,
+		func(m *CustomModel) string { return m.ModelArn }, h.Backend.GetCustomModel,
+		func() (*CustomModel, error) {
+			return h.Backend.CreateCustomModelWithKey(in.ModelName, in.ModelKmsKeyArn, in.Tags)
+		},
+	)
 	if opErr != nil {
 		return h.writeError(c, opErr)
 	}
@@ -124,7 +132,7 @@ type customModelOutput struct {
 	CustomizationType string `json:"customizationType,omitempty"`
 	JobArn            string `json:"jobArn,omitempty"`
 	JobName           string `json:"jobName,omitempty"`
-	Tags              []Tag  `json:"tags,omitempty"`
+	ModelKmsKeyArn    string `json:"modelKmsKeyArn,omitempty"`
 }
 
 func customModelToOutput(m *CustomModel) customModelOutput {
@@ -136,8 +144,8 @@ func customModelToOutput(m *CustomModel) customModelOutput {
 		CustomizationType: m.CustomizationType,
 		JobArn:            m.JobArn,
 		JobName:           m.JobName,
+		ModelKmsKeyArn:    m.ModelKmsKeyArn,
 		CreationTime:      m.CreationTime.Format(time.RFC3339),
-		Tags:              m.Tags,
 	}
 }
 

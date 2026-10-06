@@ -118,7 +118,7 @@ func (b *InMemoryBackend) ListEnforcedGuardrailsConfiguration(
 		return configs[i].ConfigID < configs[k].ConfigID
 	})
 
-	return paginateBedrockSlice(configs, nextToken)
+	return paginate(configs, 0, nextToken)
 }
 
 // DeleteEnforcedGuardrailConfiguration removes an account-level enforced

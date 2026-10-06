@@ -14,7 +14,7 @@ import (
 
 // CreateAnnotationStore creates a new annotation store.
 func (b *InMemoryBackend) CreateAnnotationStore(
-	name, storeFormat string,
+	name, description, storeFormat, versionName string,
 	reference, sseConfig, storeOptions map[string]any,
 	tags map[string]string,
 ) (*AnnotationStore, error) {
@@ -33,6 +33,7 @@ func (b *InMemoryBackend) CreateAnnotationStore(
 	as := &AnnotationStore{
 		ID:           newID(),
 		Name:         name,
+		Description:  description,
 		StoreFormat:  storeFormat,
 		Reference:    reference,
 		SseConfig:    sseConfig,
@@ -47,6 +48,10 @@ func (b *InMemoryBackend) CreateAnnotationStore(
 
 	if tags != nil {
 		b.tags[as.StoreArn] = copyTags(tags)
+	}
+
+	if versionName != "" {
+		b.putAnnotationVersionLocked(as, versionName, "", nil, nil, now)
 	}
 
 	result := *as
@@ -166,7 +171,7 @@ func newAnnotationStoreSummary(as *AnnotationStore) AnnotationStoreSummary {
 
 // UpdateAnnotationStore updates an annotation store.
 func (b *InMemoryBackend) UpdateAnnotationStore(
-	name, description string,
+	name string, description *string,
 ) (*AnnotationStore, error) {
 	b.mu.Lock("UpdateAnnotationStore")
 	defer b.mu.Unlock()
@@ -176,8 +181,8 @@ func (b *InMemoryBackend) UpdateAnnotationStore(
 		return nil, fmt.Errorf("%w: annotation store %s not found", ErrNotFound, name)
 	}
 
-	if description != "" {
-		as.Description = description
+	if description != nil {
+		as.Description = *description
 	}
 
 	as.UpdateTime = time.Now().UTC()
@@ -328,6 +333,7 @@ func (b *InMemoryBackend) CancelAnnotationImportJob(jobID string) error {
 // CreateAnnotationStoreVersion creates a version of an annotation store.
 func (b *InMemoryBackend) CreateAnnotationStoreVersion(
 	name, versionName, description string,
+	versionOptions map[string]any,
 	tags map[string]string,
 ) (*AnnotationStoreVersion, error) {
 	b.mu.Lock("CreateAnnotationStoreVersion")
@@ -346,23 +352,37 @@ func (b *InMemoryBackend) CreateAnnotationStoreVersion(
 		)
 	}
 
-	now := time.Now().UTC()
+	v := b.putAnnotationVersionLocked(as, versionName, description, versionOptions, tags, time.Now().UTC())
+	result := *v
+
+	return &result, nil
+}
+
+// putAnnotationVersionLocked stores a new ACTIVE version of as; caller holds b.mu.
+func (b *InMemoryBackend) putAnnotationVersionLocked(
+	as *AnnotationStore,
+	versionName, description string,
+	versionOptions map[string]any,
+	tags map[string]string,
+	now time.Time,
+) *AnnotationStoreVersion {
 	v := &AnnotationStoreVersion{
-		ID:           newID(),
-		StoreID:      as.ID,
-		StoreName:    name,
-		VersionName:  versionName,
-		Description:  description,
-		Status:       statusActive,
-		Tags:         copyTags(tags),
-		CreationTime: now,
-		UpdateTime:   now,
+		ID:             newID(),
+		StoreID:        as.ID,
+		StoreName:      as.Name,
+		VersionName:    versionName,
+		Description:    description,
+		Status:         statusActive,
+		Tags:           copyTags(tags),
+		VersionOptions: versionOptions,
+		CreationTime:   now,
+		UpdateTime:     now,
 	}
 	v.VersionArn = arn.Build(
 		"omics",
 		b.defaultRegion,
 		b.accountID,
-		fmt.Sprintf("annotationStore/%s/version/%s", name, versionName),
+		fmt.Sprintf("annotationStore/%s/version/%s", as.Name, versionName),
 	)
 	b.annotationVersions.Put(v)
 
@@ -370,9 +390,7 @@ func (b *InMemoryBackend) CreateAnnotationStoreVersion(
 		b.tags[v.VersionArn] = copyTags(tags)
 	}
 
-	result := *v
-
-	return &result, nil
+	return v
 }
 
 // DeleteAnnotationStoreVersions deletes one or more annotation store versions.
@@ -488,7 +506,7 @@ func newAnnotationStoreVersionSummary(v *AnnotationStoreVersion) AnnotationStore
 
 // UpdateAnnotationStoreVersion updates an annotation store version.
 func (b *InMemoryBackend) UpdateAnnotationStoreVersion(
-	name, versionName, description string,
+	name, versionName string, description *string,
 ) (*AnnotationStoreVersion, error) {
 	b.mu.Lock("UpdateAnnotationStoreVersion")
 	defer b.mu.Unlock()
@@ -506,8 +524,8 @@ func (b *InMemoryBackend) UpdateAnnotationStoreVersion(
 		)
 	}
 
-	if description != "" {
-		v.Description = description
+	if description != nil {
+		v.Description = *description
 	}
 
 	v.UpdateTime = time.Now().UTC()

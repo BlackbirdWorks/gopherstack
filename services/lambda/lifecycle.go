@@ -2,6 +2,7 @@ package lambda
 
 import (
 	"context"
+	"maps"
 	"strings"
 	"sync"
 	"time"
@@ -147,6 +148,9 @@ func (b *InMemoryBackend) deleteFunctionMapsLocked(name string) {
 	delete(b.versionCounters, name)
 	delete(b.versions, name)
 	delete(b.eventInvokeConfigs, name)
+	maps.DeleteFunc(b.eventInvokeConfigs, func(k string, _ *FunctionEventInvokeConfig) bool {
+		return strings.HasPrefix(k, name+":")
+	})
 	delete(b.functionConcurrencies, name)
 	delete(b.activeConcurrencies, name)
 	b.deleteProvisionedConcurrenciesForFunctionLocked(name)

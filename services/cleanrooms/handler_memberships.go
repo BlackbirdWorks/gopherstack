@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
+	crtypes "github.com/aws/aws-sdk-go-v2/service/cleanrooms/types"
 	"github.com/labstack/echo/v5"
 )
 
@@ -20,6 +21,13 @@ func (h *Handler) handleCreateMembership(_ context.Context, body []byte) ([]byte
 		IsMetricsEnabled              bool              `json:"isMetricsEnabled"`
 	}
 	_ = json.Unmarshal(body, &req)
+	if err := firstErr(
+		checkEnum("queryLogStatus", crtypes.MembershipQueryLogStatus(req.QueryLogStatus)),
+		checkEnum("jobLogStatus", crtypes.MembershipJobLogStatus(req.JobLogStatus)),
+	); err != nil {
+		return nil, err
+	}
+
 	m, err := h.Backend.CreateMembership(
 		req.CollaborationIdentifier,
 		req.QueryLogStatus,
@@ -77,6 +85,13 @@ func (h *Handler) handleUpdateMembership(_ context.Context, body []byte) ([]byte
 		JobLogStatus                  string         `json:"jobLogStatus"`
 	}
 	_ = json.Unmarshal(body, &req)
+	if err := firstErr(
+		checkEnum("jobLogStatus", crtypes.MembershipJobLogStatus(req.JobLogStatus)),
+		checkEnum("queryLogStatus", crtypes.MembershipQueryLogStatus(req.QueryLogStatus)),
+	); err != nil {
+		return nil, err
+	}
+
 	m, err := h.Backend.UpdateMembership(
 		req.MembershipIdentifier,
 		req.QueryLogStatus,

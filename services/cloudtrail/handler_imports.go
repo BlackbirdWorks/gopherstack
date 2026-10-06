@@ -28,6 +28,7 @@ type importSourceBody struct {
 }
 
 type startImportBody struct {
+	ImportID       string           `json:"ImportId"`
 	ImportSource   importSourceBody `json:"ImportSource"`
 	StartEventTime *float64         `json:"StartEventTime"`
 	EndEventTime   *float64         `json:"EndEventTime"`
@@ -66,6 +67,20 @@ func (h *Handler) handleStartImport(c *echo.Context, body []byte) error {
 	var in startImportBody
 	if err := json.Unmarshal(body, &in); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
+	}
+
+	if in.ImportID != "" {
+		if len(in.Destinations) > 0 || in.ImportSource.S3 != nil || in.StartEventTime != nil || in.EndEventTime != nil {
+			return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException",
+				"ImportId cannot be combined with Destinations, ImportSource, StartEventTime or EndEventTime"))
+		}
+
+		imp, err := h.Backend.RetryImport(in.ImportID)
+		if err != nil {
+			return h.handleError(c, err)
+		}
+
+		return c.JSON(http.StatusOK, importToMap(imp))
 	}
 
 	imp, err := h.Backend.StartImport(
@@ -116,6 +131,10 @@ func (h *Handler) handleListImports(c *echo.Context, body []byte) error {
 				errResp("InvalidParameterCombinationException", "invalid request body"),
 			)
 		}
+	}
+
+	if badPageToken(in.NextToken) {
+		return writeInvalidNextToken(c)
 	}
 
 	list := h.Backend.ListImports()
@@ -207,13 +226,19 @@ func importToMap(imp *Import) map[string]any {
 // --- ListImportFailures ---
 
 type listImportFailuresBody struct {
-	ImportID string `json:"ImportId"`
+	ImportID   string `json:"ImportId"`
+	NextToken  string `json:"NextToken"`
+	MaxResults int    `json:"MaxResults"`
 }
 
 func (h *Handler) handleListImportFailures(c *echo.Context, body []byte) error {
 	var in listImportFailuresBody
 	if err := json.Unmarshal(body, &in); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
+	}
+
+	if badPageToken(in.NextToken) {
+		return writeInvalidNextToken(c)
 	}
 
 	failures := h.Backend.ListImportFailures(in.ImportID)

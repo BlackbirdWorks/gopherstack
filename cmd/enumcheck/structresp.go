@@ -222,7 +222,7 @@ func checkStructFieldElt(
 		return finding{}, false
 	}
 
-	return resolveStructField(structTypeName, wireKey, kv.Value, fset, reg, localConsts, pkgConsts, repoRoot)
+	return resolveStructField(structTypeName, wireKey, kv.Value, fset, reg, localConsts, pkgConsts, repoRoot, fields)
 }
 
 // resolveStructField is gopherstack-cpztm's precise struct-literal
@@ -249,7 +249,7 @@ func checkStructFieldElt(
 //     sound, confident membership check.
 func resolveStructField(
 	structTypeName, wireKey string, valueExpr ast.Expr, fset *token.FileSet,
-	reg *enumRegistry, localConsts, pkgConsts map[string]string, repoRoot string,
+	reg *enumRegistry, localConsts, pkgConsts map[string]string, repoRoot string, localFields map[string]string,
 ) (finding, bool) {
 	val, ok := resolveConstString(valueExpr, localConsts, pkgConsts, reg)
 	if !ok || val == "" {
@@ -264,9 +264,7 @@ func resolveStructField(
 
 	switch res, enumType := reg.resolveRealField(structTypeName, wireKey); res {
 	case fieldUnknownType:
-		base.Kind, base.Enum = kindUnresolved, structTypeName
-
-		return base, true
+		return resolveStructByOverlap(base, structTypeName, localFields, reg, val)
 	case fieldAbsent:
 		base.Kind, base.Enum = kindPhantomField, structTypeName
 
@@ -283,5 +281,35 @@ func resolveStructField(
 		return base, true
 	default:
 		return finding{}, false
+	}
+}
+
+// resolveStructByOverlap is the fallback for a local struct with no same-named
+// SDK type: a structurally matched enum mismatch is needs-review, never confident.
+func resolveStructByOverlap(
+	base finding, structTypeName string, localFields map[string]string, reg *enumRegistry, val string,
+) (finding, bool) {
+	names := make([]string, 0, len(localFields))
+	for _, wire := range localFields {
+		names = append(names, wire)
+	}
+
+	res, enumType := reg.resolveByOverlap(base.Key, names)
+
+	switch res {
+	case fieldNotEnum:
+		return finding{}, false
+	case fieldIsEnum:
+		if reg.membersByType[enumType][val] {
+			return finding{}, false
+		}
+
+		base.Kind, base.Enum = kindLiteral, enumType
+
+		return base, true
+	default:
+		base.Kind, base.Enum = kindUnresolved, structTypeName
+
+		return base, true
 	}
 }

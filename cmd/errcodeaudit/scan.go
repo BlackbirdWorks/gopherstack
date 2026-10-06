@@ -21,8 +21,10 @@ type finding struct {
 	Code      string    `json:"code"`
 	Mechanism mechanism `json:"mechanism"`
 	Reason    string    `json:"reason"`
+	Kind      string    `json:"kind,omitempty"`
 	Line      int       `json:"line"`
 	Confident bool      `json:"confident"`
+	Recorded  bool      `json:"recordedInParity,omitempty"`
 }
 
 func scan(repoRoot, cache string, goModVersions map[string]string) ([]finding, error) {
@@ -131,9 +133,11 @@ func classify(candidates []candidate, gt *serviceGroundTruth) []finding {
 }
 
 func buildFinding(c candidate, gt *serviceGroundTruth) finding {
-	f := finding{File: c.File, Line: c.Line, Code: c.Code, Mechanism: c.Mechanism}
+	f := finding{File: c.File, Line: c.Line, Code: c.Code, Mechanism: c.Mechanism, Kind: c.Kind}
 
 	switch {
+	case c.Kind != "":
+		f.Reason = c.DemoteReason
 	case c.MapperReason != "":
 		f.Confident = false
 		f.Reason = c.MapperReason

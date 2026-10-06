@@ -42,10 +42,12 @@ type createEmailTemplateRequest struct {
 	Subject              string            `json:"Subject,omitempty"`
 	TemplateDescription  string            `json:"TemplateDescription,omitempty"`
 	TextPart             string            `json:"TextPart,omitempty"`
+	CreateNewVersion     bool              `json:"-"`
 }
 
 // createExportJobRequest is the request body for CreateExportJob.
 type createExportJobRequest struct {
+	SegmentID   string `json:"SegmentId,omitempty"`
 	RoleArn     string `json:"RoleArn"`
 	S3UrlPrefix string `json:"S3UrlPrefix"`
 }
@@ -65,6 +67,7 @@ type createInAppTemplateRequest struct {
 	Layout              string            `json:"Layout,omitempty"`
 	TemplateDescription string            `json:"TemplateDescription,omitempty"`
 	Content             []map[string]any  `json:"Content,omitempty"`
+	CreateNewVersion    bool              `json:"-"`
 }
 
 // createJourneyRequest is the request body for CreateJourney.
@@ -99,6 +102,7 @@ type createPushTemplateRequest struct {
 	DefaultSubstitutions string            `json:"DefaultSubstitutions,omitempty"`
 	RecommenderID        string            `json:"RecommenderId,omitempty"`
 	TemplateDescription  string            `json:"TemplateDescription,omitempty"`
+	CreateNewVersion     bool              `json:"-"`
 }
 
 // createRecommenderConfigRequest is the request body for CreateRecommenderConfiguration.
@@ -132,6 +136,7 @@ type createSmsTemplateRequest struct {
 	RecommenderID        string            `json:"RecommenderId,omitempty"`
 	Tags                 map[string]string `json:"tags,omitempty"`
 	TemplateDescription  string            `json:"TemplateDescription,omitempty"`
+	CreateNewVersion     bool              `json:"-"`
 }
 
 // ──────────────────────────────────────────────────
@@ -234,7 +239,6 @@ type journeyResponse struct {
 	OpenHours              map[string]any            `json:"OpenHours,omitempty"`
 	ClosedDays             map[string]any            `json:"ClosedDays,omitempty"`
 	ApplicationID          string                    `json:"ApplicationId"`
-	ARN                    string                    `json:"Arn,omitempty"`
 	ID                     string                    `json:"Id"`
 	Name                   string                    `json:"Name"`
 	StartActivity          string                    `json:"StartActivity,omitempty"`
@@ -307,19 +311,14 @@ type tagResourceRequest struct {
 // objects so the Terraform provider's flatten helpers do not dereference nil
 // pointers. JourneyLimits is a real member (types.ApplicationSettingsResource,
 // pinpoint@v1.42.4 types/types.go) that a prior version never emitted at all.
-// CloudWatchMetricsEnabled/EventTaggingEnabled are NOT real members of this
-// type (confirmed: absent from both types.ApplicationSettingsResource and the
-// deserializer's case list) -- kept here since they're harmless extra JSON
-// fields a real client simply ignores, not worth an unrelated behavior change.
+// CloudWatchMetricsEnabled/EventTaggingEnabled are request-only and never echoed.
 type appSettingsResponse struct {
-	CampaignHook             map[string]any `json:"CampaignHook"`
-	Limits                   map[string]any `json:"Limits"`
-	QuietTime                map[string]any `json:"QuietTime"`
-	JourneyLimits            map[string]any `json:"JourneyLimits"`
-	ApplicationID            string         `json:"ApplicationId"`
-	LastModifiedDate         string         `json:"LastModifiedDate,omitempty"`
-	CloudWatchMetricsEnabled bool           `json:"CloudWatchMetricsEnabled"`
-	EventTaggingEnabled      bool           `json:"EventTaggingEnabled"`
+	CampaignHook     map[string]any `json:"CampaignHook"`
+	Limits           map[string]any `json:"Limits"`
+	QuietTime        map[string]any `json:"QuietTime"`
+	JourneyLimits    map[string]any `json:"JourneyLimits"`
+	ApplicationID    string         `json:"ApplicationId"`
+	LastModifiedDate string         `json:"LastModifiedDate,omitempty"`
 }
 
 // New request types for additional operations
@@ -335,6 +334,7 @@ type createVoiceTemplateRequest struct {
 	LanguageCode         string            `json:"LanguageCode,omitempty"`
 	TemplateDescription  string            `json:"TemplateDescription,omitempty"`
 	VoiceID              string            `json:"VoiceId,omitempty"`
+	CreateNewVersion     bool              `json:"-"`
 }
 
 // updateCampaignRequest is the request body for UpdateCampaign.
@@ -601,7 +601,8 @@ type eventStreamResponse struct {
 
 // campaignActivitiesResponse is the JSON wire format of ActivitiesResponse.
 type campaignActivitiesResponse struct {
-	Item []campaignActivity `json:"Item"`
+	NextToken *string            `json:"NextToken,omitempty"`
+	Item      []campaignActivity `json:"Item"`
 }
 
 // campaignActivity is a single campaign activity.
@@ -694,7 +695,7 @@ type numberValidateResponse struct {
 	Carrier                           string `json:"Carrier,omitempty"`
 	City                              string `json:"City,omitempty"`
 	CleansedPhoneNumberE164           string `json:"CleansedPhoneNumberE164,omitempty"`
-	CleansedPhoneNumberNationalFormat string `json:"CleansedPhoneNumberNationalFormat,omitempty"`
+	CleansedPhoneNumberNationalFormat string `json:"CleansedPhoneNumberNational,omitempty"`
 	Country                           string `json:"Country,omitempty"`
 	CountryCodeIso2                   string `json:"CountryCodeIso2,omitempty"`
 	CountryCodeNumeric                string `json:"CountryCodeNumeric,omitempty"`
@@ -784,13 +785,14 @@ type journeyExecutionActivityMetricsResponse struct {
 	Metrics           map[string]string `json:"Metrics"`
 	ApplicationID     string            `json:"ApplicationId"`
 	JourneyID         string            `json:"JourneyId"`
-	ActivityID        string            `json:"ActivityId"`
+	ActivityID        string            `json:"JourneyActivityId"`
 	LastEvaluatedTime string            `json:"LastEvaluatedTime"`
 }
 
 // journeyRunsResponse is the response for GetJourneyRuns.
 type journeyRunsResponse struct {
-	Item []journeyRun `json:"Item"`
+	NextToken *string      `json:"NextToken,omitempty"`
+	Item      []journeyRun `json:"Item"`
 }
 
 // journeyRun is a single journey run. CreationTime/LastUpdateTime are "This
@@ -837,37 +839,44 @@ type journeyRunExecutionActivityMetricsResponse struct {
 
 // templatesListResponse is the JSON wire format of TemplatesResponse (ListTemplates).
 type templatesListResponse struct {
-	Item []templateListItem `json:"Item"`
+	NextToken *string            `json:"NextToken,omitempty"`
+	Item      []templateListItem `json:"Item"`
 }
 
 // templateVersionsListResponse is the JSON wire format of TemplateVersionsResponse.
 type templateVersionsListResponse struct {
-	Item []templateVersionItem `json:"Item"`
+	NextToken *string               `json:"NextToken,omitempty"`
+	Item      []templateVersionItem `json:"Item"`
 }
 
 // recommenderConfigsListResponse is the JSON wire format of ListRecommenderConfigurationsResponse.
 type recommenderConfigsListResponse struct {
-	Item []recommenderConfigResponse `json:"Item"`
+	NextToken *string                     `json:"NextToken,omitempty"`
+	Item      []recommenderConfigResponse `json:"Item"`
 }
 
 // exportJobsListResponse is the JSON wire format of ExportJobsResponse.
 type exportJobsListResponse struct {
-	Item []exportJobResponse `json:"Item"`
+	NextToken *string             `json:"NextToken,omitempty"`
+	Item      []exportJobResponse `json:"Item"`
 }
 
 // importJobsListResponse is the JSON wire format of ImportJobsResponse.
 type importJobsListResponse struct {
-	Item []importJobResponse `json:"Item"`
+	NextToken *string             `json:"NextToken,omitempty"`
+	Item      []importJobResponse `json:"Item"`
 }
 
 // campaignVersionsResponse is the JSON wire format of CampaignVersionsResponse.
 type campaignVersionsResponse struct {
-	Item []campaignResponse `json:"Item"`
+	NextToken *string            `json:"NextToken,omitempty"`
+	Item      []campaignResponse `json:"Item"`
 }
 
 // segmentVersionsResponse is the JSON wire format of SegmentVersionsResponse.
 type segmentVersionsResponse struct {
-	Item []segmentResponse `json:"Item"`
+	NextToken *string           `json:"NextToken,omitempty"`
+	Item      []segmentResponse `json:"Item"`
 }
 
 // messageBodyResponse is a simple message/arn response for update ops.

@@ -35,6 +35,7 @@ type backendSnapshot struct {
 	Tables          map[string]json.RawMessage `json:"tables"`
 	ScramSecrets    map[string][]string        `json:"scramSecrets"`
 	ClusterPolicies map[string]string          `json:"clusterPolicies"`
+	PolicyVersions  map[string]string          `json:"clusterPolicyVersions,omitempty"`
 	AccountID       string                     `json:"accountID"`
 	Region          string                     `json:"region"`
 	Version         int                        `json:"version"`
@@ -66,6 +67,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Tables:          tables,
 		ScramSecrets:    scramSecrets,
 		ClusterPolicies: clusterPolicies,
+		PolicyVersions:  maps.Clone(b.clusterPolicyVersions),
 		AccountID:       b.accountID,
 		Region:          b.region,
 	}
@@ -105,6 +107,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.registry.ResetAll()
 		b.scramSecrets = make(map[string][]string)
 		b.clusterPolicies = make(map[string]string)
+		b.clusterPolicyVersions = make(map[string]string)
 
 		return nil
 	}
@@ -115,6 +118,14 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	b.scramSecrets = ensureNonNilScramSecrets(snap.ScramSecrets)
 	b.clusterPolicies = ensureNonNilClusterPolicies(snap.ClusterPolicies)
+	b.clusterPolicyVersions = ensureNonNilClusterPolicies(snap.PolicyVersions)
+
+	for arn := range b.clusterPolicies {
+		if b.clusterPolicyVersions[arn] == "" {
+			b.clusterPolicyVersions[arn] = nextVersionToken()
+		}
+	}
+
 	fixNilTags(b)
 	b.accountID = snap.AccountID
 	b.region = snap.Region

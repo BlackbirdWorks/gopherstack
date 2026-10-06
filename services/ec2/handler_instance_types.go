@@ -445,7 +445,7 @@ func (h *Handler) handleDescribeInstanceTypeOfferings(vals url.Values, reqID str
 		// Outpost inventory to offer against, so an honest empty result
 		// rather than a fabricated match (matches the pre-existing PARITY.md
 		// treatment of DescribeInstanceTypeOfferings' LocationType handling).
-		return resp, nil
+		return finishPaged(vals, resp)
 	}
 
 	offerings = applyInstanceTypeOfferingFilters(offerings, parseEC2Filters(vals))
@@ -461,12 +461,13 @@ func (h *Handler) handleDescribeInstanceTypeOfferings(vals url.Values, reqID str
 		)
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 type describeInstanceTypeOfferingsResponse struct {
 	XMLName                 xml.Name `xml:"DescribeInstanceTypeOfferingsResponse"`
 	RequestID               string   `xml:"requestId"`
+	NextToken               string   `xml:"nextToken,omitempty"`
 	InstanceTypeOfferingSet struct {
 		Items []instanceTypeOfferingItem `xml:"item"`
 	} `xml:"instanceTypeOfferingSet"`

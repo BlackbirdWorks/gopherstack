@@ -3,6 +3,8 @@ package codebuild
 import (
 	"fmt"
 
+	cbtypes "github.com/aws/aws-sdk-go-v2/service/codebuild/types"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -32,6 +34,10 @@ func paginateIDs(all []string, nextToken, sortOrder string, maxResults int32) (p
 		return page.Page[string]{}, fmt.Errorf("%w: invalid nextToken", ErrValidation)
 	}
 
+	if err := checkEnum("sortOrder", cbtypes.SortOrderType(sortOrder)); err != nil {
+		return page.Page[string]{}, err
+	}
+
 	ordered := all
 	if sortOrder == sortOrderDescending {
 		ordered = make([]string, len(all))
@@ -55,6 +61,10 @@ func paginateCommandExecutions(
 		return page.Page[*CommandExecution]{}, fmt.Errorf("%w: invalid nextToken", ErrValidation)
 	}
 
+	if err := checkEnum("sortOrder", cbtypes.SortOrderType(sortOrder)); err != nil {
+		return page.Page[*CommandExecution]{}, err
+	}
+
 	ordered := all
 	if sortOrder == sortOrderDescending {
 		ordered = make([]*CommandExecution, len(all))
@@ -72,6 +82,15 @@ func paginateCommandExecutions(
 func paginateTestCases(all []TestCase, nextToken string, maxResults int32) (page.Page[TestCase], error) {
 	if err := page.ValidateToken(nextToken); err != nil {
 		return page.Page[TestCase]{}, fmt.Errorf("%w: invalid nextToken", ErrValidation)
+	}
+
+	return page.New(all, nextToken, int(maxResults), defaultListPageSize), nil
+}
+
+// paginateCodeCoverages pages a CodeCoverage slice; DescribeCodeCoverages declares InvalidInputException.
+func paginateCodeCoverages(all []CodeCoverage, nextToken string, maxResults int32) (page.Page[CodeCoverage], error) {
+	if err := page.ValidateToken(nextToken); err != nil {
+		return page.Page[CodeCoverage]{}, fmt.Errorf("%w: invalid nextToken", ErrValidation)
 	}
 
 	return page.New(all, nextToken, int(maxResults), defaultListPageSize), nil

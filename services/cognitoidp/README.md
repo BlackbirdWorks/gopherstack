@@ -8,12 +8,15 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 68 (68 ok) |
-| Known gaps | 3 |
+| Known gaps | 6 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
+- ClientMetadata (other than SignUp/AdminCreateUser), AnalyticsMetadata, ContextData and UserContextData on the auth, password-reset and confirmation ops are accepted and ignored: triggers receive empty clientMetadata and no risk engine consumes the rest.
+- Pool settings UsernameAttributes, AliasAttributes, UsernameConfiguration, UserPoolAddOns, DeviceConfiguration, SmsConfiguration, VerificationMessageTemplate and IssuerConfiguration/KeyConfiguration are stored and echoed only; none changes sign-in, alias or message behaviour, and Issuer/KeyConfiguration are not accepted.
+- GetTokensFromRefreshToken: DeviceKey, the RetryGracePeriodSeconds grace window and RefreshTokenReuseException are not modelled; SetUICustomization stores ImageFile but no ImageUrl is hosted; WebAuthnMfaSettings and SignUp/ConfirmSignUp ForceAliasCreation/Session are not modelled.
 - domains: Routing and Version (DomainDescriptionType) remain unpopulated -- no multi-region-domain-routing model or app-version tracking exists in this backend; left absent rather than fabricated.
 - MFA_SETUP/AssociateSoftwareToken/VerifySoftwareToken session single-use/rotation semantics across the three-call round trip are not stated anywhere in the SDK's doc prose, so this backend echoes the same session token unchanged through all three (only the final RespondToAuthChallenge deletes it) rather than inventing rotation behavior AWS never documents.
 - OAuth2/OIDC endpoints (gopherstack-1ryp5): no federated IdP redirect, /oauth2/revoke does not invalidate already-issued access tokens, resource binding (resource param/aud) unsupported, nonce is not carried into ID tokens minted by the refresh grant, hosted login cannot answer MFA_SETUP or EMAIL_OTP/SMS challenges it has no delivery for beyond the generated code.

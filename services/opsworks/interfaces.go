@@ -2,6 +2,7 @@ package opsworks
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 )
 
@@ -21,35 +22,35 @@ type StorageBackend interface {
 
 	// Layer operations
 	CreateLayer(
-		stackID, layerType, name, shortname string, installUpdatesOnBoot *bool, attributes map[string]string,
+		stackID, layerType, name, shortname string, settings LayerSettings,
 	) (*Layer, error)
 	DescribeLayers(stackID string, layerIDs []string) ([]*Layer, error)
-	UpdateLayer(layerID, name string, installUpdatesOnBoot *bool) error
+	UpdateLayer(layerID, name, shortname string, settings LayerSettings) error
 	DeleteLayer(layerID string) error
 
 	// Instance operations
 	CreateInstance(
 		stackID string, layerIDs []string, instanceType string, opts CreateInstanceOptions,
 	) (*Instance, error)
-	RegisterInstance(stackID, hostname string) (string, error)
+	RegisterInstance(stackID, hostname string, extras InstanceExtras) (string, error)
 	DeregisterInstance(instanceID string) error
 	AssignInstance(instanceID string, layerIDs []string) error
 	UnassignInstance(instanceID string) error
 	DescribeInstances(stackID, layerID string, instanceIDs []string) ([]*Instance, error)
 	UpdateInstance(instanceID, hostname string, opts UpdateInstanceOptions) error
-	DeleteInstance(instanceID string) error
+	DeleteInstance(instanceID string, deleteElasticIP, deleteVolumes bool) error
 	StartInstance(instanceID string) error
 	StopInstance(instanceID string) error
 	RebootInstance(instanceID string) error
 
 	// App operations
-	CreateApp(stackID, name, appType string) (*App, error)
+	CreateApp(stackID, name, appType string, opts AppOptions) (*App, error)
 	DescribeApps(stackID string, appIDs []string) ([]*App, error)
-	UpdateApp(appID, name string) error
+	UpdateApp(appID, name, appType string, opts AppOptions) error
 	DeleteApp(appID string) error
 
 	// Deployment operations
-	CreateDeployment(stackID, appID, command, customJSON string) (*Deployment, error)
+	CreateDeployment(stackID, appID, command, customJSON string, opts DeploymentOptions) (*Deployment, error)
 	DescribeDeployments(stackID, appID string, deploymentIDs []string) ([]*Deployment, error)
 
 	// Command operations
@@ -189,17 +190,13 @@ type CreateStackOptions struct {
 	HostnameTheme             string
 }
 
-// CloneStackOptions carries CloneStack's optional stack-attribute overrides.
-// A zero value (empty string / nil pointer) means "inherit from the source
-// stack", matching the real CloneStackInput doc comments (e.g. DefaultOs:
-// "The default option is the parent stack's operating system"). No
-// Attributes field: the real CloneStackInput has no such member (confirmed
-// against aws-sdk-go-v2/service/opsworks@v1.31.0's api_op_CloneStack.go),
-// unlike CreateStackInput/UpdateStackInput.
+// CloneStackOptions carries CloneStack's optional overrides; a zero value inherits from the source stack.
 type CloneStackOptions struct {
+	ClonePermissions          *bool
 	ConfigurationManager      *StackConfigurationManager
 	ChefConfiguration         *ChefConfiguration
 	UseOpsworksSecurityGroups *bool
+	Attributes                map[string]string
 	VpcID                     string
 	AgentVersion              string
 	CustomJSON                string
@@ -210,6 +207,7 @@ type CloneStackOptions struct {
 	DefaultSSHKeyName         string
 	DefaultSubnetID           string
 	HostnameTheme             string
+	CloneAppIDs               []string
 }
 
 // UpdateStackOptions carries UpdateStack's optional stack-attribute
@@ -288,12 +286,33 @@ type Layer struct {
 	Type                 string
 	Name                 string
 	Shortname            string
+	Settings             LayerSettings
+}
+
+// LayerSettings carries the optional CreateLayer/UpdateLayer members; nil/empty means unset.
+// Nested structures are kept as raw JSON so they round-trip verbatim.
+type LayerSettings struct {
+	InstallUpdatesOnBoot        *bool             `json:"InstallUpdatesOnBoot,omitempty"`
+	AutoAssignElasticIps        *bool             `json:"AutoAssignElasticIps,omitempty"`
+	AutoAssignPublicIps         *bool             `json:"AutoAssignPublicIps,omitempty"`
+	EnableAutoHealing           *bool             `json:"EnableAutoHealing,omitempty"`
+	UseEbsOptimizedInstances    *bool             `json:"UseEbsOptimizedInstances,omitempty"`
+	Attributes                  map[string]string `json:"Attributes,omitempty"`
+	CustomInstanceProfileArn    string            `json:"CustomInstanceProfileArn,omitempty"`
+	CustomJSON                  string            `json:"CustomJson,omitempty"`
+	CustomRecipes               json.RawMessage   `json:"CustomRecipes,omitempty"`
+	CloudWatchLogsConfiguration json.RawMessage   `json:"CloudWatchLogsConfiguration,omitempty"`
+	LifecycleEventConfiguration json.RawMessage   `json:"LifecycleEventConfiguration,omitempty"`
+	VolumeConfigurations        json.RawMessage   `json:"VolumeConfigurations,omitempty"`
+	Packages                    []string          `json:"Packages,omitempty"`
+	CustomSecurityGroupIDs      []string          `json:"CustomSecurityGroupIds,omitempty"`
 }
 
 // Instance represents an OpsWorks instance.
 // CreatedAt is first: time.Time non-pointer prefix reduces GC pointer bytes.
 type Instance struct {
 	CreatedAt            time.Time
+	Extras               InstanceExtras
 	InstallUpdatesOnBoot *bool
 	AgentVersion         string
 	InstanceID           string
@@ -311,12 +330,27 @@ type Instance struct {
 	Registered bool
 }
 
+// InstanceExtras holds the optional instance members echoed by DescribeInstances; unset means absent.
+type InstanceExtras struct {
+	EbsOptimized       *bool  `json:"EbsOptimized,omitempty"`
+	AmiID              string `json:"AmiId,omitempty"`
+	AutoScalingType    string `json:"AutoScalingType,omitempty"`
+	AvailabilityZone   string `json:"AvailabilityZone,omitempty"`
+	RootDeviceType     string `json:"RootDeviceType,omitempty"`
+	SSHKeyName         string `json:"SshKeyName,omitempty"`
+	VirtualizationType string `json:"VirtualizationType,omitempty"`
+	PrivateIP          string `json:"PrivateIp,omitempty"`
+	PublicIP           string `json:"PublicIp,omitempty"`
+}
+
 // CreateInstanceOptions carries CreateInstance's optional attribute
 // overrides that this backend models (a subset of the real
 // CreateInstanceInput's optional surface -- see PARITY.md's
 // items_still_open for the unmodeled remainder).
 type CreateInstanceOptions struct {
+	Extras               InstanceExtras
 	InstallUpdatesOnBoot *bool
+	Hostname             string
 	AgentVersion         string
 	Architecture         string
 	Os                   string
@@ -328,8 +362,12 @@ type CreateInstanceOptions struct {
 // overrides that this backend models.
 type UpdateInstanceOptions struct {
 	InstallUpdatesOnBoot *bool
+	Extras               InstanceExtras
+	InstanceType         string
+	Architecture         string
 	AgentVersion         string
 	Os                   string
+	LayerIDs             []string
 }
 
 // App represents an OpsWorks app.
@@ -348,6 +386,51 @@ type App struct {
 	Arn       string
 	Name      string
 	Type      string
+	Options   AppOptions
+}
+
+// AppSource is types.Source; Password and SshKey are masked in responses.
+type AppSource struct {
+	Type     string `json:"Type,omitempty"`
+	URL      string `json:"Url,omitempty"`
+	Username string `json:"Username,omitempty"`
+	Password string `json:"Password,omitempty"`
+	SSHKey   string `json:"SshKey,omitempty"`
+	Revision string `json:"Revision,omitempty"`
+}
+
+// AppDataSource is types.DataSource.
+type AppDataSource struct {
+	Type         string `json:"Type,omitempty"`
+	Arn          string `json:"Arn,omitempty"`
+	DatabaseName string `json:"DatabaseName,omitempty"`
+}
+
+// AppEnvVar is types.EnvironmentVariable; a Secure value is masked in responses.
+type AppEnvVar struct {
+	Secure *bool  `json:"Secure,omitempty"`
+	Key    string `json:"Key"`
+	Value  string `json:"Value"`
+}
+
+// AppSSL is types.SslConfiguration.
+type AppSSL struct {
+	Certificate string `json:"Certificate,omitempty"`
+	PrivateKey  string `json:"PrivateKey,omitempty"`
+	Chain       string `json:"Chain,omitempty"`
+}
+
+// AppOptions carries the optional CreateApp/UpdateApp members; nil/empty means unset.
+type AppOptions struct {
+	Attributes       map[string]string `json:"Attributes,omitempty"`
+	AppSource        *AppSource        `json:"AppSource,omitempty"`
+	SslConfiguration *AppSSL           `json:"SslConfiguration,omitempty"`
+	EnableSsl        *bool             `json:"EnableSsl,omitempty"`
+	Description      string            `json:"Description,omitempty"`
+	Shortname        string            `json:"Shortname,omitempty"`
+	Domains          []string          `json:"Domains,omitempty"`
+	DataSources      []AppDataSource   `json:"DataSources,omitempty"`
+	Environment      []AppEnvVar       `json:"Environment,omitempty"`
 }
 
 // Deployment represents an OpsWorks deployment.
@@ -355,13 +438,22 @@ type App struct {
 type Deployment struct {
 	CreatedAt    time.Time
 	CompletedAt  time.Time
+	Comment      string
 	StackID      string
 	AppID        string
 	DeploymentID string
 	Command      string
 	Status       string
 	CustomJSON   string
+	InstanceIDs  []string
 	Duration     int32
+}
+
+// DeploymentOptions carries CreateDeployment's targeting and comment members.
+type DeploymentOptions struct {
+	Comment     string
+	InstanceIDs []string
+	LayerIDs    []string
 }
 
 // Command represents an OpsWorks command.

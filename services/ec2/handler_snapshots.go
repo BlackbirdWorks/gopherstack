@@ -589,15 +589,7 @@ func (h *Handler) handleDescribeImportSnapshotTasks(vals url.Values, reqID strin
 	ids := parseMemberList(vals, "ImportTaskId")
 	tasks := h.Backend.DescribeImportSnapshotTasks(ids)
 
-	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
-	if err != nil {
-		return nil, err
-	}
-
-	var nextToken string
-	tasks, nextToken = pageSlice(tasks, offset, maxResults)
-
-	resp := &describeImportSnapshotTasksResponse{RequestID: reqID, NextToken: nextToken}
+	resp := &describeImportSnapshotTasksResponse{RequestID: reqID}
 	for _, t := range tasks {
 		resp.ImportSnapshotTaskSet.Items = append(
 			resp.ImportSnapshotTaskSet.Items,
@@ -615,7 +607,7 @@ func (h *Handler) handleDescribeImportSnapshotTasks(vals url.Values, reqID strin
 		)
 	}
 
-	return resp, nil
+	return finishPagedFiltered(vals, resp)
 }
 
 // fastSnapshotRestoreResultSet renders the (snapshotId, availabilityZone,

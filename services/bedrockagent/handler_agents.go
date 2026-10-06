@@ -16,17 +16,21 @@ import (
 
 func (h *Handler) handleCreateAgent(ctx context.Context, c *echo.Context, body []byte) error {
 	var req struct {
-		Tags                    map[string]string `json:"tags"`
-		Guardrail               map[string]any    `json:"guardrailConfiguration"`
-		Memory                  map[string]any    `json:"memoryConfiguration"`
-		AgentName               string            `json:"agentName"`
-		Collaboration           string            `json:"agentCollaboration"`
-		Description             string            `json:"description"`
-		FoundationModel         string            `json:"foundationModel"`
-		Instruction             string            `json:"instruction"`
-		RoleARN                 string            `json:"agentResourceRoleArn"`
-		OrchestrationType       string            `json:"orchestrationType"`
-		IdleSessionTTLInSeconds int               `json:"idleSessionTTLInSeconds"`
+		Tags                     map[string]string `json:"tags"`
+		Guardrail                map[string]any    `json:"guardrailConfiguration"`
+		Memory                   map[string]any    `json:"memoryConfiguration"`
+		CustomOrchestration      map[string]any    `json:"customOrchestration"`
+		PromptOverrideConfig     map[string]any    `json:"promptOverrideConfiguration"`
+		ClientToken              string            `json:"clientToken"`
+		CustomerEncryptionKeyArn string            `json:"customerEncryptionKeyArn"`
+		AgentName                string            `json:"agentName"`
+		Collaboration            string            `json:"agentCollaboration"`
+		Description              string            `json:"description"`
+		FoundationModel          string            `json:"foundationModel"`
+		Instruction              string            `json:"instruction"`
+		RoleARN                  string            `json:"agentResourceRoleArn"`
+		OrchestrationType        string            `json:"orchestrationType"`
+		IdleSessionTTLInSeconds  int               `json:"idleSessionTTLInSeconds"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -45,6 +49,11 @@ func (h *Handler) handleCreateAgent(ctx context.Context, c *echo.Context, body [
 		Guardrail:               req.Guardrail,
 		Memory:                  req.Memory,
 		IdleSessionTTLInSeconds: req.IdleSessionTTLInSeconds,
+
+		CustomOrchestration:         req.CustomOrchestration,
+		PromptOverrideConfiguration: req.PromptOverrideConfig,
+		ClientToken:                 req.ClientToken,
+		CustomerEncryptionKeyArn:    req.CustomerEncryptionKeyArn,
 	})
 	if err != nil {
 		return handleErr(c, err)
@@ -66,17 +75,21 @@ func (h *Handler) handleUpdateAgent(
 	ctx context.Context, c *echo.Context, agentID string, body []byte,
 ) error {
 	var req struct {
-		Tags                    map[string]string `json:"tags"`
-		Guardrail               map[string]any    `json:"guardrailConfiguration"`
-		Memory                  map[string]any    `json:"memoryConfiguration"`
-		AgentName               string            `json:"agentName"`
-		Collaboration           string            `json:"agentCollaboration"`
-		Description             string            `json:"description"`
-		FoundationModel         string            `json:"foundationModel"`
-		Instruction             string            `json:"instruction"`
-		RoleARN                 string            `json:"agentResourceRoleArn"`
-		OrchestrationType       string            `json:"orchestrationType"`
-		IdleSessionTTLInSeconds int               `json:"idleSessionTTLInSeconds"`
+		Tags                     map[string]string `json:"tags"`
+		Guardrail                map[string]any    `json:"guardrailConfiguration"`
+		Memory                   map[string]any    `json:"memoryConfiguration"`
+		CustomOrchestration      map[string]any    `json:"customOrchestration"`
+		PromptOverrideConfig     map[string]any    `json:"promptOverrideConfiguration"`
+		ClientToken              string            `json:"clientToken"`
+		CustomerEncryptionKeyArn string            `json:"customerEncryptionKeyArn"`
+		AgentName                string            `json:"agentName"`
+		Collaboration            string            `json:"agentCollaboration"`
+		Description              string            `json:"description"`
+		FoundationModel          string            `json:"foundationModel"`
+		Instruction              string            `json:"instruction"`
+		RoleARN                  string            `json:"agentResourceRoleArn"`
+		OrchestrationType        string            `json:"orchestrationType"`
+		IdleSessionTTLInSeconds  int               `json:"idleSessionTTLInSeconds"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -95,6 +108,11 @@ func (h *Handler) handleUpdateAgent(
 		Guardrail:               req.Guardrail,
 		Memory:                  req.Memory,
 		IdleSessionTTLInSeconds: req.IdleSessionTTLInSeconds,
+
+		CustomOrchestration:         req.CustomOrchestration,
+		PromptOverrideConfiguration: req.PromptOverrideConfig,
+		ClientToken:                 req.ClientToken,
+		CustomerEncryptionKeyArn:    req.CustomerEncryptionKeyArn,
 	})
 	if err != nil {
 		return handleErr(c, err)

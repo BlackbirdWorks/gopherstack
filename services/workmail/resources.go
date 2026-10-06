@@ -102,7 +102,9 @@ func (b *InMemoryBackend) DescribeResource(orgID, entityID string) (*Resource, e
 // optional-field semantics (real workmail@v1.39.4 serializers.go only emits
 // the "HiddenFromGlobalAddressList" key when the pointer is non-nil).
 func (b *InMemoryBackend) UpdateResource(
-	orgID, entityID, name, description string,
+	orgID, entityID, name string,
+	description *string,
+	resourceType string,
 	hiddenFromGAL *bool,
 	bookingOptions *BookingOptions,
 ) error {
@@ -117,11 +119,18 @@ func (b *InMemoryBackend) UpdateResource(
 		return fmt.Errorf("%w: resource %q not found", ErrNotFound, entityID)
 	}
 
+	if resourceType != "" && resourceType != "ROOM" && resourceType != "EQUIPMENT" {
+		return fmt.Errorf("%w: invalid Type %q, must be ROOM or EQUIPMENT", ErrValidation, resourceType)
+	}
+
 	if name != "" {
 		r.Name = name
 	}
-	if description != "" {
-		r.Description = description
+	if description != nil {
+		r.Description = *description
+	}
+	if resourceType != "" {
+		r.ResourceType = resourceType
 	}
 	if hiddenFromGAL != nil {
 		r.HiddenFromGlobalAddressList = *hiddenFromGAL

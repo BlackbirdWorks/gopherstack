@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"sort"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
@@ -101,6 +102,13 @@ func (b *InMemoryBackend) DescribeWorkspaceBundles(
 				Description: bun.Description,
 				ImageID:     bun.ImageID,
 				ComputeType: BundleComputeType{Name: bun.ComputeType},
+				UserStorage: BundleStorage{Capacity: bun.UserStorageGiB},
+				RootStorage: BundleStorage{Capacity: bun.RootStorageGiB},
+				// Bundles are created synchronously and no CreateWorkspaceBundle member selects STANDBY.
+				BundleType:      "REGULAR",
+				State:           "AVAILABLE",
+				CreationTime:    bun.CreatedAt,
+				LastUpdatedTime: bun.UpdatedAt,
 			})
 		}
 	}
@@ -174,7 +182,10 @@ func (b *InMemoryBackend) CreateWorkspaceBundle(
 
 	id := b.nextID("wsb-")
 	stored := cloneTags(tags)
+	now := time.Now().UTC()
 	bun := &storedCustomBundle{
+		CreatedAt:      now,
+		UpdatedAt:      now,
 		BundleID:       id,
 		Name:           name,
 		Description:    description,
@@ -235,6 +246,7 @@ func (b *InMemoryBackend) UpdateWorkspaceBundle(bundleID, imageID string) error 
 	}
 
 	bun.ImageID = imageID
+	bun.UpdatedAt = time.Now().UTC()
 
 	return nil
 }

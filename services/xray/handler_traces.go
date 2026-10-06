@@ -33,8 +33,6 @@ type traceSummaryServiceIDView struct {
 	Type string `json:"Type"`
 }
 
-type traceSummaryForecastView struct{}
-
 // traceUserView is the wire shape of types.TraceUser.
 type traceUserView struct {
 	UserName   string                      `json:"UserName"`
@@ -119,23 +117,22 @@ func toValueWithServiceIDsViews(occs []AnnotationOccurrence) []valueWithServiceI
 // key->value map -- a real client's deserializer hard-errors on a flat value here
 // (awsRestjson1_deserializeDocumentAnnotations expects each map value to be a JSON array).
 type traceSummary struct {
-	HTTP               *traceSummaryHTTPView                `json:"Http,omitempty"`
-	Annotations        map[string][]valueWithServiceIDsView `json:"Annotations,omitempty"`
-	ForecastStatistics *traceSummaryForecastView            `json:"ForecastStatistics,omitempty"`
-	EntryPoint         *traceSummaryServiceIDView           `json:"EntryPoint,omitempty"`
-	ID                 string                               `json:"Id"`
-	ServiceIds         []traceSummaryServiceIDView          `json:"ServiceIds,omitempty"` //nolint:revive // AWS field name
-	Users              []traceUserView                      `json:"Users,omitempty"`
-	AvailabilityZones  []availabilityZoneDetailView         `json:"AvailabilityZones,omitempty"`
-	InstanceIds        []instanceIDDetailView               `json:"InstanceIds,omitempty"` //nolint:revive // AWS name
-	Duration           float64                              `json:"Duration"`
-	ResponseTime       float64                              `json:"ResponseTime"`
-	StartTime          float64                              `json:"StartTime"`
-	Revision           int                                  `json:"Revision"`
-	HasFault           bool                                 `json:"HasFault"`
-	HasError           bool                                 `json:"HasError"`
-	HasThrottle        bool                                 `json:"HasThrottle"`
-	IsPartial          bool                                 `json:"IsPartial"`
+	HTTP              *traceSummaryHTTPView                `json:"Http,omitempty"`
+	Annotations       map[string][]valueWithServiceIDsView `json:"Annotations,omitempty"`
+	EntryPoint        *traceSummaryServiceIDView           `json:"EntryPoint,omitempty"`
+	ID                string                               `json:"Id"`
+	ServiceIds        []traceSummaryServiceIDView          `json:"ServiceIds,omitempty"` //nolint:revive // AWS field name
+	Users             []traceUserView                      `json:"Users,omitempty"`
+	AvailabilityZones []availabilityZoneDetailView         `json:"AvailabilityZones,omitempty"`
+	InstanceIds       []instanceIDDetailView               `json:"InstanceIds,omitempty"` //nolint:revive // AWS name
+	Duration          float64                              `json:"Duration"`
+	ResponseTime      float64                              `json:"ResponseTime"`
+	StartTime         float64                              `json:"StartTime"`
+	Revision          int                                  `json:"Revision"`
+	HasFault          bool                                 `json:"HasFault"`
+	HasError          bool                                 `json:"HasError"`
+	HasThrottle       bool                                 `json:"HasThrottle"`
+	IsPartial         bool                                 `json:"IsPartial"`
 }
 
 // buildTraceSummaryView converts a TraceSummaryData to the JSON view struct.
@@ -152,8 +149,6 @@ func buildTraceSummaryView(traceID string, sd TraceSummaryData, startTime time.T
 		HasThrottle:  sd.HasThrottle,
 		IsPartial:    sd.IsPartial,
 		Revision:     sd.Revision,
-		// ForecastStatistics is always present per AWS API (even as empty object).
-		ForecastStatistics: &traceSummaryForecastView{},
 	}
 
 	if sd.EntryPoint != nil {

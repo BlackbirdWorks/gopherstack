@@ -84,8 +84,12 @@ func (h *Handler) handleDeleteOrganizationConformancePack(
 type putOrganizationConfigRuleInput struct {
 	OrganizationManagedRuleMetadata *OrganizationManagedRuleMetadata `json:"OrganizationManagedRuleMetadata,omitempty"`
 	OrganizationCustomRuleMetadata  *OrganizationCustomRuleMetadata  `json:"OrganizationCustomRuleMetadata,omitempty"`
-	OrganizationConfigRuleName      string                           `json:"OrganizationConfigRuleName"`
-	ExcludedAccounts                []string                         `json:"ExcludedAccounts,omitempty"`
+
+	CustomPolicy *OrganizationCustomPolicyRuleMetadata `json:"OrganizationCustomPolicyRuleMetadata,omitempty"`
+
+	OrganizationConfigRuleName string   `json:"OrganizationConfigRuleName"`
+	ExcludedAccounts           []string `json:"ExcludedAccounts,omitempty"`
+	Tags                       []Tag    `json:"Tags,omitempty"`
 }
 
 type putOrganizationConfigRuleOutput struct {
@@ -95,14 +99,21 @@ type putOrganizationConfigRuleOutput struct {
 func (h *Handler) handlePutOrganizationConfigRule(
 	_ context.Context, in *putOrganizationConfigRuleInput,
 ) (*putOrganizationConfigRuleOutput, error) {
-	arnStr, err := h.Backend.PutOrganizationConfigRule(
+	arnStr, err := h.Backend.PutOrganizationConfigRuleWithPolicy(
 		in.OrganizationConfigRuleName,
 		in.ExcludedAccounts,
 		in.OrganizationManagedRuleMetadata,
 		in.OrganizationCustomRuleMetadata,
+		in.CustomPolicy,
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	if len(in.Tags) > 0 {
+		if err = h.Backend.TagResource(arnStr, in.Tags); err != nil {
+			return nil, err
+		}
 	}
 
 	return &putOrganizationConfigRuleOutput{OrganizationConfigRuleArn: arnStr}, nil
@@ -110,15 +121,33 @@ func (h *Handler) handlePutOrganizationConfigRule(
 
 // PutOrganizationConformancePack request/response types and handler.
 type putOrganizationConformancePackInput struct {
-	OrganizationConformancePackName string `json:"OrganizationConformancePackName"`
+	OrganizationConformancePackName string                          `json:"OrganizationConformancePackName"`
+	DeliveryS3Bucket                string                          `json:"DeliveryS3Bucket,omitempty"`
+	DeliveryS3KeyPrefix             string                          `json:"DeliveryS3KeyPrefix,omitempty"`
+	ExcludedAccounts                []string                        `json:"ExcludedAccounts,omitempty"`
+	ConformancePackInputParameters  []ConformancePackInputParameter `json:"ConformancePackInputParameters,omitempty"`
+	Tags                            []Tag                           `json:"Tags,omitempty"`
+}
+
+type putOrganizationConformancePackOutput struct {
+	OrganizationConformancePackArn string `json:"OrganizationConformancePackArn"`
 }
 
 func (h *Handler) handlePutOrganizationConformancePack(
 	_ context.Context, in *putOrganizationConformancePackInput,
-) (*emptyOutput, error) {
-	return &emptyOutput{}, h.Backend.PutOrganizationConformancePack(
-		in.OrganizationConformancePackName,
-	)
+) (*putOrganizationConformancePackOutput, error) {
+	arn, err := h.Backend.PutOrganizationConformancePackFull(&OrganizationConformancePack{
+		OrganizationConformancePackName: in.OrganizationConformancePackName,
+		DeliveryS3Bucket:                in.DeliveryS3Bucket,
+		DeliveryS3KeyPrefix:             in.DeliveryS3KeyPrefix,
+		ExcludedAccounts:                in.ExcludedAccounts,
+		ConformancePackInputParameters:  in.ConformancePackInputParameters,
+	}, in.Tags)
+	if err != nil {
+		return nil, err
+	}
+
+	return &putOrganizationConformancePackOutput{OrganizationConformancePackArn: arn}, nil
 }
 
 // DescribeOrganizationConfigRules request/response types and handler.
@@ -135,10 +164,17 @@ type describeOrganizationConfigRulesOutput struct {
 func (h *Handler) handleDescribeOrganizationConfigRules(
 	_ context.Context, in *describeOrganizationConfigRulesInput,
 ) (*describeOrganizationConfigRulesOutput, error) {
-	p, err := paginate(
-		h.Backend.DescribeOrganizationConfigRules(in.OrganizationConfigRuleNames),
-		in.NextToken, in.Limit, organizationFamilyPageDefault,
-	)
+	rules := h.Backend.DescribeOrganizationConfigRules(in.OrganizationConfigRuleNames)
+
+	for i := range rules {
+		if m := rules[i].CustomPolicy; m != nil {
+			noPolicy := *m
+			noPolicy.PolicyText = ""
+			rules[i].CustomPolicy = &noPolicy
+		}
+	}
+
+	p, err := paginate(rules, in.NextToken, in.Limit, organizationFamilyPageDefault)
 	if err != nil {
 		return nil, err
 	}

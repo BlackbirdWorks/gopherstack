@@ -9,14 +9,13 @@ import (
 	"net/url"
 	"sort"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
-	"github.com/blackbirdworks/gopherstack/pkgs/safemap"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -113,12 +112,7 @@ type Handler struct {
 	ops     map[string]service.JSONOpFunc
 	runner  *Runner
 	cancel  context.CancelFunc
-	// idempotency caches successful CreateSchedule/CreateScheduleGroup ARNs by
-	// ClientToken so a lost-response retry replays the original result instead of
-	// failing with ConflictException on the now-existing name. See idempotency.go.
-	idempotency *safemap.Map[string, idempotentResult]
-	// idempotencyInsertsSinceSweep paces maybeEvictExpiredIdempotency.
-	idempotencyInsertsSinceSweep atomic.Int64
+	idem    *idempotency.Memo
 }
 
 // Runner returns the internal runner for cross-service wiring.
@@ -129,9 +123,9 @@ func (h *Handler) Runner() *Runner {
 // NewHandler creates a new Scheduler handler.
 func NewHandler(backend StorageBackend) *Handler {
 	h := &Handler{
-		Backend:     backend,
-		runner:      NewRunner(backend),
-		idempotency: safemap.New[string, idempotentResult]("scheduler.idempotency"),
+		Backend: backend,
+		runner:  NewRunner(backend),
+		idem:    newIdempotencyMemo(),
 	}
 	h.ops = h.buildOps()
 

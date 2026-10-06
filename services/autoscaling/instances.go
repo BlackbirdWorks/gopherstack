@@ -2,6 +2,7 @@ package autoscaling
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 
@@ -551,6 +552,12 @@ func (b *InMemoryBackend) SetInstanceProtection(
 
 // LaunchInstances adds new instances to the ASG.
 func (b *InMemoryBackend) LaunchInstances(groupName string, count int32) ([]Instance, error) {
+	return b.LaunchInstancesIn(groupName, count, nil)
+}
+
+// LaunchInstancesIn adds new instances, spread round-robin over zones when given.
+// Every zone must be one of the group's own.
+func (b *InMemoryBackend) LaunchInstancesIn(groupName string, count int32, zones []string) ([]Instance, error) {
 	b.mu.Lock("LaunchInstances")
 	defer b.mu.Unlock()
 
@@ -559,8 +566,25 @@ func (b *InMemoryBackend) LaunchInstances(groupName string, count int32) ([]Inst
 		return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
 	}
 
+	for _, z := range zones {
+		if !slices.Contains(g.AvailabilityZones, z) {
+			return nil, fmt.Errorf("%w: Availability Zone %q is not in group %q", ErrInvalidParameter, z, groupName)
+		}
+	}
+
 	oldLen := len(g.Instances)
-	newInstances := b.makeInstances(g, count)
+
+	var newInstances []Instance
+
+	if len(zones) == 0 {
+		newInstances = b.makeInstances(g, count)
+	} else {
+		for i, n := range distributeRoundRobin(int(count), len(zones)) {
+			//nolint:gosec // n <= count
+			newInstances = append(newInstances, b.makeInstancesIn(g, int32(n), zones[i])...)
+		}
+	}
+
 	g.Instances = append(g.Instances, newInstances...)
 	g.DesiredCapacity = int32(len(g.Instances)) //nolint:gosec // bounded by maxDesiredCapacity
 
@@ -576,4 +600,28 @@ func (b *InMemoryBackend) LaunchInstances(groupName string, count int32) ([]Inst
 	copy(result, g.Instances[oldLen:])
 
 	return result, nil
+}
+
+// GroupInstances returns copies of the named instances still in the group.
+func (b *InMemoryBackend) GroupInstances(groupName string, instanceIDs []string) ([]Instance, error) {
+	b.mu.RLock("GroupInstances")
+	defer b.mu.RUnlock()
+
+	g, ok := b.groups.Get(groupName)
+	if !ok {
+		return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
+	}
+
+	out := make([]Instance, 0, len(instanceIDs))
+
+	for _, id := range instanceIDs {
+		i := slices.IndexFunc(g.Instances, func(in Instance) bool { return in.InstanceID == id })
+		if i < 0 {
+			return nil, fmt.Errorf("%w: instance %q", ErrInstanceNotFound, id)
+		}
+
+		out = append(out, g.Instances[i])
+	}
+
+	return out, nil
 }

@@ -49,10 +49,22 @@ func (b *InMemoryBackend) PutAccountDetails(details *AccountDetails) error {
 	b.mu.Lock("PutAccountDetails")
 	defer b.mu.Unlock()
 
-	cp := *details
-	b.accountDetails = &cp
+	acct := b.accountLocked()
+	acct.MailType = details.MailType
+	acct.WebsiteURL = details.WebsiteURL
+	acct.ContactLanguage = details.ContactLanguage
+	acct.UseCaseName = details.UseCaseName
 
 	return nil
+}
+
+// accountLocked returns the account record, creating it with the default of sending enabled.
+func (b *InMemoryBackend) accountLocked() *AccountDetails {
+	if b.accountDetails == nil {
+		b.accountDetails = &AccountDetails{SendingEnabled: true}
+	}
+
+	return b.accountDetails
 }
 
 // PutAccountSendingAttributes sets the sending enabled flag.
@@ -60,11 +72,7 @@ func (b *InMemoryBackend) PutAccountSendingAttributes(sendingEnabled bool) error
 	b.mu.Lock("PutAccountSendingAttributes")
 	defer b.mu.Unlock()
 
-	if b.accountDetails == nil {
-		b.accountDetails = &AccountDetails{}
-	}
-
-	b.accountDetails.SendingEnabled = sendingEnabled
+	b.accountLocked().SendingEnabled = sendingEnabled
 
 	return nil
 }
@@ -73,13 +81,9 @@ func (b *InMemoryBackend) PutAccountSuppressionAttributes(suppressedReasons []st
 	b.mu.Lock("PutAccountSuppressionAttributes")
 	defer b.mu.Unlock()
 
-	if b.accountDetails == nil {
-		b.accountDetails = &AccountDetails{}
-	}
-
 	reasons := make([]string, len(suppressedReasons))
 	copy(reasons, suppressedReasons)
-	b.accountDetails.SuppressionAttributes = reasons
+	b.accountLocked().SuppressionAttributes = reasons
 
 	return nil
 }
@@ -100,11 +104,7 @@ func (b *InMemoryBackend) PutAccountPricingAttributes(plan string) error {
 	b.mu.Lock("PutAccountPricingAttributes")
 	defer b.mu.Unlock()
 
-	if b.accountDetails == nil {
-		b.accountDetails = &AccountDetails{}
-	}
-
-	b.accountDetails.PricingPlan = plan
+	b.accountLocked().PricingPlan = plan
 
 	return nil
 }
@@ -113,11 +113,7 @@ func (b *InMemoryBackend) PutAccountDedicatedIPWarmupAttributes(autoWarmupEnable
 	b.mu.Lock("PutAccountDedicatedIPWarmupAttributes")
 	defer b.mu.Unlock()
 
-	if b.accountDetails == nil {
-		b.accountDetails = &AccountDetails{}
-	}
-
-	b.accountDetails.AutoWarmupEnabled = autoWarmupEnabled
+	b.accountLocked().AutoWarmupEnabled = autoWarmupEnabled
 
 	return nil
 }

@@ -106,11 +106,11 @@ func TestBackend_ApplicationVersionHistory(t *testing.T) {
 	_, err := b.CreateApplication(ctx, "version-history-app", "FLINK-1_18", "", "", "", nil)
 	require.NoError(t, err)
 
-	_, err = b.AddApplicationCloudWatchLoggingOption(ctx, "version-history-app", 0,
+	_, err = b.AddApplicationCloudWatchLoggingOption(ctx, "version-history-app", 0, "",
 		"arn:aws:logs:us-east-1:000000000000:log-group:g:log-stream:s", "")
 	require.NoError(t, err)
 
-	versions, _, err := b.ListApplicationVersions(ctx, "version-history-app", "")
+	versions, _, err := b.ListApplicationVersions(ctx, "version-history-app", "", 0)
 	require.NoError(t, err)
 	require.Len(t, versions, 2, "expected a version-history entry for both CreateApplication and the Add* call")
 	assert.Equal(t, int64(1), versions[0].ApplicationVersionID)

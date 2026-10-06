@@ -3,6 +3,8 @@ package codebuild
 import (
 	"context"
 	"fmt"
+
+	cbtypes "github.com/aws/aws-sdk-go-v2/service/codebuild/types"
 )
 
 type createFleetInput struct {
@@ -28,6 +30,10 @@ func (h *Handler) handleCreateFleet(
 	_ context.Context,
 	in *createFleetInput,
 ) (*createFleetOutput, error) {
+	if err := validateFleetEnums(in.ComputeType, in.EnvironmentType, in.OverflowBehavior); err != nil {
+		return nil, err
+	}
+
 	if in.Name == "" {
 		return nil, fmt.Errorf("%w: name is required", errInvalidRequest)
 	}
@@ -133,6 +139,10 @@ type updateFleetOutput struct {
 }
 
 func (h *Handler) handleUpdateFleet(_ context.Context, in *updateFleetInput) (*updateFleetOutput, error) {
+	if err := validateFleetEnums(in.ComputeType, in.EnvironmentType, in.OverflowBehavior); err != nil {
+		return nil, err
+	}
+
 	if in.Arn == "" {
 		return nil, fmt.Errorf("%w: arn is required", errInvalidRequest)
 	}
@@ -154,4 +164,12 @@ func (h *Handler) handleUpdateFleet(_ context.Context, in *updateFleetInput) (*u
 	}
 
 	return &updateFleetOutput{Fleet: f}, nil
+}
+
+func validateFleetEnums(computeType, environmentType, overflowBehavior string) error {
+	return firstErr(
+		checkEnum("computeType", cbtypes.ComputeType(computeType)),
+		checkEnum("environmentType", cbtypes.EnvironmentType(environmentType)),
+		checkEnum("overflowBehavior", cbtypes.FleetOverflowBehavior(overflowBehavior)),
+	)
 }

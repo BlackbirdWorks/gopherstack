@@ -218,8 +218,8 @@ func (rc *ResourceCreator) deleteCWInsightRule(arnOrName string) error {
 	}
 
 	name := arnOrName
-	if idx := strings.LastIndex(arnOrName, "/"); idx >= 0 {
-		name = arnOrName[idx+1:]
+	if _, after, ok := strings.CutLast(arnOrName, "/"); ok {
+		name = after
 	}
 
 	// DeleteInsightRules reports an unknown name as a failure entry rather

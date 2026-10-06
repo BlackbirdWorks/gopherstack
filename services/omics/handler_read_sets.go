@@ -80,19 +80,22 @@ func (h *Handler) handleListReadSets(c *echo.Context, storeID string) error {
 
 func (h *Handler) handleStartReadSetActivationJob(c *echo.Context, storeID string) error {
 	var req struct {
-		Sources []ReadSetActivationJobSource `json:"sources"`
+		ClientToken string                       `json:"clientToken"`
+		Sources     []ReadSetActivationJobSource `json:"sources"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
 		return err
 	}
 
-	job, err := h.Backend.StartReadSetActivationJob(storeID, req.Sources)
-	if err != nil {
-		return h.mapError(c, err)
-	}
-
-	return c.JSON(http.StatusCreated, job)
+	return idemCreated(
+		h, c, opStartReadSetActivationJob, req.ClientToken, idemFingerprint(req)+storeID,
+		func(j *ReadSetActivationJob) string { return j.ID },
+		func(id string) (*ReadSetActivationJob, error) { return h.Backend.GetReadSetActivationJob(storeID, id) },
+		func() (*ReadSetActivationJob, error) {
+			return h.Backend.StartReadSetActivationJob(storeID, req.Sources)
+		},
+	)
 }
 
 func (h *Handler) handleGetReadSetActivationJob(c *echo.Context, storeID, jobID string) error {
@@ -134,6 +137,7 @@ func (h *Handler) handleListReadSetActivationJobs(c *echo.Context, storeID strin
 func (h *Handler) handleStartReadSetExportJob(c *echo.Context, storeID string) error {
 	var req struct {
 		Destination string                   `json:"destination"`
+		ClientToken string                   `json:"clientToken"`
 		Sources     []ReadSetExportJobSource `json:"sources"`
 	}
 
@@ -141,12 +145,14 @@ func (h *Handler) handleStartReadSetExportJob(c *echo.Context, storeID string) e
 		return err
 	}
 
-	job, err := h.Backend.StartReadSetExportJob(storeID, req.Destination, req.Sources)
-	if err != nil {
-		return h.mapError(c, err)
-	}
-
-	return c.JSON(http.StatusCreated, job)
+	return idemCreated(
+		h, c, opStartReadSetExportJob, req.ClientToken, idemFingerprint(req)+storeID,
+		func(j *ReadSetExportJob) string { return j.ID },
+		func(id string) (*ReadSetExportJob, error) { return h.Backend.GetReadSetExportJob(storeID, id) },
+		func() (*ReadSetExportJob, error) {
+			return h.Backend.StartReadSetExportJob(storeID, req.Destination, req.Sources)
+		},
+	)
 }
 
 func (h *Handler) handleGetReadSetExportJob(c *echo.Context, storeID, jobID string) error {
@@ -179,20 +185,23 @@ func (h *Handler) handleListReadSetExportJobs(c *echo.Context, storeID string) e
 
 func (h *Handler) handleStartReadSetImportJob(c *echo.Context, storeID string) error {
 	var req struct {
-		RoleArn string                   `json:"roleArn"`
-		Sources []ReadSetImportJobSource `json:"sources"`
+		RoleArn     string                   `json:"roleArn"`
+		ClientToken string                   `json:"clientToken"`
+		Sources     []ReadSetImportJobSource `json:"sources"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
 		return err
 	}
 
-	job, err := h.Backend.StartReadSetImportJob(storeID, req.RoleArn, req.Sources)
-	if err != nil {
-		return h.mapError(c, err)
-	}
-
-	return c.JSON(http.StatusCreated, job)
+	return idemCreated(
+		h, c, opStartReadSetImportJob, req.ClientToken, idemFingerprint(req)+storeID,
+		func(j *ReadSetImportJob) string { return j.ID },
+		func(id string) (*ReadSetImportJob, error) { return h.Backend.GetReadSetImportJob(storeID, id) },
+		func() (*ReadSetImportJob, error) {
+			return h.Backend.StartReadSetImportJob(storeID, req.RoleArn, req.Sources)
+		},
+	)
 }
 
 func (h *Handler) handleGetReadSetImportJob(c *echo.Context, storeID, jobID string) error {
@@ -309,11 +318,22 @@ func (h *Handler) handleListMultipartReadSetUploads(c *echo.Context, storeID str
 }
 
 func (h *Handler) handleListReadSetUploadParts(c *echo.Context, storeID, uploadID string) error {
+	var req struct {
+		Filter     *createdWindow `json:"filter"`
+		PartSource string         `json:"partSource"`
+	}
+
+	if err := readJSON(c, &req); err != nil {
+		return err
+	}
+
 	maxResults, nextToken := listQueryParams(c)
 
 	parts, next, err := h.Backend.ListReadSetUploadParts(
 		storeID,
 		uploadID,
+		req.PartSource,
+		req.Filter,
 		maxResults,
 		nextToken,
 	)
@@ -328,7 +348,12 @@ func (h *Handler) handleListReadSetUploadParts(c *echo.Context, storeID, uploadI
 		summaries = append(summaries, newReadSetUploadPartSummary(p))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"parts": summaries, keyNextToken: next})
+	out := map[string]any{"parts": summaries}
+	if next != "" {
+		out[keyNextToken] = next
+	}
+
+	return c.JSON(http.StatusOK, out)
 }
 
 func (h *Handler) handleUploadReadSetPart(c *echo.Context, storeID, uploadID string) error {

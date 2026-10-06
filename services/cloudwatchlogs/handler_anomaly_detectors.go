@@ -44,6 +44,7 @@ type listLogAnomalyDetectorsOutput struct {
 type updateLogAnomalyDetectorInput struct {
 	AnomalyDetectorArn    string `json:"anomalyDetectorArn"`
 	EvaluationFrequency   string `json:"evaluationFrequency"`
+	FilterPattern         string `json:"filterPattern"`
 	AnomalyVisibilityTime int64  `json:"anomalyVisibilityTime"`
 	Enabled               bool   `json:"enabled"`
 }
@@ -176,6 +177,7 @@ func (h *Handler) handleUpdateLogAnomalyDetector(
 	if err := h.Backend.UpdateLogAnomalyDetector(
 		input.AnomalyDetectorArn,
 		input.EvaluationFrequency,
+		input.FilterPattern,
 		input.AnomalyVisibilityTime,
 		input.Enabled,
 	); err != nil {

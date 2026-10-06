@@ -196,6 +196,8 @@ type CisScanConfiguration struct {
 	Arn        string            `json:"scanConfigurationArn"`
 	Name       string            `json:"scanName"`
 	OwnedBy    string            `json:"ownedBy"`
+	// SecurityLevel is LEVEL_1 or LEVEL_2.
+	SecurityLevel string `json:"securityLevel,omitempty"`
 }
 
 // CisSession represents an active CIS scan session.

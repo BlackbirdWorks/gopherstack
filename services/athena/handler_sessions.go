@@ -10,13 +10,16 @@ const (
 )
 
 type startSessionInput struct {
-	MonitoringConfiguration     MonitoringConfiguration `json:"MonitoringConfiguration"`
 	WorkGroup                   string                  `json:"WorkGroup"`
+	ClientRequestToken          string                  `json:"ClientRequestToken"`
 	Description                 string                  `json:"Description"`
 	NotebookVersion             string                  `json:"NotebookVersion"`
 	ExecutionRole               string                  `json:"ExecutionRole"`
+	MonitoringConfiguration     MonitoringConfiguration `json:"MonitoringConfiguration"`
+	Tags                        []Tag                   `json:"Tags"`
 	EngineConfiguration         EngineConfiguration     `json:"EngineConfiguration"`
 	SessionIdleTimeoutInMinutes int32                   `json:"SessionIdleTimeoutInMinutes"`
+	CopyWorkGroupTags           bool                    `json:"CopyWorkGroupTags"`
 }
 
 // notebookID extracts the session's linked notebook ID. StartSessionInput has
@@ -37,54 +40,87 @@ type sessionIDInput struct {
 	SessionID string `json:"SessionId"`
 }
 
+// listPageInput carries only the paging members.
+type listPageInput struct {
+	NextToken  string `json:"NextToken"`
+	MaxResults int    `json:"MaxResults"`
+}
+
 type listSessionsInput struct {
+	NextToken   string `json:"NextToken"`
 	WorkGroup   string `json:"WorkGroup"`
 	StateFilter string `json:"StateFilter"`
+	MaxResults  int    `json:"MaxResults"`
 }
 
 type listNotebookSessionsInput struct {
+	NextToken  string `json:"NextToken"`
 	NotebookID string `json:"NotebookId"`
+	MaxResults int    `json:"MaxResults"`
 }
 
 type listExecutorsInput struct {
+	NextToken     string `json:"NextToken"`
 	SessionID     string `json:"SessionId"`
 	ExecutorState string `json:"ExecutorStateFilter"`
+	MaxResults    int    `json:"MaxResults"`
 }
 
 type getResourceDashboardInput struct {
 	ResourceARN string `json:"ResourceARN"`
 }
 
-func (h *Handler) sessionCoreOps() map[string]athenaActionFn {
-	return map[string]athenaActionFn{
-		"StartSession": func(b []byte) (any, error) {
-			var input startSessionInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
+func (h *Handler) handleStartSession(b []byte) (any, error) {
+	var input startSessionInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
 
-			const secondsPerMinute = 60
+	const secondsPerMinute = 60
 
-			sessionCfg := SessionConfiguration{
-				ExecutionRole: input.ExecutionRole,
-				// StartSessionInput only carries SessionIdleTimeoutInMinutes; the
-				// stored/returned model tracks IdleTimeoutSeconds (aws-sdk-go-v2
-				// athena@v1.60.4 types.SessionConfiguration carries both, this
-				// converts the one real clients actually send).
-				IdleTimeoutSeconds: int64(input.SessionIdleTimeoutInMinutes) * secondsPerMinute,
-			}
+	sessionCfg := SessionConfiguration{
+		ExecutionRole: input.ExecutionRole,
+		// StartSessionInput only carries minutes; the model stores IdleTimeoutSeconds (athena@v1.60.4).
+		IdleTimeoutSeconds: int64(input.SessionIdleTimeoutInMinutes) * secondsPerMinute,
+	}
 
-			id, state, err := h.Backend.StartSession(
+	id, err := h.replayCreate(
+		"StartSession", input.ClientRequestToken, input,
+		found(h.Backend.GetSession),
+		func() (string, error) {
+			id, _, err := h.Backend.StartSession(
 				input.WorkGroup, input.Description, input.NotebookVersion,
 				input.EngineConfiguration, sessionCfg,
 				input.MonitoringConfiguration, input.notebookID(),
 			)
-			if err != nil {
-				return nil, err
-			}
 
-			return map[string]any{keySessionID: id, keyState: state}, nil
+			return id, err
 		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	tags := make(map[string]string, len(input.Tags))
+	for _, t := range input.Tags {
+		tags[t.Key] = t.Value
+	}
+
+	if err = h.Backend.TagSession(id, input.CopyWorkGroupTags, tags); err != nil {
+		return nil, err
+	}
+
+	s, err := h.Backend.GetSession(id)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{keySessionID: id, keyState: s.Status.State}, nil
+}
+
+func (h *Handler) sessionCoreOps() map[string]athenaActionFn {
+	return map[string]athenaActionFn{
+		"StartSession": h.handleStartSession,
 		"GetSession": func(b []byte) (any, error) {
 			var input sessionIDInput
 			if err := json.Unmarshal(b, &input); err != nil {
@@ -168,7 +204,18 @@ func (h *Handler) sessionListOps() map[string]athenaActionFn {
 				return nil, err
 			}
 
-			return map[string]any{"Sessions": sums}, nil
+			page, next, pageErr := pageByKey(
+				h.tokens,
+				sums,
+				func(s SessionSummary) string { return s.SessionID },
+				input.MaxResults,
+				input.NextToken,
+			)
+			if pageErr != nil {
+				return nil, pageErr
+			}
+
+			return withNextToken(map[string]any{"Sessions": page}, next), nil
 		},
 		"ListNotebookSessions": func(b []byte) (any, error) {
 			var input listNotebookSessionsInput
@@ -181,7 +228,18 @@ func (h *Handler) sessionListOps() map[string]athenaActionFn {
 				return nil, err
 			}
 
-			return map[string]any{"NotebookSessionsList": sums}, nil
+			page, next, pageErr := pageByKey(
+				h.tokens,
+				sums,
+				func(s NotebookSessionSummary) string { return s.SessionID },
+				input.MaxResults,
+				input.NextToken,
+			)
+			if pageErr != nil {
+				return nil, pageErr
+			}
+
+			return withNextToken(map[string]any{"NotebookSessionsList": page}, next), nil
 		},
 	}
 }
@@ -201,13 +259,53 @@ func (h *Handler) sessionInfoOps() map[string]athenaActionFn {
 				return nil, err
 			}
 
-			return map[string]any{"ExecutorsSummary": execs, keySessionID: input.SessionID}, nil
+			page, next, pageErr := pageByKey(
+				h.tokens,
+				execs,
+				func(e Executor) string { return e.ExecutorID },
+				input.MaxResults,
+				input.NextToken,
+			)
+			if pageErr != nil {
+				return nil, pageErr
+			}
+
+			return withNextToken(map[string]any{"ExecutorsSummary": page, keySessionID: input.SessionID}, next), nil
 		},
-		"ListEngineVersions": func(_ []byte) (any, error) {
-			return map[string]any{"EngineVersions": h.Backend.ListEngineVersions()}, nil
+		"ListEngineVersions": func(b []byte) (any, error) {
+			var input listPageInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			page, next, err := pageByKey(
+				h.tokens,
+				h.Backend.ListEngineVersions(),
+				func(e EngineVersionDescriptor) string { return e.SelectedEngineVersion },
+				input.MaxResults,
+				input.NextToken,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			return withNextToken(map[string]any{"EngineVersions": page}, next), nil
 		},
-		"ListApplicationDPUSizes": func(_ []byte) (any, error) {
-			return map[string]any{"ApplicationDPUSizes": h.Backend.ListApplicationDPUSizes()}, nil
+		"ListApplicationDPUSizes": func(b []byte) (any, error) {
+			var input listPageInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			page, next, err := pageByKey(
+				h.tokens, h.Backend.ListApplicationDPUSizes(),
+				func(a ApplicationDPUSizes) string { return a.ApplicationRuntimeID }, input.MaxResults, input.NextToken,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			return withNextToken(map[string]any{"ApplicationDPUSizes": page}, next), nil
 		},
 		"GetResourceDashboard": func(b []byte) (any, error) {
 			var input getResourceDashboardInput

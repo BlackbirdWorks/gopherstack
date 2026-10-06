@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 81 (81 ok) |
 | Feature families | 25 (25 ok) |
-| Known gaps | 5 |
+| Known gaps | 7 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -20,6 +20,8 @@
 - No backing subsystem for: GetDashboardEmbedUrl ResetDisabled/StatePersistenceEnabled/UndoRedoDisabled (opaque embed URL), CreateDashboard.Parameters (no Describe* echo, opaque Definition), and StartAssetBundleExportJob strict-mode validation errors (ValidationStrategy itself is echoed since 2026-10-04, but no dependency validation runs).
 - DataSetSummary.RowLevelPermissionDataSetMap and KnowledgeBaseSummary.PrimaryOwnerUsername/Type are not modeled: no multi-RLS-map request member on Create/UpdateDataSet, no username or knowledge-base-type source.
 - 2026-09-30: CLOSED ListFoldersForResource ARN-with-slash routing (realclient_datasets_and_dashboards_test.go testFoldersExtraRealClient), ListApps (TestRealClient_AppLifecycle), dataset RLS/CLS/UseAs fields (dataset_security_client_test.go) and ListDashboardVersions Description/SourceEntityArn/CreatedTime (dashboard_versions_client_test.go; per-version records capped at 1000).
+- Accepted but not applied: StartAssetBundleImportJob OverrideParameters, OverridePermissions, OverrideTags and OverrideValidationStrategy (the import applies no overrides), PredictQAResults IncludeGeneratedAnswer, IncludeQuickSightQIndex and MaxTopicsToConsider (no answer-generation engine), StartDashboardSnapshotJob.UserConfiguration, GenerateEmbedUrlForAnonymousUser.SessionTags and GetIdentityContext.SessionExpiresAt (the embed URL and identity token are opaque), DescribeSpace.MaxContributors (Space.Contributors is unmodeled), RegisterUser.IamArn (User.Arn is always the synthesized user ARN), and UpdateAnalysis/UpdateDashboard Parameters (no Describe op echoes them).
+- SessionLifetimeInMinutes (15-600) and AllowedDomains (at most three) are validated on the embed ops but the generated URL does not carry them; the error code for a bad value, the code for AdditionalDashboardIds with a non-ANONYMOUS identity, the INITIAL_INGESTION and EDIT request types of dataset-triggered ingestions, and RestoreToFolders=false dropping folder memberships are from the SDK docs' wording, not observed against AWS.
 
 ## More
 

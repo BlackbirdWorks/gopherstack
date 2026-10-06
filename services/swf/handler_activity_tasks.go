@@ -45,7 +45,6 @@ type pollForActivityTaskOutput struct {
 	ActivityID        string                    `json:"activityId,omitempty"`
 	Input             string                    `json:"input,omitempty"`
 	StartedEventID    int64                     `json:"startedEventId,omitempty"`
-	ScheduledEventID  int64                     `json:"scheduledEventId,omitempty"`
 }
 
 func (h *Handler) handlePollForActivityTask(
@@ -57,11 +56,10 @@ func (h *Handler) handlePollForActivityTask(
 		return &pollForActivityTaskOutput{}, nil
 	}
 	out := &pollForActivityTaskOutput{
-		TaskToken:        task.TaskToken,
-		ActivityID:       task.ActivityID,
-		Input:            task.Input,
-		StartedEventID:   task.StartedEventID,
-		ScheduledEventID: task.ScheduledEventID,
+		TaskToken:      task.TaskToken,
+		ActivityID:     task.ActivityID,
+		Input:          task.Input,
+		StartedEventID: task.StartedEventID,
 	}
 	if task.ActivityType.Name != "" {
 		out.ActivityType = &task.ActivityType

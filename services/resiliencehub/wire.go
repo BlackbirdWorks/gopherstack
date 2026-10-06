@@ -194,7 +194,7 @@ type updateAppRequest struct {
 	PermissionModel          *permissionModelWire    `json:"permissionModel,omitempty"`
 	ClearResiliencyPolicyArn *bool                   `json:"clearResiliencyPolicyArn,omitempty"`
 	AssessmentSchedule       string                  `json:"assessmentSchedule,omitempty"`
-	Description              string                  `json:"description,omitempty"`
+	Description              *string                 `json:"description,omitempty"`
 	PolicyArn                string                  `json:"policyArn,omitempty"`
 	EventSubscriptions       []eventSubscriptionWire `json:"eventSubscriptions,omitempty"`
 }
@@ -488,7 +488,7 @@ type createResiliencyPolicyRequest struct {
 type updateResiliencyPolicyRequest struct {
 	Policy                 map[string]failurePolicyWire `json:"policy,omitempty"`
 	DataLocationConstraint string                       `json:"dataLocationConstraint,omitempty"`
-	PolicyDescription      string                       `json:"policyDescription,omitempty"`
+	PolicyDescription      *string                      `json:"policyDescription,omitempty"`
 	PolicyName             string                       `json:"policyName,omitempty"`
 	Tier                   string                       `json:"tier,omitempty"`
 }
@@ -822,9 +822,11 @@ type sortWire struct {
 
 type listMetricsRequest struct {
 	DataSource string          `json:"dataSource,omitempty"`
+	NextToken  string          `json:"nextToken,omitempty"`
 	Conditions []conditionWire `json:"conditions,omitempty"`
 	Fields     []fieldWire     `json:"fields,omitempty"`
 	Sorts      []sortWire      `json:"sorts,omitempty"`
+	MaxResults int32           `json:"maxResults,omitempty"`
 }
 
 type listMetricsResponse struct {

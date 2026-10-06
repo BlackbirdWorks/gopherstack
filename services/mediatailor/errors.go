@@ -8,7 +8,7 @@ import (
 var ErrNotFound = awserr.New("NotFoundException", awserr.ErrNotFound)
 
 // ErrConflict is returned for state conflict operations.
-var ErrConflict = awserr.New("ConflictException", awserr.ErrAlreadyExists)
+var ErrConflict = awserr.New("BadRequestException", awserr.ErrAlreadyExists)
 
 // ErrInvalidParameter is returned for invalid input.
 var ErrInvalidParameter = awserr.New("BadRequestException", awserr.ErrInvalidParameter)

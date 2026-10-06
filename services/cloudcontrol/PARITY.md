@@ -506,3 +506,11 @@ a stale token neither replays nor conflicts after it.
 ## 2026-10-04 (reqfielddiff tier-1 pass)
 
 Re-checked the 5 `TypeVersionId` findings: still recorded in items_still_open. The store is generic and has no private resource type registry, so there is no version to select or reject; unchanged.
+
+## 2026-10-04 (gopherstack-uox6 value-semantics)
+
+ListResourceRequests MaxResults defaults to 20 ("The default is 20", api_op_ListResourceRequests.go:42); ListResources.MaxResults is documented "Reserved" and keeps the 100 default.
+
+## 2026-10-05 (gopherstack-uox6 pass 12, value semantics)
+
+Clean. UpdateResource applies the JSON patch and leaves untouched properties intact (UpdateResourceInput.PatchDocument, api_op_UpdateResource.go). Recorded, unchanged: a replace/remove on a missing path is a silent no-op and a malformed patch document is ignored; the SDK states no error for either. Proof: `TestUpdateResource_PatchKeepsUntouchedProperties`.

@@ -246,6 +246,7 @@ items_still_open:
   - "OPEN 2026-10-03: with --rds-engine=docker read replicas, restore-based instances, custom cluster
     endpoints, DBPortNumber changes and non-Postgres/MySQL/MariaDB engines stay metadata-only. Restore
     relaunches empty containers."
+  - "OPEN 2026-10-05 (gopherstack-9x62): FailoverGlobalCluster/SwitchoverGlobalCluster do not move the writer role between members; CreateDBInstanceReadReplica.SourceDBClusterIdentifier, CopyDBClusterSnapshot/CreateDBCluster.SourceRegion and PreSignedUrl (cross-region) are not read; DBInstance.MaxAllocatedStorage is stored and echoed but never autoscales; the cluster restores copy only a subset of the source/snapshot attributes."
   - "OPEN: DescribeDBClusterSnapshots/DescribeDBSnapshots .IncludePublic/.IncludeShared
     are dropped; single-account backend has no cross-account snapshot data to reveal."
   - "OPEN 2026-09-13 (gopherstack-xhu2t tier-5 sweep, consolidated 2026-09-26): five
@@ -1842,3 +1843,36 @@ Audited for region isolation: same-named resources in two regions coexist and li
 ## 2026-10-04 (reqfielddiff tier-1 re-examined: 6 findings)
 
 All six stay recorded, each with a concrete reason. DescribeDBSnapshots/DescribeDBClusterSnapshots IncludePublic and IncludeShared add other accounts' public or shared manual snapshots; every snapshot here belongs to the single account, so the result cannot change. ModifyDBInstance.CertificateRotationRestart needs a per-instance CACertificateIdentifier, which no DBInstance carries (ModifyDBInstance drops CACertificateIdentifier as well), so there is no rotation to restart for. SwitchoverBlueGreenDeployment.SwitchoverTimeout bounds a switchover that completes synchronously, so it can never expire.
+
+## 2026-10-05 (reqfielddiff tier-2 filters)
+
+24 of the 26 flagged `Filters` members are false positives: the pinned SDK documents "This parameter isn't currently supported." for DescribeCertificates, DescribeDBClusterParameterGroups, DescribeDBLogFiles, DescribeDBParameterGroups, DescribeDBProxies/ProxyEndpoints/ProxyTargetGroups/ProxyTargets, DescribeDBSecurityGroups, DescribeDBSubnetGroups, DescribeEngineDefaultClusterParameters, DescribeEventCategories, DescribeEventSubscriptions, DescribeEvents, DescribeOptionGroupOptions, DescribeOptionGroups, DescribeOrderableDBInstanceOptions, DescribeReservedDBInstances(Offerings), DescribeServerlessV2PlatformVersions, DescribeSourceRegions and ListTagsForResource (rds@v1.128.0), so real AWS ignores them too. DescribeDBShardGroups and DescribeIntegrations `Filters` are documented without filter names; left unapplied. FIXED: DescribeEvents `StartTime`/`EndTime` (ISO 8601) bound the result. Proof: `TestDescribeEvents_StartEndTime`.
+
+## 2026-10-05 (gopherstack-1jkv verification)
+
+Cluster role ops verified clean against rds@v1.124.1 (api_op_AddRoleToDBCluster.go:39-43): storage is keyed on (FeatureName, RoleArn), DescribeDBClusters emits AssociatedRoles, duplicate add and missing remove return DBClusterRoleAlreadyExists/DBClusterRoleNotFound. Proof: `cluster_roles_sdk_test.go`. The omitted-FeatureName collision rule stays in items_still_open (no SDK evidence). Marker helpers: the pinned SDK declares no invalid-Marker error on any Describe op (types/errors.go has no InvalidParameterValue), so a malformed Marker keeps restarting at page one; recorded, not changed.
+
+## 2026-10-05 (reqfielddiff tier-1/2 pass 8)
+
+False positives, all re-read against rds@v1.124.1: every flagged Describe* Filters member except DescribeDBShardGroups/DescribeIntegrations documents 'This parameter isn't currently supported'; DescribeDBClusterParameters applies parameter-name through applyDBParameterFilters (shared.go). DescribeDBShardGroups/DescribeIntegrations filter names are undocumented in the SDK and stay recorded. Tool blind spots: doc text 'not currently supported', and filters applied through a shared helper.
+
+## 2026-10-05 (reqfielddiff -adjudicated tier-2)
+
+- DescribeDBProxyEndpoints.Filters: unsupported per SDK, documented "This parameter is not currently supported." (api_op_DescribeDBProxyEndpoints.go:41).
+- DescribeDBProxyTargetGroups.Filters: unsupported per SDK, same doc (api_op_DescribeDBProxyTargetGroups.go:37).
+- DescribeDBProxyTargets.Filters: unsupported per SDK, same doc (api_op_DescribeDBProxyTargets.go:36).
+- DescribeReservedDBInstancesOfferings.Filters: unsupported per SDK, documented "This parameter isn't currently supported." (api_op_DescribeReservedDBInstancesOfferings.go:41).
+
+
+## Notes 2026-10-05 (gopherstack-9x62 pass 8)
+
+Dropped members now applied (typed SDK test `dropped_members_sdk_test.go`): CreateDBCluster/ModifyDBCluster DBSubnetGroupName,
+VpcSecurityGroupIds, AllocatedStorage, Iops, GlobalClusterIdentifier (real global-cluster membership) and ModifyDBCluster.AllowMajorVersionUpgrade;
+CreateGlobalCluster.SourceDBClusterIdentifier/DatabaseName; Copy{DBParameterGroup,DBClusterParameterGroup,OptionGroup,DBSnapshot,DBClusterSnapshot}.Tags
+and CopyDBClusterSnapshot.KmsKeyId; DBInstance NetworkType/MaxAllocatedStorage and ModifyDBInstance.DBSubnetGroupName; CreateDBInstanceReadReplica
+now honours class, subnet group, storage, KMS, monitoring, PI, log exports, network type, AZ and port; cluster/instance restore ops apply Tags,
+subnet group, VPC security groups and log exports. CopyOptionGroup now assigns the copy an OptionGroupArn.
+
+## 2026-10-05 (undeclared response members)
+
+OptimizedWritesEnabled (DBInstance, DBCluster), StorageOptimized and GlobalCluster.PrimaryRegion are not in rds@v1.124.1 output shapes (deserializers.go); dropped from the wire. Backend fields are unchanged.

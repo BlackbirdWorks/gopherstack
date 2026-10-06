@@ -208,6 +208,16 @@ func (h *Handler) handleUpdateDirectorySetup(c *echo.Context) error {
 	}
 
 	var req struct {
+		OSUpdateSettings *struct {
+			OSVersion string `json:"OSVersion"`
+		} `json:"OSUpdateSettings"`
+		NetworkUpdateSettings *struct {
+			NetworkType      string   `json:"NetworkType"`
+			CustomerDNSIPsV6 []string `json:"CustomerDnsIpsV6"`
+		} `json:"NetworkUpdateSettings"`
+		DirectorySizeUpdateSettings *struct {
+			DirectorySize string `json:"DirectorySize"`
+		} `json:"DirectorySizeUpdateSettings"`
 		DirectoryID                string `json:"DirectoryId"`
 		UpdateType                 string `json:"UpdateType"`
 		CreateSnapshotBeforeUpdate bool   `json:"CreateSnapshotBeforeUpdate"`
@@ -227,9 +237,30 @@ func (h *Handler) handleUpdateDirectorySetup(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "invalid UpdateType"))
 	}
 
+	update := DirectorySetupUpdate{
+		UpdateType:                 req.UpdateType,
+		CreateSnapshotBeforeUpdate: req.CreateSnapshotBeforeUpdate,
+	}
+
+	if req.OSUpdateSettings != nil {
+		update.OSVersion = req.OSUpdateSettings.OSVersion
+	}
+
+	if req.NetworkUpdateSettings != nil {
+		update.NetworkType = req.NetworkUpdateSettings.NetworkType
+		update.CustomerDNSIPsV6 = req.NetworkUpdateSettings.CustomerDNSIPsV6
+	}
+
+	if req.DirectorySizeUpdateSettings != nil {
+		update.DirectorySize = req.DirectorySizeUpdateSettings.DirectorySize
+	}
+
+	if msg := validateSetupUpdate(update); msg != "" {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", msg))
+	}
+
 	if updateErr := h.Backend.UpdateDirectorySetup(
-		h.contextWithRegion(c),
-		req.DirectoryID, req.UpdateType, req.CreateSnapshotBeforeUpdate,
+		h.contextWithRegion(c), req.DirectoryID, update,
 	); updateErr != nil {
 		return h.mapError(c, updateErr)
 	}
@@ -246,6 +277,7 @@ func (h *Handler) handleDescribeUpdateDirectory(c *echo.Context) error {
 	var req struct {
 		DirectoryID string `json:"DirectoryId"`
 		UpdateType  string `json:"UpdateType"`
+		RegionName  string `json:"RegionName"`
 		NextToken   string `json:"NextToken"`
 	}
 
@@ -263,6 +295,7 @@ func (h *Handler) handleDescribeUpdateDirectory(c *echo.Context) error {
 		h.contextWithRegion(c),
 		req.DirectoryID,
 		req.UpdateType,
+		req.RegionName,
 		req.NextToken,
 	)
 	if descErr != nil {
@@ -271,7 +304,7 @@ func (h *Handler) handleDescribeUpdateDirectory(c *echo.Context) error {
 
 	entryList := make([]map[string]any, 0, len(entries))
 	for _, e := range entries {
-		entryList = append(entryList, map[string]any{
+		item := map[string]any{
 			// UpdateType is not a real types.UpdateInfoEntry member -- harmless,
 			// informational (the request-side filter's own value), left in
 			// place per this campaign's precedent for extra fields a real
@@ -283,13 +316,18 @@ func (h *Handler) handleDescribeUpdateDirectory(c *echo.Context) error {
 			keyRegion:             e.Region,
 			keyStartTime:          awstime.Epoch(e.StartTime),
 			"LastUpdatedDateTime": awstime.Epoch(e.LastUpdatedDateTime),
-			// NewValue/PreviousValue (types.UpdateInfoEntry) are real members,
-			// but this backend never populates real content (always the Go
-			// zero value) -- omitted rather than emitted as a flat "" string:
-			// the real member type is *types.UpdateValue{OSUpdateSettings},
-			// a nested struct, so a flat string would hard-fail every real
-			// client's decode.
-		})
+		}
+
+		// NewValue/PreviousValue are *types.UpdateValue{OSUpdateSettings}, never flat strings.
+		if e.NewValue != "" {
+			item["NewValue"] = map[string]any{"OSUpdateSettings": map[string]any{"OSVersion": e.NewValue}}
+		}
+
+		if e.PreviousValue != "" {
+			item["PreviousValue"] = map[string]any{"OSUpdateSettings": map[string]any{"OSVersion": e.PreviousValue}}
+		}
+
+		entryList = append(entryList, item)
 	}
 
 	// Wrapper key is "UpdateActivities" (confirmed against
@@ -302,4 +340,20 @@ func (h *Handler) handleDescribeUpdateDirectory(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, resp)
+}
+
+func validateSetupUpdate(u DirectorySetupUpdate) string {
+	if u.OSVersion != "" && !validEnum(u.OSVersion, string(OSVersionVersion2012), string(OSVersionVersion2019)) {
+		return "invalid OSVersion"
+	}
+
+	if u.NetworkType != "" && !validNetworkType(NetworkType(u.NetworkType)) {
+		return "invalid NetworkType"
+	}
+
+	if u.DirectorySize != "" && !validEnum(u.DirectorySize, string(DirectorySizeSmall), string(DirectorySizeLarge)) {
+		return "invalid DirectorySize"
+	}
+
+	return ""
 }

@@ -31,6 +31,7 @@ var (
 	ErrOpsMetadataAlreadyExists           = errors.New("OpsMetadataAlreadyExistsException")
 	ErrHierarchyLevelLimitExceeded        = errors.New("HierarchyLevelLimitExceededException")
 	ErrParameterMaxVersionLimitExceeded   = errors.New("ParameterMaxVersionLimitExceeded")
+	ErrIdempotentParameterMismatch        = errors.New("IdempotentParameterMismatch")
 	// ErrAccessRequestNotFound is returned when GetAccessToken is called with
 	// an AccessRequestId that was never created by StartAccessRequest.
 	ErrAccessRequestNotFound = errors.New("ResourceNotFoundException")
@@ -55,7 +56,7 @@ var (
 var (
 	ErrResourceDataSyncNotFound    = errors.New("ResourceDataSyncNotFoundException")
 	ErrAutomationExecutionNotFound = errors.New("AutomationExecutionNotFoundException")
-	ErrExecutionPreviewNotFound    = errors.New("ExecutionPreviewNotFoundException")
+	ErrExecutionPreviewNotFound    = errors.New("ResourceNotFoundException")
 	// ErrResourcePolicyNotFound and ErrResourcePolicyConflict are the two real
 	// exceptions declared for PutResourcePolicy/DeleteResourcePolicy
 	// (ssm@v1.73.4 types/errors.go) around a PolicyId/PolicyHash mismatch.
@@ -64,8 +65,6 @@ var (
 	ErrResourceDataSyncExists = errors.New("ResourceDataSyncAlreadyExistsException")
 )
 var (
-	// ErrInventoryNotFound is returned when inventory for a type is not found.
-	ErrInventoryNotFound = errors.New("InventoryTypeNotFound")
 	// ErrDocumentVersionNotFound is returned when a document version is not found.
 	ErrDocumentVersionNotFound = errors.New("InvalidDocumentVersion")
 	// ErrInvalidAggregator is returned by ListNodesSummary when Aggregators is
@@ -102,3 +101,5 @@ var (
 	// (ssm@v1.73.4 deserializers.go:13880).
 	ErrInvalidAllowedPattern = errors.New("InvalidAllowedPatternException")
 )
+
+const errCodeResourceNotFound = "ResourceNotFoundException"

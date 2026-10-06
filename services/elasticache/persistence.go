@@ -28,20 +28,28 @@ const elasticacheSnapshotVersion = 1
 // preserved as-is here rather than "fixed" as part of this mechanical
 // datalayer swap.
 type clusterSnapshot struct {
-	CreatedAt                  time.Time  `json:"createdAt"`
-	Tags                       *tags.Tags `json:"tags,omitempty"`
-	ClusterID                  string     `json:"clusterID"`
-	Engine                     string     `json:"engine"`
-	EngineVersion              string     `json:"engineVersion"`
-	Status                     string     `json:"status"`
-	Endpoint                   string     `json:"endpoint"`
-	NodeType                   string     `json:"nodeType"`
-	ARN                        string     `json:"arn"`
-	CacheParameterGroupName    string     `json:"cacheParameterGroupName,omitempty"`
-	PreferredMaintenanceWindow string     `json:"preferredMaintenanceWindow,omitempty"`
-	SnapshotWindow             string     `json:"snapshotWindow,omitempty"`
-	Port                       int        `json:"port"`
-	NumCacheNodes              int        `json:"numCacheNodes"`
+	Tags                       *tags.Tags          `json:"tags,omitempty"`
+	AutoMinorVersionUpgrade    *bool               `json:"autoMinorVersionUpgrade,omitempty"`
+	CreatedAt                  time.Time           `json:"createdAt"`
+	ClusterID                  string              `json:"clusterID"`
+	Engine                     string              `json:"engine"`
+	EngineVersion              string              `json:"engineVersion"`
+	Status                     string              `json:"status"`
+	Endpoint                   string              `json:"endpoint"`
+	NodeType                   string              `json:"nodeType"`
+	ARN                        string              `json:"arn"`
+	CacheParameterGroupName    string              `json:"cacheParameterGroupName,omitempty"`
+	PreferredMaintenanceWindow string              `json:"preferredMaintenanceWindow,omitempty"`
+	SnapshotWindow             string              `json:"snapshotWindow,omitempty"`
+	NotificationTopicArn       string              `json:"notificationTopicArn,omitempty"`
+	NotificationTopicStatus    string              `json:"notificationTopicStatus,omitempty"`
+	NetworkType                string              `json:"networkType,omitempty"`
+	IPDiscovery                string              `json:"ipDiscovery,omitempty"`
+	SecurityGroupIDs           []string            `json:"securityGroupIds,omitempty"`
+	CacheSecurityGroupNames    []string            `json:"cacheSecurityGroupNames,omitempty"`
+	LogDeliveryConfigurations  []LogDeliveryConfig `json:"logDeliveryConfigurations,omitempty"`
+	Port                       int                 `json:"port"`
+	NumCacheNodes              int                 `json:"numCacheNodes"`
 }
 
 // backendSnapshot is the top-level on-disk shape for the ElastiCache backend.
@@ -126,6 +134,14 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 				SnapshotWindow:             c.SnapshotWindow,
 				Port:                       c.Port,
 				NumCacheNodes:              c.NumCacheNodes,
+				AutoMinorVersionUpgrade:    c.AutoMinorVersionUpgrade,
+				NotificationTopicArn:       c.NotificationTopicArn,
+				NotificationTopicStatus:    c.NotificationTopicStatus,
+				NetworkType:                c.NetworkType,
+				IPDiscovery:                c.IPDiscovery,
+				SecurityGroupIDs:           c.SecurityGroupIDs,
+				CacheSecurityGroupNames:    c.CacheSecurityGroupNames,
+				LogDeliveryConfigurations:  c.LogDeliveryConfigurations,
 			}
 		}
 
@@ -191,6 +207,14 @@ func restoreClusterRegion(items []*clusterSnapshot) []*Cluster {
 			SnapshotWindow:             cs.SnapshotWindow,
 			Port:                       cs.Port,
 			NumCacheNodes:              cs.NumCacheNodes,
+			AutoMinorVersionUpgrade:    cs.AutoMinorVersionUpgrade,
+			NotificationTopicArn:       cs.NotificationTopicArn,
+			NotificationTopicStatus:    cs.NotificationTopicStatus,
+			NetworkType:                cs.NetworkType,
+			IPDiscovery:                cs.IPDiscovery,
+			SecurityGroupIDs:           cs.SecurityGroupIDs,
+			CacheSecurityGroupNames:    cs.CacheSecurityGroupNames,
+			LogDeliveryConfigurations:  cs.LogDeliveryConfigurations,
 		}
 	}
 

@@ -267,7 +267,7 @@ func TestServiceConnect_Roundtrip(t *testing.T) {
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
 	svc := out["service"].(map[string]any)
-	sc := svc["serviceConnectConfiguration"].(map[string]any)
+	sc := primaryServiceConnect(t, svc)
 	assert.Equal(t, true, sc["enabled"])
 	assert.Equal(t, "my-namespace", sc["namespace"])
 
@@ -309,7 +309,7 @@ func TestServiceConnect_Disabled(t *testing.T) {
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
 	svc := out["service"].(map[string]any)
-	sc := svc["serviceConnectConfiguration"].(map[string]any)
+	sc := primaryServiceConnect(t, svc)
 	assert.Equal(t, false, sc["enabled"])
 }
 
@@ -343,7 +343,7 @@ func TestServiceConnect_UpdateService(t *testing.T) {
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(updateResp.Body.Bytes(), &out))
 	svc := out["service"].(map[string]any)
-	sc := svc["serviceConnectConfiguration"].(map[string]any)
+	sc := primaryServiceConnect(t, svc)
 	assert.Equal(t, true, sc["enabled"])
 	assert.Equal(t, "updated-ns", sc["namespace"])
 }
@@ -462,4 +462,25 @@ func TestServiceDiscovery_DescribeServices_Preserved(t *testing.T) {
 	assert.Len(t, registries, 1)
 	assert.Equal(t, "arn:aws:servicediscovery:us-east-1:000000000000:service/srv-cccc",
 		registries[0].(map[string]any)["registryArn"])
+}
+
+// primaryServiceConnect returns the PRIMARY deployment's serviceConnectConfiguration; types.Service has no such member.
+func primaryServiceConnect(t *testing.T, svc map[string]any) map[string]any {
+	t.Helper()
+
+	assert.NotContains(t, svc, "serviceConnectConfiguration")
+
+	for _, d := range svc["deployments"].([]any) {
+		dep := d.(map[string]any)
+		if dep["status"] == "PRIMARY" {
+			sc, ok := dep["serviceConnectConfiguration"].(map[string]any)
+			require.True(t, ok, "PRIMARY deployment must carry serviceConnectConfiguration")
+
+			return sc
+		}
+	}
+
+	require.Fail(t, "no PRIMARY deployment")
+
+	return nil
 }

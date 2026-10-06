@@ -95,6 +95,8 @@ type StorageBackend interface {
 
 	// Launch instances
 	LaunchInstances(groupName string, count int32) ([]Instance, error)
+	LaunchInstancesIn(groupName string, count int32, zones []string) ([]Instance, error)
+	GroupInstances(groupName string, instanceIDs []string) ([]Instance, error)
 
 	// Predictive scaling
 	GetPredictiveScalingForecast(groupName string) error

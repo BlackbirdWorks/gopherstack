@@ -675,6 +675,12 @@ func (n *noopBackend) CreateDeployment(_ string, _ string, _ string) (*apigatewa
 	return nil, errNoopNotImplemented
 }
 
+func (n *noopBackend) CreateDeploymentWithCanary(
+	_, _, _ string, _ *apigateway.CanarySettings,
+) (*apigateway.Deployment, error) {
+	return nil, errNoopNotImplemented
+}
+
 func (n *noopBackend) GetDeployment(_ string, _ string) (*apigateway.Deployment, error) {
 	return nil, errNoopNotImplemented
 }

@@ -2,6 +2,7 @@ package awsconfig
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -145,6 +146,13 @@ func (b *InMemoryBackend) ListAggregateDiscoveredResources(
 // for discovery, and a configuration-history entry is appended whenever the
 // configuration actually changes (mirroring AWS Config which records on change).
 func (b *InMemoryBackend) PutResourceConfig(resourceType, resourceID, configuration string) error {
+	return b.PutResourceConfigNamed(resourceType, resourceID, configuration, "", nil)
+}
+
+// PutResourceConfigNamed is PutResourceConfig plus the optional ResourceName and Tags members.
+func (b *InMemoryBackend) PutResourceConfigNamed(
+	resourceType, resourceID, configuration, resourceName string, resourceTags map[string]string,
+) error {
 	b.mu.Lock("PutResourceConfig")
 	defer b.mu.Unlock()
 
@@ -153,6 +161,8 @@ func (b *InMemoryBackend) PutResourceConfig(resourceType, resourceID, configurat
 	item := ResourceConfigItem{
 		ResourceType:                 resourceType,
 		ResourceID:                   resourceID,
+		ResourceName:                 resourceName,
+		Tags:                         maps.Clone(resourceTags),
 		Configuration:                configuration,
 		ConfigurationItemCaptureTime: float64(b.now().Unix()),
 	}

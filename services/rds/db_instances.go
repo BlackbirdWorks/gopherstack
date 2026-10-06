@@ -1,6 +1,7 @@
 package rds
 
 import (
+	"cmp"
 	"fmt"
 	"net/url"
 	"slices"
@@ -149,6 +150,7 @@ func (b *InMemoryBackend) createDBInstanceLocked(
 		PerformanceInsightsKMSKeyID:        opts.PerformanceInsightsKMSKeyID,
 		PerformanceInsightsRetentionPeriod: opts.PerformanceInsightsRetentionPeriod,
 	}
+	applyCreateNetworkOpts(inst, opts)
 	b.instances.Put(inst)
 	b.publishInstanceEventLocked(id, "DB instance created")
 
@@ -198,6 +200,9 @@ func (b *InMemoryBackend) CreateDBInstance(
 		return nil, err
 	}
 	if err := ValidateEngineLifecycleSupport(opts.EngineLifecycleSupport); err != nil {
+		return nil, err
+	}
+	if err := validateNetworkType(opts.NetworkType); err != nil {
 		return nil, err
 	}
 
@@ -521,6 +526,9 @@ func applyDeferrableFields(inst *DBInstance, instanceClass string, allocatedStor
 
 // applyImmediateFields applies fields that always take effect right away regardless of ApplyImmediately.
 func (b *InMemoryBackend) applyImmediateFields(inst *DBInstance, opts DBInstanceOptions) error {
+	if err := b.applyInstanceNetworkOpts(inst, opts); err != nil {
+		return err
+	}
 	if opts.BackupRetentionPeriod >= 0 {
 		inst.BackupRetentionPeriod = opts.BackupRetentionPeriod
 	}
@@ -674,6 +682,9 @@ func (b *InMemoryBackend) ModifyDBInstance(
 	if err := b.guardEngineModify(id, opts.MasterUserPassword); err != nil {
 		return nil, err
 	}
+	if err := validateNetworkType(opts.NetworkType); err != nil {
+		return nil, err
+	}
 
 	return b.modifyDBInstanceLocked(id, instanceClass, allocatedStorage, opts)
 }
@@ -805,6 +816,7 @@ func (b *InMemoryBackend) RestoreDBInstanceToPointInTime(
 			IAMDatabaseAuthenticationEnabled: opts.IAMDatabaseAuthenticationEnabled,
 			UseDefaultProcessorFeatures:      opts.UseDefaultProcessorFeatures,
 			BackupTarget:                     opts.BackupTarget,
+			EnabledCloudwatchLogsExports:     opts.EnabledCloudwatchLogsExports,
 		}
 		applyVpcSecurityGroups(inst, opts.VpcSecurityGroupIDs)
 		b.instances.Put(inst)
@@ -940,18 +952,27 @@ func (b *InMemoryBackend) CreateDBInstanceReadReplica(
 		return nil, fmt.Errorf("%w: source instance %s not found", ErrInstanceNotFound, sourceID)
 	}
 
+	var inherited DBInstance
+	if source != nil {
+		inherited = *source
+	}
+
+	if opts.DBSubnetGroupName != "" && !b.subnetGroups.Has(opts.DBSubnetGroupName) {
+		return nil, fmt.Errorf("%w: subnet group %s not found", ErrSubnetGroupNotFound, opts.DBSubnetGroupName)
+	}
+
 	endpoint := fmt.Sprintf("%s.%s.%s.rds.amazonaws.com", id, b.accountID, b.region)
 	replica := &DBInstance{
 		DBInstanceIdentifier:               id,
 		DBInstanceArn:                      b.rdsARN("db", id),
 		DbiResourceID:                      id,
-		DBInstanceClass:                    instanceClass,
+		DBInstanceClass:                    cmp.Or(opts.DBInstanceClass, instanceClass),
 		Engine:                             engine,
 		EngineVersion:                      engineVersion,
 		DBInstanceStatus:                   instanceStatusAvailable,
 		MasterUsername:                     masterUser,
 		Endpoint:                           endpoint,
-		Port:                               port,
+		Port:                               cmp.Or(opts.DBPortNumber, port),
 		AllocatedStorage:                   allocatedStorage,
 		ReplicaSourceDBInstanceIdentifier:  sourceID,
 		DBParameterGroupName:               paramGroupName,
@@ -963,6 +984,7 @@ func (b *InMemoryBackend) CreateDBInstanceReadReplica(
 		PerformanceInsightsKMSKeyID:        opts.PerformanceInsightsKMSKeyID,
 		PerformanceInsightsRetentionPeriod: opts.PerformanceInsightsRetentionPeriod,
 	}
+	applyReplicaOverrides(replica, &inherited, opts)
 	applyVpcSecurityGroups(replica, opts.VpcSecurityGroupIDs)
 	b.instances.Put(replica)
 	b.publishInstanceEventLocked(id, "DB read replica created")
@@ -1213,6 +1235,9 @@ func (b *InMemoryBackend) RestoreDBInstanceFromS3(
 		UseDefaultProcessorFeatures:        opts.UseDefaultProcessorFeatures,
 		PerformanceInsightsKMSKeyID:        opts.PerformanceInsightsKMSKeyID,
 		PerformanceInsightsRetentionPeriod: opts.PerformanceInsightsRetentionPeriod,
+		PerformanceInsightsEnabled:         opts.PerformanceInsightsEnabled,
+		EnabledCloudwatchLogsExports:       opts.EnabledCloudwatchLogsExports,
+		VpcSecurityGroups:                  vpcSecurityGroupMemberships(opts.VpcSecurityGroupIDs),
 	}
 	b.instances.Put(inst)
 	b.instanceReadyAt[id] = time.Now().Add(instanceReadyDelaySeconds * time.Second)
@@ -1223,3 +1248,60 @@ func (b *InMemoryBackend) RestoreDBInstanceFromS3(
 }
 
 const instanceReadyDelaySeconds = 2
+
+const (
+	networkTypeIPv4 = "IPV4"
+	networkTypeDual = "DUAL"
+)
+
+// validateNetworkType accepts the documented NetworkType values (IPV4 | DUAL); empty means unset.
+func validateNetworkType(v string) error {
+	if v == "" || v == networkTypeIPv4 || v == networkTypeDual {
+		return nil
+	}
+
+	return fmt.Errorf("%w: NetworkType must be IPV4 or DUAL, got %q", ErrInvalidParameter, v)
+}
+
+// applyInstanceNetworkOpts applies the subnet group, network type and storage ceiling from a modify.
+func (b *InMemoryBackend) applyInstanceNetworkOpts(inst *DBInstance, opts DBInstanceOptions) error {
+	if opts.DBSubnetGroupName != "" {
+		if !b.subnetGroups.Has(opts.DBSubnetGroupName) {
+			return fmt.Errorf("%w: subnet group %s not found", ErrSubnetGroupNotFound, opts.DBSubnetGroupName)
+		}
+
+		inst.DBSubnetGroupName = opts.DBSubnetGroupName
+	}
+
+	inst.NetworkType = cmp.Or(opts.NetworkType, inst.NetworkType)
+	inst.MaxAllocatedStorage = cmp.Or(opts.MaxAllocatedStorage, inst.MaxAllocatedStorage)
+
+	return nil
+}
+
+// applyReplicaOverrides sets the replica members that default to the source (inherited) unless the request overrides.
+func applyReplicaOverrides(replica, inherited *DBInstance, opts DBInstanceOptions) {
+	replica.DBSubnetGroupName = cmp.Or(opts.DBSubnetGroupName, inherited.DBSubnetGroupName)
+	replica.StorageType = cmp.Or(opts.StorageType, inherited.StorageType)
+	replica.Iops = cmp.Or(opts.Iops, inherited.Iops)
+	replica.StorageThroughput = cmp.Or(opts.StorageThroughput, inherited.StorageThroughput)
+	replica.MaxAllocatedStorage = opts.MaxAllocatedStorage
+	replica.KmsKeyID = cmp.Or(opts.KmsKeyID, inherited.KmsKeyID)
+	replica.StorageEncrypted = inherited.StorageEncrypted || opts.KmsKeyID != ""
+	replica.MultiAZ = opts.MultiAZ
+	replica.PubliclyAccessible = opts.PubliclyAccessible
+	replica.AvailabilityZone = opts.AvailabilityZone
+	replica.MonitoringInterval = opts.MonitoringInterval
+	replica.MonitoringRoleArn = opts.MonitoringRoleArn
+	replica.DeletionProtection = opts.DeletionProtection
+	replica.CopyTagsToSnapshot = opts.CopyTagsToSnapshot
+	replica.PerformanceInsightsEnabled = opts.PerformanceInsightsEnabled
+	replica.EnabledCloudwatchLogsExports = opts.EnabledCloudwatchLogsExports
+	replica.NetworkType = cmp.Or(opts.NetworkType, inherited.NetworkType, networkTypeIPv4)
+}
+
+// applyCreateNetworkOpts sets the network type (default IPV4) and storage ceiling on a new instance.
+func applyCreateNetworkOpts(inst *DBInstance, opts DBInstanceOptions) {
+	inst.NetworkType = cmp.Or(opts.NetworkType, networkTypeIPv4)
+	inst.MaxAllocatedStorage = opts.MaxAllocatedStorage
+}

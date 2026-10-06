@@ -47,7 +47,8 @@ func TestDescribeTasks_TagResource_LiveSync_RealClient(t *testing.T) {
 	require.NoError(t, err)
 
 	describeOut, err := client.DescribeTasks(ctx, &ecssdk.DescribeTasksInput{
-		Tasks: []string{*taskArn},
+		Tasks:   []string{*taskArn},
+		Include: []ecstypes.TaskField{ecstypes.TaskFieldTags},
 	})
 	require.NoError(t, err)
 	require.Len(t, describeOut.Tasks, 1)
@@ -66,7 +67,8 @@ func TestDescribeTasks_TagResource_LiveSync_RealClient(t *testing.T) {
 	require.NoError(t, err)
 
 	describeOut, err = client.DescribeTasks(ctx, &ecssdk.DescribeTasksInput{
-		Tasks: []string{*taskArn},
+		Tasks:   []string{*taskArn},
+		Include: []ecstypes.TaskField{ecstypes.TaskFieldTags},
 	})
 	require.NoError(t, err)
 	require.Len(t, describeOut.Tasks, 1)

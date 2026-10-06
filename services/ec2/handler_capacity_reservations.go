@@ -26,6 +26,7 @@ type instanceConnectEndpointItem struct {
 type groupsForCapacityReservationResponse struct {
 	XMLName                     xml.Name `xml:"GetGroupsForCapacityReservationResponse"`
 	RequestID                   string   `xml:"requestId"`
+	NextToken                   string   `xml:"nextToken,omitempty"`
 	CapacityReservationGroupSet struct {
 		Items []struct {
 			GroupARN string `xml:"groupArn"`
@@ -166,7 +167,7 @@ func (h *Handler) handleGetGroupsForCapacityReservation(
 		)
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 type createInterruptibleCRAllocationResponse struct {
@@ -258,6 +259,7 @@ type getCapacityReservationUsageResponse struct {
 	InterruptibleCapacityAllocation *interruptibleCapacityAllocationItem `xml:"interruptibleCapacityAllocation,omitempty"`
 	XMLName                         xml.Name                             `xml:"GetCapacityReservationUsageResponse"`
 	RequestID                       string                               `xml:"requestId"`
+	NextToken                       string                               `xml:"nextToken,omitempty"`
 	CapacityReservationID           string                               `xml:"capacityReservationId,omitempty"`
 	InstanceType                    string                               `xml:"instanceType,omitempty"`
 	State                           string                               `xml:"state,omitempty"`
@@ -303,7 +305,7 @@ func (h *Handler) handleGetCapacityReservationUsage(vals url.Values, reqID strin
 		}
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 type capacityReservationTopologyItem struct {

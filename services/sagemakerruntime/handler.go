@@ -37,22 +37,23 @@ const (
 	// (an RFC 3339 timestamp with no fractional seconds), NOT an RFC 1123
 	// HTTP-date -- confirmed against botocore's sagemaker-runtime
 	// service-2.json.
-	newSessionExpiresLayout = "2006-01-02T15:04:05Z"
-	syncResponseBody        = "mock response from Gopherstack"
-	streamResponseBody      = "mock streaming response from Gopherstack"
-	headerCustomAttributes  = "X-Amzn-Sagemaker-Custom-Attributes"
-	headerNewSessionID      = "X-Amzn-Sagemaker-New-Session-Id"
-	headerClosedSessionID   = "X-Amzn-Sagemaker-Closed-Session-Id"
-	headerSessionID         = "X-Amzn-Sagemaker-Session-Id"
-	headerInferenceID       = "X-Amzn-Sagemaker-Inference-Id"
-	headerOutputLocation    = "X-Amzn-Sagemaker-Outputlocation"
-	headerFailureLocation   = "X-Amzn-Sagemaker-Failurelocation"
-	headerInputLocation     = "X-Amzn-Sagemaker-Inputlocation"
-	headerFilename          = "X-Amzn-Sagemaker-Filename"
-	headerAsyncAccept       = "X-Amzn-Sagemaker-Accept"
-	headerStreamContentType = "X-Amzn-Sagemaker-Content-Type"
-	headerTargetVariant     = "X-Amzn-Sagemaker-Target-Variant"
-	headerInvokedVariant    = "X-Amzn-Invoked-Production-Variant"
+	newSessionExpiresLayout     = "2006-01-02T15:04:05Z"
+	syncResponseBody            = "mock response from Gopherstack"
+	streamResponseBody          = "mock streaming response from Gopherstack"
+	headerCustomAttributes      = "X-Amzn-Sagemaker-Custom-Attributes"
+	headerNewSessionID          = "X-Amzn-Sagemaker-New-Session-Id"
+	headerClosedSessionID       = "X-Amzn-Sagemaker-Closed-Session-Id"
+	headerSessionID             = "X-Amzn-Sagemaker-Session-Id"
+	headerInferenceID           = "X-Amzn-Sagemaker-Inference-Id"
+	headerOutputLocation        = "X-Amzn-Sagemaker-Outputlocation"
+	headerFailureLocation       = "X-Amzn-Sagemaker-Failurelocation"
+	headerInputLocation         = "X-Amzn-Sagemaker-Inputlocation"
+	headerFilename              = "X-Amzn-Sagemaker-Filename"
+	headerS3OutputPathExtension = "X-Amzn-Sagemaker-S3outputpathextension"
+	headerAsyncAccept           = "X-Amzn-Sagemaker-Accept"
+	headerStreamContentType     = "X-Amzn-Sagemaker-Content-Type"
+	headerTargetVariant         = "X-Amzn-Sagemaker-Target-Variant"
+	headerInvokedVariant        = "X-Amzn-Invoked-Production-Variant"
 )
 
 // Event stream frame constants (AWS binary event stream protocol).
@@ -210,12 +211,13 @@ func (h *Handler) handleInvokeEndpointAsync(
 		))
 	}
 
-	async := h.Backend.RecordAsyncInvocation(
+	async := h.Backend.RecordAsyncInvocationWithExtension(
 		endpointName,
 		c.Request().Header.Get(headerInferenceID),
 		string(body),
 		c.Request().Header.Get(headerOutputLocation),
 		c.Request().Header.Get(headerFilename),
+		c.Request().Header.Get(headerS3OutputPathExtension),
 	)
 	out, err := json.Marshal(map[string]string{"InferenceId": async.InferenceID})
 	if err != nil {

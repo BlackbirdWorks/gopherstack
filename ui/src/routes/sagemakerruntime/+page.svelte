@@ -1,8 +1,8 @@
 <script lang="ts">
-	import { regionalClient } from '$lib/region-effect.svelte';
-	import { currentRegion } from '$lib/region.svelte';
-	import RegionChip from '$lib/components/RegionChip.svelte';
-	import { getSageMakerRuntimeClient } from '$lib/aws-client';
+	import { regionalClient } from '#lib/region-effect.svelte.ts';
+	import { currentRegion } from '#lib/region.svelte.ts';
+	import RegionChip from '#lib/components/RegionChip.svelte';
+	import { getSageMakerRuntimeClient } from '#lib/aws-client.ts';
 	import {
 		InvokeEndpointCommand,
 		InvokeEndpointAsyncCommand,

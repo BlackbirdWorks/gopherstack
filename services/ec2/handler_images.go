@@ -1219,8 +1219,9 @@ type describeImagesResponse struct {
 }
 
 type regionItem struct {
-	RegionName string `xml:"regionName"`
-	Endpoint   string `xml:"regionEndpoint"`
+	RegionName  string `xml:"regionName"`
+	Endpoint    string `xml:"regionEndpoint"`
+	OptInStatus string `xml:"optInStatus,omitempty"`
 }
 
 type regionItemSet struct {
@@ -1236,6 +1237,7 @@ type describeRegionsResponse struct {
 
 type azItem struct {
 	ZoneName    string `xml:"zoneName"`
+	ZoneID      string `xml:"zoneId,omitempty"`
 	RegionName  string `xml:"regionName"`
 	State       string `xml:"zoneState"`
 	GroupName   string `xml:"groupName,omitempty"`
@@ -1468,8 +1470,9 @@ func (h *Handler) handleDescribeRegions(vals url.Values, reqID string) (any, err
 	items := make([]regionItem, 0, len(regions))
 	for _, r := range regions {
 		items = append(items, regionItem{
-			RegionName: r,
-			Endpoint:   fmt.Sprintf("ec2.%s.amazonaws.com", r),
+			RegionName:  r,
+			Endpoint:    fmt.Sprintf("ec2.%s.amazonaws.com", r),
+			OptInStatus: regionOptInStatus(r),
 		})
 	}
 
@@ -1495,6 +1498,7 @@ func (h *Handler) handleDescribeAvailabilityZones(vals url.Values, reqID string)
 	for _, az := range azs {
 		items = append(items, azItem{
 			ZoneName:    az,
+			ZoneID:      availabilityZoneID(az),
 			RegionName:  effectiveRegion,
 			State:       stateAvailable,
 			GroupName:   effectiveRegion + "-zg-1",
@@ -1564,6 +1568,8 @@ func azItemMatchesFilter(item azItem, filterName string, values []string) bool {
 		return anyEqual(item.GroupName, values)
 	case "zone-name":
 		return anyEqual(item.ZoneName, values)
+	case zoneIDFilterKey:
+		return anyEqual(item.ZoneID, values)
 	case "region-name":
 		return anyEqual(item.RegionName, values)
 	case filterKeyState:

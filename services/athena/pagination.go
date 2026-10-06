@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -148,4 +149,48 @@ func (c *pageTokenCodec) paginateQueryExecutionIDs(
 	}
 
 	return ids, token, nil
+}
+
+const defaultListPageSize = 50
+
+// pageByKey sorts items by key and returns one page plus the next opaque token.
+func pageByKey[T any](
+	c *pageTokenCodec, items []T, key func(T) string, maxResults int, nextToken string,
+) ([]T, string, error) {
+	sorted := slices.Clone(items)
+	slices.SortFunc(sorted, func(a, b T) int { return strings.Compare(key(a), key(b)) })
+
+	limit := defaultListPageSize
+	if maxResults > 0 && maxResults < limit {
+		limit = maxResults
+	}
+
+	start := 0
+
+	if nextToken != "" {
+		boundary, err := c.decode(nextToken)
+		if err != nil {
+			return nil, "", err
+		}
+
+		start = sort.Search(len(sorted), func(i int) bool { return key(sorted[i]) >= boundary })
+	}
+
+	sorted = sorted[start:]
+
+	token := ""
+	if len(sorted) > limit {
+		token = c.encode(key(sorted[limit]))
+		sorted = sorted[:limit]
+	}
+
+	return sorted, token, nil
+}
+
+func withNextToken(resp map[string]any, token string) map[string]any {
+	if token != "" {
+		resp["NextToken"] = token
+	}
+
+	return resp
 }

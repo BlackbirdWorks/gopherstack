@@ -200,6 +200,11 @@ func TestTokenValidity_StoredAndReturned(t *testing.T) {
 				createBody["TokenValidityUnits"] = tt.units
 			}
 
+			wantRefresh := tt.refreshTokenValidity
+			if wantRefresh == 0 {
+				wantRefresh = 30 // documented default
+			}
+
 			rec := doCognitoRequest(t, h, "CreateUserPoolClient", createBody)
 			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
@@ -215,7 +220,7 @@ func TestTokenValidity_StoredAndReturned(t *testing.T) {
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
 			assert.Equal(t, tt.accessTokenValidity, createResp.UserPoolClient.AccessTokenValidity)
 			assert.Equal(t, tt.idTokenValidity, createResp.UserPoolClient.IDTokenValidity)
-			assert.Equal(t, tt.refreshTokenValidity, createResp.UserPoolClient.RefreshTokenValidity)
+			assert.Equal(t, wantRefresh, createResp.UserPoolClient.RefreshTokenValidity)
 			if tt.units != nil {
 				for k, v := range tt.units {
 					assert.Equal(t, v, createResp.UserPoolClient.TokenValidityUnits[k])
@@ -240,7 +245,7 @@ func TestTokenValidity_StoredAndReturned(t *testing.T) {
 			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
 			assert.Equal(t, tt.accessTokenValidity, descResp.UserPoolClient.AccessTokenValidity)
 			assert.Equal(t, tt.idTokenValidity, descResp.UserPoolClient.IDTokenValidity)
-			assert.Equal(t, tt.refreshTokenValidity, descResp.UserPoolClient.RefreshTokenValidity)
+			assert.Equal(t, wantRefresh, descResp.UserPoolClient.RefreshTokenValidity)
 		})
 	}
 }

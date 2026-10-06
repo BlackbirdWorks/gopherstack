@@ -15,7 +15,6 @@ var (
 	ErrExecutionDoesNotExist           = errors.New("ExecutionDoesNotExist")
 	ErrExecutionNotRedrivable          = errors.New("ExecutionNotRedrivable")
 	ErrInvalidDefinition               = errors.New("InvalidDefinition")
-	ErrInvalidExecutionType            = errors.New("InvalidExecutionType")
 	ErrStateMachineTypeNotSupported    = errors.New("StateMachineTypeNotSupported")
 	ErrInvalidRoleArn                  = errors.New("InvalidArn")
 	ErrInvalidStateMachineArn          = errors.New("InvalidArn")

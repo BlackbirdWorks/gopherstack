@@ -1,6 +1,7 @@
 package inspector2
 
 import (
+	"cmp"
 	"fmt"
 	"slices"
 	"sort"
@@ -25,11 +26,14 @@ const (
 	cisCheckStatusFailed = "FAILED"
 
 	cisLevel1        = "LEVEL_1"
+	cisLevel2        = "LEVEL_2"
 	cisPlatform      = "AMAZON_LINUX_2"
 	cisReportSuccess = "SUCCEEDED"
 
-	keyScanArn  = "scanArn"
-	keyPlatform = "platform"
+	keyScanArn          = "scanArn"
+	keyPlatform         = "platform"
+	keyCheckID          = "checkId"
+	keyTargetResourceID = "targetResourceId"
 )
 
 // cisScanNameMinLen/cisScanNameMaxLen enforce the real, documented length
@@ -60,6 +64,14 @@ func validateCisScanName(name string) error {
 	return nil
 }
 
+func validateCisSecurityLevel(level string) error {
+	if level != "" && level != cisLevel1 && level != cisLevel2 {
+		return fmt.Errorf("%w: securityLevel must be LEVEL_1 or LEVEL_2, got %q", ErrValidation, level)
+	}
+
+	return nil
+}
+
 func (b *InMemoryBackend) buildCisScanConfigARN() string {
 	return arn.Build(inspector2Service, b.region, b.accountID, "cis-scan-configuration/"+uuid.New().String())
 }
@@ -70,7 +82,7 @@ func (b *InMemoryBackend) buildCisScanARN() string {
 
 // CreateCisScanConfiguration creates a new CIS scan configuration.
 func (b *InMemoryBackend) CreateCisScanConfiguration(
-	name string,
+	name, securityLevel string,
 	schedule map[string]any,
 	targets map[string]any,
 	tags map[string]string,
@@ -86,14 +98,19 @@ func (b *InMemoryBackend) CreateCisScanConfiguration(
 		return nil, err
 	}
 
+	if err := validateCisSecurityLevel(securityLevel); err != nil {
+		return nil, err
+	}
+
 	cfgARN := b.buildCisScanConfigARN()
 	cfg := &CisScanConfiguration{
-		Arn:        cfgARN,
-		Name:       name,
-		OwnedBy:    b.accountID,
-		Tags:       tags,
-		ScheduleV2: schedule,
-		Targets:    targets,
+		Arn:           cfgARN,
+		Name:          name,
+		OwnedBy:       b.accountID,
+		Tags:          tags,
+		ScheduleV2:    schedule,
+		Targets:       targets,
+		SecurityLevel: cmp.Or(securityLevel, cisLevel1),
 	}
 	b.cisScanConfigs.Put(cfg)
 
@@ -189,7 +206,7 @@ func (b *InMemoryBackend) buildCisScanForConfig(cfg *CisScanConfiguration) *CisS
 		ScanConfigurationArn: cfg.Arn,
 		ScanName:             cfg.Name,
 		Status:               cisScanStatusCompleted,
-		SecurityLevel:        cisLevel1,
+		SecurityLevel:        cmp.Or(cfg.SecurityLevel, cisLevel1),
 		ScheduledAt:          now,
 		FinishedAt:           now,
 		TargetAccountID:      accounts[0],
@@ -221,8 +238,7 @@ func (b *InMemoryBackend) DeleteCisScanConfiguration(configARN string) error {
 
 // UpdateCisScanConfiguration updates a CIS scan configuration.
 func (b *InMemoryBackend) UpdateCisScanConfiguration(
-	configARN string,
-	name string,
+	configARN, name, securityLevel string,
 	schedule map[string]any,
 	targets map[string]any,
 ) (*CisScanConfiguration, error) {
@@ -240,6 +256,14 @@ func (b *InMemoryBackend) UpdateCisScanConfiguration(
 		}
 
 		cfg.Name = name
+	}
+
+	if securityLevel != "" {
+		if err := validateCisSecurityLevel(securityLevel); err != nil {
+			return nil, err
+		}
+
+		cfg.SecurityLevel = securityLevel
 	}
 
 	if schedule != nil {
@@ -385,14 +409,14 @@ func (b *InMemoryBackend) GetCisScanResultDetails(scanArn, accountID, targetReso
 			continue
 		}
 		entry := map[string]any{
-			keyScanArn:         scan.ScanArn,
-			"checkId":          r.CheckID,
-			"checkDescription": r.CheckDescr,
-			keyLevel:           r.Level,
-			keyPlatform:        r.Platform,
-			keyStatus:          r.Status,
-			keyAccountID:       r.AccountID,
-			"targetResourceId": r.TargetID,
+			keyScanArn:          scan.ScanArn,
+			keyCheckID:          r.CheckID,
+			"checkDescription":  r.CheckDescr,
+			keyLevel:            r.Level,
+			keyPlatform:         r.Platform,
+			keyStatus:           r.Status,
+			keyAccountID:        r.AccountID,
+			keyTargetResourceID: r.TargetID,
 		}
 		if r.StatusReason != "" {
 			entry["statusReason"] = r.StatusReason
@@ -490,7 +514,7 @@ func (b *InMemoryBackend) ListCisScanResultsAggregatedByChecks(scanArn string) (
 		a := aggs[id]
 		result = append(result, map[string]any{
 			keyScanArn:         scan.ScanArn,
-			"checkId":          id,
+			keyCheckID:         id,
 			"checkDescription": a.descr,
 			keyLevel:           a.level,
 			keyPlatform:        a.platform,
@@ -554,10 +578,10 @@ func (b *InMemoryBackend) ListCisScanResultsAggregatedByTargetResource(
 	for _, tid := range order {
 		a := aggs[tid]
 		result = append(result, map[string]any{
-			keyScanArn:         scan.ScanArn,
-			"targetResourceId": tid,
-			keyAccountID:       a.accountID,
-			keyPlatform:        a.platform,
+			keyScanArn:          scan.ScanArn,
+			keyTargetResourceID: tid,
+			keyAccountID:        a.accountID,
+			keyPlatform:         a.platform,
 			"statusCounts": map[string]any{
 				"passed":  a.passed,
 				"failed":  a.failed,

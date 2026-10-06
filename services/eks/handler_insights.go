@@ -179,7 +179,7 @@ func insightsRefreshToJSON(refresh *InsightsRefresh) map[string]any {
 // Recommendation (remediation advice) instead of the actual reasoning for
 // the status.
 func insightStatusToJSON(ins *Insight) map[string]any {
-	m := map[string]any{"status": ins.Status}
+	m := map[string]any{keyStatusField: ins.Status}
 	if ins.StatusReason != "" {
 		m["reason"] = ins.StatusReason
 	}

@@ -44,10 +44,10 @@ type describePolicyResponse struct {
 }
 
 type updatePolicyRequest struct {
-	PolicyID    string `json:"PolicyId"`
-	Name        string `json:"Name,omitempty"`
-	Description string `json:"Description,omitempty"`
-	Content     string `json:"Content,omitempty"`
+	Description *string `json:"Description,omitempty"`
+	PolicyID    string  `json:"PolicyId"`
+	Name        string  `json:"Name,omitempty"`
+	Content     string  `json:"Content,omitempty"`
 }
 
 type updatePolicyResponse struct {

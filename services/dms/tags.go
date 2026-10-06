@@ -79,6 +79,10 @@ func (b *InMemoryBackend) findResourceTags(region, resourceArn string) *tags.Tag
 		return cert.Tags
 	}
 
+	if run, ok := b.assessmentRuns.Get(regionKey(region, resourceArn)); ok {
+		return run.Tags
+	}
+
 	// Fallback: terraform-provider-aws builds the tag-lookup ARN for some DMS
 	// resources (e.g. replication subnet groups, event subscriptions) using
 	// its own notion of account id, which is empty under

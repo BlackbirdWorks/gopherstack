@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"testing"
 	"time"
 
@@ -211,8 +212,17 @@ func TestACMPCA_IssueCertificate_ValidityTypes(t *testing.T) {
 	}
 }
 
+func endDateUTCTime(t *testing.T, at time.Time) int64 {
+	t.Helper()
+
+	v, err := strconv.ParseInt(at.UTC().Format("060102150405"), 10, 64)
+	require.NoError(t, err)
+
+	return v
+}
+
 // TestACMPCA_IssueCertificate_EndDateValidity verifies that IssueCertificate supports
-// END_DATE validity type (absolute epoch seconds), matching real AWS ACM PCA behavior.
+// END_DATE validity type (UTCTime digits), matching the SDK's Validity docs.
 func TestACMPCA_IssueCertificate_EndDateValidity(t *testing.T) {
 	t.Parallel()
 
@@ -238,7 +248,7 @@ func TestACMPCA_IssueCertificate_EndDateValidity(t *testing.T) {
 	csr, err := h.Backend.GetCertificateAuthorityCsr(context.Background(), subCA.ARN)
 	require.NoError(t, err)
 
-	endDate := time.Now().Add(365 * 24 * time.Hour).Unix()
+	endDate := endDateUTCTime(t, time.Now().Add(365*24*time.Hour))
 
 	rec := doACMPCARequest(t, h, "IssueCertificate", map[string]any{
 		"CertificateAuthorityArn": rootCA.ARN,
@@ -273,7 +283,7 @@ func TestACMPCA_IssueCertificate_ValidityTypeAliases(t *testing.T) {
 		{"days", "DAYS", 365},
 		{"months", "MONTHS", 12},
 		{"years", "YEARS", 1},
-		{"end_date", "END_DATE", time.Now().Add(365 * 24 * time.Hour).Unix()},
+		{"end_date", "END_DATE", endDateUTCTime(t, time.Now().Add(365*24*time.Hour))},
 		{"absolute", "ABSOLUTE", time.Now().Add(365 * 24 * time.Hour).Unix()},
 	}
 

@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 14 (14 ok) |
 | Feature families | 4 (4 ok) |
-| Known gaps | 4 |
+| Known gaps | 3 |
 | Deferred items | 2 |
 | Resource leaks | clean |
 
@@ -17,8 +17,7 @@
 
 - DescribeScalingActivities accepts IncludeNotScaledActivities (now threaded into the backend filter, and the response shape now has NotScaledReasons/Details fields) but it remains observably vacuous: gopherstack's mock backend never generates "not scaled" activities (no real metric evaluation loop exists to decide not-to-scale), so there is nothing to surface regardless of the flag's value. Verified vacuous, not a fabricated stub -- generating fake not-scaled events would be worse than reporting none. Re-confirmed this pass (gopherstack-cdxe): implementing this honestly would require a real metric-evaluation loop against real CloudWatch data, out of scope.
 - GetPredictiveScalingForecast returns zero data points for CapacityForecast/LoadForecast rather than any real forecasting simulation (DOWNGRADED this pass from a fabricated flat 10.0-per-hour curve -- see the op table entry). Producing a genuine forecast would require an actual ML/statistical model over real historical CloudWatch metric data gopherstack does not have; honest-empty is the correct terminal state here, not a stopgap.
-- PolicyType/ScalableDimension/ServiceNamespace enum values are accepted permissively (no allowlist validation) rather than validated against the real AWS enum lists. Consistent with this codebase's general emulator philosophy of not over-validating; not treated as a bug. Re-confirmed this pass (gopherstack-cdxe) against that stated philosophy -- no change made.
-- DISCLOSED, NOT FIXED (2026-08-20 sweep): DescribeScalableTargets' scalableTargetSummary wire struct (handler_scalable_targets.go) emits `Tags` and `LastModifiedTime` fields that do not exist on the real SDK's `types.ScalableTarget` (confirmed by reading the full struct in the pinned v1.45.4 types.go -- it has exactly CreationTime/MaxCapacity/MinCapacity/ResourceId/RoleARN/ScalableDimension/ServiceNamespace/PredictedCapacity/ScalableTargetARN/SuspendedState, no Tags, no LastModifiedTime). Same pattern on DescribeScheduledActions' scheduledActionSummary: it emits `LastModifiedTime`, which `types.ScheduledAction` also does not have. Both are real backend state (not fabricated values), and a real aws-sdk-go-v2 client's JSON unmarshal into the typed SDK struct silently ignores unrecognized keys -- so unlike the GetPredictiveScalingForecast bug this pass fixed, these do not break a real client and are not one of the five wire-breaking bug shapes (missing member, wrong nesting, wrong type, case mismatch, wrong value/invented enum). Left as-is rather than manufacturing a fix for a non-breaking, additive deviation; flagged here for visibility if a future pass wants strict shape purism.
+- ServiceNamespace/ScalableDimension are validated against the SDK enums on Register/PutScalingPolicy/PutScheduledAction (dimension must lead with its namespace) and as Describe* filters (enum membership only; the pairing check on a filter is unverified against AWS). Per-namespace ResourceId format and the real supported namespace/dimension combinations beyond that prefix rule are not validated.
 
 ### Deferred
 

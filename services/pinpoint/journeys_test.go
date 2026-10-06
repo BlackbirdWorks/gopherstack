@@ -696,8 +696,7 @@ func TestJourneyARNPresent(t *testing.T) {
 
 	var resp map[string]any
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
-	assert.NotEmpty(t, resp["Arn"])
-	assert.Contains(t, resp["Arn"].(string), appID)
+	assert.NotContains(t, resp, "Arn")
 }
 
 // ──────────────────────────────────────────────────

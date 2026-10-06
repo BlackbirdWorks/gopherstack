@@ -166,6 +166,10 @@ func (b *InMemoryBackend) advanceClusterLocked(c *Cluster) {
 	case statusCreating, statusUpdating:
 		c.Status = statusActive
 		c.PendingUntil = time.Time{}
+
+		if c.MultiRegion != nil && !b.mutuallyPeeredLocked(c) {
+			c.Status = statusPendingSetup
+		}
 	}
 }
 

@@ -113,7 +113,7 @@ type updateQueueInput struct {
 	ReservationPlanSettings *ReservationPlan `json:"reservationPlanSettings,omitempty"`
 	ConcurrentJobs          *int             `json:"concurrentJobs,omitempty"`
 	MaximumConcurrentFeeds  *int             `json:"maximumConcurrentFeeds,omitempty"`
-	Description             string           `json:"description,omitempty"`
+	Description             *string          `json:"description,omitempty"`
 	Status                  string           `json:"status,omitempty"`
 }
 

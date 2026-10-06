@@ -94,6 +94,7 @@ type describeSecondaryNetworksResponse struct {
 	XMLName             xml.Name `xml:"DescribeSecondaryNetworksResponse"`
 	Xmlns               string   `xml:"xmlns,attr"`
 	RequestID           string   `xml:"requestId"`
+	NextToken           string   `xml:"nextToken,omitempty"`
 	SecondaryNetworkSet struct {
 		Items []secondaryNetworkItem `xml:"item"`
 	} `xml:"secondaryNetworkSet"`
@@ -161,6 +162,7 @@ type describeSecondarySubnetsResponse struct {
 	XMLName            xml.Name `xml:"DescribeSecondarySubnetsResponse"`
 	Xmlns              string   `xml:"xmlns,attr"`
 	RequestID          string   `xml:"requestId"`
+	NextToken          string   `xml:"nextToken,omitempty"`
 	SecondarySubnetSet struct {
 		Items []secondarySubnetItem `xml:"item"`
 	} `xml:"secondarySubnetSet"`
@@ -208,6 +210,7 @@ type describeSecondaryInterfacesResponse struct {
 	XMLName               xml.Name `xml:"DescribeSecondaryInterfacesResponse"`
 	Xmlns                 string   `xml:"xmlns,attr"`
 	RequestID             string   `xml:"requestId"`
+	NextToken             string   `xml:"nextToken,omitempty"`
 	SecondaryInterfaceSet struct {
 		Items []secondaryInterfaceItem `xml:"item"`
 	} `xml:"secondaryInterfaceSet"`
@@ -253,6 +256,7 @@ type describeServiceLinkVirtualInterfacesResponse struct {
 	XMLName                        xml.Name `xml:"DescribeServiceLinkVirtualInterfacesResponse"`
 	Xmlns                          string   `xml:"xmlns,attr"`
 	RequestID                      string   `xml:"requestId"`
+	NextToken                      string   `xml:"nextToken,omitempty"`
 	ServiceLinkVirtualInterfaceSet struct {
 		Items []serviceLinkVirtualInterfaceItem `xml:"item"`
 	} `xml:"serviceLinkVirtualInterfaceSet"`
@@ -284,6 +288,7 @@ type describeOutpostLagsResponse struct {
 	XMLName       xml.Name `xml:"DescribeOutpostLagsResponse"`
 	Xmlns         string   `xml:"xmlns,attr"`
 	RequestID     string   `xml:"requestId"`
+	NextToken     string   `xml:"nextToken,omitempty"`
 	OutpostLagSet struct {
 		Items []outpostLagItem `xml:"item"`
 	} `xml:"outpostLagSet"`
@@ -331,7 +336,7 @@ func (h *Handler) handleDescribeSecondaryNetworks(vals url.Values, reqID string)
 		)
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 // ---- Handlers: Secondary Subnets ----
@@ -380,7 +385,7 @@ func (h *Handler) handleDescribeSecondarySubnets(vals url.Values, reqID string) 
 		)
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 // ---- Handlers: Secondary Interfaces / Outpost LAGs / Service Link VIFs ----
@@ -397,7 +402,7 @@ func (h *Handler) handleDescribeSecondaryInterfaces(vals url.Values, reqID strin
 		)
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 func (h *Handler) handleDescribeServiceLinkVirtualInterfaces(vals url.Values, reqID string) (any, error) {
@@ -414,7 +419,7 @@ func (h *Handler) handleDescribeServiceLinkVirtualInterfaces(vals url.Values, re
 		)
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 func (h *Handler) handleDescribeOutpostLags(vals url.Values, reqID string) (any, error) {
@@ -429,5 +434,5 @@ func (h *Handler) handleDescribeOutpostLags(vals url.Values, reqID string) (any,
 		)
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }

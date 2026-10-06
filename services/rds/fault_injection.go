@@ -47,8 +47,8 @@ func (b *InMemoryBackend) scheduleFailoverFaultCleanup(ctx context.Context, ids 
 //   - arn:aws:rds:{region}:{account}:{type}:{id}  → returns {id}
 func rdsIDFromARN(arnOrID string) string {
 	// Slash-delimited ARN: arn:aws:rds:…/{id}
-	if idx := strings.LastIndex(arnOrID, "/"); idx >= 0 {
-		return arnOrID[idx+1:]
+	if _, after, ok := strings.CutLast(arnOrID, "/"); ok {
+		return after
 	}
 
 	// Colon-delimited RDS ARN: arn:aws:rds:…:db:my-id

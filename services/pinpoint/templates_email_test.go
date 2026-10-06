@@ -210,7 +210,7 @@ func TestEmailTemplate_VersionBumpsOnUpdate(t *testing.T) {
 
 			for _, upd := range tc.updates {
 				rec := doPinpointRequest(t, h, http.MethodPut,
-					"/v1/templates/"+templateName+"/email", upd)
+					"/v1/templates/"+templateName+"/email?create-new-version=true", upd)
 				require.Equal(t, http.StatusAccepted, rec.Code)
 			}
 
@@ -445,6 +445,8 @@ func TestBackend_EmailTemplate_FullCRUD(t *testing.T) {
 		updateReq := pinpoint.ExportedCreateEmailTemplateRequest{
 			Subject:  "Updated subject",
 			HTMLPart: "<p>Updated HTML</p>",
+
+			CreateNewVersion: true,
 		}
 		updated, err := b.UpdateEmailTemplate("be-email-2", updateReq)
 		require.NoError(t, err)

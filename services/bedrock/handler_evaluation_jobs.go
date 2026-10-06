@@ -63,6 +63,8 @@ type createEvaluationJobInput struct {
 	JobDescription   string                     `json:"jobDescription,omitempty"`
 	RoleArn          string                     `json:"roleArn,omitempty"`
 	ApplicationType  string                     `json:"applicationType,omitempty"`
+	CustomerKeyID    string                     `json:"customerEncryptionKeyId,omitempty"`
+	ClientToken      string                     `json:"clientRequestToken,omitempty"`
 	Tags             []Tag                      `json:"jobTags,omitempty"`
 }
 
@@ -83,6 +85,7 @@ func (h *Handler) handleCreateEvaluationJob(c *echo.Context, body []byte) error 
 		JobDescription:   in.JobDescription,
 		RoleArn:          in.RoleArn,
 		ApplicationType:  in.ApplicationType,
+		CustomerKeyID:    in.CustomerKeyID,
 		EvaluationConfig: in.EvaluationConfig,
 		InferenceConfig:  in.InferenceConfig,
 	}
@@ -90,7 +93,11 @@ func (h *Handler) handleCreateEvaluationJob(c *echo.Context, body []byte) error 
 		opts.OutputDataConfig = OutputDataConfig{S3Uri: in.OutputDataConfig.S3Uri}
 	}
 
-	job, opErr := h.Backend.CreateEvaluationJob(in.JobName, in.Tags, opts)
+	job, opErr := idemCreate(
+		h.idem, "CreateEvaluationJob", in.ClientToken, idemFingerprint(in), ErrAlreadyExists,
+		func(j *EvaluationJob) string { return j.JobArn }, h.Backend.GetEvaluationJob,
+		func() (*EvaluationJob, error) { return h.Backend.CreateEvaluationJob(in.JobName, in.Tags, opts) },
+	)
 	if opErr != nil {
 		return h.writeError(c, opErr)
 	}
@@ -152,6 +159,9 @@ func (h *Handler) handleGetEvaluationJob(c *echo.Context, jobARN string) error {
 	}
 	if job.JobDescription != "" {
 		resp["jobDescription"] = job.JobDescription
+	}
+	if job.CustomerKeyID != "" {
+		resp["customerEncryptionKeyId"] = job.CustomerKeyID
 	}
 	if job.InferenceConfig != nil {
 		resp["inferenceConfig"] = job.InferenceConfig

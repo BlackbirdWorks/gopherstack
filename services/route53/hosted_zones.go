@@ -25,8 +25,10 @@ const (
 
 func randomZoneID() string { return randomID(zoneIDChars, zoneIDLength) }
 
-// normaliseName ensures the zone/record name ends with a dot.
+// normaliseName lowercases a zone/record name and ensures it ends with a dot, as Route 53 stores them.
 func normaliseName(name string) string {
+	name = strings.ToLower(name)
+
 	if !strings.HasSuffix(name, ".") {
 		return name + "."
 	}
@@ -134,6 +136,14 @@ func (b *InMemoryBackend) registerChange() string {
 	})
 
 	return id
+}
+
+// RegisterChange is registerChange for callers not holding b.mu.
+func (b *InMemoryBackend) RegisterChange() string {
+	b.mu.Lock("RegisterChange")
+	defer b.mu.Unlock()
+
+	return b.registerChange()
 }
 
 // matchExistingHostedZone implements CreateHostedZone's CallerReference
@@ -427,6 +437,27 @@ func (b *InMemoryBackend) UpdateHostedZoneComment(zoneID, comment string) (*Host
 	return &cp, nil
 }
 
+// UpdateHostedZoneFeatures applies EnableAcceleratedRecovery; nil leaves the setting unchanged.
+func (b *InMemoryBackend) UpdateHostedZoneFeatures(zoneID string, enableAcceleratedRecovery *bool) error {
+	b.mu.Lock("UpdateHostedZoneFeatures")
+	defer b.mu.Unlock()
+
+	zd, ok := b.zones.Get(zoneID)
+	if !ok {
+		return fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, zoneID)
+	}
+
+	switch {
+	case enableAcceleratedRecovery == nil:
+	case *enableAcceleratedRecovery:
+		zd.zone.AcceleratedRecoveryStatus = acceleratedRecoveryEnabled
+	default:
+		zd.zone.AcceleratedRecoveryStatus = acceleratedRecoveryDisabled
+	}
+
+	return nil
+}
+
 // GetHostedZoneCount returns the total number of hosted zones.
 func (b *InMemoryBackend) GetHostedZoneCount() int {
 	b.mu.RLock("GetHostedZoneCount")
@@ -434,3 +465,8 @@ func (b *InMemoryBackend) GetHostedZoneCount() int {
 
 	return b.zones.Len()
 }
+
+const (
+	acceleratedRecoveryEnabled  = "ENABLED"
+	acceleratedRecoveryDisabled = "DISABLED"
+)

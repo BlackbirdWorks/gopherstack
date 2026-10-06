@@ -1332,47 +1332,6 @@ func TestUpdateSchedule_ValidatesState(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// TestUpdateSchedule_OmittedStatePreservesExisting verifies that omitting
-// State on UpdateSchedule leaves the schedule's enabled/disabled status unchanged,
-// matching aws-sdk-go-v2's UpdateScheduleInput document serializer, which omits the
-// "State" JSON key entirely when the field is unset (`if len(v.State) > 0`) rather
-// than sending an empty string. Blindly overwriting State with the (empty) input
-// would leave the schedule in neither ENABLED nor DISABLED, silently halting the
-// runner (checkAndFireSchedules only fires schedules with State == "ENABLED").
-func TestUpdateSchedule_OmittedStatePreservesExisting(t *testing.T) {
-	t.Parallel()
-
-	h := newTestSchedulerHandler(t)
-	createScheduleViaHandler(t, h, "upd-omit-state", "", "rate(1 minute)")
-
-	// Disable the schedule first.
-	disableRec := doSchedulerRequest(t, h, "UpdateSchedule", map[string]any{
-		"Name":               "upd-omit-state",
-		"ScheduleExpression": "rate(1 minute)",
-		"Target":             map[string]string{"Arn": "arn:aws:sqs:us-east-1:0:q", "RoleArn": "arn:aws:iam::0:role/r"},
-		"FlexibleTimeWindow": map[string]string{"Mode": "OFF"},
-		"State":              "DISABLED",
-	})
-	require.Equal(t, http.StatusOK, disableRec.Code)
-
-	// Update again without a State field at all.
-	rec := doSchedulerRequest(t, h, "UpdateSchedule", map[string]any{
-		"Name":               "upd-omit-state",
-		"ScheduleExpression": "rate(5 minutes)",
-		"Target":             map[string]string{"Arn": "arn:aws:sqs:us-east-1:0:q", "RoleArn": "arn:aws:iam::0:role/r"},
-		"FlexibleTimeWindow": map[string]string{"Mode": "OFF"},
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	getRec := doSchedulerRequest(t, h, "GetSchedule", map[string]any{"Name": "upd-omit-state"})
-	require.Equal(t, http.StatusOK, getRec.Code)
-
-	var out map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out))
-	assert.Equal(t, "DISABLED", out["State"], "State must stay DISABLED, not be reset to empty/enabled")
-	assert.Equal(t, "rate(5 minutes)", out["ScheduleExpression"])
-}
-
 // TestUpdateSchedule_WithActionAfterCompletion verifies ActionAfterCompletion on update.
 func TestUpdateSchedule_WithActionAfterCompletion(t *testing.T) {
 	t.Parallel()

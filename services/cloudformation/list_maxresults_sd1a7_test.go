@@ -69,7 +69,7 @@ func TestListResourceScans_MaxResults(t *testing.T) {
 
 	ids := make([]string, 0, 3)
 	for range 3 {
-		scanID, err := backend.StartResourceScan()
+		scanID, err := backend.StartResourceScan(nil)
 		require.NoError(t, err)
 		ids = append(ids, scanID)
 	}

@@ -3,6 +3,9 @@ package glue
 import (
 	"context"
 	"fmt"
+	"slices"
+	"strconv"
+	"strings"
 )
 
 type createCrawlerInput struct {
@@ -263,11 +266,14 @@ func (h *Handler) handleStopCrawlerSchedule(_ context.Context, in *stopCrawlerSc
 
 // getCrawlerMetricsInput holds input for GetCrawlerMetrics.
 type getCrawlerMetricsInput struct {
+	NextToken       string   `json:"NextToken,omitempty"`
 	CrawlerNameList []string `json:"CrawlerNameList"`
+	MaxResults      int32    `json:"MaxResults,omitempty"`
 }
 
 // getCrawlerMetricsOutput holds the result for GetCrawlerMetrics.
 type getCrawlerMetricsOutput struct {
+	NextToken          string            `json:"NextToken,omitempty"`
 	CrawlerMetricsList []*CrawlerMetrics `json:"CrawlerMetricsList"`
 }
 
@@ -275,9 +281,14 @@ func (h *Handler) handleGetCrawlerMetrics(
 	_ context.Context,
 	in *getCrawlerMetricsInput,
 ) (*getCrawlerMetricsOutput, error) {
-	metrics := h.Backend.GetCrawlerMetrics(in.CrawlerNameList)
+	metrics, next, err := pagedSlice(
+		h.Backend.GetCrawlerMetrics(in.CrawlerNameList), in.NextToken, in.MaxResults, defaultListPageSize,
+	)
+	if err != nil {
+		return nil, err
+	}
 
-	return &getCrawlerMetricsOutput{CrawlerMetricsList: metrics}, nil
+	return &getCrawlerMetricsOutput{CrawlerMetricsList: metrics, NextToken: next}, nil
 }
 
 // defaultListCrawlsLimit matches the real API's default page size (max 100).
@@ -285,9 +296,72 @@ const defaultListCrawlsLimit = 20
 
 // listCrawlsInput holds input for ListCrawls.
 type listCrawlsInput struct {
-	CrawlerName string `json:"CrawlerName"`
-	NextToken   string `json:"NextToken,omitempty"`
-	MaxResults  int32  `json:"MaxResults,omitempty"`
+	CrawlerName string         `json:"CrawlerName"`
+	NextToken   string         `json:"NextToken,omitempty"`
+	Filters     []crawlsFilter `json:"Filters,omitempty"`
+	MaxResults  int32          `json:"MaxResults,omitempty"`
+}
+
+// crawlsFilter mirrors types.CrawlsFilter.
+type crawlsFilter struct {
+	FieldName      string `json:"FieldName"`
+	FieldValue     string `json:"FieldValue"`
+	FilterOperator string `json:"FilterOperator"`
+}
+
+const millisPerSecond = 1000
+
+// crawlMatchesFilter evaluates one CrawlsFilter; START_TIME/END_TIME compare epoch
+// milliseconds and DPU_HOUR is not tracked, so it never matches (types.CrawlsFilter doc).
+func crawlMatchesFilter(e *CrawlHistoryEntry, f crawlsFilter) bool {
+	var cmp int
+
+	switch f.FieldName {
+	case "CRAWL_ID":
+		cmp = strings.Compare(e.CrawlID, f.FieldValue)
+	case "STATE":
+		cmp = strings.Compare(e.State, f.FieldValue)
+	case "START_TIME", "END_TIME":
+		have := e.StartTime
+		if f.FieldName == "END_TIME" {
+			have = e.EndTime
+		}
+
+		want, err := strconv.ParseFloat(f.FieldValue, 64)
+		if err != nil {
+			return false
+		}
+
+		cmp = compareFloat(have*millisPerSecond, want)
+	default:
+		return false
+	}
+
+	switch f.FilterOperator {
+	case "GT":
+		return cmp > 0
+	case "GE":
+		return cmp >= 0
+	case "LT":
+		return cmp < 0
+	case "LE":
+		return cmp <= 0
+	case "NE":
+		return cmp != 0
+	default:
+		return cmp == 0
+	}
+}
+
+func compareFloat(a, b float64) int {
+	switch {
+	case a < b:
+		return -1
+	case a > b:
+		return 1
+	default:
+		return 0
+	}
 }
 
 // crawlHistoryOut is a single crawl-history entry.
@@ -319,6 +393,10 @@ func (h *Handler) handleListCrawls(_ context.Context, in *listCrawlsInput) (*lis
 	if err != nil {
 		return nil, err
 	}
+
+	hist = slices.DeleteFunc(hist, func(e *CrawlHistoryEntry) bool {
+		return slices.ContainsFunc(in.Filters, func(f crawlsFilter) bool { return !crawlMatchesFilter(e, f) })
+	})
 
 	limit := int(in.MaxResults)
 	if limit <= 0 || limit > 100 {

@@ -2,6 +2,7 @@ package kafkaconnect_test
 
 import (
 	"encoding/base64"
+	"errors"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -117,12 +118,13 @@ func TestDeleteWorkerConfiguration(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, types.WorkerConfigurationStateDeleting, out.WorkerConfigurationState)
 
-	_, err = client.DescribeWorkerConfiguration(ctx, &kafkaconnectsdk.DescribeWorkerConfigurationInput{
-		WorkerConfigurationArn: created.WorkerConfigurationArn,
-	})
-	require.Error(t, err)
+	require.Eventually(t, func() bool {
+		_, descErr := client.DescribeWorkerConfiguration(ctx, &kafkaconnectsdk.DescribeWorkerConfigurationInput{
+			WorkerConfigurationArn: created.WorkerConfigurationArn,
+		})
 
-	var apiErr smithy.APIError
-	require.ErrorAs(t, err, &apiErr)
-	assert.Equal(t, "NotFoundException", apiErr.ErrorCode())
+		var apiErr smithy.APIError
+
+		return errors.As(descErr, &apiErr) && apiErr.ErrorCode() == "NotFoundException"
+	}, waitTimeout, waitTick)
 }

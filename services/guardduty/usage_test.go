@@ -61,7 +61,7 @@ func TestGetUsageStatistics_UsageStatisticType(t *testing.T) {
 	detID := createTestDetector(t, h)
 
 	rec := doRequest(t, h, http.MethodPost, "/detector/"+detID+"/usage/statistics", map[string]any{
-		"usageStatisticType": "SUM_BY_ACCOUNT",
+		"usageStatisticsType": "SUM_BY_ACCOUNT",
 	})
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
@@ -97,7 +97,7 @@ func TestGetUsageStatistics_SumByFeature_ReflectsEnabledFeatures(t *testing.T) {
 	detID := createResp["detectorId"].(string)
 
 	rec = doRequest(t, h, http.MethodPost, "/detector/"+detID+"/usage/statistics", map[string]any{
-		"usageStatisticType": "SUM_BY_FEATURES",
+		"usageStatisticsType": "SUM_BY_FEATURES",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 

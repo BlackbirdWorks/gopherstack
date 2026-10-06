@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/svelte";
 import IAMPage from "./+page.svelte";
-import { ALL_REGIONS, DEFAULT_REGION, setStoredRegion } from "$lib/region.svelte";
+import { ALL_REGIONS, DEFAULT_REGION, setStoredRegion } from "#lib/region.svelte.ts";
 import {
   ListUsersCommand,
   ListRolesCommand,
@@ -16,7 +16,7 @@ import {
 } from "@aws-sdk/client-iam";
 
 const mockSend = vi.fn();
-vi.mock("$lib/aws-client", () => ({ getIAMClient: () => ({ send: mockSend }) }));
+vi.mock("#lib/aws-client.ts", () => ({ getIAMClient: () => ({ send: mockSend }) }));
 vi.mock("svelte-sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 
 const mockUser = {

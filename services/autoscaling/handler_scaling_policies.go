@@ -502,14 +502,12 @@ func parsePredictiveScalingMetricSpecifications(
 			CustomizedCapacityMetricSpecification: customizedCapacity,
 		}
 
-		if targetStr != "" {
-			tv, parseErr := strconv.ParseFloat(targetStr, 64)
-			if parseErr != nil {
-				return nil, fmt.Errorf("%w: invalid %sTargetValue", ErrInvalidParameter, memberPrefix)
-			}
-
-			spec.TargetValue = tv
+		tv, parseErr := strconv.ParseFloat(targetStr, 64)
+		if parseErr != nil {
+			return nil, fmt.Errorf("%w: missing or invalid %sTargetValue", ErrInvalidParameter, memberPrefix)
 		}
+
+		spec.TargetValue = tv
 
 		specs = append(specs, spec)
 	}

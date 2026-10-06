@@ -59,6 +59,7 @@ type candidate struct {
 	Code            string
 	MapperReason    string
 	DemoteReason    string
+	Kind            string
 	Mechanism       mechanism
 	Line            int
 	pos             token.Pos
@@ -149,6 +150,8 @@ func extractCandidates(dir, repoRoot string) ([]candidate, error) {
 	applyUseSiteDemotions(files, pkgStrings, out)
 	applyFallbackDemotions(files, out)
 	applyDeadSentinelDemotions(files, dir, repoRoot, out)
+	applyUnroutedSentinels(files, dir, repoRoot, out)
+	applyKindClassification(files, structTypes, out)
 
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].File != out[j].File {
@@ -179,7 +182,7 @@ func parseNonTestDirFiles(fset *token.FileSet, dir string) ([]*ast.File, error) 
 			continue
 		}
 
-		f, perr := parser.ParseFile(fset, filepath.Join(dir, e.Name()), nil, 0)
+		f, perr := parser.ParseFile(fset, filepath.Join(dir, e.Name()), nil, parser.ParseComments)
 		if perr != nil {
 			return nil, perr
 		}

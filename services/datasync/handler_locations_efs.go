@@ -3,6 +3,8 @@ package datasync
 import (
 	"context"
 	"fmt"
+
+	dstypes "github.com/aws/aws-sdk-go-v2/service/datasync/types"
 )
 
 // --- EFS location ---
@@ -30,6 +32,13 @@ func (h *Handler) handleCreateLocationEfs(
 	_ context.Context,
 	in *createLocationEfsInput,
 ) (*createLocationEfsOutput, error) {
+	if err := checkEnum(
+		"InTransitEncryption",
+		dstypes.EfsInTransitEncryption(in.InTransitEncryption),
+	); err != nil {
+		return nil, err
+	}
+
 	if in.EfsFilesystemArn == "" {
 		return nil, fmt.Errorf("%w: EfsFilesystemArn is required", errInvalidRequest)
 	}
@@ -136,6 +145,13 @@ func (h *Handler) handleUpdateLocationEfs(
 	_ context.Context,
 	in *updateLocationEfsInput,
 ) (*updateLocationEfsOutput, error) {
+	if err := checkEnum(
+		"InTransitEncryption",
+		dstypes.EfsInTransitEncryption(in.InTransitEncryption),
+	); err != nil {
+		return nil, err
+	}
+
 	if in.LocationArn == "" {
 		return nil, fmt.Errorf("%w: LocationArn is required", errInvalidRequest)
 	}

@@ -137,7 +137,7 @@ func applyInstanceTopologyFilters(
 			return anyEqual(i.AvailabilityZone, values)
 		case filterKeyInstanceType:
 			return anyWildcardMatch(i.InstanceType, values)
-		case "zone-id":
+		case zoneIDFilterKey:
 			return anyEqual(i.ZoneID, values)
 		}
 
@@ -166,7 +166,7 @@ func applyInstanceImageMetadataFilters(
 			return anyEqual(i.InstanceType, values)
 		case filterKeyOwnerID:
 			return anyEqual(i.OwnerID, values)
-		case "zone-id":
+		case zoneIDFilterKey:
 			return anyEqual(i.ZoneID, values)
 		case "launch-time":
 			return matchesWildcardTimeFilter(i.LaunchTime.UTC().Format(timeLayoutISO), values)

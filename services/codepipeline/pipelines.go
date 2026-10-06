@@ -366,6 +366,12 @@ func (b *InMemoryBackend) StartPipelineExecutionWith(
 		return nil, ErrNotFound
 	}
 
+	if prior := b.replayStartedExecution(region, pipelineName, opts.ClientRequestToken); prior != nil {
+		cp := *prior
+
+		return &cp, nil
+	}
+
 	now := time.Now().UTC()
 	exec := &PipelineExecution{
 		PipelineName:        pipelineName,
@@ -383,6 +389,7 @@ func (b *InMemoryBackend) StartPipelineExecutionWith(
 
 	execs := b.executionsStore(region)
 	execs[pipelineName] = append(execs[pipelineName], exec)
+	b.rememberStartToken(region, pipelineName, opts.ClientRequestToken, exec.PipelineExecutionID)
 
 	b.runPipelineActions(region, p, exec)
 	exec.LastUpdateTime = time.Now().UTC()
@@ -390,6 +397,44 @@ func (b *InMemoryBackend) StartPipelineExecutionWith(
 	cp := *exec
 
 	return &cp, nil
+}
+
+// maxStartTokens bounds the ClientRequestToken replay memo; the oldest token is evicted first.
+const maxStartTokens = 1024
+
+// replayStartedExecution returns the execution a ClientRequestToken already started, or nil. Caller holds b.mu.
+func (b *InMemoryBackend) replayStartedExecution(region, pipelineName, token string) *PipelineExecution {
+	if token == "" {
+		return nil
+	}
+
+	id, ok := b.startTokens[region+"|"+pipelineName+"|"+token]
+	if !ok {
+		return nil
+	}
+
+	for _, e := range b.executionsStore(region)[pipelineName] {
+		if e.PipelineExecutionID == id {
+			return e
+		}
+	}
+
+	return nil
+}
+
+func (b *InMemoryBackend) rememberStartToken(region, pipelineName, token, executionID string) {
+	if token == "" {
+		return
+	}
+
+	key := region + "|" + pipelineName + "|" + token
+	b.startTokens[key] = executionID
+	b.startTokenOrder = append(b.startTokenOrder, key)
+
+	for len(b.startTokenOrder) > maxStartTokens {
+		delete(b.startTokens, b.startTokenOrder[0])
+		b.startTokenOrder = b.startTokenOrder[1:]
+	}
 }
 
 // StopPipelineExecution stops a pipeline execution. Real AWS transitions

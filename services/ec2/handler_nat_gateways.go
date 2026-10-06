@@ -208,6 +208,7 @@ type describeNatGatewaysResponse struct {
 	XMLName       xml.Name          `xml:"DescribeNatGatewaysResponse"`
 	Xmlns         string            `xml:"xmlns,attr"`
 	RequestID     string            `xml:"requestId"`
+	NextToken     string            `xml:"nextToken,omitempty"`
 	NatGatewaySet natGatewayItemSet `xml:"natGatewaySet"`
 }
 
@@ -338,9 +339,9 @@ func (h *Handler) handleDescribeNatGateways(vals url.Values, reqID string) (any,
 		items = append(items, toNatGatewayItem(ngw, h.Backend.TagsForResource(ngw.ID)))
 	}
 
-	return &describeNatGatewaysResponse{
+	return finishPaged(vals, &describeNatGatewaysResponse{
 		Xmlns:         ec2XMLNS,
 		RequestID:     reqID,
 		NatGatewaySet: natGatewayItemSet{Items: items},
-	}, nil
+	})
 }

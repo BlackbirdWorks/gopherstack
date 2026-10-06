@@ -347,12 +347,12 @@ func TestUpdateThingGroup_ExpectedVersionMismatch(t *testing.T) {
 	_, err = b.UpdateThingGroup(&iot.UpdateThingGroupInput{
 		ThingGroupName:  "ev-group",
 		Description:     aws.String("upd"),
-		ExpectedVersion: 99,
+		ExpectedVersion: aws.Int64(99),
 	})
 	require.ErrorIs(t, err, iot.ErrVersionConflict)
 }
 
-func TestUpdateThingGroup_ZeroExpectedVersion_Ignored(t *testing.T) {
+func TestUpdateThingGroup_OmittedExpectedVersion_Ignored(t *testing.T) {
 	t.Parallel()
 
 	_, b := newR3Handler()
@@ -360,9 +360,8 @@ func TestUpdateThingGroup_ZeroExpectedVersion_Ignored(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = b.UpdateThingGroup(&iot.UpdateThingGroupInput{
-		ThingGroupName:  "nocheck-group",
-		Description:     aws.String("updated"),
-		ExpectedVersion: 0,
+		ThingGroupName: "nocheck-group",
+		Description:    aws.String("updated"),
 	})
 	require.NoError(t, err)
 }

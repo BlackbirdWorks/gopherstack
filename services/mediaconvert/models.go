@@ -184,6 +184,7 @@ type jobsQuery struct {
 	order      string
 	filterList []map[string]any
 	maxResults int
+	offset     int
 }
 
 // tokenEntry records a ClientRequestToken for deduplication.

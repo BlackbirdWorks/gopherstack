@@ -38,7 +38,7 @@ func TestDeleteGraph_CleansUpDependentState(t *testing.T) {
 
 	require.NoError(t, b.DeleteGraph(g.Arn))
 
-	_, _, listErr := b.ListInvestigations(g.Arn, 0, "")
+	_, _, listErr := b.ListInvestigations(g.Arn, detective.InvestigationFilter{}, detective.InvestigationSort{}, 0, "")
 	require.ErrorIs(t, listErr, detective.ErrGraphNotFound)
 
 	after := b.Snapshot(ctx)

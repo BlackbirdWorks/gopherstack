@@ -2,6 +2,7 @@ package rekognition
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -24,15 +25,12 @@ func (b *InMemoryBackend) projectARN(name string) string {
 // api_op_CreateProject.go).
 const defaultProjectFeature = "CUSTOM_LABELS"
 
-// CreateProject creates a new Rekognition Custom Labels project.
-//
-// CreateProjectInput.Tags is deliberately NOT accepted here: unlike
-// Collection/StreamProcessor/model tags, TagResource's and
-// ListTagsForResource's own docs scope ResourceArn to "the model,
-// collection, or stream processor" -- Project ARNs are absent from both, so
-// this backend's own API surface has no read path that could ever observe
-// project tags, real or fabricated. Left disclosed rather than half-wired.
+// CreateProject creates a new Rekognition Custom Labels project; params.Tags are applied to its ARN.
 func (b *InMemoryBackend) CreateProject(name string, params CreateProjectParams) (*Project, error) {
+	if err := validateTags(params.Tags); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateProject")
 	defer b.mu.Unlock()
 
@@ -57,6 +55,10 @@ func (b *InMemoryBackend) CreateProject(name string, params CreateProjectParams)
 		Feature:    feature,
 	}
 	b.projects.Put(p)
+
+	if len(params.Tags) > 0 {
+		b.tags[arn] = maps.Clone(params.Tags)
+	}
 
 	return p.toProject(), nil
 }
@@ -95,6 +97,7 @@ func (b *InMemoryBackend) DeleteProject(projectARN string) error {
 	}
 
 	b.projects.Delete(projectARN)
+	delete(b.tags, projectARN)
 
 	return nil
 }

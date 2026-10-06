@@ -12,6 +12,7 @@ type createLogStreamInput struct {
 
 type describeLogStreamsInput struct {
 	LogGroupName        string `json:"logGroupName"`
+	LogGroupIdentifier  string `json:"logGroupIdentifier"`
 	LogStreamNamePrefix string `json:"logStreamNamePrefix"`
 	NextToken           string `json:"nextToken"`
 	OrderBy             string `json:"orderBy"`
@@ -62,9 +63,13 @@ func (h *Handler) logStreamActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
+			groupName, err := resolveLogGroupRef(input.LogGroupName, input.LogGroupIdentifier)
+			if err != nil {
+				return nil, err
+			}
 			streams, next, err := h.Backend.DescribeLogStreams(
 				ctx,
-				input.LogGroupName,
+				groupName,
 				input.LogStreamNamePrefix,
 				input.NextToken,
 				input.OrderBy,

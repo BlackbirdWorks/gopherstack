@@ -257,7 +257,7 @@ func (b *InMemoryBackend) DeleteResourceConfiguration(id string) error {
 // configurations, optionally filtered by resource gateway or group parent.
 func (b *InMemoryBackend) ListResourceConfigurations(
 	ctx context.Context,
-	resourceGatewayIdentifier, resourceConfigurationGroupIdentifier string,
+	resourceGatewayIdentifier, resourceConfigurationGroupIdentifier, domainVerificationIdentifier string,
 	maxResults int32,
 	nextToken string,
 ) ([]*ResourceConfigurationSummary, string, error) {
@@ -278,6 +278,11 @@ func (b *InMemoryBackend) ListResourceConfigurations(
 
 		if resourceConfigurationGroupIdentifier != "" &&
 			rc.ResourceConfigurationGroupID != resourceConfigurationGroupIdentifier {
+			continue
+		}
+
+		if domainVerificationIdentifier != "" &&
+			b.effectiveDomainVerificationID(rc) != domainVerificationIdentifier {
 			continue
 		}
 

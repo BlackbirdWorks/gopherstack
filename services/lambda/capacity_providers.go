@@ -111,23 +111,24 @@ func (b *InMemoryBackend) UpdateCapacityProvider(
 	return cloneCapacityProvider(cp), nil
 }
 
-// ListCapacityProviders returns all capacity providers.
-func (b *InMemoryBackend) ListCapacityProviders() []*CapacityProvider {
+// ListCapacityProviders returns one name-ordered page, optionally narrowed to a State.
+func (b *InMemoryBackend) ListCapacityProviders(state, marker string, maxItems int) page.Page[*CapacityProvider] {
 	b.mu.RLock("ListCapacityProviders")
 	defer b.mu.RUnlock()
 
-	cps := b.capacityProviders.All()
+	out := make([]*CapacityProvider, 0)
 
-	out := make([]*CapacityProvider, len(cps))
-	for i, cp := range cps {
-		out[i] = cloneCapacityProvider(cp)
+	for _, cp := range b.capacityProviders.All() {
+		if state == "" || cp.State == state {
+			out = append(out, cloneCapacityProvider(cp))
+		}
 	}
 
 	sort.Slice(out, func(i, j int) bool {
 		return out[i].Name < out[j].Name
 	})
 
-	return out
+	return page.New(out, marker, maxItems, lambdaDefaultMaxItems)
 }
 
 // SeedCapacityProviderFunctionVersions assigns the given function-version ARNs to

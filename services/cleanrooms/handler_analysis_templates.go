@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
+	crtypes "github.com/aws/aws-sdk-go-v2/service/cleanrooms/types"
 	"github.com/labstack/echo/v5"
 )
 
@@ -77,6 +78,8 @@ func (h *Handler) handleCreateAnalysisTemplate(_ context.Context, body []byte) (
 		Source               map[string]any             `json:"source"`
 		Tags                 map[string]string          `json:"tags"`
 		ErrorMessageConfig   *ErrorMessageConfiguration `json:"errorMessageConfiguration"`
+		SyntheticData        map[string]any             `json:"syntheticDataParameters"`
+		Schema               map[string]any             `json:"schema"`
 		MembershipIdentifier string                     `json:"membershipIdentifier"`
 		Name                 string                     `json:"name"`
 		Description          string                     `json:"description"`
@@ -84,6 +87,10 @@ func (h *Handler) handleCreateAnalysisTemplate(_ context.Context, body []byte) (
 		AnalysisParameters   []map[string]any           `json:"analysisParameters"`
 	}
 	_ = json.Unmarshal(body, &req)
+	if err := checkEnum("format", crtypes.AnalysisFormat(req.Format)); err != nil {
+		return nil, err
+	}
+
 	t, err := h.Backend.CreateAnalysisTemplate(
 		req.MembershipIdentifier,
 		req.Name,
@@ -92,7 +99,11 @@ func (h *Handler) handleCreateAnalysisTemplate(_ context.Context, body []byte) (
 		req.Source,
 		req.AnalysisParameters,
 		req.Tags,
-		AnalysisTemplateSettings{ErrorMessageConfiguration: req.ErrorMessageConfig},
+		AnalysisTemplateSettings{
+			ErrorMessageConfiguration: req.ErrorMessageConfig,
+			SyntheticDataParameters:   req.SyntheticData,
+			Schema:                    req.Schema,
+		},
 	)
 	if err != nil {
 		return nil, err

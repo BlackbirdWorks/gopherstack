@@ -1,12 +1,12 @@
 <script lang="ts">
-	import { confirmDestructive } from '$lib/confirm-dialog';
+	import { confirmDestructive } from '#lib/confirm-dialog.ts';
 	import { untrack } from 'svelte';
-	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
-	import { currentRegion, isAllRegions } from '$lib/region.svelte';
-	import { multiRegionList } from '$lib/multi-region';
-	import RegionChip from '$lib/components/RegionChip.svelte';
-	import WriteRegionHint from '$lib/components/WriteRegionHint.svelte';
-	import { getCloudWatchClient, getCloudWatchLogsClient } from '$lib/aws-client';
+	import { onRegionChange, regionalClient } from '#lib/region-effect.svelte.ts';
+	import { currentRegion, isAllRegions } from '#lib/region.svelte.ts';
+	import { multiRegionList } from '#lib/multi-region.ts';
+	import RegionChip from '#lib/components/RegionChip.svelte';
+	import WriteRegionHint from '#lib/components/WriteRegionHint.svelte';
+	import { getCloudWatchClient, getCloudWatchLogsClient } from '#lib/aws-client.ts';
 	import {
 		DescribeAlarmsCommand,
 		DescribeAlarmHistoryCommand,

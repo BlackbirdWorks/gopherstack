@@ -65,6 +65,7 @@ func (h *Handler) handleBatchDisassociateScramSecret(
 }
 
 type listScramSecretsOutput struct {
+	NextToken     string   `json:"nextToken,omitempty"`
 	SecretArnList []string `json:"secretArnList"`
 }
 
@@ -73,10 +74,12 @@ func (h *Handler) handleListScramSecrets(
 	c *echo.Context,
 	clusterArn string,
 ) error {
-	secrets, err := h.Backend.ListScramSecrets(ctx, clusterArn)
+	all, err := h.Backend.ListScramSecrets(ctx, clusterArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, listScramSecretsOutput{SecretArnList: secrets})
+	secrets, next := kafkaPage(c, all)
+
+	return c.JSON(http.StatusOK, listScramSecretsOutput{SecretArnList: secrets, NextToken: next})
 }

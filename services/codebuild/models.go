@@ -219,12 +219,14 @@ type BuildPhase struct {
 
 // BuildLogs represents the log locations for a build.
 type BuildLogs struct {
-	CloudWatchLogsArn string `json:"cloudWatchLogsArn,omitempty"`
-	S3LogsArn         string `json:"s3LogsArn,omitempty"`
-	GroupName         string `json:"groupName,omitempty"`
-	StreamName        string `json:"streamName,omitempty"`
-	S3Location        string `json:"s3Location,omitempty"`
-	DeepLink          string `json:"deepLink,omitempty"`
+	CloudWatchLogs    *CloudWatchLogsConfig `json:"cloudWatchLogs,omitempty"`
+	S3Logs            *S3LogsConfig         `json:"s3Logs,omitempty"`
+	CloudWatchLogsArn string                `json:"cloudWatchLogsArn,omitempty"`
+	S3LogsArn         string                `json:"s3LogsArn,omitempty"`
+	GroupName         string                `json:"groupName,omitempty"`
+	StreamName        string                `json:"streamName,omitempty"`
+	S3Location        string                `json:"s3Location,omitempty"`
+	DeepLink          string                `json:"deepLink,omitempty"`
 }
 
 // AutoRetryConfig reports a build's auto-retry chain

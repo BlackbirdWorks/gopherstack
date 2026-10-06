@@ -411,6 +411,7 @@
 //	go run ./cmd/reqfielddiff                       # scan every services/<dir>
 //	go run ./cmd/reqfielddiff -dir omics,apigateway  # scan only these
 //	go run ./cmd/reqfielddiff -json out.json         # also write the full report as JSON
+//	go run ./cmd/reqfielddiff -adjudicated           # split out findings recorded in PARITY.md
 //
 // Exit codes: 0 no findings and no coverage warning in any scanned service,
 // 1 a run error, 2 at least one non-deprecated undeclared field found, or
@@ -437,10 +438,13 @@ const (
 
 func main() {
 	dirFlag := flag.String("dir", "", "comma-separated services/<dir> basenames to scan (default: all)")
+	adjudicated := flag.Bool(
+		"adjudicated", false, "report findings whose op and field share a PARITY.md line as recorded",
+	)
 	jsonOut := flag.String("json", "", "write the full report list to this path as JSON")
 	flag.Parse()
 
-	reports, err := run(*dirFlag)
+	reports, err := run(*dirFlag, *adjudicated)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(exitRunError)
@@ -472,7 +476,7 @@ func main() {
 	os.Exit(exitClean)
 }
 
-func run(dirFlag string) ([]serviceReport, error) {
+func run(dirFlag string, adjudicated bool) ([]serviceReport, error) {
 	repoRoot, err := repoRootDir()
 	if err != nil {
 		return nil, err
@@ -486,7 +490,7 @@ func run(dirFlag string) ([]serviceReport, error) {
 	var reports []serviceReport
 
 	for _, dir := range dirs {
-		r, scanErr := scanOneService(repoRoot, dir)
+		r, scanErr := scanOneService(repoRoot, dir, adjudicated)
 		if scanErr != nil {
 			return nil, fmt.Errorf("%s: %w", dir, scanErr)
 		}
@@ -504,7 +508,7 @@ func skippedReport(dir, mod string, err error) serviceReport {
 	return serviceReport{Dir: dir, Module: mod, ModuleErr: err.Error()}
 }
 
-func scanOneService(repoRoot, dir string) (serviceReport, error) {
+func scanOneService(repoRoot, dir string, adjudicated bool) (serviceReport, error) {
 	name := filepath.Base(dir)
 
 	mod, _, modPath, err := resolveModule(repoRoot, name)
@@ -528,7 +532,12 @@ func scanOneService(repoRoot, dir string) (serviceReport, error) {
 
 	resolutions := idx.resolveOps(sdkOps)
 
-	return buildServiceReport(name, mod, sdkOps, resolutions), nil
+	r := buildServiceReport(name, mod, sdkOps, resolutions)
+	if adjudicated {
+		splitRecorded(&r, loadParityLines(dir))
+	}
+
+	return r, nil
 }
 
 func targetDirs(svcRoot, dirFlag string) ([]string, error) {

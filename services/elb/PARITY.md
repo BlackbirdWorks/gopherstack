@@ -671,3 +671,7 @@ run --new-from-rev=HEAD ./services/elb/...` (0 issues). `go run
 ## 2026-10-04: region from the cross-service context (gopherstack-12q3n)
 
 Classic ELB already isolated load balancers per request region. The backend now also reads the region from the shared request metadata on the context, so in-process callers (Auto Scaling registering instances) act on the group's region instead of the home region. Proof: `TestRegionIsolation/elb`, `TestInitializeServices_AutoScalingRegistersClassicELBInGroupRegion`.
+
+## 2026-10-05 (gopherstack-uox6 pass 9, value semantics)
+
+Round trips clean. Recorded, unchanged (SDK silent): ModifyLoadBalancerAttributes rewrites a sub-struct it receives wholesale, so an omitted ConnectionDraining.Timeout or AccessLog bucket/prefix/interval resets to its default (api_op_ModifyLoadBalancerAttributes.go names no merge rule). HealthCheck is empty until ConfigureHealthCheck and Listener.InstanceProtocol is not defaulted to Protocol; both defaults appear only in the AWS web docs (types.go:269-300).

@@ -1,10 +1,21 @@
 package redshift
 
-import "fmt"
+import (
+	"fmt"
+	"slices"
+)
+
+// IdcApplicationExtras holds the optional Create/ModifyRedshiftIdcApplication members.
+type IdcApplicationExtras struct {
+	IdentityNamespace         string
+	AuthorizedTokenIssuerList []AuthorizedTokenIssuer
+	SsoTagKeys                []string
+}
 
 // CreateIdcApplication creates a new Redshift IDC application.
 func (b *InMemoryBackend) CreateIdcApplication(
 	appName, idcInstanceArn, idcDisplayName, iamRoleArn, applicationType string,
+	extras IdcApplicationExtras,
 ) (*IdcApplication, error) {
 	if appName == "" {
 		return nil, fmt.Errorf("%w: IdcApplicationName is required", ErrInvalidParameter)
@@ -25,6 +36,10 @@ func (b *InMemoryBackend) CreateIdcApplication(
 		IdcDisplayName:     idcDisplayName,
 		IamRoleArn:         iamRoleArn,
 		ApplicationType:    applicationType,
+
+		IdentityNamespace:         extras.IdentityNamespace,
+		AuthorizedTokenIssuerList: slices.Clone(extras.AuthorizedTokenIssuerList),
+		SsoTagKeys:                slices.Clone(extras.SsoTagKeys),
 	}
 	b.idcApplications.Put(app)
 
@@ -81,7 +96,7 @@ func (b *InMemoryBackend) DescribeIdcApplications(appArn string) ([]IdcApplicati
 
 // ModifyIdcApplication updates the display name and IAM role of an IDC application.
 func (b *InMemoryBackend) ModifyIdcApplication(
-	appArn, idcDisplayName, iamRoleArn string,
+	appArn, idcDisplayName, iamRoleArn string, extras IdcApplicationExtras,
 ) (*IdcApplication, error) {
 	if appArn == "" {
 		return nil, fmt.Errorf("%w: IdcApplicationArn is required", ErrInvalidParameter)
@@ -98,6 +113,14 @@ func (b *InMemoryBackend) ModifyIdcApplication(
 
 			if iamRoleArn != "" {
 				app.IamRoleArn = iamRoleArn
+			}
+
+			if extras.IdentityNamespace != "" {
+				app.IdentityNamespace = extras.IdentityNamespace
+			}
+
+			if extras.AuthorizedTokenIssuerList != nil {
+				app.AuthorizedTokenIssuerList = slices.Clone(extras.AuthorizedTokenIssuerList)
 			}
 
 			cp := *app

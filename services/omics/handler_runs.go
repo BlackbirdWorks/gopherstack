@@ -12,6 +12,7 @@ func (h *Handler) handleCreateRunGroup(c *echo.Context) error {
 	var req struct {
 		Tags        map[string]string `json:"tags"`
 		Name        string            `json:"name"`
+		RequestID   string            `json:"requestId"`
 		MaxCpus     int               `json:"maxCpus"`
 		MaxRuns     int               `json:"maxRuns"`
 		MaxDuration int               `json:"maxDuration"`
@@ -22,19 +23,20 @@ func (h *Handler) handleCreateRunGroup(c *echo.Context) error {
 		return err
 	}
 
-	rg, err := h.Backend.CreateRunGroup(
-		req.Name,
-		req.MaxCpus,
-		req.MaxRuns,
-		req.MaxDuration,
-		req.MaxGpus,
-		req.Tags,
+	rg, err := idemCreate(
+		h.idem, opCreateRunGroup, req.RequestID, idemFingerprint(req),
+		func(g *RunGroup) string { return g.ID }, h.Backend.GetRunGroup,
+		func() (*RunGroup, error) {
+			return h.Backend.CreateRunGroup(
+				req.Name, req.MaxCpus, req.MaxRuns, req.MaxDuration, req.MaxGpus, req.Tags,
+			)
+		},
 	)
 	if err != nil {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusCreated, rg)
+	return c.JSON(http.StatusCreated, map[string]any{keyArn: rg.Arn, "id": rg.ID, keyTags: rg.Tags})
 }
 
 func (h *Handler) handleDeleteRunGroup(c *echo.Context, id string) error {
@@ -107,6 +109,11 @@ func (h *Handler) handleStartRun(c *echo.Context) error {
 		Parameters          map[string]any    `json:"parameters"`
 		Tags                map[string]string `json:"tags"`
 		StorageCapacity     *int              `json:"storageCapacity"`
+		Priority            *int32            `json:"priority"`
+		EngineSettings      any               `json:"engineSettings"`
+		RequestID           string            `json:"requestId"`
+		LogLevel            string            `json:"logLevel"`
+		WorkflowOwnerID     string            `json:"workflowOwnerId"`
 		OutputURI           string            `json:"outputUri"`
 		CacheBehavior       string            `json:"cacheBehavior"`
 		RunGroupID          string            `json:"runGroupId"`
@@ -127,7 +134,11 @@ func (h *Handler) handleStartRun(c *echo.Context) error {
 		return err
 	}
 
-	run, err := h.Backend.StartRun(StartRunInput{
+	in := StartRunInput{
+		Priority:            req.Priority,
+		EngineSettings:      req.EngineSettings,
+		LogLevel:            req.LogLevel,
+		WorkflowOwnerID:     req.WorkflowOwnerID,
 		WorkflowID:          req.WorkflowID,
 		RoleARN:             req.RoleArn,
 		Name:                req.Name,
@@ -145,7 +156,13 @@ func (h *Handler) handleStartRun(c *echo.Context) error {
 		StorageCapacity:     req.StorageCapacity,
 		Params:              req.Parameters,
 		Tags:                req.Tags,
-	})
+	}
+
+	run, err := idemCreate(
+		h.idem, opStartRun, req.RequestID, idemFingerprint(req),
+		func(r *Run) string { return r.ID }, h.Backend.GetRun,
+		func() (*Run, error) { return h.Backend.StartRun(in) },
+	)
 	if err != nil {
 		return h.mapError(c, err)
 	}
@@ -255,22 +272,35 @@ func (h *Handler) handleListRunTasks(c *echo.Context, runID string) error {
 
 func (h *Handler) handleCreateRunCache(c *echo.Context) error {
 	var req struct {
-		Tags            map[string]string `json:"tags"`
-		Name            string            `json:"name"`
-		CacheS3Location string            `json:"cacheS3Location"`
-		CacheBehavior   string            `json:"cacheBehavior"`
+		Tags               map[string]string `json:"tags"`
+		Name               string            `json:"name"`
+		Description        string            `json:"description"`
+		CacheS3Location    string            `json:"cacheS3Location"`
+		CacheBehavior      string            `json:"cacheBehavior"`
+		CacheBucketOwnerID string            `json:"cacheBucketOwnerId"`
+		RequestID          string            `json:"requestId"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
 		return err
 	}
 
-	rc, err := h.Backend.CreateRunCache(req.Name, req.CacheS3Location, req.CacheBehavior, req.Tags)
+	rc, err := idemCreate(
+		h.idem, opCreateRunCache, req.RequestID, idemFingerprint(req),
+		func(r *RunCache) string { return r.ID }, h.Backend.GetRunCache,
+		func() (*RunCache, error) {
+			return h.Backend.CreateRunCache(
+				req.Name, req.Description, req.CacheS3Location, req.CacheBehavior, req.CacheBucketOwnerID, req.Tags,
+			)
+		},
+	)
 	if err != nil {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusCreated, rc)
+	return c.JSON(http.StatusCreated, map[string]any{
+		keyArn: rc.Arn, "id": rc.ID, keyStatus: rc.Status, keyTags: rc.Tags,
+	})
 }
 
 func (h *Handler) handleDeleteRunCache(c *echo.Context, id string) error {
@@ -330,11 +360,13 @@ func (h *Handler) handleUpdateRunCache(c *echo.Context, id string) error {
 // inlineRunSettingWire mirrors types.InlineSetting's real JSON keys (confirmed via
 // awsRestjson1_serializeDocumentInlineSetting, omics@v1.49.5's serializers.go).
 type inlineRunSettingWire struct {
-	Priority     *int32            `json:"priority,omitempty"`
-	RunTags      map[string]string `json:"runTags,omitempty"`
-	RunSettingID string            `json:"runSettingId"`
-	Name         string            `json:"name,omitempty"`
-	OutputURI    string            `json:"outputUri,omitempty"`
+	Priority       *int32            `json:"priority,omitempty"`
+	EngineSettings any               `json:"engineSettings,omitempty"`
+	Parameters     map[string]any    `json:"parameters,omitempty"`
+	RunTags        map[string]string `json:"runTags,omitempty"`
+	RunSettingID   string            `json:"runSettingId"`
+	Name           string            `json:"name,omitempty"`
+	OutputURI      string            `json:"outputUri,omitempty"`
 }
 
 // batchRunSettingsWire mirrors the real BatchRunSettings union
@@ -349,13 +381,26 @@ type batchRunSettingsWire struct {
 // this backend models (confirmed via awsRestjson1_serializeDocumentDefaultRunSetting;
 // see the DefaultRunSetting doc comment in models.go for the fields not modeled).
 type defaultRunSettingWire struct {
-	RunTags    map[string]string `json:"runTags,omitempty"`
-	RoleArn    string            `json:"roleArn"`
-	WorkflowID string            `json:"workflowId"`
-	Name       string            `json:"name,omitempty"`
-	OutputURI  string            `json:"outputUri,omitempty"`
-	RunGroupID string            `json:"runGroupId,omitempty"`
-	Priority   int32             `json:"priority,omitempty"`
+	Priority            *int32            `json:"priority,omitempty"`
+	StorageCapacity     *int              `json:"storageCapacity,omitempty"`
+	EngineSettings      any               `json:"engineSettings,omitempty"`
+	Parameters          map[string]any    `json:"parameters,omitempty"`
+	RunTags             map[string]string `json:"runTags,omitempty"`
+	RoleArn             string            `json:"roleArn"`
+	WorkflowID          string            `json:"workflowId"`
+	Name                string            `json:"name,omitempty"`
+	OutputURI           string            `json:"outputUri,omitempty"`
+	RunGroupID          string            `json:"runGroupId,omitempty"`
+	CacheID             string            `json:"cacheId,omitempty"`
+	CacheBehavior       string            `json:"cacheBehavior,omitempty"`
+	LogLevel            string            `json:"logLevel,omitempty"`
+	NetworkingMode      string            `json:"networkingMode,omitempty"`
+	RetentionMode       string            `json:"retentionMode,omitempty"`
+	ScratchStorageMode  string            `json:"scratchStorageMode,omitempty"`
+	StorageType         string            `json:"storageType,omitempty"`
+	WorkflowOwnerID     string            `json:"workflowOwnerId,omitempty"`
+	WorkflowType        string            `json:"workflowType,omitempty"`
+	WorkflowVersionName string            `json:"workflowVersionName,omitempty"`
 }
 
 // startRunBatchWire mirrors the real StartRunBatchInput's JSON keys, confirmed via
@@ -406,28 +451,48 @@ func (h *Handler) handleStartRunBatch(c *echo.Context) error {
 		))
 	}
 
+	d := req.DefaultRunSetting
 	def := DefaultRunSetting{
-		RoleARN:    req.DefaultRunSetting.RoleArn,
-		WorkflowID: req.DefaultRunSetting.WorkflowID,
-		Name:       req.DefaultRunSetting.Name,
-		OutputURI:  req.DefaultRunSetting.OutputURI,
-		RunGroupID: req.DefaultRunSetting.RunGroupID,
-		Priority:   req.DefaultRunSetting.Priority,
-		RunTags:    req.DefaultRunSetting.RunTags,
+		Priority:            d.Priority,
+		StorageCapacity:     d.StorageCapacity,
+		EngineSettings:      d.EngineSettings,
+		Parameters:          d.Parameters,
+		RunTags:             d.RunTags,
+		CacheID:             d.CacheID,
+		CacheBehavior:       d.CacheBehavior,
+		LogLevel:            d.LogLevel,
+		NetworkingMode:      d.NetworkingMode,
+		RetentionMode:       d.RetentionMode,
+		ScratchStorageMode:  d.ScratchStorageMode,
+		StorageType:         d.StorageType,
+		WorkflowOwnerID:     d.WorkflowOwnerID,
+		WorkflowType:        d.WorkflowType,
+		WorkflowVersionName: d.WorkflowVersionName,
+		RoleARN:             d.RoleArn,
+		WorkflowID:          d.WorkflowID,
+		Name:                d.Name,
+		OutputURI:           d.OutputURI,
+		RunGroupID:          d.RunGroupID,
 	}
 
 	inline := make([]InlineRunSetting, len(req.BatchRunSettings.InlineSettings))
 	for i, s := range req.BatchRunSettings.InlineSettings {
 		inline[i] = InlineRunSetting{
-			RunSettingID: s.RunSettingID,
-			Name:         s.Name,
-			OutputURI:    s.OutputURI,
-			Priority:     s.Priority,
-			RunTags:      s.RunTags,
+			RunSettingID:   s.RunSettingID,
+			Name:           s.Name,
+			OutputURI:      s.OutputURI,
+			Priority:       s.Priority,
+			RunTags:        s.RunTags,
+			Parameters:     s.Parameters,
+			EngineSettings: s.EngineSettings,
 		}
 	}
 
-	rb, err := h.Backend.StartRunBatch(req.BatchName, def, inline, req.Tags)
+	rb, err := idemCreate(
+		h.idem, opStartRunBatch, req.RequestID, idemFingerprint(req),
+		func(r *RunBatch) string { return r.ID }, h.Backend.GetRunBatch,
+		func() (*RunBatch, error) { return h.Backend.StartRunBatch(req.BatchName, def, inline, req.Tags) },
+	)
 	if err != nil {
 		return h.mapError(c, err)
 	}
@@ -480,20 +545,15 @@ func (h *Handler) handleGetRunBatch(c *echo.Context, id string) error {
 	}
 
 	resp := map[string]any{
-		keyArn:         rb.Arn,
-		"creationTime": rb.CreationTime,
-		"id":           rb.ID,
-		"name":         rb.Name,
-		keyStatus:      rb.Status,
-		keyTags:        rb.Tags,
-		"totalRuns":    rb.TotalRuns,
-		keyUUID:        rb.UUID,
-		"defaultRunSetting": map[string]any{
-			"roleArn":    rb.RoleARN,
-			"workflowId": rb.WorkflowID,
-			"runGroupId": rb.RunGroupID,
-			"outputUri":  rb.OutputURI,
-		},
+		keyArn:              rb.Arn,
+		"creationTime":      rb.CreationTime,
+		"id":                rb.ID,
+		"name":              rb.Name,
+		keyStatus:           rb.Status,
+		keyTags:             rb.Tags,
+		"totalRuns":         rb.TotalRuns,
+		keyUUID:             rb.UUID,
+		"defaultRunSetting": defaultRunSettingToWire(rb),
 		"runSummary": map[string]any{
 			"pendingRunCount":   summary.PendingRunCount,
 			"runningRunCount":   summary.RunningRunCount,
@@ -606,4 +666,38 @@ func (h *Handler) handleListRunsInBatch(c *echo.Context, batchID string) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{"runs": summaries, keyNextToken: next})
+}
+
+// defaultRunSettingToWire echoes the stored DefaultRunSetting, falling back to
+// the batch's scalar members for batches stored before it was kept.
+func defaultRunSettingToWire(rb *RunBatch) defaultRunSettingWire {
+	d := rb.Defaults
+	if d == nil {
+		d = &DefaultRunSetting{
+			RoleARN: rb.RoleARN, WorkflowID: rb.WorkflowID, RunGroupID: rb.RunGroupID, OutputURI: rb.OutputURI,
+		}
+	}
+
+	return defaultRunSettingWire{
+		Priority:            d.Priority,
+		StorageCapacity:     d.StorageCapacity,
+		EngineSettings:      d.EngineSettings,
+		Parameters:          d.Parameters,
+		RunTags:             d.RunTags,
+		CacheID:             d.CacheID,
+		CacheBehavior:       d.CacheBehavior,
+		LogLevel:            d.LogLevel,
+		NetworkingMode:      d.NetworkingMode,
+		RetentionMode:       d.RetentionMode,
+		ScratchStorageMode:  d.ScratchStorageMode,
+		StorageType:         d.StorageType,
+		WorkflowOwnerID:     d.WorkflowOwnerID,
+		WorkflowType:        d.WorkflowType,
+		WorkflowVersionName: d.WorkflowVersionName,
+		RoleArn:             d.RoleARN,
+		WorkflowID:          d.WorkflowID,
+		Name:                d.Name,
+		OutputURI:           d.OutputURI,
+		RunGroupID:          d.RunGroupID,
+	}
 }

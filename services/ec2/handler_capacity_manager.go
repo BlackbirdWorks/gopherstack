@@ -101,7 +101,11 @@ func (h *Handler) handleGetCapacityManagerMetricData(vals url.Values, reqID stri
 
 	_ = h.Backend.GetCapacityManagerMetricData()
 
-	return &getCapacityManagerMetricDataResponse{Xmlns: ec2XMLNS, RequestID: reqID}, nil
+	return finishDescribe(
+		vals,
+		&getCapacityManagerMetricDataResponse{Xmlns: ec2XMLNS, RequestID: reqID},
+		describeOpts{spec: specMetricData()},
+	)
 }
 
 type getCapacityManagerMetricDimensionsResponse struct {
@@ -125,7 +129,7 @@ func (h *Handler) handleGetCapacityManagerMetricDimensions(vals url.Values, reqI
 
 	_ = h.Backend.GetCapacityManagerMetricDimensions()
 
-	return &getCapacityManagerMetricDimensionsResponse{Xmlns: ec2XMLNS, RequestID: reqID}, nil
+	return finishPaged(vals, &getCapacityManagerMetricDimensionsResponse{Xmlns: ec2XMLNS, RequestID: reqID})
 }
 
 type createCapacityManagerDataExportResponse struct {
@@ -197,15 +201,7 @@ func (h *Handler) handleDescribeCapacityManagerDataExports(vals url.Values, reqI
 
 	exports := h.Backend.DescribeCapacityManagerDataExports(ids)
 
-	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
-	if err != nil {
-		return nil, err
-	}
-
-	var nextToken string
-	exports, nextToken = pageSlice(exports, offset, maxResults)
-
-	resp := &describeCapacityManagerDataExportsResponse{Xmlns: ec2XMLNS, RequestID: reqID, NextToken: nextToken}
+	resp := &describeCapacityManagerDataExportsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, e := range exports {
 		resp.Exports.Items = append(
 			resp.Exports.Items,
@@ -213,7 +209,7 @@ func (h *Handler) handleDescribeCapacityManagerDataExports(vals url.Values, reqI
 		)
 	}
 
-	return resp, nil
+	return finishPagedFiltered(vals, resp)
 }
 
 type deleteCapacityManagerDataExportResponse struct {

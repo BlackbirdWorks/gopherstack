@@ -542,8 +542,8 @@ func rdsDBProxyAuthProp(props map[string]any, params, physicalIDs map[string]str
 // ARN of the form ".../policyName/<name>" (scaling_policies.go's PutScalingPolicy).
 func scalingPolicyNameFromARN(policyARN string) string {
 	const marker = "policyName/"
-	if idx := strings.LastIndex(policyARN, marker); idx >= 0 {
-		return policyARN[idx+len(marker):]
+	if _, after, ok := strings.CutLast(policyARN, marker); ok {
+		return after
 	}
 
 	return policyARN

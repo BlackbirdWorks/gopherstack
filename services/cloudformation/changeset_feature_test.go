@@ -160,8 +160,7 @@ func TestChangeSet_ExecutionStatus_HTTP(t *testing.T) {
 	resp.mustOK(t)
 	assert.Contains(t, resp.Body, "ExecutionStatus")
 	assert.Contains(t, resp.Body, "AVAILABLE")
-	assert.Contains(t, resp.Body, "ChangeSetType")
-	assert.Contains(t, resp.Body, "UPDATE")
+	assert.NotContains(t, resp.Body, "ChangeSetType")
 }
 
 // ---- Handler: CreateChangeSet ChangeSetType in response body ----------------------

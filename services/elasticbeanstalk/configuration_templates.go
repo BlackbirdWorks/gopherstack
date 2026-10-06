@@ -239,6 +239,16 @@ func (b *InMemoryBackend) DescribeConfigurationTemplates(ctx context.Context, ap
 	return list
 }
 
+// HasConfigurationTemplate reports whether appName has a template named templateName.
+func (b *InMemoryBackend) HasConfigurationTemplate(ctx context.Context, appName, templateName string) bool {
+	b.mu.RLock("HasConfigurationTemplate")
+	defer b.mu.RUnlock()
+
+	_, ok := b.configTemplateGet(getRegion(ctx, b.region), appName, templateName)
+
+	return ok
+}
+
 // DeleteConfigurationTemplate removes a configuration template.
 func (b *InMemoryBackend) DeleteConfigurationTemplate(ctx context.Context, appName, templateName string) error {
 	b.mu.Lock("DeleteConfigurationTemplate")

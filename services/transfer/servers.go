@@ -131,6 +131,68 @@ func validateProtocolDetails(pd *ProtocolDetails) error {
 	}
 }
 
+func defaultIPAddressType(t string) string {
+	if t == "" {
+		return "IPV4"
+	}
+
+	return t
+}
+
+// defaultProtocolDetails applies the SDK-documented FTP/FTPS ProtocolDetails defaults (types.go:2236, 2280).
+func defaultProtocolDetails(in *ProtocolDetails, protocols []string) *ProtocolDetails {
+	var out ProtocolDetails
+
+	if in != nil {
+		out = *in
+	}
+
+	if out.PassiveIP == "" && (slices.Contains(protocols, "FTP") || slices.Contains(protocols, "FTPS")) {
+		out.PassiveIP = "AUTO"
+	}
+
+	if out.TLSSessionResumptionMode == "" && slices.Contains(protocols, "FTPS") {
+		out.TLSSessionResumptionMode = "ENFORCED"
+	}
+
+	if in == nil && out.PassiveIP == "" && out.TLSSessionResumptionMode == "" {
+		return nil
+	}
+
+	return &out
+}
+
+// mergeProtocolDetails overlays the supplied members onto the stored details.
+func mergeProtocolDetails(cur, in *ProtocolDetails) *ProtocolDetails {
+	if in == nil {
+		return nil
+	}
+
+	var out ProtocolDetails
+
+	if cur != nil {
+		out = *cur
+	}
+
+	if in.PassiveIP != "" {
+		out.PassiveIP = in.PassiveIP
+	}
+
+	if in.TLSSessionResumptionMode != "" {
+		out.TLSSessionResumptionMode = in.TLSSessionResumptionMode
+	}
+
+	if in.SetStatOption != "" {
+		out.SetStatOption = in.SetStatOption
+	}
+
+	if in.As2Transports != nil {
+		out.As2Transports = in.As2Transports
+	}
+
+	return &out
+}
+
 func (b *InMemoryBackend) CreateServerFull(in *CreateServerInput) (*Server, error) {
 	b.mu.Lock("CreateServer")
 	defer b.mu.Unlock()
@@ -190,10 +252,10 @@ func (b *InMemoryBackend) CreateServerFull(in *CreateServerInput) (*Server, erro
 		HostKey:                       in.HostKey,
 		Certificate:                   in.Certificate,
 		SecurityPolicyName:            in.SecurityPolicyName,
-		IPAddressType:                 in.IPAddressType,
+		IPAddressType:                 defaultIPAddressType(in.IPAddressType),
 		IdentityProviderDetails:       in.IdentityProviderDetails,
 		EndpointDetails:               in.EndpointDetails,
-		ProtocolDetails:               in.ProtocolDetails,
+		ProtocolDetails:               defaultProtocolDetails(in.ProtocolDetails, protocols),
 		WorkflowDetails:               in.WorkflowDetails,
 		S3StorageOptions:              in.S3StorageOptions,
 		StructuredLogDestinations:     in.StructuredLogDestinations,
@@ -461,7 +523,7 @@ func applyServerStructFields(s *Server, in *UpdateServerInput) {
 	}
 
 	if in.SetProtocolDetails {
-		s.ProtocolDetails = in.ProtocolDetails
+		s.ProtocolDetails = mergeProtocolDetails(s.ProtocolDetails, in.ProtocolDetails)
 	}
 
 	if in.SetWorkflowDetails {

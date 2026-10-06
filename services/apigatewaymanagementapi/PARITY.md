@@ -225,3 +225,7 @@ Not bugs (verified, do not re-flag):
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 apigatewaymanagementapi is region-isolated: a WebSocket connection is reachable only from the region of the API that accepted it, so PostToConnection from another region reports the connection gone. Each region runs its own idle-connection janitor, stopped on Reset, Shutdown or restore. apigatewayv2 registers each region's connections with that region's Management API (`SetManagementAPIResolver`). Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPostToConnection`, `TestHandler_MultiRegionPersistence`, `TestSiblingJanitorStopsWithSibling`, apigatewayv2 `TestHandler_WebSocketConnectionsLandInAPIRegion`. The harness has no case: connections are not created through an SDK operation.
+
+## 2026-10-05 (gopherstack-uox6 pass 13, value semantics)
+
+Inapplicable (value semantics). PostToConnection/GetConnection/DeleteConnection are data-plane with no Update surface and no SDK-documented filter or default.

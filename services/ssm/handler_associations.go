@@ -9,9 +9,9 @@ func (h *Handler) ssmAssociationOps() map[string]ssmActionFn {
 		"ListAssociationVersions":             jsonOp(h.Backend.ListAssociationVersions),
 		"ListAssociations":                    jsonOp(h.Backend.ListAssociations),
 		"StartAssociationsOnce":               jsonOp(h.Backend.StartAssociationsOnce),
-		"UpdateAssociation":                   jsonOp(h.Backend.UpdateAssociation),
+		"UpdateAssociation":                   jsonOp(h.Backend.UpdateAssociation, validateUpdateAssociationEnums),
 		"UpdateAssociationStatus":             jsonOp(h.Backend.UpdateAssociationStatus),
-		"CreateAssociation":                   jsonOp(h.Backend.CreateAssociation),
+		"CreateAssociation":                   jsonOp(h.Backend.CreateAssociation, validateCreateAssociationEnums),
 		"CreateAssociationBatch":              jsonOp(h.Backend.CreateAssociationBatch),
 	}
 }

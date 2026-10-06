@@ -1,6 +1,10 @@
 package lightsail
 
-import "context"
+import (
+	"context"
+
+	lstypes "github.com/aws/aws-sdk-go-v2/service/lightsail/types"
+)
 
 // bucketOps returns the dispatch table for family S (10 ops).
 func (h *Handler) bucketOps() map[string]opFunc {
@@ -30,10 +34,62 @@ type bucketWire struct {
 	SupportCode              string                        `json:"supportCode,omitempty"`
 	URL                      string                        `json:"url,omitempty"`
 	Cors                     *bucketCorsWire               `json:"cors,omitempty"`
+	AccessRules              *accessRulesWire              `json:"accessRules,omitempty"`
+	AccessLogConfig          *bucketAccessLogConfigWire    `json:"accessLogConfig,omitempty"`
 	ReadonlyAccessAccounts   []string                      `json:"readonlyAccessAccounts,omitempty"`
 	ResourcesReceivingAccess []resourceReceivingAccessWire `json:"resourcesReceivingAccess,omitempty"`
 	Tags                     []tagWire                     `json:"tags,omitempty"`
 	AbleToUpdateBundle       bool                          `json:"ableToUpdateBundle,omitempty"`
+}
+
+// accessRulesWire mirrors types.AccessRules.
+type accessRulesWire struct {
+	AllowPublicOverrides *bool  `json:"allowPublicOverrides,omitempty"`
+	GetObject            string `json:"getObject,omitempty"`
+}
+
+// bucketAccessLogConfigWire mirrors types.BucketAccessLogConfig.
+type bucketAccessLogConfigWire struct {
+	Enabled     *bool  `json:"enabled"`
+	Destination string `json:"destination,omitempty"`
+	Prefix      string `json:"prefix,omitempty"`
+}
+
+func (w *accessRulesWire) toUpdate() *BucketAccessRulesUpdate {
+	if w == nil {
+		return nil
+	}
+
+	return &BucketAccessRulesUpdate{GetObject: w.GetObject, AllowPublicOverrides: w.AllowPublicOverrides}
+}
+
+func (w *bucketAccessLogConfigWire) toModel() (*BucketAccessLogConfig, error) {
+	if w == nil {
+		return nil, nil //nolint:nilnil // absent AccessLogConfig is not an error
+	}
+
+	if w.Enabled == nil {
+		return nil, validationError("AccessLogConfig.Enabled is required")
+	}
+
+	return &BucketAccessLogConfig{Enabled: *w.Enabled, Destination: w.Destination, Prefix: w.Prefix}, nil
+}
+
+func accessRulesToWire(r *BucketAccessRules) *accessRulesWire {
+	rules := defaultBucketAccessRules()
+	if r != nil {
+		rules = *r
+	}
+
+	return &accessRulesWire{GetObject: rules.GetObject, AllowPublicOverrides: &rules.AllowPublicOverrides}
+}
+
+func accessLogConfigToWire(c *BucketAccessLogConfig) *bucketAccessLogConfigWire {
+	if c == nil {
+		return nil
+	}
+
+	return &bucketAccessLogConfigWire{Enabled: &c.Enabled, Destination: c.Destination, Prefix: c.Prefix}
 }
 
 type bucketCorsWire struct {
@@ -109,6 +165,8 @@ func bucketToWire(bk *Bucket) bucketWire {
 		Name:                     bk.Name,
 		ObjectVersioning:         bk.ObjectVersioning,
 		Cors:                     bucketCorsToWire(bk.CORS),
+		AccessRules:              accessRulesToWire(bk.AccessRules),
+		AccessLogConfig:          accessLogConfigToWire(bk.AccessLogConfig),
 		ReadonlyAccessAccounts:   bk.ReadonlyAccessAccounts,
 		ResourcesReceivingAccess: resourcesReceivingAccessToWire(bk.ResourcesReceivingAccess),
 		ResourceType:             "Bucket",
@@ -169,10 +227,12 @@ func (h *Handler) handleDeleteBucket(_ context.Context, body []byte) ([]byte, er
 }
 
 type updateBucketRequest struct {
-	Cors                   *bucketCorsWire `json:"cors,omitempty"`
-	BucketName             string          `json:"bucketName"`
-	Versioning             string          `json:"versioning,omitempty"`
-	ReadonlyAccessAccounts []string        `json:"readonlyAccessAccounts,omitempty"`
+	Cors                   *bucketCorsWire            `json:"cors,omitempty"`
+	AccessRules            *accessRulesWire           `json:"accessRules,omitempty"`
+	AccessLogConfig        *bucketAccessLogConfigWire `json:"accessLogConfig,omitempty"`
+	BucketName             string                     `json:"bucketName"`
+	Versioning             string                     `json:"versioning,omitempty"`
+	ReadonlyAccessAccounts []string                   `json:"readonlyAccessAccounts,omitempty"`
 }
 
 type bucketAndOpsResponse struct {
@@ -186,9 +246,18 @@ func (h *Handler) handleUpdateBucket(_ context.Context, body []byte) ([]byte, er
 		return nil, err
 	}
 
-	bk, ops, updateErr := h.Backend.UpdateBucket(
-		req.BucketName, req.Versioning, req.ReadonlyAccessAccounts, req.Cors.toModel(),
-	)
+	logCfg, err := req.AccessLogConfig.toModel()
+	if err != nil {
+		return nil, err
+	}
+
+	bk, ops, updateErr := h.Backend.UpdateBucket(req.BucketName, BucketUpdate{
+		Versioning:             req.Versioning,
+		ReadonlyAccessAccounts: req.ReadonlyAccessAccounts,
+		CORS:                   req.Cors.toModel(),
+		AccessRules:            req.AccessRules.toUpdate(),
+		AccessLogConfig:        logCfg,
+	})
 	if updateErr != nil {
 		return nil, updateErr
 	}
@@ -221,12 +290,15 @@ func (h *Handler) handleUpdateBucketBundle(_ context.Context, body []byte) ([]by
 }
 
 type getBucketsRequest struct {
-	BucketName  string `json:"bucketName,omitempty"`
-	IncludeCors bool   `json:"includeCors,omitempty"`
+	BucketName                string `json:"bucketName,omitempty"`
+	PageToken                 string `json:"pageToken,omitempty"`
+	IncludeCors               bool   `json:"includeCors,omitempty"`
+	IncludeConnectedResources bool   `json:"includeConnectedResources,omitempty"`
 }
 
 type bucketsListResponse struct {
-	Buckets []bucketWire `json:"buckets,omitempty"`
+	NextPageToken string       `json:"nextPageToken,omitempty"`
+	Buckets       []bucketWire `json:"buckets,omitempty"`
 }
 
 func (h *Handler) handleGetBuckets(_ context.Context, body []byte) ([]byte, error) {
@@ -235,20 +307,24 @@ func (h *Handler) handleGetBuckets(_ context.Context, body []byte) ([]byte, erro
 		return nil, err
 	}
 
-	bks, getErr := h.Backend.GetBuckets(req.BucketName)
+	pg, getErr := h.Backend.GetBuckets(req.BucketName, req.PageToken)
 	if getErr != nil {
 		return nil, getErr
 	}
 
-	out := make([]bucketWire, len(bks))
-	for i, bk := range bks {
+	out := make([]bucketWire, len(pg.Data))
+	for i, bk := range pg.Data {
 		out[i] = bucketToWire(bk)
 		if !req.IncludeCors || req.BucketName == "" {
 			out[i].Cors = nil
 		}
+
+		if !req.IncludeConnectedResources {
+			out[i].ResourcesReceivingAccess = nil
+		}
 	}
 
-	return marshalResponse(bucketsListResponse{Buckets: out})
+	return marshalResponse(bucketsListResponse{Buckets: out, NextPageToken: pg.Next})
 }
 
 type setResourceAccessForBucketRequest struct {
@@ -261,6 +337,10 @@ func (h *Handler) handleSetResourceAccessForBucket(_ context.Context, body []byt
 	req, err := decodeBody[setResourceAccessForBucketRequest](body)
 	if err != nil {
 		return nil, err
+	}
+
+	if vErr := checkEnum("access", lstypes.ResourceBucketAccess(req.Access)); vErr != nil {
+		return nil, vErr
 	}
 
 	ops, setErr := h.Backend.SetResourceAccessForBucket(req.ResourceName, req.BucketName, req.Access)
@@ -285,6 +365,10 @@ func (h *Handler) handleGetBucketMetricData(_ context.Context, body []byte) ([]b
 	req, err := decodeBody[bucketMetricDataRequest](body)
 	if err != nil {
 		return nil, err
+	}
+
+	if vErr := checkEnum("metricName", lstypes.BucketMetricName(req.MetricName)); vErr != nil {
+		return nil, vErr
 	}
 
 	if getErr := h.Backend.GetBucketMetricData(req.BucketName); getErr != nil {

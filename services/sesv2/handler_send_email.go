@@ -8,10 +8,22 @@ import (
 )
 
 type sendEmailInput struct {
-	Content          emailContent     `json:"Content"`
-	FromEmailAddress string           `json:"FromEmailAddress"`
-	Destination      emailDestination `json:"Destination"`
-	ReplyTo          []string         `json:"ReplyToAddresses"`
+	ListManagementOptions          *ListManagementOptions `json:"ListManagementOptions"`
+	Content                        emailContent           `json:"Content"`
+	FromEmailAddress               string                 `json:"FromEmailAddress"`
+	ConfigurationSetName           string                 `json:"ConfigurationSetName"`
+	TenantName                     string                 `json:"TenantName"`
+	FeedbackForwardingEmailAddress string                 `json:"FeedbackForwardingEmailAddress"`
+	ReplyTo                        []string               `json:"ReplyToAddresses"`
+	EmailTags                      []messageTag           `json:"EmailTags"`
+	Destination                    emailDestination       `json:"Destination"`
+}
+
+func (in *sendEmailInput) options() SendOptions {
+	return SendOptions{
+		ConfigurationSetName: in.ConfigurationSetName, TenantName: in.TenantName,
+		FeedbackForwardingEmailAddress: in.FeedbackForwardingEmailAddress, ListManagement: in.ListManagementOptions,
+	}
 }
 
 type emailDestination struct {
@@ -80,6 +92,7 @@ func (h *Handler) handleSendEmail(c *echo.Context) (any, error) {
 	out := OutboundEmail{
 		From: in.FromEmailAddress, To: dest.ToAddresses, Cc: dest.CcAddresses, Bcc: dest.BccAddresses,
 		ReplyTo: in.ReplyTo, Subject: subject, BodyHTML: bodyHTML, BodyText: bodyText, Template: in.Content.Template,
+		Tags: toMessageTags(in.EmailTags), Options: in.options(),
 	}
 	if in.Content.Raw != nil {
 		out.Raw = in.Content.Raw.Data
@@ -96,9 +109,13 @@ func (h *Handler) handleSendEmail(c *echo.Context) (any, error) {
 // bulk email handler
 
 type sendBulkEmailInput struct {
-	DefaultContent   *bulkEmailContent `json:"DefaultContent"`
-	FromEmailAddress string            `json:"FromEmailAddress"`
-	BulkEmailEntries []bulkEmailEntry  `json:"BulkEmailEntries"`
+	DefaultContent                 *bulkEmailContent `json:"DefaultContent"`
+	FromEmailAddress               string            `json:"FromEmailAddress"`
+	ConfigurationSetName           string            `json:"ConfigurationSetName"`
+	TenantName                     string            `json:"TenantName"`
+	FeedbackForwardingEmailAddress string            `json:"FeedbackForwardingEmailAddress"`
+	BulkEmailEntries               []bulkEmailEntry  `json:"BulkEmailEntries"`
+	DefaultEmailTags               []messageTag      `json:"DefaultEmailTags"`
 }
 
 func (h *Handler) handleSendBulkEmail(c *echo.Context) (any, error) {
@@ -108,7 +125,16 @@ func (h *Handler) handleSendBulkEmail(c *echo.Context) (any, error) {
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
 	}
 
-	results, err := h.Backend.SendBulkEmail(in.FromEmailAddress, in.DefaultContent, in.BulkEmailEntries)
+	results, err := h.Backend.SendBulkEmail(
+		in.FromEmailAddress,
+		in.DefaultContent,
+		in.BulkEmailEntries,
+		in.DefaultEmailTags,
+		SendOptions{
+			ConfigurationSetName: in.ConfigurationSetName, TenantName: in.TenantName,
+			FeedbackForwardingEmailAddress: in.FeedbackForwardingEmailAddress,
+		},
+	)
 	if err != nil {
 		return nil, err
 	}

@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
 	import { Activity, BarChart3, Cpu, Flame, Gauge, Layout, Server, Settings, Target, Terminal, Zap, ZapOff } from 'lucide-svelte';
-	import { dashboardClient } from '$lib/api/connect-client';
-	import type { CapturedRequest, DashboardMetrics } from '$lib/api/gopherstack/dashboard/v1/dashboard_pb';
+	import { dashboardClient } from '#lib/api/connect-client.ts';
+	import type { CapturedRequest, DashboardMetrics } from '#lib/api/gopherstack/dashboard/v1/dashboard_pb.ts';
 
 	type PortAllocation = {
 		label: string;

@@ -187,6 +187,13 @@ func (b *InMemoryBackend) CreateJobFull(
 func (b *InMemoryBackend) buildNewJobLocked(p jobCreateParams) (*Job, error) {
 	queueArn := ""
 
+	// CreateJobTemplateInput.Queue: "The queue that jobs created from this template are assigned to".
+	if p.queue == "" && p.jobTemplate != "" {
+		if jt, ok := b.jobTemplates.Get(p.jobTemplate[strings.LastIndex(p.jobTemplate, "/")+1:]); ok {
+			p.queue = jt.Queue
+		}
+	}
+
 	if p.queue != "" {
 		resolved, err := b.resolveQueueLocked(p.queue)
 		if err != nil {

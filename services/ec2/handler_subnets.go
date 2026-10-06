@@ -199,6 +199,7 @@ type deleteSubnetCidrReservationResponse struct {
 type getSubnetCidrReservationsResponse struct {
 	XMLName                    xml.Name `xml:"GetSubnetCidrReservationsResponse"`
 	RequestID                  string   `xml:"requestId"`
+	NextToken                  string   `xml:"nextToken,omitempty"`
 	SubnetIpv4CidrReservations struct {
 		Items []subnetCidrReservationItem `xml:"item"`
 	} `xml:"subnetIpv4CidrReservationSet"`
@@ -237,7 +238,7 @@ func (h *Handler) handleGetSubnetCidrReservations(vals url.Values, reqID string)
 		}
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 func (h *Handler) handleModifySubnetAttribute(vals url.Values, reqID string) (any, error) {
@@ -311,11 +312,11 @@ func (h *Handler) handleDescribeSubnets(vals url.Values, reqID string) (any, err
 		items = append(items, toSubnetItem(s, h.Backend.TagsForResource(s.ID)))
 	}
 
-	return &describeSubnetsResponse{
+	return finishPaged(vals, &describeSubnetsResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
 		SubnetSet: subnetItemSet{Items: items},
-	}, nil
+	})
 }
 
 func (h *Handler) handleCreateSubnet(vals url.Values, reqID string) (any, error) {
@@ -365,6 +366,7 @@ func toSubnetItem(s *Subnet, tags map[string]string) subnetItem {
 		VPCID:               s.VPCID,
 		CIDRBlock:           s.CIDRBlock,
 		AvailabilityZone:    s.AvailabilityZone,
+		AvailabilityZoneID:  availabilityZoneID(s.AvailabilityZone),
 		OutpostArn:          s.OutpostArn,
 		SubnetArn:           s.Arn,
 		State:               stateAvailable,
@@ -385,6 +387,7 @@ type subnetItem struct {
 	VPCID               string          `xml:"vpcId"`
 	CIDRBlock           string          `xml:"cidrBlock"`
 	AvailabilityZone    string          `xml:"availabilityZone"`
+	AvailabilityZoneID  string          `xml:"availabilityZoneId,omitempty"`
 	OutpostArn          string          `xml:"outpostArn,omitempty"`
 	SubnetArn           string          `xml:"subnetArn,omitempty"`
 	State               string          `xml:"state"`
@@ -402,6 +405,7 @@ type describeSubnetsResponse struct {
 	XMLName   xml.Name      `xml:"DescribeSubnetsResponse"`
 	Xmlns     string        `xml:"xmlns,attr"`
 	RequestID string        `xml:"requestId"`
+	NextToken string        `xml:"nextToken,omitempty"`
 	SubnetSet subnetItemSet `xml:"subnetSet"`
 }
 

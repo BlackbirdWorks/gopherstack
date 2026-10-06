@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/svelte";
 import KinesisPage from "./+page.svelte";
-import { ALL_REGIONS, DEFAULT_REGION, setStoredRegion } from "$lib/region.svelte";
+import { ALL_REGIONS, DEFAULT_REGION, setStoredRegion } from "#lib/region.svelte.ts";
 
 const mockSend = vi.fn();
 
@@ -23,7 +23,7 @@ function twoShards() {
   ];
 }
 
-vi.mock("$lib/aws-client", () => ({
+vi.mock("#lib/aws-client.ts", () => ({
   getKinesisClient: () => ({ send: mockSend }),
   getCloudWatchClient: () => ({ send: mockSend }),
 }));
@@ -41,6 +41,33 @@ function stubRegionsWithData(regions: string[]): void {
       json: () => Promise.resolve({ regions }),
     }),
   );
+}
+
+async function selectFirstStream() {
+  // ListStreams on mount.
+  mockSend.mockResolvedValueOnce({ StreamNames: ["s1"] });
+  render(KinesisPage);
+  await waitFor(() => expect(screen.getByText("s1")).toBeInTheDocument(), { timeout: 3000 });
+
+  // Describe + ListShards + ListStreamConsumers on select.
+  mockSend.mockResolvedValueOnce({
+    StreamDescription: {
+      StreamName: "s1",
+      StreamARN: "arn:aws:kinesis:us-east-1:000000000000:stream/s1",
+      StreamStatus: "ACTIVE",
+      RetentionPeriodHours: 24,
+      StreamModeDetails: { StreamMode: "PROVISIONED" },
+      EncryptionType: "NONE",
+    },
+  });
+  mockSend.mockResolvedValueOnce({ Shards: twoShards() });
+  mockSend.mockResolvedValueOnce({
+    Consumers: [{ ConsumerName: "c1", ConsumerARN: "arn:c1", ConsumerStatus: "ACTIVE" }],
+  });
+  await fireEvent.click(screen.getByText("s1"));
+  await waitFor(() => expect(screen.getByText("shardId-000000000000")).toBeInTheDocument(), {
+    timeout: 3000,
+  });
 }
 
 describe("Kinesis Page", () => {
@@ -150,33 +177,6 @@ describe("Kinesis Page", () => {
     expect(screen.getByText("Consumers")).toBeInTheDocument();
     expect(screen.getByText("Shards Used/Limit")).toBeInTheDocument();
   });
-
-  async function selectFirstStream() {
-    // ListStreams on mount.
-    mockSend.mockResolvedValueOnce({ StreamNames: ["s1"] });
-    render(KinesisPage);
-    await waitFor(() => expect(screen.getByText("s1")).toBeInTheDocument(), { timeout: 3000 });
-
-    // Describe + ListShards + ListStreamConsumers on select.
-    mockSend.mockResolvedValueOnce({
-      StreamDescription: {
-        StreamName: "s1",
-        StreamARN: "arn:aws:kinesis:us-east-1:000000000000:stream/s1",
-        StreamStatus: "ACTIVE",
-        RetentionPeriodHours: 24,
-        StreamModeDetails: { StreamMode: "PROVISIONED" },
-        EncryptionType: "NONE",
-      },
-    });
-    mockSend.mockResolvedValueOnce({ Shards: twoShards() });
-    mockSend.mockResolvedValueOnce({
-      Consumers: [{ ConsumerName: "c1", ConsumerARN: "arn:c1", ConsumerStatus: "ACTIVE" }],
-    });
-    await fireEvent.click(screen.getByText("s1"));
-    await waitFor(() => expect(screen.getByText("shardId-000000000000")).toBeInTheDocument(), {
-      timeout: 3000,
-    });
-  }
 
   it("Split passes a strictly-interior hash key (not the shard start)", async () => {
     await selectFirstStream();

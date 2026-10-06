@@ -152,7 +152,7 @@ func (h *Handler) handleGetPromptRouter(c *echo.Context, routerARN string) error
 
 func (h *Handler) handleListPromptRouters(c *echo.Context) error {
 	q := c.Request().URL.Query()
-	routers, nextToken := h.Backend.ListPromptRouters(q.Get("type"), q.Get("nextToken"))
+	routers, nextToken := h.Backend.ListPromptRouters(q.Get("type"), q.Get("nextToken"), queryMaxResults(q))
 
 	summaries := make([]map[string]any, 0, len(routers))
 	for _, r := range routers {

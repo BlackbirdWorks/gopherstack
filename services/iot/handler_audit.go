@@ -68,7 +68,8 @@ func (h *Handler) handleUpdateAccountAuditConfiguration(c *echo.Context) error {
 }
 
 func (h *Handler) handleDeleteAccountAuditConfiguration(c *echo.Context) error {
-	if err := h.Backend.DeleteAccountAuditConfiguration(); err != nil {
+	dropAudits := c.QueryParam("deleteScheduledAudits") == keyBoolTrue
+	if err := h.Backend.DeleteAccountAuditConfiguration(dropAudits); err != nil {
 		return respondErr(c, err)
 	}
 
@@ -102,25 +103,22 @@ func (h *Handler) handleDescribeAuditTask(c *echo.Context) error {
 
 func (h *Handler) handleListAuditTasks(c *echo.Context) error {
 	taskType := c.Request().URL.Query().Get("taskType")
-	tasks := h.Backend.ListAuditTasks(taskType)
-	summaries := make([]map[string]any, len(tasks))
-	for i, t := range tasks {
-		summaries[i] = map[string]any{
+	taskStatus := c.QueryParam(keyTaskStatus)
+	startTime := parseIoTTimeQueryParam(c, "startTime")
+	endTime := parseIoTTimeQueryParam(c, "endTime")
+	summaries := make([]map[string]any, 0)
+	for _, t := range h.Backend.ListAuditTasks(taskType) {
+		if (taskStatus != "" && t.TaskStatus != taskStatus) || !inTimeRange(t.TaskStartTime, startTime, endTime) {
+			continue
+		}
+		summaries = append(summaries, map[string]any{
 			keyTaskID:     t.TaskID,
 			keyTaskStatus: t.TaskStatus,
 			"taskType":    t.TaskType,
-		}
+		})
 	}
 
-	pageSize, start := parseIoTPagination(c)
-	page, nextToken := paginateMaps(summaries, pageSize, start)
-
-	resp := map[string]any{keyTasksField: page}
-	if nextToken != "" {
-		resp["nextToken"] = nextToken
-	}
-
-	return c.JSON(http.StatusOK, resp)
+	return respondListPage(c, keyTasksField, summaries)
 }
 
 // resolveAuditSuppressionOps resolves the audit-suppression op family.

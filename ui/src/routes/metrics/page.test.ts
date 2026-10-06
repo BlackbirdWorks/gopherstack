@@ -6,7 +6,7 @@ vi.mock("svelte-sonner", () => ({
   toast: { error: vi.fn(), success: vi.fn() },
 }));
 
-vi.mock("$lib/api/connect-client", () => {
+vi.mock("#lib/api/connect-client.ts", () => {
   return {
     dashboardClient: {
       streamMetrics: vi.fn().mockImplementation(async function* () {

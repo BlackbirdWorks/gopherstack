@@ -104,6 +104,7 @@
 //
 //	go run ./cmd/errcodeaudit                 # report to stdout
 //	go run ./cmd/errcodeaudit -json out.json  # also write full finding list as JSON
+//	go run ./cmd/errcodeaudit -adjudicated    # split out codes recorded in PARITY.md
 //
 // Exit codes: 0 no confident findings (needs-review hits may still print),
 // 1 a run error, 2 at least one confident finding.
@@ -124,9 +125,11 @@ const (
 
 func main() {
 	jsonOut := flag.String("json", "", "write the full finding list to this path as JSON")
+	adjudicated := flag.Bool("adjudicated", false,
+		"move findings whose code is named in the service's PARITY.md to a separate section")
 	flag.Parse()
 
-	findings, err := run()
+	findings, err := run(*adjudicated)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(exitRunError)
@@ -143,7 +146,7 @@ func main() {
 	os.Exit(exitCode(findings))
 }
 
-func run() ([]finding, error) {
+func run(adjudicated bool) ([]finding, error) {
 	repoRoot, err := repoRootDir()
 	if err != nil {
 		return nil, err
@@ -159,12 +162,21 @@ func run() ([]finding, error) {
 		return nil, err
 	}
 
-	return scan(repoRoot, cache, goModVersions)
+	findings, err := scan(repoRoot, cache, goModVersions)
+	if err != nil {
+		return nil, err
+	}
+
+	if adjudicated {
+		markRecorded(repoRoot, findings)
+	}
+
+	return findings, nil
 }
 
 func exitCode(findings []finding) int {
 	for _, f := range findings {
-		if f.Confident {
+		if f.Confident && !f.Recorded {
 			return exitConfidence
 		}
 	}

@@ -46,12 +46,16 @@ func (h *Handler) handleDescribeSSLPolicies(vals url.Values) (any, error) {
 
 	// Filter by Names if provided.
 	names := parseMembers(vals, "Names.member")
-	policies := filterSSLPoliciesByName(allPolicies, names)
+	marker, pageSize := parsePagination(vals)
+	policies, nextMarker := applyMarkerPage(
+		filterSSLPoliciesByName(allPolicies, names), marker, pageSize, func(p xmlSSLPolicy) string { return p.Name },
+	)
 
 	return &describeSSLPoliciesResponse{
 		Xmlns: elbv2XMLNS,
 		Result: describeSSLPoliciesResult{
 			SslPolicies: xmlSSLPolicyList{Members: policies},
+			NextMarker:  nextMarker,
 		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-describe-ssl-policies"},
 	}, nil
@@ -225,6 +229,7 @@ type xmlSSLPolicyList struct {
 }
 
 type describeSSLPoliciesResult struct {
+	NextMarker  string           `xml:"NextMarker,omitempty"`
 	SslPolicies xmlSSLPolicyList `xml:"SslPolicies"`
 }
 

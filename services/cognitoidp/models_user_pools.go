@@ -20,6 +20,28 @@ type PasswordPolicy struct {
 	TemporaryPasswordValidityDays int  `json:"TemporaryPasswordValidityDays,omitempty"`
 }
 
+// PoolSettings holds the CreateUserPool/UpdateUserPool configuration blocks this backend stores
+// and echoes verbatim; none of them changes how sign-in is evaluated except AdminCreateUserConfig.
+type PoolSettings struct {
+	AdminCreateUserConfig       map[string]any `json:"adminCreateUserConfig,omitempty"`
+	DeviceConfiguration         map[string]any `json:"deviceConfiguration,omitempty"`
+	SmsConfiguration            map[string]any `json:"smsConfiguration,omitempty"`
+	UserAttributeUpdateSettings map[string]any `json:"userAttributeUpdateSettings,omitempty"`
+	UserPoolAddOns              map[string]any `json:"userPoolAddOns,omitempty"`
+	VerificationMessageTemplate map[string]any `json:"verificationMessageTemplate,omitempty"`
+	UsernameConfiguration       map[string]any `json:"usernameConfiguration,omitempty"`
+	UserPoolTier                string         `json:"userPoolTier,omitempty"`
+	EmailVerificationMessage    string         `json:"emailVerificationMessage,omitempty"`
+	EmailVerificationSubject    string         `json:"emailVerificationSubject,omitempty"`
+	SmsVerificationMessage      string         `json:"smsVerificationMessage,omitempty"`
+	SmsAuthenticationMessage    string         `json:"smsAuthenticationMessage,omitempty"`
+	UsernameAttributes          []string       `json:"usernameAttributes,omitempty"`
+	AliasAttributes             []string       `json:"aliasAttributes,omitempty"`
+}
+
+// defaultUserPoolTier is the feature plan a pool gets when none is given (UserPoolTier doc: "Defaults to ESSENTIALS").
+const defaultUserPoolTier = "ESSENTIALS"
+
 // UserPool represents a Cognito User Pool.
 type UserPool struct {
 	CreatedAt              time.Time `json:"createdAt"`
@@ -30,6 +52,7 @@ type UserPool struct {
 	AccountRecoverySetting map[string]any    `json:"accountRecoverySetting,omitempty"`
 	PasswordPolicy         *PasswordPolicy   `json:"passwordPolicy,omitempty"`
 	SignInPolicy           *SignInPolicy     `json:"signInPolicy,omitempty"`
+	Settings               PoolSettings      `json:"settings,omitzero"`
 	ID                     string            `json:"id,omitempty"`
 	Name                   string            `json:"name,omitempty"`
 	ARN                    string            `json:"arn,omitempty"`
@@ -54,6 +77,8 @@ type UserPoolOptions struct {
 	AccountRecoverySetting map[string]any    `json:"accountRecoverySetting,omitempty"`
 	PasswordPolicy         *PasswordPolicy   `json:"passwordPolicy,omitempty"`
 	SignInPolicy           *SignInPolicy     `json:"signInPolicy,omitempty"`
+	Settings               PoolSettings      `json:"settings,omitzero"`
+	PoolName               string            `json:"poolName,omitempty"`
 	DeletionProtection     string            `json:"deletionProtection,omitempty"`
 	MfaConfiguration       string            `json:"mfaConfiguration,omitempty"`
 	AutoVerifiedAttributes []string          `json:"autoVerifiedAttributes,omitempty"`
@@ -65,6 +90,7 @@ type UserPoolMfaFullConfig struct {
 	SmsMfaConfiguration   *SmsMfaConfiguration           `json:"smsMfaConfiguration,omitempty"`
 	SoftwareTokenMfa      *SoftwareTokenMfaConfiguration `json:"softwareTokenMfa,omitempty"`
 	EmailMfaConfiguration *EmailMfaConfiguration         `json:"emailMfaConfiguration,omitempty"`
+	WebAuthnConfiguration map[string]any                 `json:"webAuthnConfiguration,omitempty"`
 	MfaConfiguration      string                         `json:"mfaConfiguration,omitempty"`
 }
 
@@ -117,11 +143,30 @@ type createUserPoolWithOptsInput struct {
 	AccountRecoverySetting map[string]any         `json:"AccountRecoverySetting,omitempty"`
 	Policies               *userPoolPoliciesInput `json:"Policies,omitempty"`
 	UserPoolTags           map[string]string      `json:"UserPoolTags,omitempty"`
-	PoolName               string                 `json:"PoolName,omitempty"`
-	MfaConfiguration       string                 `json:"MfaConfiguration,omitempty"`
-	DeletionProtection     string                 `json:"DeletionProtection,omitempty"`
-	AutoVerifiedAttributes []string               `json:"AutoVerifiedAttributes,omitempty"`
-	Schema                 []SchemaAttribute      `json:"Schema,omitempty"`
+	poolSettingsInput
+	PoolName               string            `json:"PoolName,omitempty"`
+	MfaConfiguration       string            `json:"MfaConfiguration,omitempty"`
+	DeletionProtection     string            `json:"DeletionProtection,omitempty"`
+	AutoVerifiedAttributes []string          `json:"AutoVerifiedAttributes,omitempty"`
+	Schema                 []SchemaAttribute `json:"Schema,omitempty"`
+	UsernameConfiguration  map[string]any    `json:"UsernameConfiguration,omitempty"`
+	UsernameAttributes     []string          `json:"UsernameAttributes,omitempty"`
+	AliasAttributes        []string          `json:"AliasAttributes,omitempty"`
+}
+
+// poolSettingsInput is the set of pool configuration members shared by CreateUserPool and UpdateUserPool.
+type poolSettingsInput struct {
+	AdminCreateUserConfig       map[string]any `json:"AdminCreateUserConfig,omitempty"`
+	DeviceConfiguration         map[string]any `json:"DeviceConfiguration,omitempty"`
+	SmsConfiguration            map[string]any `json:"SmsConfiguration,omitempty"`
+	UserAttributeUpdateSettings map[string]any `json:"UserAttributeUpdateSettings,omitempty"`
+	UserPoolAddOns              map[string]any `json:"UserPoolAddOns,omitempty"`
+	VerificationMessageTemplate map[string]any `json:"VerificationMessageTemplate,omitempty"`
+	UserPoolTier                string         `json:"UserPoolTier,omitempty"`
+	EmailVerificationMessage    string         `json:"EmailVerificationMessage,omitempty"`
+	EmailVerificationSubject    string         `json:"EmailVerificationSubject,omitempty"`
+	SmsVerificationMessage      string         `json:"SmsVerificationMessage,omitempty"`
+	SmsAuthenticationMessage    string         `json:"SmsAuthenticationMessage,omitempty"`
 }
 
 type userPoolPoliciesInput struct {
@@ -151,19 +196,33 @@ type userPoolDataAccurate struct {
 	// Policies is always present (non-pointer, no omitempty) because the
 	// Terraform AWS provider unconditionally accesses Policies.PasswordPolicy
 	// and Policies.SignInPolicy, and will nil-panic if the key is absent.
-	LambdaConfig           map[string]any           `json:"LambdaConfig,omitempty"`
-	EmailConfiguration     map[string]any           `json:"EmailConfiguration,omitempty"`
-	AccountRecoverySetting map[string]any           `json:"AccountRecoverySetting,omitempty"`
-	Policies               userPoolPoliciesAccurate `json:"Policies"`
-	ID                     string                   `json:"Id,omitempty"`
-	Name                   string                   `json:"Name,omitempty"`
-	ARN                    string                   `json:"Arn,omitempty"`
-	DeletionProtection     string                   `json:"DeletionProtection,omitempty"`
-	MfaConfiguration       string                   `json:"MfaConfiguration,omitempty"`
-	SchemaAttributes       []SchemaAttribute        `json:"SchemaAttributes,omitempty"`
-	AutoVerifiedAttributes []string                 `json:"AutoVerifiedAttributes,omitempty"`
-	CreationDate           float64                  `json:"CreationDate,omitempty"`
-	LastModifiedDate       float64                  `json:"LastModifiedDate,omitempty"`
+	LambdaConfig                map[string]any           `json:"LambdaConfig,omitempty"`
+	EmailConfiguration          map[string]any           `json:"EmailConfiguration,omitempty"`
+	AccountRecoverySetting      map[string]any           `json:"AccountRecoverySetting,omitempty"`
+	UsernameConfiguration       map[string]any           `json:"UsernameConfiguration,omitempty"`
+	AdminCreateUserConfig       map[string]any           `json:"AdminCreateUserConfig,omitempty"`
+	DeviceConfiguration         map[string]any           `json:"DeviceConfiguration,omitempty"`
+	SmsConfiguration            map[string]any           `json:"SmsConfiguration,omitempty"`
+	UserAttributeUpdateSettings map[string]any           `json:"UserAttributeUpdateSettings,omitempty"`
+	UserPoolAddOns              map[string]any           `json:"UserPoolAddOns,omitempty"`
+	VerificationMessageTemplate map[string]any           `json:"VerificationMessageTemplate,omitempty"`
+	Policies                    userPoolPoliciesAccurate `json:"Policies"`
+	ID                          string                   `json:"Id,omitempty"`
+	Name                        string                   `json:"Name,omitempty"`
+	ARN                         string                   `json:"Arn,omitempty"`
+	DeletionProtection          string                   `json:"DeletionProtection,omitempty"`
+	MfaConfiguration            string                   `json:"MfaConfiguration,omitempty"`
+	UserPoolTier                string                   `json:"UserPoolTier,omitempty"`
+	EmailVerificationMessage    string                   `json:"EmailVerificationMessage,omitempty"`
+	EmailVerificationSubject    string                   `json:"EmailVerificationSubject,omitempty"`
+	SmsVerificationMessage      string                   `json:"SmsVerificationMessage,omitempty"`
+	SmsAuthenticationMessage    string                   `json:"SmsAuthenticationMessage,omitempty"`
+	UsernameAttributes          []string                 `json:"UsernameAttributes,omitempty"`
+	AliasAttributes             []string                 `json:"AliasAttributes,omitempty"`
+	AutoVerifiedAttributes      []string                 `json:"AutoVerifiedAttributes,omitempty"`
+	SchemaAttributes            []SchemaAttribute        `json:"SchemaAttributes,omitempty"`
+	CreationDate                float64                  `json:"CreationDate,omitempty"`
+	LastModifiedDate            float64                  `json:"LastModifiedDate,omitempty"`
 }
 
 type userPoolPoliciesAccurate struct {
@@ -190,10 +249,13 @@ type updateUserPoolWithOptsInput struct {
 	EmailConfiguration     map[string]any         `json:"EmailConfiguration,omitempty"`
 	AccountRecoverySetting map[string]any         `json:"AccountRecoverySetting,omitempty"`
 	Policies               *userPoolPoliciesInput `json:"Policies,omitempty"`
-	UserPoolID             string                 `json:"UserPoolId,omitempty"`
-	MfaConfiguration       string                 `json:"MfaConfiguration,omitempty"`
-	DeletionProtection     string                 `json:"DeletionProtection,omitempty"`
-	AutoVerifiedAttributes []string               `json:"AutoVerifiedAttributes,omitempty"`
+	UserPoolTags           map[string]string      `json:"UserPoolTags,omitempty"`
+	poolSettingsInput
+	UserPoolID             string   `json:"UserPoolId,omitempty"`
+	PoolName               string   `json:"PoolName,omitempty"`
+	MfaConfiguration       string   `json:"MfaConfiguration,omitempty"`
+	DeletionProtection     string   `json:"DeletionProtection,omitempty"`
+	AutoVerifiedAttributes []string `json:"AutoVerifiedAttributes,omitempty"`
 }
 
 type updateUserPoolWithOptsOutput struct{}
@@ -214,6 +276,7 @@ type getUserPoolMfaConfigFullOutput struct {
 	SmsMfaConfiguration           *smsMfaConfigJSON           `json:"SmsMfaConfiguration,omitempty"`
 	SoftwareTokenMfaConfiguration *softwareTokenMfaConfigJSON `json:"SoftwareTokenMfaConfiguration,omitempty"`
 	EmailMfaConfiguration         *emailMfaConfigJSON         `json:"EmailMfaConfiguration,omitempty"`
+	WebAuthnConfiguration         map[string]any              `json:"WebAuthnConfiguration,omitempty"`
 	MfaConfiguration              string                      `json:"MfaConfiguration,omitempty"`
 }
 
@@ -221,6 +284,7 @@ type setUserPoolMfaConfigFullInput struct {
 	SmsMfaConfiguration           *smsMfaConfigJSON           `json:"SmsMfaConfiguration,omitempty"`
 	SoftwareTokenMfaConfiguration *softwareTokenMfaConfigJSON `json:"SoftwareTokenMfaConfiguration,omitempty"`
 	EmailMfaConfiguration         *emailMfaConfigJSON         `json:"EmailMfaConfiguration,omitempty"`
+	WebAuthnConfiguration         map[string]any              `json:"WebAuthnConfiguration,omitempty"`
 	UserPoolID                    string                      `json:"UserPoolId,omitempty"`
 	MfaConfiguration              string                      `json:"MfaConfiguration,omitempty"`
 }
@@ -229,5 +293,6 @@ type setUserPoolMfaConfigFullOutput struct {
 	SmsMfaConfiguration           *smsMfaConfigJSON           `json:"SmsMfaConfiguration,omitempty"`
 	SoftwareTokenMfaConfiguration *softwareTokenMfaConfigJSON `json:"SoftwareTokenMfaConfiguration,omitempty"`
 	EmailMfaConfiguration         *emailMfaConfigJSON         `json:"EmailMfaConfiguration,omitempty"`
+	WebAuthnConfiguration         map[string]any              `json:"WebAuthnConfiguration,omitempty"`
 	MfaConfiguration              string                      `json:"MfaConfiguration,omitempty"`
 }

@@ -73,6 +73,10 @@ func (h *Handler) handleCopyDBClusterSnapshot(ctx context.Context, vals url.Valu
 	sourceSnapshotID := vals.Get("SourceDBClusterSnapshotIdentifier")
 	targetSnapshotID := vals.Get("TargetDBClusterSnapshotIdentifier")
 	copyTags := vals.Get("CopyTags") == formTrue
+	tags := parseTagEntries(vals)
+	if err := validateTagEntries(tags); err != nil {
+		return nil, err
+	}
 	snap, err := h.Backend.CopyDBClusterSnapshot(ctx, sourceSnapshotID, targetSnapshotID)
 	if err != nil {
 		return nil, err
@@ -80,6 +84,7 @@ func (h *Handler) handleCopyDBClusterSnapshot(ctx context.Context, vals url.Valu
 	if copyTags {
 		h.copySnapshotTags(ctx, sourceSnapshotID, snap.DBClusterSnapshotArn)
 	}
+	h.applyNewTags(ctx, snap.DBClusterSnapshotArn, tags)
 
 	return &copyDBClusterSnapshotResponse{
 		Xmlns:             neptuneXMLNS,

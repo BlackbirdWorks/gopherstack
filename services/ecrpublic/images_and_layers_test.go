@@ -52,18 +52,27 @@ func pushLayer(
 	return aws.ToString(completed.LayerDigest)
 }
 
+const (
+	ociManifestMediaType = "application/vnd.oci.image.manifest.v1+json"
+	ociConfigMediaType   = "application/vnd.oci.image.config.v1+json"
+	ociIndexMediaType    = "application/vnd.oci.image.index.v1+json"
+)
+
 func buildManifest(configDigest string, layerDigests ...string) string {
 	type layer struct {
 		Digest string `json:"digest"`
 	}
 
 	m := struct {
-		Config struct {
-			Digest string `json:"digest"`
+		MediaType string `json:"mediaType"`
+		Config    struct {
+			MediaType string `json:"mediaType"`
+			Digest    string `json:"digest"`
 		} `json:"config"`
 		Layers []layer `json:"layers"`
-	}{}
+	}{MediaType: ociManifestMediaType}
 	m.Config.Digest = configDigest
+	m.Config.MediaType = ociConfigMediaType
 
 	for _, d := range layerDigests {
 		m.Layers = append(m.Layers, layer{Digest: d})
@@ -210,8 +219,8 @@ func TestPutImage_AlreadyExistsAndTagConflict(t *testing.T) {
 	)
 	require.NoError(t, createErr)
 
-	manifestA := `{"schemaVersion":2,"unique":"a"}`
-	manifestB := `{"schemaVersion":2,"unique":"b"}`
+	manifestA := `{"schemaVersion":2,"mediaType":"` + ociManifestMediaType + `","unique":"a"}`
+	manifestB := `{"schemaVersion":2,"mediaType":"` + ociManifestMediaType + `","unique":"b"}`
 
 	_, pushErr := client.PutImage(ctx, &ecrpublicsdk.PutImageInput{
 		RepositoryName: aws.String("conflict-repo"),

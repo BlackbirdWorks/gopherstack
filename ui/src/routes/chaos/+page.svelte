@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { confirmDestructive } from '$lib/confirm-dialog';
+	import { confirmDestructive } from '#lib/confirm-dialog.ts';
 	import { onMount } from 'svelte';
 	import { Zap, AlertCircle, Activity, Settings, Gauge, TrendingUp, Lock, Unlock, RefreshCw } from 'lucide-svelte';
 

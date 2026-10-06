@@ -13,6 +13,11 @@ type StorageBackend interface {
 		principals, resourceARNs []string,
 	) (*ResourceShare, error)
 	GetResourceShare(shareARN string) (*ResourceShare, error)
+	ConfigureResourceShare(shareARN string, retain *bool, sources []string) error
+	AssociateResourceShareSources(shareARN string, sources []string) error
+	DisassociateResourceShareSources(shareARN string, sources []string) error
+	ListSourceAssociations(shareARNs []string, sourceID, status string) []SourceAssociation
+	ResourceShareARNsFor(f ShareFilter) map[string]struct{}
 	ListResourceShares(resourceOwner, status string) []*ResourceShare
 	UpdateResourceShare(shareARN, name string, allowExternalPrincipals *bool) (*ResourceShare, error)
 	DeleteResourceShare(shareARN string) error

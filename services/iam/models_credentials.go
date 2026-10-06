@@ -10,6 +10,7 @@ import (
 // ServiceSpecificCredential represents a service-specific credential for an IAM user.
 type ServiceSpecificCredential struct {
 	CreateDate                  time.Time `json:"CreateDate"`
+	ExpirationDate              time.Time `json:"ExpirationDate,omitzero"`
 	UserName                    string    `json:"UserName,omitempty"`
 	ServiceName                 string    `json:"ServiceName,omitempty"`
 	ServiceUserName             string    `json:"ServiceUserName,omitempty"`
@@ -27,6 +28,7 @@ type ServiceSpecificCredentialXML struct {
 	ServiceSpecificCredentialID string `xml:"ServiceSpecificCredentialId"`
 	Status                      string `xml:"Status"`
 	CreateDate                  string `xml:"CreateDate"`
+	ExpirationDate              string `xml:"ExpirationDate,omitempty"`
 }
 
 // CreateServiceSpecificCredentialResult wraps the created credential.
@@ -50,6 +52,7 @@ type ServiceSpecificCredentialMetadataXML struct {
 	ServiceSpecificCredentialID string `xml:"ServiceSpecificCredentialId"`
 	Status                      string `xml:"Status"`
 	CreateDate                  string `xml:"CreateDate"`
+	ExpirationDate              string `xml:"ExpirationDate,omitempty"`
 }
 
 // ListServiceSpecificCredentialsResult contains the list of credentials.
@@ -92,6 +95,7 @@ type serviceSpecificCredXML struct {
 	ServicePassword             string `xml:"ServicePassword"`
 	Status                      string `xml:"Status"`
 	CreateDate                  string `xml:"CreateDate"`
+	ExpirationDate              string `xml:"ExpirationDate,omitempty"`
 }
 
 // resetSSCResult wraps the reset credential.

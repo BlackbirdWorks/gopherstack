@@ -400,7 +400,7 @@ func TestRedshiftHandler_ModifyClusterMaintenance(t *testing.T) {
 				postRedshiftForm(t, h, "Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=maint-cluster")
 			},
 			body: "Action=ModifyClusterMaintenance&Version=2012-12-01" +
-				"&ClusterIdentifier=maint-cluster&MaintenanceTrackName=current",
+				"&ClusterIdentifier=maint-cluster&DeferMaintenance=true&DeferMaintenanceDuration=2",
 			wantCode:     http.StatusOK,
 			wantContains: []string{"ModifyClusterMaintenanceResponse", "maint-cluster"},
 		},
@@ -705,7 +705,7 @@ func TestModifyClusterIamRoles_RejectsWhenClusterNotAvailable(t *testing.T) {
 	assert.NotContains(t, recDescribe.Body.String(), "Role1")
 }
 
-// TestModifyClusterMaintenance_Persists verifies that maintenance window is stored.
+// TestModifyClusterMaintenance_Persists verifies that a deferred maintenance window is stored.
 func TestModifyClusterMaintenance_Persists(t *testing.T) {
 	t.Parallel()
 
@@ -714,12 +714,12 @@ func TestModifyClusterMaintenance_Persists(t *testing.T) {
 
 	rec := postRedshiftForm(t, h,
 		"Action=ModifyClusterMaintenance&Version=2012-12-01&ClusterIdentifier=maint-cluster"+
-			"&MaintenanceTrackName=current")
+			"&DeferMaintenance=true&DeferMaintenanceDuration=2&DeferMaintenanceIdentifier=dm-1")
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	rec2 := postRedshiftForm(t, h, "Action=DescribeClusters&Version=2012-12-01&ClusterIdentifier=maint-cluster")
 	require.Equal(t, http.StatusOK, rec2.Code)
-	assert.Contains(t, rec2.Body.String(), "current")
+	assert.Contains(t, rec2.Body.String(), "<DeferMaintenanceIdentifier>dm-1</DeferMaintenanceIdentifier>")
 }
 
 // TestModifyCluster_ApplyImmediately verifies PendingModifiedValues semantics.

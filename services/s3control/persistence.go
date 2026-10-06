@@ -82,18 +82,19 @@ type backendSnapshot struct {
 	// batch1 additions -- previously declared on InMemoryBackend but never
 	// wired into the snapshot at all (see s3controlSnapshotVersion's doc
 	// comment for the version-2 bump this fixes).
-	AccessPointScopes            map[string]string `json:"accessPointScopes"`
-	ObjectLambdaAPPolicies       map[string]string `json:"objectLambdaAPPolicies"`
-	ObjectLambdaAPConfigs        map[string]string `json:"objectLambdaAPConfigs"`
-	BucketPolicies               map[string]string `json:"bucketPolicies"`
-	BucketTagging                map[string]TagSet `json:"bucketTagging"`
-	BucketLifecycle              map[string]string `json:"bucketLifecycle"`
-	BucketVersioning             map[string]string `json:"bucketVersioning"`
-	MRAPRoutes                   map[string]string `json:"mrapRoutes"`
-	AccessGrantsInstancePolicies map[string]string `json:"accessGrantsInstancePolicies"`
-	JobTags                      map[string]TagSet `json:"jobTags"`
-	Version                      int               `json:"version"`
-	NextID                       int64             `json:"nextID"`
+	AccessPointScopes            map[string]string                 `json:"accessPointScopes"`
+	ObjectLambdaAPPolicies       map[string]string                 `json:"objectLambdaAPPolicies"`
+	ObjectLambdaAPConfigs        map[string]string                 `json:"objectLambdaAPConfigs"`
+	BucketPolicies               map[string]string                 `json:"bucketPolicies"`
+	BucketTagging                map[string]TagSet                 `json:"bucketTagging"`
+	BucketLifecycle              map[string]string                 `json:"bucketLifecycle"`
+	BucketVersioning             map[string]string                 `json:"bucketVersioning"`
+	MRAPRoutes                   map[string]string                 `json:"mrapRoutes"`
+	AccessGrantsInstancePolicies map[string]string                 `json:"accessGrantsInstancePolicies"`
+	AccessGrantsPolicyMeta       map[string]AccessGrantsPolicyMeta `json:"accessGrantsPolicyMeta,omitempty"`
+	JobTags                      map[string]TagSet                 `json:"jobTags"`
+	Version                      int                               `json:"version"`
+	NextID                       int64                             `json:"nextID"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -145,6 +146,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		BucketVersioning:             cloneMapStr(b.bucketVersioning),
 		MRAPRoutes:                   cloneMapStr(b.mrapRoutes),
 		AccessGrantsInstancePolicies: cloneMapStr(b.accessGrantsInstancePolicies),
+		AccessGrantsPolicyMeta:       maps.Clone(b.accessGrantsPolicyMeta),
 		JobTags:                      cloneMapTagSet(b.jobTags),
 		NextID:                       b.nextID,
 	}
@@ -289,23 +291,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 			"s3control: discarding incompatible snapshot version, starting empty",
 			"gotVersion", snap.Version, "wantVersion", s3controlSnapshotVersion)
 
-		b.resetTablesLocked()
-		b.bucketReplication = make(map[string]string)
-		b.storageLensConfigs = make(map[string]string)
-		b.storageLensConfigTags = make(map[string]TagSet)
-		b.resourceTags = make(map[string]map[string]string)
-		b.accessPointPolicies = make(map[string]string)
-		b.accessPointScopes = make(map[string]string)
-		b.objectLambdaAPPolicies = make(map[string]string)
-		b.objectLambdaAPConfigs = make(map[string]string)
-		b.bucketPolicies = make(map[string]string)
-		b.bucketTagging = make(map[string]TagSet)
-		b.bucketLifecycle = make(map[string]string)
-		b.bucketVersioning = make(map[string]string)
-		b.mrapRoutes = make(map[string]string)
-		b.accessGrantsInstancePolicies = make(map[string]string)
-		b.jobTags = make(map[string]TagSet)
-		b.nextID = 0
+		b.resetAllLocked()
 
 		return nil
 	}
@@ -334,6 +320,12 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.bucketVersioning = snap.BucketVersioning
 	b.mrapRoutes = snap.MRAPRoutes
 	b.accessGrantsInstancePolicies = snap.AccessGrantsInstancePolicies
+
+	b.accessGrantsPolicyMeta = snap.AccessGrantsPolicyMeta
+	if b.accessGrantsPolicyMeta == nil {
+		b.accessGrantsPolicyMeta = make(map[string]AccessGrantsPolicyMeta)
+	}
+
 	b.jobTags = snap.JobTags
 	b.nextID = snap.NextID
 

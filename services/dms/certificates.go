@@ -10,7 +10,7 @@ import (
 
 // ImportCertificate creates a certificate record.
 func (b *InMemoryBackend) ImportCertificate(
-	ctx context.Context, identifier, certPem, kmsKeyID string, kv map[string]string,
+	ctx context.Context, identifier, certPem, certWallet, kmsKeyID string, kv map[string]string,
 ) (*Certificate, error) {
 	b.mu.Lock("ImportCertificate")
 	defer b.mu.Unlock()
@@ -32,6 +32,7 @@ func (b *InMemoryBackend) ImportCertificate(
 		CertificateIdentifier: identifier,
 		CertificateArn:        certARN,
 		CertificatePem:        certPem,
+		CertificateWallet:     certWallet,
 		KmsKeyID:              kmsKeyID,
 		AccountID:             b.accountID,
 		Region:                region,

@@ -93,8 +93,9 @@ func (h *Handler) queryListQueues(vals url.Values, region string) ([]byte, int, 
 
 func (h *Handler) queryGetQueueURL(vals url.Values, region string) ([]byte, int, *queryError) {
 	out, err := h.Backend.GetQueueURL(&GetQueueURLInput{
-		QueueName: vals.Get("QueueName"),
-		Region:    region,
+		QueueName:      vals.Get("QueueName"),
+		Region:         region,
+		OwnerAccountID: vals.Get("QueueOwnerAWSAccountId"),
 	})
 	if err != nil {
 		return nil, 0, buildQueryError(err)

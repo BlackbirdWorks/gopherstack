@@ -36,7 +36,7 @@ func datasetsKeyFn(v *Dataset) string                   { return v.DatasetID }
 func otelEnrichmentKeyFn(v *OTelEnrichmentState) string { return v.Key }
 
 func anomalyDetectorsKeyFn(v *AnomalyDetector) string {
-	return anomalyDetectorKey(v.Namespace, v.MetricName, v.Stat, v.Dimensions)
+	return detectorKey(v)
 }
 
 func insightRulesKeyFn(v *InsightRule) string     { return v.Name }

@@ -23,7 +23,6 @@ type describeRCNsResultXML struct {
 }
 
 type reservedCacheNodeXML struct {
-	ReservationID       string  `xml:"ReservationId,omitempty"`
 	ReservedCacheNodeID string  `xml:"ReservedCacheNodeId"`
 	ARN                 string  `xml:"ReservationARN,omitempty"`
 	CacheNodeType       string  `xml:"CacheNodeType"`
@@ -45,7 +44,6 @@ func reservedCacheNodeToXML(rcn *ReservedCacheNode) reservedCacheNodeXML {
 	}
 
 	return reservedCacheNodeXML{
-		ReservationID:       rcn.ReservationID,
 		ReservedCacheNodeID: rcn.ReservedCacheNodeID,
 		ARN:                 rcn.ARN,
 		CacheNodeType:       rcn.CacheNodeType,
@@ -77,13 +75,14 @@ func (h *Handler) describeReservedCacheNodes(ctx context.Context, c *echo.Contex
 	offeringType := form.Get("OfferingType")
 	duration := form.Get("Duration")
 	productDescription := form.Get("ProductDescription")
+	offeringID := form.Get("ReservedCacheNodesOfferingId")
 	marker, maxRecords, err := parsePaginationChecked(c, form)
 	if err != nil {
 		return err
 	}
 
-	p, err := h.Backend.DescribeReservedCacheNodes(
-		ctx, id, cacheNodeType, offeringType, duration, productDescription, marker, maxRecords,
+	p, err := h.Backend.DescribeReservedCacheNodesByOffering(
+		ctx, id, cacheNodeType, offeringType, duration, productDescription, offeringID, marker, maxRecords,
 	)
 	if err != nil {
 		if errors.Is(err, ErrReservedCacheNodeNotFound) {
@@ -186,6 +185,8 @@ func (h *Handler) purchaseReservedCacheNodesOffering(ctx context.Context, c *ech
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
+
+	h.applyCreateTimeTags(ctx, form, rcn.ARN)
 
 	type result struct {
 		XMLName           xml.Name             `xml:"PurchaseReservedCacheNodesOfferingResponse"`

@@ -1,7 +1,7 @@
 <script lang="ts">
 import { onMount } from 'svelte';
-import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
-import { getIdentityStoreClient } from '$lib/aws-client';
+import { onRegionChange, regionalClient } from '#lib/region-effect.svelte.ts';
+import { getIdentityStoreClient } from '#lib/aws-client.ts';
 import {
 CreateGroupCommand,
 CreateGroupMembershipCommand,

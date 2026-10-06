@@ -517,6 +517,13 @@ type RevealConfiguration struct {
 	Status   string `json:"status"`
 }
 
+// RetrievalConfiguration mirrors types.RetrievalConfiguration.
+type RetrievalConfiguration struct {
+	RetrievalMode string `json:"retrievalMode"`
+	ExternalID    string `json:"externalId,omitempty"`
+	RoleName      string `json:"roleName,omitempty"`
+}
+
 // SensitivityInspectionTemplate holds template configuration. ID's wire key
 // is "sensitivityInspectionTemplateId" -- distinct from the "id" key used by
 // SensitivityInspectionTemplateSummary (the ListSensitivityInspectionTemplates

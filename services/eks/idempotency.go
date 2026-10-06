@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // gopherstack-wf8f item 3: ClientRequestToken idempotency dedup.
@@ -32,6 +34,9 @@ import (
 
 // idempotencyTokenTTL is the documented token window (api_op_CreateCluster.go: "valid for 24 hours").
 const idempotencyTokenTTL = 24 * time.Hour
+
+// maxIdempotencyRecords caps stored replay records; the oldest are evicted first.
+const maxIdempotencyRecords = 1024
 
 type idempotencyRecord struct {
 	CreatedAt   time.Time       `json:"createdAt"`
@@ -107,6 +112,8 @@ func (b *InMemoryBackend) storeIdempotency(op, token, fingerprint string, status
 		}
 	}
 
+	evictOldestIdempotency(b.idempotency, maxIdempotencyRecords-1)
+
 	b.idempotency.Put(&idempotencyRecord{
 		Op: op, Token: token, Fingerprint: fingerprint, StatusCode: statusCode, Body: body, CreatedAt: now,
 	})
@@ -170,4 +177,18 @@ func (h *Handler) withIdempotency(
 	}
 
 	return c.JSON(status, body)
+}
+
+func evictOldestIdempotency(t *store.Table[idempotencyRecord], keep int) {
+	for t.Len() > keep {
+		var oldest *idempotencyRecord
+
+		for _, rec := range t.All() {
+			if oldest == nil || rec.CreatedAt.Before(oldest.CreatedAt) {
+				oldest = rec
+			}
+		}
+
+		t.Delete(idempotencyKeyFn(oldest))
+	}
 }

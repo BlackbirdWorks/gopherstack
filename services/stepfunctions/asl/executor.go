@@ -282,11 +282,17 @@ type ExecutionResult struct {
 	Output any
 	Error  string
 	Cause  string
+	// NextState is the single state's transition target under EnableSingleState.
+	NextState string
 	// Failed is true iff a Fail state (or an unhandled Task failure) ended
 	// the execution. A Fail state's Error/Cause are both optional per the
 	// ASL spec, so Error alone cannot distinguish "failed with no error
 	// code" from "succeeded" -- callers must check Failed, not Error != "".
 	Failed bool
+	// Retriable/Caught: under EnableSingleState, a Retry matched or a Catch
+	// handled the error (Error/Cause then carry it).
+	Retriable bool
+	Caught    bool
 }
 
 const (
@@ -398,11 +404,19 @@ type Executor struct {
 	execSem              *semaphore.Weighted
 	jxNums               map[string]int
 	vars                 map[string]any
+	contextOverride      map[string]any
 	execMeta             executionMeta
 	branchName           string
+	lastNext             string
+	caughtErr            string
+	caughtCause          string
+	jxPct                float64
 	mapItemIdx           int
+	retrierRetryCount    int
+	jxPctSet             bool
 	inMapItem            bool
 	caught               bool
+	singleState          bool
 }
 
 // executionMeta is the subset of context object data that ASL exposes via `$$`.
@@ -441,6 +455,45 @@ func NewExecutor(sm *StateMachine, lambda LambdaInvoker, history HistoryRecorder
 		execSem:       semaphore.NewWeighted(maxConcurrentSubExecutors),
 		jsonPathCache: newJSONPathCache(maxJSONPathCacheEntries),
 	}
+}
+
+// EnableSingleState stops Execute after the first state, reporting a matching
+// Retry as Retriable instead of waiting, and a matching Catch as Caught.
+func (e *Executor) EnableSingleState() { e.singleState = true }
+
+// SetRetrierRetryCount sets how many retries the state under test is treated as
+// having already used, for deciding whether a Retry still matches.
+func (e *Executor) SetRetrierRetryCount(n int) { e.retrierRetryCount = n }
+
+// SetContextOverride replaces top-level members of the `$$` context object.
+func (e *Executor) SetContextOverride(c map[string]any) { e.contextOverride = c }
+
+type retriableError struct{ err error }
+
+func (r *retriableError) Error() string { return r.err.Error() }
+
+func (r *retriableError) Unwrap() error { return r.err }
+
+// retryState is tryRetry, except under EnableSingleState where a matching
+// Retry returns a retriableError.
+func (e *Executor) retryState(ctx context.Context, state *State, attempts []int, taskErr error) (bool, error) {
+	if !e.singleState {
+		return tryRetry(ctx, state, attempts, taskErr)
+	}
+
+	for i := range state.Retry {
+		r := &state.Retry[i]
+		maxAttempts := 3
+		if r.MaxAttempts != nil {
+			maxAttempts = *r.MaxAttempts
+		}
+
+		if catchesError(r.ErrorEquals, taskErr) && maxAttempts > e.retrierRetryCount {
+			return false, &retriableError{err: taskErr}
+		}
+	}
+
+	return false, nil
 }
 
 // EnableInspection makes the executor record the tested state's per-stage
@@ -553,6 +606,8 @@ func (e *Executor) buildContextObject() map[string]any {
 		ctx["Map"] = mapItemContext(e.mapItemIdx, e.mapItemValue)
 	}
 
+	maps.Copy(ctx, e.contextOverride)
+
 	return ctx
 }
 
@@ -613,6 +668,13 @@ func (e *Executor) Execute(
 
 	output, err := e.runStates(ctx, executionARN, e.sm.States, e.sm.StartAt, input)
 	if err != nil {
+		if re, ok := errors.AsType[*retriableError](err); ok {
+			res := &ExecutionResult{Failed: true, Retriable: true, Error: stepFunctionsErrorCode(re.err)}
+			res.Cause = stepFunctionsErrorCause(re.err)
+
+			return res, nil
+		}
+
 		if failErr, ok := errors.AsType[*FailError](err); ok {
 			return &ExecutionResult{Error: failErr.ErrCode, Cause: failErr.Cause, Failed: true}, nil
 		}
@@ -620,7 +682,12 @@ func (e *Executor) Execute(
 		return nil, err
 	}
 
-	return &ExecutionResult{Output: output}, nil
+	res := &ExecutionResult{Output: output, NextState: e.lastNext}
+	if e.singleState && e.caught {
+		res.Caught, res.Error, res.Cause = true, e.caughtErr, e.caughtCause
+	}
+
+	return res, nil
 }
 
 // runStates executes states starting from startAt in the provided states map.
@@ -666,6 +733,12 @@ func (e *Executor) runStates(
 
 		if e.history != nil {
 			e.history.RecordStateExited(executionARN, current, state.Type, finalOutput)
+		}
+
+		if e.singleState && e.sm.States[current] == state {
+			e.lastNext = nextState
+
+			return finalOutput, nil
 		}
 
 		if nextState == "" {
@@ -1018,7 +1091,7 @@ func (e *Executor) executeTask(
 			return "", nil, taskErr
 		}
 
-		retried, retryErr := tryRetry(ctx, state, retryAttempts, taskErr)
+		retried, retryErr := e.retryState(ctx, state, retryAttempts, taskErr)
 		if retryErr != nil {
 			if !errors.Is(retryErr, ErrStatesTimeout) {
 				return "", nil, retryErr
@@ -1294,6 +1367,7 @@ func (e *Executor) checkCatchers(
 			}
 
 			e.caught = true
+			e.caughtErr, e.caughtCause = errCode, cause
 			out, err := e.catchOutput(state, catcher, input, errorResult)
 
 			e.recordTaskFailed(executionARN, stateName, state.Resource, errCode, cause)
@@ -1930,7 +2004,7 @@ func (e *Executor) executeWithStateRetryAndCatch(
 			return "", nil, err
 		}
 
-		retried, retryErr := tryRetry(ctx, state, retryAttempts, err)
+		retried, retryErr := e.retryState(ctx, state, retryAttempts, err)
 		if retryErr != nil {
 			if !errors.Is(retryErr, ErrStatesTimeout) {
 				return "", nil, retryErr
@@ -2973,10 +3047,7 @@ func (e *Executor) finalizeMap(
 
 	// No tolerance configured (the common case): preserve the original
 	// per-item error so Catch/Retry on the Map state can match on it.
-	if threshold == 0 && state.ToleratedFailureCount == nil &&
-		state.ToleratedFailureCountPath == "" &&
-		state.ToleratedFailurePercentage == nil &&
-		state.ToleratedFailurePercentagePath == "" {
+	if threshold == 0 && !state.hasToleratedFailure() {
 		return nil, firstErr
 	}
 
@@ -3032,6 +3103,10 @@ func (e *Executor) resolveToleratedFailureThreshold(
 // resolveToleratedFailureCount resolves ToleratedFailureCount(Path). The
 // second return value reports whether either field was configured.
 func (e *Executor) resolveToleratedFailureCount(state *State, mapInput any) (int, bool, error) {
+	if v, ok := e.jxNums[fieldToleratedFailureCount]; ok {
+		return v, true, nil
+	}
+
 	switch {
 	case state.ToleratedFailureCountPath != "":
 		val, err := applyPath(state.ToleratedFailureCountPath, mapInput, e.jsonPathCache)
@@ -3063,6 +3138,8 @@ func (e *Executor) resolveToleratedFailurePercentageThreshold(
 	var pct float64
 
 	switch {
+	case e.jxPctSet:
+		pct = e.jxPct
 	case state.ToleratedFailurePercentagePath != "":
 		val, err := applyPath(state.ToleratedFailurePercentagePath, mapInput, e.jsonPathCache)
 		if err != nil {

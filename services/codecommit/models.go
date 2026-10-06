@@ -169,19 +169,28 @@ type RuleEvaluation struct {
 
 // Comment represents a CodeCommit comment.
 type Comment struct {
-	CreationDate     time.Time `json:"creationDate"`
-	LastModifiedDate time.Time `json:"lastModifiedDate"`
-	CommentID        string    `json:"commentId"`
-	Content          string    `json:"content"`
-	AuthorARN        string    `json:"authorArn"`
+	Location         *CommentLocation `json:"-"`
+	CreationDate     time.Time        `json:"creationDate"`
+	LastModifiedDate time.Time        `json:"lastModifiedDate"`
+	CommentID        string           `json:"commentId"`
+	Content          string           `json:"content"`
+	AuthorARN        string           `json:"authorArn"`
 	// InReplyTo links to parent comment for replies
 	InReplyTo string `json:"inReplyTo,omitempty"`
 	// PRid links comment to a pull request
 	PRid string `json:"-"`
 	// RepoName + AfterCommitID for commit comments
-	RepoName      string `json:"-"`
-	AfterCommitID string `json:"-"`
-	Deleted       bool   `json:"deleted"`
+	RepoName       string `json:"-"`
+	AfterCommitID  string `json:"-"`
+	BeforeCommitID string `json:"-"`
+	Deleted        bool   `json:"deleted"`
+}
+
+// CommentLocation is types.Location: where in a file a comment was made.
+type CommentLocation struct {
+	FilePath            string `json:"filePath,omitempty"`
+	RelativeFileVersion string `json:"relativeFileVersion,omitempty"`
+	FilePosition        int64  `json:"filePosition,omitempty"`
 }
 
 // Reaction represents a reaction emoji by a user on a comment.

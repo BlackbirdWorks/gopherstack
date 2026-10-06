@@ -279,7 +279,8 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 }
 
 // paginate applies pkgs/page's opaque-token pagination to items, using
-// maxResults (nil or <=0 falls back to defaultPageLimit) and token. This
+// maxResults (nil or <=0 falls back to defaultPageLimit; larger than 100 is capped
+// at 100, api_op_DescribeConnections.go:36) and token. This
 // service's own SDK generates no Paginator type for any of its ten
 // MaxResults/NextToken-bearing Describe/List ops (PARITY.md wire-trap #4);
 // pkgs/page is used here instead of leaving MaxResults/NextToken silently
@@ -288,7 +289,7 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 func paginate[T any](items []T, token string, maxResults *int32) ([]T, string) {
 	limit := 0
 	if maxResults != nil {
-		limit = int(*maxResults)
+		limit = min(int(*maxResults), defaultPageLimit)
 	}
 
 	pg := page.New(items, token, limit, defaultPageLimit)

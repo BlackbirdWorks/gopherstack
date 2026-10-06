@@ -10,6 +10,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -25,12 +26,13 @@ const (
 type Handler struct {
 	Backend StorageBackend
 	ops     map[string]service.JSONOpFunc
+	idem    *idempotency.Memo
 	region  string
 }
 
 // NewHandler creates a WorkMail handler backed by the provided storage backend.
 func NewHandler(backend StorageBackend) *Handler {
-	h := &Handler{Backend: backend, region: backend.Region()}
+	h := &Handler{Backend: backend, region: backend.Region(), idem: idempotency.New("workmail")}
 	h.ops = h.buildOps()
 
 	return h
@@ -130,11 +132,6 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		code, status = "MailDomainNotFoundException", http.StatusBadRequest
 	case errors.Is(err, ErrNotFound):
 		code, status = "EntityNotFoundException", http.StatusBadRequest
-	case errors.Is(err, ErrConflict):
-		// CreateImpersonationRole: see ErrConflict's doc in errors.go -- its
-		// own model has no AlreadyExists-shaped exception, so no
-		// replacement code is invented.
-		code, status = "EntityAlreadyExistsException", http.StatusBadRequest
 	case errors.Is(err, ErrNameUnavailable):
 		code, status = "NameAvailabilityException", http.StatusBadRequest
 	case errors.Is(err, ErrEmailInUse):

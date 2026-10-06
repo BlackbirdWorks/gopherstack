@@ -234,7 +234,7 @@ func Test_RegisterConnection_DuplicateReturns409(t *testing.T) {
 
 	rec = doRequest(t, h, http.MethodPost, "/_admin/connections/device-001", nil)
 	assert.Equal(t, http.StatusConflict, rec.Code)
-	assert.Contains(t, rec.Body.String(), "ResourceAlreadyExistsException")
+	assert.Contains(t, rec.Body.String(), "ConflictException")
 }
 func Test_RegisterConnection_DollarPrefixRejected(t *testing.T) {
 	t.Parallel()
@@ -394,7 +394,7 @@ func Test_Connection_Register_DuplicateShape(t *testing.T) {
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, "ResourceAlreadyExistsException", resp["error"])
+	assert.Equal(t, "ConflictException", resp["error"])
 }
 func Test_Connection_EmptyClientID_Rejected(t *testing.T) {
 	t.Parallel()

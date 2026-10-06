@@ -39,12 +39,17 @@ func (h *Handler) handleDescribeImages(_ context.Context, in *describeImagesInpu
 		return nil, err
 	}
 
+	details, next, err := paginateDescribe(details, in.MaxResults, in.NextToken, len(ids) > 0)
+	if err != nil {
+		return nil, err
+	}
+
 	out := make([]ImageDetailWire, 0, len(details))
 	for _, d := range details {
 		out = append(out, toImageDetailWire(d))
 	}
 
-	return &describeImagesOutput{ImageDetails: out}, nil
+	return &describeImagesOutput{ImageDetails: out, NextToken: next}, nil
 }
 
 type describeImageTagsInput struct {
@@ -67,12 +72,17 @@ func (h *Handler) handleDescribeImageTags(
 		return nil, err
 	}
 
+	details, next, err := paginateDescribe(details, in.MaxResults, in.NextToken, false)
+	if err != nil {
+		return nil, err
+	}
+
 	out := make([]ImageTagDetailWire, 0, len(details))
 	for _, d := range details {
 		out = append(out, toImageTagDetailWire(d))
 	}
 
-	return &describeImageTagsOutput{ImageTagDetails: out}, nil
+	return &describeImageTagsOutput{ImageTagDetails: out, NextToken: next}, nil
 }
 
 type putImageInput struct {

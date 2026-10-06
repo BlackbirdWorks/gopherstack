@@ -44,7 +44,14 @@ func (h *Handler) handleListSecurityControlDefinitions(c *echo.Context) error {
 	nextToken := c.QueryParam("NextToken")
 	maxResults := queryInt(c)
 
-	defs, nextOut := h.Backend.ListSecurityControlDefinitions(standardsArn, nextToken, maxResults)
+	var defs []*SecurityControlDefinition
+
+	var nextOut string
+
+	if providersIncludeAWS(c.QueryParams()["Providers"]) {
+		defs, nextOut = h.Backend.ListSecurityControlDefinitions(standardsArn, nextToken, maxResults)
+	}
+
 	items := make([]map[string]any, len(defs))
 
 	for i, d := range defs {

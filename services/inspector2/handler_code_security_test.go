@@ -398,7 +398,7 @@ func TestCodeSecurityScanLifecycle(t *testing.T) {
 
 	// Start
 	rec := auditDo(t, h, http.MethodPost, "/codesecurity/scan/start", map[string]any{
-		"resourceId": "arn:aws:codecommit:us-east-1:123456789012:my-repo",
+		"resource": map[string]any{"projectId": "my-repo"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 

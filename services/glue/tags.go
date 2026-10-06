@@ -107,6 +107,12 @@ func (b *InMemoryBackend) tagResource(
 		return nil
 	}
 
+	if ig := b.findIntegrationByARN(resourceARN); ig != nil {
+		mergeTags(&ig.Tags, tags)
+
+		return nil
+	}
+
 	return ErrNotFound
 }
 
@@ -202,6 +208,12 @@ func (b *InMemoryBackend) UntagResource(
 		return nil
 	}
 
+	if ig := b.findIntegrationByARN(resourceARN); ig != nil {
+		deleteTags(ig.Tags, tagKeys)
+
+		return nil
+	}
+
 	return ErrNotFound
 }
 
@@ -260,6 +272,10 @@ func (b *InMemoryBackend) GetTags(resourceARN string) (map[string]string, error)
 
 	if s := b.findSchemaByARN(resourceARN); s != nil {
 		return maps.Clone(s.Tags), nil
+	}
+
+	if ig := b.findIntegrationByARN(resourceARN); ig != nil {
+		return maps.Clone(ig.Tags), nil
 	}
 
 	return nil, ErrNotFound
@@ -327,6 +343,10 @@ func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
 
 	for _, u := range b.udfs.All() {
 		out = appendTaggedEntry(out, u.FunctionARN, u.Tags)
+	}
+
+	for _, ig := range b.integrations.All() {
+		out = appendTaggedEntry(out, ig.IntegrationArn, ig.Tags)
 	}
 
 	return out
@@ -672,4 +692,19 @@ func (b *InMemoryBackend) findUDFByARN(resourceARN string) *UserDefinedFunction 
 	}
 
 	return u
+}
+
+// findIntegrationByARN looks up a zero-ETL integration by its ARN.
+func (b *InMemoryBackend) findIntegrationByARN(resourceARN string) *Integration {
+	name := glueResourceName(resourceARN, "integration")
+	if name == "" {
+		return nil
+	}
+
+	ig, ok := b.integrations.Get(name)
+	if !ok {
+		return nil
+	}
+
+	return ig
 }

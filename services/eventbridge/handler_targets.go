@@ -15,6 +15,7 @@ type removeTargetsInput struct {
 	Rule         string   `json:"Rule"`
 	EventBusName string   `json:"EventBusName"`
 	IDs          []string `json:"Ids"`
+	Force        bool     `json:"Force"`
 }
 
 type listTargetsByRuleInput struct {
@@ -64,7 +65,7 @@ func (h *Handler) targetActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			failed, err := h.Backend.RemoveTargets(ctx, input.Rule, input.EventBusName, input.IDs)
+			failed, err := h.Backend.RemoveTargetsForce(ctx, input.Rule, input.EventBusName, input.IDs, input.Force)
 			if err != nil {
 				return nil, err
 			}

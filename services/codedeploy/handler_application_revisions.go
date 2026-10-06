@@ -153,6 +153,7 @@ type listApplicationRevisionsInput struct {
 	S3KeyPrefix     string `json:"s3KeyPrefix"`
 	SortBy          string `json:"sortBy"`
 	SortOrder       string `json:"sortOrder"`
+	NextToken       string `json:"nextToken"`
 }
 
 type listApplicationRevisionsOutput struct {
@@ -163,6 +164,10 @@ func (h *Handler) handleListApplicationRevisions(
 	_ context.Context,
 	in *listApplicationRevisionsInput,
 ) (*listApplicationRevisionsOutput, error) {
+	if err := rejectNextToken(in.NextToken); err != nil {
+		return nil, err
+	}
+
 	if in.ApplicationName == "" {
 		return nil, fmt.Errorf("%w: applicationName is required", ErrApplicationNameRequired)
 	}

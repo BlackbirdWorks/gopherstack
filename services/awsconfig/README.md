@@ -8,7 +8,7 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 102 (102 ok) |
-| Known gaps | 6 |
+| Known gaps | 7 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
@@ -20,6 +20,7 @@
 - MaxNumberOfConnectorsExceededException is not enforced: the per-account connector limit is not published in AWS docs.
 - ListDiscoveredResources.IncludeDeletedResources: DeleteResourceConfig removes the resource outright; no verified AWS tombstone retention period to bound one.
 - StartResourceEvaluation.EvaluationTimeout: evaluation completes synchronously, so there is nothing to time out.
+- ConformancePackInputParameters (PutConformancePack/PutOrganizationConformancePack) are stored and echoed but not substituted into templates; PutOrganizationConformancePack.TemplateBody/TemplateS3Uri are not parsed or deployed; DeleteRemediationConfiguration.ResourceType is ignored (remediation configurations are keyed by rule name only).
 
 ### Deferred
 

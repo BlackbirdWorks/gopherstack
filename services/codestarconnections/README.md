@@ -9,14 +9,13 @@
 | --- | --- |
 | PARITY entries audited | 27 (26 ok, 1 partial) |
 | Feature families | 6 (6 ok) |
-| Known gaps | 2 |
+| Known gaps | 1 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- PullRequestComment field (CreateSyncConfiguration/UpdateSyncConfiguration/SyncConfiguration) — present in current AWS API docs but NOT in the pinned aws-sdk-go-v2@v1.35.15 SDK's types/serializers/deserializers; correctly omitted to match the SDK version actually vendored by this repo (not a gap in the usual sense — flagged here only so a future SDK bump re-checks it)
 - CreateRepositoryLink's ConnectionArn and CreateSyncConfiguration's RepositoryLinkId are never checked for existence -- disclosed 2026-09-04 (gopherstack-42j), deliberately NOT fixed: unlike UpdateRepositoryLink (gopherstack-5k45), neither CreateRepositoryLink's nor CreateSyncConfiguration's own error deserializer switch (awsAwsjson10_deserializeOpErrorCreateRepositoryLink / ...CreateSyncConfiguration) contains ResourceNotFoundException; both DO contain InvalidInputException, but this service's own ErrValidation doc comment (errors.go) establishes InvalidInputException as the real type for malformed/missing-required-field input specifically, not FK-style reference validation -- using it here would be exactly the kind of invented-purpose wire-shape bug this campaign exists to catch, not a fix. Cannot be determined from the SDK whether real AWS validates these fields at all (and if so, via which mechanism); declining to guess. Same conclusion independently reached for the codeconnections twin.
 
 ### Structural gaps

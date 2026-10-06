@@ -11,8 +11,7 @@ import (
 
 // --- Offering operations ---
 
-// OfferingFilter holds ListOfferings' query filters; ChannelClass,
-// ChannelConfiguration and Scope are not modeled.
+// OfferingFilter holds ListOfferings' query filters; ChannelConfiguration is not modeled.
 type OfferingFilter struct {
 	Duration string
 	ReservationFilter
@@ -157,15 +156,10 @@ func addOfferingTerm(t time.Time, duration int32, units string) time.Time {
 	return t.AddDate(0, int(duration), 0)
 }
 
-// ReservationFilter mirrors the ResourceSpecification-backed
-// ListReservationsInput query filters this backend can honestly answer
-// (codec/maximumBitrate/maximumFramerate/resolution/resourceType/
-// specialFeature/videoQuality -- api_op_ListReservations.go, all bound as
-// httpQuery). ChannelClass is deliberately excluded: neither Offering nor
-// storedReservation tracks it anywhere in this backend, so it stays a
-// disclosed structural gap rather than a fabricated match. An empty field
-// means "no constraint on that attribute".
+// ReservationFilter holds the ResourceSpecification-backed ListReservations/ListOfferings
+// query filters; an empty field means no constraint.
 type ReservationFilter struct {
+	ChannelClass     string
 	Codec            string
 	MaximumBitrate   string
 	MaximumFramerate string
@@ -176,7 +170,8 @@ type ReservationFilter struct {
 }
 
 func (f ReservationFilter) matches(spec OfferingResourceSpecification) bool {
-	return (f.Codec == "" || f.Codec == spec.Codec) &&
+	return eqOrAny(f.ChannelClass, spec.ChannelClass) &&
+		(f.Codec == "" || f.Codec == spec.Codec) &&
 		(f.MaximumBitrate == "" || f.MaximumBitrate == spec.MaximumBitrate) &&
 		(f.MaximumFramerate == "" || f.MaximumFramerate == spec.MaximumFramerate) &&
 		(f.Resolution == "" || f.Resolution == spec.Resolution) &&
@@ -284,3 +279,5 @@ func (b *InMemoryBackend) UpdateReservation(
 
 	return r.toReservation(), nil
 }
+
+func eqOrAny(want, got string) bool { return want == "" || want == got }

@@ -3,7 +3,6 @@ package iotdataplane_test
 import (
 	"context"
 	"fmt"
-	"net"
 	"net/http"
 	"testing"
 	"time"
@@ -16,29 +15,13 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/iotdataplane"
 )
 
-// freeTCPPort asks the OS for a currently-unused TCP port, mirroring
-// services/iot/broker_test.go's helper of the same purpose (duplicated here:
-// external test packages can't share unexported test helpers across
-// package boundaries).
-func freeTCPPort(t *testing.T) int {
-	t.Helper()
-
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-
-	port := l.Addr().(*net.TCPAddr).Port
-	require.NoError(t, l.Close())
-
-	return port
-}
-
-// startRealBroker starts a real *iot.Broker on port and blocks until it is
-// accepting connections, registering cleanup to drain its goroutine.
-func startRealBroker(t *testing.T, port int) *iot.Broker {
+// startRealBroker starts a real *iot.Broker on an OS-assigned port and waits
+// for it to be ready; cleanup drains its goroutine.
+func startRealBroker(t *testing.T) (*iot.Broker, int) {
 	t.Helper()
 
 	backend := iot.NewInMemoryBackend()
-	broker := iot.NewBroker(backend, port)
+	broker := iot.NewBroker(backend, 0)
 
 	runCtx, cancelRun := context.WithCancel(t.Context())
 	done := make(chan struct{})
@@ -53,23 +36,16 @@ func startRealBroker(t *testing.T, port int) *iot.Broker {
 		<-done
 	})
 
-	addr := fmt.Sprintf("127.0.0.1:%d", port)
-	deadline := time.Now().Add(3 * time.Second)
-
-	for time.Now().Before(deadline) {
-		conn, dialErr := net.DialTimeout("tcp", addr, 100*time.Millisecond)
-		if dialErr == nil {
-			_ = conn.Close()
-
-			return broker
-		}
-
-		time.Sleep(20 * time.Millisecond)
+	select {
+	case <-broker.Ready():
+		return broker, broker.Port()
+	case <-done:
+		t.Fatal("broker exited before becoming ready")
+	case <-t.Context().Done():
+		t.Fatal("broker did not become ready")
 	}
 
-	t.Fatalf("broker on %s did not become ready", addr)
-
-	return nil
+	return nil, 0
 }
 
 // Test_Publish_DeliversThroughRealBroker proves PublishWithProperties -- the
@@ -87,8 +63,7 @@ func startRealBroker(t *testing.T, port int) *iot.Broker {
 func Test_Publish_DeliversThroughRealBroker(t *testing.T) {
 	t.Parallel()
 
-	port := freeTCPPort(t)
-	broker := startRealBroker(t, port)
+	broker, port := startRealBroker(t)
 
 	dpBackend := iotdataplane.NewInMemoryBackend()
 	dpBackend.SetBroker(broker)
@@ -142,8 +117,7 @@ func Test_Publish_DeliversThroughRealBroker(t *testing.T) {
 func Test_SendDirectMessage_DeliversThroughRealBroker(t *testing.T) {
 	t.Parallel()
 
-	port := freeTCPPort(t)
-	broker := startRealBroker(t, port)
+	broker, port := startRealBroker(t)
 
 	const clientID = "real-broker-direct"
 

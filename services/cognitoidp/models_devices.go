@@ -31,7 +31,6 @@ type deviceType struct {
 	DeviceLastModifiedDate      *float64        `json:"DeviceLastModifiedDate,omitempty"`
 	DeviceLastAuthenticatedDate *float64        `json:"DeviceLastAuthenticatedDate,omitempty"`
 	DeviceKey                   string          `json:"DeviceKey,omitempty"`
-	DeviceStatus                string          `json:"DeviceStatus,omitempty"`
 	DeviceAttributes            []attributeType `json:"DeviceAttributes,omitempty"`
 }
 

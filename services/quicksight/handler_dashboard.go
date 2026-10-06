@@ -83,6 +83,11 @@ func (h *Handler) handleCreateDashboard(c *echo.Context) error {
 		definition = h.Backend.ResolveSourceEntityDefinition(sourceEntityArnFromBody(body))
 	}
 
+	folderArns := stringsFromBody(body, "FolderArns")
+	if folderErr := h.Backend.CheckFolderArns(accountID, folderArns); folderErr != nil {
+		return httpErr(c, folderErr)
+	}
+
 	d, err := h.Backend.CreateDashboard(
 		accountID,
 		dashboardID,
@@ -97,6 +102,10 @@ func (h *Handler) handleCreateDashboard(c *echo.Context) error {
 	)
 	if err != nil {
 		return httpErr(c, err)
+	}
+	folderErr := h.Backend.AddToFolders(accountID, folderMemberTypeDashboard, d.DashboardID, folderArns)
+	if folderErr != nil {
+		return httpErr(c, folderErr)
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{

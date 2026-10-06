@@ -193,13 +193,9 @@ func TestCreateAccount_RoleName(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler(t)
+			b, _ := newOrgBackend(t)
+			h := organizations.NewHandler(b)
 
-			// Create org first.
-			rec := doRequest(t, h, "CreateOrganization", map[string]any{"FeatureSet": "ALL"})
-			require.Equal(t, http.StatusOK, rec.Code)
-
-			// Create account.
 			body := map[string]any{
 				"AccountName": "test-account",
 				"Email":       "test@example.com",
@@ -208,7 +204,7 @@ func TestCreateAccount_RoleName(t *testing.T) {
 				body["RoleName"] = tt.roleName
 			}
 
-			rec = doRequest(t, h, "CreateAccount", body)
+			rec := doRequest(t, h, "CreateAccount", body)
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
@@ -225,8 +221,11 @@ func TestCreateAccount_RoleName(t *testing.T) {
 			require.NoError(t, json.NewDecoder(rec.Body).Decode(&descResp))
 
 			acct := descResp["Account"].(map[string]any)
-			roleName, _ := acct["RoleName"].(string)
-			assert.Equal(t, tt.wantRoleName, roleName)
+			assert.NotContains(t, acct, "RoleName")
+
+			stored, err := b.DescribeAccount(accountID)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantRoleName, stored.RoleName)
 		})
 	}
 }
@@ -296,8 +295,11 @@ func TestCreateAccount_IamUserAccessToBilling(t *testing.T) {
 				require.NoError(t, json.NewDecoder(rec.Body).Decode(&descResp))
 
 				acct := descResp["Account"].(map[string]any)
-				iamAccess, _ := acct["IamUserAccessToBilling"].(string)
-				assert.Equal(t, tt.wantIamAccess, iamAccess)
+				assert.NotContains(t, acct, "IamUserAccessToBilling")
+
+				stored, err := b.DescribeAccount(accountID)
+				require.NoError(t, err)
+				assert.Equal(t, tt.wantIamAccess, stored.IamUserAccessToBilling)
 			}
 		})
 	}

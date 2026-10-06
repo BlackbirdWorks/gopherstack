@@ -265,6 +265,10 @@ func (b *InMemoryBackend) GetQueueURL(input *GetQueueURLInput) (*GetQueueURLOutp
 	b.mu.RLock("GetQueueURL")
 	defer b.mu.RUnlock()
 
+	if input.OwnerAccountID != "" && input.OwnerAccountID != b.accountID {
+		return nil, ErrQueueNotFound
+	}
+
 	q, ok := b.lookupQueueByName(input.Region, input.QueueName)
 	if !ok {
 		return nil, ErrQueueNotFound

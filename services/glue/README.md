@@ -9,25 +9,22 @@
 | --- | --- |
 | PARITY entries audited | 59 (58 ok, 1 partial) |
 | Feature families | 28 (23 ok, 5 partial) |
-| Known gaps | 4 |
-| Deferred items | 6 |
+| Known gaps | 5 |
+| Deferred items | 2 |
 | Resource leaks | clean |
 
 ### Known gaps
 
 - Unmodeled subsystems (no backing state): Lake Formation cell/row filtering (GetUnfiltered*Metadata) and catalog federation; GetDataQualityResult metrics/rule results and StartDataQualityRulesetEvaluationRun evaluation (no engine runs); ListConnectionTypes DisplayName/LogoUrl/Vendor/variants (no connector catalog); GetTable AttributesToGet Iceberg metadata.
-- Type-fidelity only, inert: MLTaskRun lacks LastModifiedOn and has Properties as map[string]string; DataCatalogExportConfiguration.S3TableBucketArn has no input to derive from and ENABLING/DISABLING are not modeled (no async export).
+- MLTaskRun.Properties is map[string]string and never populated (real shape is a TaskType plus four nested sub-structs); DataCatalogExportConfiguration.S3TableBucketArn has no input to derive from and ENABLING/DISABLING are not modeled (no async export).
 - IdempotentParameterMismatchException/OperationTimeoutException/ConcurrentModificationException unenforced: the coarse b.mu serializes ops, there is no real timeout source, and no declaring op has a token input. ResourceNumberLimitExceededException is real for 15 ops (limits.go).
+- Request members still accepted and ignored (cmd/reqfielddiff lists 128 undeclared input fields; not all triaged): Tags on CreateCatalog/CreateSession/CreateColumnStatisticsTaskSettings/CreateIntegrationResourceProperty/RegisterConnectionType (no tag store or ARN dispatch for those kinds), ClientToken idempotency on glossary/asset/form/data-quality creates, RequestOrigin on session and statement ops, Iceberg OpenTableFormatInput and TransactionId/AuditContext/QueryAsOfTime on table and partition ops, UpdateTable VersionId/Force/ViewUpdateAction, ModifyIntegration.IntegrationName (the ARN is name-keyed), StartJobRun.JobRunId (retry linkage).
 - CustomEntityType has no ARN or Tags: the Glue ARN format for it is not verifiable offline (the SDK exposes none), so TagResource cannot be wired honestly.
 
 ### Deferred
 
 - workflows: BlueprintDetails and WorkflowRun.Graph's per-node run details (JobDetails.JobRuns/CrawlerDetails.Crawls) remain unmodeled -- the job/crawler-run-to-workflow-run link they'd need now exists (gopherstack-vcor), but converting it into per-node run lists is separate work; this backend also never evaluates conditional (predicate-gated) triggers, so only a workflow's entry trigger ever links actions to a run
-- schema registry: Compatibility enum validation and DISABLED-mode enforcement are real (gopherstack-j1b7). BACKWARD/FORWARD/FULL/*_ALL diffing for AVRO/JSON/PROTOBUF remains deferred: 2026-09-18 re-check via WebFetch against docs.aws.amazon.com returned no usable page content in this sandbox (network reaches example.com fine, but AWS doc pages render empty), so the precise per-format comparison rules can't be verified here -- a wrong compatibility verdict is worse than the current honest absence (a caller trusts a compatibility pass to reject real incompatibilities). Needs external AWS evidence; not a code-complexity problem alone.
-- data quality rulesets: DQDL syntax/rule-type validation needs a real lexer+parser for a dozen-plus rule types (comparable in scope to pkgs/dynamodb/expr) -- re-confirmed package-sized 2026-09-18, no slice of it is independently useful since every rule type needs the same scaffolding; not started
 - ML transforms: EvaluationMetrics (FindMatchesMetrics) — no real ML evaluation is ever run, so there is no real metric to report
-- quota/idempotency exceptions: see items_still_open above
-- …and 1 more — see PARITY.md
 
 ## More
 

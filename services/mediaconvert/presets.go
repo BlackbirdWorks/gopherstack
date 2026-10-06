@@ -83,7 +83,9 @@ func (b *InMemoryBackend) ListPresets() []*Preset {
 }
 
 // UpdatePreset updates a preset's description, category, and settings.
-func (b *InMemoryBackend) UpdatePreset(name, description, category string, settings map[string]any) (*Preset, error) {
+func (b *InMemoryBackend) UpdatePreset(
+	name string, description *string, category string, settings map[string]any,
+) (*Preset, error) {
 	b.mu.Lock("UpdatePreset")
 	defer b.mu.Unlock()
 
@@ -92,8 +94,8 @@ func (b *InMemoryBackend) UpdatePreset(name, description, category string, setti
 		return nil, fmt.Errorf("%w: preset %s not found", ErrNotFound, name)
 	}
 
-	if description != "" {
-		p.Description = description
+	if description != nil {
+		p.Description = *description
 	}
 
 	if category != "" {

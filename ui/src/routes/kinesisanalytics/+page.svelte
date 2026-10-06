@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
-	import { getKinesisAnalyticsClient } from '$lib/aws-client';
+	import { onRegionChange, regionalClient } from '#lib/region-effect.svelte.ts';
+	import { getKinesisAnalyticsClient } from '#lib/aws-client.ts';
 	import {
 		ListApplicationsCommand,
 		CreateApplicationCommand,

@@ -145,7 +145,13 @@ func (h *Handler) handleListThingTypes(c *echo.Context) error {
 	types := h.Backend.ListThingTypes()
 	out := make([]map[string]any, 0, len(types))
 
+	nameFilter := c.QueryParam("thingTypeName")
+
 	for _, tt := range types {
+		if nameFilter != "" && tt.ThingTypeName != nameFilter {
+			continue
+		}
+
 		out = append(out, map[string]any{
 			keyThingTypeName:    tt.ThingTypeName,
 			keyThingTypeArn:     tt.ThingTypeARN,
@@ -153,7 +159,7 @@ func (h *Handler) handleListThingTypes(c *echo.Context) error {
 		})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"thingTypes": out})
+	return respondListPage(c, "thingTypes", out)
 }
 
 func (h *Handler) handleDeprecateThingType(c *echo.Context) error {

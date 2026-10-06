@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
-	import { multiRegionList } from '$lib/multi-region';
-	import { isAllRegions, currentRegion } from '$lib/region.svelte';
-	import RegionChip from '$lib/components/RegionChip.svelte';
-	import WriteRegionHint from '$lib/components/WriteRegionHint.svelte';
-	import { getELBv2Client } from '$lib/aws-client';
+	import { confirmDestructive } from '#lib/confirm-dialog.ts';
+	import { onRegionChange, regionalClient } from '#lib/region-effect.svelte.ts';
+	import { multiRegionList } from '#lib/multi-region.ts';
+	import { isAllRegions, currentRegion } from '#lib/region.svelte.ts';
+	import RegionChip from '#lib/components/RegionChip.svelte';
+	import WriteRegionHint from '#lib/components/WriteRegionHint.svelte';
+	import { getELBv2Client } from '#lib/aws-client.ts';
 	import {
 		DescribeLoadBalancersCommand,
 		DescribeTargetGroupsCommand,

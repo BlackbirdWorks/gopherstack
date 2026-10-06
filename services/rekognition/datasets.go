@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"strings"
@@ -25,7 +26,13 @@ func (b *InMemoryBackend) datasetARN(projectARN, datasetType string) string {
 // datasetARN is always uuid-suffixed (so two datasets of the same type never
 // collide on table key), so that check must be done explicitly here via a
 // scan for an existing (ProjectARN, DatasetType) pair.
-func (b *InMemoryBackend) CreateDataset(projectARN, datasetType string) (*Dataset, error) {
+func (b *InMemoryBackend) CreateDataset(
+	projectARN, datasetType string, tags map[string]string,
+) (*Dataset, error) {
+	if err := validateTags(tags); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateDataset")
 	defer b.mu.Unlock()
 
@@ -62,6 +69,10 @@ func (b *InMemoryBackend) CreateDataset(projectARN, datasetType string) (*Datase
 	}
 	b.datasets.Put(ds)
 
+	if len(tags) > 0 {
+		b.tags[arn] = maps.Clone(tags)
+	}
+
 	return ds.toDataset(), nil
 }
 
@@ -84,6 +95,7 @@ func (b *InMemoryBackend) DeleteDataset(datasetARN string) error {
 
 	b.datasets.Delete(datasetARN)
 	delete(b.datasetEntries, datasetARN)
+	delete(b.tags, datasetARN)
 
 	return nil
 }

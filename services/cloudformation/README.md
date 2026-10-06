@@ -9,16 +9,17 @@
 | --- | --- |
 | PARITY entries audited | 73 (72 ok, 1 partial) |
 | Feature families | 18 (18 ok) |
-| Known gaps | 10 |
+| Known gaps | 11 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
+- ListTypes Filters.PublisherId and ListStackRefactors ExecutionStatusFilter are not evaluated: types store no publisher and refactor summaries hold one merged Status; Filters.Category AWS_TYPES always matches nothing since no Amazon-published types are cataloged.
 - changeset_diff.go requiresRecreation() covers only a curated subset of resource types' replacement-forcing properties; expanding it is ongoing work (gopherstack-e5h).
 - SetTypeConfiguration accepts configuration for any type name without prior registration, intentionally, since first-party AWS types are not fully cataloged (gopherstack-e5h).
 - StackSets DeploymentTargets.AccountsUrl is accepted but not fetched: no S3 client is wired for it, same gap as TemplateURL elsewhere (gopherstack-g7b5).
-- ImportStacksToStackSet cannot tag imported instances with an OU: ImportStacksToStackSetInput carries no DeploymentTargets to source one from.
+- ImportStacksToStackSet accepts OrganizationalUnitIds but does not stamp OrganizationalUnitId on imported instances: choosing the OU for each imported stack needs an account-to-OU membership lookup against Organizations, which this backend does not consult.
 - StackSetOperations complete synchronously as SUCCEEDED (RUNNING/STOPPING unreachable): the service has no clock- or janitor-driven lifecycle (gopherstack-b3pm).
 - Stack policy enforcement leaves NotAction/NotResource unevaluated (AWS's two-axis default-deny model) and treats Replacement Conditionally as Update:Replace; StackPolicyURL is not fetched (no S3 client) (gopherstack-cqy3).
 - No nested-stack change-set or public-extension version machinery exists, so these stay unmodeled: CreateChangeSet IncludeNestedStacks (nested stacks are created from inline TemplateBody only, TemplateURL is never fetched, so there is no nested template to diff), UpdateStack RetainExceptOnCreate, RollbackStack RoleARN, ActivateType MajorVersion/VersionBump/TypeNameAlias (no public extension version catalog) (gopherstack-xhu2t).

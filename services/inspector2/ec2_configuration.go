@@ -31,12 +31,20 @@ func (b *InMemoryBackend) GetEc2DeepInspectionConfiguration() Ec2DeepInspectionC
 }
 
 // UpdateEc2DeepInspectionConfiguration updates EC2 deep inspection config.
-func (b *InMemoryBackend) UpdateEc2DeepInspectionConfiguration(paths []string) error {
+func (b *InMemoryBackend) UpdateEc2DeepInspectionConfiguration(paths []string, activate *bool) error {
 	b.mu.Lock("UpdateEc2DeepInspectionConfiguration")
 	defer b.mu.Unlock()
 
-	b.ec2DeepConfig.PackagePaths = append([]string(nil), paths...)
-	b.ec2DeepConfig.Status = ec2DeepInspectionStatusActivated
+	if paths != nil || activate == nil {
+		b.ec2DeepConfig.PackagePaths = append([]string(nil), paths...)
+	}
+
+	switch {
+	case activate == nil || *activate:
+		b.ec2DeepConfig.Status = ec2DeepInspectionStatusActivated
+	default:
+		b.ec2DeepConfig.Status = ec2DeepInspectionStatusDeactivated
+	}
 
 	return nil
 }

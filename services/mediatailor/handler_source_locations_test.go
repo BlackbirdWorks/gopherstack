@@ -117,7 +117,7 @@ func TestSourceLocation_DuplicateCreate(t *testing.T) {
 	rec := doRequest(t, h, http.MethodPost, "/sourceLocation/sl1", map[string]any{
 		"HttpConfiguration": map[string]any{"BaseUrl": "https://example.com"},
 	})
-	assert.Equal(t, http.StatusConflict, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestSourceLocation_NotFound(t *testing.T) {
@@ -190,9 +190,9 @@ func TestCreateSourceLocation_MissingBaseURL(t *testing.T) {
 func TestDeleteSourceLocation_WithAttachedSources(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // fieldalignment: readability over micro-optimization
-		name       string
+	tests := []struct {
 		setup      func(t *testing.T, h *mediatailor.Handler)
+		name       string
 		wantStatus int
 	}{
 		{
@@ -212,7 +212,7 @@ func TestDeleteSourceLocation_WithAttachedSources(t *testing.T) {
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 			},
-			wantStatus: http.StatusConflict,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "attached_live_source_rejected",
@@ -226,7 +226,7 @@ func TestDeleteSourceLocation_WithAttachedSources(t *testing.T) {
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 			},
-			wantStatus: http.StatusConflict,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 

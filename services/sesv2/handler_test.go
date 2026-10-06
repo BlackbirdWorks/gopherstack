@@ -400,7 +400,7 @@ func TestSESv2Handler_URLEncodedIdentity(t *testing.T) {
 
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-	assert.Equal(t, identity, out["EmailIdentity"])
+	assert.NotContains(t, out, "EmailIdentity")
 
 	// DELETE using percent-encoded path.
 	rec2 := doRequest(t, h, http.MethodDelete, "/v2/email/identities/"+encodedIdentity, nil)

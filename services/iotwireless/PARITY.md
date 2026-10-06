@@ -64,8 +64,8 @@ gaps: []
   # reflected in this file. Corrected in ops/families above; TestExtractOperation_SDKRouteTable
   # (handler_paths_sdk_diff_test.go) now guards all 112 real ops against regressing.
 items_still_open:
+  - "Accepted and ignored: StartBulkAssociate/DisassociateWirelessDevice QueryString and Tags (no search-expression evaluator, so bulk ops act on every device), StartSingleWirelessDeviceImportTask DeviceName/Sidewalk/Positioning/Tags (no read API), ListDevicesForWirelessDeviceImportTask Status (the device list is always empty), WirelessDeviceType on ListQueuedMessages/DeleteQueuedMessages/DeregisterWirelessDevice, GetPositionEstimate inputs, UpdateResourcePosition GeoJsonPayload."
   - "ClientRequestToken replay is held in memory per region (1024 tokens, FIFO) and is not persisted, so a token is forgotten across a restart."
-  - "STALE, CORRECTED 2026-08-23 (found already fixed in code, not reflected in this file -- same pattern as gopherstack-jqh2 below): this entry claimed ListWirelessDevices doesn't implement the DestinationName/DeviceProfileId/ServiceProfileId/FuotaTaskId/MulticastGroupId/WirelessDeviceType query-parameter filters. All six are fully implemented: handler_wireless_devices.go's listWirelessDevices reads all six query params into a ListWirelessDevicesFilter (wireless_devices.go), whose matches() method checks every one of them (DeviceProfileId across both LoRaWAN and Sidewalk via hasDeviceProfileID; FuotaTaskId/MulticastGroupId via the b.fuotaTaskDevices/b.multicastGroupDevices membership maps this note itself predicted could back them). Covered end-to-end, including AND-combination semantics, by TestHandler_ListWirelessDevices_Filters (handler_wireless_devices_filter_test.go, 12 subtests, all passing) -- verified again this pass via a real HTTP round-trip. git blame dates the filter code to commit d39bf33e4 (2026-08-11), two days before this file's last_audit_date at the time (2026-08-13); the audit that produced this claim either predates that commit's landing in its working tree or simply never re-checked after. No code change needed -- this file was wrong, not the backend."
 leaks: {status: clean, note: "no goroutines/janitors in this service; all state is plain in-memory maps/store.Table under the single mu *lockmetrics.RWMutex, released on Reset(). DeleteWirelessDevice/DeleteWirelessGateway/DeleteMulticastGroup/DeleteFuotaTask now cascade-clean every dependent association map (thing associations, queued messages, multicast/FUOTA membership sets, gateway tasks) so no ghost row survives a parent resource's deletion — this was NOT the case before this pass. FIXED (gopherstack-8907, 2026-09-06): DeleteWirelessDevice/DeleteWirelessGateway also missed the positions map (GetPosition/UpdatePosition). GetPosition has no existence check, so it still returned the stale position for a deleted device/gateway's own ID, and positions is persisted verbatim in Snapshot() regardless (device/gateway IDs are uuid.NewString(), so this is unbounded growth rather than a wrong-answer-on-recreate case). Now cleared in both delete paths. See TestDelete_ClearsPosition."}
 ---
 
@@ -448,3 +448,13 @@ iotwireless is region-isolated: device profiles, gateways, destinations and the 
 ## 2026-10-04 (reqfielddiff tier-1: ClientRequestToken on 11 ops)
 
 The earlier reason (no mismatch error type in the module) was wrong: each op's doc (e.g. api_op_CreateDestination.go:60) says the same token with the same parameters completes successfully and the same token with different parameters is an HTTP 409 conflict, i.e. ConflictException. `dispatchIdempotent` (idempotency.go) now covers CreateDestination, CreateDeviceProfile, CreateFuotaTask, CreateMulticastGroup, CreateNetworkAnalyzerConfiguration, CreateServiceProfile, CreateWirelessDevice, CreateWirelessGateway, CreateWirelessGatewayTaskDefinition, StartSingleWirelessDeviceImportTask and StartWirelessDeviceImportTask: a repeated token with an identical body (token excluded) replays the first successful response, a different body is 409 ConflictException, failed calls are not remembered. Proof: `TestClientRequestToken_Idempotency_RealClient`.
+
+## 2026-10-05 (reqfielddiff tier-1/2 pass 8)
+
+RECORDED: ListDevicesForWirelessDeviceImportTask MaxResults/NextToken have nothing to page: import tasks record no per-device list, so ImportedWirelessDeviceList is always empty (no import engine).
+
+
+## 2026-10-05 (dropped-member burn-down)
+
+- DeleteQueuedMessages honours MessageId: "*" clears the queue, any other value removes only that message (api_op_DeleteQueuedMessages.go:36); a missing messageId is a 400.
+- ListWirelessGatewayTaskDefinitions applies TaskDefinitionType; UPDATE is the only value the SDK defines, so any other value lists nothing.

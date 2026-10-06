@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/svelte";
-import ServiceIcon from "$lib/components/ServiceIcon.svelte";
+import ServiceIcon from "#lib/components/ServiceIcon.svelte";
 
 describe("ServiceIcon", () => {
   it("renders an img with the correct src when icon is provided", () => {

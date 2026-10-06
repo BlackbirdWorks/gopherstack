@@ -156,6 +156,8 @@ type App struct {
 //   - UpdateApp: a nil pointer means "leave the existing value unchanged",
 //     matching real Amplify's partial-update semantics for UpdateApp.
 type AppOptions struct {
+	Description                *string
+	Repository                 *string
 	IAMServiceRoleArn          *string
 	AutoBranchCreationConfig   *AutoBranchCreationConfig
 	CacheConfig                *CacheConfig
@@ -220,6 +222,7 @@ type Branch struct {
 // directly by CreateBranch/UpdateBranch. See AppOptions for the
 // nil-means-default-on-create/nil-means-unchanged-on-update convention.
 type BranchOptions struct {
+	Description                *string
 	EnvironmentVariables       map[string]string
 	DisplayName                *string
 	Framework                  *string

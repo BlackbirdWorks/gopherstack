@@ -116,7 +116,7 @@ func (h *Handler) handleUpdateFindingsFilter(id string, body []byte) (any, int, 
 		FindingCriteria map[string]any `json:"findingCriteria"`
 		Position        *int32         `json:"position"`
 		Action          string         `json:"action"`
-		Description     string         `json:"description"`
+		Description     *string        `json:"description"`
 		Name            string         `json:"name"`
 	}
 
@@ -125,7 +125,7 @@ func (h *Handler) handleUpdateFindingsFilter(id string, body []byte) (any, int, 
 	}
 
 	ff, err := h.Backend.UpdateFindingsFilter(
-		id, req.Name, req.Description, req.Action,
+		id, req.Name, req.Action, req.Description,
 		req.Position, req.FindingCriteria,
 	)
 	if err != nil {

@@ -272,7 +272,7 @@ func documentationPartSnapshotKey(v *documentationPartSnapshot) string {
 	return documentationPartKey(v.RestAPIID, v.ID)
 }
 
-func toDocumentationPartSnapshot(v *DocumentationPart) *documentationPartSnapshot {
+func documentationPartToSnapshot(v *DocumentationPart) *documentationPartSnapshot {
 	return &documentationPartSnapshot{
 		Location:   v.Location,
 		ID:         v.ID,
@@ -301,7 +301,7 @@ func documentationVersionSnapshotKey(v *documentationVersionSnapshot) string {
 	return documentationVersionKey(v.RestAPIID, v.Version)
 }
 
-func toDocumentationVersionSnapshot(v *DocumentationVersion) *documentationVersionSnapshot {
+func documentationVersionToSnapshot(v *DocumentationVersion) *documentationVersionSnapshot {
 	return &documentationVersionSnapshot{
 		CreatedDate: v.CreatedDate,
 		RestAPIID:   v.RestAPIID,
@@ -470,10 +470,10 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		requestValidatorDTOs.Put(toRequestValidatorSnapshot(v))
 	}
 	for _, v := range b.documentationParts.Snapshot() {
-		documentationPartDTOs.Put(toDocumentationPartSnapshot(v))
+		documentationPartDTOs.Put(documentationPartToSnapshot(v))
 	}
 	for _, v := range b.documentationVersions.Snapshot() {
-		documentationVersionDTOs.Put(toDocumentationVersionSnapshot(v))
+		documentationVersionDTOs.Put(documentationVersionToSnapshot(v))
 	}
 	for _, v := range b.models.Snapshot() {
 		modelDTOs.Put(toModelSnapshot(v))

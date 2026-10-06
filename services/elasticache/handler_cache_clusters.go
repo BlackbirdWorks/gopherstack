@@ -48,8 +48,31 @@ type cacheSecurityGroupsXML struct {
 	CacheSecurityGroup []cacheSecurityGroupMembershipXML `xml:"CacheSecurityGroup"`
 }
 
+// notificationConfigXML is the XML representation of a cluster's SNS notification topic.
+type notificationConfigXML struct {
+	TopicArn    string `xml:"TopicArn"`
+	TopicStatus string `xml:"TopicStatus,omitempty"`
+}
+
+// securityGroupMembershipXML is one VPC security group on a cluster.
+type securityGroupMembershipXML struct {
+	SecurityGroupID string `xml:"SecurityGroupId"`
+	Status          string `xml:"Status"`
+}
+
+// securityGroupsXML is the XML container for VPC security group memberships.
+type securityGroupsXML struct {
+	Member []securityGroupMembershipXML `xml:"member"`
+}
+
 // cacheClusterXML is the XML representation of a cache cluster.
 type cacheClusterXML struct {
+	AutoMinorVersionUpgrade    *bool                  `xml:"AutoMinorVersionUpgrade,omitempty"`
+	NotificationConfiguration  *notificationConfigXML `xml:"NotificationConfiguration,omitempty"`
+	SecurityGroups             *securityGroupsXML     `xml:"SecurityGroups,omitempty"`
+	LogDeliveryConfigurations  *logDeliveryConfigsXML `xml:"LogDeliveryConfigurations,omitempty"`
+	NetworkType                string                 `xml:"NetworkType,omitempty"`
+	IPDiscovery                string                 `xml:"IpDiscovery,omitempty"`
 	CacheParameterGroupName    string                 `xml:"CacheParameterGroup>CacheParameterGroupName,omitempty"`
 	PreferredMaintenanceWindow string                 `xml:"PreferredMaintenanceWindow,omitempty"`
 	CacheNodeType              string                 `xml:"CacheNodeType"`
@@ -158,6 +181,17 @@ func (h *Handler) createCacheCluster(ctx context.Context, c *echo.Context, form 
 	if rgErr := h.applyClusterReplicationGroup(ctx, form, id, cluster); rgErr != nil {
 		return h.replicationGroupErrorResponse(c, rgErr)
 	}
+
+	settled, setErr := h.Backend.ApplyClusterSettings(ctx, id, clusterSettingsFromForm(form))
+	if setErr != nil {
+		if errors.Is(setErr, ErrCacheSecurityGroupNotFound) {
+			return xmlError(c, http.StatusNotFound, "CacheSecurityGroupNotFound", "Cache security group not found")
+		}
+
+		return xmlError(c, http.StatusInternalServerError, "InternalFailure", setErr.Error())
+	}
+
+	cluster = mergeClusterSettings(cluster, settled)
 
 	type result struct {
 		XMLName      xml.Name        `xml:"CreateCacheClusterResponse"`
@@ -390,7 +424,14 @@ func (h *Handler) deleteCacheCluster(ctx context.Context, c *echo.Context, form 
 			"Snapshots not supported for Memcached engine")
 	}
 
+	undoSnapshot, snapErr := h.takeFinalSnapshot(ctx, form, id, "")
+	if snapErr != nil {
+		return finalSnapshotErrorResponse(c, snapErr)
+	}
+
 	if err := h.Backend.DeleteCluster(ctx, id); err != nil {
+		undoSnapshot()
+
 		if errors.Is(err, ErrClusterNotFound) {
 			return xmlError(c, http.StatusNotFound, "CacheClusterNotFound", "Cache cluster not found")
 		}
@@ -452,6 +493,41 @@ func (h *Handler) describeCacheClusters(ctx context.Context, c *echo.Context, fo
 	})
 }
 
+func notificationConfigToXML(cl *Cluster) *notificationConfigXML {
+	if cl.NotificationTopicArn == "" {
+		return nil
+	}
+
+	return &notificationConfigXML{TopicArn: cl.NotificationTopicArn, TopicStatus: cl.NotificationTopicStatus}
+}
+
+func securityGroupsToXML(ids []string) *securityGroupsXML {
+	if len(ids) == 0 {
+		return nil
+	}
+
+	out := &securityGroupsXML{Member: make([]securityGroupMembershipXML, 0, len(ids))}
+	for _, id := range ids {
+		out.Member = append(out.Member, securityGroupMembershipXML{SecurityGroupID: id, Status: statusActive})
+	}
+
+	return out
+}
+
+// clusterSettingsFromForm reads the optional Create/ModifyCacheCluster members.
+func clusterSettingsFromForm(form url.Values) ClusterSettings {
+	return ClusterSettings{
+		AutoMinorVersionUpgrade:   optionalBool(form, "AutoMinorVersionUpgrade"),
+		NotificationTopicArn:      form.Get("NotificationTopicArn"),
+		NotificationTopicStatus:   form.Get("NotificationTopicStatus"),
+		NetworkType:               form.Get("NetworkType"),
+		IPDiscovery:               form.Get("IpDiscovery"),
+		SecurityGroupIDs:          parseRepeatedField(form, "SecurityGroupIds.SecurityGroupId"),
+		CacheSecurityGroupNames:   parseRepeatedField(form, "CacheSecurityGroupNames.CacheSecurityGroupName"),
+		LogDeliveryConfigurations: parseLogDeliveryConfigs(form),
+	}
+}
+
 // clusterToXML converts a Cluster to its XML representation with the given status.
 func clusterToXML(cl *Cluster, status string) cacheClusterXML {
 	n := cl.NumCacheNodes
@@ -480,6 +556,12 @@ func clusterToXML(cl *Cluster, status string) cacheClusterXML {
 	}
 
 	return cacheClusterXML{
+		AutoMinorVersionUpgrade:    cl.AutoMinorVersionUpgrade,
+		NotificationConfiguration:  notificationConfigToXML(cl),
+		SecurityGroups:             securityGroupsToXML(cl.SecurityGroupIDs),
+		LogDeliveryConfigurations:  logDeliveryConfigsToXML(cl.LogDeliveryConfigurations),
+		NetworkType:                cl.NetworkType,
+		IPDiscovery:                cl.IPDiscovery,
 		CacheClusterID:             cl.ClusterID,
 		CacheClusterStatus:         status,
 		CacheNodeType:              cl.NodeType,
@@ -609,6 +691,13 @@ func (h *Handler) modifyCacheCluster(ctx context.Context, c *echo.Context, form 
 		return snapshotRetentionLimitErrorResponse(c, srErr)
 	}
 
+	settled, setErr := h.Backend.ApplyClusterSettings(ctx, id, clusterSettingsFromForm(form))
+	if setErr != nil {
+		return xmlError(c, http.StatusInternalServerError, "InternalFailure", setErr.Error())
+	}
+
+	cluster = mergeClusterSettings(cluster, settled)
+
 	type result struct {
 		XMLName      xml.Name        `xml:"ModifyCacheClusterResponse"`
 		Xmlns        string          `xml:"xmlns,attr"`
@@ -684,4 +773,19 @@ func (h *Handler) listAllowedNodeTypeModifications(ctx context.Context, c *echo.
 		ScaleUpModifications:   scaleModsXML{Member: scaleUp},
 		ScaleDownModifications: scaleModsXML{Member: scaleDown},
 	})
+}
+
+// mergeClusterSettings copies the members ApplyClusterSettings owns from settled onto cluster.
+func mergeClusterSettings(cluster, settled *Cluster) *Cluster {
+	out := *cluster
+	out.AutoMinorVersionUpgrade = settled.AutoMinorVersionUpgrade
+	out.NotificationTopicArn = settled.NotificationTopicArn
+	out.NotificationTopicStatus = settled.NotificationTopicStatus
+	out.NetworkType = settled.NetworkType
+	out.IPDiscovery = settled.IPDiscovery
+	out.SecurityGroupIDs = settled.SecurityGroupIDs
+	out.CacheSecurityGroupNames = settled.CacheSecurityGroupNames
+	out.LogDeliveryConfigurations = settled.LogDeliveryConfigurations
+
+	return &out
 }

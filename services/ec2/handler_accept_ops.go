@@ -554,6 +554,7 @@ type describeByoipCidrsResponse struct {
 	XMLName    xml.Name     `xml:"DescribeByoipCidrsResponse"`
 	Xmlns      string       `xml:"xmlns,attr"`
 	RequestID  string       `xml:"requestId"`
+	NextToken  string       `xml:"nextToken,omitempty"`
 	ByoipCidrs byoipCidrSet `xml:"byoipCidrSet"`
 }
 
@@ -575,7 +576,7 @@ func (h *Handler) handleDescribeByoipCidrs(vals url.Values, reqID string) (any, 
 		})
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 // hostPropertiesItem mirrors the real Host.HostProperties nested shape
@@ -605,10 +606,15 @@ type describeHostsResponse struct {
 	XMLName   xml.Name `xml:"DescribeHostsResponse"`
 	Xmlns     string   `xml:"xmlns,attr"`
 	RequestID string   `xml:"requestId"`
+	NextToken string   `xml:"nextToken,omitempty"`
 	Hosts     hostSet  `xml:"hostSet"`
 }
 
 func (h *Handler) handleDescribeHosts(vals url.Values, reqID string) (any, error) {
+	if err := checkPageIDCombo(vals, specHosts()); err != nil {
+		return nil, err
+	}
+
 	var ids []string
 
 	for i := 1; ; i++ {
@@ -647,7 +653,7 @@ func (h *Handler) handleDescribeHosts(vals url.Values, reqID string) (any, error
 		})
 	}
 
-	return resp, nil
+	return finishDescribe(vals, resp, describeOpts{spec: specHosts()})
 }
 
 type vpcPeeringConnectionSet struct {
@@ -658,6 +664,7 @@ type describeVpcPeeringConnectionsResponse struct {
 	XMLName               xml.Name                `xml:"DescribeVpcPeeringConnectionsResponse"`
 	Xmlns                 string                  `xml:"xmlns,attr"`
 	RequestID             string                  `xml:"requestId"`
+	NextToken             string                  `xml:"nextToken,omitempty"`
 	VpcPeeringConnections vpcPeeringConnectionSet `xml:"vpcPeeringConnectionSet"`
 }
 
@@ -693,5 +700,5 @@ func (h *Handler) handleDescribeVpcPeeringConnections(vals url.Values, reqID str
 		)
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }

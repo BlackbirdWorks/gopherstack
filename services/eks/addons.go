@@ -100,6 +100,8 @@ func (b *InMemoryBackend) CreateAddon(
 		addonVersion = defaultAddonVersion(addonName)
 	}
 
+	now := time.Now().UTC()
+
 	addon := &Addon{
 		ClusterName:        clusterName,
 		AddonName:          addonName,
@@ -111,7 +113,8 @@ func (b *InMemoryBackend) CreateAddon(
 		},
 		ServiceAccountRoleARN: serviceAccountRoleARN,
 		Status:                statusCreating,
-		CreatedAt:             time.Now().UTC(),
+		CreatedAt:             now,
+		ModifiedAt:            now,
 		Tags:                  t,
 		Configuration:         configuration,
 		ResolveConflicts:      resolveConflicts,
@@ -263,6 +266,8 @@ func (b *InMemoryBackend) UpdateAddon(
 		b.replaceAddonPodIdentityAssociationsLocked(clusterName, addon, *podIdentityAssociations)
 	}
 
+	addon.ModifiedAt = time.Now().UTC()
+
 	cp := *addon
 
 	return &cp, nil
@@ -334,6 +339,16 @@ func (b *InMemoryBackend) replaceAddonPodIdentityAssociationsLocked(
 
 // DescribeAddonVersions returns static addon version metadata.
 func (b *InMemoryBackend) DescribeAddonVersions() []map[string]any {
+	rows := describeAddonVersionRows()
+	for _, row := range rows {
+		row["owner"] = "aws"
+		row["publisher"] = serviceNameEKS
+	}
+
+	return rows
+}
+
+func describeAddonVersionRows() []map[string]any {
 	return []map[string]any{
 		{
 			keyAddonName: addonVPCCNI,

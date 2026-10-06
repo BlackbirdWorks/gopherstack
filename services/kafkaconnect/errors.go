@@ -27,6 +27,8 @@ var (
 		"the current version specified does not match the connector's actual current version",
 		awserr.ErrConflict,
 	)
+	// ErrConnectorDeleting is returned when mutating a connector that is already DELETING.
+	ErrConnectorDeleting = awserr.New("the connector is being deleted", awserr.ErrConflict)
 	// ErrValidation is returned when request input fails validation.
 	ErrValidation = awserr.New("invalid request", awserr.ErrInvalidParameter)
 )

@@ -51,17 +51,41 @@ func (rc *ResourceCreator) deleteKafkaConnectResource(resourceType, physicalID s
 
 	switch resourceType {
 	case resTypeKafkaConnectConnector:
-		_, err := rc.backends.KafkaConnect.Backend.DeleteConnector(physicalID, "")
+		be := rc.backends.KafkaConnect.Backend
+		_, err := be.DeleteConnector(physicalID, "")
+		if err != nil {
+			return true, ignoreNotFound(err, kafkaconnectbackend.ErrConnectorNotFound)
+		}
 
-		return true, ignoreNotFound(err, kafkaconnectbackend.ErrConnectorNotFound)
+		return true, awaitGone("MSK Connect connector "+physicalID, func() error {
+			_, derr := be.DescribeConnector(physicalID)
+
+			return derr
+		}, kafkaconnectbackend.ErrConnectorNotFound)
 	case resTypeKafkaConnectCustomPlugin:
-		_, err := rc.backends.KafkaConnect.Backend.DeleteCustomPlugin(physicalID)
+		be := rc.backends.KafkaConnect.Backend
+		_, err := be.DeleteCustomPlugin(physicalID)
+		if err != nil {
+			return true, ignoreNotFound(err, kafkaconnectbackend.ErrCustomPluginNotFound)
+		}
 
-		return true, ignoreNotFound(err, kafkaconnectbackend.ErrCustomPluginNotFound)
+		return true, awaitGone("MSK Connect custom plugin "+physicalID, func() error {
+			_, derr := be.DescribeCustomPlugin(physicalID)
+
+			return derr
+		}, kafkaconnectbackend.ErrCustomPluginNotFound)
 	case resTypeKafkaConnectWorkerConfiguration:
-		_, err := rc.backends.KafkaConnect.Backend.DeleteWorkerConfiguration(physicalID)
+		be := rc.backends.KafkaConnect.Backend
+		_, err := be.DeleteWorkerConfiguration(physicalID)
+		if err != nil {
+			return true, ignoreNotFound(err, kafkaconnectbackend.ErrWorkerConfigNotFound)
+		}
 
-		return true, ignoreNotFound(err, kafkaconnectbackend.ErrWorkerConfigNotFound)
+		return true, awaitGone("MSK Connect worker configuration "+physicalID, func() error {
+			_, derr := be.DescribeWorkerConfiguration(physicalID)
+
+			return derr
+		}, kafkaconnectbackend.ErrWorkerConfigNotFound)
 	default:
 		return false, nil
 	}
@@ -120,6 +144,18 @@ func (rc *ResourceCreator) createKafkaConnectConnector(
 	}
 
 	c, err := rc.backends.KafkaConnect.Backend.CreateConnector(rc.backends.AccountID, rc.backends.Region, spec)
+	if err != nil {
+		return "", fmt.Errorf("create MSK Connect connector %s: %w", name, err)
+	}
+
+	err = awaitResource("MSK Connect connector "+c.ARN, func() (bool, error) {
+		cur, derr := rc.backends.KafkaConnect.Backend.DescribeConnector(c.ARN)
+		if derr != nil {
+			return false, derr
+		}
+
+		return cur.State == "RUNNING", nil
+	})
 	if err != nil {
 		return "", fmt.Errorf("create MSK Connect connector %s: %w", name, err)
 	}
@@ -266,6 +302,22 @@ func (rc *ResourceCreator) createKafkaConnectCustomPlugin(
 		strProp(s3Location, "ObjectVersion", params, physicalIDs),
 		tagListProp(props, params, physicalIDs),
 	)
+	if err != nil {
+		return "", fmt.Errorf("create MSK Connect custom plugin %s: %w", name, err)
+	}
+
+	err = awaitResource("MSK Connect custom plugin "+p.ARN, func() (bool, error) {
+		cur, derr := rc.backends.KafkaConnect.Backend.DescribeCustomPlugin(p.ARN)
+		if derr != nil {
+			return false, derr
+		}
+
+		if cur.State == "CREATE_FAILED" {
+			return false, fmt.Errorf("%w: %s", errResourceCreateFailed, cur.FailureMessage)
+		}
+
+		return cur.State == statusActive, nil
+	})
 	if err != nil {
 		return "", fmt.Errorf("create MSK Connect custom plugin %s: %w", name, err)
 	}

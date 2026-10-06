@@ -79,10 +79,10 @@ func TestClusterPolicyViaBackend(t *testing.T) {
 
 	policy := `{"Version":"2012-10-17","Statement":[]}`
 
-	err := be.PutClusterPolicy(context.Background(), clusterArn, policy)
+	_, err := be.PutClusterPolicy(context.Background(), clusterArn, policy, "")
 	require.NoError(t, err)
 
-	p, err := be.GetClusterPolicy(context.Background(), clusterArn)
+	p, _, err := be.GetClusterPolicy(context.Background(), clusterArn)
 	require.NoError(t, err)
 	assert.Equal(t, policy, p)
 }
@@ -105,7 +105,7 @@ func TestGetClusterPolicy_NotFoundException(t *testing.T) {
 		{
 			name: "policy_set",
 			setup: func(b *kafka.InMemoryBackend, clusterArn string) {
-				err := b.PutClusterPolicy(context.Background(), clusterArn, `{"Version":"2012-10-17"}`)
+				_, err := b.PutClusterPolicy(context.Background(), clusterArn, `{"Version":"2012-10-17"}`, "")
 				require.NoError(t, err)
 			},
 			wantErr:   false,
@@ -114,7 +114,7 @@ func TestGetClusterPolicy_NotFoundException(t *testing.T) {
 		{
 			name: "policy_put_then_deleted",
 			setup: func(b *kafka.InMemoryBackend, clusterArn string) {
-				_ = b.PutClusterPolicy(context.Background(), clusterArn, `{"Version":"2012-10-17"}`)
+				_, _ = b.PutClusterPolicy(context.Background(), clusterArn, `{"Version":"2012-10-17"}`, "")
 				_ = b.DeleteClusterPolicy(context.Background(), clusterArn)
 			},
 			wantErr:   true,
@@ -131,7 +131,7 @@ func TestGetClusterPolicy_NotFoundException(t *testing.T) {
 
 			tt.setup(b, cl.ClusterArn)
 
-			_, err := b.GetClusterPolicy(context.Background(), cl.ClusterArn)
+			_, _, err := b.GetClusterPolicy(context.Background(), cl.ClusterArn)
 
 			if tt.wantErr {
 				require.Error(t, err)

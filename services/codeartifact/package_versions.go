@@ -62,9 +62,45 @@ type PackageVersionOutcome struct {
 // PackageVersionErrorCode values, mirroring types.PackageVersionErrorCode's
 // two variants this backend can produce.
 const (
-	packageVersionErrorNotFound      = "NOT_FOUND"
-	packageVersionErrorAlreadyExists = "ALREADY_EXISTS"
+	packageVersionErrorNotFound         = "NOT_FOUND"
+	packageVersionErrorAlreadyExists    = "ALREADY_EXISTS"
+	packageVersionErrorMismatchedRev    = "MISMATCHED_REVISION"
+	packageVersionErrorMismatchedStatus = "MISMATCHED_STATUS"
 )
+
+// VersionSelector picks the versions a bulk package-version op acts on, with the
+// optional revision and status guards the SDK documents.
+type VersionSelector struct {
+	Revisions      map[string]string
+	ExpectedStatus string
+	Versions       []string
+}
+
+// keys returns the listed versions, or the versionRevisions keys when none are listed.
+func (v VersionSelector) keys() []string {
+	if len(v.Versions) > 0 || len(v.Revisions) == 0 {
+		return v.Versions
+	}
+	out := make([]string, 0, len(v.Revisions))
+	for k := range v.Revisions {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+
+	return out
+}
+
+// guard returns the PackageVersionErrorCode for a version that fails the revision or status guard.
+func (v VersionSelector) guard(version string, pv *PackageVersion) string {
+	if rev, has := v.Revisions[version]; has && rev != pv.Revision {
+		return packageVersionErrorMismatchedRev
+	}
+	if v.ExpectedStatus != "" && pv.Status != v.ExpectedStatus {
+		return packageVersionErrorMismatchedStatus
+	}
+
+	return ""
+}
 
 // DeletePackageVersions deletes specified versions of a package and returns
 // per-version outcomes: successful (revision/status as of just before
@@ -72,8 +108,9 @@ const (
 func (b *InMemoryBackend) DeletePackageVersions(
 	ctx context.Context,
 	domainName, repoName, format, namespace, name string,
-	versions []string,
+	sel VersionSelector,
 ) (map[string]PackageVersionOutcome, map[string]string, error) {
+	versions := sel.keys()
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("DeletePackageVersions")
@@ -93,6 +130,11 @@ func (b *InMemoryBackend) DeletePackageVersions(
 
 			continue
 		}
+		if code := sel.guard(v, pv); code != "" {
+			failed[v] = code
+
+			continue
+		}
 		successful[v] = PackageVersionOutcome{Revision: pv.Revision, Status: "Deleted"}
 		b.packageVersions.Delete(regionKey(region, vKey))
 	}
@@ -105,8 +147,12 @@ func (b *InMemoryBackend) DeletePackageVersions(
 func (b *InMemoryBackend) CopyPackageVersions(
 	ctx context.Context,
 	domainName, srcRepo, dstRepo, format, namespace, name string,
-	versions []string, includeFromUpstream bool,
+	sel VersionSelector, includeFromUpstream, allowOverwrite bool,
 ) (map[string]PackageVersionOutcome, map[string]string, error) {
+	if len(sel.Versions) > 0 && len(sel.Revisions) > 0 {
+		return nil, nil, fmt.Errorf("%w: specify versions or versionRevisions, not both", ErrValidation)
+	}
+	versions := sel.keys()
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("CopyPackageVersions")
@@ -132,8 +178,13 @@ func (b *InMemoryBackend) CopyPackageVersions(
 
 			continue
 		}
+		if rev, has := sel.Revisions[v]; has && rev != src.Revision {
+			failed[v] = packageVersionErrorMismatchedRev
+
+			continue
+		}
 		dstKey := packageVersionKey(domainName, dstRepo, format, namespace, name, v)
-		if b.packageVersions.Has(regionKey(region, dstKey)) {
+		if !allowOverwrite && b.packageVersions.Has(regionKey(region, dstKey)) {
 			failed[v] = packageVersionErrorAlreadyExists
 
 			continue
@@ -200,8 +251,9 @@ func (b *InMemoryBackend) copySourceVersionLocked(
 func (b *InMemoryBackend) DisposePackageVersions(
 	ctx context.Context,
 	domainName, repoName, format, namespace, name string,
-	versions []string,
+	sel VersionSelector,
 ) (map[string]PackageVersionOutcome, map[string]string, error) {
+	versions := sel.keys()
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("DisposePackageVersions")
@@ -212,12 +264,19 @@ func (b *InMemoryBackend) DisposePackageVersions(
 
 	for _, v := range versions {
 		key := packageVersionKey(domainName, repoName, format, namespace, name, v)
-		if pv, ok := b.packageVersions.Get(regionKey(region, key)); ok {
-			pv.Status = "Disposed"
-			successful[v] = PackageVersionOutcome{Revision: pv.Revision, Status: "Disposed"}
-		} else {
+		pv, ok := b.packageVersions.Get(regionKey(region, key))
+		if !ok {
 			failed[v] = packageVersionErrorNotFound
+
+			continue
 		}
+		if code := sel.guard(v, pv); code != "" {
+			failed[v] = code
+
+			continue
+		}
+		pv.Status = "Disposed"
+		successful[v] = PackageVersionOutcome{Revision: pv.Revision, Status: "Disposed"}
 	}
 
 	return successful, failed, nil
@@ -311,6 +370,42 @@ type npmPackageJSON struct {
 	PeerDependencies     map[string]string `json:"peerDependencies"`
 	OptionalDependencies map[string]string `json:"optionalDependencies"`
 	Readme               string            `json:"readme"`
+	Description          string            `json:"description"`
+	Homepage             string            `json:"homepage"`
+	Repository           json.RawMessage   `json:"repository"`
+	License              json.RawMessage   `json:"license"`
+}
+
+// repositoryURL reads package.json's repository, a bare string or an object with a url.
+func (m *npmPackageJSON) repositoryURL() string {
+	var str string
+	if json.Unmarshal(m.Repository, &str) == nil {
+		return str
+	}
+	var obj struct {
+		URL string `json:"url"`
+	}
+	if json.Unmarshal(m.Repository, &obj) == nil {
+		return obj.URL
+	}
+
+	return ""
+}
+
+// licenseName reads package.json's license, a bare SPDX string or an object with a type.
+func (m *npmPackageJSON) licenseName() string {
+	var str string
+	if json.Unmarshal(m.License, &str) == nil {
+		return str
+	}
+	var obj struct {
+		Type string `json:"type"`
+	}
+	if json.Unmarshal(m.License, &obj) == nil {
+		return obj.Type
+	}
+
+	return ""
 }
 
 // findPackageJSONMetadata returns the parsed "package.json" asset among
@@ -571,8 +666,9 @@ func upsertAsset(pv *PackageVersion, asset AssetInfo) {
 func (b *InMemoryBackend) UpdatePackageVersionsStatus(
 	ctx context.Context,
 	domainName, repoName, format, namespace, name, targetStatus string,
-	versions []string,
+	sel VersionSelector,
 ) (map[string]PackageVersionOutcome, map[string]string, error) {
+	versions := sel.keys()
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("UpdatePackageVersionsStatus")
@@ -583,12 +679,19 @@ func (b *InMemoryBackend) UpdatePackageVersionsStatus(
 
 	for _, v := range versions {
 		key := packageVersionKey(domainName, repoName, format, namespace, name, v)
-		if pv, ok := b.packageVersions.Get(regionKey(region, key)); ok {
-			pv.Status = targetStatus
-			successful[v] = PackageVersionOutcome{Revision: pv.Revision, Status: targetStatus}
-		} else {
+		pv, ok := b.packageVersions.Get(regionKey(region, key))
+		if !ok {
 			failed[v] = packageVersionErrorNotFound
+
+			continue
 		}
+		if code := sel.guard(v, pv); code != "" {
+			failed[v] = code
+
+			continue
+		}
+		pv.Status = targetStatus
+		successful[v] = PackageVersionOutcome{Revision: pv.Revision, Status: targetStatus}
 	}
 
 	return successful, failed, nil

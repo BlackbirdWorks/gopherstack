@@ -22,11 +22,15 @@ type s3DataSourceWire struct {
 
 // createModelImportJobInput is the parsed request body for CreateModelImportJob.
 type createModelImportJobInput struct {
-	ModelDataSource   *modelDataSourceWire `json:"modelDataSource"`
-	JobName           string               `json:"jobName"`
-	ImportedModelName string               `json:"importedModelName"`
-	RoleArn           string               `json:"roleArn"`
-	Tags              []Tag                `json:"jobTags,omitempty"`
+	ModelDataSource    *modelDataSourceWire `json:"modelDataSource"`
+	VpcConfig          map[string]any       `json:"vpcConfig,omitempty"`
+	JobName            string               `json:"jobName"`
+	ImportedModelName  string               `json:"importedModelName"`
+	RoleArn            string               `json:"roleArn"`
+	ImportedModelKey   string               `json:"importedModelKmsKeyId,omitempty"`
+	ClientRequestToken string               `json:"clientRequestToken,omitempty"`
+	Tags               []Tag                `json:"jobTags,omitempty"`
+	ImportedModelTags  []Tag                `json:"importedModelTags,omitempty"`
 }
 
 func (h *Handler) handleCreateModelImportJob(c *echo.Context) error {
@@ -51,12 +55,24 @@ func (h *Handler) handleCreateModelImportJob(c *echo.Context) error {
 		s3Uri = in.ModelDataSource.S3DataSource.S3Uri
 	}
 
-	job, opErr := h.Backend.CreateModelImportJob(in.JobName, in.ImportedModelName, in.RoleArn, s3Uri, in.Tags)
+	job, opErr := idemCreate(
+		h.idem, "CreateModelImportJob", in.ClientRequestToken, idemFingerprint(in), ErrAlreadyExists,
+		func(j *ModelImportJob) string { return j.JobArn }, h.Backend.GetModelImportJob,
+		func() (*ModelImportJob, error) {
+			return h.Backend.CreateModelImportJobWithOptions(
+				in.JobName, in.ImportedModelName, in.RoleArn, s3Uri, in.Tags,
+				ImportJobOptions{
+					VpcConfig: in.VpcConfig, ImportedModelKmsKeyID: in.ImportedModelKey,
+					ImportedModelTags: in.ImportedModelTags,
+				},
+			)
+		},
+	)
 	if opErr != nil {
 		return h.writeError(c, opErr)
 	}
 
-	return c.JSON(http.StatusCreated, modelImportJobToOutput(job))
+	return c.JSON(http.StatusCreated, map[string]any{keyJobArn: job.JobArn})
 }
 
 // parseListModelImportJobsQuery builds the backend filter/sort/pagination
@@ -163,8 +179,12 @@ func modelImportJobToOutput(j *ModelImportJob) map[string]any {
 		out["endTime"] = j.EndTime.Format(time.RFC3339)
 	}
 
-	if len(j.Tags) > 0 {
-		out["tags"] = j.Tags
+	if j.ImportedModelKmsKeyArn != "" {
+		out["importedModelKmsKeyArn"] = j.ImportedModelKmsKeyArn
+	}
+
+	if len(j.VpcConfig) > 0 {
+		out["vpcConfig"] = j.VpcConfig
 	}
 
 	return out

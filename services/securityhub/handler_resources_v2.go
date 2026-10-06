@@ -67,16 +67,29 @@ func (h *Handler) handleGetResourcesTrendsV2(c *echo.Context, body map[string]an
 	startTime, _ := body["StartTime"].(string)
 	endTime, _ := body["EndTime"].(string)
 
-	trends := h.Backend.GetResourcesTrendsV2(startTime, endTime)
+	nextToken, _ := body["NextToken"].(string)
+	maxResults := intFromBody(body)
 
-	if trends == nil {
-		trends = []map[string]any{}
+	if !validPaging(maxResults, nextToken) {
+		return pagingErrorResponse(c)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
+	trends, next := paginateSlice(
+		h.Backend.GetResourcesTrendsV2(startTime, endTime),
+		nextToken,
+		maxResults,
+		maxTrendPoints,
+	)
+
+	resp := map[string]any{
 		"Granularity":   trendGranularity(startTime, endTime),
 		"TrendsMetrics": trends,
-	})
+	}
+	if next != "" {
+		resp["NextToken"] = next
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 // resourcesV2OpHandlers returns the Resources V2 operation dispatch table

@@ -187,6 +187,10 @@ func (h *Handler) handleCreateCodeSigningConfig(c *echo.Context, bk *InMemoryBac
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", createErr.Error())
 	}
 
+	if len(input.Tags) > 0 {
+		h.setTags(cfg.CodeSigningConfigArn, input.Tags)
+	}
+
 	return c.JSON(http.StatusCreated, &CreateCodeSigningConfigOutput{CodeSigningConfig: cfg})
 }
 

@@ -44,6 +44,16 @@ func applyDomainConfigUpdate(d *Domain, cfg UpdateConfig) bool {
 		changed = true
 	}
 
+	if cfg.ClusterConfigPatch != nil {
+		cfg.ClusterConfigPatch(&d.ClusterConfig)
+		changed = true
+	}
+
+	if cfg.EBSOptionsPatch != nil {
+		cfg.EBSOptionsPatch(&d.EBSOptions)
+		changed = true
+	}
+
 	if cfg.SnapshotOptions != nil {
 		d.SnapshotOptions = *cfg.SnapshotOptions
 		changed = true

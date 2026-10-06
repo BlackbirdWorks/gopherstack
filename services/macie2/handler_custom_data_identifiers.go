@@ -77,7 +77,7 @@ func (h *Handler) dispatchCustomDataIDOps(op, path string, body []byte) (any, in
 		return result, code, true, err
 
 	case opListManagedDataIdentifiers:
-		result, code, err := h.handleListManagedDataIdentifiers()
+		result, code, err := h.handleListManagedDataIdentifiers(body)
 
 		return result, code, true, err
 	}
@@ -244,11 +244,21 @@ func (h *Handler) handleBatchGetCustomDataIdentifiers(body []byte) (any, int, er
 	return resp, http.StatusOK, nil
 }
 
-func (h *Handler) handleListManagedDataIdentifiers() (any, int, error) {
+func (h *Handler) handleListManagedDataIdentifiers(body []byte) (any, int, error) {
+	var req struct {
+		NextToken string `json:"nextToken"`
+	}
+
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			return nil, http.StatusBadRequest, ErrValidation
+		}
+	}
+
 	items, err := h.Backend.ListManagedDataIdentifiers()
 	if err != nil {
 		return nil, http.StatusInternalServerError, err
 	}
 
-	return map[string]any{keyItems: items}, http.StatusOK, nil
+	return pagedResponse(h.Backend, keyItems, req.NextToken, 0, items)
 }

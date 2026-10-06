@@ -24,10 +24,10 @@ func TestInMemoryBackend_CreateCertificateAuthority(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		cfg        acmpca.CertificateAuthorityConfiguration
 		name       string
 		caType     string
 		wantStatus string
+		cfg        acmpca.CertificateAuthorityConfiguration
 		wantErr    bool
 	}{
 		{

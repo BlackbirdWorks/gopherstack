@@ -126,6 +126,7 @@ func (b *InMemoryBackend) RegisterTaskDefinition(
 		Volumes:                 input.Volumes,
 		PlacementConstraints:    input.PlacementConstraints,
 		RequiresCompatibilities: input.RequiresCompatibilities,
+		ProxyConfiguration:      input.ProxyConfiguration,
 		RuntimePlatform:         input.RuntimePlatform,
 		EphemeralStorage:        input.EphemeralStorage,
 		InferenceAccelerators:   input.InferenceAccelerators,

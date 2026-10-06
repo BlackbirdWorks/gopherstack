@@ -537,3 +537,7 @@ metric_policy.go) was already real, validated state, matching the
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 mediastore already isolates regions internally: containers and their policies are keyed per region. Proof: `TestRegionIsolation/mediastore`; no sibling handlers needed.
+
+## 2026-10-05 (gopherstack-uox6 pass 12, value semantics)
+
+Clean. Create -> Describe -> Start/StopAccessLogging -> Describe keeps CreationTime/Endpoint and toggles AccessLoggingEnabled (default false); PutCorsPolicy and PutMetricPolicy replace the whole policy without leaking omitted rule members. Proof: `TestContainer_AccessLoggingAndPoliciesRoundTrip`, `TestContainer_CorsAndMetricPolicyReplacement`.

@@ -117,16 +117,18 @@ func (h *Handler) handleListLayers(c *echo.Context, bk *InMemoryBackend) error {
 	q := c.Request().URL.Query()
 	compatibleRuntime := q.Get("CompatibleRuntime")
 	marker, maxItems := parsePaginationParams(c.Request())
-	p := bk.ListLayers(compatibleRuntime, marker, maxItems)
+	p := bk.ListLayersFiltered(compatibleRuntime, q.Get("CompatibleArchitecture"), marker, maxItems)
 
 	return c.JSON(http.StatusOK, &ListLayersOutput{Layers: p.Data, NextMarker: p.Next})
 }
 
 func (h *Handler) handleListLayerVersions(c *echo.Context, bk *InMemoryBackend, layerName string) error {
-	compatibleRuntime := c.Request().URL.Query().Get("CompatibleRuntime")
+	q := c.Request().URL.Query()
 	marker, maxItems := parsePaginationParams(c.Request())
 
-	p, err := bk.ListLayerVersions(layerName, compatibleRuntime, marker, maxItems)
+	p, err := bk.ListLayerVersionsFiltered(
+		layerName, q.Get("CompatibleRuntime"), q.Get("CompatibleArchitecture"), marker, maxItems,
+	)
 	if err != nil {
 		if errors.Is(err, ErrLayerNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",

@@ -53,9 +53,7 @@ func (b *InMemoryBackend) CreateLocationSmb(
 		CustomSecretConfig: toStoredCustomSecretConfig(secretConfig.Custom),
 	}
 
-	if mountOptions != nil {
-		cfg.MountOptions = &storedMountOptions{Version: mountOptions.Version}
-	}
+	cfg.MountOptions = &storedMountOptions{Version: mountVersionOrDefault(mountOptions)}
 
 	l := &storedLocation{
 		LocationArn:  locationArn,
@@ -166,7 +164,7 @@ func (b *InMemoryBackend) UpdateLocationSmb(
 	}
 
 	if mountOptions != nil {
-		l.Smb.MountOptions = &storedMountOptions{Version: mountOptions.Version}
+		l.Smb.MountOptions = &storedMountOptions{Version: mountVersionOrDefault(mountOptions)}
 	}
 
 	if agentArns != nil {

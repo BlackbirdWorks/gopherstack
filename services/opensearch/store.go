@@ -3,6 +3,7 @@ package opensearch
 import (
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -15,6 +16,7 @@ import (
 // and the reasoning behind the handful of fields left as plain maps.
 type InMemoryBackend struct {
 	dnsRegistrar               DNSRegistrar
+	collIdem                   *idempotency.Memo
 	accountCapacityLimits      ServerlessCapacityLimits
 	slLifecyclePolicies        *store.Table[ServerlessLifecyclePolicy]
 	upgradeHistory             map[string][]*UpgradeHistory
@@ -89,6 +91,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		accountID:           accountID,
 		region:              region,
 		mu:                  lockmetrics.New("opensearch"),
+		collIdem:            idempotency.New("opensearch.collections"),
 		registry:            store.NewRegistry(),
 	}
 
@@ -141,6 +144,7 @@ func (b *InMemoryBackend) Reset() {
 	b.maintenanceCounter = 0
 	b.reservedCounter = 0
 	b.slCollCounter = 0
+	b.collIdem = idempotency.New("opensearch.collections")
 	b.slSecConfigCounter = 0
 	b.slCollGroupCounter = 0
 	b.slVpcEndpointCounter = 0

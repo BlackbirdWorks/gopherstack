@@ -177,7 +177,12 @@ func (h *Handler) handleGetFindingV2(path, query string) (any, int, error) {
 		return nil, 0, err
 	}
 
-	return map[string]any{
+	details, err := pageByQuery(findingDetailsV2JSON(f), query)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	resp := map[string]any{
 		"id":                 f.ID,
 		keyAnalyzerArn:       f.AnalyzerArn,
 		keyStatus:            string(f.Status),
@@ -188,8 +193,13 @@ func (h *Handler) handleGetFindingV2(path, query string) (any, int, error) {
 		keyCreatedAt:         f.CreatedAt.Format(time.RFC3339),
 		keyUpdatedAt:         f.UpdatedAt.Format(time.RFC3339),
 		keyFindingType:       findingTypeExternalAccess,
-		"findingDetails":     findingDetailsV2JSON(f),
-	}, http.StatusOK, nil
+		"findingDetails":     details.Data,
+	}
+	if details.Next != "" {
+		resp["nextToken"] = details.Next
+	}
+
+	return resp, http.StatusOK, nil
 }
 
 func (h *Handler) handleListFindingsV2(body []byte) (any, int, error) {
@@ -333,8 +343,13 @@ func (h *Handler) handleGetFindingRecommendation(path, query string) (any, int, 
 		return nil, 0, err
 	}
 
+	steps, err := pageByQuery([]any{}, query)
+	if err != nil {
+		return nil, 0, err
+	}
+
 	resp := map[string]any{
-		"recommendedSteps":   []any{},
+		"recommendedSteps":   steps.Data,
 		"recommendationType": rec.RecommendationType,
 		keyResourceArn:       rec.ResourceArn,
 		"startedAt":          rec.StartedAt.Format(time.RFC3339),

@@ -132,17 +132,18 @@ func (h *Handler) handleModifyDBCluster(ctx context.Context, vals url.Values) (a
 	}
 
 	opts := &ModifyDBClusterOptions{
-		ClusterExtras:          parseClusterExtras(vals),
-		MasterSecretRequest:    parseMasterSecretRequest(vals),
-		EngineVersion:          vals.Get("EngineVersion"),
-		MasterUserPassword:     vals.Get("MasterUserPassword"),
-		NewDBClusterIdentifier: vals.Get("NewDBClusterIdentifier"),
-		StorageType:            vals.Get("StorageType"),
-		VpcSecurityGroupIDs:    parseVpcSecurityGroupIDs(vals),
-		EnableLogsTypes:        parseCloudwatchEnableLogTypes(vals),
-		DisableLogsTypes:       parseCloudwatchDisableLogTypes(vals),
-		Port:                   port,
-		ApplyImmediately:       vals.Get("ApplyImmediately") == stringTrue,
+		ClusterExtras:            parseClusterExtras(vals),
+		MasterSecretRequest:      parseMasterSecretRequest(vals),
+		AllowMajorVersionUpgrade: vals.Get("AllowMajorVersionUpgrade") == stringTrue,
+		EngineVersion:            vals.Get("EngineVersion"),
+		MasterUserPassword:       vals.Get("MasterUserPassword"),
+		NewDBClusterIdentifier:   vals.Get("NewDBClusterIdentifier"),
+		StorageType:              vals.Get("StorageType"),
+		VpcSecurityGroupIDs:      parseVpcSecurityGroupIDs(vals),
+		EnableLogsTypes:          parseCloudwatchEnableLogTypes(vals),
+		DisableLogsTypes:         parseCloudwatchDisableLogTypes(vals),
+		Port:                     port,
+		ApplyImmediately:         vals.Get("ApplyImmediately") == stringTrue,
 	}
 
 	cluster, err := h.Backend.ModifyDBCluster(
@@ -225,6 +226,7 @@ func (h *Handler) handleRestoreDBClusterToPointInTime(ctx context.Context, vals 
 	opts := &RestoreDBClusterOptions{
 		ClusterExtras:           parseClusterExtras(vals),
 		StorageType:             vals.Get("StorageType"),
+		RestoreType:             vals.Get("RestoreType"),
 		RestoreToTime:           vals.Get("RestoreToTime"),
 		UseLatestRestorableTime: vals.Get("UseLatestRestorableTime") == stringTrue,
 	}

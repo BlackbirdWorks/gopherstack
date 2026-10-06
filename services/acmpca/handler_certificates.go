@@ -4,7 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
+)
+
+const (
+	utcTimeDigits         = 12
+	generalizedTimeDigits = 14
 )
 
 type validityInput struct {
@@ -209,8 +216,8 @@ func (h *Handler) jsonIssueCert(ctx context.Context, body []byte) (any, error) {
 
 // resolveValidityDays converts a Validity input into a day count, matching
 // IssueCertificateInput.Validity's documented Type semantics (DAYS/MONTHS/YEARS
-// are relative; ABSOLUTE/END_DATE are treated as a Unix-epoch-seconds "Not
-// After" -- see the END_DATE/UTCTime caveat noted in PARITY.md).
+// are relative; ABSOLUTE is Unix-epoch seconds; END_DATE is UTCTime or
+// GeneralizedTime digits, see parseEndDate).
 func resolveValidityDays(v validityInput) (int, error) {
 	switch v.Type {
 	case "YEARS":
@@ -219,19 +226,54 @@ func resolveValidityDays(v validityInput) (int, error) {
 		return int(v.Value) * daysPerMonth, nil
 	case "DAYS", "":
 		return int(v.Value), nil
-	case "END_DATE", "ABSOLUTE":
-		endDate := time.Unix(v.Value, 0)
-		days := int(time.Until(endDate).Hours() / hoursPerDay)
-
-		if days <= 0 {
-			days = 1
+	case "END_DATE":
+		endDate, err := parseEndDate(v.Value)
+		if err != nil {
+			return 0, err
 		}
 
-		return days, nil
+		return daysUntil(endDate), nil
+	case "ABSOLUTE":
+		return daysUntil(time.Unix(v.Value, 0)), nil
 	default:
 		return 0, fmt.Errorf("%w: unsupported Validity.Type %q (must be DAYS, MONTHS, YEARS, or END_DATE)",
 			ErrInvalidArgs, v.Type)
 	}
+}
+
+func daysUntil(end time.Time) int {
+	return max(int(time.Until(end).Hours()/hoursPerDay), 1)
+}
+
+// parseEndDate reads END_DATE as UTCTime (YYMMDDHHMMSS, YY>=50 is 19YY) or GeneralizedTime
+// (YYYYMMDDHHMMSS); the integer loses leading zeros, so it is re-padded to 12 or 14 digits.
+func parseEndDate(value int64) (time.Time, error) {
+	digits := strconv.FormatInt(value, 10)
+
+	switch {
+	case value < 0:
+		return time.Time{}, fmt.Errorf("%w: Validity END_DATE must be YYMMDDHHMMSS or YYYYMMDDHHMMSS", ErrInvalidArgs)
+	case len(digits) <= utcTimeDigits:
+		digits = strings.Repeat("0", utcTimeDigits-len(digits)) + digits
+
+		century := "20"
+		if digits[0] >= '5' {
+			century = "19"
+		}
+
+		digits = century + digits
+	case len(digits) <= generalizedTimeDigits:
+		digits = strings.Repeat("0", generalizedTimeDigits-len(digits)) + digits
+	default:
+		return time.Time{}, fmt.Errorf("%w: Validity END_DATE must be YYMMDDHHMMSS or YYYYMMDDHHMMSS", ErrInvalidArgs)
+	}
+
+	t, err := time.Parse("20060102150405", digits)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("%w: Validity END_DATE %d is not a valid date-time", ErrInvalidArgs, value)
+	}
+
+	return t, nil
 }
 
 // resolveValidityAbsoluteTime converts a ValidityNotBefore input to an

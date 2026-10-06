@@ -29,6 +29,9 @@ type IoTCommand struct {
 	DisplayName         string            `json:"displayName,omitempty"`
 	Description         string            `json:"description,omitempty"`
 	Namespace           string            `json:"namespace,omitempty"`
+	PayloadTemplate     string            `json:"payloadTemplate,omitempty"`
+	RoleARN             string            `json:"roleArn,omitempty"`
+	Preprocessor        map[string]any    `json:"preprocessor,omitempty"`
 	MandatoryParameters []map[string]any  `json:"mandatoryParameters,omitempty"`
 	CreationDate        float64           `json:"creationDate,omitempty"`
 	LastUpdated         float64           `json:"lastUpdatedAt,omitempty"`
@@ -42,6 +45,7 @@ func cloneIoTCommand(cmd *IoTCommand) *IoTCommand {
 	maps.Copy(cp.Tags, cmd.Tags)
 	cp.Payload = make(map[string]any, len(cmd.Payload))
 	maps.Copy(cp.Payload, cmd.Payload)
+	cp.Preprocessor = maps.Clone(cmd.Preprocessor)
 	cp.MandatoryParameters = append([]map[string]any(nil), cmd.MandatoryParameters...)
 
 	return &cp
@@ -67,11 +71,19 @@ func (b *InMemoryBackend) AddCommandInternal(cmd IoTCommand) {
 	b.commands.Put(cp)
 }
 
+// CommandExtras holds CreateCommand's dynamic-command members.
+type CommandExtras struct {
+	Preprocessor    map[string]any
+	PayloadTemplate string
+	RoleARN         string
+}
+
 func (b *InMemoryBackend) CreateCommand(
 	id, displayName, description, namespace string,
 	payload map[string]any,
 	mandatoryParameters []map[string]any,
 	tags map[string]string,
+	extras CommandExtras,
 ) (*IoTCommand, error) {
 	b.mu.Lock("CreateCommand")
 	defer b.mu.Unlock()
@@ -91,6 +103,9 @@ func (b *InMemoryBackend) CreateCommand(
 		CreationDate:        now,
 		LastUpdated:         now,
 		MandatoryParameters: append([]map[string]any(nil), mandatoryParameters...),
+		PayloadTemplate:     extras.PayloadTemplate,
+		RoleARN:             extras.RoleARN,
+		Preprocessor:        maps.Clone(extras.Preprocessor),
 	}
 	maps.Copy(cmd.Tags, tags)
 	maps.Copy(cmd.Payload, payload)

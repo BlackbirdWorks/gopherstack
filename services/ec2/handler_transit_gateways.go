@@ -60,6 +60,7 @@ func (h *Handler) handleModifyTransitGateway(vals url.Values, reqID string) (any
 type describeTransitGatewaysResponse struct {
 	XMLName           xml.Name `xml:"DescribeTransitGatewaysResponse"`
 	RequestID         string   `xml:"requestId"`
+	NextToken         string   `xml:"nextToken,omitempty"`
 	TransitGatewaySet struct {
 		Items []transitGatewayItem `xml:"item"`
 	} `xml:"transitGatewaySet"`
@@ -100,7 +101,7 @@ func (h *Handler) handleDescribeTransitGateways(vals url.Values, reqID string) (
 		)
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 // parseTransitGatewayRequestOptions extracts the Options.* fields accepted by
@@ -223,6 +224,7 @@ type describeTransitGatewayAttachmentsResponse struct {
 	XMLName     xml.Name `xml:"DescribeTransitGatewayAttachmentsResponse"`
 	Xmlns       string   `xml:"xmlns,attr"`
 	RequestID   string   `xml:"requestId"`
+	NextToken   string   `xml:"nextToken,omitempty"`
 	Attachments struct {
 		Items []tgwAttachmentSummaryItem `xml:"item"`
 	} `xml:"transitGatewayAttachments"`
@@ -254,7 +256,7 @@ func (h *Handler) handleDescribeTransitGatewayAttachments(vals url.Values, reqID
 		})
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 // ---- Capacity Reservation extras ----

@@ -87,6 +87,7 @@ func (s *storedStack) toStack() *Stack {
 type storedLayer struct {
 	CreatedAt            time.Time         `json:"createdAt"`
 	InstallUpdatesOnBoot *bool             `json:"installUpdatesOnBoot,omitempty"`
+	Settings             *LayerSettings    `json:"settings,omitempty"`
 	Attributes           map[string]string `json:"attributes,omitempty"`
 	StackID              string            `json:"stackId"`
 	LayerID              string            `json:"layerId"`
@@ -103,8 +104,14 @@ func (l *storedLayer) toLayer() *Layer {
 		maps.Copy(attrs, l.Attributes)
 	}
 
+	var settings LayerSettings
+	if l.Settings != nil {
+		settings = cloneLayerSettings(*l.Settings)
+	}
+
 	return &Layer{
 		CreatedAt:            l.CreatedAt,
+		Settings:             settings,
 		InstallUpdatesOnBoot: l.InstallUpdatesOnBoot,
 		Attributes:           attrs,
 		StackID:              l.StackID,
@@ -118,21 +125,22 @@ func (l *storedLayer) toLayer() *Layer {
 
 // storedInstance holds an instance with all fields.
 type storedInstance struct {
-	CreatedAt            time.Time `json:"createdAt"`
-	InstallUpdatesOnBoot *bool     `json:"installUpdatesOnBoot,omitempty"`
-	AgentVersion         string    `json:"agentVersion,omitempty"`
-	InstanceID           string    `json:"instanceId"`
-	Arn                  string    `json:"arn"`
-	Hostname             string    `json:"hostname"`
-	InstanceType         string    `json:"instanceType"`
-	Status               string    `json:"status"`
-	StackID              string    `json:"stackId"`
-	Architecture         string    `json:"architecture,omitempty"`
-	Os                   string    `json:"os,omitempty"`
-	SubnetID             string    `json:"subnetId,omitempty"`
-	Tenancy              string    `json:"tenancy,omitempty"`
-	LayerIDs             []string  `json:"layerIds"`
-	Registered           bool      `json:"registered"`
+	CreatedAt            time.Time       `json:"createdAt"`
+	Extras               *InstanceExtras `json:"extras,omitempty"`
+	InstallUpdatesOnBoot *bool           `json:"installUpdatesOnBoot,omitempty"`
+	AgentVersion         string          `json:"agentVersion,omitempty"`
+	InstanceID           string          `json:"instanceId"`
+	Arn                  string          `json:"arn"`
+	Hostname             string          `json:"hostname"`
+	InstanceType         string          `json:"instanceType"`
+	Status               string          `json:"status"`
+	StackID              string          `json:"stackId"`
+	Architecture         string          `json:"architecture,omitempty"`
+	Os                   string          `json:"os,omitempty"`
+	SubnetID             string          `json:"subnetId,omitempty"`
+	Tenancy              string          `json:"tenancy,omitempty"`
+	LayerIDs             []string        `json:"layerIds"`
+	Registered           bool            `json:"registered"`
 }
 
 // UnmarshalJSON tolerates a pre-slice13 snapshot's singular "layerId"
@@ -160,8 +168,15 @@ func (i *storedInstance) UnmarshalJSON(data []byte) error {
 }
 
 func (i *storedInstance) toInstance() *Instance {
+	var extras InstanceExtras
+	if i.Extras != nil {
+		extras = *i.Extras
+		extras.EbsOptimized = ptrCopy(extras.EbsOptimized)
+	}
+
 	return &Instance{
 		CreatedAt:            i.CreatedAt,
+		Extras:               extras,
 		InstallUpdatesOnBoot: i.InstallUpdatesOnBoot,
 		StackID:              i.StackID,
 		LayerIDs:             slices.Clone(i.LayerIDs),
@@ -181,17 +196,24 @@ func (i *storedInstance) toInstance() *Instance {
 
 // storedApp holds an app with all fields.
 type storedApp struct {
-	CreatedAt time.Time `json:"createdAt"`
-	StackID   string    `json:"stackId"`
-	AppID     string    `json:"appId"`
-	Arn       string    `json:"arn"`
-	Name      string    `json:"name"`
-	Type      string    `json:"type"`
+	CreatedAt time.Time   `json:"createdAt"`
+	Options   *AppOptions `json:"options,omitempty"`
+	StackID   string      `json:"stackId"`
+	AppID     string      `json:"appId"`
+	Arn       string      `json:"arn"`
+	Name      string      `json:"name"`
+	Type      string      `json:"type"`
 }
 
 func (a *storedApp) toApp() *App {
+	var opts AppOptions
+	if a.Options != nil {
+		opts = cloneAppOptions(*a.Options)
+	}
+
 	return &App{
 		CreatedAt: a.CreatedAt,
+		Options:   opts,
 		StackID:   a.StackID,
 		AppID:     a.AppID,
 		Arn:       a.Arn,
@@ -204,12 +226,14 @@ func (a *storedApp) toApp() *App {
 type storedDeployment struct {
 	CreatedAt    time.Time `json:"createdAt"`
 	CompletedAt  time.Time `json:"completedAt"`
+	Comment      string    `json:"comment,omitempty"`
 	StackID      string    `json:"stackId"`
 	AppID        string    `json:"appId"`
 	DeploymentID string    `json:"deploymentId"`
 	Command      string    `json:"command"`
 	Status       string    `json:"status"`
 	CustomJSON   string    `json:"customJson,omitempty"`
+	InstanceIDs  []string  `json:"instanceIds,omitempty"`
 	Duration     int32     `json:"duration"`
 }
 
@@ -217,6 +241,8 @@ func (d *storedDeployment) toDeployment() *Deployment {
 	return &Deployment{
 		CreatedAt:    d.CreatedAt,
 		CompletedAt:  d.CompletedAt,
+		InstanceIDs:  slices.Clone(d.InstanceIDs),
+		Comment:      d.Comment,
 		StackID:      d.StackID,
 		AppID:        d.AppID,
 		DeploymentID: d.DeploymentID,
@@ -435,4 +461,14 @@ func (l *storedLoadBasedAutoScaling) toLoadBasedAutoScaling() *LoadBasedAutoScal
 		LayerID:     l.LayerID,
 		Enable:      l.Enable,
 	}
+}
+
+func ptrCopy[T any](p *T) *T {
+	if p == nil {
+		return nil
+	}
+
+	v := *p
+
+	return &v
 }

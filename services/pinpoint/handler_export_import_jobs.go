@@ -178,13 +178,23 @@ func (h *Handler) handleGetExportJobs(c *echo.Context, appID string) error {
 		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", err.Error())
 	}
 
-	items := make([]exportJobResponse, 0, len(jobs))
+	paged, next, ok := pageSlice(c, jobs)
+	if !ok {
+		return nil
+	}
 
-	for _, j := range jobs {
+	items := make([]exportJobResponse, 0, len(paged))
+
+	for _, j := range paged {
 		items = append(items, toExportJobResponse(j))
 	}
 
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, exportJobsListResponse{Item: items})
+	httputils.WriteJSON(
+		c.Request().Context(),
+		c.Response(),
+		http.StatusOK,
+		exportJobsListResponse{NextToken: next, Item: items},
+	)
 
 	return nil
 }
@@ -212,13 +222,23 @@ func (h *Handler) handleGetImportJobs(c *echo.Context, appID string) error {
 		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", err.Error())
 	}
 
-	items := make([]importJobResponse, 0, len(jobs))
+	paged, next, ok := pageSlice(c, jobs)
+	if !ok {
+		return nil
+	}
 
-	for _, j := range jobs {
+	items := make([]importJobResponse, 0, len(paged))
+
+	for _, j := range paged {
 		items = append(items, toImportJobResponse(j))
 	}
 
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, importJobsListResponse{Item: items})
+	httputils.WriteJSON(
+		c.Request().Context(),
+		c.Response(),
+		http.StatusOK,
+		importJobsListResponse{NextToken: next, Item: items},
+	)
 
 	return nil
 }

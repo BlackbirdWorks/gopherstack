@@ -5,19 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/google/uuid"
 )
 
-// handleExecuteStatement handles ExecuteStatement.
-//
-// SessionKeepAliveSeconds is accepted on the wire for request-shape parity
-// (the real ExecuteStatementInput carries it) but is not used to change
-// backend behavior: session keep-alive/expiry requires modeling time-bounded
-// session lifetimes this in-memory mock does not have, and there is no clean
-// way to verify the exact undocumented AWS semantics without a live cluster
-// (same reasoning as rdsdata's typeHint gap). ClientToken IS behaviorally
-// significant -- see clientTokenKey/lookupIdempotentStatement in
-// idempotency.go: a retried call with the same token replays the original
-// statement instead of creating a new one.
+// handleExecuteStatement: a positive SessionKeepAliveSeconds without SessionId mints a session
+// (expiry not modelled); ClientToken replays the original statement.
 func (h *Handler) handleExecuteStatement(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		StatementName           string         `json:"StatementName"`
@@ -39,10 +32,15 @@ func (h *Handler) handleExecuteStatement(ctx context.Context, body []byte) ([]by
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
+	sessionID, err := resolveSessionID(req.SessionID, req.SessionKeepAliveSeconds)
+	if err != nil {
+		return nil, err
+	}
+
 	tokenKey := clientTokenKey("ExecuteStatement", getRegion(ctx, h.Backend.Region()), req.ClientToken)
 
 	if id, ok := h.lookupIdempotentStatement(tokenKey); ok {
-		if stmt, err := h.Backend.DescribeStatement(ctx, id); err == nil {
+		if stmt, descErr := h.Backend.DescribeStatement(ctx, id); descErr == nil {
 			return json.Marshal(statementCreateResponse(stmt))
 		}
 	}
@@ -52,7 +50,7 @@ func (h *Handler) handleExecuteStatement(ctx context.Context, body []byte) ([]by
 		req.SQL, req.ClusterIdentifier, req.WorkgroupName,
 		req.Database, req.DBUser, req.SecretArn, req.StatementName,
 		req.WithEvent, req.ResultFormat, req.Parameters,
-		req.SessionID,
+		sessionID,
 	)
 	if err != nil {
 		return nil, err
@@ -63,9 +61,23 @@ func (h *Handler) handleExecuteStatement(ctx context.Context, body []byte) ([]by
 	return json.Marshal(statementCreateResponse(stmt))
 }
 
-// handleBatchExecuteStatement handles BatchExecuteStatement. See
-// handleExecuteStatement for why SessionKeepAliveSeconds is accepted on the
-// wire but not behaviorally significant, and why ClientToken is.
+const maxSessionKeepAliveSeconds = 24 * 60 * 60
+
+func resolveSessionID(sessionID string, keepAliveSeconds int32) (string, error) {
+	if keepAliveSeconds < 0 || keepAliveSeconds > maxSessionKeepAliveSeconds {
+		return "", fmt.Errorf("%w: SessionKeepAliveSeconds must be between 0 and %d",
+			ErrValidation, maxSessionKeepAliveSeconds)
+	}
+
+	if sessionID == "" && keepAliveSeconds > 0 {
+		return uuid.NewString(), nil
+	}
+
+	return sessionID, nil
+}
+
+// handleBatchExecuteStatement handles BatchExecuteStatement; session and ClientToken
+// semantics match handleExecuteStatement.
 func (h *Handler) handleBatchExecuteStatement(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		ClusterIdentifier       string         `json:"ClusterIdentifier"`
@@ -88,10 +100,15 @@ func (h *Handler) handleBatchExecuteStatement(ctx context.Context, body []byte) 
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
+	sessionID, err := resolveSessionID(req.SessionID, req.SessionKeepAliveSeconds)
+	if err != nil {
+		return nil, err
+	}
+
 	tokenKey := clientTokenKey("BatchExecuteStatement", getRegion(ctx, h.Backend.Region()), req.ClientToken)
 
 	if id, ok := h.lookupIdempotentStatement(tokenKey); ok {
-		if stmt, err := h.Backend.DescribeStatement(ctx, id); err == nil {
+		if stmt, descErr := h.Backend.DescribeStatement(ctx, id); descErr == nil {
 			return json.Marshal(statementCreateResponse(stmt))
 		}
 	}
@@ -101,7 +118,7 @@ func (h *Handler) handleBatchExecuteStatement(ctx context.Context, body []byte) 
 		req.Sqls, req.ClusterIdentifier, req.WorkgroupName,
 		req.Database, req.DBUser, req.SecretArn, req.StatementName,
 		req.WithEvent, req.ResultFormat, req.Parameters,
-		req.SessionID, req.ExecutionMode,
+		sessionID, req.ExecutionMode,
 	)
 	if err != nil {
 		return nil, err
@@ -158,7 +175,8 @@ func (h *Handler) handleDescribeStatement(ctx context.Context, body []byte) ([]b
 
 func (h *Handler) handleGetStatementResult(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		ID string `json:"Id"`
+		ID        string `json:"Id"`
+		NextToken string `json:"NextToken"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -184,6 +202,10 @@ func (h *Handler) handleGetStatementResult(ctx context.Context, body []byte) ([]
 
 	if stmt.ResultFormat != resultFormatJSON && stmt.ResultFormat != "" {
 		return nil, fmt.Errorf("%w: statement %s result format is not JSON", ErrValidation, req.ID)
+	}
+
+	if req.NextToken != "" {
+		return nil, fmt.Errorf("%w: invalid NextToken, the result fits on one page", ErrValidation)
 	}
 
 	// Return a single demo row so the UI can render a non-empty result table.
@@ -235,6 +257,10 @@ func (h *Handler) handleGetStatementResultV2(ctx context.Context, body []byte) (
 
 	if stmt.ResultFormat != resultFormatCSV {
 		return nil, fmt.Errorf("%w: statement %s result format is not CSV", ErrValidation, req.ID)
+	}
+
+	if req.NextToken != "" {
+		return nil, fmt.Errorf("%w: invalid NextToken, the result fits on one page", ErrValidation)
 	}
 
 	// Return a single demo CSV record matching the V2 format.
@@ -296,6 +322,7 @@ func (h *Handler) handleListStatements(ctx context.Context, body []byte) ([]byte
 	}
 
 	stmts, nextToken, err := h.Backend.ListStatements(ctx, ListStatementsFilter{
+		RoleLevel:         req.RoleLevel,
 		ClusterIdentifier: req.ClusterIdentifier,
 		WorkgroupName:     req.WorkgroupName,
 		Database:          req.Database,

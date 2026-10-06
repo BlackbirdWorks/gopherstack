@@ -74,14 +74,10 @@ func (h *Handler) handleCreateConfiguration(
 	}
 
 	return c.JSON(http.StatusOK, createConfigurationOutput{
-		Arn:   config.Arn,
-		Name:  config.Name,
-		State: ClusterStateActive,
-		LatestRevision: configurationRevision{
-			Revision:     1,
-			Description:  config.Description,
-			CreationTime: config.CreationTime,
-		},
+		Arn:            config.Arn,
+		Name:           config.Name,
+		State:          ClusterStateActive,
+		LatestRevision: latestRevisionWire(config),
 	})
 }
 
@@ -120,16 +116,12 @@ func (h *Handler) handleDescribeConfiguration(
 	}
 
 	return c.JSON(http.StatusOK, describeConfigurationOutput{
-		Arn:           config.Arn,
-		Name:          config.Name,
-		Description:   config.Description,
-		KafkaVersions: config.KafkaVersions,
-		State:         ClusterStateActive,
-		LatestRevision: configurationRevision{
-			Revision:     1,
-			Description:  config.Description,
-			CreationTime: config.CreationTime,
-		},
+		Arn:            config.Arn,
+		Name:           config.Name,
+		Description:    config.Description,
+		KafkaVersions:  config.KafkaVersions,
+		State:          ClusterStateActive,
+		LatestRevision: latestRevisionWire(config),
 	})
 }
 
@@ -259,13 +251,19 @@ func (h *Handler) handleUpdateConfiguration(
 	}
 
 	return c.JSON(http.StatusOK, createConfigurationOutput{
-		Arn:   config.Arn,
-		Name:  config.Name,
-		State: ClusterStateActive,
-		LatestRevision: configurationRevision{
-			Revision:     1,
-			Description:  config.Description,
-			CreationTime: config.CreationTime,
-		},
+		Arn:            config.Arn,
+		Name:           config.Name,
+		State:          ClusterStateActive,
+		LatestRevision: latestRevisionWire(config),
 	})
+}
+
+func latestRevisionWire(config *Configuration) configurationRevision {
+	rev := revisionOf(config)
+
+	return configurationRevision{
+		Revision:     rev.Revision,
+		Description:  rev.Description,
+		CreationTime: rev.CreationTime,
+	}
 }

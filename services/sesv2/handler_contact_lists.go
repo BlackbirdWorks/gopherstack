@@ -91,7 +91,7 @@ func (h *Handler) handleUpdateContactList(c *echo.Context, name string) (any, er
 
 func (h *Handler) handleListContactLists(c *echo.Context) (any, error) {
 	nextToken := c.QueryParam("NextToken")
-	pg := h.Backend.ListContactLists(nextToken, 0)
+	pg := h.Backend.ListContactLists(nextToken, queryPageSize(c))
 
 	items := make([]contactListSummaryOutput, 0, len(pg.Data))
 	for _, cl := range pg.Data {

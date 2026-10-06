@@ -39,6 +39,7 @@ type Domain struct {
 	AppSecurityGroupManagement string            `json:"AppSecurityGroupManagement,omitempty"`
 	HomeEfsFileSystemCreation  string            `json:"HomeEfsFileSystemCreation,omitempty"`
 	KmsKeyID                   string            `json:"KmsKeyId,omitempty"`
+	HomeEfsFileSystemKmsKeyID  string            `json:"HomeEfsFileSystemKmsKeyId,omitempty"`
 	VpcID                      string            `json:"VpcId,omitempty"`
 	TagPropagation             string            `json:"TagPropagation,omitempty"`
 	SubnetIDs                  []string          `json:"SubnetIds,omitempty"`
@@ -67,6 +68,7 @@ type CreateDomainOptions struct {
 	AppSecurityGroupManagement string
 	HomeEfsFileSystemCreation  string
 	KmsKeyID                   string
+	HomeEfsFileSystemKmsKeyID  string
 	VpcID                      string
 	TagPropagation             string
 	SubnetIDs                  []string
@@ -111,6 +113,7 @@ func (b *InMemoryBackend) CreateDomain(
 		AppSecurityGroupManagement: opts.AppSecurityGroupManagement,
 		HomeEfsFileSystemCreation:  opts.HomeEfsFileSystemCreation,
 		KmsKeyID:                   opts.KmsKeyID,
+		HomeEfsFileSystemKmsKeyID:  opts.HomeEfsFileSystemKmsKeyID,
 		VpcID:                      opts.VpcID,
 		TagPropagation:             opts.TagPropagation,
 		SubnetIDs:                  opts.SubnetIDs,

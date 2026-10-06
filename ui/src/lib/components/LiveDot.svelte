@@ -26,7 +26,7 @@
 </script>
 
 <script lang="ts">
-	import { dashboardClient } from '$lib/api/connect-client';
+	import { dashboardClient } from '#lib/api/connect-client.ts';
 
 	type Props = {
 		/**

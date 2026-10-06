@@ -7,12 +7,15 @@ import (
 )
 
 type createDeploymentInput struct {
-	Variables        map[string]string `json:"variables,omitempty"`
-	RestAPIID        string            `json:"restApiId"`
-	StageName        string            `json:"stageName"`
-	Description      string            `json:"description"`
-	StageDescription string            `json:"stageDescription,omitempty"`
-	TracingEnabled   bool              `json:"tracingEnabled,omitempty"`
+	Variables           map[string]string `json:"variables,omitempty"`
+	CanarySettings      *CanarySettings   `json:"canarySettings,omitempty"`
+	RestAPIID           string            `json:"restApiId"`
+	StageName           string            `json:"stageName"`
+	Description         string            `json:"description"`
+	StageDescription    string            `json:"stageDescription,omitempty"`
+	CacheClusterSize    string            `json:"cacheClusterSize,omitempty"`
+	TracingEnabled      bool              `json:"tracingEnabled,omitempty"`
+	CacheClusterEnabled bool              `json:"cacheClusterEnabled,omitempty"`
 }
 
 type getDeploymentInput struct {
@@ -52,7 +55,9 @@ func (h *Handler) createDeploymentAction(b []byte) (int, any, error) {
 	if err := json.Unmarshal(b, &input); err != nil {
 		return 0, nil, err
 	}
-	depl, err := h.Backend.CreateDeployment(input.RestAPIID, input.StageName, input.Description)
+	depl, err := h.Backend.CreateDeploymentWithCanary(
+		input.RestAPIID, input.StageName, input.Description, input.CanarySettings,
+	)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -65,12 +70,18 @@ func (h *Handler) applyInlineStageUpdate(input createDeploymentInput) {
 	if input.StageName == "" {
 		return
 	}
-	if input.StageDescription == "" && len(input.Variables) == 0 && !input.TracingEnabled {
+	if input.StageDescription == "" && len(input.Variables) == 0 && !input.TracingEnabled &&
+		!input.CacheClusterEnabled && input.CacheClusterSize == "" {
 		return
 	}
 	stageUpd := UpdateStageInput{
-		Description: input.StageDescription,
-		Variables:   input.Variables,
+		Description:      input.StageDescription,
+		Variables:        input.Variables,
+		CacheClusterSize: input.CacheClusterSize,
+	}
+	if input.CacheClusterEnabled {
+		c := true
+		stageUpd.CacheClusterEnabled = &c
 	}
 	if input.TracingEnabled {
 		t := true

@@ -83,7 +83,7 @@ func (b *InMemoryBackend) UpdateRuleGroup(id, changeToken string, updates []Acti
 			}
 
 			active[u.ActivatedRule.RuleId] = true
-			rules = append(rules, u.ActivatedRule)
+			rules = append(rules, withDefaultRuleType(u.ActivatedRule))
 		case updateDelete:
 			if !active[u.ActivatedRule.RuleId] {
 				return fmt.Errorf("%w: rule %q isn't activated in this RuleGroup",

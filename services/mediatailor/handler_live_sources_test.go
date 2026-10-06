@@ -65,7 +65,7 @@ func TestLiveSource_Create(t *testing.T) {
 			},
 			path:     "/sourceLocation/sl1/liveSource/ls1",
 			body:     map[string]any{},
-			wantCode: http.StatusConflict,
+			wantCode: http.StatusBadRequest,
 		},
 	}
 

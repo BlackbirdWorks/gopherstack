@@ -24,6 +24,14 @@ func (b *InMemoryBackend) CreateModelCopyJob(
 	sourceModelARN, targetModelName string,
 	tags []Tag,
 ) (*ModelCopyJob, error) {
+	return b.CreateModelCopyJobWithKey(sourceModelARN, targetModelName, "", tags)
+}
+
+// CreateModelCopyJobWithKey is CreateModelCopyJob with the target model's KMS key (ModelKmsKeyId).
+func (b *InMemoryBackend) CreateModelCopyJobWithKey(
+	sourceModelARN, targetModelName, modelKmsKeyID string,
+	tags []Tag,
+) (*ModelCopyJob, error) {
 	if sourceModelARN == "" {
 		return nil, fmt.Errorf("%w: sourceModelArn is required", ErrValidation)
 	}
@@ -42,14 +50,15 @@ func (b *InMemoryBackend) CreateModelCopyJob(
 	now := time.Now().UTC()
 
 	job := &ModelCopyJob{
-		JobArn:           jobARN,
-		SourceModelArn:   sourceModelARN,
-		TargetModelArn:   targetModelARN,
-		TargetModelName:  targetModelName,
-		Status:           statusInProgress,
-		CreationTime:     now,
-		LastModifiedTime: now,
-		Tags:             copyTags(tags),
+		JobArn:               jobARN,
+		SourceModelArn:       sourceModelARN,
+		TargetModelArn:       targetModelARN,
+		TargetModelName:      targetModelName,
+		TargetModelKmsKeyArn: kmsKeyARN(b.region, b.accountID, modelKmsKeyID),
+		Status:               statusInProgress,
+		CreationTime:         now,
+		LastModifiedTime:     now,
+		Tags:                 copyTags(tags),
 	}
 	b.modelCopyJobs.Put(job)
 

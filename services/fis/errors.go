@@ -41,3 +41,9 @@ var ErrTooManyTags = errors.New("TooManyTagsException")
 
 // ErrTargetAccountConfigNotFound is returned when a target account configuration is not found.
 var ErrTargetAccountConfigNotFound = errors.New("TargetAccountConfigurationNotFound")
+
+// ErrTargetAccountConfigExists is returned when a target account configuration already exists for the account.
+var ErrTargetAccountConfigExists = errors.New("TargetAccountConfigurationExists")
+
+// ErrTokenReused is a clientToken reused with different parameters.
+var ErrTokenReused = errors.New("ClientTokenReused")

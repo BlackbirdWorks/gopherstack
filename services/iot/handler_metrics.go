@@ -105,7 +105,7 @@ func (h *Handler) handleListFleetMetrics(c *echo.Context) error {
 		}
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"fleetMetrics": summaries})
+	return respondListPage(c, "fleetMetrics", summaries)
 }
 
 func (h *Handler) handleUpdateFleetMetric(c *echo.Context) error {
@@ -242,7 +242,7 @@ func (h *Handler) handleListDimensions(c *echo.Context) error {
 		names[i] = d.Name
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"dimensionNames": names})
+	return respondListPage(c, "dimensionNames", names)
 }
 
 func (h *Handler) handleUpdateDimension(c *echo.Context) error {
@@ -276,8 +276,8 @@ func (h *Handler) handleDeleteDimension(c *echo.Context) error {
 func (h *Handler) handleListMetricValues(c *echo.Context) error {
 	thingName := c.QueryParam(keyThingName)
 	metricName := c.QueryParam("metricName")
-	startTime := parseIoTEpochQueryParam(c, "startTime")
-	endTime := parseIoTEpochQueryParam(c, "endTime")
+	startTime := parseIoTTimeQueryParam(c, "startTime")
+	endTime := parseIoTTimeQueryParam(c, "endTime")
 	maxResults := parseInt32QueryParam(c, "maxResults")
 	nextToken := c.QueryParam("nextToken")
 

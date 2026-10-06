@@ -23,9 +23,10 @@ func (h *Handler) projectOps() map[string]service.JSONOpFunc {
 // =============================================================================
 
 type createProjectReq struct {
-	ProjectName string `json:"ProjectName"`
-	AutoUpdate  string `json:"AutoUpdate"`
-	Feature     string `json:"Feature"`
+	Tags        map[string]string `json:"Tags"`
+	ProjectName string            `json:"ProjectName"`
+	AutoUpdate  string            `json:"AutoUpdate"`
+	Feature     string            `json:"Feature"`
 }
 
 type createProjectResp struct {
@@ -38,6 +39,7 @@ func (h *Handler) handleCreateProject(_ context.Context, req *createProjectReq) 
 	}
 
 	proj, err := h.Backend.CreateProject(req.ProjectName, CreateProjectParams{
+		Tags:       req.Tags,
 		AutoUpdate: req.AutoUpdate,
 		Feature:    req.Feature,
 	})

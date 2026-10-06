@@ -59,6 +59,7 @@ func TestDescribeSignalingChannel(t *testing.T) {
 		ChannelName: aws.String("describe-channel"),
 	})
 	require.NoError(t, err)
+	waitChannelActive(t, client, created.ChannelARN)
 
 	out, err := client.DescribeSignalingChannel(ctx, &kinesisvideosdk.DescribeSignalingChannelInput{
 		ChannelARN: created.ChannelARN,
@@ -182,12 +183,17 @@ func TestDeleteSignalingChannel(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = client.DescribeSignalingChannel(ctx, &kinesisvideosdk.DescribeSignalingChannelInput{
+	deleting, err := client.DescribeSignalingChannel(ctx, &kinesisvideosdk.DescribeSignalingChannelInput{
 		ChannelARN: created.ChannelARN,
 	})
-	require.Error(t, err)
+	require.NoError(t, err)
+	assert.Equal(t, types.StatusDeleting, deleting.ChannelInfo.ChannelStatus)
 
-	var apiErr smithy.APIError
-	require.ErrorAs(t, err, &apiErr)
-	assert.Equal(t, "ResourceNotFoundException", apiErr.ErrorCode())
+	requireNotFoundEventually(t, func() error {
+		_, descErr := client.DescribeSignalingChannel(ctx, &kinesisvideosdk.DescribeSignalingChannelInput{
+			ChannelARN: created.ChannelARN,
+		})
+
+		return descErr
+	})
 }

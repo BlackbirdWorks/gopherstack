@@ -62,8 +62,10 @@ func (h *Handler) routeStubCopyImportOps(c *echo.Context, path, method string) (
 
 // createModelCopyJobInput is the parsed request body for CreateModelCopyJob.
 type createModelCopyJobInput struct {
-	SourceModelArn  string `json:"sourceModelArn"`
-	TargetModelName string `json:"targetModelName"`
+	SourceModelArn     string `json:"sourceModelArn"`
+	TargetModelName    string `json:"targetModelName"`
+	ModelKmsKeyID      string `json:"modelKmsKeyId,omitempty"`
+	ClientRequestToken string `json:"clientRequestToken,omitempty"`
 	// TargetModelTags, not Tags: real CreateModelCopyJobInput carries the field
 	// as TargetModelTags, wire key "targetModelTags" (bedrock@v1.66.4
 	// serializers.go: awsRestjson1_serializeOpDocumentCreateModelCopyJobInput).
@@ -94,12 +96,18 @@ func (h *Handler) handleCreateModelCopyJob(c *echo.Context) error {
 		)
 	}
 
-	job, opErr := h.Backend.CreateModelCopyJob(in.SourceModelArn, in.TargetModelName, in.Tags)
+	job, opErr := idemCreate(
+		h.idem, "CreateModelCopyJob", in.ClientRequestToken, idemFingerprint(in), ErrValidation,
+		func(j *ModelCopyJob) string { return j.JobArn }, h.Backend.GetModelCopyJob,
+		func() (*ModelCopyJob, error) {
+			return h.Backend.CreateModelCopyJobWithKey(in.SourceModelArn, in.TargetModelName, in.ModelKmsKeyID, in.Tags)
+		},
+	)
 	if opErr != nil {
 		return h.writeError(c, opErr)
 	}
 
-	return c.JSON(http.StatusCreated, modelCopyJobToOutput(job))
+	return c.JSON(http.StatusCreated, map[string]any{keyJobArn: job.JobArn})
 }
 
 func parseListModelCopyJobsQuery(c *echo.Context) *ListModelCopyJobsInput {
@@ -193,8 +201,16 @@ func modelCopyJobToOutput(j *ModelCopyJob) map[string]any {
 		out["failureMessage"] = j.FailureMessage
 	}
 
+	if j.TargetModelName != "" {
+		out["targetModelName"] = j.TargetModelName
+	}
+
+	if j.TargetModelKmsKeyArn != "" {
+		out["targetModelKmsKeyArn"] = j.TargetModelKmsKeyArn
+	}
+
 	if len(j.Tags) > 0 {
-		out["tags"] = j.Tags
+		out["targetModelTags"] = j.Tags
 	}
 
 	return out
@@ -219,6 +235,10 @@ func modelCopyJobToSummaryOutput(j *ModelCopyJob) map[string]any {
 
 	if j.TargetModelName != "" {
 		out["targetModelName"] = j.TargetModelName
+	}
+
+	if j.TargetModelKmsKeyArn != "" {
+		out["targetModelKmsKeyArn"] = j.TargetModelKmsKeyArn
 	}
 
 	if j.FailureMessage != "" {

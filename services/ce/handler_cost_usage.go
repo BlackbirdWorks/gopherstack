@@ -349,6 +349,29 @@ func sortTagValuesByCost(
 	return ordered
 }
 
+// validateForecastRequest enforces the members GetCostForecastInput and
+// GetUsageForecastInput both mark required (validators.go).
+func validateForecastRequest(timePeriod map[string]string, metric, granularity string) (string, string, error) {
+	if timePeriod == nil {
+		return "", "", fmt.Errorf("%w: TimePeriod is required", ErrValidation)
+	}
+
+	start, end := timePeriod[timePeriodKeyStart], timePeriod[timePeriodKeyEnd]
+	if start == "" || end == "" {
+		return "", "", fmt.Errorf("%w: TimePeriod.Start and TimePeriod.End are required", ErrValidation)
+	}
+
+	if metric == "" {
+		return "", "", fmt.Errorf("%w: Metric is required", ErrValidation)
+	}
+
+	if granularity == "" {
+		return "", "", fmt.Errorf("%w: Granularity is required", ErrValidation)
+	}
+
+	return start, end, nil
+}
+
 type getCostForecastInput struct {
 	Filter                  *ceExpression     `json:"Filter"`
 	TimePeriod              map[string]string `json:"TimePeriod"`
@@ -373,20 +396,12 @@ func (h *Handler) handleGetCostForecast(
 	_ context.Context,
 	in *getCostForecastInput,
 ) (*getCostForecastOutput, error) {
-	start, end := defaultForecastStart, defaultForecastEnd
-	if in.TimePeriod != nil {
-		if s := in.TimePeriod["Start"]; s != "" {
-			start = s
-		}
-		if e := in.TimePeriod["End"]; e != "" {
-			end = e
-		}
+	start, end, err := validateForecastRequest(in.TimePeriod, in.Metric, in.Granularity)
+	if err != nil {
+		return nil, err
 	}
 
 	granularity := in.Granularity
-	if granularity == "" {
-		granularity = defaultGranularity
-	}
 
 	level := in.PredictionIntervalLevel
 	if level == 0 {
@@ -431,20 +446,12 @@ func (h *Handler) handleGetUsageForecast(
 	_ context.Context,
 	in *getUsageForecastInput,
 ) (*getUsageForecastOutput, error) {
-	start, end := defaultForecastStart, defaultForecastEnd
-	if in.TimePeriod != nil {
-		if s := in.TimePeriod["Start"]; s != "" {
-			start = s
-		}
-		if e := in.TimePeriod["End"]; e != "" {
-			end = e
-		}
+	start, end, err := validateForecastRequest(in.TimePeriod, in.Metric, in.Granularity)
+	if err != nil {
+		return nil, err
 	}
 
 	granularity := in.Granularity
-	if granularity == "" {
-		granularity = defaultGranularity
-	}
 
 	level := in.PredictionIntervalLevel
 	if level == 0 {

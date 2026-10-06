@@ -1,6 +1,7 @@
 package glue
 
 import (
+	"cmp"
 	"fmt"
 	"maps"
 	mrand "math/rand/v2"
@@ -37,6 +38,8 @@ func cloneJob(j *Job) *Job {
 	cp := *j
 	cp.Tags = maps.Clone(j.Tags)
 	cp.DefaultArguments = maps.Clone(j.DefaultArguments)
+	cp.NonOverridableArguments = maps.Clone(j.NonOverridableArguments)
+	cp.CodeGenConfigurationNodes = maps.Clone(j.CodeGenConfigurationNodes)
 	if len(j.Connections.Connections) > 0 {
 		cp.Connections.Connections = make([]string, len(j.Connections.Connections))
 		copy(cp.Connections.Connections, j.Connections.Connections)
@@ -113,12 +116,24 @@ func (b *InMemoryBackend) CreateJob(input Job) (*Job, error) {
 		Connections:          input.Connections,
 		NotificationProperty: input.NotificationProperty,
 		JobMode:              jobModeOrDefault(input.JobMode),
+		SourceControlDetails: input.SourceControlDetails,
 		CreatedOn:            now,
 		LastModifiedOn:       now,
 	}
+	copyJobExtraMembers(j, &input)
 	b.jobs.Put(j)
 
 	return j, nil
+}
+
+func copyJobExtraMembers(dst, src *Job) {
+	dst.NonOverridableArguments = maps.Clone(src.NonOverridableArguments)
+	dst.CodeGenConfigurationNodes = maps.Clone(src.CodeGenConfigurationNodes)
+	dst.JobRunQueuingEnabled = src.JobRunQueuingEnabled
+	dst.LogURI = src.LogURI
+	dst.SecurityConfiguration = src.SecurityConfiguration
+	dst.ExecutionClass = src.ExecutionClass
+	dst.MaintenanceWindow = src.MaintenanceWindow
 }
 
 // jobModeOrDefault applies CreateJobInput.JobMode's documented default: when
@@ -203,6 +218,7 @@ func (b *InMemoryBackend) UpdateJob(name string, input Job) error {
 	j.ExecutionProperty = input.ExecutionProperty
 	j.Connections = input.Connections
 	j.NotificationProperty = input.NotificationProperty
+	copyJobExtraMembers(j, &input)
 	j.LastModifiedOn = float64(time.Now().Unix())
 
 	return nil
@@ -410,7 +426,12 @@ func (b *InMemoryBackend) StartJobRunWithOptions(
 		GlueVersion:           j.GlueVersion,
 		Timeout:               ov.timeout,
 		NotificationProperty:  ov.notification,
-		SecurityConfiguration: opts.SecurityConfiguration,
+		SecurityConfiguration: cmp.Or(opts.SecurityConfiguration, j.SecurityConfiguration),
+		ExecutionClass:        cmp.Or(opts.ExecutionClass, j.ExecutionClass),
+		MaintenanceWindow:     j.MaintenanceWindow,
+
+		ExecutionRoleSessionPolicy: opts.ExecutionRoleSessionPolicy,
+		JobRunQueuingEnabled:       cmp.Or(opts.JobRunQueuingEnabled, j.JobRunQueuingEnabled),
 	}
 	b.pruneOldJobRunsLocked(jobName, now)
 	b.jobRuns[jobName] = append(b.jobRuns[jobName], run)

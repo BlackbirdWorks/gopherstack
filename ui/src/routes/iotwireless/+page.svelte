@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
-	import { getIoTWirelessClient } from '$lib/aws-client';
+	import { onRegionChange, regionalClient } from '#lib/region-effect.svelte.ts';
+	import { getIoTWirelessClient } from '#lib/aws-client.ts';
 	import {
 		ListWirelessDevicesCommand,
 		CreateWirelessDeviceCommand,
@@ -28,7 +28,7 @@
 		type FuotaTask
 	} from '@aws-sdk/client-iot-wireless';
 	import { toast } from 'svelte-sonner';
-	import { confirmDestructive } from '$lib/confirm-dialog';
+	import { confirmDestructive } from '#lib/confirm-dialog.ts';
 	import { Wifi, Radio, RefreshCw, Plus, Trash2, Search, Server, BookOpen, Layers } from 'lucide-svelte';
 
 	const client = regionalClient(getIoTWirelessClient);

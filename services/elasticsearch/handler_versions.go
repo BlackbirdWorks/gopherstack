@@ -72,5 +72,5 @@ func (h *Handler) handleListElasticsearchVersions(w http.ResponseWriter, r *http
 		elasticsearchVersion60, elasticsearchVersion56, elasticsearchVersion55,
 		elasticsearchVersion53, elasticsearchVersion51, "2.3", "1.5",
 	}
-	h.writeJSON(r, w, map[string]any{"ElasticsearchVersions": versions})
+	writePagedList(h, w, r, listSpec("ElasticsearchVersions"), versions, nil)
 }

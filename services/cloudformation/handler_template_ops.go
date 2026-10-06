@@ -3,6 +3,7 @@ package cloudformation
 import (
 	"encoding/xml"
 	"net/url"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
@@ -22,7 +23,9 @@ func isValidGetTemplateStage(stage string) bool {
 
 func (h *Handler) handleGetTemplate(form url.Values, c *echo.Context) error {
 	stackName := form.Get("StackName")
-	if stackName == "" {
+	changeSetName := form.Get("ChangeSetName")
+
+	if stackName == "" && !strings.HasPrefix(changeSetName, "arn:") {
 		return h.xmlError(c, "ValidationError", "StackName is required")
 	}
 
@@ -30,8 +33,17 @@ func (h *Handler) handleGetTemplate(form url.Values, c *echo.Context) error {
 		return h.xmlError(c, "ValidationError", "TemplateStage must be Original or Processed")
 	}
 
-	body, err := h.Backend.GetTemplate(stackName)
-	if err != nil {
+	var (
+		body string
+		err  error
+	)
+
+	if changeSetName != "" {
+		body, err = h.Backend.GetChangeSetTemplate(stackName, changeSetName)
+		if err != nil {
+			return h.xmlError(c, "ChangeSetNotFound", err.Error())
+		}
+	} else if body, err = h.Backend.GetTemplate(stackName); err != nil {
 		return h.xmlError(c, "ValidationError", err.Error())
 	}
 
@@ -85,20 +97,32 @@ func (h *Handler) handleGetTemplateSummary(form url.Values, c *echo.Context) err
 		return h.xmlError(c, "ValidationError", err.Error())
 	}
 
+	type paramConstraintsXML struct {
+		AllowedValues []string `xml:"AllowedValues>member,omitempty"`
+	}
 	type paramXML struct {
-		ParameterKey          string   `xml:"ParameterKey"`
-		ParameterType         string   `xml:"ParameterType,omitempty"`
-		DefaultValue          string   `xml:"DefaultValue,omitempty"`
-		Description           string   `xml:"Description,omitempty"`
-		ConstraintDescription string   `xml:"ConstraintDescription,omitempty"`
-		AllowedPattern        string   `xml:"AllowedPattern,omitempty"`
-		AllowedValues         []string `xml:"AllowedValues>member,omitempty"`
-		NoEcho                bool     `xml:"NoEcho,omitempty"`
+		ParameterConstraints *paramConstraintsXML `xml:"ParameterConstraints,omitempty"`
+		ParameterKey         string               `xml:"ParameterKey"`
+		ParameterType        string               `xml:"ParameterType,omitempty"`
+		DefaultValue         string               `xml:"DefaultValue,omitempty"`
+		Description          string               `xml:"Description,omitempty"`
+		NoEcho               bool                 `xml:"NoEcho,omitempty"`
 	}
 
 	params := make([]paramXML, 0, len(summary.Parameters))
 	for _, p := range summary.Parameters {
-		params = append(params, paramXML(p))
+		x := paramXML{
+			ParameterKey:  p.ParameterKey,
+			ParameterType: p.ParameterType,
+			DefaultValue:  p.DefaultValue,
+			Description:   p.Description,
+			NoEcho:        p.NoEcho,
+		}
+		if len(p.AllowedValues) > 0 {
+			x.ParameterConstraints = &paramConstraintsXML{AllowedValues: p.AllowedValues}
+		}
+
+		params = append(params, x)
 	}
 
 	type summaryResult struct {

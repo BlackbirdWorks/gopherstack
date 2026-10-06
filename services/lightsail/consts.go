@@ -14,6 +14,11 @@ const asyncTransitionDelay = 100 * time.Millisecond
 // PageToken-out -- so this bounds page size independent of caller input).
 const defaultPageLimit = 100
 
+const (
+	accessTypePublic  = "public"
+	accessTypePrivate = "private"
+)
+
 // defaultPreferredBackupWindow/defaultPreferredMaintenanceWindow are
 // CreateRelationalDatabaseInput's documented defaults ("a 30-minute window
 // selected at random from an 8-hour block of time for each AWS Region")
@@ -310,6 +315,9 @@ const (
 // ipAddressTypeDualStack is the default IpAddressType this backend applies
 // when a caller omits it on a create call.
 const ipAddressTypeDualStack = "dualstack"
+
+// httpTokensOptional is the unspecified-HttpTokens state (api_op_UpdateInstanceMetadataOptions.go:54-55).
+const httpTokensOptional = "optional"
 
 // blueprintGroupUbuntu names the seed Ubuntu blueprint's Group value,
 // shared between referencedata.go's seed and instances.go's

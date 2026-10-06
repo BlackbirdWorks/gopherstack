@@ -83,6 +83,7 @@ func (h *Handler) handleModifyDBInstance(ctx context.Context, vals url.Values) (
 
 	opts := &ModifyDBInstanceOptions{
 		CACertificateIdentifier:     vals.Get("CACertificateIdentifier"),
+		NewDBInstanceIdentifier:     vals.Get("NewDBInstanceIdentifier"),
 		PerformanceInsightsKMSKeyID: vals.Get("PerformanceInsightsKMSKeyId"),
 		CopyTagsToSnapshot:          parseBoolParam(vals, "CopyTagsToSnapshot"),
 		EnablePerformanceInsights:   parseBoolParam(vals, "EnablePerformanceInsights"),

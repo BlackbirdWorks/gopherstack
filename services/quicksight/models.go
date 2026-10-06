@@ -50,7 +50,12 @@ type storedUser struct {
 	Namespace    string `json:"namespace"`
 	PrincipalID  string `json:"principalId"`
 	SessionName  string `json:"sessionName"`
-	Active       bool   `json:"active"`
+
+	ExternalLoginProviderType string `json:"externalLoginProviderType,omitempty"`
+	ExternalLoginProviderURL  string `json:"externalLoginProviderUrl,omitempty"`
+	ExternalLoginID           string `json:"externalLoginId,omitempty"`
+
+	Active bool `json:"active"`
 }
 
 func (u *storedUser) toUser() *User {
@@ -64,12 +69,18 @@ func (u *storedUser) toUser() *User {
 		PrincipalID:  u.PrincipalID,
 		SessionName:  u.SessionName,
 		Active:       u.Active,
+		Federation: UserFederation{
+			ProviderType: u.ExternalLoginProviderType,
+			ProviderURL:  u.ExternalLoginProviderURL,
+			LoginID:      u.ExternalLoginID,
+		},
 	}
 }
 
 type storedDataSource struct {
 	CreatedTime     time.Time            `json:"createdTime"`
 	LastUpdatedTime time.Time            `json:"lastUpdatedTime"`
+	Config          map[string]any       `json:"config,omitempty"`
 	DataSourceID    string               `json:"dataSourceId"`
 	Arn             string               `json:"arn"`
 	Name            string               `json:"name"`
@@ -88,6 +99,7 @@ func (d *storedDataSource) toDataSource() *DataSource {
 		Type:            d.Type,
 		Status:          d.Status,
 		Permissions:     clonePermissions(d.Permissions),
+		Config:          cloneJSONValue(d.Config),
 	}
 }
 
@@ -98,12 +110,13 @@ type storedDataSet struct {
 	RefreshProperties *storedDataSetRefreshProperties   `json:"refreshProperties,omitempty"`
 	PhysicalTableMap  map[string]PhysicalTable          `json:"physicalTableMap,omitempty"`
 	LogicalTableMap   map[string]LogicalTable           `json:"logicalTableMap,omitempty"`
+	Config            map[string]any                    `json:"config,omitempty"`
 	DataSetID         string                            `json:"dataSetId"`
 	Arn               string                            `json:"arn"`
 	Name              string                            `json:"name"`
 	ImportMode        string                            `json:"importMode"`
-	Permissions       []ResourcePermission              `json:"permissions,omitempty"`
 	Security          DataSetSecurity                   `json:"security"`
+	Permissions       []ResourcePermission              `json:"permissions,omitempty"`
 }
 
 func (d *storedDataSet) toDataSet() *DataSet {
@@ -118,6 +131,7 @@ func (d *storedDataSet) toDataSet() *DataSet {
 		PhysicalTableMap: clonePhysicalTableMap(d.PhysicalTableMap),
 		LogicalTableMap:  cloneLogicalTableMap(d.LogicalTableMap),
 		Security:         cloneDataSetSecurity(d.Security),
+		Config:           cloneJSONValue(d.Config),
 	}
 }
 
@@ -127,6 +141,8 @@ type storedIngestion struct {
 	Arn             string    `json:"arn"`
 	DataSetID       string    `json:"dataSetId"`
 	IngestionStatus string    `json:"ingestionStatus"`
+	RequestType     string    `json:"requestType,omitempty"`
+	RequestSource   string    `json:"requestSource,omitempty"`
 }
 
 func (i *storedIngestion) toIngestion() *Ingestion {
@@ -136,6 +152,8 @@ func (i *storedIngestion) toIngestion() *Ingestion {
 		Arn:             i.Arn,
 		DataSetID:       i.DataSetID,
 		IngestionStatus: i.IngestionStatus,
+		RequestType:     i.RequestType,
+		RequestSource:   i.RequestSource,
 	}
 }
 

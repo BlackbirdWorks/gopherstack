@@ -3,6 +3,7 @@ package main
 import (
 	"go/token"
 	"path/filepath"
+	"slices"
 	"sort"
 )
 
@@ -91,6 +92,14 @@ type serviceScan struct {
 // per-operation error codes at all, contributes nothing -- not an error,
 // same "nothing to check" discipline as cmd/errcodeaudit.
 func scanServiceDir(dir, repoRoot, cache string, goModVersions map[string]string) (serviceScan, error) {
+	return scanServiceDirOpts(dir, repoRoot, cache, goModVersions, false)
+}
+
+func scanServiceDirOpts(
+	dir, repoRoot, cache string,
+	goModVersions map[string]string,
+	noReachability bool,
+) (serviceScan, error) {
 	name := filepath.Base(dir)
 
 	mods, err := resolveServiceModules(dir)
@@ -116,7 +125,7 @@ func scanServiceDir(dir, repoRoot, cache string, goModVersions map[string]string
 		return serviceScan{}, err
 	}
 
-	return scanWithIndex(name, mods, repoRoot, idx, smt), nil
+	return scanWithIndex(name, mods, repoRoot, idx, smt, noReachability), nil
 }
 
 // modulesWithoutOpFuncs returns every mod in mods whose ground truth
@@ -164,9 +173,22 @@ type findingKey struct {
 	Op, Domain, Code string
 }
 
-func scanWithIndex(name string, mods []string, repoRoot string, idx *pkgIndex, smt *serviceModuleTruth) serviceScan {
+func scanWithIndex(
+	name string,
+	mods []string,
+	repoRoot string,
+	idx *pkgIndex,
+	smt *serviceModuleTruth,
+	opts ...bool,
+) serviceScan {
+	noReachability := slices.Contains(opts, true)
+
 	opUniverse := unionOpFuncs(smt)
 	cls := buildClassifiers(idx, opUniverse)
+
+	if noReachability {
+		cls.GuardsByPos = nil
+	}
 
 	resolved := map[string][]opRoot{}
 	for op := range opUniverse {

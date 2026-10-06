@@ -11,6 +11,7 @@ type createEventBusInput struct {
 	LogConfig        *LogConfig        `json:"LogConfig,omitempty"`
 	Name             string            `json:"Name"`
 	Description      string            `json:"Description"`
+	EventSourceName  string            `json:"EventSourceName,omitempty"`
 	KmsKeyIdentifier string            `json:"KmsKeyIdentifier,omitempty"`
 }
 
@@ -122,6 +123,7 @@ func (h *Handler) handleCreateEventBus(ctx context.Context, b []byte) (any, erro
 		DeadLetterConfig: input.DeadLetterConfig,
 		KmsKeyIdentifier: input.KmsKeyIdentifier,
 		LogConfig:        input.LogConfig,
+		EventSourceName:  input.EventSourceName,
 	})
 	if err != nil {
 		return nil, err

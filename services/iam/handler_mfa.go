@@ -168,12 +168,19 @@ func (h *Handler) iamMFADeviceDispatch() map[string]iamActionFn {
 	return map[string]iamActionFn{
 		"ListMFADeviceTags": func(vals url.Values, reqID string) (any, error) {
 			serial := vals.Get("SerialNumber")
-			members := tagsMapToKV(h.getTags("mfa:" + serial))
+			pg := pageForm(tagsMapToKV(h.getTags("mfa:"+serial)), vals)
 
 			return &iamListTagsResponse{
-				XMLName:          xml.Name{Local: "ListMFADeviceTagsResponse"},
-				Xmlns:            iamXMLNS,
-				Result:           iamListTagsResult{XMLName: xml.Name{Local: "ListMFADeviceTagsResult"}, Tags: members},
+				XMLName: xml.Name{Local: "ListMFADeviceTagsResponse"},
+				Xmlns:   iamXMLNS,
+				Result: iamListTagsResult{
+					XMLName: xml.Name{
+						Local: "ListMFADeviceTagsResult",
+					},
+					Tags:        pg.Data,
+					Marker:      pg.Next,
+					IsTruncated: pg.Next != "",
+				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},

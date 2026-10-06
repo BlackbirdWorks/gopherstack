@@ -204,13 +204,13 @@ func (rc *ResourceCreator) deleteAPIGatewayV2Stage(physicalID string) error {
 	}
 
 	// physicalID format: {apiID}/{stageName}
-	idx := strings.LastIndex(physicalID, "/")
-	if idx < 0 {
+	before, after, ok := strings.CutLast(physicalID, "/")
+	if !ok {
 		return nil
 	}
 
-	apiID := physicalID[:idx]
-	stageName := physicalID[idx+1:]
+	apiID := before
+	stageName := after
 
 	return rc.backends.APIGatewayV2.Backend.DeleteStage(apiID, stageName)
 }
@@ -246,13 +246,13 @@ func (rc *ResourceCreator) deleteAPIGatewayV2Integration(physicalID string) erro
 		return nil
 	}
 
-	idx := strings.LastIndex(physicalID, "/")
-	if idx < 0 {
+	before, after, ok := strings.CutLast(physicalID, "/")
+	if !ok {
 		return nil
 	}
 
-	apiID := physicalID[:idx]
-	integrationID := physicalID[idx+1:]
+	apiID := before
+	integrationID := after
 
 	return rc.backends.APIGatewayV2.Backend.DeleteIntegration(apiID, integrationID)
 }
@@ -286,13 +286,13 @@ func (rc *ResourceCreator) deleteAPIGatewayV2Route(physicalID string) error {
 		return nil
 	}
 
-	idx := strings.LastIndex(physicalID, "/")
-	if idx < 0 {
+	before, after, ok := strings.CutLast(physicalID, "/")
+	if !ok {
 		return nil
 	}
 
-	apiID := physicalID[:idx]
-	routeID := physicalID[idx+1:]
+	apiID := before
+	routeID := after
 
 	return rc.backends.APIGatewayV2.Backend.DeleteRoute(apiID, routeID)
 }

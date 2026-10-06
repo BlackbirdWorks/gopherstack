@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/svelte";
 import KMSPage from "./+page.svelte";
-import { ALL_REGIONS, DEFAULT_REGION, setStoredRegion } from "$lib/region.svelte";
+import { ALL_REGIONS, DEFAULT_REGION, setStoredRegion } from "#lib/region.svelte.ts";
 
 const mockSend = vi.fn();
-vi.mock("$lib/aws-client", () => ({ getKMSClient: () => ({ send: mockSend }) }));
+vi.mock("#lib/aws-client.ts", () => ({ getKMSClient: () => ({ send: mockSend }) }));
 vi.mock("svelte-sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 
 function stubRegionsWithData(regions: string[]): void {

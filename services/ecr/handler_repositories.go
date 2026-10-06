@@ -74,6 +74,8 @@ type createRepositoryInput struct {
 	RepositoryName             string                          `json:"repositoryName"`
 	ImageTagMutability         string                          `json:"imageTagMutability,omitempty"`
 	Tags                       []tagView                       `json:"tags,omitempty"`
+
+	ImageTagMutabilityExclusionFilters []imageTagMutabilityFilterView `json:"imageTagMutabilityExclusionFilters,omitempty"`
 }
 
 type createRepositoryOutput struct {
@@ -109,6 +111,22 @@ func (h *Handler) handleCreateRepository(
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	if len(in.ImageTagMutabilityExclusionFilters) > 0 {
+		filters := make([]ImageTagMutabilityExclusionFilter, 0, len(in.ImageTagMutabilityExclusionFilters))
+		for _, f := range in.ImageTagMutabilityExclusionFilters {
+			filters = append(filters, ImageTagMutabilityExclusionFilter(f))
+		}
+
+		if repo, err = h.Backend.PutImageTagMutability(
+			ctx,
+			in.RepositoryName,
+			repo.ImageTagMutability,
+			filters,
+		); err != nil {
+			return nil, err
+		}
 	}
 
 	if len(in.Tags) > 0 {

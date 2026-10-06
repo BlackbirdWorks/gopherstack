@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { implementedDashboardRouteIds, sidebarCategories } from '$lib/nav';
+	import { implementedDashboardRouteIds, sidebarCategories } from '#lib/nav.ts';
 	import { BookOpen, Check, ExternalLink } from 'lucide-svelte';
 
 	const implementedRoutes = sidebarCategories

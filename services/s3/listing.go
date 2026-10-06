@@ -12,24 +12,26 @@ import (
 )
 
 // listObjectEntry is one lexicographically-ordered slot in a delimited
-// listing: either a plain object (version set) or a common-prefix group,
+// listing: either a plain object (vi indexes the walk's versions) or a common-prefix group (vi == prefixEntry),
 // never both. Keeping the two kinds in a single ordered slice (rather than
 // two separately-truncated lists) is what lets truncateVersionEntries cut
 // the page and compute NextMarker in the same order AWS actually returns
 // results in.
 type listObjectEntry struct {
-	version *StoredObjectVersion
-	prefix  string
+	key string
+	vi  int
 }
 
-// key returns the entry's sort/marker key: the object's Key, or the
-// common-prefix string.
-func (e listObjectEntry) key() string {
-	if e.version != nil {
-		return e.version.Key
-	}
+const prefixEntry = -1
 
-	return e.prefix
+// listedVersion is the compact lock-free copy of a version that listings render.
+type listedVersion struct {
+	lastModified      time.Time
+	key               string
+	etag              string
+	storageClass      string
+	checksumAlgorithm types.ChecksumAlgorithm
+	size              int64
 }
 
 // afterMarkerPredicate returns whether a key comes strictly after marker on
@@ -161,34 +163,35 @@ func (b *InMemoryBackend) processDelimitedListing(
 		limit = int(maxKeys) + 1
 	}
 
-	var entries []listObjectEntry
+	var walk delimitedWalk
 	func() {
 		bucket.mu.RLock("ListObjects")
 		defer bucket.mu.RUnlock()
 
-		entries = walkDelimitedLocked(bucket, prefix, delimiter, afterMarker, limit)
+		walk = walkDelimitedLocked(bucket, prefix, delimiter, afterMarker, limit)
 	}()
 
-	versions, cpList, isTruncated, nextMarker := truncateVersionEntries(entries, maxKeys)
+	versions, cpList, isTruncated, nextMarker := truncateVersionEntries(walk, maxKeys)
 
 	return objectsFromVersions(versions), cpList, isTruncated, nextMarker, maxKeys
 }
 
 // snapshotLatestVersions returns lock-free copies of each object's live latest version.
-func (b *InMemoryBackend) snapshotLatestVersions(objectSnapshots []*StoredObject) []*StoredObjectVersion {
-	versions := make([]*StoredObjectVersion, 0, len(objectSnapshots))
+func (b *InMemoryBackend) snapshotLatestVersions(objectSnapshots []*StoredObject) []listedVersion {
+	versions := make([]listedVersion, 0, len(objectSnapshots))
 	for _, obj := range objectSnapshots {
-		if snap := latestLiveSnapshot(obj); snap != nil {
-			versions = append(versions, snap)
+		var v listedVersion
+		if latestLiveSnapshot(obj, &v) {
+			versions = append(versions, v)
 		}
 	}
 
 	return versions
 }
 
-// latestLiveSnapshot copies obj's latest version (nil if absent or a delete marker);
-// the copy guards against the janitor mutating the live version.
-func latestLiveSnapshot(obj *StoredObject) *StoredObjectVersion {
+// latestLiveSnapshot copies obj's latest live version into out under obj's lock, reporting
+// false for an absent version or delete marker; the copy guards against the janitor.
+func latestLiveSnapshot(obj *StoredObject, out *listedVersion) bool {
 	obj.mu.RLock("ListObjects")
 	defer obj.mu.RUnlock()
 
@@ -200,12 +203,25 @@ func latestLiveSnapshot(obj *StoredObject) *StoredObjectVersion {
 	}
 
 	if latest == nil || latest.Deleted {
-		return nil
+		return false
 	}
 
-	v := *latest
+	*out = listedVersion{
+		lastModified:      latest.LastModified,
+		key:               latest.Key,
+		etag:              latest.ETag,
+		storageClass:      latest.StorageClass,
+		checksumAlgorithm: latest.ChecksumAlgorithm,
+		size:              latest.Size,
+	}
 
-	return &v
+	return true
+}
+
+// delimitedWalk is the ordered entries of a delimited listing plus the object versions they index.
+type delimitedWalk struct {
+	entries  []listObjectEntry
+	versions []listedVersion
 }
 
 // walkDelimitedLocked builds up to limit entries, skipping each CommonPrefix's key
@@ -215,13 +231,14 @@ func walkDelimitedLocked(
 	prefix, delimiter string,
 	afterMarker func(string) bool,
 	limit int,
-) []listObjectEntry {
+) delimitedWalk {
 	keys := bucket.keyIndex
 	i := sort.Search(len(keys), func(i int) bool {
 		return keys[i] >= prefix && afterMarker(keys[i])
 	})
 
 	entries := make([]listObjectEntry, 0, min(limit, len(keys)-i))
+	var versions []listedVersion
 
 	for i < len(keys) && len(entries) < limit {
 		key := keys[i]
@@ -236,8 +253,8 @@ func walkDelimitedLocked(
 			continue
 		}
 
-		snap := latestLiveSnapshot(obj)
-		if snap == nil {
+		var snap listedVersion
+		if !latestLiveSnapshot(obj, &snap) {
 			continue
 		}
 
@@ -245,13 +262,14 @@ func walkDelimitedLocked(
 		idx := strings.Index(rest, delimiter)
 
 		if idx == -1 {
-			entries = append(entries, listObjectEntry{version: snap})
+			versions = append(versions, snap)
+			entries = append(entries, listObjectEntry{key: snap.key, vi: len(versions) - 1})
 
 			continue
 		}
 
 		cp := prefix + rest[:idx+len(delimiter)]
-		entries = append(entries, listObjectEntry{prefix: cp})
+		entries = append(entries, listObjectEntry{key: cp, vi: prefixEntry})
 
 		from := i
 		i = from + sort.Search(len(keys)-from, func(k int) bool {
@@ -259,38 +277,56 @@ func walkDelimitedLocked(
 		})
 	}
 
-	return entries
+	return delimitedWalk{entries: entries, versions: versions}
 }
 
-func objectFromVersion(latest *StoredObjectVersion) types.Object {
+// listedObject holds one rendered object's pointees so a page needs one slab allocation, not one per field.
+type listedObject struct {
+	lastModified time.Time
+	owner        types.Owner
+	key          string
+	etag         string
+	ownerName    string
+	algos        [1]types.ChecksumAlgorithm
+	size         int64
+}
+
+func fillObject(slot *listedObject, latest *listedVersion) types.Object {
+	slot.key = latest.key
+	slot.etag = latest.etag
+	slot.size = latest.size
+	slot.lastModified = latest.lastModified
+	slot.ownerName = gopherstackName
+	slot.owner = types.Owner{ID: &slot.ownerName, DisplayName: &slot.ownerName}
+
 	var checksumAlgos []types.ChecksumAlgorithm
-	if latest.ChecksumAlgorithm != "" {
-		checksumAlgos = []types.ChecksumAlgorithm{latest.ChecksumAlgorithm}
+	if latest.checksumAlgorithm != "" {
+		slot.algos[0] = latest.checksumAlgorithm
+		checksumAlgos = slot.algos[:]
 	}
 
-	sc := latest.StorageClass
+	sc := latest.storageClass
 	if sc == "" {
 		sc = storageStandard
 	}
 
 	return types.Object{
-		Key:               aws.String(latest.Key),
-		LastModified:      aws.Time(latest.LastModified),
-		ETag:              aws.String(latest.ETag),
-		Size:              aws.Int64(latest.Size),
+		Key:               &slot.key,
+		LastModified:      &slot.lastModified,
+		ETag:              &slot.etag,
+		Size:              &slot.size,
 		StorageClass:      types.ObjectStorageClass(sc),
 		ChecksumAlgorithm: checksumAlgos,
-		Owner: &types.Owner{
-			ID:          aws.String(gopherstackName),
-			DisplayName: aws.String(gopherstackName),
-		},
+		Owner:             &slot.owner,
 	}
 }
 
-func objectsFromVersions(versions []*StoredObjectVersion) []types.Object {
-	contents := make([]types.Object, 0, len(versions))
-	for _, v := range versions {
-		contents = append(contents, objectFromVersion(v))
+func objectsFromVersions(versions []listedVersion) []types.Object {
+	slab := make([]listedObject, len(versions))
+	contents := make([]types.Object, len(versions))
+
+	for i := range versions {
+		contents[i] = fillObject(&slab[i], &versions[i])
 	}
 
 	return contents
@@ -700,9 +736,11 @@ func buildVersionPage(entries []versionListEntry, maxKeys int32) (
 // cut takes both of them, sets NextMarker past the CommonPrefix's key range,
 // and every future page's `key > marker` seek then skips that prefix
 // forever -- not merely reordered, permanently missing from the listing.
-func truncateVersionEntries(entries []listObjectEntry, maxKeys int32) (
-	[]*StoredObjectVersion, []types.CommonPrefix, bool, string,
+func truncateVersionEntries(walk delimitedWalk, maxKeys int32) (
+	[]listedVersion, []types.CommonPrefix, bool, string,
 ) {
+	entries := walk.entries
+
 	// AWS clamps MaxKeys to [0, 1000]; a zero value means return no objects.
 	if maxKeys <= 0 {
 		return nil, nil, len(entries) > 0, ""
@@ -715,17 +753,17 @@ func truncateVersionEntries(entries []listObjectEntry, maxKeys int32) (
 
 	if isTruncated {
 		page = entries[:maxKeys]
-		nextMarker = page[len(page)-1].key()
+		nextMarker = page[len(page)-1].key
 	}
 
-	versions := make([]*StoredObjectVersion, 0, len(page))
+	versions := make([]listedVersion, 0, len(page))
 	var cpList []types.CommonPrefix
 
 	for _, e := range page {
-		if e.version != nil {
-			versions = append(versions, e.version)
+		if e.vi != prefixEntry {
+			versions = append(versions, walk.versions[e.vi])
 		} else {
-			cpList = append(cpList, types.CommonPrefix{Prefix: aws.String(e.prefix)})
+			cpList = append(cpList, types.CommonPrefix{Prefix: aws.String(e.key)})
 		}
 	}
 

@@ -154,6 +154,7 @@ type DBInstance struct {
 	BackupTarget                       string                       `json:"backupTarget,omitempty"`
 	DBInstanceArn                      string                       `json:"dbInstanceArn,omitempty"`
 	PerformanceInsightsKMSKeyID        string                       `json:"performanceInsightsKmsKeyId,omitempty"`
+	NetworkType                        string                       `json:"networkType,omitempty"`
 	VpcSecurityGroups                  []VpcSecurityGroupMembership `json:"vpcSecurityGroups,omitempty"`
 	DBSecurityGroups                   []DBSecurityGroupMembership  `json:"dbSecurityGroups,omitempty"`
 	ReadReplicaIdentifiers             []string                     `json:"readReplicaIdentifiers,omitempty"`
@@ -163,6 +164,7 @@ type DBInstance struct {
 	AllocatedStorage                   int                          `json:"allocatedStorage"`
 	Iops                               int                          `json:"iops,omitempty"`
 	StorageThroughput                  int                          `json:"storageThroughput,omitempty"`
+	MaxAllocatedStorage                int                          `json:"maxAllocatedStorage,omitempty"`
 	BackupRetentionPeriod              int                          `json:"backupRetentionPeriod"`
 	MonitoringInterval                 int                          `json:"monitoringInterval,omitempty"`
 	PromotionTier                      int                          `json:"promotionTier,omitempty"`
@@ -306,12 +308,14 @@ type DBCluster struct {
 	PerformanceInsightsKMSKeyID     string `json:"performanceInsightsKmsKeyId,omitempty"`
 	DBInstanceParameterGroupName    string `json:"dbInstanceParameterGroupName,omitempty"`
 	ClusterScalabilityType          string `json:"clusterScalabilityType,omitempty"`
+	DBSubnetGroupName               string `json:"dbSubnetGroupName,omitempty"`
 
-	EnabledCloudwatchLogsExports []string          `json:"enabledCloudwatchLogsExports,omitempty"`
-	ReaderAvailabilityZones      []string          `json:"readerAvailabilityZones,omitempty"`
-	AvailabilityZones            []string          `json:"availabilityZones,omitempty"`
-	DBClusterMembers             []DBClusterMember `json:"dbClusterMembers,omitempty"`
-	ReadReplicaIdentifiers       []string          `json:"readReplicaIdentifiers,omitempty"`
+	VpcSecurityGroups            []VpcSecurityGroupMembership `json:"vpcSecurityGroups,omitempty"`
+	EnabledCloudwatchLogsExports []string                     `json:"enabledCloudwatchLogsExports,omitempty"`
+	ReaderAvailabilityZones      []string                     `json:"readerAvailabilityZones,omitempty"`
+	AvailabilityZones            []string                     `json:"availabilityZones,omitempty"`
+	DBClusterMembers             []DBClusterMember            `json:"dbClusterMembers,omitempty"`
+	ReadReplicaIdentifiers       []string                     `json:"readReplicaIdentifiers,omitempty"`
 
 	BacktrackWindow                    int64 `json:"backtrackWindow,omitempty"`
 	Port                               int   `json:"port"`
@@ -319,6 +323,8 @@ type DBCluster struct {
 	MonitoringInterval                 int   `json:"monitoringInterval,omitempty"`
 	ServerlessCapacity                 int   `json:"serverlessCapacity"`
 	PerformanceInsightsRetentionPeriod int   `json:"performanceInsightsRetentionPeriod,omitempty"`
+	AllocatedStorage                   int   `json:"allocatedStorage,omitempty"`
+	Iops                               int   `json:"iops,omitempty"`
 
 	MultiAZ                          bool `json:"multiAZ,omitempty"`
 	HTTPEndpointEnabled              bool `json:"httpEndpointEnabled"`
@@ -350,6 +356,7 @@ type DBClusterSnapshot struct {
 	DBClusterSnapshotIdentifier string    `json:"dbClusterSnapshotIdentifier"`
 	Status                      string    `json:"status"`
 	SnapshotType                string    `json:"snapshotType,omitempty"`
+	KmsKeyID                    string    `json:"kmsKeyId,omitempty"`
 	SourceDBClusterSnapshotArn  string    `json:"sourceDBClusterSnapshotArn,omitempty"`
 	PercentProgress             int       `json:"percentProgress"`
 	StorageEncrypted            bool      `json:"storageEncrypted,omitempty"`
@@ -385,6 +392,7 @@ type GlobalCluster struct {
 	Status                  string                `json:"status"`
 	PrimaryRegion           string                `json:"primaryRegion,omitempty"`
 	EngineLifecycleSupport  string                `json:"engineLifecycleSupport,omitempty"`
+	DatabaseName            string                `json:"databaseName,omitempty"`
 	GlobalClusterMembers    []GlobalClusterMember `json:"globalClusterMembers,omitempty"`
 	ClusterARNs             []string              `json:"clusterARNs"`
 	StorageEncrypted        bool                  `json:"storageEncrypted"`
@@ -720,6 +728,8 @@ type DBInstanceOptions struct {
 	BackupTarget                 string
 	StorageType                  string
 	DBSubnetGroupName            string
+	NetworkType                  string
+	DBInstanceClass              string
 	VpcSecurityGroupIDs          []string
 	EnabledCloudwatchLogsExports []string
 	DBSecurityGroupNames         []string
@@ -729,6 +739,7 @@ type DBInstanceOptions struct {
 	BackupRetentionPeriod              int
 	Iops                               int
 	StorageThroughput                  int
+	MaxAllocatedStorage                int
 	MonitoringInterval                 int
 	PerformanceInsightsRetentionPeriod int
 	PromotionTier                      int
@@ -776,12 +787,18 @@ type DBClusterOptions struct {
 	ClusterScalabilityType             string
 	DBInstanceParameterGroupName       string
 	PerformanceInsightsKMSKeyID        string
+	DBSubnetGroupName                  string
+	GlobalClusterIdentifier            string
+	VpcSecurityGroupIDs                []string
 	EnabledCloudwatchLogsExports       []string
 	AvailabilityZones                  []string
 	BacktrackWindow                    int64
 	BackupRetentionPeriod              int
 	MonitoringInterval                 int
 	PerformanceInsightsRetentionPeriod int
+	AllocatedStorage                   int
+	Iops                               int
+	AllowMajorVersionUpgrade           bool
 	MultiAZ                            bool
 	StorageEncrypted                   bool
 	StorageEncryptedChanged            bool

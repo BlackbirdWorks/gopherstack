@@ -1,6 +1,7 @@
 package rds
 
 import (
+	"cmp"
 	"fmt"
 	"net/url"
 	"slices"
@@ -12,6 +13,17 @@ func (b *InMemoryBackend) CreateGlobalCluster(
 	id, engine, engineVersion, engineLifecycleSupport string,
 	storageEncrypted, deletionProtection bool,
 ) (*GlobalCluster, error) {
+	return b.CreateGlobalClusterFromSource(
+		id, engine, engineVersion, engineLifecycleSupport, "", "", storageEncrypted, deletionProtection,
+	)
+}
+
+// CreateGlobalClusterFromSource is CreateGlobalCluster plus SourceDBClusterIdentifier (id or ARN, becomes the
+// writer and lends engine, version and encryption) and DatabaseName.
+func (b *InMemoryBackend) CreateGlobalClusterFromSource(
+	id, engine, engineVersion, engineLifecycleSupport, sourceCluster, databaseName string,
+	storageEncrypted, deletionProtection bool,
+) (*GlobalCluster, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: GlobalClusterIdentifier must not be empty", ErrInvalidParameter)
 	}
@@ -21,6 +33,19 @@ func (b *InMemoryBackend) CreateGlobalCluster(
 
 	if _, exists := b.globalClusters.Get(id); exists {
 		return nil, fmt.Errorf("%w: global cluster %s already exists", ErrGlobalClusterAlreadyExists, id)
+	}
+
+	var source *DBCluster
+
+	if sourceCluster != "" {
+		var srcExists bool
+		if source, srcExists = b.clusters.Get(normalizeID(rdsIDFromARN(sourceCluster))); !srcExists {
+			return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, sourceCluster)
+		}
+
+		engine = cmp.Or(engine, source.Engine)
+		engineVersion = cmp.Or(engineVersion, source.EngineVersion)
+		storageEncrypted = storageEncrypted || source.StorageEncrypted
 	}
 
 	if engine == "" {
@@ -36,7 +61,12 @@ func (b *InMemoryBackend) CreateGlobalCluster(
 		StorageEncrypted:        storageEncrypted,
 		DeletionProtection:      deletionProtection,
 		EngineLifecycleSupport:  engineLifecycleSupport,
+		DatabaseName:            databaseName,
 	}
+	if source != nil {
+		joinGlobalCluster(gc, source.DBClusterArn)
+	}
+
 	b.globalClusters.Put(gc)
 	cp := *gc
 
@@ -84,17 +114,8 @@ func isKnownGlobalClusterFilterName(name string) bool {
 	return name == filterNameRegion
 }
 
-// applyGlobalClusterFilters validates the DescribeGlobalClusters Filters
-// contract but does not narrow gcs: "region" is a real, documented filter
-// (unlike the 22 rds ops whose Filters doc says "This parameter isn't
-// currently supported"), but no gopherstack API path ever populates
-// GlobalCluster.PrimaryRegion or GlobalClusterMembers -- CreateGlobalCluster
-// leaves PrimaryRegion empty, and handler_global_clusters.go's own comment
-// on AddGlobalClusterMemberInternal says membership is a test-only seam. With
-// no real region data to match against, "region" is accepted (an
-// unrecognized filter name still returns InvalidParameterValue, matching
-// real AWS) but matches vacuously, the same treatment as the existing
-// DescribeDBInstances "domain" precedent (db_instances.go).
+// applyGlobalClusterFilters validates the Filters contract; "region" is accepted but matches
+// vacuously because PrimaryRegion is never populated.
 func applyGlobalClusterFilters(vals url.Values, gcs []GlobalCluster) ([]GlobalCluster, error) {
 	filters := parseDescribeFilters(vals)
 	if len(filters) == 0 {
@@ -209,6 +230,9 @@ func (b *InMemoryBackend) RemoveFromGlobalCluster(globalClusterID, dbClusterARN 
 	gc.ClusterARNs = slices.DeleteFunc(gc.ClusterARNs, func(arn string) bool {
 		return arn == dbClusterARN
 	})
+	gc.GlobalClusterMembers = slices.DeleteFunc(gc.GlobalClusterMembers, func(m GlobalClusterMember) bool {
+		return m.DBClusterArn == dbClusterARN
+	})
 	cp := *gc
 
 	return &cp, nil
@@ -244,4 +268,23 @@ func (b *InMemoryBackend) SwitchoverGlobalCluster(
 	cp := *gc
 
 	return &cp, nil
+}
+
+// joinGlobalCluster adds clusterARN as a member; the first member is the writer.
+func joinGlobalCluster(gc *GlobalCluster, clusterARN string) {
+	gc.GlobalClusterMembers = append(gc.GlobalClusterMembers, GlobalClusterMember{
+		DBClusterArn: clusterARN,
+		IsWriter:     len(gc.GlobalClusterMembers) == 0,
+	})
+	gc.ClusterARNs = append(gc.ClusterARNs, clusterARN)
+}
+
+// leaveGlobalClustersLocked drops clusterARN from every global cluster. Caller holds b.mu.
+func (b *InMemoryBackend) leaveGlobalClustersLocked(clusterARN string) {
+	for _, gc := range b.globalClusters.All() {
+		gc.GlobalClusterMembers = slices.DeleteFunc(gc.GlobalClusterMembers, func(m GlobalClusterMember) bool {
+			return m.DBClusterArn == clusterARN
+		})
+		gc.ClusterARNs = slices.DeleteFunc(gc.ClusterARNs, func(a string) bool { return a == clusterARN })
+	}
 }

@@ -87,9 +87,9 @@ func TestColumnStatisticsTask(t *testing.T) {
 	rec = doGlueRequest(t, h, "ListColumnStatisticsTaskRuns", map[string]any{})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	// Get task settings
+	// Get task settings that were never created
 	rec = doGlueRequest(t, h, "GetColumnStatisticsTaskSettings", map[string]any{})
-	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 // TestStartColumnStatisticsTaskRun_RequiresRole verifies that

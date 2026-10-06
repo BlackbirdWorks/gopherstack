@@ -9,6 +9,7 @@ package lightsail
 import (
 	"sort"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -707,7 +708,7 @@ func (b *InMemoryBackend) StopGUISession(resourceName string) (*Operation, error
 // -- Lightsail enforces global name uniqueness across ALL resource kinds
 // (PARITY.md family BB), which this backend's activeNames index directly
 // backs.
-func (b *InMemoryBackend) GetActiveNames() []string {
+func (b *InMemoryBackend) GetActiveNames(token string) (page.Page[string], error) {
 	b.mu.RLock("GetActiveNames")
 	defer b.mu.RUnlock()
 
@@ -718,7 +719,7 @@ func (b *InMemoryBackend) GetActiveNames() []string {
 
 	sort.Strings(out)
 
-	return out
+	return paginateGeneric(out, token)
 }
 
 // GetCostEstimate returns a real, well-formed, EMPTY cost-estimate response

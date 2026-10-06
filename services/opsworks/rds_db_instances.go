@@ -26,8 +26,8 @@ func (b *InMemoryBackend) RegisterRdsDBInstance(stackID, rdsDBInstanceArn, dbUse
 
 	// Extract a readable identifier from the ARN.
 	id := rdsDBInstanceArn
-	if idx := strings.LastIndex(rdsDBInstanceArn, ":"); idx >= 0 {
-		id = rdsDBInstanceArn[idx+1:]
+	if _, after, ok := strings.CutLast(rdsDBInstanceArn, ":"); ok {
+		id = after
 	}
 
 	b.rdsDBInstances.Put(&storedRdsDBInstance{

@@ -7,20 +7,28 @@ import (
 	"slices"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
 )
 
 // resourceShareObject is the JSON representation of a ResourceShare.
 type resourceShareObject struct {
-	Name                    string      `json:"name"`
-	ResourceShareArn        string      `json:"resourceShareArn"`
-	OwningAccountID         string      `json:"owningAccountId"`
-	Status                  string      `json:"status"`
-	StatusMessage           string      `json:"statusMessage,omitempty"`
-	FeatureSet              string      `json:"featureSet"`
-	Tags                    []tagObject `json:"tags,omitempty"`
-	CreationTime            float64     `json:"creationTime"`
-	LastUpdatedTime         float64     `json:"lastUpdatedTime"`
-	AllowExternalPrincipals bool        `json:"allowExternalPrincipals"`
+	// ResourceShareConfiguration is set only when the share was created with one.
+	ResourceShareConfiguration *resourceShareConfigurationObject `json:"resourceShareConfiguration,omitempty"`
+	Name                       string                            `json:"name"`
+	ResourceShareArn           string                            `json:"resourceShareArn"`
+	OwningAccountID            string                            `json:"owningAccountId"`
+	Status                     string                            `json:"status"`
+	StatusMessage              string                            `json:"statusMessage,omitempty"`
+	FeatureSet                 string                            `json:"featureSet"`
+	Tags                       []tagObject                       `json:"tags,omitempty"`
+	CreationTime               float64                           `json:"creationTime"`
+	LastUpdatedTime            float64                           `json:"lastUpdatedTime"`
+	AllowExternalPrincipals    bool                              `json:"allowExternalPrincipals"`
+}
+
+type resourceShareConfigurationObject struct {
+	RetainSharingOnAccountLeaveOrganization *bool `json:"retainSharingOnAccountLeaveOrganization,omitempty"`
 }
 
 func toResourceShareObject(rs *ResourceShare) resourceShareObject {
@@ -40,16 +48,26 @@ func toResourceShareObject(rs *ResourceShare) resourceShareObject {
 		obj.Tags = toTagObjects(rs.Tags)
 	}
 
+	if rs.RetainSharingOnAccountLeaveOrganization != nil {
+		obj.ResourceShareConfiguration = &resourceShareConfigurationObject{
+			RetainSharingOnAccountLeaveOrganization: rs.RetainSharingOnAccountLeaveOrganization,
+		}
+	}
+
 	return obj
 }
 
 type createResourceShareRequest struct {
-	Name                    string      `json:"name"`
-	Tags                    []tagObject `json:"tags"`
-	Principals              []string    `json:"principals"`
-	ResourceArns            []string    `json:"resourceArns"`
-	PermissionArns          []string    `json:"permissionArns"`
-	AllowExternalPrincipals bool        `json:"allowExternalPrincipals"`
+	// ResourceShareConfiguration mirrors types.ResourceShareConfiguration.
+	ResourceShareConfiguration *resourceShareConfigurationObject `json:"resourceShareConfiguration"`
+	Name                       string                            `json:"name"`
+	ClientToken                string                            `json:"clientToken"`
+	Tags                       []tagObject                       `json:"tags"`
+	Principals                 []string                          `json:"principals"`
+	ResourceArns               []string                          `json:"resourceArns"`
+	PermissionArns             []string                          `json:"permissionArns"`
+	Sources                    []string                          `json:"sources"`
+	AllowExternalPrincipals    bool                              `json:"allowExternalPrincipals"`
 }
 
 type createResourceShareResponse struct {
@@ -73,6 +91,24 @@ func (h *Handler) handleCreateResourceShare(_ context.Context, body []byte) ([]b
 		)
 	}
 
+	token := req.ClientToken
+	req.ClientToken = ""
+
+	rs, err := idempotency.Create(
+		h.idem, opCreateResourceShare, token, idempotency.Fingerprint(req),
+		func(rs *ResourceShare) string { return rs.ARN }, h.Backend.GetResourceShare,
+		func() (*ResourceShare, error) { return h.createResourceShare(req) },
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(createResourceShareResponse{
+		ResourceShare: toResourceShareObject(rs),
+	})
+}
+
+func (h *Handler) createResourceShare(req createResourceShareRequest) (*ResourceShare, error) {
 	rs, err := h.Backend.CreateResourceShare(
 		req.Name,
 		req.AllowExternalPrincipals,
@@ -85,24 +121,28 @@ func (h *Handler) handleCreateResourceShare(_ context.Context, body []byte) ([]b
 	}
 
 	if len(req.PermissionArns) > 0 {
-		// Associate exactly the explicitly requested permissions.
 		for _, permARN := range req.PermissionArns {
 			if assocErr := h.Backend.AssociateResourceSharePermission(rs.ARN, permARN, false, nil); assocErr != nil {
 				return nil, assocErr
 			}
 		}
 	} else if len(req.ResourceArns) > 0 {
-		// AWS: "If you don't specify [permissionArns], the resource share is
-		// automatically associated with the default RAM-managed permission for
-		// each resource type included in the resource share."
+		// Unspecified permissionArns default to each resource type's managed permission.
 		if autoErr := h.Backend.AutoAssociateDefaultPermissions(rs.ARN); autoErr != nil {
 			return nil, autoErr
 		}
 	}
 
-	return json.Marshal(createResourceShareResponse{
-		ResourceShare: toResourceShareObject(rs),
-	})
+	var retain *bool
+	if req.ResourceShareConfiguration != nil {
+		retain = req.ResourceShareConfiguration.RetainSharingOnAccountLeaveOrganization
+	}
+
+	if cfgErr := h.Backend.ConfigureResourceShare(rs.ARN, retain, req.Sources); cfgErr != nil {
+		return nil, cfgErr
+	}
+
+	return h.Backend.GetResourceShare(rs.ARN)
 }
 
 type tagFilterRequest struct {

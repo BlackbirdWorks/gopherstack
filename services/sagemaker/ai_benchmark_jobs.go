@@ -391,8 +391,8 @@ func sortAIBenchmarkJobs(list []*AIBenchmarkJob, sortBy, sortOrder string) {
 // for AIBenchmarkJobSummary.AIWorkloadConfigName (which — unlike the Create
 // input and Describe output — is always the bare name, never an ARN).
 func aiWorkloadConfigNameFromIdentifier(identifier string) string {
-	if idx := strings.LastIndex(identifier, "/"); idx != -1 {
-		return identifier[idx+1:]
+	if _, after, ok := strings.CutLast(identifier, "/"); ok {
+		return after
 	}
 
 	return identifier

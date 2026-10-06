@@ -3,6 +3,8 @@ package batch
 import (
 	"context"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
 )
 
 // --- ServiceJob handlers ---
@@ -13,6 +15,7 @@ import (
 // service environment association lives on the JobQueue's
 // ServiceEnvironmentOrder instead.
 type submitServiceJobInput struct {
+	ClientToken             string                             `json:"clientToken,omitempty"`
 	Tags                    map[string]string                  `json:"tags"`
 	RetryStrategy           *ServiceJobRetryStrategy           `json:"retryStrategy,omitempty"`
 	TimeoutConfig           *ServiceJobTimeout                 `json:"timeoutConfig,omitempty"`
@@ -41,22 +44,32 @@ func (h *Handler) handleSubmitServiceJob(
 		schedulingPriority = *in.SchedulingPriority
 	}
 
-	sj, err := h.Backend.SubmitServiceJob(
-		ctx,
-		in.JobName,
-		in.JobQueue,
-		in.ServiceJobType,
-		in.ServiceRequestPayload,
-		in.Tags,
-		in.RetryStrategy,
-		in.TimeoutConfig,
-		schedulingPriority,
-		in.ShareIdentifier,
-		in.QuotaShareName,
-		in.PreemptionConfiguration,
+	req := *in
+	req.ClientToken = ""
+
+	sj, err := idempotency.Create(
+		h.idem, "SubmitServiceJob|"+getRegion(ctx, h.Backend.region), in.ClientToken, idempotency.Fingerprint(req),
+		func(sj *ServiceJob) string { return sj.JobID },
+		func(id string) (*ServiceJob, error) { return h.Backend.DescribeServiceJob(ctx, id) },
+		func() (*ServiceJob, error) {
+			return h.Backend.SubmitServiceJob(
+				ctx,
+				in.JobName,
+				in.JobQueue,
+				in.ServiceJobType,
+				in.ServiceRequestPayload,
+				in.Tags,
+				in.RetryStrategy,
+				in.TimeoutConfig,
+				schedulingPriority,
+				in.ShareIdentifier,
+				in.QuotaShareName,
+				in.PreemptionConfiguration,
+			)
+		},
 	)
 	if err != nil {
-		return nil, err
+		return nil, tokenMismatchAsValidation(err)
 	}
 
 	return &submitServiceJobOutput{

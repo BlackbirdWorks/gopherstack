@@ -1615,8 +1615,8 @@ func getSNSTopicAttribute(physID, attrName string) string {
 	case "TopicArn", attrNameArn:
 		return physID
 	case "TopicName":
-		if idx := strings.LastIndex(physID, ":"); idx >= 0 {
-			return physID[idx+1:]
+		if _, after, ok := strings.CutLast(physID, ":"); ok {
+			return after
 		}
 
 		return physID

@@ -198,8 +198,12 @@ func (h *Handler) handleDescribeElasticsearchInstanceTypeLimits(w http.ResponseW
 }
 
 func (h *Handler) handleListElasticsearchInstanceTypes(w http.ResponseWriter, r *http.Request) {
-	h.writeJSON(r, w, map[string]any{"ElasticsearchInstanceTypes": []string{
-		defaultInstanceType,
-		largeInstanceType,
-	}})
+	writePagedList(
+		h,
+		w,
+		r,
+		listSpec("ElasticsearchInstanceTypes"),
+		[]string{defaultInstanceType, largeInstanceType},
+		nil,
+	)
 }

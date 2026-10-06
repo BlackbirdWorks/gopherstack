@@ -55,6 +55,9 @@ func (b *InMemoryBackend) CreateModelInvocationJob(
 		job.InputDataConfig = opt.InputDataConfig
 		job.OutputDataConfig = opt.OutputDataConfig
 		job.ClientToken = opt.ClientToken
+		job.InvocationType = opt.InvocationType
+		job.VpcConfig = opt.VpcConfig
+		job.TimeoutHours = opt.TimeoutHours
 	}
 
 	b.modelInvocationJobs.Put(job)

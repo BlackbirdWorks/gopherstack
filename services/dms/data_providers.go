@@ -2,7 +2,9 @@ package dms
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"maps"
 	"time"
 
 	"github.com/google/uuid"
@@ -14,11 +16,12 @@ import (
 // CreateDataProvider creates a new data provider.
 func (b *InMemoryBackend) CreateDataProvider(
 	ctx context.Context,
-	name, engine, description string,
-	kv map[string]string,
+	p CreateDataProviderParams,
 ) (*DataProvider, error) {
 	b.mu.Lock("CreateDataProvider")
 	defer b.mu.Unlock()
+
+	name, kv := p.Name, p.Tags
 
 	region := getRegion(ctx, b.region)
 
@@ -36,8 +39,10 @@ func (b *InMemoryBackend) CreateDataProvider(
 	dp := &DataProvider{
 		DataProviderName: name,
 		DataProviderArn:  providerARN,
-		Engine:           engine,
-		Description:      description,
+		Engine:           p.Engine,
+		Description:      p.Description,
+		Settings:         p.Settings,
+		Virtual:          p.Virtual,
 		AccountID:        b.accountID,
 		Region:           region,
 		CreationTime:     now,
@@ -130,10 +135,12 @@ func (b *InMemoryBackend) migrationProjectUsesDataProviderLocked(region, dataPro
 // (databasemigrationservice@v1.66.4 api_op_ModifyDataProvider.go:16-17).
 func (b *InMemoryBackend) ModifyDataProvider(
 	ctx context.Context,
-	nameOrArn, engine, description string,
+	p ModifyDataProviderParams,
 ) (*DataProvider, error) {
 	b.mu.Lock("ModifyDataProvider")
 	defer b.mu.Unlock()
+
+	nameOrArn, engine, description := p.NameOrArn, p.Engine, p.Description
 
 	dp := b.findDataProvider(ctx, nameOrArn)
 	if dp == nil {
@@ -149,12 +156,25 @@ func (b *InMemoryBackend) ModifyDataProvider(
 		)
 	}
 
+	if err := rekey(b.dataProviders, region, dp.DataProviderName, p.NewName, "data provider", dp,
+		func(n string) { dp.DataProviderName = n }); err != nil {
+		return nil, err
+	}
+
 	if engine != "" {
 		dp.Engine = engine
 	}
 
 	if description != "" {
 		dp.Description = description
+	}
+
+	if p.Settings != "" {
+		dp.Settings = mergeDataProviderSettings(dp.Settings, p.Settings, p.ExactSettings != nil && *p.ExactSettings)
+	}
+
+	if p.Virtual != nil {
+		dp.Virtual = *p.Virtual
 	}
 
 	cp := *dp
@@ -197,4 +217,33 @@ func (b *InMemoryBackend) DescribeDataProviders(ctx context.Context, filters Des
 	}
 
 	return list, nil
+}
+
+// mergeDataProviderSettings merges a Settings union document; exact or a
+// different arm replaces it, else same-named members are overwritten.
+func mergeDataProviderSettings(current, incoming string, exact bool) string {
+	if exact || current == "" {
+		return incoming
+	}
+
+	var cur, inc map[string]map[string]json.RawMessage
+	if json.Unmarshal([]byte(current), &cur) != nil || json.Unmarshal([]byte(incoming), &inc) != nil {
+		return incoming
+	}
+
+	for arm, fields := range inc {
+		curFields, ok := cur[arm]
+		if !ok {
+			return incoming
+		}
+
+		maps.Copy(curFields, fields)
+	}
+
+	out, err := json.Marshal(cur)
+	if err != nil {
+		return incoming
+	}
+
+	return string(out)
 }

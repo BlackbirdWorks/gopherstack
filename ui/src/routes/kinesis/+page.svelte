@@ -1,9 +1,9 @@
 <script lang="ts">
-import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
-import { multiRegionList } from '$lib/multi-region';
-import RegionChip from '$lib/components/RegionChip.svelte';
-import WriteRegionHint from '$lib/components/WriteRegionHint.svelte';
-import { getKinesisClient } from '$lib/aws-client';
+import { onRegionChange, regionalClient } from '#lib/region-effect.svelte.ts';
+import { multiRegionList } from '#lib/multi-region.ts';
+import RegionChip from '#lib/components/RegionChip.svelte';
+import WriteRegionHint from '#lib/components/WriteRegionHint.svelte';
+import { getKinesisClient } from '#lib/aws-client.ts';
 import {
 	ListStreamsCommand,
 	DescribeStreamCommand,
@@ -30,7 +30,7 @@ import {
 	type _Record as KinesisRecord
 } from '@aws-sdk/client-kinesis';
 import { toast } from 'svelte-sonner';
-import { confirmDestructive } from '$lib/confirm-dialog';
+import { confirmDestructive } from '#lib/confirm-dialog.ts';
 import {
 	Activity, Search, RefreshCw, Plus, Trash2, Send, Inbox,
 	Layers, SplitSquareHorizontal, Merge, Box, Users, Settings, Lock, Unlock

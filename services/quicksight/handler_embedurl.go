@@ -1,7 +1,9 @@
 package quicksight
 
 import (
+	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/labstack/echo/v5"
 )
@@ -58,6 +60,10 @@ func (h *Handler) handleGenerateEmbedForAnonymousUser(c *echo.Context) error {
 		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
 	}
 
+	if err = validateEmbedBody(body); err != nil {
+		return httpErr(c, err)
+	}
+
 	namespace := strField(body, keyNamespace)
 	if namespace == "" {
 		namespace = defaultNamespace
@@ -89,6 +95,10 @@ func (h *Handler) handleGenerateEmbedForRegisteredUser(c *echo.Context) error {
 		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
 	}
 
+	if err = validateEmbedBody(body); err != nil {
+		return httpErr(c, err)
+	}
+
 	embedURL, err := h.Backend.GenerateEmbedURLForRegisteredUser(
 		accountID, strField(body, keyUserArn), mapField(body, keyExperienceConfiguration),
 	)
@@ -110,6 +120,10 @@ func (h *Handler) handleGenerateEmbedForRegisteredUserWithIdentity(c *echo.Conte
 	body, err := readBody(c)
 	if err != nil {
 		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
+	}
+
+	if err = validateEmbedBody(body); err != nil {
+		return httpErr(c, err)
 	}
 
 	embedURL, err := h.Backend.GenerateEmbedURLForRegisteredUserWithIdentity(
@@ -145,6 +159,14 @@ func (h *Handler) handleGetDashboardEmbedURL(c *echo.Context) error {
 	identityType := queryParam(c, keyIdentityTypeParam)
 	namespace := queryParam(c, queryParamNamespace)
 
+	if err := validateEmbedLifetimeQuery(queryParam(c, "session-lifetime")); err != nil {
+		return httpErr(c, err)
+	}
+
+	if err := h.checkAdditionalDashboards(c, accountID, identityType); err != nil {
+		return httpErr(c, err)
+	}
+
 	embedURL, err := h.Backend.GetDashboardEmbedURL(accountID, dashboardID, identityType, namespace)
 	if err != nil {
 		return httpErr(c, err)
@@ -161,6 +183,10 @@ func (h *Handler) handleGetSessionEmbedURL(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
 	accountID := seg(segs, segAccountID)
 	entryPoint := queryParam(c, keyEntryPointParam)
+
+	if err := validateEmbedLifetimeQuery(queryParam(c, "session-lifetime")); err != nil {
+		return httpErr(c, err)
+	}
 
 	embedURL, err := h.Backend.GetSessionEmbedURL(accountID, entryPoint)
 	if err != nil {
@@ -243,4 +269,74 @@ func (h *Handler) handleGetIdentityContext(c *echo.Context) error {
 		keyRequestID: reqIDPlaceholder,
 		keyStatus:    http.StatusOK,
 	})
+}
+
+const (
+	minEmbedSessionMinutes = 15
+	maxEmbedSessionMinutes = 600
+	maxEmbedAllowedDomains = 3
+	identityTypeAnonymous  = "ANONYMOUS"
+)
+
+func validateEmbedLifetime(minutes int64) error {
+	if minutes < minEmbedSessionMinutes || minutes > maxEmbedSessionMinutes {
+		return fmt.Errorf(
+			"%w: SessionLifetimeInMinutes must be between %d and %d",
+			ErrValidation, minEmbedSessionMinutes, maxEmbedSessionMinutes,
+		)
+	}
+
+	return nil
+}
+
+// validateEmbedSession checks the documented SessionLifetimeInMinutes range and the three-domain limit.
+func validateEmbedSession(lifetime any, allowedDomains []string) error {
+	if n, ok := lifetime.(float64); ok {
+		if err := validateEmbedLifetime(int64(n)); err != nil {
+			return err
+		}
+	}
+
+	if len(allowedDomains) > maxEmbedAllowedDomains {
+		return fmt.Errorf("%w: AllowedDomains can list up to %d domains", ErrValidation, maxEmbedAllowedDomains)
+	}
+
+	return nil
+}
+
+func validateEmbedLifetimeQuery(raw string) error {
+	if raw == "" {
+		return nil
+	}
+
+	n, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return fmt.Errorf("%w: session-lifetime must be an integer", ErrValidation)
+	}
+
+	return validateEmbedLifetime(n)
+}
+
+// checkAdditionalDashboards requires ANONYMOUS identity and existing dashboards for additional-dashboard-ids.
+func (h *Handler) checkAdditionalDashboards(c *echo.Context, accountID, identityType string) error {
+	ids := c.Request().URL.Query()["additional-dashboard-ids"]
+	if len(ids) == 0 {
+		return nil
+	}
+
+	if identityType != identityTypeAnonymous {
+		return fmt.Errorf("%w: AdditionalDashboardIds needs IdentityType ANONYMOUS", ErrValidation)
+	}
+
+	for _, id := range ids {
+		if _, err := h.Backend.DescribeDashboard(accountID, id); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func validateEmbedBody(body map[string]any) error {
+	return validateEmbedSession(body["SessionLifetimeInMinutes"], stringsFromBody(body, "AllowedDomains"))
 }

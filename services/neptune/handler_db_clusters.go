@@ -52,9 +52,10 @@ func (h *Handler) handleCreateDBCluster(ctx context.Context, vals url.Values) (a
 		// ".member.N" (awsAwsquery_serializeDocumentVpcSecurityGroupIdList/
 		// awsAwsquery_serializeDocumentAvailabilityZones,
 		// neptune@v1.48.4 serializers.go:5213-5214, 4930-4931).
-		VpcSecurityGroupIDs:       parseMemberList(vals, "VpcSecurityGroupIds.VpcSecurityGroupId"),
-		AvailabilityZones:         parseMemberList(vals, "AvailabilityZones.AvailabilityZone"),
-		ServerlessV2ScalingConfig: sv2,
+		VpcSecurityGroupIDs:         parseMemberList(vals, "VpcSecurityGroupIds.VpcSecurityGroupId"),
+		AvailabilityZones:           parseMemberList(vals, "AvailabilityZones.AvailabilityZone"),
+		ServerlessV2ScalingConfig:   sv2,
+		EnableCloudwatchLogsExports: parseMemberList(vals, "EnableCloudwatchLogsExports.member"),
 	}
 	if s := vals.Get("BackupRetentionPeriod"); s != "" {
 		if v, err := strconv.Atoi(s); err == nil {
@@ -156,6 +157,10 @@ func (h *Handler) handleModifyDBCluster(ctx context.Context, vals url.Values) (a
 		VpcSecurityGroupIDs:          parseMemberList(vals, "VpcSecurityGroupIds.VpcSecurityGroupId"),
 		ServerlessV2ScalingConfig:    sv2,
 		DBInstanceParameterGroupName: vals.Get("DBInstanceParameterGroupName"),
+		NewDBClusterIdentifier:       vals.Get("NewDBClusterIdentifier"),
+		AllowMajorVersionUpgrade:     vals.Get("AllowMajorVersionUpgrade") == formTrue,
+		EnableLogTypes:               parseMemberList(vals, "CloudwatchLogsExportConfiguration.EnableLogTypes.member"),
+		DisableLogTypes:              parseMemberList(vals, "CloudwatchLogsExportConfiguration.DisableLogTypes.member"),
 		// ApplyImmediately is read for wire-declaration parity but this
 		// backend always applies modifications immediately.
 		ApplyImmediately: vals.Get("ApplyImmediately") == formTrue,
@@ -221,7 +226,7 @@ func (h *Handler) handleFailoverDBCluster(ctx context.Context, vals url.Values) 
 func (h *Handler) handleAddRoleToDBCluster(ctx context.Context, vals url.Values) (any, error) {
 	clusterID := vals.Get("DBClusterIdentifier")
 	roleARN := vals.Get("RoleArn")
-	if err := h.Backend.AddRoleToDBCluster(ctx, clusterID, roleARN); err != nil {
+	if err := h.Backend.AddRoleToDBClusterFeature(ctx, clusterID, roleARN, vals.Get("FeatureName")); err != nil {
 		return nil, err
 	}
 
@@ -294,6 +299,7 @@ func (h *Handler) handleRestoreDBClusterToPointInTime(
 	opts := RestoreToPointInTimeOptions{
 		RestoreClusterOptions:   common,
 		RestoreToTime:           vals.Get("RestoreToTime"),
+		RestoreType:             vals.Get("RestoreType"),
 		UseLatestRestorableTime: vals.Get("UseLatestRestorableTime") == formTrue,
 	}
 	cluster, err := h.Backend.RestoreDBClusterToPointInTime(ctx, srcClusterID, targetClusterID, opts)
@@ -330,6 +336,7 @@ func parseRestoreClusterOptions(vals url.Values) (RestoreClusterOptions, []Tag, 
 		VpcSecurityGroupIDs:         parseMemberList(vals, "VpcSecurityGroupIds.VpcSecurityGroupId"),
 		AvailabilityZones:           parseMemberList(vals, "AvailabilityZones.AvailabilityZone"),
 		ServerlessV2ScalingConfig:   sv2,
+		EnableCloudwatchLogsExports: parseMemberList(vals, "EnableCloudwatchLogsExports.member"),
 	}
 	if s := vals.Get("Port"); s != "" {
 		if v, err := strconv.Atoi(s); err == nil {
@@ -403,7 +410,7 @@ func toXMLCluster(c *DBCluster) xmlDBCluster {
 	}
 	roles := make([]xmlDBRole, 0, len(c.AssociatedRoles))
 	for _, roleARN := range c.AssociatedRoles {
-		roles = append(roles, xmlDBRole{RoleArn: roleARN, Status: "ACTIVE"})
+		roles = append(roles, xmlDBRole{RoleArn: roleARN, Status: "ACTIVE", FeatureName: c.RoleFeatures[roleARN]})
 	}
 	x := xmlDBCluster{
 		DBClusterIdentifier:             c.DBClusterIdentifier,
@@ -412,7 +419,6 @@ func toXMLCluster(c *DBCluster) xmlDBCluster {
 		ClusterCreateTime:               c.ClusterCreateTime,
 		Engine:                          c.Engine,
 		EngineVersion:                   c.EngineVersion,
-		EngineMode:                      c.EngineMode,
 		Status:                          c.Status,
 		DBClusterParameterGroupName:     c.DBClusterParameterGroupName,
 		DBSubnetGroupName:               c.DBSubnetGroupName,
@@ -439,16 +445,13 @@ func toXMLCluster(c *DBCluster) xmlDBCluster {
 		AssociatedRoles:                 xmlDBRoleList{Members: roles},
 		AvailabilityZones:               xmlAvailabilityZoneList{Members: azItems},
 	}
+	if len(c.EnabledCloudwatchLogsExports) > 0 {
+		x.EnabledCloudwatchLogsExports = &xmlLogTypeList{Members: c.EnabledCloudwatchLogsExports}
+	}
 	if c.ServerlessV2ScalingConfig != nil {
 		x.ServerlessV2ScalingConfiguration = &xmlServerlessV2ScalingConfiguration{
 			MinCapacity: c.ServerlessV2ScalingConfig.MinCapacity,
 			MaxCapacity: c.ServerlessV2ScalingConfig.MaxCapacity,
-		}
-	}
-	if c.MasterUserManagedSecret != nil {
-		x.MasterUserManagedSecret = &xmlMasterUserManagedSecret{
-			SecretARN:    c.MasterUserManagedSecret.SecretARN,
-			SecretStatus: c.MasterUserManagedSecret.SecretStatus,
 		}
 	}
 
@@ -467,11 +470,6 @@ type xmlDBClusterMemberList struct {
 type xmlServerlessV2ScalingConfiguration struct {
 	MinCapacity float64 `xml:"MinCapacity"`
 	MaxCapacity float64 `xml:"MaxCapacity"`
-}
-
-type xmlMasterUserManagedSecret struct {
-	SecretARN    string `xml:"SecretArn,omitempty"`
-	SecretStatus string `xml:"SecretStatus,omitempty"`
 }
 
 // xmlSV2Ref is a type alias to keep xmlDBCluster field definitions within line-length limits.
@@ -503,9 +501,13 @@ type xmlAvailabilityZoneList struct {
 	Members []string `xml:"AvailabilityZone"`
 }
 
+type xmlLogTypeList struct {
+	Members []string `xml:"member"`
+}
+
 type xmlDBCluster struct {
+	EnabledCloudwatchLogsExports     *xmlLogTypeList                   `xml:"EnabledCloudwatchLogsExports,omitempty"`
 	ServerlessV2ScalingConfiguration *xmlSV2Ref                        `xml:"ServerlessV2ScalingConfiguration,omitempty"`
-	MasterUserManagedSecret          *xmlMasterUserManagedSecret       `xml:"MasterUserManagedSecret,omitempty"`
 	VpcSecurityGroups                xmlVpcSecurityGroupMembershipList `xml:"VpcSecurityGroups,omitempty"`
 	AssociatedRoles                  xmlDBRoleList                     `xml:"AssociatedRoles,omitempty"`
 	AvailabilityZones                xmlAvailabilityZoneList           `xml:"AvailabilityZones,omitempty"`
@@ -515,7 +517,6 @@ type xmlDBCluster struct {
 	ClusterCreateTime                string                            `xml:"ClusterCreateTime,omitempty"`
 	Engine                           string                            `xml:"Engine"`
 	EngineVersion                    string                            `xml:"EngineVersion,omitempty"`
-	EngineMode                       string                            `xml:"EngineMode,omitempty"`
 	Status                           string                            `xml:"Status"`
 	DBClusterParameterGroupName      string                            `xml:"DBClusterParameterGroup,omitempty"`
 	DBSubnetGroupName                string                            `xml:"DBSubnetGroup,omitempty"`

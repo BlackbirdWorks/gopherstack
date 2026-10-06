@@ -228,7 +228,7 @@ func Test_Persistence_SnapshotRestore_Tables(t *testing.T) {
 				t.Helper()
 				dsArn := pSeedDataset(t, b)
 				_, err := b.CreateDatasetImportJob("dij-1", dsArn,
-					"arn:aws:iam::111122223333:role/r", "", map[string]any{"dataLocation": "s3://bucket/key"}, nil)
+					"arn:aws:iam::111122223333:role/r", "", map[string]any{"dataLocation": "s3://bucket/key"}, nil, nil)
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *personalize.InMemoryBackend) {
@@ -264,9 +264,11 @@ func Test_Persistence_SnapshotRestore_Tables(t *testing.T) {
 					svArn,
 					"arn:aws:iam::111122223333:role/r",
 					"",
+					"",
 					map[string]any{"in": "s3://in"},
 					map[string]any{"out": "s3://out"},
 					nil,
+					personalize.JobExtras{},
 				)
 				require.NoError(t, err)
 			},
@@ -286,9 +288,11 @@ func Test_Persistence_SnapshotRestore_Tables(t *testing.T) {
 					"bsj-1",
 					svArn,
 					"arn:aws:iam::111122223333:role/r",
+					"",
 					map[string]any{"in": "s3://in"},
 					map[string]any{"out": "s3://out"},
 					nil,
+					0,
 				)
 				require.NoError(t, err)
 			},

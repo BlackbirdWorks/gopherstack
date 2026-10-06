@@ -210,3 +210,7 @@ appconfigdata is region-isolated: deployed configuration and sessions live per r
 ## 2026-10-04 dashboard region
 
 The dashboard's AppConfig Data and API Gateway Management API endpoints take a `?region=` query parameter and use that region's backend (home when absent). Proof: `TestAppConfigDataProfiles_RegionQueryParam`. The SPA does not send the parameter yet.
+
+## 2026-10-05 (gopherstack-uox6 pass 13, value semantics)
+
+Recorded, not changed. StartConfigurationSession has no Update surface. The SDK gives no default for RequiredMinimumPollIntervalInSeconds (api_op_StartConfigurationSession.go:46-51; 60 is only an example); the 30s fallback is API-docs-only and not modelled further.

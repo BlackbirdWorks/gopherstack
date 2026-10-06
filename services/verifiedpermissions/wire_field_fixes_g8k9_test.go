@@ -40,6 +40,7 @@ func TestGetPolicyStore_TagResource_LiveSync_RealClient(t *testing.T) {
 
 	getOut, err := client.GetPolicyStore(ctx, &avpsdk.GetPolicyStoreInput{
 		PolicyStoreId: createOut.PolicyStoreId,
+		Tags:          true,
 	})
 	require.NoError(t, err)
 	require.Equal(t, map[string]string{"owner": "sre", "env": "prod"}, getOut.Tags)
@@ -52,6 +53,7 @@ func TestGetPolicyStore_TagResource_LiveSync_RealClient(t *testing.T) {
 
 	getOut, err = client.GetPolicyStore(ctx, &avpsdk.GetPolicyStoreInput{
 		PolicyStoreId: createOut.PolicyStoreId,
+		Tags:          true,
 	})
 	require.NoError(t, err)
 	require.Equal(t, map[string]string{"env": "prod"}, getOut.Tags)

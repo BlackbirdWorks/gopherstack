@@ -547,9 +547,9 @@ func (b *InMemoryBackend) UpdateThing(input *UpdateThingInput) error {
 		return fmt.Errorf("%w: %s", ErrThingNotFound, input.ThingName)
 	}
 
-	if input.ExpectedVersion != 0 && input.ExpectedVersion != t.Version {
+	if input.ExpectedVersion != nil && *input.ExpectedVersion != t.Version {
 		return fmt.Errorf("%w: expected version %d but current is %d",
-			ErrVersionConflict, input.ExpectedVersion, t.Version)
+			ErrVersionConflict, *input.ExpectedVersion, t.Version)
 	}
 
 	if input.RemoveThingType {

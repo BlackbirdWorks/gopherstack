@@ -166,7 +166,8 @@ func TestBackend_SnapshotRestoreFullState(t *testing.T) {
 	op, err := original.UpdateBrokerCount(ctx, cluster.ClusterArn, 5)
 	require.NoError(t, err)
 
-	require.NoError(t, original.PutClusterPolicy(ctx, cluster.ClusterArn, `{"policy":true}`))
+	_, err = original.PutClusterPolicy(ctx, cluster.ClusterArn, `{"policy":true}`, "")
+	require.NoError(t, err)
 
 	_, err = original.BatchAssociateScramSecret(
 		ctx, cluster.ClusterArn, []string{"arn:aws:secretsmanager:us-west-2:999999999999:secret:s1"},
@@ -221,7 +222,7 @@ func TestBackend_SnapshotRestoreFullState(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "UPDATE_BROKER_COUNT", gotOp.OperationType)
 
-	policy, err := fresh.GetClusterPolicy(ctx, cluster.ClusterArn)
+	policy, _, err := fresh.GetClusterPolicy(ctx, cluster.ClusterArn)
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"policy":true}`, policy)
 

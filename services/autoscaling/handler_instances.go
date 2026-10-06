@@ -2,9 +2,12 @@ package autoscaling
 
 import (
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"net/url"
+	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -259,7 +262,9 @@ func (h *Handler) handleLaunchInstances(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: invalid RetryStrategy %q", ErrInvalidParameter, rs)
 	}
 
-	instances, launchErr := h.Backend.LaunchInstances(groupName, count)
+	zones := parseMembers(vals, "AvailabilityZones.member")
+
+	instances, launchErr := h.launchOnce(groupName, clientToken, count, zones)
 	if launchErr != nil {
 		return nil, launchErr
 	}
@@ -383,4 +388,54 @@ type launchInstancesResponse struct {
 	Xmlns            string                `xml:"xmlns,attr"`
 	ResponseMetadata xmlResponseMetadata   `xml:"ResponseMetadata"`
 	Result           launchInstancesResult `xml:"LaunchInstancesResult"`
+}
+
+type launchedInstances struct {
+	instances []Instance
+	ids       []string
+}
+
+// launchOnce replays the instances a ClientToken already launched into the group.
+func (h *Handler) launchOnce(groupName, token string, count int32, zones []string) ([]Instance, error) {
+	req := struct {
+		Zones []string
+		Count int32
+	}{zones, count}
+
+	out, err := idempotency.Create(
+		h.idem, "LaunchInstances|"+groupName, token, idempotency.Fingerprint(req),
+		func(l *launchedInstances) string { return strings.Join(l.ids, ",") },
+		func(joined string) (*launchedInstances, error) {
+			ids := strings.Split(joined, ",")
+
+			got, getErr := h.Backend.GroupInstances(groupName, ids)
+			if getErr != nil {
+				return nil, getErr
+			}
+
+			return &launchedInstances{instances: got, ids: ids}, nil
+		},
+		func() (*launchedInstances, error) {
+			got, launchErr := h.Backend.LaunchInstancesIn(groupName, count, zones)
+			if launchErr != nil {
+				return nil, launchErr
+			}
+
+			ids := make([]string, 0, len(got))
+			for _, in := range got {
+				ids = append(ids, in.InstanceID)
+			}
+
+			return &launchedInstances{instances: got, ids: ids}, nil
+		},
+	)
+	if errors.Is(err, idempotency.ErrParamsMismatch) {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidParameter, err)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return out.instances, nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"maps"
 	"net/http"
 	"strings"
@@ -499,7 +500,104 @@ func (j *contentRedirectionJSON) toModel() *ContentRedirection {
 	return cr
 }
 
+type agentAccessSettingJSON struct {
+	AgentAction string `json:"AgentAction"`
+	Permission  string `json:"Permission"`
+}
+
+// agentAccessConfigJSON serves both types.AgentAccessConfig (create) and
+// types.AgentAccessConfigForUpdate (update).
+type agentAccessConfigJSON struct {
+	ScreenshotsUploadEnabled *bool                    `json:"ScreenshotsUploadEnabled"`
+	S3BucketArn              string                   `json:"S3BucketArn"`
+	ScreenImageFormat        string                   `json:"ScreenImageFormat"`
+	ScreenResolution         string                   `json:"ScreenResolution"`
+	UserControlMode          string                   `json:"UserControlMode"`
+	Settings                 []agentAccessSettingJSON `json:"Settings"`
+}
+
+// validate checks the enum members shared by create and update.
+func (j *agentAccessConfigJSON) validate() error {
+	if j == nil {
+		return nil
+	}
+
+	if j.ScreenImageFormat != "" && j.ScreenImageFormat != "PNG" && j.ScreenImageFormat != "JPEG" {
+		return fmt.Errorf("%w: invalid ScreenImageFormat %q", awserr.ErrInvalidParameter, j.ScreenImageFormat)
+	}
+
+	if j.ScreenResolution != "" && j.ScreenResolution != "W_1280xH_720" {
+		return fmt.Errorf("%w: invalid ScreenResolution %q", awserr.ErrInvalidParameter, j.ScreenResolution)
+	}
+
+	switch j.UserControlMode {
+	case "", "VIEW_ONLY", "VIEW_STOP", "DISABLED":
+	default:
+		return fmt.Errorf("%w: invalid UserControlMode %q", awserr.ErrInvalidParameter, j.UserControlMode)
+	}
+
+	for _, s := range j.Settings {
+		switch s.AgentAction {
+		case "COMPUTER_VISION", "COMPUTER_INPUT", "FORWARD_MCP_TOOLS":
+		default:
+			return fmt.Errorf("%w: invalid AgentAction %q", awserr.ErrInvalidParameter, s.AgentAction)
+		}
+
+		if s.Permission != "ENABLED" && s.Permission != "DISABLED" {
+			return fmt.Errorf("%w: invalid Permission %q", awserr.ErrInvalidParameter, s.Permission)
+		}
+	}
+
+	return nil
+}
+
+func (j *agentAccessConfigJSON) toModel() *AgentAccessConfig {
+	if j == nil {
+		return nil
+	}
+
+	out := &AgentAccessConfig{
+		ScreenshotsUploadEnabled: j.ScreenshotsUploadEnabled,
+		S3BucketArn:              j.S3BucketArn,
+		ScreenImageFormat:        j.ScreenImageFormat,
+		ScreenResolution:         j.ScreenResolution,
+		UserControlMode:          j.UserControlMode,
+	}
+	for _, s := range j.Settings {
+		out.Settings = append(out.Settings, AgentAccessSetting(s))
+	}
+
+	return out
+}
+
+func agentAccessConfigToJSON(c *AgentAccessConfig) map[string]any {
+	settings := make([]map[string]any, 0, len(c.Settings))
+	for _, s := range c.Settings {
+		settings = append(settings, map[string]any{"AgentAction": s.AgentAction, "Permission": s.Permission})
+	}
+
+	out := map[string]any{"Settings": settings}
+
+	for k, v := range map[string]string{
+		"S3BucketArn":       c.S3BucketArn,
+		"ScreenImageFormat": c.ScreenImageFormat,
+		"ScreenResolution":  c.ScreenResolution,
+		"UserControlMode":   c.UserControlMode,
+	} {
+		if v != "" {
+			out[k] = v
+		}
+	}
+
+	if c.ScreenshotsUploadEnabled != nil {
+		out["ScreenshotsUploadEnabled"] = *c.ScreenshotsUploadEnabled
+	}
+
+	return out
+}
+
 type createStackInput struct {
+	AgentAccessConfig           *agentAccessConfigJSON           `json:"AgentAccessConfig"`
 	Tags                        map[string]string                `json:"Tags"`
 	ApplicationSettings         *applicationSettingsJSON         `json:"ApplicationSettings"`
 	ContentRedirection          *contentRedirectionJSON          `json:"ContentRedirection"`
@@ -521,7 +619,18 @@ func (h *Handler) opCreateStack(_ context.Context, body []byte) (any, error) {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
+	if err := req.AgentAccessConfig.validate(); err != nil {
+		return nil, err
+	}
+
+	if c := req.AgentAccessConfig; c != nil && c.ScreenshotsUploadEnabled != nil && *c.ScreenshotsUploadEnabled &&
+		c.S3BucketArn == "" {
+		return nil, fmt.Errorf("%w: S3BucketArn is required when ScreenshotsUploadEnabled is true",
+			awserr.ErrInvalidParameter)
+	}
+
 	stack, err := h.Backend.CreateStack(req.Name, CreateStackOptions{
+		AgentAccessConfig:           req.AgentAccessConfig.toModel(),
 		Tags:                        req.Tags,
 		DisplayName:                 req.DisplayName,
 		Description:                 req.Description,
@@ -543,6 +652,7 @@ func (h *Handler) opCreateStack(_ context.Context, body []byte) (any, error) {
 }
 
 type describeStacksInput struct {
+	pageReq
 	Names []string `json:"Names"`
 }
 
@@ -559,15 +669,21 @@ func (h *Handler) opDescribeStacks(_ context.Context, body []byte) (any, error) 
 		return nil, err
 	}
 
+	stacks, next, err := pageOf(stacks, func(v *Stack) string { return v.Name }, req.pageReq, maxDescribePageSize)
+	if err != nil {
+		return nil, err
+	}
+
 	resp := make([]any, 0, len(stacks))
 	for _, s := range stacks {
 		resp = append(resp, stackToResponse(s))
 	}
 
-	return map[string]any{"Stacks": resp}, nil
+	return withNext(map[string]any{"Stacks": resp}, next), nil
 }
 
 type updateStackInput struct {
+	AgentAccessConfig           *agentAccessConfigJSON           `json:"AgentAccessConfig"`
 	ApplicationSettings         *applicationSettingsJSON         `json:"ApplicationSettings"`
 	ContentRedirection          *contentRedirectionJSON          `json:"ContentRedirection"`
 	StreamingExperienceSettings *streamingExperienceSettingsJSON `json:"StreamingExperienceSettings"`
@@ -590,7 +706,12 @@ func (h *Handler) opUpdateStack(_ context.Context, body []byte) (any, error) {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
+	if err := req.AgentAccessConfig.validate(); err != nil {
+		return nil, err
+	}
+
 	stack, err := h.Backend.UpdateStack(req.Name, UpdateStackOptions{
+		AgentAccessConfig:           req.AgentAccessConfig.toModel(),
 		DeleteStorageConnectors:     req.DeleteStorageConnectors,
 		RedirectURL:                 req.RedirectURL,
 		FeedbackURL:                 req.FeedbackURL,
@@ -758,6 +879,7 @@ func (h *Handler) opCreateFleet(_ context.Context, body []byte) (any, error) {
 }
 
 type describeFleetsInput struct {
+	pageReq
 	Names []string `json:"Names"`
 }
 
@@ -774,12 +896,17 @@ func (h *Handler) opDescribeFleets(_ context.Context, body []byte) (any, error) 
 		return nil, err
 	}
 
+	fleets, next, err := pageOf(fleets, func(v *Fleet) string { return v.Name }, req.pageReq, maxDescribePageSize)
+	if err != nil {
+		return nil, err
+	}
+
 	resp := make([]any, 0, len(fleets))
 	for _, f := range fleets {
 		resp = append(resp, fleetToResponse(f))
 	}
 
-	return map[string]any{"Fleets": resp}, nil
+	return withNext(map[string]any{"Fleets": resp}, next), nil
 }
 
 type updateFleetInput struct {
@@ -790,20 +917,21 @@ type updateFleetInput struct {
 	DomainJoinInfo                 *domainJoinInfoJSON   `json:"DomainJoinInfo"`
 	RootVolumeConfig               *volumeConfigJSON     `json:"RootVolumeConfig"`
 	SessionScriptS3Location        *s3LocationJSON       `json:"SessionScriptS3Location"`
-	Name                           string                `json:"Name"`
-	DisplayName                    string                `json:"DisplayName"`
-	Description                    string                `json:"Description"`
+	IdleDisconnectTimeoutInSeconds *int                  `json:"IdleDisconnectTimeoutInSeconds"`
 	InstanceType                   string                `json:"InstanceType"`
+	Platform                       string                `json:"Platform"`
+	DisplayName                    string                `json:"DisplayName"`
 	ImageName                      string                `json:"ImageName"`
 	ImageArn                       string                `json:"ImageArn"`
 	IamRoleArn                     string                `json:"IamRoleArn"`
 	StreamView                     string                `json:"StreamView"`
-	Platform                       string                `json:"Platform"`
-	UsbDeviceFilterStrings         []string              `json:"UsbDeviceFilterStrings"`
+	Description                    string                `json:"Description"`
+	Name                           string                `json:"Name"`
 	AttributesToDelete             []string              `json:"AttributesToDelete"`
+	DeleteVpcConfig                *bool                 `json:"DeleteVpcConfig"`
+	UsbDeviceFilterStrings         []string              `json:"UsbDeviceFilterStrings"`
 	MaxUserDurationInSeconds       int                   `json:"MaxUserDurationInSeconds"`
 	DisconnectTimeoutInSeconds     int                   `json:"DisconnectTimeoutInSeconds"`
-	IdleDisconnectTimeoutInSeconds int                   `json:"IdleDisconnectTimeoutInSeconds"`
 	MaxSessionsPerInstance         int                   `json:"MaxSessionsPerInstance"`
 	MaxConcurrentSessions          int                   `json:"MaxConcurrentSessions"`
 }
@@ -817,6 +945,10 @@ func (h *Handler) opUpdateFleet(_ context.Context, body []byte) (any, error) {
 	desired := 0
 	if req.ComputeCapacity != nil {
 		desired = req.ComputeCapacity.DesiredInstances
+	}
+
+	if req.DeleteVpcConfig != nil && *req.DeleteVpcConfig {
+		req.AttributesToDelete = append(req.AttributesToDelete, fleetAttrVpcConfiguration)
 	}
 
 	fleet, err := h.Backend.UpdateFleet(req.Name, UpdateFleetOptions{
@@ -932,6 +1064,7 @@ func (h *Handler) opDisassociateFleet(_ context.Context, body []byte) (any, erro
 
 type listAssociatedFleetsInput struct {
 	StackName string `json:"StackName"`
+	pageReq
 }
 
 func (h *Handler) opListAssociatedFleets(_ context.Context, body []byte) (any, error) {
@@ -945,11 +1078,17 @@ func (h *Handler) opListAssociatedFleets(_ context.Context, body []byte) (any, e
 		return nil, err
 	}
 
-	return map[string]any{"Names": names}, nil
+	names, next, err := pageOf(names, func(v string) string { return v }, req.pageReq, maxDescribePageSize)
+	if err != nil {
+		return nil, err
+	}
+
+	return withNext(map[string]any{"Names": names}, next), nil
 }
 
 type listAssociatedStacksInput struct {
 	FleetName string `json:"FleetName"`
+	pageReq
 }
 
 func (h *Handler) opListAssociatedStacks(_ context.Context, body []byte) (any, error) {
@@ -963,7 +1102,12 @@ func (h *Handler) opListAssociatedStacks(_ context.Context, body []byte) (any, e
 		return nil, err
 	}
 
-	return map[string]any{"Names": names}, nil
+	names, next, err := pageOf(names, func(v string) string { return v }, req.pageReq, maxDescribePageSize)
+	if err != nil {
+		return nil, err
+	}
+
+	return withNext(map[string]any{"Names": names}, next), nil
 }
 
 // --- Tag handlers ---
@@ -1088,6 +1232,10 @@ func stackToResponse(s *Stack) map[string]any {
 
 	if s.ContentRedirection != nil {
 		resp["ContentRedirection"] = contentRedirectionToJSON(s.ContentRedirection)
+	}
+
+	if s.AgentAccessConfig != nil {
+		resp["AgentAccessConfig"] = agentAccessConfigToJSON(s.AgentAccessConfig)
 	}
 
 	return resp

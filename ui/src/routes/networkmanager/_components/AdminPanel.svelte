@@ -20,8 +20,8 @@
 		type NetworkManagerClient
 	} from '@aws-sdk/client-networkmanager';
 	import { toast } from 'svelte-sonner';
-	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onRegionChange } from '$lib/region-effect.svelte';
+	import { confirmDestructive } from '#lib/confirm-dialog.ts';
+	import { onRegionChange } from '#lib/region-effect.svelte.ts';
 	import { describeError } from './shared';
 
 	type Props = {

@@ -263,6 +263,7 @@ type CreateInferenceExperimentOptions struct {
 	Name              string
 	Type              string
 	RoleArn           string
+	Description       string
 	EndpointName      string
 	KmsKey            string
 	ModelVariants     []ModelVariantConfig
@@ -304,6 +305,7 @@ func (b *InMemoryBackend) CreateInferenceExperiment(
 				Status:            statusRunning,
 				Type:              opts.Type,
 				RoleArn:           opts.RoleArn,
+				Description:       opts.Description,
 				EndpointName:      opts.EndpointName,
 				ModelVariants:     opts.ModelVariants,
 				ShadowModeConfig:  opts.ShadowModeConfig,

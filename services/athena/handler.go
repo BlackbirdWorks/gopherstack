@@ -15,6 +15,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -31,6 +32,7 @@ type Handler struct {
 	// dispatch is the pre-built immutable dispatch table, set once in NewHandler.
 	dispatch map[string]athenaActionFn
 	peers    *regionpeers.Set[Handler]
+	idem     *idempotency.Memo
 	stop     context.CancelFunc
 	// glueFor returns the Glue source for a region; set by the composition root.
 	glueFor func(region string) GlueMetadataSource
@@ -84,7 +86,7 @@ func (h *Handler) closePeer() {
 
 // NewHandler creates a new Athena handler with the given storage backend.
 func NewHandler(backend StorageBackend) *Handler {
-	h := &Handler{Backend: backend, tokens: newPageTokenCodec()}
+	h := &Handler{Backend: backend, tokens: newPageTokenCodec(), idem: idempotency.New("athena")}
 	h.dispatch = h.buildDispatchTable()
 
 	return h

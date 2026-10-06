@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 25 (25 ok) |
 | Feature families | 2 (2 ok) |
-| Known gaps | 4 |
+| Known gaps | 6 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
@@ -18,6 +18,8 @@
 - DeleteDataCatalogInput.DeleteCatalogOnly (real SDK v1.57.2 field, FEDERATED-catalog-only) is not modeled as a request input; gopherstack does not simulate the underlying CFN Stack/Lambda/Glue Connection resources a FEDERATED catalog's deletion would otherwise need to selectively preserve, so the flag would have no observable effect either way in this emulator. Not a wire-shape break (an extra unrecognized request field is harmlessly ignored). (bd: unfiled)
 - WorkGroupConfiguration.IdentityCenterConfiguration/ManagedQueryResultsConfiguration/QueryResultsS3AccessGrantsConfiguration (real members on types.WorkGroupConfiguration/types.WorkGroupConfigurationUpdates, confirmed 2026-08-28 via serializers.go) remain unmodeled — each is a substantial real feature (IAM Identity Center-gated workgroups, Athena-managed query-result-object lifecycle, S3 Access Grants) this emulator does not simulate end to end, not a quick wire-shape passthrough. WorkGroup.IdentityCenterApplicationArn (the paired response field) likewise unmodeled. (bd: unfiled)
 - QueryExecution.SubstatementType (real *string member on types.QueryExecution, e.g. further classifying a DDL StatementType as CTAS) is not modeled — found 2026-08-28 field-diffing types.QueryExecution, not fixed this pass; low-value single descriptive field. (bd: unfiled)
+- ImportNotebook.NotebookS3LocationUri is rejected with InvalidRequestException (Payload required): reading the notebook from S3 needs a GetObject path, and the S3Storer hook only exposes PutObject. StartCalculationExecution.CalculationConfiguration (deprecated CodeBlock) is unmodeled and unobservable, since no output echoes the code block. GetQueryResults.QueryResultType=DATA_MANIFEST is unmodeled: manifests come from CTAS/UNLOAD/INSERT result files this emulator does not write.
+- WorkGroup on GetDatabase/ListDatabases/GetTableMetadata/ListTableMetadata/GetDataCatalog/ListDataCatalogs is accepted and ignored; the SDK ties it to IAM Identity Center-enabled Glue catalogs, which the IdentityCenterConfiguration item above leaves unmodeled.
 - StartQueryExecution.EngineConfiguration (reqfielddiff tier-1, 2026-09-18) is not declared at all -- it only matters for Capacity Reservation DPU-range validation (min-dpu-count/max-dpu-count classifications), a per-query override into the Capacity Reservations subsystem this emulator's StartQueryExecution never consults. No observable effect to gate without wiring query execution into capacity-reservation DPU accounting, a larger feature than a field-level fix. (bd: unfiled)
 
 ### Deferred

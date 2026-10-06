@@ -61,7 +61,8 @@ func (b *InMemoryBackend) CreateWebhook(appID, branchName, description string) (
 // belonging to the webhook's app is rejected rather than accepted as a
 // dangling reference.
 func (b *InMemoryBackend) UpdateWebhook(
-	webhookID, branchName, description string,
+	webhookID, branchName string,
+	description *string,
 ) (*Webhook, error) {
 	b.mu.Lock("UpdateWebhook")
 	defer b.mu.Unlock()
@@ -79,8 +80,8 @@ func (b *InMemoryBackend) UpdateWebhook(
 		wh.BranchName = branchName
 	}
 
-	if description != "" {
-		wh.Description = description
+	if description != nil {
+		wh.Description = *description
 	}
 
 	wh.UpdateTime = time.Now().UTC()

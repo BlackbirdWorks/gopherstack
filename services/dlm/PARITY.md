@@ -201,3 +201,7 @@ version bump. `cmd/paritylint` stays at 0 FAIL.
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 dlm is region-isolated: lifecycle policies live per region. The tagging bridge follows the region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/dlm`. Limitation: the dashboard shows the home region only.
+
+## 2026-10-05 (gopherstack-uox6 pass 11, value semantics)
+
+CreateLifecyclePolicy with DefaultPolicy now stores the documented defaults CopyTags false, CreateInterval 1, ExtendDeletion false and RetainInterval 7 (api_op_CreateLifecyclePolicy.go:65-137); partial updates keep the rest. Proof: `TestDefaultPolicy_DocumentedDefaultsAndPartialUpdate`. Recorded, unchanged: custom (non-default) policy PolicyDetails stays an opaque document; the SDK states no defaults for it.

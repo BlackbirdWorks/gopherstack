@@ -189,6 +189,7 @@ items_still_open:
   - "List*JobSummaries: AggregationPeriod bucketing, AGGREGATE_ALL sums and per-row ResourceType/StartTime/EndTime need a historical-bucketing model; copy MessageCategory and ScanResultStatus filters have no backing job field."
   - "Unmodeled subsystems: MPA session approval (DescribeBackupVault MpaSessionArn/LatestMpaApprovalTeamUpdate), GuardDuty malware scanning (GetPITRMalwareScanResults, ScanActions/ScanSettings, PITR eligibility), the search-index subsystem (IndexActions), and cross-account vaults (TargetLogicallyAirGappedBackupVaultArn)."
   - "DescribeScanJob/ListScanJobs CreatedBy and ProtectedResource.ResourceName have no source: no plan/rule lineage on recovery points and no resource-name field on jobs."
+  - "StartBackupJob CompleteWindowMinutes and LogicallyAirGappedBackupVaultArn, StartRestoreJob CopySourceTagsToRestoredResource, ListRecoveryPointsByBackupVault ByBackupPlanId and ListRecoveryPointsByResource ManagedByAWSBackupOnly are accepted without effect: jobs finish instantly (no window to cancel), restored resources are not materialised (no tags to copy), recovery points carry no plan lineage."
 deferred: []
   # All 4 deferred items from the 2026-07-12 audit are now closed with real
   # fixes + tests (see the matching families/ops entries above):
@@ -929,3 +930,7 @@ Backup is region-isolated: per-region sibling handlers: each non-home region get
 ## 2026-10-03 (gopherstack-taq78 multi-region)
 
 The Resource Groups Tagging API bridge now lists the request region's tagged resources and resolves TagResources/UntagResources by the ARN's region, superseding the earlier home-region-only limitation. Proof: `TestInitializeServices_TaggingBridgeFollowsRegion`.
+
+## 2026-10-05 (reqfielddiff tier-2 pagination)
+
+ListBackupJobSummaries, ListCopyJobSummaries, ListRestoreJobSummaries, ListScanJobSummaries (now state-sorted), ListBackupPlanVersions, ListRecoveryPointsByLegalHold, ListRecoveryPointsByResource, ListIndexedRecoveryPoints, ListReportJobs, ListRestoreAccessBackupVaults, ListRestoreJobsByProtectedResource, ListTags and ListTieringConfigurations honour maxResults/nextToken (`pageQuery`, filters.go; each Input binds them as query members, serializers.go backup@v1.59.4). ListIndexedRecoveryPoints applies createdAfter/createdBefore and ListReportJobs reads ReportPlanName. Proof: `TestRealClient_ListOpsHonourMaxResults`, `TestRealClient_ListIndexedRecoveryPointsCreatedRange`. ListRestoreJobs and ListScanJobs findings are tool misses (their filter-from-query helpers already read them).

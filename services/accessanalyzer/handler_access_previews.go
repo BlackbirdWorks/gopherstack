@@ -101,15 +101,25 @@ func (h *Handler) handleListAccessPreviews(query string) (any, int, error) {
 		return nil, 0, err
 	}
 
-	list := make([]any, 0, len(previews))
+	pg, err := pageByQuery(previews, query)
+	if err != nil {
+		return nil, 0, err
+	}
 
-	for _, ap := range previews {
+	list := make([]any, 0, len(pg.Data))
+
+	for _, ap := range pg.Data {
 		// ListAccessPreviews returns types.AccessPreviewSummary, which has no
 		// Configurations member -- unlike GetAccessPreview's types.AccessPreview.
 		list = append(list, accessPreviewToJSON(ap, false))
 	}
 
-	return map[string]any{"accessPreviews": list}, http.StatusOK, nil
+	resp := map[string]any{"accessPreviews": list}
+	if pg.Next != "" {
+		resp["nextToken"] = pg.Next
+	}
+
+	return resp, http.StatusOK, nil
 }
 
 // handleListAccessPreviewFindings serves POST /access-preview/{id}.

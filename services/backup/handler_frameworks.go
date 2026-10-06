@@ -92,6 +92,7 @@ type createFrameworkBody struct {
 	FrameworkName        string                 `json:"FrameworkName"`
 	FrameworkDescription string                 `json:"FrameworkDescription,omitempty"`
 	IdempotencyToken     string                 `json:"IdempotencyToken,omitempty"`
+	FrameworkTags        map[string]string      `json:"FrameworkTags,omitempty"`
 	FrameworkControls    []frameworkControlJSON `json:"FrameworkControls,omitempty"`
 }
 
@@ -109,7 +110,10 @@ func (h *Handler) handleCreateFramework(c *echo.Context, body []byte) error {
 	}
 
 	controls := frameworkControlsFromJSON(in.FrameworkControls)
-	f, err := h.Backend.CreateFramework(in.FrameworkName, in.FrameworkDescription, controls)
+	f, err := h.Backend.CreateFrameworkWithOptions(
+		in.FrameworkName, in.FrameworkDescription, controls,
+		CreateOptions{Tags: in.FrameworkTags, IdempotencyToken: in.IdempotencyToken},
+	)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -141,6 +145,7 @@ func (h *Handler) handleDescribeFramework(c *echo.Context, name string) error {
 		keyDeploymentStatus:    f.DeploymentStatus,
 		keyCreationTime:        epochSeconds(f.CreationTime),
 	}
+	setOptionalStr(resp, "IdempotencyToken", f.IdempotencyToken)
 	if len(f.FrameworkControls) > 0 {
 		resp["FrameworkControls"] = frameworkControlsToJSON(f.FrameworkControls)
 	}
@@ -159,6 +164,8 @@ func (h *Handler) handleListFrameworks(c *echo.Context) error {
 			keyFrameworkName:       f.FrameworkName,
 			"FrameworkDescription": f.FrameworkDescription,
 			keyCreationTime:        epochSeconds(f.CreationTime),
+			keyDeploymentStatus:    f.DeploymentStatus,
+			"NumberOfControls":     len(f.FrameworkControls),
 		})
 	}
 

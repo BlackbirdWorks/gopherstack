@@ -2,7 +2,9 @@ package dms
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"maps"
 	"time"
 
 	"github.com/google/uuid"
@@ -40,6 +42,10 @@ type EndpointConnectionSettings struct {
 	// create time are exactly what's read back, matching what the provider
 	// itself sent regardless of AWS's real per-field defaults.
 	S3Settings string
+	// NewIdentifier is ModifyEndpoint-only: rename the endpoint.
+	NewIdentifier string
+	// ExactSettings is ModifyEndpoint-only: replace rather than merge settings.
+	ExactSettings bool
 }
 
 // CreateEndpoint creates a new DMS endpoint.
@@ -283,6 +289,32 @@ func (b *InMemoryBackend) AddEndpointInternal(identifier, endpointType, engineNa
 	b.endpoints.Put(ep)
 }
 
+func applyEndpointConnectionSettings(ep *Endpoint, settings EndpointConnectionSettings) {
+	if settings.CertificateArn != "" {
+		ep.CertificateArn = settings.CertificateArn
+	}
+
+	if settings.ExtraConnectionAttributes != "" {
+		ep.ExtraConnectionAttributes = settings.ExtraConnectionAttributes
+	}
+
+	if settings.ServiceAccessRoleArn != "" {
+		ep.ServiceAccessRoleArn = settings.ServiceAccessRoleArn
+	}
+
+	if settings.SslMode != "" {
+		ep.SslMode = settings.SslMode
+	}
+
+	if settings.ExternalTableDefinition != "" {
+		ep.ExternalTableDefinition = settings.ExternalTableDefinition
+	}
+
+	if settings.S3Settings != "" {
+		ep.S3Settings = mergeEndpointSettings(ep.S3Settings, settings.S3Settings, settings.ExactSettings)
+	}
+}
+
 // ModifyEndpoint updates endpoint settings.
 func (b *InMemoryBackend) ModifyEndpoint(
 	ctx context.Context,
@@ -296,6 +328,12 @@ func (b *InMemoryBackend) ModifyEndpoint(
 	ep := b.findEndpoint(ctx, arnOrID)
 	if ep == nil {
 		return nil, fmt.Errorf("%w: endpoint %s not found", ErrNotFound, arnOrID)
+	}
+
+	if err := rekey(b.endpoints, getRegion(ctx, b.region), ep.EndpointIdentifier,
+		settings.NewIdentifier, "endpoint", ep,
+		func(n string) { ep.EndpointIdentifier = n }); err != nil {
+		return nil, err
 	}
 
 	if endpointType != "" {
@@ -326,29 +364,7 @@ func (b *InMemoryBackend) ModifyEndpoint(
 		ep.Port = port
 	}
 
-	if settings.CertificateArn != "" {
-		ep.CertificateArn = settings.CertificateArn
-	}
-
-	if settings.ExtraConnectionAttributes != "" {
-		ep.ExtraConnectionAttributes = settings.ExtraConnectionAttributes
-	}
-
-	if settings.ServiceAccessRoleArn != "" {
-		ep.ServiceAccessRoleArn = settings.ServiceAccessRoleArn
-	}
-
-	if settings.SslMode != "" {
-		ep.SslMode = settings.SslMode
-	}
-
-	if settings.ExternalTableDefinition != "" {
-		ep.ExternalTableDefinition = settings.ExternalTableDefinition
-	}
-
-	if settings.S3Settings != "" {
-		ep.S3Settings = settings.S3Settings
-	}
+	applyEndpointConnectionSettings(ep, settings)
 
 	cp := *ep
 
@@ -368,4 +384,26 @@ func (b *InMemoryBackend) findEndpoint(ctx context.Context, arnOrID string) *End
 	}
 
 	return nil
+}
+
+// mergeEndpointSettings merges ModifyEndpoint settings; exact replaces the
+// object, else same-named keys are overwritten and new ones added.
+func mergeEndpointSettings(current, incoming string, exact bool) string {
+	if exact || current == "" {
+		return incoming
+	}
+
+	var cur, inc map[string]json.RawMessage
+	if json.Unmarshal([]byte(current), &cur) != nil || json.Unmarshal([]byte(incoming), &inc) != nil {
+		return incoming
+	}
+
+	maps.Copy(cur, inc)
+
+	out, err := json.Marshal(cur)
+	if err != nil {
+		return incoming
+	}
+
+	return string(out)
 }

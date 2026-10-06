@@ -7,10 +7,10 @@
 	// failing with UninitializedAccountException, call it here first.
 	import { InitializeServiceCommand, ListManagedAccountsCommand, type ManagedAccount, type MgnClient } from '@aws-sdk/client-mgn';
 	import { toast } from 'svelte-sonner';
-	import { onRegionChange } from '$lib/region-effect.svelte';
-	import DataTable from '$lib/components/DataTable.svelte';
-	import { defineColumns } from '$lib/components/data-table';
-	import LoadMore from '$lib/components/LoadMore.svelte';
+	import { onRegionChange } from '#lib/region-effect.svelte.ts';
+	import DataTable from '#lib/components/DataTable.svelte';
+	import { defineColumns } from '#lib/components/data-table.ts';
+	import LoadMore from '#lib/components/LoadMore.svelte';
 	import { describeError } from './shared';
 
 	type Props = { client: () => MgnClient; searchQuery: string };

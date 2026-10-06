@@ -38,6 +38,10 @@ const minPresignCredentialParts = 5
 // query parameters: SigV4 uses X-Amz-Signature; the legacy SigV2 query form
 // uses AWSAccessKeyId + Signature + Expires.
 func isPresignedRequest(r *http.Request) bool {
+	if r.URL.RawQuery == "" {
+		return false
+	}
+
 	q := r.URL.Query()
 
 	return q.Has("X-Amz-Signature") || isSigV2QueryPresign(r)
@@ -47,6 +51,10 @@ func isPresignedRequest(r *http.Request) bool {
 // presign (AWSAccessKeyId + Signature + Expires), which predates SigV4's
 // X-Amz-* parameter set.
 func isSigV2QueryPresign(r *http.Request) bool {
+	if r.URL.RawQuery == "" {
+		return false
+	}
+
 	q := r.URL.Query()
 
 	return q.Has("AWSAccessKeyId") && q.Has("Signature") && q.Has("Expires")

@@ -1,27 +1,30 @@
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vitest/config";
+import { fileURLToPath } from "node:url";
+import adapter from "@sveltejs/adapter-static";
 import { sveltekit } from "@sveltejs/kit/vite";
 
+const spaDir = fileURLToPath(new URL("../dashboard/static/spa", import.meta.url));
+
 export default defineConfig({
-  base: "/dashboard/",
-  plugins: [tailwindcss(), sveltekit()],
+  plugins: [
+    tailwindcss(),
+    sveltekit({
+      compilerOptions: {
+        runes: ({ filename }) =>
+          filename.split(/[/\\]/).includes("node_modules") ? undefined : true,
+      },
+      adapter: adapter({ fallback: "index.html", pages: spaDir, assets: spaDir }),
+      paths: { base: "/dashboard" },
+    }),
+  ],
   build: {
-    rollupOptions: {
+    rolldownOptions: {
       output: {
-        // Isolate the AWS SDK / Smithy runtime into a dedicated vendor chunk.
-        // Under Vite 8's Rolldown bundler, the default code-splitting heuristic
-        // hoisted shared SDK helpers into an arbitrary page-route node (e.g.
-        // /neptune) and then had the shared SDK chunk import them back, creating
-        // a circular import. That cycle left command-factory bindings (e.g. the
-        // RDS/Neptune classBuilder) uninitialized when a route's top-level
-        // `class extends factory(...)` ran, throwing "TypeError: z is not a
-        // function" during hydration and blanking every dashboard page.
-        // Pinning all node_modules SDK code to one chunk breaks the cycle:
-        // page nodes only import FROM this chunk, never the reverse.
-        manualChunks(id: string) {
-          if (id.includes("node_modules/@aws-sdk") || id.includes("node_modules/@smithy")) {
-            return "aws-sdk";
-          }
+        // Keep AWS SDK/Smithy in one vendor chunk; the default heuristic hoisted
+        // SDK helpers into a route node, giving a circular import that blanked pages.
+        codeSplitting: {
+          groups: [{ name: "aws-sdk", test: /node_modules[\\/](@aws-sdk|@smithy)[\\/]/ }],
         },
       },
     },

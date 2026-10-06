@@ -4,7 +4,6 @@ import (
 	"context"
 	"slices"
 	"sort"
-	"strconv"
 	"time"
 )
 
@@ -72,6 +71,7 @@ func (b *InMemoryBackend) DescribeApplicationSnapshot(
 func (b *InMemoryBackend) ListApplicationSnapshots(
 	ctx context.Context,
 	appName, nextToken string,
+	limit int,
 ) ([]*Snapshot, string, error) {
 	region := getRegion(ctx, b.defaultRegion)
 
@@ -92,19 +92,9 @@ func (b *InMemoryBackend) ListApplicationSnapshots(
 		return out[i].SnapshotName < out[j].SnapshotName
 	})
 
-	startIdx := parseNextToken(nextToken)
-	if startIdx >= len(out) {
-		return []*Snapshot{}, "", nil
-	}
-	end := startIdx + kav2DefaultPageSize
-	var outToken string
-	if end < len(out) {
-		outToken = strconv.Itoa(end)
-	} else {
-		end = len(out)
-	}
+	page, outToken := pageSlice(out, nextToken, limit)
 
-	return out[startIdx:end], outToken, nil
+	return page, outToken, nil
 }
 
 // DeleteApplicationSnapshot deletes a snapshot.

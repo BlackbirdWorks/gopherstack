@@ -49,14 +49,18 @@ type bundleStorageResp struct {
 }
 
 type bundleResp struct {
-	BundleID    string                `json:"BundleId"`
-	Name        string                `json:"Name"`
-	Owner       string                `json:"Owner"`
-	Description string                `json:"Description"`
-	ImageID     string                `json:"ImageId,omitempty"`
-	ComputeType bundleComputeTypeResp `json:"ComputeType"`
-	UserStorage bundleStorageResp     `json:"UserStorage"`
-	RootStorage bundleStorageResp     `json:"RootStorage"`
+	BundleType      string                `json:"BundleType,omitempty"`
+	State           string                `json:"State,omitempty"`
+	BundleID        string                `json:"BundleId"`
+	Name            string                `json:"Name"`
+	Owner           string                `json:"Owner"`
+	Description     string                `json:"Description"`
+	ImageID         string                `json:"ImageId,omitempty"`
+	ComputeType     bundleComputeTypeResp `json:"ComputeType"`
+	UserStorage     bundleStorageResp     `json:"UserStorage"`
+	RootStorage     bundleStorageResp     `json:"RootStorage"`
+	CreationTime    float64               `json:"CreationTime,omitempty"`
+	LastUpdatedTime float64               `json:"LastUpdatedTime,omitempty"`
 }
 
 func (h *Handler) handleDescribeWorkspaceBundles(
@@ -88,6 +92,11 @@ func (h *Handler) handleDescribeWorkspaceBundles(
 			ComputeType: bundleComputeTypeResp{Name: bun.ComputeType.Name},
 			UserStorage: bundleStorageResp{Capacity: strconv.Itoa(int(bun.UserStorage.Capacity))},
 			RootStorage: bundleStorageResp{Capacity: strconv.Itoa(int(bun.RootStorage.Capacity))},
+
+			BundleType:      bun.BundleType,
+			State:           bun.State,
+			CreationTime:    awstime.Epoch(bun.CreationTime),
+			LastUpdatedTime: awstime.Epoch(bun.LastUpdatedTime),
 		})
 	}
 

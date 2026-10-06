@@ -170,16 +170,19 @@ func (h *Handler) handleCreateCertificateFromCsr(c *echo.Context) error {
 
 func (h *Handler) handleRegisterCertificate(c *echo.Context) error {
 	var body struct {
-		CertificatePem string `json:"certificatePem"`
-		Status         string `json:"status"`
+		CertificatePem   string `json:"certificatePem"`
+		CACertificatePem string `json:"caCertificatePem"`
+		Status           string `json:"status"`
 	}
 	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
 		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
 	cert, err := h.Backend.RegisterCertificate(&RegisterCertificateInput{
-		CertificatePem: body.CertificatePem,
-		Status:         body.Status,
+		CertificatePem:   body.CertificatePem,
+		CACertificatePem: body.CACertificatePem,
+		Status:           body.Status,
+		SetAsActive:      c.QueryParam("setAsActive") == keyBoolTrue,
 	})
 	if err != nil {
 		return h.handleError(c, err)
@@ -351,7 +354,7 @@ func (h *Handler) handleUpdateCertificate(c *echo.Context) error {
 
 func (h *Handler) handleDeleteCertificate(c *echo.Context) error {
 	certID := strings.TrimPrefix(c.Request().URL.Path, "/certificates/")
-	if err := h.Backend.DeleteCertificate(certID); err != nil {
+	if err := h.Backend.DeleteCertificate(certID, c.QueryParam("forceDelete") == keyBoolTrue); err != nil {
 		return h.handleError(c, err)
 	}
 
@@ -364,6 +367,7 @@ func (h *Handler) handleCreateCertificateProvider(c *echo.Context) error {
 	var body struct {
 		LambdaFunctionARN           string   `json:"lambdaFunctionArn"`
 		AccountDefaultForOperations []string `json:"accountDefaultForOperations"`
+		ClientToken                 string   `json:"clientToken"`
 		// []types.Tag on the wire, not a map (serializers.go:1992, aws-sdk-go-v2/service/iot@v1.77.4).
 		Tags []tags.KV `json:"tags,omitempty"`
 	}
@@ -371,6 +375,19 @@ func (h *Handler) handleCreateCertificateProvider(c *echo.Context) error {
 	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
 		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
+	}
+
+	replay, tokenErr := h.Backend.CheckCreateToken(tokenKindCertProvider, body.ClientToken, name)
+	if tokenErr != nil {
+		return h.handleError(c, tokenErr)
+	}
+	if replay {
+		if existing, getErr := h.Backend.DescribeCertificateProvider(name); getErr == nil {
+			return c.JSON(http.StatusOK, map[string]string{
+				keyCertificateProviderName: existing.CertificateProviderName,
+				keyCertificateProviderArn:  existing.ARN,
+			})
+		}
 	}
 
 	cp, err := h.Backend.CreateCertificateProvider(&CreateCertificateProviderInput{
@@ -382,6 +399,7 @@ func (h *Handler) handleCreateCertificateProvider(c *echo.Context) error {
 	if err != nil {
 		return h.handleError(c, err)
 	}
+	h.Backend.RecordCreateToken(tokenKindCertProvider, body.ClientToken, name)
 
 	return c.JSON(http.StatusOK, map[string]string{
 		keyCertificateProviderName: cp.CertificateProviderName,
@@ -421,7 +439,7 @@ func (h *Handler) handleListCertificateProviders(c *echo.Context) error {
 		})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"certificateProviders": out})
+	return respondListPage(c, "certificateProviders", out)
 }
 
 func (h *Handler) handleUpdateCertificateProvider(c *echo.Context) error {
@@ -539,9 +557,13 @@ func (h *Handler) handleRegisterCACertificate(c *echo.Context) error {
 	if err := readBody(c, &req); err != nil {
 		return err
 	}
+	status := certStatusInactive
+	if c.QueryParam("setAsActive") == keyBoolTrue {
+		status = certStatusActive
+	}
 	ca, err := h.Backend.RegisterCACertificate(
-		req.CACertificate, "ACTIVE", req.CertificateMode, req.VerificationCertificate,
-		tags.MapFromKV(req.Tags), req.RegistrationConfig,
+		req.CACertificate, status, req.CertificateMode, req.VerificationCertificate,
+		tags.MapFromKV(req.Tags), req.RegistrationConfig, c.QueryParam("allowAutoRegistration") == keyBoolTrue,
 	)
 	if err != nil {
 		return respondErr(c, err)

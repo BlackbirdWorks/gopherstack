@@ -72,6 +72,12 @@ func writeXMLBool(buf *bytes.Buffer, tag string, v bool) {
 func escapeXMLString(buf *bytes.Buffer, s string) {
 	last := 0
 	for i := 0; i < len(s); {
+		if plainXMLByte(s[i]) {
+			i++
+
+			continue
+		}
+
 		r, width := utf8.DecodeRuneInString(s[i:])
 		i += width
 
@@ -108,6 +114,11 @@ func escapeXMLString(buf *bytes.Buffer, s string) {
 		last = i
 	}
 	buf.WriteString(s[last:])
+}
+
+// plainXMLByte reports whether c is ASCII that needs no escaping.
+func plainXMLByte(c byte) bool {
+	return c >= 0x20 && c < utf8.RuneSelf && c != '"' && c != '\'' && c != '&' && c != '<' && c != '>'
 }
 
 // isValidXMLChar mirrors encoding/xml's isInCharacterRange.
@@ -188,6 +199,18 @@ func writeListBucketXML(buf *bytes.Buffer, r *ListBucketResult) {
 	writeXMLInt(buf, "MaxKeys", r.MaxKeys)
 	writeXMLBool(buf, "IsTruncated", r.IsTruncated)
 	buf.WriteString("</ListBucketResult>")
+}
+
+// growListBuffer pre-sizes buf for objs so large pages skip repeated doubling.
+func growListBuffer(buf *bytes.Buffer, objs []ObjectXML) {
+	const baseHint, perObjectHint = 512, 200
+
+	n := baseHint
+	for i := range objs {
+		n += perObjectHint + len(objs[i].Key) + len(objs[i].ETag)
+	}
+
+	buf.Grow(n)
 }
 
 // writeListXMLResponse writes an already-encoded XML body (header + root

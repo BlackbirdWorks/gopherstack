@@ -196,6 +196,8 @@ func (b *InMemoryBackend) ListAttachedPolicies(input *ListAttachedPoliciesInput)
 		}
 	}
 
+	sort.Slice(out, func(i, j int) bool { return out[i].PolicyName < out[j].PolicyName })
+
 	return out, nil
 }
 

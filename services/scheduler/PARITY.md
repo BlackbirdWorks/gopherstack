@@ -774,3 +774,7 @@ Audited for region isolation: same-named resources in two regions coexist and li
 ## 2026-10-04 target regions
 
 SQS (incl. FIFO), Kinesis, EventBridge and SageMaker targets resolve their backend from the target ARN's region (else the caller's context region); no longer the home backend. Proof: `TestInitializeServices_SQSTargetsUseQueueARNRegion`, `TestInitializeServices_KinesisTargetsUseStreamARNRegion`, `TestInitializeServices_EventBridgePutEventsUseBusARNRegion`, `TestInitializeServices_SchedulerSageMakerPipelineUsesARNRegion`.
+
+## 2026-10-05 (gopherstack-uox6 pass 5, value semantics)
+
+UpdateSchedule resets an omitted State to ENABLED and ActionAfterCompletion to NONE (full replacement, api_op_UpdateSchedule.go:16-19); omitted ScheduleExpressionTimezone is stored and returned as UTC.

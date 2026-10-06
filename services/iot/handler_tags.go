@@ -77,7 +77,7 @@ func (h *Handler) handleListTagsForResource(c *echo.Context) error {
 	resourceARN := c.Request().URL.Query().Get("resourceArn")
 	resourceTags := h.Backend.ListTagsForResource(resourceARN)
 
-	return c.JSON(http.StatusOK, map[string]any{"tags": tags.MapToKV(resourceTags)})
+	return respondListPage(c, "tags", tags.MapToKV(resourceTags))
 }
 
 func (h *Handler) dispatchTagOps(c *echo.Context, op string) (bool, error) {

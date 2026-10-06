@@ -49,8 +49,8 @@ func identifierFromARN(value string) string {
 	if !strings.HasPrefix(value, "arn:") {
 		return value
 	}
-	if idx := strings.LastIndex(value, ":"); idx >= 0 {
-		return value[idx+1:]
+	if _, after, ok := strings.CutLast(value, ":"); ok {
+		return after
 	}
 
 	return value

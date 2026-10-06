@@ -131,7 +131,7 @@ func TestVoiceTemplate_FullFieldSet(t *testing.T) {
 	assert.NotEmpty(t, gr["CreationDate"])
 	assert.NotEmpty(t, gr["LastModifiedDate"])
 
-	updateRec := doPinpointRequest(t, h, http.MethodPut, "/v1/templates/"+templateName+"/voice",
+	updateRec := doPinpointRequest(t, h, http.MethodPut, "/v1/templates/"+templateName+"/voice?create-new-version=true",
 		map[string]any{"VoiceId": "Matthew", "LanguageCode": "en-GB"})
 	require.Equal(t, http.StatusAccepted, updateRec.Code)
 
@@ -180,7 +180,7 @@ func TestVoiceTemplate_VersionHistory(t *testing.T) {
 
 			for i := range tc.updateCount {
 				updateRec := doPinpointRequest(t, h, http.MethodPut,
-					"/v1/templates/"+templateName+"/voice",
+					"/v1/templates/"+templateName+"/voice?create-new-version=true",
 					map[string]any{"Body": fmt.Sprintf("Version %d", i+2)})
 				require.True(t, updateRec.Code == http.StatusOK || updateRec.Code == http.StatusAccepted)
 			}
@@ -613,7 +613,7 @@ func TestTemplateVersionHistory(t *testing.T) {
 
 			for _, upd := range tc.updates {
 				rec := doPinpointRequest(t, h, http.MethodPut,
-					"/v1/templates/"+templateName+"/"+tc.templateType, upd)
+					"/v1/templates/"+templateName+"/"+tc.templateType+"?create-new-version=true", upd)
 				require.Equal(t, http.StatusAccepted, rec.Code)
 			}
 

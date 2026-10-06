@@ -201,16 +201,39 @@ func (h *Handler) handleGetApprovalRuleTemplate(body []byte) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleListApprovalRuleTemplates(_ []byte) (any, error) {
+type listPageRequest struct {
+	NextToken  string `json:"nextToken"`
+	MaxResults int    `json:"maxResults"`
+}
+
+func (h *Handler) handleListApprovalRuleTemplates(body []byte) (any, error) {
+	var req listPageRequest
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			return nil, err
+		}
+	}
+
 	templates := h.Backend.ListApprovalRuleTemplates()
 	names := make([]string, 0, len(templates))
 	for _, t := range templates {
 		names = append(names, t.ApprovalRuleTemplateName)
 	}
 
-	return map[string]any{
-		"approvalRuleTemplateNames": names,
-	}, nil
+	page, next, err := paginateSlice(names, req.NextToken, req.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+
+	return withNextToken(map[string]any{"approvalRuleTemplateNames": page}, next), nil
+}
+
+func withNextToken(resp map[string]any, token string) map[string]any {
+	if token != "" {
+		resp["nextToken"] = token
+	}
+
+	return resp
 }
 
 func (h *Handler) handleUpdateApprovalRuleTemplateContent(body []byte) (any, error) {
@@ -304,6 +327,7 @@ func (h *Handler) handleUpdateApprovalRuleTemplateName(body []byte) (any, error)
 func (h *Handler) handleListAssociatedApprovalRuleTemplatesForRepository(body []byte) (any, error) {
 	var req struct {
 		RepositoryName string `json:"repositoryName"`
+		listPageRequest
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
@@ -317,14 +341,18 @@ func (h *Handler) handleListAssociatedApprovalRuleTemplatesForRepository(body []
 		return nil, err
 	}
 
-	return map[string]any{
-		"approvalRuleTemplateNames": names,
-	}, nil
+	page, next, err := paginateSlice(names, req.NextToken, req.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+
+	return withNextToken(map[string]any{"approvalRuleTemplateNames": page}, next), nil
 }
 
 func (h *Handler) handleListRepositoriesForApprovalRuleTemplate(body []byte) (any, error) {
 	var req struct {
 		ApprovalRuleTemplateName string `json:"approvalRuleTemplateName"`
+		listPageRequest
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
@@ -337,13 +365,17 @@ func (h *Handler) handleListRepositoriesForApprovalRuleTemplate(body []byte) (an
 	if err != nil {
 		return nil, err
 	}
-	if repos == nil {
-		repos = []string{}
+
+	page, next, err := paginateSlice(repos, req.NextToken, req.MaxResults)
+	if err != nil {
+		return nil, err
 	}
 
-	return map[string]any{
-		"repositoryNames": repos,
-	}, nil
+	if page == nil {
+		page = []string{}
+	}
+
+	return withNextToken(map[string]any{"repositoryNames": page}, next), nil
 }
 
 // handleDisassociateApprovalRuleTemplateFromRepository delegates to the backend.

@@ -157,8 +157,18 @@ type getActiveNamesResponse struct {
 	ActiveNames   []string `json:"activeNames,omitempty"`
 }
 
-func (h *Handler) handleGetActiveNames(_ context.Context, _ []byte) ([]byte, error) {
-	return marshalResponse(getActiveNamesResponse{ActiveNames: h.Backend.GetActiveNames()})
+func (h *Handler) handleGetActiveNames(_ context.Context, body []byte) ([]byte, error) {
+	req, err := decodeBody[pageTokenRequest](body)
+	if err != nil {
+		return nil, err
+	}
+
+	pg, pgErr := h.Backend.GetActiveNames(req.PageToken)
+	if pgErr != nil {
+		return nil, pgErr
+	}
+
+	return marshalResponse(getActiveNamesResponse{ActiveNames: pg.Data, NextPageToken: pg.Next})
 }
 
 type getCostEstimateRequest struct {

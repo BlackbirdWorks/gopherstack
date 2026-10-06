@@ -311,9 +311,9 @@ type GetPolicyOutput struct {
 type UpdateThingInput struct {
 	AttributePayload *AttributePayload `json:"attributePayload"`
 	ThingTypeName    *string           `json:"thingTypeName,omitempty"`
+	ExpectedVersion  *int64            `json:"expectedVersion,omitempty"`
 	ThingName        string            `json:"thingName"`
 	RemoveThingType  bool              `json:"removeThingType,omitempty"`
-	ExpectedVersion  int64             `json:"expectedVersion,omitempty"`
 }
 
 // ThingType represents an AWS IoT Thing Type.
@@ -487,8 +487,8 @@ type UpdateThingGroupInput struct {
 	QueryString     *string
 	IndexName       *string
 	QueryVersion    *string
+	ExpectedVersion *int64
 	ThingGroupName  string
-	ExpectedVersion int64
 }
 
 // RemoveThingFromThingGroupInput is the input for RemoveThingFromThingGroup.
@@ -507,8 +507,10 @@ type CreateCertificateFromCsrInput struct {
 
 // RegisterCertificateInput is the input for RegisterCertificate.
 type RegisterCertificateInput struct {
-	CertificatePem string
-	Status         string
+	CertificatePem   string
+	CACertificatePem string
+	Status           string
+	SetAsActive      bool
 }
 
 // UpdateCertificateInput is the input for UpdateCertificate.

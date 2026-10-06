@@ -40,7 +40,7 @@ func (h *S3Handler) putObjectTagging(
 		return
 	}
 
-	versionID := r.URL.Query().Get("versionId")
+	versionID := queryParam(r, "versionId")
 	var vid *string
 	if versionID != "" {
 		vid = aws.String(versionID)
@@ -67,7 +67,7 @@ func (h *S3Handler) getObjectTagging(
 	bucketName, key string,
 ) {
 	h.setOperation(ctx, "GetObjectTagging")
-	versionID := r.URL.Query().Get("versionId")
+	versionID := queryParam(r, "versionId")
 	var vid *string
 	if versionID != "" {
 		vid = aws.String(versionID)
@@ -104,7 +104,7 @@ func (h *S3Handler) deleteObjectTagging(
 	bucketName, key string,
 ) {
 	h.setOperation(ctx, "DeleteObjectTagging")
-	versionID := r.URL.Query().Get("versionId")
+	versionID := queryParam(r, "versionId")
 	var vid *string
 	if versionID != "" {
 		vid = aws.String(versionID)

@@ -68,9 +68,15 @@ func (h *Handler) handleCreateTrainingJobFull(ctx context.Context, body []byte) 
 		metrics[i] = MetricDefinition{Name: md.Name, Regex: md.Regex}
 	}
 
+	passthrough, err := trainingJobPassthroughConfigs(body)
+	if err != nil {
+		return nil, err
+	}
+
 	tj, err := h.Backend.CreateTrainingJobFull(ctx, TrainingJobOptions{
-		TrainingJobName: req.TrainingJobName,
-		RoleArn:         req.RoleArn,
+		PassthroughConfigs: passthrough,
+		TrainingJobName:    req.TrainingJobName,
+		RoleArn:            req.RoleArn,
 		AlgorithmSpecification: AlgorithmSpecification{
 			TrainingImage:                    req.AlgorithmSpecification.TrainingImage,
 			AlgorithmName:                    req.AlgorithmSpecification.AlgorithmName,
@@ -106,6 +112,36 @@ func (h *Handler) handleCreateTrainingJobFull(ctx context.Context, body []byte) 
 // describeTrainingJobInput mirrors DescribeTrainingJobInput (api_op_DescribeTrainingJob.go:29-36).
 type describeTrainingJobInput struct {
 	TrainingJobName string `json:"TrainingJobName"`
+}
+
+// trainingJobPassthroughKeys are CreateTrainingJob members stored verbatim and echoed by DescribeTrainingJob.
+func trainingJobPassthroughKeys() []string {
+	return []string{
+		"DebugHookConfig", "DebugRuleConfigurations", "ExperimentConfig", "InfraCheckConfig", "MlflowConfig",
+		"ModelPackageConfig", "ProfilerConfig", "ProfilerRuleConfigurations", "RemoteDebugConfig", "RetryStrategy",
+		"ServerlessJobConfig", "TensorBoardOutputConfig",
+	}
+}
+
+func trainingJobPassthroughConfigs(body []byte) (map[string]json.RawMessage, error) {
+	var all map[string]json.RawMessage
+	if err := json.Unmarshal(body, &all); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	var out map[string]json.RawMessage
+
+	for _, k := range trainingJobPassthroughKeys() {
+		if v, ok := all[k]; ok && string(v) != "null" {
+			if out == nil {
+				out = make(map[string]json.RawMessage)
+			}
+
+			out[k] = v
+		}
+	}
+
+	return out, nil
 }
 
 func (h *Handler) handleDescribeTrainingJobFull(ctx context.Context, body []byte) ([]byte, error) {
@@ -145,6 +181,9 @@ func (h *Handler) handleDescribeTrainingJobFull(ctx context.Context, body []byte
 }
 
 func addTrainingJobOptionalFields(resp map[string]any, tj *TrainingJob) {
+	for k, v := range tj.PassthroughConfigs {
+		resp[k] = v
+	}
 	if len(tj.InputDataConfig) > 0 {
 		resp["InputDataConfig"] = tj.InputDataConfig
 	}

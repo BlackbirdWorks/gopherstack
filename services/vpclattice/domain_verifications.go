@@ -87,7 +87,7 @@ func (b *InMemoryBackend) StartDomainVerification(
 	b.domainVerifications.Put(dv)
 	b.tags[dvARN] = copyTags(tags)
 
-	return dv.toDomainVerification(), nil
+	return dv.asDomainVerification(), nil
 }
 
 // GetDomainVerification returns a domain verification.
@@ -102,7 +102,7 @@ func (b *InMemoryBackend) GetDomainVerification(id string) (*DomainVerification,
 
 	dv, _ := b.domainVerifications.Get(dvID)
 
-	return dv.toDomainVerification(), nil
+	return dv.asDomainVerification(), nil
 }
 
 // DeleteDomainVerification deletes a domain verification.

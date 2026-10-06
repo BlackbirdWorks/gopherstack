@@ -50,7 +50,7 @@ type StorageBackend interface {
 		maxResults int,
 	) ([]Execution, string, error)
 	ListExecutionsByMapRun(
-		mapRunArn, statusFilter, nextToken string,
+		mapRunArn, statusFilter, redriveFilter, nextToken string,
 		maxResults int,
 	) ([]Execution, string, error)
 	GetExecutionHistory(

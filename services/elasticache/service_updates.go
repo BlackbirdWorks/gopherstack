@@ -2,6 +2,7 @@ package elasticache
 
 import (
 	"context"
+	"slices"
 	"sort"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -133,6 +134,7 @@ func newServiceUpdatePage(items []ServiceUpdate, marker string, maxRecords int) 
 // parameters as membership sets, built once per call by
 // newUpdateActionFilter.
 type updateActionFilter struct {
+	updateNames       map[string]bool
 	clusterIDs        map[string]bool
 	replicationGroups map[string]bool
 	statuses          map[string]bool
@@ -167,6 +169,9 @@ func newUpdateActionFilter(
 }
 
 func (f updateActionFilter) matches(a *UpdateAction) bool {
+	if f.updateNames != nil && !f.updateNames[a.ServiceUpdateName] {
+		return false
+	}
 	if f.serviceUpdateName != "" && a.ServiceUpdateName != f.serviceUpdateName {
 		return false
 	}
@@ -191,6 +196,33 @@ func (b *InMemoryBackend) DescribeUpdateActionsFull(
 	maxRecords int,
 	cacheClusterIDs, replicationGroupIDs, updateActionStatus []string,
 ) ([]UpdateAction, string, error) {
+	return b.describeUpdateActions(
+		serviceUpdateName, marker, maxRecords, cacheClusterIDs, replicationGroupIDs, updateActionStatus, nil,
+	)
+}
+
+// serviceUpdateNamesWithStatus returns the names of service updates in one of the given statuses, or nil for none.
+func serviceUpdateNamesWithStatus(statuses []string) map[string]bool {
+	if len(statuses) == 0 {
+		return nil
+	}
+
+	names := make(map[string]bool)
+
+	for _, su := range BuiltinServiceUpdates() {
+		if slices.Contains(statuses, su.Status) {
+			names[su.ServiceUpdateName] = true
+		}
+	}
+
+	return names
+}
+
+func (b *InMemoryBackend) describeUpdateActions(
+	serviceUpdateName, marker string,
+	maxRecords int,
+	cacheClusterIDs, replicationGroupIDs, updateActionStatus, serviceUpdateStatus []string,
+) ([]UpdateAction, string, error) {
 	b.mu.RLock("DescribeUpdateActionsFull")
 	defer b.mu.RUnlock()
 
@@ -199,6 +231,7 @@ func (b *InMemoryBackend) DescribeUpdateActionsFull(
 	}
 
 	filter := newUpdateActionFilter(serviceUpdateName, cacheClusterIDs, replicationGroupIDs, updateActionStatus)
+	filter.updateNames = serviceUpdateNamesWithStatus(serviceUpdateStatus)
 
 	all := make([]UpdateAction, 0, len(b.updateActions))
 	for _, a := range b.updateActions {
@@ -377,6 +410,24 @@ func (b *InMemoryBackend) DescribeServiceUpdates(
 	}
 
 	return page.Page[ServiceUpdate]{Data: data, Next: next}, nil
+}
+
+// DescribeUpdateActionsByServiceStatus is DescribeUpdateActions that also filters on the service update status.
+func (b *InMemoryBackend) DescribeUpdateActionsByServiceStatus(
+	_ context.Context,
+	serviceUpdateName, marker string,
+	maxRecords int,
+	cacheClusterIDs, replicationGroupIDs, updateActionStatus, serviceUpdateStatus []string,
+) (page.Page[UpdateAction], error) {
+	data, next, err := b.describeUpdateActions(
+		serviceUpdateName, marker, maxRecords, cacheClusterIDs, replicationGroupIDs, updateActionStatus,
+		serviceUpdateStatus,
+	)
+	if err != nil {
+		return page.Page[UpdateAction]{}, err
+	}
+
+	return page.Page[UpdateAction]{Data: data, Next: next}, nil
 }
 
 // DescribeUpdateActions returns update actions, filtered by service update name.

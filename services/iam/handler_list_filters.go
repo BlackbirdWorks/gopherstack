@@ -187,7 +187,7 @@ func (h *Handler) listPoliciesFiltered(vals url.Values, reqID string) (any, erro
 
 	xmlPolicies := make([]PolicyXML, 0, len(pg.Data))
 	for i := range pg.Data {
-		xmlPolicies = append(xmlPolicies, toPolicyXML(&pg.Data[i]))
+		xmlPolicies = append(xmlPolicies, toPolicyXML(&pg.Data[i], h.boundaryUsageCount(pg.Data[i].Arn)))
 	}
 
 	return &ListPoliciesResponse{

@@ -195,6 +195,7 @@ func (b *InMemoryBackend) PutKVSValue(kvsID, key, value, ifMatch string) (string
 	b.keyValueStoreData[kvsID][key] = value
 	newETag := uuid.NewString()
 	b.keyValueDataETags[kvsID] = newETag
+	b.touchKeyValueStoreLocked(kvsID)
 
 	return newETag, nil
 }
@@ -218,6 +219,7 @@ func (b *InMemoryBackend) DeleteKVSValue(kvsID, key, ifMatch string) (string, er
 	}
 	newETag := uuid.NewString()
 	b.keyValueDataETags[kvsID] = newETag
+	b.touchKeyValueStoreLocked(kvsID)
 
 	return newETag, nil
 }
@@ -274,8 +276,17 @@ func (b *InMemoryBackend) UpdateKVSValues(
 	}
 	newETag := uuid.NewString()
 	b.keyValueDataETags[kvsID] = newETag
+	b.touchKeyValueStoreLocked(kvsID)
 
 	return newETag, nil
+}
+
+// touchKeyValueStoreLocked advances LastModified, which the data-plane
+// DescribeKeyValueStore documents as the time the key value pairs last changed.
+func (b *InMemoryBackend) touchKeyValueStoreLocked(kvsID string) {
+	if kvs, ok := b.keyValueStores.Get(kvsID); ok {
+		kvs.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)
+	}
 }
 
 // --- VPC Origin CRUD ---

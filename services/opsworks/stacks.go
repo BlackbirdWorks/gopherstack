@@ -2,10 +2,13 @@ package opsworks
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 )
 
 // CreateStack creates a new OpsWorks stack. Name, Region,
@@ -92,11 +95,32 @@ func (b *InMemoryBackend) CloneStack(
 		cloneRegion = src.Region
 	}
 
+	var cloneApps []*storedApp
+
+	for _, appID := range opts.CloneAppIDs {
+		a, appOK := b.apps.Get(appID)
+		if !appOK {
+			return nil, ErrAppNotFound
+		}
+
+		if a.StackID != sourceStackID {
+			return nil, ErrValidation
+		}
+
+		cloneApps = append(cloneApps, a)
+	}
+
 	id := uuid.NewString()
 	now := time.Now().UTC()
 
+	attrs := opts.Attributes
+	if attrs == nil {
+		attrs = src.Attributes
+	}
+
 	s := &storedStack{
 		CreatedAt:            now,
+		Attributes:           maps.Clone(attrs),
 		ConfigurationManager: cloneStackConfigManager(opts.ConfigurationManager, src.ConfigurationManager),
 		ChefConfiguration:    cloneStackChefConfig(opts.ChefConfiguration, src.ChefConfiguration),
 		UseOpsworksSecurityGroups: cloneStackBoolOverride(
@@ -125,7 +149,47 @@ func (b *InMemoryBackend) CloneStack(
 	}
 	b.stacks.Put(s)
 
+	b.copyClonedStackMembers(id, sourceStackID, now, cloneApps, opts.ClonePermissions)
+
 	return s.toStack(), nil
+}
+
+// copyClonedStackMembers copies the selected apps and, when asked, the permissions into the cloned stack.
+func (b *InMemoryBackend) copyClonedStackMembers(
+	id, sourceStackID string, now time.Time, cloneApps []*storedApp, clonePermissions *bool,
+) {
+	for _, a := range cloneApps {
+		appID := uuid.NewString()
+		cp := &storedApp{
+			CreatedAt: now,
+			StackID:   id,
+			AppID:     appID,
+			Arn:       b.appARN(appID),
+			Name:      a.Name,
+			Type:      a.Type,
+		}
+
+		if a.Options != nil {
+			o := cloneAppOptions(*a.Options)
+			cp.Options = &o
+		}
+
+		b.apps.Put(cp)
+	}
+
+	if !ptrconv.Bool(clonePermissions) {
+		return
+	}
+
+	for _, p := range slices.Clone(b.permissionsByStack.Get(sourceStackID)) {
+		b.permissions.Put(&storedPermission{
+			StackID:    id,
+			IamUserArn: p.IamUserArn,
+			Level:      p.Level,
+			AllowSSH:   p.AllowSSH,
+			AllowSudo:  p.AllowSudo,
+		})
+	}
 }
 
 func cloneStackStringOverride(override, sourceValue string) string {

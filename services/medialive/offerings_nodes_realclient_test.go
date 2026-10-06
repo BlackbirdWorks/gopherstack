@@ -42,6 +42,11 @@ func TestListOfferings_RealClient_Filters(t *testing.T) {
 			wantIDs: []string{"87654321", "12345678", "11223344"},
 		},
 		{
+			name:    "channel class has no match",
+			input:   medialivesdk.ListOfferingsInput{ChannelClass: aws.String("STANDARD")},
+			wantIDs: []string{},
+		},
+		{
 			name:    "duration miss",
 			input:   medialivesdk.ListOfferingsInput{Duration: aws.String("36")},
 			wantIDs: []string{},

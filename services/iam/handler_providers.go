@@ -7,7 +7,10 @@ import (
 func (h *Handler) iamSAMLProviderDispatchTable() map[string]iamActionFn {
 	return map[string]iamActionFn{
 		"CreateSAMLProvider": func(vals url.Values, reqID string) (any, error) {
-			p, err := h.Backend.CreateSAMLProvider(vals.Get("Name"), vals.Get("SAMLMetadataDocument"))
+			p, err := h.Backend.CreateSAMLProviderWithEncryption(
+				vals.Get("Name"), vals.Get("SAMLMetadataDocument"),
+				vals.Get("AssertionEncryptionMode"), vals.Get("AddPrivateKey"),
+			)
 			if err != nil {
 				return nil, err
 			}
@@ -23,7 +26,10 @@ func (h *Handler) iamSAMLProviderDispatchTable() map[string]iamActionFn {
 			}, nil
 		},
 		"UpdateSAMLProvider": func(vals url.Values, reqID string) (any, error) {
-			p, err := h.Backend.UpdateSAMLProvider(vals.Get("SAMLProviderArn"), vals.Get("SAMLMetadataDocument"))
+			p, err := h.Backend.UpdateSAMLProviderWithEncryption(
+				vals.Get("SAMLProviderArn"), vals.Get("SAMLMetadataDocument"),
+				vals.Get("AssertionEncryptionMode"), vals.Get("AddPrivateKey"), vals.Get("RemovePrivateKey"),
+			)
 			if err != nil {
 				return nil, err
 			}
@@ -47,27 +53,7 @@ func (h *Handler) iamSAMLProviderDispatchTable() map[string]iamActionFn {
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
-		"GetSAMLProvider": func(vals url.Values, reqID string) (any, error) {
-			p, err := h.Backend.GetSAMLProvider(vals.Get("SAMLProviderArn"))
-			if err != nil {
-				return nil, err
-			}
-
-			var validUntil string
-			if !p.ValidUntil.IsZero() {
-				validUntil = isoTime(p.ValidUntil)
-			}
-
-			return &GetSAMLProviderResponse{
-				Xmlns: iamXMLNS,
-				GetSAMLProviderResult: GetSAMLProviderResult{
-					SAMLMetadataDocument: p.SAMLMetadataDocument,
-					CreateDate:           isoTime(p.CreateDate),
-					ValidUntil:           validUntil,
-				},
-				ResponseMetadata: ResponseMetadata{RequestID: reqID},
-			}, nil
-		},
+		"GetSAMLProvider": h.handleGetSAMLProvider,
 		"ListSAMLProviders": func(_ url.Values, reqID string) (any, error) {
 			providers, err := h.Backend.ListSAMLProviders()
 			if err != nil {
@@ -160,6 +146,7 @@ func (h *Handler) iamOIDCProviderDispatchTable() map[string]iamActionFn {
 					ClientIDList:   p.ClientIDList,
 					ThumbprintList: p.ThumbprintList,
 					CreateDate:     isoTime(p.CreateDate),
+					Tags:           tagsToXML(h.getTags("oidc:" + p.Arn)),
 				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
@@ -318,4 +305,39 @@ func (h *Handler) iamOIDCTagDispatch() map[string]iamActionFn {
 // iamSAMLTagDispatch returns the tag dispatch entries for SAML providers.
 func (h *Handler) iamSAMLTagDispatch() map[string]iamActionFn {
 	return h.resourceTagDispatch("SAMLProvider", "saml:", "SAMLProviderArn")
+}
+
+func samlPrivateKeysXML(keys []SAMLPrivateKey) []SAMLPrivateKeyXML {
+	out := make([]SAMLPrivateKeyXML, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, SAMLPrivateKeyXML{KeyID: k.KeyID, Timestamp: isoTime(k.Timestamp)})
+	}
+
+	return out
+}
+
+func (h *Handler) handleGetSAMLProvider(vals url.Values, reqID string) (any, error) {
+	p, err := h.Backend.GetSAMLProvider(vals.Get("SAMLProviderArn"))
+	if err != nil {
+		return nil, err
+	}
+
+	var validUntil string
+	if !p.ValidUntil.IsZero() {
+		validUntil = isoTime(p.ValidUntil)
+	}
+
+	return &GetSAMLProviderResponse{
+		Xmlns: iamXMLNS,
+		GetSAMLProviderResult: GetSAMLProviderResult{
+			SAMLMetadataDocument:    p.SAMLMetadataDocument,
+			CreateDate:              isoTime(p.CreateDate),
+			ValidUntil:              validUntil,
+			SAMLProviderUUID:        p.SAMLProviderUUID,
+			AssertionEncryptionMode: p.AssertionEncryption,
+			Tags:                    tagsToXML(h.getTags("saml:" + p.Arn)),
+			PrivateKeyList:          samlPrivateKeysXML(p.PrivateKeys),
+		},
+		ResponseMetadata: ResponseMetadata{RequestID: reqID},
+	}, nil
 }

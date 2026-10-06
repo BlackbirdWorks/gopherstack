@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"sort"
 	"strings"
 	"time"
 
@@ -146,6 +147,8 @@ func (b *InMemoryBackend) ListEmailTemplates(
 		cp := *t
 		items = append(items, &cp)
 	}
+
+	sort.Slice(items, func(i, j int) bool { return items[i].TemplateName < items[j].TemplateName })
 
 	return page.New(items, nextToken, pageSize, sesv2DefaultMaxItems)
 }

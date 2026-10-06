@@ -124,7 +124,14 @@ func (h *Handler) handleCreatePullRequest(body []byte) (any, error) {
 		})
 	}
 
-	pr, err := h.Backend.CreatePullRequest(in.Title, in.Description, in.ClientRequestToken, targets)
+	pr, err := replayCreate(
+		h, "CreatePullRequest", in.ClientRequestToken, in,
+		func(p *PullRequest) string { return p.PullRequestID },
+		h.Backend.GetPullRequest,
+		func() (*PullRequest, error) {
+			return h.Backend.CreatePullRequest(in.Title, in.Description, in.ClientRequestToken, targets)
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -184,7 +191,10 @@ func (h *Handler) handleListPullRequests(body []byte) (any, error) {
 	}
 
 	// Apply pagination.
-	ids, nextToken := paginateStrings(ids, in.NextToken, in.MaxResults)
+	ids, nextToken, pageErr := paginateSlice(ids, in.NextToken, in.MaxResults)
+	if pageErr != nil {
+		return nil, pageErr
+	}
 
 	resp := map[string]any{
 		"pullRequestIds": ids,

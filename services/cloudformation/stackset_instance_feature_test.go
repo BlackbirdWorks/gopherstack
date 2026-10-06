@@ -136,6 +136,7 @@ func TestStackSetOperationResults(t *testing.T) {
 				opsPage.Data[0].OperationID,
 				0,
 				"",
+				nil,
 			)
 			require.NoError(t, err)
 			assert.Len(t, results.Data, tc.wantResultN)

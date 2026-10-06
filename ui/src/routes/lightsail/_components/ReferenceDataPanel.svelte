@@ -28,11 +28,11 @@
 		type LightsailClient
 	} from '@aws-sdk/client-lightsail';
 	import { toast } from 'svelte-sonner';
-	import { onRegionChange } from '$lib/region-effect.svelte';
-	import DataTable from '$lib/components/DataTable.svelte';
-	import { defineColumns } from '$lib/components/data-table';
-	import Tabs from '$lib/components/Tabs.svelte';
-	import type { Tab as TabDef } from '$lib/components/Tabs.svelte';
+	import { onRegionChange } from '#lib/region-effect.svelte.ts';
+	import DataTable from '#lib/components/DataTable.svelte';
+	import { defineColumns } from '#lib/components/data-table.ts';
+	import Tabs from '#lib/components/Tabs.svelte';
+	import type { Tab as TabDef } from '#lib/components/Tabs.svelte';
 	import { describeError } from './shared';
 
 	type Props = {

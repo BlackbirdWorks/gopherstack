@@ -5,6 +5,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -34,7 +35,12 @@ func (b *InMemoryBackend) CreateWorkspacesPool(
 	poolName, bundleID, directoryID, description, runningMode string,
 	desiredUserSessions int32,
 	tags map[string]string,
+	settings PoolSettings,
 ) (*storedPool, error) {
+	if err := validatePoolSettings(settings); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateWorkspacesPool")
 	defer b.mu.Unlock()
 
@@ -62,6 +68,7 @@ func (b *InMemoryBackend) CreateWorkspacesPool(
 		CreatedAt:           time.Now().UTC(),
 		Tags:                stored,
 	}
+	applyPoolSettings(pool, settings)
 	b.pools.Put(pool)
 	b.tags[id] = stored
 
@@ -72,6 +79,17 @@ func (b *InMemoryBackend) CreateWorkspacesPool(
 func (b *InMemoryBackend) DescribeWorkspacesPools(
 	poolIDs []string, limit int32, nextToken string,
 ) ([]*storedPool, string, error) {
+	return b.DescribeWorkspacesPoolsFiltered(poolIDs, nil, limit, nextToken)
+}
+
+// DescribeWorkspacesPoolsFiltered is DescribeWorkspacesPools narrowed by PoolName filter conditions.
+func (b *InMemoryBackend) DescribeWorkspacesPoolsFiltered(
+	poolIDs []string, filters []PoolFilter, limit int32, nextToken string,
+) ([]*storedPool, string, error) {
+	if err := validatePoolFilters(filters); err != nil {
+		return nil, "", err
+	}
+
 	b.mu.RLock("DescribeWorkspacesPools")
 	defer b.mu.RUnlock()
 
@@ -83,7 +101,7 @@ func (b *InMemoryBackend) DescribeWorkspacesPools(
 	result := make([]*storedPool, 0, len(all))
 
 	for _, p := range all {
-		if !matchesFilter(filter, p.PoolID) {
+		if !matchesFilter(filter, p.PoolID) || !poolMatchesFilters(p, filters) {
 			continue
 		}
 
@@ -146,7 +164,12 @@ func (b *InMemoryBackend) TerminateWorkspacesPool(poolID string) error {
 func (b *InMemoryBackend) UpdateWorkspacesPool(
 	poolID, description, bundleID, directoryID, runningMode string,
 	desiredUserSessions int32,
+	settings PoolSettings,
 ) (*storedPool, error) {
+	if err := validatePoolSettings(settings); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("UpdateWorkspacesPool")
 	defer b.mu.Unlock()
 
@@ -178,6 +201,8 @@ func (b *InMemoryBackend) UpdateWorkspacesPool(
 	if desiredUserSessions != 0 {
 		p.DesiredUserSessions = desiredUserSessions
 	}
+
+	applyPoolSettings(p, settings)
 
 	cp := *p
 
@@ -223,4 +248,41 @@ func (b *InMemoryBackend) TerminateWorkspacesPoolSession(sessionID string) error
 	b.poolSessions.Delete(sessionID)
 
 	return nil
+}
+
+func validatePoolSettings(s PoolSettings) error {
+	if a := s.ApplicationSettings; a != nil && a.Status != "ENABLED" && a.Status != "DISABLED" {
+		return awserr.Newf("invalid ApplicationSettings.Status: %q", awserr.ErrInvalidParameter, a.Status)
+	}
+
+	return nil
+}
+
+// applyPoolSettings merges the set members into p; unset members keep their value.
+func applyPoolSettings(p *storedPool, s PoolSettings) {
+	if s.ApplicationSettings != nil {
+		a := *s.ApplicationSettings
+		p.ApplicationSettings = &a
+	}
+
+	if t := s.TimeoutSettings; t != nil {
+		merged := PoolTimeoutSettings{}
+		if p.TimeoutSettings != nil {
+			merged = *p.TimeoutSettings
+		}
+
+		if t.DisconnectTimeoutInSeconds != nil {
+			merged.DisconnectTimeoutInSeconds = t.DisconnectTimeoutInSeconds
+		}
+
+		if t.IdleDisconnectTimeoutInSeconds != nil {
+			merged.IdleDisconnectTimeoutInSeconds = t.IdleDisconnectTimeoutInSeconds
+		}
+
+		if t.MaxUserDurationInSeconds != nil {
+			merged.MaxUserDurationInSeconds = t.MaxUserDurationInSeconds
+		}
+
+		p.TimeoutSettings = &merged
+	}
 }

@@ -58,7 +58,7 @@ func newPrimaryDeployment(svc *Service) Deployment {
 		Status:             deploymentStatusPrimary,
 		TaskDefinition:     svc.TaskDefinition,
 		LaunchType:         svc.LaunchType,
-		PlatformVersion:    platformVersionLatest,
+		PlatformVersion:    deploymentPlatformVersion(svc),
 		RolloutState:       deploymentRolloutStateInProgress,
 		RolloutStateReason: "ECS deployment ecs-svc created.",
 		ServiceRevisionArn: serviceRevisionArnFor(svc, revisionID),
@@ -66,6 +66,14 @@ func newPrimaryDeployment(svc *Service) Deployment {
 		CreatedAt:          &now,
 		UpdatedAt:          &now,
 	}
+}
+
+func deploymentPlatformVersion(svc *Service) string {
+	if svc.PlatformVersion != "" {
+		return svc.PlatformVersion
+	}
+
+	return platformVersionLatest
 }
 
 // newActiveDeployment builds a new primary deployment on service update.
@@ -79,7 +87,7 @@ func newActiveDeployment(svc *Service) Deployment {
 		Status:             deploymentStatusPrimary,
 		TaskDefinition:     svc.TaskDefinition,
 		LaunchType:         svc.LaunchType,
-		PlatformVersion:    platformVersionLatest,
+		PlatformVersion:    deploymentPlatformVersion(svc),
 		RolloutState:       deploymentRolloutStateInProgress,
 		RolloutStateReason: "ECS deployment ecs-svc created.",
 		ServiceRevisionArn: serviceRevisionArnFor(svc, revisionID),
@@ -201,6 +209,10 @@ func (b *InMemoryBackend) CreateService(input CreateServiceInput) (*Service, err
 		return nil, fmt.Errorf("%w: taskDefinition is required", ErrInvalidParameter)
 	}
 
+	if err := validatePlatformVersion(input.PlatformVersion); err != nil {
+		return nil, err
+	}
+
 	clusterName := clusterKey(b.resolveCluster(input.Cluster))
 
 	b.mu.Lock("CreateService")
@@ -215,6 +227,13 @@ func (b *InMemoryBackend) CreateService(input CreateServiceInput) (*Service, err
 	// block re-creation under the same name.
 	if existing, ok := b.services.Get(scopedKey(clusterName, input.ServiceName)); ok &&
 		existing.Status != statusInactive {
+		if input.ClientToken != "" && existing.ClientToken == input.ClientToken {
+			cp := *existing
+			cp.Tags = copyTags(b.resourceTags[resourceTagKey(existing.ServiceArn)])
+
+			return &cp, nil
+		}
+
 		return nil, fmt.Errorf("%w: service %s already exists", ErrInvalidParameter, input.ServiceName)
 	}
 
@@ -227,45 +246,7 @@ func (b *InMemoryBackend) CreateService(input CreateServiceInput) (*Service, err
 		return nil, err
 	}
 
-	launchType, schedulingStrategy, propagateTags, azRebalancing := createServiceDefaults(input)
-
-	svc := &Service{
-		CreatedAt: time.Now(),
-		ServiceArn: fmt.Sprintf(
-			"arn:aws:ecs:%s:%s:service/%s/%s",
-			b.region,
-			b.accountID,
-			clusterName,
-			input.ServiceName,
-		),
-		ServiceName: input.ServiceName,
-		ClusterArn: arn.Build(
-			"ecs",
-			b.region,
-			b.accountID,
-			fmt.Sprintf("cluster/%s", clusterName),
-		),
-		TaskDefinition:                taskDefinitionArn,
-		Status:                        statusActive,
-		LaunchType:                    launchType,
-		SchedulingStrategy:            schedulingStrategy,
-		PropagateTags:                 propagateTags,
-		AvailabilityZoneRebalancing:   azRebalancing,
-		Tags:                          input.Tags,
-		LoadBalancers:                 input.LoadBalancers,
-		ServiceRegistries:             input.ServiceRegistries,
-		DeploymentConfiguration:       input.DeploymentConfiguration.withAWSDefaults(),
-		DeploymentController:          input.DeploymentController,
-		NetworkConfiguration:          input.NetworkConfiguration,
-		CapacityProviderStrategy:      input.CapacityProviderStrategy,
-		PlacementConstraints:          input.PlacementConstraints,
-		PlacementStrategy:             input.PlacementStrategy,
-		ServiceConnectConfiguration:   input.ServiceConnectConfiguration,
-		HealthCheckGracePeriodSeconds: healthCheckGracePeriodOrDefault(input.HealthCheckGracePeriodSeconds),
-		Monitoring:                    input.Monitoring,
-		DesiredCount:                  input.DesiredCount,
-		EnableExecuteCommand:          input.EnableExecuteCommand,
-	}
+	svc := b.newServiceLocked(clusterName, input, taskDefinitionArn)
 
 	svc.Deployments = []Deployment{newPrimaryDeployment(svc)}
 
@@ -288,6 +269,57 @@ func (b *InMemoryBackend) CreateService(input CreateServiceInput) (*Service, err
 	cp.Tags = copyTags(b.resourceTags[resourceTagKey(svc.ServiceArn)])
 
 	return &cp, nil
+}
+
+// newServiceLocked builds the Service record for CreateService.
+func (b *InMemoryBackend) newServiceLocked(
+	clusterName string,
+	input CreateServiceInput,
+	taskDefinitionArn string,
+) *Service {
+	launchType, schedulingStrategy, propagateTags, azRebalancing := createServiceDefaults(input)
+
+	return &Service{
+		CreatedAt: time.Now(),
+		ServiceArn: fmt.Sprintf(
+			"arn:aws:ecs:%s:%s:service/%s/%s",
+			b.region,
+			b.accountID,
+			clusterName,
+			input.ServiceName,
+		),
+		ServiceName: input.ServiceName,
+		ClusterArn: arn.Build(
+			"ecs",
+			b.region,
+			b.accountID,
+			fmt.Sprintf("cluster/%s", clusterName),
+		),
+		TaskDefinition:                taskDefinitionArn,
+		Status:                        statusActive,
+		LaunchType:                    launchType,
+		SchedulingStrategy:            schedulingStrategy,
+		PropagateTags:                 propagateTags,
+		AvailabilityZoneRebalancing:   azRebalancing,
+		PlatformVersion:               input.PlatformVersion,
+		RoleArn:                       input.RoleArn,
+		ClientToken:                   input.ClientToken,
+		EnableECSManagedTags:          input.EnableECSManagedTags,
+		Tags:                          input.Tags,
+		LoadBalancers:                 input.LoadBalancers,
+		ServiceRegistries:             input.ServiceRegistries,
+		DeploymentConfiguration:       input.DeploymentConfiguration.withAWSDefaults(),
+		DeploymentController:          input.DeploymentController,
+		NetworkConfiguration:          input.NetworkConfiguration,
+		CapacityProviderStrategy:      input.CapacityProviderStrategy,
+		PlacementConstraints:          input.PlacementConstraints,
+		PlacementStrategy:             input.PlacementStrategy,
+		ServiceConnectConfiguration:   input.ServiceConnectConfiguration,
+		HealthCheckGracePeriodSeconds: healthCheckGracePeriodOrDefault(input.HealthCheckGracePeriodSeconds),
+		Monitoring:                    input.Monitoring,
+		DesiredCount:                  input.DesiredCount,
+		EnableExecuteCommand:          input.EnableExecuteCommand,
+	}
 }
 
 // DescribeServices returns services for the given cluster, optionally filtered by name.
@@ -476,6 +508,18 @@ func applyServiceConfigUpdates(svc *Service, input UpdateServiceInput) {
 		svc.LoadBalancers = input.LoadBalancers
 	}
 
+	if len(input.ServiceRegistries) > 0 {
+		svc.ServiceRegistries = input.ServiceRegistries
+	}
+
+	if input.PlatformVersion != "" {
+		svc.PlatformVersion = input.PlatformVersion
+	}
+
+	if input.EnableECSManagedTags != nil {
+		svc.EnableECSManagedTags = *input.EnableECSManagedTags
+	}
+
 	if input.EnableExecuteCommand != nil {
 		svc.EnableExecuteCommand = *input.EnableExecuteCommand
 	}
@@ -516,6 +560,10 @@ func (b *InMemoryBackend) UpdateService(input UpdateServiceInput) (*Service, err
 		return nil, fmt.Errorf("%w: service is required", ErrInvalidParameter)
 	}
 
+	if err := validatePlatformVersion(input.PlatformVersion); err != nil {
+		return nil, err
+	}
+
 	clusterName := clusterKey(b.resolveCluster(input.Cluster))
 	serviceKey := serviceKey(input.Service)
 
@@ -541,7 +589,7 @@ func (b *InMemoryBackend) UpdateService(input UpdateServiceInput) (*Service, err
 		svc.DesiredCount = *input.DesiredCount
 	}
 
-	newTaskDef := false
+	rotateDeployment := false
 
 	if input.TaskDefinition != nil {
 		td, err := b.findTaskDefinitionLocked(*input.TaskDefinition)
@@ -550,14 +598,19 @@ func (b *InMemoryBackend) UpdateService(input UpdateServiceInput) (*Service, err
 		}
 
 		svc.TaskDefinition = td.TaskDefinitionArn
-		newTaskDef = true
+		rotateDeployment = true
 	}
 
 	// UpdateServiceInput.ForceNewDeployment's own doc comment: "you can use
 	// this option to start a new deployment with no service definition
 	// changes" -- so a deployment must be rotated even when TaskDefinition
 	// wasn't itself changed, reusing the service's current one.
-	if newTaskDef || input.ForceNewDeployment {
+	if input.PlatformVersion != "" && input.PlatformVersion != svc.PlatformVersion {
+		svc.PlatformVersion = input.PlatformVersion
+		rotateDeployment = true
+	}
+
+	if rotateDeployment || input.ForceNewDeployment {
 		// Create a new PRIMARY deployment and demote the old one to ACTIVE.
 		svc.Deployments = rotatePrimaryDeployment(svc)
 	}
@@ -757,7 +810,8 @@ func (b *InMemoryBackend) StartTaskForService(
 	// Snapshot service config without holding the lock during RunTask.
 	var svcPropagateTags string
 	var svcTags []Tag
-	var svcEnableExec bool
+	var svcEnableExec, svcManagedTags bool
+	var svcPlatformVersion string
 	var svcLaunchType string
 	var svcPlacementConstraints []PlacementConstraint
 	var svcPlacementStrategy []PlacementStrategy
@@ -775,6 +829,8 @@ func (b *InMemoryBackend) StartTaskForService(
 			// after creation, not just the tags supplied at CreateService time.
 			svcTags = copyTags(b.resourceTags[resourceTagKey(svc.ServiceArn)])
 			svcEnableExec = svc.EnableExecuteCommand
+			svcManagedTags = svc.EnableECSManagedTags
+			svcPlatformVersion = svc.PlatformVersion
 			svcLaunchType = svc.LaunchType
 			svcPlacementConstraints = svc.PlacementConstraints
 			svcPlacementStrategy = svc.PlacementStrategy
@@ -791,6 +847,8 @@ func (b *InMemoryBackend) StartTaskForService(
 		serviceNameForTags:      serviceName,
 		serviceTagsForPropagate: svcTags,
 		EnableExecuteCommand:    svcEnableExec,
+		EnableECSManagedTags:    svcManagedTags,
+		PlatformVersion:         svcPlatformVersion,
 		PlacementConstraints:    svcPlacementConstraints,
 		PlacementStrategy:       svcPlacementStrategy,
 	})

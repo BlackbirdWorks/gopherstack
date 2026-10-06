@@ -105,6 +105,7 @@ func (h *Handler) handleDescribeStackRefactor(form url.Values, c *echo.Context) 
 		StackRefactorID string `xml:"StackRefactorId"`
 		Description     string `xml:"Description,omitempty"`
 		Status          string `xml:"Status"`
+		ExecutionStatus string `xml:"ExecutionStatus"`
 	}
 	type response struct {
 		XMLName   xml.Name `xml:"DescribeStackRefactorResponse"`
@@ -113,6 +114,8 @@ func (h *Handler) handleDescribeStackRefactor(form url.Values, c *echo.Context) 
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
 
+	status, execStatus := r.statuses()
+
 	return writeXML(
 		c,
 		response{
@@ -120,7 +123,8 @@ func (h *Handler) handleDescribeStackRefactor(form url.Values, c *echo.Context) 
 			Result: result{
 				StackRefactorID: r.RefactorID,
 				Description:     r.Description,
-				Status:          r.Status,
+				Status:          status,
+				ExecutionStatus: execStatus,
 			},
 			RequestID: uuid.New().String(),
 		},
@@ -146,7 +150,9 @@ func (h *Handler) handleExecuteStackRefactor(form url.Values, c *echo.Context) e
 }
 
 func (h *Handler) handleListStackRefactors(form url.Values, c *echo.Context) error {
-	p, _ := h.Backend.ListStackRefactors(parseFormMaxResults(form), form.Get("NextToken"))
+	p, _ := h.Backend.ListStackRefactorsFiltered(
+		parseFormMaxResults(form), form.Get("NextToken"), parseMemberList(form, "ExecutionStatusFilter."),
+	)
 	type result struct {
 		NextToken              string                 `xml:"NextToken,omitempty"`
 		StackRefactorSummaries []StackRefactorSummary `xml:"StackRefactorSummaries>member"`

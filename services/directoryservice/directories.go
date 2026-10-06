@@ -434,6 +434,7 @@ func (b *InMemoryBackend) GetDirectoryLimits(ctx context.Context) *DirectoryLimi
 func (b *InMemoryBackend) CreateComputer(
 	ctx context.Context,
 	directoryID, computerName, _ string,
+	attributes []ComputerAttribute,
 ) (*ComputerInfo, error) {
 	region := getRegion(ctx, b.region)
 
@@ -451,6 +452,7 @@ func (b *InMemoryBackend) CreateComputer(
 	return &ComputerInfo{
 		ComputerID:   fmt.Sprintf("CN=%s,OU=Computers", computerName),
 		ComputerName: computerName,
+		Attributes:   attributes,
 	}, nil
 }
 

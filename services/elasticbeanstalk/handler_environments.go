@@ -164,6 +164,7 @@ func (h *Handler) handleCreateEnvironment(ctx context.Context, vals url.Values) 
 		InstanceProfile:  instanceProfile,
 		CustomAMI:        customAMI,
 		OptionSettings:   optionSettings,
+		OptionsToRemove:  parseOptionSettings(vals, "OptionsToRemove.member"),
 	}
 
 	env, err := h.Backend.CreateEnvironment(ctx, appName, envName, solutionStack, description, tags, params)
@@ -443,6 +444,17 @@ func (h *Handler) resolveSingleEnvironment(ctx context.Context, vals url.Values)
 	return envs[0], nil
 }
 
+// checkOptionalEnvironment resolves EnvironmentName/EnvironmentId only when one is supplied.
+func (h *Handler) checkOptionalEnvironment(ctx context.Context, vals url.Values) error {
+	if vals.Get("EnvironmentName") == "" && vals.Get("EnvironmentId") == "" {
+		return nil
+	}
+
+	_, err := h.resolveSingleEnvironment(ctx, vals)
+
+	return err
+}
+
 func (h *Handler) handleDescribeEnvironmentResources(ctx context.Context, vals url.Values) (any, error) {
 	env, err := h.resolveSingleEnvironment(ctx, vals)
 	if err != nil {
@@ -481,7 +493,11 @@ type restartAppServerResponse struct {
 
 // handleRestartAppServer signals a restart of the application servers for an environment.
 // Real AWS triggers an in-place rolling restart; the stub is a no-op that returns 200.
-func (h *Handler) handleRestartAppServer(_ context.Context, _ url.Values) (any, error) {
+func (h *Handler) handleRestartAppServer(ctx context.Context, vals url.Values) (any, error) {
+	if err := h.checkOptionalEnvironment(ctx, vals); err != nil {
+		return nil, err
+	}
+
 	return &restartAppServerResponse{
 		Xmlns:            ebXMLNS,
 		ResponseMetadata: responseMetadata{RequestID: "eb-restart-app-server"},
@@ -497,7 +513,11 @@ type rebuildEnvironmentResponse struct {
 
 // handleRebuildEnvironment triggers a full environment rebuild.
 // Real AWS terminates and relaunches the environment; the stub is a no-op that returns 200.
-func (h *Handler) handleRebuildEnvironment(_ context.Context, _ url.Values) (any, error) {
+func (h *Handler) handleRebuildEnvironment(ctx context.Context, vals url.Values) (any, error) {
+	if err := h.checkOptionalEnvironment(ctx, vals); err != nil {
+		return nil, err
+	}
+
 	return &rebuildEnvironmentResponse{
 		Xmlns:            ebXMLNS,
 		ResponseMetadata: responseMetadata{RequestID: "eb-rebuild-environment"},
@@ -512,7 +532,11 @@ type abortEnvironmentUpdateResponse struct {
 }
 
 // handleAbortEnvironmentUpdate aborts an in-progress environment configuration update.
-func (h *Handler) handleAbortEnvironmentUpdate(_ context.Context, _ url.Values) (any, error) {
+func (h *Handler) handleAbortEnvironmentUpdate(ctx context.Context, vals url.Values) (any, error) {
+	if err := h.checkOptionalEnvironment(ctx, vals); err != nil {
+		return nil, err
+	}
+
 	return &abortEnvironmentUpdateResponse{
 		Xmlns:            ebXMLNS,
 		ResponseMetadata: responseMetadata{RequestID: "eb-abort-env-update"},

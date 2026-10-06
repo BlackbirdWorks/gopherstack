@@ -2948,6 +2948,7 @@ type OfferingResourceSpecification struct {
 	MaximumBitrate   string `json:"maximumBitrate"`
 	MaximumFramerate string `json:"maximumFramerate"`
 	Codec            string `json:"codec"`
+	ChannelClass     string `json:"channelClass,omitempty"`
 }
 
 // Offering is a pre-defined reserved resource listing from the MediaLive catalog.

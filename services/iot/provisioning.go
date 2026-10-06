@@ -130,21 +130,67 @@ func (b *InMemoryBackend) DeleteRoleAlias(alias string) error {
 
 // DomainConfiguration represents an IoT domain configuration.
 type DomainConfiguration struct {
-	Tags                      map[string]string `json:"tags,omitempty"`
-	DomainConfigurationName   string            `json:"domainConfigurationName"`
-	DomainConfigurationARN    string            `json:"domainConfigurationArn"`
-	DomainName                string            `json:"domainName,omitempty"`
-	ServiceType               string            `json:"serviceType,omitempty"`
-	DomainConfigurationStatus string            `json:"domainConfigurationStatus"`
-	DomainType                string            `json:"domainType,omitempty"`
-	ApplicationProtocol       string            `json:"applicationProtocol,omitempty"`
-	AuthenticationType        string            `json:"authenticationType,omitempty"`
-	CreationDate              float64           `json:"creationDate,omitempty"`
-	LastModifiedDate          float64           `json:"lastModifiedDate,omitempty"`
+	Tags                      map[string]string              `json:"tags,omitempty"`
+	AuthorizerConfig          *DomainAuthorizerConfig        `json:"authorizerConfig,omitempty"`
+	ClientCertificateConfig   *DomainClientCertificateConfig `json:"clientCertificateConfig,omitempty"`
+	ServerCertificateConfig   *DomainServerCertificateConfig `json:"serverCertificateConfig,omitempty"`
+	TLSConfig                 *DomainTLSConfig               `json:"tlsConfig,omitempty"`
+	DomainConfigurationName   string                         `json:"domainConfigurationName"`
+	DomainConfigurationARN    string                         `json:"domainConfigurationArn"`
+	DomainName                string                         `json:"domainName,omitempty"`
+	ServiceType               string                         `json:"serviceType,omitempty"`
+	DomainConfigurationStatus string                         `json:"domainConfigurationStatus"`
+	DomainType                string                         `json:"domainType,omitempty"`
+	ApplicationProtocol       string                         `json:"applicationProtocol,omitempty"`
+	AuthenticationType        string                         `json:"authenticationType,omitempty"`
+	CreationDate              float64                        `json:"creationDate,omitempty"`
+	LastModifiedDate          float64                        `json:"lastModifiedDate,omitempty"`
+}
+
+// DomainAuthorizerConfig mirrors types.AuthorizerConfig.
+type DomainAuthorizerConfig struct {
+	AllowAuthorizerOverride *bool  `json:"allowAuthorizerOverride,omitempty"`
+	DefaultAuthorizerName   string `json:"defaultAuthorizerName,omitempty"`
+}
+
+// DomainClientCertificateConfig mirrors types.ClientCertificateConfig.
+type DomainClientCertificateConfig struct {
+	ClientCertificateCallbackArn string `json:"clientCertificateCallbackArn,omitempty"`
+}
+
+// DomainServerCertificateConfig mirrors types.ServerCertificateConfig.
+type DomainServerCertificateConfig struct {
+	EnableOCSPCheck            *bool  `json:"enableOCSPCheck,omitempty"`
+	OcspAuthorizedResponderArn string `json:"ocspAuthorizedResponderArn,omitempty"`
+	OcspLambdaArn              string `json:"ocspLambdaArn,omitempty"`
+}
+
+// DomainTLSConfig mirrors types.TlsConfig.
+type DomainTLSConfig struct {
+	SecurityPolicy string `json:"securityPolicy,omitempty"`
 }
 
 func cloneDomainConfig(dc *DomainConfiguration) *DomainConfiguration {
 	cp := *dc
+	if dc.AuthorizerConfig != nil {
+		v := *dc.AuthorizerConfig
+		cp.AuthorizerConfig = &v
+	}
+
+	if dc.ClientCertificateConfig != nil {
+		v := *dc.ClientCertificateConfig
+		cp.ClientCertificateConfig = &v
+	}
+
+	if dc.ServerCertificateConfig != nil {
+		v := *dc.ServerCertificateConfig
+		cp.ServerCertificateConfig = &v
+	}
+
+	if dc.TLSConfig != nil {
+		v := *dc.TLSConfig
+		cp.TLSConfig = &v
+	}
 
 	return &cp
 }
@@ -155,13 +201,29 @@ func (b *InMemoryBackend) domainConfigARN(name string) string {
 
 // CreateDomainConfigurationInput holds input for CreateDomainConfiguration.
 type CreateDomainConfigurationInput struct {
-	DomainConfigurationName string `json:"domainConfigurationName"`
-	DomainName              string `json:"domainName,omitempty"`
-	ServiceType             string `json:"serviceType,omitempty"`
-	ApplicationProtocol     string `json:"applicationProtocol,omitempty"`
-	AuthenticationType      string `json:"authenticationType,omitempty"`
+	AuthorizerConfig        *DomainAuthorizerConfig        `json:"authorizerConfig,omitempty"`
+	ClientCertificateConfig *DomainClientCertificateConfig `json:"clientCertificateConfig,omitempty"`
+	ServerCertificateConfig *DomainServerCertificateConfig `json:"serverCertificateConfig,omitempty"`
+	TLSConfig               *DomainTLSConfig               `json:"tlsConfig,omitempty"`
+	DomainConfigurationName string                         `json:"domainConfigurationName"`
+	DomainName              string                         `json:"domainName,omitempty"`
+	ServiceType             string                         `json:"serviceType,omitempty"`
+	ApplicationProtocol     string                         `json:"applicationProtocol,omitempty"`
+	AuthenticationType      string                         `json:"authenticationType,omitempty"`
 	// []types.Tag on the wire, not a map (serializers.go:2450, aws-sdk-go-v2/service/iot@v1.77.4).
 	Tags []tags.KV `json:"tags,omitempty"`
+}
+
+// UpdateDomainConfigurationInput holds input for UpdateDomainConfiguration.
+type UpdateDomainConfigurationInput struct {
+	AuthorizerConfig          *DomainAuthorizerConfig        `json:"authorizerConfig"`
+	ClientCertificateConfig   *DomainClientCertificateConfig `json:"clientCertificateConfig"`
+	ServerCertificateConfig   *DomainServerCertificateConfig `json:"serverCertificateConfig"`
+	TLSConfig                 *DomainTLSConfig               `json:"tlsConfig"`
+	DomainConfigurationStatus string                         `json:"domainConfigurationStatus"`
+	ApplicationProtocol       string                         `json:"applicationProtocol"`
+	AuthenticationType        string                         `json:"authenticationType"`
+	RemoveAuthorizerConfig    bool                           `json:"removeAuthorizerConfig"`
 }
 
 func (b *InMemoryBackend) CreateDomainConfiguration(
@@ -189,6 +251,10 @@ func (b *InMemoryBackend) CreateDomainConfiguration(
 		Tags:                      tags.MapFromKV(input.Tags),
 		CreationDate:              now,
 		LastModifiedDate:          now,
+		AuthorizerConfig:          input.AuthorizerConfig,
+		ClientCertificateConfig:   input.ClientCertificateConfig,
+		ServerCertificateConfig:   input.ServerCertificateConfig,
+		TLSConfig:                 input.TLSConfig,
 	}
 	if dc.ServiceType == "" {
 		dc.ServiceType = "DATA"
@@ -224,8 +290,12 @@ func (b *InMemoryBackend) ListDomainConfigurations() []*DomainConfiguration {
 }
 
 func (b *InMemoryBackend) UpdateDomainConfiguration(
-	name, status, applicationProtocol, authenticationType string,
+	name string, in *UpdateDomainConfigurationInput,
 ) (*DomainConfiguration, error) {
+	if in.RemoveAuthorizerConfig && in.AuthorizerConfig != nil {
+		return nil, fmt.Errorf("%w: removeAuthorizerConfig can't be set with authorizerConfig", ErrValidation)
+	}
+
 	b.mu.Lock("UpdateDomainConfiguration")
 	defer b.mu.Unlock()
 
@@ -233,14 +303,29 @@ func (b *InMemoryBackend) UpdateDomainConfiguration(
 	if !ok {
 		return nil, fmt.Errorf("domain configuration %q not found: %w", name, ErrResourceNotFound)
 	}
-	if status != "" {
-		dc.DomainConfigurationStatus = status
+	if in.DomainConfigurationStatus != "" {
+		dc.DomainConfigurationStatus = in.DomainConfigurationStatus
 	}
-	if applicationProtocol != "" {
-		dc.ApplicationProtocol = applicationProtocol
+	if in.ApplicationProtocol != "" {
+		dc.ApplicationProtocol = in.ApplicationProtocol
 	}
-	if authenticationType != "" {
-		dc.AuthenticationType = authenticationType
+	if in.AuthenticationType != "" {
+		dc.AuthenticationType = in.AuthenticationType
+	}
+	if in.RemoveAuthorizerConfig {
+		dc.AuthorizerConfig = nil
+	}
+	if in.AuthorizerConfig != nil {
+		dc.AuthorizerConfig = in.AuthorizerConfig
+	}
+	if in.ClientCertificateConfig != nil {
+		dc.ClientCertificateConfig = in.ClientCertificateConfig
+	}
+	if in.ServerCertificateConfig != nil {
+		dc.ServerCertificateConfig = in.ServerCertificateConfig
+	}
+	if in.TLSConfig != nil {
+		dc.TLSConfig = in.TLSConfig
 	}
 	dc.LastModifiedDate = float64(time.Now().Unix())
 

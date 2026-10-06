@@ -20,6 +20,14 @@ func (b *InMemoryBackend) CreateCustomModelDeployment(
 	modelARN, deploymentName string,
 	tags []Tag,
 ) (*CustomModelDeployment, error) {
+	return b.CreateCustomModelDeploymentWithDescription(modelARN, deploymentName, "", tags)
+}
+
+// CreateCustomModelDeploymentWithDescription is CreateCustomModelDeployment with the optional description.
+func (b *InMemoryBackend) CreateCustomModelDeploymentWithDescription(
+	modelARN, deploymentName, description string,
+	tags []Tag,
+) (*CustomModelDeployment, error) {
 	b.mu.Lock("CreateCustomModelDeployment")
 	defer b.mu.Unlock()
 
@@ -51,6 +59,7 @@ func (b *InMemoryBackend) CreateCustomModelDeployment(
 		CustomModelDeploymentArn: deploymentARN,
 		ModelDeploymentName:      deploymentName,
 		ModelArn:                 modelARN,
+		Description:              description,
 		Status:                   statusCreating,
 		CreationTime:             now,
 		LastModifiedTime:         now,

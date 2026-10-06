@@ -91,7 +91,7 @@ func TestDetectPiiEntitiesFieldShapes(t *testing.T) {
 	require.NotEmpty(t, entities, "email address should produce PII entity")
 
 	entity := entities[0].(map[string]any)
-	assert.Contains(t, entity, "Text", "PII entity must have Text field")
+	assert.NotContains(t, entity, "Text", "types.PiiEntity has no Text member")
 	assert.Contains(t, entity, "Score", "PII entity must have Score field")
 	assert.Contains(t, entity, "BeginOffset", "PII entity must have BeginOffset field")
 	assert.Contains(t, entity, "EndOffset", "PII entity must have EndOffset field")

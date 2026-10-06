@@ -373,11 +373,11 @@ func (h *Handler) handleDescribeVpcs(vals url.Values, reqID string) (any, error)
 		))
 	}
 
-	return &describeVpcsResponse{
+	return finishPaged(vals, &describeVpcsResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
 		VpcSet:    vpcItemSet{Items: items},
-	}, nil
+	})
 }
 
 type describeVpcAttributeResponse struct {
@@ -556,6 +556,7 @@ type describeVpcsResponse struct {
 	XMLName   xml.Name   `xml:"DescribeVpcsResponse"`
 	Xmlns     string     `xml:"xmlns,attr"`
 	RequestID string     `xml:"requestId"`
+	NextToken string     `xml:"nextToken,omitempty"`
 	VpcSet    vpcItemSet `xml:"vpcSet"`
 }
 

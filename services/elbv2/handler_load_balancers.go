@@ -25,6 +25,8 @@ func (h *Handler) handleCreateLoadBalancer(vals url.Values) (any, error) {
 		Type:                         vals.Get("Type"),
 		IPAddressType:                vals.Get("IpAddressType"),
 		EnablePrefixForIpv6SourceNat: vals.Get("EnablePrefixForIpv6SourceNat"),
+		IPv4IPAMPoolID:               vals.Get("IpamPools.Ipv4IpamPoolId"),
+		CustomerOwnedIPv4Pool:        vals.Get("CustomerOwnedIpv4Pool"),
 		Subnets:                      subnets,
 		SubnetMappings:               subnetMappings,
 		SecurityGroups:               sgs,
@@ -203,7 +205,9 @@ func (h *Handler) handleSetSubnets(vals url.Values) (any, error) {
 		}
 	}
 
-	lb, err := h.Backend.SetSubnets(lbArn, mappings, vals.Get("EnablePrefixForIpv6SourceNat"))
+	lb, err := h.Backend.SetSubnets(
+		lbArn, mappings, vals.Get("EnablePrefixForIpv6SourceNat"), vals.Get("IpAddressType"),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -328,6 +332,8 @@ func toXMLLoadBalancer(lb *LoadBalancer) xmlLoadBalancer {
 		Type:                         lb.Type,
 		IPAddressType:                lb.IPAddressType,
 		EnablePrefixForIpv6SourceNat: lb.EnablePrefixForIpv6SourceNat,
+		CustomerOwnedIPv4Pool:        lb.CustomerOwnedIPv4Pool,
+		EnforceSG:                    lb.EnforceSGInboundRulesOnPrivateLink,
 		VpcID:                        lb.VpcID,
 		State:                        xmlLoadBalancerState{Code: lb.State.Code, Reason: lb.State.Description},
 		AvailabilityZones:            xmlAZMappingList{Members: azs},
@@ -358,18 +364,21 @@ type xmlAZMappingList struct {
 type xmlLoadBalancer struct {
 	IpamPools                    *xmlIpamPools        `xml:"IpamPools,omitempty"`
 	State                        xmlLoadBalancerState `xml:"State"`
-	CanonicalHostedZoneID        string               `xml:"CanonicalHostedZoneId"`
+	IPAddressType                string               `xml:"IpAddressType"`
+	EnablePrefixForIpv6SourceNat string               `xml:"EnablePrefixForIpv6SourceNat,omitempty"`
 	LoadBalancerArn              string               `xml:"LoadBalancerArn"`
 	CreatedTime                  string               `xml:"CreatedTime"`
 	Scheme                       string               `xml:"Scheme"`
 	Type                         string               `xml:"Type"`
-	IPAddressType                string               `xml:"IpAddressType"`
-	EnablePrefixForIpv6SourceNat string               `xml:"EnablePrefixForIpv6SourceNat,omitempty"`
+	CustomerOwnedIPv4Pool        string               `xml:"CustomerOwnedIpv4Pool,omitempty"`
+	CanonicalHostedZoneID        string               `xml:"CanonicalHostedZoneId"`
 	VpcID                        string               `xml:"VpcId"`
 	DNSName                      string               `xml:"DNSName"`
 	LoadBalancerName             string               `xml:"LoadBalancerName"`
-	AvailabilityZones            xmlAZMappingList     `xml:"AvailabilityZones"`
-	SecurityGroups               xmlStringList        `xml:"SecurityGroups"`
+
+	EnforceSG         string           `xml:"EnforceSecurityGroupInboundRulesOnPrivateLinkTraffic,omitempty"`
+	SecurityGroups    xmlStringList    `xml:"SecurityGroups"`
+	AvailabilityZones xmlAZMappingList `xml:"AvailabilityZones"`
 }
 
 type xmlLoadBalancerList struct {

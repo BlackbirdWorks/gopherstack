@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 95 (92 ok, 3 partial) |
 | Feature families | 29 (27 ok, 2 partial) |
-| Known gaps | 3 |
+| Known gaps | 4 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
@@ -19,6 +19,7 @@
 - AttachmentState PENDING_NETWORK_UPDATE/PENDING_TAG_ACCEPTANCE/UPDATING/FAILED are never entered: needs unmodeled segment-reassignment and tag-acceptance workflows (2026-10-01)
 - StartRouteAnalysis is single-hop (no TGW-peering chaining, so CYCLIC_PATH_DETECTED/MAX_HOPS_EXCEEDED never fire) and the change-set diff covers 5 of 14 ChangeType values: both need real network-topology/attachment-membership resolution (2026-10-01)
 - No AWS::NetworkManager::* resource type in services/cloudformation (2026-10-01): cross-service work, outside this service
+- GetNetworkResources/Relationships/Telemetry accept the RegisteredGatewayArn filter, but no modelled resource is registered under a gateway, so a non-empty value matches nothing and NetworkResource.RegisteredGatewayArn is never populated
 
 ### Structural gaps
 

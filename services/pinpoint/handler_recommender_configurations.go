@@ -195,9 +195,14 @@ func (h *Handler) handleGetRecommenderConfigurations(c *echo.Context) error {
 		)
 	}
 
-	items := make([]recommenderConfigResponse, 0, len(recommenders))
+	paged, next, ok := pageSlice(c, recommenders)
+	if !ok {
+		return nil
+	}
 
-	for _, r := range recommenders {
+	items := make([]recommenderConfigResponse, 0, len(paged))
+
+	for _, r := range paged {
 		items = append(items, toRecommenderConfigResponse(r))
 	}
 
@@ -205,7 +210,7 @@ func (h *Handler) handleGetRecommenderConfigurations(c *echo.Context) error {
 		c.Request().Context(),
 		c.Response(),
 		http.StatusOK,
-		recommenderConfigsListResponse{Item: items},
+		recommenderConfigsListResponse{NextToken: next, Item: items},
 	)
 
 	return nil

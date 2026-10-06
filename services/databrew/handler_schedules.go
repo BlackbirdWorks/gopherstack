@@ -98,11 +98,12 @@ func (h *Handler) handleListSchedules(ctx context.Context, body []byte) ([]byte,
 	var req struct {
 		MaxResults string `json:"MaxResults"`
 		NextToken  string `json:"NextToken"`
+		JobName    string `json:"JobName"`
 	}
 	_ = json.Unmarshal(body, &req)
 	maxResults, _ := strconv.Atoi(req.MaxResults)
 
-	schedules, next := h.Backend.ListSchedules(ctx, maxResults, req.NextToken)
+	schedules, next := h.Backend.ListSchedules(ctx, maxResults, req.NextToken, req.JobName)
 
 	return json.Marshal(map[string]any{"Schedules": schedules, nextTokenKey: next})
 }

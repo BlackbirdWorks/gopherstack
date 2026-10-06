@@ -34,6 +34,8 @@ func (b *InMemoryBackend) CreateWorkerConfiguration(
 	b.mu.Lock("CreateWorkerConfiguration")
 	defer b.mu.Unlock()
 
+	b.settleLocked(time.Now())
+
 	if _, ok := b.workerConfigurationByName(name); ok {
 		return nil, ErrWorkerConfigNameInUse
 	}
@@ -65,8 +67,10 @@ func (b *InMemoryBackend) CreateWorkerConfiguration(
 
 // DescribeWorkerConfiguration returns the current information about a worker configuration.
 func (b *InMemoryBackend) DescribeWorkerConfiguration(workerConfigurationArn string) (*WorkerConfiguration, error) {
-	b.mu.RLock("DescribeWorkerConfiguration")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeWorkerConfiguration")
+	defer b.mu.Unlock()
+
+	b.settleLocked(time.Now())
 
 	w, ok := b.workerConfigurations.Get(workerConfigurationArn)
 	if !ok {
@@ -82,8 +86,10 @@ func (b *InMemoryBackend) ListWorkerConfigurations(
 	namePrefix, nextToken string,
 	maxResults int,
 ) ([]*WorkerConfiguration, string, error) {
-	b.mu.RLock("ListWorkerConfigurations")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListWorkerConfigurations")
+	defer b.mu.Unlock()
+
+	b.settleLocked(time.Now())
 
 	all := b.workerConfigurations.All()
 
@@ -104,21 +110,23 @@ func (b *InMemoryBackend) ListWorkerConfigurations(
 	return pg.Data, pg.Next, nil
 }
 
-// DeleteWorkerConfiguration deletes a worker configuration, returning a
-// snapshot with State set to DELETING to mirror AWS's synchronous delete response.
+// DeleteWorkerConfiguration marks a worker configuration DELETING; it is
+// removed once deletionDelay elapses.
 func (b *InMemoryBackend) DeleteWorkerConfiguration(workerConfigurationArn string) (*WorkerConfiguration, error) {
 	b.mu.Lock("DeleteWorkerConfiguration")
 	defer b.mu.Unlock()
+
+	b.settleLocked(time.Now())
 
 	w, ok := b.workerConfigurations.Get(workerConfigurationArn)
 	if !ok {
 		return nil, ErrWorkerConfigNotFound
 	}
 
-	out := w.clone()
-	out.State = deletingState
+	if w.State != deletingState {
+		w.State = deletingState
+		w.PendingUntil = time.Now().UTC().Add(deletionDelay)
+	}
 
-	b.workerConfigurations.Delete(workerConfigurationArn)
-
-	return out, nil
+	return w.clone(), nil
 }

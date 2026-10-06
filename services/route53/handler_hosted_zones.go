@@ -123,12 +123,17 @@ type xmlHostedZoneConfig struct {
 }
 
 type xmlHostedZone struct {
-	XMLName                xml.Name            `xml:"HostedZone"`
-	ID                     string              `xml:"Id"`
-	Name                   string              `xml:"Name"`
-	CallerReference        string              `xml:"CallerReference"`
-	Config                 xmlHostedZoneConfig `xml:"Config"`
-	ResourceRecordSetCount int                 `xml:"ResourceRecordSetCount"`
+	Features               *xmlHostedZoneFeatures `xml:"Features,omitempty"`
+	XMLName                xml.Name               `xml:"HostedZone"`
+	ID                     string                 `xml:"Id"`
+	Name                   string                 `xml:"Name"`
+	CallerReference        string                 `xml:"CallerReference"`
+	Config                 xmlHostedZoneConfig    `xml:"Config"`
+	ResourceRecordSetCount int                    `xml:"ResourceRecordSetCount"`
+}
+
+type xmlHostedZoneFeatures struct {
+	AcceleratedRecoveryStatus string `xml:"AcceleratedRecoveryStatus"`
 }
 
 type xmlDelegationSet struct {
@@ -302,7 +307,7 @@ func (h *Handler) deleteHostedZone(c *echo.Context) error {
 		Xmlns: route53Namespace,
 		ChangeInfo: xmlChangeInfo{
 			SubmittedAt: time.Now(),
-			ID:          "/change/C" + zoneID,
+			ID:          h.Backend.RegisterChange(),
 			Status:      statusInsync,
 		},
 	}
@@ -345,7 +350,13 @@ func (h *Handler) listHostedZones(c *echo.Context) error {
 }
 
 func toXMLHostedZone(hz *HostedZone) xmlHostedZone {
+	var features *xmlHostedZoneFeatures
+	if hz.AcceleratedRecoveryStatus != "" {
+		features = &xmlHostedZoneFeatures{AcceleratedRecoveryStatus: hz.AcceleratedRecoveryStatus}
+	}
+
 	return xmlHostedZone{
+		Features:        features,
 		ID:              "/hostedzone/" + hz.ID,
 		Name:            hz.Name,
 		CallerReference: hz.CallerReference,
@@ -525,6 +536,11 @@ func (h *Handler) getHostedZoneLimit(c *echo.Context, path string) error {
 	})
 }
 
+type updateHZFeaturesRequest struct {
+	EnableAcceleratedRecovery *bool    `xml:"EnableAcceleratedRecovery"`
+	XMLName                   xml.Name `xml:"UpdateHostedZoneFeaturesRequest"`
+}
+
 type updateHZFeaturesResponse struct {
 	XMLName xml.Name `xml:"UpdateHostedZoneFeaturesResponse"`
 	Xmlns   string   `xml:"xmlns,attr"`
@@ -533,7 +549,17 @@ type updateHZFeaturesResponse struct {
 func (h *Handler) updateHostedZoneFeatures(c *echo.Context, path string) error {
 	zoneID := strings.TrimSuffix(strings.TrimPrefix(path, route53HZPrefix), route53FeaturesSuffix)
 
-	if _, err := h.Backend.GetHostedZone(zoneID); err != nil {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to read request body")
+	}
+
+	var req updateHZFeaturesRequest
+	if err = xml.Unmarshal(body, &req); err != nil {
+		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to parse XML: "+err.Error())
+	}
+
+	if err = h.Backend.UpdateHostedZoneFeatures(zoneID, req.EnableAcceleratedRecovery); err != nil {
 		return handleBackendError(c, err)
 	}
 

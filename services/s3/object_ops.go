@@ -61,22 +61,24 @@ func (h *S3Handler) routeObjectPut(
 	r *http.Request,
 	bucket, key string,
 ) {
+	q := r.URL.Query()
+
 	switch {
-	case r.URL.Query().Has("tagging"):
+	case q.Has("tagging"):
 		h.putObjectTagging(ctx, w, r, bucket, key)
-	case r.URL.Query().Has("annotation"):
+	case q.Has("annotation"):
 		h.putObjectAnnotation(ctx, w, r, bucket, key)
-	case r.URL.Query().Has("acl"):
+	case q.Has("acl"):
 		h.putObjectACL(ctx, w, r, bucket, key)
-	case r.URL.Query().Has("partNumber") && r.URL.Query().Has("uploadId"):
+	case q.Has("partNumber") && q.Has("uploadId"):
 		h.uploadPart(ctx, w, r, bucket, key)
-	case r.URL.Query().Has("retention"):
+	case q.Has("retention"):
 		h.putObjectRetention(ctx, w, r, bucket, key)
-	case r.URL.Query().Has("legal-hold"):
+	case q.Has("legal-hold"):
 		h.putObjectLegalHold(ctx, w, r, bucket, key)
-	case r.URL.Query().Has("renameObject"):
+	case q.Has("renameObject"):
 		h.handleRenameObject(ctx, w, r)
-	case r.URL.Query().Has("encryption") && key != "":
+	case q.Has("encryption") && key != "":
 		h.handleUpdateObjectEncryption(ctx, w, r)
 	case r.Header.Get("X-Amz-Copy-Source") != "":
 		h.copyObject(ctx, w, r, bucket, key)
@@ -91,8 +93,10 @@ func (h *S3Handler) routeObjectGet(
 	r *http.Request,
 	bucket, key string,
 ) {
+	q := r.URL.Query()
+
 	switch {
-	case r.URL.Query().Has("tagging"):
+	case q.Has("tagging"):
 		h.getObjectTagging(ctx, w, r, bucket, key)
 	// GetObjectAnnotation and ListObjectAnnotations share the identical
 	// GET /{Key+}?annotation route (both s3@v1.106.5 serializers.go:
@@ -102,21 +106,21 @@ func (h *S3Handler) routeObjectGet(
 	// whether "annotationName" -- a query param GetObjectAnnotation's own
 	// HttpBindings function binds and ListObjectAnnotations' does not -- is
 	// present.
-	case r.URL.Query().Has("annotation") && r.URL.Query().Has("annotationName"):
+	case q.Has("annotation") && q.Has("annotationName"):
 		h.getObjectAnnotation(ctx, w, r, bucket, key)
-	case r.URL.Query().Has("annotation"):
+	case q.Has("annotation"):
 		h.listObjectAnnotations(ctx, w, r, bucket, key)
-	case r.URL.Query().Has("acl"):
+	case q.Has("acl"):
 		h.getObjectACL(ctx, w, r, bucket, key)
-	case r.URL.Query().Has("uploadId"):
+	case q.Has("uploadId"):
 		h.listParts(ctx, w, r, bucket, key)
-	case r.URL.Query().Has("retention"):
+	case q.Has("retention"):
 		h.getObjectRetention(ctx, w, r, bucket, key)
-	case r.URL.Query().Has("legal-hold"):
+	case q.Has("legal-hold"):
 		h.getObjectLegalHold(ctx, w, r, bucket, key)
-	case r.URL.Query().Has("attributes"):
+	case q.Has("attributes"):
 		h.handleGetObjectAttributes(ctx, w, r)
-	case r.URL.Query().Has("torrent"):
+	case q.Has("torrent"):
 		h.handleGetObjectTorrent(ctx, w, r)
 	default:
 		h.getObject(ctx, w, r, bucket, key)
@@ -129,12 +133,14 @@ func (h *S3Handler) routeObjectDelete(
 	r *http.Request,
 	bucket, key string,
 ) {
+	q := r.URL.Query()
+
 	switch {
-	case r.URL.Query().Has("tagging"):
+	case q.Has("tagging"):
 		h.deleteObjectTagging(ctx, w, r, bucket, key)
-	case r.URL.Query().Has("annotation"):
+	case q.Has("annotation"):
 		h.deleteObjectAnnotation(ctx, w, r, bucket, key)
-	case r.URL.Query().Has("uploadId"):
+	case q.Has("uploadId"):
 		h.abortMultipartUpload(ctx, w, r, bucket, key)
 	default:
 		h.deleteObject(ctx, w, r, bucket, key)
@@ -147,14 +153,16 @@ func (h *S3Handler) routeObjectPost(
 	r *http.Request,
 	bucket, key string,
 ) {
+	q := r.URL.Query()
+
 	switch {
-	case r.URL.Query().Has("uploads"):
+	case q.Has("uploads"):
 		h.createMultipartUpload(ctx, w, r, bucket, key)
-	case r.URL.Query().Has("uploadId"):
+	case q.Has("uploadId"):
 		h.completeMultipartUpload(ctx, w, r, bucket, key)
-	case r.URL.Query().Has("restore"):
+	case q.Has("restore"):
 		h.handleRestoreObject(ctx, w, r)
-	case r.URL.Query().Has("select"):
+	case q.Has("select"):
 		h.selectObjectContent(ctx, w, r, bucket, key)
 	default:
 		WriteError(ctx, w, r, ErrMethodNotAllowed)

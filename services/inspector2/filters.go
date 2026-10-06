@@ -187,7 +187,7 @@ func (b *InMemoryBackend) CreateFilter(
 
 // UpdateFilter updates an existing filter.
 func (b *InMemoryBackend) UpdateFilter(
-	filterARN, action, description, reason string,
+	filterARN, name, action, description, reason string,
 	criteria map[string]any,
 ) (*Filter, error) {
 	b.mu.Lock("UpdateFilter")
@@ -200,6 +200,12 @@ func (b *InMemoryBackend) UpdateFilter(
 	f, ok := b.filters.Get(filterARN)
 	if !ok {
 		return nil, ErrFilterNotFound
+	}
+
+	if name != "" && name != f.Name {
+		if err := b.renameFilterLocked(f, name); err != nil {
+			return nil, err
+		}
 	}
 
 	if action != "" {
@@ -222,6 +228,29 @@ func (b *InMemoryBackend) UpdateFilter(
 	b.suppressMatchingFindings(f)
 
 	return f, nil
+}
+
+// renameFilterLocked validates name and renames f; caller must hold b.mu.
+func (b *InMemoryBackend) renameFilterLocked(f *Filter, name string) error {
+	if err := validateFilterName(name); err != nil {
+		return err
+	}
+
+	taken := false
+
+	b.filters.Range(func(o *Filter) bool {
+		taken = o.Name == name
+
+		return !taken
+	})
+
+	if taken {
+		return ErrFilterAlreadyExists
+	}
+
+	f.Name = name
+
+	return nil
 }
 
 // reactivateUnsuppressedFindings reactivates findings a deleted SUPPRESS filter matched

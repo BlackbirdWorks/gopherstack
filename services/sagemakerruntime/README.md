@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 3 (3 ok) |
 | Feature families | 3 (3 ok) |
-| Known gaps | 2 |
+| Known gaps | 3 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -17,6 +17,7 @@
 
 - InvokeEndpointAsync.InvocationTimeoutSeconds: request-only header (serializers.go), no output member reflects it and there is no real async queue/timeout engine to expire against -- structural, not fixable without simulating actual processing duration.
 - InvokeEndpointAsync.RequestTTLSeconds: same as InvocationTimeoutSeconds -- request-only header, no queue to age a request out of.
+- InvokeEndpoint/InvokeEndpointWithResponseStream InferenceComponentName and TargetContainerHostname select a real inference component/container; no output member reflects them and no routing exists, so they are accepted and unused. ContentType and CustomAttributes are not gaps: ContentType is the request body type (the response type follows Accept) and CustomAttributes is echoed from X-Amzn-Sagemaker-Custom-Attributes (setForwardedHeader), on all three ops.
 
 ## More
 

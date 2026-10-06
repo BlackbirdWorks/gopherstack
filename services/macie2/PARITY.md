@@ -715,3 +715,15 @@ macie2 is region-isolated: allow lists, custom data identifiers, jobs and findin
 ## 2026-10-04 (reqfielddiff tier-1: MaximumMatchDistance, re-examined)
 
 Both findings were already read, but TestCustomDataIdentifier did not apply the documented 1-300 range and measured the keyword distance from the start of the match. It now validates the range (shared with Create) and counts the distance from the end of the closest preceding keyword to the end of the matched text, as the SDK states (api_op_TestCustomDataIdentifier.go:60). Proof: `TestTestCustomDataIdentifier_MaximumMatchDistance_RealClient`.
+
+## 2026-10-05 (reqfielddiff tier-2 pagination)
+
+ListAutomatedDiscoveryAccounts, ListClassificationScopes (also applies `name`), ListInvitations, ListManagedDataIdentifiers (body `nextToken`), ListOrganizationAdminAccounts, ListResourceProfileDetections, ListSensitivityInspectionTemplates and ListResourceProfileArtifacts (always empty) page through `pagedResponse` (paging.go): sorted, default 50, `nextToken` only when truncated, a token this backend did not sign returns ValidationException. Proof: `TestListOps_PageAndRejectBadTokens`.
+
+## 2026-10-05 (gopherstack-uox6 pass 6, value semantics)
+
+UpdateFindingsFilter keeps Description when omitted (an explicit empty string clears it); CreateClassificationJob stores managedDataIdentifierSelector RECOMMENDED when omitted (api_op_CreateClassificationJob.go:108-112). UpdateAllowList still replaces Description: the SDK is silent on whether omission clears it.
+
+## 2026-10-05 (gopherstack-dcyg9 value semantics)
+
+Recorded, not fixed: api_op_UpdateAllowList.go:53-55 describes Description only as "A custom description of the allow list" with no omit/clear rule, so UpdateAllowList keeps replacing it with the supplied value.

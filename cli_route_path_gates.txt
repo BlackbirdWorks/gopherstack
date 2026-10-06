@@ -1,0 +1,63 @@
+APIGatewayManagementAPI	/@connections /_gopherstack
+APIGatewayV2	/v2
+AccessAnalyzer	/access-preview /analyzed-resource /analyzer /archive-rule /finding /policy /recommendation /resource /service-linked-analyzer /tags
+Account	/acceptPrimaryEmailUpdate /deleteAlternateContact /disableRegion /enableRegion /getAccountInformation /getAlternateContact /getContactInformation /getGovCloudAccountInformation /getPrimaryEmail /getRegionOptStatus /listRegions /putAccountName /putAlternateContact /putContactInformation /startPrimaryEmailUpdate
+Amplify	/apps /artifacts /tags /webhooks
+AppConfig	/applications /deployementstrategies /deploymentstrategies /experimentdefinitions /extensionassociations /extensions /settings /tags
+AppConfigData	/configuration
+AppMesh	/v20190125
+AppSync	/v1 /v2
+Backup	/account-settings /audit /backup /copy-jobs /global-settings /indexes /legal-holds /logically-air-gapped-backup-vaults /resources /restore-access-backup-vaults /restore-jobs /restore-testing /scan /supported-resource-types /tags /tiering-configurations /untag
+Batch	/v1
+Bedrock	/advanced-prompt-optimization-job /automated-reasoning-policies /create-foundation-model-agreement /custom-models /data-retention /delete-foundation-model-agreement /enforcedGuardrailsConfiguration /evaluation-job /foundation-model-availability /foundation-models /guardrails /imported-models /inference-profiles /list-foundation-model-agreement-offers /listTagsForResource /logging /marketplace-model /model-copy-jobs /model-customization /model-import-jobs /model-invocation-job /prompt-routers /provisioned-model-throughput /resource-policy /tagResource /untagResource /use-case-for-model-access
+BedrockAgent	/agents /flows /knowledgebases /prompts /resourcepolicy /tags
+BedrockRuntime	/async-invoke /guardrail /model
+CloudFront	/2020-05-31
+CloudFront KeyValueStore	/key-value-stores
+CodeArtifact	/v1
+DLM	/policies /tags
+DSQL	/cluster /stream /tags
+Dashboard	/dashboard
+Detective	/graph /investigations /invitation /membership /orgs /tags
+EFS	/2015-02-01
+EKS	/access-policies /addons /cluster-registrations /cluster-versions /clusters /eks-anywhere-subscriptions /tags
+Elasticsearch	/2015-01-01
+EmrServerless	/applications /tags
+FIS	/actions /experimentTemplates /experiments /safetyLevers /tags /targetResourceTypes
+Grafana	/tags /versions /workspaces
+GuardDuty	/admin /detector /invitation /malware-protection-plan /malware-scan /object-malware-scan /organization /tags
+Inspector2	/accountpermissions /cis /cluster /codesecurity /codesnippet /configuration /connector /coverage /delegatedadminaccounts /disable /ec2deepinspection /enable /encryptionkey /filters /findings /freetrialinfo /members /organizationconfiguration /reporting /sbomexport /status /tags /usage /vulnerabilities
+IoTAnalytics	/channels /datasets /datastores /logging /messages /pipelineactivities /pipelines /tags
+IoTDataPlane	/_admin /api /connections /retainedMessage /things /topics
+IoTWireless	/destinations /device-profiles /event-configurations /fuota-tasks /log-levels /metric-configuration /metrics /multicast-groups /network-analyzer-configurations /partner-accounts /position-configurations /position-estimate /positions /resource-positions /service-endpoint /service-profiles /tags /wireless-devices /wireless-gateway-task-definitions /wireless-gateways /wireless_device_import_task /wireless_single_device_import_task
+Kafka	/api /replication /v1
+KafkaConnect	/v1
+KinesisVideo	/ListTagsForResource /TagResource /UntagResource /createSignalingChannel /createStream /deleteEdgeConfiguration /deleteSignalingChannel /deleteStream /describeEdgeConfiguration /describeImageGenerationConfiguration /describeMediaStorageConfiguration /describeNotificationConfiguration /describeSignalingChannel /describeStream /getDataEndpoint /getSignalingChannelEndpoint /listEdgeAgentConfigurations /listSignalingChannels /listStreams /listTagsForStream /startEdgeConfigurationUpdate /tagStream /untagStream /updateDataRetention /updateImageGenerationConfiguration /updateMediaStorageConfiguration /updateNotificationConfiguration /updateSignalingChannel /updateStream
+MQ	/v1
+MWAA	/clitoken /environments /metrics /restapi /tags /webtoken
+Macie2	/admin /allow-lists /automated-discovery /classification-export-configuration /classification-scopes /custom-data-identifiers /datasources /findings /invitations /jobs /macie /managed-data-identifiers /master /members /resource-profiles /reveal-configuration /tags /templates /usage
+ManagedBlockchain	/accessors /invitations /networks /tags
+MediaConvert	/2017-08-29
+MediaLive	/prod
+MediaPackage	/channels /harvest_jobs /origin_endpoints /tags
+MediaTailor	/alerts /channel /configureLogs /function /playbackConfiguration /prefetchSchedule /sourceLocation /tags
+NetworkManager	/attachments /connect-attachments /connect-peers /core-networks /direct-connect-gateway-attachments /global-networks /organizations /peerings /prefix-list /resource-policy /routing-policy-label /site-to-site-vpn-attachments /tags /transit-gateway-peerings /transit-gateway-route-table-attachments /vpc-attachments
+NetworkMonitor	/monitors /tags
+Omics	/annotationStore /configuration /import /referencestore /run /s3accesspolicy /sequencestore /share /tags /variantStore /workflow
+Outposts	/capacity /catalog /connections /instanceTypes /list-orders /orders /outpost /quotes /renewals /sites /tags
+Pinpoint	/v1
+Pipes	/tags /v1
+Polly	/v1
+QuickSight	/account /governance /resources /v1
+RAM	/acceptresourceshareinvitation /associateresourceshare /createpermission /createresourceshare /deletepermission /deleteresourceshare /disassociateresourceshare /enablesharingwithawsorganization /getpermission /getresourcepolicies /getresourceshareassociations /getresourceshareinvitations /getresourceshares /listpendinginvitationresources /listpermissionassociations /listpermissions /listpermissionversions /listprincipals /listreplacepermissionassociationswork /listresources /listresourcetypes /listsourceassociations /listtagsforresource /promotepermissioncreatedfrompolicy /promoteresourcesharecreatedfrompolicy /rejectresourceshareinvitation /replacepermissionassociations /setdefaultpermissionversion /tagresource /untagresource /updateresourceshare
+RDSData	/BatchExecute /BeginTransaction /CommitTransaction /Execute /RollbackTransaction
+RolesAnywhere	/ListTagsForResource /TagResource /UntagResource /crl /profile /put-notifications-settings /reset-notifications-settings /subject /trustanchor
+Route53	/2013-04-01
+S3Control	/v20180820
+S3tables	/buckets /get-table /namespaces /replication-status /table-bucket-replication /table-record-expiration /table-replication /tables /tag
+SESv2	/v2
+SageMakerRuntime	/endpoints
+SecurityHub	/accounts /actionTargets /administrator /aggregatorv2 /associations /automationrules /configurationPolicy /connectors /findingAggregator /findingHistory /findings /hubv2 /insights /invitations /master /members /organization /productSubscriptions /products /recommendedPolicyV2 /resourcesTrendsv2 /resourcesv2 /securityControl /standards /tags /ticketsv2
+ServerlessRepo	/applications
+VPCLattice	/accesslogsubscriptions /authpolicy /domainverifications /resourceconfigurations /resourceendpointassociations /resourcegateways /resourcepolicy /servicenetworkresourceassociations /servicenetworks /servicenetworkvpcassociations /servicenetworkvpcendpointassociations /services /tags /targetgroups
+Xray	/CancelTraceRetrieval /CreateGroup /CreateSamplingRule /DeleteGroup /DeleteResourcePolicy /DeleteSamplingRule /EncryptionConfig /GetGroup /GetIndexingRules /GetRetrievedTracesGraph /GetSamplingRules /GetTraceSegmentDestination /Groups /Insight /ListResourcePolicies /ListRetrievedTraces /ListTagsForResource /PutEncryptionConfig /PutResourcePolicy /SamplingStatisticSummaries /SamplingTargets /ServiceGraph /StartTraceRetrieval /TagResource /TelemetryRecords /TimeSeriesServiceStatistics /TraceGraph /TraceSegments /TraceSummaries /Traces /UntagResource /UpdateGroup /UpdateIndexingRule /UpdateSamplingRule /UpdateTraceSegmentDestination

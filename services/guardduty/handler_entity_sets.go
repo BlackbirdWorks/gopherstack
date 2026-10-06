@@ -84,6 +84,7 @@ func (h *Handler) handleCreateThreatEntitySet( //nolint:dupl // existing issue.
 		Format              string            `json:"format"`
 		Location            string            `json:"location"`
 		ExpectedBucketOwner string            `json:"expectedBucketOwner"`
+		ClientToken         string            `json:"clientToken"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -99,14 +100,28 @@ func (h *Handler) handleCreateThreatEntitySet( //nolint:dupl // existing issue.
 		activate = *req.Activate
 	}
 
-	s, err := h.Backend.CreateThreatEntitySet(
-		detectorID, req.Name, req.Format, req.Location, activate, req.Tags, req.ExpectedBucketOwner,
+	token := req.ClientToken
+	req.ClientToken = ""
+
+	id, err := h.createOnce(
+		opCreateThreatEntitySet, detectorID, token, req,
+		func(id string) error { return only(h.Backend.GetThreatEntitySet(detectorID, id)) },
+		func() (string, error) {
+			s, createErr := h.Backend.CreateThreatEntitySet(
+				detectorID, req.Name, req.Format, req.Location, activate, req.Tags, req.ExpectedBucketOwner,
+			)
+			if createErr != nil {
+				return "", createErr
+			}
+
+			return s.ThreatEntitySetID, nil
+		},
 	)
 	if err != nil {
 		return nil, http.StatusBadRequest, err
 	}
 
-	return map[string]any{"threatEntitySetId": s.ThreatEntitySetID}, http.StatusOK, nil
+	return map[string]any{"threatEntitySetId": id}, http.StatusOK, nil
 }
 
 func (h *Handler) handleGetThreatEntitySet(detectorID, setID string) (any, int, error) {
@@ -194,6 +209,7 @@ func (h *Handler) handleCreateTrustedEntitySet( //nolint:dupl // existing issue.
 		Format              string            `json:"format"`
 		Location            string            `json:"location"`
 		ExpectedBucketOwner string            `json:"expectedBucketOwner"`
+		ClientToken         string            `json:"clientToken"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -209,14 +225,28 @@ func (h *Handler) handleCreateTrustedEntitySet( //nolint:dupl // existing issue.
 		activate = *req.Activate
 	}
 
-	s, err := h.Backend.CreateTrustedEntitySet(
-		detectorID, req.Name, req.Format, req.Location, activate, req.Tags, req.ExpectedBucketOwner,
+	token := req.ClientToken
+	req.ClientToken = ""
+
+	id, err := h.createOnce(
+		opCreateTrustedEntitySet, detectorID, token, req,
+		func(id string) error { return only(h.Backend.GetTrustedEntitySet(detectorID, id)) },
+		func() (string, error) {
+			s, createErr := h.Backend.CreateTrustedEntitySet(
+				detectorID, req.Name, req.Format, req.Location, activate, req.Tags, req.ExpectedBucketOwner,
+			)
+			if createErr != nil {
+				return "", createErr
+			}
+
+			return s.TrustedEntitySetID, nil
+		},
 	)
 	if err != nil {
 		return nil, http.StatusBadRequest, err
 	}
 
-	return map[string]any{"trustedEntitySetId": s.TrustedEntitySetID}, http.StatusOK, nil
+	return map[string]any{"trustedEntitySetId": id}, http.StatusOK, nil
 }
 
 func (h *Handler) handleGetTrustedEntitySet(detectorID, setID string) (any, int, error) {

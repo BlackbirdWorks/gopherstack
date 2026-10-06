@@ -6,10 +6,13 @@ import (
 	"time"
 )
 
-// StartImport creates an import job. importSource may be nil (matching real
-// StartImportInput, where ImportSource is optional when ImportId is set to
-// retry an existing import -- this backend does not model retry-by-ImportId,
-// but tolerates a nil source for callers that only pass Destinations).
+const (
+	importStatusInitializing = "INITIALIZING"
+	importStatusStopped      = "STOPPED"
+	importStatusFailed       = "FAILED"
+)
+
+// StartImport creates an import job; importSource may be nil for callers that only pass Destinations.
 func (b *InMemoryBackend) StartImport(
 	destinations []string, importSource *ImportSource, startEventTime, endEventTime *time.Time,
 ) (*Import, error) {
@@ -25,11 +28,32 @@ func (b *InMemoryBackend) StartImport(
 		ImportSource:     importSource,
 		StartEventTime:   startEventTime,
 		EndEventTime:     endEventTime,
-		ImportStatus:     "INITIALIZING",
+		ImportStatus:     importStatusInitializing,
 		CreatedTimestamp: now,
 		UpdatedTimestamp: now,
 	}
 	b.imports.Put(imp)
+	cp := *imp
+
+	return &cp, nil
+}
+
+// RetryImport restarts a stopped or failed import by ID.
+func (b *InMemoryBackend) RetryImport(importID string) (*Import, error) {
+	b.mu.Lock("RetryImport")
+	defer b.mu.Unlock()
+
+	imp, ok := b.imports.Get(importID)
+	if !ok {
+		return nil, fmt.Errorf("%w: import %s not found", ErrImportNotFound, importID)
+	}
+
+	if imp.ImportStatus != importStatusStopped && imp.ImportStatus != importStatusFailed {
+		return nil, fmt.Errorf("%w: import %s is %s and cannot be retried", ErrValidation, importID, imp.ImportStatus)
+	}
+
+	imp.ImportStatus = importStatusInitializing
+	imp.UpdatedTimestamp = time.Now().UTC()
 	cp := *imp
 
 	return &cp, nil
@@ -74,7 +98,7 @@ func (b *InMemoryBackend) StopImport(importID string) (*Import, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: import %s not found", ErrImportNotFound, importID)
 	}
-	imp.ImportStatus = "STOPPED"
+	imp.ImportStatus = importStatusStopped
 	imp.UpdatedTimestamp = time.Now().UTC()
 	cp := *imp
 

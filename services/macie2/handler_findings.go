@@ -64,16 +64,30 @@ func (h *Handler) dispatchFindingOps(op string, body []byte) (any, int, bool, er
 	return nil, 0, false, nil
 }
 
+type findingSortCriteriaInput struct {
+	AttributeName string `json:"attributeName"`
+	OrderBy       string `json:"orderBy"`
+}
+
+func (s *findingSortCriteriaInput) toBackend() *FindingSortCriteria {
+	if s == nil {
+		return nil
+	}
+
+	return &FindingSortCriteria{AttributeName: s.AttributeName, OrderBy: s.OrderBy}
+}
+
 func (h *Handler) handleGetFindings(body []byte) (any, int, error) {
 	var req struct {
-		FindingIDs []string `json:"findingIds"`
+		SortCriteria *findingSortCriteriaInput `json:"sortCriteria"`
+		FindingIDs   []string                  `json:"findingIds"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 
-	findings, err := h.Backend.GetFindings(req.FindingIDs)
+	findings, err := h.Backend.GetFindings(req.FindingIDs, req.SortCriteria.toBackend())
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return nil, http.StatusNotFound, err
@@ -147,15 +161,22 @@ func (h *Handler) handleCreateSampleFindings(body []byte) (int, error) {
 
 func (h *Handler) handleGetFindingStatistics(body []byte) (any, int, error) {
 	var req struct {
-		FindingCriteria map[string]any `json:"findingCriteria"`
-		GroupBy         string         `json:"groupBy"`
+		FindingCriteria map[string]any            `json:"findingCriteria"`
+		SortCriteria    *findingSortCriteriaInput `json:"sortCriteria"`
+		GroupBy         string                    `json:"groupBy"`
+		Size            int                       `json:"size"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 
-	groups, err := h.Backend.GetFindingStatistics(req.GroupBy, req.FindingCriteria)
+	groups, err := h.Backend.GetFindingStatistics(
+		req.GroupBy,
+		req.FindingCriteria,
+		req.SortCriteria.toBackend(),
+		req.Size,
+	)
 	if err != nil {
 		return nil, http.StatusInternalServerError, err
 	}

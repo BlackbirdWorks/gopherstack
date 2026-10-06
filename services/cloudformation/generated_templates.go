@@ -3,6 +3,7 @@ package cloudformation
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -208,7 +209,24 @@ func (b *InMemoryBackend) ListGeneratedTemplates(
 	return page.New(result, nextToken, limit, cfnGeneratedTemplatesDefaultPageSize), nil
 }
 
-func (b *InMemoryBackend) StartResourceScan() (string, error) {
+// scanTypeMatches reports whether resourceType satisfies any ScanFilter Types entry,
+// where a trailing "*" matches a prefix (types.ScanFilter doc). No types matches all.
+func scanTypeMatches(types []string, resourceType string) bool {
+	if len(types) == 0 {
+		return true
+	}
+
+	return slices.ContainsFunc(types, func(t string) bool {
+		if prefix, ok := strings.CutSuffix(t, "*"); ok {
+			return strings.HasPrefix(resourceType, prefix)
+		}
+
+		return t == resourceType
+	})
+}
+
+// StartResourceScan starts a scan, limited to the given resource types when non-empty.
+func (b *InMemoryBackend) StartResourceScan(types []string) (string, error) {
 	b.mu.Lock("StartResourceScan")
 	defer b.mu.Unlock()
 	scanID := uuid.New().String()
@@ -225,6 +243,10 @@ func (b *InMemoryBackend) StartResourceScan() (string, error) {
 			continue
 		}
 		for _, res := range b.resources[stack.StackID] {
+			if !scanTypeMatches(types, res.Type) {
+				continue
+			}
+
 			items = append(items, ScannedResource{
 				ResourceType:       res.Type,
 				ResourceIdentifier: map[string]string{"Id": res.PhysicalID},
@@ -235,7 +257,7 @@ func (b *InMemoryBackend) StartResourceScan() (string, error) {
 	}
 	// If no managed resources were found, include a synthetic placeholder so that
 	// callers always see at least one resource (matches legacy mock behaviour).
-	if len(items) == 0 {
+	if len(items) == 0 && scanTypeMatches(types, resTypeS3Bucket) {
 		items = []ScannedResource{
 			{
 				ResourceType:       resTypeS3Bucket,

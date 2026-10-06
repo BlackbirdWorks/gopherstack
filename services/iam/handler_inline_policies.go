@@ -57,10 +57,14 @@ func (h *Handler) iamUserRoleInlinePolicyDispatchTable() map[string]iamActionFn 
 				return nil, err
 			}
 
+			pg := pageForm(names, vals)
+
 			return &ListUserPoliciesResponse{
-				Xmlns:                  iamXMLNS,
-				ListUserPoliciesResult: ListUserPoliciesResult{PolicyNames: names},
-				ResponseMetadata:       ResponseMetadata{RequestID: reqID},
+				Xmlns: iamXMLNS,
+				ListUserPoliciesResult: ListUserPoliciesResult{
+					PolicyNames: pg.Data, Marker: pg.Next, IsTruncated: pg.Next != "",
+				},
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
 		"PutRolePolicy": func(vals url.Values, reqID string) (any, error) {
@@ -142,10 +146,14 @@ func (h *Handler) iamGroupInlinePolicyDispatchTable() map[string]iamActionFn {
 				return nil, err
 			}
 
+			pg := pageForm(names, vals)
+
 			return &ListGroupPoliciesResponse{
-				Xmlns:                   iamXMLNS,
-				ListGroupPoliciesResult: ListGroupPoliciesResult{PolicyNames: names},
-				ResponseMetadata:        ResponseMetadata{RequestID: reqID},
+				Xmlns: iamXMLNS,
+				ListGroupPoliciesResult: ListGroupPoliciesResult{
+					PolicyNames: pg.Data, Marker: pg.Next, IsTruncated: pg.Next != "",
+				},
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
 	}

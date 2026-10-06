@@ -18,8 +18,8 @@
 	// list-level summary with a note that this UI's detail view does not
 	// have a per-type reader for them yet.
 	import { untrack } from 'svelte';
-	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
-	import { getDataSyncClient } from '$lib/aws-client';
+	import { onRegionChange, regionalClient } from '#lib/region-effect.svelte.ts';
+	import { getDataSyncClient } from '#lib/aws-client.ts';
 	import {
 		ListAgentsCommand,
 		ListLocationsCommand,
@@ -54,16 +54,16 @@
 		type DescribeTaskExecutionCommandOutput
 	} from '@aws-sdk/client-datasync';
 	import { toast } from 'svelte-sonner';
-	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { createTabLoader } from '$lib/tab-loader.svelte';
-	import { formatDate, formatBytes } from '$lib/format';
-	import PageHeader from '$lib/components/PageHeader.svelte';
-	import Tabs from '$lib/components/Tabs.svelte';
-	import type { Tab as TabDef } from '$lib/components/Tabs.svelte';
-	import SearchInput from '$lib/components/SearchInput.svelte';
-	import DataTable from '$lib/components/DataTable.svelte';
-	import { defineColumns } from '$lib/components/data-table';
-	import Modal from '$lib/components/Modal.svelte';
+	import { confirmDestructive } from '#lib/confirm-dialog.ts';
+	import { createTabLoader } from '#lib/tab-loader.svelte.ts';
+	import { formatDate, formatBytes } from '#lib/format.ts';
+	import PageHeader from '#lib/components/PageHeader.svelte';
+	import Tabs from '#lib/components/Tabs.svelte';
+	import type { Tab as TabDef } from '#lib/components/Tabs.svelte';
+	import SearchInput from '#lib/components/SearchInput.svelte';
+	import DataTable from '#lib/components/DataTable.svelte';
+	import { defineColumns } from '#lib/components/data-table.ts';
+	import Modal from '#lib/components/Modal.svelte';
 	import { ArrowLeftRight, Plus, Trash2, Eye, Pencil, Play, Ban, RefreshCw } from 'lucide-svelte';
 
 	const client = regionalClient(getDataSyncClient);

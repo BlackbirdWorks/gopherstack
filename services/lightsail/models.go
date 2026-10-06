@@ -706,10 +706,40 @@ type Bucket struct {
 	SupportCode              string
 	Arn                      string
 	CORS                     *BucketCORS
+	AccessRules              *BucketAccessRules     `json:"AccessRules,omitempty"`
+	AccessLogConfig          *BucketAccessLogConfig `json:"AccessLogConfig,omitempty"`
 	ReadonlyAccessAccounts   []string
 	AccessKeys               []AccessKey
 	ResourcesReceivingAccess []ResourceReceivingAccess
 	AbleToUpdateBundle       bool
+}
+
+// BucketAccessRules mirrors types.AccessRules.
+type BucketAccessRules struct {
+	GetObject            string
+	AllowPublicOverrides bool
+}
+
+// BucketAccessLogConfig mirrors types.BucketAccessLogConfig.
+type BucketAccessLogConfig struct {
+	Destination string
+	Prefix      string
+	Enabled     bool
+}
+
+// BucketUpdate carries UpdateBucket's optional members; nil or empty means unchanged.
+type BucketUpdate struct {
+	CORS                   *BucketCORS
+	AccessRules            *BucketAccessRulesUpdate
+	AccessLogConfig        *BucketAccessLogConfig
+	Versioning             string
+	ReadonlyAccessAccounts []string
+}
+
+// BucketAccessRulesUpdate is a partial types.AccessRules: nil members are unchanged.
+type BucketAccessRulesUpdate struct {
+	AllowPublicOverrides *bool
+	GetObject            string
 }
 
 // BucketCORS mirrors types.BucketCorsConfig.
@@ -774,6 +804,17 @@ type AccessKey struct {
 func (b *Bucket) clone() *Bucket {
 	cp := *b
 	cp.CORS = b.CORS.clone()
+
+	if b.AccessRules != nil {
+		rules := *b.AccessRules
+		cp.AccessRules = &rules
+	}
+
+	if b.AccessLogConfig != nil {
+		logCfg := *b.AccessLogConfig
+		cp.AccessLogConfig = &logCfg
+	}
+
 	cp.ReadonlyAccessAccounts = cloneStrings(b.ReadonlyAccessAccounts)
 	cp.AccessKeys = append([]AccessKey(nil), b.AccessKeys...)
 	cp.ResourcesReceivingAccess = append([]ResourceReceivingAccess(nil), b.ResourcesReceivingAccess...)

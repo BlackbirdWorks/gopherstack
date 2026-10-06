@@ -1,13 +1,17 @@
 package kinesisvideo_test
 
 import (
+	"errors"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	kinesisvideosdk "github.com/aws/aws-sdk-go-v2/service/kinesisvideo"
+	"github.com/aws/aws-sdk-go-v2/service/kinesisvideo/types"
+	"github.com/aws/smithy-go"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 
@@ -52,4 +56,41 @@ func newTestHandler() *kinesisvideo.Handler {
 	h.DefaultRegion = testRegion
 
 	return h
+}
+
+const (
+	waitTimeout = 5 * time.Second
+	waitTick    = 20 * time.Millisecond
+)
+
+func waitStreamActive(t *testing.T, client *kinesisvideosdk.Client, arn *string) {
+	t.Helper()
+
+	require.Eventually(t, func() bool {
+		out, err := client.DescribeStream(t.Context(), &kinesisvideosdk.DescribeStreamInput{StreamARN: arn})
+
+		return err == nil && out.StreamInfo.Status == types.StatusActive
+	}, waitTimeout, waitTick)
+}
+
+func waitChannelActive(t *testing.T, client *kinesisvideosdk.Client, arn *string) {
+	t.Helper()
+
+	require.Eventually(t, func() bool {
+		out, err := client.DescribeSignalingChannel(t.Context(), &kinesisvideosdk.DescribeSignalingChannelInput{
+			ChannelARN: arn,
+		})
+
+		return err == nil && out.ChannelInfo.ChannelStatus == types.StatusActive
+	}, waitTimeout, waitTick)
+}
+
+func requireNotFoundEventually(t *testing.T, call func() error) {
+	t.Helper()
+
+	require.Eventually(t, func() bool {
+		var apiErr smithy.APIError
+
+		return errors.As(call(), &apiErr) && apiErr.ErrorCode() == "ResourceNotFoundException"
+	}, waitTimeout, waitTick)
 }

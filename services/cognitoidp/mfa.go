@@ -363,6 +363,7 @@ func (b *InMemoryBackend) SetUserMFAPreference(
 	accessToken string,
 	smsMFAEnabled, softwareTokenEnabled bool,
 	preferredMFA string,
+	extraEnabled ...string,
 ) error {
 	b.mu.Lock("SetUserMFAPreference")
 	defer b.mu.Unlock()
@@ -372,7 +373,7 @@ func (b *InMemoryBackend) SetUserMFAPreference(
 		return err
 	}
 
-	return b.applyMFAPreferenceLocked(user, smsMFAEnabled, softwareTokenEnabled, preferredMFA)
+	return b.applyMFAPreferenceLocked(user, smsMFAEnabled, softwareTokenEnabled, preferredMFA, extraEnabled...)
 }
 
 // AdminSetUserMFASetting sets the MFA configuration for a specific user (admin operation).
@@ -380,6 +381,7 @@ func (b *InMemoryBackend) AdminSetUserMFASetting(
 	userPoolID, username string,
 	smsMFAEnabled, softwareTokenEnabled bool,
 	preferredMFA string,
+	extraEnabled ...string,
 ) error {
 	b.mu.Lock("AdminSetUserMFASetting")
 	defer b.mu.Unlock()
@@ -393,7 +395,7 @@ func (b *InMemoryBackend) AdminSetUserMFASetting(
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
 	}
 
-	return b.applyMFAPreferenceLocked(user, smsMFAEnabled, softwareTokenEnabled, preferredMFA)
+	return b.applyMFAPreferenceLocked(user, smsMFAEnabled, softwareTokenEnabled, preferredMFA, extraEnabled...)
 }
 
 // applyMFAPreferenceLocked updates the MFA setting list and preferred MFA on a user.
@@ -402,8 +404,15 @@ func (b *InMemoryBackend) applyMFAPreferenceLocked(
 	user *User,
 	smsMFAEnabled, softwareTokenEnabled bool,
 	preferredMFA string,
+	extraEnabled ...string,
 ) error {
 	var settings []string
+
+	for _, f := range extraEnabled {
+		if f == challengeEmailOTP {
+			settings = append(settings, f)
+		}
+	}
 
 	if smsMFAEnabled {
 		settings = append(settings, challengeSMSMFA)
@@ -471,8 +480,11 @@ func (b *InMemoryBackend) AdminSetUserMFAPreference(
 	userPoolID, username string,
 	smsMFAEnabled, softwareTokenEnabled bool,
 	preferredMFA string,
+	extraEnabled ...string,
 ) error {
-	return b.AdminSetUserMFASetting(userPoolID, username, smsMFAEnabled, softwareTokenEnabled, preferredMFA)
+	return b.AdminSetUserMFASetting(
+		userPoolID, username, smsMFAEnabled, softwareTokenEnabled, preferredMFA, extraEnabled...,
+	)
 }
 
 // mfaConfigOFF is the default MFA configuration value when none is set.

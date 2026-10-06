@@ -20,6 +20,9 @@ const (
 	folderMemberTypeAnalysis  = "ANALYSIS"
 	folderMemberTypeDataSet   = "DATASET"
 
+	folderMemberTypeDataSource = "DATASOURCE"
+	folderMemberTypeTopic      = "TOPIC"
+
 	folderArnMarker = ":folder/"
 
 	filterParentFolderArn = "PARENT_FOLDER_ARN"
@@ -126,7 +129,8 @@ func isValidFolderType(folderType string) bool {
 
 func isValidFolderMemberType(memberType string) bool {
 	switch memberType {
-	case folderMemberTypeDashboard, folderMemberTypeAnalysis, folderMemberTypeDataSet:
+	case folderMemberTypeDashboard, folderMemberTypeAnalysis, folderMemberTypeDataSet,
+		folderMemberTypeDataSource, folderMemberTypeTopic:
 		return true
 	}
 
@@ -211,12 +215,12 @@ func applyGrantRevoke(existing, grant, revoke []ResourcePermission) []ResourcePe
 // folderIDFromArn extracts the FolderId component of a folder ARN, or "" if arn
 // does not look like a folder ARN.
 func folderIDFromArn(arn string) string {
-	idx := strings.LastIndex(arn, folderArnMarker)
-	if idx < 0 {
+	_, after, ok := strings.CutLast(arn, folderArnMarker)
+	if !ok {
 		return ""
 	}
 
-	return arn[idx+len(folderArnMarker):]
+	return after
 }
 
 // ---- Folders ----

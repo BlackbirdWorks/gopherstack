@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
-	"strconv"
 	"strings"
 )
 
@@ -137,21 +136,10 @@ func (h *Handler) handleListRepositories(body []byte) (any, error) {
 		}
 	}
 
-	// Apply pagination.
-	start := 0
-	if in.NextToken != "" {
-		if idx, err := strconv.Atoi(in.NextToken); err == nil && idx >= 0 {
-			start = idx
-		}
+	page, nextToken, pageErr := paginateSlice(repos, in.NextToken, in.MaxResults)
+	if pageErr != nil {
+		return nil, pageErr
 	}
-	if start > len(repos) {
-		start = len(repos)
-	}
-	end := len(repos)
-	if in.MaxResults > 0 && start+in.MaxResults < end {
-		end = start + in.MaxResults
-	}
-	page := repos[start:end]
 
 	items := make([]map[string]any, 0, len(page))
 	for _, r := range page {
@@ -164,8 +152,8 @@ func (h *Handler) handleListRepositories(body []byte) (any, error) {
 	resp := map[string]any{
 		"repositories": items,
 	}
-	if end < len(repos) {
-		resp["nextToken"] = strconv.Itoa(end)
+	if nextToken != "" {
+		resp["nextToken"] = nextToken
 	}
 
 	return resp, nil

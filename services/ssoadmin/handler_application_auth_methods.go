@@ -24,29 +24,13 @@ func (h *Handler) handleDeleteApplicationAuthenticationMethod(c *echo.Context, b
 }
 
 func (h *Handler) handleListApplicationAuthenticationMethods(c *echo.Context, body []byte) error {
-	var req struct {
-		ApplicationArn string `json:"ApplicationArn"`
-	}
-	if err := json.Unmarshal(body, &req); err != nil {
-		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
-	}
-	methods, err := h.Backend.ListApplicationAuthenticationMethods(req.ApplicationArn)
-	if err != nil {
-		return handleBackendError(c, err, "application not found: "+req.ApplicationArn)
-	}
-
-	out := make([]map[string]any, 0, len(methods))
-	for _, method := range methods {
-		out = append(out, map[string]any{
-			"AuthenticationMethodType": method.AuthMethodType,
-			keyAuthenticationMethod:    method.Body,
-		})
-	}
-
-	return writeJSON(c, http.StatusOK, map[string]any{
-		"AuthenticationMethods": out,
-		keyNextToken:            nil,
-	})
+	return listApplicationItems(
+		c, body, h.Backend.ListApplicationAuthenticationMethods,
+		func(m AuthMethod) string { return m.AuthMethodType }, "AuthenticationMethods",
+		func(m AuthMethod) map[string]any {
+			return map[string]any{"AuthenticationMethodType": m.AuthMethodType, keyAuthenticationMethod: m.Body}
+		},
+	)
 }
 
 func (h *Handler) handlePutApplicationAuthenticationMethod(c *echo.Context, body []byte) error {

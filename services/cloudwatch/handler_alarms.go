@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -51,7 +52,17 @@ func (h *Handler) handlePutMetricAlarm(form url.Values, c *echo.Context) error {
 		Dimensions:              parseDimensionsFromForm(form, "Dimensions."),
 		Metrics:                 parseMetricDataQueriesFromForm(form),
 		EvaluationWindow:        formEvaluationWindow(form),
+		WarmUp:                  formWarmUp(form),
+
+		EvaluateLowSampleCountPercentile: form.Get("EvaluateLowSampleCountPercentile"),
 	}
+
+	if err := checkUnsupportedAlarmMembers(
+		hasFormPrefix(form, "EvaluationCriteria"), form.Has("EvaluationInterval"),
+	); err != nil {
+		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", err.Error())
+	}
+
 	if err := h.Backend.PutMetricAlarm(alarm); err != nil {
 		if errors.Is(err, ErrValidation) {
 			return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", err.Error())
@@ -59,6 +70,8 @@ func (h *Handler) handlePutMetricAlarm(form url.Values, c *echo.Context) error {
 
 		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
+
+	h.applyFormCreationTags(form, alarm.AlarmArn)
 
 	type response struct {
 		XMLName   xml.Name `xml:"PutMetricAlarmResponse"`
@@ -105,6 +118,10 @@ func metricAlarmToXML(a MetricAlarm) metricAlarmXML {
 		x.AlarmConfigurationUpdatedTimestamp = a.AlarmConfigurationUpdatedTimestamp.UTC().
 			Format(time.RFC3339)
 	}
+	x.EvaluateLowSampleCountPercentile = a.EvaluateLowSampleCountPercentile
+	if a.WarmUp != nil {
+		x.WarmUp = &warmUpXML{PeriodMinutes: a.WarmUp.PeriodMinutes, OnlyAfterEnd: a.WarmUp.OnlyAfterEnd}
+	}
 	if a.EvaluationWindow != nil {
 		x.EvaluationWindow = &evaluationWindowXML{}
 		if a.EvaluationWindow.WallClock {
@@ -126,6 +143,8 @@ func metricAlarmToXML(a MetricAlarm) metricAlarmXML {
 // metricAlarmXML is the XML representation of a MetricAlarm.
 type metricAlarmXML struct {
 	EvaluationWindow                   *evaluationWindowXML `xml:"EvaluationWindow,omitempty"`
+	WarmUp                             *warmUpXML           `xml:"WarmUpConfiguration,omitempty"`
+	EvaluateLowSampleCountPercentile   string               `xml:"EvaluateLowSampleCountPercentile,omitempty"`
 	AlarmArn                           string               `xml:"AlarmArn"`
 	ThresholdMetricID                  string               `xml:"ThresholdMetricId,omitempty"`
 	AlarmDescription                   string               `xml:"AlarmDescription,omitempty"`
@@ -366,6 +385,36 @@ func (h *Handler) handleDisableAlarmActions(form url.Values, c *echo.Context) er
 
 type wallClockWindowXML struct {
 	Timezone string `xml:"Timezone,omitempty"`
+}
+
+type warmUpXML struct {
+	PeriodMinutes int32 `xml:"WarmUpPeriodDurationInMinutes"`
+	OnlyAfterEnd  bool  `xml:"OnlyStartEvaluatingAfterWarmUpPeriodEnds"`
+}
+
+// formWarmUp decodes WarmUpConfiguration.* form members.
+func formWarmUp(form url.Values) *AlarmWarmUp {
+	if !hasFormPrefix(form, "WarmUpConfiguration") {
+		return nil
+	}
+
+	minutes, _ := strconv.ParseInt(form.Get("WarmUpConfiguration.WarmUpPeriodDurationInMinutes"), 10, 32)
+
+	return &AlarmWarmUp{
+		PeriodMinutes: int32(minutes),
+		OnlyAfterEnd:  form.Get("WarmUpConfiguration.OnlyStartEvaluatingAfterWarmUpPeriodEnds") == "true",
+	}
+}
+
+// hasFormPrefix reports whether any form key is name or starts with name+".".
+func hasFormPrefix(form url.Values, name string) bool {
+	for k := range form {
+		if k == name || strings.HasPrefix(k, name+".") {
+			return true
+		}
+	}
+
+	return false
 }
 
 type evaluationWindowXML struct {

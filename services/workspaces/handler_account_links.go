@@ -41,7 +41,7 @@ type createAccountLinkInvitationOutput struct {
 func (h *Handler) handleCreateAccountLinkInvitation(
 	_ context.Context, req *createAccountLinkInvitationInput,
 ) (*createAccountLinkInvitationOutput, error) {
-	link, err := h.Backend.CreateAccountLinkInvitation(req.TargetAccountId)
+	link, err := h.Backend.CreateAccountLinkInvitationWithToken(req.TargetAccountId, req.ClientToken)
 	if err != nil {
 		return nil, err
 	}
@@ -116,7 +116,8 @@ func (h *Handler) handleDeleteAccountLinkInvitation(
 }
 
 type getAccountLinkInput struct {
-	LinkId string `json:"LinkId"` //nolint:revive,staticcheck // existing issue.
+	LinkId          string `json:"LinkId"`          //nolint:revive,staticcheck // existing issue.
+	LinkedAccountId string `json:"LinkedAccountId"` //nolint:revive,staticcheck // wire key
 }
 
 type getAccountLinkOutput struct {
@@ -126,7 +127,7 @@ type getAccountLinkOutput struct {
 func (h *Handler) handleGetAccountLink(
 	_ context.Context, req *getAccountLinkInput,
 ) (*getAccountLinkOutput, error) {
-	link, err := h.Backend.GetAccountLink(req.LinkId)
+	link, err := h.Backend.GetAccountLinkBy(req.LinkId, req.LinkedAccountId)
 	if err != nil {
 		return nil, err
 	}

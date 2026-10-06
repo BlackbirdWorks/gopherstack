@@ -799,6 +799,13 @@ func parseMemberList(form url.Values, prefix string) []string {
 	}
 }
 
+// applyFormCreationTags stores Tags.member.N supplied on a form-encoded Put* against resourceARN.
+func (h *Handler) applyFormCreationTags(form url.Values, resourceARN string) {
+	if kv := parseCWTagsFromForm(form); len(kv) > 0 {
+		h.setTags(resourceARN, kv)
+	}
+}
+
 // parseCWTagsFromForm reads Tags.member.N.Key/Value pairs from the form.
 func parseCWTagsFromForm(form url.Values) map[string]string {
 	tags := make(map[string]string)

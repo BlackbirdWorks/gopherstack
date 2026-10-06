@@ -81,6 +81,7 @@ type describeRouteTablesResponse struct {
 	XMLName       xml.Name          `xml:"DescribeRouteTablesResponse"`
 	Xmlns         string            `xml:"xmlns,attr"`
 	RequestID     string            `xml:"requestId"`
+	NextToken     string            `xml:"nextToken,omitempty"`
 	RouteTableSet routeTableItemSet `xml:"routeTableSet"`
 }
 
@@ -218,11 +219,11 @@ func (h *Handler) handleDescribeRouteTables(vals url.Values, reqID string) (any,
 		)
 	}
 
-	return &describeRouteTablesResponse{
+	return finishPaged(vals, &describeRouteTablesResponse{
 		Xmlns:         ec2XMLNS,
 		RequestID:     reqID,
 		RouteTableSet: routeTableItemSet{Items: items},
-	}, nil
+	})
 }
 
 func (h *Handler) handleCreateRoute(vals url.Values, reqID string) (any, error) {

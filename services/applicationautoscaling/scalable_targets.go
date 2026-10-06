@@ -75,6 +75,10 @@ func validateRegisterScalableTargetBasics(
 		return fmt.Errorf("%w: ScalableDimension is required", ErrValidation)
 	}
 
+	if err := validateNamespaceDimension(serviceNamespace, scalableDimension); err != nil {
+		return err
+	}
+
 	// RegisterScalableTarget's modeled error set has LimitExceededException
 	// but no TooManyTagsException (that's only modeled on TagResource -- see
 	// ErrTooManyTags's doc comment), so an over-limit tag count here is
@@ -105,6 +109,56 @@ func (b *InMemoryBackend) RegisterScalableTarget(
 	tags map[string]string,
 	roleARN string,
 	suspendedState *SuspendedState,
+) (*ScalableTarget, error) {
+	var patch *suspendedStatePatch
+	if suspendedState != nil {
+		patch = &suspendedStatePatch{
+			DynamicScalingInSuspended:  &suspendedState.DynamicScalingInSuspended,
+			DynamicScalingOutSuspended: &suspendedState.DynamicScalingOutSuspended,
+			ScheduledScalingSuspended:  &suspendedState.ScheduledScalingSuspended,
+		}
+	}
+
+	return b.registerScalableTarget(
+		serviceNamespace, resourceID, scalableDimension, minCapacity, maxCapacity, tags, roleARN, patch,
+	)
+}
+
+// suspendedStatePatch carries only the SuspendedState members the caller sent.
+type suspendedStatePatch struct {
+	DynamicScalingInSuspended  *bool
+	DynamicScalingOutSuspended *bool
+	ScheduledScalingSuspended  *bool
+}
+
+// apply merges the sent members over cur; unsent members stay unchanged.
+func (p *suspendedStatePatch) apply(cur *SuspendedState) *SuspendedState {
+	out := SuspendedState{}
+	if cur != nil {
+		out = *cur
+	}
+
+	if p.DynamicScalingInSuspended != nil {
+		out.DynamicScalingInSuspended = *p.DynamicScalingInSuspended
+	}
+
+	if p.DynamicScalingOutSuspended != nil {
+		out.DynamicScalingOutSuspended = *p.DynamicScalingOutSuspended
+	}
+
+	if p.ScheduledScalingSuspended != nil {
+		out.ScheduledScalingSuspended = *p.ScheduledScalingSuspended
+	}
+
+	return &out
+}
+
+func (b *InMemoryBackend) registerScalableTarget(
+	serviceNamespace, resourceID, scalableDimension string,
+	minCapacity, maxCapacity *int32,
+	tags map[string]string,
+	roleARN string,
+	suspendedState *suspendedStatePatch,
 ) (*ScalableTarget, error) {
 	if err := validateRegisterScalableTargetBasics(serviceNamespace, resourceID, scalableDimension, tags); err != nil {
 		return nil, err
@@ -174,7 +228,7 @@ func (b *InMemoryBackend) RegisterScalableTarget(
 		AccountID:        b.accountID,
 		Region:           b.region,
 		Tags:             maps.Clone(tags),
-		SuspendedState:   suspendedState,
+		SuspendedState:   newSuspendedState(suspendedState),
 		CreationTime:     now,
 		LastModifiedTime: now,
 	}
@@ -224,7 +278,7 @@ func (b *InMemoryBackend) updateExistingTarget(
 	minCapacity, maxCapacity *int32,
 	tags map[string]string,
 	roleARN string,
-	suspendedState *SuspendedState,
+	suspendedState *suspendedStatePatch,
 	now time.Time,
 ) (*ScalableTarget, error) {
 	newMin := existing.MinCapacity
@@ -255,7 +309,7 @@ func (b *InMemoryBackend) updateExistingTarget(
 	}
 
 	if suspendedState != nil {
-		existing.SuspendedState = suspendedState
+		existing.SuspendedState = suspendedState.apply(existing.SuspendedState)
 	}
 
 	if len(tags) > 0 {
@@ -338,7 +392,7 @@ type DescribeScalableTargetsFilter struct {
 	// NextToken is the opaque pagination cursor returned by a prior call.
 	NextToken   string
 	ResourceIDs []string
-	// MaxResults, when > 0, limits the number of returned items. Capped at maxDescribeResults.
+	// MaxResults, when > 0, limits the number of returned items. Defaults to and is capped at the documented maximum.
 	MaxResults int32
 }
 
@@ -346,6 +400,10 @@ type DescribeScalableTargetsFilter struct {
 // returns the NextToken for the following page (empty on the last page).
 // Returns ErrInvalidNextToken if f.NextToken fails to decode.
 func (b *InMemoryBackend) DescribeScalableTargets(f DescribeScalableTargetsFilter) ([]*ScalableTarget, string, error) {
+	if err := validateEnums(f.ServiceNamespace, f.ScalableDimension); err != nil {
+		return nil, "", err
+	}
+
 	b.mu.RLock("DescribeScalableTargets")
 
 	var idSet map[string]bool
@@ -385,7 +443,7 @@ func (b *InMemoryBackend) DescribeScalableTargets(f DescribeScalableTargetsFilte
 	// A target set via DynamoDB's own API must show up here too.
 	list = append(list, b.dynamodbSiblingScalableTargets(f, known)...)
 
-	return paginate(list, f.MaxResults, f.NextToken, func(t *ScalableTarget) string {
+	return paginate(list, f.MaxResults, maxDescribeTargets, f.NextToken, func(t *ScalableTarget) string {
 		return t.ResourceID + "|" + t.ScalableDimension
 	})
 }
@@ -395,4 +453,14 @@ func (b *InMemoryBackend) DescribeScalableTargets(f DescribeScalableTargetsFilte
 // hold at least a read lock.
 func (b *InMemoryBackend) scalableTargetExists(serviceNamespace, resourceID, scalableDimension string) bool {
 	return b.scalableTargets.Has(scalableTargetKey(serviceNamespace, resourceID, scalableDimension))
+}
+
+// newSuspendedState defaults every suspension member to false
+// (api_op_RegisterScalableTarget.go:306, "false (default)").
+func newSuspendedState(p *suspendedStatePatch) *SuspendedState {
+	if p == nil {
+		return &SuspendedState{}
+	}
+
+	return p.apply(nil)
 }

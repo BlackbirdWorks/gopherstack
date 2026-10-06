@@ -38,7 +38,10 @@ func (b *InMemoryBackend) CreateInstance(
 	id := uuid.NewString()
 	now := time.Now().UTC()
 	// Use a UUID-derived suffix to avoid length-based race conditions.
-	hostname := fmt.Sprintf("gopherstack-%s", id[:8])
+	hostname := opts.Hostname
+	if hostname == "" {
+		hostname = fmt.Sprintf("gopherstack-%s", id[:8])
+	}
 
 	i := &storedInstance{
 		CreatedAt:            now,
@@ -56,6 +59,10 @@ func (b *InMemoryBackend) CreateInstance(
 		SubnetID:             opts.SubnetID,
 		Tenancy:              opts.Tenancy,
 	}
+	if opts.Extras != (InstanceExtras{}) {
+		e := opts.Extras
+		i.Extras = &e
+	}
 	b.instances.Put(i)
 
 	return i.toInstance(), nil
@@ -65,7 +72,7 @@ func (b *InMemoryBackend) CreateInstance(
 // is "This member is required" on the real RegisterInstanceInput (confirmed
 // against aws-sdk-go-v2/service/opsworks@v1.31.0's
 // api_op_RegisterInstance.go); Hostname is not.
-func (b *InMemoryBackend) RegisterInstance(stackID, hostname string) (string, error) {
+func (b *InMemoryBackend) RegisterInstance(stackID, hostname string, extras InstanceExtras) (string, error) {
 	if stackID == "" {
 		return "", ErrValidation
 	}
@@ -93,6 +100,10 @@ func (b *InMemoryBackend) RegisterInstance(stackID, hostname string) (string, er
 		Hostname:   h,
 		Status:     instanceStatusStopped,
 		Registered: true,
+	}
+	if extras != (InstanceExtras{}) {
+		e := extras
+		i.Extras = &e
 	}
 	b.instances.Put(i)
 
@@ -210,6 +221,25 @@ func (b *InMemoryBackend) UpdateInstance(instanceID, hostname string, opts Updat
 		return ErrInstanceNotFound
 	}
 
+	for _, layerID := range opts.LayerIDs {
+		l, layerOK := b.layers.Get(layerID)
+		if !layerOK {
+			return ErrLayerNotFound
+		}
+
+		if l.StackID != i.StackID {
+			return ErrValidation
+		}
+	}
+
+	if len(opts.LayerIDs) > 0 {
+		i.LayerIDs = slices.Clone(opts.LayerIDs)
+	}
+	if opts.InstanceType != "" {
+		i.InstanceType = opts.InstanceType
+	}
+
+	applyInstanceExtrasUpdate(i, opts.Extras)
 	if hostname != "" {
 		i.Hostname = hostname
 	}
@@ -222,6 +252,9 @@ func (b *InMemoryBackend) UpdateInstance(instanceID, hostname string, opts Updat
 	if opts.Os != "" {
 		i.Os = opts.Os
 	}
+	if opts.Architecture != "" {
+		i.Architecture = opts.Architecture
+	}
 
 	return nil
 }
@@ -229,7 +262,7 @@ func (b *InMemoryBackend) UpdateInstance(instanceID, hostname string, opts Updat
 // DeleteInstance deletes an instance. AWS requires the instance be stopped
 // first (api_op_DeleteInstance.go: "You must stop an instance before you
 // can delete it.").
-func (b *InMemoryBackend) DeleteInstance(instanceID string) error {
+func (b *InMemoryBackend) DeleteInstance(instanceID string, deleteElasticIP, deleteVolumes bool) error {
 	b.mu.Lock("DeleteInstance")
 	defer b.mu.Unlock()
 
@@ -243,6 +276,30 @@ func (b *InMemoryBackend) DeleteInstance(instanceID string) error {
 	}
 
 	b.instances.Delete(instanceID)
+
+	for _, e := range slices.Clone(b.elasticIPs.All()) {
+		if e.InstanceID != instanceID {
+			continue
+		}
+
+		if deleteElasticIP {
+			b.elasticIPs.Delete(e.IP)
+		} else {
+			e.InstanceID = ""
+		}
+	}
+
+	for _, v := range slices.Clone(b.volumes.All()) {
+		if v.InstanceID != instanceID {
+			continue
+		}
+
+		if deleteVolumes {
+			b.volumes.Delete(v.VolumeID)
+		} else {
+			v.InstanceID = ""
+		}
+	}
 
 	return nil
 }
@@ -301,4 +358,31 @@ func (b *InMemoryBackend) RebootInstance(instanceID string) error {
 	i.Status = instanceStatusOnline
 
 	return nil
+}
+
+// applyInstanceExtrasUpdate applies UpdateInstance members AmiId, AutoScalingType, EbsOptimized and SshKeyName.
+func applyInstanceExtrasUpdate(i *storedInstance, in InstanceExtras) {
+	if in.AmiID == "" && in.AutoScalingType == "" && in.EbsOptimized == nil && in.SSHKeyName == "" {
+		return
+	}
+
+	if i.Extras == nil {
+		i.Extras = &InstanceExtras{}
+	}
+
+	if in.AmiID != "" {
+		i.Extras.AmiID = in.AmiID
+	}
+
+	if in.AutoScalingType != "" {
+		i.Extras.AutoScalingType = in.AutoScalingType
+	}
+
+	if in.EbsOptimized != nil {
+		i.Extras.EbsOptimized = in.EbsOptimized
+	}
+
+	if in.SSHKeyName != "" {
+		i.Extras.SSHKeyName = in.SSHKeyName
+	}
 }

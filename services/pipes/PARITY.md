@@ -1023,3 +1023,7 @@ Audited for region isolation: same-named resources in two regions coexist and li
 ## 2026-10-04 source and target regions
 
 SQS and Kinesis sources are read, and SQS, Kinesis, EventBridge and CloudWatch Logs targets written, in the ARN's region. The Kinesis reader interface now takes the stream ARN (was the bare name). Proof: `TestInitializeServices_PipesSQSSourceReadsQueueARNRegion`, `TestInitializeServices_PipesKinesisSourceReadsStreamARNRegion`, `TestInitializeServices_LogsTargetsUseLogGroupARNRegion`.
+
+## 2026-10-05 (zeroguard omitted-vs-zero audit)
+
+Tool false positives (cmd/zeroguard): required path/identifier members (Name, *Id, *Arn), Put* operations that replace the whole resource (PutRule, PutPermission, PutResourcePolicy, PutCodeBinding), and PatchOperations-based Update* ops.

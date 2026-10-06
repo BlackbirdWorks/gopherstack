@@ -359,21 +359,7 @@ func (h *Handler) handleDescribeNodeConfigurationOptions(vals url.Values) (any, 
 
 	options := nodeConfigurationOptions(actionType, baseNodeType)
 
-	// Apply an optional NumberOfNodes filter, honouring its documented
-	// Operator (previously ignored -- every filter was compared with == against
-	// only the first supplied value, so a real client's gt/lt/le/ge/between/in
-	// filter silently behaved like an eq on the wrong value).
-	if op, filterVals := nodeConfigFilterOperatorValues(vals, "NumberOfNodes"); len(filterVals) > 0 {
-		filtered := options[:0:0]
-
-		for _, o := range options {
-			if numericFilterMatches(op, filterVals, float64(o.NumberOfNodes)) {
-				filtered = append(filtered, o)
-			}
-		}
-
-		options = filtered
-	}
+	options = filterNodeConfigOptions(vals, options)
 
 	maxRecords, err := parseRedshiftMaxRecords(vals)
 	if err != nil {
@@ -396,6 +382,34 @@ func (h *Handler) handleDescribeNodeConfigurationOptions(vals url.Values) (any, 
 	resp.Result.NodeConfigurationOptionList = options
 
 	return resp, nil
+}
+
+// filterNodeConfigOptions applies the NumberOfNodes, EstimatedDiskUtilizationPercent and Mode
+// filters (types/types.go:1374-1391); NodeType selects the generated type instead.
+func filterNodeConfigOptions(vals url.Values, options []nodeConfigOptionXML) []nodeConfigOptionXML {
+	numeric := map[string]func(nodeConfigOptionXML) float64{
+		"NumberOfNodes":                   func(o nodeConfigOptionXML) float64 { return float64(o.NumberOfNodes) },
+		"EstimatedDiskUtilizationPercent": func(o nodeConfigOptionXML) float64 { return o.EstimatedDiskUtilizationPercent },
+	}
+
+	for name, get := range numeric {
+		op, filterVals := nodeConfigFilterOperatorValues(vals, name)
+		if len(filterVals) == 0 {
+			continue
+		}
+
+		options = slices.DeleteFunc(slices.Clone(options), func(o nodeConfigOptionXML) bool {
+			return !numericFilterMatches(op, filterVals, get(o))
+		})
+	}
+
+	if _, modes := nodeConfigFilterOperatorValues(vals, "Mode"); len(modes) > 0 {
+		options = slices.DeleteFunc(slices.Clone(options), func(o nodeConfigOptionXML) bool {
+			return !slices.Contains(modes, o.Mode)
+		})
+	}
+
+	return options
 }
 
 // ---- ListRecommendations ----

@@ -9,7 +9,10 @@ import (
 )
 
 const (
-	defaultMaxResults = 20
+	// "The default value is 100" on the eight List* ops (e.g. api_op_ListChannels.go:36).
+	defaultMaxResults = 100
+	// GetChannelSchedule documents no default.
+	defaultScheduleMaxResults = 20
 
 	channelStateRunning = "RUNNING"
 	channelStateStopped = "STOPPED"

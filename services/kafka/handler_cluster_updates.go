@@ -104,8 +104,9 @@ type updateClusterConfigurationInput struct {
 }
 
 type updateClusterKafkaVersionInput struct {
-	CurrentVersion     string `json:"currentVersion"`
-	TargetKafkaVersion string `json:"targetKafkaVersion"`
+	ConfigurationInfo  *ConfigurationInfo `json:"configurationInfo"`
+	CurrentVersion     string             `json:"currentVersion"`
+	TargetKafkaVersion string             `json:"targetKafkaVersion"`
 }
 
 func (h *Handler) handleUpdateBrokerCount(
@@ -261,7 +262,7 @@ func (h *Handler) handleUpdateClusterKafkaVersion(
 		return err
 	}
 
-	op, err := h.Backend.UpdateClusterKafkaVersion(ctx, clusterArn, in.TargetKafkaVersion)
+	op, err := h.Backend.UpdateClusterKafkaVersion(ctx, clusterArn, in.TargetKafkaVersion, in.ConfigurationInfo)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -274,6 +275,7 @@ func (h *Handler) handleUpdateClusterKafkaVersion(
 
 type updateConnectivityInput struct {
 	ConnectivityInfo *ConnectivityInfo `json:"connectivityInfo"`
+	ZookeeperAccess  *ZookeeperAccess  `json:"zookeeperAccess"`
 	CurrentVersion   string            `json:"currentVersion"`
 }
 
@@ -294,6 +296,7 @@ func (h *Handler) handleUpdateConnectivity(
 
 	op, err := h.Backend.UpdateConnectivity(ctx, clusterArn, UpdateConnectivitySettings{
 		ConnectivityInfo: in.ConnectivityInfo,
+		ZookeeperAccess:  in.ZookeeperAccess,
 	})
 	if err != nil {
 		return h.writeBackendError(c, err)

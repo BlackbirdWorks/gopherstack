@@ -130,8 +130,7 @@ func TestMLTransform_TaskRunStubs(t *testing.T) {
 	t.Run("get-ml-task-run", func(t *testing.T) {
 		t.Parallel()
 		rec := doGlueRequest(t, h, "GetMLTaskRun", map[string]any{})
-		require.Equal(t, http.StatusOK, rec.Code)
-		assert.Contains(t, rec.Body.String(), "SUCCEEDED")
+		require.Equal(t, http.StatusBadRequest, rec.Code)
 	})
 
 	t.Run("get-ml-task-runs", func(t *testing.T) {
@@ -348,18 +347,12 @@ func TestMLExportImportLabels(t *testing.T) {
 func TestGetMLTaskRun(t *testing.T) {
 	t.Parallel()
 
-	t.Run("empty_ids_returns_ok", func(t *testing.T) {
+	t.Run("empty_ids_returns_400", func(t *testing.T) {
 		t.Parallel()
 
 		h := newTestHandler(t)
 		rec := doGlueRequest(t, h, "GetMLTaskRun", map[string]any{})
-		require.Equal(t, http.StatusOK, rec.Code)
-
-		var out struct {
-			Status string `json:"Status"`
-		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-		assert.Equal(t, "SUCCEEDED", out.Status)
+		require.Equal(t, http.StatusBadRequest, rec.Code)
 	})
 
 	t.Run("unknown_run_returns_400", func(t *testing.T) {

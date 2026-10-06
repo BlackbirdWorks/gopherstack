@@ -17,7 +17,9 @@ func (h *Handler) handleStartDomainVerification(c *echo.Context, body map[string
 	ctx := c.Request().Context()
 	tags := extractTags(body)
 
-	dv, err := h.Backend.StartDomainVerification(ctx, domainName, tags)
+	dv, err := idemCreate(h, "StartDomainVerification", "", body,
+		func(d *DomainVerification) string { return d.ID }, h.Backend.GetDomainVerification,
+		func() (*DomainVerification, error) { return h.Backend.StartDomainVerification(ctx, domainName, tags) })
 	if err != nil {
 		return h.handleError(c, err)
 	}

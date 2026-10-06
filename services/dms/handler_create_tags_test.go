@@ -144,6 +144,7 @@ func TestCreateOpsWithTags_RoundTrip(t *testing.T) {
 			name: "data migration",
 			setup: func(t *testing.T, client *dmssdk.Client) string {
 				t.Helper()
+				seedMigrationProjectViaClient(t, client, "dummy-migration-project")
 				out, err := client.CreateDataMigration(t.Context(), &dmssdk.CreateDataMigrationInput{
 					DataMigrationName:          aws.String("tagged-data-migration"),
 					DataMigrationType:          types.MigrationTypeValueFullLoad,

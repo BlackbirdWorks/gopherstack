@@ -14,6 +14,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -143,6 +144,7 @@ func (t isoTime) MarshalJSON() ([]byte, error) {
 // Handler is the Echo HTTP handler for Amazon Bedrock operations.
 type Handler struct {
 	Backend   *InMemoryBackend
+	idem      *idempotency.Memo
 	peers     *regionpeers.Set[Handler]
 	workerCtx atomic.Pointer[context.Context]
 	janitor   atomic.Pointer[janitorRun]
@@ -156,7 +158,7 @@ type janitorRun struct {
 // NewHandler creates a new Bedrock handler backed by backend.
 // backend must not be nil.
 func NewHandler(backend *InMemoryBackend) *Handler {
-	return &Handler{Backend: backend}
+	return &Handler{Backend: backend, idem: idempotency.New("bedrock")}
 }
 
 // StartWorker starts the status-advancement janitor of h and every sibling.

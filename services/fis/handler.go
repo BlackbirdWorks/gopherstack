@@ -14,6 +14,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -81,13 +82,14 @@ const (
 type Handler struct {
 	Backend       StorageBackend
 	janitor       *Janitor
+	idem          *idempotency.Memo
 	DefaultRegion string
 	AccountID     string
 }
 
 // NewHandler creates a new FIS handler.
 func NewHandler(backend StorageBackend) *Handler {
-	return &Handler{Backend: backend}
+	return &Handler{Backend: backend, idem: idempotency.New("fis")}
 }
 
 // WithJanitor attaches a background janitor to the handler.
@@ -450,7 +452,8 @@ func classifyError(err error) errorClass {
 		return errorClass{exceptionType: exceptionValidation, httpStatus: http.StatusBadRequest}
 	case errors.Is(err, ErrTooManyExperiments):
 		return errorClass{exceptionType: exceptionServiceQuotaExceeded, httpStatus: http.StatusPaymentRequired}
-	case errors.Is(err, ErrSafetyLeverEngaged):
+	case errors.Is(err, ErrSafetyLeverEngaged), errors.Is(err, ErrTargetAccountConfigExists),
+		errors.Is(err, ErrTokenReused):
 		return errorClass{exceptionType: exceptionConflict, httpStatus: http.StatusConflict}
 	case errors.Is(err, ErrTemplateNotFound),
 		errors.Is(err, ErrExperimentNotFound),

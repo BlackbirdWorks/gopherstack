@@ -211,6 +211,13 @@ func nodegroupResourcesToJSON(res *NodegroupResources) map[string]any {
 	return map[string]any{"autoScalingGroups": asgs}
 }
 
+// Documented scalingConfig defaults when the member is omitted.
+const (
+	defaultNodegroupMin     = 1
+	defaultNodegroupMax     = 2
+	defaultNodegroupDesired = 2
+)
+
 type scalingConfigJSON struct {
 	DesiredSize int32 `json:"desiredSize"`
 	MinSize     int32 `json:"minSize"`
@@ -248,17 +255,17 @@ type createNodegroupBody struct {
 	UpdateConfig       *nodegroupUpdateConfigJSON `json:"updateConfig"`
 	NodeRepairConfig   *NodeRepairConfig          `json:"nodeRepairConfig"`
 	WarmPoolConfig     *WarmPoolConfig            `json:"warmPoolConfig"`
-	CapacityType       string                     `json:"capacityType"`
+	ScalingConfig      *scalingConfigJSON         `json:"scalingConfig"`
 	NodeRole           string                     `json:"nodeRole"`
 	AMIType            string                     `json:"amiType"`
 	NodegroupName      string                     `json:"nodegroupName"`
 	Version            string                     `json:"version"`
 	ReleaseVersion     string                     `json:"releaseVersion"`
 	ClientRequestToken string                     `json:"clientRequestToken"`
+	CapacityType       string                     `json:"capacityType"`
 	InstanceTypes      []string                   `json:"instanceTypes"`
 	Subnets            []string                   `json:"subnets"`
 	Taints             []nodegroupTaintJSON       `json:"taints"`
-	ScalingConfig      scalingConfigJSON          `json:"scalingConfig"`
 	DiskSize           int32                      `json:"diskSize"`
 }
 
@@ -316,12 +323,21 @@ func (h *Handler) handleCreateNodegroup(c *echo.Context, clusterName string, bod
 		}
 	}
 
+	scaling := scalingConfigJSON{
+		DesiredSize: defaultNodegroupDesired,
+		MinSize:     defaultNodegroupMin,
+		MaxSize:     defaultNodegroupMax,
+	}
+	if in.ScalingConfig != nil {
+		scaling = *in.ScalingConfig
+	}
+
 	return h.withIdempotency(c, opCreateNodegroup, in.ClientRequestToken, body, func() (int, any, error) {
 		ng, err := h.Backend.CreateNodegroup(
 			clusterName, in.NodegroupName, in.NodeRole,
 			in.AMIType, in.CapacityType, in.Version, in.ReleaseVersion,
 			in.InstanceTypes,
-			in.ScalingConfig.DesiredSize, in.ScalingConfig.MinSize, in.ScalingConfig.MaxSize,
+			scaling.DesiredSize, scaling.MinSize, scaling.MaxSize,
 			NodegroupInput{
 				Labels:         in.Labels,
 				RemoteAccess:   remoteAccess,
@@ -483,9 +499,10 @@ func (h *Handler) handleUpdateNodegroupConfig(
 }
 
 type updateNodegroupVersionBody struct {
-	Version            string `json:"version"`
-	ReleaseVersion     string `json:"releaseVersion"`
-	ClientRequestToken string `json:"clientRequestToken"`
+	LaunchTemplate     *launchTemplateJSON `json:"launchTemplate"`
+	Version            string              `json:"version"`
+	ReleaseVersion     string              `json:"releaseVersion"`
+	ClientRequestToken string              `json:"clientRequestToken"`
 }
 
 func (h *Handler) handleUpdateNodegroupVersion(c *echo.Context, clusterName, nodegroupName string, body []byte) error {
@@ -497,7 +514,14 @@ func (h *Handler) handleUpdateNodegroupVersion(c *echo.Context, clusterName, nod
 	}
 
 	return h.withIdempotency(c, opUpdateNodegroupVersion, in.ClientRequestToken, body, func() (int, any, error) {
-		update, err := h.Backend.UpdateNodegroupVersion(clusterName, nodegroupName, in.Version, in.ReleaseVersion)
+		var lt *LaunchTemplate
+		if in.LaunchTemplate != nil {
+			lt = &LaunchTemplate{
+				ID: in.LaunchTemplate.ID, Name: in.LaunchTemplate.Name, Version: in.LaunchTemplate.Version,
+			}
+		}
+
+		update, err := h.Backend.UpdateNodegroupVersion(clusterName, nodegroupName, in.Version, in.ReleaseVersion, lt)
 		if err != nil {
 			return 0, nil, err
 		}

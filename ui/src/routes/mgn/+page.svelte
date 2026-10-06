@@ -28,13 +28,13 @@
 	// whole suite. `{#if}` genuinely removes inactive tabs from the DOM,
 	// matching what every existing page.test.ts in this codebase already
 	// assumes.
-	import { regionalClient } from '$lib/region-effect.svelte';
-	import { urlState } from '$lib/url-state.svelte';
-	import { getMGNClient } from '$lib/aws-client';
-	import PageHeader from '$lib/components/PageHeader.svelte';
-	import Tabs from '$lib/components/Tabs.svelte';
-	import type { Tab as TabDef } from '$lib/components/Tabs.svelte';
-	import SearchInput from '$lib/components/SearchInput.svelte';
+	import { regionalClient } from '#lib/region-effect.svelte.ts';
+	import { urlState } from '#lib/url-state.svelte.ts';
+	import { getMGNClient } from '#lib/aws-client.ts';
+	import PageHeader from '#lib/components/PageHeader.svelte';
+	import Tabs from '#lib/components/Tabs.svelte';
+	import type { Tab as TabDef } from '#lib/components/Tabs.svelte';
+	import SearchInput from '#lib/components/SearchInput.svelte';
 	import { Server } from 'lucide-svelte';
 	import SourceServersPanel from './_components/SourceServersPanel.svelte';
 	import JobsPanel from './_components/JobsPanel.svelte';

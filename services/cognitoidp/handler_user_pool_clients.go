@@ -80,6 +80,10 @@ func clientToAccurateData(c *UserPoolClient) clientDataAccurate {
 		IDTokenValidity:                 c.IDTokenValidity,
 		RefreshTokenValidity:            c.RefreshTokenValidity,
 		TokenValidityUnits:              c.TokenValidityUnits,
+		AnalyticsConfiguration:          c.AnalyticsConfiguration,
+		RefreshTokenRotation:            c.RefreshTokenRotation,
+		AuthSessionValidity:             c.AuthSessionValidity,
+		EnablePropagateUserContext:      c.EnablePropagateUserContext,
 		EnableTokenRevocation:           c.EnableTokenRevocation,
 		AllowedOAuthFlowsUserPoolClient: c.AllowedOAuthFlowsUserPoolClient,
 	}
@@ -101,12 +105,17 @@ func (h *Handler) handleCreateUserPoolClientWithOpts(
 		ReadAttributes:                  in.ReadAttributes,
 		WriteAttributes:                 in.WriteAttributes,
 		GenerateSecret:                  in.GenerateSecret,
-		EnableTokenRevocation:           in.EnableTokenRevocation,
+		EnableTokenRevocation:           tokenRevocationOrDefault(in.EnableTokenRevocation),
 		AllowedOAuthFlowsUserPoolClient: in.AllowedOAuthFlowsUserPoolClient,
 		AccessTokenValidity:             in.AccessTokenValidity,
 		IDTokenValidity:                 in.IDTokenValidity,
 		RefreshTokenValidity:            in.RefreshTokenValidity,
 		TokenValidityUnits:              in.TokenValidityUnits,
+		AnalyticsConfiguration:          in.AnalyticsConfiguration,
+		RefreshTokenRotation:            in.RefreshTokenRotation,
+		AuthSessionValidity:             in.AuthSessionValidity,
+		EnablePropagateUserContext:      in.EnablePropagateUserContext,
+		ClientSecret:                    in.ClientSecret,
 	}
 
 	client, err := h.Backend.CreateUserPoolClientWithOpts(in.UserPoolID, in.ClientName, opts)
@@ -132,12 +141,16 @@ func (h *Handler) handleUpdateUserPoolClientWithOpts(
 		WriteAttributes:                 in.WriteAttributes,
 		PreventUserExistenceErrors:      in.PreventUserExistenceErrors,
 		DefaultRedirectURI:              in.DefaultRedirectURI,
-		EnableTokenRevocation:           in.EnableTokenRevocation,
+		EnableTokenRevocation:           tokenRevocationOrDefault(in.EnableTokenRevocation),
 		AllowedOAuthFlowsUserPoolClient: in.AllowedOAuthFlowsUserPoolClient,
 		AccessTokenValidity:             in.AccessTokenValidity,
 		IDTokenValidity:                 in.IDTokenValidity,
 		RefreshTokenValidity:            in.RefreshTokenValidity,
 		TokenValidityUnits:              in.TokenValidityUnits,
+		AnalyticsConfiguration:          in.AnalyticsConfiguration,
+		RefreshTokenRotation:            in.RefreshTokenRotation,
+		AuthSessionValidity:             in.AuthSessionValidity,
+		EnablePropagateUserContext:      in.EnablePropagateUserContext,
 	}
 
 	client, err := h.Backend.UpdateUserPoolClientWithOpts(in.UserPoolID, in.ClientID, in.ClientName, opts)
@@ -239,4 +252,9 @@ func (h *Handler) userPoolClientsOpsC() map[string]service.JSONOpFunc {
 		opDescribeUserPoolClient: wrapAccuracy(h.handleDescribeUserPoolClientAccurate),
 		opListUserPoolClients:    wrapAccuracy(h.handleListUserPoolClientsAccurate),
 	}
+}
+
+// tokenRevocationOrDefault applies the documented default: revocation is on unless disabled.
+func tokenRevocationOrDefault(v *bool) bool {
+	return v == nil || *v
 }

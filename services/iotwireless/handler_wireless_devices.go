@@ -326,7 +326,12 @@ func (h *Handler) listQueuedMessages(c *echo.Context, wirelessDeviceID string) e
 }
 
 func (h *Handler) deleteQueuedMessages(c *echo.Context, wirelessDeviceID string) error {
-	if err := h.Backend.DeleteQueuedMessages(wirelessDeviceID); err != nil {
+	messageID := c.QueryParam("messageId")
+	if messageID == "" {
+		return writeError(c, http.StatusBadRequest, "messageId is required")
+	}
+
+	if err := h.Backend.DeleteQueuedMessage(wirelessDeviceID, messageID); err != nil {
 		return handleError(c, err)
 	}
 

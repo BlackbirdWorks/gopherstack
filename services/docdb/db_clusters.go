@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -277,6 +278,9 @@ func (b *InMemoryBackend) ModifyDBCluster(
 	if c.Status == statusDeleting {
 		return nil, fmt.Errorf("%w: cluster %s is in deleting state", ErrInvalidClusterState, id)
 	}
+	if err := b.checkModifyClusterOpts(region, id, c, opts); err != nil {
+		return nil, err
+	}
 	if paramGroupName != "" {
 		c.DBClusterParameterGroupName = paramGroupName
 	}
@@ -334,11 +338,44 @@ func (b *InMemoryBackend) applyModifyDBClusterExtras(
 	opts.applyTo(c)
 	applyModifyDBClusterOpts(c, opts)
 	if opts.NewDBClusterIdentifier != "" {
-		b.clusterDelete(region, id)
-		b.clusterPut(c)
+		b.renameCluster(region, id, c)
 	}
 
 	return nil
+}
+
+// checkModifyClusterOpts rejects a rename onto an existing cluster and an undeclared major upgrade.
+func (b *InMemoryBackend) checkModifyClusterOpts(
+	region, id string, c *DBCluster, opts *ModifyDBClusterOptions,
+) error {
+	if opts == nil {
+		return nil
+	}
+	if newID := opts.NewDBClusterIdentifier; newID != "" && newID != id && b.clusterHas(region, newID) {
+		return fmt.Errorf("%w: cluster %s already exists", ErrClusterAlreadyExists, newID)
+	}
+
+	return checkMajorVersionUpgrade(c.EngineVersion, opts.EngineVersion, opts.AllowMajorVersionUpgrade)
+}
+
+// renameCluster re-keys c (already carrying its new identifier) and re-derives
+// its ARN, endpoints, tags and member-instance links.
+func (b *InMemoryBackend) renameCluster(region, oldID string, c *DBCluster) {
+	oldARN := b.clusterARN(region, oldID)
+	b.clusterDelete(region, oldID)
+	c.DBClusterArn = b.clusterARN(region, c.DBClusterIdentifier)
+	c.Endpoint = fmt.Sprintf("%s.cluster.docdb.%s.amazonaws.com", c.DBClusterIdentifier, region)
+	c.ReaderEndpoint = fmt.Sprintf("%s.cluster-ro.docdb.%s.amazonaws.com", c.DBClusterIdentifier, region)
+	if tags, ok := b.tagsStore(region)[oldARN]; ok {
+		delete(b.tagsStore(region), oldARN)
+		b.tagsStore(region)[c.DBClusterArn] = tags
+	}
+	for _, inst := range b.instancesInRegion(region) {
+		if inst.DBClusterIdentifier == oldID {
+			inst.DBClusterIdentifier = c.DBClusterIdentifier
+		}
+	}
+	b.clusterPut(c)
 }
 
 // applyModifyDBClusterOpts applies optional ModifyDBCluster parameters to an existing cluster.
@@ -466,7 +503,52 @@ type RestoreDBClusterOptions struct {
 	// "Cannot be specified if the UseLatestRestorableTime parameter is
 	// true"); RestoreDBClusterFromSnapshot never reads these two.
 	RestoreToTime           string
+	RestoreType             string
 	UseLatestRestorableTime bool
+}
+
+const restoreTypeCopyOnWrite = "copy-on-write"
+
+// validateRestoreType checks RestoreType's two documented values and that copy-on-write
+// excludes RestoreToTime (docdb@v1.51.4 api_op_RestoreDBClusterToPointInTime.go:131).
+func validateRestoreType(restoreType, restoreToTime string) error {
+	switch restoreType {
+	case "", "full-copy":
+		return nil
+	case restoreTypeCopyOnWrite:
+		if restoreToTime != "" {
+			return fmt.Errorf(
+				"%w: RestoreToTime cannot be specified when RestoreType is copy-on-write",
+				ErrInvalidParameterCombination,
+			)
+		}
+
+		return nil
+	default:
+		return fmt.Errorf("%w: RestoreType %q must be full-copy or copy-on-write", ErrInvalidParameter, restoreType)
+	}
+}
+
+// majorVersion returns the leading dotted component of an engine version.
+func majorVersion(v string) string {
+	major, _, _ := strings.Cut(v, ".")
+
+	return major
+}
+
+// checkMajorVersionUpgrade rejects an EngineVersion in a different major version unless allowed.
+func checkMajorVersionUpgrade(current, target string, allowed bool) error {
+	if allowed || target == "" || current == "" {
+		return nil
+	}
+	if majorVersion(current) != majorVersion(target) {
+		return fmt.Errorf(
+			"%w: AllowMajorVersionUpgrade is required to change EngineVersion from %s to %s",
+			ErrInvalidParameterCombination, current, target,
+		)
+	}
+
+	return nil
 }
 
 // RestoreDBClusterFromSnapshot restores a new cluster from a snapshot.
@@ -557,13 +639,14 @@ func (b *InMemoryBackend) RestoreDBClusterToPointInTime(
 	if targetClusterID == "" {
 		return nil, fmt.Errorf("%w: DBClusterIdentifier is required", ErrInvalidParameter)
 	}
-	var storageTypeIn, restoreToTime string
+	var storageTypeIn, restoreToTime, restoreType string
 	var useLatestRestorableTime bool
 	var extras ClusterExtras
 	if opts != nil {
 		extras = opts.ClusterExtras
 		storageTypeIn = opts.StorageType
 		restoreToTime = opts.RestoreToTime
+		restoreType = opts.RestoreType
 		useLatestRestorableTime = opts.UseLatestRestorableTime
 	}
 	storageType, err := validateStorageType(storageTypeIn)
@@ -594,6 +677,9 @@ func (b *InMemoryBackend) RestoreDBClusterToPointInTime(
 	}
 	if b.clusterHas(region, targetClusterID) {
 		return nil, fmt.Errorf("%w: cluster %s already exists", ErrClusterAlreadyExists, targetClusterID)
+	}
+	if err = validateRestoreType(restoreType, restoreToTime); err != nil {
+		return nil, err
 	}
 	clusterArn := b.clusterARN(region, targetClusterID)
 	endpoint := fmt.Sprintf("%s.cluster.docdb.%s.amazonaws.com", targetClusterID, region)

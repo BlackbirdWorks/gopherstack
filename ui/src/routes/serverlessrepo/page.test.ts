@@ -4,7 +4,7 @@ import ServerlessRepoPage from "./+page.svelte";
 
 const mockSend = vi.fn();
 
-vi.mock("$lib/aws-client", () => ({
+vi.mock("#lib/aws-client.ts", () => ({
   getServerlessRepoClient: () => ({ send: mockSend }),
 }));
 
@@ -15,7 +15,7 @@ vi.mock("svelte-sonner", () => ({
   },
 }));
 
-vi.mock("$lib/confirm-dialog", () => ({
+vi.mock("#lib/confirm-dialog.ts", () => ({
   confirmDestructive: vi.fn().mockResolvedValue(true),
 }));
 

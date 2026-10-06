@@ -305,18 +305,9 @@ func (h *Handler) handleDescribeCapacityReservationCancellationQuotes(
 
 	quotes := h.Backend.DescribeCapacityReservationCancellationQuotes(ids)
 
-	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
-	if err != nil {
-		return nil, err
-	}
-
-	var nextToken string
-	quotes, nextToken = pageSlice(quotes, offset, maxResults)
-
 	resp := &describeCapacityReservationCancellationQuotesResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
-		NextToken: nextToken,
 	}
 	for _, q := range quotes {
 		resp.Quotes.Items = append(
@@ -327,5 +318,5 @@ func (h *Handler) handleDescribeCapacityReservationCancellationQuotes(
 		)
 	}
 
-	return resp, nil
+	return finishPagedFiltered(vals, resp)
 }

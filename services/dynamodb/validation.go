@@ -159,10 +159,8 @@ func CalculateAttrSize(v any) int64 {
 	}
 
 	if len(m) == 1 {
-		for _, t := range attrTypeKeys {
-			if val, ok := m[t]; ok {
-				return calcTypedAttrSize(t, val)
-			}
+		if t, val, ok := singleAttr(m); ok {
+			return calcTypedAttrSize(t, val)
 		}
 	}
 
@@ -173,9 +171,31 @@ func CalculateAttrSize(v any) int64 {
 	return 1
 }
 
-// attrTypeKeys avoids starting a map iteration on one-entry attribute maps.
-var attrTypeKeys = [...]string{ //nolint:gochecknoglobals // lookup table
-	"S", "N", "M", "L", typeBOOL, "B", "SS", "NS", "BS", typeNULL,
+// singleAttr returns the type tag and value of a one-entry attribute map; the S and N
+// lookups beat starting a map iteration, which beats probing every other tag.
+func singleAttr(m map[string]any) (string, any, bool) {
+	if v, ok := m["S"]; ok {
+		return "S", v, true
+	}
+
+	if v, ok := m["N"]; ok {
+		return "N", v, true
+	}
+
+	for t, v := range m {
+		return t, v, true
+	}
+
+	return "", nil, false
+}
+
+func isAttrTypeKey(t string) bool {
+	switch t {
+	case "S", "N", "M", "L", typeBOOL, "B", "SS", "NS", "BS", typeNULL:
+		return true
+	default:
+		return false
+	}
 }
 
 func calcTypedAttrSize(t string, val any) int64 {

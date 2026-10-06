@@ -64,6 +64,13 @@ func (h *S3Handler) createMultipartUpload(
 		Key:                     aws.String(key),
 		Tagging:                 aws.String(tagging),
 		Expires:                 parseExpiresHeader(r),
+		Metadata:                parseUserMetadata(r.Header),
+		ContentType:             ptrconv.NilIfEmpty(r.Header.Get("Content-Type")),
+		ContentEncoding:         ptrconv.NilIfEmpty(r.Header.Get("Content-Encoding")),
+		ContentDisposition:      ptrconv.NilIfEmpty(r.Header.Get("Content-Disposition")),
+		CacheControl:            ptrconv.NilIfEmpty(r.Header.Get("Cache-Control")),
+		ContentLanguage:         ptrconv.NilIfEmpty(r.Header.Get("Content-Language")),
+		WebsiteRedirectLocation: ptrconv.NilIfEmpty(r.Header.Get("X-Amz-Website-Redirect-Location")),
 		StorageClass:            types.StorageClass(r.Header.Get("X-Amz-Storage-Class")),
 		ACL:                     acl,
 		ServerSideEncryption:    types.ServerSideEncryption(sse.Algorithm),
@@ -281,6 +288,7 @@ func (h *S3Handler) completeMultipartUpload(
 			Key:             aws.String(key),
 			UploadId:        aws.String(uploadID),
 			MultipartUpload: &types.CompletedMultipartUpload{Parts: sdkParts},
+			MpuObjectSize:   parseMpuObjectSize(r),
 		},
 	)
 	if errors.Is(err, ErrNoSuchBucket) || errors.Is(err, ErrNoSuchKey) ||
@@ -519,4 +527,14 @@ func (h *S3Handler) listParts(
 	}
 
 	httputils.WriteXML(ctx, w, http.StatusOK, result)
+}
+
+// parseMpuObjectSize reads x-amz-mp-object-size; an unparsable value is treated as absent.
+func parseMpuObjectSize(r *http.Request) *int64 {
+	n, err := strconv.ParseInt(r.Header.Get("X-Amz-Mp-Object-Size"), 10, 64)
+	if err != nil {
+		return nil
+	}
+
+	return &n
 }

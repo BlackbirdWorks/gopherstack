@@ -175,7 +175,7 @@ func (h *Handler) createKeySigningKey(c *echo.Context) error {
 		Xmlns:         route53Namespace,
 		KeySigningKey: toXMLKSK(ksk),
 		ChangeInfo: xmlChangeInfo{
-			ID:          "/change/C" + ksk.HostedZoneID,
+			ID:          h.Backend.RegisterChange(),
 			Status:      statusInsync,
 			SubmittedAt: time.Now(),
 		},
@@ -212,7 +212,7 @@ func (h *Handler) activateKeySigningKey(c *echo.Context, path string) error {
 	return writeXML(c, http.StatusOK, xmlActivateKSKResponse{
 		Xmlns: route53Namespace,
 		ChangeInfo: xmlChangeInfo{
-			ID:          "/change/C" + hostedZoneID,
+			ID:          h.Backend.RegisterChange(),
 			Status:      statusInsync,
 			SubmittedAt: time.Now(),
 		},
@@ -247,7 +247,7 @@ func (h *Handler) deactivateKeySigningKey(c *echo.Context, path string) error {
 	}{
 		Xmlns: route53Namespace,
 		ChangeInfo: xmlChangeInfo{
-			ID:          "/change/deactivate-ksk-" + zoneID + "-" + name,
+			ID:          h.Backend.RegisterChange(),
 			Status:      statusInsync,
 			SubmittedAt: time.Now(),
 		},
@@ -283,7 +283,7 @@ func (h *Handler) deleteKeySigningKey(c *echo.Context, path string) error {
 	}{
 		Xmlns: route53Namespace,
 		ChangeInfo: xmlChangeInfo{
-			ID:          "/change/delete-ksk-" + zoneID + "-" + name,
+			ID:          h.Backend.RegisterChange(),
 			Status:      statusInsync,
 			SubmittedAt: time.Now(),
 		},

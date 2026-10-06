@@ -2,6 +2,7 @@ package quicksight
 
 import (
 	"fmt"
+	"maps"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
@@ -61,6 +62,7 @@ func (h *Handler) handleCreateDataSource(c *echo.Context) error {
 		strField(body, "Type"),
 		permissionsField(body, keyPermissions),
 		tagsFromBody(body),
+		dataSourceOptionsFromBody(body),
 	)
 	if err != nil {
 		return httpErr(c, err)
@@ -102,7 +104,9 @@ func (h *Handler) handleUpdateDataSource(c *echo.Context) error {
 		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
 	}
 
-	ds, err := h.Backend.UpdateDataSource(accountID, dataSourceID, strField(body, "Name"))
+	ds, err := h.Backend.UpdateDataSource(
+		accountID, dataSourceID, strField(body, "Name"), dataSourceOptionsFromBody(body),
+	)
 	if err != nil {
 		return httpErr(c, err)
 	}
@@ -142,7 +146,7 @@ func (h *Handler) handleListDataSources(c *echo.Context) error {
 
 	items := make([]map[string]any, 0, len(sources))
 	for _, ds := range sources {
-		items = append(items, dataSourceSummaryToMap(ds))
+		items = append(items, dataSourceToMap(ds))
 	}
 
 	resp := map[string]any{
@@ -160,6 +164,7 @@ func (h *Handler) handleListDataSources(c *echo.Context) error {
 func dataSourceToMap(ds *DataSource) map[string]any {
 	m := dataSourceSummaryToMap(ds)
 	m[keyStatus] = ds.Status
+	maps.Copy(m, ds.Config)
 
 	return m
 }

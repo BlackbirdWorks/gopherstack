@@ -599,6 +599,7 @@ type describeVolumesResponse struct {
 	XMLName   xml.Name      `xml:"DescribeVolumesResponse"`
 	Xmlns     string        `xml:"xmlns,attr"`
 	RequestID string        `xml:"requestId"`
+	NextToken string        `xml:"nextToken,omitempty"`
 	VolumeSet volumeItemSet `xml:"volumeSet"`
 }
 
@@ -892,11 +893,11 @@ func (h *Handler) handleDescribeVolumes(vals url.Values, reqID string) (any, err
 		items = append(items, toVolumeItem(vol, h.Backend.TagsForResource(vol.ID)))
 	}
 
-	return &describeVolumesResponse{
+	return finishPaged(vals, &describeVolumesResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
 		VolumeSet: volumeItemSet{Items: items},
-	}, nil
+	})
 }
 
 func (h *Handler) handleDeleteVolume(vals url.Values, reqID string) (any, error) {

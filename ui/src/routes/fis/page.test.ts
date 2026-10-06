@@ -1,16 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/svelte";
 import FISPage from "./+page.svelte";
-import { formatDate } from "$lib/format";
+import { formatDate } from "#lib/format.ts";
 
 const mockSend = vi.fn();
 
-vi.mock("$lib/aws-client", () => ({
+vi.mock("#lib/aws-client.ts", () => ({
   getFISClient: () => ({ send: mockSend }),
 }));
 
 const confirmDestructive = vi.fn().mockResolvedValue(true);
-vi.mock("$lib/confirm-dialog", () => ({
+vi.mock("#lib/confirm-dialog.ts", () => ({
   confirmDestructive: (...args: unknown[]) => confirmDestructive(...args),
 }));
 

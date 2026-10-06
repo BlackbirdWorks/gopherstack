@@ -612,6 +612,8 @@ func findingAggregationResult(
 		return emptyFindingAggregations(aggregationType)
 	}
 
+	sort.Strings(order)
+
 	responses := make([]map[string]any, 0, len(order))
 	for _, key := range order {
 		responses = append(responses, build(key, accountID, groups[key]))

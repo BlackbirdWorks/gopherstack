@@ -52,6 +52,7 @@ type describeSpotInstanceRequestsResponse struct {
 	XMLName                xml.Name               `xml:"DescribeSpotInstanceRequestsResponse"`
 	Xmlns                  string                 `xml:"xmlns,attr"`
 	RequestID              string                 `xml:"requestId"`
+	NextToken              string                 `xml:"nextToken,omitempty"`
 	SpotInstanceRequestSet spotInstanceRequestSet `xml:"spotInstanceRequestSet"`
 }
 
@@ -87,6 +88,7 @@ type describeSpotPriceHistoryResponse struct {
 	XMLName             xml.Name            `xml:"DescribeSpotPriceHistoryResponse"`
 	Xmlns               string              `xml:"xmlns,attr"`
 	RequestID           string              `xml:"requestId"`
+	NextToken           string              `xml:"nextToken,omitempty"`
 	SpotPriceHistorySet spotPriceHistorySet `xml:"spotPriceHistorySet"`
 }
 
@@ -187,11 +189,11 @@ func (h *Handler) handleDescribeSpotInstanceRequests(vals url.Values, reqID stri
 		items = append(items, toSpotRequestItem(req, h.Backend.TagsForResource(req.ID)))
 	}
 
-	return &describeSpotInstanceRequestsResponse{
+	return finishPaged(vals, &describeSpotInstanceRequestsResponse{
 		Xmlns:                  ec2XMLNS,
 		RequestID:              reqID,
 		SpotInstanceRequestSet: spotInstanceRequestSet{Items: items},
-	}, nil
+	})
 }
 
 func (h *Handler) handleCancelSpotInstanceRequests(vals url.Values, reqID string) (any, error) {
@@ -248,9 +250,9 @@ func (h *Handler) handleDescribeSpotPriceHistory(vals url.Values, reqID string) 
 		})
 	}
 
-	return &describeSpotPriceHistoryResponse{
+	return finishDescribe(vals, &describeSpotPriceHistoryResponse{
 		Xmlns:               ec2XMLNS,
 		RequestID:           reqID,
 		SpotPriceHistorySet: spotPriceHistorySet{Items: items},
-	}, nil
+	}, describeOpts{spec: stdPageSpec(), bounds: boundsSpotPriceHistory})
 }

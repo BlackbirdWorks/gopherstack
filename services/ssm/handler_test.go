@@ -326,9 +326,8 @@ func TestParamMatchesFilter_Options(t *testing.T) {
 	}
 }
 
-// --- ParseNextToken bad token test ---
-
-func TestParseNextToken_BadToken(t *testing.T) {
+// DescribeParameters declares InvalidNextToken (ssm@v1.77.0 deserializers.go).
+func TestDescribeParameters_BadTokenRejected(t *testing.T) {
 	t.Parallel()
 
 	backend := ssm.NewInMemoryBackend()
@@ -341,8 +340,8 @@ func TestParseNextToken_BadToken(t *testing.T) {
 	out, err := backend.DescribeParameters(context.TODO(), &ssm.DescribeParametersInput{
 		NextToken: "not-a-number",
 	})
-	require.NoError(t, err)
-	assert.Len(t, out.Parameters, 3)
+	require.ErrorIs(t, err, ssm.ErrInvalidNextToken)
+	assert.Nil(t, out)
 }
 
 // --- Handler HTTP via-HTTP tests ---

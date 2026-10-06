@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -16,9 +17,10 @@ const getCommentReactionsDefaultMaxResults = 1000
 
 func (h *Handler) handleGetCommentReactions(body []byte) (any, error) {
 	var req struct {
-		CommentID  string `json:"commentId"`
-		NextToken  string `json:"nextToken"`
-		MaxResults int    `json:"maxResults"`
+		CommentID       string `json:"commentId"`
+		ReactionUserARN string `json:"reactionUserArn"`
+		NextToken       string `json:"nextToken"`
+		MaxResults      int    `json:"maxResults"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
@@ -33,6 +35,10 @@ func (h *Handler) handleGetCommentReactions(body []byte) (any, error) {
 	reactions, err := h.Backend.GetCommentReactions(req.CommentID)
 	if err != nil {
 		return nil, err
+	}
+
+	if req.ReactionUserARN != "" {
+		reactions = slices.DeleteFunc(reactions, func(r Reaction) bool { return r.UserARN != req.ReactionUserARN })
 	}
 
 	entries := reactionsForCommentJSON(reactions)

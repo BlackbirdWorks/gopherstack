@@ -78,11 +78,13 @@ type adminRespondToAuthChallengeOutput struct {
 }
 
 type signUpAccurateInput struct {
-	Username       string          `json:"Username,omitempty"`
-	Password       string          `json:"Password,omitempty"`
-	ClientID       string          `json:"ClientId,omitempty"`
-	SecretHash     string          `json:"SecretHash,omitempty"`
-	UserAttributes []attributeType `json:"UserAttributes,omitempty"`
+	ClientMetadata map[string]string `json:"ClientMetadata,omitempty"`
+	ValidationData []attributeType   `json:"ValidationData,omitempty"`
+	Username       string            `json:"Username,omitempty"`
+	Password       string            `json:"Password,omitempty"`
+	ClientID       string            `json:"ClientId,omitempty"`
+	SecretHash     string            `json:"SecretHash,omitempty"`
+	UserAttributes []attributeType   `json:"UserAttributes,omitempty"`
 }
 
 type signUpAccurateOutput struct {

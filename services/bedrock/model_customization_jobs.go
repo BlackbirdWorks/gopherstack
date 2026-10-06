@@ -34,6 +34,29 @@ func (b *InMemoryBackend) CreateModelCustomizationJob(
 	validatorS3Uris []string,
 	tags []Tag,
 ) (*ModelCustomizationJob, error) {
+	return b.CreateModelCustomizationJobWithOptions(
+		jobName, customModelName, baseModelID, customizationType, roleArn,
+		outputDataConfig, trainingDataConfig, validatorS3Uris, tags, CustomizationJobOptions{},
+	)
+}
+
+// CustomizationJobOptions carries CreateModelCustomizationJob's optional members.
+type CustomizationJobOptions struct {
+	HyperParameters     map[string]string
+	CustomizationConfig map[string]any
+	VpcConfig           map[string]any
+	CustomModelKmsKeyID string
+	CustomModelTags     []Tag
+}
+
+// CreateModelCustomizationJobWithOptions is CreateModelCustomizationJob with CustomizationJobOptions.
+func (b *InMemoryBackend) CreateModelCustomizationJobWithOptions(
+	jobName, customModelName, baseModelID, customizationType, roleArn string,
+	outputDataConfig OutputDataConfig, trainingDataConfig TrainingDataConfig,
+	validatorS3Uris []string,
+	tags []Tag,
+	opts CustomizationJobOptions,
+) (*ModelCustomizationJob, error) {
 	b.mu.Lock("CreateModelCustomizationJob")
 	defer b.mu.Unlock()
 
@@ -79,21 +102,26 @@ func (b *InMemoryBackend) CreateModelCustomizationJob(
 	}
 
 	job := &ModelCustomizationJob{
-		JobArn:             jobARN,
-		JobName:            jobName,
-		BaseModelArn:       baseModelARN,
-		BaseModelName:      baseModelName,
-		OutputModelArn:     outputModelARN,
-		CustomModelName:    customModelName,
-		Status:             statusInProgress,
-		CustomizationType:  customizationType,
-		RoleArn:            roleArn,
-		OutputDataConfig:   outputDataConfig,
-		TrainingDataConfig: trainingDataConfig,
-		ValidatorS3Uris:    validatorS3Uris,
-		CreationTime:       now,
-		LastModifiedTime:   now,
-		Tags:               copyTags(tags),
+		JobArn:               jobARN,
+		JobName:              jobName,
+		BaseModelArn:         baseModelARN,
+		BaseModelName:        baseModelName,
+		OutputModelArn:       outputModelARN,
+		CustomModelName:      customModelName,
+		Status:               statusInProgress,
+		CustomizationType:    customizationType,
+		RoleArn:              roleArn,
+		OutputDataConfig:     outputDataConfig,
+		TrainingDataConfig:   trainingDataConfig,
+		ValidatorS3Uris:      validatorS3Uris,
+		CreationTime:         now,
+		LastModifiedTime:     now,
+		Tags:                 copyTags(tags),
+		CustomModelTags:      copyTags(opts.CustomModelTags),
+		HyperParameters:      opts.HyperParameters,
+		CustomizationConfig:  opts.CustomizationConfig,
+		VpcConfig:            opts.VpcConfig,
+		OutputModelKmsKeyArn: kmsKeyARN(b.region, b.accountID, opts.CustomModelKmsKeyID),
 	}
 	b.modelCustomizationJobs.Put(job)
 	b.customizationJobsByName[jobName] = jobARN
@@ -258,6 +286,8 @@ func (b *InMemoryBackend) materializeCustomizationOutputModel(job *ModelCustomiz
 		CustomizationType: job.CustomizationType,
 		JobArn:            job.JobArn,
 		JobName:           job.JobName,
+		ModelKmsKeyArn:    job.OutputModelKmsKeyArn,
+		Tags:              copyTags(job.CustomModelTags),
 		CreationTime:      now,
 	}
 	b.customModels.Put(model)

@@ -195,6 +195,9 @@ type Method struct {
 
 // Integration represents a method integration.
 type Integration struct {
+	TLSConfig            *TLSConfig                      `json:"tlsConfig,omitempty"`
+	IntegrationTarget    string                          `json:"integrationTarget,omitempty"`
+	ResponseTransferMode string                          `json:"responseTransferMode,omitempty"`
 	RequestTemplates     map[string]string               `json:"requestTemplates,omitempty"`
 	RequestParameters    map[string]string               `json:"requestParameters,omitempty"`
 	IntegrationResponses map[string]*IntegrationResponse `json:"integrationResponses,omitempty"`
@@ -209,6 +212,11 @@ type Integration struct {
 	CacheNamespace       string                          `json:"cacheNamespace,omitempty"`
 	CacheKeyParameters   []string                        `json:"cacheKeyParameters,omitempty"`
 	TimeoutInMillis      int                             `json:"timeoutInMillis,omitempty"`
+}
+
+// TLSConfig is an integration's TLS settings (types.TlsConfig).
+type TLSConfig struct {
+	InsecureSkipVerification bool `json:"insecureSkipVerification,omitempty"`
 }
 
 // IntegrationResponse represents a response from an integration.
@@ -363,19 +371,22 @@ type PutMethodInput struct {
 
 // PutIntegrationInput is the input for PutIntegration.
 type PutIntegrationInput struct {
-	RequestTemplates    map[string]string `json:"requestTemplates,omitempty"`
-	RequestParameters   map[string]string `json:"requestParameters,omitempty"`
-	PassthroughBehavior string            `json:"passthroughBehavior,omitempty"`
-	Type                string            `json:"type"`
-	HTTPMethod          string            `json:"httpMethod,omitempty"`
-	URI                 string            `json:"uri,omitempty"`
-	ConnectionType      string            `json:"connectionType,omitempty"`
-	ConnectionID        string            `json:"connectionId,omitempty"`
-	ContentHandling     string            `json:"contentHandling,omitempty"`
-	Credentials         string            `json:"credentials,omitempty"`
-	CacheNamespace      string            `json:"cacheNamespace,omitempty"`
-	CacheKeyParameters  []string          `json:"cacheKeyParameters,omitempty"`
-	TimeoutInMillis     int               `json:"timeoutInMillis,omitempty"`
+	TLSConfig            *TLSConfig        `json:"tlsConfig,omitempty"`
+	IntegrationTarget    string            `json:"integrationTarget,omitempty"`
+	ResponseTransferMode string            `json:"responseTransferMode,omitempty"`
+	RequestTemplates     map[string]string `json:"requestTemplates,omitempty"`
+	RequestParameters    map[string]string `json:"requestParameters,omitempty"`
+	PassthroughBehavior  string            `json:"passthroughBehavior,omitempty"`
+	Type                 string            `json:"type"`
+	HTTPMethod           string            `json:"httpMethod,omitempty"`
+	URI                  string            `json:"uri,omitempty"`
+	ConnectionType       string            `json:"connectionType,omitempty"`
+	ConnectionID         string            `json:"connectionId,omitempty"`
+	ContentHandling      string            `json:"contentHandling,omitempty"`
+	Credentials          string            `json:"credentials,omitempty"`
+	CacheNamespace       string            `json:"cacheNamespace,omitempty"`
+	CacheKeyParameters   []string          `json:"cacheKeyParameters,omitempty"`
+	TimeoutInMillis      int               `json:"timeoutInMillis,omitempty"`
 }
 
 // PutMethodResponseInput is the input for PutMethodResponse.
@@ -587,6 +598,7 @@ type CreateDocumentationVersionInput struct {
 	RestAPIID   string `json:"restApiId"`
 	Version     string `json:"documentationVersion"`
 	Description string `json:"description,omitempty"`
+	StageName   string `json:"stageName,omitempty"`
 }
 
 // DomainName represents a custom domain name for an API.
@@ -618,27 +630,36 @@ type DomainName struct {
 
 // CreateDomainNameInput is the input for CreateDomainName.
 type CreateDomainNameInput struct {
-	Tags                   *tags.Tags             `json:"tags,omitempty"`
-	EndpointConfiguration  *EndpointConfiguration `json:"endpointConfiguration,omitempty"`
-	DomainName             string                 `json:"domainName"`
-	CertificateARN         string                 `json:"certificateArn,omitempty"`
-	RegionalCertificateARN string                 `json:"regionalCertificateArn,omitempty"`
-	SecurityPolicy         string                 `json:"securityPolicy,omitempty"`
+	Tags                                *tags.Tags               `json:"tags,omitempty"`
+	EndpointConfiguration               *EndpointConfiguration   `json:"endpointConfiguration,omitempty"`
+	MutualTLSAuthentication             *MutualTLSAuthentication `json:"mutualTlsAuthentication,omitempty"`
+	DomainName                          string                   `json:"domainName"`
+	CertificateARN                      string                   `json:"certificateArn,omitempty"`
+	CertificateName                     string                   `json:"certificateName,omitempty"`
+	RegionalCertificateARN              string                   `json:"regionalCertificateArn,omitempty"`
+	RegionalCertificateName             string                   `json:"regionalCertificateName,omitempty"`
+	OwnershipVerificationCertificateARN string                   `json:"ownershipVerificationCertificateArn,omitempty"`
+	SecurityPolicy                      string                   `json:"securityPolicy,omitempty"`
+	Policy                              string                   `json:"policy,omitempty"`
+	RoutingMode                         string                   `json:"routingMode,omitempty"`
+	EndpointAccessMode                  string                   `json:"endpointAccessMode,omitempty"`
 }
 
 // DomainNameAccessAssociation links a domain name to an access source such as a VPC endpoint.
 type DomainNameAccessAssociation struct {
-	DomainNameAccessAssociationARN string `json:"domainNameAccessAssociationArn,omitempty"`
-	DomainNameARN                  string `json:"domainNameArn"`
-	AccessAssociationSource        string `json:"accessAssociationSource"`
-	AccessAssociationSourceType    string `json:"accessAssociationSourceType"`
+	Tags                           map[string]string `json:"tags,omitempty"`
+	DomainNameAccessAssociationARN string            `json:"domainNameAccessAssociationArn,omitempty"`
+	DomainNameARN                  string            `json:"domainNameArn"`
+	AccessAssociationSource        string            `json:"accessAssociationSource"`
+	AccessAssociationSourceType    string            `json:"accessAssociationSourceType"`
 }
 
 // CreateDomainNameAccessAssociationInput is the input for CreateDomainNameAccessAssociation.
 type CreateDomainNameAccessAssociationInput struct {
-	DomainNameARN               string `json:"domainNameArn"`
-	AccessAssociationSource     string `json:"accessAssociationSource"`
-	AccessAssociationSourceType string `json:"accessAssociationSourceType"`
+	Tags                        map[string]string `json:"tags,omitempty"`
+	DomainNameARN               string            `json:"domainNameArn"`
+	AccessAssociationSource     string            `json:"accessAssociationSource"`
+	AccessAssociationSourceType string            `json:"accessAssociationSourceType"`
 }
 
 // Model represents a data model for a REST API.

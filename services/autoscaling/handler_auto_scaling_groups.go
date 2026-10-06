@@ -1038,8 +1038,11 @@ func parseLaunchTemplate(vals url.Values, prefix string) *LaunchTemplateSpecific
 // MixedInstancesPolicy.InstancesDistribution.*. Returns nil if neither a launch
 // template nor an instances distribution was specified.
 func parseMixedInstancesPolicy(vals url.Values) *MixedInstancesPolicy {
-	const prefix = "MixedInstancesPolicy"
+	return parseMixedInstancesPolicyAt(vals, "MixedInstancesPolicy")
+}
 
+// parseMixedInstancesPolicyAt is parseMixedInstancesPolicy for a MixedInstancesPolicy nested under prefix.
+func parseMixedInstancesPolicyAt(vals url.Values, prefix string) *MixedInstancesPolicy {
 	lt := parseLaunchTemplate(vals, prefix+".LaunchTemplate.LaunchTemplateSpecification")
 	overrides := parseLaunchTemplateOverrides(vals, prefix+".LaunchTemplate.Overrides.member")
 	dist, hasDist := parseInstancesDistribution(vals, prefix+".InstancesDistribution.")

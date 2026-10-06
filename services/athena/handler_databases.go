@@ -8,7 +8,9 @@ type getDatabaseInput struct {
 }
 
 type listDatabasesInput struct {
+	NextToken   string `json:"NextToken"`
 	CatalogName string `json:"CatalogName"`
+	MaxResults  int    `json:"MaxResults"`
 }
 
 type getTableMetadataInput struct {
@@ -18,9 +20,11 @@ type getTableMetadataInput struct {
 }
 
 type listTableMetadataInput struct {
+	NextToken    string `json:"NextToken"`
 	CatalogName  string `json:"CatalogName"`
 	DatabaseName string `json:"DatabaseName"`
 	Expression   string `json:"Expression"`
+	MaxResults   int    `json:"MaxResults"`
 }
 
 func (h *Handler) databaseOps() map[string]athenaActionFn {
@@ -49,7 +53,18 @@ func (h *Handler) databaseOps() map[string]athenaActionFn {
 				return nil, err
 			}
 
-			return map[string]any{"DatabaseList": dbs}, nil
+			page, next, pageErr := pageByKey(
+				h.tokens,
+				dbs,
+				func(d Database) string { return d.Name },
+				input.MaxResults,
+				input.NextToken,
+			)
+			if pageErr != nil {
+				return nil, pageErr
+			}
+
+			return withNextToken(map[string]any{"DatabaseList": page}, next), nil
 		},
 		"GetTableMetadata": func(b []byte) (any, error) {
 			var input getTableMetadataInput
@@ -75,7 +90,18 @@ func (h *Handler) databaseOps() map[string]athenaActionFn {
 				return nil, err
 			}
 
-			return map[string]any{"TableMetadataList": tables}, nil
+			page, next, pageErr := pageByKey(
+				h.tokens,
+				tables,
+				func(t TableMetadata) string { return t.Name },
+				input.MaxResults,
+				input.NextToken,
+			)
+			if pageErr != nil {
+				return nil, pageErr
+			}
+
+			return withNextToken(map[string]any{"TableMetadataList": page}, next), nil
 		},
 	}
 }

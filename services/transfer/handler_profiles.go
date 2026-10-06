@@ -8,9 +8,10 @@ import (
 )
 
 type createProfileInput struct {
-	ProfileType string              `json:"ProfileType"`
-	As2ID       string              `json:"As2Id"`
-	Tags        []map[string]string `json:"Tags"`
+	ProfileType    string              `json:"ProfileType"`
+	As2ID          string              `json:"As2Id"`
+	Tags           []map[string]string `json:"Tags"`
+	CertificateIDs []string            `json:"CertificateIds,omitempty"`
 }
 
 type createProfileOutput struct {
@@ -27,7 +28,12 @@ func (h *Handler) handleCreateProfile(
 
 	tags := tagsFromList(in.Tags)
 
-	p, err := h.Backend.CreateProfile(in.ProfileType, in.As2ID, tags)
+	p, err := h.Backend.CreateProfileFull(&CreateProfileInput{
+		ProfileType:    in.ProfileType,
+		As2ID:          in.As2ID,
+		Tags:           tags,
+		CertificateIDs: in.CertificateIDs,
+	})
 	if err != nil {
 		return nil, err
 	}

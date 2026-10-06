@@ -360,8 +360,9 @@ type SourceRevision struct {
 
 // StartExecutionOptions carries StartPipelineExecution's optional overrides.
 type StartExecutionOptions struct {
-	Variables       map[string]string
-	SourceRevisions []SourceRevision
+	Variables          map[string]string
+	ClientRequestToken string
+	SourceRevisions    []SourceRevision
 }
 
 // PipelineVariable represents a pipeline-level variable declaration.

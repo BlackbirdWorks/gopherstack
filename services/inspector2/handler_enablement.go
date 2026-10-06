@@ -226,7 +226,9 @@ func (h *Handler) handleListAccountPermissions(c *echo.Context) error {
 	}
 
 	var req struct {
-		Service string `json:"service"`
+		Service    string `json:"service"`
+		NextToken  string `json:"nextToken"`
+		MaxResults int32  `json:"maxResults"`
 	}
 
 	if len(body) > 0 {
@@ -247,5 +249,12 @@ func (h *Handler) handleListAccountPermissions(c *echo.Context) error {
 		perms = []*AccountPermission{}
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"permissions": perms})
+	page, next := pageItems(
+		perms,
+		func(p *AccountPermission) string { return p.Service + "|" + p.Operation },
+		req.MaxResults,
+		req.NextToken,
+	)
+
+	return c.JSON(http.StatusOK, withPageToken(map[string]any{"permissions": page}, next))
 }

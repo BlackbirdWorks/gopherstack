@@ -41,12 +41,12 @@ func TestKinesisAnalyticsV2ApplicationRegionIsolation(t *testing.T) {
 	assert.NotEqual(t, eastApp.ApplicationARN, westApp.ApplicationARN)
 
 	// 3. Each region lists only its own application.
-	eastApps, _ := backend.ListApplications(ctxEast, "")
+	eastApps, _ := backend.ListApplications(ctxEast, "", 0)
 	require.Len(t, eastApps, 1)
 	assert.Equal(t, "shared", eastApps[0].ApplicationName)
 	assert.Contains(t, eastApps[0].ApplicationARN, "us-east-1")
 
-	westApps, _ := backend.ListApplications(ctxWest, "")
+	westApps, _ := backend.ListApplications(ctxWest, "", 0)
 	require.Len(t, westApps, 1)
 	assert.Equal(t, "shared", westApps[0].ApplicationName)
 	assert.Contains(t, westApps[0].ApplicationARN, "us-west-2")
@@ -59,10 +59,10 @@ func TestKinesisAnalyticsV2ApplicationRegionIsolation(t *testing.T) {
 	// 5. Deleting in us-east-1 leaves us-west-2 intact.
 	require.NoError(t, backend.DeleteApplication(ctxEast, "shared", nil))
 
-	eastApps, _ = backend.ListApplications(ctxEast, "")
+	eastApps, _ = backend.ListApplications(ctxEast, "", 0)
 	assert.Empty(t, eastApps)
 
-	westApps, _ = backend.ListApplications(ctxWest, "")
+	westApps, _ = backend.ListApplications(ctxWest, "", 0)
 	assert.Len(t, westApps, 1)
 
 	// The deleted east app is gone.
@@ -97,12 +97,12 @@ func TestKinesisAnalyticsV2SnapshotRegionIsolation(t *testing.T) {
 	_, err = backend.CreateApplicationSnapshot(ctxEast, "snap-app", "snap-1")
 	require.NoError(t, err)
 
-	eastSnaps, _, err := backend.ListApplicationSnapshots(ctxEast, "snap-app", "")
+	eastSnaps, _, err := backend.ListApplicationSnapshots(ctxEast, "snap-app", "", 0)
 	require.NoError(t, err)
 	assert.Len(t, eastSnaps, 1)
 
 	// West app has no snapshots.
-	westSnaps, _, err := backend.ListApplicationSnapshots(ctxWest, "snap-app", "")
+	westSnaps, _, err := backend.ListApplicationSnapshots(ctxWest, "snap-app", "", 0)
 	require.NoError(t, err)
 	assert.Empty(t, westSnaps)
 }

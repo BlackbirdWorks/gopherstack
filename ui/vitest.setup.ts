@@ -60,7 +60,7 @@ vi.mock("$app/state", async () => {
   // component reading a urlState value needs both present and REACTIVE, or
   // a page's `.get()`-derived $state (e.g. `let searchQuery =
   // $derived(searchQueryParam.get())`) would render once and never update
-  // when a test fires a `goto(..., { replaceState: true })` write below. See
+  // when a test fires a `goto(..., { replace: true })` write below. See
   // mock-page.svelte.ts for why that requires a real rune, not a plain
   // mutable object. Individual test files that want finer control (see
   // url-state.test.ts) override this mock locally.
@@ -121,6 +121,6 @@ vi.mock("$app/navigation", async () => {
   };
 });
 
-vi.mock("$app/environment", () => ({
+vi.mock("$app/env", () => ({
   browser: true,
 }));

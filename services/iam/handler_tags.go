@@ -72,12 +72,19 @@ func (h *Handler) iamListTagActions() map[string]iamActionFn {
 				return nil, err
 			}
 
-			members := tagsMapToKV(r.Tags)
+			pg := pageForm(tagsMapToKV(r.Tags), vals)
 
 			return &iamListTagsResponse{
-				XMLName:          xml.Name{Local: "ListRoleTagsResponse"},
-				Xmlns:            iamXMLNS,
-				Result:           iamListTagsResult{XMLName: xml.Name{Local: "ListRoleTagsResult"}, Tags: members},
+				XMLName: xml.Name{Local: "ListRoleTagsResponse"},
+				Xmlns:   iamXMLNS,
+				Result: iamListTagsResult{
+					XMLName: xml.Name{
+						Local: "ListRoleTagsResult",
+					},
+					Tags:        pg.Data,
+					Marker:      pg.Next,
+					IsTruncated: pg.Next != "",
+				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
@@ -87,12 +94,19 @@ func (h *Handler) iamListTagActions() map[string]iamActionFn {
 				return nil, err
 			}
 
-			members := tagsMapToKV(p.Tags)
+			pg := pageForm(tagsMapToKV(p.Tags), vals)
 
 			return &iamListTagsResponse{
-				XMLName:          xml.Name{Local: "ListPolicyTagsResponse"},
-				Xmlns:            iamXMLNS,
-				Result:           iamListTagsResult{XMLName: xml.Name{Local: "ListPolicyTagsResult"}, Tags: members},
+				XMLName: xml.Name{Local: "ListPolicyTagsResponse"},
+				Xmlns:   iamXMLNS,
+				Result: iamListTagsResult{
+					XMLName: xml.Name{
+						Local: "ListPolicyTagsResult",
+					},
+					Tags:        pg.Data,
+					Marker:      pg.Next,
+					IsTruncated: pg.Next != "",
+				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
@@ -102,12 +116,19 @@ func (h *Handler) iamListTagActions() map[string]iamActionFn {
 				return nil, err
 			}
 
-			members := tagsMapToKV(u.Tags)
+			pg := pageForm(tagsMapToKV(u.Tags), vals)
 
 			return &iamListTagsResponse{
-				XMLName:          xml.Name{Local: "ListUserTagsResponse"},
-				Xmlns:            iamXMLNS,
-				Result:           iamListTagsResult{XMLName: xml.Name{Local: "ListUserTagsResult"}, Tags: members},
+				XMLName: xml.Name{Local: "ListUserTagsResponse"},
+				Xmlns:   iamXMLNS,
+				Result: iamListTagsResult{
+					XMLName: xml.Name{
+						Local: "ListUserTagsResult",
+					},
+					Tags:        pg.Data,
+					Marker:      pg.Next,
+					IsTruncated: pg.Next != "",
+				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},

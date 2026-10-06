@@ -65,6 +65,10 @@ func (h *Handler) handleDeleteQuote(_ context.Context, r *http.Request, _ []byte
 func (h *Handler) handleListQuotes(_ context.Context, r *http.Request, _ []byte) ([]byte, error) {
 	q := r.URL.Query()
 
+	if err := validatePage(q); err != nil {
+		return nil, err
+	}
+
 	p := h.Backend.ListQuotes(q.Get("NextToken"), queryMaxResults(q))
 
 	resp := listQuotesResponse{NextToken: p.Next, Quotes: make([]quoteWire, 0, len(p.Data))}

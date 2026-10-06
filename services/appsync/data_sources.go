@@ -14,7 +14,7 @@ func isValidDataSourceType(t DataSourceType) bool {
 	switch t {
 	case DataSourceTypeNone, DataSourceTypeLambda, DataSourceTypeDynamoDB,
 		DataSourceTypeHTTP, DataSourceTypeOpenSearch, DataSourceTypeRelational,
-		DataSourceTypeEventBridge:
+		DataSourceTypeEventBridge, DataSourceTypeElasticsearch:
 		return true
 	default:
 		return false
@@ -193,6 +193,10 @@ func (b *InMemoryBackend) UpdateDataSource(apiID, name string, ds *DataSource) (
 
 	if ds.OpenSearchConfig != nil {
 		existing.OpenSearchConfig = ds.OpenSearchConfig
+	}
+
+	if ds.ElasticsearchConfig != nil {
+		existing.ElasticsearchConfig = ds.ElasticsearchConfig
 	}
 
 	if ds.EventBridgeConfig != nil {

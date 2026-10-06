@@ -24,8 +24,8 @@ const (
 // SourceArn, so keying the ID off the bus ARN keeps that invariant a natural
 // consequence of DiscovererId uniqueness rather than a separate index.
 func discovererIDFromSourceArn(sourceArn string) string {
-	if idx := strings.LastIndex(sourceArn, "/"); idx >= 0 {
-		return sourceArn[idx+1:]
+	if _, after, ok := strings.CutLast(sourceArn, "/"); ok {
+		return after
 	}
 
 	return sourceArn

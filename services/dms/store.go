@@ -176,6 +176,7 @@ func (b *InMemoryBackend) Reset() {
 	closeAllTags(b.replicationSubnetGroups, func(sg *ReplicationSubnetGroup) { sg.Tags.Close() })
 	closeAllTags(b.replicationConfigs, func(rc *ReplicationConfig) { rc.Tags.Close() })
 	closeAllTags(b.certificates, func(cert *Certificate) { cert.Tags.Close() })
+	closeAllTags(b.assessmentRuns, func(run *AssessmentRun) { run.Tags.Close() })
 
 	b.registry.ResetAll()
 

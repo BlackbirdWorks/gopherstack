@@ -110,6 +110,13 @@ type StorageBackend interface {
 	GetAlarmMuteRule(name string) (*AlarmMuteRule, error)
 	PutAnomalyDetector(detector *AnomalyDetector) error
 	DeleteAnomalyDetector(namespace, metricName, stat string, dims []Dimension) error
+	DeleteAnomalyDetectorByID(id string) error
+	DeleteMetricMathAnomalyDetector(queries []MetricDataQuery) error
+	DescribeAnomalyDetectorsFiltered(
+		filter AnomalyDetectorFilter,
+		nextToken string,
+		maxResults int,
+	) (page.Page[AnomalyDetector], error)
 	DescribeAnomalyDetectors(
 		namespace, metricName, nextToken string,
 		maxResults int,

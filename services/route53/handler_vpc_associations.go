@@ -89,7 +89,7 @@ func (h *Handler) associateVPCWithHostedZone(c *echo.Context, path string) error
 	return writeXML(c, http.StatusOK, xmlAssociateVPCResponse{
 		Xmlns: route53Namespace,
 		ChangeInfo: xmlChangeInfo{
-			ID:          "/change/C" + zoneID,
+			ID:          h.Backend.RegisterChange(),
 			Status:      statusInsync,
 			SubmittedAt: time.Now(),
 		},
@@ -250,7 +250,7 @@ func (h *Handler) disassociateVPCFromHostedZone(c *echo.Context, path string) er
 	return writeXML(c, http.StatusOK, disassociateVPCResponse{
 		Xmlns: route53Namespace,
 		ChangeInfo: xmlChangeInfo{
-			ID:          "/change/C" + zoneID,
+			ID:          h.Backend.RegisterChange(),
 			Status:      statusInsync,
 			SubmittedAt: time.Now(),
 		},

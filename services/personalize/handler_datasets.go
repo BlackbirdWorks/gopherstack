@@ -78,7 +78,16 @@ func (h *Handler) createDatasetImportJob(input map[string]any) (map[string]any, 
 	dataSource, _ := input["dataSource"].(map[string]any)
 	tags := extractTags(input)
 
-	job, err := h.Backend.CreateDatasetImportJob(jobName, datasetArn, roleArn, importMode, dataSource, tags)
+	publish, _ := input["publishAttributionMetricsToS3"].(bool)
+
+	var publishPtr *bool
+	if _, ok := input["publishAttributionMetricsToS3"]; ok {
+		publishPtr = &publish
+	}
+
+	job, err := h.Backend.CreateDatasetImportJob(
+		jobName, datasetArn, roleArn, importMode, dataSource, tags, publishPtr,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -180,7 +189,7 @@ func datasetToMap(ds *Dataset) map[string]any {
 }
 
 func datasetImportJobToMap(job *DatasetImportJob) map[string]any {
-	return map[string]any{
+	m := map[string]any{
 		keyDatasetImportJobArn: job.DatasetImportJobArn,
 		keyJobName:             job.JobName,
 		keyDatasetArn:          job.DatasetArn,
@@ -191,6 +200,11 @@ func datasetImportJobToMap(job *DatasetImportJob) map[string]any {
 		keyCreationDateTime:    awstime.Epoch(job.CreationDateTime),
 		keyLastUpdatedDateTime: awstime.Epoch(job.LastUpdatedDateTime),
 	}
+	if job.PublishAttributionMetricsToS3 != nil {
+		m["publishAttributionMetricsToS3"] = *job.PublishAttributionMetricsToS3
+	}
+
+	return m
 }
 
 func datasetExportJobToMap(job *DatasetExportJob) map[string]any {

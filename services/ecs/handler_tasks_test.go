@@ -465,11 +465,20 @@ func TestHandler_RunTask_NetworkConfiguration(t *testing.T) {
 	tasks := out["tasks"].([]any)
 	require.Len(t, tasks, 1)
 	task := tasks[0].(map[string]any)
-	nc := task["networkConfiguration"].(map[string]any)
-	avpc := nc["awsvpcConfiguration"].(map[string]any)
-	subnets := avpc["subnets"].([]any)
-	require.Len(t, subnets, 1)
-	assert.Equal(t, "subnet-abc123", subnets[0].(string))
+	assert.NotContains(t, task, "networkConfiguration")
+
+	attachments := task["attachments"].([]any)
+	require.Len(t, attachments, 1)
+
+	var subnetID any
+
+	for _, d := range attachments[0].(map[string]any)["details"].([]any) {
+		if kv := d.(map[string]any); kv["name"] == "subnetId" {
+			subnetID = kv["value"]
+		}
+	}
+
+	assert.Equal(t, "subnet-abc123", subnetID)
 }
 
 // TestHandler_RunTask_PlatformVersion verifies platform-version validation:
@@ -543,5 +552,5 @@ func TestHandler_RunTask_PropagateTags(t *testing.T) {
 	tasks := out["tasks"].([]any)
 	require.Len(t, tasks, 1)
 	task := tasks[0].(map[string]any)
-	assert.Equal(t, "TASK_DEFINITION", task["propagateTags"])
+	assert.NotContains(t, task, "propagateTags")
 }

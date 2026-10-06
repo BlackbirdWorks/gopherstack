@@ -139,8 +139,8 @@ func (b *InMemoryBackend) UpdateResiliencyPolicy(
 		p.Tier = req.Tier
 	}
 
-	if req.PolicyDescription != "" {
-		p.Description = req.PolicyDescription
+	if req.PolicyDescription != nil {
+		p.Description = *req.PolicyDescription
 	}
 
 	if req.DataLocationConstraint != "" {

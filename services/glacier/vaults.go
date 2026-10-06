@@ -29,8 +29,8 @@ func (b *InMemoryBackend) CreateVault(accountID, region, vaultName string) (*Vau
 
 	vArn := vaultARN(accountID, region, vaultName)
 
-	if b.vaults.Has(vArn) {
-		return nil, ErrResourceInUse
+	if existing, ok := b.vaults.Get(vArn); ok {
+		return cloneVault(existing), nil
 	}
 
 	v := &Vault{

@@ -36,6 +36,7 @@ type AsyncInvoke struct {
 	ModelArn           string
 	OutputS3URI        string
 	Status             string
+	Fingerprint        string `json:",omitempty"`
 }
 
 // asyncInvokeSortOrderDescending is the ListAsyncInvokesInput.SortOrder value

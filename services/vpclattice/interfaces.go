@@ -19,6 +19,9 @@ type StorageBackend interface {
 	ListServices(ctx context.Context, maxResults int32, nextToken string) ([]*ServiceSummary, string, error)
 
 	CreateServiceNetwork(ctx context.Context, name, authType string, tags map[string]string) (*ServiceNetwork, error)
+	CreateServiceNetworkWithSharing(
+		ctx context.Context, name, authType string, tags map[string]string, sharing *SharingConfig,
+	) (*ServiceNetwork, error)
 	GetServiceNetwork(snID string) (*ServiceNetwork, error)
 	UpdateServiceNetwork(snID, authType string) (*ServiceNetwork, error)
 	DeleteServiceNetwork(snID string) error
@@ -178,7 +181,7 @@ type StorageBackend interface {
 	DeleteResourceConfiguration(id string) error
 	ListResourceConfigurations(
 		ctx context.Context,
-		resourceGatewayIdentifier, resourceConfigurationGroupIdentifier string,
+		resourceGatewayIdentifier, resourceConfigurationGroupIdentifier, domainVerificationIdentifier string,
 		maxResults int32,
 		nextToken string,
 	) ([]*ResourceConfigurationSummary, string, error)
@@ -278,12 +281,18 @@ type ServiceSummary struct {
 type ServiceNetwork struct {
 	CreatedAt                  time.Time
 	LastUpdatedAt              time.Time
+	SharingConfig              *SharingConfig
 	ARN                        string
 	ID                         string
 	Name                       string
 	AuthType                   string
 	NumberOfAssociatedServices int64
 	NumberOfAssociatedVPCs     int64
+}
+
+// SharingConfig mirrors types.SharingConfig.
+type SharingConfig struct {
+	Enabled bool `json:"enabled"`
 }
 
 // ServiceNetworkSummary is a service network entry for list responses.

@@ -9,14 +9,13 @@
 | --- | --- |
 | PARITY entries audited | 22 (22 ok) |
 | Feature families | 5 (5 ok) |
-| Known gaps | 2 |
+| Known gaps | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- 2026-09-19 (over-wide-response sweep, gopherstack): jobRunToMap (GetJobRun, out of this pass's List-only scope) still never emits types.JobRun's optional "type" member, the same gap ListJobRuns/ListJobRunAttempts had -- the new jobRunTypeFromDriver helper (handler.go) could be applied there too in a future pass (bd: file follow-up, low priority)
-- Fixed: JobRunState was missing the real SDK's QUEUED constant (types/enums.go:76-84 in aws-sdk-go-v2/service/emrserverless@v1.44.4, also emr-serverless/2021-07-13/service-2.json shapes.JobRunState, both list SUBMITTED/PENDING/SCHEDULED/RUNNING/SUCCESS/FAILED/CANCELLING/CANCELLED/QUEUED). Added JobRunStateQueued for enum completeness. The lifecycle itself is unaffected: StartJobRun still only ever produces SUBMITTED (or CANCELLED via explicit cancel) -- this backend does not model application capacity/scheduler configuration, which is the only real trigger for QUEUED (see JobRun.queuedDurationMilliseconds / SchedulerConfiguration.queueTimeoutMinutes in service-2.json), so nothing ever enters PENDING/SCHEDULED/RUNNING/SUCCESS/FAILED/CANCELLING/QUEUED either -- not just QUEUED. This is a self-consistent simplification (every client-polled field agrees the run stays SUBMITTED), not an instant-success bug; simulating job execution to make QUEUED observable is out of scope without job-lifecycle simulation (tracked separately if ever undertaken).
+- Job runs never leave SUBMITTED (or CANCELLED via CancelJobRun): the backend runs no job execution or scheduler, so PENDING/SCHEDULED/RUNNING/SUCCESS/FAILED/CANCELLING/QUEUED are declared but unreachable. CancelJobRun accepts shutdownGracePeriodInSeconds but cancels at once, as there is no running job to wind down.
 
 ## More
 

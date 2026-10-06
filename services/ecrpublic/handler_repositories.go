@@ -63,12 +63,17 @@ func (h *Handler) handleDescribeRepositories(
 		return nil, err
 	}
 
+	repos, next, err := paginateDescribe(repos, in.MaxResults, in.NextToken, len(in.RepositoryNames) > 0)
+	if err != nil {
+		return nil, err
+	}
+
 	out := make([]RepositoryWire, 0, len(repos))
 	for _, r := range repos {
 		out = append(out, toRepositoryWire(r))
 	}
 
-	return &describeRepositoriesOutput{Repositories: out}, nil
+	return &describeRepositoriesOutput{Repositories: out, NextToken: next}, nil
 }
 
 type deleteRepositoryInput struct {

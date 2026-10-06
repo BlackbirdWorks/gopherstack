@@ -3,6 +3,7 @@ package ec2
 import (
 	"encoding/xml"
 	"net/url"
+	"slices"
 )
 
 type createTrafficMirrorFilterResponse struct {
@@ -14,6 +15,7 @@ type createTrafficMirrorFilterResponse struct {
 type describeTrafficMirrorFiltersResponse struct {
 	XMLName              xml.Name `xml:"DescribeTrafficMirrorFiltersResponse"`
 	RequestID            string   `xml:"requestId"`
+	NextToken            string   `xml:"nextToken,omitempty"`
 	TrafficMirrorFilters struct {
 		Items []trafficMirrorFilterItem `xml:"item"`
 	} `xml:"trafficMirrorFilterSet"`
@@ -43,6 +45,7 @@ type createTrafficMirrorFilterRuleResponse struct {
 type describeTrafficMirrorFilterRulesResponse struct {
 	XMLName                  xml.Name `xml:"DescribeTrafficMirrorFilterRulesResponse"`
 	RequestID                string   `xml:"requestId"`
+	NextToken                string   `xml:"nextToken,omitempty"`
 	TrafficMirrorFilterRules struct {
 		Items []trafficMirrorFilterRuleItem `xml:"item"`
 	} `xml:"trafficMirrorFilterRuleSet"`
@@ -70,6 +73,7 @@ type createTrafficMirrorSessionResponse struct {
 type describeTrafficMirrorSessionsResponse struct {
 	XMLName               xml.Name `xml:"DescribeTrafficMirrorSessionsResponse"`
 	RequestID             string   `xml:"requestId"`
+	NextToken             string   `xml:"nextToken,omitempty"`
 	TrafficMirrorSessions struct {
 		Items []trafficMirrorSessionItem `xml:"item"`
 	} `xml:"trafficMirrorSessionSet"`
@@ -95,6 +99,7 @@ type createTrafficMirrorTargetResponse struct {
 type describeTrafficMirrorTargetsResponse struct {
 	XMLName              xml.Name `xml:"DescribeTrafficMirrorTargetsResponse"`
 	RequestID            string   `xml:"requestId"`
+	NextToken            string   `xml:"nextToken,omitempty"`
 	TrafficMirrorTargets struct {
 		Items []trafficMirrorTargetItem `xml:"item"`
 	} `xml:"trafficMirrorTargetSet"`
@@ -218,7 +223,7 @@ func (h *Handler) handleDescribeTrafficMirrorFilters(vals url.Values, reqID stri
 		)
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 type modifyTrafficMirrorFilterNetworkServicesResponse struct {
@@ -354,11 +359,15 @@ func (h *Handler) handleDescribeTrafficMirrorFilterRules(
 	vals url.Values,
 	reqID string,
 ) (any, error) {
-	filterID := vals.Get("TrafficMirrorFilterId")
-
-	rules, err := h.Backend.DescribeTrafficMirrorFilterRules(filterID)
+	rules, err := h.trafficMirrorRulesFor(vals.Get("TrafficMirrorFilterId"))
 	if err != nil {
 		return nil, err
+	}
+
+	if ids := parseMemberList(vals, "TrafficMirrorFilterRuleId"); len(ids) > 0 {
+		rules = slices.DeleteFunc(rules, func(r *TrafficMirrorFilterRule) bool {
+			return !slices.Contains(ids, r.TrafficMirrorFilterRuleID)
+		})
 	}
 
 	rules = applyTrafficMirrorFilterRuleFilters(rules, parseEC2Filters(vals))
@@ -371,7 +380,27 @@ func (h *Handler) handleDescribeTrafficMirrorFilterRules(
 		)
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
+}
+
+// trafficMirrorRulesFor returns the rules of one filter, or of every filter when filterID is empty.
+func (h *Handler) trafficMirrorRulesFor(filterID string) ([]*TrafficMirrorFilterRule, error) {
+	if filterID != "" {
+		return h.Backend.DescribeTrafficMirrorFilterRules(filterID)
+	}
+
+	var all []*TrafficMirrorFilterRule
+
+	for _, f := range h.Backend.DescribeTrafficMirrorFilters(nil) {
+		rules, err := h.Backend.DescribeTrafficMirrorFilterRules(f.TrafficMirrorFilterID)
+		if err != nil {
+			return nil, err
+		}
+
+		all = append(all, rules...)
+	}
+
+	return all, nil
 }
 
 type modifyTrafficMirrorFilterRuleResponse struct {
@@ -474,7 +503,7 @@ func (h *Handler) handleDescribeTrafficMirrorSessions(vals url.Values, reqID str
 		)
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 type modifyTrafficMirrorSessionResponse struct {
@@ -565,7 +594,7 @@ func (h *Handler) handleDescribeTrafficMirrorTargets(vals url.Values, reqID stri
 		)
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 // ---- EC2 Fleet handlers ----

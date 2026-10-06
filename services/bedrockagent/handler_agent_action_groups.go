@@ -16,12 +16,15 @@ func (h *Handler) handleCreateAgentActionGroup(
 	ctx context.Context, c *echo.Context, agentID, agentVersion string, body []byte,
 ) error {
 	var req struct {
-		ActionGroupExecutor map[string]any `json:"actionGroupExecutor"`
-		APISchema           map[string]any `json:"apiSchema"`
-		FunctionSchema      map[string]any `json:"functionSchema"`
-		ActionGroupName     string         `json:"actionGroupName"`
-		Description         string         `json:"description"`
-		ActionGroupState    string         `json:"actionGroupState"`
+		ActionGroupExecutor              map[string]any    `json:"actionGroupExecutor"`
+		APISchema                        map[string]any    `json:"apiSchema"`
+		FunctionSchema                   map[string]any    `json:"functionSchema"`
+		ParentActionGroupSignatureParams map[string]string `json:"parentActionGroupSignatureParams"`
+		ActionGroupName                  string            `json:"actionGroupName"`
+		Description                      string            `json:"description"`
+		ActionGroupState                 string            `json:"actionGroupState"`
+		ClientToken                      string            `json:"clientToken"`
+		ParentActionGroupSignature       string            `json:"parentActionGroupSignature"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -35,6 +38,10 @@ func (h *Handler) handleCreateAgentActionGroup(
 		ActionGroupExecutor: req.ActionGroupExecutor,
 		APISchema:           req.APISchema,
 		FunctionSchema:      req.FunctionSchema,
+
+		ParentActionGroupSignature:       req.ParentActionGroupSignature,
+		ParentActionGroupSignatureParams: req.ParentActionGroupSignatureParams,
+		ClientToken:                      req.ClientToken,
 	})
 	if err != nil {
 		return handleErr(c, err)
@@ -58,12 +65,15 @@ func (h *Handler) handleUpdateAgentActionGroup(
 	ctx context.Context, c *echo.Context, agentID, agentVersion, agID string, body []byte,
 ) error {
 	var req struct {
-		ActionGroupExecutor map[string]any `json:"actionGroupExecutor"`
-		APISchema           map[string]any `json:"apiSchema"`
-		FunctionSchema      map[string]any `json:"functionSchema"`
-		ActionGroupName     string         `json:"actionGroupName"`
-		Description         string         `json:"description"`
-		ActionGroupState    string         `json:"actionGroupState"`
+		ActionGroupExecutor              map[string]any    `json:"actionGroupExecutor"`
+		APISchema                        map[string]any    `json:"apiSchema"`
+		FunctionSchema                   map[string]any    `json:"functionSchema"`
+		ParentActionGroupSignatureParams map[string]string `json:"parentActionGroupSignatureParams"`
+		ActionGroupName                  string            `json:"actionGroupName"`
+		Description                      string            `json:"description"`
+		ActionGroupState                 string            `json:"actionGroupState"`
+		ClientToken                      string            `json:"clientToken"`
+		ParentActionGroupSignature       string            `json:"parentActionGroupSignature"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -77,6 +87,10 @@ func (h *Handler) handleUpdateAgentActionGroup(
 		ActionGroupExecutor: req.ActionGroupExecutor,
 		APISchema:           req.APISchema,
 		FunctionSchema:      req.FunctionSchema,
+
+		ParentActionGroupSignature:       req.ParentActionGroupSignature,
+		ParentActionGroupSignatureParams: req.ParentActionGroupSignatureParams,
+		ClientToken:                      req.ClientToken,
 	})
 	if err != nil {
 		return handleErr(c, err)

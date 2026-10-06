@@ -24,9 +24,13 @@ func (h *Handler) handleCreateResourceGateway(c *echo.Context, body map[string]a
 	ctx := c.Request().Context()
 	tags := extractTags(body)
 
-	gw, err := h.Backend.CreateResourceGateway(
-		ctx, name, vpcID, ipAddressType, dnsResolution, ipv4PerENI, sgs, subnets, tags,
-	)
+	gw, err := idemCreate(h, "CreateResourceGateway", "", body,
+		func(g *ResourceGateway) string { return g.ID }, h.Backend.GetResourceGateway,
+		func() (*ResourceGateway, error) {
+			return h.Backend.CreateResourceGateway(
+				ctx, name, vpcID, ipAddressType, dnsResolution, ipv4PerENI, sgs, subnets, tags,
+			)
+		})
 	if err != nil {
 		return h.handleError(c, err)
 	}

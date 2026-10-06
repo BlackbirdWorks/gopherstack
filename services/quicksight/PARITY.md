@@ -315,6 +315,8 @@ items_still_open:
   - "No backing subsystem for: GetDashboardEmbedUrl ResetDisabled/StatePersistenceEnabled/UndoRedoDisabled (opaque embed URL), CreateDashboard.Parameters (no Describe* echo, opaque Definition), and StartAssetBundleExportJob strict-mode validation errors (ValidationStrategy itself is echoed since 2026-10-04, but no dependency validation runs)."
   - "DataSetSummary.RowLevelPermissionDataSetMap and KnowledgeBaseSummary.PrimaryOwnerUsername/Type are not modeled: no multi-RLS-map request member on Create/UpdateDataSet, no username or knowledge-base-type source."
   - "2026-09-30: CLOSED ListFoldersForResource ARN-with-slash routing (realclient_datasets_and_dashboards_test.go testFoldersExtraRealClient), ListApps (TestRealClient_AppLifecycle), dataset RLS/CLS/UseAs fields (dataset_security_client_test.go) and ListDashboardVersions Description/SourceEntityArn/CreatedTime (dashboard_versions_client_test.go; per-version records capped at 1000)."
+  - "Accepted but not applied: StartAssetBundleImportJob OverrideParameters, OverridePermissions, OverrideTags and OverrideValidationStrategy (the import applies no overrides), PredictQAResults IncludeGeneratedAnswer, IncludeQuickSightQIndex and MaxTopicsToConsider (no answer-generation engine), StartDashboardSnapshotJob.UserConfiguration, GenerateEmbedUrlForAnonymousUser.SessionTags and GetIdentityContext.SessionExpiresAt (the embed URL and identity token are opaque), DescribeSpace.MaxContributors (Space.Contributors is unmodeled), RegisterUser.IamArn (User.Arn is always the synthesized user ARN), and UpdateAnalysis/UpdateDashboard Parameters (no Describe op echoes them)."
+  - "SessionLifetimeInMinutes (15-600) and AllowedDomains (at most three) are validated on the embed ops but the generated URL does not carry them; the error code for a bad value, the code for AdditionalDashboardIds with a non-ANONYMOUS identity, the INITIAL_INGESTION and EDIT request types of dataset-triggered ingestions, and RestoreToFolders=false dropping folder memberships are from the SDK docs' wording, not observed against AWS."
 deferred: []
   # All families audited across the prior and this pass; see families above. None
   # remain deferred.
@@ -2266,3 +2268,16 @@ quicksight is region-isolated: groups, users, data sources, analyses and dashboa
 ## 2026-10-04 (reqfielddiff tier-1 pass)
 
 StartAssetBundleExportJob now stores ValidationStrategy.StrictModeForAllResources and CloudFormationOverridePropertyConfiguration (opaque pass-through) and DescribeAssetBundleExportJob echoes both; persistence additive on `storedAssetBundleExportJob`. Strict mode still performs no dependency validation, so no Errors are ever produced. GetDashboardEmbedUrl.ResetDisabled/StatePersistenceEnabled/UndoRedoDisabled and CreateDashboard.Parameters stay recorded. Proof: `TestAssetBundleExportJob_ValidationStrategyAndOverridesEchoed`.
+
+## 2026-10-05 (reqfielddiff tier-2 pagination)
+
+FIXED: DescribeFolderPermissions and DescribeFolderResolvedPermissions page through max-results/next-token and return InvalidNextTokenException for a malformed token (deserializers.go declares it); ListIdentityPropagationConfigs pages the same way and returns InvalidParameterValueException (it declares no token error). RECORDED: the `namespace` query member of the two folder permission ops is ignored. Proof: `TestListOps_PageAndRejectBadTokens`.
+
+## 2026-10-05 (reqfielddiff -adjudicated tier-2)
+
+Tool false positives: both folder-permission ops page through `writePagedFolderPermissions` (handler_folders.go:311) using the shared `maxResultsParam`/`nextTokenParam` readers the scan does not follow; proven by `list_page_tokens_test.go`.
+
+- DescribeFolderPermissions.MaxResults: paged, token only when truncated, `InvalidNextTokenException` on a bad token.
+- DescribeFolderPermissions.NextToken: same path as MaxResults.
+- DescribeFolderResolvedPermissions.MaxResults: paged through the same helper.
+- DescribeFolderResolvedPermissions.NextToken: same path as MaxResults.

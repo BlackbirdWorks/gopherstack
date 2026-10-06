@@ -202,6 +202,10 @@ func (h *Handler) handleStopMultiplex(c *echo.Context, multiplexID string) error
 }
 
 func (h *Handler) handleListMultiplexAlerts(c *echo.Context, multiplexID string) error {
+	if err := validPaging(c); err != nil {
+		return respondErr(c, err)
+	}
+
 	alerts, err := h.Backend.ListMultiplexAlerts(multiplexID)
 	if err != nil {
 		return respondErr(c, err)

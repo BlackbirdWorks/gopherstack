@@ -44,9 +44,12 @@ func (b *InMemoryBackend) ExecuteStatement(
 	defer b.mu.Unlock()
 
 	hasResultSet := sqlHasResultSet(sql)
+	caller := callerFromContext(ctx)
 
 	now := time.Now()
 	stmt := &Statement{
+		Owner:             caller.role,
+		OwnerSession:      caller.session,
 		ID:                uuid.NewString(),
 		QueryString:       sql,
 		ClusterIdentifier: clusterIdentifier,
@@ -130,7 +133,11 @@ func (b *InMemoryBackend) BatchExecuteStatement(
 		}
 	}
 
+	caller := callerFromContext(ctx)
+
 	stmt := &Statement{
+		Owner:             caller.role,
+		OwnerSession:      caller.session,
 		ID:                uuid.NewString(),
 		QueryString:       sqls[0], // AWS sets QueryString to the first SQL in the batch.
 		QueryStrings:      append([]string(nil), sqls...),
@@ -244,9 +251,10 @@ func (b *InMemoryBackend) ListStatements(
 	}
 
 	result := make([]*Statement, 0, len(store.statements))
+	caller := callerFromContext(ctx)
 
 	for _, stmt := range store.statements {
-		if statementMatchesFilter(stmt, filter) {
+		if caller.sees(stmt.Owner, stmt.OwnerSession, filter.RoleLevel) && statementMatchesFilter(stmt, filter) {
 			result = append(result, cloneStatement(stmt))
 		}
 	}

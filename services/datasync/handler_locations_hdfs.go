@@ -3,6 +3,8 @@ package datasync
 import (
 	"context"
 	"fmt"
+
+	dstypes "github.com/aws/aws-sdk-go-v2/service/datasync/types"
 )
 
 // --- HDFS location ---
@@ -43,6 +45,13 @@ func (h *Handler) handleCreateLocationHdfs(
 	_ context.Context,
 	in *createLocationHdfsInput,
 ) (*createLocationHdfsOutput, error) {
+	if err := checkEnum(
+		"AuthenticationType",
+		dstypes.HdfsAuthenticationType(in.AuthenticationType),
+	); err != nil {
+		return nil, err
+	}
+
 	if len(in.NameNodes) == 0 {
 		return nil, fmt.Errorf("%w: NameNodes is required", errInvalidRequest)
 	}
@@ -196,6 +205,13 @@ func (h *Handler) handleUpdateLocationHdfs(
 	_ context.Context,
 	in *updateLocationHdfsInput,
 ) (*updateLocationHdfsOutput, error) {
+	if err := checkEnum(
+		"AuthenticationType",
+		dstypes.HdfsAuthenticationType(in.AuthenticationType),
+	); err != nil {
+		return nil, err
+	}
+
 	if in.LocationArn == "" {
 		return nil, fmt.Errorf("%w: LocationArn is required", errInvalidRequest)
 	}

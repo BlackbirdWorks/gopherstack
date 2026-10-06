@@ -6,6 +6,15 @@ import (
 	"time"
 )
 
+// keepIfEmpty returns v, or old when the update left the member out.
+func keepIfEmpty(v, old string) string {
+	if v == "" {
+		return old
+	}
+
+	return v
+}
+
 // applyInputUpdates applies input update operations to the application.
 func applyInputUpdates(app *Application, updates []inputUpdate) error {
 	for _, iu := range updates {
@@ -29,17 +38,27 @@ func applyOneInputUpdate(inp *InputDescription, iu *inputUpdate) error {
 	}
 
 	if iu.KinesisStreamsInputUpdate != nil {
+		var old KinesisStreamsInputDesc
+		if inp.KinesisStreamsInputDescription != nil {
+			old = *inp.KinesisStreamsInputDescription
+		}
+
 		inp.KinesisStreamsInputDescription = &KinesisStreamsInputDesc{
-			ResourceARN: iu.KinesisStreamsInputUpdate.ResourceARN,
-			RoleARN:     iu.KinesisStreamsInputUpdate.RoleARN,
+			ResourceARN: keepIfEmpty(iu.KinesisStreamsInputUpdate.ResourceARN, old.ResourceARN),
+			RoleARN:     keepIfEmpty(iu.KinesisStreamsInputUpdate.RoleARN, old.RoleARN),
 		}
 		inp.KinesisFirehoseInputDescription = nil
 	}
 
 	if iu.KinesisFirehoseInputUpdate != nil {
+		var old KinesisFirehoseInputDesc
+		if inp.KinesisFirehoseInputDescription != nil {
+			old = *inp.KinesisFirehoseInputDescription
+		}
+
 		inp.KinesisFirehoseInputDescription = &KinesisFirehoseInputDesc{
-			ResourceARN: iu.KinesisFirehoseInputUpdate.ResourceARN,
-			RoleARN:     iu.KinesisFirehoseInputUpdate.RoleARN,
+			ResourceARN: keepIfEmpty(iu.KinesisFirehoseInputUpdate.ResourceARN, old.ResourceARN),
+			RoleARN:     keepIfEmpty(iu.KinesisFirehoseInputUpdate.RoleARN, old.RoleARN),
 		}
 		inp.KinesisStreamsInputDescription = nil
 	}
@@ -48,10 +67,17 @@ func applyOneInputUpdate(inp *InputDescription, iu *inputUpdate) error {
 
 	if iu.InputProcessingConfigurationUpdate != nil &&
 		iu.InputProcessingConfigurationUpdate.InputLambdaProcessor != nil {
+		var old LambdaProcessorDesc
+		if cur := inp.InputProcessingConfigurationDescription; cur != nil &&
+			cur.InputLambdaProcessorDescription != nil {
+			old = *cur.InputLambdaProcessorDescription
+		}
+
+		upd := iu.InputProcessingConfigurationUpdate.InputLambdaProcessor
 		inp.InputProcessingConfigurationDescription = &InputProcessingConfigurationDesc{
 			InputLambdaProcessorDescription: &LambdaProcessorDesc{
-				ResourceARN: iu.InputProcessingConfigurationUpdate.InputLambdaProcessor.ResourceARN,
-				RoleARN:     iu.InputProcessingConfigurationUpdate.InputLambdaProcessor.RoleARN,
+				ResourceARN: keepIfEmpty(upd.ResourceARN, old.ResourceARN),
+				RoleARN:     keepIfEmpty(upd.RoleARN, old.RoleARN),
 			},
 		}
 	}
@@ -136,27 +162,42 @@ func applyOneOutputUpdate(out *OutputDescription, ou *outputUpdate) error {
 	}
 
 	if ou.KinesisStreamsOutputUpdate != nil {
+		var old KinesisStreamsOutputDesc
+		if out.KinesisStreamsOutputDescription != nil {
+			old = *out.KinesisStreamsOutputDescription
+		}
+
 		out.KinesisStreamsOutputDescription = &KinesisStreamsOutputDesc{
-			ResourceARN: ou.KinesisStreamsOutputUpdate.ResourceARN,
-			RoleARN:     ou.KinesisStreamsOutputUpdate.RoleARN,
+			ResourceARN: keepIfEmpty(ou.KinesisStreamsOutputUpdate.ResourceARN, old.ResourceARN),
+			RoleARN:     keepIfEmpty(ou.KinesisStreamsOutputUpdate.RoleARN, old.RoleARN),
 		}
 		out.KinesisFirehoseOutputDescription = nil
 		out.LambdaOutputDescription = nil
 	}
 
 	if ou.KinesisFirehoseOutputUpdate != nil {
+		var old KinesisFirehoseOutputDesc
+		if out.KinesisFirehoseOutputDescription != nil {
+			old = *out.KinesisFirehoseOutputDescription
+		}
+
 		out.KinesisFirehoseOutputDescription = &KinesisFirehoseOutputDesc{
-			ResourceARN: ou.KinesisFirehoseOutputUpdate.ResourceARN,
-			RoleARN:     ou.KinesisFirehoseOutputUpdate.RoleARN,
+			ResourceARN: keepIfEmpty(ou.KinesisFirehoseOutputUpdate.ResourceARN, old.ResourceARN),
+			RoleARN:     keepIfEmpty(ou.KinesisFirehoseOutputUpdate.RoleARN, old.RoleARN),
 		}
 		out.KinesisStreamsOutputDescription = nil
 		out.LambdaOutputDescription = nil
 	}
 
 	if ou.LambdaOutputUpdate != nil {
+		var old LambdaOutputDesc
+		if out.LambdaOutputDescription != nil {
+			old = *out.LambdaOutputDescription
+		}
+
 		out.LambdaOutputDescription = &LambdaOutputDesc{
-			ResourceARN: ou.LambdaOutputUpdate.ResourceARN,
-			RoleARN:     ou.LambdaOutputUpdate.RoleARN,
+			ResourceARN: keepIfEmpty(ou.LambdaOutputUpdate.ResourceARN, old.ResourceARN),
+			RoleARN:     keepIfEmpty(ou.LambdaOutputUpdate.RoleARN, old.RoleARN),
 		}
 		out.KinesisStreamsOutputDescription = nil
 		out.KinesisFirehoseOutputDescription = nil
@@ -195,10 +236,16 @@ func applyReferenceDataSourceUpdates(
 		}
 
 		if ru.S3ReferenceDataSourceUpdate != nil {
+			var old S3ReferenceDataSourceDesc
+			if ref.S3ReferenceDataSourceDescription != nil {
+				old = *ref.S3ReferenceDataSourceDescription
+			}
+
+			upd := ru.S3ReferenceDataSourceUpdate
 			ref.S3ReferenceDataSourceDescription = &S3ReferenceDataSourceDesc{
-				BucketARN:        ru.S3ReferenceDataSourceUpdate.BucketARN,
-				FileKey:          ru.S3ReferenceDataSourceUpdate.FileKey,
-				ReferenceRoleARN: ru.S3ReferenceDataSourceUpdate.ReferenceRoleARN,
+				BucketARN:        keepIfEmpty(upd.BucketARN, old.BucketARN),
+				FileKey:          keepIfEmpty(upd.FileKey, old.FileKey),
+				ReferenceRoleARN: keepIfEmpty(upd.ReferenceRoleARN, old.ReferenceRoleARN),
 			}
 		}
 

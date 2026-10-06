@@ -1042,6 +1042,11 @@ func buildDestinationDescriptions(s *DeliveryStream) []destinationDescriptionOut
 
 	if s.HTTPEndpointDestination != nil {
 		d := *s.HTTPEndpointDestination
+		if d.EndpointConfiguration != nil {
+			ec := *d.EndpointConfiguration
+			ec.AccessKey = "" // HttpEndpointDescription has no AccessKey
+			d.EndpointConfiguration = &ec
+		}
 		destinations = append(destinations, destinationDescriptionOutput{
 			DestinationID:                      destinationIDOrDefault(d.DestinationID),
 			HTTPEndpointDestinationDescription: &d,

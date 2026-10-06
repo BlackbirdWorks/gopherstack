@@ -74,8 +74,10 @@ func (b *InMemoryBackend) UpdateBrokerType(
 		return nil, ErrNotFound
 	}
 
+	source := &MutableClusterInfo{InstanceType: c.BrokerNodeGroupInfo.InstanceType}
 	c.BrokerNodeGroupInfo.InstanceType = instanceType
-	op := b.newClusterOperationLocked(region, clusterArn, "UPDATE_BROKER_TYPE", nil, nil)
+	target := &MutableClusterInfo{InstanceType: instanceType}
+	op := b.newClusterOperationLocked(region, clusterArn, "UPDATE_BROKER_TYPE", source, target)
 
 	return op, nil
 }
@@ -96,11 +98,18 @@ func (b *InMemoryBackend) UpdateClusterConfiguration(
 		return nil, ErrNotFound
 	}
 
+	source := &MutableClusterInfo{}
+	if c.ConfigurationInfo != nil {
+		prev := *c.ConfigurationInfo
+		source.ConfigurationInfo = &prev
+	}
+
 	c.ConfigurationInfo = &ConfigurationInfo{
 		Arn:      configArn,
 		Revision: revision,
 	}
-	op := b.newClusterOperationLocked(region, clusterArn, "UPDATE_CLUSTER_CONFIGURATION", nil, nil)
+	target := &MutableClusterInfo{ConfigurationInfo: &ConfigurationInfo{Arn: configArn, Revision: revision}}
+	op := b.newClusterOperationLocked(region, clusterArn, "UPDATE_CLUSTER_CONFIGURATION", source, target)
 
 	return op, nil
 }
@@ -109,6 +118,7 @@ func (b *InMemoryBackend) UpdateClusterConfiguration(
 func (b *InMemoryBackend) UpdateClusterKafkaVersion(
 	ctx context.Context,
 	clusterArn, targetKafkaVersion string,
+	configuration *ConfigurationInfo,
 ) (*ClusterOperation, error) {
 	region := regionFromARN(clusterArn, getRegion(ctx, b.region))
 
@@ -120,8 +130,22 @@ func (b *InMemoryBackend) UpdateClusterKafkaVersion(
 		return nil, ErrNotFound
 	}
 
+	source := &MutableClusterInfo{KafkaVersion: c.KafkaVersion}
+	if c.ConfigurationInfo != nil {
+		prev := *c.ConfigurationInfo
+		source.ConfigurationInfo = &prev
+	}
+
 	c.KafkaVersion = targetKafkaVersion
-	op := b.newClusterOperationLocked(region, clusterArn, "UPDATE_CLUSTER_KAFKA_VERSION", nil, nil)
+	target := &MutableClusterInfo{KafkaVersion: targetKafkaVersion}
+
+	if configuration != nil {
+		applied := *configuration
+		c.ConfigurationInfo = &applied
+		target.ConfigurationInfo = &ConfigurationInfo{Arn: applied.Arn, Revision: applied.Revision}
+	}
+
+	op := b.newClusterOperationLocked(region, clusterArn, "UPDATE_CLUSTER_KAFKA_VERSION", source, target)
 
 	return op, nil
 }
@@ -146,7 +170,14 @@ func (b *InMemoryBackend) UpdateConnectivity(
 	source := &MutableClusterInfo{
 		ConnectivityInfo: cloneConnectivityInfo(c.BrokerNodeGroupInfo.ConnectivityInfo),
 	}
-	target := &MutableClusterInfo{ConnectivityInfo: cloneConnectivityInfo(settings.ConnectivityInfo)}
+	target := &MutableClusterInfo{
+		ConnectivityInfo: cloneConnectivityInfo(settings.ConnectivityInfo),
+	}
+
+	if settings.ZookeeperAccess != nil {
+		za := *settings.ZookeeperAccess
+		target.ZookeeperAccess = &za
+	}
 
 	if settings.ConnectivityInfo != nil {
 		c.BrokerNodeGroupInfo.ConnectivityInfo = cloneConnectivityInfo(settings.ConnectivityInfo)

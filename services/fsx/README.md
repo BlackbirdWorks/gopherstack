@@ -8,7 +8,7 @@
 | Metric | Value |
 | --- | --- |
 | Feature families | 13 (13 ok) |
-| Known gaps | 6 |
+| Known gaps | 8 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -20,6 +20,8 @@
 - ActiveDirectoryError and AD-join state (CreateFileSystem ActiveDirectoryId, Create/UpdateStorageVirtualMachine ActiveDirectoryConfiguration) are not modeled: they need cross-service Directory Service validation.
 - OpenZFSVolumeConfiguration NfsExports, quotas, OriginSnapshot, ParentVolumeId and CopyStrategy/DeleteClonedVolumes remain unmodeled; only unconfigured-volume defaults are emitted.
 - DeleteDataRepositoryAssociation.DeleteDataInFileSystem is not declared: honouring it needs S3 data deletion (unmodeled data-repository subsystem).
+- ClientRequestToken is honoured only by CreateFileSystem; AssociateFileSystemAliases, CopyBackup, CopySnapshotAndUpdateVolume, CreateAndAttachS3AccessPoint, CreateBackup, CreateDataRepositoryAssociation, CreateDataRepositoryTask, CreateFileCache, CreateSnapshot, CreateStorageVirtualMachine, CreateVolume, CreateVolumeFromBackup and RestoreVolumeFromSnapshot accept none, so a retry creates a duplicate; DeleteBackup, DeleteDataRepositoryAssociation, DeleteFileCache, DeleteSnapshot, DeleteStorageVirtualMachine, DeleteVolume, DescribeFileSystemAliases, DetachAndDeleteS3AccessPoint, DisassociateFileSystemAliases, ReleaseFileSystemNfsV3Locks, StartMisconfiguredStateRecovery, UpdateDataRepositoryAssociation, UpdateFileCache, UpdateSharedVpcConfiguration, UpdateSnapshot, UpdateStorageVirtualMachine and UpdateVolume ignore it (those are naturally idempotent).
+- Unmodeled request members: CopyBackup.SourceRegion (cross-region copy), CreateFileCache.SecurityGroupIds/DataRepositoryAssociations/CopyTagsToDataRepositoryAssociations, UpdateFileCache.LustreConfiguration, UpdateFileSystem.StorageType, CreateStorageVirtualMachine.SvmAdminPassword, CopySnapshotAndUpdateVolume.CopyStrategy/Options, RestoreVolumeFromSnapshot.Options, CreateDataRepositoryAssociation.S3 and UpdateDataRepositoryAssociation.S3.
 
 ## More
 

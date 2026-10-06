@@ -1,6 +1,9 @@
 package kinesisvideo
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 const (
 	storageTierHot  = "HOT"
@@ -17,8 +20,10 @@ const (
 // DescribeStreamStorageConfiguration returns the stream, whose DefaultStorageTier
 // is its storage configuration (HOT when never set).
 func (b *InMemoryBackend) DescribeStreamStorageConfiguration(name, streamARN string) (*Stream, error) {
-	b.mu.RLock("DescribeStreamStorageConfiguration")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeStreamStorageConfiguration")
+	defer b.mu.Unlock()
+
+	b.sweepLocked(time.Now())
 
 	s, err := b.resolveStreamLocked(name, streamARN)
 	if err != nil {
@@ -44,6 +49,8 @@ func (b *InMemoryBackend) UpdateStreamStorageConfiguration(
 	b.mu.Lock("UpdateStreamStorageConfiguration")
 	defer b.mu.Unlock()
 
+	b.sweepLocked(time.Now())
+
 	s, err := b.resolveStreamLocked(name, streamARN)
 	if err != nil {
 		return err
@@ -61,8 +68,10 @@ func (b *InMemoryBackend) UpdateStreamStorageConfiguration(
 
 // DescribeMediaStorageConfiguration returns a channel's media storage configuration, or nil when unset.
 func (b *InMemoryBackend) DescribeMediaStorageConfiguration(name, channelARN string) (*MediaStorage, error) {
-	b.mu.RLock("DescribeMediaStorageConfiguration")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeMediaStorageConfiguration")
+	defer b.mu.Unlock()
+
+	b.sweepLocked(time.Now())
 
 	c, err := b.resolveChannelLocked(name, channelARN)
 	if err != nil {
@@ -80,6 +89,8 @@ func (b *InMemoryBackend) UpdateMediaStorageConfiguration(channelARN string, cfg
 
 	b.mu.Lock("UpdateMediaStorageConfiguration")
 	defer b.mu.Unlock()
+
+	b.sweepLocked(time.Now())
 
 	c, err := b.resolveChannelLocked("", channelARN)
 	if err != nil {
@@ -121,8 +132,10 @@ func (b *InMemoryBackend) GetSignalingChannelEndpoint(
 		return nil, ErrValidation
 	}
 
-	b.mu.RLock("GetSignalingChannelEndpoint")
-	defer b.mu.RUnlock()
+	b.mu.Lock("GetSignalingChannelEndpoint")
+	defer b.mu.Unlock()
+
+	b.sweepLocked(time.Now())
 
 	c, err := b.resolveChannelLocked("", channelARN)
 	if err != nil {

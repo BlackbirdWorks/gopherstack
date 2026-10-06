@@ -249,7 +249,10 @@ func TestCreateJourney_RawTagsFieldIgnored(t *testing.T) {
 	assert.Nil(t, out["tags"],
 		"CreateJourney must not accept or echo tags; the real WriteJourneyRequest/JourneyResponse have no such member")
 
-	journeyARN := out["Arn"].(string)
+	assert.NotContains(t, out, "Arn")
+
+	journeyARN := "arn:aws:mobiletargeting:" + testRegion + ":" + testAccountID +
+		":apps/" + appID + "/journeys/" + out["Id"].(string)
 
 	client := newTestPinpointClient(t, h)
 	_, err := client.TagResource(t.Context(), &pinpointsdk.TagResourceInput{

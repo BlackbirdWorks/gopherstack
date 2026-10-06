@@ -2,15 +2,10 @@ package kinesisvideo
 
 import (
 	"maps"
-	"sort"
-	"strings"
 	"time"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
-// CreateSignalingChannel creates a new signaling channel. New channels become
-// ACTIVE immediately -- see PARITY.md.
+// CreateSignalingChannel creates a channel in CREATING; it settles to ACTIVE after transitionDelay.
 func (b *InMemoryBackend) CreateSignalingChannel(
 	accountID, region, name, channelType string,
 	messageTTLSeconds int32,
@@ -35,6 +30,8 @@ func (b *InMemoryBackend) CreateSignalingChannel(
 	b.mu.Lock("CreateSignalingChannel")
 	defer b.mu.Unlock()
 
+	b.sweepLocked(time.Now())
+
 	if b.channels.Has(name) {
 		return nil, ErrChannelAlreadyExists
 	}
@@ -48,7 +45,8 @@ func (b *InMemoryBackend) CreateSignalingChannel(
 		Name:              name,
 		ARN:               channelARN(region, accountID, name, now.UnixMilli()),
 		Type:              channelType,
-		Status:            statusActive,
+		Status:            statusCreating,
+		PendingUntil:      now.Add(transitionDelay),
 		Version:           newVersion(),
 		CreationTime:      now,
 		MessageTTLSeconds: messageTTLSeconds,
@@ -62,8 +60,10 @@ func (b *InMemoryBackend) CreateSignalingChannel(
 
 // DescribeSignalingChannel returns the most current information about a channel.
 func (b *InMemoryBackend) DescribeSignalingChannel(name, channelARN string) (*Channel, error) {
-	b.mu.RLock("DescribeSignalingChannel")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeSignalingChannel")
+	defer b.mu.Unlock()
+
+	b.sweepLocked(time.Now())
 
 	c, err := b.resolveChannelLocked(name, channelARN)
 	if err != nil {
@@ -79,28 +79,20 @@ func (b *InMemoryBackend) ListSignalingChannels(
 	maxResults int,
 	condition *ChannelNameCondition,
 ) ([]*Channel, string, error) {
-	b.mu.RLock("ListSignalingChannels")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListSignalingChannels")
+	defer b.mu.Unlock()
 
-	all := b.channels.All()
+	b.sweepLocked(time.Now())
 
-	matched := make([]*Channel, 0, len(all))
-
-	for _, c := range all {
-		if condition != nil && condition.ComparisonOperator == comparisonOperatorBeginsWith {
-			if !strings.HasPrefix(c.Name, condition.ComparisonValue) {
-				continue
-			}
-		}
-
-		matched = append(matched, c.clone())
+	var op, value string
+	if condition != nil {
+		op, value = condition.ComparisonOperator, condition.ComparisonValue
 	}
 
-	sort.Slice(matched, func(i, j int) bool { return matched[i].Name < matched[j].Name })
+	data, next := listByName(b.channels.All(), func(c *Channel) string { return c.Name }, (*Channel).clone,
+		op, value, nextToken, maxResults, defaultListChannelsLimit)
 
-	p := page.New(matched, nextToken, maxResults, defaultListLimit)
-
-	return p.Data, p.Next, nil
+	return data, next, nil
 }
 
 // UpdateSignalingChannel updates a channel's SingleMasterConfiguration under
@@ -108,6 +100,8 @@ func (b *InMemoryBackend) ListSignalingChannels(
 func (b *InMemoryBackend) UpdateSignalingChannel(channelARN, currentVersion string, messageTTLSeconds *int32) error {
 	b.mu.Lock("UpdateSignalingChannel")
 	defer b.mu.Unlock()
+
+	b.sweepLocked(time.Now())
 
 	c, err := b.resolveChannelLocked("", channelARN)
 	if err != nil {
@@ -122,15 +116,19 @@ func (b *InMemoryBackend) UpdateSignalingChannel(channelARN, currentVersion stri
 		c.MessageTTLSeconds = *messageTTLSeconds
 	}
 
+	c.markUpdating(time.Now().UTC())
+
 	c.Version = newVersion()
 
 	return nil
 }
 
-// DeleteSignalingChannel deletes a channel under optimistic-lock (CurrentVersion, when supplied).
+// DeleteSignalingChannel marks a channel DELETING under optimistic-lock (CurrentVersion, when supplied).
 func (b *InMemoryBackend) DeleteSignalingChannel(channelARN, currentVersion string) error {
 	b.mu.Lock("DeleteSignalingChannel")
 	defer b.mu.Unlock()
+
+	b.sweepLocked(time.Now())
 
 	c, err := b.resolveChannelLocked("", channelARN)
 	if err != nil {
@@ -141,7 +139,10 @@ func (b *InMemoryBackend) DeleteSignalingChannel(channelARN, currentVersion stri
 		return ErrVersionMismatch
 	}
 
-	b.channels.Delete(c.Name)
+	if c.Status != statusDeleting {
+		c.Status = statusDeleting
+		c.PendingUntil = time.Now().UTC().Add(transitionDelay)
+	}
 
 	return nil
 }

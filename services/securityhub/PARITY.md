@@ -13,11 +13,11 @@ overall: A            # parity-4: 7 new SDK ops (CSPM Connectors CRUD+List, Secu
 ops:
   EnableSecurityHub: {wire: ok, errors: ok, state: ok, persist: ok}
   DisableSecurityHub: {wire: ok, errors: ok, state: fixed, persist: ok, note: "gopherstack-1qf: DisableHub never checked AWS's documented precondition (api_op_DisableSecurityHub.go) that the account isn't currently the Security Hub administrator -- CreateMembers is this backend's only path to that relationship (Organizations delegated admin never creates Member records). Now refused with InvalidAccessException while any member is non-Removed. See Notes."}
-  DescribeHub: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeHub: {wire: ok, errors: ok, state: fixed, persist: ok, note: "HubArn (query) was dropped; a HubArn other than this hub now returns ResourceNotFoundException (modelled by the op). TestDescribeHub_HubArnFilter"}
   UpdateSecurityHubConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   GetFindings: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- SortCriteria is now applied (sortFindings), see Notes. ALSO FIXED this pass (gopherstack-uox6 value-semantics sweep) -- matchesStringFilter combined every entry of a field's []StringFilter list with a strict AND; types.StringFilter's doc comment documents CONTAINS/EQUALS/PREFIX entries on the same field joined by OR and NOT_CONTAINS/NOT_EQUALS/PREFIX_NOT_EQUALS joined by AND, the two groups then AND'd together. A real client's `Title CONTAINS X OR Title CONTAINS Y`-shaped filter (the documented example) matched nothing under the old code. Also affects BatchUpdateFindings/UpdateFindings, which share matchesFindingFilters. See Notes."}
   BatchImportFindings: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "re-import preserves Note/UserDefinedFields/VerificationState/Workflow per AWS's documented semantics. gopherstack-1qf: also now evaluates every ENABLED automation rule's Criteria against each imported finding and applies matching FINDING_FIELDS_UPDATE actions (ascending RuleOrder, stops at first terminal match) -- previously automation rules were pure CRUD with zero call sites evaluating Criteria/Actions against findings. See Notes."}
-  BatchUpdateFindings: {wire: ok, errors: ok, state: ok, persist: ok}
+  BatchUpdateFindings: {wire: ok, errors: ok, state: fixed, persist: ok, note: "Severity replaced the whole finding Severity (blanking Original/Product) and Note had no UpdatedAt; Severity is now merged and Note stamped. TestBatchUpdateFindings_MergesAndStampsMembers"}
   UpdateFindings: {wire: ok, errors: ok, state: ok, persist: ok}
   GetFindingHistory: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED this pass -- BatchImportFindings/BatchUpdateFindings/UpdateFindings now record real FindingHistoryRecord entries (findingHistory map, snapshot-persisted); GetFindingHistory returns them filtered by StartTime/EndTime and paginated. See Notes."}
   CreateInsight: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -28,7 +28,7 @@ ops:
   BatchEnableStandards: {wire: ok, errors: ok, state: fixed, persist: ok, note: "gopherstack-muzq (2026-08-21): stamped StandardsStatus PENDING and nothing else in this backend ever advanced it -- EnableHub's own default-standards subscriptions are stamped the terminal READY directly at creation (no async work modeled for those either), which is exactly the sibling-resource contrast this bug class hides behind. Confirmed no async mechanism anywhere in the package (no ticker/goroutine/janitor/work.After/runDelayed/reconciler; grepped all non-test .go files). BatchDisableStandards's DELETING stamp is NOT this bug: it deletes the record synchronously and returns the transitional value on the removed copy, so a later GetEnabledStandards correctly omits it -- the ephemeral-response-literal shape, not a stall. Fixed via GetEnabledStandards, see below."}
   BatchDisableStandards: {wire: ok, errors: ok, state: ok, persist: ok, note: "DELETING is an ephemeral response literal returned after a synchronous delete (record is removed from the table in the same call) -- a later GetEnabledStandards correctly no longer returns it. Not the gopherstack-muzq stall pattern; left as-is."}
   GetEnabledStandards: {wire: ok, errors: ok, state: fixed, persist: ok, note: "gopherstack-muzq (2026-08-21): now advances any PENDING subscription to READY on first poll (new unexported StandardsSubscription.pollCount field), mirroring the reap-on-read pattern services/omics uses for Get*-advances-Creating resources -- no generated Get*Waiter ships for this op in this SDK version, but that only means a real caller must hand-roll its own poll loop, not that an unadvancing status is correct. TestBatchEnableStandardsPath (standards_test.go) previously asserted only the initial PENDING status and stopped; strengthened with a GetEnabledStandards follow-up asserting READY. New real-SDK-client proof: TestBatchEnableStandards_ReachesReady (wire_field_fixes_test.go). Hand-reverted standards.go+models.go to git show HEAD, confirmed both tests fail with StandardsStatus stuck at PENDING, restored, md5sum byte-identical."}
-  DescribeStandards: {wire: ok, errors: ok, state: ok, persist: n/a, note: "static known-standards catalog, matches AWS ARNs/names"}
+  DescribeStandards: {wire: ok, errors: ok, state: ok, persist: n/a, note: "static known-standards catalog, matches AWS ARNs/names; Providers filter (also on GetEnabledStandards and ListSecurityControlDefinitions) admits AWS only, so an Azure-only filter is empty (TestProvidersFilter_AwsOnlyEmulated)"}
   DescribeStandardsControls: {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-cf4j: control status is stored/echoed only, never consulted by a check engine -- structural, see triage section."}
   UpdateStandardsControl: {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-cf4j: same as DescribeStandardsControls."}
   ListStandardsControlAssociations: {wire: ok, errors: ok, state: ok, persist: n/a, note: "gopherstack-cf4j: same as DescribeStandardsControls."}
@@ -95,7 +95,7 @@ ops:
   DescribeSecurityHubV2: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- see Notes (parity-4): real DescribeSecurityHubV2Output is {Features, HubV2Arn, SubscribedAt}, not {HubV2Arn, CreatedAt, UpdatedAt} as previously returned; now also reports the Features map (new in v1.75.0)."}
   EnableSecurityHubFeatureV2: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW op (parity-4). Gated on SecurityHub V2 being enabled (matches the real API's documented \"the service must be enabled before you can enable a feature\"); features live in HubV2.Features (map[string]*HubV2Feature), so they persist/reset with the V2 hub itself -- no separate state. Idempotent: re-enabling an already-ENABLED feature is a no-op."}
   DisableSecurityHubFeatureV2: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW op (parity-4). Same gating as EnableSecurityHubFeatureV2. Idempotent: disabling a never-enabled or already-DISABLED feature is a no-op that leaves the Features map unchanged (matches the real API's documented no-op semantics rather than fabricating a DISABLED entry for a feature never touched)."}
-  CreateAggregatorV2: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateAggregatorV2: {wire: ok, errors: ok, state: fixed, persist: ok, note: "ClientToken replays via pkgs/idempotency (ConflictException on a parameter mismatch); same for CreateAutomationRuleV2, CreateConnector and CreateConnectorV2. TestCreateV2_ClientTokenReplay"}
   GetAggregatorV2: {wire: ok, errors: ok, state: ok, persist: ok}
   ListAggregatorsV2: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateAggregatorV2: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -105,9 +105,9 @@ ops:
   ListAutomationRulesV2: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateAutomationRuleV2: {wire: ok, errors: ok, state: fixed, persist: ok, note: "FIXED this pass -- see Notes"}
   DeleteAutomationRuleV2: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateConnectorV2: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateConnectorV2: {wire: ok, errors: ok, state: fixed, persist: ok, note: "KmsKeyArn is stored and returned by GetConnectorV2; ConnectorStatus was the invented value ACTIVE (REGISTERED after Register), now CONNECTED -- the lifecycle is not observed AWS, only the SDK enum"}
   GetConnectorV2: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED this pass (gopherstack-jo2r) -- handler dropped required Health/LastUpdatedAt/ProviderDetail entirely and emitted a fabricated \"UpdatedAt\" key where the real required key is \"LastUpdatedAt\" (securityhub@v1.75.4 api_op_GetConnectorV2.go:39-79), so a real client decoded a zero-value output. Now uses a dedicated connectorV2ToGetResponse mirroring the V1 CSPM connectorToGetResponse shape: Health.ConnectorStatus/LastCheckedAt and LastUpdatedAt all reuse ConnectorV2.UpdatedAt (this backend tracks one timestamp, not separate health-check/update times); ProviderDetail echoes Provider verbatim since ProviderConfiguration and ProviderDetail share the same union member tags (Azure/JiraCloud/ServiceNow)."}
-  ListConnectorsV2: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListConnectorsV2: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "ConnectorStatus/EnablementStatus/ProviderName filters were dropped, and ProviderName rendered JIRACLOUD where the SDK enum is JIRA_CLOUD. TestConnectorsV2_KmsKeyArnAndListFilters"}
   UpdateConnectorV2: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteConnectorV2: {wire: ok, errors: ok, state: ok, persist: ok}
   RegisterConnectorV2: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED this pass (gopherstack-4ggy) -- handler read a fabricated body[\"ConnectorId\"]; the real RegisterConnectorV2Input carries only AuthCode and AuthState, no ConnectorId at all (securityhub@v1.75.4 api_op_RegisterConnectorV2.go:26-40). AuthState's content is opaque to any real client (minted server-side, only round-tripped verbatim); this backend's documented convention is that AuthState IS the connector ID it was minted for. AuthCode is required and validated but not persisted -- no ConnectorV2 field or RegisterConnectorV2Output member models it."}
@@ -142,9 +142,11 @@ families:
   Persistence: {status: ok, note: "Handler.Snapshot/Restore (persistence.go) delegate to InMemoryBackend.Snapshot/Restore (backend.go), which round-trips every store.Table via registry.SnapshotAll/RestoreAll (store_setup.go) plus the 5 plain-map fields (tags, findings, controlParams, productSubscriptions, orgAdminAccounts) and all scalar/pointer fields. Verified store_setup.go registers exactly the set of *store.Table fields declared on InMemoryBackend -- no orphaned or unregistered table."}
 gaps: []
 items_still_open:
+  - "CreateTicketV2.ClientToken is not replayed (no ticket lookup to replay from); GetFindingStatisticsV2/GetResourcesStatisticsV2.MaxStatisticResults is unapplied (the SDK does not say whether it caps groups or values per group); UpdateConfigurationPolicy.UpdatedReason has no read member to surface it; ListSecurityControlDefinitions.StandardsArn is unapplied (controls carry no standard mapping); BatchUpdateFindings applies no 100-finding limit or range checks."
   - "GetFindingsV2 OCSF filter fields with no ASFF backing stay unevaluated (accepted, not applied): evidences.*, vendor_attributes.*, resources.image.*, databucket.tags, compliance.assessments.meets_criteria, class_name, and is_fix_available (FixAvailable is three-valued). vulnerabilities.cve.cvss.base_score is now evaluated (2026-10-01, TestRealClient_GetFindingsV2_CvssBaseScore)."
   - "BatchUpdateFindingsV2 MetadataUids never resolve (ResourceNotFoundException): findings carry no OCSF metadata.uid because ingestion is ASFF-only. Same reason: ListMembers(onlyAssociated=true) needs cross-account invitation acceptance; CSPM Connector status stays PENDING/UNKNOWN (no out-of-band Azure signal); Scopes.AwsOrganizations is accepted-and-dropped (no OU tree)."
   - "GetFindingsV2 OcsfMapFilter entries with a repeated field are combined by the CompositeFilter Operator, not V1's implicit CONTAINS-OR/NOT-AND rule; AWS docs do not say which applies, so not guessed."
+  - "GetFindingsTrendsV2.Filters and GetResourcesTrendsV2.Filters are not evaluated: trend points cover every stored finding/resource (2026-10-05 tier-2 pass)."
 deferred: []
 leaks: {status: clean, note: "no goroutines, tickers, or background loops in services/securityhub -- pure request-response over an in-memory store.Registry guarded by one lockmetrics.RWMutex. New findingHistory map (findings.go/store.go) follows the same plain-map + coarse-lock pattern as findings/tags -- every read/write path holds b.mu for the duration, no separate lock, no goroutines."}
 ---
@@ -205,7 +207,9 @@ applied wholesale via `maps.Copy` onto the stored ASFF finding
 pre-existing test, `TestBatchImportFindings_PreservesCustomerManagedFields`,
 and a new real-SDK-client test), but no per-field declaration exists
 anywhere for the tool to find. **3 recorded gaps** (see `items_still_open`):
-`GetFindingsV2`/`GetFindingStatisticsV2`/`GetResourcesV2`/
+`GetFindingsV2.Scopes`,
+`GetFindingStatisticsV2.Scopes`,
+`GetResourcesV2.Scopes` and
 `GetResourcesStatisticsV2.Scopes` (AwsOrganizations-OU filtering; this
 backend has no organizational-unit tree to filter against). Proven via
 `realclient_control_finding_generator_and_misc_fields_test.go` driving the real `securityhub` client.
@@ -1431,16 +1435,7 @@ adding the field to `ConnectorV2`, setting it to `"ENABLED"` on Create
 updated (one additive row, `ConnectorV2.EnablementStatus`); no version
 bump (`TestSnapshotVersionGuard` confirms pure addition).
 
-Accept-and-drop finding, NOT fixed (out of scope for this pass, left
-disclosed): `ConnectorV2.ConnectorStatus` is set to the literal `"ACTIVE"`
-at creation, but the real `types.ConnectorStatus` enum for this API family
-is `CONNECTED`/`DEGRADED`/`FAILED_TO_CONNECT`/`PENDING_AUTHORIZATION`/
-`PENDING_CONFIGURATION`/`UNKNOWN` -- `"ACTIVE"` isn't a member of it. Since
-`ConnectorStatus` is a plain Go string type, this never causes a real
-client's decode to fail (only a semantically wrong status string), so it
-was left as-is rather than risk-adjusting `ConnectorStatus`'s value across
-the whole `connectors_v2.go` file (would also touch
-`connectors_v2_test.go`'s existing `"ACTIVE"` assertions).
+`ConnectorV2.ConnectorStatus` was the invented literal `"ACTIVE"`; it is now `CONNECTED`, a member of the real `types.ConnectorStatus` enum.
 
 Typed-client coverage: 114/116 -> 116/116 (100%).
 
@@ -1458,3 +1453,7 @@ Gates: `go build ./...`, `go vet ./services/securityhub/...`, `go test
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 securityhub is region-isolated: Hub enablement, standards, insights, action targets, automation rules and findings live per region. Tagging bridge covers every region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/securityhub`. Limitation: the dashboard shows the home region only.
+
+## 2026-10-05 (reqfielddiff tier-2 pagination)
+
+GetFindingsTrendsV2, GetResourcesTrendsV2 (body MaxResults/NextToken) and GetRecommendedPolicyV2 (query MaxResults/NextToken) now validate paging (`validPaging`, handler.go: negative MaxResults or a malformed token returns InvalidInputException) and the trend ops page through `paginateSlice`; the backend emits a single trend point so NextToken is never set for a first page. The eight flagged MaxResults members on DescribeProducts, DescribeStandards, DescribeStandardsControls, ListAutomationRules, ListConnectors, ListEnabledProductsForImport, ListSecurityControlDefinitions and ListStandardsControlAssociations were false positives: each handler reads them through `queryInt`. Recorded gap: GetFindingsTrendsV2.Filters and GetResourcesTrendsV2.Filters are not evaluated (trends cover every stored finding/resource). Proof: `TestRealClient_TrendOpsHonourPaging`.

@@ -10,16 +10,6 @@ var (
 	ErrValidation = awserr.New("invalid or missing parameter", awserr.ErrInvalidParameter)
 	// ErrNotFound is returned when a resource share does not exist.
 	ErrNotFound = awserr.New("UnknownResourceException", awserr.ErrNotFound)
-	// ErrAlreadyExists is returned when a resource share already exists.
-	//
-	// CreateResourceShare's own error model (ram@v1.39.4 deserializers.go
-	// awsRestjson1_deserializeOpErrorCreateResourceShare) defines no
-	// AlreadyExists-shaped exception at all -- real AWS RAM does not reject
-	// duplicate resource-share names (only the ARN is unique), so this check
-	// itself may not belong here. Left as-is per audit policy (no code
-	// matches this op's failure, so none is invented); see gopherstack-101r
-	// follow-up notes for whether to drop the duplicate-name rejection.
-	ErrAlreadyExists = awserr.New("ResourceShareAlreadyExistsException", awserr.ErrConflict)
 	// ErrPermissionAlreadyExists is returned when a customer-managed
 	// permission with the same name already exists. CreatePermission's own
 	// error model defines PermissionAlreadyExistsException for this.

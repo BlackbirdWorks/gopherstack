@@ -71,12 +71,12 @@ families:
 gaps: []
 
 items_still_open:
-  - "No in-process CloudWatch metrics are published for AWS/Firehose (IncomingBytes, IncomingRecords, DeliveryTo*.Success; dimension DeliveryStreamName); the shared pkgs/cwmetric emitter (gopherstack-4m1qr) is the seam to add them with the documented dimensions."
+  - "AWS/Firehose publishes IncomingRecords, IncomingBytes and DeliveryToS3.{Success,Records,Bytes} (dimension DeliveryStreamName). Not emitted: PutRecord*/PutRecordBatch* request metrics, DeliveryToS3.DataFreshness, BackupToS3.*, and DeliveryTo* for non-S3 destinations."
   - "Redshift COPY (RedshiftDataExecutor), MSK source polling and database-source snapshot/CDC need cli.go wiring to other backends (redshiftdata, kafka, a DB endpoint); staging to S3 and wire-shape round-trips are real (gopherstack-ohdc)."
   - "Iceberg, Snowflake and AmazonOpenSearchServerless destinations stage to S3 (or are rejected with InvalidArgumentException for OpenSearch Serverless) but have no Iceberg/Glue catalog, Snowpipe or OpenSearch-Serverless backend to deliver to."
   - "Elasticsearch/Amazonopensearchservice VpcConfiguration is not modeled: the required VpcConfigurationDescription.VpcId must come from resolving SubnetIds against EC2, and fabricating it is not allowed."
   - "DeleteDeliveryStream.AllowForceDelete is not read: it only bypasses a KMS-grant-retirement failure, a failure mode this backend does not model."
-  - "Role authorization covers S3 and S3-backup delivery, the Lambda processor (lambda:InvokeFunction) and domain-ARN OpenSearch/Elasticsearch (es:ESHttpPost); Redshift staging, HTTP (RoleARN not modeled), Splunk, Iceberg and Snowflake destination calls are not checked (2026-10-03)."
+  - "Role authorization covers S3 and S3-backup delivery, Redshift/Iceberg/Snowflake S3 staging (denied records count as FailedRecords), the Lambda processor and domain-ARN OpenSearch/Elasticsearch. Not checked: the Redshift COPY, Glue catalog and Snowflake calls themselves, which have no backend; HTTP and Splunk delivery authenticate with an access key/HEC token, not the role."
 deferred: []              # consolidated into items_still_open 2026-09-18: KinesisStreamAsSource
                            # wiring and CloudWatchLoggingOptions delivery were both already fully
                            # fixed (gopherstack-o4ny, gopherstack-pe7x) and are removed rather than
@@ -718,3 +718,15 @@ Delivery streams were already region-keyed. The backend now also reads the regio
 ## 2026-10-04 (reqfielddiff tier-1 re-examined: DeleteDeliveryStream.AllowForceDelete)
 
 Still recorded: the flag bypasses a failure to retire the KMS grant Firehose takes for a customer-managed key (api_op_DeleteDeliveryStream.go:62). This backend creates no KMS grants on StartDeliveryStreamEncryption, so retirement cannot fail and a forced delete is indistinguishable from a normal one.
+
+## 2026-10-05 (gopherstack-uox6 pass 7, value semantics)
+
+UpdateDestination merges same-type updates onto the stored destination, so omitted members (prefix, compression, buffering, backup, ...) are retained as api_op_UpdateDestination.go documents; a different destination type still replaces it. Merge is per top-level member (nested S3 destination/backup merge member-wise), so a supplied nested block such as BufferingHints replaces the stored one whole. S3BackupMode default Disabled is not modelled (SDK silent).
+
+## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
+
+ProcessingFailed (transform.go:30) is a per-record result value in a success response, not an error code.
+
+## 2026-10-05 (secret-leak audit)
+
+DescribeDeliveryStream no longer echoes HttpEndpointConfiguration.AccessKey: the SDK's HttpEndpointDescription has only Name and Url (types.go:1752). The key is still stored and sent as X-Amz-Firehose-Access-Key on delivery. Proof: `TestDescribeDeliveryStream_HTTPEndpointOmitsAccessKey`.

@@ -10,6 +10,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"math/big"
+	"slices"
 	"strings"
 	"time"
 )
@@ -29,6 +30,7 @@ type certMetadata struct {
 	keyAlgorithm       string
 	keyUsage           []string
 	extKeyUsage        []string
+	dnsNames           []string
 }
 
 // deriveKeyAlgorithm maps a parsed certificate's public key to the AWS ACM
@@ -179,6 +181,7 @@ func extractCertMetadataFull(certPEM string) (string, certMetadata, time.Time, t
 		keyAlgorithm:       deriveKeyAlgorithm(cert.PublicKey),
 		keyUsage:           x509KeyUsageToAWS(cert.KeyUsage),
 		extKeyUsage:        x509ExtKeyUsageToAWS(cert.ExtKeyUsage),
+		dnsNames:           slices.Clone(cert.DNSNames),
 	}
 
 	return domainName, meta, cert.NotBefore.UTC(), cert.NotAfter.UTC(), nil

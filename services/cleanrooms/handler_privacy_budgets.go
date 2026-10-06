@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
+	crtypes "github.com/aws/aws-sdk-go-v2/service/cleanrooms/types"
 	"github.com/labstack/echo/v5"
 )
 
@@ -90,6 +91,10 @@ func (h *Handler) handleCreatePrivacyBudgetTemplate(
 		AutoRefresh          string            `json:"autoRefresh"`
 	}
 	_ = json.Unmarshal(body, &req)
+	if err := checkEnum("privacyBudgetType", crtypes.PrivacyBudgetType(req.PrivacyBudgetType)); err != nil {
+		return nil, err
+	}
+
 	t, err := h.Backend.CreatePrivacyBudgetTemplate(
 		req.MembershipIdentifier,
 		req.PrivacyBudgetType,

@@ -2,9 +2,11 @@ package rds
 
 import (
 	"encoding/xml"
+	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func (h *Handler) handleAddSourceIdentifierToSubscription(vals url.Values) (any, error) {
@@ -174,6 +176,40 @@ func (h *Handler) handleModifyEventSubscription(vals url.Values) (any, error) {
 	}, nil
 }
 
+// filterEventsByInterval applies DescribeEvents StartTime/EndTime (api_op_DescribeEvents.go:48-53,111-116).
+func filterEventsByInterval(events []Event, startStr, endStr string) ([]Event, error) {
+	start, err := parseEventTime(startStr, "StartTime")
+	if err != nil {
+		return nil, err
+	}
+	end, err := parseEventTime(endStr, "EndTime")
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Event, 0, len(events))
+	for _, ev := range events {
+		if (!start.IsZero() && ev.CreatedAt.Before(start)) || (!end.IsZero() && ev.CreatedAt.After(end)) {
+			continue
+		}
+		out = append(out, ev)
+	}
+
+	return out, nil
+}
+
+func parseEventTime(v, name string) (time.Time, error) {
+	if v == "" {
+		return time.Time{}, nil
+	}
+	for _, layout := range []string{time.RFC3339, "2006-01-02T15:04Z", "2006-01-02T15:04:05"} {
+		if t, err := time.Parse(layout, v); err == nil {
+			return t, nil
+		}
+	}
+
+	return time.Time{}, fmt.Errorf("%w: %s is not a valid ISO 8601 timestamp", ErrInvalidParameter, name)
+}
+
 func (h *Handler) handleDescribeEvents(vals url.Values) (any, error) {
 	sourceID := vals.Get("SourceIdentifier")
 	sourceType := vals.Get("SourceType")
@@ -184,6 +220,10 @@ func (h *Handler) handleDescribeEvents(vals url.Values) (any, error) {
 		}
 	}
 	events, err := h.Backend.DescribeEvents(sourceID, sourceType, durationMinutes)
+	if err != nil {
+		return nil, err
+	}
+	events, err = filterEventsByInterval(events, vals.Get("StartTime"), vals.Get("EndTime"))
 	if err != nil {
 		return nil, err
 	}

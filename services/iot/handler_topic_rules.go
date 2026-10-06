@@ -227,9 +227,15 @@ func (h *Handler) handleDeleteTopicRule(c *echo.Context) error {
 
 func (h *Handler) handleListTopicRules(c *echo.Context) error {
 	rules := h.Backend.ListTopicRules()
+	topicFilter := c.QueryParam("topic")
+	disabledFilter := c.QueryParam("ruleDisabled")
 
 	out := make([]map[string]any, 0, len(rules))
 	for _, r := range rules {
+		if disabledFilter != "" && (disabledFilter == keyBoolTrue) != !r.Enabled {
+			continue
+		}
+
 		// TopicRuleListItem (iot@v1.77.4 deserializers.go's
 		// awsRestjson1_deserializeDocumentTopicRuleListItem) has topicPattern,
 		// not sql -- a different shape from the full TopicRule GetTopicRule
@@ -238,6 +244,10 @@ func (h *Handler) handleListTopicRules(c *echo.Context) error {
 		topicPattern := ""
 		if parsed, perr := ParseRuleSQLVersion(r.SQL, r.AWSIoTSQLVersion); perr == nil {
 			topicPattern = parsed.TopicPattern
+		}
+
+		if topicFilter != "" && topicPattern != topicFilter {
+			continue
 		}
 
 		out = append(out, map[string]any{
@@ -437,7 +447,7 @@ func (h *Handler) handleListTopicRuleDestinations(c *echo.Context) error {
 		out = append(out, topicRuleDestinationSummaryFields(d))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"destinationSummaries": out})
+	return respondListPage(c, "destinationSummaries", out)
 }
 
 func (h *Handler) handleUpdateTopicRuleDestination(c *echo.Context) error {

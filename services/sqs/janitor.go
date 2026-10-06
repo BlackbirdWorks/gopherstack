@@ -159,7 +159,7 @@ func (b *InMemoryBackend) pruneState(now time.Time) {
 
 	for _, q := range b.allQueues() {
 		q.mu.Lock()
-		b.emitQueueDepth(q)
+		b.emitQueueDepth(q, now)
 		q.mu.Unlock()
 	}
 

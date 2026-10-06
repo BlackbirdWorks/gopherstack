@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -24,6 +25,20 @@ type NodegroupInput struct {
 	Subnets        []string
 	Taints         []NodegroupTaint
 	DiskSize       int32
+}
+
+const (
+	defaultNodegroupInstanceType = "t3.medium"
+	nodegroupWindowsDiskSize     = 50
+)
+
+// defaultNodegroupDiskSize is 50 GiB for Windows AMIs and 20 GiB otherwise (api_op_CreateNodegroup.go DiskSize).
+func defaultNodegroupDiskSize(amiType string) int32 {
+	if strings.Contains(amiType, "WINDOWS") {
+		return nodegroupWindowsDiskSize
+	}
+
+	return nodegroupDiskSizeMin
 }
 
 const (
@@ -77,6 +92,17 @@ func (b *InMemoryBackend) newNodegroupLocked(
 		capacityType = "ON_DEMAND"
 	}
 
+	diskSize := input.DiskSize
+	if input.LaunchTemplate == nil {
+		if len(instanceTypes) == 0 {
+			instanceTypes = []string{defaultNodegroupInstanceType}
+		}
+
+		if diskSize == 0 {
+			diskSize = defaultNodegroupDiskSize(amiType)
+		}
+	}
+
 	asgName := "eks-" + nodegroupName + "-" + stableID(clusterName+"/"+nodegroupName)
 
 	var updateCfg *NodegroupUpdateConfig
@@ -101,7 +127,7 @@ func (b *InMemoryBackend) newNodegroupLocked(
 		DesiredSize:    desiredSize,
 		MinSize:        minSize,
 		MaxSize:        maxSize,
-		DiskSize:       input.DiskSize,
+		DiskSize:       diskSize,
 		Subnets:        cloneStrings(input.Subnets),
 		Labels:         cloneStringMap(input.Labels),
 		Taints:         cloneTaints(input.Taints),
@@ -445,6 +471,7 @@ func removeTaints(existing []NodegroupTaint, toRemove []NodegroupTaint) []Nodegr
 // AMI version of the Amazon EKS optimized AMI to use for the update").
 func (b *InMemoryBackend) UpdateNodegroupVersion(
 	clusterName, nodegroupName, version, releaseVersion string,
+	launchTemplate ...*LaunchTemplate,
 ) (*Update, error) {
 	b.mu.Lock("UpdateNodegroupVersion")
 	defer b.mu.Unlock()
@@ -458,6 +485,15 @@ func (b *InMemoryBackend) UpdateNodegroupVersion(
 		return nil, fmt.Errorf("%w: nodegroup %s not found in cluster %s", ErrNotFound, nodegroupName, clusterName)
 	}
 
+	var lt *LaunchTemplate
+	if len(launchTemplate) > 0 {
+		lt = launchTemplate[0]
+	}
+
+	if err := validateLaunchTemplateUpdate(ng.LaunchTemplate, lt); err != nil {
+		return nil, err
+	}
+
 	if version != "" {
 		ng.Version = version
 	}
@@ -465,6 +501,13 @@ func (b *InMemoryBackend) UpdateNodegroupVersion(
 	ng.ModifiedAt = time.Now().UTC()
 
 	params := []UpdateParam{{Type: "Version", Value: version}}
+
+	if lt != nil && lt.Version != "" {
+		updated := cloneLaunchTemplate(ng.LaunchTemplate)
+		updated.Version = lt.Version
+		ng.LaunchTemplate = updated
+		params = append(params, UpdateParam{Type: "LaunchTemplateVersion", Value: lt.Version})
+	}
 
 	if releaseVersion != "" {
 		ng.ReleaseVersion = releaseVersion
@@ -547,4 +590,26 @@ func deepCopyNodegroup(ng *Nodegroup) *Nodegroup {
 	}
 
 	return &cp
+}
+
+// validateLaunchTemplateUpdate enforces the documented rules: only a node group created with a
+// launch template can be updated with one, and its ID or name cannot change.
+func validateLaunchTemplateUpdate(current, requested *LaunchTemplate) error {
+	if requested == nil {
+		return nil
+	}
+
+	if current == nil {
+		return fmt.Errorf("%w: the node group was not created with a launch template", ErrValidation)
+	}
+
+	if requested.ID != "" && requested.ID != current.ID {
+		return fmt.Errorf("%w: the launch template ID cannot be changed after node group creation", ErrValidation)
+	}
+
+	if requested.Name != "" && requested.Name != current.Name {
+		return fmt.Errorf("%w: the launch template name cannot be changed after node group creation", ErrValidation)
+	}
+
+	return nil
 }

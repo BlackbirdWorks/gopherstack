@@ -118,6 +118,8 @@ func (h *Handler) handlePutMetricStream(form url.Values, c *echo.Context) error 
 		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
+	h.applyFormCreationTags(form, stream.Arn)
+
 	type putMetricStreamResult struct {
 		Arn string `xml:"Arn"`
 	}

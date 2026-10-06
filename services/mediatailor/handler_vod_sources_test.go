@@ -199,7 +199,7 @@ func TestVodSource_DuplicateReturnsConflict(t *testing.T) {
 			map[string]any{"Path": "/hls", "SourceGroup": "default", "Type": "HLS"},
 		},
 	})
-	assert.Equal(t, http.StatusConflict, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestCreateVodSource_MissingSourceLocation(t *testing.T) {

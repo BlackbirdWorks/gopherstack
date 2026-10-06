@@ -64,7 +64,7 @@ func Test_CreateFamily_AlreadyExistsIsConflict(t *testing.T) {
 		_, err := client.CreatePackage(ctx, in)
 		require.NoError(t, err)
 
-		_, err = client.CreatePackage(ctx, in)
+		_, err = client.CreatePackage(ctx, &iotsdk.CreatePackageInput{PackageName: aws.String("dup-package")})
 		assertConflict(t, err)
 	})
 
@@ -83,7 +83,10 @@ func Test_CreateFamily_AlreadyExistsIsConflict(t *testing.T) {
 		_, err = client.CreatePackageVersion(ctx, in)
 		require.NoError(t, err)
 
-		_, err = client.CreatePackageVersion(ctx, in)
+		_, err = client.CreatePackageVersion(ctx, &iotsdk.CreatePackageVersionInput{
+			PackageName: aws.String("pkg"),
+			VersionName: aws.String("dup-version"),
+		})
 		assertConflict(t, err)
 	})
 

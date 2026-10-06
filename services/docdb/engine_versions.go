@@ -8,10 +8,14 @@ func (b *InMemoryBackend) DescribeDBEngineVersions(
 	engine, engineVersion string,
 	defaultOnly bool,
 ) []DBEngineVersion {
+	logTypes := []string{"audit", "profiler"}
 	all := []DBEngineVersion{
-		{Engine: docDBEngine, EngineVersion: docDBEngineVersion36, DBEngineDescription: docDBEngineDescription},
-		{Engine: docDBEngine, EngineVersion: defaultEngineVersion, DBEngineDescription: docDBEngineDescription},
-		{Engine: docDBEngine, EngineVersion: docDBEngineVersion5, DBEngineDescription: docDBEngineDescription},
+		{Engine: docDBEngine, EngineVersion: docDBEngineVersion36, DBEngineDescription: docDBEngineDescription,
+			ExportableLogTypes: logTypes},
+		{Engine: docDBEngine, EngineVersion: defaultEngineVersion, DBEngineDescription: docDBEngineDescription,
+			ExportableLogTypes: logTypes},
+		{Engine: docDBEngine, EngineVersion: docDBEngineVersion5, DBEngineDescription: docDBEngineDescription,
+			ExportableLogTypes: logTypes},
 	}
 	result := make([]DBEngineVersion, 0, len(all))
 	for _, v := range all {

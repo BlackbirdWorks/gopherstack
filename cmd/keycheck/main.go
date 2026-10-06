@@ -782,6 +782,9 @@ type pkgScan struct {
 	boundaryProducers map[string]bool
 
 	deterministicOverrideNotes []string
+
+	unresolvableDispatch []string
+	deferredBindings     []deferredBinding
 }
 
 func scanPackage(dir string) (*pkgScan, error) {
@@ -836,6 +839,7 @@ func scanPackage(dir string) (*pkgScan, error) {
 	for _, f := range files {
 		ps.findOpDispatch(f)
 	}
+	ps.applyDeferredBindings()
 	ps.resolveDeclaredOpsFallback()
 	for _, f := range files {
 		ps.findCopyChains(f)
@@ -1460,6 +1464,8 @@ func (ps *pkgScan) findOpDispatch(f *ast.File) {
 			if d.Body != nil {
 				ps.findOpDispatchIn(d.Body, d.Name.Name)
 				ps.recordPairedReturnDispatch(d)
+				ps.recordIncrementalDispatch(d)
+				ps.recordSpecTableLookup(d)
 			}
 		case *ast.GenDecl:
 			if d.Tok != token.VAR {
@@ -1483,6 +1489,8 @@ func (ps *pkgScan) findOpDispatchIn(n ast.Node, enclosingFunc string) {
 		switch v := n.(type) {
 		case *ast.SwitchStmt:
 			ps.recordSwitchDispatch(v, enclosingFunc)
+		case *ast.IfStmt:
+			ps.recordIfDispatch(v, enclosingFunc)
 		case *ast.CompositeLit:
 			ps.recordMapDispatch(v, enclosingFunc)
 			ps.recordSliceBindingDispatch(v, enclosingFunc)
@@ -1504,11 +1512,11 @@ func (ps *pkgScan) recordSwitchDispatch(sw *ast.SwitchStmt, enclosingFunc string
 		if !ok {
 			continue
 		}
-		ps.recordCaseDispatch(cc, groupID, enclosingFunc)
+		ps.recordCaseDispatch(cc, groupID, enclosingFunc, isOpParamTag(sw.Tag))
 	}
 }
 
-func (ps *pkgScan) recordCaseDispatch(cc *ast.CaseClause, groupID, enclosingFunc string) {
+func (ps *pkgScan) recordCaseDispatch(cc *ast.CaseClause, groupID, enclosingFunc string, opTag bool) {
 	var opNames []string
 	for _, expr := range cc.List {
 		if op, dyn := ps.resolveKey(expr); !dyn && op != "" {
@@ -1520,6 +1528,11 @@ func (ps *pkgScan) recordCaseDispatch(cc *ast.CaseClause, groupID, enclosingFunc
 	}
 
 	handler := ps.findHandlerCall(cc.Body)
+	if handler == "" && opTag {
+		ps.deferLocalFuncCase(opNames, cc.Body, groupID, enclosingFunc)
+
+		return
+	}
 	if handler == "" {
 		return
 	}
@@ -2522,6 +2535,11 @@ type checkResult struct {
 	// against the assembler's own call order.
 	DeterministicOverrides []string
 
+	// UnresolvableSites/UnboundOps: dispatch built non-statically, and the SDK
+	// ops therefore left unchecked.
+	UnresolvableSites []string
+	UnboundOps        []string
+
 	SDKOpsResolved     int
 	SDKTypesResolved   int
 	HandlerOpsResolved int
@@ -2793,6 +2811,11 @@ func runCheck(sdkPath, prefix, svcDir, onlyOp string) (*checkResult, error) {
 	ops := resolveCheckableOps(ps, onlyOp, res)
 	collectAmbiguousOps(ps, onlyOp, res)
 
+	res.UnresolvableSites = ps.unresolvableDispatch
+	if onlyOp == "" {
+		res.UnboundOps = unboundSDKOps(idx, ps)
+	}
+
 	resolved := resolveOpNames(ops, ps, idx, res)
 	sort.Strings(res.AmbiguousOps)
 
@@ -2961,6 +2984,7 @@ func report(res *checkResult, svcDir, prefix string) int {
 	printUnresolvedOpErrors(res.UnresolvedOps)
 	printAmbiguousOpErrors(res)
 	printFilteredOps(res.FilteredOps)
+	printUnresolvableDispatch(res)
 	printDeterministicOverrides(res.DeterministicOverrides)
 
 	if res.NoWrittenKeys {
@@ -2975,7 +2999,7 @@ func report(res *checkResult, svcDir, prefix string) int {
 
 	mismatches := printOpResults(res.OpsChecked)
 	checked := len(res.OpsChecked)
-	unresolvedOrAmbiguous := len(res.UnresolvedOps) + len(res.AmbiguousOps)
+	unresolvedOrAmbiguous := len(res.UnresolvedOps) + len(res.AmbiguousOps) + len(res.UnboundOps)
 
 	fmt.Fprintf(os.Stdout, "\nTotal ops checked: %d, unresolved sdk ops: %d, ambiguous handler bindings: %d, "+
 		"total mismatched keys: %d, total written keys: %d, total dynamic-key sites skipped: %d\n",
@@ -3006,6 +3030,17 @@ func printUnresolvedOpErrors(unresolvedOps []string) {
 				"wrapper -- allowed keys unknown, NOT verified.\n",
 			op, op)
 	}
+}
+
+func printUnresolvableDispatch(res *checkResult) {
+	if len(res.UnboundOps) == 0 {
+		return
+	}
+
+	fmt.Fprintf(os.Stderr,
+		"ERROR: dispatch is built non-statically (%s) -- %d SDK op(s) have no resolvable\n"+
+			"binding (unresolvable, or unimplemented) and were NOT verified: %s\n",
+		strings.Join(res.UnresolvableSites, "; "), len(res.UnboundOps), strings.Join(res.UnboundOps, ", "))
 }
 
 func printAmbiguousOpErrors(res *checkResult) {

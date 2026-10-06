@@ -2,6 +2,8 @@ package awsconfig
 
 import (
 	"context"
+	"slices"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -61,16 +63,33 @@ func (h *Handler) handlePutRetentionConfiguration(
 }
 
 // DescribeRetentionConfigurations request/response types and handler.
+type describeRetentionConfigurationsInput struct {
+	NextToken                   string   `json:"NextToken,omitempty"`
+	RetentionConfigurationNames []string `json:"RetentionConfigurationNames,omitempty"`
+}
 type describeRetentionConfigurationsOutput struct {
+	NextToken               string                   `json:"NextToken,omitempty"`
 	RetentionConfigurations []RetentionConfiguration `json:"RetentionConfigurations"`
 }
 
 func (h *Handler) handleDescribeRetentionConfigurations(
-	_ context.Context, _ *emptyInput,
+	_ context.Context, in *describeRetentionConfigurationsInput,
 ) (*describeRetentionConfigurationsOutput, error) {
-	return &describeRetentionConfigurationsOutput{
-		RetentionConfigurations: h.Backend.DescribeRetentionConfigurations(),
-	}, nil
+	configs := h.Backend.DescribeRetentionConfigurations()
+	if len(in.RetentionConfigurationNames) > 0 {
+		configs = slices.DeleteFunc(configs, func(c RetentionConfiguration) bool {
+			return !slices.Contains(in.RetentionConfigurationNames, c.Name)
+		})
+	}
+
+	slices.SortFunc(configs, func(a, b RetentionConfiguration) int { return strings.Compare(a.Name, b.Name) })
+
+	p, err := paginate(configs, in.NextToken, 0, unboundedPageDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeRetentionConfigurationsOutput{RetentionConfigurations: p.Data, NextToken: p.Next}, nil
 }
 
 // DeleteRetentionConfiguration request/response types and handler.

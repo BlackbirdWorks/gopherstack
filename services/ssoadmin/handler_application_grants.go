@@ -23,29 +23,13 @@ func (h *Handler) handleDeleteApplicationGrant(c *echo.Context, body []byte) err
 }
 
 func (h *Handler) handleListApplicationGrants(c *echo.Context, body []byte) error {
-	var req struct {
-		ApplicationArn string `json:"ApplicationArn"`
-	}
-	if err := json.Unmarshal(body, &req); err != nil {
-		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
-	}
-	grants, err := h.Backend.ListApplicationGrants(req.ApplicationArn)
-	if err != nil {
-		return handleBackendError(c, err, "application not found: "+req.ApplicationArn)
-	}
-
-	out := make([]map[string]any, 0, len(grants))
-	for _, grant := range grants {
-		out = append(out, map[string]any{
-			"GrantType": grant.GrantType,
-			keyGrant:    grant.Grant,
-		})
-	}
-
-	return writeJSON(c, http.StatusOK, map[string]any{
-		"Grants":     out,
-		keyNextToken: nil,
-	})
+	return listApplicationItems(
+		c, body, h.Backend.ListApplicationGrants,
+		func(g ApplicationGrant) string { return g.GrantType }, "Grants",
+		func(g ApplicationGrant) map[string]any {
+			return map[string]any{"GrantType": g.GrantType, keyGrant: g.Grant}
+		},
+	)
 }
 
 func (h *Handler) handlePutApplicationGrant(c *echo.Context, body []byte) error {

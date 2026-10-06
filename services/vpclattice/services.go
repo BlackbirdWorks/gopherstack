@@ -138,7 +138,10 @@ func (b *InMemoryBackend) UpdateService(
 		svc.IdleTimeoutSeconds = idleTimeoutSeconds
 	}
 
-	svc.CertificateArn = certificateArn
+	if certificateArn != "" {
+		svc.CertificateArn = certificateArn
+	}
+
 	svc.LastUpdatedAt = time.Now().UTC()
 
 	return svc.toService(), nil

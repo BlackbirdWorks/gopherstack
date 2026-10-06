@@ -34,8 +34,20 @@ func (b *InMemoryBackend) PutConformancePack(
 	name, deliveryS3Bucket, deliveryS3KeyPrefix, templateBody, templateS3URI, templateSSMDocumentName string,
 	tags []Tag,
 ) error {
+	_, err := b.PutConformancePackWithParams(
+		name, deliveryS3Bucket, deliveryS3KeyPrefix, templateBody, templateS3URI, templateSSMDocumentName, tags, nil,
+	)
+
+	return err
+}
+
+// PutConformancePackWithParams is PutConformancePack plus input parameters; it returns the pack ARN.
+func (b *InMemoryBackend) PutConformancePackWithParams(
+	name, deliveryS3Bucket, deliveryS3KeyPrefix, templateBody, templateS3URI, templateSSMDocumentName string,
+	tags []Tag, params []ConformancePackInputParameter,
+) (string, error) {
 	if name == "" {
-		return fmt.Errorf("%w: ConformancePackName is required", ErrInvalidParameterValue)
+		return "", fmt.Errorf("%w: ConformancePackName is required", ErrInvalidParameterValue)
 	}
 
 	sourceCount := 0
@@ -46,7 +58,7 @@ func (b *InMemoryBackend) PutConformancePack(
 	}
 
 	if sourceCount > 1 {
-		return fmt.Errorf(
+		return "", fmt.Errorf(
 			"%w: specify only one of TemplateBody, TemplateS3Uri, or TemplateSSMDocumentDetails",
 			ErrInvalidParameterValue,
 		)
@@ -75,10 +87,12 @@ func (b *InMemoryBackend) PutConformancePack(
 		ConformancePackID:   packID,
 		DeliveryS3Bucket:    deliveryS3Bucket,
 		DeliveryS3KeyPrefix: deliveryS3KeyPrefix,
+
+		ConformancePackInputParameters: slices.Clone(params),
 	})
 	b.setResourceTagsLocked(arn, tags)
 
-	return nil
+	return arn, nil
 }
 
 // replacePackRulesLocked registers newRules as packName's deployed config

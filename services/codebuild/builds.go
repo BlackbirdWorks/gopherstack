@@ -14,13 +14,10 @@ func (b *InMemoryBackend) buildBuildARN(projectName, buildID string) string {
 
 // StartBuildConfig holds override parameters for a StartBuild call, mirroring
 // aws-sdk-go-v2/service/codebuild@v1.72.4/api_op_StartBuild.go's
-// StartBuildInput. IdempotencyToken and LogsConfigOverride are intentionally
-// not modeled: this emulator does not deduplicate build submissions, and
-// neither field has an observable effect through any real read op (Build has
-// no logsConfig field of its own -- LogsConfigOverride only affects where a
-// real build's logs are delivered, which this emulator's Build.Logs, a
-// distinct always-nil field pending real log delivery, does not simulate).
+// StartBuildInput. A repeated IdempotencyToken replays the original build for
+// five minutes; LogsConfigOverride replaces the project's logs configuration.
 type StartBuildConfig struct {
+	LogsConfigOverride               *LogsConfig
 	ArtifactsOverride                *ProjectArtifacts
 	CacheOverride                    *ProjectCache
 	RegistryCredentialOverride       *RegistryCredential
@@ -33,6 +30,7 @@ type StartBuildConfig struct {
 	PrivilegedModeOverride           *bool
 	GitCloneDepthOverride            *int32
 	AutoRetryLimitOverride           *int32
+	IdempotencyToken                 string
 	ServiceRoleOverride              string
 	HostKernelOverride               string
 	ComputeTypeOverride              string
@@ -262,6 +260,20 @@ func (b *InMemoryBackend) StartBuild(projectName string, cfg StartBuildConfig) (
 		return nil, ErrNotFound
 	}
 
+	token := cfg.IdempotencyToken
+	cfg.IdempotencyToken = ""
+	fp := idemFingerprint(projectName, cfg)
+
+	if id, hit, err := b.idemReplay("StartBuild", token, fp); err != nil {
+		return nil, err
+	} else if hit {
+		if prior, found := b.builds.Get(id); found {
+			out := *prior
+
+			return &out, nil
+		}
+	}
+
 	buildID := randomID()
 	fullID := projectName + ":" + buildID
 	now := float64(time.Now().Unix())
@@ -301,11 +313,13 @@ func (b *InMemoryBackend) StartBuild(projectName string, cfg StartBuildConfig) (
 		SecondarySources:        ov.SecondarySources,
 		SecondarySourceVersions: ov.SecondarySourceVersions,
 		AutoRetryConfig:         &AutoRetryConfig{AutoRetryLimit: autoRetryLimit},
+		Logs:                    buildLogsFor(effectiveLogsConfig(proj.LogsConfig, cfg.LogsConfigOverride)),
 		Phases: []BuildPhase{
 			{PhaseType: phaseSubmitted, PhaseStatus: buildStatusSucceeded, StartTime: now, EndTime: now},
 		},
 	}
 	b.builds.Put(build)
+	b.idemRecord("StartBuild", token, fp, fullID)
 
 	out := *build
 
@@ -395,13 +409,25 @@ func (b *InMemoryBackend) BatchDeleteBuilds(ids []string) []string {
 // The auto-retry chain (AutoRetryConfig.AutoRetryNumber/PreviousAutoRetry/NextAutoRetry) links
 // the new build back to the one it retried, matching aws-sdk-go-v2/service/codebuild@v1.72.4's
 // types.AutoRetryConfig.
-func (b *InMemoryBackend) RetryBuild(id string) (*Build, error) {
+func (b *InMemoryBackend) RetryBuild(id, idempotencyToken string) (*Build, error) {
 	b.mu.Lock("RetryBuild")
 	defer b.mu.Unlock()
 
 	existing, ok := b.builds.Get(id)
 	if !ok {
 		return nil, ErrNotFound
+	}
+
+	fp := idemFingerprint(id)
+
+	if priorID, hit, err := b.idemReplay("RetryBuild", idempotencyToken, fp); err != nil {
+		return nil, err
+	} else if hit {
+		if prior, found := b.builds.Get(priorID); found {
+			out := *prior
+
+			return &out, nil
+		}
 	}
 
 	projectName := existing.ProjectName
@@ -447,11 +473,13 @@ func (b *InMemoryBackend) RetryBuild(id string) (*Build, error) {
 			AutoRetryNumber:   autoRetryNumber,
 			PreviousAutoRetry: existing.Arn,
 		},
+		Logs: existing.Logs,
 		Phases: []BuildPhase{
 			{PhaseType: phaseSubmitted, PhaseStatus: buildStatusSucceeded, StartTime: now, EndTime: now},
 		},
 	}
 	b.builds.Put(build)
+	b.idemRecord("RetryBuild", idempotencyToken, fp, fullID)
 
 	if existing.AutoRetryConfig == nil {
 		existing.AutoRetryConfig = &AutoRetryConfig{}
@@ -483,4 +511,39 @@ func (b *InMemoryBackend) ListBuildsForProject(projectName string) ([]string, er
 	sort.Strings(ids)
 
 	return ids, nil
+}
+
+// effectiveLogsConfig applies StartBuild's LogsConfigOverride, which replaces the project's logs configuration.
+func effectiveLogsConfig(project, override *LogsConfig) *LogsConfig {
+	if override != nil {
+		return override
+	}
+
+	return project
+}
+
+// buildLogsFor reports the configured log destinations on a Build; nil when none are configured.
+func buildLogsFor(cfg *LogsConfig) *BuildLogs {
+	if cfg == nil {
+		return nil
+	}
+
+	out := &BuildLogs{}
+
+	if cfg.CloudWatchLogs.Status != "" {
+		cw := cfg.CloudWatchLogs
+		out.CloudWatchLogs = &cw
+		out.GroupName = cw.GroupName
+	}
+
+	if cfg.S3Logs.Status != "" {
+		s3 := cfg.S3Logs
+		out.S3Logs = &s3
+	}
+
+	if out.CloudWatchLogs == nil && out.S3Logs == nil {
+		return nil
+	}
+
+	return out
 }

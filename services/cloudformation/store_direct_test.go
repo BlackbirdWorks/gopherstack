@@ -181,7 +181,7 @@ func TestResourceScan_CRUD(t *testing.T) {
 
 	b := newBackend()
 
-	scanID, err := b.StartResourceScan()
+	scanID, err := b.StartResourceScan(nil)
 	require.NoError(t, err)
 	assert.NotEmpty(t, scanID)
 
@@ -216,7 +216,7 @@ func TestTypeManagement_RegisterAndList(t *testing.T) {
 	assert.NotEmpty(t, regTypeVersionArn)
 	assert.NotEqual(t, regTypeArn, regTypeVersionArn, "TypeVersionArn should be distinct from TypeArn")
 
-	types, err := b.ListTypes("", "", 0, "")
+	types, err := b.ListTypes("", "", "", 0, "")
 	require.NoError(t, err)
 	assert.NotEmpty(t, types.Data)
 

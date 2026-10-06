@@ -18,6 +18,14 @@ func (b *InMemoryBackend) CreateSnapshot(
 	ctx context.Context,
 	snapshotName, clusterID, replicationGroupID string,
 ) (*CacheSnapshot, error) {
+	return b.CreateSnapshotFull(ctx, snapshotName, clusterID, replicationGroupID, "")
+}
+
+// CreateSnapshotFull is CreateSnapshot that also records the KmsKeyId used to encrypt the snapshot.
+func (b *InMemoryBackend) CreateSnapshotFull(
+	ctx context.Context,
+	snapshotName, clusterID, replicationGroupID, kmsKeyID string,
+) (*CacheSnapshot, error) {
 	b.mu.Lock("CreateSnapshot")
 	defer b.mu.Unlock()
 
@@ -40,6 +48,7 @@ func (b *InMemoryBackend) CreateSnapshot(
 		ARN:                b.snapshotARN(region, snapshotName),
 		SnapshotSource:     snapshotSourceManual,
 		CreatedAt:          time.Now(),
+		KmsKeyID:           kmsKeyID,
 		Tags:               tags.New("elasticache.snapshot." + snapshotName + ".tags"),
 	}
 	b.markCreatingLocked(&snap.PendingStatus, &snap.AvailableAt)

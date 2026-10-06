@@ -174,7 +174,7 @@ func TestRealClient_DescribeReplicationTasksWithoutSettings(t *testing.T) {
 
 // TestRealClient_StartReplicationTaskAssessmentRunResultEncryptionMode proves
 // ResultEncryptionMode (dropped parameter: the field was not declared at
-// all) is validated, defaults to SSE_S3, and round-trips on the response.
+// all) is validated, stays unset by default, and round-trips on the response.
 func TestRealClient_StartReplicationTaskAssessmentRunResultEncryptionMode(t *testing.T) {
 	t.Parallel()
 
@@ -220,7 +220,7 @@ func TestRealClient_StartReplicationTaskAssessmentRunResultEncryptionMode(t *tes
 		run  func(t *testing.T)
 		name string
 	}{
-		{name: "defaults_to_sse_s3", run: func(t *testing.T) {
+		{name: "defaults_to_unencrypted", run: func(t *testing.T) {
 			t.Helper()
 
 			client, taskArn := setup(t)
@@ -235,7 +235,7 @@ func TestRealClient_StartReplicationTaskAssessmentRunResultEncryptionMode(t *tes
 				},
 			)
 			require.NoError(t, err)
-			assert.Equal(t, "SSE_S3", aws.ToString(out.ReplicationTaskAssessmentRun.ResultEncryptionMode))
+			assert.Empty(t, aws.ToString(out.ReplicationTaskAssessmentRun.ResultEncryptionMode))
 		}},
 		{name: "honors_sse_kms", run: func(t *testing.T) {
 			t.Helper()

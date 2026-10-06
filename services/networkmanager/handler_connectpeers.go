@@ -53,10 +53,17 @@ func (h *Handler) dispatchCreateConnectPeer(
 		bgp = &BgpOptions{PeerAsn: req.BgpOptions.PeerAsn}
 	}
 
-	c, err := h.Backend.CreateConnectPeer(
-		req.ConnectAttachmentID, req.PeerAddress, bgp, req.CoreNetworkAddress, req.SubnetArn, req.InsideCidrBlocks,
-		tags.MapFromKV(req.Tags),
-	)
+	token := req.ClientToken
+	req.ClientToken = ""
+
+	c, err := replayCreate(h, opCreateConnectPeer, resourceConnectPeer, token, req,
+		func(c *ConnectPeer) string { return c.ConnectPeerID }, h.Backend.GetConnectPeer,
+		func() (*ConnectPeer, error) {
+			return h.Backend.CreateConnectPeer(
+				req.ConnectAttachmentID, req.PeerAddress, bgp, req.CoreNetworkAddress, req.SubnetArn,
+				req.InsideCidrBlocks, tags.MapFromKV(req.Tags),
+			)
+		})
 	if err != nil {
 		return nil, err
 	}

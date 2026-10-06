@@ -218,6 +218,7 @@ type describeApplicationOutput struct {
 
 type listApplicationsInput struct {
 	NextToken string `json:"NextToken,omitempty"`
+	Limit     int    `json:"Limit,omitempty"`
 }
 
 type listApplicationsOutput struct {
@@ -280,8 +281,14 @@ type updateMaintenanceConfigOutput struct {
 // StartApplication's SqlRunConfigurations).
 type discoverInputSchemaInput struct {
 	InputStartingPositionConfiguration *InputStartingPositionConfig `json:"InputStartingPositionConfiguration,omitempty"` //nolint:lll // AWS API name
+	S3Configuration                    *s3DiscoveryConfig           `json:"S3Configuration,omitempty"`
 	ResourceARN                        string                       `json:"ResourceARN"`
 	ServiceExecutionRole               string                       `json:"ServiceExecutionRole,omitempty"` //nolint:lll // AWS API name
+}
+
+type s3DiscoveryConfig struct {
+	BucketARN string `json:"BucketARN"`
+	FileKey   string `json:"FileKey"`
 }
 
 type discoverInputSchemaRecordFormat struct {
@@ -588,7 +595,7 @@ func (h *Handler) handleListApplications(ctx context.Context, c *echo.Context, b
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
-	apps, outToken := h.Backend.ListApplications(ctx, in.NextToken)
+	apps, outToken := h.Backend.ListApplications(ctx, in.NextToken, in.Limit)
 	summaries := make([]applicationSummary, 0, len(apps))
 
 	for _, app := range apps {
@@ -713,7 +720,12 @@ func (h *Handler) handleDiscoverInputSchema(ctx context.Context, c *echo.Context
 		startingPosition = in.InputStartingPositionConfiguration.InputStartingPosition
 	}
 
-	schema, err := h.Backend.DiscoverInputSchema(ctx, in.ResourceARN, in.ServiceExecutionRole, startingPosition)
+	source := in.ResourceARN
+	if source == "" && in.S3Configuration != nil && in.S3Configuration.FileKey != "" {
+		source = in.S3Configuration.BucketARN
+	}
+
+	schema, err := h.Backend.DiscoverInputSchema(ctx, source, in.ServiceExecutionRole, startingPosition)
 	if err != nil {
 		return h.handleError(c, err)
 	}

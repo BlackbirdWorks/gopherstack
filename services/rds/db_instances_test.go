@@ -62,8 +62,8 @@ func TestDBInstance_NewFieldsViaHandler(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
 
 	respStr := rec.Body.String()
-	assert.Contains(t, respStr, "OptimizedWritesEnabled")
-	assert.Contains(t, respStr, "StorageOptimized")
+	assert.NotContains(t, respStr, "OptimizedWritesEnabled")
+	assert.NotContains(t, respStr, "StorageOptimized")
 	assert.Contains(t, respStr, "open-source-rds-extended-support-disabled")
 }
 

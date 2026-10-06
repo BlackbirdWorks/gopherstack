@@ -410,8 +410,8 @@ func TestTraceSummary_UsersFromAnnotations(t *testing.T) {
 	assert.Equal(t, "alice", u["UserName"])
 }
 
-// TestTraceSummary_ForecastStatisticsPresent verifies ForecastStatistics is in response.
-func TestTraceSummary_ForecastStatisticsPresent(t *testing.T) {
+// TestTraceSummary_OmitsForecastStatistics verifies TraceSummary carries no ForecastStatistics member.
+func TestTraceSummary_OmitsForecastStatistics(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -438,9 +438,7 @@ func TestTraceSummary_ForecastStatisticsPresent(t *testing.T) {
 	s, ok := summaries[0].(map[string]any)
 	require.True(t, ok)
 
-	// ForecastStatistics must be present (even as empty object).
-	_, hasForecast := s["ForecastStatistics"]
-	assert.True(t, hasForecast, "ForecastStatistics must be present in trace summaries")
+	assert.NotContains(t, s, "ForecastStatistics")
 }
 
 // TestBatchGetTraces_UnprocessedForMissingIDs verifies unknown IDs go to UnprocessedTraceIds.
@@ -949,7 +947,7 @@ func TestGetTraceSummaries_FilterExpressions(t *testing.T) {
 	}
 }
 
-func TestGetTraceSummaries_ForecastStatisticsPresent(t *testing.T) {
+func TestGetTraceSummaries_OmitsForecastStatistics(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -969,9 +967,7 @@ func TestGetTraceSummaries_ForecastStatisticsPresent(t *testing.T) {
 	require.Len(t, summaries, 1)
 
 	s, _ := summaries[0].(map[string]any)
-	// ForecastStatistics must be present (even as empty object) per AWS API.
-	_, hasForecast := s["ForecastStatistics"]
-	assert.True(t, hasForecast, "ForecastStatistics must be present in TraceSummary")
+	assert.NotContains(t, s, "ForecastStatistics")
 }
 
 func TestGetTraceSummaries_AnnotationFilter(t *testing.T) {

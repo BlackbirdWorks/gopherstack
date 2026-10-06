@@ -2,7 +2,7 @@ package ssm
 
 func (h *Handler) ssmInventoryOps() map[string]ssmActionFn {
 	return map[string]ssmActionFn{
-		"DeleteInventory":                 jsonOp(h.Backend.DeleteInventory),
+		"DeleteInventory":                 jsonOp(h.Backend.DeleteInventory, validateDeleteInventoryEnums),
 		"DescribeInventoryDeletions":      jsonOp(h.Backend.DescribeInventoryDeletions),
 		"GetInventory":                    jsonOp(h.Backend.GetInventory),
 		"GetInventorySchema":              jsonOp(h.Backend.GetInventorySchema),
@@ -10,7 +10,7 @@ func (h *Handler) ssmInventoryOps() map[string]ssmActionFn {
 		"ListComplianceSummaries":         jsonOp(h.Backend.ListComplianceSummaries),
 		"ListInventoryEntries":            jsonOp(h.Backend.ListInventoryEntries),
 		"ListResourceComplianceSummaries": jsonOp(h.Backend.ListResourceComplianceSummaries),
-		"PutComplianceItems":              jsonOp(h.Backend.PutComplianceItems),
+		"PutComplianceItems":              jsonOp(h.Backend.PutComplianceItems, validatePutComplianceItemsEnums),
 		"PutInventory":                    jsonOp(h.Backend.PutInventory),
 	}
 }

@@ -479,7 +479,6 @@ families:
 gaps: []
 items_still_open:
   - "ListMigrations' MigrationSummary.Error member (real, deserializers.go) is never emitted: this backend's migration state machine (migrations.go) only ever transitions PENDING->IN_PROGRESS->SUCCEEDED, so there is no failure state to source Error from. Correct-by-absence, not fabricated; would need a real migration-failure trigger to wire up (gopherstack-dv4s, 2026-09-19)."
-  - "UpdateCollectionInput's DeletionProtection and VectorOptions (real fields, api_op_UpdateCollection.go) are accepted but unmodeled -- ServerlessCollection tracks neither (CreateCollection doesn't set them either), so UpdateCollection only applies Description. Would need both fields added to ServerlessCollection and CreateCollection's parsing extended first (2026-09-19)."
 deferred: []
 leaks: {status: clean, note: "no goroutines/janitors in this service; coarse lockmetrics.RWMutex per backend, no per-map locks introduced. This pass's DeleteDomain connection-cascade iterates Table.All() (a fresh snapshot slice per the existing convention) while deleting, same safe pattern as the pre-existing package/index/data-source cascades. New this pass: DeleteApplication now cascades data source attachments, capabilities, and migration jobs using the identical clone-then-delete pattern (Table.All()/Index.Get results are fresh/cloned slices, safe to range over while deleting)."}
 ---
@@ -1638,3 +1637,36 @@ A request whose Host is a domain endpoint (`search-name-acct.region.es.amazonaws
 ## 2026-10-04 (reqfielddiff tier-1 re-examined: UpdateDomainConfig.AdvancedOptions/SnapshotOptions)
 
 Tool false positives: both are decoded and applied (`handler_domain_options.go` applyReqToUpdateInput, `domain_config.go`) and covered by the real-client domain-options tests noted above. No code change.
+
+## 2026-10-04 (gopherstack-rbmx re-verification)
+
+The ~19 ops left out of the original audit were field-diffed on 2026-09-11 (section above); nothing new found. `cmd/keycheck` cannot re-verify this service (it conflates the opensearch and opensearchserverless op names and reports PARTIAL), so the check stays hand-diffed against the pinned `opensearch@v1.75.4` output types. The opensearchserverless SDK module is already in go.mod (v1.34.4, since 2026-07-31) and its 19 ops are implemented; no new dependency was added here. A full field-diff of the opensearchserverless Collection/Policy/SecurityConfig shapes against that module's types remains its own audit pass.
+
+## 2026-10-05 errtargetaudit triage (gopherstack-3fvxc)
+
+7 findings, none fixed. False positives: AddTags/RemoveTags/ListMigrations (handlers already emit declared `ValidationException`; the tool follows the shared sentinel) and CreateIndex (serverless AOSS op; `ConflictException` is declared by opensearchserverless, the tool compared against the opensearch module). Recorded: empty ConnectionId/ConnectionAlias/DomainName checks on Accept/RejectInboundConnection and CreateOutboundConnection return `ValidationException` (undeclared there; unreachable from a real client, required members).
+
+## 2026-10-05 (reqfielddiff tier-2 pagination)
+
+DescribeReservedInstances, DescribeReservedInstanceOfferings, GetPackageVersionHistory, GetUpgradeHistory, ListDirectQueryDataSources (query key is lower-case `nexttoken`, serializers.go opensearch@v1.75.4), ListDomainsForPackage, ListInstanceTypeDetails, ListPackagesForDomain, ListScheduledActions, ListVpcEndpointAccess, ListVpcEndpoints and ListVpcEndpointsForDomain page through `writePagedList` (paging.go): sorted, no maxResults means the whole list (the SDK documents no default), `NextToken` only when truncated except the three VPC list ops whose required `NextToken` stays `""` (gopherstack-r80d); a malformed token returns InvalidPaginationTokenException on ListScheduledActions and ValidationException elsewhere. ListVpcEndpoints and the two VPC siblings send no `maxResults`. ListInsights stays always-empty (no analytics engine; see insights.go). Proof: `TestListOps_PageAndRejectBadTokens`.
+
+## 2026-10-05 (reqfielddiff -adjudicated tier-2)
+
+Tool false positives: each op below pages through `writePagedList` (paging.go), which reads the `maxResults` query member (int32, query-bound in opensearch@v1.75.4 serializers.go) generically, so the field scan never sees it.
+
+- DescribeReservedInstanceOfferings.MaxResults: `TestListOps_PageAndRejectBadTokens` (reserved_instance_offerings).
+- DescribeReservedInstances.MaxResults: `TestListOps_PageAndRejectBadTokens` (reserved_instances).
+- ListInstanceTypeDetails.MaxResults: `TestListOps_PageAndRejectBadTokens` (instance_type_details).
+- GetPackageVersionHistory.MaxResults: `TestListOps_MaxResultsPagesEveryItemOnce` (package_version_history).
+- GetUpgradeHistory.MaxResults: `TestListOps_MaxResultsPagesEveryItemOnce` (upgrade_history).
+- ListDomainsForPackage.MaxResults: `TestListOps_MaxResultsPagesEveryItemOnce` (domains_for_package).
+- ListPackagesForDomain.MaxResults: `TestListOps_MaxResultsPagesEveryItemOnce` (packages_for_domain).
+- ListScheduledActions.MaxResults: `TestListOps_MaxResultsPagesEveryItemOnce` (scheduled_actions).
+
+## 2026-10-05 (serverless collection settings)
+
+CreateCollection and UpdateCollection store DeletionProtection, VectorOptions and (create only) StandbyReplicas, and return them on Create/BatchGet/Update; the wire key is `ServerlessVectorAcceleration`, capitalised (serializers.go:3259). DeleteCollection on a protected collection returns ConflictException (code chosen from DeleteCollection's declared set; AWS' exact code is not in the SDK). CreateCollection replays on `clientToken` (a reused token with other parameters is ConflictException) and a duplicate collection name is now ConflictException instead of silently overwriting. Proof: `serverless_collection_settings_test.go`.
+
+## 2026-10-05 (undeclared response members)
+
+ClusterConfig is now read and written as ColdStorageOptions{Enabled}; the flat ColdStorageEnabled key and ClusterConfig.BlueGreenDeploymentOptions are no longer emitted (neither is in the SDK type).

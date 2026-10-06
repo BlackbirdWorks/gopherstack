@@ -23,7 +23,12 @@ func (h *Handler) handleCreateRule(
 	match := extractRuleMatch(body, "match")
 	tags := extractTags(body)
 
-	r, err := h.Backend.CreateRule(serviceID, listenerID, name, priority, action, match, tags)
+	r, err := idemCreate(h, "CreateRule", serviceID+"|"+listenerID, body,
+		func(r *Rule) string { return r.ID },
+		func(id string) (*Rule, error) { return h.Backend.GetRule(serviceID, listenerID, id) },
+		func() (*Rule, error) {
+			return h.Backend.CreateRule(serviceID, listenerID, name, priority, action, match, tags)
+		})
 	if err != nil {
 		return h.handleError(c, err)
 	}

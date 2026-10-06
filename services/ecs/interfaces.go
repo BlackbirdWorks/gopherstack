@@ -48,6 +48,10 @@ type Backend interface {
 	// Container instances
 
 	RegisterContainerInstance(cluster, ec2InstanceID string) (*ContainerInstance, error)
+	RegisterContainerInstanceWithDetails(
+		cluster, ec2InstanceID string,
+		details ContainerInstanceDetails,
+	) (*ContainerInstance, error)
 	DeregisterContainerInstance(
 		cluster, containerInstance string,
 		force bool,

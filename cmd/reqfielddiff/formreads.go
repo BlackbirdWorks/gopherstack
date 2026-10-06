@@ -119,7 +119,7 @@ func isURLValuesProducer(name string) bool {
 func yieldsURLValues(rhs ast.Expr, ctx handlerResolveCtx) bool {
 	switch e := rhs.(type) {
 	case *ast.SelectorExpr:
-		return e.Sel.Name == "Form" || e.Sel.Name == "PostForm"
+		return e.Sel.Name == selForm || e.Sel.Name == selPostForm
 	case *ast.CallExpr:
 		if isURLQueryCall(e) {
 			return true
@@ -557,7 +557,7 @@ func isHeaderGetCall(call *ast.CallExpr) bool {
 
 	inner, ok := sel.X.(*ast.SelectorExpr)
 
-	return ok && inner.Sel.Name == "Header"
+	return ok && inner.Sel.Name == selHeader
 }
 
 // matchHeaderReadCall matches a header read (literal or package const) against

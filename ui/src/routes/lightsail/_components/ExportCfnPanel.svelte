@@ -15,11 +15,11 @@
 		type LightsailClient
 	} from '@aws-sdk/client-lightsail';
 	import { toast } from 'svelte-sonner';
-	import { onRegionChange } from '$lib/region-effect.svelte';
-	import { formatDate } from '$lib/format';
-	import DataTable from '$lib/components/DataTable.svelte';
-	import { defineColumns } from '$lib/components/data-table';
-	import Modal from '$lib/components/Modal.svelte';
+	import { onRegionChange } from '#lib/region-effect.svelte.ts';
+	import { formatDate } from '#lib/format.ts';
+	import DataTable from '#lib/components/DataTable.svelte';
+	import { defineColumns } from '#lib/components/data-table.ts';
+	import Modal from '#lib/components/Modal.svelte';
 	import { describeError } from './shared';
 
 	type Props = {

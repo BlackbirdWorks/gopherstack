@@ -37,6 +37,7 @@ const (
 	docStatusNotFound     = "NOT_FOUND"
 	docStatusDeleting     = "DELETING"
 	defaultAgentVersion   = "DRAFT"
+	keyVersionField       = "version"
 
 	// dataSourceTypeCustom and dataSourceTypeS3 are the two
 	// ContentDataSourceType/DocumentIdentifier.DataSourceType values a real
@@ -53,32 +54,41 @@ const (
 
 // AgentConfig holds fields for creating or updating an Agent.
 type AgentConfig struct {
-	Tags                    map[string]string
-	Guardrail               map[string]any
-	Memory                  map[string]any
-	AgentName               string
-	Collaboration           string
-	Description             string
-	FoundationModel         string
-	Instruction             string
-	RoleARN                 string
-	OrchestrationType       string
-	IdleSessionTTLInSeconds int
+	Tags                        map[string]string
+	Guardrail                   map[string]any
+	Memory                      map[string]any
+	CustomOrchestration         map[string]any
+	PromptOverrideConfiguration map[string]any
+	ClientToken                 string
+	CustomerEncryptionKeyArn    string
+	AgentName                   string
+	Collaboration               string
+	Description                 string
+	FoundationModel             string
+	Instruction                 string
+	RoleARN                     string
+	OrchestrationType           string
+	IdleSessionTTLInSeconds     int
 }
 
 // ActionGroupConfig holds fields for creating or updating an AgentActionGroup.
 type ActionGroupConfig struct {
-	ActionGroupExecutor map[string]any
-	APISchema           map[string]any
-	FunctionSchema      map[string]any
-	ActionGroupName     string
-	Description         string
-	ActionGroupState    string
+	ActionGroupExecutor              map[string]any
+	APISchema                        map[string]any
+	FunctionSchema                   map[string]any
+	ParentActionGroupSignatureParams map[string]string
+	ClientToken                      string
+	ParentActionGroupSignature       string
+	ActionGroupName                  string
+	Description                      string
+	ActionGroupState                 string
 }
 
 // AliasConfig holds fields for creating or updating an AgentAlias.
 type AliasConfig struct {
 	Tags                 map[string]string
+	ClientToken          string
+	AliasInvocationState string
 	AliasName            string
 	Description          string
 	RoutingConfiguration []AliasRouting
@@ -87,6 +97,7 @@ type AliasConfig struct {
 // CollaboratorConfig holds fields for an AgentCollaborator.
 type CollaboratorConfig struct {
 	AgentDescriptor          map[string]any
+	ClientToken              string
 	CollaboratorName         string
 	CollaborationInstruction string
 	RelayConversationHistory string
@@ -97,6 +108,7 @@ type KnowledgeBaseConfig struct {
 	Tags                 map[string]string
 	KBConfiguration      map[string]any
 	StorageConfiguration map[string]any
+	ClientToken          string
 	Name                 string
 	Description          string
 	RoleARN              string
@@ -104,37 +116,52 @@ type KnowledgeBaseConfig struct {
 
 // DataSourceConfig holds fields for creating or updating a DataSource.
 type DataSourceConfig struct {
-	DataSourceConfiguration map[string]any
-	VectorIngestionConfig   map[string]any
-	Name                    string
-	Description             string
-	DataDeletionPolicy      string
+	DataSourceConfiguration           map[string]any
+	VectorIngestionConfig             map[string]any
+	ServerSideEncryptionConfiguration map[string]any
+	ClientToken                       string
+	Name                              string
+	Description                       string
+	DataDeletionPolicy                string
 }
 
 // FlowConfig holds fields for creating or updating a Flow.
 type FlowConfig struct {
-	Tags        map[string]string
-	Definition  map[string]any
-	Name        string
-	Description string
-	RoleARN     string
+	Tags                     map[string]string
+	Definition               map[string]any
+	ClientToken              string
+	CustomerEncryptionKeyArn string
+	Name                     string
+	Description              string
+	RoleARN                  string
 }
 
 // FlowAliasConfig holds fields for creating or updating a FlowAlias.
 type FlowAliasConfig struct {
-	Tags                 map[string]string
-	Name                 string
-	Description          string
-	RoutingConfiguration []FlowAliasRouting
+	Tags                     map[string]string
+	ConcurrencyConfiguration map[string]any
+	ClientToken              string
+	Name                     string
+	Description              string
+	RoutingConfiguration     []FlowAliasRouting
+}
+
+// VersionConfig holds the optional members of CreateFlowVersion and CreatePromptVersion.
+type VersionConfig struct {
+	Tags        map[string]string
+	Description string
+	ClientToken string
 }
 
 // PromptConfig holds fields for creating or updating a Prompt.
 type PromptConfig struct {
-	Tags           map[string]string
-	Name           string
-	Description    string
-	DefaultVariant string
-	Variants       []map[string]any
+	Tags                     map[string]string
+	ClientToken              string
+	CustomerEncryptionKeyArn string
+	Name                     string
+	Description              string
+	DefaultVariant           string
+	Variants                 []map[string]any
 }
 
 // KBDocument is a knowledge base document for ingestion.
@@ -200,12 +227,15 @@ type Agent struct {
 	Guardrail                   map[string]any `json:"guardrailConfiguration,omitempty"`
 	Memory                      map[string]any `json:"memoryConfiguration,omitempty"`
 	PromptOverrideConfiguration map[string]any `json:"promptOverrideConfiguration"`
+	CustomOrchestration         map[string]any `json:"customOrchestration,omitempty"`
 	AgentID                     string         `json:"agentId"`
 	AgentARN                    string         `json:"agentArn"`
 	AgentName                   string         `json:"agentName"`
 	AgentVersion                string         `json:"agentVersion"`
 	AgentStatus                 string         `json:"agentStatus"`
 	Collaboration               string         `json:"agentCollaboration"`
+	ClientToken                 string         `json:"clientToken,omitempty"`
+	CustomerEncryptionKeyArn    string         `json:"customerEncryptionKeyArn,omitempty"`
 	Description                 string         `json:"description,omitempty"`
 	FoundationModel             string         `json:"foundationModel,omitempty"`
 	Instruction                 string         `json:"instruction,omitempty"`
@@ -263,6 +293,7 @@ type AgentVersion struct {
 	AgentStatus                 string         `json:"agentStatus"`
 	AgentVersion                string         `json:"agentVersion"`
 	Collaboration               string         `json:"agentCollaboration"`
+	CustomerEncryptionKeyArn    string         `json:"customerEncryptionKeyArn,omitempty"`
 	Description                 string         `json:"description,omitempty"`
 	FoundationModel             string         `json:"foundationModel,omitempty"`
 	Instruction                 string         `json:"instruction,omitempty"`
@@ -287,17 +318,20 @@ type AgentVersionSummary struct {
 
 // AgentActionGroup is an action group attached to an agent version.
 type AgentActionGroup struct {
-	CreatedAt           time.Time      `json:"createdAt"`
-	UpdatedAt           time.Time      `json:"updatedAt"`
-	ActionGroupExecutor map[string]any `json:"actionGroupExecutor,omitempty"`
-	APISchema           map[string]any `json:"apiSchema,omitempty"`
-	FunctionSchema      map[string]any `json:"functionSchema,omitempty"`
-	ActionGroupID       string         `json:"actionGroupId"`
-	ActionGroupName     string         `json:"actionGroupName"`
-	AgentID             string         `json:"agentId"`
-	AgentVersion        string         `json:"agentVersion"`
-	ActionGroupState    string         `json:"actionGroupState"`
-	Description         string         `json:"description,omitempty"`
+	CreatedAt                        time.Time         `json:"createdAt"`
+	UpdatedAt                        time.Time         `json:"updatedAt"`
+	ActionGroupExecutor              map[string]any    `json:"actionGroupExecutor,omitempty"`
+	APISchema                        map[string]any    `json:"apiSchema,omitempty"`
+	FunctionSchema                   map[string]any    `json:"functionSchema,omitempty"`
+	ParentActionGroupSignatureParams map[string]string `json:"parentActionGroupSignatureParams,omitempty"`
+	ClientToken                      string            `json:"clientToken,omitempty"`
+	ParentActionSignature            string            `json:"parentActionSignature,omitempty"`
+	ActionGroupID                    string            `json:"actionGroupId"`
+	ActionGroupName                  string            `json:"actionGroupName"`
+	AgentID                          string            `json:"agentId"`
+	AgentVersion                     string            `json:"agentVersion"`
+	ActionGroupState                 string            `json:"actionGroupState"`
+	Description                      string            `json:"description,omitempty"`
 }
 
 // ActionGroupSummary is used in list responses.
@@ -330,6 +364,8 @@ type AgentAlias struct {
 	AgentAliasStatus     string         `json:"agentAliasStatus"`
 	AgentID              string         `json:"agentId"`
 	Description          string         `json:"description,omitempty"`
+	ClientToken          string         `json:"clientToken,omitempty"`
+	AliasInvocationState string         `json:"aliasInvocationState,omitempty"`
 	RoutingConfiguration []AliasRouting `json:"routingConfiguration"`
 }
 
@@ -349,6 +385,7 @@ type AgentAliasSummary struct {
 	AgentAliasName       string         `json:"agentAliasName"`
 	AgentAliasStatus     string         `json:"agentAliasStatus"`
 	Description          string         `json:"description,omitempty"`
+	AliasInvocationState string         `json:"aliasInvocationState,omitempty"`
 	RoutingConfiguration []AliasRouting `json:"routingConfiguration"`
 }
 
@@ -371,6 +408,7 @@ type AgentCollaborator struct {
 	CollaborationInstruction string         `json:"collaborationInstruction,omitempty"`
 	RelayConversationHistory string         `json:"relayConversationHistory,omitempty"`
 	CollaboratorStatus       string         `json:"collaboratorStatus"`
+	ClientToken              string         `json:"clientToken,omitempty"`
 }
 
 // KnowledgeBase is a Bedrock Knowledge Base. Tags are deliberately NOT a
@@ -387,6 +425,7 @@ type KnowledgeBase struct {
 	Status               string         `json:"status"`
 	Description          string         `json:"description,omitempty"`
 	RoleARN              string         `json:"roleArn,omitempty"`
+	ClientToken          string         `json:"-"`
 }
 
 // KnowledgeBaseSummary is used in list responses.
@@ -425,6 +464,8 @@ type DataSource struct {
 	UpdatedAt               time.Time      `json:"updatedAt"`
 	DataSourceConfiguration map[string]any `json:"dataSourceConfiguration,omitempty"`
 	VectorIngestionConfig   map[string]any `json:"vectorIngestionConfiguration,omitempty"`
+	ServerSideEncryption    map[string]any `json:"serverSideEncryptionConfiguration,omitempty"`
+	ClientToken             string         `json:"-"`
 	DataSourceID            string         `json:"dataSourceId"`
 	KnowledgeBaseID         string         `json:"knowledgeBaseId"`
 	Name                    string         `json:"name"`
@@ -481,6 +522,7 @@ type IngestionJob struct {
 	DataSourceID    string                  `json:"dataSourceId"`
 	Status          string                  `json:"status"`
 	Description     string                  `json:"description,omitempty"`
+	ClientToken     string                  `json:"-"`
 }
 
 // IngestionJobStatistics holds document-count statistics for an ingestion
@@ -511,6 +553,8 @@ type Flow struct {
 	Description string         `json:"description,omitempty"`
 	RoleARN     string         `json:"executionRoleArn,omitempty"`
 	Version     string         `json:"version"`
+	KMSKeyARN   string         `json:"customerEncryptionKeyArn,omitempty"`
+	ClientToken string         `json:"-"`
 }
 
 // FlowSummary is used in list responses.
@@ -547,6 +591,8 @@ type FlowVersion struct {
 	Version     string         `json:"version"`
 	Description string         `json:"description,omitempty"`
 	RoleARN     string         `json:"executionRoleArn"`
+	KMSKeyARN   string         `json:"customerEncryptionKeyArn,omitempty"`
+	ClientToken string         `json:"-"`
 }
 
 // FlowVersionSummary is used in list responses. Real types.FlowVersionSummary
@@ -571,11 +617,13 @@ type FlowAliasRouting struct {
 type FlowAlias struct {
 	CreatedAt            time.Time          `json:"createdAt"`
 	UpdatedAt            time.Time          `json:"updatedAt"`
+	Concurrency          map[string]any     `json:"concurrencyConfiguration,omitempty"`
 	AliasID              string             `json:"id"`
 	AliasARN             string             `json:"arn"`
 	FlowID               string             `json:"flowId"`
 	Name                 string             `json:"name"`
 	Description          string             `json:"description,omitempty"`
+	ClientToken          string             `json:"-"`
 	RoutingConfiguration []FlowAliasRouting `json:"routingConfiguration,omitempty"`
 }
 
@@ -615,6 +663,8 @@ type Prompt struct {
 	Description    string           `json:"description,omitempty"`
 	DefaultVariant string           `json:"defaultVariant,omitempty"`
 	Version        string           `json:"version"`
+	KMSKeyARN      string           `json:"customerEncryptionKeyArn,omitempty"`
+	ClientToken    string           `json:"-"`
 	Variants       []map[string]any `json:"variants,omitempty"`
 }
 
@@ -637,14 +687,17 @@ type PromptSummary struct {
 // (gopherstack-r80d batch 7). Set equal to CreatedAt at creation time, since
 // a prompt version is an immutable snapshot that's never updated afterward.
 type PromptVersion struct {
-	CreatedAt   time.Time        `json:"createdAt"`
-	UpdatedAt   time.Time        `json:"updatedAt"`
-	PromptARN   string           `json:"arn"`
-	PromptID    string           `json:"id"`
-	Name        string           `json:"name"`
-	Version     string           `json:"version"`
-	Description string           `json:"description,omitempty"`
-	Variants    []map[string]any `json:"variants,omitempty"`
+	CreatedAt      time.Time        `json:"createdAt"`
+	UpdatedAt      time.Time        `json:"updatedAt"`
+	PromptARN      string           `json:"arn"`
+	PromptID       string           `json:"id"`
+	Name           string           `json:"name"`
+	Version        string           `json:"version"`
+	Description    string           `json:"description,omitempty"`
+	DefaultVariant string           `json:"defaultVariant,omitempty"`
+	KMSKeyARN      string           `json:"customerEncryptionKeyArn,omitempty"`
+	ClientToken    string           `json:"-"`
+	Variants       []map[string]any `json:"variants,omitempty"`
 }
 
 // KBDocumentDetail is the status of a knowledge base document operation.

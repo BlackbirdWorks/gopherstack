@@ -226,6 +226,8 @@ func (d Document) asDocumentDescription(docTags []Tag) DocumentDescription {
 		Requires:               d.Requires,
 		VersionName:            d.VersionName,
 		Tags:                   docTags,
+		Owner:                  documentOwner(d.Name),
+		Parameters:             parseDocumentParameters(d.Content, d.DocumentFormat),
 		CreatedDate:            d.CreatedDate,
 	}
 }
@@ -389,45 +391,66 @@ func (b *InMemoryBackend) GetDocument(
 // document's tag value for a given tag name.
 const tagFilterKeyPrefix = "tag:"
 
+// ownerAmazon is DocumentIdentifier.Owner for the built-in AWS documents.
+const ownerAmazon = "Amazon"
+
+// documentOwner is "Amazon" for the built-in documents, else the account ID.
+func documentOwner(name string) string {
+	if strings.HasPrefix(name, "AWS-") {
+		return ownerAmazon
+	}
+
+	return defaultAccountID
+}
+
+// ownerFilterMatches evaluates the Owner filter: Amazon, Self (built-ins excluded) or ThirdParty (none exist).
+func ownerFilterMatches(name string, values []string) bool {
+	owner := documentOwner(name)
+
+	return slices.ContainsFunc(values, func(v string) bool {
+		switch v {
+		case ownerAmazon:
+			return owner == ownerAmazon
+		case "Self":
+			return owner != ownerAmazon
+		case "ThirdParty":
+			return false
+		default:
+			return true
+		}
+	})
+}
+
 // documentMatchesFilters returns true when doc satisfies all provided DocumentFilters
-// (types.DocumentKeyValuesFilter, api_op_ListDocuments.go: "valid keys include Owner,
-// Name, PlatformTypes, DocumentType, and TargetType"). Owner ("Self" vs. other
-// accounts) isn't modeled -- there's no document-ownership/caller-identity data to
-// filter on -- and falls through to unfiltered, matching this backend's established
-// unknown-key convention (matchesActivationFilter). tags is doc's own misc-tag map
-// (miscResourceTagsStore), used for the tag:tagName key form.
+// (types.DocumentKeyValuesFilter). Public/Private Owner values and unknown keys stay
+// unfiltered. tags is doc's misc-tag map, used for the tag:tagName key form.
 func documentMatchesFilters(doc Document, tags map[string]string, filters []DocumentFilter) bool {
 	for _, f := range filters {
-		switch {
-		case f.Key == "DocumentType":
-			if !slices.Contains(f.Values, doc.DocumentType) {
-				return false
-			}
-		case f.Key == filterKeyName:
-			if !slices.Contains(f.Values, doc.Name) {
-				return false
-			}
-		case f.Key == "TargetType":
-			if !slices.Contains(f.Values, doc.TargetType) {
-				return false
-			}
-		case f.Key == filterKeyPlatformTypes:
-			if !slices.ContainsFunc(doc.PlatformTypes, func(p string) bool {
-				return slices.Contains(f.Values, p)
-			}) {
-				return false
-			}
-		case strings.HasPrefix(f.Key, tagFilterKeyPrefix):
-			tagName := strings.TrimPrefix(f.Key, tagFilterKeyPrefix)
-			if !slices.Contains(f.Values, tags[tagName]) {
-				return false
-			}
-		default:
-			continue
+		if !documentMatchesFilter(doc, tags, f) {
+			return false
 		}
 	}
 
 	return true
+}
+
+func documentMatchesFilter(doc Document, tags map[string]string, f DocumentFilter) bool {
+	switch {
+	case f.Key == "DocumentType":
+		return slices.Contains(f.Values, doc.DocumentType)
+	case f.Key == filterKeyName:
+		return slices.ContainsFunc(f.Values, func(v string) bool { return strings.HasPrefix(doc.Name, v) })
+	case f.Key == "Owner":
+		return ownerFilterMatches(doc.Name, f.Values)
+	case f.Key == "TargetType":
+		return slices.Contains(f.Values, doc.TargetType)
+	case f.Key == filterKeyPlatformTypes:
+		return slices.ContainsFunc(doc.PlatformTypes, func(p string) bool { return slices.Contains(f.Values, p) })
+	case strings.HasPrefix(f.Key, tagFilterKeyPrefix):
+		return slices.Contains(f.Values, tags[strings.TrimPrefix(f.Key, tagFilterKeyPrefix)])
+	default:
+		return true
+	}
 }
 
 // DescribeDocument returns document metadata.
@@ -470,6 +493,7 @@ func (b *InMemoryBackend) DescribeDocument(
 				description.VersionName = v.VersionName
 				description.Hash, description.Sha1 = documentHashes(v.Content)
 				description.HashType = documentHashTypeSha256
+				description.Parameters = parseDocumentParameters(v.Content, v.DocumentFormat)
 				found = true
 
 				break
@@ -493,10 +517,12 @@ func (b *InMemoryBackend) ListDocuments(
 	b.mu.RLock("ListDocuments")
 	defer b.mu.RUnlock()
 
-	// Merge Filters and DocumentFilters (both carry the same shape).
-	allFilters := make([]DocumentFilter, 0, len(input.Filters)+len(input.DocumentFilters))
+	allFilters := make([]DocumentFilter, 0, len(input.Filters)+len(input.DocumentFilterList))
 	allFilters = append(allFilters, input.Filters...)
-	allFilters = append(allFilters, input.DocumentFilters...)
+
+	for _, f := range input.DocumentFilterList {
+		allFilters = append(allFilters, DocumentFilter{Key: f.Key, Values: []string{f.Value}})
+	}
 
 	docsTable := b.documentsStore(region)
 	all := make([]DocumentIdentifier, 0, docsTable.Len())
@@ -517,37 +543,21 @@ func (b *InMemoryBackend) ListDocuments(
 			Requires:        doc.Requires,
 			Tags:            b.miscResourceTagList(region, doc.Name),
 			TargetType:      doc.TargetType,
+			Owner:           documentOwner(doc.Name),
 			CreatedDate:     doc.CreatedDate,
 		})
 	}
 
 	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
 
-	startIdx := parseNextToken(input.NextToken)
-
-	maxResults := int64(defaultListDocMaxResults)
-	if input.MaxResults != nil && *input.MaxResults > 0 {
-		maxResults = *input.MaxResults
+	page, nextToken, err := pageChecked(
+		all, input.NextToken, maxOrZero64(input.MaxResults), defaultListDocMaxResults, ErrInvalidNextToken,
+	)
+	if err != nil {
+		return nil, err
 	}
 
-	if startIdx >= len(all) {
-		return &ListDocumentsOutput{DocumentIdentifiers: []DocumentIdentifier{}}, nil
-	}
-
-	end := startIdx + int(maxResults)
-
-	var nextToken string
-
-	if end < len(all) {
-		nextToken = strconv.Itoa(end)
-	} else {
-		end = len(all)
-	}
-
-	return &ListDocumentsOutput{
-		DocumentIdentifiers: all[startIdx:end],
-		NextToken:           nextToken,
-	}, nil
+	return &ListDocumentsOutput{DocumentIdentifiers: page, NextToken: nextToken}, nil
 }
 
 // UpdateDocument increments the document version and updates content.

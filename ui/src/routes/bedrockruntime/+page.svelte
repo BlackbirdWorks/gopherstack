@@ -15,16 +15,16 @@
 	//     GetAsyncInvoke) -- no update or delete exists for an async
 	//     invocation once started.
 	import { untrack } from 'svelte';
-	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
-	import { getBedrockRuntimeClient } from '$lib/aws-client';
-	import { createTabLoader } from '$lib/tab-loader.svelte';
-	import { formatDate } from '$lib/format';
-	import PageHeader from '$lib/components/PageHeader.svelte';
-	import Tabs from '$lib/components/Tabs.svelte';
-	import type { Tab as TabDef } from '$lib/components/Tabs.svelte';
-	import DataTable from '$lib/components/DataTable.svelte';
-	import { defineColumns } from '$lib/components/data-table';
-	import Modal from '$lib/components/Modal.svelte';
+	import { onRegionChange, regionalClient } from '#lib/region-effect.svelte.ts';
+	import { getBedrockRuntimeClient } from '#lib/aws-client.ts';
+	import { createTabLoader } from '#lib/tab-loader.svelte.ts';
+	import { formatDate } from '#lib/format.ts';
+	import PageHeader from '#lib/components/PageHeader.svelte';
+	import Tabs from '#lib/components/Tabs.svelte';
+	import type { Tab as TabDef } from '#lib/components/Tabs.svelte';
+	import DataTable from '#lib/components/DataTable.svelte';
+	import { defineColumns } from '#lib/components/data-table.ts';
+	import Modal from '#lib/components/Modal.svelte';
 	import {
 		InvokeModelCommand,
 		CountTokensCommand,

@@ -64,7 +64,16 @@ func (h *Handler) handleDescribeCustomPlugin(c *echo.Context, customPluginArn st
 		Description:       plugin.Description,
 		Name:              plugin.Name,
 		LatestRevision:    customPluginToRevisionSummaryDTO(plugin),
+		StateDescription:  pluginStateDescription(plugin),
 	})
+}
+
+func pluginStateDescription(p *CustomPlugin) *stateDescriptionDTO {
+	if p.FailureMessage == "" {
+		return nil
+	}
+
+	return &stateDescriptionDTO{Message: p.FailureMessage}
 }
 
 func (h *Handler) handleListCustomPlugins(c *echo.Context) error {

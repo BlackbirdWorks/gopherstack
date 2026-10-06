@@ -384,3 +384,7 @@ No persisted struct fields changed; no version bump. Gates: `go build
 ## Notes (2026-10-03 pass — gopherstack-uox6 value-semantics audit)
 
 Audited clean: Limit/NextMarker paging across the List ops. No change.
+
+## 2026-10-05 (gopherstack-uox6 pass 7, value semantics)
+
+ActivatedRule.Type defaults to REGULAR on WebACL and RuleGroup inserts (types.go:118). UpdateRateBasedRule, UpdateWebACL default action and the match-set updates round-trip clean.

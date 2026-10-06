@@ -3,6 +3,7 @@ package workspaces
 import (
 	"sort"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -22,10 +23,34 @@ const accountLinksPageSize = 100
 func (b *InMemoryBackend) CreateAccountLinkInvitation(
 	targetAccountID string,
 ) (*storedAccountLink, error) {
+	return b.CreateAccountLinkInvitationWithToken(targetAccountID, "")
+}
+
+// CreateAccountLinkInvitationWithToken is CreateAccountLinkInvitation honouring
+// ClientToken: a live token replays the link it created.
+func (b *InMemoryBackend) CreateAccountLinkInvitationWithToken(
+	targetAccountID, clientToken string,
+) (*storedAccountLink, error) {
 	b.mu.Lock("CreateAccountLinkInvitation")
 	defer b.mu.Unlock()
 
+	fp := idemFingerprint(targetAccountID)
+
+	prior, replay, err := b.idemReplay("CreateAccountLinkInvitation", clientToken, fp)
+	if err != nil {
+		return nil, err
+	}
+
+	if replay {
+		if link, ok := b.accountLinks.Get(prior); ok {
+			cp := *link
+
+			return &cp, nil
+		}
+	}
+
 	id := b.nextID("wsal-")
+	b.idemRecord("CreateAccountLinkInvitation", clientToken, fp, id)
 	link := &storedAccountLink{
 		LinkID:          id,
 		Status:          accountLinkStatusPendingAcceptance,
@@ -93,17 +118,42 @@ func (b *InMemoryBackend) DeleteAccountLinkInvitation(linkID string) (*storedAcc
 
 // GetAccountLink retrieves an account link by ID.
 func (b *InMemoryBackend) GetAccountLink(linkID string) (*storedAccountLink, error) {
+	return b.GetAccountLinkBy(linkID, "")
+}
+
+// GetAccountLinkBy looks a link up by LinkId or, when that is empty, by the
+// LinkedAccountId of its other party. Exactly one of the two is required.
+func (b *InMemoryBackend) GetAccountLinkBy(linkID, linkedAccountID string) (*storedAccountLink, error) {
+	if (linkID == "") == (linkedAccountID == "") {
+		return nil, awserr.New("specify exactly one of LinkId or LinkedAccountId", awserr.ErrInvalidParameter)
+	}
+
 	b.mu.RLock("GetAccountLink")
 	defer b.mu.RUnlock()
 
-	link, ok := b.accountLinks.Get(linkID)
-	if !ok {
-		return nil, errAccountLinkNotFound
+	if linkID != "" {
+		link, ok := b.accountLinks.Get(linkID)
+		if !ok {
+			return nil, errAccountLinkNotFound
+		}
+
+		cp := *link
+
+		return &cp, nil
 	}
 
-	cp := *link
+	all := b.accountLinks.All()
+	sort.Slice(all, func(i, j int) bool { return all[i].LinkID < all[j].LinkID })
 
-	return &cp, nil
+	for _, link := range all {
+		if link.SourceAccountID == linkedAccountID || link.TargetAccountID == linkedAccountID {
+			cp := *link
+
+			return &cp, nil
+		}
+	}
+
+	return nil, errAccountLinkNotFound
 }
 
 // ListAccountLinks returns account links, optionally filtered by status.

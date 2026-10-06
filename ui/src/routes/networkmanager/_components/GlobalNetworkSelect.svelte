@@ -7,7 +7,7 @@
 	// here once. Defaults to the first global network once loaded; each
 	// consuming panel reacts to `value` changing via its own `$effect`.
 	import { DescribeGlobalNetworksCommand, type NetworkManagerClient } from '@aws-sdk/client-networkmanager';
-	import { onRegionChange } from '$lib/region-effect.svelte';
+	import { onRegionChange } from '#lib/region-effect.svelte.ts';
 	import { describeError } from './shared';
 
 	type Props = {

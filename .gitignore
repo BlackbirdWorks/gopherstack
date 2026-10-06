@@ -95,3 +95,8 @@ checkpoint.md
 # Beads / Dolt files (added by bd init)
 .beads/proxieddb/
 *.gate.lock*
+
+# go build outputs inside cmd/* (extensionless files directly under a cmd dir)
+/cmd/*/*
+!/cmd/*/*/
+!/cmd/*/*.*

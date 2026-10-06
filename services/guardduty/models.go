@@ -113,14 +113,30 @@ type ThreatIntelSet struct {
 
 // Member represents a GuardDuty member account.
 type Member struct {
-	UpdatedAt          time.Time `json:"updatedAt"`
-	AccountID          string    `json:"accountId"`
-	AdministratorID    string    `json:"administratorId"`
-	MasterID           string    `json:"masterId"`
-	DetectorID         string    `json:"detectorId"`
-	Email              string    `json:"email"`
-	RelationshipStatus string    `json:"relationshipStatus"`
-	InvitedAt          string    `json:"invitedAt"`
+	UpdatedAt          time.Time       `json:"updatedAt"`
+	AccountID          string          `json:"accountId"`
+	AdministratorID    string          `json:"administratorId"`
+	MasterID           string          `json:"masterId"`
+	DetectorID         string          `json:"detectorId"`
+	Email              string          `json:"email"`
+	RelationshipStatus string          `json:"relationshipStatus"`
+	InvitedAt          string          `json:"invitedAt"`
+	Features           []MemberFeature `json:"features,omitempty"`
+}
+
+// MemberFeature is a feature setting UpdateMemberDetectors applied to a member.
+type MemberFeature struct {
+	UpdatedAt               time.Time          `json:"updatedAt"`
+	Name                    string             `json:"name"`
+	Status                  string             `json:"status"`
+	AdditionalConfiguration []MemberAdditional `json:"additionalConfiguration,omitempty"`
+}
+
+// MemberAdditional is a MemberFeature's additional configuration entry.
+type MemberAdditional struct {
+	UpdatedAt time.Time `json:"updatedAt"`
+	Name      string    `json:"name"`
+	Status    string    `json:"status"`
 }
 
 // Invitation represents a pending GuardDuty invitation.
@@ -163,6 +179,13 @@ type OrgConfig struct {
 
 // OrgFeature holds org-level feature configuration.
 type OrgFeature struct {
+	AutoEnable              string             `json:"autoEnable"`
+	Name                    string             `json:"name"`
+	AdditionalConfiguration []OrgAdditionalCfg `json:"additionalConfiguration,omitempty"`
+}
+
+// OrgAdditionalCfg is an OrgFeature additional configuration entry.
+type OrgAdditionalCfg struct {
 	AutoEnable string `json:"autoEnable"`
 	Name       string `json:"name"`
 }
@@ -203,19 +226,20 @@ type DestinationProperties struct {
 // now rather than invented, same as fileCount/scanResultDetails/
 // attachedVolumes/failureReason below.
 type MalwareScan struct {
-	ScanID                string         `json:"scanId"`
-	DetectorID            string         `json:"detectorId"`
-	AdminDetectorID       string         `json:"adminDetectorId,omitempty"`
-	AccountID             string         `json:"accountId"`
-	ResourceArn           string         `json:"resourceArn,omitempty"`
-	ResourceType          string         `json:"resourceType,omitempty"`
-	ScanCategory          string         `json:"scanCategory,omitempty"`
 	ScanStartTime         time.Time      `json:"scanStartTime"`
 	ScanEndTime           time.Time      `json:"scanEndTime"`
-	ScanStatus            string         `json:"scanStatus"`
-	ScanType              string         `json:"scanType"`
-	ScanStatusReason      string         `json:"scanStatusReason,omitempty"`
 	ResourceDetails       map[string]any `json:"resourceDetails"`
+	ScanConfiguration     map[string]any `json:"scanConfiguration,omitempty"`
+	ScanStatus            string         `json:"scanStatus"`
+	ScanStatusReason      string         `json:"scanStatusReason,omitempty"`
+	ScanCategory          string         `json:"scanCategory,omitempty"`
+	AdminDetectorID       string         `json:"adminDetectorId,omitempty"`
+	DetectorID            string         `json:"detectorId"`
+	AccountID             string         `json:"accountId"`
+	ScanType              string         `json:"scanType"`
+	ResourceType          string         `json:"resourceType,omitempty"`
+	ScanID                string         `json:"scanId"`
+	ResourceArn           string         `json:"resourceArn,omitempty"`
 	Findings              []any          `json:"findings"`
 	ScannedResourcesCount int32          `json:"scannedResourcesCount"`
 	SkippedResourcesCount int32          `json:"skippedResourcesCount"`

@@ -184,9 +184,18 @@ func (h *Handler) handleDescribeThingGroup(c *echo.Context) error {
 }
 
 func (h *Handler) handleListThingGroups(c *echo.Context) error {
+	prefix := c.QueryParam("namePrefixFilter")
 	groups := h.Backend.ListThingGroups()
+	parent := c.QueryParam("parentGroup")
+	recursive := c.QueryParam("recursive") == keyBoolTrue
 	out := make([]map[string]string, 0, len(groups))
 	for _, tg := range groups {
+		if !strings.HasPrefix(tg.ThingGroupName, prefix) {
+			continue
+		}
+		if parent != "" && !isChildOfGroup(tg, parent, groups, recursive) {
+			continue
+		}
 		// ListThingGroups' items deserialize as types.GroupNameAndArn
 		// (iot@v1.77.4 deserializers.go's awsRestjson1_deserializeDocumentGroupNameAndArn:
 		// "groupName"/"groupArn"), a different shape from
@@ -199,7 +208,7 @@ func (h *Handler) handleListThingGroups(c *echo.Context) error {
 		})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyThingGroups: out})
+	return respondListPage(c, keyThingGroups, out)
 }
 
 func (h *Handler) handleUpdateThingGroup(c *echo.Context) error {
@@ -210,7 +219,7 @@ func (h *Handler) handleUpdateThingGroup(c *echo.Context) error {
 			AttributePayload      *AttributePayload `json:"attributePayload"`
 			ThingGroupDescription *string           `json:"thingGroupDescription,omitempty"`
 		} `json:"thingGroupProperties"`
-		ExpectedVersion int64 `json:"expectedVersion"`
+		ExpectedVersion *int64 `json:"expectedVersion"`
 	}
 
 	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
@@ -278,7 +287,7 @@ func (h *Handler) handleListThingsInThingGroup(c *echo.Context) error {
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"things": things})
+	return respondListPage(c, "things", things)
 }
 
 func (h *Handler) handleListThingGroupsForThing(c *echo.Context) error {
@@ -393,7 +402,7 @@ func (h *Handler) handleUpdateDynamicThingGroup(c *echo.Context) error {
 		QueryString     *string `json:"queryString,omitempty"`
 		IndexName       *string `json:"indexName,omitempty"`
 		QueryVersion    *string `json:"queryVersion,omitempty"`
-		ExpectedVersion int64   `json:"expectedVersion"`
+		ExpectedVersion *int64  `json:"expectedVersion"`
 	}
 	if err := readBody(c, &req); err != nil {
 		return err
@@ -484,4 +493,22 @@ func resolveThingGroupForThingOps(path, method string) string {
 	}
 
 	return unknownOperation
+}
+
+// isChildOfGroup reports whether g sits directly under parent, or anywhere below it when recursive.
+func isChildOfGroup(g *ThingGroup, parent string, all []*ThingGroup, recursive bool) bool {
+	byName := make(map[string]*ThingGroup, len(all))
+	for _, tg := range all {
+		byName[tg.ThingGroupName] = tg
+	}
+
+	for hops, cur := 0, g; cur != nil && cur.ParentGroupName != "" && hops <= len(all); hops++ {
+		if cur.ParentGroupName == parent {
+			return recursive || hops == 0
+		}
+
+		cur = byName[cur.ParentGroupName]
+	}
+
+	return false
 }

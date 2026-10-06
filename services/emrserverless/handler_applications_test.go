@@ -614,7 +614,7 @@ func TestHandler_UpdateApplication_ConfigMerge(t *testing.T) {
 	mustUnmarshal(t, getRec, &out)
 	app := out["application"].(map[string]any)
 	assert.Equal(t, maxCapacity, app["maximumCapacity"], "update must not drop previously stored config")
-	assert.Equal(t, autoStop, app["autoStopConfiguration"])
+	assert.Equal(t, map[string]any{"enabled": true, "idleTimeoutMinutes": float64(15)}, app["autoStopConfiguration"])
 }
 
 // TestHandler_UpdateApplication_AutoStopConfigValidation verifies

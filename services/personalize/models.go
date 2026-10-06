@@ -97,15 +97,16 @@ type Campaign struct {
 
 // DatasetImportJob stores an async dataset import job.
 type DatasetImportJob struct {
-	CreationDateTime    time.Time
-	LastUpdatedDateTime time.Time
-	DataSource          map[string]any
-	DatasetImportJobArn string
-	DatasetArn          string
-	JobName             string
-	RoleArn             string
-	Status              string
-	ImportMode          string
+	CreationDateTime              time.Time
+	LastUpdatedDateTime           time.Time
+	DataSource                    map[string]any
+	PublishAttributionMetricsToS3 *bool `json:",omitempty"`
+	DatasetImportJobArn           string
+	DatasetArn                    string
+	JobName                       string
+	RoleArn                       string
+	Status                        string
+	ImportMode                    string
 }
 
 // DatasetExportJob stores an async dataset export job.
@@ -123,16 +124,28 @@ type DatasetExportJob struct {
 
 // BatchInferenceJob stores an async batch inference job.
 type BatchInferenceJob struct {
-	CreationDateTime      time.Time
-	LastUpdatedDateTime   time.Time
-	JobInput              map[string]any
-	JobOutput             map[string]any
-	BatchInferenceJobArn  string
-	SolutionVersionArn    string
-	JobName               string
-	RoleArn               string
-	Status                string
-	BatchInferenceJobMode string
+	CreationDateTime        time.Time
+	LastUpdatedDateTime     time.Time
+	JobInput                map[string]any
+	JobOutput               map[string]any
+	BatchInferenceJobConfig map[string]any `json:",omitempty"`
+	ThemeGenerationConfig   map[string]any `json:",omitempty"`
+	BatchInferenceJobArn    string
+	SolutionVersionArn      string
+	JobName                 string
+	RoleArn                 string
+	Status                  string
+	BatchInferenceJobMode   string
+	FilterArn               string `json:",omitempty"`
+	NumResults              int32  `json:",omitempty"`
+}
+
+// JobExtras carries the optional Create*Job members beyond the common job fields.
+type JobExtras struct {
+	PublishAttributionMetricsToS3 *bool
+	BatchInferenceJobConfig       map[string]any
+	ThemeGenerationConfig         map[string]any
+	NumResults                    int32
 }
 
 // BatchSegmentJob stores an async batch segment job.
@@ -146,6 +159,8 @@ type BatchSegmentJob struct {
 	JobName             string
 	RoleArn             string
 	Status              string
+	FilterArn           string `json:",omitempty"`
+	NumResults          int32  `json:",omitempty"`
 }
 
 // EventTracker stores an Amazon Personalize event tracker.

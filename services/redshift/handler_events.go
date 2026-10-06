@@ -16,9 +16,11 @@ const (
 // ---- Logging XML types ----
 
 type xmlLoggingStatus struct {
-	BucketName     string `xml:"BucketName,omitempty"`
-	S3KeyPrefix    string `xml:"S3KeyPrefix,omitempty"`
-	LoggingEnabled bool   `xml:"LoggingEnabled"`
+	BucketName         string   `xml:"BucketName,omitempty"`
+	S3KeyPrefix        string   `xml:"S3KeyPrefix,omitempty"`
+	LogDestinationType string   `xml:"LogDestinationType,omitempty"`
+	LogExports         []string `xml:"LogExports>member,omitempty"`
+	LoggingEnabled     bool     `xml:"LoggingEnabled"`
 }
 
 // ---- EnableLogging ----
@@ -34,19 +36,25 @@ func (h *Handler) handleEnableLogging(vals url.Values) (any, error) {
 	bucketName := vals.Get("BucketName")
 	s3KeyPrefix := vals.Get("S3KeyPrefix")
 
-	status, err := h.Backend.EnableLogging(clusterID, bucketName, s3KeyPrefix)
+	status, err := h.Backend.EnableLogging(clusterID, bucketName, s3KeyPrefix, LoggingOptions{
+		LogDestinationType: vals.Get("LogDestinationType"),
+		LogExports:         parseStringList(vals, "LogExports.member."),
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	return &enableLoggingResponse{
-		Xmlns: redshiftXMLNS,
-		Result: xmlLoggingStatus{
-			LoggingEnabled: status.LoggingEnabled,
-			BucketName:     status.BucketName,
-			S3KeyPrefix:    status.S3KeyPrefix,
-		},
-	}, nil
+	return &enableLoggingResponse{Xmlns: redshiftXMLNS, Result: loggingStatusXML(status)}, nil
+}
+
+func loggingStatusXML(s *LoggingStatus) xmlLoggingStatus {
+	return xmlLoggingStatus{
+		LoggingEnabled:     s.LoggingEnabled,
+		BucketName:         s.BucketName,
+		S3KeyPrefix:        s.S3KeyPrefix,
+		LogDestinationType: s.LogDestination,
+		LogExports:         s.LogExports,
+	}
 }
 
 // ---- DisableLogging ----
@@ -89,14 +97,7 @@ func (h *Handler) handleDescribeLoggingStatus(vals url.Values) (any, error) {
 		return nil, err
 	}
 
-	return &describeLoggingStatusResponse{
-		Xmlns: redshiftXMLNS,
-		Result: xmlLoggingStatus{
-			LoggingEnabled: status.LoggingEnabled,
-			BucketName:     status.BucketName,
-			S3KeyPrefix:    status.S3KeyPrefix,
-		},
-	}, nil
+	return &describeLoggingStatusResponse{Xmlns: redshiftXMLNS, Result: loggingStatusXML(status)}, nil
 }
 
 // ---- Events XML types ----
@@ -127,6 +128,27 @@ type describeEventsResponse struct {
 // default ("Default: 60" -- redshift@v1.65.4 api_op_DescribeEvents.go).
 const defaultEventDurationMinutes = 60
 
+// parseEventTimeRange reads the ISO 8601 StartTime/EndTime members (api_op_DescribeEvents.go:42-48,104-110).
+func parseEventTimeRange(vals url.Values) (time.Time, time.Time, error) {
+	var start, end time.Time
+
+	for key, dst := range map[string]*time.Time{"StartTime": &start, "EndTime": &end} {
+		v := vals.Get(key)
+		if v == "" {
+			continue
+		}
+
+		t, err := time.Parse(time.RFC3339, v)
+		if err != nil {
+			return start, end, fmt.Errorf("%w: %s must be an ISO 8601 timestamp", ErrInvalidParameter, key)
+		}
+
+		*dst = t
+	}
+
+	return start, end, nil
+}
+
 func (h *Handler) handleDescribeEvents(vals url.Values) (any, error) {
 	sourceID := vals.Get("SourceIdentifier")
 	sourceType := vals.Get("SourceType")
@@ -153,9 +175,14 @@ func (h *Handler) handleDescribeEvents(vals url.Values) (any, error) {
 
 	cutoff := time.Now().Add(-time.Duration(durationMinutes) * time.Minute)
 
+	start, end, err := parseEventTimeRange(vals)
+	if err != nil {
+		return nil, err
+	}
+
 	members := make([]xmlEvent, 0, len(events))
 	for _, e := range events {
-		if e.Date.Before(cutoff) {
+		if e.Date.Before(cutoff) || (!start.IsZero() && e.Date.Before(start)) || (!end.IsZero() && e.Date.After(end)) {
 			continue
 		}
 

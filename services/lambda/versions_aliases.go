@@ -69,6 +69,7 @@ func (b *InMemoryBackend) publishVersion(name, description, revisionID string) (
 		DurableConfig:          fn.DurableConfig,
 		EphemeralStorage:       fn.EphemeralStorage,
 		LoggingConfig:          fn.LoggingConfig,
+		KMSKeyArn:              fn.KMSKeyArn,
 		Architectures:          fn.Architectures,
 		MasterArn:              fn.MasterArn,
 		StateReason:            fn.StateReason,
@@ -243,7 +244,7 @@ func (b *InMemoryBackend) UpdateAlias(
 		return nil, ErrAliasNotFound
 	}
 
-	if input.RevisionID != "" && input.RevisionID != alias.RevisionID {
+	if input.RevisionID != nil && *input.RevisionID != alias.RevisionID {
 		return nil, ErrPreconditionFailed
 	}
 
@@ -341,6 +342,7 @@ func fnToVersion(fn *FunctionConfiguration) *FunctionVersion {
 		DurableConfig:          fn.DurableConfig,
 		EphemeralStorage:       fn.EphemeralStorage,
 		LoggingConfig:          fn.LoggingConfig,
+		KMSKeyArn:              fn.KMSKeyArn,
 		Architectures:          fn.Architectures,
 		MasterArn:              fn.MasterArn,
 		StateReason:            fn.StateReason,

@@ -47,7 +47,7 @@ func (h *Handler) dispatchOrganizationOps(op, query string, body []byte) (any, i
 		return nil, code, true, err
 
 	case opListOrganizationAdminAccounts:
-		result, code, err := h.handleListOrganizationAdminAccounts()
+		result, code, err := h.handleListOrganizationAdminAccounts(query)
 
 		return result, code, true, err
 
@@ -93,13 +93,13 @@ func (h *Handler) handleDisableOrganizationAdminAccount(accountID string) (int, 
 	return http.StatusOK, nil
 }
 
-func (h *Handler) handleListOrganizationAdminAccounts() (any, int, error) {
+func (h *Handler) handleListOrganizationAdminAccounts(query string) (any, int, error) {
 	accounts, err := h.Backend.ListOrganizationAdminAccounts()
 	if err != nil {
 		return nil, http.StatusInternalServerError, err
 	}
 
-	return map[string]any{"adminAccounts": accounts}, http.StatusOK, nil
+	return pagedQueryResponse(h.Backend, "adminAccounts", query, accounts)
 }
 
 func (h *Handler) handleDescribeOrganizationConfiguration() (any, int, error) {

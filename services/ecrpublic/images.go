@@ -155,8 +155,24 @@ func (b *InMemoryBackend) PutImage(registryID, repositoryName string, req PutIma
 		return nil, err
 	}
 
-	if missing := b.missingLayersLocked(repositoryName, req.ImageManifest); len(missing) > 0 {
+	doc, _ := parseManifest(req.ImageManifest)
+
+	mediaType := req.ImageManifestMediaType
+	if mediaType == "" {
+		mediaType = doc.MediaType
+	}
+
+	if mediaType == "" {
+		return nil, fmt.Errorf("%w: imageManifestMediaType is required when the manifest has no mediaType",
+			ErrInvalidParameter)
+	}
+
+	if missing := b.missingLayersLocked(repositoryName, doc); len(missing) > 0 {
 		return nil, fmt.Errorf("%w: %v", ErrLayersNotFound, missing)
+	}
+
+	if missing := b.missingManifestsLocked(repositoryName, doc); len(missing) > 0 {
+		return nil, fmt.Errorf("%w: %v", ErrReferencedImagesMissing, missing)
 	}
 
 	if req.ImageTag != "" {
@@ -170,10 +186,10 @@ func (b *InMemoryBackend) PutImage(registryID, repositoryName string, req PutIma
 	}
 
 	img := &Image{
-		ArtifactMediaType:      "",
+		ArtifactMediaType:      doc.artifactMediaType(),
 		ImageDigest:            digest,
 		ImageManifest:          req.ImageManifest,
-		ImageManifestMediaType: req.ImageManifestMediaType,
+		ImageManifestMediaType: mediaType,
 		ImagePushedAt:          time.Now(),
 		ImageSizeInBytes:       int64(len(req.ImageManifest)),
 		RegistryID:             b.accountID,
@@ -211,13 +227,27 @@ func resolveImageDigest(req PutImageRequest) (string, error) {
 
 // missingLayersLocked returns every layer/config digest manifest references
 // that was never uploaded to repositoryName. Caller must hold b.mu.
-func (b *InMemoryBackend) missingLayersLocked(repositoryName, manifest string) []string {
+func (b *InMemoryBackend) missingLayersLocked(repositoryName string, doc manifestDoc) []string {
 	uploaded := b.uploadedLayers[repositoryName]
 
 	var missing []string
 
-	for _, digest := range referencedDigests(manifest) {
+	for _, digest := range referencedDigests(doc) {
 		if _, ok := uploaded[digest]; !ok {
+			missing = append(missing, digest)
+		}
+	}
+
+	return missing
+}
+
+// missingManifestsLocked returns every child manifest digest of an OCI index
+// not already pushed to repositoryName. Caller must hold b.mu.
+func (b *InMemoryBackend) missingManifestsLocked(repositoryName string, doc manifestDoc) []string {
+	var missing []string
+
+	for _, digest := range referencedManifests(doc) {
+		if !b.images.Has(imageTableKey(repositoryName, digest)) {
 			missing = append(missing, digest)
 		}
 	}

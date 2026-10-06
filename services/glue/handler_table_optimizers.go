@@ -3,6 +3,8 @@ package glue
 import (
 	"context"
 	"fmt"
+
+	gluetypes "github.com/aws/aws-sdk-go-v2/service/glue/types"
 )
 
 // batchGetTableOptimizerInput holds input for BatchGetTableOptimizer.
@@ -44,6 +46,10 @@ func (h *Handler) handleCreateTableOptimizer(
 	_ context.Context,
 	in *createTableOptimizerInput,
 ) (*emptyOutput, error) {
+	if err := checkEnum("Type", gluetypes.TableOptimizerType(in.Type)); err != nil {
+		return nil, err
+	}
+
 	return &emptyOutput{}, h.Backend.CreateTableOptimizer(
 		in.CatalogID,
 		in.DatabaseName,
@@ -65,6 +71,10 @@ func (h *Handler) handleDeleteTableOptimizer(
 	_ context.Context,
 	in *deleteTableOptimizerInput,
 ) (*emptyOutput, error) {
+	if err := checkEnum("Type", gluetypes.TableOptimizerType(in.Type)); err != nil {
+		return nil, err
+	}
+
 	return &emptyOutput{}, h.Backend.DeleteTableOptimizer(in.DatabaseName, in.TableName, in.Type)
 }
 
@@ -88,6 +98,10 @@ func (h *Handler) handleGetTableOptimizer(
 	_ context.Context,
 	in *getTableOptimizerInput,
 ) (*getTableOptimizerOutput, error) {
+	if err := checkEnum("Type", gluetypes.TableOptimizerType(in.Type)); err != nil {
+		return nil, err
+	}
+
 	to, err := h.Backend.GetTableOptimizer(in.DatabaseName, in.TableName, in.Type)
 	if err != nil {
 		return nil, err
@@ -124,6 +138,10 @@ func (h *Handler) handleListTableOptimizerRuns(
 	_ context.Context,
 	in *listTableOptimizerRunsInput,
 ) (*listTableOptimizerRunsOutput, error) {
+	if err := checkEnum("Type", gluetypes.TableOptimizerType(in.Type)); err != nil {
+		return nil, err
+	}
+
 	if in.DatabaseName == "" || in.TableName == "" || in.Type == "" {
 		return nil, fmt.Errorf("%w: DatabaseName, TableName, and Type are required", ErrValidation)
 	}
@@ -159,6 +177,10 @@ func (h *Handler) handleUpdateTableOptimizer(
 	_ context.Context,
 	in *updateTableOptimizerInput,
 ) (*emptyOutput, error) {
+	if err := checkEnum("Type", gluetypes.TableOptimizerType(in.Type)); err != nil {
+		return nil, err
+	}
+
 	return &emptyOutput{}, h.Backend.UpdateTableOptimizer(
 		in.DatabaseName,
 		in.TableName,

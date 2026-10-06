@@ -20,11 +20,48 @@ type converseContent struct {
 
 // converseRequest represents the parsed Converse request body.
 type converseRequest struct {
-	Messages        []converseMessage `json:"messages"`
-	System          []converseContent `json:"system,omitempty"`
-	ToolConfig      json.RawMessage   `json:"toolConfig,omitempty"`
-	GuardrailConfig json.RawMessage   `json:"guardrailConfig,omitempty"`
-	InferenceConfig json.RawMessage   `json:"inferenceConfig,omitempty"`
+	ServiceTier       *serviceTierBody       `json:"serviceTier,omitempty"`
+	PerformanceConfig *performanceConfigBody `json:"performanceConfig,omitempty"`
+	Messages          []converseMessage      `json:"messages"`
+	System            []converseContent      `json:"system,omitempty"`
+	ToolConfig        json.RawMessage        `json:"toolConfig,omitempty"`
+	GuardrailConfig   json.RawMessage        `json:"guardrailConfig,omitempty"`
+	InferenceConfig   json.RawMessage        `json:"inferenceConfig,omitempty"`
+}
+
+type serviceTierBody struct {
+	Type string `json:"type"`
+}
+
+type performanceConfigBody struct {
+	Latency string `json:"latency,omitempty"`
+}
+
+// validateConverseConfig checks the enum members of serviceTier and
+// performanceConfig (types.ServiceTierType, types.PerformanceConfigLatency).
+func validateConverseConfig(req *converseRequest) string {
+	if req.ServiceTier != nil && !validServiceTier(req.ServiceTier.Type) {
+		return "serviceTier.type must be one of priority, default, flex, reserved"
+	}
+
+	if req.PerformanceConfig != nil && req.PerformanceConfig.Latency != "" &&
+		!validPerformanceLatency(req.PerformanceConfig.Latency) {
+		return "performanceConfig.latency must be one of standard, optimized"
+	}
+
+	return ""
+}
+
+// echoConverseConfig reflects the requested tier and latency on the response;
+// there is no real inference tier to model, so nothing is invented when absent.
+func echoConverseConfig(resp map[string]any, req *converseRequest) {
+	if req.ServiceTier != nil {
+		resp["serviceTier"] = req.ServiceTier
+	}
+
+	if req.PerformanceConfig != nil && req.PerformanceConfig.Latency != "" {
+		resp["performanceConfig"] = req.PerformanceConfig
+	}
 }
 
 // buildConverseResponse constructs a Converse response that reflects the user's last message.
@@ -82,7 +119,12 @@ func (h *Handler) handleConverse(
 		_ = json.Unmarshal(body, &req)
 	}
 
+	if msg := validateConverseConfig(&req); msg != "" {
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", msg))
+	}
+
 	resp := buildConverseResponse(&req)
+	echoConverseConfig(resp, &req)
 
 	out, err := json.Marshal(resp)
 	if err != nil {
@@ -107,6 +149,10 @@ func (h *Handler) handleConverseStream(
 	var req converseRequest
 	if len(body) > 0 {
 		_ = json.Unmarshal(body, &req)
+	}
+
+	if msg := validateConverseConfig(&req); msg != "" {
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", msg))
 	}
 
 	inputTokens := estimateTokensFromMessages(req.Messages, req.System)
@@ -163,7 +209,7 @@ func (h *Handler) handleConverseStream(
 		convStopReasonKey: stopReasonEndTurn,
 	})
 
-	writeStreamEvent("metadata", map[string]any{
+	metadata := map[string]any{
 		keyUsage: map[string]any{
 			keyInputTokens:   inputTokens,
 			convOutputTokens: mockOutputTokenCount,
@@ -172,7 +218,9 @@ func (h *Handler) handleConverseStream(
 		"metrics": map[string]any{
 			"latencyMs": mockLatencyMS,
 		},
-	})
+	}
+	echoConverseConfig(metadata, &req)
+	writeStreamEvent("metadata", metadata)
 
 	flushResponse(c.Response())
 

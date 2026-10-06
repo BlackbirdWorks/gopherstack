@@ -31,6 +31,10 @@ var (
 		"ApprovalRuleTemplateNameAlreadyExistsException",
 		awserr.ErrConflict,
 	)
+	// ErrIdempotencyMismatch is returned when a ClientRequestToken is reused with different parameters.
+	ErrIdempotencyMismatch = awserr.New("IdempotencyParameterMismatchException", awserr.ErrInvalidParameter)
+	// ErrInvalidRelativeFileVersion is returned for a comment location whose RelativeFileVersion is not BEFORE or AFTER.
+	ErrInvalidRelativeFileVersion = awserr.New("InvalidRelativeFileVersionEnumException", awserr.ErrInvalidParameter)
 	// ErrBranchNotFound is returned when a branch is not found.
 	ErrBranchNotFound = awserr.New("BranchDoesNotExistException", awserr.ErrNotFound)
 	// ErrBranchAlreadyExists is returned when a branch already exists.

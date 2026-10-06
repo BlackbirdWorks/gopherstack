@@ -74,7 +74,9 @@ func (h *Handler) handleDirectQueryRoutes(w http.ResponseWriter, r *http.Request
 		for _, ds := range sources {
 			items = append(items, toDirectQueryDataSourceJSON(ds))
 		}
-		h.writeJSON(r, w, map[string]any{"DirectQueryDataSources": items})
+		spec := listSpec("DirectQueryDataSources")
+		spec.tokenQ = "nexttoken"
+		writePagedList(h, w, r, spec, items, func(d directQueryDataSourceJSON) string { return d.DataSourceName })
 	// GET /2021-01-01/opensearch/directQueryDataSource/{dataSourceName} → GetDirectQueryDataSource
 	case strings.HasPrefix(rest, "/") && r.Method == http.MethodGet:
 		h.handleGetDirectQueryDataSource(w, r, strings.TrimPrefix(rest, "/"))

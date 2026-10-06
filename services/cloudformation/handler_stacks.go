@@ -3,6 +3,7 @@ package cloudformation
 import (
 	"encoding/xml"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -202,6 +203,8 @@ func (h *Handler) handleDescribeStacks(form url.Values, c *echo.Context) error {
 
 	var stacks []stackXML
 
+	var next string
+
 	if stackName != "" {
 		s, err := h.Backend.DescribeStack(stackName)
 		if err != nil {
@@ -210,13 +213,19 @@ func (h *Handler) handleDescribeStacks(form url.Values, c *echo.Context) error {
 		stacks = append(stacks, toXML(s))
 	} else {
 		all := h.Backend.ListAll()
-		for _, s := range all {
+		slices.SortFunc(all, func(a, b *Stack) int { return strings.Compare(a.StackName, b.StackName) })
+
+		p := pageForm(form, all)
+		next = p.Next
+
+		for _, s := range p.Data {
 			stacks = append(stacks, toXML(s))
 		}
 	}
 
 	type descResult struct {
-		Stacks []stackXML `xml:"Stacks>member"`
+		NextToken string     `xml:"NextToken,omitempty"`
+		Stacks    []stackXML `xml:"Stacks>member"`
 	}
 	type response struct {
 		XMLName   xml.Name   `xml:"DescribeStacksResponse"`
@@ -227,7 +236,7 @@ func (h *Handler) handleDescribeStacks(form url.Values, c *echo.Context) error {
 
 	return writeXML(c, response{
 		Xmlns:     cfnNS,
-		Result:    descResult{Stacks: stacks},
+		Result:    descResult{Stacks: stacks, NextToken: next},
 		RequestID: uuid.New().String(),
 	})
 }

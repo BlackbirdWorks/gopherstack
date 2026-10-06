@@ -139,7 +139,7 @@ func (h *Handler) handleDescribeDeclarativePoliciesReports(vals url.Values, reqI
 		)
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 func (h *Handler) handleGetDeclarativePoliciesReportSummary(vals url.Values, reqID string) (any, error) {

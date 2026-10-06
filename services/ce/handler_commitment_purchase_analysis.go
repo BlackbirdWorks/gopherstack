@@ -3,6 +3,7 @@ package ce
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -52,9 +53,10 @@ func (h *Handler) handleGetCommitmentPurchaseAnalysis(
 }
 
 type listCommitmentPurchaseAnalysesInput struct {
-	NextPageToken  string `json:"NextPageToken"`
-	AnalysisStatus string `json:"AnalysisStatus"`
-	PageSize       int    `json:"PageSize"`
+	NextPageToken  string   `json:"NextPageToken"`
+	AnalysisStatus string   `json:"AnalysisStatus"`
+	AnalysisIDs    []string `json:"AnalysisIds"`
+	PageSize       int      `json:"PageSize"`
 }
 
 // analysisSummary mirrors aws-sdk-go-v2/service/costexplorer/types'
@@ -100,6 +102,11 @@ func (h *Handler) handleListCommitmentPurchaseAnalyses(
 	in *listCommitmentPurchaseAnalysesInput,
 ) (*listCommitmentPurchaseAnalysesOutput, error) {
 	analyses := h.Backend.ListCommitmentAnalyses(in.AnalysisStatus)
+	if len(in.AnalysisIDs) > 0 {
+		analyses = slices.DeleteFunc(analyses, func(a *CommitmentAnalysis) bool {
+			return !slices.Contains(in.AnalysisIDs, a.AnalysisID)
+		})
+	}
 
 	// paginateOrdered, not paginateList: analyses is already in
 	// most-recently-started-first order, which re-sorting ascending by

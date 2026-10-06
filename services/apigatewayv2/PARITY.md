@@ -289,105 +289,17 @@ families:
 gaps: []
 items_still_open:
   - "AWS/ApiGateway HTTP/WebSocket metrics Count/4xx/5xx/Latency/IntegrationLatency and ConnectCount/MessageCount/ClientError/ExecutionError are emitted; DataProcessed, IntegrationError and the Route/Resource/Method dimensions are not. (gopherstack-4m1qr)"
-  - "Quick-create route/stage immutability partially enforced (gopherstack-2tx, narrowed): UpdateRoute
-    now rejects a route-key change on an apiGatewayManaged route (\"You can't modify the $default
-    route key\") and UpdateStage now rejects any modification of an apiGatewayManaged stage (\"You
-    can't modify the $default stage\") -- both backed by BadRequestException, which IS in
-    UpdateRoute/UpdateStage's modeled error set (service-2.json). Still NOT enforced:
-    DeleteRoute/DeleteStage/DeleteIntegration on a managed resource. Deliberately not extended
-    there: those three operations' error sets in service-2.json list only NotFoundException/
-    TooManyRequestsException, no BadRequestException or ConflictException, so there is no
-    wire-verifiable error code to reject with -- guessing one would violate the wire-verification
-    principle the same way UpdateRoute/UpdateStage's prior deferral (re-confirmed open, then
-    narrowed this pass) originally cited.
-    2026-09-11 re-verification (gopherstack-2tx, CITE-OR-DISCLOSE pass): fetched the official AWS
-    API Reference (not just the SDK's Go doc comments) for the three DELETE operations, to see
-    whether prose there names an error the SDK model omits. docs.aws.amazon.com/apigatewayv2/
-    latest/api-reference/apis-apiid-integrations-integrationid.html's apiGatewayManaged property:
-    'If you created an API using using quick create, the resulting integration is managed by API
-    Gateway. You can update a managed integration, but you can't delete it.' -- but that same page's
-    own DELETE Responses table lists only 204/404 NotFoundException/429 LimitExceededException, no
-    400/409. docs.aws.amazon.com/apigatewayv2/latest/api-reference/apis-apiid-stages-stagename.html
-    and .../apis-apiid-routes-routeid.html: apiGatewayManaged only documents a MODIFY restriction
-    ('You can't modify the $default stage' / '...the $default route key'), not a delete restriction,
-    and their DELETE Responses tables are equally limited to 404/429. Also independently confirmed
-    against a locally available botocore apigatewayv2/2018-11-29/service-2.json.gz (same source data
-    aws-sdk-go-v2 generates from): DeleteStage/DeleteIntegration/DeleteRoute operations{}.errors ==
-    [NotFoundException, TooManyRequestsException] exactly, matching the SDK model already cited
-    above. Net finding: the *behavior* (a managed integration can't be deleted) is authoritatively
-    documented in prose, but the *wire shape* to carry that rejection is not -- the same official
-    page's own structured Responses table contradicts its own prose by omitting any 4xx besides
-    404/429 for these three DELETE operations. This is not new information (the SDK's types.go
-    carries byte-identical prose, already read by the pass that first deferred this), but it does
-    rule out one route forward: implementing BadRequestException for these three deletes would
-    contradict the same authoritative source's own documented Responses/error set, not just be an
-    unverified guess. Still not implemented; closing the fixable half as disclosed (gopherstack-2tx)
-    rather than leaving it open against further passes re-deriving the same answer."
-  - "ImportApi/ReimportApi's basepath query param now supports \"prepend\" (prefixes route paths
-    with the spec's declared base path -- Swagger 2 basePath or OpenAPI 3 servers[0].url's path).
-    \"split\" is not implemented (falls back to ignore-like behavior): API Gateway's split
-    semantics (part of the base path becomes an ApiMapping key, part stays in routes) aren't
-    described by the SDK wire model, only by prose docs, so implementing it would mean guessing
-    at unverified behavior. failOnWarnings is now read and validated (boolean) but has no
-    observable effect: the emulator's OpenAPI import (parseOpenAPISpec/applyOpenAPIToAPI) never
-    generates import warnings for any spec it accepts (see Notes #8), so there is never a warning
-    for failOnWarnings to escalate into an error. Not fabricating warning-generation heuristics to
-    manufacture an effect -- see the existing trap note on API.ImportInfo/Warnings below. bd:
-    gopherstack-jni0, narrowed to these two residual items."
-  - "Stage deployment gates only on the stage EXISTING (gopherstack-vli), not on having ever
-    been deployed to. Real AWS: 'Deployments are an immutable snapshot of the API, and to make
-    your API callable, you must create a stage and deploy an API snapshot into it' (AWS docs,
-    apigateway/latest/developerguide/http-api-stages.html -- weaker evidence than the SDK, since
-    data-plane invoke behavior isn't part of the modeled control-plane wire shapes). Two distinct
-    gaps were disclosed here: (1) a stage that exists but has stage.DeploymentID == \"\" (created,
-    never auto- or manually deployed) still serves live traffic -- only a stage that was NEVER
-    CREATED is rejected (see Notes #16-18); genuinely gating on DeploymentID=='' risks
-    over-rejecting, since it's unclear whether real AWS performs an implicit initial deployment
-    when CreateStage's autoDeploy=true and the API already has routes (gopherstack's CreateStage
-    does not call autoDeployLocked itself -- only route/integration/API mutations do) -- left
-    open, unchanged. (2) FIXED 2026-09-06 (gopherstack-cfr1) for the HTTP API data plane only:
-    handleHTTPAPIProxy previously always read the API's LIVE current routes/integrations via
-    h.Backend.GetRoutes/GetIntegration regardless of which deployment a stage was nominally
-    pinned to, so an autoDeploy=false stage saw route/integration edits with no new deployment
-    required. CreateDeployment and autoDeployLocked (deployments.go) now copy the API's current
-    routes and integrations onto the created Deployment (Deployment.Routes/Integrations, internal
-    only -- json:\"-\", not part of the real GetDeploymentOutput wire shape); handleHTTPAPIProxy
-    resolves routes/integrations from the stage's pinned deployment snapshot when
-    stage.DeploymentID != \"\", falling back to live state (unchanged behavior) when the stage has
-    no deployment yet or its pinned deployment was since deleted -- avoiding the DeploymentID=='' 
-    gating question above rather than resolving it. See Notes #19. Residual, disclosed rather than
-    guessed at: WebSocket routing (invokeWSRoute) is unaffected -- it doesn't even thread
-    stageName through, a separate, larger gap; a route's AuthorizerID is captured by the route
-    snapshot, but the referenced Authorizer's own definition (e.g. JWT issuer/audience) is still
-    resolved live via h.Backend.GetAuthorizer, since autoDeployLocked has never triggered on
-    authorizer or CORS mutations either (a pre-existing, separate incompleteness, not newly
-    introduced); CORS headers (Api.CorsConfiguration) are similarly still resolved live, since
-    they don't affect route/integration matching. apigateway (v1, bd gopherstack-fum) has the
-    identical bug and was deliberately left unfixed this pass -- v1's data plane matches against a
-    resource TREE via a cached routingTrie (proxy_routing.go), not v2's flat route/integration
-    lists, and also lacks v2's autoDeploy/AutoDeployed model entirely (v1 has no auto-deployment
-    concept, only explicit CreateDeployment), so the same fix shape does not carry over; scoped as
-    its own, larger effort."
-  - "Portal/PortalProduct (and, transitively, their ProductPage/ProductRestEndpointPage children's
-    parent existence check) are NOT persisted at all -- persistence.go has snapshot DTOs for
-    ProductPage/ProductRestEndpointPage/PortalProductSharingPolicies but none for b.portals/
-    b.portalProducts themselves, so a server restart with persistence enabled loses every portal
-    and portal product while its child pages survive orphaned. Discovered 2026-09-11
-    (gopherstack-mven, required-OUTPUT-member sweep) while wiring the ProductPage/
-    ProductRestEndpointPage snapshot DTOs for this pass's new fields (ProductPageArn/PageTitle/
-    ProductRestEndpointPageArn/Endpoint/Status/TryItState) -- pre-existing, not introduced by this
-    pass, and out of its scope (the fix is a new snapshot DTO pair plus backendSnapshot/
-    restoreFromSnapshot wiring, the same shape as every other resource in this file, not a
-    required-output-field bug)."
-deferred:
-  - "2026-08-23 (manifest harvest): UpdatePortal's real UpdatePortalInput (aws-sdk-go-v2/service/apigatewayv2@v1.37.4's api_op_UpdatePortal.go) has optional Authorization/EndpointConfiguration/PortalContent members letting a caller replace a portal's auth config, domain/cert config, or displayed content post-creation -- gopherstack's UpdatePortalInput (models.go) has no fields for any of the three, so a real client sending them gets no error but no effect either. All three are already-modeled types (used by CreatePortal) and Create's existing validateCreatePortal{Authorization,EndpointConfiguration,Content} helpers look reusable for a nil-check-and-replace Update path; not implemented this pass to keep the fix scoped to the three accept-and-drop bugs found and closed alongside this note (IncludedPortalProductArns/RumAppMonitorName/LastPublished(Description), see the family's ops-table note) -- newly disclosed, not previously known."
-  - PortalProduct / ProductPage / ProductRestEndpointPage field-level wire audit still not re-verified field-by-field against botocore (only Portal itself got a field-level audit this pass -- see the family's ops-table note)
-  - ImportApi/ReimportApi basepath=split; failOnWarnings real effect (see gaps, bd gopherstack-jni0)
-  - Quick-create DeleteRoute/DeleteStage/DeleteIntegration rejection (see gaps, bd gopherstack-2tx)
-  - DeploymentID=="" gating for a never-deployed stage (see gaps, bd gopherstack-vli) -- per-deployment route/integration snapshotting itself was fixed 2026-09-06 (gopherstack-cfr1, see gaps and Notes #19)
-  - apigateway (v1)'s identical live-routing-vs-deployment-snapshot bug (bd gopherstack-fum) was NOT copied from this fix -- deliberately deferred at the time (v1's resource-tree/routingTrie data plane and lack of an autoDeploy model made it a distinctly larger effort) but has since been fixed independently, 2026-09-26; see services/apigateway/PARITY.md's CreateDeployment note and deployment_snapshot.go
+  - "DeleteRoute/DeleteStage/DeleteIntegration on a quick-create (apiGatewayManaged) resource are not rejected (gopherstack-2tx): AWS prose says a managed integration cannot be deleted, but service-2.json and the API reference list only NotFoundException/TooManyRequestsException for all three, so no wire-verifiable error code exists to reject with. UpdateRoute/UpdateStage managed-resource rejection is implemented."
+  - "ImportApi/ReimportApi basepath=split is not implemented (falls back to ignore): its semantics are described only in prose, not the SDK wire model. failOnWarnings is validated but never escalates, because OpenAPI import generates no warnings to escalate (gopherstack-jni0)."
+  - "A stage that exists but was never deployed (DeploymentID empty) still serves traffic, because real AWS behaviour for an autoDeploy=true stage with pre-existing routes is unverified (gopherstack-vli). WebSocket routing (invokeWSRoute) ignores the stage's pinned deployment snapshot, and Authorizer definitions and CORS config are resolved live rather than from the snapshot."
+  - "ProductRestEndpointPage StatusException is not modeled (no REST API resolution pipeline produces a failure status), and RawDisplayContent is never returned by GetProductRestEndpointPage."
+deferred: []
 leaks: {status: clean, note: "portalProductSharingPolicies cleanup on DeletePortalProduct already covered by leak_internal_test.go from a prior sweep; authorizerCache entries are now purged on DeleteAuthorizer/DeleteApi (bd gopherstack-wmh, fixed and closed this pass -- see Notes #11), not merely TTL-bounded; no goroutines/janitors in this package"}
 ---
+
+## 2026-10-05 (gap burn-down pass 3, gopherstack-9x62)
+
+UpdatePortal now applies Authorization/EndpointConfiguration/PortalContent (validated like Create); PortalProduct round-trips DisplayOrder (Create has none; Update/Get/Create outputs echo it, List summary omits it); ListProductRestEndpointPages summaries carry operationName. Portal/PortalProduct persistence was already wired (clean tables), now proven by `TestPortalAndPortalProduct_SurviveSnapshotRestore`. Proof: update_portal_config_members_test.go.
 
 ## Notes (2026-09-24 inbound-activity fix)
 
@@ -1142,3 +1054,25 @@ Emits HTTP API Count, 4xx, 5xx, Latency, IntegrationLatency and WebSocket Connec
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 WebSocket connections register with the Management API backend of the API's region (`SetManagementAPIResolver`), so `@connections` calls from another region report the connection gone. Proof: `TestHandler_WebSocketConnectionsLandInAPIRegion`.
+
+## 2026-10-05 (reqfielddiff tier-2 pagination)
+
+All 20 flagged members (GetAuthorizers, GetDeployments, GetIntegrationResponses, GetIntegrations, GetModels, GetRouteResponses, GetRoutes, GetStages, GetVpcLinks, ListRoutingRules maxResults/nextToken) were false positives: every list already pages through `apigwPaginationParams` (query members, serializers.go:4218 apigatewayv2@v1.37.4) over stable-sorted backend lists. The one real gap was a malformed token or non-positive maxResults silently restarting at page 1; `validateAPIGWPaging` now returns 400 BadRequestException. Proof: `TestRealClient_GetOpsPageAndRejectBadTokens`.
+
+## 2026-10-05 (reqfielddiff tier-2 pagination, follow-up)
+
+GetIntegrationResponses, GetRouteResponses, GetVpcLinks and ListRoutingRules were re-checked: all page through `validateAPIGWPaging`/`page.New` and are covered by `TestGetIntegrationResponses_Limit`, `TestGetRouteResponses_Limit`, `TestGetVpcLinks_Limit` and `TestListRoutingRules_MaxResultsAndNextToken`; false positives.
+
+## 2026-10-05 (reqfielddiff -adjudicated tier-2)
+
+- GetIntegrationResponses.MaxResults: tool false positive, the handler pages through the shared `listConfig` closure (handler.go:926) that the field scan cannot follow; `TestGetIntegrationResponses_Limit`.
+- GetRouteResponses.MaxResults: tool false positive, same `listConfig` closure (handler.go:944); `TestGetRouteResponses_Limit`.
+- GetVpcLinks.MaxResults: tool false positive, handler_vpc_links.go:59 pages via `page.New` over a helper-read query param; `TestGetVpcLinks_Limit`.
+
+## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
+
+InternalServerErrorException (errors.go:30) is a generic 500 fallback; the pinned SDK models no internal-error type, so no replacement exists.
+
+## 2026-10-05 (zeroguard omitted-vs-zero pass)
+
+UpdateIntegration TimeoutInMillis is a pointer: omitted keeps the stored value, an explicit 0 is range-checked and rejected (cmd/zeroguard). PutRoutingRule is full-replace with required Priority: tool false positive. Proof: `TestUpdateIntegration_TimeoutOmittedVsZero`.

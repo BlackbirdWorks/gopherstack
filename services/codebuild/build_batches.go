@@ -88,12 +88,12 @@ func (b *InMemoryBackend) ListBuildBatches(statusFilter string) []string {
 
 // StartBuildBatchConfig holds override parameters for a StartBuildBatch call,
 // mirroring aws-sdk-go-v2/service/codebuild@v1.72.4's api_op_StartBuildBatch.go
-// StartBuildBatchInput. IdempotencyToken and LogsConfigOverride are skipped
-// for the same reasons StartBuildConfig skips them (see builds.go).
+// StartBuildBatchInput.
 // StartBuildBatchInput has no FleetOverride, HostKernelOverride, or
 // AutoRetryLimitOverride -- api_op_StartBuildBatch.go simply doesn't declare
 // them (unlike StartBuildInput).
 type StartBuildBatchConfig struct {
+	LogsConfigOverride               *LogsConfig
 	ArtifactsOverride                *ProjectArtifacts
 	BuildBatchConfigOverride         *BuildBatchConfig
 	CacheOverride                    *ProjectCache
@@ -106,6 +106,7 @@ type StartBuildBatchConfig struct {
 	GitCloneDepthOverride            *int32
 	BuildTimeoutInMinutesOverride    *int32
 	QueuedTimeoutInMinutesOverride   *int32
+	IdempotencyToken                 string
 	ServiceRoleOverride              string
 	ComputeTypeOverride              string
 	SourceVersion                    string
@@ -200,6 +201,7 @@ func applyBatchSourceOverrides(src ProjectSource, cfg StartBuildBatchConfig) Pro
 // a StartBuildBatchConfig on top of a project's defaults (or, for
 // RetryBuildBatch, an existing batch's already-resolved fields).
 type batchOverrideResult struct {
+	LogsConfig              *LogsConfig
 	Cache                   *ProjectCache
 	Config                  *BuildBatchConfig
 	VpcConfig               *VpcConfig
@@ -238,6 +240,7 @@ func applyBatchOverrides(proj *Project, cfg StartBuildBatchConfig) batchOverride
 		BuildTimeoutInMinutes:   proj.TimeoutInMinutes,
 		QueuedTimeoutInMinutes:  proj.QueuedTimeoutInMinutes,
 		Config:                  proj.BuildBatchConfig,
+		LogsConfig:              effectiveLogsConfig(proj.LogsConfig, cfg.LogsConfigOverride),
 	}
 
 	if proj.BuildBatchConfig != nil {
@@ -391,6 +394,7 @@ func (b *InMemoryBackend) newBuildBatchRecord(
 		SecondarySources:        ov.SecondarySources,
 		SecondarySourceVersions: ov.SecondarySourceVersions,
 		BuildBatchConfig:        ov.Config,
+		LogConfig:               ov.LogsConfig,
 		BuildGroups:             newBuildGroups(def),
 		Phases: []BuildBatchPhase{
 			{PhaseType: phaseSubmitted, PhaseStatus: buildStatusSucceeded, StartTime: now, EndTime: now},
@@ -415,6 +419,21 @@ func (b *InMemoryBackend) StartBuildBatch(projectName string, cfg StartBuildBatc
 		return nil, ErrNotFound
 	}
 
+	token := cfg.IdempotencyToken
+	cfg.IdempotencyToken = ""
+	fp := idemFingerprint(projectName, cfg)
+
+	if id, hit, err := b.idemReplay("StartBuildBatch", token, fp); err != nil {
+		return nil, err
+	} else if hit {
+		if prior, found := b.buildBatches.Get(id); found {
+			out := *prior
+			out.BuildGroups = cloneBuildGroups(prior.BuildGroups)
+
+			return &out, nil
+		}
+	}
+
 	ov := applyBatchOverrides(proj, cfg)
 
 	def, err := parseBatchDefinition(ov.Source.Buildspec)
@@ -434,6 +453,7 @@ func (b *InMemoryBackend) StartBuildBatch(projectName string, cfg StartBuildBatc
 	now := float64(time.Now().Unix())
 	bb := b.newBuildBatchRecord(projectName, ov, sourceVersion, cfg.DebugSessionEnabled, def, now)
 	b.buildBatches.Put(bb)
+	b.idemRecord("StartBuildBatch", token, fp, bb.ID)
 
 	out := *bb
 	out.BuildGroups = cloneBuildGroups(bb.BuildGroups)
@@ -495,13 +515,26 @@ func sourceBuildspec(src *ProjectSource) string {
 // (RETRY_ALL_BUILDS vs RETRY_FAILED_BUILDS) selects whether every group or
 // only the failed ones re-run (api_op_RetryBuildBatch.go). Neither is
 // enforced/implemented here -- see PARITY.md.
-func (b *InMemoryBackend) RetryBuildBatch(id string) (*BuildBatch, error) {
+func (b *InMemoryBackend) RetryBuildBatch(id, retryType, idempotencyToken string) (*BuildBatch, error) {
 	b.mu.Lock("RetryBuildBatch")
 	defer b.mu.Unlock()
 
 	existing, ok := b.buildBatches.Get(id)
 	if !ok {
 		return nil, ErrNotFound
+	}
+
+	fp := idemFingerprint(id, retryType)
+
+	if priorID, hit, err := b.idemReplay("RetryBuildBatch", idempotencyToken, fp); err != nil {
+		return nil, err
+	} else if hit {
+		if prior, found := b.buildBatches.Get(priorID); found {
+			out := *prior
+			out.BuildGroups = cloneBuildGroups(prior.BuildGroups)
+
+			return &out, nil
+		}
 	}
 
 	def, err := parseBatchDefinition(sourceBuildspec(existing.Source))
@@ -524,6 +557,7 @@ func (b *InMemoryBackend) RetryBuildBatch(id string) (*BuildBatch, error) {
 		BuildTimeoutInMinutes:   existing.BuildTimeoutInMinutes,
 		QueuedTimeoutInMinutes:  existing.QueuedTimeoutInMinutes,
 		Config:                  existing.BuildBatchConfig,
+		LogsConfig:              existing.LogConfig,
 	}
 
 	now := float64(time.Now().Unix())
@@ -531,6 +565,7 @@ func (b *InMemoryBackend) RetryBuildBatch(id string) (*BuildBatch, error) {
 		existing.ProjectName, ov, existing.SourceVersion, existing.DebugSessionEnabled, def, now,
 	)
 	b.buildBatches.Put(bb)
+	b.idemRecord("RetryBuildBatch", idempotencyToken, fp, bb.ID)
 
 	out := *bb
 	out.BuildGroups = cloneBuildGroups(bb.BuildGroups)
@@ -577,6 +612,7 @@ func (b *InMemoryBackend) startBatchChildBuild(bb *BuildBatch, node batchNode, n
 		SecondaryArtifacts:      bb.SecondaryArtifacts,
 		SecondarySources:        bb.SecondarySources,
 		SecondarySourceVersions: bb.SecondarySourceVersions,
+		Logs:                    buildLogsFor(bb.LogConfig),
 		Phases: []BuildPhase{
 			{PhaseType: phaseSubmitted, PhaseStatus: buildStatusSucceeded, StartTime: now, EndTime: now},
 		},

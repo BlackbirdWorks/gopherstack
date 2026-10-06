@@ -3,6 +3,7 @@ package backup
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -15,13 +16,48 @@ import (
 // completedJobBytes is the simulated transfer / backup size for completed jobs.
 const completedJobBytes = 1024
 
+// StartBackupJobInput is the full StartBackupJob request.
+type StartBackupJobInput struct {
+	BackupOptions      map[string]string
+	RecoveryPointTags  map[string]string
+	Lifecycle          *Lifecycle
+	VaultName          string
+	ResourceArn        string
+	IAMRoleArn         string
+	ResourceType       string
+	IdempotencyToken   string
+	StartWindowMinutes int64
+}
+
 // StartBackupJob starts a new backup job.
 func (b *InMemoryBackend) StartBackupJob(
 	vaultName, resourceArn, iamRoleArn, resourceType string,
 	backupOptions map[string]string, startWindowMinutes int64,
 ) (*Job, error) {
+	return b.StartBackupJobFromInput(StartBackupJobInput{
+		VaultName: vaultName, ResourceArn: resourceArn, IAMRoleArn: iamRoleArn,
+		ResourceType: resourceType, BackupOptions: backupOptions, StartWindowMinutes: startWindowMinutes,
+	})
+}
+
+// StartBackupJobFromInput starts a backup job; a retry with the same
+// IdempotencyToken returns the job it already started.
+func (b *InMemoryBackend) StartBackupJobFromInput(in StartBackupJobInput) (*Job, error) {
+	vaultName, resourceArn, iamRoleArn, resourceType := in.VaultName, in.ResourceArn, in.IAMRoleArn, in.ResourceType
+	backupOptions, startWindowMinutes := in.BackupOptions, in.StartWindowMinutes
+
 	b.mu.Lock("StartBackupJob")
 	defer b.mu.Unlock()
+
+	if in.IdempotencyToken != "" {
+		for _, existing := range b.jobs.All() {
+			if existing.IdempotencyToken == in.IdempotencyToken {
+				cp := *existing
+
+				return &cp, nil
+			}
+		}
+	}
 
 	if resourceArn == "" {
 		return nil, fmt.Errorf("%w: ResourceArn is required", ErrValidation)
@@ -54,6 +90,11 @@ func (b *InMemoryBackend) StartBackupJob(
 		Region:          b.region,
 		CreationTime:    now,
 		BackupOptions:   backupOptions,
+	}
+	j.IdempotencyToken = in.IdempotencyToken
+	j.Lifecycle = in.Lifecycle
+	if len(in.RecoveryPointTags) > 0 {
+		j.RecoveryPointTags = maps.Clone(in.RecoveryPointTags)
 	}
 
 	if startWindowMinutes > 0 {
@@ -189,6 +230,8 @@ func (b *InMemoryBackend) ListBackupJobSummaries(f JobSummaryFilter) []map[strin
 		})
 	}
 
+	sortSummaries(summaries)
+
 	return summaries
 }
 
@@ -298,19 +341,22 @@ func (b *InMemoryBackend) CompleteBackupJob(jobID string) error {
 	}
 
 	rp := &RecoveryPoint{
-		RecoveryPointArn:  rpArn,
-		BackupVaultName:   job.BackupVaultName,
-		BackupVaultArn:    vault.BackupVaultArn,
-		ResourceArn:       job.ResourceArn,
-		ResourceType:      job.ResourceType,
-		IAMRoleArn:        job.IAMRoleArn,
-		Status:            statusCompleted,
-		CreationDate:      now,
-		CompletionDate:    &now,
-		BackupSizeInBytes: completedJobBytes,
-		StorageClass:      "WARM",
-		IsEncrypted:       vault.EncryptionKeyArn != "",
-		EncryptionKeyArn:  vault.EncryptionKeyArn,
+		RecoveryPointArn:    rpArn,
+		BackupVaultName:     job.BackupVaultName,
+		BackupVaultArn:      vault.BackupVaultArn,
+		ResourceArn:         job.ResourceArn,
+		ResourceType:        job.ResourceType,
+		IAMRoleArn:          job.IAMRoleArn,
+		Status:              statusCompleted,
+		CreationDate:        now,
+		CompletionDate:      &now,
+		BackupSizeInBytes:   completedJobBytes,
+		StorageClass:        "WARM",
+		IsEncrypted:         vault.EncryptionKeyArn != "",
+		EncryptionKeyArn:    vault.EncryptionKeyArn,
+		Tags:                maps.Clone(job.RecoveryPointTags),
+		Lifecycle:           job.Lifecycle,
+		CalculatedLifecycle: calculateLifecycle(job.Lifecycle, now),
 	}
 	b.recoveryPoints.Put(rp)
 	vault.NumberOfRecoveryPoints++

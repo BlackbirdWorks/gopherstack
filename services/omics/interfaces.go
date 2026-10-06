@@ -7,7 +7,9 @@ import (
 // StorageBackend is the interface for HealthOmics storage operations.
 type StorageBackend interface {
 	// ReferenceStore
-	CreateReferenceStore(name, description string, tags map[string]string) (*ReferenceStore, error)
+	CreateReferenceStore(
+		name, description string, sseConfig map[string]any, tags map[string]string,
+	) (*ReferenceStore, error)
 	DeleteReferenceStore(id string) error
 	GetReferenceStore(id string) (*ReferenceStore, error)
 	ListReferenceStores(
@@ -38,10 +40,7 @@ type StorageBackend interface {
 	) ([]*ReferenceImportJob, string, error)
 
 	// SequenceStore
-	CreateSequenceStore(
-		name, description, eTagAlgorithmFamily, accessLogLocation string,
-		tags map[string]string,
-	) (*SequenceStore, error)
+	CreateSequenceStore(in CreateSequenceStoreInput) (*SequenceStore, error)
 	DeleteSequenceStore(id string) error
 	GetSequenceStore(id string) (*SequenceStore, error)
 	ListSequenceStores(
@@ -49,7 +48,7 @@ type StorageBackend interface {
 		maxResults int,
 		nextToken string,
 	) ([]*SequenceStore, string, error)
-	UpdateSequenceStore(id, name, description string) (*SequenceStore, error)
+	UpdateSequenceStore(id string, in UpdateSequenceStoreInput) (*SequenceStore, error)
 
 	// ReadSet
 	BatchDeleteReadSet(sequenceStoreID string, ids []string) ([]ReadSetBatchError, error)
@@ -107,7 +106,8 @@ type StorageBackend interface {
 		nextToken string,
 	) ([]*MultipartReadSetUpload, string, error)
 	ListReadSetUploadParts(
-		sequenceStoreID, uploadID string,
+		sequenceStoreID, uploadID, partSource string,
+		window *createdWindow,
 		maxResults int,
 		nextToken string,
 	) ([]*ReadSetUploadPart, string, error)
@@ -155,11 +155,11 @@ type StorageBackend interface {
 	DeleteWorkflow(id string) error
 	GetWorkflow(id string) (*Workflow, error)
 	ListWorkflows(filter *WorkflowFilter, maxResults int, nextToken string) ([]*Workflow, string, error)
-	UpdateWorkflow(id, name, description, storageType string, storageCapacity *int) error
+	UpdateWorkflow(id, name, description, storageType, readmeMarkdown string, storageCapacity *int) error
 
 	// AnnotationStore
 	CreateAnnotationStore(
-		name, storeFormat string,
+		name, description, storeFormat, versionName string,
 		reference, sseConfig, storeOptions map[string]any,
 		tags map[string]string,
 	) (*AnnotationStore, error)
@@ -171,7 +171,7 @@ type StorageBackend interface {
 		maxResults int,
 		nextToken string,
 	) ([]*AnnotationStore, string, error)
-	UpdateAnnotationStore(name, description string) (*AnnotationStore, error)
+	UpdateAnnotationStore(name string, description *string) (*AnnotationStore, error)
 	StartAnnotationImportJob(
 		destinationName, roleARN string,
 		items []AnnotationImportItem,
@@ -192,6 +192,7 @@ type StorageBackend interface {
 	// AnnotationStoreVersion
 	CreateAnnotationStoreVersion(
 		name, versionName, description string,
+		versionOptions map[string]any,
 		tags map[string]string,
 	) (*AnnotationStoreVersion, error)
 	DeleteAnnotationStoreVersions(name string, versionNames []string) ([]VersionDeleteError, error)
@@ -203,11 +204,13 @@ type StorageBackend interface {
 		nextToken string,
 	) ([]*AnnotationStoreVersion, string, error)
 	UpdateAnnotationStoreVersion(
-		name, versionName, description string,
+		name, versionName string, description *string,
 	) (*AnnotationStoreVersion, error)
 
 	// VariantStore
-	CreateVariantStore(name string, reference, sseConfig map[string]any, tags map[string]string) (*VariantStore, error)
+	CreateVariantStore(
+		name, description string, reference, sseConfig map[string]any, tags map[string]string,
+	) (*VariantStore, error)
 	DeleteVariantStore(name string) (*VariantStore, error)
 	GetVariantStore(name string) (*VariantStore, error)
 	ListVariantStores(
@@ -216,7 +219,7 @@ type StorageBackend interface {
 		maxResults int,
 		nextToken string,
 	) ([]*VariantStore, string, error)
-	UpdateVariantStore(name, description string) (*VariantStore, error)
+	UpdateVariantStore(name string, description *string) (*VariantStore, error)
 	StartVariantImportJob(
 		destinationName, roleARN string,
 		items []VariantImportItem,
@@ -245,7 +248,9 @@ type StorageBackend interface {
 	) ([]*Share, string, error)
 
 	// RunCache
-	CreateRunCache(name, cacheS3Location, cacheBehavior string, tags map[string]string) (*RunCache, error)
+	CreateRunCache(
+		name, description, cacheS3Location, cacheBehavior, cacheBucketOwnerID string, tags map[string]string,
+	) (*RunCache, error)
 	DeleteRunCache(id string) error
 	GetRunCache(id string) (*RunCache, error)
 	ListRunCaches(maxResults int, nextToken string) ([]*RunCache, string, error)
@@ -286,7 +291,9 @@ type StorageBackend interface {
 		maxResults int,
 		nextToken string,
 	) ([]*WorkflowVersion, string, error)
-	UpdateWorkflowVersion(workflowID, versionName, description, storageType string, storageCapacity *int) error
+	UpdateWorkflowVersion(
+		workflowID, versionName, description, storageType, readmeMarkdown string, storageCapacity *int,
+	) error
 
 	// S3 Access Policy
 	PutS3AccessPolicy(s3AccessPointARN, policy string) error

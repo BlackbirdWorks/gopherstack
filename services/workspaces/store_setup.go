@@ -28,12 +28,8 @@ package workspaces
 //     (map[string]map[string]struct{}) are persisted directly in
 //     backendSnapshot (see persistence.go); values are plain maps, not *T,
 //     so store.Table does not apply.
-//   - imagePermissions (map[string]map[string]bool) and appAssociations
-//     (map[string]map[string]struct{}) remain unpersisted -- ephemeral, same
-//     "not *T" reason.
-//   - clientProperties (map[string]storedClientProps): values are not
-//     pointers, and storedClientProps carries no identity field of its own
-//     to key a store.Table by; also unpersisted.
+//   - imagePermissions and clientProperties are persisted directly in
+//     backendSnapshot; appAssociations remains ephemeral.
 import "github.com/blackbirdworks/gopherstack/pkgs/store"
 
 func workspaceKeyFn(v *storedWorkspace) string { return v.WorkspaceID }

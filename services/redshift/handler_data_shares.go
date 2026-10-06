@@ -12,6 +12,9 @@ type xmlDataShareAssociation struct {
 	ConsumerRegion     string `xml:"ConsumerRegion,omitempty"`
 	Status             string `xml:"Status"`
 	Type               string `xml:"Type,omitempty"`
+
+	ProducerAllowedWrites  bool `xml:"ProducerAllowedWrites"`
+	ConsumerAcceptedWrites bool `xml:"ConsumerAcceptedWrites"`
 }
 
 type xmlDataShare struct {
@@ -41,6 +44,9 @@ func dataShareToXML(ds *DataShare) xmlDataShare {
 			ConsumerRegion:     a.ConsumerRegion,
 			Status:             a.Status,
 			Type:               a.Type,
+
+			ProducerAllowedWrites:  a.ProducerAllowedWrites,
+			ConsumerAcceptedWrites: a.ConsumerAcceptedWrites,
 		})
 	}
 
@@ -65,7 +71,9 @@ func (h *Handler) handleAssociateDataShareConsumer(vals url.Values) (any, error)
 	consumerRegion := vals.Get("ConsumerRegion")
 	associateEntireAccount := vals.Get("AssociateEntireAccount") == paramValueTrue
 
-	ds, err := h.Backend.AssociateDataShareConsumer(dataShareArn, consumerArn, consumerRegion, associateEntireAccount)
+	ds, err := h.Backend.AssociateDataShareConsumer(
+		dataShareArn, consumerArn, consumerRegion, associateEntireAccount, vals.Get("AllowWrites") == paramValueTrue,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +96,7 @@ func (h *Handler) handleAuthorizeDataShare(vals url.Values) (any, error) {
 	dataShareArn := vals.Get("DataShareArn")
 	consumerIdentifier := vals.Get("ConsumerIdentifier")
 
-	ds, err := h.Backend.AuthorizeDataShare(dataShareArn, consumerIdentifier)
+	ds, err := h.Backend.AuthorizeDataShare(dataShareArn, consumerIdentifier, vals.Get("AllowWrites") == paramValueTrue)
 	if err != nil {
 		return nil, err
 	}

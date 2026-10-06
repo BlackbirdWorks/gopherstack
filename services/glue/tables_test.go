@@ -175,7 +175,11 @@ func TestExtendedStateSnapshotRestore(t *testing.T) {
 				require.NoError(t, err)
 				_, err = b.StartDataQualityRuleRecommendationRun("s3://source")
 				require.NoError(t, err)
-				_, err = b.CreateColumnStatisticsTaskSettings("db", "table", "role", []string{"id"})
+				_, err = b.CreateColumnStatisticsTaskSettings(
+					"db",
+					"table",
+					glue.ColumnStatisticsTaskSettingsOptions{Role: "role", ColumnNameList: []string{"id"}},
+				)
 				require.NoError(t, err)
 				_, err = b.StartColumnStatisticsTaskRun("db", "table", "role")
 				require.NoError(t, err)

@@ -41,6 +41,7 @@ type storedDirectory struct {
 	DirectoryID                string   `json:"directoryId"`
 	Edition                    string   `json:"edition"`
 	NetworkType                string   `json:"networkType"`
+	OSVersion                  string   `json:"osVersion,omitempty"`
 	DNSIPAddrs                 []string `json:"dnsIpAddrs"`
 	DNSIPv6Addrs               []string `json:"dnsIpv6Addrs"`
 	HybridDNSIPs               []string `json:"hybridDnsIps,omitempty"`
@@ -65,6 +66,7 @@ func (d *storedDirectory) toDirectory() Directory {
 		Size:                     DirectorySize(d.Size),
 		Edition:                  DirectoryEdition(d.Edition),
 		NetworkType:              NetworkType(d.NetworkType),
+		OsVersion:                OSVersion(d.OSVersion),
 		DNSIPAddrs:               d.DNSIPAddrs,
 		DNSIPv6Addrs:             d.DNSIPv6Addrs,
 		SsoEnabled:               d.SsoEnabled,
@@ -602,7 +604,7 @@ type ADAssessmentConfiguration struct {
 // assessment-engine-internal output (a detailed status code, a human-readable
 // status/error message, and the assessment-framework version) with no request
 // input and no documented deterministic default -- same class of gap as
-// Directory.OsVersion (see PARITY.md). Left always empty rather than invented.
+// Directory.OsVersion before an OS update (see PARITY.md). Left always empty rather than invented.
 type ADAssessmentInfo struct {
 	StartTime          time.Time
 	LastUpdateDateTime time.Time
@@ -658,6 +660,7 @@ type UpdateInfoEntry struct {
 type ComputerInfo struct {
 	ComputerID   string
 	ComputerName string
+	Attributes   []ComputerAttribute
 }
 
 // HybridADUpdateEntry mirrors types.HybridUpdateInfoEntry, the real per-entry

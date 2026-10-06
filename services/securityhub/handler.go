@@ -10,6 +10,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -225,11 +226,12 @@ const (
 type Handler struct {
 	Backend StorageBackend
 	peers   *regionpeers.Set[Handler]
+	idem    *idempotency.Memo
 }
 
 // NewHandler constructs a new Handler.
 func NewHandler(b StorageBackend) *Handler {
-	return &Handler{Backend: b}
+	return &Handler{Backend: b, idem: idempotency.New("securityhub")}
 }
 
 // Name returns the service name.
@@ -708,6 +710,25 @@ func intFromBody(body map[string]any) int {
 	}
 
 	return 0
+}
+
+// validPaging reports whether maxResults is non-negative and nextToken is a well-formed offset.
+func validPaging(maxResults int, nextToken string) bool {
+	if maxResults < 0 {
+		return false
+	}
+
+	if nextToken == "" {
+		return true
+	}
+
+	n, err := strconv.Atoi(nextToken)
+
+	return err == nil && n >= 0
+}
+
+func pagingErrorResponse(c *echo.Context) error {
+	return typedErrorResponse(c, http.StatusBadRequest, "InvalidInputException", "invalid MaxResults or NextToken")
 }
 
 func queryInt(c *echo.Context) int {

@@ -291,7 +291,7 @@ func TestRecoveryPointDeletionBlockedByLegalHold(t *testing.T) {
 		mustRP(t, b, "held-vault-3", "arn:aws:backup:::rp/3", "arn:aws:ec2:::instance/i-3", "EC2")
 		lh, err := b.CreateLegalHold("litigation-3", "desc", nil)
 		require.NoError(t, err)
-		require.NoError(t, b.CancelLegalHold(lh.LegalHoldID))
+		require.NoError(t, b.CancelLegalHold(lh.LegalHoldID, "done", 0))
 
 		require.NoError(t, b.DeleteRecoveryPoint("held-vault-3", "arn:aws:backup:::rp/3"))
 	})

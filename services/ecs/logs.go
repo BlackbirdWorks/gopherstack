@@ -83,8 +83,8 @@ func awslogsTarget(cd ContainerDefinition, taskID string) (string, string, bool)
 // taskIDFromARN extracts the task ID (the segment after the last "/") from an
 // ECS task ARN of either format handled by clusterFromTaskARN.
 func taskIDFromARN(taskARN string) string {
-	if idx := strings.LastIndex(taskARN, "/"); idx != -1 {
-		return taskARN[idx+1:]
+	if _, after, ok := strings.CutLast(taskARN, "/"); ok {
+		return after
 	}
 
 	return taskARN

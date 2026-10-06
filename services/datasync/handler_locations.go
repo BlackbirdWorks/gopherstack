@@ -3,6 +3,8 @@ package datasync
 import (
 	"context"
 	"fmt"
+
+	dstypes "github.com/aws/aws-sdk-go-v2/service/datasync/types"
 )
 
 // --- Location (S3) operations ---
@@ -28,6 +30,10 @@ func (h *Handler) handleCreateLocationS3(
 	_ context.Context,
 	in *createLocationS3Input,
 ) (*createLocationS3Output, error) {
+	if err := checkEnum("S3StorageClass", dstypes.S3StorageClass(in.S3StorageClass)); err != nil {
+		return nil, err
+	}
+
 	if in.S3BucketArn == "" {
 		return nil, fmt.Errorf("%w: S3BucketArn is required", errInvalidRequest)
 	}
@@ -177,6 +183,10 @@ func (h *Handler) handleUpdateLocationS3(
 	_ context.Context,
 	in *updateLocationS3Input,
 ) (*updateLocationS3Output, error) {
+	if err := checkEnum("S3StorageClass", dstypes.S3StorageClass(in.S3StorageClass)); err != nil {
+		return nil, err
+	}
+
 	if in.LocationArn == "" {
 		return nil, fmt.Errorf("%w: LocationArn is required", errInvalidRequest)
 	}

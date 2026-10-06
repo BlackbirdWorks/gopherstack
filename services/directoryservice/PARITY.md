@@ -131,10 +131,11 @@ families:
   re-diff-ok-families: {status: FIXED, note: "Re-diffed every family the prior pass's deferred note flagged as untrusted (conditional forwarders, log subscriptions, event topics, schema extensions, radius, shared directories, hybrid AD, AD assessments, settings) against v1.41.0 types.go. Result, matching the prior pass's warning that 'ok' marks were weak evidence: log-subscriptions and event-topics are genuinely clean (verified 1:1 field match, no changes). conditional-forwarders had a real gap (DnsIpv6Addrs missing, FIXED). schema-extensions has a real gap (SchemaExtensionStatusReason missing, NOT fixed -- no real value to derive it from). radius had a real gap (DirectoryDescription never mirrored the RADIUS state at all, FIXED; RadiusServersIpv6 missing from EnableRadius/UpdateRadius input, NOT fixed). shared-directories response shape is genuinely clean; the request shape has a real gap (ShareTarget.Type dropped, NOT fixed). settings has a real gap (DataType/LastRequestedDateTime/RequestDetailedStatus/RequestStatusMessage/Type missing from SettingEntry, NOT fixed -- no safe way to derive DataType/Type without a lookup table this pass couldn't verify). hybrid-AD and AD-assessments both had SEVERE, previously-undetected gaps: AD-assessments had two outright fabricated wire fields (invented 'Region' field, invented 'AssessmentType' field name with hardcoded invalid value 'Operational') -- FIXED (fabrication deleted, real ReportType/CUSTOMER substituted) -- but the operation still can't accept real AssessmentConfiguration input, so most of Assessment's real fields remain unreachable (NOT fixed, large gap). hybrid-AD's CreateHybridAD/UpdateHybridAD/DescribeHybridADUpdate wire shapes are substantially wrong (not just missing fields -- wrong required input members, wrong output members, invented RequestId) -- NOT fixed this pass, see the ops table and gaps. UPDATE (gopherstack-10hx, 2026-07-30 follow-up pass): hybrid-AD's wire-shape gap is now FIXED -- see the ops table and the dated Notes section below. UPDATE (gopherstack-10hx, 2026-07-30 2nd follow-up pass): AD-assessments' AssessmentConfiguration input-capture gap is now also FIXED -- see the ops table and the dated Notes section below. StatusCode/StatusReason/Version remain honestly unpopulated (AWS-internal, no request input, no documented default) -- not a fabrication gap, see gaps."}
 gaps: []
 items_still_open:
-  - "Server-set status/version metadata has no source and stays nil: DirectoryDescription.OsVersion/StageReason, DomainController.StatusReason, IpRouteInfo.IpRouteStatusReason, SchemaExtensionInfo.SchemaExtensionStatusReason, Assessment.StatusCode/StatusReason/Version. AWS assigns these internally (failure states this backend never reaches); inventing text would be fabrication."
+  - "Server-set status/version metadata has no source and stays nil: DirectoryDescription.OsVersion (until an UpdateDirectorySetup OS update sets it)/StageReason, DomainController.StatusReason, IpRouteInfo.IpRouteStatusReason, SchemaExtensionInfo.SchemaExtensionStatusReason, Assessment.StatusCode/StatusReason/Version. AWS assigns these internally (failure states this backend never reaches); inventing text would be fabrication."
   - "SettingEntry.DataType/Type/RequestDetailedStatus/RequestStatusMessage unpopulated: DataType/Type need a verified per-setting-name table from AWS docs; the rest need a per-Region apply pipeline (LastRequestedDateTime is populated, 2026-09-30)."
   - "CreateHybridAD requires AssessmentId of an existing directory; AWS's directory-less pre-creation assessment mode is not modelled (see Notes, gopherstack-10hx)."
   - "Async transient states (TrustState Verifying/Creating/Updating/Deleting/VerifyFailed, SnapshotStatus Creating/Failed, Sharing) are collapsed to instant completion; reaching them needs a background ticker and, for VerifyTrust, real external-domain connectivity (gopherstack-g2eo)."
+  - "UpdateDirectorySetup.CreateSnapshotBeforeUpdate is not applied: no pre-update snapshot is created, and the SDK documents neither its snapshot type nor its interaction with the manual-snapshot limit."
   - "aws_directory_service_trust and aws_directory_service_region real terraform applies did not reach a terminal state in the 2026-09-24 session (one hit ListTagsForResource EntityDoesNotExistException); not root-caused, kept out of the fixture."
 deferred:                 # consciously not audited this pass (scope) — next pass targets
   - "Settings DataType/Type static lookup table (see gaps): would need to be built and verified against AWS's own Directory Service setting-name documentation, not guessed."
@@ -696,3 +697,29 @@ Fixed (describe_empty_id_lists_test.go): DescribeDirectories DirectoryIds and De
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 directoryservice already region-isolated: same-named resources in two regions stay separate and each region lists only its own. No code change. Proof: `TestRegionIsolation/directoryservice`.
+
+## 2026-10-05 (gopherstack-uox6 pass 7, value semantics)
+
+Create->Describe->Update round trip audited: CreateMicrosoftAD Edition Enterprise (api_op_CreateMicrosoftAD.go:64), CreateTrust type Forest (api_op_CreateTrust.go:78), UpdateTrust keeps SelectiveAuth when omitted. UpdateRadius and UpdateConditionalForwarder replace their settings whole; the SDK does not say whether real AWS merges, so unchanged.
+
+## 2026-10-05 (pass 9, gopherstack-9x62)
+
+FIXED: DeleteTrust deletes the trust's conditional forwarder only when DeleteAssociatedConditionalForwarder is true (it always did). CreateTrust applies ConditionalForwarderIpAddrs/ConditionalForwarderIpv6Addrs to the forwarder it creates. CreateComputer echoes ComputerAttributes. UpdateDirectorySetup applies OSUpdateSettings (sets DirectoryDescription.OsVersion; NewValue/PreviousValue emitted as UpdateValue.OSUpdateSettings), NetworkUpdateSettings (NetworkType, IPv6 addresses for dual-stack/IPv6, CustomerDnsIpsV6 on AD Connector) and DirectorySizeUpdateSettings, validating the enums. DescribeUpdateDirectory filters by RegionName. Proof: `dropped_members_sdk_test.go`. Existing tests `isolation_test.go` and `persistence_test.go` changed only for the new CreateTrust/UpdateDirectorySetup/DescribeUpdateDirectory signatures.
+
+Adjudicated (reqfielddiff -adjudicated), unchanged:
+- AddIpRoutes.UpdateSecurityGroupForDirectoryControllers: the controllers' security group is a synthesized ID with no services/ec2 rule to update.
+- CreateComputer.OrganizationalUnitDistinguishedName: no directory tree is modeled and the Computer output has no OU member.
+- EnableSso.UserName: service-account credentials for a directory with no data plane; no state to apply them to.
+- EnableSso.Password: see EnableSso.UserName.
+- DisableSso.UserName: see EnableSso.UserName.
+- DisableSso.Password: see EnableSso.UserName.
+- CreateLogSubscription.DirectoryId: false positive, read through handleTwoFieldOp (handler.go).
+- CreateLogSubscription.LogGroupName: false positive, read through handleTwoFieldOp.
+- DeleteConditionalForwarder.DirectoryId: false positive, read through handleTwoFieldOp.
+- DeleteConditionalForwarder.RemoteDomainName: false positive, read through handleTwoFieldOp.
+- DeregisterCertificate.DirectoryId: false positive, read through handleTwoFieldOp.
+- DeregisterCertificate.CertificateId: false positive, read through handleTwoFieldOp.
+- RegisterEventTopic.DirectoryId: false positive, read through handleTwoFieldOp.
+- RegisterEventTopic.TopicName: false positive, read through handleTwoFieldOp.
+- DeregisterEventTopic.DirectoryId: false positive, read through handleTwoFieldOp.
+- DeregisterEventTopic.TopicName: false positive, read through handleTwoFieldOp.

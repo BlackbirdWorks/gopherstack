@@ -15,11 +15,13 @@ import (
 
 func (h *Handler) handleCreatePrompt(ctx context.Context, c *echo.Context, body []byte) error {
 	var req struct {
-		Tags           map[string]string `json:"tags"`
-		Name           string            `json:"name"`
-		Description    string            `json:"description"`
-		DefaultVariant string            `json:"defaultVariant"`
-		Variants       []map[string]any  `json:"variants"`
+		Tags                     map[string]string `json:"tags"`
+		Name                     string            `json:"name"`
+		Description              string            `json:"description"`
+		DefaultVariant           string            `json:"defaultVariant"`
+		ClientToken              string            `json:"clientToken"`
+		CustomerEncryptionKeyArn string            `json:"customerEncryptionKeyArn"`
+		Variants                 []map[string]any  `json:"variants"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -32,6 +34,9 @@ func (h *Handler) handleCreatePrompt(ctx context.Context, c *echo.Context, body 
 		DefaultVariant: req.DefaultVariant,
 		Variants:       req.Variants,
 		Tags:           req.Tags,
+
+		ClientToken:              req.ClientToken,
+		CustomerEncryptionKeyArn: req.CustomerEncryptionKeyArn,
 	})
 	if err != nil {
 		return handleErr(c, err)
@@ -41,9 +46,31 @@ func (h *Handler) handleCreatePrompt(ctx context.Context, c *echo.Context, body 
 }
 
 func (h *Handler) handleGetPrompt(ctx context.Context, c *echo.Context, promptID string) error {
+	included := c.QueryParam("includedData")
+	if err := validateIncludedData(included); err != nil {
+		return handleErr(c, err)
+	}
+
+	if version := c.QueryParam("promptVersion"); version != "" && version != defaultAgentVersion {
+		pv, err := h.Backend.GetPromptVersion(ctx, promptID, version)
+		if err != nil {
+			return handleErr(c, err)
+		}
+
+		if included == includedDataMetadata {
+			pv.Variants = nil
+		}
+
+		return c.JSON(http.StatusOK, pv)
+	}
+
 	p, err := h.Backend.GetPrompt(ctx, promptID)
 	if err != nil {
 		return handleErr(c, err)
+	}
+
+	if included == includedDataMetadata {
+		p.Variants = nil
 	}
 
 	return c.JSON(http.StatusOK, p)
@@ -53,11 +80,13 @@ func (h *Handler) handleUpdatePrompt(
 	ctx context.Context, c *echo.Context, promptID string, body []byte,
 ) error {
 	var req struct {
-		Tags           map[string]string `json:"tags"`
-		Name           string            `json:"name"`
-		Description    string            `json:"description"`
-		DefaultVariant string            `json:"defaultVariant"`
-		Variants       []map[string]any  `json:"variants"`
+		Tags                     map[string]string `json:"tags"`
+		Name                     string            `json:"name"`
+		Description              string            `json:"description"`
+		DefaultVariant           string            `json:"defaultVariant"`
+		ClientToken              string            `json:"clientToken"`
+		CustomerEncryptionKeyArn string            `json:"customerEncryptionKeyArn"`
+		Variants                 []map[string]any  `json:"variants"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -70,6 +99,9 @@ func (h *Handler) handleUpdatePrompt(
 		DefaultVariant: req.DefaultVariant,
 		Variants:       req.Variants,
 		Tags:           req.Tags,
+
+		ClientToken:              req.ClientToken,
+		CustomerEncryptionKeyArn: req.CustomerEncryptionKeyArn,
 	})
 	if err != nil {
 		return handleErr(c, err)
@@ -79,6 +111,14 @@ func (h *Handler) handleUpdatePrompt(
 }
 
 func (h *Handler) handleDeletePrompt(ctx context.Context, c *echo.Context, promptID string) error {
+	if version := c.QueryParam("promptVersion"); version != "" && version != defaultAgentVersion {
+		if err := h.Backend.DeletePromptVersion(ctx, promptID, version); err != nil {
+			return handleErr(c, err)
+		}
+
+		return c.JSON(http.StatusOK, map[string]any{"id": promptID, keyVersionField: version})
+	}
+
 	if err := h.Backend.DeletePrompt(ctx, promptID); err != nil {
 		return handleErr(c, err)
 	}
@@ -89,7 +129,7 @@ func (h *Handler) handleDeletePrompt(ctx context.Context, c *echo.Context, promp
 func (h *Handler) handleListPrompts(ctx context.Context, c *echo.Context) error {
 	maxResults, nextToken := pageParams(c.Request().URL.Query())
 
-	summaries, outToken, err := h.Backend.ListPrompts(ctx, maxResults, nextToken)
+	summaries, outToken, err := h.Backend.ListPrompts(ctx, c.QueryParam("promptIdentifier"), maxResults, nextToken)
 	if err != nil {
 		return handleErr(c, err)
 	}
@@ -105,12 +145,16 @@ func (h *Handler) handleCreatePromptVersion(
 	ctx context.Context, c *echo.Context, promptID string, body []byte,
 ) error {
 	var req struct {
-		Description string `json:"description"`
+		Tags        map[string]string `json:"tags"`
+		Description string            `json:"description"`
+		ClientToken string            `json:"clientToken"`
 	}
 
 	_ = json.Unmarshal(body, &req)
 
-	pv, err := h.Backend.CreatePromptVersion(ctx, promptID, req.Description)
+	pv, err := h.Backend.CreatePromptVersion(ctx, promptID, VersionConfig{
+		Description: req.Description, ClientToken: req.ClientToken, Tags: req.Tags,
+	})
 	if err != nil {
 		return handleErr(c, err)
 	}
@@ -136,7 +180,7 @@ func (h *Handler) handleDeletePromptVersion(
 		return handleErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"id": promptID, "version": version})
+	return c.JSON(http.StatusOK, map[string]any{"id": promptID, keyVersionField: version})
 }
 
 func classifyPromptPath(method, path string) string {

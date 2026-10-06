@@ -91,6 +91,7 @@ func (h *Handler) handleDescribeInstanceRefreshes(vals url.Values) (any, error) 
 			AutoRollback:              r.Preferences.AutoRollback,
 			ScaleInProtectedInstances: r.Preferences.ScaleInProtectedInstances,
 			StandbyInstances:          r.Preferences.StandbyInstances,
+			DesiredConfiguration:      toXMLDesiredConfiguration(r.DesiredConfiguration),
 		})
 	}
 
@@ -143,6 +144,7 @@ func (h *Handler) handleStartInstanceRefresh(vals url.Values) (any, error) {
 		AutoScalingGroupName: groupName,
 		Strategy:             strategy,
 		Preferences:          prefs,
+		DesiredConfiguration: parseDesiredConfiguration(vals),
 	})
 	if err != nil {
 		return nil, err
@@ -175,22 +177,58 @@ func (h *Handler) handleRollbackInstanceRefresh(vals url.Values) (any, error) {
 }
 
 type xmlInstanceRefresh struct {
-	InstanceRefreshID         string `xml:"InstanceRefreshId"`
-	AutoScalingGroupName      string `xml:"AutoScalingGroupName"`
-	Status                    string `xml:"Status"`
-	StatusReason              string `xml:"StatusReason,omitempty"`
-	StartTime                 string `xml:"StartTime"`
-	EndTime                   string `xml:"EndTime,omitempty"`
-	Strategy                  string `xml:"Strategy,omitempty"`
-	ScaleInProtectedInstances string `xml:"Preferences>ScaleInProtectedInstances,omitempty"`
-	StandbyInstances          string `xml:"Preferences>StandbyInstances,omitempty"`
-	MinHealthyPercentage      int32  `xml:"Preferences>MinHealthyPercentage,omitempty"`
-	MaxHealthyPercentage      int32  `xml:"Preferences>MaxHealthyPercentage,omitempty"`
-	InstanceWarmup            int32  `xml:"Preferences>InstanceWarmup,omitempty"`
-	PercentageComplete        int32  `xml:"PercentageComplete,omitempty"`
-	InstancesToUpdate         int32  `xml:"InstancesToUpdate,omitempty"`
-	SkipMatching              bool   `xml:"Preferences>SkipMatching,omitempty"`
-	AutoRollback              bool   `xml:"Preferences>AutoRollback,omitempty"`
+	DesiredConfiguration      *xmlDesiredConfiguration `xml:"DesiredConfiguration,omitempty"`
+	StandbyInstances          string                   `xml:"Preferences>StandbyInstances,omitempty"`
+	InstanceRefreshID         string                   `xml:"InstanceRefreshId"`
+	StatusReason              string                   `xml:"StatusReason,omitempty"`
+	StartTime                 string                   `xml:"StartTime"`
+	EndTime                   string                   `xml:"EndTime,omitempty"`
+	Strategy                  string                   `xml:"Strategy,omitempty"`
+	Status                    string                   `xml:"Status"`
+	ScaleInProtectedInstances string                   `xml:"Preferences>ScaleInProtectedInstances,omitempty"`
+	AutoScalingGroupName      string                   `xml:"AutoScalingGroupName"`
+	MaxHealthyPercentage      int32                    `xml:"Preferences>MaxHealthyPercentage,omitempty"`
+	InstanceWarmup            int32                    `xml:"Preferences>InstanceWarmup,omitempty"`
+	PercentageComplete        int32                    `xml:"PercentageComplete,omitempty"`
+	InstancesToUpdate         int32                    `xml:"InstancesToUpdate,omitempty"`
+	MinHealthyPercentage      int32                    `xml:"Preferences>MinHealthyPercentage,omitempty"`
+	SkipMatching              bool                     `xml:"Preferences>SkipMatching,omitempty"`
+	AutoRollback              bool                     `xml:"Preferences>AutoRollback,omitempty"`
+}
+
+type xmlDesiredConfiguration struct {
+	LaunchTemplate       *xmlLaunchTemplateSpecification `xml:"LaunchTemplate,omitempty"`
+	MixedInstancesPolicy *xmlMixedInstancesPolicy        `xml:"MixedInstancesPolicy,omitempty"`
+}
+
+func parseDesiredConfiguration(vals url.Values) *DesiredConfiguration {
+	const prefix = "DesiredConfiguration"
+
+	lt := parseLaunchTemplate(vals, prefix+".LaunchTemplate")
+	mip := parseMixedInstancesPolicyAt(vals, prefix+".MixedInstancesPolicy")
+
+	if lt == nil && mip == nil {
+		return nil
+	}
+
+	return &DesiredConfiguration{LaunchTemplate: lt, MixedInstancesPolicy: mip}
+}
+
+func toXMLDesiredConfiguration(dc *DesiredConfiguration) *xmlDesiredConfiguration {
+	if dc == nil {
+		return nil
+	}
+
+	out := &xmlDesiredConfiguration{MixedInstancesPolicy: toXMLMixedInstancesPolicy(dc.MixedInstancesPolicy)}
+	if dc.LaunchTemplate != nil {
+		out.LaunchTemplate = &xmlLaunchTemplateSpecification{
+			LaunchTemplateID:   dc.LaunchTemplate.LaunchTemplateID,
+			LaunchTemplateName: dc.LaunchTemplate.LaunchTemplateName,
+			Version:            dc.LaunchTemplate.Version,
+		}
+	}
+
+	return out
 }
 
 type xmlInstanceRefreshList struct {

@@ -31,7 +31,12 @@ func (h *Handler) handleApplyEnvironmentManagedAction(ctx context.Context, vals 
 		return nil, fmt.Errorf("%w: ActionId is required", ErrInvalidParameter)
 	}
 
-	_ = h.Backend.ApplyEnvironmentManagedAction(ctx, vals.Get("EnvironmentName"), actionID)
+	env, err := h.resolveSingleEnvironment(ctx, vals)
+	if err != nil {
+		return nil, err
+	}
+
+	_ = h.Backend.ApplyEnvironmentManagedAction(ctx, env.EnvironmentName, actionID)
 
 	return &applyEnvironmentManagedActionResponse{
 		Xmlns: ebXMLNS,
@@ -143,7 +148,11 @@ type describeEnvironmentManagedActionsResponse struct { //nolint:lll // AWS XML 
 // ApplyEnvironmentManagedAction/AddManagedActionHistory) -- a structural
 // gap, matching handleRequestEnvironmentInfo's disclosed precedent. The
 // Status request filter is consequently moot.
-func (h *Handler) handleDescribeEnvironmentManagedActions(_ context.Context, _ url.Values) (any, error) {
+func (h *Handler) handleDescribeEnvironmentManagedActions(ctx context.Context, vals url.Values) (any, error) {
+	if err := h.checkOptionalEnvironment(ctx, vals); err != nil {
+		return nil, err
+	}
+
 	return &describeEnvironmentManagedActionsResponse{
 		Xmlns: ebXMLNS,
 		DescribeEnvironmentManagedActionsResult: describeEnvironmentManagedActionsResult{

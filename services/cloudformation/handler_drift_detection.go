@@ -3,6 +3,7 @@ package cloudformation
 import (
 	"encoding/xml"
 	"net/url"
+	"slices"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
@@ -178,12 +179,21 @@ func (h *Handler) handleDescribeStackResourceDrifts(form url.Values, c *echo.Con
 		return h.xmlError(c, "ValidationError", err.Error())
 	}
 
-	members := make([]driftXML, 0, len(drifts))
-	for _, d := range drifts {
+	if statuses := parseMemberList(form, "StackResourceDriftStatusFilters."); len(statuses) > 0 {
+		drifts = slices.DeleteFunc(drifts, func(d StackResourceDrift) bool {
+			return !slices.Contains(statuses, d.StackResourceDriftStatus)
+		})
+	}
+
+	driftPage := pageForm(form, drifts)
+	members := make([]driftXML, 0, len(driftPage.Data))
+
+	for _, d := range driftPage.Data {
 		members = append(members, toDriftXML(d))
 	}
 
 	type driftsResult struct {
+		NextToken           string     `xml:"NextToken,omitempty"`
 		StackResourceDrifts []driftXML `xml:"StackResourceDrifts>member"`
 	}
 	type response struct {
@@ -195,7 +205,7 @@ func (h *Handler) handleDescribeStackResourceDrifts(form url.Values, c *echo.Con
 
 	return writeXML(c, response{
 		Xmlns:     cfnNS,
-		Result:    driftsResult{StackResourceDrifts: members},
+		Result:    driftsResult{StackResourceDrifts: members, NextToken: driftPage.Next},
 		RequestID: uuid.New().String(),
 	})
 }

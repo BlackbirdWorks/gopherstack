@@ -118,6 +118,18 @@ func (b *InMemoryBackend) UpdateServiceSpecificCredential(
 func (b *InMemoryBackend) CreateServiceSpecificCredential(
 	userName, serviceName string,
 ) (*ServiceSpecificCredential, error) {
+	return b.CreateServiceSpecificCredentialWithAge(userName, serviceName, 0)
+}
+
+// CreateServiceSpecificCredentialWithAge is CreateServiceSpecificCredential with an
+// optional CredentialAgeDays; a positive value sets ExpirationDate.
+func (b *InMemoryBackend) CreateServiceSpecificCredentialWithAge(
+	userName, serviceName string, ageDays int,
+) (*ServiceSpecificCredential, error) {
+	if ageDays < 0 {
+		return nil, fmt.Errorf("%w: CredentialAgeDays must be a positive integer", ErrInvalidInput)
+	}
+
 	if serviceName == "" {
 		return nil, fmt.Errorf("%w: ServiceName must not be empty", ErrInvalidAction)
 	}
@@ -141,6 +153,10 @@ func (b *InMemoryBackend) CreateServiceSpecificCredential(
 		ServicePassword:             svcPassword,
 		Status:                      "Active",
 		CreateDate:                  time.Now().UTC(),
+	}
+
+	if ageDays > 0 {
+		cred.ExpirationDate = cred.CreateDate.Add(time.Duration(ageDays) * 24 * time.Hour)
 	}
 
 	b.serviceSpecificCreds.Put(&cred)

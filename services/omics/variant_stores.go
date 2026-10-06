@@ -19,7 +19,7 @@ import (
 // every response (types.go); the same passthrough-map convention
 // AnnotationStore already uses (gopherstack-r80d batch 7).
 func (b *InMemoryBackend) CreateVariantStore(
-	name string,
+	name, description string,
 	reference, sseConfig map[string]any,
 	tags map[string]string,
 ) (*VariantStore, error) {
@@ -38,6 +38,7 @@ func (b *InMemoryBackend) CreateVariantStore(
 	vs := &VariantStore{
 		ID:           newID(),
 		Name:         name,
+		Description:  description,
 		Reference:    reference,
 		SseConfig:    sseConfig,
 		Status:       statusCreating,
@@ -149,7 +150,7 @@ func newVariantStoreSummary(vs *VariantStore) VariantStoreSummary {
 }
 
 // UpdateVariantStore updates a variant store.
-func (b *InMemoryBackend) UpdateVariantStore(name, description string) (*VariantStore, error) {
+func (b *InMemoryBackend) UpdateVariantStore(name string, description *string) (*VariantStore, error) {
 	b.mu.Lock("UpdateVariantStore")
 	defer b.mu.Unlock()
 
@@ -158,8 +159,8 @@ func (b *InMemoryBackend) UpdateVariantStore(name, description string) (*Variant
 		return nil, fmt.Errorf("%w: variant store %s not found", ErrNotFound, name)
 	}
 
-	if description != "" {
-		vs.Description = description
+	if description != nil {
+		vs.Description = *description
 	}
 
 	vs.UpdateTime = time.Now().UTC()

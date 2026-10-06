@@ -56,7 +56,7 @@ type createGlobalNetworkReq struct {
 }
 
 type updateGlobalNetworkReq struct {
-	Description string `json:"Description,omitempty"`
+	Description *string `json:"Description,omitempty"`
 }
 
 type describeGlobalNetworksResponse struct {
@@ -89,7 +89,7 @@ type createSiteReq struct {
 
 type updateSiteReq struct {
 	Location    *locationWire `json:"Location,omitempty"`
-	Description string        `json:"Description,omitempty"`
+	Description *string       `json:"Description,omitempty"`
 }
 
 type getSitesResponse struct {
@@ -135,12 +135,12 @@ type createDeviceReq struct {
 type updateDeviceReq struct {
 	AWSLocation  *awsLocationWire `json:"AWSLocation,omitempty"`
 	Location     *locationWire    `json:"Location,omitempty"`
-	Description  string           `json:"Description,omitempty"`
-	Model        string           `json:"Model,omitempty"`
-	SerialNumber string           `json:"SerialNumber,omitempty"`
-	SiteID       string           `json:"SiteId,omitempty"`
-	Type         string           `json:"Type,omitempty"`
-	Vendor       string           `json:"Vendor,omitempty"`
+	Description  *string          `json:"Description,omitempty"`
+	Model        *string          `json:"Model,omitempty"`
+	SerialNumber *string          `json:"SerialNumber,omitempty"`
+	SiteID       *string          `json:"SiteId,omitempty"`
+	Type         *string          `json:"Type,omitempty"`
+	Vendor       *string          `json:"Vendor,omitempty"`
 }
 
 type getDevicesResponse struct {
@@ -179,9 +179,9 @@ type createLinkReq struct {
 
 type updateLinkReq struct {
 	Bandwidth   *bandwidthWire `json:"Bandwidth,omitempty"`
-	Description string         `json:"Description,omitempty"`
-	Provider    string         `json:"Provider,omitempty"`
-	Type        string         `json:"Type,omitempty"`
+	Description *string        `json:"Description,omitempty"`
+	Provider    *string        `json:"Provider,omitempty"`
+	Type        *string        `json:"Type,omitempty"`
 }
 
 type getLinksResponse struct {
@@ -242,9 +242,9 @@ type createConnectionReq struct {
 }
 
 type updateConnectionReq struct {
-	ConnectedLinkID string `json:"ConnectedLinkId,omitempty"`
-	Description     string `json:"Description,omitempty"`
-	LinkID          string `json:"LinkId,omitempty"`
+	ConnectedLinkID *string `json:"ConnectedLinkId,omitempty"`
+	Description     *string `json:"Description,omitempty"`
+	LinkID          *string `json:"LinkId,omitempty"`
 }
 
 type getConnectionsResponse struct {
@@ -399,6 +399,7 @@ type connectPeerEnvelope struct {
 }
 
 type createConnectPeerReq struct {
+	ClientToken         string          `json:"ClientToken,omitempty"`
 	ConnectAttachmentID string          `json:"ConnectAttachmentId"`
 	PeerAddress         string          `json:"PeerAddress"`
 	BgpOptions          *bgpOptionsWire `json:"BgpOptions,omitempty"`
@@ -456,6 +457,7 @@ type coreNetworkEnvelope struct {
 }
 
 type createCoreNetworkReq struct {
+	ClientToken     string    `json:"ClientToken,omitempty"`
 	GlobalNetworkID string    `json:"GlobalNetworkId"`
 	Description     string    `json:"Description,omitempty"`
 	PolicyDocument  string    `json:"PolicyDocument,omitempty"`
@@ -505,6 +507,7 @@ type coreNetworkPolicyEnvelope struct {
 }
 
 type putCoreNetworkPolicyReq struct {
+	ClientToken     string `json:"ClientToken,omitempty"`
 	PolicyDocument  string `json:"PolicyDocument"`
 	Description     string `json:"Description,omitempty"`
 	LatestVersionID int32  `json:"LatestVersionId,omitempty"`
@@ -679,6 +682,7 @@ type vpcAttachmentEnvelope struct {
 }
 
 type createVpcAttachmentReq struct {
+	ClientToken        string          `json:"ClientToken,omitempty"`
 	CoreNetworkID      string          `json:"CoreNetworkId"`
 	VpcArn             string          `json:"VpcArn"`
 	SubnetArns         []string        `json:"SubnetArns"`
@@ -710,6 +714,7 @@ type connectAttachmentEnvelope struct {
 }
 
 type createConnectAttachmentReq struct {
+	ClientToken           string                        `json:"ClientToken,omitempty"`
 	CoreNetworkID         string                        `json:"CoreNetworkId"`
 	EdgeLocation          string                        `json:"EdgeLocation"`
 	Options               *connectAttachmentOptionsWire `json:"Options"`
@@ -730,6 +735,7 @@ type siteToSiteVpnAttachmentEnvelope struct {
 }
 
 type createSiteToSiteVpnAttachmentReq struct {
+	ClientToken        string    `json:"ClientToken,omitempty"`
 	CoreNetworkID      string    `json:"CoreNetworkId"`
 	VpnConnectionArn   string    `json:"VpnConnectionArn"`
 	RoutingPolicyLabel string    `json:"RoutingPolicyLabel,omitempty"`
@@ -748,6 +754,7 @@ type directConnectGatewayAttachmentEnvelope struct {
 }
 
 type createDirectConnectGatewayAttachmentReq struct {
+	ClientToken             string    `json:"ClientToken,omitempty"`
 	CoreNetworkID           string    `json:"CoreNetworkId"`
 	DirectConnectGatewayArn string    `json:"DirectConnectGatewayArn"`
 	EdgeLocations           []string  `json:"EdgeLocations"`
@@ -772,6 +779,7 @@ type transitGatewayRouteTableAttachmentEnvelope struct {
 }
 
 type createTransitGatewayRouteTableAttachmentReq struct {
+	ClientToken                 string    `json:"ClientToken,omitempty"`
 	PeeringID                   string    `json:"PeeringId"`
 	TransitGatewayRouteTableArn string    `json:"TransitGatewayRouteTableArn"`
 	RoutingPolicyLabel          string    `json:"RoutingPolicyLabel,omitempty"`
@@ -816,6 +824,7 @@ type transitGatewayPeeringEnvelope struct {
 }
 
 type createTransitGatewayPeeringReq struct {
+	ClientToken       string    `json:"ClientToken,omitempty"`
 	CoreNetworkID     string    `json:"CoreNetworkId"`
 	TransitGatewayArn string    `json:"TransitGatewayArn"`
 	Tags              []tags.KV `json:"Tags,omitempty"`

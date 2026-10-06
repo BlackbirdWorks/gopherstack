@@ -39,14 +39,14 @@ const workspacesSnapshotVersion = 1
 // workspacesSnapshotVersion isn't required for these additions since an older
 // snapshot simply decodes with empty/nil/zero-value fields, matching the
 // prior (always-reset-after-restart) behavior exactly; no field changed
-// meaning or shape. imagePermissions, clientProperties, and appAssociations
-// remain NOT part of the snapshot -- still ephemeral, matching prior behavior
-// (see the field comments on InMemoryBackend in backend.go). Version guards
+// meaning or shape. appAssociations remains ephemeral. Version guards
 // against decoding a snapshot from an incompatible (older or newer) build of
 // this backend as though it were the current shape; see Restore.
 type backendSnapshot struct {
 	Tables               map[string]json.RawMessage     `json:"tables"`
 	Tags                 map[string]map[string]string   `json:"tags"`
+	ClientProperties     map[string]storedClientProps   `json:"clientProperties,omitempty"`
+	ImagePermissions     map[string]map[string]bool     `json:"imagePermissions,omitempty"`
 	DirectoryIpGroups    map[string]map[string]struct{} `json:"directoryIpGroups"` //nolint:revive,staticcheck // existing.
 	AccountConfig        storedAccountConfig            `json:"accountConfig"`
 	AccountModifications []AccountModification          `json:"accountModifications"`
@@ -70,6 +70,8 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Version:              workspacesSnapshotVersion,
 		Tables:               tables,
 		Tags:                 b.tags,
+		ClientProperties:     b.clientProperties,
+		ImagePermissions:     b.imagePermissions,
 		DirectoryIpGroups:    b.directoryIpGroups,
 		AccountConfig:        b.accountConfig,
 		AccountModifications: b.accountModifications,
@@ -103,6 +105,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.registry.ResetAll()
 		b.tags = make(map[string]map[string]string)
 		b.directoryIpGroups = make(map[string]map[string]struct{})
+		b.clientProperties = make(map[string]storedClientProps)
+		b.imagePermissions = make(map[string]map[string]bool)
 		b.accountConfig = storedAccountConfig{}
 		b.accountModifications = nil
 
@@ -121,6 +125,16 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.directoryIpGroups = snap.DirectoryIpGroups
 	if b.directoryIpGroups == nil {
 		b.directoryIpGroups = make(map[string]map[string]struct{})
+	}
+
+	b.clientProperties = snap.ClientProperties
+	if b.clientProperties == nil {
+		b.clientProperties = make(map[string]storedClientProps)
+	}
+
+	b.imagePermissions = snap.ImagePermissions
+	if b.imagePermissions == nil {
+		b.imagePermissions = make(map[string]map[string]bool)
 	}
 
 	b.accountConfig = snap.AccountConfig

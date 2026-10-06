@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -206,12 +207,16 @@ func (h *Handler) dispatchCreateCoreNetwork(
 		return nil, err
 	}
 
-	c, err := h.Backend.CreateCoreNetwork(
-		req.GlobalNetworkID,
-		req.Description,
-		req.PolicyDocument,
-		tags.MapFromKV(req.Tags),
-	)
+	token := req.ClientToken
+	req.ClientToken = ""
+
+	c, err := replayCreate(h, opCreateCoreNetwork, resourceCoreNetwork, token, req,
+		func(c *CoreNetwork) string { return c.CoreNetworkID }, h.Backend.GetCoreNetwork,
+		func() (*CoreNetwork, error) {
+			return h.Backend.CreateCoreNetwork(
+				req.GlobalNetworkID, req.Description, req.PolicyDocument, tags.MapFromKV(req.Tags),
+			)
+		})
 	if err != nil {
 		return nil, err
 	}
@@ -296,12 +301,29 @@ func (h *Handler) dispatchPutCoreNetworkPolicy(
 		return nil, err
 	}
 
-	_, v, err := h.Backend.PutCoreNetworkPolicy(
-		params["CoreNetworkId"],
-		req.PolicyDocument,
-		req.Description,
-		req.LatestVersionID,
-	)
+	token := req.ClientToken
+	req.ClientToken = ""
+	coreNetworkID := params["CoreNetworkId"]
+
+	v, err := replayCreate(h, opPutCoreNetworkPolicy, resourceCoreNetwork, token, []any{coreNetworkID, req},
+		policyVersionIDOf,
+		func(id string) (*CoreNetworkPolicyVersion, error) {
+			n, convErr := strconv.ParseInt(id, 10, 32)
+			if convErr != nil {
+				return nil, notFoundError(resourcePolicyVersion, id)
+			}
+
+			v, _, getErr := h.Backend.GetCoreNetworkPolicy(coreNetworkID, "", int32(n))
+
+			return v, getErr
+		},
+		func() (*CoreNetworkPolicyVersion, error) {
+			_, v, putErr := h.Backend.PutCoreNetworkPolicy(
+				coreNetworkID, req.PolicyDocument, req.Description, req.LatestVersionID,
+			)
+
+			return v, putErr
+		})
 	if err != nil {
 		return nil, err
 	}
@@ -390,7 +412,7 @@ func (h *Handler) dispatchRestoreCoreNetworkPolicyVersion(
 
 func (h *Handler) dispatchGetCoreNetworkChangeSet(
 	_ context.Context,
-	_ *http.Request,
+	r *http.Request,
 	params routeParams,
 	_ []byte,
 ) ([]byte, error) {
@@ -401,12 +423,15 @@ func (h *Handler) dispatchGetCoreNetworkChangeSet(
 		return nil, err
 	}
 
-	return marshalResponse(getCoreNetworkChangeSetResponse{CoreNetworkChanges: toCoreNetworkChangesWire(changes)})
+	q := r.URL.Query()
+	p := page.New(toCoreNetworkChangesWire(changes), queryNextToken(q), queryMaxResults(q), defaultPageLimit)
+
+	return marshalResponse(getCoreNetworkChangeSetResponse{CoreNetworkChanges: p.Data, NextToken: p.Next})
 }
 
 func (h *Handler) dispatchGetCoreNetworkChangeEvents(
 	_ context.Context,
-	_ *http.Request,
+	r *http.Request,
 	params routeParams,
 	_ []byte,
 ) ([]byte, error) {
@@ -418,9 +443,10 @@ func (h *Handler) dispatchGetCoreNetworkChangeEvents(
 		return nil, err
 	}
 
-	return marshalResponse(
-		getCoreNetworkChangeEventsResponse{CoreNetworkChangeEvents: toCoreNetworkChangeEventsWire(events)},
-	)
+	q := r.URL.Query()
+	p := page.New(toCoreNetworkChangeEventsWire(events), queryNextToken(q), queryMaxResults(q), defaultPageLimit)
+
+	return marshalResponse(getCoreNetworkChangeEventsResponse{CoreNetworkChangeEvents: p.Data, NextToken: p.Next})
 }
 
 func (h *Handler) dispatchExecuteCoreNetworkChangeSet(

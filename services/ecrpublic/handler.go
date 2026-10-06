@@ -181,6 +181,7 @@ func classifyError(err error) (int, string) {
 		{ErrLayerAlreadyExists, "LayerAlreadyExistsException"},
 		{ErrLayersNotFound, "LayersNotFoundException"},
 		{ErrImageNotFound, "ImageNotFoundException"},
+		{ErrReferencedImagesMissing, "ReferencedImagesNotFoundException"},
 		{ErrImageAlreadyExists, "ImageAlreadyExistsException"},
 		{ErrImageDigestDoesNotMatch, "ImageDigestDoesNotMatchException"},
 		{ErrImageTagAlreadyExists, "ImageTagAlreadyExistsException"},

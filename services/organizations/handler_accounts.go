@@ -46,16 +46,15 @@ type describeAccountRequest struct {
 }
 
 type accountObject struct {
-	ID                     string   `json:"Id"`
-	ARN                    string   `json:"Arn"`
-	Name                   string   `json:"Name"`
-	Email                  string   `json:"Email"`
-	Status                 string   `json:"Status"`
-	JoinedMethod           string   `json:"JoinedMethod"`
-	RoleName               string   `json:"RoleName,omitempty"`
-	IamUserAccessToBilling string   `json:"IamUserAccessToBilling,omitempty"`
-	Paths                  []string `json:"Paths,omitempty"`
-	JoinedAt               float64  `json:"JoinedTimestamp"`
+	ID           string   `json:"Id"`
+	ARN          string   `json:"Arn"`
+	Name         string   `json:"Name"`
+	Email        string   `json:"Email"`
+	Status       string   `json:"Status"`
+	State        string   `json:"State,omitempty"`
+	JoinedMethod string   `json:"JoinedMethod"`
+	Paths        []string `json:"Paths,omitempty"`
+	JoinedAt     float64  `json:"JoinedTimestamp"`
 }
 
 type describeAccountResponse struct {
@@ -120,6 +119,7 @@ type listCreateAccountStatusResponse struct {
 type listAccountsWithInvalidEffectivePolicyRequest struct {
 	PolicyType string `json:"PolicyType"`
 	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults int    `json:"MaxResults,omitempty"`
 }
 
 type listAccountsWithInvalidEffectivePolicyResponse struct {
@@ -360,6 +360,10 @@ func (h *Handler) handleListAccountsWithInvalidEffectivePolicy(c *echo.Context, 
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "PolicyType is required")
 	}
 
+	if rejected, err := h.checkPaging(c, req.MaxResults, req.NextToken); rejected {
+		return err
+	}
+
 	accounts, err := h.Backend.ListAccountsWithInvalidEffectivePolicy(req.PolicyType)
 	if err != nil {
 		return h.handleBackendError(c, err)
@@ -370,20 +374,21 @@ func (h *Handler) handleListAccountsWithInvalidEffectivePolicy(c *echo.Context, 
 		objs = append(objs, toAccountObject(a))
 	}
 
-	return c.JSON(http.StatusOK, listAccountsWithInvalidEffectivePolicyResponse{Accounts: objs})
+	p := page.New(objs, req.NextToken, req.MaxResults, defaultMaxResults)
+
+	return c.JSON(http.StatusOK, listAccountsWithInvalidEffectivePolicyResponse{Accounts: p.Data, NextToken: p.Next})
 }
 
 func toAccountObject(a *Account) accountObject {
 	return accountObject{
-		ID:                     a.ID,
-		ARN:                    a.ARN,
-		Name:                   a.Name,
-		Email:                  a.Email,
-		Status:                 a.Status,
-		JoinedMethod:           a.JoinedMethod,
-		JoinedAt:               epochSeconds(a.JoinedAt),
-		RoleName:               a.RoleName,
-		IamUserAccessToBilling: a.IamUserAccessToBilling,
-		Paths:                  a.Paths,
+		ID:           a.ID,
+		ARN:          a.ARN,
+		Name:         a.Name,
+		Email:        a.Email,
+		Status:       a.Status,
+		State:        a.Status,
+		JoinedMethod: a.JoinedMethod,
+		JoinedAt:     epochSeconds(a.JoinedAt),
+		Paths:        a.Paths,
 	}
 }

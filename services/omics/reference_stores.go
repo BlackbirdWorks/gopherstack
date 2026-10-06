@@ -15,6 +15,7 @@ import (
 // CreateReferenceStore creates a new reference store.
 func (b *InMemoryBackend) CreateReferenceStore(
 	name, description string,
+	sseConfig map[string]any,
 	tags map[string]string,
 ) (*ReferenceStore, error) {
 	if name == "" {
@@ -28,6 +29,7 @@ func (b *InMemoryBackend) CreateReferenceStore(
 		ID:           newID(),
 		Name:         name,
 		Description:  description,
+		SseConfig:    sseConfig,
 		Tags:         copyTags(tags),
 		CreationTime: time.Now().UTC(),
 	}

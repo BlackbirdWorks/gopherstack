@@ -9,16 +9,19 @@
 | --- | --- |
 | PARITY entries audited | 97 (96 ok, 1 partial) |
 | Feature families | 4 (4 ok) |
-| Known gaps | 4 |
+| Known gaps | 7 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- CHECKED 2026-09-07 (gopherstack-z1sd triage), found FALSE: the claim 'migration project has no status' misdescribes the real API, not this backend. The real MigrationProject type (databasemigrationservice@v1.66.4 types/types.go:2044-2088) has no Status/MigrationProjectStatus field at all -- confirmed by full field listing (Description, InstanceProfileArn, InstanceProfileName, MigrationProjectArn, MigrationProjectCreationTime, MigrationProjectName, SchemaConversionApplicationAttributes, Source/TargetDataProviderDescriptors, TransformationRules) and by grep across the whole SDK module for MigrationProjectStatus (zero hits). CreateMigrationProject/ModifyMigrationProject/DeleteMigrationProject/DescribeMigrationProjects (ops rows above) already match this shape exactly, including the 2026-08-11 fix that removed a fabricated MigrationProjectIdentifier response field. There is no gap here.
-- 2026-10-04: DescribeApplicableIndividualAssessments now validates that a supplied ReplicationTaskArn/ReplicationInstanceArn/ReplicationConfigArn exists (ResourceNotFoundFault), but the returned catalog is not narrowed per engine/migration type: no per-engine support metadata is modeled and inventing it would be fabrication.
-- 2026-09-12 (reqfielddiff, gopherstack-xhu2t): DescribeDataMigrationsInput.WithoutStatistics is accepted-and-ignored -- DataMigration (models.go) carries no DataMigrationStatistics field at all; this backend never runs a real data migration and so never populates statistics for one to hide. WithoutSettings (the sibling field, real DataMigrationSettings state) was already fixed in the 2026-08-29 pass; this one has nothing to suppress.
-- 2026-10-04 (reqfielddiff): StartReplicationInput.PremigrationAssessmentSettings (databasemigrationservice@v1.66.4 api_op_StartReplication.go:104, FailOnAssessmentFailure gate) is undeclared: no premigration-assessment run is ever executed on StartReplication, so there is no failure to gate.
+- DescribeApplicableIndividualAssessments: ReplicationTaskArn/ReplicationInstanceArn/ReplicationConfigArn are existence-checked, but the catalog is not narrowed by MigrationType/SourceEngineName/TargetEngineName: no per-engine support metadata is modeled and inventing it would be fabrication.
+- DescribeDataMigrationsInput.WithoutStatistics is accepted-and-ignored: DataMigration carries no DataMigrationStatistics (this backend never runs a migration, so there is nothing to hide).
+- StartReplicationInput.PremigrationAssessmentSettings (api_op_StartReplication.go:104, FailOnAssessmentFailure gate) is undeclared: no premigration-assessment run is executed on StartReplication, so there is no failure to gate.
+- ModifyReplicationInstance.ApplyImmediately/AllowMajorVersionUpgrade are undeclared: every modify applies immediately (no deferred PendingModifiedValues state machine) and the SDK names no error for a major-version change without the flag.
+- DescribeEvents.Duration is undeclared: the pinned SDK doc gives no unit for 'the duration of the events to be listed', so applying a window would be invention.
+- CdcStartTime on CreateReplicationTask/ModifyReplicationTask/StartReplicationTask/StartReplication and CdcStartPosition/CdcStopPosition on the Start ops are validated (position and time are mutually exclusive) but not applied: no CDC engine exists and ReplicationTask echoes none of them back from Start.
+- Engine-specific endpoint settings blocks other than S3Settings (CreateEndpoint/ModifyEndpoint) are rejected with ValidationException rather than modeled; ModifyEndpoint.ExactSettings applies to S3Settings only.
 
 ## More
 

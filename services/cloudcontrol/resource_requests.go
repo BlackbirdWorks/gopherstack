@@ -91,7 +91,7 @@ func eventMatchesFilter(event *ProgressEvent, filter *ResourceRequestFilter) boo
 }
 
 // ListResourceRequests returns all tracked resource requests, optionally filtered
-// by operation type, operation status, and/or resource type name. Results are sorted
+// by operation type and/or operation status. Results are sorted
 // by EventTime descending (most recent first) for deterministic output. Never
 // errors on the filter contents (see eventMatchesFilter).
 func (b *InMemoryBackend) ListResourceRequests(
@@ -115,7 +115,7 @@ func (b *InMemoryBackend) ListResourceRequests(
 		return out[i].EventTime.After(out[j].EventTime.Time)
 	})
 
-	pg := page.New(out, nextToken, maxResults, defaultListMaxResults)
+	pg := page.New(out, nextToken, maxResults, defaultListResourceRequestsMaxResults)
 
 	// Deep-copy the page items so callers cannot mutate backend state.
 	result := make([]*ProgressEvent, len(pg.Data))

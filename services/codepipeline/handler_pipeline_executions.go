@@ -16,8 +16,9 @@ const (
 )
 
 type startPipelineExecutionInput struct {
-	Name      string `json:"name"`
-	Variables []struct {
+	Name               string `json:"name"`
+	ClientRequestToken string `json:"clientRequestToken"`
+	Variables          []struct {
 		Name  string `json:"name"`
 		Value string `json:"value"`
 	} `json:"variables"`
@@ -39,7 +40,10 @@ func (h *Handler) handleStartPipelineExecution(
 		return nil, fmt.Errorf("%w: name is required", errInvalidRequest)
 	}
 
-	opts := StartExecutionOptions{Variables: make(map[string]string, len(in.Variables))}
+	opts := StartExecutionOptions{
+		Variables:          make(map[string]string, len(in.Variables)),
+		ClientRequestToken: in.ClientRequestToken,
+	}
 	for _, v := range in.Variables {
 		opts.Variables[v.Name] = v.Value
 	}

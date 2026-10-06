@@ -4,7 +4,7 @@ import "github.com/blackbirdworks/gopherstack/pkgs/awserr"
 
 var (
 	// ErrNotFound is returned when a configuration recorder is not found.
-	ErrNotFound = awserr.New("NoSuchConfigurationRecorder", awserr.ErrNotFound)
+	ErrNotFound = awserr.New("NoSuchConfigurationRecorderException", awserr.ErrNotFound)
 	// ErrNoSuchDeliveryChannel is returned when a delivery channel is not found.
 	ErrNoSuchDeliveryChannel = awserr.New("NoSuchDeliveryChannelException", awserr.ErrNotFound)
 	// ErrNoSuchConfigRule is returned when a config rule is not found.
@@ -28,6 +28,8 @@ var (
 	ErrNoDeliveryChannel = awserr.New("NoAvailableDeliveryChannelException", awserr.ErrInvalidParameter)
 	// ErrValidation is returned when a required field is missing or invalid.
 	ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter)
+	// ErrIdempotentParameterMismatch is returned when a ClientToken is reused with different parameters.
+	ErrIdempotentParameterMismatch = awserr.New("IdempotentParameterMismatch", awserr.ErrInvalidParameter)
 	// ErrInvalidParameterValue is returned for a missing/invalid required field
 	// on operations whose declared error model has no ValidationException --
 	// e.g. PutRemediationExceptions (verified against aws-sdk-go-v2/service/

@@ -126,9 +126,7 @@ func (h *Handler) handleReplaceNetworkACLEntry(vals url.Values, reqID string) (a
 
 func (h *Handler) handleReplaceNetworkACLAssociation(vals url.Values, reqID string) (any, error) {
 	aclID := vals.Get("NetworkAclId")
-	subnetID := vals.Get(
-		"AssociationId",
-	) // AWS sends the old assocID; we use SubnetId as a simplification
+	subnetID := vals.Get("AssociationId")
 	if subnetID == "" {
 		subnetID = vals.Get("SubnetId")
 	}

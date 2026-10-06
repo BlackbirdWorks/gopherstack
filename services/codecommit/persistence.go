@@ -48,16 +48,18 @@ const codecommitSnapshotVersion = 2
 // string, the same shape these fields held on disk before, so old snapshots
 // still decode -- no codecommitSnapshotVersion bump needed.
 type commentSnapshot struct {
-	CreationDate     time.Time `json:"creationDate"`
-	LastModifiedDate time.Time `json:"lastModifiedDate"`
-	CommentID        string    `json:"commentId"`
-	Content          string    `json:"content"`
-	AuthorARN        string    `json:"authorArn"`
-	InReplyTo        string    `json:"inReplyTo,omitempty"`
-	PRid             string    `json:"prId,omitempty"`
-	RepoName         string    `json:"repoName,omitempty"`
-	AfterCommitID    string    `json:"afterCommitId,omitempty"`
-	Deleted          bool      `json:"deleted"`
+	Location         *CommentLocation `json:"location,omitempty"`
+	CreationDate     time.Time        `json:"creationDate"`
+	LastModifiedDate time.Time        `json:"lastModifiedDate"`
+	CommentID        string           `json:"commentId"`
+	Content          string           `json:"content"`
+	AuthorARN        string           `json:"authorArn"`
+	InReplyTo        string           `json:"inReplyTo,omitempty"`
+	PRid             string           `json:"prId,omitempty"`
+	RepoName         string           `json:"repoName,omitempty"`
+	AfterCommitID    string           `json:"afterCommitId,omitempty"`
+	BeforeCommitID   string           `json:"beforeCommitId,omitempty"`
+	Deleted          bool             `json:"deleted"`
 }
 
 func commentSnapshotKeyFn(v *commentSnapshot) string { return v.CommentID }
@@ -73,6 +75,8 @@ func toCommentSnapshot(c *Comment) *commentSnapshot {
 		PRid:             c.PRid,
 		RepoName:         c.RepoName,
 		AfterCommitID:    c.AfterCommitID,
+		BeforeCommitID:   c.BeforeCommitID,
+		Location:         c.Location,
 		Deleted:          c.Deleted,
 	}
 }
@@ -88,6 +92,8 @@ func fromCommentSnapshot(s *commentSnapshot) *Comment {
 		PRid:             s.PRid,
 		RepoName:         s.RepoName,
 		AfterCommitID:    s.AfterCommitID,
+		BeforeCommitID:   s.BeforeCommitID,
+		Location:         s.Location,
 		Deleted:          s.Deleted,
 	}
 }

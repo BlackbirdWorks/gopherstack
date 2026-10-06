@@ -15,7 +15,7 @@
 
 ### Known gaps
 
-- GetMalwareScan: no per-object scan model exists, so scanConfiguration/scanResultDetails/scannedResources[] (all optional) stay absent -- would need file/object/volume-level state this backend doesn't track.
+- GetMalwareScan: no per-object scan model exists, so scanResultDetails/scannedResources[] (optional) stay absent -- would need file/object/volume-level state this backend doesn't track.
 - GetOrganizationStatistics.countByFeature is always [] -- needs per-feature, per-member-account org-wide enrollment tracking that doesn't exist (only OrgConfig.Features at the requesting account exists).
 - GetRemainingFreeTrialDays' features[] only reports the three always-on base sources -- no per-member optional-feature (S3_DATA_EVENTS/EKS_AUDIT_LOGS/etc.) enablement state exists to report from.
 - ListCoverage's FilterCriteria/SortCriteria are not parsed -- this backend holds no coverage-resource state at all (always {}/[]), so a filter would only ever operate over a permanently-empty list; do not build until coverage-resource state exists.

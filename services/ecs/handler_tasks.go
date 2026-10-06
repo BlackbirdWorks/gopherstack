@@ -35,6 +35,8 @@ type runTaskInput struct {
 	PlatformVersion          string                     `json:"platformVersion,omitempty"`
 	PropagateTags            string                     `json:"propagateTags,omitempty"`
 	Tags                     []Tag                      `json:"tags,omitempty"`
+	PlacementConstraints     []placementConstraintInput `json:"placementConstraints,omitempty"`
+	PlacementStrategy        []placementStrategyInput   `json:"placementStrategy,omitempty"`
 	CapacityProviderStrategy []cpStrategyItemInput      `json:"capacityProviderStrategy,omitempty"`
 	Count                    int                        `json:"count,omitempty"`
 	EnableECSManagedTags     bool                       `json:"enableECSManagedTags,omitempty"`
@@ -58,6 +60,8 @@ func (h *Handler) handleRunTask(_ context.Context, in *runTaskInput) (*runTaskOu
 		PropagateTags:            in.PropagateTags,
 		EnableECSManagedTags:     in.EnableECSManagedTags,
 		Tags:                     in.Tags,
+		PlacementConstraints:     toPlacementConstraints(in.PlacementConstraints),
+		PlacementStrategy:        toPlacementStrategies(in.PlacementStrategy),
 		CapacityProviderStrategy: toCPStrategyItems(in.CapacityProviderStrategy),
 		Overrides:                toTaskOverride(in.Overrides),
 		NetworkConfiguration:     toNetworkConfiguration(in.NetworkConfiguration),
@@ -83,6 +87,7 @@ func (h *Handler) handleRunTask(_ context.Context, in *runTaskInput) (*runTaskOu
 type describeTasksInput struct {
 	Cluster string   `json:"cluster,omitempty"`
 	Tasks   []string `json:"tasks"`
+	Include []string `json:"include,omitempty"`
 }
 
 type describeTasksOutput struct {
@@ -99,8 +104,14 @@ func (h *Handler) handleDescribeTasks(
 		return nil, err
 	}
 
+	wantTags := wantsIncludeTag(in.Include, describeServiceIncludeTags)
 	views := make([]taskView, 0, len(tasks))
+
 	for _, t := range tasks {
+		if !wantTags {
+			t.Tags = nil
+		}
+
 		views = append(views, toTaskView(t))
 	}
 
@@ -192,8 +203,11 @@ type startTaskInput struct {
 	TaskDefinition       string                     `json:"taskDefinition"`
 	Group                string                     `json:"group,omitempty"`
 	StartedBy            string                     `json:"startedBy,omitempty"`
+	PropagateTags        string                     `json:"propagateTags,omitempty"`
 	ContainerInstances   []string                   `json:"containerInstances"`
+	Tags                 []Tag                      `json:"tags,omitempty"`
 	EnableExecuteCommand bool                       `json:"enableExecuteCommand,omitempty"`
+	EnableECSManagedTags bool                       `json:"enableECSManagedTags,omitempty"`
 }
 
 type startTaskOutput struct {
@@ -211,6 +225,9 @@ func (h *Handler) handleStartTask(
 		ContainerInstances:   in.ContainerInstances,
 		Group:                in.Group,
 		StartedBy:            in.StartedBy,
+		PropagateTags:        in.PropagateTags,
+		Tags:                 in.Tags,
+		EnableECSManagedTags: in.EnableECSManagedTags,
 		Overrides:            toTaskOverride(in.Overrides),
 		NetworkConfiguration: toNetworkConfiguration(in.NetworkConfiguration),
 		EnableExecuteCommand: in.EnableExecuteCommand,
@@ -446,31 +463,28 @@ type containerView struct {
 }
 
 type taskView struct {
-	Overrides            *taskOverrideView         `json:"overrides,omitempty"`
-	NetworkConfiguration *networkConfigurationView `json:"networkConfiguration,omitempty"`
-	TaskArn              string                    `json:"taskArn"`
-	ClusterArn           string                    `json:"clusterArn"`
-	TaskDefinitionArn    string                    `json:"taskDefinitionArn"`
-	LastStatus           string                    `json:"lastStatus"`
-	DesiredStatus        string                    `json:"desiredStatus"`
-	Connectivity         string                    `json:"connectivity,omitempty"`
-	StoppedReason        string                    `json:"stoppedReason,omitempty"`
-	Group                string                    `json:"group,omitempty"`
-	LaunchType           string                    `json:"launchType,omitempty"`
-	ContainerInstanceArn string                    `json:"containerInstanceArn,omitempty"`
-	StartedBy            string                    `json:"startedBy,omitempty"`
-	PlatformVersion      string                    `json:"platformVersion,omitempty"`
-	PlatformFamily       string                    `json:"platformFamily,omitempty"`
-	RuntimeID            string                    `json:"runtimeId,omitempty"`
-	PropagateTags        string                    `json:"propagateTags,omitempty"`
-	CapacityProviderName string                    `json:"capacityProviderName,omitempty"`
-	Attachments          []taskAttachmentView      `json:"attachments,omitempty"`
-	Containers           []containerView           `json:"containers,omitempty"`
-	Tags                 []Tag                     `json:"tags,omitempty"`
-	StartedAt            float64                   `json:"startedAt,omitempty"`
-	StoppedAt            float64                   `json:"stoppedAt,omitempty"`
-	ConnectivityAt       float64                   `json:"connectivityAt,omitempty"`
-	EnableExecuteCommand bool                      `json:"enableExecuteCommand,omitempty"`
+	Overrides            *taskOverrideView    `json:"overrides,omitempty"`
+	TaskArn              string               `json:"taskArn"`
+	ClusterArn           string               `json:"clusterArn"`
+	TaskDefinitionArn    string               `json:"taskDefinitionArn"`
+	LastStatus           string               `json:"lastStatus"`
+	DesiredStatus        string               `json:"desiredStatus"`
+	Connectivity         string               `json:"connectivity,omitempty"`
+	StoppedReason        string               `json:"stoppedReason,omitempty"`
+	Group                string               `json:"group,omitempty"`
+	LaunchType           string               `json:"launchType,omitempty"`
+	ContainerInstanceArn string               `json:"containerInstanceArn,omitempty"`
+	StartedBy            string               `json:"startedBy,omitempty"`
+	PlatformVersion      string               `json:"platformVersion,omitempty"`
+	PlatformFamily       string               `json:"platformFamily,omitempty"`
+	CapacityProviderName string               `json:"capacityProviderName,omitempty"`
+	Attachments          []taskAttachmentView `json:"attachments,omitempty"`
+	Containers           []containerView      `json:"containers,omitempty"`
+	Tags                 []Tag                `json:"tags,omitempty"`
+	StartedAt            float64              `json:"startedAt,omitempty"`
+	StoppedAt            float64              `json:"stoppedAt,omitempty"`
+	ConnectivityAt       float64              `json:"connectivityAt,omitempty"`
+	EnableExecuteCommand bool                 `json:"enableExecuteCommand,omitempty"`
 }
 
 func toTaskView(t Task) taskView {
@@ -488,12 +502,9 @@ func toTaskView(t Task) taskView {
 		StartedBy:            t.StartedBy,
 		PlatformVersion:      t.PlatformVersion,
 		PlatformFamily:       t.PlatformFamily,
-		RuntimeID:            t.RuntimeID,
-		PropagateTags:        t.PropagateTags,
 		CapacityProviderName: t.CapacityProviderName,
 		Tags:                 t.Tags,
 		Overrides:            toTaskOverrideView(t.Overrides),
-		NetworkConfiguration: toNetworkConfigurationView(t.NetworkConfiguration),
 		EnableExecuteCommand: t.EnableExecuteCommand,
 	}
 

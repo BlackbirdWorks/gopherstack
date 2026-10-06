@@ -42,7 +42,7 @@ func computeConfigFromDomain(c *ComputeConfig) *computeConfigJSON {
 	}
 }
 
-func (c *computeConfigJSON) toDomain() *ComputeConfig {
+func (c *computeConfigJSON) asDomain() *ComputeConfig {
 	if c == nil {
 		return nil
 	}
@@ -67,6 +67,9 @@ type createReplicationConfigInput struct {
 	SourceEndpointArn           *string            `json:"SourceEndpointArn"`
 	TableMappings               *string            `json:"TableMappings"`
 	TargetEndpointArn           *string            `json:"TargetEndpointArn"`
+	ReplicationSettings         *string            `json:"ReplicationSettings"`
+	SupplementalSettings        *string            `json:"SupplementalSettings"`
+	ResourceIdentifier          *string            `json:"ResourceIdentifier"`
 	Tags                        []tagEntry         `json:"Tags"`
 }
 
@@ -78,6 +81,8 @@ type replicationConfigJSON struct {
 	SourceEndpointArn           string             `json:"SourceEndpointArn"`
 	TableMappings               string             `json:"TableMappings,omitempty"`
 	TargetEndpointArn           string             `json:"TargetEndpointArn"`
+	ReplicationSettings         string             `json:"ReplicationSettings,omitempty"`
+	SupplementalSettings        string             `json:"SupplementalSettings,omitempty"`
 }
 
 type createReplicationConfigOutput struct {
@@ -92,6 +97,8 @@ func rcToJSON(rc *ReplicationConfig) replicationConfigJSON {
 		SourceEndpointArn:           rc.SourceEndpointArn,
 		TargetEndpointArn:           rc.TargetEndpointArn,
 		TableMappings:               rc.TableMappings,
+		ReplicationSettings:         rc.ReplicationSettings,
+		SupplementalSettings:        rc.SupplementalSettings,
 		ComputeConfig:               computeConfigFromDomain(rc.ComputeConfig),
 	}
 }
@@ -126,7 +133,11 @@ func (h *Handler) handleCreateReplicationConfig(
 			SourceEndpointArn: ptrconv.String(in.SourceEndpointArn),
 			TargetEndpointArn: ptrconv.String(in.TargetEndpointArn),
 			TableMappings:     tableMappings,
-			ComputeConfig:     in.ComputeConfig.toDomain(),
+			ComputeConfig:     in.ComputeConfig.asDomain(),
+
+			ReplicationSettings:  ptrconv.String(in.ReplicationSettings),
+			SupplementalSettings: ptrconv.String(in.SupplementalSettings),
+			ResourceIdentifier:   ptrconv.String(in.ResourceIdentifier),
 		},
 		kv,
 	)
@@ -239,12 +250,15 @@ func (h *Handler) handleDescribeReplications(
 }
 
 type modifyReplicationConfigInput struct {
-	ReplicationConfigArn *string            `json:"ReplicationConfigArn"`
-	ReplicationType      *string            `json:"ReplicationType"`
-	TableMappings        *string            `json:"TableMappings"`
-	SourceEndpointArn    *string            `json:"SourceEndpointArn"`
-	TargetEndpointArn    *string            `json:"TargetEndpointArn"`
-	ComputeConfig        *computeConfigJSON `json:"ComputeConfig"`
+	ReplicationConfigArn        *string            `json:"ReplicationConfigArn"`
+	ReplicationType             *string            `json:"ReplicationType"`
+	TableMappings               *string            `json:"TableMappings"`
+	SourceEndpointArn           *string            `json:"SourceEndpointArn"`
+	TargetEndpointArn           *string            `json:"TargetEndpointArn"`
+	ComputeConfig               *computeConfigJSON `json:"ComputeConfig"`
+	ReplicationSettings         *string            `json:"ReplicationSettings"`
+	SupplementalSettings        *string            `json:"SupplementalSettings"`
+	ReplicationConfigIdentifier *string            `json:"ReplicationConfigIdentifier"`
 }
 
 type modifyReplicationConfigOutput struct {
@@ -254,15 +268,17 @@ type modifyReplicationConfigOutput struct {
 func (h *Handler) handleModifyReplicationConfig(
 	ctx context.Context, in *modifyReplicationConfigInput,
 ) (*modifyReplicationConfigOutput, error) {
-	rc, err := h.Backend.ModifyReplicationConfig(
-		ctx,
-		ptrconv.String(in.ReplicationConfigArn),
-		ptrconv.String(in.ReplicationType),
-		ptrconv.String(in.TableMappings),
-		ptrconv.String(in.SourceEndpointArn),
-		ptrconv.String(in.TargetEndpointArn),
-		in.ComputeConfig.toDomain(),
-	)
+	rc, err := h.Backend.ModifyReplicationConfig(ctx, ModifyReplicationConfigParams{
+		IdentifierOrArn:      ptrconv.String(in.ReplicationConfigArn),
+		NewIdentifier:        ptrconv.String(in.ReplicationConfigIdentifier),
+		ReplicationType:      ptrconv.String(in.ReplicationType),
+		TableMappings:        ptrconv.String(in.TableMappings),
+		SourceEndpointArn:    ptrconv.String(in.SourceEndpointArn),
+		TargetEndpointArn:    ptrconv.String(in.TargetEndpointArn),
+		ReplicationSettings:  ptrconv.String(in.ReplicationSettings),
+		SupplementalSettings: ptrconv.String(in.SupplementalSettings),
+		ComputeConfig:        in.ComputeConfig.asDomain(),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -271,8 +287,11 @@ func (h *Handler) handleModifyReplicationConfig(
 }
 
 type startReplicationInput struct {
-	ReplicationConfigArn *string `json:"ReplicationConfigArn"`
-	StartReplicationType *string `json:"StartReplicationType"`
+	ReplicationConfigArn *string  `json:"ReplicationConfigArn"`
+	StartReplicationType *string  `json:"StartReplicationType"`
+	CdcStartPosition     *string  `json:"CdcStartPosition"`
+	CdcStartTime         *float64 `json:"CdcStartTime"`
+	CdcStopPosition      *string  `json:"CdcStopPosition"`
 }
 
 // replicationJSON represents the DMS Serverless "Replication" runtime
@@ -324,6 +343,10 @@ func (h *Handler) handleStartReplication(
 			ErrValidation,
 			startType,
 		)
+	}
+
+	if err := validateCdcStartExclusive(in.CdcStartPosition, in.CdcStartTime); err != nil {
+		return nil, err
 	}
 
 	rc, err := h.Backend.StartReplication(ctx, configArn, startType)

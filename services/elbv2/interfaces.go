@@ -13,7 +13,9 @@ type StorageBackend interface {
 	SetSecurityGroups(
 		lbArn string, sgs []string, enforceInboundRulesOnPrivateLink string,
 	) (*LoadBalancer, error)
-	SetSubnets(lbArn string, mappings []SubnetMapping, enablePrefixForIpv6SourceNat string) (*LoadBalancer, error)
+	SetSubnets(
+		lbArn string, mappings []SubnetMapping, enablePrefixForIpv6SourceNat, ipAddressType string,
+	) (*LoadBalancer, error)
 	SetIPAddressType(lbArn string, ipType string) (*LoadBalancer, error)
 	CreateTargetGroup(input CreateTargetGroupInput) (*TargetGroup, error)
 	DescribeTargetGroups(arns []string, names []string, lbArn string) ([]TargetGroup, error)

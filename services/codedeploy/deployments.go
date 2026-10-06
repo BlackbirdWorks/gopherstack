@@ -45,6 +45,10 @@ func (b *InMemoryBackend) CreateDeployment(appName, dgName string, opts Deployme
 		return nil, err
 	}
 
+	if err := validateTargetInstances(opts.TargetInstances); err != nil {
+		return nil, err
+	}
+
 	deploymentConfigName := dg.DeploymentConfigName
 	if opts.DeploymentConfigName != "" {
 		if !b.deploymentConfigs.Has(opts.DeploymentConfigName) {
@@ -76,6 +80,11 @@ func (b *InMemoryBackend) CreateDeployment(appName, dgName string, opts Deployme
 		UpdateOutdatedInstancesOnly:   opts.UpdateOutdatedInstancesOnly,
 		IgnoreApplicationStopFailures: opts.IgnoreApplicationStopFailures,
 		Revision:                      opts.Revision,
+		AutoRollbackConfiguration:     opts.AutoRollbackConfiguration,
+		OverrideAlarmConfiguration:    opts.OverrideAlarmConfiguration,
+		TargetInstances:               opts.TargetInstances,
+		DeploymentStyle:               copyDeploymentStyle(dg.DeploymentStyle),
+		ComputePlatform:               b.applicationComputePlatform(appName),
 		CreateTime:                    now,
 		CompleteTime:                  &completed,
 		AccountID:                     b.accountID,
@@ -87,6 +96,33 @@ func (b *InMemoryBackend) CreateDeployment(appName, dgName string, opts Deployme
 	cp := *d
 
 	return &cp, nil
+}
+
+func validateTargetInstances(ti *TargetInstances) error {
+	if ti != nil && ti.Ec2TagSet != nil && len(ti.TagFilters) > 0 {
+		return fmt.Errorf("%w: tagFilters and ec2TagSet cannot be used together", ErrInvalidTargetInstances)
+	}
+
+	return nil
+}
+
+func copyDeploymentStyle(s *DeploymentStyle) *DeploymentStyle {
+	if s == nil {
+		return nil
+	}
+
+	cp := *s
+
+	return &cp
+}
+
+func (b *InMemoryBackend) applicationComputePlatform(appName string) string {
+	app, ok := b.applications.Get(appName)
+	if !ok {
+		return ""
+	}
+
+	return app.ComputePlatform
 }
 
 // GetDeployment returns a deployment by ID.

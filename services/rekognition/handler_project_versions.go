@@ -138,6 +138,7 @@ type describeProjectVersionsReq struct {
 type projectVersionDescription struct {
 	OutputConfig            *outputConfigWire               `json:"OutputConfig,omitempty"`
 	FeatureConfig           *customizationFeatureConfigWire `json:"FeatureConfig,omitempty"`
+	Feature                 string                          `json:"Feature,omitempty"`
 	ProjectVersionArn       string                          `json:"ProjectVersionArn"`
 	Status                  string                          `json:"Status"`
 	StatusMessage           string                          `json:"StatusMessage,omitempty"`
@@ -193,6 +194,7 @@ func (h *Handler) handleDescribeProjectVersions(
 	descriptions := make([]projectVersionDescription, 0, len(versions))
 	for _, v := range versions {
 		descriptions = append(descriptions, projectVersionDescription{
+			Feature:                 v.Feature,
 			ProjectVersionArn:       v.ProjectVersionARN,
 			Status:                  v.Status,
 			StatusMessage:           v.StatusMessage,
@@ -215,6 +217,8 @@ func (h *Handler) handleDescribeProjectVersions(
 
 type copyProjectVersionReq struct {
 	OutputConfig            *outputConfigWire `json:"OutputConfig"`
+	Tags                    map[string]string `json:"Tags"`
+	KmsKeyID                string            `json:"KmsKeyId"`
 	SourceProjectArn        string            `json:"SourceProjectArn"`
 	SourceProjectVersionArn string            `json:"SourceProjectVersionArn"`
 	DestinationProjectArn   string            `json:"DestinationProjectArn"`
@@ -251,6 +255,8 @@ func (h *Handler) handleCopyProjectVersion(
 	}
 
 	params := CopyProjectVersionParams{
+		Tags:                    req.Tags,
+		KmsKeyID:                req.KmsKeyID,
 		SourceProjectARN:        req.SourceProjectArn,
 		OutputConfigS3Bucket:    req.OutputConfig.S3Bucket,
 		OutputConfigS3KeyPrefix: req.OutputConfig.S3KeyPrefix,

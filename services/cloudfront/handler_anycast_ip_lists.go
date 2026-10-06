@@ -70,6 +70,7 @@ type anycastIPListRequestXML struct {
 	// (awsRestxml_serializeOpCreateAnycastIpList's StartElement.Local).
 	XMLName         xml.Name            `xml:"CreateAnycastIpListRequest"`
 	Name            string              `xml:"Name"`
+	IPAddressType   string              `xml:"IpAddressType"`
 	Tags            []tagXML            `xml:"Tags>Items>Tag"`
 	IpamCidrConfigs []ipamCidrConfigXML `xml:"IpamCidrConfigs>IpamCidrConfig"`
 	// Wire element is IpCount, not IPCount (cloudfront@v1.67.4 serializers.go
@@ -104,33 +105,14 @@ func (h *Handler) handleCreateAnycastIPList(c *echo.Context) error {
 		tags[tag.Key] = tag.Value
 	}
 
-	list, createErr := h.Backend.CreateAnycastIPList(
-		req.Name, req.IPCount, toIpamCidrConfigs(req.IpamCidrConfigs), tags,
+	list, createErr := h.Backend.CreateAnycastIPListWithAddressType(
+		req.Name, req.IPAddressType, req.IPCount, toIpamCidrConfigs(req.IpamCidrConfigs), tags,
 	)
 	if createErr != nil {
 		return h.handleError(c, createErr)
 	}
 
-	var ips strings.Builder
-	for _, ip := range list.AnycastIPs {
-		// Wire element is AnycastIp, not IpAddress (cloudfront@v1.67.4 deserializers.go:34541,
-		// awsRestxml_deserializeDocumentAnycastIps).
-		fmt.Fprintf(&ips, `<AnycastIp>%s</AnycastIp>`, ip)
-	}
-
-	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
-		`<AnycastIPList xmlns="%s">`+
-		`<Id>%s</Id>`+
-		`<ARN>%s</ARN>`+
-		`<Name>%s</Name>`+
-		`<Status>%s</Status>`+
-		`<IPCount>%d</IPCount>`+
-		`<LastModifiedTime>%s</LastModifiedTime>`+
-		`%s`+
-		`<AnycastIps>%s</AnycastIps>`+
-		`</AnycastIPList>`,
-		cfNS, list.ID, list.ARN, list.Name, list.Status, list.IPCount, list.LastModifiedTime,
-		anycastIPListIpamConfigXML(list.IpamCidrConfigs), ips.String())
+	resp := anycastIPListXML(cfNS, list)
 
 	c.Response().Header().Set("Location", cfPathPrefix+"anycast-ip-list/"+list.ID)
 	c.Response().Header().Set("ETag", list.ETag)
@@ -141,6 +123,7 @@ func (h *Handler) handleCreateAnycastIPList(c *echo.Context) error {
 func anycastIPListXML(ns string, list *AnycastIPList) string {
 	var ips strings.Builder
 	for _, ip := range list.AnycastIPs {
+		// Wire element is AnycastIp, not IpAddress (deserializers.go awsRestxml_deserializeDocumentAnycastIps).
 		fmt.Fprintf(&ips, `<AnycastIp>%s</AnycastIp>`, ip)
 	}
 

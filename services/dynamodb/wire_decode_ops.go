@@ -9,6 +9,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
+	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 )
 
 // Bit flags identifying which top-level request fields were present.
@@ -41,6 +42,7 @@ const (
 
 const (
 	wireReturnConsumedCapacity = "ReturnConsumedCapacity"
+	wireReturnICM              = "ReturnItemCollectionMetrics"
 	writeRequestHint           = 8
 )
 
@@ -84,8 +86,15 @@ type itemReq struct {
 
 // parseItemReq decodes body into an itemReq, allowing only the fields in allowed.
 func parseItemReq(body []byte, allowed uint32) (*itemReq, bool) {
-	req := &itemReq{}
 	r := wireReader{b: body}
+	req, ok := r.itemReqObject(allowed)
+
+	return req, ok && r.atEnd()
+}
+
+// itemReqObject decodes the JSON object at the reader's position into an itemReq.
+func (r *wireReader) itemReqObject(allowed uint32) (*itemReq, bool) {
+	req := &itemReq{}
 
 	ok := r.members(func(key []byte, escaped bool) bool {
 		bit := itemFieldBit(key)
@@ -95,10 +104,10 @@ func parseItemReq(body []byte, allowed uint32) (*itemReq, bool) {
 
 		req.seen |= bit
 
-		return req.readField(&r, bit)
+		return req.readField(r, bit)
 	})
 
-	return req, ok && r.atEnd()
+	return req, ok
 }
 
 //nolint:gochecknoglobals // immutable request-field lookup
@@ -117,7 +126,7 @@ var itemFieldBits = map[string]uint32{
 	"Select":                              fSelect,
 	"ReturnValues":                        fReturnValues,
 	wireReturnConsumedCapacity:            fRCC,
-	"ReturnItemCollectionMetrics":         fRICM,
+	wireReturnICM:                         fRICM,
 	"ReturnValuesOnConditionCheckFailure": fRVOCCF,
 	"ConditionalOperator":                 fCondOp,
 	"ExclusiveStartKey":                   fStartKey,
@@ -391,7 +400,7 @@ func decodeBatchWriteItem(body []byte) (*dynamodb.BatchWriteItemInput, bool) {
 			bit = fItem
 		case wireReturnConsumedCapacity:
 			bit = fRCC
-		case "ReturnItemCollectionMetrics":
+		case wireReturnICM:
 			bit = fRICM
 		default:
 			return false
@@ -505,6 +514,165 @@ func (r *wireReader) singleItemObject(field string) (map[string]types.AttributeV
 	})
 
 	return nonNilItem(item), ok
+}
+
+const (
+	txActPut uint32 = 1 << iota
+	txActDelete
+	txActUpdate
+	txActCheck
+)
+
+const (
+	txFieldItems uint32 = 1 << iota
+	txFieldToken
+	txFieldRCC
+	txFieldRICM
+)
+
+const (
+	txPutFields    = fTableName | fItem | fNames | fValues | fCondExpr | fRVOCCF
+	txKeyedFields  = fTableName | fKey | fNames | fValues | fCondExpr | fRVOCCF
+	txUpdateFields = txKeyedFields | fUpdExpr
+)
+
+func decodeTransactWriteItems(body []byte) (*dynamodb.TransactWriteItemsInput, bool) {
+	out := &dynamodb.TransactWriteItemsInput{TransactItems: make([]types.TransactWriteItem, 0, writeRequestHint)}
+	seen := uint32(0)
+
+	ok := parseTop(body, func(r *wireReader, key []byte) bool {
+		var bit uint32
+
+		switch string(key) {
+		case "TransactItems":
+			bit = txFieldItems
+		case "ClientRequestToken":
+			bit = txFieldToken
+		case wireReturnConsumedCapacity:
+			bit = txFieldRCC
+		case wireReturnICM:
+			bit = txFieldRICM
+		default:
+			return false
+		}
+
+		if seen&bit != 0 {
+			return false
+		}
+
+		seen |= bit
+
+		if bit == txFieldItems {
+			return r.elements(func() bool {
+				twi, good := r.transactWriteItem()
+				out.TransactItems = append(out.TransactItems, twi)
+
+				return good
+			})
+		}
+
+		s, good := r.str()
+
+		switch bit {
+		case txFieldToken:
+			out.ClientRequestToken = ptrconv.NilIfEmpty(s)
+		case txFieldRCC:
+			out.ReturnConsumedCapacity = types.ReturnConsumedCapacity(s)
+		default:
+			out.ReturnItemCollectionMetrics = types.ReturnItemCollectionMetrics(s)
+		}
+
+		return good
+	})
+
+	return out, ok
+}
+
+func (r *wireReader) transactWriteItem() (types.TransactWriteItem, bool) {
+	var twi types.TransactWriteItem
+
+	seen := uint32(0)
+
+	ok := r.members(func(key []byte, escaped bool) bool {
+		if escaped {
+			return false
+		}
+
+		var bit, allowed uint32
+
+		switch string(key) {
+		case "Put":
+			bit, allowed = txActPut, txPutFields
+		case "Delete":
+			bit, allowed = txActDelete, txKeyedFields
+		case "Update":
+			bit, allowed = txActUpdate, txUpdateFields
+		case "ConditionCheck":
+			bit, allowed = txActCheck, txKeyedFields
+		default:
+			return false
+		}
+
+		if seen&bit != 0 {
+			return false
+		}
+
+		seen |= bit
+
+		q, good := r.itemReqObject(allowed)
+		if !good {
+			return false
+		}
+
+		q.assignTransactAction(&twi, bit)
+
+		return true
+	})
+
+	return twi, ok
+}
+
+// assignTransactAction mirrors the models conversion (create*TransactItem) field for field.
+func (q *itemReq) assignTransactAction(twi *types.TransactWriteItem, bit uint32) {
+	switch bit {
+	case txActPut:
+		twi.Put = &types.Put{
+			Item:                                nonNilItem(q.item),
+			TableName:                           &q.tableName,
+			ConditionExpression:                 ptrconv.NilIfEmpty(q.condExpr),
+			ExpressionAttributeNames:            q.names,
+			ExpressionAttributeValues:           nonEmptyItem(q.values),
+			ReturnValuesOnConditionCheckFailure: types.ReturnValuesOnConditionCheckFailure(q.rvoccf),
+		}
+	case txActDelete:
+		twi.Delete = &types.Delete{
+			Key:                                 nonNilItem(q.key),
+			TableName:                           &q.tableName,
+			ConditionExpression:                 ptrconv.NilIfEmpty(q.condExpr),
+			ExpressionAttributeNames:            q.names,
+			ExpressionAttributeValues:           nonEmptyItem(q.values),
+			ReturnValuesOnConditionCheckFailure: types.ReturnValuesOnConditionCheckFailure(q.rvoccf),
+		}
+	case txActUpdate:
+		twi.Update = &types.Update{
+			Key:                                 nonNilItem(q.key),
+			TableName:                           &q.tableName,
+			UpdateExpression:                    ptrconv.NilIfEmpty(q.updExpr),
+			ConditionExpression:                 ptrconv.NilIfEmpty(q.condExpr),
+			ExpressionAttributeNames:            q.names,
+			ExpressionAttributeValues:           nonEmptyItem(q.values),
+			ReturnValuesOnConditionCheckFailure: types.ReturnValuesOnConditionCheckFailure(q.rvoccf),
+		}
+	default:
+		twi.ConditionCheck = &types.ConditionCheck{
+			Key:                                 nonNilItem(q.key),
+			TableName:                           &q.tableName,
+			ConditionExpression:                 &q.condExpr,
+			ExpressionAttributeNames:            q.names,
+			ExpressionAttributeValues:           nonEmptyItem(q.values),
+			ReturnValuesOnConditionCheckFailure: types.ReturnValuesOnConditionCheckFailure(q.rvoccf),
+		}
+	}
 }
 
 func decodeBatchGetItem(body []byte) (*dynamodb.BatchGetItemInput, bool) {
@@ -692,6 +860,21 @@ func (h *DynamoDBHandler) dispatchItemFast(ctx context.Context, action string, b
 	default:
 		return nil, false, nil
 	}
+}
+
+// fastTransactWrite is the direct-decode path for TransactWriteItems; handled=false means fall back.
+func (h *DynamoDBHandler) fastTransactWrite(ctx context.Context, body []byte) (any, bool, error) {
+	if len(body) == 0 || !fastPathEnabled(ctx) {
+		return nil, false, nil
+	}
+
+	return tryFast(
+		ctx,
+		body,
+		decodeTransactWriteItems,
+		h.Backend.TransactWriteItems,
+		func(o *dynamodb.TransactWriteItemsOutput) any { return models.FromSDKTransactWriteItemsOutput(o) },
+	)
 }
 
 func fastGetItem(ctx context.Context, b StorageBackend, body []byte) (any, bool, error) {

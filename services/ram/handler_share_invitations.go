@@ -47,7 +47,7 @@ func (h *Handler) handleAcceptResourceShareInvitation(
 	}
 
 	if req.ResourceShareInvitationArn == "" {
-		return nil, fmt.Errorf("%w: resourceShareInvitationArn is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: resourceShareInvitationArn is required", ErrMalformedArn)
 	}
 
 	inv, err := h.Backend.AcceptResourceShareInvitation(req.ResourceShareInvitationArn)
@@ -78,7 +78,7 @@ func (h *Handler) handleRejectResourceShareInvitation(
 	}
 
 	if req.ResourceShareInvitationArn == "" {
-		return nil, fmt.Errorf("%w: resourceShareInvitationArn is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: resourceShareInvitationArn is required", ErrMalformedArn)
 	}
 
 	inv, err := h.Backend.RejectResourceShareInvitation(req.ResourceShareInvitationArn)

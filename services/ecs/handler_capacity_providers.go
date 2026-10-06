@@ -16,12 +16,11 @@ const describeCapacityProviderIncludeTags = "TAGS"
 // ----- Capacity provider view types -----
 
 type managedScalingView struct {
-	Status                    string `json:"status,omitempty"`
-	TargetCapacityPercent     int    `json:"targetCapacity,omitempty"`
-	MinimumScalingStepSize    int    `json:"minimumScalingStepSize,omitempty"`
-	MaximumScalingStepSize    int    `json:"maximumScalingStepSize,omitempty"`
-	InstanceWarmupPeriod      int    `json:"instanceWarmupPeriod,omitempty"`
-	TargetCapacityUtilization int    `json:"targetCapacityUtilization,omitempty"`
+	Status                 string `json:"status,omitempty"`
+	TargetCapacityPercent  int    `json:"targetCapacity,omitempty"`
+	MinimumScalingStepSize int    `json:"minimumScalingStepSize,omitempty"`
+	MaximumScalingStepSize int    `json:"maximumScalingStepSize,omitempty"`
+	InstanceWarmupPeriod   int    `json:"instanceWarmupPeriod,omitempty"`
 }
 
 type autoScalingGroupProviderView struct {
@@ -39,7 +38,6 @@ type capacityProviderView struct {
 	UpdateStatusReason       string                        `json:"updateStatusReason,omitempty"`
 	AutoScalingGroupProvider *autoScalingGroupProviderView `json:"autoScalingGroupProvider,omitempty"`
 	Tags                     []Tag                         `json:"tags,omitempty"`
-	CreatedAt                float64                       `json:"createdAt"`
 }
 
 func toAutoScalingGroupProviderView(asg *AutoScalingGroupProvider) *autoScalingGroupProviderView {
@@ -55,12 +53,11 @@ func toAutoScalingGroupProviderView(asg *AutoScalingGroupProvider) *autoScalingG
 
 	if asg.ManagedScaling != nil {
 		v.ManagedScaling = &managedScalingView{
-			Status:                    asg.ManagedScaling.Status,
-			TargetCapacityPercent:     asg.ManagedScaling.TargetCapacityPercent,
-			MinimumScalingStepSize:    asg.ManagedScaling.MinimumScalingStepSize,
-			MaximumScalingStepSize:    asg.ManagedScaling.MaximumScalingStepSize,
-			InstanceWarmupPeriod:      asg.ManagedScaling.InstanceWarmupPeriod,
-			TargetCapacityUtilization: asg.ManagedScaling.TargetCapacityUtilization,
+			Status:                 asg.ManagedScaling.Status,
+			TargetCapacityPercent:  asg.ManagedScaling.TargetCapacityPercent,
+			MinimumScalingStepSize: asg.ManagedScaling.MinimumScalingStepSize,
+			MaximumScalingStepSize: asg.ManagedScaling.MaximumScalingStepSize,
+			InstanceWarmupPeriod:   asg.ManagedScaling.InstanceWarmupPeriod,
 		}
 	}
 
@@ -76,7 +73,6 @@ func toCapacityProviderView(cp CapacityProvider) capacityProviderView {
 		UpdateStatusReason:       cp.UpdateStatusReason,
 		AutoScalingGroupProvider: toAutoScalingGroupProviderView(cp.AutoScalingGroupProvider),
 		Tags:                     cp.Tags,
-		CreatedAt:                float64(cp.CreatedAt.Unix()),
 	}
 }
 

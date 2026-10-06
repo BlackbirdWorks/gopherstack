@@ -140,7 +140,26 @@ func applyApplicationUpdate(app *Application, params UpdateApplicationParams) {
 		applyApplicationConfigurationUpdate(app, params.ApplicationConfigurationUpdate)
 	}
 
-	applyRunConfigInput(app, params.RunConfigurationUpdate)
+	applyRunConfigInput(app, runConfigUpdateWithDefaults(app, params.RunConfigurationUpdate))
+}
+
+// runConfigUpdateWithDefaults resets an omitted AllowNonRestoredState to false (types.go:1075);
+// interpretation: only when a RunConfigurationUpdate is present.
+func runConfigUpdateWithDefaults(app *Application, rc *RunConfigInput) *RunConfigInput {
+	if rc == nil || (rc.FlinkRunConfiguration != nil && rc.FlinkRunConfiguration.AllowNonRestoredState != nil) {
+		return rc
+	}
+
+	hasFlink := rc.FlinkRunConfiguration != nil ||
+		(app.RunConfig != nil && app.RunConfig.FlinkRunConfigurationDescription != nil)
+	if !hasFlink {
+		return rc
+	}
+
+	out := *rc
+	out.FlinkRunConfiguration = &FlinkRunConfig{AllowNonRestoredState: new(false)}
+
+	return &out
 }
 
 func applyBasicFields(app *Application, params UpdateApplicationParams) {

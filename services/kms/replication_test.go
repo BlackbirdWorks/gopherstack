@@ -66,7 +66,7 @@ func TestUpdatePrimaryRegion_RoleSwap(t *testing.T) {
 			// New primary (the promoted replica) must report type PRIMARY with old primary in replica list.
 			newPrimaryDesc, err := b.DescribeKey(ctx, &kms.DescribeKeyInput{KeyID: replicaID})
 			require.NoError(t, err)
-			assert.Equal(t, "PRIMARY", newPrimaryDesc.KeyMetadata.MultiRegionKeyType,
+			assert.Equal(t, "PRIMARY", newPrimaryDesc.KeyMetadata.MultiRegionConfiguration.MultiRegionKeyType,
 				"promoted key must be PRIMARY")
 			require.NotNil(t, newPrimaryDesc.KeyMetadata.MultiRegionConfiguration)
 			var foundOldPrimary bool
@@ -81,7 +81,7 @@ func TestUpdatePrimaryRegion_RoleSwap(t *testing.T) {
 			// Old primary must now be a replica.
 			oldPrimaryDesc, err := b.DescribeKey(ctx, &kms.DescribeKeyInput{KeyID: primaryID})
 			require.NoError(t, err)
-			assert.Equal(t, "REPLICA", oldPrimaryDesc.KeyMetadata.MultiRegionKeyType,
+			assert.Equal(t, "REPLICA", oldPrimaryDesc.KeyMetadata.MultiRegionConfiguration.MultiRegionKeyType,
 				"demoted key must be REPLICA")
 		})
 	}
@@ -101,8 +101,9 @@ func TestReplicateKey(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.NotEmpty(t, rOut.ReplicaKeyMetadata.KeyID)
-	// Replica key should have REPLICA type in its multi-region config.
-	assert.Equal(t, "REPLICA", rOut.ReplicaKeyMetadata.MultiRegionKeyType)
+	desc, err := b.DescribeKey(context.Background(), &kms.DescribeKeyInput{KeyID: rOut.ReplicaKeyMetadata.KeyID})
+	require.NoError(t, err)
+	assert.Equal(t, "REPLICA", desc.KeyMetadata.MultiRegionConfiguration.MultiRegionKeyType)
 }
 
 func TestReplicateKey_NonMultiRegionFails(t *testing.T) {
@@ -249,7 +250,7 @@ func TestReplicateKey_ReplicaShowsPrimary_InDescribeKey(t *testing.T) {
 
 	desc, err := b.DescribeKey(context.Background(), &kms.DescribeKeyInput{KeyID: replicaID})
 	require.NoError(t, err)
-	assert.Equal(t, "REPLICA", desc.KeyMetadata.MultiRegionKeyType)
+	assert.Equal(t, "REPLICA", desc.KeyMetadata.MultiRegionConfiguration.MultiRegionKeyType)
 }
 
 func TestReplicateKey_DisabledSource_Rejected(t *testing.T) {
@@ -292,7 +293,7 @@ func TestMultiRegion_PrimaryType_InDescribeKey(t *testing.T) {
 
 	desc, err := b.DescribeKey(context.Background(), &kms.DescribeKeyInput{KeyID: keyID})
 	require.NoError(t, err)
-	assert.Equal(t, "PRIMARY", desc.KeyMetadata.MultiRegionKeyType)
+	assert.Equal(t, "PRIMARY", desc.KeyMetadata.MultiRegionConfiguration.MultiRegionKeyType)
 	assert.True(t, desc.KeyMetadata.MultiRegion)
 }
 
@@ -309,7 +310,7 @@ func TestMultiRegion_ReplicaType_AfterReplicate(t *testing.T) {
 
 	desc, err := b.DescribeKey(context.Background(), &kms.DescribeKeyInput{KeyID: out.ReplicaKeyMetadata.KeyID})
 	require.NoError(t, err)
-	assert.Equal(t, "REPLICA", desc.KeyMetadata.MultiRegionKeyType)
+	assert.Equal(t, "REPLICA", desc.KeyMetadata.MultiRegionConfiguration.MultiRegionKeyType)
 }
 
 func TestMultiRegion_PrimaryConfig_HasPrimaryAndReplicas(t *testing.T) {
@@ -352,7 +353,7 @@ func TestMultiRegion_UpdatePrimaryRegion_ChangesType(t *testing.T) {
 	// Old primary (us-east-1) must now be a replica.
 	desc, err := b.DescribeKey(context.Background(), &kms.DescribeKeyInput{KeyID: keyID})
 	require.NoError(t, err)
-	assert.Equal(t, "REPLICA", desc.KeyMetadata.MultiRegionKeyType)
+	assert.Equal(t, "REPLICA", desc.KeyMetadata.MultiRegionConfiguration.MultiRegionKeyType)
 }
 
 func TestMultiRegion_ReplicaEnableDisable_Independent(t *testing.T) {

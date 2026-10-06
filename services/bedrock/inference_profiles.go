@@ -97,7 +97,10 @@ func (b *InMemoryBackend) GetInferenceProfile(idOrARN string) (*InferenceProfile
 // ListInferenceProfiles returns inference profiles matching typeEquals (real
 // query param "type", aws-sdk-go-v2 serializers.go:6752-6754), with optional
 // pagination. An empty typeEquals matches every profile.
-func (b *InMemoryBackend) ListInferenceProfiles(nextToken, typeEquals string) ([]*InferenceProfile, string) {
+func (b *InMemoryBackend) ListInferenceProfiles(
+	nextToken, typeEquals string,
+	maxResults int,
+) ([]*InferenceProfile, string) {
 	b.mu.RLock("ListInferenceProfiles")
 	defer b.mu.RUnlock()
 
@@ -117,7 +120,7 @@ func (b *InMemoryBackend) ListInferenceProfiles(nextToken, typeEquals string) ([
 		return list[i].InferenceProfileArn < list[j].InferenceProfileArn
 	})
 
-	return paginateBedrockSlice(list, nextToken)
+	return paginate(list, maxResults, nextToken)
 }
 
 // DeleteInferenceProfile removes an inference profile by ARN or name.

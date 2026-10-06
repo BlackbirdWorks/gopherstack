@@ -564,20 +564,35 @@ func (b *InMemoryBackend) RegisterSchemaVersion(
 		return nil, ErrNotFound
 	}
 
-	// DISABLED locks a schema to its first version (aws-sdk-go-v2/service/glue@v1.152.0
-	// api_op_CreateSchema.go:14-18: "restricts any additional schema versions from
-	// being added after the first schema version"); the first version is always
-	// accepted regardless of mode (api_op_RegisterSchemaVersion.go:17-18).
+	if valid, errMsg := validateSchemaDefinition(s.DataFormat, schemaDefinition); !valid {
+		return nil, fmt.Errorf("%w: %s", ErrValidation, errMsg)
+	}
+
+	listKey := schemaVersionListKey(s.SchemaARN)
+
+	for _, existing := range b.schemaVersions[listKey] {
+		if existing.SchemaDefinition == schemaDefinition {
+			cp := *existing
+
+			return &cp, nil
+		}
+	}
+
+	// DISABLED allows only the first version (glue api_op_CreateSchema.go:14-18).
 	if strings.EqualFold(s.Compatibility, "DISABLED") && s.LatestSchemaVersion > 0 {
 		return nil, fmt.Errorf("%w: schema compatibility is DISABLED, no additional versions permitted", ErrValidation)
 	}
 
-	// RegisterSchemaVersion must reject a malformed definition the same way
-	// CreateSchema's initial definition is validated — previously this check
-	// was only performed at schema-creation time, so any later version could
-	// register outright invalid AVRO/JSON/PROTOBUF content.
-	if valid, errMsg := validateSchemaDefinition(s.DataFormat, schemaDefinition); !valid {
-		return nil, fmt.Errorf("%w: %s", ErrValidation, errMsg)
+	var prior []string
+
+	for _, v := range b.schemaVersions[listKey] {
+		if v.Status == stateAvailable {
+			prior = append(prior, v.SchemaDefinition)
+		}
+	}
+
+	if err := checkSchemaCompatibility(s.Compatibility, s.DataFormat, schemaDefinition, prior); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrValidation, err)
 	}
 
 	if b.totalSchemaVersions() >= b.limits.schemaVersions {
@@ -602,7 +617,6 @@ func (b *InMemoryBackend) RegisterSchemaVersion(
 		CreatedTime:      float64(time.Now().Unix()),
 	}
 
-	listKey := schemaVersionListKey(s.SchemaARN)
 	b.schemaVersions[listKey] = append(b.schemaVersions[listKey], sv)
 
 	return sv, nil

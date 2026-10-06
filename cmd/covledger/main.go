@@ -12,7 +12,7 @@
 // of those nine had already been checked.
 //
 // THIS TOOL DOES NOT DETECT BUGS. It is a ledger reader, not a scanner --
-// gopherstack-7q13 is explicit that the seven classes below are judgement
+// gopherstack-7q13 is explicit that the classes below are judgement
 // calls about work performed, not properties of source code a static
 // pass could discover. Every row in coverage.yaml was written by a human
 // (or an agent under human review) after reading a commit, a bd comment,
@@ -38,7 +38,7 @@
 // corroboration deserves less trust than one that has it, not the same
 // trust as a hand-verified fix.
 //
-// THE SEVEN CLASSES, and how they differ from their nearest neighbour:
+// THE CLASSES, and how they differ from their nearest neighbour:
 //
 //   - request_field_never_read: a field is declared on the wire and
 //     decoded, and no handler code reads it at all. cmd/reqfieldscan's
@@ -91,7 +91,7 @@
 //     a pass that used this discipline and reached this verdict for the
 //     batch", not as a promise that this exact service's own diff
 //     contains a hunk for this exact class.
-//   - Coverage of the seven classes across the campaign's history is
+//   - Coverage of the classes across the campaign's history is
 //     uneven by construction: the campaign audited pagination and
 //     wire-key bugs far more exhaustively than error-envelope or
 //     enum-value bugs, so a class with few rows may be under-audited
@@ -125,34 +125,17 @@
 //     than no row at all, but weaker than a row with a second source.
 //     PARITY.md is also read for what it says explicitly, not inferred: a
 //     service's overall A/B grade is a WIRE-SHAPE verdict, a different
-//     axis from any of the seven classes here, and was never treated as
+//     axis from any of the classes here, and was never treated as
 //     coverage for any of them. A PARITY section was only turned into a
 //     row when it named a class (or a class's issue ID) explicitly; a
 //     dated entry that just says "audited, still correct" with no class
 //     named was left out rather than guessed at (example: the earlier
 //     "browser parity pass" and "wrapper-key sweep" notes throughout
 //     services/*/PARITY.md predate this class taxonomy and name no class
-//     of the seven, so they were not mined for rows even where they read
+//     of the classes, so they were not mined for rows even where they read
 //     as a clean verdict).
-//   - VerdictInapplicable exists to record a service with NO surface for
-//     a class at all, so it is never re-dispatched. As of this pass it
-//     has zero rows, not for lack of trying: gopherstack-vzjy's ~26-30
-//     campaign refusals ("an enum with exactly one legal value", "an
-//     unconditionally empty list", "a field derived from the calling
-//     principal") are real, but every one found in gopherstack-uox6 and
-//     gopherstack-6flj's bd comments turned out to be a FIELD-level
-//     dismissal inside a service that ALSO got a real bug fixed or a
-//     broader clean verdict in the very same pass -- so the (service,
-//     class) pair the row schema keys on was already claimed by a
-//     "fixed" or "clean" row, and a second row for the same pair is a
-//     validation error (see the no-duplicate-row rule). Representing
-//     these refusals faithfully needs a finer key than (service, class)
-//     -- (service, class, field) or a structured list inside a row -- and
-//     that is a schema question for a future pass, not something this one
-//     forced. The Verdict, the Reasoning field, and Validate's requirement
-//     that every inapplicable row carry non-empty Reasoning are all in
-//     place and tested; they are simply unused until a genuinely
-//     whole-class-absent case is found.
+//   - VerdictInapplicable records a refusal: with a Subject, one refusal inside a pass;
+//     without, the class has no surface. List them with -inapplicable.
 //   - conflicts: (top-level, alongside rows in coverage.yaml) records a
 //     (service, class) pair where two evidence sources disagree, rather
 //     than one being picked silently -- see ValidateConflicts. None exist
@@ -187,6 +170,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 const (
@@ -206,10 +190,13 @@ func main() {
 }
 
 type options struct {
+	row        Row
 	data       string
 	service    string
 	class      string
 	parityOnly bool
+	inapplic   bool
+	add        bool
 }
 
 func parseFlags(args []string) (options, error) {
@@ -224,11 +211,34 @@ func parseFlags(args []string) (options, error) {
 	class := fs.String("class", "", "list services with no row for this class")
 	parityOnly := fs.Bool("parity-only", false, "list rows whose only evidence is PARITY.md")
 
+	inapplic := fs.Bool("inapplicable", false, "list every recorded refusal (inapplicable rows) with its reasoning")
+	add := fs.Bool(
+		"add",
+		false,
+		"append a row: needs -service -class -verdict -commit; optional -date -subject -source -reasoning",
+	)
+	verdict := fs.String("verdict", "", "with -add: fixed, clean or inapplicable")
+	commit := fs.String("commit", "", "with -add: commit that establishes the verdict")
+	date := fs.String("date", time.Now().Format(time.DateOnly), "with -add: verdict date")
+	subject := fs.String(
+		"subject",
+		"",
+		"with -add: operation/parameter this row is about (does not count as class coverage)",
+	)
+	source := fs.String("source", "", "with -add: commit, parity, bd_comment, '+'-joined")
+	reasoning := fs.String("reasoning", "", "with -add: required for inapplicable")
+
 	if err := fs.Parse(args); err != nil {
 		return options{}, err
 	}
 
-	return options{data: *data, service: *service, class: *class, parityOnly: *parityOnly}, nil
+	return options{
+		data: *data, service: *service, class: *class, parityOnly: *parityOnly, inapplic: *inapplic, add: *add,
+		row: Row{
+			Service: *service, Class: *class, Verdict: *verdict, Date: *date, Commit: *commit,
+			Source: *source, Subject: *subject, Reasoning: *reasoning,
+		},
+	}, nil
 }
 
 func run(opts options, stdout, stderr io.Writer) int {
@@ -285,7 +295,30 @@ func run(opts options, stdout, stderr io.Writer) int {
 		return exitInvalid
 	}
 
+	return dispatch(opts, rows, len(conflicts), knownServices, dataPath, stdout, stderr)
+}
+
+func dispatch(
+	opts options,
+	rows []Row,
+	conflicts int,
+	knownServices map[string]bool,
+	dataPath string,
+	stdout, stderr io.Writer,
+) int {
+	var err error
+
 	switch {
+	case opts.add:
+		if err = AppendRow(dataPath, rows, opts.row, knownServices); err != nil {
+			fmt.Fprintln(stderr, "error:", err)
+
+			return exitRunError
+		}
+
+		fmt.Fprintln(stdout, "appended:", opts.row.Service, opts.row.Class, opts.row.Verdict)
+	case opts.inapplic:
+		printInapplicable(stdout, rows)
 	case opts.service != "":
 		printServiceRows(stdout, rows, opts.service)
 	case opts.class != "":
@@ -299,7 +332,7 @@ func run(opts options, stdout, stderr io.Writer) int {
 	case opts.parityOnly:
 		printParityOnly(stdout, rows)
 	default:
-		fmt.Fprintln(stdout, "ledger valid:", len(rows), "rows,", len(conflicts), "open evidence conflicts")
+		fmt.Fprintln(stdout, "ledger valid:", len(rows), "rows,", conflicts, "open evidence conflicts")
 		printSummary(stdout, rows, sortedKeys(knownServices))
 	}
 
@@ -368,7 +401,17 @@ func printServiceRows(w io.Writer, rows []Row, service string) {
 	fmt.Fprintf(w, "%s: %d row(s)\n", service, len(svcRows))
 
 	for _, r := range svcRows {
-		fmt.Fprintf(w, "  %-30s %-14s %s  %s\n", r.Class, r.Verdict, r.Date, r.Commit)
+		fmt.Fprintf(w, "  %-30s %-14s %s  %s  %s\n", r.Class, r.Verdict, r.Date, r.Commit, r.Subject)
+	}
+}
+
+func printInapplicable(w io.Writer, rows []Row) {
+	out := InapplicableRows(rows)
+
+	fmt.Fprintf(w, "%d recorded refusal(s) -- never re-dispatch:\n", len(out))
+
+	for _, r := range out {
+		fmt.Fprintf(w, "  %s / %s / %s\n      %s\n", r.Service, r.Class, r.Subject, r.Reasoning)
 	}
 }
 

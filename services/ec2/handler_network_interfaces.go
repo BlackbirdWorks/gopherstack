@@ -328,10 +328,15 @@ type describeNetworkInterfacesResponse struct {
 	XMLName             xml.Name                `xml:"DescribeNetworkInterfacesResponse"`
 	Xmlns               string                  `xml:"xmlns,attr"`
 	RequestID           string                  `xml:"requestId"`
+	NextToken           string                  `xml:"nextToken,omitempty"`
 	NetworkInterfaceSet networkInterfaceItemSet `xml:"networkInterfaceSet"`
 }
 
 func (h *Handler) handleDescribeNetworkInterfaces(vals url.Values, reqID string) (any, error) {
+	if err := checkPageIDCombo(vals, specWithIDs("NetworkInterfaceId")); err != nil {
+		return nil, err
+	}
+
 	ids := parseMemberList(vals, "NetworkInterfaceId")
 	enis := h.Backend.DescribeNetworkInterfaces(ids)
 
@@ -349,11 +354,11 @@ func (h *Handler) handleDescribeNetworkInterfaces(vals url.Values, reqID string)
 		items = append(items, toNetworkInterfaceItem(eni, h.Backend.TagsForResource(eni.ID), h.Backend))
 	}
 
-	return &describeNetworkInterfacesResponse{
+	return finishDescribe(vals, &describeNetworkInterfacesResponse{
 		Xmlns:               ec2XMLNS,
 		RequestID:           reqID,
 		NetworkInterfaceSet: networkInterfaceItemSet{Items: items},
-	}, nil
+	}, describeOpts{spec: specWithIDs("NetworkInterfaceId")})
 }
 
 // parseIPPermissions parses EC2 IpPermissions from [url.Values].

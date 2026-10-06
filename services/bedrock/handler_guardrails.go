@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 func extractGuardrailOperation(path, method string) (string, bool) {
@@ -47,6 +49,39 @@ func (h *Handler) routeGuardrail(c *echo.Context, path, method string, body []by
 	}
 }
 
+// guardrailExtraFields are the create/update members outside the five policy configs.
+type guardrailExtraFields struct {
+	CrossRegionConfig *struct {
+		GuardrailProfileIdentifier string `json:"guardrailProfileIdentifier"`
+	} `json:"crossRegionConfig,omitempty"`
+	AutomatedReasoningPolicyConfig *struct {
+		ConfidenceThreshold *float64 `json:"confidenceThreshold,omitempty"`
+		Policies            []string `json:"policies"`
+	} `json:"automatedReasoningPolicyConfig,omitempty"`
+	KmsKeyID string `json:"kmsKeyId,omitempty"`
+}
+
+// toExtras returns the stored form of f, or nil when none of its members were sent.
+func (f guardrailExtraFields) toExtras() *GuardrailExtras {
+	if f.CrossRegionConfig == nil && f.AutomatedReasoningPolicyConfig == nil && f.KmsKeyID == "" {
+		return nil
+	}
+
+	out := &GuardrailExtras{KmsKeyArn: f.KmsKeyID}
+	if f.CrossRegionConfig != nil {
+		out.CrossRegionProfileID = f.CrossRegionConfig.GuardrailProfileIdentifier
+	}
+
+	if f.AutomatedReasoningPolicyConfig != nil {
+		out.AutomatedReasoning = &GuardrailAutomatedReasoning{
+			Policies:            f.AutomatedReasoningPolicyConfig.Policies,
+			ConfidenceThreshold: f.AutomatedReasoningPolicyConfig.ConfidenceThreshold,
+		}
+	}
+
+	return out
+}
+
 // guardrailPolicyFields are the five guardrail policy configs. The real Bedrock wire
 // shape serializes each as a top-level request/response field (e.g. "contentPolicyConfig"
 // on input, "contentPolicy" on the GetGuardrail output) — NOT nested under a "policies"
@@ -78,10 +113,12 @@ func (f guardrailPolicyFields) toGuardrailPolicies() *GuardrailPolicies {
 
 type createGuardrailInput struct {
 	guardrailPolicyFields
+	guardrailExtraFields
 	Name                    string `json:"name"`
 	Description             string `json:"description"`
 	BlockedInputMessaging   string `json:"blockedInputMessaging"`
 	BlockedOutputsMessaging string `json:"blockedOutputsMessaging"`
+	ClientRequestToken      string `json:"clientRequestToken,omitempty"`
 	Tags                    []Tag  `json:"tags"`
 }
 
@@ -101,13 +138,15 @@ func (h *Handler) handleCreateGuardrail(c *echo.Context, body []byte) error {
 		)
 	}
 
-	g, opErr := h.Backend.CreateGuardrail(
-		in.Name,
-		in.Description,
-		in.BlockedInputMessaging,
-		in.BlockedOutputsMessaging,
-		in.Tags,
-		in.toGuardrailPolicies(),
+	g, opErr := idemCreate(
+		h.idem, "CreateGuardrail", in.ClientRequestToken, idemFingerprint(in), ErrAlreadyExists,
+		func(g *Guardrail) string { return g.GuardrailID }, h.Backend.GetGuardrail,
+		func() (*Guardrail, error) {
+			return h.Backend.CreateGuardrailWithExtras(
+				in.Name, in.Description, in.BlockedInputMessaging, in.BlockedOutputsMessaging,
+				in.Tags, in.toGuardrailPolicies(), in.toExtras(),
+			)
+		},
 	)
 	if opErr != nil {
 		return h.writeError(c, opErr)
@@ -126,13 +165,15 @@ func (h *Handler) handleCreateGuardrail(c *echo.Context, body []byte) error {
 // serializes each policy as a top-level field WITHOUT the "Config" suffix (e.g.
 // "contentPolicy" not "contentPolicyConfig") — still not nested under "policies".
 type guardrailDetailOutput struct {
-	CreatedAt                  isoTime                                    `json:"createdAt"`
-	UpdatedAt                  isoTime                                    `json:"updatedAt"`
 	ContentPolicy              *GuardrailContentPolicyConfig              `json:"contentPolicy,omitempty"`
 	TopicPolicy                *GuardrailTopicPolicyConfig                `json:"topicPolicy,omitempty"`
 	WordPolicy                 *GuardrailWordPolicyConfig                 `json:"wordPolicy,omitempty"`
 	SensitiveInformationPolicy *GuardrailSensitiveInformationPolicyConfig `json:"sensitiveInformationPolicy,omitempty"` //nolint:lll // AWS API field name is long.
 	ContextualGroundingPolicy  *GuardrailContextualGroundingPolicyConfig  `json:"contextualGroundingPolicy,omitempty"`  //nolint:lll // AWS API field name is long.
+	CrossRegionDetails         *guardrailCrossRegionDetails               `json:"crossRegionDetails,omitempty"`
+	AutomatedReasoningPolicy   *GuardrailAutomatedReasoning               `json:"automatedReasoningPolicy,omitempty"`
+	CreatedAt                  isoTime                                    `json:"createdAt"`
+	UpdatedAt                  isoTime                                    `json:"updatedAt"`
 	GuardrailID                string                                     `json:"guardrailId"`
 	GuardrailArn               string                                     `json:"guardrailArn"`
 	Name                       string                                     `json:"name"`
@@ -141,7 +182,29 @@ type guardrailDetailOutput struct {
 	Version                    string                                     `json:"version"`
 	BlockedInputMessaging      string                                     `json:"blockedInputMessaging"`
 	BlockedOutputsMessaging    string                                     `json:"blockedOutputsMessaging"`
-	Tags                       []Tag                                      `json:"tags,omitempty"`
+	KmsKeyArn                  string                                     `json:"kmsKeyArn,omitempty"`
+}
+
+// guardrailCrossRegionDetails is types.GuardrailCrossRegionDetails.
+type guardrailCrossRegionDetails struct {
+	GuardrailProfileID  string `json:"guardrailProfileId"`
+	GuardrailProfileArn string `json:"guardrailProfileArn"`
+}
+
+func (h *Handler) guardrailCrossRegionDetailsFor(profile string) *guardrailCrossRegionDetails {
+	if profile == "" {
+		return nil
+	}
+
+	if !strings.HasPrefix(profile, "arn:") {
+		profileARN := arn.Build("bedrock", h.Backend.region, h.Backend.accountID, "guardrail-profile/"+profile)
+
+		return &guardrailCrossRegionDetails{GuardrailProfileID: profile, GuardrailProfileArn: profileARN}
+	}
+
+	_, id, _ := strings.Cut(profile, "guardrail-profile/")
+
+	return &guardrailCrossRegionDetails{GuardrailProfileID: id, GuardrailProfileArn: profile}
 }
 
 func guardrailToDetailOutput(g *Guardrail) guardrailDetailOutput {
@@ -154,7 +217,6 @@ func guardrailToDetailOutput(g *Guardrail) guardrailDetailOutput {
 		Version:                 g.Version,
 		BlockedInputMessaging:   g.BlockedInputMessaging,
 		BlockedOutputsMessaging: g.BlockedOutputsMessaging,
-		Tags:                    g.Tags,
 		CreatedAt:               isoTime{g.CreatedAt},
 		UpdatedAt:               isoTime{g.UpdatedAt},
 	}
@@ -178,18 +240,26 @@ func (h *Handler) handleGetGuardrail(c *echo.Context, id string) error {
 		return h.writeError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, guardrailToDetailOutput(g))
+	out := guardrailToDetailOutput(g)
+	if g.Extras != nil {
+		out.KmsKeyArn = g.Extras.KmsKeyArn
+		out.CrossRegionDetails = h.guardrailCrossRegionDetailsFor(g.Extras.CrossRegionProfileID)
+		out.AutomatedReasoningPolicy = g.Extras.AutomatedReasoning
+	}
+
+	return c.JSON(http.StatusOK, out)
 }
 
 type guardrailSummaryOutput struct {
-	CreatedAt   isoTime `json:"createdAt"`
-	UpdatedAt   isoTime `json:"updatedAt"`
-	ID          string  `json:"id"`
-	Arn         string  `json:"arn"`
-	Name        string  `json:"name"`
-	Description string  `json:"description,omitempty"`
-	Status      string  `json:"status"`
-	Version     string  `json:"version"`
+	CrossRegionDetails *guardrailCrossRegionDetails `json:"crossRegionDetails,omitempty"`
+	CreatedAt          isoTime                      `json:"createdAt"`
+	UpdatedAt          isoTime                      `json:"updatedAt"`
+	ID                 string                       `json:"id"`
+	Arn                string                       `json:"arn"`
+	Name               string                       `json:"name"`
+	Description        string                       `json:"description,omitempty"`
+	Status             string                       `json:"status"`
+	Version            string                       `json:"version"`
 }
 
 type listGuardrailsOutput struct {
@@ -201,19 +271,20 @@ func (h *Handler) handleListGuardrails(c *echo.Context) error {
 	q := c.Request().URL.Query()
 	nextToken := q.Get("nextToken")
 	guardrailIdentifier := q.Get("guardrailIdentifier")
-	guardrails, outToken := h.Backend.ListGuardrails(nextToken, guardrailIdentifier)
+	guardrails, outToken := h.Backend.ListGuardrails(nextToken, guardrailIdentifier, queryMaxResults(q))
 	summaries := make([]guardrailSummaryOutput, 0, len(guardrails))
 
 	for _, g := range guardrails {
 		summaries = append(summaries, guardrailSummaryOutput{
-			ID:          g.GuardrailID,
-			Arn:         g.Arn,
-			Name:        g.Name,
-			Description: g.Description,
-			Status:      g.Status,
-			Version:     g.Version,
-			CreatedAt:   isoTime{g.CreatedAt},
-			UpdatedAt:   isoTime{g.UpdatedAt},
+			CrossRegionDetails: h.guardrailCrossRegionDetailsFor(g.CrossRegionProfileID),
+			ID:                 g.GuardrailID,
+			Arn:                g.Arn,
+			Name:               g.Name,
+			Description:        g.Description,
+			Status:             g.Status,
+			Version:            g.Version,
+			CreatedAt:          isoTime{g.CreatedAt},
+			UpdatedAt:          isoTime{g.UpdatedAt},
 		})
 	}
 
@@ -227,6 +298,7 @@ func (h *Handler) handleListGuardrails(c *echo.Context) error {
 
 type updateGuardrailInput struct {
 	guardrailPolicyFields
+	guardrailExtraFields
 	Name                    string `json:"name"`
 	Description             string `json:"description"`
 	BlockedInputMessaging   string `json:"blockedInputMessaging"`
@@ -249,13 +321,15 @@ func (h *Handler) handleUpdateGuardrail(c *echo.Context, id string, body []byte)
 		)
 	}
 
-	g, opErr := h.Backend.UpdateGuardrail(
+	g, opErr := h.Backend.UpdateGuardrailWithExtras(
 		id,
 		in.Name,
 		in.Description,
 		in.BlockedInputMessaging,
 		in.BlockedOutputsMessaging,
 		in.toGuardrailPolicies(),
+		in.toExtras(),
+		true,
 	)
 	if opErr != nil {
 		return h.writeError(c, opErr)
@@ -298,7 +372,19 @@ func (h *Handler) handleCreateGuardrailVersion(c *echo.Context, id string, body 
 		)
 	}
 
-	gv, opErr := h.Backend.CreateGuardrailVersion(id, in.Description)
+	gv, opErr := idemCreate(
+		h.idem, "CreateGuardrailVersion", in.ClientRequestToken, idemFingerprint(in)+id, ErrAlreadyExists,
+		func(v *GuardrailVersion) string { return v.Version },
+		func(version string) (*GuardrailVersion, error) {
+			g, getErr := h.Backend.GetGuardrailVersion(id, version)
+			if getErr != nil {
+				return nil, getErr
+			}
+
+			return &GuardrailVersion{GuardrailID: g.GuardrailID, Version: g.Version}, nil
+		},
+		func() (*GuardrailVersion, error) { return h.Backend.CreateGuardrailVersion(id, in.Description) },
+	)
 	if opErr != nil {
 		return h.writeError(c, opErr)
 	}

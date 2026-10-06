@@ -705,3 +705,15 @@ opaque `Extra` map), no `snapshot_inventory.json` rows, no version bump.
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 mediatailor is region-isolated: source locations, channels, playback configurations and live sources live per region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/mediatailor`. Limitation: the dashboard shows the home region only. The tagging bridge lists the request region and resolves Tag/Untag by ARN region. `TestHandler_MultiRegionReset` covers Reset.
+
+## 2026-10-04 (gopherstack-uox6 value-semantics)
+
+MaxResults defaults to 100 on the eight List* ops documented "The default value is 100" (was 20); GetChannelSchedule documents none and keeps 20.
+
+## 2026-10-05 (reqfielddiff -adjudicated tier-2)
+
+- ListAlerts.NextToken: always-empty, alerts are an unmodeled subsystem so Items is always empty and no token is ever due (handler_alerts.go).
+
+## 2026-10-05 (gopherstack-uox6 pass 11, value semantics)
+
+PutPlaybackConfiguration now stores the documented defaults: DashConfiguration MpdLocation EMT_DEFAULT and OriginManifestType MULTI_PERIOD (types.go:551-580) with the output-only ManifestEndpointPrefix, and the partial AdsPersonalizationConcurrency/Timeouts members (types.go:199-234; applied only when the sub-object is sent). Proof: `TestPlaybackConfiguration_DocumentedDefaults`. Recorded, unchanged: SCTE-35 segmentation/splice defaults (types.go:1495-1690) describe the value written into the manifest, not a Describe member; PrefetchAdsRequestTimeoutMilliseconds falling back to AdsRequestTimeoutMilliseconds; UpdateChannel/UpdateSourceLocation optional-member omission semantics (SDK silent).

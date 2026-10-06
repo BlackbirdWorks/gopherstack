@@ -2,6 +2,7 @@ package iot
 
 import (
 	"fmt"
+	"maps"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -133,7 +134,16 @@ func (b *InMemoryBackend) ListAuthorizers() []*Authorizer {
 	return out
 }
 
-func (b *InMemoryBackend) UpdateAuthorizer(name, functionARN, status string) (*Authorizer, error) {
+// AuthorizerUpdateExtras holds UpdateAuthorizer's members beyond the function ARN and status.
+type AuthorizerUpdateExtras struct {
+	EnableCachingForHTTP   *bool
+	TokenSigningPublicKeys map[string]string
+	TokenKeyName           string
+}
+
+func (b *InMemoryBackend) UpdateAuthorizer(
+	name, functionARN, status string, extras AuthorizerUpdateExtras,
+) (*Authorizer, error) {
 	b.mu.Lock("UpdateAuthorizer")
 	defer b.mu.Unlock()
 
@@ -146,6 +156,15 @@ func (b *InMemoryBackend) UpdateAuthorizer(name, functionARN, status string) (*A
 	}
 	if status != "" {
 		a.Status = status
+	}
+	if extras.TokenKeyName != "" {
+		a.TokenKeyName = extras.TokenKeyName
+	}
+	if extras.TokenSigningPublicKeys != nil {
+		a.TokenSigningPublicKeys = maps.Clone(extras.TokenSigningPublicKeys)
+	}
+	if extras.EnableCachingForHTTP != nil {
+		a.EnableCachingForHTTP = *extras.EnableCachingForHTTP
 	}
 	a.LastModifiedDate = float64(time.Now().Unix())
 

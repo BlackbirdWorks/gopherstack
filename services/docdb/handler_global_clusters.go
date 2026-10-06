@@ -3,6 +3,7 @@ package docdb
 import (
 	"context"
 	"encoding/xml"
+	"fmt"
 	"net/url"
 
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -78,6 +79,11 @@ func (h *Handler) handleModifyGlobalCluster(ctx context.Context, vals url.Values
 func (h *Handler) handleFailoverGlobalCluster(ctx context.Context, vals url.Values) (any, error) {
 	id := vals.Get("GlobalClusterIdentifier")
 	targetDBClusterID := vals.Get("TargetDbClusterIdentifier")
+	if vals.Get("AllowDataLoss") == stringTrue && vals.Get("Switchover") == stringTrue {
+		return nil, fmt.Errorf(
+			"%w: AllowDataLoss and Switchover cannot be specified together", ErrInvalidParameterCombination,
+		)
+	}
 	gc, err := h.Backend.FailoverGlobalCluster(ctx, id, targetDBClusterID)
 	if err != nil {
 		return nil, err

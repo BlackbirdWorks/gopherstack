@@ -126,7 +126,7 @@ func applyWebACLUpdate(acl *WebACL, u WebACLUpdate) error {
 				ErrInvalidOperation, u.ActivatedRule.RuleId)
 		}
 
-		acl.Rules = append(acl.Rules, u.ActivatedRule)
+		acl.Rules = append(acl.Rules, withDefaultRuleType(u.ActivatedRule))
 	case updateDelete:
 		if !activated {
 			return fmt.Errorf("%w: rule %q isn't activated in this WebACL",
@@ -185,4 +185,13 @@ func (b *InMemoryBackend) ListWebACLs() []WebACLSummary {
 	sort.Slice(result, func(i, j int) bool { return result[i].WebACLId < result[j].WebACLId })
 
 	return result
+}
+
+// withDefaultRuleType applies the types.ActivatedRule.Type doc default (REGULAR).
+func withDefaultRuleType(r ActivatedRule) ActivatedRule {
+	if r.Type == "" {
+		r.Type = "REGULAR"
+	}
+
+	return r
 }

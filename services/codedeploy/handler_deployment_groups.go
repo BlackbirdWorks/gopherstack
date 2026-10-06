@@ -2,9 +2,11 @@ package codedeploy
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 )
 
 // lastDeploymentInfoEntry is the wire format for a deployment group's most
@@ -51,6 +53,27 @@ type tagFilterEntry struct {
 type autoScalingGroupEntry struct {
 	Name string `json:"name,omitempty"`
 	Hook string `json:"hook,omitempty"`
+}
+
+// UnmarshalJSON accepts a bare name (SDK AutoScalingGroups []string) or the object form.
+func (e *autoScalingGroupEntry) UnmarshalJSON(data []byte) error {
+	var name string
+	if err := json.Unmarshal(data, &name); err == nil {
+		*e = autoScalingGroupEntry{Name: name}
+
+		return nil
+	}
+
+	type plain autoScalingGroupEntry
+
+	var p plain
+	if err := json.Unmarshal(data, &p); err != nil {
+		return err
+	}
+
+	*e = autoScalingGroupEntry(p)
+
+	return nil
 }
 
 // elbInfoEntry is the wire format for an ELB reference.
@@ -667,6 +690,7 @@ func (h *Handler) handleGetDeploymentGroup(
 
 type listDeploymentGroupsInput struct {
 	ApplicationName string `json:"applicationName"`
+	NextToken       string `json:"nextToken"`
 }
 
 type listDeploymentGroupsOutput struct {
@@ -678,6 +702,10 @@ func (h *Handler) handleListDeploymentGroups(
 	_ context.Context,
 	in *listDeploymentGroupsInput,
 ) (*listDeploymentGroupsOutput, error) {
+	if err := rejectNextToken(in.NextToken); err != nil {
+		return nil, err
+	}
+
 	if in.ApplicationName == "" {
 		return nil, fmt.Errorf("%w: applicationName is required", ErrApplicationNameRequired)
 	}
@@ -712,6 +740,7 @@ func (h *Handler) handleDeleteDeploymentGroup(
 }
 
 type updateDeploymentGroupInput struct {
+	TerminationHookEnabled           *bool                    `json:"terminationHookEnabled"`
 	AutoRollbackConfiguration        *autoRollbackConfigEntry `json:"autoRollbackConfiguration"`
 	OnPremisesTagSet                 *onPremTagSetEntry       `json:"onPremisesTagSet"`
 	Ec2TagSet                        *ec2TagSetEntry          `json:"ec2TagSet"`
@@ -730,7 +759,6 @@ type updateDeploymentGroupInput struct {
 	AutoScalingGroups                []autoScalingGroupEntry  `json:"autoScalingGroups"`
 	TriggerConfigurations            []triggerConfigEntry     `json:"triggerConfigurations"`
 	ECSServices                      []ecsServiceEntry        `json:"ecsServices"`
-	TerminationHookEnabled           bool                     `json:"terminationHookEnabled"`
 }
 
 type updateDeploymentGroupOutput struct {
@@ -751,13 +779,17 @@ func (h *Handler) handleUpdateDeploymentGroup(
 
 	input := dgInputFromWire(
 		in.ServiceRoleArn, in.DeploymentConfigName, in.OutdatedInstancesStrategy,
-		in.TerminationHookEnabled,
+		ptrconv.Bool(in.TerminationHookEnabled),
 		in.Ec2TagFilters, in.OnPremisesInstanceTagFilters,
 		in.AutoScalingGroups, in.TriggerConfigurations, in.ECSServices,
 		in.LoadBalancerInfo, in.DeploymentStyle,
 		in.BlueGreenDeploymentConfiguration, in.AlarmConfiguration,
 		in.AutoRollbackConfiguration, in.Ec2TagSet, in.OnPremisesTagSet,
 	)
+	input.TerminationHookEnabledSet = in.TerminationHookEnabled != nil
+	input.AutoScalingGroupsSet = in.AutoScalingGroups != nil
+	input.TriggerConfigurationsSet = in.TriggerConfigurations != nil
+	input.ECSServicesSet = in.ECSServices != nil
 
 	hooks, err := h.Backend.UpdateDeploymentGroup(
 		in.ApplicationName, in.CurrentDeploymentGroupName, in.NewDeploymentGroupName,

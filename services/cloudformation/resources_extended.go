@@ -1139,12 +1139,12 @@ func (rc *ResourceCreator) deleteS3BucketPolicy(ctx context.Context, bucket stri
 
 // resourceNameFromARN extracts the last segment after "/" or ":" in an ARN.
 func resourceNameFromARN(arn string) string {
-	if idx := strings.LastIndexByte(arn, '/'); idx >= 0 {
-		return arn[idx+1:]
+	if _, after, ok := strings.CutLast(arn, "/"); ok {
+		return after
 	}
 
-	if idx := strings.LastIndexByte(arn, ':'); idx >= 0 {
-		return arn[idx+1:]
+	if _, after, ok := strings.CutLast(arn, ":"); ok {
+		return after
 	}
 
 	return arn
@@ -1153,8 +1153,8 @@ func resourceNameFromARN(arn string) string {
 // streamNameFromARN extracts the stream name from a Kinesis stream ARN.
 // Format: arn:aws:kinesis:region:account:stream/name.
 func streamNameFromARN(arn string) string {
-	if idx := strings.LastIndex(arn, "stream/"); idx >= 0 {
-		return arn[idx+7:]
+	if _, after, ok := strings.CutLast(arn, "stream/"); ok {
+		return after
 	}
 
 	return arn

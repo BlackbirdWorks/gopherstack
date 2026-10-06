@@ -110,7 +110,8 @@ func verifySsoadminConfigAndLightsailLightsail(ctx context.Context, t *testing.T
 	assert.True(t, aws.ToBool(staticIPOut.StaticIp.IsAttached), "static IP should be attached")
 
 	bucketOut, err := client.GetBuckets(ctx, &lightsailsvc.GetBucketsInput{
-		BucketName: aws.String("ssol-bucket"),
+		BucketName:                aws.String("ssol-bucket"),
+		IncludeConnectedResources: aws.Bool(true),
 	})
 	require.NoError(t, err, "GetBuckets should succeed")
 	require.Len(t, bucketOut.Buckets, 1)

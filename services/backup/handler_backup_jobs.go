@@ -10,6 +10,9 @@ import (
 
 type startBackupJobBody struct {
 	BackupOptions      map[string]string `json:"BackupOptions,omitempty"`
+	RecoveryPointTags  map[string]string `json:"RecoveryPointTags,omitempty"`
+	Lifecycle          *lifecycleJSON    `json:"Lifecycle,omitempty"`
+	IdempotencyToken   string            `json:"IdempotencyToken,omitempty"`
 	BackupVaultName    string            `json:"BackupVaultName"`
 	ResourceArn        string            `json:"ResourceArn"`
 	IamRoleArn         string            `json:"IamRoleArn"`
@@ -33,14 +36,17 @@ func (h *Handler) handleStartBackupJob(c *echo.Context, body []byte) error {
 		)
 	}
 
-	j, err := h.Backend.StartBackupJob(
-		in.BackupVaultName,
-		in.ResourceArn,
-		in.IamRoleArn,
-		in.ResourceType,
-		in.BackupOptions,
-		in.StartWindowMinutes,
-	)
+	j, err := h.Backend.StartBackupJobFromInput(StartBackupJobInput{
+		VaultName:          in.BackupVaultName,
+		ResourceArn:        in.ResourceArn,
+		IAMRoleArn:         in.IamRoleArn,
+		ResourceType:       in.ResourceType,
+		BackupOptions:      in.BackupOptions,
+		StartWindowMinutes: in.StartWindowMinutes,
+		RecoveryPointTags:  in.RecoveryPointTags,
+		Lifecycle:          lifecycleFromJSON(in.Lifecycle),
+		IdempotencyToken:   in.IdempotencyToken,
+	})
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -167,9 +173,10 @@ func (h *Handler) handleListBackupJobs(c *echo.Context) error {
 func (h *Handler) dispatchBackupJobSummaryOps(c *echo.Context, route backupRoute) (bool, error) {
 	switch route.operation {
 	case opListBackupJobSummaries:
-		summaries := h.Backend.ListBackupJobSummaries(NewJobSummaryFilter(c.Request().URL.Query()))
+		q := c.Request().URL.Query()
+		summaries, next := pageQuery(q, h.Backend.ListBackupJobSummaries(NewJobSummaryFilter(q)), summaryStateKey)
 
-		return true, c.JSON(http.StatusOK, map[string]any{"BackupJobSummaries": summaries})
+		return true, c.JSON(http.StatusOK, withNextToken(map[string]any{"BackupJobSummaries": summaries}, next))
 	case opStopBackupJob:
 		if err := h.Backend.StopBackupJob(route.resource); err != nil {
 			return true, c.JSON(http.StatusBadRequest, errResp("ResourceNotFoundException", err.Error()))

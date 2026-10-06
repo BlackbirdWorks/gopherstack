@@ -120,22 +120,33 @@ func (h *Handler) handleUpdateContact(c *echo.Context, contactListName string) (
 }
 
 type listContactsInput struct {
+	Filter *struct {
+		TopicFilter *struct {
+			TopicName                         string `json:"TopicName"`
+			UseDefaultIfPreferenceUnavailable bool   `json:"UseDefaultIfPreferenceUnavailable"`
+		} `json:"TopicFilter"`
+		FilteredStatus string `json:"FilteredStatus"`
+	} `json:"Filter"`
 	NextToken string `json:"NextToken"`
 	PageSize  int32  `json:"PageSize"`
 }
 
-// handleListContacts serves POST .../contacts/list. Real SES v2 carries
-// NextToken/Filter/PageSize in the JSON body (not the query string) since
-// ListContacts is a POST operation. Filter (FilteredStatus/TopicFilter) is
-// not applied: the AWS doc for FilteredStatus alone (without a TopicFilter)
-// doesn't say what it filters against, and TopicFilter itself is a
-// secondary refinement on top of that undocumented base behavior.
+// handleListContacts serves POST .../contacts/list; Filter, NextToken and PageSize travel in the JSON body.
+// FilteredStatus without a TopicFilter is not applied: the SDK does not say what it filters against.
 func (h *Handler) handleListContacts(c *echo.Context, contactListName string) (any, error) {
 	var in listContactsInput
 
 	_ = json.NewDecoder(c.Request().Body).Decode(&in)
 
-	pg, err := h.Backend.ListContacts(contactListName, in.NextToken, int(in.PageSize))
+	var filter ContactFilter
+	if in.Filter != nil {
+		filter.FilteredStatus = in.Filter.FilteredStatus
+		if tf := in.Filter.TopicFilter; tf != nil {
+			filter.TopicName, filter.UseDefault = tf.TopicName, tf.UseDefaultIfPreferenceUnavailable
+		}
+	}
+
+	pg, err := h.Backend.ListContacts(contactListName, in.NextToken, int(in.PageSize), filter)
 	if err != nil {
 		return nil, err
 	}

@@ -36,6 +36,8 @@ func (h *Handler) handleCreateApplication(c *echo.Context, body []byte) error {
 		ApplicationProviderArn string    `json:"ApplicationProviderArn"`
 		Name                   string    `json:"Name"`
 		Description            string    `json:"Description"`
+		Status                 string    `json:"Status"`
+		ClientToken            string    `json:"ClientToken"`
 		Tags                   []tagView `json:"Tags"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -68,14 +70,13 @@ func (h *Handler) handleCreateApplication(c *echo.Context, body []byte) error {
 		}
 	}
 
-	app, err := h.Backend.CreateApplication(
-		req.InstanceArn,
-		req.ApplicationProviderArn,
-		req.Name,
-		req.Description,
-		tags,
-		portalOptions,
-	)
+	app, err := replayCreate(h, "CreateApplication", req.ClientToken, req,
+		func(a *Application) string { return a.ApplicationArn }, h.Backend.DescribeApplication,
+		func() (*Application, error) {
+			return h.Backend.CreateApplication(
+				req.InstanceArn, req.ApplicationProviderArn, req.Name, req.Description, req.Status, tags, portalOptions,
+			)
+		})
 	if err != nil {
 		if errors.Is(err, ErrApplicationAlreadyExists) {
 			return writeError(c, http.StatusBadRequest, "ConflictException", "application already exists: "+req.Name)

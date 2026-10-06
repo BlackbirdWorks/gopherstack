@@ -232,6 +232,9 @@ func (h *Handler) handleGetRepositoryEndpoint(c *echo.Context, domainName, repoN
 	if format == "" {
 		format = "generic"
 	}
+	if et := c.Request().URL.Query().Get("endpointType"); et != "" && et != "ipv4" && et != "dualstack" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "endpointType must be ipv4 or dualstack"))
+	}
 
 	_, err := h.Backend.DescribeRepository(c.Request().Context(), domainName, repoName)
 	if err != nil {

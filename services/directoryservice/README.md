@@ -9,16 +9,17 @@
 | --- | --- |
 | PARITY entries audited | 80 (73 ok, 7 partial) |
 | Feature families | 6 (6 ok) |
-| Known gaps | 5 |
+| Known gaps | 6 |
 | Deferred items | 2 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Server-set status/version metadata has no source and stays nil: DirectoryDescription.OsVersion/StageReason, DomainController.StatusReason, IpRouteInfo.IpRouteStatusReason, SchemaExtensionInfo.SchemaExtensionStatusReason, Assessment.StatusCode/StatusReason/Version. AWS assigns these internally (failure states this backend never reaches); inventing text would be fabrication.
+- Server-set status/version metadata has no source and stays nil: DirectoryDescription.OsVersion (until an UpdateDirectorySetup OS update sets it)/StageReason, DomainController.StatusReason, IpRouteInfo.IpRouteStatusReason, SchemaExtensionInfo.SchemaExtensionStatusReason, Assessment.StatusCode/StatusReason/Version. AWS assigns these internally (failure states this backend never reaches); inventing text would be fabrication.
 - SettingEntry.DataType/Type/RequestDetailedStatus/RequestStatusMessage unpopulated: DataType/Type need a verified per-setting-name table from AWS docs; the rest need a per-Region apply pipeline (LastRequestedDateTime is populated, 2026-09-30).
 - CreateHybridAD requires AssessmentId of an existing directory; AWS's directory-less pre-creation assessment mode is not modelled (see Notes, gopherstack-10hx).
 - Async transient states (TrustState Verifying/Creating/Updating/Deleting/VerifyFailed, SnapshotStatus Creating/Failed, Sharing) are collapsed to instant completion; reaching them needs a background ticker and, for VerifyTrust, real external-domain connectivity (gopherstack-g2eo).
+- UpdateDirectorySetup.CreateSnapshotBeforeUpdate is not applied: no pre-update snapshot is created, and the SDK documents neither its snapshot type nor its interaction with the manual-snapshot limit.
 - aws_directory_service_trust and aws_directory_service_region real terraform applies did not reach a terminal state in the 2026-09-24 session (one hit ListTagsForResource EntityDoesNotExistException); not root-caused, kept out of the fixture.
 
 ### Deferred

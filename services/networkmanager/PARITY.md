@@ -275,6 +275,7 @@ items_still_open:
   - "AttachmentState PENDING_NETWORK_UPDATE/PENDING_TAG_ACCEPTANCE/UPDATING/FAILED are never entered: needs unmodeled segment-reassignment and tag-acceptance workflows (2026-10-01)"
   - "StartRouteAnalysis is single-hop (no TGW-peering chaining, so CYCLIC_PATH_DETECTED/MAX_HOPS_EXCEEDED never fire) and the change-set diff covers 5 of 14 ChangeType values: both need real network-topology/attachment-membership resolution (2026-10-01)"
   - "No AWS::NetworkManager::* resource type in services/cloudformation (2026-10-01): cross-service work, outside this service"
+  - "GetNetworkResources/Relationships/Telemetry accept the RegisteredGatewayArn filter, but no modelled resource is registered under a gateway, so a non-empty value matches nothing and NetworkResource.RegisteredGatewayArn is never populated"
 deferred: []
 leaks: {status: clean, note: "Handler.Reset()/InMemoryBackend.Close() wiring confirmed present (store.go: Close() calls b.work.Stop(), stopping the pkgs/worker.Group backing every scheduleAdvance/scheduleRemoval timer -- global network/site/device/link/connection/core-network/attachment/connect-peer/peering/policy-changeset state machines). `go test -race -count=1 ./services/networkmanager/...` run this pass: clean."}
 structural_gaps:
@@ -1394,3 +1395,15 @@ Recorded: `registeredGatewayArn` is still unread (no registered-gateway model).
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 networkmanager is a global service homed in US West (Oregon) (AWS docs, "Network Manager is a global service"; its ARNs carry no region), so it keeps a single backend and ignores the request region; `TestRegionIsolation/networkmanager` asserts creation works from any region.
+
+## 2026-10-05 (reqfielddiff tier-2 pagination)
+
+GetCoreNetworkChangeSet, GetCoreNetworkChangeEvents and GetNetworkResourceCounts honour the query-bound maxResults/nextToken (serializers.go, networkmanager@v1.44.4; default 100) and emit NextToken only when truncated. ListOrganizationServiceAccessStatus no longer echoes the request nextToken back. Proof: `TestRoundTrip_GetOpsHonourMaxResults`. The other 40 flagged page members are tool misses: those handlers already page through `queryMaxResults`/`queryNextToken`. Recorded: ListCoreNetworkRoutingInformation (MaxResults/NextHopFilters), GetNetworkRoutes.DestinationFilters and ListOrganizationServiceAccessStatus.MaxResults stay unconsulted since the first two always return an empty list (no route engine) and the last returns one status object.
+
+## 2026-10-05 errtargetaudit triage (gopherstack-3fvxc)
+
+Orphan `InvalidPolicyDocument` (corenetworks.go) is the free-form `CoreNetworkPolicyError.ErrorCode` body field, not an exception code: false positive.
+
+## 2026-10-05 (gopherstack-uox6 pass 8, value semantics)
+
+UpdateGlobalNetwork, UpdateSite, UpdateDevice and UpdateLink now keep an omitted string member and clear it when sent as an empty string, per "To remove information for any of the parameters, specify an empty string" (api_op_UpdateSite.go:12, same text on the other three). Previously an empty string was ignored and UpdateGlobalNetwork wiped an omitted Description. UpdateConnection got the same pointer handling. Recorded, unchanged: UpdateCoreNetwork (its SDK doc is silent). Proof: `TestUpdate_OmittedKeepsEmptyStringClears`.

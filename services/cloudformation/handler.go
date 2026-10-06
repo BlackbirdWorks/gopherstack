@@ -16,6 +16,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -284,7 +285,40 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
+// maxFormPageSize is the documented MaxResults ceiling (api_op_ListStackSets.go: valid range 1-100).
+const maxFormPageSize = 100
+
+var (
+	errInvalidMaxResults = errors.New("invalid MaxResults")
+	errInvalidNextToken  = errors.New("invalid NextToken")
+)
+
+// validateFormPaging rejects an out-of-range MaxResults or a malformed NextToken.
+func validateFormPaging(form url.Values) error {
+	if form.Has("MaxResults") {
+		n, err := strconv.Atoi(form.Get("MaxResults"))
+		if err != nil || n < 1 || n > maxFormPageSize {
+			return fmt.Errorf("%w: must be between 1 and %d", errInvalidMaxResults, maxFormPageSize)
+		}
+	}
+
+	if page.ValidateToken(form.Get("NextToken")) != nil {
+		return errInvalidNextToken
+	}
+
+	return nil
+}
+
+// pageForm pages an already stably-ordered slice by the form's MaxResults/NextToken.
+func pageForm[T any](form url.Values, items []T) page.Page[T] {
+	return page.New(items, form.Get("NextToken"), parseFormMaxResults(form), cfnDefaultPageSize)
+}
+
 func (h *Handler) dispatch(action string, form url.Values, c *echo.Context) error {
+	if err := validateFormPaging(form); err != nil {
+		return h.xmlError(c, "ValidationError", err.Error())
+	}
+
 	if handled, err := h.dispatchStackOps(action, form, c); handled {
 		return err
 	}

@@ -292,18 +292,12 @@ func monitorEvaluationMatchesFilters(e MonitorEvaluation, filters []resourceFilt
 }
 
 // monitorEvaluationOutput converts a MonitorEvaluation to its wire shape.
-// CreationTime/EvaluationTime must be epoch-seconds JSON numbers (JSON-RPC
-// 1.1 timestamp format, pkgs/awstime.Epoch) -- MonitorEvaluation's own
-// `json:"CreationTime"` struct tag marshals time.Time as an RFC3339 string
-// instead, which the real SDK's ListMonitorEvaluations deserializer
-// rejects.
+// EvaluationTime must be an epoch-seconds JSON number (pkgs/awstime.Epoch);
+// only PredictorMonitorEvaluation's own members are emitted.
 func monitorEvaluationOutput(e MonitorEvaluation) map[string]any {
 	out := map[string]any{
-		"CreationTime":    awstime.Epoch(e.CreationTime),
 		"EvaluationTime":  awstime.Epoch(e.EvaluationTime),
 		"MonitorArn":      e.MonitorArn,
-		"MonitorName":     e.MonitorName,
-		"Status":          e.Status,
 		"EvaluationState": e.EvaluationState,
 		"MetricResults":   e.MetricResults,
 	}

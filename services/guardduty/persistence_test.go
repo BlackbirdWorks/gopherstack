@@ -3,6 +3,7 @@ package guardduty_test
 import (
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -141,7 +142,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	require.NoError(t, original.EnableOrganizationAdminAccount("888899990000"))
 
-	require.NoError(t, original.UpdateOrganizationConfiguration(detectorID, true, "", []guardduty.OrgFeature{
+	require.NoError(t, original.UpdateOrganizationConfiguration(detectorID, aws.Bool(true), "", []guardduty.OrgFeature{
 		{Name: "S3_DATA_EVENTS", AutoEnable: "NEW"},
 	}))
 

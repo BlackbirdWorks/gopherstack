@@ -15,8 +15,8 @@
 		type NetworkManagerClient
 	} from '@aws-sdk/client-networkmanager';
 	import { toast } from 'svelte-sonner';
-	import { formatDate } from '$lib/format';
-	import Modal from '$lib/components/Modal.svelte';
+	import { formatDate } from '#lib/format.ts';
+	import Modal from '#lib/components/Modal.svelte';
 	import TagEditor from './TagEditor.svelte';
 	import { describeError, taggableArn } from './shared';
 

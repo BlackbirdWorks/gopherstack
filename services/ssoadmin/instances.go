@@ -1,12 +1,18 @@
 package ssoadmin
 
 import (
+	"fmt"
 	"maps"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+)
+
+const (
+	keyTypeAWSOwned        = "AWS_OWNED_KMS_KEY"
+	keyTypeCustomerManaged = "CUSTOMER_MANAGED_KEY"
 )
 
 // CreateInstance creates a new SSO instance.
@@ -225,6 +231,35 @@ func (b *InMemoryBackend) UpdateInstance(instanceArn, name string, permissionSet
 		v := *permissionSetsEnabled
 		inst.PermissionSetsEnabled = &v
 	}
+
+	return nil
+}
+
+// UpdateInstanceEncryption applies an UpdateInstance EncryptionConfiguration.
+func (b *InMemoryBackend) UpdateInstanceEncryption(instanceArn, keyType, kmsKeyArn string) error {
+	switch keyType {
+	case keyTypeAWSOwned:
+		if kmsKeyArn != "" {
+			return fmt.Errorf("%w: KmsKeyArn cannot be specified when KeyType is %s", ErrValidation, keyTypeAWSOwned)
+		}
+	case keyTypeCustomerManaged:
+		if kmsKeyArn == "" {
+			return fmt.Errorf("%w: KmsKeyArn is required when KeyType is %s", ErrValidation, keyTypeCustomerManaged)
+		}
+	default:
+		return fmt.Errorf("%w: KeyType must be %s or %s", ErrValidation, keyTypeAWSOwned, keyTypeCustomerManaged)
+	}
+
+	b.mu.Lock("UpdateInstanceEncryption")
+	defer b.mu.Unlock()
+
+	inst, ok := b.instances.Get(instanceArn)
+	if !ok {
+		return ErrInstanceNotFound
+	}
+
+	inst.EncryptionKeyType = keyType
+	inst.EncryptionKmsKeyArn = kmsKeyArn
 
 	return nil
 }

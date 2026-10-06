@@ -32,7 +32,7 @@ func parseTemplatesPath(method string, parts []string) (string, string) {
 	return opUnknown, ""
 }
 
-func (h *Handler) dispatchSensitivityTemplateOps(op, path string, body []byte) (any, int, bool, error) {
+func (h *Handler) dispatchSensitivityTemplateOps(op, path, query string, body []byte) (any, int, bool, error) {
 	switch op {
 	case opGetSensitivityInspectionTemplate:
 		id := extractTemplateID(path)
@@ -41,7 +41,7 @@ func (h *Handler) dispatchSensitivityTemplateOps(op, path string, body []byte) (
 		return result, code, true, err
 
 	case opListSensitivityInspectionTemplates:
-		result, code, err := h.handleListSensitivityInspectionTemplates()
+		result, code, err := h.handleListSensitivityInspectionTemplates(query)
 
 		return result, code, true, err
 
@@ -68,13 +68,13 @@ func (h *Handler) handleGetSensitivityInspectionTemplate(templateID string) (any
 	return tmpl, http.StatusOK, nil
 }
 
-func (h *Handler) handleListSensitivityInspectionTemplates() (any, int, error) {
+func (h *Handler) handleListSensitivityInspectionTemplates(query string) (any, int, error) {
 	templates, err := h.Backend.ListSensitivityInspectionTemplates()
 	if err != nil {
 		return nil, http.StatusInternalServerError, err
 	}
 
-	return map[string]any{"sensitivityInspectionTemplates": templates}, http.StatusOK, nil
+	return pagedQueryResponse(h.Backend, "sensitivityInspectionTemplates", query, templates)
 }
 
 func (h *Handler) handleUpdateSensitivityInspectionTemplate(templateID string, body []byte) (int, error) {

@@ -40,6 +40,7 @@ type StorageBackend interface {
 		opts CreateChangeSetOptions,
 	) (*ChangeSet, error)
 	DescribeChangeSet(stackName, changeSetName string) (*ChangeSet, error)
+	GetChangeSetTemplate(stackName, changeSetName string) (string, error)
 	ExecuteChangeSet(
 		ctx context.Context, stackName, changeSetName string, disableRollback, retainExceptOnCreate bool,
 	) error
@@ -94,7 +95,7 @@ type StorageBackend interface {
 	DescribeStackSetOperation(stackSetName, operationID string) (*StackSetOperation, error)
 	StopStackSetOperation(stackSetName, operationID string) error
 	ListStackSetOperationResults(
-		stackSetName, operationID string, maxResults int, nextToken string,
+		stackSetName, operationID string, maxResults int, nextToken string, statuses []string,
 	) (page.Page[StackSetOperationResult], error)
 	ListStackSetAutoDeploymentTargets(
 		stackSetName string, maxResults int, nextToken string,
@@ -111,7 +112,7 @@ type StorageBackend interface {
 	GetGeneratedTemplate(id string) (string, error)
 	ListGeneratedTemplates(maxResults int, nextToken string) (page.Page[GeneratedTemplate], error)
 	// Resource scans
-	StartResourceScan() (string, error)
+	StartResourceScan(types []string) (string, error)
 	DescribeResourceScan(scanID string) (*ResourceScan, error)
 	ListResourceScans(maxResults int, nextToken, scanTypeFilter string) (page.Page[ResourceScan], error)
 	ListResourceScanResources(scanID, nextToken string, maxResults int) (page.Page[ScannedResource], error)
@@ -128,8 +129,9 @@ type StorageBackend interface {
 		identifiers []TypeConfigurationIdentifier,
 	) ([]TypeConfigurationDetail, []BatchDescribeTypeConfigurationsError, []TypeConfigurationIdentifier)
 	ListTypes(
-		visibilityFilter, provisioningTypeFilter string, maxResults int, nextToken string,
+		visibilityFilter, provisioningTypeFilter, typeNamePrefix string, maxResults int, nextToken string,
 	) (page.Page[TypeSummary], error)
+	ListTypesFiltered(opts ListTypesOptions) (page.Page[TypeSummary], error)
 	ListTypeVersions(
 		typeName, deprecatedStatus string, maxResults int, nextToken string,
 	) (page.Page[string], error)
@@ -151,6 +153,9 @@ type StorageBackend interface {
 	DescribeStackRefactor(stackRefactorID string) (*StackRefactor, error)
 	ExecuteStackRefactor(ctx context.Context, stackRefactorID string) error
 	ListStackRefactors(maxResults int, nextToken string) (page.Page[StackRefactorSummary], error)
+	ListStackRefactorsFiltered(
+		maxResults int, nextToken string, executionStatuses []string,
+	) (page.Page[StackRefactorSummary], error)
 	ListStackRefactorActions(
 		stackRefactorID string, maxResults int, nextToken string,
 	) (page.Page[StackRefactorAction], error)
@@ -220,6 +225,7 @@ const (
 	cfnStackType                   = "AWS::CloudFormation::Stack"
 	statusCreateInProgress         = "CREATE_IN_PROGRESS"
 	statusCreateComplete           = "CREATE_COMPLETE"
+	executionStatusAvailable       = "AVAILABLE"
 	statusCreateFailed             = "CREATE_FAILED"
 	statusUpdateInProgress         = "UPDATE_IN_PROGRESS"
 	statusUpdateComplete           = "UPDATE_COMPLETE"

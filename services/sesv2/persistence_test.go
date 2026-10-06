@@ -270,7 +270,7 @@ func TestInMemoryBackend_DeleteContactList_CascadesContacts(t *testing.T) {
 	_, err = b.CreateContactList("list1", "", nil, nil)
 	require.NoError(t, err)
 
-	page, err := b.ListContacts("list1", "", 0)
+	page, err := b.ListContacts("list1", "", 0, sesv2.ContactFilter{})
 	require.NoError(t, err)
 	assert.Empty(t, page.Data)
 }

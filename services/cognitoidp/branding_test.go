@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestUICustomization_SetGet_WithImageUrl(t *testing.T) {
+func TestUICustomization_SetGet_WithImageFile(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -19,7 +19,7 @@ func TestUICustomization_SetGet_WithImageUrl(t *testing.T) {
 		"UserPoolId": poolID,
 		"ClientId":   clientID,
 		"CSS":        ".banner { background: blue; }",
-		"ImageData":  "https://example.com/logo.png",
+		"ImageFile":  "aW1hZ2UtYnl0ZXM=",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -38,7 +38,7 @@ func TestUICustomization_SetGet_WithImageUrl(t *testing.T) {
 	assert.Equal(t, poolID, setOut.UICustomization.UserPoolID)
 	assert.Equal(t, clientID, setOut.UICustomization.ClientID)
 	assert.Equal(t, ".banner { background: blue; }", setOut.UICustomization.CSS)
-	assert.Equal(t, "https://example.com/logo.png", setOut.UICustomization.ImageURL)
+	assert.Empty(t, setOut.UICustomization.ImageURL, "ImageUrl is not hosted")
 	assert.Greater(t, setOut.UICustomization.CreationDate, float64(0))
 	assert.Greater(t, setOut.UICustomization.LastModifiedDate, float64(0))
 
@@ -59,7 +59,7 @@ func TestUICustomization_SetGet_WithImageUrl(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getOut))
 	require.NotNil(t, getOut.UICustomization)
 	assert.Equal(t, ".banner { background: blue; }", getOut.UICustomization.CSS)
-	assert.Equal(t, "https://example.com/logo.png", getOut.UICustomization.ImageURL)
+	assert.Empty(t, getOut.UICustomization.ImageURL)
 	assert.Greater(t, getOut.UICustomization.LastModifiedDate, float64(0))
 }
 

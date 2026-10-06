@@ -24,6 +24,12 @@ func (b *InMemoryBackend) CreateFlow(ctx context.Context, cfg FlowConfig) (*Flow
 	b.mu.Lock("CreateFlow")
 	defer b.mu.Unlock()
 
+	if prior := findByClientToken(b.flows, cfg.ClientToken,
+		func(f *Flow) string { return f.ClientToken }, func(*Flow) bool { return true },
+	); prior != nil {
+		return flowCopy(prior), nil
+	}
+
 	if _, exists := b.flowsByName[cfg.Name]; exists {
 		return nil, fmt.Errorf("%w: flow %q already exists", ErrAlreadyExists, cfg.Name)
 	}
@@ -40,6 +46,8 @@ func (b *InMemoryBackend) CreateFlow(ctx context.Context, cfg FlowConfig) (*Flow
 		RoleARN:     cfg.RoleARN,
 		Definition:  cfg.Definition,
 		Version:     "DRAFT",
+		KMSKeyARN:   cfg.CustomerEncryptionKeyArn,
+		ClientToken: cfg.ClientToken,
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
@@ -85,12 +93,15 @@ func applyFlowConfig(f *Flow, cfg FlowConfig) {
 		f.Name = cfg.Name
 	}
 
-	if cfg.Description != "" {
-		f.Description = cfg.Description
-	}
+	// api_op_UpdateFlow.go:13: omitted fields are not kept
+	f.Description = cfg.Description
 
 	if cfg.RoleARN != "" {
 		f.RoleARN = cfg.RoleARN
+	}
+
+	if cfg.CustomerEncryptionKeyArn != "" {
+		f.KMSKeyARN = cfg.CustomerEncryptionKeyArn
 	}
 
 	if cfg.Definition != nil {
@@ -198,7 +209,7 @@ func (b *InMemoryBackend) ValidateFlowDefinition(
 
 // CreateFlowVersion creates a numbered snapshot of a flow.
 func (b *InMemoryBackend) CreateFlowVersion(
-	_ context.Context, flowID, description string,
+	_ context.Context, flowID string, cfg VersionConfig,
 ) (*FlowVersion, error) {
 	b.mu.Lock("CreateFlowVersion")
 	defer b.mu.Unlock()
@@ -206,6 +217,13 @@ func (b *InMemoryBackend) CreateFlowVersion(
 	f, ok := b.flows.Get(flowID)
 	if !ok {
 		return nil, fmt.Errorf("%w: flow %q not found", ErrNotFound, flowID)
+	}
+
+	if prior := findByClientToken(b.flowVersions, cfg.ClientToken,
+		func(v *FlowVersion) string { return v.ClientToken },
+		func(v *FlowVersion) bool { return v.FlowID == flowID },
+	); prior != nil {
+		return flowVersionCopy(prior), nil
 	}
 
 	b.flowVersionCtrs[flowID]++
@@ -219,9 +237,11 @@ func (b *InMemoryBackend) CreateFlowVersion(
 		Version:     version,
 		Status:      flowStatusPrepared,
 		Definition:  f.Definition,
-		Description: description,
+		Description: cfg.Description,
 		CreatedAt:   time.Now().UTC(),
 		RoleARN:     f.RoleARN,
+		KMSKeyARN:   f.KMSKeyARN,
+		ClientToken: cfg.ClientToken,
 	}
 
 	b.flowVersions.Put(fv)
@@ -338,11 +358,22 @@ func (b *InMemoryBackend) CreateFlowAlias(
 
 	region := ctxRegion(ctx, b.defaultRegion)
 
+	if err := validateConcurrency(cfg.ConcurrencyConfiguration); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateFlowAlias")
 	defer b.mu.Unlock()
 
 	if !b.flows.Has(flowID) {
 		return nil, fmt.Errorf("%w: flow %q not found", ErrNotFound, flowID)
+	}
+
+	if prior := findByClientToken(b.flowAliases, cfg.ClientToken,
+		func(a *FlowAlias) string { return a.ClientToken },
+		func(a *FlowAlias) bool { return a.FlowID == flowID },
+	); prior != nil {
+		return flowAliasCopy(prior), nil
 	}
 
 	id := b.nextID("falias", &b.flowAliasCounter)
@@ -355,6 +386,8 @@ func (b *InMemoryBackend) CreateFlowAlias(
 		Name:                 cfg.Name,
 		Description:          cfg.Description,
 		RoutingConfiguration: cfg.RoutingConfiguration,
+		Concurrency:          cfg.ConcurrencyConfiguration,
+		ClientToken:          cfg.ClientToken,
 		CreatedAt:            now,
 		UpdatedAt:            now,
 	}
@@ -385,6 +418,10 @@ func (b *InMemoryBackend) GetFlowAlias(_ context.Context, flowID, aliasID string
 func (b *InMemoryBackend) UpdateFlowAlias(
 	_ context.Context, flowID, aliasID string, cfg FlowAliasConfig,
 ) (*FlowAlias, error) {
+	if err := validateConcurrency(cfg.ConcurrencyConfiguration); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("UpdateFlowAlias")
 	defer b.mu.Unlock()
 
@@ -403,6 +440,10 @@ func (b *InMemoryBackend) UpdateFlowAlias(
 
 	if cfg.RoutingConfiguration != nil {
 		al.RoutingConfiguration = cfg.RoutingConfiguration
+	}
+
+	if cfg.ConcurrencyConfiguration != nil {
+		al.Concurrency = cfg.ConcurrencyConfiguration
 	}
 
 	al.UpdatedAt = time.Now().UTC()

@@ -41,12 +41,26 @@ func (h *Handler) handleCreateInvestigation(detectorID string, body []byte) (any
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 
-	inv, err := h.Backend.CreateInvestigation(detectorID, req.TriggerPrompt)
+	token := req.ClientToken
+	req.ClientToken = ""
+
+	id, err := h.createOnce(
+		opCreateInvestigation, detectorID, token, req,
+		func(id string) error { return only(h.Backend.GetInvestigation(detectorID, id)) },
+		func() (string, error) {
+			inv, createErr := h.Backend.CreateInvestigation(detectorID, req.TriggerPrompt)
+			if createErr != nil {
+				return "", createErr
+			}
+
+			return inv.InvestigationID, nil
+		},
+	)
 	if err != nil {
 		return nil, http.StatusBadRequest, err
 	}
 
-	return map[string]any{keyInvestigationID: inv.InvestigationID}, http.StatusOK, nil
+	return map[string]any{keyInvestigationID: id}, http.StatusOK, nil
 }
 
 func (h *Handler) handleGetInvestigation(detectorID, investigationID string) (any, int, error) {

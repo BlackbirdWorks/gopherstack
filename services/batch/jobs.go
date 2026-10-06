@@ -28,6 +28,7 @@ const (
 	// KeyValuesPair filter names shared by ListJobs/ListServiceJobs/
 	// ListConsumableResources (api_op_ListJobs.go, api_op_ListServiceJobs.go).
 	filterJobName         = "JOB_NAME"
+	filterJobStatus       = "JOB_STATUS"
 	filterJobDefinition   = "JOB_DEFINITION"
 	filterShareIdentifier = "SHARE_IDENTIFIER"
 	filterQuotaShareName  = "QUOTA_SHARE_NAME"
@@ -326,8 +327,8 @@ type KeyValueFilter struct {
 // job_definitions.go's RegisterJobDefinition (arn.Build(..., "job-definition/%s:%d", ...)).
 func jobDefinitionNameFromARN(jdARN string) string {
 	resource := jdARN
-	if i := strings.LastIndex(jdARN, "job-definition/"); i >= 0 {
-		resource = jdARN[i+len("job-definition/"):]
+	if _, after, ok := strings.CutLast(jdARN, "job-definition/"); ok {
+		resource = after
 	}
 
 	if i := strings.LastIndex(resource, ":"); i >= 0 {

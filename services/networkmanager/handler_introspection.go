@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"sort"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // introspectionRoutes wires PARITY.md families T and U (6 ops).
@@ -69,6 +71,8 @@ func queryFilter(q map[string][]string) networkResourceFilter {
 		CoreNetworkID: get("coreNetworkId"),
 		ResourceArn:   get("resourceArn"),
 		ResourceType:  get("resourceType"),
+
+		RegisteredGatewayArn: get("registeredGatewayArn"),
 	}
 }
 
@@ -124,7 +128,9 @@ func (h *Handler) dispatchGetNetworkResourceCounts(
 		out[i] = networkResourceCountWire{Count: counts[t], ResourceType: t}
 	}
 
-	return marshalResponse(getNetworkResourceCountsResponse{NetworkResourceCounts: out})
+	p := page.New(out, queryNextToken(q), queryMaxResults(q), defaultPageLimit)
+
+	return marshalResponse(getNetworkResourceCountsResponse{NetworkResourceCounts: p.Data, NextToken: p.Next})
 }
 
 func (h *Handler) dispatchGetNetworkResourceRelationships(

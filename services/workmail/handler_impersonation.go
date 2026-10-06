@@ -20,6 +20,7 @@ type createImpersonationRoleReq struct {
 	Name           string                 `json:"Name"`
 	Type           string                 `json:"Type"`
 	Description    string                 `json:"Description"`
+	ClientToken    string                 `json:"ClientToken"`
 	Rules          []impersonationRuleReq `json:"Rules"`
 }
 
@@ -43,7 +44,17 @@ func (h *Handler) handleCreateImpersonationRole(
 		})
 	}
 
-	role, err := h.Backend.CreateImpersonationRole(req.OrganizationID, req.Name, req.Type, req.Description, rules)
+	token := req.ClientToken
+	req.ClientToken = ""
+
+	role, err := replayCreate(h, "CreateImpersonationRole", token, req,
+		func(r *ImpersonationRole) string { return r.RoleID },
+		func(id string) (*ImpersonationRole, error) {
+			return h.Backend.GetImpersonationRole(req.OrganizationID, id)
+		},
+		func() (*ImpersonationRole, error) {
+			return h.Backend.CreateImpersonationRole(req.OrganizationID, req.Name, req.Type, req.Description, rules)
+		})
 	if err != nil {
 		return nil, err
 	}

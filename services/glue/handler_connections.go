@@ -92,8 +92,9 @@ func (h *Handler) handleCreateConnection(
 }
 
 type getConnectionInput struct {
-	Name      string `json:"Name"`
-	CatalogID string `json:"CatalogId,omitempty"`
+	Name         string `json:"Name"`
+	CatalogID    string `json:"CatalogId,omitempty"`
+	HidePassword bool   `json:"HidePassword,omitempty"`
 }
 
 type getConnectionOutput struct {
@@ -111,6 +112,10 @@ func (h *Handler) handleGetConnection(
 
 	if catalogIDMismatch(in.CatalogID, c.CatalogID) {
 		return nil, ErrNotFound
+	}
+
+	if in.HidePassword {
+		c = redactConnectionPasswords([]*Connection{c})[0]
 	}
 
 	return &getConnectionOutput{Connection: toConnectionWire(c)}, nil

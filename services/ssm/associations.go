@@ -519,15 +519,17 @@ func (b *InMemoryBackend) DescribeAssociationExecutions(
 		execs = b.associationExecutionsStore(region)[input.AssociationID]
 	}
 
-	out := make([]AssociationExecution, len(execs))
-	copy(out, execs)
-
-	maxResults := 0
-	if input.MaxResults != nil {
-		maxResults = int(*input.MaxResults)
+	out, err := filterAssociationExecutions(execs, input.Filters)
+	if err != nil {
+		return nil, err
 	}
 
-	page, next := paginateSlice(out, input.NextToken, maxResults, defaultDescribeMaxResults)
+	page, next, err := pageChecked(
+		out, input.NextToken, maxOrZero(input.MaxResults), defaultDescribeMaxResults, ErrInvalidNextToken,
+	)
+	if err != nil {
+		return nil, err
+	}
 
 	return &DescribeAssociationExecutionsOutputFull{
 		AssociationExecutions: page,
@@ -580,15 +582,17 @@ func (b *InMemoryBackend) DescribeAssociationExecutionTargets(
 		b.associationExecTargetsStore(region)[execID] = targets
 	}
 
-	out := make([]AssociationExecutionTarget, len(targets))
-	copy(out, targets)
-
-	maxResults := 0
-	if input.MaxResults != nil {
-		maxResults = int(*input.MaxResults)
+	out, err := filterAssociationExecutionTargets(targets, input.Filters)
+	if err != nil {
+		return nil, err
 	}
 
-	page, next := paginateSlice(out, input.NextToken, maxResults, defaultDescribeMaxResults)
+	page, next, err := pageChecked(
+		out, input.NextToken, maxOrZero(input.MaxResults), defaultDescribeMaxResults, ErrInvalidNextToken,
+	)
+	if err != nil {
+		return nil, err
+	}
 
 	return &DescribeAssociationExecutionTargetsOutputFull{
 		AssociationExecutionTargets: page,
@@ -669,7 +673,7 @@ func associationAttr(a Association, key string) (string, bool) {
 		return a.InstanceID, true
 	case filterKeyName:
 		return a.Name, true
-	case "AssociationId":
+	case fkAssociationID:
 		return a.AssociationID, true
 	case "AssociationName":
 		return a.AssociationName, true

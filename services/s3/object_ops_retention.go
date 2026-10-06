@@ -52,7 +52,7 @@ func (h *S3Handler) putObjectRetention(
 		}
 	}
 
-	versionID := r.URL.Query().Get("versionId")
+	versionID := queryParam(r, "versionId")
 	var vid *string
 	if versionID != "" {
 		vid = &versionID
@@ -78,7 +78,7 @@ func (h *S3Handler) getObjectRetention(
 ) {
 	h.setOperation(ctx, "GetObjectRetention")
 
-	versionID := r.URL.Query().Get("versionId")
+	versionID := queryParam(r, "versionId")
 	var vid *string
 	if versionID != "" {
 		vid = &versionID
@@ -140,7 +140,7 @@ func (h *S3Handler) putObjectLegalHold(
 		return
 	}
 
-	versionID := r.URL.Query().Get("versionId")
+	versionID := queryParam(r, "versionId")
 	var vid *string
 	if versionID != "" {
 		vid = &versionID
@@ -163,7 +163,7 @@ func (h *S3Handler) getObjectLegalHold(
 ) {
 	h.setOperation(ctx, "GetObjectLegalHold")
 
-	versionID := r.URL.Query().Get("versionId")
+	versionID := queryParam(r, "versionId")
 	var vid *string
 	if versionID != "" {
 		vid = &versionID

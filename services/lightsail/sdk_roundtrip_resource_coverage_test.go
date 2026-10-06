@@ -340,7 +340,9 @@ func testBucketsRealClient(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	getOut, err := client.GetBuckets(ctx, &lightsailsdk.GetBucketsInput{BucketName: aws.String("slice33-bucket")})
+	getOut, err := client.GetBuckets(ctx, &lightsailsdk.GetBucketsInput{
+		BucketName: aws.String("slice33-bucket"), IncludeConnectedResources: aws.Bool(true),
+	})
 	require.NoError(t, err)
 	require.Len(t, getOut.Buckets, 1)
 	// SetResourceAccessForBucket grants a Lightsail resource access, reflected

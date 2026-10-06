@@ -4,9 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 func cloneResourcePolicy(p *ResourcePolicy) *ResourcePolicy {
@@ -46,14 +45,14 @@ func (b *InMemoryBackend) PutResourcePolicy(policyName, policyDocument, revision
 	}
 
 	// Revision ID check: if a revision is provided it must match the stored one.
-	if revisionID != "" && exists && existing.PolicyRevisionID != revisionID {
+	if exists && revisionID != "" && (revisionID == "0" || existing.PolicyRevisionID != revisionID) {
 		return nil, fmt.Errorf("%w: policy revision ID does not match", ErrInvalidPolicyRevisionID)
 	}
 
 	p := &ResourcePolicy{
 		PolicyName:       policyName,
 		PolicyDocument:   policyDocument,
-		PolicyRevisionID: uuid.NewString(),
+		PolicyRevisionID: nextPolicyRevisionID(existing, exists),
 		LastUpdatedTime:  time.Now(),
 	}
 	b.resourcePolicies.Put(p)
@@ -120,3 +119,17 @@ const (
 	// (AWS docs: "can be up to 5kb in size").
 	maxResourcePolicySizeBytes = 5 * 1024
 )
+
+// nextPolicyRevisionID increments the revision per the SDK PutResourcePolicy PolicyRevisionId doc.
+func nextPolicyRevisionID(existing *ResourcePolicy, exists bool) string {
+	if !exists {
+		return "1"
+	}
+
+	n, err := strconv.Atoi(existing.PolicyRevisionID)
+	if err != nil {
+		return "1"
+	}
+
+	return strconv.Itoa(n + 1)
+}

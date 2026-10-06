@@ -1,6 +1,10 @@
 package lightsail
 
-import "context"
+import (
+	"context"
+
+	lstypes "github.com/aws/aws-sdk-go-v2/service/lightsail/types"
+)
 
 // referenceDataOps returns the dispatch table for family A (9 ops).
 func (h *Handler) referenceDataOps() map[string]opFunc {
@@ -48,6 +52,10 @@ func (h *Handler) handleGetBlueprints(_ context.Context, body []byte) ([]byte, e
 		return nil, err
 	}
 
+	if vErr := checkEnum("appCategory", lstypes.AppCategory(req.AppCategory)); vErr != nil {
+		return nil, vErr
+	}
+
 	bps := h.Backend.GetBlueprints(req.AppCategory, req.IncludeInactive)
 	out := make([]blueprintWire, len(bps))
 
@@ -89,6 +97,10 @@ func (h *Handler) handleGetBundles(_ context.Context, body []byte) ([]byte, erro
 		return nil, err
 	}
 
+	if vErr := checkEnum("appCategory", lstypes.AppCategory(req.AppCategory)); vErr != nil {
+		return nil, vErr
+	}
+
 	bds := h.Backend.GetBundles(req.AppCategory, req.IncludeInactive)
 	out := make([]bundleWire, len(bds))
 
@@ -119,15 +131,24 @@ type rdsBlueprintsListResponse struct {
 	Blueprints    []rdsBlueprintWire `json:"blueprints,omitempty"`
 }
 
-func (h *Handler) handleGetRelationalDatabaseBlueprints(_ context.Context, _ []byte) ([]byte, error) {
-	bps := h.Backend.GetRelationalDatabaseBlueprints()
-	out := make([]rdsBlueprintWire, len(bps))
+func (h *Handler) handleGetRelationalDatabaseBlueprints(_ context.Context, body []byte) ([]byte, error) {
+	req, err := decodeBody[pageTokenRequest](body)
+	if err != nil {
+		return nil, err
+	}
 
-	for i, bp := range bps {
+	pg, pgErr := h.Backend.GetRelationalDatabaseBlueprints(req.PageToken)
+	if pgErr != nil {
+		return nil, pgErr
+	}
+
+	out := make([]rdsBlueprintWire, len(pg.Data))
+
+	for i, bp := range pg.Data {
 		out[i] = rdsBlueprintWire(bp)
 	}
 
-	return marshalResponse(rdsBlueprintsListResponse{Blueprints: out})
+	return marshalResponse(rdsBlueprintsListResponse{Blueprints: out, NextPageToken: pg.Next})
 }
 
 type rdsBundleWire struct {

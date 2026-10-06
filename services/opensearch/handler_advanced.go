@@ -99,7 +99,7 @@ func (h *Handler) handleInstanceTypeDetailsRoutes(w http.ResponseWriter, r *http
 	engineVersion := strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, openSearchInstanceTypesPath), "/")
 	instanceType := r.URL.Query().Get("instanceType")
 	details := h.Backend.ListInstanceTypeDetails(engineVersion, instanceType)
-	h.writeJSON(r, w, map[string]any{"InstanceTypeDetails": details})
+	writePagedList(h, w, r, listSpec("InstanceTypeDetails"), details, nil)
 }
 
 // handleCompatibleVersionsRoutes handles GET /2021-01-01/opensearch/compatibleVersions → GetCompatibleVersions.
@@ -199,7 +199,7 @@ func (h *Handler) dispatchUpgradeStatusRoutes(w http.ResponseWriter, r *http.Req
 			return
 		}
 
-		h.writeJSON(r, w, map[string]any{"UpgradeHistories": history})
+		writePagedList(h, w, r, listSpec("UpgradeHistories"), history, nil)
 	case r.Method == http.MethodGet && strings.HasSuffix(trimmed, "/status"):
 		domainName, _ := strings.CutSuffix(trimmed, "/status")
 		upgradeName, upgradeStatus, upgradeStep, err := h.Backend.GetUpgradeStatus(domainName)

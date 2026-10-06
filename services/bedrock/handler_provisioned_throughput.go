@@ -49,6 +49,7 @@ type createProvisionedModelThroughputInput struct {
 	ProvisionedModelName string `json:"provisionedModelName"`
 	ModelID              string `json:"modelId"`
 	CommitmentDuration   string `json:"commitmentDuration,omitempty"`
+	ClientRequestToken   string `json:"clientRequestToken,omitempty"`
 	Tags                 []Tag  `json:"tags"`
 	ModelUnits           int32  `json:"modelUnits"`
 }
@@ -66,12 +67,15 @@ func (h *Handler) handleCreateProvisionedModelThroughput(c *echo.Context, body [
 		)
 	}
 
-	pmt, opErr := h.Backend.CreateProvisionedModelThroughput(
-		in.ProvisionedModelName,
-		in.ModelID,
-		in.ModelUnits,
-		in.CommitmentDuration,
-		in.Tags,
+	pmt, opErr := idemCreate(
+		h.idem, "CreateProvisionedModelThroughput", in.ClientRequestToken, idemFingerprint(in), ErrValidation,
+		func(p *ProvisionedModelThroughput) string { return p.ProvisionedModelArn },
+		h.Backend.GetProvisionedModelThroughput,
+		func() (*ProvisionedModelThroughput, error) {
+			return h.Backend.CreateProvisionedModelThroughput(
+				in.ProvisionedModelName, in.ModelID, in.ModelUnits, in.CommitmentDuration, in.Tags,
+			)
+		},
 	)
 	if opErr != nil {
 		return h.writeError(c, opErr)

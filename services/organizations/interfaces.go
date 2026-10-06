@@ -43,7 +43,7 @@ type StorageBackend interface {
 	// Policy operations
 	CreatePolicy(name, description, content, policyType string, tags []Tag) (*Policy, error)
 	DescribePolicy(policyID string) (*Policy, error)
-	UpdatePolicy(policyID, name, description, content string) (*Policy, error)
+	UpdatePolicy(policyID, name string, description *string, content string) (*Policy, error)
 	DeletePolicy(policyID string) error
 	ListPolicies(filter string) ([]*Policy, error)
 	AttachPolicy(policyID, targetID string) error

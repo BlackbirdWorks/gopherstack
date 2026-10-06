@@ -71,7 +71,7 @@ func TestOutpostsBucket(t *testing.T) {
 		b := s3control.NewInMemoryBackend()
 		b.CreateBucket("000000000000", "ver-bucket")
 		status, _ := b.GetBucketVersioning("ver-bucket")
-		assert.Equal(t, "Suspended", status)
+		assert.Empty(t, status)
 		require.NoError(t, b.PutBucketVersioning("ver-bucket", "Enabled"))
 		status2, _ := b.GetBucketVersioning("ver-bucket")
 		assert.Equal(t, "Enabled", status2)
@@ -135,7 +135,7 @@ func TestOutpostsBucket(t *testing.T) {
 
 		v, err := b.GetBucketVersioning("cascade-bucket")
 		require.NoError(t, err)
-		assert.Equal(t, "Suspended", v, "versioning must reset, not survive delete")
+		assert.Empty(t, v, "versioning must reset, not survive delete")
 
 		_, err = b.GetBucketReplication("cascade-bucket")
 		require.Error(t, err, "replication must not survive delete")

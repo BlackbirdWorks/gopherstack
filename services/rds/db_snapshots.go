@@ -343,6 +343,7 @@ func (b *InMemoryBackend) RestoreDBInstanceFromDBSnapshot(
 			IAMDatabaseAuthenticationEnabled: opts.IAMDatabaseAuthenticationEnabled,
 			UseDefaultProcessorFeatures:      opts.UseDefaultProcessorFeatures,
 			BackupTarget:                     opts.BackupTarget,
+			EnabledCloudwatchLogsExports:     opts.EnabledCloudwatchLogsExports,
 		}
 		applyVpcSecurityGroups(inst, opts.VpcSecurityGroupIDs)
 		b.instances.Put(inst)

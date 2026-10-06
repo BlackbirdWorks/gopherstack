@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/svelte";
 import AppConfigPage from "./+page.svelte";
-import { confirmDestructive } from "$lib/confirm-dialog";
+import { confirmDestructive } from "#lib/confirm-dialog.ts";
 
 const mockSend = vi.fn();
 
-vi.mock("$lib/aws-client", () => ({
+vi.mock("#lib/aws-client.ts", () => ({
   getAppConfigClient: () => ({ send: mockSend }),
 }));
 
@@ -16,7 +16,7 @@ vi.mock("svelte-sonner", () => ({
   },
 }));
 
-vi.mock("$lib/confirm-dialog", () => ({
+vi.mock("#lib/confirm-dialog.ts", () => ({
   confirmDestructive: vi.fn().mockResolvedValue(true),
 }));
 

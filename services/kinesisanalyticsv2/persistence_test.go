@@ -53,7 +53,7 @@ func newPersistenceTestBackend(t *testing.T) (*InMemoryBackend, persistenceFixtu
 	const skipVersionCheck = 0
 
 	_, cwlErr := b.AddApplicationCloudWatchLoggingOption(
-		ctx, app.ApplicationName, skipVersionCheck,
+		ctx, app.ApplicationName, skipVersionCheck, "",
 		"arn:aws:logs:us-east-1:000000000000:log-group:g:log-stream:s", "arn:aws:iam::000000000000:role/logs",
 	)
 	require.NoError(t, cwlErr)
@@ -96,7 +96,7 @@ func newPersistenceTestBackend(t *testing.T) (*InMemoryBackend, persistenceFixtu
 	))
 
 	_, vpcErr := b.AddApplicationVpcConfiguration(
-		ctx, app.ApplicationName, skipVersionCheck, VpcConfigurationDescription{
+		ctx, app.ApplicationName, skipVersionCheck, "", VpcConfigurationDescription{
 			VpcID:            "vpc-1",
 			SubnetIDs:        []string{"subnet-1"},
 			SecurityGroupIDs: []string{"sg-1"},
@@ -185,7 +185,7 @@ func Test_InMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	// applicationsByRegion index: ListApplications only returns the
 	// us-east-1 application, not the eu-west-1 one.
-	list, _ := fresh.ListApplications(t.Context(), "")
+	list, _ := fresh.ListApplications(t.Context(), "", 0)
 	require.Len(t, list, 1)
 	assert.Equal(t, ids.appName, list[0].ApplicationName)
 
@@ -207,7 +207,7 @@ func Test_InMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, ids.snapshotName, snapDetail.SnapshotName)
 	assert.Equal(t, "READY", snapDetail.SnapshotStatus)
 
-	snapList, _, err := fresh.ListApplicationSnapshots(t.Context(), ids.appName, "")
+	snapList, _, err := fresh.ListApplicationSnapshots(t.Context(), ids.appName, "", 0)
 	require.NoError(t, err)
 	require.Len(t, snapList, 1)
 	assert.Equal(t, ids.snapshotName, snapList[0].SnapshotName)
@@ -356,7 +356,7 @@ func TestPersistence_NextIDPreserved(t *testing.T) {
 	_, err := b.CreateApplication(ctx, "id-app", "SQL-1_0", "", "", "", nil)
 	require.NoError(t, err)
 
-	_, err = b.AddApplicationCloudWatchLoggingOption(ctx, "id-app", 0,
+	_, err = b.AddApplicationCloudWatchLoggingOption(ctx, "id-app", 0, "",
 		"arn:aws:logs:us-east-1:000000000000:log-group:g:log-stream:s", "")
 	require.NoError(t, err)
 
@@ -369,7 +369,7 @@ func TestPersistence_NextIDPreserved(t *testing.T) {
 	require.NoError(t, h2.Restore(t.Context(), data))
 
 	// Adding another CWL option on b2 should generate a new distinct ID
-	_, err = b2.AddApplicationCloudWatchLoggingOption(ctx, "id-app", 0,
+	_, err = b2.AddApplicationCloudWatchLoggingOption(ctx, "id-app", 0, "",
 		"arn:aws:logs:us-east-1:000000000000:log-group:g:log-stream:s2", "")
 	require.NoError(t, err)
 

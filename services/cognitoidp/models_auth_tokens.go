@@ -26,8 +26,9 @@ type clientTokenSettings struct {
 }
 
 type revokeTokenInput struct {
-	Token    string `json:"Token,omitempty"`
-	ClientID string `json:"ClientId,omitempty"`
+	Token        string `json:"Token,omitempty"`
+	ClientID     string `json:"ClientId,omitempty"`
+	ClientSecret string `json:"ClientSecret,omitempty"`
 }
 
 type revokeTokenOutput struct{}
@@ -56,6 +57,7 @@ type getSigningCertificateOutput struct {
 type getTokensFromRefreshTokenInput struct {
 	RefreshToken string `json:"RefreshToken,omitempty"`
 	ClientID     string `json:"ClientId,omitempty"`
+	ClientSecret string `json:"ClientSecret,omitempty"`
 }
 
 type getTokensFromRefreshTokenOutput struct {

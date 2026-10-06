@@ -362,6 +362,7 @@ func (b *InMemoryBackend) ConfirmForgotPassword(clientID, username, code, newPas
 	}
 
 	user.PasswordHash = hash
+	user.TemporaryPassword = ""
 	user.SRPSalt = saltHex
 	user.SRPVerifier = verifierHex
 	user.ConfirmCode = ""
@@ -398,6 +399,7 @@ func (b *InMemoryBackend) ChangePassword(accessToken, previousPassword, proposed
 	}
 
 	u.PasswordHash = hash
+	u.TemporaryPassword = ""
 	u.SRPSalt = saltHex
 	u.SRPVerifier = verifierHex
 
@@ -844,6 +846,15 @@ func (b *InMemoryBackend) SignUpWithValidation(
 	clientID, username, password string,
 	userAttributes map[string]string,
 ) (*User, error) {
+	return b.SignUpWithTriggerData(clientID, username, password, userAttributes, TriggerData{})
+}
+
+// SignUpWithTriggerData is SignUpWithValidation that also hands ClientMetadata and ValidationData to PreSignUp.
+func (b *InMemoryBackend) SignUpWithTriggerData(
+	clientID, username, password string,
+	userAttributes map[string]string,
+	td TriggerData,
+) (*User, error) {
 	b.mu.Lock("SignUpWithValidation")
 	defer b.mu.Unlock()
 
@@ -855,6 +866,10 @@ func (b *InMemoryBackend) SignUpWithValidation(
 	pool, ok := b.pools.Get(client.UserPoolID)
 	if !ok {
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, client.UserPoolID)
+	}
+
+	if allowOnly, _ := pool.Settings.AdminCreateUserConfig["AllowAdminCreateUserOnly"].(bool); allowOnly {
+		return nil, fmt.Errorf("%w: SignUp is not permitted for this user pool", ErrNotAuthorized)
 	}
 
 	if err := validatePassword(pool.PasswordPolicy, password); err != nil {
@@ -877,8 +892,8 @@ func (b *InMemoryBackend) SignUpWithValidation(
 		pool, triggerKeyPreSignUp, triggerSourcePreSignUpSignUp, clientID, username,
 		map[string]any{
 			eventKeyUserAttributes: stringMapToAny(attrs),
-			eventKeyValidationData: map[string]any{},
-			eventKeyClientMetadata: map[string]any{},
+			eventKeyValidationData: stringMapToAny(td.ValidationData),
+			eventKeyClientMetadata: stringMapToAny(td.ClientMetadata),
 		},
 		map[string]any{"autoConfirmUser": false, "autoVerifyEmail": false, "autoVerifyPhone": false},
 	)

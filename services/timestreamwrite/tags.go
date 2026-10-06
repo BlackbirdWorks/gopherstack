@@ -30,8 +30,8 @@ func (b *InMemoryBackend) UntagResource(arn string, tagKeys []string) error {
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	if b.tags[arn] == nil {
-		return nil
+	if !b.isKnownARNLocked(arn) {
+		return fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, arn)
 	}
 
 	for _, k := range tagKeys {
@@ -50,6 +50,14 @@ func (b *InMemoryBackend) ListTagsForResource(arn string) map[string]string {
 	maps.Copy(result, b.tags[arn])
 
 	return result
+}
+
+// ResourceExists reports whether arn names a known database, table or scheduled query.
+func (b *InMemoryBackend) ResourceExists(arn string) bool {
+	b.mu.RLock("ResourceExists")
+	defer b.mu.RUnlock()
+
+	return b.isKnownARNLocked(arn)
 }
 
 // TaggedEntry pairs a resource ARN with its tags.

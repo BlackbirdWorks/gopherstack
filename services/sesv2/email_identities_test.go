@@ -279,7 +279,7 @@ func TestGetEmailIdentityDefaults(t *testing.T) {
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 
-	assert.Equal(t, "defaults@example.com", out["EmailIdentity"])
+	assert.NotContains(t, out, "EmailIdentity")
 	assert.Equal(t, "EMAIL_ADDRESS", out["IdentityType"])
 	assert.Equal(t, true, out["VerifiedForSendingStatus"])
 	assert.Equal(t, true, out["FeedbackForwardingStatus"])
@@ -995,7 +995,7 @@ func TestGetEmailIdentity(t *testing.T) {
 			if tt.wantCode == http.StatusOK {
 				var out map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-				assert.Equal(t, tt.identity, out["EmailIdentity"])
+				assert.NotContains(t, out, "EmailIdentity")
 			}
 		})
 	}

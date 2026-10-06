@@ -2,10 +2,14 @@ package fis
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
 )
 
 // ----------------------------------------
@@ -36,12 +40,21 @@ func (h *Handler) handleCreateTargetAccountConfiguration(
 		)
 	}
 
-	cfg, err := h.Backend.CreateTargetAccountConfiguration(
-		templateID,
-		accountID,
-		input.RoleArn,
-		input.Description,
-	)
+	cfg, err := idempotency.Create(h.idem, "CreateTargetAccountConfiguration", input.ClientToken,
+		idempotency.Fingerprint([2]any{compositeID, input}),
+		func(c *TargetAccountConfiguration) string { return c.ExperimentTemplateID + "/" + c.AccountID },
+		func(id string) (*TargetAccountConfiguration, error) {
+			t, a := splitCompositeID(id)
+
+			return h.Backend.GetTargetAccountConfiguration(t, a)
+		},
+		func() (*TargetAccountConfiguration, error) {
+			return h.Backend.CreateTargetAccountConfiguration(templateID, accountID, input.RoleArn, input.Description)
+		})
+	if errors.Is(err, idempotency.ErrParamsMismatch) {
+		err = fmt.Errorf("%w: %s", ErrTokenReused, err.Error())
+	}
+
 	if err != nil {
 		return h.writeBackendError(c, err, compositeID)
 	}

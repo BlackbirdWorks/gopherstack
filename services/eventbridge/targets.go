@@ -100,6 +100,15 @@ func (b *InMemoryBackend) RemoveTargets(ctx context.Context,
 	ruleName, eventBusName string,
 	ids []string,
 ) ([]FailedEntry, error) {
+	return b.RemoveTargetsForce(ctx, ruleName, eventBusName, ids, false)
+}
+
+// RemoveTargetsForce is RemoveTargets; force allows editing a service-managed rule.
+func (b *InMemoryBackend) RemoveTargetsForce(ctx context.Context,
+	ruleName, eventBusName string,
+	ids []string,
+	force bool,
+) ([]FailedEntry, error) {
 	if eventBusName == "" {
 		eventBusName = defaultEventBusName
 	}
@@ -111,7 +120,7 @@ func (b *InMemoryBackend) RemoveTargets(ctx context.Context,
 	defer b.mu.Unlock()
 
 	if busRules, exists := b.rulesStore(region)[busKey]; exists {
-		if rule, ruleExists := busRules.Get(ruleName); ruleExists {
+		if rule, ruleExists := busRules.Get(ruleName); ruleExists && !force {
 			if err := checkManagedRule(rule); err != nil {
 				return nil, err
 			}

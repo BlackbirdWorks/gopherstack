@@ -193,12 +193,14 @@ func (h *Handler) handleListJourneys(c *echo.Context, appID string) error {
 		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", err.Error())
 	}
 
-	offset, pageSize := parsePageParams(c)
-	start, end, nextToken := applyPageParams(offset, pageSize, len(journeys))
+	paged, nextToken, ok := pageSlice(c, journeys)
+	if !ok {
+		return nil
+	}
 
-	items := make([]journeyResponse, 0, end-start)
+	items := make([]journeyResponse, 0, len(paged))
 
-	for _, j := range journeys[start:end] {
+	for _, j := range paged {
 		items = append(items, toJourneyResponse(j))
 	}
 
@@ -346,7 +348,17 @@ func (h *Handler) handleGetJourneyRuns(c *echo.Context, appID, journeyID string)
 		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", err.Error())
 	}
 
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, resp)
+	paged, next, ok := pageSlice(c, resp.Item)
+	if !ok {
+		return nil
+	}
+
+	httputils.WriteJSON(
+		c.Request().Context(),
+		c.Response(),
+		http.StatusOK,
+		journeyRunsResponse{NextToken: next, Item: paged},
+	)
 
 	return nil
 }
@@ -393,7 +405,6 @@ func (h *Handler) handleGetJourneyRunExecutionActivityMetrics(
 func toJourneyResponse(j *Journey) journeyResponse {
 	return journeyResponse{
 		ApplicationID:          j.ApplicationID,
-		ARN:                    j.ARN,
 		ID:                     j.ID,
 		Name:                   j.Name,
 		State:                  j.State,

@@ -620,6 +620,7 @@ func parseCreateClusterOptions(vals url.Values) (CreateClusterOptions, error) {
 		DefaultIamRoleArn:                    vals.Get("DefaultIamRoleArn"),
 		VpcSecurityGroupIDs:                  parseStringList(vals, "VpcSecurityGroupIds.VpcSecurityGroupId."),
 		ExtraComputeForAutomaticOptimization: vals.Get("ExtraComputeForAutomaticOptimization") == paramValueTrue,
+		Settings:                             parseClusterSettings(vals),
 	}
 
 	if v := vals.Get("AllowVersionUpgrade"); v != "" {
@@ -843,6 +844,8 @@ func snapshotCopyStatusXML(cfg *SnapshotCopyConfig) *xmlClusterSnapshotCopyStatu
 		DestinationRegion:     cfg.DestinationRegion,
 		SnapshotCopyGrantName: cfg.SnapshotCopyGrantName,
 		RetentionPeriod:       cfg.RetentionPeriod,
+
+		ManualSnapshotRetentionPeriod: cfg.ManualRetentionPeriod,
 	}
 }
 
@@ -872,7 +875,15 @@ func toXMLClusterWithTags(c *Cluster, tags map[string]string) xmlCluster {
 		EndpointPort:                         c.Port,
 		ClusterStatus:                        c.Status,
 		ClusterAvailabilityStatus:            "Available",
-		AvailabilityZoneRelocationStatus:     statusDisabled,
+		AvailabilityZoneRelocationStatus:     relocationStatus(c.AvailabilityZoneRelocation),
+		ElasticIPStatus:                      elasticIPStatusXML(c.ElasticIP),
+		HsmStatus:                            hsmStatusXML(c),
+		PendingModifiedValues:                pendingModifiedValuesXML(c.PendingModifiedValues),
+		DeferredMaintenanceWindows:           deferredWindowsXML(c.DeferredMaintenanceWindows),
+		MaintenanceTrackName:                 firstNonEmpty(c.MaintenanceTrackName, defaultMaintenanceTrack),
+		IPAddressType:                        firstNonEmpty(c.IPAddressType, defaultIPAddressType),
+		MasterPasswordSecretArn:              c.MasterPasswordSecretArn,
+		MasterPasswordSecretKmsKeyID:         c.MasterPasswordSecretKmsKeyID,
 		MultiAZ:                              "Disabled",
 		NumberOfNodes:                        c.NumberOfNodes,
 		Encrypted:                            c.Encrypted,
@@ -1009,6 +1020,9 @@ var errCodeSentinels = []error{
 	ErrSnapshotHasAuthorizedAccounts,
 	ErrInvalidS3KeyPrefix,
 	ErrClusterInvalidState,
+	ErrInvalidClusterTrack,
+	ErrInvalidElasticIP,
+	ErrInvalidParameterCombination,
 }
 
 func resolveErrCode(opErr error) (string, int) {
@@ -1096,6 +1110,15 @@ type xmlCluster struct {
 	ClusterSecurityGroups            xmlClusterSecGroups           `xml:"ClusterSecurityGroups"`
 
 	VpcSecurityGroups []xmlVpcSecurityGroupMembership `xml:"VpcSecurityGroups>VpcSecurityGroup,omitempty"`
+
+	ElasticIPStatus              *xmlElasticIPStatus       `xml:"ElasticIpStatus,omitempty"`
+	HsmStatus                    *xmlHsmStatus             `xml:"HsmStatus,omitempty"`
+	PendingModifiedValues        *xmlPendingModifiedValues `xml:"PendingModifiedValues,omitempty"`
+	DeferredMaintenanceWindows   *xmlDeferredWindows       `xml:"DeferredMaintenanceWindows,omitempty"`
+	MaintenanceTrackName         string                    `xml:"MaintenanceTrackName,omitempty"`
+	IPAddressType                string                    `xml:"IpAddressType,omitempty"`
+	MasterPasswordSecretArn      string                    `xml:"MasterPasswordSecretArn,omitempty"`
+	MasterPasswordSecretKmsKeyID string                    `xml:"MasterPasswordSecretKmsKeyId,omitempty"`
 
 	ClusterNodes                         xmlClusterNodes `xml:"ClusterNodes"`
 	ManualSnapshotRetentionPeriod        int             `xml:"ManualSnapshotRetentionPeriod"`

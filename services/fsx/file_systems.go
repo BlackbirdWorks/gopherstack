@@ -32,6 +32,7 @@ type storedFileSystem struct {
 	Lifecycle                     string            `json:"lifecycle"`
 	ResourceARN                   string            `json:"resourceArn"`
 	DNSName                       string            `json:"dnsName,omitempty"`
+	KmsKeyID                      string            `json:"kmsKeyId,omitempty"`
 	StorageType                   string            `json:"storageType,omitempty"`
 	VpcID                         string            `json:"vpcId,omitempty"`
 	OwnerID                       string            `json:"ownerId,omitempty"`
@@ -64,6 +65,7 @@ func (s *storedFileSystem) toFileSystem() *FileSystem {
 		Lifecycle:             s.Lifecycle,
 		ResourceARN:           s.ResourceARN,
 		DNSName:               s.DNSName,
+		KmsKeyID:              s.KmsKeyID,
 		StorageCapacityGiB:    s.StorageCapacityGiB,
 		StorageType:           s.StorageType,
 		VpcID:                 s.VpcID,
@@ -162,6 +164,7 @@ type createFileSystemInput struct {
 	NetworkType           string                      `json:"NetworkType,omitempty"`
 	FileSystemTypeVersion string                      `json:"FileSystemTypeVersion,omitempty"`
 	ClientRequestToken    string                      `json:"ClientRequestToken,omitempty"`
+	KmsKeyID              string                      `json:"KmsKeyId,omitempty"`
 	Tags                  []Tag                       `json:"Tags,omitempty"`
 	SubnetIDs             []string                    `json:"SubnetIds,omitempty"`
 	SecurityGroupIDs      []string                    `json:"SecurityGroupIds,omitempty"`
@@ -571,6 +574,7 @@ func (b *InMemoryBackend) CreateFileSystem(input *createFileSystemInput) (*FileS
 		DNSName:             fmt.Sprintf("%s.fsx.%s.amazonaws.com", id, b.region),
 		StorageCapacityGiB:  input.StorageCapacityGiB,
 		StorageType:         input.StorageType,
+		KmsKeyID:            input.KmsKeyID,
 		VpcID:               input.VpcID,
 		OwnerID:             b.accountID,
 		SubnetIDs:           input.SubnetIDs,
@@ -1048,6 +1052,7 @@ type createFileSystemFromBackupInput struct {
 	FileSystemTypeVersion string   `json:"FileSystemTypeVersion,omitempty"`
 	StorageType           string   `json:"StorageType,omitempty"`
 	VpcID                 string   `json:"VpcId,omitempty"`
+	KmsKeyID              string   `json:"KmsKeyId,omitempty"`
 	Tags                  []Tag    `json:"Tags,omitempty"`
 	SubnetIDs             []string `json:"SubnetIds,omitempty"`
 	SecurityGroupIDs      []string `json:"SecurityGroupIds,omitempty"`
@@ -1165,6 +1170,7 @@ func (b *InMemoryBackend) CreateFileSystemFromBackup(input *createFileSystemFrom
 		DNSName:               fmt.Sprintf("%s.fsx.%s.amazonaws.com", id, b.region),
 		StorageCapacityGiB:    fields.capacity,
 		StorageType:           fields.storageType,
+		KmsKeyID:              input.KmsKeyID,
 		VpcID:                 input.VpcID,
 		OwnerID:               b.accountID,
 		SubnetIDs:             input.SubnetIDs,

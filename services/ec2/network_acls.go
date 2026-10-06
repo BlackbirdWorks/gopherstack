@@ -1,7 +1,10 @@
 package ec2
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -277,15 +280,51 @@ func (b *InMemoryBackend) ReplaceNetworkACLEntry(
 
 // ---- Network ACL: Association management ----
 
-// ReplaceNetworkACLAssociation moves a subnet from its current NACL to
-// the specified one and returns a new association ID.
-func (b *InMemoryBackend) ReplaceNetworkACLAssociation(aclID, subnetID string) (string, error) {
+// networkACLAssociationID derives the stable "aclassoc-" ID of a subnet's
+// association with an ACL; moving the subnet to another ACL yields a new ID.
+func networkACLAssociationID(subnetID, aclID string) string {
+	sum := sha256.Sum256([]byte(subnetID + "|" + aclID))
+
+	return "aclassoc-" + hex.EncodeToString(sum[:])[:17]
+}
+
+// currentNetworkACLIDLocked returns the ACL a subnet is associated with: a
+// stored ACL listing it, else its VPC's synthetic default ACL.
+func (b *InMemoryBackend) currentNetworkACLIDLocked(subnet *Subnet) string {
+	for _, acl := range b.networkACLs.All() {
+		if slices.Contains(acl.AssociationIDs, subnet.ID) {
+			return acl.ID
+		}
+	}
+
+	return networkACLDefaultIDPrefix + subnet.VPCID
+}
+
+// resolveNetworkACLAssociationSubnetLocked maps ref, an "aclassoc-" ID or a
+// bare subnet ID, to the subnet ID whose association it names.
+func (b *InMemoryBackend) resolveNetworkACLAssociationSubnetLocked(ref string) (string, error) {
+	if !strings.HasPrefix(ref, "aclassoc-") {
+		return ref, nil
+	}
+
+	for _, s := range b.subnets.All() {
+		if networkACLAssociationID(s.ID, b.currentNetworkACLIDLocked(s)) == ref {
+			return s.ID, nil
+		}
+	}
+
+	return "", fmt.Errorf("%w: %s", ErrIAMAssociationNotFound, ref)
+}
+
+// ReplaceNetworkACLAssociation moves the subnet named by assocRef (an
+// association ID or a subnet ID) to aclID and returns the new association ID.
+func (b *InMemoryBackend) ReplaceNetworkACLAssociation(aclID, assocRef string) (string, error) {
 	if aclID == "" {
 		return "", fmt.Errorf("%w: NetworkAclId is required", ErrInvalidParameter)
 	}
 
-	if subnetID == "" {
-		return "", fmt.Errorf("%w: SubnetId is required", ErrInvalidParameter)
+	if assocRef == "" {
+		return "", fmt.Errorf("%w: AssociationId is required", ErrInvalidParameter)
 	}
 
 	b.mu.Lock("ReplaceNetworkACLAssociation")
@@ -302,6 +341,11 @@ func (b *InMemoryBackend) ReplaceNetworkACLAssociation(aclID, subnetID string) (
 		if _, ok := b.networkACLs.Get(aclID); !ok {
 			return "", fmt.Errorf("%w: %s", ErrNetworkACLNotFound, aclID)
 		}
+	}
+
+	subnetID, err := b.resolveNetworkACLAssociationSubnetLocked(assocRef)
+	if err != nil {
+		return "", err
 	}
 
 	if _, ok := b.subnets.Get(subnetID); !ok {
@@ -327,12 +371,7 @@ func (b *InMemoryBackend) ReplaceNetworkACLAssociation(aclID, subnetID string) (
 		target.AssociationIDs = append(target.AssociationIDs, subnetID)
 	}
 
-	// The returned association ID must match what DescribeNetworkAcls will
-	// report for this subnet afterwards (AssociationIDs stores the raw
-	// subnet ID -- see DescribeNetworkAcls' doc comment), or a client that
-	// tracks the ID this call returns (e.g. as a resource ID) would never
-	// find it again on a subsequent read.
-	return subnetID, nil
+	return networkACLAssociationID(subnetID, aclID), nil
 }
 
 // ---- VPC Endpoint Services ----

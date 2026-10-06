@@ -22,13 +22,15 @@ func (h *Handler) buildPoolsOps() map[string]service.JSONOpFunc {
 }
 
 type createWorkspacesPoolInput struct {
-	PoolName    string    `json:"PoolName"`
-	BundleId    string    `json:"BundleId"`    //nolint:revive,staticcheck // existing issue.
-	DirectoryId string    `json:"DirectoryId"` //nolint:revive,staticcheck // existing issue.
-	Description string    `json:"Description"`
-	RunningMode string    `json:"RunningMode"`
-	Tags        []tagItem `json:"Tags"`
-	Capacity    struct {
+	ApplicationSettings *PoolApplicationSettings `json:"ApplicationSettings"`
+	TimeoutSettings     *PoolTimeoutSettings     `json:"TimeoutSettings"`
+	PoolName            string                   `json:"PoolName"`
+	BundleId            string                   `json:"BundleId"`    //nolint:revive,staticcheck // existing issue.
+	DirectoryId         string                   `json:"DirectoryId"` //nolint:revive,staticcheck // existing issue.
+	Description         string                   `json:"Description"`
+	RunningMode         string                   `json:"RunningMode"`
+	Tags                []tagItem                `json:"Tags"`
+	Capacity            struct {
 		DesiredUserSessions int32 `json:"DesiredUserSessions"`
 	} `json:"Capacity"`
 }
@@ -52,16 +54,18 @@ type capacityStatusResp struct {
 // CapacityStatus and RunningMode are both `This member is required` on the
 // real WorkspacesPool type and were previously omitted entirely.
 type workspacesPoolResp struct {
-	PoolId         string             `json:"PoolId"` //nolint:revive,staticcheck // existing issue.
-	PoolArn        string             `json:"PoolArn"`
-	PoolName       string             `json:"PoolName"`
-	BundleId       string             `json:"BundleId"`    //nolint:revive,staticcheck // existing issue.
-	DirectoryId    string             `json:"DirectoryId"` //nolint:revive,staticcheck // existing issue.
-	Description    string             `json:"Description"`
-	State          string             `json:"State"`
-	RunningMode    string             `json:"RunningMode"`
-	CreatedAt      float64            `json:"CreatedAt,omitempty"`
-	CapacityStatus capacityStatusResp `json:"CapacityStatus"`
+	ApplicationSettings *PoolApplicationSettings `json:"ApplicationSettings,omitempty"`
+	TimeoutSettings     *PoolTimeoutSettings     `json:"TimeoutSettings,omitempty"`
+	PoolId              string                   `json:"PoolId"` //nolint:revive,staticcheck // existing issue.
+	PoolArn             string                   `json:"PoolArn"`
+	PoolName            string                   `json:"PoolName"`
+	BundleId            string                   `json:"BundleId"`    //nolint:revive,staticcheck // existing issue.
+	DirectoryId         string                   `json:"DirectoryId"` //nolint:revive,staticcheck // existing issue.
+	Description         string                   `json:"Description"`
+	State               string                   `json:"State"`
+	RunningMode         string                   `json:"RunningMode"`
+	CreatedAt           float64                  `json:"CreatedAt,omitempty"`
+	CapacityStatus      capacityStatusResp       `json:"CapacityStatus"`
 }
 
 type createWorkspacesPoolOutput struct {
@@ -79,6 +83,7 @@ func (h *Handler) handleCreateWorkspacesPool(
 		req.RunningMode,
 		req.Capacity.DesiredUserSessions,
 		tagsToMap(req.Tags),
+		PoolSettings{ApplicationSettings: req.ApplicationSettings, TimeoutSettings: req.TimeoutSettings},
 	)
 	if err != nil {
 		return nil, err
@@ -98,6 +103,9 @@ func toPoolResp(p *storedPool) workspacesPoolResp {
 		State:       p.State,
 		RunningMode: p.RunningMode,
 		CreatedAt:   awstime.Epoch(p.CreatedAt),
+
+		ApplicationSettings: p.ApplicationSettings,
+		TimeoutSettings:     p.TimeoutSettings,
 		CapacityStatus: capacityStatusResp{
 			ActiveUserSessions:    0,
 			ActualUserSessions:    p.DesiredUserSessions,
@@ -107,10 +115,17 @@ func toPoolResp(p *storedPool) workspacesPoolResp {
 	}
 }
 
+type describeWorkspacesPoolsFilter struct {
+	Name     string   `json:"Name"`
+	Operator string   `json:"Operator"`
+	Values   []string `json:"Values"`
+}
+
 type describeWorkspacesPoolsInput struct {
-	NextToken string   `json:"NextToken"`
-	PoolIds   []string `json:"PoolIds"` //nolint:revive // existing issue.
-	Limit     int32    `json:"Limit"`
+	NextToken string                          `json:"NextToken"`
+	PoolIds   []string                        `json:"PoolIds"` //nolint:revive // existing issue.
+	Filters   []describeWorkspacesPoolsFilter `json:"Filters"`
+	Limit     int32                           `json:"Limit"`
 }
 
 type describeWorkspacesPoolsOutput struct {
@@ -121,8 +136,14 @@ type describeWorkspacesPoolsOutput struct {
 func (h *Handler) handleDescribeWorkspacesPools(
 	_ context.Context, req *describeWorkspacesPoolsInput,
 ) (*describeWorkspacesPoolsOutput, error) {
-	pools, nextToken, err := h.Backend.DescribeWorkspacesPools(
+	filters := make([]PoolFilter, 0, len(req.Filters))
+	for _, f := range req.Filters {
+		filters = append(filters, PoolFilter(f))
+	}
+
+	pools, nextToken, err := h.Backend.DescribeWorkspacesPoolsFiltered(
 		req.PoolIds,
+		filters,
 		req.Limit,
 		req.NextToken,
 	)
@@ -171,12 +192,14 @@ func (h *Handler) handleTerminateWorkspacesPool(
 }
 
 type updateWorkspacesPoolInput struct {
-	PoolId      string `json:"PoolId"` //nolint:revive,staticcheck // existing issue.
-	Description string `json:"Description"`
-	BundleId    string `json:"BundleId"`    //nolint:revive,staticcheck // existing issue.
-	DirectoryId string `json:"DirectoryId"` //nolint:revive,staticcheck // existing issue.
-	RunningMode string `json:"RunningMode"`
-	Capacity    struct {
+	ApplicationSettings *PoolApplicationSettings `json:"ApplicationSettings"`
+	TimeoutSettings     *PoolTimeoutSettings     `json:"TimeoutSettings"`
+	PoolId              string                   `json:"PoolId"` //nolint:revive,staticcheck // existing issue.
+	Description         string                   `json:"Description"`
+	BundleId            string                   `json:"BundleId"`    //nolint:revive,staticcheck // existing issue.
+	DirectoryId         string                   `json:"DirectoryId"` //nolint:revive,staticcheck // existing issue.
+	RunningMode         string                   `json:"RunningMode"`
+	Capacity            struct {
 		DesiredUserSessions int32 `json:"DesiredUserSessions"`
 	} `json:"Capacity"`
 }
@@ -195,6 +218,7 @@ func (h *Handler) handleUpdateWorkspacesPool(
 		req.DirectoryId,
 		req.RunningMode,
 		req.Capacity.DesiredUserSessions,
+		PoolSettings{ApplicationSettings: req.ApplicationSettings, TimeoutSettings: req.TimeoutSettings},
 	)
 	if err != nil {
 		return nil, err

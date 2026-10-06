@@ -32,7 +32,9 @@ func TestOmics_VariantStore(t *testing.T) {
 				t.Helper()
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(body, &resp))
-				assert.Contains(t, resp["storeArn"], "arn:aws:omics:")
+				assert.Equal(t, "var-store", resp["name"])
+				assert.NotEmpty(t, resp["id"])
+				assert.NotContains(t, resp, "storeArn")
 			},
 		},
 		{

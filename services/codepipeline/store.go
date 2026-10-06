@@ -162,6 +162,7 @@ type InMemoryBackend struct {
 	executions                 map[string]map[string][]*PipelineExecution  // region → pipelineName → executions
 	actionExecutions           map[string]map[string][]*ActionExecution    // region → pipelineName → action executions
 	actionRevisions            map[string]map[string]*ActionRevisionRecord // region → "pipeline/stage/action" → revision
+	startTokens                map[string]string                           // region|pipeline|token → execution ID
 	// codeBuildBackend, lambdaBackend, and codeDeployBackend back a
 	// Build/CodeBuild, an Invoke/Lambda, and a Deploy/CodeDeploy action
 	// respectively (see runOneAction, action_engine.go). Nil until wired via
@@ -174,6 +175,7 @@ type InMemoryBackend struct {
 	mu                *lockmetrics.RWMutex
 	accountID         string
 	region            string
+	startTokenOrder   []string
 }
 
 // NewInMemoryBackend creates a new backend for the given account and region.
@@ -183,6 +185,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		executions:       make(map[string]map[string][]*PipelineExecution),
 		actionExecutions: make(map[string]map[string][]*ActionExecution),
 		actionRevisions:  make(map[string]map[string]*ActionRevisionRecord),
+		startTokens:      make(map[string]string),
 		accountID:        accountID,
 		region:           region,
 		mu:               lockmetrics.New("codepipeline-" + region),
@@ -314,6 +317,8 @@ func (b *InMemoryBackend) Reset() {
 	b.executions = make(map[string]map[string][]*PipelineExecution)
 	b.actionExecutions = make(map[string]map[string][]*ActionExecution)
 	b.actionRevisions = make(map[string]map[string]*ActionRevisionRecord)
+	b.startTokens = make(map[string]string)
+	b.startTokenOrder = nil
 }
 
 func (b *InMemoryBackend) buildPipelineARN(region, name string) string {

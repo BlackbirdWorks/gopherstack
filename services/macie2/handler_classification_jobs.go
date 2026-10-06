@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
+	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
@@ -90,7 +92,7 @@ func (h *Handler) dispatchClassificationJobOps(op, path string, body []byte) (an
 	return nil, 0, false, nil
 }
 
-func (h *Handler) dispatchScopeOps(op, path string, body []byte) (any, int, bool, error) {
+func (h *Handler) dispatchScopeOps(op, path, query string, body []byte) (any, int, bool, error) {
 	switch op {
 	case opGetClassificationScope:
 		id := extractID(path, pathClassScopes)
@@ -99,7 +101,7 @@ func (h *Handler) dispatchScopeOps(op, path string, body []byte) (any, int, bool
 		return result, code, true, err
 
 	case opListClassificationScopes:
-		result, code, err := h.handleListClassificationScopes()
+		result, code, err := h.handleListClassificationScopes(query)
 
 		return result, code, true, err
 
@@ -284,13 +286,18 @@ func (h *Handler) handleGetClassificationScope(scopeID string) (any, int, error)
 	return scope, http.StatusOK, nil
 }
 
-func (h *Handler) handleListClassificationScopes() (any, int, error) {
+func (h *Handler) handleListClassificationScopes(query string) (any, int, error) {
 	scopes, err := h.Backend.ListClassificationScopes()
 	if err != nil {
 		return nil, http.StatusInternalServerError, err
 	}
 
-	return map[string]any{"classificationScopes": scopes}, http.StatusOK, nil
+	q, _ := url.ParseQuery(query)
+	if name := q.Get("name"); name != "" {
+		scopes = slices.DeleteFunc(scopes, func(s *ClassificationScopeSummary) bool { return s.Name != name })
+	}
+
+	return pagedResponse(h.Backend, "classificationScopes", q.Get("nextToken"), 0, scopes)
 }
 
 func (h *Handler) handleUpdateClassificationScope(scopeID string, body []byte) (int, error) {

@@ -28,9 +28,9 @@ func (h *Handler) dispatchRevealOps(op string, body []byte) (any, int, bool, err
 		return result, code, true, err
 
 	case opUpdateRevealConfiguration:
-		code, err := h.handleUpdateRevealConfiguration(body)
+		result, code, err := h.handleUpdateRevealConfiguration(body)
 
-		return nil, code, true, err
+		return result, code, true, err
 	}
 
 	return nil, 0, false, nil
@@ -42,27 +42,45 @@ func (h *Handler) handleGetRevealConfiguration() (any, int, error) {
 		return nil, http.StatusInternalServerError, err
 	}
 
-	return map[string]any{keyConfiguration: cfg}, http.StatusOK, nil
+	return map[string]any{
+		keyConfiguration:         cfg,
+		"retrievalConfiguration": h.Backend.GetRetrievalConfiguration(),
+	}, http.StatusOK, nil
 }
 
-func (h *Handler) handleUpdateRevealConfiguration(body []byte) (int, error) {
+func (h *Handler) handleUpdateRevealConfiguration(body []byte) (any, int, error) {
 	var req struct {
-		Configuration *RevealConfiguration `json:"configuration"`
+		Configuration          *RevealConfiguration `json:"configuration"`
+		RetrievalConfiguration *struct {
+			RetrievalMode string `json:"retrievalMode"`
+			RoleName      string `json:"roleName"`
+		} `json:"retrievalConfiguration"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return http.StatusBadRequest, ErrValidation
+		return nil, http.StatusBadRequest, ErrValidation
 	}
 
 	if req.Configuration == nil {
-		return http.StatusBadRequest, ErrValidation
+		return nil, http.StatusBadRequest, ErrValidation
+	}
+
+	if req.RetrievalConfiguration != nil {
+		if _, err := h.Backend.UpdateRetrievalConfiguration(
+			req.RetrievalConfiguration.RetrievalMode, req.RetrievalConfiguration.RoleName,
+		); err != nil {
+			return nil, http.StatusBadRequest, err
+		}
 	}
 
 	if err := h.Backend.UpdateRevealConfiguration(req.Configuration.KmsKeyID, req.Configuration.Status); err != nil {
-		return http.StatusInternalServerError, err
+		return nil, http.StatusInternalServerError, err
 	}
 
-	return http.StatusOK, nil
+	return map[string]any{
+		keyConfiguration:         req.Configuration,
+		"retrievalConfiguration": h.Backend.GetRetrievalConfiguration(),
+	}, http.StatusOK, nil
 }
 
 func (h *Handler) dispatchFindingRevealOps(op, path string) (any, int, bool, error) {

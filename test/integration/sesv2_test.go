@@ -82,7 +82,6 @@ func TestIntegration_SESv2_GetEmailIdentity(t *testing.T) {
 
 	var out map[string]any
 	require.NoError(t, json.Unmarshal([]byte(body), &out))
-	assert.Equal(t, identity, out["EmailIdentity"])
 	assert.Equal(t, "EMAIL_ADDRESS", out["IdentityType"])
 }
 
@@ -267,7 +266,7 @@ func TestIntegration_SESv2_URLEncodedIdentity(t *testing.T) {
 
 	var out map[string]any
 	require.NoError(t, json.Unmarshal([]byte(body), &out))
-	assert.Equal(t, identity, out["EmailIdentity"])
+	assert.Equal(t, "EMAIL_ADDRESS", out["IdentityType"])
 
 	// DELETE with percent-encoded path.
 	resp2 := sesv2Do(t, http.MethodDelete, encodedPath, nil)

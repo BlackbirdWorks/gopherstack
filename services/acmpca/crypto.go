@@ -19,22 +19,18 @@ import (
 )
 
 // generateCSR generates a PEM-encoded CSR from the given private key and subject.
-func generateCSR(privKey *ecdsa.PrivateKey, subject CertificateAuthoritySubject) (string, error) {
-	cn := subject.CommonName
-	if cn == "" {
-		cn = "Gopherstack Root CA"
+func generateCSR(privKey *ecdsa.PrivateKey, cfg CertificateAuthorityConfiguration) (string, error) {
+	name, err := caSubjectName(cfg.Subject)
+	if err != nil {
+		return "", err
 	}
 
-	tmpl := &x509.CertificateRequest{
-		Subject: pkix.Name{
-			CommonName:         cn,
-			Country:            nonEmptySlice(subject.Country),
-			Organization:       nonEmptySlice(subject.Organization),
-			OrganizationalUnit: nonEmptySlice(subject.OrganizationalUnit),
-			Province:           nonEmptySlice(subject.State),
-			Locality:           nonEmptySlice(subject.Locality),
-		},
+	exts, err := csrExtensionList(cfg.CsrExtensions)
+	if err != nil {
+		return "", err
 	}
+
+	tmpl := &x509.CertificateRequest{Subject: name, ExtraExtensions: exts}
 
 	csrDER, err := x509.CreateCertificateRequest(cryptorand.Reader, tmpl, privKey)
 	if err != nil {
@@ -58,21 +54,14 @@ func selfSignCA(ca *CertificateAuthority, now time.Time) (string, string, error)
 		return "", "", fmt.Errorf("generate serial: %w", err)
 	}
 
-	cn := ca.CertificateAuthorityConfiguration.Subject.CommonName
-	if cn == "" {
-		cn = "Gopherstack Root CA"
+	subject, err := caSubjectName(ca.CertificateAuthorityConfiguration.Subject)
+	if err != nil {
+		return "", "", err
 	}
 
 	tmpl := &x509.Certificate{
-		SerialNumber: serial,
-		Subject: pkix.Name{
-			CommonName:         cn,
-			Organization:       nonEmptySlice(ca.CertificateAuthorityConfiguration.Subject.Organization),
-			Country:            nonEmptySlice(ca.CertificateAuthorityConfiguration.Subject.Country),
-			OrganizationalUnit: nonEmptySlice(ca.CertificateAuthorityConfiguration.Subject.OrganizationalUnit),
-			Province:           nonEmptySlice(ca.CertificateAuthorityConfiguration.Subject.State),
-			Locality:           nonEmptySlice(ca.CertificateAuthorityConfiguration.Subject.Locality),
-		},
+		SerialNumber:          serial,
+		Subject:               subject,
 		NotBefore:             now,
 		NotAfter:              now.Add(10 * 365 * 24 * time.Hour),
 		IsCA:                  true,

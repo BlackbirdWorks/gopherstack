@@ -10,6 +10,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
+const stateTypeTask = "Task"
+
 // historyRecorder adapts InMemoryBackend to the asl.HistoryRecorder interface.
 type historyRecorder struct {
 	backend *InMemoryBackend
@@ -24,7 +26,7 @@ const resourceSegmentActivity = "activity"
 // for each state type.
 func stateEnteredEventType(stateType string) string {
 	switch stateType {
-	case "Task":
+	case stateTypeTask:
 		return "TaskStateEntered"
 	case "Pass":
 		return "PassStateEntered"
@@ -49,7 +51,7 @@ func stateEnteredEventType(stateType string) string {
 // for each state type.
 func stateExitedEventType(stateType string) string {
 	switch stateType {
-	case "Task":
+	case stateTypeTask:
 		return "TaskStateExited"
 	case "Pass":
 		return "PassStateExited"

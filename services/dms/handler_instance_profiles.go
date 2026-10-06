@@ -16,18 +16,20 @@ type createInstanceProfileInput struct {
 	Description           *string    `json:"Description"`
 	SubnetGroupIdentifier *string    `json:"SubnetGroupIdentifier"`
 	PubliclyAccessible    *bool      `json:"PubliclyAccessible"`
+	VpcSecurityGroups     []string   `json:"VpcSecurityGroups"`
 	Tags                  []tagEntry `json:"Tags"`
 }
 
 type instanceProfileJSON struct {
-	InstanceProfileName   string `json:"InstanceProfileName"`
-	InstanceProfileArn    string `json:"InstanceProfileArn"`
-	AvailabilityZone      string `json:"AvailabilityZone,omitempty"`
-	KmsKeyArn             string `json:"KmsKeyArn,omitempty"`
-	NetworkType           string `json:"NetworkType,omitempty"`
-	Description           string `json:"Description,omitempty"`
-	SubnetGroupIdentifier string `json:"SubnetGroupIdentifier,omitempty"`
-	PubliclyAccessible    bool   `json:"PubliclyAccessible"`
+	InstanceProfileName   string   `json:"InstanceProfileName"`
+	InstanceProfileArn    string   `json:"InstanceProfileArn"`
+	AvailabilityZone      string   `json:"AvailabilityZone,omitempty"`
+	KmsKeyArn             string   `json:"KmsKeyArn,omitempty"`
+	NetworkType           string   `json:"NetworkType,omitempty"`
+	Description           string   `json:"Description,omitempty"`
+	SubnetGroupIdentifier string   `json:"SubnetGroupIdentifier,omitempty"`
+	VpcSecurityGroups     []string `json:"VpcSecurityGroups,omitempty"`
+	PubliclyAccessible    bool     `json:"PubliclyAccessible"`
 }
 
 type createInstanceProfileOutput struct {
@@ -47,6 +49,7 @@ func (h *Handler) handleCreateInstanceProfile(
 		ptrconv.String(in.Description),
 		ptrconv.String(in.SubnetGroupIdentifier),
 		ptrconv.Bool(in.PubliclyAccessible),
+		in.VpcSecurityGroups,
 		kv,
 	)
 	if err != nil {
@@ -66,6 +69,7 @@ func ipToJSON(ip *InstanceProfile) instanceProfileJSON {
 		Description:           ip.Description,
 		SubnetGroupIdentifier: ip.SubnetGroupIdentifier,
 		PubliclyAccessible:    ip.PubliclyAccessible,
+		VpcSecurityGroups:     ip.VpcSecurityGroups,
 	}
 }
 
@@ -144,13 +148,15 @@ func (h *Handler) handleDescribeInstanceProfiles(
 }
 
 type modifyInstanceProfileInput struct {
-	InstanceProfileIdentifier *string `json:"InstanceProfileIdentifier"`
-	AvailabilityZone          *string `json:"AvailabilityZone"`
-	Description               *string `json:"Description"`
-	NetworkType               *string `json:"NetworkType"`
-	KmsKeyArn                 *string `json:"KmsKeyArn"`
-	SubnetGroupIdentifier     *string `json:"SubnetGroupIdentifier"`
-	PubliclyAccessible        *bool   `json:"PubliclyAccessible"`
+	InstanceProfileIdentifier *string  `json:"InstanceProfileIdentifier"`
+	InstanceProfileName       *string  `json:"InstanceProfileName"`
+	AvailabilityZone          *string  `json:"AvailabilityZone"`
+	Description               *string  `json:"Description"`
+	NetworkType               *string  `json:"NetworkType"`
+	KmsKeyArn                 *string  `json:"KmsKeyArn"`
+	SubnetGroupIdentifier     *string  `json:"SubnetGroupIdentifier"`
+	PubliclyAccessible        *bool    `json:"PubliclyAccessible"`
+	VpcSecurityGroups         []string `json:"VpcSecurityGroups"`
 }
 
 type modifyInstanceProfileOutput struct {
@@ -160,16 +166,17 @@ type modifyInstanceProfileOutput struct {
 func (h *Handler) handleModifyInstanceProfile(
 	ctx context.Context, in *modifyInstanceProfileInput,
 ) (*modifyInstanceProfileOutput, error) {
-	ip, err := h.Backend.ModifyInstanceProfile(
-		ctx,
-		ptrconv.String(in.InstanceProfileIdentifier),
-		ptrconv.String(in.AvailabilityZone),
-		ptrconv.String(in.Description),
-		ptrconv.String(in.NetworkType),
-		ptrconv.String(in.KmsKeyArn),
-		ptrconv.String(in.SubnetGroupIdentifier),
-		in.PubliclyAccessible,
-	)
+	ip, err := h.Backend.ModifyInstanceProfile(ctx, ModifyInstanceProfileParams{
+		NameOrArn:             ptrconv.String(in.InstanceProfileIdentifier),
+		NewName:               ptrconv.String(in.InstanceProfileName),
+		AvailabilityZone:      ptrconv.String(in.AvailabilityZone),
+		Description:           ptrconv.String(in.Description),
+		NetworkType:           ptrconv.String(in.NetworkType),
+		KmsKeyArn:             ptrconv.String(in.KmsKeyArn),
+		SubnetGroupIdentifier: ptrconv.String(in.SubnetGroupIdentifier),
+		PubliclyAccessible:    in.PubliclyAccessible,
+		VpcSecurityGroups:     in.VpcSecurityGroups,
+	})
 	if err != nil {
 		return nil, err
 	}

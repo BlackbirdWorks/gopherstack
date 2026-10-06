@@ -20,6 +20,11 @@ func (h *Handler) handlePutEvents(c *echo.Context, appID string) error {
 		return nil
 	}
 
+	if putEventsExceedsEventQuota(body) {
+		return writeErrorResponse(c, http.StatusRequestEntityTooLarge, "PayloadTooLargeException",
+			"an individual event exceeds the maximum allowed size")
+	}
+
 	var req putEventsRequest
 	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
 		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")

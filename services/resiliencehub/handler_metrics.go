@@ -11,6 +11,10 @@ func (h *Handler) handleListMetrics(_ context.Context, _ *http.Request, body []b
 		return nil, err
 	}
 
+	if err := validatePage(req.NextToken, int(req.MaxResults)); err != nil {
+		return nil, err
+	}
+
 	h.Backend.ListMetrics()
 
 	return marshalResponse(listMetricsResponse{Rows: [][]string{}})

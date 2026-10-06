@@ -86,6 +86,7 @@ type createEgressOnlyInternetGatewayResponse struct {
 type describeEgressOnlyInternetGatewaysResponse struct {
 	XMLName                    xml.Name `xml:"DescribeEgressOnlyInternetGatewaysResponse"`
 	RequestID                  string   `xml:"requestId"`
+	NextToken                  string   `xml:"nextToken,omitempty"`
 	EgressOnlyInternetGateways struct {
 		Items []egressOnlyIGWItem `xml:"item"`
 	} `xml:"egressOnlyInternetGatewaySet"`
@@ -129,6 +130,7 @@ type disassociateIamInstanceProfileResponse struct {
 type describeIamInstanceProfileAssociationsResponse struct {
 	XMLName      xml.Name `xml:"DescribeIamInstanceProfileAssociationsResponse"`
 	RequestID    string   `xml:"requestId"`
+	NextToken    string   `xml:"nextToken,omitempty"`
 	Associations struct {
 		Items []iamAssociationItem `xml:"item"`
 	} `xml:"iamInstanceProfileAssociationSet"`
@@ -196,6 +198,7 @@ type createTransitGatewayRouteTableResponse struct {
 type describeTransitGatewayRouteTablesResponse struct {
 	XMLName                   xml.Name `xml:"DescribeTransitGatewayRouteTablesResponse"`
 	RequestID                 string   `xml:"requestId"`
+	NextToken                 string   `xml:"nextToken,omitempty"`
 	TransitGatewayRouteTables struct {
 		Items []tgwRouteTableItem `xml:"item"`
 	} `xml:"transitGatewayRouteTables"`
@@ -309,7 +312,7 @@ func (h *Handler) handleDescribeEgressOnlyInternetGateways(
 		)
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 func (h *Handler) handleDeleteEgressOnlyInternetGateway(
@@ -419,7 +422,7 @@ func (h *Handler) handleDescribeIamInstanceProfileAssociations(
 		resp.Associations.Items = append(resp.Associations.Items, iamAssocToItem(a))
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 func (h *Handler) handleReplaceIamInstanceProfileAssociation(
@@ -552,7 +555,7 @@ func (h *Handler) handleDescribeTransitGatewayRouteTables(
 		)
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 func (h *Handler) handleDeleteTransitGatewayRouteTable(vals url.Values, reqID string) (any, error) {

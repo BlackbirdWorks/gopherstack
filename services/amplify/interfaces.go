@@ -36,7 +36,7 @@ type StorageBackend interface {
 	DeleteBranch(appID, branchName string) (*Branch, error)
 	UpdateBranch(
 		appID, branchName, description, stage string,
-		enableAutoBuild bool,
+		enableAutoBuild *bool,
 		opts ...BranchOptions,
 	) (*Branch, error)
 	TagResource(resourceARN string, tagMap map[string]string) error
@@ -52,6 +52,7 @@ type StorageBackend interface {
 	ListJobs(appID, branchName, nextToken string, maxResults int) ([]*Job, string, error)
 	DeleteJob(appID, branchName, jobID string) (*Job, error)
 	CreateDeployment(appID, branchName string) (string, string, error)
+	CreateDeploymentWithFiles(appID, branchName string, fileMap map[string]string) (DeploymentURLs, error)
 	StartDeployment(appID, branchName, jobID, sourceURL, sourceURLType string) (*Job, error)
 	// Domains
 	CreateDomainAssociation(
@@ -72,7 +73,7 @@ type StorageBackend interface {
 	) ([]*DomainAssociation, string, error)
 	// Webhooks
 	CreateWebhook(appID, branchName, description string) (*Webhook, error)
-	UpdateWebhook(webhookID, branchName, description string) (*Webhook, error)
+	UpdateWebhook(webhookID, branchName string, description *string) (*Webhook, error)
 	DeleteWebhook(webhookID string) (*Webhook, error)
 	GetWebhook(webhookID string) (*Webhook, error)
 	ListWebhooks(appID, nextToken string, maxResults int) ([]*Webhook, string, error)

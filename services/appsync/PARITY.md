@@ -123,7 +123,7 @@ gaps: []
 items_still_open:
   - "Resolver-level PIPELINE before-mapping (RequestMappingTemplate/Code `request`) is not evaluated; stash writes and short-circuit need a full VTL/JS evaluator (gopherstack-ivwh). 2026-10-01."
   - "The APPSYNC_JS evaluator (jseval.go) supports only a documented literal/context/util.* subset (no control flow, bindings, or util.dynamodb.*) and returns ErrUnsupportedJSCode otherwise; real resolver execution is an unmodeled subsystem. 2026-10-01."
-  - "GraphqlApi dns/wafWebAclArn and Api wafWebAclArn are unmodeled (no WAF association or verified dns key set); DataSource elasticsearchConfig (deprecated) is absent. enhancedMetricsConfig and mergedApiExecutionRoleArn round-trip, and Api.created is set (graphql_api_metrics_role_test.go, event_api_created_test.go). 2026-10-01."
+  - "GraphqlApi dns and wafWebAclArn, and Api wafWebAclArn, are unmodeled: no WAF association exists and the dns key set is unverified."
   - "DataSource/Resolver/Function/ApiCache/APIType/DomainNameConfig carry a harmless extra apiId (and DataSource an extra tags) on the wire that real clients ignore. 2026-10-01."
   - "Introspection omits __Type.specifiedByURL and isOneOf, and ListTypes/GetType/ListTypesByAssociation ignore the SDL/JSON format parameter; the real per-type JSON shape is unverified. 2026-10-01."
   - "Cognito/OIDC auth passes every request when no JWKS provider is wired (test-only; cli.go always wires it), and rejects issuers with no local signing key because external JWKS are never fetched. 2026-10-01."
@@ -518,3 +518,23 @@ Audited clean: ListGraphqlApis apiType/owner, other List ops. Left: ListGraphqlA
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 AppSync is region-isolated: each non-home region gets a lazily built sibling `Handler` (own GraphQL APIs, data sources, resolvers, keys, domains; region-correct ARNs) via `pkgs/regionpeers`. GraphQL execution requests (`/v1/apis/{id}/graphql`) find the API by id across regions and run in its region. Resolvers call DynamoDB in the data source's `awsRegion` (else the API's region) and Lambda in the function ARN's region (else the API's region). Snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionGraphQLFindsOwner`, `TestHandler_MultiRegionPersistence`, `TestBackend_ResolversCallOtherServicesInAPIRegion`, `TestRegionIsolation/appsync`.
+
+## 2026-10-05 (gopherstack-uox6 pass 6, value semantics)
+
+Create->Update->Get round trip audited (visibility GLOBAL, introspection ENABLED, partial UpdateGraphqlApi keeps x-ray). Updates of functions, resolvers and data sources merge supplied members; the SDK docs do not say whether real AppSync treats them as full replacements, so left as is.
+
+## 2026-10-05 (reqfielddiff tier-1/2 pass 8)
+
+RECORDED: GetDataSourceIntrospection MaxResults/NextToken have nothing to page; the models list is always empty (no RDS Data API to introspect).
+
+## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
+
+InvalidSchemaError is a sentinel text only; handler_errors.go:44 writes BadRequestException.
+
+## 2026-10-05 (gopherstack-dcyg9 value semantics)
+
+Recorded, not fixed: UpdateResolver/UpdateFunction/UpdateDataSource describe members only as "The new description ..." / "The Function description" (api_op_UpdateDataSource.go:44, api_op_UpdateFunction.go:53) and say nothing on omission, so the merge-supplied-members behaviour stays.
+
+### 2026-10-05: PARITY burn-down pass 5 (gopherstack-9x62)
+
+DataSource now keeps the deprecated elasticsearchConfig (AMAZON_ELASTICSEARCH), and UpdateSourceApiAssociation applies sourceApiAssociationConfig.mergeType. Tests: services/appsync/dropped_members_sdk_test.go.

@@ -1,13 +1,17 @@
 package kafkaconnect_test
 
 import (
+	"errors"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	kafkaconnectsdk "github.com/aws/aws-sdk-go-v2/service/kafkaconnect"
+	"github.com/aws/aws-sdk-go-v2/service/kafkaconnect/types"
+	"github.com/aws/smithy-go"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 
@@ -53,4 +57,44 @@ func newTestHandler() *kafkaconnect.Handler {
 	h.DefaultRegion = testRegion
 
 	return h
+}
+
+const (
+	waitTimeout = 5 * time.Second
+	waitTick    = 20 * time.Millisecond
+)
+
+func createPlugin(t *testing.T, client *kafkaconnectsdk.Client, name string) string {
+	t.Helper()
+
+	out, err := client.CreateCustomPlugin(t.Context(), minimalCreateCustomPluginInput(name))
+	require.NoError(t, err)
+
+	return aws.ToString(out.CustomPluginArn)
+}
+
+func waitConnectorRunning(t *testing.T, client *kafkaconnectsdk.Client, connectorArn *string) {
+	t.Helper()
+
+	require.Eventually(t, func() bool {
+		out, err := client.DescribeConnector(t.Context(), &kafkaconnectsdk.DescribeConnectorInput{
+			ConnectorArn: connectorArn,
+		})
+
+		return err == nil && out.ConnectorState == types.ConnectorStateRunning
+	}, waitTimeout, waitTick)
+}
+
+func waitConnectorGone(t *testing.T, client *kafkaconnectsdk.Client, connectorArn *string) {
+	t.Helper()
+
+	require.Eventually(t, func() bool {
+		_, err := client.DescribeConnector(t.Context(), &kafkaconnectsdk.DescribeConnectorInput{
+			ConnectorArn: connectorArn,
+		})
+
+		var apiErr smithy.APIError
+
+		return errors.As(err, &apiErr) && apiErr.ErrorCode() == "NotFoundException"
+	}, waitTimeout, waitTick)
 }

@@ -8,7 +8,7 @@ import (
 // AssociateDataShareConsumer associates a consumer with a data share.
 func (b *InMemoryBackend) AssociateDataShareConsumer(
 	dataShareArn, consumerArn, consumerRegion string,
-	_ bool,
+	_, allowWrites bool,
 ) (*DataShare, error) {
 	if dataShareArn == "" {
 		return nil, fmt.Errorf("%w: DataShareArn is required", ErrInvalidParameter)
@@ -29,6 +29,8 @@ func (b *InMemoryBackend) AssociateDataShareConsumer(
 		StatusChangeDate:   time.Now(),
 		Status:             dataShareStatusActive,
 		Type:               "CONSUMER",
+
+		ConsumerAcceptedWrites: allowWrites,
 	}
 	ds.DataShareAssociations = append(ds.DataShareAssociations, assoc)
 
@@ -36,7 +38,9 @@ func (b *InMemoryBackend) AssociateDataShareConsumer(
 }
 
 // AuthorizeDataShare authorizes a data share to a consumer.
-func (b *InMemoryBackend) AuthorizeDataShare(dataShareArn, consumerIdentifier string) (*DataShare, error) {
+func (b *InMemoryBackend) AuthorizeDataShare(
+	dataShareArn, consumerIdentifier string, allowWrites bool,
+) (*DataShare, error) {
 	if dataShareArn == "" {
 		return nil, fmt.Errorf("%w: DataShareArn is required", ErrInvalidParameter)
 	}
@@ -58,6 +62,8 @@ func (b *InMemoryBackend) AuthorizeDataShare(dataShareArn, consumerIdentifier st
 		StatusChangeDate:   time.Now(),
 		Status:             dataShareStatusAuthorized,
 		Type:               "CONSUMER",
+
+		ProducerAllowedWrites: allowWrites,
 	}
 	ds.DataShareAssociations = append(ds.DataShareAssociations, assoc)
 

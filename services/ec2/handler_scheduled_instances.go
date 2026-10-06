@@ -229,22 +229,12 @@ func (h *Handler) handleDescribeScheduledInstances(vals url.Values, reqID string
 	ids := parseMemberList(vals, "ScheduledInstanceId")
 	instances := applyScheduledInstanceFilters(h.Backend.DescribeScheduledInstances(ids), parseEC2Filters(vals))
 
-	maxResults, offset, err := parseEC2Pagination(
-		vals, ec2PageMinScheduledInstances, ec2PageMaxScheduledInstances, ec2PageDefaultScheduledInstances,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	var nextToken string
-	instances, nextToken = pageSlice(instances, offset, maxResults)
-
-	resp := &describeScheduledInstancesResponse{Xmlns: ec2XMLNS, RequestID: reqID, NextToken: nextToken}
+	resp := &describeScheduledInstancesResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, s := range instances {
 		resp.ScheduledInstanceSet.Items = append(resp.ScheduledInstanceSet.Items, toScheduledInstanceItem(s))
 	}
 
-	return resp, nil
+	return finishDescribe(vals, resp, describeOpts{spec: specScheduledInstances(), bounds: boundsScheduledInstances})
 }
 
 // parseScheduledInstancePurchaseRequests parses the "PurchaseRequest.N.*" indexed form

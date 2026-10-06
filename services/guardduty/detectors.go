@@ -20,19 +20,25 @@ var validFindingPublishingFrequencies = map[string]bool{
 	"SIX_HOURS":       true,
 }
 
+const (
+	featureS3DataEvents = "S3_DATA_EVENTS"
+	featureEKSAuditLogs = "EKS_AUDIT_LOGS"
+	featureEBSMalware   = "EBS_MALWARE_PROTECTION"
+)
+
 // validDetectorFeatureNames matches the real types.DetectorFeature enum.
 //
 //nolint:gochecknoglobals // static lookup table
 var validDetectorFeatureNames = map[string]bool{
-	"S3_DATA_EVENTS":         true,
-	"EKS_AUDIT_LOGS":         true,
-	"EBS_MALWARE_PROTECTION": true,
+	featureS3DataEvents:      true,
+	featureEKSAuditLogs:      true,
+	featureEBSMalware:        true,
 	"RDS_LOGIN_EVENTS":       true,
 	"LAMBDA_NETWORK_LOGS":    true,
 	"EKS_RUNTIME_MONITORING": true,
 	"RUNTIME_MONITORING":     true,
 	"AI_PROTECTION":          true,
-	"AI_ANALYST":             true,
+	featureAIAnalyst:         true,
 }
 
 // validFeatureStatuses matches the real types.FeatureStatus enum.
@@ -165,9 +171,7 @@ func (b *InMemoryBackend) UpdateDetector(
 		d.FindingPublishingFrequency = frequency
 	}
 
-	if features != nil {
-		d.Features = features
-	}
+	d.Features = mergeFeatures(d.Features, features)
 
 	d.UpdatedAt = time.Now().UTC()
 

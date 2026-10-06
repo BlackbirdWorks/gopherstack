@@ -54,7 +54,7 @@ func newPersistenceTestBackend(t *testing.T) *codebuild.InMemoryBackend {
 	_, err = b.StartBuildBatch(proj.Name, codebuild.StartBuildBatchConfig{})
 	require.NoError(t, err)
 
-	sb, err := b.StartSandbox(proj.Name)
+	sb, err := b.StartSandbox(proj.Name, "")
 	require.NoError(t, err)
 
 	_, err = b.StartCommandExecution(sb.ID, "echo hi", "SHELL")

@@ -198,6 +198,10 @@ func (h *Handler) handleGenerateRecommendedPolicyV2(c *echo.Context, metadataUID
 // family. This backend generates synchronously, so Status is always
 // SUCCEEDED and Error/NextToken are never populated.
 func (h *Handler) handleGetRecommendedPolicyV2(c *echo.Context, metadataUID string) error {
+	if !validPaging(queryInt(c), c.QueryParam("NextToken")) {
+		return pagingErrorResponse(c)
+	}
+
 	rec, err := h.Backend.GetRecommendedPolicyV2(metadataUID)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {

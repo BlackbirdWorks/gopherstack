@@ -14,7 +14,7 @@ type DescribeScalingActivitiesFilter struct {
 	ScalableDimension string
 	// NextToken is the opaque pagination cursor returned by a prior call.
 	NextToken string
-	// MaxResults, when > 0, limits the number of returned items. Capped at maxDescribeResults.
+	// MaxResults, when > 0, limits the number of returned items. Defaults to and is capped at the documented maximum.
 	MaxResults int32
 	// IncludeNotScaledActivities is accepted for wire completeness; see the
 	// doc comment on [InMemoryBackend.DescribeScalingActivities].
@@ -34,6 +34,10 @@ type DescribeScalingActivitiesFilter struct {
 func (b *InMemoryBackend) DescribeScalingActivities(
 	f DescribeScalingActivitiesFilter,
 ) ([]*ScalingActivity, string, error) {
+	if err := validateEnums(f.ServiceNamespace, f.ScalableDimension); err != nil {
+		return nil, "", err
+	}
+
 	b.mu.RLock("DescribeScalingActivities")
 	defer b.mu.RUnlock()
 
@@ -56,7 +60,7 @@ func (b *InMemoryBackend) DescribeScalingActivities(
 		out = append(out, &cp)
 	}
 
-	return paginate(out, f.MaxResults, f.NextToken, func(a *ScalingActivity) string {
+	return paginate(out, f.MaxResults, maxDescribeActivities, f.NextToken, func(a *ScalingActivity) string {
 		return a.ActivityID
 	})
 }

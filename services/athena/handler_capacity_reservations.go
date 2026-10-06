@@ -80,13 +80,29 @@ func (h *Handler) capacityExtraOps() map[string]athenaActionFn {
 
 			return map[string]any{"CapacityReservation": cr}, nil
 		},
-		"ListCapacityReservations": func(_ []byte) (any, error) {
+		"ListCapacityReservations": func(b []byte) (any, error) {
+			var input listPageInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
 			list, err := h.Backend.ListCapacityReservations()
 			if err != nil {
 				return nil, err
 			}
 
-			return map[string]any{"CapacityReservations": list}, nil
+			page, next, pageErr := pageByKey(
+				h.tokens,
+				list,
+				func(c CapacityReservation) string { return c.Name },
+				input.MaxResults,
+				input.NextToken,
+			)
+			if pageErr != nil {
+				return nil, pageErr
+			}
+
+			return withNextToken(map[string]any{"CapacityReservations": page}, next), nil
 		},
 		"UpdateCapacityReservation": func(b []byte) (any, error) {
 			var input updateCapacityReservationInput

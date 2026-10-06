@@ -791,7 +791,7 @@ func TestDomain_EnableSoftwareUpdateOptions_Create(t *testing.T) {
 // Domain blue-green deployment options (via ClusterConfig)
 // ---------------------------------------------------------------------------
 
-func TestDomain_BlueGreenDeploymentOptions_Create(t *testing.T) {
+func TestDomain_ClusterConfigOmitsBlueGreenDeploymentOptions(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()
@@ -800,51 +800,19 @@ func TestDomain_BlueGreenDeploymentOptions_Create(t *testing.T) {
 		map[string]any{
 			"DomainName": "bg-domain",
 			"ClusterConfig": map[string]any{
-				"InstanceType":  "r6g.large.search",
-				"InstanceCount": 3,
-				"BlueGreenDeploymentOptions": map[string]any{
-					"Enabled": true,
-				},
-			},
-		})
-	defer resp.Body.Close()
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
-	st := out["DomainStatus"].(map[string]any)
-	cc := st["ClusterConfig"].(map[string]any)
-
-	bgOpts, ok := cc["BlueGreenDeploymentOptions"].(map[string]any)
-	require.True(t, ok, "BlueGreenDeploymentOptions missing from ClusterConfig")
-	assert.Equal(t, true, bgOpts["Enabled"])
-}
-
-func TestDomain_BlueGreenDeploymentOptions_UpdateConfig(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler()
-
-	doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain",
-		map[string]any{"DomainName": "bg-upd-domain"}).Body.Close()
-
-	upResp := doRequest(t, h, http.MethodPost,
-		"/2021-01-01/opensearch/domain/bg-upd-domain/config",
-		map[string]any{
-			"ClusterConfig": map[string]any{
+				"InstanceType":               "r6g.large.search",
+				"InstanceCount":              3,
 				"BlueGreenDeploymentOptions": map[string]any{"Enabled": true},
 			},
 		})
-	defer upResp.Body.Close()
-	assert.Equal(t, http.StatusOK, upResp.StatusCode)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(upResp.Body).Decode(&out))
-	cfg := out["DomainConfig"].(map[string]any)
-	ccCfg := cfg["ClusterConfig"].(map[string]any)
-	opts := ccCfg["Options"].(map[string]any)
-	bgOpts := opts["BlueGreenDeploymentOptions"].(map[string]any)
-	assert.Equal(t, true, bgOpts["Enabled"])
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	cc := out["DomainStatus"].(map[string]any)["ClusterConfig"].(map[string]any)
+	assert.NotContains(t, cc, "BlueGreenDeploymentOptions")
+	assert.NotContains(t, cc, "ColdStorageEnabled")
 }
 
 // ---------------------------------------------------------------------------

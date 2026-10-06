@@ -170,3 +170,40 @@ func TestUpdateEndpoint_PayloadSizeLimit(t *testing.T) {
 		})
 	}
 }
+
+func TestPutEvents_PerEventSizeLimit(t *testing.T) {
+	t.Parallel()
+
+	const eventLimit = 1000 * 1024
+
+	tests := []struct {
+		name       string
+		eventBytes int
+		wantStatus int
+	}{
+		{name: "at limit accepted", eventBytes: eventLimit, wantStatus: http.StatusAccepted},
+		{name: "one byte over rejected", eventBytes: eventLimit + 1, wantStatus: http.StatusRequestEntityTooLarge},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandlerForTest(t)
+			appID := createTestApp(t, h, "app")
+
+			const prefix, suffix = `{"EventType":"e","Attributes":{"a":"`, `"}}`
+
+			event := jsonBodyOfSize(t, prefix, suffix, tt.eventBytes)
+			body := []byte(`{"BatchItem":{"ep":{"Endpoint":{},"Events":{"ev":` + string(event) + `}}}}`)
+
+			rec := doRawPinpointRequest(t, h, http.MethodPost, "/v1/apps/"+appID+"/events", body)
+
+			require.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusRequestEntityTooLarge {
+				requirePayloadTooLarge(t, rec.Body.Bytes())
+			}
+		})
+	}
+}

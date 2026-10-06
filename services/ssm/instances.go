@@ -584,7 +584,7 @@ func matchesInstancePropertyStringFilter(p InstanceProperty, f InstancePropertyS
 
 	op := f.Operator
 	if op == "" {
-		op = "Equal"
+		op = opEqual
 	}
 
 	if op == "NotEqual" {
@@ -593,7 +593,7 @@ func matchesInstancePropertyStringFilter(p InstanceProperty, f InstancePropertyS
 
 	for _, v := range f.Values {
 		switch op {
-		case "Equal":
+		case opEqual:
 			if value == v {
 				return true
 			}

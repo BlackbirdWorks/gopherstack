@@ -29,11 +29,13 @@ var (
 	ErrInvalidPart        = errors.New("InvalidPart")
 	ErrInvalidPartOrder   = errors.New("InvalidPartOrder")
 	ErrEmptyParts         = errors.New("InvalidRequest")
-	ErrNoCompressor       = errors.New("data is compressed but no compressor available")
-	ErrNoBucketPolicy     = errors.New("NoSuchBucketPolicy")
-	ErrNoCORSConfig       = errors.New("NoSuchCORSConfiguration")
-	ErrNoLifecycleConfig  = errors.New("NoSuchLifecycleConfiguration")
-	ErrNoObjectLockConfig = errors.New("ObjectLockConfigurationNotFoundError")
+	// ErrMpuObjectSizeMismatch is the 400 InvalidRequest documented for x-amz-mp-object-size.
+	ErrMpuObjectSizeMismatch = errors.New("InvalidRequest")
+	ErrNoCompressor          = errors.New("data is compressed but no compressor available")
+	ErrNoBucketPolicy        = errors.New("NoSuchBucketPolicy")
+	ErrNoCORSConfig          = errors.New("NoSuchCORSConfiguration")
+	ErrNoLifecycleConfig     = errors.New("NoSuchLifecycleConfiguration")
+	ErrNoObjectLockConfig    = errors.New("ObjectLockConfigurationNotFoundError")
 	// ErrObjectLockNotEnabled is InvalidBucketState: PutObjectLockConfiguration
 	// on a bucket not created with x-amz-bucket-object-lock-enabled: true.
 	ErrObjectLockNotEnabled = errors.New("InvalidBucketState")
@@ -226,6 +228,11 @@ func coreErrorTableBucket() []s3ErrorEntry {
 		{ErrEmptyParts, s3ErrorInfo{
 			errInvalidRequest,
 			"You must specify at least one part",
+			http.StatusBadRequest,
+		}},
+		{ErrMpuObjectSizeMismatch, s3ErrorInfo{
+			errInvalidRequest,
+			"The provided x-amz-mp-object-size does not match the size of the assembled object.",
 			http.StatusBadRequest,
 		}},
 		{

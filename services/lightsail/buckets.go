@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -118,13 +119,13 @@ func (b *InMemoryBackend) DeleteBucket(name string, forceDelete bool) ([]Operati
 	return b.newOperationsLocked(opTypeDeleteBucket, ResourceTypeBucket, []string{name}), nil
 }
 
-// UpdateBucket updates the named bucket's versioning, readonly-access-accounts and CORS (replaced when non-nil).
-func (b *InMemoryBackend) UpdateBucket(
-	name, versioning string,
-	readonlyAccessAccounts []string,
-	cors *BucketCORS,
-) (*Bucket, []Operation, error) {
-	if err := validateBucketCORS(cors); err != nil {
+// UpdateBucket applies u's non-empty members to the named bucket.
+func (b *InMemoryBackend) UpdateBucket(name string, u BucketUpdate) (*Bucket, []Operation, error) {
+	if err := validateBucketCORS(u.CORS); err != nil {
+		return nil, nil, err
+	}
+
+	if err := validateAccessRulesUpdate(u.AccessRules); err != nil {
 		return nil, nil, err
 	}
 
@@ -136,19 +137,87 @@ func (b *InMemoryBackend) UpdateBucket(
 		return nil, nil, notFoundError("Bucket", name)
 	}
 
-	if versioning != "" {
-		bk.ObjectVersioning = versioning
+	if err := b.validateAccessLogConfigLocked(u.AccessLogConfig); err != nil {
+		return nil, nil, err
 	}
 
-	if readonlyAccessAccounts != nil {
-		bk.ReadonlyAccessAccounts = readonlyAccessAccounts
+	if u.Versioning != "" {
+		bk.ObjectVersioning = u.Versioning
 	}
 
-	if cors != nil {
-		bk.CORS = cors.clone()
+	if u.ReadonlyAccessAccounts != nil {
+		bk.ReadonlyAccessAccounts = u.ReadonlyAccessAccounts
+	}
+
+	if u.CORS != nil {
+		bk.CORS = u.CORS.clone()
+	}
+
+	if u.AccessRules != nil {
+		bk.AccessRules = mergeAccessRules(bk.AccessRules, u.AccessRules)
+	}
+
+	if u.AccessLogConfig != nil {
+		cfg := *u.AccessLogConfig
+		if !cfg.Enabled {
+			cfg = BucketAccessLogConfig{}
+		}
+
+		bk.AccessLogConfig = &cfg
 	}
 
 	return bk.clone(), b.newOperationsLocked("UpdateBucket", ResourceTypeBucket, []string{name}), nil
+}
+
+func validateAccessRulesUpdate(u *BucketAccessRulesUpdate) error {
+	if u == nil {
+		return nil
+	}
+
+	switch u.GetObject {
+	case "", accessTypePublic, accessTypePrivate:
+		return nil
+	default:
+		return validationError("AccessRules.GetObject must be public or private")
+	}
+}
+
+func mergeAccessRules(cur *BucketAccessRules, u *BucketAccessRulesUpdate) *BucketAccessRules {
+	out := defaultBucketAccessRules()
+	if cur != nil {
+		out = *cur
+	}
+
+	if u.GetObject != "" {
+		out.GetObject = u.GetObject
+	}
+
+	if u.AllowPublicOverrides != nil {
+		out.AllowPublicOverrides = *u.AllowPublicOverrides
+	}
+
+	return &out
+}
+
+func defaultBucketAccessRules() BucketAccessRules {
+	return BucketAccessRules{GetObject: accessTypePrivate}
+}
+
+// validateAccessLogConfigLocked requires a destination bucket when enabling access logs.
+func (b *InMemoryBackend) validateAccessLogConfigLocked(c *BucketAccessLogConfig) error {
+	if c == nil || !c.Enabled {
+		return nil
+	}
+
+	if c.Destination == "" {
+		return validationError("AccessLogConfig.Destination is required when enabling access logs")
+	}
+
+	if _, ok := b.buckets.Get(c.Destination); !ok {
+		return notFoundError("Bucket", c.Destination)
+	}
+
+	return nil
 }
 
 // Limits from types.BucketCorsConfig/BucketCorsRule docs: 20 rules, 64 KB, 255-char IDs.
@@ -238,18 +307,18 @@ func (b *InMemoryBackend) UpdateBucketBundle(name, bundleID string) ([]Operation
 	return b.newOperationsLocked(opTypeUpdateBucketBundle, ResourceTypeBucket, []string{name}), nil
 }
 
-// GetBuckets returns the named bucket, or every bucket if name is empty.
-func (b *InMemoryBackend) GetBuckets(name string) ([]*Bucket, error) {
+// GetBuckets returns the named bucket, or one page of buckets if name is empty.
+func (b *InMemoryBackend) GetBuckets(name, token string) (page.Page[*Bucket], error) {
 	b.mu.RLock("GetBuckets")
 	defer b.mu.RUnlock()
 
 	if name != "" {
 		bk, ok := b.buckets.Get(name)
 		if !ok {
-			return nil, notFoundError("Bucket", name)
+			return page.Page[*Bucket]{}, notFoundError("Bucket", name)
 		}
 
-		return []*Bucket{bk.clone()}, nil
+		return page.Page[*Bucket]{Data: []*Bucket{bk.clone()}}, nil
 	}
 
 	all := b.buckets.All()
@@ -260,7 +329,7 @@ func (b *InMemoryBackend) GetBuckets(name string) ([]*Bucket, error) {
 		out[i] = v.clone()
 	}
 
-	return out, nil
+	return paginateGeneric(out, token)
 }
 
 // SetResourceAccessForBucket grants or revokes resourceName's (an Instance

@@ -6,8 +6,8 @@ last_audit_commit: bfdb308be  # terraform-coverage sweep (datasync-and-sesv2): F
 last_audit_date: 2026-09-19
 overall: A            # systemic field-diff sweep: 20+ genuine wire-shape bugs found & fixed
 ops:
-  CreateAgent: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeAgent: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateAgent: {wire: ok, errors: ok, state: ok, persist: ok, note: "SecurityGroupArns/SubnetArns/VpcEndpointId are stored (max one each); a VPC endpoint makes EndpointType PRIVATE_LINK. DescribeAgent echoes them in PrivateLinkConfig, minus PrivateLinkEndpoint (a real-AWS-assigned address, not fabricated)."}
+  DescribeAgent: {wire: ok, errors: ok, state: ok, persist: ok, note: "PrivateLinkConfig echoed for PRIVATE_LINK agents."}
   UpdateAgent: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteAgent: {wire: ok, errors: ok, state: ok, persist: ok}
   ListAgents: {wire: ok, errors: ok, state: ok, persist: ok, note: "Re-verified this pass (over-wide-response sweep) against AgentListEntry (datasync@v1.61.4): AgentArn/Name/Status match exactly, no leaks. Optional Platform (Platform{Version}) is never emitted -- the Agent model tracks no platform/version data (see items_still_open)."}
@@ -40,9 +40,9 @@ ops:
   CreateLocationNfs: {wire: ok, errors: fixed, state: ok, persist: ok, note: "OnPremConfig.AgentArns (already correctly nested, not flat -- see corrected gaps note) now validated to reference agents that actually exist in this backend instead of accepting any ARN and succeeding -- FIXED this sweep"}
   DescribeLocationNfs: {wire: fixed, errors: ok, state: ok, persist: ok, note: "removed invented ServerHostname/Subdirectory fields (not on real wire; real output is CreationTime/LocationArn/LocationUri/MountOptions/OnPremConfig only) -- FIXED this sweep. FIXED 2026-09-11 (gopherstack-mven required-output sweep): OnPremConfig was gated on len(AgentArns) > 0 instead of the config's actual presence, so a caller who cleared AgentArns to an empty-but-present list via UpdateLocationNfs (passes real client-side validation, which nil-checks only) saw OnPremConfig vanish from the response entirely instead of being returned with an empty AgentArns."}
   UpdateLocationNfs: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "OnPremConfig.AgentArns existence validation; added missing ServerHostname member, now rebuilds LocationUri (previously silently dropped) -- FIXED this sweep"}
-  CreateLocationObjectStorage: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "added CmkSecretConfig/CustomSecretConfig (real, previously silently dropped) + mutual-exclusion validation; AgentArns now validated to reference existing agents -- FIXED this sweep"}
-  DescribeLocationObjectStorage: {wire: fixed, errors: ok, state: ok, persist: ok, note: "removed invented ServerHostname/BucketName/Subdirectory fields (not on real wire); added CmkSecretConfig/CustomSecretConfig echo -- FIXED this sweep"}
-  UpdateLocationObjectStorage: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "added CmkSecretConfig/CustomSecretConfig; AgentArns existence validation; added missing ServerHostname member, now rebuilds LocationUri (previously silently dropped) -- FIXED this sweep"}
+  CreateLocationObjectStorage: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "added CmkSecretConfig/CustomSecretConfig (real, previously silently dropped) + mutual-exclusion validation; AgentArns now validated to reference existing agents -- FIXED this sweep. ServerCertificate is stored, updated and echoed."}
+  DescribeLocationObjectStorage: {wire: fixed, errors: ok, state: ok, persist: ok, note: "removed invented ServerHostname/BucketName/Subdirectory fields (not on real wire); added CmkSecretConfig/CustomSecretConfig echo -- FIXED this sweep. ServerCertificate is stored, updated and echoed."}
+  UpdateLocationObjectStorage: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "added CmkSecretConfig/CustomSecretConfig; AgentArns existence validation; added missing ServerHostname member, now rebuilds LocationUri (previously silently dropped) -- FIXED this sweep. ServerCertificate is stored, updated and echoed."}
   CreateLocationSmb: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "added AuthenticationType field (defaults NTLM); added DnsIpAddresses/KerberosPrincipal/KerberosKeytab/KerberosKrb5Conf (real, previously silently dropped) and CmkSecretConfig/CustomSecretConfig + mutual-exclusion validation; AuthenticationType now validated against the real NTLM|KERBEROS enum instead of accepting any string; AgentArns now validated to reference existing agents -- FIXED this sweep"}
   DescribeLocationSmb: {wire: fixed, errors: ok, state: ok, persist: ok, note: "removed invented ServerHostname/Subdirectory fields (not on real wire), added AuthenticationType (real field, was entirely missing); added DnsIpAddresses/KerberosPrincipal echo (KerberosKeytab/KerberosKrb5Conf correctly stay write-only, matching the real response) and CmkSecretConfig/CustomSecretConfig echo -- FIXED this sweep"}
   UpdateLocationSmb: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "added AuthenticationType; added DnsIpAddresses/KerberosPrincipal/KerberosKeytab/KerberosKrb5Conf and CmkSecretConfig/CustomSecretConfig; AuthenticationType enum validation; AgentArns existence validation; added missing ServerHostname member, now rebuilds LocationUri (previously silently dropped) -- FIXED this sweep"}
@@ -299,3 +299,11 @@ Recorded: the SDK docs give no semantics for `LocationId` against a task's two l
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 datasync is region-isolated: agents, locations, tasks and executions live per region. The tagging bridge and CloudFormation (`forRegion`) follow the region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/datasync`. Limitation: the dashboard shows the home region only.
+
+## 2026-10-05 (gopherstack-uox6 pass 6, value semantics)
+
+CreateTask/UpdateTask store the Options defaults documented on types.Options (Atime BEST_EFFORT, TransferMode CHANGED, VerifyMode POINT_IN_TIME_CONSISTENT for BASIC and ONLY_FILES_TRANSFERRED otherwise, and so on); UpdateTask overlays supplied options and no longer clears CloudWatchLogGroupArn when omitted; UpdateAgent keeps the name when omitted; NFS/SMB locations default MountOptions.Version to AUTOMATIC. Not modelled: Options.LogLevel and BytesPerSecond have no documented default.
+
+## 2026-10-05 (input enum validation)
+
+15 request members typed as SDK enums are now checked against `Values()` and an unknown value is InvalidRequestException: AuthenticationType, AccessTier and BlobType on Azure Blob locations, HDFS AuthenticationType, EFS InTransitEncryption, object-storage ServerProtocol, S3StorageClass and CreateTask TaskMode (Create and Update where the op takes them). Proof: `TestSDK_EnumInputValidation`.

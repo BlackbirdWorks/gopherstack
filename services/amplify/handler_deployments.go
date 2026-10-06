@@ -16,15 +16,30 @@ func (h *Handler) createDeployment(ctx context.Context, c *echo.Context, appID, 
 		return amplifyErrorJSON(c, http.StatusMethodNotAllowed, "method not allowed")
 	}
 
-	jobID, zipUploadURL, err := h.Backend.CreateDeployment(appID, branchName)
+	body, readErr := httputils.ReadBody(c.Request())
+	if readErr != nil {
+		return amplifyErrorJSON(c, http.StatusInternalServerError, readErr.Error())
+	}
+
+	var input struct {
+		FileMap map[string]string `json:"fileMap"`
+	}
+
+	if len(body) > 0 {
+		if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
+			return amplifyErrorJSON(c, http.StatusBadRequest, "invalid request body")
+		}
+	}
+
+	urls, err := h.Backend.CreateDeploymentWithFiles(appID, branchName, input.FileMap)
 	if err != nil {
 		return h.handleBackendError(ctx, c, "CreateDeployment", err)
 	}
 
 	return c.JSON(http.StatusCreated, map[string]any{
-		"jobId":          jobID,
-		"zipUploadUrl":   zipUploadURL,
-		"fileUploadUrls": map[string]string{},
+		"jobId":          urls.JobID,
+		"zipUploadUrl":   urls.ZipUploadURL,
+		"fileUploadUrls": urls.FileUploadURLs,
 	})
 }
 

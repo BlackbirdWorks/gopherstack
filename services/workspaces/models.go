@@ -3,6 +3,7 @@ package workspaces
 import (
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
@@ -65,6 +66,7 @@ type InMemoryBackend struct {
 	mu                *lockmetrics.RWMutex
 	clientProperties  map[string]storedClientProps
 	appAssociations   map[string]map[string]*storedAppAssociation
+	idem              *idempotency.Memo
 	// appConfig is service.AppContext.Config, captured for lazy sibling-service
 	// lookup (the Directory Service backend) -- see cross_service.go.
 	appConfig            any
@@ -117,6 +119,8 @@ type storedConnAlias struct {
 // ---------------------------------------------------------------------------
 
 type storedCustomBundle struct {
+	CreatedAt      time.Time         `json:"createdAt,omitzero"`
+	UpdatedAt      time.Time         `json:"updatedAt,omitzero"`
 	Tags           map[string]string `json:"tags"`
 	BundleID       string            `json:"bundleId"`
 	Name           string            `json:"name"`
@@ -164,17 +168,19 @@ type storedImage struct {
 // ---------------------------------------------------------------------------
 
 type storedPool struct {
-	CreatedAt           time.Time         `json:"createdAt"`
-	Tags                map[string]string `json:"tags"`
-	PoolID              string            `json:"poolId"`
-	PoolArn             string            `json:"poolArn"`
-	PoolName            string            `json:"poolName"`
-	BundleID            string            `json:"bundleId"`
-	DirectoryID         string            `json:"directoryId"`
-	Description         string            `json:"description"`
-	State               string            `json:"state"`
-	RunningMode         string            `json:"runningMode"`
-	DesiredUserSessions int32             `json:"desiredUserSessions"`
+	ApplicationSettings *PoolApplicationSettings `json:"applicationSettings,omitempty"`
+	TimeoutSettings     *PoolTimeoutSettings     `json:"timeoutSettings,omitempty"`
+	CreatedAt           time.Time                `json:"createdAt"`
+	Tags                map[string]string        `json:"tags"`
+	PoolID              string                   `json:"poolId"`
+	PoolArn             string                   `json:"poolArn"`
+	PoolName            string                   `json:"poolName"`
+	BundleID            string                   `json:"bundleId"`
+	DirectoryID         string                   `json:"directoryId"`
+	Description         string                   `json:"description"`
+	State               string                   `json:"state"`
+	RunningMode         string                   `json:"runningMode"`
+	DesiredUserSessions int32                    `json:"desiredUserSessions"`
 }
 
 type storedPoolSession struct {

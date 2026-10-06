@@ -105,3 +105,43 @@ func TestDescribeMonitor_LastEvaluation_RealClient(t *testing.T) {
 	assert.Equal(t, "SUCCESS", aws.ToString(out.LastEvaluationState))
 	assert.NotNil(t, out.LastEvaluationTime)
 }
+
+func TestListMonitorEvaluations_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+	client := newTestForecastClient(t, h)
+	ctx := t.Context()
+
+	dsGroupOut, err := client.CreateDatasetGroup(ctx, &forecastsdk.CreateDatasetGroupInput{
+		DatasetGroupName: aws.String("lme-dsg"),
+		Domain:           types.DomainCustom,
+	})
+	require.NoError(t, err)
+
+	predOut, err := client.CreatePredictor(ctx, &forecastsdk.CreatePredictorInput{
+		PredictorName:       aws.String("lme-pred"),
+		ForecastHorizon:     aws.Int32(7),
+		ForecastTypes:       []string{"0.5"},
+		InputDataConfig:     &types.InputDataConfig{DatasetGroupArn: dsGroupOut.DatasetGroupArn},
+		FeaturizationConfig: &types.FeaturizationConfig{ForecastFrequency: aws.String("D")},
+	})
+	require.NoError(t, err)
+
+	monOut, err := client.CreateMonitor(ctx, &forecastsdk.CreateMonitorInput{
+		MonitorName: aws.String("lme-mon"),
+		ResourceArn: predOut.PredictorArn,
+	})
+	require.NoError(t, err)
+
+	out, err := client.ListMonitorEvaluations(ctx, &forecastsdk.ListMonitorEvaluationsInput{
+		MonitorArn: monOut.MonitorArn,
+	})
+	require.NoError(t, err)
+	require.Len(t, out.PredictorMonitorEvaluations, 1)
+
+	eval := out.PredictorMonitorEvaluations[0]
+	assert.Equal(t, aws.ToString(monOut.MonitorArn), aws.ToString(eval.MonitorArn))
+	assert.Equal(t, "SUCCESS", aws.ToString(eval.EvaluationState))
+	assert.NotNil(t, eval.EvaluationTime)
+}

@@ -82,6 +82,10 @@ func addonToJSON(a *Addon) map[string]any {
 		"addonVersion": a.AddonVersion,
 	}
 
+	if !a.ModifiedAt.IsZero() {
+		m["modifiedAt"] = a.ModifiedAt.Unix()
+	}
+
 	if a.Tags != nil {
 		m["tags"] = a.Tags.Clone()
 	} else {
@@ -330,10 +334,20 @@ func (h *Handler) handleDescribeAddonVersions(c *echo.Context) error {
 	versions := filterAddonVersions(
 		h.Backend.DescribeAddonVersions(), q.Get("addonName"), q.Get("kubernetesVersion"), q["types"],
 	)
+	versions = slices.DeleteFunc(versions, func(a map[string]any) bool {
+		owner, _ := a["owner"].(string)
+		publisher, _ := a["publisher"].(string)
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"addons": versions,
+		return (len(q["owners"]) > 0 && !slices.Contains(q["owners"], owner)) ||
+			(len(q["publishers"]) > 0 && !slices.Contains(q["publishers"], publisher))
 	})
+
+	p, err := eksVersionsPage(c, versions)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, eksPageResponse("addons", p))
 }
 
 func (h *Handler) handleDescribeAddonConfiguration(c *echo.Context) error {

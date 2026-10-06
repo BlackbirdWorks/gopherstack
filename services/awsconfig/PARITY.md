@@ -144,6 +144,7 @@ items_still_open:
   - "MaxNumberOfConnectorsExceededException is not enforced: the per-account connector limit is not published in AWS docs."
   - "ListDiscoveredResources.IncludeDeletedResources: DeleteResourceConfig removes the resource outright; no verified AWS tombstone retention period to bound one."
   - "StartResourceEvaluation.EvaluationTimeout: evaluation completes synchronously, so there is nothing to time out."
+  - "ConformancePackInputParameters (PutConformancePack/PutOrganizationConformancePack) are stored and echoed but not substituted into templates; PutOrganizationConformancePack.TemplateBody/TemplateS3Uri are not parsed or deployed; DeleteRemediationConfiguration.ResourceType is ignored (remediation configurations are keyed by rule name only)."
 deferred:
   - Per-field/per-op AWS validation ordering and exact message text (not audited this pass)
 leaks: {status: clean, note: "no goroutines/janitors in this service; single coarse lockmetrics.RWMutex; every new Lock/RLock this pass is defer-released; DeleteConfigurationRecorder cascade-cleans ServiceLinkedRecorderLink rows, DeleteConformancePack cascade-cleans its deployed config rules + evaluations, DeleteRemediationConfiguration cascade-cleans its recorded executions -- no ghost rows found"}
@@ -921,3 +922,21 @@ Recorded: ListDiscoveredResources `resourceName` is unmodeled (config items carr
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 awsconfig is region-isolated: Rules, recorders, delivery channels, aggregators, conformance packs and discovered resources live per region; siblings inherit the S3 snapshot writer and SNS publisher. Tagging bridge covers every region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/awsconfig`. Limitation: the dashboard shows the home region only.
+
+## 2026-10-05 errtargetaudit triage (gopherstack-3fvxc)
+
+11 findings, all empty-required-name checks (`ValidationException`) on Delete*/Start/Stop/PutDeliveryChannel. Recorded, not changed: the SDK client blocks nil required members, and real AWS Config returns `ValidationException` for constraint violations even where the op's deserializer does not model it; no declared code fits.
+
+## 2026-10-05 (reqfielddiff tier-2 pagination and filters)
+
+FIXED: DescribeComplianceByConfigRule (`ComplianceTypes`, ordered, token), DescribeConformancePacks (`ConformancePackNames`, NoSuchConformancePackException, Limit/NextToken), DescribeConformancePackStatus, DescribeConformancePackCompliance, GetConformancePackComplianceSummary, DescribeRetentionConfigurations (`RetentionConfigurationNames`), ListConfigurationRecorders (`recordingScope` filter, MaxResults), ListStoredQueries, SelectResourceConfig and SelectAggregateResourceConfig page via `paginate` (InvalidNextTokenException, no documented default so unbounded); DescribeAggregateComplianceByConfigRules, GetAggregateConfigRuleComplianceSummary and GetAggregateConformancePackComplianceSummary apply `AccountId`/`AwsRegion` (and rule name/compliance type) against the single emulated account; ListResourceEvaluations applies `EvaluationMode` and `TimeWindow`; PutConfigurationAggregator stores and echoes `AggregatorFilters` (additive omitempty `ConfigurationAggregator.AggregatorFilters`; not applied, there is no recorder fan-in). Recorded: ListResourceEvaluations `EvaluationContextIdentifier` (StartResourceEvaluation does not store EvaluationContext). Proof: `TestListOps_PageAndRejectBadTokens`, `TestListOps_Filters`.
+
+## Notes 2026-10-05 (gopherstack-9x62 pass 8)
+
+Dropped request members now applied (typed SDK test `dropped_members_sdk_test.go`): StartConfigRulesEvaluation.ConfigRuleNames,
+PutResourceConfig.ResourceName/Tags and ListDiscoveredResources.ResourceName, Put(Organization)ConformancePack
+ARN output + parameters/bucket/prefix/ExcludedAccounts/Tags, PutOrganizationConfigRule.Tags/OrganizationCustomPolicyRuleMetadata,
+PutConfigurationRecorder.Tags, Describe(Recorders|RecorderStatus) Arn/ServicePrincipal, DescribeConfigurationAggregators names,
+SourcesStatus.UpdateStatus, aggregator existence on DescribeAggregateComplianceByConfigRules/SelectAggregateResourceConfig,
+PutRemediationExceptions Message/ExpirationTime + DescribeRemediationExceptions.ResourceKeys, GetComplianceDetailsByResource.ResourceEvaluationId,
+StartResourceEvaluation ClientToken/EvaluationContext and ListResourceEvaluations context filter.

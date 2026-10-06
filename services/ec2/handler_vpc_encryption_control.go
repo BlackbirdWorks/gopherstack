@@ -177,7 +177,7 @@ func (h *Handler) handleDescribeVpcEncryptionControls(vals url.Values, reqID str
 		resp.VpcEncryptionControls = append(resp.VpcEncryptionControls, vpcEncryptionControlToItem(vec))
 	}
 
-	return resp, nil
+	return finishPagedFiltered(vals, resp)
 }
 
 func (h *Handler) handleModifyVpcEncryptionControl(vals url.Values, reqID string) (any, error) {
@@ -224,7 +224,7 @@ func (h *Handler) handleGetVpcResourcesBlockingEncryptionEnforcement(vals url.Va
 		})
 	}
 
-	return resp, nil
+	return finishPaged(vals, resp)
 }
 
 // ---- Account-level VPC Encryption Control (parity-4) ----

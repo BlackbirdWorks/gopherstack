@@ -154,6 +154,7 @@ func (b *InMemoryBackend) CopyOptionGroup(
 	og := &OptionGroup{
 		OptionGroupName:        targetGroupName,
 		OptionGroupDescription: targetDescription,
+		OptionGroupArn:         b.rdsARN("og", targetGroupName),
 		EngineName:             src.EngineName,
 		MajorEngineVersion:     src.MajorEngineVersion,
 		Options:                opts,

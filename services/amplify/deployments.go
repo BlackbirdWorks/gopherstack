@@ -2,6 +2,7 @@ package amplify
 
 import (
 	"fmt"
+	"net/url"
 	"time"
 )
 
@@ -12,15 +13,34 @@ const (
 
 // CreateDeployment creates a pre-signed upload URL for a manual deployment.
 func (b *InMemoryBackend) CreateDeployment(appID, branchName string) (string, string, error) {
+	urls, err := b.CreateDeploymentWithFiles(appID, branchName, nil)
+	if err != nil {
+		return "", "", err
+	}
+
+	return urls.JobID, urls.ZipUploadURL, nil
+}
+
+// DeploymentURLs is CreateDeployment's result: the job and its upload targets.
+type DeploymentURLs struct {
+	FileUploadURLs map[string]string
+	JobID          string
+	ZipUploadURL   string
+}
+
+// CreateDeploymentWithFiles also issues one upload URL per fileMap key.
+func (b *InMemoryBackend) CreateDeploymentWithFiles(
+	appID, branchName string, fileMap map[string]string,
+) (DeploymentURLs, error) {
 	b.mu.RLock("CreateDeployment")
 	defer b.mu.RUnlock()
 
 	if !b.apps.Has(appID) {
-		return "", "", fmt.Errorf("%w: app %s not found", ErrNotFound, appID)
+		return DeploymentURLs{}, fmt.Errorf("%w: app %s not found", ErrNotFound, appID)
 	}
 
 	if !b.branches.Has(branchKey(appID, branchName)) {
-		return "", "", fmt.Errorf(
+		return DeploymentURLs{}, fmt.Errorf(
 			"%w: branch %s not found for app %s",
 			ErrNotFound,
 			branchName,
@@ -29,9 +49,14 @@ func (b *InMemoryBackend) CreateDeployment(appID, branchName string) (string, st
 	}
 
 	jobID := randomID()
-	uploadURL := "https://s3.amazonaws.com/amplify-upload-" + appID + "/" + branchName + "/" + jobID + ".zip"
+	base := "https://s3.amazonaws.com/amplify-upload-" + appID + "/" + branchName + "/" + jobID
 
-	return jobID, uploadURL, nil
+	fileURLs := make(map[string]string, len(fileMap))
+	for name := range fileMap {
+		fileURLs[name] = base + "/" + url.PathEscape(name)
+	}
+
+	return DeploymentURLs{JobID: jobID, ZipUploadURL: base + ".zip", FileUploadURLs: fileURLs}, nil
 }
 
 // StartDeployment starts a deployment from a pre-uploaded artifact.

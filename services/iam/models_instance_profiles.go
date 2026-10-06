@@ -21,6 +21,7 @@ type GetInstanceProfileResponse struct {
 
 // ListInstanceProfilesForRoleResult contains the instance profile list.
 type ListInstanceProfilesForRoleResult struct {
+	Marker           string               `xml:"Marker,omitempty"`
 	InstanceProfiles []InstanceProfileXML `xml:"InstanceProfiles>member"`
 	IsTruncated      bool                 `xml:"IsTruncated"`
 }

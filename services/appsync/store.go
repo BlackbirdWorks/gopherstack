@@ -161,6 +161,10 @@ type StorageBackend interface {
 	StartSchemaMerge(mergedAPIID, associationID string) (string, error)
 	// UpdateSourceAPIAssociation updates a source API association on a merged API.
 	UpdateSourceAPIAssociation(mergedAPIID, associationID, description string) (*SourceAPIAssociation, error)
+	// UpdateSourceAPIAssociationWithConfig also applies sourceApiAssociationConfig.mergeType when set.
+	UpdateSourceAPIAssociationWithConfig(
+		mergedAPIID, associationID, description, mergeType string,
+	) (*SourceAPIAssociation, error)
 	// ListTypesByAssociation lists types for a given merged API source association.
 	ListTypesByAssociation(mergedAPIID, associationID, format string) ([]*APIType, error)
 }

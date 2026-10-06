@@ -374,14 +374,21 @@ func TestHandler_CreateGuardrailTagsReturned(t *testing.T) { //nolint:parallelte
 	mustUnmarshal(t, rec, &createOut)
 	id := createOut["guardrailId"].(string)
 
-	// Tags should be present in GET response.
+	// GetGuardrailOutput has no tags member; they are read via ListTagsForResource.
 	rec2 := doRequest(t, h, http.MethodGet, "/guardrails/"+id, nil)
 	assert.Equal(t, http.StatusOK, rec2.Code)
 
 	var getOut map[string]any
 	mustUnmarshal(t, rec2, &getOut)
-	require.NotEmpty(t, getOut["tags"])
-	tags := getOut["tags"].([]any)
+	assert.NotContains(t, getOut, "tags")
+
+	rec3 := doRequest(t, h, http.MethodPost, "/listTagsForResource",
+		map[string]any{"resourceARN": createOut["guardrailArn"]})
+	require.Equal(t, http.StatusOK, rec3.Code)
+
+	var tagsOut map[string]any
+	mustUnmarshal(t, rec3, &tagsOut)
+	tags := tagsOut["tags"].([]any)
 	assert.Len(t, tags, 1)
 	tag := tags[0].(map[string]any)
 	assert.Equal(t, "env", tag["key"])

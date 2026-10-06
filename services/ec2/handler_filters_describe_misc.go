@@ -20,6 +20,8 @@ func applyRegionFilters(items []regionItem, filters map[string][]string) []regio
 			return anyEqual(r.Endpoint, values)
 		case "region-name":
 			return anyEqual(r.RegionName, values)
+		case "opt-in-status":
+			return anyEqual(r.OptInStatus, values)
 		}
 
 		return true

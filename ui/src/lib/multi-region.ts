@@ -1,5 +1,5 @@
-import { currentRegion, isAllRegions } from "$lib/region.svelte";
-import { regionsForFanout } from "$lib/region-data";
+import { currentRegion, isAllRegions } from "#lib/region.svelte.ts";
+import { regionsForFanout } from "#lib/region-data.ts";
 
 export type RegionedItem<T> = { region: string; item: T };
 

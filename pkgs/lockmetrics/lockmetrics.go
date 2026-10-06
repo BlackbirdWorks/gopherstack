@@ -204,6 +204,27 @@ func registerOrReuse[T prometheus.Collector](c T) T {
 	return c
 }
 
+type cachedCollector struct {
+	reg  prometheus.Registerer
+	coll *liveCollector
+}
+
+// lastCollector memoises the registered collector so New skips rebuilding its metric vectors.
+var lastCollector atomic.Pointer[cachedCollector] //nolint:gochecknoglobals // process-wide metrics cache
+
+// sharedCollector returns the process-wide liveCollector, re-resolving if the default registerer changed.
+func sharedCollector() *liveCollector {
+	reg := prometheus.DefaultRegisterer
+	if c := lastCollector.Load(); c != nil && c.reg == reg {
+		return c.coll
+	}
+
+	coll := registerOrReuse(newLiveCollector())
+	lastCollector.Store(&cachedCollector{reg: reg, coll: coll})
+
+	return coll
+}
+
 // writeOpMetrics caches one write operation's curried WithLabelValues
 // handles, so repeated Lock/Unlock calls for the same op skip the lookup.
 type writeOpMetrics struct {
@@ -297,7 +318,7 @@ func (m *RWMutex) readWaitFor(op string) prometheus.Observer {
 // emitted metrics and should be a stable, human-readable identifier
 // (e.g. "s3", "ddb.table.users").
 func New(name string) *RWMutex {
-	coll := registerOrReuse(newLiveCollector())
+	coll := sharedCollector()
 
 	m := &RWMutex{
 		name:          name,
@@ -327,7 +348,7 @@ func (m *RWMutex) Close() {
 	if m == nil {
 		return
 	}
-	coll := registerOrReuse(newLiveCollector())
+	coll := sharedCollector()
 	coll.allMutexes.Delete(m)
 
 	// Remove all label-value combinations for this lock name from every metric

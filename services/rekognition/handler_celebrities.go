@@ -72,7 +72,7 @@ func (h *Handler) handleGetCelebrityInfo(
 	return &getCelebrityInfoResp{
 		Name:        "Celebrity " + req.Id,
 		Urls:        []string{},
-		KnownGender: &knownGender{Type: "Unknown"},
+		KnownGender: &knownGender{Type: "Unlisted"},
 	}, nil
 }
 
@@ -94,11 +94,12 @@ func (h *Handler) handleStartCelebrityRecognition(
 	bucket, name, version := videoRefS3(req.Video)
 
 	jobID, err := h.Backend.StartAsyncJob(StartAsyncJobParams{
-		JobType:        "celebrity_recognition",
-		JobTag:         req.JobTag,
-		VideoS3Bucket:  bucket,
-		VideoS3Name:    name,
-		VideoS3Version: version,
+		JobType:            "celebrity_recognition",
+		ClientRequestToken: req.ClientRequestToken,
+		JobTag:             req.JobTag,
+		VideoS3Bucket:      bucket,
+		VideoS3Name:        name,
+		VideoS3Version:     version,
 	})
 	if err != nil {
 		return nil, err

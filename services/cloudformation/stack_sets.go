@@ -430,7 +430,7 @@ func (b *InMemoryBackend) StopStackSetOperation(stackSetName, operationID string
 // results, paginated by MaxResults/NextToken (real query-protocol form
 // fields, api_op_ListStackSetOperationResults.go).
 func (b *InMemoryBackend) ListStackSetOperationResults(
-	stackSetName, operationID string, maxResults int, nextToken string,
+	stackSetName, operationID string, maxResults int, nextToken string, statuses []string,
 ) (page.Page[StackSetOperationResult], error) {
 	b.mu.RLock("ListStackSetOperationResults")
 	defer b.mu.RUnlock()
@@ -443,8 +443,13 @@ func (b *InMemoryBackend) ListStackSetOperationResults(
 		)
 	}
 	results := b.stackSetOpResults[stackSetName][operationID]
-	out := make([]StackSetOperationResult, len(results))
-	copy(out, results)
+	out := make([]StackSetOperationResult, 0, len(results))
+
+	for _, r := range results {
+		if len(statuses) == 0 || slices.Contains(statuses, r.Status) {
+			out = append(out, r)
+		}
+	}
 
 	return page.New(out, nextToken, maxResults, cfnDefaultPageSize), nil
 }

@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
-	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
-	import { getGlacierClient } from '$lib/aws-client';
-	import { confirmDestructive } from '$lib/confirm-dialog';
+	import { onRegionChange, regionalClient } from '#lib/region-effect.svelte.ts';
+	import { getGlacierClient } from '#lib/aws-client.ts';
+	import { confirmDestructive } from '#lib/confirm-dialog.ts';
 	import {
 		ListVaultsCommand,
 		CreateVaultCommand,

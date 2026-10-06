@@ -52,7 +52,10 @@ func (b *InMemoryBackend) ListDatasourcePackages(
 
 	result := make(map[string]DatasourcePackageIngestDetail, end-start)
 	for _, k := range keys[start:end] {
-		result[k] = DatasourcePackageIngestDetail{IngestState: pkgMap[k]}
+		result[k] = DatasourcePackageIngestDetail{
+			IngestState:           pkgMap[k],
+			LastIngestStateChange: map[string]time.Time{pkgMap[k]: b.datasourceChangedAt[graphARN][k]},
+		}
 	}
 
 	var outToken string
@@ -88,6 +91,10 @@ func (b *InMemoryBackend) UpdateDatasourcePackages(graphARN string, packages []s
 
 	now := time.Now().UTC()
 	for _, pkg := range packages {
+		if b.datasources[graphARN][pkg] == datasourceIngestStateStarted {
+			continue
+		}
+
 		b.datasources[graphARN][pkg] = datasourceIngestStateStarted
 		b.datasourceChangedAt[graphARN][pkg] = now
 	}

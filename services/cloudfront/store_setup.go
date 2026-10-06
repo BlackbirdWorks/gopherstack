@@ -133,7 +133,7 @@ func (b *InMemoryBackend) deleteInvalidationsForTenant(tenantID string) {
 //   - distributionAliases, distributionFunctionAssociations: slice-valued
 //     (map[string][]T, not map[string]*T), so there is no single *T to key a
 //     Table by; each entry is itself a list, not a resource with identity.
-//   - distributionWebACLs, distributionTenantWebACLs, distributionCachePolicies,
+//   - distributionWebACLs, distributionCachePolicies,
 //     distributionOriginRequestPolicies, distributionResponseHeadersPolicies,
 //     distributionRealtimeLogConfigs: plain string->string association maps
 //     (distribution/tenant ID → associated resource ID), not resource

@@ -613,3 +613,19 @@ reachable `Message` field; every `Describe*`/Create-echo leaked a
 fabricated `Tags` member (no real output type has one); `DescribeAutoPredictor`
 leaked input-only `ExplainPredictor`/`ReferencePredictorArn`. All 3 proven
 failing pre-fix; see tests. Gates clean (0 lint, new and full-run).
+
+## 2026-10-04 (gopherstack-0kk8)
+
+ListMonitorEvaluations no longer emits CreationTime/MonitorName/Status, which PredictorMonitorEvaluation does not define (`TestListMonitorEvaluations_RealClient`).
+
+## 2026-10-05 errtargetaudit triage (gopherstack-3fvxc)
+
+127 findings, all false positives from the mode-generic dispatcher: one `handleError` mapper serves create/describe/delete/list specs, so the tool attributes every sentinel to every op. Per-op reachability holds: Describe/Delete emit only not-found (Delete also in-use), List only invalid-next-token, Create only validation/already-exists/not-found-for-referenced-ARN. Typed proof: `TestTypedErrors_PerOperationCodes`.
+
+## 2026-10-05 (reqfielddiff tier-2 pagination)
+
+ListMonitorEvaluations Filters/MaxResults/NextToken are false positives (the tool misses the map-based dispatcher); already applied and the bad token is InvalidNextTokenException. Proof: `TestListMonitorEvaluations_FilterAndPaging`.
+
+## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
+
+InternalServerException (handler.go:606) is the default 500 clause; the pinned SDK models no internal-error type.

@@ -9,9 +9,27 @@ import (
 // =============================================================================
 
 // CreateFaceLivenessSession creates a new face liveness session.
-func (b *InMemoryBackend) CreateFaceLivenessSession() (string, error) {
+func (b *InMemoryBackend) CreateFaceLivenessSession(clientRequestToken string) (string, error) {
 	b.mu.Lock("CreateFaceLivenessSession")
 	defer b.mu.Unlock()
+
+	if clientRequestToken != "" {
+		var prior string
+
+		b.livenessSessions.Range(func(s *storedLivenessSession) bool {
+			if s.ClientRequestToken == clientRequestToken {
+				prior = s.SessionID
+
+				return false
+			}
+
+			return true
+		})
+
+		if prior != "" {
+			return prior, nil
+		}
+	}
 
 	sessionID := uuid.NewString()
 
@@ -24,9 +42,10 @@ func (b *InMemoryBackend) CreateFaceLivenessSession() (string, error) {
 	confidence := float32(75.0) + float32(h%250)/10.0 //nolint:mnd // confidence range
 
 	b.livenessSessions.Put(&storedLivenessSession{
-		SessionID:  sessionID,
-		Status:     jobStatusSucceeded,
-		Confidence: confidence,
+		SessionID:          sessionID,
+		ClientRequestToken: clientRequestToken,
+		Status:             jobStatusSucceeded,
+		Confidence:         confidence,
 	})
 
 	return sessionID, nil

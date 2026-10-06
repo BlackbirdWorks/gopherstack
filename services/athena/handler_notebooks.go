@@ -2,12 +2,11 @@ package athena
 
 import "encoding/json"
 
-// createNotebookInput intentionally has no Tags field: the real
-// CreateNotebookInput carries only Name/WorkGroup/ClientRequestToken -- see
-// InMemoryBackend.CreateNotebook's doc comment.
+// createNotebookInput has no Tags: the real CreateNotebookInput carries only Name/WorkGroup/ClientRequestToken.
 type createNotebookInput struct {
-	WorkGroup string `json:"WorkGroup"`
-	Name      string `json:"Name"`
+	WorkGroup          string `json:"WorkGroup"`
+	Name               string `json:"Name"`
+	ClientRequestToken string `json:"ClientRequestToken"`
 }
 
 type createPresignedNotebookURLInput struct {
@@ -27,8 +26,10 @@ type notebookIDInput struct {
 }
 
 type listNotebookMetadataInput struct {
-	WorkGroup string                     `json:"WorkGroup"`
-	Filters   listNotebookMetadataFilter `json:"Filters"`
+	NextToken  string                     `json:"NextToken"`
+	WorkGroup  string                     `json:"WorkGroup"`
+	Filters    listNotebookMetadataFilter `json:"Filters"`
+	MaxResults int                        `json:"MaxResults"`
 }
 
 type listNotebookMetadataFilter struct {
@@ -36,10 +37,11 @@ type listNotebookMetadataFilter struct {
 }
 
 type importNotebookInput struct {
-	WorkGroup string `json:"WorkGroup"`
-	Name      string `json:"Name"`
-	Payload   string `json:"Payload"`
-	Type      string `json:"Type"`
+	WorkGroup          string `json:"WorkGroup"`
+	Name               string `json:"Name"`
+	Payload            string `json:"Payload"`
+	Type               string `json:"Type"`
+	ClientRequestToken string `json:"ClientRequestToken"`
 }
 
 type updateNotebookInput struct {
@@ -62,7 +64,11 @@ func (h *Handler) notebookOps() map[string]athenaActionFn {
 				return nil, err
 			}
 
-			id, err := h.Backend.CreateNotebook(input.WorkGroup, input.Name)
+			id, err := h.replayCreate(
+				"CreateNotebook", input.ClientRequestToken, input,
+				found(h.Backend.GetNotebookMetadata),
+				func() (string, error) { return h.Backend.CreateNotebook(input.WorkGroup, input.Name) },
+			)
 			if err != nil {
 				return nil, err
 			}
@@ -146,7 +152,18 @@ func (h *Handler) notebookExtraOps() map[string]athenaActionFn {
 				return nil, err
 			}
 
-			return map[string]any{"NotebookMetadataList": list}, nil
+			page, next, pageErr := pageByKey(
+				h.tokens,
+				list,
+				func(n NotebookMetadata) string { return n.NotebookID },
+				input.MaxResults,
+				input.NextToken,
+			)
+			if pageErr != nil {
+				return nil, pageErr
+			}
+
+			return withNextToken(map[string]any{"NotebookMetadataList": page}, next), nil
 		},
 		"ImportNotebook": func(b []byte) (any, error) {
 			var input importNotebookInput
@@ -154,7 +171,13 @@ func (h *Handler) notebookExtraOps() map[string]athenaActionFn {
 				return nil, err
 			}
 
-			id, err := h.Backend.ImportNotebook(input.WorkGroup, input.Name, input.Payload, input.Type)
+			id, err := h.replayCreate(
+				"ImportNotebook", input.ClientRequestToken, input,
+				found(h.Backend.GetNotebookMetadata),
+				func() (string, error) {
+					return h.Backend.ImportNotebook(input.WorkGroup, input.Name, input.Payload, input.Type)
+				},
+			)
 			if err != nil {
 				return nil, err
 			}

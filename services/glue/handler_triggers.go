@@ -2,6 +2,8 @@ package glue
 
 import (
 	"context"
+
+	gluetypes "github.com/aws/aws-sdk-go-v2/service/glue/types"
 )
 
 // batchGetTriggersInput holds input for BatchGetTriggers.
@@ -47,6 +49,10 @@ func (h *Handler) handleCreateTrigger(
 	_ context.Context,
 	in *createTriggerInput,
 ) (*createTriggerOutput, error) {
+	if err := checkEnum("Type", gluetypes.TriggerType(in.Type)); err != nil {
+		return nil, err
+	}
+
 	t := Trigger{
 		Name:                   in.Name,
 		Type:                   in.Type,

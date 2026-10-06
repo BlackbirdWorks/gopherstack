@@ -16,6 +16,24 @@ func (b *InMemoryBackend) CreateModelImportJob(
 	jobName, importedModelName, roleArn, modelDataSourceS3Uri string,
 	tags []Tag,
 ) (*ModelImportJob, error) {
+	return b.CreateModelImportJobWithOptions(
+		jobName, importedModelName, roleArn, modelDataSourceS3Uri, tags, ImportJobOptions{},
+	)
+}
+
+// ImportJobOptions carries CreateModelImportJob's optional encryption, networking and model tags.
+type ImportJobOptions struct {
+	VpcConfig             map[string]any
+	ImportedModelKmsKeyID string
+	ImportedModelTags     []Tag
+}
+
+// CreateModelImportJobWithOptions is CreateModelImportJob with ImportJobOptions.
+func (b *InMemoryBackend) CreateModelImportJobWithOptions(
+	jobName, importedModelName, roleArn, modelDataSourceS3Uri string,
+	tags []Tag,
+	opts ImportJobOptions,
+) (*ModelImportJob, error) {
 	if jobName == "" {
 		return nil, fmt.Errorf("%w: jobName is required", ErrValidation)
 	}
@@ -38,16 +56,19 @@ func (b *InMemoryBackend) CreateModelImportJob(
 	now := time.Now().UTC()
 
 	job := &ModelImportJob{
-		JobArn:            jobARN,
-		JobName:           jobName,
-		ImportedModelArn:  importedModelARN,
-		ImportedModelName: importedModelName,
-		RoleArn:           roleArn,
-		ModelDataSourceS3: modelDataSourceS3Uri,
-		Status:            statusInProgress,
-		CreationTime:      now,
-		LastModifiedTime:  now,
-		Tags:              copyTags(tags),
+		JobArn:                 jobARN,
+		JobName:                jobName,
+		ImportedModelArn:       importedModelARN,
+		ImportedModelName:      importedModelName,
+		RoleArn:                roleArn,
+		ModelDataSourceS3:      modelDataSourceS3Uri,
+		Status:                 statusInProgress,
+		CreationTime:           now,
+		LastModifiedTime:       now,
+		Tags:                   copyTags(tags),
+		ImportedModelTags:      copyTags(opts.ImportedModelTags),
+		VpcConfig:              opts.VpcConfig,
+		ImportedModelKmsKeyArn: kmsKeyARN(b.region, b.accountID, opts.ImportedModelKmsKeyID),
 	}
 	b.modelImportJobs.Put(job)
 

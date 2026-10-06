@@ -68,6 +68,7 @@ type StorageBackend interface {
 
 	// Deployments
 	CreateDeployment(restAPIID, stageName, description string) (*Deployment, error)
+	CreateDeploymentWithCanary(restAPIID, stageName, description string, canary *CanarySettings) (*Deployment, error)
 	GetDeployment(restAPIID, deploymentID string) (*Deployment, error)
 	GetDeployments(restAPIID string) ([]Deployment, error)
 	DeleteDeployment(restAPIID, deploymentID string) error

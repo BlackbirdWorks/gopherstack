@@ -103,7 +103,7 @@ func TestDeleteFlowVersion_BlockedWhileAliasReferencesIt(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			fv, err := b.CreateFlowVersion(ctx, flow.FlowID, "")
+			fv, err := b.CreateFlowVersion(ctx, flow.FlowID, bedrockagent.VersionConfig{})
 			require.NoError(t, err)
 
 			_, err = b.CreateFlowAlias(ctx, flow.FlowID, bedrockagent.FlowAliasConfig{
@@ -268,7 +268,7 @@ func TestDeleteFlow_BlockedWhileAliasExists(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			fv, err := b.CreateFlowVersion(ctx, flow.FlowID, "")
+			fv, err := b.CreateFlowVersion(ctx, flow.FlowID, bedrockagent.VersionConfig{})
 			require.NoError(t, err)
 
 			_, err = b.CreateFlowAlias(ctx, flow.FlowID, bedrockagent.FlowAliasConfig{

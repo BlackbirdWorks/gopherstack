@@ -30,7 +30,7 @@ func (h *Handler) handleListThingsInBillingGroup(c *echo.Context) error {
 	groupName := strings.TrimSuffix(trimmed, "/things")
 	things := h.Backend.ListThingsInBillingGroup(groupName)
 
-	return c.JSON(http.StatusOK, map[string]any{keyThings: things})
+	return respondListPage(c, keyThings, things)
 }
 
 func (h *Handler) handleRemoveThingFromBillingGroup(c *echo.Context) error {
@@ -109,16 +109,19 @@ func (h *Handler) handleDescribeBillingGroup(c *echo.Context) error {
 }
 
 func (h *Handler) handleListBillingGroups(c *echo.Context) error {
-	groups := h.Backend.ListBillingGroups()
-	summaries := make([]map[string]any, len(groups))
-	for i, bg := range groups {
-		summaries[i] = map[string]any{
+	prefix := c.QueryParam("namePrefixFilter")
+	summaries := make([]map[string]any, 0)
+	for _, bg := range h.Backend.ListBillingGroups() {
+		if !strings.HasPrefix(bg.BillingGroupName, prefix) {
+			continue
+		}
+		summaries = append(summaries, map[string]any{
 			keyGroupName: bg.BillingGroupName,
 			keyGroupArn:  bg.BillingGroupARN,
-		}
+		})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"billingGroups": summaries})
+	return respondListPage(c, "billingGroups", summaries)
 }
 
 func (h *Handler) handleUpdateBillingGroup(c *echo.Context) error {

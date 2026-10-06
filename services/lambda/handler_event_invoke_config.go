@@ -30,7 +30,7 @@ func (h *Handler) handlePutFunctionEventInvokeConfig(c *echo.Context, name strin
 		}
 	}
 
-	cfg, putErr := lambdaBk.PutFunctionEventInvokeConfig(name, &input)
+	cfg, putErr := lambdaBk.PutFunctionEventInvokeConfigQualified(name, qualifierParam(c), &input)
 	if putErr != nil {
 		return h.eventInvokeConfigError(c, putErr, name)
 	}
@@ -45,7 +45,7 @@ func (h *Handler) handleGetFunctionEventInvokeConfig(c *echo.Context, name strin
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
 	}
 
-	cfg, err := lambdaBk.GetFunctionEventInvokeConfig(name)
+	cfg, err := lambdaBk.GetFunctionEventInvokeConfigQualified(name, qualifierParam(c))
 	if err != nil {
 		return h.eventInvokeConfigError(c, err, name)
 	}
@@ -72,7 +72,7 @@ func (h *Handler) handleUpdateFunctionEventInvokeConfig(c *echo.Context, name st
 		}
 	}
 
-	cfg, updateErr := lambdaBk.UpdateFunctionEventInvokeConfig(name, &input)
+	cfg, updateErr := lambdaBk.UpdateFunctionEventInvokeConfigQualified(name, qualifierParam(c), &input)
 	if updateErr != nil {
 		return h.eventInvokeConfigError(c, updateErr, name)
 	}
@@ -87,7 +87,7 @@ func (h *Handler) handleDeleteFunctionEventInvokeConfig(c *echo.Context, name st
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
 	}
 
-	if err := lambdaBk.DeleteFunctionEventInvokeConfig(name); err != nil {
+	if err := lambdaBk.DeleteFunctionEventInvokeConfigQualified(name, qualifierParam(c)); err != nil {
 		return h.eventInvokeConfigError(c, err, name)
 	}
 
@@ -135,3 +135,6 @@ func (h *Handler) eventInvokeConfigError(c *echo.Context, err error, name string
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
 	}
 }
+
+// qualifierParam reads the query-bound Qualifier member.
+func qualifierParam(c *echo.Context) string { return c.Request().URL.Query().Get("Qualifier") }

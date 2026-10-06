@@ -142,13 +142,20 @@ func (h *Handler) handleListAuthorizers(c *echo.Context) error {
 func (h *Handler) handleUpdateAuthorizer(c *echo.Context) error {
 	name := strings.TrimPrefix(c.Request().URL.Path, "/authorizer/")
 	var req struct {
-		AuthorizerFunctionARN string `json:"authorizerFunctionArn"`
-		Status                string `json:"status"`
+		TokenSigningPublicKeys map[string]string `json:"tokenSigningPublicKeys"`
+		EnableCachingForHTTP   *bool             `json:"enableCachingForHttp"`
+		AuthorizerFunctionARN  string            `json:"authorizerFunctionArn"`
+		Status                 string            `json:"status"`
+		TokenKeyName           string            `json:"tokenKeyName"`
 	}
 	if err := readBody(c, &req); err != nil {
 		return err
 	}
-	a, err := h.Backend.UpdateAuthorizer(name, req.AuthorizerFunctionARN, req.Status)
+	a, err := h.Backend.UpdateAuthorizer(name, req.AuthorizerFunctionARN, req.Status, AuthorizerUpdateExtras{
+		TokenKeyName:           req.TokenKeyName,
+		TokenSigningPublicKeys: req.TokenSigningPublicKeys,
+		EnableCachingForHTTP:   req.EnableCachingForHTTP,
+	})
 	if err != nil {
 		return respondErr(c, err)
 	}

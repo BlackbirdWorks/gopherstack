@@ -197,7 +197,7 @@ func TestRealClient_DescribeInstanceTopologyFilters(t *testing.T) {
 		{"type-wildcard", tailFilter("instance-type", "t2.*"), []string{idS}},
 		{"az", tailFilter("availability-zone", "us-east-1a"), []string{idS, idL}},
 		{"az-miss", tailFilter("availability-zone", "us-east-1z"), nil},
-		{"zone-id", tailFilter("zone-id", "us-east-1a1"), []string{idS, idL}},
+		{"zone-id", tailFilter("zone-id", "use1-az1"), []string{idS, idL}},
 		{"zone-id-miss", tailFilter("zone-id", "use1-az9"), nil},
 	}, func(ctx context.Context, f []types.Filter) ([]types.InstanceTopology, error) {
 		out, callErr := client.DescribeInstanceTopology(ctx, &ec2sdk.DescribeInstanceTopologyInput{Filters: f})

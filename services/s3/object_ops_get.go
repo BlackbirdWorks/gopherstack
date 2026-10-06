@@ -54,7 +54,7 @@ func (h *S3Handler) getObject(
 	}
 	ctx = newCtx
 
-	versionID := r.URL.Query().Get("versionId")
+	versionID := queryParam(r, "versionId")
 	logger.Load(ctx).DebugContext(
 		ctx,
 		"S3 getObject input",
@@ -162,11 +162,28 @@ func (h *S3Handler) setGetObjectResponseHeaders(
 		w.Header().Set("Content-Disposition", cd)
 	}
 
+	setObjectContentHeaders(w, ver.CacheControl, ver.ContentLanguage, ver.WebsiteRedirectLocation)
+
 	if r.Header.Get("X-Amz-Checksum-Mode") == "ENABLED" {
 		h.handleChecksumMode(w, ver, details)
 	}
 
 	applyResponseOverrideHeaders(w, r)
+}
+
+// setObjectContentHeaders writes the stored Cache-Control, Content-Language and website redirect headers.
+func setObjectContentHeaders(w http.ResponseWriter, cacheControl, contentLanguage, redirect *string) {
+	if v := aws.ToString(cacheControl); v != "" {
+		w.Header().Set("Cache-Control", v)
+	}
+
+	if v := aws.ToString(contentLanguage); v != "" {
+		w.Header().Set("Content-Language", v)
+	}
+
+	if v := aws.ToString(redirect); v != "" {
+		w.Header().Set("X-Amz-Website-Redirect-Location", v)
+	}
 }
 
 // responseOverrideParams maps the AWS GetObject/HeadObject response-override
@@ -186,6 +203,10 @@ var responseOverrideParams = map[string]string{ //nolint:gochecknoglobals // fix
 // to the outgoing headers, matching real S3 GetObject/HeadObject behaviour. An
 // override always wins over the object's stored header value.
 func applyResponseOverrideHeaders(w http.ResponseWriter, r *http.Request) {
+	if r.URL.RawQuery == "" {
+		return
+	}
+
 	q := r.URL.Query()
 	for param, header := range responseOverrideParams {
 		if v := q.Get(param); v != "" {

@@ -3,7 +3,10 @@ package glue
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
+
+	gluetypes "github.com/aws/aws-sdk-go-v2/service/glue/types"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
@@ -218,10 +221,27 @@ const defaultListDataQualityStatisticAnnotationsLimit = 100
 
 // listDataQualityStatisticAnnotationsInput holds input for ListDataQualityStatisticAnnotations.
 type listDataQualityStatisticAnnotationsInput struct {
-	ProfileID   string `json:"ProfileId,omitempty"`
-	StatisticID string `json:"StatisticId,omitempty"`
-	NextToken   string `json:"NextToken,omitempty"`
-	MaxResults  int32  `json:"MaxResults,omitempty"`
+	// TimestampFilter bounds StatisticRecordedOn (epoch seconds), api_op_ListDataQualityStatisticAnnotations.go.
+	TimestampFilter *timestampFilter `json:"TimestampFilter,omitempty"`
+	ProfileID       string           `json:"ProfileId,omitempty"`
+	StatisticID     string           `json:"StatisticId,omitempty"`
+	NextToken       string           `json:"NextToken,omitempty"`
+	MaxResults      int32            `json:"MaxResults,omitempty"`
+}
+
+// timestampFilter mirrors types.TimestampFilter.
+type timestampFilter struct {
+	RecordedAfter  *float64 `json:"RecordedAfter,omitempty"`
+	RecordedBefore *float64 `json:"RecordedBefore,omitempty"`
+}
+
+func (f *timestampFilter) admits(recordedOn float64) bool {
+	if f == nil {
+		return true
+	}
+
+	return (f.RecordedAfter == nil || recordedOn > *f.RecordedAfter) &&
+		(f.RecordedBefore == nil || recordedOn < *f.RecordedBefore)
 }
 
 // timestampedInclusionAnnotation is the annotation value with its last-modified time.
@@ -249,6 +269,7 @@ func (h *Handler) handleListDataQualityStatisticAnnotations(
 	in *listDataQualityStatisticAnnotationsInput,
 ) (*listDataQualityStatisticAnnotationsOutput, error) {
 	all := h.Backend.ListDataQualityStatisticAnnotations(in.ProfileID, in.StatisticID)
+	all = slices.DeleteFunc(all, func(e *StatisticAnnotation) bool { return !in.TimestampFilter.admits(e.RecordedOn) })
 
 	limit := int(in.MaxResults)
 	if limit <= 0 {
@@ -276,8 +297,11 @@ func (h *Handler) handleListDataQualityStatisticAnnotations(
 
 // listDataQualityStatisticsInput holds input for ListDataQualityStatistics.
 type listDataQualityStatisticsInput struct {
-	ProfileID   string `json:"ProfileId,omitempty"`
-	StatisticID string `json:"StatisticId,omitempty"`
+	TimestampFilter *timestampFilter `json:"TimestampFilter,omitempty"`
+	ProfileID       string           `json:"ProfileId,omitempty"`
+	StatisticID     string           `json:"StatisticId,omitempty"`
+	NextToken       string           `json:"NextToken,omitempty"`
+	MaxResults      int32            `json:"MaxResults,omitempty"`
 }
 
 // listDataQualityStatisticsOutput holds the result for ListDataQualityStatistics.
@@ -292,9 +316,14 @@ type listDataQualityStatisticsOutput struct {
 // mirrors real AWS behavior for a profile/account that never enabled monitoring.
 func (h *Handler) handleListDataQualityStatistics(
 	_ context.Context,
-	_ *listDataQualityStatisticsInput,
+	in *listDataQualityStatisticsInput,
 ) (*listDataQualityStatisticsOutput, error) {
-	return &listDataQualityStatisticsOutput{Statistics: []any{}}, nil
+	stats, next, err := pagedSlice([]any{}, in.NextToken, in.MaxResults, defaultListPageSize)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listDataQualityStatisticsOutput{Statistics: stats, NextToken: next}, nil
 }
 
 // putDataQualityProfileAnnotationInput holds input for PutDataQualityProfileAnnotation.
@@ -307,6 +336,13 @@ func (h *Handler) handlePutDataQualityProfileAnnotation(
 	_ context.Context,
 	in *putDataQualityProfileAnnotationInput,
 ) (*emptyOutput, error) {
+	if err := checkEnum(
+		"InclusionAnnotation",
+		gluetypes.InclusionAnnotationValue(in.InclusionAnnotation),
+	); err != nil {
+		return nil, err
+	}
+
 	if in.ProfileID == "" {
 		return nil, fmt.Errorf("%w: ProfileId is required", ErrValidation)
 	}

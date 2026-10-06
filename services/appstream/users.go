@@ -64,6 +64,24 @@ func (b *InMemoryBackend) CreateUser(userName, firstName, lastName, authType str
 	return u.toUser(), nil
 }
 
+const (
+	messageActionSuppress = "SUPPRESS"
+	messageActionResend   = "RESEND"
+)
+
+// ResendUserWelcome handles CreateUser with MessageAction RESEND: the user
+// must already exist; no email transport is modeled, so nothing else changes.
+func (b *InMemoryBackend) ResendUserWelcome(userName, authType string) error {
+	b.mu.RLock("ResendUserWelcome")
+	defer b.mu.RUnlock()
+
+	if !b.users.Has(userKey(userName, authType)) {
+		return ErrNotFound
+	}
+
+	return nil
+}
+
 // DeleteUser removes a user.
 func (b *InMemoryBackend) DeleteUser(userName, authType string) error {
 	b.mu.Lock("DeleteUser")

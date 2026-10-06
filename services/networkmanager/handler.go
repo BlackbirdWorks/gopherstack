@@ -14,6 +14,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -27,6 +28,7 @@ type Handler struct {
 	Backend         *InMemoryBackend
 	AccountID       string
 	Region          string
+	idem            *idempotency.Memo
 	routeTableCache []route
 	routeTableOnce  sync.Once
 }
@@ -37,6 +39,7 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 		Backend:   backend,
 		AccountID: backend.accountID,
 		Region:    backend.region,
+		idem:      idempotency.New("networkmanager"),
 	}
 }
 

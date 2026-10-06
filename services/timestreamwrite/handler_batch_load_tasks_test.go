@@ -31,8 +31,9 @@ func TestHandler_CreateBatchLoadTask(t *testing.T) {
 		{
 			name: "success",
 			body: map[string]any{
-				"TargetDatabaseName": "mydb",
-				"TargetTableName":    "tbl",
+				"TargetDatabaseName":  "mydb",
+				"TargetTableName":     "tbl",
+				"ReportConfiguration": map[string]any{},
 				"DataSourceConfiguration": map[string]any{
 					"DataFormat":                "CSV",
 					"DataSourceS3Configuration": map[string]any{"BucketName": "my-bucket"},
@@ -90,8 +91,9 @@ func TestHandler_DescribeBatchLoadTask(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	rec = doRequest(t, h, "CreateBatchLoadTask", map[string]any{
-		"TargetDatabaseName": "mydb",
-		"TargetTableName":    "tbl",
+		"TargetDatabaseName":  "mydb",
+		"TargetTableName":     "tbl",
+		"ReportConfiguration": map[string]any{},
 		"DataSourceConfiguration": map[string]any{
 			"DataFormat":                "CSV",
 			"DataSourceS3Configuration": map[string]any{"BucketName": "my-bucket"},
@@ -160,8 +162,9 @@ func TestHandler_ListBatchLoadTasks(t *testing.T) {
 
 	for range 3 {
 		rec = doRequest(t, h, "CreateBatchLoadTask", map[string]any{
-			"TargetDatabaseName": "mydb",
-			"TargetTableName":    "tbl",
+			"TargetDatabaseName":  "mydb",
+			"TargetTableName":     "tbl",
+			"ReportConfiguration": map[string]any{},
 			"DataSourceConfiguration": map[string]any{
 				"DataFormat":                "CSV",
 				"DataSourceS3Configuration": map[string]any{"BucketName": "my-bucket"},
@@ -224,8 +227,9 @@ func TestHandler_ResumeBatchLoadTask(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	rec = doRequest(t, h, "CreateBatchLoadTask", map[string]any{
-		"TargetDatabaseName": "mydb",
-		"TargetTableName":    "tbl",
+		"TargetDatabaseName":  "mydb",
+		"TargetTableName":     "tbl",
+		"ReportConfiguration": map[string]any{},
 		"DataSourceConfiguration": map[string]any{
 			"DataFormat":                "CSV",
 			"DataSourceS3Configuration": map[string]any{"BucketName": "my-bucket"},
@@ -282,7 +286,7 @@ func TestHandler_ResumeBatchLoadTask_Success(t *testing.T) {
 	_, err = b.CreateTable("db", "tbl", nil, nil)
 	require.NoError(t, err)
 
-	task, err := b.CreateBatchLoadTask("db", "tbl", nil, nil, nil, 0)
+	task, err := b.CreateBatchLoadTask("db", "tbl", nil, nil, nil, 0, "")
 	require.NoError(t, err)
 
 	err = b.SetBatchLoadTaskStatus(task.TaskID, "PROGRESS_STOPPED")
@@ -317,8 +321,9 @@ func TestHandler_CreateBatchLoadTask_DataSourceConfigRequired(t *testing.T) {
 		{
 			name: "with_DataSourceConfiguration_accepted",
 			body: map[string]any{
-				"TargetDatabaseName": "blt-req-db",
-				"TargetTableName":    "blt-req-tbl",
+				"TargetDatabaseName":  "blt-req-db",
+				"TargetTableName":     "blt-req-tbl",
+				"ReportConfiguration": map[string]any{},
 				"DataSourceConfiguration": map[string]any{
 					"DataFormat":                "CSV",
 					"DataSourceS3Configuration": map[string]any{"BucketName": "my-bucket"},
@@ -361,8 +366,9 @@ func TestHandler_CreateBatchLoadTask_WithDataSourceConfig(t *testing.T) {
 	doRequest(t, h, "CreateTable", map[string]any{"DatabaseName": "blt-db", "TableName": "blt-tbl"})
 
 	createRec := doRequest(t, h, "CreateBatchLoadTask", map[string]any{
-		"TargetDatabaseName": "blt-db",
-		"TargetTableName":    "blt-tbl",
+		"TargetDatabaseName":  "blt-db",
+		"TargetTableName":     "blt-tbl",
+		"ReportConfiguration": map[string]any{},
 		"DataSourceConfiguration": map[string]any{
 			"DataFormat": "CSV",
 			"DataSourceS3Configuration": map[string]any{
@@ -533,10 +539,10 @@ func TestHandler_ListBatchLoadTasks_StatusFilter(t *testing.T) {
 		TableStatus: "ACTIVE", CreationTime: now, LastUpdatedTime: now,
 	})
 
-	task1, err := b.CreateBatchLoadTask("lbt-db", "lbt-tbl", nil, nil, nil, 0)
+	task1, err := b.CreateBatchLoadTask("lbt-db", "lbt-tbl", nil, nil, nil, 0, "")
 	require.NoError(t, err)
 
-	task2, err := b.CreateBatchLoadTask("lbt-db", "lbt-tbl", nil, nil, nil, 0)
+	task2, err := b.CreateBatchLoadTask("lbt-db", "lbt-tbl", nil, nil, nil, 0, "")
 	require.NoError(t, err)
 
 	err = b.SetBatchLoadTaskStatus(task2.TaskID, timestreamwrite.BatchLoadStatusSucceeded)
@@ -643,8 +649,9 @@ func TestHandler_BatchLoadTaskDescriptionView_MissingResumableUntilOmitted(t *te
 	doRequest(t, h, "CreateTable", map[string]any{"DatabaseName": "ruf-db", "TableName": "ruf-tbl"})
 
 	cr := doRequest(t, h, "CreateBatchLoadTask", map[string]any{
-		"TargetDatabaseName": "ruf-db",
-		"TargetTableName":    "ruf-tbl",
+		"TargetDatabaseName":  "ruf-db",
+		"TargetTableName":     "ruf-tbl",
+		"ReportConfiguration": map[string]any{},
 		"DataSourceConfiguration": map[string]any{
 			"DataFormat":                "CSV",
 			"DataSourceS3Configuration": map[string]any{"BucketName": "my-bucket"},
@@ -708,8 +715,9 @@ func TestHandler_DescribeBatchLoadTask_RecordVersionZeroOmitted(t *testing.T) {
 	doRequest(t, h, "CreateTable", map[string]any{"DatabaseName": "rv0-db", "TableName": "rv0-tbl"})
 
 	cr := doRequest(t, h, "CreateBatchLoadTask", map[string]any{
-		"TargetDatabaseName": "rv0-db",
-		"TargetTableName":    "rv0-tbl",
+		"TargetDatabaseName":  "rv0-db",
+		"TargetTableName":     "rv0-tbl",
+		"ReportConfiguration": map[string]any{},
 		"DataSourceConfiguration": map[string]any{
 			"DataFormat":                "CSV",
 			"DataSourceS3Configuration": map[string]any{"BucketName": "my-bucket"},
@@ -784,8 +792,9 @@ func TestHandler_DescribeBatchLoadTask_NoProgressReport(t *testing.T) {
 	doRequest(t, h, "CreateTable", map[string]any{"DatabaseName": "npr-db", "TableName": "npr-tbl"})
 
 	cr := doRequest(t, h, "CreateBatchLoadTask", map[string]any{
-		"TargetDatabaseName": "npr-db",
-		"TargetTableName":    "npr-tbl",
+		"TargetDatabaseName":  "npr-db",
+		"TargetTableName":     "npr-tbl",
+		"ReportConfiguration": map[string]any{},
 		"DataSourceConfiguration": map[string]any{
 			"DataFormat":                "CSV",
 			"DataSourceS3Configuration": map[string]any{"BucketName": "my-bucket"},
@@ -820,8 +829,9 @@ func TestHandler_DescribeBatchLoadTask_TimestampsAreFloats(t *testing.T) {
 		"TableName":    "blt-ts-tbl",
 	})
 	rec := doRequest(t, h, "CreateBatchLoadTask", map[string]any{
-		"TargetDatabaseName": "blt-ts-db",
-		"TargetTableName":    "blt-ts-tbl",
+		"TargetDatabaseName":  "blt-ts-db",
+		"TargetTableName":     "blt-ts-tbl",
+		"ReportConfiguration": map[string]any{},
 		"DataSourceConfiguration": map[string]any{
 			"DataFormat":                "CSV",
 			"DataSourceS3Configuration": map[string]any{"BucketName": "my-bucket"},

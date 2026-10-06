@@ -510,7 +510,7 @@ func (rc *ResourceCreator) deleteIoTCertificate(physicalID string) error {
 		NewStatus:     "INACTIVE",
 	})
 
-	err := rc.backends.IoT.Backend.DeleteCertificate(physicalID)
+	err := rc.backends.IoT.Backend.DeleteCertificate(physicalID, true)
 	if errors.Is(err, iotbackend.ErrCertificateNotFound) {
 		return nil
 	}

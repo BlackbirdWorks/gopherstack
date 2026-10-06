@@ -2,6 +2,7 @@ package workmail
 
 import (
 	"context"
+	"fmt"
 )
 
 // ---- Identity Center Applications ----
@@ -9,6 +10,7 @@ import (
 type createIdentityCenterApplicationReq struct {
 	InstanceArn string `json:"InstanceArn"`
 	Name        string `json:"Name"`
+	ClientToken string `json:"ClientToken"`
 }
 
 type createIdentityCenterApplicationResp struct {
@@ -18,12 +20,27 @@ type createIdentityCenterApplicationResp struct {
 func (h *Handler) handleCreateIdentityCenterApplication(
 	_ context.Context, req *createIdentityCenterApplicationReq,
 ) (*createIdentityCenterApplicationResp, error) {
-	appARN, err := h.Backend.CreateIdentityCenterApplication(req.InstanceArn, req.Name)
+	token := req.ClientToken
+	req.ClientToken = ""
+
+	appARN, err := replayCreate(h, "CreateIdentityCenterApplication", token, req, stringID,
+		func(arn string) (*string, error) {
+			if !h.Backend.HasIdentityCenterApplication(arn) {
+				return nil, fmt.Errorf("%w: identity center application %q not found", ErrNotFound, arn)
+			}
+
+			return &arn, nil
+		},
+		func() (*string, error) {
+			created, createErr := h.Backend.CreateIdentityCenterApplication(req.InstanceArn, req.Name)
+
+			return &created, createErr
+		})
 	if err != nil {
 		return nil, err
 	}
 
-	return &createIdentityCenterApplicationResp{ApplicationArn: appARN}, nil
+	return &createIdentityCenterApplicationResp{ApplicationArn: *appARN}, nil
 }
 
 type deleteIdentityCenterApplicationReq struct {

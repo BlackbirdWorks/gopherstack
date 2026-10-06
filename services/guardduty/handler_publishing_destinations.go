@@ -53,14 +53,28 @@ func (h *Handler) handleCreatePublishingDestination(detectorID string, body []by
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 
-	dest, err := h.Backend.CreatePublishingDestination(
-		detectorID, req.DestinationType, req.DestinationProperties, req.Tags,
+	token := req.ClientToken
+	req.ClientToken = ""
+
+	id, err := h.createOnce(
+		opCreatePublishingDestination, detectorID, token, req,
+		func(id string) error { return only(h.Backend.DescribePublishingDestination(detectorID, id)) },
+		func() (string, error) {
+			dest, createErr := h.Backend.CreatePublishingDestination(
+				detectorID, req.DestinationType, req.DestinationProperties, req.Tags,
+			)
+			if createErr != nil {
+				return "", createErr
+			}
+
+			return dest.DestinationID, nil
+		},
 	)
 	if err != nil {
 		return nil, http.StatusBadRequest, err
 	}
 
-	return map[string]any{"destinationId": dest.DestinationID}, http.StatusOK, nil //nolint:goconst // existing issue.
+	return map[string]any{"destinationId": id}, http.StatusOK, nil //nolint:goconst // existing issue.
 }
 
 func (h *Handler) handleDeletePublishingDestination(detectorID, destID string) (int, error) {

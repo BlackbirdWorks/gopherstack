@@ -143,3 +143,7 @@ Gates: `go build ./services/identitystore/...`, `go vet`, `go test -race
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 identitystore already region-isolated: same-named resources in two regions stay separate and each region lists only its own. No code change. Proof: `TestRegionIsolation/identitystore`.
+
+## 2026-10-05 (gopherstack-uox6 pass 9, value semantics)
+
+Create, Describe, partial UpdateUser/UpdateGroup, Describe round trips are clean: omitted attributes keep their value, UpdatedAt/UpdatedBy advance, and users report ENABLED.

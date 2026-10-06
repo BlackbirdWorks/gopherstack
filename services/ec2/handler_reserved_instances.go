@@ -124,6 +124,7 @@ type reservedInstancesIDItem struct {
 type describeReservedInstancesModificationsResponse struct {
 	XMLName                           xml.Name `xml:"DescribeReservedInstancesModificationsResponse"`
 	RequestID                         string   `xml:"requestId"`
+	NextToken                         string   `xml:"nextToken,omitempty"`
 	ReservedInstancesModificationsSet struct {
 		Items []reservedInstancesModificationItem `xml:"item"`
 	} `xml:"reservedInstancesModificationsSet"`
@@ -501,7 +502,7 @@ func (h *Handler) handleDescribeReservedInstancesModifications(
 		)
 	}
 
-	return resp, nil
+	return finishDescribe(vals, resp, describeOpts{spec: specTokenOnly()})
 }
 
 func (h *Handler) handleModifyReservedInstances(vals url.Values, reqID string) (any, error) {
