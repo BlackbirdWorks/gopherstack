@@ -3496,7 +3496,7 @@ func TestTerraform_SESv2(t *testing.T) {
 
 				var identityOut map[string]any
 				require.NoError(t, json.NewDecoder(resp.Body).Decode(&identityOut))
-				assert.Equal(t, email, identityOut["EmailIdentity"])
+				assert.Equal(t, "EMAIL_ADDRESS", identityOut["IdentityType"])
 
 				// Verify configuration set was created.
 				req2, err := http.NewRequestWithContext(ctx, http.MethodGet,

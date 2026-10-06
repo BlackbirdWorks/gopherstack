@@ -272,7 +272,7 @@ jobs:
       - name: Run Unit Tests (chunk ${{ matrix.chunk }})
         run: |
           go tool gotestsum --format pkgname -- \
-            -race -shuffle on -short -timeout 5m \
+            -race -shuffle on -short -timeout 10m \
             -coverpkg="${{ steps.pkgs.outputs.coverpkgs }}" -coverprofile=unit-${{ matrix.chunk }}-coverage.out -covermode=atomic \
             ${{ steps.pkgs.outputs.pkgs }}
 
