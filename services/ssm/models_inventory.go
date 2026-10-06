@@ -128,12 +128,11 @@ type ListInventoryEntriesOutput struct {
 }
 
 // DeleteInventoryInput is the request payload for DeleteInventory.
-// SchemaDeleteOption/ClientToken are not modeled: this backend only tracks
-// items, not versioned schema state, so DisableSchema/DeleteSchema have no
-// distinct effect to honor (disclosed in PARITY.md rather than fabricated).
+// SchemaDeleteOption is validated but has no effect: only items are tracked, not schemas (see PARITY.md).
 type DeleteInventoryInput struct {
-	TypeName string `json:"TypeName"`
-	DryRun   bool   `json:"DryRun,omitempty"`
+	TypeName           string `json:"TypeName"`
+	SchemaDeleteOption string `json:"SchemaDeleteOption,omitempty"`
+	DryRun             bool   `json:"DryRun,omitempty"`
 }
 
 // PutComplianceItemsInput is the request payload for PutComplianceItems.

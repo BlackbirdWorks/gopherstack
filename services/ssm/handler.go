@@ -167,11 +167,17 @@ type ssmActionFn func(context.Context, []byte) (any, error)
 // operation follows this shape, so every ssm*Ops() dispatch table is built
 // from calls to this one helper instead of repeating the decode-and-call
 // boilerplate per operation.
-func jsonOp[I, O any](fn func(context.Context, *I) (O, error)) ssmActionFn {
+func jsonOp[I, O any](fn func(context.Context, *I) (O, error), checks ...func(*I) error) ssmActionFn {
 	return func(ctx context.Context, b []byte) (any, error) {
 		var input I
 		if err := json.Unmarshal(b, &input); err != nil {
 			return nil, err
+		}
+
+		for _, check := range checks {
+			if err := check(&input); err != nil {
+				return nil, err
+			}
 		}
 
 		return fn(ctx, &input)
@@ -238,16 +244,25 @@ func (h *Handler) ssmTagOps() map[string]ssmActionFn {
 
 func (h *Handler) ssmDocumentOps() map[string]ssmActionFn {
 	return map[string]ssmActionFn{
-		"CreateDocument":               jsonOp(h.Backend.CreateDocument),
-		"GetDocument":                  jsonOp(h.Backend.GetDocument),
-		"DescribeDocument":             jsonOp(h.Backend.DescribeDocument),
-		"ListDocuments":                jsonOp(h.Backend.ListDocuments),
-		"UpdateDocument":               jsonOp(h.Backend.UpdateDocument),
-		"DeleteDocument":               jsonOp(h.Backend.DeleteDocument),
-		"DescribeDocumentPermission":   jsonOp(h.Backend.DescribeDocumentPermission),
-		"ModifyDocumentPermission":     jsonOp(h.Backend.ModifyDocumentPermission),
-		"ListDocumentVersions":         jsonOp(h.Backend.ListDocumentVersions),
-		"ListDocumentMetadataHistory":  jsonOp(h.Backend.ListDocumentMetadataHistory),
+		"CreateDocument":   jsonOp(h.Backend.CreateDocument, validateCreateDocumentEnums),
+		"GetDocument":      jsonOp(h.Backend.GetDocument, validateGetDocumentEnums),
+		"DescribeDocument": jsonOp(h.Backend.DescribeDocument),
+		"ListDocuments":    jsonOp(h.Backend.ListDocuments),
+		"UpdateDocument":   jsonOp(h.Backend.UpdateDocument, validateUpdateDocumentEnums),
+		"DeleteDocument":   jsonOp(h.Backend.DeleteDocument),
+		"DescribeDocumentPermission": jsonOp(
+			h.Backend.DescribeDocumentPermission,
+			validateDescribeDocumentPermissionEnums,
+		),
+		"ModifyDocumentPermission": jsonOp(
+			h.Backend.ModifyDocumentPermission,
+			validateModifyDocumentPermissionEnums,
+		),
+		"ListDocumentVersions": jsonOp(h.Backend.ListDocumentVersions),
+		"ListDocumentMetadataHistory": jsonOp(
+			h.Backend.ListDocumentMetadataHistory,
+			validateListDocumentMetadataHistoryEnums,
+		),
 		"UpdateDocumentDefaultVersion": jsonOp(h.Backend.UpdateDocumentDefaultVersion),
 		"UpdateDocumentMetadata":       jsonOp(h.Backend.UpdateDocumentMetadata),
 	}
@@ -256,7 +271,7 @@ func (h *Handler) ssmDocumentOps() map[string]ssmActionFn {
 func (h *Handler) ssmCommandOps() map[string]ssmActionFn {
 	return map[string]ssmActionFn{
 		"CancelCommand":          jsonOp(h.Backend.CancelCommand),
-		"SendCommand":            jsonOp(h.Backend.SendCommand),
+		"SendCommand":            jsonOp(h.Backend.SendCommand, validateSendCommandEnums),
 		"ListCommands":           jsonOp(h.Backend.ListCommands),
 		"GetCommandInvocation":   jsonOp(h.Backend.GetCommandInvocation),
 		"ListCommandInvocations": jsonOp(h.Backend.ListCommandInvocations),
@@ -453,6 +468,7 @@ func classifySSMErrorExtended(reqErr error) (string, int) {
 	classifiers := []ssmErrorClassifier{
 		classifySSMResourceDataSyncError,
 		classifySSMParameterValidationError,
+		classifySSMEnumError,
 		classifySSMResourcePolicyError,
 		classifySSMDocumentError,
 		classifySSMOpsError,

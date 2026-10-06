@@ -1719,3 +1719,7 @@ FIXED: StartAutomationExecution Tags (applied to the execution, readable via Lis
 ## 2026-10-05 (zeroguard omitted-vs-zero audit)
 
 Tool false positives (cmd/zeroguard): required path/identifier members (Name, *Id, *Arn), Put* operations that replace the whole resource (PutRule, PutPermission, PutResourcePolicy, PutCodeBinding), and PatchOperations-based Update* ops.
+
+## 2026-10-05 (input enum validation)
+
+Enum-typed request members across document, automation, association, patch baseline, maintenance window, inventory, ops item and session ops are checked against SDK `Values()`. Invalid values return ValidationException (or op-declared error: InvalidPermissionType, InvalidOptionException). Proof: `TestSDK_EnumInputValidation`.

@@ -12,7 +12,7 @@ func (h *Handler) ssmOpsItemOps() map[string]ssmActionFn {
 		"ListOpsItemEvents":              jsonOp(h.Backend.ListOpsItemEvents),
 		"ListOpsItemRelatedItems":        jsonOp(h.Backend.ListOpsItemRelatedItems),
 		"ListOpsMetadata":                jsonOp(h.Backend.ListOpsMetadata),
-		"UpdateOpsItem":                  jsonOp(h.Backend.UpdateOpsItem),
+		"UpdateOpsItem":                  jsonOp(h.Backend.UpdateOpsItem, validateUpdateOpsItemEnums),
 		"UpdateOpsMetadata":              jsonOp(h.Backend.UpdateOpsMetadata),
 		"CreateOpsItem":                  jsonOp(h.Backend.CreateOpsItem),
 		"CreateOpsMetadata":              jsonOp(h.Backend.CreateOpsMetadata),

@@ -79,9 +79,10 @@ type DescribeMaintenanceWindowExecutionsOutput struct{}
 
 // DescribeMaintenanceWindowScheduleInput is the request payload.
 type DescribeMaintenanceWindowScheduleInput struct {
-	MaxResults *int32 `json:"MaxResults,omitempty"`
-	WindowID   string `json:"WindowId,omitempty"`
-	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults   *int32 `json:"MaxResults,omitempty"`
+	WindowID     string `json:"WindowId,omitempty"`
+	NextToken    string `json:"NextToken,omitempty"`
+	ResourceType string `json:"ResourceType,omitempty"`
 }
 
 // DescribeMaintenanceWindowScheduleOutput is the response payload.

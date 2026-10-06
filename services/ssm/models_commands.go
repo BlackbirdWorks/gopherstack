@@ -76,6 +76,7 @@ type SendCommandInput struct {
 	Parameters         map[string][]string `json:"Parameters,omitempty"`
 	DocumentName       string              `json:"DocumentName"`
 	DocumentVersion    string              `json:"DocumentVersion,omitempty"`
+	DocumentHashType   string              `json:"DocumentHashType,omitempty"`
 	Comment            string              `json:"Comment,omitempty"`
 	OutputS3BucketName string              `json:"OutputS3BucketName,omitempty"`
 	OutputS3KeyPrefix  string              `json:"OutputS3KeyPrefix,omitempty"`
