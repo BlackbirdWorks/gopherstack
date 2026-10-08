@@ -70,6 +70,8 @@ type CopyObjectResult struct {
 	ChecksumCRC32     string   `xml:"ChecksumCRC32,omitempty"`
 	ChecksumCRC32C    string   `xml:"ChecksumCRC32C,omitempty"`
 	ChecksumCRC64NVME string   `xml:"ChecksumCRC64NVME,omitempty"`
+	ChecksumMD5       string   `xml:"ChecksumMD5,omitempty"`
+	ChecksumSHA512    string   `xml:"ChecksumSHA512,omitempty"`
 	ChecksumSHA1      string   `xml:"ChecksumSHA1,omitempty"`
 	ChecksumSHA256    string   `xml:"ChecksumSHA256,omitempty"`
 }
@@ -271,6 +273,15 @@ type CompleteMultipartUploadResult struct {
 	Bucket   string   `xml:"Bucket"`
 	Key      string   `xml:"Key"`
 	ETag     string   `xml:"ETag"`
+
+	ChecksumCRC32     string `xml:"ChecksumCRC32,omitempty"`
+	ChecksumCRC32C    string `xml:"ChecksumCRC32C,omitempty"`
+	ChecksumCRC64NVME string `xml:"ChecksumCRC64NVME,omitempty"`
+	ChecksumSHA1      string `xml:"ChecksumSHA1,omitempty"`
+	ChecksumSHA256    string `xml:"ChecksumSHA256,omitempty"`
+	ChecksumMD5       string `xml:"ChecksumMD5,omitempty"`
+	ChecksumSHA512    string `xml:"ChecksumSHA512,omitempty"`
+	ChecksumType      string `xml:"ChecksumType,omitempty"`
 }
 
 type UploadPartCopyResult struct {
@@ -430,6 +441,8 @@ type PartXML struct {
 	ChecksumCRC32     string `xml:"ChecksumCRC32,omitempty"`
 	ChecksumCRC32C    string `xml:"ChecksumCRC32C,omitempty"`
 	ChecksumCRC64NVME string `xml:"ChecksumCRC64NVME,omitempty"`
+	ChecksumMD5       string `xml:"ChecksumMD5,omitempty"`
+	ChecksumSHA512    string `xml:"ChecksumSHA512,omitempty"`
 	ChecksumSHA1      string `xml:"ChecksumSHA1,omitempty"`
 	ChecksumSHA256    string `xml:"ChecksumSHA256,omitempty"`
 	Size              int64  `xml:"Size"`

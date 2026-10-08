@@ -152,10 +152,20 @@ func (db *InMemoryDB) executeTransactWrite(
 	// Phase 2: Apply writes with rollback on failure.
 	wantIndexes := input.ReturnConsumedCapacity == types.ReturnConsumedCapacityIndexes
 	applyResult, writeErr := db.applyTransactItems(
-		ctx, tables, input.TransactItems, input.ReturnItemCollectionMetrics, wantIndexes, wirePuts,
+		ctx, tables, input.TransactItems, input.ReturnItemCollectionMetrics,
+		wantIndexes || db.metrics.Enabled(), wirePuts,
 	)
 	if writeErr != nil {
 		return transactWriteExecResult{}, writeErr
+	}
+
+	for tableName, gsiWCU := range applyResult.gsiWCUByTable {
+		db.emitIndexWCUMap(region, tableName, gsiWCU)
+	}
+
+	if !wantIndexes {
+		applyResult.gsiWCUByTable = nil
+		applyResult.lsiWCUByTable = nil
 	}
 
 	payloads := db.collectTransactReplicationPayloads(tables, region, input.TransactItems, wirePuts)

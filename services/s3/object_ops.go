@@ -9,6 +9,9 @@ import (
 type objectCommonDetails struct {
 	ETag                      *string
 	ChecksumCRC64NVME         *string
+	ChecksumMD5               *string
+	ChecksumType              string
+	ChecksumSHA512            *string
 	ContentType               *string
 	ContentLength             *int64
 	LastModified              *time.Time

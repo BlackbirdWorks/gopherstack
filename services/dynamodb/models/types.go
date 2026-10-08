@@ -40,6 +40,7 @@ type CreateTableInput struct {
 	StreamSpecification       any                    `json:"StreamSpecification,omitempty"`
 	SSESpecification          *SSESpecification      `json:"SSESpecification,omitempty"`
 	OnDemandThroughput        *OnDemandThroughput    `json:"OnDemandThroughput,omitempty"`
+	WarmThroughput            *WarmThroughput        `json:"WarmThroughput,omitempty"`
 	DeletionProtectionEnabled *bool                  `json:"DeletionProtectionEnabled,omitempty"`
 	TableName                 string                 `json:"TableName"`
 	ResourcePolicy            string                 `json:"ResourcePolicy,omitempty"`
@@ -66,6 +67,21 @@ type SSESpecification struct {
 type OnDemandThroughput struct {
 	MaxReadRequestUnits  *int64 `json:"MaxReadRequestUnits,omitempty"`
 	MaxWriteRequestUnits *int64 `json:"MaxWriteRequestUnits,omitempty"`
+}
+
+// WarmThroughput is the wire format for requested warm throughput on a table
+// or global secondary index.
+type WarmThroughput struct {
+	ReadUnitsPerSecond  *int64 `json:"ReadUnitsPerSecond,omitempty"`
+	WriteUnitsPerSecond *int64 `json:"WriteUnitsPerSecond,omitempty"`
+}
+
+// WarmThroughputDescription is the wire format for a table's or global
+// secondary index's WarmThroughput description.
+type WarmThroughputDescription struct {
+	ReadUnitsPerSecond  *int64 `json:"ReadUnitsPerSecond,omitempty"`
+	WriteUnitsPerSecond *int64 `json:"WriteUnitsPerSecond,omitempty"`
+	Status              string `json:"Status,omitempty"`
 }
 
 // TableClassSummaryDescription is the wire format for TableDescription's
@@ -100,6 +116,7 @@ type TableDescription struct {
 	BillingModeSummary        *BillingModeSummaryDescription    `json:"BillingModeSummary,omitempty"`
 	SSEDescription            *SSEDescription                   `json:"SSEDescription,omitempty"`
 	OnDemandThroughput        *OnDemandThroughput               `json:"OnDemandThroughput,omitempty"`
+	WarmThroughput            *WarmThroughputDescription        `json:"WarmThroughput,omitempty"`
 	TableClassSummary         *TableClassSummaryDescription     `json:"TableClassSummary,omitempty"`
 	LatestStreamArn           string                            `json:"LatestStreamArn,omitempty"`
 	TableStatus               string                            `json:"TableStatus"`
@@ -143,6 +160,7 @@ type ProvisionedThroughputDescription struct {
 
 type GlobalSecondaryIndex struct {
 	ProvisionedThroughput ProvisionedThroughput `json:"ProvisionedThroughput"`
+	WarmThroughput        *WarmThroughput       `json:"WarmThroughput,omitempty"`
 	IndexStatusTimer      *time.Timer           `json:"-"`
 	IndexName             string                `json:"IndexName"`
 	IndexStatus           string                `json:"IndexStatus,omitempty"`
@@ -151,6 +169,7 @@ type GlobalSecondaryIndex struct {
 }
 
 type GlobalSecondaryIndexDescription struct {
+	WarmThroughput        *WarmThroughputDescription       `json:"WarmThroughput,omitempty"`
 	IndexName             string                           `json:"IndexName"`
 	IndexArn              string                           `json:"IndexArn"`
 	IndexStatus           string                           `json:"IndexStatus"`
@@ -190,6 +209,7 @@ type ProvisionedThroughput struct {
 // UpdateTableInput is the wire-format for a DynamoDB UpdateTable request.
 type UpdateTableInput struct {
 	ProvisionedThroughput       *ProvisionedThroughput       `json:"ProvisionedThroughput,omitempty"`
+	WarmThroughput              *WarmThroughput              `json:"WarmThroughput,omitempty"`
 	StreamSpecification         *StreamSpecificationInput    `json:"StreamSpecification,omitempty"`
 	SSESpecification            *SSESpecification            `json:"SSESpecification,omitempty"`
 	DeletionProtectionEnabled   *bool                        `json:"DeletionProtectionEnabled,omitempty"`
@@ -252,6 +272,7 @@ type GlobalSecondaryIndexUpdate struct {
 // CreateGlobalSecondaryIndexAction adds a new GSI.
 type CreateGlobalSecondaryIndexAction struct {
 	ProvisionedThroughput *ProvisionedThroughput `json:"ProvisionedThroughput,omitempty"`
+	WarmThroughput        *WarmThroughput        `json:"WarmThroughput,omitempty"`
 	IndexName             string                 `json:"IndexName"`
 	Projection            Projection             `json:"Projection"`
 	KeySchema             []KeySchemaElement     `json:"KeySchema"`
@@ -259,8 +280,9 @@ type CreateGlobalSecondaryIndexAction struct {
 
 // UpdateGlobalSecondaryIndexAction updates the throughput of an existing GSI.
 type UpdateGlobalSecondaryIndexAction struct {
-	ProvisionedThroughput ProvisionedThroughput `json:"ProvisionedThroughput"`
-	IndexName             string                `json:"IndexName"`
+	ProvisionedThroughput *ProvisionedThroughput `json:"ProvisionedThroughput,omitempty"`
+	WarmThroughput        *WarmThroughput        `json:"WarmThroughput,omitempty"`
+	IndexName             string                 `json:"IndexName"`
 }
 
 // DeleteGlobalSecondaryIndexAction removes an existing GSI.

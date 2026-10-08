@@ -116,6 +116,10 @@ func validateCreateTableInput(input *dynamodb.CreateTableInput) error {
 		return err
 	}
 
+	if err := validateCreateIndexWarmThroughput(input.GlobalSecondaryIndexes); err != nil {
+		return err
+	}
+
 	if err := validateLSICount(models.FromSDKLocalSecondaryIndexes(input.LocalSecondaryIndexes)); err != nil {
 		return err
 	}
@@ -279,6 +283,8 @@ func newTableFromCreateInput(tableName string, input *dynamodb.CreateTableInput)
 		t.OnDemandMaxWriteRRU = odt.MaxWriteRequestUnits
 	}
 
+	t.WarmThroughput = mergeWarmThroughput(nil, input.WarmThroughput)
+
 	if input.SSESpecification != nil {
 		t.SSEEnabled = input.SSESpecification.Enabled == nil ||
 			aws.ToBool(input.SSESpecification.Enabled)
@@ -403,7 +409,8 @@ func buildCreateTableOutput(
 				ReadCapacityUnits:  int(rc),
 				WriteCapacityUnits: int(wc),
 			},
-			IndexStatus: models.TableStatusActive,
+			IndexStatus:    models.TableStatusActive,
+			WarmThroughput: warmThroughputDescription(mergeWarmThroughput(nil, gsi.WarmThroughput)),
 		}
 	}
 
@@ -448,6 +455,7 @@ func buildCreateTableOutput(
 	}
 	applySSEDescription(td, sseEnabled, sseType, sseKMSMasterKeyArn)
 	td.VectorIndexes = models.ToSDKVectorIndexDescriptions(vectorDescriptionsRLocked(t))
+	td.WarmThroughput = models.ToSDKTableWarmThroughput(warmThroughputDescription(t.WarmThroughput))
 
 	return &dynamodb.CreateTableOutput{TableDescription: td}
 }
@@ -675,8 +683,9 @@ func buildGSIDescriptions(
 				ReadCapacityUnits:  int(rc),
 				WriteCapacityUnits: int(wc),
 			},
-			IndexStatus: status,
-			ItemCount:   int(itemCount),
+			IndexStatus:    status,
+			ItemCount:      int(itemCount),
+			WarmThroughput: warmThroughputDescription(gsi.WarmThroughput),
 		}
 	}
 
@@ -727,6 +736,7 @@ type tableSnapshot struct {
 	creationDT                time.Time
 	onDemandMaxReadRRU        *int64
 	onDemandMaxWriteRRU       *int64
+	warmThroughput            *models.WarmThroughput
 	tableClass                string
 	streamARN                 string
 	streamViewType            string
@@ -791,6 +801,7 @@ func snapshotTable(table *Table) tableSnapshot {
 		sseKMSMasterKeyArn:        table.SSEKMSMasterKeyArn,
 		onDemandMaxReadRRU:        table.OnDemandMaxReadRRU,
 		onDemandMaxWriteRRU:       table.OnDemandMaxWriteRRU,
+		warmThroughput:            table.WarmThroughput,
 	}
 	copy(s.keySchema, table.KeySchema)
 	copy(s.attrDefs, table.AttributeDefinitions)
@@ -915,6 +926,7 @@ func buildTableDescription(tableName *string, table *Table) *types.TableDescript
 	applyStreamSpec(td, s.streamsEnabled, s.streamARN, s.streamViewType)
 	applySSEDescription(td, s.sseEnabled, s.sseType, s.sseKMSMasterKeyArn)
 	td.VectorIndexes = models.ToSDKVectorIndexDescriptions(s.vectorIndexes)
+	td.WarmThroughput = models.ToSDKTableWarmThroughput(warmThroughputDescription(s.warmThroughput))
 
 	return td
 }
@@ -1069,6 +1081,10 @@ func validateUpdateTableMutation(table *Table, input *dynamodb.UpdateTableInput)
 		)
 	}
 
+	if err := validateUpdateIndexWarmThroughput(input.GlobalSecondaryIndexUpdates); err != nil {
+		return err
+	}
+
 	if input.BillingMode == "" && input.ProvisionedThroughput == nil {
 		return nil
 	}
@@ -1126,6 +1142,8 @@ func (db *InMemoryDB) applyUpdateTableLocked(
 	if input.DeletionProtectionEnabled != nil {
 		table.DeletionProtectionEnabled = *input.DeletionProtectionEnabled
 	}
+
+	table.WarmThroughput = mergeWarmThroughput(table.WarmThroughput, input.WarmThroughput)
 
 	if input.TableClass != "" {
 		table.TableClass = string(input.TableClass)
@@ -1527,9 +1545,10 @@ func (db *InMemoryDB) applyGSICreate(
 	}
 
 	newGSI := models.GlobalSecondaryIndex{
-		IndexName:  aws.ToString(c.IndexName),
-		KeySchema:  models.FromSDKKeySchema(c.KeySchema),
-		Projection: models.FromSDKProjection(c.Projection),
+		IndexName:      aws.ToString(c.IndexName),
+		KeySchema:      models.FromSDKKeySchema(c.KeySchema),
+		Projection:     models.FromSDKProjection(c.Projection),
+		WarmThroughput: mergeWarmThroughput(nil, c.WarmThroughput),
 	}
 
 	if c.ProvisionedThroughput != nil {
@@ -1583,14 +1602,20 @@ func (db *InMemoryDB) applyGSIUpdate(
 	idxName := aws.ToString(u.IndexName)
 
 	for i, gsi := range table.GlobalSecondaryIndexes {
-		if gsi.IndexName == idxName && u.ProvisionedThroughput != nil {
+		if gsi.IndexName != idxName {
+			continue
+		}
+
+		if u.ProvisionedThroughput != nil {
 			table.GlobalSecondaryIndexes[i].ProvisionedThroughput = models.ProvisionedThroughput{
 				ReadCapacityUnits:  u.ProvisionedThroughput.ReadCapacityUnits,
 				WriteCapacityUnits: u.ProvisionedThroughput.WriteCapacityUnits,
 			}
-
-			return
 		}
+
+		table.GlobalSecondaryIndexes[i].WarmThroughput = mergeWarmThroughput(gsi.WarmThroughput, u.WarmThroughput)
+
+		return
 	}
 }
 
@@ -1728,6 +1753,7 @@ func buildUpdateTableOutput(
 				WriteCapacityUnits:     &wc,
 				NumberOfDecreasesToday: aws.Int64(0),
 			},
+			WarmThroughput: gsiWarmThroughputSDK(gsi.WarmThroughput),
 		})
 	}
 
@@ -1747,6 +1773,8 @@ func buildUpdateTableOutput(
 			NumberOfDecreasesToday: aws.Int64(decreasesToday(table.ProvisionedThroughput, time.Now())),
 		},
 	}
+
+	td.WarmThroughput = models.ToSDKTableWarmThroughput(warmThroughputDescription(table.WarmThroughput))
 
 	if table.TableClass != "" {
 		td.TableClassSummary = &types.TableClassSummary{

@@ -116,9 +116,8 @@ gaps: []
     reach the SDK struct but are never read). Restored byte-identical again;
     all gates green with both layers in place."
 items_still_open:
-  - "AWS/DynamoDB metrics still missing: ReturnedBytes/ReturnedRecordsCount (DynamoDB Streams GetRecords), GlobalSecondaryIndexName-dimensioned write capacity for BatchWriteItem/TransactWriteItems (deletes lack the old item), and per-op latency/errors for ExecuteStatement. GSI-dimensioned capacity (Put/Update/Delete/Query/Scan), SystemErrors, and Transact*/ExecuteTransaction/BatchExecuteStatement latency+errors are emitted. (gopherstack-4m1qr)"
   - "Vector indexes are modeled (CreateTable/UpdateTable/DescribeTable/Restore*Override/SearchVectors with real COSINE/EUCLIDEAN/DOT_PRODUCT scoring, HASH/INLINE_FILTER schema); the SDK gives no formula for VectorCapacity (VectorSearchRequestBytes/VectorWriteRequestBytes) or the per-write VectorIndexes capacity members, so they are not emitted."
-  - "Unmodeled fields left nil rather than fabricated: WarmThroughput (neither request values nor AWS defaults are stored or returned), GlobalTableWitnesses/MRSC witnesses, replica KMSMasterKeyId/OnDemand overrides/ReplicaInaccessibleDateTime."
+  - "Unmodeled fields left nil rather than fabricated: GlobalTableWitnesses/MRSC witnesses, replica KMSMasterKeyId/OnDemand overrides/ReplicaInaccessibleDateTime."
 structural_gaps:
   - "BackupExpiryDateTime applies to SYSTEM backups only; the emulator creates none."
   - "DescribeContributorInsights FailureException: there is no insights processing to fail."
@@ -129,6 +128,11 @@ leaks: {status: clean, note: TTL sweeper + stream trimming verified, ctx-cancel 
 ---
 
 ## Notes
+
+### 2026-10-07 WarmThroughput and remaining metrics
+
+- WarmThroughput on CreateTable, UpdateTable and GSI create/update is stored (merged per unit on update) and echoed as TableDescription.WarmThroughput and GlobalSecondaryIndexDescription.WarmThroughput with Status ACTIVE; unset stays nil (no AWS defaults invented). A GSI WarmThroughput naming neither unit is a ValidationException (SDK doc: "must specify ReadUnitsPerSecond, WriteUnitsPerSecond, or both"). Proof: `TestRealClient_WarmThroughput`.
+- BatchWriteItem and TransactWriteItems now emit GlobalSecondaryIndexName-dimensioned ConsumedWriteCapacityUnits (deletes use the removed item): `TestMetrics_IndexWriteCapacityForBatchAndTransact`. ExecuteStatement emits latency, ReturnedItemCount (SELECT) and error metrics: `TestMetrics_ExecuteStatement`. GetRecords emits ReturnedRecordsCount and ReturnedBytes under TableName+StreamLabel: `TestMetrics_StreamReturned`.
 
 ### 2026-10-01 on-demand ProvisionedThroughput
 

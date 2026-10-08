@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -47,9 +48,10 @@ func (h *S3Handler) SetObjectLambdaConfig(bucket, lambdaARN string) {
 	h.Backend.SetObjectLambdaConfig(bucket, lambdaARN)
 }
 
-// objectLambdaARN returns the configured Lambda ARN for the bucket, or "".
-func (h *S3Handler) objectLambdaARN(bucket string) string {
-	return h.Backend.ObjectLambdaConfig(bucket)
+// objectLambdaTarget returns the bucket to read and the Lambda to invoke for the
+// addressed bucket label, or an empty Lambda ARN when none applies.
+func (h *S3Handler) objectLambdaTarget(label string) (string, string) {
+	return h.Backend.resolveObjectLambdaTarget(label)
 }
 
 // SetObjectLambdaConfig stores lambdaARN on bucket's own record under the bucket's
@@ -279,4 +281,144 @@ func (d *inMemoryNotificationDispatcher) InvokeFunction(
 func isWriteGetObjectResponseRequest(r *http.Request) bool {
 	return r.Method == http.MethodPost &&
 		strings.TrimPrefix(r.URL.Path, "/") == "WriteGetObjectResponse"
+}
+
+// ObjectLambdaAccessPointSink receives Object Lambda access point lifecycle
+// events so GetObject addressed to the access point (its alias, or the
+// "<name>-<account>" virtual-host label the SDK emits for an access point ARN)
+// invokes the access point's Lambda.
+type ObjectLambdaAccessPointSink interface {
+	SetObjectLambdaAccessPoint(bucket string, ap StoredObjectLambdaAccessPoint)
+	DeleteObjectLambdaAccessPoint(name, accountID string)
+}
+
+// SetObjectLambdaAccessPoint registers ap against its supporting bucket,
+// replacing any access point with the same name and account.
+func (h *S3Handler) SetObjectLambdaAccessPoint(bucket string, ap StoredObjectLambdaAccessPoint) {
+	h.Backend.SetObjectLambdaAccessPoint(bucket, ap)
+}
+
+// DeleteObjectLambdaAccessPoint removes the named access point from every bucket.
+func (h *S3Handler) DeleteObjectLambdaAccessPoint(name, accountID string) {
+	h.Backend.DeleteObjectLambdaAccessPoint(name, accountID)
+}
+
+func sameObjectLambdaAccessPoint(a, b StoredObjectLambdaAccessPoint) bool {
+	return a.Name == b.Name && a.AccountID == b.AccountID
+}
+
+// SetObjectLambdaAccessPoint is a no-op when the bucket does not exist.
+func (b *InMemoryBackend) SetObjectLambdaAccessPoint(bucketName string, ap StoredObjectLambdaAccessPoint) {
+	b.mu.RLock("SetObjectLambdaAccessPoint")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return
+	}
+
+	bucket.mu.Lock("SetObjectLambdaAccessPoint")
+	defer bucket.mu.Unlock()
+
+	for i, existing := range bucket.ObjectLambdaAccessPoints {
+		if sameObjectLambdaAccessPoint(existing, ap) {
+			bucket.ObjectLambdaAccessPoints[i] = ap
+
+			return
+		}
+	}
+
+	bucket.ObjectLambdaAccessPoints = append(bucket.ObjectLambdaAccessPoints, ap)
+}
+
+func (b *InMemoryBackend) DeleteObjectLambdaAccessPoint(name, accountID string) {
+	target := StoredObjectLambdaAccessPoint{Name: name, AccountID: accountID}
+
+	b.mu.RLock("DeleteObjectLambdaAccessPoint")
+	buckets := b.buckets.All()
+	b.mu.RUnlock()
+
+	for _, bucket := range buckets {
+		func() {
+			bucket.mu.Lock("DeleteObjectLambdaAccessPoint")
+			defer bucket.mu.Unlock()
+
+			bucket.ObjectLambdaAccessPoints = slices.DeleteFunc(
+				bucket.ObjectLambdaAccessPoints,
+				func(ap StoredObjectLambdaAccessPoint) bool { return sameObjectLambdaAccessPoint(ap, target) },
+			)
+		}()
+	}
+}
+
+const (
+	objectLambdaAliasSuffix = "--ol-s3"
+	accountIDLen            = 12
+)
+
+// mayBeObjectLambdaLabel reports whether label has the shape of an access point
+// alias ("...--ol-s3") or "<name>-<12 digit account>", so plain bucket reads
+// skip the access point scan.
+func mayBeObjectLambdaLabel(label string) bool {
+	if strings.HasSuffix(label, objectLambdaAliasSuffix) {
+		return true
+	}
+
+	n := len(label)
+	if n <= accountIDLen+1 || label[n-accountIDLen-1] != '-' {
+		return false
+	}
+
+	for _, c := range label[n-accountIDLen:] {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+
+	return true
+}
+
+// resolveObjectLambdaTarget maps the addressed bucket label to the bucket to read
+// and the Lambda to invoke: an Object Lambda access point alias or
+// "<name>-<account>" label resolves to its supporting bucket, otherwise the
+// label's own bucket-level Lambda configuration applies. lambdaARN is "" when none.
+func (b *InMemoryBackend) resolveObjectLambdaTarget(label string) (string, string) {
+	if !mayBeObjectLambdaLabel(label) {
+		return label, b.ObjectLambdaConfig(label)
+	}
+
+	b.mu.RLock("resolveObjectLambdaTarget")
+	buckets := b.buckets.All()
+	b.mu.RUnlock()
+
+	for _, bucket := range buckets {
+		var lambdaARN string
+
+		func() {
+			bucket.mu.RLock("resolveObjectLambdaTarget")
+			defer bucket.mu.RUnlock()
+
+			for _, ap := range bucket.ObjectLambdaAccessPoints {
+				if label == ap.Alias || label == ap.Name+"-"+ap.AccountID {
+					lambdaARN = ap.LambdaARN
+
+					return
+				}
+			}
+		}()
+
+		if lambdaARN != "" {
+			return bucket.Name, lambdaARN
+		}
+	}
+
+	return label, b.ObjectLambdaConfig(label)
+}
+
+// isObjectLambdaAliasRead lets an access point alias, which IsValidBucketName
+// reserves, through bucket-name validation for read requests only so
+// CreateBucket still rejects it.
+func isObjectLambdaAliasRead(r *http.Request, bucket string) bool {
+	return strings.HasSuffix(bucket, objectLambdaAliasSuffix) &&
+		(r.Method == http.MethodGet || r.Method == http.MethodHead)
 }

@@ -46,18 +46,24 @@ gaps: []
 items_still_open:
   - "Rejections the pinned SDK lists no error code for, so none is invented: Object Annotations 1 B-1 MiB payload window and ObjectIfMatch; RenameObject and CreateSession accepted on non-directory buckets; CreateSession SessionMode ReadOnly not enforced; directory buckets still accept ACL/tagging/versioning/lifecycle/website/CORS."
   - "x-amz-mfa: MFA delete is stored, never enforced; the SDK lists no error code for a missing or bad MFA token."
-  - "MD5, SHA512 and XXHASH64/XXHASH3/XXHASH128 checksum algorithms are accepted but not computed (fields are plumbed through every object path; XXHASH needs a library the module does not carry)."
+  - "object_lambda access-point routing is implemented on the s3 side (ObjectLambdaAccessPointSink: SetObjectLambdaAccessPoint/DeleteObjectLambdaAccessPoint; GetObject via the access point alias or the <name>-<account> virtual-host label invokes its Lambda) but nothing calls it yet: services/s3control/object_lambda.go must type-assert its existing sink (cli.go already passes the s3 handler to SetObjectLambdaConfigSink) to ObjectLambdaAccessPointSink and call Set on Create/PutAccessPointConfigurationForObjectLambda (name, account, alias, supporting bucket, Lambda ARN) and Delete on DeleteAccessPointForObjectLambda. HeadObject/ListObjects through an Object Lambda access point are not routed to a Lambda."
   - "ListBucketIntelligentTieringConfigurations is unpaginated (the SDK documents no page size)."
   - "Notification destinations are validated only at PutBucketNotificationConfiguration; the SDK documents no per-configuration error detail shape."
 structural_gaps:
+  - "XXHASH64/XXHASH3/XXHASH128 checksums: the module carries no XXH3/XXH128 implementation (xxhash/v2 is an indirect XXH64-only dependency) and go.mod must not change; the fields are not modeled."
   - "Replication and per-storage-class request metrics, SelectRequests/SelectBytes* metrics: no per-request replication or storage-class traffic model."
   - "CreateBucket x-amz-bucket-namespace and PutBucketPolicy x-amz-confirm-remove-self-bucket-access: no account-regional namespace or self-lockout policy evaluation exists."
-  - "object_lambda: GetObject resolves a Lambda wired by bucket name only; access-point-ARN routing needs ARN-as-bucket routing on every route (regular access points have no ARN-as-bucket support either) plus an s3control lookup."
 deferred: []
 leaks: {status: clean, note: janitor ctx-parented w/ <-ctx.Done() stop; replication goroutines WaitGroup-drained; Shutdown() cancels; object_lambda config now cleared on DeleteBucket (was previously leaking across bucket-name reuse — see 2026-07-24 section)}
 ---
 
 ## Notes
+
+## 2026-10-07: MD5/SHA512 checksums, multipart object checksums, Object Lambda access points
+
+- MD5 and SHA512 are computed and verified (BadDigest on mismatch) on PutObject, POST object, UploadPart and annotations, stored on the version, and returned by HeadObject/GetObject (ChecksumMode), CopyObject, ListParts, GetObjectAttributes (Checksum and ObjectParts). Proof: `TestRealClient_PutObjectMD5SHA512Checksum`.
+- CreateMultipartUpload keeps ChecksumAlgorithm/ChecksumType (default FULL_OBJECT for CRC64NVME, else COMPOSITE) and CompleteMultipartUpload now computes the object checksum for every algorithm (COMPOSITE = hash of the part digests plus "-N", FULL_OBJECT = hash of the whole body), verifies a supplied value/type (BadDigest), stores it, and returns it in the Complete body and as x-amz-checksum-*/x-amz-checksum-type on Head/Get. Proof: `TestRealClient_MultipartObjectChecksum`.
+- Object Lambda access-point routing: alias (path style, read requests only so CreateBucket still rejects "--ol-s3") and "<name>-<account>" virtual-host labels resolve to the supporting bucket and Lambda. Proof: `TestS3ObjectLambda_AccessPointRouting`. The SDK refuses path style for ARN buckets, so the vhost label is what an access point ARN produces against a custom endpoint.
 
 ## 2026-10-05: object content headers, multipart metadata, directory-bucket members
 

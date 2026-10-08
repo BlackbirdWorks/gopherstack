@@ -27,31 +27,32 @@ type StoredBucket struct {
 	// instead of scanning every key. Derived, never persisted -- see
 	// rebuildKeyIndex.
 	keyIndex                       []string
-	Region                         string                       `json:"region,omitempty"`
-	WebsiteConfig                  string                       `json:"websiteConfig,omitempty"`
-	PublicAccessBlockConfig        string                       `json:"publicAccessBlockConfig,omitempty"`
-	LifecycleConfig                string                       `json:"lifecycleConfig,omitempty"`
-	TransitionDefaultMinObjectSize string                       `json:"transitionDefaultMinObjectSize,omitempty"`
-	NotificationConfig             string                       `json:"notificationConfig,omitempty"`
-	ObjectLockConfig               string                       `json:"objectLockConfig,omitempty"`
-	Policy                         string                       `json:"policy,omitempty"`
-	EncryptionConfig               string                       `json:"encryptionConfig,omitempty"`
-	CORSConfig                     string                       `json:"corsConfig,omitempty"`
-	OwnershipControlsConfig        string                       `json:"ownershipControlsConfig,omitempty"`
-	LoggingConfig                  string                       `json:"loggingConfig,omitempty"`
-	ReplicationConfig              string                       `json:"replicationConfig,omitempty"`
-	ObjectLambdaConfig             string                       `json:"objectLambdaConfig,omitempty"`
-	AnalyticsConfigs               map[string]string            `json:"analyticsConfigs,omitempty"`
-	IntelligentTieringConfigs      map[string]string            `json:"intelligentTieringConfigs,omitempty"`
-	InventoryConfigs               map[string]string            `json:"inventoryConfigs,omitempty"`
-	MetadataConfig                 string                       `json:"metadataConfig,omitempty"`
-	MetadataTableConfig            string                       `json:"metadataTableConfig,omitempty"`
-	AbacConfig                     string                       `json:"abacConfig,omitempty"`
-	MetadataInventoryTableConfig   string                       `json:"metadataInventoryTableConfig,omitempty"`
-	MetadataJournalTableConfig     string                       `json:"metadataJournalTableConfig,omitempty"`
-	MetadataAnnotationTableConfig  string                       `json:"metadataAnnotationTableConfig,omitempty"`
-	MetricsConfigs                 map[string]string            `json:"metricsConfigs,omitempty"`
-	Versioning                     types.BucketVersioningStatus `json:"versioning,omitempty"`
+	Region                         string                          `json:"region,omitempty"`
+	WebsiteConfig                  string                          `json:"websiteConfig,omitempty"`
+	PublicAccessBlockConfig        string                          `json:"publicAccessBlockConfig,omitempty"`
+	LifecycleConfig                string                          `json:"lifecycleConfig,omitempty"`
+	TransitionDefaultMinObjectSize string                          `json:"transitionDefaultMinObjectSize,omitempty"`
+	NotificationConfig             string                          `json:"notificationConfig,omitempty"`
+	ObjectLockConfig               string                          `json:"objectLockConfig,omitempty"`
+	Policy                         string                          `json:"policy,omitempty"`
+	EncryptionConfig               string                          `json:"encryptionConfig,omitempty"`
+	CORSConfig                     string                          `json:"corsConfig,omitempty"`
+	OwnershipControlsConfig        string                          `json:"ownershipControlsConfig,omitempty"`
+	LoggingConfig                  string                          `json:"loggingConfig,omitempty"`
+	ReplicationConfig              string                          `json:"replicationConfig,omitempty"`
+	ObjectLambdaConfig             string                          `json:"objectLambdaConfig,omitempty"`
+	ObjectLambdaAccessPoints       []StoredObjectLambdaAccessPoint `json:"objectLambdaAccessPoints,omitempty"`
+	AnalyticsConfigs               map[string]string               `json:"analyticsConfigs,omitempty"`
+	IntelligentTieringConfigs      map[string]string               `json:"intelligentTieringConfigs,omitempty"`
+	InventoryConfigs               map[string]string               `json:"inventoryConfigs,omitempty"`
+	MetadataConfig                 string                          `json:"metadataConfig,omitempty"`
+	MetadataTableConfig            string                          `json:"metadataTableConfig,omitempty"`
+	AbacConfig                     string                          `json:"abacConfig,omitempty"`
+	MetadataInventoryTableConfig   string                          `json:"metadataInventoryTableConfig,omitempty"`
+	MetadataJournalTableConfig     string                          `json:"metadataJournalTableConfig,omitempty"`
+	MetadataAnnotationTableConfig  string                          `json:"metadataAnnotationTableConfig,omitempty"`
+	MetricsConfigs                 map[string]string               `json:"metricsConfigs,omitempty"`
+	Versioning                     types.BucketVersioningStatus    `json:"versioning,omitempty"`
 	// MFADelete is stored as a plain string, not a typed SDK enum, because the
 	// real request and response shapes use two DIFFERENT Go types for the same
 	// concept (VersioningConfiguration.MFADelete is types.MFADelete;
@@ -99,12 +100,15 @@ type StoredObjectVersion struct {
 	Metadata                map[string]string            `json:"metadata,omitempty"`
 	Annotations             map[string]*StoredAnnotation `json:"annotations,omitempty"`
 	ChecksumCRC64NVME       *string                      `json:"checksumCRC64NVME,omitempty"`
+	ChecksumMD5             *string                      `json:"checksumMD5,omitempty"`
+	ChecksumSHA512          *string                      `json:"checksumSHA512,omitempty"`
 	ChecksumCRC32C          *string                      `json:"checksumCRC32C,omitempty"`
 	ChecksumCRC32           *string                      `json:"checksumCRC32,omitempty"`
 	ChecksumSHA256          *string                      `json:"checksumSHA256,omitempty"`
 	SSEAlgorithm            string                       `json:"sseAlgorithm,omitempty"`
 	VersionID               string                       `json:"versionID"`
 	ChecksumAlgorithm       types.ChecksumAlgorithm      `json:"checksumAlgorithm,omitempty"`
+	ChecksumType            types.ChecksumType           `json:"checksumType,omitempty"`
 	SSECKeyMD5              string                       `json:"sseCKeyMD5,omitempty"`
 	SSECAlgorithm           string                       `json:"sseCAlgorithm,omitempty"`
 	Key                     string                       `json:"key"`
@@ -137,6 +141,8 @@ type StoredObjectPart struct {
 	ChecksumCRC32     *string `json:"checksumCRC32,omitempty"`
 	ChecksumCRC32C    *string `json:"checksumCRC32C,omitempty"`
 	ChecksumCRC64NVME *string `json:"checksumCRC64NVME,omitempty"`
+	ChecksumMD5       *string `json:"checksumMD5,omitempty"`
+	ChecksumSHA512    *string `json:"checksumSHA512,omitempty"`
 	ChecksumSHA1      *string `json:"checksumSHA1,omitempty"`
 	ChecksumSHA256    *string `json:"checksumSHA256,omitempty"`
 	PartNumber        int32   `json:"partNumber"`
@@ -155,6 +161,8 @@ type StoredAnnotation struct {
 	ChecksumSHA1      *string                 `json:"checksumSHA1,omitempty"`
 	ChecksumSHA256    *string                 `json:"checksumSHA256,omitempty"`
 	ChecksumCRC64NVME *string                 `json:"checksumCRC64NVME,omitempty"`
+	ChecksumMD5       *string                 `json:"checksumMD5,omitempty"`
+	ChecksumSHA512    *string                 `json:"checksumSHA512,omitempty"`
 	Payload           []byte                  `json:"payload"`
 }
 
@@ -174,14 +182,17 @@ type StoredMultipartUpload struct {
 	mu        *lockmetrics.RWMutex  `json:"-"`
 	SSE       sseInfo               `json:"sse"`
 	// Headers are the object headers and user metadata chosen at CreateMultipartUpload.
-	Headers      multipartObjectHeaders `json:"headers,omitzero"`
-	UploadID     string                 `json:"uploadID"`
-	Bucket       string                 `json:"bucket"`
-	Key          string                 `json:"key"`
-	Tagging      string                 `json:"tagging,omitempty"`
-	StorageClass string                 `json:"storageClass,omitempty"`
-	ACL          string                 `json:"acl,omitempty"`
-	closed       bool                   `json:"-"`
+	Headers  multipartObjectHeaders `json:"headers,omitzero"`
+	UploadID string                 `json:"uploadID"`
+	// ChecksumAlgorithm and ChecksumType are fixed at CreateMultipartUpload.
+	ChecksumAlgorithm types.ChecksumAlgorithm `json:"checksumAlgorithm,omitempty"`
+	ChecksumType      types.ChecksumType      `json:"checksumType,omitempty"`
+	Bucket            string                  `json:"bucket"`
+	Key               string                  `json:"key"`
+	Tagging           string                  `json:"tagging,omitempty"`
+	StorageClass      string                  `json:"storageClass,omitempty"`
+	ACL               string                  `json:"acl,omitempty"`
+	closed            bool                    `json:"-"`
 }
 
 // multipartObjectHeaders are the content headers and user metadata a multipart upload applies to its object.
@@ -205,12 +216,24 @@ func (h multipartObjectHeaders) applyTo(v *StoredObjectVersion) {
 	v.WebsiteRedirectLocation = h.WebsiteRedirectLocation
 }
 
+// StoredObjectLambdaAccessPoint is an Object Lambda access point whose supporting
+// bucket is the StoredBucket holding it; requests addressed to its alias or
+// "<name>-<account>" host label invoke LambdaARN instead of reading the bucket.
+type StoredObjectLambdaAccessPoint struct {
+	Name      string `json:"name"`
+	AccountID string `json:"accountID"`
+	Alias     string `json:"alias,omitempty"`
+	LambdaARN string `json:"lambdaARN"`
+}
+
 // StoredPart represents a single part of a multipart upload.
 type StoredPart struct {
 	ETag              string  `json:"etag"`
 	ChecksumCRC32     *string `json:"checksumCRC32,omitempty"`
 	ChecksumCRC32C    *string `json:"checksumCRC32C,omitempty"`
 	ChecksumCRC64NVME *string `json:"checksumCRC64NVME,omitempty"`
+	ChecksumMD5       *string `json:"checksumMD5,omitempty"`
+	ChecksumSHA512    *string `json:"checksumSHA512,omitempty"`
 	ChecksumSHA1      *string `json:"checksumSHA1,omitempty"`
 	ChecksumSHA256    *string `json:"checksumSHA256,omitempty"`
 	Data              []byte  `json:"data,omitempty"`

@@ -366,6 +366,7 @@ func ToSDKGlobalSecondaryIndexes(gsis []GlobalSecondaryIndex) []types.GlobalSeco
 			KeySchema:             ToSDKKeySchema(gsi.KeySchema),
 			Projection:            ToSDKProjection(gsi.Projection),
 			ProvisionedThroughput: ToSDKProvisionedThroughput(gsi.ProvisionedThroughput),
+			WarmThroughput:        ToSDKWarmThroughput(gsi.WarmThroughput),
 		}
 	}
 
@@ -410,6 +411,7 @@ func FromSDKGlobalSecondaryIndexes(gsis []types.GlobalSecondaryIndex) []GlobalSe
 			KeySchema:             FromSDKKeySchema(gsi.KeySchema),
 			Projection:            FromSDKProjection(gsi.Projection),
 			ProvisionedThroughput: pt,
+			WarmThroughput:        FromSDKWarmThroughput(gsi.WarmThroughput),
 		}
 	}
 
@@ -466,6 +468,7 @@ func ToSDKGlobalSecondaryIndexDescriptions(
 			ItemCount:      &itemCount,
 			IndexSizeBytes: &indexSizeBytes,
 			Backfilling:    aws.Bool(gsi.Backfilling),
+			WarmThroughput: toSDKIndexWarmThroughput(gsi.WarmThroughput),
 		}
 	}
 
@@ -500,5 +503,32 @@ func ToSDKProjection(p Projection) *types.Projection {
 	return &types.Projection{
 		ProjectionType:   pt,
 		NonKeyAttributes: p.NonKeyAttributes,
+	}
+}
+
+func toSDKIndexWarmThroughput(
+	input *WarmThroughputDescription,
+) *types.GlobalSecondaryIndexWarmThroughputDescription {
+	if input == nil {
+		return nil
+	}
+
+	return &types.GlobalSecondaryIndexWarmThroughputDescription{
+		ReadUnitsPerSecond:  input.ReadUnitsPerSecond,
+		WriteUnitsPerSecond: input.WriteUnitsPerSecond,
+		Status:              types.IndexStatus(input.Status),
+	}
+}
+
+// ToSDKTableWarmThroughput converts a table warm throughput description to the SDK type.
+func ToSDKTableWarmThroughput(input *WarmThroughputDescription) *types.TableWarmThroughputDescription {
+	if input == nil {
+		return nil
+	}
+
+	return &types.TableWarmThroughputDescription{
+		ReadUnitsPerSecond:  input.ReadUnitsPerSecond,
+		WriteUnitsPerSecond: input.WriteUnitsPerSecond,
+		Status:              types.TableStatus(input.Status),
 	}
 }

@@ -246,6 +246,9 @@ type StorageBackend interface {
 	// so it is cleared automatically once the bucket record is removed.
 	SetObjectLambdaConfig(bucket, lambdaARN string)
 	ObjectLambdaConfig(bucket string) string
+	SetObjectLambdaAccessPoint(bucket string, ap StoredObjectLambdaAccessPoint)
+	DeleteObjectLambdaAccessPoint(name, accountID string)
+	resolveObjectLambdaTarget(label string) (bucket, lambdaARN string)
 
 	// S3 Express directory buckets
 	ListDirectoryBuckets(ctx context.Context) ([]types.Bucket, error)

@@ -53,7 +53,28 @@ const defaultRegionName = config.DefaultRegion
 
 // objectChecksums holds the optional checksum values supplied with a PutObject request.
 type objectChecksums struct {
-	crc32, crc32c, sha1, sha256, crc64nvme *string
+	crc32, crc32c, sha1, sha256, crc64nvme, md5, sha512 *string
+}
+
+func (c *objectChecksums) slot(algo string) **string {
+	switch algo {
+	case ChecksumCRC32:
+		return &c.crc32
+	case ChecksumCRC32C:
+		return &c.crc32c
+	case ChecksumSHA1:
+		return &c.sha1
+	case ChecksumSHA256:
+		return &c.sha256
+	case ChecksumCRC64NVME:
+		return &c.crc64nvme
+	case ChecksumMD5:
+		return &c.md5
+	case ChecksumSHA512:
+		return &c.sha512
+	default:
+		return nil
+	}
 }
 
 // populateComputed fills the appropriate checksum field when the client requested
@@ -63,27 +84,8 @@ func (c *objectChecksums) populateComputed(computed, algo string) {
 		return
 	}
 
-	switch algo {
-	case ChecksumCRC32:
-		if c.crc32 == nil {
-			c.crc32 = aws.String(computed)
-		}
-	case ChecksumCRC32C:
-		if c.crc32c == nil {
-			c.crc32c = aws.String(computed)
-		}
-	case ChecksumSHA1:
-		if c.sha1 == nil {
-			c.sha1 = aws.String(computed)
-		}
-	case ChecksumSHA256:
-		if c.sha256 == nil {
-			c.sha256 = aws.String(computed)
-		}
-	case ChecksumCRC64NVME:
-		if c.crc64nvme == nil {
-			c.crc64nvme = aws.String(computed)
-		}
+	if p := c.slot(algo); p != nil && *p == nil {
+		*p = aws.String(computed)
 	}
 }
 

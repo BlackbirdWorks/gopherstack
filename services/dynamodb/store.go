@@ -328,6 +328,7 @@ type Table struct {
 	ReplicaAutoScaling      map[string]*replicaAutoScalingSettings `json:"ReplicaAutoScaling,omitempty"`
 	OnDemandMaxWriteRRU     *int64                                 `json:"OnDemandMaxWriteRRU,omitempty"`
 	OnDemandMaxReadRRU      *int64                                 `json:"OnDemandMaxReadRRU,omitempty"`
+	WarmThroughput          *models.WarmThroughput                 `json:"WarmThroughput,omitempty"`
 	ResourcePolicy          string                                 `json:"ResourcePolicy,omitempty"`
 	ResourcePolicyRevision  string                                 `json:"ResourcePolicyRevision,omitempty"`
 	TTLAttribute            string                                 `json:"TTLAttribute,omitempty"`

@@ -9,6 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	streamstypes "github.com/aws/aws-sdk-go-v2/service/dynamodbstreams/types"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
 )
@@ -59,6 +60,40 @@ func (db *InMemoryDB) emitIndexWCU(region string, table *Table, units float64, i
 		db.metrics.Put(region, ddbMetricNamespace, "ConsumedWriteCapacityUnits", ddbUnitCount, wcu,
 			ddbTableDim(table.Name), ddbIndexDim(index))
 	}
+}
+
+// emitIndexWCUMap publishes already-computed per-GSI write capacity for tableName.
+func (db *InMemoryDB) emitIndexWCUMap(region, tableName string, gsiWCU map[string]float64) {
+	if !db.metrics.Enabled() {
+		return
+	}
+
+	for index, wcu := range gsiWCU {
+		db.metrics.Put(region, ddbMetricNamespace, "ConsumedWriteCapacityUnits", ddbUnitCount, wcu,
+			ddbTableDim(tableName), ddbIndexDim(index))
+	}
+}
+
+// emitStreamReturned publishes GetRecords' ReturnedRecordsCount and ReturnedBytes under TableName+StreamLabel.
+func (db *InMemoryDB) emitStreamReturned(region string, table *Table, records []streamstypes.Record) {
+	if !db.metrics.Enabled() {
+		return
+	}
+
+	table.mu.RLock("GetRecords.metrics")
+	tableName, streamARN := table.Name, table.StreamARN
+	table.mu.RUnlock()
+
+	var size int64
+	for _, r := range records {
+		if r.Dynamodb != nil {
+			size += aws.ToInt64(r.Dynamodb.SizeBytes)
+		}
+	}
+
+	dims := []cwmetric.Dimension{ddbTableDim(tableName), {Name: "StreamLabel", Value: streamLabelFromARN(streamARN)}}
+	db.metrics.Put(region, ddbMetricNamespace, "ReturnedRecordsCount", ddbUnitCount, float64(len(records)), dims...)
+	db.metrics.Put(region, ddbMetricNamespace, "ReturnedBytes", "Bytes", float64(size), dims...)
 }
 
 // observeOp publishes latency and error metrics for one finished table operation; items < 0 skips ReturnedItemCount.
@@ -222,6 +257,28 @@ func (db *InMemoryDB) BatchWriteItem(
 	}
 
 	return out, err
+}
+
+// observeExecuteStatement publishes ExecuteStatement latency, error and (for SELECT) returned-item metrics.
+func (h *DynamoDBHandler) observeExecuteStatement(
+	ctx context.Context, statement string, start time.Time, err error, out *executeStatementResponse,
+) {
+	db, ok := h.Backend.(*InMemoryDB)
+	if !ok || !db.metrics.Enabled() {
+		return
+	}
+
+	table := extractPartiQLTableName(statement)
+	if table == "" {
+		return
+	}
+
+	items := -1
+	if out != nil && partiqlSelectRe.MatchString(strings.TrimSpace(statement)) {
+		items = len(out.Items)
+	}
+
+	db.observeOp(ctx, "ExecuteStatement", table, start, err, items)
 }
 
 func transactWriteTables(items []types.TransactWriteItem) []string {

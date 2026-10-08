@@ -342,3 +342,116 @@ func TestObjectLambdaConfig_ConcurrentAccess(t *testing.T) {
 
 	wg.Wait()
 }
+
+func TestS3ObjectLambda_AccessPointRouting(t *testing.T) {
+	t.Parallel()
+
+	const (
+		bucket  = "olap-supporting-bucket"
+		account = "123456789012"
+		alias   = "myolap-abcd1234--ol-s3"
+	)
+
+	tests := []struct {
+		name     string
+		host     string
+		path     string
+		wantBody string
+		wantCode int
+	}{
+		{
+			name:     "alias path style",
+			path:     "/" + alias + "/hello.txt",
+			wantCode: http.StatusOK,
+			wantBody: objectLambdaTransformedContent,
+		},
+		{
+			name:     "vhost name account",
+			host:     "myolap-" + account + ".localhost",
+			path:     "/hello.txt",
+			wantCode: http.StatusOK,
+			wantBody: objectLambdaTransformedContent,
+		},
+		{
+			name:     "vhost s3 object lambda",
+			host:     "myolap-" + account + ".s3-object-lambda.us-east-1.localhost",
+			path:     "/hello.txt",
+			wantCode: http.StatusOK,
+			wantBody: objectLambdaTransformedContent,
+		},
+		{
+			name:     "supporting bucket reads raw",
+			path:     "/" + bucket + "/hello.txt",
+			wantCode: http.StatusOK,
+			wantBody: "original content",
+		},
+		{
+			name:     "other account",
+			host:     "myolap-999999999999.localhost",
+			path:     "/hello.txt",
+			wantCode: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler, _ := newTestHandler(t)
+
+			req := httptest.NewRequest(http.MethodPut, "/"+bucket, nil)
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			req = httptest.NewRequest(http.MethodPut, "/"+bucket+"/hello.txt", strings.NewReader("original content"))
+			rec = httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				serveS3Handler(handler, w, r)
+			}))
+			defer srv.Close()
+
+			handler.Endpoint = "localhost"
+			handler.SetObjectLambdaAccessPoint(bucket, s3.StoredObjectLambdaAccessPoint{
+				Name: "myolap", AccountID: account, Alias: alias,
+				LambdaARN: "arn:aws:lambda:us-east-1:000000000000:function:transformer",
+			})
+
+			lambdaFn := &staticObjectLambda{serverURL: srv.URL, responseBody: objectLambdaTransformedContent}
+			handler.SetNotificationDispatcher(s3.NewNotificationDispatcher(
+				&s3.NotificationTargets{LambdaInvoker: lambdaFn}, "us-east-1"))
+
+			req = httptest.NewRequest(http.MethodGet, tt.path, nil)
+			if tt.host != "" {
+				req.Host = tt.host
+			}
+
+			rec = httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+
+			assert.Equal(t, tt.wantCode, rec.Code)
+			if tt.wantBody != "" {
+				assert.Equal(t, tt.wantBody, rec.Body.String())
+			}
+
+			handler.DeleteObjectLambdaAccessPoint("myolap", account)
+
+			req = httptest.NewRequest(http.MethodGet, "/"+alias+"/hello.txt", nil)
+			rec = httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+			assert.Equal(t, http.StatusNotFound, rec.Code)
+		})
+	}
+}
+
+func TestS3ObjectLambda_AliasCannotCreateBucket(t *testing.T) {
+	t.Parallel()
+
+	handler, _ := newTestHandler(t)
+	rec := httptest.NewRecorder()
+	serveS3Handler(handler, rec, httptest.NewRequest(http.MethodPut, "/myolap-abcd1234--ol-s3", nil))
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}

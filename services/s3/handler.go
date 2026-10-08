@@ -46,6 +46,8 @@ const (
 	ChecksumCRC32C  = "CRC32C"
 	ChecksumSHA1    = "SHA1"
 	ChecksumSHA256  = "SHA256"
+	ChecksumSHA512  = "SHA512"
+	ChecksumMD5     = "MD5"
 	storageStandard = "STANDARD"
 	statusEnabled   = "Enabled"
 
@@ -523,7 +525,7 @@ func (h *S3Handler) resolveBucketAndKey(
 	bucket, key := "", ""
 	if path != "" && path != "/" {
 		bucket = parts[0]
-		if !IsValidBucketName(bucket) {
+		if !IsValidBucketName(bucket) && !isObjectLambdaAliasRead(r, bucket) {
 			WriteError(ctx, w, r, ErrInvalidBucketName)
 
 			return "", "", false

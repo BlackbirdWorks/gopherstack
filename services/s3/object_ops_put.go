@@ -28,6 +28,8 @@ func (h *S3Handler) setPutObjectResponseHeaders(w http.ResponseWriter, ver *s3.P
 		ChecksumSHA1:      ver.ChecksumSHA1,
 		ChecksumSHA256:    ver.ChecksumSHA256,
 		ChecksumCRC64NVME: ver.ChecksumCRC64NVME,
+		ChecksumMD5:       ver.ChecksumMD5,
+		ChecksumSHA512:    ver.ChecksumSHA512,
 	}
 	h.setChecksumHeaders(w, details)
 	if ver.VersionId != nil && *ver.VersionId != NullVersion {
@@ -93,10 +95,11 @@ func (h *S3Handler) putObject(
 	}
 
 	algo, crc32p, crc32cp, sha1p, sha256p := extractAlgoAndChecksums(r)
-	crc64nvmeP := extractCRC64NVMEChecksum(r)
+	extra := extractExtraChecksums(r)
+	algo = extra.algoOrInferred(algo)
 
 	in := buildPutObjectInput(r, bucketName, key, r.Body,
-		algo, crc32p, crc32cp, sha1p, sha256p, crc64nvmeP, parseUserMetadata(r.Header))
+		algo, crc32p, crc32cp, sha1p, sha256p, extra, parseUserMetadata(r.Header))
 
 	appended, appendErr := h.applyWriteOffset(ctx, r, in)
 	if appendErr != nil {
@@ -178,6 +181,7 @@ func (h *S3Handler) applyWriteOffset(ctx context.Context, r *http.Request, in *s
 	in.Body = io.MultiReader(bytes.NewReader(existing), r.Body)
 	in.ContentLength = nil
 	in.ChecksumCRC32, in.ChecksumCRC32C, in.ChecksumSHA1, in.ChecksumSHA256, in.ChecksumCRC64NVME = nil, nil, nil, nil, nil
+	in.ChecksumMD5, in.ChecksumSHA512 = nil, nil
 
 	return true, nil
 }
@@ -233,7 +237,7 @@ func buildPutObjectInput(
 	r *http.Request,
 	bucketName, key string,
 	body io.Reader,
-	algo string, crc32p, crc32cp, sha1p, sha256p, crc64nvmeP *string,
+	algo string, crc32p, crc32cp, sha1p, sha256p *string, extra extraChecksums,
 	userMeta map[string]string,
 ) *s3.PutObjectInput {
 	return &s3.PutObjectInput{
@@ -258,7 +262,9 @@ func buildPutObjectInput(
 		ChecksumCRC32C:    crc32cp,
 		ChecksumSHA1:      sha1p,
 		ChecksumSHA256:    sha256p,
-		ChecksumCRC64NVME: crc64nvmeP,
+		ChecksumCRC64NVME: extra.crc64nvme,
+		ChecksumMD5:       extra.md5,
+		ChecksumSHA512:    extra.sha512,
 		Tagging:           aws.String(r.Header.Get("X-Amz-Tagging")),
 	}
 }

@@ -18,7 +18,7 @@
 
 - Rejections the pinned SDK lists no error code for, so none is invented: Object Annotations 1 B-1 MiB payload window and ObjectIfMatch; RenameObject and CreateSession accepted on non-directory buckets; CreateSession SessionMode ReadOnly not enforced; directory buckets still accept ACL/tagging/versioning/lifecycle/website/CORS.
 - x-amz-mfa: MFA delete is stored, never enforced; the SDK lists no error code for a missing or bad MFA token.
-- MD5, SHA512 and XXHASH64/XXHASH3/XXHASH128 checksum algorithms are accepted but not computed (fields are plumbed through every object path; XXHASH needs a library the module does not carry).
+- object_lambda access-point routing is implemented on the s3 side (ObjectLambdaAccessPointSink: SetObjectLambdaAccessPoint/DeleteObjectLambdaAccessPoint; GetObject via the access point alias or the <name>-<account> virtual-host label invokes its Lambda) but nothing calls it yet: services/s3control/object_lambda.go must type-assert its existing sink (cli.go already passes the s3 handler to SetObjectLambdaConfigSink) to ObjectLambdaAccessPointSink and call Set on Create/PutAccessPointConfigurationForObjectLambda (name, account, alias, supporting bucket, Lambda ARN) and Delete on DeleteAccessPointForObjectLambda. HeadObject/ListObjects through an Object Lambda access point are not routed to a Lambda.
 - ListBucketIntelligentTieringConfigurations is unpaginated (the SDK documents no page size).
 - Notification destinations are validated only at PutBucketNotificationConfiguration; the SDK documents no per-configuration error detail shape.
 
@@ -26,9 +26,9 @@
 
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
+- XXHASH64/XXHASH3/XXHASH128 checksums: the module carries no XXH3/XXH128 implementation (xxhash/v2 is an indirect XXH64-only dependency) and go.mod must not change; the fields are not modeled.
 - Replication and per-storage-class request metrics, SelectRequests/SelectBytes* metrics: no per-request replication or storage-class traffic model.
 - CreateBucket x-amz-bucket-namespace and PutBucketPolicy x-amz-confirm-remove-self-bucket-access: no account-regional namespace or self-lockout policy evaluation exists.
-- object_lambda: GetObject resolves a Lambda wired by bucket name only; access-point-ARN routing needs ARN-as-bucket routing on every route (regular access points have no ARN-as-bucket support either) plus an s3control lookup.
 
 ## More
 

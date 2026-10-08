@@ -175,6 +175,8 @@ func (b *InMemoryBackend) putAnnotation(
 		sha1:      input.ChecksumSHA1,
 		sha256:    input.ChecksumSHA256,
 		crc64nvme: input.ChecksumCRC64NVME,
+		md5:       input.ChecksumMD5,
+		sha512:    input.ChecksumSHA512,
 	}
 	checksums.populateComputed(computedChecksumB64, strings.ToUpper(string(input.ChecksumAlgorithm)))
 
@@ -196,6 +198,8 @@ func (b *InMemoryBackend) putAnnotation(
 		ChecksumSHA1:      checksums.sha1,
 		ChecksumSHA256:    checksums.sha256,
 		ChecksumCRC64NVME: checksums.crc64nvme,
+		ChecksumMD5:       checksums.md5,
+		ChecksumSHA512:    checksums.sha512,
 	}
 	ver.Annotations[name] = ann
 
@@ -209,6 +213,8 @@ func (b *InMemoryBackend) putAnnotation(
 		ChecksumSHA1:      checksums.sha1,
 		ChecksumSHA256:    checksums.sha256,
 		ChecksumCRC64NVME: checksums.crc64nvme,
+		ChecksumMD5:       checksums.md5,
+		ChecksumSHA512:    checksums.sha512,
 	}, nil
 }
 
@@ -235,6 +241,10 @@ func finalizeAnnotationChecksum(s3Hasher hash.Hash, input *s3.PutObjectAnnotatio
 		supplied = input.ChecksumSHA256
 	case ChecksumCRC64NVME:
 		supplied = input.ChecksumCRC64NVME
+	case ChecksumMD5:
+		supplied = input.ChecksumMD5
+	case ChecksumSHA512:
+		supplied = input.ChecksumSHA512
 	}
 
 	if supplied != nil && *supplied != "" && computedChecksumB64 != *supplied {
@@ -278,6 +288,8 @@ func (b *InMemoryBackend) GetObjectAnnotation(
 		ChecksumSHA1:      ann.ChecksumSHA1,
 		ChecksumSHA256:    ann.ChecksumSHA256,
 		ChecksumCRC64NVME: ann.ChecksumCRC64NVME,
+		ChecksumMD5:       ann.ChecksumMD5,
+		ChecksumSHA512:    ann.ChecksumSHA512,
 	}, nil
 }
 

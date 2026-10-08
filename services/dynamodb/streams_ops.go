@@ -525,6 +525,7 @@ func (db *InMemoryDB) GetRecords(
 	records, nextSeq := collectStreamRecords(tail, head, startSeq, limit, currentSeq, region)
 
 	telemetry.RecordStreamEvents("dynamodb", len(records))
+	db.emitStreamReturned(region, table, records)
 
 	// A closed (split) shard that has been fully drained returns a nil
 	// NextShardIterator so consumers know to advance to the child shard. AWS

@@ -536,25 +536,10 @@ func (db *InMemoryDB) batchWriteItemOp(
 
 	// Process tables in sorted order (deadlock prevention)
 	tableNames := collections.SortedKeys(tables)
-	wantIndexes := input.ReturnConsumedCapacity == types.ReturnConsumedCapacityIndexes
 
-	// Sequential processing for simplicity and deadlock prevention
-	itemCollectionMetrics := make(map[string][]types.ItemCollectionMetrics)
-	gsiWCUByTable := make(map[string]map[string]float64, len(tableNames))
-	lsiWCUByTable := make(map[string]map[string]float64, len(tableNames))
-
-	for _, tableName := range tableNames {
-		result, procErr := db.processTableWriteRequests(
-			tables[tableName], toProcess[tableName], input.ReturnItemCollectionMetrics, wantIndexes,
-		)
-		if procErr != nil {
-			return nil, procErr
-		}
-		if len(result.metrics) > 0 {
-			itemCollectionMetrics[tableName] = result.metrics
-		}
-		gsiWCUByTable[tableName] = result.gsiWCU
-		lsiWCUByTable[tableName] = result.lsiWCU
+	applied, procErr := db.applyBatchTableWrites(region, input, tableNames, tables, toProcess)
+	if procErr != nil {
+		return nil, procErr
 	}
 
 	db.replicateBatchWrites(tableNames, tables, toProcess, region)
@@ -562,10 +547,57 @@ func (db *InMemoryDB) batchWriteItemOp(
 	return &dynamodb.BatchWriteItemOutput{
 		UnprocessedItems: unprocessedItems,
 		ConsumedCapacity: batchWriteConsumedCapacity(
-			input.ReturnConsumedCapacity, tableNames, toProcess, gsiWCUByTable, lsiWCUByTable,
+			input.ReturnConsumedCapacity, tableNames, toProcess, applied.gsiWCU, applied.lsiWCU,
 		),
-		ItemCollectionMetrics: itemCollectionMetrics,
+		ItemCollectionMetrics: applied.metrics,
 	}, nil
+}
+
+type batchAppliedWrites struct {
+	metrics map[string][]types.ItemCollectionMetrics
+	gsiWCU  map[string]map[string]float64
+	lsiWCU  map[string]map[string]float64
+}
+
+// applyBatchTableWrites applies each table's writes sequentially in tableNames order, emits
+// per-GSI write capacity metrics, and keeps index WCU for the response only under INDEXES.
+func (db *InMemoryDB) applyBatchTableWrites(
+	region string,
+	input *dynamodb.BatchWriteItemInput,
+	tableNames []string,
+	tables map[string]*Table,
+	toProcess map[string][]wireWriteRequest,
+) (batchAppliedWrites, error) {
+	wantIndexes := input.ReturnConsumedCapacity == types.ReturnConsumedCapacityIndexes
+	collectIndexes := wantIndexes || db.metrics.Enabled()
+
+	applied := batchAppliedWrites{
+		metrics: make(map[string][]types.ItemCollectionMetrics),
+		gsiWCU:  make(map[string]map[string]float64, len(tableNames)),
+		lsiWCU:  make(map[string]map[string]float64, len(tableNames)),
+	}
+
+	for _, tableName := range tableNames {
+		result, err := db.processTableWriteRequests(
+			tables[tableName], toProcess[tableName], input.ReturnItemCollectionMetrics, collectIndexes,
+		)
+		if err != nil {
+			return batchAppliedWrites{}, err
+		}
+
+		if len(result.metrics) > 0 {
+			applied.metrics[tableName] = result.metrics
+		}
+
+		db.emitIndexWCUMap(region, tableName, result.gsiWCU)
+
+		if wantIndexes {
+			applied.gsiWCU[tableName] = result.gsiWCU
+			applied.lsiWCU[tableName] = result.lsiWCU
+		}
+	}
+
+	return applied, nil
 }
 
 // enforceBatchWriteThroughput charges each table's WCU bucket before any writes are

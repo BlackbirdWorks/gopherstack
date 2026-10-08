@@ -6,6 +6,7 @@ import (
 	"crypto/md5"  //nolint:gosec // MD5 required for S3 ETag compatibility
 	"crypto/sha1" //nolint:gosec // SHA1 required for S3 checksum compatibility
 	"crypto/sha256"
+	"crypto/sha512"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/xml"
@@ -86,6 +87,9 @@ func (b *InMemoryBackend) CreateMultipartUpload(
 		}
 	}
 
+	mpuAlgo := types.ChecksumAlgorithm(strings.ToUpper(string(input.ChecksumAlgorithm)))
+	mpuType := resolveChecksumType(mpuAlgo, input.ChecksumType)
+
 	initiated := time.Now().UTC()
 	abortDate, abortRuleID, hasAbortRule := abortIncompleteInfoForUpload(bucket, key, initiated)
 
@@ -93,17 +97,19 @@ func (b *InMemoryBackend) CreateMultipartUpload(
 	defer b.mu.Unlock()
 
 	b.uploads.Put(&StoredMultipartUpload{
-		UploadID:     uploadID,
-		Bucket:       bucketName,
-		Key:          key,
-		Parts:        make(map[int32]*StoredPart),
-		Initiated:    initiated,
-		Tagging:      tagging,
-		SSE:          sse,
-		StorageClass: string(input.StorageClass),
-		ACL:          string(input.ACL),
-		Expires:      aws.ToTime(input.Expires),
-		mu:           lockmetrics.New("s3.upload"),
+		UploadID:          uploadID,
+		Bucket:            bucketName,
+		Key:               key,
+		Parts:             make(map[int32]*StoredPart),
+		Initiated:         initiated,
+		Tagging:           tagging,
+		SSE:               sse,
+		StorageClass:      string(input.StorageClass),
+		ACL:               string(input.ACL),
+		Expires:           aws.ToTime(input.Expires),
+		mu:                lockmetrics.New("s3.upload"),
+		ChecksumAlgorithm: mpuAlgo,
+		ChecksumType:      mpuType,
 		Headers: multipartObjectHeaders{
 			Metadata:                maps.Clone(input.Metadata),
 			ContentType:             aws.ToString(input.ContentType),
@@ -119,6 +125,9 @@ func (b *InMemoryBackend) CreateMultipartUpload(
 		Bucket:   input.Bucket,
 		Key:      input.Key,
 		UploadId: aws.String(uploadID),
+
+		ChecksumAlgorithm: mpuAlgo,
+		ChecksumType:      mpuType,
 	}
 	if hasAbortRule {
 		out.AbortDate = aws.Time(abortDate)
@@ -200,6 +209,8 @@ func (b *InMemoryBackend) UploadPart(
 		ChecksumCRC32:     input.ChecksumCRC32,
 		ChecksumCRC32C:    input.ChecksumCRC32C,
 		ChecksumCRC64NVME: input.ChecksumCRC64NVME,
+		ChecksumMD5:       input.ChecksumMD5,
+		ChecksumSHA512:    input.ChecksumSHA512,
 		ChecksumSHA1:      input.ChecksumSHA1,
 		ChecksumSHA256:    input.ChecksumSHA256,
 	}); sErr != nil {
@@ -211,6 +222,8 @@ func (b *InMemoryBackend) UploadPart(
 		ChecksumCRC32:     input.ChecksumCRC32,
 		ChecksumCRC32C:    input.ChecksumCRC32C,
 		ChecksumCRC64NVME: input.ChecksumCRC64NVME,
+		ChecksumMD5:       input.ChecksumMD5,
+		ChecksumSHA512:    input.ChecksumSHA512,
 		ChecksumSHA1:      input.ChecksumSHA1,
 		ChecksumSHA256:    input.ChecksumSHA256,
 	}, nil
@@ -298,12 +311,18 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 		return nil, err
 	}
 
-	return &s3.CompleteMultipartUploadOutput{
+	out := &s3.CompleteMultipartUploadOutput{
 		Bucket:    input.Bucket,
 		Key:       input.Key,
 		ETag:      aws.String(assembled.etag),
 		VersionId: aws.String(versionID),
-	}, nil
+	}
+	if assembled.checksum != "" {
+		out.ChecksumType = assembled.checksumType
+		setCompleteOutputChecksum(out, string(assembled.checksumAlgo), assembled.checksum)
+	}
+
+	return out, nil
 }
 
 // claimMultipartUpload atomically marks the upload as closed and removes it from
@@ -340,6 +359,9 @@ func (b *InMemoryBackend) claimMultipartUpload(bucketName, uploadID string) erro
 
 // multipartAssemblyResult holds the results of assembleMultipartData.
 type multipartAssemblyResult struct {
+	checksumAlgo   types.ChecksumAlgorithm
+	checksumType   types.ChecksumType
+	checksum       string
 	etag           string
 	compressedData []byte
 	parts          []StoredObjectPart
@@ -426,6 +448,8 @@ func (b *InMemoryBackend) validateAndExtractPart(
 		ChecksumCRC32:     storedPart.ChecksumCRC32,
 		ChecksumCRC32C:    storedPart.ChecksumCRC32C,
 		ChecksumCRC64NVME: storedPart.ChecksumCRC64NVME,
+		ChecksumMD5:       storedPart.ChecksumMD5,
+		ChecksumSHA512:    storedPart.ChecksumSHA512,
 		ChecksumSHA1:      storedPart.ChecksumSHA1,
 		ChecksumSHA256:    storedPart.ChecksumSHA256,
 	}
@@ -470,7 +494,19 @@ func (b *InMemoryBackend) assembleMultipartData(
 	combinedHash := md5.Sum(partMD5s) //nolint:gosec // MD5 required for S3 ETag
 	etag := fmt.Sprintf("\"%s-%d\"", hex.EncodeToString(combinedHash[:]), len(parts))
 
+	var objectChecksum string
+	if upload.ChecksumAlgorithm != "" {
+		objectChecksum = multipartObjectChecksum(upload.ChecksumAlgorithm, upload.ChecksumType, chunks, partsMeta)
+		vErr := verifyCompleteChecksum(input, upload.ChecksumAlgorithm, upload.ChecksumType, objectChecksum)
+		if vErr != nil {
+			return multipartAssemblyResult{}, vErr
+		}
+	}
+
 	return multipartAssemblyResult{
+		checksumAlgo:   upload.ChecksumAlgorithm,
+		checksumType:   upload.ChecksumType,
+		checksum:       objectChecksum,
 		compressedData: storedData,
 		size:           int64(total),
 		etag:           etag,
@@ -590,6 +626,7 @@ func (b *InMemoryBackend) commitMultipartObject(
 			Expires:         expires,
 		}
 		headers.applyTo(newVersion)
+		assembled.applyChecksumTo(newVersion)
 
 		// Acquire obj.mu while bucket.mu is still held (the defer above releases
 		// bucket.mu as soon as this closure returns, i.e. right after obj.mu is
@@ -982,6 +1019,8 @@ func (b *InMemoryBackend) ListParts(
 				ChecksumCRC32:     p.ChecksumCRC32,
 				ChecksumCRC32C:    p.ChecksumCRC32C,
 				ChecksumCRC64NVME: p.ChecksumCRC64NVME,
+				ChecksumMD5:       p.ChecksumMD5,
+				ChecksumSHA512:    p.ChecksumSHA512,
 				ChecksumSHA1:      p.ChecksumSHA1,
 				ChecksumSHA256:    p.ChecksumSHA256,
 			})
@@ -1053,6 +1092,10 @@ func inferChecksumAlgo(input *s3.UploadPartInput) string {
 		return ChecksumCRC32C
 	case input.ChecksumCRC64NVME != nil:
 		return ChecksumCRC64NVME
+	case input.ChecksumMD5 != nil:
+		return ChecksumMD5
+	case input.ChecksumSHA512 != nil:
+		return ChecksumSHA512
 	case input.ChecksumSHA1 != nil:
 		return ChecksumSHA1
 	case input.ChecksumSHA256 != nil:
@@ -1070,6 +1113,10 @@ func newS3Hasher(algo string) hash.Hash {
 		return NewCRC32C()
 	case ChecksumCRC64NVME:
 		return NewCRC64NVME()
+	case ChecksumMD5:
+		return md5.New() //nolint:gosec // S3 checksum algorithm, not a security use of MD5
+	case ChecksumSHA512:
+		return sha512.New()
 	case ChecksumSHA1:
 		//nolint:gosec // SHA1 supported
 		return sha1.New()
