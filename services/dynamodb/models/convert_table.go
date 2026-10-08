@@ -54,6 +54,7 @@ func ToSDKCreateTableInput(input *CreateTableInput) *dynamodb.CreateTableInput {
 		AttributeDefinitions:      ToSDKAttributeDefinitions(input.AttributeDefinitions),
 		GlobalSecondaryIndexes:    ToSDKGlobalSecondaryIndexes(input.GlobalSecondaryIndexes),
 		LocalSecondaryIndexes:     ToSDKLocalSecondaryIndexes(input.LocalSecondaryIndexes),
+		VectorIndexes:             ToSDKVectorIndexes(input.VectorIndexes),
 		ProvisionedThroughput:     pt,
 		StreamSpecification:       ss,
 		SSESpecification:          ToSDKSSESpecification(input.SSESpecification),
@@ -181,6 +182,7 @@ func ToSDKUpdateTableInput(input *UpdateTableInput) (*dynamodb.UpdateTableInput,
 	out.BillingMode = types.BillingMode(input.BillingMode)
 	out.GlobalSecondaryIndexUpdates = toSDKGSIUpdates(input.GlobalSecondaryIndexUpdates)
 	out.ReplicaUpdates = toSDKReplicationGroupUpdates(input.ReplicaUpdates)
+	out.VectorIndexUpdates = toSDKVectorIndexUpdates(input.VectorIndexUpdates)
 	out.MultiRegionConsistency = types.MultiRegionConsistency(input.MultiRegionConsistency)
 
 	return out, nil
@@ -355,6 +357,7 @@ func FromSDKTableDescription(td *types.TableDescription) TableDescription {
 			td.ProvisionedThroughput,
 		),
 		Replicas:                  replicas,
+		VectorIndexes:             FromSDKVectorIndexDescriptions(td.VectorIndexes),
 		LatestStreamArn:           ptrconv.String(td.LatestStreamArn),
 		LatestStreamLabel:         ptrconv.String(td.LatestStreamLabel),
 		GlobalTableVersion:        ptrconv.String(td.GlobalTableVersion),

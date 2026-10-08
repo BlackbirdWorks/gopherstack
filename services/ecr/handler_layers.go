@@ -20,6 +20,10 @@ func (h *Handler) handleBatchCheckLayerAvailability(
 	ctx context.Context,
 	in *batchCheckLayerAvailabilityInput,
 ) (*batchCheckLayerAvailabilityOutput, error) {
+	if err := h.checkRegistryForRepo(in.RegistryID, in.RepositoryName); err != nil {
+		return nil, err
+	}
+
 	layers, failures, err := h.Backend.BatchCheckLayerAvailability(
 		ctx,
 		in.RepositoryName,
@@ -52,6 +56,10 @@ func (h *Handler) handleCompleteLayerUpload(
 	ctx context.Context,
 	in *completeLayerUploadInput,
 ) (*CompleteLayerUploadResult, error) {
+	if err := h.checkRegistryForRepo(in.RegistryID, in.RepositoryName); err != nil {
+		return nil, err
+	}
+
 	result, err := h.Backend.CompleteLayerUpload(
 		ctx,
 		in.RepositoryName,
@@ -80,6 +88,10 @@ func (h *Handler) handleGetDownloadURLForLayer(
 	ctx context.Context,
 	in *getDownloadURLForLayerInput,
 ) (*getDownloadURLForLayerOutput, error) {
+	if err := h.checkRegistryForRepo(in.RegistryID, in.RepositoryName); err != nil {
+		return nil, err
+	}
+
 	url, err := h.Backend.GetDownloadURLForLayer(ctx, in.RepositoryName, in.LayerDigest)
 	if err != nil {
 		return nil, err
@@ -102,6 +114,10 @@ func (h *Handler) handleInitiateLayerUpload(
 	ctx context.Context,
 	in *initiateLayerUploadInput,
 ) (*initiateLayerUploadOutput, error) {
+	if err := h.checkRegistryForRepo(in.RegistryID, in.RepositoryName); err != nil {
+		return nil, err
+	}
+
 	result, err := h.Backend.InitiateLayerUpload(ctx, in.RepositoryName)
 	if err != nil {
 		return nil, err
@@ -123,6 +139,10 @@ func (h *Handler) handleUploadLayerPart(
 	ctx context.Context,
 	in *uploadLayerPartInput,
 ) (*LayerUploadPartResult, error) {
+	if err := h.checkRegistryForRepo(in.RegistryID, in.RepositoryName); err != nil {
+		return nil, err
+	}
+
 	return h.Backend.UploadLayerPart(
 		ctx,
 		in.RepositoryName,

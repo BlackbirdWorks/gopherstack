@@ -165,7 +165,7 @@ func TestCrossZoneLoadBalancingDefault(t *testing.T) {
 	for _, m := range resp.Result.Attributes.Members {
 		if m.Key == "load_balancing.cross_zone.enabled" {
 			found = true
-			assert.Equal(t, "true", m.Value)
+			assert.Equal(t, "use_load_balancer_configuration", m.Value)
 		}
 	}
 	assert.True(t, found, "load_balancing.cross_zone.enabled attribute should be present")

@@ -7,7 +7,7 @@
 service: forecast
 sdk_module: aws-sdk-go-v2/service/forecast@v1.44.4
 last_audit_commit: 15d6ce54c
-last_audit_date: 2026-09-18
+last_audit_date: 2026-10-07
 overall: A            # 2026-09-06: gopherstack-jrhh (LimitExceededException never returned) --
                        # PARTIALLY IMPLEMENTABLE. https://docs.aws.amazon.com/forecast/latest/dg/limits.html
                        # has an explicit Adjustable column; only TagResource's row is both
@@ -118,41 +118,7 @@ families:
   Tags: {status: ok, note: "Tag/Untag/ListTagsForResource validate the ARN exists via arnIndex before mutating/reading tag state. 2026-09-06 (gopherstack-jrhh): TagResource now enforces the documented 50-tags-per-resource maximum -- see ops table. 2026-09-18 (gopherstack-21my): every Create*Input's Tags was stored verbatim and leaked as a fabricated member on every Describe*/Create-echo response (no real output type declares Tags); fixed via stripEchoOnlyFields in store.go."}
 gaps: []
 items_still_open:
-  - >-
-    gopherstack-dv4s (found 2026-08-14): PredictorSummary's DatasetGroupArn,
-    IsAutoPredictor and ReferencePredictorSummary, and ForecastSummary's
-    DatasetGroupArn and CreatedUsingAutoPredictor, are absent from List
-    output rather than fabricated. CreatePredictor's DatasetGroupArn lives
-    nested under InputDataConfig (not top-level Data), CreateAutoPredictor's
-    under DataConfig, and none of IsAutoPredictor/ReferencePredictorSummary/
-    CreatedUsingAutoPredictor is ever recorded on this backend at all.
-    Deriving them would mean reaching into nested config or tracking which
-    Create action built the resource -- a missing-field gap, not this
-    issue's over-wide class, so left for a future pass rather than guessed.
-  - >-
-    Delete* never returns ResourceInUseException for a resource that still
-    has *dependents* (e.g. deleting a Predictor that still has Forecasts).
-    This is DELIBERATE, not an oversight: the real Amazon Forecast SDK doc
-    comments for every Delete* op (DeletePredictor, DeleteDatasetGroup,
-    DeleteForecast, ...) describe the ResourceInUseException precondition
-    purely in terms of the target resource's OWN status ("you can delete
-    only predictor that have a status of ACTIVE or CREATE_FAILED"), never in
-    terms of dependents -- DeleteDatasetGroup's doc comment explicitly says
-    "This operation deletes only the dataset group, not the datasets in the
-    group" with no blocking behavior. The PRIOR audit's framing of this gap
-    ("Delete* never returns ResourceInUseException for a resource that still
-    has dependents") does not match the real API and has been corrected:
-    what real AWS actually models is a self-status precondition, which this
-    pass implemented (see validateDeletableLocked in validation.go and the
-    Delete* ops table above).
-  - >-
-    Value-semantics sweep (gopherstack-uox6), CLEAN -- no value-semantics
-    bug found; see the 2026-08-31 pass note below for the per-operation
-    verification. The two filter Keys left unresolved by the 2026-08-29
-    pass (ListForecasts/ListPredictors's DatasetGroupArn,
-    ListExplainabilityExports's ResourceArn) were re-confirmed genuine
-    structural gaps under this axis too, not silently-wrong applications --
-    see below.
+  - "ListExplainabilityExports Filters Key ResourceArn is left unapplied: ExplainabilityExportSummary has no ResourceArn and the SDK does not say whether it means the export's ExplainabilityArn or that explainability's ResourceArn."
 deferred: []            # all three deferred items from the prior audit (Domain/DatasetType/
                          # DataFrequency/ImportMode enum validation; cross-resource FK
                          # existence validation on Create*; Delete* status/ResourceInUse

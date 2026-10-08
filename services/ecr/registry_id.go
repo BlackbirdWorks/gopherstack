@@ -15,3 +15,12 @@ func (h *Handler) checkRegistryForRepo(id, repo string) error {
 
 	return nil
 }
+
+// checkRegistryForRule maps a foreign registryId to PullThroughCacheRuleNotFoundException.
+func (h *Handler) checkRegistryForRule(id, prefix string) error {
+	if h.foreignRegistry(id) {
+		return fmt.Errorf("%w: %s", ErrPullThroughCacheRuleNotFound, prefix)
+	}
+
+	return nil
+}

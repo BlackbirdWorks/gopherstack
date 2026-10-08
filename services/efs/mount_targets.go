@@ -172,6 +172,25 @@ func (b *InMemoryBackend) checkMountTargetPreconditions(
 		}
 	}
 
+	return b.checkIPAddressFree(region, req)
+}
+
+func (b *InMemoryBackend) checkIPAddressFree(region string, req CreateMountTargetRequest) error {
+	if req.IPAddress == "" || req.SubnetID == "" {
+		return nil
+	}
+
+	for _, mt := range b.mountTargets.All() {
+		if mt.region == region && mt.SubnetID == req.SubnetID && mt.IPAddress == req.IPAddress {
+			return fmt.Errorf(
+				"%w: IP address %s is already in use in subnet %s",
+				ErrIPAddressInUse,
+				req.IPAddress,
+				req.SubnetID,
+			)
+		}
+	}
+
 	return nil
 }
 

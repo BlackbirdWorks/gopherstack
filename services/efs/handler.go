@@ -567,8 +567,10 @@ func (h *Handler) dispatchTagAndMiscOps(
 	switch route.operation {
 	case opTagResource:
 		return true, h.handleTagResource(c, route.resource, body)
-	case opListTagsForResource, opDescribeTags:
+	case opListTagsForResource:
 		return true, h.handleListTagsForResource(c, route.resource)
+	case opDescribeTags:
+		return true, h.handleDescribeTags(c, route.resource)
 	case opUntagResource:
 		return true, h.handleUntagResource(c, route.resource)
 	case opCreateTags:
@@ -605,6 +607,7 @@ func efsErrClassifications() []errClassification {
 		{ErrTooManyRequests, "TooManyRequests", http.StatusTooManyRequests},
 		{ErrFileSystemInUse, "FileSystemInUse", http.StatusConflict},
 		{ErrMountTargetConflict, "MountTargetConflict", http.StatusConflict},
+		{ErrIPAddressInUse, "IpAddressInUse", http.StatusConflict},
 		{ErrIncorrectFileSystemLifeCycleState, "IncorrectFileSystemLifeCycleState", http.StatusConflict},
 		{ErrSecurityGroupLimitExceeded, "SecurityGroupLimitExceeded", http.StatusBadRequest},
 		// FileSystemLimitExceeded/AccessPointLimitExceeded are httpStatusCode 403 in

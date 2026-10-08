@@ -141,6 +141,10 @@ func (h *Handler) handleDeleteLifecyclePolicy(
 	ctx context.Context,
 	in *deleteLifecyclePolicyInput,
 ) (*lifecyclePolicyResultView, error) {
+	if err := h.checkRegistryForRepo(in.RegistryID, in.RepositoryName); err != nil {
+		return nil, err
+	}
+
 	result, err := h.Backend.DeleteLifecyclePolicy(ctx, in.RepositoryName)
 	if err != nil {
 		return nil, err
@@ -158,6 +162,10 @@ func (h *Handler) handleGetLifecyclePolicy(
 	ctx context.Context,
 	in *getLifecyclePolicyInput,
 ) (*lifecyclePolicyResultView, error) {
+	if err := h.checkRegistryForRepo(in.RegistryID, in.RepositoryName); err != nil {
+		return nil, err
+	}
+
 	result, err := h.Backend.GetLifecyclePolicy(ctx, in.RepositoryName)
 	if err != nil {
 		return nil, err
@@ -190,6 +198,10 @@ func (h *Handler) handleGetLifecyclePolicyPreview(
 	ctx context.Context,
 	in *getLifecyclePolicyPreviewInput,
 ) (*lifecyclePolicyPreviewView, error) {
+	if err := h.checkRegistryForRepo(in.RegistryID, in.RepositoryName); err != nil {
+		return nil, err
+	}
+
 	preview, err := h.Backend.GetLifecyclePolicyPreview(ctx, in.RepositoryName)
 	if err != nil {
 		return nil, err
@@ -331,6 +343,10 @@ func (h *Handler) handlePutLifecyclePolicy(
 	ctx context.Context,
 	in *putLifecyclePolicyInput,
 ) (*lifecyclePolicyResultView, error) {
+	if err := h.checkRegistryForRepo(in.RegistryID, in.RepositoryName); err != nil {
+		return nil, err
+	}
+
 	result, err := h.Backend.PutLifecyclePolicy(ctx, in.RepositoryName, in.LifecyclePolicyText)
 	if err != nil {
 		return nil, err
@@ -343,6 +359,10 @@ func (h *Handler) handleStartLifecyclePolicyPreview(
 	ctx context.Context,
 	in *putLifecyclePolicyInput,
 ) (*lifecyclePolicyPreviewStartView, error) {
+	if err := h.checkRegistryForRepo(in.RegistryID, in.RepositoryName); err != nil {
+		return nil, err
+	}
+
 	preview, err := h.Backend.StartLifecyclePolicyPreview(ctx, in.RepositoryName, in.LifecyclePolicyText)
 	if err != nil {
 		return nil, err

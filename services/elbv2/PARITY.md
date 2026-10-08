@@ -2,7 +2,7 @@
 service: elbv2
 sdk_module: aws-sdk-go-v2/service/elasticloadbalancingv2@v1.58.5   # bumped from v1.54.8 this pass (go.mod already pinned v1.58.5; PARITY.md was stale)
 last_audit_commit: d522d763f  # 2026-09-19 leak-audit follow-up (gopherstack-1x2u0)
-last_audit_date: 2026-09-19  # prior: 2026-09-18  # gopherstack-xhu2t: reqfielddiff tier-1 request-field audit. All
+last_audit_date: 2026-10-07  # prior: 2026-09-18  # gopherstack-xhu2t: reqfielddiff tier-1 request-field audit. All
                               # 5 tier-1 findings real, all fixed (CreateLoadBalancer/SetSubnets
                               # .EnablePrefixForIpv6SourceNat, CreateTargetGroup.IpAddressType,
                               # SetSecurityGroups.EnforceSecurityGroupInboundRulesOnPrivateLink
@@ -86,9 +86,9 @@ families:
   capacity-reservation / ip-pools / resource-policy / account-limits / ssl-policies: {status: ok, note: "unchanged this pass; verified op-by-op, all accurate"}
 gaps: []
 items_still_open:
-  - "GetTrustStoreCaCertificatesBundle/GetTrustStoreRevocationContent return an empty Location: no S3-backed object exists to point at. The ops still validate TrustStoreNotFound/RevocationIdNotFound, and CreateTrustStore/ModifyTrustStore record the S3 bucket/key/version without using them."
-  - "DescribeSSLPolicies returns the same full catalog for LoadBalancerType application and network (gateway returns empty): the per-policy ALB-vs-NLB applicability table is not available offline."
-  - "CreateTargetGroup pre-populates 5 of the ~15 attribute keys real AWS returns from DescribeTargetGroupAttributes; the per-target-type (instance/ip vs lambda) default values are not verifiable offline, and ~30 tests assert the 5-key map."
+  - "DescribeSSLPolicies returns the same catalog for LoadBalancerType application and network (gateway returns empty) and omits SslPolicy.SupportedLoadBalancerTypes: the pinned SDK exposes the field but no per-policy applicability table."
+structural_gaps:
+  - "GetTrustStoreCaCertificatesBundle/GetTrustStoreRevocationContent return an empty Location: the real value is a presigned URL to an AWS-owned copy of the bundle, which the emulator does not store. The ops still validate TrustStoreNotFound/RevocationIdNotFound."
 deferred:
   - "TargetHealth.AnomalyDetection and AdministrativeOverride are never returned: no anomaly-mitigation or zonal-shift subsystem exists to source them, and the default values AWS reports when idle are unverified."
   - "authenticate-cognito, authenticate-oidc and jwt-validation actions are stored and echoed (including AuthenticationRequestExtraParams and JwtValidationConfig) but never executed: no Cognito/OIDC redirect flow and no JWKS fetch or token validation exists."

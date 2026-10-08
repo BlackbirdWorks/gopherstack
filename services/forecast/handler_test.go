@@ -415,7 +415,10 @@ func TestHandler_ResourceLifecycles(t *testing.T) {
 			name: "predictor", create: "CreatePredictor", describe: "DescribePredictor",
 			list: "ListPredictors", delete: "DeletePredictor", arnField: "PredictorArn",
 			status: "Status", listField: "Predictors",
-			summaryKeys: []string{"PredictorArn", "PredictorName", "CreationTime", "LastModificationTime", "Status"},
+			summaryKeys: []string{
+				"PredictorArn", "PredictorName", "CreationTime", "LastModificationTime", "Status",
+				"DatasetGroupArn", "IsAutoPredictor",
+			},
 			createBody: func(t *testing.T, h *forecast.Handler) map[string]any {
 				t.Helper()
 
@@ -449,6 +452,7 @@ func TestHandler_ResourceLifecycles(t *testing.T) {
 			status: "Status", listField: "Forecasts",
 			summaryKeys: []string{
 				"ForecastArn", "ForecastName", "CreationTime", "LastModificationTime", "Status", "PredictorArn",
+				"DatasetGroupArn", "CreatedUsingAutoPredictor",
 			},
 			createBody: func(t *testing.T, h *forecast.Handler) map[string]any {
 				t.Helper()

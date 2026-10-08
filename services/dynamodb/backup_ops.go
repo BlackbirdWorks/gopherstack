@@ -313,6 +313,7 @@ type restoredTableParams struct {
 	AttributeDefinitions   []models.AttributeDefinition
 	GlobalSecondaryIndexes []models.GlobalSecondaryIndex
 	LocalSecondaryIndexes  []models.LocalSecondaryIndex
+	VectorIndexes          []models.VectorIndexDescription
 	ProvisionedThroughput  models.ProvisionedThroughputDescription
 	SSEEnabled             bool
 	StreamsEnabled         bool
@@ -354,6 +355,7 @@ func (db *InMemoryDB) installRestoredTable(
 		OnDemandMaxReadRRU:     p.OnDemandMaxReadRRU,
 		OnDemandMaxWriteRRU:    p.OnDemandMaxWriteRRU,
 	}
+	newTable.VectorIndexes = rebindVectorIndexes(p.VectorIndexes, newTable.TableArn)
 	newTable.initializeIndexes()
 	newTable.rebuildIndexes()
 
@@ -437,6 +439,7 @@ func (h *DynamoDBHandler) restoreTableFromBackup(ctx context.Context, body []byt
 		ProvisionedThroughputOverride: toSDKProvisionedThroughputOverride(req.ProvisionedThroughputOverride),
 		GlobalSecondaryIndexOverride:  toSDKGSIOverride(req.GlobalSecondaryIndexOverride),
 		LocalSecondaryIndexOverride:   toSDKLSIOverride(req.LocalSecondaryIndexOverride),
+		VectorIndexOverride:           models.ToSDKVectorIndexes(req.VectorIndexOverride),
 		OnDemandThroughputOverride:    models.ToSDKOnDemandThroughput(req.OnDemandThroughputOverride),
 		SSESpecificationOverride:      models.ToSDKSSESpecification(req.SSESpecificationOverride),
 	})
@@ -518,6 +521,7 @@ func (h *DynamoDBHandler) restoreTableToPointInTime(ctx context.Context, body []
 		RestoreDateTime:               toSDKRestoreDateTime(req.RestoreDateTime),
 		GlobalSecondaryIndexOverride:  toSDKGSIOverride(req.GlobalSecondaryIndexOverride),
 		LocalSecondaryIndexOverride:   toSDKLSIOverride(req.LocalSecondaryIndexOverride),
+		VectorIndexOverride:           models.ToSDKVectorIndexes(req.VectorIndexOverride),
 		OnDemandThroughputOverride:    models.ToSDKOnDemandThroughput(req.OnDemandThroughputOverride),
 		SSESpecificationOverride:      models.ToSDKSSESpecification(req.SSESpecificationOverride),
 	})
@@ -571,6 +575,7 @@ func snapshotSourceForPITR(
 		len(sourceTable.LocalSecondaryIndexes),
 	)
 	copy(p.LocalSecondaryIndexes, sourceTable.LocalSecondaryIndexes)
+	p.VectorIndexes = slices.Clone(sourceTable.VectorIndexes)
 
 	return p, pitrEnabled, itemsCopy
 }

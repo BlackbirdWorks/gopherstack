@@ -31,8 +31,8 @@ const cancellationReasonNone = "None"
 // replicationOpDelete is the mutation op string for item deletion in global-table replication.
 const replicationOpDelete = "DELETE"
 
-// TransactWriteItems executes up to 100 write actions atomically.
-func (db *InMemoryDB) TransactWriteItems(
+// transactWriteItemsOp executes up to 100 write actions atomically.
+func (db *InMemoryDB) transactWriteItemsOp(
 	ctx context.Context,
 	input *dynamodb.TransactWriteItemsInput,
 ) (*dynamodb.TransactWriteItemsOutput, error) {
@@ -643,8 +643,8 @@ func transactWriteConsumedCapacity(
 	return caps
 }
 
-// TransactGetItems reads up to 100 items atomically.
-func (db *InMemoryDB) TransactGetItems(
+// transactGetItemsOp reads up to 100 items atomically.
+func (db *InMemoryDB) transactGetItemsOp(
 	ctx context.Context,
 	input *dynamodb.TransactGetItemsInput,
 ) (*dynamodb.TransactGetItemsOutput, error) {

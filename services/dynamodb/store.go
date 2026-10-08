@@ -258,6 +258,7 @@ type Backup struct {
 	KeySchema              []models.KeySchemaElement               `json:"KeySchema"`
 	LocalSecondaryIndexes  []models.LocalSecondaryIndex            `json:"LocalSecondaryIndexes,omitempty"`
 	GlobalSecondaryIndexes []models.GlobalSecondaryIndex           `json:"GlobalSecondaryIndexes,omitempty"`
+	VectorIndexes          []models.VectorIndexDescription         `json:"VectorIndexes,omitempty"`
 	Items                  []map[string]any                        `json:"Items"`
 	AttributeDefinitions   []models.AttributeDefinition            `json:"AttributeDefinitions"`
 	ProvisionedThroughput  models.ProvisionedThroughputDescription `json:"ProvisionedThroughput"`
@@ -344,6 +345,7 @@ type Table struct {
 	AttributeDefinitions    []models.AttributeDefinition           `json:"AttributeDefinitions"`
 	GlobalSecondaryIndexes  []models.GlobalSecondaryIndex          `json:"GlobalSecondaryIndexes,omitempty"`
 	Replicas                []models.ReplicaDescription            `json:"Replicas,omitempty"`
+	VectorIndexes           []models.VectorIndexDescription        `json:"VectorIndexes,omitempty"`
 	LocalSecondaryIndexes   []models.LocalSecondaryIndex           `json:"LocalSecondaryIndexes,omitempty"`
 	KeySchema               []models.KeySchemaElement              `json:"KeySchema"`
 	KinesisDestinations     []KinesisDestinationEntry              `json:"KinesisDestinations,omitempty"`

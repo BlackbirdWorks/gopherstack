@@ -49,6 +49,7 @@ type CreateTableInput struct {
 	AttributeDefinitions      []AttributeDefinition  `json:"AttributeDefinitions"`
 	GlobalSecondaryIndexes    []GlobalSecondaryIndex `json:"GlobalSecondaryIndexes,omitempty"`
 	LocalSecondaryIndexes     []LocalSecondaryIndex  `json:"LocalSecondaryIndexes,omitempty"`
+	VectorIndexes             []VectorIndex          `json:"VectorIndexes,omitempty"`
 	Tags                      []Tag                  `json:"Tags,omitempty"`
 }
 
@@ -112,6 +113,7 @@ type TableDescription struct {
 	AttributeDefinitions      []AttributeDefinition             `json:"AttributeDefinitions"`
 	LocalSecondaryIndexes     []LocalSecondaryIndexDescription  `json:"LocalSecondaryIndexes,omitempty"`
 	Replicas                  []ReplicaDescription              `json:"Replicas,omitempty"`
+	VectorIndexes             []VectorIndexDescription          `json:"VectorIndexes,omitempty"`
 	KeySchema                 []KeySchemaElement                `json:"KeySchema"`
 	CreationDateTime          float64                           `json:"CreationDateTime,omitempty"`
 	TableSizeBytes            int64                             `json:"TableSizeBytes"`
@@ -197,6 +199,7 @@ type UpdateTableInput struct {
 	AttributeDefinitions        []AttributeDefinition        `json:"AttributeDefinitions,omitempty"`
 	GlobalSecondaryIndexUpdates []GlobalSecondaryIndexUpdate `json:"GlobalSecondaryIndexUpdates,omitempty"`
 	ReplicaUpdates              []ReplicaUpdate              `json:"ReplicaUpdates,omitempty"`
+	VectorIndexUpdates          []VectorIndexUpdate          `json:"VectorIndexUpdates,omitempty"`
 }
 
 // ReplicaUpdate describes a create, update, or delete action for a Global Tables v2 replica.
@@ -813,6 +816,7 @@ type RestoreTableFromBackupInput struct {
 	BillingModeOverride           string                 `json:"BillingModeOverride,omitempty"`
 	GlobalSecondaryIndexOverride  []GlobalSecondaryIndex `json:"GlobalSecondaryIndexOverride,omitempty"`
 	LocalSecondaryIndexOverride   []LocalSecondaryIndex  `json:"LocalSecondaryIndexOverride,omitempty"`
+	VectorIndexOverride           []VectorIndex          `json:"VectorIndexOverride,omitempty"`
 }
 
 // RestoreTableFromBackupOutput is the wire format for RestoreTableFromBackup response.
@@ -838,6 +842,7 @@ type RestoreTableToPointInTimeInput struct {
 	BillingModeOverride           string                 `json:"BillingModeOverride,omitempty"`
 	GlobalSecondaryIndexOverride  []GlobalSecondaryIndex `json:"GlobalSecondaryIndexOverride,omitempty"`
 	LocalSecondaryIndexOverride   []LocalSecondaryIndex  `json:"LocalSecondaryIndexOverride,omitempty"`
+	VectorIndexOverride           []VectorIndex          `json:"VectorIndexOverride,omitempty"`
 	UseLatestRestorableTime       bool                   `json:"UseLatestRestorableTime,omitempty"`
 }
 

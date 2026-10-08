@@ -104,6 +104,10 @@ func (h *Handler) handleDescribeImageScanFindings(
 	ctx context.Context,
 	in *describeImageScanFindingsInput,
 ) (*describeImageScanFindingsOutput, error) {
+	if err := h.checkRegistryForRepo(in.RegistryID, in.RepositoryName); err != nil {
+		return nil, err
+	}
+
 	findings, nextToken, err := h.Backend.DescribeImageScanFindings(
 		ctx,
 		in.RepositoryName,
@@ -139,6 +143,10 @@ func (h *Handler) handleStartImageScan(
 	ctx context.Context,
 	in *imageInput,
 ) (*startImageScanOutput, error) {
+	if err := h.checkRegistryForRepo(in.RegistryID, in.RepositoryName); err != nil {
+		return nil, err
+	}
+
 	result, err := h.Backend.StartImageScan(ctx, in.RepositoryName, in.ImageID)
 	if err != nil {
 		return nil, err
@@ -171,6 +179,10 @@ func (h *Handler) handlePutImageScanningConfiguration(
 	ctx context.Context,
 	in *putImageScanningConfigurationInput,
 ) (*putImageScanningConfigurationOutput, error) {
+	if err := h.checkRegistryForRepo(in.RegistryID, in.RepositoryName); err != nil {
+		return nil, err
+	}
+
 	cfg, err := h.Backend.PutImageScanningConfiguration(
 		ctx,
 		in.RepositoryName,

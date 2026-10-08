@@ -146,10 +146,18 @@ func (db *InMemoryDB) CreateTable(
 		return nil, err
 	}
 
+	tableArn := arn.Build("dynamodb", region, db.accountID, "table/"+tableName)
+
+	vectorIndexes, vectorErr := buildVectorIndexes(tableArn, models.FromSDKVectorIndexes(input.VectorIndexes))
+	if vectorErr != nil {
+		return nil, vectorErr
+	}
+
 	newTable := newTableFromCreateInput(tableName, input)
 	newTable.TableID = uuid.New().String()
 	newTable.CreationDateTime = time.Now().UTC()
-	newTable.TableArn = arn.Build("dynamodb", region, db.accountID, "table/"+tableName)
+	newTable.TableArn = tableArn
+	newTable.VectorIndexes = vectorIndexes
 
 	if input.StreamSpecification != nil && aws.ToBool(input.StreamSpecification.StreamEnabled) {
 		streamCreatedAt := newTable.CreationDateTime
@@ -439,6 +447,7 @@ func buildCreateTableOutput(
 		td.TableId = aws.String(t.TableID)
 	}
 	applySSEDescription(td, sseEnabled, sseType, sseKMSMasterKeyArn)
+	td.VectorIndexes = models.ToSDKVectorIndexDescriptions(vectorDescriptionsRLocked(t))
 
 	return &dynamodb.CreateTableOutput{TableDescription: td}
 }
@@ -733,6 +742,7 @@ type tableSnapshot struct {
 	gsiList                   []models.GlobalSecondaryIndex
 	keySchema                 []models.KeySchemaElement
 	replicaList               []models.ReplicaDescription
+	vectorIndexes             []models.VectorIndexDescription
 	pt                        models.ProvisionedThroughputDescription
 	itemCount                 int64
 	itemSizeBytes             int64
@@ -786,6 +796,7 @@ func snapshotTable(table *Table) tableSnapshot {
 	copy(s.gsiList, table.GlobalSecondaryIndexes)
 	copy(s.lsiList, table.LocalSecondaryIndexes)
 	copy(s.replicaList, table.Replicas)
+	s.vectorIndexes = vectorIndexDescriptionsLive(table)
 
 	if s.tableStatus == "" {
 		s.tableStatus = types.TableStatusActive
@@ -902,6 +913,7 @@ func buildTableDescription(tableName *string, table *Table) *types.TableDescript
 
 	applyStreamSpec(td, s.streamsEnabled, s.streamARN, s.streamViewType)
 	applySSEDescription(td, s.sseEnabled, s.sseType, s.sseKMSMasterKeyArn)
+	td.VectorIndexes = models.ToSDKVectorIndexDescriptions(s.vectorIndexes)
 
 	return td
 }
@@ -1083,6 +1095,10 @@ func (db *InMemoryDB) applyUpdateTableLocked(
 
 	table.mu.Lock("UpdateTable")
 	defer table.mu.Unlock()
+
+	if vecErr := applyVectorIndexUpdates(table, input.VectorIndexUpdates); vecErr != nil {
+		return vecErr
+	}
 
 	applyUpdateTableThroughput(table, input.ProvisionedThroughput)
 	applyUpdateTableAttrDefs(table, input.AttributeDefinitions)
@@ -1722,6 +1738,7 @@ func buildUpdateTableOutput(
 		AttributeDefinitions:      models.ToSDKAttributeDefinitions(table.AttributeDefinitions),
 		GlobalSecondaryIndexes:    gsiDescs,
 		Replicas:                  toSDKReplicaDescriptions(table.Replicas),
+		VectorIndexes:             models.ToSDKVectorIndexDescriptions(vectorIndexDescriptionsLive(table)),
 		DeletionProtectionEnabled: aws.Bool(table.DeletionProtectionEnabled),
 		ProvisionedThroughput: &types.ProvisionedThroughputDescription{
 			ReadCapacityUnits:      &rcu,

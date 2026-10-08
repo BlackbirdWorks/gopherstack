@@ -131,6 +131,7 @@ func (db *InMemoryDB) putItemLocked(
 	}
 
 	globalTableName := table.GlobalTableName
+	db.emitIndexWCU(region, table, wcu, oldItem, wireItem)
 	out := db.populatePutItemOutput(input, table, oldItem, wireItem, wcu, lsiCollectionBytes)
 
 	return out, globalTableName, region, nil
@@ -676,6 +677,7 @@ func (db *InMemoryDB) deleteItemLocked(
 		table.appendStreamRecord(streamEventRemove, oldItem, nil, "", "")
 	}
 
+	db.emitIndexWCU(region, table, wcu, oldItem)
 	out := db.buildDeleteItemOutput(input, table, oldItem, wcu)
 	globalTableName := table.GlobalTableName
 
@@ -907,6 +909,7 @@ func (db *InMemoryDB) updateItemLocked(
 	}
 
 	globalTableName := table.GlobalTableName
+	db.emitIndexWCU(region, table, updateWCU, existing, updated)
 	out, outErr := db.populateUpdateOutput(input, table, existing, updated, updatedPaths)
 
 	return out, globalTableName, region, updated, outErr
