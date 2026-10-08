@@ -59,6 +59,7 @@ type DeleteActivationInput struct {
 // DeleteResourceDataSyncInput is the request for DeleteResourceDataSync.
 type DeleteResourceDataSyncInput struct {
 	SyncName string `json:"SyncName"`
+	SyncType string `json:"SyncType,omitempty"`
 }
 
 // DeregisterManagedInstanceInput is the request for DeregisterManagedInstance.

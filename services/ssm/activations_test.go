@@ -946,3 +946,47 @@ func TestDescribeActivations_PageWalkReproducesFullSet(t *testing.T) {
 		}
 	}
 }
+
+func TestDeleteResourceDataSync_SyncTypeMismatch(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		createType string
+		deleteType string
+		wantErr    bool
+	}{
+		{name: "mismatch", createType: "SyncToDestination", deleteType: "SyncFromSource", wantErr: true},
+		{name: "default_vs_source", createType: "", deleteType: "SyncFromSource", wantErr: true},
+		{name: "match", createType: "SyncToDestination", deleteType: "SyncToDestination"},
+		{name: "default_match", createType: "", deleteType: "SyncToDestination"},
+		{name: "omitted", createType: "SyncToDestination", deleteType: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend(t)
+			_, err := b.CreateResourceDataSync(context.TODO(), &ssm.CreateResourceDataSyncInput{
+				SyncName: "s",
+				SyncType: tt.createType,
+				S3Destination: &ssm.ResourceDataSyncS3Destination{
+					BucketName: "b", Region: "us-east-1", SyncFormat: "JsonSerDe",
+				},
+			})
+			require.NoError(t, err)
+
+			_, err = b.DeleteResourceDataSync(context.TODO(), &ssm.DeleteResourceDataSyncInput{
+				SyncName: "s", SyncType: tt.deleteType,
+			})
+			if tt.wantErr {
+				require.ErrorIs(t, err, ssm.ErrResourceDataSyncNotFound)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}

@@ -289,6 +289,7 @@ func (b *InMemoryBackend) parameterAtVersion(
 			DataType:         h.DataType,
 			Version:          h.Version,
 			LastModifiedDate: h.LastModifiedDate,
+			LastModifiedUser: h.LastModifiedUser,
 		}, nil
 	}
 
@@ -423,6 +424,7 @@ func (b *InMemoryBackend) PutParameter(
 		AllowedPattern:   input.AllowedPattern,
 		DataType:         dataType,
 		Policies:         input.Policies,
+		LastModifiedUser: awsmeta.CallerArn(ctx),
 	}
 
 	// AWS retains only the most recent maxHistoryCap versions of a parameter,
@@ -454,7 +456,7 @@ func (b *InMemoryBackend) PutParameter(
 	// for this parameter (see clearParameterPolicyNotificationStateLocked).
 	b.clearParameterPolicyNotificationStateLocked(region, input.Name)
 
-	b.recordParameterHistoryLocked(region, input, value, dataType, tier, param.LastModifiedDate, version)
+	b.recordParameterHistoryLocked(region, input, value, dataType, tier, &param, version)
 
 	return &PutParameterOutput{Version: version, Tier: tier}, nil
 }
@@ -464,14 +466,15 @@ func (b *InMemoryBackend) PutParameter(
 // oldest entry once history exceeds maxHistoryCap. Must be called with b.mu
 // held for writing.
 func (b *InMemoryBackend) recordParameterHistoryLocked(
-	region string, input *PutParameterInput, value, dataType, tier string, lastModifiedDate float64, version int64,
+	region string, input *PutParameterInput, value, dataType, tier string, param *Parameter, version int64,
 ) {
 	paramHistory := ParameterHistory{
 		Name:             input.Name,
 		Type:             input.Type,
 		Value:            value,
 		Version:          version,
-		LastModifiedDate: lastModifiedDate,
+		LastModifiedDate: param.LastModifiedDate,
+		LastModifiedUser: param.LastModifiedUser,
 		Labels:           []string{},
 		KeyID:            input.KeyID,
 		Tier:             tier,
@@ -938,6 +941,7 @@ func (b *InMemoryBackend) DescribeParameters(
 			Type:             p.Type,
 			Version:          p.Version,
 			LastModifiedDate: p.LastModifiedDate,
+			LastModifiedUser: p.LastModifiedUser,
 			Description:      p.Description,
 			KeyID:            p.KeyID,
 			Tier:             p.Tier,

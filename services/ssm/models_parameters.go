@@ -48,6 +48,7 @@ type Parameter struct {
 	// e.g. ":3" or ":prod". Empty when the latest version is returned without a
 	// selector. AWS echoes the selector back in the GetParameter response.
 	Selector         string  `json:"Selector,omitempty"`
+	LastModifiedUser string  `json:"LastModifiedUser,omitempty"`
 	LastModifiedDate float64 `json:"LastModifiedDate"`
 	Version          int64   `json:"Version"`
 }
@@ -155,15 +156,16 @@ type DeleteParametersOutput struct {
 // is the same raw PutParameter-request JSON string convention as
 // Parameter.Policies -- not the wire shape, see ParameterHistoryOutput.
 type ParameterHistory struct {
-	Name             string   `json:"Name"`
+	DataType         string   `json:"DataType,omitempty"`
 	Type             string   `json:"Type"`
 	Value            string   `json:"Value"`
 	KeyID            string   `json:"KeyId,omitempty"`
 	Tier             string   `json:"Tier,omitempty"`
 	AllowedPattern   string   `json:"AllowedPattern,omitempty"`
-	DataType         string   `json:"DataType,omitempty"`
+	Name             string   `json:"Name"`
 	Description      string   `json:"Description,omitempty"`
 	Policies         string   `json:"Policies,omitempty"`
+	LastModifiedUser string   `json:"LastModifiedUser,omitempty"`
 	Labels           []string `json:"Labels,omitempty"`
 	LastModifiedDate float64  `json:"LastModifiedDate"`
 	Version          int64    `json:"Version"`
@@ -173,18 +175,17 @@ type ParameterHistory struct {
 // (types.ParameterHistory, types/types.go). Policies is
 // []ParameterInlinePolicy -- see ParameterOutput/parameterPoliciesToWire for
 // the same fabricated-string-instead-of-object-array bug class fixed here.
-// LastModifiedUser (real, ARN of the last-writing caller) is deliberately
-// not modeled -- this backend has no caller-identity infra, same gap as
-// ParameterMetadata.LastModifiedUser.
+// LastModifiedUser is the ARN of the resolved caller, empty when unresolved.
 type ParameterHistoryOutput struct {
-	Name             string                  `json:"Name"`
+	DataType         string                  `json:"DataType,omitempty"`
 	Type             string                  `json:"Type"`
 	Value            string                  `json:"Value"`
 	KeyID            string                  `json:"KeyId,omitempty"`
 	Tier             string                  `json:"Tier,omitempty"`
 	AllowedPattern   string                  `json:"AllowedPattern,omitempty"`
-	DataType         string                  `json:"DataType,omitempty"`
+	Name             string                  `json:"Name"`
 	Description      string                  `json:"Description,omitempty"`
+	LastModifiedUser string                  `json:"LastModifiedUser,omitempty"`
 	Policies         []ParameterInlinePolicy `json:"Policies,omitempty"`
 	Labels           []string                `json:"Labels,omitempty"`
 	LastModifiedDate float64                 `json:"LastModifiedDate"`
@@ -205,6 +206,7 @@ func (p ParameterHistory) toParameterHistoryOutput() ParameterHistoryOutput {
 		Description:      p.Description,
 		Policies:         parameterPoliciesToWire(p.Policies),
 		Labels:           p.Labels,
+		LastModifiedUser: p.LastModifiedUser,
 		LastModifiedDate: p.LastModifiedDate,
 		Version:          p.Version,
 	}
@@ -260,6 +262,7 @@ type ParameterMetadata struct {
 	AllowedPattern   string                  `json:"AllowedPattern,omitempty"`
 	DataType         string                  `json:"DataType,omitempty"`
 	ARN              string                  `json:"ARN,omitempty"`
+	LastModifiedUser string                  `json:"LastModifiedUser,omitempty"`
 	Policies         []ParameterInlinePolicy `json:"Policies,omitempty"`
 	LastModifiedDate float64                 `json:"LastModifiedDate"`
 	Version          int64                   `json:"Version"`

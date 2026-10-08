@@ -168,10 +168,10 @@ func (b *InMemoryBackend) CreateResourceDataSync(
 
 	syncType := input.SyncType
 	if syncType == "" {
-		syncType = "SyncToDestination"
+		syncType = syncTypeToDestination
 	}
 	switch syncType {
-	case "SyncToDestination":
+	case syncTypeToDestination:
 		if input.S3Destination == nil {
 			return nil, fmt.Errorf(
 				"%w: S3Destination is required when SyncType is SyncToDestination",
@@ -212,6 +212,16 @@ func (b *InMemoryBackend) CreateResourceDataSync(
 	return &CreateResourceDataSyncOutput{}, nil
 }
 
+const syncTypeToDestination = "SyncToDestination"
+
+func effectiveSyncType(t string) string {
+	if t == "" {
+		return syncTypeToDestination
+	}
+
+	return t
+}
+
 // DeleteResourceDataSync removes a resource data sync by name.
 func (b *InMemoryBackend) DeleteResourceDataSync(
 	ctx context.Context,
@@ -226,8 +236,13 @@ func (b *InMemoryBackend) DeleteResourceDataSync(
 	}
 
 	syncs := b.resourceDataSyncsStore(region)
-	if !syncs.Has(input.SyncName) {
+	existing, ok := syncs.Get(input.SyncName)
+	if !ok {
 		return nil, fmt.Errorf("%w: %q", ErrResourceDataSyncNotFound, input.SyncName)
+	}
+
+	if input.SyncType != "" && effectiveSyncType(existing.SyncType) != input.SyncType {
+		return nil, fmt.Errorf("%w: %q with SyncType %q", ErrResourceDataSyncNotFound, input.SyncName, input.SyncType)
 	}
 
 	syncs.Delete(input.SyncName)
