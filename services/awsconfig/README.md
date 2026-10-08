@@ -17,7 +17,7 @@
 
 - Generic ValidationException remains on ops whose declared error set has no validation-shaped code (DeleteConfigurationAggregator, DeleteConfigRule, DeleteEvaluationResults, Start/Stop/DeleteConfigurationRecorder, DeleteConformancePack, PutDeliveryChannel s3BucketName, DeleteDeliveryChannel, DeleteOrganizationConfigRule, DeleteOrganizationConformancePack; verified against configservice@v1.68.4); the real code is not determinable from the SDK. InvalidS3KeyPrefixException has no documented rule to enforce (bd: gopherstack-eboy).
 - InvalidRecordingGroupException only covers the documented allSupported/exclusion/recordingStrategy conflicts; the per-resource-type validity trigger is undocumented in the SDK.
-- PutConformancePack TemplateS3Uri/TemplateSSMDocumentDetails deploy zero rules (needs cross-service S3/SSM wiring in cli.go, outside this directory); zero template sources is still accepted and the real error is undocumented.
+- PutConformancePack with no template source is still accepted (deploys zero rules); the real error for zero sources is undocumented.
 - MaxNumberOfConnectorsExceededException is not enforced: the per-account connector limit is not published in AWS docs.
 - DeleteRemediationConfiguration.ResourceType is ignored (remediation configurations are keyed by rule name only); the SDK documents it only as "The type of a resource".
 

@@ -259,6 +259,7 @@ type WorkflowExecution struct {
 	StickyScheduleToStartTimeout string             `json:"stickyScheduleToStartTimeout,omitempty"`
 	ParentWorkflowID             string             `json:"parentWorkflowID,omitempty"`
 	OpenTimerIDs                 []string           `json:"openTimerIDs,omitempty"`
+	OpenLambdaIDs                []string           `json:"openLambdaIDs,omitempty"`
 	TagList                      []string           `json:"tagList,omitempty"`
 	ParentStartedEventID         int64              `json:"parentStartedEventID,omitempty"`
 	ParentInitiatedEventID       int64              `json:"parentInitiatedEventID,omitempty"`
@@ -437,6 +438,7 @@ type Decision struct {
 	ScheduleActivityTaskAttrs                   *ScheduleActivityTaskDecisionAttrs
 	RequestCancelActivityTaskAttrs              *RequestCancelActivityTaskDecisionAttrs
 	StartTimerAttrs                             *StartTimerDecisionAttrs
+	ScheduleLambdaFunctionAttrs                 *ScheduleLambdaFunctionDecisionAttrs
 	CancelTimerAttrs                            *CancelTimerDecisionAttrs
 	RecordMarkerAttrs                           *RecordMarkerDecisionAttrs
 	ContinueAsNewWorkflowExecutionAttrs         *ContinueAsNewWorkflowExecutionDecisionAttrs

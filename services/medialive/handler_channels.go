@@ -143,12 +143,11 @@ func extractChannelEngineVersion(body map[string]any) (ChannelEngineVersion, boo
 // --- Vpc / Maintenance ---
 
 // channelVpcOutput mirrors types.VpcOutputSettingsDescription.
-// AvailabilityZones/NetworkInterfaceIds are real wire fields MediaLive
-// computes from a live VPC/ENI integration gopherstack does not have --
-// always omitted, never fabricated (see ChannelVpcSettings' doc comment).
 type channelVpcOutput struct {
-	SecurityGroupIDs []string `json:"securityGroupIds,omitempty"`
-	SubnetIDs        []string `json:"subnetIds,omitempty"`
+	AvailabilityZones   []string `json:"availabilityZones,omitempty"`
+	NetworkInterfaceIDs []string `json:"networkInterfaceIds,omitempty"`
+	SecurityGroupIDs    []string `json:"securityGroupIds,omitempty"`
+	SubnetIDs           []string `json:"subnetIds,omitempty"`
 }
 
 func toChannelVpcOutput(v ChannelVpcSettings) *channelVpcOutput {
@@ -156,7 +155,10 @@ func toChannelVpcOutput(v ChannelVpcSettings) *channelVpcOutput {
 		return nil
 	}
 
-	return &channelVpcOutput{SubnetIDs: v.SubnetIDs, SecurityGroupIDs: v.SecurityGroupIDs}
+	return &channelVpcOutput{
+		SubnetIDs: v.SubnetIDs, SecurityGroupIDs: v.SecurityGroupIDs,
+		AvailabilityZones: v.AvailabilityZones, NetworkInterfaceIDs: v.NetworkInterfaceIDs,
+	}
 }
 
 func extractVpc(body map[string]any) (ChannelVpcSettings, bool) {

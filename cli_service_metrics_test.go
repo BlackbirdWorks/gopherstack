@@ -26,6 +26,8 @@ import (
 	fhtypes "github.com/aws/aws-sdk-go-v2/service/firehose/types"
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
 	kintypes "github.com/aws/aws-sdk-go-v2/service/kinesis/types"
+	lambdasdk "github.com/aws/aws-sdk-go-v2/service/lambda"
+	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/aws-sdk-go-v2/service/sfn"
@@ -762,4 +764,31 @@ func TestServiceMetrics_EventBridge(t *testing.T) {
 		{namespace: ns, name: "FailedInvocations", dims: dead, unit: cwtypes.StandardUnitCount, sum: 1},
 		{namespace: ns, name: "DeadLetterInvocations", dims: dead, unit: cwtypes.StandardUnitCount, sum: 1},
 	})
+}
+
+func TestServiceMetrics_Lambda(t *testing.T) {
+	t.Parallel()
+
+	fx := newSFNFixture(t)
+	lc := lambdasdk.NewFromConfig(fx.cfg)
+
+	_, err := lc.CreateFunction(t.Context(), &lambdasdk.CreateFunctionInput{
+		FunctionName: aws.String("metric-fn"), PackageType: lambdatypes.PackageTypeImage,
+		Code: &lambdatypes.FunctionCode{ImageUri: aws.String("x:latest")},
+		Role: aws.String("arn:aws:iam::000000000000:role/r"),
+	})
+	require.NoError(t, err)
+
+	_, err = lc.PutFunctionConcurrency(t.Context(), &lambdasdk.PutFunctionConcurrencyInput{
+		FunctionName: aws.String("metric-fn"), ReservedConcurrentExecutions: aws.Int32(0),
+	})
+	require.NoError(t, err)
+
+	_, err = lc.Invoke(t.Context(), &lambdasdk.InvokeInput{FunctionName: aws.String("metric-fn")})
+	require.Error(t, err)
+
+	assertMetricsEmitted(t, fx, []metricWant{{
+		namespace: "AWS/Lambda", name: "Throttles", dims: map[string]string{"FunctionName": "metric-fn"},
+		unit: cwtypes.StandardUnitCount, sum: 1, minSum: true,
+	}})
 }

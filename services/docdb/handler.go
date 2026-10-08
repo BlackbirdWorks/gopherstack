@@ -379,15 +379,29 @@ func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) err
 
 func docdbErrorCode(opErr error) string {
 	sentinels := []error{
-		ErrClusterNotFound, ErrClusterAlreadyExists,
-		ErrInstanceNotFound, ErrInstanceAlreadyExists,
-		ErrSubnetGroupNotFound, ErrSubnetGroupAlreadyExists, ErrSubnetGroupInUse,
-		ErrClusterParameterGroupNotFound, ErrClusterParameterGroupAlreadyExists, ErrParameterGroupInUse,
-		ErrClusterSnapshotNotFound, ErrClusterSnapshotAlreadyExists,
-		ErrEventSubscriptionNotFound, ErrEventSubscriptionAlreadyExists,
-		ErrGlobalClusterNotFound, ErrGlobalClusterAlreadyExists,
-		ErrInvalidParameter, ErrInvalidParameterCombination, ErrInvalidClusterState, ErrInvalidInstanceState,
-		ErrInvalidGlobalClusterState, ErrUnknownAction,
+		ErrClusterNotFound,
+		ErrClusterAlreadyExists,
+		ErrInstanceNotFound,
+		ErrInstanceAlreadyExists,
+		ErrSubnetGroupNotFound,
+		ErrSubnetGroupAlreadyExists,
+		ErrSubnetGroupInUse,
+		ErrClusterParameterGroupNotFound,
+		ErrClusterParameterGroupAlreadyExists,
+		ErrParameterGroupInUse,
+		ErrClusterSnapshotNotFound,
+		ErrClusterSnapshotAlreadyExists,
+		ErrEventSubscriptionNotFound,
+		ErrEventSubscriptionAlreadyExists,
+		ErrGlobalClusterNotFound,
+		ErrGlobalClusterAlreadyExists,
+		ErrInvalidParameter,
+		ErrInvalidParameterCombination,
+		ErrNetworkTypeNotSupported,
+		ErrInvalidClusterState,
+		ErrInvalidInstanceState,
+		ErrInvalidGlobalClusterState,
+		ErrUnknownAction,
 	}
 	for _, s := range sentinels {
 		if errors.Is(opErr, s) {

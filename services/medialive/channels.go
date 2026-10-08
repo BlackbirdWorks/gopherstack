@@ -180,6 +180,7 @@ func (b *InMemoryBackend) CreateChannel(
 		AnywhereSettings: anywhereSettings,
 	}
 	applyChannelCreateExtras(ch, extras)
+	ch.Vpc = b.provisionVpcLocked(ch.ID, ch.Vpc)
 
 	b.channels.Put(ch)
 
@@ -230,7 +231,15 @@ func (b *InMemoryBackend) UpdateChannel(
 		ch.AnywhereSettings = anywhereSettings
 	}
 
+	if extras.HasVpc {
+		b.releaseVpcLocked(ch.Vpc)
+	}
+
 	applyChannelUpdateExtras(ch, extras)
+
+	if extras.HasVpc {
+		ch.Vpc = b.provisionVpcLocked(ch.ID, ch.Vpc)
+	}
 
 	return b.toChannelWithDerived(ch), nil
 }
@@ -256,6 +265,7 @@ func (b *InMemoryBackend) DeleteChannel(channelID string) (*Channel, error) {
 
 	out := b.toChannelWithDerived(ch)
 	out.State = stateDeleting
+	b.releaseVpcLocked(ch.Vpc)
 	b.channels.Delete(channelID)
 
 	return out, nil

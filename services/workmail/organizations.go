@@ -117,13 +117,19 @@ func (b *InMemoryBackend) DescribeOrganization(orgID string) (*Organization, err
 // retentionPolicies, exportJobs, identityCenterApps, idpConfig,
 // personalTokens, and issuedTokens are deliberately left untouched, matching
 // prior behavior.
-func (b *InMemoryBackend) DeleteOrganization(orgID string, _ bool) error {
+func (b *InMemoryBackend) DeleteOrganization(orgID string, deleteDirectory bool) error {
 	b.mu.Lock("DeleteOrganization")
 	defer b.mu.Unlock()
 
 	org, ok := b.organizations.Get(orgID)
 	if !ok {
 		return fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
+	}
+
+	if deleteDirectory && b.directories != nil {
+		if err := b.directories.DeleteDirectory(org.Region, org.DirectoryID); err != nil {
+			return fmt.Errorf("delete directory %s: %w", org.DirectoryID, err)
+		}
 	}
 
 	delete(b.orgsByAlias, org.Alias)

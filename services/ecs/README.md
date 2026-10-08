@@ -9,22 +9,21 @@
 | --- | --- |
 | PARITY entries audited | 65 (63 ok, 2 partial) |
 | Feature families | 1 (1 ok) |
-| Known gaps | 4 |
-| Structural gaps (can't be emulated) | 2 |
+| Known gaps | 2 |
+| Structural gaps (can't be emulated) | 3 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- AWS/ECS CPUUtilization/MemoryUtilization are not emitted: docker-runtime container stats could feed a cwmetric.Emitter (needs a SetMetricEmitter wired in cli.go, the way firehose does); the noop runner has no utilisation data (gopherstack-4m1qr).
 - Blue/green lifecycle is unmodeled (PAUSE-stage hooks, Lambda hook invocation, strategy/bakeTime/alarms in deploymentConfiguration): ContinueServiceDeployment always returns ClientException, and ServiceDeployment lacks LifecycleStage, LifecycleHookDetails and Alarms. StopServiceDeployment StopType=ROLLBACK is applied.
-- ELBv2 registration is one-directional: ELB target health never feeds ECS task health (needs an optional health reader on the cli.go ELBv2 adapter).
-- ASG capacity providers are config-only: AutoScalingGroupProvider is never validated against or scaled via services/autoscaling (cross-service, needs cli.go wiring).
+- Managed scaling is not modeled: AutoScalingGroupProvider is validated against Auto Scaling at create, but ManagedScaling targetCapacity and ManagedTerminationProtection never scale or protect the group.
 
 ### Structural gaps
 
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
+- AWS/ECS CPUUtilization/MemoryUtilization are emitted only for docker-runtime tasks; the noop runner has no container stats to measure.
 - Daemon-launched tasks: ECS Managed Daemons run only on Managed Instances capacity providers, which provision EC2 hosts this emulator does not model, so ListTasks.daemonName filters correctly but no task ever belongs to a daemon.
 - awslogs without awslogs-stream-prefix names the stream after the runtime container ID: exact under the docker runtime, but without a container runtime no container ID exists and the task ID stands in.
 

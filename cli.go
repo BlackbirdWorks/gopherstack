@@ -3799,6 +3799,14 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 
 	// Route RDS Data API calls for docker-backed Aurora clusters to their real database.
 	wireRDSData(byName["RDSData"], byName["RDS"], byName["SecretsManager"])
+	wireManagedMasterSecrets(byName)
+	wireSubnetLookups(byName)
+	wireECSAutoScaling(byName)
+	wireSWFLambda(byName)
+	wireWorkMailDirectory(byName)
+	wireAppSyncWAF(byName)
+	wireAWSConfigTemplates(byName)
+	wireCleanRoomsGlue(byName)
 
 	// Wire IoT rules → SQS/Lambda action dispatch, and broker → IoT Data Plane.
 	wireIoTRules(byName["IoT"], byName["IoTDataPlane"], byName["SQS"], byName["Lambda"])
@@ -6312,6 +6320,26 @@ func (a *ecsELBv2RegistrarAdapter) DeregisterTargets(
 	return a.backendFor(tgArn).DeregisterTargets(tgArn, a.toELBv2Targets(tgArn, targets))
 }
 
+// TargetHealthState implements ecs.ELBv2TargetHealthReader.
+func (a *ecsELBv2RegistrarAdapter) TargetHealthState(
+	_ context.Context, tgArn string, target ecsbackend.ELBTarget,
+) (string, bool) {
+	descs, err := a.backendFor(tgArn).DescribeTargetHealth(tgArn)
+	if err != nil {
+		return "", false
+	}
+
+	port := a.port(tgArn, target.Port)
+
+	for _, d := range descs {
+		if d.Target.ID == target.ID && d.Target.Port == port {
+			return d.HealthState, true
+		}
+	}
+
+	return "", false
+}
+
 func (a *ecsELBv2RegistrarAdapter) toELBv2Targets(
 	tgArn string, targets []ecsbackend.ELBTarget,
 ) []elbv2backend.Target {
@@ -6949,12 +6977,7 @@ func athenaGlueTable(t *gluebackend.Table) *athenabackend.GlueTable {
 	}
 }
 
-// wireLambdaS3 connects the Lambda backend to S3 so a function deployed from
-// a Code.S3Bucket/S3Key zip can actually fetch its code, instead of
-// startZipContainer always returning ErrLambdaUnavailable for S3-sourced
-// code. sfnbackend.NewS3Integration already adapts an s3.StorageBackend to
-// GetObjectBytes(ctx, bucket, key) -- the exact shape lambda.S3CodeFetcher
-// needs -- so it is reused here rather than writing a new adapter.
+// wireLambdaS3 lets Lambda fetch Zip code from S3 (Code.S3Bucket/S3Key, optionally S3ObjectVersion).
 func wireLambdaS3(lambdaReg, s3Reg service.Registerable) {
 	lambdaH, ok := lambdaReg.(*lambdabackend.Handler)
 	if !ok {
@@ -6971,7 +6994,7 @@ func wireLambdaS3(lambdaReg, s3Reg service.Registerable) {
 		return
 	}
 
-	lambdaBk.SetS3CodeFetcher(sfnbackend.NewS3Integration(s3H.Backend))
+	lambdaBk.SetS3CodeFetcher(lambdaS3Fetcher{backend: s3H.Backend})
 }
 
 // wireLambdaECR connects the Lambda backend to ECR so Code.ImageUri on an
@@ -12071,6 +12094,27 @@ func wireRDSData(dataReg, rdsReg, smReg service.Registerable) {
 	}
 
 	dataBk.WithRealEngine(&rdsDataResolver{handler: rdsH}, smBk)
+}
+
+// wireManagedMasterSecrets lets RDS and DocumentDB back ManageMasterUserPassword with real Secrets Manager secrets.
+func wireManagedMasterSecrets(byName map[string]service.Registerable) {
+	smH, ok := byName["SecretsManager"].(*secretsmanagerbackend.Handler)
+	if !ok {
+		return
+	}
+
+	smBk, ok := smH.Backend.(*secretsmanagerbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	if h, hok := byName["RDS"].(*rdsbackend.Handler); hok {
+		h.SetSecretsStore(smBk)
+	}
+
+	if h, hok := byName["DocDB"].(*docdbbackend.Handler); hok {
+		h.Backend.SetSecretsStore(smBk)
+	}
 }
 
 // wireRedshiftDNS sets the DNS registrar on the Redshift backend so that cluster

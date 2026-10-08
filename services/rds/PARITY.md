@@ -238,7 +238,7 @@ gaps: []
   # - [FIXED, prior pass] CreateCustomDBEngineVersion/ModifyCustomDBEngineVersion additionally serialized the description field under the wrong element name (`DatabaseInstallationFilesS3BucketName` instead of `DBEngineVersionDescription`) — see Notes.
 items_still_open:
   - "UNVERIFIABLE (gopherstack-1jkv): two different roles added to a cluster with FeatureName omitted on both coexist; the pinned SDK documents no collision rule."
-  - "OPEN 2026-10-03: ManageMasterUserPassword/MasterUserSecretKmsKeyId record a MasterUserSecret (ARN, status, KMS key) on instances, clusters and tenant databases, but no secret is created in services/secretsmanager (needs a sibling accessor wired from cli.go, outside this service), RotateMasterUserPassword is unread, and an unset MasterUserSecretKmsKeyId leaves KmsKeyId empty rather than the aws/secretsmanager key ARN."
+  - "UNVERIFIABLE: MasterUserSecret.KmsKeyId stays empty when MasterUserSecretKmsKeyId is unset; the pinned SDK does not state the default key's shape. Changing the key on a managed secret does not re-encrypt the Secrets Manager secret."
   - "UNVERIFIABLE: DescribeEngineDefaultParameters returns an empty Parameters list and DescribeDBEngineVersions character-set/timezone catalogs exist only for oracle-ee and sqlserver-se; the pinned SDK has no per-family default-parameter table or per-version catalog to source real values from."
 structural_gaps:
   - "With --rds-engine=docker, read replicas, restore-based instances, custom cluster endpoints, DBPortNumber changes and non-Postgres/MySQL/MariaDB engines stay metadata-only; restore relaunches empty containers."

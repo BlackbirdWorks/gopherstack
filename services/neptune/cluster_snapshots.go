@@ -85,6 +85,7 @@ func (b *InMemoryBackend) CreateDBClusterSnapshot(
 		SnapshotType:                     snapshotSourceManual,
 		SnapshotCreateTime:               nowISO8601(),
 		ClusterCreateTime:                cl.ClusterCreateTime,
+		VpcID:                            b.subnetGroupVpcID(region, cl.DBSubnetGroupName),
 	}
 	b.clusterSnapshotPut(snap)
 	b.recordEvent(region, snapshotID, sourceTypeDBClusterSnapshot, "DB cluster snapshot created", "backup")

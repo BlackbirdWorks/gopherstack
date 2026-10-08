@@ -61,6 +61,7 @@ type InMemoryBackend struct {
 	decisionQueues       map[string][]*DecisionTask             // key: domain+":"+taskList
 	tags                 map[string]map[string]string           // key: resourceARN
 	mu                   *lockmetrics.RWMutex
+	lambda               LambdaInvoker
 	executionOrder       []string // FIFO order of execution keys for eviction
 }
 

@@ -45,16 +45,8 @@ type conformancePackTemplate struct {
 // resources from a conformance pack's TemplateBody and returns the ConfigRule
 // values they deploy, sorted by logical ID for deterministic ordering.
 // TemplateBody is tried as JSON first (the common/fast case), falling back to
-// YAML (real AWS Config's documented alternative format -- "You can use a
-// YAML template...") via yamlToJSON when JSON decoding fails. TemplateS3Uri
-// and TemplateSSMDocumentDetails (the other two mutually-exclusive template
-// sources PutConformancePack accepts) are validated for presence by the
-// caller (see PutConformancePack) but deploy no rules here: fetching them
-// needs cross-service S3/SSM access this backend has no wiring for within
-// its edit boundary -- an honest gap (documented in PARITY.md), not a silent
-// misparse. An unparsable-as-either body also deploys zero rules rather than
-// erroring, matching PutConformancePack's existing "doesn't require a valid
-// template to succeed" behavior.
+// YAML (real AWS Config's documented alternative format) via yamlToJSON when JSON decoding fails. An unparsable
+// body deploys zero rules rather than erroring.
 func parseConformancePackConfigRules(
 	templateBody, packName string, params []ConformancePackInputParameter,
 ) []*ConfigRule {

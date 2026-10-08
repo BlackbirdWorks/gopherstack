@@ -123,7 +123,7 @@ gaps: []
 items_still_open:
   - "Introspection omits __Type.specifiedByURL and isOneOf, and ListTypes/GetType/ListTypesByAssociation ignore the SDL/JSON format parameter; the real per-type JSON shape is unverified. 2026-10-01."
   - "GetIntrospectionSchema returns an undeclared BadRequestException for an unknown format; no declared exception (GraphQLSchema/Internal/NotFound/Unauthorized) fits. 2026-10-01."
-  - "GraphqlApi dns and wafWebAclArn, and Api wafWebAclArn, are unmodeled: wafWebAclArn needs a wafv2 association lookup wired in cli.go (outside this directory) and the dns key set is unverified."
+  - "GraphqlApi dns and Api dns are unmodeled: the dns key set is unverified."
 structural_gaps:
   - "Resolver-level PIPELINE before-mapping (RequestMappingTemplate/Code `request`) is not evaluated; stash writes and short-circuit need a full VTL/JS runtime (gopherstack-ivwh). 2026-10-01."
   - "The APPSYNC_JS evaluator (jseval.go) supports only a documented literal/context/util.* subset (no control flow, bindings, or util.dynamodb.*) and returns ErrUnsupportedJSCode otherwise; real resolver execution needs a JS runtime. 2026-10-01."

@@ -62,7 +62,7 @@ func (b *InMemoryBackend) CreateDBCluster(
 		return nil, err
 	}
 
-	secret, err := b.createMasterSecret("cluster", opts.MasterSecretRequest, opts.MasterUserPassword)
+	secret, err := b.createMasterSecret("cluster", masterUser, opts.MasterSecretRequest, opts.MasterUserPassword)
 	if err != nil {
 		return nil, err
 	}
@@ -378,6 +378,7 @@ func (b *InMemoryBackend) DeleteDBClusterWithOptions(
 		}
 	}
 
+	b.releaseMasterSecret(cluster.MasterSecret)
 	b.clusters.Delete(normalizeID(id))
 	b.leaveGlobalClustersLocked(cp.DBClusterArn)
 	b.dropUnitLocked(unitKeyForCluster(canonicalID))
@@ -555,6 +556,7 @@ func (b *InMemoryBackend) ModifyDBCluster(
 	secret, err := b.updateMasterSecret(
 		cluster.MasterSecret,
 		"cluster",
+		cluster.MasterUsername,
 		opts.MasterSecretRequest,
 		opts.MasterUserPassword,
 	)
@@ -1191,7 +1193,7 @@ func (b *InMemoryBackend) RestoreDBClusterFromS3(
 	if _, exists := b.clusters.Get(normalizeID(id)); exists {
 		return nil, fmt.Errorf("%w: %s", ErrClusterAlreadyExists, id)
 	}
-	secret, err := b.createMasterSecret("cluster", opts.MasterSecretRequest, opts.MasterUserPassword)
+	secret, err := b.createMasterSecret("cluster", masterUsername, opts.MasterSecretRequest, opts.MasterUserPassword)
 	if err != nil {
 		return nil, err
 	}

@@ -62,10 +62,11 @@ const (
 
 // Handler is the Echo HTTP handler for IAM operations.
 type Handler struct {
-	Backend StorageBackend `json:"backend"`
-	actions map[string]iamActionFn
-	tags    map[string]*svcTags.Tags
-	tagsMu  *lockmetrics.RWMutex
+	Backend       StorageBackend `json:"backend"`
+	actions       map[string]iamActionFn
+	callerActions map[string]iamCallerActionFn
+	tags          map[string]*svcTags.Tags
+	tagsMu        *lockmetrics.RWMutex
 }
 
 // NewHandler creates a new IAM handler with the given storage backend.
@@ -76,6 +77,7 @@ func NewHandler(backend StorageBackend) *Handler {
 		tagsMu:  lockmetrics.New("iam.tags"),
 	}
 	h.actions = h.buildDispatchTable()
+	h.callerActions = h.iamDelegationCallerActions()
 
 	return h
 }
@@ -507,6 +509,9 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 type iamActionFn func(vals url.Values, reqID string) (any, error)
 
+// iamCallerActionFn is an action that needs the request context (caller identity).
+type iamCallerActionFn func(ctx context.Context, vals url.Values, reqID string) (any, error)
+
 // iamListTagsResult is the inner result element for ListRoleTags, ListPolicyTags, and ListUserTags.
 // The XMLName field is set dynamically per action to produce the correct element name.
 type iamListTagsResult struct {
@@ -572,11 +577,15 @@ func (h *Handler) buildDispatchTable() map[string]iamActionFn {
 
 // dispatch routes the IAM action to the appropriate handler.
 func (h *Handler) dispatch(
-	_ context.Context,
+	ctx context.Context,
 	action string,
 	vals url.Values,
 ) (any, error) {
 	reqID := newRequestID()
+
+	if cfn, ok := h.callerActions[action]; ok {
+		return cfn(ctx, vals, reqID)
+	}
 
 	fn, ok := h.actions[action]
 	if !ok {

@@ -30,6 +30,7 @@ func (h *Handler) EnableRegions() {
 	h.peers = regionpeers.New(home.region, func(region string) *Handler {
 		nb := NewInMemoryBackend(home.accountID, region, home.endpoint)
 		nb.lambdaFn = home.lambdaFn
+		nb.webACLs = home.webACLs
 		nb.ddbBackend = home.ddbBackend
 		nb.jwksProvider = home.jwksProvider
 		nb.sigv4Secret = home.sigv4Secret

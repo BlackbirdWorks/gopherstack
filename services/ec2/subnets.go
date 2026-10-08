@@ -101,6 +101,20 @@ func (b *InMemoryBackend) AssociateSubnetCidrBlock(
 	return assoc, nil
 }
 
+// SubnetHasIPv6Block reports whether subnetID has an associated IPv6 CIDR block.
+func (b *InMemoryBackend) SubnetHasIPv6Block(subnetID string) bool {
+	b.mu.RLock("SubnetHasIPv6Block")
+	defer b.mu.RUnlock()
+
+	for _, assoc := range b.subnetCIDRAssociations[subnetID] {
+		if assoc.State == stateAssociated {
+			return true
+		}
+	}
+
+	return false
+}
+
 // ---- DisassociateSubnetCidrBlock ----
 
 // DisassociateSubnetCidrBlock removes an IPv6 CIDR block association from a subnet.

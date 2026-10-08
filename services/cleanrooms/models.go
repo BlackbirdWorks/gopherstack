@@ -433,6 +433,7 @@ type SchemaSummary struct {
 // type's wire shape is currently unreachable in practice either way.
 type SchemaAnalysisRule struct {
 	Policy                  map[string]any `json:"policy,omitempty"`
+	CollaborationPolicy     map[string]any `json:"collaborationPolicy,omitempty"`
 	CollaborationArn        string         `json:"collaborationArn"`
 	CollaborationIdentifier string         `json:"-"`
 	CollaborationID         string         `json:"collaborationId"`

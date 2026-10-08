@@ -1353,6 +1353,8 @@ type Backend interface {
 	// CreateDefaultSubnetWithOptions adds the Ipv6Native flag.
 	CreateDefaultSubnetWithOptions(az string, ipv6Native bool) (*Subnet, error)
 	AssociateSubnetCidrBlock(subnetID, ipv6CIDRBlock string) (*SubnetCIDRAssociation, error)
+	// SubnetHasIPv6Block reports whether subnetID has an associated IPv6 CIDR block.
+	SubnetHasIPv6Block(subnetID string) bool
 	DisassociateSubnetCidrBlock(associationID string) (string, error)
 	AssociateSecurityGroupVpc(sgID, vpcID string) (*SGVpcAssociationState, error)
 	DisassociateSecurityGroupVpc(sgID, vpcID string) error

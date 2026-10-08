@@ -7,29 +7,11 @@ import (
 
 const conformancePackStateComplete = "CREATE_COMPLETE"
 
-// PutConformancePack creates or updates a conformance pack. Real AWS Config
-// accepts only one of TemplateBody, TemplateS3Uri, or
-// TemplateSSMDocumentDetails ("You must specify only one of the follow
-// parameters" -- PutConformancePackInput's doc comment); templateS3URI and
-// templateSSMDocumentName are the flattened presence-check for the latter
-// two (their contents are never fetched -- see parseConformancePackConfigRules
-// and PARITY.md's gaps). Specifying more than one is rejected; specifying
-// none is accepted (deploys zero rules) to match this codebase's existing
-// tests, which routinely call PutConformancePack with no template just to
-// establish a pack's existence for unrelated assertions -- the exact
-// zero-sources validation/message real AWS applies there is pre-existing
-// deferred scope (see PARITY.md), not fixed by this pass.
-//
-// When templateBody is a JSON or YAML CloudFormation-shaped template
-// containing AWS::Config::ConfigRule resources (see
-// conformance_pack_template.go), those rules are created/updated as real
-// config rules and linked to the pack, matching real AWS Config where a
-// conformance pack literally deploys managed config rules on the account --
-// this makes the compliance family (DescribeConformancePackCompliance et al.)
-// derivable from genuine per-rule evaluation state instead of an empty stub.
-// Updating an existing pack's template replaces its rule set: rules no longer
-// present in the new template are deleted along with their evaluations
-// (cascade), matching AWS's conformance-pack-update semantics.
+// PutConformancePack creates or updates a conformance pack from one of TemplateBody, TemplateS3Uri or
+// TemplateSSMDocumentDetails (the latter two are resolved to a body by the handler via
+// ResolveConformancePackTemplate). Specifying more than one is rejected; none deploys zero rules.
+// AWS::Config::ConfigRule resources in the template become config rules linked to the pack, and updating a pack
+// replaces its rule set, cascading deletes of rules no longer present.
 func (b *InMemoryBackend) PutConformancePack(
 	name, deliveryS3Bucket, deliveryS3KeyPrefix, templateBody, templateS3URI, templateSSMDocumentName string,
 	tags []Tag,
@@ -50,18 +32,8 @@ func (b *InMemoryBackend) PutConformancePackWithParams(
 		return "", fmt.Errorf("%w: ConformancePackName is required", ErrInvalidParameterValue)
 	}
 
-	sourceCount := 0
-	for _, set := range []bool{templateBody != "", templateS3URI != "", templateSSMDocumentName != ""} {
-		if set {
-			sourceCount++
-		}
-	}
-
-	if sourceCount > 1 {
-		return "", fmt.Errorf(
-			"%w: specify only one of TemplateBody, TemplateS3Uri, or TemplateSSMDocumentDetails",
-			ErrInvalidParameterValue,
-		)
+	if err := validateSingleTemplateSource(templateBody, templateS3URI, templateSSMDocumentName); err != nil {
+		return "", err
 	}
 
 	rules := parseConformancePackConfigRules(templateBody, name, params)
@@ -93,6 +65,24 @@ func (b *InMemoryBackend) PutConformancePackWithParams(
 	b.setResourceTagsLocked(arn, tags)
 
 	return arn, nil
+}
+
+func validateSingleTemplateSource(templateBody, templateS3URI, templateSSMDocumentName string) error {
+	sourceCount := 0
+	for _, set := range []bool{templateBody != "", templateS3URI != "", templateSSMDocumentName != ""} {
+		if set {
+			sourceCount++
+		}
+	}
+
+	if sourceCount > 1 {
+		return fmt.Errorf(
+			"%w: specify only one of TemplateBody, TemplateS3Uri, or TemplateSSMDocumentDetails",
+			ErrInvalidParameterValue,
+		)
+	}
+
+	return nil
 }
 
 // replacePackRulesLocked registers newRules as packName's deployed config

@@ -34,6 +34,9 @@ func (b *InMemoryBackend) CreateDBSubnetGroup(
 		DBSubnetGroupArn:         sgArn,
 		Tags:                     copyTags(tags),
 	}
+	if n := b.subnetGroupNetwork(ids); n.vpcID != "" {
+		sg.VpcID = n.vpcID
+	}
 	b.subnetGroupPut(sg)
 	if len(tags) > 0 {
 		b.tagsStore(region)[sgArn] = tagsFromMap(tags)
@@ -42,6 +45,7 @@ func (b *InMemoryBackend) CreateDBSubnetGroup(
 	cp.SubnetIDs = make([]string, len(ids))
 	copy(cp.SubnetIDs, ids)
 	cp.Tags = copyTags(sg.Tags)
+	b.decorateSubnetGroup(&cp)
 
 	return &cp, nil
 }
@@ -59,6 +63,7 @@ func (b *InMemoryBackend) DescribeDBSubnetGroups(ctx context.Context, name strin
 		cp.SubnetIDs = make([]string, len(sg.SubnetIDs))
 		copy(cp.SubnetIDs, sg.SubnetIDs)
 		cp.Tags = copyTags(sg.Tags)
+		b.decorateSubnetGroup(&cp)
 
 		return []DBSubnetGroup{cp}, nil
 	}
@@ -69,6 +74,7 @@ func (b *InMemoryBackend) DescribeDBSubnetGroups(ctx context.Context, name strin
 		cp.SubnetIDs = make([]string, len(sg.SubnetIDs))
 		copy(cp.SubnetIDs, sg.SubnetIDs)
 		cp.Tags = copyTags(sg.Tags)
+		b.decorateSubnetGroup(&cp)
 		result = append(result, cp)
 	}
 	sort.Slice(result, func(i, j int) bool {
@@ -124,11 +130,15 @@ func (b *InMemoryBackend) ModifyDBSubnetGroup(
 		ids := make([]string, len(subnetIDs))
 		copy(ids, subnetIDs)
 		sg.SubnetIDs = ids
+		if n := b.subnetGroupNetwork(ids); n.vpcID != "" {
+			sg.VpcID = n.vpcID
+		}
 	}
 	cp := *sg
 	cp.SubnetIDs = make([]string, len(sg.SubnetIDs))
 	copy(cp.SubnetIDs, sg.SubnetIDs)
 	cp.Tags = copyTags(sg.Tags)
+	b.decorateSubnetGroup(&cp)
 
 	return &cp, nil
 }

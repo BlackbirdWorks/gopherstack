@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 38 (38 ok) |
 | Feature families | 6 (6 ok) |
-| Known gaps | 3 |
+| Known gaps | 2 |
 | Structural gaps (can't be emulated) | 3 |
 | Deferred items | 0 |
 | Resource leaks | clean |
@@ -18,7 +18,6 @@
 
 - AcquireRole's List-parameter join format is undocumented in the SDK and AWS docs (unverifiable).
 - Policy simulation: MatchedStatements Start/EndPosition line/column convention and SourcePolicyType mapping are undocumented (SDK says only 'row and column'; unverifiable). OrganizationsDecisionDetail needs an SCP model; top-level EvalResourceName stays '*'.
-- ListDelegationRequests OwnerId filter and DelegationRequest ApproverId/OwnerId/RequestorId: need caller-ARN plumbing into handlers and undocumented owner/approver semantics (unverifiable).
 
 ### Structural gaps
 

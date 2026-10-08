@@ -312,7 +312,7 @@ func (b *InMemoryBackend) RestoreDBInstanceFromDBSnapshot(
 		}
 
 		var secret MasterSecret
-		if secret, err = b.createMasterSecret("db", opts.MasterSecretRequest, ""); err != nil {
+		if secret, err = b.createMasterSecret("db", "", opts.MasterSecretRequest, ""); err != nil {
 			return
 		}
 

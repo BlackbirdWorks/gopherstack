@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -24,6 +25,7 @@ type Reconciler struct {
 	backend  *InMemoryBackend
 	sems     map[string]chan struct{} // per-cluster launch semaphore
 	semMu    sync.Mutex
+	sampling atomic.Bool
 	interval time.Duration
 }
 
@@ -99,6 +101,8 @@ func (r *Reconciler) reconcile(ctx context.Context, log *slog.Logger) {
 	// Advance any tasks that are moving through observable intermediate
 	// lifecycle states (stop/start pipelines) before reconciling desired counts.
 	r.backend.stepTaskLifecycle(time.Now())
+	r.backend.stopELBUnhealthyTasks(ctx)
+	r.sampleUtilization(ctx)
 
 	snapshots := r.backend.getServicesForReconciler()
 

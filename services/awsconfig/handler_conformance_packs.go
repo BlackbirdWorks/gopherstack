@@ -124,11 +124,27 @@ type putConformancePackOutput struct {
 }
 
 func (h *Handler) handlePutConformancePack(
-	_ context.Context, in *putConformancePackInput,
+	ctx context.Context, in *putConformancePackInput,
 ) (*putConformancePackOutput, error) {
-	ssmDocName := ""
+	ssmDocName, ssmDocVersion := "", ""
 	if in.TemplateSSMDocumentDetails != nil {
 		ssmDocName = in.TemplateSSMDocumentDetails.DocumentName
+		ssmDocVersion = in.TemplateSSMDocumentDetails.DocumentVersion
+	}
+
+	if err := validateSingleTemplateSource(in.TemplateBody, in.TemplateS3Uri, ssmDocName); err != nil {
+		return nil, err
+	}
+
+	if in.TemplateBody == "" {
+		body, err := h.Backend.ResolveConformancePackTemplate(ctx, in.TemplateS3Uri, ssmDocName, ssmDocVersion)
+		if err != nil {
+			return nil, err
+		}
+
+		if body != "" {
+			in.TemplateBody, in.TemplateS3Uri, ssmDocName = body, "", ""
+		}
 	}
 
 	arn, err := h.Backend.PutConformancePackWithParams(

@@ -260,12 +260,7 @@ type DBSubnetGroup struct {
 	VpcID                    string   `json:"VpcID"`
 	Status                   string   `json:"Status"`
 	SubnetIDs                []string `json:"SubnetIDs"`
-	// SupportedNetworkTypes is real AWS's derived set of IPV4/DUAL values a
-	// group supports, computed server-side from each subnet's IPv4/IPv6 CIDR
-	// blocks (neptune@v1.48.4 types/types.go:945). This backend tracks
-	// subnets only as opaque ID strings (no CIDR data), so it has no basis to
-	// compute a real value; left permanently empty rather than inventing a
-	// capability list (never populated -- see PARITY.md).
+	// SupportedNetworkTypes is derived from EC2 subnets on read and never stored.
 	SupportedNetworkTypes []string `json:"SupportedNetworkTypes,omitempty"`
 }
 

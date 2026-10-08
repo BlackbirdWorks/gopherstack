@@ -18,6 +18,11 @@ import (
 // regionContextKey is the context key under which the per-request AWS region is stored.
 type regionContextKey struct{}
 
+// WithRegion scopes backend calls to an AWS region.
+func WithRegion(ctx context.Context, region string) context.Context {
+	return context.WithValue(ctx, regionContextKey{}, region)
+}
+
 // getRegion extracts the region from ctx, falling back to defaultRegion when unset.
 //
 // Directory Service resources are isolated per region: every backend operation

@@ -117,9 +117,10 @@ func permissionFromSnapshot(p *permissionSnapshot) *FunctionPermission {
 // FunctionConfiguration field therefore flows through unmodified without
 // needing to be hand-copied here.
 type functionConfigurationSnapshot struct {
-	CreatedAt    time.Time `json:"createdAt,omitzero"`
-	S3BucketCode string    `json:"s3BucketCode,omitempty"`
-	S3KeyCode    string    `json:"s3KeyCode,omitempty"`
+	CreatedAt           time.Time `json:"createdAt,omitzero"`
+	S3BucketCode        string    `json:"s3BucketCode,omitempty"`
+	S3KeyCode           string    `json:"s3KeyCode,omitempty"`
+	S3ObjectVersionCode string    `json:"s3ObjectVersionCode,omitempty"`
 	FunctionConfiguration
 }
 
@@ -136,6 +137,7 @@ func toFunctionConfigurationSnapshot(fn *FunctionConfiguration) *functionConfigu
 		CreatedAt:             fn.CreatedAt,
 		S3BucketCode:          fn.S3BucketCode,
 		S3KeyCode:             fn.S3KeyCode,
+		S3ObjectVersionCode:   fn.S3ObjectVersionCode,
 	}
 }
 
@@ -144,6 +146,7 @@ func fromFunctionConfigurationSnapshot(v *functionConfigurationSnapshot) *Functi
 	fn.CreatedAt = v.CreatedAt
 	fn.S3BucketCode = v.S3BucketCode
 	fn.S3KeyCode = v.S3KeyCode
+	fn.S3ObjectVersionCode = v.S3ObjectVersionCode
 
 	return &fn
 }

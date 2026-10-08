@@ -159,6 +159,14 @@ type requestCancelExternalWorkflowExecutionDecisionAttrs struct {
 	Control    string `json:"control,omitempty"`
 }
 
+type scheduleLambdaFunctionDecisionAttrs struct {
+	ID                  string `json:"id"`
+	Name                string `json:"name"`
+	Control             string `json:"control,omitempty"`
+	Input               string `json:"input,omitempty"`
+	StartToCloseTimeout string `json:"startToCloseTimeout,omitempty"`
+}
+
 //nolint:lll // AWS API field names exceed 120 chars; cannot shorten JSON tags
 type decisionInput struct {
 	CompleteWorkflowExecutionDecisionAttributes              *completeWorkflowDecisionAttrs                       `json:"completeWorkflowExecutionDecisionAttributes,omitempty"`
@@ -169,6 +177,7 @@ type decisionInput struct {
 	StartTimerDecisionAttributes                             *startTimerDecisionAttrs                             `json:"startTimerDecisionAttributes,omitempty"`
 	CancelTimerDecisionAttributes                            *cancelTimerDecisionAttrs                            `json:"cancelTimerDecisionAttributes,omitempty"`
 	RecordMarkerDecisionAttributes                           *recordMarkerDecisionAttrs                           `json:"recordMarkerDecisionAttributes,omitempty"`
+	ScheduleLambdaFunctionDecisionAttributes                 *scheduleLambdaFunctionDecisionAttrs                 `json:"scheduleLambdaFunctionDecisionAttributes,omitempty"`
 	ContinueAsNewWorkflowExecutionDecisionAttributes         *continueAsNewWorkflowDecisionAttrs                  `json:"continueAsNewWorkflowExecutionDecisionAttributes,omitempty"`
 	StartChildWorkflowExecutionDecisionAttributes            *startChildWorkflowExecutionDecisionAttrs            `json:"startChildWorkflowExecutionDecisionAttributes,omitempty"`
 	SignalExternalWorkflowExecutionDecisionAttributes        *signalExternalWorkflowExecutionDecisionAttrs        `json:"signalExternalWorkflowExecutionDecisionAttributes,omitempty"`
@@ -245,6 +254,11 @@ func convertDecisionTaskAttrs(d decisionInput, dec *Decision) {
 	if d.CancelTimerDecisionAttributes != nil {
 		dec.CancelTimerAttrs = &CancelTimerDecisionAttrs{
 			TimerID: d.CancelTimerDecisionAttributes.TimerID,
+		}
+	}
+	if sl := d.ScheduleLambdaFunctionDecisionAttributes; sl != nil {
+		dec.ScheduleLambdaFunctionAttrs = &ScheduleLambdaFunctionDecisionAttrs{
+			ID: sl.ID, Name: sl.Name, Control: sl.Control, Input: sl.Input, StartToCloseTimeout: sl.StartToCloseTimeout,
 		}
 	}
 	if d.RecordMarkerDecisionAttributes != nil {

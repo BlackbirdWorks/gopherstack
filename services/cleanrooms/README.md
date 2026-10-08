@@ -8,14 +8,10 @@
 | Metric | Value |
 | --- | --- |
 | Feature families | 17 (17 ok) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 5 |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- Schemas are never created: Schema.columns need each column's SQL type, which comes from the Glue table, and no Glue accessor is wired into this service (cli.go wiring outside it). GetSchema/ListSchemas/BatchGetSchema stay empty and SchemaAnalysisRule is unreachable for the same reason.
 
 ### Structural gaps
 

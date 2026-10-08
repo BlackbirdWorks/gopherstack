@@ -52,6 +52,10 @@ func (b *InMemoryBackend) CreateCapacityProvider(
 		return nil, fmt.Errorf("%w: capacity provider %s already exists", ErrInvalidParameter, input.Name)
 	}
 
+	if err := b.validateAutoScalingGroupLocked(input.AutoScalingGroupProvider); err != nil {
+		return nil, err
+	}
+
 	cp := &CapacityProvider{
 		CreatedAt: time.Now(),
 		CapacityProviderArn: fmt.Sprintf(

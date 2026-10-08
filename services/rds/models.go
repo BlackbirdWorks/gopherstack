@@ -835,6 +835,7 @@ type DBClusterOptions struct {
 type InMemoryBackend struct {
 	engine                    *dbEngine
 	dnsRegistrar              DNSRegistrar
+	secrets                   SecretsStore
 	registry                  *store.Registry
 	snapshotAttributes        *store.Table[DBSnapshotAttributesResult]
 	reservedInstances         *store.Table[ReservedDBInstance]

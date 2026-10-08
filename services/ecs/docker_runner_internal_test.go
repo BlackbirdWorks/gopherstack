@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -31,6 +32,7 @@ var (
 // It assigns sequential IDs to created containers and records all operations.
 type fakeDockerClient struct {
 	containerLogs          map[string][]byte
+	stats                  map[string]string
 	waitResult             chan dockertypes.WaitResponse
 	startErrOnID           string
 	stopErrOnID            string
@@ -144,6 +146,19 @@ func (r *ctxAwareReadCloser) Read(_ []byte) (int, error) {
 }
 
 func (r *ctxAwareReadCloser) Close() error { return nil }
+
+// ContainerStats returns the canned JSON sample registered for containerID.
+func (f *fakeDockerClient) ContainerStats(_ context.Context, containerID string) (io.ReadCloser, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	body, ok := f.stats[containerID]
+	if !ok {
+		return nil, fs.ErrNotExist
+	}
+
+	return io.NopCloser(strings.NewReader(body)), nil
+}
 
 // ContainerWait delivers f.waitResult to the caller once sent, or blocks
 // until ctx is done if waitResult is nil (a container that never exits on its

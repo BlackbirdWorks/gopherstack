@@ -226,11 +226,11 @@ type StorageBackend interface {
 
 	// Delegation Requests
 	CreateDelegationRequest(req CreateDelegationRequestInput) (*DelegationRequest, error)
-	AcceptDelegationRequest(delegationID string) error
-	AssociateDelegationRequest(delegationID string) error
+	AcceptDelegationRequest(delegationID, approverARN string) error
+	AssociateDelegationRequest(delegationID, callerARN, callerAccount string) error
 	DelegationRequestExists(delegationID string) bool
 	GetDelegationRequest(delegationID string) (*DelegationRequest, error)
-	ListDelegationRequests(marker string, maxItems int) (page.Page[DelegationRequest], error)
+	ListDelegationRequests(marker string, maxItems int, ownerID string) (page.Page[DelegationRequest], error)
 	RejectDelegationRequest(delegationID, notes string) error
 	SendDelegationToken(delegationID string) error
 	UpdateDelegationRequest(delegationID, notes string) error

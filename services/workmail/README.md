@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 92 (88 ok, 2 partial, 2 deferred) |
 | Feature families | 3 (3 ok) |
-| Known gaps | 3 |
+| Known gaps | 2 |
 | Structural gaps (can't be emulated) | 3 |
 | Deferred items | 0 |
 | Resource leaks | fixed |
@@ -18,7 +18,6 @@
 
 - LimitExceededException (gopherstack-gmny): only CreateAlias (100 per user) and RegisterMailDomain (1000 per org) have published, non-adjustable quotas (docs-sourced, enforced). CreateOrganization's quota is adjustable; CreateAvailabilityConfiguration, CreateImpersonationRole, CreateMobileDeviceAccessRule, PutAccessControlRule, PutRetentionPolicy, StartMailboxExportJob and UpdateImpersonationRole publish no number anywhere, so they are not enforced.
 - DeleteOrganization.ForceDelete is not applied: the SDK says only "even if the organization has enabled users" and does not name the error a non-forced delete raises (OrganizationStateException is a guess), so that precondition is not enforced.
-- DeleteOrganization.DeleteDirectory is not applied: deleting the directory means calling services/directoryservice, which needs wiring in cli.go outside this package.
 
 ### Structural gaps
 

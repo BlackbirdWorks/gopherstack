@@ -746,7 +746,6 @@ gaps: []
 
 
 items_still_open:
-  - "Channel.Vpc response-side availabilityZones/networkInterfaceIds are omitted: they need a services/ec2 resolver (subnet AZ lookup plus ENI creation) wired in cli.go, which was outside this pass's file scope."
   - "ListOfferings ChannelConfiguration (match a channel's configuration) and the CW/EB template-group Scope filter are unimplemented: the pinned SDK says only 'match the configuration of an existing channel' and 'all scopes, AWS provided resources, or local resources' (no matching rules, no wire enum), so any filter would invent the vocabulary. ChannelClass filters ListOfferings/ListReservations over ResourceSpecification.ChannelClass, which no seeded offering sets (real catalog values unknown)."
   - "Cluster/Node/SignalMap/Batch state and error rules beyond the SDK-documented ones now enforced (DeleteCluster/DeleteNode require idle, UpdateNodeState ACTIVE|DRAINING) are not documented in the pinned SDK (e.g. signal-map name conflicts, group-identifier existence checks, async monitor-deployment progress), so they cannot be verified."
 structural_gaps:

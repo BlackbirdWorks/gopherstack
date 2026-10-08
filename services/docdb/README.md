@@ -9,17 +9,16 @@
 | --- | --- |
 | PARITY entries audited | 55 (55 ok) |
 | Feature families | 9 (9 ok) |
-| Known gaps | 4 |
+| Known gaps | 3 |
 | Structural gaps (can't be emulated) | 4 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- OPEN 2026-10-03: ManageMasterUserPassword/MasterUserSecretKmsKeyId record MasterUserSecret on the cluster but create no secret in services/secretsmanager (needs cli.go sibling wiring outside this service), RotateMasterUserPassword is unread, and an unset key leaves KmsKeyId empty.
+- UNVERIFIABLE: MasterUserSecret.KmsKeyId stays empty when MasterUserSecretKmsKeyId is unset; the pinned SDK does not state the default key's shape. Changing the key on a managed secret does not re-encrypt the Secrets Manager secret.
 - Error code InvalidParameterCombination is used for a major EngineVersion change without AllowMajorVersionUpgrade, for copy-on-write with RestoreToTime and for AllowDataLoss with Switchover: the pinned SDK documents the constraints but no error code, so the code is unverified against real AWS.
 - UNVERIFIABLE: DescribeDBEngineVersions ValidUpgradeTarget (which version pairs are upgradable is not in the SDK), ListSupportedCharacterSets/ListSupportedTimezones (no catalog), DescribeOrderableDBInstanceOptions LicenseModel filter (no documented value), DBCluster IOOptimizedNextAllowedModificationTime (SDK states no interval), CloneGroupId (no documented format), Parameter AllowedValues/MinimumEngineVersion and Certificate.CertificateArn (no authoritative catalog or ARN format).
-- DBSubnetGroup VpcId/SupportedNetworkTypes and DBClusterSnapshot.VpcId stay empty: CreateDBSubnetGroupInput has no VpcId and resolving subnet-to-VPC needs an EC2 accessor wired from cli.go, outside this service.
 
 ### Structural gaps
 

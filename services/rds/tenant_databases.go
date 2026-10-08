@@ -43,7 +43,7 @@ func (b *InMemoryBackend) CreateTenantDatabaseWithSecret(
 		)
 	}
 
-	secret, err := b.createMasterSecret("db", req, masterPassword)
+	secret, err := b.createMasterSecret("db", masterUsername, req, masterPassword)
 	if err != nil {
 		return nil, err
 	}
@@ -106,6 +106,7 @@ func (b *InMemoryBackend) DeleteTenantDatabase(
 
 	cp := *tdb
 	cp.Status = tenantStatusDeletingInternal
+	b.releaseMasterSecret(tdb.MasterSecret)
 	b.tenantDatabases.Delete(key)
 
 	return &cp, nil
@@ -242,7 +243,7 @@ func (b *InMemoryBackend) ModifyTenantDatabaseWithSecret(
 		return nil, fmt.Errorf("%w: %s/%s", ErrTenantDatabaseNotFound, instanceID, tenantDBName)
 	}
 
-	secret, err := b.updateMasterSecret(tdb.MasterSecret, "db", req, masterPassword)
+	secret, err := b.updateMasterSecret(tdb.MasterSecret, "db", tdb.MasterUsername, req, masterPassword)
 	if err != nil {
 		return nil, err
 	}

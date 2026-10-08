@@ -127,8 +127,7 @@ families:
   Tags: {status: ok, note: "CRUD + ARN validation (fixed prior pass) re-verified; no change this pass"}
   RouteMatcher/classifyPath: {status: ok, note: "no change this pass; prior pass's GetCollaborationAnalysisTemplate routing fix re-verified via handler_route_matcher_test.go. 2026-08-13 (gopherstack-jqh2 pass 2): re-extracted all 100 ops' real method+path from cleanrooms@v1.49.4 serializers.go independently and confirmed handler_route_matcher_test.go's TestRouteMatcher_MethodSensitivity already covers every op exactly once with the correct method/path (including the two ARN-embeds-slashes special cases, GetCollaborationAnalysisTemplate and the /tags/{arn} family) -- this IS the SDK-route-fidelity table this audit's method calls for; no duplicate added, per the sesv2 precedent."}
 gaps: []
-items_still_open:
-  - "Schemas are never created: Schema.columns need each column's SQL type, which comes from the Glue table, and no Glue accessor is wired into this service (cli.go wiring outside it). GetSchema/ListSchemas/BatchGetSchema stay empty and SchemaAnalysisRule is unreachable for the same reason."
+items_still_open: []
 structural_gaps:
   - "Privacy budgets: no query-time consumption (remainingCount always equals maxCount) and no ACCESS_BUDGET type; needs a real differential-privacy query engine, so ProtectedQuery/Job differentialPrivacy is also unmodeled."
   - "AnalysisTemplate sourceMetadata and validations are server-derived from artifacts/ML analysis that nothing here computes."

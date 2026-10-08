@@ -104,6 +104,7 @@ func toXMLSubnetGroup(sg *DBSubnetGroup) xmlDBSubnetGroup {
 		DBSubnetGroupArn:         sg.DBSubnetGroupArn,
 		DBSubnetGroupDescription: sg.DBSubnetGroupDescription,
 		VpcID:                    sg.VpcID,
+		SupportedNetworkTypes:    networkTypesXML(sg.SupportedNetworkTypes),
 		SubnetGroupStatus:        sg.Status,
 		Subnets:                  xmlSubnetList{Members: subnetMembers},
 	}

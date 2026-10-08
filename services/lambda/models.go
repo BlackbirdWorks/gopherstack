@@ -61,10 +61,11 @@ const (
 // For Image package type, only ImageUri is used.
 // For Zip package type, either ZipFile (inline base64) or S3Bucket+S3Key is used.
 type FunctionCode struct {
-	ImageURI string `json:"ImageUri,omitempty"`
-	S3Bucket string `json:"S3Bucket,omitempty"`
-	S3Key    string `json:"S3Key,omitempty"`
-	ZipFile  []byte `json:"ZipFile,omitempty"`
+	ImageURI        string `json:"ImageUri,omitempty"`
+	S3Bucket        string `json:"S3Bucket,omitempty"`
+	S3Key           string `json:"S3Key,omitempty"`
+	S3ObjectVersion string `json:"S3ObjectVersion,omitempty"`
+	ZipFile         []byte `json:"ZipFile,omitempty"`
 }
 
 // FunctionLayer holds a layer reference attached to a Lambda function.
@@ -147,6 +148,7 @@ type FunctionConfiguration struct {
 	CodeSha256          string              `json:"CodeSha256,omitempty"`
 	S3BucketCode        string              `json:"-"`
 	S3KeyCode           string              `json:"-"`
+	S3ObjectVersionCode string              `json:"-"`
 	S3ObjectStorageMode string              `json:"-"`
 	Handler             string              `json:"Handler,omitempty"`
 	Version             string              `json:"Version,omitempty"`
@@ -280,6 +282,7 @@ type UpdateFunctionCodeInput struct {
 	ImageURI            string   `json:"ImageUri,omitempty"`
 	S3Bucket            string   `json:"S3Bucket,omitempty"`
 	S3Key               string   `json:"S3Key,omitempty"`
+	S3ObjectVersion     string   `json:"S3ObjectVersion,omitempty"`
 	RevisionID          *string  `json:"RevisionId,omitempty"`
 	S3ObjectStorageMode string   `json:"S3ObjectStorageMode,omitempty"`
 	Architectures       []string `json:"Architectures,omitempty"`
@@ -334,8 +337,9 @@ type FunctionCodeLocation struct {
 // S3ObjectStorageMode is REFERENCE (Lambda references the object in place
 // rather than uploading its own copy).
 type ResolvedS3Object struct {
-	S3Bucket string `json:"S3Bucket,omitempty"`
-	S3Key    string `json:"S3Key,omitempty"`
+	S3Bucket        string `json:"S3Bucket,omitempty"`
+	S3Key           string `json:"S3Key,omitempty"`
+	S3ObjectVersion string `json:"S3ObjectVersion,omitempty"`
 }
 
 // ListFunctionsOutput is the response for ListFunctions.

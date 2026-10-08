@@ -137,6 +137,9 @@ func (b *InMemoryBackend) CreateDBCluster(
 	if b.clusterHas(region, id) {
 		return nil, fmt.Errorf("%w: cluster %s already exists", ErrClusterAlreadyExists, id)
 	}
+	if err = b.checkNetworkType(region, opts.NetworkType, opts.DBSubnetGroupName); err != nil {
+		return nil, err
+	}
 	cluster := b.buildNewCluster(region, id, paramGroupName, port, backupRetention, opts)
 	if opts.GlobalClusterIdentifier != "" {
 		if attachErr := b.attachClusterToGlobalClusterLocked(
@@ -380,6 +383,7 @@ func (b *InMemoryBackend) DeleteDBCluster(
 				Port:                             c.Port,
 				PercentProgress:                  percentProgressComplete,
 				AllocatedStorage:                 c.AllocatedStorage,
+				VpcID:                            b.subnetGroupVpcID(region, c.DBSubnetGroupName),
 				SnapshotType:                     snapshotSourceManual,
 				SnapshotCreateTime:               nowISO8601(),
 				ClusterCreateTime:                c.ClusterCreateTime,
@@ -470,6 +474,9 @@ func (b *InMemoryBackend) ModifyDBCluster(
 	c.EnabledCloudwatchLogsExports = applyLogTypes(
 		c.EnabledCloudwatchLogsExports, opts.EnableLogTypes, opts.DisableLogTypes,
 	)
+	if err := b.checkNetworkType(region, opts.NetworkType, c.DBSubnetGroupName); err != nil {
+		return nil, err
+	}
 	applyClusterScalarModifications(c, opts)
 	if err := applyClusterBackupRetention(c, opts); err != nil {
 		return nil, err
@@ -887,6 +894,9 @@ func (b *InMemoryBackend) RestoreDBClusterFromSnapshot(
 			"%w: subnet group %s not found", ErrSubnetGroupNotFound, opts.DBSubnetGroupName,
 		)
 	}
+	if err := b.checkNetworkType(region, opts.NetworkType, opts.DBSubnetGroupName); err != nil {
+		return nil, err
+	}
 	// Derive parameter group from the source cluster if available.
 	paramGroupName := pgFamilyDefaultNeptune13
 	if srcCluster, ok := b.clusterGet(region, snap.DBClusterIdentifier); ok {
@@ -1025,6 +1035,9 @@ func (b *InMemoryBackend) RestoreDBClusterToPointInTime(
 		return nil, fmt.Errorf(
 			"%w: subnet group %s not found", ErrSubnetGroupNotFound, opts.DBSubnetGroupName,
 		)
+	}
+	if err := b.checkNetworkType(region, opts.NetworkType, opts.DBSubnetGroupName); err != nil {
+		return nil, err
 	}
 	src, srcExists := b.clusterGet(region, srcClusterID)
 	if !srcExists {

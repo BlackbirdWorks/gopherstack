@@ -67,6 +67,7 @@ type InMemoryBackend struct {
 	schemasByCollaboration *store.Index[Schema]
 
 	schemaAnalysisRules *store.Table[SchemaAnalysisRule]
+	glue                GlueTableReader
 
 	protectedQueries             *store.Table[ProtectedQuery]
 	protectedQueriesByMembership *store.Index[ProtectedQuery]

@@ -721,6 +721,7 @@ func (h *Handler) applyZipCodeUpdate(c *echo.Context, fn *FunctionConfiguration,
 	fn.ZipData = input.ZipFile
 	fn.S3BucketCode = input.S3Bucket
 	fn.S3KeyCode = input.S3Key
+	fn.S3ObjectVersionCode = input.S3ObjectVersion
 
 	storageMode := input.S3ObjectStorageMode
 	if storageMode == "" {
@@ -974,7 +975,9 @@ func buildCodeLocation(fn *FunctionConfiguration) *FunctionCodeLocation {
 			loc.Location = fmt.Sprintf("s3://%s/%s", fn.S3BucketCode, fn.S3KeyCode)
 
 			if fn.S3ObjectStorageMode == "REFERENCE" {
-				loc.ResolvedS3Object = &ResolvedS3Object{S3Bucket: fn.S3BucketCode, S3Key: fn.S3KeyCode}
+				loc.ResolvedS3Object = &ResolvedS3Object{
+					S3Bucket: fn.S3BucketCode, S3Key: fn.S3KeyCode, S3ObjectVersion: fn.S3ObjectVersionCode,
+				}
 			}
 		}
 
@@ -1124,6 +1127,7 @@ func (h *Handler) newFunctionConfiguration(
 		ZipData:                input.Code.ZipFile,
 		S3BucketCode:           input.Code.S3Bucket,
 		S3KeyCode:              input.Code.S3Key,
+		S3ObjectVersionCode:    input.Code.S3ObjectVersion,
 	}
 }
 

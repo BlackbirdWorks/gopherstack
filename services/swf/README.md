@@ -9,13 +9,9 @@
 | --- | --- |
 | PARITY entries audited | 39 (37 ok, 2 partial) |
 | Feature families | 3 (2 ok, 1 partial) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- ScheduleLambdaFunction decision type and openLambdaFunctions are not implemented: needs a Lambda invoker interface plus cli.go wiring (the codepipeline/firehose LambdaInvoker pattern) and an async invoke path; cli.go is outside the 2026-10-07 pass scope.
 
 ## More
 

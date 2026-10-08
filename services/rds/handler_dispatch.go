@@ -22,6 +22,7 @@ type Handler struct {
 	backends      map[string]*InMemoryBackend
 	handlers      map[string]*Handler
 	accountID     string
+	secretsStore  SecretsStore
 	defaultRegion string
 	mu            sync.Mutex
 }
@@ -53,6 +54,9 @@ func (h *Handler) getHandlerForRegion(region string) *Handler {
 		return handler
 	}
 	backend := NewInMemoryBackend(h.accountID, region)
+	if h.secretsStore != nil {
+		backend.SetSecretsStore(h.secretsStore)
+	}
 	h.backends[region] = backend
 	handler := &Handler{Backend: backend}
 	h.handlers[region] = handler
@@ -944,5 +948,23 @@ func (h *Handler) dispatchExtended15(action string, vals url.Values) (any, error
 		return h.handleGetPerformanceInsightsMetricsReal(vals)
 	default:
 		return h.dispatchExtended16(action, vals)
+	}
+}
+
+// SetSecretsStore wires the Secrets Manager accessor on the home backend and every region backend,
+// including ones created later.
+func (h *Handler) SetSecretsStore(s SecretsStore) {
+	h.mu.Lock()
+	h.secretsStore = s
+	backends := make([]*InMemoryBackend, 0, len(h.backends)+1)
+	backends = append(backends, h.Backend)
+
+	for _, b := range h.backends {
+		backends = append(backends, b)
+	}
+	h.mu.Unlock()
+
+	for _, b := range backends {
+		b.SetSecretsStore(s)
 	}
 }

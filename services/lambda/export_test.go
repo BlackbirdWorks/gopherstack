@@ -630,3 +630,11 @@ func EmitInvocationMetricsForTest(
 ) {
 	b.emitInvocationMetrics(name, qualifier, version, time.Duration(elapsedMillis)*time.Millisecond, failed)
 }
+
+// FetchS3CodeForTest exposes fetchS3Code for unit tests.
+func FetchS3CodeForTest(ctx context.Context, b *InMemoryBackend, bucket, key, version string) ([]byte, error) {
+	return b.fetchS3Code(
+		ctx,
+		&FunctionConfiguration{S3BucketCode: bucket, S3KeyCode: key, S3ObjectVersionCode: version},
+	)
+}

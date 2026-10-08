@@ -151,7 +151,6 @@ structural_gaps:
 items_still_open:
   - "AcquireRole's List-parameter join format is undocumented in the SDK and AWS docs (unverifiable)."
   - "Policy simulation: MatchedStatements Start/EndPosition line/column convention and SourcePolicyType mapping are undocumented (SDK says only 'row and column'; unverifiable). OrganizationsDecisionDetail needs an SCP model; top-level EvalResourceName stays '*'."
-  - "ListDelegationRequests OwnerId filter and DelegationRequest ApproverId/OwnerId/RequestorId: need caller-ARN plumbing into handlers and undocumented owner/approver semantics (unverifiable)."
 ---
 
 ## Notes

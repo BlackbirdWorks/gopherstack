@@ -72,6 +72,12 @@ type S3CodeFetcher interface {
 	GetObjectBytes(ctx context.Context, bucket, key string) ([]byte, error)
 }
 
+// S3VersionedCodeFetcher is the optional extension of S3CodeFetcher for functions deployed from a specific
+// S3 object version (Code.S3ObjectVersion).
+type S3VersionedCodeFetcher interface {
+	GetObjectVersionBytes(ctx context.Context, bucket, key, versionID string) ([]byte, error)
+}
+
 // CWLogsBackend is the minimum CloudWatch Logs interface needed by Lambda for log delivery.
 type CWLogsBackend interface {
 	EnsureLogGroupAndStream(groupName, streamName string) error

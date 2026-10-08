@@ -142,6 +142,41 @@ func (b *InMemoryBackend) CreateSecret(ctx context.Context, input *CreateSecretI
 		return nil, err
 	}
 
+	return b.createSecret(ctx, input)
+}
+
+// CreateManagedSecret creates a service-owned secret (e.g. "rds!cluster-<uuid>") whose name bypasses the
+// public-name pattern, and returns its ARN.
+func (b *InMemoryBackend) CreateManagedSecret(region, name, kmsKeyID, secretString string) (string, error) {
+	out, err := b.createSecret(WithRegion(context.Background(), region), &CreateSecretInput{
+		Name: name, KmsKeyID: kmsKeyID, SecretString: secretString, Region: region,
+	})
+	if err != nil {
+		return "", err
+	}
+
+	return out.ARN, nil
+}
+
+// PutManagedSecretValue writes a new current value to a service-owned secret by ARN.
+func (b *InMemoryBackend) PutManagedSecretValue(region, secretARN, secretString string) error {
+	_, err := b.PutSecretValue(WithRegion(context.Background(), region), &PutSecretValueInput{
+		SecretID: secretARN, SecretString: secretString,
+	})
+
+	return err
+}
+
+// DeleteManagedSecret permanently removes a service-owned secret by ARN.
+func (b *InMemoryBackend) DeleteManagedSecret(region, secretARN string) error {
+	_, err := b.DeleteSecret(WithRegion(context.Background(), region), &DeleteSecretInput{
+		SecretID: secretARN, ForceDeleteWithoutRecovery: true,
+	})
+
+	return err
+}
+
+func (b *InMemoryBackend) createSecret(ctx context.Context, input *CreateSecretInput) (*CreateSecretOutput, error) {
 	if input.SecretString != "" && len(input.SecretBinary) > 0 {
 		return nil, fmt.Errorf(
 			"%w: you must provide either SecretString or SecretBinary, but not both",

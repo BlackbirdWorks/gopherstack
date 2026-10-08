@@ -134,7 +134,6 @@ gaps: []
 items_still_open:
   - "LimitExceededException (gopherstack-gmny): only CreateAlias (100 per user) and RegisterMailDomain (1000 per org) have published, non-adjustable quotas (docs-sourced, enforced). CreateOrganization's quota is adjustable; CreateAvailabilityConfiguration, CreateImpersonationRole, CreateMobileDeviceAccessRule, PutAccessControlRule, PutRetentionPolicy, StartMailboxExportJob and UpdateImpersonationRole publish no number anywhere, so they are not enforced."
   - "DeleteOrganization.ForceDelete is not applied: the SDK says only \"even if the organization has enabled users\" and does not name the error a non-forced delete raises (OrganizationStateException is a guess), so that precondition is not enforced."
-  - "DeleteOrganization.DeleteDirectory is not applied: deleting the directory means calling services/directoryservice, which needs wiring in cli.go outside this package."
 structural_gaps:
   - "Organization.State is always ACTIVE and deletion is immediate: no asynchronous Creating/Deleting organization lifecycle exists to model."
   - "DeleteOrganization.DeleteIdentityCenterApplication has no effect: no IAM Identity Center application is modeled."

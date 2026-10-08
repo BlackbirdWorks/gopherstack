@@ -199,6 +199,21 @@ func (c *Client) ContainerLogs(
 	})
 }
 
+// ContainerStats returns one JSON stats sample that includes the previous sample for CPU deltas. The caller must
+// close it.
+func (c *Client) ContainerStats(ctx context.Context, containerID string) (io.ReadCloser, error) {
+	result, err := c.inner.ContainerStats(
+		ctx,
+		containerID,
+		mobyclient.ContainerStatsOptions{IncludePreviousSample: true},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return result.Body, nil
+}
+
 // ContainerWait blocks until containerID satisfies options.Condition, matching
 // github.com/moby/moby/client@v0.5.1 container_wait.go:41's
 // (*Client).ContainerWait(ctx, containerID, ContainerWaitOptions)

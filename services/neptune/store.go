@@ -185,6 +185,7 @@ type InMemoryBackend struct {
 	// growth in a long-lived backend.
 	eventsLog map[string][]Event
 	mu        *lockmetrics.RWMutex
+	subnets   SubnetResolver
 	accountID string
 	region    string
 }

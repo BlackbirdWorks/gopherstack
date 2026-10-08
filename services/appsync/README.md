@@ -18,7 +18,7 @@
 
 - Introspection omits __Type.specifiedByURL and isOneOf, and ListTypes/GetType/ListTypesByAssociation ignore the SDL/JSON format parameter; the real per-type JSON shape is unverified. 2026-10-01.
 - GetIntrospectionSchema returns an undeclared BadRequestException for an unknown format; no declared exception (GraphQLSchema/Internal/NotFound/Unauthorized) fits. 2026-10-01.
-- GraphqlApi dns and wafWebAclArn, and Api wafWebAclArn, are unmodeled: wafWebAclArn needs a wafv2 association lookup wired in cli.go (outside this directory) and the dns key set is unverified.
+- GraphqlApi dns and Api dns are unmodeled: the dns key set is unverified.
 
 ### Structural gaps
 

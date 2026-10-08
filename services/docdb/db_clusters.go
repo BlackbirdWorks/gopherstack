@@ -109,6 +109,9 @@ func (b *InMemoryBackend) CreateDBCluster(
 	if b.clusterHas(region, id) {
 		return nil, fmt.Errorf("%w: cluster %s already exists", ErrClusterAlreadyExists, id)
 	}
+	if err := b.checkNetworkType(region, extras.NetworkType, subnetGroupName); err != nil {
+		return nil, err
+	}
 	if engine == "" {
 		engine = docDBEngine
 	}
@@ -254,10 +257,12 @@ func (b *InMemoryBackend) DeleteDBCluster(
 			SnapshotCreateTime:          time.Now().UTC().Format(time.RFC3339),
 			DBClusterArn:                b.clusterARN(region, id),
 			StorageType:                 c.StorageType,
+			VpcID:                       b.subnetGroupVpcID(region, c.DBSubnetGroupName),
 		}
 		b.clusterSnapshotPut(snap)
 	}
 
+	b.releaseMasterSecret(c)
 	b.clusterDelete(region, id)
 	b.detachFromGlobalClusters(cp.DBClusterArn)
 	delete(b.tagsStore(region), b.clusterARN(region, id))
@@ -325,6 +330,9 @@ func (b *InMemoryBackend) applyModifyDBClusterExtras(
 		}
 	}
 	if err := opts.validate(); err != nil {
+		return err
+	}
+	if err := b.checkNetworkType(region, opts.NetworkType, c.DBSubnetGroupName); err != nil {
 		return err
 	}
 	if err := validateScaling(mergeScaling(c.ServerlessV2Scaling, opts.Scaling)); err != nil {

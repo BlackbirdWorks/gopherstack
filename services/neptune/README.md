@@ -15,7 +15,7 @@
 
 ### Known gaps
 
-- SupportedNetworkTypes (DBSubnetGroup/OrderableDBInstanceOption) stays empty and NetworkTypeNotSupportedFault is not raised: DUAL depends on each subnet's IPv6 CIDR (types.go:943), and neptune has no EC2 subnet lookup (needs cli.go cross-service wiring).
+- UNVERIFIABLE: OrderableDBInstanceOption.SupportedNetworkTypes stays empty; the pinned SDK states no per-instance-class network type support.
 
 ### Structural gaps
 

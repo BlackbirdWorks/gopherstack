@@ -233,6 +233,7 @@ type DBSubnetGroup struct {
 	DBSubnetGroupName        string            `json:"dbSubnetGroupName"`
 	DBSubnetGroupDescription string            `json:"dbSubnetGroupDescription"`
 	VpcID                    string            `json:"vpcID"`
+	SupportedNetworkTypes    []string          `json:"-"`
 	Status                   string            `json:"status"`
 	DBSubnetGroupArn         string            `json:"dbSubnetGroupArn"`
 	SubnetIDs                []string          `json:"subnetIDs"`
@@ -272,6 +273,7 @@ type DBClusterSnapshot struct {
 	KmsKeyID                    string   `json:"kmsKeyId"`
 	MasterUsername              string   `json:"masterUsername"`
 	StorageType                 string   `json:"storageType,omitempty"`
+	VpcID                       string   `json:"vpcID,omitempty"`
 	AvailabilityZones           []string `json:"availabilityZones"`
 	Port                        int      `json:"port"`
 	PercentProgress             int      `json:"percentProgress"`
@@ -439,6 +441,8 @@ type InMemoryBackend struct {
 	// Plain nested map for the same reason as eventsLog.
 	pendingMaintenanceActions map[string]map[string]PendingMaintenanceAction
 	mu                        *lockmetrics.RWMutex
+	secrets                   SecretsStore
+	subnets                   SubnetResolver
 	accountID                 string
 	region                    string
 }

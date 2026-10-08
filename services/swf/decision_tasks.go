@@ -223,6 +223,7 @@ var decisionHandlersOnce = sync.OnceValue(func() map[string]decisionHandlerFunc 
 		"StartTimer":                             (*InMemoryBackend).handleStartTimerDecision,
 		"CancelTimer":                            (*InMemoryBackend).handleCancelTimerDecision,
 		"RecordMarker":                           (*InMemoryBackend).handleRecordMarkerDecision,
+		"ScheduleLambdaFunction":                 (*InMemoryBackend).handleScheduleLambdaFunctionDecision,
 		"StartChildWorkflowExecution":            (*InMemoryBackend).handleStartChildWorkflowExecutionDecision,
 		"SignalExternalWorkflowExecution":        (*InMemoryBackend).handleSignalExternalWorkflowExecutionDecision,
 		"RequestCancelExternalWorkflowExecution": (*InMemoryBackend).handleRequestCancelExternalWorkflowExecutionDecision,

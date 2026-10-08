@@ -66,6 +66,7 @@ type dockerClient interface {
 		containerID string,
 		options dockertypes.WaitOptions,
 	) dockertypes.WaitResult
+	ContainerStats(ctx context.Context, containerID string) (io.ReadCloser, error)
 }
 
 // NewDockerRunner creates a TaskRunner backed by the local Docker daemon.

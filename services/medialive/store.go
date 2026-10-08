@@ -104,6 +104,7 @@ type InMemoryBackend struct {
 	ebRuleTemplates          *store.Table[storedEventBridgeRuleTemplate]
 	channels                 *store.Table[storedChannel]
 	mu                       *lockmetrics.RWMutex
+	vpcNetwork               VPCNetwork
 	registry                 *store.Registry
 	cwAlarmTemplateGroups    *store.Table[storedCloudWatchAlarmTemplateGroup]
 	reservations             *store.Table[storedReservation]

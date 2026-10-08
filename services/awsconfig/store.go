@@ -125,7 +125,8 @@ type InMemoryBackend struct {
 	orgCustomRulePolicies map[string]string
 	// s3Writer delivers ConfigSnapshot objects to S3 (SetS3Writer, wired in
 	// cli.go like sfnBk.SetS3ResultWriter). Nil in tests that don't wire it.
-	s3Writer S3Writer
+	s3Writer  S3Writer
+	templates TemplateSource
 	// snsPublisher publishes configuration-stream notifications
 	// (SetSNSPublisher, wired in cli.go like sesBk.SetSNSPublisher). Nil in
 	// tests that don't wire it.

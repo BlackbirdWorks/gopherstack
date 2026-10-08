@@ -17,7 +17,7 @@
 
 - Kafka ESM (self-managed): DestinationConfig.OnFailure is not delivered; the SDK does not document the Kafka on-failure record shape or target semantics, so a delivered record would be invented.
 - ESM MetricsConfig (EventCount/ErrorCount/KafkaMetrics) is validated and echoed but publishes nothing: the pinned SDK names the groups but not the CloudWatch metric names or dimensions. ESM LoggingConfig is likewise stored only.
-- UpdateFunctionCode S3ObjectVersion needs a versioned-object fetch through the S3 fetcher wired in cli.go (outside this pass's file scope), and PublishTo (the $LATEST_PUBLISHED target) has no documented semantics in the pinned SDK.
+- PublishTo (the $LATEST_PUBLISHED target) has no documented semantics in the pinned SDK.
 - Invoke TenantId and TenancyConfig.TenantIsolationMode (PER_TENANT) are stored and echoed, but the pinned SDK documents no TenantId validation or per-tenant environment rule to enforce.
 
 ### Structural gaps

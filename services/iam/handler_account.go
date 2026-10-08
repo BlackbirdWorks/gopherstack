@@ -1,12 +1,15 @@
 package iam
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/xml"
 	"fmt"
 	"net/url"
 	"strconv"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 )
 
 func (h *Handler) iamReportingDispatchTable() map[string]iamActionFn {
@@ -185,89 +188,6 @@ func (h *Handler) iamNewOpsAccountActions() map[string]iamActionFn {
 // iamNewOpsDelegationAndOIDCActions returns dispatch entries for delegation and OIDC new operations.
 func (h *Handler) iamNewOpsDelegationAndOIDCActions() map[string]iamActionFn {
 	return map[string]iamActionFn{
-		"CreateDelegationRequest": func(vals url.Values, reqID string) (any, error) {
-			description := vals.Get("Description")
-			notificationChannel := vals.Get("NotificationChannel")
-			requestorWorkflowID := vals.Get("RequestorWorkflowId")
-
-			if description == "" {
-				return nil, fmt.Errorf("%w: Description must not be empty", ErrInvalidInput)
-			}
-
-			if notificationChannel == "" {
-				return nil, fmt.Errorf("%w: NotificationChannel must not be empty", ErrInvalidInput)
-			}
-
-			if requestorWorkflowID == "" {
-				return nil, fmt.Errorf("%w: RequestorWorkflowId must not be empty", ErrInvalidInput)
-			}
-
-			sessionDurationRaw := vals.Get("SessionDuration")
-
-			sessionDuration, convErr := strconv.ParseInt(sessionDurationRaw, 10, 32)
-			if sessionDurationRaw == "" || convErr != nil {
-				return nil, fmt.Errorf("%w: SessionDuration must be a valid integer", ErrInvalidInput)
-			}
-
-			policyTemplateArn := vals.Get("Permissions.PolicyTemplateArn")
-			permissionParameters := parseDelegationPermissionParameters(vals)
-
-			// Permissions is a required *struct* member at the SDK level (must
-			// be non-nil), but every field within it is optional -- an
-			// omitted-vs-empty-object distinction the query wire form cannot
-			// express (there is no way to send "Permissions: {}"). The best a
-			// server can do is require at least one Permissions.* key.
-			if policyTemplateArn == "" && len(permissionParameters) == 0 {
-				return nil, fmt.Errorf("%w: Permissions must not be empty", ErrInvalidInput)
-			}
-
-			req, err := h.Backend.CreateDelegationRequest(CreateDelegationRequestInput{
-				Description:          description,
-				NotificationChannel:  notificationChannel,
-				RequestorWorkflowID:  requestorWorkflowID,
-				SessionDuration:      int32(sessionDuration),
-				OnlySendByOwner:      vals.Get("OnlySendByOwner") == formValueTrue,
-				OwnerAccountID:       vals.Get("OwnerAccountId"),
-				RedirectURL:          vals.Get("RedirectUrl"),
-				RequestMessage:       vals.Get("RequestMessage"),
-				PolicyTemplateArn:    policyTemplateArn,
-				PermissionParameters: permissionParameters,
-			})
-			if err != nil {
-				return nil, err
-			}
-
-			return &CreateDelegationRequestResponse{
-				Xmlns: iamXMLNS,
-				CreateDelegationRequestResult: CreateDelegationRequestResult{
-					ConsoleDeepLink:     delegationRequestConsoleDeepLink(req.DelegationID),
-					DelegationRequestID: req.DelegationID,
-				},
-				ResponseMetadata: ResponseMetadata{RequestID: reqID},
-			}, nil
-		},
-
-		"AcceptDelegationRequest": func(vals url.Values, reqID string) (any, error) {
-			if err := h.Backend.AcceptDelegationRequest(vals.Get("DelegationRequestId")); err != nil {
-				return nil, err
-			}
-
-			return &AcceptDelegationRequestResponse{
-				Xmlns:            iamXMLNS,
-				ResponseMetadata: ResponseMetadata{RequestID: reqID},
-			}, nil
-		},
-
-		"AssociateDelegationRequest": func(vals url.Values, reqID string) (any, error) {
-			if err := h.Backend.AssociateDelegationRequest(vals.Get("DelegationRequestId")); err != nil {
-				return nil, err
-			}
-
-			return &AssociateDelegationRequestResponse{
-				Xmlns:            iamXMLNS,
-				ResponseMetadata: ResponseMetadata{RequestID: reqID},
-			}, nil
-		},
 
 		"AddClientIDToOpenIDConnectProvider": func(vals url.Values, reqID string) (any, error) {
 			if err := h.Backend.AddClientIDToOpenIDConnectProvider(
@@ -548,28 +468,6 @@ func (h *Handler) iamDelegationDispatch() map[string]iamActionFn {
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
-		"ListDelegationRequests": func(vals url.Values, reqID string) (any, error) {
-			p, err := h.Backend.ListDelegationRequests(vals.Get("Marker"), parseMaxItems(vals.Get("MaxItems")))
-			if err != nil {
-				return nil, err
-			}
-
-			reqs := make([]delegationRequestXML, 0, len(p.Data))
-			for i := range p.Data {
-				reqs = append(reqs, toDelegationRequestXML(&p.Data[i]))
-			}
-
-			return &listDelegationRequestsResponse{
-				XMLName: xml.Name{Local: "ListDelegationRequestsResponse"},
-				Xmlns:   iamXMLNS,
-				ListDelegationRequestsResult: listDelegationRequestsResult{
-					DelegationRequests: reqs,
-					IsTruncated:        p.Next != "",
-					Marker:             p.Next,
-				},
-				ResponseMetadata: ResponseMetadata{RequestID: reqID},
-			}, nil
-		},
 	}
 }
 
@@ -704,6 +602,128 @@ func (h *Handler) handleSimulatePrincipalPolicy(vals url.Values, reqID string) (
 		Xmlns: iamXMLNS,
 		SimulatePrincipalPolicyResult: SimulatePrincipalPolicyResult{
 			EvaluationResults: pg.Data, Marker: pg.Next, IsTruncated: pg.Next != "",
+		},
+		ResponseMetadata: ResponseMetadata{RequestID: reqID},
+	}, nil
+}
+
+// iamDelegationCallerActions returns the delegation-request operations that record or filter on the caller.
+func (h *Handler) iamDelegationCallerActions() map[string]iamCallerActionFn {
+	return map[string]iamCallerActionFn{
+		"CreateDelegationRequest": h.handleCreateDelegationRequest,
+
+		"AcceptDelegationRequest": func(ctx context.Context, vals url.Values, reqID string) (any, error) {
+			if err := h.Backend.AcceptDelegationRequest(
+				vals.Get("DelegationRequestId"),
+				awsmeta.CallerArn(ctx),
+			); err != nil {
+				return nil, err
+			}
+
+			return &AcceptDelegationRequestResponse{
+				Xmlns:            iamXMLNS,
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+
+		"AssociateDelegationRequest": func(ctx context.Context, vals url.Values, reqID string) (any, error) {
+			if err := h.Backend.AssociateDelegationRequest(
+				vals.Get("DelegationRequestId"), awsmeta.CallerArn(ctx), awsmeta.Account(ctx),
+			); err != nil {
+				return nil, err
+			}
+
+			return &AssociateDelegationRequestResponse{
+				Xmlns:            iamXMLNS,
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+
+		"ListDelegationRequests": func(_ context.Context, vals url.Values, reqID string) (any, error) {
+			p, err := h.Backend.ListDelegationRequests(
+				vals.Get("Marker"), parseMaxItems(vals.Get("MaxItems")), vals.Get("OwnerId"),
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			reqs := make([]delegationRequestXML, 0, len(p.Data))
+			for i := range p.Data {
+				reqs = append(reqs, toDelegationRequestXML(&p.Data[i]))
+			}
+
+			return &listDelegationRequestsResponse{
+				XMLName: xml.Name{Local: "ListDelegationRequestsResponse"},
+				Xmlns:   iamXMLNS,
+				ListDelegationRequestsResult: listDelegationRequestsResult{
+					DelegationRequests: reqs,
+					IsTruncated:        p.Next != "",
+					Marker:             p.Next,
+				},
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+	}
+}
+
+func (h *Handler) handleCreateDelegationRequest(ctx context.Context, vals url.Values, reqID string) (any, error) {
+	description := vals.Get("Description")
+	notificationChannel := vals.Get("NotificationChannel")
+	requestorWorkflowID := vals.Get("RequestorWorkflowId")
+
+	if description == "" {
+		return nil, fmt.Errorf("%w: Description must not be empty", ErrInvalidInput)
+	}
+
+	if notificationChannel == "" {
+		return nil, fmt.Errorf("%w: NotificationChannel must not be empty", ErrInvalidInput)
+	}
+
+	if requestorWorkflowID == "" {
+		return nil, fmt.Errorf("%w: RequestorWorkflowId must not be empty", ErrInvalidInput)
+	}
+
+	sessionDurationRaw := vals.Get("SessionDuration")
+
+	sessionDuration, convErr := strconv.ParseInt(sessionDurationRaw, 10, 32)
+	if sessionDurationRaw == "" || convErr != nil {
+		return nil, fmt.Errorf("%w: SessionDuration must be a valid integer", ErrInvalidInput)
+	}
+
+	policyTemplateArn := vals.Get("Permissions.PolicyTemplateArn")
+	permissionParameters := parseDelegationPermissionParameters(vals)
+
+	// Permissions is a required *struct* member at the SDK level (must
+	// be non-nil), but every field within it is optional -- an
+	// omitted-vs-empty-object distinction the query wire form cannot
+	// express (there is no way to send "Permissions: {}"). The best a
+	// server can do is require at least one Permissions.* key.
+	if policyTemplateArn == "" && len(permissionParameters) == 0 {
+		return nil, fmt.Errorf("%w: Permissions must not be empty", ErrInvalidInput)
+	}
+
+	req, err := h.Backend.CreateDelegationRequest(CreateDelegationRequestInput{
+		Description:          description,
+		NotificationChannel:  notificationChannel,
+		RequestorWorkflowID:  requestorWorkflowID,
+		SessionDuration:      int32(sessionDuration),
+		OnlySendByOwner:      vals.Get("OnlySendByOwner") == formValueTrue,
+		OwnerAccountID:       vals.Get("OwnerAccountId"),
+		RedirectURL:          vals.Get("RedirectUrl"),
+		RequestMessage:       vals.Get("RequestMessage"),
+		PolicyTemplateArn:    policyTemplateArn,
+		PermissionParameters: permissionParameters,
+		RequestorID:          awsmeta.Account(ctx),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &CreateDelegationRequestResponse{
+		Xmlns: iamXMLNS,
+		CreateDelegationRequestResult: CreateDelegationRequestResult{
+			ConsoleDeepLink:     delegationRequestConsoleDeepLink(req.DelegationID),
+			DelegationRequestID: req.DelegationID,
 		},
 		ResponseMetadata: ResponseMetadata{RequestID: reqID},
 	}, nil

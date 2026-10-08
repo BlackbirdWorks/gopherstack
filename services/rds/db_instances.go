@@ -179,7 +179,7 @@ func (b *InMemoryBackend) validateCreateLogin(engine, masterUser string, opts DB
 		return MasterSecret{}, err
 	}
 
-	return b.createMasterSecret("db", opts.MasterSecretRequest, opts.MasterUserPassword)
+	return b.createMasterSecret("db", masterUser, opts.MasterSecretRequest, opts.MasterUserPassword)
 }
 
 func (b *InMemoryBackend) CreateDBInstance(
@@ -344,6 +344,7 @@ func (b *InMemoryBackend) deleteDBInstanceLocked(
 		}
 	}
 
+	b.releaseMasterSecret(inst.MasterSecret)
 	b.instances.Delete(normalizeID(id))
 	b.dropUnitLocked(unitKeyForInstance(canonicalID))
 	delete(b.tags, b.rdsARN("db", canonicalID))
@@ -705,7 +706,9 @@ func (b *InMemoryBackend) modifyDBInstanceLocked(
 		return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, id)
 	}
 
-	secret, err := b.updateMasterSecret(inst.MasterSecret, "db", opts.MasterSecretRequest, opts.MasterUserPassword)
+	secret, err := b.updateMasterSecret(
+		inst.MasterSecret, "db", inst.MasterUsername, opts.MasterSecretRequest, opts.MasterUserPassword,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -789,7 +792,7 @@ func (b *InMemoryBackend) RestoreDBInstanceToPointInTime(
 		}
 
 		var secret MasterSecret
-		if secret, err = b.createMasterSecret("db", opts.MasterSecretRequest, ""); err != nil {
+		if secret, err = b.createMasterSecret("db", source.MasterUsername, opts.MasterSecretRequest, ""); err != nil {
 			return
 		}
 
@@ -1283,7 +1286,7 @@ func (b *InMemoryBackend) RestoreDBInstanceFromS3(
 	if _, exists := b.instances.Get(normalizeID(id)); exists {
 		return nil, fmt.Errorf("%w: %s", ErrInstanceAlreadyExists, id)
 	}
-	secret, err := b.createMasterSecret("db", opts.MasterSecretRequest, opts.MasterUserPassword)
+	secret, err := b.createMasterSecret("db", "", opts.MasterSecretRequest, opts.MasterUserPassword)
 	if err != nil {
 		return nil, err
 	}
