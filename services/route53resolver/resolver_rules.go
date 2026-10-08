@@ -47,16 +47,21 @@ func (b *InMemoryBackend) CreateResolverRule(
 	}
 
 	switch ruleType {
-	case ruleTypeForward, ruleTypeSystem, ruleTypeRecursive:
+	case ruleTypeForward, ruleTypeSystem, ruleTypeRecursive, ruleTypeDelegate:
 		// valid
 	default:
 		return nil, fmt.Errorf(
-			"%w: RuleType must be %s, %s, or %s",
+			"%w: RuleType must be %s, %s, %s, or %s",
 			ErrValidation,
 			ruleTypeForward,
 			ruleTypeSystem,
 			ruleTypeRecursive,
+			ruleTypeDelegate,
 		)
+	}
+
+	if ruleType == ruleTypeDelegate && len(targetIps) > 0 {
+		return nil, fmt.Errorf("%w: DELEGATE rules must not have TargetIps", ErrValidation)
 	}
 
 	// SYSTEM and RECURSIVE rules must not have TargetIps or ResolverEndpointId.

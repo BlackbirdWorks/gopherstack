@@ -14,6 +14,9 @@ type sendEmailInput struct {
 	ConfigurationSetName           string                 `json:"ConfigurationSetName"`
 	TenantName                     string                 `json:"TenantName"`
 	FeedbackForwardingEmailAddress string                 `json:"FeedbackForwardingEmailAddress"`
+	EndpointID                     string                 `json:"EndpointId"`
+	FromEmailAddressIdentityArn    string                 `json:"FromEmailAddressIdentityArn"`
+	FeedbackForwardingIdentityArn  string                 `json:"FeedbackForwardingEmailAddressIdentityArn"`
 	ReplyTo                        []string               `json:"ReplyToAddresses"`
 	EmailTags                      []messageTag           `json:"EmailTags"`
 	Destination                    emailDestination       `json:"Destination"`
@@ -23,6 +26,8 @@ func (in *sendEmailInput) options() SendOptions {
 	return SendOptions{
 		ConfigurationSetName: in.ConfigurationSetName, TenantName: in.TenantName,
 		FeedbackForwardingEmailAddress: in.FeedbackForwardingEmailAddress, ListManagement: in.ListManagementOptions,
+		EndpointID: in.EndpointID, FromEmailAddressIdentityArn: in.FromEmailAddressIdentityArn,
+		FeedbackForwardingEmailAddressIdentityArn: in.FeedbackForwardingIdentityArn,
 	}
 }
 
@@ -114,6 +119,9 @@ type sendBulkEmailInput struct {
 	ConfigurationSetName           string            `json:"ConfigurationSetName"`
 	TenantName                     string            `json:"TenantName"`
 	FeedbackForwardingEmailAddress string            `json:"FeedbackForwardingEmailAddress"`
+	EndpointID                     string            `json:"EndpointId"`
+	FromEmailAddressIdentityArn    string            `json:"FromEmailAddressIdentityArn"`
+	FeedbackForwardingIdentityArn  string            `json:"FeedbackForwardingEmailAddressIdentityArn"`
 	BulkEmailEntries               []bulkEmailEntry  `json:"BulkEmailEntries"`
 	DefaultEmailTags               []messageTag      `json:"DefaultEmailTags"`
 }
@@ -133,6 +141,8 @@ func (h *Handler) handleSendBulkEmail(c *echo.Context) (any, error) {
 		SendOptions{
 			ConfigurationSetName: in.ConfigurationSetName, TenantName: in.TenantName,
 			FeedbackForwardingEmailAddress: in.FeedbackForwardingEmailAddress,
+			EndpointID:                     in.EndpointID, FromEmailAddressIdentityArn: in.FromEmailAddressIdentityArn,
+			FeedbackForwardingEmailAddressIdentityArn: in.FeedbackForwardingIdentityArn,
 		},
 	)
 	if err != nil {

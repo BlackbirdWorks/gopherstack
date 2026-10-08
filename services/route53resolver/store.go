@@ -37,6 +37,7 @@ func regionalKey(region, id string) string {
 }
 
 type InMemoryBackend struct {
+	appConfig any
 	// registry lets Reset collapse every table's lifecycle to one call
 	// (registry.ResetAll()) instead of hand-rolled re-initialization of each
 	// map. See store_setup.go for the full set of registrations.

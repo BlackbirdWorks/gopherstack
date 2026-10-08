@@ -13,6 +13,22 @@ import (
 
 const dirPrefixLen = 2
 
+// validateDelegationProtocols enforces "For a delegation inbound endpoint you
+// can use Do53 only" (CreateResolverEndpointInput.Protocols).
+func validateDelegationProtocols(direction string, protocols []string) error {
+	if direction != directionInboundDelegation {
+		return nil
+	}
+
+	for _, p := range protocols {
+		if p != "Do53" {
+			return fmt.Errorf("%w: a delegation inbound endpoint supports the Do53 protocol only", ErrValidation)
+		}
+	}
+
+	return nil
+}
+
 // copyIPAddressesWithIDs copies ips, assigning a generated IPID to any entry
 // that doesn't already have one.
 func copyIPAddressesWithIDs(ips []IPAddress) []IPAddress {
@@ -30,6 +46,38 @@ func copyIPAddressesWithIDs(ips []IPAddress) []IPAddress {
 	return cp
 }
 
+// validateEndpointShape validates Name, Direction, ResolverEndpointType and Protocols,
+// returning the ResolverEndpointType with its IPV4 default applied.
+func validateEndpointShape(name, direction, endpointType string, protocols []string) (string, error) {
+	if name == "" {
+		return "", fmt.Errorf("%w: Name is required", ErrValidation)
+	}
+
+	switch direction {
+	case directionInbound, directionOutbound, directionInboundDelegation:
+	default:
+		return "", fmt.Errorf(
+			"%w: Direction must be %s, %s, or %s",
+			ErrValidation, directionInbound, directionOutbound, directionInboundDelegation,
+		)
+	}
+
+	if err := validateDelegationProtocols(direction, protocols); err != nil {
+		return "", err
+	}
+
+	if endpointType == "" {
+		endpointType = endpointTypeIPV4
+	}
+
+	switch endpointType {
+	case endpointTypeIPV4, endpointTypeIPV6, endpointTypeDualStack:
+		return endpointType, nil
+	default:
+		return "", fmt.Errorf("%w: ResolverEndpointType must be IPV4, IPV6, or DUALSTACK", ErrValidation)
+	}
+}
+
 func (b *InMemoryBackend) CreateResolverEndpoint(
 	ctx context.Context,
 	name, direction, vpcID string,
@@ -41,35 +89,18 @@ func (b *InMemoryBackend) CreateResolverEndpoint(
 	rniEnhancedMetricsEnabled, targetNameServerMetricsEnabled bool,
 	dns64Enabled, ipv6InternetAccessEnabled bool,
 ) (*ResolverEndpoint, error) {
+	if vpcID == "" {
+		vpcID = b.subnetVPC(ctx, ips)
+	}
+
 	b.mu.Lock("CreateResolverEndpoint")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
 
-	if name == "" {
-		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
-	}
-
-	if direction != directionInbound && direction != directionOutbound {
-		return nil, fmt.Errorf(
-			"%w: Direction must be %s or %s",
-			ErrValidation,
-			directionInbound,
-			directionOutbound,
-		)
-	}
-
-	if resolverEndpointType == "" {
-		resolverEndpointType = endpointTypeIPV4
-	}
-	switch resolverEndpointType {
-	case endpointTypeIPV4, endpointTypeIPV6, endpointTypeDualStack:
-		// valid
-	default:
-		return nil, fmt.Errorf(
-			"%w: ResolverEndpointType must be IPV4, IPV6, or DUALSTACK",
-			ErrValidation,
-		)
+	resolverEndpointType, shapeErr := validateEndpointShape(name, direction, resolverEndpointType, protocols)
+	if shapeErr != nil {
+		return nil, shapeErr
 	}
 
 	if len(protocols) == 0 {
@@ -406,6 +437,9 @@ func (b *InMemoryBackend) UpdateResolverEndpoint(
 		)
 	}
 	if err := validateUpdateIPAddresses(ep.IPAddresses, updateIPAddresses); err != nil {
+		return nil, err
+	}
+	if err := validateDelegationProtocols(ep.Direction, protocols); err != nil {
 		return nil, err
 	}
 	if name != "" {

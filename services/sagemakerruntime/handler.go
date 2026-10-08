@@ -160,6 +160,20 @@ func (h *Handler) homeHandler() echo.HandlerFunc {
 
 		op := pathToOperation(r.URL.Path)
 
+		if op != opInvokeEndpointAsync {
+			t := h.Backend.validateInvokeTargets(
+				r.Context(), endpointName, r.Header.Get(headerInferenceComponent),
+				r.Header.Get(headerTargetContainer), r.Header.Get(headerTargetVariant),
+			)
+			if t.errMsg != "" {
+				return c.JSON(http.StatusBadRequest, errorResponse("ValidationError", t.errMsg))
+			}
+
+			if t.variant != "" && r.Header.Get(headerTargetVariant) == "" {
+				r.Header.Set(headerTargetVariant, t.variant)
+			}
+		}
+
 		switch op {
 		case opInvokeEndpoint:
 			return h.handleInvokeEndpoint(c, endpointName, body)

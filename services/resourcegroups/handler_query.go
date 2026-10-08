@@ -16,10 +16,14 @@ type searchResourcesOutput struct { //nolint:govet // fieldalignment: readabilit
 }
 
 func (h *Handler) handleSearchResources(ctx context.Context, in *searchResourcesInput) (*searchResourcesOutput, error) {
-	identifiers, nextToken, err := h.Backend.SearchResources(ctx, in.ResourceQuery, in.NextToken, in.MaxResults)
+	p, err := h.Backend.SearchResourcesPage(ctx, in.ResourceQuery, in.NextToken, in.MaxResults)
 	if err != nil {
 		return nil, err
 	}
 
-	return &searchResourcesOutput{ResourceIdentifiers: identifiers, NextToken: nextToken}, nil
+	return &searchResourcesOutput{
+		ResourceIdentifiers: p.Identifiers,
+		QueryErrors:         p.Errors,
+		NextToken:           p.NextToken,
+	}, nil
 }

@@ -20,9 +20,12 @@ const (
 	directionInbound  = "INBOUND"
 	directionOutbound = "OUTBOUND"
 
+	directionInboundDelegation = "INBOUND_DELEGATION"
+
 	ruleTypeForward   = "FORWARD"
 	ruleTypeSystem    = "SYSTEM"
 	ruleTypeRecursive = "RECURSIVE"
+	ruleTypeDelegate  = "DELEGATE"
 
 	firewallActionAllow = "ALLOW"
 	firewallActionBlock = "BLOCK"

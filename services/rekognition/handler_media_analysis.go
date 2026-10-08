@@ -22,14 +22,19 @@ func (h *Handler) mediaAnalysisOps() map[string]service.JSONOpFunc {
 // --- Async video jobs: person tracking / segment detection ---
 
 type startPersonTrackingReq struct {
-	Video              videoRef `json:"Video"`
-	ClientRequestToken string   `json:"ClientRequestToken"`
-	JobTag             string   `json:"JobTag"`
+	Video               videoRef                `json:"Video"`
+	NotificationChannel *notificationChannelReq `json:"NotificationChannel"`
+	ClientRequestToken  string                  `json:"ClientRequestToken"`
+	JobTag              string                  `json:"JobTag"`
 }
 
 func (h *Handler) handleStartPersonTracking(
 	ctx context.Context, req *startPersonTrackingReq,
 ) (*startJobResp, error) {
+	if err := req.NotificationChannel.validate(); err != nil {
+		return nil, err
+	}
+
 	if err := h.checkVideoRef(ctx, req.Video); err != nil {
 		return nil, err
 	}
@@ -37,12 +42,13 @@ func (h *Handler) handleStartPersonTracking(
 	bucket, name, version := videoRefS3(req.Video)
 
 	jobID, err := h.Backend.StartAsyncJob(StartAsyncJobParams{
-		JobType:            "person_tracking",
-		ClientRequestToken: req.ClientRequestToken,
-		JobTag:             req.JobTag,
-		VideoS3Bucket:      bucket,
-		VideoS3Name:        name,
-		VideoS3Version:     version,
+		NotificationTopicARN: req.NotificationChannel.topic(),
+		JobType:              "person_tracking",
+		ClientRequestToken:   req.ClientRequestToken,
+		JobTag:               req.JobTag,
+		VideoS3Bucket:        bucket,
+		VideoS3Name:          name,
+		VideoS3Version:       version,
 	})
 	if err != nil {
 		return nil, err
@@ -82,15 +88,20 @@ func (h *Handler) handleGetPersonTracking(
 }
 
 type startSegmentDetectionReq struct {
-	Video              videoRef `json:"Video"`
-	ClientRequestToken string   `json:"ClientRequestToken"`
-	JobTag             string   `json:"JobTag"`
-	SegmentTypes       []string `json:"SegmentTypes"`
+	Video               videoRef                `json:"Video"`
+	NotificationChannel *notificationChannelReq `json:"NotificationChannel"`
+	ClientRequestToken  string                  `json:"ClientRequestToken"`
+	JobTag              string                  `json:"JobTag"`
+	SegmentTypes        []string                `json:"SegmentTypes"`
 }
 
 func (h *Handler) handleStartSegmentDetection(
 	ctx context.Context, req *startSegmentDetectionReq,
 ) (*startJobResp, error) {
+	if err := req.NotificationChannel.validate(); err != nil {
+		return nil, err
+	}
+
 	if err := h.checkVideoRef(ctx, req.Video); err != nil {
 		return nil, err
 	}
@@ -98,13 +109,14 @@ func (h *Handler) handleStartSegmentDetection(
 	bucket, name, version := videoRefS3(req.Video)
 
 	jobID, err := h.Backend.StartAsyncJob(StartAsyncJobParams{
-		JobType:            "segment_detection",
-		ClientRequestToken: req.ClientRequestToken,
-		JobTag:             req.JobTag,
-		VideoS3Bucket:      bucket,
-		VideoS3Name:        name,
-		VideoS3Version:     version,
-		SegmentTypes:       req.SegmentTypes,
+		NotificationTopicARN: req.NotificationChannel.topic(),
+		JobType:              "segment_detection",
+		ClientRequestToken:   req.ClientRequestToken,
+		JobTag:               req.JobTag,
+		VideoS3Bucket:        bucket,
+		VideoS3Name:          name,
+		VideoS3Version:       version,
+		SegmentTypes:         req.SegmentTypes,
 	})
 	if err != nil {
 		return nil, err

@@ -1,12 +1,14 @@
 ---
 items_still_open:
-  - "gopherstack-w6ndj: SendEmail/SendBulkEmail EndpointId, FromEmailAddressIdentityArn and FeedbackForwardingEmailAddressIdentityArn are not read (no multi-region endpoint routing or sending-authorization policy evaluation); FeedbackForwardingEmailAddress is recorded but no bounce/complaint feedback is generated; the code for a tenant-association mismatch is unconfirmed."
-  - "GetDeliverabilityTestReportOutput.OverallPlacement (api_op_GetDeliverabilityTestReport.go: required *types.PlacementStatistics) is never emitted -- handleGetDeliverabilityTestReport (handler_deliverability.go) only sends DeliverabilityTestReport/IspPlacements (the latter a real, disclosed always-empty list). OverallPlacement's InboxPercentage/SpamPercentage/etc. are real AWS's own predictive-inbox-placement-test results, computed by sending the test message to seed mailboxes at several ISPs and measuring where it landed -- this backend has no such per-ISP delivery simulation to honestly derive a placement percentage from, so a synthesized value would be fabricated. Found 2026-09-24 (requiredoutputfields census). Not synthesized."
   - "ListContacts Filter.FilteredStatus without a TopicFilter is not applied: the SDK does not say what it filters against. With both set it matches the topic preference, falling back to the topic default only when UseDefaultIfPreferenceUnavailable is true; that fallback and the status-alone case are from the SDK prose, not observed AWS."
+  - "SendEmail/SendBulkEmail tenant-association mismatch error code is unconfirmed (BadRequestException is used)."
+structural_gaps:
+  - "GetDeliverabilityTestReport OverallPlacement (required output) is never emitted: its Inbox/Spam/Dkim/Spf percentages are results of real seed-mailbox placement tests across ISPs, which this backend cannot run; synthesizing them would be fabricated data."
+  - "SendEmail/SendBulkEmail sending-authorization policy evaluation for identity ARNs of OTHER accounts, and FeedbackForwardingEmailAddress bounce/complaint feedback: there is no second account whose identity policies could be evaluated and no real delivery to bounce. EndpointId and same-account identity ARNs are validated (TestSendEmail_EndpointAndIdentityARNs)."
 service: sesv2
 sdk_module: aws-sdk-go-v2/service/sesv2@v1.66.4   # version audited against (bumped from v1.60.1; 2 new ops appeared: PutAccountPricingAttributes, PutTenantSuppressionAttributes)
 last_audit_commit: ed6ef1a53                      # HEAD after the 2026-09-18 invented-field census (acceptguard)
-last_audit_date: 2026-09-19
+last_audit_date: 2026-10-07
 overall: A            # route-matcher rewrite + wire-shape DTOs; this pass implemented the 2 new v1.66.0 ops and fixed a previously-mis-graded GetAccount wire-shape bug found while wiring PutAccountPricingAttributes in (see "This pass (2026-07-25)")
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
