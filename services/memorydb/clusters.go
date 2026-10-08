@@ -571,13 +571,20 @@ func applyClusterUpdates(c *Cluster, req *updateClusterRequest) {
 		c.NumReplicasPerShard = *req.ReplicaConfiguration.ReplicaCount
 	}
 
-	if req.ShardConfiguration != nil && req.ShardConfiguration.ShardCount != nil {
-		c.NumShards = *req.ShardConfiguration.ShardCount
-	}
-
 	if req.SecurityGroupIDs != nil {
 		c.SecurityGroupIDs = req.SecurityGroupIDs
 	}
+}
+
+// setShardCountLocked applies a new shard count and opens a resharding window
+// when it changes. Must hold b.mu.
+func (b *InMemoryBackend) setShardCountLocked(c *Cluster, shards int32) {
+	if c.NumShards == shards {
+		return
+	}
+
+	c.NumShards = shards
+	b.startReshardingLocked(c)
 }
 
 // UpdateCluster modifies an existing cluster.
@@ -611,6 +618,10 @@ func (b *InMemoryBackend) UpdateCluster(ctx context.Context, req *updateClusterR
 	}
 
 	applyClusterUpdates(c, req)
+
+	if sc := req.ShardConfiguration; sc != nil && sc.ShardCount != nil {
+		b.setShardCountLocked(c, *sc.ShardCount)
+	}
 
 	b.appendEventLocked(region, &Event{
 		Date:       time.Now(),

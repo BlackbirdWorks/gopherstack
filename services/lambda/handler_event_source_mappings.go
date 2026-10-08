@@ -235,6 +235,10 @@ func (h *Handler) handleUpdateESM(c *echo.Context, id string) error {
 		ParallelizationFactor:          req.ParallelizationFactor,
 		BisectBatchOnFunctionError:     req.BisectBatchOnFunctionError,
 	})
+	if errors.Is(err, ErrInvalidParameterValue) {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
+	}
+
 	if err != nil {
 		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "event source mapping not found")
 	}

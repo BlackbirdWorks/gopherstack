@@ -1,6 +1,7 @@
 package lightsail
 
 import (
+	"math"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
@@ -151,4 +152,11 @@ func opEnvelope(op *Operation) operationEnvelope {
 // that takes only a PageToken.
 type pageTokenRequest struct {
 	PageToken string `json:"pageToken,omitempty"`
+}
+
+// timeFromEpoch converts epoch seconds (with fractional part) to UTC time.
+func timeFromEpoch(v float64) time.Time {
+	sec, frac := math.Modf(v)
+
+	return time.Unix(int64(sec), int64(frac*float64(time.Second))).UTC()
 }

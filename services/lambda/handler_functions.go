@@ -97,7 +97,45 @@ func (h *Handler) validateCreateFunctionInput(c *echo.Context, input *CreateFunc
 		return false
 	}
 
-	return h.validateDurableConfigInput(c, input.DurableConfig)
+	if !h.validateDurableConfigInput(c, input.DurableConfig) {
+		return false
+	}
+
+	if !h.validateCapacityProviderConfig(c, input.CapacityProviderConfig) {
+		return false
+	}
+
+	return h.validateTenancyConfig(c, input.TenancyConfig)
+}
+
+// validateCapacityProviderConfig requires the nested config and its CapacityProviderArn
+// (both marked required in the SDK's CapacityProviderConfig types).
+func (h *Handler) validateCapacityProviderConfig(c *echo.Context, cfg *CapacityProviderConfig) bool {
+	if cfg == nil {
+		return true
+	}
+
+	if cfg.ManagedInstances == nil ||
+		cfg.ManagedInstances.CapacityProviderArn == "" {
+		_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			"CapacityProviderConfig.LambdaManagedInstancesCapacityProviderConfig.CapacityProviderArn is required")
+
+		return false
+	}
+
+	return true
+}
+
+// validateTenancyConfig requires a known TenantIsolationMode (PER_TENANT is the only enum value).
+func (h *Handler) validateTenancyConfig(c *echo.Context, cfg *TenancyConfig) bool {
+	if cfg == nil || cfg.TenantIsolationMode == tenantIsolationModePerTenant {
+		return true
+	}
+
+	_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+		fmt.Sprintf("TenancyConfig.TenantIsolationMode must be %s", tenantIsolationModePerTenant))
+
+	return false
 }
 
 // validateSnapStartInput checks the optional SnapStart.ApplyOn value. AWS only
@@ -456,8 +494,23 @@ func parsePaginationParams(r *http.Request) (string, int) {
 func (h *Handler) handleListFunctions(c *echo.Context) error {
 	marker, maxItems := parsePaginationParams(c.Request())
 
+	query := c.Request().URL.Query()
+
+	// MasterRegion filters Lambda@Edge replicas by master-function Region and requires
+	// FunctionVersion=ALL (api_op_ListFunctions.go); no function here is an Edge replica.
+	if masterRegion := query.Get("MasterRegion"); masterRegion != "" {
+		if query.Get("FunctionVersion") != listAllVersions {
+			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+				"FunctionVersion must be ALL when MasterRegion is specified")
+		}
+
+		if masterRegion != listAllVersions {
+			return c.JSON(http.StatusOK, &listFunctionsWireOutput{Functions: toWireFunctionConfigurations(nil)})
+		}
+	}
+
 	// ?FunctionVersion=ALL returns all published versions in addition to $LATEST.
-	if c.Request().URL.Query().Get("FunctionVersion") == "ALL" {
+	if query.Get("FunctionVersion") == listAllVersions {
 		if bk, ok := h.Backend.(*InMemoryBackend); ok {
 			p := bk.ListFunctionsAll(marker, maxItems)
 
@@ -541,8 +594,14 @@ func (h *Handler) handleUpdateFunctionCode(c *echo.Context, name string) error {
 		return nil
 	}
 
+	current := cloneFunctionConfig(fn)
+
 	if !h.applyFunctionCodeUpdate(c, fn, &input) {
 		return nil
+	}
+
+	if input.DryRun {
+		return c.JSON(http.StatusOK, toWireFunctionConfiguration(current))
 	}
 
 	fn.LastModified = time.Now().UTC().Format(time.RFC3339)
@@ -704,16 +763,7 @@ func (h *Handler) handleUpdateFunctionConfiguration(c *echo.Context, name string
 			))
 	}
 
-	if input.EphemeralStorage != nil {
-		if input.EphemeralStorage.Size < minEphemeralStorageSize ||
-			input.EphemeralStorage.Size > maxEphemeralStorageSize {
-			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
-				fmt.Sprintf("EphemeralStorage.Size must be between %d and %d MB",
-					minEphemeralStorageSize, maxEphemeralStorageSize))
-		}
-	}
-
-	if !h.validateDurableConfigInput(c, input.DurableConfig) {
+	if !h.validateUpdateConfigExtras(c, &input) {
 		return nil
 	}
 
@@ -910,6 +960,10 @@ func applyFunctionConfigurationStructuredFields(fn *FunctionConfiguration, input
 	if input.DurableConfig != nil {
 		fn.DurableConfig = input.DurableConfig
 	}
+
+	if input.CapacityProviderConfig != nil {
+		fn.CapacityProviderConfig = input.CapacityProviderConfig
+	}
 }
 
 // buildCodeLocation constructs the FunctionCodeLocation response for a function.
@@ -1039,34 +1093,56 @@ func (h *Handler) newFunctionConfiguration(
 	now := time.Now().UTC()
 
 	return &FunctionConfiguration{
-		FunctionName:      input.FunctionName,
-		FunctionArn:       buildARN(h.DefaultRegion, h.AccountID, input.FunctionName),
-		Description:       input.Description,
-		ImageURI:          input.Code.ImageURI,
-		PackageType:       input.PackageType,
-		Runtime:           input.Runtime,
-		Handler:           input.Handler,
-		Role:              input.Role,
-		MemorySize:        memorySize,
-		Timeout:           timeout,
-		Environment:       input.Environment,
-		VpcConfig:         input.VpcConfig,
-		TracingConfig:     input.TracingConfig,
-		FileSystemConfigs: input.FileSystemConfigs,
-		DeadLetterConfig:  input.DeadLetterConfig,
-		EphemeralStorage:  input.EphemeralStorage,
-		DurableConfig:     input.DurableConfig,
-		Layers:            layerARNsToFunctionLayers(input.Layers),
-		Tags:              input.Tags,
-		KMSKeyArn:         input.KMSKeyArn,
-		LoggingConfig:     normalizeLoggingConfig(input.LoggingConfig, input.FunctionName),
-		State:             FunctionStateActive,
-		LastUpdateStatus:  LastUpdateStatusSuccessful,
-		CreatedAt:         now,
-		LastModified:      now.Format(time.RFC3339),
-		RevisionID:        uuid.New().String(),
-		ZipData:           input.Code.ZipFile,
-		S3BucketCode:      input.Code.S3Bucket,
-		S3KeyCode:         input.Code.S3Key,
+		FunctionName:           input.FunctionName,
+		FunctionArn:            buildARN(h.DefaultRegion, h.AccountID, input.FunctionName),
+		Description:            input.Description,
+		ImageURI:               input.Code.ImageURI,
+		PackageType:            input.PackageType,
+		Runtime:                input.Runtime,
+		Handler:                input.Handler,
+		Role:                   input.Role,
+		MemorySize:             memorySize,
+		Timeout:                timeout,
+		Environment:            input.Environment,
+		VpcConfig:              input.VpcConfig,
+		TracingConfig:          input.TracingConfig,
+		FileSystemConfigs:      input.FileSystemConfigs,
+		DeadLetterConfig:       input.DeadLetterConfig,
+		EphemeralStorage:       input.EphemeralStorage,
+		DurableConfig:          input.DurableConfig,
+		CapacityProviderConfig: input.CapacityProviderConfig,
+		TenancyConfig:          input.TenancyConfig,
+		Layers:                 layerARNsToFunctionLayers(input.Layers),
+		Tags:                   input.Tags,
+		KMSKeyArn:              input.KMSKeyArn,
+		LoggingConfig:          normalizeLoggingConfig(input.LoggingConfig, input.FunctionName),
+		State:                  FunctionStateActive,
+		LastUpdateStatus:       LastUpdateStatusSuccessful,
+		CreatedAt:              now,
+		LastModified:           now.Format(time.RFC3339),
+		RevisionID:             uuid.New().String(),
+		ZipData:                input.Code.ZipFile,
+		S3BucketCode:           input.Code.S3Bucket,
+		S3KeyCode:              input.Code.S3Key,
 	}
+}
+
+const tenantIsolationModePerTenant = "PER_TENANT"
+
+const listAllVersions = "ALL"
+
+// validateUpdateConfigExtras validates UpdateFunctionConfiguration's ephemeral-storage, durable and
+// capacity-provider members; false means an error response was written.
+func (h *Handler) validateUpdateConfigExtras(c *echo.Context, input *UpdateFunctionConfigurationInput) bool {
+	if es := input.EphemeralStorage; es != nil &&
+		(es.Size < minEphemeralStorageSize || es.Size > maxEphemeralStorageSize) {
+		_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			fmt.Sprintf("EphemeralStorage.Size must be between %d and %d MB",
+				minEphemeralStorageSize, maxEphemeralStorageSize))
+
+		return false
+	}
+
+	return h.validateDurableConfigInput(c, input.DurableConfig) &&
+		h.validateCapacityProviderConfig(c, input.CapacityProviderConfig)
 }

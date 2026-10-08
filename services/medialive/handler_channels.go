@@ -119,6 +119,16 @@ func toChannelEngineVersionOutput(v ChannelEngineVersion) *channelEngineVersionO
 	return &channelEngineVersionOutput{Version: v.Version}
 }
 
+// usedEngineVersion is the version running pipelines use: the channel's pinned
+// version, else the default listed by ListVersions.
+func usedEngineVersion(pinned ChannelEngineVersion) *channelEngineVersionOutput {
+	if pinned.Version != "" {
+		return &channelEngineVersionOutput{Version: pinned.Version}
+	}
+
+	return &channelEngineVersionOutput{Version: channelEngineVersion}
+}
+
 func extractChannelEngineVersion(body map[string]any) (ChannelEngineVersion, bool) {
 	raw, ok := body["channelEngineVersion"].(map[string]any)
 	if !ok {
@@ -874,6 +884,10 @@ func channelSummaryToWire(s *ChannelSummary) map[string]any {
 
 	if v := toChannelEngineVersionOutput(s.ChannelEngineVersion); v != nil {
 		item["channelEngineVersion"] = v
+	}
+
+	if s.State == stateRunning {
+		item["usedChannelEngineVersions"] = []*channelEngineVersionOutput{usedEngineVersion(s.ChannelEngineVersion)}
 	}
 
 	if len(s.ChannelSecurityGroups) > 0 {

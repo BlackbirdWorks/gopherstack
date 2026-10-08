@@ -475,34 +475,37 @@ func (c *LoadBalancerTLSCertificate) clone() *LoadBalancerTLSCertificate {
 // backend does not reject a caller-supplied non-mysql engine, since the SDK
 // enum documents itself as open/expandable.
 type RelationalDatabase struct {
-	CreatedAt                  time.Time
-	LatestRestorableTime       time.Time
-	Tags                       *tags.Tags
-	Parameters                 map[string]RelationalDatabaseParameter
-	Location                   ResourceLocation
-	BundleID                   string
-	SecondaryAvailabilityZone  string
-	MasterUsername             string
-	MasterUserPassword         string
-	PreviousMasterUserPassword string
-	PreferredBackupWindow      string
-	PreferredMaintenanceWindow string
-	ParameterApplyStatus       string
-	BlueprintID                string
-	Name                       string
-	CaCertificateIdentifier    string
-	MasterDatabaseName         string
-	EngineVersion              string
-	Engine                     string
-	State                      string
-	Arn                        string
-	SupportCode                string
-	Events                     []RelationalDatabaseEvent
-	RAMSizeInGb                float32
-	DiskSizeInGb               int32
-	CPUCount                   int32
-	PubliclyAccessible         bool
-	BackupRetentionEnabled     bool
+	CreatedAt                       time.Time
+	LatestRestorableTime            time.Time
+	MasterUserPasswordSetAt         time.Time
+	PreviousMasterUserPasswordSetAt time.Time
+	Pending                         *PendingDatabaseChanges
+	Tags                            *tags.Tags
+	Parameters                      map[string]RelationalDatabaseParameter
+	Location                        ResourceLocation
+	BundleID                        string
+	SecondaryAvailabilityZone       string
+	MasterUsername                  string
+	MasterUserPassword              string
+	PreviousMasterUserPassword      string
+	PreferredBackupWindow           string
+	PreferredMaintenanceWindow      string
+	ParameterApplyStatus            string
+	BlueprintID                     string
+	Name                            string
+	CaCertificateIdentifier         string
+	MasterDatabaseName              string
+	EngineVersion                   string
+	Engine                          string
+	State                           string
+	Arn                             string
+	SupportCode                     string
+	Events                          []RelationalDatabaseEvent
+	RAMSizeInGb                     float32
+	DiskSizeInGb                    int32
+	CPUCount                        int32
+	PubliclyAccessible              bool
+	BackupRetentionEnabled          bool
 }
 
 // RelationalDatabaseParameter mirrors types.RelationalDatabaseParameter.
@@ -527,6 +530,18 @@ type RelationalDatabaseEvent struct {
 
 func (r *RelationalDatabase) clone() *RelationalDatabase {
 	cp := *r
+	if r.Pending != nil {
+		pending := *r.Pending
+		cp.Pending = &pending
+	}
+
+	now := nowUTC()
+	cp.applyDue(now)
+
+	if cp.BackupRetentionEnabled && cp.State != RelationalDatabaseStateCreating {
+		cp.LatestRestorableTime = now
+	}
+
 	cp.Parameters = make(map[string]RelationalDatabaseParameter, len(r.Parameters))
 	maps.Copy(cp.Parameters, r.Parameters)
 
@@ -987,21 +1002,35 @@ func (d *Domain) clone() *Domain {
 // family (M) and from real ACM. CertificateProvider has exactly 1 value
 // (LetsEncrypt, PARITY.md 4.7).
 type Certificate struct {
+	NotAfter                time.Time
 	CreatedAt               time.Time
 	IssuedAt                time.Time
 	NotBefore               time.Time
-	NotAfter                time.Time
 	Tags                    *tags.Tags
+	SupportCode             string
 	Name                    string
 	Arn                     string
 	DomainName              string
 	Status                  string
+	DomainValidationRecords []CertificateValidationRecord
 	SubjectAlternativeNames []string
+	InUseResourceCount      int32
+}
+
+// CertificateValidationRecord mirrors types.DomainValidationRecord: the CNAME
+// the owner must publish and the domain's validation status.
+type CertificateValidationRecord struct {
+	DomainName       string
+	RecordName       string
+	RecordType       string
+	RecordValue      string
+	ValidationStatus string
 }
 
 func (c *Certificate) clone() *Certificate {
 	cp := *c
 	cp.SubjectAlternativeNames = cloneStrings(c.SubjectAlternativeNames)
+	cp.DomainValidationRecords = append([]CertificateValidationRecord(nil), c.DomainValidationRecords...)
 
 	return &cp
 }

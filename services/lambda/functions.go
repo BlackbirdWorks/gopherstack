@@ -314,6 +314,7 @@ func (b *InMemoryBackend) DeleteFunction(name string) error {
 	var (
 		found          bool
 		rt             *functionRuntime
+		urlServers     []*functionURLServer
 		esmIDsToRemove []string
 	)
 
@@ -337,11 +338,15 @@ func (b *InMemoryBackend) DeleteFunction(name string) error {
 			}
 		}
 
-		b.deleteFunctionMapsLocked(name)
+		urlServers = b.deleteFunctionMapsLocked(name)
 	}()
 
 	if !found {
 		return ErrFunctionNotFound
+	}
+
+	for _, srv := range urlServers {
+		b.releaseURLServer(b.ctx, srv)
 	}
 
 	for _, id := range esmIDsToRemove {

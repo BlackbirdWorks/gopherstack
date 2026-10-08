@@ -107,8 +107,15 @@ func (h *Handler) handleDescribeSnapshots(ctx context.Context, c *echo.Context, 
 
 	objs := make([]snapshotObject, 0, len(snapshots))
 
+	showDetail := req.ShowDetail != nil && *req.ShowDetail
+
 	for _, s := range snapshots {
-		objs = append(objs, toSnapshotObject(s))
+		obj := toSnapshotObject(s)
+		if showDetail && obj.ClusterConfiguration != nil {
+			obj.ClusterConfiguration.Shards = s.ClusterConfiguration.Shards
+		}
+
+		objs = append(objs, obj)
 	}
 
 	return c.JSON(http.StatusOK, describeSnapshotResponse{Snapshots: objs, NextToken: nextToken})
@@ -140,6 +147,7 @@ func toSnapshotObject(s *Snapshot) snapshotObject {
 	var clusterConfig *snapshotClusterConfig
 	if s.ClusterConfiguration.Name != "" {
 		cfg := s.ClusterConfiguration
+		cfg.Shards = nil
 		clusterConfig = &cfg
 	}
 

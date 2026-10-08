@@ -2,7 +2,7 @@
 service: memorydb
 sdk_module: aws-sdk-go-v2/service/memorydb@v1.36.4
 last_audit_commit: b4c2391e7
-last_audit_date: 2026-09-18
+last_audit_date: 2026-10-07
 overall: A            # 2026-08-15 (gopherstack-6flj): wrapper-key/nested-shape sweep of all 18 L+D+G ops
                        # (scripted key extraction against deserializers.go/serializers.go for all 18
                        # ops + every reachable nested type). Top-level wrapper keys were mostly clean,
@@ -146,11 +146,10 @@ families:
   pagination: {status: ok, note: "2026-08-15 (gopherstack-6flj): 7 of 15 Describe ops parsed MaxResults/NextToken into their request struct but never called paginateItems (handler.go) -- every call returned the full result set in one page regardless of MaxResults. Fixed 6 (DescribeEngineVersions, DescribeReservedNodes, DescribeReservedNodesOfferings, DescribeMultiRegionClusters, DescribeMultiRegionParameterGroups, DescribeMultiRegionParameters), all backed by statically-ordered or explicitly-sorted results, so a name-based cursor is sound. DescribeEvents left unfixed at the time -- see gaps for the 2026-08-29 resolution (deterministic sort added, pagination now wired). 2026-08-29 (cursor-pagination sweep): DescribeParameters was a previously-unnoticed 8th unpaginated op, now fixed (paginateItems). Also found and fixed a severe pre-existing bug in paginateItems itself: findStartIndex resumed one index past the matching item instead of at it, silently dropping exactly one item at every page boundary across all 14 paginated ops (not just the newly-fixed ones) since nextToken encodes the next page's first item inclusively, not the previous page's last item exclusively. See TestPaginateItems_NoSkipAcrossPages (whitebox_test.go)."}
 gaps: []
 items_still_open:
+  - "ServiceUpdate.NodesUpdated is always empty: the SDK documents it only as a string 'list of nodes updated' with no format, and nodes are synthesised per request, so the wire value is not determinable."
+structural_gaps:
   - "CreateCluster.SnapshotArns (S3 RDB files) is accepted and ignored: no S3 integration exists and no data backs an externally uploaded RDB, so there is nothing to import. The in-account SnapshotName restore path is implemented."
-  - "Snapshot.ClusterConfiguration.Shards is not returned: ShardDetail.Size (per-shard snapshot size) is never tracked, and the live-cluster slot split from buildShards would fabricate historical per-shard data on a snapshot."
-  - "ServiceUpdate.NodesUpdated is always empty: nodes are synthesised per request, so no per-node update state exists."
-  - "DescribeSnapshots.ShowDetail is not implemented: it gates ClusterConfiguration.Shards, which is not populated (see above)."
-  - "ClusterPendingUpdates.Resharding is never returned: shard-count changes (UpdateCluster, UpdateMultiRegionCluster) apply synchronously with no in-flight resharding state. UpdateMultiRegionCluster stores ShardConfiguration on the multi-Region cluster only and validates UpdateStrategy without using it; nothing propagates to regional clusters."
+  - "ShardDetail.Size (per-shard snapshot size) is never returned: no data is stored in the emulated shards, so there is no size to report."
 deferred:                 # consciously not audited this pass (scope) -- next pass targets
   - "Slot distribution in nested shardObject/nodeObject uses an even 16384-slot split that was not verified against live AWS."
   - "RegionalCluster.Status mirrors the regional cluster's own Status; whether AWS reports a separate Region-membership status is unverified."

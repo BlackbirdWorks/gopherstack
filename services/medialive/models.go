@@ -616,6 +616,7 @@ func (t *storedEventBridgeRuleTemplate) toTemplate() *EventBridgeRuleTemplate {
 }
 
 type storedReservation struct {
+	DeletedAt             time.Time                     `json:"deletedAt"`
 	Tags                  map[string]string             `json:"tags"`
 	ResourceSpecification OfferingResourceSpecification `json:"resourceSpecification"`
 	OfferingType          string                        `json:"offeringType"`

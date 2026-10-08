@@ -31,8 +31,12 @@ type pendingInvocation struct {
 	// durableExecARN is set for an async (Event) invocation of a durable function so
 	// the retry loop can record the execution's completion once retries are exhausted.
 	durableExecARN string
-	result         chan invocationResult
-	payload        []byte
+	// qualifier is the version/alias the caller invoked ("" for the bare function);
+	// executedVersion is the version it resolved to.
+	qualifier       string
+	executedVersion string
+	result          chan invocationResult
+	payload         []byte
 }
 
 // invocationResult holds the outcome of a Lambda container invocation.

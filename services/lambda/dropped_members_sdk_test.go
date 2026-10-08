@@ -252,7 +252,7 @@ func TestSDK_EventSourceMappingConfigMembers(t *testing.T) {
 			Metrics: []lambdatypes.EventSourceMappingMetric{lambdatypes.EventSourceMappingMetricEventCount},
 		},
 		ProvisionedPollerConfig: &lambdatypes.ProvisionedPollerConfig{
-			MinimumPollers: aws.Int32(1), MaximumPollers: aws.Int32(3),
+			MinimumPollers: aws.Int32(2), MaximumPollers: aws.Int32(3),
 		},
 	})
 	require.NoError(t, err)

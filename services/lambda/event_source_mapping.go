@@ -320,6 +320,13 @@ func (b *InMemoryBackend) CreateEventSourceMapping(
 		)
 	}
 
+	if err := validateESMTuning(
+		input.EventSourceARN, input.SelfManagedEventSource != nil,
+		input.ScalingConfig, input.MetricsConfig, input.ProvisionedPollerConfig,
+	); err != nil {
+		return nil, err
+	}
+
 	id := uuid.New().String()
 	state := ESMStateEnabled
 	if !input.Enabled {
@@ -588,9 +595,10 @@ func (b *InMemoryBackend) UpdateEventSourceMapping(
 	input *UpdateEventSourceMappingInput,
 ) (*EventSourceMapping, error) {
 	var (
-		result *EventSourceMapping
-		found  bool
-		poller *EventSourcePoller
+		result      *EventSourceMapping
+		found       bool
+		poller      *EventSourcePoller
+		validateErr error
 	)
 
 	func() {
@@ -603,6 +611,15 @@ func (b *InMemoryBackend) UpdateEventSourceMapping(
 		}
 
 		found = true
+
+		validateErr = validateESMTuning(
+			esm.EventSourceARN, esm.SelfManagedEventSource != nil,
+			input.ScalingConfig, input.MetricsConfig, input.ProvisionedPollerConfig,
+		)
+		if validateErr != nil {
+			return
+		}
+
 		b.reindexESMFunctionLocked(esm, input.FunctionName)
 		applyESMUpdate(esm, input)
 		poller = b.kinesisPoller
@@ -611,6 +628,10 @@ func (b *InMemoryBackend) UpdateEventSourceMapping(
 
 	if !found {
 		return nil, ErrESMNotFound
+	}
+
+	if validateErr != nil {
+		return nil, validateErr
 	}
 
 	if poller != nil {
@@ -655,4 +676,77 @@ func (b *InMemoryBackend) setESMLastProcessingResult(id, result string) {
 	if m, ok := b.eventSourceMappings.Get(id); ok {
 		m.LastProcessingResult = result
 	}
+}
+
+const (
+	sqsMaxPollersMin   = 2
+	sqsMaxPollersMax   = 10000
+	kafkaMaxPollersMin = 1
+	kafkaMaxPollersMax = 2000
+)
+
+// validateESMTuning enforces the source-type and range rules documented on
+// ScalingConfig, EventSourceMappingMetricsConfig and ProvisionedPollerConfig.
+func validateESMTuning(
+	eventSourceARN string,
+	selfManaged bool,
+	scaling *ESMScalingConfig,
+	metrics *ESMMetricsConfig,
+	ppc *ESMProvisionedPollerConfig,
+) error {
+	sqs := isSQSARN(eventSourceARN)
+	kafka := selfManaged || strings.Contains(eventSourceARN, ":kafka:")
+
+	if scaling != nil && scaling.MaximumConcurrency != nil && !sqs {
+		return fmt.Errorf("%w: ScalingConfig applies to Amazon SQS event sources only", ErrInvalidParameterValue)
+	}
+
+	if metrics != nil {
+		for _, m := range metrics.Metrics {
+			switch m {
+			case "EventCount":
+			case "ErrorCount", "KafkaMetrics":
+				if !kafka {
+					return fmt.Errorf(
+						"%w: metric %s applies to Amazon MSK and self-managed Apache Kafka sources only",
+						ErrInvalidParameterValue, m,
+					)
+				}
+			default:
+				return fmt.Errorf("%w: unknown mapping metric %q", ErrInvalidParameterValue, m)
+			}
+		}
+	}
+
+	return validateProvisionedPollers(sqs, kafka, ppc)
+}
+
+func validateProvisionedPollers(sqs, kafka bool, ppc *ESMProvisionedPollerConfig) error {
+	if ppc == nil {
+		return nil
+	}
+
+	if ppc.PollerGroupName != "" && !kafka {
+		return fmt.Errorf(
+			"%w: PollerGroupName applies to Amazon MSK and self-managed Apache Kafka sources only",
+			ErrInvalidParameterValue,
+		)
+	}
+
+	lo, hi := int32(kafkaMaxPollersMin), int32(kafkaMaxPollersMax)
+	if sqs {
+		lo, hi = sqsMaxPollersMin, sqsMaxPollersMax
+	} else if !kafka {
+		return nil
+	}
+
+	if ppc.MaximumPollers != nil && (*ppc.MaximumPollers < lo || *ppc.MaximumPollers > hi) {
+		return fmt.Errorf("%w: MaximumPollers must be between %d and %d", ErrInvalidParameterValue, lo, hi)
+	}
+
+	if ppc.MinimumPollers != nil && *ppc.MinimumPollers < lo {
+		return fmt.Errorf("%w: MinimumPollers must be at least %d", ErrInvalidParameterValue, lo)
+	}
+
+	return nil
 }

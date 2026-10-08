@@ -33,9 +33,10 @@ func (h *Handler) handleCreateFunctionURLConfig(c *echo.Context, name string) er
 		input.AuthType = "NONE"
 	}
 
-	cfg, createErr := lambdaBk.CreateFunctionURLConfig(
+	cfg, createErr := lambdaBk.CreateFunctionURLConfigQualified(
 		c.Request().Context(),
 		name,
+		c.QueryParam("Qualifier"),
 		input.AuthType,
 		input.Cors,
 		input.InvokeMode,
@@ -63,7 +64,7 @@ func (h *Handler) handleGetFunctionURLConfig(c *echo.Context, name string) error
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
 	}
 
-	cfg, err := lambdaBk.GetFunctionURLConfig(name)
+	cfg, err := lambdaBk.GetFunctionURLConfigQualified(name, c.QueryParam("Qualifier"))
 	if err != nil {
 		if errors.Is(err, ErrFunctionURLNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
@@ -82,7 +83,7 @@ func (h *Handler) handleDeleteFunctionURLConfig(c *echo.Context, name string) er
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
 	}
 
-	if err := lambdaBk.DeleteFunctionURLConfig(name); err != nil {
+	if err := lambdaBk.DeleteFunctionURLConfigQualified(name, c.QueryParam("Qualifier")); err != nil {
 		if errors.Is(err, ErrFunctionURLNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
 				"Function URL config not found: "+name)
@@ -138,17 +139,15 @@ func (h *Handler) handleListFunctionURLConfigs(c *echo.Context, name string) err
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
 	}
 
-	// If name is provided, filter to that function only.
 	if name != "" {
-		cfg, err := lambdaBk.GetFunctionURLConfig(name)
+		marker, maxItems := parsePaginationParams(c.Request())
+
+		cfgs, next, err := lambdaBk.ListFunctionURLConfigsForFunction(name, marker, maxItems)
 		if err != nil {
-			// Return empty list rather than 404 for a missing URL config.
-			return c.JSON(http.StatusOK, &ListFunctionURLConfigsOutput{FunctionURLConfigs: []*FunctionURLConfig{}})
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "Function not found: "+name)
 		}
 
-		return c.JSON(http.StatusOK, &ListFunctionURLConfigsOutput{
-			FunctionURLConfigs: []*FunctionURLConfig{cfg},
-		})
+		return c.JSON(http.StatusOK, &ListFunctionURLConfigsOutput{FunctionURLConfigs: cfgs, NextMarker: next})
 	}
 
 	cfgs := lambdaBk.ListFunctionURLConfigs()
@@ -175,7 +174,9 @@ func (h *Handler) handleUpdateFunctionURLConfig(c *echo.Context, name string) er
 		}
 	}
 
-	cfg, updateErr := lambdaBk.UpdateFunctionURLConfig(name, input.AuthType, input.Cors, input.InvokeMode)
+	cfg, updateErr := lambdaBk.UpdateFunctionURLConfigQualified(
+		name, c.QueryParam("Qualifier"), input.AuthType, input.Cors, input.InvokeMode,
+	)
 	if updateErr != nil {
 		if errors.Is(updateErr, ErrFunctionURLNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",

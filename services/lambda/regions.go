@@ -109,6 +109,10 @@ func (b *InMemoryBackend) inheritWiring(home *InMemoryBackend) {
 	b.regionBackend = home.regionBackend
 	b.cwLogs = home.cwLogs
 
+	if e := home.metrics.Emitter(); e != nil {
+		b.metrics.Set(e)
+	}
+
 	if r, ok := home.cwLogs.(regionalCWLogs); ok {
 		b.cwLogs = r.ForRegion(b.region)
 	}

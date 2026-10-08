@@ -55,6 +55,7 @@ const (
 
 	nodeStateActive    = "ACTIVE"
 	nodeStateDeleted   = "DELETED"
+	nodeStateDraining  = "DRAINING"
 	nodeRoleActive     = "ACTIVE"
 	nodeConnectionConn = "CONNECTED"
 

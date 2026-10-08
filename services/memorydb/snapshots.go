@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
 
 // snapshotClusterConfigFor builds the wire ClusterConfiguration recorded on a
@@ -30,6 +31,7 @@ func (b *InMemoryBackend) snapshotClusterConfigFor(c *Cluster) snapshotClusterCo
 		SnapshotRetentionLimit: c.SnapshotRetentionLimit,
 		SnapshotWindow:         c.SnapshotWindow,
 		MultiRegionClusterName: c.MultiRegionClusterName,
+		Shards:                 snapshotShardsFor(c, b.now()),
 	}
 	if c.MultiRegionClusterName != "" {
 		if mrc, ok := b.multiRegionClusters.Get(c.MultiRegionClusterName); ok {
@@ -38,6 +40,21 @@ func (b *InMemoryBackend) snapshotClusterConfigFor(c *Cluster) snapshotClusterCo
 	}
 
 	return cfg
+}
+
+func snapshotShardsFor(c *Cluster, at time.Time) []snapshotShardDetail {
+	ranges := shardSlotRanges(c.NumShards)
+	shards := make([]snapshotShardDetail, 0, len(ranges))
+
+	for i, slots := range ranges {
+		shards = append(shards, snapshotShardDetail{
+			Name:                 shardName(c.Name, i),
+			Configuration:        snapshotShardConfig{Slots: slots, ReplicaCount: c.NumReplicasPerShard},
+			SnapshotCreationTime: awstime.Epoch(at),
+		})
+	}
+
+	return shards
 }
 
 // CreateSnapshot creates a snapshot of a cluster.

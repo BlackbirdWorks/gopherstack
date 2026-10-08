@@ -11,6 +11,17 @@ import (
 
 // --- Offering operations ---
 
+// pruneDeletedReservationsLocked evicts reservations that sat DELETED past
+// medialiveDeletedTTL. Caller must hold the write lock.
+func (b *InMemoryBackend) pruneDeletedReservationsLocked(now time.Time) {
+	for _, r := range b.reservations.All() {
+		if r.State == stateDeleted && !r.DeletedAt.IsZero() && now.Sub(r.DeletedAt) >= medialiveDeletedTTL {
+			b.reservations.Delete(r.ReservationID)
+			delete(b.tags, r.Arn)
+		}
+	}
+}
+
 // OfferingFilter holds ListOfferings' query filters; ChannelConfiguration is not modeled.
 type OfferingFilter struct {
 	Duration string
@@ -78,6 +89,7 @@ func (b *InMemoryBackend) PurchaseOffering(
 ) (*Reservation, error) {
 	b.mu.Lock("PurchaseOffering")
 	defer b.mu.Unlock()
+	b.pruneDeletedReservationsLocked(b.now())
 	var off *Offering
 	for _, o := range b.offerings {
 		if o.OfferingID == offeringID {
@@ -186,8 +198,9 @@ func (b *InMemoryBackend) ListReservations(
 	nextToken string,
 	filter ReservationFilter,
 ) ([]*Reservation, string, error) {
-	b.mu.RLock("ListReservations")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListReservations")
+	defer b.mu.Unlock()
+	b.pruneDeletedReservationsLocked(b.now())
 	all := b.reservations.All()
 
 	matched := make([]*storedReservation, 0, len(all))
@@ -211,8 +224,9 @@ func (b *InMemoryBackend) ListReservations(
 
 // DescribeReservation returns a single reservation.
 func (b *InMemoryBackend) DescribeReservation(reservationID string) (*Reservation, error) {
-	b.mu.RLock("DescribeReservation")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeReservation")
+	defer b.mu.Unlock()
+	b.pruneDeletedReservationsLocked(b.now())
 	r, ok := b.reservations.Get(reservationID)
 	if !ok {
 		return nil, fmt.Errorf("%w: reservation %s not found", ErrNotFound, reservationID)
@@ -237,11 +251,12 @@ func (r *storedReservation) effectiveState() string {
 	return r.State
 }
 
-// DeleteReservation cancels a reservation. api_op_DeleteReservation.go
-// describes the op as deleting an expired reservation.
+// DeleteReservation marks an expired reservation DELETED (api_op_DeleteReservation.go:
+// "Delete an expired reservation"); it stays describable until medialiveDeletedTTL.
 func (b *InMemoryBackend) DeleteReservation(reservationID string) (*Reservation, error) {
 	b.mu.Lock("DeleteReservation")
 	defer b.mu.Unlock()
+	b.pruneDeletedReservationsLocked(b.now())
 	r, ok := b.reservations.Get(reservationID)
 	if !ok {
 		return nil, fmt.Errorf("%w: reservation %s not found", ErrNotFound, reservationID)
@@ -249,12 +264,10 @@ func (b *InMemoryBackend) DeleteReservation(reservationID string) (*Reservation,
 	if r.effectiveState() != "EXPIRED" {
 		return nil, fmt.Errorf("%w: reservation must be expired before deleting", ErrConflict)
 	}
-	r.State = "CANCELED"
-	out := r.toReservation()
-	b.reservations.Delete(reservationID)
-	delete(b.tags, r.Arn)
+	r.State = stateDeleted
+	r.DeletedAt = b.now()
 
-	return out, nil
+	return r.toReservation(), nil
 }
 
 // UpdateReservation updates a reservation's name and, optionally, its
@@ -266,6 +279,7 @@ func (b *InMemoryBackend) UpdateReservation(
 ) (*Reservation, error) {
 	b.mu.Lock("UpdateReservation")
 	defer b.mu.Unlock()
+	b.pruneDeletedReservationsLocked(b.now())
 	r, ok := b.reservations.Get(reservationID)
 	if !ok {
 		return nil, fmt.Errorf("%w: reservation %s not found", ErrNotFound, reservationID)

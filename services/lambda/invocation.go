@@ -166,6 +166,8 @@ func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 	// for both synchronous (RequestResponse) and asynchronous (Event) invocations.
 	trackConcurrency, concErr := b.acquireConcurrencySlot(fn.FunctionName, fn.Version)
 	if concErr != nil {
+		b.emitThrottleMetric(fn.FunctionName, qualifier, fn.Version)
+
 		return nil, "", "", http.StatusTooManyRequests, concErr
 	}
 
@@ -185,6 +187,8 @@ func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 			b.releaseConcurrencySlot(fn.FunctionName)
 		}
 
+		b.emitInvocationMetrics(fn.FunctionName, qualifier, fn.Version, 0, true)
+
 		return nil, "", "", http.StatusInternalServerError, srvErr
 	}
 
@@ -194,12 +198,24 @@ func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 	}
 
 	if invocationType == InvocationTypeEvent {
-		b.invokeEvent(ctx, fn, srv, payload, clientContext, timeout, trackConcurrency)
+		b.invokeEvent(ctx, fn, qualifier, srv, payload, clientContext, timeout, trackConcurrency)
 
 		return nil, "", "", http.StatusAccepted, nil
 	}
 
-	return b.invokeSync(ctx, fn, srv, payload, clientContext, logType, timeout)
+	start := time.Now()
+	result, logResult, functionError, status, invokeErr := b.invokeSync(
+		ctx, fn, srv, payload, clientContext, logType, timeout,
+	)
+	b.emitInvocationMetrics(
+		fn.FunctionName,
+		qualifier,
+		fn.Version,
+		time.Since(start),
+		invokeErr != nil || functionError != "",
+	)
+
+	return result, logResult, functionError, status, invokeErr
 }
 
 // classifyFunctionError maps an invocation outcome to the AWS X-Amz-Function-Error
@@ -260,6 +276,7 @@ func buildTailLog(reqID string) string {
 func (b *InMemoryBackend) invokeEvent(
 	ctx context.Context,
 	fn *FunctionConfiguration,
+	qualifier string,
 	srv *runtimeServer,
 	payload []byte,
 	clientContext string,
@@ -267,13 +284,15 @@ func (b *InMemoryBackend) invokeEvent(
 	trackConcurrency bool,
 ) {
 	inv := &pendingInvocation{
-		requestID:      uuid.New().String(),
-		payload:        payload,
-		clientContext:  clientContext,
-		deadline:       time.Now().Add(timeout),
-		createdAt:      time.Now(),
-		result:         make(chan invocationResult, 1),
-		durableExecARN: durableExecARNFromContext(ctx),
+		requestID:       uuid.New().String(),
+		payload:         payload,
+		clientContext:   clientContext,
+		deadline:        time.Now().Add(timeout),
+		createdAt:       time.Now(),
+		result:          make(chan invocationResult, 1),
+		durableExecARN:  durableExecARNFromContext(ctx),
+		qualifier:       qualifier,
+		executedVersion: fn.Version,
 	}
 
 	b.enqueueAsyncInvocation(ctx, srv, fn.FunctionName, inv, timeout, trackConcurrency)
@@ -395,10 +414,11 @@ func (b *InMemoryBackend) runAsyncInvocationRetryLoop(
 	timeout time.Duration,
 	functionName string,
 ) {
-	maxRetries, maxEventAgeDL := b.readAsyncRetryConfig(functionName, inv.createdAt)
+	maxRetries, maxEventAgeDL := b.readAsyncRetryConfig(functionName, inv.qualifier, inv.createdAt)
 	currentInv := inv
 
 	for attempt := range maxRetries + 1 {
+		attemptStart := time.Now()
 		result, ok, containerTimedOut := b.waitForAsyncResult(srv, currentInv, timeout)
 		if !ok && !containerTimedOut {
 			// Backend shutdown: abandon without retry or destination delivery.
@@ -417,9 +437,13 @@ func (b *InMemoryBackend) runAsyncInvocationRetryLoop(
 			isError = true
 		}
 
+		b.emitInvocationMetrics(functionName, inv.qualifier, inv.executedVersion, time.Since(attemptStart), isError)
+
 		if !isError || attempt == maxRetries {
 			outcome := asyncOutcome{
 				functionName:    functionName,
+				qualifier:       inv.qualifier,
+				executedVersion: inv.executedVersion,
 				requestID:       inv.requestID,
 				requestPayload:  inv.payload,
 				responsePayload: result.payload,
@@ -470,7 +494,7 @@ func (b *InMemoryBackend) completeAsyncDurableExecution(arn string, succeeded bo
 // for an async invocation. If no event invoke configuration exists, the AWS defaults are used
 // (2 retries, no age limit).
 func (b *InMemoryBackend) readAsyncRetryConfig(
-	functionName string,
+	functionName, qualifier string,
 	createdAt time.Time,
 ) (int, time.Time) {
 	b.mu.RLock("readAsyncRetryConfig")
@@ -478,8 +502,8 @@ func (b *InMemoryBackend) readAsyncRetryConfig(
 
 	maxRetries := defaultAsyncMaxRetryAttempts
 
-	cfg, ok := b.eventInvokeConfigs[functionName]
-	if !ok {
+	cfg := b.eventInvokeConfigForLocked(functionName, qualifier)
+	if cfg == nil {
 		return maxRetries, time.Time{}
 	}
 
@@ -556,12 +580,14 @@ func scheduleAsyncRetry(
 	}
 
 	newInv := &pendingInvocation{
-		requestID:      uuid.New().String(),
-		payload:        original.payload,
-		deadline:       time.Now().Add(timeout),
-		result:         make(chan invocationResult, 1),
-		createdAt:      original.createdAt,
-		durableExecARN: original.durableExecARN,
+		requestID:       uuid.New().String(),
+		payload:         original.payload,
+		deadline:        time.Now().Add(timeout),
+		result:          make(chan invocationResult, 1),
+		createdAt:       original.createdAt,
+		durableExecARN:  original.durableExecARN,
+		qualifier:       original.qualifier,
+		executedVersion: original.executedVersion,
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, asyncInvocationEnqueueTimeout)

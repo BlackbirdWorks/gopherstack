@@ -159,6 +159,10 @@ func (b *InMemoryBackend) UpdateNodeState(clusterID, nodeID, state string) (*Nod
 		return nil, fmt.Errorf("%w: node %s not found", ErrNotFound, nodeID)
 	}
 
+	if state != "" && state != nodeStateActive && state != nodeStateDraining {
+		return nil, fmt.Errorf("%w: state must be %s or %s", ErrInvalidParameter, nodeStateActive, nodeStateDraining)
+	}
+
 	if state != "" {
 		n.State = state
 	}
@@ -182,6 +186,12 @@ func (b *InMemoryBackend) DeleteNode(clusterID, nodeID string) (*Node, error) {
 	}
 
 	cpgIDs := b.channelPlacementGroupIDsForNode(clusterID, nodeID)
+	for _, groupID := range cpgIDs {
+		if b.anyChannelBusy(b.channelIDsForPlacementGroup(groupID)) {
+			return nil, fmt.Errorf("%w: node %s is in use by a running channel", ErrConflict, nodeID)
+		}
+	}
+
 	delete(c.Nodes, nodeID)
 	delete(b.tags, n.ARN)
 

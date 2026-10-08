@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -112,7 +113,8 @@ func TestReservations_PurchaseListDescribeDeleteUpdate(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	rec = doRequest(t, h, http.MethodGet, "/prod/reservations/"+reservationID, nil)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "DELETED", decodeBody(t, rec.Body.Bytes())["state"])
 }
 
 // TestReservations_RenewalSettings locks in a fix for a gap where
@@ -338,9 +340,57 @@ func TestReservations_DeleteRequiresExpired(t *testing.T) {
 
 		rec = doRequest(t, h, http.MethodDelete, "/prod/reservations/"+id, nil)
 		require.Equal(t, http.StatusOK, rec.Code)
-		assert.Equal(t, "CANCELED", decodeBody(t, rec.Body.Bytes())["state"])
+		assert.Equal(t, "DELETED", decodeBody(t, rec.Body.Bytes())["state"])
 
 		rec = doRequest(t, h, http.MethodGet, "/prod/reservations/"+id, nil)
-		assert.Equal(t, http.StatusNotFound, rec.Code)
+		require.Equal(t, http.StatusOK, rec.Code)
+		assert.Equal(t, "DELETED", decodeBody(t, rec.Body.Bytes())["state"])
+
+		rec = doRequest(t, h, http.MethodDelete, "/prod/reservations/"+id, nil)
+		assert.Equal(t, http.StatusConflict, rec.Code)
 	})
+}
+
+func TestReservations_DeletedTTL(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		wantState string
+		wait      time.Duration
+		wantErr   bool
+	}{
+		{name: "kept_within_ttl", wait: time.Minute, wantState: "DELETED"},
+		{name: "evicted_past_ttl", wait: pastMedialiveDeletedTTL, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			synctest.Test(t, func(t *testing.T) {
+				b := medialive.NewInMemoryBackend("000000000000", "us-east-1")
+
+				r, err := b.PurchaseOffering("87654321", "ttl-test", "", 1, medialive.RenewalSettings{}, nil)
+				require.NoError(t, err)
+
+				medialive.ForceReservationEnd(b, r.ReservationID, "1990-01-01T00:00:00Z")
+
+				_, err = b.DeleteReservation(r.ReservationID)
+				require.NoError(t, err)
+
+				time.Sleep(tt.wait)
+
+				got, err := b.DescribeReservation(r.ReservationID)
+				if tt.wantErr {
+					require.ErrorIs(t, err, medialive.ErrNotFound)
+
+					return
+				}
+
+				require.NoError(t, err)
+				assert.Equal(t, tt.wantState, got.State)
+			})
+		})
+	}
 }

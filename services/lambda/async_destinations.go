@@ -1,6 +1,7 @@
 package lambda
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"time"
@@ -35,6 +36,8 @@ const asyncDestinationRecordVersion = "1.0"
 // records for a completed async invocation.
 type asyncOutcome struct {
 	functionName    string
+	qualifier       string
+	executedVersion string
 	requestID       string
 	functionError   string
 	requestPayload  []byte
@@ -121,7 +124,7 @@ func (b *InMemoryBackend) resolveAsyncTargets(out asyncOutcome) (
 
 	delivery := b.asyncDelivery
 	fn, _ := b.functions.Get(out.functionName)
-	eic := b.eventInvokeConfigs[out.functionName]
+	eic := b.eventInvokeConfigForLocked(out.functionName, out.qualifier)
 
 	var functionArn, dlqTarget, destTarget string
 
@@ -185,7 +188,7 @@ func buildAsyncDestinationRecord(out asyncOutcome, functionArn string) asyncDest
 		RequestPayload: rawJSONOrNull(out.requestPayload),
 		ResponseContext: asyncResponseContext{
 			StatusCode:      statusCode,
-			ExecutedVersion: versionLatest,
+			ExecutedVersion: cmp.Or(out.executedVersion, versionLatest),
 			FunctionError:   out.functionError,
 		},
 		ResponsePayload: rawJSONOrNull(out.responsePayload),

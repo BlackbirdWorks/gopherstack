@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
@@ -88,6 +89,7 @@ type InMemoryBackend struct {
 	cwLogs             CWLogsBackend
 	s3Fetcher          S3CodeFetcher
 	ecrResolver        ECRResolver
+	metrics            cwmetric.Sink
 	docker             container.Runtime
 	dnsRegistrar       DNSRegistrar
 	ctx                context.Context

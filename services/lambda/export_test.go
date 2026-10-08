@@ -493,7 +493,7 @@ func AccumulateSQSBatch(p *EventSourcePoller, m *EventSourceMapping, msgs []*SQS
 
 // BuildFunctionURLHandler exports buildFunctionURLHandler for testing auth/CORS.
 func BuildFunctionURLHandler(b *InMemoryBackend, functionName string) http.HandlerFunc {
-	return b.buildFunctionURLHandler(functionName)
+	return b.buildFunctionURLHandler(functionName, "")
 }
 
 // SetFunctionURLConfigForTest inserts a function URL config directly for testing.
@@ -515,6 +515,7 @@ func SetFunctionURLConfigForTest(b *InMemoryBackend, functionName string, cfg *F
 // AsyncOutcomeForTest describes a completed async invocation for delivery testing.
 type AsyncOutcomeForTest struct {
 	FunctionName    string
+	Qualifier       string
 	RequestID       string
 	FunctionError   string
 	RequestPayload  []byte
@@ -528,6 +529,7 @@ type AsyncOutcomeForTest struct {
 func DispatchAsyncOutcomeForTest(ctx context.Context, b *InMemoryBackend, o AsyncOutcomeForTest) {
 	b.dispatchAsyncOutcome(ctx, asyncOutcome{
 		functionName:    o.FunctionName,
+		qualifier:       o.Qualifier,
 		requestID:       o.RequestID,
 		requestPayload:  o.RequestPayload,
 		responsePayload: o.ResponsePayload,
@@ -613,4 +615,18 @@ func WithInvocationChainBatchForTest(ctx context.Context, names []string) contex
 	copy(next[len(existing):], names)
 
 	return context.WithValue(ctx, invocationChainKeyType{}, next)
+}
+
+// ReadAsyncRetryConfigForTest exports readAsyncRetryConfig.
+func ReadAsyncRetryConfigForTest(b *InMemoryBackend, name, qualifier string) int {
+	retries, _ := b.readAsyncRetryConfig(name, qualifier, time.Now())
+
+	return retries
+}
+
+// EmitInvocationMetricsForTest exports emitInvocationMetrics; elapsedMillis is the Duration in ms.
+func EmitInvocationMetricsForTest(
+	b *InMemoryBackend, name, qualifier, version string, elapsedMillis int, failed bool,
+) {
+	b.emitInvocationMetrics(name, qualifier, version, time.Duration(elapsedMillis)*time.Millisecond, failed)
 }
