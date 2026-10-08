@@ -7,7 +7,7 @@ sdk_module: aws-sdk-go-v2/service/iam@v1.63.0   # version audited against (go.mo
   # re-verified this sweep (see items_still_open), so no live claim broke, but
   # its "already marked ok/PROVEN by sweeps 1-4" history is now stale too.
 last_audit_commit: 5892fbc9f
-last_audit_date: 2026-09-19
+last_audit_date: 2026-10-07
 overall: A   # parity-sweep (2026-09-19): implemented Role Manager (AcquireRole,
   # GetRoleTemplateVersion) and account properties (GetAccountProperties,
   # PutAccountProperties), the 4 ops added by the iam v1.63.0 SDK bump. Role
@@ -144,20 +144,14 @@ invented_ops_removed:
   - "TagGroup / UntagGroup / ListGroupTags: not real IAM actions — Group is not a taggable resource type in real AWS (aws-sdk-go-v2/service/iam/types.Group has no Tags field, no api_op_{Tag,Untag,ListGroupTags}.go exist). Deleted the fabricated backend methods (InMemoryBackend.TagGroup/UntagGroup), the StorageBackend interface methods, the dispatch entries, the Group.Tags / GroupXML.Tags model fields, and the 4 tests that exercised them."
 gaps: []
 leaks: {status: clean, note: "persistence leaks clean (unchanged); 2 leak classes found+fixed sweep 5 — see DeleteUser/DeleteRole/DeleteGroup/DeleteInstanceProfile ghost-row entries and the Handler-level tag leak entry above. go test -race passes."}
+structural_gaps:
+  - "aws_iam_security_token_service_preferences: terraform provider v5.100.0 Put-then-Read singleton trips a Terraform Core state-consistency check (external tooling, gopherstack-101r); the op itself is wire-verified."
+  - "Role templates: the pinned SDK has no Create/Put/List op, so AddRoleTemplateVersionInternal is the only seam; AWS publishes no per-property value registry, so property values are untyped."
+  - "Access advisor Granularity=ACTION_LEVEL: needs real per-action usage tracking; emulating it would fabricate data."
 items_still_open:
-  - "aws_iam_security_token_service_preferences (2026-09-24): dropped from the iam-detective-and-s3-replication
-    terraform fixture; provider v5.100.0's Put-then-Read singleton pattern trips a Terraform Core state-consistency
-    check (same as ecr's registry scanning config, gopherstack-101r). External tooling issue; the op is wire-verified."
-  - "Role manager/account properties (2026-09-19): no per-property value typing (AWS publishes no registry),
-    AcquireRole's List join format is undocumented, and role templates have no Create/Put/List op in the pinned SDK
-    (AddRoleTemplateVersionInternal is the only seam). Disclosed choices, see families.role_manager."
-  - "Policy simulation: MissingContextValues is produced (2026-10-05); MatchedStatements is not -- Statement.Start/EndPosition
-    line/column convention and SourcePolicyType mapping are not documented in the pinned SDK, so need AWS evidence.
-    OrganizationsDecisionDetail needs an SCP model (no organizations link). Top-level EvalResourceName stays '*'
-    (no per-action ARN-template catalogue)."
-  - "Access advisor: Granularity=ACTION_LEVEL needs per-action usage tracking this backend lacks (would fabricate data).
-    ListDelegationRequests OwnerId filter and DelegationRequest ApproverId/OwnerId/RequestorId need caller-identity
-    plumbing to record request owners."
+  - "AcquireRole's List-parameter join format is undocumented in the SDK and AWS docs (unverifiable)."
+  - "Policy simulation: MatchedStatements Start/EndPosition line/column convention and SourcePolicyType mapping are undocumented (SDK says only 'row and column'; unverifiable). OrganizationsDecisionDetail needs an SCP model; top-level EvalResourceName stays '*'."
+  - "ListDelegationRequests OwnerId filter and DelegationRequest ApproverId/OwnerId/RequestorId: need caller-ARN plumbing into handlers and undocumented owner/approver semantics (unverifiable)."
 ---
 
 ## Notes
