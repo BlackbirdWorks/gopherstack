@@ -9,14 +9,13 @@
 | --- | --- |
 | PARITY entries audited | 34 (34 ok) |
 | Feature families | 6 (6 ok) |
-| Known gaps | 2 |
+| Known gaps | 1 |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- AWS/SNS TopicName metrics: SQS deliveries count as NumberOfNotificationsDelivered at publish because fan-out runs through the publish emitter, whose Emit returns one aggregate error; counting SQS failures needs the cli.go SQS adapter to report per-subscription outcomes back to emitDeliveryOutcome. HTTP/Lambda/Firehose/SMS/application report real outcomes.
 - NumberOfNotificationsFilteredOut-InvalidAttributes is not emitted: the pinned SDK does not define when a message's attributes count as invalid.
 
 ### Structural gaps

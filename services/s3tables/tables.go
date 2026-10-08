@@ -260,41 +260,29 @@ func (b *InMemoryBackend) CreateTable(
 
 	now := time.Now().UTC()
 	table := &Table{
-		ARN:               tableARN,
-		Name:              name,
-		Namespace:         cloneStringSlice(namespace),
-		TableBucketARN:    tableBucketARN,
-		TableBucketID:     tb.BucketID,
-		Format:            format,
-		VersionToken:      uuid.NewString(),
-		WarehouseLocation: "s3://" + tb.Name + "/" + nsStr + "/" + name,
-		CreatedAt:         now,
-		ModifiedAt:        now,
-		OwnerAccountID:    b.accountID,
-		StorageClass:      storageClass,
-		Encryption:        cloneAnyMap(opts.Encryption),
-		Metadata:          cloneAnyMap(opts.Metadata),
-		MaintenanceConfiguration: map[string]any{
-			maintenanceTypeIcebergCompaction: map[string]any{
-				keyStatusField: statusEnabled,
-				keySettings: map[string]any{
-					maintenanceTypeIcebergCompaction: map[string]any{
-						"targetFileSizeMB": float64(512), //nolint:mnd // AWS default: 512 MB target file size
-						"strategy":         "binpack",
-					},
-				},
-			},
-			maintenanceTypeIcebergSnapshotManagement: map[string]any{
-				keyStatusField: statusEnabled,
-				keySettings: map[string]any{
-					maintenanceTypeIcebergSnapshotManagement: map[string]any{
-						"maxSnapshotAgeHours": float64(120), //nolint:mnd // AWS default: 120 hours (5 days)
-						"minSnapshotsToKeep":  float64(1),
-					},
-				},
-			},
-		},
+		ARN:                      tableARN,
+		Name:                     name,
+		Namespace:                cloneStringSlice(namespace),
+		TableBucketARN:           tableBucketARN,
+		TableBucketID:            tb.BucketID,
+		Format:                   format,
+		VersionToken:             uuid.NewString(),
+		WarehouseLocation:        "s3://" + warehouseBucketName(tb.BucketID) + "/" + nsStr + "/" + name,
+		CreatedAt:                now,
+		ModifiedAt:               now,
+		OwnerAccountID:           b.accountID,
+		StorageClass:             storageClass,
+		Encryption:               cloneAnyMap(opts.Encryption),
+		Metadata:                 cloneAnyMap(opts.Metadata),
+		MaintenanceConfiguration: defaultMaintenanceConfiguration(),
 	}
+
+	metadataLocation, err := b.materializeMetadata(table, tb.BucketID)
+	if err != nil {
+		return nil, err
+	}
+
+	table.MetadataLocation = metadataLocation
 	b.tables.Put(table)
 
 	// TagResource only takes muState, which sits after muTables in the
@@ -718,4 +706,28 @@ func cloneTable(t *Table) *Table {
 	cp.Encryption = cloneAnyMap(t.Encryption)
 
 	return &cp
+}
+
+// defaultMaintenanceConfiguration is the maintenance configuration every new table starts with.
+func defaultMaintenanceConfiguration() map[string]any {
+	return map[string]any{
+		maintenanceTypeIcebergCompaction: map[string]any{
+			keyStatusField: statusEnabled,
+			keySettings: map[string]any{
+				maintenanceTypeIcebergCompaction: map[string]any{
+					"targetFileSizeMB": float64(512), //nolint:mnd // AWS default: 512 MB target file size
+					"strategy":         "binpack",
+				},
+			},
+		},
+		maintenanceTypeIcebergSnapshotManagement: map[string]any{
+			keyStatusField: statusEnabled,
+			keySettings: map[string]any{
+				maintenanceTypeIcebergSnapshotManagement: map[string]any{
+					"maxSnapshotAgeHours": float64(120), //nolint:mnd // AWS default: 120 hours (5 days)
+					"minSnapshotsToKeep":  float64(1),
+				},
+			},
+		},
+	}
 }

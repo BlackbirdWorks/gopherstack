@@ -17,7 +17,7 @@
 
 - AWS/DynamoDB metrics still missing: ReturnedBytes/ReturnedRecordsCount (DynamoDB Streams GetRecords), GlobalSecondaryIndexName-dimensioned write capacity for BatchWriteItem/TransactWriteItems (deletes lack the old item), and per-op latency/errors for ExecuteStatement. GSI-dimensioned capacity (Put/Update/Delete/Query/Scan), SystemErrors, and Transact*/ExecuteTransaction/BatchExecuteStatement latency+errors are emitted. (gopherstack-4m1qr)
 - Vector indexes are modeled (CreateTable/UpdateTable/DescribeTable/Restore*Override/SearchVectors with real COSINE/EUCLIDEAN/DOT_PRODUCT scoring, HASH/INLINE_FILTER schema); the SDK gives no formula for VectorCapacity (VectorSearchRequestBytes/VectorWriteRequestBytes) or the per-write VectorIndexes capacity members, so they are not emitted.
-- Unmodeled fields left nil rather than fabricated: WarmThroughput (neither request values nor AWS defaults are stored or returned), GlobalTableWitnesses/MRSC witnesses, replica KMSMasterKeyId/OnDemand overrides/ReplicaInaccessibleDateTime, SSE InaccessibleEncryptionDateTime (needs a KMS key-state signal wired from cli.go).
+- Unmodeled fields left nil rather than fabricated: WarmThroughput (neither request values nor AWS defaults are stored or returned), GlobalTableWitnesses/MRSC witnesses, replica KMSMasterKeyId/OnDemand overrides/ReplicaInaccessibleDateTime.
 
 ### Structural gaps
 

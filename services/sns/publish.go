@@ -320,6 +320,7 @@ func (b *InMemoryBackend) buildPublishedEvent(
 		Signature:        sn.signature,
 		SignatureVersion: sigVersion,
 		SigningCertURL:   sn.certURL,
+		ReportDelivery:   func(_ string, ok bool) { b.emitDeliveryOutcome(topicArn, ok) },
 	}
 }
 

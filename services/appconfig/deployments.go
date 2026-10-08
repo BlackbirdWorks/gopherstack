@@ -116,6 +116,13 @@ func (b *InMemoryBackend) resolveStartDeploymentInputsLocked(
 		}
 
 		versionLabel = hcv.VersionLabel
+	} else if b.contentReader != nil {
+		if _, readErr := b.fetchExternalConfigurationLocked(profile, configVersion); readErr != nil {
+			return ConfigurationProfile{}, DeploymentStrategy{}, "", fmt.Errorf(
+				"%w: cannot retrieve configuration version %s from %s: %v",
+				ErrBadRequest, configVersion, profile.LocationURI, readErr.Error(),
+			)
+		}
 	}
 
 	currentLatestDeployment := b.deploymentCounters[applicationID][environmentID]
@@ -611,6 +618,7 @@ func (b *InMemoryBackend) revertDeployedConfigLocked(reverted *Deployment) {
 	key := appEnvProfileKey(reverted.ApplicationID, reverted.EnvironmentID, reverted.ConfigurationProfileID)
 	if previous == nil {
 		delete(b.deployedConfigs, key)
+		delete(b.fetchedConfigs, key)
 
 		return
 	}

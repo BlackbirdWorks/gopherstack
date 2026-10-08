@@ -469,10 +469,12 @@ type DeliveryMetrics struct {
 }
 
 // noteBuffered stamps the arrival of the oldest buffered record; call before appending to s.Records.
-func (s *DeliveryStream) noteBuffered() {
+func (s *DeliveryStream) noteBuffered(rec []byte) {
 	if len(s.Records) == 0 {
 		s.oldestBuffered = time.Now()
 	}
+
+	s.noteSample(rec)
 }
 
 // DeliveryStream represents a Kinesis Firehose delivery stream.
@@ -501,6 +503,7 @@ type DeliveryStream struct {
 	Region                   string                               `json:"region"`
 	Records                  [][]byte                             `json:"records,omitempty"`
 	BackupRecords            [][]byte                             `json:"backupRecords,omitempty"`
-	Metrics                  DeliveryMetrics                      `json:"metrics"`
+	recentSamples            [][]byte
+	Metrics                  DeliveryMetrics `json:"metrics"`
 	bufferSizeBytes          int
 }

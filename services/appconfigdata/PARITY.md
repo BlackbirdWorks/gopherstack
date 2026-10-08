@@ -2,7 +2,7 @@
 service: appconfigdata
 sdk_module: aws-sdk-go-v2/service/appconfigdata@v1.26.4   # version audited against
 last_audit_commit: d522d763f  # 2026-09-19 leak-audit follow-up (gopherstack-1x2u0); prior: 0aba172b526c53ba24aaf135c063a37ba136f7f5
-last_audit_date: 2026-10-07  # prior: 2026-08-20
+last_audit_date: 2026-10-07
 overall: A            # both ops re-verified field-by-field against v1.26.4's generated
                        # serializers.go/deserializers.go/types.go/errors.go/enums.go plus
                        # botocore 1.43.56's bundled service-2.json.gz -- zero new bugs found
@@ -11,7 +11,6 @@ ops:
   GetLatestConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "poll-interval echo and empty-blob-on-unchanged semantics already correct; this pass fixed the 204-vs-200 responseCode deviation (see below)"}
 gaps: []
 items_still_open:
-  - "AppConfig profiles backed by SSM Parameter Store, SSM documents, S3 or Secrets Manager never populate appconfigdata: services/appconfig publishDeployedConfigurationLocked skips non-hosted LocationURI, so it needs per-location content readers wired into appconfig from cli.go (appconfig is a separate service)."
 deferred: []
 leaks: {status: clean, note: "janitor.go SessionSweeper ticker is ctx-parented via worker.NewGroup and exits cleanly on ctx.Done() (g.Stop() joins on return); SweepExpiredSessions purges both idle/absolute-expired sessions and expired grace-token cache entries in the same pass, so neither table grows unbounded. Verified this pass with new janitor_test.go: TestJanitor_RunExitsOnContextCancel (goroutine actually exits within 500ms of cancel, not just 'looks ctx-parented by inspection') and TestJanitor_SweepsExpiredSessionsOnTick (the ticker actually invokes the sweep and evicts a live session, not just a direct SweepExpiredSessions() unit test)."}
 ---

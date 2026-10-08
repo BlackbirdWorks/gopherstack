@@ -9,13 +9,9 @@
 | --- | --- |
 | PARITY entries audited | 20 (20 ok) |
 | Feature families | 2 (2 ok) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- DiscoverInputSchema cannot sample Firehose delivery-stream sources (reports UnableToDetectSchemaException): services/firehose retains no records to read back. Needs a firehose sampling accessor (outside this service) plus a Firehose reader adapter in cli.go alongside kinesisAnalyticsStreamReaderAdapter; S3 and Kinesis sources are done.
 
 ## More
 

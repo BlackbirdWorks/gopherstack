@@ -14,7 +14,12 @@ func (h *Handler) EnableRegions() {
 	home := h.Backend
 
 	h.peers = regionpeers.New(home.region, func(region string) *Handler {
-		return NewHandler(NewInMemoryBackend(home.accountID, region))
+		peer := NewHandler(NewInMemoryBackend(home.accountID, region))
+		if h.metadataWriter != nil {
+			peer.SetMetadataWriter(h.metadataWriter)
+		}
+
+		return peer
 	})
 }
 

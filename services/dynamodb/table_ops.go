@@ -716,6 +716,7 @@ func (db *InMemoryDB) DescribeTable(
 	}
 
 	tableDesc := buildTableDescription(input.TableName, table)
+	db.applyKMSKeyState(ctx, tableDesc)
 
 	return &dynamodb.DescribeTableOutput{Table: tableDesc}, nil
 }

@@ -9,16 +9,15 @@
 | --- | --- |
 | PARITY entries audited | 123 (123 ok) |
 | Feature families | 3 (3 ok) |
-| Known gaps | 3 |
+| Known gaps | 2 |
 | Structural gaps (can't be emulated) | 1 |
-| Deferred items | 1 |
+| Deferred items | 2 |
 | Resource leaks | fixed |
 
 ### Known gaps
 
 - Stage response cache (GET only, keyed by path + integration cacheKeyParameters, per-deployment, TTL from the method setting, flushed by FlushStageCache) now emits CacheHitCount/CacheMissCount. Not modelled: client invalidation via Cache-Control: max-age=0 with RequireAuthorizationForCacheControl / UnauthorizedCacheControlHeaderStrategy (the pinned SDK names the settings but not the header contract).
 - GetExport extensions=postman is accepted and ignored: the Postman document shape is not described in the pinned SDK.
-- 'AWS' (non-proxy) integration target: sqs path-style and sns action-style dispatch for real (gopherstack-is2a); every other target (DynamoDB, Step Functions, S3, ...) is still accepted at PutIntegration with no validation and invoked as Lambda at request time. Needs an AWSServiceInvoker hook on Handler plus cli.go wiring that routes {service, X-Amz-Target action, region, body} through the emulator's service registry (cli.go is out of this pass's remit). (gopherstack-fum)
 
 ### Structural gaps
 
@@ -28,6 +27,7 @@ These do not block an A grade — no implementation could produce real data here
 
 ### Deferred
 
+- AWS integrations route through the in-process registry (AWSServiceInvoker) for JSON-protocol services (dynamodb, states, kinesis, firehose, events, secretsmanager, ssm, logs, kms, athena, glue, ecs) and s3 path style, with selectionPattern matched on the backend status; query-protocol targets other than sqs/sns still fall back to Lambda.
 - Method.AuthorizationScopes is not modeled (not on Method, not on PutMethodInput/CreateAuthorizerInput's COGNITO_USER_POOLS flow) even though UpdateMethod's "/authorizationScopes" is documented add/remove-supported; UpdateMethod explicitly REJECTS this path (BadRequestException) rather than silently no-opping. Needs PutMethod/PutMethodInput plumbing too, a larger change than a PATCH-focused pass. (gopherstack-oius)
 
 ## More

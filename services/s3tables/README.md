@@ -9,13 +9,9 @@
 | --- | --- |
 | PARITY entries audited | 49 (49 ok) |
 | Feature families | 3 (3 ok) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- CreateTable Metadata (Iceberg schema, schemaV2, partitionSpec, writeOrder, properties) is validated against the SDK required members and enums and stored on the table, but is not materialized as an initial metadata.json in the warehouse (which real AWS reports via GetTableMetadataLocation): that needs an S3 PutObject hook injected into s3tables from cli.go.
 
 ## More
 

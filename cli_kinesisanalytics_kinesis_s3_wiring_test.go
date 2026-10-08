@@ -43,9 +43,8 @@ func discoverSchemaErrorCode(err error) string {
 // cli_iotanalytics_lambda_iot_wiring_test.go. Covers DiscoverInputSchema's real sampling+
 // inference (services/kinesisanalytics/discover_schema.go): S3 objects and Kinesis stream
 // records put directly into the wired sibling backends must be visible through the SDK client,
-// with real inferred columns -- not a canned shape. A Firehose-sourced request has no reader
-// wired at all (services/firehose has no accessor to read back ingested records) and must fail
-// with the documented UnableToDetectSchemaException, not something misleading.
+// with real inferred columns -- not a canned shape. A Firehose-sourced request for a stream
+// that does not exist must fail with the documented UnableToDetectSchemaException.
 func TestInitializeServices_KinesisAnalyticsKinesisS3Wiring(t *testing.T) {
 	t.Parallel()
 
@@ -189,14 +188,14 @@ func TestInitializeServices_KinesisAnalyticsKinesisS3Wiring(t *testing.T) {
 		assert.Equal(t, "VARCHAR(4)", aws.ToString(out.InputSchema.RecordColumns[1].SqlType))
 	})
 
-	t.Run("firehose_source_reports_unable_to_detect_schema", func(t *testing.T) {
+	t.Run("missing_firehose_source_reports_unable_to_detect_schema", func(t *testing.T) {
 		t.Parallel()
 
 		_, discErr := client.DiscoverInputSchema(ctx, &kasdk.DiscoverInputSchemaInput{
 			ResourceARN: aws.String("arn:aws:firehose:us-east-1:000000000000:deliverystream/does-not-matter"),
 			RoleARN:     aws.String(roleARN),
 		})
-		require.Error(t, discErr, "no Firehose reader is wired -- a Firehose ResourceARN must fail, not fabricate")
+		require.Error(t, discErr, "a missing Firehose stream must fail, not fabricate")
 		assert.Equal(t, "UnableToDetectSchemaException", discoverSchemaErrorCode(discErr),
 			"a Firehose source must fail with the documented, real AWS error for an unreachable "+
 				"source, not a generic 500 or a silently-fabricated schema")

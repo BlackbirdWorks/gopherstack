@@ -122,9 +122,10 @@ type TableDescription struct {
 }
 
 type SSEDescription struct {
-	Status          string `json:"Status,omitempty"`
-	SSEType         string `json:"SSEType,omitempty"`
-	KMSMasterKeyArn string `json:"KMSMasterKeyArn,omitempty"`
+	Status                         string  `json:"Status,omitempty"`
+	SSEType                        string  `json:"SSEType,omitempty"`
+	KMSMasterKeyArn                string  `json:"KMSMasterKeyArn,omitempty"`
+	InaccessibleEncryptionDateTime float64 `json:"InaccessibleEncryptionDateTime,omitempty"`
 }
 
 // BillingModeSummaryDescription describes the billing mode of a DynamoDB table.

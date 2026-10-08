@@ -8,13 +8,9 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 2 (2 ok) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- AppConfig profiles backed by SSM Parameter Store, SSM documents, S3 or Secrets Manager never populate appconfigdata: services/appconfig publishDeployedConfigurationLocked skips non-hosted LocationURI, so it needs per-location content readers wired into appconfig from cli.go (appconfig is a separate service).
 
 ## More
 

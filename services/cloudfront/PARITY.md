@@ -3,7 +3,7 @@ service: cloudfront
 sdk_module: aws-sdk-go-v2/service/cloudfront@v1.67.4
 sibling_sdk_modules: [aws-sdk-go-v2/service/cloudfrontkeyvaluestore@v1.15.4]  # KeyValueStore data-plane ops (GetKey/PutKey/DeleteKey/ListKeys/UpdateKeys/DescribeKeyValueStore) now live in services/cloudfrontkeyvaluestore (gopherstack-4ara, 2026-08-13) -- see that service's own PARITY.md
 last_audit_commit: 70d96e12d  # 2026-09-19 cloudfront-and-route53/15 terraform sweep (gopherstack-101r)
-last_audit_date: 2026-10-07  # prior: 2026-09-18  # gopherstack-7185: response shapes of Create/Delete/Modify ops
+last_audit_date: 2026-10-07
                               # swept (the class prior passes only checked for List/Describe).
                               # 2 bugs found (DeleteVpcOrigin empty envelope, UpdateDomainAssociation
                               # wrong output key). See DeleteVpcOrigin/UpdateDomainAssociation op rows.
@@ -237,7 +237,6 @@ gaps:
   #    fixed. See the CreateDistribution/CopyDistribution/CreateStreamingDistribution/
   #    CreateCloudFrontOriginAccessIdentity op rows above for the exact behavior each has now.
 items_still_open:
-  - "CreateKeyValueStore ImportSource is not applied: the import needs an S3 GetObject hook injected into cloudfront from cli.go (as lambda's s3Fetcher) plus a write path into services/cloudfrontkeyvaluestore's backend."
   - "AnycastIPList.AnycastIps are always IPv4-formatted whatever IpAddressType says: the pinned SDK documents no ipv6 or dualstack address count, so the dualstack shape is unverifiable."
 structural_gaps:
   - "ManagedCertificateRequest: ValidationTokenHost is stored and reflected by GetManagedCertificateDetails, but the certificate itself needs real ACM DNS/HTTP validation, which no emulator performs."

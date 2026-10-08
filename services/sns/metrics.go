@@ -51,8 +51,8 @@ func (b *InMemoryBackend) putTopicMetric(topicARN, name, unit string, v float64)
 	b.metrics.Put(region, snsMetricNamespace, name, unit, v, cwmetric.Dimension{Name: "TopicName", Value: topic})
 }
 
-// emitPublishMetrics publishes publish-time metrics. SQS and email deliveries count as
-// delivered here; HTTP, Lambda, Firehose, SMS and application report via emitDeliveryOutcome.
+// emitPublishMetrics publishes publish-time metrics. Email deliveries count as
+// delivered here; SQS, HTTP, Lambda, Firehose, SMS and application report via emitDeliveryOutcome.
 func (b *InMemoryBackend) emitPublishMetrics(topicARN, message string, t *publishTargets) {
 	if !b.metrics.Enabled() {
 		return
@@ -62,12 +62,6 @@ func (b *InMemoryBackend) emitPublishMetrics(topicARN, message string, t *publis
 	b.putTopicMetric(topicARN, "PublishSize", snsUnitBytes, float64(len(message)))
 
 	delivered := len(t.emailDeliveries)
-
-	for i := range t.subs {
-		if t.subs[i].Protocol == protocolSQS {
-			delivered++
-		}
-	}
 
 	if delivered > 0 {
 		b.putTopicMetric(topicARN, "NumberOfNotificationsDelivered", snsUnitCount, float64(delivered))

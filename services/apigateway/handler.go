@@ -54,6 +54,7 @@ type Handler struct {
 	lambda       LambdaInvoker
 	sqsSender    SQSSender
 	snsPublisher SNSPublisher
+	awsInvoker   AWSServiceInvoker
 	httpClient   *http.Client
 	authCache    *authorizerCache
 	respCache    *responseCache
@@ -92,6 +93,7 @@ func (h *Handler) EnableRegions() {
 		p := NewHandler(nb)
 		p.region = region
 		p.lambda, p.sqsSender, p.snsPublisher = h.lambda, h.sqsSender, h.snsPublisher
+		p.awsInvoker = h.awsInvoker
 		p.jwksProvider, p.httpClient = h.jwksProvider, h.httpClient
 		p.metrics.Set(h.metrics.Emitter())
 
@@ -166,6 +168,13 @@ func (h *Handler) SetSQSSender(sender SQSSender) {
 // Lambda-invoke behaviour rather than erroring.
 func (h *Handler) SetSNSPublisher(publisher SNSPublisher) {
 	h.snsPublisher = publisher
+}
+
+// SetAWSServiceInvoker configures the generic hook for AWS integrations targeting any
+// service other than lambda (and sqs/sns when those have dedicated hooks). Left unset,
+// such integrations keep the Lambda-invoke fallback.
+func (h *Handler) SetAWSServiceInvoker(inv AWSServiceInvoker) {
+	h.awsInvoker = inv
 }
 
 // SetJWKSProvider configures the JWKS provider used to verify Cognito JWT signatures.

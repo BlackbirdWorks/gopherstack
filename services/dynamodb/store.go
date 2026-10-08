@@ -224,6 +224,8 @@ type InMemoryDB struct {
 	txnTokens            map[string]txnTokenRecord // committed idempotency tokens → expiry+request hash
 	txnPending           map[string]time.Time      // in-progress idempotency tokens → start time
 	fisReplicationPaused map[string]time.Time      // keyed by table ARN; value is expiry (zero = no expiry)
+	kmsKeys              KMSKeyStateChecker
+	keyInaccessibleSince map[string]time.Time // keyed by table ARN; set while the table's KMS key is unusable
 	exprCache            *ExpressionCache
 	throttler            *Throttler
 	metrics              cwmetric.Sink
@@ -382,6 +384,7 @@ func NewInMemoryDB() *InMemoryDB {
 		txnTokens:            make(map[string]txnTokenRecord),
 		txnPending:           make(map[string]time.Time),
 		fisReplicationPaused: make(map[string]time.Time),
+		keyInaccessibleSince: make(map[string]time.Time),
 		exprCache:            NewExpressionCache(exprCacheSize),
 		iteratorStore:        NewShardIteratorStore(),
 		defaultRegion:        config.DefaultRegion,

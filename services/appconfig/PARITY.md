@@ -3,7 +3,7 @@ service: appconfig
 sdk_module: aws-sdk-go-v2/service/appconfig@v1.48.4    # version audited against (bumped from v1.43.11)
 # 2026-10-01: KmsKeyArn on profile Get/Create/Update and hosted versions resolved from KmsKeyIdentifier via the KMS backend (TestRealClient_KmsKeyArnResolved).
 last_audit_commit: 1d121bbad  # over-wide census re-check (0 code changes -- all 7 flagged List ops already exact)
-last_audit_date: 2026-10-07   # bd gopherstack-z4v1: corrected a false claim from the 2026-09-07 pass
+last_audit_date: 2026-10-07
                                # (bd gopherstack-kpvs) below. That pass concluded DeletionProtectionCheck
                                # enforcement was structurally blocked because "no cross-service backend-lookup
                                # pattern exists anywhere in this repo" -- that premise was wrong. The lazy

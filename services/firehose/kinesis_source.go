@@ -136,7 +136,7 @@ func (b *InMemoryBackend) injectKinesisRecord(region, streamName string, data []
 		return fmt.Errorf("%w: stream %s not found in region %s", ErrNotFound, streamName, region)
 	}
 
-	s.noteBuffered()
+	s.noteBuffered(data)
 	s.Records = append(s.Records, data)
 	s.Metrics.TotalRecords++
 	s.Metrics.TotalBytes += int64(len(data))

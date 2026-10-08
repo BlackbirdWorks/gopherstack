@@ -124,6 +124,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.versionCounters = make(map[string]map[string]int32)
 		b.deploymentCounters = make(map[string]map[string]int32)
 		b.deployedConfigs = make(map[string]string)
+		b.fetchedConfigs = make(map[string]*HostedConfigurationVersion)
 		b.experimentRunEvents = make(map[string][]ExperimentRunEvent)
 		b.experimentRunCounters = make(map[string]int32)
 		b.accountSettings = AccountSettings{}
@@ -160,6 +161,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	}
 
 	b.deployedConfigs = snap.DeployedConfigs
+	b.fetchedConfigs = make(map[string]*HostedConfigurationVersion)
 
 	if snap.ExperimentRunEvents == nil {
 		snap.ExperimentRunEvents = make(map[string][]ExperimentRunEvent)

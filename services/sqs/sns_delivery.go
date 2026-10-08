@@ -71,8 +71,16 @@ func (b *InMemoryBackend) deliverSNSSubscription(
 		return
 	}
 
+	report := func(ok bool) {
+		if ev.ReportDelivery != nil {
+			ev.ReportDelivery(sub.SubscriptionARN, ok)
+		}
+	}
+
 	queueRegion, queueName := parseQueueARNOrURL(sub.Endpoint)
 	if queueName == "" {
+		report(false)
+
 		return
 	}
 
@@ -82,6 +90,8 @@ func (b *InMemoryBackend) deliverSNSSubscription(
 		if sub.RedrivePolicy != "" {
 			b.deliverToDLQ(sub.RedrivePolicy, body, msgAttrs)
 		}
+
+		report(false)
 
 		return
 	}
@@ -101,6 +111,8 @@ func (b *InMemoryBackend) deliverSNSSubscription(
 	if err != nil && sub.RedrivePolicy != "" {
 		b.deliverToDLQ(sub.RedrivePolicy, body, msgAttrs)
 	}
+
+	report(err == nil)
 }
 
 // buildDeliveryBody returns the SQS message body and optional message attributes for the given subscription.

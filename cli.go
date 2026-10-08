@@ -3842,6 +3842,9 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	// actually receives forwarded table mutations instead of accepting the
 	// destination and never delivering anything (gopherstack-eouu).
 	wireDynamoDBKinesis(byName["DynamoDB"], byName["Kinesis"])
+	wireDynamoDBKMS(byName["DynamoDB"], byName["KMS"])
+	wireS3TablesS3(byName["S3tables"], byName["S3"])
+	wireCloudFrontKVSImport(byName["CloudFront"], byName["S3"])
 
 	// Wire MGN → S3 so StartImport reads its caller-supplied S3 object and
 	// actually creates SourceServers.
@@ -3895,10 +3898,12 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	// well-formed request. Firehose delivery streams stay unreachable as a source (see
 	// services/kinesisanalytics/PARITY.md's known gaps).
 	wireKinesisAnalyticsCrossService(byName["KinesisAnalytics"], byName["Kinesis"], byName["S3"])
+	wireKinesisAnalyticsFirehose(byName["KinesisAnalytics"], byName["Firehose"])
 
 	// Wire AppConfig → AppConfigData so a completed deployment's
 	// configuration becomes observable through GetLatestConfiguration polling.
 	wireAppConfigDeployments(byName["AppConfig"], byName["AppConfigData"])
+	wireAppConfigContent(byName["AppConfig"], byName["SSM"], byName["S3"], byName["SecretsManager"])
 
 	// Wire CloudTrail → S3 so CreateTrail/UpdateTrail validate the configured
 	// bucket exists and logging trails actually deliver log files to it,
@@ -11462,6 +11467,8 @@ func setupChaosAndRegistry(
 
 	chaos.RegisterRoutes(chaosGroup, faultStore, registry)
 	wireStepFunctionsSDKIntegration(e, services, cli.GetGlobalConfig().GetRegion(), cli.EnforceIAM)
+	wireAPIGatewayAWSServiceInvoker(e, services)
+	wireCloudControlHandlers(e, services)
 	wireServiceRoleAuthorizer(services, cli.EnforceIAM)
 
 	return nil
@@ -12608,6 +12615,51 @@ func wireDynamoDBS3(ddbReg, s3Reg service.Registerable) {
 
 	if ddbBk, ddbBkOk := ddbH.Backend.(*ddbbackend.InMemoryDB); ddbBkOk {
 		ddbBk.SetS3Backend(s3Bk)
+	}
+}
+
+// wireDynamoDBKMS lets DynamoDB report INACCESSIBLE_ENCRYPTION_CREDENTIALS when a
+// table's KMS key is disabled or pending deletion.
+func wireDynamoDBKMS(ddbReg, kmsReg service.Registerable) {
+	ddbH, ok := ddbReg.(*ddbbackend.DynamoDBHandler)
+	if !ok {
+		return
+	}
+
+	ddbBk, ok := ddbH.Backend.(*ddbbackend.InMemoryDB)
+	if !ok {
+		return
+	}
+
+	kmsH, ok := kmsReg.(*kmsbackend.Handler)
+	if !ok {
+		return
+	}
+
+	kmsBk, ok := kmsH.Backend.(*kmsbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	ddbBk.SetKMSKeyStateChecker(&ddbKMSKeyStateAdapter{backend: kmsBk})
+}
+
+// ddbKMSKeyStateAdapter adapts kms.InMemoryBackend to dynamodb.KMSKeyStateChecker.
+type ddbKMSKeyStateAdapter struct {
+	backend *kmsbackend.InMemoryBackend
+}
+
+func (a *ddbKMSKeyStateAdapter) KMSKeyInaccessible(ctx context.Context, keyARN string) bool {
+	out, err := a.backend.DescribeKey(ctx, &kmsbackend.DescribeKeyInput{KeyID: keyARN})
+	if err != nil {
+		return false
+	}
+
+	switch out.KeyMetadata.KeyState {
+	case kmsbackend.KeyStateDisabled, kmsbackend.KeyStatePendingDeletion:
+		return true
+	default:
+		return false
 	}
 }
 

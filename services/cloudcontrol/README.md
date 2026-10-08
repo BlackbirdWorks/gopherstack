@@ -16,7 +16,7 @@
 
 ### Known gaps
 
-- cloudcontrol keeps its own generic resource store and does not delegate to the per-service backends (an AWS::S3::Bucket created via CreateResource is not visible to services/s3). Needs cross-service wiring in cli.go: a per-TypeName handler registry (Create/Get/Update/Delete/List by TypeName) that service backends register into and cloudcontrol dispatches to before falling back to its generic store.
+- Only AWS::S3::Bucket, AWS::SQS::Queue, AWS::DynamoDB::Table and AWS::Logs::LogGroup are delegated to the real service backends (TypeHandler registry, wired in cli_cloudcontrol_handlers.go; updates apply the mutable properties only and reject the rest); every other TypeName still uses the generic store, and delegated resources do not appear in the dashboard resource list.
 
 ### Structural gaps
 

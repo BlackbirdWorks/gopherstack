@@ -9,14 +9,13 @@
 | --- | --- |
 | PARITY entries audited | 60 (60 ok) |
 | Feature families | 18 (18 ok) |
-| Known gaps | 2 |
+| Known gaps | 1 |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 4 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- CreateKeyValueStore ImportSource is not applied: the import needs an S3 GetObject hook injected into cloudfront from cli.go (as lambda's s3Fetcher) plus a write path into services/cloudfrontkeyvaluestore's backend.
 - AnycastIPList.AnycastIps are always IPv4-formatted whatever IpAddressType says: the pinned SDK documents no ipv6 or dualstack address count, so the dualstack shape is unverifiable.
 
 ### Structural gaps

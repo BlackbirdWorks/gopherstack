@@ -240,7 +240,8 @@ const (
 
 // Handler is the Echo HTTP handler for AWS CloudFront operations (REST-XML protocol).
 type Handler struct {
-	Backend *InMemoryBackend
+	Backend         *InMemoryBackend
+	kvsImportReader S3ObjectReader
 }
 
 // NewHandler creates a new CloudFront handler.

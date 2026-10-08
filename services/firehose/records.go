@@ -48,7 +48,7 @@ func (b *InMemoryBackend) PutRecord(ctx context.Context, streamName string, data
 			return
 		}
 
-		s.noteBuffered()
+		s.noteBuffered(data)
 		s.Records = append(s.Records, data)
 		s.bufferSizeBytes += len(data)
 		s.Metrics.TotalRecords++
@@ -165,7 +165,7 @@ func (b *InMemoryBackend) PutRecordBatch(ctx context.Context, streamName string,
 
 		backupEnabled := b.isBackupEnabledLocked(s)
 		for _, rec := range records {
-			s.noteBuffered()
+			s.noteBuffered(rec)
 			s.Records = append(s.Records, rec)
 			s.bufferSizeBytes += len(rec)
 			s.Metrics.TotalRecords++

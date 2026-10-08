@@ -792,3 +792,43 @@ func TestServiceMetrics_Lambda(t *testing.T) {
 		unit: cwtypes.StandardUnitCount, sum: 1, minSum: true,
 	}})
 }
+
+func TestServiceMetrics_SNSSQSDeliveryFailure(t *testing.T) {
+	t.Parallel()
+
+	fx := newSFNFixture(t)
+	snsc := sns.NewFromConfig(fx.cfg)
+	sqsc := sqs.NewFromConfig(fx.cfg)
+
+	topic, err := snsc.CreateTopic(t.Context(), &sns.CreateTopicInput{Name: aws.String("mtf-topic")})
+	require.NoError(t, err)
+
+	q, err := sqsc.CreateQueue(t.Context(), &sqs.CreateQueueInput{QueueName: aws.String("mtf-q")})
+	require.NoError(t, err)
+
+	qa, err := sqsc.GetQueueAttributes(t.Context(), &sqs.GetQueueAttributesInput{
+		QueueUrl: q.QueueUrl, AttributeNames: []sqstypes.QueueAttributeName{sqstypes.QueueAttributeNameQueueArn},
+	})
+	require.NoError(t, err)
+
+	_, err = snsc.Subscribe(t.Context(), &sns.SubscribeInput{
+		TopicArn: topic.TopicArn, Protocol: aws.String("sqs"), Endpoint: aws.String(qa.Attributes["QueueArn"]),
+	})
+	require.NoError(t, err)
+
+	_, err = sqsc.DeleteQueue(t.Context(), &sqs.DeleteQueueInput{QueueUrl: q.QueueUrl})
+	require.NoError(t, err)
+
+	_, err = snsc.Publish(t.Context(), &sns.PublishInput{TopicArn: topic.TopicArn, Message: aws.String("hello")})
+	require.NoError(t, err)
+
+	assertMetricsEmitted(t, fx, []metricWant{
+		{
+			namespace: "AWS/SNS",
+			name:      "NumberOfNotificationsFailed",
+			dims:      map[string]string{"TopicName": "mtf-topic"},
+			unit:      cwtypes.StandardUnitCount,
+			sum:       1,
+		},
+	})
+}

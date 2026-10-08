@@ -384,6 +384,10 @@ func FromSDKTableDescription(td *types.TableDescription) TableDescription {
 			SSEType:         string(td.SSEDescription.SSEType),
 			KMSMasterKeyArn: ptrconv.String(td.SSEDescription.KMSMasterKeyArn),
 		}
+
+		if t := td.SSEDescription.InaccessibleEncryptionDateTime; t != nil {
+			out.SSEDescription.InaccessibleEncryptionDateTime = awstime.Epoch(*t)
+		}
 	}
 
 	if td.OnDemandThroughput != nil {

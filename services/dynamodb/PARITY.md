@@ -2,7 +2,7 @@
 service: dynamodb
 sdk_module: aws-sdk-go-v2/service/dynamodb@v1.67.0   # version audited against (go.mod pin)
 last_audit_commit: e1e3f187f  # 2026-09-26 global-tables-v2-autoscaling pass: ReplicaUpdates + AutoScalingRoleArn/ScalingPolicies; prior: cd027034c
-last_audit_date: 2026-10-07  # prior: 2026-09-20 -- autoscaling-dynamodb-kms-and-cloudwatch terraform sweep: DisableKinesisStreamingDestination DISABLED-not-removed fix
+last_audit_date: 2026-10-07
   # 2026-09-26 (this audit): UpdateTableReplicaAutoScaling's ReplicaUpdates
   # (per-replica read-capacity + per-replica-per-GSI read-capacity) is now
   # wired end to end (wire, backend, Describe echo) -- previously accepted
@@ -118,7 +118,7 @@ gaps: []
 items_still_open:
   - "AWS/DynamoDB metrics still missing: ReturnedBytes/ReturnedRecordsCount (DynamoDB Streams GetRecords), GlobalSecondaryIndexName-dimensioned write capacity for BatchWriteItem/TransactWriteItems (deletes lack the old item), and per-op latency/errors for ExecuteStatement. GSI-dimensioned capacity (Put/Update/Delete/Query/Scan), SystemErrors, and Transact*/ExecuteTransaction/BatchExecuteStatement latency+errors are emitted. (gopherstack-4m1qr)"
   - "Vector indexes are modeled (CreateTable/UpdateTable/DescribeTable/Restore*Override/SearchVectors with real COSINE/EUCLIDEAN/DOT_PRODUCT scoring, HASH/INLINE_FILTER schema); the SDK gives no formula for VectorCapacity (VectorSearchRequestBytes/VectorWriteRequestBytes) or the per-write VectorIndexes capacity members, so they are not emitted."
-  - "Unmodeled fields left nil rather than fabricated: WarmThroughput (neither request values nor AWS defaults are stored or returned), GlobalTableWitnesses/MRSC witnesses, replica KMSMasterKeyId/OnDemand overrides/ReplicaInaccessibleDateTime, SSE InaccessibleEncryptionDateTime (needs a KMS key-state signal wired from cli.go)."
+  - "Unmodeled fields left nil rather than fabricated: WarmThroughput (neither request values nor AWS defaults are stored or returned), GlobalTableWitnesses/MRSC witnesses, replica KMSMasterKeyId/OnDemand overrides/ReplicaInaccessibleDateTime."
 structural_gaps:
   - "BackupExpiryDateTime applies to SYSTEM backups only; the emulator creates none."
   - "DescribeContributorInsights FailureException: there is no insights processing to fail."

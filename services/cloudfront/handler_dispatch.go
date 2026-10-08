@@ -907,6 +907,7 @@ var errCodeMapping = []struct {
 	{ErrRealtimeLogConfigAlreadyExists, "RealtimeLogConfigAlreadyExists", http.StatusConflict},
 	{ErrAlreadyExists, "EntityAlreadyExists", http.StatusConflict},
 	{ErrConnectionGroupAlreadyExists, "EntityAlreadyExists", http.StatusConflict},
+	{ErrEntitySizeLimitExceeded, "EntitySizeLimitExceeded", http.StatusRequestEntityTooLarge},
 	{ErrInvalidTagging, "InvalidTagging", http.StatusBadRequest},
 	{ErrStreamingDistributionNotDisabled, "StreamingDistributionNotDisabled", http.StatusConflict},
 	{ErrCNAMEAlreadyExists, "CNAMEAlreadyExists", http.StatusConflict},
