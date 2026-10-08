@@ -9,19 +9,16 @@
 | --- | --- |
 | PARITY entries audited | 9 (8 ok, 1 partial) |
 | Feature families | 2 (2 ok) |
-| Known gaps | 1 |
-| Structural gaps (can't be emulated) | 1 |
+| Known gaps | none |
+| Structural gaps (can't be emulated) | 2 |
 | Deferred items | 1 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- cli.go wireResourceGroupsTagging covers 91 of the ~90 services with native TagResource support (bd: gopherstack-3xne). NOT PURSUED: acm, amplify, apigateway(v2), appsync, databrew, emrserverless, iot, iotanalytics, kafka, organizations, ssoadmin, textract; s3control is blocked (its taggable ARNs use the s3/s3-object-lambda namespaces). Needs RegisterProvider/RegisterARNTagger/RegisterARNUntagger calls in cli.go (root wiring), one per service.
 
 ### Structural gaps
 
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
+- s3control tagging is not wired: its taggable ARNs use the s3/s3-object-lambda namespaces, which the s3 tagger already owns.
 - GetComplianceSummary always reports zero noncompliant resources: it is callable only from an organization management account and aggregates noncompliant counts across every member account, and there is no multi-account resource store to aggregate across (bd: gopherstack-i710).
 
 ### Deferred

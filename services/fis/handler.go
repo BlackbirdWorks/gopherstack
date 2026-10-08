@@ -140,6 +140,11 @@ func (h *Handler) SetActionProviders(providers []service.FISActionProvider) {
 	h.Backend.SetActionProviders(providers)
 }
 
+// SetTargetResolver registers the collaborator that resolves tag-selected targets to ARNs.
+func (h *Handler) SetTargetResolver(r TargetResolver) {
+	h.Backend.SetTargetResolver(r)
+}
+
 // SetAlarmStateSubscriber registers the CloudWatch alarm-state-change hook with the backend.
 func (h *Handler) SetAlarmStateSubscriber(sub AlarmStateSubscriber) {
 	h.Backend.SetAlarmStateSubscriber(sub)

@@ -135,8 +135,7 @@ families:
 gaps:                      # known divergences NOT fixed — link bd issue ids
   # "DescribeAlarms AlarmTypes default-inclusion bug" (bd gopherstack-yvb7) FIXED 2026-07-26 --
   # see the DescribeAlarms ops row above and the Notes writeup below. No longer a gap.
-items_still_open:
-  - "PutInsightRule.ApplyOnTransformedLogs is stored and returned by DescribeInsightRules, and GetInsightRuleReport evaluates it against a cloudwatch.TransformedLogEventSource when the wired log source implements one. Open: root cli_insight_rule_logs.go's cwInsightLogSource must implement TransformedInsightEvents by applying cloudwatchlogs GetTransformer/ApplyTransformer to ContributorEvents."
+items_still_open: []
 structural_gaps:
   - "ListMetrics.IncludeLinkedAccounts/OwningAccount (cross-account observability): there are no monitoring-account sink or source-account links, so no other account's metrics exist to include."
 deferred:                 # consciously not audited this pass (scope) — next pass targets

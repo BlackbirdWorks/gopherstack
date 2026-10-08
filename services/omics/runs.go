@@ -759,8 +759,8 @@ func (b *InMemoryBackend) StartRunBatch(
 
 	id := newID()
 	now := time.Now().UTC()
-	// Real AWS caps inlineSettings at 100 entries, well within int32 range.
-	totalRuns := int32(len(inlineSettings)) //nolint:gosec // bounded by the 100-entry inlineSettings cap
+	// inline settings cap at 100 and s3UriSettings at 100,000, both within int32.
+	totalRuns := int32(len(inlineSettings)) //nolint:gosec // bounded by the 100,000-entry batch cap
 	rb := &RunBatch{
 		ID:            id,
 		Name:          batchName,

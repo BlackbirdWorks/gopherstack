@@ -447,16 +447,15 @@ func (h *Handler) handleStartRunBatch(c *echo.Context) error {
 		))
 	}
 
+	inlineWire := req.BatchRunSettings.InlineSettings
+
 	if hasS3URI {
-		// Real AWS reads and validates access to this S3 object synchronously during
-		// the StartRunBatch call. gopherstack has no S3 object content to read here
-		// (no cross-service wiring reads real S3 body bytes for this op), so this path
-		// cannot be honestly simulated -- rejected explicitly rather than silently
-		// creating a batch with zero runs. See PARITY.md.
-		return h.mapError(c, fmt.Errorf(
-			"%w: batchRunSettings.s3UriSettings is not supported by this emulator; use inlineSettings",
-			ErrValidation,
-		))
+		var err error
+
+		inlineWire, err = h.inlineSettingsFromURI(c.Request().Context(), req.BatchRunSettings.S3URISettings)
+		if err != nil {
+			return h.mapError(c, err)
+		}
 	}
 
 	d := req.DefaultRunSetting
@@ -485,8 +484,8 @@ func (h *Handler) handleStartRunBatch(c *echo.Context) error {
 		OutputBucketOwnerID: d.OutputBucketOwnerID,
 	}
 
-	inline := make([]InlineRunSetting, len(req.BatchRunSettings.InlineSettings))
-	for i, s := range req.BatchRunSettings.InlineSettings {
+	inline := make([]InlineRunSetting, len(inlineWire))
+	for i, s := range inlineWire {
 		inline[i] = InlineRunSetting{
 			RunSettingID:   s.RunSettingID,
 			Name:           s.Name,

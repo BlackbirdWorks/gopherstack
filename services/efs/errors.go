@@ -54,6 +54,9 @@ var (
 	// ErrIPAddressInUse is returned by CreateMountTarget when IpAddress is already held by
 	// another mount target in the subnet (types/errors.go IpAddressInUse).
 	ErrIPAddressInUse = awserr.New("IpAddressInUse", awserr.ErrConflict)
+	// ErrNoFreeAddressesInSubnet is returned by CreateMountTarget when IpAddress is unset and the
+	// subnet has no free addresses (efs@v1.44.4 types/errors.go NoFreeAddressesInSubnet).
+	ErrNoFreeAddressesInSubnet = awserr.New("NoFreeAddressesInSubnet", awserr.ErrConflict)
 	// ErrSubnetNotFound is returned by CreateMountTarget, with an EC2Resolver wired, when
 	// SubnetId does not exist (efs@v1.44.4 types/errors.go: "Returned if there is no subnet
 	// with ID SubnetId provided in the request").

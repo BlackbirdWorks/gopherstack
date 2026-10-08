@@ -9,14 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 26 (26 ok) |
 | Feature families | 6 (6 ok) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 1 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- experimentOptions.accountTargeting and emptyTargetResolutionMode are validated and echoed but never govern behaviour: resourceTags/filters are never resolved to ARNs. Needs cross-service wiring in cli.go: a TargetResolver collaborator (ResolveTargets(resourceType, tags, filters) -> []arn, set via a Set* on InMemoryBackend) backed by the owning service backends; fis would then apply fail/skip on an empty resolution and fan out per target account configuration.
 
 ### Structural gaps
 

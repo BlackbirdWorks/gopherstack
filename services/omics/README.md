@@ -8,19 +8,16 @@
 | Metric | Value |
 | --- | --- |
 | Feature families | 25 (25 ok) |
-| Known gaps | 1 |
-| Structural gaps (can't be emulated) | 4 |
+| Known gaps | none |
+| Structural gaps (can't be emulated) | 5 |
 | Deferred items | 1 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- RunBatch s3UriSettings and CreateWorkflow(Version) ReadmeUri/ContainerRegistryMapUri/ParameterTemplatePath need an S3 object read. Wiring needed: a GetObject(bucket, key) seam on omics fed from services/s3 in cli.go.
 
 ### Structural gaps
 
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
+- CreateWorkflow(Version) ParameterTemplatePath (and ReadmePath) name files inside a DefinitionRepository git repository, which needs an external git/CodeConnections fetch; Readme and parameter-template S3 sources are wired.
 - GetWorkflow/GetWorkflowVersion Export (presigned definition bundle) and Type=READY2RUN (AWS-owned workflow catalog) have no source: no S3 presigner or bundle builder, no AWS catalog data.
 - Delete*Force is accepted without effect: import jobs complete synchronously, so none is ever in progress to block a delete.
 - ReadSetSummary/ReadSetMetadata Etag and SequenceInformation read/base counts and alignment need the read-set file body, which imports never read.

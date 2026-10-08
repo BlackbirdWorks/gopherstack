@@ -10,6 +10,7 @@ import (
 	"math"
 	"net/http"
 	nhpprof "net/http/pprof"
+	"net/netip"
 	"net/url"
 	"os"
 	"os/signal"
@@ -3140,6 +3141,7 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 	// Wire FIS "aws:cloudwatch:alarm" stop conditions → CloudWatch's
 	// alarm-state-change subscription (gopherstack-x842, gopherstack-9939).
 	wireFISStopConditions(byName["FIS"], byName["CloudWatch"])
+	wireFISTargetResolver(byName)
 
 	// Wire Auto Scaling → EC2 so scale-out launches real (mock) EC2 instances
 	// and scale-in terminates them there too, instead of Auto Scaling
@@ -3745,6 +3747,32 @@ func (a *efsEC2ResolverAdapter) SubnetAZ(id string) string {
 	return ""
 }
 
+// subnetReservedAddresses is the count of addresses AWS reserves in every subnet.
+const subnetReservedAddresses = 5
+
+func (a *efsEC2ResolverAdapter) SubnetFreeAddresses(id string) int {
+	sn := a.subnet(id)
+	if sn == nil {
+		return -1
+	}
+
+	prefix, err := netip.ParsePrefix(sn.CIDRBlock)
+	if err != nil || !prefix.Addr().Is4() {
+		return -1
+	}
+
+	usable := 1<<(prefix.Addr().BitLen()-prefix.Bits()) - subnetReservedAddresses
+
+	for _, rb := range a.regions.handler.RegionBackends() {
+		b, isMem := rb.(*ec2backend.InMemoryBackend)
+		if isMem && len(b.DescribeSubnets([]string{id})) > 0 {
+			return max(usable-b.SubnetAddressesInUse(id), 0)
+		}
+	}
+
+	return -1
+}
+
 // wireEFSCrossService wires the EFS backend to EC2 so CreateMountTarget
 // validates its SubnetId against real EC2 state and enforces the
 // documented "one VPC, one mount target per Availability Zone" placement
@@ -3883,6 +3911,7 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	// instead of every request being processed regardless of whether the
 	// referenced object exists (gopherstack-eshx).
 	wireTextractS3(byName["Textract"], byName["S3"])
+	wireOmicsS3(byName["Omics"], byName["S3"])
 	wireRekognitionS3(byName["Rekognition"], byName["S3"])
 
 	// Wire Backup → S3 so StartBackupJob validates an S3-typed ResourceArn
@@ -7705,6 +7734,7 @@ func wireResourceGroupsTagging(taggingReg service.Registerable, byName map[strin
 	wireResourceGroupsTaggingExtra(bk, byName)
 	wireResourceGroupsTaggingSweep5(bk, byName)
 	wireResourceGroupsTaggingSweep6(bk, byName)
+	wireResourceGroupsTaggingSweep7(bk, byName)
 	wireResourceGroupsTaggingPolicy(bk, byName["Organizations"])
 }
 
@@ -7918,6 +7948,7 @@ func wireResourceGroupsTaggingSweep6(
 	wireTaggingEmrServerless(bk, byName["EmrServerless"])
 	wireTaggingACM(bk, byName["ACM"])
 	wireTaggingSSOAdmin(bk, byName["SsoAdmin"])
+	wireTaggingAPIGatewayV2(bk, byName["APIGatewayV2"])
 	wireTaggingAPIGateway(bk, byName["APIGateway"])
 	wireTaggingOrganizations(bk, byName["Organizations"])
 }

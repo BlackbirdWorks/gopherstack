@@ -17,7 +17,7 @@
 
 - DeleteFileSystem rejects (FileSystemInUse) while access points exist; efs@v1.44.4 documents FileSystemInUse only for mount targets and replication, so this may be an over-restriction, but the SDK does not settle it and the behavior is tested (TestDeleteFileSystem_RequiresEmptyState).
 - ThroughputLimitExceeded is not enforced: the quota is region-dependent and the SDK cites a flat 1024 MiB/s that conflicts with it.
-- NetworkInterfaceLimitExceeded and NoFreeAddressesInSubnet are not enforced: needs cross-service wiring in cli.go extending EC2Resolver with a subnet CIDR/free-address query (SubnetCIDR(id), SubnetFreeAddresses(id)).
+- NetworkInterfaceLimitExceeded is not enforced: it keys off the per-region network-interface quota, whose value is not in the pinned SDK (NoFreeAddressesInSubnet is enforced from the subnet CIDR minus EC2 ENI and EFS mount-target addresses).
 - The 1,400 mount-targets-per-VPC cap (MountTargetConflict) is not enforced: the figure is not in the pinned SDK.
 
 ### Deferred

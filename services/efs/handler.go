@@ -608,6 +608,7 @@ func efsErrClassifications() []errClassification {
 		{ErrFileSystemInUse, "FileSystemInUse", http.StatusConflict},
 		{ErrMountTargetConflict, "MountTargetConflict", http.StatusConflict},
 		{ErrIPAddressInUse, "IpAddressInUse", http.StatusConflict},
+		{ErrNoFreeAddressesInSubnet, "NoFreeAddressesInSubnet", http.StatusConflict},
 		{ErrIncorrectFileSystemLifeCycleState, "IncorrectFileSystemLifeCycleState", http.StatusConflict},
 		{ErrSecurityGroupLimitExceeded, "SecurityGroupLimitExceeded", http.StatusBadRequest},
 		// FileSystemLimitExceeded/AccessPointLimitExceeded are httpStatusCode 403 in

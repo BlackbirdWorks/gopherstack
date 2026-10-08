@@ -9,14 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 50 (49 ok, 1 partial) |
 | Feature families | 7 (7 ok) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 16 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- PutInsightRule.ApplyOnTransformedLogs is stored and returned by DescribeInsightRules, and GetInsightRuleReport evaluates it against a cloudwatch.TransformedLogEventSource when the wired log source implements one. Open: root cli_insight_rule_logs.go's cwInsightLogSource must implement TransformedInsightEvents by applying cloudwatchlogs GetTransformer/ApplyTransformer to ContributorEvents.
 
 ### Structural gaps
 

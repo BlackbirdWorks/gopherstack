@@ -623,3 +623,25 @@ func (b *InMemoryBackend) detachVolumesAndEIPsLocked(instanceID string) {
 		}
 	}
 }
+
+// SubnetAddressesInUse counts the private IPv4 addresses network interfaces hold in a subnet.
+func (b *InMemoryBackend) SubnetAddressesInUse(subnetID string) int {
+	b.mu.RLock("SubnetAddressesInUse")
+	defer b.mu.RUnlock()
+
+	n := 0
+
+	for _, eni := range b.networkInterfaces.All() {
+		if eni.SubnetID != subnetID {
+			continue
+		}
+
+		if eni.PrivateIP != "" {
+			n++
+		}
+
+		n += len(eni.SecondaryPrivateIPs)
+	}
+
+	return n
+}
