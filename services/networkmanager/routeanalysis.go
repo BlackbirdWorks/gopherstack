@@ -19,6 +19,9 @@ import "net"
 // state, never a fabricated PathComponent list or hardcoded CONNECTED
 // verdict.
 //
+// When the resolver also implements EC2PeeringResolver the walk continues across
+// TGW peerings and reports CYCLIC_PATH_DETECTED on a revisited attachment.
+//
 // Without EC2Resolver wired (e.g. isolated unit tests), this backend cannot
 // reach any cross-service state and falls back to the same honest "cannot
 // resolve" verdict as before: RUNNING -> COMPLETED, NOT_CONNECTED, with
@@ -103,44 +106,72 @@ func resolveRouteAnalysisPath(resolver EC2Resolver, from, to *RouteAnalysisEndpo
 		return completedPath(routeAnalysisResultNotConnected, routeAnalysisReasonAttachmentNotFound, nil)
 	}
 
-	routeTableID, ok := resolver.TransitGatewayRouteTableForAttachment(anchorArn)
-	if !ok {
-		return completedPath(routeAnalysisResultNotConnected, routeAnalysisReasonAttachmentNotFound, nil)
-	}
+	return walkRouteTables(resolver, anchorArn, to.IPAddress)
+}
 
-	if to.IPAddress == "" {
-		// No destination IP to match a route against -- both ends resolved
-		// to real, live EC2 attachments sharing a route table, the
-		// strongest CONNECTED claim this pass can honestly make without a
-		// destination CIDR to walk.
-		return completedPath(routeAnalysisResultConnected, "", []PathComponent{
-			{
-				Sequence: 0,
-				Resource: &NetworkResourceSummary{ResourceArn: anchorArn, ResourceType: "transit-gateway-attachment"},
+// walkRouteTables follows active routes hop by hop, crossing a TGW peering when the resolver
+// reports the route's attachment as one.
+func walkRouteTables(resolver EC2Resolver, anchorArn, ip string) *RouteAnalysisPath {
+	peering, _ := resolver.(EC2PeeringResolver)
+	visited := map[string]bool{}
+
+	var (
+		path []PathComponent
+		seq  int32
+	)
+
+	for ; ; seq++ {
+		visited[anchorArn] = true
+
+		routeTableID, ok := resolver.TransitGatewayRouteTableForAttachment(anchorArn)
+		if !ok {
+			return completedPath(routeAnalysisResultNotConnected, routeAnalysisReasonAttachmentNotFound, path)
+		}
+
+		if ip == "" {
+			return completedPath(routeAnalysisResultConnected, "", append(path, PathComponent{
+				Sequence: seq,
+				Resource: &NetworkResourceSummary{ResourceArn: anchorArn, ResourceType: tgwAttachmentResourceType},
+			}))
+		}
+
+		route, found := longestPrefixMatch(resolver.TransitGatewayRoutes(routeTableID), ip)
+		if !found {
+			return completedPath(routeAnalysisResultNotConnected, routeAnalysisReasonRouteNotFound, path)
+		}
+
+		path = append(path, PathComponent{
+			Sequence:             seq,
+			DestinationCidrBlock: route.DestinationCIDRBlock,
+			Resource: &NetworkResourceSummary{
+				ResourceArn:  anchorArn,
+				ResourceType: tgwAttachmentResourceType,
 			},
 		})
-	}
 
-	route, found := longestPrefixMatch(resolver.TransitGatewayRoutes(routeTableID), to.IPAddress)
-	if !found {
-		return completedPath(routeAnalysisResultNotConnected, routeAnalysisReasonRouteNotFound, nil)
-	}
+		switch route.State {
+		case ec2TransitGatewayRouteStateBlackhole:
+			return completedPath(routeAnalysisResultNotConnected, routeAnalysisReasonBlackhole, path)
+		case ec2TransitGatewayRouteStateActive:
+		default:
+			return completedPath(routeAnalysisResultNotConnected, routeAnalysisReasonInactiveRoute, path)
+		}
 
-	path := []PathComponent{{
-		Sequence:             0,
-		DestinationCidrBlock: route.DestinationCIDRBlock,
-		Resource: &NetworkResourceSummary{
-			ResourceArn: anchorArn, ResourceType: "transit-gateway-attachment",
-		},
-	}}
+		var peerArn string
 
-	switch route.State {
-	case ec2TransitGatewayRouteStateBlackhole:
-		return completedPath(routeAnalysisResultNotConnected, routeAnalysisReasonBlackhole, path)
-	case ec2TransitGatewayRouteStateActive:
-		return completedPath(routeAnalysisResultConnected, "", path)
-	default:
-		return completedPath(routeAnalysisResultNotConnected, routeAnalysisReasonInactiveRoute, path)
+		if peering != nil {
+			peerArn, ok = peering.TransitGatewayPeerAttachment(route.AttachmentID)
+		}
+
+		if !ok || peerArn == "" {
+			return completedPath(routeAnalysisResultConnected, "", path)
+		}
+
+		if visited[peerArn] {
+			return completedPath(routeAnalysisResultNotConnected, routeAnalysisReasonCyclicPath, path)
+		}
+
+		anchorArn = peerArn
 	}
 }
 

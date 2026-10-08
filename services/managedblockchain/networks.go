@@ -182,6 +182,11 @@ func cloneNetworkFrameworkAttributes(fa *NetworkFrameworkAttributesState) *Netwo
 		cp.Fabric = &fabric
 	}
 
+	if fa.Ethereum != nil {
+		eth := *fa.Ethereum
+		cp.Ethereum = &eth
+	}
+
 	return cp
 }
 

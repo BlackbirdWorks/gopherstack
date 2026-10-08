@@ -25,7 +25,7 @@ func (h *Handler) handleCreateNode(c *echo.Context, networkID string, body []byt
 		return writeError(c, http.StatusBadRequest, "InvalidRequestException", ErrMissingClientRequestToken.Error())
 	}
 
-	if req.MemberID == "" {
+	if req.MemberID == "" && networkID != ethereumMainnetNetworkID {
 		return writeError(c, http.StatusBadRequest, "InvalidRequestException", ErrMissingNodeMemberID.Error())
 	}
 
@@ -55,7 +55,7 @@ func (h *Handler) handleGetNode(c *echo.Context, resource string) error {
 	}
 
 	memberID := c.Request().URL.Query().Get("memberId")
-	if memberID == "" {
+	if memberID == "" && networkID != ethereumMainnetNetworkID {
 		return writeError(c, http.StatusBadRequest, "InvalidRequestException", ErrMissingNodeMemberID.Error())
 	}
 
@@ -77,7 +77,7 @@ func (h *Handler) handleListNodes(c *echo.Context, networkID string) error {
 	q := c.Request().URL.Query()
 
 	memberID := q.Get("memberId")
-	if memberID == "" {
+	if memberID == "" && networkID != ethereumMainnetNetworkID {
 		return writeError(c, http.StatusBadRequest, "InvalidRequestException", ErrMissingNodeMemberID.Error())
 	}
 
@@ -109,7 +109,7 @@ func (h *Handler) handleDeleteNode(c *echo.Context, resource string) error {
 	}
 
 	memberID := c.Request().URL.Query().Get("memberId")
-	if memberID == "" {
+	if memberID == "" && networkID != ethereumMainnetNetworkID {
 		return writeError(c, http.StatusBadRequest, "InvalidRequestException", ErrMissingNodeMemberID.Error())
 	}
 
@@ -146,7 +146,7 @@ func (h *Handler) handleUpdateNode(c *echo.Context, resource string, body []byte
 		}
 	}
 
-	if req.MemberID == "" {
+	if req.MemberID == "" && networkID != ethereumMainnetNetworkID {
 		return writeError(c, http.StatusBadRequest, "InvalidRequestException", ErrMissingNodeMemberID.Error())
 	}
 
@@ -231,6 +231,13 @@ func toNodeFrameworkAttributesRespObj(fa *NodeFrameworkAttributesState) *nodeFra
 		obj.Fabric = &nodeFabricAttributesRespObj{
 			PeerEndpoint:      fa.Fabric.PeerEndpoint,
 			PeerEventEndpoint: fa.Fabric.PeerEventEndpoint,
+		}
+	}
+
+	if fa.Ethereum != nil {
+		obj.Ethereum = &nodeEthereumAttributesRespObj{
+			HTTPEndpoint:      fa.Ethereum.HTTPEndpoint,
+			WebSocketEndpoint: fa.Ethereum.WebSocketEndpoint,
 		}
 	}
 

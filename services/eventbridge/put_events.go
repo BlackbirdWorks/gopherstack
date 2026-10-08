@@ -66,7 +66,7 @@ func validatePutEventsEntry(e EventEntry) (string, string, bool) {
 // ValidationException-equivalent otherwise) and requires Source, DetailType,
 // and Detail on every entry (a per-entry InvalidArgument failure, or a
 // whole-request failure if no entry in the batch has all three).
-func (b *InMemoryBackend) PutEvents(ctx context.Context, entries []EventEntry) ([]EventResultEntry, error) {
+func (b *InMemoryBackend) putEvents(ctx context.Context, entries []EventEntry) ([]EventResultEntry, error) {
 	if !hasEventBusARN(entries) || len(entries) > maxPutEventsEntries {
 		return b.putEventsInRegion(ctx, entries)
 	}

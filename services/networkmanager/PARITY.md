@@ -100,7 +100,7 @@ sdk_module: aws-sdk-go-v2/service/networkmanager@v1.44.4   # go.mod's pinned ver
 # (the 2026-08-01 pre-implementation audit resolved v1.44.3 against @latest in a throwaway scratch
 # module; go.mod has since moved to v1.44.4, re-confirmed this pass by direct grep).
 last_audit_commit: b36537ddc
-last_audit_date: 2026-09-19
+last_audit_date: 2026-10-07
 overall: A   # Raised from gap by this pass: the integration suite (the parity proof
 # .claude/memories/parity-principles.md rule 3 requires) passes, every buildable gap the 2026-08-05
 # pass flagged is now real (cross-service ARN validation against services/ec2/services/directconnect,
@@ -272,10 +272,11 @@ families:
   tagging: {status: ok, note: "3 ops, standard ARN-keyed tag store shared across all 9 taggable resource kinds. STALE NOTE CORRECTED 2026-08-13 (gopherstack-jqh2 pass 2): this family's routing previously needed a MatchPriority workaround for a bedrockagent bug (see gaps: history below); that workaround was reverted in ef896bcf1 once bedrockagent's real bug was fixed -- handler.go now returns the plain service.PriorityPathVersioned, no custom priority constant. Re-verified via TestExtractOperation_SDKRouteTable."}
 gaps: []
 items_still_open:
-  - "AttachmentState PENDING_NETWORK_UPDATE/PENDING_TAG_ACCEPTANCE/UPDATING/FAILED are never entered: needs unmodeled segment-reassignment and tag-acceptance workflows (2026-10-01)"
-  - "StartRouteAnalysis is single-hop (no TGW-peering chaining, so CYCLIC_PATH_DETECTED/MAX_HOPS_EXCEEDED never fire) and the change-set diff covers 5 of 14 ChangeType values: both need real network-topology/attachment-membership resolution (2026-10-01)"
-  - "No AWS::NetworkManager::* resource type in services/cloudformation (2026-10-01): cross-service work, outside this service"
-  - "GetNetworkResources/Relationships/Telemetry accept the RegisteredGatewayArn filter, but no modelled resource is registered under a gateway, so a non-empty value matches nothing and NetworkResource.RegisteredGatewayArn is never populated"
+  - "AttachmentState PENDING_NETWORK_UPDATE/PENDING_TAG_ACCEPTANCE/FAILED are never entered. The SDK does not say when AWS enters them and they need attachment-policy evaluation (tag conditions, segment assignment), which is not modelled. UPDATING is entered on Update*Attachment."
+  - "StartRouteAnalysis crosses TGW peerings only if cli.go's networkManagerEC2ResolverAdapter implements the new optional networkmanager.EC2PeeringResolver (TransitGatewayPeerAttachment(attachmentID) -> accepter-side attachment ARN, from services/ec2 peering attachments); until then it is single-hop. MAX_HOPS_EXCEEDED is not produced because the SDK does not document the hop limit."
+  - "Change sets cover 5 of 14 ChangeType values; ATTACHMENT_MAPPING/ATTACHMENT_ROUTE_*/ROUTING_POLICY_* need attachment-to-segment membership from attachment-policy evaluation, which is not modelled."
+  - "No AWS::NetworkManager::* resource type in services/cloudformation: needs a cloudformation provider that calls this backend (cross-service, outside this service)."
+  - "NetworkResource.RegisteredGatewayArn is never populated and the RegisteredGatewayArn filter matches nothing: the SDK does not say which resource types are registered under a gateway."
 deferred: []
 leaks: {status: clean, note: "Handler.Reset()/InMemoryBackend.Close() wiring confirmed present (store.go: Close() calls b.work.Stop(), stopping the pkgs/worker.Group backing every scheduleAdvance/scheduleRemoval timer -- global network/site/device/link/connection/core-network/attachment/connect-peer/peering/policy-changeset state machines). `go test -race -count=1 ./services/networkmanager/...` run this pass: clean."}
 structural_gaps:

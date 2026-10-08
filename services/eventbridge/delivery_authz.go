@@ -9,6 +9,7 @@ import (
 const (
 	dlqReasonNoPermissions = "NO_PERMISSIONS"
 	dlqReasonAssumeRole    = "FAILED_TO_ASSUME_ROLE"
+	dlqReasonFromTarget    = "ERROR_FROM_TARGET"
 )
 
 // SetRoleAuthorizer makes role-based rule targets run under the target RoleArn's policies.

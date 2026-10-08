@@ -7,7 +7,7 @@
 service: rdsdata
 sdk_module: aws-sdk-go-v2/service/rdsdata@v1.35.4   # version audited against
 last_audit_commit: 6ea4f5153  # 2026-09-19 leak-audit pass (goleak TestMain)
-last_audit_date: 2026-09-19
+last_audit_date: 2026-10-07
 overall: A            # every op/family field-diffed against the real SDK source this pass
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -97,46 +97,12 @@ families:
     simulate IAM or Aurora Serverless timeouts.}
 gaps: []
 items_still_open:
-  - "OPEN 2026-10-03: on docker-backed Aurora clusters Database selects the database but Schema, the 1 MB response
-    cap, continueAfterTimeout and real-engine column origin (schemaName/tableName/isAutoIncrement) are not
-    implemented; ExecuteSql stays on SQLite. Database/Schema remain unread on the SQLite path (next item)."
-  - "Database/Schema (ExecuteStatement, BatchExecuteStatement, BeginTransaction,
-    ExecuteSql -- all 4 ops that carry them) are decoded off the wire and never
-    read anywhere (cmd/reqfieldscan, 2026-08-30 pass: 8 of rdsdata's 9 flagged
-    fields). Real AWS's Database overrides the database named by resourceArn's
-    connection/secret, and Schema (PostgreSQL only) overrides search_path --
-    both select *within* a resource. gopherstack's sqlEngine keys its one
-    SQLite database per (region, resourceARN) only (engine.go's dbFor/dbKey);
-    there is no per-resource multi-database or schema catalog for these
-    fields to select into, the same root cause as ExecuteSql's Database/
-    Schema fields below and its siblings' repeated honest-gap pattern in
-    this campaign. Confirmed via grep: no `.Database`/`.Schema` selector
-    anywhere in non-test source. Not fixed: modeling multiple named
-    databases/schemas inside one engine instance is a real feature (SQLite
-    ATTACH DATABASE per name, or a schema-qualified table namespace), not a
-    field-read fix."
-  - "SqlParameter.typeHint bind semantics (gopherstack-fdle, fixed this
-    pass -- see Notes): a hint now validates its stringValue's documented
-    format and 400s a malformed one, but the *bound value* is still the
-    unmodified string -- the mock SQLite engine has no distinct DATE/
-    DECIMAL/TIMESTAMP/UUID column types to coerce into, so a well-formed
-    DATE-hinted value still binds identically to an unhinted string. Real
-    AWS's exact behavior for a malformed hinted value (which error class,
-    and whether it's a request-time or DB-execution-time failure) is not
-    independently verifiable without a live Aurora cluster -- the
-    BadRequestException class and message wording gopherstack now returns
-    are a best-effort inference, not a field-diffed fact. See Notes."
-  - "ColumnMetadata.SchemaName/TableName/IsAutoIncrement (gopherstack-fdle,
-    fixed this pass for the non-transactional path -- see Notes): populated
-    via modernc.org/sqlite@v1.58.0's conn.ColumnInfo, which exposes the real
-    sqlite3_column_table_name/database_name/origin_name C APIs through
-    *sql.Conn.Raw (database/sql's own sql.ColumnType has no such accessor,
-    as the prior pass found). Still always zero-valued for a statement run
-    inside a BeginTransaction transaction: *sql.Tx has no equivalent to
-    *sql.Conn.Raw, so there's no way to recover the driver connection
-    ColumnInfo needs. ArrayBaseColumnType remains always 0 -- unaffected,
-    and correct, since this mock's result columns are never array-typed
-    (see the field_union family note above)."
+  - "Docker-backed Aurora: ColumnMetadata schemaName/tableName/isAutoIncrement are not populated. pgx could supply them via TableOID + pg_attribute; not yet implemented and needs a live Postgres to verify. go-sql-driver/mysql exposes no origin metadata (driver limit)."
+  - "SqlParameter.typeHint: a well-formed hinted value binds as the plain string (SQLite has no DATE/DECIMAL/UUID types). The error class for a malformed hinted value is not determinable from the SDK, so BadRequestException is a best-effort choice."
+  - "Response-size cap (1 MB, api_op_ExecuteStatement.go:18) returns BadRequestException; the SDK says only 'the call is terminated', so the exact error class and message are not determinable."
+structural_gaps:
+  - "Schema: the SDK documents it as 'Currently, the schema parameter isn't supported' (api_op_ExecuteStatement.go:104), so it is accepted and has no effect, as in AWS."
+  - "SQLite path: the cluster's configured default database name is not resolvable for non-docker clusters, so an omitted Database and an explicit Database naming the cluster default are separate in-memory databases."
 leaks: {status: clean, note: >
   sqlEngine.reset() rolls back every open *sql.Tx and closes every resourceDB
   (including its keep-alive conn) before clearing the maps; Handler.Reset()

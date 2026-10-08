@@ -6,6 +6,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	networkmanagersdk "github.com/aws/aws-sdk-go-v2/service/networkmanager"
 	"github.com/aws/aws-sdk-go-v2/service/networkmanager/types"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -172,4 +173,47 @@ func TestRoundTrip_TransitGatewayRouteTableAttachment(t *testing.T) {
 		},
 	)
 	require.Error(t, err)
+}
+
+func TestRoundTrip_VpcAttachmentUpdateStates(t *testing.T) {
+	t.Parallel()
+
+	_, client := newTestHandlerAndClient(t)
+	ctx := t.Context()
+	cn := createTestCoreNetwork(t, client)
+
+	created, err := client.CreateVpcAttachment(ctx, &networkmanagersdk.CreateVpcAttachmentInput{
+		CoreNetworkId: cn.CoreNetwork.CoreNetworkId,
+		VpcArn:        aws.String("arn:aws:ec2:us-east-1:000000000000:vpc/vpc-0123456789abcdef0"),
+		SubnetArns:    []string{"arn:aws:ec2:us-east-1:000000000000:subnet/subnet-aaa"},
+	})
+	require.NoError(t, err)
+
+	id := created.VpcAttachment.Attachment.AttachmentId
+	state := func() types.AttachmentState {
+		g, getErr := client.GetVpcAttachment(ctx, &networkmanagersdk.GetVpcAttachmentInput{AttachmentId: id})
+		require.NoError(t, getErr)
+
+		return g.VpcAttachment.Attachment.State
+	}
+
+	update := func() types.AttachmentState {
+		u, updErr := client.UpdateVpcAttachment(ctx, &networkmanagersdk.UpdateVpcAttachmentInput{
+			AttachmentId: id, AddSubnetArns: []string{"arn:aws:ec2:us-east-1:000000000000:subnet/subnet-bbb"},
+		})
+		require.NoError(t, updErr)
+
+		return u.VpcAttachment.Attachment.State
+	}
+
+	assert.Equal(t, types.AttachmentStatePendingAttachmentAcceptance, update(), "pending is not disturbed")
+
+	_, err = client.AcceptAttachment(ctx, &networkmanagersdk.AcceptAttachmentInput{AttachmentId: id})
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return state() == types.AttachmentStateAvailable },
+		defaultAsyncWait, defaultAsyncPoll)
+
+	assert.Equal(t, types.AttachmentStateUpdating, update())
+	require.Eventually(t, func() bool { return state() == types.AttachmentStateAvailable },
+		defaultAsyncWait, defaultAsyncPoll)
 }

@@ -43,13 +43,16 @@ type Network struct {
 }
 
 // NetworkFrameworkAttributesState holds framework-specific network attributes.
-// gopherstack only emulates the Hyperledger Fabric framework (CreateNetwork's
-// real API also documents itself as "Applies only to Hyperledger Fabric" --
-// new networks can no longer be created on the Ethereum framework), so only
-// Fabric is modeled; the real API's sibling Ethereum field is intentionally
-// omitted here since gopherstack never populates it.
+// Created networks are Hyperledger Fabric; Ethereum appears only on the public
+// n-ethereum-mainnet network.
 type NetworkFrameworkAttributesState struct {
-	Fabric *NetworkFabricAttributesState `json:"fabric,omitempty"`
+	Fabric   *NetworkFabricAttributesState   `json:"fabric,omitempty"`
+	Ethereum *NetworkEthereumAttributesState `json:"ethereum,omitempty"`
+}
+
+// NetworkEthereumAttributesState holds Ethereum-specific network attributes.
+type NetworkEthereumAttributesState struct {
+	ChainID string `json:"chainId,omitempty"`
 }
 
 // NetworkFabricAttributesState holds Hyperledger Fabric-specific network attributes.
@@ -159,12 +162,15 @@ type Node struct {
 }
 
 // NodeFrameworkAttributesState holds framework-specific node attributes.
-// Only Fabric is modeled -- see Network.FrameworkAttributes' doc comment;
-// gopherstack's nodes always belong to a Fabric member (CreateNode requires
-// MemberId, see ErrMissingNodeMemberID), so the real API's sibling Ethereum
-// field is intentionally omitted here since gopherstack never populates it.
 type NodeFrameworkAttributesState struct {
-	Fabric *NodeFabricAttributesState `json:"fabric,omitempty"`
+	Fabric   *NodeFabricAttributesState   `json:"fabric,omitempty"`
+	Ethereum *NodeEthereumAttributesState `json:"ethereum,omitempty"`
+}
+
+// NodeEthereumAttributesState holds Ethereum-specific node attributes.
+type NodeEthereumAttributesState struct {
+	HTTPEndpoint      string `json:"httpEndpoint,omitempty"`
+	WebSocketEndpoint string `json:"webSocketEndpoint,omitempty"`
 }
 
 // NodeFabricAttributesState holds Hyperledger Fabric-specific node attributes.
@@ -286,7 +292,12 @@ type networkObject struct {
 
 // networkFrameworkAttributesRespObj is the response JSON for a network's FrameworkAttributes.
 type networkFrameworkAttributesRespObj struct {
-	Fabric *networkFabricAttributesRespObj `json:"Fabric,omitempty"`
+	Fabric   *networkFabricAttributesRespObj   `json:"Fabric,omitempty"`
+	Ethereum *networkEthereumAttributesRespObj `json:"Ethereum,omitempty"`
+}
+
+type networkEthereumAttributesRespObj struct {
+	ChainID string `json:"ChainId,omitempty"`
 }
 
 // networkFabricAttributesRespObj is the response JSON for a network's Fabric-specific attributes.
@@ -469,7 +480,7 @@ type nodeObject struct {
 	ID                         string                          `json:"Id"`
 	InstanceType               string                          `json:"InstanceType"`
 	KmsKeyArn                  string                          `json:"KmsKeyArn,omitempty"`
-	MemberID                   string                          `json:"MemberId"`
+	MemberID                   string                          `json:"MemberId,omitempty"`
 	NetworkID                  string                          `json:"NetworkId"`
 	StateDB                    string                          `json:"StateDB,omitempty"`
 	Status                     string                          `json:"Status"`
@@ -477,7 +488,13 @@ type nodeObject struct {
 
 // nodeFrameworkAttributesRespObj is the response JSON for a node's FrameworkAttributes.
 type nodeFrameworkAttributesRespObj struct {
-	Fabric *nodeFabricAttributesRespObj `json:"Fabric,omitempty"`
+	Fabric   *nodeFabricAttributesRespObj   `json:"Fabric,omitempty"`
+	Ethereum *nodeEthereumAttributesRespObj `json:"Ethereum,omitempty"`
+}
+
+type nodeEthereumAttributesRespObj struct {
+	HTTPEndpoint      string `json:"HttpEndpoint,omitempty"`
+	WebSocketEndpoint string `json:"WebSocketEndpoint,omitempty"`
 }
 
 // nodeFabricAttributesRespObj is the response JSON for a node's Fabric-specific attributes.

@@ -17,11 +17,10 @@ import (
 // asyncTransitionDelay (a real, if simplified, approximation of an
 // attachment actually being provisioned); RejectAttachment resolves it to
 // the terminal REJECTED state instead. DeleteAttachment moves any
-// non-terminal state to DELETING, then removes it. PENDING_NETWORK_UPDATE/
-// PENDING_TAG_ACCEPTANCE/UPDATING/FAILED are real AttachmentState values
-// this backend never enters (no segment-reassignment or tag-acceptance
-// workflow is modeled) -- an honest, documented scope reduction, not a
-// silent gap.
+// non-terminal state to DELETING, then removes it. Updating an AVAILABLE
+// attachment moves it to UPDATING, then back to AVAILABLE. PENDING_NETWORK_UPDATE/
+// PENDING_TAG_ACCEPTANCE/FAILED are never entered (no attachment-policy
+// evaluation is modeled).
 //
 // Cross-service FK validation (matching associations.go's identical
 // pattern): VpcArn/SubnetArns, VpnConnectionArn, DirectConnectGatewayArn,
@@ -242,9 +241,23 @@ func (b *InMemoryBackend) UpdateVpcAttachment(
 		a.VpcOptions = opts
 	}
 
-	a.UpdatedAt = nowUTC()
+	b.beginAttachmentUpdateLocked(a)
 
 	return a.clone(), nil
+}
+
+// beginAttachmentUpdateLocked stamps UpdatedAt and moves an AVAILABLE attachment through UPDATING.
+func (b *InMemoryBackend) beginAttachmentUpdateLocked(a *Attachment) {
+	a.UpdatedAt = nowUTC()
+
+	if a.State != attachmentStateAvailable {
+		return
+	}
+
+	a.State = attachmentStateUpdating
+
+	scheduleAdvance(b, "AttachmentUpdated", b.attachments, a.AttachmentID,
+		func(v *Attachment) *string { return &v.State }, attachmentStateUpdating, attachmentStateAvailable)
 }
 
 func applySubnetArnDelta(current, add, remove []string) []string {
@@ -388,7 +401,7 @@ func (b *InMemoryBackend) UpdateDirectConnectGatewayAttachment(id string, edgeLo
 		a.EdgeLocations = append([]string(nil), edgeLocations...)
 	}
 
-	a.UpdatedAt = nowUTC()
+	b.beginAttachmentUpdateLocked(a)
 
 	return a.clone(), nil
 }

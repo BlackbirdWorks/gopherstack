@@ -309,6 +309,9 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	}
 }
 
+// maxResponseBytes is the documented 1 MB ExecuteStatement response cap (api_op_ExecuteStatement.go:18).
+const maxResponseBytes = 1 << 20
+
 type executeStatementRequest struct {
 	ResultSetOptions      *resultSetOptionsRequest `json:"resultSetOptions"`
 	ResourceArn           string                   `json:"resourceArn"`
@@ -426,7 +429,7 @@ func (h *Handler) handleExecuteStatement(ctx context.Context, body []byte) ([]by
 		return nil, err
 	}
 
-	ctx = withRequestTarget(ctx, req.SecretArn, req.Database)
+	ctx = withContinueAfterTimeout(withRequestTarget(ctx, req.SecretArn, req.Database), req.ContinueAfterTimeout)
 
 	if req.ResultSetOptions != nil {
 		ctx = context.WithValue(ctx, resultSetOptionsContextKey{}, resultSetOptions{
@@ -445,6 +448,13 @@ func (h *Handler) handleExecuteStatement(ctx context.Context, body []byte) ([]by
 		generatedFields = []Field{}
 	}
 
+	return marshalExecuteResponse(&req, records, columns, updated, generatedFields)
+}
+
+// marshalExecuteResponse shapes the ExecuteStatement response and enforces the 1 MB response cap.
+func marshalExecuteResponse(
+	req *executeStatementRequest, records [][]Field, columns []ColumnMetadata, updated int64, generatedFields []Field,
+) ([]byte, error) {
 	// Use a map so columnMetadata/records/formattedRecords can be
 	// conditionally included, matching real AWS response shaping.
 	resp := map[string]any{
@@ -470,7 +480,16 @@ func (h *Handler) handleExecuteStatement(ctx context.Context, body []byte) ([]by
 		}
 	}
 
-	return json.Marshal(resp)
+	out, err := json.Marshal(resp)
+	if err != nil {
+		return nil, fmt.Errorf("marshal response: %w", err)
+	}
+
+	if len(out) > maxResponseBytes {
+		return nil, fmt.Errorf("%w: Database response exceeded size limit", ErrValidation)
+	}
+
+	return out, nil
 }
 
 // formatRecordsAsJSONString renders records as the JSON string real AWS
@@ -689,6 +708,8 @@ func (h *Handler) handleExecuteSQL(ctx context.Context, body []byte) ([]byte, er
 	); err != nil {
 		return nil, err
 	}
+
+	ctx = withRequestTarget(ctx, req.AwsSecretStoreArn, req.Database)
 
 	results, err := h.Backend.ExecuteSQL(ctx, req.DBClusterOrInstanceArn, req.SQLStatements)
 	if err != nil {

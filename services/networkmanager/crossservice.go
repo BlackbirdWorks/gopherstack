@@ -55,6 +55,13 @@ type EC2Resolver interface {
 	CustomerGatewayArnsForTransitGateway(transitGatewayArn string) []string
 }
 
+// EC2PeeringResolver is an optional EC2Resolver capability that lets route analysis cross TGW peerings.
+type EC2PeeringResolver interface {
+	// TransitGatewayPeerAttachment maps a route's attachment ID to the ARN of the attachment on the
+	// peer transit gateway; ok is false when it is not a peering.
+	TransitGatewayPeerAttachment(attachmentID string) (peerAttachmentArn string, ok bool)
+}
+
 // EC2TransitGatewayRoute is the subset of services/ec2's
 // TransitGatewayRoute this package's route-analysis walk needs, decoupled
 // from ec2's own type so this package does not import services/ec2

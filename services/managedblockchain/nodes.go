@@ -75,7 +75,69 @@ func cloneNodeFrameworkAttributes(fa *NodeFrameworkAttributesState) *NodeFramewo
 		cp.Fabric = &fabric
 	}
 
+	if fa.Ethereum != nil {
+		eth := *fa.Ethereum
+		cp.Ethereum = &eth
+	}
+
 	return cp
+}
+
+// ethereumMainnetNetworkID is the one public Ethereum NetworkId CreateNode documents (api_op_CreateNode.go:44-47).
+const ethereumMainnetNetworkID = "n-ethereum-mainnet"
+
+const ethereumMainnetChainID = "1"
+
+const frameworkEthereum = "ETHEREUM"
+
+// createEthereumNodeLocked creates a memberless node on the public Ethereum mainnet network,
+// materialising the network on first use. Caller must hold b.mu.
+func (b *InMemoryBackend) createEthereumNodeLocked(
+	region, accountID, instanceType, availabilityZone string, tags map[string]string,
+) (*Node, error) {
+	if availabilityZone == "" {
+		return nil, ErrMissingNodeAvailabilityZone
+	}
+
+	now := time.Now().UTC()
+
+	if _, exists := b.networks.Get(ethereumMainnetNetworkID); !exists {
+		network := &Network{
+			ID:        ethereumMainnetNetworkID,
+			Arn:       networkARN(region, accountID, ethereumMainnetNetworkID),
+			Framework: frameworkEthereum,
+			Status:    networkStatusAvailable,
+			Tags:      map[string]string{},
+			FrameworkAttributes: &NetworkFrameworkAttributesState{
+				Ethereum: &NetworkEthereumAttributesState{ChainID: ethereumMainnetChainID},
+			},
+			CreationDate: &now,
+		}
+		b.networks.Put(network)
+		b.arnToResource[network.Arn] = network
+	}
+
+	nodeID := uuid.NewString()
+	host := fmt.Sprintf("%s.%s.t.ethereum.managedblockchain.%s.amazonaws.com", nodeID, ethereumMainnetNetworkID, region)
+
+	node := &Node{
+		ID:               nodeID,
+		Arn:              nodeARN(region, accountID, nodeID),
+		NetworkID:        ethereumMainnetNetworkID,
+		InstanceType:     instanceType,
+		AvailabilityZone: availabilityZone,
+		Status:           nodeStatusAvailable,
+		CreationDate:     &now,
+		Tags:             maps.Clone(tags),
+		FrameworkAttributes: &NodeFrameworkAttributesState{
+			Ethereum: &NodeEthereumAttributesState{HTTPEndpoint: host, WebSocketEndpoint: host},
+		},
+	}
+
+	b.nodes.Put(node)
+	b.arnToResource[node.Arn] = node
+
+	return cloneNode(node), nil
 }
 
 // CreateNode creates a new peer node within a member. The node's KmsKeyArn
@@ -90,6 +152,10 @@ func (b *InMemoryBackend) CreateNode(
 
 	if err := checkTagLimit(nil, tags); err != nil {
 		return nil, err
+	}
+
+	if networkID == ethereumMainnetNetworkID {
+		return b.createEthereumNodeLocked(region, accountID, instanceType, availabilityZone, tags)
 	}
 
 	if _, exists := b.networks.Get(networkID); !exists {

@@ -223,6 +223,10 @@ func toNetworkFrameworkAttributesRespObj(fa *NetworkFrameworkAttributesState) *n
 		}
 	}
 
+	if fa.Ethereum != nil {
+		obj.Ethereum = &networkEthereumAttributesRespObj{ChainID: fa.Ethereum.ChainID}
+	}
+
 	return obj
 }
 
