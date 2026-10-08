@@ -320,6 +320,13 @@ func (b *InMemoryBackend) SetServerCertificateChecker(c ServerCertificateChecker
 	b.serverCertChecker = c
 }
 
+func (b *InMemoryBackend) certificateChecker() ServerCertificateChecker {
+	b.mu.RLock("certificateChecker")
+	defer b.mu.RUnlock()
+
+	return b.serverCertChecker
+}
+
 func (b *InMemoryBackend) ListDomainConfigurations() []*DomainConfiguration {
 	b.mu.RLock("ListDomainConfigurations")
 	defer b.mu.RUnlock()

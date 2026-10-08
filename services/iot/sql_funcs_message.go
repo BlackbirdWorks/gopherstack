@@ -64,10 +64,14 @@ func encodeFunc(_ *sqlCtx, args []any) any {
 	return base64.StdEncoding.EncodeToString([]byte(s))
 }
 
-// decodeFunc base64-decodes; JSON results become addressable values, failures are Null.
+// decodeFunc base64-decodes or, for 'proto', decodes protobuf; JSON results become addressable values.
 func decodeFunc(c *sqlCtx, args []any) any {
 	scheme, _ := strArg(args, 1)
 	s, ok := strArg(args, 0)
+
+	if strings.EqualFold(scheme, "proto") {
+		return decodeProto(c, args)
+	}
 
 	if !ok || !strings.EqualFold(scheme, "base64") {
 		return nil

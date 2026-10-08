@@ -46,7 +46,10 @@ func (h *Handler) EnableRegions() {
 	}
 
 	h.peers = regionpeers.New(home.region, func(region string) *Handler {
-		return NewHandler(NewInMemoryBackendWithConfig(home.accountID, region), h.broker)
+		sib := NewInMemoryBackendWithConfig(home.accountID, region)
+		sib.SetServerCertificateChecker(home.certificateChecker())
+
+		return NewHandler(sib, h.broker)
 	})
 
 	if h.broker != nil {
