@@ -56,6 +56,11 @@ func (b *InMemoryBackend) StartQueryExecution(
 		id = randomID()
 		qe := newQueryExecution(id, query, workGroup, ctx, rc, execParams, reuseCfg, reused)
 
+		if m := wg.Configuration.ManagedResults; m != nil && m.Enabled {
+			cp := *m
+			qe.ManagedQueryResultsConfiguration = &cp
+		}
+
 		b.queryExecutions.Put(qe)
 	}()
 

@@ -37,6 +37,46 @@ func validateWorkGroupConfiguration(cfg WorkGroupConfiguration) error {
 		)
 	}
 
+	return validateWorkGroupFeatureConfigs(cfg)
+}
+
+const authTypeDirectoryIdentity = "DIRECTORY_IDENTITY"
+
+func validateWorkGroupFeatureConfigs(cfg WorkGroupConfiguration) error {
+	if ic := cfg.IdentityCenter; ic != nil && ic.EnableIdentityCenter != nil &&
+		*ic.EnableIdentityCenter && cfg.ExecutionRole == "" {
+		return fmt.Errorf("%w: ExecutionRole is required for IAM Identity Center enabled workgroups", ErrValidation)
+	}
+
+	if m := cfg.ManagedResults; m != nil {
+		if m.Enabled && cfg.ResultConfiguration.OutputLocation != "" {
+			return fmt.Errorf(
+				"%w: a workgroup with managed query results enabled cannot have ResultConfiguration.OutputLocation",
+				ErrValidation,
+			)
+		}
+
+		if e := m.EncryptionConfiguration; e != nil && e.KmsKey == "" {
+			return fmt.Errorf(
+				"%w: ManagedQueryResultsConfiguration.EncryptionConfiguration.KmsKey is required",
+				ErrValidation,
+			)
+		}
+	}
+
+	if g := cfg.S3AccessGrants; g != nil {
+		if g.EnableS3AccessGrants == nil {
+			return fmt.Errorf("%w: S3AccessGrantsConfig.EnableS3AccessGrants is required", ErrValidation)
+		}
+
+		if g.AuthenticationType != authTypeDirectoryIdentity {
+			return fmt.Errorf(
+				"%w: S3AccessGrantsConfig.AuthenticationType must be %s",
+				ErrValidation, authTypeDirectoryIdentity,
+			)
+		}
+	}
+
 	return nil
 }
 

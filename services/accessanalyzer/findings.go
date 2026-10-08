@@ -62,7 +62,7 @@ func (b *InMemoryBackend) GetFinding(analyzerName, findingID string) (*Finding, 
 }
 
 // matchesFindingFilter evaluates Eq/Neq/Exists on modeled keys; Contains (no documented
-// semantics) and unmodeled keys are treated as matching.
+// semantics) and keys with no backing state are treated as matching.
 func matchesFindingFilter(f *Finding, filter map[string]FilterCriterion) bool {
 	for key, crit := range filter {
 		actual, known := findingFilterValues(f, key)
@@ -98,6 +98,10 @@ func findingFilterValues(f *Finding, key string) ([]string, bool) {
 		return []string{f.ResourceArn}, true
 	case "id":
 		return []string{f.ID}, true
+	case "resourceOwnerAccount":
+		return findingOwnerAccount(f), true
+	case "error", "resourceControlPolicyRestriction":
+		return nil, true
 	case "action":
 		return f.Action, true
 	case "isPublic":
@@ -117,6 +121,21 @@ func findingFilterValues(f *Finding, key string) ([]string, bool) {
 	}
 
 	return nil, false
+}
+
+// findingOwnerAccount returns the account of the finding's analyzer, which owns every resource it analyzes here.
+func findingOwnerAccount(f *Finding) []string {
+	const (
+		accountField = 4
+		arnFields    = 6
+	)
+
+	parts := strings.SplitN(f.AnalyzerArn, ":", arnFields)
+	if len(parts) <= accountField || parts[accountField] == "" {
+		return nil
+	}
+
+	return []string{parts[accountField]}
 }
 
 func anyIn(actual, set []string) bool {

@@ -7,7 +7,7 @@
 service: appstream
 sdk_module: aws-sdk-go-v2/service/appstream@v1.64.5
 last_audit_commit: 5c20d9fd7
-last_audit_date: 2026-09-24
+last_audit_date: 2026-10-07
 overall: A            # 2026-08-23: closed the one remaining named-and-flagged gap this file
                        # carried (UpdateThemeForStack request-side accept-and-drop -- see
                        # UpdateThemeForStack/Theme ops rows and the dated Notes section at the
@@ -87,14 +87,13 @@ families:
   UsageReportSubscription: {status: ok, note: "single scalar record, verified against real shape"}
   ExportImageTask: {status: fixed, note: "MAJOR rewrite this pass -- prior 'ok' verdict was wrong; the entire request/response shape was gopherstack-invented (S3-based export instead of real AMI export). See CreateExportImageTask/GetExportImageTask/ListExportImageTasks ops above for the full diff. Any real aws-sdk-go-v2 client hitting the old handler would have gotten a response with none of the fields it expects populated"}
 gaps: []                # no unfixed divergences found; all confirmed bugs were fixed this pass
-items_still_open:
+items_still_open: []
+structural_gaps:
   - "CreateImportedImage: AppCatalogConfig, IamRoleArn, RuntimeValidationConfig, SourceAmiId and WorkspaceImageId are accepted but unobservable -- no AMI/WorkSpaces image import pipeline exists and types.Image has no member for them; DryRun validates the name only."
   - "CreateStreamingURL.ApplicationId and SessionContext are accepted but unobservable: no application launch is modeled and types.Session has no member for either."
-  - "StartSoftwareDeploymentToImageBuilder.RetryFailedDeployments has no effect: software associations are recorded directly and no deployment can fail."
-  - "DescribeAppLicenseUsage.BillingPeriod filters nothing: no license-usage state is modeled."
-  - "Application.AppBlockArn is not existence-checked on CreateApplication/UpdateApplication (existing flows pass unregistered ARNs); CreateImageBuilder ImageName/ImageArn naming a public base image is stored as given because no public image catalog exists."
-  - "CreateImageBuilder SoftwaresToUninstall can only remove names from the same request's SoftwaresToInstall: there is no pre-installed software model."
-
+  - "StartSoftwareDeploymentToImageBuilder.RetryFailedDeployments has no effect: no deployment can fail."
+  - "DescribeAppLicenseUsage.BillingPeriod filters nothing: no license-usage metering exists."
+  - "CreateImageBuilder ImageName/ImageArn naming a public base image is stored as given (no public image catalog); SoftwaresToUninstall can only remove names from the same request's SoftwaresToInstall (no pre-installed software model)."
 deferred: []              # both prior deferred items resolved this pass (see below)
 resolved_this_pass:
   - CreatedTime/StartTime/CreatedDate wire encoding switched from time.Time.Unix() (whole-

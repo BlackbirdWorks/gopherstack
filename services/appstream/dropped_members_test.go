@@ -298,10 +298,13 @@ func TestRealClient_UpdateApplicationAttributesAndIcon(t *testing.T) {
 
 	c := newMembersClient(t)
 
+	oneArn := createTestAppBlock(t, c, "one")
+	twoArn := createTestAppBlock(t, c, "two")
+
 	_, err := c.CreateApplication(t.Context(), &appstreamsdk.CreateApplicationInput{
 		Name:             aws.String("app-x"),
 		LaunchPath:       aws.String("C:\\app.exe"),
-		AppBlockArn:      aws.String("arn:aws:appstream:us-east-1:000000000000:app-block/one"),
+		AppBlockArn:      aws.String(oneArn),
 		Platforms:        []types.PlatformType{types.PlatformTypeWindows},
 		InstanceFamilies: []string{"GENERAL_PURPOSE"},
 		IconS3Location:   &types.S3Location{S3Bucket: aws.String("icons"), S3Key: aws.String("a.png")},
@@ -312,12 +315,12 @@ func TestRealClient_UpdateApplicationAttributesAndIcon(t *testing.T) {
 
 	upd, err := c.UpdateApplication(t.Context(), &appstreamsdk.UpdateApplicationInput{
 		Name:               aws.String("app-x"),
-		AppBlockArn:        aws.String("arn:aws:appstream:us-east-1:000000000000:app-block/two"),
+		AppBlockArn:        aws.String(twoArn),
 		IconS3Location:     &types.S3Location{S3Bucket: aws.String("icons"), S3Key: aws.String("b.png")},
 		AttributesToDelete: []types.ApplicationAttribute{types.ApplicationAttributeLaunchParameters},
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "arn:aws:appstream:us-east-1:000000000000:app-block/two", aws.ToString(upd.Application.AppBlockArn))
+	assert.Equal(t, twoArn, aws.ToString(upd.Application.AppBlockArn))
 	assert.Equal(t, "b.png", aws.ToString(upd.Application.IconS3Location.S3Key))
 	assert.Empty(t, aws.ToString(upd.Application.LaunchParameters))
 	assert.Equal(t, "C:\\w", aws.ToString(upd.Application.WorkingDirectory))

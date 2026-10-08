@@ -90,6 +90,7 @@ func (h *Handler) handleListSNRAs(c *echo.Context) error {
 			keyStatus:                   s.Status,
 			keyCreatedBy:                s.CreatedBy,
 			keyPrivateDNSEnabled:        s.PrivateDNSEnabled,
+			keyIsManagedAssoc:           false,
 			keyCreatedAt:                s.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 		})
 	}
@@ -101,6 +102,9 @@ func (h *Handler) handleListSNRAs(c *echo.Context) error {
 
 	return c.JSON(http.StatusOK, resp)
 }
+
+// keyIsManagedAssoc is always false: every association here is caller-created.
+const keyIsManagedAssoc = "isManagedAssociation"
 
 func snraToJSON(s *ServiceNetworkResourceAssociation) map[string]any {
 	return map[string]any{
@@ -115,6 +119,7 @@ func snraToJSON(s *ServiceNetworkResourceAssociation) map[string]any {
 		keyStatus:                   s.Status,
 		keyCreatedBy:                s.CreatedBy,
 		keyPrivateDNSEnabled:        s.PrivateDNSEnabled,
+		keyIsManagedAssoc:           false,
 		keyCreatedAt:                s.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 		keyLastUpdatedAt:            s.LastUpdatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 	}

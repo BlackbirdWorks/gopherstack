@@ -144,6 +144,8 @@ func TestCreateOps_TagsRoundTrip(t *testing.T) {
 		h := appstream.NewHandler(appstream.NewInMemoryBackend("123456789012", "us-east-1"))
 		client := newTestAppStreamClient(t, h)
 
+		blockArn := createTestAppBlock(t, client, "tagged-appblock")
+
 		out, err := client.CreateApplication(t.Context(), &appstreamsdk.CreateApplicationInput{
 			Name: aws.String("tagged-app"),
 			IconS3Location: &types.S3Location{
@@ -153,7 +155,7 @@ func TestCreateOps_TagsRoundTrip(t *testing.T) {
 			LaunchPath:       aws.String("C:\\app.exe"),
 			Platforms:        []types.PlatformType{types.PlatformTypeWindowsServer2019},
 			InstanceFamilies: []string{"GENERAL_PURPOSE"},
-			AppBlockArn:      aws.String("arn:aws:appstream:us-east-1:123456789012:app-block/tagged-appblock"),
+			AppBlockArn:      aws.String(blockArn),
 			Tags:             tags,
 		})
 		require.NoError(t, err)

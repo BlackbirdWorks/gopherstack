@@ -6,6 +6,7 @@ import (
 )
 
 type startQueryExecutionInput struct {
+	EngineConfiguration      *EngineConfiguration      `json:"EngineConfiguration,omitempty"`
 	ResultReuseConfiguration *ResultReuseConfiguration `json:"ResultReuseConfiguration,omitempty"`
 	ResultConfiguration      ResultConfiguration       `json:"ResultConfiguration"`
 	QueryExecutionContext    QueryExecutionContext     `json:"QueryExecutionContext"`
@@ -46,6 +47,10 @@ func (h *Handler) queryExecutionOps() map[string]athenaActionFn {
 		"StartQueryExecution": func(b []byte) (any, error) {
 			var input startQueryExecutionInput
 			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			if err := validateQueryEngineConfiguration(input.EngineConfiguration); err != nil {
 				return nil, err
 			}
 
