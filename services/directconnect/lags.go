@@ -28,17 +28,23 @@ func lagMaxConnections(bandwidth string) int32 {
 // NumberOfConnections fresh child connections (or converting an existing
 // standalone ConnectionId into the LAG's first member, per PARITY.md).
 func (b *InMemoryBackend) CreateLag(req *createLagRequest) (*Lag, error) {
+	return b.createLag(req, true)
+}
+
+// createLag builds the LAG; withConnections=false creates it empty, as CloudFormation does.
+func (b *InMemoryBackend) createLag(req *createLagRequest, withConnections bool) (*Lag, error) {
 	if req.ConnectionsBandwidth == "" || req.LagName == "" || req.Location == "" {
 		return nil, clientError("connectionsBandwidth, lagName, and location are required")
 	}
 
-	if req.NumberOfConnections < 1 {
-		return nil, clientError("numberOfConnections must be at least 1")
-	}
+	if withConnections {
+		if req.NumberOfConnections < 1 {
+			return nil, clientError("numberOfConnections must be at least 1")
+		}
 
-	maxConns := lagMaxConnections(req.ConnectionsBandwidth)
-	if req.NumberOfConnections > maxConns {
-		return nil, clientError("numberOfConnections exceeds the maximum for this bandwidth")
+		if req.NumberOfConnections > lagMaxConnections(req.ConnectionsBandwidth) {
+			return nil, clientError("numberOfConnections exceeds the maximum for this bandwidth")
+		}
 	}
 
 	if err := validateNewTags(tagWireKeys(req.Tags)); err != nil {
@@ -74,10 +80,11 @@ func (b *InMemoryBackend) CreateLag(req *createLagRequest) (*Lag, error) {
 	}
 	b.lags.Put(lag)
 
-	if req.ConnectionID != "" {
+	switch {
+	case req.ConnectionID != "":
 		c, _ := b.connections.Get(req.ConnectionID)
 		c.LagID = id
-	} else {
+	case withConnections:
 		for range int(req.NumberOfConnections) {
 			cid := newConnectionID()
 			ct := tags.New("directconnect.connection." + cid + ".tags")

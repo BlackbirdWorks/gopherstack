@@ -46,10 +46,6 @@ var ErrCFNDeletePending = errors.New("deletion pending on dependent resources")
 
 var errUnknownCFNType = clientError("unsupported CloudFormation resource type")
 
-func clampInt32(n int64) int32 {
-	return int32(min(max(n, math.MinInt32), math.MaxInt32))
-}
-
 func lowerFirst(s string) string {
 	if s == "" {
 		return s
@@ -181,8 +177,7 @@ func peerToWire(peer map[string]any) map[string]any {
 }
 
 // vifProps splits CloudFormation virtual-interface properties into the connection ID, the interface's own
-// settings (the first BgpPeer supplies the BGP fields) and any further peers. Flat Asn/AddressFamily/etc.
-// without BgpPeers are still accepted.
+// settings (the first BgpPeer supplies the BGP fields) and any further peers.
 func vifProps(props map[string]any, roleKey string) (string, map[string]any, []map[string]any) {
 	connID, _ := props[cfnConnectionIDKey].(string)
 
@@ -275,37 +270,22 @@ func (b *InMemoryBackend) createCFNConnection(props map[string]any) (string, map
 }
 
 func (b *InMemoryBackend) createCFNLag(props map[string]any) (string, map[string]string, error) {
-	coerceNumbers(props, cfnLagNumberOfConnectionsKey, cfnLagMinimumLinksKey)
+	if _, ok := props[cfnLagMinimumLinksKey]; ok {
+		return "", nil, clientError("MinimumLinks cannot be set when the LAG is created")
+	}
 
-	minimum, _ := props[cfnLagMinimumLinksKey].(int64)
-	_, hasNumber := props[cfnLagNumberOfConnectionsKey].(int64)
-
-	rest := make(map[string]any, len(props))
-
-	for k, v := range props {
-		if k != cfnLagMinimumLinksKey {
-			rest[k] = v
-		}
+	if _, ok := props[cfnLagNumberOfConnectionsKey]; ok {
+		return "", nil, clientError("NumberOfConnections is not a CloudFormation property of AWS::DirectConnect::Lag")
 	}
 
 	var req createLagRequest
-	if err := decodeStrict(rest, &req); err != nil {
+	if err := decodeStrict(props, &req); err != nil {
 		return "", nil, err
 	}
 
-	if !hasNumber {
-		req.NumberOfConnections = max(clampInt32(minimum), 1)
-	}
-
-	l, err := b.CreateLag(&req)
+	l, err := b.createLag(&req, false)
 	if err != nil {
 		return "", nil, err
-	}
-
-	if minimum > 0 {
-		if l, err = b.UpdateLag(&updateLagRequest{LagID: l.LagID, MinimumLinks: clampInt32(minimum)}); err != nil {
-			return "", nil, err
-		}
 	}
 
 	return b.LagARN(l.LagID), map[string]string{
@@ -380,6 +360,12 @@ func (b *InMemoryBackend) createCFNVirtualInterface(
 		vif *VirtualInterface
 		err error
 	)
+
+	for _, k := range []string{"Asn", "AsnLong", "AddressFamily", "AmazonAddress", "CustomerAddress", "AuthKey"} {
+		if _, ok := props[k]; ok {
+			return "", nil, clientError(k + " is not a property of a virtual interface; set it in BgpPeers")
+		}
+	}
 
 	switch resourceType {
 	case CFNPrivateVirtualInterface:

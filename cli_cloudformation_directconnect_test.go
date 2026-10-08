@@ -28,7 +28,7 @@ func TestCloudFormationProvisionsDirectConnect(t *testing.T) {
 			"Lag": map[string]any{
 				"Type": "AWS::DirectConnect::Lag",
 				"Properties": map[string]any{
-					"LagName": "cfn-lag", "ConnectionsBandwidth": "1Gbps", "Location": "EqDC2", "MinimumLinks": 1,
+					"LagName": "cfn-lag", "ConnectionsBandwidth": "1Gbps", "Location": "EqDC2",
 				},
 			},
 			"Gateway": map[string]any{
@@ -39,7 +39,8 @@ func TestCloudFormationProvisionsDirectConnect(t *testing.T) {
 				"Type": "AWS::DirectConnect::TransitVirtualInterface",
 				"Properties": map[string]any{
 					"ConnectionId": map[string]any{"Ref": "Conn"}, "VirtualInterfaceName": "cfn-vif", "Vlan": 101,
-					"Asn": 65000, "DirectConnectGatewayId": map[string]any{"Ref": "Gateway"},
+					"DirectConnectGatewayId": map[string]any{"Ref": "Gateway"},
+					"BgpPeers":               []any{map[string]any{"AddressFamily": "ipv4", "Asn": "65000"}},
 				},
 			},
 		},

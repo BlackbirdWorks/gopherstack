@@ -1043,7 +1043,6 @@ func (h *ccFunction) Create(ctx context.Context, desired map[string]any) (string
 		in.Timeout = aws.Int32(n)
 	}
 
-	in.PackageType = lambdatypes.PackageTypeZip
 	if codeProp.ImageURI != "" {
 		in.PackageType = lambdatypes.PackageTypeImage
 	}

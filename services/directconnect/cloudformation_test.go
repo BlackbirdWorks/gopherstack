@@ -25,9 +25,19 @@ func TestCreateCFNResource(t *testing.T) {
 			props: map[string]any{"ConnectionName": "c", "Bandwidth": "1Gbps", "Location": "EqDC2"},
 		},
 		{
-			name: "lag_string_minimum_links", typ: directconnect.CFNLag, wantAttr: "LagArn",
+			name: "lag", typ: directconnect.CFNLag, wantAttr: "LagArn",
+			props: map[string]any{"LagName": "l", "ConnectionsBandwidth": "1Gbps", "Location": "EqDC2"},
+		},
+		{
+			name: "lag_minimum_links_on_create", typ: directconnect.CFNLag, wantErr: true,
 			props: map[string]any{
-				"LagName": "l", "ConnectionsBandwidth": "1Gbps", "Location": "EqDC2", "MinimumLinks": "1",
+				"LagName": "l", "ConnectionsBandwidth": "1Gbps", "Location": "EqDC2", "MinimumLinks": 1,
+			},
+		},
+		{
+			name: "lag_number_of_connections", typ: directconnect.CFNLag, wantErr: true,
+			props: map[string]any{
+				"LagName": "l", "ConnectionsBandwidth": "1Gbps", "Location": "EqDC2", "NumberOfConnections": 1,
 			},
 		},
 		{
@@ -41,6 +51,10 @@ func TestCreateCFNResource(t *testing.T) {
 		{
 			name: "missing_required", typ: directconnect.CFNConnection, wantErr: true,
 			props: map[string]any{"ConnectionName": "c"},
+		},
+		{
+			name: "vif_flat_asn", typ: directconnect.CFNTransitVirtualInterface, wantErr: true,
+			props: map[string]any{"ConnectionId": "dxcon-x", "VirtualInterfaceName": "v", "Vlan": 1, "Asn": 65000},
 		},
 		{name: "unknown_type", typ: "AWS::DirectConnect::Nope", wantErr: true, props: map[string]any{}},
 	}
@@ -64,6 +78,10 @@ func TestCreateCFNResource(t *testing.T) {
 
 			_, found := b.CFNResourceState(tt.typ, id)
 			assert.True(t, found)
+
+			if tt.typ == directconnect.CFNLag {
+				assert.Empty(t, b.DescribeConnections(""))
+			}
 		})
 	}
 }
