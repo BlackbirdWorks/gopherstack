@@ -163,30 +163,21 @@ func executeLakeQuery(stmt string, events []Event) ([][]map[string]string, query
 		stats.bytesScanned += int64(len(ev.CloudTrailEvent))
 	}
 
-	pq, parseErr := parseLakeQuery(stmt)
+	root, parseErr := parseLakeQuery(stmt)
 	if parseErr != "" {
 		return nil, stats, queryStatusFailed, parseErr
 	}
 
-	matched := make([]map[string]string, 0, len(events))
+	x := &queryExec{events: events}
 
-	for _, ev := range events {
-		row := eventToRow(ev)
-		if pq.where == nil || pq.where.eval(row) {
-			matched = append(matched, row)
-		}
-	}
-
-	stats.eventsMatched = int64(len(matched))
-
-	limit := effectiveQueryLimit(pq.limit)
-
-	rows, errMsg := projectRows(matched, pq, limit)
+	rel, errMsg := x.run(root, true)
 	if errMsg != "" {
 		return nil, stats, queryStatusFailed, errMsg
 	}
 
-	return rows, stats, "FINISHED", ""
+	stats.eventsMatched = x.matched
+
+	return rel.cells(), stats, "FINISHED", ""
 }
 
 func effectiveQueryLimit(limit int) int {
@@ -204,7 +195,9 @@ type resultRow struct {
 	cells []map[string]string
 }
 
-func projectRows(matched []map[string]string, pq parsedLakeQuery, limit int) ([][]map[string]string, string) {
+func projectRows(
+	matched []map[string]string, pq parsedLakeQuery, limit int, hide []string,
+) ([][]map[string]string, string) {
 	var all []resultRow
 
 	if pq.hasAgg {
@@ -217,7 +210,7 @@ func projectRows(matched []map[string]string, pq parsedLakeQuery, limit int) ([]
 	} else {
 		all = make([]resultRow, 0, len(matched))
 		for _, row := range matched {
-			all = append(all, resultRow{src: row, cells: projectRow(row, pq.items)})
+			all = append(all, resultRow{src: row, cells: projectRow(row, pq.items, hide)})
 		}
 	}
 
@@ -310,11 +303,13 @@ func compareOrderValues(a, b string) int {
 // projectRow renders row as the AWS QueryResultRows shape: a slice of
 // single-key {columnName: value} maps, one per selected item. items nil
 // means "*" -- every column present on the row, in a deterministic order.
-func projectRow(row map[string]string, items []selectItem) []map[string]string {
+func projectRow(row map[string]string, items []selectItem, hide []string) []map[string]string {
 	if items == nil {
 		names := make([]string, 0, len(row))
 		for k := range row {
-			names = append(names, k)
+			if !hasSourcePrefix(k, hide) {
+				names = append(names, k)
+			}
 		}
 
 		sortStrings(names)
@@ -529,4 +524,14 @@ func (st *aggState) passesHaving(pq parsedLakeQuery) bool {
 	default:
 		return c >= 0
 	}
+}
+
+func hasSourcePrefix(key string, prefixes []string) bool {
+	for _, p := range prefixes {
+		if p != "" && strings.HasPrefix(key, p+".") {
+			return true
+		}
+	}
+
+	return false
 }

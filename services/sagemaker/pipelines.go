@@ -55,19 +55,23 @@ type Pipeline struct {
 	LastModifiedTime         time.Time                 `json:"LastModifiedTime"`
 	Tags                     map[string]string         `json:"Tags,omitempty"`
 	ParallelismConfiguration *ParallelismConfiguration `json:"ParallelismConfiguration,omitempty"`
-	PipelineName             string                    `json:"PipelineName"`
-	PipelineArn              string                    `json:"PipelineArn"`
+	LastModifiedBy           *UserContext              `json:"LastModifiedBy,omitempty"`
+	CreatedBy                *UserContext              `json:"CreatedBy,omitempty"`
 	PipelineStatus           string                    `json:"PipelineStatus"`
 	PipelineDefinition       string                    `json:"PipelineDefinition,omitempty"`
 	PipelineDisplayName      string                    `json:"PipelineDisplayName,omitempty"`
 	PipelineDescription      string                    `json:"PipelineDescription,omitempty"`
 	RoleArn                  string                    `json:"RoleArn,omitempty"`
 	ClientRequestToken       string                    `json:"ClientRequestToken,omitempty"`
+	PipelineArn              string                    `json:"PipelineArn"`
+	PipelineName             string                    `json:"PipelineName"`
 }
 
 func clonePipeline(p *Pipeline) *Pipeline {
 	cp := *p
 	cp.Tags = maps.Clone(p.Tags)
+	cp.CreatedBy = cloneUserContext(p.CreatedBy)
+	cp.LastModifiedBy = cloneUserContext(p.LastModifiedBy)
 
 	return &cp
 }
@@ -146,6 +150,8 @@ func (b *InMemoryBackend) CreatePipeline(
 		RoleArn:            roleArn,
 		CreationTime:       now,
 		LastModifiedTime:   now,
+		CreatedBy:          optionalCallerUserContext(ctx),
+		LastModifiedBy:     optionalCallerUserContext(ctx),
 		Tags:               mergeTags(nil, tags),
 	}
 	b.pipelinesStore(region).Put(p)
@@ -311,6 +317,7 @@ func (b *InMemoryBackend) UpdatePipeline(ctx context.Context, name, definition s
 	}
 
 	p.LastModifiedTime = time.Now()
+	p.LastModifiedBy = optionalCallerUserContext(ctx)
 
 	return clonePipeline(p), nil
 }
@@ -514,6 +521,8 @@ func (b *InMemoryBackend) CreatePipelineFull(ctx context.Context, opts CreatePip
 		ClientRequestToken:       opts.ClientRequestToken,
 		CreationTime:             now,
 		LastModifiedTime:         now,
+		CreatedBy:                optionalCallerUserContext(ctx),
+		LastModifiedBy:           optionalCallerUserContext(ctx),
 		Tags:                     mergeTags(nil, opts.Tags),
 	}
 	b.pipelinesStore(region).Put(p)
@@ -554,6 +563,7 @@ func (b *InMemoryBackend) UpdatePipelineFull(
 		p.ParallelismConfiguration = parallelismConfig
 	}
 	p.LastModifiedTime = time.Now()
+	p.LastModifiedBy = optionalCallerUserContext(ctx)
 	b.recordPipelineVersionLocked(region, p)
 
 	return clonePipeline(p), nil

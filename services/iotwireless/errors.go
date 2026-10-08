@@ -24,6 +24,11 @@ var (
 	ErrValidation = errors.New("ValidationException: invalid request parameters")
 )
 
+// ErrNoPositionSolver is returned by GetPositionEstimate: no positioning solver exists to resolve measurements.
+var ErrNoPositionSolver = errors.New(
+	"ResourceNotFoundException: no positioning solver is available to resolve a position",
+)
+
 // Sentinel errors for new backend operations.
 var (
 	// ErrPartnerAccountNotFound is returned when a partner account does not exist.

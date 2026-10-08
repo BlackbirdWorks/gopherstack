@@ -117,6 +117,8 @@ func rollbackMetadataObject(targetExecutionID string) map[string]any {
 // variables) -- those exist only on the DIFFERENT PipelineExecutionSummary
 // shape used by ListPipelineExecutions, see pipelineExecutionSummary below.
 // An earlier revision of this function incorrectly added them here too.
+const keyStatusSummary = "statusSummary"
+
 func pipelineExecutionDetail(exec *PipelineExecution) map[string]any {
 	out := map[string]any{
 		"pipelineName":        exec.PipelineName,
@@ -134,6 +136,14 @@ func pipelineExecutionDetail(exec *PipelineExecution) map[string]any {
 
 	if len(exec.Variables) > 0 {
 		out["variables"] = exec.Variables
+	}
+
+	if len(exec.ArtifactRevisions) > 0 {
+		out["artifactRevisions"] = artifactRevisionsWire(exec.ArtifactRevisions)
+	}
+
+	if exec.StatusSummary != "" {
+		out[keyStatusSummary] = exec.StatusSummary
 	}
 
 	return out
@@ -174,6 +184,10 @@ func pipelineExecutionSummary(exec *PipelineExecution) map[string]any {
 
 	if len(exec.SourceRevisions) > 0 {
 		out["sourceRevisions"] = exec.SourceRevisions
+	}
+
+	if exec.StatusSummary != "" {
+		out[keyStatusSummary] = exec.StatusSummary
 	}
 
 	return out

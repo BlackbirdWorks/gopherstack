@@ -88,8 +88,11 @@ func TestTemplateVersionSelection(t *testing.T) {
 
 			rec = doPinpointRequest(t, h, http.MethodGet, path, nil)
 			got = decodeBody(t, rec.Body.Bytes())
-			assert.Equal(t, tt.wantSecond, tt.probe(got))
-			assert.Equal(t, "2", got["Version"])
+			assert.Equal(t, tt.wantFirst, tt.probe(got), "a new version does not displace the active one")
+			assert.Equal(t, "1", got["Version"])
+
+			rec = doPinpointRequest(t, h, http.MethodGet, path+"?version=2", nil)
+			assert.Equal(t, tt.wantSecond, tt.probe(decodeBody(t, rec.Body.Bytes())))
 
 			rec = doPinpointRequest(t, h, http.MethodGet, path+"?version=9", nil)
 			assert.Equal(t, http.StatusNotFound, rec.Code)
@@ -142,7 +145,7 @@ func TestTemplateVersionUpdateRules(t *testing.T) {
 			rec = doPinpointRequest(t, h, http.MethodPut, path+tt.query, map[string]any{"Body": "edited"})
 			assert.Equal(t, tt.wantStatus, rec.Code, rec.Body.String())
 
-			rec = doPinpointRequest(t, h, http.MethodGet, path, nil)
+			rec = doPinpointRequest(t, h, http.MethodGet, path+"?version=2", nil)
 			assert.Equal(t, tt.wantBody, decodeBody(t, rec.Body.Bytes())["Body"])
 		})
 	}

@@ -78,6 +78,12 @@ func (h *Handler) handleDescribeExperiment(ctx context.Context, body []byte) ([]
 	if e.Description != "" {
 		resp["Description"] = e.Description
 	}
+	if e.CreatedBy != nil {
+		resp["CreatedBy"] = e.CreatedBy
+	}
+	if e.LastModifiedBy != nil {
+		resp["LastModifiedBy"] = e.LastModifiedBy
+	}
 
 	return json.Marshal(resp)
 }

@@ -3,6 +3,7 @@ package codepipeline
 import (
 	"context"
 	"fmt"
+	"maps"
 )
 
 // validTransitionType returns true if t is a valid AWS StageTransitionType value.
@@ -62,6 +63,8 @@ func (h *Handler) handleGetPipelineState(
 				"disabledReason": s.InboundTransitionState.Reason,
 			}
 		}
+
+		maps.Copy(item, s.Conditions)
 
 		items[i] = item
 	}
@@ -184,7 +187,10 @@ func (h *Handler) handleOverrideStageCondition(
 		)
 	}
 
-	if err := h.Backend.OverrideStageCondition(ctx, in.PipelineName, in.StageName, in.PipelineExecutionID); err != nil {
+	err := h.Backend.OverrideStageCondition(
+		ctx, in.PipelineName, in.StageName, in.PipelineExecutionID, in.ConditionType,
+	)
+	if err != nil {
 		return nil, err
 	}
 

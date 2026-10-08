@@ -30,14 +30,16 @@ var (
 type TrialComponent struct {
 	CreationTime       time.Time                         `json:"CreationTime"`
 	LastModifiedTime   time.Time                         `json:"LastModifiedTime"`
-	StartTime          *time.Time                        `json:"StartTime,omitempty"`
+	Parameters         map[string]TrialComponentValue    `json:"Parameters,omitempty"`
 	EndTime            *time.Time                        `json:"EndTime,omitempty"`
 	Status             *TrialComponentStatus             `json:"Status,omitempty"`
 	Tags               map[string]string                 `json:"Tags,omitempty"`
-	Parameters         map[string]TrialComponentValue    `json:"Parameters,omitempty"`
+	StartTime          *time.Time                        `json:"StartTime,omitempty"`
 	InputArtifacts     map[string]TrialComponentArtifact `json:"InputArtifacts,omitempty"`
 	OutputArtifacts    map[string]TrialComponentArtifact `json:"OutputArtifacts,omitempty"`
 	MetadataProperties *MetadataProperties               `json:"MetadataProperties,omitempty"`
+	CreatedBy          *UserContext                      `json:"CreatedBy,omitempty"`
+	LastModifiedBy     *UserContext                      `json:"LastModifiedBy,omitempty"`
 	TrialComponentName string                            `json:"TrialComponentName"`
 	TrialComponentArn  string                            `json:"TrialComponentArn"`
 	DisplayName        string                            `json:"DisplayName,omitempty"`
@@ -67,6 +69,8 @@ type TrialComponentArtifact struct {
 func cloneTrialComponent(tc *TrialComponent) *TrialComponent {
 	cp := *tc
 	cp.Tags = maps.Clone(tc.Tags)
+	cp.CreatedBy = cloneUserContext(tc.CreatedBy)
+	cp.LastModifiedBy = cloneUserContext(tc.LastModifiedBy)
 	cp.Parameters = maps.Clone(tc.Parameters)
 	cp.InputArtifacts = maps.Clone(tc.InputArtifacts)
 	cp.OutputArtifacts = maps.Clone(tc.OutputArtifacts)
@@ -144,6 +148,8 @@ func (b *InMemoryBackend) CreateTrialComponent(
 		MetadataProperties: opts.MetadataProperties,
 		CreationTime:       now,
 		LastModifiedTime:   now,
+		CreatedBy:          optionalCallerUserContext(ctx),
+		LastModifiedBy:     optionalCallerUserContext(ctx),
 		Tags:               mergeTags(nil, opts.Tags),
 	}
 	b.trialComponentsStore(region).Put(tc)
@@ -283,6 +289,7 @@ func (b *InMemoryBackend) UpdateTrialComponent(
 		delete(tc.OutputArtifacts, k)
 	}
 	tc.LastModifiedTime = time.Now()
+	tc.LastModifiedBy = optionalCallerUserContext(ctx)
 
 	return cloneTrialComponent(tc), nil
 }

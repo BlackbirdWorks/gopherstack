@@ -2,6 +2,8 @@ package codepipeline
 
 import (
 	"context"
+	"fmt"
+	"maps"
 	"time"
 
 	"github.com/google/uuid"
@@ -60,66 +62,90 @@ func (b *InMemoryBackend) runPipelineActions(region string, p *Pipeline, exec *P
 	byKey := indexActionExecutions(actionExecs[p.Declaration.Name], exec.PipelineExecutionID)
 
 	for i, stage := range p.Declaration.Stages {
-		if !stageStarted(byKey, stage) &&
-			b.stageTransitionDisabled(region, p.Declaration.Name, stage.Name, transitionTypeInbound) {
-			exec.Status = statusInProgress
-
-			return
-		}
-
-		for _, action := range stage.Actions {
-			resolved, done := resolvedActionStatus(byKey, stage.Name, action.Name)
-			if done {
-				switch resolved {
-				case statusSucceeded:
-					// Already recorded, move on to the next action.
-					continue
-				case statusInProgress:
-					exec.Status = statusInProgress
-				default:
-					// statusFailed (rejected approval) or
-					// statusActionAbandoned (stopped while pending): the
-					// stage is broken and processing does not continue
-					// past it without an explicit RetryStageExecution.
-					exec.Status = statusFailed
-				}
-
-				return
-			}
-
-			ae := b.runOneAction(region, p.Declaration.Name, exec.PipelineExecutionID, stage.Name, action)
-
-			switch ae.Status {
-			case statusSucceeded:
-				// Move on to the next action.
-			case statusInProgress:
-				exec.Status = statusInProgress
-
-				return
-			default:
-				// statusFailed: a wired CodeBuild/Lambda/CodeDeploy action reported
-				// failure. The stage is broken and processing does not
-				// continue past it, matching real AWS's stage-scoped
-				// failure semantics (see the doc comment above).
-				exec.Status = statusFailed
-
-				return
-			}
-		}
-
-		// Only a non-final stage's outbound transition can meaningfully
-		// gate anything -- there is no "next stage" for the last one to
-		// block artifacts from reaching, so a disabled outbound transition
-		// there has nothing left to prevent.
-		if i < len(p.Declaration.Stages)-1 &&
-			b.stageTransitionDisabled(region, p.Declaration.Name, stage.Name, transitionTypeOutbound) {
-			exec.Status = statusInProgress
-
+		if !b.runStage(region, p, exec, byKey, stage, i == len(p.Declaration.Stages)-1) {
 			return
 		}
 	}
 
 	exec.Status = statusSucceeded
+	exec.StatusSummary = ""
+}
+
+// runStage drives one stage and reports whether the execution may proceed to the next one. When it
+// returns false, exec.Status already holds InProgress (gated) or Failed.
+func (b *InMemoryBackend) runStage(
+	region string, p *Pipeline, exec *PipelineExecution, byKey map[string]*ActionExecution, stage Stage, last bool,
+) bool {
+	if !stageStarted(byKey, stage) {
+		if b.stageTransitionDisabled(region, p.Declaration.Name, stage.Name, transitionTypeInbound) {
+			exec.Status = statusInProgress
+
+			return false
+		}
+
+		skip, halt := b.enterStage(region, p, exec, stage)
+		if halt {
+			return false
+		}
+
+		if skip {
+			return true
+		}
+	}
+
+	if !b.runStageActions(region, p, exec, byKey, stage) {
+		return false
+	}
+
+	if b.succeedStage(region, p, exec, stage) {
+		return false
+	}
+
+	// The last stage has no next stage for a disabled outbound transition to block.
+	if !last && b.stageTransitionDisabled(region, p.Declaration.Name, stage.Name, transitionTypeOutbound) {
+		exec.Status = statusInProgress
+
+		return false
+	}
+
+	return true
+}
+
+// runStageActions runs the stage's actions in order, applying failure handling when one fails. It reports
+// whether every action succeeded.
+func (b *InMemoryBackend) runStageActions(
+	region string, p *Pipeline, exec *PipelineExecution, byKey map[string]*ActionExecution, stage Stage,
+) bool {
+	for _, action := range stage.Actions {
+		status, done := resolvedActionStatus(byKey, stage.Name, action.Name)
+		if !done {
+			status = b.runOneAction(region, p.Declaration.Name, exec.PipelineExecutionID, stage.Name, action).Status
+		}
+
+		switch status {
+		case statusSucceeded:
+			continue
+		case statusInProgress:
+			exec.Status = statusInProgress
+
+			return false
+		}
+
+		if status == statusFailed && b.failStage(region, p, exec, stage) {
+			clear(byKey)
+			maps.Copy(byKey, indexActionExecutions(
+				b.actionExecutionsStore(region)[p.Declaration.Name], exec.PipelineExecutionID,
+			))
+
+			return b.runStageActions(region, p, exec, byKey, stage)
+		}
+
+		failExecution(exec, fmt.Sprintf("Action %s in stage %s failed", action.Name, stage.Name))
+
+		return false
+	}
+
+	return true
 }
 
 // stageStarted reports whether any action in stage already has a recorded

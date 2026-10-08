@@ -35,6 +35,15 @@ func callerUserContext(ctx context.Context) *UserContext {
 	}}
 }
 
+// optionalCallerUserContext is callerUserContext for members that are omitted, not {}, when the caller is unresolved.
+func optionalCallerUserContext(ctx context.Context) *UserContext {
+	if p := awsmeta.GetPrincipal(ctx); p == nil || p.Arn == "" {
+		return nil
+	}
+
+	return callerUserContext(ctx)
+}
+
 func cloneUserContext(u *UserContext) *UserContext {
 	if u == nil {
 		return nil

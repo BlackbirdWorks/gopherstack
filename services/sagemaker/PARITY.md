@@ -306,7 +306,6 @@ gaps: []
 items_still_open:
   - "parity-4: DescribeJobSchemaVersion/ListJobSchemaVersions serve one synthetic JobConfigSchemaVersion (\"1.0\") with a generic per-JobCategory schema — AWS does not publish real per-category schema content anywhere in the SDK, so there is no ground truth to model against; internally consistent with CreateJob's own validation. (no bd issue filed yet)"
   - "parity-25: presigned_session's CreatePresignedDomainUrlInput.ExpiresInSeconds/LandingUri/SessionExpirationDurationInSeconds are decoded but disclosed no-ops — CreatePresignedDomainUrlOutput has no field to reflect them into and this backend's synthetic authorized-URL token has no verified real query-parameter format to encode them, same stance as PartnerApps' identical fields. (no bd issue filed yet)"
-  - "UserContext CreatedBy/LastModifiedBy on Experiment/Trial/TrialComponent/Association/Pipeline: AWS populates them from Studio user profiles only (types.UserContext documents IamIdentity for model package groups/packages/projects only), which this backend has no Studio-session model for; unverifiable what an IAM-only caller sees, so left absent."
 structural_gaps:
   - "List summaries (AutoMLJobSummary.FailureReason/PartialFailureReasons, ClusterSummary.TrainingPlanArns/ImageVersionStatus, ClusterNodeSummary.ImageVersionStatus/NodeLogicalId/PrivateDnsHostname/UltraServerInfo, DeviceSummary.AgentVersion/LatestHeartbeat/Models, FlowDefinitionSummary.FailureReason, LineageGroupSummary.DisplayName, HyperParameterTrainingJobSummary final-metric/objective-status, TrainingJobSummary.WarmPoolStatus, ProcessingJobSummary.ExitMessage): no failure FSM, warm pool, device heartbeat, EC2 networking or training process exists to source them."
   - "DescribeApp/DescribeDomain server-derived fields (App EffectiveTrustedIdentityPropagationStatus/FailureReason/LastHealthCheckTimestamp/LastUserActivityTimestamp, Domain FailureReason/HomeEfsFileSystemId/SingleSignOn*): no app runtime, EFS or IAM Identity Center to derive them."
@@ -325,6 +324,8 @@ leaks: {status: clean, note: "Re-verified this pass: grepped every 'go func()'/r
 ---
 
 ## Notes
+
+**2026-10-07 (UserContext):** `CreatedBy`/`LastModifiedBy` (IamIdentity from the request principal; omitted when unresolved) on Experiment, Trial, TrialComponent, Pipeline and `AssociationSummary.CreatedBy`. The SDK documents IamIdentity for model package groups/packages/projects only, so real Studio-less callers may see `{}`; this follows the repo-wide caller-identity convention. Tests: `user_context_resources_test.go`.
 
 **2026-10-07 (items_still_open burn-down):** fixed 5. List pagination now uses `pkgs/page` opaque tokens
 (`list_helpers.go`). `CreatedBy`/`LastModifiedBy` (IamIdentity from the request principal) on model package

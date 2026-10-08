@@ -83,6 +83,7 @@ const (
 	// specially (as a gate on StartPipelineExecution/PutApprovalResult),
 	// matching real AWS's built-in Approval/AWS/Manual/1 action type.
 	actionCategoryApproval = "Approval"
+	actionCategorySource   = "Source"
 
 	// actionOwnerAWS is the ActionTypeID.Owner value for AWS-managed built-in
 	// action types, as opposed to "ThirdParty" or "Custom".
@@ -162,6 +163,7 @@ type InMemoryBackend struct {
 	executions                 map[string]map[string][]*PipelineExecution  // region → pipelineName → executions
 	actionExecutions           map[string]map[string][]*ActionExecution    // region → pipelineName → action executions
 	actionRevisions            map[string]map[string]*ActionRevisionRecord // region → "pipeline/stage/action" → revision
+	conditionRuns              map[string]map[string][]*ConditionRun       // region → pipelineName → stage condition runs
 	startTokens                map[string]string                           // region|pipeline|token → execution ID
 	// codeBuildBackend, lambdaBackend, and codeDeployBackend back a
 	// Build/CodeBuild, an Invoke/Lambda, and a Deploy/CodeDeploy action
@@ -185,6 +187,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		executions:       make(map[string]map[string][]*PipelineExecution),
 		actionExecutions: make(map[string]map[string][]*ActionExecution),
 		actionRevisions:  make(map[string]map[string]*ActionRevisionRecord),
+		conditionRuns:    make(map[string]map[string][]*ConditionRun),
 		startTokens:      make(map[string]string),
 		accountID:        accountID,
 		region:           region,
@@ -317,6 +320,7 @@ func (b *InMemoryBackend) Reset() {
 	b.executions = make(map[string]map[string][]*PipelineExecution)
 	b.actionExecutions = make(map[string]map[string][]*ActionExecution)
 	b.actionRevisions = make(map[string]map[string]*ActionRevisionRecord)
+	b.conditionRuns = make(map[string]map[string][]*ConditionRun)
 	b.startTokens = make(map[string]string)
 	b.startTokenOrder = nil
 }

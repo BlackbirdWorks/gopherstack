@@ -854,10 +854,8 @@ func TestHandler_RollbackStage(t *testing.T) {
 	})
 }
 
-// TestHandler_OverrideStageCondition covers the validated-but-not-mutating
-// path documented in pipeline_state.go's OverrideStageCondition: this
-// backend has no condition-rule engine, so success just means the pipeline,
-// stage, and execution referenced by the request were all confirmed real.
+// TestHandler_OverrideStageCondition covers request validation; a stage with no failed
+// condition is ConditionNotOverridableException (engine behavior: stage_conditions_test.go).
 func TestHandler_OverrideStageCondition(t *testing.T) {
 	t.Parallel()
 
@@ -875,23 +873,22 @@ func TestHandler_OverrideStageCondition(t *testing.T) {
 		httpStatus int
 	}{
 		{
-			name: "success",
+			name: "no failed condition",
 			input: map[string]any{
 				"pipelineName": "override-pipeline", "stageName": "Source",
 				"pipelineExecutionId": execID, "conditionType": "BEFORE_ENTRY",
 			},
-			httpStatus: http.StatusOK,
+			httpStatus: http.StatusBadRequest,
+			wantType:   "ConditionNotOverridableException",
 		},
 		{
-			// ConditionType's real SDK enum (types.ConditionType) has exactly
-			// two values, BEFORE_ENTRY and ON_SUCCESS -- ON_SUCCESS must be
-			// accepted too, not just BEFORE_ENTRY.
-			name: "success with ON_SUCCESS conditionType",
+			name: "ON_SUCCESS accepted as conditionType",
 			input: map[string]any{
 				"pipelineName": "override-pipeline", "stageName": "Source",
 				"pipelineExecutionId": execID, "conditionType": "ON_SUCCESS",
 			},
-			httpStatus: http.StatusOK,
+			httpStatus: http.StatusBadRequest,
+			wantType:   "ConditionNotOverridableException",
 		},
 		{
 			name: "unknown execution",

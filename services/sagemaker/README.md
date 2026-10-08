@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 69 (69 ok) |
 | Feature families | 34 (10 ok, 24 partial) |
-| Known gaps | 3 |
+| Known gaps | 2 |
 | Structural gaps (can't be emulated) | 10 |
 | Deferred items | 0 |
 | Resource leaks | clean |
@@ -18,7 +18,6 @@
 
 - parity-4: DescribeJobSchemaVersion/ListJobSchemaVersions serve one synthetic JobConfigSchemaVersion ("1.0") with a generic per-JobCategory schema — AWS does not publish real per-category schema content anywhere in the SDK, so there is no ground truth to model against; internally consistent with CreateJob's own validation. (no bd issue filed yet)
 - parity-25: presigned_session's CreatePresignedDomainUrlInput.ExpiresInSeconds/LandingUri/SessionExpirationDurationInSeconds are decoded but disclosed no-ops — CreatePresignedDomainUrlOutput has no field to reflect them into and this backend's synthetic authorized-URL token has no verified real query-parameter format to encode them, same stance as PartnerApps' identical fields. (no bd issue filed yet)
-- UserContext CreatedBy/LastModifiedBy on Experiment/Trial/TrialComponent/Association/Pipeline: AWS populates them from Studio user profiles only (types.UserContext documents IamIdentity for model package groups/packages/projects only), which this backend has no Studio-session model for; unverifiable what an IAM-only caller sees, so left absent.
 
 ### Structural gaps
 

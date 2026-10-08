@@ -233,13 +233,18 @@ func (b *InMemoryBackend) DeleteTemplate(templateName, templateType, version str
 		return b.deleteWholeTemplateLocked(templateName, templateType)
 	}
 
+	repin := false
 	if pinned, ok := b.templateActiveVersion[key]; ok && pinned == version {
-		delete(b.templateActiveVersion, key)
+		repin = true
 	}
 
 	latest := latestVersionOf(history)
 	if version != latest {
 		b.removeVersionEntryLocked(key, version)
+
+		if repin {
+			b.templateActiveVersion[key] = latest
+		}
 
 		return nil
 	}
@@ -248,6 +253,10 @@ func (b *InMemoryBackend) DeleteTemplate(templateName, templateType, version str
 	raw := b.templateVersionData[key][previous]
 	b.removeVersionEntryLocked(key, latest)
 	delete(b.templateVersionData[key], previous)
+
+	if repin {
+		b.templateActiveVersion[key] = previous
+	}
 
 	return b.restoreLatestLocked(templateName, templateType, raw)
 }
@@ -469,7 +478,7 @@ func (b *InMemoryBackend) UpdateTemplateActiveVersion(templateName, templateType
 	}
 
 	if version == "" || version == latestTemplateVersion {
-		delete(b.templateActiveVersion, key)
+		b.templateActiveVersion[key] = latestVersionOf(history)
 
 		return nil
 	}

@@ -19,7 +19,7 @@
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
 - StartBulkAssociate/DisassociateWirelessDevice QueryString (fleet-indexing search, syntax unspecified in the SDK) and Tags (no resource to attach to): bulk ops act on every device.
-- GetPositionEstimate inputs (no positioning solver); ListDevicesForWirelessDeviceImportTask list and Status filter (no import engine creates devices); StartSingleWirelessDeviceImportTask Sidewalk.SidewalkManufacturingSn has no read member in the SDK.
+- GetPositionEstimate: positions come from third-party solvers (HERE, MaxMind, LoRa Cloud) and the inputs carry no coordinates, so a validated request returns ResourceNotFoundException instead of a fabricated point; ListDevicesForWirelessDeviceImportTask list and Status filter (no import engine creates devices); StartSingleWirelessDeviceImportTask Sidewalk.SidewalkManufacturingSn has no read member in the SDK.
 
 ## More
 

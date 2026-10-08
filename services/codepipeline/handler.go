@@ -317,6 +317,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		{ErrStageNotRetryable, "StageNotRetryableException"},
 		{ErrUnableToRollbackStage, "UnableToRollbackStageException"},
 		{ErrActionExecutionNotFound, "ActionExecutionNotFoundException"},
+		{ErrConditionNotOverridable, "ConditionNotOverridableException"},
 		{ErrInvalidClientToken, "InvalidClientTokenException"},
 		{ErrInvalidJobState, "InvalidJobStateException"},
 		// errUnknownAction fires when the routed Action string matches no

@@ -23,6 +23,10 @@ func (b *InMemoryBackend) CreatePipeline(
 
 	region := getRegion(ctx, b.region)
 
+	if err := validateStageConditions(decl.Stages); err != nil {
+		return nil, err
+	}
+
 	if b.pipelines.Has(regionKey(region, decl.Name)) {
 		return nil, fmt.Errorf("%w: pipeline %q already exists", ErrPipelineNameInUse, decl.Name)
 	}
@@ -102,6 +106,10 @@ func (b *InMemoryBackend) UpdatePipeline(ctx context.Context, decl PipelineDecla
 		return nil, fmt.Errorf("%w: pipeline %q", ErrNotFound, decl.Name)
 	}
 
+	if err := validateStageConditions(decl.Stages); err != nil {
+		return nil, err
+	}
+
 	currentVersion := p.Declaration.Version
 	p.Declaration = decl
 	p.Declaration.Version = currentVersion + 1
@@ -136,6 +144,7 @@ func (b *InMemoryBackend) DeletePipeline(ctx context.Context, name string) error
 	b.pipelines.Delete(key)
 	delete(b.executionsStore(region), name)
 	delete(b.actionExecutionsStore(region), name)
+	delete(b.conditionRunsStore(region), name)
 	b.deleteJobsForPipelineLocked(region, name)
 
 	// Cascade: remove disabled stage transitions for this pipeline.
@@ -272,27 +281,74 @@ func copyStages(stages []Stage) []Stage {
 			Name:        s.Name,
 			Type:        s.Type,
 			Actions:     copyActions(s.Actions),
-			BeforeEntry: copyCondition(s.BeforeEntry),
-			OnFailure:   copyCondition(s.OnFailure),
-			OnSuccess:   copyCondition(s.OnSuccess),
+			BeforeEntry: copyBeforeEntry(s.BeforeEntry),
+			OnFailure:   copyFailure(s.OnFailure),
+			OnSuccess:   copySuccess(s.OnSuccess),
 		}
 	}
 
 	return out
 }
 
-func copyCondition(c *Condition) *Condition {
+func copyConditions(in []Condition) []Condition {
+	if in == nil {
+		return nil
+	}
+
+	out := make([]Condition, len(in))
+
+	for i, c := range in {
+		out[i] = Condition{Result: c.Result, Rules: copyRules(c.Rules)}
+	}
+
+	return out
+}
+
+func copyRules(in []Rule) []Rule {
+	if in == nil {
+		return nil
+	}
+
+	out := make([]Rule, len(in))
+
+	for i, r := range in {
+		r.Configuration = copyStringMap(r.Configuration)
+		r.InputArtifacts = copyArtifactRefs(r.InputArtifacts)
+		r.Commands = slices.Clone(r.Commands)
+		out[i] = r
+	}
+
+	return out
+}
+
+func copyBeforeEntry(c *BeforeEntryConditions) *BeforeEntryConditions {
 	if c == nil {
 		return nil
 	}
 
-	cp := *c
-	if c.Rules != nil {
-		cp.Rules = make([]Rule, len(c.Rules))
-		copy(cp.Rules, c.Rules)
+	return &BeforeEntryConditions{Conditions: copyConditions(c.Conditions)}
+}
+
+func copySuccess(c *SuccessConditions) *SuccessConditions {
+	if c == nil {
+		return nil
 	}
 
-	return &cp
+	return &SuccessConditions{Conditions: copyConditions(c.Conditions)}
+}
+
+func copyFailure(c *FailureConditions) *FailureConditions {
+	if c == nil {
+		return nil
+	}
+
+	cp := &FailureConditions{Result: c.Result, Conditions: copyConditions(c.Conditions)}
+	if c.RetryConfiguration != nil {
+		rc := *c.RetryConfiguration
+		cp.RetryConfiguration = &rc
+	}
+
+	return cp
 }
 
 func copyActions(actions []Action) []Action {
@@ -387,6 +443,7 @@ func (b *InMemoryBackend) StartPipelineExecutionWith(
 		Variables:           resolveVariables(p.Declaration.Variables, opts.Variables),
 		SourceRevisions:     declaredSourceRevisions(p.Declaration.Stages, opts.SourceRevisions),
 	}
+	exec.ArtifactRevisions = sourceArtifactRevisions(p.Declaration.Stages, exec.SourceRevisions, nil, now)
 
 	execs := b.executionsStore(region)
 	execs[pipelineName] = append(execs[pipelineName], exec)

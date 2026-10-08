@@ -7,17 +7,16 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 22 (16 ok, 5 partial, 1 gap) |
-| Feature families | 6 (5 ok, 1 partial) |
-| Known gaps | 4 |
-| Structural gaps (can't be emulated) | 5 |
+| PARITY entries audited | 22 (17 ok, 4 partial, 1 gap) |
+| Feature families | 6 (6 ok) |
+| Known gaps | 3 |
+| Structural gaps (can't be emulated) | 6 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
 ### Known gaps
 
 - gopherstack-wlab (2026-09-08, reconfirmed 2026-09-18): CreateCustomActionType/DeleteCustomActionType/DeletePipeline/UpdatePipeline/OverrideStageCondition/RetryStageExecution/StopPipelineExecution each emit a wire error code (InvalidStructureException/ActionTypeNotFoundException/PipelineNotFoundException x2/PipelineExecutionNotFoundException x3) absent from that op's own declared set per botocore codepipeline/2015-07-09/service-2.json; every declared candidate's doc text was checked and none fits, and a real client's errors.As still resolves each to its own concrete type (undeclared_error_codes_test.go). The real code is not determinable from the SDK.
-- OverrideStageCondition mutates no state and ListRuleExecutions returns empty (no condition-rule engine); PipelineExecution.ArtifactRevisions/StatusSummary are omitted.
 - No AWS-documented derivation or evidence: ListRuleTypes omits RuleType.InputArtifactDetails (no documented per-provider min/max counts).
 - handleError's InvalidActionException (unknown-action routing fallback) names no type codepipeline@v1.49.4 declares; see the 2026-08-29 errcodeaudit note.
 
@@ -25,6 +24,7 @@
 
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
+- Rule providers other than VariableCheck and LambdaInvoke (DeploymentWindow, CloudWatchAlarm, Commands) always Succeed: no wall-clock window, alarm backend or compute to consult.
 - ListActionTypes lists only custom action types; the AWS-owned and third-party built-in catalog (artifact details, settings) is AWS-owned reference data with no SDK source, so ActionOwnerFilter=AWS returns nothing.
 - JobData/ThirdPartyJobData omit ArtifactCredentials, InputArtifacts, OutputArtifacts and EncryptionKey: no artifact store or STS exists to issue them.
 - ListDeployActionExecutionTargets returns empty: no real deploy targets exist behind Deploy actions.

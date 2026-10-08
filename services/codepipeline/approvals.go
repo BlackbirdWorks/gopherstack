@@ -63,7 +63,11 @@ func (b *InMemoryBackend) PutActionRevision(
 		Trigger:             triggerTypePutActionRevision,
 		StartTime:           now,
 		LastUpdateTime:      now,
+		SourceRevisions:     []SourceRevision{{ActionName: actionName, RevisionID: revisionID}},
 	}
+	exec.ArtifactRevisions = sourceArtifactRevisions(
+		p.Declaration.Stages, exec.SourceRevisions, map[string]string{actionName: revisionChangeID}, now,
+	)
 
 	execs := b.executionsStore(region)
 	execs[pipelineName] = append(execs[pipelineName], exec)

@@ -69,9 +69,7 @@ type describeTrialComponentInput struct {
 }
 
 // Disclosed, not modeled, on DescribeTrialComponentOutput
-// (api_op_DescribeTrialComponent.go:36-83): CreatedBy/LastModifiedBy
-// (types.UserContext) — this service models no caller-identity concept
-// anywhere, the same gap disclosed repeatedly in prior passes; Metrics
+// (api_op_DescribeTrialComponent.go:36-83): Metrics
 // ([]types.TrialComponentMetricSummary) — populated only by the separate
 // sagemaker-metrics service's BatchPutMetrics, not implemented here; Source/
 // Sources (types.TrialComponentSource) — CreateTrialComponentInput has no
@@ -123,6 +121,12 @@ func (h *Handler) handleDescribeTrialComponent(ctx context.Context, body []byte)
 	}
 	if tc.MetadataProperties != nil {
 		resp["MetadataProperties"] = tc.MetadataProperties
+	}
+	if tc.CreatedBy != nil {
+		resp["CreatedBy"] = tc.CreatedBy
+	}
+	if tc.LastModifiedBy != nil {
+		resp["LastModifiedBy"] = tc.LastModifiedBy
 	}
 
 	return json.Marshal(resp)

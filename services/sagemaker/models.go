@@ -239,6 +239,7 @@ func cloneEndpointConfig(ec *EndpointConfig) *EndpointConfig {
 type Association struct {
 	CreationTime    time.Time         `json:"CreationTime"`
 	Tags            map[string]string `json:"Tags,omitempty"`
+	CreatedBy       *UserContext      `json:"CreatedBy,omitempty"`
 	SourceArn       string            `json:"SourceArn"`
 	DestinationArn  string            `json:"DestinationArn"`
 	AssociationType string            `json:"AssociationType,omitempty"`
@@ -340,6 +341,7 @@ func cloneAlgorithm(al *Algorithm) *Algorithm {
 func cloneAssociation(a *Association) *Association {
 	cp := *a
 	cp.Tags = maps.Clone(a.Tags)
+	cp.CreatedBy = cloneUserContext(a.CreatedBy)
 
 	return &cp
 }

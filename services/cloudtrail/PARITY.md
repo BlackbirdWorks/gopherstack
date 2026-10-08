@@ -74,7 +74,7 @@ ops:
   ListInsightsMetricData: {wire: fixed, errors: ok, state: partial, persist: n/a, note: "gopherstack-6flj: this pass's prior 'wire: ok' claim was WRONG -- the real ListInsightsMetricDataOutput is a flat time series (ErrorCode/EventName/EventSource/InsightType/NextToken/Timestamps/TrailARN/Values), not a '{Values: [...]}' wrapped list of records (confirmed against cloudtrail@v1.58.4's awsAwsjson11_deserializeOpDocumentListInsightsMetricDataOutput). Fixed: now echoes EventName/EventSource/InsightType (all required, validated) plus optional ErrorCode/TrailARN (TrailName resolved to TrailARN via the existing trail lookup), and returns Timestamps/Values as the real flat arrays. 2026-10-04: the series is now computed from recorded management events (see Notes) -- no longer always empty."}
 gaps: []
 items_still_open:
-  - "gopherstack-53eh: Lake SQL subset omits cross-store JOIN/set-ops and subqueries (such statements reach FAILED with an ErrorMessage); unaliased aggregates are named _col<N> by position, inferred from Trino, not AWS-documented."
+  - "gopherstack-53eh: unaliased aggregates are named _col<N> by position, inferred from Trino; AWS documents no naming convention, so it is unverifiable."
   - "gopherstack-53eh: wrapCloudTrailCapture's error-body extraction lacks query-protocol XML and CBOR shapes; it lives in pkgs/service, outside this directory."
   - "GetEventDataStore PartitionKeys content is AWS-computed and undocumented in the SDK; StartQuery QueryParameters ($StartTime$/$EndTime$/$Period$) are recorded on the Query but their substitution semantics are undocumented."
 structural_gaps:
@@ -96,6 +96,15 @@ system-wide) at 59% of heap allocs (`gzip.NewWriter` per event) and holding
 work out of `RecordEvent`'s critical section (still one coarse `b.mu`, just a
 shorter hold); same one-file-per-event delivery, same tests. See
 `BenchmarkLogFileBody`/`BenchmarkRecordManagementEvent_Concurrent`.
+
+### 2026-10-07: Lake SQL joins, set operations, subqueries
+
+INNER/LEFT/RIGHT JOIN ... ON col = col [AND ...] (alias-qualified columns, derived-table sources), UNION [ALL],
+INTERSECT, EXCEPT (INTERSECT binds tighter; trailing ORDER BY/LIMIT apply to the combined result; column-count
+mismatch FAILs), and uncorrelated subqueries (derived tables, IN, scalar =, EXISTS) execute in query_setops.go.
+Every event data store reads the shared recorded-events log, so a cross-store join sees the same events on both
+sides. FULL/CROSS JOIN, INTERSECT/EXCEPT ALL, non-equality ON and correlated subqueries still reach FAILED with an
+ErrorMessage. Tests: `TestQueryGrammar_JoinsSetOpsAndSubqueries`, `TestQueryGrammar_UnsupportedReachesFailed`.
 
 ### 2026-10-01: items_still_open re-audit
 

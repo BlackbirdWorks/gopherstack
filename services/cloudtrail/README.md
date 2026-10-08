@@ -15,7 +15,7 @@
 
 ### Known gaps
 
-- gopherstack-53eh: Lake SQL subset omits cross-store JOIN/set-ops and subqueries (such statements reach FAILED with an ErrorMessage); unaliased aggregates are named _col<N> by position, inferred from Trino, not AWS-documented.
+- gopherstack-53eh: unaliased aggregates are named _col<N> by position, inferred from Trino; AWS documents no naming convention, so it is unverifiable.
 - gopherstack-53eh: wrapCloudTrailCapture's error-body extraction lacks query-protocol XML and CBOR shapes; it lives in pkgs/service, outside this directory.
 - GetEventDataStore PartitionKeys content is AWS-computed and undocumented in the SDK; StartQuery QueryParameters ($StartTime$/$EndTime$/$Period$) are recorded on the Query but their substitution semantics are undocumented.
 

@@ -94,6 +94,8 @@ leaks: {status: clean, note: "StartJobRun's delayed STARTING->SUCCEEDED transiti
 
 ## Notes
 
+**2026-10-07:** CreateRecipe now enforces the SDK-required `Steps` member (absent/null is ValidationException; an empty list is accepted, as `validateOpCreateRecipeInput` only rejects nil). Test: `TestHandlerCreateRecipe_StepsRequired`.
+
 **2026-10-01 (items_still_open burn-down):** ProfileConfiguration,
 ValidationConfigurations, Rule.Threshold and Rule.ColumnSelectors are typed
 and validated (required members, ThresholdType/ThresholdUnit/ValidationMode

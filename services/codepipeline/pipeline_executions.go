@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"time"
 )
 
 // GetPipelineExecution returns the stored execution by pipeline name and execution ID.
@@ -211,6 +212,55 @@ func actionExecutionOutput(ae *ActionExecution) map[string]any {
 
 	if len(out) == 0 {
 		return nil
+	}
+
+	return out
+}
+
+// sourceArtifactRevisions maps pinned source revisions onto the output artifacts of the pipeline's
+// Source-category actions. changeIDs optionally carries each action's revisionChangeIdentifier.
+func sourceArtifactRevisions(
+	stages []Stage, revisions []SourceRevision, changeIDs map[string]string, created time.Time,
+) []ArtifactRevision {
+	var out []ArtifactRevision
+
+	for _, rev := range revisions {
+		for _, st := range stages {
+			for _, a := range st.Actions {
+				if a.Name != rev.ActionName || a.ActionTypeID.Category != actionCategorySource {
+					continue
+				}
+
+				for _, art := range a.OutputArtifacts {
+					out = append(out, ArtifactRevision{
+						Name:                     art.Name,
+						RevisionID:               rev.RevisionID,
+						RevisionChangeIdentifier: changeIDs[a.Name],
+						Created:                  created,
+					})
+				}
+			}
+		}
+	}
+
+	return out
+}
+
+func artifactRevisionsWire(revs []ArtifactRevision) []map[string]any {
+	out := make([]map[string]any, len(revs))
+
+	for i, r := range revs {
+		item := map[string]any{
+			keyName:      r.Name,
+			"revisionId": r.RevisionID,
+			"created":    float64(r.Created.Unix()),
+		}
+
+		if r.RevisionChangeIdentifier != "" {
+			item["revisionChangeIdentifier"] = r.RevisionChangeIdentifier
+		}
+
+		out[i] = item
 	}
 
 	return out

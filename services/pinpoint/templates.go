@@ -52,6 +52,7 @@ func (b *InMemoryBackend) CreateEmailTemplate(
 
 	// Track template version history.
 	versionKey := templateName + "/EMAIL"
+	b.templateActiveVersion[versionKey] = "1"
 	b.templateVersionHistory[versionKey] = []templateVersionItem{
 		{TemplateName: templateName, TemplateType: ChannelTypeEmail, TemplateVersion: "1"},
 	}
@@ -93,6 +94,7 @@ func (b *InMemoryBackend) CreateInAppTemplate(
 
 	// Track template version history.
 	versionKey := templateName + "/INAPP"
+	b.templateActiveVersion[versionKey] = "1"
 	b.templateVersionHistory[versionKey] = []templateVersionItem{
 		{TemplateName: templateName, TemplateType: templateTypeINAPP, TemplateVersion: "1"},
 	}
@@ -138,6 +140,7 @@ func (b *InMemoryBackend) CreatePushTemplate(
 
 	// Track template version history.
 	versionKey := templateName + "/PUSH"
+	b.templateActiveVersion[versionKey] = "1"
 	b.templateVersionHistory[versionKey] = []templateVersionItem{
 		{TemplateName: templateName, TemplateType: templateTypePUSH, TemplateVersion: "1"},
 	}
@@ -179,6 +182,7 @@ func (b *InMemoryBackend) CreateSmsTemplate(
 
 	// Track template version history.
 	versionKey := templateName + "/SMS"
+	b.templateActiveVersion[versionKey] = "1"
 	b.templateVersionHistory[versionKey] = []templateVersionItem{
 		{TemplateName: templateName, TemplateType: ChannelTypeSMS, TemplateVersion: "1"},
 	}
@@ -290,6 +294,7 @@ func (b *InMemoryBackend) CreateVoiceTemplate(
 
 	// Track template version history.
 	versionKey := templateName + "/VOICE"
+	b.templateActiveVersion[versionKey] = "1"
 	b.templateVersionHistory[versionKey] = []templateVersionItem{
 		{TemplateName: templateName, TemplateType: ChannelTypeVoice, TemplateVersion: "1"},
 	}

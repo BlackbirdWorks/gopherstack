@@ -67,9 +67,15 @@ gaps: []
 items_still_open: []
 structural_gaps:
   - "StartBulkAssociate/DisassociateWirelessDevice QueryString (fleet-indexing search, syntax unspecified in the SDK) and Tags (no resource to attach to): bulk ops act on every device."
-  - "GetPositionEstimate inputs (no positioning solver); ListDevicesForWirelessDeviceImportTask list and Status filter (no import engine creates devices); StartSingleWirelessDeviceImportTask Sidewalk.SidewalkManufacturingSn has no read member in the SDK."
+  - "GetPositionEstimate: positions come from third-party solvers (HERE, MaxMind, LoRa Cloud) and the inputs carry no coordinates, so a validated request returns ResourceNotFoundException instead of a fabricated point; ListDevicesForWirelessDeviceImportTask list and Status filter (no import engine creates devices); StartSingleWirelessDeviceImportTask Sidewalk.SidewalkManufacturingSn has no read member in the SDK."
 leaks: {status: clean, note: "no goroutines/janitors in this service; all state is plain in-memory maps/store.Table under the single mu *lockmetrics.RWMutex, released on Reset(). DeleteWirelessDevice/DeleteWirelessGateway/DeleteMulticastGroup/DeleteFuotaTask now cascade-clean every dependent association map (thing associations, queued messages, multicast/FUOTA membership sets, gateway tasks) so no ghost row survives a parent resource's deletion — this was NOT the case before this pass. FIXED (gopherstack-8907, 2026-09-06): DeleteWirelessDevice/DeleteWirelessGateway also missed the positions map (GetPosition/UpdatePosition). GetPosition has no existence check, so it still returned the stale position for a deleted device/gateway's own ID, and positions is persisted verbatim in Snapshot() regardless (device/gateway IDs are uuid.NewString(), so this is unbounded growth rather than a wrong-answer-on-recreate case). Now cleared in both delete paths. See TestDelete_ClearsPosition."}
 ---
+
+## 2026-10-07: GetPositionEstimate no longer fabricates a point
+
+It returned a hardcoded [0,0] GeoJSON point. It now validates Ip/Gnss/WiFiAccessPoints members and returns
+ResourceNotFoundException (declared for the op) because no solver exists. Tests: `TestHandler_GetPositionEstimate`,
+`testPositioningExtraRealClient`. The earlier Timestamp note below is historical.
 
 ## Notes
 

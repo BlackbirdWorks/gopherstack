@@ -49,6 +49,8 @@ leaks: {status: clean, note: "Sessions map is bounded by (a) the background Jani
 
 ## Notes
 
+**2026-10-07:** `TestHandler_RemoteAddrBecomesSourceIP` drives AssumeRole through the HTTP handler and proves the request RemoteAddr host (IPv4/IPv6) becomes `aws:SourceIp` in trust-policy IpAddress conditions.
+
 Freeform findings and traps for the next auditor.
 
 ### Wire-format / protocol
