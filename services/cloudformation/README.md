@@ -9,21 +9,20 @@
 | --- | --- |
 | PARITY entries audited | 73 (72 ok, 1 partial) |
 | Feature families | 18 (18 ok) |
-| Known gaps | 9 |
+| Known gaps | 8 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- ListTypes Filters.PublisherId is not evaluated: types store no publisher; Filters.Category AWS_TYPES always matches nothing since no Amazon-published types are cataloged.
+- AWS::DirectConnect::* resource types are not provisioned: services/directconnect create methods take unexported request types and cloudformation.BackendsProvider has no GetDirectConnectHandler. Needs cli.go to add GetDirectConnectHandler (satisfy an optional interface in services/cloudformation/provider.go) plus exported create/delete entry points in services/directconnect.
 - SetTypeConfiguration accepts configuration for any type name without prior registration, intentionally, since first-party AWS types are not fully cataloged (gopherstack-e5h).
-- StackSets DeploymentTargets.AccountsUrl is accepted but not fetched: no S3 client is wired for it, same gap as TemplateURL elsewhere (gopherstack-g7b5).
-- ImportStacksToStackSet accepts OrganizationalUnitIds but does not stamp OrganizationalUnitId on imported instances: choosing the OU for each imported stack needs an account-to-OU membership lookup against Organizations, which this backend does not consult.
+- ImportStacksToStackSet accepts OrganizationalUnitIds but does not stamp OrganizationalUnitId on imported instances: needs an account-to-OU lookup added to OrganizationsDirectory and implemented by services/organizations plus its cli.go wiring.
 - StackSetOperations complete synchronously as SUCCEEDED (RUNNING/STOPPING unreachable): the service has no clock- or janitor-driven lifecycle (gopherstack-b3pm).
-- Stack policy enforcement leaves NotAction/NotResource unevaluated (AWS's two-axis default-deny model) and treats Replacement Conditionally as Update:Replace; StackPolicyURL is not fetched (no S3 client) (gopherstack-cqy3).
-- No nested-stack change-set or public-extension version machinery exists, so these stay unmodeled: CreateChangeSet IncludeNestedStacks (nested stacks are created from inline TemplateBody only, TemplateURL is never fetched, so there is no nested template to diff), UpdateStack RetainExceptOnCreate, RollbackStack RoleARN, ActivateType MajorVersion/VersionBump/TypeNameAlias (no public extension version catalog) (gopherstack-xhu2t).
-- SAM transform (AWS::Serverless-2016-10-31) still unexpanded: HttpApi Auth/Domain/DefinitionBody/DefinitionUri/PropagateTags and HttpApi event Auth, Api event RequestParameters/RequestModel/ApiKeyRequired/AWS_IAM authorizers/UsagePlan/ResourcePolicy/Domain, Cognito AuthorizationScopes, ScheduleV2 DeadLetterConfig Type SQS (queue generation), SAM policy templates, Application/Connector/GraphQLApi/WebSocketApi, DeploymentPreference, FunctionUrlConfig, EventInvokeConfig, StateMachine Events. All fail the stack/change set with an explicit reason, never silently dropped.
+- Stack policy: Replacement Conditionally is treated as Update:Replace (deliberate, not an AWS-documented rule), and AWS's separate logical-ID/resource-type default-deny note is not modeled; NotAction/NotResource follow plain inversion (gopherstack-cqy3).
+- No nested-stack change-set or public-extension version machinery exists, so these stay unmodeled: CreateChangeSet IncludeNestedStacks (no nested-stack diff machinery), UpdateStack RetainExceptOnCreate, RollbackStack RoleARN, ActivateType MajorVersion/VersionBump/TypeNameAlias (no public extension version catalog) (gopherstack-xhu2t).
+- SAM transform (AWS::Serverless-2016-10-31) still unexpanded (FunctionUrlConfig and EventInvokeConfig now expand; EventInvokeConfig destinations need an explicit Destination ARN): HttpApi Auth/Domain/DefinitionBody/DefinitionUri/PropagateTags and HttpApi event Auth, Api event RequestParameters/RequestModel/ApiKeyRequired/AWS_IAM authorizers/UsagePlan/ResourcePolicy/Domain, Cognito AuthorizationScopes, ScheduleV2 DeadLetterConfig Type SQS (queue generation), SAM policy templates, Application/Connector/GraphQLApi/WebSocketApi, DeploymentPreference, StateMachine Events. All fail the stack/change set with an explicit reason, never silently dropped.
 - SAM HttpApi emits separate AWS::ApiGatewayV2::Integration/Route resources (<Fn><Event>Integration/Route) instead of the OpenAPI Body real SAM generates, and SAM S3 events omit the Bucket DependsOn Permission edge (it would be circular here); logical IDs for those extras differ from real SAM.
 
 ### Structural gaps

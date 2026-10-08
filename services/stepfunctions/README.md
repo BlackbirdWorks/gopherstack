@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 37 (37 ok) |
 | Feature families | 10 (10 ok) |
-| Known gaps | 9 |
+| Known gaps | 8 |
 | Structural gaps (can't be emulated) | 3 |
 | Deferred items | 0 |
 | Resource leaks | clean |
@@ -19,7 +19,6 @@
 - ServiceIntegration* AWS/States metrics are not emitted: the SDK does not name them or their dimensions. (gopherstack-4m1qr)
 - ItemReader: ManifestType=ATHENA_DATA (asl.ErrAthenaManifestUnsupported) fails with a sentinel error: the docs do not specify the manifest format precisely enough to implement.
 - A closed STANDARD execution's name becomes reusable once ExecutionRetention (default 24h) prunes it, not AWS's fixed 90 days after close (bd: gopherstack-1sf).
-- No TaskStarted/TaskSubmitted history events are emitted for .sync/.waitForTaskToken Task states: the executor has no hook between job submission and the wait, and TaskSubmitted.Output needs the submit response (bd: gopherstack-996).
 - TestState: Mock is accepted only for Task states (Map/Parallel mocks are rejected with ValidationException) and MockInput.fieldValidationMode is not enforced. StateConfiguration.ErrorCausedByState/MapIterationFailureCount/MapItemReaderData are accepted but unused. The pinned SDK models no StateConfiguration.Variables, so none is accepted.
 - The ASL engine accepts intrinsics AWS does not define (ArrayFlatten, ArrayReverse, ArraySlice, ArraySort, MathDivide, MathMax, MathMin, MathMod, MathMultiply, MathSubtract, StringConcat, StringIndex, StringLength, StringToLower, StringToUpper); a definition using them runs here and would fail on real AWS. Kept as a deliberate superset, covered by asl/intrinsics_parity_test.go.
 - JSONata (gopherstack-iisrz) gaps (ToleratedFailureCount/Percentage expressions are supported: TestJSONata_ToleratedFailureExpressions): Items given as a JSON object (AWS accepts array or object; objects are rejected with States.QueryEvaluationError); ItemReader/ItemBatcher/ResultWriter expressions; Retry Output/Assign; Distributed Map reading outer-scope variables is permitted here (AWS forbids); 256 KiB per-variable / 10 MiB per-execution variable size limits and the Expression-evaluation memory limit are not enforced; JSONPath-mode variable references work in Parameters/ResultSelector/Assign/ItemSelector and intrinsic arguments only (not InputPath/OutputPath/Choice Variable/*Path fields); the AWS wording of JSONPath-field-in-JSONata validation errors is undocumented, so a plain InvalidDefinition message is used; omitted Task Arguments passes the state input (unverified against AWS).

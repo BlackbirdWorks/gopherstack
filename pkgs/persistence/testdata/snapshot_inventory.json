@@ -4728,6 +4728,7 @@
       "RegisteredType.IsPublished bool",
       "RegisteredType.LogGroupName string",
       "RegisteredType.LogRoleArn string",
+      "RegisteredType.PublisherID string",
       "RegisteredType.Status string",
       "RegisteredType.Type string",
       "RegisteredType.TypeArn string",

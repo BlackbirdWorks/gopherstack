@@ -162,7 +162,7 @@ func schedulerInvokeRole(fnID string, boundary any) map[string]any {
 			"PolicyDocument": map[string]any{
 				samKeyVersion: samPolicyVersion,
 				samKeyStatement: []any{map[string]any{
-					samKeyEffect: stackPolicyEffectAllow, samKeyAction: "lambda:InvokeFunction",
+					samKeyEffect: stackPolicyEffectAllow, samKeyAction: samActionInvokeFn,
 					"Resource": samGetAtt(fnID, attrNameArn),
 				}},
 			},

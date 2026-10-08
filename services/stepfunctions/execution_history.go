@@ -141,6 +141,30 @@ func (r *historyRecorder) RecordTaskScheduled(
 	})
 }
 
+func (r *historyRecorder) RecordTaskStarted(execARN, _ /* stateName */, resource string) {
+	r.backend.appendHistory(execARN, &HistoryEvent{
+		Timestamp: float64(time.Now().Unix()),
+		Type:      "TaskStarted",
+		TaskStartedEventDetails: &TaskStartedEventDetails{
+			Resource:     historyResourceValue(resource),
+			ResourceType: resourceTypeFromResource(resource),
+		},
+	})
+}
+
+func (r *historyRecorder) RecordTaskSubmitted(execARN, _ /* stateName */, resource string, output any) {
+	r.backend.appendHistory(execARN, &HistoryEvent{
+		Timestamp: float64(time.Now().Unix()),
+		Type:      "TaskSubmitted",
+		TaskSubmittedEventDetails: &TaskSubmittedEventDetails{
+			Resource:      historyResourceValue(resource),
+			ResourceType:  resourceTypeFromResource(resource),
+			Output:        historyValueToJSON(output),
+			OutputDetails: &HistoryEventExecutionDataDetails{Truncated: false},
+		},
+	})
+}
+
 func (r *historyRecorder) RecordTaskSucceeded(execARN, _ /* stateName */, resource string, output any) {
 	r.backend.appendHistory(execARN, &HistoryEvent{
 		Timestamp: float64(time.Now().Unix()),

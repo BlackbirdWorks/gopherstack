@@ -300,6 +300,8 @@ func (rc *ResourceCreator) createLambdaPermission(
 			StatementID:   statementID,
 			SourceAccount: strProp(props, "SourceAccount", params, physicalIDs),
 			SourceArn:     strProp(props, "SourceArn", params, physicalIDs),
+
+			FunctionURLAuthType: strProp(props, "FunctionUrlAuthType", params, physicalIDs),
 		})
 		if err != nil {
 			return "", fmt.Errorf("add Lambda permission to %s: %w", functionName, err)

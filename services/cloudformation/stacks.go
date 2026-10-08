@@ -64,10 +64,19 @@ type StackOptions struct {
 // CreateNestedStack implements NestedStackCreator. Must be called while b.mu is held by caller.
 func (b *InMemoryBackend) CreateNestedStack(
 	ctx context.Context,
-	name, _ /* templateURL */, templateBody string,
+	name, templateURL, templateBody string,
 	params []Parameter,
 	parentID string,
 ) (string, error) {
+	if templateBody == "" && templateURL != "" {
+		fetched, fetchErr := b.FetchS3URL(ctx, templateURL)
+		if fetchErr != nil {
+			return "", fetchErr
+		}
+
+		templateBody = fetched
+	}
+
 	// Lock already held by parent CreateStack — use the no-lock variant.
 	stack, err := b.createStackLocked(ctx, name, templateBody, params, StackOptions{}, parentID)
 	if err != nil {

@@ -523,7 +523,6 @@ items_still_open:
   - "ServiceIntegration* AWS/States metrics are not emitted: the SDK does not name them or their dimensions. (gopherstack-4m1qr)"
   - "ItemReader: ManifestType=ATHENA_DATA (asl.ErrAthenaManifestUnsupported) fails with a sentinel error: the docs do not specify the manifest format precisely enough to implement."
   - "A closed STANDARD execution's name becomes reusable once ExecutionRetention (default 24h) prunes it, not AWS's fixed 90 days after close (bd: gopherstack-1sf)."
-  - "No TaskStarted/TaskSubmitted history events are emitted for .sync/.waitForTaskToken Task states: the executor has no hook between job submission and the wait, and TaskSubmitted.Output needs the submit response (bd: gopherstack-996)."
   - "TestState: Mock is accepted only for Task states (Map/Parallel mocks are rejected with ValidationException) and MockInput.fieldValidationMode is not enforced. StateConfiguration.ErrorCausedByState/MapIterationFailureCount/MapItemReaderData are accepted but unused. The pinned SDK models no StateConfiguration.Variables, so none is accepted."
   - "The ASL engine accepts intrinsics AWS does not define (ArrayFlatten, ArrayReverse, ArraySlice, ArraySort, MathDivide, MathMax, MathMin, MathMod, MathMultiply, MathSubtract, StringConcat, StringIndex, StringLength, StringToLower, StringToUpper); a definition using them runs here and would fail on real AWS. Kept as a deliberate superset, covered by asl/intrinsics_parity_test.go."
   - "JSONata (gopherstack-iisrz) gaps (ToleratedFailureCount/Percentage expressions are supported: TestJSONata_ToleratedFailureExpressions): Items given as a JSON object (AWS accepts array or object; objects are rejected with States.QueryEvaluationError); ItemReader/ItemBatcher/ResultWriter expressions; Retry Output/Assign; Distributed Map reading outer-scope variables is permitted here (AWS forbids); 256 KiB per-variable / 10 MiB per-execution variable size limits and the Expression-evaluation memory limit are not enforced; JSONPath-mode variable references work in Parameters/ResultSelector/Assign/ItemSelector and intrinsic arguments only (not InputPath/OutputPath/Choice Variable/*Path fields); the AWS wording of JSONPath-field-in-JSONata validation errors is undocumented, so a plain InvalidDefinition message is used; omitted Task Arguments passes the state input (unverified against AWS)."
@@ -538,6 +537,10 @@ leaks: {status: clean, note: "StopExecution/DeleteStateMachine cancel the execut
 JSONata Map ToleratedFailureCount/ToleratedFailurePercentage accept `{% %}` expressions. TestState honours Mock (Task), Context and StateConfiguration.RetrierRetryCount, and reports RETRIABLE/CAUGHT_ERROR (with NextState) instead of waiting out Retry or following Catch.Next into a missing state. Proof: asl/jsonata_tolerated_failure_test.go, test_state_mock_status_test.go.
 
 ## Notes
+
+### 2026-10-07: TaskStarted / TaskSubmitted history events
+
+Every non-mocked Task attempt records TaskStarted; .waitForTaskToken, ECS runTask.sync and Glue startJobRun.sync record TaskSubmitted (output = submit response) before waiting, and other .sync tasks record it on completion. Proof: execution_history_task_lifecycle_test.go.
 
 ### 2026-10-03: legacy integrations run as the execution role under --enforce-iam
 

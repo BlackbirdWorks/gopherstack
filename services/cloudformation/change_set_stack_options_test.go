@@ -181,8 +181,10 @@ func TestListTypes_TypeCategoryAndDeprecatedFilters(t *testing.T) {
 		},
 		{
 			name: "aws_types_category",
-			in:   cfnsdk.ListTypesInput{Filters: &cfntypes.TypeFilters{Category: cfntypes.CategoryAwsTypes}},
-			want: []string{},
+			in: cfnsdk.ListTypesInput{Filters: &cfntypes.TypeFilters{
+				Category: cfntypes.CategoryAwsTypes, TypeNamePrefix: aws.String("AWS::SQS"),
+			}},
+			want: []string{"AWS::SQS::Queue"},
 		},
 		{name: "type_resource", in: cfnsdk.ListTypesInput{Type: cfntypes.RegistryTypeResource},
 			want: []string{"Acme::Act::Res", "Acme::Reg::Res"}},

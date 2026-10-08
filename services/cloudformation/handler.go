@@ -319,6 +319,10 @@ func (h *Handler) dispatch(action string, form url.Values, c *echo.Context) erro
 		return h.xmlError(c, "ValidationError", err.Error())
 	}
 
+	if err := h.resolveURLParams(c.Request().Context(), form); err != nil {
+		return h.xmlError(c, "ValidationError", err.Error())
+	}
+
 	if handled, err := h.dispatchStackOps(action, form, c); handled {
 		return err
 	}

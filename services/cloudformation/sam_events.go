@@ -81,7 +81,7 @@ func (t *samTranslator) translateEvents(ev *samEventCtx, events map[string]any) 
 
 func lambdaPermission(fnID, principal string, sourceArn any) map[string]any {
 	p := map[string]any{
-		samKeyAction:    "lambda:InvokeFunction",
+		samKeyAction:    samActionInvokeFn,
 		samKeyFnName:    samRef(fnID),
 		samKeyPrincipal: principal,
 	}

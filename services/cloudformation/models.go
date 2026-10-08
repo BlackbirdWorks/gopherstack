@@ -354,6 +354,7 @@ type TypeSummary struct {
 	Visibility       string `xml:"Visibility,omitempty"`
 	Description      string `xml:"Description,omitempty"`
 	DefaultVersionID string `xml:"DefaultVersionId,omitempty"`
+	PublisherID      string `xml:"PublisherId,omitempty"`
 	IsActivated      bool   `xml:"IsActivated,omitempty"`
 }
 
@@ -382,6 +383,7 @@ type RegisteredType struct {
 	ExecutionRoleArn string
 	LogGroupName     string
 	LogRoleArn       string
+	PublisherID      string
 	IsActivated      bool
 	IsPublished      bool
 }
@@ -393,6 +395,7 @@ type ActivateTypeOptions struct {
 	ExecutionRoleArn string
 	LogGroupName     string
 	LogRoleArn       string
+	PublisherID      string
 }
 
 // TypeRegistrationRecord holds the state of a type registration request.

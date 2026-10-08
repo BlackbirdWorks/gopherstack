@@ -267,6 +267,23 @@ type HistoryRecorder interface {
 	RecordTaskFailed(executionARN, stateName, resource, errCode, cause string)
 }
 
+// TaskLifecycleRecorder is an optional HistoryRecorder extension that records
+// TaskStarted (before each attempt) and TaskSubmitted (after a .sync or
+// .waitForTaskToken job is submitted, with the submit response as output).
+type TaskLifecycleRecorder interface {
+	RecordTaskStarted(executionARN, stateName, resource string)
+	RecordTaskSubmitted(executionARN, stateName, resource string, output any)
+}
+
+type taskSubmitHookKey struct{}
+
+// markTaskSubmitted reports a job submission to the hook executeTask installed, if any.
+func markTaskSubmitted(ctx context.Context, output any) {
+	if hook, ok := ctx.Value(taskSubmitHookKey{}).(func(any)); ok {
+		hook(output)
+	}
+}
+
 // MapRunNotifier receives callbacks when Map state runs start and end.
 // Implement this to track Map state execution in a backend.
 type MapRunNotifier interface {
@@ -1076,7 +1093,9 @@ func (e *Executor) executeTask(
 	for {
 		result, mocked, taskErr := e.mock.invoke(stateName)
 		if !mocked {
-			result, taskErr = e.runTaskAttempt(ctx, state, input, waitForTaskToken, timeoutSeconds, heartbeatSeconds)
+			result, taskErr = e.attemptWithLifecycle(
+				ctx, executionARN, stateName, state, input, waitForTaskToken, timeoutSeconds, heartbeatSeconds,
+			)
 		}
 		if taskErr == nil {
 			e.recordTaskSucceeded(executionARN, stateName, state.Resource, result)
@@ -1115,6 +1134,39 @@ func (e *Executor) executeTask(
 
 		return "", nil, uncaughtTaskFailure(taskErr)
 	}
+}
+
+// attemptWithLifecycle records TaskStarted/TaskSubmitted around one attempt when
+// the history recorder supports them.
+func (e *Executor) attemptWithLifecycle(
+	ctx context.Context,
+	executionARN, stateName string,
+	state *State,
+	input any,
+	waitForTaskToken bool,
+	timeoutSeconds, heartbeatSeconds int,
+) (any, error) {
+	lifecycle, _ := e.history.(TaskLifecycleRecorder)
+	if lifecycle == nil {
+		return e.runTaskAttempt(ctx, state, input, waitForTaskToken, timeoutSeconds, heartbeatSeconds)
+	}
+
+	lifecycle.RecordTaskStarted(executionARN, stateName, state.Resource)
+
+	submitted := false
+	attemptCtx := context.WithValue(ctx, taskSubmitHookKey{}, func(out any) {
+		if !submitted {
+			submitted = true
+			lifecycle.RecordTaskSubmitted(executionARN, stateName, state.Resource, out)
+		}
+	})
+
+	result, err := e.runTaskAttempt(attemptCtx, state, input, waitForTaskToken, timeoutSeconds, heartbeatSeconds)
+	if err == nil && !submitted && isSyncPattern(state.Resource) {
+		lifecycle.RecordTaskSubmitted(executionARN, stateName, state.Resource, result)
+	}
+
+	return result, err
 }
 
 // runTaskAttempt invokes a single Task attempt under its own TimeoutSeconds
@@ -1169,6 +1221,7 @@ func (e *Executor) invokeTaskAttempt(
 	if invokeErr != nil {
 		return nil, invokeErr
 	}
+	markTaskSubmitted(ctx, invokeResult)
 
 	callbackOutput, err := e.callback.WaitForTaskToken(ctx, taskToken, heartbeatSeconds)
 	if err != nil {
@@ -1710,6 +1763,10 @@ func (e *Executor) invokeECSTask(ctx context.Context, state *State, input any) (
 			return nil, err
 		}
 
+		if isSyncPattern(state.Resource) {
+			markTaskSubmitted(ctx, result)
+		}
+
 		if !isSyncPattern(state.Resource) || e.ecsSyncWaiter == nil {
 			return result, nil
 		}
@@ -1783,6 +1840,10 @@ func (e *Executor) invokeGlueTask(ctx context.Context, state *State, input any) 
 		}
 
 		result := map[string]any{"JobRunId": runID}
+
+		if isSyncPattern(state.Resource) {
+			markTaskSubmitted(ctx, result)
+		}
 
 		if !isSyncPattern(state.Resource) || e.glueSyncWaiter == nil {
 			return result, nil
