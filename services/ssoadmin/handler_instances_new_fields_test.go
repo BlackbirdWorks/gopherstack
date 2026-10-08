@@ -113,9 +113,7 @@ func TestListInstances_Regions(t *testing.T) {
 
 	listRec := doRequest(t, h, "ListInstances", map[string]any{})
 	require.Equal(t, http.StatusOK, listRec.Code)
-	// "IsPrimaryRegion" (a real, always-populated RegionMetadata field) contains
-	// "PrimaryRegion" as a substring -- check for the quoted key instead.
-	assert.NotContains(t, listRec.Body.String(), `"PrimaryRegion":`)
+	assert.Contains(t, listRec.Body.String(), `"PrimaryRegion":"us-east-1"`)
 
 	resp := parseResponse(t, listRec)
 	instances, ok := resp["Instances"].([]any)
@@ -138,17 +136,19 @@ func TestListInstances_Regions(t *testing.T) {
 
 	regions, ok := found["Regions"].([]any)
 	require.True(t, ok, "expected Regions array on instance")
-	require.Len(t, regions, 1)
+	require.Len(t, regions, 2)
 
-	region, ok := regions[0].(map[string]any)
-	require.True(t, ok)
-	assert.Equal(t, "eu-west-1", region["RegionName"])
+	names := make([]any, 0, len(regions))
+	for _, r := range regions {
+		names = append(names, r.(map[string]any)["RegionName"])
+	}
+
+	assert.ElementsMatch(t, []any{"us-east-1", "eu-west-1"}, names)
 }
 
-// TestListInstances_RegionsAbsentWhenNoneAdded asserts on the raw response
-// body that an instance with no AddRegion calls omits Regions entirely rather
-// than a misleadingly-present empty array.
-func TestListInstances_RegionsAbsentWhenNoneAdded(t *testing.T) {
+// TestListInstances_PrimaryRegionListedWithoutAddRegion asserts the instance's
+// home region is always its primary Region.
+func TestListInstances_PrimaryRegionListedWithoutAddRegion(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()
@@ -156,5 +156,20 @@ func TestListInstances_RegionsAbsentWhenNoneAdded(t *testing.T) {
 
 	rec := doRequest(t, h, "ListInstances", map[string]any{})
 	require.Equal(t, http.StatusOK, rec.Code)
-	assert.NotContains(t, rec.Body.String(), "\"Regions\"")
+	assert.Contains(t, rec.Body.String(), `"IsPrimaryRegion":true`)
+}
+
+func TestRemoveRegion_PrimaryRejected(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	instanceArn := createInstance(t, h, "primary-inst")
+
+	rec := doRequest(t, h, "RemoveRegion", map[string]any{"InstanceArn": instanceArn, "RegionName": "us-east-1"})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "ValidationException")
+
+	rec = doRequest(t, h, "DescribeRegion", map[string]any{"InstanceArn": instanceArn, "RegionName": "us-east-1"})
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, true, parseResponse(t, rec)["IsPrimaryRegion"])
 }

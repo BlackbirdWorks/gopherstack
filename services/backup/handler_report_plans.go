@@ -24,6 +24,7 @@ func ScanJobsFilterFromQuery(q url.Values) ListScanJobsFilter {
 		ResourceArn:      q.Get("ByResourceArn"),
 		ResourceType:     q.Get("ByResourceType"),
 		State:            q.Get("ByState"),
+		ScanResultStatus: q.Get("ByScanResultStatus"),
 		CompleteAfter:    ParseTimeFilter(q.Get("ByCompleteAfter")),
 		CompleteBefore:   ParseTimeFilter(q.Get("ByCompleteBefore")),
 		MaxResults:       parseInt(q.Get("MaxResults")),
@@ -336,7 +337,12 @@ func (h *Handler) dispatchReportJobOps(
 		return true, c.JSON(http.StatusOK, resp)
 	case opListScanJobSummaries:
 		q := c.Request().URL.Query()
-		summaries, next := pageQuery(q, h.Backend.ListScanJobSummaries(NewJobSummaryFilter(q)), summaryStateKey)
+		f := NewJobSummaryFilter(q)
+		if err := f.Validate(); err != nil {
+			return true, h.handleError(c, err)
+		}
+
+		summaries, next := pageQuery(q, h.Backend.ListScanJobSummaries(f), summaryStateKey)
 
 		return true, c.JSON(http.StatusOK, withNextToken(map[string]any{"ScanJobSummaries": summaries}, next))
 	case opStartScanJob:
@@ -385,6 +391,10 @@ func scanJobToJSON(job *ScanJob) map[string]any {
 		resp["ContinuousScanEndTime"] = epochSeconds(*job.ContinuousScanEndTime)
 	}
 	setOptionalStr(resp, "ScanBaseRecoveryPointArn", job.ScanBaseRecoveryPointArn)
+
+	if job.Status == statusCompleted || job.Status == "COMPLETED_WITH_ISSUES" {
+		resp["ScanResult"] = map[string]any{keyScanResultStatus: scanResultStatusFor(job.Status)}
+	}
 
 	return resp
 }

@@ -13,7 +13,18 @@ import (
 const defaultManagedRuleGroupVersion = "Version_1.0"
 
 // handleDescribeAllManagedProducts returns the catalog of managed products.
-func (h *Handler) handleDescribeAllManagedProducts(_ []byte) ([]byte, error) {
+func (h *Handler) handleDescribeAllManagedProducts(body []byte) ([]byte, error) {
+	var req struct {
+		Scope string `json:"Scope"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if err := requireManagedRuleSetScope(req.Scope); err != nil {
+		return nil, err
+	}
+
 	products := make([]map[string]any, 0, len(getManagedRuleGroups()))
 
 	for _, mrg := range getManagedRuleGroups() {
@@ -41,10 +52,18 @@ func (h *Handler) handleDescribeManagedProductsByVendor(body []byte) ([]byte, er
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
+	if err := requireManagedRuleSetScope(req.Scope); err != nil {
+		return nil, err
+	}
+
+	if req.VendorName == "" {
+		return nil, fmt.Errorf("%w: VendorName is required", errInvalidRequest)
+	}
+
 	products := make([]map[string]any, 0)
 
 	for _, mrg := range getManagedRuleGroups() {
-		if req.VendorName != "" && mrg.VendorName != req.VendorName {
+		if mrg.VendorName != req.VendorName {
 			continue
 		}
 
@@ -74,7 +93,18 @@ func (h *Handler) handleDescribeManagedRuleGroup(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	// Look up catalog entry.
+	if err := requireManagedRuleSetScope(req.Scope); err != nil {
+		return nil, err
+	}
+
+	if req.VendorName == "" {
+		return nil, fmt.Errorf("%w: VendorName is required", errInvalidRequest)
+	}
+
+	if req.Name == "" {
+		return nil, fmt.Errorf("%w: Name is required", errInvalidRequest)
+	}
+
 	for _, mrg := range getManagedRuleGroups() {
 		if mrg.VendorName == req.VendorName && mrg.Name == req.Name {
 			resp := map[string]any{

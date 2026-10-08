@@ -89,10 +89,18 @@ func TestListRegionsReturnsMetadata(t *testing.T) {
 	resp := parseResponse(t, rec)
 	regions, ok := resp["Regions"].([]any)
 	require.True(t, ok)
-	require.Len(t, regions, 1)
+	require.Len(t, regions, 2)
 
-	region := regions[0].(map[string]any)
-	assert.Equal(t, "eu-west-1", region["RegionName"])
+	byName := map[string]map[string]any{}
+	for _, r := range regions {
+		m := r.(map[string]any)
+		byName[m["RegionName"].(string)] = m
+	}
+
+	assert.Equal(t, true, byName["us-east-1"]["IsPrimaryRegion"])
+
+	region := byName["eu-west-1"]
+	require.NotNil(t, region)
 	// ListRegions lazily transitions ADDING -> ACTIVE on read, mirroring
 	// ListInstances' CREATE_IN_PROGRESS -> ACTIVE transition.
 	assert.Equal(t, "ACTIVE", region["Status"])
@@ -181,7 +189,7 @@ func TestDescribeRegion(t *testing.T) {
 	listResp := parseResponse(t, rec)
 	regions, ok := listResp["Regions"].([]any)
 	require.True(t, ok)
-	assert.Empty(t, regions, "REMOVING region must be pruned from ListRegions")
+	assert.Len(t, regions, 1, "REMOVING region must be pruned from ListRegions, leaving the primary")
 
 	// Removing an already-removed/never-added region: ResourceNotFoundException.
 	rec = doRequest(t, h, "RemoveRegion", map[string]any{

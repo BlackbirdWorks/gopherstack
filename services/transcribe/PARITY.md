@@ -7,7 +7,7 @@
 service: transcribe
 sdk_module: aws-sdk-go-v2/service/transcribe@v1.64.0   # version audited against
 last_audit_commit: 7480cad08                      # HEAD after the 2026-09-19 list-summary-shapes sweep
-last_audit_date: 2026-09-19
+last_audit_date: 2026-10-07
 overall: A            # A = genuine fixes found; B = already-accurate, proven op-by-op
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -65,10 +65,10 @@ families:
   language_code_allowlist_derived: {status: ok, note: "FIXED this pass (gopherstack-z6e7): supportedLanguageCodes() was a hardcoded 42-entry list; re-diffing against the pinned SDK's types.LanguageCode.Values() (transcribe@v1.58.4, types/enums.go:259) found 75 missing codes, not the 12 the triggering issue described -- the earlier gap note undercounted. Fixed by deriving supportedLanguageCodes() directly from sdktypes.LanguageCode(\"\").Values() (validation.go) instead of hand-copying, so it cannot drift again on a future SDK bump. Confirmed no reverse direction: every one of the old 42 hardcoded codes is a subset of the SDK enum (no code gopherstack accepted that AWS rejects). Also audited every other hand-maintained allowlist in the service (MediaFormat, VocabularyFilterMethod, RedactionType, RedactionOutput, SubtitleFormat, CallAnalyticsInputType, BaseModelName, MedicalSpecialty, MedicalType, MedicalContentIdentificationType) against their SDK enums -- all matched exactly, none drifted. Regression test: transcription_jobs_test.go's every_sdk_enum_code_accepted iterates types.LanguageCode.Values() directly against StartTranscriptionJob."}
   filter_value_semantics: {status: ok, note: "2026-08-30 (gopherstack-uox6 value-semantics pass, CLEAN -- no bug found): audited every List op's filter matching, this service's declared-but-previously-unexamined axis. All 9 backend List methods (ListVocabularies, ListMedicalVocabularies, ListVocabularyFilters, ListTranscriptionJobs, ListMedicalTranscriptionJobs, ListMedicalScribeJobs, ListCallAnalyticsJobs, ListLanguageModels, ListCallAnalyticsCategories -- the last has no filter params at all) use a uniform, correct AND-of-(equality-on-Status/StateEquals, matchesNameContains-substring) shape; matchesNameContains (store.go) is case-insensitive per its own doc citation of the AWS 'the search is not case sensitive' wording, confirmed against each caller with no per-caller disagreement (the shared-matcher-with-disagreeing-callers shape from other services' passes does not apply here -- every List op's Status/StateEquals/NameContains semantics match verbatim). No enum-mismatch: Status/StateEquals values are compared directly against internally-stored state strings, not a separately-validated user enum, so there is no unrecognized-value branch to get wrong. VocabularyFilterMethod (transcription_jobs.go) is validated against supportedVocabularyFilterMethods() but never applied to transcript content -- confirmed this is the same genuine-impossibility class as ContentRedaction and the language-model axis: transcript_synthesis.go's deriveTranscriptText/synthesizeTranscriptJSON produce wholly synthetic placeholder text (job name + media filename), so there is no real transcript content for a filter method to act on; not a value-applied-wrong bug, already covered by this service's standing synthetic-content disclosure."}
 gaps: []
-items_still_open:
-  - "CallAnalyticsJobDetails (skipped-analytics-feature reporting) on CallAnalyticsJobSummary/CallAnalyticsJob is not implemented -- gopherstack's synthetic backend never skips any Call Analytics feature, so this optional field would always be absent/empty in a real scenario too; low priority. Re-checked this pass (gopherstack-5or5): still true, still no backing data to populate Skipped[] truthfully, left undone rather than fabricated. Re-confirmed gopherstack-6flj (2026-08-15): still zero grep hits, still no backing data source; disclosed not fixed."
-  - "MedicalScribeContext (StartMedicalScribeJobInput patient-context field) and MedicalScribeContextProvided (response echo of whether it was supplied) are not implemented. Since gopherstack never accepts MedicalScribeContext, MedicalScribeContextProvided would always be false, and awsjson1.1 omits false bool fields on the wire (matching the omitted-field behavior already produced by not implementing it) -- low priority, not client-breaking. Re-checked this pass (gopherstack-5or5): still true. Re-confirmed gopherstack-6flj (2026-08-15): still unimplemented; a safe superset (real client that sets MedicalScribeContext gets no error, just a false-negative on the Provided echo), same category as xray's Sampling/SamplingStrategy no-op disclosure."
-  - "StartCallAnalyticsJob.OutputEncryptionKMSKeyId, StartMedicalScribeJob.OutputEncryptionKMSKeyId, StartMedicalTranscriptionJob.OutputEncryptionKMSKeyId (reqfielddiff tier-1, 2026-09-18): all three are real request members (transcribe@v1.64.0), but none of CallAnalyticsJob/MedicalScribeJob/MedicalTranscriptionJob's real response types echo an encryption key back (confirmed: zero grep hits in types.go), and this backend has no real S3/KMS pipeline to actually encrypt a synthetic transcript with -- there is no client-observable behavior to fix or test (same non-issue as the pre-existing, unproven StartTranscriptionJob.OutputEncryptionKMSKeyId sibling field, which is likewise accepted-and-stored with no echo/validation). Needs a simulated S3/KMS encrypted-output subsystem before this could ever be more than a config field nobody can observe; left unmodeled rather than adding untestable dead code."
+items_still_open: []
+structural_gaps:
+  - "CallAnalyticsJobDetails.Skipped: skipped features (insufficient conversation content, safety guidelines) come from analysing real audio; the synthetic transcript is never evaluated."
+  - "OutputEncryptionKMSKeyId on StartCallAnalyticsJob, StartMedicalScribeJob and StartMedicalTranscriptionJob: no response type echoes the key and no S3/KMS output pipeline exists to encrypt with it."
 deferred: []
 leaks: {status: clean, note: "no goroutines/janitors in this service; Snapshot/Restore delegate cleanly to InMemoryBackend; Handler.Snapshot/Restore already exposed. New backend struct fields (LanguageIdSettings, FailureReason x3, MedicalScribeOutput synthesis) are all pure additive struct fields going through the existing generic store.Table snapshot/restore path (store_setup.go) -- no new tables, no new lock paths, no persistence.go changes needed."}
 ---
@@ -346,11 +346,8 @@ hand-reverted individually, confirmed to fail with the exact predicted symptom
 unknown fields), then restored byte-identical (`git diff` compared against the
 pre-revert hunks).
 
-Both `CallAnalyticsJobDetails`/`Skipped` and `MedicalScribeContext`/
-`MedicalScribeContextProvided` (see `gaps:` below) were re-confirmed still
-genuinely unimplemented this pass — not fixed, since both require modeling new
-backend-tracked concepts (skipped-analytics-feature reporting; patient-context
-input) with no existing data source, out of scope for a wire-shape sweep.
+`CallAnalyticsJobDetails`/`Skipped` stays structural (see `structural_gaps:`). `MedicalScribeContext` was
+implemented 2026-10-07: accepted with Pronouns validation and echoed as `MedicalScribeContextProvided`.
 
 ### Bug found and fixed #5 (2026-09-05 required-member sweep) — six required-member and cross-field validation gaps
 

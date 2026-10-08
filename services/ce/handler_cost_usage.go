@@ -754,34 +754,39 @@ func (h *Handler) handleGetCostAndUsageWithResources(
 	}, nil
 }
 
-// getCostComparisonDriversInput's metric member is field-diffed against real AWS CE's
-// GetCostComparisonDriversInput: the field is the singular, required MetricForComparison
-// string (same shape as GetCostAndUsageComparisons), not "Metric" -- the previous name
-// matched no real member, so a real client's MetricForComparison was silently dropped and
-// the required-field check below never fired for a request that omitted the (wrong) old
-// name. Real AWS also carries GroupBy/MaxResults on this input and CostComparisonDrivers
-// is always empty (see handler doc below, no per-line-item attribution state exists to
-// derive drivers from) -- both are left off this struct rather than declared-and-ignored,
-// matching Filter's existing documented-inert precedent (see gaps).
+// getCostComparisonDriversInput mirrors GetCostComparisonDriversInput; MetricForComparison is
+// the singular, required enum string (same shape as GetCostAndUsageComparisons).
 type getCostComparisonDriversInput struct {
 	BaselineTimePeriod   map[string]string `json:"BaselineTimePeriod"`
 	ComparisonTimePeriod map[string]string `json:"ComparisonTimePeriod"`
 	Filter               *ceExpression     `json:"Filter"`
 	MetricForComparison  string            `json:"MetricForComparison"`
 	NextPageToken        string            `json:"NextPageToken"`
+	GroupBy              []groupBySpec     `json:"GroupBy"`
+	MaxResults           int               `json:"MaxResults"`
 }
 
 type getCostComparisonDriversOutput struct {
-	NextPageToken         string `json:"NextPageToken,omitempty"`
-	CostComparisonDrivers []any  `json:"CostComparisonDrivers"`
+	NextPageToken         string                 `json:"NextPageToken,omitempty"`
+	CostComparisonDrivers []costComparisonDriver `json:"CostComparisonDrivers"`
 }
 
-// handleGetCostComparisonDrivers always returns zero drivers: computing cost comparison
-// drivers requires per-line-item cost-change attribution analysis this emulator's
-// service+date-granularity synthetic ledger has no state to derive (same documented gap
-// as GetCostAndUsageWithResources.ResultsByTime). NextPageToken is threaded through
-// paginateList for a genuinely empty list (always yields an empty page and no next
-// token, the correct terminal-page shape) rather than being echoed back unconditionally.
+func driverGroupKey(in *getCostComparisonDriversInput) string {
+	if len(in.GroupBy) > 0 {
+		return in.GroupBy[0].Key
+	}
+
+	return ""
+}
+
+func driverPageKey(d costComparisonDriver) string {
+	if d.CostSelector == nil || d.CostSelector.Dimensions == nil || len(d.CostSelector.Dimensions.Values) == 0 {
+		return ""
+	}
+
+	return d.CostSelector.Dimensions.Values[0]
+}
+
 func (h *Handler) handleGetCostComparisonDrivers(
 	_ context.Context,
 	in *getCostComparisonDriversInput,
@@ -798,12 +803,15 @@ func (h *Handler) handleGetCostComparisonDrivers(
 		return nil, fmt.Errorf("%w: MetricForComparison is required", ErrValidation)
 	}
 
-	page, nextToken := paginateList([]any{}, 0, in.NextPageToken, func(any) string { return "" })
+	drivers := h.Backend.costComparisonDrivers(
+		[2]string{in.BaselineTimePeriod[timePeriodKeyStart], in.BaselineTimePeriod[timePeriodKeyEnd]},
+		[2]string{in.ComparisonTimePeriod[timePeriodKeyStart], in.ComparisonTimePeriod[timePeriodKeyEnd]},
+		in.MetricForComparison, driverGroupKey(in), in.Filter,
+	)
 
-	return &getCostComparisonDriversOutput{
-		CostComparisonDrivers: page,
-		NextPageToken:         nextToken,
-	}, nil
+	page, nextToken := paginateList(drivers, in.MaxResults, in.NextPageToken, driverPageKey)
+
+	return &getCostComparisonDriversOutput{CostComparisonDrivers: page, NextPageToken: nextToken}, nil
 }
 
 // buildCostUsageOps returns the cost-and-usage-family op dispatch entries.

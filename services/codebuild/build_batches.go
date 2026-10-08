@@ -23,9 +23,11 @@ package codebuild
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 
+	cbtypes "github.com/aws/aws-sdk-go-v2/service/codebuild/types"
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -332,6 +334,34 @@ func newBuildGroups(def batchDefinition) []BuildGroup {
 	return groups
 }
 
+// retryBuildGroups seeds a retried batch's groups: each re-run group records
+// its previous attempts in PriorBuildSummaryList; with RETRY_FAILED_BUILDS
+// groups that succeeded keep their build and are not re-run.
+func retryBuildGroups(def batchDefinition, old []BuildGroup, retryType string) []BuildGroup {
+	groups := newBuildGroups(def)
+	prev := indexGroups(old)
+
+	for i := range groups {
+		o, ok := prev[groups[i].Identifier]
+		if !ok || o.CurrentBuildSummary == nil {
+			continue
+		}
+
+		if retryType == string(cbtypes.RetryBuildBatchTypeRetryFailedBuilds) &&
+			o.CurrentBuildSummary.BuildStatus == buildStatusSucceeded {
+			summary := *o.CurrentBuildSummary
+			groups[i].CurrentBuildSummary = &summary
+			groups[i].PriorBuildSummaryList = append([]BuildSummary(nil), o.PriorBuildSummaryList...)
+
+			continue
+		}
+
+		groups[i].PriorBuildSummaryList = slices.Concat(o.PriorBuildSummaryList, []BuildSummary{*o.CurrentBuildSummary})
+	}
+
+	return groups
+}
+
 // cloneBuildGroups deep-copies groups so a caller can't mutate backend-owned
 // state through a returned BuildBatch -- BuildGroups holds nested pointers
 // (CurrentBuildSummary) a shallow struct copy would still alias.
@@ -362,7 +392,7 @@ func cloneBuildGroups(groups []BuildGroup) []BuildGroup {
 // already-resolved fields, shared by StartBuildBatch and RetryBuildBatch.
 func (b *InMemoryBackend) newBuildBatchRecord(
 	projectName string, ov batchOverrideResult, sourceVersion string, debugSessionEnabled bool,
-	def batchDefinition, now float64,
+	def batchDefinition, groups []BuildGroup, now float64,
 ) *BuildBatch {
 	batchID := uuid.NewString()
 	id := projectName + ":" + batchID
@@ -395,7 +425,7 @@ func (b *InMemoryBackend) newBuildBatchRecord(
 		SecondarySourceVersions: ov.SecondarySourceVersions,
 		BuildBatchConfig:        ov.Config,
 		LogConfig:               ov.LogsConfig,
-		BuildGroups:             newBuildGroups(def),
+		BuildGroups:             groups,
 		Phases: []BuildBatchPhase{
 			{PhaseType: phaseSubmitted, PhaseStatus: buildStatusSucceeded, StartTime: now, EndTime: now},
 		},
@@ -451,7 +481,7 @@ func (b *InMemoryBackend) StartBuildBatch(projectName string, cfg StartBuildBatc
 	}
 
 	now := float64(time.Now().Unix())
-	bb := b.newBuildBatchRecord(projectName, ov, sourceVersion, cfg.DebugSessionEnabled, def, now)
+	bb := b.newBuildBatchRecord(projectName, ov, sourceVersion, cfg.DebugSessionEnabled, def, newBuildGroups(def), now)
 	b.buildBatches.Put(bb)
 	b.idemRecord("StartBuildBatch", token, fp, bb.ID)
 
@@ -511,10 +541,8 @@ func sourceBuildspec(src *ProjectSource) string {
 // environment/source/artifacts/config of the batch being retried and running
 // its buildspec's batch definition again from scratch.
 //
-// Disclosed gap: real AWS only allows retrying a FAILED batch, and RetryType
-// (RETRY_ALL_BUILDS vs RETRY_FAILED_BUILDS) selects whether every group or
-// only the failed ones re-run (api_op_RetryBuildBatch.go). Neither is
-// enforced/implemented here -- see PARITY.md.
+// Only a failed batch can be retried (api_op_RetryBuildBatch.go).
+// RETRY_FAILED_BUILDS carries succeeded groups forward and re-runs the rest.
 func (b *InMemoryBackend) RetryBuildBatch(id, retryType, idempotencyToken string) (*BuildBatch, error) {
 	b.mu.Lock("RetryBuildBatch")
 	defer b.mu.Unlock()
@@ -535,6 +563,13 @@ func (b *InMemoryBackend) RetryBuildBatch(id, retryType, idempotencyToken string
 
 			return &out, nil
 		}
+	}
+
+	if !isFailureStatus(existing.BuildBatchStatus) {
+		return nil, fmt.Errorf(
+			"%w: only a failed batch build can be retried; batch %s is %s",
+			ErrValidation, id, existing.BuildBatchStatus,
+		)
 	}
 
 	def, err := parseBatchDefinition(sourceBuildspec(existing.Source))
@@ -562,7 +597,8 @@ func (b *InMemoryBackend) RetryBuildBatch(id, retryType, idempotencyToken string
 
 	now := float64(time.Now().Unix())
 	bb := b.newBuildBatchRecord(
-		existing.ProjectName, ov, existing.SourceVersion, existing.DebugSessionEnabled, def, now,
+		existing.ProjectName, ov, existing.SourceVersion, existing.DebugSessionEnabled, def,
+		retryBuildGroups(def, existing.BuildGroups, retryType), now,
 	)
 	b.buildBatches.Put(bb)
 	b.idemRecord("RetryBuildBatch", idempotencyToken, fp, bb.ID)

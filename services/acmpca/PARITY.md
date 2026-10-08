@@ -7,7 +7,7 @@
 service: acmpca
 sdk_module: aws-sdk-go-v2/service/acmpca@v1.50.0   # version audited against
 last_audit_commit: 2332c3128  # 2026-09-24 DELETED CA unbounded-growth fix; prior: 3cec3729
-last_audit_date: 2026-09-24
+last_audit_date: 2026-10-07
 overall: A            # gopherstack-cq4o: ASN.1-heavy ApiPassthrough residuals implemented for real (see Notes)
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -36,11 +36,9 @@ ops:
   UntagCertificateAuthority: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTags: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED THIS PASS: MaxResults/NextToken now paginate for real (via pkgs/page, same pattern as every other list op in this service) instead of always returning the full tag set in one page. The invented 'ListTagsForCertificateAuthority' op alias was DELETED (see Notes) -- it does not exist anywhere in aws-sdk-go-v2; the real op is ListTags only."}
 gaps: []
-items_still_open:
-  - "NEW (found this pass): CertificateAuthority.FailureReason (types.FailureReason: REQUEST_TIMED_OUT/UNSUPPORTED_ALGORITHM/OTHER) and CertificateAuthorityStatus's FAILED/EXPIRED enum values are entirely unmodeled -- CreateCertificateAuthority is synchronous and always succeeds or returns an immediate validation error, so no CA ever reaches FAILED, and no expiry-driven ACTIVE->EXPIRED transition is simulated. FailureReason is correctly never emitted (matching the real API omitting it whenever Status != FAILED), so this is a state-machine depth gap, not a wire-shape bug -- disclosed, not fixed (would need a new terminal status + expiry sweep, out of scope for a wrapper-key/nesting sweep)."
-  - "gopherstack-cq4o residual: TemplateArn's CSRPassthrough/APICSRPassthrough varieties only honor Subject/DNSNames already parsed from the CSR by crypto/x509 (the pre-existing behavior); a CSR's own embedded X.509 extensions (e.g. a requested KeyUsage/ExtendedKeyUsage/SAN via a PKCS#10 extensionRequest attribute) are not separately extracted and passed through for Blank*_CSRPassthrough templates -- only ApiPassthrough-sourced KeyUsage/ExtendedKeyUsage/SAN are honored for those. Narrower than a full CSR-extension-passthrough implementation; the documented per-family fixed-extension profiles (the bulk of TemplateArn's behavior) are otherwise fully implemented."
-  - "gopherstack-cq4o residual: the per-template CRL-distribution-point sourcing nuance ('[Passthrough from CA configuration or CSR]' on *CSRPassthrough/*APICSRPassthrough template families) is not modeled -- gopherstack always sources the CRL distribution point from the CA's own RevocationConfiguration regardless of template passthrough kind (matching the non-CSRPassthrough families exactly); a CSR-embedded CRL distribution point extension is never parsed or honored."
-  - "gopherstack-cq4o residual: TemplateArn's CA-hierarchy path-length inheritance rule ('The CA depth configured on a subordinate CA certificate must not exceed the limit set by its parents in the CA hierarchy') is not enforced -- SubordinateCACertificate_PathLenN's fixed pathLenConstraint is applied to the issued certificate correctly, but no cross-check against the issuing CA's own position in a CA hierarchy is performed (this backend does not model CA hierarchies/parent-child relationships at all)."
+items_still_open: []
+structural_gaps:
+  - "CertificateAuthorityStatus FAILED and CertificateAuthority.FailureReason: CA creation is synchronous and generates keys locally, so no request times out and no algorithm is rejected after acceptance."
 deferred: []              # both prior deferred items (ApiPassthrough, TemplateArn) now substantially implemented -- remaining edges tracked under gaps above
 leaks: {status: clean, note: "no goroutines/janitors in this service; all state lives in store.Table/store.Index behind the coarse b.mu lockmetrics.RWMutex, matching pkgs-catalog guidance. FIXED 2026-09-24 (leak sweep): DELETED CAs past their RestorableUntil deadline were hidden from every read path but never physically freed from b.cas, an unbounded-growth leak in the same class ec2/ecs/medialive/ram fixed for their own delete-waiter tombstones. pruneExpiredCertificateAuthoritiesLocked now evicts them on the next write-locked op (Create/Delete/RestoreCertificateAuthority); no new goroutine, no new lock."}
 ---
@@ -155,11 +153,10 @@ JSON wire assertions).
    `TestIssueCertificate_TemplateProfiles_FixedExtensions`'s 9 subtests
    spanning every family, each asserting KeyUsage/ExtKeyUsage/
    BasicConstraints/Critical-flags on a real-client-issued, real-client-parsed
-   certificate. Two residuals disclosed, not fixed (see `gaps`): CSR-embedded
-   extension passthrough (only ApiPassthrough-sourced KU/EKU/SAN are honored
-   for `*CSRPassthrough`/`*APICSRPassthrough` Blank templates; Subject/DNSNames
-   were already CSR-sourced before this pass) and CA-hierarchy path-length
-   inheritance (this backend does not model CA hierarchies at all).
+   certificate. 2026-10-07: `*CSRPassthrough`/`*APICSRPassthrough` templates now also honor the
+   CSR's SAN, KeyUsage, EKU and CRL distribution points (CA revocation config wins, CSR is
+   the fallback; csr_passthrough.go), and a CA certificate's pathLenConstraint must stay
+   below the issuing CA's own (checkIssuerPathLen).
 
 5. **RevocationConfiguration validation** (`certificate_authorities.go`):
    `CrlConfiguration.CustomCname`/`OcspConfiguration.OcspCustomCname` now
@@ -271,8 +268,8 @@ regardless -- but this is dead code, not a live bug: `CreateCertificateAuthority
 holds `b.mu.Lock()` for its entire duration and transitions every CA out of
 CREATING (to ACTIVE for ROOT, PENDING_CERTIFICATE for SUBORDINATE) before
 releasing it, so no caller can ever observe or act on a CA in CREATING
-status. `FAILED`/`EXPIRED` remain entirely unmodeled (already disclosed
-under `gaps`, unchanged this pass -- no CA ever reaches either). Not fixed:
+status. `EXPIRED` is now reported once an ACTIVE CA's certificate lapses (currentStatus);
+`FAILED` remains structural. Not fixed:
 fixing dead code adds no observable behavior change and risks the "reverting
 a file that defines a sentinel another file uses" trap for no benefit; left
 as a documented trap instead (see below).
@@ -417,10 +414,9 @@ request/response-shared-shape risk named in the brief) is `IssueCertificateInput
 `api_op_IssueCertificate.go` struct directly — and gopherstack's `issueCertificateOutput`
 correctly has no `ApiPassthrough`-derived fields. Clean.
 
-**Two new (small, pre-existing) gaps found and disclosed, not fixed** — see `gaps` above:
-`FailureReason`/`CertificateAuthorityStatus`'s `FAILED`/`EXPIRED` values (state-machine
-depth, not a wire bug — the field is correctly never emitted since no CA ever reaches
-those states), and `CertificateAuthorityConfiguration.CsrExtensions` (silently dropped on
+**Two new (small, pre-existing) gaps found and disclosed** — see `structural_gaps` above:
+`FailureReason`/`FAILED` (the field is correctly never emitted since no CA ever fails;
+`EXPIRED` was implemented 2026-10-07), and `CertificateAuthorityConfiguration.CsrExtensions` (silently dropped on
 input rather than explicitly rejected like the sibling exotic-field gaps get). Both are
 Layer 3 in nature (missing feature depth), surfaced incidentally while diffing
 `CertificateAuthority`'s and `CertificateAuthorityConfiguration`'s full field lists against
@@ -609,9 +605,8 @@ regressions, no stale claims.
   constraints, OCSP/code-signing presets) beyond the APIPassthrough-gating behavior.
 - `RevocationConfiguration`'s CNAME/S3-bucket-name format validation (RFC2396,
   S3 bucket naming rules) — currently any non-empty string is accepted.
-- NEW (2026-08-20 pass): `CertificateAuthorityStatus`'s `FAILED`/`EXPIRED` values and
-  `CertificateAuthority.FailureReason` are entirely unmodeled (no CA ever fails creation
-  or expires).
+- `CertificateAuthorityStatus`'s `FAILED` value and `CertificateAuthority.FailureReason`
+  stay unmodeled (no CA ever fails creation).
 
 ## 2026-08-31 Error-envelope sweep (gopherstack-6flj/uox6, errtargetaudit)
 

@@ -37,7 +37,7 @@ func (b *InMemoryBackend) CreateCertificateAuthorityAuditReport(
 		return nil, fmt.Errorf("%w: CA %s not found", ErrCANotFound, caARN)
 	}
 
-	if auditCA.Status != caStatusActive {
+	if auditCA.currentStatus() != caStatusActive {
 		return nil, fmt.Errorf("%w: CA %s must be ACTIVE to create an audit report", ErrInvalidState, caARN)
 	}
 

@@ -54,6 +54,7 @@ func (b *InMemoryBackend) CreateInstance(
 		IdentityStoreID: identityStoreID,
 		Status:          instanceStatusCreateInProgress,
 		CreatedDate:     time.Now().UTC(),
+		PrimaryRegion:   b.region,
 		Tags:            make(map[string]string),
 	}
 	maps.Copy(inst.Tags, tags)

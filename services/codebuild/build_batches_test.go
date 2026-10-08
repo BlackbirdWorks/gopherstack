@@ -66,6 +66,7 @@ func TestCodeBuild_BuildBatch(t *testing.T) {
 		}
 		require.NoError(t, json.NewDecoder(startRec.Body).Decode(&startOut))
 		batchID := startOut.BuildBatch.ID
+		require.Equal(t, http.StatusOK, doRequest(t, h, "StopBuildBatch", map[string]any{"id": batchID}).Code)
 
 		retryRec := doRequest(t, h, "RetryBuildBatch", map[string]any{"id": batchID})
 		require.Equal(t, http.StatusOK, retryRec.Code)
@@ -321,6 +322,7 @@ func TestHandler_RetryBuildBatch_ArnSet(t *testing.T) {
 	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
 	batchID, _ := startOut.BuildBatch["id"].(string)
 	require.NotEmpty(t, batchID)
+	require.Equal(t, http.StatusOK, doRequest(t, h, "StopBuildBatch", map[string]any{"id": batchID}).Code)
 
 	retryRec := doRequest(t, h, "RetryBuildBatch", map[string]any{"id": batchID})
 	require.Equal(t, http.StatusOK, retryRec.Code)

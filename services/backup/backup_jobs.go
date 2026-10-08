@@ -207,32 +207,22 @@ func (b *InMemoryBackend) StopBackupJob(jobID string) error {
 	return nil
 }
 
-// ListBackupJobSummaries returns a summary of backup jobs by resource type and status.
+// ListBackupJobSummaries counts backup jobs per aggregation window, resource type, state and message category.
 func (b *InMemoryBackend) ListBackupJobSummaries(f JobSummaryFilter) []map[string]any {
 	b.mu.RLock("ListBackupJobSummaries")
 	defer b.mu.RUnlock()
 
-	// Group by state.
-	counts := make(map[string]int)
-	for _, j := range b.jobs.All() {
-		if f.matches(b.summaryAccount(j.AccountID), j.ResourceType, j.State, j.MessageCategory) {
-			counts[j.State]++
-		}
-	}
+	all := b.jobs.All()
+	jobs := make([]summaryJob, 0, len(all))
 
-	summaries := make([]map[string]any, 0, len(counts))
-	for status, count := range counts {
-		summaries = append(summaries, map[string]any{
-			keyState:         status,
-			keySummaryCount:  count,
-			keySummaryRegion: b.region,
-			keyAccountID:     b.accountID,
+	for _, j := range all {
+		jobs = append(jobs, summaryJob{
+			at: j.CreationTime, account: b.summaryAccount(j.AccountID), resourceType: j.ResourceType,
+			state: j.State, messageCategory: j.MessageCategory,
 		})
 	}
 
-	sortSummaries(summaries)
-
-	return summaries
+	return b.buildSummaries(f, jobs, summaryShape{messageCategory: true})
 }
 
 // ListBackupJobsFilter contains optional filter parameters for listing backup jobs.

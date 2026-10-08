@@ -2,6 +2,10 @@ package transcribe
 
 import (
 	"context"
+	"fmt"
+	"slices"
+
+	sdktypes "github.com/aws/aws-sdk-go-v2/service/transcribe/types"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
@@ -28,6 +32,7 @@ type medicalScribeJobOutput struct {
 	CreationTime           *float64                         `json:"CreationTime,omitempty"`
 	StartTime              *float64                         `json:"StartTime,omitempty"`
 	CompletionTime         *float64                         `json:"CompletionTime,omitempty"`
+	ContextProvided        *bool                            `json:"MedicalScribeContextProvided,omitempty"`
 	MedicalScribeJobName   string                           `json:"MedicalScribeJobName"`
 	MedicalScribeJobStatus string                           `json:"MedicalScribeJobStatus"`
 	LanguageCode           string                           `json:"LanguageCode,omitempty"`
@@ -66,6 +71,7 @@ func buildMedicalScribeJobOutput(job *MedicalScribeJob) *medicalScribeJobOutput 
 		ChannelDefinitions:     job.ChannelDefinitions,
 		Tags:                   tagsFromMap(job.Tags),
 		MedicalScribeOutput:    buildMedicalScribeOutputLocations(job),
+		ContextProvided:        &job.ContextProvided,
 	}
 	if !job.CreationTime.IsZero() {
 		s := awstime.Epoch(job.CreationTime)
@@ -107,7 +113,14 @@ func (h *Handler) handleGetMedicalScribeJob(
 
 // --- StartMedicalScribeJob ---
 
+type medicalScribeContextInput struct {
+	PatientContext *struct {
+		Pronouns string `json:"Pronouns"`
+	} `json:"PatientContext"`
+}
+
 type startMedicalScribeJobInput struct {
+	MedicalScribeContext *medicalScribeContextInput       `json:"MedicalScribeContext"`
 	Settings             *MedicalScribeSettings           `json:"Settings"`
 	Media                Media                            `json:"Media"`
 	Tags                 []transcribeTag                  `json:"Tags"`
@@ -125,7 +138,14 @@ func (h *Handler) handleStartMedicalScribeJob(
 	_ context.Context,
 	in *startMedicalScribeJobInput,
 ) (*startMedicalScribeJobOutput, error) {
+	if ctxIn := in.MedicalScribeContext; ctxIn != nil && ctxIn.PatientContext != nil {
+		if p := ctxIn.PatientContext.Pronouns; p != "" && !slices.Contains(pronounValues(), p) {
+			return nil, fmt.Errorf("%w: unsupported Pronouns %q", ErrValidation, p)
+		}
+	}
+
 	job, err := h.Backend.StartMedicalScribeJob(&MedicalScribeJob{
+		ContextProvided:      in.MedicalScribeContext != nil,
 		MedicalScribeJobName: in.MedicalScribeJobName,
 		Media:                in.Media,
 		DataAccessRoleArn:    in.DataAccessRoleArn,
@@ -226,4 +246,15 @@ func (h *Handler) handleDeleteMedicalScribeJob(
 	}
 
 	return &struct{}{}, nil
+}
+
+func pronounValues() []string {
+	values := sdktypes.Pronouns("").Values()
+	out := make([]string, len(values))
+
+	for i, v := range values {
+		out[i] = string(v)
+	}
+
+	return out
 }

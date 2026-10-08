@@ -553,3 +553,57 @@ func TestDescribeManagedRuleGroupUnknown(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
+
+func TestManagedCatalogOps_RequiredMembers(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body   map[string]any
+		name   string
+		target string
+		want   int
+	}{
+		{name: "all products missing scope", target: "DescribeAllManagedProducts", body: map[string]any{}, want: 400},
+		{
+			name: "all products bad scope", target: "DescribeAllManagedProducts",
+			body: map[string]any{"Scope": "GLOBAL"}, want: 400,
+		},
+		{
+			name: "all products ok", target: "DescribeAllManagedProducts",
+			body: map[string]any{"Scope": "CLOUDFRONT"}, want: 200,
+		},
+		{
+			name: "by vendor missing scope", target: "DescribeManagedProductsByVendor",
+			body: map[string]any{"VendorName": "AWS"}, want: 400,
+		},
+		{
+			name: "by vendor missing vendor", target: "DescribeManagedProductsByVendor",
+			body: map[string]any{"Scope": "REGIONAL"}, want: 400,
+		},
+		{
+			name: "by vendor ok", target: "DescribeManagedProductsByVendor",
+			body: map[string]any{"Scope": "REGIONAL", "VendorName": "AWS"}, want: 200,
+		},
+		{
+			name: "rule group missing scope", target: "DescribeManagedRuleGroup",
+			body: map[string]any{"VendorName": "AWS", "Name": "AWSManagedRulesCommonRuleSet"}, want: 400,
+		},
+		{
+			name: "rule group missing name", target: "DescribeManagedRuleGroup",
+			body: map[string]any{"Scope": "REGIONAL", "VendorName": "AWS"}, want: 400,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doWafv2Request(t, newTestHandler(t), tt.target, tt.body)
+			assert.Equal(t, tt.want, rec.Code)
+
+			if tt.want == http.StatusBadRequest {
+				assert.Contains(t, rec.Body.String(), "WAFInvalidParameterException")
+			}
+		})
+	}
+}

@@ -2,7 +2,6 @@ package backup
 
 import (
 	"net/url"
-	"sort"
 	"time"
 )
 
@@ -113,12 +112,4 @@ func withNextToken(resp map[string]any, next string) map[string]any {
 	return resp
 }
 
-func summaryStateKey(m map[string]any) string {
-	s, _ := m[keyState].(string)
-
-	return s
-}
-
-func sortSummaries(s []map[string]any) {
-	sort.Slice(s, func(i, j int) bool { return summaryStateKey(s[i]) < summaryStateKey(s[j]) })
-}
+func summaryStateKey(m map[string]any) string { return summaryRowKey(m) }

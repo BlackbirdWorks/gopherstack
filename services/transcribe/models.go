@@ -127,6 +127,7 @@ type MedicalScribeJob struct {
 	MedicalScribeJobStatus string                           `json:"medicalScribeJobStatus"`
 	MedicalScribeJobName   string                           `json:"medicalScribeJobName"`
 	ChannelDefinitions     []MedicalScribeChannelDefinition `json:"channelDefinitions,omitempty"`
+	ContextProvided        bool                             `json:"medicalScribeContextProvided,omitempty"`
 }
 
 // MedicalTranscriptionJob represents an Amazon Transcribe Medical transcription job.

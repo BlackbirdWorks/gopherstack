@@ -126,6 +126,7 @@ type Instance struct {
 	PermissionSetsEnabled *bool             `json:"PermissionSetsEnabled,omitempty"`
 	EncryptionKeyType     string            `json:"EncryptionKeyType,omitempty"`
 	EncryptionKmsKeyArn   string            `json:"EncryptionKmsKeyArn,omitempty"`
+	PrimaryRegion         string            `json:"PrimaryRegion,omitempty"`
 	IdentityStoreID       string            `json:"IdentityStoreId"`
 	InstanceArn           string            `json:"InstanceArn"`
 	Name                  string            `json:"Name"`
