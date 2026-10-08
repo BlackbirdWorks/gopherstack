@@ -7,7 +7,7 @@
 service: iotdataplane
 sdk_module: aws-sdk-go-v2/service/iotdataplane@v1.35.4   # bumped from v1.32.20; +3 new ops (device connection/messaging introspection)
 last_audit_commit: 2dfc55a39
-last_audit_date: 2026-09-18  # gopherstack-xhu2t: reqfielddiff tier-1 request-field audit. 5
+last_audit_date: 2026-10-07  # gopherstack-xhu2t: reqfielddiff tier-1 request-field audit. 5
                               # tier-1 findings: ListSubscriptions.MaxResults + SendDirectMessage.
                               # Confirmation already handled (tool false positives, raw query
                               # reads the tool can't see); DeleteConnection.CleanSession/
@@ -34,9 +34,11 @@ families:
   admin-only-extensions: {status: ok, note: "RegisterConnection/ListConnections/ListThingsWithShadows have NO real AWS iotdataplane equivalent (confirmed against the SDK's op file listing); correctly confined to gopherstack-only paths (/_admin/connections, /api/things/shadow/ListThingsWithShadows) so they cannot shadow real AWS traffic"}
 gaps: []
 items_still_open:
-  - "UnsupportedDocumentEncodingException (HTTP 415, modeled for the three shadow ops) is never returned: six AWS sources (botocore model, SDK errors.go, IoT API reference, shadow REST/protocol/troubleshooting guides) give no trigger condition, so any validation would be a guess."
-  - "GetConnection omits disconnectReason/disconnectedSince/thingName/vpcEndpointId, and every live-session field for admin-registered clients with no broker session: no disconnect history, principal or VPC-endpoint modeling exists."
-  - "SendDirectMessage.timeout (and the HTTP 504 on a missing PUBACK) is read nowhere: the MQTTPublisher boundary has no ack-wait. Publish with no broker wired drops the message after a warning (intentional degradation)."
+  - "UnsupportedDocumentEncodingException (HTTP 415) is never returned (UNVERIFIABLE): the botocore model, SDK errors.go, IoT API reference and shadow guides give no trigger condition."
+  - "GetConnection records only DeleteConnection disconnects (SERVER_INITIATED_DISCONNECT, 30-minute retention). Broker-originated disconnects (keep-alive timeout, client-initiated, duplicate client id) need a disconnect callback on MQTTPublisher implemented in services/iot/broker.go."
+  - "SendDirectMessage.timeout and the HTTP 504 on a missing PUBACK are not honored. Wiring needed: an ack-wait variant of MQTTPublisher.SendToClient in services/iot/broker.go."
+structural_gaps:
+  - "GetConnection thingName and vpcEndpointId have no source: no certificate-to-thing principal mapping or VPC endpoint model exists for MQTT sessions."
 deferred:                 # consciously not audited this pass (scope) — next pass targets
   - "Chaos fault-injection paths (ChaosServiceName/ChaosOperations) -- not part of AWS wire surface, no parity concern."
 leaks: {status: clean, note: "no goroutines/timers introduced; tombstone rows are bounded by the same lifecycle as live shadow rows (same store.Table, same Reset/Snapshot/Restore path); removing the maxShadowsPerThing cap does not introduce unbounded growth risk beyond what already existed (shadows were never capped process-wide, only per-thing, and the per-thing cap had no eviction/GC of its own -- it only returned an error)"}

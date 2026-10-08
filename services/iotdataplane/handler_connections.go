@@ -136,8 +136,10 @@ type getConnectionResponse struct {
 	ClientID          string `json:"clientId"`
 	SourceIP          string `json:"sourceIp,omitempty"`
 	TargetIP          string `json:"targetIp,omitempty"`
+	DisconnectReason  string `json:"disconnectReason,omitempty"`
 	ConnectedSince    int64  `json:"connectedSince,omitempty"`
 	SessionExpiry     int64  `json:"sessionExpiry,omitempty"`
+	DisconnectedSince int64  `json:"disconnectedSince,omitempty"`
 	SourcePort        int32  `json:"sourcePort,omitempty"`
 	TargetPort        int32  `json:"targetPort,omitempty"`
 	KeepAliveDuration int32  `json:"keepAliveDuration,omitempty"`
@@ -171,6 +173,14 @@ func (h *Handler) handleGetConnection(c *echo.Context) error {
 	conn, err := h.Backend.GetConnection(clientID)
 	if err != nil {
 		return h.handleError(c, err)
+	}
+
+	if !conn.DisconnectedAt.IsZero() {
+		return c.JSON(http.StatusOK, getConnectionResponse{
+			ClientID:          conn.ClientID,
+			DisconnectedSince: conn.DisconnectedAt.UnixMilli(),
+			DisconnectReason:  conn.DisconnectReason,
+		})
 	}
 
 	resp := getConnectionResponse{

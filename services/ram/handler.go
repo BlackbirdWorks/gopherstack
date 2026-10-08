@@ -398,6 +398,12 @@ func (h *Handler) dispatch(
 	c *echo.Context,
 	body []byte,
 ) ([]byte, error) {
+	if usesClientToken(op) {
+		result, err := h.replayClientToken(ctx, op, c, body)
+
+		return result, err
+	}
+
 	if result, ok, err := h.dispatchMutateOps(ctx, op, c, body); ok {
 		return result, err
 	}
@@ -700,6 +706,7 @@ var errCodeLookup = []struct {
 	{ErrValidation, codeInvalidParameter},
 	{ErrMalformedArn, "MalformedArnException"},
 	{ErrInvalidStateTransition, "InvalidStateTransitionException"},
+	{ErrUnmatchedPolicyPermission, "UnmatchedPolicyPermissionException"},
 }
 
 func (h *Handler) handleError(c *echo.Context, err error) error {

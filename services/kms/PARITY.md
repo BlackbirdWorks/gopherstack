@@ -2,7 +2,7 @@
 service: kms
 sdk_module: aws-sdk-go-v2/service/kms@v1.59.0
 last_audit_commit: d1ed0e39b  # 2026-09-23 (gopherstack-6u8p4): AWS-managed key lazy provisioning
-last_audit_date: 2026-09-23
+last_audit_date: 2026-10-07
 overall: A            # Full sweep of the 5 gaps/2 deferred items this file previously
                        # tracked, plus a dedicated leak hunt. Found + fixed 1 real leak
                        # (Handler.tags -- a side map keyed by KeyID, entirely outside
@@ -87,9 +87,9 @@ families:
   multi_region: {status: ok, note: "ReplicateKey/UpdatePrimaryRegion primary<->replica promotion verified by existing TestUpdatePrimaryRegion_RoleSwap; DescribeKey MultiRegionConfiguration built correctly for both primary and replica sides"}
 gaps: []
 items_still_open:
-  - "XksKeyId (CreateKeyInput, external-key-store variant of CustomKeyStoreId) is unmodeled: no code in CreateKey's declared error set (api_op_CreateKey.go) fits a malformed/missing identifier, and this service defines no ValidationException type at all to carry it, so CreateKey rejects EXTERNAL_KEY_STORE linkage outright with UnsupportedOperationException instead of guessing a code (gopherstack-ufvn)."
-  - "ListKeyRotations ALL_KEY_MATERIAL covers the first AWS_KMS key material only: imported key material pending rotation, ImportState/ExpirationModel/ValidTo and per-generation imported material are unmodeled (EXTERNAL-origin and asymmetric keys get UnsupportedOperationException for ALL_KEY_MATERIAL)."
-  - "External key store proxies are never contacted: XksProxyUriUnreachable/IncorrectAuthenticationCredential/InvalidResponse and the VPC endpoint service existence checks are not modeled; the proxy secret (RawSecretAccessKey) is not stored."
+  - "Imported key material has a single generation: ImportKeyMaterial has no KeyMaterialId or import-for-rotation, so ListKeyRotations ALL_KEY_MATERIAL never shows PENDING_ROTATION or per-generation imported material."
+structural_gaps:
+  - "External key store proxies are never contacted: XksProxyUriUnreachable/IncorrectAuthenticationCredential/InvalidResponse, XksKeyNotFound/XksKeyInvalidConfiguration for the external key itself, and VPC endpoint service existence checks need a real proxy or VPC."
 deferred:
   - "Custom key store cryptographic connection/HSM simulation: ConnectCustomKeyStore is a pure state-machine transition (verified: no CloudHSM cluster or XKS proxy I/O in custom_key_stores.go); real HSM/XKS connectivity needs an external HSM/key-manager to talk to, which is out of scope for an in-memory emulator."
 leaks: {status: fixed, note: "Handler.tags (a side map of *tags.Tags keyed by KeyID, entirely outside InMemoryBackend -- see the TagResource/UntagResource/ListResourceTags ops rows for why tags live at the handler layer here) was never cleaned up when the janitor permanently purged a key. Every other per-key index the janitor purges (aliases, grants, lastUsage, and the grantsByKey secondary index fixed in a prior pass) lives inside InMemoryBackend and was already cascade-cleaned by purgeKey; Handler.tags structurally could not be, since Janitor only holds a *InMemoryBackend, not a *Handler. Since KMS key IDs are UUIDs that are never reused, an unfixed regression here leaks one *tags.Tags -- AND the lockmetrics/Prometheus collector registration it owns (see pkgs/tags.Tags.Close's doc comment: 'prevent unbounded growth of the global collector') -- per tagged-then-deleted key for the remaining lifetime of any long-running gopherstack process. Fixed by adding a Janitor.OnKeyPurged(region, keyID string) callback, invoked synchronously at the end of purgeKey (still under the backend's write lock; safe because Handler.tagsMu is never held while calling back into Backend anywhere in this package -- verified by reading every tagsMu-holding code path in handler_tags.go and persistence.go), and wired in Handler.WithJanitor to h.purgeTags, which Close()s and deletes the map entry. Verified by TestTagsLeak_PurgeKey in leak_test.go with a negative-control run (test fails with the exact leaked-tag symptom when the OnKeyPurged wiring is disabled, passes with it restored). All other maps confirmed still bounded (keyMaterialHistory capped at 100 entries/key, janitor sweeps PendingDeletion keys, resolution cache cleared via evictAliasesFromCache, grantsByKey dropped in purgeKey)."}

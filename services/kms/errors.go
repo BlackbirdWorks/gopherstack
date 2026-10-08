@@ -32,6 +32,10 @@ var (
 	ErrCustomKeyStoreInvalidState = errors.New("CustomKeyStoreInvalidStateException")
 	// ErrXksProxyInvalidConfiguration rejects an inconsistent external key store proxy configuration.
 	ErrXksProxyInvalidConfiguration = errors.New("XksProxyInvalidConfigurationException")
+	// ErrXksKeyInvalidConfiguration is returned when an external-store key lacks a valid XksKeyId.
+	ErrXksKeyInvalidConfiguration = errors.New("XksKeyInvalidConfigurationException")
+	// ErrXksKeyAlreadyInUse is returned when another key in the store already uses the XksKeyId.
+	ErrXksKeyAlreadyInUse = errors.New("XksKeyAlreadyInUseException")
 	// ErrXksProxyURIInUse is returned when another store already uses the endpoint+path pair.
 	ErrXksProxyURIInUse = errors.New("XksProxyUriInUseException")
 	// ErrXksProxyURIEndpointInUse is returned when another store already uses the endpoint.

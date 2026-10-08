@@ -60,6 +60,7 @@ type Key struct {
 	Arn              string `json:"Arn"`
 	ExpirationModel  string `json:"ExpirationModel,omitempty"`
 	CustomKeyStoreID string `json:"CustomKeyStoreId,omitempty"`
+	XksKeyID         string `json:"XksKeyId,omitempty"`
 	// KeyManager is CUSTOMER or AWS (gopherstack-6u8p4); a zero value means
 	// CUSTOMER (see KeyManagerCustomer).
 	KeyManager string `json:"KeyManager,omitempty"`
@@ -99,8 +100,14 @@ type MultiRegionConfiguration struct {
 	ReplicaKeys []MultiRegionKeyRef `json:"ReplicaKeys,omitempty"`
 }
 
+// XksKeyConfiguration identifies the external key backing a KMS key in an external key store.
+type XksKeyConfiguration struct {
+	ID string `json:"Id"`
+}
+
 // KeyMetadata is the metadata for a KMS key returned in API responses.
 type KeyMetadata struct {
+	XksKeyConfiguration         *XksKeyConfiguration      `json:"XksKeyConfiguration,omitempty"`
 	MultiRegionConfiguration    *MultiRegionConfiguration `json:"MultiRegionConfiguration,omitempty"`
 	Arn                         string                    `json:"Arn"`
 	Description                 string                    `json:"Description,omitempty"`
@@ -161,6 +168,7 @@ type CreateKeyInput struct {
 	Policy                         string `json:"Policy,omitempty"`
 	Region                         string `json:"-"`
 	CustomKeyStoreID               string `json:"CustomKeyStoreId,omitempty"`
+	XksKeyID                       string `json:"XksKeyId,omitempty"`
 	Tags                           []Tag  `json:"Tags,omitempty"`
 	MultiRegion                    bool   `json:"MultiRegion,omitempty"`
 	BypassPolicyLockoutSafetyCheck bool   `json:"BypassPolicyLockoutSafetyCheck,omitempty"`
@@ -218,15 +226,12 @@ type ListKeysOutput struct {
 
 // EncryptInput is the request payload for Encrypt.
 type EncryptInput struct {
-	EncryptionContext map[string]string `json:"EncryptionContext,omitempty"`
-	// GrantTokens is an optional list of grant tokens used to authorize the operation.
-	GrantTokens []string `json:"GrantTokens,omitempty"`
-	KeyID       string   `json:"KeyId"`
-	Plaintext   []byte   `json:"Plaintext"`
-	// EncryptionAlgorithm is required only for asymmetric keys; symmetric keys
-	// default to SYMMETRIC_DEFAULT when omitted.
-	EncryptionAlgorithm string `json:"EncryptionAlgorithm,omitempty"`
-	DryRun              bool   `json:"DryRun,omitempty"`
+	EncryptionContext   map[string]string `json:"EncryptionContext,omitempty"`
+	KeyID               string            `json:"KeyId"`
+	EncryptionAlgorithm string            `json:"EncryptionAlgorithm,omitempty"`
+	GrantTokens         []string          `json:"GrantTokens,omitempty"`
+	Plaintext           []byte            `json:"Plaintext"`
+	DryRun              bool              `json:"DryRun,omitempty"`
 }
 
 // EncryptOutput is the response payload for Encrypt.
@@ -238,13 +243,12 @@ type EncryptOutput struct {
 
 // DecryptInput is the request payload for Decrypt.
 type DecryptInput struct {
-	EncryptionContext map[string]string `json:"EncryptionContext,omitempty"`
-	// GrantTokens is an optional list of grant tokens used to authorize the operation.
-	GrantTokens         []string `json:"GrantTokens,omitempty"`
-	KeyID               string   `json:"KeyId,omitempty"`
-	CiphertextBlob      []byte   `json:"CiphertextBlob"`
-	EncryptionAlgorithm string   `json:"EncryptionAlgorithm,omitempty"`
-	DryRun              bool     `json:"DryRun,omitempty"`
+	EncryptionContext   map[string]string `json:"EncryptionContext,omitempty"`
+	KeyID               string            `json:"KeyId,omitempty"`
+	EncryptionAlgorithm string            `json:"EncryptionAlgorithm,omitempty"`
+	GrantTokens         []string          `json:"GrantTokens,omitempty"`
+	CiphertextBlob      []byte            `json:"CiphertextBlob"`
+	DryRun              bool              `json:"DryRun,omitempty"`
 }
 
 // DecryptOutput is the response payload for Decrypt.
@@ -277,9 +281,9 @@ type ReEncryptInput struct {
 	DestinationEncryptionContext   map[string]string `json:"DestinationEncryptionContext,omitempty"`
 	DestinationKeyID               string            `json:"DestinationKeyId"`
 	SourceKeyID                    string            `json:"SourceKeyId,omitempty"`
-	CiphertextBlob                 []byte            `json:"CiphertextBlob"`
 	SourceEncryptionAlgorithm      string            `json:"SourceEncryptionAlgorithm,omitempty"`
 	DestinationEncryptionAlgorithm string            `json:"DestinationEncryptionAlgorithm,omitempty"`
+	CiphertextBlob                 []byte            `json:"CiphertextBlob"`
 	DryRun                         bool              `json:"DryRun,omitempty"`
 }
 
@@ -377,6 +381,8 @@ const KeyOriginAWSKMS = "AWS_KMS"
 // KeyOriginExternal is the origin for keys whose material is imported by the customer.
 const KeyOriginExternal = "EXTERNAL"
 
+const keyOriginExternalKeyStore = "EXTERNAL_KEY_STORE"
+
 // DisableKeyInput is the request payload for DisableKey.
 type DisableKeyInput struct {
 	KeyID string `json:"KeyId"`
@@ -453,41 +459,19 @@ type GrantConstraints struct {
 
 // Grant represents a KMS key grant.
 type Grant struct {
-	// Constraints holds optional constraints for the grant.
-	Constraints *GrantConstraints `json:"Constraints,omitempty"`
-	// GrantID is the unique identifier for the grant.
-	GrantID string `json:"GrantId"`
-	// KeyID is the ID of the KMS key.
-	KeyID string `json:"KeyId"`
-	// GranteePrincipal is the principal that receives the grant. Mutually
-	// exclusive with GranteeServicePrincipal; exactly one must be set.
-	GranteePrincipal string `json:"GranteePrincipal,omitempty"`
-	// GranteeServicePrincipal is the AWS service principal that receives the
-	// grant. Mutually exclusive with GranteePrincipal; exactly one must be
-	// set. No AWS-service-principal simulation exists in this mock (no
-	// IAM/authorization layer at all -- see CreateGrantInput.GrantTokens), so
-	// this is stored/round-tripped for wire parity, matching real AWS's
-	// GrantListEntry shape, without any behavioral effect.
-	GranteeServicePrincipal string `json:"GranteeServicePrincipal,omitempty"`
-	// RetiringPrincipal is the principal that can retire the grant. Mutually
-	// exclusive with RetiringServicePrincipal.
-	RetiringPrincipal string `json:"RetiringPrincipal,omitempty"`
-	// RetiringServicePrincipal is the AWS service principal that can retire
-	// the grant. Mutually exclusive with RetiringPrincipal. Same no-IAM-layer
-	// scope boundary as GranteeServicePrincipal.
-	RetiringServicePrincipal string `json:"RetiringServicePrincipal,omitempty"`
-	// GrantToken is a token that can be used to identify this grant.
-	GrantToken string `json:"GrantToken"`
-	// TokenIssuedAt records when the grant token was issued, enabling expiry checks.
-	TokenIssuedAt time.Time `json:"TokenIssuedAt"`
-	// Name is an optional name for the grant.
-	Name string `json:"Name,omitempty"`
-	// Operations is the list of cryptographic operations the grantee can perform.
-	Operations []string `json:"Operations"`
-	// CreationDate is the Unix timestamp when the grant was created.
-	CreationDate float64 `json:"CreationDate"`
-	// IssuingAccount is the AWS account ID under which the grant was issued.
-	IssuingAccount string `json:"IssuingAccount,omitempty"`
+	TokenIssuedAt            time.Time         `json:"TokenIssuedAt"`
+	Constraints              *GrantConstraints `json:"Constraints,omitempty"`
+	RetiringServicePrincipal string            `json:"RetiringServicePrincipal,omitempty"`
+	GranteePrincipal         string            `json:"GranteePrincipal,omitempty"`
+	GranteeServicePrincipal  string            `json:"GranteeServicePrincipal,omitempty"`
+	RetiringPrincipal        string            `json:"RetiringPrincipal,omitempty"`
+	KeyID                    string            `json:"KeyId"`
+	GrantToken               string            `json:"GrantToken"`
+	GrantID                  string            `json:"GrantId"`
+	Name                     string            `json:"Name,omitempty"`
+	IssuingAccount           string            `json:"IssuingAccount,omitempty"`
+	Operations               []string          `json:"Operations"`
+	CreationDate             float64           `json:"CreationDate"`
 }
 
 // CreateGrantInput is the request payload for CreateGrant.
@@ -545,9 +529,9 @@ type GrantListEntry struct {
 	RetiringPrincipal        string            `json:"RetiringPrincipal,omitempty"`
 	RetiringServicePrincipal string            `json:"RetiringServicePrincipal,omitempty"`
 	Name                     string            `json:"Name,omitempty"`
+	IssuingAccount           string            `json:"IssuingAccount,omitempty"`
 	Operations               []string          `json:"Operations"`
 	CreationDate             float64           `json:"CreationDate"`
-	IssuingAccount           string            `json:"IssuingAccount,omitempty"`
 }
 
 // toGrantListEntry converts a stored Grant into its wire-safe ListGrants shape,
@@ -757,7 +741,10 @@ type KeyRotationEntry struct {
 	KeyMaterialID    string  `json:"KeyMaterialId,omitempty"`
 	KeyMaterialState string  `json:"KeyMaterialState,omitempty"`
 	RotationType     string  `json:"RotationType,omitempty"`
+	ImportState      string  `json:"ImportState,omitempty"`
+	ExpirationModel  string  `json:"ExpirationModel,omitempty"`
 	RotationDate     float64 `json:"RotationDate,omitempty"`
+	ValidTo          float64 `json:"ValidTo,omitempty"`
 }
 
 // ListKeyRotationsInput is the request payload for ListKeyRotations.
@@ -794,9 +781,9 @@ type ReplicateKeyInput struct {
 
 // ReplicateKeyOutput is the response payload for ReplicateKey.
 type ReplicateKeyOutput struct {
-	ReplicaKeyMetadata KeyMetadata `json:"ReplicaKeyMetadata"`
 	ReplicaPolicy      string      `json:"ReplicaPolicy,omitempty"`
 	ReplicaTags        []Tag       `json:"ReplicaTags,omitempty"`
+	ReplicaKeyMetadata KeyMetadata `json:"ReplicaKeyMetadata"`
 }
 
 // RotateKeyOnDemandInput is the request payload for RotateKeyOnDemand.
@@ -876,18 +863,14 @@ const ConnectionStateDisconnected = "DISCONNECTED"
 
 // CustomKeyStore represents an AWS KMS custom key store entry.
 type CustomKeyStore struct {
-	CustomKeyStoreID   string  `json:"CustomKeyStoreId"`
-	CustomKeyStoreName string  `json:"CustomKeyStoreName"`
-	ConnectionState    string  `json:"ConnectionState"`
-	CustomKeyStoreType string  `json:"CustomKeyStoreType"`
-	CreationDate       float64 `json:"CreationDate"`
-	// CloudHsmClusterId and TrustAnchorCertificate are echoed back by
-	// DescribeCustomKeyStores for AWS_CLOUDHSM stores (types.go:37-40,225);
-	// KeyStorePassword is write-only and never echoed.
-	CloudHsmClusterID      string `json:"CloudHsmClusterId,omitempty"`
-	TrustAnchorCertificate string `json:"TrustAnchorCertificate,omitempty"`
-	// XksProxyConfiguration is set for EXTERNAL_KEY_STORE stores only.
-	XksProxyConfiguration *XksProxyConfiguration `json:"XksProxyConfiguration,omitempty"`
+	XksProxyConfiguration  *XksProxyConfiguration `json:"XksProxyConfiguration,omitempty"`
+	CustomKeyStoreID       string                 `json:"CustomKeyStoreId"`
+	CustomKeyStoreName     string                 `json:"CustomKeyStoreName"`
+	ConnectionState        string                 `json:"ConnectionState"`
+	CustomKeyStoreType     string                 `json:"CustomKeyStoreType"`
+	CloudHsmClusterID      string                 `json:"CloudHsmClusterId,omitempty"`
+	TrustAnchorCertificate string                 `json:"TrustAnchorCertificate,omitempty"`
+	CreationDate           float64                `json:"CreationDate"`
 }
 
 // XksProxyConfiguration is the CustomKeyStoresListEntry.XksProxyConfiguration wire shape.

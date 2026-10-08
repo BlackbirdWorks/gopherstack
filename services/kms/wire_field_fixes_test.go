@@ -193,15 +193,8 @@ func TestListRetirableGrants_PrincipalCardinality_RealClient(t *testing.T) {
 	}
 }
 
-// TestCreateKey_ExternalKeyStore_UnsupportedOperationException_RealClient pins
-// CreateKey's rejection of the external-key-store linkage (gopherstack-ufvn:
-// resolving XksKeyId against an external key manager is not modeled -- see
-// PARITY.md) to a declared, typed error. CreateKey's error set (kms@v1.59.0
-// deserializeOpErrorCreateKey) has no ValidationException type at all, so this
-// must come back as UnsupportedOperationException, which real clients can
-// match with errors.As, not an undeclared code that degrades to a generic
-// smithy error.
-func TestCreateKey_ExternalKeyStore_UnsupportedOperationException_RealClient(t *testing.T) {
+// TestCreateKey_ExternalKeyStore_XksKeyID_RealClient drives CreateKey in an external key store through a real client.
+func TestCreateKey_ExternalKeyStore_XksKeyID_RealClient(t *testing.T) {
 	t.Parallel()
 
 	client := newTestKMSClient(t, newTestKMSHandler())
@@ -230,8 +223,24 @@ func TestCreateKey_ExternalKeyStore_UnsupportedOperationException_RealClient(t *
 	})
 	require.Error(t, err)
 
-	var unsupportedErr *kmstypes.UnsupportedOperationException
-	require.ErrorAs(t, err, &unsupportedErr,
-		"CreateKey against an external key store must surface a typed "+
-			"UnsupportedOperationException, not an undeclared code")
+	var invalidErr *kmstypes.XksKeyInvalidConfigurationException
+	require.ErrorAs(t, err, &invalidErr, "a missing XksKeyId must surface the declared typed exception")
+
+	create := func() (*kmssdk.CreateKeyOutput, error) {
+		return client.CreateKey(ctx, &kmssdk.CreateKeyInput{
+			CustomKeyStoreId: store.CustomKeyStoreId,
+			Origin:           kmstypes.OriginTypeExternalKeyStore,
+			XksKeyId:         aws.String("ext-key-1"),
+		})
+	}
+
+	out, err := create()
+	require.NoError(t, err)
+	require.NotNil(t, out.KeyMetadata.XksKeyConfiguration)
+	require.Equal(t, "ext-key-1", aws.ToString(out.KeyMetadata.XksKeyConfiguration.Id))
+
+	_, err = create()
+
+	var inUse *kmstypes.XksKeyAlreadyInUseException
+	require.ErrorAs(t, err, &inUse)
 }

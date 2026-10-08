@@ -99,6 +99,10 @@ func (h *Handler) handleDeleteWorkflow(c *echo.Context, id string) error {
 }
 
 func (h *Handler) handleGetWorkflow(c *echo.Context, id string) error {
+	if err := h.Backend.CheckWorkflowAccess(id, c.QueryParam("type"), c.QueryParam("workflowOwnerId")); err != nil {
+		return h.mapError(c, err)
+	}
+
 	wf, err := h.Backend.GetWorkflow(id)
 	if err != nil {
 		return h.mapError(c, err)
@@ -235,6 +239,12 @@ func (h *Handler) handleDeleteWorkflowVersion(
 }
 
 func (h *Handler) handleGetWorkflowVersion(c *echo.Context, workflowID, versionName string) error {
+	if err := h.Backend.CheckWorkflowAccess(
+		workflowID, c.QueryParam("type"), c.QueryParam("workflowOwnerId"),
+	); err != nil {
+		return h.mapError(c, err)
+	}
+
 	wv, err := h.Backend.GetWorkflowVersion(workflowID, versionName)
 	if err != nil {
 		return h.mapError(c, err)

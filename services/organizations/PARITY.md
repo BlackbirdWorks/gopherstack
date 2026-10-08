@@ -7,7 +7,7 @@
 service: organizations
 sdk_module: aws-sdk-go-v2/service/organizations@v1.53.5
 last_audit_commit: f78c3b7c7  # 2026-09-24 leak sweep: terminal handshakes evicted after 30d; prior: 5c20d9fd7
-last_audit_date: 2026-09-24
+last_audit_date: 2026-10-07
 overall: A            # 2026-08-30 (ordering pass): audited every List op's sort key against its actual
                       # unsorted source for tie-safety (Table.All() map walks are unspecified-order; a
                       # sort with no total-order comparator leaves ties to depend on that unspecified
@@ -141,10 +141,10 @@ families:
   id_formats: {status: ok, note: "12-digit account IDs, ou- root- p- h- o- prefixes match AWS patterns"}
   timestamps: {status: ok, note: "epochSeconds(t) in models.go now delegates to pkgs/awstime.Epoch (was a local float64(t.Unix()) reimplementation that truncated sub-second precision). Wire shape (JSON number, epoch seconds) unchanged and still correct; this closes the reuse-hygiene gap flagged in the prior audit. RE-VERIFIED 2026-08-29 (dedicated timestamp-encoding pattern hunt): protocol confirmed JSON-RPC 1.1 (awsAwsjson11_* serializer prefix, organizations@v1.53.5); all 12 *time.Time members across the whole SDK package (Account.JoinedTimestamp, CreateAccountStatus.{Completed,Requested}Timestamp, DelegatedAdministrator.{DelegationEnabledDate,JoinedTimestamp}, DelegatedService.DelegationEnabledDate, EffectivePolicy.LastUpdatedTimestamp, EnabledServicePrincipal.DateEnabled, Handshake.{Expiration,Requested}Timestamp, ResponsibilityTransfer.{End,Start}Timestamp) confirmed against deserializers.go's smithytime.ParseEpochSeconds calls and gopherstack's float64 wire structs -- all correct, 12-of-12. Request-side StartTimestamp/EndTimestamp (InviteOrganizationToTransferResponsibility, TerminateResponsibilityTransfer) parsed via time.Unix(int64(req.Field), 0).UTC(), matching serializers.go's smithytime.FormatEpochSeconds encoding -- also correct. ListEffectivePolicyValidationErrorsOutput.EvaluationTimestamp (a 13th member, Output-struct-only, not in types.go) is never emitted -- correctly ABSENT, not this pass's scope: the op always returns an empty EffectivePolicyValidationErrors list (no validation engine modeled) and there is no genuine 'last evaluated' instant to report without fabricating one."}
 gaps: []
-items_still_open:
-  - "ListAccountsWithInvalidEffectivePolicy / ListEffectivePolicyValidationErrors ignore MaxResults/NextToken: results are always empty until policy-schema validation exists."
-  - "Policy size limits use AWS DEFAULT per-type quotas only; service-quota increases (e.g. SCP up to 20480) are unmodeled, so such documents are rejected."
-  - "ResponsibilityTransfer is originate-only (this account as Source); the Target-side Inbound view needs a second account, which the single-account backend lacks."
+items_still_open: []
+structural_gaps:
+  - "Policy size limits use the AWS default per-type quotas; quota increases (e.g. SCP up to 20480) live in Service Quotas account state, which this repo does not emulate."
+  - "ResponsibilityTransfer is originate-only (this account as Source): the Target-side Inbound view needs a second organization's backend, which a single-account emulator lacks."
 deferred: []               # both previously-deferred items (policy content validation, tag validation)
                             # were implemented and field-diffed this pass -- see CreatePolicy/UpdatePolicy/
                             # TagResource notes above and the residual-limitation gaps listed above.

@@ -87,6 +87,16 @@ func (b *InMemoryBackend) DeleteWorkflow(id string) error {
 	return nil
 }
 
+// CheckWorkflowAccess resolves GetWorkflow's type and workflowOwnerId query selectors: only this account's
+// PRIVATE workflows exist, so READY2RUN or another owner can never match.
+func (b *InMemoryBackend) CheckWorkflowAccess(id, workflowType, ownerID string) error {
+	if workflowType == workflowTypeReady2Run || (ownerID != "" && ownerID != b.accountID) {
+		return fmt.Errorf("%w: workflow %s not found", ErrNotFound, id)
+	}
+
+	return nil
+}
+
 // GetWorkflow retrieves a workflow, advancing CREATING→ACTIVE on first poll
 // (real WorkflowActiveWaiter clients poll GetWorkflow until Status == ACTIVE).
 func (b *InMemoryBackend) GetWorkflow(id string) (*Workflow, error) {

@@ -36,6 +36,12 @@ const (
 	statusCancelled = "CANCELLED"
 	statusPending   = "PENDING"
 
+	creationTypeImport = "IMPORT"
+	creationTypeUpload = "UPLOAD"
+
+	submissionStatusSuccess = "SUCCESS"
+	submissionStatusFailed  = "FAILED"
+
 	// statusProcessed and statusRunsDeleted are RunBatch-only BatchStatus
 	// values (real AWS BatchStatus has no "COMPLETED" member -- the
 	// successful-terminal state for a batch is "PROCESSED"; "RUNS_DELETED"

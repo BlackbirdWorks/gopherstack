@@ -71,12 +71,16 @@ func validateKeySpecUsage(keySpec, keyUsage string) error {
 // validateCustomKeyStoreLink checks a CreateKeyInput.CustomKeyStoreId reference against its
 // doc comment (aws-sdk-go-v2/service/kms@v1.55.4 api_op_CreateKey.go:207): the store must
 // exist and be CONNECTED, and it is valid only for single-Region symmetric encryption KMS
-// keys. External key stores need XksKeyId, which gopherstack does not implement (see
-// PARITY.md).
+// keys. External key stores additionally need Origin EXTERNAL_KEY_STORE and a unique XksKeyId.
 func (b *InMemoryBackend) validateCustomKeyStoreLink(
-	region, storeID, keySpec, keyUsage string, multiRegion bool,
+	region string, input *CreateKeyInput, keySpec, keyUsage string,
 ) error {
+	storeID, multiRegion := input.CustomKeyStoreID, input.MultiRegion
 	if storeID == "" {
+		if input.XksKeyID != "" {
+			return fmt.Errorf("%w: XksKeyId requires an external key store", ErrUnsupportedParameter)
+		}
+
 		return nil
 	}
 
@@ -92,11 +96,8 @@ func (b *InMemoryBackend) validateCustomKeyStoreLink(
 		)
 	}
 
-	if ks.CustomKeyStoreType == "EXTERNAL_KEY_STORE" {
-		return fmt.Errorf(
-			"%w: creating a KMS key in an external key store requires XksKeyId, which gopherstack does not implement",
-			ErrUnsupportedParameter,
-		)
+	if err := b.validateXksKey(region, ks, input); err != nil {
+		return err
 	}
 
 	if keySpec != keySpecSymmetric || keyUsage != KeyUsageEncryptDecrypt || multiRegion {
@@ -104,6 +105,34 @@ func (b *InMemoryBackend) validateCustomKeyStoreLink(
 			"%w: custom key stores support only single-Region symmetric encryption KMS keys",
 			ErrUnsupportedParameter,
 		)
+	}
+
+	return nil
+}
+
+func (b *InMemoryBackend) validateXksKey(region string, ks *CustomKeyStore, input *CreateKeyInput) error {
+	if ks.CustomKeyStoreType != "EXTERNAL_KEY_STORE" {
+		if input.XksKeyID != "" {
+			return fmt.Errorf("%w: XksKeyId is valid only in an external key store", ErrUnsupportedParameter)
+		}
+
+		return nil
+	}
+
+	if input.Origin != keyOriginExternalKeyStore || input.XksKeyID == "" {
+		return fmt.Errorf(
+			"%w: a key in an external key store needs Origin EXTERNAL_KEY_STORE and an XksKeyId",
+			ErrXksKeyInvalidConfiguration,
+		)
+	}
+
+	for _, k := range b.keysStore(region).All() {
+		if k.CustomKeyStoreID == ks.CustomKeyStoreID && k.XksKeyID == input.XksKeyID {
+			return fmt.Errorf(
+				"%w: XksKeyId %q is already used in this external key store",
+				ErrXksKeyAlreadyInUse, input.XksKeyID,
+			)
+		}
 	}
 
 	return nil
@@ -206,9 +235,7 @@ func (b *InMemoryBackend) CreateKey(
 	// types: symmetric encryption KMS keys, HMAC KMS keys, asymmetric encryption KMS
 	// keys, and asymmetric signing KMS keys." No rejection belongs here (gopherstack-5rjn).
 
-	if err := b.validateCustomKeyStoreLink(
-		region, input.CustomKeyStoreID, keySpec, keyUsage, input.MultiRegion,
-	); err != nil {
+	if err := b.validateCustomKeyStoreLink(region, input, keySpec, keyUsage); err != nil {
 		return nil, err
 	}
 
@@ -236,6 +263,7 @@ func (b *InMemoryBackend) CreateKey(
 		Origin:           origin,
 		PrimaryRegion:    region,
 		CustomKeyStoreID: input.CustomKeyStoreID,
+		XksKeyID:         input.XksKeyID,
 		CreationDate:     UnixTimeFloat(time.Now()),
 		Enabled:          keyState == KeyStateEnabled,
 		MultiRegion:      input.MultiRegion,
@@ -542,6 +570,10 @@ func (b *InMemoryBackend) keyToMetadata(k *Key) KeyMetadata {
 		MultiRegion:           k.MultiRegion,
 		CustomKeyStoreID:      k.CustomKeyStoreID,
 		Enabled:               k.Enabled,
+	}
+
+	if k.XksKeyID != "" {
+		meta.XksKeyConfiguration = &XksKeyConfiguration{ID: k.XksKeyID}
 	}
 
 	// DeletionDate and PendingWindowInDays are only meaningful for PendingDeletion keys.

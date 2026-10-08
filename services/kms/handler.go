@@ -327,6 +327,8 @@ func kmsErrorTable() []kmsErrorEntry {
 		{sentinel: ErrCustomKeyStoreInvalidState, awsType: "CustomKeyStoreInvalidStateException"},
 		{sentinel: ErrCustomKeyStoreHasKeys, awsType: "CustomKeyStoreHasCMKsException"},
 		{sentinel: ErrXksProxyInvalidConfiguration, awsType: "XksProxyInvalidConfigurationException"},
+		{sentinel: ErrXksKeyInvalidConfiguration, awsType: "XksKeyInvalidConfigurationException"},
+		{sentinel: ErrXksKeyAlreadyInUse, awsType: "XksKeyAlreadyInUseException"},
 		{sentinel: ErrXksProxyURIInUse, awsType: "XksProxyUriInUseException"},
 		{sentinel: ErrXksProxyURIEndpointInUse, awsType: "XksProxyUriEndpointInUseException"},
 		{sentinel: ErrXksProxyVPCEndpointServiceInUse, awsType: "XksProxyVpcEndpointServiceInUseException"},

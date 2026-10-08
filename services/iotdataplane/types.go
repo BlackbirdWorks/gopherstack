@@ -22,8 +22,11 @@ type Connection struct {
 	// Session is the broker's live session for the client, nil when it has none.
 	Session     *SessionInfo `json:"-"`
 	ConnectedAt time.Time    `json:"connectedAt"`
-	ClientID    string       `json:"clientId"`
-	SourceIP    string       `json:"sourceIp,omitempty"`
+
+	DisconnectedAt   time.Time `json:"-"`
+	DisconnectReason string    `json:"-"`
+	ClientID         string    `json:"clientId"`
+	SourceIP         string    `json:"sourceIp,omitempty"`
 }
 
 // SubscriptionSummary is a single topic-filter/QoS pair describing one of a

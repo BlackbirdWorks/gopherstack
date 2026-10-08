@@ -123,7 +123,7 @@ func TestCreateKey_CustomKeyStore_Rejections(t *testing.T) {
 
 				return kms.CreateKeyInput{CustomKeyStoreID: out.CustomKeyStoreID}
 			},
-			wantErr: kms.ErrUnsupportedParameter,
+			wantErr: kms.ErrXksKeyInvalidConfiguration,
 		},
 	}
 

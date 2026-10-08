@@ -303,6 +303,7 @@ const (
 	includeAllKeyMaterial = "ALL_KEY_MATERIAL"
 	keyMaterialCurrent    = "CURRENT"
 	keyMaterialNonCurrent = "NON_CURRENT"
+	importStateImported   = "IMPORTED"
 )
 
 // keyMaterialID derives a stable 64-hex id for the generation-th key material of keyID.
@@ -320,9 +321,9 @@ func listRotationEntries(key *Key, include string) ([]KeyRotationEntry, error) {
 		return nil, fmt.Errorf("%w: IncludeKeyMaterial must be ROTATIONS_ONLY or ALL_KEY_MATERIAL", ErrValidation)
 	}
 
-	if include == includeAllKeyMaterial && (key.KeySpec != keySpecSymmetric || key.Origin == KeyOriginExternal) {
+	if include == includeAllKeyMaterial && key.KeySpec != keySpecSymmetric {
 		return nil, fmt.Errorf(
-			"%w: ALL_KEY_MATERIAL is only supported for symmetric AWS_KMS keys",
+			"%w: ALL_KEY_MATERIAL is only supported for symmetric keys",
 			ErrUnsupportedOrigin,
 		)
 	}
@@ -337,12 +338,21 @@ func listRotationEntries(key *Key, include string) ([]KeyRotationEntry, error) {
 
 	out := make([]KeyRotationEntry, 0, len(key.Rotations)+1)
 
-	if include == includeAllKeyMaterial {
-		out = append(out, KeyRotationEntry{
+	awaitingImport := key.Origin == KeyOriginExternal && key.KeyState == KeyStatePendingImport
+	if include == includeAllKeyMaterial && !awaitingImport {
+		first := KeyRotationEntry{
 			KeyID:            key.KeyID,
 			KeyMaterialID:    keyMaterialID(key.KeyID, 0),
 			KeyMaterialState: stateFor(0),
-		})
+		}
+
+		if key.Origin == KeyOriginExternal {
+			first.ImportState = importStateImported
+			first.ExpirationModel = key.ExpirationModel
+			first.ValidTo = key.ValidTo
+		}
+
+		out = append(out, first)
 	}
 
 	for i, r := range key.Rotations {

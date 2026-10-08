@@ -7,7 +7,7 @@
 service: omics
 sdk_module: aws-sdk-go-v2/service/omics@v1.49.5
 last_audit_commit: 3fd671fd6
-last_audit_date: 2026-09-18
+last_audit_date: 2026-10-07
 overall: A            # 2026-08-07 (gopherstack-hnhk): RunBatch's real body shape is now modeled.
                        # StartRunBatch takes real BatchRunSettings (inlineSettings, field-diffed
                        # against awsRestjson1_serializeDocumentBatchRunSettings/InlineSetting) +
@@ -64,9 +64,12 @@ families:
   Tags: {status: ok, note: "TagResource/UntagResource/ListTagsForResource; RouteMatcher correctly scopes /tags/{arn} to arn containing \":omics:\" so FIS's /tags/{arn} isn't stolen"}
 gaps: []
 items_still_open:
-  - "RunBatch does not model s3UriSettings (rejected: no S3 object body to read) or DefaultRunSetting.ConfigurationName/OutputBucketOwnerId (StartRun has no such stored member). StartRun.RunId (duplicate-a-run) and StartRun.ConfigurationName are not applied. GetWorkflow/GetWorkflowVersion Export/Type/WorkflowOwnerId queries are ignored: only PRIVATE workflows exist and no export bundle is built; CreateWorkflow(Version) ReadmeUri/ContainerRegistryMapUri/ParameterTemplatePath need S3 reads. CreateMultipartReadSetUpload ClientToken and Delete*Force are accepted without effect (no upload memo, no in-progress import blocking)."
-  - "RunBatchFilter.RunGroupID (ListBatch) is accepted from the query string for wire compatibility but not applied -- this backend has no run-group-of-a-batch's-runs association. RunsInBatchFilter.SubmissionStatus (ListRunsInBatch) is likewise accepted but not applied -- this backend has no async submission-status state machine (batches complete submission synchronously). RunSettingID IS now applied (fixed this pass, see RunBatch family note)."
-  - "2026-09-18 (over-wide List-summary sweep, gopherstack-dv4s): several List summaries are missing optional members the real SDK type declares, with no source on the corresponding domain model to derive them from (not fabricated) -- ReadSetSummary.CreationType/Etag/SequenceInformation (ListReadSets, no per-read-set creation-type/checksum/alignment tracking); RunTaskSummary.CacheHit/CacheS3Uri/Gpus/InstanceType (ListRunTasks -- no cache-execution engine, no per-task compute-type modeling); WorkflowSummary/WorkflowVersionSummary.Digest/Metadata (ListWorkflows/ListWorkflowVersions -- no definition-content hashing, no metadata input anywhere on CreateWorkflow/CreateWorkflowVersion). (no bd issue filed yet)"
+  - "RunBatch s3UriSettings and CreateWorkflow(Version) ReadmeUri/ContainerRegistryMapUri/ParameterTemplatePath need an S3 object read. Wiring needed: a GetObject(bucket, key) seam on omics fed from services/s3 in cli.go."
+structural_gaps:
+  - "GetWorkflow/GetWorkflowVersion Export (presigned definition bundle) and Type=READY2RUN (AWS-owned workflow catalog) have no source: no S3 presigner or bundle builder, no AWS catalog data."
+  - "Delete*Force is accepted without effect: import jobs complete synchronously, so none is ever in progress to block a delete."
+  - "ReadSetSummary/ReadSetMetadata Etag and SequenceInformation read/base counts and alignment need the read-set file body, which imports never read."
+  - "RunTaskSummary CacheHit/CacheS3Uri/Gpus/InstanceType need a task-cache engine and AWS's compute-type mapping; WorkflowSummary/WorkflowVersionSummary Digest/Metadata have no documented algorithm or input."
 deferred:
   - "Field-by-field diff of ReferenceMetadata/ReadSetMetadata optional sub-object fields (Files/ReferenceFiles, CreationJobId, CreationType, Etag, SequenceInformation) against the SDK model -- MD5/fileType (top-level scalars) are now confirmed correct; the sub-objects remain unpopulated but are optional/pointer-safe on the wire"
 leaks: {status: clean, note: "pure synchronous in-memory backend -- no goroutines, tickers, or janitors; nothing to leak (reconfirmed this pass)"}

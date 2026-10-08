@@ -1,9 +1,11 @@
 package omics
 
 import (
+	"cmp"
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -170,11 +172,81 @@ func (b *InMemoryBackend) StartRun(input StartRunInput) (*Run, error) {
 	defer b.mu.Unlock()
 
 	input.RunSettingID = ""
+
+	input, err := b.resolveStartRunInputLocked(input)
+	if err != nil {
+		return nil, err
+	}
+
 	run := b.startRunLocked(input)
 
 	result := *run
 
 	return &result, nil
+}
+
+// resolveStartRunInputLocked fills unset fields from the run named by input.RunID and
+// verifies input.ConfigurationName. Caller must hold the lock.
+func (b *InMemoryBackend) resolveStartRunInputLocked(input StartRunInput) (StartRunInput, error) {
+	if input.RunID != "" {
+		src, ok := b.runs.Get(input.RunID)
+		if !ok {
+			return input, fmt.Errorf("%w: run %s not found", ErrNotFound, input.RunID)
+		}
+
+		input = inheritFromRun(input, src)
+
+		if input.ConfigurationName != "" && !b.configurations.Has(input.ConfigurationName) {
+			input.ConfigurationName = ""
+		}
+	}
+
+	if input.ConfigurationName != "" && !b.configurations.Has(input.ConfigurationName) {
+		return input, fmt.Errorf("%w: configuration %s not found", ErrNotFound, input.ConfigurationName)
+	}
+
+	return input, nil
+}
+
+// inheritFromRun copies src's settings into every unset field of in, so StartRun's
+// RunId ("The ID of a run to duplicate") reproduces the run. Name and Tags are not copied.
+func inheritFromRun(in StartRunInput, src *Run) StartRunInput {
+	in.WorkflowID = cmp.Or(in.WorkflowID, src.WorkflowID)
+	in.WorkflowType = cmp.Or(in.WorkflowType, src.WorkflowType)
+	in.WorkflowVersionName = cmp.Or(in.WorkflowVersionName, src.WorkflowVersionName)
+	in.WorkflowOwnerID = cmp.Or(in.WorkflowOwnerID, src.WorkflowOwnerID)
+	in.RoleARN = cmp.Or(in.RoleARN, src.RoleARN)
+	in.RunGroupID = cmp.Or(in.RunGroupID, src.RunGroupID)
+	in.RunOutputURI = cmp.Or(in.RunOutputURI, src.RunOutputURI)
+	in.CacheID = cmp.Or(in.CacheID, src.CacheID)
+	in.CacheBehavior = cmp.Or(in.CacheBehavior, src.CacheBehavior)
+	in.NetworkingMode = cmp.Or(in.NetworkingMode, src.NetworkingMode)
+	in.RetentionMode = cmp.Or(in.RetentionMode, src.RetentionMode)
+	in.ScratchStorageMode = cmp.Or(in.ScratchStorageMode, src.ScratchStorageMode)
+	in.StorageType = cmp.Or(in.StorageType, src.StorageType)
+	in.LogLevel = cmp.Or(in.LogLevel, src.LogLevel)
+
+	if in.Priority == nil {
+		in.Priority = src.Priority
+	}
+
+	if in.StorageCapacity == nil {
+		in.StorageCapacity = src.StorageCapacity
+	}
+
+	if in.EngineSettings == nil {
+		in.EngineSettings = src.EngineSettings
+	}
+
+	if in.Params == nil {
+		in.Params = maps.Clone(src.Params)
+	}
+
+	if in.ConfigurationName == "" && src.Configuration != nil {
+		in.ConfigurationName = src.Configuration.Name
+	}
+
+	return in
 }
 
 // startRunDefaults resolves StartRunInput's own documented per-field
@@ -256,6 +328,10 @@ func (b *InMemoryBackend) startRunLocked(input StartRunInput) *Run {
 		CreationTime:        now,
 	}
 	run.Arn = arn.Build("omics", b.defaultRegion, b.accountID, "run/"+id)
+
+	if cfg, ok := b.configurations.Get(input.ConfigurationName); ok {
+		run.Configuration = &ConfigurationDetails{Arn: cfg.ARN, Name: cfg.Name, UUID: cfg.UUID}
+	}
 
 	b.runs.Put(run)
 
@@ -673,6 +749,14 @@ func (b *InMemoryBackend) StartRunBatch(
 	b.mu.Lock("StartRunBatch")
 	defer b.mu.Unlock()
 
+	if err := b.checkOutputBucketOwner(def.OutputURI, def.OutputBucketOwnerID); err != nil {
+		return nil, err
+	}
+
+	if def.ConfigurationName != "" && !b.configurations.Has(def.ConfigurationName) {
+		return nil, fmt.Errorf("%w: configuration %s not found", ErrNotFound, def.ConfigurationName)
+	}
+
 	id := newID()
 	now := time.Now().UTC()
 	// Real AWS caps inlineSettings at 100 entries, well within int32 range.
@@ -698,8 +782,11 @@ func (b *InMemoryBackend) StartRunBatch(
 	seenSettingIDs := make(map[string]bool, len(inlineSettings))
 
 	for _, inline := range inlineSettings {
-		if inline.RunSettingID == "" || seenSettingIDs[inline.RunSettingID] {
+		if msg := b.inlineSubmissionError(def, inline, seenSettingIDs); msg != "" {
 			rb.SubmissionFailureCount++
+			rb.FailedSubmissions = append(rb.FailedSubmissions, RunSubmissionFailure{
+				RunSettingID: inline.RunSettingID, Message: msg,
+			})
 
 			continue
 		}
@@ -719,6 +806,37 @@ func (b *InMemoryBackend) StartRunBatch(
 	result := *rb
 
 	return &result, nil
+}
+
+func (b *InMemoryBackend) inlineSubmissionError(
+	def DefaultRunSetting, inline InlineRunSetting, seen map[string]bool,
+) string {
+	switch {
+	case inline.RunSettingID == "":
+		return "runSettingId is required"
+	case seen[inline.RunSettingID]:
+		return "duplicate runSettingId " + inline.RunSettingID
+	}
+
+	outputURI := cmp.Or(inline.OutputURI, def.OutputURI)
+	owner := cmp.Or(inline.OutputBucketOwnerID, def.OutputBucketOwnerID)
+
+	if err := b.checkOutputBucketOwner(outputURI, owner); err != nil {
+		return err.Error()
+	}
+
+	return ""
+}
+
+// checkOutputBucketOwner rejects an s3:// output URI whose expected bucket owner is another account.
+func (b *InMemoryBackend) checkOutputBucketOwner(outputURI, expectedOwner string) error {
+	if expectedOwner == "" || !strings.HasPrefix(outputURI, "s3://") || expectedOwner == b.accountID {
+		return nil
+	}
+
+	return fmt.Errorf(
+		"%w: outputBucketOwnerId %s does not match the owner of the output bucket", ErrValidation, expectedOwner,
+	)
 }
 
 // summarizeRunBatchLocked computes the live RunSummary counts for a batch's
@@ -848,12 +966,8 @@ func (b *InMemoryBackend) GetRunBatchSummary(id string) (RunBatchSummary, error)
 	return b.summarizeRunBatchLocked(id), nil
 }
 
-// ListRunBatches lists run batches, optionally filtered by name/status (real
-// AWS ListBatchInput query parameters). filter.RunGroupID is accepted for
-// wire compatibility but not applied: real ListBatch filters by the run
-// group of the batch's *contained runs*, and this simplified RunBatch model
-// doesn't track a run-group association on the batch resource itself (see
-// the PARITY.md RunBatch note on the broader BatchRunSettings/RunSummary gap).
+// ListRunBatches lists run batches, optionally filtered by name, status and
+// run group (the batch's defaultRunSetting.runGroupId).
 func (b *InMemoryBackend) ListRunBatches(
 	filter *RunBatchFilter,
 	maxResults int,
@@ -872,6 +986,10 @@ func (b *InMemoryBackend) ListRunBatches(
 			}
 
 			if filter.Status != "" && rb.Status != filter.Status {
+				continue
+			}
+
+			if filter.RunGroupID != "" && rb.RunGroupID != filter.RunGroupID {
 				continue
 			}
 		}
@@ -921,45 +1039,85 @@ func (b *InMemoryBackend) DeleteRunsInBatch(batchID string) error {
 	return nil
 }
 
-// ListRunsInBatch lists runs that belong to a run batch, optionally filtered by runId
-// and runSettingId (real AWS ListRunsInBatchInput query parameters).
-// filter.SubmissionStatus is accepted for wire compatibility but not applied: this
-// backend has no async submission-status state machine, since batches complete
-// submission synchronously (see the PARITY.md RunBatch note).
+// ListRunsInBatch lists a batch's run submissions, optionally filtered by runId,
+// runSettingId and submissionStatus. Failed submissions have no Run row and are
+// listed from the batch itself.
 func (b *InMemoryBackend) ListRunsInBatch(
 	batchID string,
 	filter *RunsInBatchFilter,
 	maxResults int,
 	nextToken string,
-) ([]*Run, string, error) {
+) ([]RunInBatchSummary, string, error) {
 	b.mu.RLock("ListRunsInBatch")
 	defer b.mu.RUnlock()
 
-	if !b.runBatches.Has(batchID) {
+	rb, ok := b.runBatches.Get(batchID)
+	if !ok {
 		return nil, "", fmt.Errorf("%w: run batch %s not found", ErrNotFound, batchID)
 	}
 
-	var ids []string
-
-	for _, r := range b.runs.All() {
-		if r.RunBatchID != batchID {
-			continue
-		}
-
-		if filter != nil && filter.RunID != "" && r.ID != filter.RunID {
-			continue
-		}
-
-		if filter != nil && filter.RunSettingID != "" && r.RunSettingID != filter.RunSettingID {
-			continue
-		}
-
-		ids = append(ids, r.ID)
+	if filter == nil {
+		filter = &RunsInBatchFilter{}
 	}
 
-	result, outToken := paginatedCopies(ids, nextToken, maxResults, b.runs.Get)
+	entries := b.batchSubmissionsLocked(rb, filter)
+
+	keys := make([]string, 0, len(entries))
+
+	for k, v := range entries {
+		if filter.SubmissionStatus == "" || v.SubmissionStatus == filter.SubmissionStatus {
+			keys = append(keys, k)
+		}
+	}
+
+	slices.Sort(keys)
+	pageKeys, outToken := paginateStrings(keys, nextToken, maxResults)
+
+	result := make([]RunInBatchSummary, 0, len(pageKeys))
+	for _, k := range pageKeys {
+		result = append(result, entries[k])
+	}
 
 	return result, outToken, nil
+}
+
+// batchSubmissionsLocked keys every submission of rb that passes the run id and run setting
+// filters: runs sort before failed submissions. Caller must hold the read lock.
+func (b *InMemoryBackend) batchSubmissionsLocked(
+	rb *RunBatch, filter *RunsInBatchFilter,
+) map[string]RunInBatchSummary {
+	entries := make(map[string]RunInBatchSummary)
+
+	for _, r := range b.runs.All() {
+		if r.RunBatchID != rb.ID {
+			continue
+		}
+
+		if (filter.RunID != "" && r.ID != filter.RunID) ||
+			(filter.RunSettingID != "" && r.RunSettingID != filter.RunSettingID) {
+			continue
+		}
+
+		entries["0|"+r.ID] = newRunInBatchSummary(r)
+	}
+
+	if filter.RunID != "" {
+		return entries
+	}
+
+	for i, f := range rb.FailedSubmissions {
+		if filter.RunSettingID != "" && f.RunSettingID != filter.RunSettingID {
+			continue
+		}
+
+		entries[fmt.Sprintf("1|%08d", i)] = RunInBatchSummary{
+			RunSettingID:             f.RunSettingID,
+			SubmissionStatus:         submissionStatusFailed,
+			SubmissionFailureMessage: f.Message,
+		}
+	}
+
+	return entries
 }
 
 // newRunInBatchSummary converts a persisted run record into the real
@@ -971,7 +1129,7 @@ func newRunInBatchSummary(r *Run) RunInBatchSummary {
 		RunID:            r.ID,
 		RunUUID:          r.UUID,
 		RunSettingID:     r.RunSettingID,
-		SubmissionStatus: "SUCCESS",
+		SubmissionStatus: submissionStatusSuccess,
 	}
 }
 
@@ -1018,6 +1176,7 @@ func batchRunInput(def DefaultRunSetting, inline InlineRunSetting, batchID strin
 	}
 
 	return StartRunInput{
+		ConfigurationName:   def.ConfigurationName,
 		WorkflowID:          def.WorkflowID,
 		WorkflowType:        def.WorkflowType,
 		WorkflowVersionName: def.WorkflowVersionName,

@@ -57,6 +57,9 @@ type connectionEntrySnap struct {
 	ConnectedAt time.Time `json:"connectedAt"`
 	ClientID    string    `json:"clientId"`
 	SourceIP    string    `json:"sourceIp,omitempty"`
+
+	DisconnectedAt   time.Time `json:"disconnectedAt,omitzero"`
+	DisconnectReason string    `json:"disconnectReason,omitempty"`
 }
 
 func connectionEntrySnapKeyFn(v *connectionEntrySnap) string { return v.ClientID }
@@ -171,6 +174,9 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 			ClientID:    entry.clientID,
 			ConnectedAt: entry.connectedAt,
 			SourceIP:    entry.sourceIP,
+
+			DisconnectedAt:   entry.disconnectedAt,
+			DisconnectReason: entry.disconnectReason,
 		})
 	}
 
@@ -251,6 +257,9 @@ func (b *InMemoryBackend) restoreDirtyTablesLocked(tables map[string]json.RawMes
 			clientID:    dto.ClientID,
 			connectedAt: dto.ConnectedAt,
 			sourceIP:    dto.SourceIP,
+
+			disconnectedAt:   dto.DisconnectedAt,
+			disconnectReason: dto.DisconnectReason,
 		})
 	}
 

@@ -615,17 +615,9 @@ func secretMatchesFilter(s *Secret, f SecretFilter) bool {
 		// "all" matches any of the filterable string fields.
 		return matchPrefix(f.Values, secretAllAttributes(s), hasPrefixFold)
 	case "primary-region":
-		// In a single-region mock every secret belongs to the single region;
-		// the filter always passes (no cross-region replication routing needed).
-		return true
+		return anyMatchPrefix(f.Values, s.primaryRegionOrSelf())
 	case "owning-service":
-		// No secret in this mock ever has an owning service (no CreateSecret/
-		// UpdateSecret input field sets DescribeSecretOutput.OwningService — it
-		// is only ever set by AWS itself for service-linked secrets, e.g.
-		// RDS-managed rotation, which this mock does not model). A real
-		// "owning-service" prefix filter therefore matches nothing here, same
-		// as it would against any AWS secret with no owning service.
-		return anyMatchPrefix(f.Values, "")
+		return anyMatchPrefix(f.Values, owningService(s.Name))
 	default:
 		return true
 	}
@@ -743,6 +735,7 @@ func (b *InMemoryBackend) DescribeSecret(
 		ReplicationStatus:              b.replicationConfigsStoreRO(region)[name],
 		PrimaryRegion:                  secret.primaryRegionOrSelf(),
 		Type:                           secret.Type,
+		OwningService:                  owningService(secret.Name),
 		ExternalSecretRotationRoleArn:  secret.ExternalSecretRotationRoleArn,
 		ExternalSecretRotationMetadata: cloneExternalSecretRotationMetadata(secret.ExternalSecretRotationMetadata),
 	}
@@ -958,7 +951,19 @@ func secretToListEntry(s *Secret) SecretListEntry {
 		Tags:                           tagsToSlice(s.Tags),
 		SecretVersionsToStages:         versionStages,
 		Type:                           s.Type,
+		OwningService:                  owningService(s.Name),
 		ExternalSecretRotationRoleArn:  s.ExternalSecretRotationRoleArn,
 		ExternalSecretRotationMetadata: cloneExternalSecretRotationMetadata(s.ExternalSecretRotationMetadata),
 	}
+}
+
+// owningService is the service that owns a service-linked secret: public names cannot
+// contain "!", so a "<service>!<id>" name (see CreateManagedSecret) marks one.
+func owningService(name string) string {
+	svc, _, ok := strings.Cut(name, "!")
+	if !ok {
+		return ""
+	}
+
+	return svc
 }

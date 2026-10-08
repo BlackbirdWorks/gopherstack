@@ -98,6 +98,7 @@ type StorageBackend interface {
 		sequenceStoreID, name, sourceFileType, sampleID, subjectID, generatedFrom, referenceARN, description string,
 		tags map[string]string,
 	) (*MultipartReadSetUpload, error)
+	GetMultipartReadSetUpload(sequenceStoreID, uploadID string) (*MultipartReadSetUpload, error)
 	AbortMultipartReadSetUpload(sequenceStoreID, uploadID string) error
 	CompleteMultipartReadSetUpload(sequenceStoreID, uploadID string) (*ReadSetMetadata, error)
 	ListMultipartReadSetUploads(
@@ -154,6 +155,7 @@ type StorageBackend interface {
 	CreateWorkflow(input CreateWorkflowInput) (*Workflow, error)
 	DeleteWorkflow(id string) error
 	GetWorkflow(id string) (*Workflow, error)
+	CheckWorkflowAccess(id, workflowType, ownerID string) error
 	ListWorkflows(filter *WorkflowFilter, maxResults int, nextToken string) ([]*Workflow, string, error)
 	UpdateWorkflow(id, name, description, storageType, readmeMarkdown string, storageCapacity *int) error
 
@@ -271,7 +273,7 @@ type StorageBackend interface {
 		filter *RunsInBatchFilter,
 		maxResults int,
 		nextToken string,
-	) ([]*Run, string, error)
+	) ([]RunInBatchSummary, string, error)
 
 	// Configuration
 	CreateConfiguration(

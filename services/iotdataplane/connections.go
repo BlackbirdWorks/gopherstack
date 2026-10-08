@@ -22,7 +22,9 @@ func (b *InMemoryBackend) RegisterConnection(clientID, sourceIP string) error {
 	b.mu.Lock("RegisterConnection")
 	defer b.mu.Unlock()
 
-	if b.connections.Has(clientID) {
+	b.pruneDisconnectedLocked(time.Now())
+
+	if b.liveConnectionLocked(clientID) != nil {
 		return fmt.Errorf("%w: %s", ErrConnectionExists, clientID)
 	}
 
@@ -53,7 +55,8 @@ func (b *InMemoryBackend) DeleteConnectionWithOptions(clientID string, cleanSess
 	b.mu.Lock("DeleteConnection")
 	defer b.mu.Unlock()
 
-	if !b.connections.Has(clientID) {
+	entry := b.liveConnectionLocked(clientID)
+	if entry == nil {
 		return fmt.Errorf("%w: %s", ErrConnectionNotFound, clientID)
 	}
 
@@ -63,7 +66,9 @@ func (b *InMemoryBackend) DeleteConnectionWithOptions(clientID string, cleanSess
 		}
 	}
 
-	b.connections.Delete(clientID)
+	entry.disconnectedAt = time.Now()
+	entry.disconnectReason = disconnectReasonServerInitiated
+	b.pruneDisconnectedLocked(entry.disconnectedAt)
 
 	return nil
 }
@@ -77,6 +82,10 @@ func (b *InMemoryBackend) ListConnections() []*Connection {
 	out := make([]*Connection, 0, len(all))
 
 	for _, entry := range all {
+		if !entry.disconnectedAt.IsZero() {
+			continue
+		}
+
 		out = append(out, &Connection{
 			ClientID:    entry.clientID,
 			SourceIP:    entry.sourceIP,
@@ -124,14 +133,20 @@ func (b *InMemoryBackend) GetConnection(clientID string) (*Connection, error) {
 	broker := b.broker
 	b.mu.RUnlock()
 
-	if !ok {
+	if !ok || (!entry.disconnectedAt.IsZero() && time.Since(entry.disconnectedAt) > disconnectRetention) {
 		return nil, fmt.Errorf("%w: %s", ErrConnectionNotFound, clientID)
 	}
 
 	conn := &Connection{
-		ClientID:    entry.clientID,
-		SourceIP:    entry.sourceIP,
-		ConnectedAt: entry.connectedAt,
+		ClientID:         entry.clientID,
+		SourceIP:         entry.sourceIP,
+		ConnectedAt:      entry.connectedAt,
+		DisconnectedAt:   entry.disconnectedAt,
+		DisconnectReason: entry.disconnectReason,
+	}
+
+	if !entry.disconnectedAt.IsZero() {
+		return conn, nil
 	}
 
 	if broker != nil {
@@ -161,7 +176,7 @@ func (b *InMemoryBackend) ListSubscriptions(clientID string) ([]SubscriptionSumm
 	}
 
 	b.mu.RLock("ListSubscriptions")
-	tracked := b.connections.Has(clientID)
+	tracked := b.liveConnectionLocked(clientID) != nil
 	broker := b.broker
 	b.mu.RUnlock()
 
@@ -215,7 +230,7 @@ func (b *InMemoryBackend) SendDirectMessage(
 	}
 
 	b.mu.RLock("SendDirectMessage")
-	tracked := b.connections.Has(clientID)
+	tracked := b.liveConnectionLocked(clientID) != nil
 	broker := b.broker
 	b.mu.RUnlock()
 
@@ -242,4 +257,29 @@ func (b *InMemoryBackend) SendDirectMessage(
 	}
 
 	return broker.PublishWithProperties(topic, payload, false, qosByte, props)
+}
+
+const (
+	// disconnectRetention is GetConnectionOutput.DisconnectedSince's documented 30-minute window.
+	disconnectRetention = 30 * time.Minute
+	// disconnectReasonServerInitiated is the life-cycle event reason for a DeleteConnection.
+	disconnectReasonServerInitiated = "SERVER_INITIATED_DISCONNECT"
+)
+
+// liveConnectionLocked returns the connected (not disconnected) entry for clientID, or nil.
+func (b *InMemoryBackend) liveConnectionLocked(clientID string) *connectionEntry {
+	if e, ok := b.connections.Get(clientID); ok && e.disconnectedAt.IsZero() {
+		return e
+	}
+
+	return nil
+}
+
+// pruneDisconnectedLocked drops disconnected entries older than the retention window.
+func (b *InMemoryBackend) pruneDisconnectedLocked(now time.Time) {
+	for _, e := range b.connections.All() {
+		if !e.disconnectedAt.IsZero() && now.Sub(e.disconnectedAt) > disconnectRetention {
+			b.connections.Delete(e.clientID)
+		}
+	}
 }

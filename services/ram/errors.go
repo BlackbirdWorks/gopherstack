@@ -59,6 +59,9 @@ var (
 		"InvalidStateTransitionException",
 		awserr.ErrConflict,
 	)
+	// ErrUnmatchedPolicyPermission is PromoteResourceShareCreatedFromPolicy's
+	// UnmatchedPolicyPermissionException (types/errors.go).
+	ErrUnmatchedPolicyPermission = awserr.New("UnmatchedPolicyPermissionException", awserr.ErrConflict)
 	// ErrMalformedArn is returned when a resourceArns entry isn't ARN-shaped.
 	// CreateResourceShare and AssociateResourceShare both model
 	// MalformedArnException for this (ram@v1.39.4 deserializers.go,

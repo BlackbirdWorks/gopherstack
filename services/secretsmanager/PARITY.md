@@ -2,7 +2,7 @@
 service: secretsmanager
 sdk_module: aws-sdk-go-v2/service/secretsmanager@v1.48.0
 last_audit_commit: d522d763f  # 2026-09-19 leak-audit follow-up (gopherstack-1x2u0)
-last_audit_date: 2026-09-19
+last_audit_date: 2026-10-07
 overall: A            # 2026-08-30 pass: two real filter bugs found and fixed, both in the shared
                        # anyMatchPrefix/secretMatchesFilter path ListSecrets and BatchGetSecretValue
                        # both use. (1) types.Filter.Values' documented "!"-negation prefix ("You can
@@ -81,9 +81,9 @@ families:
   concurrency-locking: {status: fixed, note: "see leaks — RLock-guarded reads were lazily mutating the coarse per-region maps; fixed with non-mutating *StoreRO accessors"}
 gaps: []
 items_still_open:
-  - Filter key "all" is documented to break the value into words (types.Filter.Key); the word-matching rule is unspecified, so whole-value prefix matching is kept.
-  - PutSecretValueInput.RotationToken is a cross-account rotation identity token with no session/trust engine to validate it against.
-  - OwningService and managed (service-owned) rotation need a managed-service model; no input can set them, so they stay unset.
+  - "Filter key \"all\" is documented to break the value into words and search all attributes (UNVERIFIABLE): types.Filter.Key does not say whether words are ANDed or ORed or how attributes are tokenized, so whole-value prefix matching is kept."
+structural_gaps:
+  - "PutSecretValueInput.RotationToken is a cross-account/assumed-role rotation identity token with no session or trust engine to validate it against."
 deferred:
   - Managed rotation (AWS-service-owned secrets, e.g. RDS-managed rotation) — out of scope, not modeled at all
   - Cross-account resource-policy principal evaluation beyond the wildcard-principal BlockPublicPolicy heuristic
