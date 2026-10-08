@@ -23,6 +23,11 @@ func (h *S3Handler) listObjectsV2(
 ) {
 	h.setOperation(ctx, "ListObjectsV2")
 
+	bucketName, handled := h.routeObjectLambda(ctx, w, r, bucketName, "", objectLambdaActionListObjectsV2)
+	if handled {
+		return
+	}
+
 	if err := h.authorizeObjectAccess(ctx, r, bucketName, "", actionListBucket); err != nil {
 		WriteError(ctx, w, r, err)
 

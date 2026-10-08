@@ -248,7 +248,7 @@ type StorageBackend interface {
 	ObjectLambdaConfig(bucket string) string
 	SetObjectLambdaAccessPoint(bucket string, ap StoredObjectLambdaAccessPoint)
 	DeleteObjectLambdaAccessPoint(name, accountID string)
-	resolveObjectLambdaTarget(label string) (bucket, lambdaARN string)
+	resolveObjectLambdaTarget(label string) objectLambdaRoute
 
 	// S3 Express directory buckets
 	ListDirectoryBuckets(ctx context.Context) ([]types.Bucket, error)

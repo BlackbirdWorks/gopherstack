@@ -28,6 +28,12 @@ type objectLambdaResponse struct {
 	statusCode int
 }
 
+// objectLambdaInputContext is the single-property context headObjectContext,
+// listObjectsContext and listObjectsV2Context carry.
+type objectLambdaInputContext struct {
+	InputS3URL string `json:"inputS3Url"`
+}
+
 // objectLambdaGetObjectContext is the getObjectContext JSON block sent to the lambda.
 type objectLambdaGetObjectContext struct {
 	InputS3URL  string `json:"inputS3Url"`
@@ -35,9 +41,27 @@ type objectLambdaGetObjectContext struct {
 	OutputToken string `json:"outputToken"`
 }
 
-// objectLambdaEvent is the JSON payload sent when invoking a Lambda for GetObject.
+type objectLambdaConfiguration struct {
+	AccessPointARN           string `json:"accessPointArn"`
+	SupportingAccessPointARN string `json:"supportingAccessPointArn"`
+	Payload                  string `json:"payload"`
+}
+
+type objectLambdaUserRequest struct {
+	Headers map[string]string `json:"headers"`
+	URL     string            `json:"url"`
+}
+
+// objectLambdaEvent is the JSON payload sent to the Lambda; exactly one *Context member is set.
 type objectLambdaEvent struct {
-	GetObjectContext objectLambdaGetObjectContext `json:"getObjectContext"`
+	GetObjectContext     *objectLambdaGetObjectContext `json:"getObjectContext,omitempty"`
+	HeadObjectContext    *objectLambdaInputContext     `json:"headObjectContext,omitempty"`
+	ListObjectsContext   *objectLambdaInputContext     `json:"listObjectsContext,omitempty"`
+	ListObjectsV2Context *objectLambdaInputContext     `json:"listObjectsV2Context,omitempty"`
+	Configuration        *objectLambdaConfiguration    `json:"configuration,omitempty"`
+	UserRequest          objectLambdaUserRequest       `json:"userRequest"`
+	XAmzRequestID        string                        `json:"xAmzRequestId"`
+	ProtocolVersion      string                        `json:"protocolVersion"`
 }
 
 // SetObjectLambdaConfig registers a Lambda ARN to be invoked for GetObject requests
@@ -50,7 +74,7 @@ func (h *S3Handler) SetObjectLambdaConfig(bucket, lambdaARN string) {
 
 // objectLambdaTarget returns the bucket to read and the Lambda to invoke for the
 // addressed bucket label, or an empty Lambda ARN when none applies.
-func (h *S3Handler) objectLambdaTarget(label string) (string, string) {
+func (h *S3Handler) objectLambdaTarget(label string) objectLambdaRoute {
 	return h.Backend.resolveObjectLambdaTarget(label)
 }
 
@@ -118,7 +142,8 @@ func (h *S3Handler) handleObjectLambdaGetObject(
 	ctx context.Context,
 	w http.ResponseWriter,
 	r *http.Request,
-	bucket, key, lambdaARN string,
+	route objectLambdaRoute,
+	key string,
 ) {
 	if h.notifier == nil {
 		WriteError(ctx, w, r, ErrNoSuchKey)
@@ -129,14 +154,12 @@ func (h *S3Handler) handleObjectLambdaGetObject(
 	token := uuid.NewString()
 	ch := h.registerObjectLambdaRequest(token)
 
-	inputURL := fmt.Sprintf("%s/%s/%s", h.Endpoint, bucket, key)
-
-	event := objectLambdaEvent{
-		GetObjectContext: objectLambdaGetObjectContext{
-			InputS3URL:  inputURL,
-			OutputRoute: "gopherstack",
-			OutputToken: token,
-		},
+	lambdaARN := route.lambdaARN
+	event := h.newObjectLambdaEvent(r, route)
+	event.GetObjectContext = &objectLambdaGetObjectContext{
+		InputS3URL:  fmt.Sprintf("%s/%s/%s", h.Endpoint, route.bucket, key),
+		OutputRoute: "gopherstack",
+		OutputToken: token,
 	}
 	payload, err := json.Marshal(event)
 	if err != nil {
@@ -381,10 +404,10 @@ func mayBeObjectLambdaLabel(label string) bool {
 // resolveObjectLambdaTarget maps the addressed bucket label to the bucket to read
 // and the Lambda to invoke: an Object Lambda access point alias or
 // "<name>-<account>" label resolves to its supporting bucket, otherwise the
-// label's own bucket-level Lambda configuration applies. lambdaARN is "" when none.
-func (b *InMemoryBackend) resolveObjectLambdaTarget(label string) (string, string) {
+// label's own bucket-level Lambda configuration applies. The route's lambdaARN is "" when none.
+func (b *InMemoryBackend) resolveObjectLambdaTarget(label string) objectLambdaRoute {
 	if !mayBeObjectLambdaLabel(label) {
-		return label, b.ObjectLambdaConfig(label)
+		return objectLambdaRoute{bucket: label, lambdaARN: b.ObjectLambdaConfig(label)}
 	}
 
 	b.mu.RLock("resolveObjectLambdaTarget")
@@ -392,7 +415,7 @@ func (b *InMemoryBackend) resolveObjectLambdaTarget(label string) (string, strin
 	b.mu.RUnlock()
 
 	for _, bucket := range buckets {
-		var lambdaARN string
+		var found *StoredObjectLambdaAccessPoint
 
 		func() {
 			bucket.mu.RLock("resolveObjectLambdaTarget")
@@ -400,19 +423,20 @@ func (b *InMemoryBackend) resolveObjectLambdaTarget(label string) (string, strin
 
 			for _, ap := range bucket.ObjectLambdaAccessPoints {
 				if label == ap.Alias || label == ap.Name+"-"+ap.AccountID {
-					lambdaARN = ap.LambdaARN
+					cp := ap
+					found = &cp
 
 					return
 				}
 			}
 		}()
 
-		if lambdaARN != "" {
-			return bucket.Name, lambdaARN
+		if found != nil && found.LambdaARN != "" {
+			return objectLambdaRoute{bucket: bucket.Name, lambdaARN: found.LambdaARN, ap: found}
 		}
 	}
 
-	return label, b.ObjectLambdaConfig(label)
+	return objectLambdaRoute{bucket: label, lambdaARN: b.ObjectLambdaConfig(label)}
 }
 
 // isObjectLambdaAliasRead lets an access point alias, which IsValidBucketName

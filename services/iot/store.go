@@ -27,6 +27,7 @@ type RuleDispatcher interface {
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
 	dispatcher                 RuleDispatcher
+	serverCertChecker          ServerCertificateChecker
 	roleAuth                   roleauth.Authorizer
 	targets                    *ActionTargets
 	resourceTags               map[string]map[string]string

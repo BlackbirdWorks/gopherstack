@@ -27,9 +27,8 @@ func (h *S3Handler) getObject(
 	h.setOperation(ctx, "GetObject")
 
 	// If the bucket has an Object Lambda configuration, delegate to the lambda path.
-	if target, lambdaARN := h.objectLambdaTarget(bucketName); lambdaARN != "" {
-		h.handleObjectLambdaGetObject(ctx, w, r, target, key, lambdaARN)
-
+	bucketName, handled := h.routeObjectLambda(ctx, w, r, bucketName, key, objectLambdaActionGetObject)
+	if handled {
 		return
 	}
 

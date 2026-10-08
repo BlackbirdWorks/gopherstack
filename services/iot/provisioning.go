@@ -130,21 +130,36 @@ func (b *InMemoryBackend) DeleteRoleAlias(alias string) error {
 
 // DomainConfiguration represents an IoT domain configuration.
 type DomainConfiguration struct {
-	Tags                      map[string]string              `json:"tags,omitempty"`
-	AuthorizerConfig          *DomainAuthorizerConfig        `json:"authorizerConfig,omitempty"`
-	ClientCertificateConfig   *DomainClientCertificateConfig `json:"clientCertificateConfig,omitempty"`
-	ServerCertificateConfig   *DomainServerCertificateConfig `json:"serverCertificateConfig,omitempty"`
-	TLSConfig                 *DomainTLSConfig               `json:"tlsConfig,omitempty"`
-	DomainConfigurationName   string                         `json:"domainConfigurationName"`
-	DomainConfigurationARN    string                         `json:"domainConfigurationArn"`
-	DomainName                string                         `json:"domainName,omitempty"`
-	ServiceType               string                         `json:"serviceType,omitempty"`
-	DomainConfigurationStatus string                         `json:"domainConfigurationStatus"`
-	DomainType                string                         `json:"domainType,omitempty"`
-	ApplicationProtocol       string                         `json:"applicationProtocol,omitempty"`
-	AuthenticationType        string                         `json:"authenticationType,omitempty"`
-	CreationDate              float64                        `json:"creationDate,omitempty"`
-	LastModifiedDate          float64                        `json:"lastModifiedDate,omitempty"`
+	Tags                      map[string]string                `json:"tags,omitempty"`
+	AuthorizerConfig          *DomainAuthorizerConfig          `json:"authorizerConfig,omitempty"`
+	ClientCertificateConfig   *DomainClientCertificateConfig   `json:"clientCertificateConfig,omitempty"`
+	ServerCertificateConfig   *DomainServerCertificateConfig   `json:"serverCertificateConfig,omitempty"`
+	TLSConfig                 *DomainTLSConfig                 `json:"tlsConfig,omitempty"`
+	ServiceType               string                           `json:"serviceType,omitempty"`
+	DomainConfigurationARN    string                           `json:"domainConfigurationArn"`
+	DomainName                string                           `json:"domainName,omitempty"`
+	DomainConfigurationName   string                           `json:"domainConfigurationName"`
+	DomainConfigurationStatus string                           `json:"domainConfigurationStatus"`
+	DomainType                string                           `json:"domainType,omitempty"`
+	ApplicationProtocol       string                           `json:"applicationProtocol,omitempty"`
+	AuthenticationType        string                           `json:"authenticationType,omitempty"`
+	ValidationCertificateARN  string                           `json:"validationCertificateArn,omitempty"`
+	ServerCertificateARNs     []string                         `json:"serverCertificateArns,omitempty"`
+	ServerCertificates        []DomainServerCertificateSummary `json:"serverCertificates,omitempty"`
+	CreationDate              float64                          `json:"creationDate,omitempty"`
+	LastModifiedDate          float64                          `json:"lastModifiedDate,omitempty"`
+}
+
+// DomainServerCertificateSummary mirrors types.ServerCertificateSummary.
+type DomainServerCertificateSummary struct {
+	ServerCertificateARN          string `json:"serverCertificateArn"`
+	ServerCertificateStatus       string `json:"serverCertificateStatus,omitempty"`
+	ServerCertificateStatusDetail string `json:"serverCertificateStatusDetail,omitempty"`
+}
+
+// ServerCertificateChecker reports the ACM validity of a domain configuration's server certificate.
+type ServerCertificateChecker interface {
+	ServerCertificateStatus(certificateARN string) (status, detail string)
 }
 
 // DomainAuthorizerConfig mirrors types.AuthorizerConfig.
@@ -192,6 +207,8 @@ func cloneDomainConfig(dc *DomainConfiguration) *DomainConfiguration {
 		cp.TLSConfig = &v
 	}
 
+	cp.ServerCertificateARNs = append([]string(nil), dc.ServerCertificateARNs...)
+
 	return &cp
 }
 
@@ -201,15 +218,17 @@ func (b *InMemoryBackend) domainConfigARN(name string) string {
 
 // CreateDomainConfigurationInput holds input for CreateDomainConfiguration.
 type CreateDomainConfigurationInput struct {
-	AuthorizerConfig        *DomainAuthorizerConfig        `json:"authorizerConfig,omitempty"`
-	ClientCertificateConfig *DomainClientCertificateConfig `json:"clientCertificateConfig,omitempty"`
-	ServerCertificateConfig *DomainServerCertificateConfig `json:"serverCertificateConfig,omitempty"`
-	TLSConfig               *DomainTLSConfig               `json:"tlsConfig,omitempty"`
-	DomainConfigurationName string                         `json:"domainConfigurationName"`
-	DomainName              string                         `json:"domainName,omitempty"`
-	ServiceType             string                         `json:"serviceType,omitempty"`
-	ApplicationProtocol     string                         `json:"applicationProtocol,omitempty"`
-	AuthenticationType      string                         `json:"authenticationType,omitempty"`
+	AuthorizerConfig         *DomainAuthorizerConfig        `json:"authorizerConfig,omitempty"`
+	ClientCertificateConfig  *DomainClientCertificateConfig `json:"clientCertificateConfig,omitempty"`
+	ServerCertificateConfig  *DomainServerCertificateConfig `json:"serverCertificateConfig,omitempty"`
+	TLSConfig                *DomainTLSConfig               `json:"tlsConfig,omitempty"`
+	DomainConfigurationName  string                         `json:"domainConfigurationName"`
+	DomainName               string                         `json:"domainName,omitempty"`
+	ServiceType              string                         `json:"serviceType,omitempty"`
+	ApplicationProtocol      string                         `json:"applicationProtocol,omitempty"`
+	AuthenticationType       string                         `json:"authenticationType,omitempty"`
+	ValidationCertificateARN string                         `json:"validationCertificateArn,omitempty"`
+	ServerCertificateARNs    []string                       `json:"serverCertificateArns,omitempty"`
 	// []types.Tag on the wire, not a map (serializers.go:2450, aws-sdk-go-v2/service/iot@v1.77.4).
 	Tags []tags.KV `json:"tags,omitempty"`
 }
@@ -229,6 +248,10 @@ type UpdateDomainConfigurationInput struct {
 func (b *InMemoryBackend) CreateDomainConfiguration(
 	input *CreateDomainConfigurationInput,
 ) (*DomainConfiguration, error) {
+	if len(input.ServerCertificateARNs) > 1 {
+		return nil, fmt.Errorf("%w: only one serverCertificateArn can be specified", ErrValidation)
+	}
+
 	b.mu.Lock("CreateDomainConfiguration")
 	defer b.mu.Unlock()
 
@@ -255,6 +278,8 @@ func (b *InMemoryBackend) CreateDomainConfiguration(
 		ClientCertificateConfig:   input.ClientCertificateConfig,
 		ServerCertificateConfig:   input.ServerCertificateConfig,
 		TLSConfig:                 input.TLSConfig,
+		ValidationCertificateARN:  input.ValidationCertificateARN,
+		ServerCertificateARNs:     append([]string(nil), input.ServerCertificateARNs...),
 	}
 	if dc.ServiceType == "" {
 		dc.ServiceType = "DATA"
@@ -274,7 +299,25 @@ func (b *InMemoryBackend) DescribeDomainConfiguration(name string) (*DomainConfi
 		return nil, fmt.Errorf("domain configuration %q not found: %w", name, ErrResourceNotFound)
 	}
 
-	return cloneDomainConfig(dc), nil
+	out := cloneDomainConfig(dc)
+	checker := b.serverCertChecker
+	for _, certARN := range out.ServerCertificateARNs {
+		sum := DomainServerCertificateSummary{ServerCertificateARN: certARN}
+		if checker != nil {
+			sum.ServerCertificateStatus, sum.ServerCertificateStatusDetail = checker.ServerCertificateStatus(certARN)
+		}
+		out.ServerCertificates = append(out.ServerCertificates, sum)
+	}
+
+	return out, nil
+}
+
+// SetServerCertificateChecker wires the ACM certificate validity lookup.
+func (b *InMemoryBackend) SetServerCertificateChecker(c ServerCertificateChecker) {
+	b.mu.Lock("SetServerCertificateChecker")
+	defer b.mu.Unlock()
+
+	b.serverCertChecker = c
 }
 
 func (b *InMemoryBackend) ListDomainConfigurations() []*DomainConfiguration {

@@ -46,7 +46,7 @@ gaps: []
 items_still_open:
   - "Rejections the pinned SDK lists no error code for, so none is invented: Object Annotations 1 B-1 MiB payload window and ObjectIfMatch; RenameObject and CreateSession accepted on non-directory buckets; CreateSession SessionMode ReadOnly not enforced; directory buckets still accept ACL/tagging/versioning/lifecycle/website/CORS."
   - "x-amz-mfa: MFA delete is stored, never enforced; the SDK lists no error code for a missing or bad MFA token."
-  - "HeadObject, ListObjects and ListObjectsV2 through an Object Lambda access point are not routed to a Lambda (GetObject is)."
+  - "Object Lambda events omit userIdentity and the access point AllowedFeatures (GetObject-Range/-PartNumber, HeadObject-Range/-PartNumber) are not enforced; inputS3Url is an unsigned emulator URL, not a presigned one."
   - "ListBucketIntelligentTieringConfigurations is unpaginated (the SDK documents no page size)."
   - "Notification destinations are validated only at PutBucketNotificationConfiguration; the SDK documents no per-configuration error detail shape."
 structural_gaps:
@@ -63,6 +63,7 @@ leaks: {status: clean, note: janitor ctx-parented w/ <-ctx.Done() stop; replicat
 
 - MD5 and SHA512 are computed and verified (BadDigest on mismatch) on PutObject, POST object, UploadPart and annotations, stored on the version, and returned by HeadObject/GetObject (ChecksumMode), CopyObject, ListParts, GetObjectAttributes (Checksum and ObjectParts). Proof: `TestRealClient_PutObjectMD5SHA512Checksum`.
 - CreateMultipartUpload keeps ChecksumAlgorithm/ChecksumType (default FULL_OBJECT for CRC64NVME, else COMPOSITE) and CompleteMultipartUpload now computes the object checksum for every algorithm (COMPOSITE = hash of the part digests plus "-N", FULL_OBJECT = hash of the whole body), verifies a supplied value/type (BadDigest), stores it, and returns it in the Complete body and as x-amz-checksum-*/x-amz-checksum-type on Head/Get. Proof: `TestRealClient_MultipartObjectChecksum`.
+- Object Lambda HeadObject/ListObjects/ListObjectsV2 are routed to the access point Lambda when its TransformationConfiguration Actions include them (GetObject-only otherwise): event carries headObjectContext/listObjectsContext/listObjectsV2Context plus configuration/userRequest/protocolVersion, and the Lambda JSON result (statusCode, headers, listResultXml or listBucketResult, errorCode/errorMessage) becomes the response, per the Object Lambda user guide (olap-writing-lambda, olap-event-context; not in the pinned SDK). Proof: `TestS3ObjectLambda_HeadAndListRouting`, `TestObjectLambdaAccessPointSink`.
 - Object Lambda access-point routing: alias (path style, read requests only so CreateBucket still rejects "--ol-s3") and "<name>-<account>" virtual-host labels resolve to the supporting bucket and Lambda. Proof: `TestS3ObjectLambda_AccessPointRouting`. The SDK refuses path style for ARN buckets, so the vhost label is what an access point ARN produces against a custom endpoint.
 
 ## 2026-10-05: object content headers, multipart metadata, directory-bucket members

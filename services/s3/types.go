@@ -220,10 +220,13 @@ func (h multipartObjectHeaders) applyTo(v *StoredObjectVersion) {
 // bucket is the StoredBucket holding it; requests addressed to its alias or
 // "<name>-<account>" host label invoke LambdaARN instead of reading the bucket.
 type StoredObjectLambdaAccessPoint struct {
-	Name      string `json:"name"`
-	AccountID string `json:"accountID"`
-	Alias     string `json:"alias,omitempty"`
-	LambdaARN string `json:"lambdaARN"`
+	Name                     string   `json:"name"`
+	AccountID                string   `json:"accountID"`
+	Alias                    string   `json:"alias,omitempty"`
+	LambdaARN                string   `json:"lambdaARN"`
+	Payload                  string   `json:"payload,omitempty"`
+	SupportingAccessPointARN string   `json:"supportingAccessPointARN,omitempty"`
+	Actions                  []string `json:"actions,omitempty"`
 }
 
 // StoredPart represents a single part of a multipart upload.

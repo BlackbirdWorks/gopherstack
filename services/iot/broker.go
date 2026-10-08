@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"math"
 	"net"
 	"os"
@@ -35,6 +36,9 @@ var errPacketIDRange = errors.New("iot broker: packet id out of range")
 
 // ErrBrokerNotStarted is returned when a publish is attempted before the broker is started.
 var ErrBrokerNotStarted = errors.New("mqtt broker not started")
+
+// ErrBrokerCloseTimeout is returned when the MQTT server did not close within brokerCloseTimeout.
+var ErrBrokerCloseTimeout = errors.New("mqtt broker close timed out")
 
 // Broker wraps a mochi-mqtt server to provide the IoT MQTT endpoint.
 type Broker struct {
@@ -117,7 +121,25 @@ func (b *Broker) Start(ctx context.Context) error {
 
 	<-ctx.Done()
 
-	return s.Close()
+	return closeMQTTServer(log, s)
+}
+
+// brokerCloseTimeout bounds mochi's Server.Close, which has been seen to hang when a peer stops reading.
+const brokerCloseTimeout = 10 * time.Second
+
+func closeMQTTServer(log *slog.Logger, s *mqtt.Server) error {
+	closed := make(chan error, 1)
+
+	go func() { closed <- s.Close() }()
+
+	select {
+	case err := <-closed:
+		return err
+	case <-time.After(brokerCloseTimeout):
+		log.Warn("iot broker: MQTT server close timed out; abandoning it")
+
+		return ErrBrokerCloseTimeout
+	}
 }
 
 // Run implements worker.Runner, adapting Start's blocking-with-error shape to

@@ -43,6 +43,11 @@ func (h *S3Handler) listObjects(
 ) {
 	h.setOperation(ctx, "ListObjects")
 
+	bucketName, handled := h.routeObjectLambda(ctx, w, r, bucketName, "", objectLambdaActionListObjects)
+	if handled {
+		return
+	}
+
 	if err := h.authorizeObjectAccess(ctx, r, bucketName, "", actionListBucket); err != nil {
 		WriteError(ctx, w, r, err)
 
@@ -76,12 +81,6 @@ func (h *S3Handler) listObjects(
 		Delimiter: aws.String(delimiter),
 		Marker:    aws.String(marker),
 	})
-	if errors.Is(err, ErrNoSuchBucket) {
-		WriteError(ctx, w, r, err)
-
-		return
-	}
-
 	if err != nil {
 		WriteError(ctx, w, r, err)
 

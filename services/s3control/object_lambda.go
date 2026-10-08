@@ -222,7 +222,7 @@ func (b *InMemoryBackend) PutAccessPointConfigurationForObjectLambda(
 	if b.objectLambdaSink != nil {
 		if bucket, lambdaARN, ok := b.resolveObjectLambdaTarget(accountID, config); ok {
 			b.objectLambdaSink.SetObjectLambdaConfig(bucket, lambdaARN)
-			b.registerObjectLambdaAccessPoint(key, bucket, lambdaARN)
+			b.registerObjectLambdaAccessPoint(key, bucket, lambdaARN, config)
 		}
 	}
 
@@ -238,9 +238,11 @@ type objectLambdaConfigXML struct {
 	TransformationConfigurations []struct {
 		ContentTransformation struct {
 			AwsLambda struct {
-				FunctionArn string `xml:"FunctionArn"`
+				FunctionArn     string `xml:"FunctionArn"`
+				FunctionPayload string `xml:"FunctionPayload"`
 			} `xml:"AwsLambda"`
 		} `xml:"ContentTransformation"`
+		Actions []string `xml:"Actions>Action"`
 	} `xml:"TransformationConfigurations>TransformationConfiguration"`
 }
 
@@ -283,7 +285,7 @@ func accessPointNameFromARN(arn string) (string, bool) {
 	return name, found
 }
 
-func (b *InMemoryBackend) registerObjectLambdaAccessPoint(key, bucket, lambdaARN string) {
+func (b *InMemoryBackend) registerObjectLambdaAccessPoint(key, bucket, lambdaARN, config string) {
 	sink, ok := b.objectLambdaSink.(s3.ObjectLambdaAccessPointSink)
 	if !ok {
 		return
@@ -297,6 +299,14 @@ func (b *InMemoryBackend) registerObjectLambdaAccessPoint(key, bucket, lambdaARN
 	sink.DeleteObjectLambdaAccessPoint(ap.Name, ap.AccountID)
 
 	stored := s3.StoredObjectLambdaAccessPoint{Name: ap.Name, AccountID: ap.AccountID, LambdaARN: lambdaARN}
+
+	var parsed objectLambdaConfigXML
+	if xml.Unmarshal([]byte("<c>"+config+"</c>"), &parsed) == nil && len(parsed.TransformationConfigurations) > 0 {
+		tc := parsed.TransformationConfigurations[0]
+		stored.Actions = tc.Actions
+		stored.Payload = tc.ContentTransformation.AwsLambda.FunctionPayload
+		stored.SupportingAccessPointARN = parsed.SupportingAccessPoint
+	}
 	if ap.Alias != nil {
 		stored.Alias = ap.Alias.Value
 	}

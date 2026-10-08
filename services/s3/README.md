@@ -18,7 +18,7 @@
 
 - Rejections the pinned SDK lists no error code for, so none is invented: Object Annotations 1 B-1 MiB payload window and ObjectIfMatch; RenameObject and CreateSession accepted on non-directory buckets; CreateSession SessionMode ReadOnly not enforced; directory buckets still accept ACL/tagging/versioning/lifecycle/website/CORS.
 - x-amz-mfa: MFA delete is stored, never enforced; the SDK lists no error code for a missing or bad MFA token.
-- HeadObject, ListObjects and ListObjectsV2 through an Object Lambda access point are not routed to a Lambda (GetObject is).
+- Object Lambda events omit userIdentity and the access point AllowedFeatures (GetObject-Range/-PartNumber, HeadObject-Range/-PartNumber) are not enforced; inputS3Url is an unsigned emulator URL, not a presigned one.
 - ListBucketIntelligentTieringConfigurations is unpaginated (the SDK documents no page size).
 - Notification destinations are validated only at PutBucketNotificationConfiguration; the SDK documents no per-configuration error detail shape.
 

@@ -22,6 +22,11 @@ func (h *S3Handler) headObject(
 ) {
 	h.setOperation(ctx, "HeadObject")
 
+	bucketName, handled := h.routeObjectLambda(ctx, w, r, bucketName, key, objectLambdaActionHeadObject)
+	if handled {
+		return
+	}
+
 	if err := validateExpectedBucketOwner(r); err != nil {
 		WriteError(ctx, w, r, err)
 
