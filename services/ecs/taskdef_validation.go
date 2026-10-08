@@ -128,6 +128,10 @@ func validateContainerDefinitions(defs []ContainerDefinition, networkMode string
 // hostPort is resolved per container instance at placement time (see
 // host_ports.go).
 func validatePortMappings(def ContainerDefinition, networkMode string) error {
+	if err := validatePortRanges(def, networkMode); err != nil {
+		return err
+	}
+
 	if networkMode != networkModeAwsvpc && networkMode != networkModeHost {
 		return nil
 	}

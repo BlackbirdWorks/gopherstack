@@ -69,6 +69,10 @@ func (b *InMemoryBackend) ListTagsForResource(
 
 	d, ok := b.directoryGet(region, resourceID)
 	if !ok {
+		d, _, ok = b.replicaOwner(region, resourceID)
+	}
+
+	if !ok {
 		return nil, "", ErrDirectoryNotFound
 	}
 

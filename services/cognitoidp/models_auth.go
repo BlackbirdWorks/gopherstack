@@ -27,8 +27,9 @@ type authOutput struct {
 }
 
 type adminConfirmSignUpInput struct {
-	UserPoolID string `json:"UserPoolId,omitempty"`
-	Username   string `json:"Username,omitempty"`
+	ClientMetadata map[string]string `json:"ClientMetadata,omitempty"`
+	UserPoolID     string            `json:"UserPoolId,omitempty"`
+	Username       string            `json:"Username,omitempty"`
 }
 
 type adminConfirmSignUpOutput struct{}
@@ -49,6 +50,7 @@ type adminResetUserPasswordInput struct {
 type adminResetUserPasswordOutput struct{}
 
 type respondToAuthChallengeAccurateInput struct {
+	ClientMetadata     map[string]string `json:"ClientMetadata,omitempty"`
 	ClientID           string            `json:"ClientId,omitempty"`
 	ChallengeName      string            `json:"ChallengeName,omitempty"`
 	ChallengeResponses map[string]string `json:"ChallengeResponses,omitempty"`
@@ -63,6 +65,7 @@ type respondToAuthChallengeAccurateOutput struct {
 }
 
 type adminRespondToAuthChallengeInput struct {
+	ClientMetadata     map[string]string `json:"ClientMetadata,omitempty"`
 	UserPoolID         string            `json:"UserPoolId,omitempty"`
 	ClientID           string            `json:"ClientId,omitempty"`
 	ChallengeName      string            `json:"ChallengeName,omitempty"`
@@ -94,12 +97,14 @@ type signUpAccurateOutput struct {
 }
 
 type initiateAuthAccurateInput struct {
+	ClientMetadata map[string]string `json:"ClientMetadata,omitempty"`
 	AuthParameters map[string]string `json:"AuthParameters,omitempty"`
 	AuthFlow       string            `json:"AuthFlow,omitempty"`
 	ClientID       string            `json:"ClientId,omitempty"`
 }
 
 type adminInitiateAuthAccurateInput struct {
+	ClientMetadata map[string]string `json:"ClientMetadata,omitempty"`
 	AuthParameters map[string]string `json:"AuthParameters,omitempty"`
 	AuthFlow       string            `json:"AuthFlow,omitempty"`
 	ClientID       string            `json:"ClientId,omitempty"`
@@ -107,18 +112,21 @@ type adminInitiateAuthAccurateInput struct {
 }
 
 type confirmSignUpAccurateInput struct {
-	Username         string `json:"Username,omitempty"`
-	ConfirmationCode string `json:"ConfirmationCode,omitempty"`
-	ClientID         string `json:"ClientId,omitempty"`
-	SecretHash       string `json:"SecretHash,omitempty"`
+	ClientMetadata     map[string]string `json:"ClientMetadata,omitempty"`
+	Username           string            `json:"Username,omitempty"`
+	ConfirmationCode   string            `json:"ConfirmationCode,omitempty"`
+	ClientID           string            `json:"ClientId,omitempty"`
+	SecretHash         string            `json:"SecretHash,omitempty"`
+	ForceAliasCreation bool              `json:"ForceAliasCreation,omitempty"`
 }
 
 type confirmSignUpAccurateOutput struct{}
 
 type forgotPasswordAccurateInput struct {
-	ClientID   string `json:"ClientId,omitempty"`
-	Username   string `json:"Username,omitempty"`
-	SecretHash string `json:"SecretHash,omitempty"`
+	ClientMetadata map[string]string `json:"ClientMetadata,omitempty"`
+	ClientID       string            `json:"ClientId,omitempty"`
+	Username       string            `json:"Username,omitempty"`
+	SecretHash     string            `json:"SecretHash,omitempty"`
 }
 
 type forgotPasswordAccurateOutput struct {
@@ -126,19 +134,21 @@ type forgotPasswordAccurateOutput struct {
 }
 
 type confirmForgotPasswordAccurateInput struct {
-	ClientID         string `json:"ClientId,omitempty"`
-	Username         string `json:"Username,omitempty"`
-	ConfirmationCode string `json:"ConfirmationCode,omitempty"`
-	Password         string `json:"Password,omitempty"`
-	SecretHash       string `json:"SecretHash,omitempty"`
+	ClientMetadata   map[string]string `json:"ClientMetadata,omitempty"`
+	ClientID         string            `json:"ClientId,omitempty"`
+	Username         string            `json:"Username,omitempty"`
+	ConfirmationCode string            `json:"ConfirmationCode,omitempty"`
+	Password         string            `json:"Password,omitempty"`
+	SecretHash       string            `json:"SecretHash,omitempty"`
 }
 
 type confirmForgotPasswordAccurateOutput struct{}
 
 type resendConfirmationCodeAccurateInput struct {
-	ClientID   string `json:"ClientId,omitempty"`
-	Username   string `json:"Username,omitempty"`
-	SecretHash string `json:"SecretHash,omitempty"`
+	ClientMetadata map[string]string `json:"ClientMetadata,omitempty"`
+	ClientID       string            `json:"ClientId,omitempty"`
+	Username       string            `json:"Username,omitempty"`
+	SecretHash     string            `json:"SecretHash,omitempty"`
 }
 
 type resendConfirmationCodeAccurateOutput struct {

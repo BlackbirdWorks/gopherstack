@@ -438,6 +438,8 @@ var cognitoSentinelErrors = []struct { //nolint:gochecknoglobals // package-leve
 	{ErrUsernameExists, ErrUsernameExists.Error()},
 	{ErrNotAuthorized, ErrNotAuthorized.Error()},
 	{ErrTokenUnauthorized, ErrTokenUnauthorized.Error()},
+	{ErrRefreshTokenReuse, ErrRefreshTokenReuse.Error()},
+	{ErrAliasExists, ErrAliasExists.Error()},
 	{ErrInvalidPassword, ErrInvalidPassword.Error()},
 	{ErrUserNotConfirmed, ErrUserNotConfirmed.Error()},
 	{ErrPasswordResetRequired, ErrPasswordResetRequired.Error()},

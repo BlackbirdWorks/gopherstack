@@ -164,10 +164,8 @@ func TestStartADAssessment_ConfigurationRoundTrip(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler(t)
-			dirID := mustCreateSimpleAD(t, h, "corp.example.com")
 
 			rec := doRequest(t, h, "StartADAssessment", map[string]any{
-				"DirectoryId": dirID,
 				"AssessmentConfiguration": map[string]any{
 					"CustomerDnsIps":   []string{"10.0.0.1", "10.0.0.2"},
 					"DnsName":          "corp.example.com",
@@ -187,14 +185,12 @@ func TestStartADAssessment_ConfigurationRoundTrip(t *testing.T) {
 
 			// Describe (real Assessment shape): every AssessmentConfiguration
 			// field must round-trip, plus LastUpdateDateTime.
-			descRec := doRequest(t, h, "DescribeADAssessment", map[string]any{
-				"DirectoryId":  dirID,
-				"AssessmentId": assessID,
-			})
+			descRec := doRequest(t, h, "DescribeADAssessment", map[string]any{"AssessmentId": assessID})
 			require.Equal(t, http.StatusOK, descRec.Code)
 			var descResp map[string]any
 			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
 			assessment, _ := descResp["Assessment"].(map[string]any)
+			assert.NotContains(t, assessment, "DirectoryId")
 
 			assert.ElementsMatch(t, []any{"10.0.0.1", "10.0.0.2"}, assessment["CustomerDnsIps"])
 			assert.Equal(t, "corp.example.com", assessment["DnsName"])
@@ -215,7 +211,7 @@ func TestStartADAssessment_ConfigurationRoundTrip(t *testing.T) {
 			// LastUpdateDateTime are real AssessmentSummary members and must
 			// be present; SecurityGroupIds/SelfManagedInstanceIds/SubnetIds/
 			// VpcId are Assessment-only and must NOT leak onto the summary.
-			listRec := doRequest(t, h, "ListADAssessments", map[string]any{"DirectoryId": dirID})
+			listRec := doRequest(t, h, "ListADAssessments", map[string]any{})
 			require.Equal(t, http.StatusOK, listRec.Code)
 			var listResp map[string]any
 			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))

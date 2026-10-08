@@ -398,14 +398,44 @@ type Attribute struct {
 
 // ServiceDeployment represents an ECS service deployment.
 type ServiceDeployment struct {
+	targetRevision           *ServiceRevisionSummary
+	circuitBreaker           *ServiceDeploymentCircuitBreaker
+	StartedAt                *time.Time                 `json:"startedAt,omitempty"`
+	StoppedAt                *time.Time                 `json:"stoppedAt,omitempty"`
+	FinishedAt               *time.Time                 `json:"finishedAt,omitempty"`
+	Rollback                 *ServiceDeploymentRollback `json:"rollback,omitempty"`
+	UpdatedAt                *time.Time                 `json:"updatedAt,omitempty"`
+	deploymentConfiguration  *DeploymentConfiguration
 	CreatedAt                *time.Time `json:"createdAt,omitempty"`
-	UpdatedAt                *time.Time `json:"updatedAt,omitempty"`
 	ServiceDeploymentArn     string     `json:"serviceDeploymentArn"`
 	ClusterArn               string     `json:"clusterArn"`
 	ServiceArn               string     `json:"serviceArn"`
 	Status                   string     `json:"status"`
 	StatusReason             string     `json:"statusReason,omitempty"`
 	TargetServiceRevisionArn string     `json:"targetServiceRevisionArn,omitempty"`
+	sourceRevisions          []ServiceRevisionSummary
+}
+
+// ServiceDeploymentRollback mirrors types.Rollback.
+type ServiceDeploymentRollback struct {
+	StartedAt          *time.Time `json:"startedAt,omitempty"`
+	Reason             string     `json:"reason,omitempty"`
+	ServiceRevisionArn string     `json:"serviceRevisionArn,omitempty"`
+}
+
+// ServiceDeploymentCircuitBreaker mirrors types.ServiceDeploymentCircuitBreaker.
+type ServiceDeploymentCircuitBreaker struct {
+	Status       string
+	FailureCount int
+	Threshold    int
+}
+
+// ServiceRevisionSummary mirrors the counts of types.ServiceRevisionSummary.
+type ServiceRevisionSummary struct {
+	Arn                string
+	PendingTaskCount   int
+	RequestedTaskCount int
+	RunningTaskCount   int
 }
 
 // ExpressGatewayServiceNetworkConfiguration is the VPC network configuration

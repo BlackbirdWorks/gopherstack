@@ -5,9 +5,14 @@ import "time"
 // refreshTokenEntry holds the pool/user context for a refresh token.
 type refreshTokenEntry struct {
 	ExpiresAt time.Time `json:"expiresAt"`
-	PoolID    string    `json:"poolId,omitempty"`
-	ClientID  string    `json:"clientId,omitempty"`
-	Username  string    `json:"username,omitempty"`
+	// RetiredUntil, when set, marks a token rotated out by GetTokensFromRefreshToken: it still
+	// serves retries until then and raises RefreshTokenReuseException afterwards.
+	RetiredUntil time.Time `json:"retiredUntil,omitzero"`
+	// ChainID ties the refresh token to the access tokens minted from it (their origin_jti claim).
+	ChainID  string `json:"chainId,omitempty"`
+	PoolID   string `json:"poolId,omitempty"`
+	ClientID string `json:"clientId,omitempty"`
+	Username string `json:"username,omitempty"`
 	// Scopes are the OAuth scopes granted at /oauth2/token; empty means the client's AllowedOAuthScopes.
 	Scopes []string `json:"scopes,omitempty"`
 	// AuthTime is the original authentication time (Unix seconds) of the
@@ -55,9 +60,10 @@ type getSigningCertificateOutput struct {
 }
 
 type getTokensFromRefreshTokenInput struct {
-	RefreshToken string `json:"RefreshToken,omitempty"`
-	ClientID     string `json:"ClientId,omitempty"`
-	ClientSecret string `json:"ClientSecret,omitempty"`
+	ClientMetadata map[string]string `json:"ClientMetadata,omitempty"`
+	RefreshToken   string            `json:"RefreshToken,omitempty"`
+	ClientID       string            `json:"ClientId,omitempty"`
+	ClientSecret   string            `json:"ClientSecret,omitempty"`
 }
 
 type getTokensFromRefreshTokenOutput struct {

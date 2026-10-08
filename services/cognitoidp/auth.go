@@ -27,7 +27,7 @@ func (b *InMemoryBackend) SignUp(clientID, username, password string, userAttrib
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, client.UserPoolID)
 	}
 
-	if _, exists := b.users.Get(userKey(client.UserPoolID, username)); exists {
+	if b.usernameExistsLocked(client.UserPoolID, username) {
 		return nil, fmt.Errorf("%w: user %q already exists", ErrUsernameExists, username)
 	}
 
@@ -64,7 +64,26 @@ func (b *InMemoryBackend) SignUp(clientID, username, password string, userAttrib
 }
 
 // ConfirmSignUp confirms a user's registration by validating the confirmation code.
-func (b *InMemoryBackend) ConfirmSignUp(clientID, username, confirmationCode string) error {
+func (b *InMemoryBackend) ConfirmSignUp(
+	clientID, username, confirmationCode string, meta ...ClientMetadata,
+) error {
+	return b.ConfirmSignUpWithOptions(clientID, username, confirmationCode, ConfirmSignUpOptions{
+		ClientMetadata: firstMetadata(meta),
+	})
+}
+
+// ConfirmSignUpOptions carries the optional ConfirmSignUp request members.
+type ConfirmSignUpOptions struct {
+	ClientMetadata     map[string]string
+	ForceAliasCreation bool
+}
+
+// ConfirmSignUpWithOptions is ConfirmSignUp with ForceAliasCreation: when a verified sign-in alias of
+// the user already belongs to another user it fails with AliasExistsException, or moves the alias
+// to this user when ForceAliasCreation is set.
+func (b *InMemoryBackend) ConfirmSignUpWithOptions(
+	clientID, username, confirmationCode string, opts ConfirmSignUpOptions,
+) error {
 	b.mu.Lock("ConfirmSignUp")
 	defer b.mu.Unlock()
 
@@ -77,6 +96,8 @@ func (b *InMemoryBackend) ConfirmSignUp(clientID, username, confirmationCode str
 	if !poolOK {
 		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, client.UserPoolID)
 	}
+
+	username = b.resolveLoginNameLocked(pool, username)
 
 	user, ok := b.users.Get(userKey(client.UserPoolID, username))
 	if !ok {
@@ -107,6 +128,10 @@ func (b *InMemoryBackend) ConfirmSignUp(clientID, username, confirmationCode str
 		return fmt.Errorf("%w: invalid confirmation code", ErrCodeMismatch)
 	}
 
+	if aliasErr := b.claimAliasesLocked(pool, user, opts.ForceAliasCreation); aliasErr != nil {
+		return aliasErr
+	}
+
 	user.Status = UserStatusConfirmed
 	user.ConfirmCode = ""
 	user.ConfirmCodeExpiresAt = time.Time{}
@@ -119,7 +144,7 @@ func (b *InMemoryBackend) ConfirmSignUp(clientID, username, confirmationCode str
 		clientID, username,
 		map[string]any{
 			eventKeyUserAttributes: stringMapToAny(user.Attributes),
-			eventKeyClientMetadata: map[string]any{},
+			eventKeyClientMetadata: stringMapToAny(opts.ClientMetadata),
 		},
 		map[string]any{},
 	); err != nil {
@@ -130,7 +155,11 @@ func (b *InMemoryBackend) ConfirmSignUp(clientID, username, confirmationCode str
 }
 
 // InitiateAuth authenticates a user using the specified auth flow.
-func (b *InMemoryBackend) InitiateAuth(clientID, authFlow, username, password string) (*AuthResult, error) {
+func (b *InMemoryBackend) InitiateAuth(
+	clientID, authFlow, username, password string, meta ...ClientMetadata,
+) (*AuthResult, error) {
+	cm := firstMetadata(meta)
+
 	b.mu.Lock("InitiateAuth")
 	defer b.mu.Unlock()
 
@@ -144,9 +173,11 @@ func (b *InMemoryBackend) InitiateAuth(clientID, authFlow, username, password st
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, client.UserPoolID)
 	}
 
+	username = b.resolveLoginNameLocked(pool, username)
+
 	user, ok := b.users.Get(userKey(client.UserPoolID, username))
 	if !ok {
-		migrated, finalStatus, migErr := b.tryUserMigration(pool, clientID, authFlow, username, password)
+		migrated, finalStatus, migErr := b.tryUserMigration(pool, clientID, authFlow, username, password, cm)
 		if migErr != nil {
 			return nil, migErr
 		}
@@ -157,19 +188,21 @@ func (b *InMemoryBackend) InitiateAuth(clientID, authFlow, username, password st
 
 		user = migrated
 
-		result, authErr := b.authenticate(pool, clientID, authFlow, user, password)
+		result, authErr := b.authenticate(pool, clientID, authFlow, user, password, cm)
 		b.applyPostMigrationFinalStatus(pool.ID, username, finalStatus)
 
 		return result, authErr
 	}
 
-	return b.authenticate(pool, clientID, authFlow, user, password)
+	return b.authenticate(pool, clientID, authFlow, user, password, cm)
 }
 
 // AdminInitiateAuth authenticates a user as an admin using the specified auth flow.
 func (b *InMemoryBackend) AdminInitiateAuth(
-	userPoolID, clientID, authFlow, username, password string,
+	userPoolID, clientID, authFlow, username, password string, meta ...ClientMetadata,
 ) (*AuthResult, error) {
+	cm := firstMetadata(meta)
+
 	b.mu.Lock("AdminInitiateAuth")
 	defer b.mu.Unlock()
 
@@ -183,9 +216,11 @@ func (b *InMemoryBackend) AdminInitiateAuth(
 		return nil, fmt.Errorf("%w: client %q not found in pool %q", ErrClientNotFound, clientID, userPoolID)
 	}
 
+	username = b.resolveLoginNameLocked(pool, username)
+
 	user, ok := b.users.Get(userKey(userPoolID, username))
 	if !ok {
-		migrated, finalStatus, migErr := b.tryUserMigration(pool, clientID, authFlow, username, password)
+		migrated, finalStatus, migErr := b.tryUserMigration(pool, clientID, authFlow, username, password, cm)
 		if migErr != nil {
 			return nil, migErr
 		}
@@ -196,18 +231,18 @@ func (b *InMemoryBackend) AdminInitiateAuth(
 
 		user = migrated
 
-		result, authErr := b.authenticate(pool, clientID, authFlow, user, password)
+		result, authErr := b.authenticate(pool, clientID, authFlow, user, password, cm)
 		b.applyPostMigrationFinalStatus(pool.ID, username, finalStatus)
 
 		return result, authErr
 	}
 
-	return b.authenticate(pool, clientID, authFlow, user, password)
+	return b.authenticate(pool, clientID, authFlow, user, password, cm)
 }
 
 // AdminConfirmSignUp confirms a user's registration without requiring a confirmation code.
 // This is an admin operation that bypasses the normal confirmation flow.
-func (b *InMemoryBackend) AdminConfirmSignUp(userPoolID, username string) error {
+func (b *InMemoryBackend) AdminConfirmSignUp(userPoolID, username string, meta ...ClientMetadata) error {
 	b.mu.Lock("AdminConfirmSignUp")
 	defer b.mu.Unlock()
 
@@ -215,6 +250,8 @@ func (b *InMemoryBackend) AdminConfirmSignUp(userPoolID, username string) error 
 	if !ok {
 		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
+
+	username = b.resolveLoginNameLocked(pool, username)
 
 	user, ok := b.users.Get(userKey(userPoolID, username))
 	if !ok {
@@ -233,7 +270,7 @@ func (b *InMemoryBackend) AdminConfirmSignUp(userPoolID, username string) error 
 		"", username,
 		map[string]any{
 			eventKeyUserAttributes: stringMapToAny(user.Attributes),
-			eventKeyClientMetadata: map[string]any{},
+			eventKeyClientMetadata: stringMapToAny(firstMetadata(meta)),
 		},
 		map[string]any{},
 	); err != nil {
@@ -245,7 +282,7 @@ func (b *InMemoryBackend) AdminConfirmSignUp(userPoolID, username string) error 
 
 // ForgotPassword initiates a password reset for a user.
 // In this mock the reset code is generated and stored on the user.
-func (b *InMemoryBackend) ForgotPassword(clientID, username string) (string, error) {
+func (b *InMemoryBackend) ForgotPassword(clientID, username string, meta ...ClientMetadata) (string, error) {
 	b.mu.Lock("ForgotPassword")
 	defer b.mu.Unlock()
 
@@ -259,7 +296,7 @@ func (b *InMemoryBackend) ForgotPassword(clientID, username string) (string, err
 		return "", fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, client.UserPoolID)
 	}
 
-	user, fabricatedCode, err := b.resolveForgotPasswordUser(pool, client, username)
+	user, fabricatedCode, err := b.resolveForgotPasswordUser(pool, client, username, firstMetadata(meta))
 	if err != nil {
 		return "", err
 	}
@@ -288,8 +325,10 @@ func (b *InMemoryBackend) ForgotPassword(clientID, username string) (string, err
 // it returns a fabricated code with no user, since there is nothing to attach a code
 // to. Caller must hold b.mu.
 func (b *InMemoryBackend) resolveForgotPasswordUser(
-	pool *UserPool, client *UserPoolClient, username string,
+	pool *UserPool, client *UserPoolClient, username string, cm map[string]string,
 ) (*User, string, error) {
+	username = b.resolveLoginNameLocked(pool, username)
+
 	if u, ok := b.users.Get(userKey(pool.ID, username)); ok {
 		if !u.Enabled {
 			return nil, "", fmt.Errorf("%w: User is disabled", ErrNotAuthorized)
@@ -306,7 +345,7 @@ func (b *InMemoryBackend) resolveForgotPasswordUser(
 		return u, "", nil
 	}
 
-	migrated, migErr := b.tryUserMigrationForgotPassword(pool, client.ClientID, username)
+	migrated, migErr := b.tryUserMigrationForgotPassword(pool, client.ClientID, username, cm)
 	if migErr != nil {
 		return nil, "", migErr
 	}
@@ -323,7 +362,9 @@ func (b *InMemoryBackend) resolveForgotPasswordUser(
 }
 
 // ConfirmForgotPassword resets a user's password using the code generated by ForgotPassword.
-func (b *InMemoryBackend) ConfirmForgotPassword(clientID, username, code, newPassword string) error {
+func (b *InMemoryBackend) ConfirmForgotPassword(
+	clientID, username, code, newPassword string, meta ...ClientMetadata,
+) error {
 	b.mu.Lock("ConfirmForgotPassword")
 	defer b.mu.Unlock()
 
@@ -332,9 +373,12 @@ func (b *InMemoryBackend) ConfirmForgotPassword(clientID, username, code, newPas
 		return fmt.Errorf("%w: client %q not found", ErrClientNotFound, clientID)
 	}
 
-	if _, poolOK := b.pools.Get(client.UserPoolID); !poolOK {
+	cfpPool, poolOK := b.pools.Get(client.UserPoolID)
+	if !poolOK {
 		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, client.UserPoolID)
 	}
+
+	username = b.resolveLoginNameLocked(cfpPool, username)
 
 	user, ok := b.users.Get(userKey(client.UserPoolID, username))
 	if !ok {
@@ -368,6 +412,21 @@ func (b *InMemoryBackend) ConfirmForgotPassword(clientID, username, code, newPas
 	user.ConfirmCode = ""
 	user.ConfirmCodeExpiresAt = time.Time{}
 	user.Status = UserStatusConfirmed
+
+	// PostConfirmation fires for a completed password reset too; like ConfirmSignUp, the
+	// reset itself is not rolled back when the trigger errors.
+	if pool != nil {
+		if _, err = b.invokeTriggerUnlocked(
+			pool, triggerKeyPostConfirmation, triggerSourcePostConfirmationForgotPwd, clientID, username,
+			map[string]any{
+				eventKeyUserAttributes: stringMapToAny(user.Attributes),
+				eventKeyClientMetadata: stringMapToAny(firstMetadata(meta)),
+			},
+			map[string]any{},
+		); err != nil {
+			return err
+		}
+	}
 
 	return nil
 }
@@ -459,7 +518,9 @@ func (b *InMemoryBackend) isAuthFlowAllowed(clientID, authFlow string) bool {
 // precheckAuthLocked runs the flow/lambda/status checks common to every auth flow
 // (password-based or SRP) before any credential is actually verified. Caller must hold
 // the write lock.
-func (b *InMemoryBackend) precheckAuthLocked(pool *UserPool, clientID, authFlow string, user *User) error {
+func (b *InMemoryBackend) precheckAuthLocked(
+	pool *UserPool, clientID, authFlow string, user *User, cm map[string]string,
+) error {
 	switch authFlow {
 	case "USER_PASSWORD_AUTH", "ADMIN_USER_PASSWORD_AUTH", "ADMIN_NO_SRP_AUTH",
 		"USER_SRP_AUTH", "ADMIN_USER_SRP_AUTH", "CUSTOM_AUTH", authFlowUserAuth:
@@ -476,16 +537,18 @@ func (b *InMemoryBackend) precheckAuthLocked(pool *UserPool, clientID, authFlow 
 		)
 	}
 
-	return b.precheckUserLocked(pool, clientID, user)
+	return b.precheckUserLocked(pool, clientID, user, cm)
 }
 
 // precheckUserLocked runs the PreAuthentication trigger and the user status checks shared by every
 // sign-in path. Caller must hold the write lock.
-func (b *InMemoryBackend) precheckUserLocked(pool *UserPool, clientID string, user *User) error {
+func (b *InMemoryBackend) precheckUserLocked(
+	pool *UserPool, clientID string, user *User, cm map[string]string,
+) error {
 	// PreAuthentication fires before any credential/status validation, matching AWS:
 	// the Lambda only sees userAttributes/validationData (never the password), and can
 	// reject the attempt outright by returning an error.
-	if err := b.preAuthenticationCheck(pool, clientID, user); err != nil {
+	if err := b.preAuthenticationCheck(pool, clientID, user, cm); err != nil {
 		return err
 	}
 
@@ -523,7 +586,9 @@ func tempPasswordExpired(pool *UserPool, user *User) bool {
 // postCredentialCheckLocked runs once a caller's credential (password or SRP password
 // claim) has been verified: it gates on FORCE_CHANGE_PASSWORD and pool MFA
 // configuration before finally issuing tokens. Caller must hold the write lock.
-func (b *InMemoryBackend) postCredentialCheckLocked(pool *UserPool, clientID string, user *User) (*AuthResult, error) {
+func (b *InMemoryBackend) postCredentialCheckLocked(
+	pool *UserPool, clientID string, user *User, cm map[string]string,
+) (*AuthResult, error) {
 	if user.Status == UserStatusForceChangePassword {
 		if tempPasswordExpired(pool, user) {
 			return nil, fmt.Errorf(
@@ -540,7 +605,7 @@ func (b *InMemoryBackend) postCredentialCheckLocked(pool *UserPool, clientID str
 		return b.newMFASession(pool, clientID, user.Username, mfaChallengeType(pool, user)), nil
 	}
 
-	return b.issueTokensLocked(pool, clientID, user, triggerSourceTokenGenAuthentication)
+	return b.issueTokensLocked(pool, clientID, user, triggerSourceTokenGenAuthentication, cm)
 }
 
 // authenticate validates a user's password-based credentials (or delegates to
@@ -553,8 +618,9 @@ func (b *InMemoryBackend) authenticate(
 	clientID, authFlow string,
 	user *User,
 	password string,
+	cm map[string]string,
 ) (*AuthResult, error) {
-	if err := b.precheckAuthLocked(pool, clientID, authFlow, user); err != nil {
+	if err := b.precheckAuthLocked(pool, clientID, authFlow, user, cm); err != nil {
 		return nil, err
 	}
 
@@ -571,14 +637,14 @@ func (b *InMemoryBackend) authenticate(
 	// delegated to the pool's DefineAuthChallenge/CreateAuthChallenge/
 	// VerifyAuthChallengeResponse Lambda chain (custom_auth.go).
 	if authFlow == "CUSTOM_AUTH" {
-		return b.startCustomAuth(pool, clientID, user)
+		return b.startCustomAuth(pool, clientID, user, cm)
 	}
 
 	if err := b.verifyPasswordLocked(pool, user, password); err != nil {
 		return nil, err
 	}
 
-	return b.postCredentialCheckLocked(pool, clientID, user)
+	return b.postCredentialCheckLocked(pool, clientID, user, cm)
 }
 
 // verifyPasswordLocked bcrypt-checks password with b.mu released, then re-validates the user.
@@ -609,9 +675,9 @@ func (b *InMemoryBackend) verifyPasswordLocked(pool *UserPool, user *User, passw
 // four parameters a real SRP client needs to derive the same session key and complete
 // the handshake via RespondToAuthChallenge. Caller must hold the write lock.
 func (b *InMemoryBackend) startSRPAuthLocked(
-	pool *UserPool, clientID, authFlow string, user *User, srpAHex string,
+	pool *UserPool, clientID, authFlow string, user *User, srpAHex string, cm map[string]string,
 ) (*AuthResult, error) {
-	if err := b.precheckAuthLocked(pool, clientID, authFlow, user); err != nil {
+	if err := b.precheckAuthLocked(pool, clientID, authFlow, user, cm); err != nil {
 		return nil, err
 	}
 
@@ -689,7 +755,9 @@ func srpRandomExponent() (*big.Int, error) {
 }
 
 // InitiateAuthSRP begins a USER_SRP_AUTH handshake.
-func (b *InMemoryBackend) InitiateAuthSRP(clientID, authFlow, username, srpA string) (*AuthResult, error) {
+func (b *InMemoryBackend) InitiateAuthSRP(
+	clientID, authFlow, username, srpA string, meta ...ClientMetadata,
+) (*AuthResult, error) {
 	b.mu.Lock("InitiateAuthSRP")
 	defer b.mu.Unlock()
 
@@ -703,17 +771,19 @@ func (b *InMemoryBackend) InitiateAuthSRP(clientID, authFlow, username, srpA str
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, client.UserPoolID)
 	}
 
+	username = b.resolveLoginNameLocked(pool, username)
+
 	user, ok := b.users.Get(userKey(client.UserPoolID, username))
 	if !ok {
 		return nil, unknownUserAuthError(client, username)
 	}
 
-	return b.startSRPAuthLocked(pool, clientID, authFlow, user, srpA)
+	return b.startSRPAuthLocked(pool, clientID, authFlow, user, srpA, firstMetadata(meta))
 }
 
 // AdminInitiateAuthSRP begins an ADMIN_USER_SRP_AUTH handshake.
 func (b *InMemoryBackend) AdminInitiateAuthSRP(
-	userPoolID, clientID, authFlow, username, srpA string,
+	userPoolID, clientID, authFlow, username, srpA string, meta ...ClientMetadata,
 ) (*AuthResult, error) {
 	b.mu.Lock("AdminInitiateAuthSRP")
 	defer b.mu.Unlock()
@@ -728,12 +798,14 @@ func (b *InMemoryBackend) AdminInitiateAuthSRP(
 		return nil, fmt.Errorf("%w: client %q not found in pool %q", ErrClientNotFound, clientID, userPoolID)
 	}
 
+	username = b.resolveLoginNameLocked(pool, username)
+
 	user, ok := b.users.Get(userKey(userPoolID, username))
 	if !ok {
 		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
 	}
 
-	return b.startSRPAuthLocked(pool, clientID, authFlow, user, srpA)
+	return b.startSRPAuthLocked(pool, clientID, authFlow, user, srpA, firstMetadata(meta))
 }
 
 // ResendConfirmationCode generates a new confirmation code for an unconfirmed user.
@@ -746,9 +818,12 @@ func (b *InMemoryBackend) ResendConfirmationCode(clientID, username string) (str
 		return "", fmt.Errorf("%w: client %q not found", ErrClientNotFound, clientID)
 	}
 
-	if _, poolOK := b.pools.Get(client.UserPoolID); !poolOK {
+	resendPool, poolOK := b.pools.Get(client.UserPoolID)
+	if !poolOK {
 		return "", fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, client.UserPoolID)
 	}
+
+	username = b.resolveLoginNameLocked(resendPool, username)
 
 	user, ok := b.users.Get(userKey(client.UserPoolID, username))
 	if !ok {
@@ -876,7 +951,7 @@ func (b *InMemoryBackend) SignUpWithTriggerData(
 		return nil, err
 	}
 
-	if _, exists := b.users.Get(userKey(client.UserPoolID, username)); exists {
+	if b.usernameExistsLocked(client.UserPoolID, username) {
 		return nil, fmt.Errorf("%w: user %q already exists", ErrUsernameExists, username)
 	}
 

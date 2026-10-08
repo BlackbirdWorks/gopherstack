@@ -5,10 +5,13 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // findUserByAccessTokenLocked finds the live *User for a given access token.
@@ -65,6 +68,12 @@ func (b *InMemoryBackend) userForAccessToken(pool *UserPool, accessToken string)
 	// Reject tokens minted at or before GlobalSignOut; authSeq is exact, auth_time is the
 	// fallback for pre-authSeq snapshots.
 	key := pool.ID + ":" + u.Username
+	if origin, _ := claims[claimOriginJTI].(string); origin != "" {
+		if _, revoked := b.revokedChains[origin]; revoked {
+			return nil, false
+		}
+	}
+
 	if revokedSeq := b.tokenRevokedBeforeSeq[key]; revokedSeq > 0 {
 		authSeq, _ := claims[claimAuthSeq].(float64)
 		if int64(authSeq) <= revokedSeq {
@@ -192,9 +201,11 @@ func (b *InMemoryBackend) resolveClientTokenSettings(clientID string) clientToke
 // issueTokensLocked issues tokens for a confirmed user; it releases the caller's write lock
 // around triggers and signing, so state read before the call may be stale.
 func (b *InMemoryBackend) issueTokensLocked(
-	pool *UserPool, clientID string, user *User, triggerSource string,
+	pool *UserPool, clientID string, user *User, triggerSource string, cm map[string]string,
 ) (*AuthResult, error) {
-	return b.issueScopedTokensLocked(pool, clientID, user, triggerSource, tokenGrant{storeRefresh: true})
+	return b.issueScopedTokensLocked(
+		pool, clientID, user, triggerSource, tokenGrant{storeRefresh: true, clientMetadata: cm},
+	)
 }
 
 // grantScopes is the scope set a grant will issue: explicit scopes, else the client's allowed scopes.
@@ -208,9 +219,10 @@ func (b *InMemoryBackend) grantScopes(clientID string, scopes []string) []string
 
 // tokenGrant carries the OAuth specifics of a token issuance.
 type tokenGrant struct {
-	nonce        string
-	scopes       []string
-	storeRefresh bool
+	clientMetadata map[string]string
+	nonce          string
+	scopes         []string
+	storeRefresh   bool
 }
 
 // issueScopedTokensLocked is issueTokensLocked with an explicit OAuth scope set (nil means the
@@ -223,14 +235,16 @@ func (b *InMemoryBackend) issueScopedTokensLocked(
 
 	eventScopes := strings.Fields(resolveAccessScope(b.grantScopes(clientID, scopes)))
 
-	overrides, err := b.preTokenGenerationOverrideAuth(pool, clientID, user, groups, eventScopes, triggerSource)
+	overrides, err := b.preTokenGenerationOverrideAuth(
+		pool, clientID, user, groups, eventScopes, triggerSource, grant.clientMetadata,
+	)
 	if err != nil {
 		return nil, err
 	}
 
 	// PostAuthentication fires after PreTokenGeneration and never on token refresh
 	// (InitiateAuthRefreshToken does not come through here), matching AWS.
-	if postAuthErr := b.postAuthenticationNotify(pool, clientID, user); postAuthErr != nil {
+	if postAuthErr := b.postAuthenticationNotify(pool, clientID, user, grant.clientMetadata); postAuthErr != nil {
 		return nil, postAuthErr
 	}
 
@@ -262,6 +276,10 @@ func (b *InMemoryBackend) issueScopedTokensLocked(
 		IDTokenExpiry:     settings.idTokenExpiry,
 		Nonce:             grant.nonce,
 	}
+	if storeRefresh {
+		params.OriginJTI = uuid.NewString()
+	}
+
 	overrides.useTo(&params)
 
 	var (
@@ -292,6 +310,7 @@ func (b *InMemoryBackend) issueScopedTokensLocked(
 	}
 
 	b.storeRefreshTokenLocked(tokens.RefreshToken, &refreshTokenEntry{
+		ChainID:   params.OriginJTI,
 		PoolID:    pool.ID,
 		ClientID:  clientID,
 		Username:  user.Username,
@@ -304,24 +323,30 @@ func (b *InMemoryBackend) issueScopedTokensLocked(
 }
 
 // InitiateAuthRefreshToken exchanges a valid refresh token for new ID/Access tokens.
-func (b *InMemoryBackend) InitiateAuthRefreshToken(clientID, refreshToken string) (*TokenResult, error) {
-	return b.exchangeRefreshToken(clientID, refreshToken, refreshOpts{})
+func (b *InMemoryBackend) InitiateAuthRefreshToken(
+	clientID, refreshToken string, meta ...ClientMetadata,
+) (*TokenResult, error) {
+	return b.exchangeRefreshToken(clientID, refreshToken, refreshOpts{clientMetadata: firstMetadata(meta)})
 }
 
 // GetTokensFromRefreshToken mirrors the GetTokensFromRefreshToken API: it checks the client
 // secret and rotates the refresh token only when the client enables RefreshTokenRotation.
-func (b *InMemoryBackend) GetTokensFromRefreshToken(clientID, refreshToken, clientSecret string) (*TokenResult, error) {
+func (b *InMemoryBackend) GetTokensFromRefreshToken(
+	clientID, refreshToken, clientSecret string, meta ...ClientMetadata,
+) (*TokenResult, error) {
 	return b.exchangeRefreshToken(clientID, refreshToken, refreshOpts{
-		verifySecret:  true,
-		clientSecret:  clientSecret,
-		honorRotation: true,
+		verifySecret:   true,
+		clientSecret:   clientSecret,
+		honorRotation:  true,
+		clientMetadata: firstMetadata(meta),
 	})
 }
 
 type refreshOpts struct {
-	clientSecret  string
-	verifySecret  bool
-	honorRotation bool
+	clientMetadata map[string]string
+	clientSecret   string
+	verifySecret   bool
+	honorRotation  bool
 }
 
 // liveRefreshEntryLocked returns the unexpired refresh-token entry issued to clientID, evicting an expired one.
@@ -341,12 +366,17 @@ func (b *InMemoryBackend) liveRefreshEntryLocked(refreshToken, clientID string) 
 		return nil, fmt.Errorf("%w: refresh token was issued for a different client", ErrNotAuthorized)
 	}
 
+	if !entry.RetiredUntil.IsZero() && !entry.RetiredUntil.After(time.Now().UTC()) {
+		return nil, fmt.Errorf("%w: refresh token was invalidated by refresh token rotation", ErrRefreshTokenReuse)
+	}
+
 	return entry, nil
 }
 
 // finishRefreshLocked rotates the refresh token, or withholds a new one when rotation is off.
 func (b *InMemoryBackend) finishRefreshLocked(
 	tokens *TokenResult, oldToken string, entry *refreshTokenEntry, expiresAt time.Time, rotate bool,
+	grace time.Duration, retire bool,
 ) {
 	if !rotate {
 		tokens.RefreshToken = ""
@@ -354,9 +384,38 @@ func (b *InMemoryBackend) finishRefreshLocked(
 		return
 	}
 
+	if !entry.RetiredUntil.IsZero() || retire {
+		next := *entry
+		next.ExpiresAt = expiresAt
+		next.RetiredUntil = time.Time{}
+		b.storeRefreshTokenLocked(tokens.RefreshToken, &next)
+
+		if entry.RetiredUntil.IsZero() {
+			entry.RetiredUntil = time.Now().UTC().Add(grace)
+		}
+
+		return
+	}
+
 	b.deleteRefreshTokenLocked(oldToken)
 	entry.ExpiresAt = expiresAt
 	b.storeRefreshTokenLocked(tokens.RefreshToken, entry)
+}
+
+// refreshRetryGrace is the client's refresh-token-rotation RetryGracePeriodSeconds, or zero.
+func refreshRetryGrace(client *UserPoolClient) time.Duration {
+	switch v := client.RefreshTokenRotation["RetryGracePeriodSeconds"].(type) {
+	case float64:
+		return time.Duration(v) * time.Second
+	case int:
+		return time.Duration(v) * time.Second
+	case int32:
+		return time.Duration(v) * time.Second
+	case int64:
+		return time.Duration(v) * time.Second
+	default:
+		return 0
+	}
 }
 
 // refreshRotationLocked verifies the client secret when asked and reports whether the refresh token rotates.
@@ -393,6 +452,38 @@ func rotationEnabled(client *UserPoolClient) bool {
 	return feature == "ENABLED"
 }
 
+// refreshSubjectLocked resolves the pool and enabled user a refresh token belongs to.
+func (b *InMemoryBackend) refreshSubjectLocked(entry *refreshTokenEntry) (*UserPool, *User, error) {
+	pool, ok := b.pools.Get(entry.PoolID)
+	if !ok {
+		return nil, nil, fmt.Errorf("%w: user pool %q not found", ErrUserPoolNotFound, entry.PoolID)
+	}
+
+	user, ok := b.users.Get(userKey(entry.PoolID, entry.Username))
+	if !ok {
+		return nil, nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, entry.Username)
+	}
+
+	if !user.Enabled {
+		return nil, nil, fmt.Errorf("%w: user %q account is disabled", ErrNotAuthorized, entry.Username)
+	}
+
+	return pool, user, nil
+}
+
+// retryGraceLocked is the client's refresh-token retry grace period when the exchange retires the old token.
+func (b *InMemoryBackend) retryGraceLocked(clientID string, retire bool) time.Duration {
+	if !retire {
+		return 0
+	}
+
+	if client, found := b.clients.Get(clientID); found {
+		return refreshRetryGrace(client)
+	}
+
+	return 0
+}
+
 func (b *InMemoryBackend) exchangeRefreshToken(
 	clientID, refreshToken string,
 	opts refreshOpts,
@@ -411,21 +502,16 @@ func (b *InMemoryBackend) exchangeRefreshToken(
 
 	entry, err := b.liveRefreshEntryLocked(refreshToken, clientID)
 	if err != nil {
+		if !opts.honorRotation && errors.Is(err, ErrRefreshTokenReuse) {
+			return nil, fmt.Errorf("%w: Invalid Refresh Token", ErrNotAuthorized)
+		}
+
 		return nil, err
 	}
 
-	pool, ok := b.pools.Get(entry.PoolID)
-	if !ok {
-		return nil, fmt.Errorf("%w: user pool %q not found", ErrUserPoolNotFound, entry.PoolID)
-	}
-
-	user, ok := b.users.Get(userKey(entry.PoolID, entry.Username))
-	if !ok {
-		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, entry.Username)
-	}
-
-	if !user.Enabled {
-		return nil, fmt.Errorf("%w: user %q account is disabled", ErrNotAuthorized, entry.Username)
+	pool, user, err := b.refreshSubjectLocked(entry)
+	if err != nil {
+		return nil, err
 	}
 
 	now := time.Now()
@@ -446,7 +532,7 @@ func (b *InMemoryBackend) exchangeRefreshToken(
 
 	overrides, err := b.preTokenGenerationOverrideAuth(
 		pool, clientID, user, groups, strings.Fields(resolveAccessScope(settings.scopes)),
-		triggerSourceTokenGenRefreshTokens,
+		triggerSourceTokenGenRefreshTokens, opts.clientMetadata,
 	)
 	if err != nil {
 		return nil, err
@@ -469,6 +555,7 @@ func (b *InMemoryBackend) exchangeRefreshToken(
 		Scopes:            settings.scopes,
 		AccessTokenExpiry: settings.accessTokenExpiry,
 		IDTokenExpiry:     settings.idTokenExpiry,
+		OriginJTI:         entry.ChainID,
 	}
 	overrides.useTo(&params)
 
@@ -487,7 +574,12 @@ func (b *InMemoryBackend) exchangeRefreshToken(
 		return nil, commitErr
 	}
 
-	b.finishRefreshLocked(tokens, refreshToken, entry, now.UTC().Add(settings.refreshTokenTTL), rotate)
+	retire := opts.honorRotation && rotate
+
+	b.finishRefreshLocked(
+		tokens, refreshToken, entry, now.UTC().Add(settings.refreshTokenTTL), rotate,
+		b.retryGraceLocked(clientID, retire), retire,
+	)
 
 	return tokens, nil
 }
@@ -554,9 +646,47 @@ func (b *InMemoryBackend) revokeToken(token, clientID string, clientSecret *stri
 		return fmt.Errorf("%w: token was issued for a different client", ErrTokenUnauthorized)
 	}
 
+	b.revokeChainLocked(entry)
 	b.deleteRefreshTokenLocked(token)
 
 	return nil
+}
+
+// revokeChainLocked invalidates every refresh token and access token minted from entry's chain.
+func (b *InMemoryBackend) revokeChainLocked(entry *refreshTokenEntry) {
+	if entry.ChainID == "" {
+		return
+	}
+
+	b.revokedChains[entry.ChainID] = time.Now().UTC().Add(maxAccessTokenLifetime)
+
+	for token := range b.refreshTokensByUser[entry.PoolID+":"+entry.Username] {
+		if other := b.refreshTokens[token]; other != nil && other.ChainID == entry.ChainID {
+			b.deleteRefreshTokenLocked(token)
+		}
+	}
+}
+
+// maxAccessTokenLifetime is Cognito's longest access token validity (one day).
+const maxAccessTokenLifetime = 24 * time.Hour
+
+// EvictExpiredRevokedChains drops revoked-chain markers whose access tokens have all expired.
+func (b *InMemoryBackend) EvictExpiredRevokedChains() int {
+	b.mu.Lock("EvictExpiredRevokedChains")
+	defer b.mu.Unlock()
+
+	now := time.Now().UTC()
+	n := 0
+
+	for id, until := range b.revokedChains {
+		if !until.After(now) {
+			delete(b.revokedChains, id)
+
+			n++
+		}
+	}
+
+	return n
 }
 
 // ValidateAccessToken verifies that the supplied access token is valid and resolves to a

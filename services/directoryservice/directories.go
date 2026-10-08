@@ -15,6 +15,9 @@ const directoryLifecycleDelay = 50 * time.Millisecond
 // restoreLifecycleDelay is the delay before a restoring directory returns to Active.
 const restoreLifecycleDelay = 100 * time.Millisecond
 
+// statusTransitionDelay is the delay before a transitional status (trust, snapshot, share, setting) settles.
+const statusTransitionDelay = 100 * time.Millisecond
+
 // setStage transitions d to stage and stamps StageLastUpdatedDateTime, matching
 // AWS's DirectoryDescription.StageLastUpdatedDateTime contract ("The date and
 // time that the stage was last updated"). Caller must hold b.mu.

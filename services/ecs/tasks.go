@@ -238,6 +238,21 @@ func (b *InMemoryBackend) applyNoRunnerTransition(task *Task, clusterName string
 	b.registerTaskWithELBv2Locked(task, clusterName)
 }
 
+// applyRuntimeContainerIDs sets each container's RuntimeID to the ID its runtime assigned, when the
+// runner exposes one. Caller holds b.mu.
+func (b *InMemoryBackend) applyRuntimeContainerIDs(task *Task) {
+	r, ok := b.runner.(interface{ ContainerIDs(taskArn string) []string })
+	if !ok {
+		return
+	}
+
+	for i, id := range r.ContainerIDs(task.TaskArn) {
+		if i < len(task.Containers) {
+			task.Containers[i].RuntimeID = id
+		}
+	}
+}
+
 // applyRunnerTransition transitions a PENDING task to RUNNING or STOPPED
 // based on the container runtime result. Must be called without any lock held.
 func (b *InMemoryBackend) applyRunnerTransition(task *Task, clusterName string, runErr error) {
@@ -253,6 +268,7 @@ func (b *InMemoryBackend) applyRunnerTransition(task *Task, clusterName string, 
 
 	if runErr == nil {
 		task.LastStatus = statusRunning
+		b.applyRuntimeContainerIDs(task)
 		syncContainerStatuses(task, nil)
 
 		if c, _ := b.clusters.Get(clusterName); c != nil {
@@ -415,30 +431,53 @@ func (b *InMemoryBackend) placeEC2TaskLocked(
 	clusterName string, task *Task, td *TaskDefinition, input RunTaskInput,
 ) (map[string][]NetworkBinding, *Failure) {
 	constraints := mergeConstraints(td.PlacementConstraints, input.PlacementConstraints)
-	instanceArn := selectContainerInstance(
-		b.containerInstancesByCluster.Get(clusterName),
-		b.tasksByCluster.Get(clusterName),
-		constraints,
-		input.PlacementStrategy,
-		input.serviceNameForTags,
+	skip := map[string]bool{}
+	portsBlocked := false
+
+	var (
+		instanceArn string
+		bindings    map[string][]NetworkBinding
 	)
+
+	for {
+		instanceArn = selectContainerInstance(
+			b.containerInstancesByCluster.Get(clusterName),
+			b.tasksByCluster.Get(clusterName),
+			constraints,
+			input.PlacementStrategy,
+			input.serviceNameForTags,
+			skip,
+		)
+
+		if instanceArn == "" {
+			break
+		}
+
+		var ok bool
+
+		if bindings, ok = b.reserveTaskHostPortsLocked(clusterName, instanceArn, td); ok {
+			break
+		}
+
+		skip[instanceArn] = true
+		portsBlocked = true
+	}
+
+	if instanceArn == "" && portsBlocked {
+		return nil, &Failure{
+			Reason: failureReasonResourcePorts,
+			Detail: fmt.Sprintf(
+				"no container instance has the host ports required by task definition %s",
+				td.TaskDefinitionArn,
+			),
+		}
+	}
 
 	if instanceArn == "" {
 		return nil, &Failure{
 			Reason: failureReasonResource,
 			Detail: "no container instance available in the cluster that satisfies " +
 				"the requested placement constraints",
-		}
-	}
-
-	bindings, ok := b.reserveTaskHostPortsLocked(clusterName, instanceArn, td)
-	if !ok {
-		return nil, &Failure{
-			Reason: failureReasonResourcePorts,
-			Detail: fmt.Sprintf(
-				"no available host ports on container instance %s for task definition %s",
-				instanceArn, td.TaskDefinitionArn,
-			),
 		}
 	}
 
@@ -710,6 +749,7 @@ type ListTasksInput struct {
 	ContainerInstance string
 	Family            string
 	ServiceName       string
+	DaemonName        string
 	DesiredStatus     string
 	LaunchType        string
 	StartedBy         string
@@ -740,29 +780,36 @@ func (b *InMemoryBackend) ListTasksFiltered(input ListTasksInput) ([]string, err
 
 	clusterTasks := b.tasksByCluster.Get(clusterName)
 	arns := make([]string, 0, len(clusterTasks))
+
 	for _, task := range clusterTasks {
-		if input.ContainerInstance != "" && task.ContainerInstanceArn != input.ContainerInstance {
-			continue
+		if listTasksMatch(task, input, wantDesiredStatus) {
+			arns = append(arns, task.TaskArn)
 		}
-		if !strings.EqualFold(task.DesiredStatus, wantDesiredStatus) {
-			continue
-		}
-		if input.LaunchType != "" && !strings.EqualFold(task.LaunchType, input.LaunchType) {
-			continue
-		}
-		if input.StartedBy != "" && task.StartedBy != input.StartedBy {
-			continue
-		}
-		if input.Family != "" && !strings.Contains(task.TaskDefinitionArn, "/"+input.Family+":") {
-			continue
-		}
-		if input.ServiceName != "" && task.Group != "service:"+input.ServiceName {
-			continue
-		}
-		arns = append(arns, task.TaskArn)
 	}
 
 	return arns, nil
+}
+
+// listTasksMatch applies every ListTasks filter in input to task.
+func listTasksMatch(task *Task, input ListTasksInput, wantDesiredStatus string) bool {
+	switch {
+	case input.ContainerInstance != "" && task.ContainerInstanceArn != input.ContainerInstance:
+		return false
+	case !strings.EqualFold(task.DesiredStatus, wantDesiredStatus):
+		return false
+	case input.LaunchType != "" && !strings.EqualFold(task.LaunchType, input.LaunchType):
+		return false
+	case input.StartedBy != "" && task.StartedBy != input.StartedBy:
+		return false
+	case input.Family != "" && !strings.Contains(task.TaskDefinitionArn, "/"+input.Family+":"):
+		return false
+	case input.ServiceName != "" && task.Group != "service:"+input.ServiceName:
+		return false
+	case input.DaemonName != "" && task.Group != "daemon:"+input.DaemonName:
+		return false
+	default:
+		return true
+	}
 }
 
 // StartTask places tasks on specific container instances (as opposed to RunTask which auto-places).

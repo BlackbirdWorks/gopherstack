@@ -49,7 +49,9 @@ func (h *Handler) handleGetTokensFromRefreshToken(
 	_ context.Context,
 	in *getTokensFromRefreshTokenInput,
 ) (*getTokensFromRefreshTokenOutput, error) {
-	tokens, err := h.Backend.GetTokensFromRefreshToken(in.ClientID, in.RefreshToken, in.ClientSecret)
+	tokens, err := h.Backend.GetTokensFromRefreshToken(
+		in.ClientID, in.RefreshToken, in.ClientSecret, in.ClientMetadata,
+	)
 	if err != nil {
 		return nil, err
 	}

@@ -91,7 +91,7 @@ func (b *InMemoryBackend) groupRolesLocked(poolID string, groups []string) ([]st
 
 // preTokenV2Request builds the version-2/3 request (user-pool-lambda-pre-token-generation).
 func (b *InMemoryBackend) preTokenV2Request(
-	pool *UserPool, user *User, groups, scopes []string,
+	pool *UserPool, user *User, groups, scopes []string, cm map[string]string,
 ) map[string]any {
 	roles, preferred := b.groupRolesLocked(pool.ID, groups)
 
@@ -104,7 +104,7 @@ func (b *InMemoryBackend) preTokenV2Request(
 		eventKeyUserAttributes: stringMapToAny(user.Attributes),
 		"scopes":               stringsToAny(scopes),
 		keyGroupConfiguration:  groupConfigEvent(groups, roles, preferredAny),
-		eventKeyClientMetadata: map[string]any{},
+		eventKeyClientMetadata: stringMapToAny(cm),
 	}
 }
 

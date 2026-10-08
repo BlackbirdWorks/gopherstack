@@ -80,27 +80,69 @@ func (b *InMemoryBackend) UpdateSettings(
 	}
 
 	for _, s := range settings {
-		if e, ok := existing[s.Name]; ok {
-			e.RequestedValue = s.Value
-			e.Status = "Requested"
-			e.LastUpdatedDateTime = now
-			e.LastRequestedTime = now
-		} else {
-			ns := &storedDirectorySetting{
-				DirectoryID:         directoryID,
-				Name:                s.Name,
-				AllowedValues:       s.AllowedValues,
-				RequestedValue:      s.Value,
-				AppliedValue:        s.Value,
-				Status:              "Updated",
-				LastUpdatedDateTime: now,
-				LastRequestedTime:   now,
+		e, ok := existing[s.Name]
+		if !ok {
+			e = &storedDirectorySetting{
+				DirectoryID:   directoryID,
+				Name:          s.Name,
+				AllowedValues: s.AllowedValues,
 			}
-			dirSettings[directoryID] = append(dirSettings[directoryID], ns)
+			dirSettings[directoryID] = append(dirSettings[directoryID], e)
+			existing[s.Name] = e
 		}
+
+		e.RequestedValue = s.Value
+		e.Status = string(settingStatusRequested)
+		e.LastUpdatedDateTime = now
+		e.LastRequestedTime = now
+		b.applySetting(region, directoryID, s.Name)
 	}
 
 	return directoryID, nil
+}
+
+const (
+	settingStatusRequested = "Requested"
+	settingStatusUpdating  = "Updating"
+	settingStatusUpdated   = "Updated"
+)
+
+// applySetting walks a requested setting through Updating to Updated, copying the requested value
+// into AppliedValue. A newer request for the same setting supersedes the pending walk. Caller holds b.mu.
+func (b *InMemoryBackend) applySetting(region, directoryID, name string) {
+	find := func() *storedDirectorySetting {
+		for _, e := range b.dirSettingsStoreRO(region)[directoryID] {
+			if e.Name == name {
+				return e
+			}
+		}
+
+		return nil
+	}
+
+	b.settleLater("Setting:updating", func() {
+		if e := find(); e != nil && e.Status == settingStatusRequested {
+			e.Status = settingStatusUpdating
+			e.LastUpdatedDateTime = time.Now().UTC()
+		}
+
+		b.settleLater("Setting:updated", func() {
+			if e := find(); e != nil && e.Status == settingStatusUpdating {
+				e.Status = settingStatusUpdated
+				e.AppliedValue = e.RequestedValue
+				e.LastUpdatedDateTime = time.Now().UTC()
+			}
+		})
+	})
+}
+
+// settleLater runs fn under b.mu on the backend worker once statusTransitionDelay elapses.
+func (b *InMemoryBackend) settleLater(name string, fn func()) {
+	b.work.After(name, statusTransitionDelay, func() {
+		b.mu.Lock(name)
+		defer b.mu.Unlock()
+		fn()
+	})
 }
 
 // DescribeSettings returns directory settings.
@@ -127,9 +169,30 @@ func (b *InMemoryBackend) DescribeSettings(
 	}
 	sort.Slice(filtered, func(i, j int) bool { return filtered[i].Name < filtered[j].Name })
 
+	regions := []string{region}
+	for _, r := range b.dsRegionsInRegion(region) {
+		if r.DirectoryID == directoryID {
+			regions = append(regions, r.RegionName)
+		}
+	}
+
 	result := make([]SettingEntry, 0, len(filtered))
 	for _, s := range filtered {
-		result = append(result, SettingEntry(s))
+		entry := SettingEntry{
+			LastUpdatedDateTime: s.LastUpdatedDateTime,
+			LastRequestedTime:   s.LastRequestedTime,
+			DirectoryID:         s.DirectoryID,
+			Name:                s.Name,
+			AllowedValues:       s.AllowedValues,
+			AppliedValue:        s.AppliedValue,
+			RequestedValue:      s.RequestedValue,
+			Status:              s.Status,
+			RegionStatuses:      make(map[string]string, len(regions)),
+		}
+		for _, r := range regions {
+			entry.RegionStatuses[r] = s.Status
+		}
+		result = append(result, entry)
 	}
 
 	return result, "", nil
@@ -149,6 +212,10 @@ func (b *InMemoryBackend) UpdateDirectorySetup(
 	dir, ok := b.directoryGet(region, directoryID)
 	if !ok {
 		return ErrDirectoryNotFoundDDNE
+	}
+
+	if update.CreateSnapshotBeforeUpdate {
+		b.newAutoSnapshot(region, directoryID, "Directory setup update snapshot")
 	}
 
 	previous := dir.OSVersion

@@ -8,8 +8,17 @@ import "fmt"
 // its unset default, so this backend picks the legacy value, the only one that doesn't
 // implicitly claim managed-login branding the caller never configured.
 func (b *InMemoryBackend) CreateUserPoolDomainFull(
-	userPoolID, domain, certificateArn string, managedLoginVersion int32,
+	userPoolID, domain, certificateArn string, managedLoginVersion int32, routing ...*DomainRouting,
 ) (*UserPoolDomain, error) {
+	var route *DomainRouting
+	if len(routing) > 0 {
+		route = routing[0]
+	}
+
+	if route != nil && certificateArn == "" {
+		return nil, fmt.Errorf("%w: Routing is only supported for custom domains", ErrInvalidParameter)
+	}
+
 	b.mu.Lock("CreateUserPoolDomainFull")
 	defer b.mu.Unlock()
 
@@ -44,6 +53,7 @@ func (b *InMemoryBackend) CreateUserPoolDomainFull(
 		ManagedLoginVersion:    mlv,
 		S3Bucket:               domainAssetsBucket(b.region),
 		AWSAccountID:           b.accountID,
+		Routing:                route,
 	}
 	b.domains.Put(d)
 
@@ -57,7 +67,7 @@ func (b *InMemoryBackend) CreateUserPoolDomainFull(
 // existing stored value unchanged (AWS's ManagedLoginVersion request field is
 // optional -- an update that omits it does not reset the domain's branding version).
 func (b *InMemoryBackend) UpdateUserPoolDomainFull(
-	userPoolID, domain, certificateArn string, managedLoginVersion int32,
+	userPoolID, domain, certificateArn string, managedLoginVersion int32, routing ...*DomainRouting,
 ) (*UserPoolDomain, error) {
 	b.mu.Lock("UpdateUserPoolDomainFull")
 	defer b.mu.Unlock()
@@ -78,6 +88,14 @@ func (b *InMemoryBackend) UpdateUserPoolDomainFull(
 
 	if managedLoginVersion != 0 {
 		d.ManagedLoginVersion = managedLoginVersion
+	}
+
+	if len(routing) > 0 && routing[0] != nil {
+		if d.CertificateArn == "" {
+			return nil, fmt.Errorf("%w: Routing is only supported for custom domains", ErrInvalidParameter)
+		}
+
+		d.Routing = routing[0]
 	}
 
 	cp := *d

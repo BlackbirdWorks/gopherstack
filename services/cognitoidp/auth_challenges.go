@@ -14,7 +14,7 @@ import (
 // RespondToNewPasswordRequired allows a user in FORCE_CHANGE_PASSWORD status to set a
 // permanent password and receive tokens. The session token is from authenticate().
 func (b *InMemoryBackend) RespondToNewPasswordRequired(
-	clientID, session, newPassword string,
+	clientID, session, newPassword string, meta ...ClientMetadata,
 ) (*TokenResult, error) {
 	b.mu.Lock("RespondToNewPasswordRequired")
 	defer b.mu.Unlock()
@@ -52,7 +52,7 @@ func (b *InMemoryBackend) RespondToNewPasswordRequired(
 
 	delete(b.mfaSessions, session)
 
-	result, err := b.issueTokensLocked(pool, clientID, user, triggerSourceTokenGenNewPasswordFlow)
+	result, err := b.issueTokensLocked(pool, clientID, user, triggerSourceTokenGenNewPasswordFlow, firstMetadata(meta))
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +85,7 @@ func setPermanentPasswordLocked(user *User, newPassword string) error {
 // On success this runs the same FORCE_CHANGE_PASSWORD/MFA gate any other credential
 // check runs, so it may return a further challenge rather than tokens.
 func (b *InMemoryBackend) RespondToSRPChallenge(
-	clientID, session string, challengeResponses map[string]string,
+	clientID, session string, challengeResponses map[string]string, meta ...ClientMetadata,
 ) (*AuthResult, error) {
 	b.mu.Lock("RespondToSRPChallenge")
 	defer b.mu.Unlock()
@@ -125,7 +125,7 @@ func (b *InMemoryBackend) RespondToSRPChallenge(
 
 	delete(b.mfaSessions, session)
 
-	return b.postCredentialCheckLocked(pool, clientID, user)
+	return b.postCredentialCheckLocked(pool, clientID, user, firstMetadata(meta))
 }
 
 // verifySRPPasswordClaim checks a client's PASSWORD_CLAIM_SECRET_BLOCK/

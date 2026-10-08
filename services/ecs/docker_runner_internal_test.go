@@ -780,7 +780,9 @@ func TestDockerRunner_ForwardsAwslogsContainerOutput(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, tasks, 1)
 
-	wantStream := taskIDFromARN(tasks[0].TaskArn)
+	wantStream := tasks[0].Containers[0].RuntimeID
+	require.NotEmpty(t, wantStream, "an unprefixed awslogs stream is named after the container ID")
+	assert.NotEqual(t, wantStream, taskIDFromARN(tasks[0].TaskArn))
 
 	require.Eventually(t, func() bool {
 		return len(mock.putCalls()) >= 2

@@ -31,13 +31,24 @@ func buildNetworkBindingsForContainer(cd ContainerDefinition) []NetworkBinding {
 	bindings := make([]NetworkBinding, 0, len(cd.PortMappings))
 
 	for _, pm := range cd.PortMappings {
-		if pm.ContainerPort == 0 {
-			continue
-		}
-
 		proto := pm.Protocol
 		if proto == "" {
 			proto = transportTCP
+		}
+
+		if pm.ContainerPortRange != "" {
+			bindings = append(bindings, NetworkBinding{
+				BindIP:             bindAllInterfaces,
+				Protocol:           proto,
+				ContainerPortRange: pm.ContainerPortRange,
+				HostPortRange:      pm.ContainerPortRange,
+			})
+
+			continue
+		}
+
+		if pm.ContainerPort == 0 {
+			continue
 		}
 
 		hostPort := pm.HostPort
@@ -46,7 +57,7 @@ func buildNetworkBindingsForContainer(cd ContainerDefinition) []NetworkBinding {
 		}
 
 		bindings = append(bindings, NetworkBinding{
-			BindIP:        "0.0.0.0",
+			BindIP:        bindAllInterfaces,
 			ContainerPort: pm.ContainerPort,
 			HostPort:      hostPort,
 			Protocol:      proto,
@@ -127,7 +138,9 @@ func syncContainerStatuses(task *Task, exitCode *int) {
 		}
 
 		if task.LastStatus == statusRunning {
-			task.Containers[i].RuntimeID = uuid.NewString()[:12]
+			if task.Containers[i].RuntimeID == "" {
+				task.Containers[i].RuntimeID = uuid.NewString()[:12]
+			}
 
 			if task.Containers[i].HealthStatus == containerHealthStatusUnknown {
 				task.Containers[i].HealthStatus = containerHealthStatusHealthy

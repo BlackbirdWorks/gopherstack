@@ -196,7 +196,8 @@ func (r *realDockerRunner) RunTask(task *Task, td *TaskDefinition) error {
 		started = append(started, containerID)
 
 		if cwLogs != nil {
-			if group, stream, ok := awslogsTarget(cd, taskID); ok {
+			if group, stream, ok := awslogsContainerTarget(cd, taskID, containerID); ok {
+				_ = cwLogs.EnsureLogGroupAndStream(group, stream)
 				r.forwardContainerLogs(cwLogs, containerID, group, stream)
 			}
 		}
@@ -321,8 +322,18 @@ func buildPortMappings(mappings []PortMapping) (dockernetwork.PortMap, dockernet
 			proto = transportTCP
 		}
 
+		if pr, isRange := parsePortRange(pm.ContainerPortRange); isRange {
+			for p := pr.start; p <= pr.end; p++ {
+				if rp, rerr := dockernetwork.ParsePort(fmt.Sprintf("%d/%s", p, proto)); rerr == nil {
+					exposedPorts[rp] = struct{}{}
+				}
+			}
+
+			continue
+		}
+
 		containerPort, err := dockernetwork.ParsePort(fmt.Sprintf("%d/%s", pm.ContainerPort, proto))
-		if err != nil {
+		if err != nil || pm.ContainerPort == 0 {
 			continue
 		}
 
@@ -346,6 +357,14 @@ func buildEnv(kvs []KeyValuePair) []string {
 	}
 
 	return env
+}
+
+// ContainerIDs returns the Docker container IDs started for taskArn, in task-definition container order.
+func (r *realDockerRunner) ContainerIDs(taskArn string) []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return append([]string(nil), r.containers[taskArn]...)
 }
 
 func (r *realDockerRunner) StopTask(task *Task) error {

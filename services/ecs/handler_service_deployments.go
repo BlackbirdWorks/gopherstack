@@ -124,14 +124,19 @@ func toServiceDeploymentBriefView(sd ServiceDeployment) serviceDeploymentBriefVi
 	}
 
 	if sd.CreatedAt != nil {
-		// The real full ServiceDeployment type has no separate "started"
-		// timestamp either -- only CreatedAt/FinishedAt -- so Brief.StartedAt
-		// carries the same moment this backend tracks as CreatedAt.
 		v.CreatedAt = float64(sd.CreatedAt.Unix())
+	}
+
+	if sd.StartedAt != nil {
+		v.StartedAt = float64(sd.StartedAt.Unix())
+	} else {
 		v.StartedAt = v.CreatedAt
 	}
 
-	if isTerminalServiceDeploymentStatus(sd.Status) && sd.UpdatedAt != nil {
+	switch {
+	case sd.FinishedAt != nil:
+		v.FinishedAt = float64(sd.FinishedAt.Unix())
+	case isTerminalServiceDeploymentStatus(sd.Status) && sd.UpdatedAt != nil:
 		v.FinishedAt = float64(sd.UpdatedAt.Unix())
 	}
 
@@ -140,7 +145,7 @@ func toServiceDeploymentBriefView(sd ServiceDeployment) serviceDeploymentBriefVi
 
 func isTerminalServiceDeploymentStatus(status string) bool {
 	switch status {
-	case "SUCCESSFUL", statusStopped:
+	case "SUCCESSFUL", statusStopped, serviceDeploymentRollbackSuccessful:
 		return true
 	default:
 		return false
@@ -177,22 +182,23 @@ func (h *Handler) handleListServiceDeployments(
 
 type stopServiceDeploymentInput struct {
 	ServiceDeploymentArn string `json:"serviceDeploymentArn"`
+	StopType             string `json:"stopType,omitempty"`
 }
 
 type stopServiceDeploymentOutput struct {
-	ServiceDeployment serviceDeploymentView `json:"serviceDeployment"`
+	ServiceDeploymentArn string `json:"serviceDeploymentArn"`
 }
 
 func (h *Handler) handleStopServiceDeployment(
 	_ context.Context,
 	in *stopServiceDeploymentInput,
 ) (*stopServiceDeploymentOutput, error) {
-	sd, err := h.Backend.StopServiceDeployment(in.ServiceDeploymentArn)
+	sd, err := h.Backend.StopServiceDeployment(in.ServiceDeploymentArn, in.StopType)
 	if err != nil {
 		return nil, err
 	}
 
-	return &stopServiceDeploymentOutput{ServiceDeployment: toServiceDeploymentView(*sd)}, nil
+	return &stopServiceDeploymentOutput{ServiceDeploymentArn: sd.ServiceDeploymentArn}, nil
 }
 
 // ----- ContinueServiceDeployment -----
@@ -225,14 +231,45 @@ type describeServiceDeploymentsInput struct {
 	ServiceDeploymentArns []string `json:"serviceDeploymentArns"`
 }
 
+type serviceRevisionSummaryView struct {
+	Arn                string `json:"arn"`
+	PendingTaskCount   int    `json:"pendingTaskCount"`
+	RequestedTaskCount int    `json:"requestedTaskCount"`
+	RunningTaskCount   int    `json:"runningTaskCount"`
+}
+
+type serviceDeploymentRollbackView struct {
+	Reason             string  `json:"reason,omitempty"`
+	ServiceRevisionArn string  `json:"serviceRevisionArn,omitempty"`
+	StartedAt          float64 `json:"startedAt,omitempty"`
+}
+
+type serviceDeploymentCircuitBreakerView struct {
+	Status       string `json:"status"`
+	FailureCount int    `json:"failureCount"`
+	Threshold    int    `json:"threshold"`
+}
+
 type serviceDeploymentView struct {
-	ServiceDeploymentArn string  `json:"serviceDeploymentArn"`
-	ClusterArn           string  `json:"clusterArn"`
-	ServiceArn           string  `json:"serviceArn"`
-	Status               string  `json:"status"`
-	StatusReason         string  `json:"statusReason,omitempty"`
-	CreatedAt            float64 `json:"createdAt,omitempty"`
-	UpdatedAt            float64 `json:"updatedAt,omitempty"`
+	DeploymentConfiguration  *deploymentConfigurationView         `json:"deploymentConfiguration,omitempty"`
+	DeploymentCircuitBreaker *serviceDeploymentCircuitBreakerView `json:"deploymentCircuitBreaker,omitempty"`
+	Rollback                 *serviceDeploymentRollbackView       `json:"rollback,omitempty"`
+	TargetServiceRevision    *serviceRevisionSummaryView          `json:"targetServiceRevision,omitempty"`
+	ClusterArn               string                               `json:"clusterArn"`
+	ServiceDeploymentArn     string                               `json:"serviceDeploymentArn"`
+	ServiceArn               string                               `json:"serviceArn"`
+	Status                   string                               `json:"status"`
+	StatusReason             string                               `json:"statusReason,omitempty"`
+	SourceServiceRevisions   []serviceRevisionSummaryView         `json:"sourceServiceRevisions,omitempty"`
+	CreatedAt                float64                              `json:"createdAt,omitempty"`
+	StartedAt                float64                              `json:"startedAt,omitempty"`
+	UpdatedAt                float64                              `json:"updatedAt,omitempty"`
+	StoppedAt                float64                              `json:"stoppedAt,omitempty"`
+	FinishedAt               float64                              `json:"finishedAt,omitempty"`
+}
+
+func toServiceRevisionSummaryView(r ServiceRevisionSummary) serviceRevisionSummaryView {
+	return serviceRevisionSummaryView(r)
 }
 
 type describeServiceDeploymentsOutput struct {
@@ -256,6 +293,43 @@ func toServiceDeploymentView(sd ServiceDeployment) serviceDeploymentView {
 	if sd.UpdatedAt != nil {
 		v.UpdatedAt = float64(sd.UpdatedAt.Unix())
 	}
+
+	if sd.StartedAt != nil {
+		v.StartedAt = float64(sd.StartedAt.Unix())
+	}
+
+	if sd.StoppedAt != nil {
+		v.StoppedAt = float64(sd.StoppedAt.Unix())
+	}
+
+	if sd.FinishedAt != nil {
+		v.FinishedAt = float64(sd.FinishedAt.Unix())
+	}
+
+	if sd.Rollback != nil {
+		v.Rollback = &serviceDeploymentRollbackView{
+			Reason: sd.Rollback.Reason, ServiceRevisionArn: sd.Rollback.ServiceRevisionArn,
+		}
+		if sd.Rollback.StartedAt != nil {
+			v.Rollback.StartedAt = float64(sd.Rollback.StartedAt.Unix())
+		}
+	}
+
+	if sd.circuitBreaker != nil {
+		cb := serviceDeploymentCircuitBreakerView(*sd.circuitBreaker)
+		v.DeploymentCircuitBreaker = &cb
+	}
+
+	if sd.targetRevision != nil {
+		t := toServiceRevisionSummaryView(*sd.targetRevision)
+		v.TargetServiceRevision = &t
+	}
+
+	for _, r := range sd.sourceRevisions {
+		v.SourceServiceRevisions = append(v.SourceServiceRevisions, toServiceRevisionSummaryView(r))
+	}
+
+	v.DeploymentConfiguration = toDeploymentConfigurationView(sd.deploymentConfiguration)
 
 	return v
 }

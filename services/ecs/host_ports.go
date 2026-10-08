@@ -7,6 +7,8 @@ import (
 )
 
 const (
+	bindAllInterfaces = "0.0.0.0"
+
 	// ephemeralPortRangeMin/Max is the dynamic host-port range ECS assigns
 	// bridge-mode containers when hostPort is 0 or omitted. Matches the AWS
 	// ECS developer guide's Port mappings section verbatim ("The default
@@ -94,34 +96,76 @@ func (b *InMemoryBackend) reserveTaskHostPortsLocked(
 
 	for _, cd := range td.ContainerDefinitions {
 		for _, pm := range cd.PortMappings {
-			if pm.ContainerPort == 0 {
-				continue
-			}
-
-			proto := pm.Protocol
-			if proto == "" {
-				proto = transportTCP
-			}
-
-			hostPort, ok := assignHostPortLocked(ci, mode, proto, pm.HostPort, pm.ContainerPort)
+			binding, keys, reserved, ok := reservePortMappingLocked(ci, mode, pm)
 			if !ok {
 				releaseReservedPortsLocked(ci, reservedKeys)
 
 				return nil, false
 			}
 
-			reservedKeys = append(reservedKeys, hostPortKey(proto, hostPort))
-
-			bindings[cd.Name] = append(bindings[cd.Name], NetworkBinding{
-				BindIP:        "0.0.0.0",
-				Protocol:      proto,
-				ContainerPort: pm.ContainerPort,
-				HostPort:      hostPort,
-			})
+			if reserved {
+				reservedKeys = append(reservedKeys, keys...)
+				bindings[cd.Name] = append(bindings[cd.Name], binding)
+			}
 		}
 	}
 
 	return bindings, true
+}
+
+// reservePortMappingLocked reserves the host port(s) for one port mapping. reserved is false for a
+// mapping that needs none (no container port); ok is false when the ports cannot be satisfied.
+func reservePortMappingLocked(
+	ci *ContainerInstance, mode string, pm PortMapping,
+) (NetworkBinding, []string, bool, bool) {
+	proto := pm.Protocol
+	if proto == "" {
+		proto = transportTCP
+	}
+
+	if pm.ContainerPortRange != "" {
+		binding, keys, ok := reserveRangeBindingLocked(ci, proto, pm.ContainerPortRange)
+
+		return binding, keys, ok, ok
+	}
+
+	if pm.ContainerPort == 0 {
+		return NetworkBinding{}, nil, false, true
+	}
+
+	hostPort, ok := assignHostPortLocked(ci, mode, proto, pm.HostPort, pm.ContainerPort)
+	if !ok {
+		return NetworkBinding{}, nil, false, false
+	}
+
+	return NetworkBinding{
+		BindIP:        bindAllInterfaces,
+		Protocol:      proto,
+		ContainerPort: pm.ContainerPort,
+		HostPort:      hostPort,
+	}, []string{hostPortKey(proto, hostPort)}, true, true
+}
+
+// reserveRangeBindingLocked allocates a contiguous host port block the size of containerPortRange.
+func reserveRangeBindingLocked(
+	ci *ContainerInstance, proto, containerPortRange string,
+) (NetworkBinding, []string, bool) {
+	cr, ok := parsePortRange(containerPortRange)
+	if !ok {
+		return NetworkBinding{}, nil, false
+	}
+
+	hr, ok := reserveHostPortRangeLocked(ci, proto, cr.size())
+	if !ok {
+		return NetworkBinding{}, nil, false
+	}
+
+	return NetworkBinding{
+		BindIP:             bindAllInterfaces,
+		Protocol:           proto,
+		ContainerPortRange: cr.String(),
+		HostPortRange:      hr.String(),
+	}, rangeHostPortKeys(proto, hr), true
 }
 
 // assignHostPortLocked reserves one host port on ci for a single port
@@ -229,6 +273,12 @@ func (b *InMemoryBackend) releaseTaskHostPortsLocked(clusterName string, task *T
 
 	for _, c := range task.Containers {
 		for _, nb := range c.NetworkBindings {
+			if hr, isRange := parsePortRange(nb.HostPortRange); isRange {
+				releaseReservedPortsLocked(ci, rangeHostPortKeys(nb.Protocol, hr))
+
+				continue
+			}
+
 			delete(ci.AllocatedPorts, hostPortKey(nb.Protocol, nb.HostPort))
 		}
 	}

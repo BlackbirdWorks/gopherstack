@@ -24,7 +24,7 @@ func (b *InMemoryBackend) AdminCreateUser(
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	if _, exists := b.users.Get(userKey(userPoolID, username)); exists {
+	if b.usernameExistsLocked(userPoolID, username) {
 		return nil, fmt.Errorf("%w: user %q already exists", ErrUsernameExists, username)
 	}
 
@@ -424,7 +424,7 @@ func (b *InMemoryBackend) AdminCreateUserWithPolicy(
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	if _, exists := b.users.Get(userKey(userPoolID, username)); exists {
+	if b.usernameExistsLocked(userPoolID, username) {
 		return nil, fmt.Errorf("%w: user %q already exists", ErrUsernameExists, username)
 	}
 

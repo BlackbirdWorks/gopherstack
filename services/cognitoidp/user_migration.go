@@ -44,13 +44,13 @@ var migrationApplicableAuthFlows = map[string]bool{ //nolint:gochecknoglobals //
 // declines, so the caller falls back to its normal "unknown user" handling exactly as
 // before this feature existed. Caller must hold b.mu.
 func (b *InMemoryBackend) tryUserMigration(
-	pool *UserPool, clientID, authFlow, username, password string,
+	pool *UserPool, clientID, authFlow, username, password string, cm map[string]string,
 ) (*User, string, error) {
 	if !migrationApplicableAuthFlows[authFlow] {
 		return nil, "", nil
 	}
 
-	resp, err := b.invokeUserMigrationTrigger(pool, clientID, username, password)
+	resp, err := b.invokeUserMigrationTrigger(pool, clientID, username, password, cm)
 	if err != nil {
 		return nil, "", err
 	}
@@ -96,8 +96,10 @@ func (b *InMemoryBackend) tryUserMigration(
 // ConfirmForgotPassword completes the flow the caller is already in the middle of.
 // Returns (nil, nil) -- not an error -- when migration is unavailable or declined, so
 // ForgotPassword falls back to its normal unknown-user handling. Caller must hold b.mu.
-func (b *InMemoryBackend) tryUserMigrationForgotPassword(pool *UserPool, clientID, username string) (*User, error) {
-	resp, err := b.invokeUserMigrationTriggerForgotPassword(pool, clientID, username)
+func (b *InMemoryBackend) tryUserMigrationForgotPassword(
+	pool *UserPool, clientID, username string, cm map[string]string,
+) (*User, error) {
+	resp, err := b.invokeUserMigrationTriggerForgotPassword(pool, clientID, username, cm)
 	if err != nil {
 		return nil, err
 	}
