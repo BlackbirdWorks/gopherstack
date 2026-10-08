@@ -242,8 +242,10 @@ func TestGetFindingsV2_CompositeFilters_DateMapIPBooleanNested(t *testing.T) {
 	doRequest(t, h, http.MethodPost, "/findings/import", map[string]any{
 		"Findings": []any{
 			securityhub.ValidFinding(map[string]any{
-				"Id": "v2ext-f1", "ProductArn": productArn, "AwsAccountId": "111111111111",
-				"CreatedAt": recent,
+				"Id":           "v2ext-f1",
+				"ProductArn":   productArn,
+				"AwsAccountId": "111111111111",
+				"CreatedAt":    recent,
 				"Resources": []any{
 					map[string]any{
 						"Type": "AwsEc2Instance", "Id": "i-1",
@@ -256,12 +258,17 @@ func TestGetFindingsV2_CompositeFilters_DateMapIPBooleanNested(t *testing.T) {
 						map[string]any{"Name": "allowedPorts", "Value": []any{"22", "443"}},
 					},
 				},
-				"Network":         map[string]any{"SourceIpV4": "10.0.0.5"},
-				"Vulnerabilities": []any{map[string]any{"Id": "CVE-1", "ExploitAvailable": "YES"}},
+				"Network": map[string]any{"SourceIpV4": "10.0.0.5"},
+				"Vulnerabilities": []any{
+					map[string]any{"Id": "CVE-1", "ExploitAvailable": "YES", "FixAvailable": "YES"},
+				},
+				"SourceUrl": "https://example.com/f1",
 			}),
 			securityhub.ValidFinding(map[string]any{
-				"Id": "v2ext-f2", "ProductArn": productArn, "AwsAccountId": "222222222222",
-				"CreatedAt": old,
+				"Id":           "v2ext-f2",
+				"ProductArn":   productArn,
+				"AwsAccountId": "222222222222",
+				"CreatedAt":    old,
 				"Resources": []any{
 					map[string]any{
 						"Type": "AwsEc2Instance", "Id": "i-2",
@@ -274,8 +281,10 @@ func TestGetFindingsV2_CompositeFilters_DateMapIPBooleanNested(t *testing.T) {
 						map[string]any{"Name": "allowedPorts", "Value": []any{"80"}},
 					},
 				},
-				"Network":         map[string]any{"SourceIpV4": "172.16.0.9"},
-				"Vulnerabilities": []any{map[string]any{"Id": "CVE-2", "ExploitAvailable": "NO"}},
+				"Network": map[string]any{"SourceIpV4": "172.16.0.9"},
+				"Vulnerabilities": []any{
+					map[string]any{"Id": "CVE-2", "ExploitAvailable": "NO", "FixAvailable": "PARTIAL"},
+				},
 			}),
 		},
 	})
@@ -367,7 +376,7 @@ func TestGetFindingsV2_CompositeFilters_DateMapIPBooleanNested(t *testing.T) {
 			wantCount: 1, wantIDs: []string{"v2ext-f1"},
 		},
 		{
-			name: "map filter on unmapped databucket.tags is accepted but not enforced",
+			name: "map filter EQUALS on databucket.tags matches nothing",
 			filters: compositeFilter(map[string]any{
 				"MapFilters": []any{
 					map[string]any{
@@ -376,7 +385,100 @@ func TestGetFindingsV2_CompositeFilters_DateMapIPBooleanNested(t *testing.T) {
 					},
 				},
 			}),
+			wantCount: 0,
+		},
+		{
+			name: "map filter NOT_EQUALS on databucket.tags matches everything",
+			filters: compositeFilter(map[string]any{
+				"MapFilters": []any{
+					map[string]any{
+						"FieldName": "databucket.tags",
+						"Filter":    map[string]any{"Key": "anything", "Value": "anything", "Comparison": "NOT_EQUALS"},
+					},
+				},
+			}),
 			wantCount: 2,
+		},
+		{
+			name: "number filter on a field no finding carries matches nothing",
+			filters: compositeFilter(map[string]any{
+				"NumberFilters": []any{
+					map[string]any{"FieldName": "evidences.dst_endpoint.port", "Filter": map[string]any{"Gte": 0}},
+				},
+			}),
+			wantCount: 0,
+		},
+		{
+			name: "boolean meets_criteria matches nothing",
+			filters: compositeFilter(map[string]any{
+				"BooleanFilters": []any{
+					map[string]any{
+						"FieldName": "compliance.assessments.meets_criteria",
+						"Filter":    map[string]any{"Value": true},
+					},
+				},
+			}),
+			wantCount: 0,
+		},
+		{
+			name: "boolean is_fix_available true selects the YES finding",
+			filters: compositeFilter(map[string]any{
+				"BooleanFilters": []any{
+					map[string]any{
+						"FieldName": "vulnerabilities.is_fix_available",
+						"Filter":    map[string]any{"Value": true},
+					},
+				},
+			}),
+			wantCount: 1, wantIDs: []string{"v2ext-f1"},
+		},
+		{
+			name: "boolean is_fix_available false skips the PARTIAL finding",
+			filters: compositeFilter(map[string]any{
+				"BooleanFilters": []any{
+					map[string]any{
+						"FieldName": "vulnerabilities.is_fix_available",
+						"Filter":    map[string]any{"Value": false},
+					},
+				},
+			}),
+			wantCount: 0,
+		},
+		{
+			name: "string filter finding_info.src_url selects the finding carrying it",
+			filters: compositeFilter(map[string]any{
+				"StringFilters": []any{
+					map[string]any{
+						"FieldName": "finding_info.src_url",
+						"Filter":    map[string]any{"Comparison": "EQUALS", "Value": "https://example.com/f1"},
+					},
+				},
+			}),
+			wantCount: 1, wantIDs: []string{"v2ext-f1"},
+		},
+		{
+			name: "string filter metadata.uid selects by store key",
+			filters: compositeFilter(map[string]any{
+				"StringFilters": []any{
+					map[string]any{
+						"FieldName": "metadata.uid",
+						"Filter":    map[string]any{"Comparison": "EQUALS", "Value": productArn + "|v2ext-f2"},
+					},
+				},
+			}),
+			wantCount: 1, wantIDs: []string{"v2ext-f2"},
+		},
+		{
+			name: "string filter on a field no finding carries matches nothing",
+			filters: compositeFilter(map[string]any{
+				"StringFilters": []any{
+					map[string]any{
+						"FieldName": "activity_name",
+						"Filter":    map[string]any{"Comparison": "EQUALS", "Value": "x"},
+					},
+				},
+			}),
+			wantCount: 0,
 		},
 		{
 			name: "ip filter CIDR selects the finding whose source IP falls inside it",
@@ -584,8 +686,7 @@ func TestBatchUpdateFindingsV2_WireShape(t *testing.T) {
 // TestBatchUpdateFindingsV2_UnmatchedIdentifiers verifies both unresolvable
 // identifier shapes report ResourceNotFoundException in UnprocessedFindings:
 // a FindingIdentifier whose CloudAccountUid doesn't match the stored
-// finding's AwsAccountId, and any MetadataUids entry (this mock has no OCSF
-// ingestion path that would ever hand a caller a real metadata.uid).
+// finding's AwsAccountId, and a MetadataUids entry that names no finding.
 func TestBatchUpdateFindingsV2_UnmatchedIdentifiers(t *testing.T) {
 	t.Parallel()
 
@@ -624,6 +725,53 @@ func TestBatchUpdateFindingsV2_UnmatchedIdentifiers(t *testing.T) {
 	for _, u := range resp.UnprocessedFindings {
 		assert.Equal(t, "ResourceNotFoundException", u["ErrorCode"])
 	}
+}
+
+func TestBatchUpdateFindingsV2_MetadataUids(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	productArn := "arn:aws:securityhub:us-east-1:000000000000:product/000000000000/default"
+
+	doRequest(t, h, http.MethodPost, "/findings/import", map[string]any{
+		"Findings": []any{securityhub.ValidFinding(map[string]any{
+			"Id": "finding-v2-uid", "ProductArn": productArn, "AwsAccountId": "000000000000",
+		})},
+	})
+
+	rec := doRequest(t, h, http.MethodPost, "/findingsv2", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var got struct {
+		Findings []struct {
+			Metadata struct {
+				UID string `json:"uid"`
+			} `json:"metadata"`
+		} `json:"Findings"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.Len(t, got.Findings, 1)
+	uid := got.Findings[0].Metadata.UID
+	require.NotEmpty(t, uid)
+
+	rec = doRequest(t, h, http.MethodPatch, "/findingsv2/batchupdatev2", map[string]any{
+		"MetadataUids": []any{uid, "missing-uid"},
+		"Comment":      "via uid",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		ProcessedFindings   []map[string]any `json:"ProcessedFindings"`
+		UnprocessedFindings []map[string]any `json:"UnprocessedFindings"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.ProcessedFindings, 1)
+	assert.Equal(t, uid, resp.ProcessedFindings[0]["MetadataUid"])
+	require.Len(t, resp.UnprocessedFindings, 1)
+	assert.Equal(t, "missing-uid", resp.UnprocessedFindings[0]["MetadataUid"])
+
+	rec = doRequest(t, h, http.MethodPost, "/findingsv2", map[string]any{})
+	assert.Contains(t, rec.Body.String(), "via uid")
 }
 
 // seedSeverityFindings imports two HIGH-severity findings and one LOW, via

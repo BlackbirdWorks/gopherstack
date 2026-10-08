@@ -16,6 +16,15 @@ func (b *InMemoryBackend) AcceptAdministratorInvitation(administratorID, invitat
 		MemberStatus: statusEnabled,
 	}
 
+	if inv, ok := b.invitations.Get(invitationID); ok {
+		inv.MemberStatus = memberStatusEnabled
+
+		if m, found := b.members.Get(inv.AccountId); found {
+			m.MemberStatus = memberStatusEnabled
+			m.UpdatedAt = b.adminAccount.InvitedAt
+		}
+	}
+
 	return nil
 }
 

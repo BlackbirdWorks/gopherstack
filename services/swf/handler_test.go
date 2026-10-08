@@ -164,7 +164,7 @@ func TestSWFHandler_Actions(t *testing.T) {
 				{action: "RegisterWorkflowType", body: map[string]any{"domain": "d1", "name": "wf1", "version": "1.0"}},
 			},
 			action:           "ListWorkflowTypes",
-			body:             map[string]any{"domain": "d1"},
+			body:             map[string]any{"domain": "d1", "registrationStatus": "REGISTERED"},
 			wantCode:         http.StatusOK,
 			wantRespContains: "typeInfos",
 		},

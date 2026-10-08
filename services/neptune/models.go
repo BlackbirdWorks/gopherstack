@@ -366,12 +366,13 @@ type EventSubscription struct {
 
 // GlobalCluster represents a Neptune global cluster.
 type GlobalCluster struct {
-	GlobalClusterIdentifier string `json:"GlobalClusterIdentifier"`
-	GlobalClusterArn        string `json:"GlobalClusterArn"`
-	GlobalClusterResourceID string `json:"GlobalClusterResourceId"`
-	Status                  string `json:"Status"`
-	Engine                  string `json:"Engine"`
-	EngineVersion           string `json:"EngineVersion"`
+	FailoverState           *GlobalClusterFailoverState `json:"-"`
+	GlobalClusterIdentifier string                      `json:"GlobalClusterIdentifier"`
+	GlobalClusterArn        string                      `json:"GlobalClusterArn"`
+	GlobalClusterResourceID string                      `json:"GlobalClusterResourceId"`
+	Status                  string                      `json:"Status"`
+	Engine                  string                      `json:"Engine"`
+	EngineVersion           string                      `json:"EngineVersion"`
 	// DatabaseName is the initial database name supplied to
 	// CreateGlobalCluster. Real GlobalCluster.DatabaseName
 	// (neptune@v1.48.4 types/types.go:1166) had zero grep hits anywhere in
@@ -383,6 +384,20 @@ type GlobalCluster struct {
 	StorageEncrypted     bool                  `json:"StorageEncrypted"`
 	DeletionProtection   bool                  `json:"DeletionProtection"`
 }
+
+// GlobalClusterFailoverState is the transient FailoverState reported on a
+// switchover/failover response; it is never persisted.
+type GlobalClusterFailoverState struct {
+	Status            string
+	FromDBClusterARN  string
+	ToDBClusterARN    string
+	IsDataLossAllowed bool
+}
+
+const (
+	failoverStatusFailingOver   = "failing-over"
+	failoverStatusSwitchingOver = "switching-over"
+)
 
 // GlobalClusterCreateOptions holds optional fields for CreateGlobalCluster.
 // EngineVersion and StorageEncrypted apply only when no source cluster is given.

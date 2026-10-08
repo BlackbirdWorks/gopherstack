@@ -105,6 +105,9 @@ type handleListDomainsInput struct {
 }
 
 func (h *Handler) handleListDomains(_ context.Context, in *handleListDomainsInput) (*listDomainsOutput, error) {
+	if err := requireRegistrationStatus(in.RegistrationStatus); err != nil {
+		return nil, err
+	}
 	domains, err := h.Backend.ListDomains(in.RegistrationStatus)
 	if err != nil {
 		return nil, err

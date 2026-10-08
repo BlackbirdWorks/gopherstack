@@ -97,6 +97,7 @@ func (b *InMemoryBackend) sweepTimedOutExecutionsLocked(now time.Time) int {
 		swept++
 	}
 
+	b.sweepTaskTimeoutsLocked(nowEpoch)
 	b.sweepExpiredClosedExecutionsLocked(now)
 
 	return swept

@@ -97,6 +97,10 @@ func (h *Handler) handleBatchUpdateFindings(c *echo.Context, body map[string]any
 		}
 	}
 
+	if msg := validateBatchUpdateFindings(rawIdents, updates); msg != "" {
+		return typedErrorResponse(c, http.StatusBadRequest, "InvalidInputException", msg)
+	}
+
 	processed, unprocessed := h.Backend.BatchUpdateFindings(identifiers, updates)
 
 	return c.JSON(http.StatusOK, map[string]any{
@@ -249,10 +253,10 @@ func (h *Handler) handleBatchUpdateFindingsV2(c *echo.Context, body map[string]a
 }
 
 func (h *Handler) handleGetFindingStatisticsV2(c *echo.Context, body map[string]any) error {
-	groupByFields := groupByFieldsFromRules(body[keyGroupByRules])
+	rules := groupByRulesFromBody(body[keyGroupByRules])
 	sortOrder, _ := body[keySortOrder].(string)
 
-	stats := h.Backend.GetFindingStatisticsV2(groupByFields, sortOrder)
+	stats := h.Backend.GetFindingStatisticsV2(rules, sortOrder)
 
 	if stats == nil {
 		stats = []map[string]any{}
@@ -269,6 +273,7 @@ const maxTrendPoints = 100
 func (h *Handler) handleGetFindingsTrendsV2(c *echo.Context, body map[string]any) error {
 	startTime, _ := body["StartTime"].(string)
 	endTime, _ := body["EndTime"].(string)
+	filters, _ := body["Filters"].(map[string]any)
 
 	nextToken, _ := body["NextToken"].(string)
 	maxResults := intFromBody(body)
@@ -278,7 +283,7 @@ func (h *Handler) handleGetFindingsTrendsV2(c *echo.Context, body map[string]any
 	}
 
 	trends, next := paginateSlice(
-		h.Backend.GetFindingsTrendsV2(startTime, endTime),
+		h.Backend.GetFindingsTrendsV2(startTime, endTime, filters),
 		nextToken,
 		maxResults,
 		maxTrendPoints,
@@ -309,4 +314,44 @@ func (h *Handler) findingsOpHandlers(c *echo.Context, body map[string]any) map[s
 		opGetFindingStatisticsV2: func() error { return h.handleGetFindingStatisticsV2(c, body) },
 		opGetFindingsTrendsV2:    func() error { return h.handleGetFindingsTrendsV2(c, body) },
 	}
+}
+
+const (
+	maxBatchUpdateFindings = 100
+	maxScore               = 100
+)
+
+// validateBatchUpdateFindings enforces BatchUpdateFindingsInput's documented limits: at
+// most 100 findings, Confidence/Criticality/Severity.Normalized in 0-100, and a known
+// Severity.Label. It returns the error message, or "" when the request is valid.
+func validateBatchUpdateFindings(identifiers []any, updates map[string]any) string {
+	if len(identifiers) > maxBatchUpdateFindings {
+		return "FindingIdentifiers can hold at most 100 findings"
+	}
+
+	for _, key := range []string{"Confidence", "Criticality"} {
+		if v, ok := updates[key].(float64); ok && (v < 0 || v > maxScore) {
+			return key + " must be between 0 and 100"
+		}
+	}
+
+	sev, _ := updates["Severity"].(map[string]any)
+	if v, ok := sev["Normalized"].(float64); ok && (v < 0 || v > maxScore) {
+		return "Severity.Normalized must be between 0 and 100"
+	}
+
+	if label, ok := sev["Label"].(string); ok && !validSeverityLabel(label) {
+		return "Severity.Label must be INFORMATIONAL, LOW, MEDIUM, HIGH or CRITICAL"
+	}
+
+	return ""
+}
+
+func validSeverityLabel(label string) bool {
+	switch label {
+	case "INFORMATIONAL", "LOW", severityLabelMedium, severityLabelHigh, severityLabelCritical:
+		return true
+	}
+
+	return false
 }

@@ -75,7 +75,9 @@ func (h *Handler) handleFailoverGlobalCluster(ctx context.Context, vals url.Valu
 			"%w: AllowDataLoss and Switchover cannot be specified together", ErrInvalidParameterCombination,
 		)
 	}
-	gc, err := h.Backend.FailoverGlobalCluster(ctx, globalClusterID, targetDBClusterID)
+	gc, err := h.Backend.FailoverGlobalCluster(
+		ctx, globalClusterID, targetDBClusterID, vals.Get("AllowDataLoss") == formTrue,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +143,18 @@ func toXMLGlobalCluster(gc *GlobalCluster) xmlGlobalCluster {
 		members = append(members, xmlGlobalClusterMember(m))
 	}
 
+	var fs *xmlFailoverState
+	if gc.FailoverState != nil {
+		fs = &xmlFailoverState{
+			Status:            gc.FailoverState.Status,
+			FromDBClusterArn:  gc.FailoverState.FromDBClusterARN,
+			ToDBClusterArn:    gc.FailoverState.ToDBClusterARN,
+			IsDataLossAllowed: gc.FailoverState.IsDataLossAllowed,
+		}
+	}
+
 	return xmlGlobalCluster{
+		FailoverState:           fs,
 		GlobalClusterIdentifier: gc.GlobalClusterIdentifier,
 		GlobalClusterArn:        gc.GlobalClusterArn,
 		GlobalClusterResourceID: gc.GlobalClusterResourceID,
@@ -182,6 +195,7 @@ type xmlGlobalClusterList struct {
 }
 
 type xmlGlobalCluster struct {
+	FailoverState           *xmlFailoverState          `xml:"FailoverState,omitempty"`
 	GlobalClusterIdentifier string                     `xml:"GlobalClusterIdentifier"`
 	GlobalClusterArn        string                     `xml:"GlobalClusterArn,omitempty"`
 	GlobalClusterResourceID string                     `xml:"GlobalClusterResourceId,omitempty"`
@@ -192,6 +206,13 @@ type xmlGlobalCluster struct {
 	GlobalClusterMembers    xmlGlobalClusterMemberList `xml:"GlobalClusterMembers"`
 	StorageEncrypted        bool                       `xml:"StorageEncrypted"`
 	DeletionProtection      bool                       `xml:"DeletionProtection"`
+}
+
+type xmlFailoverState struct {
+	Status            string `xml:"Status"`
+	FromDBClusterArn  string `xml:"FromDbClusterArn,omitempty"`
+	ToDBClusterArn    string `xml:"ToDbClusterArn,omitempty"`
+	IsDataLossAllowed bool   `xml:"IsDataLossAllowed"`
 }
 
 type createGlobalClusterResponse struct {

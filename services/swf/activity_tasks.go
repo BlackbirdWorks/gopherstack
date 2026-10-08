@@ -44,16 +44,23 @@ func (b *InMemoryBackend) PollForActivityTask(domain, taskList string) *Activity
 	)
 	task.StartedEventID = startedEventID
 
+	startedAt := nowEpoch(time.Now())
 	b.activeActivityTasks.Put(&activeActivityTaskRecord{
-		Domain:           domain,
-		WorkflowID:       task.WorkflowID,
-		RunID:            task.RunID,
-		ActivityID:       task.ActivityID,
-		ActivityType:     task.ActivityType,
-		ScheduledEventID: task.ScheduledEventID,
-		StartedEventID:   startedEventID,
-		TaskList:         taskList,
-		TaskToken:        token,
+		ScheduledAt:            task.ScheduledAt,
+		StartedAt:              startedAt,
+		LastHeartbeatAt:        startedAt,
+		ScheduleToCloseTimeout: task.ScheduleToCloseTimeout,
+		StartToCloseTimeout:    task.StartToCloseTimeout,
+		HeartbeatTimeout:       task.HeartbeatTimeout,
+		Domain:                 domain,
+		WorkflowID:             task.WorkflowID,
+		RunID:                  task.RunID,
+		ActivityID:             task.ActivityID,
+		ActivityType:           task.ActivityType,
+		ScheduledEventID:       task.ScheduledEventID,
+		StartedEventID:         startedEventID,
+		TaskList:               taskList,
+		TaskToken:              token,
 	})
 
 	return &task
@@ -61,7 +68,7 @@ func (b *InMemoryBackend) PollForActivityTask(domain, taskList string) *Activity
 
 // RecordActivityTaskHeartbeat acknowledges a heartbeat for an activity task token.
 // Returns true if cancel has been requested for the workflow; always false in this emulator.
-func (b *InMemoryBackend) RecordActivityTaskHeartbeat(taskToken string) (bool, error) {
+func (b *InMemoryBackend) RecordActivityTaskHeartbeat(taskToken, details string) (bool, error) {
 	b.mu.Lock("RecordActivityTaskHeartbeat")
 	defer b.mu.Unlock()
 
@@ -71,6 +78,8 @@ func (b *InMemoryBackend) RecordActivityTaskHeartbeat(taskToken string) (bool, e
 	if !ok {
 		return false, fmt.Errorf("%w: task token %s not found", ErrNotFound, taskToken)
 	}
+	rec.LastHeartbeatAt = nowEpoch(time.Now())
+	rec.HeartbeatDetails = details
 
 	exec, ok := b.executions.Get(executionKey(rec.Domain, rec.WorkflowID, rec.RunID))
 	if !ok {

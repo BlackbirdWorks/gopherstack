@@ -279,22 +279,28 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
-		return c.JSON(http.StatusNotFound, errResp("ResourceNotFoundException", err.Error()))
+		return writeError(c, http.StatusNotFound, errResp("ResourceNotFoundException", err.Error()))
 	case errors.Is(err, awserr.ErrInvalidParameter):
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", err.Error()))
+		return writeError(c, http.StatusBadRequest, errResp("ValidationException", err.Error()))
 	case errors.Is(err, errUnknownAction):
 		// AWS OpsWorks rejects an unrecognized action with HTTP 400
 		// ValidationException, not 501.
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", err.Error()))
+		return writeError(c, http.StatusBadRequest, errResp("ValidationException", err.Error()))
 	case errors.Is(err, errInvalidRequest),
 		errors.As(err, &syntaxErr),
 		errors.As(err, &typeErr):
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", err.Error()))
+		return writeError(c, http.StatusBadRequest, errResp("ValidationException", err.Error()))
 	default:
 		logger.Load(c.Request().Context()).ErrorContext(c.Request().Context(), "opsworks error", "error", err)
 
-		return c.JSON(http.StatusInternalServerError, errResp("ServiceException", err.Error()))
+		return writeError(c, http.StatusInternalServerError, errResp("ServiceException", err.Error()))
 	}
+}
+
+func writeError(c *echo.Context, status int, body map[string]string) error {
+	c.Response().Header().Set("Content-Type", "application/x-amz-json-1.1")
+
+	return c.JSON(status, body)
 }
 
 // formatOpsWorksTime renders t the way real OpsWorks does: a UTC ISO8601

@@ -7,7 +7,7 @@
 service: redshiftdata
 sdk_module: aws-sdk-go-v2/service/redshiftdata@v1.43.4   # version audited against
 last_audit_commit: d522d763f  # 2026-09-19 leak-audit follow-up (gopherstack-1x2u0); prior: c9523cebb                              # HEAD when this audit began (working tree, uncommitted)
-last_audit_date: 2026-09-19  # prior: 2026-09-18
+last_audit_date: 2026-10-07  # prior: 2026-09-18
 overall: A            # genuine wire-shape/field gaps found and fixed this pass
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -37,7 +37,7 @@ ops:
     ListDatabasesInput/ListSchemasInput/ListTablesInput/DescribeTableInput, which DO have
     "This member is required" + a matching validator check). Requirement removed to match.
     2026-10-05: a positive SessionKeepAliveSeconds (0-86400, else ValidationException) without a
-    SessionId mints one; keep-alive expiry is not modelled (see gaps). DbGroups still not
+    SessionId mints one; 2026-10-07: sessions now expire (TTL = last statement + keep-alive, capped at 24h) and report CLOSED/SessionTtl/SessionAliveSeconds; statements on a closed session get ValidationException. DbGroups still not
     returned (optional field, gap).}
   BatchExecuteStatement: {wire: ok, errors: ok, state: ok, persist: ok, note: >
     QueryString=Sqls[0] matches AWS; sub-statements built with fixed HasResultSet=false
@@ -146,7 +146,7 @@ ops:
     missing) and Database-required validation added (same reasoning as ListDatabases).
     Prior-pass fix retained: TableName is a plain string (was a nested object). ColumnList
     is static demo data ignoring req.Schema/req.Table (acceptable mock).}
-  ListSessions: {wire: ok, errors: ok, state: partial, persist: n/a, note: >
+  ListSessions: {wire: ok, errors: ok, state: ok, persist: n/a, note: >
     NEW this pass (SDK added this op since v1.41.0; confirmed target
     "RedshiftData.ListSessions" against awsAwsjson11_serializeOpListSessions in
     aws-sdk-go-v2/service/redshiftdata@v1.43.0's serializers.go). This backend has no
@@ -161,13 +161,10 @@ ops:
     Status/ClusterIdentifier/WorkgroupName/Database; ClusterIdentifier and WorkgroupName
     can't both be set) and for the Status enum. Pagination follows this package's
     NextToken-is-the-last-item's-ID convention (sessionPageStart), same as ListStatements.
-    Status is real but always AVAILABLE in practice: BUSY is unreachable because
-    ExecuteStatement/BatchExecuteStatement complete synchronously (same root cause as the
-    pre-existing CancelStatement gap), and CLOSED is unreachable because
-    SessionAliveSeconds/SessionTtl are not tracked (see gaps) so no expiry can ever fire.
+    Status is AVAILABLE or CLOSED (BUSY is unreachable: statements complete synchronously).
+    SessionTtl/SessionAliveSeconds are emitted; a session is CLOSED once its TTL passes.
     RoleLevel is applied as on ListStatements. Sessions appear once a statement carries a
-    SessionId, supplied or minted from SessionKeepAliveSeconds; they never expire, hence
-    state: partial rather than ok.}
+    SessionId, supplied or minted from SessionKeepAliveSeconds.}
 # Families audited as a group (when per-op is impractical):
 families:
   statement-lifecycle: {status: ok, note: "unchanged this pass -- SUBMITTED/PICKED/STARTED never observable -- ExecuteStatement/BatchExecuteStatement complete to FINISHED synchronously within the same call, so no client ever polls a non-terminal state (no hang bug). CancelStatement is real code but practically unreachable given synchronous completion (see gaps)."}
@@ -189,12 +186,11 @@ families:
     DatabaseConnectionException/ExecuteStatementException/BatchExecuteStatementException/
     QueryTimeoutException are real modeled exceptions in the SDK but unreachable by design.}
 gaps: []
-items_still_open:
-  - "Statements always complete synchronously to FINISHED: CancelStatement therefore always returns ValidationException (matching AWS for a non-running query), and ListSessions never reports BUSY/CLOSED/SessionTtl/CurrentStatementId. Needs an async statement state machine and session-lifetime model; unmodeled."
-  - "SessionKeepAliveSeconds mints a session but never expires it (no TTL, temp tables or forced close after 24h)."
-  - "WaitTimeSeconds (ExecuteStatement, BatchExecuteStatement, DescribeStatement, GetStatementResult, GetStatementResultV2) is undeclared: statements finish synchronously, so there is nothing to wait for."
-  - "DescribeStatement omits RedshiftPid and ExecuteStatement/BatchExecuteStatement omit DbGroups (optional fields): no pid/group registry to source real values from."
-  - "ActiveStatementsExceeded/ActiveSessionsExceeded/ActiveWaitingRequestsExceeded/DatabaseConnection/QueryTimeout/ExecuteStatement/BatchExecuteStatement exceptions are modeled in the SDK but unreachable: no real cluster, concurrency limit or wait queue exists, and inventing triggers would fabricate behaviour."
+items_still_open: []
+structural_gaps:
+  - "Statements complete synchronously to FINISHED (no SQL engine, so no execution window): CancelStatement always returns ValidationException, ListSessions never reports BUSY/CurrentStatementId, and WaitTimeSeconds has nothing to wait for."
+  - "DescribeStatement.RedshiftPid and ExecuteStatement/BatchExecuteStatement.DbGroups are engine/credential-sourced values (real backend pid, GetClusterCredentials groups); no engine or credential model exists."
+  - "ActiveStatementsExceeded/ActiveSessionsExceeded/ActiveWaitingRequestsExceeded/DatabaseConnection/QueryTimeout/ExecuteStatement/BatchExecuteStatement exceptions need a real cluster, concurrency limit or wait queue."
 deferred:
   - none
 leaks: {status: clean, note: "Janitor uses pkgs/worker.Group with TaskTimeout bounding; ticker stops cleanly via ctx.Done(); ring buffer + statements map bounded by maxStatementHistory and EvictExpiredStatements TTL sweep. New state this pass (Handler.idempotency, a safemap.Map) introduces no goroutine/ticker -- it's plain in-memory data, TTL-based lazy eviction on lookup (same pattern as services/scheduler/idempotency.go), and cleared on Handler.Reset."}

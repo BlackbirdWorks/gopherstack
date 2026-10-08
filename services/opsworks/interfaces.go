@@ -487,6 +487,9 @@ type ElasticLoadBalancer struct {
 	DNSName                 string
 	StackID                 string
 	LayerID                 string
+	VpcID                   string
+	AvailabilityZones       []string
+	SubnetIDs               []string
 }
 
 // ElasticIP represents an elastic IP registered with OpsWorks.

@@ -301,7 +301,7 @@ func defaultControls(subscriptionArn string) []*StandardsControl {
 			Title:                  "Avoid the use of the root user",
 			Description:            "The root user has unrestricted access to all resources in the AWS account.",
 			RemediationURL:         "https://docs.aws.amazon.com/securityhub/latest/userguide/securityhub-cis-controls.html",
-			SeverityRating:         "CRITICAL",
+			SeverityRating:         severityLabelCritical,
 			RelatedRequirements:    []string{"CIS AWS Foundations 1.1"},
 			ControlStatusUpdatedAt: time.Now().UTC().Format(time.RFC3339),
 		},

@@ -10,7 +10,7 @@ import (
 )
 
 // handleExecuteStatement: a positive SessionKeepAliveSeconds without SessionId mints a session
-// (expiry not modelled); ClientToken replays the original statement.
+// that expires after that many seconds; ClientToken replays the original statement.
 func (h *Handler) handleExecuteStatement(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		StatementName           string         `json:"StatementName"`
@@ -56,6 +56,7 @@ func (h *Handler) handleExecuteStatement(ctx context.Context, body []byte) ([]by
 		return nil, err
 	}
 
+	h.Backend.SetStatementSessionKeepAlive(ctx, stmt.ID, req.SessionKeepAliveSeconds)
 	h.storeIdempotentStatement(tokenKey, stmt.ID)
 
 	return json.Marshal(statementCreateResponse(stmt))
@@ -124,6 +125,7 @@ func (h *Handler) handleBatchExecuteStatement(ctx context.Context, body []byte) 
 		return nil, err
 	}
 
+	h.Backend.SetStatementSessionKeepAlive(ctx, stmt.ID, req.SessionKeepAliveSeconds)
 	h.storeIdempotentStatement(tokenKey, stmt.ID)
 
 	return json.Marshal(statementCreateResponse(stmt))

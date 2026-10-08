@@ -81,6 +81,9 @@ func (h *Handler) handleListWorkflowTypes(
 	_ context.Context,
 	in *handleListWorkflowTypesInput,
 ) (*listWorkflowTypesOutput, error) {
+	if err := requireRegistrationStatus(in.RegistrationStatus); err != nil {
+		return nil, err
+	}
 	wts, err := h.Backend.ListWorkflowTypes(in.Domain, in.RegistrationStatus)
 	if err != nil {
 		return nil, err

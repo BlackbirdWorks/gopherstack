@@ -177,9 +177,11 @@ type decisionInput struct {
 }
 
 type handleRespondDecisionTaskCompletedInput struct {
-	TaskToken        string          `json:"taskToken"`
-	ExecutionContext string          `json:"executionContext,omitempty"`
-	Decisions        []decisionInput `json:"decisions,omitempty"`
+	TaskList                       *taskListRef    `json:"taskList,omitempty"`
+	TaskToken                      string          `json:"taskToken"`
+	ExecutionContext               string          `json:"executionContext,omitempty"`
+	TaskListScheduleToStartTimeout string          `json:"taskListScheduleToStartTimeout,omitempty"`
+	Decisions                      []decisionInput `json:"decisions,omitempty"`
 }
 
 type respondDecisionTaskCompletedOutput struct{}
@@ -328,7 +330,15 @@ func (h *Handler) handleRespondDecisionTaskCompleted(
 		convertDecisionOrchestrationAttrs(d, &dec)
 		decisions = append(decisions, dec)
 	}
-	if err := h.Backend.RespondDecisionTaskCompleted(in.TaskToken, in.ExecutionContext, decisions); err != nil {
+	var opts []RespondDecisionOption
+	if in.TaskList != nil && in.TaskList.Name != "" {
+		opts = append(opts, WithStickyTaskList(in.TaskList.Name, in.TaskListScheduleToStartTimeout))
+	}
+	if err := h.Backend.RespondDecisionTaskCompleted(
+		in.TaskToken,
+		in.ExecutionContext,
+		decisions,
+		opts...); err != nil {
 		return nil, err
 	}
 

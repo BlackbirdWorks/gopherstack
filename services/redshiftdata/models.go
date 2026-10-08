@@ -207,11 +207,13 @@ type Statement struct {
 	QueryStrings  []string           `json:"queryStrings"`
 	// DurationMs is the total wall-clock execution time in milliseconds. Populated
 	// when the statement reaches a terminal state (FINISHED / FAILED / ABORTED).
-	DurationMs       int64 `json:"durationMs"`
-	ResultRows       int64 `json:"resultRows"`
-	ResultSize       int64 `json:"resultSize"`
-	HasResultSet     bool  `json:"hasResultSet"`
-	IsBatchStatement bool  `json:"isBatchStatement"`
+	DurationMs int64 `json:"durationMs"`
+	ResultRows int64 `json:"resultRows"`
+	ResultSize int64 `json:"resultSize"`
+	// SessionKeepAliveSeconds is the keep-alive the request supplied for its session.
+	SessionKeepAliveSeconds int32 `json:"sessionKeepAliveSeconds,omitempty"`
+	HasResultSet            bool  `json:"hasResultSet"`
+	IsBatchStatement        bool  `json:"isBatchStatement"`
 	// WithEvent indicates whether an EventBridge event is generated on completion.
 	WithEvent bool `json:"withEvent"`
 }
@@ -228,29 +230,20 @@ type ListStatementsFilter struct {
 	MaxResults        int
 }
 
-// SessionData represents an AWS Redshift Data API session, matching the
-// SessionData shape returned by ListSessions. This backend does not model
-// sessions as a first-class stored resource -- there is no explicit
-// CreateSession/CloseSession API to persist against. Instead, a session is
-// derived by grouping stored Statement records that share a non-empty
-// SessionID (see groupSessions in sessions.go): the session's connection
-// target and timestamps come from the statements that ran within it.
-//
-// SessionAliveSeconds and SessionTTL are intentionally omitted (both optional
-// wire members): tracking them behaviorally would require the same
-// SessionKeepAliveSeconds plumbing that ExecuteStatement/BatchExecuteStatement
-// already accept-but-ignore (see handleExecuteStatement's doc comment) --
-// adding real semantics for one op without the other would be inconsistent,
-// and this pass only implements ListSessions.
+// SessionData is a ListSessions item, derived by grouping stored statements that
+// share a SessionID (see groupSessions). TTL is the earlier of the keep-alive
+// expiry and the 24h forced close; the session is CLOSED once TTL has passed.
 type SessionData struct {
 	CreatedAt         time.Time `json:"createdAt"`
 	UpdatedAt         time.Time `json:"updatedAt"`
+	TTL               time.Time `json:"ttl"`
 	SessionID         string    `json:"sessionId"`
 	ClusterIdentifier string    `json:"clusterIdentifier,omitempty"`
 	WorkgroupName     string    `json:"workgroupName,omitempty"`
 	Database          string    `json:"database,omitempty"`
 	DBUser            string    `json:"dbUser,omitempty"`
 	Status            string    `json:"status"`
+	AliveSeconds      int32     `json:"aliveSeconds,omitempty"`
 }
 
 // ListSessionsFilter controls session filtering and pagination.

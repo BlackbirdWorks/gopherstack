@@ -323,16 +323,33 @@ func (b *InMemoryBackend) enqueueDecisionTaskLocked(domain, workflowID, runID st
 	if !ok || exec.TaskList == "" {
 		return
 	}
-	key := domain + ":" + exec.TaskList
-	scheduledEventID := b.appendHistoryEventLocked(
+	taskList := exec.TaskList
+	task := &DecisionTask{WorkflowID: workflowID, RunID: exec.RunID}
+	if exec.StickyTaskList != "" {
+		taskList = exec.StickyTaskList
+		task.Sticky = true
+		if secs, bounded := timeoutSeconds(exec.StickyScheduleToStartTimeout); bounded {
+			task.StickyDeadline = nowEpoch(time.Now()) + secs
+		}
+	}
+	scheduled := map[string]any{attrTaskList: map[string]any{attrName: taskList}}
+	if exec.TaskStartToCloseTimeout != "" {
+		scheduled["startToCloseTimeout"] = exec.TaskStartToCloseTimeout
+	}
+	task.ScheduledEventID = b.appendHistoryEventLocked(
 		domain, workflowID, exec.RunID, "DecisionTaskScheduled", map[string]any{
-			eventAttrKey("DecisionTaskScheduled"): map[string]any{
-				attrTaskList: map[string]any{attrName: exec.TaskList},
-			},
+			eventAttrKey("DecisionTaskScheduled"): scheduled,
 		})
-	b.decisionQueues[key] = append(b.decisionQueues[key], &DecisionTask{
-		WorkflowID:       workflowID,
-		RunID:            exec.RunID,
-		ScheduledEventID: scheduledEventID,
-	})
+	key := domain + ":" + taskList
+	b.decisionQueues[key] = append(b.decisionQueues[key], task)
+}
+
+// requireRegistrationStatus enforces the wire-level "This member is required" on
+// ListDomains/ListActivityTypes/ListWorkflowTypes' registrationStatus.
+func requireRegistrationStatus(status string) error {
+	if status == "" {
+		return fmt.Errorf("%w: registrationStatus is required", ErrValidation)
+	}
+
+	return validateRegistrationStatus(status)
 }

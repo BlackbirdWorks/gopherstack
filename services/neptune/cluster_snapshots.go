@@ -120,7 +120,7 @@ func (b *InMemoryBackend) DescribeDBClusterSnapshots(
 		if clusterID != "" && snap.DBClusterIdentifier != clusterID {
 			continue
 		}
-		if snapshotTypeFilter != "" && snap.SnapshotType != snapshotTypeFilter {
+		if !snapshotTypeMatches(snap, snapshotTypeFilter) {
 			continue
 		}
 		result = append(result, cloneClusterSnapshot(snap))
@@ -130,6 +130,23 @@ func (b *InMemoryBackend) DescribeDBClusterSnapshots(
 	})
 
 	return result, nil
+}
+
+// snapshotTypeMatches applies DescribeDBClusterSnapshots' SnapshotType filter:
+// "public" is a snapshot whose restore attribute includes "all", "shared" one
+// shared with specific accounts (api_op_DescribeDBClusterSnapshots.go:95-97).
+func snapshotTypeMatches(snap *DBClusterSnapshot, filter string) bool {
+	switch filter {
+	case "":
+		return true
+	case snapshotTypePublic:
+		return slices.Contains(snap.RestoreAttributeValues, restoreAttributeAll)
+	case snapshotTypeShared:
+		return snap.SnapshotType == snapshotSourceManual &&
+			slices.ContainsFunc(snap.RestoreAttributeValues, func(v string) bool { return v != restoreAttributeAll })
+	default:
+		return snap.SnapshotType == filter
+	}
 }
 
 // DeleteDBClusterSnapshot deletes a Neptune DB cluster snapshot.
@@ -160,6 +177,12 @@ func (b *InMemoryBackend) DeleteDBClusterSnapshot(
 // to copy/restore a manual snapshot. See ModifyDBClusterSnapshotAttribute /
 // DescribeDBClusterSnapshotAttributes.
 const dbClusterSnapshotRestoreAttribute = "restore"
+
+const (
+	snapshotTypePublic  = "public"
+	snapshotTypeShared  = "shared"
+	restoreAttributeAll = "all"
+)
 
 // ModifyDBClusterSnapshotAttribute adds and/or removes values from a Neptune
 // DB cluster snapshot's "restore" attribute (the list of accounts authorized

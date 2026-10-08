@@ -17,11 +17,7 @@ import (
 // GetFindingsV2 necessarily filters over the same ASFF-shaped documents
 // BatchImportFindings created. Only fields with a direct, unambiguous
 // scalar-string ASFF equivalent are mapped; unmapped/unrecognized field
-// names are not filtered on, matching the "simplified filter, basic subset"
-// precedent matchesFindingFilters already established for V1 GetFindings.
-// class_name (OCSF) has no entry here: its closest ASFF analog, Types, is a
-// string *array* (types.AwsSecurityFinding.Types), not a scalar this
-// string-equality map can represent -- see matchesOcsfStringFilter.
+// names resolve to no value (see ocsfStringValues).
 var ocsfStringFieldMap = map[string]string{ //nolint:gochecknoglobals // read-only lookup data
 	"cloud.account.uid":    keyAwsAccountID,
 	"cloud.region":         "Region",
@@ -32,8 +28,8 @@ var ocsfStringFieldMap = map[string]string{ //nolint:gochecknoglobals // read-on
 	"compliance.status":    keyFilterComplianceStatus,
 	"status":               keyFilterWorkflowStatus,
 	"severity":             keyFilterSeverityLabel,
-	"resources.type":       "ResourceType",
-	"resources.uid":        "ResourceId",
+	"resources.type":       fieldResourceType,
+	"resources.uid":        fieldResourceID,
 	"resources.region":     "Region",
 	"comment":              "Comment",
 }
@@ -100,6 +96,11 @@ const matchesCompositeFilterResultCap = 7
 // empty CompositeFilters list matches every finding, matching the real API's
 // "no filter = no restriction" behavior.
 func matchesFindingFiltersV2(finding, filters map[string]any) bool {
+	return matchesFiltersV2(findingTarget(finding), filters)
+}
+
+// matchesFiltersV2 evaluates a composite-filter document against any filterTarget.
+func matchesFiltersV2(t filterTarget, filters map[string]any) bool {
 	if len(filters) == 0 {
 		return true
 	}
@@ -118,7 +119,7 @@ func matchesFindingFiltersV2(finding, filters map[string]any) bool {
 			continue
 		}
 
-		matched := matchesCompositeFilter(finding, cf)
+		matched := matchesCompositeFilter(t, cf)
 		if matched && matchAny {
 			return true
 		}
@@ -134,27 +135,27 @@ func matchesFindingFiltersV2(finding, filters map[string]any) bool {
 
 // matchesCompositeFilter evaluates one CompositeFilter's String/Number/Date/
 // Map/Ip/Boolean sub-filters plus its NestedCompositeFilters against
-// finding, combined by cf's Operator (AllowedOperators: AND/OR, default
+// the target, combined by cf's Operator (AllowedOperators: AND/OR, default
 // AND). Real AllowedOperators has no logical NOT combinator -- negation is
 // expressed at the leaf via NOT_* comparators (e.g.
 // StringFilterComparisonNotEquals), not a boolean-tree NOT node, so AND/OR
 // is the complete real semantics here.
-func matchesCompositeFilter(finding, cf map[string]any) bool {
-	return matchesCompositeFilterDepth(finding, cf, 0)
+func matchesCompositeFilter(t filterTarget, cf map[string]any) bool {
+	return matchesCompositeFilterDepth(t, cf, 0)
 }
 
 // matchesCompositeFilterDepth is matchesCompositeFilter's recursive worker;
 // depth tracks NestedCompositeFilters nesting (see maxNestedCompositeDepth).
-func matchesCompositeFilterDepth(finding, cf map[string]any, depth int) bool {
+func matchesCompositeFilterDepth(t filterTarget, cf map[string]any, depth int) bool {
 	results := make([]bool, 0, matchesCompositeFilterResultCap)
 
-	results = append(results, stringFilterResults(finding, cf)...)
-	results = append(results, numberFilterResults(finding, cf)...)
-	results = append(results, dateFilterResults(finding, cf)...)
-	results = append(results, mapFilterResults(finding, cf)...)
-	results = append(results, ipFilterResults(finding, cf)...)
-	results = append(results, booleanFilterResults(finding, cf)...)
-	results = append(results, nestedCompositeFilterResults(finding, cf, depth)...)
+	results = append(results, stringFilterResults(t, cf)...)
+	results = append(results, numberFilterResults(t, cf)...)
+	results = append(results, dateFilterResults(t, cf)...)
+	results = append(results, mapFilterResults(t, cf)...)
+	results = append(results, ipFilterResults(t, cf)...)
+	results = append(results, booleanFilterResults(t, cf)...)
+	results = append(results, nestedCompositeFilterResults(t, cf, depth)...)
 
 	if len(results) == 0 {
 		return true
@@ -177,7 +178,7 @@ func matchesCompositeFilterDepth(finding, cf map[string]any, depth int) bool {
 // nested entries as a no-op; depth is capped defensively (see
 // maxNestedCompositeDepth) against pathological input rather than crashing
 // or silently mis-evaluating.
-func nestedCompositeFilterResults(finding, cf map[string]any, depth int) []bool {
+func nestedCompositeFilterResults(t filterTarget, cf map[string]any, depth int) []bool {
 	nested, ok := cf["NestedCompositeFilters"].([]any)
 	if !ok || len(nested) == 0 {
 		return nil
@@ -191,15 +192,15 @@ func nestedCompositeFilterResults(finding, cf map[string]any, depth int) []bool 
 
 	for _, n := range nested {
 		if m, isMap := n.(map[string]any); isMap {
-			results = append(results, matchesCompositeFilterDepth(finding, m, depth+1))
+			results = append(results, matchesCompositeFilterDepth(t, m, depth+1))
 		}
 	}
 
 	return results
 }
 
-// stringFilterResults evaluates cf's StringFilters against finding.
-func stringFilterResults(finding, cf map[string]any) []bool {
+// stringFilterResults evaluates cf's StringFilters against the target.
+func stringFilterResults(t filterTarget, cf map[string]any) []bool {
 	sf, ok := cf["StringFilters"].([]any)
 	if !ok {
 		return nil
@@ -209,15 +210,15 @@ func stringFilterResults(finding, cf map[string]any) []bool {
 
 	for _, item := range sf {
 		if m, isMap := item.(map[string]any); isMap {
-			results = append(results, matchesOcsfStringFilter(finding, m))
+			results = append(results, matchesStringEntry(t, m))
 		}
 	}
 
 	return results
 }
 
-// numberFilterResults evaluates cf's NumberFilters against finding.
-func numberFilterResults(finding, cf map[string]any) []bool {
+// numberFilterResults evaluates cf's NumberFilters against the target.
+func numberFilterResults(t filterTarget, cf map[string]any) []bool {
 	nf, ok := cf["NumberFilters"].([]any)
 	if !ok {
 		return nil
@@ -227,15 +228,15 @@ func numberFilterResults(finding, cf map[string]any) []bool {
 
 	for _, item := range nf {
 		if m, isMap := item.(map[string]any); isMap {
-			results = append(results, matchesOcsfNumberFilter(finding, m))
+			results = append(results, matchesNumberEntry(t, m))
 		}
 	}
 
 	return results
 }
 
-// dateFilterResults evaluates cf's DateFilters against finding.
-func dateFilterResults(finding, cf map[string]any) []bool {
+// dateFilterResults evaluates cf's DateFilters against the target.
+func dateFilterResults(t filterTarget, cf map[string]any) []bool {
 	df, ok := cf["DateFilters"].([]any)
 	if !ok {
 		return nil
@@ -245,15 +246,15 @@ func dateFilterResults(finding, cf map[string]any) []bool {
 
 	for _, item := range df {
 		if m, isMap := item.(map[string]any); isMap {
-			results = append(results, matchesOcsfDateFilter(finding, m))
+			results = append(results, matchesDateEntry(t, m))
 		}
 	}
 
 	return results
 }
 
-// mapFilterResults evaluates cf's MapFilters against finding.
-func mapFilterResults(finding, cf map[string]any) []bool {
+// mapFilterResults evaluates cf's MapFilters against the target.
+func mapFilterResults(t filterTarget, cf map[string]any) []bool {
 	mf, ok := cf["MapFilters"].([]any)
 	if !ok {
 		return nil
@@ -263,15 +264,15 @@ func mapFilterResults(finding, cf map[string]any) []bool {
 
 	for _, item := range mf {
 		if m, isMap := item.(map[string]any); isMap {
-			results = append(results, matchesOcsfMapFilter(finding, m))
+			results = append(results, matchesMapEntry(t, m))
 		}
 	}
 
 	return results
 }
 
-// ipFilterResults evaluates cf's IpFilters against finding.
-func ipFilterResults(finding, cf map[string]any) []bool {
+// ipFilterResults evaluates cf's IpFilters against the target.
+func ipFilterResults(t filterTarget, cf map[string]any) []bool {
 	ipf, ok := cf["IpFilters"].([]any)
 	if !ok {
 		return nil
@@ -281,15 +282,15 @@ func ipFilterResults(finding, cf map[string]any) []bool {
 
 	for _, item := range ipf {
 		if m, isMap := item.(map[string]any); isMap {
-			results = append(results, matchesOcsfIPFilter(finding, m))
+			results = append(results, matchesIPEntry(t, m))
 		}
 	}
 
 	return results
 }
 
-// booleanFilterResults evaluates cf's BooleanFilters against finding.
-func booleanFilterResults(finding, cf map[string]any) []bool {
+// booleanFilterResults evaluates cf's BooleanFilters against the target.
+func booleanFilterResults(t filterTarget, cf map[string]any) []bool {
 	bf, ok := cf["BooleanFilters"].([]any)
 	if !ok {
 		return nil
@@ -299,69 +300,124 @@ func booleanFilterResults(finding, cf map[string]any) []bool {
 
 	for _, item := range bf {
 		if m, isMap := item.(map[string]any); isMap {
-			results = append(results, matchesOcsfBooleanFilter(finding, m))
+			results = append(results, matchesBoolEntry(t, m))
 		}
 	}
 
 	return results
 }
 
-// matchesOcsfStringFilter evaluates one OcsfStringFilter (FieldName + a
-// StringFilter Comparison/Value pair) against finding. An unmapped
-// FieldName is not filtered on -- see ocsfStringFieldMap.
-func matchesOcsfStringFilter(finding, m map[string]any) bool {
-	fieldName, _ := m["FieldName"].(string)
-
-	asffField, ok := ocsfStringFieldMap[fieldName]
-	if !ok {
-		return true
+// matchesStringCandidates applies comp to every candidate value: include
+// comparisons need any candidate to match, exclude comparisons need none to.
+func matchesStringCandidates(comp string, candidates []string, val string) bool {
+	if isNegativeStringComparison(comp) {
+		return !slices.ContainsFunc(candidates, func(c string) bool { return !compareStringFilter(comp, c, val) })
 	}
 
-	filter, _ := m["Filter"].(map[string]any)
-	if filter == nil {
-		return true
-	}
-
-	comp, _ := filter["Comparison"].(string)
-	val, _ := filter["Value"].(string)
-	fieldVal := findingFieldString(finding, asffField)
-
-	return compareStringFilter(comp, fieldVal, val)
+	return slices.ContainsFunc(candidates, func(c string) bool { return compareStringFilter(comp, c, val) })
 }
 
-// matchesOcsfNumberFilter evaluates one OcsfNumberFilter (FieldName + a
-// NumberFilter Eq/Gt/Gte/Lt/Lte set) against finding. An unmapped FieldName
-// is not filtered on -- see ocsfNumberFieldMap. A mapped field that was
-// never set on the finding cannot satisfy any numeric bound, so it's
-// excluded rather than silently passing.
-func matchesOcsfNumberFilter(finding, m map[string]any) bool {
-	fieldName, _ := m["FieldName"].(string)
+// ocsfStringValues returns the values finding carries for an OCSF string field:
+// the direct ASFF scalar from ocsfStringFieldMap, metadata.uid (the finding's
+// store key, also what BatchUpdateFindingsV2 resolves), or a derived ASFF
+// value; nil when the finding has none.
+func ocsfStringValues(finding map[string]any, field string) []string {
+	if field == "metadata.uid" {
+		return []string{findingKey(asFindingString(finding[keyProductArn]), asFindingString(finding["Id"]))}
+	}
 
-	if fieldName == "vulnerabilities.cve.cvss.base_score" {
-		filter, _ := m["Filter"].(map[string]any)
-		if filter == nil {
-			return true
+	if asffField, ok := ocsfStringFieldMap[field]; ok {
+		return []string{findingFieldString(finding, asffField)}
+	}
+
+	switch field {
+	case "finding_info.types":
+		return anyStrings(finding["Types"])
+	case "finding_info.src_url":
+		return nonEmptyString(asFindingString(finding["SourceUrl"]))
+	case "metadata.product.name":
+		return nonEmptyString(asFindingString(finding["ProductName"]))
+	case "metadata.product.vendor_name":
+		return nonEmptyString(asFindingString(finding["CompanyName"]))
+	case "compliance.control":
+		return nonEmptyString(nestedFindingString(finding, "Compliance", "SecurityControlId"))
+	case "compliance.standards":
+		return complianceStandards(finding)
+	case "remediation.desc":
+		return nonEmptyString(remediationField(finding, "Text"))
+	case "remediation.references":
+		return nonEmptyString(remediationField(finding, "Url"))
+	case "resources.cloud_partition":
+		return resourceStrings(finding, "Partition")
+	default:
+		return nil
+	}
+}
+
+func asFindingString(v any) string {
+	s, _ := v.(string)
+
+	return s
+}
+
+func nonEmptyString(s string) []string {
+	if s == "" {
+		return nil
+	}
+
+	return []string{s}
+}
+
+func anyStrings(v any) []string {
+	items, _ := v.([]any)
+
+	var out []string
+
+	for _, item := range items {
+		if s, ok := item.(string); ok {
+			out = append(out, s)
 		}
-
-		return matchesCvssBaseScore(finding, filter)
 	}
 
-	asffField, ok := ocsfNumberFieldMap[fieldName]
-	if !ok {
-		return true
+	return out
+}
+
+func remediationField(finding map[string]any, field string) string {
+	remediation, _ := finding["Remediation"].(map[string]any)
+	rec, _ := remediation["Recommendation"].(map[string]any)
+
+	return asFindingString(rec[field])
+}
+
+func complianceStandards(finding map[string]any) []string {
+	compliance, _ := finding["Compliance"].(map[string]any)
+	standards, _ := compliance["AssociatedStandards"].([]any)
+
+	var out []string
+
+	for _, st := range standards {
+		sm, _ := st.(map[string]any)
+		if id := asFindingString(sm["StandardsId"]); id != "" {
+			out = append(out, id)
+		}
 	}
 
-	filter, _ := m["Filter"].(map[string]any)
-	if filter == nil {
-		return true
+	return out
+}
+
+func resourceStrings(finding map[string]any, field string) []string {
+	resources, _ := finding["Resources"].([]any)
+
+	var out []string
+
+	for _, r := range resources {
+		rm, _ := r.(map[string]any)
+		if v := asFindingString(rm[field]); v != "" {
+			out = append(out, v)
+		}
 	}
 
-	fv, hasVal := findingNumberValue(finding, asffField)
-	if !hasVal {
-		return false
-	}
-
-	return numberFilterMatches(fv, filter)
+	return out
 }
 
 // numberFilterMatches reports whether fv satisfies every Eq/Gt/Gte/Lt/Lte
@@ -423,39 +479,6 @@ func findingNumberValue(finding map[string]any, field string) (float64, bool) {
 	}
 }
 
-// matchesOcsfDateFilter evaluates one OcsfDateFilter (FieldName + a
-// DateFilter Start/End/DateRange set) against finding. An unmapped
-// FieldName is not filtered on -- see ocsfDateFieldMap. A mapped field
-// that's missing or not a valid timestamp cannot satisfy any date bound, so
-// it's excluded rather than silently passing (same policy as
-// matchesOcsfNumberFilter).
-func matchesOcsfDateFilter(finding, m map[string]any) bool {
-	fieldName, _ := m["FieldName"].(string)
-
-	asffField, ok := ocsfDateFieldMap[fieldName]
-	if !ok {
-		return true
-	}
-
-	filter, _ := m["Filter"].(map[string]any)
-	if filter == nil {
-		return true
-	}
-
-	raw, _ := finding[asffField].(string)
-
-	fieldTime, err := time.Parse(time.RFC3339, raw)
-	if err != nil {
-		return false
-	}
-
-	if dr, hasRange := filter["DateRange"].(map[string]any); hasRange {
-		return matchesDateRange(fieldTime, dr)
-	}
-
-	return matchesDateStartEnd(fieldTime, filter)
-}
-
 // matchesDateRange evaluates a relative DateRange{Comparison,Unit,Value}
 // against fieldTime. AWS documents Unit as DAYS-only (the sole
 // DateRangeUnit value in this SDK version) and Comparison as WITHIN
@@ -493,30 +516,6 @@ func matchesDateStartEnd(fieldTime time.Time, filter map[string]any) bool {
 	return true
 }
 
-// matchesOcsfMapFilter evaluates one OcsfMapFilter (FieldName + a MapFilter
-// Key/Value/Comparison set) against finding. An unmapped FieldName (e.g.
-// databucket.tags -- see mapFilterCandidates) is not filtered on.
-func matchesOcsfMapFilter(finding, m map[string]any) bool {
-	fieldName, _ := m["FieldName"].(string)
-
-	filter, _ := m["Filter"].(map[string]any)
-	if filter == nil {
-		return true
-	}
-
-	key, _ := filter["Key"].(string)
-
-	candidates, ok := mapFilterCandidates(finding, fieldName, key)
-	if !ok {
-		return true
-	}
-
-	val, _ := filter["Value"].(string)
-	comp, _ := filter["Comparison"].(string)
-
-	return compareMapFilter(comp, candidates, val)
-}
-
 // compareMapFilter evaluates a MapFilterComparison (EQUALS/NOT_EQUALS/
 // CONTAINS/NOT_CONTAINS) against the set of candidate values found for a
 // MapFilter's Key. Multiple resources/parameters can share the same key
@@ -549,16 +548,16 @@ func compareMapFilter(comp string, candidates []string, val string) bool {
 // Compliance.SecurityControlParameters ([]SecurityControlParameter{Name,
 // Value []string}). databucket.tags has no ASFF equivalent at all (ASFF
 // findings carry no "databucket" concept) and is intentionally unmapped.
-func mapFilterCandidates(finding map[string]any, fieldName, key string) ([]string, bool) {
+func mapFilterCandidates(finding map[string]any, fieldName, key string) []string {
 	switch fieldName {
 	case "resources.tags":
-		return resourceTagValues(finding, key), true
+		return resourceTagValues(finding, key)
 	case "finding_info.tags":
-		return userDefinedFieldValues(finding, key), true
+		return userDefinedFieldValues(finding, key)
 	case "compliance.control_parameters":
-		return complianceControlParamValues(finding, key), true
+		return complianceControlParamValues(finding, key)
 	default:
-		return nil, false
+		return nil
 	}
 }
 
@@ -624,38 +623,6 @@ func complianceControlParamValues(finding map[string]any, key string) []string {
 	return values
 }
 
-// matchesOcsfIPFilter evaluates one OcsfIpFilter (FieldName + an IpFilter
-// Cidr) against finding. An unmapped FieldName is not filtered on -- see
-// ipFieldNetworkKeys.
-func matchesOcsfIPFilter(finding, m map[string]any) bool {
-	fieldName, _ := m["FieldName"].(string)
-
-	keys, ok := ipFieldNetworkKeys[fieldName]
-	if !ok {
-		return true
-	}
-
-	filter, _ := m["Filter"].(map[string]any)
-
-	cidr, _ := filter["Cidr"].(string)
-	if cidr == "" {
-		return true
-	}
-
-	network, _ := finding["Network"].(map[string]any)
-	if network == nil {
-		return false
-	}
-
-	for _, key := range keys {
-		if ipStr, hasVal := network[key].(string); hasVal && ipStr != "" && ipInCIDR(ipStr, cidr) {
-			return true
-		}
-	}
-
-	return false
-}
-
 // ipInCIDR reports whether ipStr falls inside cidr. AWS documents Cidr as
 // accepting either a CIDR block or a bare IP address; a bare address is
 // normalized to an exact-match /32 (IPv4) or /128 (IPv6) before testing
@@ -680,51 +647,6 @@ func ipInCIDR(ipStr, cidr string) bool {
 	}
 
 	return ipNet.Contains(ip)
-}
-
-// matchesOcsfBooleanFilter evaluates one OcsfBooleanFilter (FieldName + a
-// BooleanFilter Value) against finding.
-//
-// Only vulnerabilities.is_exploit_available is evaluated:
-// Vulnerability.ExploitAvailable is a genuine two-valued ASFF enum
-// (YES/NO), so it round-trips to a bool cleanly. A finding matches if ANY
-// entry in its Vulnerabilities array has ExploitAvailable matching the
-// requested boolean (array-membership semantics, consistent with
-// resourceTagValues/complianceControlParamValues above).
-//
-// vulnerabilities.is_fix_available is intentionally NOT evaluated:
-// Vulnerability.FixAvailable is three-valued (YES/NO/PARTIAL in the real
-// SDK), and collapsing PARTIAL into either true or false would silently
-// misclassify findings -- worse than leaving it unfiltered.
-// compliance.assessments.meets_criteria has no ASFF backing at all (the
-// ASFF Compliance object has no "assessments"/"meets_criteria" concept) and
-// is also left unmapped.
-func matchesOcsfBooleanFilter(finding, m map[string]any) bool {
-	fieldName, _ := m["FieldName"].(string)
-	if fieldName != "vulnerabilities.is_exploit_available" {
-		return true
-	}
-
-	filter, _ := m["Filter"].(map[string]any)
-
-	want, hasWant := filter["Value"].(bool)
-	if !hasWant {
-		return true
-	}
-
-	vulns, _ := finding["Vulnerabilities"].([]any)
-	for _, v := range vulns {
-		vm, isMap := v.(map[string]any)
-		if !isMap {
-			continue
-		}
-
-		if exploit, _ := vm["ExploitAvailable"].(string); (exploit == "YES") == want {
-			return true
-		}
-	}
-
-	return false
 }
 
 // matchesWholeWord implements the CONTAINS_WORD string comparison
@@ -756,9 +678,11 @@ func (b *InMemoryBackend) GetFindingsV2(
 
 	var results []map[string]any
 
-	for _, f := range b.findings {
+	for key, f := range b.findings {
 		if matchesFindingFiltersV2(f, filters) {
-			results = append(results, f)
+			out := maps.Clone(f)
+			out["metadata"] = map[string]any{"uid": key}
+			results = append(results, out)
 		}
 	}
 
@@ -776,9 +700,7 @@ func (b *InMemoryBackend) GetFindingsV2(
 // ingestion operation in the real API, so this is the only way
 // BatchUpdateFindingsV2 can resolve a finding in this mock.
 //
-// metadataUids can never resolve: this backend has no OCSF ingestion path
-// that would ever hand a caller a metadata.uid to reference, so every
-// metadataUids entry is reported unprocessed (ResourceNotFoundException).
+// A finding's metadata.uid is its store key (ProductArn|Id), as GetFindingsV2 reports it.
 func (b *InMemoryBackend) BatchUpdateFindingsV2(
 	findingIdentifiers []map[string]any,
 	metadataUids []string,
@@ -819,11 +741,19 @@ func (b *InMemoryBackend) BatchUpdateFindingsV2(
 	}
 
 	for _, uid := range metadataUids {
-		unprocessed = append(unprocessed, map[string]any{
-			keyMetadataUID:  uid,
-			keyErrorCode:    errCodeResourceNotFound,
-			keyErrorMessage: msgFindingNotFound,
-		})
+		f, exists := b.findings[uid]
+		if !exists {
+			unprocessed = append(unprocessed, map[string]any{
+				keyMetadataUID:  uid,
+				keyErrorCode:    errCodeResourceNotFound,
+				keyErrorMessage: msgFindingNotFound,
+			})
+
+			continue
+		}
+
+		maps.Copy(f, updates)
+		processed = append(processed, map[string]any{keyMetadataUID: uid})
 	}
 
 	if processed == nil {

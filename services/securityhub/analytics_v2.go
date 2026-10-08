@@ -19,21 +19,23 @@ const (
 	trendGranularityWeekSpan  = 31 * 24 * time.Hour
 )
 
-// groupByFieldsFromRules extracts GroupByField from each entry of the real
-// GroupByRules/ResourceGroupByRules wire shape ([]types.GroupByRule /
-// []types.ResourceGroupByRule, both {GroupByField, Filters} objects --
-// securityhub@v1.75.4 types/types.go:15710-15722,17851-17862), verbatim as
-// the client sent it. Per-rule Filters are accepted but not applied: this
-// backend's V2 statistics already aggregate over the full unfiltered
-// collection, matching the pre-existing GetResourcesV2 convention of
-// accepting but not honoring filters.
-func groupByFieldsFromRules(raw any) []string {
+// GroupByRule is one entry of the real GroupByRules/ResourceGroupByRules wire shape
+// ({GroupByField, Filters}): the field to aggregate by and the optional filter that
+// narrows the items counted for it.
+type GroupByRule struct {
+	Filters map[string]any
+	Field   string
+}
+
+// groupByRulesFromBody parses GroupByRules/ResourceGroupByRules, skipping entries
+// without a GroupByField.
+func groupByRulesFromBody(raw any) []GroupByRule {
 	rules, ok := raw.([]any)
 	if !ok {
 		return nil
 	}
 
-	fields := make([]string, 0, len(rules))
+	out := make([]GroupByRule, 0, len(rules))
 
 	for _, r := range rules {
 		rule, ruleOK := r.(map[string]any)
@@ -46,10 +48,10 @@ func groupByFieldsFromRules(raw any) []string {
 			continue
 		}
 
-		fields = append(fields, field)
+		out = append(out, GroupByRule{Field: field, Filters: filterRuleFilters(rule)})
 	}
 
-	return fields
+	return out
 }
 
 // groupByResults aggregates items by each requested field into the
@@ -63,11 +65,13 @@ func groupByFieldsFromRules(raw any) []string {
 // storing "SeverityLabel" can still be grouped by the client's "severity".
 // Pass nil to look items up by the requested name verbatim.
 func groupByResults(
-	items []map[string]any, groupByFields []string, fieldMap map[string]string, sortOrder string,
+	items []map[string]any, rules []GroupByRule, fieldMap map[string]string, sortOrder string,
+	matches func(item, filters map[string]any) bool,
 ) []map[string]any {
-	results := make([]map[string]any, 0, len(groupByFields))
+	results := make([]map[string]any, 0, len(rules))
 
-	for _, field := range groupByFields {
+	for _, rule := range rules {
+		field := rule.Field
 		lookupField := field
 		if mapped, found := fieldMap[field]; found {
 			lookupField = mapped
@@ -78,6 +82,10 @@ func groupByResults(
 		var order []string
 
 		for _, item := range items {
+			if len(rule.Filters) > 0 && !matches(item, rule.Filters) {
+				continue
+			}
+
 			val := ""
 			if v, ok := item[lookupField]; ok {
 				val = fmt.Sprintf("%v", v)

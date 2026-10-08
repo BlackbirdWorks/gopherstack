@@ -574,13 +574,7 @@ func (b *InMemoryBackend) cascadeCancelRequestLocked(domain string, exec *Workfl
 	}
 	b.appendHistoryEventLocked(domain, exec.WorkflowID, exec.RunID, "WorkflowExecutionCancelRequested", attrs)
 
-	if exec.TaskList != "" {
-		qkey := domain + ":" + exec.TaskList
-		b.decisionQueues[qkey] = append(b.decisionQueues[qkey], &DecisionTask{
-			WorkflowID: exec.WorkflowID,
-			RunID:      exec.RunID,
-		})
-	}
+	b.enqueueDecisionTaskLocked(domain, exec.WorkflowID, exec.RunID)
 }
 
 // DescribeWorkflowExecution returns a specific run of a workflow execution.
@@ -752,13 +746,7 @@ func (b *InMemoryBackend) RequestCancelWorkflowExecution(domain, workflowID, run
 	b.appendHistoryEventLocked(domain, workflowID, exec.RunID, "WorkflowExecutionCancelRequested", attrs)
 
 	// Enqueue a decision task so the workflow decider can react.
-	if exec.TaskList != "" {
-		qkey := domain + ":" + exec.TaskList
-		b.decisionQueues[qkey] = append(b.decisionQueues[qkey], &DecisionTask{
-			WorkflowID: workflowID,
-			RunID:      exec.RunID,
-		})
-	}
+	b.enqueueDecisionTaskLocked(domain, workflowID, exec.RunID)
 
 	return nil
 }

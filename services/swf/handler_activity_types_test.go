@@ -228,9 +228,14 @@ func TestHandler_ListActivityTypes(t *testing.T) {
 		},
 		{
 			name:      "empty",
-			body:      map[string]any{"domain": "d1"},
+			body:      map[string]any{"domain": "d1", "registrationStatus": "REGISTERED"},
 			wantCode:  http.StatusOK,
 			wantCount: 0,
+		},
+		{
+			name:     "missing_status",
+			body:     map[string]any{"domain": "d1"},
+			wantCode: http.StatusBadRequest,
 		},
 	}
 
