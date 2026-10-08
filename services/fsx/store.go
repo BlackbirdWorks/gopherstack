@@ -30,6 +30,8 @@ const (
 	fileSystemTypeOpenZFS          = "OPENZFS"
 	lustreDeploymentTypeScratch1   = "SCRATCH_1"
 	windowsDeploymentTypeSingleAZ1 = "SINGLE_AZ_1"
+	windowsDeploymentTypeMultiAZ1  = "MULTI_AZ_1"
+	ontapDeploymentTypeMultiAZ1    = "MULTI_AZ_1"
 	lustreMountNameLen             = 8
 
 	// defaultAutomaticBackupRetentionDays is the real-AWS default backup

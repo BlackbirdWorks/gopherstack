@@ -89,6 +89,7 @@ type Handler struct {
 	Backend StorageBackend
 	ops     map[string]service.JSONOpFunc
 	peers   *regionpeers.Set[Handler]
+	root    *Handler
 }
 
 // NewHandler constructs a new Handler.

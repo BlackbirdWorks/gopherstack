@@ -17,7 +17,12 @@ func TestFSx_Tags(t *testing.T) {
 
 	fsARN := func(t *testing.T, h *fsx.Handler) string {
 		t.Helper()
-		rec := doFSxRequest(t, h, "CreateFileSystem", map[string]any{"FileSystemType": "LUSTRE"})
+		rec := doFSxRequest(
+			t,
+			h,
+			"CreateFileSystem",
+			map[string]any{"FileSystemType": "LUSTRE", "SubnetIds": []string{"subnet-0123456789abcdef0"}},
+		)
 		require.Equal(t, http.StatusOK, rec.Code)
 		var out map[string]any
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
@@ -134,7 +139,12 @@ func TestFSx_TagValidation(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler(t)
 
-			rec := doFSxRequest(t, h, "CreateFileSystem", map[string]any{"FileSystemType": "LUSTRE"})
+			rec := doFSxRequest(
+				t,
+				h,
+				"CreateFileSystem",
+				map[string]any{"FileSystemType": "LUSTRE", "SubnetIds": []string{"subnet-0123456789abcdef0"}},
+			)
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
@@ -187,6 +197,7 @@ func TestFSx_TagValidation_OnCreate(t *testing.T) {
 
 			rec := doFSxRequest(t, h, "CreateFileSystem", map[string]any{
 				"FileSystemType": "LUSTRE",
+				"SubnetIds":      []string{"subnet-0123456789abcdef0"},
 				"Tags":           tc.tags,
 			})
 			assert.Equal(t, tc.wantCode, rec.Code)
@@ -207,7 +218,12 @@ func TestFSx_TagLimit(t *testing.T) {
 		t.Parallel()
 		h := newTestHandler(t)
 
-		rec := doFSxRequest(t, h, "CreateFileSystem", map[string]any{"FileSystemType": "LUSTRE"})
+		rec := doFSxRequest(
+			t,
+			h,
+			"CreateFileSystem",
+			map[string]any{"FileSystemType": "LUSTRE", "SubnetIds": []string{"subnet-0123456789abcdef0"}},
+		)
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var out map[string]any
@@ -244,7 +260,12 @@ func TestFSx_TagLimit(t *testing.T) {
 		t.Parallel()
 		h := newTestHandler(t)
 
-		rec := doFSxRequest(t, h, "CreateFileSystem", map[string]any{"FileSystemType": "LUSTRE"})
+		rec := doFSxRequest(
+			t,
+			h,
+			"CreateFileSystem",
+			map[string]any{"FileSystemType": "LUSTRE", "SubnetIds": []string{"subnet-0123456789abcdef0"}},
+		)
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var out map[string]any
@@ -283,7 +304,12 @@ func TestListTagsForResource_EmptyIsArray(t *testing.T) {
 		{
 			name: "file_system_no_tags",
 			createFunc: func(h *fsx.Handler) string {
-				rec := doFSxRequest(t, h, "CreateFileSystem", map[string]any{"FileSystemType": "LUSTRE"})
+				rec := doFSxRequest(
+					t,
+					h,
+					"CreateFileSystem",
+					map[string]any{"FileSystemType": "LUSTRE", "SubnetIds": []string{"subnet-0123456789abcdef0"}},
+				)
 				require.Equal(t, http.StatusOK, rec.Code)
 				var out map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))

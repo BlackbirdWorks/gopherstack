@@ -1,6 +1,11 @@
 package fsx
 
-import "context"
+import (
+	"context"
+	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
+)
 
 // --- CreateBackup ---
 
@@ -66,6 +71,19 @@ type copyBackupHandlerOutput struct {
 }
 
 func (h *Handler) handleCopyBackup(_ context.Context, in *copyBackupInput) (*copyBackupHandlerOutput, error) {
+	if in.SourceRegion != "" && in.SourceRegion != h.Backend.Region() {
+		if !regionpeers.ValidRegion(in.SourceRegion) {
+			return nil, fmt.Errorf("%w: SourceRegion %q is not a valid region", ErrValidation, in.SourceRegion)
+		}
+
+		src, err := h.regionRoot().BackendFor(in.SourceRegion).CloneBackup(in.SourceBackupID)
+		if err != nil {
+			return nil, err
+		}
+
+		in.sourceBackup = src
+	}
+
 	bk, err := h.Backend.CopyBackup(in)
 	if err != nil {
 		return nil, err

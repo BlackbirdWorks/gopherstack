@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -82,9 +83,10 @@ func (b *storedBackup) toBackup(fallbackFS *storedFileSystem) *Backup {
 
 // createBackupInput holds parameters for CreateBackup.
 type createBackupInput struct {
-	FileSystemID string `json:"FileSystemId,omitempty"`
-	VolumeID     string `json:"VolumeId,omitempty"`
-	Tags         []Tag  `json:"Tags,omitempty"`
+	FileSystemID       string `json:"FileSystemId,omitempty"`
+	VolumeID           string `json:"VolumeId,omitempty"`
+	ClientRequestToken string `json:"ClientRequestToken,omitempty"`
+	Tags               []Tag  `json:"Tags,omitempty"`
 }
 
 // cloneStoredVolume deep-copies v so a backup snapshot never aliases the live volume row.
@@ -134,6 +136,15 @@ func (b *InMemoryBackend) CreateBackup(input *createBackupInput) (*Backup, error
 	b.mu.Lock("CreateBackup")
 	defer b.mu.Unlock()
 
+	fp, replayID, err := b.replayTokenLocked("CreateBackup", input.ClientRequestToken, input)
+	if err != nil {
+		return nil, err
+	}
+
+	if existing, ok := b.backups.Get(replayID); ok {
+		return existing.toBackup(existing.FileSystem), nil
+	}
+
 	fs, vol, err := b.resolveBackupSourceLocked(input)
 	if err != nil {
 		return nil, err
@@ -162,6 +173,7 @@ func (b *InMemoryBackend) CreateBackup(input *createBackupInput) (*Backup, error
 
 	b.backups.Put(bk)
 	b.tags[arn] = tags
+	b.recordTokenLocked("CreateBackup", input.ClientRequestToken, fp, id)
 
 	return bk.toBackup(fs), nil
 }
@@ -302,10 +314,13 @@ func (b *InMemoryBackend) DeleteBackup(backupID string) error {
 
 // copyBackupInput holds parameters for CopyBackup.
 type copyBackupInput struct {
-	SourceBackupID string `json:"SourceBackupId"`
-	KmsKeyID       string `json:"KmsKeyId,omitempty"`
-	Tags           []Tag  `json:"Tags,omitempty"`
-	CopyTags       bool   `json:"CopyTags,omitempty"`
+	sourceBackup       *storedBackup
+	SourceBackupID     string `json:"SourceBackupId"`
+	SourceRegion       string `json:"SourceRegion,omitempty"`
+	KmsKeyID           string `json:"KmsKeyId,omitempty"`
+	ClientRequestToken string `json:"ClientRequestToken,omitempty"`
+	Tags               []Tag  `json:"Tags,omitempty"`
+	CopyTags           bool   `json:"CopyTags,omitempty"`
 }
 
 // CopyBackup creates a copy of an existing backup.
@@ -317,9 +332,23 @@ func (b *InMemoryBackend) CopyBackup(input *copyBackupInput) (*Backup, error) {
 	b.mu.Lock("CopyBackup")
 	defer b.mu.Unlock()
 
-	src, ok := b.backups.Get(input.SourceBackupID)
-	if !ok {
-		return nil, ErrBackupNotFound
+	fp, replayID, err := b.replayTokenLocked("CopyBackup", input.ClientRequestToken, input)
+	if err != nil {
+		return nil, err
+	}
+
+	if existing, ok := b.backups.Get(replayID); ok {
+		return existing.toBackup(existing.FileSystem), nil
+	}
+
+	src := input.sourceBackup
+
+	if src == nil {
+		var ok bool
+
+		if src, ok = b.backups.Get(backupIDFromARN(input.SourceBackupID)); !ok {
+			return nil, ErrBackupNotFound
+		}
 	}
 
 	id := newFSxBackupID()
@@ -378,10 +407,41 @@ func (b *InMemoryBackend) CopyBackup(input *copyBackupInput) (*Backup, error) {
 
 	b.backups.Put(bk)
 	b.tags[arn] = tags
+	b.recordTokenLocked("CopyBackup", input.ClientRequestToken, fp, id)
 
 	return bk.toBackup(fs), nil
 }
 
 func (b *InMemoryBackend) backupARN(id string) string {
 	return arn.Build("fsx", b.region, b.accountID, fmt.Sprintf("backup/%s", id))
+}
+
+// CloneBackup returns a deep copy of a backup for a cross-region CopyBackup.
+func (b *InMemoryBackend) CloneBackup(backupID string) (*storedBackup, error) {
+	b.mu.RLock("CloneBackup")
+	defer b.mu.RUnlock()
+
+	src, ok := b.backups.Get(backupIDFromARN(backupID))
+	if !ok {
+		return nil, ErrBackupNotFound
+	}
+
+	clone := *src
+	clone.Tags = maps.Clone(src.Tags)
+	clone.FileSystem = cloneStoredFileSystem(src.FileSystem)
+
+	if src.Volume != nil {
+		clone.Volume = cloneStoredVolume(src.Volume)
+	}
+
+	return &clone, nil
+}
+
+// backupIDFromARN accepts a bare backup ID or a backup ARN.
+func backupIDFromARN(v string) string {
+	if _, id, found := strings.Cut(v, "backup/"); found {
+		return id
+	}
+
+	return v
 }

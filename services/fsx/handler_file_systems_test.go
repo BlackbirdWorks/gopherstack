@@ -21,7 +21,11 @@ func TestFSx_FileSystem(t *testing.T) {
 			t,
 			h,
 			"CreateFileSystem",
-			map[string]any{"FileSystemType": "LUSTRE", "StorageCapacity": 1200},
+			map[string]any{
+				"FileSystemType":  "LUSTRE",
+				"StorageCapacity": 1200,
+				"SubnetIds":       []string{"subnet-0123456789abcdef0"},
+			},
 		)
 		require.Equal(t, http.StatusOK, rec.Code)
 		var resp map[string]any
@@ -118,6 +122,7 @@ func TestFSx_FileSystem(t *testing.T) {
 		h := newTestHandler(t)
 		body := map[string]any{
 			"FileSystemType":      "LUSTRE",
+			"SubnetIds":           []string{"subnet-0123456789abcdef0"},
 			"StorageCapacity":     1200,
 			"ClientRequestToken":  "tok-dedup-1",
 			"LustreConfiguration": map[string]any{"DeploymentType": "SCRATCH_1"},
@@ -150,6 +155,7 @@ func TestFSx_FileSystem(t *testing.T) {
 
 		rec1 := doFSxRequest(t, h, "CreateFileSystem", map[string]any{
 			"FileSystemType":     "LUSTRE",
+			"SubnetIds":          []string{"subnet-0123456789abcdef0"},
 			"StorageCapacity":    1200,
 			"ClientRequestToken": "tok-dedup-mismatch",
 		})
@@ -157,6 +163,7 @@ func TestFSx_FileSystem(t *testing.T) {
 
 		rec2 := doFSxRequest(t, h, "CreateFileSystem", map[string]any{
 			"FileSystemType":     "LUSTRE",
+			"SubnetIds":          []string{"subnet-0123456789abcdef0"},
 			"StorageCapacity":    2400, // different StorageCapacity, same token
 			"ClientRequestToken": "tok-dedup-mismatch",
 		})
@@ -170,7 +177,11 @@ func TestFSx_FileSystem(t *testing.T) {
 	t.Run("CreateFileSystem without ClientRequestToken creates a new file system each call", func(t *testing.T) {
 		t.Parallel()
 		h := newTestHandler(t)
-		body := map[string]any{"FileSystemType": "LUSTRE", "StorageCapacity": 1200}
+		body := map[string]any{
+			"FileSystemType":  "LUSTRE",
+			"StorageCapacity": 1200,
+			"SubnetIds":       []string{"subnet-0123456789abcdef0"},
+		}
 
 		rec1 := doFSxRequest(t, h, "CreateFileSystem", body)
 		require.Equal(t, http.StatusOK, rec1.Code)
@@ -211,6 +222,7 @@ func TestFSx_FileSystem(t *testing.T) {
 		h := newTestHandler(t)
 		rec := doFSxRequest(t, h, "CreateFileSystem", map[string]any{
 			"FileSystemType":   "LUSTRE",
+			"SubnetIds":        []string{"subnet-0123456789abcdef0"},
 			"StorageCapacity":  1200,
 			"SecurityGroupIds": []string{"not-a-sg-id"},
 		})

@@ -21,6 +21,7 @@ func TestCreateFileSystemTokens_TTLBoundsMapGrowth(t *testing.T) {
 	newInput := func(token string) *createFileSystemInput {
 		return &createFileSystemInput{
 			FileSystemType:      fileSystemTypeLustre,
+			SubnetIDs:           []string{"subnet-0123456789abcdef0"},
 			LustreConfiguration: &createLustreConfiguration{DeploymentType: lustreDeploymentTypeScratch1},
 			ClientRequestToken:  token,
 		}

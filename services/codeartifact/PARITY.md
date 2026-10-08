@@ -7,7 +7,7 @@
 service: codeartifact
 sdk_module: aws-sdk-go-v2/service/codeartifact@v1.41.4   # version audited against
 last_audit_commit: 1d121bbad                      # over-wide census re-check, gopherstack-xhu2t work retained
-last_audit_date: 2026-09-18
+last_audit_date: 2026-10-07
 overall: A            # this pass: package-group "weak match" (casefold + dash/dot/underscore-run
                       # normalization, per AWS's documented dependency-confusion-protection
                       # algorithm) implemented and wired into GetAssociatedPackageGroup/
@@ -76,14 +76,13 @@ families:
   list_summary_shape: {status: fixed, note: "gopherstack-tuh5: ListPackages/ListPackageVersions each reused their Describe sibling's full converter (packageToMap/packageVersionToMap) unscoped, leaking Get-only members (see ops). ListPackages' packageToMap also had a wrong-key inverse bug: the package identifier was emitted as \"name\" where types.PackageSummary's real deserializer only recognises \"package\" — a distinct bug class from the leak (a real client loses the field rather than merely receiving extras it ignores), found and fixed in the same function. Both now have a dedicated *SummaryToMap converter built by reading that op's own types.*Summary struct and deserializer individually. Regression coverage in handler_list_summary_test.go: raw-body assertions for both leaks (an SDK client discards unrecognised keys and can't observe an over-wide response), plus a real aws-sdk-go-v2 client test for the wrong-key loss specifically (a raw-body assertion is weak there — only a typed caller shows PackageSummary.Package actually reaching the caller)."}
 gaps: []
 items_still_open:
-  - "Package-group weak-match confusable-character normalization needs the full Unicode confusables table (external data, not vendored); such packages match neither STRONG nor WEAK."
-  - "Package-group origin restrictions are stored and returned but not enforced on publish/ingestion: AWS documents no error code for a blocked publish in the pinned SDK to emit."
-  - "No implicit root package group ('/*') is auto-created; existing tests assert an empty group list."
-  - "GetPackageVersionReadme/ListPackageVersionDependencies and DescribePackageVersion's summary/homePage/sourceCodeRepository/licenses only read a standalone package.json asset: PublishPackageVersion is generic-only per the SDK docs, and archive ingestion belongs to the unmodeled native npm/maven clients."
-  - "DescribePackageVersion displayName is set for npm only (the one format the SDK documents); the package.json-to-summary/homePage/sourceCodeRepository/licenses key mapping is not SDK-documented (authored from npm metadata conventions, unverified against real AWS), and other formats' fields stay unset."
-  - "GetRepositoryEndpoint validates endpointType (ipv4|dualstack) but returns the same hostname for both: the dualstack hostname is not documented in the pinned SDK."
-  - "PackageVersionError.errorMessage is never populated on failedVersions: only errorCode is emitted."
-  - "domain-owner is not read on any op: single-account emulator, and the pinned SDK documents no cross-account error to emit."
+  - "Package-group origin restrictions are stored and returned but not enforced on publish/ingestion: the pinned SDK documents no error for a blocked publish (unverifiable)."
+  - "No implicit root package group ('/*') is auto-created: the pinned SDK does not say whether AWS creates one (unverifiable); existing tests assert an empty group list."
+  - "DescribePackageVersion displayName is set for npm only (the one format the SDK documents); the package.json-to-summary/homePage/sourceCodeRepository/licenses key mapping is not SDK-documented (unverifiable)."
+  - "GetRepositoryEndpoint validates endpointType (ipv4|dualstack) but returns the same hostname for both: the dualstack hostname is not documented in the pinned SDK (unverifiable)."
+structural_gaps:
+  - "Package-group weak-match confusable-character normalization needs the full Unicode confusables table (external data, go.mod is fixed); such packages match neither STRONG nor WEAK."
+  - "GetPackageVersionReadme/ListPackageVersionDependencies and DescribePackageVersion's summary/homePage/sourceCodeRepository/licenses only read a standalone package.json asset: archive ingestion belongs to the native npm/maven clients, whose wire protocols are not emulated."
 deferred: []
 leaks: {status: clean, note: "FIXED (this pass) — DeleteDomain never cascade-deleted the domain's package groups (ghost store rows) or closed their Tags (a pkgs/tags leak), despite deleting everything else the domain owned; every other resource path (repositories/packages/versions/policies/external-connections) was already covered by pre-existing cascade logic. Re-verified: no goroutines/janitors in this service; store.Table-backed state is snapshot/restored via existing Handler.Snapshot/Restore delegation to InMemoryBackend; new Restrictions/Assets/OriginConfig fields are plain JSON-tagged struct fields and round-trip automatically."}
 ---
@@ -389,3 +388,8 @@ codeartifact already region-isolated: same-named resources in two regions stay s
 
 FIXED: ListPackageVersionAssets pages by max-results/next-token and ListPackageVersionDependencies by next-token (the SDK has no max-results there), both in stable name order through `paginateSlice`. Proof: `TestListPackageVersion_Paging`.
 - **2026-10-05 (pass 6, gopherstack-9x62)**: Delete/Dispose/Update/CopyPackageVersions now honour expectedStatus and versionRevisions (MISMATCHED_STATUS/MISMATCHED_REVISION), Copy honours allowOverwrite and rejects versions together with versionRevisions; DescribePackageVersion emits npm displayName and package.json-derived fields.
+
+## 2026-10-07 (items_still_open burn-down)
+
+- failedVersions entries now carry `errorMessage` beside `errorCode` (`TestPackageVersionErrors_CarryMessage`).
+- `domain-owner` is read on every op: non 12-digit values are a ValidationException, an owner other than the local account owns no domain here and yields ResourceNotFoundException (`TestDomainOwnerQuery`). AWS's real cross-account response is not documented in the pinned SDK.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"maps"
 	"net/http"
@@ -562,10 +563,37 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		path := c.Request().URL.Path
 		route := parseCodeArtifactPath(c.Request().Method, path)
 
+		if err := h.checkDomainOwner(c.Request().URL.Query().Get(queryDomainOwner)); err != nil {
+			return h.handleError(c, err)
+		}
+
 		log.Debug("codeartifact request", "operation", route.operation, "path", path)
 
 		return h.dispatch(c, route, readRequestBody(c, route.operation))
 	}
+}
+
+const (
+	queryDomainOwner = "domain-owner"
+	accountIDLen     = 12
+)
+
+// checkDomainOwner validates the 12-digit domain-owner query parameter; an owner other than
+// the local account owns no domains here, so the domain cannot be found.
+func (h *Handler) checkDomainOwner(owner string) error {
+	if owner == "" {
+		return nil
+	}
+
+	if len(owner) != accountIDLen || strings.Trim(owner, "0123456789") != "" {
+		return fmt.Errorf("%w: domain-owner must be a 12-digit account number", ErrValidation)
+	}
+
+	if owner != h.Backend.accountID {
+		return fmt.Errorf("%w: domain not found for owner %s", ErrNotFound, owner)
+	}
+
+	return nil
 }
 
 // readRequestBody extracts the request body appropriately for op's wire shape.

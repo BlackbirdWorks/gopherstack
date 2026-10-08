@@ -49,6 +49,7 @@ type createAndAttachS3AccessPointInput struct {
 	OpenZFSConfiguration *createAndAttachS3AccessPointVolumeConfigInput `json:"OpenZFSConfiguration,omitempty"`
 	Name                 string                                         `json:"Name"`
 	Type                 string                                         `json:"Type"`
+	ClientRequestToken   string                                         `json:"ClientRequestToken,omitempty"`
 }
 
 // CreateAndAttachS3AccessPoint creates and attaches an S3 access point to an
@@ -85,6 +86,15 @@ func (b *InMemoryBackend) CreateAndAttachS3AccessPoint(
 	b.mu.Lock("CreateAndAttachS3AccessPoint")
 	defer b.mu.Unlock()
 
+	fp, replayID, err := b.replayTokenLocked("CreateAndAttachS3AccessPoint", input.ClientRequestToken, input)
+	if err != nil {
+		return nil, err
+	}
+
+	if existing, ok := b.s3AccessPoints.Get(replayID); ok {
+		return existing.toPublic(), nil
+	}
+
 	if !b.volumes.Has(volumeID) {
 		return nil, ErrVolumeNotFound
 	}
@@ -104,6 +114,7 @@ func (b *InMemoryBackend) CreateAndAttachS3AccessPoint(
 
 	b.s3AccessPoints.Put(ap)
 	b.tags[arnStr] = map[string]string{}
+	b.recordTokenLocked("CreateAndAttachS3AccessPoint", input.ClientRequestToken, fp, input.Name)
 
 	return ap.toPublic(), nil
 }

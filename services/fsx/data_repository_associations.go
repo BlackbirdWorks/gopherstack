@@ -2,6 +2,7 @@ package fsx
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 
@@ -15,38 +16,50 @@ import (
 const defaultImportedFileChunkSize = 1024
 
 type storedDataRepositoryAssoc struct {
-	CreationTime          time.Time         `json:"creationTime"`
-	Tags                  map[string]string `json:"tags"`
-	AssociationID         string            `json:"associationId"`
-	FileSystemID          string            `json:"fileSystemId"`
-	FileSystemPath        string            `json:"fileSystemPath"`
-	DataRepositoryPath    string            `json:"dataRepositoryPath"`
-	Lifecycle             string            `json:"lifecycle"`
-	ResourceARN           string            `json:"resourceArn"`
-	ImportedFileChunkSize int32             `json:"importedFileChunkSize"`
+	CreationTime          time.Time                      `json:"creationTime"`
+	Tags                  map[string]string              `json:"tags"`
+	AssociationID         string                         `json:"associationId"`
+	FileSystemID          string                         `json:"fileSystemId"`
+	FileSystemPath        string                         `json:"fileSystemPath"`
+	DataRepositoryPath    string                         `json:"dataRepositoryPath"`
+	Lifecycle             string                         `json:"lifecycle"`
+	ResourceARN           string                         `json:"resourceArn"`
+	S3                    *S3DataRepositoryConfiguration `json:"s3,omitempty"`
+	NFS                   *FileCacheNFSConfiguration     `json:"nfs,omitempty"`
+	FileCacheID           string                         `json:"fileCacheId,omitempty"`
+	FileCachePath         string                         `json:"fileCachePath,omitempty"`
+	Subdirectories        []string                       `json:"subdirectories,omitempty"`
+	ImportedFileChunkSize int32                          `json:"importedFileChunkSize"`
 }
 
 func (a *storedDataRepositoryAssoc) toPublic() *DataRepositoryAssociation {
 	return &DataRepositoryAssociation{
-		CreationTime:          epochTime(a.CreationTime),
-		AssociationID:         a.AssociationID,
-		FileSystemID:          a.FileSystemID,
-		FileSystemPath:        a.FileSystemPath,
-		DataRepositoryPath:    a.DataRepositoryPath,
-		Lifecycle:             a.Lifecycle,
-		ResourceARN:           a.ResourceARN,
-		Tags:                  tagsMapToSlice(a.Tags),
-		ImportedFileChunkSize: a.ImportedFileChunkSize,
+		CreationTime:                 epochTime(a.CreationTime),
+		AssociationID:                a.AssociationID,
+		FileSystemID:                 a.FileSystemID,
+		FileSystemPath:               a.FileSystemPath,
+		DataRepositoryPath:           a.DataRepositoryPath,
+		Lifecycle:                    a.Lifecycle,
+		ResourceARN:                  a.ResourceARN,
+		Tags:                         tagsMapToSlice(a.Tags),
+		S3:                           cloneS3Config(a.S3),
+		NFS:                          cloneNFSConfig(a.NFS),
+		FileCacheID:                  a.FileCacheID,
+		FileCachePath:                a.FileCachePath,
+		DataRepositorySubdirectories: slices.Clone(a.Subdirectories),
+		ImportedFileChunkSize:        a.ImportedFileChunkSize,
 	}
 }
 
 type createDataRepositoryAssociationInput struct {
-	ImportedFileChunkSize       *int32 `json:"ImportedFileChunkSize,omitempty"`
-	BatchImportMetaDataOnCreate *bool  `json:"BatchImportMetaDataOnCreate,omitempty"`
-	FileSystemID                string `json:"FileSystemId"`
-	FileSystemPath              string `json:"FileSystemPath"`
-	DataRepositoryPath          string `json:"DataRepositoryPath"`
-	Tags                        []Tag  `json:"Tags,omitempty"`
+	ImportedFileChunkSize       *int32                         `json:"ImportedFileChunkSize,omitempty"`
+	BatchImportMetaDataOnCreate *bool                          `json:"BatchImportMetaDataOnCreate,omitempty"`
+	ClientRequestToken          string                         `json:"ClientRequestToken,omitempty"`
+	FileSystemID                string                         `json:"FileSystemId"`
+	FileSystemPath              string                         `json:"FileSystemPath"`
+	DataRepositoryPath          string                         `json:"DataRepositoryPath"`
+	S3                          *S3DataRepositoryConfiguration `json:"S3,omitempty"`
+	Tags                        []Tag                          `json:"Tags,omitempty"`
 }
 
 // CreateDataRepositoryAssociation creates a data repository association.
@@ -57,8 +70,21 @@ func (b *InMemoryBackend) CreateDataRepositoryAssociation(
 		return nil, err
 	}
 
+	if err := validateS3Config(input.S3); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateDataRepositoryAssociation")
 	defer b.mu.Unlock()
+
+	fp, replayID, err := b.replayTokenLocked("CreateDataRepositoryAssociation", input.ClientRequestToken, input)
+	if err != nil {
+		return nil, err
+	}
+
+	if existing, ok := b.dataRepositoryAssocs.Get(replayID); ok {
+		return existing.toPublic(), nil
+	}
 
 	if !b.fileSystems.Has(input.FileSystemID) {
 		return nil, ErrFileSystemNotFound
@@ -84,10 +110,12 @@ func (b *InMemoryBackend) CreateDataRepositoryAssociation(
 		Lifecycle:             lifecycleAvailable,
 		ResourceARN:           arn,
 		ImportedFileChunkSize: chunkSize,
+		S3:                    cloneS3Config(input.S3),
 	}
 
 	b.dataRepositoryAssocs.Put(a)
 	b.tags[arn] = tags
+	b.recordTokenLocked("CreateDataRepositoryAssociation", input.ClientRequestToken, fp, id)
 
 	if input.BatchImportMetaDataOnCreate != nil && *input.BatchImportMetaDataOnCreate {
 		b.startImportTaskLocked(a, now)
@@ -146,11 +174,14 @@ func (b *InMemoryBackend) DescribeDataRepositoryAssociations( //nolint:dupl // e
 	} else {
 		for _, a := range b.dataRepositoryAssocs.All() {
 			if matchesFilters(filters, func(name string) (string, bool) {
-				if name == filterNameFileSystemID {
+				switch name {
+				case filterNameFileSystemID:
 					return a.FileSystemID, true
+				case "file-cache-id":
+					return a.FileCacheID, true
+				default:
+					return "", false
 				}
-
-				return "", false
 			}) {
 				all = append(all, a)
 			}
@@ -172,16 +203,21 @@ func (b *InMemoryBackend) DescribeDataRepositoryAssociations( //nolint:dupl // e
 }
 
 type updateDataRepositoryAssociationInput struct {
-	ImportedFileChunkSize *int32 `json:"ImportedFileChunkSize,omitempty"`
-	AssociationID         string `json:"AssociationId"`
-	FileSystemPath        string `json:"FileSystemPath,omitempty"`
-	DataRepositoryPath    string `json:"DataRepositoryPath,omitempty"`
+	ImportedFileChunkSize *int32                         `json:"ImportedFileChunkSize,omitempty"`
+	S3                    *S3DataRepositoryConfiguration `json:"S3,omitempty"`
+	AssociationID         string                         `json:"AssociationId"`
+	FileSystemPath        string                         `json:"FileSystemPath,omitempty"`
+	DataRepositoryPath    string                         `json:"DataRepositoryPath,omitempty"`
 }
 
 // UpdateDataRepositoryAssociation updates a DRA's paths.
 func (b *InMemoryBackend) UpdateDataRepositoryAssociation(
 	input *updateDataRepositoryAssociationInput,
 ) (*DataRepositoryAssociation, error) {
+	if err := validateS3Config(input.S3); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("UpdateDataRepositoryAssociation")
 	defer b.mu.Unlock()
 
@@ -201,6 +237,8 @@ func (b *InMemoryBackend) UpdateDataRepositoryAssociation(
 	if input.ImportedFileChunkSize != nil {
 		a.ImportedFileChunkSize = *input.ImportedFileChunkSize
 	}
+
+	a.S3 = mergeS3Config(a.S3, input.S3)
 
 	return a.toPublic(), nil
 }
@@ -230,4 +268,82 @@ func (b *InMemoryBackend) startImportTaskLocked(a *storedDataRepositoryAssoc, no
 		Paths:         []string{a.FileSystemPath},
 	})
 	b.tags[taskARN] = map[string]string{}
+}
+
+func validateEventPolicy(name string, p *EventPolicy) error {
+	if p == nil {
+		return nil
+	}
+
+	for _, e := range p.Events {
+		switch e {
+		case "NEW", "CHANGED", "DELETED":
+		default:
+			return fmt.Errorf("%w: S3.%s.Events value %q must be NEW, CHANGED or DELETED", ErrValidation, name, e)
+		}
+	}
+
+	return nil
+}
+
+func validateS3Config(c *S3DataRepositoryConfiguration) error {
+	if c == nil {
+		return nil
+	}
+
+	if err := validateEventPolicy("AutoExportPolicy", c.AutoExportPolicy); err != nil {
+		return err
+	}
+
+	return validateEventPolicy("AutoImportPolicy", c.AutoImportPolicy)
+}
+
+func cloneEventPolicy(p *EventPolicy) *EventPolicy {
+	if p == nil {
+		return nil
+	}
+
+	return &EventPolicy{Events: slices.Clone(p.Events)}
+}
+
+func cloneS3Config(c *S3DataRepositoryConfiguration) *S3DataRepositoryConfiguration {
+	if c == nil {
+		return nil
+	}
+
+	return &S3DataRepositoryConfiguration{
+		AutoExportPolicy: cloneEventPolicy(c.AutoExportPolicy),
+		AutoImportPolicy: cloneEventPolicy(c.AutoImportPolicy),
+	}
+}
+
+// mergeS3Config applies an update: each policy present in upd replaces the
+// stored one, absent policies are kept.
+func mergeS3Config(cur, upd *S3DataRepositoryConfiguration) *S3DataRepositoryConfiguration {
+	if upd == nil {
+		return cur
+	}
+
+	out := cloneS3Config(cur)
+	if out == nil {
+		out = &S3DataRepositoryConfiguration{}
+	}
+
+	if upd.AutoExportPolicy != nil {
+		out.AutoExportPolicy = cloneEventPolicy(upd.AutoExportPolicy)
+	}
+
+	if upd.AutoImportPolicy != nil {
+		out.AutoImportPolicy = cloneEventPolicy(upd.AutoImportPolicy)
+	}
+
+	return out
+}
+
+func cloneNFSConfig(c *FileCacheNFSConfiguration) *FileCacheNFSConfiguration {
+	if c == nil {
+		return nil
+	}
+
+	return &FileCacheNFSConfiguration{Version: c.Version, DNSIPs: slices.Clone(c.DNSIPs)}
 }

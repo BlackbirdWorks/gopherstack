@@ -34,10 +34,11 @@ type StorageBackend interface {
 	) ([]*Backup, string, error)
 	DeleteBackup(backupID string) error
 	CopyBackup(input *copyBackupInput) (*Backup, error)
+	CloneBackup(backupID string) (*storedBackup, error)
 
 	CreateFileSystemFromBackup(input *createFileSystemFromBackupInput) (*FileSystem, error)
 
-	AssociateFileSystemAliases(fileSystemID string, aliases []string) ([]FileSystemAlias, error)
+	AssociateFileSystemAliases(input *associateFileSystemAliasesInput) ([]FileSystemAlias, error)
 	DisassociateFileSystemAliases(fileSystemID string, aliases []string) ([]FileSystemAlias, error)
 	DescribeFileSystemAliases(
 		fileSystemID string,
@@ -162,16 +163,17 @@ type FileSystem struct {
 // this emulator targets already calls directly rather than reading this
 // convenience mirror.
 type WindowsConfiguration struct {
-	ActiveDirectoryID             string            `json:"ActiveDirectoryId,omitempty"`
-	DailyAutomaticBackupStartTime string            `json:"DailyAutomaticBackupStartTime,omitempty"`
-	DeploymentType                string            `json:"DeploymentType,omitempty"`
-	PreferredSubnetID             string            `json:"PreferredSubnetId,omitempty"`
-	RemoteAdministrationEndpoint  string            `json:"RemoteAdministrationEndpoint,omitempty"`
-	WeeklyMaintenanceStartTime    string            `json:"WeeklyMaintenanceStartTime,omitempty"`
-	Aliases                       []FileSystemAlias `json:"Aliases,omitempty"`
-	AutomaticBackupRetentionDays  int32             `json:"AutomaticBackupRetentionDays,omitempty"`
-	ThroughputCapacity            int32             `json:"ThroughputCapacity,omitempty"`
-	CopyTagsToBackups             bool              `json:"CopyTagsToBackups,omitempty"`
+	SelfManagedAD                 *SelfManagedADAttrs `json:"SelfManagedActiveDirectoryConfiguration,omitempty"`
+	ActiveDirectoryID             string              `json:"ActiveDirectoryId,omitempty"`
+	DailyAutomaticBackupStartTime string              `json:"DailyAutomaticBackupStartTime,omitempty"`
+	DeploymentType                string              `json:"DeploymentType,omitempty"`
+	PreferredSubnetID             string              `json:"PreferredSubnetId,omitempty"`
+	RemoteAdministrationEndpoint  string              `json:"RemoteAdministrationEndpoint,omitempty"`
+	WeeklyMaintenanceStartTime    string              `json:"WeeklyMaintenanceStartTime,omitempty"`
+	Aliases                       []FileSystemAlias   `json:"Aliases,omitempty"`
+	AutomaticBackupRetentionDays  int32               `json:"AutomaticBackupRetentionDays,omitempty"`
+	ThroughputCapacity            int32               `json:"ThroughputCapacity,omitempty"`
+	CopyTagsToBackups             bool                `json:"CopyTagsToBackups,omitempty"`
 }
 
 // OntapConfiguration describes the FSx for NetApp ONTAP-specific
@@ -264,15 +266,37 @@ type FileSystemAlias struct {
 // CreationTime uses epochTime: the real FSx deserializer requires a JSON
 // number of epoch seconds here, not an RFC3339 string.
 type DataRepositoryAssociation struct {
-	CreationTime          epochTime `json:"CreationTime"`
-	AssociationID         string    `json:"AssociationId"`
-	FileSystemID          string    `json:"FileSystemId"`
-	FileSystemPath        string    `json:"FileSystemPath"`
-	DataRepositoryPath    string    `json:"DataRepositoryPath"`
-	Lifecycle             string    `json:"Lifecycle"`
-	ResourceARN           string    `json:"ResourceARN"`
-	Tags                  []Tag     `json:"Tags,omitempty"`
-	ImportedFileChunkSize int32     `json:"ImportedFileChunkSize,omitempty"`
+	CreationTime                 epochTime                      `json:"CreationTime"`
+	AssociationID                string                         `json:"AssociationId"`
+	FileSystemID                 string                         `json:"FileSystemId,omitempty"`
+	FileSystemPath               string                         `json:"FileSystemPath,omitempty"`
+	DataRepositoryPath           string                         `json:"DataRepositoryPath"`
+	Lifecycle                    string                         `json:"Lifecycle"`
+	ResourceARN                  string                         `json:"ResourceARN"`
+	Tags                         []Tag                          `json:"Tags,omitempty"`
+	S3                           *S3DataRepositoryConfiguration `json:"S3,omitempty"`
+	NFS                          *FileCacheNFSConfiguration     `json:"NFS,omitempty"`
+	FileCacheID                  string                         `json:"FileCacheId,omitempty"`
+	FileCachePath                string                         `json:"FileCachePath,omitempty"`
+	DataRepositorySubdirectories []string                       `json:"DataRepositorySubdirectories,omitempty"`
+	ImportedFileChunkSize        int32                          `json:"ImportedFileChunkSize,omitempty"`
+}
+
+// FileCacheNFSConfiguration mirrors types.FileCacheNFSConfiguration.
+type FileCacheNFSConfiguration struct {
+	Version string   `json:"Version"`
+	DNSIPs  []string `json:"DnsIps,omitempty"`
+}
+
+// S3DataRepositoryConfiguration mirrors types.S3DataRepositoryConfiguration.
+type S3DataRepositoryConfiguration struct {
+	AutoExportPolicy *EventPolicy `json:"AutoExportPolicy,omitempty"`
+	AutoImportPolicy *EventPolicy `json:"AutoImportPolicy,omitempty"`
+}
+
+// EventPolicy mirrors types.AutoExportPolicy and types.AutoImportPolicy.
+type EventPolicy struct {
+	Events []string `json:"Events,omitempty"`
 }
 
 // CompletionReport mirrors types.CompletionReport (types.go:468). Enabled is
@@ -337,16 +361,18 @@ type DataRepositoryTaskStatus struct {
 // CreationTime uses epochTime: the real FSx deserializer requires a JSON
 // number of epoch seconds here, not an RFC3339 string.
 type FileCache struct {
-	CreationTime         epochTime                     `json:"CreationTime"`
-	LustreConfiguration  *FileCacheLustreConfiguration `json:"LustreConfiguration,omitempty"`
-	FileCacheID          string                        `json:"FileCacheId"`
-	FileCacheType        string                        `json:"FileCacheType"`
-	FileCacheTypeVersion string                        `json:"FileCacheTypeVersion,omitempty"`
-	KmsKeyID             string                        `json:"KmsKeyId,omitempty"`
-	Lifecycle            string                        `json:"Lifecycle"`
-	ResourceARN          string                        `json:"ResourceARN"`
-	SubnetIDs            []string                      `json:"SubnetIds,omitempty"`
-	StorageCapacityGiB   int32                         `json:"StorageCapacity,omitempty"`
+	CreationTime                 epochTime                     `json:"CreationTime"`
+	LustreConfiguration          *FileCacheLustreConfiguration `json:"LustreConfiguration,omitempty"`
+	CopyTagsToDRAs               *bool                         `json:"CopyTagsToDataRepositoryAssociations,omitempty"`
+	FileCacheID                  string                        `json:"FileCacheId"`
+	FileCacheType                string                        `json:"FileCacheType"`
+	FileCacheTypeVersion         string                        `json:"FileCacheTypeVersion,omitempty"`
+	KmsKeyID                     string                        `json:"KmsKeyId,omitempty"`
+	Lifecycle                    string                        `json:"Lifecycle"`
+	ResourceARN                  string                        `json:"ResourceARN"`
+	SubnetIDs                    []string                      `json:"SubnetIds,omitempty"`
+	DataRepositoryAssociationIDs []string                      `json:"DataRepositoryAssociationIds,omitempty"`
+	StorageCapacityGiB           int32                         `json:"StorageCapacity,omitempty"`
 }
 
 // FileCacheLustreConfiguration describes the Lustre-specific configuration
@@ -374,17 +400,19 @@ type FileCacheLustreMetadataConfiguration struct {
 // (types.FileCacheCreating, types/types.go:2349) which, unlike FileCache
 // above, DOES include Tags (deserializers.go:9984, case "Tags").
 type FileCacheCreating struct {
-	CreationTime         epochTime                     `json:"CreationTime"`
-	LustreConfiguration  *FileCacheLustreConfiguration `json:"LustreConfiguration,omitempty"`
-	FileCacheID          string                        `json:"FileCacheId"`
-	FileCacheType        string                        `json:"FileCacheType"`
-	FileCacheTypeVersion string                        `json:"FileCacheTypeVersion,omitempty"`
-	KmsKeyID             string                        `json:"KmsKeyId,omitempty"`
-	Lifecycle            string                        `json:"Lifecycle"`
-	ResourceARN          string                        `json:"ResourceARN"`
-	SubnetIDs            []string                      `json:"SubnetIds,omitempty"`
-	Tags                 []Tag                         `json:"Tags,omitempty"`
-	StorageCapacityGiB   int32                         `json:"StorageCapacity,omitempty"`
+	CreationTime                 epochTime                     `json:"CreationTime"`
+	LustreConfiguration          *FileCacheLustreConfiguration `json:"LustreConfiguration,omitempty"`
+	CopyTagsToDRAs               *bool                         `json:"CopyTagsToDataRepositoryAssociations,omitempty"`
+	Lifecycle                    string                        `json:"Lifecycle"`
+	FileCacheTypeVersion         string                        `json:"FileCacheTypeVersion,omitempty"`
+	KmsKeyID                     string                        `json:"KmsKeyId,omitempty"`
+	FileCacheType                string                        `json:"FileCacheType"`
+	ResourceARN                  string                        `json:"ResourceARN"`
+	FileCacheID                  string                        `json:"FileCacheId"`
+	SubnetIDs                    []string                      `json:"SubnetIds,omitempty"`
+	Tags                         []Tag                         `json:"Tags,omitempty"`
+	DataRepositoryAssociationIDs []string                      `json:"DataRepositoryAssociationIds,omitempty"`
+	StorageCapacityGiB           int32                         `json:"StorageCapacity,omitempty"`
 }
 
 // Snapshot represents an FSx ONTAP or OpenZFS snapshot.
@@ -406,15 +434,16 @@ type Snapshot struct {
 // CreationTime uses epochTime: the real FSx deserializer requires a JSON
 // number of epoch seconds here, not an RFC3339 string.
 type StorageVirtualMachine struct {
-	CreationTime            epochTime `json:"CreationTime"`
-	StorageVirtualMachineID string    `json:"StorageVirtualMachineId"`
-	FileSystemID            string    `json:"FileSystemId"`
-	Name                    string    `json:"Name"`
-	Lifecycle               string    `json:"Lifecycle"`
-	ResourceARN             string    `json:"ResourceARN"`
-	Subtype                 string    `json:"Subtype,omitempty"`
-	RootVolumeSecurityStyle string    `json:"RootVolumeSecurityStyle,omitempty"`
-	Tags                    []Tag     `json:"Tags,omitempty"`
+	CreationTime                 epochTime                        `json:"CreationTime"`
+	ActiveDirectoryConfiguration *SvmActiveDirectoryConfiguration `json:"ActiveDirectoryConfiguration,omitempty"`
+	StorageVirtualMachineID      string                           `json:"StorageVirtualMachineId"`
+	FileSystemID                 string                           `json:"FileSystemId"`
+	Name                         string                           `json:"Name"`
+	Lifecycle                    string                           `json:"Lifecycle"`
+	ResourceARN                  string                           `json:"ResourceARN"`
+	Subtype                      string                           `json:"Subtype,omitempty"`
+	RootVolumeSecurityStyle      string                           `json:"RootVolumeSecurityStyle,omitempty"`
+	Tags                         []Tag                            `json:"Tags,omitempty"`
 }
 
 // Volume represents an FSx ONTAP or OpenZFS volume.
@@ -461,11 +490,17 @@ type OntapVolumeConfiguration struct {
 // CopyTagsToSnapshots/ReadOnly/VolumePath); NfsExports, quotas, snapshot
 // origin, and copy-strategy fields stay a disclosed, unmodeled gap.
 type OpenZFSVolumeConfiguration struct {
-	DataCompressionType string `json:"DataCompressionType,omitempty"`
-	VolumePath          string `json:"VolumePath,omitempty"`
-	RecordSizeKiB       int32  `json:"RecordSizeKiB,omitempty"`
-	CopyTagsToSnapshots bool   `json:"CopyTagsToSnapshots"`
-	ReadOnly            bool   `json:"ReadOnly"`
+	StorageCapacityQuotaGiB       *int32                    `json:"StorageCapacityQuotaGiB,omitempty"`
+	StorageCapacityReservationGiB *int32                    `json:"StorageCapacityReservationGiB,omitempty"`
+	OriginSnapshot                *OpenZFSOriginSnapshot    `json:"OriginSnapshot,omitempty"`
+	DataCompressionType           string                    `json:"DataCompressionType,omitempty"`
+	VolumePath                    string                    `json:"VolumePath,omitempty"`
+	ParentVolumeID                string                    `json:"ParentVolumeId,omitempty"`
+	NfsExports                    []OpenZFSNfsExport        `json:"NfsExports,omitempty"`
+	UserAndGroupQuotas            []OpenZFSUserOrGroupQuota `json:"UserAndGroupQuotas,omitempty"`
+	RecordSizeKiB                 int32                     `json:"RecordSizeKiB,omitempty"`
+	CopyTagsToSnapshots           bool                      `json:"CopyTagsToSnapshots"`
+	ReadOnly                      bool                      `json:"ReadOnly"`
 }
 
 // AdministrativeAction represents an in-progress or completed FSx

@@ -2,6 +2,7 @@ package fsx
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 	"time"
@@ -32,9 +33,10 @@ func (s *storedSnapshot) toPublic() *Snapshot {
 }
 
 type createSnapshotInput struct {
-	VolumeID string `json:"VolumeId"`
-	Name     string `json:"Name"`
-	Tags     []Tag  `json:"Tags,omitempty"`
+	VolumeID           string `json:"VolumeId"`
+	Name               string `json:"Name"`
+	ClientRequestToken string `json:"ClientRequestToken,omitempty"`
+	Tags               []Tag  `json:"Tags,omitempty"`
 }
 
 // CreateSnapshot creates a snapshot of a volume.
@@ -50,7 +52,17 @@ func (b *InMemoryBackend) CreateSnapshot(input *createSnapshotInput) (*Snapshot,
 	b.mu.Lock("CreateSnapshot")
 	defer b.mu.Unlock()
 
-	if !b.volumes.Has(input.VolumeID) {
+	fp, replayID, err := b.replayTokenLocked("CreateSnapshot", input.ClientRequestToken, input)
+	if err != nil {
+		return nil, err
+	}
+
+	if existing, ok := b.snapshots.Get(replayID); ok {
+		return existing.toPublic(), nil
+	}
+
+	vol, found := b.volumes.Get(input.VolumeID)
+	if !found {
 		return nil, ErrVolumeNotFound
 	}
 
@@ -58,6 +70,10 @@ func (b *InMemoryBackend) CreateSnapshot(input *createSnapshotInput) (*Snapshot,
 	arn := b.snapshotARN(id)
 	now := time.Now().UTC()
 	tags := tagsSliceToMap(input.Tags)
+
+	if len(input.Tags) == 0 && vol.OpenZFS != nil && vol.OpenZFS.CopyTagsToSnapshots {
+		tags = maps.Clone(vol.Tags)
+	}
 
 	s := &storedSnapshot{
 		CreationTime: now,
@@ -71,6 +87,7 @@ func (b *InMemoryBackend) CreateSnapshot(input *createSnapshotInput) (*Snapshot,
 
 	b.snapshots.Put(s)
 	b.tags[arn] = tags
+	b.recordTokenLocked("CreateSnapshot", input.ClientRequestToken, fp, id)
 
 	return s.toPublic(), nil
 }
@@ -83,6 +100,10 @@ func (b *InMemoryBackend) DeleteSnapshot(snapshotID string) error {
 	s, ok := b.snapshots.Get(snapshotID)
 	if !ok {
 		return ErrSnapshotNotFound
+	}
+
+	if b.snapshotHasCloneLocked(s.ResourceARN) {
+		return fmt.Errorf("%w: snapshot %q is the origin of a cloned volume", ErrValidation, snapshotID)
 	}
 
 	b.snapshots.Delete(snapshotID)
@@ -181,8 +202,11 @@ func (b *InMemoryBackend) UpdateSnapshot(input *updateSnapshotInput) (*Snapshot,
 }
 
 type copySnapshotAndUpdateVolumeInput struct {
-	VolumeID         string `json:"VolumeId"`
-	SourceSnapshotID string `json:"SourceSnapshotARN"`
+	VolumeID           string   `json:"VolumeId"`
+	SourceSnapshotID   string   `json:"SourceSnapshotARN"`
+	ClientRequestToken string   `json:"ClientRequestToken,omitempty"`
+	CopyStrategy       string   `json:"CopyStrategy,omitempty"`
+	Options            []string `json:"Options,omitempty"`
 }
 
 // snapshotIDFromARN extracts the trailing "snapshot/<id>" resource ID from a
@@ -220,6 +244,21 @@ func (b *InMemoryBackend) CopySnapshotAndUpdateVolume(input *copySnapshotAndUpda
 	b.mu.Lock("CopySnapshotAndUpdateVolume")
 	defer b.mu.Unlock()
 
+	if input.CopyStrategy != "" && input.CopyStrategy != copyStrategyFullCopy &&
+		input.CopyStrategy != copyStrategyIncrementalCopy {
+		return nil, fmt.Errorf("%w: CopyStrategy must be FULL_COPY or INCREMENTAL_COPY", ErrValidation)
+	}
+
+	if err := validateOptions("Options", input.Options,
+		optionDeleteIntermediateSnapshots, optionDeleteClonedVolumes, optionDeleteIntermediateData); err != nil {
+		return nil, err
+	}
+
+	fp, _, err := b.replayTokenLocked("CopySnapshotAndUpdateVolume", input.ClientRequestToken, input)
+	if err != nil {
+		return nil, err
+	}
+
 	v, ok := b.volumes.Get(input.VolumeID)
 	if !ok {
 		return nil, fmt.Errorf("%w: volume %q not found", ErrValidation, input.VolumeID)
@@ -229,9 +268,29 @@ func (b *InMemoryBackend) CopySnapshotAndUpdateVolume(input *copySnapshotAndUpda
 		return nil, fmt.Errorf("%w: snapshot %q not found", ErrValidation, input.SourceSnapshotID)
 	}
 
+	b.recordTokenLocked("CopySnapshotAndUpdateVolume", input.ClientRequestToken, fp, v.VolumeID)
+
 	return v.toPublic(), nil
 }
 
 func (b *InMemoryBackend) snapshotARN(id string) string {
 	return arn.Build("fsx", b.region, b.accountID, fmt.Sprintf("snapshot/%s", id))
+}
+
+func (b *InMemoryBackend) snapshotHasCloneLocked(snapshotARN string) bool {
+	found := false
+
+	b.volumes.Range(func(v *storedVolume) bool {
+		if v.OpenZFS != nil && v.OpenZFS.OriginSnapshot != nil &&
+			v.OpenZFS.OriginSnapshot.SnapshotARN == snapshotARN &&
+			v.OpenZFS.OriginSnapshot.CopyStrategy == copyStrategyClone {
+			found = true
+
+			return false
+		}
+
+		return true
+	})
+
+	return found
 }

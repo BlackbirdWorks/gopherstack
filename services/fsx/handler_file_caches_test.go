@@ -223,13 +223,20 @@ func TestFSx_FileCacheLifecycle(t *testing.T) {
 
 		// update
 		rec2 := doFSxRequest(t, h, "UpdateFileCache", map[string]any{
-			"FileCacheId":        fcID,
-			"StorageCapacityGiB": 2400,
+			"FileCacheId":         fcID,
+			"LustreConfiguration": map[string]any{"WeeklyMaintenanceStartTime": "8:04:05"},
+		})
+		require.Equal(t, http.StatusBadRequest, rec2.Code)
+
+		rec2 = doFSxRequest(t, h, "UpdateFileCache", map[string]any{
+			"FileCacheId":         fcID,
+			"LustreConfiguration": map[string]any{"WeeklyMaintenanceStartTime": "3:04:05"},
 		})
 		require.Equal(t, http.StatusOK, rec2.Code)
 		var ur map[string]any
 		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &ur))
-		assert.InDelta(t, float64(2400), ur["FileCache"].(map[string]any)["StorageCapacity"], 0.0001)
+		lc := ur["FileCache"].(map[string]any)["LustreConfiguration"].(map[string]any)
+		assert.Equal(t, "3:04:05", lc["WeeklyMaintenanceStartTime"])
 
 		// delete
 		rec3 := doFSxRequest(t, h, "DeleteFileCache", map[string]any{"FileCacheId": fcID})

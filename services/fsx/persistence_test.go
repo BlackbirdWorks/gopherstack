@@ -141,6 +141,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	// SAME file system rather than creating a second one.
 	dedupRec := doFSxRequest(t, fsx.NewHandler(fresh), "CreateFileSystem", map[string]any{
 		"FileSystemType":     "LUSTRE",
+		"SubnetIds":          []string{"subnet-0123456789abcdef0"},
 		"Tags":               []map[string]string{{"Key": "env", "Value": "prod"}},
 		"ClientRequestToken": taggedFSClientRequestToken,
 	})
@@ -297,6 +298,7 @@ func createTaggedFS(t *testing.T, h *fsx.Handler) string {
 	t.Helper()
 	rec := doFSxRequest(t, h, "CreateFileSystem", map[string]any{
 		"FileSystemType":     "LUSTRE",
+		"SubnetIds":          []string{"subnet-0123456789abcdef0"},
 		"Tags":               []map[string]string{{"Key": "env", "Value": "prod"}},
 		"ClientRequestToken": taggedFSClientRequestToken,
 	})
