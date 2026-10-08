@@ -513,8 +513,8 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Backup](services/backup/README.md) | A | 66 | 4 gaps |
 | [Data Lifecycle Manager](services/dlm/README.md) | A | 8 | clean |
 | [EFS](services/efs/README.md) | A | 31 | 3 gaps; 1 deferred |
-| [FSx](services/fsx/README.md) | A | — | 13 families; 8 gaps |
-| [S3](services/s3/README.md) | A | 26 | 7 gaps |
+| [FSx](services/fsx/README.md) | A | — | 13 families; 2 structural gaps |
+| [S3](services/s3/README.md) | A | 26 | 5 gaps; 3 structural gaps |
 | [S3 Control](services/s3control/README.md) | A | 44 | 4 gaps; 3 deferred |
 | [S3 Glacier](services/glacier/README.md) | A | 33 | 2 gaps |
 | [S3 Tables](services/s3tables/README.md) | A | 49 | 1 gap |
@@ -585,7 +585,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Elasticsearch](services/elasticsearch/README.md) | A | 51 | 4 gaps |
 | [Glue](services/glue/README.md) | A | 59 | 5 gaps; 2 deferred |
 | [Glue DataBrew](services/databrew/README.md) | A | 44 | 2 gaps |
-| [Kinesis](services/kinesis/README.md) | A | 39 | 7 gaps |
+| [Kinesis](services/kinesis/README.md) | A | 39 | 1 gap; 5 structural gaps |
 | [Kinesis Analytics](services/kinesisanalytics/README.md) | A | 20 | 1 gap |
 | [Kinesis Analytics v2](services/kinesisanalyticsv2/README.md) | A | 33 | 5 gaps; 1 deferred |
 | [Kinesis Data Firehose](services/firehose/README.md) | A | 12 | 6 gaps |
@@ -593,7 +593,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Managed Streaming for Kafka](services/kafka/README.md) | A | 64 | 6 gaps |
 | [Managed Workflows for Apache Airflow](services/mwaa/README.md) | A | 12 | 3 gaps; 1 deferred |
 | [OpenSearch](services/opensearch/README.md) | A | 19 | 1 gap |
-| [QuickSight](services/quicksight/README.md) | A | 81 | 7 gaps |
+| [QuickSight](services/quicksight/README.md) | A | 81 | 4 gaps; 7 structural gaps |
 
 ### Security
 
@@ -655,7 +655,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [Amplify](services/amplify/README.md) | A | 37 | 2 gaps |
-| [CodeArtifact](services/codeartifact/README.md) | A | 48 | 8 gaps |
+| [CodeArtifact](services/codeartifact/README.md) | A | 48 | 4 gaps; 2 structural gaps |
 | [CodeBuild](services/codebuild/README.md) | A | 59 | 4 gaps; 1 deferred |
 | [CodeCommit](services/codecommit/README.md) | A | 79 | 2 gaps |
 | [CodeConnections](services/codeconnections/README.md) | A | 27 | 2 gaps |
@@ -663,7 +663,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [CodePipeline](services/codepipeline/README.md) | A | 22 | 7 gaps; 1 deferred |
 | [CodeStar Connections](services/codestarconnections/README.md) | A | 27 | 1 gap; 2 structural gaps |
 | [Serverless Application Repository](services/serverlessrepo/README.md) | A | 14 | clean |
-| [X-Ray](services/xray/README.md) | A | 38 | 7 gaps; 1 deferred |
+| [X-Ray](services/xray/README.md) | A | 38 | 3 gaps; 6 structural gaps; 1 deferred |
 
 ### Machine Learning
 
@@ -671,7 +671,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [Bedrock](services/bedrock/README.md) | A | 80 | 3 gaps |
 | [Bedrock Agent](services/bedrockagent/README.md) | A | 77 | 5 gaps; 2 deferred |
-| [Bedrock Runtime](services/bedrockruntime/README.md) | A | 11 | 8 gaps |
+| [Bedrock Runtime](services/bedrockruntime/README.md) | A | 11 | 4 gaps; 5 structural gaps |
 | [Comprehend](services/comprehend/README.md) | A | 28 | 4 gaps; 1 deferred |
 | [Forecast](services/forecast/README.md) | A | 21 | 3 gaps |
 | [Personalize](services/personalize/README.md) | A | 74 | clean |

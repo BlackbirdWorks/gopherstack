@@ -142,6 +142,12 @@ func writeOwnerXML(buf *bytes.Buffer, o *Owner) {
 func writeObjectXML(buf *bytes.Buffer, o *ObjectXML) {
 	buf.WriteString("<Contents>")
 	writeOwnerXML(buf, o.Owner)
+	if o.RestoreStatus != nil {
+		buf.WriteString("<RestoreStatus>")
+		writeXMLElemOmitEmpty(buf, "RestoreExpiryDate", o.RestoreStatus.RestoreExpiryDate)
+		writeXMLBool(buf, "IsRestoreInProgress", o.RestoreStatus.IsRestoreInProgress)
+		buf.WriteString("</RestoreStatus>")
+	}
 	writeXMLElem(buf, "Key", o.Key)
 	writeXMLElem(buf, "LastModified", o.LastModified)
 	writeXMLElem(buf, "ETag", o.ETag)

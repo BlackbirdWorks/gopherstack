@@ -1,9 +1,12 @@
 package s3
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -92,10 +95,17 @@ func (h *S3Handler) putObject(
 	algo, crc32p, crc32cp, sha1p, sha256p := extractAlgoAndChecksums(r)
 	crc64nvmeP := extractCRC64NVMEChecksum(r)
 
-	// We pass r.Body directly to the backend to avoid an intermediate buffer in the handler.
-	// The backend computes ETag/checksums while reading.
-	ver, err := h.Backend.PutObject(ctx, buildPutObjectInput(r, bucketName, key, r.Body,
-		algo, crc32p, crc32cp, sha1p, sha256p, crc64nvmeP, parseUserMetadata(r.Header)))
+	in := buildPutObjectInput(r, bucketName, key, r.Body,
+		algo, crc32p, crc32cp, sha1p, sha256p, crc64nvmeP, parseUserMetadata(r.Header))
+
+	appended, appendErr := h.applyWriteOffset(ctx, r, in)
+	if appendErr != nil {
+		WriteError(ctx, w, r, appendErr)
+
+		return
+	}
+
+	ver, err := h.Backend.PutObject(ctx, in)
 	if err != nil {
 		WriteError(ctx, w, r, err)
 
@@ -103,28 +113,17 @@ func (h *S3Handler) putObject(
 	}
 
 	h.setPutObjectResponseHeaders(w, ver)
+
+	if appended {
+		w.Header().Set("X-Amz-Object-Size", strconv.FormatInt(aws.ToInt64(ver.Size), 10))
+	}
 	setSSEResponseHeaders(w, sse)
 
 	logger.Load(ctx).DebugContext(ctx, "S3 putObject output",
 		"bucket", bucketName, "key", key, "etag", aws.ToString(ver.ETag),
 		"versionId", aws.ToString(ver.VersionId))
 
-	if h.notifier != nil {
-		if notifXML, ncErr := h.Backend.GetBucketNotificationConfiguration(
-			ctx, bucketName,
-		); ncErr == nil && notifXML != "" {
-			etag := aws.ToString(ver.ETag)
-			size := aws.ToInt64(ver.Size)
-			go h.notifier.DispatchObjectCreated(
-				h.notificationDispatchContext(),
-				bucketName,
-				key,
-				etag,
-				size,
-				notifXML,
-			)
-		}
-	}
+	h.notifyObjectCreated(ctx, bucketName, key, ver)
 
 	h.dispatchAccessLog(
 		ctx,
@@ -137,6 +136,83 @@ func (h *S3Handler) putObject(
 	)
 
 	w.WriteHeader(http.StatusOK)
+}
+
+func (h *S3Handler) notifyObjectCreated(ctx context.Context, bucketName, key string, ver *s3.PutObjectOutput) {
+	if h.notifier == nil {
+		return
+	}
+
+	notifXML, err := h.Backend.GetBucketNotificationConfiguration(ctx, bucketName)
+	if err != nil || notifXML == "" {
+		return
+	}
+
+	go h.notifier.DispatchObjectCreated(
+		h.notificationDispatchContext(),
+		bucketName,
+		key,
+		aws.ToString(ver.ETag),
+		aws.ToInt64(ver.Size),
+		notifXML,
+	)
+}
+
+func isDirectoryBucketName(name string) bool { return strings.HasSuffix(name, "--x-s3") }
+
+// applyWriteOffset turns a directory-bucket PutObject carrying
+// x-amz-write-offset-bytes into an append: the body becomes existing+new bytes
+// and client checksums (which cover only the appended part) are dropped so the
+// server computes them over the whole object.
+func (h *S3Handler) applyWriteOffset(ctx context.Context, r *http.Request, in *s3.PutObjectInput) (bool, error) {
+	offsetHdr := r.Header.Get("X-Amz-Write-Offset-Bytes")
+	if offsetHdr == "" || !isDirectoryBucketName(aws.ToString(in.Bucket)) {
+		return false, nil
+	}
+
+	existing, err := h.existingBodyForAppend(ctx, offsetHdr, aws.ToString(in.Bucket), aws.ToString(in.Key))
+	if err != nil {
+		return false, err
+	}
+
+	in.Body = io.MultiReader(bytes.NewReader(existing), r.Body)
+	in.ContentLength = nil
+	in.ChecksumCRC32, in.ChecksumCRC32C, in.ChecksumSHA1, in.ChecksumSHA256, in.ChecksumCRC64NVME = nil, nil, nil, nil, nil
+
+	return true, nil
+}
+
+// existingBodyForAppend returns the current object bytes after checking the
+// x-amz-write-offset-bytes value equals the object's size (0 when absent).
+func (h *S3Handler) existingBodyForAppend(
+	ctx context.Context, offsetHdr, bucketName, key string,
+) ([]byte, error) {
+	offset, err := strconv.ParseInt(offsetHdr, 10, 64)
+	if err != nil || offset < 0 {
+		return nil, ErrInvalidArgument
+	}
+
+	out, getErr := h.Backend.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(bucketName), Key: aws.String(key)})
+
+	var existing []byte
+
+	switch {
+	case errors.Is(getErr, ErrNoSuchKey):
+	case getErr != nil:
+		return nil, getErr
+	default:
+		defer out.Body.Close()
+
+		if existing, err = io.ReadAll(out.Body); err != nil {
+			return nil, err
+		}
+	}
+
+	if int64(len(existing)) != offset {
+		return nil, ErrInvalidWriteOffset
+	}
+
+	return existing, nil
 }
 
 // extractAlgoAndChecksums reads the checksum algorithm and individual checksum

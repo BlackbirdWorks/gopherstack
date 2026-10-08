@@ -87,7 +87,7 @@ func (h *S3Handler) handleListObjectsV2Error(
 func (h *S3Handler) renderListObjectsV2Response(
 	ctx context.Context,
 	w http.ResponseWriter,
-	_ *http.Request,
+	r *http.Request,
 	bucketName string,
 	q url.Values,
 	objects []types.Object,
@@ -126,6 +126,7 @@ func (h *S3Handler) renderListObjectsV2Response(
 		seenPrefixes,
 		encodingType,
 		q.Get("fetch-owner") == sqlValTrue,
+		wantsRestoreStatus(r),
 	)
 	// Add common prefixes from backend (if any)
 	for _, cp := range commonPrefixes {

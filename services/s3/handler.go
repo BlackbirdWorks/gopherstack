@@ -228,8 +228,19 @@ func (h *S3Handler) Handler() echo.HandlerFunc {
 		}
 
 		start := time.Now()
+
+		var firstByte time.Duration
+
+		if resp, uerr := echo.UnwrapResponse(c.Response()); uerr == nil {
+			resp.Before(func() {
+				if firstByte == 0 {
+					firstByte = time.Since(start)
+				}
+			})
+		}
+
 		err := inner(c)
-		h.emitRequestMetrics(c, start)
+		h.emitRequestMetrics(c, start, firstByte)
 
 		return err
 	}

@@ -3,6 +3,7 @@ package quicksight
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/labstack/echo/v5"
 )
@@ -67,6 +68,20 @@ func (h *Handler) dispatchKnowledgeBase(c *echo.Context, op string) error {
 	)
 }
 
+func primaryOwnerUsername(ownerArn string) string {
+	_, res, ok := strings.Cut(ownerArn, ":user/")
+	if !ok {
+		return ""
+	}
+
+	_, name, ok := strings.Cut(res, "/")
+	if !ok {
+		return ""
+	}
+
+	return name
+}
+
 func knowledgeBaseToMap(k *KnowledgeBase) map[string]any {
 	m := map[string]any{
 		keyKnowledgeBaseID:     k.KnowledgeBaseID,
@@ -84,6 +99,9 @@ func knowledgeBaseToMap(k *KnowledgeBase) map[string]any {
 	}
 	if k.PrimaryOwnerArn != "" {
 		m[keyPrimaryOwnerArn] = k.PrimaryOwnerArn
+		if u := primaryOwnerUsername(k.PrimaryOwnerArn); u != "" {
+			m["PrimaryOwnerUsername"] = u
+		}
 	}
 	if k.Configuration != nil {
 		m[keyKnowledgeBaseConfig] = k.Configuration
@@ -114,6 +132,9 @@ func knowledgeBaseSummaryToMap(k *KnowledgeBase) map[string]any {
 	}
 	if k.PrimaryOwnerArn != "" {
 		m[keyPrimaryOwnerArn] = k.PrimaryOwnerArn
+		if u := primaryOwnerUsername(k.PrimaryOwnerArn); u != "" {
+			m["PrimaryOwnerUsername"] = u
+		}
 	}
 	if k.SizeBytes != 0 {
 		m[keyKnowledgeBaseSizeBytes] = k.SizeBytes

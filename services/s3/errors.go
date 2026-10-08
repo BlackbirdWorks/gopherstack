@@ -25,6 +25,7 @@ var (
 	ErrNotImplemented     = errors.New("NotImplemented")
 	ErrMethodNotAllowed   = errors.New("MethodNotAllowed")
 	ErrInvalidArgument    = errors.New(errInvalidArgument)
+	ErrInvalidWriteOffset = errors.New("InvalidWriteOffset")
 	ErrNoSuchUpload       = awserr.New("NoSuchUpload", awserr.ErrNotFound)
 	ErrInvalidPart        = errors.New("InvalidPart")
 	ErrInvalidPartOrder   = errors.New("InvalidPartOrder")
@@ -239,6 +240,11 @@ func coreErrorTableBucket() []s3ErrorEntry {
 			ErrInvalidArgument,
 			s3ErrorInfo{errInvalidArgument, "Invalid Argument.", http.StatusBadRequest},
 		},
+		{ErrInvalidWriteOffset, s3ErrorInfo{
+			"InvalidWriteOffset",
+			"The write offset value that you specified does not match the current object size.",
+			http.StatusBadRequest,
+		}},
 	}
 }
 

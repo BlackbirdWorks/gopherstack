@@ -400,6 +400,7 @@ func (b *InMemoryBackend) PutObject(
 	return &s3.PutObjectOutput{
 		ETag:              aws.String(finalQuotedETag),
 		VersionId:         aws.String(newVersionID),
+		Size:              aws.Int64(originalSize),
 		ChecksumCRC32:     checksums.crc32,
 		ChecksumCRC32C:    checksums.crc32c,
 		ChecksumSHA1:      checksums.sha1,

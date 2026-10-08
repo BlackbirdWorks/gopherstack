@@ -460,6 +460,10 @@ func errorDetails(err error) (string, string, int) {
 		return errCodeThroughputExceeded,
 			"Rate exceeded for shard.",
 			http.StatusBadRequest
+	case errors.Is(err, ErrDryRunOperation):
+		return errCodeDryRun,
+			"The request would have succeeded, but the DryRun parameter was specified.",
+			http.StatusBadRequest
 	case errors.Is(err, ErrTagLimitExceeded):
 		return "LimitExceededException",
 			"Tag limit exceeded. A stream can have at most 50 tags.",

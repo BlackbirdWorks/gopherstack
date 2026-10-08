@@ -637,6 +637,7 @@ type AssetBundleExportExtras struct {
 // AssetBundleImportJob represents an asynchronous asset-bundle import job.
 type AssetBundleImportJob struct {
 	CreatedTime   time.Time
+	Overrides     map[string]any
 	JobID         string
 	Arn           string
 	Status        string

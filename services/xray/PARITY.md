@@ -7,7 +7,7 @@
 service: xray
 sdk_module: aws-sdk-go-v2/service/xray@v1.39.4   # version audited against (go.mod pin; was stale at v1.36.20)
 last_audit_commit: d522d763f  # 2026-09-19 leak-audit follow-up (gopherstack-1x2u0); prior: b4c2391e7                       # HEAD when this manifest was last rewritten
-last_audit_date: 2026-09-19  # prior: 2026-09-18
+last_audit_date: 2026-10-07  # prior: 2026-09-18
 overall: A            # A = genuine fixes found; B = already-accurate, proven op-by-op
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -56,13 +56,16 @@ families:
   error_codes: {status: ok, note: "FIXED (this pass): independently field-diffed every operation's modeled error set against aws-sdk-go-v2/service/xray@v1.36.20's deserializers.go per-op error switch (awsRestjson1_deserializeOpError<Op>), not just handleError's own type switch. Found and fixed: UpdateIndexingRule not-found was InvalidRequestException (real: ResourceNotFoundException); PutResourcePolicy's policy-count-limit violation was InvalidRequestException (real: PolicyCountLimitExceededException, and InvalidRequestException isn't even in that op's modeled error set); TagResource/UntagResource/ListTagsForResource/CancelTraceRetrieval/ListRetrievedTraces/GetRetrievedTracesGraph never returned ResourceNotFoundException at all despite it being modeled for all six. Added ErrResourceNotFound/ErrTraceRetrievalNotFound/ErrPolicySizeLimitExceeded/ErrRuleLimitExceeded/ErrTooManyTags sentinels and corresponding handleError overrides. Confirmed unchanged/correct: GetGroup/DeleteGroup/UpdateGroup/GetSamplingRules/CreateSamplingRule/UpdateSamplingRule/DeleteSamplingRule/GetInsight*/DeleteResourcePolicy all declare ONLY InvalidRequestException (+ThrottledException, +RuleLimitExceededException for CreateSamplingRule) for not-found -- X-Ray's Smithy model does NOT give these ops ResourceNotFoundException, so gopherstack's existing InvalidRequestException mapping for Group/SamplingRule/Insight/ResourcePolicy not-found was already correct and is unchanged"}
 gaps: []
 items_still_open:
-  - "GetInsightSummaries' group filter matches only the implicit \"default\" group: detectInsights does not evaluate Group FilterExpressions (per-group detection is a detector redesign)."
+  - "PutResourcePolicy LockoutPreventionException: awsmeta.CallerArn is now available, but the SDK only says the policy 'would prevent the caller from calling PutResourcePolicy in the future' and defines no evaluation rules, so none are invented."
+  - "GetTraceSummaries SamplingStrategy: AWS documents no semantics beyond the enum (API_SamplingStrategy.html)."
+  - "GetServiceGraph Service/Edge ResponseTimeHistogram and DurationHistogram stay empty: AWS documents no bucketing scheme for HistogramEntry values."
+structural_gaps:
   - "Insight root-cause/TopAnomalousServices fields, GetInsightImpactGraph Services and TraceSummary Error/Fault/ResponseTimeRootCauses need cross-service causality analysis; MatchedEventTime belongs to the unmodeled defined-events feature."
-  - "GetTraceSummaries Sampling/SamplingStrategy and GetTimeSeriesServiceStatistics EntitySelectorExpression/ForecastStatistics are accepted with no effect: AWS documents no SamplingStrategy semantics (API_SamplingStrategy.html) and no selector or forecast engine exists."
-  - "SamplingTargetDocument.SamplingBoost is never set: AWS does not publish the boost-rate algorithm; boost statistics are accepted and unknown rules reported as unprocessed."
-  - "PutResourcePolicy LockoutPreventionException and ThrottledException are never raised: the request pipeline carries no calling principal and no rate limiting is modeled."
-  - "Default trace TTL is 30 minutes (XRAY_TRACE_TTL) vs AWS's 30 days to bound memory; PutTelemetryRecords entries sit in an unpersisted 100-entry ring (X-Ray has no read-back operation), and the ring drops Hostname/EC2InstanceId/BackendConnectionErrors."
-  - "GetServiceGraph Service/Edge ResponseTimeHistogram and DurationHistogram stay empty: AWS documents no bucketing scheme for HistogramEntry values, so none is invented; Service.AccountId and Service.Names beyond the canonical name are unmodeled."
+  - "GetTimeSeriesServiceStatistics EntitySelectorExpression/ForecastStatistics: no selector or forecast engine exists."
+  - "SamplingTargetDocument.SamplingBoost is never set: AWS does not publish the boost-rate algorithm, and there is no real traffic to adapt to."
+  - "ThrottledException is never raised: no request rate limiting is modeled."
+  - "Default trace TTL is 30 minutes (XRAY_TRACE_TTL) vs AWS's 30 days to bound memory; PutTelemetryRecords entries sit in an unpersisted 100-entry ring (X-Ray has no read-back operation)."
+  - "Service.AccountId and Service.Names beyond the canonical name in GetServiceGraph are unmodeled (no multi-account traffic)."
 deferred:
   - none; all routed ops covered by ops/families above
 leaks: {status: clean, note: "Janitor.Run uses pkgs/worker.Group with Ticker + Stop() on ctx.Done(); sweepExpiredTraces holds b.mu.Lock only around map mutation, releases before telemetry/logging calls. Re-verified this pass: no new goroutines/tickers introduced; all new lock paths (resourceExists, resolveSamplingRule, DeleteResourcePolicy's revision check) execute entirely within their caller's existing Lock/RLock and use defer Unlock/RUnlock."}

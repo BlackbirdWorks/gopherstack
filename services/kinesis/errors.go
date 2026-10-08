@@ -17,6 +17,8 @@ var errRateExceeded = errors.New("rate exceeded for shard")
 var ErrValidation = errors.New("kinesis: validation error")
 
 // Sentinel errors for Kinesis operations.
+const errCodeDryRun = "DryRunOperationException"
+
 var (
 	ErrStreamNotFound      = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	ErrStreamAlreadyExists = awserr.New("ResourceInUseException", awserr.ErrAlreadyExists)
@@ -33,6 +35,7 @@ var (
 	ErrStreamNotActive        = awserr.New("ResourceInUseException", awserr.ErrConflict)
 	ErrInvalidArgument        = awserr.New("InvalidArgumentException", awserr.ErrInvalidParameter)
 	ErrUnknownAction          = errors.New("UnknownOperationException")
+	ErrDryRunOperation        = errors.New(errCodeDryRun)
 	ErrShardIteratorExpired   = errors.New("ExpiredIteratorException")
 	ErrConsumerNotFound       = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	ErrConsumerAlreadyExists  = awserr.New("ResourceInUseException", awserr.ErrAlreadyExists)

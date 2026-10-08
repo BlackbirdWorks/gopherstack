@@ -35,7 +35,7 @@ func (b *InMemoryBackend) maybeResetInsightWindow(w *serviceInsightWindow, now t
 
 // maybeOpenInsight creates a new ACTIVE insight when the window has enough
 // data and the fault rate exceeds the threshold. Must be called with mu held.
-func (b *InMemoryBackend) maybeOpenInsight(w *serviceInsightWindow, svcName string, now time.Time) {
+func (b *InMemoryBackend) maybeOpenInsight(w *serviceInsightWindow, groupName, svcName string, now time.Time) {
 	if w.Total < insightMinRequests || w.InsightID != "" {
 		return
 	}
@@ -48,8 +48,8 @@ func (b *InMemoryBackend) maybeOpenInsight(w *serviceInsightWindow, svcName stri
 	insightID := uuid.NewString()
 	b.insights.Put(&Insight{
 		InsightID:      insightID,
-		GroupARN:       b.groupARN("default"),
-		GroupName:      "default",
+		GroupARN:       b.groupARN(groupName),
+		GroupName:      groupName,
 		State:          statusActive,
 		StartTime:      now,
 		LastUpdateTime: now,
@@ -78,33 +78,68 @@ func (b *InMemoryBackend) maybeOpenInsight(w *serviceInsightWindow, svcName stri
 	w.InsightID = insightID
 }
 
-// detectInsights checks per-service fault rates and creates/closes insights as needed.
-// Must be called while the backend mutex is held.
+// detectInsights checks per-service fault rates for the default group and for
+// every insights-enabled group, counting only segments of traces that match
+// the group's FilterExpression. Must be called while the backend mutex is held.
 func (b *InMemoryBackend) detectInsights(newSegs []*Segment) {
 	now := time.Now()
 
+	b.detectGroupInsights(defaultGroupName, newSegs, now)
+
+	for _, g := range b.groups.All() {
+		if !g.InsightsConfiguration.InsightsEnabled || g.FilterExpression == "" {
+			continue
+		}
+
+		b.detectGroupInsights(g.GroupName, b.segmentsMatchingFilter(g.FilterExpression, newSegs), now)
+	}
+}
+
+// segmentsMatchingFilter keeps the segments whose whole trace matches filterExpr.
+func (b *InMemoryBackend) segmentsMatchingFilter(filterExpr string, segs []*Segment) []*Segment {
+	verdict := map[string]bool{}
+	out := make([]*Segment, 0, len(segs))
+
+	for _, seg := range segs {
+		match, seen := verdict[seg.TraceID]
+		if !seen {
+			match = evaluateFilter(filterExpr, BuildTraceSummary(seg.TraceID, b.traceSegments.Get(seg.TraceID)))
+			verdict[seg.TraceID] = match
+		}
+
+		if match {
+			out = append(out, seg)
+		}
+	}
+
+	return out
+}
+
+func (b *InMemoryBackend) detectGroupInsights(groupName string, segs []*Segment, now time.Time) {
 	byService := map[string][]*Segment{}
-	for _, seg := range newSegs {
+	for _, seg := range segs {
 		byService[seg.Name] = append(byService[seg.Name], seg)
 	}
 
-	for svcName, segs := range byService {
-		w, ok := b.serviceWindows.Get(svcName)
+	for svcName, svcSegs := range byService {
+		key := groupName + "\x00" + svcName
+
+		w, ok := b.serviceWindows.Get(key)
 		if !ok {
-			w = &serviceInsightWindow{Name: svcName, WindowStart: now}
+			w = &serviceInsightWindow{Name: key, WindowStart: now}
 			b.serviceWindows.Put(w)
 		}
 
 		b.maybeResetInsightWindow(w, now)
 
-		for _, seg := range segs {
+		for _, seg := range svcSegs {
 			w.Total++
 			if seg.Fault || seg.Error {
 				w.FaultCount++
 			}
 		}
 
-		b.maybeOpenInsight(w, svcName, now)
+		b.maybeOpenInsight(w, groupName, svcName, now)
 	}
 }
 
@@ -172,16 +207,6 @@ func isValidInsightState(s string) bool {
 // [startTime, endTime] and whose GroupName matches groupName, optionally
 // filtered by state. If states is empty, all states are returned. "ALL"
 // matches both ACTIVE and CLOSED. Unknown states return ErrValidation.
-//
-// groupName scoping is honest but not full parity: this backend's insight
-// detector (detectInsights) has no per-group filter-expression evaluation --
-// every detected insight is unconditionally labelled with the fixed group
-// name "default" regardless of how many real Group records exist or their
-// FilterExpression. Filtering by groupName here correctly returns empty for
-// any group other than "default" (previously the group filter was discarded
-// entirely and every group got the same "default" insights back), but a
-// request for "default" is not itself scoped to a real Group's filter
-// expression -- see PARITY.md.
 func (b *InMemoryBackend) GetInsightSummaries(
 	states []string, groupName string, startTime, endTime time.Time,
 ) ([]Insight, error) {
@@ -235,6 +260,8 @@ func (b *InMemoryBackend) GetInsightSummaries(
 
 	return out, nil
 }
+
+const defaultGroupName = "default"
 
 const (
 	// insightFaultThreshold is the fault rate that triggers an insight (5%).

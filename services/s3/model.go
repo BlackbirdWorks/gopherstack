@@ -74,14 +74,20 @@ type CopyObjectResult struct {
 	ChecksumSHA256    string   `xml:"ChecksumSHA256,omitempty"`
 }
 
+type RestoreStatusXML struct {
+	RestoreExpiryDate   string `xml:"RestoreExpiryDate,omitempty"`
+	IsRestoreInProgress bool   `xml:"IsRestoreInProgress"`
+}
+
 type ObjectXML struct {
-	Owner             *Owner `xml:"Owner"`
-	Key               string `xml:"Key"`
-	LastModified      string `xml:"LastModified"`
-	ETag              string `xml:"ETag"`
-	StorageClass      string `xml:"StorageClass"`
-	ChecksumAlgorithm string `xml:"ChecksumAlgorithm,omitempty"`
-	Size              int64  `xml:"Size"`
+	Owner             *Owner            `xml:"Owner"`
+	RestoreStatus     *RestoreStatusXML `xml:"RestoreStatus,omitempty"`
+	Key               string            `xml:"Key"`
+	LastModified      string            `xml:"LastModified"`
+	ETag              string            `xml:"ETag"`
+	StorageClass      string            `xml:"StorageClass"`
+	ChecksumAlgorithm string            `xml:"ChecksumAlgorithm,omitempty"`
+	Size              int64             `xml:"Size"`
 }
 
 type VersioningConfiguration struct {
@@ -220,15 +226,16 @@ type ListVersionsResult struct {
 }
 
 type ObjectVersionXML struct {
-	Owner             *Owner `xml:"Owner"`
-	Key               string `xml:"Key"`
-	VersionID         string `xml:"VersionId"`
-	LastModified      string `xml:"LastModified"`
-	ETag              string `xml:"ETag"`
-	StorageClass      string `xml:"StorageClass"`
-	ChecksumAlgorithm string `xml:"ChecksumAlgorithm,omitempty"`
-	Size              int64  `xml:"Size"`
-	IsLatest          bool   `xml:"IsLatest"`
+	Owner             *Owner            `xml:"Owner"`
+	RestoreStatus     *RestoreStatusXML `xml:"RestoreStatus,omitempty"`
+	Key               string            `xml:"Key"`
+	VersionID         string            `xml:"VersionId"`
+	LastModified      string            `xml:"LastModified"`
+	ETag              string            `xml:"ETag"`
+	StorageClass      string            `xml:"StorageClass"`
+	ChecksumAlgorithm string            `xml:"ChecksumAlgorithm,omitempty"`
+	Size              int64             `xml:"Size"`
+	IsLatest          bool              `xml:"IsLatest"`
 }
 
 type DeleteMarkerXML struct {

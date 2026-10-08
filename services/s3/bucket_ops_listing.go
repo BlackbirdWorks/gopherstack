@@ -127,7 +127,7 @@ func (h *S3Handler) listObjects(
 		delimiter,
 		seenPrefixes,
 		encodingType,
-		true,
+		true, wantsRestoreStatus(r),
 	)
 	// Merge backend-level common prefixes (populated when delimiter is set).
 	for _, cp := range out.CommonPrefixes {
@@ -154,7 +154,7 @@ func (h *S3Handler) mapObjectsToXML(
 	prefix, delimiter string,
 	seenPrefixes map[string]struct{},
 	encodingType string,
-	includeOwner bool,
+	includeOwner, includeRestore bool,
 ) ([]ObjectXML, []CommonPrefixXML) {
 	var commonPrefixes []CommonPrefixXML
 
@@ -191,6 +191,7 @@ func (h *S3Handler) mapObjectsToXML(
 		}
 
 		contents = append(contents, ObjectXML{
+			RestoreStatus:     restoreStatusXML(includeRestore, obj.RestoreStatus),
 			Owner:             owner,
 			Key:               encodeListKey(encodingType, key),
 			LastModified:      stamps.at(i),
@@ -237,6 +238,31 @@ func (a timestampArena) at(i int) string {
 	}
 
 	return a.text[start:a.ends[i]]
+}
+
+func wantsRestoreStatus(r *http.Request) bool {
+	for _, v := range r.Header.Values("X-Amz-Optional-Object-Attributes") {
+		for a := range strings.SplitSeq(v, ",") {
+			if strings.TrimSpace(a) == "RestoreStatus" {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func restoreStatusXML(include bool, rs *types.RestoreStatus) *RestoreStatusXML {
+	if !include || rs == nil {
+		return nil
+	}
+
+	out := &RestoreStatusXML{IsRestoreInProgress: aws.ToBool(rs.IsRestoreInProgress)}
+	if rs.RestoreExpiryDate != nil {
+		out.RestoreExpiryDate = rs.RestoreExpiryDate.UTC().Format(time.RFC3339)
+	}
+
+	return out
 }
 
 func commonPrefixFor(key, prefix, delimiter string) (string, bool) {
@@ -314,7 +340,7 @@ func (h *S3Handler) listObjectVersions(
 		EncodingType:        encodingType,
 	}
 
-	mapListVersionsOutput(&resp, out, encodingType)
+	mapListVersionsOutput(&resp, out, encodingType, wantsRestoreStatus(r))
 
 	httputils.WriteXML(ctx, w, http.StatusOK, resp)
 }
@@ -325,6 +351,7 @@ func mapListVersionsOutput(
 	resp *ListVersionsResult,
 	out *s3.ListObjectVersionsOutput,
 	encodingType string,
+	includeRestore bool,
 ) {
 	for _, v := range out.Versions {
 		size := int64(0)
@@ -339,18 +366,24 @@ func mapListVersionsOutput(
 		if len(v.ChecksumAlgorithm) > 0 {
 			checksumAlgo = string(v.ChecksumAlgorithm[0])
 		}
+		sc := string(v.StorageClass)
+		if sc == "" {
+			sc = storageStandard
+		}
+
 		resp.Versions = append(resp.Versions, ObjectVersionXML{
-			Key:          encodeListKey(encodingType, *v.Key),
-			VersionID:    *v.VersionId,
-			IsLatest:     *v.IsLatest,
-			LastModified: v.LastModified.Format(time.RFC3339),
-			ETag:         etag,
-			Size:         size,
+			RestoreStatus: restoreStatusXML(includeRestore, v.RestoreStatus),
+			Key:           encodeListKey(encodingType, *v.Key),
+			VersionID:     *v.VersionId,
+			IsLatest:      *v.IsLatest,
+			LastModified:  v.LastModified.Format(time.RFC3339),
+			ETag:          etag,
+			Size:          size,
 			Owner: &Owner{
 				ID:          gopherstackName,
 				DisplayName: gopherstackName,
 			},
-			StorageClass:      storageStandard,
+			StorageClass:      sc,
 			ChecksumAlgorithm: checksumAlgo,
 		})
 	}

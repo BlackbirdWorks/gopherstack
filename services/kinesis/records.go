@@ -3,7 +3,9 @@ package kinesis
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/big"
+	"slices"
 	"time"
 )
 
@@ -32,11 +34,14 @@ func (b *InMemoryBackend) putRecord(ctx context.Context, input *PutRecordInput) 
 	b.mu.RUnlock()
 
 	out, streamARN, err := b.putRecordLocked(region, stream, input)
+	enhanced := slices.Clone(stream.EnhancedMonitoring)
 	stream.mu.Unlock()
 
 	if err != nil {
 		return nil, err
 	}
+
+	b.emitShardIncoming(region, input.StreamName, out.ShardID, enhanced, recordBytes(input.PartitionKey, input.Data))
 
 	// Channel delivery runs after stream.mu is released: b.mu (needed to look
 	// up channels for this stream) must never be acquired while holding
@@ -111,6 +116,10 @@ func (b *InMemoryBackend) putRecordLocked(
 		return nil, "", ErrInvalidArgument
 	}
 
+	if input.DryRun {
+		return nil, "", ErrDryRunOperation
+	}
+
 	seq := shard.nextSequenceNumber()
 	now := b.nowFunc()
 	record := &Record{
@@ -138,6 +147,10 @@ func (b *InMemoryBackend) putRecordLocked(
 // putRecordErrorCode maps a per-record PutRecord error to the AWS error code string
 // that should appear in a PutRecords result entry.
 func putRecordErrorCode(err error) string {
+	if errors.Is(err, ErrDryRunOperation) {
+		return errCodeDryRun
+	}
+
 	if errors.Is(err, ErrProvisionedThroughputExceeded) {
 		return errCodeThroughputExceeded
 	}
@@ -197,6 +210,7 @@ func (b *InMemoryBackend) PutRecords(ctx context.Context, input *PutRecordsInput
 			PartitionKey:    entry.PartitionKey,
 			ExplicitHashKey: entry.ExplicitHashKey,
 			Data:            entry.Data,
+			DryRun:          input.DryRun,
 		})
 		if err != nil {
 			errCode := putRecordErrorCode(err)
@@ -211,6 +225,10 @@ func (b *InMemoryBackend) PutRecords(ctx context.Context, input *PutRecordsInput
 				SequenceNumber: out.SequenceNumber,
 			}
 		}
+	}
+
+	if input.DryRun {
+		return nil, dryRunBatchError(results)
 	}
 
 	b.emitPutRecords(region, input, results, start)
@@ -257,6 +275,8 @@ func (b *InMemoryBackend) GetRecords(ctx context.Context, input *GetRecordsInput
 	if b.isThroughputFaultActive(region, it.StreamName) {
 		b.metrics.Put(region, kinesisMetricNamespace, "ReadProvisionedThroughputExceeded", metricUnitCount, 1,
 			streamDim(it.StreamName))
+		b.putShardMetric(region, it.StreamName, it.ShardID, stream.EnhancedMonitoring,
+			"ReadProvisionedThroughputExceeded", metricUnitCount, 1)
 
 		return nil, ErrProvisionedThroughputExceeded
 	}
@@ -266,6 +286,10 @@ func (b *InMemoryBackend) GetRecords(ctx context.Context, input *GetRecordsInput
 
 	if shard == nil {
 		return nil, ErrInvalidArgument
+	}
+
+	if input.DryRun {
+		return nil, ErrDryRunOperation
 	}
 
 	limit := input.Limit
@@ -309,6 +333,7 @@ func (b *InMemoryBackend) GetRecords(ctx context.Context, input *GetRecordsInput
 	}
 
 	b.emitGetRecords(region, it.StreamName, results, t0)
+	b.emitShardOutgoing(region, it.StreamName, it.ShardID, stream.EnhancedMonitoring, results)
 
 	return &GetRecordsOutput{
 		Records:            results,
@@ -396,4 +421,16 @@ func childShardsOf(shards []*Shard, parentID string) []ChildShard {
 	}
 
 	return children
+}
+
+// dryRunBatchError reports ErrDryRunOperation when every entry passed
+// validation, otherwise the first entry's real failure.
+func dryRunBatchError(results []PutRecordsResultEntry) error {
+	for _, r := range results {
+		if r.ErrorCode != "" && r.ErrorCode != errCodeDryRun {
+			return fmt.Errorf("%w: %s", ErrInvalidArgument, r.ErrorMessage)
+		}
+	}
+
+	return ErrDryRunOperation
 }
