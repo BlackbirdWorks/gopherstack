@@ -123,6 +123,7 @@ type FeatureGroup struct {
 	Description                 string              `json:"Description,omitempty"`
 	RoleArn                     string              `json:"RoleArn,omitempty"`
 	FeatureDefinitions          []FeatureDefinition `json:"FeatureDefinitions,omitempty"`
+	OnlineStoreTotalSizeBytes   int64               `json:"-"`
 }
 
 func cloneFeatureGroup(fg *FeatureGroup) *FeatureGroup {
@@ -231,7 +232,30 @@ func (b *InMemoryBackend) DescribeFeatureGroup(ctx context.Context, name string)
 		return nil, fmt.Errorf("%w: feature group %q not found", ErrFeatureGroupNotFound, name)
 	}
 
-	return cloneFeatureGroup(fg), nil
+	out := cloneFeatureGroup(fg)
+	out.OnlineStoreTotalSizeBytes = b.onlineStoreSizeLocked(region, name)
+
+	return out, nil
+}
+
+// onlineStoreSizeLocked sums the bytes of feature names and values held in the
+// group's stored records. Callers must hold b.mu.
+func (b *InMemoryBackend) onlineStoreSizeLocked(region, groupName string) int64 {
+	prefix := featureRecordKey(groupName, "")
+
+	var total int64
+
+	for _, rec := range b.featureRecordsStoreRO(region).All() {
+		if !strings.HasPrefix(rec.Key, prefix) {
+			continue
+		}
+
+		for k, v := range rec.Record {
+			total += int64(len(k) + len(v))
+		}
+	}
+
+	return total
 }
 
 // ListFeatureGroupsFilter bundles the filter/sort criteria for

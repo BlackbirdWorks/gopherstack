@@ -639,7 +639,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [CloudFormation](services/cloudformation/README.md) | A | 73 | 11 gaps |
 | [CloudTrail](services/cloudtrail/README.md) | A | 60 | 7 gaps |
 | [CloudWatch](services/cloudwatch/README.md) | A | 50 | 2 gaps; 16 deferred |
-| [CloudWatch Logs](services/cloudwatchlogs/README.md) | A | 86 | 15 gaps |
+| [CloudWatch Logs](services/cloudwatchlogs/README.md) | A | 86 | 6 gaps; 9 structural gaps |
 | [Config](services/awsconfig/README.md) | A | 102 | 7 gaps; 1 deferred |
 | [Cost Explorer](services/ce/README.md) | A | 37 | 4 gaps; 2 deferred |
 | [Fault Injection Simulator](services/fis/README.md) | A | 26 | 3 gaps; 1 deferred |
@@ -677,7 +677,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Personalize](services/personalize/README.md) | A | 74 | clean |
 | [Polly](services/polly/README.md) | A | 10 | 1 gap |
 | [Rekognition](services/rekognition/README.md) | A | 50 | 3 gaps; 3 deferred |
-| [SageMaker](services/sagemaker/README.md) | A | 69 | 24 gaps |
+| [SageMaker](services/sagemaker/README.md) | A | 69 | 11 gaps; 10 structural gaps |
 | [SageMaker Runtime](services/sagemakerruntime/README.md) | A | 3 | 3 gaps |
 | [Textract](services/textract/README.md) | A | 25 | 2 gaps; 1 structural gap; 1 deferred |
 | [Transcribe](services/transcribe/README.md) | A | 43 | 3 gaps |
@@ -699,7 +699,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [IoT Analytics](services/iotanalytics/README.md) | A | 34 | 3 gaps |
-| [IoT Core](services/iot/README.md) | A | 88 | 11 gaps |
+| [IoT Core](services/iot/README.md) | A | 88 | 7 gaps; 4 structural gaps |
 | [IoT Data Plane](services/iotdataplane/README.md) | A | 11 | 3 gaps; 1 deferred |
 | [IoT Wireless](services/iotwireless/README.md) | A | 21 | 2 gaps |
 

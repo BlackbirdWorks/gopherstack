@@ -45,8 +45,9 @@ type Endpoint struct {
 // ProductionVariantStatus describes the current deployment stage of a
 // production variant on a deployed endpoint.
 type ProductionVariantStatus struct {
-	Status        string `json:"Status"`
-	StatusMessage string `json:"StatusMessage,omitempty"`
+	Status        string  `json:"Status"`
+	StatusMessage string  `json:"StatusMessage,omitempty"`
+	StartTime     float64 `json:"StartTime,omitempty"`
 }
 
 // ProductionVariantSummary describes a production variant as deployed on a
@@ -59,6 +60,8 @@ type ProductionVariantSummary struct {
 	DesiredWeight        *float64                  `json:"DesiredWeight,omitempty"`
 	CurrentInstanceCount *int32                    `json:"CurrentInstanceCount,omitempty"`
 	DesiredInstanceCount *int32                    `json:"DesiredInstanceCount,omitempty"`
+	CurrentServerless    *ServerlessConfig         `json:"CurrentServerlessConfig,omitempty"`
+	DesiredServerless    *ServerlessConfig         `json:"DesiredServerlessConfig,omitempty"`
 	VariantName          string                    `json:"VariantName"`
 	VariantStatus        []ProductionVariantStatus `json:"VariantStatus,omitempty"`
 }
@@ -66,8 +69,10 @@ type ProductionVariantSummary struct {
 // newVariantSummaries builds the initial ProductionVariantSummary list for an
 // endpoint from an endpoint config's ProductionVariants. Desired* fields are
 // populated from the config's Initial* fields; Current* fields are left nil
-// until the endpoint (re)reaches InService.
-func newVariantSummaries(pvs []ProductionVariant) []ProductionVariantSummary {
+// until the endpoint (re)reaches InService. VariantStatus holds the transitional
+// types.VariantStatus (Creating/Updating) and is cleared once InService, since
+// InService is not a member of that enum.
+func newVariantSummaries(pvs []ProductionVariant, status string, now time.Time) []ProductionVariantSummary {
 	summaries := make([]ProductionVariantSummary, len(pvs))
 
 	for i, pv := range pvs {
@@ -77,7 +82,8 @@ func newVariantSummaries(pvs []ProductionVariant) []ProductionVariantSummary {
 			VariantName:          pv.VariantName,
 			DesiredWeight:        &weight,
 			DesiredInstanceCount: &count,
-			VariantStatus:        []ProductionVariantStatus{{Status: "Creating"}},
+			DesiredServerless:    cloneServerlessConfig(pv.ServerlessConfig),
+			VariantStatus:        []ProductionVariantStatus{{Status: status, StartTime: epochSeconds(now)}},
 		}
 	}
 
@@ -128,6 +134,8 @@ func cloneProductionVariantSummary(pv ProductionVariantSummary) ProductionVarian
 		c := *pv.DesiredInstanceCount
 		pv.DesiredInstanceCount = &c
 	}
+	pv.CurrentServerless = cloneServerlessConfig(pv.CurrentServerless)
+	pv.DesiredServerless = cloneServerlessConfig(pv.DesiredServerless)
 	pv.VariantStatus = append([]ProductionVariantStatus(nil), pv.VariantStatus...)
 
 	return pv
@@ -188,8 +196,8 @@ func (b *InMemoryBackend) CreateEndpoint(
 		CreationTime:             now,
 		LastModifiedTime:         now,
 		Tags:                     mergeTags(nil, opts.Tags),
-		ProductionVariants:       newVariantSummaries(ec.ProductionVariants),
-		ShadowProductionVariants: newVariantSummaries(ec.ShadowProductionVariants),
+		ProductionVariants:       newVariantSummaries(ec.ProductionVariants, statusCreating, now),
+		ShadowProductionVariants: newVariantSummaries(ec.ShadowProductionVariants, statusCreating, now),
 		DataCaptureConfig:        ec.DataCaptureConfig,
 		AsyncInferenceConfig:     ec.AsyncInferenceConfig,
 		DeploymentConfig:         opts.DeploymentConfig,
@@ -356,6 +364,7 @@ func carryOverVariantProperties(
 
 			newVariants[i].CurrentWeight = old.CurrentWeight
 			newVariants[i].CurrentInstanceCount = old.CurrentInstanceCount
+			newVariants[i].CurrentServerless = cloneServerlessConfig(old.CurrentServerless)
 
 			if opts.RetainAllVariantProperties {
 				if !excluded["DesiredWeight"] {
@@ -399,13 +408,15 @@ func (b *InMemoryBackend) UpdateEndpoint(
 		)
 	}
 
-	newVariants := carryOverVariantProperties(newVariantSummaries(ec.ProductionVariants), ep.ProductionVariants, opts)
+	newVariants := carryOverVariantProperties(
+		newVariantSummaries(ec.ProductionVariants, statusUpdating, time.Now()), ep.ProductionVariants, opts,
+	)
 
 	ep.EndpointConfigName = opts.EndpointConfigName
 	ep.EndpointStatus = statusUpdating
 	ep.LastModifiedTime = time.Now()
 	ep.ProductionVariants = newVariants
-	ep.ShadowProductionVariants = newVariantSummaries(ec.ShadowProductionVariants)
+	ep.ShadowProductionVariants = newVariantSummaries(ec.ShadowProductionVariants, statusUpdating, time.Now())
 	ep.DataCaptureConfig = ec.DataCaptureConfig
 	ep.AsyncInferenceConfig = ec.AsyncInferenceConfig
 
@@ -447,7 +458,13 @@ func (b *InMemoryBackend) scheduleEndpointTransition(
 			for i := range ep.ProductionVariants {
 				ep.ProductionVariants[i].CurrentWeight = ep.ProductionVariants[i].DesiredWeight
 				ep.ProductionVariants[i].CurrentInstanceCount = ep.ProductionVariants[i].DesiredInstanceCount
-				ep.ProductionVariants[i].VariantStatus = []ProductionVariantStatus{{Status: statusInService}}
+				pv := &ep.ProductionVariants[i]
+				pv.CurrentServerless = cloneServerlessConfig(pv.DesiredServerless)
+				ep.ProductionVariants[i].VariantStatus = nil
+			}
+
+			for i := range ep.ShadowProductionVariants {
+				ep.ShadowProductionVariants[i].VariantStatus = nil
 			}
 		}
 	})
@@ -555,4 +572,14 @@ type DesiredWeightAndCapacity struct {
 	DesiredWeight        *float64 `json:"DesiredWeight,omitempty"`
 	DesiredInstanceCount *int32   `json:"DesiredInstanceCount,omitempty"`
 	VariantName          string   `json:"VariantName"`
+}
+
+func cloneServerlessConfig(c *ServerlessConfig) *ServerlessConfig {
+	if c == nil {
+		return nil
+	}
+
+	cp := *c
+
+	return &cp
 }

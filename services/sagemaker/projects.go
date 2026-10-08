@@ -28,6 +28,8 @@ var ErrProjectNotFound = awserr.New("ValidationException", awserr.ErrNotFound)
 type Project struct {
 	CreationTime                      time.Time         `json:"CreationTime"`
 	LastModifiedTime                  time.Time         `json:"LastModifiedTime"`
+	CreatedBy                         *UserContext      `json:"CreatedBy,omitempty"`
+	LastModifiedBy                    *UserContext      `json:"LastModifiedBy,omitempty"`
 	Tags                              map[string]string `json:"Tags,omitempty"`
 	ProjectName                       string            `json:"ProjectName"`
 	ProjectArn                        string            `json:"ProjectArn"`
@@ -42,6 +44,8 @@ type Project struct {
 func cloneProject(p *Project) *Project {
 	cp := *p
 	cp.Tags = maps.Clone(p.Tags)
+	cp.CreatedBy = cloneUserContext(p.CreatedBy)
+	cp.LastModifiedBy = cloneUserContext(p.LastModifiedBy)
 	cp.ServiceCatalogProvisioningDetails = append(json.RawMessage(nil), p.ServiceCatalogProvisioningDetails...)
 	cp.TemplateProviders = append(json.RawMessage(nil), p.TemplateProviders...)
 
@@ -127,6 +131,8 @@ func (b *InMemoryBackend) CreateProject(ctx context.Context, opts CreateProjectO
 		TemplateProviders:                 opts.TemplateProviders,
 		CreationTime:                      now,
 		LastModifiedTime:                  now,
+		CreatedBy:                         callerUserContext(ctx),
+		LastModifiedBy:                    callerUserContext(ctx),
 	}
 	b.projectsStore(region).Put(p)
 
@@ -245,17 +251,12 @@ func (b *InMemoryBackend) ListProjects(
 // UpdateProject
 // ---------------------------------------------------------------------------
 
-// UpdateProject updates a project's description and merges in new tags.
-// ServiceCatalogProvisioningUpdateDetails/TemplateProvidersToUpdate
-// (api_op_UpdateProject.go) are disclosed not modeled: applying either for
-// real requires simulating an actual Service Catalog provisioned-product
-// update against the ServiceCatalogProvisioningDetails this backend already
-// stores as opaque passthrough, which this pass did not build — the handler
-// does not decode either field, so nothing is silently accepted and dropped.
+// UpdateProject updates a project's description, tags, Service Catalog
+// provisioning details and CloudFormation template providers.
 func (b *InMemoryBackend) UpdateProject(
 	ctx context.Context,
-	name, description string,
-	tags map[string]string,
+	name string,
+	opts UpdateProjectOptions,
 ) (*Project, error) {
 	b.mu.Lock("UpdateProject")
 	defer b.mu.Unlock()
@@ -267,15 +268,29 @@ func (b *InMemoryBackend) UpdateProject(
 		return nil, fmt.Errorf("%w: project %q not found", ErrProjectNotFound, name)
 	}
 
-	if description != "" {
-		p.ProjectDescription = description
+	scDetails, err := applyProvisioningUpdate(p.ServiceCatalogProvisioningDetails, opts.ServiceCatalogUpdate)
+	if err != nil {
+		return nil, err
 	}
 
-	if len(tags) > 0 {
-		p.Tags = mergeTags(p.Tags, tags)
+	providers, err := applyTemplateProviderUpdates(p.TemplateProviders, opts.TemplateProviderUpdates)
+	if err != nil {
+		return nil, err
+	}
+
+	p.ServiceCatalogProvisioningDetails = scDetails
+	p.TemplateProviders = providers
+
+	if opts.Description != "" {
+		p.ProjectDescription = opts.Description
+	}
+
+	if len(opts.Tags) > 0 {
+		p.Tags = mergeTags(p.Tags, opts.Tags)
 	}
 
 	p.LastModifiedTime = time.Now()
+	p.LastModifiedBy = callerUserContext(ctx)
 
 	return cloneProject(p), nil
 }

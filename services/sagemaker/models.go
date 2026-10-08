@@ -788,6 +788,8 @@ type ModelPackage struct {
 	ModelMetrics                      json.RawMessage           `json:"ModelMetrics,omitempty"`
 	ModelCard                         json.RawMessage           `json:"ModelCard,omitempty"`
 	ModelLifeCycle                    json.RawMessage           `json:"ModelLifeCycle,omitempty"`
+	CreatedBy                         *UserContext              `json:"CreatedBy,omitempty"`
+	LastModifiedBy                    *UserContext              `json:"LastModifiedBy,omitempty"`
 	MetadataProperties                json.RawMessage           `json:"MetadataProperties,omitempty"`
 	SecurityConfig                    json.RawMessage           `json:"SecurityConfig,omitempty"`
 	AdditionalInferenceSpecifications json.RawMessage           `json:"AdditionalInferenceSpecifications,omitempty"`
@@ -814,6 +816,8 @@ type ModelPackage struct {
 func cloneModelPackage(mp *ModelPackage) *ModelPackage {
 	cp := *mp
 	cp.Tags = maps.Clone(mp.Tags)
+	cp.CreatedBy = cloneUserContext(mp.CreatedBy)
+	cp.LastModifiedBy = cloneUserContext(mp.LastModifiedBy)
 	cp.CustomerMetadataProperties = maps.Clone(mp.CustomerMetadataProperties)
 	cp.ModelPackageStatusDetails.ValidationStatuses = append(
 		[]ModelPackageStatusItem{}, mp.ModelPackageStatusDetails.ValidationStatuses...,
