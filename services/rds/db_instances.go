@@ -333,6 +333,8 @@ func (b *InMemoryBackend) deleteDBInstanceLocked(
 		}
 	}
 
+	b.detachClusterReplicaLocked(inst)
+
 	// Remove this instance from its cluster's DBClusterMembers, if any.
 	if inst.DBClusterIdentifier != "" {
 		if cluster, clusterExists := b.clusters.Get(normalizeID(inst.DBClusterIdentifier)); clusterExists {
@@ -933,23 +935,30 @@ func (b *InMemoryBackend) CreateDBInstanceReadReplica(
 		allocatedStorage int
 	)
 
-	source, sourceExists := b.instances.Get(normalizeID(sourceID))
+	source, sourceCluster, err := b.resolveReplicaSourceLocked(sourceID, sourceRegion, opts.SourceDBClusterIdentifier)
+	if err != nil {
+		return nil, err
+	}
 	switch {
-	case sourceExists:
+	case source != nil:
 		instanceClass = source.DBInstanceClass
 		engine = source.Engine
 		engineVersion = source.EngineVersion
 		masterUser = source.MasterUsername
 		port = source.Port
 		allocatedStorage = source.AllocatedStorage
-	case sourceRegion != "":
+	case sourceCluster != nil:
+		engine = sourceCluster.Engine
+		engineVersion = sourceCluster.EngineVersion
+		masterUser = sourceCluster.MasterUsername
+		port = sourceCluster.Port
+		allocatedStorage = sourceCluster.AllocatedStorage
+	default:
 		// Cross-region replica: source instance lives in another region.
 		// Use defaults; the caller should supply a valid ARN as sourceID.
 		engine = enginePostgres
 		port = defaultPort
 		allocatedStorage = defaultAllocatedStorage
-	default:
-		return nil, fmt.Errorf("%w: source instance %s not found", ErrInstanceNotFound, sourceID)
 	}
 
 	var inherited DBInstance
@@ -975,6 +984,7 @@ func (b *InMemoryBackend) CreateDBInstanceReadReplica(
 		Port:                               cmp.Or(opts.DBPortNumber, port),
 		AllocatedStorage:                   allocatedStorage,
 		ReplicaSourceDBInstanceIdentifier:  sourceID,
+		ReplicaSourceDBClusterIdentifier:   replicaSourceClusterID(sourceCluster),
 		DBParameterGroupName:               paramGroupName,
 		OptionGroupName:                    optionGroupName,
 		AutoMinorVersionUpgrade:            opts.AutoMinorVersionUpgrade,
@@ -989,9 +999,12 @@ func (b *InMemoryBackend) CreateDBInstanceReadReplica(
 	b.instances.Put(replica)
 	b.publishInstanceEventLocked(id, "DB read replica created")
 
-	// Track reverse read replica reference on source instance.
+	// Track reverse read replica reference on source instance or cluster.
 	if source != nil {
 		source.ReadReplicaIdentifiers = append(source.ReadReplicaIdentifiers, id)
+	}
+	if sourceCluster != nil {
+		sourceCluster.ReadReplicaIdentifiers = append(sourceCluster.ReadReplicaIdentifiers, id)
 	}
 
 	if b.dnsRegistrar != nil {
@@ -1001,6 +1014,60 @@ func (b *InMemoryBackend) CreateDBInstanceReadReplica(
 	cp := *replica
 
 	return &cp, nil
+}
+
+// detachClusterReplicaLocked drops inst from its source cluster's ReadReplicaIdentifiers and clears the link.
+func (b *InMemoryBackend) detachClusterReplicaLocked(inst *DBInstance) {
+	if inst.ReplicaSourceDBClusterIdentifier == "" {
+		return
+	}
+	if src, ok := b.clusters.Get(normalizeID(inst.ReplicaSourceDBClusterIdentifier)); ok {
+		src.ReadReplicaIdentifiers = slices.DeleteFunc(src.ReadReplicaIdentifiers, func(s string) bool {
+			return idEqual(s, inst.DBInstanceIdentifier)
+		})
+	}
+	inst.ReplicaSourceDBClusterIdentifier = ""
+}
+
+func replicaSourceClusterID(c *DBCluster) string {
+	if c == nil {
+		return ""
+	}
+
+	return c.DBClusterIdentifier
+}
+
+// resolveReplicaSourceLocked finds the replica's source instance or cluster; both nil means cross-region.
+func (b *InMemoryBackend) resolveReplicaSourceLocked(
+	sourceID, sourceRegion, sourceClusterID string,
+) (*DBInstance, *DBCluster, error) {
+	if sourceClusterID != "" {
+		if sourceID != "" {
+			return nil, nil, fmt.Errorf(
+				"%w: SourceDBInstanceIdentifier can't be specified with SourceDBClusterIdentifier",
+				ErrInvalidParameterCombination,
+			)
+		}
+		cluster, ok := b.clusters.Get(normalizeID(rdsIDFromARN(sourceClusterID)))
+		if !ok {
+			return nil, nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, sourceClusterID)
+		}
+		if cluster.BackupRetentionPeriod == 0 {
+			return nil, nil, fmt.Errorf(
+				"%w: cluster %s must have automated backups enabled", ErrInvalidDBClusterStateFault, sourceClusterID,
+			)
+		}
+
+		return nil, cluster, nil
+	}
+	if source, ok := b.instances.Get(normalizeID(sourceID)); ok {
+		return source, nil, nil
+	}
+	if sourceRegion == "" {
+		return nil, nil, fmt.Errorf("%w: source instance %s not found", ErrInstanceNotFound, sourceID)
+	}
+
+	return nil, nil, nil
 }
 
 // PromoteReadReplica promotes a read replica to a standalone instance.
@@ -1025,6 +1092,7 @@ func (b *InMemoryBackend) PromoteReadReplica(id string) (*DBInstance, error) {
 		}
 	}
 
+	b.detachClusterReplicaLocked(inst)
 	inst.ReplicaSourceDBInstanceIdentifier = ""
 	cp := *inst
 

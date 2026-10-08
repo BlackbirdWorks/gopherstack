@@ -338,26 +338,37 @@ func (h *Handler) handleStopDBCluster(vals url.Values) (any, error) {
 	}, nil
 }
 
+// parseRestoreClusterOptions reads the members shared by the two cluster restores; unset numeric
+// members stay zero so the backend can inherit them from the snapshot or source cluster.
+func parseRestoreClusterOptions(vals url.Values) (DBClusterOptions, error) {
+	numeric, err := parseDBClusterNumericParams(vals)
+	if err != nil {
+		return DBClusterOptions{}, err
+	}
+	if vals.Get("BackupRetentionPeriod") == "" {
+		numeric.backupRetention = 0
+	}
+	serverless, err := parseServerlessV2ScalingConfig(vals)
+	if err != nil && !errors.Is(err, ErrNoServerlessV2Config) {
+		return DBClusterOptions{}, err
+	}
+	opts := buildDBClusterOptions(vals, numeric)
+	opts.Port = numeric.port
+	opts.DatabaseName = vals.Get("DatabaseName")
+	opts.DBClusterParameterGroupName = vals.Get("DBClusterParameterGroupName")
+	opts.ServerlessV2Scaling = serverless
+
+	return opts, nil
+}
+
 func (h *Handler) handleRestoreDBClusterFromSnapshot(vals url.Values) (any, error) {
 	clusterID := vals.Get("DBClusterIdentifier")
 	snapshotID := vals.Get("SnapshotIdentifier")
 	engine := vals.Get("Engine")
 
-	piRetention := 0
-	if v, perr := strconv.Atoi(vals.Get("PerformanceInsightsRetentionPeriod")); perr == nil {
-		piRetention = v
-	}
-
-	restoreOpts := DBClusterOptions{
-		OptionGroupName:                    vals.Get("OptionGroupName"),
-		PubliclyAccessible:                 vals.Get("PubliclyAccessible") == formTrue,
-		EnableIAMDatabaseAuthentication:    vals.Get("EnableIAMDatabaseAuthentication") == formTrue,
-		PerformanceInsightsKMSKeyID:        vals.Get("PerformanceInsightsKMSKeyId"),
-		PerformanceInsightsRetentionPeriod: piRetention,
-		DBSubnetGroupName:                  vals.Get("DBSubnetGroupName"),
-		VpcSecurityGroupIDs:                parseMultiValueParam(vals, "VpcSecurityGroupIds.VpcSecurityGroupId"),
-		EnabledCloudwatchLogsExports:       parseMultiValueParam(vals, "EnableCloudwatchLogsExports.member"),
-		PerformanceInsightsEnabled:         vals.Get("EnablePerformanceInsights") == formTrue,
+	restoreOpts, err := parseRestoreClusterOptions(vals)
+	if err != nil {
+		return nil, err
 	}
 
 	cluster, err := h.Backend.RestoreDBClusterFromSnapshot(clusterID, snapshotID, engine, restoreOpts)
@@ -383,21 +394,9 @@ func (h *Handler) handleRestoreDBClusterToPointInTime(vals url.Values) (any, err
 		return nil, err
 	}
 
-	piRetention := 0
-	if v, perr := strconv.Atoi(vals.Get("PerformanceInsightsRetentionPeriod")); perr == nil {
-		piRetention = v
-	}
-
-	restoreOpts := DBClusterOptions{
-		OptionGroupName:                    vals.Get("OptionGroupName"),
-		PubliclyAccessible:                 vals.Get("PubliclyAccessible") == formTrue,
-		EnableIAMDatabaseAuthentication:    vals.Get("EnableIAMDatabaseAuthentication") == formTrue,
-		PerformanceInsightsKMSKeyID:        vals.Get("PerformanceInsightsKMSKeyId"),
-		PerformanceInsightsRetentionPeriod: piRetention,
-		DBSubnetGroupName:                  vals.Get("DBSubnetGroupName"),
-		VpcSecurityGroupIDs:                parseMultiValueParam(vals, "VpcSecurityGroupIds.VpcSecurityGroupId"),
-		EnabledCloudwatchLogsExports:       parseMultiValueParam(vals, "EnableCloudwatchLogsExports.member"),
-		PerformanceInsightsEnabled:         vals.Get("EnablePerformanceInsights") == formTrue,
+	restoreOpts, err := parseRestoreClusterOptions(vals)
+	if err != nil {
+		return nil, err
 	}
 
 	cluster, err := h.Backend.RestoreDBClusterToPointInTime(clusterID, sourceClusterID, restoreOpts)

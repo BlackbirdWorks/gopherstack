@@ -511,6 +511,10 @@ func testGlobalClusterBlueGreenRealClient(t *testing.T) {
 		aws.ToString(removeOut.GlobalCluster.GlobalClusterIdentifier),
 	)
 
+	_, err = backend.CreateDBCluster("slice8-target", "aurora-mysql", "admin", "", "", 3306, nil,
+		rds.DBClusterOptions{GlobalClusterIdentifier: "slice8-globalcluster"})
+	require.NoError(t, err)
+
 	failoverOut, err := client.FailoverGlobalCluster(ctx, &rdssdk.FailoverGlobalClusterInput{
 		GlobalClusterIdentifier: aws.String("slice8-globalcluster"),
 		TargetDbClusterIdentifier: aws.String(

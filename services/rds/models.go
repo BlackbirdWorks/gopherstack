@@ -142,6 +142,7 @@ type DBInstance struct {
 	DBParameterGroupName               string                       `json:"dbParameterGroupName"`
 	OptionGroupName                    string                       `json:"optionGroupName,omitempty"`
 	ReplicaSourceDBInstanceIdentifier  string                       `json:"replicaSourceDBInstanceIdentifier"`
+	ReplicaSourceDBClusterIdentifier   string                       `json:"replicaSourceDBClusterIdentifier,omitempty"`
 	AvailabilityZone                   string                       `json:"availabilityZone"`
 	StorageType                        string                       `json:"storageType"`
 	LicenseModel                       string                       `json:"licenseModel,omitempty"`
@@ -348,17 +349,25 @@ type DBCluster struct {
 // DBClusterSnapshot represents an RDS cluster snapshot.
 type DBClusterSnapshot struct {
 	SnapshotCreateTime          time.Time `json:"snapshotCreateTime"`
+	ClusterCreateTime           time.Time `json:"clusterCreateTime,omitzero"`
+	Status                      string    `json:"status"`
+	MasterUsername              string    `json:"masterUsername,omitempty"`
+	SourceDBClusterSnapshotArn  string    `json:"sourceDBClusterSnapshotArn,omitempty"`
+	KmsKeyID                    string    `json:"kmsKeyId,omitempty"`
+	SnapshotType                string    `json:"snapshotType,omitempty"`
+	StorageType                 string    `json:"storageType,omitempty"`
+	DBClusterSnapshotIdentifier string    `json:"dbClusterSnapshotIdentifier"`
 	EngineVersion               string    `json:"engineVersion,omitempty"`
 	DBClusterSnapshotArn        string    `json:"dbClusterSnapshotArn,omitempty"`
 	DBClusterIdentifier         string    `json:"dbClusterIdentifier"`
 	DBClusterResourceID         string    `json:"dbClusterResourceId,omitempty"`
 	Engine                      string    `json:"engine"`
-	DBClusterSnapshotIdentifier string    `json:"dbClusterSnapshotIdentifier"`
-	Status                      string    `json:"status"`
-	SnapshotType                string    `json:"snapshotType,omitempty"`
-	KmsKeyID                    string    `json:"kmsKeyId,omitempty"`
-	SourceDBClusterSnapshotArn  string    `json:"sourceDBClusterSnapshotArn,omitempty"`
+	BackupRetentionPeriod       int       `json:"backupRetentionPeriod,omitempty"`
+	Iops                        int       `json:"iops,omitempty"`
+	AllocatedStorage            int       `json:"allocatedStorage,omitempty"`
+	Port                        int       `json:"port,omitempty"`
 	PercentProgress             int       `json:"percentProgress"`
+	IAMDatabaseAuthEnabled      bool      `json:"iamDatabaseAuthenticationEnabled,omitempty"`
 	StorageEncrypted            bool      `json:"storageEncrypted,omitempty"`
 	CopyTagsToSnapshot          bool      `json:"copyTagsToSnapshot,omitempty"`
 }
@@ -709,6 +718,7 @@ type DBInstanceAutomatedBackup struct {
 
 // DBInstanceOptions holds optional fields for CreateDBInstance and ModifyDBInstance.
 type DBInstanceOptions struct {
+	SourceDBClusterIdentifier    string
 	DBClusterIdentifier          string
 	AutomationMode               string
 	EngineVersion                string
@@ -772,42 +782,46 @@ type CopyDBSnapshotOptions struct {
 
 // DBClusterOptions holds optional fields for CreateDBCluster and ModifyDBCluster.
 type DBClusterOptions struct {
+	ServerlessV2Scaling          *ServerlessV2ScalingConfiguration
+	PreferredBackupWindow        string
+	StorageType                  string
+	DBClusterParameterGroupName  string
+	GlobalClusterIdentifier      string
+	MasterUserPassword           string
+	EngineVersion                string
+	KmsKeyID                     string
+	DBSubnetGroupName            string
+	DatabaseName                 string
+	PreferredMaintenanceWindow   string
+	MonitoringRoleArn            string
+	NetworkType                  string
+	EngineLifecycleSupport       string
+	ReplicationSourceIdentifier  string
+	OptionGroupName              string
+	ClusterScalabilityType       string
+	DBInstanceParameterGroupName string
+	PerformanceInsightsKMSKeyID  string
+	EnabledCloudwatchLogsExports []string
+	VpcSecurityGroupIDs          []string
 	MasterSecretRequest
-	MasterUserPassword                 string
-	EngineVersion                      string
-	KmsKeyID                           string
-	PreferredBackupWindow              string
-	PreferredMaintenanceWindow         string
-	MonitoringRoleArn                  string
-	StorageType                        string
-	NetworkType                        string
-	EngineLifecycleSupport             string
-	ReplicationSourceIdentifier        string
-	OptionGroupName                    string
-	ClusterScalabilityType             string
-	DBInstanceParameterGroupName       string
-	PerformanceInsightsKMSKeyID        string
-	DBSubnetGroupName                  string
-	GlobalClusterIdentifier            string
-	VpcSecurityGroupIDs                []string
-	EnabledCloudwatchLogsExports       []string
 	AvailabilityZones                  []string
+	Port                               int
 	BacktrackWindow                    int64
 	BackupRetentionPeriod              int
 	MonitoringInterval                 int
 	PerformanceInsightsRetentionPeriod int
 	AllocatedStorage                   int
 	Iops                               int
-	AllowMajorVersionUpgrade           bool
-	MultiAZ                            bool
 	StorageEncrypted                   bool
+	PubliclyAccessible                 bool
+	AllowMajorVersionUpgrade           bool
 	StorageEncryptedChanged            bool
 	CopyTagsToSnapshot                 bool
 	DeletionProtection                 bool
 	DeletionProtectionSet              bool
 	OptimizedWrites                    bool
 	AutoMinorVersionUpgrade            bool
-	PubliclyAccessible                 bool
+	MultiAZ                            bool
 	EnableIAMDatabaseAuthentication    bool
 	EnableGlobalWriteForwarding        bool
 	EnableLocalWriteForwarding         bool

@@ -447,6 +447,7 @@ type InMemoryBackend struct {
 type CreateDBClusterOptions struct {
 	ClusterExtras
 	MasterSecretRequest
+	GlobalClusterIdentifier      string
 	KmsKeyID                     string
 	StorageType                  string
 	VpcSecurityGroupIDs          []string

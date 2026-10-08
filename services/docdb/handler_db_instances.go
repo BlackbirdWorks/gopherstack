@@ -123,15 +123,16 @@ func (h *Handler) handleRebootDBInstance(ctx context.Context, vals url.Values) (
 
 func (h *Handler) handleDescribeOrderableDBInstanceOptions(vals url.Values) (any, error) {
 	catalog := []xmlOrderableDBInstanceOption{
-		{Engine: docDBEngine, EngineVersion: defaultEngineVersion, DBInstanceClass: "db.t3.medium"},
-		{Engine: docDBEngine, EngineVersion: defaultEngineVersion, DBInstanceClass: "db.r5.large"},
-		{Engine: docDBEngine, EngineVersion: docDBEngineVersion5, DBInstanceClass: "db.t3.medium"},
-		{Engine: docDBEngine, EngineVersion: docDBEngineVersion5, DBInstanceClass: "db.r5.large"},
+		{Engine: docDBEngine, EngineVersion: defaultEngineVersion, DBInstanceClass: "db.t3.medium", Vpc: true},
+		{Engine: docDBEngine, EngineVersion: defaultEngineVersion, DBInstanceClass: "db.r5.large", Vpc: true},
+		{Engine: docDBEngine, EngineVersion: docDBEngineVersion5, DBInstanceClass: "db.t3.medium", Vpc: true},
+		{Engine: docDBEngine, EngineVersion: docDBEngineVersion5, DBInstanceClass: "db.r5.large", Vpc: true},
 	}
 
 	engine := vals.Get("Engine")
 	engineVersion := vals.Get("EngineVersion")
 	instanceClass := vals.Get("DBInstanceClass")
+	vpcFilter := vals.Get("Vpc")
 	members := make([]xmlOrderableDBInstanceOption, 0, len(catalog))
 	for _, opt := range catalog {
 		if engine != "" && opt.Engine != engine {
@@ -141,6 +142,9 @@ func (h *Handler) handleDescribeOrderableDBInstanceOptions(vals url.Values) (any
 			continue
 		}
 		if instanceClass != "" && opt.DBInstanceClass != instanceClass {
+			continue
+		}
+		if vpcFilter != "" && opt.Vpc != (vpcFilter == stringTrue) {
 			continue
 		}
 		members = append(members, opt)
@@ -179,6 +183,7 @@ func toXMLInstance(inst *DBInstance) xmlDBInstance {
 		PromotionTier:                inst.PromotionTier,
 		PreferredMaintenanceWindow:   inst.PreferredMaintenanceWindow,
 		CACertificateIdentifier:      inst.CACertificateIdentifier,
+		CertificateDetails:           toXMLCertificateDetails(inst.CACertificateIdentifier),
 		CopyTagsToSnapshot:           inst.CopyTagsToSnapshot,
 		InstanceCreateTime:           inst.InstanceCreateTime,
 		DbiResourceID:                inst.DbiResourceID,
@@ -189,31 +194,45 @@ func toXMLInstance(inst *DBInstance) xmlDBInstance {
 	}
 }
 
+type xmlCertificateDetails struct {
+	CAIdentifier string `xml:"CAIdentifier"`
+	ValidTill    string `xml:"ValidTill,omitempty"`
+}
+
+func toXMLCertificateDetails(caID string) *xmlCertificateDetails {
+	if caID == "" {
+		return nil
+	}
+
+	return &xmlCertificateDetails{CAIdentifier: caID, ValidTill: certificateValidTill(caID)}
+}
+
 type xmlDBInstance struct {
-	DBInstanceIdentifier         string         `xml:"DBInstanceIdentifier"`
-	DBClusterIdentifier          string         `xml:"DBClusterIdentifier,omitempty"`
-	DBInstanceClass              string         `xml:"DBInstanceClass"`
-	Engine                       string         `xml:"Engine"`
-	DBInstanceStatus             string         `xml:"DBInstanceStatus"`
-	Endpoint                     string         `xml:"Endpoint>Address,omitempty"`
-	DBInstanceArn                string         `xml:"DBInstanceArn,omitempty"`
-	EngineVersion                string         `xml:"EngineVersion,omitempty"`
-	AvailabilityZone             string         `xml:"AvailabilityZone,omitempty"`
-	DBSubnetGroupName            string         `xml:"DBSubnetGroup>DBSubnetGroupName,omitempty"`
-	PreferredMaintenanceWindow   string         `xml:"PreferredMaintenanceWindow,omitempty"`
-	CACertificateIdentifier      string         `xml:"CACertificateIdentifier,omitempty"`
-	InstanceCreateTime           string         `xml:"InstanceCreateTime,omitempty"`
-	DbiResourceID                string         `xml:"DbiResourceId,omitempty"`
-	LatestRestorableTime         string         `xml:"LatestRestorableTime,omitempty"`
-	PerformanceInsightsKMSKeyID  string         `xml:"PerformanceInsightsKMSKeyId,omitempty"`
-	EnabledCloudwatchLogsExports xmlLogTypeList `xml:"EnabledCloudwatchLogsExports"`
-	StorageEncrypted             bool           `xml:"StorageEncrypted"`
-	AutoMinorVersionUpgrade      bool           `xml:"AutoMinorVersionUpgrade"`
-	PubliclyAccessible           bool           `xml:"PubliclyAccessible"`
-	CopyTagsToSnapshot           bool           `xml:"CopyTagsToSnapshot"`
-	PerformanceInsightsEnabled   bool           `xml:"PerformanceInsightsEnabled"`
-	Port                         int            `xml:"Endpoint>Port"`
-	PromotionTier                int            `xml:"PromotionTier"`
+	CertificateDetails           *xmlCertificateDetails `xml:"CertificateDetails,omitempty"`
+	DBInstanceIdentifier         string                 `xml:"DBInstanceIdentifier"`
+	DBClusterIdentifier          string                 `xml:"DBClusterIdentifier,omitempty"`
+	DBInstanceClass              string                 `xml:"DBInstanceClass"`
+	Engine                       string                 `xml:"Engine"`
+	DBInstanceStatus             string                 `xml:"DBInstanceStatus"`
+	Endpoint                     string                 `xml:"Endpoint>Address,omitempty"`
+	DBInstanceArn                string                 `xml:"DBInstanceArn,omitempty"`
+	EngineVersion                string                 `xml:"EngineVersion,omitempty"`
+	AvailabilityZone             string                 `xml:"AvailabilityZone,omitempty"`
+	DBSubnetGroupName            string                 `xml:"DBSubnetGroup>DBSubnetGroupName,omitempty"`
+	PreferredMaintenanceWindow   string                 `xml:"PreferredMaintenanceWindow,omitempty"`
+	CACertificateIdentifier      string                 `xml:"CACertificateIdentifier,omitempty"`
+	InstanceCreateTime           string                 `xml:"InstanceCreateTime,omitempty"`
+	DbiResourceID                string                 `xml:"DbiResourceId,omitempty"`
+	LatestRestorableTime         string                 `xml:"LatestRestorableTime,omitempty"`
+	PerformanceInsightsKMSKeyID  string                 `xml:"PerformanceInsightsKMSKeyId,omitempty"`
+	EnabledCloudwatchLogsExports xmlLogTypeList         `xml:"EnabledCloudwatchLogsExports"`
+	StorageEncrypted             bool                   `xml:"StorageEncrypted"`
+	AutoMinorVersionUpgrade      bool                   `xml:"AutoMinorVersionUpgrade"`
+	PubliclyAccessible           bool                   `xml:"PubliclyAccessible"`
+	CopyTagsToSnapshot           bool                   `xml:"CopyTagsToSnapshot"`
+	PerformanceInsightsEnabled   bool                   `xml:"PerformanceInsightsEnabled"`
+	Port                         int                    `xml:"Endpoint>Port"`
+	PromotionTier                int                    `xml:"PromotionTier"`
 }
 
 type xmlDBInstanceList struct {
@@ -259,6 +278,7 @@ type xmlOrderableDBInstanceOption struct {
 	Engine          string `xml:"Engine"`
 	EngineVersion   string `xml:"EngineVersion"`
 	DBInstanceClass string `xml:"DBInstanceClass"`
+	Vpc             bool   `xml:"Vpc"`
 }
 
 type xmlOrderableDBInstanceOptionList struct {

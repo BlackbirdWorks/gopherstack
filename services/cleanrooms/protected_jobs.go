@@ -80,16 +80,7 @@ func (b *InMemoryBackend) ListProtectedJobs(
 		if status != "" && j.Status != status {
 			continue
 		}
-		items = append(items, &ProtectedJobSummary{
-			ID:                       j.ID,
-			MembershipIdentifier:     j.MembershipIdentifier,
-			MembershipArn:            j.MembershipArn,
-			Status:                   j.Status,
-			Type:                     j.Type,
-			JobComputePayerAccountID: j.JobComputePayerAccountID,
-			CreateTime:               j.CreateTime,
-			MembershipID:             j.MembershipID,
-		})
+		items = append(items, j.summary(b.accountID))
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
 	page, next := paginate(items, maxResults, nextToken)
@@ -125,5 +116,18 @@ func isTerminalProtectedJobStatus(status string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func (j *ProtectedJob) summary(selfAccount string) *ProtectedJobSummary {
+	return &ProtectedJobSummary{
+		ID:                       j.ID,
+		MembershipIdentifier:     j.MembershipIdentifier,
+		MembershipArn:            j.MembershipArn,
+		Status:                   j.Status,
+		ReceiverConfigurations:   receiverConfigurations(j.ResultConfiguration, selfAccount),
+		JobComputePayerAccountID: j.JobComputePayerAccountID,
+		CreateTime:               j.CreateTime,
+		MembershipID:             j.MembershipID,
 	}
 }

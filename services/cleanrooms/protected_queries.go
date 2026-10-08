@@ -109,6 +109,7 @@ func (b *InMemoryBackend) ListProtectedQueries(
 			MembershipIdentifier:       q.MembershipIdentifier,
 			MembershipArn:              q.MembershipArn,
 			QueryComputePayerAccountID: q.QueryComputePayerAccountID,
+			ReceiverConfigurations:     receiverConfigurations(q.ResultConfiguration, b.accountID),
 			Status:                     q.Status,
 			CreateTime:                 q.CreateTime,
 			MembershipID:               q.MembershipID,

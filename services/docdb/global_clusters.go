@@ -79,7 +79,7 @@ func (b *InMemoryBackend) CreateGlobalCluster(
 	}
 	if clusterARN, exists := b.resolveClusterARN(region, sourceDBClusterID); exists {
 		gc.GlobalClusterMembers = []GlobalClusterMember{
-			{DBClusterArn: clusterARN, IsWriter: true, SynchronizationStatus: "synced"},
+			{DBClusterArn: clusterARN, IsWriter: true, SynchronizationStatus: syncStatusSynced},
 		}
 		if c, ok := b.clusterGet(region, sourceDBClusterID); ok {
 			gc.EngineVersion = c.EngineVersion
@@ -87,6 +87,7 @@ func (b *InMemoryBackend) CreateGlobalCluster(
 		}
 	}
 	b.globalClusters.Put(gc)
+	b.syncGlobalLinkage(gc)
 
 	return copyGlobalCluster(gc), nil
 }
@@ -208,7 +209,7 @@ func (b *InMemoryBackend) promoteGlobalClusterWriter(region string, gc *GlobalCl
 	gc.GlobalClusterMembers = append(gc.GlobalClusterMembers, GlobalClusterMember{
 		DBClusterArn:          targetARN,
 		IsWriter:              true,
-		SynchronizationStatus: "synced",
+		SynchronizationStatus: syncStatusSynced,
 	})
 }
 
@@ -229,6 +230,7 @@ func (b *InMemoryBackend) FailoverGlobalCluster(
 	}
 	gc.Status = "failing-over"
 	b.promoteGlobalClusterWriter(region, gc, targetDBClusterID)
+	b.syncGlobalLinkage(gc)
 
 	return copyGlobalCluster(gc), nil
 }
@@ -259,6 +261,8 @@ func (b *InMemoryBackend) RemoveFromGlobalCluster(
 		}
 	}
 	gc.GlobalClusterMembers = kept
+	b.clearClusterLinkage(targetARN)
+	b.syncGlobalLinkage(gc)
 
 	return copyGlobalCluster(gc), nil
 }
@@ -283,6 +287,7 @@ func (b *InMemoryBackend) SwitchoverGlobalCluster(
 	}
 	gc.Status = "switching-over"
 	b.promoteGlobalClusterWriter(region, gc, targetDBClusterID)
+	b.syncGlobalLinkage(gc)
 
 	return copyGlobalCluster(gc), nil
 }

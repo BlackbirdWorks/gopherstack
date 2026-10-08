@@ -2,7 +2,7 @@
 service: cleanrooms
 sdk_module: aws-sdk-go-v2/service/cleanrooms@v1.49.4   # bumped from v1.48.0 this pass (go.mod already pinned v1.49.4; PARITY.md was stale)
 last_audit_commit: 841743e85
-last_audit_date: 2026-09-18
+last_audit_date: 2026-10-07
 overall: A            # systemic invented-field cleanup + several real state-machine/wire-shape bugs fixed (prior pass); IntermediateTable family implemented for real at the same quality bar (2026-07-25 pass)
                       # 2026-08-07 pass (bd gopherstack-kiqa): CollaborationChangeRequest.Changes is now a
                       # real typed union (Change/ChangeSpecification/MemberChangeSpecification/
@@ -128,18 +128,25 @@ families:
   RouteMatcher/classifyPath: {status: ok, note: "no change this pass; prior pass's GetCollaborationAnalysisTemplate routing fix re-verified via handler_route_matcher_test.go. 2026-08-13 (gopherstack-jqh2 pass 2): re-extracted all 100 ops' real method+path from cleanrooms@v1.49.4 serializers.go independently and confirmed handler_route_matcher_test.go's TestRouteMatcher_MethodSensitivity already covers every op exactly once with the correct method/path (including the two ARN-embeds-slashes special cases, GetCollaborationAnalysisTemplate and the /tags/{arn} family) -- this IS the SDK-route-fidelity table this audit's method calls for; no duplicate added, per the sesv2 precedent."}
 gaps: []
 items_still_open:
-  - "Privacy budgets: no query-time consumption (remainingCount always equals maxCount) and no ACCESS_BUDGET type; needs a real differential-privacy query engine and StartProtectedQuery has no differentialPrivacy parameter."
-  - "Collaboration.Members stays on the wire (json:\"members\") because it is the only persisted backing store for ListMembers/DeleteMember; real clients ignore the extra key. Removing it needs a dedicated persistence DTO."
-  - "ADD_PAYER_CANDIDATE/REMOVE_PAYER_CANDIDATE and GRANT_/REVOKE_CAN_RECEIVE_{MODEL,INFERENCE}_OUTPUT change types validate but have no COMMIT effect; the real server-derived Change.types mapping is undocumented."
-  - "Still unmodeled (omitted, not fabricated): ProtectedQuery/Job differentialPrivacy (needs the privacy-budget engine above); AnalysisTemplate sourceMetadata and validations (server-derived from artifacts/ML analysis, nothing here computes them). AnalysisTemplate syntheticDataParameters/schema/isSyntheticData round-trip (`TestRealClient_AnalysisTemplateSyntheticDataAndSchema`); schema is echoed only when supplied, since AWS infers referencedTables from the query text."
-  - "ProtectedQuerySummary/ProtectedJobSummary.receiverConfigurations (required) is not emitted: AWS derives it from the result configuration with no documented mapping, and no stored data exists to copy."
-  - "PopulateIdMappingTableInput.JobType is not echoed: the op returns only idMappingJobId and no IdMappingJob entity exists to surface it."
-  - "IntermediateTable schema/childResources/tableDependencies, UpdateIntermediateTable columns, and DisallowIntermediateTable includeDescendants cascade need a SQL engine and a cross-member dependency graph."
-  - "ProtectedJob/ProtectedJobSummary emit a request-only \"type\" key (invisible to typed clients); removing it needs a persistence DTO because the wire struct is also the snapshot encoding."
-  - "Schemas are never created: AWS derives one per ConfiguredTableAssociation, but Schema.columns need each column's SQL type, which comes from the Glue table and ConfiguredTable.allowedColumns carries names only. GetSchema/ListSchemas/BatchGetSchema stay empty, and SchemaAnalysisRule (a types.AnalysisRule union) is unreachable for the same reason."
+  - "Schemas are never created: Schema.columns need each column's SQL type, which comes from the Glue table, and no Glue accessor is wired into this service (cli.go wiring outside it). GetSchema/ListSchemas/BatchGetSchema stay empty and SchemaAnalysisRule is unreachable for the same reason."
+structural_gaps:
+  - "Privacy budgets: no query-time consumption (remainingCount always equals maxCount) and no ACCESS_BUDGET type; needs a real differential-privacy query engine, so ProtectedQuery/Job differentialPrivacy is also unmodeled."
+  - "AnalysisTemplate sourceMetadata and validations are server-derived from artifacts/ML analysis that nothing here computes."
+  - "IntermediateTable schema/childResources/tableDependencies, UpdateIntermediateTable columns and the DisallowIntermediateTable includeDescendants cascade need a SQL engine and a cross-member dependency graph."
+  - "ADD_PAYER_CANDIDATE/REMOVE_PAYER_CANDIDATE change types validate but have no COMMIT effect: no SDK shape carries a payer-candidate member to mutate."
+  - "PopulateIdMappingTableInput.JobType is validated but not surfaced: the op returns only idMappingJobId and the SDK has no IdMappingJob read operation."
 deferred: []
 leaks: {status: clean, note: "Handler.StartWorker is a no-op (no goroutines, no timers, no channels); Reset()/Snapshot()/Restore() only touch store.Registry-managed tables and the plain tagsByArn map. No lifecycle to leak. Re-verified this pass; the createMembershipLocked refactor (shared by CreateMembership and CreateCollaboration) still runs entirely under the caller's already-held b.mu write lock with no additional goroutines."}
 ---
+
+## 2026-10-07 (items_still_open burn-down)
+
+ProtectedQuerySummary/ProtectedJobSummary now emit receiverConfigurations derived from the result configuration
+(member accountId, or the running account for S3/intermediate-table output; `TestRealClient_ProtectedQuerySummaryReceiverConfigurations`).
+ProtectedJob responses no longer carry the request-only `type` key (`TestProtectedJob_WireOmitsRequestOnlyType`).
+A MEMBER change for an account already in the collaboration now derives GRANT/REVOKE_RECEIVE_RESULTS_ABILITY and
+GRANT/REVOKE_CAN_RECEIVE_{MODEL,INFERENCE}_OUTPUT from the ability diff and commits them
+(`TestRealClient_ChangeRequestAbilityModification`). Collaboration.members was already omitted from responses.
 
 ## 2026-10-05 (gap burn-down pass 3, gopherstack-9x62)
 

@@ -2,9 +2,8 @@ package docdb
 
 import "context"
 
-// DescribeCertificates returns certificate information.
-func (b *InMemoryBackend) DescribeCertificates(_ context.Context, certificateID string) []Certificate {
-	certs := []Certificate{
+func certificateCatalog() []Certificate {
+	return []Certificate{
 		{
 			CertificateIdentifier: "rds-ca-2019",
 			CertificateType:       "CA",
@@ -20,6 +19,21 @@ func (b *InMemoryBackend) DescribeCertificates(_ context.Context, certificateID 
 			ValidTill:             "2061-05-25T00:00:00Z",
 		},
 	}
+}
+
+func certificateValidTill(id string) string {
+	for _, c := range certificateCatalog() {
+		if c.CertificateIdentifier == id {
+			return c.ValidTill
+		}
+	}
+
+	return ""
+}
+
+// DescribeCertificates returns certificate information.
+func (b *InMemoryBackend) DescribeCertificates(_ context.Context, certificateID string) []Certificate {
+	certs := certificateCatalog()
 	if certificateID == "" {
 		return certs
 	}
