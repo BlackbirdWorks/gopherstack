@@ -158,10 +158,9 @@ func (b *InMemoryBackend) StartSyncExecution(
 	startDate := float64(time.Now().UnixMilli()) / millisPerSecond
 	execARN := b.execARN(baseSMArn, smName, name)
 
-	// Express Workflows must complete within 5 minutes per AWS spec.
-	const expressSyncTimeout = 5 * time.Minute
+	syncLimit, timeoutCause := syncExecutionLimit(parsedSM.TimeoutSeconds)
 
-	syncCtx, syncCancel := context.WithTimeout(b.execContext(execARN), expressSyncTimeout)
+	syncCtx, syncCancel := context.WithTimeout(b.execContext(execARN), syncLimit)
 	defer syncCancel()
 
 	// Run synchronously with nil history recorder (sync executions are ephemeral).
@@ -192,11 +191,24 @@ func (b *InMemoryBackend) StartSyncExecution(
 		startDate,
 		result,
 		execErr,
+		timeoutCause,
 	)
 	b.emitExecutionStarted(baseSMArn)
 	b.emitExecutionEnded(baseSMArn, syncResult.Status, syncResult.StartDate, syncResult.StopDate)
 
 	return syncResult, nil
+}
+
+// expressSyncTimeout is the AWS cap on an Express Workflow execution.
+const expressSyncTimeout = 5 * time.Minute
+
+// syncExecutionLimit returns the sync deadline and its TIMED_OUT cause (empty when the definition's own limit applies).
+func syncExecutionLimit(definitionSeconds int) (time.Duration, string) {
+	if def := time.Duration(definitionSeconds) * time.Second; def > 0 && def < expressSyncTimeout {
+		return def, ""
+	}
+
+	return expressSyncTimeout, "Express Workflow exceeded the 5-minute maximum execution time"
 }
 
 // finalizeSyncExecutionResult assembles the SyncExecutionResult based on the
@@ -207,6 +219,7 @@ func finalizeSyncExecutionResult(
 	startDate float64,
 	result *asl.ExecutionResult,
 	execErr error,
+	timeoutCause string,
 ) *SyncExecutionResult {
 	stopDate := float64(time.Now().Unix())
 
@@ -223,7 +236,7 @@ func finalizeSyncExecutionResult(
 		if errors.Is(execErr, context.DeadlineExceeded) {
 			syncResult.Status = "TIMED_OUT"
 			syncResult.Error = "States.Timeout"
-			syncResult.Cause = "Express Workflow exceeded the 5-minute maximum execution time"
+			syncResult.Cause = timeoutCause
 		} else {
 			syncResult.Status = statusFailed
 			syncResult.Error = execErr.Error()
@@ -506,7 +519,13 @@ func (b *InMemoryBackend) runParsedExecution(
 	executor.SetMapRunNotifier(b)
 	executor.SetDistributedMapRunner(&distributedMapChildRunner{backend: b})
 	b.applyExecutorContext(executor, execARN)
-	result, execErr := executor.Execute(ctx, execARN, input)
+
+	runCtx, cancelRun := executionDeadline(ctx, sm.TimeoutSeconds)
+	result, execErr := executor.Execute(runCtx, execARN, input)
+	timedOut := sm.TimeoutSeconds > 0 && ctx.Err() == nil &&
+		errors.Is(runCtx.Err(), context.DeadlineExceeded) && (execErr != nil || result == nil || result.Failed)
+
+	cancelRun()
 
 	b.mu.Lock("runParsedExecution")
 	defer b.mu.Unlock()
@@ -532,7 +551,40 @@ func (b *InMemoryBackend) runParsedExecution(
 		return
 	}
 
+	if timedOut {
+		b.timeOutExecutionLocked(exec, execARN)
+
+		return
+	}
+
 	b.finalizeExecutionRecordLocked(exec, execARN, result, execErr)
+}
+
+// executionDeadline bounds ctx by the state machine's top-level TimeoutSeconds (0 means unbounded).
+func executionDeadline(ctx context.Context, timeoutSeconds int) (context.Context, context.CancelFunc) {
+	if timeoutSeconds <= 0 {
+		return context.WithCancel(ctx)
+	}
+
+	return context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
+}
+
+// timeOutExecutionLocked closes a RUNNING execution as TIMED_OUT with States.Timeout.
+func (b *InMemoryBackend) timeOutExecutionLocked(exec *Execution, execARN string) {
+	now := float64(time.Now().Unix())
+	exec.Status = statusTimedOut
+	exec.StopDate = &now
+	exec.Error = "States.Timeout"
+	exec.RedriveStatus = redriveStatusRedrivable
+	exec.RedriveStatusReason = ""
+	b.removeFromStatusBucket(exec.StateMachineArn, statusRunning, execARN)
+	b.addToStatusBucket(exec.StateMachineArn, statusTimedOut, execARN)
+	b.emitExecutionEnded(exec.StateMachineArn, statusTimedOut, exec.StartDate, now)
+
+	nextID := int64(len(exec.history) + 1)
+	exec.history = append(exec.history, &HistoryEvent{
+		Timestamp: now, Type: "ExecutionTimedOut", ID: nextID, PreviousEventID: nextID - 1,
+	})
 }
 
 func (b *InMemoryBackend) finalizeExecutionRecordLocked(
@@ -809,9 +861,9 @@ func (b *InMemoryBackend) redriveExecutionLocked(executionARN string) (*redriven
 		return nil, fmt.Errorf("%w: %s", ErrExecutionDoesNotExist, executionARN)
 	}
 
-	if exec.Status != statusFailed && exec.Status != statusAborted {
+	if exec.Status != statusFailed && exec.Status != statusAborted && exec.Status != statusTimedOut {
 		return nil, fmt.Errorf(
-			"%w: execution %s is in status %s; only FAILED or ABORTED executions can be redriven",
+			"%w: execution %s is in status %s; only FAILED, TIMED_OUT or ABORTED executions can be redriven",
 			ErrExecutionNotRedrivable,
 			executionARN,
 			exec.Status,

@@ -47,6 +47,8 @@ type StateMachine struct {
 	Comment         string            `json:"Comment,omitempty"`
 	StartAt         string            `json:"StartAt"`
 	QueryLanguage   string            `json:"QueryLanguage,omitempty"`
+	// TimeoutSeconds caps a top-level execution; nested branches never carry it.
+	TimeoutSeconds int `json:"TimeoutSeconds,omitempty"`
 }
 
 // ItemBatcher configures batching for a Map state's Distributed Map.
@@ -320,6 +322,10 @@ func Parse(definition string) (*StateMachine, error) {
 
 	if err := validateQueryLanguage(&sm); err != nil {
 		return nil, err
+	}
+
+	if sm.TimeoutSeconds < 0 {
+		return nil, fmt.Errorf("%w: TimeoutSeconds must be a positive integer", ErrParseError)
 	}
 
 	return &sm, nil

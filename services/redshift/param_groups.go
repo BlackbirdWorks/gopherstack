@@ -2,6 +2,7 @@ package redshift
 
 import (
 	"fmt"
+	"maps"
 	"strings"
 	"time"
 )
@@ -27,6 +28,7 @@ type ClusterParameter struct {
 
 // ClusterParameterGroup represents a Redshift cluster parameter group.
 type ClusterParameterGroup struct {
+	Tags                 map[string]string  `json:"tags,omitempty"`
 	CreatedAt            time.Time          `json:"createdAt"`
 	ParameterGroupName   string             `json:"parameterGroupName"`
 	ParameterGroupFamily string             `json:"parameterGroupFamily"`
@@ -309,6 +311,7 @@ func (b *InMemoryBackend) DescribeDefaultClusterParameters(family string) ([]Clu
 // cloneParameterGroup returns a deep copy of a ClusterParameterGroup.
 func cloneParameterGroup(pg *ClusterParameterGroup) ClusterParameterGroup {
 	cp := *pg
+	cp.Tags = maps.Clone(pg.Tags)
 	cp.Parameters = make([]ClusterParameter, len(pg.Parameters))
 	copy(cp.Parameters, pg.Parameters)
 

@@ -2,6 +2,7 @@ package redshift
 
 import (
 	"fmt"
+	"maps"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -186,6 +187,7 @@ func (b *InMemoryBackend) AddSnapshotInternal(snap *Snapshot) {
 // cloneSnapshot returns a deep copy of a Snapshot.
 func cloneSnapshot(snap *Snapshot) *Snapshot {
 	cp := *snap
+	cp.Tags = maps.Clone(snap.Tags)
 	cp.AccountsWithRestoreAccess = make([]AccountWithRestoreAccess, len(snap.AccountsWithRestoreAccess))
 	copy(cp.AccountsWithRestoreAccess, snap.AccountsWithRestoreAccess)
 
@@ -340,6 +342,8 @@ func (b *InMemoryBackend) CopyClusterSnapshot(
 	cp := cloneSnapshot(src)
 	cp.SnapshotIdentifier = destinationSnapshotID
 	cp.SnapshotType = "manual"
+	cp.SnapshotArn = b.arnLocked(tagTypeSnapshot, cp.ClusterIdentifier+"/"+destinationSnapshotID)
+	cp.Tags = nil
 	b.snapshots.Put(cp)
 
 	result := cloneSnapshot(cp)
