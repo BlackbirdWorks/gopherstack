@@ -120,6 +120,7 @@ func (b *InMemoryBackend) buildNestedProbes(
 			ProbeID:         probeID,
 			ProbeArn:        probeARN,
 			SourceArn:       pi.SourceArn,
+			VpcID:           b.subnetVpcID(pi.SourceArn),
 			Destination:     pi.Destination,
 			Protocol:        protocols[i],
 			DestinationPort: pi.DestinationPort,

@@ -122,19 +122,31 @@ func (j *Janitor) sweepTerminatedClusters(ctx context.Context) {
 // false.") -- once every step on the cluster has reached a terminal
 // status. This mirrors real EMR's ALL_STEPS_COMPLETED state change reason
 // (types.ClusterStateChangeReasonCodeAllStepsCompleted, emr@v1.64.4
-// types/enums.go:176).
+// types/enums.go:176). It also terminates clusters whose
+// AutoTerminationPolicy.IdleTimeout has elapsed (see clusterIdleSince).
 func (j *Janitor) sweepAutoTerminate(ctx context.Context) {
 	j.Backend.mu.Lock("sweepAutoTerminate")
 
 	var terminated []string
 
+	now := time.Now()
+
 	for _, c := range j.Backend.clusters.Snapshot() {
 		alreadyTerminal := c.Status.State == StateTerminated || c.Status.State == StateTerminatedWithErrors
-		if alreadyTerminal || !c.AutoTerminate || !allStepsTerminal(c.steps) {
+		if alreadyTerminal {
 			continue
 		}
 
-		if err := terminateSingle(c, c.ID, stateChangeReasonAllStepsCompleted, "Steps completed"); err == nil {
+		message := "Steps completed"
+		if !c.AutoTerminate || !allStepsTerminal(c.steps) {
+			if !idleTimeoutElapsed(c, now) {
+				continue
+			}
+
+			message = stateChangeMessageIdleTimeout
+		}
+
+		if err := terminateSingle(c, c.ID, stateChangeReasonAllStepsCompleted, message); err == nil {
 			terminated = append(terminated, c.ID)
 		}
 	}

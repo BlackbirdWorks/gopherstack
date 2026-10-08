@@ -2,11 +2,11 @@
 service: networkmonitor
 sdk_module: aws-sdk-go-v2/service/networkmonitor@v1.16.4
 last_audit_commit: 9bcb4b792
-last_audit_date: 2026-09-18
+last_audit_date: 2026-10-07
 overall: A
 ops:
   CreateMonitor: {wire: ok, errors: ok, state: ok, persist: ok, note: "probe packetSize now validated (56-8500); probe protocol now canonicalised to upper-case TCP/ICMP before storage; now enforces the real 'monitors per account per Region' (100) and nested-probe 'probes per monitor' (24) / 'probes per subnet per monitor' (4) service quotas -> ServiceQuotaExceededException (402)"}
-  GetMonitor: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetMonitor: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-10-07: nested Probe.VpcId resolved from the SourceArn subnet via EC2 (also CreateMonitor/CreateProbe/GetProbe); test TestProbe_VpcIDFromSubnet"}
   UpdateMonitor: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteMonitor: {wire: ok, errors: ok, state: ok, persist: ok}
   ListMonitors: {wire: ok, errors: ok, state: ok, persist: ok, note: "pagination verified: token-past-end returns empty (not first page), state filter applied post-slice correctly"}
@@ -20,8 +20,7 @@ ops:
 families:
   route_matching: {status: ok, note: "RouteMatcher gates on signing-service + path prefix only (method-agnostic, correct); ExtractOperation correctly routes UpdateMonitor/UpdateProbe on PATCH (not PUT, which the real API does not expose). TestHandler_RouteMatcher and TestHandler_ExtractOperation_MethodPathMatrix (handler_test.go) exercise RouteMatcher() and the method+path matrix directly."}
 gaps: []
-items_still_open:
-  - "Probe.VpcId (CreateProbe/GetProbe/UpdateProbe/GetMonitor's nested probes) stays empty: real AWS derives it from the SourceArn subnet's VPC, which needs a live ec2 subnet lookup this backend doesn't have; optional field, left unset rather than fabricated."
+items_still_open: []
 deferred:
   - "AccessDeniedException (403) / ThrottlingException (429) are not wired: verified this pass that there is no shared auth/rate-limit middleware anywhere in gopherstack that would inject these for networkmonitor (checked pkgs/chaos, which is fault-injection only, not standard error mapping) -- corrects last pass's unverified guess that such middleware existed. This backend has no auth model and no request-rate accounting, so there is no real condition under which these codes would ever be produced; every other audited service in this repo (ce, pipes, ssoadmin, fis, apprunner, polly) follows the same pattern of only wiring exception branches that have a genuine backend trigger. Re-open if gopherstack ever grows a cross-service auth/throttle layer."
 leaks: {status: clean, note: "no goroutines/janitors in this service; InMemoryBackend is a plain locked map+store.Table with no background work"}
@@ -282,10 +281,9 @@ per-item bugs found: `monitorSummary` (ListMonitors) already matches the
 real narrow `MonitorSummary` shape exactly (`cmd/overwidecandidates`'s flag
 on `ListMonitors` is a false positive, confirmed by reading `monitors.go`);
 `probeWireBody` matches `Probe`/`GetProbeOutput`/`UpdateProbeOutput` member-
-for-member including epoch-seconds `createdAt`/`modifiedAt`. One gap
-recorded (not fixed): `Probe.VpcId` is never populated (see
-`items_still_open`) -- deriving it needs a live ec2 subnet lookup this
-backend doesn't have, so it's left unset rather than fabricated.
+for-member including epoch-seconds `createdAt`/`modifiedAt`. `Probe.VpcId` was
+left unset then; since 2026-10-07 it is resolved from the SourceArn subnet
+via the EC2 backend (cross_service.go).
 
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 

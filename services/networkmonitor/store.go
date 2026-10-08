@@ -137,6 +137,7 @@ type StorageBackend interface {
 // [regionKey] builds (see store_setup.go for the Phase 3.3 datalayer
 // conversion this struct went through).
 type InMemoryBackend struct {
+	appConfig        any
 	registry         *store.Registry
 	monitors         *store.Table[Monitor]
 	monitorsByRegion *store.Index[Monitor]

@@ -7,7 +7,7 @@
 service: polly
 sdk_module: aws-sdk-go-v2/service/polly@v1.60.4   # version audited against
 last_audit_commit: c9523cebb
-last_audit_date: 2026-09-18
+last_audit_date: 2026-10-07
 overall: A            # two real bugs found and fixed this pass (StartSpeechSynthesisStream accepted non-generative Engine values; StartSpeechSynthesisTask shared SynthesizeSpeech's wider mp3/ogg_vorbis SampleRate set)
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -28,8 +28,7 @@ families:
   synthesizeSpeech: {status: ok, note: "REST payload response verified: Content-Type set from OutputFormat, X-Amzn-RequestCharacters header present; speech-mark json-stream verified; SSML well-formedness (must be valid XML wrapped in <speak>) now enforced for both SynthesizeSpeech and StartSpeechSynthesisTask via one shared validateSSML, and for StartSpeechSynthesisStream via SynthesizeSpeech's shared validateOptions"}
   voices: {status: ok, note: "filter logic (Engine/Gender/LanguageCode/IncludeAdditionalLanguageCodes) verified against real DescribeVoicesInput/Voice shape; full 106-voice catalogue field-diffed against the AWS voicelist.html table and the pinned SDK's VoiceId enum -- every voice's LanguageCode/Gender/SupportedEngines cross-checked"}
 gaps: []
-items_still_open:
-  - "errcodeaudit 2026-09-12 (gopherstack-r3pr): ErrValidation's mapped wire code was fabricated (\"InvalidParameterValueException\", no such type in polly@v1.60.4) and is now the real \"ValidationException\" type -- confirmed modeled by StartSpeechSynthesisStream, but UNCONFIRMED for the other six operations that also raise this shared sentinel (PutLexicon/DescribeVoices/SynthesizeSpeech/ListSpeechSynthesisTasks/StartSpeechSynthesisTask/GetSpeechSynthesisTask via speech_synthesis_tasks.go's Status check): none of those declare ANY generic validation exception in their own deserializeOpError, so a real client can only ever see this as an untyped smithy.GenericAPIError regardless of the code text. Splitting ErrValidation per-operation into whatever each one's own model actually supports (if anything) is future work, not done this pass."
+items_still_open: []
 deferred: []
 leaks: {status: clean, note: "no goroutines/timers; task lifecycle advances synchronously on each Get/List poll (b.mu-guarded), no background janitor to leak. Tag* removal deleted the last map keyed independently of store.Table (b.tags) with no replacement -- one fewer thing that could ghost-row after delete."}
 ---

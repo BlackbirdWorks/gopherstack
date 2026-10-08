@@ -7,7 +7,7 @@
 service: dax
 sdk_module: aws-sdk-go-v2/service/dax@v1.32.4   # awsjson1.1 protocol, target prefix AmazonDAXV3.
 last_audit_commit: 0b11fe635  # 2026-09-19 goroutine-launch fix (gopherstack-1x2u0 Part 2 follow-up); prior: d522d763f
-last_audit_date: 2026-09-19  # prior: 2026-09-19
+last_audit_date: 2026-10-07  # prior: 2026-09-19
 overall: A            # 2026-07-24: follow-up pass: closed all 3 previously-known gaps, killed both banned nolints
                       # 2026-07-31: pkgs/sdkcheck reverse check found ResetParameterGroup wrongly advertised/documented as a real SDK op (it isn't -- see its ops-block note); corrected, route left wired as internal test scaffolding. Grade held at A: unreachable by real traffic either way, since DAX dispatches purely by X-Amz-Target and no real client can send this target.
                       # 2026-08-10: control-plane sweep (gopherstack-mmqd). Fixed state-mutated-before-validation in UpdateCluster and UpdateParameterGroup, a wrong error fault code on 6 required-field checks, a fabricated Tags field on the Cluster wire response, 3 unvalidated @required fields (TagResource.Tags, UntagResource.TagKeys, UpdateParameterGroup.ParameterNameValues), and a missing per-subnet SupportedNetworkTypes field. See Notes.
@@ -62,8 +62,9 @@ families:
   events: {status: ok, note: "DescribeEvents ring buffer (1000 cap) is real; StartTime/EndTime/SourceName/SourceType filtering verified after fixing the epoch-seconds request-parsing bug."}
   dataplane: {status: deferred, note: "Binary DAX client protocol (services/dax/dataplane/) is a separate, extensively self-tested subsystem (936-line dataplane_integration_test.go + dataplane/*_test.go) not covered by this control-plane wire-shape sweep. Not audited this pass -- different reference material (aws-dax-go's binary encoding, not aws-sdk-go-v2/service/dax) would be needed."}
 gaps: []                  # known divergences NOT fixed — link bd issue ids; all 3 prior gaps closed this pass
-items_still_open:
-  - "InsufficientClusterCapacityFault / ServiceLinkedRoleNotFoundFault (types.InsufficientClusterCapacityFault, types.ServiceLinkedRoleNotFoundFault) are real CreateCluster error types not modeled. Reason: both are account/infrastructure-state faults (missing DAX service-linked role; opportunistic hardware capacity shortage) with no deterministic, request-shape-driven trigger condition -- gopherstack tracks neither IAM service-linked-role state nor a hardware capacity pool. Inventing an arbitrary trigger (e.g. erroring above some ReplicationFactor) would itself be exactly the kind of fabricated, non-AWS-accurate behavior this audit exists to prevent. Left unmodeled; would need a deliberate design decision (e.g. a backend flag simulating SLR presence) before implementing."
+items_still_open: []
+structural_gaps:
+  - "InsufficientClusterCapacityFault and ServiceLinkedRoleNotFoundFault depend on hardware capacity and IAM service-linked-role state that an emulator does not have; no request-shape trigger exists."
 deferred:                 # consciously not audited this pass (scope) — next pass targets
   - dataplane/ (binary DAX client protocol server, separate from the HTTP control-plane API audited here)
 leaks: {status: clean, note: "CreateCluster/DeleteCluster/IncreaseReplicationFactor/DecreaseReplicationFactor/RebootNode no longer spawn goroutines at all (fixed 2026-09-19, gopherstack-1x2u0) -- each sets a TransitionDeadline/RebootDeadline field instead, lazily applied by sweepClusterTransitionsLocked at the top of every op that reads or gates on cluster/node status (DescribeClusters, UpdateCluster, DeleteCluster, Increase/DecreaseReplicationFactor, RebootNode, TagResource/UntagResource/ListTags/TaggedResources), same pattern as services/fsx's sweepDataRepositoryTasksLocked. leak_main_test.go added (testleak.VerifyTestMain); go test -race -count=1 clean. See Notes."}
