@@ -106,6 +106,7 @@ type AccountSettings struct {
 type PrepareQueryResult struct {
 	QueryString string
 	Columns     []ColumnInfo
+	Selected    []SelectColumn
 	Parameters  []ColumnInfo
 }
 

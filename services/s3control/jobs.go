@@ -64,6 +64,21 @@ func (b *InMemoryBackend) UpdateJobDetails(
 	return nil
 }
 
+// SetJobManifestGenerator stores the raw ManifestGenerator element of a CreateJob request.
+func (b *InMemoryBackend) SetJobManifestGenerator(accountID, jobID, manifestGenerator string) error {
+	b.mu.Lock("SetJobManifestGenerator")
+	defer b.mu.Unlock()
+
+	job, ok := b.batchJobs.Get(accountID + ":" + jobID)
+	if !ok {
+		return fmt.Errorf("%w: %s", errJobNotFound, jobID)
+	}
+
+	job.ManifestGenerator = manifestGenerator
+
+	return nil
+}
+
 // GetJob retrieves a batch job by ID.
 func (b *InMemoryBackend) GetJob(accountID, jobID string) (*BatchJob, error) {
 	b.mu.RLock("GetJob")

@@ -2,7 +2,7 @@
 service: timestreamquery
 sdk_module: aws-sdk-go-v2/service/timestreamquery@v1.39.4
 last_audit_commit: a98a164d                    # NOT updated this pass -- git commands are off-limits (gopherstack-r80d batch 25)
-last_audit_date: 2026-08-21
+last_audit_date: 2026-10-07
 overall: A            # this pass (gopherstack-r80d batch 25): DescribeScheduledQuery's
                        # ScheduledQuery.TargetConfiguration.TimestreamConfiguration was missing 2 of
                        # its 4 required members (TimeColumn/DimensionMappings) -- CreateScheduledQuery's
@@ -38,11 +38,10 @@ families:
   tags: {status: deferred, note: "TagResource/UntagResource/ListTagsForResource are in GetSupportedOperations() and have working handlers/backend methods (own ARN-keyed tag map), but RouteMatcher intentionally excludes them (writeServiceTagOps) so production traffic is routed to the TimestreamWrite handler's unified cross-resource tag store instead. Verified TimestreamWrite's TagResource treats ResourceARN as an opaque key (no resource-type-specific lookup), so scheduled-query ARNs tag correctly there. This package's own tag handlers are dead code in production, reachable only via direct unit tests / Handler() bypassing RouteMatcher -- confirmed intentional, not a routing bug."}
   route_matching: {status: ok, note: "X-Amz-Target prefix Timestream_20181101., Content-Type application/x-amz-json-1.0 (awsjson1.0) verified against serializers.go (awsAwsjson10_*). DescribeEndpoints wired for SDK endpoint-discovery (fetchOpQueryDiscoverEndpoint calls DescribeEndpoints first)."}
 gaps: []
-items_still_open:
-  - "CreateScheduledQueryInput.KmsKeyId is now stored and echoed on DescribeScheduledQuery (fixed this pass -- see CreateScheduledQuery note), but this emulator still has no at-rest encryption layer, so setting it has no observable effect on how results/error reports are protected. Honestly scoped: 'we do not encrypt', not 'we lose the setting'."
-  - "ScheduledQueryDescription.RecentlyFailedRuns (up to 5 most recent failed runs) and ScheduledQueryRunSummary.QueryInsightsResponse are not modeled -- this emulator's ExecuteScheduledQuery always succeeds (see ExecuteScheduledQuery), so there is no failure path to populate RecentlyFailedRuns from, and no scheduled-query-run-level QueryInsights simulation exists. Both are optional response fields; omitting them is wire-safe (omitempty). Enum check: types.ScheduledQueryRunStatus has 4 documented values (enums.go:229-232) -- AUTO_TRIGGER_SUCCESS, AUTO_TRIGGER_FAILURE, MANUAL_TRIGGER_SUCCESS, MANUAL_TRIGGER_FAILURE. This package declares 3 as unexported consts (scheduled_queries.go) but is missing MANUAL_TRIGGER_FAILURE outright, and none of the *_FAILURE values are ever assigned (RunStatus is backend-generated output only, never client-supplied, so there is no exhaustiveness requirement over it) -- consistent with 'no failure path', not a separate drop. (bd: file follow-up if failure simulation is ever added)"
-  - "gopherstack-r80d batch 25 reviewed, ruled OUT (not a bug): ScheduledQueryDescription.NotificationConfiguration/ScheduleConfiguration are required at the top level and, once present, their own SnsConfiguration.TopicArn/ScheduleExpression are required one level deeper -- scheduledQueryToView gates emitting each wrapper on the corresponding domain field being non-empty. The real SDK's own client-side validators (validators.go's validateNotificationConfiguration/validateScheduleConfiguration/validateSnsConfiguration/validateScheduleConfiguration) only reject a NIL pointer, not an empty string, so a real client COULD send TopicArn/ScheduleExpression as an explicit empty string and still pass client-side validation. But gopherstack's own handleCreateScheduledQuery independently rejects both as ValidationException if empty (\"NotificationConfiguration.SnsConfiguration.TopicArn is required\" / \"ScheduleConfiguration.ScheduleExpression is required\") -- stricter than the real SDK's client-side check, the same ruled-out class batch 23 established for codeconnections' RepositorySyncDefinition.Parent. Since gopherstack rejects the only path that would produce an empty value, the wrapper-omission gate is unreachable via any real client that gets past CreateScheduledQuery at all."
-  - "2026-08-20: PrepareQueryOutput.Columns is types.SelectColumn (api_op_PrepareQuery.go), not types.ColumnInfo -- a wider sibling adding Aliased/DatabaseName/TableName (all optional, no required markers) on top of Name/Type. This package's marshalColumnInfos (shared with Query's ColumnInfo response) only ever emits Name/Type, so PrepareQuery responses can never carry Aliased/DatabaseName/TableName. Wire-safe (all three are optional/omitempty), but this emulator's inferColumnsFromSQL has no real catalog to source DatabaseName/TableName from and no alias-detection logic, so filling them would require fabricating values rather than reflecting real inference -- left unmodeled rather than faked. types.ParameterMapping (PrepareQueryOutput.Parameters) is wire-identical to ColumnInfo ({Name,Type}), so no equivalent gap there."
+items_still_open: []
+structural_gaps:
+  - "CreateScheduledQuery KmsKeyId is stored and echoed, but there is no at-rest encryption layer to apply it to."
+  - "ScheduledQueryDescription.RecentlyFailedRuns and ScheduledQueryRunSummary.QueryInsightsResponse: ExecuteScheduledQuery runs no real query engine, so no run can fail or produce insights; both fields are optional and omitted."
 deferred:
   - "Query/CancelQuery against genuinely long-running or multi-page real query execution semantics -- this emulator's Query is synchronous and instantaneous (matches the mock-data-source design already documented in QueryWithOptions), so QueryExecutionException (a real error type for query engine failures) is never returned. Acceptable per the documented deterministic-mock design; revisit only if a real backing data source is added."
 leaks: {status: clean, note: "clientTokens/scheduledQueryTokens/pageStore are self-contained caches with their own mutex, reset on Reset()/version-mismatch Restore(); queries table is bounded by maxRetainedQueries (10000) with arbitrary eviction, cancelled or not. No goroutines/tickers in this package -- nothing to ctx-parent or drain on Shutdown."}
@@ -613,3 +612,11 @@ timestreamquery already isolates regions internally: scheduled queries are keyed
 ## 2026-10-05 (reqfielddiff tier-2 pagination)
 
 ListTagsForResource is served by timestreamwrite's shared tag handler (this service's RouteMatcher defers tag ops), so MaxResults/NextToken (body-bound, `api_op_ListTagsForResource.go`) are now honoured there: key-sorted tags, MaxResults 1-200 per the API reference, NextToken only when truncated, a malformed token or out-of-range MaxResults returns ValidationException. Proof: `TestRealClient_ListTagsForResourcePaging`.
+
+## 2026-10-07 pass
+
+- `PrepareQuery` Columns are now `types.SelectColumn`: `Aliased` is always emitted, and
+  `DatabaseName`/`TableName` are filled for plain column references when FROM is a single `db.table`
+  (omitted for expressions, joins and unqualified tables). `TestPrepareQuery_SelectColumnMetadata`.
+- Reviewed and ruled out: the empty-TopicArn/ScheduleExpression wrapper-omission gate is unreachable because
+  CreateScheduledQuery rejects both.

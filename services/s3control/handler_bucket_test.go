@@ -21,7 +21,7 @@ func TestOutpostsBucket(t *testing.T) {
 	t.Run("get bucket", func(t *testing.T) {
 		t.Parallel()
 		b := s3control.NewInMemoryBackend()
-		b.CreateBucket("000000000000", "my-bucket")
+		b.CreateBucket("000000000000", "", "my-bucket")
 		bucket, err := b.GetBucket("my-bucket")
 		require.NoError(t, err)
 		assert.Equal(t, "my-bucket", bucket.Name)
@@ -30,7 +30,7 @@ func TestOutpostsBucket(t *testing.T) {
 	t.Run("delete bucket", func(t *testing.T) {
 		t.Parallel()
 		b := s3control.NewInMemoryBackend()
-		b.CreateBucket("000000000000", "to-delete")
+		b.CreateBucket("000000000000", "", "to-delete")
 		require.NoError(t, b.DeleteBucket("to-delete"))
 		_, err := b.GetBucket("to-delete")
 		require.Error(t, err)
@@ -39,7 +39,7 @@ func TestOutpostsBucket(t *testing.T) {
 	t.Run("bucket policy CRUD", func(t *testing.T) {
 		t.Parallel()
 		b := s3control.NewInMemoryBackend()
-		b.CreateBucket("000000000000", "policy-bucket")
+		b.CreateBucket("000000000000", "", "policy-bucket")
 		require.NoError(
 			t,
 			b.PutBucketPolicy("policy-bucket", `{"Version":"2012-10-17"}`),
@@ -55,7 +55,7 @@ func TestOutpostsBucket(t *testing.T) {
 	t.Run("bucket tagging CRUD", func(t *testing.T) {
 		t.Parallel()
 		b := s3control.NewInMemoryBackend()
-		b.CreateBucket("000000000000", "tag-bucket")
+		b.CreateBucket("000000000000", "", "tag-bucket")
 		require.NoError(
 			t,
 			b.PutBucketTagging("tag-bucket", s3control.TagSet{"env": "prod"}),
@@ -69,18 +69,18 @@ func TestOutpostsBucket(t *testing.T) {
 	t.Run("bucket versioning", func(t *testing.T) {
 		t.Parallel()
 		b := s3control.NewInMemoryBackend()
-		b.CreateBucket("000000000000", "ver-bucket")
-		status, _ := b.GetBucketVersioning("ver-bucket")
+		b.CreateBucket("000000000000", "", "ver-bucket")
+		status, _, _ := b.GetBucketVersioning("ver-bucket")
 		assert.Empty(t, status)
-		require.NoError(t, b.PutBucketVersioning("ver-bucket", "Enabled"))
-		status2, _ := b.GetBucketVersioning("ver-bucket")
+		require.NoError(t, b.PutBucketVersioning("ver-bucket", "Enabled", ""))
+		status2, _, _ := b.GetBucketVersioning("ver-bucket")
 		assert.Equal(t, "Enabled", status2)
 	})
 
 	t.Run("bucket lifecycle CRUD", func(t *testing.T) {
 		t.Parallel()
 		b := s3control.NewInMemoryBackend()
-		b.CreateBucket("000000000000", "lc-bucket")
+		b.CreateBucket("000000000000", "", "lc-bucket")
 		require.NoError(
 			t,
 			b.PutBucketLifecycleConfiguration("lc-bucket",
@@ -96,8 +96,8 @@ func TestOutpostsBucket(t *testing.T) {
 	t.Run("list regional buckets", func(t *testing.T) {
 		t.Parallel()
 		b := s3control.NewInMemoryBackend()
-		b.CreateBucket("000000000000", "b1")
-		b.CreateBucket("000000000000", "b2")
+		b.CreateBucket("000000000000", "", "b1")
+		b.CreateBucket("000000000000", "", "b2")
 		buckets := b.ListRegionalBuckets()
 		require.Len(t, buckets, 2)
 	})
@@ -110,17 +110,17 @@ func TestOutpostsBucket(t *testing.T) {
 	t.Run("delete bucket cascade cleans state", func(t *testing.T) {
 		t.Parallel()
 		b := s3control.NewInMemoryBackend()
-		bkt := b.CreateBucket("000000000000", "cascade-bucket")
+		bkt := b.CreateBucket("000000000000", "", "cascade-bucket")
 		require.NoError(t, b.PutBucketPolicy("cascade-bucket", `{"p":1}`))
 		require.NoError(t, b.PutBucketTagging("cascade-bucket", s3control.TagSet{"env": "prod"}))
 		require.NoError(t, b.PutBucketLifecycleConfiguration("cascade-bucket", "<Lifecycle/>"))
-		require.NoError(t, b.PutBucketVersioning("cascade-bucket", "Enabled"))
+		require.NoError(t, b.PutBucketVersioning("cascade-bucket", "Enabled", ""))
 		require.NoError(t, b.PutBucketReplication("cascade-bucket", "<Replication/>"))
 		b.TagResource(bkt.BucketArn, map[string]string{"team": "infra"})
 
 		require.NoError(t, b.DeleteBucket("cascade-bucket"))
 
-		b.CreateBucket("000000000000", "cascade-bucket")
+		b.CreateBucket("000000000000", "", "cascade-bucket")
 
 		policy, err := b.GetBucketPolicy("cascade-bucket")
 		require.NoError(t, err)
@@ -133,7 +133,7 @@ func TestOutpostsBucket(t *testing.T) {
 		require.NoError(t, err)
 		assert.Empty(t, lc, "lifecycle must not survive delete")
 
-		v, err := b.GetBucketVersioning("cascade-bucket")
+		v, _, err := b.GetBucketVersioning("cascade-bucket")
 		require.NoError(t, err)
 		assert.Empty(t, v, "versioning must reset, not survive delete")
 
@@ -154,7 +154,7 @@ func TestHTTP_GetBucket(t *testing.T) {
 	t.Parallel()
 	b := s3control.NewInMemoryBackend()
 	h := s3control.NewHandler(b)
-	b.CreateBucket("000000000000", "test-bucket")
+	b.CreateBucket("000000000000", "", "test-bucket")
 
 	resp := doS3ControlNewOpRequest(
 		t,
@@ -180,7 +180,7 @@ func TestHTTP_ListRegionalBuckets(t *testing.T) {
 	t.Parallel()
 	b := s3control.NewInMemoryBackend()
 	h := s3control.NewHandler(b)
-	b.CreateBucket("000000000000", "b1")
+	b.CreateBucket("000000000000", "", "b1")
 
 	resp := doS3ControlNewOpRequest(t, h, http.MethodGet, "/v20180820/bucket", "000000000000", "")
 	assert.Equal(t, http.StatusOK, resp.Code)
@@ -199,7 +199,7 @@ func TestBucketReplication_PutGetDelete(t *testing.T) {
 		t.Parallel()
 
 		h := s3control.NewHandler(s3control.NewInMemoryBackend())
-		h.Backend.CreateBucket(accountID, bucketName)
+		h.Backend.CreateBucket(accountID, "", bucketName)
 
 		putRec := doS3Request(t, h, http.MethodPut, replicationPath,
 			`<ReplicationConfiguration><Rules>my-rule</Rules></ReplicationConfiguration>`)
@@ -214,7 +214,7 @@ func TestBucketReplication_PutGetDelete(t *testing.T) {
 		t.Parallel()
 
 		h := s3control.NewHandler(s3control.NewInMemoryBackend())
-		h.Backend.CreateBucket(accountID, bucketName)
+		h.Backend.CreateBucket(accountID, "", bucketName)
 
 		rec := doS3Request(t, h, http.MethodGet, replicationPath, "")
 		assert.Equal(t, http.StatusNotFound, rec.Code)
@@ -224,7 +224,7 @@ func TestBucketReplication_PutGetDelete(t *testing.T) {
 		t.Parallel()
 
 		h := s3control.NewHandler(s3control.NewInMemoryBackend())
-		h.Backend.CreateBucket(accountID, bucketName)
+		h.Backend.CreateBucket(accountID, "", bucketName)
 		_ = doS3Request(t, h, http.MethodPut, replicationPath,
 			`<ReplicationConfiguration><Rules>r</Rules></ReplicationConfiguration>`)
 
@@ -243,7 +243,7 @@ func TestBackendBucketReplication(t *testing.T) {
 		t.Parallel()
 
 		b := s3control.NewInMemoryBackend()
-		b.CreateBucket("acct1", "bkt")
+		b.CreateBucket("acct1", "", "bkt")
 
 		_, err := b.GetBucketReplication("bkt")
 		require.Error(t, err)
@@ -253,7 +253,7 @@ func TestBackendBucketReplication(t *testing.T) {
 		t.Parallel()
 
 		b := s3control.NewInMemoryBackend()
-		b.CreateBucket("acct1", "bkt")
+		b.CreateBucket("acct1", "", "bkt")
 		err := b.DeleteBucketReplication("bkt")
 		require.NoError(t, err)
 	})
@@ -319,7 +319,7 @@ func TestBucketReplication_Table(t *testing.T) {
 
 			b := s3control.NewInMemoryBackend()
 			h := s3control.NewHandler(b)
-			b.CreateBucket("000000000000", tt.bucket)
+			b.CreateBucket("000000000000", "", tt.bucket)
 
 			body := `<ReplicationConfiguration>` + tt.rules + `</ReplicationConfiguration>`
 			rec := doS3ControlNewOpRequest(t, h, http.MethodPut,
@@ -372,7 +372,7 @@ func TestBucketReplication_Delete(t *testing.T) {
 			h := s3control.NewHandler(b)
 
 			if tt.createFirst {
-				b.CreateBucket("000000000000", tt.bucket)
+				b.CreateBucket("000000000000", "", tt.bucket)
 			}
 			if tt.preload {
 				require.NoError(t, b.PutBucketReplication(tt.bucket, "<Rule/>"))
@@ -493,7 +493,7 @@ func TestListRegionalBuckets_Pagination(t *testing.T) {
 
 	b := s3control.NewInMemoryBackend()
 	for i := range 4 {
-		b.CreateBucket("acct1", fmt.Sprintf("bucket-%d", i))
+		b.CreateBucket("acct1", "", fmt.Sprintf("bucket-%d", i))
 	}
 	h := s3control.NewHandler(b)
 
@@ -553,7 +553,7 @@ func TestBucketTagging_WireShape(t *testing.T) {
 
 	b := s3control.NewInMemoryBackend()
 	h := s3control.NewHandler(b)
-	b.CreateBucket("acct1", "tag-bucket")
+	b.CreateBucket("acct1", "", "tag-bucket")
 	path := "/v20180820/bucket/tag-bucket/tagging"
 
 	putBody := `<Tagging><TagSet><member><Key>env</Key><Value>prod</Value></member></TagSet></Tagging>`
@@ -590,7 +590,7 @@ func TestBucketVersioning_WireShape(t *testing.T) {
 
 	b := s3control.NewInMemoryBackend()
 	h := s3control.NewHandler(b)
-	b.CreateBucket("acct1", "ver-bucket")
+	b.CreateBucket("acct1", "", "ver-bucket")
 	path := "/v20180820/bucket/ver-bucket/versioning"
 
 	putBody := `<VersioningConfiguration><Status>Enabled</Status></VersioningConfiguration>`
@@ -619,7 +619,7 @@ func TestBucketPolicy_WireShape(t *testing.T) {
 
 	b := s3control.NewInMemoryBackend()
 	h := s3control.NewHandler(b)
-	b.CreateBucket("acct1", "policy-bucket")
+	b.CreateBucket("acct1", "", "policy-bucket")
 	path := "/v20180820/bucket/policy-bucket/policy"
 
 	policyJSON := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow"}]}`

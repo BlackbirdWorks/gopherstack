@@ -218,6 +218,7 @@ func (b *InMemoryBackend) PrepareQuery(
 	return &PrepareQueryResult{
 		QueryString: queryString,
 		Columns:     cols,
+		Selected:    inferSelectColumns(queryString, cols),
 		Parameters:  params,
 	}, nil
 }

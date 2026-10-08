@@ -21,6 +21,12 @@ func TestRealClient_GetDataAccessValidation(t *testing.T) {
 
 	backend := s3control.NewInMemoryBackend()
 	backend.CreateAccessGrantsInstance("123456789012", "")
+	loc := backend.CreateAccessGrantsLocation("123456789012", "s3://bucket", "arn:aws:iam::123456789012:role/r")
+	_, err := backend.CreateAccessGrant(
+		"123456789012", loc.AccessGrantsLocationID, "IAM", "arn:aws:iam::123456789012:role/g", "READ", "", "",
+	)
+	require.NoError(t, err)
+
 	client := newTestS3ControlClient(t, s3control.NewHandler(backend))
 	ctx := t.Context()
 
@@ -50,7 +56,7 @@ func TestRealClient_GetDataAccessValidation(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := client.GetDataAccess(ctx, &s3csdk.GetDataAccessInput{
+			_, gdErr := client.GetDataAccess(ctx, &s3csdk.GetDataAccessInput{
 				AccountId:       aws.String("123456789012"),
 				Target:          aws.String("s3://bucket/prefix/"),
 				Permission:      types.PermissionRead,
@@ -58,10 +64,40 @@ func TestRealClient_GetDataAccessValidation(t *testing.T) {
 				Privilege:       tc.privilege,
 			})
 			if tc.wantErr {
-				require.Error(t, err)
+				require.Error(t, gdErr)
 			} else {
-				require.NoError(t, err)
+				require.NoError(t, gdErr)
 			}
 		})
 	}
+}
+
+func TestRealClient_GetDataAccessCredentials(t *testing.T) {
+	t.Parallel()
+
+	backend := s3control.NewInMemoryBackend()
+	backend.CreateAccessGrantsInstance("123456789012", "")
+	loc := backend.CreateAccessGrantsLocation("123456789012", "s3://bucket", "arn:aws:iam::123456789012:role/r")
+	_, err := backend.CreateAccessGrant(
+		"123456789012", loc.AccessGrantsLocationID, "IAM", "arn:aws:iam::123456789012:role/g", "READ", "", "",
+	)
+	require.NoError(t, err)
+	client := newTestS3ControlClient(t, s3control.NewHandler(backend))
+
+	out, err := client.GetDataAccess(t.Context(), &s3csdk.GetDataAccessInput{
+		AccountId: aws.String("123456789012"), Target: aws.String("s3://bucket/k"), Permission: types.PermissionRead,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.Credentials)
+	require.NotNil(t, out.Credentials.Expiration)
+	require.NotEmpty(t, aws.ToString(out.Credentials.AccessKeyId))
+	require.NotEmpty(t, aws.ToString(out.Credentials.SecretAccessKey))
+	require.NotEmpty(t, aws.ToString(out.Credentials.SessionToken))
+	require.NotNil(t, out.Grantee)
+	require.Equal(t, "arn:aws:iam::123456789012:role/g", aws.ToString(out.Grantee.GranteeIdentifier))
+
+	_, err = client.GetDataAccess(t.Context(), &s3csdk.GetDataAccessInput{
+		AccountId: aws.String("123456789012"), Target: aws.String("s3://other/k"), Permission: types.PermissionRead,
+	})
+	require.ErrorContains(t, err, "AccessDenied")
 }

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -360,12 +361,95 @@ func TestAccessGrantsLocation(t *testing.T) {
 
 func TestGetDataAccess(t *testing.T) {
 	t.Parallel()
-	b := s3control.NewInMemoryBackend()
-	b.CreateAccessGrantsInstance("000000000000", "")
 
-	url, err := b.GetDataAccess("000000000000", "s3://bucket/prefix/", "READ")
-	require.NoError(t, err)
-	assert.NotEmpty(t, url)
+	tests := []struct {
+		name       string
+		scope      string
+		grantPerm  string
+		target     string
+		permission string
+		wantErr    bool
+	}{
+		{
+			name:       "prefix glob match",
+			scope:      "s3://bucket/prefix*",
+			grantPerm:  "READ",
+			target:     "s3://bucket/prefix/a",
+			permission: "READ",
+		},
+		{
+			name:       "bucket scope match",
+			scope:      "s3://bucket",
+			grantPerm:  "READ",
+			target:     "s3://bucket/any/key",
+			permission: "READ",
+		},
+		{
+			name:       "readwrite covers read",
+			scope:      "s3://bucket/",
+			grantPerm:  "READWRITE",
+			target:     "s3://bucket/k",
+			permission: "READ",
+		},
+		{
+			name:       "read does not cover write",
+			scope:      "s3://bucket/",
+			grantPerm:  "READ",
+			target:     "s3://bucket/k",
+			permission: "WRITE",
+			wantErr:    true,
+		},
+		{
+			name:       "outside scope denied",
+			scope:      "s3://bucket/prefix*",
+			grantPerm:  "READ",
+			target:     "s3://bucket/other",
+			permission: "READ",
+			wantErr:    true,
+		},
+		{
+			name:       "other bucket denied",
+			scope:      "s3://bucket",
+			grantPerm:  "READ",
+			target:     "s3://other/k",
+			permission: "READ",
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := s3control.NewInMemoryBackend()
+			b.CreateAccessGrantsInstance("000000000000", "")
+			loc := b.CreateAccessGrantsLocation("000000000000", tt.scope, "arn:aws:iam::000000000000:role/r")
+			_, err := b.CreateAccessGrant(
+				"000000000000",
+				loc.AccessGrantsLocationID,
+				"IAM",
+				"arn:aws:iam::000000000000:role/g",
+				tt.grantPerm,
+				"",
+				"",
+			)
+			require.NoError(t, err)
+
+			got, err := b.GetDataAccess("000000000000", tt.target, tt.permission, 0)
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.True(t, strings.HasPrefix(got.AccessKeyID, "ASIA"))
+			assert.NotEmpty(t, got.SecretAccessKey)
+			assert.NotEmpty(t, got.SessionToken)
+			assert.True(t, got.Expiration.After(time.Now()))
+			assert.Equal(t, "arn:aws:iam::000000000000:role/g", got.GranteeIdentifier)
+		})
+	}
 }
 
 func TestHTTP_GetAccessGrantsInstance(t *testing.T) {

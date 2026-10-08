@@ -89,6 +89,7 @@ type backendSnapshot struct {
 	BucketTagging                map[string]TagSet                 `json:"bucketTagging"`
 	BucketLifecycle              map[string]string                 `json:"bucketLifecycle"`
 	BucketVersioning             map[string]string                 `json:"bucketVersioning"`
+	BucketMFADelete              map[string]string                 `json:"bucketMFADelete,omitempty"`
 	MRAPRoutes                   map[string]string                 `json:"mrapRoutes"`
 	AccessGrantsInstancePolicies map[string]string                 `json:"accessGrantsInstancePolicies"`
 	AccessGrantsPolicyMeta       map[string]AccessGrantsPolicyMeta `json:"accessGrantsPolicyMeta,omitempty"`
@@ -144,6 +145,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		BucketTagging:                cloneMapTagSet(b.bucketTagging),
 		BucketLifecycle:              cloneMapStr(b.bucketLifecycle),
 		BucketVersioning:             cloneMapStr(b.bucketVersioning),
+		BucketMFADelete:              cloneMapStr(b.bucketMFADelete),
 		MRAPRoutes:                   cloneMapStr(b.mrapRoutes),
 		AccessGrantsInstancePolicies: cloneMapStr(b.accessGrantsInstancePolicies),
 		AccessGrantsPolicyMeta:       maps.Clone(b.accessGrantsPolicyMeta),
@@ -318,6 +320,10 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.bucketTagging = snap.BucketTagging
 	b.bucketLifecycle = snap.BucketLifecycle
 	b.bucketVersioning = snap.BucketVersioning
+	b.bucketMFADelete = snap.BucketMFADelete
+	if b.bucketMFADelete == nil {
+		b.bucketMFADelete = make(map[string]string)
+	}
 	b.mrapRoutes = snap.MRAPRoutes
 	b.accessGrantsInstancePolicies = snap.AccessGrantsInstancePolicies
 
