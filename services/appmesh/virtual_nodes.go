@@ -16,6 +16,9 @@ func (b *InMemoryBackend) virtualNodeARN(meshName, name string) string {
 func (b *InMemoryBackend) CreateVirtualNode(
 	meshName, name string, spec json.RawMessage, tags map[string]string,
 ) (*VirtualNode, error) {
+	if err := b.schemas.validate("virtualNodeSpec", spec); err != nil {
+		return nil, err
+	}
 	b.mu.Lock("CreateVirtualNode")
 	defer b.mu.Unlock()
 	if !b.meshes.Has(meshName) {
@@ -56,6 +59,9 @@ func (b *InMemoryBackend) DescribeVirtualNode(meshName, name string) (*VirtualNo
 }
 
 func (b *InMemoryBackend) UpdateVirtualNode(meshName, name string, spec json.RawMessage) (*VirtualNode, error) {
+	if err := b.schemas.validate("virtualNodeSpec", spec); err != nil {
+		return nil, err
+	}
 	b.mu.Lock("UpdateVirtualNode")
 	defer b.mu.Unlock()
 	if !b.meshes.Has(meshName) {

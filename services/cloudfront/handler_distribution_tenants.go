@@ -238,16 +238,35 @@ func tenantParameters(list []tenantParameterXML) map[string]string {
 	return out
 }
 
+type managedCertificateRequestXML struct {
+	ValidationTokenHost                      string `xml:"ValidationTokenHost"`
+	PrimaryDomainName                        string `xml:"PrimaryDomainName"`
+	CertificateTransparencyLoggingPreference string `xml:"CertificateTransparencyLoggingPreference"`
+}
+
+func (r *managedCertificateRequestXML) toModel() *ManagedCertificateRequest {
+	if r == nil {
+		return nil
+	}
+
+	return &ManagedCertificateRequest{
+		ValidationTokenHost:                      r.ValidationTokenHost,
+		PrimaryDomainName:                        r.PrimaryDomainName,
+		CertificateTransparencyLoggingPreference: r.CertificateTransparencyLoggingPreference,
+	}
+}
+
 type createDistributionTenantXML struct {
-	Enabled           *bool                    `xml:"Enabled"`
-	Customizations    *tenantCustomizationsXML `xml:"Customizations"`
-	XMLName           xml.Name                 `xml:"CreateDistributionTenantRequest"`
-	DistributionID    string                   `xml:"DistributionId"`
-	Name              string                   `xml:"Name"`
-	Domain            string                   `xml:"Domain"`
-	ConnectionGroupID string                   `xml:"ConnectionGroupId"`
-	Parameters        []tenantParameterXML     `xml:"Parameters>member"`
-	Domains           []string                 `xml:"Domains>member>Domain"`
+	ManagedCertificateRequest *managedCertificateRequestXML `xml:"ManagedCertificateRequest"`
+	Enabled                   *bool                         `xml:"Enabled"`
+	Customizations            *tenantCustomizationsXML      `xml:"Customizations"`
+	XMLName                   xml.Name                      `xml:"CreateDistributionTenantRequest"`
+	DistributionID            string                        `xml:"DistributionId"`
+	Name                      string                        `xml:"Name"`
+	Domain                    string                        `xml:"Domain"`
+	ConnectionGroupID         string                        `xml:"ConnectionGroupId"`
+	Parameters                []tenantParameterXML          `xml:"Parameters>member"`
+	Domains                   []string                      `xml:"Domains>member>Domain"`
 	// Tags is *types.Tags on the wire: Items wraps the Tag list, not a bare
 	// Tags>Tag path (cloudfront@v1.67.4 serializers.go
 	// awsRestxml_serializeDocumentTags).
@@ -255,14 +274,15 @@ type createDistributionTenantXML struct {
 }
 
 type updateDistributionTenantXML struct {
-	Enabled           *bool                    `xml:"Enabled"`
-	Customizations    *tenantCustomizationsXML `xml:"Customizations"`
-	XMLName           xml.Name                 `xml:"UpdateDistributionTenantRequest"`
-	Domain            string                   `xml:"Domain"`
-	ConnectionGroupID string                   `xml:"ConnectionGroupId"`
-	DistributionID    string                   `xml:"DistributionId"`
-	Parameters        []tenantParameterXML     `xml:"Parameters>member"`
-	Domains           []string                 `xml:"Domains>member>Domain"`
+	ManagedCertificateRequest *managedCertificateRequestXML `xml:"ManagedCertificateRequest"`
+	Enabled                   *bool                         `xml:"Enabled"`
+	Customizations            *tenantCustomizationsXML      `xml:"Customizations"`
+	XMLName                   xml.Name                      `xml:"UpdateDistributionTenantRequest"`
+	Domain                    string                        `xml:"Domain"`
+	ConnectionGroupID         string                        `xml:"ConnectionGroupId"`
+	DistributionID            string                        `xml:"DistributionId"`
+	Parameters                []tenantParameterXML          `xml:"Parameters>member"`
+	Domains                   []string                      `xml:"Domains>member>Domain"`
 }
 
 // ---------------------------------------------------------------------------
@@ -300,7 +320,13 @@ func (h *Handler) handleCreateDistributionTenant(c *echo.Context) error {
 		domains = append([]string{req.Domain}, domains...)
 	}
 
+	mcr := req.ManagedCertificateRequest.toModel()
+	if mcrErr := ValidateManagedCertificateRequest(mcr); mcrErr != nil {
+		return h.handleError(c, mcrErr)
+	}
+
 	opts := []TenantOption{
+		WithTenantManagedCertificateRequest(mcr),
 		WithTenantConnectionGroup(req.ConnectionGroupID),
 		WithTenantParameters(tenantParameters(req.Parameters)),
 		WithTenantCustomizations(req.Customizations.toMap()),
@@ -394,13 +420,19 @@ func (h *Handler) handleUpdateDistributionTenant(c *echo.Context, id string) err
 		domains = append([]string{req.Domain}, domains...)
 	}
 
+	mcr := req.ManagedCertificateRequest.toModel()
+	if mcrErr := ValidateManagedCertificateRequest(mcr); mcrErr != nil {
+		return h.handleError(c, mcrErr)
+	}
+
 	t, updateErr := h.Backend.UpdateDistributionTenant(id, DistributionTenantUpdate{
-		Domains:           domains,
-		ConnectionGroupID: req.ConnectionGroupID,
-		Enabled:           req.Enabled,
-		DistributionID:    req.DistributionID,
-		Parameters:        tenantParameters(req.Parameters),
-		Customizations:    req.Customizations.toMap(),
+		ManagedCertificateRequest: mcr,
+		Domains:                   domains,
+		ConnectionGroupID:         req.ConnectionGroupID,
+		Enabled:                   req.Enabled,
+		DistributionID:            req.DistributionID,
+		Parameters:                tenantParameters(req.Parameters),
+		Customizations:            req.Customizations.toMap(),
 	})
 	if updateErr != nil {
 		return h.handleError(c, updateErr)

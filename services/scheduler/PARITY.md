@@ -2,7 +2,7 @@
 service: scheduler
 sdk_module: aws-sdk-go-v2/service/scheduler@v1.20.4   # version audited against
 last_audit_commit: 615cda74e                           # HEAD when this audit pass started
-last_audit_date: 2026-08-20
+last_audit_date: 2026-10-07
 overall: A            # genuine wire-breaking and next-invocation-computation bugs found and fixed (see Notes)
 ops:
   CreateSchedule:      {wire: fixed, errors: ok, state: fixed, persist: ok, note: "Target.EcsParameters wire bugs fixed (see 2026-08-20 Notes); ClientToken now idempotent (see Notes); ScheduleExpressionTimezone now validated as a real IANA name; ScheduleExpression now semantically validated (rate/cron/at), not just structurally; cron field values (ranges/names/wildcards) now validated per-field, see 2026-08-11 gopherstack-cz9e Notes"}
@@ -22,11 +22,16 @@ families:
   next-invocation computation: {status: fixed, note: "at() one-time expressions were validated at Create/Update time but the runner's isDue only matched rate()/cron() prefixes -- an at() schedule could NEVER fire. ScheduleExpressionTimezone was stored/round-tripped on the wire but never applied when evaluating cron/at wall-clock matches (runner always used the poll goroutine's raw time.Time, i.e. implicitly UTC/server-local). StartDate/EndDate were stored/round-tripped but the runner never gated cron/rate firing on them. All three fixed this pass -- see Notes."}
   cross-service target delivery: {status: ok, note: "cli.go's wireSchedulerRunner wires ALL 8 Runner invoker interfaces (Lambda, SQS, SNS, StepFunctions, EventBridge, Kinesis, SageMaker, ECS); unchanged this pass, re-confirmed not a gap."}
 gaps: []
-items_still_open:
-  - {area: "cron L/W/# matching", note: "validateCronFields (2026-08-11, gopherstack-cz9e) accepts AWS-documented L/W/# cron tokens (last day, nearest-weekday, nth-weekday-of-month), plus the undocumented-but-plausible LW and L-<n> composite forms (see Notes), as syntactically legal, but matchesCronPart (schedule_expression.go) does not implement any of their matching semantics -- a schedule using e.g. cron(15 10 ? * 6L 2022-2023) or cron(30 23 L-2 * ? *) is accepted at Create/Update and then never fires. Deliberately left accepting rather than rejecting per this pass's under-enforcement directive (AWS genuinely accepts at least the documented subset of this syntax, and neither AWS source rules out the rest); implementing the matcher is separate follow-up work."}
+items_still_open: []
 deferred: []
 leaks: {status: clean, note: "leak_main_test.go (testleak.VerifyTestMain) passes under -race. The runner's poll goroutine remains the only background goroutine (ctx-parented via Handler.StartWorker/Shutdown, unchanged this pass). New state added this pass (Runner.locCache, Handler.idempotency) is plain in-memory data with no goroutines/tickers of its own; both are swept/bounded (locCache via the existing per-poll sweep alongside cronCache; idempotency via TTL-based lazy eviction) and cleared on Handler.Reset."}
 ---
+
+## 2026-10-07 items_still_open burn-down
+
+cron L, LW, L-n, nW (day-of-month) and L, nL, n#m (day-of-week) now match
+(`cron_special.go`, `TestScheduler_Runner_CronSpecialTokens`); earlier notes saying such schedules never
+fire are history. L-n in day-of-week is now rejected (Quartz supports it for day-of-month only).
 
 ## Notes (2026-08-21 pass, gopherstack-r80d batch 32)
 

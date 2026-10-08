@@ -273,6 +273,7 @@ func (b *InMemoryBackend) CreateTable(
 		OwnerAccountID:    b.accountID,
 		StorageClass:      storageClass,
 		Encryption:        cloneAnyMap(opts.Encryption),
+		Metadata:          cloneAnyMap(opts.Metadata),
 		MaintenanceConfiguration: map[string]any{
 			maintenanceTypeIcebergCompaction: map[string]any{
 				keyStatusField: statusEnabled,

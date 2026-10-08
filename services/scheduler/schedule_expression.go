@@ -164,9 +164,9 @@ func parseCronExpression(expr string) (*cronFields, error) {
 func matchesCron(t time.Time, cf *cronFields) bool {
 	return matchesCronField(cf.minutes, t.Minute()) &&
 		matchesCronField(cf.hours, t.Hour()) &&
-		matchesCronField(cf.dayOfMonth, t.Day()) &&
+		matchesCronDayOfMonth(t, cf.dayOfMonth) &&
 		matchesCronField(cf.month, int(t.Month())) &&
-		matchesCronField(cf.dayOfWeek, dayOfWeekAWS(t.Weekday())) &&
+		matchesCronDayOfWeek(t, cf.dayOfWeek) &&
 		matchesCronField(cf.year, t.Year())
 }
 

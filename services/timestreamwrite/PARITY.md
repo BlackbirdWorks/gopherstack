@@ -7,7 +7,7 @@
 service: timestreamwrite
 sdk_module: aws-sdk-go-v2/service/timestreamwrite@v1.38.4
 last_audit_commit: e13b41148  # 2026-09-24 terraform-coverage sweep; prior: d522d763f
-last_audit_date: 2026-09-24  # prior: 2026-09-19
+last_audit_date: 2026-10-07  # prior: 2026-09-19
 overall: A            # 2026-09-24: fixed a real bug the 2026-08-29 "verified inert" DescribeEndpoints
                        # note got wrong -- EndpointDiscoveryRequired is unconditional per-operation in
                        # aws-sdk-go-v2 (not skipped for a custom BaseEndpoint), so the hardcoded
@@ -42,7 +42,7 @@ families:
 leaks: {status: clean, note: "closeAllTableMutexesLocked is correctly called on Reset, DeleteDatabase, DeleteTable, and before Restore discards the records map — no lockmetrics.RWMutex leak found. Persistence Snapshot/Restore round-trips databases, tables, batchLoadTasks (via store.Registry), plus the hand-rolled records/tags maps, nextTaskID, and rebuilds the per-table dedup index and mutex on Restore."}
 gaps: []
 items_still_open:
-  - "CompositePartitionKey[].EnforcementInRecord=REQUIRED is validated and echoed but not enforced by WriteRecords: the failure shape (per-record RejectedRecord vs request ValidationException, and its Reason text) is not documented in the pinned SDK, so it needs live-AWS evidence before it can be implemented without inventing wire content."
+  - "CompositePartitionKey[].EnforcementInRecord=REQUIRED is validated and echoed but not enforced by WriteRecords: the pinned SDK documents only the enum, not the failure shape (per-record RejectedRecord vs request ValidationException, and its Reason text), so enforcement would invent wire content."
 deferred: []
 reaudit_2026-08-20: >
   Wrapper-key/nested-shape wire-parity sweep against the pinned

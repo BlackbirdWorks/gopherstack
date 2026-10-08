@@ -2,7 +2,7 @@
 service: amplify
 sdk_module: aws-sdk-go-v2/service/amplify@v1.47.0
 last_audit_commit: a83673c4a  # 2026-09-19 required-output-members reverification; prior: d522d763f
-last_audit_date: 2026-09-19  # prior: 2026-09-18
+last_audit_date: 2026-10-07  # prior: 2026-09-18
 overall: A            # 2026-08-29 write-only-state sweep: App.ComputeRoleArn/JobConfig,
                        # Branch.Backend/ComputeRoleArn/EnableSkewProtection, and
                        # DomainAssociation.AutoSubDomainCreationPatterns/
@@ -77,9 +77,11 @@ gaps: []
   # path optional response members; re-verified individually against each
   # field's own Create/UpdateInput rather than assumed by pattern-matching
   # against the ones that turned out to be real bugs.
-items_still_open:
-  - "Never-emitted optional response members with no request path: App.webhookCreateTime, Branch.destinationBranch/thumbnailUrl, DomainAssociation.updateStatus. Real Amplify computes them from PR-preview branches, build screenshots and its async certificate pipeline, none of which are modeled."
-  - "JobStatus PENDING/PROVISIONING/CANCELLING/CREATED/FAILED and DomainStatus IN_PROGRESS/IMPORTING_CUSTOM_CERTIFICATE/PENDING_DEPLOYMENT/AWAITING_APP_CNAME/REQUESTING_CERTIFICATE/UPDATING are never produced: they are phases of real build queueing/provisioning and certificate issuance, which this synchronous emulator collapses (RUNNING->SUCCEED/CANCELLED, PENDING_VERIFICATION->AVAILABLE). No code changed."
+items_still_open: []
+structural_gaps:
+  - "App.webhookCreateTime, Branch.destinationBranch and Branch.thumbnailUrl come from Git-provider webhooks, pull-request previews and build screenshots, none of which exist in an emulator."
+  - "DomainAssociation.updateStatus and DomainStatus IN_PROGRESS/IMPORTING_CUSTOM_CERTIFICATE/PENDING_DEPLOYMENT/AWAITING_APP_CNAME/REQUESTING_CERTIFICATE/UPDATING are phases of real certificate issuance."
+  - "JobStatus PENDING/PROVISIONING/CANCELLING/CREATED/FAILED are phases of real build queueing and provisioning; the synchronous emulator collapses them (RUNNING to SUCCEED/CANCELLED)."
 deferred: []
   # "Full App/Branch field parity" and "server-side enum validation" (the two
   # prior deferred items) are both done this sweep -- see gaps history above.
