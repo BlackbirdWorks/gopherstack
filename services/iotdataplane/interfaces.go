@@ -2,6 +2,7 @@ package iotdataplane
 
 import (
 	"context"
+	"time"
 )
 
 // MQTT5UserProperty is one key/value pair decoded from PublishInput's or
@@ -96,6 +97,28 @@ type MQTTPublisher interface {
 	) (ok bool, err error)
 }
 
+// AckingPublisher is an optional MQTTPublisher extension that waits for the client's PUBACK.
+type AckingPublisher interface {
+	// SendToClientAwaitAck delivers at QoS 1 and blocks until the PUBACK arrives or timeout elapses;
+	// delivered is false, with nil err, when no live client exists, and a missing PUBACK is ErrDeliveryTimeout.
+	SendToClientAwaitAck(
+		clientID, topic string, payload []byte, props MQTT5Properties, timeout time.Duration,
+	) (delivered bool, err error)
+}
+
+// ConnectionObserver receives broker-originated client lifecycle events.
+type ConnectionObserver interface {
+	// ClientConnected reports a newly established MQTT session; remoteAddr is the socket's "host:port".
+	ClientConnected(clientID, remoteAddr string)
+	// ClientDisconnected reports a closed session with its life-cycle-event disconnect reason.
+	ClientDisconnected(clientID, reason string)
+}
+
+// ConnectionNotifier is an optional MQTTPublisher extension that reports broker-originated lifecycle events.
+type ConnectionNotifier interface {
+	SetConnectionObserver(observer ConnectionObserver)
+}
+
 // StorageBackend defines the interface for the IoT Data Plane backend.
 type StorageBackend interface {
 	Publish(topic string, payload []byte, qos int32, retain bool, props MQTT5Properties) error
@@ -116,6 +139,12 @@ type StorageBackend interface {
 		payload []byte,
 		qos int32,
 		props MQTT5Properties,
+	) error
+	SendDirectMessageAwaitAck(
+		clientID, topic string,
+		payload []byte,
+		props MQTT5Properties,
+		timeout time.Duration,
 	) error
 	StoreRetainedMessage(topic string, payload []byte, qos int32, userProperties []byte) error
 	GetRetainedMessage(topic string) (*RetainedMessage, error)

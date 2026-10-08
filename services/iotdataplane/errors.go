@@ -39,3 +39,7 @@ var ErrRequestTooLarge = errors.New("RequestEntityTooLargeException")
 
 // ErrConnectionExists is returned when trying to register a clientID that is already connected.
 var ErrConnectionExists = errors.New("connection already exists")
+
+// ErrDeliveryTimeout is returned when SendDirectMessage's confirmation (PUBACK) does not arrive in time.
+// Wire error code "GatewayTimeoutException", HTTP 504 (SendDirectMessageInput.Confirmation doc).
+var ErrDeliveryTimeout = errors.New("GatewayTimeoutException")

@@ -1,6 +1,9 @@
 package iot
 
-import "fmt"
+import (
+	"fmt"
+	"sync"
+)
 
 const (
 	tokenKindAuditSuppression = "auditSuppression"
@@ -68,4 +71,63 @@ func (b *InMemoryBackend) RecordCreateToken(kind, token, resourceKey string) {
 	defer b.mu.Unlock()
 
 	b.clientRequestTokens[clientTokenKey(kind, token)] = resourceKey
+}
+
+const opReplayCapacity = 4096
+
+// opReplayCache remembers the most recent completed token-carrying mutations (FIFO-bounded, not persisted).
+type opReplayCache struct {
+	seen  map[string]struct{}
+	order []string
+	mu    sync.Mutex
+}
+
+func newOpReplayCache() *opReplayCache { return &opReplayCache{seen: map[string]struct{}{}} }
+
+func (c *opReplayCache) reset() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.seen = map[string]struct{}{}
+	c.order = nil
+}
+
+func opReplayKey(op, token, resourceKey string) string { return op + "|" + token + "|" + resourceKey }
+
+// OpReplayed reports whether op already succeeded on resourceKey with this client token.
+func (b *InMemoryBackend) OpReplayed(op, token, resourceKey string) bool {
+	if token == "" {
+		return false
+	}
+
+	b.opReplay.mu.Lock()
+	defer b.opReplay.mu.Unlock()
+
+	_, ok := b.opReplay.seen[opReplayKey(op, token, resourceKey)]
+
+	return ok
+}
+
+// RecordOpCompleted remembers a successful op so a replay with the same token is a no-op success.
+func (b *InMemoryBackend) RecordOpCompleted(op, token, resourceKey string) {
+	if token == "" {
+		return
+	}
+
+	c := b.opReplay
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	k := opReplayKey(op, token, resourceKey)
+	if _, ok := c.seen[k]; ok {
+		return
+	}
+
+	if len(c.order) >= opReplayCapacity {
+		delete(c.seen, c.order[0])
+		c.order = c.order[1:]
+	}
+
+	c.seen[k] = struct{}{}
+	c.order = append(c.order, k)
 }

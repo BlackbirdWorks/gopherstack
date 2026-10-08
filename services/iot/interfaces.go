@@ -101,6 +101,8 @@ type StorageBackend interface {
 	UpdateJob(jobID string, input *UpdateJobInput) error
 	CancelJob(jobID, comment, reasonCode string, force bool) (*Job, error)
 	CheckCreateToken(kind, token, resourceKey string) (bool, error)
+	OpReplayed(op, token, resourceKey string) bool
+	RecordOpCompleted(op, token, resourceKey string)
 	RecordCreateToken(kind, token, resourceKey string)
 	ListJobsFiltered(status, targetSelection, thingGroupName, thingGroupID string) []*Job
 	DeleteJob(jobID string, force bool) error

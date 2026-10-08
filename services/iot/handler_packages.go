@@ -187,20 +187,30 @@ func (h *Handler) handleUpdatePackage(c *echo.Context) error {
 	if err := readBody(c, &req); err != nil {
 		return err
 	}
+	token := c.QueryParam("clientToken")
+	if h.Backend.OpReplayed(opUpdatePackage, token, name) {
+		return c.NoContent(http.StatusOK)
+	}
 	if err := h.Backend.UpdateIoTPackage(
 		name, req.Description, req.DefaultVersionName, req.UnsetDefaultVersion,
 	); err != nil {
 		return respondErr(c, err)
 	}
+	h.Backend.RecordOpCompleted(opUpdatePackage, token, name)
 
 	return c.NoContent(http.StatusOK)
 }
 
 func (h *Handler) handleDeletePackage(c *echo.Context) error {
 	name := strings.TrimPrefix(c.Request().URL.Path, "/packages/")
+	token := c.QueryParam("clientToken")
+	if h.Backend.OpReplayed(opDeletePackage, token, name) {
+		return c.NoContent(http.StatusOK)
+	}
 	if err := h.Backend.DeleteIoTPackage(name); err != nil {
 		return respondErr(c, err)
 	}
+	h.Backend.RecordOpCompleted(opDeletePackage, token, name)
 
 	return c.NoContent(http.StatusOK)
 }
@@ -301,6 +311,11 @@ func (h *Handler) handleUpdatePackageVersion(c *echo.Context) error {
 	if err := readBody(c, &req); err != nil {
 		return err
 	}
+	token := c.QueryParam("clientToken")
+	versionKey := pkgName + "/" + versionName
+	if h.Backend.OpReplayed(opUpdatePackageVersion, token, versionKey) {
+		return c.NoContent(http.StatusOK)
+	}
 	if err := h.Backend.UpdateIoTPackageVersion(pkgName, versionName, req.Description, req.Status,
 		UpdateIoTPackageVersionOptions{
 			Action:     req.Action,
@@ -310,15 +325,22 @@ func (h *Handler) handleUpdatePackageVersion(c *echo.Context) error {
 		}); err != nil {
 		return respondErr(c, err)
 	}
+	h.Backend.RecordOpCompleted(opUpdatePackageVersion, token, versionKey)
 
 	return c.NoContent(http.StatusOK)
 }
 
 func (h *Handler) handleDeletePackageVersion(c *echo.Context) error {
 	pkgName, versionName := packageAndVersion(c.Request().URL.Path)
+	token := c.QueryParam("clientToken")
+	versionKey := pkgName + "/" + versionName
+	if h.Backend.OpReplayed(opDeletePackageVersion, token, versionKey) {
+		return c.NoContent(http.StatusOK)
+	}
 	if err := h.Backend.DeleteIoTPackageVersion(pkgName, versionName); err != nil {
 		return respondErr(c, err)
 	}
+	h.Backend.RecordOpCompleted(opDeletePackageVersion, token, versionKey)
 
 	return c.NoContent(http.StatusOK)
 }
@@ -366,9 +388,14 @@ func (h *Handler) handleUpdatePackageConfiguration(c *echo.Context) error {
 	if err := readBody(c, &req); err != nil {
 		return err
 	}
+	token := c.QueryParam("clientToken")
+	if h.Backend.OpReplayed(opUpdatePackageConfiguration, token, "") {
+		return c.NoContent(http.StatusOK)
+	}
 	if err := h.Backend.UpdatePackageConfiguration(req.VersionUpdateByJobsConfig); err != nil {
 		return respondErr(c, err)
 	}
+	h.Backend.RecordOpCompleted(opUpdatePackageConfiguration, token, "")
 
 	return c.NoContent(http.StatusOK)
 }
@@ -383,9 +410,15 @@ func (h *Handler) handleDisassociateSbomFromPackageVersion(c *echo.Context) erro
 		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, keyInvalidPath})
 	}
 
+	token := c.QueryParam("clientToken")
+	versionKey := parts[0] + "/" + parts[1]
+	if h.Backend.OpReplayed(opDisassociateSbomFromPackageVersion, token, versionKey) {
+		return c.NoContent(http.StatusOK)
+	}
 	if err := h.Backend.DisassociateSbomFromPackageVersion(parts[0], parts[1]); err != nil {
 		return respondErr(c, err)
 	}
+	h.Backend.RecordOpCompleted(opDisassociateSbomFromPackageVersion, token, versionKey)
 
 	return c.NoContent(http.StatusOK)
 }

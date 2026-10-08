@@ -18,7 +18,7 @@
 
 - Rejections the pinned SDK lists no error code for, so none is invented: Object Annotations 1 B-1 MiB payload window and ObjectIfMatch; RenameObject and CreateSession accepted on non-directory buckets; CreateSession SessionMode ReadOnly not enforced; directory buckets still accept ACL/tagging/versioning/lifecycle/website/CORS.
 - x-amz-mfa: MFA delete is stored, never enforced; the SDK lists no error code for a missing or bad MFA token.
-- object_lambda access-point routing is implemented on the s3 side (ObjectLambdaAccessPointSink: SetObjectLambdaAccessPoint/DeleteObjectLambdaAccessPoint; GetObject via the access point alias or the <name>-<account> virtual-host label invokes its Lambda) but nothing calls it yet: services/s3control/object_lambda.go must type-assert its existing sink (cli.go already passes the s3 handler to SetObjectLambdaConfigSink) to ObjectLambdaAccessPointSink and call Set on Create/PutAccessPointConfigurationForObjectLambda (name, account, alias, supporting bucket, Lambda ARN) and Delete on DeleteAccessPointForObjectLambda. HeadObject/ListObjects through an Object Lambda access point are not routed to a Lambda.
+- HeadObject, ListObjects and ListObjectsV2 through an Object Lambda access point are not routed to a Lambda (GetObject is).
 - ListBucketIntelligentTieringConfigurations is unpaginated (the SDK documents no page size).
 - Notification destinations are validated only at PutBucketNotificationConfiguration; the SDK documents no per-configuration error detail shape.
 

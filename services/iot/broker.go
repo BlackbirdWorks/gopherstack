@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -28,6 +31,8 @@ const mqttV5 = 5
 // basicIngestPrefix starts every Basic Ingest topic: $aws/rules/<ruleName>/<topic>.
 const basicIngestPrefix = "$aws/rules/"
 
+var errPacketIDRange = errors.New("iot broker: packet id out of range")
+
 // ErrBrokerNotStarted is returned when a publish is attempted before the broker is started.
 var ErrBrokerNotStarted = errors.New("mqtt broker not started")
 
@@ -35,9 +40,11 @@ var ErrBrokerNotStarted = errors.New("mqtt broker not started")
 type Broker struct {
 	// server is accessed atomically to avoid data races between Start and Publish.
 	server    atomic.Pointer[mqtt.Server]
+	observer  atomic.Pointer[iotdataplane.ConnectionObserver]
 	ready     chan struct{}
 	backend   *InMemoryBackend
 	others    func() []*InMemoryBackend
+	acks      sync.Map
 	boundPort atomic.Int64
 	readyOnce sync.Once
 	port      int
@@ -318,6 +325,102 @@ func (b *Broker) DisconnectClient(clientID string, cleanSession, preventWill boo
 	return true, nil
 }
 
+// SetConnectionObserver implements iotdataplane.ConnectionNotifier.
+func (b *Broker) SetConnectionObserver(observer iotdataplane.ConnectionObserver) {
+	b.observer.Store(&observer)
+}
+
+type ackKey struct {
+	clientID string
+	packetID uint16
+}
+
+// SendToClientAwaitAck implements iotdataplane.AckingPublisher: a QoS 1 write straight to the
+// client, then a wait for its PUBACK.
+func (b *Broker) SendToClientAwaitAck(
+	clientID, topic string, payload []byte, props iotdataplane.MQTT5Properties, timeout time.Duration,
+) (bool, error) {
+	s := b.server.Load()
+	if s == nil {
+		return false, ErrBrokerNotStarted
+	}
+
+	cl, ok := s.Clients.Get(clientID)
+	if !ok || cl.Closed() {
+		return false, nil
+	}
+
+	id, err := cl.NextPacketID()
+	if err != nil {
+		return false, fmt.Errorf("iot broker: packet id for %s: %w", clientID, err)
+	}
+
+	if id > math.MaxUint16 {
+		return false, fmt.Errorf("%w: %d for %s", errPacketIDRange, id, clientID)
+	}
+
+	key := ackKey{clientID: clientID, packetID: uint16(id)}
+	acked := make(chan struct{}, 1)
+	b.acks.Store(key, acked)
+
+	defer b.acks.Delete(key)
+
+	if err = cl.WritePacket(packets.Packet{
+		FixedHeader: packets.FixedHeader{Type: packets.Publish, Qos: 1},
+		TopicName:   topic,
+		Payload:     payload,
+		PacketID:    key.packetID,
+		Properties:  mqtt5PropertiesToPacket(props),
+	}); err != nil {
+		return false, fmt.Errorf("iot broker: send to client %s: %w", clientID, err)
+	}
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case <-acked:
+		return true, nil
+	case <-timer.C:
+		return true, fmt.Errorf("%w: no PUBACK from %s within %s", iotdataplane.ErrDeliveryTimeout, clientID, timeout)
+	}
+}
+
+func (b *Broker) notifyConnected(cl *mqtt.Client) {
+	if o := b.observer.Load(); o != nil {
+		(*o).ClientConnected(cl.ID, cl.Net.Remote)
+	}
+}
+
+func (b *Broker) notifyDisconnected(cl *mqtt.Client, err error) {
+	if cl.IsTakenOver() {
+		return
+	}
+
+	if o := b.observer.Load(); o != nil {
+		(*o).ClientDisconnected(cl.ID, disconnectReason(cl.StopCause(), err))
+	}
+}
+
+// disconnectReason maps a mochi-mqtt close cause to the IoT life-cycle event disconnectReason values.
+func disconnectReason(cause, err error) string {
+	switch {
+	case errors.Is(cause, packets.CodeDisconnect):
+		return "CLIENT_INITIATED_DISCONNECT"
+	case errors.Is(cause, packets.ErrAdministrativeAction), errors.Is(cause, packets.ErrServerShuttingDown):
+		return "SERVER_INITIATED_DISCONNECT"
+	case errors.Is(cause, packets.ErrKeepAliveTimeout), errors.Is(err, os.ErrDeadlineExceeded):
+		return "MQTT_KEEP_ALIVE_TIMEOUT"
+	case errors.Is(err, io.EOF), errors.Is(err, net.ErrClosed), errors.Is(err, syscall.ECONNRESET),
+		errors.Is(err, io.ErrUnexpectedEOF):
+		return "CONNECTION_LOST"
+	case err != nil:
+		return "CLIENT_ERROR"
+	default:
+		return "UNKNOWN"
+	}
+}
+
 // SendToClientWithProperties implements iotdataplane.MQTTPublisher. It
 // behaves like SendToClient but also attaches props as real MQTT5 packet
 // properties -- see PublishWithProperties for the protocol-version encoding
@@ -367,7 +470,38 @@ func (h *ruleHook) ID() string { return "iot-rule-hook" }
 
 // Provides reports which hook events this hook handles.
 func (h *ruleHook) Provides(b byte) bool {
-	return b == mqtt.OnPublish
+	switch b {
+	case mqtt.OnPublish, mqtt.OnPacketRead, mqtt.OnSessionEstablished, mqtt.OnDisconnect:
+		return true
+	default:
+		return false
+	}
+}
+
+// OnPacketRead resolves a pending SendDirectMessage confirmation when the client's PUBACK arrives.
+func (h *ruleHook) OnPacketRead(cl *mqtt.Client, pk packets.Packet) (packets.Packet, error) {
+	if pk.FixedHeader.Type == packets.Puback {
+		if v, found := h.broker.acks.Load(ackKey{clientID: cl.ID, packetID: pk.PacketID}); found {
+			if ch, isChan := v.(chan struct{}); isChan {
+				select {
+				case ch <- struct{}{}:
+				default:
+				}
+			}
+		}
+	}
+
+	return pk, nil
+}
+
+// OnSessionEstablished reports the new session to the connection observer.
+func (h *ruleHook) OnSessionEstablished(cl *mqtt.Client, _ packets.Packet) {
+	h.broker.notifyConnected(cl)
+}
+
+// OnDisconnect reports a closed session, with its mapped disconnect reason, to the connection observer.
+func (h *ruleHook) OnDisconnect(cl *mqtt.Client, err error, _ bool) {
+	h.broker.notifyDisconnected(cl, err)
 }
 
 // OnPublish is called for every MQTT message published to the broker.

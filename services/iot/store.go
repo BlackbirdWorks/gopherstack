@@ -41,6 +41,7 @@ type InMemoryBackend struct {
 	auditMitigationTasks       map[string]string
 	auditTasks                 map[string]string
 	clientRequestTokens        map[string]string
+	opReplay                   *opReplayCache
 	thingGroupMembers          map[string][]string
 	policyVersions             map[string][]*PolicyVersion
 	provTemplateVersions       map[string][]*ProvisioningTemplateVersion
@@ -131,6 +132,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		auditMitigationTasks:   make(map[string]string),
 		auditTasks:             make(map[string]string),
 		clientRequestTokens:    make(map[string]string),
+		opReplay:               newOpReplayCache(),
 		thingGroupMembers:      make(map[string][]string),
 		policyVersions:         make(map[string][]*PolicyVersion),
 		provTemplateVersions:   make(map[string][]*ProvisioningTemplateVersion),
@@ -196,6 +198,7 @@ func (b *InMemoryBackend) Reset() {
 	b.auditMitigationTasks = make(map[string]string)
 	b.auditTasks = make(map[string]string)
 	b.clientRequestTokens = make(map[string]string)
+	b.opReplay.reset()
 	b.thingGroupMembers = make(map[string][]string)
 	b.policyVersions = make(map[string][]*PolicyVersion)
 	b.provTemplateVersions = make(map[string][]*ProvisioningTemplateVersion)

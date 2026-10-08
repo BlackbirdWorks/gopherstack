@@ -407,6 +407,13 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 			keyError:   "RequestEntityTooLargeException",
 			keyMessage: err.Error(),
 		})
+	case errors.Is(err, ErrDeliveryTimeout):
+		c.Response().Header().Set(amznErrorTypeHeader, "GatewayTimeoutException")
+
+		return c.JSON(http.StatusGatewayTimeout, map[string]string{
+			keyError:   "GatewayTimeoutException",
+			keyMessage: err.Error(),
+		})
 	case errors.Is(err, ErrValidation):
 		c.Response().Header().Set(amznErrorTypeHeader, "InvalidRequestException")
 

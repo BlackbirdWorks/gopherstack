@@ -1162,3 +1162,7 @@ NoSuchAccessGrant (access_grants.go:260/276): the pinned s3control v1.73.4 decla
 - `CreateJob` `ManifestGenerator` is stored raw and echoed on `DescribeJob` (snapshot field
   `BatchJob.manifestGenerator`, additive). `TestSDK_CreateJobManifestGeneratorRoundTrip`.
 - `S3PrefixType`/`TargetType` Object: exact-object scopes (no trailing `/` or `*` beyond the bucket) match exactly.
+
+## 2026-10-07: Object Lambda access points reach S3
+
+- Create/PutAccessPointConfigurationForObjectLambda register the access point (name, account, alias, supporting bucket, Lambda ARN) with the S3 handler via `s3.ObjectLambdaAccessPointSink`; DeleteAccessPointForObjectLambda removes it. Proof: `TestObjectLambdaAccessPointSink`.

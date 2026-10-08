@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 11 (9 ok, 2 partial) |
 | Feature families | 1 (1 ok) |
-| Known gaps | 3 |
+| Known gaps | 1 |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 1 |
 | Resource leaks | clean |
@@ -17,8 +17,6 @@
 ### Known gaps
 
 - UnsupportedDocumentEncodingException (HTTP 415) is never returned (UNVERIFIABLE): the botocore model, SDK errors.go, IoT API reference and shadow guides give no trigger condition.
-- GetConnection records only DeleteConnection disconnects (SERVER_INITIATED_DISCONNECT, 30-minute retention). Broker-originated disconnects (keep-alive timeout, client-initiated, duplicate client id) need a disconnect callback on MQTTPublisher implemented in services/iot/broker.go.
-- SendDirectMessage.timeout and the HTTP 504 on a missing PUBACK are not honored. Wiring needed: an ack-wait variant of MQTTPublisher.SendToClient in services/iot/broker.go.
 
 ### Structural gaps
 

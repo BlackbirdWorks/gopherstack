@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/services/s3"
 )
 
 // ObjectLambdaConfigSink receives the Lambda ARN configured for an Object
@@ -106,6 +108,10 @@ func (b *InMemoryBackend) DeleteAccessPointForObjectLambda(accountID, name strin
 	delete(b.objectLambdaAPPolicies, key)
 	delete(b.objectLambdaAPConfigs, key)
 	delete(b.resourceTags, arn)
+
+	if sink, isOL := b.objectLambdaSink.(s3.ObjectLambdaAccessPointSink); isOL {
+		sink.DeleteObjectLambdaAccessPoint(name, accountID)
+	}
 
 	return nil
 }
@@ -216,6 +222,7 @@ func (b *InMemoryBackend) PutAccessPointConfigurationForObjectLambda(
 	if b.objectLambdaSink != nil {
 		if bucket, lambdaARN, ok := b.resolveObjectLambdaTarget(accountID, config); ok {
 			b.objectLambdaSink.SetObjectLambdaConfig(bucket, lambdaARN)
+			b.registerObjectLambdaAccessPoint(key, bucket, lambdaARN)
 		}
 	}
 
@@ -274,4 +281,25 @@ func accessPointNameFromARN(arn string) (string, bool) {
 	_, name, found := strings.Cut(arn, "accesspoint/")
 
 	return name, found
+}
+
+func (b *InMemoryBackend) registerObjectLambdaAccessPoint(key, bucket, lambdaARN string) {
+	sink, ok := b.objectLambdaSink.(s3.ObjectLambdaAccessPointSink)
+	if !ok {
+		return
+	}
+
+	ap, found := b.objectLambdaAccessPoints.Get(key)
+	if !found {
+		return
+	}
+
+	sink.DeleteObjectLambdaAccessPoint(ap.Name, ap.AccountID)
+
+	stored := s3.StoredObjectLambdaAccessPoint{Name: ap.Name, AccountID: ap.AccountID, LambdaARN: lambdaARN}
+	if ap.Alias != nil {
+		stored.Alias = ap.Alias.Value
+	}
+
+	sink.SetObjectLambdaAccessPoint(bucket, stored)
 }
