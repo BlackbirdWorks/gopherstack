@@ -194,13 +194,18 @@ func kbDocumentIdentifierKey(id KBDocumentIdentifier) (string, error) {
 
 // IngestKnowledgeBaseDocuments ingests documents into a knowledge base data source.
 func (b *InMemoryBackend) IngestKnowledgeBaseDocuments(
-	_ context.Context, kbID, dsID string, docs []KBDocument,
+	_ context.Context, kbID, dsID, clientToken string, docs []KBDocument,
 ) ([]KBDocumentDetail, error) {
 	b.mu.Lock("IngestKnowledgeBaseDocuments")
 	defer b.mu.Unlock()
 
 	if !b.dataSources.Has(dsKey(kbID, dsID)) {
 		return nil, fmt.Errorf("%w: data source %q not found", ErrNotFound, dsID)
+	}
+
+	replayKey := docRequestKey("ingest", kbID, dsID, clientToken)
+	if prior, ok := b.docRequests[replayKey]; ok && clientToken != "" {
+		return slices.Clone(prior), nil
 	}
 
 	out := make([]KBDocumentDetail, 0, len(docs))
@@ -221,6 +226,8 @@ func (b *InMemoryBackend) IngestKnowledgeBaseDocuments(
 		b.kbDocuments.Put(detail)
 		out = append(out, *detail)
 	}
+
+	b.recordDocRequest(replayKey, clientToken, out)
 
 	return out, nil
 }
@@ -253,10 +260,15 @@ func (b *InMemoryBackend) GetKnowledgeBaseDocuments(
 
 // DeleteKnowledgeBaseDocuments deletes documents from a knowledge base data source.
 func (b *InMemoryBackend) DeleteKnowledgeBaseDocuments(
-	_ context.Context, kbID, dsID string, ids []KBDocumentIdentifier,
+	_ context.Context, kbID, dsID, clientToken string, ids []KBDocumentIdentifier,
 ) ([]KBDocumentDetail, error) {
 	b.mu.Lock("DeleteKnowledgeBaseDocuments")
 	defer b.mu.Unlock()
+
+	replayKey := docRequestKey("delete", kbID, dsID, clientToken)
+	if prior, ok := b.docRequests[replayKey]; ok && clientToken != "" {
+		return slices.Clone(prior), nil
+	}
 
 	out := make([]KBDocumentDetail, 0, len(ids))
 
@@ -286,6 +298,8 @@ func (b *InMemoryBackend) DeleteKnowledgeBaseDocuments(
 		d.Status = docStatusDeleting
 		out = append(out, d)
 	}
+
+	b.recordDocRequest(replayKey, clientToken, out)
 
 	return out, nil
 }

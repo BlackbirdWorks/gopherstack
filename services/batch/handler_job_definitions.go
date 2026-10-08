@@ -130,8 +130,12 @@ type consumableResourcePropertiesInput struct {
 }
 
 type nodeRangePropertyInput struct {
-	ContainerProperties *containerPropertiesInput `json:"containerProperties,omitempty"`
-	TargetNodes         string                    `json:"targetNodes"`
+	ContainerProperties          *containerPropertiesInput          `json:"container,omitempty"`
+	ConsumableResourceProperties *consumableResourcePropertiesInput `json:"consumableResourceProperties,omitempty"`
+	EcsProperties                map[string]any                     `json:"ecsProperties,omitempty"`
+	EksProperties                *EksProperties                     `json:"eksProperties,omitempty"`
+	TargetNodes                  string                             `json:"targetNodes"`
+	InstanceTypes                []string                           `json:"instanceTypes,omitempty"`
 }
 
 type nodePropertiesInput struct {
@@ -147,6 +151,7 @@ type registerJobDefinitionInput struct {
 	ContainerProperties          *containerPropertiesInput          `json:"containerProperties,omitempty"`
 	NodeProperties               *nodePropertiesInput               `json:"nodeProperties,omitempty"`
 	EksProperties                *EksProperties                     `json:"eksProperties,omitempty"`
+	EcsProperties                map[string]any                     `json:"ecsProperties,omitempty"`
 	RuntimePlatform              *runtimePlatformInput              `json:"runtimePlatform,omitempty"`
 	ConsumableResourceProperties *consumableResourcePropertiesInput `json:"consumableResourceProperties,omitempty"`
 	RetryStrategy                *RetryStrategy                     `json:"retryStrategy,omitempty"`
@@ -293,10 +298,19 @@ func nodePropertiesFromInput(in *nodePropertiesInput) *NodeProperties {
 	}
 
 	for _, nrp := range in.NodeRangeProperties {
-		np.NodeRangeProperties = append(np.NodeRangeProperties, NodeRangeProperty{
+		r := NodeRangeProperty{
 			TargetNodes:         nrp.TargetNodes,
 			ContainerProperties: containerPropertiesFromInput(nrp.ContainerProperties),
-		})
+			EcsProperties:       nrp.EcsProperties,
+			EksProperties:       nrp.EksProperties,
+			InstanceTypes:       nrp.InstanceTypes,
+		}
+
+		if list := consumableResourcePropertiesFromInput(nrp.ConsumableResourceProperties); list != nil {
+			r.ConsumableResourceProperties = &ConsumableResourceProperties{ConsumableResourceList: list}
+		}
+
+		np.NodeRangeProperties = append(np.NodeRangeProperties, r)
 	}
 
 	return np
@@ -351,6 +365,7 @@ func (h *Handler) handleRegisterJobDefinition(
 		in.Parameters,
 		in.PropagateTags,
 		in.RetryStrategy,
+		WithEcsProperties(in.EcsProperties),
 	)
 	if err != nil {
 		return nil, err

@@ -28,6 +28,7 @@ const (
 	// KnowledgeBaseStatus, ...) IS upper-snake-case -- don't "fix" these to
 	// match that pattern.
 	flowStatusPrepared    = "Prepared"
+	flowStatusFailed      = "Failed"
 	flowStatusNotPrepared = "NotPrepared"
 	ingestionJobRunning   = "IN_PROGRESS"
 	ingestionJobComplete  = "COMPLETE"
@@ -546,15 +547,17 @@ type Flow struct {
 	CreatedAt   time.Time      `json:"createdAt"`
 	UpdatedAt   time.Time      `json:"updatedAt"`
 	Definition  map[string]any `json:"definition,omitempty"`
+	RoleARN     string         `json:"executionRoleArn,omitempty"`
 	FlowID      string         `json:"id"`
 	FlowARN     string         `json:"arn"`
 	Name        string         `json:"name"`
 	Status      string         `json:"status"`
 	Description string         `json:"description,omitempty"`
-	RoleARN     string         `json:"executionRoleArn,omitempty"`
 	Version     string         `json:"version"`
 	KMSKeyARN   string         `json:"customerEncryptionKeyArn,omitempty"`
 	ClientToken string         `json:"-"`
+	// Validations holds the findings of the last failed PrepareFlow.
+	Validations []FlowValidationError `json:"validations,omitempty"`
 }
 
 // FlowSummary is used in list responses.

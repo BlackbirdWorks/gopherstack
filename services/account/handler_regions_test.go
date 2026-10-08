@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -252,34 +254,40 @@ func TestHandler_EnableDisableRegion(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler(t)
+			synctest.Test(t, func(t *testing.T) {
+				h := newTestHandler(t)
+				defer h.Shutdown(t.Context())
 
-			statusRec := doRequest(t, h, "/getRegionOptStatus", map[string]any{"RegionName": tc.regionName})
-			require.Equal(t, http.StatusOK, statusRec.Code)
+				regionStatus := func() string {
+					rec := doRequest(t, h, "/getRegionOptStatus", map[string]any{"RegionName": tc.regionName})
+					require.Equal(t, http.StatusOK, rec.Code)
 
-			var statusOut map[string]any
-			require.NoError(t, json.NewDecoder(statusRec.Body).Decode(&statusOut))
-			assert.Equal(t, "ENABLED", statusOut["RegionOptStatus"])
+					var out map[string]any
+					require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
 
-			disableRec := doRequest(t, h, "/disableRegion", map[string]any{"RegionName": tc.regionName})
-			assert.Equal(t, http.StatusOK, disableRec.Code)
+					return out["RegionOptStatus"].(string)
+				}
+				call := func(path string) int {
+					return doRequest(t, h, path, map[string]any{"RegionName": tc.regionName}).Code
+				}
 
-			afterDisableRec := doRequest(t, h, "/getRegionOptStatus", map[string]any{"RegionName": tc.regionName})
-			require.Equal(t, http.StatusOK, afterDisableRec.Code)
+				assert.Equal(t, "ENABLED", regionStatus())
 
-			var afterDisable map[string]any
-			require.NoError(t, json.NewDecoder(afterDisableRec.Body).Decode(&afterDisable))
-			assert.Equal(t, "DISABLED", afterDisable["RegionOptStatus"])
+				assert.Equal(t, http.StatusOK, call("/disableRegion"))
+				assert.Equal(t, "DISABLING", regionStatus())
+				assert.Equal(t, http.StatusConflict, call("/enableRegion"), "enable while DISABLING")
+				assert.Equal(t, http.StatusOK, call("/disableRegion"), "repeat disable is idempotent")
 
-			enableRec := doRequest(t, h, "/enableRegion", map[string]any{"RegionName": tc.regionName})
-			assert.Equal(t, http.StatusOK, enableRec.Code)
+				time.Sleep(2 * time.Second)
+				assert.Equal(t, "DISABLED", regionStatus())
 
-			afterEnableRec := doRequest(t, h, "/getRegionOptStatus", map[string]any{"RegionName": tc.regionName})
-			require.Equal(t, http.StatusOK, afterEnableRec.Code)
+				assert.Equal(t, http.StatusOK, call("/enableRegion"))
+				assert.Equal(t, "ENABLING", regionStatus())
+				assert.Equal(t, http.StatusConflict, call("/disableRegion"), "disable while ENABLING")
 
-			var afterEnable map[string]any
-			require.NoError(t, json.NewDecoder(afterEnableRec.Body).Decode(&afterEnable))
-			assert.Equal(t, "ENABLED", afterEnable["RegionOptStatus"])
+				time.Sleep(2 * time.Second)
+				assert.Equal(t, "ENABLED", regionStatus())
+			})
 		})
 	}
 }

@@ -83,6 +83,8 @@ func (b *InMemoryBackend) UpdateFlow(_ context.Context, flowID string, cfg FlowC
 	}
 
 	applyFlowConfig(f, cfg)
+	f.Status = flowStatusNotPrepared
+	f.Validations = nil
 	f.UpdatedAt = time.Now().UTC()
 
 	return flowCopy(f), nil
@@ -180,7 +182,7 @@ func (b *InMemoryBackend) ListFlows(
 	return out, outToken, nil
 }
 
-// PrepareFlow transitions a flow to prepared status.
+// PrepareFlow validates the flow definition and moves the flow to Prepared, or to Failed with Validations.
 func (b *InMemoryBackend) PrepareFlow(_ context.Context, flowID string) (*Flow, error) {
 	b.mu.Lock("PrepareFlow")
 	defer b.mu.Unlock()
@@ -191,6 +193,15 @@ func (b *InMemoryBackend) PrepareFlow(_ context.Context, flowID string) (*Flow, 
 	}
 
 	f.Status = flowStatusPrepared
+	f.Validations = nil
+
+	if f.Definition != nil {
+		if issues := validateFlowGraph(f.Definition); len(issues) > 0 {
+			f.Status = flowStatusFailed
+			f.Validations = issues
+		}
+	}
+
 	f.UpdatedAt = time.Now().UTC()
 
 	return flowCopy(f), nil

@@ -1,6 +1,9 @@
 package batch
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // --- ComputeResources sub-types ---
 
@@ -299,8 +302,32 @@ type ContainerProperties struct {
 
 // NodeRangeProperty specifies container properties for a range of multi-node job nodes.
 type NodeRangeProperty struct {
-	ContainerProperties *ContainerProperties `json:"containerProperties,omitempty"`
-	TargetNodes         string               `json:"targetNodes"`
+	ConsumableResourceProperties *ConsumableResourceProperties `json:"consumableResourceProperties,omitempty"`
+	ContainerProperties          *ContainerProperties          `json:"container,omitempty"`
+	EcsProperties                map[string]any                `json:"ecsProperties,omitempty"`
+	EksProperties                *EksProperties                `json:"eksProperties,omitempty"`
+	TargetNodes                  string                        `json:"targetNodes"`
+	InstanceTypes                []string                      `json:"instanceTypes,omitempty"`
+}
+
+// UnmarshalJSON accepts the legacy "containerProperties" key written by older snapshots.
+func (n *NodeRangeProperty) UnmarshalJSON(data []byte) error {
+	type plain NodeRangeProperty
+
+	aux := struct {
+		*plain
+		Legacy *ContainerProperties `json:"containerProperties"`
+	}{plain: (*plain)(n)}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	if n.ContainerProperties == nil {
+		n.ContainerProperties = aux.Legacy
+	}
+
+	return nil
 }
 
 // NodeProperties specifies multi-node parallel job configuration.
@@ -439,6 +466,7 @@ type JobDefinition struct {
 	NodeProperties      *NodeProperties      `json:"nodeProperties,omitempty"`
 	EksProperties       *EksProperties       `json:"eksProperties,omitempty"`
 	RuntimePlatform     *RuntimePlatform     `json:"runtimePlatform,omitempty"`
+	EcsProperties       map[string]any       `json:"ecsProperties,omitempty"`
 	// RetryStrategy is the job-definition-level default retry strategy (real
 	// AWS Batch supports this in addition to the job-level RetryStrategy
 	// passed to SubmitJob; see aws-sdk-go-v2/service/batch/types.
@@ -491,9 +519,10 @@ type JobDependency struct {
 
 // ArrayProperties specifies array job fan-out configuration.
 type ArrayProperties struct {
-	StatusSummary map[string]int32 `json:"statusSummary,omitempty"`
-	Size          int32            `json:"size,omitempty"`
-	Index         int32            `json:"index,omitempty"`
+	StatusSummary              map[string]int32 `json:"statusSummary,omitempty"`
+	StatusSummaryLastUpdatedAt *int64           `json:"statusSummaryLastUpdatedAt,omitempty"`
+	Size                       int32            `json:"size,omitempty"`
+	Index                      int32            `json:"index,omitempty"`
 }
 
 // ContainerOverrides overrides container properties at job submission time.
@@ -502,6 +531,8 @@ type ContainerOverrides struct {
 	Command              []string              `json:"command,omitempty"`
 	Environment          []KeyValuePair        `json:"environment,omitempty"`
 	ResourceRequirements []ResourceRequirement `json:"resourceRequirements,omitempty"`
+	Memory               int32                 `json:"memory,omitempty"`
+	Vcpus                int32                 `json:"vcpus,omitempty"`
 }
 
 // JobAttemptContainer holds per-attempt container execution details.
@@ -556,48 +587,49 @@ type ContainerDetail struct {
 
 // Job represents a submitted Batch job.
 type Job struct {
-	ContainerOverrides *ContainerOverrides `json:"containerOverrides,omitempty"`
-	Tags               map[string]string   `json:"tags"`
-	Parameters         map[string]string   `json:"parameters,omitempty"`
-	StartedAt          *int64              `json:"startedAt,omitempty"`
-	StoppedAt          *int64              `json:"stoppedAt,omitempty"`
-	RetryStrategy      *RetryStrategy      `json:"retryStrategy,omitempty"`
-	Timeout            *JobTimeout         `json:"timeout,omitempty"`
-	ArrayProperties    *ArrayProperties    `json:"arrayProperties,omitempty"`
-	// Container is derived (not stored directly by callers) from the resolved
-	// job definition's ContainerProperties merged with ContainerOverrides; it
-	// is populated by DescribeJobs. Left nil for multi-node jobs, matching
-	// AWS's "for a multiple-container job, this object will be empty" note.
-	Container *ContainerDetail `json:"container,omitempty"`
-	// region is the store.Table composite-key qualifier (see regionKey); see
-	// ComputeEnvironment.region for why it is unexported.
-	region                       string
-	JobDefinition                string                        `json:"jobDefinition"`
-	ShareIdentifier              string                        `json:"shareIdentifier,omitempty"`
-	StatusReason                 string                        `json:"statusReason,omitempty"`
-	JobID                        string                        `json:"jobId"`
-	JobARN                       string                        `json:"jobArn"`
-	JobName                      string                        `json:"jobName"`
-	JobQueue                     string                        `json:"jobQueue"`
-	Status                       string                        `json:"status"`
-	DependsOn                    []JobDependency               `json:"dependsOn,omitempty"`
+	// Container is derived by DescribeJobs from the definition plus ContainerOverrides; nil for multi-node parents.
+	Container                    *ContainerDetail              `json:"container,omitempty"`
+	Tags                         map[string]string             `json:"tags"`
+	Parameters                   map[string]string             `json:"parameters,omitempty"`
+	StartedAt                    *int64                        `json:"startedAt,omitempty"`
+	StoppedAt                    *int64                        `json:"stoppedAt,omitempty"`
+	RetryStrategy                *RetryStrategy                `json:"retryStrategy,omitempty"`
+	Timeout                      *JobTimeout                   `json:"timeout,omitempty"`
+	ArrayProperties              *ArrayProperties              `json:"arrayProperties,omitempty"`
+	NodeOverrides                *NodeOverrides                `json:"nodeOverrides,omitempty"`
 	ConsumableResourceProperties *ConsumableResourceProperties `json:"consumableResourceProperties,omitempty"`
-	Attempts                     []JobAttempt                  `json:"attempts,omitempty"`
-	// PlatformCapabilities is copied from the resolved job definition at
-	// SubmitJob time (real AWS defaults to ["EC2"] when unspecified).
-	PlatformCapabilities       []string `json:"platformCapabilities,omitempty"`
-	CreatedAt                  int64    `json:"createdAt"`
-	SchedulingPriorityOverride int32    `json:"schedulingPriorityOverride,omitempty"`
-	// attemptCount is the number of attempts that have run so far, used by the
-	// janitor to decide whether a timed-out attempt is retried (RetryStrategy.
-	// Attempts) or the job is failed for good. Unexported: internal bookkeeping,
-	// not part of the wire shape.
+	EcsOverride                  map[string]any                `json:"ecsPropertiesOverride,omitempty"`
+	EksOverride                  *EksPropertiesOverride        `json:"eksPropertiesOverride,omitempty"`
+	// NodeProperties/EksProperties/EcsProperties are filled by DescribeJobs from the definition plus overrides.
+	NodeProperties *NodeProperties `json:"-"`
+	EksProperties  *EksProperties  `json:"-"`
+	EcsProperties  map[string]any  `json:"-"`
+	// nodeIndex/nodeCount/isMainNode are set only on node jobs derived from a multi-node parent.
+	nodeIndex          *int32
+	ContainerOverrides *ContainerOverrides `json:"containerOverrides,omitempty"`
+	// region is the store.Table composite-key qualifier (see regionKey).
+	region                     string
+	Status                     string          `json:"status"`
+	JobDefinition              string          `json:"jobDefinition"`
+	ArrayParentID              string          `json:"arrayParentId,omitempty"`
+	ShareIdentifier            string          `json:"shareIdentifier,omitempty"`
+	StatusReason               string          `json:"statusReason,omitempty"`
+	JobID                      string          `json:"jobId"`
+	JobARN                     string          `json:"jobArn"`
+	JobName                    string          `json:"jobName"`
+	JobQueue                   string          `json:"jobQueue"`
+	DependsOn                  []JobDependency `json:"dependsOn,omitempty"`
+	Attempts                   []JobAttempt    `json:"attempts,omitempty"`
+	PlatformCapabilities       []string        `json:"platformCapabilities,omitempty"`
+	CreatedAt                  int64           `json:"createdAt"`
+	nodeCount                  int32
+	SchedulingPriorityOverride int32 `json:"schedulingPriorityOverride,omitempty"`
+	// attemptCount is the number of attempts run so far; the janitor retries or fails the job from it.
 	attemptCount  int32
+	isMainNode    bool
 	PropagateTags bool `json:"propagateTags,omitempty"`
-	// IsCancelled/IsTerminated are set by CancelJob/TerminateJob respectively;
-	// see aws-sdk-go-v2/service/batch/types.JobDetail.IsCancelled/IsTerminated.
-	IsCancelled  bool `json:"isCancelled"`
-	IsTerminated bool `json:"isTerminated"`
+	IsCancelled   bool `json:"isCancelled"`
+	IsTerminated  bool `json:"isTerminated"`
 }
 
 // ConsumableResource represents a Batch consumable resource.
@@ -799,7 +831,14 @@ type ServiceJob struct {
 
 // JobQueueSnapshot represents the front-of-queue state for a job queue.
 type JobQueueSnapshot struct {
-	FrontOfQueue *FrontOfQueue `json:"frontOfQueue,omitempty"`
+	FrontOfQueue       *FrontOfQueue       `json:"frontOfQueue,omitempty"`
+	FrontOfQuotaShares *FrontOfQuotaShares `json:"frontOfQuotaShares,omitempty"`
+}
+
+// FrontOfQuotaShares holds the first RUNNABLE service job of each quota share.
+type FrontOfQuotaShares struct {
+	QuotaShares   map[string][]FrontOfQueueJob `json:"quotaShares"`
+	LastUpdatedAt int64                        `json:"lastUpdatedAt"`
 }
 
 // FrontOfQueue holds jobs at the front of a job queue. Field names and types

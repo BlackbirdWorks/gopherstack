@@ -57,33 +57,25 @@ func (b *InMemoryBackend) ListRegions(
 	return page, encodeRegionToken(page[len(page)-1].RegionName), nil
 }
 
-// EnableRegion transitions an opt-in region from DISABLED to ENABLED.
-// ENABLED_BY_DEFAULT regions return a ValidationException per AWS semantics.
+// EnableRegion starts an opt-in region's DISABLED -> ENABLING -> ENABLED transition.
+// ENABLED_BY_DEFAULT regions return a ValidationException; a region still
+// DISABLING returns a ConflictException.
 func (b *InMemoryBackend) EnableRegion(regionName string) error {
-	b.mu.Lock("EnableRegion")
-	defer b.mu.Unlock()
-
-	for _, r := range b.regions {
-		if r.RegionName != regionName {
-			continue
-		}
-
-		if r.RegionOptStatus == RegionOptStatusEnabledDefault {
-			return fmt.Errorf("%w: %s", errRegionNotOptIn, regionName)
-		}
-
-		r.RegionOptStatus = RegionOptStatusEnabled
-
-		return nil
-	}
-
-	return fmt.Errorf("%w: %s", errRegionNotFound, regionName)
+	return b.transitionRegion(regionName, RegionOptStatusEnabling, RegionOptStatusEnabled, RegionOptStatusDisabling)
 }
 
-// DisableRegion transitions an opt-in region from ENABLED to DISABLED.
-// ENABLED_BY_DEFAULT regions return a ValidationException per AWS semantics.
+// DisableRegion starts an opt-in region's ENABLED -> DISABLING -> DISABLED transition.
+// ENABLED_BY_DEFAULT regions return a ValidationException; a region still
+// ENABLING returns a ConflictException.
 func (b *InMemoryBackend) DisableRegion(regionName string) error {
-	b.mu.Lock("DisableRegion")
+	return b.transitionRegion(regionName, RegionOptStatusDisabling, RegionOptStatusDisabled, RegionOptStatusEnabling)
+}
+
+func (b *InMemoryBackend) transitionRegion(
+	regionName string,
+	pending, terminal, conflicting RegionOptStatus,
+) error {
+	b.mu.Lock("transitionRegion")
 	defer b.mu.Unlock()
 
 	for _, r := range b.regions {
@@ -95,7 +87,23 @@ func (b *InMemoryBackend) DisableRegion(regionName string) error {
 			return fmt.Errorf("%w: %s", errRegionNotOptIn, regionName)
 		}
 
-		r.RegionOptStatus = RegionOptStatusDisabled
+		if r.RegionOptStatus == conflicting {
+			return fmt.Errorf("%w: %s", errRegionTransitionInProgress, regionName)
+		}
+
+		if r.RegionOptStatus == pending || r.RegionOptStatus == terminal {
+			return nil
+		}
+
+		r.RegionOptStatus = pending
+		b.work.After("RegionTransition", regionTransitionDelay, func() {
+			b.mu.Lock("settleRegion")
+			defer b.mu.Unlock()
+
+			if r.RegionOptStatus == pending {
+				r.RegionOptStatus = terminal
+			}
+		})
 
 		return nil
 	}

@@ -7,7 +7,7 @@
 service: acm
 sdk_module: aws-sdk-go-v2/service/acm@v1.49.0   # version audited against
 last_audit_commit: 090ec574b
-last_audit_date: 2026-09-19
+last_audit_date: 2026-10-07
 overall: A            # A = genuine fix found (wire-shape bug); B = already-accurate, proven op-by-op
 # 2026-08-29 pass (gopherstack-6flj/21my dropped-filter/wrapper-key class,
 # targeted re-sweep): genuinely clean, no bug found -- reported honestly as
@@ -176,21 +176,21 @@ ops:
   DescribeAcmeAccount: {wire: ok, errors: ok, state: ok, persist: ok, note: "see gaps -- AcmeAccount is honestly always empty (no ACME protocol server); this op validates the AcmeEndpointArn FK for real and returns ResourceNotFoundException for the (always-absent) account."}
   ListAcmeAccounts: {wire: ok, errors: ok, state: ok, persist: ok, note: "same honest-emptiness as DescribeAcmeAccount; validates AcmeEndpointArn, returns an empty AcmeAccounts array."}
   RevokeAcmeAccount: {wire: ok, errors: ok, state: ok, persist: ok, note: "same honest-emptiness; ResourceNotFoundException, never a fabricated success."}
-  CreateAcmeDomainValidation: {wire: ok, errors: ok, state: ok, persist: ok, note: "field-diffed against CreateAcmeDomainValidationInput/Output and AcmeDomainValidation/PrevalidationOptions/PrevalidationDetails. PrevalidationOptions.DnsPrevalidation (the only union member the real SDK defines) required; synthesizes a CNAME ResourceRecord using the same random-token construction certificate DNS validation uses (distinct well-known suffix so the two never look identical on the wire). Status is always VALIDATING -- see gaps, this is the domain-validation-success fabrication the task explicitly warned against avoiding. Owned by AcmeEndpointArn, cascade-deleted with it."}
+  CreateAcmeDomainValidation: {wire: ok, errors: ok, state: ok, persist: ok, note: "field-diffed against CreateAcmeDomainValidationInput/Output and AcmeDomainValidation/PrevalidationOptions/PrevalidationDetails. PrevalidationOptions.DnsPrevalidation (the only union member the real SDK defines) required; synthesizes a CNAME ResourceRecord using the same random-token construction certificate DNS validation uses (distinct well-known suffix so the two never look identical on the wire). 2026-10-07: Status is VALIDATING until the auto-validate delay (ValidAt), then VALID, matching how requested certificates auto-validate; no DNS lookup happens (TestAcmeDomainValidation_SettlesToValid). Owned by AcmeEndpointArn, cascade-deleted with it."}
   DescribeAcmeDomainValidation: {wire: ok, errors: ok, state: ok, persist: ok}
   ListAcmeDomainValidations: {wire: ok, errors: ok, state: ok, persist: ok, note: "paginated per-endpoint via the same listOwnedByEndpoint helper as ListAcmeExternalAccountBindings."}
-  UpdateAcmeDomainValidation: {wire: ok, errors: ok, state: ok, persist: ok, note: "only PrevalidationOptions is updatable on the real wire; regenerates the DNS ResourceRecord when supplied. Status remains VALIDATING (never fabricated as re-verified)."}
+  UpdateAcmeDomainValidation: {wire: ok, errors: ok, state: ok, persist: ok, note: "only PrevalidationOptions is updatable on the real wire; regenerates the DNS ResourceRecord when supplied. 2026-10-07: an update restarts validation (VALIDATING, new ValidAt)."}
   DeleteAcmeDomainValidation: {wire: ok, errors: ok, state: ok, persist: ok}
 gaps: []
 items_still_open:
-  - "ValidationMethod=HTTP on a direct RequestCertificate is accepted with a placeholder HttpRedirect; AWS docs do not say whether non-CloudFront requests are rejected, so no rejection is invented."
+  - "ValidationMethod=HTTP on a direct RequestCertificate is accepted with a placeholder HttpRedirect: the pinned SDK says HttpRedirect exists for CloudFront-requested certificates but never says direct requests are rejected."
+structural_gaps:
   - "TagPolicyException is unwired: no Organizations tag-policy engine exists to trigger it."
   - "ACME accounts, AcmeAccountId/AcmeEndpointArn on certificates, and the matching SearchCertificates filter/sort members are never populated: no RFC 8555 ACME server exists."
-  - "AcmeDomainValidation.Status never leaves VALIDATING and FailureDetails stays absent: real DNS verification needs cross-service Route 53 wiring (cli.go) not yet built."
-  - "FailCertificate/InactivateCertificate have no callers: the pinned SDK documents no customer-facing trigger for FAILED or INACTIVE."
+  - "AcmeDomainValidation INVALID status and FailureDetails never occur: validation settles to VALID on a timer because no DNS resolution is performed."
+  - "FailCertificate/InactivateCertificate have no callers: FAILED comes from CA/domain-policy decisions and INACTIVE from AWS-side action, neither of which exists here."
 deferred:                 # consciously not audited this pass (scope) — next pass targets
   - A real ACME protocol front-end (RFC 8555 server) that would let AcmeAccount, and CertificateDetail's new AcmeAccountId/AcmeEndpointArn fields, actually get populated
-  - AcmeDomainValidation real DNS-record verification (VALID/INVALID transitions) — a concrete cross-service wiring path now exists (see gaps), next pass could attempt the cli.go/provider wiring rather than the DNS-check logic itself, which is the smaller half of this gap
 leaks: {status: clean, note: "isolation_test.go / leak_test.go already cover timer goroutine lifecycle (Shutdown stops auto-validate timers); Reset()/Close() explicitly stop all pending time.AfterFunc timers; janitor sweeps orphaned timers whose cert was deleted. This pass added no new goroutines/timers -- ExportCertificate's RLock->Lock change (to persist the new Exported flag) and the two new backend methods (ApplyDomainValidationOverrides, SetExportPreference) all use the existing b.mu lock with clean defer-release, verified via -race across the full suite. The new ACME resource family (endpoints/EABs/domain-validations/accounts) introduces no timers or other goroutines -- Create* ops are fully synchronous; DeleteAcmeEndpoint's cascade delete is a plain in-lock loop over store.Index.Get results, verified via -race across the full suite including the new SDK round-trip tests."}
 ---
 

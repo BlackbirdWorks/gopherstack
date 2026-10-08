@@ -78,6 +78,9 @@ var (
 	ErrAPINotFound = errors.New("NotFoundException")
 	// ErrStageNotFound is returned when a requested stage does not exist.
 	ErrStageNotFound = errors.New("NotFoundException")
+	// ErrIntegrationInvoke marks a failure from the backing integration call itself.
+	ErrIntegrationInvoke = errors.New("integration invocation failed")
+
 	// ErrRouteNotFound is returned when a requested route does not exist.
 	ErrRouteNotFound = errors.New("NotFoundException")
 	// ErrIntegrationNotFound is returned when a requested integration does not exist.

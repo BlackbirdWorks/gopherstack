@@ -19,6 +19,41 @@ const (
 // jobDefNameRegex validates AWS Batch job definition names.
 var jobDefNameRegex = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,128}$`)
 
+// DefinitionOption sets an optional RegisterJobDefinition input.
+type DefinitionOption func(*JobDefinition)
+
+// WithEcsProperties sets the definition's ecsProperties.
+func WithEcsProperties(ecs map[string]any) DefinitionOption {
+	return func(jd *JobDefinition) { jd.EcsProperties = ecs }
+}
+
+// validateEcsProperties requires each task to carry containers that name an image.
+func validateEcsProperties(ecs map[string]any) error {
+	if ecs == nil {
+		return nil
+	}
+
+	tasks, _ := ecs["taskProperties"].([]any)
+	if len(tasks) == 0 {
+		return fmt.Errorf("%w: ecsProperties.taskProperties is required", ErrValidation)
+	}
+
+	for _, t := range tasks {
+		containers, _ := asMap(t)["containers"].([]any)
+		if len(containers) == 0 {
+			return fmt.Errorf("%w: ecsProperties.taskProperties.containers is required", ErrValidation)
+		}
+
+		for _, c := range containers {
+			if image, _ := asMap(c)["image"].(string); image == "" {
+				return fmt.Errorf("%w: ecsProperties.taskProperties.containers.image is required", ErrValidation)
+			}
+		}
+	}
+
+	return nil
+}
+
 // RegisterJobDefinition registers a new job definition (or a new revision).
 func (b *InMemoryBackend) RegisterJobDefinition(
 	ctx context.Context,
@@ -35,6 +70,7 @@ func (b *InMemoryBackend) RegisterJobDefinition(
 	parameters map[string]string,
 	propagateTags bool,
 	retryStrategy *RetryStrategy,
+	opts ...DefinitionOption,
 ) (*JobDefinition, error) {
 	region := getRegion(ctx, b.region)
 
@@ -86,6 +122,17 @@ func (b *InMemoryBackend) RegisterJobDefinition(
 		PropagateTags:                propagateTags,
 		RetryStrategy:                cloneRetryStrategy(retryStrategy),
 	}
+
+	for _, opt := range opts {
+		opt(jd)
+	}
+
+	if err := validateEcsProperties(jd.EcsProperties); err != nil {
+		revisions[name]--
+
+		return nil, err
+	}
+
 	b.jobDefinitions.Put(jd)
 	cp := *jd
 

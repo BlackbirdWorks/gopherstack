@@ -13,6 +13,8 @@ type listJobsInput struct {
 	NextToken  *string              `json:"nextToken,omitempty"`
 	JobQueue   string               `json:"jobQueue"`
 	JobStatus  string               `json:"jobStatus"`
+	ArrayJobID string               `json:"arrayJobId,omitempty"`
+	MultiNode  string               `json:"multiNodeJobId,omitempty"`
 	Filters    []keyValuesPairInput `json:"filters,omitempty"`
 }
 
@@ -26,15 +28,30 @@ type keyValuesPairInput struct {
 // ArrayPropertiesSummary. StatusSummaryLastUpdatedAt is unsourced -- the
 // Job model's ArrayProperties tracks no such timestamp (see PARITY.md).
 type arrayPropertiesSummary struct {
-	StatusSummary map[string]int32 `json:"statusSummary,omitempty"`
-	Size          int32            `json:"size,omitempty"`
-	Index         int32            `json:"index,omitempty"`
+	StatusSummary              map[string]int32 `json:"statusSummary,omitempty"`
+	StatusSummaryLastUpdatedAt *int64           `json:"statusSummaryLastUpdatedAt,omitempty"`
+	Size                       int32            `json:"size,omitempty"`
+	Index                      int32            `json:"index,omitempty"`
+}
+
+// nodePropertiesSummary mirrors types.NodePropertiesSummary.
+type nodePropertiesSummary struct {
+	IsMainNode bool  `json:"isMainNode"`
+	NodeIndex  int32 `json:"nodeIndex"`
+	NumNodes   int32 `json:"numNodes"`
+}
+
+// nodeDetails mirrors types.NodeDetails.
+type nodeDetails struct {
+	IsMainNode bool  `json:"isMainNode"`
+	NodeIndex  int32 `json:"nodeIndex"`
 }
 
 type jobSummary struct {
 	StartedAt       *int64                  `json:"startedAt,omitempty"`
 	StoppedAt       *int64                  `json:"stoppedAt,omitempty"`
 	ArrayProperties *arrayPropertiesSummary `json:"arrayProperties,omitempty"`
+	NodeProperties  *nodePropertiesSummary  `json:"nodeProperties,omitempty"`
 	JobID           string                  `json:"jobId"`
 	JobARN          string                  `json:"jobArn,omitempty"`
 	JobName         string                  `json:"jobName"`
@@ -53,10 +70,19 @@ func jobSummaryArrayProperties(j *Job) *arrayPropertiesSummary {
 	}
 
 	return &arrayPropertiesSummary{
-		Index:         j.ArrayProperties.Index,
-		Size:          j.ArrayProperties.Size,
-		StatusSummary: j.ArrayProperties.StatusSummary,
+		Index:                      j.ArrayProperties.Index,
+		Size:                       j.ArrayProperties.Size,
+		StatusSummary:              j.ArrayProperties.StatusSummary,
+		StatusSummaryLastUpdatedAt: j.ArrayProperties.StatusSummaryLastUpdatedAt,
 	}
+}
+
+func jobSummaryNodeProperties(j *Job) *nodePropertiesSummary {
+	if j.nodeIndex == nil {
+		return nil
+	}
+
+	return &nodePropertiesSummary{IsMainNode: j.isMainNode, NodeIndex: *j.nodeIndex, NumNodes: j.nodeCount}
 }
 
 type listJobsOutput struct {
@@ -74,11 +100,16 @@ func isValidJobStatus(s string) bool {
 }
 
 func (h *Handler) handleListJobs(ctx context.Context, in *listJobsInput) (*listJobsOutput, error) {
-	// AWS Batch ListJobs requires a grouping key; this simulator scopes jobs by
-	// job queue, so jobQueue is mandatory (AWS returns ClientException
-	// otherwise). jobStatus remains an optional filter.
-	if strings.TrimSpace(in.JobQueue) == "" {
-		return nil, fmt.Errorf("%w: jobQueue is required", ErrValidation)
+	set := 0
+
+	for _, v := range []string{in.JobQueue, in.ArrayJobID, in.MultiNode} {
+		if strings.TrimSpace(v) != "" {
+			set++
+		}
+	}
+
+	if set != 1 {
+		return nil, fmt.Errorf("%w: specify exactly one of jobQueue, arrayJobId or multiNodeJobId", ErrValidation)
 	}
 
 	if in.JobStatus != "" && !isValidJobStatus(in.JobStatus) {
@@ -95,12 +126,7 @@ func (h *Handler) handleListJobs(ctx context.Context, in *listJobsInput) (*listJ
 		nextToken = *in.NextToken
 	}
 
-	filters := make([]KeyValueFilter, 0, len(in.Filters))
-	for _, f := range in.Filters {
-		filters = append(filters, KeyValueFilter(f))
-	}
-
-	jobs, outToken, err := h.Backend.ListJobs(ctx, in.JobQueue, in.JobStatus, nextToken, maxResults, filters)
+	jobs, outToken, err := h.listJobsFor(ctx, in, nextToken, maxResults)
 	if err != nil {
 		return nil, err
 	}
@@ -119,6 +145,7 @@ func (h *Handler) handleListJobs(ctx context.Context, in *listJobsInput) (*listJ
 			StoppedAt:       j.StoppedAt,
 			StatusReason:    j.StatusReason,
 			ArrayProperties: jobSummaryArrayProperties(j),
+			NodeProperties:  jobSummaryNodeProperties(j),
 		})
 	}
 
@@ -130,17 +157,32 @@ func (h *Handler) handleListJobs(ctx context.Context, in *listJobsInput) (*listJ
 	return out, nil
 }
 
+func (h *Handler) listJobsFor(
+	ctx context.Context, in *listJobsInput, nextToken string, maxResults int32,
+) ([]*Job, string, error) {
+	switch {
+	case strings.TrimSpace(in.ArrayJobID) != "":
+		return h.Backend.ListJobChildren(ctx, in.ArrayJobID, in.JobStatus, nextToken, maxResults, false)
+	case strings.TrimSpace(in.MultiNode) != "":
+		return h.Backend.ListJobChildren(ctx, in.MultiNode, in.JobStatus, nextToken, maxResults, true)
+	}
+
+	filters := make([]KeyValueFilter, 0, len(in.Filters))
+	for _, f := range in.Filters {
+		filters = append(filters, KeyValueFilter(f))
+	}
+
+	return h.Backend.ListJobs(ctx, in.JobQueue, in.JobStatus, nextToken, maxResults, filters)
+}
+
 type describeJobsInput struct {
 	Jobs []string `json:"jobs"`
 }
 
 // jobDetail mirrors aws-sdk-go-v2/service/batch/types.JobDetail's field names
 // and nesting (see deserializers.go's awsRestjson1_deserializeDocumentJobDetail
-// case list). NodeDetails/EcsProperties/EksProperties (the describe-side
-// variants) are not modeled -- they require simulating ECS/EKS/multi-node
-// execution details, which is out of scope for this emulator (see
-// PARITY.md); Container, IsCancelled, IsTerminated, and PlatformCapabilities
-// are modeled.
+// case list). Pod/task/node runtime placement (podName, nodeName, taskArn,
+// containerInstanceArn) needs real execution and is never populated.
 type jobDetail struct {
 	StoppedAt                    *int64                        `json:"stoppedAt,omitempty"`
 	RetryStrategy                *RetryStrategy                `json:"retryStrategy,omitempty"`
@@ -148,6 +190,10 @@ type jobDetail struct {
 	ArrayProperties              *ArrayProperties              `json:"arrayProperties,omitempty"`
 	ConsumableResourceProperties *ConsumableResourceProperties `json:"consumableResourceProperties,omitempty"`
 	Container                    *ContainerDetail              `json:"container,omitempty"`
+	NodeProperties               *NodeProperties               `json:"nodeProperties,omitempty"`
+	NodeDetails                  *nodeDetails                  `json:"nodeDetails,omitempty"`
+	EksProperties                *EksProperties                `json:"eksProperties,omitempty"`
+	EcsProperties                map[string]any                `json:"ecsProperties,omitempty"`
 	Tags                         map[string]string             `json:"tags"`
 	Parameters                   map[string]string             `json:"parameters,omitempty"`
 	JobARN                       string                        `json:"jobArn,omitempty"`
@@ -197,6 +243,10 @@ func (h *Handler) handleDescribeJobs(ctx context.Context, in *describeJobsInput)
 			ArrayProperties:              j.ArrayProperties,
 			ConsumableResourceProperties: j.ConsumableResourceProperties,
 			Container:                    j.Container,
+			NodeProperties:               j.NodeProperties,
+			NodeDetails:                  jobNodeDetails(j),
+			EksProperties:                j.EksProperties,
+			EcsProperties:                j.EcsProperties,
 			Parameters:                   j.Parameters,
 			DependsOn:                    j.DependsOn,
 			Attempts:                     j.Attempts,
@@ -212,9 +262,81 @@ func (h *Handler) handleDescribeJobs(ctx context.Context, in *describeJobsInput)
 	return &describeJobsOutput{Jobs: details}, nil
 }
 
+func jobNodeDetails(j *Job) *nodeDetails {
+	if j.nodeIndex == nil {
+		return nil
+	}
+
+	return &nodeDetails{IsMainNode: j.isMainNode, NodeIndex: *j.nodeIndex}
+}
+
 type containerOverridesInput struct {
-	Environment []keyValuePair `json:"environment,omitempty"`
-	Command     []string       `json:"command,omitempty"`
+	InstanceType         string                `json:"instanceType,omitempty"`
+	Environment          []keyValuePair        `json:"environment,omitempty"`
+	Command              []string              `json:"command,omitempty"`
+	ResourceRequirements []ResourceRequirement `json:"resourceRequirements,omitempty"`
+	Memory               int32                 `json:"memory,omitempty"`
+	Vcpus                int32                 `json:"vcpus,omitempty"`
+}
+
+func (c *containerOverridesInput) toModel() *ContainerOverrides {
+	if c == nil {
+		return nil
+	}
+
+	env := make([]KeyValuePair, len(c.Environment))
+	for i, kv := range c.Environment {
+		env[i] = KeyValuePair(kv)
+	}
+
+	return &ContainerOverrides{
+		InstanceType:         c.InstanceType,
+		Command:              c.Command,
+		Environment:          env,
+		ResourceRequirements: c.ResourceRequirements,
+		Memory:               c.Memory,
+		Vcpus:                c.Vcpus,
+	}
+}
+
+type nodePropertyOverrideInput struct {
+	ConsumableOverride *consumableResourcePropertiesInput `json:"consumableResourcePropertiesOverride,omitempty"`
+	ContainerOverrides *containerOverridesInput           `json:"containerOverrides,omitempty"`
+	EcsOverride        map[string]any                     `json:"ecsPropertiesOverride,omitempty"`
+	EksOverride        *EksPropertiesOverride             `json:"eksPropertiesOverride,omitempty"`
+	TargetNodes        string                             `json:"targetNodes"`
+	InstanceTypes      []string                           `json:"instanceTypes,omitempty"`
+}
+
+type nodeOverridesInput struct {
+	NodePropertyOverrides []nodePropertyOverrideInput `json:"nodePropertyOverrides,omitempty"`
+	NumNodes              int32                       `json:"numNodes,omitempty"`
+}
+
+func (n *nodeOverridesInput) toModel() *NodeOverrides {
+	if n == nil {
+		return nil
+	}
+
+	out := &NodeOverrides{NumNodes: n.NumNodes}
+
+	for _, o := range n.NodePropertyOverrides {
+		m := NodePropertyOverride{
+			TargetNodes:        o.TargetNodes,
+			ContainerOverrides: o.ContainerOverrides.toModel(),
+			EcsOverride:        o.EcsOverride,
+			EksOverride:        o.EksOverride,
+			InstanceTypes:      o.InstanceTypes,
+		}
+
+		if list := consumableResourcePropertiesFromInput(o.ConsumableOverride); list != nil {
+			m.ConsumableOverride = &ConsumableResourceProperties{ConsumableResourceList: list}
+		}
+
+		out.NodePropertyOverrides = append(out.NodePropertyOverrides, m)
+	}
+
+	return out
 }
 
 type keyValuePair struct {
@@ -236,6 +358,9 @@ type submitJobInput struct {
 	Timeout                    *JobTimeout                        `json:"timeout,omitempty"`
 	ArrayProperties            *arrayPropertiesInput              `json:"arrayProperties,omitempty"`
 	ContainerOverrides         *containerOverridesInput           `json:"containerOverrides,omitempty"`
+	NodeOverrides              *nodeOverridesInput                `json:"nodeOverrides,omitempty"`
+	EksOverride                *EksPropertiesOverride             `json:"eksPropertiesOverride,omitempty"`
+	EcsOverride                map[string]any                     `json:"ecsPropertiesOverride,omitempty"`
 	ConsumableOverride         *consumableResourcePropertiesInput `json:"consumableResourcePropertiesOverride,omitempty"`
 	JobName                    string                             `json:"jobName"`
 	JobQueue                   string                             `json:"jobQueue"`
@@ -256,17 +381,7 @@ type submitJobOutput struct {
 }
 
 func (h *Handler) handleSubmitJob(ctx context.Context, in *submitJobInput) (*submitJobOutput, error) {
-	var overrides *ContainerOverrides
-	if in.ContainerOverrides != nil {
-		env := make([]KeyValuePair, len(in.ContainerOverrides.Environment))
-		for i, kv := range in.ContainerOverrides.Environment {
-			env[i] = KeyValuePair(kv)
-		}
-		overrides = &ContainerOverrides{
-			Command:     in.ContainerOverrides.Command,
-			Environment: env,
-		}
-	}
+	overrides := in.ContainerOverrides.toModel()
 
 	var arrayProps *ArrayProperties
 	if in.ArrayProperties != nil {
@@ -289,6 +404,9 @@ func (h *Handler) handleSubmitJob(ctx context.Context, in *submitJobInput) (*sub
 		in.ShareIdentifier,
 		in.SchedulingPriorityOverride,
 		in.PropagateTags,
+		WithNodeOverrides(in.NodeOverrides.toModel()),
+		WithEksOverride(in.EksOverride),
+		WithEcsOverride(in.EcsOverride),
 	)
 	if err != nil {
 		return nil, err

@@ -81,6 +81,7 @@ type InMemoryBackend struct {
 	promptsByName                    map[string]string
 	promptVersionCtrs                map[string]int
 	tags                             map[string]map[string]string
+	docRequests                      map[string][]KBDocumentDetail
 	flowVersionCtrs                  map[string]int
 	agentVersionCtrs                 map[string]int
 	resourcePolicies                 *store.Table[ResourcePolicy]
@@ -112,6 +113,7 @@ func NewInMemoryBackend(region, accountID string) *InMemoryBackend {
 		flowsByName:       make(map[string]string),
 		promptsByName:     make(map[string]string),
 		tags:              make(map[string]map[string]string),
+		docRequests:       make(map[string][]KBDocumentDetail),
 		agentVersionCtrs:  make(map[string]int),
 		flowVersionCtrs:   make(map[string]int),
 		promptVersionCtrs: make(map[string]int),
@@ -135,6 +137,7 @@ func (b *InMemoryBackend) Reset() {
 	b.flowsByName = make(map[string]string)
 	b.promptsByName = make(map[string]string)
 	b.tags = make(map[string]map[string]string)
+	b.docRequests = make(map[string][]KBDocumentDetail)
 	b.agentVersionCtrs = make(map[string]int)
 	b.flowVersionCtrs = make(map[string]int)
 	b.promptVersionCtrs = make(map[string]int)

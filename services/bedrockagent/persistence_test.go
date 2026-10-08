@@ -100,7 +100,7 @@ func newPersistenceTestBackend(t *testing.T) (*bedrockagent.InMemoryBackend, per
 	job, err := b.StartIngestionJob(ctx, kb.KnowledgeBaseID, ds.DataSourceID, "test job", "")
 	require.NoError(t, err)
 
-	docs, err := b.IngestKnowledgeBaseDocuments(ctx, kb.KnowledgeBaseID, ds.DataSourceID, []bedrockagent.KBDocument{
+	docs, err := b.IngestKnowledgeBaseDocuments(ctx, kb.KnowledgeBaseID, ds.DataSourceID, "", []bedrockagent.KBDocument{
 		{Identifier: bedrockagent.KBDocumentIdentifier{
 			DataSourceType: "CUSTOM",
 			Custom:         &bedrockagent.KBCustomDocumentIdentifier{ID: "doc-1"},

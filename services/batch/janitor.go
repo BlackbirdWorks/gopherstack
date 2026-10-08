@@ -23,6 +23,9 @@ const (
 	// JobTimeout.AttemptDurationSeconds; applyAdvanceRegularJobs resolves it to
 	// either a retry (RUNNABLE) or a terminal FAILED, per RetryStrategy.Attempts.
 	jobAdvanceAttemptTimedOut = "internal:AttemptTimedOut"
+
+	// jobAdvanceArraySync marks an array parent whose status is derived from its children.
+	jobAdvanceArraySync = "internal:ArraySync"
 )
 
 // Janitor is the Batch background worker that evicts INACTIVE job definitions
@@ -256,25 +259,8 @@ func (j *Janitor) getJobsToAdvance() ([]advanceKey, []advanceKey) {
 	defer j.Backend.mu.RUnlock()
 
 	for _, job := range j.Backend.jobs.All() {
-		switch job.Status {
-		case jobStatusSubmitted, jobStatusPending, jobStatusRunnable, jobStatusStarting:
-			switch depStatus := j.dependencyStatus(job); depStatus {
-			case dependencyPending:
-			case dependencyFailed:
-				toAdvance = append(toAdvance, advanceKey{job.region, job.JobID, jobStatusFailed})
-			case dependencySatisfied:
-				toAdvance = append(toAdvance, advanceKey{job.region, job.JobID, jobStatusRunning})
-			}
-		case jobStatusRunning:
-			if job.StoppedAt != nil {
-				continue
-			}
-
-			if j.Backend.jobAttemptTimedOutLocked(job) {
-				toAdvance = append(toAdvance, advanceKey{job.region, job.JobID, jobAdvanceAttemptTimedOut})
-			} else {
-				toAdvance = append(toAdvance, advanceKey{job.region, job.JobID, jobStatusSucceeded})
-			}
+		if k, ok := j.nextJobAdvance(job); ok {
+			toAdvance = append(toAdvance, k)
 		}
 	}
 
@@ -292,6 +278,36 @@ func (j *Janitor) getJobsToAdvance() ([]advanceKey, []advanceKey) {
 	return toAdvance, toAdvanceSvc
 }
 
+// nextJobAdvance returns the transition job is due for, if any.
+func (j *Janitor) nextJobAdvance(job *Job) (advanceKey, bool) {
+	if isArrayParent(job) {
+		return advanceKey{job.region, job.JobID, jobAdvanceArraySync}, !isTerminalJobStatus(job.Status)
+	}
+
+	switch job.Status {
+	case jobStatusSubmitted, jobStatusPending, jobStatusRunnable, jobStatusStarting:
+		switch j.dependencyStatus(job) {
+		case dependencyFailed:
+			return advanceKey{job.region, job.JobID, jobStatusFailed}, true
+		case dependencySatisfied:
+			return advanceKey{job.region, job.JobID, jobStatusRunning}, true
+		case dependencyPending:
+		}
+	case jobStatusRunning:
+		if job.StoppedAt != nil {
+			return advanceKey{}, false
+		}
+
+		if j.Backend.jobAttemptTimedOutLocked(job) {
+			return advanceKey{job.region, job.JobID, jobAdvanceAttemptTimedOut}, true
+		}
+
+		return advanceKey{job.region, job.JobID, jobStatusSucceeded}, true
+	}
+
+	return advanceKey{}, false
+}
+
 type dependencyState int
 
 const (
@@ -300,33 +316,21 @@ const (
 	dependencyFailed
 )
 
-// dependencyStatus evaluates a job's DependsOn list (batch@v1.68.4
-// api_op_SubmitJob.go: "A list of dependencies for the job... each index
-// child of this job must wait for the corresponding index child of each
-// dependency to complete before it can begin"). A job with any dependency
-// not yet in a terminal state stays dependencyPending (blocks the
-// SUBMITTED/PENDING/RUNNABLE/STARTING -> RUNNING advance below); a FAILED
-// dependency propagates as dependencyFailed. Caller must hold at least a
-// read lock.
-//
-// Only the plain JobId form is evaluated. SEQUENTIAL/N_TO_N dependency
-// types reference array-job children this backend never spawns (SubmitJob
-// stores ArrayProperties.Size without creating child Job records -- a
-// pre-existing, disclosed gap; see ListJobs's arrayJobId note in
-// PARITY.md), so an entry with no JobId can never be resolved and is
-// skipped rather than blocking a job forever.
+// dependencyStatus evaluates a job's DependsOn list: any awaited job not yet
+// terminal keeps the job pending, and a FAILED one propagates as
+// dependencyFailed. Caller must hold at least a read lock.
 func (j *Janitor) dependencyStatus(job *Job) dependencyState {
 	for _, dep := range job.DependsOn {
-		if dep.JobID == "" {
+		target, ok := j.dependencyTarget(job, dep)
+		if !ok {
 			continue
 		}
 
-		depJob, ok := j.Backend.jobs.Get(regionKey(job.region, dep.JobID))
-		if !ok {
+		if target == nil {
 			return dependencyPending
 		}
 
-		switch depJob.Status {
+		switch target.Status {
 		case jobStatusFailed:
 			return dependencyFailed
 		case jobStatusSucceeded:
@@ -336,6 +340,37 @@ func (j *Janitor) dependencyStatus(job *Job) dependencyState {
 	}
 
 	return dependencySatisfied
+}
+
+// dependencyTarget resolves the job dep makes job wait on. ok is false when the dependency
+// does not apply to job; a nil target with ok true means the awaited job does not exist yet.
+// SEQUENTIAL (no jobId) waits on the previous sibling of an array child, and N_TO_N waits on
+// the same-index child of the named array job.
+func (j *Janitor) dependencyTarget(job *Job, dep JobDependency) (*Job, bool) {
+	isChild := job.ArrayParentID != "" && job.ArrayProperties != nil
+
+	if dep.JobID == "" {
+		if dep.Type != dependencyTypeSequential || !isChild || job.ArrayProperties.Index == 0 {
+			return nil, false
+		}
+
+		prev, _ := j.Backend.jobs.Get(
+			regionKey(job.region, arrayChildID(job.ArrayParentID, job.ArrayProperties.Index-1)),
+		)
+
+		return prev, true
+	}
+
+	if dep.Type == dependencyTypeNToN && isChild {
+		siblingKey := regionKey(job.region, arrayChildID(dep.JobID, job.ArrayProperties.Index))
+		if sib, found := j.Backend.jobs.Get(siblingKey); found {
+			return sib, true
+		}
+	}
+
+	depJob, _ := j.Backend.jobs.Get(regionKey(job.region, dep.JobID))
+
+	return depJob, true
 }
 
 func (j *Janitor) advanceJobs(_ context.Context) {
@@ -356,6 +391,12 @@ func (j *Janitor) applyAdvanceRegularJobs(toAdvance []advanceKey, now int64) {
 	for _, k := range toAdvance {
 		job, ok := j.Backend.jobs.Get(regionKey(k.region, k.id))
 		if !ok {
+			continue
+		}
+
+		if k.newStatus == jobAdvanceArraySync {
+			j.Backend.syncArrayParentLocked(job, now)
+
 			continue
 		}
 

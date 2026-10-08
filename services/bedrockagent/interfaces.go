@@ -158,13 +158,13 @@ type StorageBackend interface {
 
 	// Knowledge base document operations.
 	IngestKnowledgeBaseDocuments(
-		ctx context.Context, kbID, dataSourceID string, docs []KBDocument,
+		ctx context.Context, kbID, dataSourceID, clientToken string, docs []KBDocument,
 	) ([]KBDocumentDetail, error)
 	GetKnowledgeBaseDocuments(
 		ctx context.Context, kbID, dataSourceID string, ids []KBDocumentIdentifier,
 	) ([]KBDocumentDetail, error)
 	DeleteKnowledgeBaseDocuments(
-		ctx context.Context, kbID, dataSourceID string, ids []KBDocumentIdentifier,
+		ctx context.Context, kbID, dataSourceID, clientToken string, ids []KBDocumentIdentifier,
 	) ([]KBDocumentDetail, error)
 	ListKnowledgeBaseDocuments(
 		ctx context.Context, kbID, dataSourceID string, maxResults int, nextToken string,

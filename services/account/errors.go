@@ -13,8 +13,11 @@ var (
 	// (EnableRegion/DisableRegion only) ConflictException -- ResourceNotFoundException
 	// is not a possible error for any of the three. An unrecognized RegionName is
 	// therefore reported the same way as any other invalid input field.
-	errRegionNotFound  = errors.New("ValidationException: region not found")
-	errRegionNotOptIn  = errors.New("ValidationException: only opt-in regions can be enabled or disabled")
+	errRegionNotFound             = errors.New("ValidationException: region not found")
+	errRegionNotOptIn             = errors.New("ValidationException: only opt-in regions can be enabled or disabled")
+	errRegionTransitionInProgress = errors.New(
+		"ConflictException: region is already changing in the opposite direction",
+	)
 	errNoPendingUpdate = errors.New("ResourceNotFoundException: no primary email update in progress")
 	errInvalidOTP      = errors.New("ValidationException: invalid OTP")
 	// errInvalidNextToken is returned when ListRegions receives an undecodable cursor.

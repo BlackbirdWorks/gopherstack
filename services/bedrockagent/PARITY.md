@@ -7,7 +7,7 @@
 service: bedrockagent
 sdk_module: aws-sdk-go-v2/service/bedrockagent@v1.58.4   # version audited against
 last_audit_commit: e33627d17
-last_audit_date: 2026-09-18
+last_audit_date: 2026-10-07
 overall: A            # RESTORED B->A (parity-5, 2026-07-31, follow-up pass): the routing
                       # bug that caused the prior A->B downgrade is fixed and proven.
                       # dispatchKBDocuments (handler.go) now assigns PUT on the base
@@ -341,9 +341,9 @@ ops:
     record. Proven via Test_SDKRoundTrip_ListFlows_Summary
     (wire_output_required_r80d_test.go), hand-reverted/confirmed-failing/
     restored, md5sum-verified byte-identical."}
-  PrepareFlow: {wire: ok, errors: ok, state: fixed, persist: ok, note: "same FlowStatus casing fix"}
+  PrepareFlow: {wire: ok, errors: ok, state: fixed, persist: ok, note: "same FlowStatus casing fix. 2026-10-07: validates the stored definition; any finding sets Status Failed and GetFlow.validations (PrepareFlowOutput: Failed on failure), UpdateFlow resets to NotPrepared (TestPrepareFlow_ValidationOutcome)."}
   ValidateFlowDefinition: {wire: ok, errors: ok, state: ok, persist: ok,
-    note: "FIXED 2026-10-01: reports MissingStartingNodes/MissingEndingNodes/UnknownConnectionSource/UnknownConnectionTarget/DuplicateConnections for the top-level graph (flow_validation.go); proven by TestValidateFlowDefinition_RealClient. Deeper checks (cycles, unreachable nodes, type mismatches) are not modeled."}
+    note: "FIXED 2026-10-01: reports MissingStartingNodes/MissingEndingNodes/UnknownConnectionSource/UnknownConnectionTarget/DuplicateConnections for the top-level graph (flow_validation.go); proven by TestValidateFlowDefinition_RealClient. 2026-10-07: adds CyclicConnection, UnreachableNode, UnknownConnectionSourceOutput/TargetInput/Condition, MissingConnectionConfiguration, MissingNodeConfiguration, MalformedNodeInputExpression/ConditionExpression, DuplicateConditionExpression, MissingDefaultCondition, MultipleNodeInputConnections, UnfulfilledNodeInput and the DoWhile loop checks (Missing/Multiple Loop nodes, LoopIncompatibleNodeType), recursing into Loop bodies."}
   CreateFlowVersion: {wire: fixed, errors: ok, state: fixed, persist: ok,
     note: "same FlowStatus casing fix. FIXED 2026-08-21 (gopherstack-r80d
     batch 7): Create/GetFlowVersionOutput require 'executionRoleArn'
@@ -434,7 +434,7 @@ ops:
     Removed from GetSupportedOperations() this pass; route/state kept for
     this package's own tests."}
   IngestKnowledgeBaseDocuments: {wire: fixed, errors: ok, state: ok, persist: ok,
-    note: "Routing FIXED (parity-5, 2026-07-31, follow-up pass): dispatchKBDocuments
+    note: "2026-10-07: clientToken replay returns the original result and survives restart (TestKBDocuments_ClientTokenReplay); the other tokened resources now persist theirs too (TestClientToken_ReplaySurvivesRestore). Routing FIXED (parity-5, 2026-07-31, follow-up pass): dispatchKBDocuments
     (handler.go) had no case for PUT to the base .../datasources/{id}/documents
     path at all, so a real client's real, correctly-formed request 404'd
     ('unknown kb docs op'). Now routed on PUT, verified against the vendored
@@ -549,11 +549,11 @@ families:
     ServiceQuotaExceededException, ThrottlingException, ValidationException)."}
 gaps: []
 items_still_open:
-  - "DeleteAgentActionGroup.SkipResourceInUseCheck is accepted and ignored: action groups are DRAFT-only and aliases route to numbered versions holding their own copy, so no in-use reference can exist."
-  - "ValidateFlowDefinition covers only top-level graph structure (see its ops row); cycle, unreachable-node, node-type and expression validation are not modeled."
-  - "FailureReasons and StatusReason are unmodeled: no FAILED state paths exist in this backend."
-  - "Stored and echoed only, no runtime applies them: AliasInvocationState, FlowAlias ConcurrencyConfiguration, ParentActionGroupSignature(Params), CustomOrchestration, PromptOverrideConfiguration, CustomerEncryptionKeyArn (no KMS)."
-  - "ClientToken replay is honoured for Create/Update members whose resource carries it (agent, action group, alias, collaborator, knowledge base, data source, ingestion job, flow, flow version, flow alias, prompt, prompt version); tokens on KB, data source, ingestion job, flow, flow version, flow alias and prompt resources are not persisted across restart, and Ingest/DeleteKnowledgeBaseDocuments ClientToken is not tracked."
+  - "ValidateFlowDefinition does not emit MismatchedNodeInputType/OutputType, IncompatibleConnectionDataType, MissingNodeInput/Output, UnknownNodeInput/Output, UnsatisfiedConnectionConditions or InvalidLoopBoundary: they need per-node-type input/output schemas and expression typing that the SDK does not specify."
+structural_gaps:
+  - "DeleteAgentActionGroup.SkipResourceInUseCheck has nothing to guard: action groups are DRAFT-only and aliases route to numbered versions holding their own copy, so no in-use reference can exist."
+  - "FailureReasons/StatusReason on agents, aliases, knowledge bases, data sources and ingestion jobs: failures originate in external resources (Lambda, S3, vector stores, IAM) that an in-memory backend never contacts. Flow validations are modeled."
+  - "AliasInvocationState, FlowAlias ConcurrencyConfiguration, ParentActionGroupSignature(Params), CustomOrchestration, PromptOverrideConfiguration and CustomerEncryptionKeyArn are stored and echoed only: their runtime is agent/flow invocation (bedrock-agent-runtime) and KMS."
 deferred:
   - "KBDocument/DataSource nested configuration blobs (dataSourceConfiguration,
     vectorIngestionConfiguration, knowledgeBaseConfiguration,

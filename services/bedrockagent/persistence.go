@@ -63,29 +63,31 @@ const bedrockagentSnapshotVersion = 3
 // too, or a restored backend would start minting IDs that collide with
 // pre-restore ones.
 type backendSnapshot struct {
-	Tables                map[string]json.RawMessage   `json:"tables"`
-	AgentsByName          map[string]string            `json:"agentsByName"`
-	KBsByName             map[string]string            `json:"kbsByName"`
-	FlowsByName           map[string]string            `json:"flowsByName"`
-	PromptsByName         map[string]string            `json:"promptsByName"`
-	AgentVersionCtrs      map[string]int               `json:"agentVersionCtrs"`
-	FlowVersionCtrs       map[string]int               `json:"flowVersionCtrs"`
-	PromptVersionCtrs     map[string]int               `json:"promptVersionCtrs"`
-	Tags                  map[string]map[string]string `json:"tags"`
-	AccountID             string                       `json:"accountID"`
-	DefaultRegion         string                       `json:"defaultRegion"`
-	DSCounter             int                          `json:"dsCounter"`
-	CollabCounter         int                          `json:"collabCounter"`
-	KBCounter             int                          `json:"kbCounter"`
-	FlowCounter           int                          `json:"flowCounter"`
-	AliasCounter          int                          `json:"aliasCounter"`
-	AgentCounter          int                          `json:"agentCounter"`
-	ActionGroupCounter    int                          `json:"actionGroupCounter"`
-	FlowAliasCounter      int                          `json:"flowAliasCounter"`
-	PromptCounter         int                          `json:"promptCounter"`
-	JobCounter            int                          `json:"jobCounter"`
-	ResourcePolicyCounter int                          `json:"resourcePolicyCounter"`
-	Version               int                          `json:"version"`
+	Tables                map[string]json.RawMessage    `json:"tables"`
+	AgentsByName          map[string]string             `json:"agentsByName"`
+	KBsByName             map[string]string             `json:"kbsByName"`
+	FlowsByName           map[string]string             `json:"flowsByName"`
+	PromptsByName         map[string]string             `json:"promptsByName"`
+	AgentVersionCtrs      map[string]int                `json:"agentVersionCtrs"`
+	FlowVersionCtrs       map[string]int                `json:"flowVersionCtrs"`
+	PromptVersionCtrs     map[string]int                `json:"promptVersionCtrs"`
+	Tags                  map[string]map[string]string  `json:"tags"`
+	ClientTokens          map[string]string             `json:"clientTokens,omitempty"`
+	DocRequests           map[string][]KBDocumentDetail `json:"docRequests,omitempty"`
+	AccountID             string                        `json:"accountID"`
+	DefaultRegion         string                        `json:"defaultRegion"`
+	DSCounter             int                           `json:"dsCounter"`
+	CollabCounter         int                           `json:"collabCounter"`
+	KBCounter             int                           `json:"kbCounter"`
+	FlowCounter           int                           `json:"flowCounter"`
+	AliasCounter          int                           `json:"aliasCounter"`
+	AgentCounter          int                           `json:"agentCounter"`
+	ActionGroupCounter    int                           `json:"actionGroupCounter"`
+	FlowAliasCounter      int                           `json:"flowAliasCounter"`
+	PromptCounter         int                           `json:"promptCounter"`
+	JobCounter            int                           `json:"jobCounter"`
+	ResourcePolicyCounter int                           `json:"resourcePolicyCounter"`
+	Version               int                           `json:"version"`
 }
 
 // Snapshot serializes the backend state to JSON. It implements
@@ -112,6 +114,8 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		FlowVersionCtrs:       b.flowVersionCtrs,
 		PromptVersionCtrs:     b.promptVersionCtrs,
 		Tags:                  b.tags,
+		ClientTokens:          b.collectHiddenClientTokens(),
+		DocRequests:           b.docRequests,
 		AccountID:             b.accountID,
 		DefaultRegion:         b.defaultRegion,
 		DSCounter:             b.dsCounter,
@@ -165,6 +169,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	}
 
 	b.restoreRawState(&snap)
+	b.applyHiddenClientTokens(snap.ClientTokens)
 
 	b.accountID = snap.AccountID
 	b.defaultRegion = snap.DefaultRegion
@@ -183,6 +188,7 @@ func (b *InMemoryBackend) resetRawState() {
 	b.flowVersionCtrs = make(map[string]int)
 	b.promptVersionCtrs = make(map[string]int)
 	b.tags = make(map[string]map[string]string)
+	b.docRequests = make(map[string][]KBDocumentDetail)
 	b.dsCounter = 0
 	b.collabCounter = 0
 	b.kbCounter = 0
@@ -240,6 +246,11 @@ func (b *InMemoryBackend) restoreRawState(snap *backendSnapshot) {
 	b.tags = snap.Tags
 	if b.tags == nil {
 		b.tags = make(map[string]map[string]string)
+	}
+
+	b.docRequests = snap.DocRequests
+	if b.docRequests == nil {
+		b.docRequests = make(map[string][]KBDocumentDetail)
 	}
 
 	b.dsCounter = snap.DSCounter
