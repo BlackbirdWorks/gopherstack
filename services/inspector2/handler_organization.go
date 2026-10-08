@@ -37,20 +37,30 @@ func (h *Handler) handleEnableDelegatedAdminAccount(c *echo.Context) error {
 
 	var req struct {
 		DelegatedAdminAccountID string `json:"delegatedAdminAccountId"`
+		ClientToken             string `json:"clientToken"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 
-	if enableErr := h.Backend.EnableDelegatedAdminAccount(req.DelegatedAdminAccountID); enableErr != nil {
+	resp, enableErr := h.replay(opEnableDelegatedAdminAccount, req.ClientToken, req.DelegatedAdminAccountID,
+		func() (map[string]any, error) {
+			id := req.DelegatedAdminAccountID
+			if callErr := h.Backend.EnableDelegatedAdminAccount(id); callErr != nil {
+				return nil, callErr
+			}
+
+			return map[string]any{
+				keyDelegatedAdminAccount: req.DelegatedAdminAccountID,
+				keyStatus:                statusEnabled,
+			}, nil
+		})
+	if enableErr != nil {
 		return h.mapError(c, enableErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		keyDelegatedAdminAccount: req.DelegatedAdminAccountID,
-		keyStatus:                statusEnabled,
-	})
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleDisableDelegatedAdminAccount(c *echo.Context) error {

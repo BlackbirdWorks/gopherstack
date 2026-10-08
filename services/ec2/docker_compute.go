@@ -69,6 +69,10 @@ type dockerAPI interface {
 		ctx context.Context, id string,
 		opts mobyclient.ContainerInspectOptions,
 	) (mobyclient.ContainerInspectResult, error)
+	ContainerStats(
+		ctx context.Context, id string,
+		opts mobyclient.ContainerStatsOptions,
+	) (mobyclient.ContainerStatsResult, error)
 	Ping(ctx context.Context, opts mobyclient.PingOptions) (mobyclient.PingResult, error)
 	Close() error
 }

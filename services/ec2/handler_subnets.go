@@ -96,10 +96,11 @@ type createSubnetCidrReservationResponse struct {
 // deserializers.go:107294) -- imageId/imageState do NOT sit at the top
 // level of instanceImageMetadataItem.
 type imageMetadataItem struct {
-	ImageID      string `xml:"imageId,omitempty"`
-	Name         string `xml:"name,omitempty"`
-	ImageOwnerID string `xml:"imageOwnerId,omitempty"`
-	ImageState   string `xml:"imageState,omitempty"`
+	ImageID         string `xml:"imageId,omitempty"`
+	Name            string `xml:"name,omitempty"`
+	ImageOwnerID    string `xml:"imageOwnerId,omitempty"`
+	ImageOwnerAlias string `xml:"imageOwnerAlias,omitempty"`
+	ImageState      string `xml:"imageState,omitempty"`
 }
 
 // instanceImageMetadataItem matches types.InstanceImageMetadata
@@ -136,6 +137,10 @@ func toInstanceImageMetadataItem(
 			ImageState:   item.ImageState,
 		},
 	}
+	if knownImageOwnerAliases[item.ImageOwnerID] {
+		wire.ImageMetadata.ImageOwnerID, wire.ImageMetadata.ImageOwnerAlias = "", item.ImageOwnerID
+	}
+
 	if !item.LaunchTime.IsZero() {
 		wire.LaunchTime = item.LaunchTime.UTC().Format(timeLayoutISO)
 	}

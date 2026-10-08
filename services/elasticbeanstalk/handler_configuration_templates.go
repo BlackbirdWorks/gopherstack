@@ -128,7 +128,7 @@ func (h *Handler) handleDescribeConfigurationSettings(ctx context.Context, vals 
 		DescribeConfigurationSettingsResult: describeConfigurationSettingsResult{
 			ConfigurationSettings: settings,
 		},
-		ResponseMetadata: responseMetadata{RequestID: "eb-describe-config-settings"},
+		ResponseMetadata: newResponseMetadata(ctx, "eb-describe-config-settings"),
 	}, nil
 }
 
@@ -180,7 +180,7 @@ func (h *Handler) handleCreateConfigurationTemplate(ctx context.Context, vals ur
 	return &createConfigurationTemplateResponse{
 		Xmlns:                             ebXMLNS,
 		CreateConfigurationTemplateResult: toConfigurationSettingsDesc(tmpl),
-		ResponseMetadata:                  responseMetadata{RequestID: "eb-create-config-tmpl"},
+		ResponseMetadata:                  newResponseMetadata(ctx, "eb-create-config-tmpl"),
 	}, nil
 }
 
@@ -209,7 +209,7 @@ func (h *Handler) handleDeleteConfigurationTemplate(ctx context.Context, vals ur
 
 	return &deleteConfigurationTemplateResponse{
 		Xmlns:            ebXMLNS,
-		ResponseMetadata: responseMetadata{RequestID: "eb-delete-config-tmpl"},
+		ResponseMetadata: newResponseMetadata(ctx, "eb-delete-config-tmpl"),
 	}, nil
 }
 
@@ -236,7 +236,7 @@ func (h *Handler) handleDeleteEnvironmentConfiguration(ctx context.Context, vals
 
 	return &deleteEnvironmentConfigurationResponse{
 		Xmlns:            ebXMLNS,
-		ResponseMetadata: responseMetadata{RequestID: "eb-delete-env-config"},
+		ResponseMetadata: newResponseMetadata(ctx, "eb-delete-env-config"),
 	}, nil
 }
 
@@ -334,7 +334,7 @@ func (h *Handler) handleDescribeConfigurationOptions(ctx context.Context, vals u
 			SolutionStackName: solutionStackName,
 			PlatformArn:       platformArn,
 		},
-		ResponseMetadata: responseMetadata{RequestID: "eb-describe-config-options"},
+		ResponseMetadata: newResponseMetadata(ctx, "eb-describe-config-options"),
 	}, nil
 }
 
@@ -371,7 +371,7 @@ func (h *Handler) handleUpdateConfigurationTemplate(ctx context.Context, vals ur
 	return &updateConfigurationTemplateResponse{
 		Xmlns:                             ebXMLNS,
 		UpdateConfigurationTemplateResult: toConfigurationSettingsDesc(tmpl),
-		ResponseMetadata:                  responseMetadata{RequestID: "eb-update-config-tmpl"},
+		ResponseMetadata:                  newResponseMetadata(ctx, "eb-update-config-tmpl"),
 	}, nil
 }
 
@@ -472,6 +472,6 @@ func (h *Handler) handleValidateConfigurationSettings(ctx context.Context, vals 
 		ValidateConfigurationSettingsResult: validateConfigurationSettingsResult{
 			Messages: messages,
 		},
-		ResponseMetadata: responseMetadata{RequestID: "eb-validate-config-settings"},
+		ResponseMetadata: newResponseMetadata(ctx, "eb-validate-config-settings"),
 	}, nil
 }

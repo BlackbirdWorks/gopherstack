@@ -168,7 +168,9 @@ func replicationTaskMatchesFilters(rt *ReplicationTask, filters DescribeFilters)
 }
 
 // StartReplicationTask transitions a replication task to running status.
-func (b *InMemoryBackend) StartReplicationTask(ctx context.Context, arnOrID string) (*ReplicationTask, error) {
+func (b *InMemoryBackend) StartReplicationTask(
+	ctx context.Context, arnOrID string, cdc ReplicationTaskCDCSettings,
+) (*ReplicationTask, error) {
 	b.mu.Lock("StartReplicationTask")
 	defer b.mu.Unlock()
 
@@ -186,6 +188,15 @@ func (b *InMemoryBackend) StartReplicationTask(ctx context.Context, arnOrID stri
 	}
 
 	rt.Status = statusRunning
+
+	if cdc.CdcStartPosition != "" {
+		rt.CdcStartPosition = cdc.CdcStartPosition
+	}
+
+	if cdc.CdcStopPosition != "" {
+		rt.CdcStopPosition = cdc.CdcStopPosition
+	}
+
 	b.appendEvent(
 		getRegion(ctx, b.region), rt.ReplicationTaskArn, "replication-task",
 		"Replication task "+rt.ReplicationTaskIdentifier+" started", []string{eventCategoryStateChange},

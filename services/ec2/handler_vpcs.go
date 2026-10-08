@@ -215,19 +215,9 @@ func (h *Handler) handleModifyVpcAttribute(vals url.Values, reqID string) (any, 
 }
 
 type createVpcPeeringConnectionResponse struct {
-	XMLName              xml.Name `xml:"CreateVpcPeeringConnectionResponse"`
-	RequestID            string   `xml:"requestId"`
-	VpcPeeringConnection struct {
-		VpcPeeringConnectionID string `xml:"vpcPeeringConnectionId"`
-		RequesterVpcID         string `xml:"requesterVpcInfo>vpcId"`
-		AccepterVpcID          string `xml:"accepterVpcInfo>vpcId"`
-		AccepterOwnerID        string `xml:"accepterVpcInfo>ownerId,omitempty"`
-		AccepterRegion         string `xml:"accepterVpcInfo>region,omitempty"`
-		Status                 struct {
-			Code string `xml:"code"`
-		} `xml:"status"`
-		TagSet []simpleTagItem `xml:"tagSet>item"`
-	} `xml:"vpcPeeringConnection"`
+	XMLName              xml.Name                 `xml:"CreateVpcPeeringConnectionResponse"`
+	RequestID            string                   `xml:"requestId"`
+	VpcPeeringConnection vpcPeeringConnectionItem `xml:"vpcPeeringConnection"`
 }
 
 type deleteVpcPeeringConnectionResponse struct {
@@ -310,14 +300,10 @@ func (h *Handler) handleCreateVpcPeeringConnection(vals url.Values, reqID string
 		}
 	}
 
-	resp := &createVpcPeeringConnectionResponse{RequestID: reqID}
-	resp.VpcPeeringConnection.VpcPeeringConnectionID = pc.VpcPeeringConnectionID
-	resp.VpcPeeringConnection.RequesterVpcID = pc.RequesterVpcID
-	resp.VpcPeeringConnection.AccepterVpcID = pc.AccepterVpcID
-	resp.VpcPeeringConnection.AccepterOwnerID = pc.AccepterOwnerID
-	resp.VpcPeeringConnection.AccepterRegion = pc.AccepterRegion
-	resp.VpcPeeringConnection.Status.Code = pc.State
-	resp.VpcPeeringConnection.TagSet = tagItemsFromMap(tags)
+	resp := &createVpcPeeringConnectionResponse{
+		RequestID:            reqID,
+		VpcPeeringConnection: toVpcPeeringConnectionItem(pc, tags, nil),
+	}
 
 	return resp, nil
 }

@@ -3,6 +3,8 @@ package elasticbeanstalk
 import (
 	"context"
 	"slices"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 )
 
 func (b *InMemoryBackend) eventsSlice(region string) []*EventRecord {
@@ -31,7 +33,7 @@ func (b *InMemoryBackend) eventsSliceRO(region string) []*EventRecord {
 // with this event" -- i.e. the environment's configuration at event time,
 // not a live join against its current state).
 // Caller must hold at least a write lock.
-func (b *InMemoryBackend) appendEvent(region string, env *Environment, message, severity string) {
+func (b *InMemoryBackend) appendEvent(ctx context.Context, region string, env *Environment, message, severity string) {
 	events := append(b.eventsSlice(region), &EventRecord{
 		ApplicationName: env.ApplicationName,
 		EnvironmentName: env.EnvironmentName,
@@ -39,6 +41,7 @@ func (b *InMemoryBackend) appendEvent(region string, env *Environment, message, 
 		TemplateName:    env.TemplateName,
 		VersionLabel:    env.VersionLabel,
 		EventDate:       nowISO8601(),
+		RequestID:       awsmeta.Get(ctx).RequestID,
 		Message:         message,
 		Severity:        severity,
 	})

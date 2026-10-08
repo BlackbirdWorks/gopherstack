@@ -71,6 +71,10 @@ func coverageEntryToWire(e *CoverageEntry) map[string]any {
 		entry["scanStatus"] = status
 	}
 
+	if md := coverageMetadataToWire(e.ResourceMetadata); md != nil {
+		entry["resourceMetadata"] = md
+	}
+
 	return entry
 }
 
@@ -100,4 +104,76 @@ func (h *Handler) handleListCoverageStatistics(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, stats)
+}
+
+// coverageMetadataToWire renders the ResourceScanMetadata union members that are set.
+func coverageMetadataToWire(md *CoverageResourceMetadata) map[string]any {
+	if md == nil {
+		return nil
+	}
+
+	out := map[string]any{}
+
+	if e := md.Ec2; e != nil {
+		m := map[string]any{}
+		putNonEmpty(m, "amiId", e.AmiID)
+		putNonEmpty(m, "platform", e.Platform)
+
+		if len(e.Tags) > 0 {
+			m["tags"] = e.Tags
+		}
+
+		out["ec2"] = m
+	}
+
+	if i := md.EcrImage; i != nil {
+		m := map[string]any{"inUseCount": i.InUseCount}
+		if !i.ImagePulledAt.IsZero() {
+			m["imagePulledAt"] = awstime.Epoch(i.ImagePulledAt)
+		}
+
+		if !i.LastInUseAt.IsZero() {
+			m["lastInUseAt"] = awstime.Epoch(i.LastInUseAt)
+		}
+
+		if len(i.Tags) > 0 {
+			m["tags"] = i.Tags
+		}
+
+		out["ecrImage"] = m
+	}
+
+	if r := md.EcrRepository; r != nil {
+		m := map[string]any{"name": r.Name}
+		putNonEmpty(m, "scanFrequency", r.ScanFrequency)
+		out["ecrRepository"] = m
+	}
+
+	if l := md.LambdaFunction; l != nil {
+		m := map[string]any{}
+		putNonEmpty(m, "functionName", l.FunctionName)
+		putNonEmpty(m, "runtime", l.Runtime)
+
+		if len(l.FunctionTags) > 0 {
+			m["functionTags"] = l.FunctionTags
+		}
+
+		if len(l.Layers) > 0 {
+			m["layers"] = l.Layers
+		}
+
+		out["lambdaFunction"] = m
+	}
+
+	if c := md.CodeRepository; c != nil {
+		m := map[string]any{}
+		putNonEmpty(m, "projectName", c.ProjectName)
+		putNonEmpty(m, "providerType", c.ProviderType)
+		putNonEmpty(m, "providerTypeVisibility", c.ProviderTypeVisibility)
+		putNonEmpty(m, "integrationArn", c.IntegrationArn)
+		putNonEmpty(m, "lastScannedCommitId", c.LastScannedCommitID)
+		out["codeRepository"] = m
+	}
+
+	return out
 }

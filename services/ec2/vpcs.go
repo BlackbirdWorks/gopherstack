@@ -264,6 +264,9 @@ func (b *InMemoryBackend) ModifyVpcAttribute(vpcID, attribute string, value bool
 	}
 }
 
+// peeringRequestTTL is how long a pending-acceptance peering request stays open before it expires.
+const peeringRequestTTL = 7 * 24 * time.Hour
+
 // createVpcPeeringConnectionLocal creates a new pending VPC peering connection.
 func (b *InMemoryBackend) createVpcPeeringConnectionLocal(
 	requesterVPCID, accepterVPCID, peerOwnerID, peerRegion string,
@@ -275,7 +278,8 @@ func (b *InMemoryBackend) createVpcPeeringConnectionLocal(
 	b.mu.Lock("CreateVpcPeeringConnection")
 	defer b.mu.Unlock()
 
-	if _, ok := b.vpcs.Get(requesterVPCID); !ok {
+	requesterVPC, ok := b.vpcs.Get(requesterVPCID)
+	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrVPCNotFound, requesterVPCID)
 	}
 
@@ -294,8 +298,15 @@ func (b *InMemoryBackend) createVpcPeeringConnectionLocal(
 		AccepterOwnerID:        peerOwnerID,
 		AccepterRegion:         peerRegion,
 		RequesterRegion:        b.Region,
+		RequesterOwnerID:       b.AccountID,
+		RequesterCidrBlock:     requesterVPC.CIDRBlock,
 		State:                  "pending-acceptance",
+		ExpirationTime:         time.Now().Add(peeringRequestTTL),
 	}
+	if accepterVPC, found := b.vpcs.Get(accepterVPCID); found {
+		pc.AccepterCidrBlock = accepterVPC.CIDRBlock
+	}
+
 	b.vpcPeeringConnections.Put(pc)
 
 	cp := *pc

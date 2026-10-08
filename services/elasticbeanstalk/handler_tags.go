@@ -50,7 +50,7 @@ func (h *Handler) handleListTagsForResource(ctx context.Context, vals url.Values
 			ResourceArn:  resourceARN,
 			ResourceTags: members,
 		},
-		ResponseMetadata: responseMetadata{RequestID: "eb-list-tags"},
+		ResponseMetadata: newResponseMetadata(ctx, "eb-list-tags"),
 	}, nil
 }
 
@@ -81,6 +81,6 @@ func (h *Handler) handleUpdateTagsForResource(ctx context.Context, vals url.Valu
 
 	return &updateTagsForResourceResponse{
 		Xmlns:            ebXMLNS,
-		ResponseMetadata: responseMetadata{RequestID: "eb-update-tags"},
+		ResponseMetadata: newResponseMetadata(ctx, "eb-update-tags"),
 	}, nil
 }

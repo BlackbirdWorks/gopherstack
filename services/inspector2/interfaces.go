@@ -8,6 +8,9 @@ type StorageBackend interface {
 	Disable(resourceTypes []string) error
 	IsEnabled() bool
 	GetStatus() *AccountStatusResponse
+	EnableAccounts(accountIDs, resourceTypes []string) AccountOutcome
+	DisableAccounts(accountIDs, resourceTypes []string) AccountOutcome
+	GetAccountStatuses(accountIDs []string) StatusLookup
 
 	CreateFilter(
 		name, action, description, reason string,
@@ -143,6 +146,9 @@ type StorageBackend interface {
 
 	// Finding aggregations / usage
 	ListFindingAggregations(aggregationType string, filters map[string]any) (map[string]any, error)
+	ListFindingAggregationsForAccounts(
+		aggregationType string, filters map[string]any, accountIDs []stringFilter,
+	) (map[string]any, error)
 	ListUsageTotals(accountIDs []string) ([]map[string]any, error)
 	ListAccountPermissions(service string) ([]*AccountPermission, error)
 	SearchVulnerabilities(filterCriteria map[string]any, nextToken string) ([]*Vulnerability, string, error)

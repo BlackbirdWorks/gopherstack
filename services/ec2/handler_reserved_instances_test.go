@@ -129,15 +129,30 @@ func TestReservedInstances(t *testing.T) { //nolint:paralleltest // existing iss
 		require.Error(t, err)
 	})
 
+	var mintedID string
+
 	t.Run("modify reserved instances", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		targets := []ec2.ReservedInstancesConfigurationTarget{{InstanceType: "t3.large", InstanceCount: 3}}
-		mod, err := b.ModifyReservedInstances([]string{riID}, targets)
+		mod, err := b.ModifyReservedInstances([]string{riID}, targets, "")
 		require.NoError(t, err)
 		assert.NotEmpty(t, mod.ReservedInstancesModificationID)
 		assert.Equal(t, "fulfilled", mod.Status)
 		assert.Equal(t, []string{riID}, mod.ReservedInstancesIDs)
 		require.Len(t, mod.ModificationResults, 1)
 		assert.Equal(t, "t3.large", mod.ModificationResults[0].TargetConfiguration.InstanceType)
+
+		mintedID = mod.ModificationResults[0].ReservedInstancesID
+		require.NotEmpty(t, mintedID, "a fulfilled modification mints the replacement reservation")
+
+		source := b.DescribeReservedInstances([]string{riID})
+		require.Len(t, source, 1)
+		assert.Equal(t, "retired", source[0].State)
+
+		minted := b.DescribeReservedInstances([]string{mintedID})
+		require.Len(t, minted, 1)
+		assert.Equal(t, "active", minted[0].State)
+		assert.Equal(t, "t3.large", minted[0].InstanceType)
+		assert.Equal(t, 3, minted[0].InstanceCount)
 	})
 
 	t.Run("describe modifications", func(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -151,12 +166,12 @@ func TestReservedInstances(t *testing.T) { //nolint:paralleltest // existing iss
 		// future-dated purchase mode -- see QueuedPurchaseDeletionResult's doc
 		// comment), so an existing, active RI must be reported as failed and
 		// left untouched, not silently deleted.
-		results := b.DeleteQueuedReservedInstances([]string{riID})
+		results := b.DeleteQueuedReservedInstances([]string{mintedID})
 		require.Len(t, results, 1)
 		assert.True(t, results[0].Failed)
 		assert.Equal(t, "reserved-instances-not-in-queued-state", results[0].ErrorCode)
 
-		ris := b.DescribeReservedInstances([]string{riID})
+		ris := b.DescribeReservedInstances([]string{mintedID})
 		require.Len(t, ris, 1)
 		assert.Equal(t, "active", ris[0].State)
 	})

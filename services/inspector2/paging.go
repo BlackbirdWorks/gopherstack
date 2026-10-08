@@ -15,6 +15,9 @@ const defaultPageSize = 100
 type pageRequest struct {
 	FilterCriteria cisCriteria `json:"filterCriteria"`
 	NextToken      string      `json:"nextToken"`
+	SortBy         string      `json:"sortBy"`
+	SortOrder      string      `json:"sortOrder"`
+	DetailLevel    string      `json:"detailLevel"`
 	MaxResults     int32       `json:"maxResults"`
 }
 
@@ -76,9 +79,13 @@ func withPageToken(resp map[string]any, next string) map[string]any {
 }
 
 func aggregationKey(m map[string]any) string {
+	if k, ok := m[aggPageKey].(string); ok {
+		return k
+	}
+
 	for _, inner := range m {
 		fields, _ := inner.(map[string]any)
-		for _, k := range []string{"title", "repository", "instanceId", keyResourceID, "projectNames", keyAccountID} {
+		for _, k := range []string{"title", "repository", "instanceId", keyResourceID, keyProjectNames, keyAccountID} {
 			if v, ok := fields[k].(string); ok {
 				return v
 			}
@@ -95,6 +102,10 @@ func pageAggregationResponses(result map[string]any, maxResults int32, nextToken
 	}
 
 	page, next := pageItems(rows, aggregationKey, maxResults, nextToken)
+	for _, row := range page {
+		delete(row, aggPageKey)
+	}
+
 	result[keyResponses] = page
 
 	return withPageToken(result, next)

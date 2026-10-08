@@ -31,6 +31,15 @@ func applyVpcPeeringConnectionFilters(
 			return anyEqual(p.AccepterVpcID, values)
 		case "accepter-vpc-info.owner-id":
 			return anyEqual(p.AccepterOwnerID, values)
+		case "accepter-vpc-info.cidr-block":
+			return anyEqual(p.AccepterCidrBlock, values)
+		case "requester-vpc-info.cidr-block":
+			return anyEqual(p.RequesterCidrBlock, values)
+		case "requester-vpc-info.owner-id":
+			return anyEqual(p.RequesterOwnerID, values)
+		case "expiration-time":
+			return !p.ExpirationTime.IsZero() &&
+				matchesWildcardTimeFilter(p.ExpirationTime.UTC().Format(timeLayoutISO), values)
 		}
 
 		return true
@@ -97,10 +106,11 @@ func multicastTypeFor(active bool) string {
 	return ""
 }
 
-// applyTGWMulticastGroupFilters supports the filters in api_op_SearchTransitGatewayMulticastGroups.go
-// that the entry models; subnet-id and transit-gateway-attachment-id are unmodeled.
+// applyTGWMulticastGroupFilters supports the filters in api_op_SearchTransitGatewayMulticastGroups.go;
+// placement resolves an entry's subnet and transit gateway attachment.
 func applyTGWMulticastGroupFilters(
 	items []*TransitGatewayMulticastGroupEntry, filters map[string][]string,
+	placement func(*TransitGatewayMulticastGroupEntry) (string, string),
 ) []*TransitGatewayMulticastGroupEntry {
 	return applyFilterList(items, filters, func(
 		e *TransitGatewayMulticastGroupEntry, name string, values []string,
@@ -120,6 +130,14 @@ func applyTGWMulticastGroupFilters(
 			return anyEqual(e.ResourceID, values)
 		case filterKeyResourceType:
 			return anyEqual(e.ResourceType, values)
+		case "subnet-id":
+			subnet, _ := placement(e)
+
+			return anyEqual(subnet, values)
+		case filterKeyTGWAttachmentID:
+			_, attachment := placement(e)
+
+			return anyEqual(attachment, values)
 		}
 
 		return true
@@ -146,7 +164,7 @@ func applyInstanceTopologyFilters(
 }
 
 // applyInstanceImageMetadataFilters supports the filters in api_op_DescribeInstanceImageMetadata.go
-// except image-allowed and owner-alias, which have no backing data.
+// except image-allowed, whose Allowed-AMIs evaluation is not specified by the SDK.
 func applyInstanceImageMetadataFilters(
 	items []InstanceImageMetadataItem, filters map[string][]string, b Backend,
 ) []InstanceImageMetadataItem {
@@ -170,6 +188,8 @@ func applyInstanceImageMetadataFilters(
 			return anyEqual(i.ZoneID, values)
 		case "launch-time":
 			return matchesWildcardTimeFilter(i.LaunchTime.UTC().Format(timeLayoutISO), values)
+		case "owner-alias":
+			return knownImageOwnerAliases[i.ImageOwnerID] && anyEqual(i.ImageOwnerID, values)
 		}
 
 		return true
@@ -195,8 +215,10 @@ func applyCapacityReservationTopologyFilters(
 }
 
 // applyLocalGatewayRouteFilters supports type and prefix-list-id from
-// api_op_SearchLocalGatewayRoutes.go; state is applied by the backend search.
+// api_op_SearchLocalGatewayRoutes.go plus route-search.*; state is applied by the backend search.
 func applyLocalGatewayRouteFilters(items []*LocalGatewayRoute, filters map[string][]string) []*LocalGatewayRoute {
+	items = applyRouteSearchFilters(items, filters, func(r *LocalGatewayRoute) string { return r.DestinationCidrBlock })
+
 	return applyFilterList(items, filters, func(r *LocalGatewayRoute, name string, values []string) bool {
 		switch name {
 		case filterKeyType:

@@ -1800,6 +1800,7 @@ type Backend interface {
 	ModifyReservedInstances(
 		reservedInstancesIDs []string,
 		targets []ReservedInstancesConfigurationTarget,
+		clientToken string,
 	) (*ReservedInstancesModification, error)
 	DeleteQueuedReservedInstances(ids []string) []QueuedPurchaseDeletionResult
 	GetReservedInstancesExchangeQuote(

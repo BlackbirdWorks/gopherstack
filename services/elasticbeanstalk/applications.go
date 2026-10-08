@@ -232,7 +232,7 @@ func (b *InMemoryBackend) DeleteApplication(ctx context.Context, name string, te
 		}
 
 		for _, env := range running {
-			b.terminateEnvironmentLocked(region, env)
+			b.terminateEnvironmentLocked(ctx, region, env)
 		}
 	}
 

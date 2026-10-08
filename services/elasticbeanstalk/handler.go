@@ -12,6 +12,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -436,6 +437,10 @@ func (h *Handler) writeError(c *echo.Context, statusCode int, code, message stri
 		RequestID: "eb-error",
 	}
 
+	if id := c.Response().Header().Get("X-Amz-Request-Id"); id != "" {
+		errResp.RequestID = id
+	}
+
 	xmlBytes, err := marshalXML(errResp)
 	if err != nil {
 		return c.String(http.StatusInternalServerError, "internal server error")
@@ -456,6 +461,15 @@ func marshalXML(v any) ([]byte, error) {
 // responseMetadata is included in every XML response.
 type responseMetadata struct {
 	RequestID string `xml:"RequestId"`
+}
+
+// newResponseMetadata carries the per-request ID set by the request-ID middleware, or fallback when absent.
+func newResponseMetadata(ctx context.Context, fallback string) responseMetadata {
+	if id := awsmeta.Get(ctx).RequestID; id != "" {
+		return responseMetadata{RequestID: id}
+	}
+
+	return responseMetadata{RequestID: fallback}
 }
 
 // parseMembers extracts indexed form values with the given prefix (e.g. "ApplicationNames.member").

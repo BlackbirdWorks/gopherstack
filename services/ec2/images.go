@@ -441,8 +441,15 @@ func (b *InMemoryBackend) DescribeInstanceImageMetadata(
 		}
 
 		var imageName string
+
+		imageOwner := b.AccountID
+
 		if img := b.lookupImageLocked(inst.ImageID); img != nil {
 			imageName = img.Name
+
+			if img.OwnerID != "" {
+				imageOwner = img.OwnerID
+			}
 		}
 
 		az := inst.Placement.AvailabilityZone
@@ -457,7 +464,7 @@ func (b *InMemoryBackend) DescribeInstanceImageMetadata(
 			ImageID:          inst.ImageID,
 			ImageName:        imageName,
 			ImageState:       imageState,
-			ImageOwnerID:     b.AccountID,
+			ImageOwnerID:     imageOwner,
 			AvailabilityZone: az,
 			ZoneID:           zoneID,
 			InstanceType:     inst.InstanceType,

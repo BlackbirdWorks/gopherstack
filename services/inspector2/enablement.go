@@ -33,16 +33,7 @@ func knownResourceTypes() []string {
 // Enable enables Inspector2 scanning for the given resource types.
 // If resourceTypes is empty, all known resource types are enabled.
 func (b *InMemoryBackend) Enable(resourceTypes []string) error {
-	b.mu.Lock("Enable")
-	defer b.mu.Unlock()
-
-	if len(resourceTypes) == 0 {
-		resourceTypes = knownResourceTypes()
-	}
-
-	for _, rt := range resourceTypes {
-		b.enabledTypes[rt] = true
-	}
+	b.setEnabled(nil, resourceTypes, true)
 
 	return nil
 }
@@ -50,18 +41,84 @@ func (b *InMemoryBackend) Enable(resourceTypes []string) error {
 // Disable disables Inspector2 scanning for the given resource types.
 // If resourceTypes is empty, all known resource types are disabled.
 func (b *InMemoryBackend) Disable(resourceTypes []string) error {
-	b.mu.Lock("Disable")
+	b.setEnabled(nil, resourceTypes, false)
+
+	return nil
+}
+
+// AccountOutcome splits requested accounts into those updated and those that cannot be addressed.
+type AccountOutcome struct {
+	Updated []string
+	Unknown []string
+}
+
+// StatusLookup holds the statuses found for requested accounts and the IDs that could not be addressed.
+type StatusLookup struct {
+	Found   []*AccountStatusResponse
+	Unknown []string
+}
+
+// EnableAccounts enables resourceTypes for each account and returns the accounts that could not be addressed.
+func (b *InMemoryBackend) EnableAccounts(accountIDs, resourceTypes []string) AccountOutcome {
+	return b.setEnabled(accountIDs, resourceTypes, true)
+}
+
+// DisableAccounts disables resourceTypes for each account and returns the accounts that could not be addressed.
+func (b *InMemoryBackend) DisableAccounts(accountIDs, resourceTypes []string) AccountOutcome {
+	return b.setEnabled(accountIDs, resourceTypes, false)
+}
+
+// setEnabled addresses the backend's own account or an associated member; an empty accountIDs means the own account.
+func (b *InMemoryBackend) setEnabled(accountIDs, resourceTypes []string, enabled bool) AccountOutcome {
+	b.mu.Lock("SetEnabled")
 	defer b.mu.Unlock()
 
 	if len(resourceTypes) == 0 {
 		resourceTypes = knownResourceTypes()
 	}
 
-	for _, rt := range resourceTypes {
-		b.enabledTypes[rt] = false
+	if len(accountIDs) == 0 {
+		accountIDs = []string{b.accountID}
 	}
 
-	return nil
+	var out AccountOutcome
+
+	for _, id := range accountIDs {
+		target, ok := b.enabledMapLocked(id, true)
+		if !ok {
+			out.Unknown = append(out.Unknown, id)
+
+			continue
+		}
+
+		for _, rt := range resourceTypes {
+			target[rt] = enabled
+		}
+
+		out.Updated = append(out.Updated, id)
+	}
+
+	return out
+}
+
+// enabledMapLocked returns accountID's resource-type enablement map; false when the account is neither the
+// backend's own nor an associated member. Callers must hold b.mu.
+func (b *InMemoryBackend) enabledMapLocked(accountID string, create bool) (map[string]bool, bool) {
+	if accountID == b.accountID {
+		return b.enabledTypes, true
+	}
+
+	if _, ok := b.members.Get(accountID); !ok {
+		return nil, false
+	}
+
+	m, ok := b.memberEnabled[accountID]
+	if !ok && create {
+		m = make(map[string]bool)
+		b.memberEnabled[accountID] = m
+	}
+
+	return m, true
 }
 
 // IsEnabled returns whether Inspector2 is enabled for any resource type.
@@ -78,13 +135,43 @@ func (b *InMemoryBackend) IsEnabled() bool {
 	return false
 }
 
-// GetStatus returns account status information with per-resource-type detail.
+// GetStatus returns the backend's own account status with per-resource-type detail.
 func (b *InMemoryBackend) GetStatus() *AccountStatusResponse {
 	b.mu.RLock("GetStatus")
 	defer b.mu.RUnlock()
 
+	return b.statusLocked(b.accountID, b.enabledTypes)
+}
+
+// GetAccountStatuses returns the status of each requested account (the own account when none are given) and the
+// IDs that are neither the own account nor an associated member.
+func (b *InMemoryBackend) GetAccountStatuses(accountIDs []string) StatusLookup {
+	b.mu.RLock("GetAccountStatuses")
+	defer b.mu.RUnlock()
+
+	if len(accountIDs) == 0 {
+		accountIDs = []string{b.accountID}
+	}
+
+	var out StatusLookup
+
+	for _, id := range accountIDs {
+		enabled, ok := b.enabledMapLocked(id, false)
+		if !ok {
+			out.Unknown = append(out.Unknown, id)
+
+			continue
+		}
+
+		out.Found = append(out.Found, b.statusLocked(id, enabled))
+	}
+
+	return out
+}
+
+func (b *InMemoryBackend) statusLocked(accountID string, enabled map[string]bool) *AccountStatusResponse {
 	typeStatus := func(rt string) string {
-		if b.enabledTypes[rt] {
+		if enabled[rt] {
 			return statusEnabled
 		}
 
@@ -93,7 +180,7 @@ func (b *InMemoryBackend) GetStatus() *AccountStatusResponse {
 
 	overall := statusDisabled
 
-	for _, v := range b.enabledTypes {
+	for _, v := range enabled {
 		if v {
 			overall = statusEnabled
 
@@ -102,7 +189,7 @@ func (b *InMemoryBackend) GetStatus() *AccountStatusResponse {
 	}
 
 	return &AccountStatusResponse{
-		AccountID:            b.accountID,
+		AccountID:            accountID,
 		Status:               overall,
 		Ec2Status:            typeStatus(resourceTypeEC2),
 		EcrStatus:            typeStatus(resourceTypeECR),

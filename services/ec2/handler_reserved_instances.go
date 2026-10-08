@@ -107,6 +107,10 @@ type reservedInstancesModificationItem struct {
 	ReservedInstancesModificationID string `xml:"reservedInstancesModificationId"`
 	Status                          string `xml:"status,omitempty"`
 	StatusMessage                   string `xml:"statusMessage,omitempty"`
+	ClientToken                     string `xml:"clientToken,omitempty"`
+	CreateDate                      string `xml:"createDate,omitempty"`
+	EffectiveDate                   string `xml:"effectiveDate,omitempty"`
+	UpdateDate                      string `xml:"updateDate,omitempty"`
 	ReservedInstancesSet            struct {
 		Items []reservedInstancesIDItem `xml:"item"`
 	} `xml:"reservedInstancesSet"`
@@ -295,6 +299,10 @@ func toReservedInstancesModificationItem(
 		ReservedInstancesModificationID: m.ReservedInstancesModificationID,
 		Status:                          m.Status,
 		StatusMessage:                   m.StatusMessage,
+		ClientToken:                     m.ClientToken,
+		CreateDate:                      formatModificationTime(m.CreateDate),
+		EffectiveDate:                   formatModificationTime(m.EffectiveDate),
+		UpdateDate:                      formatModificationTime(m.UpdateDate),
 	}
 
 	for _, riID := range m.ReservedInstancesIDs {
@@ -509,7 +517,7 @@ func (h *Handler) handleModifyReservedInstances(vals url.Values, reqID string) (
 	riIDs := parseMemberList(vals, "ReservedInstancesId")
 	targets := parseReservedInstancesConfigurationSet(vals)
 
-	mod, err := h.Backend.ModifyReservedInstances(riIDs, targets)
+	mod, err := h.Backend.ModifyReservedInstances(riIDs, targets, vals.Get("ClientToken"))
 	if err != nil {
 		return nil, err
 	}
@@ -712,4 +720,12 @@ func registerReservedInstancesOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["ModifyReservedInstances"] = h.handleModifyReservedInstances
 	ops["DeleteQueuedReservedInstances"] = h.handleDeleteQueuedReservedInstances
 	ops["GetReservedInstancesExchangeQuote"] = h.handleGetReservedInstancesExchangeQuote
+}
+
+func formatModificationTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+
+	return t.UTC().Format(timeLayoutISO)
 }

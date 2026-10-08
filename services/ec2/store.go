@@ -325,6 +325,8 @@ type Subnet struct {
 // InMemoryBackend is the in-memory store for EC2 resources.
 type InMemoryBackend struct {
 	metrics      cwmetric.Sink
+	lastUsage    map[string]InstanceUsage
+	usageMu      *lockmetrics.RWMutex
 	compute      Compute
 	dnsRegistrar DNSRegistrar
 	// appConfig is the service.AppContext.Config value Provider.Init
@@ -754,6 +756,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b.AccountID = accountID
 	b.Region = region
 	b.mu = lockmetrics.New("ec2")
+	b.usageMu = lockmetrics.New("ec2.usage")
 	b.lifecycleStop = make(chan struct{})
 	b.initDefaults()
 
@@ -910,6 +913,7 @@ func (b *InMemoryBackend) StartLifecycleReconciler(ctx context.Context) {
 					b.reconcileInstanceLifecycle()
 				case <-statusTicker.C:
 					b.EmitStatusCheckMetrics()
+					b.EmitUsageMetrics(ctx)
 				}
 			}
 		}()
@@ -929,6 +933,8 @@ func (b *InMemoryBackend) StopLifecycleReconciler() {
 // Performance: takes a cheap read-lock pass first to bail early when nothing is
 // transitional, avoiding a write-lock acquisition on every 50ms tick.
 func (b *InMemoryBackend) reconcileInstanceLifecycle() {
+	b.expireFleets(time.Now())
+
 	// Fast path: read-lock to detect any transitional instance.
 	b.mu.RLock("reconcileInstanceLifecycle-check")
 	hasTransitional := false

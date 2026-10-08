@@ -92,7 +92,7 @@ func (h *Handler) handleListFindings(c *echo.Context) error {
 func findingToWire(f *Finding) map[string]any {
 	resources := make([]map[string]any, 0, len(f.Resources))
 	for _, r := range f.Resources {
-		resources = append(resources, map[string]any{keyType: r.Type, "id": r.ID})
+		resources = append(resources, resourceToWire(r))
 	}
 
 	entry := map[string]any{
@@ -121,7 +121,56 @@ func findingToWire(f *Finding) map[string]any {
 		entry["fixAvailable"] = f.FixAvailable
 	}
 
+	if f.ExploitAvailable != "" {
+		entry["exploitAvailable"] = f.ExploitAvailable
+	}
+
+	if f.PackageVulnerabilityDetails != nil {
+		entry["packageVulnerabilityDetails"] = f.PackageVulnerabilityDetails
+	}
+
 	return entry
+}
+
+// resourceToWire renders a finding Resource with the details member for its type.
+func resourceToWire(r FindingResource) map[string]any {
+	res := map[string]any{keyType: r.Type, "id": r.ID}
+
+	if len(r.Tags) > 0 {
+		res["tags"] = r.Tags
+	}
+
+	details := map[string]any{}
+	member := ""
+
+	switch r.Type {
+	case findingResourceTypeEC2Instance:
+		member = "awsEc2Instance"
+
+		putNonEmpty(details, "imageId", r.ImageID)
+		putNonEmpty(details, "platform", r.Platform)
+	case findingResourceTypeECRContainerImg:
+		member = "awsEcrContainerImage"
+
+		putNonEmpty(details, "repositoryName", r.Repository)
+		putNonEmpty(details, "architecture", r.Architecture)
+		putNonEmpty(details, "imageHash", r.ImageHash)
+
+		if len(r.ImageTags) > 0 {
+			details["imageTags"] = r.ImageTags
+		}
+	case findingResourceTypeLambdaFunction:
+		member = "awsLambdaFunction"
+
+		putNonEmpty(details, "functionName", r.FunctionName)
+		putNonEmpty(details, "runtime", r.Runtime)
+	}
+
+	if len(details) > 0 {
+		res["details"] = map[string]any{member: details}
+	}
+
+	return res
 }
 
 func (h *Handler) handleCreateFindingsReport(c *echo.Context) error {
@@ -232,6 +281,7 @@ func (h *Handler) handleListFindingAggregations(c *echo.Context) error {
 		AggregationRequest map[string]any `json:"aggregationRequest"`
 		AggregationType    string         `json:"aggregationType"`
 		NextToken          string         `json:"nextToken"`
+		AccountIDs         []any          `json:"accountIds"`
 		MaxResults         int32          `json:"maxResults"`
 	}
 
@@ -244,7 +294,9 @@ func (h *Handler) handleListFindingAggregations(c *echo.Context) error {
 		}
 	}
 
-	result, aggErr := h.Backend.ListFindingAggregations(req.AggregationType, req.AggregationRequest)
+	result, aggErr := h.Backend.ListFindingAggregationsForAccounts(
+		req.AggregationType, req.AggregationRequest, extractStringFilters(map[string]any{"a": req.AccountIDs}, "a"),
+	)
 	if aggErr != nil {
 		return h.mapError(c, aggErr)
 	}

@@ -40,9 +40,9 @@ const (
 // remain plain maps because their values are not *T (see store_setup.go's
 // file doc comment for the full persistence audit).
 type InMemoryBackend struct {
+	appConfig                      any
+	memberEnabled                  map[string]map[string]bool
 	scanConfigAssociations         *store.Table[CodeSecurityScanConfigurationAssociation]
-	scanConfigAssociationsByConfig *store.Index[CodeSecurityScanConfigurationAssociation]
-	filters                        *store.Table[Filter]
 	findings                       *store.Table[storedFinding]
 	codeSecurityIntegrations       *store.Table[CodeSecurityIntegration]
 	cisScanConfigs                 *store.Table[CisScanConfiguration]
@@ -57,6 +57,7 @@ type InMemoryBackend struct {
 	encryptionKeys                 *store.Table[EncryptionKey]
 	delegatedAdmins                *store.Table[DelegatedAdminAccount]
 	cisSessions                    *store.Table[CisSession]
+	filters                        *store.Table[Filter]
 	enabledTypes                   map[string]bool
 	coverageEntries                *store.Table[CoverageEntry]
 	codeSecurityScanConfigs        *store.Table[CodeSecurityScanConfiguration]
@@ -68,6 +69,7 @@ type InMemoryBackend struct {
 	tags                           map[string]map[string]string
 	mu                             *lockmetrics.RWMutex
 	codeSecurityScans              map[string]map[string]any
+	scanConfigAssociationsByConfig *store.Index[CodeSecurityScanConfigurationAssociation]
 	config                         Configuration
 	accountID                      string
 	region                         string
@@ -83,6 +85,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		registry:          store.NewRegistry(),
 		tags:              make(map[string]map[string]string),
 		enabledTypes:      make(map[string]bool),
+		memberEnabled:     make(map[string]map[string]bool),
 		codeSecurityScans: make(map[string]map[string]any),
 		config:            defaultConfiguration(),
 		ec2DeepConfig:     defaultEc2DeepInspectionConfig(),

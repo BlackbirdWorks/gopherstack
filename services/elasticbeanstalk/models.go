@@ -124,6 +124,14 @@ type Environment struct {
 	DateUpdated       string            `json:"dateUpdated,omitempty"`
 	Region            string            `json:"region"`
 	OptionSettings    []OptionSetting   `json:"optionSettings,omitempty"`
+	// EnvironmentLinks are the links created from an env.yaml manifest by ComposeEnvironments.
+	EnvironmentLinks []EnvironmentLink `json:"environmentLinks,omitempty"`
+}
+
+// EnvironmentLink mirrors types.EnvironmentLink.
+type EnvironmentLink struct {
+	LinkName        string `json:"linkName"`
+	EnvironmentName string `json:"environmentName"`
 }
 
 // ApplicationVersion represents an Elastic Beanstalk application version.
@@ -205,6 +213,7 @@ type EventRecord struct {
 	TemplateName    string `json:"templateName,omitempty"`
 	VersionLabel    string `json:"versionLabel,omitempty"`
 	EventDate       string `json:"eventDate"`
+	RequestID       string `json:"requestId,omitempty"`
 	Message         string `json:"message"`
 	Severity        string `json:"severity"`
 }
@@ -245,6 +254,7 @@ func cloneEnvironment(env *Environment) *Environment {
 	cp := *env
 	cp.Tags = copyTags(env.Tags)
 	cp.OptionSettings = slices.Clone(env.OptionSettings)
+	cp.EnvironmentLinks = slices.Clone(env.EnvironmentLinks)
 
 	return &cp
 }

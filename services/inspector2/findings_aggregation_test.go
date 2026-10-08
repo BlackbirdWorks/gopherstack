@@ -236,24 +236,15 @@ func TestListFindingAggregations_ResourceKeyedGrouping(t *testing.T) {
 	}
 }
 
-// TestListFindingAggregations_UnimplementedTypesIgnoreResourceData pins that
-// aggregation types this backend still has no data model for (PACKAGE, AMI,
-// IMAGE_LAYER, LAMBDA_LAYER, FINDING_TYPE) stay honestly empty even when the
-// seeded findings carry title and resource data that OTHER aggregation types
-// now group by -- the unimplemented paths must not accidentally pick up
-// that data.
-func TestListFindingAggregations_UnimplementedTypesIgnoreResourceData(t *testing.T) {
+// TestListFindingAggregations_MultiCloudTypesEmpty pins that the multi-cloud aggregation types stay
+// empty: there are no Azure resources to aggregate.
+func TestListFindingAggregations_MultiCloudTypesEmpty(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name            string
 		aggregationType string
 	}{
-		{name: "package", aggregationType: "PACKAGE"},
-		{name: "ami", aggregationType: "AMI"},
-		{name: "image_layer", aggregationType: "IMAGE_LAYER"},
-		{name: "lambda_layer", aggregationType: "LAMBDA_LAYER"},
-		{name: "finding_type", aggregationType: "FINDING_TYPE"},
 		{name: "container_image", aggregationType: "CONTAINER_IMAGE"},
 		{name: "serverless_function", aggregationType: "SERVERLESS_FUNCTION"},
 		{name: "vm_instance", aggregationType: "VM_INSTANCE"},
@@ -271,8 +262,6 @@ func TestListFindingAggregations_UnimplementedTypesIgnoreResourceData(t *testing
 					Resources: []inspector2.FindingResource{
 						{Type: "AWS_EC2_INSTANCE", ID: "i-aaa"},
 						{Type: "AWS_ECR_REPOSITORY", ID: "repo-a"},
-						{Type: "AWS_LAMBDA_FUNCTION", ID: "fn-a"},
-						{Type: "CODE_REPOSITORY", ID: "proj-a"},
 					},
 				},
 			})

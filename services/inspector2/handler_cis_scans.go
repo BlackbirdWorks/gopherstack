@@ -2,6 +2,7 @@ package inspector2
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
@@ -142,8 +143,15 @@ func (h *Handler) handleListCisScanConfigurations(c *echo.Context) error {
 		return h.mapError(c, err)
 	}
 
+	sorted, sortErr := cisScanConfigSorter().sort(
+		filterCis(cfgs, pr.FilterCriteria, cisScanConfigAccessors()), pr.SortBy, pr.SortOrder,
+	)
+	if sortErr != nil {
+		return h.mapError(c, sortErr)
+	}
+
 	page, next := pageItems(
-		filterCis(cfgs, pr.FilterCriteria, cisScanConfigAccessors()),
+		sorted,
 		func(cfg *CisScanConfiguration) string { return cfg.Arn },
 		pr.MaxResults,
 		pr.NextToken,
@@ -269,11 +277,16 @@ func (h *Handler) handleGetCisScanReport(c *echo.Context) error {
 	}
 
 	var req struct {
-		ScanArn string `json:"scanArn"`
+		ScanArn      string `json:"scanArn"`
+		ReportFormat string `json:"reportFormat"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
+	}
+
+	if f := req.ReportFormat; f != "" && f != "PDF" && f != "CSV" {
+		return h.mapError(c, fmt.Errorf("%w: reportFormat must be PDF or CSV, got %q", ErrValidation, f))
 	}
 
 	report, err := h.Backend.GetCisScanReport(req.ScanArn)
@@ -296,6 +309,8 @@ func (h *Handler) handleGetCisScanResultDetails(c *echo.Context) error {
 		AccountID        string      `json:"accountId"`
 		TargetResourceID string      `json:"targetResourceId"`
 		NextToken        string      `json:"nextToken"`
+		SortBy           string      `json:"sortBy"`
+		SortOrder        string      `json:"sortOrder"`
 		MaxResults       int32       `json:"maxResults"`
 	}
 
@@ -308,8 +323,14 @@ func (h *Handler) handleGetCisScanResultDetails(c *echo.Context) error {
 		return h.mapError(c, err)
 	}
 
-	if rows, ok := details["scanResultDetails"].([]map[string]any); ok {
-		rows = filterCis(rows, req.FilterCriteria, cisDetailAccessors())
+	if all, ok := details["scanResultDetails"].([]map[string]any); ok {
+		rows, sortErr := cisDetailSorter().sort(
+			filterCis(all, req.FilterCriteria, cisDetailAccessors()), req.SortBy, req.SortOrder,
+		)
+		if sortErr != nil {
+			return h.mapError(c, sortErr)
+		}
+
 		page, next := pageItems(rows, cisDetailKey, req.MaxResults, req.NextToken)
 		details["scanResultDetails"] = page
 
@@ -330,8 +351,19 @@ func (h *Handler) handleListCisScans(c *echo.Context) error {
 		return h.mapError(c, err)
 	}
 
+	if !cisDetailLevelValid(pr.DetailLevel) {
+		return h.mapError(c, fmt.Errorf("%w: unsupported detailLevel %q", ErrValidation, pr.DetailLevel))
+	}
+
+	sorted, sortErr := cisScanSorter().sort(
+		filterCis(scans, pr.FilterCriteria, cisScanAccessors()), pr.SortBy, pr.SortOrder,
+	)
+	if sortErr != nil {
+		return h.mapError(c, sortErr)
+	}
+
 	page, next := pageItems(
-		filterCis(scans, pr.FilterCriteria, cisScanAccessors()),
+		sorted,
 		mapKey(keyScanArn),
 		pr.MaxResults,
 		pr.NextToken,
@@ -342,6 +374,7 @@ func (h *Handler) handleListCisScans(c *echo.Context) error {
 
 type cisAggregationListing struct {
 	fetch     func(scanArn string) ([]map[string]any, error)
+	sorter    cisSorter[map[string]any]
 	accessors cisAccessors[map[string]any]
 	keyField  string
 	respKey   string
@@ -350,6 +383,7 @@ type cisAggregationListing struct {
 func (h *Handler) handleListCisScanResultsAggregatedByChecks(c *echo.Context) error {
 	return h.listCisAggregation(c, cisAggregationListing{
 		fetch:     h.Backend.ListCisScanResultsAggregatedByChecks,
+		sorter:    cisCheckSorter(),
 		accessors: cisCheckAccessors(),
 		keyField:  keyCheckID,
 		respKey:   "checkAggregations",
@@ -359,6 +393,7 @@ func (h *Handler) handleListCisScanResultsAggregatedByChecks(c *echo.Context) er
 func (h *Handler) handleListCisScanResultsAggregatedByTargetResource(c *echo.Context) error {
 	return h.listCisAggregation(c, cisAggregationListing{
 		fetch:     h.Backend.ListCisScanResultsAggregatedByTargetResource,
+		sorter:    cisTargetSorter(),
 		accessors: cisTargetAccessors(),
 		keyField:  keyTargetResourceID,
 		respKey:   "targetResourceAggregations",
@@ -375,6 +410,8 @@ func (h *Handler) listCisAggregation(c *echo.Context, l cisAggregationListing) e
 		FilterCriteria cisCriteria `json:"filterCriteria"`
 		ScanArn        string      `json:"scanArn"`
 		NextToken      string      `json:"nextToken"`
+		SortBy         string      `json:"sortBy"`
+		SortOrder      string      `json:"sortOrder"`
 		MaxResults     int32       `json:"maxResults"`
 	}
 
@@ -387,8 +424,13 @@ func (h *Handler) listCisAggregation(c *echo.Context, l cisAggregationListing) e
 		return h.mapError(c, err)
 	}
 
+	sorted, sortErr := l.sorter.sort(filterCis(results, req.FilterCriteria, l.accessors), req.SortBy, req.SortOrder)
+	if sortErr != nil {
+		return h.mapError(c, sortErr)
+	}
+
 	page, next := pageItems(
-		filterCis(results, req.FilterCriteria, l.accessors),
+		sorted,
 		mapKey(l.keyField),
 		req.MaxResults,
 		req.NextToken,

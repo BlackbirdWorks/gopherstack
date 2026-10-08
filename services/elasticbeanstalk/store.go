@@ -56,6 +56,8 @@ type InMemoryBackend struct {
 	deletedEnvironments      map[string][]*Environment                     // region → terminated envs
 	envCounters              map[string]int                                // region → counter
 	mu                       *lockmetrics.RWMutex
+	s3                       S3Reader
+	appConfig                any
 	accountID                string
 	region                   string // default region
 }

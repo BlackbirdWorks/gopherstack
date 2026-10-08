@@ -660,9 +660,13 @@ type PriceScheduleEntry struct {
 // ReservedInstancesModification holds a reserved instances modification.
 
 type ReservedInstancesModification struct {
-	ReservedInstancesModificationID string `json:"reservedInstancesModificationId,omitempty"`
-	Status                          string `json:"status,omitempty"`
-	StatusMessage                   string `json:"statusMessage,omitempty"`
+	CreateDate                      time.Time `json:"createDate"`
+	EffectiveDate                   time.Time `json:"effectiveDate"`
+	UpdateDate                      time.Time `json:"updateDate"`
+	ClientToken                     string    `json:"clientToken,omitempty"`
+	ReservedInstancesModificationID string    `json:"reservedInstancesModificationId,omitempty"`
+	Status                          string    `json:"status,omitempty"`
+	StatusMessage                   string    `json:"statusMessage,omitempty"`
 	ReservedInstancesIDs            []string
 	ModificationResults             []ReservedInstancesModificationResult
 }

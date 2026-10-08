@@ -32,6 +32,11 @@ const (
 	aggregationTypeAwsEcrContainer = "AWS_ECR_CONTAINER"
 	aggregationTypeAwsLambda       = "AWS_LAMBDA_FUNCTION"
 	aggregationTypeCodeRepository  = "CODE_REPOSITORY"
+	aggregationTypeFindingType     = "FINDING_TYPE"
+	aggregationTypePackage         = "PACKAGE"
+	aggregationTypeImageLayer      = "IMAGE_LAYER"
+	aggregationTypeLambdaLayer     = "LAMBDA_LAYER"
+	aggregationTypeAmi             = "AMI"
 
 	severityScoreCritical = 9.0
 	severityScoreHigh     = 7.0
@@ -535,255 +540,6 @@ func emptyFindingAggregations(aggregationType string) map[string]any {
 	}
 }
 
-// resourceAggregationGroups groups seeded findings by the ID of each
-// Resources[] entry matching resourceType, counting severities per group.
-// The returned slice is first-seen group order, for deterministic responses.
-func (b *InMemoryBackend) resourceAggregationGroups(resourceType string) ([]string, map[string]map[string]int64) {
-	b.mu.RLock("resourceAggregationGroups")
-	defer b.mu.RUnlock()
-
-	var order []string
-
-	groups := make(map[string]map[string]int64)
-
-	b.findings.Range(func(f *storedFinding) bool {
-		for _, r := range f.Resources {
-			if r.Type != resourceType || r.ID == "" {
-				continue
-			}
-
-			if _, ok := groups[r.ID]; !ok {
-				order = append(order, r.ID)
-				groups[r.ID] = make(map[string]int64)
-			}
-
-			groups[r.ID][f.Severity.Label]++
-		}
-
-		return true
-	})
-
-	return order, groups
-}
-
-// titleAggregationGroups groups seeded findings by Finding.Title, counting
-// severities per group. Findings with no title contribute to no group.
-func (b *InMemoryBackend) titleAggregationGroups() ([]string, map[string]map[string]int64) {
-	b.mu.RLock("titleAggregationGroups")
-	defer b.mu.RUnlock()
-
-	var order []string
-
-	groups := make(map[string]map[string]int64)
-
-	b.findings.Range(func(f *storedFinding) bool {
-		if f.Title == "" {
-			return true
-		}
-
-		if _, ok := groups[f.Title]; !ok {
-			order = append(order, f.Title)
-			groups[f.Title] = make(map[string]int64)
-		}
-
-		groups[f.Title][f.Severity.Label]++
-
-		return true
-	})
-
-	return order, groups
-}
-
-// aggregationEntry builds one AggregationResponse union member (a
-// "<x>Aggregation"-keyed map) for a single group key and its severity counts.
-type aggregationEntry func(key, accountID string, counts map[string]int64) map[string]any
-
-// findingAggregationResult renders grouped counts into the
-// ListFindingAggregations envelope, or the honest-empty envelope if there
-// were no groups.
-func findingAggregationResult(
-	aggregationType string,
-	order []string,
-	groups map[string]map[string]int64,
-	accountID string,
-	build aggregationEntry,
-) map[string]any {
-	if len(order) == 0 {
-		return emptyFindingAggregations(aggregationType)
-	}
-
-	sort.Strings(order)
-
-	responses := make([]map[string]any, 0, len(order))
-	for _, key := range order {
-		responses = append(responses, build(key, accountID, groups[key]))
-	}
-
-	return map[string]any{
-		keyAggregationType: aggregationType,
-		keyResponses:       responses,
-	}
-}
-
-func titleAggregationEntry(title, accountID string, counts map[string]int64) map[string]any {
-	return map[string]any{
-		"titleAggregation": map[string]any{
-			"title":           title,
-			keyAccountID:      accountID,
-			keySeverityCounts: severityCountsWire(counts),
-		},
-	}
-}
-
-func repositoryAggregationEntry(repository, accountID string, counts map[string]int64) map[string]any {
-	return map[string]any{
-		"repositoryAggregation": map[string]any{
-			"repository":      repository,
-			keyAccountID:      accountID,
-			keySeverityCounts: severityCountsWire(counts),
-		},
-	}
-}
-
-func ec2InstanceAggregationEntry(instanceID, accountID string, counts map[string]int64) map[string]any {
-	return map[string]any{
-		"ec2InstanceAggregation": map[string]any{
-			"instanceId":      instanceID,
-			keyAccountID:      accountID,
-			keySeverityCounts: severityCountsWire(counts),
-		},
-	}
-}
-
-func awsEcrContainerAggregationEntry(resourceID, accountID string, counts map[string]int64) map[string]any {
-	return map[string]any{
-		"awsEcrContainerAggregation": map[string]any{
-			keyResourceID:     resourceID,
-			keyAccountID:      accountID,
-			keySeverityCounts: severityCountsWire(counts),
-		},
-	}
-}
-
-func lambdaFunctionAggregationEntry(resourceID, accountID string, counts map[string]int64) map[string]any {
-	return map[string]any{
-		"lambdaFunctionAggregation": map[string]any{
-			keyResourceID:     resourceID,
-			keyAccountID:      accountID,
-			keySeverityCounts: severityCountsWire(counts),
-		},
-	}
-}
-
-// codeRepositoryAggregationEntry fills the required projectNames field with
-// the only identifier Finding.Resources carries for a CODE_REPOSITORY
-// resource. types.CodeRepositoryAggregationResponse.ResourceId is a distinct
-// (optional) field for the repo integration's own resource ID, which this
-// backend has no separate value for, so it is left unset rather than
-// duplicating projectNames into it under a different meaning.
-func codeRepositoryAggregationEntry(projectName, accountID string, counts map[string]int64) map[string]any {
-	return map[string]any{
-		"codeRepositoryAggregation": map[string]any{
-			"projectNames":    projectName,
-			keyAccountID:      accountID,
-			keySeverityCounts: severityCountsWire(counts),
-		},
-	}
-}
-
-// ListFindingAggregations returns aggregated finding counts.
-//
-// types.AggregationResponse (inspector2@v1.54.1 types/types.go) is a real
-// Smithy union with 15 members (accountAggregation, amiAggregation,
-// packageAggregation, findingTypeAggregation, ...), and the real
-// deserializer (deserializers.go's
-// awsRestjson1_deserializeDocumentAggregationResponse) picks which member to
-// populate purely from which JSON key is present in the response object --
-// it does not consult the request's aggregationType at all. Previously this
-// always emitted an "accountAggregation"-keyed entry regardless of what was
-// requested, so a real client asking for any of the other 14 AggregationType
-// values (PACKAGE, TITLE, REPOSITORY, ...) silently got back an
-// AccountAggregation value instead of the one it asked for.
-//
-// ACCOUNT, TITLE, REPOSITORY, AWS_EC2_INSTANCE, AWS_ECR_CONTAINER,
-// AWS_LAMBDA_FUNCTION and CODE_REPOSITORY are computable from this backend's
-// Finding model (Title, and the Resources[] Type/ID pairs seeded via
-// SeedFinding) and return real per-group counts. Every other AggregationType
-// value -- PACKAGE (no vulnerability/package sub-struct exists on
-// FindingResource), AMI, IMAGE_LAYER, LAMBDA_LAYER, FINDING_TYPE,
-// CONTAINER_IMAGE, SERVERLESS_FUNCTION, VM_INSTANCE -- has no backing data
-// this model captures, so it honestly returns an empty responses list under
-// the correctly-echoed aggregationType rather than a fabricated entry.
-func (b *InMemoryBackend) ListFindingAggregations(aggregationType string, _ map[string]any) (map[string]any, error) {
-	if aggregationType == "" {
-		aggregationType = aggregationTypeAccount
-	}
-
-	switch aggregationType {
-	case aggregationTypeAccount:
-		counts := b.FindingSeverityCounts()
-		if len(counts) == 0 {
-			return emptyFindingAggregations(aggregationType), nil
-		}
-
-		return map[string]any{
-			keyAggregationType: aggregationType,
-			keyResponses: []map[string]any{
-				{
-					"accountAggregation": map[string]any{
-						keyAccountID:      b.accountID,
-						keySeverityCounts: severityCountsWire(counts),
-					},
-				},
-			},
-		}, nil
-	case aggregationTypeTitle:
-		order, groups := b.titleAggregationGroups()
-
-		return findingAggregationResult(aggregationType, order, groups, b.accountID, titleAggregationEntry), nil
-	case aggregationTypeRepository:
-		order, groups := b.resourceAggregationGroups(findingResourceTypeECRRepository)
-
-		return findingAggregationResult(aggregationType, order, groups, b.accountID, repositoryAggregationEntry), nil
-	case aggregationTypeAwsEc2Instance:
-		order, groups := b.resourceAggregationGroups(findingResourceTypeEC2Instance)
-
-		return findingAggregationResult(aggregationType, order, groups, b.accountID, ec2InstanceAggregationEntry), nil
-	case aggregationTypeAwsEcrContainer:
-		order, groups := b.resourceAggregationGroups(findingResourceTypeECRContainerImg)
-
-		return findingAggregationResult(
-			aggregationType,
-			order,
-			groups,
-			b.accountID,
-			awsEcrContainerAggregationEntry,
-		), nil
-	case aggregationTypeAwsLambda:
-		order, groups := b.resourceAggregationGroups(findingResourceTypeLambdaFunction)
-
-		return findingAggregationResult(
-			aggregationType,
-			order,
-			groups,
-			b.accountID,
-			lambdaFunctionAggregationEntry,
-		), nil
-	case aggregationTypeCodeRepository:
-		order, groups := b.resourceAggregationGroups(findingResourceTypeCodeRepository)
-
-		return findingAggregationResult(
-			aggregationType,
-			order,
-			groups,
-			b.accountID,
-			codeRepositoryAggregationEntry,
-		), nil
-	default:
-		return emptyFindingAggregations(aggregationType), nil
-	}
-}
-
 // SeedVulnerability injects a vulnerability into the backend so
 // SearchVulnerabilities can look it up by ID, mirroring SeedFinding: real
 // SearchVulnerabilities queries AWS's own global vulnerability intelligence
@@ -948,6 +704,8 @@ func findingDetailToWire(f *Finding) map[string]any {
 		detail["ttps"] = f.Ttps
 	}
 
+	addFindingDetailObjects(detail, f)
+
 	return detail
 }
 
@@ -983,4 +741,27 @@ func (b *InMemoryBackend) BatchGetFindingDetails(findingARNs []string) (map[stri
 		"findingDetails": details,
 		"errors":         errs,
 	}, nil
+}
+
+func addFindingDetailObjects(detail map[string]any, f *Finding) {
+	if f.CisaData != nil {
+		m := map[string]any{}
+		putEpochRange(m, "dateAdded", "dateDue", f.CisaData.DateAdded, f.CisaData.DateDue)
+
+		if f.CisaData.Action != "" {
+			m["action"] = f.CisaData.Action
+		}
+
+		detail["cisaData"] = m
+	}
+
+	if f.ExploitObserved != nil {
+		m := map[string]any{}
+		putEpochRange(m, "firstSeen", "lastSeen", f.ExploitObserved.FirstSeen, f.ExploitObserved.LastSeen)
+		detail["exploitObserved"] = m
+	}
+
+	if len(f.Evidences) > 0 {
+		detail["evidences"] = f.Evidences
+	}
 }

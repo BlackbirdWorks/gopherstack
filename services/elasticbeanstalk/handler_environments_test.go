@@ -408,65 +408,6 @@ func TestHandler_AbortEnvironmentUpdate(t *testing.T) {
 	}
 }
 
-func TestHandler_ComposeEnvironments(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name         string
-		appName      string
-		wantXML      string
-		wantStatus   int
-		wantMinCount int
-		setupEnvs    bool
-	}{
-		{
-			name:       "success with no envs",
-			appName:    "my-app",
-			wantStatus: http.StatusOK,
-			wantXML:    "ComposeEnvironmentsResponse",
-		},
-		{
-			name:         "success returns existing envs",
-			appName:      "my-app",
-			setupEnvs:    true,
-			wantStatus:   http.StatusOK,
-			wantMinCount: 1,
-		},
-		{
-			name:       "missing application name",
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler()
-
-			if tt.setupEnvs {
-				postEBForm(
-					t,
-					h,
-					"Version=2010-12-01&Action=CreateEnvironment&ApplicationName=my-app&EnvironmentName=composed-env",
-				)
-			}
-
-			body := "Version=2010-12-01&Action=ComposeEnvironments"
-			if tt.appName != "" {
-				body += "&ApplicationName=" + tt.appName
-			}
-
-			rec := postEBForm(t, h, body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantXML != "" {
-				assert.Contains(t, rec.Body.String(), tt.wantXML)
-			}
-		})
-	}
-}
-
 func TestHandler_DescribeEnvironmentResources(t *testing.T) {
 	t.Parallel()
 

@@ -631,7 +631,8 @@ func (h *Handler) handleStartCodeSecurityScan(c *echo.Context) error {
 	}
 
 	var req struct {
-		Resource struct {
+		ClientToken string `json:"clientToken"`
+		Resource    struct {
 			ProjectID string `json:"projectId"`
 		} `json:"resource"`
 	}
@@ -644,7 +645,8 @@ func (h *Handler) handleStartCodeSecurityScan(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "resource.projectId is required"))
 	}
 
-	result, startErr := h.Backend.StartCodeSecurityScan(req.Resource.ProjectID)
+	result, startErr := h.replay(opStartCodeSecurityScan, req.ClientToken, req.Resource.ProjectID,
+		func() (map[string]any, error) { return h.Backend.StartCodeSecurityScan(req.Resource.ProjectID) })
 	if startErr != nil {
 		return h.mapError(c, startErr)
 	}

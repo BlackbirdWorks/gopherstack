@@ -134,6 +134,9 @@ type VpcPeeringConnection struct {
 	RequesterVpcID         string    `json:"requesterVpcID,omitempty"`
 	AccepterVpcID          string    `json:"accepterVpcID,omitempty"`
 	AccepterOwnerID        string    `json:"accepterOwnerID,omitempty"`
+	RequesterOwnerID       string    `json:"requesterOwnerID,omitempty"`
+	RequesterCidrBlock     string    `json:"requesterCidrBlock,omitempty"`
+	AccepterCidrBlock      string    `json:"accepterCidrBlock,omitempty"`
 	AccepterRegion         string    `json:"accepterRegion,omitempty"`
 	RequesterRegion        string    `json:"requesterRegion,omitempty"`
 	State                  string    `json:"state,omitempty"`
@@ -568,6 +571,12 @@ func (b *InMemoryBackend) acceptVpcPeeringConnectionLocal(
 	}
 
 	pc.State = stateActive
+	pc.ExpirationTime = time.Time{}
+
+	if v, found := b.vpcs.Get(pc.AccepterVpcID); found && pc.AccepterCidrBlock == "" {
+		pc.AccepterCidrBlock = v.CIDRBlock
+	}
+
 	cp := *pc
 
 	return &cp, nil

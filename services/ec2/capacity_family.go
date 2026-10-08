@@ -128,7 +128,9 @@ type CapacityBlockExtension struct {
 	CapacityReservationID               string    `json:"capacityReservationId,omitempty"`
 	AvailabilityZone                    string    `json:"availabilityZone,omitempty"`
 	CapacityBlockExtensionStatus        string    `json:"capacityBlockExtensionStatus,omitempty"`
+	InstanceType                        string    `json:"instanceType,omitempty"`
 	CapacityBlockExtensionDurationHours int32     `json:"capacityBlockExtensionDurationHours,omitempty"`
+	InstanceCount                       int32     `json:"instanceCount,omitempty"`
 }
 
 // CapacityBlock represents a purchased Capacity Block (cb-*), grouping the one

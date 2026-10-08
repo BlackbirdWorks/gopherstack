@@ -92,6 +92,8 @@ type CreateEnvironmentParams struct {
 	CustomAMI        string
 	OptionSettings   []OptionSetting
 	OptionsToRemove  []OptionSetting
+
+	EnvironmentLinks []EnvironmentLink
 }
 
 // UpdateEnvironmentParams holds state changes accepted by UpdateEnvironment.
@@ -106,6 +108,7 @@ type UpdateEnvironmentParams struct {
 	TierVersion       string
 	OptionSettings    []OptionSetting
 	OptionsToRemove   []OptionSetting
+	EnvironmentLinks  []EnvironmentLink
 }
 
 // ValidateInstanceProfileARN validates that an instance profile ARN has the correct format (improvement #16).
@@ -206,10 +209,11 @@ func (b *InMemoryBackend) CreateEnvironment(
 		DateUpdated:       nowISO8601(),
 		Region:            region,
 		Tags:              copyTags(tags),
+		EnvironmentLinks:  slices.Clone(params.EnvironmentLinks),
 	}
 	b.environmentPut(env)
 
-	b.appendEvent(region, env, "Successfully launched environment: "+envName+".", eventSeverityInfo)
+	b.appendEvent(ctx, region, env, "Successfully launched environment: "+envName+".", eventSeverityInfo)
 
 	return cloneEnvironment(env), nil
 }
@@ -354,9 +358,13 @@ func (b *InMemoryBackend) UpdateEnvironmentWithParams(
 		params.OptionsToRemove,
 	)
 
+	if params.EnvironmentLinks != nil {
+		env.EnvironmentLinks = slices.Clone(params.EnvironmentLinks)
+	}
+
 	env.DateUpdated = nowISO8601()
 
-	b.appendEvent(region, env, "Environment update completed successfully.", eventSeverityInfo)
+	b.appendEvent(ctx, region, env, "Environment update completed successfully.", eventSeverityInfo)
 
 	return cloneEnvironment(env), nil
 }
@@ -401,12 +409,16 @@ func (b *InMemoryBackend) TerminateEnvironment(ctx context.Context, appName, env
 		return nil, fmt.Errorf("%w: environment %s not found", ErrNotFound, envName)
 	}
 
-	return b.terminateEnvironmentLocked(region, env), nil
+	return b.terminateEnvironmentLocked(ctx, region, env), nil
 }
 
 // terminateEnvironmentLocked marks env as Terminated and removes it from
 // storage. Caller must hold b.mu.
-func (b *InMemoryBackend) terminateEnvironmentLocked(region string, env *Environment) *Environment {
+func (b *InMemoryBackend) terminateEnvironmentLocked(
+	ctx context.Context,
+	region string,
+	env *Environment,
+) *Environment {
 	env.Status = "Terminated"
 	env.DateUpdated = nowISO8601()
 	out := cloneEnvironment(env)
@@ -419,7 +431,7 @@ func (b *InMemoryBackend) terminateEnvironmentLocked(region string, env *Environ
 	b.environmentDeleteKey(region, env.ApplicationName, env.EnvironmentName)
 	delete(b.managedActionHistory[region], env.EnvironmentName)
 
-	b.appendEvent(region, env, "terminateEnvironment completed successfully.", eventSeverityInfo)
+	b.appendEvent(ctx, region, env, "terminateEnvironment completed successfully.", eventSeverityInfo)
 
 	return out
 }
@@ -468,31 +480,6 @@ func (b *InMemoryBackend) CheckDNSAvailability(ctx context.Context, cnamePrefix 
 	}
 
 	return true, fqcname
-}
-
-// ComposeEnvironments returns existing environments for an application.
-// In a real deployment this would create multiple environments; the stub
-// returns the already-running environments for the given application.
-// Results are sorted by EnvironmentName for deterministic output.
-func (b *InMemoryBackend) ComposeEnvironments(ctx context.Context, appName string) []*Environment {
-	b.mu.RLock("ComposeEnvironments")
-	defer b.mu.RUnlock()
-
-	region := getRegion(ctx, b.region)
-	envs := b.environmentsInRegion(region)
-	list := make([]*Environment, 0, len(envs))
-
-	for _, env := range envs {
-		if env.ApplicationName == appName {
-			list = append(list, cloneEnvironment(env))
-		}
-	}
-
-	sort.Slice(list, func(i, j int) bool {
-		return list[i].EnvironmentName < list[j].EnvironmentName
-	})
-
-	return list
 }
 
 // DescribeEnvironmentHealth returns the health and status of an environment by name.

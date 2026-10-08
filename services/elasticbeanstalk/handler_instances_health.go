@@ -43,6 +43,6 @@ func (h *Handler) handleDescribeInstancesHealth(ctx context.Context, vals url.Va
 			InstanceHealthList: []singleInstanceHealth{},
 			RefreshedAt:        healthRefreshedAt,
 		},
-		ResponseMetadata: responseMetadata{RequestID: "eb-describe-instances-health"},
+		ResponseMetadata: newResponseMetadata(ctx, "eb-describe-instances-health"),
 	}, nil
 }
