@@ -10,6 +10,8 @@ type Device struct {
 	Attributes          map[string]string `json:"attributes,omitempty"`
 	DeviceKey           string            `json:"deviceKey,omitempty"`
 	Status              string            `json:"status,omitempty"`
+	PasswordVerifier    string            `json:"passwordVerifier,omitempty"`
+	Salt                string            `json:"salt,omitempty"`
 }
 
 type adminForgetDeviceInput struct {

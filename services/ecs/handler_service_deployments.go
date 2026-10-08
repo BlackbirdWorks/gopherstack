@@ -251,21 +251,39 @@ type serviceDeploymentCircuitBreakerView struct {
 }
 
 type serviceDeploymentView struct {
-	DeploymentConfiguration  *deploymentConfigurationView         `json:"deploymentConfiguration,omitempty"`
+	Alarms                   *serviceDeploymentAlarmsView         `json:"alarms,omitempty"`
 	DeploymentCircuitBreaker *serviceDeploymentCircuitBreakerView `json:"deploymentCircuitBreaker,omitempty"`
 	Rollback                 *serviceDeploymentRollbackView       `json:"rollback,omitempty"`
 	TargetServiceRevision    *serviceRevisionSummaryView          `json:"targetServiceRevision,omitempty"`
+	DeploymentConfiguration  *deploymentConfigurationView         `json:"deploymentConfiguration,omitempty"`
 	ClusterArn               string                               `json:"clusterArn"`
-	ServiceDeploymentArn     string                               `json:"serviceDeploymentArn"`
 	ServiceArn               string                               `json:"serviceArn"`
 	Status                   string                               `json:"status"`
 	StatusReason             string                               `json:"statusReason,omitempty"`
+	LifecycleStage           string                               `json:"lifecycleStage,omitempty"`
+	ServiceDeploymentArn     string                               `json:"serviceDeploymentArn"`
 	SourceServiceRevisions   []serviceRevisionSummaryView         `json:"sourceServiceRevisions,omitempty"`
+	LifecycleHookDetails     []lifecycleHookDetailView            `json:"lifecycleHookDetails,omitempty"`
 	CreatedAt                float64                              `json:"createdAt,omitempty"`
 	StartedAt                float64                              `json:"startedAt,omitempty"`
 	UpdatedAt                float64                              `json:"updatedAt,omitempty"`
 	StoppedAt                float64                              `json:"stoppedAt,omitempty"`
 	FinishedAt               float64                              `json:"finishedAt,omitempty"`
+}
+
+type lifecycleHookDetailView struct {
+	HookID        string  `json:"hookId"`
+	Status        string  `json:"status"`
+	TargetArn     string  `json:"targetArn,omitempty"`
+	TargetType    string  `json:"targetType,omitempty"`
+	TimeoutAction string  `json:"timeoutAction,omitempty"`
+	ExpiresAt     float64 `json:"expiresAt,omitempty"`
+}
+
+type serviceDeploymentAlarmsView struct {
+	Status              string   `json:"status"`
+	AlarmNames          []string `json:"alarmNames,omitempty"`
+	TriggeredAlarmNames []string `json:"triggeredAlarmNames,omitempty"`
 }
 
 func toServiceRevisionSummaryView(r ServiceRevisionSummary) serviceRevisionSummaryView {
@@ -330,6 +348,24 @@ func toServiceDeploymentView(sd ServiceDeployment) serviceDeploymentView {
 	}
 
 	v.DeploymentConfiguration = toDeploymentConfigurationView(sd.deploymentConfiguration)
+	v.LifecycleStage = sd.LifecycleStage
+
+	for _, d := range sd.LifecycleHookDetails {
+		hv := lifecycleHookDetailView{
+			HookID: d.HookID, Status: d.Status, TargetArn: d.TargetArn,
+			TargetType: d.TargetType, TimeoutAction: d.TimeoutAction,
+		}
+		if d.ExpiresAt != nil {
+			hv.ExpiresAt = float64(d.ExpiresAt.Unix())
+		}
+
+		v.LifecycleHookDetails = append(v.LifecycleHookDetails, hv)
+	}
+
+	if sd.Alarms != nil {
+		a := serviceDeploymentAlarmsView(*sd.Alarms)
+		v.Alarms = &a
+	}
 
 	return v
 }

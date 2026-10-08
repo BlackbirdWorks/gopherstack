@@ -57,13 +57,13 @@ func (h *Handler) handleGetTokensFromRefreshToken(
 	}
 
 	return &getTokensFromRefreshTokenOutput{
-		AuthenticationResult: &authResult{
+		AuthenticationResult: h.withNewDevice(&authResult{
 			AccessToken:  tokens.AccessToken,
 			IDToken:      tokens.IDToken,
 			RefreshToken: tokens.RefreshToken,
 			TokenType:    authTypeBearer,
 			ExpiresIn:    tokens.ExpiresIn,
-		},
+		}, in.DeviceKey),
 	}, nil
 }
 

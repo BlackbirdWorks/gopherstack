@@ -64,6 +64,7 @@ type getTokensFromRefreshTokenInput struct {
 	RefreshToken   string            `json:"RefreshToken,omitempty"`
 	ClientID       string            `json:"ClientId,omitempty"`
 	ClientSecret   string            `json:"ClientSecret,omitempty"`
+	DeviceKey      string            `json:"DeviceKey,omitempty"`
 }
 
 type getTokensFromRefreshTokenOutput struct {

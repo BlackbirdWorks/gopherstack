@@ -11,12 +11,12 @@
 | Feature families | 1 (1 ok) |
 | Known gaps | 2 |
 | Structural gaps (can't be emulated) | 3 |
-| Deferred items | 1 |
+| Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Blue/green lifecycle is unmodeled (PAUSE-stage hooks, Lambda hook invocation, strategy/bakeTime/alarms in deploymentConfiguration): ContinueServiceDeployment always returns ClientException, and ServiceDeployment lacks LifecycleStage, LifecycleHookDetails and Alarms. StopServiceDeployment StopType=ROLLBACK is applied.
+- Blue/green AWS_LAMBDA lifecycle hooks are recorded but never invoked (needs a Lambda invoker seam wired from the root, and the hook response contract is not in the SDK); DeploymentAlarms rollback works through AlarmStateProvider but nothing wires CloudWatch alarm state into it yet. Linear/canary traffic steps are not timed.
 - Managed scaling is not modeled: AutoScalingGroupProvider is validated against Auto Scaling at create, but ManagedScaling targetCapacity and ManagedTerminationProtection never scale or protect the group.
 
 ### Structural gaps
@@ -26,10 +26,6 @@ These do not block an A grade — no implementation could produce real data here
 - AWS/ECS CPUUtilization/MemoryUtilization are emitted only for docker-runtime tasks; the noop runner has no container stats to measure.
 - Daemon-launched tasks: ECS Managed Daemons run only on Managed Instances capacity providers, which provision EC2 hosts this emulator does not model, so ListTasks.daemonName filters correctly but no task ever belongs to a daemon.
 - awslogs without awslogs-stream-prefix names the stream after the runtime container ID: exact under the docker runtime, but without a container runtime no container ID exists and the task ID stands in.
-
-### Deferred
-
-- ServiceDeployment LifecycleStage/LifecycleHookDetails/Alarms (blue/green lifecycle is not modeled; StartedAt/StoppedAt/FinishedAt, Rollback, SourceServiceRevisions, TargetServiceRevision, DeploymentCircuitBreaker and DeploymentConfiguration are populated).
 
 ## More
 

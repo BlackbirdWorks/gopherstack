@@ -15,7 +15,7 @@
 
 ### Known gaps
 
-- CreateNatGateway regional mode (AvailabilityMode, VpcId, AvailabilityZoneAddresses) and the regional NatGateway members are unmodeled; not done in the 2026-10-07 pass.
+- Regional NAT gateway RouteTableId: the SDK doc only says "the ID of the NAT gateway" (typo); which route table AWS creates and how it is populated is not documented, so the member is left unset.
 - Filters the pinned SDK does not define well enough to apply: DescribeCapacityBlocks 'tags', DescribeInstanceEventWindows 'instance-tag' (value syntax undocumented), DescribeInstanceImageMetadata 'image-allowed' (Allowed-AMIs evaluation lives in the user guide), DescribeVpcPeeringConnections 'status-message' (message texts undocumented), DescribeInstanceStatus 'attached-ebs-status.status'/'application-status.status' (members not emitted).
 - Application status checks: the 100-instance-ID request limit is not in the pinned SDK docs (the 50-tag-association limit is enforced), and DescribeApplicationStatusCheckAssociationsOutput.Tags aggregation across checks is ambiguous.
 

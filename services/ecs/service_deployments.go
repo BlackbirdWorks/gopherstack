@@ -72,10 +72,21 @@ func (b *InMemoryBackend) recordServiceDeploymentLocked(svc *Service, dep *Deplo
 		TargetServiceRevisionArn: dep.ServiceRevisionArn,
 	}
 
-	if prev, ok := b.serviceDeployments.Get(depArn); ok && requestedTerminalStatus(prev.Status) {
+	prev, hadPrev := b.serviceDeployments.Get(depArn)
+
+	switch {
+	case hadPrev && prev.LifecycleStage != "":
+		carryLifecycle(sd, prev)
+	case hadPrev && requestedTerminalStatus(prev.Status):
 		sd.Status, sd.StatusReason, sd.Rollback = prev.Status, prev.StatusReason, prev.Rollback
 		sd.UpdatedAt, sd.StoppedAt, sd.FinishedAt = prev.UpdatedAt, prev.StoppedAt, prev.FinishedAt
-	} else if isTerminalServiceDeploymentStatus(sd.Status) {
+	case !hadPrev && lifecycleStrategy(svc.DeploymentConfiguration) && sd.Status == serviceDeploymentStatusInProgress:
+		sd.Status = serviceDeploymentStatusInProgress
+		b.serviceDeployments.Put(sd)
+		b.initDeploymentLifecycleLocked(svc, sd, createdAt)
+
+		return
+	case isTerminalServiceDeploymentStatus(sd.Status):
 		sd.FinishedAt = &updatedAt
 		if sd.Status == statusStopped {
 			sd.StoppedAt = &updatedAt
@@ -129,8 +140,10 @@ func (b *InMemoryBackend) AddServiceDeploymentInternal(sd *ServiceDeployment) {
 func (b *InMemoryBackend) ListServiceDeployments(cluster, service string) ([]ServiceDeployment, error) {
 	clusterName := clusterKey(b.resolveCluster(cluster))
 
-	b.mu.RLock("ListServiceDeployments")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListServiceDeployments")
+	defer b.mu.Unlock()
+
+	b.advanceAllDeploymentLifecyclesLocked(time.Now())
 
 	all := b.serviceDeployments.All()
 	out := make([]ServiceDeployment, 0, len(all))
@@ -314,11 +327,7 @@ const (
 	deploymentLifecycleActionRollback = "ROLLBACK"
 )
 
-// ContinueServiceDeployment continues or rolls back a service deployment paused
-// at a lifecycle hook. This backend does not model lifecycle hooks, so a
-// deployment is never actually paused; the op still validates the deployment
-// exists and hookId is present before reporting no such paused hook, rather than
-// fabricating a successful continue/rollback.
+// ContinueServiceDeployment continues or rolls back a service deployment paused at a PAUSE lifecycle hook.
 func (b *InMemoryBackend) ContinueServiceDeployment(
 	serviceDeploymentArn, hookID, action string,
 ) (*ServiceDeployment, error) {
@@ -336,23 +345,35 @@ func (b *InMemoryBackend) ContinueServiceDeployment(
 		return nil, fmt.Errorf("%w: invalid action %q", ErrInvalidParameter, action)
 	}
 
-	b.mu.RLock("ContinueServiceDeployment")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ContinueServiceDeployment")
+	defer b.mu.Unlock()
 
-	if !b.serviceDeployments.Has(serviceDeploymentArn) {
+	sd, ok := b.serviceDeployments.Get(serviceDeploymentArn)
+	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrServiceDeploymentNotFound, serviceDeploymentArn)
 	}
 
-	return nil, fmt.Errorf("%w: no paused lifecycle hook %q found for service deployment %s",
-		errNoLifecycleHook, hookID, serviceDeploymentArn)
+	now := time.Now()
+	b.advanceAllDeploymentLifecyclesLocked(now)
+
+	if err := b.continueLifecycleHookLocked(sd, hookID, action, now); err != nil {
+		return nil, err
+	}
+
+	cur, _ := b.serviceDeployments.Get(serviceDeploymentArn)
+	out := b.enrichServiceDeploymentLocked(cur)
+
+	return &out, nil
 }
 
 // DescribeServiceDeployments returns service deployments by ARN.
 func (b *InMemoryBackend) DescribeServiceDeployments(
 	serviceDeploymentArns []string,
 ) ([]ServiceDeployment, []Failure, error) {
-	b.mu.RLock("DescribeServiceDeployments")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeServiceDeployments")
+	defer b.mu.Unlock()
+
+	b.advanceAllDeploymentLifecyclesLocked(time.Now())
 
 	deployments := make([]ServiceDeployment, 0, len(serviceDeploymentArns))
 	failures := make([]Failure, 0, len(serviceDeploymentArns))

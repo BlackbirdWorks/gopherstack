@@ -183,6 +183,8 @@ func (b *InMemoryBackend) sweepServiceTransitionsLocked(now time.Time) {
 		}
 	}
 
+	b.advanceAllDeploymentLifecyclesLocked(now)
+
 	for _, svc := range evict {
 		b.services.Delete(servicesKeyFn(svc))
 		delete(b.serviceIndex, svcRef{cluster: clusterKey(svc.ClusterArn), name: svc.ServiceName})
@@ -209,7 +211,7 @@ func (b *InMemoryBackend) CreateService(input CreateServiceInput) (*Service, err
 		return nil, fmt.Errorf("%w: taskDefinition is required", ErrInvalidParameter)
 	}
 
-	if err := validatePlatformVersion(input.PlatformVersion); err != nil {
+	if err := validateServiceConfig(input.PlatformVersion, input.DeploymentConfiguration); err != nil {
 		return nil, err
 	}
 
@@ -463,6 +465,7 @@ func (b *InMemoryBackend) enrichService(s *Service, clusterName string) Service 
 
 		if d.Status == deploymentStatusPrimary &&
 			d.RolloutState == deploymentRolloutStateInProgress &&
+			!b.lifecycleHoldsLocked(s, d) &&
 			d.RunningCount >= d.DesiredCount && d.DesiredCount > 0 {
 			d.RolloutState = deploymentRolloutStateCompleted
 			d.RolloutStateReason = fmt.Sprintf(
@@ -560,7 +563,7 @@ func (b *InMemoryBackend) UpdateService(input UpdateServiceInput) (*Service, err
 		return nil, fmt.Errorf("%w: service is required", ErrInvalidParameter)
 	}
 
-	if err := validatePlatformVersion(input.PlatformVersion); err != nil {
+	if err := validateServiceConfig(input.PlatformVersion, input.DeploymentConfiguration); err != nil {
 		return nil, err
 	}
 

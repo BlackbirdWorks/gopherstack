@@ -30,6 +30,12 @@ type deploymentConfigurationInput struct {
 	DeploymentCircuitBreaker *deploymentCircuitBreakerInput `json:"deploymentCircuitBreaker,omitempty"`
 	MinimumHealthyPercent    *int                           `json:"minimumHealthyPercent,omitempty"`
 	MaximumPercent           *int                           `json:"maximumPercent,omitempty"`
+	Alarms                   *DeploymentAlarms              `json:"alarms,omitempty"`
+	BakeTimeInMinutes        *int                           `json:"bakeTimeInMinutes,omitempty"`
+	CanaryConfiguration      *CanaryConfiguration           `json:"canaryConfiguration,omitempty"`
+	LinearConfiguration      *LinearConfiguration           `json:"linearConfiguration,omitempty"`
+	Strategy                 string                         `json:"strategy,omitempty"`
+	LifecycleHooks           []DeploymentLifecycleHook      `json:"lifecycleHooks,omitempty"`
 }
 
 type deploymentControllerInput struct {
@@ -450,6 +456,12 @@ type deploymentConfigurationView struct {
 	DeploymentCircuitBreaker *deploymentCircuitBreakerView `json:"deploymentCircuitBreaker,omitempty"`
 	MinimumHealthyPercent    *int                          `json:"minimumHealthyPercent,omitempty"`
 	MaximumPercent           *int                          `json:"maximumPercent,omitempty"`
+	Alarms                   *DeploymentAlarms             `json:"alarms,omitempty"`
+	BakeTimeInMinutes        *int                          `json:"bakeTimeInMinutes,omitempty"`
+	CanaryConfiguration      *CanaryConfiguration          `json:"canaryConfiguration,omitempty"`
+	LinearConfiguration      *LinearConfiguration          `json:"linearConfiguration,omitempty"`
+	Strategy                 string                        `json:"strategy,omitempty"`
+	LifecycleHooks           []DeploymentLifecycleHook     `json:"lifecycleHooks,omitempty"`
 }
 
 type deploymentControllerView struct {
@@ -488,6 +500,12 @@ func toDeploymentConfigurationView(dc *DeploymentConfiguration) *deploymentConfi
 	v := &deploymentConfigurationView{
 		MinimumHealthyPercent: dc.MinimumHealthyPercent,
 		MaximumPercent:        dc.MaximumPercent,
+		Alarms:                dc.Alarms,
+		BakeTimeInMinutes:     dc.BakeTimeInMinutes,
+		CanaryConfiguration:   dc.CanaryConfiguration,
+		LinearConfiguration:   dc.LinearConfiguration,
+		Strategy:              dc.Strategy,
+		LifecycleHooks:        dc.LifecycleHooks,
 	}
 
 	if dc.DeploymentCircuitBreaker != nil {
@@ -662,6 +680,12 @@ func toDeploymentConfiguration(in *deploymentConfigurationInput) *DeploymentConf
 	dc := &DeploymentConfiguration{
 		MinimumHealthyPercent: in.MinimumHealthyPercent,
 		MaximumPercent:        in.MaximumPercent,
+		Alarms:                in.Alarms,
+		BakeTimeInMinutes:     in.BakeTimeInMinutes,
+		CanaryConfiguration:   in.CanaryConfiguration,
+		LinearConfiguration:   in.LinearConfiguration,
+		Strategy:              in.Strategy,
+		LifecycleHooks:        in.LifecycleHooks,
 	}
 
 	if in.DeploymentCircuitBreaker != nil {

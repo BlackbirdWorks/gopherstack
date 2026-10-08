@@ -398,7 +398,7 @@ type Attribute struct {
 
 // ServiceDeployment represents an ECS service deployment.
 type ServiceDeployment struct {
-	targetRevision           *ServiceRevisionSummary
+	Alarms                   *ServiceDeploymentAlarms `json:"alarms,omitempty"`
 	circuitBreaker           *ServiceDeploymentCircuitBreaker
 	StartedAt                *time.Time                 `json:"startedAt,omitempty"`
 	StoppedAt                *time.Time                 `json:"stoppedAt,omitempty"`
@@ -407,13 +407,19 @@ type ServiceDeployment struct {
 	UpdatedAt                *time.Time                 `json:"updatedAt,omitempty"`
 	deploymentConfiguration  *DeploymentConfiguration
 	CreatedAt                *time.Time `json:"createdAt,omitempty"`
-	ServiceDeploymentArn     string     `json:"serviceDeploymentArn"`
-	ClusterArn               string     `json:"clusterArn"`
-	ServiceArn               string     `json:"serviceArn"`
-	Status                   string     `json:"status"`
-	StatusReason             string     `json:"statusReason,omitempty"`
-	TargetServiceRevisionArn string     `json:"targetServiceRevisionArn,omitempty"`
+	BakeStartedAt            *time.Time `json:"bakeStartedAt,omitempty"`
+	targetRevision           *ServiceRevisionSummary
+	ClusterArn               string `json:"clusterArn"`
+	Status                   string `json:"status"`
+	StatusReason             string `json:"statusReason,omitempty"`
+	TargetServiceRevisionArn string `json:"targetServiceRevisionArn,omitempty"`
+	LifecycleStage           string `json:"lifecycleStage,omitempty"`
+	ServiceArn               string `json:"serviceArn"`
+	ServiceDeploymentArn     string `json:"serviceDeploymentArn"`
 	sourceRevisions          []ServiceRevisionSummary
+	LifecycleHookDetails     []LifecycleHookDetail `json:"lifecycleHookDetails,omitempty"`
+	LifecycleCursor          int                   `json:"lifecycleCursor,omitempty"`
+	LifecycleEntered         bool                  `json:"lifecycleEntered,omitempty"`
 }
 
 // ServiceDeploymentRollback mirrors types.Rollback.
@@ -629,6 +635,58 @@ type DeploymentConfiguration struct {
 	DeploymentCircuitBreaker *DeploymentCircuitBreaker `json:"deploymentCircuitBreaker,omitempty"`
 	MinimumHealthyPercent    *int                      `json:"minimumHealthyPercent,omitempty"`
 	MaximumPercent           *int                      `json:"maximumPercent,omitempty"`
+	Alarms                   *DeploymentAlarms         `json:"alarms,omitempty"`
+	BakeTimeInMinutes        *int                      `json:"bakeTimeInMinutes,omitempty"`
+	CanaryConfiguration      *CanaryConfiguration      `json:"canaryConfiguration,omitempty"`
+	LinearConfiguration      *LinearConfiguration      `json:"linearConfiguration,omitempty"`
+	Strategy                 string                    `json:"strategy,omitempty"`
+	LifecycleHooks           []DeploymentLifecycleHook `json:"lifecycleHooks,omitempty"`
+}
+
+// CanaryConfiguration mirrors types.CanaryConfiguration.
+type CanaryConfiguration struct {
+	CanaryBakeTimeInMinutes *int     `json:"canaryBakeTimeInMinutes,omitempty"`
+	CanaryPercent           *float64 `json:"canaryPercent,omitempty"`
+}
+
+// LinearConfiguration mirrors types.LinearConfiguration.
+type LinearConfiguration struct {
+	StepBakeTimeInMinutes *int     `json:"stepBakeTimeInMinutes,omitempty"`
+	StepPercent           *float64 `json:"stepPercent,omitempty"`
+}
+
+// DeploymentLifecycleHook mirrors types.DeploymentLifecycleHook.
+type DeploymentLifecycleHook struct {
+	HookDetails          any                             `json:"hookDetails,omitempty"`
+	TimeoutConfiguration *DeploymentLifecycleHookTimeout `json:"timeoutConfiguration,omitempty"`
+	HookTargetArn        string                          `json:"hookTargetArn,omitempty"`
+	RoleArn              string                          `json:"roleArn,omitempty"`
+	TargetType           string                          `json:"targetType,omitempty"`
+	LifecycleStages      []string                        `json:"lifecycleStages,omitempty"`
+}
+
+// DeploymentLifecycleHookTimeout mirrors types.DeploymentLifecycleHookTimeoutConfiguration.
+type DeploymentLifecycleHookTimeout struct {
+	TimeoutInMinutes *int   `json:"timeoutInMinutes,omitempty"`
+	Action           string `json:"action,omitempty"`
+}
+
+// LifecycleHookDetail mirrors types.DeploymentLifecycleHookDetail; Stage is internal.
+type LifecycleHookDetail struct {
+	ExpiresAt     *time.Time `json:"expiresAt,omitempty"`
+	HookID        string     `json:"hookId"`
+	Status        string     `json:"status"`
+	TargetArn     string     `json:"targetArn,omitempty"`
+	TargetType    string     `json:"targetType,omitempty"`
+	TimeoutAction string     `json:"timeoutAction,omitempty"`
+	Stage         string     `json:"stage,omitempty"`
+}
+
+// ServiceDeploymentAlarms mirrors types.ServiceDeploymentAlarms.
+type ServiceDeploymentAlarms struct {
+	Status              string   `json:"status"`
+	AlarmNames          []string `json:"alarmNames,omitempty"`
+	TriggeredAlarmNames []string `json:"triggeredAlarmNames,omitempty"`
 }
 
 const (

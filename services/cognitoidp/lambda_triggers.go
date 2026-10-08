@@ -55,6 +55,8 @@ const (
 	triggerSourceCustomMessageSignUp       = "CustomMessage_SignUp"
 	triggerSourceCustomMessageResendCode   = "CustomMessage_ResendCode"
 	triggerSourceCustomMessageForgotPwd    = "CustomMessage_ForgotPassword"
+	triggerSourceCustomMessageUpdateAttr   = "CustomMessage_UpdateUserAttribute"
+	triggerSourceCustomMessageVerifyAttr   = "CustomMessage_VerifyUserAttribute"
 	triggerSourcePreAuthentication         = "PreAuthentication_Authentication"
 	triggerSourcePostAuthentication        = "PostAuthentication_Authentication"
 	triggerSourceDefineAuthChallenge       = "DefineAuthChallenge_Authentication"
@@ -408,13 +410,19 @@ func (b *InMemoryBackend) prepareCustomMessage(
 		return nil
 	}
 
-	pool, poolOK := b.pools.Get(client.UserPoolID)
+	return b.prepareCustomMessageInPoolLocked(client.UserPoolID, clientID, username, triggerSource, cm)
+}
+
+func (b *InMemoryBackend) prepareCustomMessageInPoolLocked(
+	poolID, clientID, username, triggerSource string, cm map[string]string,
+) *triggerCall {
+	pool, poolOK := b.pools.Get(poolID)
 	if !poolOK {
 		return nil
 	}
 
 	var attrs map[string]string
-	if user, userOK := b.users.Get(userKey(client.UserPoolID, username)); userOK {
+	if user, userOK := b.users.Get(userKey(poolID, username)); userOK {
 		attrs = user.Attributes
 	}
 
@@ -427,6 +435,18 @@ func (b *InMemoryBackend) prepareCustomMessage(
 		},
 		map[string]any{"smsMessage": "", "emailMessage": "", "emailSubject": ""},
 	)
+}
+
+// InvokeCustomMessageTriggerForUser is InvokeCustomMessageTrigger for flows with no app
+// client in the request path (the Admin* operations and access-token operations).
+func (b *InMemoryBackend) InvokeCustomMessageTriggerForUser(
+	poolID, clientID, username, code, triggerSource string, meta ClientMetadata,
+) (string, string, error) {
+	b.mu.RLock("InvokeCustomMessageTriggerForUser")
+	call := b.prepareCustomMessageInPoolLocked(poolID, clientID, username, triggerSource, meta)
+	b.mu.RUnlock()
+
+	return runCustomMessage(call, code)
 }
 
 // InvokeCustomMessageTrigger fires the CustomMessage Lambda trigger (if configured)
@@ -447,7 +467,10 @@ func (b *InMemoryBackend) prepareCustomMessage(
 func (b *InMemoryBackend) InvokeCustomMessageTrigger(
 	clientID, username, code, triggerSource string, meta ...ClientMetadata,
 ) (string, string, error) {
-	call := b.prepareCustomMessage(clientID, username, triggerSource, firstMetadata(meta))
+	return runCustomMessage(b.prepareCustomMessage(clientID, username, triggerSource, firstMetadata(meta)), code)
+}
+
+func runCustomMessage(call *triggerCall, code string) (string, string, error) {
 	if call == nil {
 		return "", "", nil
 	}

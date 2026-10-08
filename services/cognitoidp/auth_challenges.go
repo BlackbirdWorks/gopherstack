@@ -125,13 +125,27 @@ func (b *InMemoryBackend) RespondToSRPChallenge(
 
 	delete(b.mfaSessions, session)
 
-	return b.postCredentialCheckLocked(pool, clientID, user, firstMetadata(meta))
+	return b.postCredentialCheckDeviceLocked(
+		pool,
+		clientID,
+		user,
+		firstMetadata(meta),
+		challengeResponses[deviceKeyParam],
+	)
 }
 
 // verifySRPPasswordClaim checks a client's PASSWORD_CLAIM_SECRET_BLOCK/
 // PASSWORD_CLAIM_SIGNATURE/TIMESTAMP against the server-side SRP session state stored
 // in entry, matching CognitoUser.js's authenticateUserDefaultAuth computation exactly.
 func verifySRPPasswordClaim(entry *mfaSessionEntry, user *User, challengeResponses map[string]string) error {
+	return verifySRPClaim(entry, user.SRPVerifier, srpPoolName(entry.PoolID), entry.Username, challengeResponses)
+}
+
+// verifySRPClaim is verifySRPPasswordClaim for any SRP verifier: user sign-in signs with the
+// pool name and username, device sign-in with the device group key and device key.
+func verifySRPClaim(
+	entry *mfaSessionEntry, verifierHex, poolName, signedName string, challengeResponses map[string]string,
+) error {
 	secretBlockB64 := challengeResponses["PASSWORD_CLAIM_SECRET_BLOCK"]
 	if secretBlockB64 == "" || secretBlockB64 != entry.SRPSecretBlock {
 		return fmt.Errorf("%w: PASSWORD_CLAIM_SECRET_BLOCK mismatch", ErrNotAuthorized)
@@ -155,7 +169,7 @@ func verifySRPPasswordClaim(entry *mfaSessionEntry, user *User, challengeRespons
 	aPub, aOK := new(big.Int).SetString(entry.SRPA, hexBase)
 	bPriv, bOK := new(big.Int).SetString(entry.SRPb, hexBase)
 	bPub, bpOK := new(big.Int).SetString(entry.SRPB, hexBase)
-	verifier, vOK := new(big.Int).SetString(user.SRPVerifier, hexBase)
+	verifier, vOK := new(big.Int).SetString(verifierHex, hexBase)
 
 	if !aOK || !bOK || !bpOK || !vOK {
 		return fmt.Errorf("%w: corrupt SRP session state", ErrNotAuthorized)
@@ -169,8 +183,7 @@ func verifySRPPasswordClaim(entry *mfaSessionEntry, user *User, challengeRespons
 	s := srpServerS(aPub, verifier, u, bPriv)
 	hkdfKey := srpHKDF(s, u)
 
-	poolName := srpPoolName(entry.PoolID)
-	expectedSig := srpComputeSignature(hkdfKey, poolName, entry.Username, secretBlock, timestamp)
+	expectedSig := srpComputeSignature(hkdfKey, poolName, signedName, secretBlock, timestamp)
 
 	if !hmac.Equal(expectedSig, providedSig) {
 		return fmt.Errorf("%w: incorrect username or password", ErrNotAuthorized)

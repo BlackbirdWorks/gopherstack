@@ -8,15 +8,13 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 68 (68 ok) |
-| Known gaps | 6 |
+| Known gaps | 4 |
 | Structural gaps (can't be emulated) | 4 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- UpdateUserAttributes/AdminUpdateUserAttributes/GetUserAttributeVerificationCode/AdminResetUserPassword do not fire CustomMessage (UpdateUserAttribute/VerifyUserAttribute/ForgotPassword) triggers and so never forward ClientMetadata to them.
-- Device authentication is unmodelled: no NewDeviceMetadata in AuthenticationResult, DEVICE_SRP_AUTH, DeviceConfiguration.ChallengeRequiredOnNewDevice, or GetTokensFromRefreshToken DeviceKey (ConfirmDevice does honour DeviceOnlyRememberedOnUserPrompt).
 - WebAuthnMfaSettings (passkey MFA applies only when passkey is the first factor, which USER_AUTH here does not offer) and the SignUp/ConfirmSignUp Session auto sign-in are not modelled.
 - domains: DomainDescriptionType.Version (app version) is not documented beyond its name, so it stays unpopulated rather than fabricated.
 - MFA_SETUP/AssociateSoftwareToken/VerifySoftwareToken session single-use/rotation semantics across the three-call round trip are not stated anywhere in the SDK's doc prose, so this backend echoes the same session token unchanged through all three (only the final RespondToAuthChallenge deletes it) rather than inventing rotation behavior AWS never documents.

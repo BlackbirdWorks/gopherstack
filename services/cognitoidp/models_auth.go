@@ -11,11 +11,17 @@ type AuthResult struct {
 }
 
 type authResult struct {
-	AccessToken  string `json:"AccessToken,omitempty"`
-	IDToken      string `json:"IdToken,omitempty"`
-	RefreshToken string `json:"RefreshToken,omitempty"`
-	TokenType    string `json:"TokenType,omitempty"`
-	ExpiresIn    int32  `json:"ExpiresIn,omitempty"`
+	NewDeviceMetadata *newDeviceMetadataType `json:"NewDeviceMetadata,omitempty"`
+	AccessToken       string                 `json:"AccessToken,omitempty"`
+	IDToken           string                 `json:"IdToken,omitempty"`
+	RefreshToken      string                 `json:"RefreshToken,omitempty"`
+	TokenType         string                 `json:"TokenType,omitempty"`
+	ExpiresIn         int32                  `json:"ExpiresIn,omitempty"`
+}
+
+type newDeviceMetadataType struct {
+	DeviceGroupKey string `json:"DeviceGroupKey,omitempty"`
+	DeviceKey      string `json:"DeviceKey,omitempty"`
 }
 
 type authOutput struct {
@@ -43,8 +49,9 @@ type changePasswordInput struct {
 type changePasswordOutput struct{}
 
 type adminResetUserPasswordInput struct {
-	UserPoolID string `json:"UserPoolId,omitempty"`
-	Username   string `json:"Username,omitempty"`
+	ClientMetadata map[string]string `json:"ClientMetadata,omitempty"`
+	UserPoolID     string            `json:"UserPoolId,omitempty"`
+	Username       string            `json:"Username,omitempty"`
 }
 
 type adminResetUserPasswordOutput struct{}

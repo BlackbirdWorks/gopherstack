@@ -355,6 +355,12 @@ type Backend interface {
 	// DescribeVpcEndpoints returns VPC endpoints, optionally filtered by IDs.
 	DescribeVpcEndpoints(ids []string) []*VpcEndpoint
 
+	// VpcEndpointsByServiceNetworkArn lists ServiceNetwork endpoints bound to a service network ARN.
+	VpcEndpointsByServiceNetworkArn(serviceNetworkArn string) []*VpcEndpoint
+
+	// VpcEndpointsByResourceConfigurationArn lists Resource endpoints bound to a resource configuration ARN.
+	VpcEndpointsByResourceConfigurationArn(resourceConfigurationArn string) []*VpcEndpoint
+
 	// ---- launch templates ----
 
 	// CreateLaunchTemplate creates a launch template.
@@ -1458,6 +1464,10 @@ type Backend interface {
 		maxDrainSeconds int,
 	) (*NatGateway, error)
 	AssociateNatGatewayAddress(natGatewayID string, allocationIDs []string) (*NatGateway, error)
+	// AssociateNatGatewayAddressInZone adds the AvailabilityZone regional gateways need.
+	AssociateNatGatewayAddressInZone(natGatewayID, azName, azID string, allocationIDs []string) (*NatGateway, error)
+	// CreateRegionalNatGateway creates a regional (multi-AZ) public NAT gateway.
+	CreateRegionalNatGateway(vpcID string, zones []NatGatewayZoneRequest, tags map[string]string) (*NatGateway, error)
 	AssignPrivateNatGatewayAddress(natGatewayID string, count int, ips []string) (*NatGateway, error)
 	DisableImage(imageID string) error
 	EnableImage(imageID string) error

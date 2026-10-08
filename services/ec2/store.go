@@ -84,19 +84,18 @@ const (
 	// and other resources that are not currently in use.
 	stateAvailable = "available"
 
-	stateInUse                         = "in-use"
-	stateCancelled                     = "cancelled"
-	vpcEndpointTypeInterface           = "Interface"
-	vpcEndpointTypeGatewayLoadBalancer = "GatewayLoadBalancer"
-	resourceTypeVPC                    = "vpc"
-	resourceTypeSnapshot               = "snapshot"
-	resourceTypeENI                    = "network-interface"
-	vpcDefaultName                     = "vpc-default"
-	dhcpOptionsDefaultID               = "dopt-default"
-	routeTableDefaultID                = "rtb-default"
-	archX8664                          = "x86_64"
-	resourceTypeFISInstance            = "aws:ec2:instance"
-	ec2BooleanFalse                    = "false"
+	stateInUse               = "in-use"
+	stateCancelled           = "cancelled"
+	vpcEndpointTypeInterface = "Interface"
+	resourceTypeVPC          = "vpc"
+	resourceTypeSnapshot     = "snapshot"
+	resourceTypeENI          = "network-interface"
+	vpcDefaultName           = "vpc-default"
+	dhcpOptionsDefaultID     = "dopt-default"
+	routeTableDefaultID      = "rtb-default"
+	archX8664                = "x86_64"
+	resourceTypeFISInstance  = "aws:ec2:instance"
+	ec2BooleanFalse          = "false"
 
 	// stateActive is the "active" state string used by peering connections,
 	// capacity reservations, and spot instance requests.
@@ -214,26 +213,22 @@ type LaunchTemplate struct {
 
 // VpcEndpoint represents an EC2 VPC endpoint.
 type VpcEndpoint struct {
-	CreateTime      time.Time `json:"createTime"`
-	ID              string    `json:"id,omitempty"`
-	VPCID           string    `json:"vpcID,omitempty"`
-	ServiceName     string    `json:"serviceName,omitempty"`
-	State           string    `json:"state,omitempty"`
-	VpcEndpointType string    `json:"vpcEndpointType,omitempty"`
-	OwnerID         string    `json:"ownerID,omitempty"`
-	SubnetIDs       []string  `json:"subnetIDs,omitempty"`
-	RouteTableIDs   []string  `json:"routeTableIDs,omitempty"`
-	// PayerResponsibilities holds the payer-responsibility settings set via
-	// ModifyVpcEndpointPayerResponsibility. Empty until first modified.
-	PayerResponsibilities []PayerResponsibilityEntry `json:"payerResponsibilities,omitempty"`
-	// PolicyDocument/PrivateDNSEnabled/SecurityGroupIDs/ServiceRegion are
-	// CreateVpcEndpoint declare+echo fields; this backend has no PrivateLink
-	// DNS-entry generation or security-group traffic enforcement to apply
-	// them against (see vpc_endpoints PARITY.md note).
-	PolicyDocument    string   `json:"policyDocument,omitempty"`
-	ServiceRegion     string   `json:"serviceRegion,omitempty"`
-	SecurityGroupIDs  []string `json:"securityGroupIDs,omitempty"`
-	PrivateDNSEnabled bool     `json:"privateDnsEnabled,omitempty"`
+	CreateTime               time.Time                  `json:"createTime"`
+	ServiceRegion            string                     `json:"serviceRegion,omitempty"`
+	ID                       string                     `json:"id,omitempty"`
+	VPCID                    string                     `json:"vpcID,omitempty"`
+	ServiceName              string                     `json:"serviceName,omitempty"`
+	State                    string                     `json:"state,omitempty"`
+	VpcEndpointType          string                     `json:"vpcEndpointType,omitempty"`
+	OwnerID                  string                     `json:"ownerID,omitempty"`
+	ServiceNetworkArn        string                     `json:"serviceNetworkArn,omitempty"`
+	ResourceConfigurationArn string                     `json:"resourceConfigurationArn,omitempty"`
+	PolicyDocument           string                     `json:"policyDocument,omitempty"`
+	RouteTableIDs            []string                   `json:"routeTableIDs,omitempty"`
+	SecurityGroupIDs         []string                   `json:"securityGroupIDs,omitempty"`
+	PayerResponsibilities    []PayerResponsibilityEntry `json:"payerResponsibilities,omitempty"`
+	SubnetIDs                []string                   `json:"subnetIDs,omitempty"`
+	PrivateDNSEnabled        bool                       `json:"privateDnsEnabled,omitempty"`
 }
 
 // PayerResponsibilityEntry records who is billed for a VPC endpoint's usage,

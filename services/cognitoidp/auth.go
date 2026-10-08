@@ -158,8 +158,13 @@ func (b *InMemoryBackend) ConfirmSignUpWithOptions(
 func (b *InMemoryBackend) InitiateAuth(
 	clientID, authFlow, username, password string, meta ...ClientMetadata,
 ) (*AuthResult, error) {
-	cm := firstMetadata(meta)
+	return b.InitiateAuthWithDevice(clientID, authFlow, username, password, "", firstMetadata(meta))
+}
 
+// InitiateAuthWithDevice is InitiateAuth for a request that carries AuthParameters DEVICE_KEY.
+func (b *InMemoryBackend) InitiateAuthWithDevice(
+	clientID, authFlow, username, password, deviceKey string, cm ClientMetadata,
+) (*AuthResult, error) {
 	b.mu.Lock("InitiateAuth")
 	defer b.mu.Unlock()
 
@@ -188,21 +193,26 @@ func (b *InMemoryBackend) InitiateAuth(
 
 		user = migrated
 
-		result, authErr := b.authenticate(pool, clientID, authFlow, user, password, cm)
+		result, authErr := b.authenticate(pool, clientID, authFlow, user, password, cm, deviceKey)
 		b.applyPostMigrationFinalStatus(pool.ID, username, finalStatus)
 
 		return result, authErr
 	}
 
-	return b.authenticate(pool, clientID, authFlow, user, password, cm)
+	return b.authenticate(pool, clientID, authFlow, user, password, cm, deviceKey)
 }
 
 // AdminInitiateAuth authenticates a user as an admin using the specified auth flow.
 func (b *InMemoryBackend) AdminInitiateAuth(
 	userPoolID, clientID, authFlow, username, password string, meta ...ClientMetadata,
 ) (*AuthResult, error) {
-	cm := firstMetadata(meta)
+	return b.AdminInitiateAuthWithDevice(userPoolID, clientID, authFlow, username, password, "", firstMetadata(meta))
+}
 
+// AdminInitiateAuthWithDevice is AdminInitiateAuth for a request that carries AuthParameters DEVICE_KEY.
+func (b *InMemoryBackend) AdminInitiateAuthWithDevice(
+	userPoolID, clientID, authFlow, username, password, deviceKey string, cm ClientMetadata,
+) (*AuthResult, error) {
 	b.mu.Lock("AdminInitiateAuth")
 	defer b.mu.Unlock()
 
@@ -231,13 +241,13 @@ func (b *InMemoryBackend) AdminInitiateAuth(
 
 		user = migrated
 
-		result, authErr := b.authenticate(pool, clientID, authFlow, user, password, cm)
+		result, authErr := b.authenticate(pool, clientID, authFlow, user, password, cm, deviceKey)
 		b.applyPostMigrationFinalStatus(pool.ID, username, finalStatus)
 
 		return result, authErr
 	}
 
-	return b.authenticate(pool, clientID, authFlow, user, password, cm)
+	return b.authenticate(pool, clientID, authFlow, user, password, cm, deviceKey)
 }
 
 // AdminConfirmSignUp confirms a user's registration without requiring a confirmation code.
@@ -589,6 +599,14 @@ func tempPasswordExpired(pool *UserPool, user *User) bool {
 func (b *InMemoryBackend) postCredentialCheckLocked(
 	pool *UserPool, clientID string, user *User, cm map[string]string,
 ) (*AuthResult, error) {
+	return b.postCredentialCheckDeviceLocked(pool, clientID, user, cm, "")
+}
+
+// postCredentialCheckDeviceLocked is postCredentialCheckLocked for a sign-in that named a
+// DEVICE_KEY: a remembered device with a registered verifier gets a DEVICE_SRP_AUTH challenge.
+func (b *InMemoryBackend) postCredentialCheckDeviceLocked(
+	pool *UserPool, clientID string, user *User, cm map[string]string, deviceKey string,
+) (*AuthResult, error) {
 	if user.Status == UserStatusForceChangePassword {
 		if tempPasswordExpired(pool, user) {
 			return nil, fmt.Errorf(
@@ -600,8 +618,20 @@ func (b *InMemoryBackend) postCredentialCheckLocked(
 		return b.newMFASession(pool, clientID, user.Username, challengeNewPasswordRequired), nil
 	}
 
+	if challenge := b.deviceChallengeLocked(pool, clientID, user, deviceKey); challenge != nil {
+		return challenge, nil
+	}
+
+	return b.finishFirstFactorLocked(pool, clientID, user, cm, false)
+}
+
+// finishFirstFactorLocked applies the pool MFA gate (skipped when a remembered device already
+// authenticated) and issues tokens.
+func (b *InMemoryBackend) finishFirstFactorLocked(
+	pool *UserPool, clientID string, user *User, cm map[string]string, skipMFA bool,
+) (*AuthResult, error) {
 	mfaConfig := pool.MfaConfiguration
-	if mfaConfig == "ON" || mfaConfig == "OPTIONAL" {
+	if !skipMFA && (mfaConfig == "ON" || mfaConfig == "OPTIONAL") {
 		return b.newMFASession(pool, clientID, user.Username, mfaChallengeType(pool, user)), nil
 	}
 
@@ -619,6 +649,7 @@ func (b *InMemoryBackend) authenticate(
 	user *User,
 	password string,
 	cm map[string]string,
+	deviceKey string,
 ) (*AuthResult, error) {
 	if err := b.precheckAuthLocked(pool, clientID, authFlow, user, cm); err != nil {
 		return nil, err
@@ -644,7 +675,7 @@ func (b *InMemoryBackend) authenticate(
 		return nil, err
 	}
 
-	return b.postCredentialCheckLocked(pool, clientID, user, cm)
+	return b.postCredentialCheckDeviceLocked(pool, clientID, user, cm, deviceKey)
 }
 
 // verifyPasswordLocked bcrypt-checks password with b.mu released, then re-validates the user.
@@ -852,26 +883,38 @@ func (b *InMemoryBackend) ResendConfirmationCode(clientID, username string) (str
 // AdminResetUserPassword resets a user back to FORCE_CHANGE_PASSWORD status so they
 // must set a new password on next login.
 func (b *InMemoryBackend) AdminResetUserPassword(userPoolID, username string) error {
+	_, err := b.AdminResetUserPasswordCode(userPoolID, username)
+
+	return err
+}
+
+// AdminResetUserPasswordCode is AdminResetUserPassword that also issues the reset code
+// the user later confirms with ConfirmForgotPassword.
+func (b *InMemoryBackend) AdminResetUserPasswordCode(userPoolID, username string) (string, error) {
 	b.mu.Lock("AdminResetUserPassword")
 	defer b.mu.Unlock()
 
 	if _, ok := b.pools.Get(userPoolID); !ok {
-		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+		return "", fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
 	u, ok := b.users.Get(userKey(userPoolID, username))
 	if !ok {
-		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
+		return "", fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
 	}
 
 	u.Status = UserStatusForceChangePassword
 	u.UpdatedAt = time.Now()
 	u.TempPasswordIssuedAt = u.UpdatedAt
 
+	code := randomAlphanumeric(confirmCodeLen)
+	u.ConfirmCode = code
+	u.ConfirmCodeExpiresAt = u.UpdatedAt.Add(confirmCodeTTL)
+
 	// Revoke all existing refresh tokens for the user so active sessions are invalidated.
 	b.deleteRefreshTokensForUserLocked(userPoolID, username)
 
-	return nil
+	return code, nil
 }
 
 // randomAlphanumeric returns a random alphanumeric string of length n.

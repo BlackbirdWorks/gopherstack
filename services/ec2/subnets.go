@@ -372,6 +372,7 @@ func (b *InMemoryBackend) CreateSubnetWithOutpost(vpcID, cidr, az, outpostArn st
 	}
 	b.subnets.Put(s)
 	b.indexSubnetLocked(id, vpcID)
+	b.expandRegionalNatGatewaysLocked(vpcID)
 
 	return s, nil
 }
@@ -434,6 +435,7 @@ func (b *InMemoryBackend) DeleteSubnet(id string) error {
 	delete(b.tags, id)
 	delete(b.subnetCIDRReservations, id)
 	delete(b.subnetCIDRAssociations, id)
+	b.retractRegionalNatGatewaysLocked(subnet.VPCID)
 
 	return nil
 }
