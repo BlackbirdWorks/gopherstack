@@ -174,6 +174,10 @@ type StorageBackend interface {
 	) (*ListKeyRotationsOutput, error)
 	ImportKeyMaterial(ctx context.Context, input *ImportKeyMaterialInput) error
 	DeleteImportedKeyMaterial(ctx context.Context, input *DeleteImportedKeyMaterialInput) error
+	ImportKeyMaterialWithResult(ctx context.Context, input *ImportKeyMaterialInput) (*ImportKeyMaterialOutput, error)
+	DeleteImportedKeyMaterialWithResult(
+		ctx context.Context, input *DeleteImportedKeyMaterialInput,
+	) (*DeleteImportedKeyMaterialOutput, error)
 	ReplicateKey(ctx context.Context, input *ReplicateKeyInput) (*ReplicateKeyOutput, error)
 	RotateKeyOnDemand(
 		ctx context.Context,
@@ -239,6 +243,7 @@ type InMemoryBackend struct {
 	policies             map[string]map[string]string
 	keyMaterials         map[string]map[string]*keyMaterial
 	keyMaterialHistory   map[string]map[string][]*keyMaterial
+	pendingMaterials     map[string]map[string]*keyMaterial
 	aliases              map[string]*store.Table[Alias]
 	keyIDResolutionCache *sync.Map
 	keys                 map[string]*store.Table[Key]
@@ -264,6 +269,7 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		policies:             make(map[string]map[string]string),
 		keyMaterials:         make(map[string]map[string]*keyMaterial),
 		keyMaterialHistory:   make(map[string]map[string][]*keyMaterial),
+		pendingMaterials:     make(map[string]map[string]*keyMaterial),
 		customKeyStores:      make(map[string]*store.Table[CustomKeyStore]),
 		registry:             store.NewRegistry(),
 		accountID:            accountID,
@@ -694,6 +700,7 @@ func (b *InMemoryBackend) Reset() {
 	b.policies = make(map[string]map[string]string)
 	b.keyMaterials = make(map[string]map[string]*keyMaterial)
 	b.keyMaterialHistory = make(map[string]map[string][]*keyMaterial)
+	b.pendingMaterials = make(map[string]map[string]*keyMaterial)
 	b.clearResolutionCache()
 	b.importWrappingKeys = sync.Map{}
 	b.lastUsage = sync.Map{}

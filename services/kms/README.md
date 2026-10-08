@@ -9,14 +9,15 @@
 | --- | --- |
 | PARITY entries audited | 54 (54 ok) |
 | Feature families | 4 (4 ok) |
-| Known gaps | 1 |
+| Known gaps | 2 |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 1 |
 | Resource leaks | fixed |
 
 ### Known gaps
 
-- Imported key material has a single generation: ImportKeyMaterial has no KeyMaterialId or import-for-rotation, so ListKeyRotations ALL_KEY_MATERIAL never shows PENDING_ROTATION or per-generation imported material.
+- Imported key material: multi-Region PENDING_MULTI_REGION_IMPORT_AND_ROTATION is not modeled (RotateKeyOnDemand is rejected for multi-Region imported keys per the SDK doc), nor automatic rotation of EXTERNAL keys.
+- RotateKeyOnDemand on an EXTERNAL key with nothing pending, and a second NEW_KEY_MATERIAL import while one is pending, return KMSInvalidStateException: the pinned SDK names no error for either case.
 
 ### Structural gaps
 

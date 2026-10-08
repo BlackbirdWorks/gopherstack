@@ -89,6 +89,7 @@ type InMemoryBackend struct {
 	availablePatches            map[string][]Patch
 	mu                          *lockmetrics.RWMutex
 	inventoryDeletions          map[string][]InventoryDeletion
+	inventorySchemas            map[string]map[string]*InventorySchemaRecord
 	miscResourceTags            map[string]map[string]map[string]string
 	resourceIDToOpsMetadataArn  map[string]map[string]string
 	opsItemEvents               map[string][]OpsItemEventSummary
@@ -153,6 +154,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		associationVersions:         make(map[string]map[string][]Association),
 		associationExecTargets:      make(map[string]map[string][]AssociationExecutionTarget),
 		inventoryDeletions:          make(map[string][]InventoryDeletion),
+		inventorySchemas:            make(map[string]map[string]*InventorySchemaRecord),
 		notifiedParameterPolicies:   make(map[string]map[string]map[string]struct{}),
 	}
 
@@ -350,12 +352,11 @@ func (b *InMemoryBackend) Reset() {
 	b.serviceSettings = make(map[string]*store.Table[ServiceSetting])
 	b.resourcePolicies = make(map[string]map[string][]*ResourcePolicy)
 	b.executionPreviews = make(map[string]*store.Table[ExecutionPreview])
-	b.inventory = make(map[string]map[string][]InventoryItem)
+	b.resetInventoryState()
 	b.compliance = make(map[string]map[string][]ComplianceItem)
 	b.associationExecutions = make(map[string]map[string][]AssociationExecution)
 	b.associationVersions = make(map[string]map[string][]Association)
 	b.associationExecTargets = make(map[string]map[string][]AssociationExecutionTarget)
-	b.inventoryDeletions = make(map[string][]InventoryDeletion)
 	b.notifiedParameterPolicies = make(map[string]map[string]map[string]struct{})
 	b.opsItemEvents = nil
 	b.instancePatches = make(map[string]map[string][]PatchComplianceData)

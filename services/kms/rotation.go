@@ -128,13 +128,6 @@ func (b *InMemoryBackend) RotateKeyOnDemand(
 		)
 	}
 
-	if key.Origin == KeyOriginExternal {
-		return nil, fmt.Errorf(
-			"%w: key rotation is not supported for EXTERNAL-origin keys",
-			ErrUnsupportedOrigin,
-		)
-	}
-
 	// AWS allows at most maxOnDemandRotationsPerDay on-demand rotations per 24-hour window.
 	now := time.Now()
 	cutoff := UnixTimeFloat(now.Add(-24 * time.Hour))
@@ -153,7 +146,13 @@ func (b *InMemoryBackend) RotateKeyOnDemand(
 		)
 	}
 
-	if err = b.rotateKeyMaterialLocked(region, key, rotationTypeOnDemand); err != nil {
+	if key.Origin == KeyOriginExternal {
+		err = b.rotateImportedLocked(region, key)
+	} else {
+		err = b.rotateKeyMaterialLocked(region, key, rotationTypeOnDemand)
+	}
+
+	if err != nil {
 		return nil, err
 	}
 
@@ -182,8 +181,14 @@ func (b *InMemoryBackend) GetKeyRotationStatus(
 	// kms_key resourceKeyRead calls this unconditionally for every key
 	// (asymmetric SIGN_VERIFY keys included, e.g. Route53 DNSSEC signing
 	// keys), so erroring here broke every asymmetric aws_kms_key apply.
-	if key.KeySpec != keySpecSymmetric || key.Origin == KeyOriginExternal {
+	if key.KeySpec != keySpecSymmetric {
 		return &GetKeyRotationStatusOutput{KeyID: key.KeyID}, nil
+	}
+
+	if key.Origin == KeyOriginExternal {
+		return &GetKeyRotationStatusOutput{
+			KeyID: key.KeyID, OnDemandRotationStartDate: b.lastOnDemandRotationDate(key),
+		}, nil
 	}
 
 	out := &GetKeyRotationStatusOutput{
@@ -313,8 +318,9 @@ func keyMaterialID(keyID string, generation int) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// listRotationEntries builds ListKeyRotations entries; ALL_KEY_MATERIAL adds the first key material.
-func listRotationEntries(key *Key, include string) ([]KeyRotationEntry, error) {
+// listRotationEntries builds ListKeyRotations entries; ALL_KEY_MATERIAL adds the first key material and,
+// for imported keys, material pending rotation.
+func listRotationEntries(key *Key, include string, current *keyMaterial) ([]KeyRotationEntry, error) {
 	switch include {
 	case "", includeRotationsOnly, includeAllKeyMaterial:
 	default:
@@ -328,6 +334,10 @@ func listRotationEntries(key *Key, include string) ([]KeyRotationEntry, error) {
 		)
 	}
 
+	if key.Origin == KeyOriginExternal {
+		return listImportedRotationEntries(key, include, current), nil
+	}
+
 	stateFor := func(generation int) string {
 		if generation == len(key.Rotations) {
 			return keyMaterialCurrent
@@ -338,21 +348,12 @@ func listRotationEntries(key *Key, include string) ([]KeyRotationEntry, error) {
 
 	out := make([]KeyRotationEntry, 0, len(key.Rotations)+1)
 
-	awaitingImport := key.Origin == KeyOriginExternal && key.KeyState == KeyStatePendingImport
-	if include == includeAllKeyMaterial && !awaitingImport {
-		first := KeyRotationEntry{
+	if include == includeAllKeyMaterial {
+		out = append(out, KeyRotationEntry{
 			KeyID:            key.KeyID,
 			KeyMaterialID:    keyMaterialID(key.KeyID, 0),
 			KeyMaterialState: stateFor(0),
-		}
-
-		if key.Origin == KeyOriginExternal {
-			first.ImportState = importStateImported
-			first.ExpirationModel = key.ExpirationModel
-			first.ValidTo = key.ValidTo
-		}
-
-		out = append(out, first)
+		})
 	}
 
 	for i, r := range key.Rotations {
@@ -366,6 +367,36 @@ func listRotationEntries(key *Key, include string) ([]KeyRotationEntry, error) {
 	}
 
 	return out, nil
+}
+
+func listImportedRotationEntries(key *Key, include string, current *keyMaterial) []KeyRotationEntry {
+	mats := importedMaterialsView(key, current)
+	out := make([]KeyRotationEntry, 0, len(mats))
+
+	for _, m := range mats {
+		if include != includeAllKeyMaterial && (m.RotationType == "" || m.State == keyMaterialPendingRotation) {
+			continue
+		}
+
+		importState := importStateImported
+		if !m.Imported {
+			importState = importStatePendingImport
+		}
+
+		out = append(out, KeyRotationEntry{
+			KeyID:                  key.KeyID,
+			KeyMaterialID:          m.ID,
+			KeyMaterialState:       m.State,
+			RotationType:           m.RotationType,
+			ImportState:            importState,
+			ExpirationModel:        m.ExpirationModel,
+			KeyMaterialDescription: m.Description,
+			RotationDate:           m.RotationDate,
+			ValidTo:                m.ValidTo,
+		})
+	}
+
+	return out
 }
 
 // ListKeyRotations returns observed key material rotation timestamps for a key.
@@ -384,7 +415,9 @@ func (b *InMemoryBackend) ListKeyRotations(
 	// Build rotation entries from the typed Rotations slice. Legacy keys loaded
 	// from older snapshots that only have RotationDates (no Rotations) will show
 	// empty history; this is acceptable since type information cannot be recovered.
-	rotations, err := listRotationEntries(key, input.IncludeKeyMaterial)
+	rotations, err := listRotationEntries(
+		key, input.IncludeKeyMaterial, b.keyMaterialsStore(getRegion(ctx, b.defaultRegion))[key.KeyID],
+	)
 	if err != nil {
 		return nil, err
 	}

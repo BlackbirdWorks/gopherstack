@@ -61,7 +61,7 @@ func (h *Handler) validateQualifier(c *echo.Context, qualifier string) bool {
 }
 
 // validateCreateFunctionInput checks required fields and package-type-specific constraints.
-// It normalizes PackageType to Image when omitted. Returns true if validation passes.
+// It defaults PackageType to Zip when omitted. Returns true if validation passes.
 // If validation fails, it writes the HTTP error response and returns false.
 func (h *Handler) validateCreateFunctionInput(c *echo.Context, input *CreateFunctionInput) bool {
 	if input.FunctionName == "" {
@@ -75,7 +75,7 @@ func (h *Handler) validateCreateFunctionInput(c *echo.Context, input *CreateFunc
 	}
 
 	if input.PackageType == "" {
-		input.PackageType = PackageTypeImage
+		input.PackageType = PackageTypeZip
 	}
 
 	if input.PackageType != PackageTypeImage && input.PackageType != PackageTypeZip {

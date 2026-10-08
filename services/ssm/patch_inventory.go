@@ -16,6 +16,13 @@ type InventoryDeletionSummary struct {
 	TotalCount     int   `json:"TotalCount"`
 }
 
+// InventoryDeletionSummaryItem counts deleted items for one schema version.
+type InventoryDeletionSummaryItem struct {
+	Version        string `json:"Version,omitempty"`
+	Count          int    `json:"Count"`
+	RemainingCount int    `json:"RemainingCount"`
+}
+
 // InventoryDeletion is a record of a DeleteInventory job, returned by
 // DescribeInventoryDeletions.
 type InventoryDeletion struct {

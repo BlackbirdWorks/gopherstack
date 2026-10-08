@@ -432,6 +432,10 @@ func classifySSMResourceIdentityError(reqErr error) (string, int, bool) {
 		return "InvalidActivationId", statusCode, true
 	case errors.Is(reqErr, ErrInvalidResourceID):
 		return "InvalidResourceId", statusCode, true
+	case errors.Is(reqErr, ErrInvalidTypeName):
+		return "InvalidTypeNameException", statusCode, true
+	case errors.Is(reqErr, ErrUnsupportedInventorySchemaVersion):
+		return "UnsupportedInventorySchemaVersionException", statusCode, true
 	default:
 		return "", 0, false
 	}

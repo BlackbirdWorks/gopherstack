@@ -101,8 +101,9 @@ type GetInventorySchemaOutput struct {
 
 // InventorySchemaItem represents a single inventory schema type entry.
 type InventorySchemaItem struct {
-	TypeName string `json:"TypeName"`
-	Version  string `json:"Version"`
+	TypeName   string                   `json:"TypeName"`
+	Version    string                   `json:"Version"`
+	Attributes []InventoryItemAttribute `json:"Attributes,omitempty"`
 }
 
 // ListInventoryEntriesInput is the request payload for ListInventoryEntries.
@@ -128,7 +129,6 @@ type ListInventoryEntriesOutput struct {
 }
 
 // DeleteInventoryInput is the request payload for DeleteInventory.
-// SchemaDeleteOption is validated but has no effect: only items are tracked, not schemas (see PARITY.md).
 type DeleteInventoryInput struct {
 	TypeName           string `json:"TypeName"`
 	SchemaDeleteOption string `json:"SchemaDeleteOption,omitempty"`

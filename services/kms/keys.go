@@ -594,6 +594,11 @@ func applyExpirationFields(k *Key, meta *KeyMetadata) {
 		return
 	}
 
+	i := findImportedMaterialByState(k.ImportedMaterials, keyMaterialCurrent)
+	if i >= 0 && k.ImportedMaterials[i].Imported {
+		meta.CurrentKeyMaterialID = k.ImportedMaterials[i].ID
+	}
+
 	if k.ValidTo > 0 {
 		meta.ValidTo = k.ValidTo
 		meta.ExpirationModel = expirationModelExpires

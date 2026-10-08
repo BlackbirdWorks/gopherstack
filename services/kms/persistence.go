@@ -37,6 +37,7 @@ type backendSnapshot struct {
 	Policies           map[string]map[string]string                  `json:"policies"`
 	KeyMaterials       map[string]map[string]serializedKeyMaterial   `json:"key_materials,omitempty"`
 	KeyMaterialHistory map[string]map[string][]serializedKeyMaterial `json:"key_material_history,omitempty"`
+	PendingMaterials   map[string]map[string]serializedKeyMaterial   `json:"pending_key_materials,omitempty"`
 	AccountID          string                                        `json:"accountID"`
 	Region             string                                        `json:"region"`
 	Version            int                                           `json:"version"`
@@ -144,6 +145,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Policies:           b.policies,
 		KeyMaterials:       snapshotRegionKeyMaterials(ctx, b.keyMaterials),
 		KeyMaterialHistory: snapshotRegionKeyMaterialHistory(ctx, b.keyMaterialHistory),
+		PendingMaterials:   snapshotRegionKeyMaterials(ctx, b.pendingMaterials),
 		AccountID:          b.accountID,
 		Region:             b.defaultRegion,
 	}
@@ -301,6 +303,11 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		return err
 	}
 
+	restoredPending, err := restoreRegionKeyMaterials(snap.PendingMaterials)
+	if err != nil {
+		return err
+	}
+
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
@@ -319,6 +326,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.policies = make(map[string]map[string]string)
 		b.keyMaterials = make(map[string]map[string]*keyMaterial)
 		b.keyMaterialHistory = make(map[string]map[string][]*keyMaterial)
+		b.pendingMaterials = make(map[string]map[string]*keyMaterial)
 		b.clearResolutionCache()
 
 		return nil
@@ -339,6 +347,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	b.keyMaterials = restoredMaterials
 	b.keyMaterialHistory = restoredHistory
+	b.pendingMaterials = restoredPending
 	b.accountID = snap.AccountID
 	b.defaultRegion = snap.Region
 	b.clearResolutionCache()

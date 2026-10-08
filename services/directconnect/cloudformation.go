@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
+	"slices"
 	"strconv"
+	"strings"
 	"unicode"
 )
 
@@ -20,12 +23,22 @@ const (
 	CFNPublicVirtualInterface    = "AWS::DirectConnect::PublicVirtualInterface"
 	CFNTransitVirtualInterface   = "AWS::DirectConnect::TransitVirtualInterface"
 	cfnConnectionIDKey           = "ConnectionId"
-	cfnNestedPrivateVIF          = "NewPrivateVirtualInterface"
-	cfnNestedPublicVIF           = "NewPublicVirtualInterface"
-	cfnNestedTransitVIF          = "NewTransitVirtualInterface"
+	cfnDXGatewayIDKey            = "DirectConnectGatewayId"
+	cfnBgpPeersKey               = "BgpPeers"
+	cfnRouteFilterPrefixesKey    = "RouteFilterPrefixes"
 	cfnLagNumberOfConnectionsKey = "NumberOfConnections"
 	cfnLagMinimumLinksKey        = "MinimumLinks"
 )
+
+func isMappedAssociationProp(k string) bool {
+	switch k {
+	case cfnDXGatewayIDKey, "AssociatedGatewayId", "AllowedPrefixesToDirectConnectGateway",
+		"AcceptDirectConnectGatewayAssociationProposalRoleArn":
+		return true
+	}
+
+	return false
+}
 
 // ErrCFNDeletePending means deletion is under way (a LAG's member connections are still deleting); call
 // DeleteCFNResource again once they settle.
@@ -100,27 +113,127 @@ func decodeStrict(m map[string]any, out any) error {
 	return nil
 }
 
-func vifProps(props map[string]any, nestedKey string) (string, map[string]any) {
-	connID, _ := props[cfnConnectionIDKey].(string)
-
-	if nested, ok := props[nestedKey].(map[string]any); ok {
-		return connID, nested
+// idFromARN returns the resource ID of an ARN, or v unchanged when it is already an ID.
+func idFromARN(v string) string {
+	if strings.HasPrefix(v, "arn:") {
+		return v[strings.LastIndex(v, "/")+1:]
 	}
 
-	flat := make(map[string]any, len(props))
+	return v
+}
 
-	for k, v := range props {
-		if k != cfnConnectionIDKey {
-			flat[k] = v
+func stripARNProp(m map[string]any, keys ...string) {
+	for _, k := range keys {
+		if s, ok := m[k].(string); ok {
+			m[k] = idFromARN(s)
+		}
+	}
+}
+
+func cloneWithout(m map[string]any, drop ...string) map[string]any {
+	out := make(map[string]any, len(m))
+
+	for k, v := range m {
+		if !slices.Contains(drop, k) {
+			out[k] = v
 		}
 	}
 
-	return connID, flat
+	return out
+}
+
+// peerAsn converts a BgpPeer Asn (a string in CloudFormation, to carry long ASNs) into the Asn/AsnLong pair.
+func peerAsn(peer map[string]any, dst map[string]any) {
+	var n int64
+
+	switch t := peer["Asn"].(type) {
+	case string:
+		n, _ = strconv.ParseInt(t, 10, 64)
+	case float64:
+		n = int64(t)
+	case int64:
+		n = t
+	case int:
+		n = int64(t)
+	}
+
+	switch {
+	case n == 0:
+	case n > math.MaxInt32:
+		dst["AsnLong"] = n
+	default:
+		dst["Asn"] = n
+	}
+}
+
+func peerToWire(peer map[string]any) map[string]any {
+	out := map[string]any{}
+
+	for _, k := range []string{"AddressFamily", "AmazonAddress", "CustomerAddress", "AuthKey"} {
+		if v, ok := peer[k]; ok {
+			out[k] = v
+		}
+	}
+
+	peerAsn(peer, out)
+
+	return out
+}
+
+// vifProps splits CloudFormation virtual-interface properties into the connection ID, the interface's own
+// settings (the first BgpPeer supplies the BGP fields) and any further peers. Flat Asn/AddressFamily/etc.
+// without BgpPeers are still accepted.
+func vifProps(props map[string]any, roleKey string) (string, map[string]any, []map[string]any) {
+	connID, _ := props[cfnConnectionIDKey].(string)
+
+	flat := cloneWithout(props, cfnConnectionIDKey, roleKey, cfnBgpPeersKey, cfnRouteFilterPrefixesKey)
+
+	if prefixes, ok := props[cfnRouteFilterPrefixesKey].([]any); ok {
+		wire := make([]any, 0, len(prefixes))
+
+		for _, p := range prefixes {
+			wire = append(wire, map[string]any{"Cidr": p})
+		}
+
+		flat["RouteFilterPrefixes"] = wire
+	}
+
+	var extra []map[string]any
+
+	if raw, ok := props[cfnBgpPeersKey].([]any); ok {
+		for i, r := range raw {
+			peer, _ := r.(map[string]any)
+			if i == 0 {
+				maps.Copy(flat, peerToWire(peer))
+
+				continue
+			}
+
+			extra = append(extra, peerToWire(peer))
+		}
+	}
+
+	return idFromARN(connID), flat, extra
+}
+
+func (b *InMemoryBackend) addExtraPeers(vifID string, extra []map[string]any) error {
+	for _, p := range extra {
+		var n newBGPPeerWire
+		if err := decodeStrict(p, &n); err != nil {
+			return err
+		}
+
+		if _, err := b.CreateBGPPeer(vifID, &n); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // CreateCFNResource provisions the Direct Connect resource a CloudFormation type describes and returns its
-// ID (the Ref value) and read-only attributes. Property names are the CloudFormation spellings; a virtual
-// interface's settings may be given flat or under NewPrivate/Public/TransitVirtualInterface.
+// physical ID (the Ref value: the ARN, or the association ID for gateway associations) and read-only
+// attributes. Property names are the CloudFormation spellings.
 func (b *InMemoryBackend) CreateCFNResource(
 	resourceType string,
 	props map[string]any,
@@ -142,6 +255,9 @@ func (b *InMemoryBackend) CreateCFNResource(
 }
 
 func (b *InMemoryBackend) createCFNConnection(props map[string]any) (string, map[string]string, error) {
+	props = cloneWithout(props)
+	stripARNProp(props, "LagId")
+
 	var req createConnectionRequest
 	if err := decodeStrict(props, &req); err != nil {
 		return "", nil, err
@@ -152,7 +268,7 @@ func (b *InMemoryBackend) createCFNConnection(props map[string]any) (string, map
 		return "", nil, err
 	}
 
-	return c.ConnectionID, map[string]string{
+	return b.ConnectionARN(c.ConnectionID), map[string]string{
 		"ConnectionId": c.ConnectionID, "ConnectionArn": b.ConnectionARN(c.ConnectionID),
 		"ConnectionState": c.ConnectionState,
 	}, nil
@@ -192,7 +308,7 @@ func (b *InMemoryBackend) createCFNLag(props map[string]any) (string, map[string
 		}
 	}
 
-	return l.LagID, map[string]string{
+	return b.LagARN(l.LagID), map[string]string{
 		"LagId": l.LagID, "LagArn": b.LagARN(l.LagID), "LagState": l.LagState,
 	}, nil
 }
@@ -210,15 +326,42 @@ func (b *InMemoryBackend) createCFNGateway(props map[string]any) (string, map[st
 		return "", nil, err
 	}
 
-	return g.DirectConnectGatewayID, map[string]string{
+	return b.GatewayARN(g.DirectConnectGatewayID), map[string]string{
 		"DirectConnectGatewayId":  g.DirectConnectGatewayID,
 		"DirectConnectGatewayArn": b.GatewayARN(g.DirectConnectGatewayID),
 	}, nil
 }
 
 func (b *InMemoryBackend) createCFNAssociation(props map[string]any) (string, map[string]string, error) {
+	wire := map[string]any{}
+
+	for cfn, api := range map[string]string{
+		cfnDXGatewayIDKey:     "DirectConnectGatewayId",
+		"AssociatedGatewayId": "GatewayId",
+	} {
+		if v, ok := props[cfn].(string); ok {
+			wire[api] = idFromARN(v)
+		}
+	}
+
+	if prefixes, ok := props["AllowedPrefixesToDirectConnectGateway"].([]any); ok {
+		out := make([]any, 0, len(prefixes))
+
+		for _, p := range prefixes {
+			out = append(out, map[string]any{"Cidr": p})
+		}
+
+		wire["AddAllowedPrefixesToDirectConnectGateway"] = out
+	}
+
+	for k := range props {
+		if !isMappedAssociationProp(k) {
+			wire[k] = props[k]
+		}
+	}
+
 	var req createGatewayAssociationRequest
-	if err := decodeStrict(props, &req); err != nil {
+	if err := decodeStrict(wire, &req); err != nil {
 		return "", nil, err
 	}
 
@@ -240,43 +383,61 @@ func (b *InMemoryBackend) createCFNVirtualInterface(
 
 	switch resourceType {
 	case CFNPrivateVirtualInterface:
-		connID, flat := vifProps(props, cfnNestedPrivateVIF)
+		connID, flat, extra := vifProps(props, "AllocatePrivateVirtualInterfaceRoleArn")
+		stripARNProp(flat, cfnDXGatewayIDKey, "VirtualGatewayId")
 		coerceNumbers(flat, "Vlan", "Asn", "Mtu", "AsnLong")
 
 		var n newPrivateVifWire
 		if err = decodeStrict(flat, &n); err == nil {
 			vif, err = b.CreatePrivateVirtualInterface(connID, &n)
 		}
+
+		err = b.finishCFNVif(vif, err, extra)
 	case CFNPublicVirtualInterface:
-		connID, flat := vifProps(props, cfnNestedPublicVIF)
+		connID, flat, extra := vifProps(props, "AllocatePublicVirtualInterfaceRoleArn")
 		coerceNumbers(flat, "Vlan", "Asn", "AsnLong")
 
 		var n newPublicVifWire
 		if err = decodeStrict(flat, &n); err == nil {
 			vif, err = b.CreatePublicVirtualInterface(connID, &n)
 		}
+
+		err = b.finishCFNVif(vif, err, extra)
 	default:
-		connID, flat := vifProps(props, cfnNestedTransitVIF)
+		connID, flat, extra := vifProps(props, "AllocateTransitVirtualInterfaceRoleArn")
+		stripARNProp(flat, cfnDXGatewayIDKey)
 		coerceNumbers(flat, "Vlan", "Asn", "Mtu", "AsnLong")
 
 		var n newTransitVifWire
 		if err = decodeStrict(flat, &n); err == nil {
 			vif, err = b.CreateTransitVirtualInterface(connID, &n)
 		}
+
+		err = b.finishCFNVif(vif, err, extra)
 	}
 
 	if err != nil {
 		return "", nil, err
 	}
 
-	return vif.VirtualInterfaceID, map[string]string{
+	return b.VifARN(vif.VirtualInterfaceID), map[string]string{
 		"VirtualInterfaceId": vif.VirtualInterfaceID, "VirtualInterfaceArn": b.VifARN(vif.VirtualInterfaceID),
 	}, nil
+}
+
+func (b *InMemoryBackend) finishCFNVif(vif *VirtualInterface, err error, extra []map[string]any) error {
+	if err != nil {
+		return err
+	}
+
+	return b.addExtraPeers(vif.VirtualInterfaceID, extra)
 }
 
 // CFNResourceState reports the lifecycle state of a CloudFormation-provisioned resource; ok is false once it
 // no longer exists.
 func (b *InMemoryBackend) CFNResourceState(resourceType, id string) (string, bool) {
+	id = idFromARN(id)
+
 	switch resourceType {
 	case CFNConnection:
 		if cs := b.DescribeConnections(id); len(cs) > 0 {
@@ -316,6 +477,8 @@ func (b *InMemoryBackend) associationState(id string) (string, bool) {
 // DeleteCFNResource starts deletion of a CloudFormation-provisioned resource; a LAG deletes its member
 // connections first and returns ErrCFNDeletePending until they are gone. Use CFNResourceState to observe completion.
 func (b *InMemoryBackend) DeleteCFNResource(resourceType, id string) error {
+	id = idFromARN(id)
+
 	var err error
 
 	switch resourceType {

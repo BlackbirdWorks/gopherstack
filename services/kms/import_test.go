@@ -333,6 +333,7 @@ func TestImportKeyMaterial_ReImport_ReplacesExisting(t *testing.T) {
 	require.NoError(t, b.ImportKeyMaterial(context.Background(), &kms.ImportKeyMaterialInput{
 		KeyID:       keyID,
 		KeyMaterial: mat2,
+		ImportType:  "NEW_KEY_MATERIAL",
 	}))
 
 	desc, err := b.DescribeKey(context.Background(), &kms.DescribeKeyInput{KeyID: keyID})
@@ -762,7 +763,7 @@ func TestKMSImportKeyMaterial(t *testing.T) {
 			},
 		},
 		{
-			name: "import_on_already_enabled_external_key_fails",
+			name: "reimport_other_material_on_enabled_external_key_fails",
 			setup: func(b *kms.InMemoryBackend) (string, []byte) {
 				key, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{Origin: kms.KeyOriginExternal})
 				if err != nil {
@@ -786,13 +787,15 @@ func TestKMSImportKeyMaterial(t *testing.T) {
 			verify: func(t *testing.T, b *kms.InMemoryBackend, keyID string, mat []byte) {
 				t.Helper()
 
-				// Attempting to re-import while the key is already Enabled must fail.
+				other := append([]byte(nil), mat...)
+				other[0] ^= 0xff
+
 				err := b.ImportKeyMaterial(context.Background(), &kms.ImportKeyMaterialInput{
 					KeyID:       keyID,
-					KeyMaterial: mat,
+					KeyMaterial: other,
 				})
 				require.Error(t, err)
-				assert.ErrorIs(t, err, kms.ErrKeyInvalidState)
+				assert.ErrorIs(t, err, kms.ErrIncorrectKeyMaterial)
 			},
 		},
 	}
@@ -893,7 +896,7 @@ func TestKMSExternalKeyEncryptionContext(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestRotateKeyOnDemandExternalOriginRejected(t *testing.T) {
+func TestRotateKeyOnDemandExternalWithoutPendingMaterial(t *testing.T) {
 	t.Parallel()
 
 	b := kms.NewInMemoryBackend()
@@ -909,5 +912,5 @@ func TestRotateKeyOnDemandExternalOriginRejected(t *testing.T) {
 
 	_, rotErr := b.RotateKeyOnDemand(context.Background(), &kms.RotateKeyOnDemandInput{KeyID: key.KeyMetadata.KeyID})
 	require.Error(t, rotErr)
-	require.ErrorIs(t, rotErr, kms.ErrUnsupportedOrigin)
+	require.ErrorIs(t, rotErr, kms.ErrKeyInvalidState)
 }

@@ -67,9 +67,10 @@ type Key struct {
 	// Rotations stores all rotation events with their types. The separate
 	// RotationDates and OnDemandRotationDates slices are kept for JSON
 	// backwards-compatibility with existing snapshots.
-	Rotations             []RotationRecord `json:"Rotations,omitempty"`
-	RotationDates         []float64        `json:"RotationDates,omitempty"`
-	OnDemandRotationDates []float64        `json:"OnDemandRotationDates,omitempty"`
+	Rotations             []RotationRecord   `json:"Rotations,omitempty"`
+	ImportedMaterials     []ImportedMaterial `json:"ImportedMaterials,omitempty"`
+	RotationDates         []float64          `json:"RotationDates,omitempty"`
+	OnDemandRotationDates []float64          `json:"OnDemandRotationDates,omitempty"`
 	// ReplicaKeyIDs stores the key IDs of replica keys created from this primary.
 	ReplicaKeyIDs        []string `json:"ReplicaKeyIds,omitempty"`
 	CreationDate         float64  `json:"CreationDate"`
@@ -119,6 +120,7 @@ type KeyMetadata struct {
 	KeyID                       string                    `json:"KeyId"`
 	AWSAccountID                string                    `json:"AWSAccountId,omitempty"`
 	CustomKeyStoreID            string                    `json:"CustomKeyStoreId,omitempty"`
+	CurrentKeyMaterialID        string                    `json:"CurrentKeyMaterialId,omitempty"`
 	CustomerMasterKeySpec       string                    `json:"CustomerMasterKeySpec,omitempty"`
 	ExpirationModel             string                    `json:"ExpirationModel,omitempty"`
 	MacAlgorithms               []string                  `json:"MacAlgorithms,omitempty"`
@@ -679,31 +681,33 @@ type GetPublicKeyOutput struct {
 
 // ImportKeyMaterialInput is the request payload for ImportKeyMaterial.
 type ImportKeyMaterialInput struct {
-	KeyID           string  `json:"KeyId"`
-	ExpirationModel string  `json:"ExpirationModel,omitempty"`
-	KeyMaterial     []byte  `json:"EncryptedKeyMaterial"`
-	ValidTo         float64 `json:"ValidTo,omitempty"`
+	KeyID                  string  `json:"KeyId"`
+	ExpirationModel        string  `json:"ExpirationModel,omitempty"`
+	ImportType             string  `json:"ImportType,omitempty"`
+	KeyMaterialDescription string  `json:"KeyMaterialDescription,omitempty"`
+	KeyMaterialID          string  `json:"KeyMaterialId,omitempty"`
+	KeyMaterial            []byte  `json:"EncryptedKeyMaterial"`
+	ValidTo                float64 `json:"ValidTo,omitempty"`
 }
 
 // ImportKeyMaterialOutput is the response payload for ImportKeyMaterial.
-// The real output also declares KeyMaterialId, part of the multi-key-material
-// rotation feature (aws-sdk-go-v2 kms@v1.55.4 api_op_ImportKeyMaterial.go);
-// this backend has no concept of multiple key-material generations per key,
-// so only KeyId — always present on the real wire response — is echoed back.
 type ImportKeyMaterialOutput struct {
-	KeyID string `json:"KeyId"`
+	KeyID         string `json:"KeyId"`
+	KeyMaterialID string `json:"KeyMaterialId,omitempty"`
 }
 
 // DeleteImportedKeyMaterialInput is the request payload for DeleteImportedKeyMaterial.
 type DeleteImportedKeyMaterialInput struct {
 	// KeyId identifies the EXTERNAL-origin key whose material should be deleted.
 	KeyID string `json:"KeyId"`
+	// KeyMaterialId selects the material to delete; the current material when empty.
+	KeyMaterialID string `json:"KeyMaterialId,omitempty"`
 }
 
 // DeleteImportedKeyMaterialOutput is the response payload for DeleteImportedKeyMaterial.
-// See ImportKeyMaterialOutput for why KeyMaterialId is not modeled.
 type DeleteImportedKeyMaterialOutput struct {
-	KeyID string `json:"KeyId"`
+	KeyID         string `json:"KeyId"`
+	KeyMaterialID string `json:"KeyMaterialId,omitempty"`
 }
 
 // GetParametersForImportInput is the request payload for GetParametersForImport.
@@ -737,14 +741,15 @@ type ListKeyPoliciesOutput struct {
 
 // KeyRotationEntry describes one key rotation event.
 type KeyRotationEntry struct {
-	KeyID            string  `json:"KeyId,omitempty"`
-	KeyMaterialID    string  `json:"KeyMaterialId,omitempty"`
-	KeyMaterialState string  `json:"KeyMaterialState,omitempty"`
-	RotationType     string  `json:"RotationType,omitempty"`
-	ImportState      string  `json:"ImportState,omitempty"`
-	ExpirationModel  string  `json:"ExpirationModel,omitempty"`
-	RotationDate     float64 `json:"RotationDate,omitempty"`
-	ValidTo          float64 `json:"ValidTo,omitempty"`
+	KeyID                  string  `json:"KeyId,omitempty"`
+	KeyMaterialID          string  `json:"KeyMaterialId,omitempty"`
+	KeyMaterialState       string  `json:"KeyMaterialState,omitempty"`
+	RotationType           string  `json:"RotationType,omitempty"`
+	ImportState            string  `json:"ImportState,omitempty"`
+	ExpirationModel        string  `json:"ExpirationModel,omitempty"`
+	KeyMaterialDescription string  `json:"KeyMaterialDescription,omitempty"`
+	RotationDate           float64 `json:"RotationDate,omitempty"`
+	ValidTo                float64 `json:"ValidTo,omitempty"`
 }
 
 // ListKeyRotationsInput is the request payload for ListKeyRotations.

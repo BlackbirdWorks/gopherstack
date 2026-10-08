@@ -9,14 +9,13 @@
 | --- | --- |
 | PARITY entries audited | 105 (104 ok, 1 gap) |
 | Feature families | 21 (21 ok) |
-| Known gaps | 7 |
+| Known gaps | 6 |
 | Structural gaps (can't be emulated) | 14 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- DeleteInventoryInput.SchemaDeleteOption has no effect: GetInventorySchema is a fixed built-in catalogue with no per-account custom schema registry (fixable, not yet modeled).
 - GetInventorySchema per-type Attributes: AWS does not publish the exact attribute lists outside web docs, so they cannot be verified from the SDK.
 - DescribePatchPropertiesOutput.Properties aggregates baseline name/OS pairs; the real per-Property map-key convention of the untyped output cannot be verified from the SDK.
 - DescribeAvailablePatches PATCH_ID filter: the real opaque Patch.Id format is not verifiable from the SDK.
