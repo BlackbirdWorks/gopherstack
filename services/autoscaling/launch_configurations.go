@@ -1,6 +1,7 @@
 package autoscaling
 
 import (
+	"cmp"
 	"fmt"
 	"time"
 
@@ -14,6 +15,12 @@ func (b *InMemoryBackend) CreateLaunchConfiguration(
 	b.mu.Lock("CreateLaunchConfiguration")
 	defer b.mu.Unlock()
 
+	return b.createLaunchConfigurationLocked(input)
+}
+
+func (b *InMemoryBackend) createLaunchConfigurationLocked(
+	input CreateLaunchConfigurationInput,
+) (*LaunchConfiguration, error) {
 	if b.launchConfigurations.Has(input.LaunchConfigurationName) {
 		return nil, fmt.Errorf(
 			"%w: launch configuration %q already exists",
@@ -24,6 +31,10 @@ func (b *InMemoryBackend) CreateLaunchConfiguration(
 
 	if input.LaunchConfigurationName == "" {
 		return nil, fmt.Errorf("%w: LaunchConfigurationName is required", ErrInvalidParameter)
+	}
+
+	if err := b.applyInstanceAttributes(&input); err != nil {
+		return nil, err
 	}
 
 	lc := &LaunchConfiguration{
@@ -91,6 +102,30 @@ func (b *InMemoryBackend) DeleteLaunchConfiguration(name string) error {
 	}
 
 	b.launchConfigurations.Delete(name)
+
+	return nil
+}
+
+// applyInstanceAttributes fills launch settings the request left unset from
+// the EC2 instance named by InstanceId (block device mappings are not derived).
+func (b *InMemoryBackend) applyInstanceAttributes(input *CreateLaunchConfigurationInput) error {
+	if input.InstanceID == "" {
+		return nil
+	}
+
+	attrs, ok := b.instanceAttributes(input.InstanceID)
+	if !ok {
+		return fmt.Errorf("%w: The instance %q does not exist", ErrInvalidParameter, input.InstanceID)
+	}
+
+	input.ImageID = cmp.Or(input.ImageID, attrs.ImageID)
+	input.InstanceType = cmp.Or(input.InstanceType, attrs.InstanceType)
+	input.KeyName = cmp.Or(input.KeyName, attrs.KeyName)
+	input.UserData = cmp.Or(input.UserData, attrs.UserData)
+
+	if len(input.SecurityGroups) == 0 {
+		input.SecurityGroups = attrs.SecurityGroups
+	}
 
 	return nil
 }

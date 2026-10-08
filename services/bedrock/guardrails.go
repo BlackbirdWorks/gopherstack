@@ -50,6 +50,11 @@ func (b *InMemoryBackend) CreateGuardrailWithExtras(
 		return nil, fmt.Errorf("%w: guardrail %s already exists", ErrAlreadyExists, name)
 	}
 
+	resolvedExtras, err := b.resolveGuardrailExtras(extras)
+	if err != nil {
+		return nil, err
+	}
+
 	id := b.newGuardrailID()
 	guardrailARN := arn.Build("bedrock", b.region, b.accountID, "guardrail/"+id)
 	now := time.Now().UTC()
@@ -70,7 +75,7 @@ func (b *InMemoryBackend) CreateGuardrailWithExtras(
 		BlockedOutputsMessaging: blockedOutput,
 		Tags:                    tagsCopy,
 		Policies:                pol,
-		Extras:                  b.resolveGuardrailExtras(extras),
+		Extras:                  resolvedExtras,
 		CreatedAt:               now,
 		UpdatedAt:               now,
 	}
@@ -86,13 +91,20 @@ func (b *InMemoryBackend) CreateGuardrailWithExtras(
 }
 
 // resolveGuardrailExtras turns the request's kmsKeyId into the stored ARN; nil stays nil.
-func (b *InMemoryBackend) resolveGuardrailExtras(in *GuardrailExtras) *GuardrailExtras {
+func (b *InMemoryBackend) resolveGuardrailExtras(in *GuardrailExtras) (*GuardrailExtras, error) {
 	out := copyGuardrailExtras(in)
-	if out != nil {
-		out.KmsKeyArn = kmsKeyARN(b.region, b.accountID, out.KmsKeyArn)
+	if out == nil {
+		return nil, nil //nolint:nilnil // nil extras are a valid "not provided"
 	}
 
-	return out
+	keyARN, err := b.kmsARN(out.KmsKeyArn)
+	if err != nil {
+		return nil, err
+	}
+
+	out.KmsKeyArn = keyARN
+
+	return out, nil
 }
 
 // copyGuardrailExtras deep-copies e.
@@ -206,6 +218,17 @@ func (b *InMemoryBackend) UpdateGuardrailWithExtras(
 		return nil, fmt.Errorf("%w: guardrail %s not found", ErrNotFound, idOrARN)
 	}
 
+	var resolvedExtras *GuardrailExtras
+
+	if extras != nil {
+		var extrasErr error
+
+		resolvedExtras, extrasErr = b.resolveGuardrailExtras(extras)
+		if extrasErr != nil {
+			return nil, extrasErr
+		}
+	}
+
 	// Update name with index maintenance.
 	if name != "" && name != g.Name {
 		if _, exists := b.guardrailsByName[name]; exists {
@@ -233,8 +256,8 @@ func (b *InMemoryBackend) UpdateGuardrailWithExtras(
 		g.Policies = copyGuardrailPolicies(pol)
 	}
 
-	if extras != nil {
-		g.Extras = b.resolveGuardrailExtras(extras)
+	if resolvedExtras != nil {
+		g.Extras = resolvedExtras
 	}
 
 	g.UpdatedAt = time.Now().UTC()

@@ -79,6 +79,10 @@ func validateRegisterScalableTargetBasics(
 		return err
 	}
 
+	if err := validateResourceID(scalableDimension, resourceID); err != nil {
+		return err
+	}
+
 	// RegisterScalableTarget's modeled error set has LimitExceededException
 	// but no TooManyTagsException (that's only modeled on TagResource -- see
 	// ErrTooManyTags's doc comment), so an over-limit tag count here is

@@ -153,11 +153,42 @@ func (b *InMemoryBackend) makeInstances(g *AutoScalingGroup, count int32) []Inst
 		az = g.AvailabilityZones[0]
 	}
 
-	return b.makeInstancesIn(g, count, az)
+	return b.makeInstancesIn(g, count, az, b.subnetForZone(g, az))
 }
 
-// makeInstancesIn is makeInstances pinned to one Availability Zone.
-func (b *InMemoryBackend) makeInstancesIn(g *AutoScalingGroup, count int32, az string) []Instance {
+// subnetForZone picks the group subnet launched into for az: the one the EC2
+// backend places in az when resolvable, else the group's first subnet.
+func (b *InMemoryBackend) subnetForZone(g *AutoScalingGroup, az string) string {
+	subnets := groupSubnets(g.VPCZoneIdentifier)
+
+	for _, s := range subnets {
+		if z, ok := b.subnetZone(s); ok && z == az {
+			return s
+		}
+	}
+
+	if len(subnets) == 0 {
+		return ""
+	}
+
+	return subnets[0]
+}
+
+// groupSubnets splits a VPCZoneIdentifier into subnet IDs.
+func groupSubnets(vpcZoneIdentifier string) []string {
+	var out []string
+
+	for s := range strings.SplitSeq(vpcZoneIdentifier, ",") {
+		if s = strings.TrimSpace(s); s != "" {
+			out = append(out, s)
+		}
+	}
+
+	return out
+}
+
+// makeInstancesIn is makeInstances pinned to one Availability Zone and subnet.
+func (b *InMemoryBackend) makeInstancesIn(g *AutoScalingGroup, count int32, az, subnet string) []Instance {
 	n := max(0, min(maxDesiredCapacity, int(count)))
 	if n == 0 {
 		return []Instance{}
@@ -165,11 +196,11 @@ func (b *InMemoryBackend) makeInstancesIn(g *AutoScalingGroup, count int32, az s
 
 	instanceType := lcInstanceType(b.launchConfigurations, g.LaunchConfigurationName)
 
-	if instances, ok := b.launchInEC2(g, az, n, instanceType); ok {
-		return instances
+	if instances, ok := b.launchInEC2(g, az, subnet, n, instanceType); ok {
+		return stampSubnet(instances, subnet)
 	}
 
-	instances := fabricateInstances(n, az, g.LaunchConfigurationName, instanceType)
+	instances := stampSubnet(fabricateInstances(n, az, g.LaunchConfigurationName, instanceType), subnet)
 	b.registerELBTargets(instanceIDsOf(instances), g.TargetGroupARNs)
 	b.registerELBInstances(instanceIDsOf(instances), g.LoadBalancerNames)
 
@@ -185,7 +216,7 @@ func (b *InMemoryBackend) makeInstancesIn(g *AutoScalingGroup, count int32, az s
 // launched fleet's instance-type mix matches the overrides list instead of
 // pinning every instance to the first override.
 func (b *InMemoryBackend) launchInEC2(
-	g *AutoScalingGroup, az string, n int, instanceType string,
+	g *AutoScalingGroup, az, subnet string, n int, instanceType string,
 ) ([]Instance, bool) {
 	if b.ec2Launcher == nil {
 		return nil, false
@@ -194,6 +225,10 @@ func (b *InMemoryBackend) launchInEC2(
 	specs, ok := b.launchSpecsForGroup(g, az)
 	if !ok {
 		return nil, false
+	}
+
+	for i := range specs {
+		specs[i].SubnetID = subnet
 	}
 
 	ctx := b.crossServiceContext()
@@ -508,6 +543,14 @@ func instancesFromIDs(ids []string, az, launchConfigName, instanceType string) [
 			InstanceType:            instanceType,
 			LaunchTime:              now,
 		})
+	}
+
+	return instances
+}
+
+func stampSubnet(instances []Instance, subnet string) []Instance {
+	for i := range instances {
+		instances[i].SubnetID = subnet
 	}
 
 	return instances

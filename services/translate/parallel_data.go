@@ -54,6 +54,10 @@ func (b *InMemoryBackend) CreateParallelData(
 	b.mu.Lock("CreateParallelData")
 	defer b.mu.Unlock()
 
+	if err := b.validateEncryptionKey(encKey); err != nil {
+		return nil, err
+	}
+
 	if b.parallelData.Has(name) {
 		return nil, fmt.Errorf("%w: parallel data %q already exists", ErrConflict, name)
 	}
@@ -104,14 +108,55 @@ func (b *InMemoryBackend) CreateParallelData(
 // establishes for DescribeTextTranslationJob. ListParallelData intentionally
 // does not call this (matching ListTextTranslationJobs's pure-read
 // convention): real List operations do not mutate state.
-func advanceParallelData(pd *ParallelData) {
+func (b *InMemoryBackend) advanceParallelData(pd *ParallelData) {
 	switch pd.Status {
 	case parallelDataStatusCreating:
 		pd.Status = parallelDataStatusActive
+		b.importParallelData(pd)
 	case parallelDataStatusUpdating:
 		pd.Status = parallelDataStatusActive
 		pd.LatestUpdateAttemptStatus = parallelDataStatusActive
+		b.importParallelData(pd)
 	}
+}
+
+// importParallelData reads the input file from emulated S3 and records the languages and
+// import statistics it yields; with S3 unavailable or the object unreadable it leaves them unset.
+func (b *InMemoryBackend) importParallelData(pd *ParallelData) {
+	if pd.ParallelDataConfig == nil {
+		return
+	}
+
+	data, ok := b.readS3Object(pd.ParallelDataConfig.S3URI)
+	if !ok {
+		return
+	}
+
+	parsed := parseTermFile(pd.ParallelDataConfig.Format, data)
+
+	if parsed.source != "" {
+		pd.SourceLanguage = parsed.source
+	}
+
+	pd.TargetLanguages = parsed.targets
+	pd.ImportedRecordCount = int64(parsed.records)
+	pd.SkippedRecordCount = int64(parsed.skipped)
+	pd.FailedRecordCount = int64(parsed.failed)
+	pd.ImportedDataSize = int64(parsed.chars)
+	pd.Imported = true
+}
+
+// PeekParallelData reads a parallel data resource without advancing its lifecycle.
+func (b *InMemoryBackend) PeekParallelData(name string) (*ParallelData, error) {
+	b.mu.RLock("PeekParallelData")
+	defer b.mu.RUnlock()
+
+	pd, ok := b.parallelData.Get(name)
+	if !ok {
+		return nil, fmt.Errorf("%w: parallel data %q not found", ErrNotFound, name)
+	}
+
+	return cloneParallelData(pd), nil
 }
 
 // GetParallelData retrieves a parallel data resource by name and advances it
@@ -128,7 +173,7 @@ func (b *InMemoryBackend) GetParallelData(name string) (*ParallelData, error) {
 		return nil, fmt.Errorf("%w: parallel data %q not found", ErrNotFound, name)
 	}
 
-	advanceParallelData(pd)
+	b.advanceParallelData(pd)
 
 	return cloneParallelData(pd), nil
 }

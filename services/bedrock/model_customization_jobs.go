@@ -90,6 +90,11 @@ func (b *InMemoryBackend) CreateModelCustomizationJobWithOptions(
 		}
 	}
 
+	kmsARN, kmsErr := b.kmsARN(opts.CustomModelKmsKeyID)
+	if kmsErr != nil {
+		return nil, kmsErr
+	}
+
 	id := b.newCustomizationJobID()
 	jobARN := arn.Build("bedrock", b.region, b.accountID, "model-customization-job/"+id)
 	outputModelARN := arn.Build("bedrock", b.region, b.accountID, "custom-model/output-"+id)
@@ -121,7 +126,7 @@ func (b *InMemoryBackend) CreateModelCustomizationJobWithOptions(
 		HyperParameters:      opts.HyperParameters,
 		CustomizationConfig:  opts.CustomizationConfig,
 		VpcConfig:            opts.VpcConfig,
-		OutputModelKmsKeyArn: kmsKeyARN(b.region, b.accountID, opts.CustomModelKmsKeyID),
+		OutputModelKmsKeyArn: kmsARN,
 	}
 	b.modelCustomizationJobs.Put(job)
 	b.customizationJobsByName[jobName] = jobARN

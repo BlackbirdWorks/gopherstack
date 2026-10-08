@@ -109,7 +109,7 @@ func (b *InMemoryBackend) DescribeTextTranslationJob(jobID string) (*Translation
 		return nil, fmt.Errorf("%w: job %q not found", ErrNotFound, jobID)
 	}
 
-	advanceJob(job)
+	b.advanceJob(job)
 
 	return cloneJob(job), nil
 }
@@ -117,7 +117,7 @@ func (b *InMemoryBackend) DescribeTextTranslationJob(jobID string) (*Translation
 // advanceJob moves job one step through its lifecycle. Called from
 // DescribeTextTranslationJob so that each poll makes progress, the same
 // convention services/comprehend uses for its analysis jobs.
-func advanceJob(job *TranslationJob) {
+func (b *InMemoryBackend) advanceJob(job *TranslationJob) {
 	switch job.JobStatus {
 	case jobStatusSubmitted:
 		job.JobStatus = jobStatusInProgress
@@ -127,6 +127,7 @@ func advanceJob(job *TranslationJob) {
 			job.Message = "simulated translation failure"
 		} else {
 			job.JobStatus = jobStatusCompleted
+			b.processJobDocuments(job)
 		}
 
 		job.EndAt = time.Now().UTC()
@@ -222,4 +223,57 @@ func (b *InMemoryBackend) ListTextTranslationJobs(
 
 		return cloneJob(j)
 	}, maxResults, nextToken)
+}
+
+// processJobDocuments translates every document under the job's S3 input prefix into the
+// output prefix, once per target language, and records the document counts. With S3
+// unavailable or the input unreadable the counts stay unset.
+func (b *InMemoryBackend) processJobDocuments(job *TranslationJob) {
+	inURI, _ := job.InputDataConfig["S3Uri"].(string)
+	outURI, _ := job.OutputDataConfig["S3Uri"].(string)
+
+	docs, ok := b.listS3Documents(inURI)
+	if !ok {
+		return
+	}
+
+	outBucket, outPrefix, outOK := splitS3URI(outURI)
+
+	terms := make([]*Terminology, 0, len(job.TerminologyNames))
+
+	for _, name := range job.TerminologyNames {
+		if t, found := b.terminologies.Get(name); found {
+			terms = append(terms, t)
+		}
+	}
+
+	source := job.SourceLanguage
+	if source == "" {
+		source = sourceLangAuto
+	}
+
+	job.InputDocumentsCount = len(docs)
+
+	for _, doc := range docs {
+		failed := !outOK
+
+		for _, target := range job.TargetLanguages {
+			if failed {
+				break
+			}
+
+			text, _ := applyTranslation(string(doc.data), source, target, terms)
+			key := outputKey(outPrefix, b.accountID, job.JobID, target, doc.key)
+
+			if err := b.writeS3Object(outBucket, key, []byte(text)); err != nil {
+				failed = true
+			}
+		}
+
+		if failed {
+			job.DocumentsWithErrorsCount++
+		} else {
+			job.TranslatedDocumentsCount++
+		}
+	}
 }

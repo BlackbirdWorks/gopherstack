@@ -3,7 +3,7 @@ service: appconfig
 sdk_module: aws-sdk-go-v2/service/appconfig@v1.48.4    # version audited against (bumped from v1.43.11)
 # 2026-10-01: KmsKeyArn on profile Get/Create/Update and hosted versions resolved from KmsKeyIdentifier via the KMS backend (TestRealClient_KmsKeyArnResolved).
 last_audit_commit: 1d121bbad  # over-wide census re-check (0 code changes -- all 7 flagged List ops already exact)
-last_audit_date: 2026-10-01   # bd gopherstack-z4v1: corrected a false claim from the 2026-09-07 pass
+last_audit_date: 2026-10-07   # bd gopherstack-z4v1: corrected a false claim from the 2026-09-07 pass
                                # (bd gopherstack-kpvs) below. That pass concluded DeletionProtectionCheck
                                # enforcement was structurally blocked because "no cross-service backend-lookup
                                # pattern exists anywhere in this repo" -- that premise was wrong. The lazy
@@ -212,11 +212,11 @@ gaps: []
   # (TestHandler_Create*_TagsAppliedInline) proving tags set at create are visible via
   # ListTagsForResource, so this class of regression is now caught.
 items_still_open:
-  - "Deployment progression runs on a compressed fixed timescale, not the strategy's DeploymentDurationInMinutes/FinalBakeTimeInMinutes; deliberate, same as rds/acm."
-  - "Unverifiable defaults, no SDK-documented value (re-confirmed 2026-07-30): StartExperimentRun.ExposurePercentage omitted -> 0, DeleteExperimentDefinition delete_type omitted -> ARCHIVE, Treatment.Key naming ('Control', 'Treatment1'..N)."
-  - "No extension-action execution or inner experiment deployment: DeploymentParameters (experiment ops) and StartDeploymentInput.DynamicExtensionParameters are accepted with no sink, and no output echoes them."
-deferred:                 # consciously not audited this pass (scope) — next pass targets
-  - "GetExtensionInput/DeleteExtensionInput document 'name, ID, or ARN' identifier resolution; this backend's resolveExtensionID only resolves by ID or name (pre-existing, unchanged this pass) -- ARN-based lookup was not added. Low risk: gopherstack conventionally addresses resources by ID/name elsewhere in this service too."
+  - "Unverifiable defaults, no SDK-documented value (re-checked 2026-10-07: the pinned SDK documents ExposurePercentage only as 'set to 0 to validate', and DeleteType as an ARCHIVE/DESTROY enum with no default): StartExperimentRun.ExposurePercentage omitted -> 0, DeleteExperimentDefinition delete_type omitted -> ARCHIVE, Treatment.Key naming ('Control', 'Treatment1'..N)."
+  - "Extension actions are not executed and experiment runs create no inner deployment: DeploymentParameters (experiment ops) and StartDeploymentInput.DynamicExtensionParameters are accepted with no sink. The pinned SDK gives neither the action invocation payload, the failure semantics of PRE_START_DEPLOYMENT actions, nor whether dynamic parameters surface in AppliedExtensions.Parameters."
+structural_gaps:
+  - "Deployment progression runs on a compressed fixed timescale, not the strategy's DeploymentDurationInMinutes/FinalBakeTimeInMinutes: real minutes-to-hours waits are unusable in an emulator (same as rds/acm)."
+deferred: []
 leaks: {status: clean, note: "FIXED — DeleteApplication/DeleteEnvironment/DeleteConfigurationProfile previously left ExtensionAssociation rows referencing deleted app/env/profile ARNs as ghosts (unbounded growth under repeated create/delete cycles); all three now cascade-delete associations targeting the resource being removed, plus deployedConfigs tracking entries. The new deploymentTimers map (in-flight deployment progression) and its background reconciler goroutine are self-draining/self-terminating (same ephemeral-goroutine pattern as services/rds's lifecycle reconciler): TestDeploymentTimers_DrainToZero (leak_test.go) verifies the map returns to empty once every deployment reaches a terminal state, at which point the goroutine exits on its own -- no ctx-parenting or explicit Shutdown drain is needed since nothing outlives the deployments that scheduled it. leak_test.go's pre-existing NameIndexBounded tests (Application/Extension/DeploymentStrategy) still pass under -race. This pass additionally verified (TestBackend_DeleteApplication_CascadesExperimentDefinitions, TestBackend_DeleteExperimentDefinition_DestroyCascadesRunsAndTags) that DeleteApplication and DeleteExperimentDefinition(delete_type=DESTROY) both cascade-remove every experiment run/event/tag scoped to the definition being removed -- no ghost rows survive either deletion path."}
 ---
 

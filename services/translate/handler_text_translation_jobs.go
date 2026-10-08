@@ -269,11 +269,12 @@ func jobToMap(job *TranslationJob) map[string]any {
 		keySourceLanguageCode:  job.SourceLanguage,
 		keyTargetLanguageCodes: job.TargetLanguages,
 		"SubmittedTime":        awstime.Epoch(job.SubmittedAt),
-		"JobDetails": map[string]any{
-			"TranslatedDocumentsCount": 0,
-			"DocumentsWithErrorsCount": 0,
-			"InputDocumentsCount":      0,
-		},
+	}
+
+	m["JobDetails"] = map[string]any{
+		"TranslatedDocumentsCount": job.TranslatedDocumentsCount,
+		"DocumentsWithErrorsCount": job.DocumentsWithErrorsCount,
+		"InputDocumentsCount":      job.InputDocumentsCount,
 	}
 
 	if !job.EndAt.IsZero() {

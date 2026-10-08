@@ -165,7 +165,12 @@ func (h *Handler) testInvokeAuthorizerAction(b []byte) (int, any, error) {
 	if err := json.Unmarshal(b, &input); err != nil {
 		return 0, nil, err
 	}
-	out, err := h.Backend.TestInvokeAuthorizer(input)
+	auth, err := h.Backend.GetAuthorizer(input.RestAPIID, input.AuthorizerID)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	out, err := h.testInvokeAuthorizer(h.dataPlaneContext(), auth, input.RestAPIID, input)
 	if err != nil {
 		return 0, nil, err
 	}

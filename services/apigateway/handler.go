@@ -30,6 +30,9 @@ const (
 	keyPosition       = "position"
 	keyLimit          = "limit"
 	keyTagKeys        = "tagKeys"
+	keyEmbed          = "embed"
+	embedMethods      = "methods"
+	embedAPISummary   = "apisummary"
 	litTrue           = "true"
 	headerContentType = "Content-Type"
 	// modeImport is the "mode" query parameter value that distinguishes
@@ -53,6 +56,7 @@ type Handler struct {
 	snsPublisher SNSPublisher
 	httpClient   *http.Client
 	authCache    *authorizerCache
+	respCache    *responseCache
 	peers        *regionpeers.Set[Handler]
 	// selRegexpCache is a bounded LRU of compiled selection-pattern regexps. It is
 	// keyed by user-supplied patterns, so it must be size-capped to prevent unbounded
@@ -138,6 +142,7 @@ func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{
 		Backend:        backend,
 		authCache:      newAuthorizerCache(),
+		respCache:      newResponseCache(),
 		httpClient:     &http.Client{Timeout: apiGWHTTPTimeout},
 		selRegexpCache: newRegexpCache(defaultRegexpCacheMaxEntries),
 	}
@@ -628,12 +633,16 @@ func (h *Handler) handleRESTAPI(c *echo.Context) error {
 		if len(v) == 0 {
 			continue
 		}
-		if k == keyTagKeys {
+		if k == keyTagKeys || k == keyEmbed {
 			body = injectJSONArrayFieldAPIGW(body, k, v)
 
 			continue
 		}
 		body = injectJSONFieldAPIGW(body, k, v[0])
+	}
+
+	if action == opGetExport {
+		body = injectJSONFieldAPIGW(body, "accepts", c.Request().Header.Get("Accept"))
 	}
 
 	return h.dispatchAndRespond(ctx, c, action, body, contentTypeJSON)

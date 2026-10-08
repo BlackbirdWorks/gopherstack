@@ -558,6 +558,82 @@ func (b *InMemoryBackend) LaunchInstances(groupName string, count int32) ([]Inst
 // LaunchInstancesIn adds new instances, spread round-robin over zones when given.
 // Every zone must be one of the group's own.
 func (b *InMemoryBackend) LaunchInstancesIn(groupName string, count int32, zones []string) ([]Instance, error) {
+	return b.LaunchInstancesWith(groupName, LaunchTargets{Zones: zones}, count)
+}
+
+// LaunchTargets are LaunchInstances' placement members; Zones and ZoneIDs are exclusive.
+type LaunchTargets struct {
+	Zones   []string
+	ZoneIDs []string
+	Subnets []string
+}
+
+type launchSite struct{ az, subnet string }
+
+// launchSites expands the request into (zone, subnet) placements, validated against g.
+func (b *InMemoryBackend) launchSites(g *AutoScalingGroup, t LaunchTargets) ([]launchSite, error) {
+	zones, err := b.zonesFromRequest(t.Zones, t.ZoneIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, z := range zones {
+		if !slices.Contains(g.AvailabilityZones, z) {
+			return nil, fmt.Errorf("%w: Availability Zone %q is not in group %q",
+				ErrInvalidParameter, z, g.AutoScalingGroupName)
+		}
+	}
+
+	if len(t.Subnets) > 0 {
+		return b.subnetSites(g, zones, t.Subnets)
+	}
+
+	if len(zones) == 0 {
+		zones = []string{b.defaultAvailabilityZone()}
+		if len(g.AvailabilityZones) > 0 {
+			zones = g.AvailabilityZones[:1]
+		}
+	}
+
+	sites := make([]launchSite, 0, len(zones))
+	for _, z := range zones {
+		sites = append(sites, launchSite{az: z, subnet: b.subnetForZone(g, z)})
+	}
+
+	return sites, nil
+}
+
+func (b *InMemoryBackend) subnetSites(g *AutoScalingGroup, zones, subnets []string) ([]launchSite, error) {
+	owned := groupSubnets(g.VPCZoneIdentifier)
+	sites := make([]launchSite, 0, len(subnets))
+
+	for _, s := range subnets {
+		if !slices.Contains(owned, s) {
+			return nil, fmt.Errorf("%w: subnet %q is not in group %q",
+				ErrInvalidParameter, s, g.AutoScalingGroupName)
+		}
+
+		az, ok := b.subnetZone(s)
+		if !ok {
+			az = b.defaultAvailabilityZone()
+			if len(g.AvailabilityZones) > 0 {
+				az = g.AvailabilityZones[0]
+			}
+		}
+
+		if len(zones) > 0 && !slices.Contains(zones, az) {
+			return nil, fmt.Errorf("%w: subnet %q is not in the requested Availability Zones",
+				ErrInvalidParameter, s)
+		}
+
+		sites = append(sites, launchSite{az: az, subnet: s})
+	}
+
+	return sites, nil
+}
+
+// LaunchInstancesWith adds count instances placed per t.
+func (b *InMemoryBackend) LaunchInstancesWith(groupName string, t LaunchTargets, count int32) ([]Instance, error) {
 	b.mu.Lock("LaunchInstances")
 	defer b.mu.Unlock()
 
@@ -566,23 +642,18 @@ func (b *InMemoryBackend) LaunchInstancesIn(groupName string, count int32, zones
 		return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
 	}
 
-	for _, z := range zones {
-		if !slices.Contains(g.AvailabilityZones, z) {
-			return nil, fmt.Errorf("%w: Availability Zone %q is not in group %q", ErrInvalidParameter, z, groupName)
-		}
+	sites, err := b.launchSites(g, t)
+	if err != nil {
+		return nil, err
 	}
 
 	oldLen := len(g.Instances)
 
 	var newInstances []Instance
 
-	if len(zones) == 0 {
-		newInstances = b.makeInstances(g, count)
-	} else {
-		for i, n := range distributeRoundRobin(int(count), len(zones)) {
-			//nolint:gosec // n <= count
-			newInstances = append(newInstances, b.makeInstancesIn(g, int32(n), zones[i])...)
-		}
+	for i, n := range distributeRoundRobin(int(count), len(sites)) {
+		//nolint:gosec // n <= count
+		newInstances = append(newInstances, b.makeInstancesIn(g, int32(n), sites[i].az, sites[i].subnet)...)
 	}
 
 	g.Instances = append(g.Instances, newInstances...)

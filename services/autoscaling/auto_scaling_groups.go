@@ -142,6 +142,13 @@ func (b *InMemoryBackend) CreateAutoScalingGroup(input CreateAutoScalingGroupInp
 	b.mu.Lock("CreateAutoScalingGroup")
 	defer b.mu.Unlock()
 
+	zones, zoneErr := b.zonesFromRequest(input.AvailabilityZones, input.AvailabilityZoneIDs)
+	if zoneErr != nil {
+		return nil, zoneErr
+	}
+
+	input.AvailabilityZones = zones
+
 	if input.HealthCheckType == "" {
 		input.HealthCheckType = healthCheckTypeEC2
 	}
@@ -154,6 +161,15 @@ func (b *InMemoryBackend) CreateAutoScalingGroup(input CreateAutoScalingGroupInp
 	normalizedHooks, err := buildInitialLifecycleHooks(input)
 	if err != nil {
 		return nil, err
+	}
+
+	lcName, deriveErr := b.deriveLaunchConfigurationLocked(input)
+	if deriveErr != nil {
+		return nil, deriveErr
+	}
+
+	if lcName != "" {
+		input.LaunchConfigurationName = lcName
 	}
 
 	azs := input.AvailabilityZones
@@ -561,6 +577,13 @@ func (b *InMemoryBackend) UpdateAutoScalingGroup(input UpdateAutoScalingGroupInp
 		return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, input.AutoScalingGroupName)
 	}
 
+	zones, zoneErr := b.zonesFromRequest(input.AvailabilityZones, input.AvailabilityZoneIDs)
+	if zoneErr != nil {
+		return nil, zoneErr
+	}
+
+	input.AvailabilityZones = zones
+
 	if err := b.applyUpdateCapacityLocked(g, input); err != nil {
 		return nil, err
 	}
@@ -617,7 +640,7 @@ func (b *InMemoryBackend) DeleteAutoScalingGroup(name string, forceDelete bool) 
 	}
 
 	b.groups.Delete(name)
-	delete(b.activities, name)
+	b.retireActivities(name)
 	b.deleteScheduledActionsForGroupLocked(name)
 	delete(b.instanceRefreshes, name)
 	b.deleteLifecycleHooksForGroupLocked(name)
@@ -873,4 +896,31 @@ func (b *InMemoryBackend) ResumeProcesses(groupName string, processes []string) 
 	g.SuspendedProcesses = newProcs
 
 	return nil
+}
+
+// deriveLaunchConfigurationLocked creates the launch configuration, named after
+// the group, that a CreateAutoScalingGroup request with InstanceId and no other
+// launch source runs on. Returns "" when nothing was derived.
+func (b *InMemoryBackend) deriveLaunchConfigurationLocked(input CreateAutoScalingGroupInput) (string, error) {
+	if input.InstanceID == "" {
+		return "", nil
+	}
+
+	if _, ok := b.instanceAttributes(input.InstanceID); !ok {
+		return "", fmt.Errorf("%w: The instance %q does not exist", ErrInvalidParameter, input.InstanceID)
+	}
+
+	if input.LaunchConfigurationName != "" || input.LaunchTemplate != nil || input.MixedInstancesPolicy != nil {
+		return "", nil
+	}
+
+	lc, err := b.createLaunchConfigurationLocked(CreateLaunchConfigurationInput{
+		LaunchConfigurationName: input.AutoScalingGroupName,
+		InstanceID:              input.InstanceID,
+	})
+	if err != nil {
+		return "", err
+	}
+
+	return lc.LaunchConfigurationName, nil
 }

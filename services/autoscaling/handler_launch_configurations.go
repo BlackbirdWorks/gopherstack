@@ -44,6 +44,7 @@ func (h *Handler) handleCreateLaunchConfiguration(vals url.Values) (any, error) 
 	input := CreateLaunchConfigurationInput{
 		MetadataOptions:              metadata,
 		LaunchConfigurationName:      name,
+		InstanceID:                   vals.Get("InstanceId"),
 		ImageID:                      imageID,
 		InstanceType:                 instanceType,
 		KeyName:                      keyName,

@@ -39,6 +39,7 @@ type backendSnapshot struct {
 	Activities          map[string][]ScalingActivity            `json:"activities"`
 	InstanceRefreshes   map[string][]*InstanceRefresh           `json:"instanceRefreshes"`
 	NotificationConfigs map[string][]*NotificationConfiguration `json:"notificationConfigs"`
+	DeletedActivities   []ScalingActivity                       `json:"deletedActivities,omitempty"`
 	Version             int                                     `json:"version"`
 }
 
@@ -63,6 +64,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Version:             autoscalingSnapshotVersion,
 		Tables:              tables,
 		Activities:          b.activities,
+		DeletedActivities:   b.deletedActivities,
 		InstanceRefreshes:   b.instanceRefreshes,
 		NotificationConfigs: b.notificationConfigs,
 	}
@@ -112,6 +114,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 		b.registry.ResetAll()
 		b.activities = make(map[string][]ScalingActivity)
+		b.deletedActivities = nil
 		b.instanceRefreshes = make(map[string][]*InstanceRefresh)
 		b.notificationConfigs = make(map[string][]*NotificationConfiguration)
 		b.instanceIndex = make(map[string]string)
@@ -127,6 +130,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	// nextHookSeq is not itself persisted; recompute it from the restored hooks
 	// so any hook registered post-restore chains after all of them.
 	b.recomputeNextHookSeqLocked()
+
+	b.deletedActivities = snap.DeletedActivities
 
 	if snap.Activities != nil {
 		b.activities = snap.Activities

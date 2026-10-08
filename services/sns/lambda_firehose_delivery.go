@@ -298,7 +298,8 @@ func (b *InMemoryBackend) deliverToSMSSubscriptions(ev *events.SNSPublishedEvent
 		if sub.Protocol != protocolSMS {
 			continue
 		}
-		_, _ = b.PublishSMS(sub.Endpoint, sub.Body(ev.Message))
+		_, err := b.PublishSMS(sub.Endpoint, sub.Body(ev.Message))
+		b.emitDeliveryOutcome(ev.TopicARN, err == nil)
 	}
 }
 
@@ -321,6 +322,8 @@ func (b *InMemoryBackend) deliverToApplicationSubscriptions(ev *events.SNSPublis
 			ep, exists := b.platformEndpoints.Get(sub.Endpoint)
 			enabled = exists && ep.Attributes["Enabled"] != boolFalseStr
 		}()
+
+		b.emitDeliveryOutcome(ev.TopicARN, enabled)
 
 		if !enabled {
 			continue

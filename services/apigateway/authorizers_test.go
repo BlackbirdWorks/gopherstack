@@ -46,6 +46,9 @@ func TestTestInvokeAuthorizer(t *testing.T) {
 			t.Parallel()
 
 			handler, e := boostSetup()
+			handler.SetLambdaInvoker(&captureAuthInvoker{response: []byte(
+				`{"principalId":"user-1","policyDocument":{"Version":"2012-10-17","Statement":[` +
+					`{"Action":"execute-api:Invoke","Effect":"Allow","Resource":"*"}]}}`)})
 			apiID := boostAPI(t, handler, e)
 			authID := boostAuthorizer(t, handler, e, apiID)
 
@@ -58,14 +61,23 @@ func TestTestInvokeAuthorizer(t *testing.T) {
 				lookupAuthID = "notexist"
 			}
 
-			rec := postWithHandler(t, handler, e, "TestInvokeAuthorizer",
-				fmt.Sprintf(`{"restApiId":%q,"authorizerId":%q}`, lookupAPIID, lookupAuthID))
+			rec := postWithHandler(
+				t,
+				handler,
+				e,
+				"TestInvokeAuthorizer",
+				fmt.Sprintf(
+					`{"restApiId":%q,"authorizerId":%q,"headers":{"Authorization":"tok"}}`,
+					lookupAPIID,
+					lookupAuthID,
+				),
+			)
 			assert.Equal(t, tt.wantCode, rec.Code)
 
 			if tt.wantCode == http.StatusOK {
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-				assert.Equal(t, "test-principal", resp["principalId"])
+				assert.Equal(t, "user-1", resp["principalId"])
 			}
 		})
 	}

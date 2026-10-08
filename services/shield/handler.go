@@ -379,6 +379,7 @@ func shieldErrorRules() []shieldErrorRule {
 		{ErrSubscriptionRequired, "InvalidOperationException"},
 		{ErrLimitExceeded, "LimitsExceededException"},
 		{ErrNoAssociatedRole, "NoAssociatedRoleException"},
+		{ErrLockedSubscription, "LockedSubscriptionException"},
 		{errInvalidPaginationToken, "InvalidPaginationTokenException"},
 		{awserr.ErrNotFound, "ResourceNotFoundException"},
 		{awserr.ErrConflict, "ResourceAlreadyExistsException"},

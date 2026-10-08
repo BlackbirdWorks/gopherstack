@@ -20,7 +20,9 @@ type StorageBackend interface {
 	SetTopicAttributes(topicArn, attrName, attrValue string) error
 	Subscribe(topicArn, protocol, endpoint, filterPolicy string) (*Subscription, error)
 	ConfirmSubscription(topicArn, token string) (*Subscription, error)
+	ConfirmSubscriptionWith(topicArn, token string, authenticateOnUnsubscribe bool) (*Subscription, error)
 	Unsubscribe(subscriptionArn string) error
+	UnsubscribeAs(subscriptionArn, callerAccount string) error
 	ListSubscriptions(nextToken string) ([]Subscription, string, error)
 	ListSubscriptionsByTopic(topicArn, nextToken string) ([]Subscription, string, error)
 	GetSubscriptionAttributes(subscriptionArn string) (map[string]string, error)

@@ -215,14 +215,51 @@ func (b *InMemoryBackend) checkFilterPolicyQuotaLocked(
 
 // Unsubscribe removes a subscription by ARN.
 func (b *InMemoryBackend) Unsubscribe(subscriptionArn string) error {
+	return b.unsubscribe(subscriptionArn, "", true)
+}
+
+// UnsubscribeAs removes a subscription on behalf of callerAccount ("" when the request carried
+// no AWS signature). A subscription confirmed with AuthenticateOnUnsubscribe requires a signed
+// caller from the topic owner's or the subscription owner's account.
+func (b *InMemoryBackend) UnsubscribeAs(subscriptionArn, callerAccount string) error {
+	return b.unsubscribe(subscriptionArn, callerAccount, false)
+}
+
+func (b *InMemoryBackend) unsubscribe(subscriptionArn, callerAccount string, trusted bool) error {
 	b.mu.Lock("Unsubscribe")
 	defer b.mu.Unlock()
 
-	if !b.subscriptions.Delete(subscriptionArn) {
+	sub, ok := b.subscriptions.Get(subscriptionArn)
+	if !ok {
 		return ErrSubscriptionNotFound
 	}
 
+	if sub.AuthenticateOnUnsubscribe && !trusted && !unsubscribeAllowed(sub, callerAccount) {
+		return fmt.Errorf("%w: the subscription requires an authenticated Unsubscribe by its owner or the topic owner",
+			ErrUnauthenticatedUnsubscribe)
+	}
+
+	b.subscriptions.Delete(subscriptionArn)
+
 	return nil
+}
+
+// topicArnAccountIndex is the account segment of a colon-split topic ARN.
+const topicArnAccountIndex = 4
+
+func unsubscribeAllowed(sub *Subscription, callerAccount string) bool {
+	if callerAccount == "" {
+		return false
+	}
+
+	parts := strings.Split(sub.TopicArn, ":")
+	topicOwner := ""
+
+	if len(parts) > topicArnAccountIndex {
+		topicOwner = parts[topicArnAccountIndex]
+	}
+
+	return callerAccount == sub.Owner || callerAccount == topicOwner
 }
 
 // ConfirmSubscription "confirms" a pending subscription.
@@ -230,6 +267,13 @@ func (b *InMemoryBackend) Unsubscribe(subscriptionArn string) error {
 // The subscription must belong to the given topicArn; if found and pending,
 // PendingConfirmation is cleared and the subscription ARN is returned.
 func (b *InMemoryBackend) ConfirmSubscription(topicArn, token string) (*Subscription, error) {
+	return b.ConfirmSubscriptionWith(topicArn, token, false)
+}
+
+// ConfirmSubscriptionWith is ConfirmSubscription recording AuthenticateOnUnsubscribe on the subscription.
+func (b *InMemoryBackend) ConfirmSubscriptionWith(
+	topicArn, token string, authenticateOnUnsubscribe bool,
+) (*Subscription, error) {
 	if token == "" {
 		return nil, ErrInvalidParameter
 	}
@@ -241,6 +285,7 @@ func (b *InMemoryBackend) ConfirmSubscription(topicArn, token string) (*Subscrip
 	for _, sub := range b.subscriptionsByTopic.Get(topicArn) {
 		if sub.PendingConfirmation {
 			sub.PendingConfirmation = false
+			sub.AuthenticateOnUnsubscribe = authenticateOnUnsubscribe
 
 			return sub, nil
 		}

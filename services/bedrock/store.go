@@ -55,6 +55,7 @@ const sortOrderDescending = "Descending"
 
 // InMemoryBackend stores Amazon Bedrock state in memory.
 type InMemoryBackend struct {
+	appConfig                   any
 	guardrails                  *store.Table[Guardrail]
 	guardrailVersions           *store.Table[GuardrailVersion] // guardrailID+":"+version → version
 	provisionedModelThroughputs *store.Table[ProvisionedModelThroughput]

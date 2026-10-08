@@ -22,6 +22,7 @@ type InMemoryBackend struct {
 	tags          map[string]map[string]string
 	registry      *store.Registry
 	mu            *lockmetrics.RWMutex
+	appConfig     any
 	accountID     string
 	region        string
 }

@@ -12,7 +12,8 @@ func (h *Handler) handleDescribeScalingActivities(vals url.Values) (any, error) 
 	groupName := vals.Get("AutoScalingGroupName")
 	statuses := scalingActivityStatusFilters(vals)
 
-	activities, err := h.Backend.DescribeScalingActivities(groupName, statuses)
+	activities, err := h.Backend.DescribeScalingActivitiesFor(
+		groupName, statuses, vals.Get("IncludeDeletedGroups") == formValueTrue)
 	if err != nil {
 		return nil, err
 	}

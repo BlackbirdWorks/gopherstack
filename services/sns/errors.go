@@ -17,6 +17,7 @@ var (
 	ErrSandboxPhoneAlreadyExists        = errors.New("AlreadyExists")
 	ErrPermissionLabelExists            = errors.New("AuthorizationError")
 	ErrPermissionLabelNotFound          = errors.New("AuthorizationError")
+	ErrUnauthenticatedUnsubscribe       = errors.New("AuthorizationError")
 	ErrSandboxPhoneNotVerified          = errors.New("InvalidParameter")
 	// ErrSubscriptionLimitExceeded maps to the SNS "SubscriptionLimitExceeded" error
 	// (HTTP 403): the customer already owns the maximum allowed number of

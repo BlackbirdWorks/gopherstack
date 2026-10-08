@@ -1,14 +1,20 @@
 package waf
 
 import (
+	"fmt"
 	"maps"
 	"sort"
+	"strings"
 )
 
 // TagResource adds tags to a resource identified by ARN.
 func (b *InMemoryBackend) TagResource(arn string, tags map[string]string) error {
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
+
+	if err := b.requireTaggableLocked(arn); err != nil {
+		return err
+	}
 
 	if b.tags[arn] == nil {
 		b.tags[arn] = make(map[string]string)
@@ -24,6 +30,10 @@ func (b *InMemoryBackend) UntagResource(arn string, keys []string) error {
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
+	if err := b.requireTaggableLocked(arn); err != nil {
+		return err
+	}
+
 	for _, k := range keys {
 		delete(b.tags[arn], k)
 	}
@@ -35,6 +45,10 @@ func (b *InMemoryBackend) UntagResource(arn string, keys []string) error {
 func (b *InMemoryBackend) ListTagsForResource(arn string) ([]Tag, error) {
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
+
+	if err := b.requireTaggableLocked(arn); err != nil {
+		return nil, err
+	}
 
 	tagMap := b.tags[arn]
 	result := make([]Tag, 0, len(tagMap))
@@ -71,4 +85,49 @@ func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
 	}
 
 	return out
+}
+
+const wafARNFields = 6
+
+// requireTaggableLocked rejects a ResourceARN that does not name an existing WAF resource.
+func (b *InMemoryBackend) requireTaggableLocked(resourceARN string) error {
+	parts := strings.SplitN(resourceARN, ":", wafARNFields)
+	if len(parts) == wafARNFields && parts[0] == "arn" && (parts[2] == "waf" || parts[2] == "waf-regional") {
+		if kind, id, ok := strings.Cut(parts[5], "/"); ok && b.resourceExistsLocked(kind, id) {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: resource %q does not exist", ErrNotFound, resourceARN)
+}
+
+func (b *InMemoryBackend) resourceExistsLocked(kind, id string) bool {
+	switch kind {
+	case "webacl":
+		return b.webACLs.Has(id)
+	case "rule":
+		return b.rules.Has(id)
+	case "ratebasedrule":
+		return b.rateBasedRules.Has(id)
+	case "rulegroup":
+		return b.ruleGroups.Has(id)
+	case "ipset":
+		return b.ipSets.Has(id)
+	case "bytematchset":
+		return b.byteMatchSets.Has(id)
+	case "sizeconstraintset":
+		return b.sizeConstraintSets.Has(id)
+	case "sqlinjectionmatchset":
+		return b.sqlInjectionMatchSets.Has(id)
+	case "xssmatchset":
+		return b.xssMatchSets.Has(id)
+	case "geomatchset":
+		return b.geoMatchSets.Has(id)
+	case "regexpatternset":
+		return b.regexPatternSets.Has(id)
+	case "regexmatchset":
+		return b.regexMatchSets.Has(id)
+	}
+
+	return false
 }

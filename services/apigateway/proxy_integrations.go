@@ -167,7 +167,7 @@ func (h *Handler) handleAWSIntegration(
 	w.Header().Set("Content-Type", contentTypeJSON)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(statusCode)
-	_, _ = w.Write(responseBody) //nolint:gosec // local emulation: response passthrough is intentional
+	_, _ = w.Write(responseBody)
 }
 
 // buildAWSIntegrationPayload reads the request body, builds the VTL request context,

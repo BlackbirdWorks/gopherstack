@@ -71,6 +71,8 @@ type Terminology struct {
 	TargetLanguages []string
 	SizeBytes       int
 	TermCount       int
+	// SkippedTermCount counts file rows skipped as empty (SDK TerminologyProperties.SkippedTermCount).
+	SkippedTermCount int
 }
 
 // ParallelDataConfig holds S3 data config for parallel data.
@@ -99,6 +101,12 @@ type ParallelData struct {
 	// UpdateParallelDataOutput field), empty until the first update.
 	LatestUpdateAttemptStatus string
 	TargetLanguages           []string
+	// Import statistics from reading the S3 input file; Imported is false until it was readable.
+	ImportedDataSize    int64
+	ImportedRecordCount int64
+	FailedRecordCount   int64
+	SkippedRecordCount  int64
+	Imported            bool
 }
 
 // TranslationJob stores an async translation job.
@@ -118,6 +126,10 @@ type TranslationJob struct {
 	TargetLanguages   []string
 	TerminologyNames  []string
 	ParallelDataNames []string
-	stopRequested     bool
-	shouldFail        bool
+	// Document counts from processing the S3 input; zero until the job has run over a readable input.
+	InputDocumentsCount      int
+	TranslatedDocumentsCount int
+	DocumentsWithErrorsCount int
+	stopRequested            bool
+	shouldFail               bool
 }

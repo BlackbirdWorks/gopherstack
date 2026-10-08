@@ -2,7 +2,6 @@ package translate
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -18,42 +17,6 @@ func cloneTerminology(t *Terminology) *Terminology {
 	cp := *t
 
 	return &cp
-}
-
-// parseCSVLanguages extracts source/target language codes and term count from CSV bytes.
-// CSV header row is: sourceLang,targetLang1[,targetLang2,...]; subsequent rows are terms.
-func parseCSVLanguages(csvBytes []byte) (string, []string, int) {
-	const minCols = 2
-
-	lines := strings.Split(strings.TrimSpace(string(csvBytes)), "\n")
-	if len(lines) == 0 {
-		return "", nil, 0
-	}
-
-	var srcLang string
-	var targets []string
-
-	// Parse header line.
-	header := strings.Split(strings.TrimSpace(lines[0]), ",")
-	if len(header) >= minCols {
-		srcLang = strings.TrimSpace(header[0])
-		for _, col := range header[1:] {
-			if t := strings.TrimSpace(col); t != "" {
-				targets = append(targets, t)
-			}
-		}
-	}
-
-	// Count non-empty, non-comment data rows.
-	termCount := 0
-	for _, line := range lines[1:] {
-		line = strings.TrimSpace(line)
-		if line != "" && !strings.HasPrefix(line, "#") {
-			termCount++
-		}
-	}
-
-	return srcLang, targets, termCount
 }
 
 // ImportTerminology creates or overwrites a custom terminology.
@@ -92,6 +55,10 @@ func (b *InMemoryBackend) ImportTerminology(
 	b.mu.Lock("ImportTerminology")
 	defer b.mu.Unlock()
 
+	if err := b.validateEncryptionKey(encKey); err != nil {
+		return nil, err
+	}
+
 	resourceARN := b.terminologyARN(name)
 
 	// ImportTerminology's Tags replaces the resource's tag set wholesale
@@ -109,7 +76,9 @@ func (b *InMemoryBackend) ImportTerminology(
 
 	now := time.Now().UTC()
 
-	srcLang, targetLangs, termCount := parseCSVLanguages(data.File)
+	parsed := parseTermFile(data.Format, data.File)
+
+	srcLang, targetLangs, termCount := parsed.source, parsed.targets, parsed.records
 	if srcLang == "" {
 		srcLang = "en"
 	}
@@ -125,6 +94,7 @@ func (b *InMemoryBackend) ImportTerminology(
 		existing.SourceLanguage = srcLang
 		existing.TargetLanguages = targetLangs
 		existing.TermCount = termCount
+		existing.SkippedTermCount = parsed.skipped + parsed.failed
 		existing.Directionality = directionality
 
 		if tags != nil {
@@ -150,6 +120,8 @@ func (b *InMemoryBackend) ImportTerminology(
 		SourceLanguage:  srcLang,
 		TargetLanguages: targetLangs,
 		TermCount:       termCount,
+
+		SkippedTermCount: parsed.skipped + parsed.failed,
 	}
 	b.terminologies.Put(term)
 

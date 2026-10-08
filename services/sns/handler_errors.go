@@ -55,7 +55,8 @@ func (h *Handler) handleBackendError(c *echo.Context, err error) error {
 		log.WarnContext(ctx, "SNS endpoint disabled", "code", code)
 	case errors.Is(err, ErrOptedOut):
 		log.WarnContext(ctx, "SNS phone number opted out", "code", code)
-	case errors.Is(err, ErrPermissionLabelExists), errors.Is(err, ErrPermissionLabelNotFound):
+	case errors.Is(err, ErrPermissionLabelExists), errors.Is(err, ErrPermissionLabelNotFound),
+		errors.Is(err, ErrUnauthenticatedUnsubscribe):
 		status = http.StatusForbidden
 		log.WarnContext(ctx, "SNS permission label error", "code", code)
 	case errors.Is(err, ErrSubscriptionLimitExceeded), errors.Is(err, ErrFilterPolicyLimitExceeded):
@@ -106,7 +107,8 @@ func errorCode(err error) string {
 		// CreateSMSSandboxPhoneNumber's switch. InvalidParameter is the same
 		// nearest-fit precedent used above for ErrPlatformApplicationAlreadyExists.
 		return errCodeInvalidParameter
-	case errors.Is(err, ErrPermissionLabelExists), errors.Is(err, ErrPermissionLabelNotFound):
+	case errors.Is(err, ErrPermissionLabelExists), errors.Is(err, ErrPermissionLabelNotFound),
+		errors.Is(err, ErrUnauthenticatedUnsubscribe):
 		return "AuthorizationError"
 	case errors.Is(err, ErrSubscriptionLimitExceeded):
 		return "SubscriptionLimitExceeded"

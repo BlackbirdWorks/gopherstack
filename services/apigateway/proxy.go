@@ -20,6 +20,7 @@ import (
 var (
 	errUnexpectedSigningMethod = errors.New("unexpected JWT signing method")
 	errNoJWKSProvider          = errors.New("no JWKS provider configured")
+	errInvalidToken            = errors.New("invalid token")
 )
 
 // defaultAuthorizerTTLSeconds is the AWS default authorizer result cache TTL.
@@ -260,9 +261,12 @@ func (h *Handler) proxyHandler(apiID, stageName string) http.HandlerFunc {
 
 		obs.setResource(resource.Path)
 
-		integrationStart := time.Now()
-		h.dispatchIntegration(ctx, w, r, apiID, stageName, resource, method.MethodIntegration, pathParams)
-		obs.setIntegration(time.Since(integrationStart))
+		h.serveWithCache(w, r, obs, stage, apiID, resource.Path, method.MethodIntegration, pathParams,
+			func(rw http.ResponseWriter) {
+				integrationStart := time.Now()
+				h.dispatchIntegration(ctx, rw, r, apiID, stageName, resource, method.MethodIntegration, pathParams)
+				obs.setIntegration(time.Since(integrationStart))
+			})
 	}
 }
 

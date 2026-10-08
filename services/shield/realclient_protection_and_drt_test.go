@@ -3,6 +3,7 @@ package shield_test
 import (
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
@@ -380,6 +381,15 @@ func testSubscriptionRealClient(t *testing.T) {
 	stateOut, err := client.GetSubscriptionState(ctx, &shieldsdk.GetSubscriptionStateInput{})
 	require.NoError(t, err)
 	assert.Equal(t, shieldtypes.SubscriptionStateActive, stateOut.SubscriptionState)
+
+	_, err = client.UpdateSubscription(ctx, &shieldsdk.UpdateSubscriptionInput{
+		AutoRenew: shieldtypes.AutoRenewDisabled,
+	})
+
+	var locked *shieldtypes.LockedSubscriptionException
+	require.ErrorAs(t, err, &locked, "AutoRenew is locked until the last 30 days of the commitment")
+
+	backend.AddSubscriptionInternalStartedAt(time.Now().AddDate(0, 0, -340))
 
 	_, err = client.UpdateSubscription(ctx, &shieldsdk.UpdateSubscriptionInput{
 		AutoRenew: shieldtypes.AutoRenewDisabled,

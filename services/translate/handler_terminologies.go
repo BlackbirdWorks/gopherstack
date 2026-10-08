@@ -177,6 +177,7 @@ func terminologyToMap(t *Terminology) map[string]any {
 		"Format":               t.Format,
 		"SizeBytes":            t.SizeBytes,
 		"TermCount":            t.TermCount,
+		"SkippedTermCount":     t.SkippedTermCount,
 		"CreatedAt":            awstime.Epoch(t.CreatedAt),
 		"LastUpdatedAt":        awstime.Epoch(t.LastUpdatedAt),
 		keySourceLanguageCode:  t.SourceLanguage,

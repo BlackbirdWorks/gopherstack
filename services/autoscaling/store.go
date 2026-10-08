@@ -67,54 +67,32 @@ const (
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	// ec2Launcher, when set (see SetEC2Launcher), routes scale-out/scale-in
-	// through the EC2 backend so ASG membership stays consistent with EC2
-	// DescribeInstances. Nil preserves the historical fabricated-instance-ID
-	// behavior.
-	ec2Launcher EC2Launcher
-	// instanceTypeResolver, when set (see SetInstanceTypeResolver), resolves
-	// MixedInstancesPolicy overrides' InstanceRequirements against a real
-	// instance-type catalog. Nil falls back to instanceTypeForOverride's
-	// documented fallback behavior.
-	instanceTypeResolver InstanceTypeResolver
-	// elbv2Registrar, when set (see SetELBv2Registrar), registers/deregisters
-	// real ELBv2 targets as group membership and TargetGroupARNs change. Nil
-	// preserves the historical behavior of TargetGroupARNs/LoadBalancerNames
-	// being stored and echoed with no effect on ELBv2.
-	elbv2Registrar ELBv2TargetRegistrar
-	// elbRegistrar, when set (see SetELBRegistrar), registers/deregisters real
-	// classic ELB instances as group membership and LoadBalancerNames change.
-	// Nil preserves the historical behavior of LoadBalancerNames being stored
-	// and echoed with no effect on classic ELB.
+	ec2Launcher             EC2Launcher
+	instanceTypeResolver    InstanceTypeResolver
+	elbv2Registrar          ELBv2TargetRegistrar
 	elbRegistrar            ELBInstanceRegistrar
-	groups                  *store.Table[AutoScalingGroup]
-	launchConfigurations    *store.Table[LaunchConfiguration]
+	ec2Lookup               EC2Lookup
+	lifecycleHooks          *store.Table[LifecycleHook]
+	notificationConfigs     map[string][]*NotificationConfiguration
 	activities              map[string][]ScalingActivity
+	mu                      *lockmetrics.RWMutex
 	scheduledActions        *store.Table[ScheduledAction]
 	scheduledActionsByGroup *store.Index[ScheduledAction]
 	instanceRefreshes       map[string][]*InstanceRefresh
-	lifecycleHooks          *store.Table[LifecycleHook]
+	groups                  *store.Table[AutoScalingGroup]
 	lifecycleHooksByGroup   *store.Index[LifecycleHook]
 	scalingPolicies         *store.Table[ScalingPolicy]
 	scalingPoliciesByGroup  *store.Index[ScalingPolicy]
-	notificationConfigs     map[string][]*NotificationConfiguration
+	launchConfigurations    *store.Table[LaunchConfiguration]
 	warmPools               *store.Table[WarmPool]
-	// pendingHookTokens is a *store.Table for Get/Put/Delete/Range convenience
-	// but is deliberately NOT registered on registry — see registerAllTables.
-	pendingHookTokens *store.Table[pendingHookAction]
-	// pendingRefreshActions tracks in-flight instance-refresh transition
-	// timers, keyed by InstanceRefreshID. Deliberately NOT registered on
-	// registry, for the same reason as pendingHookTokens.
-	pendingRefreshActions *store.Table[pendingRefreshAction]
-	registry              *store.Registry
-	// instanceIndex maps instanceID → groupName for O(1) lookup.
-	instanceIndex map[string]string
-	mu            *lockmetrics.RWMutex
-	accountID     string
-	region        string
-	// nextHookSeq assigns LifecycleHook.Sequence on first registration (see
-	// putLifecycleHookLocked); recomputed from restored data by Restore.
-	nextHookSeq int64
+	pendingHookTokens       *store.Table[pendingHookAction]
+	pendingRefreshActions   *store.Table[pendingRefreshAction]
+	registry                *store.Registry
+	instanceIndex           map[string]string
+	accountID               string
+	region                  string
+	deletedActivities       []ScalingActivity
+	nextHookSeq             int64
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend for the default account and region.
@@ -179,7 +157,7 @@ func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
 			b.cleanupHookTimers(name, "")
 			b.cleanupRefreshTimers(name)
 			b.groups.Delete(name)
-			delete(b.activities, name)
+			b.retireActivities(name)
 			b.deleteScheduledActionsForGroupLocked(name)
 			delete(b.instanceRefreshes, name)
 			b.deleteLifecycleHooksForGroupLocked(name)
