@@ -148,7 +148,7 @@ func NewHandler(backend StorageBackend) *Handler {
 
 // resetHome clears the home region only.
 func (h *Handler) resetHome() {
-	h.idem.reset()
+	h.idempotency().reset()
 
 	if r, ok := h.Backend.(interface{ Reset() }); ok {
 		r.Reset()

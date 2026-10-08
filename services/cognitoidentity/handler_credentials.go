@@ -71,6 +71,7 @@ func (h *Handler) handleGetOpenIDToken(
 
 type getOpenIDTokenForDeveloperIdentityInput struct {
 	Logins         map[string]string `json:"Logins"`
+	PrincipalTags  map[string]string `json:"PrincipalTags"`
 	IdentityPoolID string            `json:"IdentityPoolId"`
 	IdentityID     string            `json:"IdentityId"`
 	TokenDuration  int64             `json:"TokenDuration"`
@@ -91,6 +92,7 @@ func (h *Handler) handleGetOpenIDTokenForDeveloperIdentity(
 		in.IdentityID,
 		in.Logins,
 		in.TokenDuration,
+		DeveloperTokenOptions{PrincipalTags: in.PrincipalTags},
 	)
 	if err != nil {
 		return nil, err

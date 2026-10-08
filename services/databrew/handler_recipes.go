@@ -119,6 +119,10 @@ func (h *Handler) handleCreateRecipe(ctx context.Context, body []byte) ([]byte, 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
+	if err := validateRecipeStepMembers(req.Steps); err != nil {
+		return nil, err
+	}
+
 	r, err := h.Backend.CreateRecipe(ctx, req.Name, req.Description, req.Steps, req.Tags)
 	if err != nil {
 		return nil, err
@@ -181,6 +185,10 @@ func (h *Handler) handleUpdateRecipe(ctx context.Context, body []byte) ([]byte, 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
+	if err := validateRecipeStepMembers(req.Steps); err != nil {
+		return nil, err
+	}
+
 	if err := h.Backend.UpdateRecipe(ctx, req.Name, req.Description, req.Steps); err != nil {
 		return nil, err
 	}

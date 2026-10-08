@@ -201,12 +201,24 @@ type WirelessDeviceImportTask struct {
 
 // SingleWirelessDeviceImportTask represents an IoT Wireless single-device import task.
 type SingleWirelessDeviceImportTask struct {
-	CreatedAt        time.Time `json:"createdAt"`
-	ID               string    `json:"id"`
-	ARN              string    `json:"arn"`
-	WirelessDeviceID string    `json:"wirelessDeviceId"`
-	DestinationName  string    `json:"destinationName"`
-	Status           string    `json:"status"`
+	CreatedAt                      time.Time `json:"createdAt"`
+	ID                             string    `json:"id"`
+	ARN                            string    `json:"arn"`
+	WirelessDeviceID               string    `json:"wirelessDeviceId"`
+	DestinationName                string    `json:"destinationName"`
+	Status                         string    `json:"status"`
+	DeviceName                     string    `json:"deviceName,omitempty"`
+	Positioning                    string    `json:"positioning,omitempty"`
+	SidewalkManufacturingSn        string    `json:"sidewalkManufacturingSn,omitempty"`
+	SidewalkPositioningDestination string    `json:"sidewalkPositioningDestination,omitempty"`
+}
+
+// SingleImportDetails carries the optional StartSingleWirelessDeviceImportTask members.
+type SingleImportDetails struct {
+	DeviceName                     string
+	Positioning                    string
+	SidewalkManufacturingSn        string
+	SidewalkPositioningDestination string
 }
 
 // PositionConfigEntry represents a stored position configuration for a

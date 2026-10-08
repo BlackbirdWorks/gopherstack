@@ -69,6 +69,14 @@ func (h *Handler) handleCreateRuleset(ctx context.Context, body []byte) ([]byte,
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
+	if req.TargetArn == "" || req.Rules == nil {
+		return nil, fmt.Errorf("%w: TargetArn and Rules are required", ErrValidation)
+	}
+
+	if err := validateRuleMembers(req.Rules); err != nil {
+		return nil, err
+	}
+
 	rs, err := h.Backend.CreateRuleset(ctx, req.Name, req.Description, req.TargetArn, req.Rules, req.Tags)
 	if err != nil {
 		return nil, err
@@ -119,6 +127,14 @@ func (h *Handler) handleUpdateRuleset(ctx context.Context, body []byte) ([]byte,
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
+	if req.Rules == nil {
+		return nil, fmt.Errorf("%w: Rules is required", ErrValidation)
+	}
+
+	if err := validateRuleMembers(req.Rules); err != nil {
+		return nil, err
+	}
+
 	if err := h.Backend.UpdateRuleset(ctx, req.Name, req.Description, req.Rules); err != nil {
 		return nil, err
 	}

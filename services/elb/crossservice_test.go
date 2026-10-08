@@ -2,6 +2,7 @@ package elb_test
 
 import (
 	"context"
+	"maps"
 	"net/http"
 	"net/url"
 	"testing"
@@ -65,12 +66,12 @@ func TestApplySecurityGroupsToLoadBalancer_EC2Resolver(t *testing.T) {
 			t.Parallel()
 
 			backend := newBackend()
+			h := elb.NewHandler(backend)
+			mustCreateVPCLB(t, h, "sg-resolver-lb")
+
 			if tt.resolver != nil {
 				backend.SetEC2Resolver(tt.resolver)
 			}
-
-			h := elb.NewHandler(backend)
-			mustCreateVPCLB(t, h, "sg-resolver-lb")
 
 			rec := doELB(t, h, url.Values{
 				"Action":                  {"ApplySecurityGroupsToLoadBalancer"},
@@ -113,12 +114,12 @@ func TestAttachLoadBalancerToSubnets_EC2Resolver(t *testing.T) {
 			t.Parallel()
 
 			backend := newBackend()
+			h := elb.NewHandler(backend)
+			mustCreateVPCLB(t, h, "subnet-resolver-lb")
+
 			if tt.resolver != nil {
 				backend.SetEC2Resolver(tt.resolver)
 			}
-
-			h := elb.NewHandler(backend)
-			mustCreateVPCLB(t, h, "subnet-resolver-lb")
 
 			rec := doELB(t, h, url.Values{
 				"Action":           {"AttachLoadBalancerToSubnets"},
@@ -336,6 +337,78 @@ func TestCreateLoadBalancer_InlineHTTPSCertificateResolver(t *testing.T) {
 				"Listeners.member.1.SSLCertificateId": {knownCert},
 			})
 			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestCreateLoadBalancer_EC2Resolver(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		resolver   elb.EC2Resolver
+		extra      url.Values
+		name       string
+		wantCode   string
+		wantStatus int
+	}{
+		{
+			name:       "no_resolver_accepts_any_id",
+			extra:      url.Values{"Subnets.member.1": {"subnet-x"}},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "known_subnet_and_group",
+			resolver: &fakeEC2Resolver{
+				subnets:        map[string]bool{"subnet-ok": true},
+				securityGroups: map[string]bool{"sg-ok": true},
+			},
+			extra:      url.Values{"Subnets.member.1": {"subnet-ok"}, "SecurityGroups.member.1": {"sg-ok"}},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "unknown_subnet",
+			resolver:   &fakeEC2Resolver{subnets: map[string]bool{}},
+			extra:      url.Values{"Subnets.member.1": {"subnet-missing"}},
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "SubnetNotFound",
+		},
+		{
+			name: "unknown_security_group",
+			resolver: &fakeEC2Resolver{
+				subnets:        map[string]bool{"subnet-ok": true},
+				securityGroups: map[string]bool{},
+			},
+			extra:      url.Values{"Subnets.member.1": {"subnet-ok"}, "SecurityGroups.member.1": {"sg-missing"}},
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "InvalidSecurityGroup",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := newBackend()
+			if tt.resolver != nil {
+				backend.SetEC2Resolver(tt.resolver)
+			}
+
+			form := url.Values{
+				"Action":                              {"CreateLoadBalancer"},
+				"Version":                             {"2012-06-01"},
+				"LoadBalancerName":                    {"create-resolver-lb"},
+				"Listeners.member.1.Protocol":         {"HTTP"},
+				"Listeners.member.1.LoadBalancerPort": {"80"},
+				"Listeners.member.1.InstancePort":     {"8080"},
+			}
+			maps.Copy(form, tt.extra)
+
+			rec := doELB(t, elb.NewHandler(backend), form)
+			assert.Equal(t, tt.wantStatus, rec.Code, rec.Body.String())
+
+			if tt.wantCode != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantCode)
+			}
 		})
 	}
 }

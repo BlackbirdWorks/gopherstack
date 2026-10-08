@@ -2,7 +2,7 @@
 service: mediaconvert
 sdk_module: aws-sdk-go-v2/service/mediaconvert@v1.97.1
 last_audit_commit: 2dfc55a39
-last_audit_date: 2026-09-18  # gopherstack-xhu2t: reqfielddiff tier-1 request-field audit, all
+last_audit_date: 2026-10-07  # gopherstack-xhu2t: reqfielddiff tier-1 request-field audit, all
                               # 5 findings (ListJobs/ListJobTemplates/ListPresets/ListQueues/
                               # SearchJobs .Order) confirmed already handled -- tool false
                               # positives (raw q.Get("order") reads, not struct fields the tool
@@ -60,9 +60,10 @@ families:
   jobsQuery: {status: ok, note: "StartJobsQuery/GetJobsQueryResults: id/status wire-name bugs fixed"}
   endpoints/policy/certificates/misc: {status: ok, note: "DescribeEndpoints/GetPolicy/PutPolicy/DeletePolicy/AssociateCertificate/DisassociateCertificate/ListVersions/Probe/SearchJobs/CreateResourceShare verified op-by-op; this pass closed the DescribeEndpoints method/body gap (now POST-only, body parsed)"}
 gaps: []
-items_still_open:
-  - "ElementalInferenceConfiguration on Job is AWS-computed from the opaque Settings tree (structural boundary, see deferred); populating it would be fabrication."
-  - "ListQueues totalConcurrentJobs/unallocatedConcurrentJobs derive from a per-region account concurrency quota this backend does not model."
+items_still_open: []
+structural_gaps:
+  - "Job.ElementalInferenceConfiguration is AWS-computed from the opaque Settings tree; populating it would be fabrication."
+  - "ListQueues TotalConcurrentJobs/UnallocatedConcurrentJobs derive from a per-region account concurrency quota whose value the SDK does not document."
 deferred:
   - JobSettings/JobTemplateSettings/PresetSettings deep-structure field-level validation (gopherstack stores these as opaque map[string]any and round-trips them verbatim, which is the established pattern for this service; no validation of e.g. OutputGroups internals was audited). 2026-08-19: re-confirmed this is the correct characterization -- it is a structural boundary, not a gap: gopherstack echoes back whatever JSON the client sent for these three fields, so a wrong key inside the settings tree round-trips consistently and this backend cannot detect wire-shape defects there by construction. Established before reading any codec-level type, per this pass's brief. ElementalInferenceConfiguration (see gaps, above) is downstream of this same boundary.
 leaks: {status: clean, note: "janitor.go uses pkgs/worker.Group.Ticker bound to ctx cancellation; no goroutine/map leaks found. lockmetrics.RWMutex used as the single coarse backend lock; safemap not used (not applicable, all backend collections are cross-map transactional and correctly share the coarse lock). Re-verified this pass: no new goroutines/tickers/maps introduced by the CreateJob/CreateJobTemplate/UpdateJobTemplate/DescribeEndpoints fixes; all new code paths run synchronously under the existing b.mu lock or (DescribeEndpoints) hold no lock at all since it reads no mutable backend state. 2026-08-19: CreateResourceShare's LastShareDetails fix (json.Marshal call) runs synchronously under the existing b.mu lock exactly like the rest of CreateResourceShare -- no new goroutines/tickers/maps."}

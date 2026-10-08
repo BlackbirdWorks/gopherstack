@@ -2,7 +2,7 @@
 service: codecommit
 sdk_module: aws-sdk-go-v2/service/codecommit@v1.36.4
 last_audit_commit: 6c5c49416
-last_audit_date: 2026-09-19
+last_audit_date: 2026-10-07
 overall: A            # this pass (gopherstack-gvkf): the entire Comment family (8 ops — the 7
                       # named in the bug plus DeleteCommentContent, found the same day) was
                       # undecodable by a real typed client: Comment.CreationDate/LastModifiedDate
@@ -110,10 +110,12 @@ families:
   approval_rule_template_crud: {status: ok, note: "Create/Get/Delete/List/Update* all verified against real SDK shapes"}
   pull_request_lifecycle: {status: ok, note: "create/list/get/update/status/events verified"}
   pull_request_approval: {status: ok, note: "rules, states, overrides, evaluation all mutate real backend state; 2 error-code fixes this pass"}
+  merge_object_type_conflicts: {status: ok, note: "2026-10-07: a file/folder clash is resolved by conflictResolution.deleteFiles on the file path or by ACCEPT_SOURCE/ACCEPT_DESTINATION keeping the chosen side's object type (merge_engine.go resolveObjectType). Guarded by TestMergeObjectTypeConflictResolution."}
 gaps: []
 items_still_open:
-  - "Merge limits (2026-10-04): TipsDivergenceExceeded, MaximumItemsToCompareExceeded, MaximumFileContentToLoadExceeded and MaximumConflictResolutionEntriesExceeded are not raised (the pinned SDK documents no numeric limit to enforce); file-vs-folder object-type conflicts are detected but cannot be resolved by ACCEPT_* or conflictResolution entries; submodules and symlink targets are not modeled."
-  - "FilePathConflictsWithSubmodulePathException is mapped but never returned: submodules are not modeled."
+  - "Merge limits TipsDivergenceExceeded, MaximumItemsToCompareExceeded, MaximumFileContentToLoadExceeded and MaximumConflictResolutionEntriesExceeded are never raised: the pinned SDK documents no numeric limit to enforce. Unverifiable."
+structural_gaps:
+  - "Submodules (FilePathConflictsWithSubmodulePathException is mapped but never returned) can only be created through git push, and the emulator has no git transport."
 deferred: []
 leaks: {status: clean, note: "no goroutines/janitors in this service; Reset/Snapshot/Restore cover all state including the 3 dirty tables (comments, files, prApprovalRules). Fixed this pass: DeleteRepository never cleaned up fileHistory[repoName], and never cascade-deleted comments (compared-commit comments by RepoName, PR comments by PRid) or their commentReactions — both are ghost-row leaks now closed (see Notes); locked by TestHandler_DeleteRepository_Cascade_FileHistory and TestHandler_DeleteRepository_Cascade_Comments."}
 ---

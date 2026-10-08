@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 )
 
 func (b *InMemoryBackend) rulesetARN(region, name string) string {
@@ -36,6 +37,7 @@ func (b *InMemoryBackend) CreateRuleset(
 		TargetArn: targetArn, Rules: cloneRules(rules), RuleCount: len(rules),
 		Tags: maps.Clone(tags), CreateDate: float64(time.Now().Unix()),
 		LastModifiedDate: float64(time.Now().Unix()), AccountID: b.accountID,
+		CreatedBy: awsmeta.CallerArn(ctx), LastModifiedBy: awsmeta.CallerArn(ctx),
 	}
 	t.Put(rs)
 
@@ -156,6 +158,7 @@ func (b *InMemoryBackend) UpdateRuleset(
 	rs.Rules = cloneRules(rules)
 	rs.RuleCount = len(rules)
 	rs.LastModifiedDate = float64(time.Now().Unix())
+	stampModifiedBy(ctx, &rs.LastModifiedBy)
 
 	return nil
 }

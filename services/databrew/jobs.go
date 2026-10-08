@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 )
 
 func (b *InMemoryBackend) jobARN(region, name string) string {
@@ -46,6 +47,8 @@ func (b *InMemoryBackend) CreateJob(
 		AccountID: b.accountID,
 		Tags:      maps.Clone(tags), CreateDate: float64(time.Now().Unix()),
 		LastModifiedDate:         float64(time.Now().Unix()),
+		CreatedBy:                awsmeta.CallerArn(ctx),
+		LastModifiedBy:           awsmeta.CallerArn(ctx),
 		ProfileConfiguration:     cloneProfileConfiguration(extra.ProfileConfiguration),
 		JobSample:                extra.JobSample,
 		EncryptionMode:           extra.EncryptionMode,
@@ -150,6 +153,7 @@ func (b *InMemoryBackend) UpdateJob(
 	}
 	applyJobExtras(j, extra)
 	j.LastModifiedDate = float64(time.Now().Unix())
+	stampModifiedBy(ctx, &j.LastModifiedBy)
 
 	return nil
 }
@@ -329,6 +333,7 @@ func (b *InMemoryBackend) StartJobRun(ctx context.Context, jobName string) (*Job
 		RunID:                    uuid.New().String(),
 		State:                    "STARTING",
 		StartedOn:                float64(time.Now().Unix()),
+		StartedBy:                awsmeta.CallerArn(ctx),
 		Attempt:                  1,
 		DatasetName:              j.DatasetName,
 		DataCatalogOutputs:       append([]DataCatalogOutput(nil), j.DataCatalogOutputs...),

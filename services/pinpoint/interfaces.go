@@ -52,7 +52,9 @@ type StorageBackend interface {
 	DeleteVoiceTemplate(templateName string) (*VoiceTemplate, error)
 	ListTemplates() ([]*templateListItem, error)
 	ListTemplateVersions(templateName, templateType string) ([]*templateVersionItem, error)
-	UpdateTemplateActiveVersion(templateName, templateType string) error
+	GetTemplate(templateName, templateType, version string) (any, error)
+	DeleteTemplate(templateName, templateType, version string) error
+	UpdateTemplateActiveVersion(templateName, templateType, version string) error
 
 	// Job operations
 	CreateExportJob(region, accountID, appID string, req createExportJobRequest) (*ExportJob, error)

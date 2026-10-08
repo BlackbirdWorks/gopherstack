@@ -272,6 +272,10 @@ func (b *InMemoryBackend) CreateLoadBalancer(
 		return nil, zoneErr
 	}
 
+	if resolveErr := b.validateCreateLBNetwork(input); resolveErr != nil {
+		return nil, resolveErr
+	}
+
 	isVPC := len(input.Subnets) > 0
 
 	suffix := dnsNameSuffix(b.accountID, input.LoadBalancerName)
@@ -408,4 +412,26 @@ func (b *InMemoryBackend) DescribeAccountLimits(_ context.Context) ([]AccountLim
 		{Name: "classic-listeners", Max: "100"},
 		{Name: "classic-registered-instances", Max: "1000"},
 	}, nil
+}
+
+// validateCreateLBNetwork rejects SecurityGroups/Subnets that do not exist in the
+// wired EC2 backend. Caller must hold b.mu.
+func (b *InMemoryBackend) validateCreateLBNetwork(input CreateLoadBalancerInput) error {
+	if b.ec2Resolver == nil {
+		return nil
+	}
+
+	for _, sg := range input.SecurityGroups {
+		if !b.ec2Resolver.SecurityGroupExists(sg) {
+			return fmt.Errorf("%w: %s", ErrInvalidSecurityGroup, sg)
+		}
+	}
+
+	for _, s := range input.Subnets {
+		if !b.ec2Resolver.SubnetExists(s) {
+			return fmt.Errorf("%w: %s", ErrSubnetNotFound, s)
+		}
+	}
+
+	return nil
 }

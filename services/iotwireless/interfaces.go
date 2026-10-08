@@ -196,6 +196,7 @@ type StorageBackend interface {
 	) (*WirelessDeviceImportTask, error)
 	StartSingleWirelessDeviceImportTask(
 		accountID, region, destinationName string,
+		details ...SingleImportDetails,
 	) (*SingleWirelessDeviceImportTask, error)
 	GetWirelessDeviceImportTask(id string) (*WirelessDeviceImportTask, error)
 	DeleteWirelessDeviceImportTask(id string) error

@@ -185,7 +185,7 @@ func TestHandlerDescribeRuleset(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler()
 	databrewReq(t, h, http.MethodPost, "/databrew/v1/rulesets", map[string]any{
-		"Name": "rs1", "TargetArn": "arn:x",
+		"Name": "rs1", "TargetArn": "arn:x", "Rules": []any{},
 	})
 	rec := databrewReq(t, h, http.MethodGet, "/databrew/v1/rulesets/rs1", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -212,10 +212,10 @@ func TestHandlerUpdateRuleset(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler()
 	databrewReq(t, h, http.MethodPost, "/databrew/v1/rulesets", map[string]any{
-		"Name": "upd-rs", "TargetArn": "arn:x",
+		"Name": "upd-rs", "TargetArn": "arn:x", "Rules": []any{},
 	})
 	rec := databrewReq(t, h, http.MethodPut, "/databrew/v1/rulesets/upd-rs", map[string]any{
-		"Description": "updated",
+		"Description": "updated", "Rules": []any{},
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
@@ -224,7 +224,7 @@ func TestHandlerDeleteRuleset(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler()
 	databrewReq(t, h, http.MethodPost, "/databrew/v1/rulesets", map[string]any{
-		"Name": "del-rs", "TargetArn": "arn:x",
+		"Name": "del-rs", "TargetArn": "arn:x", "Rules": []any{},
 	})
 	rec := databrewReq(t, h, http.MethodDelete, "/databrew/v1/rulesets/del-rs", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -345,4 +345,58 @@ func TestHandlerDescribeRuleset_NoAccountIDOrRuleCountLeak(t *testing.T) {
 		"DescribeRuleset leaked RuleCount; real DescribeRulesetOutput has no RuleCount member",
 	)
 	assert.Contains(t, resp, "Rules", "DescribeRuleset must still emit Rules -- it's a required member")
+}
+
+func TestRequiredMemberValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body map[string]any
+		name string
+		path string
+	}{
+		{
+			name: "ruleset_missing_target",
+			path: "/databrew/v1/rulesets",
+			body: map[string]any{"Name": "a", "Rules": []any{}},
+		},
+		{
+			name: "ruleset_missing_rules",
+			path: "/databrew/v1/rulesets",
+			body: map[string]any{"Name": "a", "TargetArn": "arn:x"},
+		},
+		{
+			name: "rule_missing_check", path: "/databrew/v1/rulesets",
+			body: map[string]any{"Name": "a", "TargetArn": "arn:x", "Rules": []any{map[string]any{"Name": "r"}}},
+		},
+		{
+			name: "rule_missing_name",
+			path: "/databrew/v1/rulesets",
+			body: map[string]any{
+				"Name":      "a",
+				"TargetArn": "arn:x",
+				"Rules":     []any{map[string]any{"CheckExpression": "x"}},
+			},
+		},
+		{
+			name: "step_missing_operation", path: "/databrew/v1/recipes",
+			body: map[string]any{"Name": "a", "Steps": []any{map[string]any{"Action": map[string]any{}}}},
+		},
+		{
+			name: "step_condition_missing_column", path: "/databrew/v1/recipes",
+			body: map[string]any{"Name": "a", "Steps": []any{map[string]any{
+				"Action":               map[string]any{"Operation": "UPPER_CASE"},
+				"ConditionExpressions": []any{map[string]any{"Condition": "IS"}},
+			}}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := databrewReq(t, newTestHandler(), http.MethodPost, tt.path, tt.body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+		})
+	}
 }

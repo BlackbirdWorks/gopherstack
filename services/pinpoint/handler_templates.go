@@ -291,55 +291,14 @@ func (h *Handler) createVoiceTemplateARN(body []byte, region, templateName strin
 
 // handleGetTemplate handles GET for any template type.
 func (h *Handler) handleGetTemplate(c *echo.Context, templateName, templateType string) error {
-	switch templateType {
-	case templateTypeEmail:
-		t, err := h.Backend.GetEmailTemplate(templateName)
-		if err != nil {
-			return writeNotFoundOrInternal(c, err)
-		}
-
-		httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, t)
-
-		return nil
-	case templateTypeInApp:
-		t, err := h.Backend.GetInAppTemplate(templateName)
-		if err != nil {
-			return writeNotFoundOrInternal(c, err)
-		}
-
-		httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, t)
-
-		return nil
-	case templateTypePush:
-		t, err := h.Backend.GetPushTemplate(templateName)
-		if err != nil {
-			return writeNotFoundOrInternal(c, err)
-		}
-
-		httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, t)
-
-		return nil
-	case templateTypeSMS:
-		t, err := h.Backend.GetSmsTemplate(templateName)
-		if err != nil {
-			return writeNotFoundOrInternal(c, err)
-		}
-
-		httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, t)
-
-		return nil
-	case templateTypeVoice:
-		t, err := h.Backend.GetVoiceTemplate(templateName)
-		if err != nil {
-			return writeNotFoundOrInternal(c, err)
-		}
-
-		httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, t)
-
-		return nil
+	t, err := h.Backend.GetTemplate(templateName, templateType, c.QueryParam("version"))
+	if err != nil {
+		return writeNotFoundOrInternal(c, err)
 	}
 
-	return writeErrorResponse(c, http.StatusNotFound, "NotFoundException", "unknown template type")
+	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, t)
+
+	return nil
 }
 
 // handleUpdateTemplate handles PUT for any template type.
@@ -358,13 +317,23 @@ func (h *Handler) handleUpdateTemplate(c *echo.Context, templateName, templateTy
 		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", queryErr.Error())
 	}
 
-	if updateErr := h.applyTemplateUpdate(body, templateName, templateType, createNew); updateErr != nil {
+	if updateErr := h.applyTemplateUpdate(
+		body,
+		templateName,
+		templateType,
+		c.QueryParam("version"),
+		createNew,
+	); updateErr != nil {
 		if errors.Is(updateErr, errInvalidRequestBody) {
 			return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
 		}
 
 		if errors.Is(updateErr, errUnknownTemplateType) {
 			return writeErrorResponse(c, http.StatusNotFound, "NotFoundException", "unknown template type")
+		}
+
+		if errors.Is(updateErr, ErrValidation) {
+			return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", updateErr.Error())
 		}
 
 		return writeNotFoundOrInternal(c, updateErr)
@@ -392,31 +361,32 @@ var errUnknownTemplateType = errors.New("unknown template type")
 // tested it before continuing, so the rejection was silently treated as
 // success and a second response got written on top of the committed one
 // (gopherstack-246v, the gopherstack-8haq shape).
-func (h *Handler) applyTemplateUpdate(body []byte, templateName, templateType string, createNew bool) error {
+func (h *Handler) applyTemplateUpdate(body []byte, templateName, templateType, version string, createNew bool) error {
 	switch templateType {
 	case templateTypeEmail:
-		return h.updateEmailTemplateFromBody(body, templateName, createNew)
+		return h.updateEmailTemplateFromBody(body, templateName, version, createNew)
 	case templateTypeInApp:
-		return h.updateInAppTemplateFromBody(body, templateName, createNew)
+		return h.updateInAppTemplateFromBody(body, templateName, version, createNew)
 	case templateTypePush:
-		return h.updatePushTemplateFromBody(body, templateName, createNew)
+		return h.updatePushTemplateFromBody(body, templateName, version, createNew)
 	case templateTypeSMS:
-		return h.updateSMSTemplateFromBody(body, templateName, createNew)
+		return h.updateSMSTemplateFromBody(body, templateName, version, createNew)
 	case templateTypeVoice:
-		return h.updateVoiceTemplateFromBody(body, templateName, createNew)
+		return h.updateVoiceTemplateFromBody(body, templateName, version, createNew)
 	}
 
 	return errUnknownTemplateType
 }
 
 // updateEmailTemplateFromBody parses and applies an email template update.
-func (h *Handler) updateEmailTemplateFromBody(body []byte, name string, createNew bool) error {
+func (h *Handler) updateEmailTemplateFromBody(body []byte, name, version string, createNew bool) error {
 	var req createEmailTemplateRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return errInvalidRequestBody
 	}
 
 	req.CreateNewVersion = createNew
+	req.Version = version
 
 	_, err := h.Backend.UpdateEmailTemplate(name, req)
 
@@ -424,13 +394,14 @@ func (h *Handler) updateEmailTemplateFromBody(body []byte, name string, createNe
 }
 
 // updateInAppTemplateFromBody parses and applies an in-app template update.
-func (h *Handler) updateInAppTemplateFromBody(body []byte, name string, createNew bool) error {
+func (h *Handler) updateInAppTemplateFromBody(body []byte, name, version string, createNew bool) error {
 	var req createInAppTemplateRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return errInvalidRequestBody
 	}
 
 	req.CreateNewVersion = createNew
+	req.Version = version
 
 	_, err := h.Backend.UpdateInAppTemplate(name, req)
 
@@ -438,13 +409,14 @@ func (h *Handler) updateInAppTemplateFromBody(body []byte, name string, createNe
 }
 
 // updatePushTemplateFromBody parses and applies a push template update.
-func (h *Handler) updatePushTemplateFromBody(body []byte, name string, createNew bool) error {
+func (h *Handler) updatePushTemplateFromBody(body []byte, name, version string, createNew bool) error {
 	var req createPushTemplateRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return errInvalidRequestBody
 	}
 
 	req.CreateNewVersion = createNew
+	req.Version = version
 
 	_, err := h.Backend.UpdatePushTemplate(name, req)
 
@@ -452,13 +424,14 @@ func (h *Handler) updatePushTemplateFromBody(body []byte, name string, createNew
 }
 
 // updateSMSTemplateFromBody parses and applies an SMS template update.
-func (h *Handler) updateSMSTemplateFromBody(body []byte, name string, createNew bool) error {
+func (h *Handler) updateSMSTemplateFromBody(body []byte, name, version string, createNew bool) error {
 	var req createSmsTemplateRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return errInvalidRequestBody
 	}
 
 	req.CreateNewVersion = createNew
+	req.Version = version
 
 	_, err := h.Backend.UpdateSmsTemplate(name, req)
 
@@ -466,13 +439,14 @@ func (h *Handler) updateSMSTemplateFromBody(body []byte, name string, createNew 
 }
 
 // updateVoiceTemplateFromBody parses and applies a voice template update.
-func (h *Handler) updateVoiceTemplateFromBody(body []byte, name string, createNew bool) error {
+func (h *Handler) updateVoiceTemplateFromBody(body []byte, name, version string, createNew bool) error {
 	var req createVoiceTemplateRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return errInvalidRequestBody
 	}
 
 	req.CreateNewVersion = createNew
+	req.Version = version
 
 	_, err := h.Backend.UpdateVoiceTemplate(name, req)
 
@@ -481,34 +455,26 @@ func (h *Handler) updateVoiceTemplateFromBody(body []byte, name string, createNe
 
 // handleDeleteTemplateByType handles DELETE for any template type.
 func (h *Handler) handleDeleteTemplateByType(c *echo.Context, templateName, templateType string) error {
-	switch templateType {
-	case templateTypeEmail:
-		if _, err := h.Backend.DeleteEmailTemplate(templateName); err != nil {
-			return writeNotFoundOrInternal(c, err)
-		}
-	case templateTypeInApp:
-		if _, err := h.Backend.DeleteInAppTemplate(templateName); err != nil {
-			return writeNotFoundOrInternal(c, err)
-		}
-	case templateTypePush:
-		if _, err := h.Backend.DeletePushTemplate(templateName); err != nil {
-			return writeNotFoundOrInternal(c, err)
-		}
-	case templateTypeSMS:
-		if _, err := h.Backend.DeleteSmsTemplate(templateName); err != nil {
-			return writeNotFoundOrInternal(c, err)
-		}
-	case templateTypeVoice:
-		if _, err := h.Backend.DeleteVoiceTemplate(templateName); err != nil {
-			return writeNotFoundOrInternal(c, err)
-		}
-	default:
+	if !isTemplateType(templateType) {
 		return writeErrorResponse(c, http.StatusNotFound, "NotFoundException", "unknown template type")
+	}
+
+	if err := h.Backend.DeleteTemplate(templateName, templateType, c.QueryParam("version")); err != nil {
+		return writeNotFoundOrInternal(c, err)
 	}
 
 	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, messageBodyResponse{Message: "Deleted"})
 
 	return nil
+}
+
+func isTemplateType(t string) bool {
+	switch t {
+	case templateTypeEmail, templateTypeInApp, templateTypePush, templateTypeSMS, templateTypeVoice:
+		return true
+	}
+
+	return false
 }
 
 // handleListTemplates handles GET /v1/templates.
@@ -585,7 +551,15 @@ func (h *Handler) handleUpdateTemplateActiveVersion(c *echo.Context, templateNam
 		return nil
 	}
 
-	if err := h.Backend.UpdateTemplateActiveVersion(templateName, templateType); err != nil {
+	var req struct {
+		Version string `json:"Version"`
+	}
+
+	if len(body) > 0 && json.Unmarshal(body, &req) != nil {
+		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
+	}
+
+	if err := h.Backend.UpdateTemplateActiveVersion(templateName, templateType, req.Version); err != nil {
 		return writeNotFoundOrInternal(c, err)
 	}
 

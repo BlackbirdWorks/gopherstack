@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 )
 
 func (b *InMemoryBackend) projectARN(region, name string) string {
@@ -38,6 +39,7 @@ func (b *InMemoryBackend) CreateProject(
 		RecipeName: recipeName, RoleArn: roleArn, Sample: sample,
 		Tags: maps.Clone(tags), AccountID: b.accountID,
 		CreateDate: float64(time.Now().Unix()), LastModifiedDate: float64(time.Now().Unix()),
+		CreatedBy: awsmeta.CallerArn(ctx), LastModifiedBy: awsmeta.CallerArn(ctx),
 	}
 	t.Put(p)
 
@@ -109,6 +111,7 @@ func (b *InMemoryBackend) UpdateProject(
 		p.Sample = sample
 	}
 	p.LastModifiedDate = float64(time.Now().Unix())
+	stampModifiedBy(ctx, &p.LastModifiedBy)
 
 	return nil
 }
@@ -127,6 +130,7 @@ func (b *InMemoryBackend) OpenProjectSession(ctx context.Context, name string) (
 		return nil, ErrNotFound
 	}
 	p.OpenDate = float64(time.Now().Unix())
+	p.OpenedBy = awsmeta.CallerArn(ctx)
 	cp := *p
 	cp.Tags = maps.Clone(p.Tags)
 

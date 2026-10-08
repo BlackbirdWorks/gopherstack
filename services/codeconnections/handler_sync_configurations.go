@@ -252,13 +252,19 @@ type getSyncBlockerSummaryInput struct {
 // smithytime.ParseEpochSeconds in the real SDK deserializer), not RFC3339
 // strings.
 type syncBlockerItem struct {
-	ID             string  `json:"Id"`
-	Type           string  `json:"Type"`
-	Status         string  `json:"Status"`
-	CreatedReason  string  `json:"CreatedReason"`
-	ResolvedReason string  `json:"ResolvedReason,omitempty"`
-	CreatedAt      float64 `json:"CreatedAt"`
-	ResolvedAt     float64 `json:"ResolvedAt,omitempty"`
+	ID             string                   `json:"Id"`
+	Type           string                   `json:"Type"`
+	Status         string                   `json:"Status"`
+	CreatedReason  string                   `json:"CreatedReason"`
+	ResolvedReason string                   `json:"ResolvedReason,omitempty"`
+	Contexts       []syncBlockerContextItem `json:"Contexts,omitempty"`
+	CreatedAt      float64                  `json:"CreatedAt"`
+	ResolvedAt     float64                  `json:"ResolvedAt,omitempty"`
+}
+
+type syncBlockerContextItem struct {
+	Key   string `json:"Key"`
+	Value string `json:"Value"`
 }
 
 // syncBlockerToItem converts a backend SyncBlocker to its wire shape.
@@ -269,6 +275,10 @@ func syncBlockerToItem(b SyncBlocker) syncBlockerItem {
 		Status:        b.Status,
 		CreatedAt:     awstime.Epoch(b.CreatedAt),
 		CreatedReason: b.CreatedReason,
+	}
+
+	for _, c := range b.Contexts {
+		item.Contexts = append(item.Contexts, syncBlockerContextItem(c))
 	}
 
 	if b.ResolvedAt != nil {

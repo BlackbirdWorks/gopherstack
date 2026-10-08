@@ -155,7 +155,7 @@ func (b *InMemoryBackend) evaluateMergeLocked(repo, srcID, dstID string, s Merge
 		ev.place(fm)
 	}
 
-	ev.flagObjectTypeConflicts(baseTree, srcTree, dstTree)
+	ev.flagObjectTypeConflicts(baseTree, srcTree, dstTree, rs)
 
 	if s.KeepEmptyFolders {
 		ev.keepEmptyFolders(srcTree, dstTree)
@@ -180,7 +180,7 @@ func (ev *mergeEvaluation) place(fm *fileMerge) {
 }
 
 // flagObjectTypeConflicts marks a file whose path is also a folder in the result.
-func (ev *mergeEvaluation) flagObjectTypeConflicts(base, src, dst map[string]TreeEntry) {
+func (ev *mergeEvaluation) flagObjectTypeConflicts(base, src, dst map[string]TreeEntry, rs *resolver) {
 	dirs := map[string]bool{}
 
 	for path := range ev.tree {
@@ -195,6 +195,10 @@ func (ev *mergeEvaluation) flagObjectTypeConflicts(base, src, dst map[string]Tre
 			continue
 		}
 
+		if ev.resolveObjectType(path, fm, src, dst, rs) {
+			continue
+		}
+
 		if !fm.conflict {
 			ev.unresolved = append(ev.unresolved, fm)
 		}
@@ -206,6 +210,43 @@ func (ev *mergeEvaluation) flagObjectTypeConflicts(base, src, dst map[string]Tre
 			Source: objectTypeIn(src, path), Destination: objectTypeIn(dst, path), Base: objectTypeIn(base, path),
 		}
 	}
+}
+
+// resolveObjectType settles a file/folder clash: deleteFiles drops the file, and an ACCEPT
+// strategy keeps whichever object type the chosen side holds at path. It reports whether
+// the clash was resolved.
+func (ev *mergeEvaluation) resolveObjectType(
+	path string,
+	fm *fileMerge,
+	src, dst map[string]TreeEntry,
+	rs *resolver,
+) bool {
+	keepFile := false
+
+	switch {
+	case rs.deletes[path]:
+	case rs.pickFor() == pickSource:
+		keepFile = objectTypeIn(src, path) == objectTypeFile
+	case rs.pickFor() == pickDest:
+		keepFile = objectTypeIn(dst, path) == objectTypeFile
+	default:
+		return false
+	}
+
+	if keepFile {
+		for p := range ev.tree {
+			if strings.HasPrefix(p, path+"/") {
+				delete(ev.tree, p)
+			}
+		}
+
+		return true
+	}
+
+	delete(ev.tree, path)
+	fm.result = side{absent: true}
+
+	return true
 }
 
 func objectTypeIn(tree map[string]TreeEntry, path string) string {

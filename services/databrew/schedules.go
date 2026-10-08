@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 )
 
 func (b *InMemoryBackend) scheduleARN(region, name string) string {
@@ -34,6 +35,7 @@ func (b *InMemoryBackend) CreateSchedule(
 		Name: name, Arn: b.scheduleARN(region, name), JobNames: append([]string(nil), jobNames...),
 		CronExpression: cron, Tags: maps.Clone(tags), AccountID: b.accountID,
 		CreateDate: float64(time.Now().Unix()), LastModifiedDate: float64(time.Now().Unix()),
+		CreatedBy: awsmeta.CallerArn(ctx), LastModifiedBy: awsmeta.CallerArn(ctx),
 	}
 	t.Put(sc)
 
@@ -111,6 +113,7 @@ func (b *InMemoryBackend) UpdateSchedule(
 	}
 	sc.CronExpression = cron
 	sc.LastModifiedDate = float64(time.Now().Unix())
+	stampModifiedBy(ctx, &sc.LastModifiedBy)
 
 	return nil
 }

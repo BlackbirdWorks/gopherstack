@@ -131,12 +131,57 @@ func (b *InMemoryBackend) checkVaultLockDelete(vArn, action, archiveCreationDate
 	// cannot fail here except from corrupted persisted state, in which case
 	// failing open (matching every other "can't evaluate this" case in
 	// vault_lock_policy_eval.go) is the deliberate choice.
-	denied, _ := evaluateVaultLockPolicy(lock.Policy, vArn, action, archiveAgeDays)
+	req := &policyRequest{vaultArn: vArn, action: action, archiveAgeDays: archiveAgeDays}
+	if v, found := b.vaults.Get(vArn); found {
+		req.tags = v.Tags
+	}
+
+	denied, _ := evaluateVaultPolicyDeny(lock.Policy, req)
 	if !denied {
 		return nil
 	}
 
 	return fmt.Errorf("%w: %s", ErrVaultLockDenied, action)
+}
+
+// AuthorizeVaultAction evaluates the vault's lock policy and access policy Deny
+// statements for a request by caller (empty when unauthenticated). archiveID, when
+// set, supplies the glacier:ArchiveAgeInDays context.
+func (b *InMemoryBackend) AuthorizeVaultAction(accountID, region, vaultName, action, archiveID, caller string) error {
+	b.mu.Lock("AuthorizeVaultAction")
+	defer b.mu.Unlock()
+
+	vArn := vaultARN(accountID, region, vaultName)
+
+	v, ok := b.vaults.Get(vArn)
+	if !ok {
+		return nil
+	}
+
+	req := &policyRequest{
+		vaultArn: vArn, action: action, caller: caller, checkCaller: true,
+		archiveAgeDays: -1, tags: v.Tags,
+	}
+
+	if a, found := v.Archives[archiveID]; found && archiveID != "" {
+		if created, err := time.Parse("2006-01-02T15:04:05.000Z", a.CreationDate); err == nil {
+			req.archiveAgeDays = int(time.Since(created).Hours() / hoursPerDay)
+		}
+	}
+
+	b.expireLockIfStale(vArn)
+
+	if lock, found := b.vaultLocks.Get(vArn); found && lock.State != lockStateUnlocked {
+		if denied, _ := evaluateVaultPolicyDeny(lock.Policy, req); denied {
+			return fmt.Errorf("%w: %s", ErrVaultLockDenied, action)
+		}
+	}
+
+	if denied, _ := evaluateVaultPolicyDeny(v.AccessPolicy, req); denied {
+		return fmt.Errorf("%w: %s", ErrVaultAccessDenied, action)
+	}
+
+	return nil
 }
 
 // AbortVaultLock removes an in-progress vault lock.

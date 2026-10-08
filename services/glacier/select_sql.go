@@ -3,7 +3,6 @@ package glacier
 import (
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 )
 
@@ -14,21 +13,9 @@ var ErrSelectExpression = errors.New("select expression")
 // selectQuery is the parsed form of a Glacier Select SQL expression -- see select.go's
 // package doc for the exact grammar supported.
 type selectQuery struct {
-	where     [][]selectPredicate // OR of AND-groups (disjunctive normal form)
-	columns   []selectQueryColumn
+	where     selectExpr
+	columns   []selectExpr
 	selectAll bool
-}
-
-// selectQueryColumn is a single projected column reference.
-type selectQueryColumn struct {
-	ref string
-}
-
-// selectPredicate is a single "ref op literal" WHERE comparison.
-type selectPredicate struct {
-	ref string
-	op  string
-	lit string
 }
 
 // sqlTokKind identifies the lexical class of a sqlTok.
@@ -130,9 +117,13 @@ func (p *selectSQLParser) parse() (*selectQuery, error) {
 	if p.peekKeyword("WHERE") {
 		p.next()
 
-		cond, err := p.parseCondition()
+		cond, err := p.parseExpr()
 		if err != nil {
 			return nil, err
+		}
+
+		if !cond.isBool() {
+			return nil, fmt.Errorf("%w: WHERE requires a boolean condition", ErrSelectExpression)
 		}
 
 		q.where = cond
@@ -164,9 +155,9 @@ func (p *selectSQLParser) parseFromClause() error {
 	return nil
 }
 
-// parseSelectList parses "*" or a comma-separated column list (with optional AS alias
-// per column -- the alias is accepted for syntax completeness but does not affect
-// output, which is always positional per real Glacier/S3 Select CSV output).
+// parseSelectList parses "*" or a comma-separated list of scalar expressions (each with
+// an optional AS alias -- accepted for syntax completeness but without effect on output,
+// which is always positional per real Glacier/S3 Select CSV output).
 func (p *selectSQLParser) parseSelectList(q *selectQuery) error {
 	if t, ok := p.peek(); ok && t.typ == sqlTokPunct && t.val == "*" {
 		p.next()
@@ -177,12 +168,12 @@ func (p *selectSQLParser) parseSelectList(q *selectQuery) error {
 	}
 
 	for {
-		ref, err := p.parseColRef()
+		e, err := p.parseExpr()
 		if err != nil {
 			return err
 		}
 
-		q.columns = append(q.columns, selectQueryColumn{ref: ref})
+		q.columns = append(q.columns, e)
 
 		if p.peekKeyword("AS") {
 			p.next()
@@ -203,203 +194,6 @@ func (p *selectSQLParser) parseSelectList(q *selectQuery) error {
 	return nil
 }
 
-// parseColRef parses a column reference: a bare identifier, or an alias-qualified one
-// ("alias.ref"), returning the resolvable part (see resolveSelectField).
-func (p *selectSQLParser) parseColRef() (string, error) {
-	t, ok := p.next()
-	if !ok || t.typ != sqlTokIdent {
-		return "", fmt.Errorf("%w: expected column reference", ErrSelectExpression)
-	}
-
-	ref := t.val
-
-	if dotTok, dotOK := p.peek(); dotOK && dotTok.typ == sqlTokPunct && dotTok.val == "." {
-		p.next()
-
-		nameTok, nameOK := p.next()
-		if !nameOK || nameTok.typ != sqlTokIdent {
-			return "", fmt.Errorf("%w: expected identifier after '.'", ErrSelectExpression)
-		}
-
-		ref = nameTok.val
-	}
-
-	return ref, nil
-}
-
-// parseCondition parses an OR-of-AND-groups WHERE condition (disjunctive normal
-// form -- parenthesized/nested expressions are not supported, see package doc).
-func (p *selectSQLParser) parseCondition() ([][]selectPredicate, error) {
-	firstGroup, err := p.parseAndGroup()
-	if err != nil {
-		return nil, err
-	}
-
-	orGroups := [][]selectPredicate{firstGroup}
-
-	for p.peekKeyword("OR") {
-		p.next()
-
-		var nextGroup []selectPredicate
-
-		nextGroup, err = p.parseAndGroup()
-		if err != nil {
-			return nil, err
-		}
-
-		orGroups = append(orGroups, nextGroup)
-	}
-
-	return orGroups, nil
-}
-
-func (p *selectSQLParser) parseAndGroup() ([]selectPredicate, error) {
-	firstPred, err := p.parsePredicate()
-	if err != nil {
-		return nil, err
-	}
-
-	preds := []selectPredicate{firstPred}
-
-	for p.peekKeyword("AND") {
-		p.next()
-
-		var nextPred selectPredicate
-
-		nextPred, err = p.parsePredicate()
-		if err != nil {
-			return nil, err
-		}
-
-		preds = append(preds, nextPred)
-	}
-
-	return preds, nil
-}
-
-func (p *selectSQLParser) parsePredicate() (selectPredicate, error) {
-	ref, err := p.parseColRef()
-	if err != nil {
-		return selectPredicate{}, err
-	}
-
-	opTok, ok := p.next()
-	if !ok || opTok.typ != sqlTokPunct || !isSelectCompareOp(opTok.val) {
-		return selectPredicate{}, fmt.Errorf(
-			"%w: expected comparison operator after %s",
-			ErrSelectExpression,
-			ref,
-		)
-	}
-
-	litTok, ok := p.next()
-	if !ok || (litTok.typ != sqlTokString && litTok.typ != sqlTokNumber) {
-		return selectPredicate{}, fmt.Errorf(
-			"%w: expected literal after operator",
-			ErrSelectExpression,
-		)
-	}
-
-	return selectPredicate{ref: ref, op: opTok.val, lit: litTok.val}, nil
-}
-
-func isSelectCompareOp(s string) bool {
-	switch s {
-	case "=", "!=", "<>", "<", "<=", ">", ">=":
-		return true
-	default:
-		return false
-	}
-}
-
-// isSelectSQLKeyword reports whether s is one of the grammar's reserved words --
-// used to avoid consuming e.g. "WHERE" as a table alias.
-func isSelectSQLKeyword(s string) bool {
-	switch strings.ToUpper(s) {
-	case "SELECT", "FROM", "WHERE", "AND", "OR", "AS", "LIMIT":
-		return true
-	default:
-		return false
-	}
-}
-
-// selectConditionMatches evaluates a parsed WHERE condition (OR of AND-groups)
-// against a CSV row. A nil condition (no WHERE clause) always matches.
-func selectConditionMatches(orGroups [][]selectPredicate, row []string, header map[string]int) bool {
-	if orGroups == nil {
-		return true
-	}
-
-	for _, group := range orGroups {
-		if selectAndGroupMatches(group, row, header) {
-			return true
-		}
-	}
-
-	return false
-}
-
-func selectAndGroupMatches(group []selectPredicate, row []string, header map[string]int) bool {
-	for _, pred := range group {
-		if !selectPredicateMatches(pred, row, header) {
-			return false
-		}
-	}
-
-	return true
-}
-
-// selectPredicateMatches evaluates a single "ref op literal" predicate. Comparisons
-// are numeric when both sides parse as numbers, and lexical string comparisons
-// otherwise. An unresolvable column reference never matches.
-func selectPredicateMatches(pred selectPredicate, row []string, header map[string]int) bool {
-	val, ok := resolveSelectField(pred.ref, row, header)
-	if !ok {
-		return false
-	}
-
-	if fv, err1 := strconv.ParseFloat(val, 64); err1 == nil {
-		if lv, err2 := strconv.ParseFloat(pred.lit, 64); err2 == nil {
-			return compareSelectOrdered(pred.op, numCompare(fv, lv))
-		}
-	}
-
-	return compareSelectOrdered(pred.op, strings.Compare(val, pred.lit))
-}
-
-// numCompare returns -1/0/1 mirroring strings.Compare's contract, for a float pair.
-func numCompare(a, b float64) int {
-	switch {
-	case a < b:
-		return -1
-	case a > b:
-		return 1
-	default:
-		return 0
-	}
-}
-
-// compareSelectOrdered applies a comparison operator to a three-way compare result
-// (negative/zero/positive), shared by both the numeric and string predicate paths.
-func compareSelectOrdered(op string, cmp int) bool {
-	switch op {
-	case "=":
-		return cmp == 0
-	case "!=", "<>":
-		return cmp != 0
-	case "<":
-		return cmp < 0
-	case "<=":
-		return cmp <= 0
-	case ">":
-		return cmp > 0
-	case ">=":
-		return cmp >= 0
-	default:
-		return false
-	}
-}
-
 // isSelectWhitespace reports whether c is an insignificant whitespace character.
 func isSelectWhitespace(c byte) bool {
 	switch c {
@@ -411,10 +205,10 @@ func isSelectWhitespace(c byte) bool {
 }
 
 // isSelectSimplePunct reports whether c is a single-character punctuation token that
-// needs no lookahead ("*", ",", "(", ")", ".").
+// needs no lookahead ("*", ",", "(", ")", ".", "+", "-", "/", "%").
 func isSelectSimplePunct(c byte) bool {
 	switch c {
-	case '*', ',', '(', ')', '.':
+	case '*', ',', '(', ')', '.', '+', '-', '/', '%':
 		return true
 	default:
 		return false
@@ -558,13 +352,10 @@ func lexSelectGreaterOperator(s string, i int) (sqlTok, int, bool) {
 	return sqlTok{typ: sqlTokPunct, val: ">"}, i + 1, true
 }
 
-// lexSelectNumber lexes a (possibly negative, possibly fractional) number literal
-// starting at s[i].
+// lexSelectNumber lexes an unsigned (possibly fractional) number literal starting at
+// s[i]; a leading minus is the unary operator, handled by the parser.
 func lexSelectNumber(s string, i int) (sqlTok, int, bool) {
-	c := s[i]
-
-	isNumberStart := c == '-' || (c >= '0' && c <= '9')
-	if !isNumberStart {
+	if s[i] < '0' || s[i] > '9' {
 		return sqlTok{}, 0, false
 	}
 

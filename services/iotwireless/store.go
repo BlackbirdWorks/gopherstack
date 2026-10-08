@@ -78,6 +78,7 @@ type InMemoryBackend struct {
 	registry                   *store.Registry
 	mu                         *lockmetrics.RWMutex
 	metricConfigStatus         string
+	idem                       idempotencyCache
 }
 
 // NewInMemoryBackend creates a new in-memory IoT Wireless backend.
@@ -107,6 +108,8 @@ func NewInMemoryBackend() *InMemoryBackend {
 
 // Reset clears all in-memory state, returning the backend to a pristine condition.
 func (b *InMemoryBackend) Reset() {
+	b.idem.reset()
+
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
@@ -189,7 +192,7 @@ func gatewayTaskDefKeyFn(v *GatewayTaskDefinition) string { return v.ID }
 
 func importTaskKeyFn(v *WirelessDeviceImportTask) string { return v.ID }
 
-func singleImportTaskKeyFn(v *SingleWirelessDeviceImportTask) string { return v.ARN }
+func singleImportTaskKeyFn(v *SingleWirelessDeviceImportTask) string { return v.ID }
 
 func positionConfigKeyFn(v *PositionConfigEntry) string { return v.ResourceIdentifier }
 
@@ -237,3 +240,5 @@ func (b *InMemoryBackend) resetTablesLocked() {
 	b.multicastGroups.Reset()
 	b.networkAnalyzerConfigs.Reset()
 }
+
+func (b *InMemoryBackend) idempotency() *idempotencyCache { return &b.idem }

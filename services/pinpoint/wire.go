@@ -42,6 +42,7 @@ type createEmailTemplateRequest struct {
 	Subject              string            `json:"Subject,omitempty"`
 	TemplateDescription  string            `json:"TemplateDescription,omitempty"`
 	TextPart             string            `json:"TextPart,omitempty"`
+	Version              string            `json:"-"`
 	CreateNewVersion     bool              `json:"-"`
 }
 
@@ -66,6 +67,7 @@ type createInAppTemplateRequest struct {
 	CustomConfig        map[string]string `json:"CustomConfig,omitempty"`
 	Layout              string            `json:"Layout,omitempty"`
 	TemplateDescription string            `json:"TemplateDescription,omitempty"`
+	Version             string            `json:"-"`
 	Content             []map[string]any  `json:"Content,omitempty"`
 	CreateNewVersion    bool              `json:"-"`
 }
@@ -102,6 +104,7 @@ type createPushTemplateRequest struct {
 	DefaultSubstitutions string            `json:"DefaultSubstitutions,omitempty"`
 	RecommenderID        string            `json:"RecommenderId,omitempty"`
 	TemplateDescription  string            `json:"TemplateDescription,omitempty"`
+	Version              string            `json:"-"`
 	CreateNewVersion     bool              `json:"-"`
 }
 
@@ -136,6 +139,7 @@ type createSmsTemplateRequest struct {
 	RecommenderID        string            `json:"RecommenderId,omitempty"`
 	Tags                 map[string]string `json:"tags,omitempty"`
 	TemplateDescription  string            `json:"TemplateDescription,omitempty"`
+	Version              string            `json:"-"`
 	CreateNewVersion     bool              `json:"-"`
 }
 
@@ -334,6 +338,7 @@ type createVoiceTemplateRequest struct {
 	LanguageCode         string            `json:"LanguageCode,omitempty"`
 	TemplateDescription  string            `json:"TemplateDescription,omitempty"`
 	VoiceID              string            `json:"VoiceId,omitempty"`
+	Version              string            `json:"-"`
 	CreateNewVersion     bool              `json:"-"`
 }
 
@@ -556,9 +561,13 @@ type templateListItem struct {
 
 // templateVersionItem is one entry in the ListTemplateVersions response.
 type templateVersionItem struct {
-	TemplateName    string `json:"TemplateName"`
-	TemplateType    string `json:"TemplateType"`
-	TemplateVersion string `json:"Version"`
+	TemplateName         string `json:"TemplateName"`
+	TemplateType         string `json:"TemplateType"`
+	TemplateVersion      string `json:"Version"`
+	CreationDate         string `json:"CreationDate,omitempty"`
+	LastModifiedDate     string `json:"LastModifiedDate,omitempty"`
+	DefaultSubstitutions string `json:"DefaultSubstitutions,omitempty"`
+	TemplateDescription  string `json:"TemplateDescription,omitempty"`
 }
 
 // endpointUser response embeds user info in endpoint responses.

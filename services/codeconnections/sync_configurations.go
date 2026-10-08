@@ -3,6 +3,7 @@ package codeconnections
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 
@@ -281,6 +282,7 @@ func (b *InMemoryBackend) GetSyncBlockerSummary(
 func (b *InMemoryBackend) CreateSyncBlocker(
 	ctx context.Context,
 	resourceName, syncType, blockerType, createdReason string,
+	contexts ...SyncBlockerContext,
 ) (*SyncBlocker, error) {
 	if !validSyncTypes()[syncType] {
 		return nil, fmt.Errorf("%w: invalid SyncType %q", ErrValidation, syncType)
@@ -305,6 +307,7 @@ func (b *InMemoryBackend) CreateSyncBlocker(
 		CreatedReason: createdReason,
 		ResourceName:  resourceName,
 		SyncType:      syncType,
+		Contexts:      slices.Clone(contexts),
 		region:        region,
 	}
 

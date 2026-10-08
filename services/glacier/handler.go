@@ -657,6 +657,16 @@ func (h *Handler) dispatchMultipartAndCapacityOps(
 
 // dispatch routes a parsed operation to the appropriate handler.
 func (h *Handler) dispatch(c *echo.Context, op, resource string, body []byte) error {
+	if enforced, ok := vaultPolicyEnforcedOps[op]; ok && enforced {
+		err := h.Backend.AuthorizeVaultAction(
+			h.AccountID, h.DefaultRegion, extractVaultName(resource), "glacier:"+op,
+			archiveIDForPolicy(op, resource), awsmeta.CallerArn(c.Request().Context()),
+		)
+		if err != nil {
+			return h.writeBackendError(c, err)
+		}
+	}
+
 	if handled, err := h.dispatchVaultOps(c, op, resource); handled {
 		return err
 	}
@@ -754,6 +764,7 @@ var glacierBackendErrMappings = []backendErrMapping{
 	{err: ErrValidation, status: http.StatusBadRequest, code: errCodeInvalidParameterValueException},
 	{err: ErrMissingParameter, status: http.StatusBadRequest, code: "MissingParameterValueException"},
 	{err: ErrVaultLockDenied, status: http.StatusForbidden, code: "AccessDeniedException"},
+	{err: ErrVaultAccessDenied, status: http.StatusForbidden, code: "AccessDeniedException"},
 	{err: ErrVaultLockNotFound, status: http.StatusNotFound, code: errCodeResourceNotFoundException},
 }
 
@@ -780,4 +791,26 @@ func (h *Handler) Reset() {
 	for _, p := range h.peers.Drain() {
 		p.Backend.Reset()
 	}
+}
+
+// vaultPolicyEnforcedOps lists the vault-scoped operations whose requests are checked
+// against the vault lock and access policies. Policy and lock management stay exempt so
+// a Deny statement cannot make a vault impossible to repair.
+//
+//nolint:gochecknoglobals // static lookup table, never mutated after init
+var vaultPolicyEnforcedOps = map[string]bool{
+	opDescribeVault: true, opDeleteVault: true, opUploadArchive: true, opDeleteArchive: true,
+	opInitiateJob: true, opDescribeJob: true, opListJobs: true, opGetJobOutput: true,
+	opSetVaultNotifications: true, opGetVaultNotifications: true, opDeleteVaultNotifications: true,
+	opAddTagsToVault: true, opListTagsForVault: true, opRemoveTagsFromVault: true,
+	opInitiateMultipartUpload: true, opUploadMultipartPart: true, opCompleteMultipartUpload: true,
+	opAbortMultipartUpload: true, opListMultipartUploads: true, opListParts: true,
+}
+
+func archiveIDForPolicy(op, resource string) string {
+	if op == opDeleteArchive {
+		return extractSubID(resource)
+	}
+
+	return ""
 }

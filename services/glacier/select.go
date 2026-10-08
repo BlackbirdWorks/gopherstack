@@ -15,25 +15,12 @@ package glacier
 // remove: AWS's GetJobOutput docs never mention Select jobs at all, so no error
 // behavior can be cited for rejecting them there instead.
 //
-// The SQL subset supported mirrors the common form used throughout AWS's own Glacier
-// Select examples (originally modeled on S3 Select's SQL subset):
-//
-//	SELECT (* | ref [AS alias] (',' ref [AS alias])*) FROM <table> [alias]
-//	  [WHERE predicate ('AND'|'OR' predicate)*]
-//
-// where ref is a positional column ("_1", "_2", ...), an optionally alias-qualified
-// header-name column ("s._1" / "name"), predicate is "ref op literal" with
-// op in {= != <> < <= > >=}, and literal is a quoted string or a bare number.
-// LIMIT is deliberately rejected, not merely unimplemented: real S3 Glacier
-// Select's SELECT command explicitly documents LIMIT as "(Amazon S3 Select
-// only)" -- unsupported by Glacier Select
-// (doc_source/s3-glacier-select-sql-reference-select.md in
-// awsdocs/amazon-glacier-developer-guide, "S3 Glacier Select does not support the
-// LIMIT clause"). CAST, BETWEEN, IN, LIKE, NOT, and arithmetic operators are real
-// Glacier Select features this subset does not implement -- see PARITY.md's
-// select_sql_subset gap entry for the full accounting. Parenthesized/nested
-// boolean grouping has no citable evidence of Glacier Select support either way
-// (absent from the documented scalar-expression grammar) -- see PARITY.md.
+// Supported SQL: SELECT (* | expr [AS alias], ...) FROM <table> [alias] [WHERE cond], where
+// expr/cond combine column refs ("_1", "alias._1", header names), string and numeric
+// literals, + - * / %, parentheses, comparisons, AND/OR/NOT, [NOT] BETWEEN/IN/LIKE
+// (with ESCAPE), CAST (INT/FLOAT/DECIMAL/NUMERIC/STRING/BOOL), COALESCE and NULLIF.
+// LIMIT is rejected: Glacier Select documents it as "(Amazon S3 Select only)"
+// (doc_source/s3-glacier-select-sql-reference-select.md, awsdocs/amazon-glacier-developer-guide).
 
 import (
 	"bytes"
@@ -207,7 +194,7 @@ func projectSelectRow(q *selectQuery, row []string, header map[string]int) []str
 
 	out := make([]string, len(q.columns))
 	for i, col := range q.columns {
-		out[i], _ = resolveSelectField(col.ref, row, header)
+		out[i] = col.eval(selRow{row: row, header: header}).text()
 	}
 
 	return out

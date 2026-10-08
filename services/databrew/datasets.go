@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 )
 
 func (b *InMemoryBackend) datasetARN(region, name string) string {
@@ -43,6 +44,7 @@ func (b *InMemoryBackend) CreateDataset(
 		PathOptions: pathOptions, AccountID: b.accountID,
 		Source: source, CreateDate: float64(time.Now().Unix()),
 		LastModifiedDate: float64(time.Now().Unix()),
+		CreatedBy:        awsmeta.CallerArn(ctx), LastModifiedBy: awsmeta.CallerArn(ctx),
 	}
 	t.Put(ds)
 
@@ -113,6 +115,7 @@ func (b *InMemoryBackend) UpdateDataset(
 		ds.PathOptions = pathOptions
 	}
 	ds.LastModifiedDate = float64(time.Now().Unix())
+	stampModifiedBy(ctx, &ds.LastModifiedBy)
 
 	return nil
 }
