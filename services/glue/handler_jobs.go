@@ -219,6 +219,7 @@ type startJobRunInput struct {
 	JobRunQueuingEnabled       *bool                 `json:"JobRunQueuingEnabled,omitempty"`
 	JobName                    string                `json:"JobName"`
 	WorkerType                 string                `json:"WorkerType,omitempty"`
+	JobRunID                   string                `json:"JobRunId,omitempty"`
 	SecurityConfiguration      string                `json:"SecurityConfiguration,omitempty"`
 	ExecutionClass             string                `json:"ExecutionClass,omitempty"`
 	ExecutionRoleSessionPolicy string                `json:"ExecutionRoleSessionPolicy,omitempty"`
@@ -257,6 +258,7 @@ func (h *Handler) handleStartJobRun(_ context.Context, in *startJobRunInput) (*s
 		JobRunQueuingEnabled:       in.JobRunQueuingEnabled,
 		ExecutionClass:             in.ExecutionClass,
 		ExecutionRoleSessionPolicy: in.ExecutionRoleSessionPolicy,
+		PreviousRunID:              in.JobRunID,
 	})
 	if err != nil {
 		return nil, err

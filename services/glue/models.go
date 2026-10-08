@@ -559,6 +559,7 @@ type JobRun struct {
 	SecurityConfiguration string            `json:"SecurityConfiguration,omitempty"`
 	ExecutionClass        string            `json:"ExecutionClass,omitempty"`
 	MaintenanceWindow     string            `json:"MaintenanceWindow,omitempty"`
+	PreviousRunID         string            `json:"PreviousRunId,omitempty"`
 	// ExecutionRoleSessionPolicy is the inline session policy given at StartJobRun.
 	ExecutionRoleSessionPolicy string `json:"ExecutionRoleSessionPolicy,omitempty"`
 	// JobRunQueuingEnabled is inherited from the job definition.
@@ -583,6 +584,7 @@ type JobRun struct {
 // StartJobRunOptions carries the optional per-run overrides AWS's
 // StartJobRunRequest supports beyond JobName/Arguments.
 type StartJobRunOptions struct {
+	PreviousRunID              string
 	NotificationProperty       *NotificationProperty
 	JobRunQueuingEnabled       *bool
 	ExecutionClass             string
@@ -768,12 +770,18 @@ type BlueprintRun struct {
 
 // DQRuleRecommendationRun represents a data quality rule recommendation run.
 type DQRuleRecommendationRun struct {
-	RecommendationRunID string  `json:"RecommendationRunId"`
-	DataSourceS3Path    string  `json:"DataSourceS3Path,omitempty"`
-	Status              string  `json:"Status"`
-	StartedOn           float64 `json:"StartedOn,omitempty"`
-	NumberOfWorkers     int32   `json:"NumberOfWorkers,omitempty"`
-	Timeout             int32   `json:"Timeout,omitempty"`
+	GlueTable                        *GlueTable `json:"GlueTable,omitempty"`
+	RecommendationRunID              string     `json:"RecommendationRunId"`
+	DataSourceS3Path                 string     `json:"DataSourceS3Path,omitempty"`
+	Status                           string     `json:"Status"`
+	Role                             string     `json:"Role,omitempty"`
+	CreatedRulesetName               string     `json:"CreatedRulesetName,omitempty"`
+	DataQualitySecurityConfiguration string     `json:"DataQualitySecurityConfiguration,omitempty"`
+	CustomLogGroupPrefix             string     `json:"CustomLogGroupPrefix,omitempty"`
+	ClientToken                      string     `json:"ClientToken,omitempty"`
+	StartedOn                        float64    `json:"StartedOn,omitempty"`
+	NumberOfWorkers                  int32      `json:"NumberOfWorkers,omitempty"`
+	Timeout                          int32      `json:"Timeout,omitempty"`
 }
 
 // ColumnStatisticsTaskSettings represents column statistics task settings.
@@ -978,17 +986,25 @@ type MLTaskType string
 
 // MLTaskRun represents a single ML transform task run.
 type MLTaskRun struct {
-	Properties     map[string]string `json:"Properties,omitempty"`
-	TransformID    string            `json:"TransformId"`
-	TaskRunID      string            `json:"TaskRunId"`
-	TaskType       string            `json:"TaskType"`
-	Status         string            `json:"Status"`
-	ErrorString    string            `json:"ErrorString,omitempty"`
-	LogGroupName   string            `json:"LogGroupName,omitempty"`
-	StartedOn      float64           `json:"StartedOn,omitempty"`
-	CompletedOn    float64           `json:"CompletedOn,omitempty"`
-	LastModifiedOn float64           `json:"LastModifiedOn,omitempty"`
-	ExecutionTime  int               `json:"ExecutionTime,omitempty"`
+	Properties     *MLTaskRunProperties `json:"Properties,omitempty"`
+	TransformID    string               `json:"TransformId"`
+	TaskRunID      string               `json:"TaskRunId"`
+	TaskType       string               `json:"TaskType"`
+	Status         string               `json:"Status"`
+	ErrorString    string               `json:"ErrorString,omitempty"`
+	LogGroupName   string               `json:"LogGroupName,omitempty"`
+	StartedOn      float64              `json:"StartedOn,omitempty"`
+	CompletedOn    float64              `json:"CompletedOn,omitempty"`
+	LastModifiedOn float64              `json:"LastModifiedOn,omitempty"`
+	ExecutionTime  int                  `json:"ExecutionTime,omitempty"`
+}
+
+// MLTaskRunProperties holds the start-time inputs that GetMLTaskRuns reports
+// under TaskRunProperties' per-task-type sub-structures.
+type MLTaskRunProperties struct {
+	OutputS3Path string `json:"OutputS3Path,omitempty"`
+	InputS3Path  string `json:"InputS3Path,omitempty"`
+	Replace      bool   `json:"Replace,omitempty"`
 }
 
 // ResourceURI holds a URI for a UDF resource.
@@ -1060,6 +1076,7 @@ type SessionCommand struct {
 
 // Session represents a Glue interactive session.
 type Session struct {
+	Tags                  map[string]string `json:"-"`
 	DefaultArguments      map[string]string `json:"DefaultArguments,omitempty"`
 	Command               SessionCommand    `json:"Command,omitzero"`
 	Status                string            `json:"Status"`

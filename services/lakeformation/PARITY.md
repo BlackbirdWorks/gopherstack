@@ -7,7 +7,7 @@
 service: lakeformation
 sdk_module: aws-sdk-go-v2/service/lakeformation@v1.50.4
 last_audit_commit: 0c1472972  # 2026-09-24 lakeformation-appsync-neptune-and-athena terraform coverage; prior: 49cff86c4
-last_audit_date: 2026-09-24  # prior: 2026-09-19
+last_audit_date: 2026-10-07
 overall: A            # gopherstack-6flj wrapper-key sweep: GetTemporaryDataLocationCredentials wire-breaking sibling-copy bug fixed, plus 4 adjacent bugs
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -79,11 +79,10 @@ families:
   permission_enum: {status: ok, note: "isValidPermission previously accepted three gopherstack-INVENTED permission strings that do not exist in types.Permission's Values() at all -- \"CREATE_TAG\" (real name is CREATE_LF_TAG, already separately present), \"CREATE_LAKE_FORMATION_OPT_IN\" (not a Permission at all), and \"SUPER\" (real value is SUPER_USER) -- and was missing the real \"CREATE_LF_TAG_EXPRESSION\" value. All three invented values DELETED, CREATE_LF_TAG_EXPRESSION added. isValidPermission now matches the real 16-member enum exactly."}
 gaps: []
 items_still_open:
-  - "RAM integration: DescribeLakeFormationIdentityCenterConfiguration.ResourceShare and PrincipalResourcePermissions.AdditionalDetails (DetailsMap.ResourceShare) are never populated; the backend holds no region at the storage layer, and a services/ram lookup via the siblingServices pattern (grafana/cross_service.go) is not wired (gopherstack-6flj, gopherstack-osg7)."
-  - "QuerySessionContext on GetTemporaryGlueTableCredentials (and the query-planning ops sharing it) is unmodeled (gopherstack-6flj)."
-  - "ListPermissions.IncludeRelated has no effect: permissionsList holds only explicit grants, so there are no derived cell-filter entries to include (gopherstack-4ly2)."
-  - "CatalogId is ignored on Grant/Revoke/BatchGrant/BatchRevoke, Get/PutDataLakeSettings and DeleteObjectsOnCancel: grants and settings storage is single-catalog (the resource-level catalog ids on grants are stored as given). ListPermissions and GetEffectivePermissionsForPath honour it as a filter (2026-10-04)."
-  - "ListPermissions for a concrete resource does not expand LFTagPolicy grants (matches AWS, which lists them under the LF_TAG_POLICY resource type); no operation enforces authorization at runtime, permissions are bookkeeping."
+  - "RAM integration: DescribeLakeFormationIdentityCenterConfiguration.ResourceShare and PrincipalResourcePermissions.AdditionalDetails.ResourceShare are never populated: AWS's RAM share naming for IdC/cross-account grants is undocumented in the SDK, and a services/ram lookup needs siblingServices wiring in cli.go (gopherstack-6flj, gopherstack-osg7)."
+structural_gaps:
+  - "QuerySessionContext on GetTemporaryGlueTableCredentials and the query-planning ops is an opaque query-engine protocol context with no emulator-visible effect."
+  - "No operation enforces LF authorization at runtime: permissions are bookkeeping, since enforcement happens inside integrated query engines. CatalogId on DeleteObjectsOnCancel has no scoping effect (transaction ids are account-scoped)."
 deferred: []  # previously: Condition/RowFilter AllRowsWildcard, ColumnWildcard, LFTagPolicyResource -- ALL implemented this pass (see resource_union family + CreateDataCellsFilter note). The prior claim that RedshiftScopeUnion/ServiceIntegrationUnion had no routed wire surface was WRONG (disproved gopherstack-6flj, 2026-08-15): ServiceIntegrations is a real member of CreateLakeFormationIdentityCenterConfigurationInput/UpdateLakeFormationIdentityCenterConfigurationInput/DescribeLakeFormationIdentityCenterConfigurationOutput, all three of them routed ops. Now implemented -- see the identity-center ops above and the ServiceIntegration/RedshiftScopeUnion/RedshiftConnect types in models.go.
 leaks: {status: clean, note: "no new goroutines/janitors added this pass; all new backend methods take b.mu via existing lockmetrics.RWMutex Lock/RLock with defer Unlock/RUnlock, following the pre-existing pattern."}
 ---

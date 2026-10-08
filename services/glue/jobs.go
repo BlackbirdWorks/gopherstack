@@ -429,6 +429,7 @@ func (b *InMemoryBackend) StartJobRunWithOptions(
 		SecurityConfiguration: cmp.Or(opts.SecurityConfiguration, j.SecurityConfiguration),
 		ExecutionClass:        cmp.Or(opts.ExecutionClass, j.ExecutionClass),
 		MaintenanceWindow:     j.MaintenanceWindow,
+		PreviousRunID:         opts.PreviousRunID,
 
 		ExecutionRoleSessionPolicy: opts.ExecutionRoleSessionPolicy,
 		JobRunQueuingEnabled:       cmp.Or(opts.JobRunQueuingEnabled, j.JobRunQueuingEnabled),

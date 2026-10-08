@@ -189,7 +189,7 @@ func (b *InMemoryBackend) ListPermissions(
 	principal *DataLakePrincipal,
 	resourceType string,
 ) ([]*PermissionEntry, string) {
-	return b.ListPermissionsInCatalog(resource, maxResults, nextToken, principal, resourceType, "", "")
+	return b.ListPermissionsInCatalog(resource, maxResults, nextToken, principal, resourceType, "", "", false)
 }
 
 // ListPermissionsInCatalog is ListPermissions restricted to entries whose resource lives in catalogID (all when empty).
@@ -199,6 +199,7 @@ func (b *InMemoryBackend) ListPermissionsInCatalog(
 	nextToken string,
 	principal *DataLakePrincipal,
 	resourceType, catalogID, account string,
+	includeRelated bool,
 ) ([]*PermissionEntry, string) {
 	b.mu.RLock("ListPermissions")
 	defer b.mu.RUnlock()
@@ -206,7 +207,8 @@ func (b *InMemoryBackend) ListPermissionsInCatalog(
 	filtered := make([]*PermissionEntry, 0, len(b.permissionsList))
 
 	for _, p := range b.permissionsList {
-		if !permissionMatchesResource(p, resource) || !permissionInCatalog(p, catalogID, account) {
+		matches := permissionMatchesResource(p, resource) || (includeRelated && permissionRelatedToTable(p, resource))
+		if !matches || !permissionInCatalog(p, catalogID, account) {
 			continue
 		}
 
@@ -399,6 +401,30 @@ func permissionMatchesResource(p *PermissionEntry, filter *Resource) bool {
 	default:
 		return true
 	}
+}
+
+// permissionRelatedToTable reports whether p is a grant on a data cells filter
+// of the table named by filter (the "cell filters" ListPermissions
+// IncludeRelated adds to a table listing).
+func permissionRelatedToTable(p *PermissionEntry, filter *Resource) bool {
+	if filter == nil || p.Resource == nil || p.Resource.DataCellsFilter == nil {
+		return false
+	}
+
+	var database, table string
+
+	switch {
+	case filter.Table != nil:
+		database, table = filter.Table.DatabaseName, filter.Table.Name
+	case filter.TableWithColumns != nil:
+		database, table = filter.TableWithColumns.DatabaseName, filter.TableWithColumns.Name
+	default:
+		return false
+	}
+
+	f := p.Resource.DataCellsFilter
+
+	return f.DatabaseName == database && f.TableName == table
 }
 
 func resourceMatchesDatabase(r *Resource, want *DatabaseResource) bool {

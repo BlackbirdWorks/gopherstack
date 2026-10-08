@@ -3,6 +3,7 @@ package glue
 import (
 	"context"
 	"fmt"
+	"regexp"
 )
 
 // createUserDefinedFunctionInput holds input for CreateUserDefinedFunction.
@@ -89,6 +90,7 @@ type getUserDefinedFunctionsInput struct {
 	DatabaseName string `json:"DatabaseName,omitempty"`
 	Pattern      string `json:"Pattern"`
 	CatalogID    string `json:"CatalogId,omitempty"`
+	FunctionType string `json:"FunctionType,omitempty"`
 	NextToken    string `json:"NextToken,omitempty"`
 	MaxResults   int32  `json:"MaxResults,omitempty"`
 }
@@ -112,10 +114,22 @@ func (h *Handler) handleGetUserDefinedFunctions(
 		return nil, fmt.Errorf("%w: invalid Pattern: %w", ErrValidation, err)
 	}
 
+	var typeRe *regexp.Regexp
+
+	if in.FunctionType != "" {
+		if typeRe, err = tableNameRegexp(in.FunctionType); err != nil {
+			return nil, fmt.Errorf("%w: invalid FunctionType: %w", ErrValidation, err)
+		}
+	}
+
 	udfs := h.Backend.GetUserDefinedFunctions(in.DatabaseName)
 
 	filtered := make([]*UserDefinedFunction, 0, len(udfs))
 	for _, u := range udfs {
+		if typeRe != nil && !typeRe.MatchString(u.FunctionType) {
+			continue
+		}
+
 		if re.MatchString(u.FunctionName) && (in.CatalogID == "" || u.CatalogID == in.CatalogID) {
 			filtered = append(filtered, u)
 		}

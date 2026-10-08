@@ -3,6 +3,8 @@ package glue
 import (
 	"maps"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // TagResource adds tags to a resource by ARN.
@@ -29,91 +31,67 @@ func (b *InMemoryBackend) tagResource(
 	resourceARN string,
 	tags map[string]string,
 ) error {
-	if db := b.findDatabaseByARN(resourceARN); db != nil {
-		mergeTags(&db.Tags, tags)
-
-		return nil
+	field := b.tagsFieldByARN(resourceARN)
+	if field == nil {
+		return ErrNotFound
 	}
 
-	if c := b.findCrawlerByARN(resourceARN); c != nil {
-		mergeTags(&c.Tags, tags)
+	mergeTags(field, tags)
 
-		return nil
+	return nil
+}
+
+// tagsFieldByARN resolves the Tags field of whichever resource resourceARN names.
+func (b *InMemoryBackend) tagsFieldByARN(resourceARN string) *map[string]string {
+	if field := b.coreTagsFieldByARN(resourceARN); field != nil {
+		return field
 	}
 
-	if j := b.findJobByARN(resourceARN); j != nil {
-		mergeTags(&j.Tags, tags)
+	return b.extraTagsFieldByARN(resourceARN)
+}
 
+func (b *InMemoryBackend) coreTagsFieldByARN(resourceARN string) *map[string]string {
+	switch {
+	case b.findDatabaseByARN(resourceARN) != nil:
+		return &b.findDatabaseByARN(resourceARN).Tags
+	case b.findCrawlerByARN(resourceARN) != nil:
+		return &b.findCrawlerByARN(resourceARN).Tags
+	case b.findJobByARN(resourceARN) != nil:
+		return &b.findJobByARN(resourceARN).Tags
+	case b.findDataQualityRulesetByARN(resourceARN) != nil:
+		return &b.findDataQualityRulesetByARN(resourceARN).Tags
+	case b.findConnectionByARN(resourceARN) != nil:
+		return &b.findConnectionByARN(resourceARN).Tags
+	case b.findTriggerByARN(resourceARN) != nil:
+		return &b.findTriggerByARN(resourceARN).Tags
+	case b.findWorkflowByARN(resourceARN) != nil:
+		return &b.findWorkflowByARN(resourceARN).Tags
+	case b.findBlueprintByARN(resourceARN) != nil:
+		return &b.findBlueprintByARN(resourceARN).Tags
+	default:
 		return nil
 	}
+}
 
-	if r := b.findDataQualityRulesetByARN(resourceARN); r != nil {
-		mergeTags(&r.Tags, tags)
-
+func (b *InMemoryBackend) extraTagsFieldByARN(resourceARN string) *map[string]string {
+	switch {
+	case b.findDevEndpointByARN(resourceARN) != nil:
+		return &b.findDevEndpointByARN(resourceARN).Tags
+	case b.findMLTransformByARN(resourceARN) != nil:
+		return &b.findMLTransformByARN(resourceARN).Tags
+	case b.findUDFByARN(resourceARN) != nil:
+		return &b.findUDFByARN(resourceARN).Tags
+	case b.findRegistryByARN(resourceARN) != nil:
+		return &b.findRegistryByARN(resourceARN).Tags
+	case b.findSchemaByARN(resourceARN) != nil:
+		return &b.findSchemaByARN(resourceARN).Tags
+	case b.findIntegrationByARN(resourceARN) != nil:
+		return &b.findIntegrationByARN(resourceARN).Tags
+	case b.findSessionByARN(resourceARN) != nil:
+		return &b.findSessionByARN(resourceARN).Tags
+	default:
 		return nil
 	}
-
-	if conn := b.findConnectionByARN(resourceARN); conn != nil {
-		mergeTags(&conn.Tags, tags)
-
-		return nil
-	}
-
-	if trig := b.findTriggerByARN(resourceARN); trig != nil {
-		mergeTags(&trig.Tags, tags)
-
-		return nil
-	}
-
-	if w := b.findWorkflowByARN(resourceARN); w != nil {
-		mergeTags(&w.Tags, tags)
-
-		return nil
-	}
-
-	if bp := b.findBlueprintByARN(resourceARN); bp != nil {
-		mergeTags(&bp.Tags, tags)
-
-		return nil
-	}
-
-	if dep := b.findDevEndpointByARN(resourceARN); dep != nil {
-		mergeTags(&dep.Tags, tags)
-
-		return nil
-	}
-
-	if m := b.findMLTransformByARN(resourceARN); m != nil {
-		mergeTags(&m.Tags, tags)
-
-		return nil
-	}
-
-	if u := b.findUDFByARN(resourceARN); u != nil {
-		mergeTags(&u.Tags, tags)
-
-		return nil
-	}
-
-	if reg := b.findRegistryByARN(resourceARN); reg != nil {
-		mergeTags(&reg.Tags, tags)
-
-		return nil
-	}
-
-	if s := b.findSchemaByARN(resourceARN); s != nil {
-		mergeTags(&s.Tags, tags)
-
-		return nil
-	}
-
-	if ig := b.findIntegrationByARN(resourceARN); ig != nil {
-		mergeTags(&ig.Tags, tags)
-
-		return nil
-	}
-
-	return ErrNotFound
 }
 
 func deleteTags(tags map[string]string, keys []string) {
@@ -130,91 +108,14 @@ func (b *InMemoryBackend) UntagResource(
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	if db := b.findDatabaseByARN(resourceARN); db != nil {
-		deleteTags(db.Tags, tagKeys)
-
-		return nil
+	field := b.tagsFieldByARN(resourceARN)
+	if field == nil {
+		return ErrNotFound
 	}
 
-	if c := b.findCrawlerByARN(resourceARN); c != nil {
-		deleteTags(c.Tags, tagKeys)
+	deleteTags(*field, tagKeys)
 
-		return nil
-	}
-
-	if j := b.findJobByARN(resourceARN); j != nil {
-		deleteTags(j.Tags, tagKeys)
-
-		return nil
-	}
-
-	if r := b.findDataQualityRulesetByARN(resourceARN); r != nil {
-		deleteTags(r.Tags, tagKeys)
-
-		return nil
-	}
-
-	if conn := b.findConnectionByARN(resourceARN); conn != nil {
-		deleteTags(conn.Tags, tagKeys)
-
-		return nil
-	}
-
-	if trig := b.findTriggerByARN(resourceARN); trig != nil {
-		deleteTags(trig.Tags, tagKeys)
-
-		return nil
-	}
-
-	if w := b.findWorkflowByARN(resourceARN); w != nil {
-		deleteTags(w.Tags, tagKeys)
-
-		return nil
-	}
-
-	if bp := b.findBlueprintByARN(resourceARN); bp != nil {
-		deleteTags(bp.Tags, tagKeys)
-
-		return nil
-	}
-
-	if dep := b.findDevEndpointByARN(resourceARN); dep != nil {
-		deleteTags(dep.Tags, tagKeys)
-
-		return nil
-	}
-
-	if m := b.findMLTransformByARN(resourceARN); m != nil {
-		deleteTags(m.Tags, tagKeys)
-
-		return nil
-	}
-
-	if u := b.findUDFByARN(resourceARN); u != nil {
-		deleteTags(u.Tags, tagKeys)
-
-		return nil
-	}
-
-	if reg := b.findRegistryByARN(resourceARN); reg != nil {
-		deleteTags(reg.Tags, tagKeys)
-
-		return nil
-	}
-
-	if s := b.findSchemaByARN(resourceARN); s != nil {
-		deleteTags(s.Tags, tagKeys)
-
-		return nil
-	}
-
-	if ig := b.findIntegrationByARN(resourceARN); ig != nil {
-		deleteTags(ig.Tags, tagKeys)
-
-		return nil
-	}
-
-	return ErrNotFound
+	return nil
 }
 
 // GetTags retrieves tags for a resource by ARN.
@@ -222,63 +123,12 @@ func (b *InMemoryBackend) GetTags(resourceARN string) (map[string]string, error)
 	b.mu.RLock("GetTags")
 	defer b.mu.RUnlock()
 
-	if db := b.findDatabaseByARN(resourceARN); db != nil {
-		return maps.Clone(db.Tags), nil
+	field := b.tagsFieldByARN(resourceARN)
+	if field == nil {
+		return nil, ErrNotFound
 	}
 
-	if c := b.findCrawlerByARN(resourceARN); c != nil {
-		return maps.Clone(c.Tags), nil
-	}
-
-	if j := b.findJobByARN(resourceARN); j != nil {
-		return maps.Clone(j.Tags), nil
-	}
-
-	if r := b.findDataQualityRulesetByARN(resourceARN); r != nil {
-		return maps.Clone(r.Tags), nil
-	}
-
-	if conn := b.findConnectionByARN(resourceARN); conn != nil {
-		return maps.Clone(conn.Tags), nil
-	}
-
-	if t := b.findTriggerByARN(resourceARN); t != nil {
-		return maps.Clone(t.Tags), nil
-	}
-
-	if w := b.findWorkflowByARN(resourceARN); w != nil {
-		return maps.Clone(w.Tags), nil
-	}
-
-	if bp := b.findBlueprintByARN(resourceARN); bp != nil {
-		return maps.Clone(bp.Tags), nil
-	}
-
-	if dep := b.findDevEndpointByARN(resourceARN); dep != nil {
-		return maps.Clone(dep.Tags), nil
-	}
-
-	if m := b.findMLTransformByARN(resourceARN); m != nil {
-		return maps.Clone(m.Tags), nil
-	}
-
-	if u := b.findUDFByARN(resourceARN); u != nil {
-		return maps.Clone(u.Tags), nil
-	}
-
-	if reg := b.findRegistryByARN(resourceARN); reg != nil {
-		return maps.Clone(reg.Tags), nil
-	}
-
-	if s := b.findSchemaByARN(resourceARN); s != nil {
-		return maps.Clone(s.Tags), nil
-	}
-
-	if ig := b.findIntegrationByARN(resourceARN); ig != nil {
-		return maps.Clone(ig.Tags), nil
-	}
-
-	return nil, ErrNotFound
+	return maps.Clone(*field), nil
 }
 
 // TaggedEntry pairs a resource ARN with its tag map, for cross-service tag
@@ -413,6 +263,12 @@ func (b *InMemoryBackend) resourceTagsSnapshot() map[string]map[string]string {
 		addTags(b.blueprintARN(bp.Name), bp.Tags)
 	}
 
+	b.addExtraResourceTags(addTags)
+
+	return out
+}
+
+func (b *InMemoryBackend) addExtraResourceTags(addTags func(string, map[string]string)) {
 	for _, dep := range b.devEndpoints.All() {
 		addTags(b.devEndpointARN(dep.EndpointName), dep.Tags)
 	}
@@ -433,7 +289,9 @@ func (b *InMemoryBackend) resourceTagsSnapshot() map[string]map[string]string {
 		addTags(s.SchemaARN, s.Tags)
 	}
 
-	return out
+	for _, sess := range b.sessions.All() {
+		addTags(b.sessionARN(sess.SessionID), sess.Tags)
+	}
 }
 
 // restoreResourceTags repopulates each taggable struct's Tags field from the
@@ -476,6 +334,10 @@ func (b *InMemoryBackend) restoreResourceTags(resourceTags map[string]map[string
 		bp.Tags = resourceTags[b.blueprintARN(bp.Name)]
 	}
 
+	b.restoreExtraResourceTags(resourceTags)
+}
+
+func (b *InMemoryBackend) restoreExtraResourceTags(resourceTags map[string]map[string]string) {
 	for _, dep := range b.devEndpoints.All() {
 		dep.Tags = resourceTags[b.devEndpointARN(dep.EndpointName)]
 	}
@@ -495,6 +357,28 @@ func (b *InMemoryBackend) restoreResourceTags(resourceTags map[string]map[string
 	for _, s := range b.schemas.All() {
 		s.Tags = resourceTags[s.SchemaARN]
 	}
+
+	for _, sess := range b.sessions.All() {
+		sess.Tags = resourceTags[b.sessionARN(sess.SessionID)]
+	}
+}
+
+func (b *InMemoryBackend) sessionARN(id string) string {
+	return arn.Build("glue", b.region, b.accountID, "session/"+id)
+}
+
+func (b *InMemoryBackend) findSessionByARN(resourceARN string) *Session {
+	id := glueResourceName(resourceARN, "session")
+	if id == "" {
+		return nil
+	}
+
+	s, ok := b.sessions.Get(id)
+	if !ok {
+		return nil
+	}
+
+	return s
 }
 
 func (b *InMemoryBackend) findDatabaseByARN(resourceARN string) *Database {

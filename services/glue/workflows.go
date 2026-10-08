@@ -339,6 +339,12 @@ func (b *InMemoryBackend) entryTriggersLocked(name string) []entryTriggerFire {
 // a workflow run -- WorkflowRunStatistics reflects exactly that real subset,
 // not the full DAG.
 func (b *InMemoryBackend) StartWorkflowRun(name string) (*WorkflowRun, error) {
+	return b.StartWorkflowRunWithProperties(name, nil)
+}
+
+// StartWorkflowRunWithProperties starts a run whose properties are the
+// workflow's DefaultRunProperties overlaid with the request's RunProperties.
+func (b *InMemoryBackend) StartWorkflowRunWithProperties(name string, props map[string]string) (*WorkflowRun, error) {
 	var fires []entryTriggerFire
 
 	run, err := func() (*WorkflowRun, error) {
@@ -368,6 +374,13 @@ func (b *InMemoryBackend) StartWorkflowRun(name string) (*WorkflowRun, error) {
 			Status:       stateRunning,
 			StartedOn:    float64(time.Now().Unix()),
 		}
+
+		if len(w.DefaultRunProperties) > 0 || len(props) > 0 {
+			run.Properties = make(map[string]string, len(w.DefaultRunProperties)+len(props))
+			maps.Copy(run.Properties, w.DefaultRunProperties)
+			maps.Copy(run.Properties, props)
+		}
+
 		b.workflowRuns[name] = append(b.workflowRuns[name], run)
 
 		fires = b.entryTriggersLocked(name)
@@ -500,4 +513,13 @@ func tallyCrawlAction(stats *WorkflowRunStatistics, state string) {
 	case stateRunning:
 		stats.RunningActions++
 	}
+}
+
+// WorkflowRunGraph returns the current graph of the named workflow, for
+// GetWorkflowRun(s) with IncludeGraph.
+func (b *InMemoryBackend) WorkflowRunGraph(workflowName string) *WorkflowGraph {
+	b.mu.RLock("WorkflowRunGraph")
+	defer b.mu.RUnlock()
+
+	return b.workflowGraphLocked(workflowName)
 }

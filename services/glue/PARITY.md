@@ -2,7 +2,7 @@
 service: glue
 sdk_module: aws-sdk-go-v2/service/glue@v1.157.0
 last_audit_commit: 2bc650bf9
-last_audit_date: 2026-09-19
+last_audit_date: 2026-10-07
 # 2026-08-30 wrapper-key/sort-totality sweep (Class F: a sort that exists but is
 # not total). Swept every sort.Slice/sort.Strings/slices.Sort* call site across
 # this service's ~48 paginated listings for whether the sort key is unique.
@@ -171,11 +171,12 @@ gaps: []
   # notes above for each. Kept here (marked FIXED) rather than deleted so the
   # bd issue IDs remain traceable; close the corresponding bd issues separately.
 items_still_open:
-  - "Unmodeled subsystems (no backing state): Lake Formation cell/row filtering (GetUnfiltered*Metadata) and catalog federation; GetDataQualityResult metrics/rule results and StartDataQualityRulesetEvaluationRun evaluation (no engine runs); ListConnectionTypes DisplayName/LogoUrl/Vendor/variants (no connector catalog); GetTable AttributesToGet Iceberg metadata."
-  - "MLTaskRun.Properties is map[string]string and never populated (real shape is a TaskType plus four nested sub-structs); DataCatalogExportConfiguration.S3TableBucketArn has no input to derive from and ENABLING/DISABLING are not modeled (no async export)."
-  - "IdempotentParameterMismatchException/OperationTimeoutException/ConcurrentModificationException unenforced: the coarse b.mu serializes ops, there is no real timeout source, and no declaring op has a token input. ResourceNumberLimitExceededException is real for 15 ops (limits.go)."
-  - "Request members still accepted and ignored (cmd/reqfielddiff lists 128 undeclared input fields; not all triaged): Tags on CreateCatalog/CreateSession/CreateColumnStatisticsTaskSettings/CreateIntegrationResourceProperty/RegisterConnectionType (no tag store or ARN dispatch for those kinds), ClientToken idempotency on glossary/asset/form/data-quality creates, RequestOrigin on session and statement ops, Iceberg OpenTableFormatInput and TransactionId/AuditContext/QueryAsOfTime on table and partition ops, UpdateTable VersionId/Force/ViewUpdateAction, ModifyIntegration.IntegrationName (the ARN is name-keyed), StartJobRun.JobRunId (retry linkage)."
-  - "CustomEntityType has no ARN or Tags: the Glue ARN format for it is not verifiable offline (the SDK exposes none), so TagResource cannot be wired honestly."
+  - "Request members accepted and ignored with no SDK-documented observable effect or ARN format: Tags on CreateCatalog/CreateColumnStatisticsTaskSettings/CreateIntegrationResourceProperty/RegisterConnectionType/CreateCustomEntityType (no ARN to wire TagResource to); UpdateTable VersionId/Force/ViewUpdateAction; ModifyIntegration.IntegrationName (ARN is name-keyed); RequestOrigin on session/statement ops; GetJobRun.PredecessorsIncluded; Get/ResetJobBookmark.RunId; StartMaterializedViewRefreshTaskRun.FullRefresh; GetConnection.ApplyOverrideForComputeEnvironment; GetDatabases/GetTables/SearchTables AttributesToGet/IncludeStatusDetails/ResourceShareType; ClientToken on Put*/Update*/Associate*/Disassociate* ops (already idempotent by key)."
+structural_gaps:
+  - "No backing engine or data: Lake Formation cell/row filtering (GetUnfiltered*Metadata) and catalog federation; GetDataQualityResult metrics/rule results and StartDataQualityRulesetEvaluationRun evaluation; ListConnectionTypes DisplayName/LogoUrl/Vendor (no connector catalog); GetPlan Location/Sinks (code generation); GetEntityRecords ConnectionOptions/SelectedFields (real connectors); FindMatchesTaskRunProperties JobId/JobName/JobRunId (no transform job)."
+  - "Table-format and snapshot semantics need a real engine: GetTable AttributesToGet Iceberg metadata, Create/UpdateTable OpenTableFormatInput, and TransactionId/AuditContext/QueryAsOfTime/QuerySessionContext on table and partition ops."
+  - "ConcurrentModificationException and OperationTimeoutException cannot occur: the coarse b.mu serializes ops and there is no timeout source. ResourceNumberLimitExceededException is real for 15 ops (limits.go)."
+  - "DataCatalogExportConfiguration.S3TableBucketArn has no input to derive from and ENABLING/DISABLING are not modeled (no async export)."
 deferred:
   # Every family below was field-diffed against the pinned SDK this pass (none
   # left un-audited). Families now fully closed (status: ok in the table above)

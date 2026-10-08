@@ -406,10 +406,12 @@ func (h *Handler) handleGetUnfilteredTableMetadata(
 
 // searchTablesInput holds input for SearchTables.
 type searchTablesInput struct {
-	SearchText string              `json:"SearchText,omitempty"`
-	NextToken  string              `json:"NextToken,omitempty"`
-	Filters    []propertyPredicate `json:"Filters,omitempty"`
-	MaxResults int32               `json:"MaxResults,omitempty"`
+	SearchText   string              `json:"SearchText,omitempty"`
+	NextToken    string              `json:"NextToken,omitempty"`
+	CatalogID    string              `json:"CatalogId,omitempty"`
+	Filters      []propertyPredicate `json:"Filters,omitempty"`
+	SortCriteria []sortCriterion     `json:"SortCriteria,omitempty"`
+	MaxResults   int32               `json:"MaxResults,omitempty"`
 }
 
 // searchTablesOutput holds the result for SearchTables.
@@ -492,9 +494,17 @@ func (h *Handler) handleSearchTables(
 	matched := make([]*Table, 0, len(tables))
 
 	for _, t := range tables {
+		if catalogIDMismatch(in.CatalogID, t.CatalogID) {
+			continue
+		}
+
 		if !slices.ContainsFunc(in.Filters, func(p propertyPredicate) bool { return !tableMatchesPredicate(t, p) }) {
 			matched = append(matched, t)
 		}
+	}
+
+	if err := sortTables(matched, in.SortCriteria); err != nil {
+		return nil, err
 	}
 
 	page, next, err := pagedSlice(matched, in.NextToken, in.MaxResults, defaultListPageSize)

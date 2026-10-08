@@ -135,10 +135,7 @@ func applyTaskSettings(t *storedTask, settings TaskSettings) {
 	}
 
 	if settings.Schedule != nil {
-		t.Schedule = &storedTaskSchedule{
-			ScheduleExpression: settings.Schedule.ScheduleExpression,
-			Status:             settings.Schedule.Status,
-		}
+		t.Schedule = updatedTaskSchedule(t.Schedule, settings.Schedule)
 	}
 
 	if settings.TaskMode != "" {
@@ -511,3 +508,39 @@ func withTaskOptionDefaults(current, supplied map[string]any, taskMode string) m
 
 	return out
 }
+
+// updatedTaskSchedule records TaskScheduleDetails: UpdateTask disabling a
+// schedule is "USER" per types.TaskScheduleDetails.DisabledBy.
+func updatedTaskSchedule(prev *storedTaskSchedule, in *TaskSchedule) *storedTaskSchedule {
+	next := &storedTaskSchedule{ScheduleExpression: in.ScheduleExpression, Status: in.Status}
+	if prev != nil {
+		next.StatusUpdateTime = prev.StatusUpdateTime
+		next.DisabledBy = prev.DisabledBy
+		next.DisabledReason = prev.DisabledReason
+	}
+
+	wasDisabled := prev != nil && prev.Status == scheduleStatusDisabled
+	if in.Status == scheduleStatusDisabled {
+		if !wasDisabled {
+			next.StatusUpdateTime = time.Now().UTC()
+			next.DisabledBy = scheduleDisabledByUser
+			next.DisabledReason = scheduleDisabledByUserReason
+		}
+
+		return next
+	}
+
+	if wasDisabled {
+		next.StatusUpdateTime = time.Now().UTC()
+		next.DisabledBy = ""
+		next.DisabledReason = ""
+	}
+
+	return next
+}
+
+const (
+	scheduleStatusDisabled       = "DISABLED"
+	scheduleDisabledByUser       = "USER"
+	scheduleDisabledByUserReason = "Manually disabled by user."
+)

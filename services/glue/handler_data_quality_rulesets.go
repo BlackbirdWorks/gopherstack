@@ -362,11 +362,20 @@ type getDataQualityRuleRecommendationRunInput struct {
 // already tracked on DQRuleRecommendationRun (models.go) -- previously
 // dropped entirely by this narrower response struct.
 type getDataQualityRuleRecommendationRunOutput struct {
-	RunID           string  `json:"RunId"`
-	Status          string  `json:"Status"`
-	StartedOn       float64 `json:"StartedOn,omitempty"`
-	NumberOfWorkers int32   `json:"NumberOfWorkers,omitempty"`
-	Timeout         int32   `json:"Timeout,omitempty"`
+	DataSource *struct {
+		GlueTable *GlueTable `json:"GlueTable,omitempty"`
+	} `json:"DataSource,omitempty"`
+	AdditionalRunOptions *struct {
+		CustomLogGroupPrefix string `json:"CustomLogGroupPrefix"`
+	} `json:"AdditionalRunOptions,omitempty"`
+	RunID                            string  `json:"RunId"`
+	Status                           string  `json:"Status"`
+	Role                             string  `json:"Role,omitempty"`
+	CreatedRulesetName               string  `json:"CreatedRulesetName,omitempty"`
+	DataQualitySecurityConfiguration string  `json:"DataQualitySecurityConfiguration,omitempty"`
+	StartedOn                        float64 `json:"StartedOn,omitempty"`
+	NumberOfWorkers                  int32   `json:"NumberOfWorkers,omitempty"`
+	Timeout                          int32   `json:"Timeout,omitempty"`
 }
 
 func (h *Handler) handleGetDataQualityRuleRecommendationRun(
@@ -382,13 +391,30 @@ func (h *Handler) handleGetDataQualityRuleRecommendationRun(
 		return nil, err
 	}
 
-	return &getDataQualityRuleRecommendationRunOutput{
-		RunID:           run.RecommendationRunID,
-		Status:          run.Status,
-		StartedOn:       run.StartedOn,
-		NumberOfWorkers: run.NumberOfWorkers,
-		Timeout:         run.Timeout,
-	}, nil
+	out := &getDataQualityRuleRecommendationRunOutput{
+		RunID:                            run.RecommendationRunID,
+		Status:                           run.Status,
+		Role:                             run.Role,
+		CreatedRulesetName:               run.CreatedRulesetName,
+		DataQualitySecurityConfiguration: run.DataQualitySecurityConfiguration,
+		StartedOn:                        run.StartedOn,
+		NumberOfWorkers:                  run.NumberOfWorkers,
+		Timeout:                          run.Timeout,
+	}
+
+	if run.GlueTable != nil {
+		out.DataSource = &struct {
+			GlueTable *GlueTable `json:"GlueTable,omitempty"`
+		}{GlueTable: run.GlueTable}
+	}
+
+	if run.CustomLogGroupPrefix != "" {
+		out.AdditionalRunOptions = &struct {
+			CustomLogGroupPrefix string `json:"CustomLogGroupPrefix"`
+		}{CustomLogGroupPrefix: run.CustomLogGroupPrefix}
+	}
+
+	return out, nil
 }
 
 // defaultListDataQualityRuleRecommendationRunsLimit is used when
@@ -547,10 +573,16 @@ type startDataQualityRuleRecommendationRunInput struct {
 	DataSource struct {
 		GlueTable *GlueTable `json:"GlueTable,omitempty"`
 	} `json:"DataSource,omitzero"`
-	OutputS3Path    string `json:"OutputS3Path,omitempty"`
-	Role            string `json:"Role,omitempty"`
-	NumberOfWorkers int32  `json:"NumberOfWorkers,omitempty"`
-	Timeout         int32  `json:"Timeout,omitempty"`
+	AdditionalRunOptions *struct {
+		CustomLogGroupPrefix string `json:"CustomLogGroupPrefix,omitempty"`
+	} `json:"AdditionalRunOptions,omitempty"`
+	OutputS3Path          string `json:"OutputS3Path,omitempty"`
+	Role                  string `json:"Role,omitempty"`
+	CreatedRulesetName    string `json:"CreatedRulesetName,omitempty"`
+	SecurityConfiguration string `json:"DataQualitySecurityConfiguration,omitempty"`
+	ClientToken           string `json:"ClientToken,omitempty"`
+	NumberOfWorkers       int32  `json:"NumberOfWorkers,omitempty"`
+	Timeout               int32  `json:"Timeout,omitempty"`
 }
 
 // startDataQualityRuleRecommendationRunOutput holds the result for StartDataQualityRuleRecommendationRun.
@@ -562,10 +594,20 @@ func (h *Handler) handleStartDataQualityRuleRecommendationRun(
 	_ context.Context,
 	in *startDataQualityRuleRecommendationRunInput,
 ) (*startDataQualityRuleRecommendationRunOutput, error) {
-	run, err := h.Backend.StartDataQualityRuleRecommendationRunWithOptions(in.OutputS3Path, DataQualityRunOptions{
-		NumberOfWorkers: in.NumberOfWorkers,
-		Timeout:         in.Timeout,
-	})
+	opts := DataQualityRunOptions{
+		GlueTable:                        in.DataSource.GlueTable,
+		Role:                             in.Role,
+		CreatedRulesetName:               in.CreatedRulesetName,
+		DataQualitySecurityConfiguration: in.SecurityConfiguration,
+		ClientToken:                      in.ClientToken,
+		NumberOfWorkers:                  in.NumberOfWorkers,
+		Timeout:                          in.Timeout,
+	}
+	if in.AdditionalRunOptions != nil {
+		opts.CustomLogGroupPrefix = in.AdditionalRunOptions.CustomLogGroupPrefix
+	}
+
+	run, err := h.Backend.StartDataQualityRuleRecommendationRunWithOptions(in.OutputS3Path, opts)
 	if err != nil {
 		return nil, err
 	}

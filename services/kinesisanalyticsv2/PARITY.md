@@ -7,7 +7,7 @@
 service: kinesisanalyticsv2
 sdk_module: aws-sdk-go-v2/service/kinesisanalyticsv2@v1.41.4
 last_audit_commit: 47436caf9
-last_audit_date: 2026-09-04
+last_audit_date: 2026-10-07
 overall: A            # one real non-total-sort bug found and fixed this pass
                        # (ListApplicationSnapshots tie-break); every other prior
                        # finding re-verified, none regressed
@@ -49,11 +49,12 @@ families:
   error_mapping: {status: ok, note: "unchanged this pass; ConcurrentModificationException mapping (fixed prior pass) also now covers ConditionalToken mismatches (checkAndBumpVersionOrToken returns the same ErrConcurrentModification sentinel as version mismatches)."}
 gaps: []
 items_still_open:
-  - DescribeApplication.IncludeAdditionalDetails is accepted-but-ignored, so JobPlanDescription is never returned: needs a real Flink job compiler to produce the plan (structural).
-  - StopApplication Force: the pre-stop auto-snapshot is not modeled; AWS does not publicly document its naming/visibility, so it is not invented.
-  - Zeppelin Glue/S3 ARNs (and every other ARN field here) are not cross-service validated; could adopt the SetAppConfig/siblingServices pattern (gopherstack-osg7).
-  - DeleteApplication is synchronous (no DELETING status), matching the repo-wide convention; ApplicationStatusDeleting is unused.
-  - The default maintenance window real AWS assigns at creation is not modeled; ApplicationMaintenanceConfigurationDescription appears only after UpdateApplicationMaintenanceConfiguration (AWS does not document the default start).
+  - "StopApplication without Force: AWS takes a snapshot on stop, but the SDK does not document its name or visibility in ListApplicationSnapshots, so none is invented."
+  - "Zeppelin Glue/S3 and other ARN fields are not cross-service validated: the SDK does not say which fields AWS existence-checks at call time."
+  - "DeleteApplication is synchronous (ApplicationStatusDeleting unused): the SDK does not document the DELETING window, and Start/Stop are likewise instantaneous here."
+  - "No default maintenance window is assigned at creation: the SDK does not document AWS's default start time."
+structural_gaps:
+  - "DescribeApplication.IncludeAdditionalDetails never returns JobPlanDescription: the plan comes from a real Flink job compiler."
 deferred:
   - DiscoverInputSchema returns placeholder columns (no live sampling); InputProcessingConfiguration is not applied, so ProcessedInputRecords is never returned.
 leaks: {status: clean, note: "New Application fields (CodeConfig/FlinkConfig/EnvironmentPropertyGroups/SnapshotsEnabled/RollbackEnabled/EncryptionConfig/RunConfig/version-lineage pointers) all live inside the Application struct itself, not a separate map -- DeleteApplication's existing applications.Delete(...) cleans them up with no new leak surface. The four Add*/Delete* config ops that now call recordOperation (AddApplicationCloudWatchLoggingOption/AddApplicationVpcConfiguration/DeleteApplicationCloudWatchLoggingOption/DeleteApplicationVpcConfiguration) write into the same b.operations[region][name] map DeleteApplication already clears -- verified via TestBackend_AddDeleteVpcAndCWLOption_ReturnOperationID plus the existing DeleteApplication cleanup tests, no new cleanup path needed. go test -race clean at -count=3."}
