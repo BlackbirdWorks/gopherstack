@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -56,14 +57,18 @@ type ProductionVariantStatus struct {
 // AWS renames Initial* to Desired* and adds Current* fields that reflect
 // deployed state once the endpoint has finished (re)deploying.
 type ProductionVariantSummary struct {
-	CurrentWeight        *float64                  `json:"CurrentWeight,omitempty"`
-	DesiredWeight        *float64                  `json:"DesiredWeight,omitempty"`
-	CurrentInstanceCount *int32                    `json:"CurrentInstanceCount,omitempty"`
-	DesiredInstanceCount *int32                    `json:"DesiredInstanceCount,omitempty"`
-	CurrentServerless    *ServerlessConfig         `json:"CurrentServerlessConfig,omitempty"`
-	DesiredServerless    *ServerlessConfig         `json:"DesiredServerlessConfig,omitempty"`
-	VariantName          string                    `json:"VariantName"`
-	VariantStatus        []ProductionVariantStatus `json:"VariantStatus,omitempty"`
+	CurrentWeight             *float64                  `json:"CurrentWeight,omitempty"`
+	DesiredWeight             *float64                  `json:"DesiredWeight,omitempty"`
+	CurrentInstanceCount      *int32                    `json:"CurrentInstanceCount,omitempty"`
+	DesiredInstanceCount      *int32                    `json:"DesiredInstanceCount,omitempty"`
+	CurrentServerless         *ServerlessConfig         `json:"CurrentServerlessConfig,omitempty"`
+	DesiredServerless         *ServerlessConfig         `json:"DesiredServerlessConfig,omitempty"`
+	ManagedInstanceScaling    *ManagedScaling           `json:"ManagedInstanceScaling,omitempty"`
+	RoutingConfig             *VariantRoutingConfig     `json:"RoutingConfig,omitempty"`
+	CapacityReservationConfig *ReservationConfig        `json:"CapacityReservationConfig,omitempty"`
+	InstancePools             []InstancePoolSummary     `json:"InstancePools,omitempty"`
+	VariantName               string                    `json:"VariantName"`
+	VariantStatus             []ProductionVariantStatus `json:"VariantStatus,omitempty"`
 }
 
 // newVariantSummaries builds the initial ProductionVariantSummary list for an
@@ -79,11 +84,15 @@ func newVariantSummaries(pvs []ProductionVariant, status string, now time.Time) 
 		weight := pv.InitialVariantWeight
 		count := pv.InitialInstanceCount
 		summaries[i] = ProductionVariantSummary{
-			VariantName:          pv.VariantName,
-			DesiredWeight:        &weight,
-			DesiredInstanceCount: &count,
-			DesiredServerless:    cloneServerlessConfig(pv.ServerlessConfig),
-			VariantStatus:        []ProductionVariantStatus{{Status: status, StartTime: epochSeconds(now)}},
+			VariantName:               pv.VariantName,
+			DesiredWeight:             &weight,
+			DesiredInstanceCount:      &count,
+			DesiredServerless:         cloneServerlessConfig(pv.ServerlessConfig),
+			ManagedInstanceScaling:    cloneManagedInstanceScaling(pv.ManagedInstanceScaling),
+			RoutingConfig:             cloneRoutingConfig(pv.RoutingConfig),
+			CapacityReservationConfig: cloneCapacityReservation(pv.CapacityReservationConfig),
+			InstancePools:             instancePoolSummaries(pv.InstancePools),
+			VariantStatus:             []ProductionVariantStatus{{Status: status, StartTime: epochSeconds(now)}},
 		}
 	}
 
@@ -136,6 +145,10 @@ func cloneProductionVariantSummary(pv ProductionVariantSummary) ProductionVarian
 	}
 	pv.CurrentServerless = cloneServerlessConfig(pv.CurrentServerless)
 	pv.DesiredServerless = cloneServerlessConfig(pv.DesiredServerless)
+	pv.ManagedInstanceScaling = cloneManagedInstanceScaling(pv.ManagedInstanceScaling)
+	pv.RoutingConfig = cloneRoutingConfig(pv.RoutingConfig)
+	pv.CapacityReservationConfig = cloneCapacityReservation(pv.CapacityReservationConfig)
+	pv.InstancePools = slices.Clone(pv.InstancePools)
 	pv.VariantStatus = append([]ProductionVariantStatus(nil), pv.VariantStatus...)
 
 	return pv

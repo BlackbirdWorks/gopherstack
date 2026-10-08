@@ -322,7 +322,7 @@ func TestHandler_AIRecommendationJobLifecycle(t *testing.T) {
 			"RoleArn":                    "arn:aws:iam::000000000000:role/TestRole",
 			"ModelSource":                map[string]any{"S3": map[string]any{"S3Uri": "s3://bucket/model/"}},
 			"OutputConfig":               map[string]any{"S3OutputLocation": "s3://bucket/out/"},
-			"PerformanceTarget":          map[string]any{"MetricName": "ttft-ms", "Threshold": 100},
+			"PerformanceTarget":          map[string]any{"Constraints": []map[string]any{{"Metric": "Cost"}}},
 		}
 	}
 
@@ -459,7 +459,7 @@ func TestHandler_ListAIRecommendationJobs_DefaultSortOrder_RealClient(t *testing
 			"RoleArn":                    "arn:aws:iam::000000000000:role/TestRole",
 			"ModelSource":                map[string]any{"S3": map[string]any{"S3Uri": "s3://bucket/model/"}},
 			"OutputConfig":               map[string]any{"S3OutputLocation": "s3://bucket/out/"},
-			"PerformanceTarget":          map[string]any{"MetricName": "ttft-ms", "Threshold": 100},
+			"PerformanceTarget":          map[string]any{"Constraints": []map[string]any{{"Metric": "Cost"}}},
 		}
 	}
 

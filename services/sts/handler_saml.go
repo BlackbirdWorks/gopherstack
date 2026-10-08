@@ -17,6 +17,7 @@ func (h *Handler) dispatchAssumeRoleWithSAML(r *http.Request) (*AssumeRoleWithSA
 		PrincipalArn:  r.FormValue("PrincipalArn"),
 		SAMLAssertion: r.FormValue("SAMLAssertion"),
 		Policy:        r.FormValue("Policy"),
+		SourceIP:      remoteIP(r),
 	}
 
 	durationStr := r.FormValue("DurationSeconds")

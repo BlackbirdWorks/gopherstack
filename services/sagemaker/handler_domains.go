@@ -41,6 +41,10 @@ func (h *Handler) handleCreateDomain(ctx context.Context, body []byte) ([]byte, 
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
+	if err := validateRequestShapes("CreateDomain", &req); err != nil {
+		return nil, err
+	}
+
 	if req.DomainName == "" {
 		return nil, fmt.Errorf("%w: DomainName is required", errInvalidRequest)
 	}
@@ -250,6 +254,10 @@ func (h *Handler) handleUpdateDomain(ctx context.Context, body []byte) ([]byte, 
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if err := validateRequestShapes("UpdateDomain", &req); err != nil {
+		return nil, err
 	}
 
 	if req.DomainID == "" {

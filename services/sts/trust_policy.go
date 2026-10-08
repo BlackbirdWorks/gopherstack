@@ -99,15 +99,15 @@ func (e trustEval) principalLabel() string {
 func (e trustEval) conditionValue(key string) (string, bool) {
 	lower := strings.ToLower(key)
 
+	if v, ok := e.conditionCtx[lower]; ok {
+		return v, true
+	}
+
 	switch lower {
 	case condKeyExternalID:
 		return e.externalID, true
 	case condKeyPrincipalArn:
 		return e.callerArn, true
-	}
-
-	if v, ok := e.conditionCtx[lower]; ok {
-		return v, true
 	}
 
 	// aws:CurrentTime/aws:EpochTime need no request plumbing (unlike
@@ -534,12 +534,8 @@ func conditionOperatorHolds(op, key string, raw json.RawMessage, ev trustEval) b
 		return true
 	}
 
-	fn, ok := conditionOperatorFuncs[normOp]
+	fn, ok := lookupConditionOperator(normOp)
 	if !ok {
-		// Numeric*/IpAddress/NotIpAddress/BinaryEquals remain unmodeled: this
-		// evaluator has no numeric, source-IP, or binary request-context
-		// value to compare against for any condition key it carries
-		// (structural, not deferred -- see PARITY.md).
 		if ev.strictConditions {
 			return false
 		}

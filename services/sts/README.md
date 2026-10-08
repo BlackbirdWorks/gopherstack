@@ -10,19 +10,12 @@
 | PARITY entries audited | 11 (11 ok) |
 | Feature families | 3 (3 ok) |
 | Known gaps | 1 |
-| Structural gaps (can't be emulated) | 1 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
 ### Known gaps
 
 - IMPOSSIBLE (re-confirmed gopherstack-yewt): JWTPayloadSizeExceededException (aws-sdk-go-v2/service/sts/types, dispatched specifically on GetWebIdentityToken's error branch) has no discoverable numeric threshold anywhere searched: (1) the generated SDK doc comment on the type itself says only 'The requested token payload size exceeds the maximum allowed size. Reduce the number of request tags...' -- no byte number; (2) aws-sdk-go-v2/service/sts@v1.44.0's validators.go's validateOpGetWebIdentityTokenInput only checks Audience/SigningAlgorithm required-ness and delegates Tags to validateTagListType (per-tag key/value length limits, not an aggregate payload-size limit) -- no length/size constraint of any kind is client-side-enforced for this op; (3) no botocore/smithy api-2.json model with a `length` trait for this newer STS operation was found in any locally-vendored SDK (aws-sdk-go v1.55.5's models/apis/sts predates GetWebIdentityToken entirely -- confirmed via `ls .../models/apis/sts` finding no api-2.json referencing this op); (4) WebSearch for 'JWTPayloadSizeExceededException STS GetWebIdentityToken maximum size bytes' returned only the same threshold-free doc comment, restated by boto3/re:Post/awsfundamentals.com sources, plus AWS's general (unrelated) guidance that STS credential/token sizes should never be assumed fixed. Implementing a threshold here would mean inventing an arbitrary number with no spec to verify it against -- the opposite of parity. Genuinely unimplementable without an undocumented number AWS does not publish. (bd: gopherstack-p05, follow-up -- OutboundWebIdentityFederationDisabledException, the other half of this original gap entry, WAS closed this pass, see GetWebIdentityToken above)
-
-### Structural gaps
-
-These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
-
-- Numeric*/IpAddress/NotIpAddress/BinaryEquals trust-policy condition operators: none of the condition keys the evaluator carries are numeric-, IP- or binary-valued, so there is nothing to compare (Date* is enforced).
 
 ### Deferred
 

@@ -224,7 +224,7 @@ func (b *InMemoryBackend) checkWebIdentityTrust(input *AssumeRoleWithWebIdentity
 	return evaluateAssumeRoleTrust(meta.TrustPolicy, trustEval{
 		action:       actionAssumeRoleWithWebID,
 		federatedArn: issuer,
-		conditionCtx: condCtx,
+		conditionCtx: withSourceIP(condCtx, input.SourceIP),
 	})
 }
 
