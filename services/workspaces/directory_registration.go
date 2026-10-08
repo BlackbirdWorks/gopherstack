@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
@@ -21,7 +22,18 @@ const (
 	streamingPropertiesKey           = "Streaming_Properties"
 	attrUserIdentityType             = "UserIdentityType"
 	attrWorkspaceType                = "WorkspaceType"
+	idcApplicationArnKey             = "IdcApplicationArn"
 )
+
+// idcApplicationArn derives the IAM Identity Center application ARN
+// (arn:<partition>:sso::<account>:application/<instance-id>/<application-id>)
+// that WorkSpaces provisions for an IdC-registered directory.
+func idcApplicationArn(instanceArn, accountID, appID string) string {
+	partition, _, _ := strings.Cut(strings.TrimPrefix(instanceArn, "arn:"), ":")
+	instanceID := instanceArn[strings.LastIndex(instanceArn, "/")+1:]
+
+	return fmt.Sprintf("arn:%s:sso::%s:application/%s/%s", partition, accountID, instanceID, appID)
+}
 
 // DirectoryActiveDirectoryConfig mirrors types.ActiveDirectoryConfig.
 type DirectoryActiveDirectoryConfig struct {
@@ -35,9 +47,10 @@ type DirectoryMicrosoftEntraConfig struct {
 	TenantID                   string
 }
 
-// DirectoryIDCConfig mirrors types.IDCConfig; ApplicationArn is not modeled.
+// DirectoryIDCConfig mirrors types.IDCConfig.
 type DirectoryIDCConfig struct {
-	InstanceArn string
+	ApplicationArn string
+	InstanceArn    string
 }
 
 // DirectoryRegistration carries the RegisterWorkspaceDirectoryInput members.
@@ -178,7 +191,10 @@ func idcConfigFromDS(ds *storedDirSettings) *DirectoryIDCConfig {
 		return nil
 	}
 
-	return &DirectoryIDCConfig{InstanceArn: ds.Properties["IdcInstanceArn"]}
+	return &DirectoryIDCConfig{
+		InstanceArn:    ds.Properties["IdcInstanceArn"],
+		ApplicationArn: ds.Properties[idcApplicationArnKey],
+	}
 }
 
 // directoryFilterProps validates filters and maps each to its attribute key.

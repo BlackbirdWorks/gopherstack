@@ -287,26 +287,31 @@ type RedshiftDestinationDescription struct {
 	DestinationID               string                       `json:"DestinationId,omitempty"`
 }
 
+// VpcConfigurationDescription mirrors types.VpcConfigurationDescription.
+type VpcConfigurationDescription struct {
+	RoleARN          string   `json:"RoleARN"`
+	VpcID            string   `json:"VpcId"`
+	SecurityGroupIDs []string `json:"SecurityGroupIds"`
+	SubnetIDs        []string `json:"SubnetIds"`
+}
+
 // OpenSearchDestinationDescription holds an OpenSearch (Elasticsearch) destination config.
 type OpenSearchDestinationDescription struct {
-	ProcessingConfiguration  *ProcessingConfiguration  `json:"ProcessingConfiguration,omitempty"`
-	BufferingHints           *BufferingHints           `json:"BufferingHints,omitempty"`
-	RetryOptions             *RetryOptions             `json:"RetryOptions,omitempty"`
-	CloudWatchLoggingOptions *CloudWatchLoggingOptions `json:"CloudWatchLoggingOptions,omitempty"`
-	// S3BackupDescription is OpenSearch's single S3 bucket (used only as the
-	// backup/failed-document sink); its wire key is "S3DestinationDescription", not
-	// "S3BackupDescription", confirmed via
-	// awsAwsjson11_deserializeDocumentAmazonopensearchserviceDestinationDescription.
-	S3BackupDescription *S3BackupDescription `json:"S3DestinationDescription,omitempty"`
-	DocumentIDOptions   *DocumentIDOptions   `json:"DocumentIdOptions,omitempty"`
-	DomainARN           string               `json:"DomainARN,omitempty"`
-	ClusterEndpoint     string               `json:"ClusterEndpoint,omitempty"`
-	IndexName           string               `json:"IndexName,omitempty"`
-	TypeName            string               `json:"TypeName,omitempty"`
-	IndexRotationPeriod string               `json:"IndexRotationPeriod,omitempty"`
-	S3BackupMode        string               `json:"S3BackupMode,omitempty"`
-	RoleARN             string               `json:"RoleARN,omitempty"`
-	DestinationID       string               `json:"DestinationId,omitempty"`
+	VpcConfigurationDescription *VpcConfigurationDescription `json:"VpcConfigurationDescription,omitempty"`
+	BufferingHints              *BufferingHints              `json:"BufferingHints,omitempty"`
+	RetryOptions                *RetryOptions                `json:"RetryOptions,omitempty"`
+	CloudWatchLoggingOptions    *CloudWatchLoggingOptions    `json:"CloudWatchLoggingOptions,omitempty"`
+	S3BackupDescription         *S3BackupDescription         `json:"S3DestinationDescription,omitempty"`
+	DocumentIDOptions           *DocumentIDOptions           `json:"DocumentIdOptions,omitempty"`
+	ProcessingConfiguration     *ProcessingConfiguration     `json:"ProcessingConfiguration,omitempty"`
+	DomainARN                   string                       `json:"DomainARN,omitempty"`
+	IndexName                   string                       `json:"IndexName,omitempty"`
+	TypeName                    string                       `json:"TypeName,omitempty"`
+	IndexRotationPeriod         string                       `json:"IndexRotationPeriod,omitempty"`
+	S3BackupMode                string                       `json:"S3BackupMode,omitempty"`
+	RoleARN                     string                       `json:"RoleARN,omitempty"`
+	DestinationID               string                       `json:"DestinationId,omitempty"`
+	ClusterEndpoint             string                       `json:"ClusterEndpoint,omitempty"`
 }
 
 // ElasticsearchDestinationDescription holds a legacy (pre-OpenSearch-rename) Elasticsearch
@@ -315,24 +320,21 @@ type OpenSearchDestinationDescription struct {
 // AmazonopensearchserviceDestinationConfiguration family; the two are wire-distinct even
 // though the field sets are nearly identical.
 type ElasticsearchDestinationDescription struct {
-	ProcessingConfiguration  *ProcessingConfiguration  `json:"ProcessingConfiguration,omitempty"`
-	BufferingHints           *BufferingHints           `json:"BufferingHints,omitempty"`
-	RetryOptions             *RetryOptions             `json:"RetryOptions,omitempty"`
-	CloudWatchLoggingOptions *CloudWatchLoggingOptions `json:"CloudWatchLoggingOptions,omitempty"`
-	// S3BackupDescription is Elasticsearch's single S3 bucket (used only as the
-	// backup/failed-document sink); its wire key is "S3DestinationDescription", not
-	// "S3BackupDescription", confirmed via
-	// awsAwsjson11_deserializeDocumentElasticsearchDestinationDescription.
-	S3BackupDescription *S3BackupDescription `json:"S3DestinationDescription,omitempty"`
-	DocumentIDOptions   *DocumentIDOptions   `json:"DocumentIdOptions,omitempty"`
-	DomainARN           string               `json:"DomainARN,omitempty"`
-	ClusterEndpoint     string               `json:"ClusterEndpoint,omitempty"`
-	IndexName           string               `json:"IndexName,omitempty"`
-	TypeName            string               `json:"TypeName,omitempty"`
-	IndexRotationPeriod string               `json:"IndexRotationPeriod,omitempty"`
-	S3BackupMode        string               `json:"S3BackupMode,omitempty"`
-	RoleARN             string               `json:"RoleARN,omitempty"`
-	DestinationID       string               `json:"DestinationId,omitempty"`
+	VpcConfigurationDescription *VpcConfigurationDescription `json:"VpcConfigurationDescription,omitempty"`
+	BufferingHints              *BufferingHints              `json:"BufferingHints,omitempty"`
+	RetryOptions                *RetryOptions                `json:"RetryOptions,omitempty"`
+	CloudWatchLoggingOptions    *CloudWatchLoggingOptions    `json:"CloudWatchLoggingOptions,omitempty"`
+	S3BackupDescription         *S3BackupDescription         `json:"S3DestinationDescription,omitempty"`
+	DocumentIDOptions           *DocumentIDOptions           `json:"DocumentIdOptions,omitempty"`
+	ProcessingConfiguration     *ProcessingConfiguration     `json:"ProcessingConfiguration,omitempty"`
+	DomainARN                   string                       `json:"DomainARN,omitempty"`
+	IndexName                   string                       `json:"IndexName,omitempty"`
+	TypeName                    string                       `json:"TypeName,omitempty"`
+	IndexRotationPeriod         string                       `json:"IndexRotationPeriod,omitempty"`
+	S3BackupMode                string                       `json:"S3BackupMode,omitempty"`
+	RoleARN                     string                       `json:"RoleARN,omitempty"`
+	DestinationID               string                       `json:"DestinationId,omitempty"`
+	ClusterEndpoint             string                       `json:"ClusterEndpoint,omitempty"`
 }
 
 // SplunkDestinationDescription holds a Splunk HEC destination config.
@@ -466,9 +468,17 @@ type DeliveryMetrics struct {
 	TotalBytes    int64 `json:"TotalBytes"`
 }
 
+// noteBuffered stamps the arrival of the oldest buffered record; call before appending to s.Records.
+func (s *DeliveryStream) noteBuffered() {
+	if len(s.Records) == 0 {
+		s.oldestBuffered = time.Now()
+	}
+}
+
 // DeliveryStream represents a Kinesis Firehose delivery stream.
 type DeliveryStream struct {
 	lastFlush                time.Time
+	oldestBuffered           time.Time
 	CreateTimestamp          time.Time                            `json:"createTimestamp"`
 	LastUpdateTimestamp      time.Time                            `json:"lastUpdateTimestamp"`
 	Tags                     *tags.Tags                           `json:"tags,omitempty"`

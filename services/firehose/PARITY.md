@@ -5,7 +5,7 @@
 service: firehose
 sdk_module: aws-sdk-go-v2/service/firehose@v1.46.4
 last_audit_commit: 49cff86c4
-last_audit_date: 2026-09-19
+last_audit_date: 2026-10-07
 overall: A            # all 10 real SDK destination-configuration types now implemented; remaining gaps are documented data-movement-mechanics simplifications, not wire-shape bugs.
                       # 2026-09-06 pass (bd gopherstack-pe7x): fixed the CloudWatchLoggingOptions
                       # gap disclosed by the 2026-09-04 pass below -- delivery failures now actually
@@ -70,13 +70,12 @@ families:
 
 gaps: []
 
-items_still_open:
-  - "AWS/Firehose publishes IncomingRecords, IncomingBytes and DeliveryToS3.{Success,Records,Bytes} (dimension DeliveryStreamName). Not emitted: PutRecord*/PutRecordBatch* request metrics, DeliveryToS3.DataFreshness, BackupToS3.*, and DeliveryTo* for non-S3 destinations."
-  - "Redshift COPY (RedshiftDataExecutor), MSK source polling and database-source snapshot/CDC need cli.go wiring to other backends (redshiftdata, kafka, a DB endpoint); staging to S3 and wire-shape round-trips are real (gopherstack-ohdc)."
-  - "Iceberg, Snowflake and AmazonOpenSearchServerless destinations stage to S3 (or are rejected with InvalidArgumentException for OpenSearch Serverless) but have no Iceberg/Glue catalog, Snowpipe or OpenSearch-Serverless backend to deliver to."
-  - "Elasticsearch/Amazonopensearchservice VpcConfiguration is not modeled: the required VpcConfigurationDescription.VpcId must come from resolving SubnetIds against EC2, and fabricating it is not allowed."
+items_still_open: []
+structural_gaps:
+  - "MSK source polling and database-source snapshot/CDC need a real Kafka protocol consumer / a live database endpoint; staging to S3 and wire-shape round-trips are real."
+  - "Iceberg, Snowflake and AmazonOpenSearchServerless destinations stage to S3 (or are rejected for OpenSearch Serverless): there is no Iceberg table writer/Glue commit, Snowpipe or OpenSearch-Serverless backend to deliver to."
   - "DeleteDeliveryStream.AllowForceDelete is not read: it only bypasses a KMS-grant-retirement failure, a failure mode this backend does not model."
-  - "Role authorization covers S3 and S3-backup delivery, Redshift/Iceberg/Snowflake S3 staging (denied records count as FailedRecords), the Lambda processor and domain-ARN OpenSearch/Elasticsearch. Not checked: the Redshift COPY, Glue catalog and Snowflake calls themselves, which have no backend; HTTP and Splunk delivery authenticate with an access key/HEC token, not the role."
+  - "Role authorization covers S3, S3-backup, staging, Lambda and domain-ARN OpenSearch/Elasticsearch; the Glue catalog and Snowflake calls have no backend to authorize against, and HTTP/Splunk authenticate with an access key/HEC token, not the role."
 deferred: []              # consolidated into items_still_open 2026-09-18: KinesisStreamAsSource
                            # wiring and CloudWatchLoggingOptions delivery were both already fully
                            # fixed (gopherstack-o4ny, gopherstack-pe7x) and are removed rather than

@@ -36,6 +36,10 @@ func (b *InMemoryBackend) CreateDeliveryStream(
 		return nil, fmt.Errorf("%w: DeliveryStreamName is required", ErrValidation)
 	}
 
+	if err := b.resolveVpcConfigurations(getRegionFromContext(ctx, b), &input); err != nil {
+		return nil, err
+	}
+
 	var (
 		region                 string
 		result                 *DeliveryStream

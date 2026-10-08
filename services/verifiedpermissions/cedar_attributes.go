@@ -158,11 +158,12 @@ func attributeMapToCedarRecord(m map[string]json.RawMessage) (cedar.Record, erro
 
 // entityItemJSON mirrors the real SDK's types.EntityItem wire shape
 // (identifier/attributes/parents -- verifiedpermissions@v1.36.4 serializers.go's
-// awsAwsjson10_serializeDocumentEntityItem). Cedar "tags" (EntityItem.Tags) are
-// not modeled here -- see entitiesDefinitionJSON's doc comment.
+// awsAwsjson10_serializeDocumentEntityItem). CedarTagValue has the same members
+// as AttributeValue (serializers.go:2334), so tags reuse the attribute converter.
 type entityItemJSON struct {
 	Identifier *entityIdentifierJSON      `json:"identifier,omitempty"`
 	Attributes map[string]json.RawMessage `json:"attributes,omitempty"`
+	Tags       map[string]json.RawMessage `json:"tags,omitempty"`
 	Parents    []entityIdentifierJSON     `json:"parents,omitempty"`
 }
 
@@ -172,13 +173,7 @@ type entityItemJSON struct {
 // (typed AttributeValue objects) or cedarJson (a literal Cedar JSON string,
 // which happens to use cedar-go's own native entity JSON shape -- uid/attrs/
 // parents -- verified against cedar-go@v1.8.0's types.EntityMap.UnmarshalJSON)
-// is present. Cedar "tags" (EntityItem.Tags, added to the real API after this
-// union was first modeled) are not converted -- cedar-go's own Entity.Tags
-// field exists and could carry them, but wiring a second, tags-specific
-// AttributeValue-shaped map through the same converter is left for a
-// follow-up; every entity converted here has an empty Tags set, which is
-// honest (no tag ever silently dropped from what a client can already send
-// through the modeled attributes/parents path) rather than a corruption.
+// is present.
 type entitiesDefinitionJSON struct {
 	CedarJSON  string           `json:"cedarJson,omitempty"`
 	EntityList []entityItemJSON `json:"entityList,omitempty"`
@@ -222,6 +217,11 @@ func entitiesToCedar(def *entitiesDefinitionJSON) (cedar.EntityMap, error) {
 			return nil, err
 		}
 
+		tags, err := attributeMapToCedarRecord(item.Tags)
+		if err != nil {
+			return nil, err
+		}
+
 		parentUIDs := make([]cedar.EntityUID, 0, len(item.Parents))
 		for _, p := range item.Parents {
 			parentUID := cedar.NewEntityUID(cedar.EntityType(p.EntityType), cedar.String(p.EntityID))
@@ -229,7 +229,7 @@ func entitiesToCedar(def *entitiesDefinitionJSON) (cedar.EntityMap, error) {
 		}
 
 		uid := cedar.NewEntityUID(cedar.EntityType(item.Identifier.EntityType), cedar.String(item.Identifier.EntityID))
-		em[uid] = cedar.Entity{UID: uid, Parents: cedar.NewEntityUIDSet(parentUIDs...), Attributes: attrs}
+		em[uid] = cedar.Entity{UID: uid, Parents: cedar.NewEntityUIDSet(parentUIDs...), Attributes: attrs, Tags: tags}
 	}
 
 	return em, nil

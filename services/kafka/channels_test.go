@@ -71,7 +71,7 @@ func TestCreateChannel(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "my-channel", ch.ChannelName)
 		assert.Equal(t, kafka.ChannelDestinationTypeS3, ch.DestinationType)
-		assert.Equal(t, kafka.ChannelStatusActive, ch.Status)
+		assert.Equal(t, kafka.ChannelStatusCreating, ch.Status)
 		assert.NotEmpty(t, ch.ChannelArn)
 		assert.NotEmpty(t, ch.ClusterOperationArn)
 	})
@@ -463,4 +463,74 @@ func TestChannel_SnapshotRestoreRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, list, 1)
 	assert.Equal(t, created.ChannelArn, list[0].ChannelArn)
+}
+
+func TestChannelLifecycleStatus(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		act        func(t *testing.T, b *kafka.InMemoryBackend, clusterArn, channelArn string)
+		name       string
+		wantStatus string
+		wantGone   bool
+	}{
+		{
+			name:       "create settles on describe",
+			act:        func(*testing.T, *kafka.InMemoryBackend, string, string) {},
+			wantStatus: kafka.ChannelStatusActive,
+		},
+		{
+			name: "update settles on describe",
+			act: func(t *testing.T, b *kafka.InMemoryBackend, clusterArn, channelArn string) {
+				t.Helper()
+
+				_, err := b.DescribeChannel(context.Background(), clusterArn, channelArn)
+				require.NoError(t, err)
+
+				up, err := b.UpdateChannel(context.Background(), clusterArn, channelArn, nil,
+					&kafka.S3DestinationUpdate{DataFreshnessInSeconds: 120})
+				require.NoError(t, err)
+				assert.Equal(t, kafka.ChannelStatusUpdating, up.Status)
+				assert.NotEmpty(t, up.ClusterOperationArn)
+			},
+			wantStatus: kafka.ChannelStatusActive,
+		},
+		{
+			name: "delete finishes on describe",
+			act: func(t *testing.T, b *kafka.InMemoryBackend, clusterArn, channelArn string) {
+				t.Helper()
+
+				_, err := b.DeleteChannel(context.Background(), clusterArn, channelArn)
+				require.NoError(t, err)
+			},
+			wantGone: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend(t)
+			cl := b.AddClusterInternal("my-cluster", "3.6.0")
+			s3Dest, topics := s3ChannelFixtures()
+
+			ch, err := b.CreateChannel(context.Background(), cl.ClusterArn, "c1", topics, nil, nil, s3Dest, nil, nil)
+			require.NoError(t, err)
+			assert.Equal(t, kafka.ChannelStatusCreating, ch.Status)
+
+			tt.act(t, b, cl.ClusterArn, ch.ChannelArn)
+
+			got, err := b.DescribeChannel(context.Background(), cl.ClusterArn, ch.ChannelArn)
+			if tt.wantGone {
+				require.ErrorIs(t, err, kafka.ErrNotFound)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantStatus, got.Status)
+			assert.Empty(t, got.ClusterOperationArn)
+		})
+	}
 }

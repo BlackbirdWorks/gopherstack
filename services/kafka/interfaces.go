@@ -68,6 +68,7 @@ type StorageBackend interface {
 	UpdateReplicationInfo(
 		ctx context.Context,
 		replicatorArn, currentVersion, sourceKafkaClusterArn, targetKafkaClusterArn string,
+		sourceKafkaClusterID, targetKafkaClusterID string,
 		topicReplication *TopicReplicationConfig,
 		consumerGroupReplication *ConsumerGroupReplicationConfig,
 		logDelivery *LogDelivery,

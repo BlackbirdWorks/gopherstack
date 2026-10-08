@@ -49,7 +49,7 @@ func (b *InMemoryBackend) deliverS3Destination(ctx context.Context, snap *flushS
 			"lambda transform invocation failed; routing records to error output", err)
 	}
 
-	f := b.deliverToS3(ctx, out, dest, streamName, snap.region)
+	f := b.deliverToS3(ctx, out, dest, streamName, snap)
 
 	processing := slices.Concat(out.Failed, f.partition, f.delivery)
 	b.routeToErrorOutput(ctx, processing, dest, streamName, errTypeProcessing)
@@ -64,7 +64,8 @@ func (b *InMemoryBackend) deliverToS3(
 	ctx context.Context,
 	out transformOutcome,
 	dest *S3DestinationDescription,
-	streamName, region string,
+	streamName string,
+	snap *flushSnapshot,
 ) s3Failures {
 	var f s3Failures
 	if b.s3 == nil || len(out.Ok) == 0 {
@@ -93,7 +94,7 @@ func (b *InMemoryBackend) deliverToS3(
 		}
 
 		if key != "" || err != nil {
-			b.emitS3Put(region, streamName, len(recs), size, err == nil)
+			b.emitS3Put(snap.region, streamName, len(recs), size, err == nil, snap.oldest)
 		}
 	}
 

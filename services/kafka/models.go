@@ -505,10 +505,27 @@ type ScramSecretError struct {
 // KafkaClusterDescription.KafkaClusterAlias, which real MSK derives from the
 // referenced cluster's current name rather than storing it at creation time.
 type ClusterConfig struct {
-	MskClusterArn    string   `json:"mskClusterArn"`
-	Alias            string   `json:"-"`
-	SubnetIDs        []string `json:"subnetIds,omitempty"`
-	SecurityGroupIDs []string `json:"securityGroupIds,omitempty"`
+	ClientAuthentication  *ReplicatorClientAuthentication `json:"clientAuthentication,omitempty"`
+	EncryptionInTransit   *ReplicatorEncryptionInTransit  `json:"encryptionInTransit,omitempty"`
+	MskClusterArn         string                          `json:"mskClusterArn"`
+	ApacheKafkaClusterID  string                          `json:"apacheKafkaClusterId,omitempty"`
+	BootstrapBrokerString string                          `json:"bootstrapBrokerString,omitempty"`
+	Alias                 string                          `json:"-"`
+	SubnetIDs             []string                        `json:"subnetIds,omitempty"`
+	SecurityGroupIDs      []string                        `json:"securityGroupIds,omitempty"`
+}
+
+// ReplicatorClientAuthentication mirrors types.KafkaClusterClientAuthentication.
+type ReplicatorClientAuthentication struct {
+	MTLSSecretArn      string `json:"mtlsSecretArn,omitempty"`
+	SaslScramMechanism string `json:"saslScramMechanism,omitempty"`
+	SaslScramSecretArn string `json:"saslScramSecretArn,omitempty"`
+}
+
+// ReplicatorEncryptionInTransit mirrors types.KafkaClusterEncryptionInTransit.
+type ReplicatorEncryptionInTransit struct {
+	EncryptionType    string `json:"encryptionType,omitempty"`
+	RootCaCertificate string `json:"rootCaCertificate,omitempty"`
 }
 
 // TopicReplicationConfig mirrors types.TopicReplication /
@@ -538,7 +555,9 @@ type ConsumerGroupReplicationConfig struct {
 // TargetAlias are resolved fresh on every read, like ClusterConfig.Alias.
 type ReplicationInfoConfig struct {
 	SourceKafkaClusterArn    string                         `json:"sourceKafkaClusterArn"`
+	SourceKafkaClusterID     string                         `json:"sourceKafkaClusterId,omitempty"`
 	TargetKafkaClusterArn    string                         `json:"targetKafkaClusterArn"`
+	TargetKafkaClusterID     string                         `json:"targetKafkaClusterId,omitempty"`
 	TargetCompressionType    string                         `json:"targetCompressionType,omitempty"`
 	SourceAlias              string                         `json:"-"`
 	TargetAlias              string                         `json:"-"`

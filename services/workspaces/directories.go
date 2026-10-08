@@ -350,6 +350,11 @@ func (b *InMemoryBackend) RegisterWorkspaceDirectoryWithConfig(reg DirectoryRegi
 	}
 
 	applyRegistrationAttributes(ds, reg)
+
+	if reg.IdcInstanceArn != "" {
+		ds.Properties[idcApplicationArnKey] = idcApplicationArn(reg.IdcInstanceArn, b.accountID, b.nextID("apl-"))
+	}
+
 	b.populateDirectoryInfoLocked(ds, directoryID, reg.WorkspaceDirectoryName)
 
 	return directoryID, nil
