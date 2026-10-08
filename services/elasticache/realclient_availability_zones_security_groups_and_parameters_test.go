@@ -299,8 +299,11 @@ func testModifyReplicationGroupShardConfigurationReshardingRealClient(t *testing
 	require.NoError(t, err)
 	require.Len(t, out.ReplicationGroup.NodeGroups, 2)
 	newGroup := out.ReplicationGroup.NodeGroups[1]
-	require.Len(t, newGroup.NodeGroupMembers, 1)
-	assert.Equal(t, "us-east-1f", aws.ToString(newGroup.NodeGroupMembers[0].PreferredAvailabilityZone))
+	require.Len(t, newGroup.NodeGroupMembers, 2)
+
+	for _, m := range newGroup.NodeGroupMembers {
+		assert.Equal(t, "us-east-1f", aws.ToString(m.PreferredAvailabilityZone))
+	}
 }
 
 func testCopyServerlessCacheSnapshotTagsRealClient(t *testing.T) {

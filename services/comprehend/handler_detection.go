@@ -285,8 +285,8 @@ func (h *Handler) detectPIIEntities(input map[string]any) (map[string]any, error
 		expression *regexp.Regexp
 		kind       string
 	}{
-		{piiEmailRe, "EMAIL"},
-		{piiSSNRe, "SSN"},
+		{piiEmailRe, piiTypeEmail},
+		{piiSSNRe, piiTypeSSN},
 	}
 	entities := make([]map[string]any, 0)
 	for _, pattern := range patterns {
@@ -526,7 +526,19 @@ func (h *Handler) batch(detector operation, allowedLanguages map[string]bool) op
 // request against limit (an operation-specific byte cap; see the textLimit*
 // constants). limit <= 0 means no cap.
 func documentText(input map[string]any, limit int) (string, error) {
+	if err := validateDocumentReaderConfig(input); err != nil {
+		return "", err
+	}
+
 	text := stringValue(input, fieldText, "")
+	if _, hasBytes := input[fieldBytes]; hasBytes {
+		var err error
+
+		if text, err = documentBytesText(input); err != nil {
+			return "", err
+		}
+	}
+
 	if strings.TrimSpace(text) == "" {
 		return "", fmt.Errorf("%w: Text is required", ErrValidation)
 	}

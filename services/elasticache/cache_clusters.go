@@ -137,6 +137,7 @@ func (b *InMemoryBackend) insertClusterLocked(
 		AllocatedPort:              eng.allocatedPort,
 		ConnectAddress:             eng.connectAddr,
 	}
+	initClusterNodes(c, region)
 	b.markCreatingLocked(&c.PendingStatus, &c.AvailableAt)
 
 	c.Endpoint = gopherDNS.SyntheticHostname(id, randomSuffix(), region, "cache")
@@ -272,16 +273,15 @@ func (b *InMemoryBackend) DeleteCluster(ctx context.Context, id string) error {
 		return err
 	}
 
-	// AWS refuses DeleteCacheCluster for a cluster that is the last read replica
-	// of a replication group; use DeleteReplicationGroup instead.
-	if c.ReplicationGroupID != "" && b.isLastRGMemberLocked(region, c.ReplicationGroupID, id) {
-		return ErrClusterInReplicationGroup
+	if err := b.guardMemberDeleteLocked(region, c); err != nil {
+		return err
 	}
 
 	// With a lifecycle delay, dwell in "deleting" so waiters can observe it; the
 	// engine stays live and the entry is reaped by the next write op once the
 	// deadline passes. Without a delay (default), delete synchronously.
 	if d := b.pendingUntil(); !d.IsZero() {
+		handoverEngineLocked(tbl, c)
 		c.PendingStatus = statusDeleting
 		c.AvailableAt = d
 		b.appendEventLocked(id, "cache-cluster", "cluster deleting")
@@ -289,9 +289,29 @@ func (b *InMemoryBackend) DeleteCluster(ctx context.Context, id string) error {
 		return nil
 	}
 
-	b.releaseClusterLocked(c)
-	tbl.Delete(id)
+	b.removeMemberLocked(tbl, id)
 	b.appendEventLocked(id, "cache-cluster", "cluster deleted")
+
+	return nil
+}
+
+// guardMemberDeleteLocked applies DeleteCacheCluster's replication group rules: the
+// primary node, a Multi-AZ group member and a cluster mode enabled member cannot be
+// deleted directly, and a replica is detached from its node group. Groups without
+// recorded node groups fall back to refusing the last member.
+func (b *InMemoryBackend) guardMemberDeleteLocked(region string, c *Cluster) error {
+	if c.ReplicationGroupID == "" {
+		return nil
+	}
+
+	rg, ok := b.replicationGroupsStore(region).Get(c.ReplicationGroupID)
+	if ok && len(rg.NodeGroups) > 0 {
+		return detachMemberLocked(rg, c)
+	}
+
+	if b.isLastRGMemberLocked(region, c.ReplicationGroupID, c.ClusterID) {
+		return ErrClusterInReplicationGroup
+	}
 
 	return nil
 }
@@ -331,18 +351,23 @@ func (b *InMemoryBackend) SetClusterSubnetGroupName(ctx context.Context, id, sub
 	return nil
 }
 
-// SetClusterAvailabilityZones records the caller's requested AZ placement on
-// a just-created cluster. az is the single-node PreferredAvailabilityZone
-// (Redis OSS/Valkey); azs is PreferredAvailabilityZones, one entry per node,
-// Memcached-only per CreateCacheClusterInput's doc comment.
-func (b *InMemoryBackend) SetClusterAvailabilityZones(ctx context.Context, id, az string, azs []string) error {
-	if az == "" && len(azs) == 0 {
-		return nil
-	}
+// ClusterPlacement is CreateCacheCluster's zone and outpost placement members.
+type ClusterPlacement struct {
+	AZ          string
+	AZMode      string
+	OutpostArn  string
+	AZs         []string
+	OutpostArns []string
+}
 
+// SetClusterPlacement records the caller's requested placement on a
+// just-created cluster and lays its nodes out accordingly. AZ is the
+// single-node PreferredAvailabilityZone (Redis OSS/Valkey); AZs is
+// PreferredAvailabilityZones, one per node, Memcached-only.
+func (b *InMemoryBackend) SetClusterPlacement(ctx context.Context, id string, p ClusterPlacement) error {
 	region := getRegion(ctx, b.region)
 
-	b.mu.Lock("SetClusterAvailabilityZones")
+	b.mu.Lock("SetClusterPlacement")
 	defer b.mu.Unlock()
 
 	c, exists := b.clustersStore(region).Get(id)
@@ -350,10 +375,20 @@ func (b *InMemoryBackend) SetClusterAvailabilityZones(ctx context.Context, id, a
 		return ErrClusterNotFound
 	}
 
-	c.PreferredAvailabilityZone = az
-	if len(azs) > 0 {
-		c.PreferredAvailabilityZones = append([]string(nil), azs...)
+	c.PreferredAvailabilityZone = p.AZ
+	c.AZMode = p.AZMode
+	c.PreferredAvailabilityZones = nil
+
+	if len(p.AZs) > 0 {
+		c.PreferredAvailabilityZones = slices.Clone(p.AZs)
 	}
+
+	c.PreferredOutpostArn = p.OutpostArn
+	if c.PreferredOutpostArn == "" && len(p.OutpostArns) > 0 {
+		c.PreferredOutpostArn = p.OutpostArns[0]
+	}
+
+	initClusterNodes(c, region)
 
 	return nil
 }
@@ -401,7 +436,8 @@ func (b *InMemoryBackend) SetClusterReplicationGroupID(ctx context.Context, id, 
 	b.mu.Lock("SetClusterReplicationGroupID")
 	defer b.mu.Unlock()
 
-	if _, exists := b.replicationGroupsStore(region).Get(replicationGroupID); !exists {
+	rg, exists := b.replicationGroupsStore(region).Get(replicationGroupID)
+	if !exists {
 		return ErrReplicationGroupNotFound
 	}
 
@@ -410,9 +446,7 @@ func (b *InMemoryBackend) SetClusterReplicationGroupID(ctx context.Context, id, 
 		return ErrClusterNotFound
 	}
 
-	c.ReplicationGroupID = replicationGroupID
-
-	return nil
+	return b.attachReplicaLocked(region, rg, c)
 }
 
 // DescribeClusters returns one cluster by id, or a paginated list of all clusters when id is empty.
@@ -472,7 +506,10 @@ func (b *InMemoryBackend) ListAll() []Cluster {
 type ModifyClusterOptions struct {
 	AuthToken               string
 	AuthTokenUpdateStrategy string
+	AZMode                  string
 	CacheSecurityGroupNames []string
+	CacheNodeIDsToRemove    []string
+	NewAvailabilityZones    []string
 	// ApplyImmediately is read for wire-declaration parity but this backend
 	// applies every ModifyCacheCluster change immediately regardless of its
 	// value -- same disclosed simplification as docdb/neptune/rds's
@@ -499,6 +536,10 @@ func (b *InMemoryBackend) ModifyCluster(
 		return nil, err
 	}
 
+	if err := scaleNodes(c, region, numCacheNodes, opts); err != nil {
+		return nil, err
+	}
+
 	if nodeType != "" {
 		c.NodeType = nodeType
 	}
@@ -512,10 +553,6 @@ func (b *InMemoryBackend) ModifyCluster(
 
 	if engineVersion != "" {
 		c.EngineVersion = engineVersion
-	}
-
-	if numCacheNodes > 0 {
-		c.NumCacheNodes = numCacheNodes
 	}
 
 	if maintenanceWindow != "" {

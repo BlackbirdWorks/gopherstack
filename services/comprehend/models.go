@@ -12,6 +12,9 @@ const (
 	statusStopped       = "STOPPED"
 	statusTrained       = "TRAINED"
 
+	statusModelTraining = "TRAINING"
+	statusModelInError  = "IN_ERROR"
+
 	// statusActive is types.FlywheelStatusActive -- a freshly created
 	// Flywheel's steady-state value (types/enums.go:352-360). It is NOT a
 	// valid types.EndpointStatus value (see statusEndpointInService).
@@ -29,6 +32,9 @@ const (
 	// above, which FlywheelIterationStatus does not share.
 	statusFlywheelIterationTraining   = "TRAINING"
 	statusFlywheelIterationEvaluating = "EVALUATING"
+
+	piiTypeEmail = "EMAIL"
+	piiTypeSSN   = "SSN"
 
 	defaultLanguageCode          = "en"
 	defaultScore                 = 0.99

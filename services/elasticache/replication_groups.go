@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -107,8 +108,14 @@ func (b *InMemoryBackend) CreateReplicationGroupWithOptions(
 	)), nil
 }
 
-// DeleteReplicationGroup removes a replication group.
+// DeleteReplicationGroup removes a replication group and all its member clusters.
 func (b *InMemoryBackend) DeleteReplicationGroup(ctx context.Context, id string) error {
+	return b.DeleteReplicationGroupFull(ctx, id, false)
+}
+
+// DeleteReplicationGroupFull removes a replication group. With retainPrimary
+// the replicas are deleted but each primary cluster survives as a standalone cluster.
+func (b *InMemoryBackend) DeleteReplicationGroupFull(ctx context.Context, id string, retainPrimary bool) error {
 	b.mu.Lock("DeleteReplicationGroup")
 	defer b.mu.Unlock()
 
@@ -125,6 +132,13 @@ func (b *InMemoryBackend) DeleteReplicationGroup(ctx context.Context, id string)
 		return err
 	}
 
+	if rg.GlobalReplicationGroupID != "" {
+		return fmt.Errorf("%w: replication group belongs to global datastore %s",
+			ErrReplicationGroupNotAvailable, rg.GlobalReplicationGroupID)
+	}
+
+	b.releaseGroupLocked(region, rg, retainPrimary)
+
 	if d := b.pendingUntil(); !d.IsZero() {
 		rg.PendingStatus = statusDeleting
 		rg.AvailableAt = d
@@ -138,6 +152,20 @@ func (b *InMemoryBackend) DeleteReplicationGroup(ctx context.Context, id string)
 	b.appendEventLocked(id, "replication-group", "replication group deleted")
 
 	return nil
+}
+
+// removeReplicationGroupLocked drops a replication group and its members without state checks.
+func (b *InMemoryBackend) removeReplicationGroupLocked(region, id string) {
+	tbl := b.replicationGroupsStore(region)
+
+	rg, ok := tbl.Get(id)
+	if !ok {
+		return
+	}
+
+	b.releaseGroupLocked(region, rg, false)
+	rg.Tags.Close()
+	tbl.Delete(id)
 }
 
 // DescribeReplicationGroups returns one replication group by id, or a paginated list of all when id is empty.
@@ -217,95 +245,6 @@ func (b *InMemoryBackend) ModifyReplicationGroup(
 	return b.replicationGroupView(rg), nil
 }
 
-// FailoverReplicationGroup simulates a failover for the given replication group.
-func (b *InMemoryBackend) FailoverReplicationGroup(ctx context.Context, id, _ string) (*ReplicationGroup, error) {
-	b.mu.Lock("FailoverReplicationGroup")
-	defer b.mu.Unlock()
-
-	region := getRegion(ctx, b.region)
-	rg, exists := b.replicationGroupsStore(region).Get(id)
-	if !exists {
-		return nil, ErrReplicationGroupNotFound
-	}
-	if err := b.requireAvailableLocked(
-		rg.Status, rg.PendingStatus, rg.AvailableAt, ErrReplicationGroupNotAvailable,
-	); err != nil {
-		return nil, err
-	}
-
-	rg.Status = statusAvailable
-	b.markTransitionLocked(&rg.PendingStatus, &rg.AvailableAt, statusFailingOver)
-	b.appendEventLocked(id, "replication-group", "failover completed")
-
-	return b.replicationGroupView(rg), nil
-}
-
-// resizeNodeGroups resizes a node-group slice to targetCount, preserving existing groups
-// and adding stub groups as needed. replicaCount controls the replica stub count.
-// applyReshardingConfig assigns each new node group's Replicas'
-// PreferredAvailabilityZone from the matching ReshardingConfig entry (by
-// NodeGroupId when the caller supplied one, otherwise positionally), cycling
-// through PreferredAvailabilityZones if there are more replicas than AZs.
-// PrimaryNode is left untouched: this backend never populates NodeGroup.PrimaryNode
-// for any replication group (a separate, pre-existing structural gap), so
-// there is nothing on the primary side to assign an AZ to.
-func applyReshardingConfig(newGroups []NodeGroup, reshardingConfig []ReshardingConfig) {
-	if len(reshardingConfig) == 0 {
-		return
-	}
-	for i := range newGroups {
-		var azs []string
-		for _, rc := range reshardingConfig {
-			if rc.NodeGroupID != "" && rc.NodeGroupID == newGroups[i].NodeGroupID {
-				azs = rc.PreferredAvailabilityZones
-
-				break
-			}
-		}
-		if azs == nil && i < len(reshardingConfig) && reshardingConfig[i].NodeGroupID == "" {
-			azs = reshardingConfig[i].PreferredAvailabilityZones
-		}
-		if len(azs) == 0 {
-			continue
-		}
-		for j := range newGroups[i].Replicas {
-			newGroups[i].Replicas[j].PreferredAvailabilityZone = azs[j%len(azs)]
-		}
-	}
-}
-
-func resizeNodeGroups(existing []NodeGroup, targetCount, replicaCount int) []NodeGroup {
-	if targetCount <= 0 {
-		return existing
-	}
-
-	if len(existing) == targetCount {
-		return existing
-	}
-
-	out := make([]NodeGroup, targetCount)
-	copy(out, existing)
-
-	slotSize := redisClusterHashSlots / targetCount
-	for i := len(existing); i < targetCount; i++ {
-		slotStart := i * slotSize
-		slotEnd := slotStart + slotSize - 1
-		if i == targetCount-1 {
-			slotEnd = redisClusterHashSlots - 1
-		}
-
-		ng := NodeGroup{
-			NodeGroupID: fmt.Sprintf("%04d", i+1),
-			Status:      statusAvailable,
-			Slots:       fmt.Sprintf("%d-%d", slotStart, slotEnd),
-
-			Replicas: make([]NodeGroupNode, replicaCount)}
-		out[i] = ng
-	}
-
-	return out
-}
-
 // ----------------------------------------
 // generateAuthToken creates a random 64-char hex token (gap #4)
 // ----------------------------------------
@@ -377,58 +316,275 @@ func majorVersion(v string) int {
 // CreateReplicationGroupFull (gaps #1-#15)
 // ----------------------------------------
 
-// CreateReplicationGroupFull creates a replication group with the full set of options.
+// CreateReplicationGroupFull creates a replication group, its node groups and
+// one member cluster per node.
 func (b *InMemoryBackend) CreateReplicationGroupFull(
 	ctx context.Context,
 	opts ReplicationGroupCreateOpts,
 ) (*ReplicationGroup, error) {
-	b.mu.Lock("CreateReplicationGroupFull")
-	defer b.mu.Unlock()
-
 	region := getRegion(ctx, b.region)
-	rgStore := b.replicationGroupsStore(region)
 
-	if _, exists := rgStore.Get(opts.ID); exists {
-		return nil, ErrReplicationGroupAlreadyExists
+	var (
+		prep    preparedGroup
+		prepErr error
+	)
+
+	func() {
+		b.mu.Lock("CreateReplicationGroupFull.prepare")
+		defer b.mu.Unlock()
+		b.pruneRegionLocked(region)
+
+		prep, prepErr = b.prepareGroupLocked(region, &opts)
+	}()
+
+	if prepErr != nil {
+		return nil, prepErr
 	}
 
+	need := len(prep.plans)
+	if prep.adoptID != "" {
+		need--
+	}
+
+	engines, err := b.startShardEngines(need, opts.Port)
+	if err != nil {
+		return nil, err
+	}
+
+	b.mu.Lock("CreateReplicationGroupFull.insert")
+	defer b.mu.Unlock()
+
+	rg, err := b.insertGroupLocked(region, opts, prep, engines)
+	if err != nil {
+		for _, e := range engines {
+			b.releaseEngine(e)
+		}
+
+		return nil, err
+	}
+
+	return b.replicationGroupView(rg), nil
+}
+
+// preparedGroup is the validated topology of a replication group about to be created.
+type preparedGroup struct {
+	adoptID     string
+	plans       []shardPlan
+	clusterMode bool
+}
+
+// prepareGroupLocked validates opts against current state and resolves the
+// topology. It may fill engine, version and node type from the restore
+// snapshot or the adopted primary cluster. Must hold b.mu.
+func (b *InMemoryBackend) prepareGroupLocked(region string, opts *ReplicationGroupCreateOpts) (preparedGroup, error) {
+	var prep preparedGroup
+
+	if _, exists := b.replicationGroupsStore(region).Get(opts.ID); exists {
+		return prep, ErrReplicationGroupAlreadyExists
+	}
+
+	if err := b.checkGroupReferencesLocked(region, opts); err != nil {
+		return prep, err
+	}
+
+	if err := validateCreateOpts(*opts); err != nil {
+		return prep, err
+	}
+
+	if err := b.adoptPrimaryLocked(region, opts, &prep); err != nil {
+		return prep, err
+	}
+
+	if err := validateSnapshotArns(opts.SnapshotArns, opts.Engine); err != nil {
+		return prep, err
+	}
+
+	plans, clusterMode, err := planShards(*opts, region)
+	if err != nil {
+		return prep, err
+	}
+
+	prep.plans, prep.clusterMode = plans, clusterMode
+
+	for _, plan := range plans {
+		for n := range len(plan.replicas) + 1 {
+			id := memberClusterID(opts.ID, plan.id, n+1, clusterMode)
+			if _, taken := b.clustersStore(region).Get(id); taken && (n != 0 || id != prep.adoptID) {
+				return prep, fmt.Errorf("%w: member cluster %s", ErrClusterAlreadyExists, id)
+			}
+		}
+	}
+
+	return prep, nil
+}
+
+// checkGroupReferencesLocked verifies every named dependency of a create request exists.
+func (b *InMemoryBackend) checkGroupReferencesLocked(region string, opts *ReplicationGroupCreateOpts) error {
 	if opts.ParameterGroupName != "" {
 		if _, ok := b.parameterGroupsStore(region).Get(opts.ParameterGroupName); !ok {
-			return nil, ErrParameterGroupNotFound
+			return ErrParameterGroupNotFound
+		}
+	}
+
+	if opts.SubnetGroupName != "" {
+		if _, ok := b.subnetGroupsStoreRO(region).Get(opts.SubnetGroupName); !ok {
+			return ErrSubnetGroupNotFound
+		}
+	}
+
+	for _, name := range opts.CacheSecurityGroupNames {
+		if _, ok := b.cacheSecurityGroupsStoreRO(region).Get(name); !ok {
+			return ErrCacheSecurityGroupNotFound
+		}
+	}
+
+	if opts.GlobalReplicationGroupID != "" {
+		grg, ok := b.getGlobalReplicationGroup(opts.GlobalReplicationGroupID)
+		if !ok || isReaped(b.now(), grg.PendingStatus, grg.AvailableAt) {
+			return ErrGlobalReplicationGroupNotFound
+		}
+	}
+
+	if opts.ServerlessSnapshotName != "" {
+		if _, ok := b.serverlessCacheSnapshotsStoreRO(region).Get(opts.ServerlessSnapshotName); !ok {
+			return fmt.Errorf("%w: %s", ErrServerlessCacheSnapshotNotFound, opts.ServerlessSnapshotName)
 		}
 	}
 
 	if opts.SnapshotName != "" {
 		snap, ok := b.snapshotsStore(region).Get(opts.SnapshotName)
 		if !ok || isReaped(b.now(), snap.PendingStatus, snap.AvailableAt) {
-			return nil, ErrSnapshotNotFound
+			return ErrSnapshotNotFound
 		}
 
-		// Restoring from a snapshot inherits its engine/version/node type for
-		// any field the caller didn't explicitly override.
-		if opts.Engine == "" {
-			opts.Engine = snap.Engine
-		}
-
-		if opts.EngineVersion == "" {
-			opts.EngineVersion = snap.EngineVersion
-		}
-
-		if opts.CacheNodeType == "" {
-			opts.CacheNodeType = snap.NodeType
-		}
+		// Restoring from a snapshot inherits its engine/version/node type
+		// for any field the caller didn't explicitly override.
+		opts.Engine = firstNonEmpty(opts.Engine, snap.Engine)
+		opts.EngineVersion = firstNonEmpty(opts.EngineVersion, snap.EngineVersion)
+		opts.CacheNodeType = firstNonEmpty(opts.CacheNodeType, snap.NodeType)
+		restoreSnapshotTopology(opts, snap)
 	}
 
-	if err := validateCreateOpts(opts); err != nil {
-		return nil, err
+	return nil
+}
+
+// restoreSnapshotTopology gives a group restored from a snapshot the
+// snapshot's node groups unless the request names its own layout.
+func restoreSnapshotTopology(opts *ReplicationGroupCreateOpts, snap *CacheSnapshot) {
+	explicit := opts.NumNodeGroups > 0 || opts.NumCacheClusters > 0 || len(opts.PreferredCacheClusterAZs) > 0 ||
+		len(opts.NodeGroupConfiguration) > 0 || opts.HasReplicasPerNodeGroup || opts.ReplicasPerNodeGroup != 0 ||
+		opts.PrimaryClusterID != ""
+	if explicit || len(snap.NodeGroups) == 0 {
+		return
+	}
+
+	for _, ng := range snap.NodeGroups {
+		rc := count32(len(ng.Replicas))
+		cfg := NodeGroupConfig{NodeGroupID: ng.NodeGroupID, Slots: ng.Slots, ReplicaCount: &rc}
+
+		if ng.PrimaryNode != nil {
+			cfg.PrimaryAZ = ng.PrimaryNode.PreferredAvailabilityZone
+		}
+
+		for _, r := range ng.Replicas {
+			cfg.ReplicaAZs = append(cfg.ReplicaAZs, r.PreferredAvailabilityZone)
+		}
+
+		opts.NodeGroupConfiguration = append(opts.NodeGroupConfiguration, cfg)
+	}
+
+	if snap.NodeGroups[0].Slots != "" {
+		opts.ClusterModeEnabled = true
+	}
+}
+
+func firstNonEmpty(a, b string) string {
+	if a != "" {
+		return a
+	}
+
+	return b
+}
+
+// adoptPrimaryLocked validates CreateReplicationGroup's PrimaryClusterId and
+// copies the cluster's engine settings into opts.
+func (b *InMemoryBackend) adoptPrimaryLocked(
+	region string,
+	opts *ReplicationGroupCreateOpts,
+	prep *preparedGroup,
+) error {
+	if opts.PrimaryClusterID == "" {
+		return nil
+	}
+
+	c, ok := b.clustersStore(region).Get(opts.PrimaryClusterID)
+	if !ok || isReaped(b.now(), c.PendingStatus, c.AvailableAt) {
+		return ErrClusterNotFound
+	}
+
+	if err := b.requireAvailableLocked(c.Status, c.PendingStatus, c.AvailableAt, ErrClusterNotAvailable); err != nil {
+		return err
+	}
+
+	if c.Engine == engineMemcached {
+		return fmt.Errorf(
+			"%w: PrimaryClusterId must name a Valkey or Redis OSS cluster",
+			ErrInvalidParameterCombination,
+		)
+	}
+
+	if c.ReplicationGroupID != "" {
+		return fmt.Errorf("%w: cluster %s already belongs to a replication group", ErrClusterNotAvailable, c.ClusterID)
+	}
+
+	if opts.ClusterModeEnabled || opts.NumNodeGroups > 1 || len(opts.NodeGroupConfiguration) > 1 {
+		return fmt.Errorf("%w: PrimaryClusterId requires a single node group", ErrInvalidParameterCombination)
+	}
+
+	opts.Engine = firstNonEmpty(opts.Engine, c.Engine)
+	opts.EngineVersion = firstNonEmpty(opts.EngineVersion, c.EngineVersion)
+	opts.CacheNodeType = firstNonEmpty(opts.CacheNodeType, c.NodeType)
+	prep.adoptID = c.ClusterID
+
+	return nil
+}
+
+// insertGroupLocked stores the replication group and materialises its topology.
+func (b *InMemoryBackend) insertGroupLocked(
+	region string, opts ReplicationGroupCreateOpts, prep preparedGroup, engines []*clusterEngine,
+) (*ReplicationGroup, error) {
+	rgStore := b.replicationGroupsStore(region)
+	if _, exists := rgStore.Get(opts.ID); exists {
+		return nil, ErrReplicationGroupAlreadyExists
+	}
+
+	var adopted *Cluster
+
+	if prep.adoptID != "" {
+		c, ok := b.clustersStore(region).Get(prep.adoptID)
+		if !ok || c.ReplicationGroupID != "" {
+			return nil, ErrClusterNotAvailable
+		}
+
+		adopted = c
 	}
 
 	rg := b.buildReplicationGroupFromCreateOpts(region, opts)
+	rg.ClusterModeEnabled = prep.clusterMode && opts.ClusterMode != statusDisabled
+	b.buildTopologyLocked(
+		rg,
+		memberTemplate{opts: opts, region: region},
+		prep.plans,
+		prep.clusterMode,
+		engines,
+		adopted,
+	)
+	b.linkGlobalGroupLocked(rg, region, opts.GlobalReplicationGroupID)
 	b.markCreatingLocked(&rg.PendingStatus, &rg.AvailableAt)
 	rgStore.Put(rg)
 	b.appendEventLocked(opts.ID, "replication-group", "replication group created")
 
-	return b.replicationGroupView(rg), nil
+	return rg, nil
 }
 
 // buildReplicationGroupFromCreateOpts assembles the ReplicationGroup from opts.
@@ -473,34 +629,16 @@ func (b *InMemoryBackend) buildReplicationGroupFromCreateOpts(
 		rg.AutomaticFailover = statusEnabled
 	}
 
-	if opts.Engine != "" {
-		rg.Engine = opts.Engine
-	}
-
-	if opts.EngineVersion != "" {
-		rg.EngineVersion = opts.EngineVersion
-	}
-
-	if opts.CacheNodeType != "" {
-		rg.CacheNodeType = opts.CacheNodeType
-	}
-
-	if opts.NumNodeGroups > 0 {
-		rg.NodeGroups = resizeNodeGroups(nil, int(opts.NumNodeGroups), int(opts.ReplicasPerNodeGroup))
-	}
-
-	if opts.ReplicasPerNodeGroup > 0 {
-		rg.ReplicaCount = opts.ReplicasPerNodeGroup
-	}
+	rg.Engine = opts.Engine
+	rg.EngineVersion = opts.EngineVersion
+	rg.CacheNodeType = opts.CacheNodeType
 
 	if len(opts.UserGroupIDs) > 0 {
 		rg.UserGroupIDs = opts.UserGroupIDs
 	}
 
-	if len(opts.Tags) > 0 {
-		for k, v := range opts.Tags {
-			rg.Tags.Set(k, v)
-		}
+	for k, v := range opts.Tags {
+		rg.Tags.Set(k, v)
 	}
 
 	return rg
@@ -562,30 +700,96 @@ func (b *InMemoryBackend) ModifyReplicationGroupFull(
 		return nil, err
 	}
 
-	b.applyModifyOptsLocked(rg, opts)
-	if len(opts.CacheSecurityGroupNames) > 0 {
-		b.propagateCacheSecurityGroupsLocked(region, id, opts.CacheSecurityGroupNames)
+	if err := b.promotePrimaryLocked(region, rg, opts); err != nil {
+		return nil, err
 	}
+
+	b.applyModifyOptsLocked(rg, opts)
+	b.syncMembersLocked(region, rg, opts)
 	b.markTransitionLocked(&rg.PendingStatus, &rg.AvailableAt, statusModifying)
 	b.appendEventLocked(id, "replication-group", "replication group modified")
 
 	return b.replicationGroupView(rg), nil
 }
 
-// propagateCacheSecurityGroupsLocked authorizes names on every cache cluster
-// that is a member of replicationGroupID. Real AWS's ModifyReplicationGroup
-// doc comment for CacheSecurityGroupNames: "A list of cache security group
-// names to authorize for the clusters in this replication group" -- the
-// replication group object itself has no CacheSecurityGroups member
-// (verified: elasticache@v1.56.4 types.ReplicationGroup has none, unlike
-// types.CacheCluster), so this must be applied to the member clusters. Must
-// hold b.mu.
-func (b *InMemoryBackend) propagateCacheSecurityGroupsLocked(region, replicationGroupID string, names []string) {
+// promotePrimaryLocked applies ModifyReplicationGroup's PrimaryClusterId.
+func (b *InMemoryBackend) promotePrimaryLocked(
+	region string,
+	rg *ReplicationGroup,
+	opts ReplicationGroupModifyOpts,
+) error {
+	if opts.PrimaryClusterID == "" {
+		return nil
+	}
+
+	if _, ok := b.clustersStore(region).Get(opts.PrimaryClusterID); !ok {
+		return ErrClusterNotFound
+	}
+
+	multiAZ := rg.MultiAZEnabled
+	if opts.MultiAZEnabled != nil {
+		multiAZ = *opts.MultiAZEnabled
+	}
+
+	if multiAZ {
+		return fmt.Errorf(
+			"%w: PrimaryClusterId applies to groups with Multi-AZ disabled",
+			ErrInvalidParameterCombination,
+		)
+	}
+
+	return promoteClusterLocked(rg, opts.PrimaryClusterID)
+}
+
+// syncMembersLocked applies the group-wide members of a modify request to the member clusters.
+func (b *InMemoryBackend) syncMembersLocked(region string, rg *ReplicationGroup, opts ReplicationGroupModifyOpts) {
 	for _, c := range b.clustersStore(region).All() {
-		if c.ReplicationGroupID != replicationGroupID {
-			continue
+		if c.ReplicationGroupID == rg.ReplicationGroupID {
+			applyMemberSettings(c, opts)
 		}
-		c.CacheSecurityGroupNames = append([]string(nil), names...)
+	}
+}
+
+func applyMemberSettings(c *Cluster, opts ReplicationGroupModifyOpts) {
+	if len(opts.CacheSecurityGroupNames) > 0 {
+		c.CacheSecurityGroupNames = slices.Clone(opts.CacheSecurityGroupNames)
+	}
+
+	if len(opts.SecurityGroupIDs) > 0 {
+		c.SecurityGroupIDs = slices.Clone(opts.SecurityGroupIDs)
+	}
+
+	if opts.NotificationTopicArn != "" {
+		c.NotificationTopicArn = opts.NotificationTopicArn
+		c.NotificationTopicStatus = statusActive
+	}
+
+	if opts.NotificationTopicStatus != "" {
+		c.NotificationTopicStatus = opts.NotificationTopicStatus
+	}
+
+	applyMemberEngineSettings(c, opts)
+}
+
+func applyMemberEngineSettings(c *Cluster, opts ReplicationGroupModifyOpts) {
+	if opts.CacheNodeType != "" {
+		c.NodeType = opts.CacheNodeType
+	}
+
+	if opts.EngineVersion != "" && opts.ApplyImmediately {
+		c.EngineVersion = opts.EngineVersion
+	}
+
+	if opts.ParameterGroupName != "" {
+		c.CacheParameterGroupName = opts.ParameterGroupName
+	}
+
+	if opts.MaintenanceWindow != "" {
+		c.PreferredMaintenanceWindow = opts.MaintenanceWindow
+	}
+
+	if opts.SnapshotWindow != "" {
+		c.SnapshotWindow = opts.SnapshotWindow
 	}
 }
 
@@ -870,7 +1074,7 @@ func buildAutoSnapshot(b *InMemoryBackend, region, snapName string, rg *Replicat
 		ev = defaultEngineVersion(engineRedis)
 	}
 
-	return &CacheSnapshot{
+	snap := &CacheSnapshot{
 		SnapshotName:       snapName,
 		ReplicationGroupID: rg.ReplicationGroupID,
 		Status:             statusAvailable,
@@ -882,6 +1086,9 @@ func buildAutoSnapshot(b *InMemoryBackend, region, snapName string, rg *Replicat
 		CreatedAt:          time.Now(),
 		Tags:               tags.New("elasticache.snapshot." + snapName + ".tags"),
 	}
+	snapshotGroupState(snap, rg)
+
+	return snap
 }
 
 // sortAutoSnapshots sorts snapshots by CreatedAt ascending (oldest first).
@@ -979,129 +1186,6 @@ func (b *InMemoryBackend) TestMigration(
 	if !ok {
 		return nil, ErrReplicationGroupNotFound
 	}
-
-	result := *rg
-
-	return &result, nil
-}
-
-// IncreaseReplicaCount increases the replica count for a replication group.
-// AWS documents ApplyImmediately as required and states "ApplyImmediately=False
-// is not currently supported" for this operation, so applyImmediately=false is
-// rejected rather than silently accepted or faked as a deferred change.
-func (b *InMemoryBackend) IncreaseReplicaCount(
-	ctx context.Context,
-	replicationGroupID string,
-	newReplicaCount int32,
-	applyImmediately bool,
-) (*ReplicationGroup, error) {
-	if !applyImmediately {
-		return nil, ErrApplyImmediatelyRequired
-	}
-
-	b.mu.Lock("IncreaseReplicaCount")
-	defer b.mu.Unlock()
-
-	region := getRegion(ctx, b.region)
-	rg, ok := b.replicationGroupsStore(region).Get(replicationGroupID)
-	if !ok {
-		return nil, ErrReplicationGroupNotFound
-	}
-	if err := b.requireAvailableLocked(
-		rg.Status, rg.PendingStatus, rg.AvailableAt, ErrReplicationGroupNotAvailable,
-	); err != nil {
-		return nil, err
-	}
-
-	if newReplicaCount > 0 {
-		rg.ReplicaCount = newReplicaCount
-	}
-
-	b.appendEventLocked(replicationGroupID, "replication-group", "replica count increased")
-
-	result := *rg
-
-	return &result, nil
-}
-
-// DecreaseReplicaCount decreases the replica count for a replication group.
-// See IncreaseReplicaCount's doc comment: AWS documents ApplyImmediately=false
-// as unsupported for this operation too.
-func (b *InMemoryBackend) DecreaseReplicaCount(
-	ctx context.Context,
-	replicationGroupID string,
-	newReplicaCount int32,
-	applyImmediately bool,
-) (*ReplicationGroup, error) {
-	if !applyImmediately {
-		return nil, ErrApplyImmediatelyRequired
-	}
-
-	b.mu.Lock("DecreaseReplicaCount")
-	defer b.mu.Unlock()
-
-	region := getRegion(ctx, b.region)
-	rg, ok := b.replicationGroupsStore(region).Get(replicationGroupID)
-	if !ok {
-		return nil, ErrReplicationGroupNotFound
-	}
-	if err := b.requireAvailableLocked(
-		rg.Status, rg.PendingStatus, rg.AvailableAt, ErrReplicationGroupNotAvailable,
-	); err != nil {
-		return nil, err
-	}
-
-	if newReplicaCount >= 0 {
-		rg.ReplicaCount = newReplicaCount
-	}
-
-	b.appendEventLocked(replicationGroupID, "replication-group", "replica count decreased")
-
-	result := *rg
-
-	return &result, nil
-}
-
-// ModifyReplicationGroupShardConfiguration modifies the shard configuration of a replication group.
-// Cluster mode must be enabled to use this operation. AWS documents
-// ApplyImmediately as required with "Value: true" -- "the only permitted
-// value for this parameter is true" -- so applyImmediately=false is rejected.
-func (b *InMemoryBackend) ModifyReplicationGroupShardConfiguration(
-	ctx context.Context,
-	replicationGroupID string,
-	nodeGroupCount int32,
-	applyImmediately bool,
-	reshardingConfig []ReshardingConfig,
-) (*ReplicationGroup, error) {
-	if !applyImmediately {
-		return nil, ErrApplyImmediatelyRequired
-	}
-
-	b.mu.Lock("ModifyReplicationGroupShardConfiguration")
-	defer b.mu.Unlock()
-
-	region := getRegion(ctx, b.region)
-	rg, ok := b.replicationGroupsStore(region).Get(replicationGroupID)
-	if !ok {
-		return nil, ErrReplicationGroupNotFound
-	}
-	if err := b.requireAvailableLocked(
-		rg.Status, rg.PendingStatus, rg.AvailableAt, ErrReplicationGroupNotAvailable,
-	); err != nil {
-		return nil, err
-	}
-
-	if !rg.ClusterModeEnabled {
-		return nil, ErrClusterModeRequired
-	}
-
-	if nodeGroupCount > 0 {
-		existingCount := len(rg.NodeGroups)
-		rg.NodeGroups = resizeNodeGroups(rg.NodeGroups, int(nodeGroupCount), int(rg.ReplicaCount))
-		applyReshardingConfig(rg.NodeGroups[existingCount:], reshardingConfig)
-	}
-
-	b.appendEventLocked(replicationGroupID, "replication-group", "shard configuration modified")
 
 	result := *rg
 

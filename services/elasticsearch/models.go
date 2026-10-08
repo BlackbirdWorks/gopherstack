@@ -113,6 +113,22 @@ type Package struct {
 	Versions      []PackageVersion `json:"versions,omitempty"`
 }
 
+// PackageAssociation records when and at which package version a domain was
+// associated with a package.
+type PackageAssociation struct {
+	LastUpdated    time.Time `json:"lastUpdated"`
+	PackageVersion string    `json:"packageVersion"`
+}
+
+// DomainPackage is one package-to-domain association with its details.
+type DomainPackage struct {
+	LastUpdated    time.Time
+	Package        *Package
+	DomainName     string
+	PackageVersion string
+	ReferencePath  string
+}
+
 // PackageVersion is one version of a package; Number starts at 1.
 type PackageVersion struct {
 	CreatedAt     time.Time `json:"createdAt"`
@@ -343,6 +359,7 @@ type DeploymentStrategyOptions struct {
 // Domain represents an Elasticsearch domain.
 type Domain struct {
 	ConfigUpdatedAt             time.Time                      `json:"configUpdatedAt,omitzero"`
+	ProcessingUntil             time.Time                      `json:"processingUntil,omitzero"`
 	CreatedAt                   time.Time                      `json:"createdAt,omitzero"`
 	VPCOptions                  *VPCOptions                    `json:"vpcOptions,omitempty"`
 	AdvancedOptions             map[string]string              `json:"advancedOptions,omitempty"`
@@ -357,6 +374,7 @@ type Domain struct {
 	AccessPolicies              string                         `json:"accessPolicies,omitempty"`
 	Status                      string                         `json:"status"`
 	TLSSecurityPolicy           string                         `json:"tlsSecurityPolicy,omitempty"`
+	ProcessingStatus            string                         `json:"processingStatus,omitempty"`
 	DomainID                    string                         `json:"domainID"`
 	Name                        string                         `json:"name"`
 	region                      string
@@ -369,6 +387,7 @@ type Domain struct {
 	EncryptionAtRestEnabled     bool            `json:"encryptionAtRestEnabled"`
 	NodeToNodeEncryptionEnabled bool            `json:"nodeToNodeEncryptionEnabled"`
 	EnforceHTTPS                bool            `json:"enforceHTTPS"`
+	Deleted                     bool            `json:"deleted,omitempty"`
 }
 
 // UpgradeRecord is one entry in a domain's upgrade history.

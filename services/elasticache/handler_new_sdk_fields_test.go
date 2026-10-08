@@ -115,7 +115,7 @@ func TestHandler_NewSDKFields_WireShape(t *testing.T) {
 			},
 		},
 		{
-			name: "serverlesscache_storageencryptiontype_always_absent",
+			name: "serverlesscache_storageencryptiontype_sse_kms_with_customer_key",
 			run: func(t *testing.T, srvURL string) string {
 				t.Helper()
 
@@ -128,8 +128,7 @@ func TestHandler_NewSDKFields_WireShape(t *testing.T) {
 			},
 			check: func(t *testing.T, body string) {
 				t.Helper()
-				assert.NotContains(t, body, "<StorageEncryptionType>",
-					"StorageEncryptionType has no Create/ModifyServerlessCache input member; must never be fabricated")
+				assert.Contains(t, body, "<StorageEncryptionType>sse-kms</StorageEncryptionType>")
 			},
 		},
 		{
@@ -206,7 +205,7 @@ func TestHandler_NewSDKFields_WireShape(t *testing.T) {
 			},
 		},
 		{
-			name: "replicationgroup_storageencryptiontype_always_absent",
+			name: "replicationgroup_storageencryptiontype_sse_kms_with_customer_key",
 			run: func(t *testing.T, srvURL string) string {
 				t.Helper()
 
@@ -220,8 +219,7 @@ func TestHandler_NewSDKFields_WireShape(t *testing.T) {
 			},
 			check: func(t *testing.T, body string) {
 				t.Helper()
-				assert.NotContains(t, body, "<StorageEncryptionType>",
-					"StorageEncryptionType has no Create/ModifyReplicationGroup input member; must never be fabricated")
+				assert.Contains(t, body, "<StorageEncryptionType>sse-kms</StorageEncryptionType>")
 			},
 		},
 		{

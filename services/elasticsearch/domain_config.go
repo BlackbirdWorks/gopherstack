@@ -22,6 +22,7 @@ func (b *InMemoryBackend) UpdateDomainConfig(ctx context.Context, name string, c
 	if applyDomainConfigUpdate(d, cfg) {
 		d.ConfigUpdatedAt = time.Now()
 		d.ConfigVersion++
+		b.beginProcessing(d, dpsModifying)
 	}
 
 	return domainCopy(d), nil
@@ -174,8 +175,9 @@ const maxChangeProgressHistory = 100
 
 // ChangeProgress is one configuration change of a domain.
 type ChangeProgress struct {
-	StartTime time.Time
-	ChangeID  string
+	StartTime  time.Time
+	ChangeID   string
+	InProgress bool
 }
 
 // changeIDForVersion derives the stable ChangeId of a domain's configuration
@@ -187,7 +189,7 @@ func changeIDForVersion(region string, d *Domain, version int) string {
 }
 
 // DescribeDomainChangeProgress returns the change named by changeID, or the
-// latest when empty; changes apply synchronously so all are complete.
+// latest when empty; only the latest can still be in its processing window.
 func (b *InMemoryBackend) DescribeDomainChangeProgress(
 	ctx context.Context, domainName, changeID string,
 ) (*ChangeProgress, error) {
@@ -204,6 +206,8 @@ func (b *InMemoryBackend) DescribeDomainChangeProgress(
 	if !d.ConfigUpdatedAt.IsZero() {
 		latest.StartTime = d.ConfigUpdatedAt
 	}
+
+	latest.InProgress, _ = domainProcessing(d, b.clock())
 
 	if changeID == "" || changeID == latest.ChangeID {
 		return &latest, nil

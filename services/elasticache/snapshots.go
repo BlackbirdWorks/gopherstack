@@ -2,6 +2,7 @@ package elasticache
 
 import (
 	"context"
+	"slices"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -62,6 +63,8 @@ func (b *InMemoryBackend) CreateSnapshotFull(
 		snap.EngineVersion = c.EngineVersion
 		snap.NodeType = c.NodeType
 		snap.SourceClusterCreatedAt = c.CreatedAt
+		snap.CacheNodeIDs = slices.Clone(nodeIDsOf(c))
+		snap.CacheNodeAZs = slices.Clone(c.CacheNodeAZs)
 	}
 
 	if replicationGroupID != "" {
@@ -76,6 +79,8 @@ func (b *InMemoryBackend) CreateSnapshotFull(
 		}
 		snap.EngineVersion = ev
 		snap.ReplicationGroupID = rg.ReplicationGroupID
+		snap.NodeType = firstNonEmpty(rg.CacheNodeType, snap.NodeType)
+		snapshotGroupState(snap, rg)
 	}
 
 	snapStore.Put(snap)
@@ -175,6 +180,7 @@ func (b *InMemoryBackend) CopySnapshot(
 	}
 
 	cp := *src
+	cp.NodeGroups = cloneNodeGroups(src.NodeGroups)
 	cp.SnapshotName = targetSnapshotName
 	cp.ARN = b.snapshotARN(region, targetSnapshotName)
 	cp.CreatedAt = time.Now()
@@ -208,6 +214,7 @@ func (b *InMemoryBackend) CopySnapshotFull(
 	}
 
 	cp := *src
+	cp.NodeGroups = cloneNodeGroups(src.NodeGroups)
 	cp.SnapshotName = targetSnapshotName
 	cp.ARN = b.snapshotARN(region, targetSnapshotName)
 	cp.CreatedAt = time.Now()
@@ -229,3 +236,11 @@ func (b *InMemoryBackend) CopySnapshotFull(
 // ----------------------------------------
 // CreateUserGroupValidated — validates users exist
 // ----------------------------------------
+
+// snapshotGroupState records the replication group state a snapshot restores from.
+func snapshotGroupState(snap *CacheSnapshot, rg *ReplicationGroup) {
+	snap.Durability = rg.Durability
+	snap.ReplicationGroupDescription = rg.Description
+	snap.AutomaticFailover = rg.AutomaticFailover
+	snap.NodeGroups = cloneNodeGroups(rg.NodeGroups)
+}

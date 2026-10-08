@@ -515,7 +515,7 @@ func TestHandler_DescribeReplicationGroups_ReturnsNodeGroups(t *testing.T) {
 	}
 }
 
-func TestHandler_DescribeReplicationGroups_NoNodeGroups_WhenDisabled(t *testing.T) {
+func TestHandler_DescribeReplicationGroups_SingleNodeGroup_WhenClusterModeDisabled(t *testing.T) {
 	t.Parallel()
 
 	client := newTestStack(t)
@@ -534,7 +534,11 @@ func TestHandler_DescribeReplicationGroups_NoNodeGroups_WhenDisabled(t *testing.
 
 	rg := out.ReplicationGroups[0]
 	assert.False(t, aws.ToBool(rg.ClusterEnabled))
-	assert.Empty(t, rg.NodeGroups)
+	require.Len(t, rg.NodeGroups, 1)
+	assert.Empty(t, aws.ToString(rg.NodeGroups[0].Slots))
+	assert.NotNil(t, rg.NodeGroups[0].PrimaryEndpoint)
+	assert.Nil(t, rg.ConfigurationEndpoint)
+	assert.Equal(t, []string{"no-ng-rg-001"}, rg.MemberClusters)
 }
 
 // ----------------------------------------

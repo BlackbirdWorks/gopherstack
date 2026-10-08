@@ -1,6 +1,7 @@
 package directconnect
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
@@ -410,6 +411,12 @@ func (b *InMemoryBackend) AssociateConnectionWithLag(connectionID, lagID string)
 		)
 	}
 
+	if endpointDevice(c.AwsDeviceV2, c.Location) != endpointDevice(lag.AwsDeviceV2, lag.Location) {
+		return nil, clientError(
+			"connection " + connectionID + " is not hosted on the same endpoint as LAG " + lagID,
+		)
+	}
+
 	if c.LagID != lagID {
 		maxConns := int(lagMaxConnections(lag.ConnectionsBandwidth))
 		if len(b.connectionsByLagLocked(lagID)) >= maxConns {
@@ -485,16 +492,31 @@ func (b *InMemoryBackend) DisassociateConnectionFromLag(connectionID, lagID stri
 	return c.clone(), nil
 }
 
-// synthesizeMacSecSecretARN builds a plausible, but NOT actually backed by
-// services/secretsmanager, ARN for a raw Cak/Ckn-provided MACsec key --
-// DisassociateMacSecKey needs a resolvable SecretARN to remove even a
-// caller-supplied raw key later (PARITY.md). JUDGMENT CALL: a real
-// implementation could create an actual services/secretsmanager secret
-// under the hood (this repo has that backend); this is the simpler,
-// ARN-only stand-in, explicitly NOT wired to secretsmanager -- see
-// PARITY.md's MACsec section.
+// synthesizeMacSecSecretARN builds an unbacked secret ARN, used only when no
+// MacSecSecretCreator is wired.
 func (b *InMemoryBackend) synthesizeMacSecSecretARN(id string) string {
 	return "arn:aws:secretsmanager:" + b.region + ":" + b.accountID + ":secret:directconnect!" + id
+}
+
+// macSecSecretARNLocked stores a raw CAK/CKN pair in Secrets Manager when a
+// creator is wired, else synthesizes an unbacked ARN.
+func (b *InMemoryBackend) macSecSecretARNLocked(req *associateMacSecKeyRequest) (string, error) {
+	id := newBgpPeerID()
+	if b.macSecStore == nil {
+		return b.synthesizeMacSecSecretARN(id), nil
+	}
+
+	payload, err := json.Marshal(map[string]string{"ckn": req.Ckn, "cak": req.Cak})
+	if err != nil {
+		return "", serverError(err.Error())
+	}
+
+	secretARN, err := b.macSecStore.CreateMacSecSecret(b.region, "directconnect!"+id, string(payload))
+	if err != nil {
+		return "", serverError("creating MACsec secret: " + err.Error())
+	}
+
+	return secretARN, nil
 }
 
 // AssociateMacSecKey associates a MACsec key (either a raw Cak/Ckn pair or
@@ -514,7 +536,11 @@ func (b *InMemoryBackend) AssociateMacSecKey(req *associateMacSecKeyRequest) (st
 
 	secretARN := req.SecretARN
 	if secretARN == "" {
-		secretARN = b.synthesizeMacSecSecretARN(newBgpPeerID())
+		var err error
+
+		if secretARN, err = b.macSecSecretARNLocked(req); err != nil {
+			return "", nil, err
+		}
 	}
 
 	key := &MacSecKey{

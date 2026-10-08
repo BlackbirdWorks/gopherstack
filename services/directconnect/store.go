@@ -37,6 +37,13 @@ type EC2GatewayResolver interface {
 	VirtualGateways() []string
 }
 
+// MacSecSecretCreator creates the Secrets Manager secret backing a raw
+// CAK/CKN pair passed to AssociateMacSecKey and returns its ARN. Optional:
+// when unset, an unbacked ARN is synthesized.
+type MacSecSecretCreator interface {
+	CreateMacSecSecret(region, name, secretString string) (string, error)
+}
+
 // InMemoryBackend is the in-memory store for AWS Direct Connect.
 //
 // A single coarse lock guards every collection below: operations routinely
@@ -58,6 +65,7 @@ type InMemoryBackend struct {
 	registry          *store.Registry
 
 	ec2Resolver EC2GatewayResolver
+	macSecStore MacSecSecretCreator
 	baseCtx     context.Context
 	gatewayHome *InMemoryBackend
 
@@ -101,6 +109,14 @@ func (b *InMemoryBackend) SetEC2GatewayResolver(r EC2GatewayResolver) {
 	defer b.mu.Unlock()
 
 	b.ec2Resolver = r
+}
+
+// SetMacSecSecretCreator wires AssociateMacSecKey to create real secrets.
+func (b *InMemoryBackend) SetMacSecSecretCreator(c MacSecSecretCreator) {
+	b.mu.Lock("SetMacSecSecretCreator")
+	defer b.mu.Unlock()
+
+	b.macSecStore = c
 }
 
 // Region returns the AWS region this backend is configured for.

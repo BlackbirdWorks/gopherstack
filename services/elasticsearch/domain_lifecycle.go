@@ -152,6 +152,10 @@ func (b *InMemoryBackend) recordUpgrade(d *Domain, targetVersion string, checkOn
 		steps = steps[:1]
 	}
 
+	if !checkOnly {
+		b.beginProcessing(d, dpsUpgrading)
+	}
+
 	d.Upgrades = append(d.Upgrades, UpgradeRecord{
 		Name:           name,
 		StartTimestamp: time.Now(),

@@ -1,6 +1,7 @@
 package elasticache
 
 import (
+	"maps"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -192,6 +193,7 @@ func (b *InMemoryBackend) clusterView(c *Cluster) *Cluster {
 func (b *InMemoryBackend) replicationGroupView(rg *ReplicationGroup) *ReplicationGroup {
 	cp := *rg
 	cp.Status = overlayStatus(b.now(), rg.Status, rg.PendingStatus, rg.AvailableAt)
+	cp.NodeGroups = cloneNodeGroups(rg.NodeGroups)
 
 	return &cp
 }
@@ -208,6 +210,8 @@ func (b *InMemoryBackend) serverlessCacheView(sc *ServerlessCache) *ServerlessCa
 func (b *InMemoryBackend) globalReplicationGroupView(grg *GlobalReplicationGroup) *GlobalReplicationGroup {
 	cp := *grg
 	cp.Status = overlayStatus(b.now(), grg.Status, grg.PendingStatus, grg.AvailableAt)
+	cp.SecondaryReplicationGroups = maps.Clone(grg.SecondaryReplicationGroups)
+	cp.Members = b.globalMembersLocked(grg)
 
 	return &cp
 }
