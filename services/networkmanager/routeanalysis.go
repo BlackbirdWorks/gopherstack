@@ -160,7 +160,7 @@ func walkRouteTables(resolver EC2Resolver, anchorArn, ip string) *RouteAnalysisP
 		var peerArn string
 
 		if peering != nil {
-			peerArn, ok = peering.TransitGatewayPeerAttachment(route.AttachmentID)
+			peerArn, ok = peering.TransitGatewayPeerAttachment(route.AttachmentID, anchorArn)
 		}
 
 		if !ok || peerArn == "" {

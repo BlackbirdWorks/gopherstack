@@ -7,7 +7,7 @@
 service: mediastoredata
 sdk_module: aws-sdk-go-v2/service/mediastoredata@v1.32.4   # version audited against; unchanged from prior pass, confirmed still the go.mod pin
 last_audit_commit: bce8159207
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-08
 overall: A            # this pass (gopherstack-5ce): PutObject accepted a body of ANY size -- PutObjectInput's doc comment (api_op_PutObject.go:13-14) states "Object sizes are limited to 25 MB for standard upload availability and 10 MB for streaming upload availability," and gopherstack enforced no such limit anywhere in the package. Fixed via a new ErrObjectTooLarge sentinel (errors.go, ValidationException wire type, same convention as ErrInvalidPath/ErrInvalidStorageClass/ErrInvalidUploadAvailability) and a size check in PutObject keyed on the (already-defaulted) uploadAvailability value. Covered by TestInMemoryBackend_PutObject_SizeLimit and TestMediaStoreData_ObjectSizeLimit. All other surface re-checked against the pinned v1.32.4 SDK this pass (field-level doc comments on all 5 *Input structs, types/errors.go's 4-exception list, types/enums.go) with no other discrepancies found -- see ops/families below.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -24,7 +24,6 @@ families:
 gaps: []
 items_still_open:
   - "ValidationException (bad Path, out-of-range ListItems MaxResults) and PutObject's XAmzContentSHA256Mismatch are not in any of the 5 per-op error models at v1.32.4, and a real SDK client can send such requests; the exact error names AWS uses cannot be determined from the SDK."
-  - "ContainerNotFoundException is never returned: objects are one flat per-region store and the container is identified only by the request Host (a per-container endpoint from mediastore DescribeContainer). Needs the handler to read Host and a resolver over services/mediastore containers wired in cli.go (RouteMatcher currently matches on SDK User-Agent only)."
 structural_gaps:
   - "x-amz-upload-availability STREAMING: real MediaStore serves partial reads of an in-flight upload; PutObject here is a single atomic request, so no partial object is ever visible. No read response carries UploadAvailability in the SDK, so completed objects are indistinguishable."
 deferred:

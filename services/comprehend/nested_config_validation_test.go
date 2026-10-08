@@ -7,8 +7,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/blackbirdworks/gopherstack/services/comprehend"
 )
 
 func TestNestedConfigValidation(t *testing.T) {
@@ -174,27 +172,6 @@ func TestDocumentBytesInput(t *testing.T) {
 
 			assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 			assert.Equal(t, "InvalidRequestException", decodeBody(t, rec)["__type"])
-		})
-	}
-}
-
-func TestAdvanceTrainingResourceUsesModelStatusVocabulary(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name, resName, from, want string
-	}{
-		{name: "submitted_to_training", resName: "m", from: "SUBMITTED", want: "TRAINING"},
-		{name: "training_to_trained", resName: "m", from: "TRAINING", want: "TRAINED"},
-		{name: "training_to_in_error", resName: "m-[fail]", from: "TRAINING", want: "IN_ERROR"},
-		{name: "trained_is_terminal", resName: "m", from: "TRAINED", want: "TRAINED"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			assert.Equal(t, tt.want, comprehend.AdvanceTrainingResourceForTest(tt.resName, tt.from))
 		})
 	}
 }

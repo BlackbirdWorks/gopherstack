@@ -3362,7 +3362,50 @@ func (a *networkManagerEC2ResolverAdapter) ResolveTransitGatewayRouteTable(trans
 	return len(bk.DescribeTransitGatewayRouteTables([]string{arnResourceID(transitGatewayRouteTableArn)})) > 0
 }
 
-// TransitGatewayRouteTableForAttachment resolves a TGW VPC attachment to
+const tgwAttachmentAvailable = "available"
+
+// attachmentTransitGateway returns the transit gateway owning an available VPC or peering attachment;
+// for a peering it is the gateway on the side living in region.
+func attachmentTransitGateway(backend *ec2backend.InMemoryBackend, id, region string) (string, bool) {
+	if atts := backend.DescribeTransitGatewayVpcAttachments([]string{id}); len(atts) > 0 {
+		return atts[0].TransitGatewayID, atts[0].State == tgwAttachmentAvailable
+	}
+
+	peers := backend.DescribeTransitGatewayPeeringAttachments([]string{id})
+	if len(peers) == 0 || peers[0].State != tgwAttachmentAvailable {
+		return "", false
+	}
+
+	if peers[0].AccepterRegion == region {
+		return peers[0].AccepterTransitGatewayID, true
+	}
+
+	return peers[0].RequesterTransitGatewayID, true
+}
+
+// TransitGatewayPeerAttachment implements networkmanager.EC2PeeringResolver.
+func (a *networkManagerEC2ResolverAdapter) TransitGatewayPeerAttachment(
+	attachmentID, fromAttachmentArn string,
+) (string, bool) {
+	for _, b := range a.regions.handler.RegionBackends() {
+		for _, p := range b.DescribeTransitGatewayPeeringAttachments([]string{attachmentID}) {
+			if p.State != tgwAttachmentAvailable {
+				continue
+			}
+
+			region, owner := p.AccepterRegion, p.AccepterOwnerID
+			if arnRegion(fromAttachmentArn) == p.AccepterRegion {
+				region, owner = p.RequesterRegion, p.RequesterOwnerID
+			}
+
+			return "arn:aws:ec2:" + region + ":" + owner + ":transit-gateway-attachment/" + attachmentID, true
+		}
+	}
+
+	return "", false
+}
+
+// TransitGatewayRouteTableForAttachment resolves a TGW VPC or peering attachment to
 // the route table it is associated with, by scanning its owning transit
 // gateway's route tables for an association naming this attachment --
 // services/ec2 has no direct "route table for attachment" index, only the
@@ -3373,13 +3416,13 @@ func (a *networkManagerEC2ResolverAdapter) TransitGatewayRouteTableForAttachment
 	attachmentID := arnResourceID(transitGatewayAttachmentArn)
 	backend := a.regions.forARN(transitGatewayAttachmentArn)
 
-	atts := backend.DescribeTransitGatewayVpcAttachments([]string{attachmentID})
-	if len(atts) == 0 || atts[0].State != "available" {
+	tgwID, ok := attachmentTransitGateway(backend, attachmentID, arnRegion(transitGatewayAttachmentArn))
+	if !ok {
 		return "", false
 	}
 
 	for _, rt := range backend.DescribeTransitGatewayRouteTables(nil) {
-		if rt.TransitGatewayID != atts[0].TransitGatewayID {
+		if rt.TransitGatewayID != tgwID {
 			continue
 		}
 
@@ -3801,6 +3844,9 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	wireRDSData(byName["RDSData"], byName["RDS"], byName["SecretsManager"])
 	wireManagedMasterSecrets(byName)
 	wireSubnetLookups(byName)
+	wireDirectConnectMacSecSecrets(byName)
+	wireMQResourceShares(byName)
+	wireMediaStoreDataContainers(byName)
 	wireECSAutoScaling(byName)
 	wireSWFLambda(byName)
 	wireWorkMailDirectory(byName)
@@ -4831,6 +4877,11 @@ func (a *ebCloudWatchLogsAdapter) PutLogEvents(
 	logGroupName, logStreamName string,
 	logEvents []any,
 ) error {
+	if _, err := a.backend.CreateLogStream(ctx, logGroupName, logStreamName); err != nil &&
+		!errors.Is(err, cwlogsbackend.ErrLogStreamAlreadyExist) {
+		return err
+	}
+
 	now := time.Now().UnixMilli()
 	events := make([]cwlogsbackend.InputLogEvent, 0, len(logEvents))
 
@@ -11610,6 +11661,10 @@ func extractExtendedResourcePolicyProvider(svc service.Registerable) iambackend.
 	case *bedrockbackend.Handler:
 		if h.Backend != nil {
 			return &bedrockPolicyAdapter{backend: h.Backend}
+		}
+	case *cwlogsbackend.Handler:
+		if b, ok := h.Backend.(logsPolicyBackend); ok {
+			return &logsPolicyAdapter{backend: b}
 		}
 	}
 

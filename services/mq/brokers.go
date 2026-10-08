@@ -603,6 +603,11 @@ func promotePendingScalarFields(br *Broker) {
 		br.StorageSize = br.PendingStorageSize
 		br.PendingStorageSize = 0
 	}
+
+	if br.PendingResourceShareArns != nil {
+		br.ResourceShareArns = br.PendingResourceShareArns
+		br.PendingResourceShareArns = nil
+	}
 }
 
 // promotePendingLogs applies a staged Logs change (LogsSummary.Pending) to
@@ -904,6 +909,10 @@ func (b *InMemoryBackend) copyBroker(br *Broker) *Broker {
 		cp.PendingResourceShareArns = append([]string{}, br.PendingResourceShareArns...)
 	}
 
+	if len(br.ResourceShareArns) > 0 {
+		cp.ResourceShareArns = append([]string{}, br.ResourceShareArns...)
+	}
+
 	cp.BrokerInstances = append([]BrokerInstance{}, br.BrokerInstances...)
 	b.applyLiveEndpoints(&cp)
 
@@ -1057,19 +1066,52 @@ func (b *InMemoryBackend) Promote(brokerID, mode string) (*Broker, error) {
 	return b.copyBroker(br), nil
 }
 
-// DescribeSharedResources returns the resources shared to a broker via AWS
-// Resource Access Manager (e.g. cross-account VPC subnets or configurations
-// shared through a RAM resource share). This backend does not model RAM
-// resource sharing, so it never fabricates a shared resource entry: the
-// broker ID is validated against real backend state exactly like
-// DescribeBroker, and a valid broker honestly reports zero shared resources.
+// DescribeSharedResources lists each RAM resource share applied to the broker (UpdateBroker
+// resourceShareArns, live after reboot) and the resources it grants. A share RAM cannot find is
+// reported with SHARE_NOT_FOUND. Without a RAM resolver nothing can be verified, so the list is empty.
 func (b *InMemoryBackend) DescribeSharedResources(brokerID string) ([]SharedResource, error) {
 	b.mu.RLock("DescribeSharedResources")
 	defer b.mu.RUnlock()
 
-	if br := b.lookupBroker(brokerID); br == nil {
+	br := b.lookupBroker(brokerID)
+	if br == nil {
 		return nil, fmt.Errorf("%w: broker %s not found", ErrNotFound, brokerID)
 	}
 
-	return []SharedResource{}, nil
+	out := []SharedResource{}
+	if b.shares == nil {
+		return out, nil
+	}
+
+	for _, shareARN := range br.ResourceShareArns {
+		resources, found := b.shares.ResourceShareResources(shareARN)
+		if !found {
+			out = append(out, SharedResource{
+				ResourceArn:       shareARN,
+				Type:              sharedResourceTypeShare,
+				Status:            sharedResourceStatusError,
+				ResourceShareArns: []string{shareARN},
+				Error: &SharedResourceError{
+					Code:    sharedResourceErrShareNotFound,
+					Message: "resource share not found",
+				},
+			})
+
+			continue
+		}
+
+		out = append(out, SharedResource{
+			ResourceArn: shareARN, Type: sharedResourceTypeShare, Status: sharedResourceStatusAvailable,
+			ResourceShareArns: []string{shareARN},
+		})
+
+		for _, arn := range resources {
+			out = append(out, SharedResource{
+				ResourceArn: arn, Type: sharedResourceTypeResource, Status: sharedResourceStatusAvailable,
+				ResourceShareArns: []string{shareARN},
+			})
+		}
+	}
+
+	return out, nil
 }

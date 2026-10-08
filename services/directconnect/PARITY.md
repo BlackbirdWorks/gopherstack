@@ -76,7 +76,7 @@ last_audit_commit: 22b4f068c   # bumped 2026-09-20 (wafclassic-and-directconnect
 # and broke every real `tofu apply`. Fixed: a hosted connection (any with a non-empty
 # ParentConnectionID/LagID/InterconnectID) now also matches on its own ConnectionID.
 # TestDescribeHostedConnections_ByOwnID added (hosted_connections_test.go).
-last_audit_date: 2026-10-07  # 2026-10-07: endpoint identity (AwsDevice/AwsDeviceV2/AwsLogicalDeviceId, one endpoint per location, endpoint_device.go) and VirtualGatewayRegion now populated; AssociateConnectionWithLag enforces same-endpoint; MacSecSecretCreator hook added. Older notes below saying these were never populated are history.   # was 2026-09-11
+last_audit_date: 2026-10-08  # 2026-10-07: endpoint identity (AwsDevice/AwsDeviceV2/AwsLogicalDeviceId, one endpoint per location, endpoint_device.go) and VirtualGatewayRegion now populated; AssociateConnectionWithLag enforces same-endpoint; MacSecSecretCreator hook added. Older notes below saying these were never populated are history.   # was 2026-09-11
 overall: A   # test/integration/directconnect_test.go passes for real (make build-linux && go test
 # -race -run TestIntegration_DirectConnect ./test/integration/...); every gap that could produce
 # real data is closed (cross-service EC2 validation, pkgs/arn.BuildGlobal for dx-gateway, pkgs/page
@@ -167,7 +167,6 @@ ops:
 gaps: []
 items_still_open:
   - "No AWS::DirectConnect::* CloudFormation resource type: lives in services/cloudformation (out of this service's ownership); needs a resources_*.go entry there."
-  - "AssociateMacSecKey raw Cak/Ckn path creates a real secret only once wired: MacSecSecretCreator/SetMacSecSecretCreator exist and are tested; cli.go still needs an adapter over secretsmanager InMemoryBackend.CreateManagedSecret(region, name, \"\", secretString) passed to directconnectH.Backend.SetMacSecSecretCreator (next to wireDirectConnectEC2). Until then the ARN is synthesized and unbacked."
 structural_gaps:
   - "Interconnect/hosted-connection/reseller (partner) flow (CreateInterconnect, AllocateConnectionOnInterconnect, AllocateHostedConnection, ConfirmConnection, DescribeConnectionsOnInterconnect, DescribeHostedConnections): real Direct Connect Partners own physical cross-connect infrastructure at colocation facilities. There is no physical link for an emulator to have or lack -- 'is this physically cross-connected' cannot be made real by any amount of implementation effort. Full state bookkeeping (Interconnect/Connection creation, ordering->confirm->available transitions, parent/child relationships) IS implemented and IS the honest ceiling."
   - "LOA-CFA (Letter of Authorization - Connecting Facility Assignment) content (DescribeLoa/DescribeConnectionLoa/DescribeInterconnectLoa): a real LOA-CFA is an authentic AWS-issued document authorizing physical cross-connect work at a named colocation facility. No implementation can produce a genuine one without real physical infrastructure and a real issuing authority. loa.go's placeholderLoaContent (a minimal, well-formed PDF labeled 'PLACEHOLDER - NOT A REAL AUTHORIZATION') is the honest ceiling, never a fabricated real-looking document."

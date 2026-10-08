@@ -3,7 +3,7 @@ service: eventbridge
 sdk_module: aws-sdk-go-v2/service/eventbridge@v1.53.0
 sibling_sdk_modules: [aws-sdk-go-v2/service/pipes@v1.26.4, aws-sdk-go-v2/service/schemas@v1.37.4]  # Pipes and Schema Registry ops this Handler also implements; see schema_registry_and_pipes below
 last_audit_commit: f78c3b7c7  # 2026-09-24 leak sweep: terminal replays evicted after 1h; prior: 6020fa871
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-08
 overall: A
 # 2026-08-30 wrapper-key sweep (uncommitted as of this note): type-aware
 # go/types field-usage scan (302 exported fields across all 40 *Input/*Request
@@ -113,7 +113,6 @@ families:
   archives_replays_connections_api_destinations_endpoints: {status: ok, note: "Previously 'deferred, spot-checked only'. Field-diffed this sweep against aws-sdk-go-v2/service/eventbridge's api_op_*.go Input/Output structs and types.go for Archive, Connection (+ ConnectionAuthResponseParameters/CreateConnectionAuthRequestParameters/UpdateConnectionAuthRequestParameters), ApiDestination, Endpoint (+ RoutingConfig/FailoverConfig/Primary/Secondary/EndpointEventBus), Replay, and ReplayDestination. Found and fixed real bugs: DescribeEndpoint/ListEndpoints and DescribeReplay/ListReplays response-side epoch-seconds bug, Replay missing Destination/Description, ReplayDestination missing FilterArns (an over-delivery correctness bug, not just a missing echo field), StartReplayInput request-side epoch-seconds bug. Connections and API destinations were already correct field-for-field (auth masking, all CRUD output shapes) except the KMS/private-API-connectivity extras noted per-op above and in items_still_open."}
 gaps: []
 items_still_open:
-  - "CloudWatch Logs targets are not authorized against the log group's resource policy: needs pkgs/roleauth.ResourcePolicyAction to map logs ARNs (logs:PutLogEvents) and a services/cloudwatchlogs ResourceAuthorizer wired in cli.go."
 structural_gaps:
   - "ThrottledRules and PutEventsApproximateThrottledCount are never emitted: the emulator applies no invocation or PutEvents throttle limits. The AWS/Events docs list no API-destination metrics."
   - "Cross-account event-bus PutTargets delivery: the backend models a single account (InMemoryBackend.accountID), so a target bus ARN in another account cannot be resolved and is dropped. Same-account cross-bus/cross-region routing works."

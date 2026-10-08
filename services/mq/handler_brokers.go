@@ -364,13 +364,7 @@ func (h *Handler) handleRebootBroker(c *echo.Context, brokerID string) error {
 	return c.NoContent(http.StatusOK)
 }
 
-// handleDescribeSharedResources returns the resources shared to a broker via
-// AWS RAM. This backend does not model RAM resource sharing (see
-// InMemoryBackend.DescribeSharedResources), so a valid broker always yields
-// an empty (non-null) sharedResources list -- there is nothing to paginate,
-// so maxResults has no effect, but nextToken is still validated: a malformed
-// token is rejected rather than silently ignored, matching every other
-// paginated op in this package.
+// handleDescribeSharedResources validates nextToken; the list is not paginated, so maxResults has no effect.
 func (h *Handler) handleDescribeSharedResources(c *echo.Context, brokerID string) error {
 	resources, err := h.Backend.DescribeSharedResources(brokerID)
 	if err != nil {

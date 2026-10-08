@@ -31,7 +31,7 @@ func (p *peeringResolver) TransitGatewayRoutes(rt string) []networkmanager.EC2Tr
 	return p.routes[rt]
 }
 
-func (p *peeringResolver) TransitGatewayPeerAttachment(id string) (string, bool) {
+func (p *peeringResolver) TransitGatewayPeerAttachment(id, _ string) (string, bool) {
 	arn, ok := p.peers[id]
 
 	return arn, ok

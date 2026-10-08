@@ -7,7 +7,7 @@
 service: elasticsearch
 sdk_module: aws-sdk-go-v2/service/elasticsearchservice@v1.45.4
 last_audit_commit: 366fb4907                    # HEAD after the 2026-09-18 reqfielddiff tier-1 sweep (reserved-instance pagination)
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-08
 overall: A            # gopherstack-6flj pass (2026-08-15): the outbound cross-cluster-search-connection
                        # family -- adjacent territory none of the 6 prior audits' notes mention -- had 3 real
                        # bugs: CreateOutboundCrossClusterSearchConnection's request/response used
@@ -81,7 +81,6 @@ ops:
 gaps: []
 items_still_open:
   - "Domain Processing/DomainProcessingStatus/OptionStatus.State windows (Creating/Modifying/UpgradingEngineVersion/Deleting, Deleted) are implemented behind InMemoryBackend.SetProcessingDelay (default 0 settles instantly); nothing in cli.go sets a delay, so a running server never shows Processing. Needs a config knob wired to SetProcessingDelay next to the provider setup."
-  - "VPCOptions.VPCId/AvailabilityZones populate only once a SubnetResolver is set: SetSubnetResolver exists and is tested; cli.go still needs an adapter over the EC2 backend (subnet id -> VpcId + AvailabilityZone, next to wireDirectConnectEC2) passed to elasticsearchH.Backend.SetSubnetResolver."
 structural_gaps:
   - "DescribeDomainAutoTunes MaxResults: auto-tune actions are produced by analysis of live cluster metrics; with no cluster there is no action history to page."
 deferred: []              # this pass's target deferred item (DescribeElasticsearchDomainConfig per-field OptionStatus) is now implemented; remaining edges tracked under gaps above

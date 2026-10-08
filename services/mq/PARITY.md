@@ -1,7 +1,7 @@
 service: mq
 sdk_module: aws-sdk-go-v2/service/mq@v1.39.4   # audited against; go.mod pins this version
 last_audit_commit: d4dc4a723
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-08
 overall: A                # genuine fixes found (reboot-gated staging, persistence data loss, missing pagination/fields, wrapper-key/nested-shape sweep this pass)
 
 # 2026-09-12 (gopherstack-n3zi): drove the 13 typed-coverage-blind
@@ -111,7 +111,6 @@ families:
 gaps: []
 
 items_still_open:
-  - "DescribeSharedResources always returns an empty list and UpdateBroker.resourceShareArns is accept-and-echo (never promoted on reboot). The SDK gives SharedResourceType RESOURCE_SHARE/RESOURCE and a SHARE_NOT_FOUND error code but not how a share expands into entries; a real fix also needs a services/ram resolver wired in cli.go."
   - "Docker engine: CreateUser/UpdateUser/DeleteUser and broker configurations are not applied to the running container (only the first CreateBroker user is configured). Needs an exec capability on pkgs/container.Runtime, which the broker engine's BrokerRuntime does not have."
 structural_gaps:
   - "Docker engine (--mq-engine=docker): endpoints are plaintext only (no amqps/ssl/+ssl forms) and ActiveMQ AMQP/WSS ports and the web console are not published, since the emulator terminates no TLS."

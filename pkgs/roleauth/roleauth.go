@@ -67,6 +67,8 @@ func ResourcePolicyAction(arn string) (string, bool) {
 		return "sqs:SendMessage", true
 	case "sns":
 		return "sns:Publish", true
+	case "logs":
+		return "logs:PutLogEvents", true
 	default:
 		return "", false
 	}

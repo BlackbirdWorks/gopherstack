@@ -2,6 +2,7 @@ package eventbridge
 
 import (
 	"errors"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 )
@@ -75,9 +76,23 @@ func authorizeResourcePolicyTarget(target *Target, dt DeliveryTargets) string {
 		return ""
 	}
 
-	if roleauth.AuthorizeResource(dt.RoleAuth, roleauth.PrincipalEvents, action, target.Arn, dt.ruleARN) != nil {
-		return dlqReasonNoPermissions
+	for _, resource := range policyResources(target.Arn) {
+		if roleauth.AuthorizeResource(dt.RoleAuth, roleauth.PrincipalEvents, action, resource, dt.ruleARN) == nil {
+			return ""
+		}
 	}
 
-	return ""
+	return dlqReasonNoPermissions
+}
+
+// policyResources lists the resource spellings a policy may name; log group policies use both
+// "log-group:name" and the documented "log-group:name:*".
+func policyResources(arn string) []string {
+	if !isCloudWatchLogsARN(arn) {
+		return []string{arn}
+	}
+
+	bare := strings.TrimSuffix(arn, ":*")
+
+	return []string{bare + ":*", bare}
 }
