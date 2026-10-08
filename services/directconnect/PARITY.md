@@ -165,8 +165,7 @@ ops:
 # individually above; every op in this service is a fixed POST / with no path-parameter routing,
 # so there is no natural "route family" grouping the way REST-JSON services have.
 gaps: []
-items_still_open:
-  - "No AWS::DirectConnect::* CloudFormation resource type: lives in services/cloudformation (out of this service's ownership); needs a resources_*.go entry there."
+items_still_open: []
 structural_gaps:
   - "Interconnect/hosted-connection/reseller (partner) flow (CreateInterconnect, AllocateConnectionOnInterconnect, AllocateHostedConnection, ConfirmConnection, DescribeConnectionsOnInterconnect, DescribeHostedConnections): real Direct Connect Partners own physical cross-connect infrastructure at colocation facilities. There is no physical link for an emulator to have or lack -- 'is this physically cross-connected' cannot be made real by any amount of implementation effort. Full state bookkeeping (Interconnect/Connection creation, ordering->confirm->available transitions, parent/child relationships) IS implemented and IS the honest ceiling."
   - "LOA-CFA (Letter of Authorization - Connecting Facility Assignment) content (DescribeLoa/DescribeConnectionLoa/DescribeInterconnectLoa): a real LOA-CFA is an authentic AWS-issued document authorizing physical cross-connect work at a named colocation facility. No implementation can produce a genuine one without real physical infrastructure and a real issuing authority. loa.go's placeholderLoaContent (a minimal, well-formed PDF labeled 'PLACEHOLDER - NOT A REAL AUTHORIZATION') is the honest ceiling, never a fabricated real-looking document."
@@ -812,9 +811,9 @@ Both real, with file:line:
 
 ### CloudFormation
 
-No `AWS::DirectConnect::*` resource type exists in `services/cloudformation/resources_*.go`
-(grepped all 71 `resources_*.go` files case-insensitively for "directconnect" — zero matches).
-Confirmed absent, not silently skipped.
+Superseded: services/cloudformation/resources_directconnect.go now provisions Connection, Lag,
+DirectConnectGateway, DirectConnectGatewayAssociation and Private/Public/TransitVirtualInterface through
+`CreateCFNResource`/`DeleteCFNResource` (cloudformation.go).
 
 ### No prior Direct Connect references anywhere in this tree
 
@@ -840,7 +839,7 @@ See the machine-readable `gaps:` list in the frontmatter for the authoritative v
 5. `DescribeCustomerMetadata` (customer agreements/NNI partner tier) reflects real legal/business
    relationships with no honest way to derive content — default to empty/nonPartner, documented.
 6. MACsec and BGP peering can only simulate *state*, never real encryption or real routing.
-7. No `AWS::DirectConnect::*` CloudFormation resource type exists in this repo.
+7. (Superseded) `AWS::DirectConnect::*` CloudFormation types are now provisioned.
 8. `DirectConnectGateway`'s ARN is global (no region) while every other Direct Connect ARN kind is
    regional — `pkgs/arn.Build` needs a resource-kind-level exception it doesn't have today.
 9. Interconnect's and DirectConnectGatewayAssociation/Proposal's exact ARN resource-path formats

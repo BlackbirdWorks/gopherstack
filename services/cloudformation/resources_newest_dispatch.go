@@ -63,7 +63,7 @@ func (rc *ResourceCreator) createNewestSupplementalResource(
 		return id, true, err
 	}
 
-	return rc.createEC2AdvancedNetworkingResource(ctx, logicalID, resourceType, props, params, physicalIDs)
+	return rc.createDirectConnectThenAdvanced(ctx, logicalID, resourceType, props, params, physicalIDs)
 }
 
 // createEC2AdvancedNetworkingResource chains the EC2 VPN/networking-extras/
@@ -156,7 +156,7 @@ func (rc *ResourceCreator) deleteNewestSupplementalResource(
 		return true, err
 	}
 
-	return rc.deleteEC2AdvancedNetworkingResource(ctx, resourceType, physicalID)
+	return rc.deleteDirectConnectThenAdvanced(ctx, resourceType, physicalID)
 }
 
 // deleteEC2AdvancedNetworkingResource mirrors createEC2AdvancedNetworkingResource.

@@ -8,8 +8,19 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/cloudcontrol"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/ecr"
+	"github.com/aws/aws-sdk-go-v2/service/eventbridge"
+	"github.com/aws/aws-sdk-go-v2/service/iam"
+	"github.com/aws/aws-sdk-go-v2/service/kinesis"
+	"github.com/aws/aws-sdk-go-v2/service/kms"
+	kmstypes "github.com/aws/aws-sdk-go-v2/service/kms/types"
+	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
+	"github.com/aws/aws-sdk-go-v2/service/sfn"
+	"github.com/aws/aws-sdk-go-v2/service/sns"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
+	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -87,6 +98,143 @@ func TestCloudControlDelegatesToServiceBackends(t *testing.T) {
 				assert.Equal(t, present, len(out.LogGroups) == 1)
 			},
 		},
+		{
+			name: "sns_topic", typeName: "AWS::SNS::Topic", desired: `{"TopicName":"cc-topic"}`,
+			patch:      `[{"op":"add","path":"/DisplayName","value":"hello"}]`,
+			patchedKey: "DisplayName", patchedVal: "hello",
+			verify: func(t *testing.T, fx *sfnFixture, id string, present bool) {
+				t.Helper()
+
+				_, err := sns.NewFromConfig(fx.cfg).GetTopicAttributes(t.Context(), &sns.GetTopicAttributesInput{
+					TopicArn: aws.String(id),
+				})
+				assert.Equal(t, present, err == nil)
+			},
+		},
+		{
+			name: "iam_role", typeName: "AWS::IAM::Role",
+			desired: `{"RoleName":"cc-role","AssumeRolePolicyDocument":{"Version":"2012-10-17","Statement":[` +
+				`{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}}`,
+			wantID: "cc-role", patch: `[{"op":"add","path":"/Description","value":"cc role"}]`,
+			patchedKey: "Description", patchedVal: "cc role",
+			verify: func(t *testing.T, fx *sfnFixture, id string, present bool) {
+				t.Helper()
+
+				_, err := iam.NewFromConfig(fx.cfg).GetRole(t.Context(), &iam.GetRoleInput{RoleName: aws.String(id)})
+				assert.Equal(t, present, err == nil)
+			},
+		},
+		{
+			name: "kms_key", typeName: "AWS::KMS::Key", desired: `{"Description":"cc key"}`,
+			patch:      `[{"op":"replace","path":"/Description","value":"cc key v2"}]`,
+			patchedKey: "Description", patchedVal: "cc key v2",
+			verify: func(t *testing.T, fx *sfnFixture, id string, present bool) {
+				t.Helper()
+
+				out, err := kms.NewFromConfig(fx.cfg).
+					DescribeKey(t.Context(), &kms.DescribeKeyInput{KeyId: aws.String(id)})
+				require.NoError(t, err)
+				assert.Equal(t, present, out.KeyMetadata.KeyState != kmstypes.KeyStatePendingDeletion)
+			},
+		},
+		{
+			name:       "secret",
+			typeName:   "AWS::SecretsManager::Secret",
+			desired:    `{"Name":"cc-secret","SecretString":"s3cret"}`,
+			patch:      `[{"op":"add","path":"/Description","value":"cc secret"}]`,
+			patchedKey: "Description",
+			patchedVal: "cc secret",
+			verify: func(t *testing.T, fx *sfnFixture, id string, present bool) {
+				t.Helper()
+
+				_, err := secretsmanager.NewFromConfig(fx.cfg).DescribeSecret(
+					t.Context(), &secretsmanager.DescribeSecretInput{SecretId: aws.String(id)},
+				)
+				assert.Equal(t, present, err == nil)
+			},
+		},
+		{
+			name: "ssm_parameter", typeName: "AWS::SSM::Parameter",
+			desired: `{"Name":"/cc/param","Type":"String","Value":"v1"}`, wantID: "/cc/param",
+			patch:      `[{"op":"replace","path":"/Value","value":"v2"}]`,
+			patchedKey: "Value", patchedVal: "v2",
+			verify: func(t *testing.T, fx *sfnFixture, id string, present bool) {
+				t.Helper()
+
+				_, err := ssm.NewFromConfig(fx.cfg).
+					GetParameter(t.Context(), &ssm.GetParameterInput{Name: aws.String(id)})
+				assert.Equal(t, present, err == nil)
+			},
+		},
+		{
+			name: "ecr_repository", typeName: "AWS::ECR::Repository", desired: `{"RepositoryName":"cc-repo"}`,
+			wantID: "cc-repo", patch: `[{"op":"replace","path":"/ImageTagMutability","value":"IMMUTABLE"}]`,
+			patchedKey: "ImageTagMutability", patchedVal: "IMMUTABLE",
+			verify: func(t *testing.T, fx *sfnFixture, id string, present bool) {
+				t.Helper()
+
+				_, err := ecr.NewFromConfig(fx.cfg).DescribeRepositories(t.Context(), &ecr.DescribeRepositoriesInput{
+					RepositoryNames: []string{id},
+				})
+				assert.Equal(t, present, err == nil)
+			},
+		},
+		{
+			name: "kinesis_stream", typeName: "AWS::Kinesis::Stream", desired: `{"Name":"cc-stream","ShardCount":1}`,
+			wantID: "cc-stream", patch: `[{"op":"replace","path":"/RetentionPeriodHours","value":48}]`,
+			patchedKey: "RetentionPeriodHours", patchedVal: 48,
+			verify: func(t *testing.T, fx *sfnFixture, id string, present bool) {
+				t.Helper()
+
+				_, err := kinesis.NewFromConfig(fx.cfg).DescribeStreamSummary(
+					t.Context(), &kinesis.DescribeStreamSummaryInput{StreamName: aws.String(id)},
+				)
+				assert.Equal(t, present, err == nil)
+			},
+		},
+		{
+			name: "event_bus", typeName: "AWS::Events::EventBus", desired: `{"Name":"cc-bus"}`, wantID: "cc-bus",
+			patch:      `[{"op":"add","path":"/Description","value":"cc bus"}]`,
+			patchedKey: "Description", patchedVal: "cc bus",
+			verify: func(t *testing.T, fx *sfnFixture, id string, present bool) {
+				t.Helper()
+
+				_, err := eventbridge.NewFromConfig(fx.cfg).DescribeEventBus(
+					t.Context(), &eventbridge.DescribeEventBusInput{Name: aws.String(id)},
+				)
+				assert.Equal(t, present, err == nil)
+			},
+		},
+		{
+			name: "lambda_function", typeName: "AWS::Lambda::Function",
+			desired: `{"FunctionName":"cc-fn","Runtime":"python3.12","Handler":"index.handler",` +
+				`"Role":"arn:aws:iam::000000000000:role/cc-fn","Code":{"ZipFile":"def handler(e, c):\n  return 1\n"}}`,
+			wantID: "cc-fn", patch: `[{"op":"add","path":"/Description","value":"cc fn"}]`,
+			patchedKey: "Description", patchedVal: "cc fn",
+			verify: func(t *testing.T, fx *sfnFixture, id string, present bool) {
+				t.Helper()
+
+				_, err := lambda.NewFromConfig(fx.cfg).GetFunction(t.Context(), &lambda.GetFunctionInput{
+					FunctionName: aws.String(id),
+				})
+				assert.Equal(t, present, err == nil)
+			},
+		},
+		{
+			name: "state_machine", typeName: "AWS::StepFunctions::StateMachine",
+			desired: `{"StateMachineName":"cc-sm","RoleArn":"arn:aws:iam::000000000000:role/cc-sfn",` +
+				`"DefinitionString":"{\"StartAt\":\"P\",\"States\":{\"P\":{\"Type\":\"Pass\",\"End\":true}}}"}`,
+			patch:      `[{"op":"replace","path":"/RoleArn","value":"arn:aws:iam::000000000000:role/cc-sfn2"}]`,
+			patchedKey: "RoleArn", patchedVal: "arn:aws:iam::000000000000:role/cc-sfn2",
+			verify: func(t *testing.T, fx *sfnFixture, id string, present bool) {
+				t.Helper()
+
+				_, err := sfn.NewFromConfig(fx.cfg).DescribeStateMachine(t.Context(), &sfn.DescribeStateMachineInput{
+					StateMachineArn: aws.String(id),
+				})
+				assert.Equal(t, present, err == nil)
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -120,8 +268,13 @@ func TestCloudControlDelegatesToServiceBackends(t *testing.T) {
 				TypeName: aws.String(tt.typeName),
 			})
 			require.NoError(t, err)
-			require.Len(t, listed.ResourceDescriptions, 1)
-			assert.Equal(t, id, aws.ToString(listed.ResourceDescriptions[0].Identifier))
+
+			var listedIDs []string
+			for _, d := range listed.ResourceDescriptions {
+				listedIDs = append(listedIDs, aws.ToString(d.Identifier))
+			}
+
+			assert.Contains(t, listedIDs, id)
 
 			_, err = cc.UpdateResource(t.Context(), &cloudcontrol.UpdateResourceInput{
 				TypeName: aws.String(tt.typeName), Identifier: aws.String(id), PatchDocument: aws.String(tt.patch),

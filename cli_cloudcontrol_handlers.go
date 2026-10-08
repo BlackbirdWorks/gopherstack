@@ -111,7 +111,8 @@ func ccMapError(err error) error {
 		strings.Contains(code, "NonExistent"), strings.Contains(code, "DoesNotExist"):
 		return fmt.Errorf("%w: %w", cloudcontrolbackend.ErrNotFound, err)
 	case strings.Contains(code, "AlreadyExists"), strings.Contains(code, "AlreadyOwned"),
-		strings.Contains(code, "NameExists"), strings.Contains(code, "ResourceInUse"):
+		strings.Contains(code, "NameExists"), strings.Contains(code, "ResourceInUse"),
+		strings.Contains(code, "ResourceExists"):
 		return fmt.Errorf("%w: %w", cloudcontrolbackend.ErrAlreadyExists, err)
 	case apiErr.ErrorFault() == smithy.FaultClient || ccClientStatus(err):
 		return fmt.Errorf("%w: %w", cloudcontrolbackend.ErrValidation, err)
@@ -162,8 +163,8 @@ func ccGeneratedName(prefix string) string {
 	return prefix + strings.ReplaceAll(uuid.NewString(), "-", "")[:16]
 }
 
-// wireCloudControlHandlers makes CloudControl operate real S3, SQS, DynamoDB and CloudWatch Logs
-// resources through the in-process server for the types registered below.
+// wireCloudControlHandlers makes CloudControl operate real service resources through the in-process
+// server for the types registered here and in wireCloudControlMoreHandlers.
 func wireCloudControlHandlers(e http.Handler, services []service.Registerable) {
 	ccH, ok := serviceByName(services)["CloudControl"].(*cloudcontrolbackend.Handler)
 	if !ok {
@@ -186,6 +187,7 @@ func wireCloudControlHandlers(e http.Handler, services []service.Registerable) {
 	bk.RegisterTypeHandler("AWS::SQS::Queue", &ccQueue{client: sqs.NewFromConfig(cfg)})
 	bk.RegisterTypeHandler("AWS::DynamoDB::Table", &ccTable{client: dynamodb.NewFromConfig(cfg)})
 	bk.RegisterTypeHandler("AWS::Logs::LogGroup", &ccLogGroup{client: cloudwatchlogs.NewFromConfig(cfg)})
+	wireCloudControlMoreHandlers(bk, cfg)
 }
 
 // --- AWS::S3::Bucket ---
@@ -382,7 +384,7 @@ func (h *ccQueue) Read(ctx context.Context, id string) (map[string]any, error) {
 		}
 	}
 
-	if out.Attributes["FifoQueue"] == "true" {
+	if out.Attributes["FifoQueue"] == ccTrue {
 		model["FifoQueue"] = true
 	}
 

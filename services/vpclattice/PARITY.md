@@ -116,15 +116,14 @@ ops:
   GetDomainVerification: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass"}
   DeleteDomainVerification: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass"}
   ListDomainVerifications: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass"}
-  ListResourceEndpointAssociations: {wire: ok, errors: ok, state: ok, persist: n/a, note: "NEW this pass -- always returns an empty page, see gaps: this resource is populated in real AWS exclusively by EC2 CreateVpcEndpoint (VPC endpoint type Resource), which this backend doesn't model; vpc-lattice itself has no Create op for it"}
-  DeleteResourceEndpointAssociation: {wire: ok, errors: ok, state: ok, persist: n/a, note: "NEW this pass -- always ResourceNotFoundException, see ListResourceEndpointAssociations note"}
-  ListServiceNetworkVpcEndpointAssociations: {wire: ok, errors: ok, state: ok, persist: n/a, note: "NEW this pass -- always returns an empty page, same structural note as ListResourceEndpointAssociations (populated via EC2 CreateVpcEndpoint of type ServiceNetwork)"}
+  ListResourceEndpointAssociations: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Lists EC2 Resource VPC endpoints bound to the resource configuration (EndpointDirectory seam wired from cli.go to EC2 VpcEndpointsByResourceConfigurationArn); resourceConfigurationIdentifier is required; filters resourceEndpointAssociationIdentifier/vpcEndpointId/vpcEndpointOwner. Ids are rea-<vpce suffix>, derived, not stored."}
+  DeleteResourceEndpointAssociation: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Disassociates the resource configuration from the EC2 endpoint (clears its ResourceConfigurationArn; the endpoint remains, per the SDK doc); 200 with arn/id/resourceConfigurationArn/resourceConfigurationId/vpcEndpointId. Unknown id is ResourceNotFoundException."}
+  ListServiceNetworkVpcEndpointAssociations: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Lists EC2 ServiceNetwork VPC endpoints bound to the service network (EC2 VpcEndpointsByServiceNetworkArn); serviceNetworkIdentifier is required, unknown is ResourceNotFoundException. Ids are snea-<vpce suffix>; state is the endpoint state."}
 families:
   routing: {status: ok, note: "handleREST (was a ~50-case switch, nolint:gocyclo,cyclop,funlen, gocyclo=57) and classifyPath (was a flat switch, nolint:gocyclo,cyclop,funlen, gocyclo=31) were both decomposed into sync.OnceValue-built lookup tables (op-name -> handler adapter; path-collection -> create/list op + sub-classifier; method -> op for the auth-policy/resource-policy/tags singleton routes), matching the inspector2/apigatewayv2 onceOpTable convention already used elsewhere in the fleet. Both banned nolints are gone; gocyclo/cyclop/funlen all report 0 issues on the package now. Every (method, path, op) triple was preserved verbatim during the refactor -- the full existing routing/handler test suite (handler_test.go, handler_routing coverage via ExtractOperation/ExtractResource, and all handler_*_test.go CRUD tests) passes unchanged, confirming no method/path collisions or unreachable-op regressions were introduced. RouteMatcher is unchanged (still a boolean prefix chain for route eligibility, not a method/path->op mapping, so the same treatment doesn't apply there)."
   timestamps: {status: ok, note: "all createdAt/lastUpdatedAt use time.Time.Format(\"2006-01-02T15:04:05.000Z\") which smithytime.ParseDateTime (restjson1 DateTime shape) accepts; not epoch, correctly ISO-8601."}
 gaps: []
 items_still_open:
-  - "ResourceEndpointAssociation and ServiceNetworkVpcEndpointAssociation lists are always empty (gopherstack-lx2k): real AWS creates them from EC2 CreateVpcEndpoint (types Resource/ServiceNetwork), and services/ec2 has no such endpoint types or hook into this backend. Needs changes in services/ec2."
   - "ServiceNetworkResourceAssociation dnsEntry/privateDnsEntry are never emitted: the SDK documents neither how the domain name is derived nor the hosted-zone source for resource associations."
 structural_gaps:
   - "failureCode/failureMessage on Service, ServiceNetworkVpcAssociation and ServiceNetworkResourceAssociation are never set: creates are synchronous and never reach a *_FAILED state."
@@ -217,9 +216,8 @@ ServiceNetworkVpcAssociation/ServiceNetworkResourceAssociation Get+List+
 Update+Delete, BatchUpdateRule (success and per-rule failure), resource and
 auth policy Put/Get/Delete, UpdateResourceConfiguration/UpdateResourceGateway/
 UpdateService, ListDomainVerifications, TagResource/UntagResource, and the
-always-empty ResourceEndpointAssociation/ServiceNetworkVpcEndpointAssociation
-families (proving the honest-empty shape decodes cleanly, not just that the
-backend never populates it). vpclattice typed coverage: 31/73 -> 73/73.
+ResourceEndpointAssociation/ServiceNetworkVpcEndpointAssociation
+families (empty without an EndpointDirectory; populated from EC2 endpoints when wired). vpclattice typed coverage: 31/73 -> 73/73.
 
 No new bugs found -- this package had already been through 13+ dated
 wire-fidelity passes (the entries below), all field-diffed against

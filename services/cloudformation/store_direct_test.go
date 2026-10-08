@@ -452,7 +452,7 @@ func TestImportStacksToStackSet(t *testing.T) {
 
 	_, err = b.ImportStacksToStackSet(
 		"import-ss",
-		[]string{"arn:aws:cloudformation:us-east-1:123:stack/my-stack/abc"},
+		[]string{"arn:aws:cloudformation:us-east-1:123:stack/my-stack/abc"}, nil,
 	)
 	require.NoError(t, err)
 }

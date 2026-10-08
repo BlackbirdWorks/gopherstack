@@ -100,7 +100,7 @@ type StorageBackend interface {
 	ListStackSetAutoDeploymentTargets(
 		stackSetName string, maxResults int, nextToken string,
 	) (page.Page[AutoDeploymentTarget], error)
-	ImportStacksToStackSet(stackSetName string, stackIDs []string) (string, error)
+	ImportStacksToStackSet(stackSetName string, stackIDs, ouIDs []string) (string, error)
 	ListStackInstanceResourceDrifts(
 		stackSetName, operationID, account, region string,
 	) ([]StackResourceDrift, error)

@@ -9,14 +9,13 @@
 | --- | --- |
 | PARITY entries audited | 73 (73 ok) |
 | Feature families | 2 (2 ok) |
-| Known gaps | 2 |
+| Known gaps | 1 |
 | Structural gaps (can't be emulated) | 3 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- ResourceEndpointAssociation and ServiceNetworkVpcEndpointAssociation lists are always empty (gopherstack-lx2k): real AWS creates them from EC2 CreateVpcEndpoint (types Resource/ServiceNetwork), and services/ec2 has no such endpoint types or hook into this backend. Needs changes in services/ec2.
 - ServiceNetworkResourceAssociation dnsEntry/privateDnsEntry are never emitted: the SDK documents neither how the domain name is derived nor the hosted-zone source for resource associations.
 
 ### Structural gaps

@@ -493,12 +493,61 @@ func (b *InMemoryBackend) ListStackSetAutoDeploymentTargets(
 	return page.New(targets, nextToken, maxResults, cfnDefaultPageSize), nil
 }
 
-func (b *InMemoryBackend) ImportStacksToStackSet(stackSetName string, stackIDs []string) (string, error) {
+// importOUFor returns the entry of ouIDs enclosing account. Must be called with b.mu held.
+func (b *InMemoryBackend) importOUFor(account string, ouIDs []string) (string, error) {
+	chain, err := b.orgDirectory.OrganizationalUnitIDsForAccount(account)
+	if err != nil {
+		return "", fmt.Errorf("resolve organizational unit for account %s: %w", account, err)
+	}
+
+	for _, id := range chain {
+		if slices.Contains(ouIDs, id) {
+			return id, nil
+		}
+	}
+
+	return "", fmt.Errorf("%w: account %s", ErrAccountNotInOrganizationalUnits, account)
+}
+
+// stampImportOUs maps each imported stack to the listed OU enclosing its account. Must be called with b.mu held.
+func (b *InMemoryBackend) stampImportOUs(ss *StackSet, stackIDs, ouIDs []string) (map[string]string, error) {
+	if len(ouIDs) == 0 {
+		return map[string]string{}, nil
+	}
+	if ss.PermissionModel != stackSetPermissionServiceManaged {
+		return nil, ErrServiceManagedRequired
+	}
+	if !b.orgAccessEnabled {
+		return nil, ErrOrganizationsAccessNotActive
+	}
+	if b.orgDirectory == nil {
+		return nil, ErrOrganizationsNotWired
+	}
+	stamped := make(map[string]string, len(stackIDs))
+	for _, stackID := range stackIDs {
+		account, _ := parseStackARN(stackID)
+		ou, err := b.importOUFor(account, ouIDs)
+		if err != nil {
+			return nil, err
+		}
+		stamped[stackID] = ou
+	}
+
+	return stamped, nil
+}
+
+// ImportStacksToStackSet adopts stacks into a stack set; with ouIDs each instance is stamped with the
+// listed OU that encloses its account.
+func (b *InMemoryBackend) ImportStacksToStackSet(stackSetName string, stackIDs, ouIDs []string) (string, error) {
 	b.mu.Lock("ImportStacksToStackSet")
 	defer b.mu.Unlock()
 	ss, ok := b.stackSets.Get(stackSetName)
 	if !ok {
 		return "", ErrStackSetNotFound
+	}
+	stamped, err := b.stampImportOUs(ss, stackIDs, ouIDs)
+	if err != nil {
+		return "", err
 	}
 	opID := b.recordStackSetOperation(stackSetName, "IMPORT")
 	for _, stackID := range stackIDs {
@@ -516,14 +565,15 @@ func (b *InMemoryBackend) ImportStacksToStackSet(stackSetName string, stackIDs [
 		}
 		account, region := parseStackARN(stackID)
 		b.stackInstances[stackSetName] = append(b.stackInstances[stackSetName], StackInstance{
-			StackSetID:      ss.StackSetID,
-			StackSetName:    stackSetName,
-			StackID:         stackID,
-			Account:         account,
-			Region:          region,
-			Status:          "CURRENT",
-			DriftStatus:     driftStatusNotChecked,
-			LastOperationID: opID,
+			StackSetID:           ss.StackSetID,
+			StackSetName:         stackSetName,
+			StackID:              stackID,
+			Account:              account,
+			Region:               region,
+			OrganizationalUnitID: stamped[stackID],
+			Status:               "CURRENT",
+			DriftStatus:          driftStatusNotChecked,
+			LastOperationID:      opID,
 		})
 	}
 

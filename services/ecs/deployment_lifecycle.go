@@ -65,9 +65,9 @@ func hookableStages() []string {
 	}
 }
 
-// AlarmStateProvider reports which of the named CloudWatch alarms are in ALARM state.
+// AlarmStateProvider reports which of the named CloudWatch alarms in region are in ALARM state.
 type AlarmStateProvider interface {
-	TriggeredAlarms(alarmNames []string) []string
+	TriggeredAlarms(region string, alarmNames []string) []string
 }
 
 // SetAlarmStateProvider wires the alarm source used by deployment alarm monitoring.
@@ -247,6 +247,49 @@ func hookTimeout(h *DeploymentLifecycleHook) (time.Duration, string) {
 	return time.Duration(minutes) * time.Minute, action
 }
 
+const (
+	defaultLinearStepPercent = 10.0
+	defaultLinearStepBake    = 6
+	defaultCanaryBake        = 10
+	stepRoundingEpsilon      = 1e-9
+)
+
+// trafficShiftDuration is how long PRODUCTION_TRAFFIC_SHIFT lasts: linear waits stepBakeTimeInMinutes
+// between steps (not after 100%); canary waits canaryBakeTimeInMinutes before the remaining traffic.
+func trafficShiftDuration(dc *DeploymentConfiguration) time.Duration {
+	if dc == nil {
+		return 0
+	}
+
+	switch dc.Strategy {
+	case deploymentStrategyLinear:
+		step, bake := defaultLinearStepPercent, defaultLinearStepBake
+
+		if l := dc.LinearConfiguration; l != nil {
+			if l.StepPercent != nil {
+				step = *l.StepPercent
+			}
+
+			if l.StepBakeTimeInMinutes != nil {
+				bake = *l.StepBakeTimeInMinutes
+			}
+		}
+
+		steps := int(math.Ceil(maxTrafficPercent/step - stepRoundingEpsilon))
+
+		return time.Duration(max(steps-1, 0)*bake) * time.Minute
+	case deploymentStrategyCanary:
+		bake := defaultCanaryBake
+		if c := dc.CanaryConfiguration; c != nil && c.CanaryBakeTimeInMinutes != nil {
+			bake = *c.CanaryBakeTimeInMinutes
+		}
+
+		return time.Duration(bake) * time.Minute
+	}
+
+	return 0
+}
+
 func bakeDuration(dc *DeploymentConfiguration) time.Duration {
 	if dc == nil || dc.BakeTimeInMinutes == nil {
 		return 0
@@ -314,6 +357,7 @@ func (b *InMemoryBackend) advanceDeploymentLifecycleLocked(svc *Service, sd *Ser
 
 		sd.LifecycleCursor++
 		sd.LifecycleEntered = false
+		sd.BakeStartedAt = nil
 
 		if sd.LifecycleCursor >= len(lifecycleStageOrder()) {
 			b.completeDeploymentLifecycleLocked(svc, sd, now)
@@ -323,32 +367,32 @@ func (b *InMemoryBackend) advanceDeploymentLifecycleLocked(svc *Service, sd *Ser
 	}
 }
 
-// resolveHooksLocked fires the stage's PAUSE hooks on entry and reports whether the
-// deployment is held (a hook is awaiting action) or was just rolled back.
+// resolveHooksLocked fires the stage's hooks on entry and reports whether the deployment is held
+// (a hook is awaiting action or running) or was just rolled back.
 func (b *InMemoryBackend) resolveHooksLocked(svc *Service, sd *ServiceDeployment, stage string, now time.Time) bool {
 	if !sd.LifecycleEntered {
 		sd.LifecycleEntered = true
 
-		for i := range svc.DeploymentConfiguration.LifecycleHooks {
-			h := &svc.DeploymentConfiguration.LifecycleHooks[i]
-			if !isPauseHook(h) || !slices.Contains(h.LifecycleStages, stage) {
-				continue
-			}
-
-			timeout, action := hookTimeout(h)
-			expires := now.Add(timeout)
-			sd.LifecycleHookDetails = append(sd.LifecycleHookDetails, LifecycleHookDetail{
-				HookID: uuid.NewString(), Status: hookStatusAwaiting, TargetType: hookTargetPause,
-				TimeoutAction: action, ExpiresAt: &expires, Stage: stage,
-			})
-		}
+		b.recordStageHooksLocked(svc, sd, stage, now)
 	}
 
 	for i := range sd.LifecycleHookDetails {
 		d := &sd.LifecycleHookDetails[i]
-		if d.Stage != stage || d.Status != hookStatusAwaiting {
+		if d.Stage != stage {
 			continue
 		}
+
+		if d.Status == hookStatusFailed {
+			b.failDeploymentLifecycleLocked(svc, sd, "Lifecycle hook failed.", now)
+
+			return true
+		}
+
+		if d.Status != hookStatusAwaiting && d.Status != hookStatusInProgress {
+			continue
+		}
+
+		b.ensureLambdaHookRunningLocked(svc, sd, d)
 
 		if d.ExpiresAt == nil || now.Before(*d.ExpiresAt) {
 			return true
@@ -366,19 +410,51 @@ func (b *InMemoryBackend) resolveHooksLocked(svc *Service, sd *ServiceDeployment
 	return false
 }
 
+func (b *InMemoryBackend) recordStageHooksLocked(svc *Service, sd *ServiceDeployment, stage string, now time.Time) {
+	for i := range svc.DeploymentConfiguration.LifecycleHooks {
+		h := &svc.DeploymentConfiguration.LifecycleHooks[i]
+		if !slices.Contains(h.LifecycleStages, stage) {
+			continue
+		}
+
+		detail := LifecycleHookDetail{HookID: uuid.NewString(), Stage: stage, TargetType: h.TargetType}
+
+		switch {
+		case isPauseHook(h):
+			detail.Status = hookStatusAwaiting
+		case isLambdaHook(h) && b.lambdaInvoker != nil:
+			detail.Status, detail.TargetArn = hookStatusInProgress, h.HookTargetArn
+		default:
+			continue
+		}
+
+		timeout, action := hookTimeout(h)
+		expires := now.Add(timeout)
+		detail.TimeoutAction, detail.ExpiresAt = action, &expires
+		sd.LifecycleHookDetails = append(sd.LifecycleHookDetails, detail)
+	}
+}
+
 func (b *InMemoryBackend) stageCompleteLocked(svc *Service, sd *ServiceDeployment, stage string, now time.Time) bool {
 	switch stage {
 	case stageScaleUp:
 		return b.targetScaledLocked(svc, sd)
+	case stageProductionTrafficShift:
+		return stageElapsed(sd, now, trafficShiftDuration(svc.DeploymentConfiguration))
 	case stageBakeTime:
-		if sd.BakeStartedAt == nil {
-			sd.BakeStartedAt = &now
-		}
-
-		return !now.Before(sd.BakeStartedAt.Add(bakeDuration(svc.DeploymentConfiguration)))
+		return stageElapsed(sd, now, bakeDuration(svc.DeploymentConfiguration))
 	}
 
 	return true
+}
+
+// stageElapsed starts the stage clock on first use and reports whether d has passed.
+func stageElapsed(sd *ServiceDeployment, now time.Time, d time.Duration) bool {
+	if sd.BakeStartedAt == nil {
+		sd.BakeStartedAt = &now
+	}
+
+	return !now.Before(sd.BakeStartedAt.Add(d))
 }
 
 func (b *InMemoryBackend) targetScaledLocked(svc *Service, sd *ServiceDeployment) bool {
@@ -444,7 +520,7 @@ func (b *InMemoryBackend) checkAlarmsLocked(svc *Service, sd *ServiceDeployment,
 		return false
 	}
 
-	triggered := b.alarmStates.TriggeredAlarms(al.AlarmNames)
+	triggered := b.alarmStates.TriggeredAlarms(b.region, al.AlarmNames)
 	if len(triggered) == 0 {
 		return false
 	}

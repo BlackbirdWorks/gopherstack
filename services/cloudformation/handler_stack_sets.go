@@ -989,9 +989,13 @@ func (h *Handler) handleImportStacksToStackSet(form url.Values, c *echo.Context)
 	}
 
 	stackIDs := parseMemberList(form, "StackIds.")
-	opID, err := h.Backend.ImportStacksToStackSet(name, stackIDs)
+	opID, err := h.Backend.ImportStacksToStackSet(name, stackIDs, parseMemberList(form, "OrganizationalUnitIds."))
 	if err != nil {
-		return h.xmlError(c, "StackSetNotFoundException", err.Error())
+		if errors.Is(err, ErrStackSetNotFound) {
+			return h.xmlError(c, "StackSetNotFoundException", err.Error())
+		}
+
+		return h.xmlError(c, "ValidationError", err.Error())
 	}
 	type result struct {
 		OperationID string `xml:"OperationId"`

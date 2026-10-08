@@ -132,15 +132,15 @@ func TestCreateEventBus_TagsPersisted(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		tags     map[string]any
 		wantTags map[string]string
 		name     string
 		busName  string
+		tags     []map[string]string
 	}{
 		{
 			name:    "tags supplied at creation are stored",
 			busName: "tagged-bus",
-			tags:    map[string]any{"env": "prod", "team": "platform"},
+			tags:    []map[string]string{{"Key": "env", "Value": "prod"}, {"Key": "team", "Value": "platform"}},
 			wantTags: map[string]string{
 				"env":  "prod",
 				"team": "platform",

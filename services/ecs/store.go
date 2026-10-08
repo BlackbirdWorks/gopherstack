@@ -79,6 +79,8 @@ type InMemoryBackend struct {
 	// Service.LoadBalancers being stored and echoed with no effect on ELBv2.
 	elbv2Registrar ELBv2TargetRegistrar
 	alarmStates    AlarmStateProvider
+	lambdaInvoker  LambdaInvoker
+	hooksInFlight  map[string]struct{}
 	asgResolver    AutoScalingGroupResolver
 	metrics        cwmetric.Sink
 	// registry is the Phase 3.3 datalayer lifecycle registry: every *store.Table

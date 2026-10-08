@@ -321,6 +321,35 @@ func (b *InMemoryBackend) ResolveAccountIDsUnderParent(parentID string) ([]strin
 	return ids, nil
 }
 
+// OrganizationalUnitIDsForAccount returns the OU IDs enclosing accountID, nearest first; the root is excluded.
+func (b *InMemoryBackend) OrganizationalUnitIDsForAccount(accountID string) ([]string, error) {
+	b.mu.RLock("OrganizationalUnitIDsForAccount")
+	defer b.mu.RUnlock()
+
+	if b.org == nil {
+		return nil, ErrOrgNotFound
+	}
+
+	parent, ok := b.accountParent[accountID]
+	if !ok {
+		return nil, ErrAccountNotFound
+	}
+
+	var chain []string
+
+	for range maxOUDepth + 1 {
+		next, isOU := b.ouParent[parent]
+		if !isOU {
+			break
+		}
+
+		chain = append(chain, parent)
+		parent = next
+	}
+
+	return chain, nil
+}
+
 // collectAccountIDsLocked must be called with b.mu held (read or write).
 func (b *InMemoryBackend) collectAccountIDsLocked(parentID string, out *[]string) {
 	for acctID, pid := range b.accountParent {

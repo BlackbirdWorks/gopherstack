@@ -22,7 +22,7 @@ func (h *Handler) handlePutAuthPolicy(
 
 	return c.JSON(http.StatusOK, map[string]any{
 		keyPolicy: ap.Policy,
-		"state":   ap.State,
+		keyState:  ap.State,
 	})
 }
 
@@ -34,7 +34,7 @@ func (h *Handler) handleGetAuthPolicy(c *echo.Context, resourceID string) error 
 
 	return c.JSON(http.StatusOK, map[string]any{
 		keyPolicy: ap.Policy,
-		"state":   ap.State,
+		keyState:  ap.State,
 	})
 }
 

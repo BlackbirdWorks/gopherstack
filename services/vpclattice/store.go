@@ -108,6 +108,7 @@ type InMemoryBackend struct {
 	authPolicies     map[string]string
 	resourcePolicies map[string]string
 	tags             map[string]map[string]string
+	endpoints        EndpointDirectory
 	accountID        string
 	region           string
 }

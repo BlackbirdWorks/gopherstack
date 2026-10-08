@@ -77,6 +77,7 @@ import (
 	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	"github.com/blackbirdworks/gopherstack/services/bedrockruntime"
 	datasyncbackend "github.com/blackbirdworks/gopherstack/services/datasync"
+	directconnectbackend "github.com/blackbirdworks/gopherstack/services/directconnect"
 	ecrpublicbackend "github.com/blackbirdworks/gopherstack/services/ecrpublic"
 	elbv2backend "github.com/blackbirdworks/gopherstack/services/elbv2"
 	guarddutybackend "github.com/blackbirdworks/gopherstack/services/guardduty"
@@ -168,11 +169,12 @@ type ServiceBackends struct {
 	AccessAnalyzer *accessanalyzerbackend.Handler
 	Amplify        *amplifybackend.Handler
 	// Phase-7 backends
-	KinesisVideo *kinesisvideobackend.Handler
-	ECRPublic    *ecrpublicbackend.Handler
-	KafkaConnect *kafkaconnectbackend.Handler
-	AccountID    string
-	Region       string
+	KinesisVideo  *kinesisvideobackend.Handler
+	ECRPublic     *ecrpublicbackend.Handler
+	KafkaConnect  *kafkaconnectbackend.Handler
+	DirectConnect *directconnectbackend.Handler
+	AccountID     string
+	Region        string
 }
 
 // NestedStackCreator is a callback used to create and delete nested CloudFormation stacks.

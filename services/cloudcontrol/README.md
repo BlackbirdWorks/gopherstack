@@ -16,7 +16,7 @@
 
 ### Known gaps
 
-- Only AWS::S3::Bucket, AWS::SQS::Queue, AWS::DynamoDB::Table and AWS::Logs::LogGroup are delegated to the real service backends (TypeHandler registry, wired in cli_cloudcontrol_handlers.go; updates apply the mutable properties only and reject the rest); every other TypeName still uses the generic store, and delegated resources do not appear in the dashboard resource list.
+- Only 14 types are delegated to real service backends (S3 Bucket, SQS Queue, DynamoDB Table, Logs LogGroup, SNS Topic, IAM Role, KMS Key, SecretsManager Secret, SSM Parameter, ECR Repository, Kinesis Stream, Events EventBus, Lambda Function, StepFunctions StateMachine; TypeHandler registry wired in cli_cloudcontrol_handlers*.go; updates apply mutable properties only and reject the rest; SecretsManager GenerateSecretString is rejected); every other TypeName still uses the generic store, and delegated resources do not appear in the dashboard resource list.
 
 ### Structural gaps
 

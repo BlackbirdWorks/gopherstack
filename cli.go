@@ -3879,6 +3879,7 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	wireMQResourceShares(byName)
 	wireMediaStoreDataContainers(byName)
 	wireECSAutoScaling(byName)
+	wireECSDeploymentHooks(byName)
 	wireSWFLambda(byName)
 	wireWorkMailDirectory(byName)
 	wireAppSyncWAF(byName)
@@ -4071,6 +4072,8 @@ func registerCloudFormationAndDashboard(
 	// expand DeploymentTargets.OrganizationalUnitIds against the real OU
 	// hierarchy instead of rejecting OU-based targets outright.
 	wireCloudFormationOrganizations(cfnSvc, byName["Organizations"])
+
+	wireVPCLatticeEndpoints(byName["VPCLattice"], byName["EC2"])
 
 	if cli, ok := appCtx.Config.(*CLI); ok {
 		cli.cloudFormationHandler = cfnSvc

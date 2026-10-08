@@ -116,6 +116,8 @@ func (b *InMemoryBackend) inheritWiring(home *InMemoryBackend) {
 
 	b.elbv2Registrar = home.elbv2Registrar
 	b.asgResolver = home.asgResolver
+	b.alarmStates = home.alarmStates
+	b.lambdaInvoker = home.lambdaInvoker
 	b.metrics.Set(home.metrics.Emitter())
 	b.stopDelay = home.stopDelay
 	b.startDelay = home.startDelay

@@ -8,14 +8,10 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 64 (63 ok, 1 partial) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 8 |
 | Deferred items | 1 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- No AWS::DirectConnect::* CloudFormation resource type: lives in services/cloudformation (out of this service's ownership); needs a resources_*.go entry there.
 
 ### Structural gaps
 

@@ -2,8 +2,17 @@ package vpclattice
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/labstack/echo/v5"
+)
+
+const (
+	keyResourceConfigurationARN  = "resourceConfigurationArn"
+	keyResourceConfigurationID   = "resourceConfigurationId"
+	keyResourceConfigurationName = "resourceConfigurationName"
+	keyVpcEndpointID             = "vpcEndpointId"
+	keyState                     = "state"
 )
 
 // ------- ServiceNetworkResourceAssociation handlers -------
@@ -79,19 +88,19 @@ func (h *Handler) handleListSNRAs(c *echo.Context) error {
 	summaries := make([]any, 0, len(items))
 	for _, s := range items {
 		summaries = append(summaries, map[string]any{
-			keyARN:                      s.ARN,
-			"id":                        s.ID,
-			"resourceConfigurationArn":  s.ResourceConfigurationARN,
-			"resourceConfigurationId":   s.ResourceConfigurationID,
-			"resourceConfigurationName": s.ResourceConfigurationName,
-			keyServiceNetworkARN:        s.ServiceNetworkARN,
-			keyServiceNetworkID:         s.ServiceNetworkID,
-			keyServiceNetworkName:       s.ServiceNetworkName,
-			keyStatus:                   s.Status,
-			keyCreatedBy:                s.CreatedBy,
-			keyPrivateDNSEnabled:        s.PrivateDNSEnabled,
-			keyIsManagedAssoc:           false,
-			keyCreatedAt:                s.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+			keyARN:                       s.ARN,
+			"id":                         s.ID,
+			keyResourceConfigurationARN:  s.ResourceConfigurationARN,
+			keyResourceConfigurationID:   s.ResourceConfigurationID,
+			keyResourceConfigurationName: s.ResourceConfigurationName,
+			keyServiceNetworkARN:         s.ServiceNetworkARN,
+			keyServiceNetworkID:          s.ServiceNetworkID,
+			keyServiceNetworkName:        s.ServiceNetworkName,
+			keyStatus:                    s.Status,
+			keyCreatedBy:                 s.CreatedBy,
+			keyPrivateDNSEnabled:         s.PrivateDNSEnabled,
+			keyIsManagedAssoc:            false,
+			keyCreatedAt:                 s.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 		})
 	}
 
@@ -108,40 +117,61 @@ const keyIsManagedAssoc = "isManagedAssociation"
 
 func snraToJSON(s *ServiceNetworkResourceAssociation) map[string]any {
 	return map[string]any{
-		keyARN:                      s.ARN,
-		"id":                        s.ID,
-		"resourceConfigurationArn":  s.ResourceConfigurationARN,
-		"resourceConfigurationId":   s.ResourceConfigurationID,
-		"resourceConfigurationName": s.ResourceConfigurationName,
-		keyServiceNetworkARN:        s.ServiceNetworkARN,
-		keyServiceNetworkID:         s.ServiceNetworkID,
-		keyServiceNetworkName:       s.ServiceNetworkName,
-		keyStatus:                   s.Status,
-		keyCreatedBy:                s.CreatedBy,
-		keyPrivateDNSEnabled:        s.PrivateDNSEnabled,
-		keyIsManagedAssoc:           false,
-		keyCreatedAt:                s.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
-		keyLastUpdatedAt:            s.LastUpdatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+		keyARN:                       s.ARN,
+		"id":                         s.ID,
+		keyResourceConfigurationARN:  s.ResourceConfigurationARN,
+		keyResourceConfigurationID:   s.ResourceConfigurationID,
+		keyResourceConfigurationName: s.ResourceConfigurationName,
+		keyServiceNetworkARN:         s.ServiceNetworkARN,
+		keyServiceNetworkID:          s.ServiceNetworkID,
+		keyServiceNetworkName:        s.ServiceNetworkName,
+		keyStatus:                    s.Status,
+		keyCreatedBy:                 s.CreatedBy,
+		keyPrivateDNSEnabled:         s.PrivateDNSEnabled,
+		keyIsManagedAssoc:            false,
+		keyCreatedAt:                 s.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+		keyLastUpdatedAt:             s.LastUpdatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 	}
 }
 
 // ------- ResourceEndpointAssociation / ServiceNetworkVpcEndpointAssociation handlers -------
-//
-// See service_network_resource_associations.go's family doc comment: this
-// backend never creates either resource (no EC2 VPC-endpoint modeling), so
-// List always returns an empty page and Delete always 404s.
+
+func formatTime(t time.Time) string { return t.UTC().Format("2006-01-02T15:04:05.000Z") }
 
 func (h *Handler) handleListResourceEndpointAssociations(c *echo.Context) error {
 	ctx := c.Request().Context()
-	maxResults := queryInt32(c)
-	nextToken := c.QueryParam("nextToken")
+	filter := ResourceEndpointAssociationFilter{
+		ResourceConfigurationIdentifier:       c.QueryParam("resourceConfigurationIdentifier"),
+		ResourceEndpointAssociationIdentifier: c.QueryParam("resourceEndpointAssociationIdentifier"),
+		VpcEndpointID:                         c.QueryParam(keyVpcEndpointID),
+		VpcEndpointOwner:                      c.QueryParam("vpcEndpointOwner"),
+	}
 
-	items, next, err := h.Backend.ListResourceEndpointAssociations(ctx, maxResults, nextToken)
+	items, next, err := h.Backend.ListResourceEndpointAssociations(
+		ctx,
+		filter,
+		queryInt32(c),
+		c.QueryParam("nextToken"),
+	)
 	if err != nil {
 		return h.handleError(c, err)
 	}
 
-	resp := map[string]any{keyItems: make([]any, len(items))}
+	out := make([]any, 0, len(items))
+	for _, a := range items {
+		out = append(out, map[string]any{
+			keyARN:                       a.ARN,
+			"id":                         a.ID,
+			keyCreatedAt:                 formatTime(a.CreatedAt),
+			keyResourceConfigurationARN:  a.ResourceConfigurationARN,
+			keyResourceConfigurationID:   a.ResourceConfigurationID,
+			keyResourceConfigurationName: a.ResourceConfigurationName,
+			keyVpcEndpointID:             a.VpcEndpointID,
+			"vpcEndpointOwner":           a.VpcEndpointOwner,
+		})
+	}
+
+	resp := map[string]any{keyItems: out}
 	if next != "" {
 		resp["nextToken"] = next
 	}
@@ -150,25 +180,41 @@ func (h *Handler) handleListResourceEndpointAssociations(c *echo.Context) error 
 }
 
 func (h *Handler) handleDeleteResourceEndpointAssociation(c *echo.Context, id string) error {
-	if err := h.Backend.DeleteResourceEndpointAssociation(id); err != nil {
-		return h.handleError(c, err)
-	}
-
-	return c.NoContent(http.StatusNoContent)
-}
-
-func (h *Handler) handleListServiceNetworkVpcEndpointAssociations(c *echo.Context) error {
-	ctx := c.Request().Context()
-	maxResults := queryInt32(c)
-	nextToken := c.QueryParam("nextToken")
-	snID := c.QueryParam("serviceNetworkIdentifier")
-
-	items, next, err := h.Backend.ListServiceNetworkVpcEndpointAssociations(ctx, snID, maxResults, nextToken)
+	a, err := h.Backend.DeleteResourceEndpointAssociation(c.Request().Context(), id)
 	if err != nil {
 		return h.handleError(c, err)
 	}
 
-	resp := map[string]any{keyItems: make([]any, len(items))}
+	return c.JSON(http.StatusOK, map[string]any{
+		keyARN: a.ARN, "id": a.ID, keyResourceConfigurationARN: a.ResourceConfigurationARN,
+		keyResourceConfigurationID: a.ResourceConfigurationID, keyVpcEndpointID: a.VpcEndpointID,
+	})
+}
+
+func (h *Handler) handleListServiceNetworkVpcEndpointAssociations(c *echo.Context) error {
+	ctx := c.Request().Context()
+	snID := c.QueryParam("serviceNetworkIdentifier")
+
+	items, next, err := h.Backend.ListServiceNetworkVpcEndpointAssociations(
+		ctx,
+		snID,
+		queryInt32(c),
+		c.QueryParam("nextToken"),
+	)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	out := make([]any, 0, len(items))
+	for _, a := range items {
+		out = append(out, map[string]any{
+			"id": a.ID, keyCreatedAt: formatTime(a.CreatedAt), keyServiceNetworkARN: a.ServiceNetworkARN,
+			keyState: a.State, keyVpcEndpointID: a.VpcEndpointID, "vpcId": a.VpcID,
+			"vpcEndpointOwnerId": a.VpcEndpointOwner,
+		})
+	}
+
+	resp := map[string]any{keyItems: out}
 	if next != "" {
 		resp["nextToken"] = next
 	}

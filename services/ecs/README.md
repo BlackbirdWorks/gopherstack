@@ -16,7 +16,7 @@
 
 ### Known gaps
 
-- Blue/green AWS_LAMBDA lifecycle hooks are recorded but never invoked (needs a Lambda invoker seam wired from the root, and the hook response contract is not in the SDK); DeploymentAlarms rollback works through AlarmStateProvider but nothing wires CloudWatch alarm state into it yet. Linear/canary traffic steps are not timed.
+- AWS_LAMBDA hook invocation payload (executionDetails: serviceArn, targetServiceRevisionArn, lifecycleStage, hookDetails) and the {hookStatus, callBackDelay} response contract come from the ECS developer guide, not the SDK; the default 30s callBackDelay is unverified.
 - Managed scaling is not modeled: AutoScalingGroupProvider is validated against Auto Scaling at create, but ManagedScaling targetCapacity and ManagedTerminationProtection never scale or protect the group.
 
 ### Structural gaps

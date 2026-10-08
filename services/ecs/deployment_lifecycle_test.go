@@ -319,7 +319,7 @@ func TestBlueGreen_HookTimeoutAndBakeTime(t *testing.T) {
 
 type fakeAlarms struct{ triggered []string }
 
-func (f fakeAlarms) TriggeredAlarms([]string) []string { return f.triggered }
+func (f fakeAlarms) TriggeredAlarms(string, []string) []string { return f.triggered }
 
 func TestBlueGreen_AlarmsFailDeployment(t *testing.T) {
 	t.Parallel()

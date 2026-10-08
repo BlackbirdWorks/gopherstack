@@ -709,14 +709,8 @@ func TestRealClient_ResourceTags(t *testing.T) {
 	assert.Empty(t, got.Tags)
 }
 
-// TestRealClient_ResourceEndpointAssociations_AlwaysEmpty drives
-// List/DeleteResourceEndpointAssociation and
-// ListServiceNetworkVpcEndpointAssociations. Both families are populated in
-// real AWS exclusively by EC2 CreateVpcEndpoint calls -- this backend has no
-// such cross-service integration, so the honest result is always an empty,
-// correctly-shaped list (see service_network_resource_associations.go's
-// family doc comment).
-func TestRealClient_ResourceEndpointAssociations_AlwaysEmpty(t *testing.T) {
+// TestRealClient_EndpointAssociations_EmptyWithoutDirectory covers the lists with no EndpointDirectory wired.
+func TestRealClient_EndpointAssociations_EmptyWithoutDirectory(t *testing.T) {
 	t.Parallel()
 
 	client := newRealClient(t)
