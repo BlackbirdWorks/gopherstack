@@ -101,3 +101,54 @@ func TestSelectResourceConfig_UnsupportedGrammar_RealClient(t *testing.T) {
 		})
 	}
 }
+
+func TestListDiscoveredResources_IncludeDeleted_RealClient(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		want        []string
+		wantDeleted []string
+		include     bool
+		recreate    bool
+	}{
+		{name: "default_hides_deleted", want: []string{"b1"}},
+		{name: "include_lists_tombstone", include: true, want: []string{"b1", "b2"}, wantDeleted: []string{"b2"}},
+		{name: "recreated_not_deleted", include: true, recreate: true, want: []string{"b1", "b2"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend, client := newBackend(t)
+
+			require.NoError(t, backend.PutResourceConfig("AWS::S3::Bucket", "b1", "{}"))
+			require.NoError(t, backend.PutResourceConfig("AWS::S3::Bucket", "b2", "{}"))
+			require.NoError(t, backend.DeleteResourceConfig("AWS::S3::Bucket", "b2"))
+
+			if tt.recreate {
+				require.NoError(t, backend.PutResourceConfig("AWS::S3::Bucket", "b2", "{}"))
+			}
+
+			out, err := client.ListDiscoveredResources(t.Context(), &configservicesdk.ListDiscoveredResourcesInput{
+				ResourceType:            types.ResourceTypeBucket,
+				IncludeDeletedResources: tt.include,
+			})
+			require.NoError(t, err)
+
+			got, deleted := make([]string, 0), make([]string, 0)
+
+			for _, r := range out.ResourceIdentifiers {
+				got = append(got, aws.ToString(r.ResourceId))
+
+				if r.ResourceDeletionTime != nil {
+					deleted = append(deleted, aws.ToString(r.ResourceId))
+				}
+			}
+
+			assert.ElementsMatch(t, tt.want, got)
+			assert.ElementsMatch(t, append([]string{}, tt.wantDeleted...), deleted)
+		})
+	}
+}

@@ -625,6 +625,7 @@ type ResourceConfigItem struct {
 	ResourceName                 string            `json:"resourceName,omitempty"`
 	Configuration                string            `json:"configuration"`
 	ConfigurationItemCaptureTime float64           `json:"configurationItemCaptureTime"`
+	ResourceDeletionTime         float64           `json:"resourceDeletionTime,omitempty"`
 }
 
 // AggregatedSourceStatus holds the sync status of one configuration

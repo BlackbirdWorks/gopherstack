@@ -187,11 +187,11 @@ func buildActionState(
 		}
 
 		latest := map[string]any{
-			"actionExecutionId": ae.ActionExecutionID,
-			keyStatus:           ae.Status,
-			"startTime":         float64(ae.StartTime.Unix()),
-			"lastUpdateTime":    float64(ae.LastUpdateTime.Unix()),
-			"lastStatusChange":  float64(ae.LastUpdateTime.Unix()),
+			keyActionExecutionID: ae.ActionExecutionID,
+			keyStatus:            ae.Status,
+			"startTime":          float64(ae.StartTime.Unix()),
+			"lastUpdateTime":     float64(ae.LastUpdateTime.Unix()),
+			"lastStatusChange":   float64(ae.LastUpdateTime.Unix()),
 		}
 
 		if ae.Summary != "" {
@@ -200,6 +200,18 @@ func buildActionState(
 
 		if ae.Token != "" {
 			latest["token"] = ae.Token
+		}
+
+		if ae.ExternalExecutionID != "" {
+			latest["externalExecutionId"] = ae.ExternalExecutionID
+		}
+
+		if ae.PercentComplete != 0 {
+			latest["percentComplete"] = ae.PercentComplete
+		}
+
+		if ae.ErrorMessage != "" || ae.ErrorCode != "" {
+			latest["errorDetails"] = map[string]any{"code": ae.ErrorCode, "message": ae.ErrorMessage}
 		}
 
 		state["latestExecution"] = latest

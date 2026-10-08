@@ -2,7 +2,7 @@
 service: awsconfig
 sdk_module: aws-sdk-go-v2/service/configservice@v1.68.4
 last_audit_commit: c02948310
-last_audit_date: 2026-09-20
+last_audit_date: 2026-10-07
 overall: A            # this pass: implemented the 5 ops the SDK bump (v1.61.2 -> v1.68.0)
                        # revealed as newly-supported and missing from GetSupportedOperations:
                        # PutConnector/GetConnector/ListConnectors/DeleteConnector (a new
@@ -138,13 +138,14 @@ ops:
 
 gaps: []
 items_still_open:
-  - "Generic ValidationException remains on ops whose declared error set has no validation-shaped code (DeleteConfigurationAggregator, DeleteConfigRule, DeleteEvaluationResults, Start/Stop/DeleteConfigurationRecorder, DeleteConformancePack, PutDeliveryChannel s3BucketName, DeleteDeliveryChannel, DeleteOrganizationConfigRule, DeleteOrganizationConformancePack; verified against configservice@v1.68.4); InvalidS3KeyPrefixException has no documented rule to enforce (bd: gopherstack-eboy)."
-  - "InvalidRecordingGroupException only covers the documented allSupported/exclusion/recordingStrategy conflicts; AWS's per-resource-type validity checks need the supported-type catalog."
-  - "PutConformancePack TemplateS3Uri/TemplateSSMDocumentDetails deploy zero rules (needs cross-service S3/SSM wiring in cli.go); zero template sources is still accepted because 29 existing call sites rely on it."
+  - "Generic ValidationException remains on ops whose declared error set has no validation-shaped code (DeleteConfigurationAggregator, DeleteConfigRule, DeleteEvaluationResults, Start/Stop/DeleteConfigurationRecorder, DeleteConformancePack, PutDeliveryChannel s3BucketName, DeleteDeliveryChannel, DeleteOrganizationConfigRule, DeleteOrganizationConformancePack; verified against configservice@v1.68.4); the real code is not determinable from the SDK. InvalidS3KeyPrefixException has no documented rule to enforce (bd: gopherstack-eboy)."
+  - "InvalidRecordingGroupException only covers the documented allSupported/exclusion/recordingStrategy conflicts; the per-resource-type validity trigger is undocumented in the SDK."
+  - "PutConformancePack TemplateS3Uri/TemplateSSMDocumentDetails deploy zero rules (needs cross-service S3/SSM wiring in cli.go, outside this directory); zero template sources is still accepted and the real error is undocumented."
   - "MaxNumberOfConnectorsExceededException is not enforced: the per-account connector limit is not published in AWS docs."
-  - "ListDiscoveredResources.IncludeDeletedResources: DeleteResourceConfig removes the resource outright; no verified AWS tombstone retention period to bound one."
-  - "StartResourceEvaluation.EvaluationTimeout: evaluation completes synchronously, so there is nothing to time out."
-  - "ConformancePackInputParameters (PutConformancePack/PutOrganizationConformancePack) are stored and echoed but not substituted into templates; PutOrganizationConformancePack.TemplateBody/TemplateS3Uri are not parsed or deployed; DeleteRemediationConfiguration.ResourceType is ignored (remediation configurations are keyed by rule name only)."
+  - "DeleteRemediationConfiguration.ResourceType is ignored (remediation configurations are keyed by rule name only); the SDK documents it only as \"The type of a resource\"."
+structural_gaps:
+  - "StartResourceEvaluation.EvaluationTimeout is range-checked (0..3600) but never fires: evaluation completes synchronously, so there is nothing to time out."
+  - "PutOrganizationConformancePack TemplateBody/TemplateS3Uri/ConformancePackInputParameters are stored and echoed but not deployed: an organization pack deploys into member accounts, which this single-account emulator does not model."
 deferred:
   - Per-field/per-op AWS validation ordering and exact message text (not audited this pass)
 leaks: {status: clean, note: "no goroutines/janitors in this service; single coarse lockmetrics.RWMutex; every new Lock/RLock this pass is defer-released; DeleteConfigurationRecorder cascade-cleans ServiceLinkedRecorderLink rows, DeleteConformancePack cascade-cleans its deployed config rules + evaluations, DeleteRemediationConfiguration cascade-cleans its recorded executions -- no ghost rows found"}

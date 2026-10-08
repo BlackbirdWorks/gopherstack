@@ -63,7 +63,7 @@ func (h *Handler) createResolver(ctx context.Context, c *echo.Context, apiID, ty
 		return h.handleError(ctx, c, "CreateResolver", createErr)
 	}
 
-	return c.JSON(http.StatusCreated, map[string]any{keyResolver: created})
+	return c.JSON(http.StatusCreated, map[string]any{keyResolver: wireShape(created, "apiId")})
 }
 
 // getResolver handles GET /v1/apis/{apiId}/types/{typeName}/resolvers/{fieldName}.
@@ -73,7 +73,7 @@ func (h *Handler) getResolver(ctx context.Context, c *echo.Context, apiID, typeN
 		return h.handleError(ctx, c, "GetResolver", err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyResolver: r})
+	return c.JSON(http.StatusOK, map[string]any{keyResolver: wireShape(r, "apiId")})
 }
 
 // listResolvers handles GET /v1/apis/{apiId}/types/{typeName}/resolvers.
@@ -88,7 +88,7 @@ func (h *Handler) listResolvers(ctx context.Context, c *echo.Context, apiID, typ
 	}
 
 	page, tok := appsyncPaginate(resolvers, nextToken, maxResults)
-	out := map[string]any{"resolvers": page}
+	out := map[string]any{"resolvers": wireShape(page, "apiId")}
 	if tok != "" {
 		out["nextToken"] = tok
 	}
@@ -124,7 +124,7 @@ func (h *Handler) updateResolver(ctx context.Context, c *echo.Context, apiID, ty
 		return h.handleError(ctx, c, "UpdateResolver", updateErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyResolver: updated})
+	return c.JSON(http.StatusOK, map[string]any{keyResolver: wireShape(updated, "apiId")})
 }
 
 // listResolversByFunction handles GET /v1/apis/{apiId}/functions/{functionId}/resolvers.
@@ -139,7 +139,7 @@ func (h *Handler) listResolversByFunction(ctx context.Context, c *echo.Context, 
 	maxResults, _ := strconv.Atoi(q.Get("maxResults"))
 
 	page, tok := appsyncPaginate(resolvers, nextToken, maxResults)
-	out := map[string]any{"resolvers": page}
+	out := map[string]any{"resolvers": wireShape(page, "apiId")}
 	if tok != "" {
 		out["nextToken"] = tok
 	}

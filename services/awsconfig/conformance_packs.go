@@ -64,7 +64,7 @@ func (b *InMemoryBackend) PutConformancePackWithParams(
 		)
 	}
 
-	rules := parseConformancePackConfigRules(templateBody, name)
+	rules := parseConformancePackConfigRules(templateBody, name, params)
 
 	b.mu.Lock("PutConformancePack")
 	defer b.mu.Unlock()

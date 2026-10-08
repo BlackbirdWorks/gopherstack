@@ -3,7 +3,9 @@ package cloudtrail
 import (
 	"cmp"
 	"encoding/json"
+	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -24,11 +26,12 @@ import (
 //	SELECT <* | item[, item...]> FROM <event-data-store> [AS alias]
 //	  [WHERE <bool-expr>]
 //	  [GROUP BY col[, col...]]
+//	  [HAVING <aggregate|alias> (=|!=|<>|<|<=|>|>=) value]
 //	  [ORDER BY col|alias [ASC|DESC][, ...]]
 //	  [LIMIT <n>]
 //
 //	SELECT may start with DISTINCT (non-aggregate queries only).
-//	item      := col [AS alias] | COUNT(* | col) [AS alias]
+//	item      := col [AS alias] | COUNT(* | col) | SUM|AVG|MIN|MAX(col) [AS alias]
 //	bool-expr := bool-expr OR bool-expr
 //	           | bool-expr AND bool-expr
 //	           | NOT bool-expr
@@ -39,7 +42,7 @@ import (
 //
 // Anything outside that subset -- joins/set operations across event data
 // stores (real CloudTrail Lake feature, genuinely large: see
-// query_parse.go's parseFromTarget), SUM/AVG/MIN/MAX, subqueries, HAVING,
+// query_parse.go's parseFromTarget), subqueries,
 // and any other syntactically-valid-but-unhandled SQL --
 // is a genuine query failure: the query reaches QueryStatus FAILED with a
 // populated ErrorMessage (DescribeQueryOutput.ErrorMessage /
@@ -162,7 +165,7 @@ func executeLakeQuery(stmt string, events []Event) ([][]map[string]string, query
 
 	pq, parseErr := parseLakeQuery(stmt)
 	if parseErr != "" {
-		return nil, stats, "FAILED", parseErr
+		return nil, stats, queryStatusFailed, parseErr
 	}
 
 	matched := make([]map[string]string, 0, len(events))
@@ -178,7 +181,10 @@ func executeLakeQuery(stmt string, events []Event) ([][]map[string]string, query
 
 	limit := effectiveQueryLimit(pq.limit)
 
-	rows := projectRows(matched, pq, limit)
+	rows, errMsg := projectRows(matched, pq, limit)
+	if errMsg != "" {
+		return nil, stats, queryStatusFailed, errMsg
+	}
 
 	return rows, stats, "FINISHED", ""
 }
@@ -198,11 +204,16 @@ type resultRow struct {
 	cells []map[string]string
 }
 
-func projectRows(matched []map[string]string, pq parsedLakeQuery, limit int) [][]map[string]string {
+func projectRows(matched []map[string]string, pq parsedLakeQuery, limit int) ([][]map[string]string, string) {
 	var all []resultRow
 
 	if pq.hasAgg {
-		all = aggregateRows(matched, pq)
+		var errMsg string
+
+		all, errMsg = aggregateRows(matched, pq)
+		if errMsg != "" {
+			return nil, errMsg
+		}
 	} else {
 		all = make([]resultRow, 0, len(matched))
 		for _, row := range matched {
@@ -227,7 +238,7 @@ func projectRows(matched []map[string]string, pq parsedLakeQuery, limit int) [][
 		rows = append(rows, r.cells)
 	}
 
-	return rows
+	return rows, ""
 }
 
 func distinctRows(all []resultRow) []resultRow {
@@ -329,26 +340,90 @@ func projectRow(row map[string]string, items []selectItem) []map[string]string {
 // captured via the first row seen) and a running COUNT.
 type aggState struct {
 	values map[string]string
+	sums   map[string]float64
+	counts map[string]int64
+	mins   map[string]string
+	maxs   map[string]string
 	count  int64
+}
+
+func newAggState(row map[string]string) *aggState {
+	return &aggState{
+		values: row,
+		sums:   map[string]float64{},
+		counts: map[string]int64{},
+		mins:   map[string]string{},
+		maxs:   map[string]string{},
+	}
+}
+
+// accumulate folds row into the column aggregates; SUM/AVG over a non-numeric
+// value is reported (Trino rejects them as a type error).
+func (st *aggState) accumulate(row map[string]string, items []selectItem) string {
+	st.count++
+
+	for _, it := range items {
+		v, present := row[it.column]
+		if !it.kind.isAggregate() || it.kind == itemCountStar || it.kind == itemCount || !present {
+			continue
+		}
+
+		switch it.kind {
+		case itemSum, itemAvg:
+			f, err := strconv.ParseFloat(v, 64)
+			if err != nil {
+				return fmt.Sprintf("%s requires a numeric column; %q is not numeric", aggName(it.kind), it.column)
+			}
+
+			st.sums[it.outName] += f
+			st.counts[it.outName]++
+		case itemMin:
+			if cur, ok := st.mins[it.outName]; !ok || compareOrderValues(v, cur) < 0 {
+				st.mins[it.outName] = v
+			}
+		case itemMax:
+			if cur, ok := st.maxs[it.outName]; !ok || compareOrderValues(v, cur) > 0 {
+				st.maxs[it.outName] = v
+			}
+		default:
+		}
+	}
+
+	return ""
+}
+
+func aggName(k selectItemKind) string {
+	if k == itemAvg {
+		return "AVG"
+	}
+
+	return "SUM"
 }
 
 // aggregateRows evaluates COUNT(*)/COUNT(col), with or without GROUP BY (no
 // GROUP BY means a single implicit group over every matched row). Output
 // order is sorted by group key so it's deterministic across Go's randomized
 // map iteration.
-func aggregateRows(matched []map[string]string, pq parsedLakeQuery) []resultRow {
+func aggregateRows(matched []map[string]string, pq parsedLakeQuery) ([]resultRow, string) {
 	groups := map[string]*aggState{}
+
+	aggItems := pq.items
+	if pq.having != nil && pq.having.alias == "" {
+		aggItems = append(slices.Clone(pq.items), pq.having.item)
+	}
 
 	for _, row := range matched {
 		key := groupKey(row, pq.groupBy)
 
 		st, ok := groups[key]
 		if !ok {
-			st = &aggState{values: row}
+			st = newAggState(row)
 			groups[key] = st
 		}
 
-		st.count++
+		if errMsg := st.accumulate(row, aggItems); errMsg != "" {
+			return nil, errMsg
+		}
 	}
 
 	keys := make([]string, 0, len(groups))
@@ -361,10 +436,15 @@ func aggregateRows(matched []map[string]string, pq parsedLakeQuery) []resultRow 
 	rows := make([]resultRow, 0, len(keys))
 
 	for _, k := range keys {
-		rows = append(rows, resultRow{src: groups[k].values, cells: renderAggRow(pq.items, groups[k])})
+		st := groups[k]
+		if pq.having != nil && !st.passesHaving(pq) {
+			continue
+		}
+
+		rows = append(rows, resultRow{src: st.values, cells: renderAggRow(pq.items, st)})
 	}
 
-	return rows
+	return rows, ""
 }
 
 // groupKeyFieldSep separates GROUP BY column values in a composite group
@@ -389,14 +469,64 @@ func renderAggRow(items []selectItem, st *aggState) []map[string]string {
 	out := make([]map[string]string, 0, len(items))
 
 	for _, item := range items {
-		if item.kind == itemCount || item.kind == itemCountStar {
-			out = append(out, map[string]string{item.outName: strconv.FormatInt(st.count, 10)})
-
-			continue
-		}
-
-		out = append(out, map[string]string{item.outName: st.values[item.column]})
+		out = append(out, map[string]string{item.outName: st.render(item)})
 	}
 
 	return out
+}
+
+func (st *aggState) render(item selectItem) string {
+	switch item.kind {
+	case itemCount, itemCountStar:
+		return strconv.FormatInt(st.count, 10)
+	case itemSum:
+		if st.counts[item.outName] == 0 {
+			return ""
+		}
+
+		return strconv.FormatFloat(st.sums[item.outName], 'f', -1, 64)
+	case itemAvg:
+		if st.counts[item.outName] == 0 {
+			return ""
+		}
+
+		return strconv.FormatFloat(st.sums[item.outName]/float64(st.counts[item.outName]), 'f', -1, 64)
+	case itemMin:
+		return st.mins[item.outName]
+	case itemMax:
+		return st.maxs[item.outName]
+	default:
+		return st.values[item.column]
+	}
+}
+
+func (st *aggState) passesHaving(pq parsedLakeQuery) bool {
+	h := pq.having
+	item := h.item
+
+	if h.alias != "" {
+		idx := slices.IndexFunc(pq.items, func(it selectItem) bool { return strings.EqualFold(it.outName, h.alias) })
+		if idx < 0 {
+			return false
+		}
+
+		item = pq.items[idx]
+	}
+
+	c := compareOrderValues(st.render(item), h.value)
+
+	switch h.op {
+	case "=":
+		return c == 0
+	case "!=", "<>":
+		return c != 0
+	case "<":
+		return c < 0
+	case "<=":
+		return c <= 0
+	case ">":
+		return c > 0
+	default:
+		return c >= 0
+	}
 }

@@ -115,6 +115,10 @@ type InMemoryBackend struct {
 	// outer-map lookup for "all resources of type X" (ListDiscoveredResources).
 	resourceConfigs       *store.Table[ResourceConfigItem]
 	resourceConfigsByType *store.Index[ResourceConfigItem]
+	// deletedResourceConfigs tombstones resources removed by DeleteResourceConfig
+	// (ListDiscoveredResources.IncludeDeletedResources); a re-Put clears the row.
+	deletedResourceConfigs       *store.Table[ResourceConfigItem]
+	deletedResourceConfigsByType *store.Index[ResourceConfigItem]
 	// customRulePolicies/orgCustomRulePolicies are scalar-valued maps (rule
 	// name → policy text) -- left as plain maps.
 	customRulePolicies    map[string]string

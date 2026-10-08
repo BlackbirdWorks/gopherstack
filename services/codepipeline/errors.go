@@ -49,6 +49,9 @@ var (
 	// ErrActionExecutionNotFound is returned when ListDeployActionExecutionTargets'
 	// ActionExecutionId does not match any recorded action execution.
 	ErrActionExecutionNotFound = awserr.New("ActionExecutionNotFoundException", awserr.ErrNotFound)
+	// ErrInvalidJobState is returned when a job result targets a job that is
+	// already complete or whose action execution is no longer in progress.
+	ErrInvalidJobState = awserr.New("InvalidJobStateException", awserr.ErrInvalidParameter)
 	// ErrInvalidClientToken is returned when a third-party job operation's
 	// clientToken does not match the ClientId issued for that job by
 	// PollForThirdPartyJobs.

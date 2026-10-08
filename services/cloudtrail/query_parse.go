@@ -11,6 +11,8 @@ import (
 // construct near ..." error message quotes.
 const maxSQLErrorPreviewTokens = 6
 
+const havingItemName = "_having"
+
 // selectItemKind identifies what a single SELECT list entry projects.
 type selectItemKind int
 
@@ -18,7 +20,28 @@ const (
 	itemColumn selectItemKind = iota
 	itemCountStar
 	itemCount
+	itemSum
+	itemAvg
+	itemMin
+	itemMax
 )
+
+func aggFuncKind(name string) (selectItemKind, bool) {
+	switch strings.ToUpper(name) {
+	case "SUM":
+		return itemSum, true
+	case "AVG":
+		return itemAvg, true
+	case "MIN":
+		return itemMin, true
+	case "MAX":
+		return itemMax, true
+	default:
+		return 0, false
+	}
+}
+
+func (k selectItemKind) isAggregate() bool { return k >= itemCountStar }
 
 // selectItem is one resolved SELECT list entry: a bare column, or a COUNT
 // aggregate. column is the lowercased source column to read from a row
@@ -40,13 +63,22 @@ type selectItem struct {
 // parsedLakeQuery is a successfully parsed statement in the supported
 // CloudTrail Lake SQL subset (see query_exec.go's file doc comment).
 type parsedLakeQuery struct {
-	items    []selectItem // nil means "SELECT *"
-	where    whereExpr    // nil means no WHERE (match everything)
-	groupBy  []string     // lowercased GROUP BY column names
+	where    whereExpr
+	having   *havingCond
+	items    []selectItem
+	groupBy  []string
 	orderBy  []orderTerm
-	limit    int // 0 means "use defaultQueryRowLimit"
+	limit    int
 	hasAgg   bool
 	distinct bool
+}
+
+// havingCond is a HAVING <aggregate | select alias> <op> <literal> predicate.
+type havingCond struct {
+	alias string
+	op    string
+	value string
+	item  selectItem
 }
 
 // orderTerm is one ORDER BY key: a SELECT-list alias/column or a source column.
@@ -212,6 +244,11 @@ func (p *lakeParser) parseSelectStatement() (parsedLakeQuery, string) {
 		return parsedLakeQuery{}, errMsg
 	}
 
+	having, errMsg := p.parseOptionalHaving()
+	if errMsg != "" {
+		return parsedLakeQuery{}, errMsg
+	}
+
 	orderBy, errMsg := p.parseOptionalOrderBy()
 	if errMsg != "" {
 		return parsedLakeQuery{}, errMsg
@@ -220,6 +257,10 @@ func (p *lakeParser) parseSelectStatement() (parsedLakeQuery, string) {
 	limit, errMsg := p.parseOptionalLimit()
 	if errMsg != "" {
 		return parsedLakeQuery{}, errMsg
+	}
+
+	if havingErr := validateHaving(having, items, hasAgg); havingErr != "" {
+		return parsedLakeQuery{}, havingErr
 	}
 
 	if validErr := validateAggregateColumns(items, hasAgg, groupBy); validErr != "" {
@@ -231,7 +272,7 @@ func (p *lakeParser) parseSelectStatement() (parsedLakeQuery, string) {
 	}
 
 	return parsedLakeQuery{
-		items: items, where: where, groupBy: groupBy, orderBy: orderBy,
+		items: items, where: where, groupBy: groupBy, orderBy: orderBy, having: having,
 		limit: limit, hasAgg: hasAgg, distinct: distinct,
 	}, ""
 }
@@ -291,7 +332,7 @@ func (p *lakeParser) parseSelectList() ([]selectItem, bool, string) {
 			return nil, false, errMsg
 		}
 
-		if item.kind == itemCount || item.kind == itemCountStar {
+		if item.kind.isAggregate() {
 			hasAgg = true
 		}
 
@@ -310,11 +351,8 @@ func (p *lakeParser) parseSelectItem(idx int) (selectItem, string) {
 		return p.parseCountItem(idx)
 	}
 
-	if isUnsupportedAggregateFunc(p.peek().text) && p.peekPunctAt(1, "(") {
-		return selectItem{}, fmt.Sprintf(
-			"aggregate function %s is not supported by this emulator (only COUNT is implemented) -- see PARITY.md",
-			strings.ToUpper(p.peek().text),
-		)
+	if kind, ok := aggFuncKind(p.peek().text); ok && p.peekPunctAt(1, "(") {
+		return p.parseColumnAggItem(idx, kind)
 	}
 
 	t := p.advance()
@@ -323,6 +361,33 @@ func (p *lakeParser) parseSelectItem(idx int) (selectItem, string) {
 	}
 
 	item := selectItem{kind: itemColumn, column: strings.ToLower(t.text), outName: t.text}
+
+	alias, errMsg := p.parseOptionalAlias()
+	if errMsg != "" {
+		return selectItem{}, errMsg
+	}
+
+	if alias != "" {
+		item.outName = alias
+	}
+
+	return item, ""
+}
+
+func (p *lakeParser) parseColumnAggItem(idx int, kind selectItemKind) (selectItem, string) {
+	name := strings.ToUpper(p.peek().text)
+	p.pos += 2
+
+	col := p.advance()
+	if col.kind != sqlTokIdent {
+		return selectItem{}, fmt.Sprintf("expected a column name inside %s(...)", name)
+	}
+
+	if !p.eatPunct(")") {
+		return selectItem{}, fmt.Sprintf("expected ) to close %s(", name)
+	}
+
+	item := selectItem{kind: kind, column: strings.ToLower(col.text), outName: fmt.Sprintf("_col%d", idx)}
 
 	alias, errMsg := p.parseOptionalAlias()
 	if errMsg != "" {
@@ -380,15 +445,6 @@ func (p *lakeParser) parseOptionalAlias() (string, string) {
 	}
 
 	return t.text, ""
-}
-
-func isUnsupportedAggregateFunc(name string) bool {
-	switch strings.ToUpper(name) {
-	case "SUM", "AVG", "MIN", "MAX":
-		return true
-	default:
-		return false
-	}
 }
 
 func (p *lakeParser) parseOptionalWhere() (whereExpr, string) {
@@ -581,6 +637,46 @@ func (p *lakeParser) parseOptionalGroupBy() ([]string, string) {
 	return cols, ""
 }
 
+func (p *lakeParser) parseOptionalHaving() (*havingCond, string) {
+	if !p.eatKeyword("HAVING") {
+		return nil, ""
+	}
+
+	h := &havingCond{}
+
+	_, isAgg := aggFuncKind(p.peek().text)
+	if (isAgg || p.atKeyword("COUNT")) && p.peekPunctAt(1, "(") {
+		item, errMsg := p.parseSelectItem(0)
+		if errMsg != "" {
+			return nil, errMsg
+		}
+
+		item.outName = havingItemName
+		h.item = item
+	} else {
+		t := p.advance()
+		if t.kind != sqlTokIdent {
+			return nil, "expected an aggregate or SELECT-list alias after HAVING"
+		}
+
+		h.alias = t.text
+	}
+
+	op := p.advance()
+	if op.kind != sqlTokPunct || !slices.Contains([]string{"=", "!=", "<>", "<", "<=", ">", ">="}, op.text) {
+		return nil, "expected a comparison operator in HAVING"
+	}
+
+	val, errMsg := p.parseValue()
+	if errMsg != "" {
+		return nil, errMsg
+	}
+
+	h.op, h.value = op.text, val
+
+	return h, ""
+}
+
 func (p *lakeParser) parseOptionalOrderBy() ([]orderTerm, string) {
 	if !p.eatKeyword("ORDER") {
 		return nil, ""
@@ -667,7 +763,7 @@ func (p *lakeParser) parseOptionalLimit() (int, string) {
 func validateAggregateColumns(items []selectItem, hasAgg bool, groupBy []string) string {
 	if !hasAgg {
 		if len(groupBy) > 0 {
-			return "GROUP BY without an aggregate function (COUNT) in the SELECT list is not supported by this emulator"
+			return "GROUP BY without an aggregate function in the SELECT list is not supported by this emulator"
 		}
 
 		return ""
@@ -684,6 +780,23 @@ func validateAggregateColumns(items []selectItem, hasAgg bool, groupBy []string)
 				item.column,
 			)
 		}
+	}
+
+	return ""
+}
+
+func validateHaving(h *havingCond, items []selectItem, hasAgg bool) string {
+	if h == nil {
+		return ""
+	}
+
+	if !hasAgg {
+		return "HAVING requires an aggregate function in the SELECT list"
+	}
+
+	if h.alias != "" &&
+		!slices.ContainsFunc(items, func(it selectItem) bool { return strings.EqualFold(it.outName, h.alias) }) {
+		return fmt.Sprintf("HAVING %q must name a SELECT-list alias or be an aggregate", h.alias)
 	}
 
 	return ""

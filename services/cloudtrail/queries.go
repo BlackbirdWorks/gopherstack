@@ -3,8 +3,30 @@ package cloudtrail
 import (
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"time"
+)
+
+// QueryStatementForAlias returns the SQL of the dashboard widget registered under alias.
+func (b *InMemoryBackend) QueryStatementForAlias(alias string) (string, error) {
+	b.mu.RLock("QueryStatementForAlias")
+	defer b.mu.RUnlock()
+
+	for _, d := range b.dashboards.All() {
+		for _, w := range d.Widgets {
+			if w.QueryAlias == alias && w.QueryStatement != "" {
+				return w.QueryStatement, nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("%w: QueryAlias %s does not name a dashboard query", ErrValidation, alias)
+}
+
+const (
+	queryStatusQueued = "QUEUED"
+	queryStatusFailed = "FAILED"
 )
 
 // StartQuery creates a new query against an event data store. queryAlias is
@@ -13,6 +35,13 @@ import (
 // see DescribeQueryByAlias.
 func (b *InMemoryBackend) StartQuery(
 	queryString, edsARN, deliveryS3URI, queryAlias, ownerAccountID string,
+) (*Query, error) {
+	return b.StartQueryWithParams(queryString, edsARN, deliveryS3URI, queryAlias, ownerAccountID, nil)
+}
+
+// StartQueryWithParams is StartQuery plus the QueryParameters recorded for a QueryAlias run.
+func (b *InMemoryBackend) StartQueryWithParams(
+	queryString, edsARN, deliveryS3URI, queryAlias, ownerAccountID string, params []string,
 ) (*Query, error) {
 	b.mu.Lock("StartQuery")
 	defer b.mu.Unlock()
@@ -27,9 +56,10 @@ func (b *InMemoryBackend) StartQuery(
 		QueryID:               qid,
 		EventDataStoreARN:     edsARN,
 		QueryString:           queryString,
-		QueryStatus:           "QUEUED",
+		QueryStatus:           queryStatusQueued,
 		DeliveryS3URI:         deliveryS3URI,
 		QueryAlias:            queryAlias,
+		QueryParameters:       slices.Clone(params),
 		EventDataStoreOwnerID: ownerAccountID,
 		CreationTime:          time.Now().UTC(),
 	}
@@ -53,7 +83,7 @@ func (b *InMemoryBackend) CancelQuery(queryID string) (*Query, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: query %s not found", ErrQueryIDNotFound, queryID)
 	}
-	if q.QueryStatus == "FINISHED" || q.QueryStatus == "FAILED" ||
+	if q.QueryStatus == "FINISHED" || q.QueryStatus == queryStatusFailed ||
 		q.QueryStatus == "CANCELLED" || q.QueryStatus == "TIMED_OUT" {
 		return nil, fmt.Errorf("%w: query %s is already in terminal state %s", ErrQueryInactive, queryID, q.QueryStatus)
 	}
@@ -81,6 +111,33 @@ func (b *InMemoryBackend) DescribeQuery(queryID string) (*Query, error) {
 	cp := *q
 
 	return &cp, nil
+}
+
+// DescribeQueryByAliasRefresh is DescribeQueryByAlias scoped to the queries a
+// dashboard refresh started: refreshID narrows the alias group when non-empty.
+func (b *InMemoryBackend) DescribeQueryByAliasRefresh(alias, refreshID string) (*Query, error) {
+	if refreshID == "" {
+		return b.DescribeQueryByAlias(alias)
+	}
+
+	b.mu.Lock("DescribeQueryByAliasRefresh")
+	defer b.mu.Unlock()
+
+	if alias == "" {
+		return nil, fmt.Errorf("%w: QueryAlias is required", ErrValidation)
+	}
+
+	matches := b.queriesByAlias.Get(alias)
+	for _, q := range slices.Backward(matches) {
+		if q.RefreshID == refreshID {
+			b.materializeQueryLocked(q)
+			cp := *q
+
+			return &cp, nil
+		}
+	}
+
+	return nil, fmt.Errorf("%w: alias %s has no query for refresh %s", ErrQueryIDNotFound, alias, refreshID)
 }
 
 // DescribeQueryByAlias returns details about the last query started under
@@ -136,7 +193,7 @@ func (b *InMemoryBackend) GetQueryResults(queryID string) (*Query, error) {
 // already in a terminal state (e.g. CANCELLED before ever being read).
 // Must be called with b.mu held for writing.
 func (b *InMemoryBackend) materializeQueryLocked(q *Query) {
-	if q.QueryStatus != "QUEUED" {
+	if q.QueryStatus != queryStatusQueued {
 		return
 	}
 

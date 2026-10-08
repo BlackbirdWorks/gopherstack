@@ -173,6 +173,14 @@ type Job struct {
 	// echoed on the wire.
 	FailureMessage string `json:"failureMessage,omitempty"`
 	FailureType    string `json:"failureType,omitempty"`
+	// Configuration, ExecutionID, StageName, ActionName and ActionExecutionID
+	// tie a job created by a pipeline run back to its action execution.
+	Configuration     map[string]string `json:"configuration,omitempty"`
+	ExecutionID       string            `json:"executionId,omitempty"`
+	StageName         string            `json:"stageName,omitempty"`
+	ActionName        string            `json:"actionName,omitempty"`
+	ActionExecutionID string            `json:"actionExecutionId,omitempty"`
+	ContinuationToken string            `json:"continuationToken,omitempty"`
 	// ClientID is issued the first time PollForThirdPartyJobs hands this job
 	// to a worker and echoed back as ThirdPartyJob.ClientId; the four
 	// ThirdPartyJob* consumer operations require their clientToken to match
@@ -464,15 +472,20 @@ type StageState struct {
 // carries the reviewer's PutApprovalResult summary, mirroring the real
 // ActionExecution.Summary field.
 type ActionExecution struct {
-	StartTime           time.Time `json:"startTime"`
-	LastUpdateTime      time.Time `json:"lastUpdateTime"`
-	PipelineExecutionID string    `json:"pipelineExecutionId"`
-	ActionExecutionID   string    `json:"actionExecutionId"`
-	StageName           string    `json:"stageName"`
-	ActionName          string    `json:"actionName"`
-	Status              string    `json:"status"`
-	Token               string    `json:"token,omitempty"`
-	Summary             string    `json:"summary,omitempty"`
+	StartTime           time.Time         `json:"startTime"`
+	LastUpdateTime      time.Time         `json:"lastUpdateTime"`
+	PipelineExecutionID string            `json:"pipelineExecutionId"`
+	ActionExecutionID   string            `json:"actionExecutionId"`
+	StageName           string            `json:"stageName"`
+	ActionName          string            `json:"actionName"`
+	Status              string            `json:"status"`
+	OutputVariables     map[string]string `json:"outputVariables,omitempty"`
+	Token               string            `json:"token,omitempty"`
+	Summary             string            `json:"summary,omitempty"`
+	ExternalExecutionID string            `json:"externalExecutionId,omitempty"`
+	ErrorCode           string            `json:"errorCode,omitempty"`
+	ErrorMessage        string            `json:"errorMessage,omitempty"`
+	PercentComplete     int32             `json:"percentComplete,omitempty"`
 }
 
 // ActionRevisionRecord tracks the most recent ActionRevision submitted via

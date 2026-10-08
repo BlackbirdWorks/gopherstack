@@ -89,7 +89,15 @@ func (b *InMemoryBackend) DeleteResourceConfig(resourceType, resourceID string) 
 	b.mu.Lock("DeleteResourceConfig")
 	defer b.mu.Unlock()
 
-	b.resourceConfigs.Delete(resourceConfigItemKey(resourceType, resourceID))
+	key := resourceConfigItemKey(resourceType, resourceID)
+
+	if live, ok := b.resourceConfigs.Get(key); ok {
+		tomb := *live
+		tomb.ResourceDeletionTime = float64(b.now().Unix())
+		b.deletedResourceConfigs.Put(&tomb)
+	}
+
+	b.resourceConfigs.Delete(key)
 
 	return nil
 }
@@ -168,6 +176,7 @@ func (b *InMemoryBackend) PutResourceConfigNamed(
 	}
 
 	b.resourceConfigs.Put(&item)
+	b.deletedResourceConfigs.Delete(resourceConfigItemKey(resourceType, resourceID))
 
 	key := resourceEvalKey(resourceType, resourceID)
 
@@ -259,17 +268,26 @@ func filterResourceHistoryByTime(hist []ResourceConfigItem, earlierTime, laterTi
 
 // ListDiscoveredResources returns all discovered resources of the given type.
 func (b *InMemoryBackend) ListDiscoveredResources(resourceType string) []ResourceConfigItem {
+	return b.ListDiscoveredResourcesIncludingDeleted(resourceType, false)
+}
+
+// ListDiscoveredResourcesIncludingDeleted is ListDiscoveredResources plus, when
+// includeDeleted is set, the tombstones of deleted resources (carrying ResourceDeletionTime).
+func (b *InMemoryBackend) ListDiscoveredResourcesIncludingDeleted(
+	resourceType string, includeDeleted bool,
+) []ResourceConfigItem {
 	b.mu.RLock("ListDiscoveredResources")
 	defer b.mu.RUnlock()
 
-	byType := b.resourceConfigsByType.Get(resourceType)
-	if len(byType) == 0 {
-		return []ResourceConfigItem{}
+	out := []ResourceConfigItem{}
+	for _, item := range b.resourceConfigsByType.Get(resourceType) {
+		out = append(out, *item)
 	}
 
-	out := make([]ResourceConfigItem, 0, len(byType))
-	for _, item := range byType {
-		out = append(out, *item)
+	if includeDeleted {
+		for _, item := range b.deletedResourceConfigsByType.Get(resourceType) {
+			out = append(out, *item)
+		}
 	}
 
 	return out

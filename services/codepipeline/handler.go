@@ -318,6 +318,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		{ErrUnableToRollbackStage, "UnableToRollbackStageException"},
 		{ErrActionExecutionNotFound, "ActionExecutionNotFoundException"},
 		{ErrInvalidClientToken, "InvalidClientTokenException"},
+		{ErrInvalidJobState, "InvalidJobStateException"},
 		// errUnknownAction fires when the routed Action string matches no
 		// known CodePipeline operation -- a dispatch-level condition no
 		// operation's own deserializer models (there is no operation to

@@ -190,6 +190,10 @@ func (b *InMemoryBackend) runOneAction(
 	case action.ActionTypeID.Category == actionCategoryApproval:
 		ae.Status = statusInProgress
 		ae.Token = uuid.NewString()
+	case isJobWorkerAction(action):
+		ae.Status = statusInProgress
+
+		b.queueActionJobLocked(region, pipelineName, ae, action, "")
 	case isBuiltinAction(action, actionProviderCodeBuild) && b.codeBuildBackend != nil:
 		ae.Status = b.runCodeBuildAction(b.regionContext(region), action)
 	case isBuiltinAction(action, actionProviderLambda) && b.lambdaBackend != nil:

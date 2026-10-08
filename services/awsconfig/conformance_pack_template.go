@@ -55,23 +55,35 @@ type conformancePackTemplate struct {
 // misparse. An unparsable-as-either body also deploys zero rules rather than
 // erroring, matching PutConformancePack's existing "doesn't require a valid
 // template to succeed" behavior.
-func parseConformancePackConfigRules(templateBody, packName string) []*ConfigRule {
+func parseConformancePackConfigRules(
+	templateBody, packName string, params []ConformancePackInputParameter,
+) []*ConfigRule {
 	if templateBody == "" {
 		return nil
 	}
 
-	var tmpl conformancePackTemplate
-
 	jsonBody := []byte(templateBody)
-	if err := json.Unmarshal(jsonBody, &tmpl); err != nil {
+
+	var doc map[string]any
+	if err := json.Unmarshal(jsonBody, &doc); err != nil {
 		converted, yamlErr := yamlToJSON(jsonBody)
 		if yamlErr != nil {
 			return nil
 		}
 
-		if jsonErr := json.Unmarshal(converted, &tmpl); jsonErr != nil {
+		if jsonErr := json.Unmarshal(converted, &doc); jsonErr != nil {
 			return nil
 		}
+	}
+
+	resolved, err := json.Marshal(resolveTemplateRefs(doc, templateParamValues(doc, params)))
+	if err != nil {
+		return nil
+	}
+
+	var tmpl conformancePackTemplate
+	if err = json.Unmarshal(resolved, &tmpl); err != nil {
+		return nil
 	}
 
 	logicalIDs := make([]string, 0, len(tmpl.Resources))
@@ -121,16 +133,89 @@ func configRuleFromTemplateResource(
 	}
 }
 
+// templateParamValues merges the template's Parameters defaults with the
+// caller's ConformancePackInputParameters (the latter win).
+func templateParamValues(doc map[string]any, params []ConformancePackInputParameter) map[string]any {
+	values := map[string]any{}
+
+	decls, _ := doc["Parameters"].(map[string]any)
+	for name, decl := range decls {
+		if d, ok := decl.(map[string]any); ok {
+			if def, has := d["Default"]; has {
+				values[name] = def
+			}
+		}
+	}
+
+	for _, p := range params {
+		values[p.ParameterName] = p.ParameterValue
+	}
+
+	return values
+}
+
+// resolveTemplateRefs replaces every {"Ref": "<Param>"} node naming a known
+// parameter with that parameter's value.
+func resolveTemplateRefs(node any, values map[string]any) any {
+	switch n := node.(type) {
+	case map[string]any:
+		if ref, ok := n["Ref"].(string); ok && len(n) == 1 {
+			if v, known := values[ref]; known {
+				return v
+			}
+		}
+
+		out := make(map[string]any, len(n))
+		for k, v := range n {
+			out[k] = resolveTemplateRefs(v, values)
+		}
+
+		return out
+	case []any:
+		out := make([]any, len(n))
+		for i, v := range n {
+			out[i] = resolveTemplateRefs(v, values)
+		}
+
+		return out
+	default:
+		return node
+	}
+}
+
 // yamlToJSON decodes a YAML document into a generic value and re-encodes it
 // as JSON, so the rest of the parser (which only understands JSON struct
 // tags) can consume either format uniformly. yaml.v3 decodes mappings into
 // map[string]any (unlike yaml.v2's map[interface{}]any), which is already
 // JSON-marshalable without a key-type conversion pass.
 func yamlToJSON(body []byte) ([]byte, error) {
+	var root yaml.Node
+	if err := yaml.Unmarshal(body, &root); err != nil {
+		return nil, err
+	}
+
+	rewriteRefTags(&root)
+
 	var v any
-	if err := yaml.Unmarshal(body, &v); err != nil {
+	if err := root.Decode(&v); err != nil {
 		return nil, err
 	}
 
 	return json.Marshal(v)
+}
+
+// rewriteRefTags turns the YAML short form "!Ref Name" into the long form
+// mapping {Ref: Name} so it reaches resolveTemplateRefs.
+func rewriteRefTags(n *yaml.Node) {
+	if n.Tag == "!Ref" && n.Kind == yaml.ScalarNode {
+		key := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "Ref"}
+		val := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: n.Value}
+		*n = yaml.Node{Kind: yaml.MappingNode, Tag: "!!map", Content: []*yaml.Node{key, val}}
+
+		return
+	}
+
+	for _, c := range n.Content {
+		rewriteRefTags(c)
+	}
 }

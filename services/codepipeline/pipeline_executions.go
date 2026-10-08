@@ -80,15 +80,21 @@ func (b *InMemoryBackend) ListActionExecutions(
 			continue
 		}
 
-		out = append(out, map[string]any{
+		item := map[string]any{
 			keyPipelineExecutionID: ae.PipelineExecutionID,
-			"actionExecutionId":    ae.ActionExecutionID,
+			keyActionExecutionID:   ae.ActionExecutionID,
 			"stageName":            ae.StageName,
 			"actionName":           ae.ActionName,
 			"startTime":            float64(ae.StartTime.Unix()),
 			"lastUpdateTime":       float64(ae.LastUpdateTime.Unix()),
 			keyStatus:              ae.Status,
-		})
+		}
+
+		if output := actionExecutionOutput(ae); output != nil {
+			item["output"] = output
+		}
+
+		out = append(out, item)
 	}
 
 	return out, nil
@@ -175,4 +181,37 @@ func hasActionExecution(execs []*ActionExecution, executionID string) bool {
 	}
 
 	return false
+}
+
+// actionExecutionOutput renders ActionExecutionDetail.output (executionResult
+// and outputVariables) from what a job worker reported, or nil when it reported nothing.
+func actionExecutionOutput(ae *ActionExecution) map[string]any {
+	result := map[string]any{}
+
+	if ae.ExternalExecutionID != "" {
+		result["externalExecutionId"] = ae.ExternalExecutionID
+	}
+
+	if ae.Summary != "" && ae.ExternalExecutionID != "" {
+		result["externalExecutionSummary"] = ae.Summary
+	}
+
+	if ae.ErrorMessage != "" || ae.ErrorCode != "" {
+		result["errorDetails"] = map[string]any{"code": ae.ErrorCode, "message": ae.ErrorMessage}
+	}
+
+	out := map[string]any{}
+	if len(result) > 0 {
+		out["executionResult"] = result
+	}
+
+	if len(ae.OutputVariables) > 0 {
+		out["outputVariables"] = ae.OutputVariables
+	}
+
+	if len(out) == 0 {
+		return nil
+	}
+
+	return out
 }

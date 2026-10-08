@@ -136,6 +136,7 @@ func (b *InMemoryBackend) DeletePipeline(ctx context.Context, name string) error
 	b.pipelines.Delete(key)
 	delete(b.executionsStore(region), name)
 	delete(b.actionExecutionsStore(region), name)
+	b.deleteJobsForPipelineLocked(region, name)
 
 	// Cascade: remove disabled stage transitions for this pipeline.
 	for _, st := range slices.Clone(b.stageTransitionsByPipeline.Get(regionKey(region, name))) {

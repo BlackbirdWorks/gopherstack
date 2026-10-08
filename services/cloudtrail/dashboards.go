@@ -2,6 +2,7 @@ package cloudtrail
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 
@@ -151,7 +152,31 @@ func (b *InMemoryBackend) StartDashboardRefresh(dashIDOrARN string) (*Dashboard,
 	}
 	b.dashboardCounter++
 	d.LastRefreshID = fmt.Sprintf("refresh-%06d", b.dashboardCounter)
+	b.startRefreshQueriesLocked(d)
 	cp := *d
 
 	return &cp, nil
+}
+
+// startRefreshQueriesLocked starts one query per widget of d, tagged with d's
+// refresh ID so DescribeQuery(QueryAlias, RefreshId) can find it. Caller holds b.mu.
+func (b *InMemoryBackend) startRefreshQueriesLocked(d *Dashboard) {
+	for _, w := range d.Widgets {
+		if w.QueryStatement == "" {
+			continue
+		}
+
+		b.queryCounter++
+		b.queries.Put(&Query{
+			QueryID:               fmt.Sprintf("query-%06d", b.queryCounter),
+			EventDataStoreARN:     extractQueryFromTarget(w.QueryStatement),
+			QueryString:           w.QueryStatement,
+			QueryStatus:           queryStatusQueued,
+			QueryAlias:            w.QueryAlias,
+			QueryParameters:       slices.Clone(w.QueryParameters),
+			RefreshID:             d.LastRefreshID,
+			EventDataStoreOwnerID: b.accountID,
+			CreationTime:          time.Now().UTC(),
+		})
+	}
 }

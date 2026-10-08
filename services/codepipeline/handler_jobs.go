@@ -10,6 +10,8 @@ const (
 	keyNonce = "nonce"
 	// keyJobID is the JSON key for job IDs.
 	keyJobID = "id"
+	// keyActionExecutionID is the JSON key for action execution IDs.
+	keyActionExecutionID = "actionExecutionId"
 
 	// maxJobsPerPoll caps the number of jobs returned by a single PollForJobs
 	// or PollForThirdPartyJobs call.
@@ -45,14 +47,36 @@ func (h *Handler) handleAcknowledgeJob(
 	return &acknowledgeJobOutput{Status: status}, nil
 }
 
-type jobDataResponse struct {
-	ActionTypeID ActionTypeID `json:"actionTypeId"`
+// jobData renders types.JobData for job: its action type, and for a job a
+// pipeline run created, the action configuration, pipeline context and any
+// continuation token. Artifact credentials and artifacts are not modeled.
+func (b *InMemoryBackend) jobData(job *Job) map[string]any {
+	data := map[string]any{"actionTypeId": job.ActionTypeID}
+
+	if job.PipelineName == "" {
+		return data
+	}
+
+	data["actionConfiguration"] = map[string]any{"configuration": job.Configuration}
+	data["pipelineContext"] = map[string]any{
+		"pipelineName":        job.PipelineName,
+		"pipelineArn":         b.buildPipelineARN(job.region, job.PipelineName),
+		"pipelineExecutionId": job.ExecutionID,
+		"stage":               map[string]any{"name": job.StageName},
+		"action":              map[string]any{"name": job.ActionName, keyActionExecutionID: job.ActionExecutionID},
+	}
+
+	if job.ContinuationToken != "" {
+		data["continuationToken"] = job.ContinuationToken
+	}
+
+	return data
 }
 
 type jobDetailsResponse struct {
-	Data      jobDataResponse `json:"data"`
-	AccountID string          `json:"accountId"`
-	ID        string          `json:"id"`
+	Data      map[string]any `json:"data"`
+	AccountID string         `json:"accountId"`
+	ID        string         `json:"id"`
 }
 
 type getJobDetailsInput struct {
@@ -80,12 +104,13 @@ func (h *Handler) handleGetJobDetails(
 		JobDetails: jobDetailsResponse{
 			ID:        job.ID,
 			AccountID: h.Backend.accountID,
-			Data:      jobDataResponse{ActionTypeID: job.ActionTypeID},
+			Data:      h.Backend.jobData(job),
 		},
 	}, nil
 }
 
 type pollForJobsInput struct {
+	QueryParam   map[string]string `json:"queryParam"`
 	ActionTypeID struct {
 		Category string `json:"category"`
 		Owner    string `json:"owner"`
@@ -103,9 +128,9 @@ func (h *Handler) handlePollForJobs(
 	ctx context.Context,
 	in *pollForJobsInput,
 ) (*pollForJobsOutput, error) {
-	jobs, err := h.Backend.PollForJobs(
+	jobs, err := h.Backend.PollForJobsQuery(
 		ctx, in.ActionTypeID.Category, in.ActionTypeID.Owner,
-		in.ActionTypeID.Provider, in.ActionTypeID.Version,
+		in.ActionTypeID.Provider, in.ActionTypeID.Version, in.QueryParam,
 	)
 	if err != nil {
 		return nil, err
@@ -125,15 +150,57 @@ func (h *Handler) handlePollForJobs(
 			keyJobID:    j.ID,
 			keyNonce:    j.Nonce,
 			"accountId": h.Backend.accountID,
-			"data":      jobDataResponse{ActionTypeID: j.ActionTypeID},
+			"data":      h.Backend.jobData(j),
 		}
 	}
 
 	return &pollForJobsOutput{Jobs: items}, nil
 }
 
+type executionDetailsInput struct {
+	Summary             string `json:"summary"`
+	ExternalExecutionID string `json:"externalExecutionId"`
+	PercentComplete     int32  `json:"percentComplete"`
+}
+
+type currentRevisionInput struct {
+	Revision         string  `json:"revision"`
+	ChangeIdentifier string  `json:"changeIdentifier"`
+	Created          float64 `json:"created"`
+}
+
 type putJobSuccessResultInput struct {
-	JobID string `json:"jobId"`
+	CurrentRevision   *currentRevisionInput  `json:"currentRevision"`
+	ExecutionDetails  *executionDetailsInput `json:"executionDetails"`
+	OutputVariables   map[string]string      `json:"outputVariables"`
+	JobID             string                 `json:"jobId"`
+	ContinuationToken string                 `json:"continuationToken"`
+}
+
+func (in putJobSuccessResultInput) result() JobSuccess {
+	return buildJobSuccess(in.CurrentRevision, in.ExecutionDetails, in.OutputVariables, in.ContinuationToken)
+}
+
+func buildJobSuccess(
+	rev *currentRevisionInput, details *executionDetailsInput, vars map[string]string, token string,
+) JobSuccess {
+	res := JobSuccess{OutputVariables: vars, ContinuationToken: token}
+
+	if rev != nil {
+		res.CurrentRevision = &JobCurrentRevision{
+			Revision: rev.Revision, ChangeIdentifier: rev.ChangeIdentifier, Created: rev.Created,
+		}
+	}
+
+	if details != nil {
+		res.ExecutionDetails = &JobExecutionDetails{
+			ExternalExecutionID: details.ExternalExecutionID,
+			Summary:             details.Summary,
+			PercentComplete:     details.PercentComplete,
+		}
+	}
+
+	return res
 }
 
 func (h *Handler) handlePutJobSuccessResult(
@@ -144,14 +211,15 @@ func (h *Handler) handlePutJobSuccessResult(
 		return nil, fmt.Errorf("%w: jobId is required", errInvalidRequest)
 	}
 
-	return &emptyOut{}, h.Backend.PutJobSuccessResult(ctx, in.JobID)
+	return &emptyOut{}, h.Backend.PutJobSuccessResultWith(ctx, in.JobID, in.result())
 }
 
 type putJobFailureResultInput struct {
 	JobID          string `json:"jobId"`
 	FailureDetails struct {
-		Message string `json:"message"`
-		Type    string `json:"type"`
+		Message             string `json:"message"`
+		Type                string `json:"type"`
+		ExternalExecutionID string `json:"externalExecutionId"`
 	} `json:"failureDetails"`
 }
 
@@ -163,5 +231,8 @@ func (h *Handler) handlePutJobFailureResult(
 		return nil, fmt.Errorf("%w: jobId is required", errInvalidRequest)
 	}
 
-	return &emptyOut{}, h.Backend.PutJobFailureResult(ctx, in.JobID, in.FailureDetails.Message, in.FailureDetails.Type)
+	return &emptyOut{}, h.Backend.PutJobFailureResultWith(ctx, in.JobID, JobFailure{
+		Message: in.FailureDetails.Message, Type: in.FailureDetails.Type,
+		ExternalExecutionID: in.FailureDetails.ExternalExecutionID,
+	})
 }

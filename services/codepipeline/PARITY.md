@@ -7,7 +7,7 @@
 service: codepipeline
 sdk_module: aws-sdk-go-v2/service/codepipeline@v1.54.0   # version audited against
 last_audit_commit: d4dc4a723
-last_audit_date: 2026-09-18
+last_audit_date: 2026-10-07
 overall: A            # 2026-09-08 (gopherstack-wlab) re-audit of the same 7 findings, using
 # botocore codepipeline/2015-07-09/service-2.json as the declared-error-set oracle (its per-op
 # "errors" lists are IDENTICAL to what gopherstack-3djp cited from codepipeline@v1.49.4's
@@ -139,13 +139,16 @@ families:
   approvalGate: {status: ok, note: "NEW in the 2026-07-23 pass: StartPipelineExecution/PutActionRevision/PutApprovalResult/RetryStageExecution/RollbackStage all now share one action-run engine (action_engine.go) that gates on Approval-category actions with a real system-generated token, exposed only via GetPipelineState (matching real AWS -- there is no other way for a real client to obtain it). This closed 3 of the 4 gaps and all 3 deferred items from the 2026-07-12 audit at once, since they all stemmed from the SAME missing action-state machine. Unchanged, not re-diffed this pass."}
 gaps: []
 items_still_open:
-  - "gopherstack-wlab (2026-09-08, reconfirmed 2026-09-18): CreateCustomActionType/DeleteCustomActionType/DeletePipeline/UpdatePipeline/OverrideStageCondition/RetryStageExecution/StopPipelineExecution each emit a wire error code (InvalidStructureException/ActionTypeNotFoundException/PipelineNotFoundException x2/PipelineExecutionNotFoundException x3) absent from that op's own declared set per botocore codepipeline/2015-07-09/service-2.json -- kept undeclared: every declared candidate's doc text was checked and none fits (see the landmine comment at each call site). codepipeline's schema-based SDK (v1.54.0, zero deserializeOpError<Op> functions) means a real client's errors.As still resolves each to its own concrete exception type regardless (undeclared_error_codes_test.go), so this is a real-but-lower-severity AWS-error-model divergence, not a client-breaking one. Standing answer; no further follow-up needed absent new evidence."
-  - "PollForJobs.QueryParam and the PutJobSuccessResult/PutThirdPartyJobSuccessResult members ContinuationToken, CurrentRevision, ExecutionDetails and OutputVariables are not applied: no action-configuration model to match QueryParam against and no job engine to consume the results."
-  - "ListActionTypes lists only custom action types; the AWS-owned and third-party built-in catalog (with its artifact details and settings) is not modeled, so ActionOwnerFilter=AWS returns nothing."
-  - "Needs a subsystem this backend lacks (condition-rule engine, artifact store, STS credentials, Job creation from pipeline runs, deploy targets): OverrideStageCondition mutates no state; JobData/ThirdPartyJobData carry only ActionTypeId; Job failure/success details have no read-back (Jobs are only created by test-only AddJobInternal; FailureDetails.ExternalExecutionId unparsed); ListDeployActionExecutionTargets and ListRuleExecutions return empty; PipelineExecution.ArtifactRevisions/StatusSummary are omitted."
-  - "No AWS-documented derivation or evidence: ListRuleTypes omits RuleType.InputArtifactDetails (no documented per-provider min/max counts); ListWebhookItem.ErrorCode/ErrorMessage are never set (registration always succeeds)."
+  - "gopherstack-wlab (2026-09-08, reconfirmed 2026-09-18): CreateCustomActionType/DeleteCustomActionType/DeletePipeline/UpdatePipeline/OverrideStageCondition/RetryStageExecution/StopPipelineExecution each emit a wire error code (InvalidStructureException/ActionTypeNotFoundException/PipelineNotFoundException x2/PipelineExecutionNotFoundException x3) absent from that op's own declared set per botocore codepipeline/2015-07-09/service-2.json; every declared candidate's doc text was checked and none fits, and a real client's errors.As still resolves each to its own concrete type (undeclared_error_codes_test.go). The real code is not determinable from the SDK."
+  - "OverrideStageCondition mutates no state and ListRuleExecutions returns empty (no condition-rule engine); PipelineExecution.ArtifactRevisions/StatusSummary are omitted."
+  - "No AWS-documented derivation or evidence: ListRuleTypes omits RuleType.InputArtifactDetails (no documented per-provider min/max counts)."
   - "handleError's InvalidActionException (unknown-action routing fallback) names no type codepipeline@v1.49.4 declares; see the 2026-08-29 errcodeaudit note."
-  - "Built-in action providers are inert except Build/CodeBuild, Invoke/Lambda and Deploy/CodeDeploy (accept/reject only, not the real job-callback mechanism, gopherstack-ary/cb9l); S3 source/deploy and every other provider always Succeed in runOneAction."
+structural_gaps:
+  - "ListActionTypes lists only custom action types; the AWS-owned and third-party built-in catalog (artifact details, settings) is AWS-owned reference data with no SDK source, so ActionOwnerFilter=AWS returns nothing."
+  - "JobData/ThirdPartyJobData omit ArtifactCredentials, InputArtifacts, OutputArtifacts and EncryptionKey: no artifact store or STS exists to issue them."
+  - "ListDeployActionExecutionTargets returns empty: no real deploy targets exist behind Deploy actions."
+  - "ListWebhookItem.ErrorCode/ErrorMessage are never set: webhook registration against a third party cannot fail in an emulator."
+  - "Built-in action providers other than Build/CodeBuild, Invoke/Lambda and Deploy/CodeDeploy (S3, ECR, CodeCommit, ...) always Succeed in runOneAction: no real source/deploy targets. Custom-owner actions are real: a Queued job is created for the worker (PollForJobs/Put*JobResult)."
 deferred:
   - "Subsystem-gated work: see items_still_open."
 leaks: {status: clean, note: "DeletePipeline now cascade-clears executionsStore, actionExecutionsStore, AND actionRevisionsStore (the last one is new this pass) for the deleted pipeline name; StopPipelineExecution now abandons+clears the token of any action execution left InProgress on a pending approval gate rather than leaving it silently unresolved forever; no goroutines/janitors in this service"}

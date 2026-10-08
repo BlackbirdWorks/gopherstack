@@ -63,7 +63,9 @@ func (b *InMemoryBackend) getJobLocked(ctx context.Context, jobID string) (*Job,
 // given ActionTypeID, in ID order. Callers must already hold b.mu (either
 // side): the returned pointers alias the store, so a caller wanting to
 // mutate them (e.g. to lazily issue a ClientID) must hold the write lock.
-func (b *InMemoryBackend) pollForJobsLocked(ctx context.Context, category, owner, provider, version string) []*Job {
+func (b *InMemoryBackend) pollForJobsLocked(
+	ctx context.Context, category, owner, provider, version string, query map[string]string,
+) []*Job {
 	entries := b.jobsByRegion.Get(getRegion(ctx, b.region))
 
 	result := make([]*Job, 0, len(entries))
@@ -82,6 +84,10 @@ func (b *InMemoryBackend) pollForJobsLocked(ctx context.Context, category, owner
 			continue
 		}
 
+		if !jobMatchesQuery(job, query) {
+			continue
+		}
+
 		result = append(result, job)
 	}
 
@@ -94,10 +100,18 @@ func (b *InMemoryBackend) pollForJobsLocked(ctx context.Context, category, owner
 
 // PollForJobs returns available queued jobs matching the given ActionTypeID.
 func (b *InMemoryBackend) PollForJobs(ctx context.Context, category, owner, provider, version string) ([]*Job, error) {
+	return b.PollForJobsQuery(ctx, category, owner, provider, version, nil)
+}
+
+// PollForJobsQuery is PollForJobs narrowed to jobs whose action configuration
+// matches every key/value in query.
+func (b *InMemoryBackend) PollForJobsQuery(
+	ctx context.Context, category, owner, provider, version string, query map[string]string,
+) ([]*Job, error) {
 	b.mu.RLock("PollForJobs")
 	defer b.mu.RUnlock()
 
-	jobs := b.pollForJobsLocked(ctx, category, owner, provider, version)
+	jobs := b.pollForJobsLocked(ctx, category, owner, provider, version, query)
 
 	result := make([]*Job, len(jobs))
 	for i, j := range jobs {
@@ -110,6 +124,11 @@ func (b *InMemoryBackend) PollForJobs(ctx context.Context, category, owner, prov
 
 // PutJobSuccessResult acknowledges job success.
 func (b *InMemoryBackend) PutJobSuccessResult(ctx context.Context, jobID string) error {
+	return b.PutJobSuccessResultWith(ctx, jobID, JobSuccess{})
+}
+
+// PutJobSuccessResultWith is PutJobSuccessResult carrying the optional result members.
+func (b *InMemoryBackend) PutJobSuccessResultWith(ctx context.Context, jobID string, res JobSuccess) error {
 	b.mu.Lock("PutJobSuccessResult")
 	defer b.mu.Unlock()
 
@@ -118,13 +137,16 @@ func (b *InMemoryBackend) PutJobSuccessResult(ctx context.Context, jobID string)
 		return err
 	}
 
-	job.Status = "Succeeded"
-
-	return nil
+	return b.completeJobSuccessLocked(job, res)
 }
 
 // PutJobFailureResult acknowledges job failure.
 func (b *InMemoryBackend) PutJobFailureResult(ctx context.Context, jobID, message, failureType string) error {
+	return b.PutJobFailureResultWith(ctx, jobID, JobFailure{Message: message, Type: failureType})
+}
+
+// PutJobFailureResultWith is PutJobFailureResult carrying the full FailureDetails.
+func (b *InMemoryBackend) PutJobFailureResultWith(ctx context.Context, jobID string, fail JobFailure) error {
 	b.mu.Lock("PutJobFailureResult")
 	defer b.mu.Unlock()
 
@@ -133,9 +155,15 @@ func (b *InMemoryBackend) PutJobFailureResult(ctx context.Context, jobID, messag
 		return err
 	}
 
-	job.Status = "Failed"
-	job.FailureMessage = message
-	job.FailureType = failureType
+	return b.completeJobFailureLocked(job, fail)
+}
 
-	return nil
+func jobMatchesQuery(job *Job, query map[string]string) bool {
+	for k, v := range query {
+		if job.Configuration[k] != v {
+			return false
+		}
+	}
+
+	return true
 }
