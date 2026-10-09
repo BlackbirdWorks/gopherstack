@@ -1110,6 +1110,8 @@ func httpErr(c *echo.Context, err error) error {
 		return writeError(c, http.StatusConflict, "ConflictException", err.Error())
 	case errors.Is(err, awserr.ErrConflict):
 		return writeError(c, http.StatusConflict, "ConflictException", err.Error())
+	case errors.Is(err, ErrSessionLifetimeInvalid):
+		return writeError(c, http.StatusBadRequest, errSessionLifetimeInvalid, err.Error())
 	case errors.Is(err, awserr.ErrInvalidParameter):
 		return writeError(c, http.StatusBadRequest, errInvalidParam, err.Error())
 	}

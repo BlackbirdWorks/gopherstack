@@ -84,6 +84,21 @@ func (b *InMemoryBackend) CreatePackageGroup(
 		)
 	}
 
+	pg := b.putPackageGroupLocked(region, domainName, pattern, description, contactInfo, kv)
+	cp := *pg
+
+	return &cp, nil
+}
+
+// rootPackageGroupPattern is the group every domain contains automatically
+// (docs.aws.amazon.com/codeartifact/latest/ug/package-groups.html).
+const rootPackageGroupPattern = "/*"
+
+// putPackageGroupLocked stores a new package group. Callers hold b.mu and have validated pattern.
+func (b *InMemoryBackend) putPackageGroupLocked(
+	region, domainName, pattern, description, contactInfo string, kv map[string]string,
+) *PackageGroup {
+	key := packageGroupKey(domainName, pattern)
 	pgARN := arn.Build("codeartifact", region, b.accountID, "package-group/"+domainName+pattern)
 	t := tags.New("codeartifact.package-group." + key + ".tags")
 	if len(kv) > 0 {
@@ -100,10 +115,24 @@ func (b *InMemoryBackend) CreatePackageGroup(
 		Tags:        t,
 		region:      region,
 	}
+	if pattern == rootPackageGroupPattern {
+		pg.Restrictions = map[string]*PackageGroupRestriction{}
+		for rt := range validRestrictionTypes {
+			pg.Restrictions[rt] = &PackageGroupRestriction{Mode: restrictionModeAllow}
+		}
+	}
 	b.packageGroups.Put(pg)
-	cp := *pg
 
-	return &cp, nil
+	return pg
+}
+
+// ensureRootPackageGroupsLocked creates the root group for any domain lacking one.
+func (b *InMemoryBackend) ensureRootPackageGroupsLocked() {
+	for _, d := range b.domains.All() {
+		if !b.packageGroups.Has(regionKey(d.Region, packageGroupKey(d.Name, rootPackageGroupPattern))) {
+			b.putPackageGroupLocked(d.Region, d.Name, rootPackageGroupPattern, "", "", nil)
+		}
+	}
 }
 
 // DescribePackageGroup returns a package group by domain and pattern.
@@ -133,6 +162,10 @@ func (b *InMemoryBackend) DeletePackageGroup(ctx context.Context, domainName, pa
 	pg, ok := b.packageGroups.Get(regionKey(region, key))
 	if !ok {
 		return nil, fmt.Errorf("%w: package group %s not found in domain %s", ErrNotFound, pattern, domainName)
+	}
+
+	if pattern == rootPackageGroupPattern {
+		return nil, fmt.Errorf("%w: the root package group %s cannot be deleted", ErrValidation, pattern)
 	}
 	cp := *pg
 	b.packageGroups.Delete(regionKey(region, key))

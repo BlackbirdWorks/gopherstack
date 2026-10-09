@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 11 (10 ok, 1 partial) |
 | Feature families | 6 (6 ok) |
-| Known gaps | 4 |
+| Known gaps | 3 |
 | Structural gaps (can't be emulated) | 5 |
 | Deferred items | 0 |
 | Resource leaks | clean |
@@ -17,9 +17,8 @@
 ### Known gaps
 
 - chaos.FaultError cannot carry ModelErrorException's OriginalStatusCode/ResourceName: needs a per-service extension point in shared pkgs/chaos, outside this service (bd: gopherstack-ayfw).
-- AsyncInvokeStatusFailed/FailureMessage are unreachable: the janitor only moves InProgress -> Completed and the pinned SDK documents no trigger for a Failed transition (unverifiable).
-- Converse guardrailConfig is opaque and not checked for identifier-requires-version: no SDK doc states that rule for the Converse body (InvokeModel's header rule is documented) (unverifiable).
-- RequestMetadata is not validated: the pinned SDK documents no bounds on it (unverifiable).
+- AsyncInvokeStatusFailed/FailureMessage are unreachable: the janitor only moves InProgress -> Completed; the StartAsyncInvoke/GetAsyncInvoke docs name no condition that produces Failed.
+- Converse guardrailConfig accepts an identifier without a version: GuardrailConfiguration marks both members optional (patterns allow empty) and no doc says a version is required (InvokeModel's header rule is documented; patterns and trace/streamProcessingMode enums are enforced).
 
 ### Structural gaps
 

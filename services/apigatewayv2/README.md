@@ -15,10 +15,10 @@
 
 ### Known gaps
 
-- DeleteRoute/DeleteStage/DeleteIntegration on a quick-create (apiGatewayManaged) resource are not rejected (gopherstack-2tx): the SDK says a managed integration cannot be deleted but lists only NotFoundException/TooManyRequestsException for these ops, so no error code can be verified.
-- ImportApi/ReimportApi basepath=split falls back to ignore, and failOnWarnings never escalates: the SDK describes split only by a docs link and defines no warning texts (gopherstack-jni0).
-- A stage with no deployment still serves live routes, and authorizer/CORS config is resolved live rather than from the deployment snapshot: the SDK does not say what a Deployment freezes (gopherstack-vli).
-- GetProductRestEndpointPage never returns RawDisplayContent: the SDK describes it only as 'the raw display content' with no format.
+- DeleteRoute/DeleteStage on a quick-create (apiGatewayManaged) resource are not rejected (gopherstack-2tx): the SDK says only that the $default route key and $default stage can't be modified (both enforced); unlike integrations ('you can't delete it', enforced), it is silent on deleting them.
+- ImportApi/ReimportApi failOnWarnings escalates only unsupported integration types (docs: HTTP APIs support only Lambda proxy and HTTP proxy); other warning classes and ImportInfo texts are not enumerated in the docs, so none are produced (gopherstack-jni0).
+- A stage with no deployment still serves live routes, and authorizer/CORS config is resolved live rather than from the deployment snapshot: the developer guide says a deployment is a snapshot and changes need deploying, but not what an undeployed stage returns or whether authorizers/CORS are frozen (live serving is a deliberate dev-flow choice, gopherstack-cfr1).
+- GetProductRestEndpointPage never returns RawDisplayContent: the SDK describes it only as 'the raw display content' and the API reference page carries no format or example.
 
 ### Structural gaps
 

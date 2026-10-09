@@ -9,17 +9,16 @@
 | --- | --- |
 | PARITY entries audited | 81 (81 ok) |
 | Feature families | 25 (25 ok) |
-| Known gaps | 4 |
+| Known gaps | 3 |
 | Structural gaps (can't be emulated) | 7 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- BatchDescribeUserLimits AGENT_HOURS SYSTEM_DEFAULT (4 STANDARD / 8 ENTERPRISE) has no primary AWS source (API_EffectiveLimit.html gives no default); the figure is from third-party pricing coverage. Correct it if AWS documents one.
-- DescribeTopicV2/DescribeTopic do not project each other's family-only fields (V1 ConfigOptions/full DatasetMetadata, V2 DataSetRelations/CustomInstructions): the schemas are not convertible and the SDK documents no projection.
-- KnowledgeBaseSummary.Type: the SDK does not say what the type is derived from.
-- The error code for a bad SessionLifetimeInMinutes/AllowedDomains value, the code for AdditionalDashboardIds with a non-ANONYMOUS identity, the INITIAL_INGESTION and EDIT request types of dataset-triggered ingestions, and RestoreToFolders=false dropping folder memberships are from the SDK docs' wording, not observed against AWS.
+- DescribeTopicV2/DescribeTopic do not project each other's family-only fields (V1 ConfigOptions/full DatasetMetadata, V2 DataSetRelations/CustomInstructions): the schemas are not convertible and neither the SDK nor the API reference documents a projection.
+- KnowledgeBaseSummary.Type is a free string (*string, no enum) and no doc says what it is derived from.
+- Embed/ingestion edge semantics not documented: the error code for AdditionalDashboardIds with a non-ANONYMOUS identity (InvalidParameterValueException used; IdentityTypeNotSupportedException's doc names only IAM/QUICKSIGHT), the INITIAL_INGESTION and EDIT dataset-triggered ingestion request types, and RestoreToFolders=false dropping folder memberships.
 
 ### Structural gaps
 

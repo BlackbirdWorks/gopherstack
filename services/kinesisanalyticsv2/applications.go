@@ -44,6 +44,7 @@ func (b *InMemoryBackend) CreateApplication(
 		OutputDescriptions:                []OutputDescription{},
 		ReferenceDataSourceDescriptions:   []ReferenceDataSourceDescription{},
 		VpcConfigurationDescriptions:      []VpcConfigurationDescription{},
+		MaintenanceWindowStartTime:        defaultMaintenanceStart(region, runtimeEnv),
 	}
 	b.applications.Put(app)
 	b.versionsStore(region)[name] = []*Application{appCopy(app)}

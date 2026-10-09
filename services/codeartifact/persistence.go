@@ -222,6 +222,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		snap.ExternalConnections = make(map[string]map[string][]ExternalConnection)
 	}
 	b.externalConnections = snap.ExternalConnections
+	b.ensureRootPackageGroupsLocked()
 
 	b.accountID = snap.AccountID
 	b.region = snap.Region

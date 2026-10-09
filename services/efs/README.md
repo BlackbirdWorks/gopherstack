@@ -9,16 +9,15 @@
 | --- | --- |
 | PARITY entries audited | 31 (31 ok) |
 | Feature families | 9 (9 ok) |
-| Known gaps | 4 |
+| Known gaps | 3 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- DeleteFileSystem rejects (FileSystemInUse) while access points exist; efs@v1.44.4 documents FileSystemInUse only for mount targets and replication, so this may be an over-restriction, but the SDK does not settle it and the behavior is tested (TestDeleteFileSystem_RequiresEmptyState).
-- ThroughputLimitExceeded is not enforced: the quota is region-dependent and the SDK cites a flat 1024 MiB/s that conflicts with it.
-- NetworkInterfaceLimitExceeded is not enforced: it keys off the per-region network-interface quota, whose value is not in the pinned SDK (NoFreeAddressesInSubnet is enforced from the subnet CIDR minus EC2 ENI and EFS mount-target addresses).
-- The 1,400 mount-targets-per-VPC cap (MountTargetConflict) is not enforced: the figure is not in the pinned SDK.
+- DeleteFileSystem rejects (FileSystemInUse) while access points exist; API_DeleteFileSystem documents FileSystemInUse only for mount targets and replication, and nothing documents access points, so this may be an over-restriction (tested in TestDeleteFileSystem_RequiresEmptyState).
+- NetworkInterfaceLimitExceeded is not enforced: it keys off the VPC 'Network interfaces per Region' quota (VPC User Guide), which also counts ENIs from non-EFS resources this backend does not model (NoFreeAddressesInSubnet is enforced from the subnet CIDR minus EC2 ENI and EFS mount-target addresses).
+- The 1,400 mount-targets-per-VPC cap is not enforced: the EFS quotas page gives the figure but CreateMountTarget's documented errors name no code for exceeding it.
 
 ### Deferred
 

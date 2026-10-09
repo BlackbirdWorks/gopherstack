@@ -74,10 +74,9 @@ families:
   AccountPreferences: {status: ok}
 gaps: []
 items_still_open:
-  - "DeleteFileSystem rejects (FileSystemInUse) while access points exist; efs@v1.44.4 documents FileSystemInUse only for mount targets and replication, so this may be an over-restriction, but the SDK does not settle it and the behavior is tested (TestDeleteFileSystem_RequiresEmptyState)."
-  - "ThroughputLimitExceeded is not enforced: the quota is region-dependent and the SDK cites a flat 1024 MiB/s that conflicts with it."
-  - "NetworkInterfaceLimitExceeded is not enforced: it keys off the per-region network-interface quota, whose value is not in the pinned SDK (NoFreeAddressesInSubnet is enforced from the subnet CIDR minus EC2 ENI and EFS mount-target addresses)."
-  - "The 1,400 mount-targets-per-VPC cap (MountTargetConflict) is not enforced: the figure is not in the pinned SDK."
+  - "DeleteFileSystem rejects (FileSystemInUse) while access points exist; API_DeleteFileSystem documents FileSystemInUse only for mount targets and replication, and nothing documents access points, so this may be an over-restriction (tested in TestDeleteFileSystem_RequiresEmptyState)."
+  - "NetworkInterfaceLimitExceeded is not enforced: it keys off the VPC 'Network interfaces per Region' quota (VPC User Guide), which also counts ENIs from non-EFS resources this backend does not model (NoFreeAddressesInSubnet is enforced from the subnet CIDR minus EC2 ENI and EFS mount-target addresses)."
+  - "The 1,400 mount-targets-per-VPC cap is not enforced: the EFS quotas page gives the figure but CreateMountTarget's documented errors name no code for exceeding it."
 deferred:
   - DescribeTags pagination (Marker/MaxItems) -- see gaps; capped at 50 tags/resource so unreachable in practice.
 leaks: {status: clean, note: "fixed 2026-09-24 (background-timer audit): CreateFileSystem's fsActivationDelay simulation used to spawn an untracked `go func(){ time.Sleep(...); ... }()` per call, unbounded by the backend's lifecycle -- a real (if test-only, since fsActivationDelay is 0 outside tests) pile-up/leak risk. Replaced with effectiveFileSystemState, a pure function computing creating->available lazily from CreationTime+fsActivationDelay: no goroutine or timer exists at all now. DescribeFileSystems and checkFileSystemAvailable (renamed to a *InMemoryBackend method so it can see fsActivationDelay) both resolve through it, so every read/gate sees the promoted state without mutating shared state under RLock. lazy_activation_test.go (testing/synctest) proves creating holds pre-deadline and available appears post-deadline. No new persisted fields."}

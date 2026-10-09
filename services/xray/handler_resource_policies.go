@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -76,7 +77,7 @@ type putResourcePolicyInput struct {
 	BypassPolicyLockoutCheck bool   `json:"BypassPolicyLockoutCheck"`
 }
 
-func (h *Handler) handlePutResourcePolicy(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handlePutResourcePolicy(ctx context.Context, body []byte) ([]byte, error) {
 	var in putResourcePolicyInput
 	if len(body) > 0 {
 		if err := json.Unmarshal(body, &in); err != nil {
@@ -86,6 +87,13 @@ func (h *Handler) handlePutResourcePolicy(_ context.Context, body []byte) ([]byt
 
 	if in.PolicyName == "" {
 		return nil, fmt.Errorf("%w: PolicyName is required", errInvalidRequest)
+	}
+
+	if !in.BypassPolicyLockoutCheck && policyLocksOutCaller(in.PolicyDocument, awsmeta.CallerArn(ctx)) {
+		return nil, fmt.Errorf(
+			"%w: the policy would prevent the caller from calling PutResourcePolicy",
+			ErrLockoutPrevention,
+		)
 	}
 
 	p, err := h.Backend.PutResourcePolicy(in.PolicyName, in.PolicyDocument, in.PolicyRevisionID)

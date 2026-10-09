@@ -20,6 +20,7 @@ type converseContent struct {
 
 // converseRequest represents the parsed Converse request body.
 type converseRequest struct {
+	RequestMetadata   map[string]string      `json:"requestMetadata,omitempty"`
 	ServiceTier       *serviceTierBody       `json:"serviceTier,omitempty"`
 	PerformanceConfig *performanceConfigBody `json:"performanceConfig,omitempty"`
 	Messages          []converseMessage      `json:"messages"`
@@ -49,7 +50,11 @@ func validateConverseConfig(req *converseRequest) string {
 		return "performanceConfig.latency must be one of standard, optimized"
 	}
 
-	return ""
+	if msg := validateRequestMetadata(req.RequestMetadata); msg != "" {
+		return msg
+	}
+
+	return validateGuardrailConfig(req.GuardrailConfig)
 }
 
 // echoConverseConfig reflects the requested tier and latency on the response;

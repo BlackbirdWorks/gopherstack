@@ -13,6 +13,8 @@ const (
 	errConflictException = "ConflictException"
 	errResourceExists    = "ResourceExistsException"
 	errValidation        = "InvalidParameterValueException"
+
+	errSessionLifetimeInvalid = "SessionLifetimeInMinutesInvalidException"
 )
 
 var (
@@ -166,6 +168,8 @@ var (
 	ErrDataSetRefreshPropertiesNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 	// ErrValidation is returned on invalid input.
 	ErrValidation = awserr.New(errValidation, awserr.ErrInvalidParameter)
+	// ErrSessionLifetimeInvalid is returned when an embed SessionLifetimeInMinutes is outside 15-600.
+	ErrSessionLifetimeInvalid = awserr.New(errSessionLifetimeInvalid, awserr.ErrInvalidParameter)
 	// ErrUnknownOperation is returned when the requested operation is not implemented.
 	ErrUnknownOperation = errors.New("unknown operation")
 	// ErrActionConnectorNotFound is returned when an action connector does not exist.

@@ -13,16 +13,45 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
+const (
+	maxProvisionedThroughputMib   = 3414
+	defaultProvisionedLimitMib    = 1024
+	provisionedThroughputRangeMsg = "ProvisionedThroughputInMibps must be between 1 and 3414"
+)
+
+// provisionedThroughputLimit is the per-region provisioned write-throughput quota in MiBps
+// (efs limits page: 3.33 GiBps in us-east-1/us-east-2/us-west-2/eu-west-1, 1 GiBps elsewhere;
+// the SDK documents 1-3414 with the upper limit depending on Region).
+func provisionedThroughputLimit(region string) float64 {
+	switch region {
+	case "us-east-1", "us-east-2", "us-west-2", "eu-west-1":
+		return maxProvisionedThroughputMib
+	default:
+		return defaultProvisionedLimitMib
+	}
+}
+
+// checkProvisionedQuota rejects a value inside the SDK's 1-3414 range that exceeds the region quota.
+func checkProvisionedQuota(region string, mib float64) error {
+	if limit := provisionedThroughputLimit(region); mib > limit {
+		return fmt.Errorf(
+			"%w: provisioned throughput %g MiB/s exceeds the %g MiB/s limit in %s",
+			ErrThroughputLimitExceeded, mib, limit, region,
+		)
+	}
+
+	return nil
+}
+
 // validateProvisionedThroughput checks provisioned throughput constraints.
-func validateProvisionedThroughput(mode string, mib float64) error {
+func validateProvisionedThroughput(region, mode string, mib float64) error {
 	if mode == throughputModeProvisioned {
-		if mib < 1 || mib > 1024 {
-			return fmt.Errorf(
-				"%w: ProvisionedThroughputInMibps must be between 1 and 1024 when ThroughputMode is provisioned, got %g",
-				ErrValidation,
-				mib,
-			)
+		if mib < 1 || mib > maxProvisionedThroughputMib {
+			return fmt.Errorf("%w: %s when ThroughputMode is provisioned, got %g",
+				ErrValidation, provisionedThroughputRangeMsg, mib)
 		}
+
+		return checkProvisionedQuota(region, mib)
 	} else if mib != 0 {
 		return fmt.Errorf(
 			"%w: ProvisionedThroughputInMibps is only valid when ThroughputMode is provisioned",
@@ -35,7 +64,7 @@ func validateProvisionedThroughput(mode string, mib float64) error {
 
 // validateCreateFSRequest validates and normalizes a CreateFileSystemRequest,
 // returning the resolved KMS key ID on success.
-func validateCreateFSRequest(req *CreateFileSystemRequest) (string, error) {
+func validateCreateFSRequest(region string, req *CreateFileSystemRequest) (string, error) {
 	if len(req.CreationToken) > maxCreationTokenLen {
 		return "", fmt.Errorf(
 			"%w: CreationToken length must be 1-%d, got %d",
@@ -74,7 +103,7 @@ func validateCreateFSRequest(req *CreateFileSystemRequest) (string, error) {
 		)
 	}
 
-	if err := validateProvisionedThroughput(req.ThroughputMode, req.ProvisionedThroughputMib); err != nil {
+	if err := validateProvisionedThroughput(region, req.ThroughputMode, req.ProvisionedThroughputMib); err != nil {
 		return "", err
 	}
 
@@ -149,12 +178,12 @@ func (b *InMemoryBackend) CreateFileSystem(
 	ctx context.Context,
 	req CreateFileSystemRequest,
 ) (*FileSystem, error) {
-	kmsKeyID, err := validateCreateFSRequest(&req)
+	region := getRegion(ctx, b.region)
+
+	kmsKeyID, err := validateCreateFSRequest(region, &req)
 	if err != nil {
 		return nil, err
 	}
-
-	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("CreateFileSystem")
 	defer b.mu.Unlock()
@@ -330,6 +359,7 @@ func (b *InMemoryBackend) DeleteFileSystem(ctx context.Context, fileSystemID str
 // helper's only caller) declares BadRequest, never ValidationException, for
 // malformed input (efs@v1.44.4 deserializers.go).
 func (b *InMemoryBackend) applyThroughputModeChange(
+	region string,
 	fs *FileSystem,
 	req UpdateFileSystemRequest,
 ) error {
@@ -353,12 +383,13 @@ func (b *InMemoryBackend) applyThroughputModeChange(
 	}
 
 	if req.ThroughputMode == throughputModeProvisioned {
-		if req.ProvisionedThroughputMib < 1 || req.ProvisionedThroughputMib > 1024 {
-			return fmt.Errorf(
-				"%w: ProvisionedThroughputInMibps must be between 1 and 1024 when ThroughputMode is provisioned, got %g",
-				ErrBadRequest,
-				req.ProvisionedThroughputMib,
-			)
+		if req.ProvisionedThroughputMib < 1 || req.ProvisionedThroughputMib > maxProvisionedThroughputMib {
+			return fmt.Errorf("%w: %s when ThroughputMode is provisioned, got %g",
+				ErrBadRequest, provisionedThroughputRangeMsg, req.ProvisionedThroughputMib)
+		}
+
+		if err := checkProvisionedQuota(region, req.ProvisionedThroughputMib); err != nil {
+			return err
 		}
 	}
 
@@ -426,7 +457,7 @@ func (b *InMemoryBackend) UpdateFileSystem(
 	}
 
 	if req.ThroughputMode != "" {
-		if err := b.applyThroughputModeChange(fs, req); err != nil {
+		if err := b.applyThroughputModeChange(region, fs, req); err != nil {
 			return nil, err
 		}
 	}
@@ -438,12 +469,13 @@ func (b *InMemoryBackend) UpdateFileSystem(
 				ErrBadRequest,
 			)
 		}
-		if req.ProvisionedThroughputMib < 1 || req.ProvisionedThroughputMib > 1024 {
-			return nil, fmt.Errorf(
-				"%w: ProvisionedThroughputInMibps must be between 1 and 1024, got %g",
-				ErrBadRequest,
-				req.ProvisionedThroughputMib,
-			)
+		if req.ProvisionedThroughputMib < 1 || req.ProvisionedThroughputMib > maxProvisionedThroughputMib {
+			return nil, fmt.Errorf("%w: %s, got %g",
+				ErrBadRequest, provisionedThroughputRangeMsg, req.ProvisionedThroughputMib)
+		}
+
+		if err := checkProvisionedQuota(region, req.ProvisionedThroughputMib); err != nil {
+			return nil, err
 		}
 		fs.ProvisionedThroughputMib = req.ProvisionedThroughputMib
 	}

@@ -9,17 +9,16 @@
 | --- | --- |
 | PARITY entries audited | 33 (31 ok, 1 partial, 1 deferred) |
 | Feature families | 1 (1 ok) |
-| Known gaps | 4 |
+| Known gaps | 3 |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- StopApplication without Force: AWS takes a snapshot on stop, but the SDK does not document its name or visibility in ListApplicationSnapshots, so none is invented.
-- Zeppelin Glue/S3 and other ARN fields are not cross-service validated: the SDK does not say which fields AWS existence-checks at call time.
-- DeleteApplication is synchronous (ApplicationStatusDeleting unused): the SDK does not document the DELETING window, and Start/Stop are likewise instantaneous here.
-- No default maintenance window is assigned at creation: the SDK does not document AWS's default start time.
+- StopApplication without Force: API_StopApplication says a snapshot is taken on stop, but neither it nor the SDK documents the snapshot's name or whether snapshots must be enabled, so none is invented.
+- Zeppelin Glue/S3 and other ARN fields are not cross-service validated: no doc says which fields AWS existence-checks at call time.
+- DeleteApplication is synchronous (ApplicationStatusDeleting unused) and Start/Stop are instantaneous: API_DeleteApplication/StartApplication/StopApplication document no transition windows or durations.
 
 ### Structural gaps
 

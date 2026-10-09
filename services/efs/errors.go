@@ -43,6 +43,8 @@ var (
 	// code is BadRequest ("Returned if the request is malformed or contains an error such as
 	// an invalid parameter value or a missing required parameter" -- types/errors.go).
 	ErrBadRequest = awserr.New("BadRequest", awserr.ErrInvalidParameter)
+	// ErrThroughputLimitExceeded is returned when provisioned throughput exceeds the region quota.
+	ErrThroughputLimitExceeded = awserr.New("ThroughputLimitExceeded", awserr.ErrInvalidParameter)
 	// ErrFileSystemInUse is returned when attempting to delete a file system that has mount targets.
 	ErrFileSystemInUse = awserr.New("FileSystemInUse", awserr.ErrConflict)
 	// ErrMountTargetConflict is returned when a duplicate mount target is created in the same

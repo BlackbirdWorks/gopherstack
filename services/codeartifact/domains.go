@@ -43,6 +43,7 @@ func (b *InMemoryBackend) CreateDomain(
 		Tags:          t,
 	}
 	b.domains.Put(d)
+	b.putPackageGroupLocked(region, name, rootPackageGroupPattern, "", "", nil)
 	cp := *d
 
 	return &cp, nil

@@ -11,13 +11,19 @@ import (
 
 // GetTraceSummariesInput (xray@v1.39.4 api_op_GetTraceSummaries.go) has no
 // page-size member, only NextToken -- the server picks the page size.
+type samplingStrategyInput struct {
+	Value *float64 `json:"Value"`
+	Name  string   `json:"Name"`
+}
+
 type getTraceSummariesInput struct {
-	FilterExpression string  `json:"FilterExpression"`
-	TimeRangeType    string  `json:"TimeRangeType"`
-	NextToken        string  `json:"NextToken"`
-	StartTime        float64 `json:"StartTime"`
-	EndTime          float64 `json:"EndTime"`
-	Sampling         bool    `json:"Sampling"`
+	SamplingStrategy *samplingStrategyInput `json:"SamplingStrategy"`
+	FilterExpression string                 `json:"FilterExpression"`
+	TimeRangeType    string                 `json:"TimeRangeType"`
+	NextToken        string                 `json:"NextToken"`
+	StartTime        float64                `json:"StartTime"`
+	EndTime          float64                `json:"EndTime"`
+	Sampling         bool                   `json:"Sampling"`
 }
 
 type traceSummaryHTTPView struct {
@@ -205,6 +211,14 @@ func buildTraceSummaryView(traceID string, sd TraceSummaryData, startTime time.T
 	return s
 }
 
+func validateSamplingStrategy(ss *samplingStrategyInput) error {
+	if ss == nil || ss.Name == "" || ss.Name == "PartialScan" || ss.Name == "FixedRate" {
+		return nil
+	}
+
+	return fmt.Errorf("%w: SamplingStrategy.Name must be PartialScan or FixedRate, got %q", errInvalidRequest, ss.Name)
+}
+
 func (h *Handler) handleGetTraceSummaries(_ context.Context, body []byte) ([]byte, error) {
 	var in getTraceSummariesInput
 	if len(body) > 0 {
@@ -219,6 +233,10 @@ func (h *Handler) handleGetTraceSummaries(_ context.Context, body []byte) ([]byt
 		in.TimeRangeType != timeRangeTypeService {
 		return nil, fmt.Errorf("%w: TimeRangeType must be %q, %q, or %q, got %q",
 			errInvalidRequest, timeRangeTypeTraceID, timeRangeTypeEvent, timeRangeTypeService, in.TimeRangeType)
+	}
+
+	if err := validateSamplingStrategy(in.SamplingStrategy); err != nil {
+		return nil, err
 	}
 
 	traces := h.Backend.GetTraceSummaries()

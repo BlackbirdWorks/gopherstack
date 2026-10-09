@@ -9,17 +9,16 @@
 | --- | --- |
 | PARITY entries audited | 48 (41 ok, 7 partial) |
 | Feature families | 4 (4 ok) |
-| Known gaps | 4 |
-| Structural gaps (can't be emulated) | 2 |
+| Known gaps | 3 |
+| Structural gaps (can't be emulated) | 3 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Package-group origin restrictions are stored and returned but not enforced on publish/ingestion: the pinned SDK documents no error for a blocked publish (unverifiable).
-- No implicit root package group ('/*') is auto-created: the pinned SDK does not say whether AWS creates one (unverifiable); existing tests assert an empty group list.
-- DescribePackageVersion displayName is set for npm only (the one format the SDK documents); the package.json-to-summary/homePage/sourceCodeRepository/licenses key mapping is not SDK-documented (unverifiable).
-- GetRepositoryEndpoint validates endpointType (ipv4|dualstack) but returns the same hostname for both: the dualstack hostname is not documented in the pinned SDK (unverifiable).
+- DescribePackageVersion displayName is set for npm only (the one format the SDK documents: '@vue/ui'); the SDK says only that displayName 'varies depending on the package version's format', and summary/homePage/sourceCodeRepository/licenses key mapping beyond npm package.json is undocumented.
+- GetRepositoryEndpoint validates endpointType (ipv4|dualstack) but returns the same hostname for both: API_GetRepositoryEndpoint gives the enum and no dualstack hostname.
+- Error codes for blocked publishes and the undeletable root group are inferred: PublishPackageVersion blocked by a package or package-group PUBLISH restriction and DeletePackageGroup on '/*' return ValidationException (the only 400 in each op's modeled errors); the AWS docs state the behavior but not the code.
 
 ### Structural gaps
 
@@ -27,6 +26,7 @@ These do not block an A grade — no implementation could produce real data here
 
 - Package-group weak-match confusable-character normalization needs the full Unicode confusables table (external data, go.mod is fixed); such packages match neither STRONG nor WEAK.
 - GetPackageVersionReadme/ListPackageVersionDependencies and DescribePackageVersion's summary/homePage/sourceCodeRepository/licenses only read a standalone package.json asset: archive ingestion belongs to the native npm/maven clients, whose wire protocols are not emulated.
+- Package and package-group EXTERNAL_UPSTREAM/INTERNAL_UPSTREAM origin restrictions are stored and returned but never applied: ingestion and upstream retention happen through native package-manager protocols that are not emulated.
 
 ## More
 

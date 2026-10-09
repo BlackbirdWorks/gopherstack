@@ -49,10 +49,9 @@ families:
   error_mapping: {status: ok, note: "unchanged this pass; ConcurrentModificationException mapping (fixed prior pass) also now covers ConditionalToken mismatches (checkAndBumpVersionOrToken returns the same ErrConcurrentModification sentinel as version mismatches)."}
 gaps: []
 items_still_open:
-  - "StopApplication without Force: AWS takes a snapshot on stop, but the SDK does not document its name or visibility in ListApplicationSnapshots, so none is invented."
-  - "Zeppelin Glue/S3 and other ARN fields are not cross-service validated: the SDK does not say which fields AWS existence-checks at call time."
-  - "DeleteApplication is synchronous (ApplicationStatusDeleting unused): the SDK does not document the DELETING window, and Start/Stop are likewise instantaneous here."
-  - "No default maintenance window is assigned at creation: the SDK does not document AWS's default start time."
+  - "StopApplication without Force: API_StopApplication says a snapshot is taken on stop, but neither it nor the SDK documents the snapshot's name or whether snapshots must be enabled, so none is invented."
+  - "Zeppelin Glue/S3 and other ARN fields are not cross-service validated: no doc says which fields AWS existence-checks at call time."
+  - "DeleteApplication is synchronous (ApplicationStatusDeleting unused) and Start/Stop are instantaneous: API_DeleteApplication/StartApplication/StopApplication document no transition windows or durations."
 structural_gaps:
   - "DescribeApplication.IncludeAdditionalDetails never returns JobPlanDescription: the plan comes from a real Flink job compiler."
 deferred:

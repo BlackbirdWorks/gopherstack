@@ -223,10 +223,10 @@ gaps: []
   # into another region's image table.
 
 items_still_open:
-  - "RegisterWorkspaceDirectory EnableSelfService is accepted but not applied: the pinned SDK only says 'whether self-service capabilities are enabled' and does not give the mapping onto the five SelfservicePermissions members."
-  - "RegisterWorkspaceDirectory's WorkspaceType/Tenancy/UserIdentityType defaults are inferred from SDK enum docs, not verified against live AWS."
-  - "DirectoryType is derived for SimpleAD, ADConnector and IAM Identity Center only; the SDK does not say which Directory Service type (MicrosoftAD/SharedMicrosoftAD) maps to CUSTOMER_MANAGED."
-  - "Accept/Reject/DeleteAccountLinkInvitation ClientToken is not read: the SDK only says 'ensure idempotent creation' and the error for a mismatched token is not documented."
+  - "RegisterWorkspaceDirectory EnableSelfService is accepted but not applied: API_RegisterWorkspaceDirectory says only 'whether self-service capabilities are enabled'; the admin guide lists the self-service toggles (restart, volume size, compute type, running mode, rebuild, remember-me, diagnostic uploads) without stating which EnableSelfService=true turns on."
+  - "RegisterWorkspaceDirectory's WorkspaceType/Tenancy/UserIdentityType defaults are inferred from SDK enum docs: API_RegisterWorkspaceDirectory documents the valid values but no defaults."
+  - "DirectoryType is derived for SimpleAD, ADConnector and IAM Identity Center only: the WorkspaceDirectoryType enum has no MicrosoftAD/SharedMicrosoftAD value and no doc maps them to CUSTOMER_MANAGED."
+  - "Accept/Reject/DeleteAccountLinkInvitation ClientToken is not read: the SDK says only 'ensure idempotent creation' and no doc gives the error for a mismatched token."
 structural_gaps:
   - "DescribeApplications ComputeTypeNames/LicenseType/OperatingSystemNames/Owner filters match nothing: the application catalog is a read-only AWS/partner list with no create path, so b.applications is permanently empty (filter values are enum-validated)."
   - "WorkspacesPool.ApplicationSettings.S3BucketName is not returned: AWS provisions the account/region settings bucket, which this backend does not model."
