@@ -3,7 +3,7 @@
 service: eks
 sdk_module: aws-sdk-go-v2/service/eks@v1.98.0
 last_audit_commit: 649ebb9aa
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-09
 # ERROR path verified 2026-08-29 (wrapper-key-sweep pass): extracted every
 # op's deserializeOpError<Op> switch (eks@v1.90.4 deserializers.go, 65 ops
 # N-of-N). Handler.handleError is one global 4-sentinel table applied to all
@@ -100,7 +100,6 @@ ops:
   ListCertificateAuthorities: {wire: fixed, errors: fixed, state: fixed, persist: fixed, note: "gopherstack-lruaw (2026-09-11): implemented from scratch. GET /clusters/{name}/certificate-authorities, maxResults/nextToken query-param pagination via pkgs/page, matching every other GET-based List op in this service. Returns types.CertificateAuthoritySummary entries (verified against deserializers.go's awsRestjson1_deserializeDocumentCertificateAuthoritySummary), sorted by ID for deterministic responses."}
 gaps: []
 items_still_open:
-  - "ArgoCd IdcManagedApplicationArn: the IAM Identity Center application is created in the Identity Center instance owner's account, which IdcInstanceArn does not carry; resolving it needs an ssoadmin instance lookup (root wiring in cli.go)."
   - "DescribeClusterVersions IncludeAll has no documented default exclusion (checked api_op_DescribeClusterVersions.go and API_DescribeClusterVersions.html), so it stays a no-op; DescribeAddonVersions owner/publisher filter values and the ConfigUpdate UpdateParam encoding are not stated by the pinned SDK or the API reference."
 structural_gaps:
   - "EksAnywhereSubscription.LicenseArns/Licenses (2026-10-07): issued by AWS licensing for a real subscription purchase; no per-license record exists to derive."
@@ -1303,3 +1302,7 @@ CreateCluster stores EndpointPublicAccess true, PublicAccessCidrs 0.0.0.0/0 and 
 ## 2026-10-05 (reqfielddiff tier-2 pagination)
 
 FIXED: DescribeAddonVersions and DescribeClusterVersions honour maxResults (1-100, default 100)/nextToken and reject a bad value or token with InvalidParameterException (both ops declare it). Proof: `TestDescribeVersions_Paging`. RECORDED: DescribeAddonVersions owners/publishers and DescribeClusterVersions clusterType/clusterVersions/includeAll/status/versionStatus are still not applied, and the cluster version rows carry no status field.
+
+## 2026-10-09 -- Argo CD IdcManagedApplicationArn
+
+`SetIdcApplicationManager` (wired in `cli_eks_idc_wiring.go`) creates an ssoadmin application in the capability's `IdcRegion` (default: the cluster region) for `AwsIdc.IdcInstanceArn`, reports it as `IdcManagedApplicationArn`, and removes it on DeleteCapability/DeleteCluster. An unknown instance fails CreateCapability with InvalidParameterException. The application name and provider ARN are emulator choices (not documented). Proof: `TestCapability_IdcManagedApplication`, root `TestEKSArgoCdIdcManagedApplication`.

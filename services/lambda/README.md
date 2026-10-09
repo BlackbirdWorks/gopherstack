@@ -8,14 +8,10 @@
 | Metric | Value |
 | --- | --- |
 | Feature families | 10 (10 ok) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 9 |
 | Deferred items | 0 |
 | Resource leaks | ok |
-
-### Known gaps
-
-- ESM OnFailure S3 destinations need root wiring (cli.go not editable in this pass): add an adapter whose PutObject(ctx, bucket, key, body) calls the s3 backend's PutObject(ctx, &s3.PutObjectInput{Bucket, Key, Body: bytes.NewReader(body)}) and register it with lambdaBk.SetESMS3Destination(adapter) next to wireLambdaAsyncDestinations. SQS, SNS and Kafka-topic destinations already deliver; an S3 destination logs 'no delivery implementation wired' and is not counted as delivered until then.
 
 ### Structural gaps
 

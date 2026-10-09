@@ -46,6 +46,7 @@ type InMemoryBackend struct {
 	work                             *worker.Group
 	baseCtx                          context.Context
 	clusterEng                       *clusterEngine
+	idcApps                          IdcApplicationManager
 	accountID                        string
 	region                           string
 

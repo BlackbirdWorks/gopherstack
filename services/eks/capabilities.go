@@ -80,6 +80,12 @@ func (b *InMemoryBackend) CreateCapability(
 		}
 
 		config.ArgoCd.ServerURL = argoCdServerURL(capabilityName, clusterName, b.accountID, b.region)
+
+		if err := b.createIdcApplicationLocked(clusterName, capabilityName, config.ArgoCd); err != nil {
+			t.Close()
+
+			return nil, err
+		}
 	}
 
 	now := time.Now().UTC()
@@ -116,6 +122,7 @@ func (b *InMemoryBackend) DeleteCapability(clusterName, capabilityName string) (
 	}
 
 	cp := *capa
+	b.deleteIdcApplicationLocked(capa)
 	b.capabilities.Delete(key)
 
 	if capa.Tags != nil {

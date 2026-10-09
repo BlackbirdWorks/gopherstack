@@ -1,7 +1,7 @@
 service: mq
 sdk_module: aws-sdk-go-v2/service/mq@v1.39.4   # audited against; go.mod pins this version
 last_audit_commit: d4dc4a723
-last_audit_date: 2026-10-08
+last_audit_date: 2026-10-09
 overall: A                # genuine fixes found (reboot-gated staging, persistence data loss, missing pagination/fields, wrapper-key/nested-shape sweep this pass)
 
 # 2026-09-12 (gopherstack-n3zi): drove the 13 typed-coverage-blind
@@ -111,7 +111,6 @@ families:
 gaps: []
 
 items_still_open:
-  - "Docker engine: CreateUser/UpdateUser/DeleteUser and broker configurations are not applied to the running container (only the first CreateBroker user is configured). Needs an exec capability on pkgs/container.Runtime, which the broker engine's BrokerRuntime does not have."
 structural_gaps:
   - "Docker engine (--mq-engine=docker): endpoints are plaintext only (no amqps/ssl/+ssl forms) and ActiveMQ AMQP/WSS ports and the web console are not published, since the emulator terminates no TLS."
   - "Docker engine: multi-AZ deployment modes run one container and report one broker instance."
@@ -217,3 +216,7 @@ Amazon MQ is region-isolated: each non-home region gets a lazily built sibling `
 ## 2026-10-04 (reqfielddiff tier-1 pass)
 
 `DescribeSharedResources.MaxResults` stays recorded: the op is structurally always empty (no AWS RAM sharing state), so there is nothing to page.
+
+## 2026-10-09 -- docker ActiveMQ reconfiguration on reboot
+
+`pkgs/container.Runtime` gained `Exec`. A docker-backed ActiveMQ broker (users and configuration are ActiveMQ-only in the MQ API) now applies its configuration revision once it is up, and on RebootBroker applies the promoted users (`simpleAuthenticationPlugin`, console users via `users.properties`/`groups.properties`) and configuration (`activemq.xml`) then restarts the container; the broker stays REBOOT_IN_PROGRESS until it is reachable again. Proof: `TestDockerBrokerReboot_AppliesUsersAndConfiguration`, `TestDockerBrokerReboot_ExecFailureStillPromotes`; verified by hand against the real `apache/activemq-classic:5.18.7` image.

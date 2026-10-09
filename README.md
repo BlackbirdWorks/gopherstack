@@ -493,10 +493,10 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [App Runner](services/apprunner/README.md) | A | 37 | clean |
 | [Auto Scaling](services/autoscaling/README.md) | A | 66 | 1 gap; 2 structural gaps |
-| [Batch](services/batch/README.md) | A | 45 | 1 gap; 2 structural gaps |
+| [Batch](services/batch/README.md) | A | 45 | 3 structural gaps |
 | [EC2](services/ec2/README.md) | A | — | 22 families; 1 gap; 16 structural gaps; 5 deferred |
 | [Elastic Beanstalk](services/elasticbeanstalk/README.md) | A | 47 | 4 structural gaps |
-| [Lambda](services/lambda/README.md) | A | — | 10 families; 2 gaps; 7 structural gaps |
+| [Lambda](services/lambda/README.md) | A | — | 10 families; 9 structural gaps |
 
 ### Containers
 
@@ -504,7 +504,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [ECR](services/ecr/README.md) | A | 58 | 2 structural gaps; 2 deferred |
 | [ECS](services/ecs/README.md) | A | 65 | 4 structural gaps |
-| [EKS](services/eks/README.md) | A | 70 | 2 gaps; 5 structural gaps; 1 deferred |
+| [EKS](services/eks/README.md) | A | 70 | 1 gap; 5 structural gaps; 1 deferred |
 
 ### Storage
 
@@ -560,7 +560,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
-| [Amazon MQ](services/mq/README.md) | A | 25 | 1 gap; 2 structural gaps; 1 deferred |
+| [Amazon MQ](services/mq/README.md) | A | 25 | 2 structural gaps; 1 deferred |
 | [AppSync](services/appsync/README.md) | A | 74 | 3 gaps; 3 structural gaps; 2 deferred |
 | [EventBridge](services/eventbridge/README.md) | A | 66 | 2 structural gaps; 2 deferred |
 | [EventBridge Pipes](services/pipes/README.md) | A | 10 | 1 structural gap |
@@ -582,8 +582,8 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Clean Rooms](services/cleanrooms/README.md) | A | — | 17 families; 5 structural gaps |
 | [EMR](services/emr/README.md) | A | 65 | 7 structural gaps |
 | [EMR Serverless](services/emrserverless/README.md) | A | 22 | 1 structural gap |
-| [Elasticsearch](services/elasticsearch/README.md) | A | 51 | 1 gap; 1 structural gap |
-| [Glue](services/glue/README.md) | A | 59 | 1 gap; 4 structural gaps; 2 deferred |
+| [Elasticsearch](services/elasticsearch/README.md) | A | 51 | 1 structural gap |
+| [Glue](services/glue/README.md) | A | 59 | 1 gap; 5 structural gaps; 2 deferred |
 | [Glue DataBrew](services/databrew/README.md) | A | 44 | 1 structural gap |
 | [Kinesis](services/kinesis/README.md) | A | 39 | 1 gap; 5 structural gaps |
 | [Kinesis Analytics](services/kinesisanalytics/README.md) | A | 20 | clean |
@@ -646,7 +646,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [OpsWorks](services/opsworks/README.md) | A | 32 | 1 gap; 2 structural gaps; 1 deferred |
 | [Organizations](services/organizations/README.md) | A | 63 | 2 structural gaps |
 | [Resource Access Manager](services/ram/README.md) | A | 36 | 2 gaps; 1 structural gap; 2 deferred |
-| [Resource Groups](services/resourcegroups/README.md) | A | 23 | 1 gap; 1 structural gap |
+| [Resource Groups](services/resourcegroups/README.md) | A | 23 | 2 structural gaps |
 | [Resource Groups Tagging API](services/resourcegroupstaggingapi/README.md) | A | 9 | 2 structural gaps; 1 deferred |
 | [Systems Manager](services/ssm/README.md) | A | 105 | 5 gaps; 14 structural gaps |
 
@@ -700,7 +700,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [IoT Analytics](services/iotanalytics/README.md) | A | 34 | 1 gap; 1 structural gap |
 | [IoT Core](services/iot/README.md) | A | 88 | 6 gaps; 5 structural gaps |
-| [IoT Data Plane](services/iotdataplane/README.md) | A | 11 | 1 gap; 1 structural gap; 1 deferred |
+| [IoT Data Plane](services/iotdataplane/README.md) | A | 11 | 1 structural gap; 1 deferred |
 | [IoT Wireless](services/iotwireless/README.md) | A | 21 | 2 structural gaps |
 
 ### Migration & Transfer
@@ -737,7 +737,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Kafkaconnect](services/kafkaconnect/README.md) | A | 19 | 3 structural gaps |
 | [Kinesisvideo](services/kinesisvideo/README.md) | A | 32 | 3 structural gaps |
 | [Lightsail](services/lightsail/README.md) | A | — | 28 families; 1 gap; 6 structural gaps; 2 deferred |
-| [Managed Blockchain](services/managedblockchain/README.md) | A | 27 | 1 gap; 2 structural gaps |
+| [Managed Blockchain](services/managedblockchain/README.md) | A | 27 | 3 structural gaps |
 | [Mgn](services/mgn/README.md) | A | 95 | 1 gap; 8 structural gaps; 1 deferred |
 | [Networkmanager](services/networkmanager/README.md) | A | 95 | 4 gaps; 2 structural gaps |
 | [Outposts](services/outposts/README.md) | A | 43 | 2 gaps; 7 structural gaps |

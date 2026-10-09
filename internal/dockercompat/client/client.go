@@ -1,9 +1,13 @@
 package client
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"io"
+	"time"
 
+	"github.com/moby/moby/api/pkg/stdcopy"
 	mobyclient "github.com/moby/moby/client"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
@@ -261,4 +265,54 @@ func (c *Client) Ping(ctx context.Context) (any, error) {
 // Close releases the underlying client.
 func (c *Client) Close() error {
 	return c.inner.Close()
+}
+
+const execPollInterval = 50 * time.Millisecond
+
+// ContainerExec runs cmd in a running container and returns its demultiplexed stdout, stderr and exit code.
+func (c *Client) ContainerExec(
+	ctx context.Context,
+	containerID string,
+	cmd []string,
+) ([]byte, []byte, int, error) {
+	created, err := c.inner.ExecCreate(ctx, containerID, mobyclient.ExecCreateOptions{
+		AttachStdout: true,
+		AttachStderr: true,
+		Cmd:          cmd,
+	})
+	if err != nil {
+		return nil, nil, 0, fmt.Errorf("exec create: %w", err)
+	}
+
+	attached, err := c.inner.ExecAttach(ctx, created.ID, mobyclient.ExecAttachOptions{})
+	if err != nil {
+		return nil, nil, 0, fmt.Errorf("exec attach: %w", err)
+	}
+
+	defer attached.Close()
+
+	var stdout, stderr bytes.Buffer
+	if _, err = stdcopy.StdCopy(&stdout, &stderr, attached.Reader); err != nil {
+		return nil, nil, 0, fmt.Errorf("exec read: %w", err)
+	}
+
+	ticker := time.NewTicker(execPollInterval)
+	defer ticker.Stop()
+
+	for {
+		info, ierr := c.inner.ExecInspect(ctx, created.ID, mobyclient.ExecInspectOptions{})
+		if ierr != nil {
+			return nil, nil, 0, fmt.Errorf("exec inspect: %w", ierr)
+		}
+
+		if !info.Running {
+			return stdout.Bytes(), stderr.Bytes(), info.ExitCode, nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, nil, 0, fmt.Errorf("exec wait: %w", ctx.Err())
+		case <-ticker.C:
+		}
+	}
 }

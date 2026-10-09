@@ -3,6 +3,7 @@ package elasticsearch
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -14,6 +15,11 @@ var ErrNilAppContext = errors.New("AppContext is required")
 // EngineConfig is the interface for accessing the Elasticsearch engine mode configuration.
 type EngineConfig interface {
 	GetElasticsearchEngine() string
+}
+
+// ProcessingDelayConfig exposes the simulated domain Processing window.
+type ProcessingDelayConfig interface {
+	GetElasticsearchProcessingDelay() time.Duration
 }
 
 // Engine mode constants.
@@ -64,6 +70,10 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	_ = engineMode
 
 	backend := NewInMemoryBackend(accountID, region)
+	if pc, ok := ctx.Config.(ProcessingDelayConfig); ok {
+		backend.SetProcessingDelay(pc.GetElasticsearchProcessingDelay())
+	}
+
 	handler := NewHandler(backend)
 	handler.AccountID = accountID
 	handler.Region = region

@@ -493,7 +493,7 @@ func (b *InMemoryBackend) DescribeBroker(brokerID string) (*Broker, error) {
 	}
 
 	cp := b.copyBroker(br)
-	promoteBrokerReboot(br)
+	b.promoteReboot(br)
 
 	return cp, nil
 }
@@ -515,7 +515,7 @@ func (b *InMemoryBackend) ListBrokers() []*Broker {
 		}
 
 		list = append(list, b.copyBroker(br))
-		promoteBrokerReboot(br)
+		b.promoteReboot(br)
 	}
 
 	sort.Slice(list, func(i, j int) bool { return list[i].BrokerName < list[j].BrokerName })
@@ -1114,4 +1114,13 @@ func (b *InMemoryBackend) DescribeSharedResources(brokerID string) ([]SharedReso
 	}
 
 	return out, nil
+}
+
+// promoteReboot is promoteBrokerReboot, deferred while a live broker container is still being reconfigured.
+func (b *InMemoryBackend) promoteReboot(br *Broker) {
+	if lb, ok := b.liveBrokerLocked(br.BrokerID); ok && lb.applying {
+		return
+	}
+
+	promoteBrokerReboot(br)
 }

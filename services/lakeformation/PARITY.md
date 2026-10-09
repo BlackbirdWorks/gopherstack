@@ -7,7 +7,7 @@
 service: lakeformation
 sdk_module: aws-sdk-go-v2/service/lakeformation@v1.50.4
 last_audit_commit: 0c1472972  # 2026-09-24 lakeformation-appsync-neptune-and-athena terraform coverage; prior: 49cff86c4
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-09
 overall: A            # gopherstack-6flj wrapper-key sweep: GetTemporaryDataLocationCredentials wire-breaking sibling-copy bug fixed, plus 4 adjacent bugs
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -79,7 +79,7 @@ families:
   permission_enum: {status: ok, note: "isValidPermission previously accepted three gopherstack-INVENTED permission strings that do not exist in types.Permission's Values() at all -- \"CREATE_TAG\" (real name is CREATE_LF_TAG, already separately present), \"CREATE_LAKE_FORMATION_OPT_IN\" (not a Permission at all), and \"SUPER\" (real value is SUPER_USER) -- and was missing the real \"CREATE_LF_TAG_EXPRESSION\" value. All three invented values DELETED, CREATE_LF_TAG_EXPRESSION added. isValidPermission now matches the real 16-member enum exactly."}
 gaps: []
 items_still_open:
-  - "RAM integration: DescribeLakeFormationIdentityCenterConfiguration.ResourceShare and PrincipalResourcePermissions.AdditionalDetails.ResourceShare are never populated: AWS's RAM share naming for IdC/cross-account grants is undocumented in the SDK, and a services/ram lookup needs siblingServices wiring in cli.go (gopherstack-6flj, gopherstack-osg7)."
+  - "RAM integration: DescribeLakeFormationIdentityCenterConfiguration.ResourceShare and PrincipalResourcePermissions.AdditionalDetails.ResourceShare stay unpopulated: AWS docs (cross-account-permissions, optimize-ram, checked 2026-10-09) only say shares match the IAM condition LakeFormation* and that v2+ reuses shares across grants, giving no exact name or reuse rule; a services/ram lookup also needs cli.go wiring."
 structural_gaps:
   - "QuerySessionContext on GetTemporaryGlueTableCredentials and the query-planning ops is an opaque query-engine protocol context with no emulator-visible effect."
   - "No operation enforces LF authorization at runtime: permissions are bookkeeping, since enforcement happens inside integrated query engines. CatalogId on DeleteObjectsOnCancel has no scoping effect (transaction ids are account-scoped)."

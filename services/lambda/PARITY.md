@@ -19,7 +19,6 @@ families:
 gaps: []
 # 2026-10-08: CreateFunction defaults an omitted PackageType to Zip (was Image).
 items_still_open:
-  - "ESM OnFailure S3 destinations need root wiring (cli.go not editable in this pass): add an adapter whose PutObject(ctx, bucket, key, body) calls the s3 backend's PutObject(ctx, &s3.PutObjectInput{Bucket, Key, Body: bytes.NewReader(body)}) and register it with lambdaBk.SetESMS3Destination(adapter) next to wireLambdaAsyncDestinations. SQS, SNS and Kafka-topic destinations already deliver; an S3 destination logs 'no delivery implementation wired' and is not counted as delivered until then."
 structural_gaps:
   - "ESM SchemaRegistryErrorCount and ProvisionedPollers/EventPollerUnit metrics: no Glue/Confluent schema-registry integration and no provisioned poller fleet exist to measure."
   - "Kafka ESM LoggingConfig DEBUG offsets are logged on every commit, not once a minute, and omit endOffset; INFO/WARN omit securityProtocol, saslMechanism, networkConfig, assignedPartitions (no VPC/auth/rebalance model)."
