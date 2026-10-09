@@ -359,18 +359,34 @@ func TestWaitConditionStore_TokenIsolation(t *testing.T) {
 func TestWaitConditionStore_FailureSignalNotCounted(t *testing.T) {
 	t.Parallel()
 
-	store := cloudformation.NewWaitConditionStore()
+	tests := []struct {
+		name   string
+		signal cloudformation.WCSignal
+	}{
+		{
+			name:   "failure",
+			signal: cloudformation.WCSignal{UniqueID: "f1", Status: "FAILURE", Reason: "deploy failed"},
+		},
+	}
 
-	// Send a FAILURE signal — should not count toward SUCCESS count.
-	store.Signal(
-		"token",
-		cloudformation.WCSignal{UniqueID: "f1", Status: "FAILURE", Reason: "deploy failed"},
-	)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
-	defer cancel()
+			synctest.Test(t, func(t *testing.T) {
+				store := cloudformation.NewWaitConditionStore()
+				store.Signal("token", tt.signal)
 
-	// Only SUCCESS counts; emulator auto-succeed after short timeout.
-	err := store.Wait(ctx, "token", 1, 30*time.Millisecond)
-	require.NoError(t, err, "emulator auto-succeed should fire since no SUCCESS signals")
+				errCh := make(chan error, 1)
+				go func() {
+					errCh <- store.Wait(t.Context(), "token", 1, 30*time.Millisecond)
+				}()
+
+				synctest.Wait()
+				require.Empty(t, errCh, "failure signal must not satisfy the wait")
+
+				require.NoError(t, <-errCh, "emulator auto-succeed should fire since no SUCCESS signals")
+			})
+		})
+	}
 }
