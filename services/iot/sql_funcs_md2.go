@@ -1,16 +1,16 @@
 package iot
 
+import (
+	"bytes"
+	"slices"
+)
+
 // md2Sum implements RFC 1319 (not in the Go standard library); IoT SQL exposes md2().
 func md2Sum(msg []byte) [md2Size]byte {
 	s := md2Table()
 
 	pad := md2Block - len(msg)%md2Block
-	buf := make([]byte, 0, len(msg)+pad+md2Block)
-	buf = append(buf, msg...)
-
-	for range pad {
-		buf = append(buf, byte(pad))
-	}
+	buf := slices.Concat(msg, bytes.Repeat([]byte{byte(pad)}, pad))
 
 	var checksum [md2Block]byte
 

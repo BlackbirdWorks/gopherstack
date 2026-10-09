@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"math"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -3439,7 +3440,31 @@ func (rc *ResourceCreator) deleteExtraPlatformResource(
 
 // intProp reads an integer-valued property, accepting JSON numbers (float64) and ints.
 func intProp(props map[string]any, key string) int {
-	return int(int64Val(props[key]))
+	return int(clampInt32(int64Val(props[key])))
+}
+
+func clampInt32(n int64) int32 {
+	if n > math.MaxInt32 {
+		return math.MaxInt32
+	}
+
+	if n < math.MinInt32 {
+		return math.MinInt32
+	}
+
+	return int32(n)
+}
+
+func floatToInt32(v float64) int32 {
+	if v >= math.MaxInt32 {
+		return math.MaxInt32
+	}
+
+	if v <= math.MinInt32 {
+		return math.MinInt32
+	}
+
+	return int32(v)
 }
 
 // int64Val converts a JSON-decoded numeric value to int64. CloudFormation templates may carry

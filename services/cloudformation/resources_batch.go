@@ -84,10 +84,10 @@ func (rc *ResourceCreator) createBatchJobQueue(
 	var priority int32 = 1
 	if pStr := strProp(props, "Priority", params, physicalIDs); pStr != "" {
 		if p, err := strconv.ParseInt(pStr, 10, 32); err == nil {
-			priority = int32(p)
+			priority = clampInt32(p)
 		}
 	} else if pRaw, ok := props["Priority"].(float64); ok {
-		priority = int32(pRaw)
+		priority = floatToInt32(pRaw)
 	}
 
 	var ceOrder []batchbackend.ComputeEnvironmentOrder

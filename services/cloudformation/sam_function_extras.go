@@ -61,8 +61,7 @@ func withDestinationPolicies(id string, props map[string]any) (map[string]any, e
 	if err != nil || len(extra) == 0 {
 		return props, err
 	}
-	out := make(map[string]any, len(props)+1)
-	maps.Copy(out, props)
+	out := maps.Clone(props)
 	out["Policies"] = append(append([]any{}, asList(props["Policies"])...), extra...)
 
 	return out, nil

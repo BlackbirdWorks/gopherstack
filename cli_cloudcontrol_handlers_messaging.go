@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -511,7 +512,7 @@ func (h *ccStream) Update(ctx context.Context, id string, current, desired map[s
 
 	if want, ok := ccInt32(desired, "RetentionPeriodHours"); ok {
 		have, _ := current["RetentionPeriodHours"].(int32)
-		if f, isF := current["RetentionPeriodHours"].(float64); isF {
+		if f, isF := current["RetentionPeriodHours"].(float64); isF && f >= math.MinInt32 && f <= math.MaxInt32 {
 			have = int32(f)
 		}
 

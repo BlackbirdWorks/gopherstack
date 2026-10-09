@@ -190,7 +190,6 @@ func Middleware(store *FaultStore) func(echo.HandlerFunc) echo.HandlerFunc {
 						ctx, "chaos: injecting fault",
 						"service", svc,
 						"operation", op,
-						"region", region,
 						"status_code", fe.StatusCode,
 						"error_code", fe.Code,
 					)

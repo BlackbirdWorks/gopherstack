@@ -52,10 +52,10 @@ func (rc *ResourceCreator) createSSMMaintenanceWindow(
 
 	var duration, cutoff int32 = 4, 1
 	if v, hasDuration := props["Duration"].(float64); hasDuration {
-		duration = int32(v)
+		duration = floatToInt32(v)
 	}
 	if v, hasCutoff := props["Cutoff"].(float64); hasCutoff {
-		cutoff = int32(v)
+		cutoff = floatToInt32(v)
 	}
 
 	allowUnassociated := false

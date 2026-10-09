@@ -724,6 +724,10 @@
   "AWS::Lambda::Permission": [
     "Id"
   ],
+  "AWS::Lambda::Url": [
+    "FunctionArn",
+    "FunctionUrl"
+  ],
   "AWS::Lambda::Version": [
     "FunctionArn",
     "Version"

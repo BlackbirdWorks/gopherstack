@@ -329,8 +329,10 @@ func mergeEngineSettings(current, incoming map[string]string, exact bool) map[st
 		return current
 	}
 
-	out := make(map[string]string, len(current)+len(incoming))
-	maps.Copy(out, current)
+	out := maps.Clone(current)
+	if out == nil {
+		out = map[string]string{}
+	}
 
 	for name, raw := range incoming {
 		out[name] = mergeEndpointSettings(current[name], raw, false)

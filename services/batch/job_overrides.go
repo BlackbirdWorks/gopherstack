@@ -231,8 +231,11 @@ func mergeStringMap(base, over map[string]string) map[string]string {
 		return base
 	}
 
-	out := make(map[string]string, len(base)+len(over))
-	maps.Copy(out, base)
+	out := maps.Clone(base)
+	if out == nil {
+		out = map[string]string{}
+	}
+
 	maps.Copy(out, over)
 
 	return out

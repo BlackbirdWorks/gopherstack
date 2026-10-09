@@ -170,32 +170,37 @@ func responseCacheKey(
 	return sb.String()
 }
 
-// capturingWriter records a response while passing it through.
-type capturingWriter struct {
-	http.ResponseWriter
+// bufferedResponse holds a dispatched response so it can be replayed and cached.
+type bufferedResponse struct {
+	header http.Header
 	body   bytes.Buffer
 	status int
 }
 
-func (c *capturingWriter) WriteHeader(code int) {
-	if c.status == 0 {
-		c.status = code
-	}
+func (b *bufferedResponse) Header() http.Header { return b.header }
 
-	c.ResponseWriter.WriteHeader(code)
+func (b *bufferedResponse) WriteHeader(code int) {
+	if b.status == 0 {
+		b.status = code
+	}
 }
 
-func (c *capturingWriter) Write(p []byte) (int, error) {
-	if c.status == 0 {
-		c.status = http.StatusOK
+func (b *bufferedResponse) Write(p []byte) (int, error) {
+	if b.status == 0 {
+		b.status = http.StatusOK
 	}
 
-	c.body.Write(p)
-
-	return c.ResponseWriter.Write(p)
+	return b.body.Write(p)
 }
 
-func (c *capturingWriter) Unwrap() http.ResponseWriter { return c.ResponseWriter }
+func replayCached(w http.ResponseWriter, resp *cachedResponse) {
+	for k, v := range resp.header {
+		w.Header()[k] = append([]string(nil), v...)
+	}
+
+	w.WriteHeader(resp.status)
+	_, _ = w.Write(resp.body)
+}
 
 // serveWithCache serves GET responses from the stage cache when the method has caching
 // enabled, recording hits and misses on obs; otherwise it dispatches unchanged.
@@ -215,28 +220,30 @@ func (h *Handler) serveWithCache(
 
 	if hit, found := h.respCache.get(key); found {
 		obs.setCache(true)
-
-		for k, v := range hit.header {
-			w.Header()[k] = append([]string(nil), v...)
-		}
-
-		w.WriteHeader(hit.status)
-		_, _ = w.Write(hit.body)
+		replayCached(w, hit)
 
 		return
 	}
 
 	obs.setCache(false)
 
-	cw := &capturingWriter{ResponseWriter: w}
-	dispatch(cw)
+	buf := &bufferedResponse{header: w.Header().Clone()}
+	dispatch(buf)
 
-	if cw.status >= http.StatusOK && cw.status < http.StatusMultipleChoices {
-		h.respCache.put(key, &cachedResponse{
-			expires: h.respCache.now().Add(ttl),
-			header:  w.Header().Clone(),
-			body:    cw.body.Bytes(),
-			status:  cw.status,
-		})
+	if buf.status == 0 {
+		buf.status = http.StatusOK
 	}
+
+	resp := &cachedResponse{
+		expires: h.respCache.now().Add(ttl),
+		header:  buf.header,
+		body:    buf.body.Bytes(),
+		status:  buf.status,
+	}
+
+	if resp.status >= http.StatusOK && resp.status < http.StatusMultipleChoices {
+		h.respCache.put(key, resp)
+	}
+
+	replayCached(w, resp)
 }
