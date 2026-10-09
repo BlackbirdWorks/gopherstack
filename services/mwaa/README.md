@@ -9,15 +9,21 @@
 | --- | --- |
 | PARITY entries audited | 12 (10 ok, 2 partial) |
 | Feature families | 3 (3 ok) |
-| Known gaps | 3 |
+| Known gaps | 2 |
+| Structural gaps (can't be emulated) | 1 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
 ### Known gaps
 
 - CreateWebLoginToken populates IamIdentity from the caller ARN but not AirflowIdentity (UNVERIFIABLE): mwaa@v1.43.4 only says "user name of the Apache Airflow identity" with no IAM-to-Airflow mapping.
-- InvokeRestApi always returns 200 with an empty RestApiResponse (UNVERIFIABLE): the SDK does not say which of success-with-non-2xx RestApiStatusCode, RestApiClientException or RestApiServerException a downstream Airflow failure maps to, and no Airflow route table exists to evaluate.
 - MethodNotAllowedException (405) for verb mismatches is not in the MWAA model (UNVERIFIABLE): the real gateway response is not documented, and no conformant SDK client sends a wrong verb.
+
+### Structural gaps
+
+These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
+
+- InvokeRestApi always returns 200 with an empty RestApiResponse: no Apache Airflow webserver exists to execute the call, so there is no downstream status to map to RestApiStatusCode, RestApiClientException or RestApiServerException.
 
 ### Deferred
 

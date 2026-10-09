@@ -97,10 +97,9 @@ families:
     simulate IAM or Aurora Serverless timeouts.}
 gaps: []
 items_still_open:
-  - "Docker-backed Aurora: ColumnMetadata schemaName/tableName/isAutoIncrement are not populated. pgx could supply them via TableOID + pg_attribute; not yet implemented and needs a live Postgres to verify. go-sql-driver/mysql exposes no origin metadata (driver limit)."
-  - "SqlParameter.typeHint: a well-formed hinted value binds as the plain string (SQLite has no DATE/DECIMAL/UUID types). The error class for a malformed hinted value is not determinable from the SDK, so BadRequestException is a best-effort choice."
-  - "Response-size cap (1 MB, api_op_ExecuteStatement.go:18) returns BadRequestException; the SDK says only 'the call is terminated', so the exact error class and message are not determinable."
+  - "Docker-backed Aurora: ColumnMetadata schemaName/tableName/isAutoIncrement stay unpopulated for PostgreSQL; checked pgx stdlib: database/sql rows expose no FieldDescription.TableOID, so it needs a raw pgx query path plus a live Postgres to verify. go-sql-driver/mysql exposes no origin metadata (driver limit)."
 structural_gaps:
+  - "SqlParameter.typeHint on SQLite: DATE/DECIMAL/UUID have no SQLite types, so a well-formed hinted value binds as the plain string; a malformed one returns BadRequestException (\"error in the call\", API_ExecuteStatement errors)."
   - "Schema: the SDK documents it as 'Currently, the schema parameter isn't supported' (api_op_ExecuteStatement.go:104), so it is accepted and has no effect, as in AWS."
   - "SQLite path: the cluster's configured default database name is not resolvable for non-docker clusters, so an omitted Database and an explicit Database naming the cluster default are separate in-memory databases."
 leaks: {status: clean, note: >

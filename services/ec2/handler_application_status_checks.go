@@ -656,11 +656,19 @@ func (h *Handler) handleDescribeApplicationStatusCheckAssociations(
 	return finishPaged(vals, resp)
 }
 
+// maxSuppressionInstanceIDs is the documented per-request cap (api_op_EnableApplicationStatusCheckSuppression.go).
+const maxSuppressionInstanceIDs = 100
+
 func (h *Handler) handleEnableApplicationStatusCheckSuppression(
 	vals url.Values,
 	reqID string,
 ) (any, error) {
 	instanceIDs := parseMemberList(vals, "InstanceId")
+	if len(instanceIDs) > maxSuppressionInstanceIDs {
+		return nil, fmt.Errorf(
+			"%w: at most %d instance IDs per request", ErrInvalidParameter, maxSuppressionInstanceIDs,
+		)
+	}
 	duration, _ := intFromVals(vals, "DurationSeconds")
 
 	successful, unsuccessful := h.Backend.EnableApplicationStatusCheckSuppression(instanceIDs, duration)
@@ -677,6 +685,11 @@ func (h *Handler) handleDisableApplicationStatusCheckSuppression(
 	reqID string,
 ) (any, error) {
 	instanceIDs := parseMemberList(vals, "InstanceId")
+	if len(instanceIDs) > maxSuppressionInstanceIDs {
+		return nil, fmt.Errorf(
+			"%w: at most %d instance IDs per request", ErrInvalidParameter, maxSuppressionInstanceIDs,
+		)
+	}
 
 	successful, unsuccessful := h.Backend.DisableApplicationStatusCheckSuppression(instanceIDs)
 

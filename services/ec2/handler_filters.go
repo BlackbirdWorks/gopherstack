@@ -1733,8 +1733,7 @@ func naclEntryAny(acl *NetworkACL, values []string, field func(NACLEntry) string
 // (api_op_DescribeInstanceStatus.go) plus availability-zone-id. This backend
 // has no AWS-scheduled events and no managed instances, so event.* and
 // operator.principal match nothing and operator.managed is false.
-// attached-ebs-status.status and application-status.status are not applied: the
-// response carries neither member.
+// attached-ebs-status.status follows the instance health; application-status.status is not applied.
 func applyInstanceStatusFilters(instances []*Instance, filters map[string][]string) []*Instance {
 	if len(filters) == 0 {
 		return instances
@@ -1771,7 +1770,7 @@ func instanceStatusMatchesFilter(
 		return anyEqual(itoa(inst.State.Code), values)
 	case filterKeyInstStateName:
 		return anyEqual(inst.State.Name, values)
-	case "instance-status.status", "system-status.status":
+	case "instance-status.status", "system-status.status", "attached-ebs-status.status":
 		return anyEqual(health.Status, values)
 	case "instance-status.reachability", "system-status.reachability":
 		for _, d := range health.Details {

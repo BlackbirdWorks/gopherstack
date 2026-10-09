@@ -575,8 +575,8 @@ families:
 gaps: []
 items_still_open:
   - "Regional NAT gateway RouteTableId: the SDK doc only says \"the ID of the NAT gateway\" (typo); which route table AWS creates and how it is populated is not documented, so the member is left unset."
-  - "Filters the pinned SDK does not define well enough to apply: DescribeCapacityBlocks 'tags', DescribeInstanceEventWindows 'instance-tag' (value syntax undocumented), DescribeInstanceImageMetadata 'image-allowed' (Allowed-AMIs evaluation lives in the user guide), DescribeVpcPeeringConnections 'status-message' (message texts undocumented), DescribeInstanceStatus 'attached-ebs-status.status'/'application-status.status' (members not emitted)."
-  - "Application status checks: the 100-instance-ID request limit is not in the pinned SDK docs (the 50-tag-association limit is enforced), and DescribeApplicationStatusCheckAssociationsOutput.Tags aggregation across checks is ambiguous."
+  - "Filters the pinned SDK does not define well enough to apply: DescribeCapacityBlocks 'tags' (doc is only \"the tags assigned\"), DescribeInstanceEventWindows 'instance-tag' (value syntax undocumented), DescribeInstanceImageMetadata 'image-allowed' (Allowed AMIs evaluation is documented in the user guide, but AMIs here carry no CreationDate, ProductCodes or watermarks to evaluate CreationDateCondition, MarketplaceProductCodes or ImageWatermarks against), DescribeVpcPeeringConnections 'status-message' (message texts undocumented: VPC peering lifecycle page names states only), DescribeInstanceStatus 'application-status.status' (InstanceStatus.ApplicationStatus not emitted)."
+  - "DescribeApplicationStatusCheckAssociationsOutput.Tags aggregation across checks is ambiguous in the pinned SDK docs."
 structural_gaps:
   - "DescribeApplicationStatus's ApplicationStatus.StatusSince and ApplicationStatusDetail
     (the real per-check status-transition timestamp and breakdown list) are always

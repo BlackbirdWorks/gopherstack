@@ -181,6 +181,8 @@ func TestDescribeInstanceStatus_ScheduledEventAndOperatorFilters(t *testing.T) {
 		{name: "operator managed false", filter: wireFilter("operator.managed", "false"), want: 1},
 		{name: "operator managed true", filter: wireFilter("operator.managed", "true"), want: 0},
 		{name: "operator principal", filter: wireFilter("operator.principal", "x"), want: 0},
+		{name: "attached ebs ok", filter: wireFilter("attached-ebs-status.status", "ok"), want: 1},
+		{name: "attached ebs impaired", filter: wireFilter("attached-ebs-status.status", "impaired"), want: 0},
 	}
 
 	for _, tc := range tests {
@@ -204,6 +206,11 @@ func TestDescribeInstanceStatus_ScheduledEventAndOperatorFilters(t *testing.T) {
 			})
 			require.NoError(t, err)
 			assert.Len(t, out.InstanceStatuses, tc.want)
+
+			for _, st := range out.InstanceStatuses {
+				require.NotNil(t, st.AttachedEbsStatus)
+				assert.Equal(t, types.SummaryStatusOk, st.AttachedEbsStatus.Status)
+			}
 		})
 	}
 }

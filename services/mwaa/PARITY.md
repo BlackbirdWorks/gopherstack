@@ -36,8 +36,9 @@ persistence: {status: ok, note: "Snapshot/Restore round-trips verified unaffecte
 gaps: []
 items_still_open:
   - "CreateWebLoginToken populates IamIdentity from the caller ARN but not AirflowIdentity (UNVERIFIABLE): mwaa@v1.43.4 only says \"user name of the Apache Airflow identity\" with no IAM-to-Airflow mapping."
-  - "InvokeRestApi always returns 200 with an empty RestApiResponse (UNVERIFIABLE): the SDK does not say which of success-with-non-2xx RestApiStatusCode, RestApiClientException or RestApiServerException a downstream Airflow failure maps to, and no Airflow route table exists to evaluate."
   - "MethodNotAllowedException (405) for verb mismatches is not in the MWAA model (UNVERIFIABLE): the real gateway response is not documented, and no conformant SDK client sends a wrong verb."
+structural_gaps:
+  - "InvokeRestApi always returns 200 with an empty RestApiResponse: no Apache Airflow webserver exists to execute the call, so there is no downstream status to map to RestApiStatusCode, RestApiClientException or RestApiServerException."
 deferred:
   - Chaos/fault-injection interaction with this pass's status-constant and NetworkConfiguration-validation changes (not re-audited; ChaosOperations() surface is GetSupportedOperations() minus nothing new -- it shrank by one entry this pass since GetMetrics was removed, see Notes).
 leaks: {status: clean, note: "no goroutines/janitors in this service; existing leak_test.go/isolation_test.go untouched and still green"}

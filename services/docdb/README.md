@@ -9,16 +9,15 @@
 | --- | --- |
 | PARITY entries audited | 55 (55 ok) |
 | Feature families | 9 (9 ok) |
-| Known gaps | 3 |
+| Known gaps | 2 |
 | Structural gaps (can't be emulated) | 4 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- UNVERIFIABLE: MasterUserSecret.KmsKeyId stays empty when MasterUserSecretKmsKeyId is unset; the pinned SDK does not state the default key's shape. Changing the key on a managed secret does not re-encrypt the Secrets Manager secret.
-- Error code InvalidParameterCombination is used for a major EngineVersion change without AllowMajorVersionUpgrade, for copy-on-write with RestoreToTime and for AllowDataLoss with Switchover: the pinned SDK documents the constraints but no error code, so the code is unverified against real AWS.
-- UNVERIFIABLE: DescribeDBEngineVersions ValidUpgradeTarget (which version pairs are upgradable is not in the SDK), ListSupportedCharacterSets/ListSupportedTimezones (no catalog), DescribeOrderableDBInstanceOptions LicenseModel filter (no documented value), DBCluster IOOptimizedNextAllowedModificationTime (SDK states no interval), CloneGroupId (no documented format), Parameter AllowedValues/MinimumEngineVersion and Certificate.CertificateArn (no authoritative catalog or ARN format).
+- UNVERIFIABLE: MasterUserSecret.KmsKeyId stays empty when MasterUserSecretKmsKeyId is unset; ModifyDBCluster docs say only that aws/secretsmanager is used, not the KmsKeyId value AWS returns (key ARN vs alias).
+- UNVERIFIABLE: DescribeDBEngineVersions ValidUpgradeTarget (which version pairs are upgradable is not in the SDK or API reference), DescribeOrderableDBInstanceOptions LicenseModel filter (no documented value), DBCluster IOOptimizedNextAllowedModificationTime (no interval stated), CloneGroupId (no documented format), and the cluster parameters beyond audit_logs/tls/ttl_monitor (the developer guide examples list only those three with AllowedValues).
 
 ### Structural gaps
 

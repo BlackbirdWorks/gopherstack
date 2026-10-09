@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
+	"strings"
 )
 
 func (b *InMemoryBackend) CreateDBClusterParameterGroup(
@@ -115,6 +117,10 @@ func (b *InMemoryBackend) ModifyDBClusterParameterGroup(
 
 	if pg.Parameters == nil {
 		pg.Parameters = make(map[string]string)
+	}
+
+	if err := validateClusterParameterValues(parameters); err != nil {
+		return nil, err
 	}
 
 	maps.Copy(pg.Parameters, parameters)
@@ -234,10 +240,22 @@ func applyMethodForType(applyType string) string {
 func clusterParameterDefaults() []DBClusterParameter {
 	return []DBClusterParameter{
 		{
+			ParameterName:  "audit_logs",
+			ParameterValue: "disabled",
+			Description:    "Enables auditing on cluster.",
+			AllowedValues:  "enabled,disabled",
+			Source:         paramSourceSystem,
+			ApplyType:      "dynamic",
+			ApplyMethod:    applyMethodForType("dynamic"),
+			DataType:       paramTypeStr,
+			IsModifiable:   true,
+		},
+		{
 			ParameterName:  "tls",
 			ParameterValue: paramEnabled,
-			Description:    "Specifies the TLS setting",
-			Source:         "system",
+			Description:    "Config to enable/disable TLS",
+			AllowedValues:  "disabled,enabled",
+			Source:         paramSourceSystem,
 			ApplyType:      "static",
 			ApplyMethod:    applyMethodForType("static"),
 			DataType:       paramTypeStr,
@@ -246,8 +264,9 @@ func clusterParameterDefaults() []DBClusterParameter {
 		{
 			ParameterName:  "ttl_monitor",
 			ParameterValue: paramEnabled,
-			Description:    "Specifies the TTL monitor setting",
-			Source:         "system",
+			Description:    "Enables TTL Monitoring",
+			AllowedValues:  "disabled,enabled",
+			Source:         paramSourceSystem,
 			ApplyType:      "dynamic",
 			ApplyMethod:    applyMethodForType("dynamic"),
 			DataType:       paramTypeStr,
@@ -306,3 +325,25 @@ func (b *InMemoryBackend) ResetDBClusterParameterGroup(
 
 	return &cp, nil
 }
+
+// validateClusterParameterValues rejects values outside a catalog parameter's AllowedValues list
+// (InvalidParameterValue, docs.aws.amazon.com/documentdb CommonErrors).
+func validateClusterParameterValues(parameters map[string]string) error {
+	for _, def := range clusterParameterDefaults() {
+		v, ok := parameters[def.ParameterName]
+		if !ok || def.AllowedValues == "" {
+			continue
+		}
+
+		if !slices.Contains(strings.Split(def.AllowedValues, ","), v) {
+			return fmt.Errorf(
+				"%w: %q is not a valid value for parameter %s (allowed: %s)",
+				ErrInvalidParameter, v, def.ParameterName, def.AllowedValues,
+			)
+		}
+	}
+
+	return nil
+}
+
+const paramSourceSystem = "system"

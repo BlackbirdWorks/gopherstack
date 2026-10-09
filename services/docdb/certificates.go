@@ -1,6 +1,9 @@
 package docdb
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 func certificateCatalog() []Certificate {
 	return []Certificate{
@@ -32,8 +35,14 @@ func certificateValidTill(id string) string {
 }
 
 // DescribeCertificates returns certificate information.
-func (b *InMemoryBackend) DescribeCertificates(_ context.Context, certificateID string) []Certificate {
+func (b *InMemoryBackend) DescribeCertificates(ctx context.Context, certificateID string) []Certificate {
 	certs := certificateCatalog()
+	region := getRegion(ctx, b.region)
+
+	for i := range certs {
+		certs[i].CertificateArn = fmt.Sprintf("arn:aws:rds:%s::cert:%s", region, certs[i].CertificateIdentifier)
+	}
+
 	if certificateID == "" {
 		return certs
 	}

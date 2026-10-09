@@ -16,9 +16,12 @@ func TestExecuteStatementResponseSizeCap(t *testing.T) {
 		name     string
 		size     int
 		wantCode int
+		json     bool
 	}{
 		{name: "under_cap", size: 100 << 10, wantCode: http.StatusOK},
 		{name: "over_cap", size: 2 << 20, wantCode: http.StatusBadRequest},
+		{name: "json_over_binary_cap", size: 2 << 20, wantCode: http.StatusOK, json: true},
+		{name: "json_over_cap", size: 11 << 20, wantCode: http.StatusBadRequest, json: true},
 	}
 
 	for _, tt := range tests {
@@ -28,16 +31,21 @@ func TestExecuteStatementResponseSizeCap(t *testing.T) {
 			h := newTestHandler(t)
 			payload := strings.Repeat("x", tt.size)
 
-			rec := doRDSDataRequest(t, h, "/Execute", map[string]any{
+			body := map[string]any{
 				"resourceArn": columnOriginResourceARN,
 				"secretArn":   columnOriginSecretARN,
 				"sql":         "SELECT '" + payload + "' AS big",
-			})
+			}
+			if tt.json {
+				body["formatRecordsAs"] = "JSON"
+			}
+
+			rec := doRDSDataRequest(t, h, "/Execute", body)
 
 			assert.Equal(t, tt.wantCode, rec.Code)
 
 			if tt.wantCode != http.StatusOK {
-				require.Contains(t, rec.Body.String(), "BadRequestException")
+				require.Contains(t, rec.Body.String(), "UnsupportedResultException")
 				assert.Contains(t, rec.Body.String(), "size limit")
 			}
 		})

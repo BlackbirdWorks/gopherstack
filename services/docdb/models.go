@@ -343,6 +343,7 @@ type Event struct {
 type Certificate struct {
 	CertificateIdentifier string
 	CertificateType       string
+	CertificateArn        string
 	Thumbprint            string
 	ValidFrom             string
 	ValidTill             string
@@ -352,6 +353,7 @@ type DBClusterParameter struct {
 	ParameterName  string
 	ParameterValue string
 	Description    string
+	AllowedValues  string
 	Source         string
 	ApplyType      string
 	ApplyMethod    string

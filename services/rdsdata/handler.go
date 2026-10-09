@@ -310,7 +310,11 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 }
 
 // maxResponseBytes is the documented 1 MB ExecuteStatement response cap (api_op_ExecuteStatement.go:18).
-const maxResponseBytes = 1 << 20
+const (
+	maxResponseBytes = 1 << 20
+	// maxFormattedRecordsBytes is the documented 10 MB formattedRecords cap (API_ExecuteStatement.html).
+	maxFormattedRecordsBytes = 10 << 20
+)
 
 type executeStatementRequest struct {
 	ResultSetOptions      *resultSetOptionsRequest `json:"resultSetOptions"`
@@ -485,11 +489,20 @@ func marshalExecuteResponse(
 		return nil, fmt.Errorf("marshal response: %w", err)
 	}
 
-	if len(out) > maxResponseBytes {
-		return nil, fmt.Errorf("%w: Database response exceeded size limit", ErrValidation)
+	if limit := responseLimit(req); len(out) > limit {
+		return nil, errUnsupportedResult("Database response exceeded size limit")
 	}
 
 	return out, nil
+}
+
+// responseLimit returns the 1 MB binary cap, or the 10 MB formattedRecords cap for JSON results.
+func responseLimit(req *executeStatementRequest) int {
+	if req.FormatRecordsAs == formatRecordsAsJSON && isQuery(req.SQL) {
+		return maxFormattedRecordsBytes
+	}
+
+	return maxResponseBytes
 }
 
 // formatRecordsAsJSONString renders records as the JSON string real AWS
