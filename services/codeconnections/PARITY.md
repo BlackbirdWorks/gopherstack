@@ -51,7 +51,7 @@ families:
   sync_blocker_contexts: {status: ok, note: "2026-10-07: SyncBlocker.Contexts are stored (CreateSyncBlocker takes optional contexts) and emitted by GetSyncBlockerSummary/UpdateSyncBlocker. Blockers still only come from CreateSyncBlocker because no sync engine exists to raise them. Guarded by TestSyncBlockerContextsRoundTrip."}
 gaps: []
 items_still_open:
-  - "CreateRepositoryLink's ConnectionArn and CreateSyncConfiguration's RepositoryLinkId are not existence-checked: neither op's error set contains ResourceNotFoundException (only InvalidInputException/ResourceAlreadyExistsException/...), and neither the SDK nor its docs say AWS validates these references. Unverifiable."
+  - "CreateRepositoryLink's ConnectionArn and CreateSyncConfiguration's RepositoryLinkId are not existence-checked: neither op declares ResourceNotFoundException (codeconnections@v1.13.4 deserializers) and the field docs do not say AWS validates them."
 deferred: []
 leaks: {status: clean, note: "no goroutines/janitors in this service; all state lives in store.Table/Index behind lockmetrics.RWMutex, snapshotted via persistence.go. FIXED this pass: DeleteSyncConfiguration previously left orphaned syncBlockers rows behind forever (see GetResourceSyncStatus/DeleteSyncConfiguration ops notes) -- a real ghost-row leak, now cleaned up via a cascade delete keyed off the existing syncBlockersByResource index. No new goroutines or tables were introduced; the fix reuses existing indexes."}
 ---

@@ -16,7 +16,7 @@
 
 ### Known gaps
 
-- ServiceNetworkResourceAssociation dnsEntry/privateDnsEntry are never emitted: the SDK documents neither how the domain name is derived nor the hosted-zone source for resource associations.
+- ServiceNetworkResourceAssociation dnsEntry is never emitted: neither the SDK, the API reference nor the VPC Lattice user guide (resource-configuration, service-network-associations) documents how its domain name or hosted zone is derived. privateDnsEntry is served from the resource configuration's custom domain (TestServiceNetworkResourceAssociation_PrivateDNSEntry).
 
 ### Structural gaps
 

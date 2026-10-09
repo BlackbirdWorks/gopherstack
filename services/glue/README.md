@@ -10,18 +10,19 @@
 | PARITY entries audited | 59 (58 ok, 1 partial) |
 | Feature families | 28 (23 ok, 5 partial) |
 | Known gaps | 1 |
-| Structural gaps (can't be emulated) | 4 |
+| Structural gaps (can't be emulated) | 5 |
 | Deferred items | 2 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Request members accepted and ignored with no SDK-documented observable effect or ARN format: Tags on CreateCatalog/CreateColumnStatisticsTaskSettings/CreateIntegrationResourceProperty/RegisterConnectionType/CreateCustomEntityType (no ARN to wire TagResource to); UpdateTable VersionId/Force/ViewUpdateAction; ModifyIntegration.IntegrationName (ARN is name-keyed); RequestOrigin on session/statement ops; GetJobRun.PredecessorsIncluded; Get/ResetJobBookmark.RunId; StartMaterializedViewRefreshTaskRun.FullRefresh; GetConnection.ApplyOverrideForComputeEnvironment; GetDatabases/GetTables/SearchTables AttributesToGet/IncludeStatusDetails/ResourceShareType; ClientToken on Put*/Update*/Associate*/Disassociate* ops (already idempotent by key).
+- Request members accepted and ignored with no determinable effect: Tags on CreateColumnStatisticsTaskSettings/CreateIntegrationResourceProperty/RegisterConnectionType/CreateCustomEntityType (the Glue ARN guide lists no ARN for them); UpdateTable VersionId/Force/ViewUpdateAction (UpdateTable API reference names no mismatch behavior); ModifyIntegration.IntegrationName (ARN is name-keyed); GetJobRun.PredecessorsIncluded (needs conditional-trigger firing on job completion, which the backend does not do and whose re-fire semantics are undocumented); Get/ResetJobBookmark.RunId (one bookmark per job; per-run semantics undocumented); GetConnection.ApplyOverrideForComputeEnvironment; GetTable/GetTables/SearchTables IncludeStatusDetails; GetDatabases/SearchTables ResourceShareType (no cross-account shares).
 
 ### Structural gaps
 
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
+- StartMaterializedViewRefreshTaskRun.FullRefresh and the RequestOrigin members on session/statement ops have no corresponding output field in glue@v1.157.0, so nothing observable exists to emulate; ClientToken on Put*/Update*/Associate*/Disassociate* ops is already idempotent by key.
 - No backing engine or data: Lake Formation cell/row filtering (GetUnfiltered*Metadata) and catalog federation; GetDataQualityResult metrics/rule results and StartDataQualityRulesetEvaluationRun evaluation; ListConnectionTypes DisplayName/LogoUrl/Vendor (no connector catalog); GetPlan Location/Sinks (code generation); GetEntityRecords ConnectionOptions/SelectedFields (real connectors); FindMatchesTaskRunProperties JobId/JobName/JobRunId (no transform job).
 - Table-format and snapshot semantics need a real engine: GetTable AttributesToGet Iceberg metadata, Create/UpdateTable OpenTableFormatInput, and TransactionId/AuditContext/QueryAsOfTime/QuerySessionContext on table and partition ops.
 - ConcurrentModificationException and OperationTimeoutException cannot occur: the coarse b.mu serializes ops and there is no timeout source. ResourceNumberLimitExceededException is real for 15 ops (limits.go).

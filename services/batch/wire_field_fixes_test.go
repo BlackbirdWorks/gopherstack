@@ -129,4 +129,10 @@ func Test_SDKRoundTrip_ComputeEnvironment_ContainerOrchestrationTypeAndUuid(t *t
 		aws.ToString(eksCE.Uuid),
 		"Uuid must be unique per compute environment",
 	)
+	assert.Equal(t,
+		"arn:aws:ecs:"+rtTestRegion+":000000000000:cluster/"+ecsCEName+"_Batch_"+aws.ToString(ecsCE.Uuid),
+		aws.ToString(ecsCE.EcsClusterArn),
+		"ECS compute environments expose the cluster Batch provisions (API_DescribeComputeEnvironments example)",
+	)
+	assert.Nil(t, eksCE.EcsClusterArn, "EKS compute environments have no ECS cluster")
 }

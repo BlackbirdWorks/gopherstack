@@ -16,7 +16,7 @@
 
 ### Known gaps
 
-- gopherstack-i5ss (2026-09-06): ImportCrl does not validate TrustAnchorArn refers to an existing trust anchor, and DeleteTrustAnchor does not cascade to CRLs referencing it. Both left unimplemented -- see the dated section below for the sourced reasoning. Would be revisited if AWS ever adds ResourceNotFoundException to ImportCrl's modelled errors, or a doc revision states either behavior explicitly.
+- gopherstack-i5ss: ImportCrl does not validate TrustAnchorArn refers to an existing trust anchor, and DeleteTrustAnchor does not cascade to CRLs. Re-checked 2026-10-07: ImportCrl declares only AccessDeniedException/ValidationException (SDK deserializers + API reference), and the API reference and user-guide trust-model/revocation pages state neither behavior.
 
 ### Structural gaps
 

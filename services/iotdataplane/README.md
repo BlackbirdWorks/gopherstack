@@ -9,14 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 11 (9 ok, 2 partial) |
 | Feature families | 1 (1 ok) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 1 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- UnsupportedDocumentEncodingException (HTTP 415) is never returned (UNVERIFIABLE): the botocore model, SDK errors.go, IoT API reference and shadow guides give no trigger condition.
 
 ### Structural gaps
 

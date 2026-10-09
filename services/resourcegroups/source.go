@@ -15,6 +15,7 @@ import (
 const (
 	queryErrStackInactive   = "CLOUDFORMATION_STACK_INACTIVE"
 	queryErrStackNotExist   = "CLOUDFORMATION_STACK_NOT_EXISTING"
+	queryErrTypeUnsupported = "RESOURCE_TYPE_NOT_SUPPORTED"
 	resourceQueryTagFilters = "TAG_FILTERS_1_0"
 	taggedPageSize          = 100
 )
@@ -212,8 +213,24 @@ func evalStackQuery(
 	tagged := src.TaggedResources(ctx)
 	out := make([]ResourceIdentifier, 0, len(stack.Resources))
 
+	var errs []queryErrorWire
+
+	reported := map[string]bool{}
+
 	for _, r := range stack.Resources {
 		if !typeAllowed(want, r.Type) {
+			continue
+		}
+
+		if !stackTypeSupported(r.Type) {
+			if !reported[r.Type] {
+				reported[r.Type] = true
+				errs = append(errs, queryErrorWire{
+					ErrorCode: queryErrTypeUnsupported,
+					Message:   "Resource type " + r.Type + " is not supported in CloudFormation stack-based groups",
+				})
+			}
+
 			continue
 		}
 
@@ -222,7 +239,7 @@ func evalStackQuery(
 		}
 	}
 
-	return out, nil
+	return out, errs
 }
 
 // stackResourceARN returns the ARN of a stack resource: its physical ID when

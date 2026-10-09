@@ -47,7 +47,15 @@ func (b *InMemoryBackend) tagsFieldByARN(resourceARN string) *map[string]string 
 		return field
 	}
 
-	return b.extraTagsFieldByARN(resourceARN)
+	if field := b.extraTagsFieldByARN(resourceARN); field != nil {
+		return field
+	}
+
+	if c := b.findCatalogByARN(resourceARN); c != nil {
+		return &c.Tags
+	}
+
+	return nil
 }
 
 func (b *InMemoryBackend) coreTagsFieldByARN(resourceARN string) *map[string]string {
@@ -199,6 +207,10 @@ func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
 		out = appendTaggedEntry(out, ig.IntegrationArn, ig.Tags)
 	}
 
+	for _, c := range b.catalogs.All() {
+		out = appendTaggedEntry(out, c.ResourceArn, c.Tags)
+	}
+
 	return out
 }
 
@@ -292,6 +304,10 @@ func (b *InMemoryBackend) addExtraResourceTags(addTags func(string, map[string]s
 	for _, sess := range b.sessions.All() {
 		addTags(b.sessionARN(sess.SessionID), sess.Tags)
 	}
+
+	for _, c := range b.catalogs.All() {
+		addTags(c.ResourceArn, c.Tags)
+	}
 }
 
 // restoreResourceTags repopulates each taggable struct's Tags field from the
@@ -360,6 +376,10 @@ func (b *InMemoryBackend) restoreExtraResourceTags(resourceTags map[string]map[s
 
 	for _, sess := range b.sessions.All() {
 		sess.Tags = resourceTags[b.sessionARN(sess.SessionID)]
+	}
+
+	for _, c := range b.catalogs.All() {
+		c.Tags = resourceTags[c.ResourceArn]
 	}
 }
 
@@ -591,4 +611,22 @@ func (b *InMemoryBackend) findIntegrationByARN(resourceARN string) *Integration 
 	}
 
 	return ig
+}
+
+func (b *InMemoryBackend) catalogARN(name string) string {
+	return arn.Build("glue", b.region, b.accountID, "catalog/"+name)
+}
+
+func (b *InMemoryBackend) findCatalogByARN(resourceARN string) *CatalogEntry {
+	name := glueResourceName(resourceARN, "catalog")
+	if name == "" {
+		return nil
+	}
+
+	c, ok := b.catalogs.Get(name)
+	if !ok {
+		return nil
+	}
+
+	return c
 }

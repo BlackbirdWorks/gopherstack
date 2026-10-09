@@ -16,7 +16,7 @@
 
 ### Known gaps
 
-- UNVERIFIABLE: CreateRepositoryLink.ConnectionArn and CreateSyncConfiguration.RepositoryLinkId are not existence-checked. Neither op's deserializer (codestarconnections@v1.38.4) models ResourceNotFoundException, and the SDK does not say whether real AWS validates these references or with which error, so no code can be chosen without inventing behaviour (gopherstack-42j). Same for codeconnections.
+- CreateRepositoryLink.ConnectionArn and CreateSyncConfiguration.RepositoryLinkId are not existence-checked: neither op declares ResourceNotFoundException (codestarconnections@v1.38.4 deserializers) and the field docs do not say AWS validates them (gopherstack-42j). Same for codeconnections.
 
 ### Structural gaps
 

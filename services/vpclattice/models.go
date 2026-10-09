@@ -518,17 +518,19 @@ type storedSNRA struct {
 	CreatedAt                 time.Time         `json:"createdAt"`
 	LastUpdatedAt             time.Time         `json:"lastUpdatedAt"`
 	Tags                      map[string]string `json:"tags"`
-	ARN                       string            `json:"arn"`
-	ID                        string            `json:"id"`
+	ServiceNetworkARN         string            `json:"serviceNetworkArn"`
+	ServiceNetworkName        string            `json:"serviceNetworkName"`
 	ResourceConfigurationARN  string            `json:"resourceConfigurationArn"`
 	ResourceConfigurationID   string            `json:"resourceConfigurationId"`
 	ResourceConfigurationName string            `json:"resourceConfigurationName"`
-	ServiceNetworkARN         string            `json:"serviceNetworkArn"`
+	ARN                       string            `json:"arn"`
 	ServiceNetworkID          string            `json:"serviceNetworkId"`
-	ServiceNetworkName        string            `json:"serviceNetworkName"`
+	ID                        string            `json:"id"`
 	Status                    string            `json:"status"`
 	CreatedBy                 string            `json:"createdBy"`
 	Region                    string            `json:"region"`
+	PrivateDNSHostedZoneID    string            `json:"privateDnsHostedZoneId"`
+	PrivateDNSDomain          string            `json:"privateDnsDomain"`
 	PrivateDNSEnabled         bool              `json:"privateDnsEnabled"`
 }
 
@@ -545,6 +547,8 @@ func (s *storedSNRA) toAssociation() *ServiceNetworkResourceAssociation {
 		Status:                    s.Status,
 		CreatedBy:                 s.CreatedBy,
 		PrivateDNSEnabled:         s.PrivateDNSEnabled,
+		PrivateDNSDomain:          s.PrivateDNSDomain,
+		PrivateDNSHostedZoneID:    s.PrivateDNSHostedZoneID,
 		CreatedAt:                 s.CreatedAt,
 		LastUpdatedAt:             s.LastUpdatedAt,
 	}
@@ -563,6 +567,8 @@ func (s *storedSNRA) toSummary() *ServiceNetworkResourceAssociationSummary {
 		Status:                    s.Status,
 		CreatedBy:                 s.CreatedBy,
 		PrivateDNSEnabled:         s.PrivateDNSEnabled,
+		PrivateDNSDomain:          s.PrivateDNSDomain,
+		PrivateDNSHostedZoneID:    s.PrivateDNSHostedZoneID,
 		CreatedAt:                 s.CreatedAt,
 	}
 }

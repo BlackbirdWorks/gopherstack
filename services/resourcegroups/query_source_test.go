@@ -37,6 +37,11 @@ func newSourceBackend() *resourcegroups.InMemoryBackend {
 				{Type: "AWS::SNS::Topic", PhysicalID: "arn:aws:sns:us-east-1:000000000000:t1"},
 				{Type: "AWS::SQS::Queue", PhysicalID: "missing"},
 			}},
+			"mixed": {Status: "CREATE_COMPLETE", Resources: []resourcegroups.StackResource{
+				{Type: "AWS::SQS::Queue", PhysicalID: "q2"},
+				{Type: "AWS::Fake::Unsupported", PhysicalID: "a"},
+				{Type: "AWS::Fake::Unsupported", PhysicalID: "b"},
+			}},
 			"failed":  {Status: "ROLLBACK_COMPLETE"},
 			"deleted": {Status: "DELETE_COMPLETE"},
 		},
@@ -138,6 +143,43 @@ func TestResourceQueryEvaluation(t *testing.T) {
 				assert.Empty(t, p.Errors)
 				assert.Equal(t, tt.wantARNs, got)
 			}
+		})
+	}
+}
+
+func TestStackQueryUnsupportedResourceType(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		query      string
+		wantErrors int
+	}{
+		{
+			name:       "all_types",
+			query:      `{"ResourceTypeFilters":["AWS::AllSupported"],"StackIdentifier":"mixed"}`,
+			wantErrors: 1,
+		},
+		{name: "filtered_out", query: `{"ResourceTypeFilters":["AWS::SQS::Queue"],"StackIdentifier":"mixed"}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newSourceBackend()
+			rq := &resourcegroups.ResourceQuery{Type: "CLOUDFORMATION_STACK_1_0", Query: tt.query}
+
+			page, err := b.SearchResourcesPage(context.Background(), rq, "", 0)
+			require.NoError(t, err)
+			require.Len(t, page.Errors, tt.wantErrors)
+
+			if tt.wantErrors > 0 {
+				assert.Equal(t, "RESOURCE_TYPE_NOT_SUPPORTED", page.Errors[0].ErrorCode)
+			}
+
+			require.Len(t, page.Identifiers, 1)
+			assert.Equal(t, "arn:aws:sqs:us-east-1:000000000000:q2", page.Identifiers[0].ResourceArn)
 		})
 	}
 }

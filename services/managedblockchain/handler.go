@@ -618,6 +618,8 @@ func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 		return writeError(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 	case errors.Is(err, awserr.ErrAlreadyExists):
 		return writeError(c, http.StatusConflict, "ResourceAlreadyExistsException", err.Error())
+	case errors.Is(err, ErrResourceLimitExceeded):
+		return writeError(c, http.StatusTooManyRequests, "ResourceLimitExceededException", err.Error())
 	case errors.Is(err, ErrTooManyTags):
 		return writeError(c, http.StatusBadRequest, "TooManyTagsException", err.Error())
 	case errors.Is(err, awserr.ErrInvalidParameter):

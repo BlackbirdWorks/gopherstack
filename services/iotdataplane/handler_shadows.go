@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/labstack/echo/v5"
 )
@@ -94,6 +95,10 @@ func (h *Handler) handleUpdateThingShadow(c *echo.Context, thingName, shadowName
 		tooLargeErr := fmt.Errorf("%w: shadow document exceeds %d bytes", ErrRequestTooLarge, maxShadowBodyBytes)
 
 		return h.handleError(c, tooLargeErr)
+	}
+
+	if !utf8.Valid(body) {
+		return h.handleError(c, ErrUnsupportedDocumentEncoding)
 	}
 
 	updated, updateErr := h.Backend.UpdateThingShadow(thingName, shadowName, body)

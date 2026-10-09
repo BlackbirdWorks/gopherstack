@@ -52,9 +52,9 @@ ops:
 families:
   route_matcher: {status: ok, note: "verified every REST path/method (POST for all ops except GET/PUT/PATCH /resources/{Arn}/tags) against serializers.go opPath/request.Method -- exact match, no gaps. FIXED 2026-09-20: isResourceTagsPath now requires the ARN's service segment to be resource-groups, so this service's own tag ops still match while a sibling service's identically-shaped /resources/{Arn}/tags request (QuickSight, confirmed) no longer does -- see overall note."}
 gaps: []
-items_still_open:
-  - "QueryErrors CLOUDFORMATION_STACK_UNASSUMABLE_ROLE and RESOURCE_TYPE_NOT_SUPPORTED are never emitted: the query carries no role to assume, and the set of types AWS supports for stack queries is not in the SDK. CLOUDFORMATION_STACK_INACTIVE/NOT_EXISTING are served (TestResourceQueryEvaluation); the inactive status set (CREATE_FAILED, ROLLBACK_*, DELETE_IN_PROGRESS/FAILED) is inferred from the SDK prose."
+items_still_open: []
 structural_gaps:
+  - "QueryError CLOUDFORMATION_STACK_UNASSUMABLE_ROLE is never emitted: a ResourceQuery carries no role and there is no role-assumption engine for Resource Groups' service-linked role. RESOURCE_TYPE_NOT_SUPPORTED is served from the documented stack-based-group type table (TestStackQueryUnsupportedResourceType)."
   - "ListGroupResourcesItem.Status (PENDING) is only present for AWS::EC2::HostManagement groups; GroupResources/UngroupResources complete synchronously here, so there is never a pending window to report."
 deferred: []
 leaks: {status: clean, note: "no goroutines/janitors; CancelTagSyncTask fix removes the only TTL-dependent eviction path's live producer (tagSyncTaskTTL eviction in ListTagSyncTasks is now effectively dead code since nothing sets a non-ACTIVE status, but is left as harmless defensive generic logic for a future ERROR-status producer)"}

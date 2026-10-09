@@ -99,6 +99,7 @@ type ComputeEnvironment struct {
 	ComputeEnvironmentName     string            `json:"computeEnvironmentName"`
 	ContainerOrchestrationType string            `json:"containerOrchestrationType,omitempty"`
 	UUID                       string            `json:"uuid,omitempty"`
+	EcsClusterArn              string            `json:"ecsClusterArn,omitempty"`
 	region                     string
 }
 

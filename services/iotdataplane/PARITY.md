@@ -33,8 +33,7 @@ ops:
 families:
   admin-only-extensions: {status: ok, note: "RegisterConnection/ListConnections/ListThingsWithShadows have NO real AWS iotdataplane equivalent (confirmed against the SDK's op file listing); correctly confined to gopherstack-only paths (/_admin/connections, /api/things/shadow/ListThingsWithShadows) so they cannot shadow real AWS traffic"}
 gaps: []
-items_still_open:
-  - "UnsupportedDocumentEncodingException (HTTP 415) is never returned (UNVERIFIABLE): the botocore model, SDK errors.go, IoT API reference and shadow guides give no trigger condition."
+items_still_open: []
 structural_gaps:
   - "GetConnection thingName and vpcEndpointId have no source: no certificate-to-thing principal mapping or VPC endpoint model exists for MQTT sessions."
 deferred:                 # consciously not audited this pass (scope) — next pass targets

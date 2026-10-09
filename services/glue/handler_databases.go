@@ -3,6 +3,8 @@ package glue
 import (
 	"context"
 	"fmt"
+
+	gluetypes "github.com/aws/aws-sdk-go-v2/service/glue/types"
 )
 
 type createDatabaseInput struct {
@@ -51,6 +53,8 @@ type getDatabasesInput struct {
 	MaxResults *int32 `json:"MaxResults,omitempty"`
 	NextToken  string `json:"NextToken,omitempty"`
 	CatalogID  string `json:"CatalogId,omitempty"`
+
+	AttributesToGet []string `json:"AttributesToGet,omitempty"`
 }
 
 type getDatabasesOutput struct {
@@ -61,6 +65,14 @@ type getDatabasesOutput struct {
 func (h *Handler) handleGetDatabases(_ context.Context, in *getDatabasesInput) (*getDatabasesOutput, error) {
 	if in.MaxResults != nil && (*in.MaxResults < 1 || *in.MaxResults > maxGetDatabasesResults) {
 		return nil, fmt.Errorf("%w: MaxResults must be between 1 and %d", ErrValidation, maxGetDatabasesResults)
+	}
+
+	if err := checkEnumList[gluetypes.DatabaseAttributes]("AttributesToGet", in.AttributesToGet); err != nil {
+		return nil, err
+	}
+
+	if err := requireNameAttribute(in.AttributesToGet); err != nil {
+		return nil, err
 	}
 
 	dbs := h.Backend.GetDatabases()
@@ -83,6 +95,7 @@ func (h *Handler) handleGetDatabases(_ context.Context, in *getDatabasesInput) (
 	}
 
 	page, next := paginateSlice(dbs, in.NextToken, limit)
+	page = projectDatabases(page, in.AttributesToGet)
 
 	return &getDatabasesOutput{DatabaseList: toDatabaseWireList(page), NextToken: next}, nil
 }

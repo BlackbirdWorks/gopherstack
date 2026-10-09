@@ -701,6 +701,8 @@ type ServiceNetworkResourceAssociation struct {
 	ServiceNetworkName        string
 	Status                    string
 	CreatedBy                 string
+	PrivateDNSDomain          string
+	PrivateDNSHostedZoneID    string
 	PrivateDNSEnabled         bool
 }
 
@@ -717,6 +719,8 @@ type ServiceNetworkResourceAssociationSummary struct {
 	ServiceNetworkName        string
 	Status                    string
 	CreatedBy                 string
+	PrivateDNSDomain          string
+	PrivateDNSHostedZoneID    string
 	PrivateDNSEnabled         bool
 }
 

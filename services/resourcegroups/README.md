@@ -9,19 +9,16 @@
 | --- | --- |
 | PARITY entries audited | 23 (22 ok, 1 partial) |
 | Feature families | 1 (1 ok) |
-| Known gaps | 1 |
-| Structural gaps (can't be emulated) | 1 |
+| Known gaps | none |
+| Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- QueryErrors CLOUDFORMATION_STACK_UNASSUMABLE_ROLE and RESOURCE_TYPE_NOT_SUPPORTED are never emitted: the query carries no role to assume, and the set of types AWS supports for stack queries is not in the SDK. CLOUDFORMATION_STACK_INACTIVE/NOT_EXISTING are served (TestResourceQueryEvaluation); the inactive status set (CREATE_FAILED, ROLLBACK_*, DELETE_IN_PROGRESS/FAILED) is inferred from the SDK prose.
 
 ### Structural gaps
 
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
+- QueryError CLOUDFORMATION_STACK_UNASSUMABLE_ROLE is never emitted: a ResourceQuery carries no role and there is no role-assumption engine for Resource Groups' service-linked role. RESOURCE_TYPE_NOT_SUPPORTED is served from the documented stack-based-group type table (TestStackQueryUnsupportedResourceType).
 - ListGroupResourcesItem.Status (PENDING) is only present for AWS::EC2::HostManagement groups; GroupResources/UngroupResources complete synchronously here, so there is never a pending window to report.
 
 ## More

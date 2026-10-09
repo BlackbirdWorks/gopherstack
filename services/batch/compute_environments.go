@@ -216,6 +216,11 @@ func (b *InMemoryBackend) CreateComputeEnvironment(
 		UUID:                       uuid.NewString(),
 		UnmanagedvCpus:             unmanagedvCpus,
 	}
+
+	if orchestrationType == orchestrationTypeECS {
+		ce.EcsClusterArn = arn.Build("ecs", region, b.accountID, "cluster/"+name+"_Batch_"+ce.UUID)
+	}
+
 	b.computeEnvironments.Put(ce)
 	b.cesByARN[ceARN] = name
 	cp := *ce

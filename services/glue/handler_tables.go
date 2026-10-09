@@ -3,7 +3,6 @@ package glue
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -74,6 +73,8 @@ type getTablesInput struct {
 	MaxResults   *int32 `json:"MaxResults,omitempty"`
 	NextToken    string `json:"NextToken,omitempty"`
 	CatalogID    string `json:"CatalogId,omitempty"`
+
+	AttributesToGet []string `json:"AttributesToGet,omitempty"`
 }
 
 type getTablesOutput struct {
@@ -86,39 +87,22 @@ func (h *Handler) handleGetTables(_ context.Context, in *getTablesInput) (*getTa
 		return nil, fmt.Errorf("%w: MaxResults must be between 1 and %d", ErrValidation, maxGetTablesResults)
 	}
 
+	if err := checkEnumList[gluetypes.TableAttributes]("AttributesToGet", in.AttributesToGet); err != nil {
+		return nil, err
+	}
+
+	if err := requireNameAttribute(in.AttributesToGet); err != nil {
+		return nil, err
+	}
+
 	tables, err := h.Backend.GetTables(in.DatabaseName)
 	if err != nil {
 		return nil, err
 	}
 
-	if in.CatalogID != "" {
-		filtered := tables[:0]
-
-		for _, tbl := range tables {
-			if tbl.CatalogID == in.CatalogID {
-				filtered = append(filtered, tbl)
-			}
-		}
-
-		tables = filtered
-	}
-
-	if in.Expression != "" {
-		var re *regexp.Regexp
-
-		re, err = tableNameRegexp(in.Expression)
-		if err != nil {
-			return nil, fmt.Errorf("%w: invalid Expression: %w", ErrValidation, err)
-		}
-
-		filtered := tables[:0]
-		for _, tbl := range tables {
-			if re.MatchString(tbl.Name) {
-				filtered = append(filtered, tbl)
-			}
-		}
-
-		tables = filtered
+	tables, err = filterTables(tables, in.CatalogID, in.Expression)
+	if err != nil {
+		return nil, err
 	}
 
 	limit := maxGetTablesResults
@@ -127,6 +111,7 @@ func (h *Handler) handleGetTables(_ context.Context, in *getTablesInput) (*getTa
 	}
 
 	page, next := paginateSlice(tables, in.NextToken, limit)
+	page = projectTables(page, in.AttributesToGet)
 
 	return &getTablesOutput{TableList: page, NextToken: next}, nil
 }
@@ -513,4 +498,37 @@ func (h *Handler) handleSearchTables(
 	}
 
 	return &searchTablesOutput{TableList: page, NextToken: next}, nil
+}
+
+func filterTables(tables []*Table, catalogID, expression string) ([]*Table, error) {
+	if catalogID != "" {
+		filtered := tables[:0]
+
+		for _, tbl := range tables {
+			if tbl.CatalogID == catalogID {
+				filtered = append(filtered, tbl)
+			}
+		}
+
+		tables = filtered
+	}
+
+	if expression == "" {
+		return tables, nil
+	}
+
+	re, err := tableNameRegexp(expression)
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid Expression: %w", ErrValidation, err)
+	}
+
+	filtered := tables[:0]
+
+	for _, tbl := range tables {
+		if re.MatchString(tbl.Name) {
+			filtered = append(filtered, tbl)
+		}
+	}
+
+	return filtered, nil
 }

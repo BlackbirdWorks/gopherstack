@@ -87,7 +87,7 @@ func (h *Handler) handleListSNRAs(c *echo.Context) error {
 
 	summaries := make([]any, 0, len(items))
 	for _, s := range items {
-		summaries = append(summaries, map[string]any{
+		m := map[string]any{
 			keyARN:                       s.ARN,
 			"id":                         s.ID,
 			keyResourceConfigurationARN:  s.ResourceConfigurationARN,
@@ -101,7 +101,9 @@ func (h *Handler) handleListSNRAs(c *echo.Context) error {
 			keyPrivateDNSEnabled:         s.PrivateDNSEnabled,
 			keyIsManagedAssoc:            false,
 			keyCreatedAt:                 s.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
-		})
+		}
+		addPrivateDNSEntry(m, s.PrivateDNSDomain, s.PrivateDNSHostedZoneID)
+		summaries = append(summaries, m)
 	}
 
 	resp := map[string]any{keyItems: summaries}
@@ -115,8 +117,14 @@ func (h *Handler) handleListSNRAs(c *echo.Context) error {
 // keyIsManagedAssoc is always false: every association here is caller-created.
 const keyIsManagedAssoc = "isManagedAssociation"
 
+func addPrivateDNSEntry(m map[string]any, domain, hostedZoneID string) {
+	if domain != "" {
+		m["privateDnsEntry"] = dnsEntryToJSON(domain, hostedZoneID)
+	}
+}
+
 func snraToJSON(s *ServiceNetworkResourceAssociation) map[string]any {
-	return map[string]any{
+	m := map[string]any{
 		keyARN:                       s.ARN,
 		"id":                         s.ID,
 		keyResourceConfigurationARN:  s.ResourceConfigurationARN,
@@ -132,6 +140,9 @@ func snraToJSON(s *ServiceNetworkResourceAssociation) map[string]any {
 		keyCreatedAt:                 s.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 		keyLastUpdatedAt:             s.LastUpdatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 	}
+	addPrivateDNSEntry(m, s.PrivateDNSDomain, s.PrivateDNSHostedZoneID)
+
+	return m
 }
 
 // ------- ResourceEndpointAssociation / ServiceNetworkVpcEndpointAssociation handlers -------

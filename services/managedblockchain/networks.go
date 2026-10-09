@@ -85,6 +85,10 @@ func (b *InMemoryBackend) CreateNetwork(
 		}
 	}
 
+	if fabricEdition != "" && b.networksWithOwnedMemberLocked(fabricEdition) >= maxNetworksPerEdition {
+		return nil, nil, ErrResourceLimitExceeded
+	}
+
 	now := time.Now().UTC()
 	networkID := uuid.NewString()
 	memberID := uuid.NewString()

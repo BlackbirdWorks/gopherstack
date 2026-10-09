@@ -41,9 +41,9 @@ families:
   accessor: {status: ok, note: "CreateAccessor/GetAccessor/DeleteAccessor/ListAccessors verified; ListAccessors now paginates; Accessor vs AccessorSummary wire structs confirmed distinct and each matches its own live deserializer, see 2026-08-20 Notes"}
   tags: {status: ok, note: "TagResource/UntagResource/ListTagsForResource verified against /tags/{ResourceArn} shape and ARN-keyed lookup"}
 gaps: []
-items_still_open:
-  - "No service quotas are enforced, so ResourceLimitExceededException is never returned: the SDK documents the exception ('maximum number of resources of that type already exist') but not the limit values."
+items_still_open: []
 structural_gaps:
+  - "Hyperledger Fabric channels (8 per network) are not an API resource in this SDK, so that quota has nothing to attach to."
   - "Member.IsOwned is always true: the emulator has a single account, so every member belongs to the caller's account."
   - "ResourceNotReadyException is never returned: every network/member/node is AVAILABLE synchronously and there is no CREATING/DELETING lifecycle to be 'not ready' in."
 deferred: []

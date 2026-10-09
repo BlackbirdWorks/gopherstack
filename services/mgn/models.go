@@ -887,10 +887,7 @@ type S3BucketSource struct {
 // matching AWS's own documented alternate-identification/update-by-id
 // behavior (import-parameters.html, Additional considerations #3-6); every
 // other successfully-identified row creates a new resource (CreatedCount).
-// mgn:launch:*/mgn:replication:* per-row overrides remain out of scope (see
-// s3import.go's doc comment) -- Applications/Waves/SourceServers this
-// backend creates always get their existing default
-// LaunchConfiguration/ReplicationConfiguration, never row-specific values.
+// mgn:launch:*/mgn:replication:* rows apply to the server's configs (s3import_config.go).
 type ImportTaskSummary struct {
 	Applications countPair
 	Servers      countPair

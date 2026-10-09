@@ -80,6 +80,11 @@ func (b *InMemoryBackend) CreateServiceNetworkResourceAssociation(
 		Region:                    region,
 	}
 
+	if privateDNSEnabled && rc.CustomDomainName != "" {
+		snra.PrivateDNSDomain = rc.CustomDomainName
+		snra.PrivateDNSHostedZoneID = newHostedZoneID()
+	}
+
 	b.snras.Put(snra)
 	b.tags[assocARN] = copyTags(tags)
 

@@ -99,6 +99,10 @@ func (b *InMemoryBackend) createEthereumNodeLocked(
 		return nil, ErrMissingNodeAvailabilityZone
 	}
 
+	if b.ethereumNodeCountLocked() >= maxEthereumNodesPerAccount {
+		return nil, ErrResourceLimitExceeded
+	}
+
 	now := time.Now().UTC()
 
 	if _, exists := b.networks.Get(ethereumMainnetNetworkID); !exists {
@@ -158,13 +162,19 @@ func (b *InMemoryBackend) CreateNode(
 		return b.createEthereumNodeLocked(region, accountID, instanceType, availabilityZone, tags)
 	}
 
-	if _, exists := b.networks.Get(networkID); !exists {
+	network, exists := b.networks.Get(networkID)
+	if !exists {
 		return nil, ErrNetworkNotFound
 	}
 
 	owner, exists := b.members.Get(memberKey(networkID, memberID))
 	if !exists {
 		return nil, ErrMemberNotFound
+	}
+
+	if edition := fabricEditionOf(network); edition != "" &&
+		b.peerNodeCountLocked(networkID, memberID) >= maxPeerNodesPerMember(edition) {
+		return nil, ErrResourceLimitExceeded
 	}
 
 	now := time.Now().UTC()

@@ -375,6 +375,7 @@ type StorageBackend interface {
 
 	// Catalog operations.
 	CreateCatalog(catalogID, name, description string, params map[string]string) error
+	CreateCatalogWithTags(catalogID, name, description string, params, tags map[string]string) error
 	GetCatalog(catalogID string) (*CatalogEntry, error)
 	GetCatalogs() []*CatalogEntry
 	UpdateCatalog(catalogID, description string, params map[string]string) error

@@ -8,19 +8,16 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 45 (41 ok, 4 partial) |
-| Known gaps | 1 |
-| Structural gaps (can't be emulated) | 2 |
+| Known gaps | none |
+| Structural gaps (can't be emulated) | 3 |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- ComputeEnvironmentDetail.EcsClusterArn is unmodeled: no ECS cluster is provisioned and the SDK gives no naming for the cluster AWS creates; Context is documented only as Reserved.
 
 ### Structural gaps
 
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
+- ComputeEnvironmentDetail.Context is documented only as Reserved (batch@v1.68.4 types.go); nothing observable to emulate.
 - JobSummary.capacityUsage/scheduledAt, ServiceJobSummary.capacityUsage/latestAttempt and DescribeServiceJobOutput attempts/capacityUsage/latestAttempt/preemptionSummary, plus pod/task/instance placement fields on DescribeJobs, need real container execution, a scheduler and preemption.
 - GetJobQueueSnapshot queueUtilization needs per-share capacity usage measured from running workloads.
 

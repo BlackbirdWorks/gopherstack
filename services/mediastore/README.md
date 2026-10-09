@@ -15,7 +15,7 @@
 
 ### Known gaps
 
-- UNVERIFIABLE + cross-service: DeleteContainer does not require an empty container. The SDK doc says containers must be emptied first but DeleteContainer models no error for it (only ContainerInUseException/ContainerNotFoundException/InternalServerError), so the code is not determinable; enforcing it also needs a container dimension in services/mediastoredata's object store (keyed by region only, outside this service) plus a root wiring hook. A second DeleteContainer on a DELETING container is likewise unspecified in the SDK (gopherstack-apg3).
+- UNVERIFIABLE + cross-service: DeleteContainer does not require an empty container. The SDK doc says containers must be emptied first but DeleteContainer models no error for it (only ContainerInUseException, whose doc is 'already exists or is being updated', ContainerNotFoundException, InternalServerError), so the code is not determinable; enforcing it also needs a container dimension in services/mediastoredata's object store (keyed by region only) plus a root wiring hook. A second DeleteContainer on a DELETING container is likewise unspecified (gopherstack-apg3).
 
 ## More
 

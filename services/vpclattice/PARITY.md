@@ -124,7 +124,7 @@ families:
   timestamps: {status: ok, note: "all createdAt/lastUpdatedAt use time.Time.Format(\"2006-01-02T15:04:05.000Z\") which smithytime.ParseDateTime (restjson1 DateTime shape) accepts; not epoch, correctly ISO-8601."}
 gaps: []
 items_still_open:
-  - "ServiceNetworkResourceAssociation dnsEntry/privateDnsEntry are never emitted: the SDK documents neither how the domain name is derived nor the hosted-zone source for resource associations."
+  - "ServiceNetworkResourceAssociation dnsEntry is never emitted: neither the SDK, the API reference nor the VPC Lattice user guide (resource-configuration, service-network-associations) documents how its domain name or hosted zone is derived. privateDnsEntry is served from the resource configuration's custom domain (TestServiceNetworkResourceAssociation_PrivateDNSEntry)."
 structural_gaps:
   - "failureCode/failureMessage on Service, ServiceNetworkVpcAssociation and ServiceNetworkResourceAssociation are never set: creates are synchronous and never reach a *_FAILED state."
   - "DomainVerification.Status never advances past PENDING: AWS polls public DNS for the TXT record (name/value are emulator-derived), and there is no DNS to observe."

@@ -1270,9 +1270,11 @@ type MLTransformOptions struct {
 // CatalogEntry represents a named AWS Glue catalog.
 type CatalogEntry struct {
 	Parameters  map[string]string `json:"Parameters,omitzero"`
+	Tags        map[string]string `json:"-"`
 	CatalogID   string            `json:"CatalogId"`
 	Name        string            `json:"Name"`
 	Description string            `json:"Description,omitempty"`
+	ResourceArn string            `json:"ResourceArn,omitempty"`
 	CreateTime  float64           `json:"CreateTime,omitempty"`
 }
 

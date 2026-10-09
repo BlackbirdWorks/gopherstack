@@ -9,19 +9,16 @@
 | --- | --- |
 | PARITY entries audited | 27 (27 ok) |
 | Feature families | 7 (7 ok) |
-| Known gaps | 1 |
-| Structural gaps (can't be emulated) | 2 |
+| Known gaps | none |
+| Structural gaps (can't be emulated) | 3 |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- No service quotas are enforced, so ResourceLimitExceededException is never returned: the SDK documents the exception ('maximum number of resources of that type already exist') but not the limit values.
 
 ### Structural gaps
 
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
+- Hyperledger Fabric channels (8 per network) are not an API resource in this SDK, so that quota has nothing to attach to.
 - Member.IsOwned is always true: the emulator has a single account, so every member belongs to the caller's account.
 - ResourceNotReadyException is never returned: every network/member/node is AVAILABLE synchronously and there is no CREATING/DELETING lifecycle to be 'not ready' in.
 

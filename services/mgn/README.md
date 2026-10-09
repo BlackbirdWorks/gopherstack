@@ -16,7 +16,7 @@
 
 ### Known gaps
 
-- StartImport mgn:launch:* / mgn:replication:* per-row overrides are not implemented (UNVERIFIABLE): the CSV column names are not in the SDK, and the backend's LaunchConfiguration/ReplicationConfiguration lack roughly two dozen of the fields they would set.
+- StartImport columns with no home in this backend are ignored: mgn:launch:instance-type, iam-instance-profile:name, nic:*, placement:*, volume:*, tag:instance:*, post-actions:* and map-tag-key (EC2 launch-template contents and post-launch order/active/description that GetLaunchConfiguration does not expose and no EC2 launch template is modeled). Column names are documented (MGN user guide import-parameters); mgn:launch:{boot-mode,copy-private-ip,operating-system-licensing,start-instance,transfer-server-tags,map-tagging,map-tag-value} and mgn:replication:* are applied (TestStartImport_LaunchAndReplicationColumns).
 
 ### Structural gaps
 
