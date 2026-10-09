@@ -663,6 +663,7 @@ type Transformer struct {
 	// (transformers is a "clean" table, store_setup.go), which json:"-"
 	// silently broke (gopherstack-gqxy0).
 	CreatedAt          time.Time        `json:"createdAt,omitzero"`
+	LastModifiedAt     time.Time        `json:"lastModifiedAt,omitzero"`
 	LogGroupIdentifier string           `json:"logGroupIdentifier"`
 	Processors         []map[string]any `json:"transformerConfig"`
 }

@@ -155,8 +155,11 @@ type InMemoryBackend struct {
 	// historyTruncated tracks executions where the history cap has been reached
 	// so we only emit a single warning per execution.
 	historyTruncated map[string]bool
-	stateMachines    *store.Table[StateMachine]
-	mu               *lockmetrics.RWMutex
+	// closedExecNames maps a pruned STANDARD execution's ARN to its close time so the
+	// name stays reserved for closedExecNameReservation after retention pruning.
+	closedExecNames map[string]float64
+	stateMachines   *store.Table[StateMachine]
+	mu              *lockmetrics.RWMutex
 	// registry lets Reset (via resetLocked) collapse the six resource tables'
 	// lifecycle to one registry.ResetAll() call instead of hand-rolled
 	// re-initialization of each map. See store_setup.go.
@@ -252,6 +255,7 @@ func newInMemoryBackend(svcCtx context.Context, accountID, region string) *InMem
 		smAliases:            make(map[string][]string),
 		executionDefinitions: make(map[string]string),
 		historyTruncated:     make(map[string]bool),
+		closedExecNames:      make(map[string]float64),
 		mu:                   lockmetrics.New("stepfunctions"),
 		registry:             store.NewRegistry(),
 		settings:             DefaultSettings(),
@@ -610,6 +614,7 @@ func (b *InMemoryBackend) resetLocked() {
 	b.smAliases = make(map[string][]string)
 	b.executionDefinitions = make(map[string]string)
 	b.historyTruncated = make(map[string]bool)
+	b.closedExecNames = make(map[string]float64)
 	b.historyMu = sync.RWMutex{}
 	b.smExecsByStatus = make(map[string]map[string][]string)
 	b.mapChildSeq = 0

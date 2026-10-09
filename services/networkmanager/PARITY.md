@@ -100,7 +100,7 @@ sdk_module: aws-sdk-go-v2/service/networkmanager@v1.44.4   # go.mod's pinned ver
 # (the 2026-08-01 pre-implementation audit resolved v1.44.3 against @latest in a throwaway scratch
 # module; go.mod has since moved to v1.44.4, re-confirmed this pass by direct grep).
 last_audit_commit: b36537ddc
-last_audit_date: 2026-10-08
+last_audit_date: 2026-10-07
 overall: A   # Raised from gap by this pass: the integration suite (the parity proof
 # .claude/memories/parity-principles.md rule 3 requires) passes, every buildable gap the 2026-08-05
 # pass flagged is now real (cross-service ARN validation against services/ec2/services/directconnect,

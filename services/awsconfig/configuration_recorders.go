@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	configtypes "github.com/aws/aws-sdk-go-v2/service/configservice/types"
 )
 
 // PutConfigurationRecorder creates or updates the customer managed configuration
@@ -651,6 +653,13 @@ func validateRecordingGroup(rg *RecordingGroup) error {
 	}
 
 	switch {
+	case isEmptyRecordingGroup(rg, useOnly):
+		return fmt.Errorf("%w: recordingGroup must set at least one parameter", ErrInvalidRecordingGroup)
+	case rg.AllSupported && useOnly == strategyExclusion:
+		return fmt.Errorf(
+			"%w: allSupported cannot be combined with recordingStrategy EXCLUSION_BY_RESOURCE_TYPES",
+			ErrInvalidRecordingGroup,
+		)
 	case rg.AllSupported && len(rg.ResourceTypes) > 0:
 		return fmt.Errorf("%w: resourceTypes cannot be set when allSupported is true", ErrInvalidRecordingGroup)
 	case rg.AllSupported && excluded:
@@ -666,6 +675,36 @@ func validateRecordingGroup(rg *RecordingGroup) error {
 		return fmt.Errorf(
 			"%w: recordingStrategy ALL_SUPPORTED_RESOURCE_TYPES requires allSupported true", ErrInvalidRecordingGroup,
 		)
+	}
+
+	return validateRecordingGroupEnums(rg, useOnly)
+}
+
+func isEmptyRecordingGroup(rg *RecordingGroup, useOnly string) bool {
+	return !rg.AllSupported && !rg.IncludeGlobalResourceTypes && len(rg.ResourceTypes) == 0 &&
+		(rg.ExclusionByResourceTypes == nil || len(rg.ExclusionByResourceTypes.ResourceTypes) == 0) &&
+		useOnly == ""
+}
+
+// validateRecordingGroupEnums rejects resource types and strategies outside the SDK enums
+// ("You have provided resource types or a recording strategy that are not valid").
+func validateRecordingGroupEnums(rg *RecordingGroup, useOnly string) error {
+	strategies := configtypes.RecordingStrategyType("").Values()
+	if useOnly != "" && !slices.Contains(strategies, configtypes.RecordingStrategyType(useOnly)) {
+		return fmt.Errorf("%w: invalid recordingStrategy %q", ErrInvalidRecordingGroup, useOnly)
+	}
+
+	valid := configtypes.ResourceType("").Values()
+	all := slices.Clone(rg.ResourceTypes)
+
+	if rg.ExclusionByResourceTypes != nil {
+		all = append(all, rg.ExclusionByResourceTypes.ResourceTypes...)
+	}
+
+	for _, rt := range all {
+		if !slices.Contains(valid, configtypes.ResourceType(rt)) {
+			return fmt.Errorf("%w: invalid resource type %q", ErrInvalidRecordingGroup, rt)
+		}
 	}
 
 	return nil

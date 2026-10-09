@@ -5826,6 +5826,7 @@
       "SyslogConfiguration.SourceType string `json:\"sourceType\"`",
       "SyslogConfiguration.VpcEndpointID string `json:\"vpcEndpointId,omitempty\"`",
       "Transformer.CreatedAt time.Time `json:\"createdAt,omitzero\"`",
+      "Transformer.LastModifiedAt time.Time `json:\"lastModifiedAt,omitzero\"`",
       "Transformer.LogGroupIdentifier string `json:\"logGroupIdentifier\"`",
       "Transformer.Processors []map[string]any `json:\"transformerConfig\"`",
       "backendSnapshot.AccountID string `json:\"accountID\"`",

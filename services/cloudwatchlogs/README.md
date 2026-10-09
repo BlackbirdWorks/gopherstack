@@ -9,18 +9,17 @@
 | --- | --- |
 | PARITY entries audited | 86 (86 ok) |
 | Feature families | 11 (11 ok) |
-| Known gaps | 6 |
+| Known gaps | 5 |
 | Structural gaps (can't be emulated) | 9 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- PutLogEvents Entity: only InvalidKeyAttributes (keyAttributes outside Type/ResourceType/Identifier/Name/Environment) is derived into RejectedEntityInfo; the other EntityRejectionErrorType triggers (size limit, required fields, attribute rules) are not documented in the pinned SDK.
+- PutLogEvents Entity: only InvalidKeyAttributes (keyAttributes outside Type/ResourceType/Identifier/Name/Environment) is derived into RejectedEntityInfo; the API reference gives Entity size constraints (attributes <=10, keyAttributes 2..4, key/value lengths) but not which EntityRejectionErrorType each violation maps to, or whether it is a request error instead.
 - SyslogConfiguration's VpcEndpointId is stored as an opaque string: the pinned SDK documents no validation or error for it, so cross-checking against EC2 endpoint state would invent behaviour (2026-10-07).
 - LookupTable's ARN format (arn:{partition}:logs:{region}:{account}:lookup-table:{name}) is unverifiable: no pinned-SDK doc comment or model gives the LookupTableArn pattern (re-checked 2026-10-07).
 - Data protection masking detects EmailAddress, IpAddress, CreditCardNumber (Luhn), CreditCardExpiration, CreditCardSecurityCode, AwsSecretKey, OpenSSH/Pgp/Pkcs/Putty private keys, Ssn-US and custom identifiers. The pinned SDK does not enumerate managed identifier names, so country-suffixed and PII/PHI identifiers (Name, Address, PhoneNumber, Passport, DriversLicense, BankAccountNumber, ...) are not modeled rather than guessed; Audit findings destinations and SELECTION_CRITERIA account policies are not modeled.
-- Transformers, Integrations (GetIntegration/PutIntegration field-diffed; ListIntegrations filters now real), and AccountPolicy top-level shapes remain spot-checked flat, not exhaustively re-audited field-by-field op-by-op. Resource Policies and Index Policies were field-diffed for real in a prior pass and are no longer deferred.
 - Subscription-filter denial messages are documented text, not SDK-verified (2026-10-03).
 
 ### Structural gaps

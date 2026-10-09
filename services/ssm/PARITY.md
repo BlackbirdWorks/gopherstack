@@ -400,10 +400,9 @@ structural_gaps:
   - "GetMaintenanceWindowExecutionTaskInvocation Parameters: no per-invocation parameter snapshot is kept."
   - "GetDeployablePatchSnapshotForInstance BaselineOverride and DescribePatchGroupState's 6 security-update/pending-reboot counters need real per-instance effective-patch and compliance computation."
 items_still_open:
-  - "GetInventorySchema per-type Attributes: AWS does not publish the exact attribute lists outside web docs, so they cannot be verified from the SDK."
-  - "DescribePatchPropertiesOutput.Properties aggregates baseline name/OS pairs; the real per-Property map-key convention of the untyped output cannot be verified from the SDK."
+  - "DescribePatchProperties: PRODUCT entries use the API-reference sample shape (Name, ProductFamily); the entry keys for CLASSIFICATION/SEVERITY/MSRC_SEVERITY/PRIORITY/PRODUCT_FAMILY are not documented and use Name by analogy."
   - "DescribeAvailablePatches PATCH_ID filter: the real opaque Patch.Id format is not verifiable from the SDK."
-  - "ListDocuments Owner filter Public/Private: shared-with-account semantics are not determinable, and CreateDocument does not reserve the AWS- prefix."
+  - "ListDocuments Owner filter Public/Private: the DocumentKeyValuesFilter docs (SDK and API reference) list the values without defining them."
   - "StartExecutionPreviewInput.DocumentVersion: neither preview output echoes the version, so there is no observable behaviour to verify."
   - "OpsItemEventSummary.DetailType has no verifiable source value; DocumentDescription/DocumentIdentifier Author format for user documents is not determinable from the SDK."
 deferred: []              # phase-2 (2026-07-24): closed CreateAssociationInput/UpdateAssociationInput/

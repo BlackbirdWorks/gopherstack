@@ -207,6 +207,12 @@ func (b *InMemoryBackend) completeDeleteLocked(arn string, sm *StateMachine) {
 		delete(b.historyTruncated, execARN)
 	}
 
+	for execARN := range b.closedExecNames {
+		if strings.HasPrefix(execARN, closedExecPrefix(arn)) {
+			delete(b.closedExecNames, execARN)
+		}
+	}
+
 	delete(b.smExecsByStatus, arn)
 	b.deleteMapRunsForStateMachineLocked(arn)
 
@@ -382,4 +388,8 @@ func validateRoleARN(roleArn string) error {
 	}
 
 	return nil
+}
+
+func closedExecPrefix(stateMachineARN string) string {
+	return strings.Replace(stateMachineARN, ":stateMachine:", ":execution:", 1) + ":"
 }

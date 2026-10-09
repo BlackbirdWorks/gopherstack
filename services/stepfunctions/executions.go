@@ -61,6 +61,7 @@ func (b *InMemoryBackend) pruneExecutionsLocked(cutoff float64) int {
 		// Removes the execution from the table and, via the executionsByStateMachine
 		// index, from the former smExecutions bookkeeping too -- the execution's
 		// inline history goes with it since there is no longer a separate map.
+		b.reserveClosedExecName(arn)
 		b.executions.Delete(arn)
 		delete(b.executionDefinitions, arn)
 		delete(b.historyTruncated, arn)
@@ -70,10 +71,31 @@ func (b *InMemoryBackend) pruneExecutionsLocked(cutoff float64) int {
 		}
 	}
 
+	closedBefore := float64(time.Now().Add(-closedExecNameReservation).Unix())
+	for arn, closed := range b.closedExecNames {
+		if closed < closedBefore {
+			delete(b.closedExecNames, arn)
+		}
+	}
+
 	b.pruneMapRunsLocked(cutoff)
 	b.sweepOrphanedTombstonesLocked()
 
 	return len(toDelete)
+}
+
+// reserveClosedExecName keeps a pruned STANDARD execution's name reserved: AWS only
+// frees a closed execution's name 90 days after it closes (api_op_StartExecution.go).
+func (b *InMemoryBackend) reserveClosedExecName(execARN string) {
+	exec, ok := b.executions.Get(execARN)
+	if !ok || exec.StopDate == nil {
+		return
+	}
+
+	if sm, smOK := b.stateMachines.Get(exec.StateMachineArn); smOK &&
+		sm.Type != validateStateMachineDefinitionTypeExpress {
+		b.closedExecNames[execARN] = *exec.StopDate
+	}
 }
 
 // sweepOrphanedTombstonesLocked removes deletedExecs entries whose goroutines
@@ -235,7 +257,7 @@ func finalizeSyncExecutionResult(
 	if execErr != nil {
 		if errors.Is(execErr, context.DeadlineExceeded) {
 			syncResult.Status = "TIMED_OUT"
-			syncResult.Error = "States.Timeout"
+			syncResult.Error = errCodeStatesTimeout
 			syncResult.Cause = timeoutCause
 		} else {
 			syncResult.Status = statusFailed
@@ -378,6 +400,10 @@ func (b *InMemoryBackend) startExecutionLocked(
 				return &startedExecution{exec: &cp, execArn: execArn, reused: true}, nil
 			}
 
+			return nil, fmt.Errorf("%w: %s", ErrExecutionAlreadyExists, name)
+		}
+
+		if _, closed := b.closedExecNames[execArn]; closed {
 			return nil, fmt.Errorf("%w: %s", ErrExecutionAlreadyExists, name)
 		}
 	}

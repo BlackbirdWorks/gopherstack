@@ -91,9 +91,8 @@ type ItemReader struct {
 // Transformation ("NONE" default, or "LOAD_AND_FLATTEN") only applies to the
 // s3:listObjectsV2 Resource: LOAD_AND_FLATTEN reads and decodes each listed
 // object's content (per InputType) instead of returning object metadata.
-// ManifestType ("S3_INVENTORY" or "ATHENA_DATA", only ATHENA_DATA unsupported
-// -- see PARITY.md) or InputType "MANIFEST" treats the fetched object as an
-// S3 Inventory manifest.json listing CSV data files.
+// ManifestType "ATHENA_DATA" treats the object as an Athena UNLOAD manifest of s3 URIs;
+// "S3_INVENTORY" or InputType "MANIFEST" as an S3 Inventory manifest.json.
 // (AWS docs: input-output-itemreader.html).
 type ReaderConfig struct {
 	InputType         string   `json:"InputType,omitempty"`

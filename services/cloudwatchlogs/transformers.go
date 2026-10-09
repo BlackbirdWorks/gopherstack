@@ -26,10 +26,27 @@ func (b *InMemoryBackend) PutTransformer(
 		return fmt.Errorf("%w: log group %s not found", ErrLogGroupNotFound, name)
 	}
 
+	if len(processors) < minTransformerProcessors || len(processors) > maxTransformerProcessors {
+		return fmt.Errorf("%w: transformerConfig must contain %d to %d processors",
+			ErrValidation, minTransformerProcessors, maxTransformerProcessors)
+	}
+
+	if g, _ := b.groupGet(region, name); g.LogGroupClass == LogGroupClassInfrequentAccess {
+		return fmt.Errorf("%w: transformers are supported only for the Standard log class", ErrInvalidOperation)
+	}
+
+	now := time.Now().UTC()
+	created := now
+
+	if prev, ok := b.transformers.Get(name); ok && !prev.CreatedAt.IsZero() {
+		created = prev.CreatedAt
+	}
+
 	b.transformers.Put(&Transformer{
 		LogGroupIdentifier: logGroupIdentifier,
 		Processors:         processors,
-		CreatedAt:          time.Now().UTC(),
+		CreatedAt:          created,
+		LastModifiedAt:     now,
 	})
 
 	return nil
@@ -40,7 +57,7 @@ func (b *InMemoryBackend) GetTransformer(logGroupIdentifier string) (*Transforme
 	b.mu.RLock("GetTransformer")
 	defer b.mu.RUnlock()
 
-	t, ok := b.transformers.Get(logGroupIdentifier)
+	t, ok := b.transformers.Get(normalizeLogGroupIdentifier(logGroupIdentifier))
 	if !ok {
 		return nil, fmt.Errorf("%w: transformer for %q not found", ErrTransformerNotFound, logGroupIdentifier)
 	}
@@ -49,12 +66,17 @@ func (b *InMemoryBackend) GetTransformer(logGroupIdentifier string) (*Transforme
 	return &cp, nil
 }
 
+const (
+	minTransformerProcessors = 1
+	maxTransformerProcessors = 20
+)
+
 // DeleteTransformer removes the transformer for a log group.
 func (b *InMemoryBackend) DeleteTransformer(logGroupIdentifier string) error {
 	b.mu.Lock("DeleteTransformer")
 	defer b.mu.Unlock()
 
-	if !b.transformers.Delete(logGroupIdentifier) {
+	if !b.transformers.Delete(normalizeLogGroupIdentifier(logGroupIdentifier)) {
 		return fmt.Errorf("%w: transformer for %q not found", ErrTransformerNotFound, logGroupIdentifier)
 	}
 

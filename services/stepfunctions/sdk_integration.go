@@ -331,7 +331,7 @@ func shapeOutput(svc, action string, res reflect.Value) any {
 	out := encodeSDKOutput(res)
 
 	m, ok := out.(map[string]any)
-	if !ok || svc != "lambda" || action != "invoke" {
+	if !ok || svc != awsServiceLambda || action != "invoke" {
 		return out
 	}
 

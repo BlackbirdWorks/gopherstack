@@ -136,6 +136,12 @@ func (h *Handler) handlePutConformancePack(
 		return nil, err
 	}
 
+	if in.TemplateBody == "" && in.TemplateS3Uri == "" && ssmDocName == "" {
+		return nil, fmt.Errorf(
+			"%w: specify one of TemplateBody, TemplateS3Uri, or TemplateSSMDocumentDetails", ErrInvalidParameterValue,
+		)
+	}
+
 	if in.TemplateBody == "" {
 		body, err := h.Backend.ResolveConformancePackTemplate(ctx, in.TemplateS3Uri, ssmDocName, ssmDocVersion)
 		if err != nil {

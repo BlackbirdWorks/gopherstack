@@ -571,7 +571,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [SNS](services/sns/README.md) | A | 34 | 1 gap; 1 structural gap; 1 deferred |
 | [SQS](services/sqs/README.md) | A | 20 | 2 gaps; 1 structural gap |
 | [SWF](services/swf/README.md) | A | 39 | clean |
-| [Step Functions](services/stepfunctions/README.md) | A | 37 | 8 gaps; 3 structural gaps |
+| [Step Functions](services/stepfunctions/README.md) | A | 37 | 4 gaps; 3 structural gaps |
 | [WorkMail](services/workmail/README.md) | A | 92 | 2 gaps; 3 structural gaps |
 
 ### Analytics
@@ -639,8 +639,8 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [CloudFormation](services/cloudformation/README.md) | A | 73 | 6 gaps; 2 structural gaps |
 | [CloudTrail](services/cloudtrail/README.md) | A | 60 | 3 gaps; 4 structural gaps |
 | [CloudWatch](services/cloudwatch/README.md) | A | 50 | 1 structural gap; 16 deferred |
-| [CloudWatch Logs](services/cloudwatchlogs/README.md) | A | 86 | 6 gaps; 9 structural gaps |
-| [Config](services/awsconfig/README.md) | A | 102 | 5 gaps; 2 structural gaps; 1 deferred |
+| [CloudWatch Logs](services/cloudwatchlogs/README.md) | A | 86 | 5 gaps; 9 structural gaps |
+| [Config](services/awsconfig/README.md) | A | 102 | 4 gaps; 2 structural gaps; 1 deferred |
 | [Cost Explorer](services/ce/README.md) | A | 37 | 1 gap; 5 structural gaps; 2 deferred |
 | [Fault Injection Simulator](services/fis/README.md) | A | 26 | 2 structural gaps; 1 deferred |
 | [OpsWorks](services/opsworks/README.md) | A | 32 | 1 gap; 2 structural gaps; 1 deferred |
@@ -648,7 +648,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Resource Access Manager](services/ram/README.md) | A | 36 | 2 gaps; 2 deferred |
 | [Resource Groups](services/resourcegroups/README.md) | A | 23 | 1 gap; 1 structural gap |
 | [Resource Groups Tagging API](services/resourcegroupstaggingapi/README.md) | A | 9 | 2 structural gaps; 1 deferred |
-| [Systems Manager](services/ssm/README.md) | A | 105 | 6 gaps; 14 structural gaps |
+| [Systems Manager](services/ssm/README.md) | A | 105 | 5 gaps; 14 structural gaps |
 
 ### Developer Tools
 

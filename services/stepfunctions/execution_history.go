@@ -10,7 +10,12 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
-const stateTypeTask = "Task"
+const (
+	stateTypeTask     = "Task"
+	stateTypeMap      = "Map"
+	stateTypeParallel = "Parallel"
+	arnPrefix         = "arn"
+)
 
 // historyRecorder adapts InMemoryBackend to the asl.HistoryRecorder interface.
 type historyRecorder struct {
@@ -38,9 +43,9 @@ func stateEnteredEventType(stateType string) string {
 		return "SucceedStateEntered"
 	case "Fail":
 		return "FailStateEntered"
-	case "Parallel":
+	case stateTypeParallel:
 		return "ParallelStateEntered"
-	case "Map":
+	case stateTypeMap:
 		return "MapStateEntered"
 	default:
 		return stateType + "StateEntered"
@@ -223,7 +228,7 @@ func optionalHistorySeconds(seconds int) *int64 {
 // resourceTypeFromResource.
 func historyResourceValue(resource string) string {
 	parts := strings.Split(resource, ":")
-	if len(parts) < 6 || parts[0] != "arn" || parts[2] != awsServiceStates || parts[5] == resourceSegmentActivity {
+	if len(parts) < 6 || parts[0] != arnPrefix || parts[2] != awsServiceStates || parts[5] == resourceSegmentActivity {
 		return resource
 	}
 

@@ -467,9 +467,8 @@ families:
       FailError instead of falling back to the error's raw Go string as the
       Catch-match code -- AWS's own documented predefined error name for
       this failure class, so a Map state's Catch can now match it
-      specifically instead of only via States.ALL. ManifestType=ATHENA_DATA
-      and InputType=PARQUET are explicitly rejected with dedicated sentinel
-      errors (ErrAthenaManifestUnsupported/ErrParquetUnsupported) rather
+      specifically instead of only via States.ALL. InputType=PARQUET is explicitly rejected with a dedicated sentinel
+      error (ErrParquetUnsupported) rather
       than silently mis-parsed -- see the narrowed items_still_open entry.
       Verified via TestItemReader_S3ListObjectsV2/TestItemReader_S3Manifest/
       TestItemReader_S3GetObject_Errors, all driven through the real
@@ -520,12 +519,8 @@ structural_gaps:
   - "ItemReader InputType=PARQUET (asl.ErrParquetUnsupported) fails with a sentinel error: no pure-Go Parquet reader is in go.mod."
   - "TestState RevealSecrets has no effect and TRACE adds no HTTP request/response: the executor runs without SDK integrations, so HTTP Tasks and EventBridge connection secrets are unavailable."
 items_still_open:
-  - "ServiceIntegration* AWS/States metrics are not emitted: the SDK does not name them or their dimensions. (gopherstack-4m1qr)"
-  - "ItemReader: ManifestType=ATHENA_DATA (asl.ErrAthenaManifestUnsupported) fails with a sentinel error: the docs do not specify the manifest format precisely enough to implement."
-  - "A closed STANDARD execution's name becomes reusable once ExecutionRetention (default 24h) prunes it, not AWS's fixed 90 days after close (bd: gopherstack-1sf)."
-  - "TestState: Mock is accepted only for Task states (Map/Parallel mocks are rejected with ValidationException) and MockInput.fieldValidationMode is not enforced. StateConfiguration.ErrorCausedByState/MapIterationFailureCount/MapItemReaderData are accepted but unused. The pinned SDK models no StateConfiguration.Variables, so none is accepted."
-  - "The ASL engine accepts intrinsics AWS does not define (ArrayFlatten, ArrayReverse, ArraySlice, ArraySort, MathDivide, MathMax, MathMin, MathMod, MathMultiply, MathSubtract, StringConcat, StringIndex, StringLength, StringToLower, StringToUpper); a definition using them runs here and would fail on real AWS. Kept as a deliberate superset, covered by asl/intrinsics_parity_test.go."
-  - "JSONata (gopherstack-iisrz) gaps (ToleratedFailureCount/Percentage expressions are supported: TestJSONata_ToleratedFailureExpressions): Items given as a JSON object (AWS accepts array or object; objects are rejected with States.QueryEvaluationError); ItemReader/ItemBatcher/ResultWriter expressions; Retry Output/Assign; Distributed Map reading outer-scope variables is permitted here (AWS forbids); 256 KiB per-variable / 10 MiB per-execution variable size limits and the Expression-evaluation memory limit are not enforced; JSONPath-mode variable references work in Parameters/ResultSelector/Assign/ItemSelector and intrinsic arguments only (not InputPath/OutputPath/Choice Variable/*Path fields); the AWS wording of JSONPath-field-in-JSONata validation errors is undocumented, so a plain InvalidDefinition message is used; omitted Task Arguments passes the state input (unverified against AWS)."
+  - "TestState StateConfiguration.ErrorCausedByState/MapIterationFailureCount/MapItemReaderData are accepted but unused (the pinned SDK documents the fields but not their observable effect), and MockInput.fieldValidationMode is enum-checked but mocks are not validated against service API models (no per-service response schemas). The pinned SDK models no StateConfiguration.Variables."
+  - "JSONata (gopherstack-iisrz) gaps (ToleratedFailureCount/Percentage expressions are supported: TestJSONata_ToleratedFailureExpressions): Items given as a JSON object (AWS accepts array or object but the docs checked, state-map-distributed and input-output-itemspath, do not give the per-pair item shape; objects are rejected with States.QueryEvaluationError); ItemReader/ItemBatcher/ResultWriter expressions; Retry Output/Assign; Distributed Map reading outer-scope variables is permitted here (AWS forbids); 256 KiB per-variable / 10 MiB per-execution variable size limits and the Expression-evaluation memory limit are not enforced; JSONPath-mode variable references work in Parameters/ResultSelector/Assign/ItemSelector and intrinsic arguments only (not InputPath/OutputPath/Choice Variable/*Path fields); the AWS wording of JSONPath-field-in-JSONata validation errors is undocumented, so a plain InvalidDefinition message is used; omitted Task Arguments passes the state input (unverified against AWS)."
   - "Service integrations not implemented (bd gopherstack-wdw): eks:* optimized integrations (the EKS engine is optional Docker), bedrock:invokeModel (routed to bedrockruntime, untested), and aws-sdk integrations for services outside the 55-service table in sdk_services.go. Not documented by AWS and unverified: States.Http.StatusCode.<n> Cause format, SQS/SNS/StepFunctions/Bedrock optimized error prefixes, ECS/Glue .sync output (Glue keeps GetJobRun {JobRun})."
   - "Service-initiated calls not yet authorized against a customer role under --enforce-iam (2026-10-03): Firehose delivery role (S3/Redshift/HTTP destinations), CloudWatch Logs subscription-filter RoleArn (Kinesis/Firehose destinations), IoT rule action roleArn, SNS SubscriptionRoleArn Firehose subscriptions, Step Functions S3 ItemReader/ResultWriter (s3:GetObject/PutObject) and activity paths, Scheduler DLQ sqs:SendMessage under the schedule role, and EventBridge Lambda/SQS/SNS targets (AWS authorizes them by the target's resource policy, which gopherstack does not evaluate for these in-process deliveries)."
 deferred: []
@@ -595,8 +590,7 @@ unchanged from the prior sweep: no pure-Go Parquet reader dependency exists
 in `go.mod` and adding one was out of scope (explicitly disallowed for this
 pass), and ATHENA_DATA's manifest format isn't documented precisely enough
 to implement against confidently. Both still fail with their existing
-dedicated sentinel errors (`ErrParquetUnsupported`/
-`ErrAthenaManifestUnsupported`), not silently.
+dedicated sentinel error (`ErrParquetUnsupported`), not silently (ATHENA_DATA is now implemented: TestItemReader_S3Manifest).
 
 New table-driven cases in `TestDecodeReaderItems`
 (`asl/intrinsics_extras_test.go`): CSV with `PIPE`/lowercase `semicolon`/

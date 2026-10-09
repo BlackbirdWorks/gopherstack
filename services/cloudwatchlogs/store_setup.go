@@ -97,7 +97,9 @@ func deliveryDestinationKeyFn(d *DeliveryDestination) string { return d.Name }
 func deliverySourceKeyFn(s *DeliverySource) string           { return s.Name }
 func cwlDestinationKeyFn(d *CWLDestination) string           { return d.DestinationName }
 func indexPolicyKeyFn(p *IndexPolicy) string                 { return p.LogGroupIdentifier }
-func transformerKeyFn(t *Transformer) string                 { return t.LogGroupIdentifier }
+func transformerKeyFn(t *Transformer) string {
+	return normalizeLogGroupIdentifier(t.LogGroupIdentifier)
+}
 func cwlIntegrationKeyFn(i *CWLIntegration) string           { return i.Name }
 func lookupTableKeyFn(t *LookupTable) string                 { return t.LookupTableArn }
 func syslogConfigurationKeyFn(c *SyslogConfiguration) string { return c.LogGroupIdentifier }

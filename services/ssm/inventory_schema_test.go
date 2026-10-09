@@ -147,3 +147,116 @@ func TestPutInventory_DisabledSchemaVersion(t *testing.T) {
 		})
 	}
 }
+
+func TestGetInventorySchema_BuiltinAttributes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		typeName   string
+		name       string
+		wantFirst  string
+		wantNumber string
+		wantCount  int
+	}{
+		{name: "network", typeName: "AWS:Network", wantFirst: "Name", wantCount: 8},
+		{
+			name:       "patch_summary",
+			typeName:   "AWS:PatchSummary",
+			wantFirst:  "PatchGroup",
+			wantNumber: "FailedCount",
+			wantCount:  23,
+		},
+		{name: "tag", typeName: "AWS:Tag", wantFirst: "Key", wantCount: 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newTestSSMClient(t, ssm.NewHandler(ssm.NewInMemoryBackend()))
+			out, err := client.GetInventorySchema(t.Context(), &ssmsdk.GetInventorySchemaInput{
+				TypeName: aws.String(tt.typeName),
+			})
+			require.NoError(t, err)
+			require.Len(t, out.Schemas, 1)
+
+			attrs := out.Schemas[0].Attributes
+			require.Len(t, attrs, tt.wantCount)
+			assert.Equal(t, tt.wantFirst, aws.ToString(attrs[0].Name))
+			assert.Equal(t, ssmtypes.InventoryAttributeDataTypeString, attrs[0].DataType)
+
+			if tt.wantNumber != "" {
+				for _, a := range attrs {
+					if aws.ToString(a.Name) == tt.wantNumber {
+						assert.Equal(t, ssmtypes.InventoryAttributeDataTypeNumber, a.DataType)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestDescribePatchProperties_FromCatalogue(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		os       ssmtypes.OperatingSystem
+		property ssmtypes.PatchProperty
+		want     []map[string]string
+	}{
+		{
+			name:     "windows_product",
+			os:       ssmtypes.OperatingSystemWindows,
+			property: ssmtypes.PatchPropertyProduct,
+			want: []map[string]string{
+				{"Name": "WindowsServer2019", "ProductFamily": "Windows"},
+				{"Name": "WindowsServer2022", "ProductFamily": "Windows"},
+			},
+		},
+		{
+			name:     "windows_family",
+			os:       ssmtypes.OperatingSystemWindows,
+			property: ssmtypes.PatchPropertyPatchProductFamily,
+			want:     []map[string]string{{"Name": "Windows"}},
+		},
+		{
+			name:     "windows_msrc",
+			os:       ssmtypes.OperatingSystemWindows,
+			property: ssmtypes.PatchPropertyPatchMsrcSeverity,
+			want:     []map[string]string{{"Name": "Critical"}, {"Name": "Important"}},
+		},
+		{
+			name:     "ubuntu_priority",
+			os:       ssmtypes.OperatingSystemUbuntu,
+			property: ssmtypes.PatchPropertyPatchPriority,
+			want:     []map[string]string{{"Name": "High"}},
+		},
+		{
+			name:     "invalid_property_for_os",
+			os:       ssmtypes.OperatingSystemUbuntu,
+			property: ssmtypes.PatchPropertyPatchMsrcSeverity,
+			want:     []map[string]string{},
+		},
+		{
+			name:     "no_patches_for_os",
+			os:       ssmtypes.OperatingSystemMacOS,
+			property: ssmtypes.PatchPropertyProduct,
+			want:     []map[string]string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newTestSSMClient(t, ssm.NewHandler(ssm.NewInMemoryBackend()))
+			out, err := client.DescribePatchProperties(t.Context(), &ssmsdk.DescribePatchPropertiesInput{
+				OperatingSystem: tt.os,
+				Property:        tt.property,
+			})
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, out.Properties)
+		})
+	}
+}

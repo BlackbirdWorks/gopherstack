@@ -113,3 +113,15 @@ func TestPutConformancePack_TemplateSources(t *testing.T) {
 		})
 	}
 }
+
+func TestPutConformancePack_NoTemplateSourceRejected(t *testing.T) {
+	t.Parallel()
+
+	_, client := newOpenItemsClient(t)
+
+	_, err := client.PutConformancePack(t.Context(), &configservicesdk.PutConformancePackInput{
+		ConformancePackName: aws.String("no-source"),
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "InvalidParameterValueException")
+}

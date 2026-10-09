@@ -26,7 +26,6 @@ func (b *InMemoryBackend) complianceStore(region string) map[string][]Compliance
 const (
 	inventorySchemaV10           = "1.0"
 	inventorySchemaV11           = "1.1"
-	builtinInventorySchemaCount  = 12
 	complianceStatusCompliant    = "COMPLIANT"
 	complianceStatusNonCompliant = "NON_COMPLIANT"
 )
@@ -164,20 +163,8 @@ func (b *InMemoryBackend) GetInventorySchema(
 	custom := b.customSchemaItemsLocked(getRegion(ctx))
 	b.mu.RUnlock()
 
-	all := append(make([]InventorySchemaItem, 0, builtinInventorySchemaCount+len(custom)), []InventorySchemaItem{
-		{TypeName: "AWS:Application", Version: inventorySchemaV11},
-		{TypeName: "AWS:AWSComponent", Version: inventorySchemaV10},
-		{TypeName: "AWS:ComplianceItem", Version: inventorySchemaV11},
-		{TypeName: "AWS:ComplianceSummary", Version: inventorySchemaV11},
-		{TypeName: "AWS:InstanceDetailedInformation", Version: inventorySchemaV10},
-		{TypeName: "AWS:InstanceInformation", Version: inventorySchemaV10},
-		{TypeName: "AWS:Network", Version: inventorySchemaV10},
-		{TypeName: "AWS:PatchCompliance", Version: inventorySchemaV11},
-		{TypeName: "AWS:PatchSummary", Version: inventorySchemaV10},
-		{TypeName: "AWS:WindowsRegistry", Version: inventorySchemaV10},
-		{TypeName: "AWS:WindowsRole", Version: inventorySchemaV10},
-		{TypeName: "AWS:WindowsUpdate", Version: inventorySchemaV10},
-	}...)
+	builtin := builtinInventorySchemas()
+	all := append(make([]InventorySchemaItem, 0, len(builtin)+len(custom)), builtin...)
 	all = append(all, custom...)
 
 	schemas := make([]any, 0, len(all))

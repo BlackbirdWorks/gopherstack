@@ -275,6 +275,12 @@ type TaskLifecycleRecorder interface {
 	RecordTaskSubmitted(executionARN, stateName, resource string, output any)
 }
 
+// TaskMetricsRecorder is an optional HistoryRecorder extension told the timing and
+// outcome of every non-mocked Task attempt (err is nil on success).
+type TaskMetricsRecorder interface {
+	RecordTaskAttempt(executionARN, resource string, scheduledAt, startedAt, endedAt time.Time, err error)
+}
+
 type taskSubmitHookKey struct{}
 
 // markTaskSubmitted reports a job submission to the hook executeTask installed, if any.
@@ -1093,7 +1099,7 @@ func (e *Executor) executeTask(
 	for {
 		result, mocked, taskErr := e.mock.invoke(stateName)
 		if !mocked {
-			result, taskErr = e.attemptWithLifecycle(
+			result, taskErr = e.attemptWithMetrics(
 				ctx, executionARN, stateName, state, input, waitForTaskToken, timeoutSeconds, heartbeatSeconds,
 			)
 		}
@@ -1164,6 +1170,28 @@ func (e *Executor) attemptWithLifecycle(
 	result, err := e.runTaskAttempt(attemptCtx, state, input, waitForTaskToken, timeoutSeconds, heartbeatSeconds)
 	if err == nil && !submitted && isSyncPattern(state.Resource) {
 		lifecycle.RecordTaskSubmitted(executionARN, stateName, state.Resource, result)
+	}
+
+	return result, err
+}
+
+// attemptWithMetrics runs one lifecycle-recorded Task attempt and reports its timing and outcome.
+func (e *Executor) attemptWithMetrics(
+	ctx context.Context,
+	executionARN, stateName string,
+	state *State,
+	input any,
+	waitForTaskToken bool,
+	timeoutSeconds, heartbeatSeconds int,
+) (any, error) {
+	scheduledAt := time.Now()
+
+	result, err := e.attemptWithLifecycle(
+		ctx, executionARN, stateName, state, input, waitForTaskToken, timeoutSeconds, heartbeatSeconds,
+	)
+
+	if mr, ok := e.history.(TaskMetricsRecorder); ok {
+		mr.RecordTaskAttempt(executionARN, state.Resource, scheduledAt, scheduledAt, time.Now(), err)
 	}
 
 	return result, err
@@ -2012,6 +2040,10 @@ func (e *Executor) executeParallel(
 ) (string, any, error) {
 	return e.executeWithStateRetryAndCatch(ctx, executionARN, stateName, state, input,
 		func(ctx context.Context) (any, error) {
+			if mockOut, mocked, mockErr := e.mock.invoke(stateName); mocked {
+				return mockOut, mockErr
+			}
+
 			results := make([]any, len(state.Branches))
 			errs := make([]error, len(state.Branches))
 
@@ -2154,6 +2186,10 @@ func (e *Executor) executeMap(
 
 	return e.executeWithStateRetryAndCatch(ctx, executionARN, stateName, state, input,
 		func(ctx context.Context) (any, error) {
+			if mockOut, mocked, mockErr := e.mock.invoke(stateName); mocked {
+				return mockOut, mockErr
+			}
+
 			items, err := e.resolveMapItems(ctx, state, pathInput)
 			if err != nil {
 				return nil, err
@@ -2472,12 +2508,6 @@ var ErrS3ListReaderNotConfigured = errors.New("S3 list reader not configured for
 // this emulator doesn't recognize.
 var ErrItemReaderUnsupportedResource = errors.New("ItemReader: unsupported Resource")
 
-// ErrAthenaManifestUnsupported is returned for ReaderConfig.ManifestType
-// ATHENA_DATA, which this emulator doesn't implement -- see PARITY.md.
-var ErrAthenaManifestUnsupported = errors.New(
-	"ItemReader: ManifestType ATHENA_DATA is not supported by this emulator",
-)
-
 // ErrParquetUnsupported is returned for InputType PARQUET, which this
 // emulator doesn't decode (no pure-Go Parquet reader dependency) -- see PARITY.md.
 var ErrParquetUnsupported = errors.New(
@@ -2696,7 +2726,7 @@ type s3InventoryManifest struct {
 }
 
 // resolveManifestItems dispatches on ManifestType (S3_INVENTORY, the only
-// InputType=MANIFEST target has ever meant, or ATHENA_DATA, unsupported).
+// InputType=MANIFEST target has ever meant, or ATHENA_DATA).
 func (e *Executor) resolveManifestItems(
 	ctx context.Context,
 	bucket string,
@@ -2712,10 +2742,57 @@ func (e *Executor) resolveManifestItems(
 	case "S3_INVENTORY":
 		return e.resolveS3InventoryManifest(ctx, bucket, manifestData, cfg)
 	case "ATHENA_DATA":
-		return nil, ErrAthenaManifestUnsupported
+		return e.resolveAthenaManifest(ctx, manifestData, cfg)
 	default:
 		return nil, fmt.Errorf("%w: unsupported ManifestType %q", ErrItemReaderInvalidData, cfg.ManifestType)
 	}
+}
+
+// resolveAthenaManifest reads an Athena UNLOAD manifest (one s3://bucket/key per line),
+// then decodes each listed data file per InputType (CSV or JSONL; AWS docs:
+// input-output-itemreader.html "Athena manifest").
+func (e *Executor) resolveAthenaManifest(ctx context.Context, manifestData []byte, cfg *ReaderConfig) ([]any, error) {
+	switch strings.ToUpper(cfg.InputType) {
+	case "CSV", "JSONL", "PARQUET":
+	default:
+		return nil, fmt.Errorf("%w: ATHENA_DATA requires InputType CSV, JSONL or PARQUET", ErrItemReaderInvalidData)
+	}
+
+	var items []any
+
+	for line := range strings.SplitSeq(string(manifestData), "\n") {
+		uri := strings.Trim(strings.TrimSpace(line), `"`)
+		if uri == "" {
+			continue
+		}
+
+		rest, ok := strings.CutPrefix(uri, "s3://")
+		bucket, key, hasKey := strings.Cut(rest, "/")
+
+		if !ok || bucket == "" || !hasKey || key == "" {
+			return nil, fmt.Errorf("%w: Athena manifest entry %q is not an s3:// URI", ErrItemReaderInvalidData, uri)
+		}
+
+		data, err := e.s3.GetObjectBytes(ctx, bucket, key)
+		if err != nil {
+			return nil, fmt.Errorf("ItemReader Athena data file %q: %w", uri, err)
+		}
+
+		if strings.HasSuffix(strings.ToLower(key), ".gz") {
+			if data, err = gunzipBytes(data); err != nil {
+				return nil, fmt.Errorf("%w: gunzip %q: %w", ErrItemReaderInvalidData, uri, err)
+			}
+		}
+
+		fileItems, err := decodeReaderItems(data, cfg)
+		if err != nil {
+			return nil, fmt.Errorf("ItemReader Athena data file %q: %w", uri, err)
+		}
+
+		items = append(items, fileItems...)
+	}
+
+	return items, nil
 }
 
 // resolveS3InventoryManifest reads an S3 Inventory manifest.json, then reads
