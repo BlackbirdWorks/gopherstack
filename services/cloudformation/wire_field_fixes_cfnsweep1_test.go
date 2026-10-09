@@ -103,6 +103,19 @@ func TestTypeRegistryOps_RealClient(t *testing.T) {
 
 		client := newTestHandlerAndClient(t)
 
+		_, err := client.SetTypeConfiguration(t.Context(), &cfnsdk.SetTypeConfigurationInput{
+			TypeName:      aws.String("AWS::Sweep1::Configured"),
+			Configuration: aws.String(`{"Key":"Value"}`),
+		})
+		var notFound *types.TypeNotFoundException
+		require.ErrorAs(t, err, &notFound, "an unregistered type must be TypeNotFoundException")
+
+		_, err = client.RegisterType(t.Context(), &cfnsdk.RegisterTypeInput{
+			TypeName:             aws.String("AWS::Sweep1::Configured"),
+			SchemaHandlerPackage: aws.String("s3://bucket/schema.zip"),
+		})
+		require.NoError(t, err)
+
 		out, err := client.SetTypeConfiguration(t.Context(), &cfnsdk.SetTypeConfigurationInput{
 			TypeName:      aws.String("AWS::Sweep1::Configured"),
 			Configuration: aws.String(`{"Key":"Value"}`),

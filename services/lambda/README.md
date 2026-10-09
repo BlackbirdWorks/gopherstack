@@ -8,8 +8,8 @@
 | Metric | Value |
 | --- | --- |
 | Feature families | 10 (10 ok) |
-| Known gaps | 4 |
-| Structural gaps (can't be emulated) | 6 |
+| Known gaps | 2 |
+| Structural gaps (can't be emulated) | 7 |
 | Deferred items | 0 |
 | Resource leaks | ok |
 
@@ -17,13 +17,12 @@
 
 - Kafka ESM (self-managed): DestinationConfig.OnFailure is not delivered; the SDK does not document the Kafka on-failure record shape or target semantics, so a delivered record would be invented.
 - ESM MetricsConfig (EventCount/ErrorCount/KafkaMetrics) is validated and echoed but publishes nothing: the pinned SDK names the groups but not the CloudWatch metric names or dimensions. ESM LoggingConfig is likewise stored only.
-- PublishTo (the $LATEST_PUBLISHED target) has no documented semantics in the pinned SDK.
-- Invoke TenantId and TenancyConfig.TenantIsolationMode (PER_TENANT) are stored and echoed, but the pinned SDK documents no TenantId validation or per-tenant environment rule to enforce.
 
 ### Structural gaps
 
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
+- Invoke TenantId is validated (required for PER_TENANT, rejected otherwise) but does not route to a tenant-dedicated execution environment: one environment pool per function.
 - Kafka ESM: MSK sources are polled only when services/kafka runs a real broker (--kafka-engine=docker); metadata-only MSK clusters stay unpolled with a warning, and MSK auth settings (IAM/SCRAM/TLS) are ignored (gopherstack-ce985).
 - MQ ESM: Amazon MQ sources are polled only when services/mq runs a real broker (--mq-engine=docker); metadata-only brokers stay unpolled with a warning. ActiveMQ is consumed over STOMP (AWS uses OpenWire/JMS), so brokerInTime is the message timestamp and messageType is inferred from STOMP content-length; one queue per mapping (Queues[0]); no TLS; the BASIC_AUTH secret must be JSON with username/password keys (the Lambda guide does not show its layout) and is read from services/secretsmanager in the secret ARN's region.
 - Kafka ESM (self-managed): SourceAccessConfigurations (SASL/SCRAM, mTLS, TLS root CA, VPC) are ignored -- only plaintext brokers are reachable -- and per-partition concurrency is not modeled (gopherstack-ce985).

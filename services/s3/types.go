@@ -227,6 +227,7 @@ type StoredObjectLambdaAccessPoint struct {
 	Payload                  string   `json:"payload,omitempty"`
 	SupportingAccessPointARN string   `json:"supportingAccessPointARN,omitempty"`
 	Actions                  []string `json:"actions,omitempty"`
+	AllowedFeatures          []string `json:"allowedFeatures,omitempty"`
 }
 
 // StoredPart represents a single part of a multipart upload.

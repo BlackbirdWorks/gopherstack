@@ -16,8 +16,8 @@
 
 ### Known gaps
 
-- ListAccessPoints/GetAccessPoint DataSourceId: the SDK documents it only as 'the unique identifier for the data source' without stating the value for a bucket-backed access point, so the filter and the GetAccessPoint echo are left unmodeled rather than guessed.
-- Multi-region access point create/delete/put-policy ClientToken: SDK does not state replay semantics for a repeated token, so idempotent replay is left unmodeled.
+- ListAccessPoints/GetAccessPoint DataSourceId: the SDK documents it only as 'the unique identifier for the data source' without stating the value for a bucket-backed access point (the S3 Control API reference ListAccessPoints says the same), so the filter and the GetAccessPoint echo are left unmodeled rather than guessed.
+- Multi-region access point create/delete/put-policy ClientToken: SDK and the CreateMultiRegionAccessPoint API reference say only "an idempotency token ... guarantee that requests are unique", so idempotent replay is left unmodeled.
 - Terraform aws_s3control_bucket (S3 on Outposts) apply (2026-09-19): the ARN now carries the caller's X-Amz-Outpost-Id; the remaining failure is the provider's handling of GetBucketTagging NoSuchTagSetError, not verifiable here. aws_s3control_directory_bucket_access_point_scope needs zone-suffixed directory buckets the S3 emulator does not model.
 
 ### Structural gaps

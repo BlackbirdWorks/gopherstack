@@ -258,6 +258,11 @@ func (b *InMemoryBackend) SetTypeDefaultVersion(typeArn, typeName, version strin
 func (b *InMemoryBackend) SetTypeConfiguration(typeName, configuration string) (string, error) {
 	b.mu.Lock("SetTypeConfiguration")
 	defer b.mu.Unlock()
+
+	if _, ok := b.typeRegistry.Get(b.buildTypeARN(typeName)); !ok {
+		return "", fmt.Errorf("%w: %s", ErrTypeNotFound, typeName)
+	}
+
 	b.typeConfigs[typeName] = configuration
 
 	return "arn:aws:cloudformation:::type-configuration/resource/" + typeName + "/default", nil

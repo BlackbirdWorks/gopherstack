@@ -2,6 +2,7 @@ package lambda
 
 import (
 	"maps"
+	"slices"
 	"sort"
 	"strconv"
 
@@ -12,7 +13,7 @@ import (
 
 // PublishVersion creates an immutable version snapshot of the current $LATEST function config.
 func (b *InMemoryBackend) PublishVersion(name, description string) (*FunctionVersion, error) {
-	return b.publishVersion(name, description, "")
+	return b.publishVersion(name, description, "", false)
 }
 
 // PublishVersionWithRevision behaves like PublishVersion but additionally
@@ -23,10 +24,20 @@ func (b *InMemoryBackend) PublishVersion(name, description string) (*FunctionVer
 // single lock acquisition to avoid a check-then-act race against a concurrent
 // UpdateFunctionConfiguration/UpdateFunctionCode.
 func (b *InMemoryBackend) PublishVersionWithRevision(name, description, revisionID string) (*FunctionVersion, error) {
-	return b.publishVersion(name, description, revisionID)
+	return b.publishVersion(name, description, revisionID, false)
 }
 
-func (b *InMemoryBackend) publishVersion(name, description, revisionID string) (*FunctionVersion, error) {
+// PublishVersionLatestPublished creates or republishes the single mutable $LATEST.PUBLISHED version
+// (PublishTo=LATEST_PUBLISHED) without consuming a version number.
+func (b *InMemoryBackend) PublishVersionLatestPublished(
+	name, description, revisionID string,
+) (*FunctionVersion, error) {
+	return b.publishVersion(name, description, revisionID, true)
+}
+
+func (b *InMemoryBackend) publishVersion(
+	name, description, revisionID string, latestPublished bool,
+) (*FunctionVersion, error) {
 	b.mu.Lock("PublishVersion")
 	defer b.mu.Unlock()
 
@@ -39,8 +50,11 @@ func (b *InMemoryBackend) publishVersion(name, description, revisionID string) (
 		return nil, ErrPreconditionFailed
 	}
 
-	b.versionCounters[name]++
-	versionNum := strconv.Itoa(b.versionCounters[name])
+	versionNum := versionLatestPublished
+	if !latestPublished {
+		b.versionCounters[name]++
+		versionNum = strconv.Itoa(b.versionCounters[name])
+	}
 
 	ver := &FunctionVersion{
 		FunctionName:           fn.FunctionName,
@@ -78,6 +92,12 @@ func (b *InMemoryBackend) publishVersion(name, description, revisionID string) (
 		StateReasonCode:        fn.StateReasonCode,
 		LastUpdateStatus:       fn.LastUpdateStatus,
 		LastUpdateStatusReason: fn.LastUpdateStatusReason,
+	}
+
+	if latestPublished {
+		b.versions[name] = slices.DeleteFunc(b.versions[name], func(v *FunctionVersion) bool {
+			return v.Version == versionLatestPublished
+		})
 	}
 
 	b.versions[name] = append(b.versions[name], ver)

@@ -275,7 +275,6 @@ items_still_open:
   - "AttachmentState PENDING_NETWORK_UPDATE/PENDING_TAG_ACCEPTANCE/FAILED are never entered. The SDK does not say when AWS enters them and they need attachment-policy evaluation (tag conditions, segment assignment), which is not modelled. UPDATING is entered on Update*Attachment."
   - "MAX_HOPS_EXCEEDED is not produced by StartRouteAnalysis: the SDK does not document the hop limit. Peering crossing is wired (cli_subnet_wiring.go via networkManagerEC2ResolverAdapter) and ends in CYCLIC_PATH_DETECTED on a revisit."
   - "Change sets cover 5 of 14 ChangeType values; ATTACHMENT_MAPPING/ATTACHMENT_ROUTE_*/ROUTING_POLICY_* need attachment-to-segment membership from attachment-policy evaluation, which is not modelled."
-  - "No AWS::NetworkManager::* resource type in services/cloudformation: needs a cloudformation provider that calls this backend (cross-service, outside this service)."
   - "NetworkResource.RegisteredGatewayArn is never populated and the RegisteredGatewayArn filter matches nothing: the SDK does not say which resource types are registered under a gateway."
 deferred: []
 leaks: {status: clean, note: "Handler.Reset()/InMemoryBackend.Close() wiring confirmed present (store.go: Close() calls b.work.Stop(), stopping the pkgs/worker.Group backing every scheduleAdvance/scheduleRemoval timer -- global network/site/device/link/connection/core-network/attachment/connect-peer/peering/policy-changeset state machines). `go test -race -count=1 ./services/networkmanager/...` run this pass: clean."}

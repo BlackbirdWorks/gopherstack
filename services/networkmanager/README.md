@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 95 (92 ok, 3 partial) |
 | Feature families | 29 (27 ok, 2 partial) |
-| Known gaps | 5 |
+| Known gaps | 4 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
@@ -19,7 +19,6 @@
 - AttachmentState PENDING_NETWORK_UPDATE/PENDING_TAG_ACCEPTANCE/FAILED are never entered. The SDK does not say when AWS enters them and they need attachment-policy evaluation (tag conditions, segment assignment), which is not modelled. UPDATING is entered on Update*Attachment.
 - MAX_HOPS_EXCEEDED is not produced by StartRouteAnalysis: the SDK does not document the hop limit. Peering crossing is wired (cli_subnet_wiring.go via networkManagerEC2ResolverAdapter) and ends in CYCLIC_PATH_DETECTED on a revisit.
 - Change sets cover 5 of 14 ChangeType values; ATTACHMENT_MAPPING/ATTACHMENT_ROUTE_*/ROUTING_POLICY_* need attachment-to-segment membership from attachment-policy evaluation, which is not modelled.
-- No AWS::NetworkManager::* resource type in services/cloudformation: needs a cloudformation provider that calls this backend (cross-service, outside this service).
 - NetworkResource.RegisteredGatewayArn is never populated and the RegisteredGatewayArn filter matches nothing: the SDK does not say which resource types are registered under a gateway.
 
 ### Structural gaps

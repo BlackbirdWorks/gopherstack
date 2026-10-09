@@ -9,16 +9,15 @@
 | --- | --- |
 | PARITY entries audited | 26 (25 ok, 1 gap) |
 | Feature families | 8 (8 ok) |
-| Known gaps | 5 |
-| Structural gaps (can't be emulated) | 3 |
+| Known gaps | 4 |
+| Structural gaps (can't be emulated) | 4 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Rejections the pinned SDK lists no error code for, so none is invented: Object Annotations 1 B-1 MiB payload window and ObjectIfMatch; RenameObject and CreateSession accepted on non-directory buckets; CreateSession SessionMode ReadOnly not enforced; directory buckets still accept ACL/tagging/versioning/lifecycle/website/CORS.
-- x-amz-mfa: MFA delete is stored, never enforced; the SDK lists no error code for a missing or bad MFA token.
-- Object Lambda events omit userIdentity and the access point AllowedFeatures (GetObject-Range/-PartNumber, HeadObject-Range/-PartNumber) are not enforced; inputS3Url is an unsigned emulator URL, not a presigned one.
+- Rejections the pinned SDK lists no error code for, so none is invented: Object Annotations 1 B-1 MiB payload window and ObjectIfMatch; RenameObject and CreateSession accepted on non-directory buckets; directory buckets still accept ACL/tagging/versioning/lifecycle/website/CORS.
+- Object Lambda inputS3Url is an unsigned emulator URL, not a presigned one; userIdentity omits sessionContext.
 - ListBucketIntelligentTieringConfigurations is unpaginated (the SDK documents no page size).
 - Notification destinations are validated only at PutBucketNotificationConfiguration; the SDK documents no per-configuration error detail shape.
 
@@ -26,6 +25,7 @@
 
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
+- x-amz-mfa: a missing token is AccessDenied when MFA Delete is enabled, but the token value is never validated: no MFA device model.
 - XXHASH64/XXHASH3/XXHASH128 checksums: the module carries no XXH3/XXH128 implementation (xxhash/v2 is an indirect XXH64-only dependency) and go.mod must not change; the fields are not modeled.
 - Replication and per-storage-class request metrics, SelectRequests/SelectBytes* metrics: no per-request replication or storage-class traffic model.
 - CreateBucket x-amz-bucket-namespace and PutBucketPolicy x-amz-confirm-remove-self-bucket-access: no account-regional namespace or self-lockout policy evaluation exists.

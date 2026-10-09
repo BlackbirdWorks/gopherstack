@@ -1,6 +1,7 @@
 package s3
 
 import (
+	"net/http"
 	"slices"
 )
 
@@ -31,4 +32,28 @@ func (r objectLambdaRoute) handles(action string) bool {
 	}
 
 	return slices.Contains(r.ap.Actions, action)
+}
+
+// allowsRangeRequest reports whether r may carry Range or partNumber to action: without the matching
+// AllowedFeatures entry S3 answers 501 NotImplemented (userguide range-get-olap).
+func (r objectLambdaRoute) allowsRangeRequest(req *http.Request, action string) bool {
+	if action != objectLambdaActionGetObject && action != objectLambdaActionHeadObject {
+		return true
+	}
+
+	prefix := "GetObject"
+	if action == objectLambdaActionHeadObject {
+		prefix = "HeadObject"
+	}
+
+	q := req.URL.Query()
+	if (req.Header.Get("Range") != "" || q.Has("Range")) && !r.allowedFeature(prefix+"-Range") {
+		return false
+	}
+
+	return !q.Has("partNumber") || r.allowedFeature(prefix+"-PartNumber")
+}
+
+func (r objectLambdaRoute) allowedFeature(feature string) bool {
+	return r.ap != nil && slices.Contains(r.ap.AllowedFeatures, feature)
 }

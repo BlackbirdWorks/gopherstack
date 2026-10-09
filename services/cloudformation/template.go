@@ -1556,6 +1556,11 @@ func resolveGetAtt(logicalID, attrName string, ctx resolveCtx) string {
 			resTypeKinesisVideoStream, resTypeKinesisVideoSignalingChannel,
 			resTypeECRPublicRepository,
 			resTypeKafkaConnectConnector, resTypeKafkaConnectCustomPlugin, resTypeKafkaConnectWorkerConfiguration,
+			resTypeNMGlobalNetwork, resTypeNMSite, resTypeNMDevice, resTypeNMLink,
+			resTypeNMLinkAssociation, resTypeNMCustomerGatewayAssociation, resTypeNMTransitGatewayRegistration,
+			resTypeNMCoreNetwork, resTypeNMVpcAttachment, resTypeNMSiteToSiteVpnAttachment,
+			resTypeNMConnectAttachment, resTypeNMConnectPeer, resTypeNMTransitGatewayPeering,
+			resTypeNMTransitGatewayRouteTableAttach, resTypeNMDirectConnectGatewayAttachment,
 			directconnectbackend.CFNConnection, directconnectbackend.CFNLag, directconnectbackend.CFNDirectConnectGateway,
 			directconnectbackend.CFNGatewayAssociation, directconnectbackend.CFNPrivateVirtualInterface,
 			directconnectbackend.CFNPublicVirtualInterface, directconnectbackend.CFNTransitVirtualInterface:

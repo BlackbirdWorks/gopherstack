@@ -79,6 +79,9 @@ func writeIoTError(c *echo.Context, err error) error {
 		errors.Is(err, ErrTopicRuleDestinationNotFound):
 
 		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
+	case errors.Is(err, ErrCertificateValidation):
+
+		return c.JSON(http.StatusBadRequest, awsErrBody{"CertificateValidationException", err.Error()})
 	case errors.Is(err, ErrAlreadyExists):
 
 		return respondConflict(c, err.Error())

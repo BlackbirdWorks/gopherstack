@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
@@ -40,6 +41,12 @@ func (h *S3Handler) routeObjectLambda(
 		}
 
 		return label, false
+	}
+
+	if !route.allowsRangeRequest(r, action) {
+		WriteError(ctx, w, r, ErrNotImplemented)
+
+		return label, true
 	}
 
 	switch action {
@@ -86,6 +93,13 @@ func (h *S3Handler) newObjectLambdaEvent(r *http.Request, route objectLambdaRout
 		XAmzRequestID:   uuid.NewString(),
 		ProtocolVersion: objectLambdaProtocolVersion,
 		UserRequest:     objectLambdaUserRequest{URL: u.String(), Headers: headers},
+	}
+
+	if p := awsmeta.GetPrincipal(r.Context()); p != nil {
+		ev.UserIdentity = &objectLambdaUserIdentity{
+			Type: string(p.Kind), PrincipalID: p.UserID, ARN: p.Arn, AccountID: p.AccountID,
+			UserName: p.UserName, AccessKeyID: awsmeta.AccessKeyID(r.Context()),
+		}
 	}
 
 	if route.ap != nil {

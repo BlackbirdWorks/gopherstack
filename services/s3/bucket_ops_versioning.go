@@ -26,6 +26,18 @@ func (h *S3Handler) putBucketVersioning(
 		return
 	}
 
+	if conf.MfaDelete == string(types.MFADeleteEnabled) && r.Header.Get("X-Amz-Mfa") == "" {
+		WriteError(ctx, w, r, ErrAccessDenied)
+
+		return
+	}
+
+	if mfaErr := h.requireMFA(ctx, r, bucketName, true); mfaErr != nil {
+		WriteError(ctx, w, r, mfaErr)
+
+		return
+	}
+
 	_, err := h.Backend.PutBucketVersioning(ctx, &s3.PutBucketVersioningInput{
 		Bucket: aws.String(bucketName),
 		VersioningConfiguration: &types.VersioningConfiguration{

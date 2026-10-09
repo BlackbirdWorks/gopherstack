@@ -234,7 +234,8 @@ func (b *InMemoryBackend) PutAccessPointConfigurationForObjectLambda(
 // the underlying bucket and Lambda ARN. It is unmarshalled from the raw inner
 // XML captured by createJobXMLCapture.
 type objectLambdaConfigXML struct {
-	SupportingAccessPoint        string `xml:"SupportingAccessPoint"`
+	SupportingAccessPoint        string   `xml:"SupportingAccessPoint"`
+	AllowedFeatures              []string `xml:"AllowedFeatures>AllowedFeature"`
 	TransformationConfigurations []struct {
 		ContentTransformation struct {
 			AwsLambda struct {
@@ -306,6 +307,7 @@ func (b *InMemoryBackend) registerObjectLambdaAccessPoint(key, bucket, lambdaARN
 		stored.Actions = tc.Actions
 		stored.Payload = tc.ContentTransformation.AwsLambda.FunctionPayload
 		stored.SupportingAccessPointARN = parsed.SupportingAccessPoint
+		stored.AllowedFeatures = parsed.AllowedFeatures
 	}
 	if ap.Alias != nil {
 		stored.Alias = ap.Alias.Value

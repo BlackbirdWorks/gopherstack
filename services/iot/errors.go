@@ -15,6 +15,8 @@ var (
 	// ErrValidation is returned when an input fails validation.
 	ErrValidation = errors.New("validation error")
 
+	// ErrCertificateValidation is returned when a certificate is not signed by the supplied CA.
+	ErrCertificateValidation = errors.New("certificate validation failed")
 	// ErrAlreadyExists is returned when a resource already exists.
 	ErrAlreadyExists = errors.New("resource already exists")
 

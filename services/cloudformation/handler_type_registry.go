@@ -344,7 +344,18 @@ func (h *Handler) handleSetTypeDefaultVersion(form url.Values, c *echo.Context) 
 }
 
 func (h *Handler) handleSetTypeConfiguration(form url.Values, c *echo.Context) error {
-	configArn, err := h.Backend.SetTypeConfiguration(form.Get("TypeName"), form.Get("Configuration"))
+	typeName := form.Get("TypeName")
+	if arn := form.Get("TypeArn"); typeName == "" && arn != "" {
+		if d, derr := h.Backend.DescribeType("", arn, ""); derr == nil {
+			typeName = d.TypeName
+		}
+	}
+
+	configArn, err := h.Backend.SetTypeConfiguration(typeName, form.Get("Configuration"))
+	if errors.Is(err, ErrTypeNotFound) {
+		return h.xmlError(c, "TypeNotFoundException", err.Error())
+	}
+
 	if err != nil {
 		return h.xmlError(c, "CFNRegistryException", err.Error())
 	}

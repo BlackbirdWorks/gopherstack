@@ -21,7 +21,7 @@
 - ClientToken replay is honoured for CreatePackage, CreatePackageVersion and CreateCertificateProvider (a token held by another resource is a ConflictException, an assumption); UpdatePackage, DeletePackage, UpdatePackageVersion, DeletePackageVersion, UpdatePackageConfiguration and DisassociateSbomFromPackageVersion replay as a no-op success via a 4096-entry in-memory cache that is not persisted (AssociateSbomWithPackageVersion is already idempotent).
 - DescribeJob.BeforeSubstitution and GetJobDocument.BeforeSubstitution have no effect: documents are stored verbatim; the SDK and API reference only say 'before and after the substitution parameters have been resolved' and define neither the grammar nor the resolved value (a presigned URL signed with the job role), so any substitution would be invented.
 - GetV2LoggingOptions.Verbose has no effect: the SDK output has no event-type list and no enum of logging event types exists, so any list would be invented.
-- Assumptions from memory, not the SDK docs: ListThingGroups.Recursive defaults to false when parentGroup is set, ListTopicRules.Topic matches the rule topic pattern exactly, and RegisterCertificate.CaCertificatePem links the certificate to a registered CA by PEM equality only (no signature check).
+- Assumptions the SDK and API reference (checked ListThingGroups, ListTopicRules) do not state: ListThingGroups.Recursive defaults to false when parentGroup is set, and ListTopicRules.Topic matches the rule topic pattern exactly. RegisterCertificate verifies the device certificate signature against CaCertificatePem when both are real X.509 PEMs (CertificateValidationException), and links the CA by PEM equality.
 
 ### Structural gaps
 

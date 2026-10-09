@@ -24,7 +24,7 @@ import (
 // number (digits only). Returns true if valid; writes an error response and returns
 // false if the qualifier is non-empty but malformed.
 func (h *Handler) validateQualifier(c *echo.Context, qualifier string) bool {
-	if qualifier == "" || qualifier == versionLatest {
+	if qualifier == "" || qualifier == versionLatest || qualifier == versionLatestPublished {
 		return true
 	}
 

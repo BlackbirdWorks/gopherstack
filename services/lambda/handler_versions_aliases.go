@@ -18,6 +18,8 @@ type publishVersionInput struct {
 	// or the publish is rejected with PreconditionFailedException (optimistic
 	// concurrency) — the function config must not have changed since it was read.
 	RevisionID string `json:"RevisionId"`
+	// PublishTo, when LATEST_PUBLISHED, publishes the $LATEST.PUBLISHED version.
+	PublishTo string `json:"PublishTo"`
 	// CodeSha256, when set, must match the function's current CodeSha256.
 	CodeSha256 string `json:"CodeSha256"`
 }
@@ -64,6 +66,8 @@ func extractNameAndAlias(rest string) (string, string) {
 	return fnName, aliasName
 }
 
+const publishToLatestPublished = "LATEST_PUBLISHED"
+
 // handlePublishVersion handles POST /2015-03-31/functions/{name}/versions.
 func (h *Handler) handlePublishVersion(c *echo.Context, name string) error {
 	lambdaBk, ok := h.Backend.(*InMemoryBackend)
@@ -91,7 +95,18 @@ func (h *Handler) handlePublishVersion(c *echo.Context, name string) error {
 		}
 	}
 
-	ver, publishErr := lambdaBk.PublishVersionWithRevision(name, input.Description, input.RevisionID)
+	if input.PublishTo != "" && input.PublishTo != publishToLatestPublished {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			"1 validation error detected: Value '"+input.PublishTo+"' at 'publishTo' failed to satisfy constraint: "+
+				"Member must satisfy enum value set: [LATEST_PUBLISHED]")
+	}
+
+	publish := lambdaBk.PublishVersionWithRevision
+	if input.PublishTo == publishToLatestPublished {
+		publish = lambdaBk.PublishVersionLatestPublished
+	}
+
+	ver, publishErr := publish(name, input.Description, input.RevisionID)
 	if publishErr != nil {
 		if errors.Is(publishErr, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",

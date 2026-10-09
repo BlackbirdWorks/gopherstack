@@ -46,7 +46,8 @@ func TestObjectLambdaAccessPointSink(t *testing.T) {
 			`<Actions><Action>GetObject</Action><Action>HeadObject</Action></Actions><ContentTransformation><AwsLambda>` +
 			`<FunctionArn>` + lambda + `</FunctionArn><FunctionPayload>{"a":1}</FunctionPayload>` +
 			`</AwsLambda></ContentTransformation>` +
-			`</TransformationConfiguration></TransformationConfigurations>`
+			`</TransformationConfiguration></TransformationConfigurations>` +
+			`<AllowedFeatures><AllowedFeature>GetObject-Range</AllowedFeature></AllowedFeatures>`
 	)
 
 	tests := []struct {
@@ -91,6 +92,7 @@ func TestObjectLambdaAccessPointSink(t *testing.T) {
 				assert.Equal(t, "my-bucket", sink.buckets["olap:"+acct])
 				assert.Equal(t, lambda, got.LambdaARN)
 				assert.Equal(t, []string{"GetObject", "HeadObject"}, got.Actions)
+				assert.Equal(t, []string{"GetObject-Range"}, got.AllowedFeatures)
 				assert.JSONEq(t, `{"a":1}`, got.Payload)
 				assert.Equal(t, "arn:aws:s3:us-east-1:123456789012:accesspoint/base", got.SupportingAccessPointARN)
 				assert.Equal(t, ap.Alias.Value, got.Alias)

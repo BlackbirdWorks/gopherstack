@@ -225,6 +225,7 @@ type StorageBackend interface {
 		ctx context.Context, bucket string, sessionMode types.SessionMode, enc SessionEncryption,
 	) (SessionCredentials, error)
 	ExpressSessionEncryption(accessKeyID, sessionToken string) (SessionEncryption, bool)
+	ExpressSessionReadOnly(accessKeyID string) bool
 	ExpressSessionSecret(accessKeyID, sessionToken string) (bucket, secret string, ok bool)
 	IsDirectoryBucket(bucket string) bool
 

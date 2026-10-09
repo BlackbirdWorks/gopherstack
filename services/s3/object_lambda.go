@@ -52,6 +52,15 @@ type objectLambdaUserRequest struct {
 	URL     string            `json:"url"`
 }
 
+type objectLambdaUserIdentity struct {
+	Type        string `json:"type"`
+	PrincipalID string `json:"principalId,omitempty"`
+	ARN         string `json:"arn"`
+	AccountID   string `json:"accountId"`
+	UserName    string `json:"userName,omitempty"`
+	AccessKeyID string `json:"accessKeyId,omitempty"`
+}
+
 // objectLambdaEvent is the JSON payload sent to the Lambda; exactly one *Context member is set.
 type objectLambdaEvent struct {
 	GetObjectContext     *objectLambdaGetObjectContext `json:"getObjectContext,omitempty"`
@@ -59,6 +68,7 @@ type objectLambdaEvent struct {
 	ListObjectsContext   *objectLambdaInputContext     `json:"listObjectsContext,omitempty"`
 	ListObjectsV2Context *objectLambdaInputContext     `json:"listObjectsV2Context,omitempty"`
 	Configuration        *objectLambdaConfiguration    `json:"configuration,omitempty"`
+	UserIdentity         *objectLambdaUserIdentity     `json:"userIdentity,omitempty"`
 	UserRequest          objectLambdaUserRequest       `json:"userRequest"`
 	XAmzRequestID        string                        `json:"xAmzRequestId"`
 	ProtocolVersion      string                        `json:"protocolVersion"`
