@@ -30,6 +30,7 @@ var (
 	ErrDefaultSubnetExists       = errors.New("DefaultSubnetAlreadyExistsInAvailabilityZone")
 	ErrSpotFleetNotFound         = errors.New("InvalidSpotFleetRequestId.NotFound")
 	ErrSubnetCIDRConflict        = errors.New("InvalidSubnet.Conflict")
+	ErrSubnetRange               = errors.New("InvalidSubnet.Range")
 	ErrVpcCIDRRange              = errors.New("InvalidVpc.Range")
 	ErrDryRunOperation           = errors.New("request would have succeeded, but DryRun flag is set")
 	ErrDuplicatePermission       = errors.New("InvalidPermission.Duplicate")
@@ -309,12 +310,20 @@ type Subnet struct {
 	// CreateSubnetWithOutpost and cross-validated against the real
 	// services/outposts backend (cross_service.go) when wired. Empty for a
 	// normal (non-Outpost) subnet.
-	OutpostArn          string `json:"outpostArn,omitempty"`
-	Arn                 string `json:"arn,omitempty"`
-	IsDefault           bool   `json:"isDefault,omitempty"`
-	MapPublicIPOnLaunch bool   `json:"mapPublicIpOnLaunch,omitempty"`
+	OutpostArn             string `json:"outpostArn,omitempty"`
+	Arn                    string `json:"arn,omitempty"`
+	CustomerOwnedIPv4Pool  string `json:"customerOwnedIpv4Pool,omitempty"`
+	PrivateDNSHostnameType string `json:"privateDnsHostnameType,omitempty"`
+	EnableLNIAtDeviceIndex int    `json:"enableLniAtDeviceIndex,omitempty"`
+	IsDefault              bool   `json:"isDefault,omitempty"`
+	MapPublicIPOnLaunch    bool   `json:"mapPublicIpOnLaunch,omitempty"`
 	// Ipv6Native marks an IPv6-only subnet (no IPv4 CIDR block).
-	Ipv6Native bool `json:"ipv6Native,omitempty"`
+	Ipv6Native                      bool `json:"ipv6Native,omitempty"`
+	EnableDNS64                     bool `json:"enableDns64,omitempty"`
+	AssignIPv6AddressOnCreation     bool `json:"assignIpv6AddressOnCreation,omitempty"`
+	MapCustomerOwnedIPOnLaunch      bool `json:"mapCustomerOwnedIpOnLaunch,omitempty"`
+	EnableResourceNameDNSARecord    bool `json:"enableResourceNameDnsARecord,omitempty"`
+	EnableResourceNameDNSAAAARecord bool `json:"enableResourceNameDnsAAAARecord,omitempty"`
 }
 
 // InMemoryBackend is the in-memory store for EC2 resources.

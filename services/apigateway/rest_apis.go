@@ -42,6 +42,8 @@ func (b *InMemoryBackend) CreateRestAPI(input CreateRestAPIInput) (*RestAPI, err
 		APIStatus:                 statusAvailable,
 		DisableExecuteAPIEndpoint: input.DisableExecuteAPIEndpoint,
 		EndpointAccessMode:        input.EndpointAccessMode,
+		SecurityPolicy:            input.SecurityPolicy,
+		Version:                   input.Version,
 	}
 
 	root := &Resource{

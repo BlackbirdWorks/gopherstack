@@ -849,6 +849,8 @@ type CreateRestAPIInput struct {
 	Policy                    string                 `json:"policy,omitempty"`
 	APIKeySource              string                 `json:"apiKeySource,omitempty"`
 	EndpointAccessMode        string                 `json:"endpointAccessMode,omitempty"`
+	SecurityPolicy            string                 `json:"securityPolicy,omitempty"`
+	Version                   string                 `json:"version,omitempty"`
 	BinaryMediaTypes          []string               `json:"binaryMediaTypes,omitempty"`
 	MinimumCompressionSize    int                    `json:"minimumCompressionSize,omitempty"`
 	DisableExecuteAPIEndpoint bool                   `json:"disableExecuteApiEndpoint,omitempty"`

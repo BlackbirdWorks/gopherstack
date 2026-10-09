@@ -728,6 +728,7 @@ var errCodeLookup = []struct {
 	{ErrHostNotFound, "InvalidHostID.NotFound"},
 	{ErrInstanceEventWindowNotFound, "InvalidInstanceEventWindowId.NotFound"},
 	{ErrSubnetCIDRConflict, "InvalidSubnet.Conflict"},
+	{ErrSubnetRange, "InvalidSubnet.Range"},
 	{ErrVpcCIDRRange, "InvalidVpc.Range"},
 	{ErrClientVpnEndpointNotFound, "InvalidClientVpnEndpointId.NotFound"},
 	{ErrTrafficMirrorFilterNotFound, "InvalidTrafficMirrorFilterId.NotFound"},

@@ -87,6 +87,7 @@ type SubnetCIDRAssociation struct {
 	AssociationID string `json:"associationID,omitempty"`
 	IPv6CIDRBlock string `json:"ipv6CidrBlock,omitempty"`
 	State         string `json:"state,omitempty"`
+	IPSource      string `json:"ipSource,omitempty"`
 }
 
 // Image state constants (formerly batch2 constants).

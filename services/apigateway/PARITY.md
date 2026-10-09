@@ -1307,3 +1307,7 @@ PutIntegration now defaults CacheNamespace to the resource ID (api_op_PutIntegra
 ## 2026-10-05 (zeroguard omitted-vs-zero audit)
 
 Tool false positives (cmd/zeroguard): required path/identifier members (Name, *Id, *Arn), Put* operations that replace the whole resource (PutRule, PutPermission, PutResourcePolicy, PutCodeBinding), and PatchOperations-based Update* ops.
+
+## Notes (2026-10-09 — CreateRestApi dropped members)
+
+CreateRestApi silently dropped `securityPolicy` and `version`; both are now stored and echoed on Create/Get. UpdateRestApi accepts `/securityPolicy` (existing); `/version` is not in the documented UpdateRestApi patch paths so it is not patchable. Proof: `TestSDK_CreateRestApiKeepsSecurityPolicyAndVersion`. All other CreateRestApiInput members were already mapped.

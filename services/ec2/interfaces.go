@@ -141,6 +141,15 @@ type Backend interface {
 	// cross-validated against the real Outposts backend when wired.
 	CreateSubnetWithOutpost(vpcID, cidr, az, outpostArn string) (*Subnet, error)
 
+	// CreateSubnetWithOptions creates a subnet from the full CreateSubnet request.
+	CreateSubnetWithOptions(p CreateSubnetParams) (*Subnet, error)
+
+	// SubnetIpv6Associations returns the IPv6 CIDR associations of a subnet.
+	SubnetIpv6Associations(subnetID string) []*SubnetCIDRAssociation
+
+	// ModifySubnetAttributes applies one ModifySubnetAttribute request.
+	ModifySubnetAttributes(subnetID string, u SubnetAttributeUpdate) error
+
 	// DeleteSubnet removes a subnet by ID.
 	DeleteSubnet(id string) error
 
