@@ -17,7 +17,7 @@
 ### Known gaps
 
 - Unverifiable defaults (re-checked 2026-10-07 against the SDK, API_StartExperimentRun / API_DeleteExperimentDefinition and the experimentation user guide pages on treatments and cleanup, none states a default): StartExperimentRun.ExposurePercentage omitted -> 0, DeleteExperimentDefinition delete_type omitted -> ARCHIVE, Treatment.Key naming ('Control', 'Treatment1'..N).
-- Extension actions: Lambda actions run at PRE_CREATE_HOSTED_CONFIGURATION_VERSION and PRE_START_DEPLOYMENT (payload, Content transform and error rejection per the AppConfig user guide). Not run: ON_DEPLOYMENT_* (async) and AT_DEPLOYMENT_TICK (sync, rolls the deployment back on error) action points, non-Lambda action URIs (SNS topic, SQS queue, EventBridge bus ARNs), and the experiment ops' DeploymentParameters (no inner deployment exists). The guide does not say whether dynamic parameters surface in AppliedExtensions.Parameters, so they do not.
+- Experiment ops' DeploymentParameters (Start/Update/StopExperimentRun): SDK doc strings (api_op_*ExperimentRun.go, types.DeploymentParameters) say only 'deployment parameters for the run' and API reference pages never state that runs create an inner deployment, so no behaviour is determinable; the field is accepted and ignored. Whether dynamic parameters surface in AppliedExtensions.Parameters is likewise unstated, so they do not.
 
 ### Structural gaps
 

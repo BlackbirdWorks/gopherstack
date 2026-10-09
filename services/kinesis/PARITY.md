@@ -56,7 +56,7 @@ families:
   UpdateChannel: {wire: new, errors: ok, state: fixed, persist: ok, note: "2026-09-11: implemented per api_op_UpdateChannel.go. Only LoggingConfiguration and the existing destination's DataFreshnessInSeconds can change ('You cannot change the destination, source stream, record format, schema, encryption configuration, or service execution role of an existing channel'); supplying the destination type the channel does NOT already have, or both destination update blocks at once, is InvalidArgumentException. 'state: fixed' documents the same disclosed synchronous-apply simplification as CreateChannel (real AWS: UPDATING then ACTIVE). Unknown ChannelARN -> ResourceNotFoundException."}
 gaps: []
 items_still_open:
-  - "Channel S3-delivery details are inferences, not verified against AWS: object-key suffix placement, delivered byte layout, dead-letter JSON schema/prefix, channel ARN format; OutputKeyTemplate's documented validation rules (length cap, no traversal) are unenforced at Create/UpdateChannel (rules live only in AWS docs, not the SDK). (gopherstack-s781r)"
+  - "Channel S3-delivery details are inferences, not verified against AWS: object-key suffix placement, delivered byte layout, dead-letter JSON schema/prefix, channel ARN format (checked data-delivery-s3-key-template and the SDK; neither states them). (gopherstack-s781r)"
 structural_gaps:
   - "Read/WriteProvisionedThroughputExceeded counts outside the FIS throughput fault, and SubscribeToShard.* metrics: no per-shard throughput model."
   - "Channel S3Tables (Iceberg) delivery is unmodeled (no services/s3tables data-file write path): such a channel accepts PutRecord but never buffers or flushes. Plain S3 delivery is real. (gopherstack-s781r)"
@@ -68,6 +68,8 @@ leaks: {status: clean, note: "stream.mu (lockmetrics) and stream.Tags always Clo
 ---
 
 ## Notes
+
+**2026-10-07:** CreateChannel now enforces the documented S3 OutputKeyTemplate rules (data-delivery-s3-key-template): no leading slash, `..`, `.` segment or `//`; closed placeholders with supported names only; literal characters limited to alphanumerics and `! - _ . * ( ) / = '`; at most one trailing `!{extension}` / `!{extension:.lowercase}`, required when compression is GZIP or ZSTD; expanded length at most 986 (checked as a lower bound). TestCreateChannel_OutputKeyTemplate.
 
 ### 2026-10-01: UpdateStreamWarmThroughput UPDATING window
 

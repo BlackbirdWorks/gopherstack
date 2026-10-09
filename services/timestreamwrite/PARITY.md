@@ -7,7 +7,7 @@
 service: timestreamwrite
 sdk_module: aws-sdk-go-v2/service/timestreamwrite@v1.38.4
 last_audit_commit: e13b41148  # 2026-09-24 terraform-coverage sweep; prior: d522d763f
-last_audit_date: 2026-10-07  # prior: 2026-09-19
+last_audit_date: 2026-10-07
 overall: A            # 2026-09-24: fixed a real bug the 2026-08-29 "verified inert" DescribeEndpoints
                        # note got wrong -- EndpointDiscoveryRequired is unconditional per-operation in
                        # aws-sdk-go-v2 (not skipped for a custom BaseEndpoint), so the hardcoded
@@ -41,8 +41,7 @@ families:
   arn-building: {status: ok, note: "fixed — tableARN hand-formatted \"arn:aws:...\" (hardcoded \"aws\" partition) instead of using pkgs/arn.Build like databaseARN does in the same file. Now uses arn.Build for partition-correctness consistency (GovCloud/China regions would previously get a wrong partition on table ARNs but not database ARNs)."}
 leaks: {status: clean, note: "closeAllTableMutexesLocked is correctly called on Reset, DeleteDatabase, DeleteTable, and before Restore discards the records map — no lockmetrics.RWMutex leak found. Persistence Snapshot/Restore round-trips databases, tables, batchLoadTasks (via store.Registry), plus the hand-rolled records/tags maps, nextTaskID, and rebuilds the per-table dedup index and mutex on Restore."}
 gaps: []
-items_still_open:
-  - "CompositePartitionKey[].EnforcementInRecord=REQUIRED is validated and echoed but not enforced by WriteRecords: the pinned SDK documents only the enum, not the failure shape (per-record RejectedRecord vs request ValidationException, and its Reason text), so enforcement would invent wire content."
+items_still_open: []
 deferred: []
 reaudit_2026-08-20: >
   Wrapper-key/nested-shape wire-parity sweep against the pinned
@@ -114,6 +113,8 @@ reaudit_2026-07-23: >
 ---
 
 ## Notes
+
+**2026-10-07:** WriteRecords now rejects a record missing a DIMENSION composite partition key whose EnforcementInRecord is REQUIRED (user guide: customer-defined-partition-keys-schema-validation, "4xx write errors"); returned as RejectedRecords with the record index. Reason text is emulator wording; ValidationException vs RejectedRecordsException is documented as either. TestHandler_WriteRecords_RequiredPartitionKey.
 
 ### 2026-09-24 terraform-coverage sweep (codeartifact-timestream-and-messaging)
 

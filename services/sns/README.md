@@ -9,14 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 34 (34 ok) |
 | Feature families | 6 (6 ok) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 1 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- NumberOfNotificationsFilteredOut-InvalidAttributes is not emitted: the pinned SDK does not define when a message's attributes count as invalid.
 
 ### Structural gaps
 

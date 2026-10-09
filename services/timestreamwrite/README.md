@@ -9,13 +9,9 @@
 | --- | --- |
 | PARITY entries audited | 19 (17 ok, 2 partial) |
 | Feature families | 3 (3 ok) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- CompositePartitionKey[].EnforcementInRecord=REQUIRED is validated and echoed but not enforced by WriteRecords: the pinned SDK documents only the enum, not the failure shape (per-record RejectedRecord vs request ValidationException, and its Reason text), so enforcement would invent wire content.
 
 ## More
 

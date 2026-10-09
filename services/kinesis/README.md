@@ -16,7 +16,7 @@
 
 ### Known gaps
 
-- Channel S3-delivery details are inferences, not verified against AWS: object-key suffix placement, delivered byte layout, dead-letter JSON schema/prefix, channel ARN format; OutputKeyTemplate's documented validation rules (length cap, no traversal) are unenforced at Create/UpdateChannel (rules live only in AWS docs, not the SDK). (gopherstack-s781r)
+- Channel S3-delivery details are inferences, not verified against AWS: object-key suffix placement, delivered byte layout, dead-letter JSON schema/prefix, channel ARN format (checked data-delivery-s3-key-template and the SDK; neither states them). (gopherstack-s781r)
 
 ### Structural gaps
 

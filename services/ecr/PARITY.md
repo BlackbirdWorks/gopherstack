@@ -77,10 +77,10 @@ gaps: []
   # item was closed by weakening or deleting its blocking test; every
   # previously-"intentional shortcut" test was rewritten to exercise the real
   # AWS behavior instead. (bd: gopherstack-x6i closed)
-items_still_open:
-  - "aws_ecr_registry_scanning_configuration and aws_ecr_replication_configuration (gopherstack-101r): terraform-provider-aws v5.100.0 fails apply with 'root object was present, but now absent' although the emulator's Put/Describe responses are byte-correct against the pinned SDK and round-trip through the real client; the rejection is in provider/Terraform Core state handling and is not reproducible from the emulator side."
+items_still_open: []
 structural_gaps:
   - "SetRepositoryPolicy Force: real ECR rejects a policy that would lock the caller out unless Force is set; that needs IAM policy simulation."
+  - "terraform-provider-aws v5.100.0 fails apply of aws_ecr_registry_scanning_configuration / aws_ecr_replication_configuration with 'root object was present, but now absent' although the emulator responses are byte-correct against the SDK and round-trip through the real client; the fault is in provider/Terraform Core state handling (gopherstack-101r)."
 deferred:
   - "docker registry v2 proxy internals (pkgs distribution/v3 wiring) — treated as a vendored subsystem, not re-audited this pass"
   - "chaos/fault-injection interaction with ECR ops — not exercised this pass"

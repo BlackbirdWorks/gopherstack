@@ -9,14 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 30 (30 ok) |
 | Feature families | 6 (6 ok) |
-| Known gaps | 1 |
-| Structural gaps (can't be emulated) | 3 |
+| Known gaps | none |
+| Structural gaps (can't be emulated) | 4 |
 | Deferred items | 1 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- ResourceLimitExceeded (CreateHttpNamespace/CreatePrivateDnsNamespace/CreatePublicDnsNamespace/CreateService/RegisterInstance) and RequestLimitExceeded (account-wide API throttling quota) are real SDK error types with no quota numbers documented anywhere in the vendored SDK source or the botocore model (only external doc links, e.g. cloud-map-limits.html) -- left unenforced rather than guessing at unverified thresholds
 
 ### Structural gaps
 
@@ -25,6 +21,7 @@ These do not block an A grade — no implementation could produce real data here
 - HealthStatus UNKNOWN is never surfaced: it requires a Route 53 health-check subsystem to drive the transition; instances are HEALTHY until marked UNHEALTHY.
 - DuplicateRequest has no trigger path: every op completes synchronously under the backend lock, so no in-flight window exists; the sentinel is intentionally absent.
 - DNS namespace HostedZoneId falls back to a synthetic Z-prefixed ID when Route 53 is not wired (SetHostedZoneCreator).
+- RequestLimitExceeded: the Cloud Map quotas page lists only account rate limits (DiscoverInstances 1,000/s steady, 2,000 burst; DiscoverInstancesRevision 3,000/s); throttling real request rates is not meaningful for an in-process emulator and would make tests flaky.
 
 ### Deferred
 

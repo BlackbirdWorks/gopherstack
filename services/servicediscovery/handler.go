@@ -31,9 +31,13 @@ const (
 	keyTags         = "Tags"
 	keyArn          = "Arn"
 
-	maxTagCount    = 50
-	maxTagKeyLen   = 128
-	maxTagValueLen = 256
+	maxTagCount = 50
+
+	maxNamespacesPerRegion   = 50
+	maxInstancesPerService   = 1000
+	maxInstancesPerNamespace = 2000
+	maxTagKeyLen             = 128
+	maxTagValueLen           = 256
 
 	// RegisterInstance custom-attribute quota, per the api_op_RegisterInstance.go
 	// doc comment: "You can add up to 30 custom attributes. For each key-value
@@ -416,6 +420,7 @@ var sentinelErrorCodes = sync.OnceValue(func() []struct {
 		{ErrServiceAlreadyExists, "ServiceAlreadyExists"},
 		{ErrResourceInUse, "ResourceInUse"},
 		{ErrTooManyTags, "TooManyTagsException"},
+		{ErrResourceLimitExceeded, "ResourceLimitExceeded"},
 		{ErrServiceAttributesLimitExceeded, "ServiceAttributesLimitExceededException"},
 		{ErrInvalidInput, errInvalidInput},
 		{errUnknownAction, errInvalidInput},

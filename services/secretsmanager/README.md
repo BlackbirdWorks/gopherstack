@@ -9,14 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 24 (24 ok) |
 | Feature families | 7 (7 ok) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 2 |
 | Resource leaks | fixed |
-
-### Known gaps
-
-- Filter key "all" is documented to break the value into words and search all attributes (UNVERIFIABLE): types.Filter.Key does not say whether words are ANDed or ORed or how attributes are tokenized, so whole-value prefix matching is kept.
 
 ### Structural gaps
 

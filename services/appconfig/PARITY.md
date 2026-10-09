@@ -213,7 +213,7 @@ gaps: []
   # ListTagsForResource, so this class of regression is now caught.
 items_still_open:
   - "Unverifiable defaults (re-checked 2026-10-07 against the SDK, API_StartExperimentRun / API_DeleteExperimentDefinition and the experimentation user guide pages on treatments and cleanup, none states a default): StartExperimentRun.ExposurePercentage omitted -> 0, DeleteExperimentDefinition delete_type omitted -> ARCHIVE, Treatment.Key naming ('Control', 'Treatment1'..N)."
-  - "Extension actions: Lambda actions run at PRE_CREATE_HOSTED_CONFIGURATION_VERSION and PRE_START_DEPLOYMENT (payload, Content transform and error rejection per the AppConfig user guide). Not run: ON_DEPLOYMENT_* (async) and AT_DEPLOYMENT_TICK (sync, rolls the deployment back on error) action points, non-Lambda action URIs (SNS topic, SQS queue, EventBridge bus ARNs), and the experiment ops' DeploymentParameters (no inner deployment exists). The guide does not say whether dynamic parameters surface in AppliedExtensions.Parameters, so they do not."
+  - "Experiment ops' DeploymentParameters (Start/Update/StopExperimentRun): SDK doc strings (api_op_*ExperimentRun.go, types.DeploymentParameters) say only 'deployment parameters for the run' and API reference pages never state that runs create an inner deployment, so no behaviour is determinable; the field is accepted and ignored. Whether dynamic parameters surface in AppliedExtensions.Parameters is likewise unstated, so they do not."
 structural_gaps:
   - "Deployment progression runs on a compressed fixed timescale, not the strategy's DeploymentDurationInMinutes/FinalBakeTimeInMinutes: real minutes-to-hours waits are unusable in an emulator (same as rds/acm)."
 deferred: []
@@ -221,6 +221,8 @@ leaks: {status: clean, note: "FIXED — DeleteApplication/DeleteEnvironment/Dele
 ---
 
 ## Notes
+
+**2026-10-07 (extension action points):** ON_DEPLOYMENT_START/STEP/BAKING/COMPLETE/ROLLED_BACK run asynchronously and in order (errors logged and ignored) and AT_DEPLOYMENT_TICK runs synchronously on each progression step, rolling the deployment back on a function error, `Error` response or `Directive: ROLL_BACK`. Action URIs may be Lambda, SNS topic (Message = event JSON, `MessageType` attribute), SQS queue (body = event JSON) or EventBridge bus (`aws.appconfig`, detail-type "On Deployment Complete") per the user guide payload pages; delivery goes through the sibling backends (`extension_events.go`, tests `extension_events_test.go`, `extension_sibling_test.go`).
 
 **2026-09-18 (over-wide response class census):** `cmd/overwidecandidates`
 flagged ListConfigurationProfiles, ListDeployments, ListExperimentDefinitions,

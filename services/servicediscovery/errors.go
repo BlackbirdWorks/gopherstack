@@ -29,6 +29,8 @@ var (
 	// ErrTooManyTags is returned when a request would leave a resource with more than
 	// maxTagCount tags.
 	ErrTooManyTags = awserr.New("TooManyTagsException", awserr.ErrInvalidParameter)
+	// ErrResourceLimitExceeded is returned when a request would exceed a documented Cloud Map quota.
+	ErrResourceLimitExceeded = awserr.New("ResourceLimitExceeded", awserr.ErrInvalidParameter)
 	// ErrServiceAttributesLimitExceeded is returned when a service would end up with
 	// more than maxServiceAttrCount attributes after UpdateServiceAttributes merges.
 	ErrServiceAttributesLimitExceeded = awserr.New(

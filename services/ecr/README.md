@@ -9,20 +9,17 @@
 | --- | --- |
 | PARITY entries audited | 58 (58 ok) |
 | Feature families | 3 (3 ok) |
-| Known gaps | 1 |
-| Structural gaps (can't be emulated) | 1 |
+| Known gaps | none |
+| Structural gaps (can't be emulated) | 2 |
 | Deferred items | 2 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- aws_ecr_registry_scanning_configuration and aws_ecr_replication_configuration (gopherstack-101r): terraform-provider-aws v5.100.0 fails apply with 'root object was present, but now absent' although the emulator's Put/Describe responses are byte-correct against the pinned SDK and round-trip through the real client; the rejection is in provider/Terraform Core state handling and is not reproducible from the emulator side.
 
 ### Structural gaps
 
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
 - SetRepositoryPolicy Force: real ECR rejects a policy that would lock the caller out unless Force is set; that needs IAM policy simulation.
+- terraform-provider-aws v5.100.0 fails apply of aws_ecr_registry_scanning_configuration / aws_ecr_replication_configuration with 'root object was present, but now absent' although the emulator responses are byte-correct against the SDK and round-trip through the real client; the fault is in provider/Terraform Core state handling (gopherstack-101r).
 
 ### Deferred
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"maps"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -115,6 +116,10 @@ func validateS3Destination(d *ChannelS3Destination) error {
 	sc := d.StorageConfiguration
 	if sc.BucketARN == "" || sc.CompressionType == "" || sc.ExpectedBucketOwner == "" {
 		return ErrInvalidArgument
+	}
+
+	if err := validateOutputKeyTemplate(sc.OutputKeyTemplate, sc.CompressionType); err != nil {
+		return err
 	}
 
 	if err := validateDeadLetterQueueS3Config(d.DeadLetterQueueS3Configuration); err != nil {
@@ -511,4 +516,109 @@ func (b *InMemoryBackend) UpdateChannel(_ context.Context, input *UpdateChannelI
 	}
 
 	return &UpdateChannelOutput{ChannelDescription: *channel}, nil
+}
+
+const (
+	maxExpandedKeyTemplate = 986
+	yyyyWidth              = 4
+	twoDigit               = 2
+	keyTemplateLiteralExt  = "extension"
+)
+
+var (
+	keyTemplateVariableRe = regexp.MustCompile(
+		`^(channel-name|channel-id|stream-name|yyyy|yy|MM|dd|HH|mm|extension(:\.[a-z.]+)?)$`,
+	)
+	keyTemplateLiteralRe = regexp.MustCompile(`^[A-Za-z0-9!\-_'.*()/=]*$`)
+)
+
+// validateOutputKeyTemplate enforces the rules in the Kinesis Data Streams "S3 output key template" user guide.
+func validateOutputKeyTemplate(tpl, compression string) error {
+	if tpl == "" {
+		return nil
+	}
+
+	if strings.HasPrefix(tpl, "/") || strings.Contains(tpl, "//") || strings.Contains(tpl, "..") {
+		return ErrInvalidArgument
+	}
+
+	if slices.Contains(strings.Split(tpl, "/"), ".") {
+		return ErrInvalidArgument
+	}
+
+	literal, extensions, ok := splitKeyTemplate(tpl)
+	if !ok || !keyTemplateLiteralRe.MatchString(literal) {
+		return ErrInvalidArgument
+	}
+
+	if len(extensions) > 1 || (len(extensions) == 1 && !strings.HasSuffix(tpl, "!{"+extensions[0]+"}")) {
+		return ErrInvalidArgument
+	}
+
+	if compression != "" && compression != "NONE" && len(extensions) == 0 {
+		return ErrInvalidArgument
+	}
+
+	if len(literal)+fixedWidthVariables(tpl) > maxExpandedKeyTemplate {
+		return ErrInvalidArgument
+	}
+
+	return nil
+}
+
+// splitKeyTemplate returns the template's literal text with placeholders removed, and the extension placeholders;
+// ok is false for an unclosed or unsupported placeholder.
+func splitKeyTemplate(tpl string) (string, []string, bool) {
+	var (
+		literal    strings.Builder
+		extensions []string
+	)
+
+	rest := tpl
+
+	for {
+		i := strings.Index(rest, "!{")
+		if i < 0 {
+			literal.WriteString(rest)
+
+			return literal.String(), extensions, true
+		}
+
+		literal.WriteString(rest[:i])
+
+		j := strings.Index(rest[i:], "}")
+		if j < 0 {
+			return "", nil, false
+		}
+
+		name := rest[i+2 : i+j]
+		if !keyTemplateVariableRe.MatchString(name) {
+			return "", nil, false
+		}
+
+		if strings.HasPrefix(name, keyTemplateLiteralExt) {
+			extensions = append(extensions, name)
+		}
+
+		rest = rest[i+j+1:]
+	}
+}
+
+// fixedWidthVariables sums the expanded width of the date placeholders, a lower bound for the expanded template.
+func fixedWidthVariables(tpl string) int {
+	widths := map[string]int{
+		"!{yyyy}": yyyyWidth,
+		"!{yy}":   twoDigit,
+		"!{MM}":   twoDigit,
+		"!{dd}":   twoDigit,
+		"!{HH}":   twoDigit,
+		"!{mm}":   twoDigit,
+	}
+	n := 0
+
+	for v, w := range widths {
+		n += strings.Count(tpl, v) * w
+	}
+
+	return n
 }

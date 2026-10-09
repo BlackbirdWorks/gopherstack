@@ -49,8 +49,7 @@ families:
   http_https_delivery: {status: ok, note: "RSA-2048 self-signed cert; SignatureVersion-aware signing (SHA1withRSA for the AWS default SignatureVersion=1, SHA256withRSA when a topic explicitly sets SignatureVersion=2), retry via DeliveryPolicy/EffectiveDeliveryPolicy, DLQ redrive, concurrency-capped worker semaphore, ctx-cancel on shutdown; fixed this pass: delivery previously always signed with SHA-256 regardless of the topic's SignatureVersion attribute (and always declared SignatureVersion=2 in every envelope: HTTP/HTTPS, Lambda, Firehose, and the SQS delivery envelope built by services/sqs) — now resolveSignatureVersion/signWithVersion select SHA1 vs SHA256 per-topic and every envelope declares the version that actually produced its Signature"}
   error_codes: {status: ok, note: "NotFound/InvalidParameter/EndpointDisabled/OptedOut/AuthorizationError(permission label)/SubscriptionLimitExceeded/FilterPolicyLimitExceeded all map to correct AWS code strings; fixed this pass: handleBackendError previously only split 400-vs-500 (per the prior audit's own 'verified' note) with NO 403 bucket at all, so AuthorizationError/SubscriptionLimitExceeded/FilterPolicyLimitExceeded (all documented HTTP 403 in the SNS API errors tables) were silently returning 400; EndpointDisabled correctly stays 400 (confirmed against API_Publish.html, not 403 despite being permission-adjacent). CORRECTED this pass (gopherstack-r3pr, errcodeaudit no-near-miss sweep): the previous claim that TopicAlreadyExists/PlatformApplicationAlreadyExists mapped to correct AWS code strings was wrong. ErrTopicAlreadyExists is a DEAD sentinel — declared and matched in two switch statements but never raised at any call site (CreateTopic is real-AWS idempotent on name collision and raises nothing); left as-is, no wire path exercises it. ErrPlatformApplicationAlreadyExists and ErrSandboxPhoneAlreadyExists WERE live and emitted the invented codes PlatformApplicationAlreadyExists/AlreadyExists — fixed to InvalidParameter/UserError respectively (see CreatePlatformApplication and the SMS-sandbox row above)."}
 gaps: []
-items_still_open:
-  - "NumberOfNotificationsFilteredOut-InvalidAttributes is not emitted: the pinned SDK does not define when a message's attributes count as invalid."
+items_still_open: []
 structural_gaps:
   - "SMSMonthToDateSpentUSD and SMSSuccessRate are not emitted: they need per-country SMS pricing and carrier delivery receipts, which an emulator does not have."
 deferred:
@@ -59,6 +58,8 @@ leaks: {status: clean, note: "fixed this pass: (1) topicMessageArchive was never
 ---
 
 ## Notes
+
+**2026-10-07:** the AWS/SNS filtered-out metrics now follow the CloudWatch metrics page: NumberOfNotificationsFilteredOut is the total, with -MessageAttributes, -NoMessageAttributes, -InvalidAttributes (String.Array attribute that is not a JSON array), -MessageBody and -InvalidMessageBody (body not a JSON object) as the per-reason counts (TestPublish_FilteredOutMetrics).
 
 ## 2026-10-03: Delivery authorization under --enforce-iam
 

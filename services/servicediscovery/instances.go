@@ -23,6 +23,10 @@ func (b *InMemoryBackend) RegisterInstance(serviceID, instanceID string, attrs m
 		return "", fmt.Errorf("%w: service %s not found", ErrServiceNotFound, serviceID)
 	}
 
+	if err := b.checkInstanceQuotaLocked(svc, instanceID); err != nil {
+		return "", err
+	}
+
 	inst := &Instance{
 		ID:         instanceID,
 		ServiceID:  serviceID,
@@ -270,4 +274,30 @@ func (b *InMemoryBackend) resyncServiceDNS(svc *Service) {
 			b.dns.RegisterRecord(hostname, "CNAME", []string{cname})
 		}
 	}
+}
+
+// checkInstanceQuotaLocked enforces the Cloud Map instances-per-service and instances-per-namespace quotas for a
+// new instance; re-registering an existing instance ID updates it and is not counted.
+func (b *InMemoryBackend) checkInstanceQuotaLocked(svc *Service, instanceID string) error {
+	if b.instances.Has(instanceKey(svc.ID, instanceID)) {
+		return nil
+	}
+
+	if len(b.instancesByService.Get(svc.ID)) >= maxInstancesPerService {
+		return fmt.Errorf("%w: at most %d instances per service", ErrResourceLimitExceeded, maxInstancesPerService)
+	}
+
+	inNamespace := 0
+
+	for _, s := range b.services.All() {
+		if s.NamespaceID == svc.NamespaceID {
+			inNamespace += len(b.instancesByService.Get(s.ID))
+		}
+	}
+
+	if inNamespace >= maxInstancesPerNamespace {
+		return fmt.Errorf("%w: at most %d instances per namespace", ErrResourceLimitExceeded, maxInstancesPerNamespace)
+	}
+
+	return nil
 }

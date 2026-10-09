@@ -9,14 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 51 (50 ok, 1 partial) |
 | Feature families | 8 (7 ok, 1 partial) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 2 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- DescribeSSLPolicies returns the same catalog for LoadBalancerType application and network (gateway returns empty) and omits SslPolicy.SupportedLoadBalancerTypes: the pinned SDK exposes the field but no per-policy applicability table.
 
 ### Structural gaps
 

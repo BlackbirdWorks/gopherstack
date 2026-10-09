@@ -94,13 +94,28 @@ func (b *InMemoryBackend) extensionLambdaInvoker() ExtensionLambdaInvoker {
 
 // preAction is one Lambda action of an extension associated with the resources a PRE_* action point acts on.
 type preAction struct {
-	params map[string]string
-	uri    string
+	params   map[string]string
+	uri      string
+	assocARN string
 }
 
 // preActionsLocked lists the Lambda actions registered for actionPoint by extensions associated with the
 // application, environment or configuration profile, ordered by association ID. Must be called under lock.
 func (b *InMemoryBackend) preActionsLocked(actionPoint, applicationID, environmentID, profileID string) []preAction {
+	all := b.actionsLocked(actionPoint, applicationID, environmentID, profileID)
+	out := make([]preAction, 0, len(all))
+
+	for _, a := range all {
+		if strings.HasPrefix(a.uri, lambdaARNPrefix) {
+			out = append(out, a)
+		}
+	}
+
+	return out
+}
+
+// actionsLocked lists every action (any URI kind) registered for actionPoint, ordered by association ID.
+func (b *InMemoryBackend) actionsLocked(actionPoint, applicationID, environmentID, profileID string) []preAction {
 	targets := map[string]bool{
 		b.appconfigARN("application/" + applicationID):                                        true,
 		b.appconfigARN("application/" + applicationID + "/configurationprofile/" + profileID): true,
@@ -128,9 +143,7 @@ func (b *InMemoryBackend) preActionsLocked(actionPoint, applicationID, environme
 		}
 
 		for _, act := range ext.Actions[actionPoint] {
-			if strings.HasPrefix(act.URI, lambdaARNPrefix) {
-				out = append(out, preAction{uri: act.URI, params: maps.Clone(a.Parameters)})
-			}
+			out = append(out, preAction{uri: act.URI, params: maps.Clone(a.Parameters), assocARN: a.Arn})
 		}
 	}
 
@@ -138,9 +151,11 @@ func (b *InMemoryBackend) preActionsLocked(actionPoint, applicationID, environme
 }
 
 type actionResponse struct {
-	Content *string `json:"Content"`
-	Error   string  `json:"Error"`
-	Message string  `json:"Message"`
+	Content     *string `json:"Content"`
+	Error       string  `json:"Error"`
+	Message     string  `json:"Message"`
+	Directive   string  `json:"Directive"`
+	Description string  `json:"Description"`
 }
 
 // runPreActions invokes each action in order, handing content to the next action. A returned Content (base64)
@@ -260,12 +275,12 @@ func (b *InMemoryBackend) preCreateHostedVersion(
 
 	next := b.versionCounters[applicationID][profileID] + 1
 	event := map[string]any{
-		"Type":                 "PreCreateHostedConfigurationVersion",
-		keyContentType:         contentType,
-		keyContentVersion:      strconv.Itoa(int(next)),
-		"Description":          description,
-		"Application":          b.resourceRef(applicationID, b.applicationName(applicationID)),
-		"ConfigurationProfile": b.resourceRef(profileID, profile.Name),
+		keyType:           "PreCreateHostedConfigurationVersion",
+		keyContentType:    contentType,
+		keyContentVersion: strconv.Itoa(int(next)),
+		keyDescription:    description,
+		keyApplication:    b.resourceRef(applicationID, b.applicationName(applicationID)),
+		keyConfigProfile:  b.resourceRef(profileID, profile.Name),
 	}
 
 	if prev, ok := b.hostedConfigVersions.Get(hcvKey(applicationID, profileID, next-1)); ok {
@@ -323,14 +338,14 @@ func (b *InMemoryBackend) preStartDeployment(
 	}
 
 	event := map[string]any{
-		"Type":                 "PreStartDeployment",
-		keyContentType:         contentType,
-		keyContentVersion:      configVersion,
-		"Description":          description,
-		"DeploymentNumber":     b.deploymentCounters[applicationID][environmentID] + 1,
-		"Application":          b.resourceRef(applicationID, b.applicationName(applicationID)),
-		"Environment":          b.resourceRef(environmentID, envName),
-		"ConfigurationProfile": b.resourceRef(profileID, profile.Name),
+		keyType:            "PreStartDeployment",
+		keyContentType:     contentType,
+		keyContentVersion:  configVersion,
+		keyDescription:     description,
+		"DeploymentNumber": b.deploymentCounters[applicationID][environmentID] + 1,
+		keyApplication:     b.resourceRef(applicationID, b.applicationName(applicationID)),
+		"Environment":      b.resourceRef(environmentID, envName),
+		keyConfigProfile:   b.resourceRef(profileID, profile.Name),
 	}
 	b.mu.Unlock()
 

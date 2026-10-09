@@ -3,6 +3,7 @@ package timestreamwrite
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -132,6 +133,18 @@ func writeRecordsIntoSlot(
 	var memoryInserted, magneticInserted int32
 
 	for i, r := range records {
+		if missing := missingRequiredPartitionKey(tbl, r); missing != "" {
+			rejected = append(rejected, RejectedRecord{
+				RecordIndex: i,
+				Reason: fmt.Sprintf(
+					"The record is missing the dimension %q, which is a REQUIRED customer-defined partition key",
+					missing,
+				),
+			})
+
+			continue
+		}
+
 		ts := parseTimestreamTime(r.Time, r.TimeUnit)
 
 		if recordOutsideRetention(ts, tbl, now) {
@@ -289,4 +302,23 @@ func (b *InMemoryBackend) pruneTableRecords(dbName, tblName string, tbl *Table, 
 	}
 
 	return pruned
+}
+
+// missingRequiredPartitionKey returns the name of the first REQUIRED dimension partition key absent from r.
+func missingRequiredPartitionKey(tbl *Table, r Record) string {
+	if tbl == nil || tbl.Schema == nil {
+		return ""
+	}
+
+	for _, k := range tbl.Schema.CompositePartitionKey {
+		if k.Type != PartitionKeyTypeDimension || k.EnforcementInRecord != PartitionKeyEnforcementRequired {
+			continue
+		}
+
+		if !slices.ContainsFunc(r.Dimensions, func(d Dimension) bool { return d.Name == k.Name }) {
+			return k.Name
+		}
+	}
+
+	return ""
 }

@@ -1,6 +1,7 @@
 package sns
 
 import (
+	"encoding/json"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
@@ -8,27 +9,77 @@ import (
 
 // AWS/SNS metrics per docs.aws.amazon.com/sns/latest/dg/sns-monitoring-using-cloudwatch.html (dimension TopicName).
 const (
-	snsMetricNamespace = "AWS/SNS"
-	snsUnitCount       = "Count"
-	snsUnitBytes       = "Bytes"
+	snsMetricNamespace  = "AWS/SNS"
+	snsUnitCount        = "Count"
+	snsUnitBytes        = "Bytes"
+	dataTypeStringArray = "String.Array"
 )
 
-// filteredCounts tallies subscriptions a publish skipped, by filter-policy scope.
+// filteredCounts tallies subscriptions a publish skipped, by the AWS/SNS filtered-out metric that counts them.
 type filteredCounts struct {
-	attributes   int
-	noAttributes int
-	body         int
+	total             int
+	messageAttributes int
+	noAttributes      int
+	invalidAttributes int
+	body              int
+	invalidBody       int
 }
 
-func (f *filteredCounts) record(noAttributes, body bool) {
-	switch {
-	case body:
-		f.body++
-	case noAttributes:
+type filterRejection int
+
+const (
+	rejectAttributes filterRejection = iota
+	rejectNoAttributes
+	rejectInvalidAttributes
+	rejectBody
+	rejectInvalidBody
+)
+
+func (f *filteredCounts) record(r filterRejection) {
+	f.total++
+
+	switch r {
+	case rejectNoAttributes:
 		f.noAttributes++
+	case rejectInvalidAttributes:
+		f.invalidAttributes++
+	case rejectBody:
+		f.body++
+	case rejectInvalidBody:
+		f.invalidBody++
 	default:
-		f.attributes++
+		f.messageAttributes++
 	}
+}
+
+// classifyAttributeRejection names why attrs failed an attribute-scope filter policy.
+func classifyAttributeRejection(attrs map[string]MessageAttribute) filterRejection {
+	if len(attrs) == 0 {
+		return rejectNoAttributes
+	}
+
+	for _, a := range attrs {
+		if a.DataType != dataTypeStringArray {
+			continue
+		}
+
+		var elems []any
+		if json.Unmarshal([]byte(a.StringValue), &elems) != nil {
+			return rejectInvalidAttributes
+		}
+	}
+
+	return rejectAttributes
+}
+
+// classifyBodyRejection names why message failed a body-scope filter policy.
+func classifyBodyRejection(message string) filterRejection {
+	var body map[string]json.RawMessage
+	if json.Unmarshal([]byte(message), &body) != nil {
+		return rejectInvalidBody
+	}
+
+	return rejectBody
 }
 
 // SetMetricEmitter sets the emitter that publishes AWS/SNS metrics to CloudWatch.
@@ -68,9 +119,12 @@ func (b *InMemoryBackend) emitPublishMetrics(topicARN, message string, t *publis
 	}
 
 	filtered := map[string]int{
-		"NumberOfNotificationsFilteredOut":                     t.filteredOut.attributes,
+		"NumberOfNotificationsFilteredOut":                     t.filteredOut.total,
+		"NumberOfNotificationsFilteredOut-MessageAttributes":   t.filteredOut.messageAttributes,
 		"NumberOfNotificationsFilteredOut-NoMessageAttributes": t.filteredOut.noAttributes,
+		"NumberOfNotificationsFilteredOut-InvalidAttributes":   t.filteredOut.invalidAttributes,
 		"NumberOfNotificationsFilteredOut-MessageBody":         t.filteredOut.body,
+		"NumberOfNotificationsFilteredOut-InvalidMessageBody":  t.filteredOut.invalidBody,
 	}
 
 	for name, n := range filtered {

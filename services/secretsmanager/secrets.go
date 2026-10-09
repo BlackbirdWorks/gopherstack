@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/google/uuid"
 
@@ -612,8 +613,7 @@ func secretMatchesFilter(s *Secret, f SecretFilter) bool {
 	case "tag-value":
 		return secretHasTagValue(s, f.Values)
 	case "all":
-		// "all" matches any of the filterable string fields.
-		return matchPrefix(f.Values, secretAllAttributes(s), hasPrefixFold)
+		return secretMatchesAllFilter(s, f.Values)
 	case "primary-region":
 		return anyMatchPrefix(f.Values, s.primaryRegionOrSelf())
 	case "owning-service":
@@ -966,4 +966,77 @@ func owningService(name string) string {
 	}
 
 	return svc
+}
+
+// secretMatchesAllFilter implements the "all" key: each value is split into words and matches secrets having
+// any of them as a word prefix in the name, description, tag keys or tag values; a leading "!" negates the value.
+func secretMatchesAllFilter(s *Secret, values []string) bool {
+	attrs := secretAllAttributes(s)
+	have := make([]string, 0, len(attrs))
+
+	for _, attr := range attrs {
+		have = append(have, searchWords(attr)...)
+	}
+
+	hasPositive, positiveMatch := false, false
+
+	for _, v := range values {
+		negated, isNeg := strings.CutPrefix(v, "!")
+		matched := slices.ContainsFunc(searchWords(negated), func(w string) bool {
+			return slices.ContainsFunc(have, func(h string) bool { return strings.HasPrefix(h, w) })
+		})
+
+		if isNeg {
+			if matched {
+				return false
+			}
+
+			continue
+		}
+
+		hasPositive = true
+		positiveMatch = positiveMatch || matched
+	}
+
+	return !hasPositive || positiveMatch
+}
+
+// searchWords lower-cases and splits text on punctuation, lowercase-to-uppercase changes and letter/digit
+// changes, per the Secrets Manager "Find secrets" user guide.
+func searchWords(text string) []string {
+	var (
+		words []string
+		cur   []rune
+		prev  rune
+	)
+
+	flush := func() {
+		if len(cur) > 0 {
+			words = append(words, strings.ToLower(string(cur)))
+			cur = cur[:0]
+		}
+	}
+
+	for _, r := range text {
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) {
+			flush()
+
+			prev = 0
+
+			continue
+		}
+
+		boundary := prev != 0 &&
+			((unicode.IsLower(prev) && unicode.IsUpper(r)) || unicode.IsDigit(prev) != unicode.IsDigit(r))
+		if boundary {
+			flush()
+		}
+
+		cur = append(cur, r)
+		prev = r
+	}
+
+	flush()
+
+	return words
 }

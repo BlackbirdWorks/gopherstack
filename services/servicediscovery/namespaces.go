@@ -19,6 +19,10 @@ func (b *InMemoryBackend) createNamespace(
 		return "", fmt.Errorf("%w: namespace %s already exists", ErrNamespaceAlreadyExists, name)
 	}
 
+	if len(b.namespaces.All()) >= maxNamespacesPerRegion {
+		return "", fmt.Errorf("%w: at most %d namespaces per region", ErrResourceLimitExceeded, maxNamespacesPerRegion)
+	}
+
 	id := b.nextNsID()
 
 	var props *NamespaceProperties

@@ -80,8 +80,7 @@ families:
   persistence: {status: ok, note: "Snapshot/Restore round-trips all fields including json:\"-\" internal fields via secretSnapshot; Tags.Close() called on replace to avoid Prometheus registry leaks; rotation scheduler re-armed on restore when RotationEnabled"}
   concurrency-locking: {status: fixed, note: "see leaks — RLock-guarded reads were lazily mutating the coarse per-region maps; fixed with non-mutating *StoreRO accessors"}
 gaps: []
-items_still_open:
-  - "Filter key \"all\" is documented to break the value into words and search all attributes (UNVERIFIABLE): types.Filter.Key does not say whether words are ANDed or ORed or how attributes are tokenized, so whole-value prefix matching is kept."
+items_still_open: []
 structural_gaps:
   - "PutSecretValueInput.RotationToken is a cross-account/assumed-role rotation identity token with no session or trust engine to validate it against."
 deferred:
@@ -91,6 +90,8 @@ leaks: {status: fixed, note: "Found a real data race: ListSecrets/ListSecretVers
 ---
 
 ## Notes
+
+**2026-10-07:** the `all` filter key now follows the "Find secrets" user guide: each value is split into words (punctuation, lower-to-upper and letter/digit changes), matched case-insensitively as a word prefix against words in name, description, tag keys and tag values; any word may match and `!` negates (TestListSecrets_FilterAllWords). Prefix-on-word, not equality, keeps the earlier prefix behaviour.
 
 - **2026-10-04 (gopherstack-zurl)**: re-verified at HEAD. CreateSecret.ForceOverwriteReplicaSecret is
   fully modelled: replicas are real secrets in the sibling region store and a same-named foreign secret

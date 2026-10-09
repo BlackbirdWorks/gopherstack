@@ -95,14 +95,14 @@ func newResourceID() string {
 //     current contents would under-count after any delete.
 //   - accountSettings is a single struct, not a map at all.
 type InMemoryBackend struct {
-	extensionsByName               *store.Index[Extension]
-	deploymentStrategiesByName     *store.Index[DeploymentStrategy]
-	applicationsByName             *store.Index[Application]
-	environments                   *store.Table[Environment]
-	environmentsByApp              *store.Index[Environment]
-	environmentsByAppName          *store.Index[Environment]
-	configProfiles                 *store.Table[ConfigurationProfile]
-	configProfilesByApp            *store.Index[ConfigurationProfile]
+	extLambda                      ExtensionLambdaInvoker
+	appConfig                      any
+	contentReader                  ConfigurationContentReader
+	configPublisher                DeployedConfigurationPublisher
+	accountSettings                AccountSettings
+	extTargets                     ExtensionTargetDeliverer
+	experimentRuns                 *store.Table[ExperimentRun]
+	versionCounters                map[string]map[string]int32
 	configProfilesByAppName        *store.Index[ConfigurationProfile]
 	hostedConfigVersions           *store.Table[HostedConfigurationVersion]
 	hostedConfigVersionsByProfile  *store.Index[HostedConfigurationVersion]
@@ -117,30 +117,33 @@ type InMemoryBackend struct {
 	registry                       *store.Registry
 	deployedConfigs                map[string]string
 	deploymentContent              map[string][]byte
-	extLambda                      ExtensionLambdaInvoker
+	configProfiles                 *store.Table[ConfigurationProfile]
+	environmentsByAppName          *store.Index[Environment]
+	deploymentStrategiesByName     *store.Index[DeploymentStrategy]
 	extensionAssociations          *store.Table[ExtensionAssociation]
 	tags                           map[string]map[string]string
-	versionCounters                map[string]map[string]int32
+	configProfilesByApp            *store.Index[ConfigurationProfile]
 	deploymentCounters             map[string]map[string]int32
 	deploymentsByEnv               *store.Index[Deployment]
 	deploymentTimers               map[string]*deploymentTimer
-	accountSettings                AccountSettings
+	environmentsByApp              *store.Index[Environment]
 	mu                             *lockmetrics.RWMutex
 	experimentRunCounters          map[string]int32
 	experimentRunEvents            map[string][]ExperimentRunEvent
 	experimentRunsByDef            *store.Index[ExperimentRun]
-	experimentRuns                 *store.Table[ExperimentRun]
+	extensionsByName               *store.Index[Extension]
 	experimentDefinitions          *store.Table[ExperimentDefinition]
 	experimentDefinitionsByApp     *store.Index[ExperimentDefinition]
 	experimentDefinitionsByAppName *store.Index[ExperimentDefinition]
-	configPublisher                DeployedConfigurationPublisher
-	contentReader                  ConfigurationContentReader
+	environments                   *store.Table[Environment]
+	applicationsByName             *store.Index[Application]
 	fetchedConfigs                 map[string]*HostedConfigurationVersion
-	appConfig                      any
 	region                         string
 	accountID                      string
 	paginationSecret               string
+	extQueue                       []extJob
 	deploymentReconcilerAlive      bool
+	extDrainAlive                  bool
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend for AppConfig.
