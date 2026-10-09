@@ -29,6 +29,7 @@ func newNestedStackCapableClient(t *testing.T) *cfnsdk.Client {
 	backend := cloudformation.NewInMemoryBackendWithConfig(
 		"000000000000", "us-east-1", cloudformation.NewResourceCreator(nil),
 	)
+	t.Cleanup(backend.WaitForStackSetOperations)
 	h := cloudformation.NewHandler(backend)
 
 	e := echo.New()
@@ -328,6 +329,7 @@ func TestListStackSetOperationResults_Pagination(t *testing.T) {
 	accounts := []string{"111111111111", "222222222222", "333333333333"}
 	_, err = backend.CreateStackInstances(ctx, "opresults-ss", accounts, nil, []string{"us-east-1"}, "")
 	require.NoError(t, err)
+	backend.WaitForStackSetOperations()
 
 	opsOut, err := client.ListStackSetOperations(ctx, &cfnsdk.ListStackSetOperationsInput{
 		StackSetName: aws.String("opresults-ss"),
@@ -385,6 +387,7 @@ func TestListStackSetAutoDeploymentTargets_Pagination(t *testing.T) {
 	accounts := []string{"111111111111", "222222222222", "333333333333"}
 	_, err = backend.CreateStackInstances(ctx, "autotargets-ss", accounts, nil, []string{"us-east-1"}, "")
 	require.NoError(t, err)
+	backend.WaitForStackSetOperations()
 
 	page1, err := client.ListStackSetAutoDeploymentTargets(ctx, &cfnsdk.ListStackSetAutoDeploymentTargetsInput{
 		StackSetName: aws.String("autotargets-ss"), MaxResults: aws.Int32(1),

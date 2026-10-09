@@ -39,6 +39,7 @@ func newTestHandlerAndClientWithBackend(t *testing.T) (*cloudformation.InMemoryB
 	t.Helper()
 
 	backend := cloudformation.NewInMemoryBackend()
+	t.Cleanup(backend.WaitForStackSetOperations)
 	client := newTestClientForBackend(t, backend)
 
 	return backend, client
