@@ -287,9 +287,20 @@ func (h *ccVPC) List(ctx context.Context) ([]string, error) {
 
 type ccSubnet struct{ client *ec2.Client }
 
+const (
+	ccKeyDNS64    = "EnableDns64"
+	ccKeyPublicIP = "MapPublicIpOnLaunch"
+)
+
+func ccSubnetAttrs() []string {
+	return []string{ccKeyPublicIP, ccKeyDNS64, "AssignIpv6AddressOnCreation"}
+}
+
 func (h *ccSubnet) Create(ctx context.Context, desired map[string]any) (string, error) {
 	vpc, cidr := ccString(desired, ccKeyVpcID), ccString(desired, "CidrBlock")
-	if vpc == "" || cidr == "" {
+	native, _ := ccBool(desired, "Ipv6Native")
+
+	if vpc == "" || (cidr == "" && !native) {
 		return "", fmt.Errorf("%w: VpcId and CidrBlock are required", cloudcontrolbackend.ErrValidation)
 	}
 
@@ -299,15 +310,15 @@ func (h *ccSubnet) Create(ctx context.Context, desired map[string]any) (string, 
 	}
 
 	in := &ec2.CreateSubnetInput{
-		VpcId: aws.String(vpc), CidrBlock: aws.String(cidr),
-		TagSpecifications: ccEC2TagSpec(ec2types.ResourceTypeSubnet, tags),
+		VpcId: aws.String(vpc), CidrBlock: ccOptional(cidr),
+		Ipv6CidrBlock:      ccOptional(ccString(desired, "Ipv6CidrBlock")),
+		AvailabilityZone:   ccOptional(ccString(desired, "AvailabilityZone")),
+		AvailabilityZoneId: ccOptional(ccString(desired, "AvailabilityZoneId")),
+		OutpostArn:         ccOptional(ccString(desired, "OutpostArn")),
+		TagSpecifications:  ccEC2TagSpec(ec2types.ResourceTypeSubnet, tags),
 	}
-	if az := ccString(desired, "AvailabilityZone"); az != "" {
-		in.AvailabilityZone = aws.String(az)
-	}
-
-	if arn := ccString(desired, "OutpostArn"); arn != "" {
-		in.OutpostArn = aws.String(arn)
+	if native {
+		in.Ipv6Native = aws.Bool(true)
 	}
 
 	out, err := h.client.CreateSubnet(ctx, in)
@@ -317,20 +328,34 @@ func (h *ccSubnet) Create(ctx context.Context, desired map[string]any) (string, 
 
 	id := aws.ToString(out.Subnet.SubnetId)
 
-	return id, h.setPublicIP(ctx, id, desired)
+	return id, h.setAttrs(ctx, id, desired)
 }
 
-func (h *ccSubnet) setPublicIP(ctx context.Context, id string, desired map[string]any) error {
-	v, ok := ccBool(desired, "MapPublicIpOnLaunch")
-	if !ok {
-		return nil
+func (h *ccSubnet) setAttrs(ctx context.Context, id string, desired map[string]any) error {
+	for _, k := range ccSubnetAttrs() {
+		v, ok := ccBool(desired, k)
+		if !ok {
+			continue
+		}
+
+		val := &ec2types.AttributeBooleanValue{Value: aws.Bool(v)}
+		in := &ec2.ModifySubnetAttributeInput{SubnetId: aws.String(id)}
+
+		switch k {
+		case ccKeyPublicIP:
+			in.MapPublicIpOnLaunch = val
+		case ccKeyDNS64:
+			in.EnableDns64 = val
+		default:
+			in.AssignIpv6AddressOnCreation = val
+		}
+
+		if _, err := h.client.ModifySubnetAttribute(ctx, in); err != nil {
+			return ccMapError(err)
+		}
 	}
 
-	_, err := h.client.ModifySubnetAttribute(ctx, &ec2.ModifySubnetAttributeInput{
-		SubnetId: aws.String(id), MapPublicIpOnLaunch: &ec2types.AttributeBooleanValue{Value: aws.Bool(v)},
-	})
-
-	return ccMapError(err)
+	return nil
 }
 
 func (h *ccSubnet) Read(ctx context.Context, id string) (map[string]any, error) {
@@ -345,8 +370,12 @@ func (h *ccSubnet) Read(ctx context.Context, id string) (map[string]any, error) 
 
 	s := out.Subnets[0]
 	model := map[string]any{
-		"SubnetId": id, ccKeyVpcID: aws.ToString(s.VpcId), "CidrBlock": aws.ToString(s.CidrBlock),
+		"SubnetId": id, ccKeyVpcID: aws.ToString(s.VpcId),
 		"AvailabilityZone": aws.ToString(s.AvailabilityZone), "MapPublicIpOnLaunch": aws.ToBool(s.MapPublicIpOnLaunch),
+	}
+
+	if s.CidrBlock != nil && *s.CidrBlock != "" {
+		model["CidrBlock"] = aws.ToString(s.CidrBlock)
 	}
 
 	if s.AvailabilityZoneId != nil {
@@ -357,6 +386,28 @@ func (h *ccSubnet) Read(ctx context.Context, id string) (map[string]any, error) 
 		model["OutpostArn"] = aws.ToString(s.OutpostArn)
 	}
 
+	var v6 []string
+
+	for _, a := range s.Ipv6CidrBlockAssociationSet {
+		if a.Ipv6CidrBlockState != nil && a.Ipv6CidrBlockState.State == ec2types.SubnetCidrBlockStateCodeAssociated {
+			v6 = append(v6, aws.ToString(a.Ipv6CidrBlock))
+		}
+	}
+
+	if len(v6) > 0 {
+		model["Ipv6CidrBlocks"] = v6
+		model["Ipv6CidrBlock"] = v6[0]
+	}
+
+	for k, on := range map[string]*bool{
+		"Ipv6Native": s.Ipv6Native, ccKeyDNS64: s.EnableDns64,
+		"AssignIpv6AddressOnCreation": s.AssignIpv6AddressOnCreation,
+	} {
+		if aws.ToBool(on) {
+			model[k] = true
+		}
+	}
+
 	if len(s.Tags) > 0 {
 		model[ccKeyTags] = ccEC2ModelTags(s.Tags)
 	}
@@ -365,11 +416,12 @@ func (h *ccSubnet) Read(ctx context.Context, id string) (map[string]any, error) 
 }
 
 func (h *ccSubnet) Update(ctx context.Context, id string, current, desired map[string]any) error {
-	if err := ccRejectUnsupportedChanges(current, desired, ccKeyTags, "MapPublicIpOnLaunch"); err != nil {
+	allowed := append([]string{ccKeyTags}, ccSubnetAttrs()...)
+	if err := ccRejectUnsupportedChanges(current, desired, allowed...); err != nil {
 		return err
 	}
 
-	if err := h.setPublicIP(ctx, id, ccChanged(current, desired, "MapPublicIpOnLaunch")); err != nil {
+	if err := h.setAttrs(ctx, id, ccChanged(current, desired, ccSubnetAttrs()...)); err != nil {
 		return err
 	}
 

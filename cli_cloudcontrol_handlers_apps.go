@@ -45,7 +45,7 @@ func ccUserPoolMutable() []string {
 		"DeletionProtection", "EmailConfiguration", "LambdaConfig", "VerificationMessageTemplate",
 		"UserPoolAddOns", "AccountRecoverySetting", "SmsConfiguration", "EmailVerificationMessage",
 		"EmailVerificationSubject", "SmsVerificationMessage", "SmsAuthenticationMessage", "DeviceConfiguration",
-		"UserAttributeUpdateSettings", "UserPoolTier",
+		"UserAttributeUpdateSettings", "UserPoolTier", "IssuerConfiguration", "KeyConfiguration",
 	}
 }
 
@@ -60,6 +60,10 @@ func (h *ccUserPool) Create(ctx context.Context, desired map[string]any) (string
 		return "", err
 	}
 
+	if err = ccValidatePoolMfa(desired); err != nil {
+		return "", err
+	}
+
 	in.PoolName = aws.String(name)
 
 	out, err := h.client.CreateUserPool(ctx, &in)
@@ -67,7 +71,15 @@ func (h *ccUserPool) Create(ctx context.Context, desired map[string]any) (string
 		return "", ccMapError(err)
 	}
 
-	return aws.ToString(out.UserPool.Id), nil
+	id := aws.ToString(out.UserPool.Id)
+
+	if ccPoolMfaTouched(nil, desired) {
+		if err = h.applyMfa(ctx, id, desired); err != nil {
+			return "", err
+		}
+	}
+
+	return id, nil
 }
 
 func (h *ccUserPool) Read(ctx context.Context, id string) (map[string]any, error) {
@@ -103,6 +115,8 @@ func (h *ccUserPool) Read(ctx context.Context, id string) (map[string]any, error
 		model[ccKeySchema] = custom
 	}
 
+	h.readMfa(ctx, id, model)
+
 	return model, nil
 }
 
@@ -134,7 +148,9 @@ func ccCustomSchema(attrs []cognitotypes.SchemaAttributeType) []cognitotypes.Sch
 }
 
 func (h *ccUserPool) Update(ctx context.Context, id string, current, desired map[string]any) error {
-	if err := ccRejectUnsupportedChanges(current, desired, ccUserPoolMutable()...); err != nil {
+	if err := ccRejectUnsupportedChanges(
+		current, desired, append(ccUserPoolMutable(), ccUserPoolMfaKeys()...)...,
+	); err != nil {
 		return err
 	}
 
@@ -143,11 +159,21 @@ func (h *ccUserPool) Update(ctx context.Context, id string, current, desired map
 		return err
 	}
 
+	if err = ccValidatePoolMfa(desired); err != nil {
+		return err
+	}
+
 	in.UserPoolId = aws.String(id)
 
-	_, err = h.client.UpdateUserPool(ctx, &in)
+	if _, err = h.client.UpdateUserPool(ctx, &in); err != nil {
+		return ccMapError(err)
+	}
 
-	return ccMapError(err)
+	if ccPoolMfaTouched(current, desired) {
+		return h.applyMfa(ctx, id, desired)
+	}
+
+	return nil
 }
 
 func (h *ccUserPool) Delete(ctx context.Context, id string) error {
@@ -195,6 +221,7 @@ type ccRestAPISpec struct {
 	DisableExecuteAPIEndpoint *bool  `json:"DisableExecuteApiEndpoint"`
 	APIKeySourceType          string `json:"ApiKeySourceType"`
 	SecurityPolicy            string
+	Version                   string
 	EndpointAccessMode        string
 	Description               string
 	Name                      string
@@ -243,6 +270,7 @@ func (h *ccRestAPI) Create(ctx context.Context, desired map[string]any) (string,
 		SecurityPolicy:         apigwtypes.SecurityPolicy(spec.SecurityPolicy),
 		EndpointAccessMode:     apigwtypes.EndpointAccessMode(spec.EndpointAccessMode),
 		MinimumCompressionSize: spec.MinimumCompressionSize,
+		Version:                ccOptional(spec.Version),
 		Policy:                 ccOptional(policy),
 		Tags:                   tags,
 	})
@@ -317,6 +345,7 @@ func (h *ccRestAPI) Read(ctx context.Context, id string) (map[string]any, error)
 		ccKeyAPIKeySource: string(a.ApiKeySource), "BinaryMediaTypes": a.BinaryMediaTypes,
 		ccKeyMinCompression: a.MinimumCompressionSize, "EndpointConfiguration": a.EndpointConfiguration,
 		ccKeySecurityPolicy: string(a.SecurityPolicy), ccKeyAccessMode: string(a.EndpointAccessMode),
+		"Version": a.Version,
 	}
 
 	if a.DisableExecuteApiEndpoint {
@@ -483,6 +512,10 @@ func ccFSTagMap(m map[string]any) (map[string]string, error) {
 }
 
 func (h *ccFileSystem) Create(ctx context.Context, desired map[string]any) (string, error) {
+	if _, _, err := ccReplicationFrom(desired); err != nil {
+		return "", err
+	}
+
 	in, err := ccDecode[efs.CreateFileSystemInput](desired)
 	if err != nil {
 		return "", err
@@ -509,6 +542,12 @@ func (h *ccFileSystem) Create(ctx context.Context, desired map[string]any) (stri
 
 	if err = h.applyExtras(ctx, id, desired); err != nil {
 		return "", err
+	}
+
+	if _, ok := desired[ccKeyReplication]; ok {
+		if err = h.syncReplication(ctx, id, desired); err != nil {
+			return "", err
+		}
 	}
 
 	return id, nil
@@ -611,6 +650,7 @@ func (h *ccFileSystem) Read(ctx context.Context, id string) (map[string]any, err
 	}
 
 	h.readExtras(ctx, id, model)
+	h.readReplication(ctx, id, model)
 
 	return ccCleanModel(model), nil
 }
@@ -638,10 +678,16 @@ func (h *ccFileSystem) readExtras(ctx context.Context, id string, model map[stri
 func (h *ccFileSystem) Update(ctx context.Context, id string, current, desired map[string]any) error {
 	mutable := []string{
 		ccKeyFSTags, ccKeyLifecycle, ccKeyBackup, ccKeyFSPolicy, ccKeyThroughput, ccKeyProvisioned,
-		ccKeyProtection, ccKeyBypass,
+		ccKeyProtection, ccKeyBypass, ccKeyReplication,
 	}
 	if err := ccRejectUnsupportedChanges(current, desired, mutable...); err != nil {
 		return err
+	}
+
+	if ccPropChanged(current, desired, ccKeyReplication) {
+		if err := h.syncReplication(ctx, id, desired); err != nil {
+			return err
+		}
 	}
 
 	if len(ccChanged(current, desired, ccKeyThroughput, ccKeyProvisioned)) > 0 {
@@ -697,6 +743,10 @@ func (h *ccFileSystem) Update(ctx context.Context, id string, current, desired m
 
 func (h *ccFileSystem) Delete(ctx context.Context, id string) error {
 	if _, err := h.Read(ctx, id); err != nil {
+		return err
+	}
+
+	if err := h.dropReplication(ctx, id); err != nil {
 		return err
 	}
 

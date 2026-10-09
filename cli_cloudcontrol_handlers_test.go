@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"net/netip"
 	"strings"
 	"testing"
 
@@ -41,6 +42,7 @@ func TestCloudControlDelegatesToServiceBackends(t *testing.T) {
 	tests := []struct {
 		patchedVal     any
 		verify         func(t *testing.T, fx *sfnFixture, id string, present bool)
+		verifyPatched  func(t *testing.T, fx *sfnFixture, id string)
 		name           string
 		typeName       string
 		desired        string
@@ -530,6 +532,232 @@ func TestCloudControlDelegatesToServiceBackends(t *testing.T) {
 				assert.Equal(t, present, err == nil && len(out.FileSystems) == 1)
 			},
 		},
+		{
+			name:     "elbv2_target_group_targets_attributes",
+			typeName: "AWS::ElasticLoadBalancingV2::TargetGroup",
+			desired: `{"Name":"cc-tg-targets","Protocol":"HTTP","Port":80,"VpcId":"{{vpc}}","TargetType":"ip",` +
+				`"TargetControlPort":8443,"Targets":[{"Id":"10.0.0.5","Port":80}],` +
+				`"TargetGroupAttributes":[{"Key":"deregistration_delay.timeout_seconds","Value":"30"}]}`,
+			patch: `[{"op":"replace","path":"/Targets","value":[{"Id":"10.0.0.6","Port":80}]},` +
+				`{"op":"replace","path":"/TargetGroupAttributes","value":` +
+				`[{"Key":"deregistration_delay.timeout_seconds","Value":"60"}]}]`,
+			patchedKey: "Targets", patchedVal: []any{map[string]any{"Id": "10.0.0.6", "Port": 80}},
+			wantKeys:       []string{"Targets", "TargetGroupAttributes", "TargetControlPort"},
+			immutablePatch: `[{"op":"replace","path":"/TargetControlPort","value":9443}]`,
+			verify: func(t *testing.T, fx *sfnFixture, id string, present bool) {
+				t.Helper()
+
+				if !present {
+					return
+				}
+
+				c := elbv2.NewFromConfig(fx.cfg)
+				health, err := c.DescribeTargetHealth(t.Context(), &elbv2.DescribeTargetHealthInput{
+					TargetGroupArn: aws.String(id),
+				})
+				require.NoError(t, err)
+				require.Len(t, health.TargetHealthDescriptions, 1)
+				assert.Equal(t, "10.0.0.5", aws.ToString(health.TargetHealthDescriptions[0].Target.Id))
+
+				groups, err := c.DescribeTargetGroups(t.Context(), &elbv2.DescribeTargetGroupsInput{
+					TargetGroupArns: []string{id},
+				})
+				require.NoError(t, err)
+				assert.EqualValues(t, 8443, aws.ToInt32(groups.TargetGroups[0].TargetControlPort))
+			},
+			verifyPatched: func(t *testing.T, fx *sfnFixture, id string) {
+				t.Helper()
+
+				attrs, err := elbv2.NewFromConfig(fx.cfg).DescribeTargetGroupAttributes(
+					t.Context(), &elbv2.DescribeTargetGroupAttributesInput{TargetGroupArn: aws.String(id)},
+				)
+				require.NoError(t, err)
+
+				got := map[string]string{}
+				for _, a := range attrs.Attributes {
+					got[aws.ToString(a.Key)] = aws.ToString(a.Value)
+				}
+
+				assert.Equal(t, "60", got["deregistration_delay.timeout_seconds"])
+			},
+		},
+		{
+			name:     "route53_hosted_zone_features_query_logging",
+			typeName: "AWS::Route53::HostedZone",
+			desired: `{"Name":"cc-features.example.com","HostedZoneFeatures":{"EnableAcceleratedRecovery":true},` +
+				`"QueryLoggingConfig":{"CloudWatchLogsLogGroupArn":` +
+				`"arn:aws:logs:us-east-1:000000000000:log-group:/aws/route53/cc-features"}}`,
+			patch: `[{"op":"replace","path":"/QueryLoggingConfig/CloudWatchLogsLogGroupArn","value":` +
+				`"arn:aws:logs:us-east-1:000000000000:log-group:/aws/route53/cc-other"},` +
+				`{"op":"replace","path":"/HostedZoneFeatures/EnableAcceleratedRecovery","value":false}]`,
+			patchedKey: "QueryLoggingConfig",
+			patchedVal: map[string]any{
+				"CloudWatchLogsLogGroupArn": "arn:aws:logs:us-east-1:000000000000:log-group:/aws/route53/cc-other",
+			},
+			wantKeys: []string{"HostedZoneFeatures", "QueryLoggingConfig"},
+			verify: func(t *testing.T, fx *sfnFixture, id string, present bool) {
+				t.Helper()
+
+				if !present {
+					return
+				}
+
+				c := route53.NewFromConfig(fx.cfg)
+				z, err := c.GetHostedZone(t.Context(), &route53.GetHostedZoneInput{Id: aws.String(id)})
+				require.NoError(t, err)
+				require.NotNil(t, z.HostedZone.Features)
+				assert.Equal(t, "ENABLED", string(z.HostedZone.Features.AcceleratedRecoveryStatus))
+
+				logs, err := c.ListQueryLoggingConfigs(t.Context(), &route53.ListQueryLoggingConfigsInput{
+					HostedZoneId: aws.String(id),
+				})
+				require.NoError(t, err)
+				assert.Len(t, logs.QueryLoggingConfigs, 1)
+			},
+			verifyPatched: func(t *testing.T, fx *sfnFixture, id string) {
+				t.Helper()
+
+				z, err := route53.NewFromConfig(fx.cfg).GetHostedZone(t.Context(), &route53.GetHostedZoneInput{
+					Id: aws.String(id),
+				})
+				require.NoError(t, err)
+				assert.Equal(t, "DISABLED", string(z.HostedZone.Features.AcceleratedRecoveryStatus))
+			},
+		},
+		{
+			name:     "cloudwatch_alarm_window_warmup",
+			typeName: "AWS::CloudWatch::Alarm",
+			desired: `{"AlarmName":"cc-alarm-window","ComparisonOperator":"GreaterThanThreshold","EvaluationPeriods":1,` +
+				`"MetricName":"CPUUtilization","Namespace":"AWS/EC2","Period":60,"Statistic":"Average","Threshold":80,` +
+				`"EvaluationWindow":{"WallClockWindow":{"Timezone":"UTC"}},` +
+				`"WarmUpConfiguration":{"WarmUpPeriodDurationInMinutes":5,` +
+				`"OnlyStartEvaluatingAfterWarmUpPeriodEnds":true}}`,
+			wantID:     "cc-alarm-window",
+			wantKeys:   []string{"EvaluationWindow", "WarmUpConfiguration"},
+			patch:      `[{"op":"replace","path":"/WarmUpConfiguration/WarmUpPeriodDurationInMinutes","value":10}]`,
+			patchedKey: "WarmUpConfiguration",
+			patchedVal: map[string]any{
+				"WarmUpPeriodDurationInMinutes": 10, "OnlyStartEvaluatingAfterWarmUpPeriodEnds": true,
+			},
+			verify: func(t *testing.T, fx *sfnFixture, id string, present bool) {
+				t.Helper()
+
+				if !present {
+					return
+				}
+
+				out, err := cloudwatch.NewFromConfig(fx.cfg).DescribeAlarms(
+					t.Context(), &cloudwatch.DescribeAlarmsInput{AlarmNames: []string{id}},
+				)
+				require.NoError(t, err)
+				require.Len(t, out.MetricAlarms, 1)
+				assert.NotNil(t, out.MetricAlarms[0].EvaluationWindow)
+				warm := out.MetricAlarms[0].WarmUpConfiguration
+				require.NotNil(t, warm)
+				assert.EqualValues(t, 5, aws.ToInt32(warm.WarmUpPeriodDurationInMinutes))
+			},
+		},
+		{
+			name:     "cognito_user_pool_mfa_webauthn_issuer_key",
+			typeName: "AWS::Cognito::UserPool",
+			desired: `{"UserPoolName":"cc-pool-mfa","MfaConfiguration":"OPTIONAL",` +
+				`"EnabledMfas":["SOFTWARE_TOKEN_MFA"],"WebAuthnRelyingPartyID":"auth.example.com",` +
+				`"WebAuthnUserVerification":"preferred","IssuerConfiguration":{"Type":"UPDATED"},` +
+				`"KeyConfiguration":{"KeyType":"AWS_OWNED_KEY"}}`,
+			patch:      `[{"op":"replace","path":"/WebAuthnUserVerification","value":"required"}]`,
+			patchedKey: "WebAuthnUserVerification", patchedVal: "required",
+			wantKeys: []string{
+				"EnabledMfas", "WebAuthnRelyingPartyID", "WebAuthnUserVerification", "IssuerConfiguration",
+				"KeyConfiguration",
+			},
+			verify: func(t *testing.T, fx *sfnFixture, id string, present bool) {
+				t.Helper()
+
+				if !present {
+					return
+				}
+
+				c := cognitoidentityprovider.NewFromConfig(fx.cfg)
+				mfa, err := c.GetUserPoolMfaConfig(t.Context(), &cognitoidentityprovider.GetUserPoolMfaConfigInput{
+					UserPoolId: aws.String(id),
+				})
+				require.NoError(t, err)
+				require.NotNil(t, mfa.SoftwareTokenMfaConfiguration)
+				assert.True(t, mfa.SoftwareTokenMfaConfiguration.Enabled)
+				require.NotNil(t, mfa.WebAuthnConfiguration)
+				assert.Equal(t, "auth.example.com", aws.ToString(mfa.WebAuthnConfiguration.RelyingPartyId))
+
+				pool, err := c.DescribeUserPool(t.Context(), &cognitoidentityprovider.DescribeUserPoolInput{
+					UserPoolId: aws.String(id),
+				})
+				require.NoError(t, err)
+				require.NotNil(t, pool.UserPool.IssuerConfiguration)
+				assert.Equal(t, "UPDATED", string(pool.UserPool.IssuerConfiguration.Type))
+				require.NotNil(t, pool.UserPool.KeyConfiguration)
+			},
+			verifyPatched: func(t *testing.T, fx *sfnFixture, id string) {
+				t.Helper()
+
+				mfa, err := cognitoidentityprovider.NewFromConfig(fx.cfg).GetUserPoolMfaConfig(
+					t.Context(), &cognitoidentityprovider.GetUserPoolMfaConfigInput{UserPoolId: aws.String(id)},
+				)
+				require.NoError(t, err)
+				assert.Equal(t, "required", string(mfa.WebAuthnConfiguration.UserVerification))
+			},
+		},
+		{
+			name:     "efs_file_system_replication",
+			typeName: "AWS::EFS::FileSystem",
+			desired: `{"PerformanceMode":"generalPurpose",` +
+				`"ReplicationConfiguration":{"Destinations":[{"Region":"{{region}}"}]}}`,
+			patch:    `[{"op":"replace","path":"/ReplicationConfiguration/Destinations/0/Region","value":"eu-west-1"}]`,
+			wantKeys: []string{"ReplicationConfiguration"},
+			verify: func(t *testing.T, fx *sfnFixture, id string, present bool) {
+				t.Helper()
+
+				if !present {
+					return
+				}
+
+				out, err := efs.NewFromConfig(fx.cfg).DescribeReplicationConfigurations(
+					t.Context(), &efs.DescribeReplicationConfigurationsInput{FileSystemId: aws.String(id)},
+				)
+				require.NoError(t, err)
+				require.Len(t, out.Replications, 1)
+				assert.Equal(t, fx.cfg.Region, aws.ToString(out.Replications[0].Destinations[0].Region))
+			},
+			verifyPatched: func(t *testing.T, fx *sfnFixture, id string) {
+				t.Helper()
+
+				out, err := efs.NewFromConfig(fx.cfg).DescribeReplicationConfigurations(
+					t.Context(), &efs.DescribeReplicationConfigurationsInput{FileSystemId: aws.String(id)},
+				)
+				require.NoError(t, err)
+				require.Len(t, out.Replications, 1)
+				assert.Equal(t, "eu-west-1", aws.ToString(out.Replications[0].Destinations[0].Region))
+			},
+		},
+		{
+			name:     "apigateway_rest_api_version",
+			typeName: "AWS::ApiGateway::RestApi",
+			desired:  `{"Name":"cc-api-ver","Version":"v7"}`,
+			patch:    `[{"op":"add","path":"/Description","value":"cc api"}]`,
+			wantKeys: []string{"Version"}, patchedKey: "Version", patchedVal: "v7",
+			verify: func(t *testing.T, fx *sfnFixture, id string, present bool) {
+				t.Helper()
+
+				out, err := apigateway.NewFromConfig(fx.cfg).
+					GetRestApi(t.Context(), &apigateway.GetRestApiInput{RestApiId: aws.String(id)})
+				if present {
+					require.NoError(t, err)
+					assert.Equal(t, "v7", aws.ToString(out.Version))
+
+					return
+				}
+
+				assert.Error(t, err)
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -633,6 +861,10 @@ func TestCloudControlDelegatesToServiceBackends(t *testing.T) {
 					subsetJSON(t, aws.ToString(after.ResourceDescription.Properties), tt.patchedKey))
 			}
 
+			if tt.verifyPatched != nil {
+				tt.verifyPatched(t, fx, id)
+			}
+
 			_, err = cc.DeleteResource(t.Context(), &cloudcontrol.DeleteResourceInput{
 				TypeName: aws.String(tt.typeName), Identifier: aws.String(id),
 			})
@@ -664,4 +896,139 @@ func subsetJSON(t *testing.T, doc, key string) string {
 	require.NoError(t, err)
 
 	return string(b)
+}
+
+func TestCloudControlRejectsUnsupportedProperties(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		typeName string
+		desired  string
+	}{
+		{
+			name: "alarm_evaluation_criteria", typeName: "AWS::CloudWatch::Alarm",
+			desired: `{"AlarmName":"cc-rej-1","EvaluationCriteria":{"PromQLCriteria":{"Query":"up"}}}`,
+		},
+		{
+			name: "alarm_evaluation_interval", typeName: "AWS::CloudWatch::Alarm",
+			desired: `{"AlarmName":"cc-rej-2","ComparisonOperator":"GreaterThanThreshold","EvaluationPeriods":1,` +
+				`"MetricName":"CPUUtilization","Namespace":"AWS/EC2","Period":60,"Statistic":"Average",` +
+				`"Threshold":1,"EvaluationInterval":30}`,
+		},
+		{
+			name: "alarm_window_both_members", typeName: "AWS::CloudWatch::Alarm",
+			desired: `{"AlarmName":"cc-rej-3","ComparisonOperator":"GreaterThanThreshold","EvaluationPeriods":1,` +
+				`"MetricName":"CPUUtilization","Namespace":"AWS/EC2","Period":60,"Statistic":"Average",` +
+				`"Threshold":1,"EvaluationWindow":{"SlidingWindow":{},"WallClockWindow":{}}}`,
+		},
+		{
+			name: "user_pool_sms_mfa_without_sms_configuration", typeName: "AWS::Cognito::UserPool",
+			desired: `{"UserPoolName":"cc-rej-pool-1","EnabledMfas":["SMS_MFA"]}`,
+		},
+		{
+			name: "user_pool_unknown_mfa", typeName: "AWS::Cognito::UserPool",
+			desired: `{"UserPoolName":"cc-rej-pool-2","EnabledMfas":["CARRIER_PIGEON"]}`,
+		},
+		{
+			name: "user_pool_email_otp_without_developer_sender", typeName: "AWS::Cognito::UserPool",
+			desired: `{"UserPoolName":"cc-rej-pool-3","EnabledMfas":["EMAIL_OTP"]}`,
+		},
+		{
+			name: "file_system_two_replication_destinations", typeName: "AWS::EFS::FileSystem",
+			desired: `{"ReplicationConfiguration":{"Destinations":[{"Region":"eu-west-1"},{"Region":"us-west-2"}]}}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			fx := newSFNFixture(t)
+
+			_, err := cloudcontrol.NewFromConfig(fx.cfg).CreateResource(t.Context(), &cloudcontrol.CreateResourceInput{
+				TypeName: aws.String(tt.typeName), DesiredState: aws.String(tt.desired),
+			})
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestCloudControlSubnetIPv6(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		desired string
+	}{
+		{name: "dual_stack", desired: `{"VpcId":"{{vpc}}","CidrBlock":"10.40.1.0/24","Ipv6CidrBlock":"{{v6}}",` +
+			`"AvailabilityZoneId":"{{azid}}","EnableDns64":true,"AssignIpv6AddressOnCreation":true}`},
+		{name: "native", desired: `{"VpcId":"{{vpc}}","Ipv6Native":true,"Ipv6CidrBlock":"{{v6}}",` +
+			`"AvailabilityZoneId":"{{azid}}","AssignIpv6AddressOnCreation":true}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			fx := newSFNFixture(t)
+			c := ec2.NewFromConfig(fx.cfg)
+
+			vpc, err := c.CreateVpc(t.Context(), &ec2.CreateVpcInput{CidrBlock: aws.String("10.40.0.0/16")})
+			require.NoError(t, err)
+
+			vpcID := aws.ToString(vpc.Vpc.VpcId)
+			assoc, err := c.AssociateVpcCidrBlock(t.Context(), &ec2.AssociateVpcCidrBlockInput{
+				VpcId: aws.String(vpcID), AmazonProvidedIpv6CidrBlock: aws.Bool(true),
+			})
+			require.NoError(t, err)
+
+			pfx := netip.MustParsePrefix(aws.ToString(assoc.Ipv6CidrBlockAssociation.Ipv6CidrBlock))
+			raw := pfx.Addr().As16()
+			raw[7]++
+			v6 := netip.PrefixFrom(netip.AddrFrom16(raw), 64).String()
+
+			azs, err := c.DescribeAvailabilityZones(t.Context(), &ec2.DescribeAvailabilityZonesInput{})
+			require.NoError(t, err)
+			require.NotEmpty(t, azs.AvailabilityZones)
+
+			azID := aws.ToString(azs.AvailabilityZones[0].ZoneId)
+			desired := strings.NewReplacer("{{vpc}}", vpcID, "{{v6}}", v6, "{{azid}}", azID).Replace(tt.desired)
+
+			cc := cloudcontrol.NewFromConfig(fx.cfg)
+			created, err := cc.CreateResource(t.Context(), &cloudcontrol.CreateResourceInput{
+				TypeName: aws.String("AWS::EC2::Subnet"), DesiredState: aws.String(desired),
+			})
+			require.NoError(t, err)
+
+			id := aws.ToString(created.ProgressEvent.Identifier)
+
+			got, err := cc.GetResource(t.Context(), &cloudcontrol.GetResourceInput{
+				TypeName: aws.String("AWS::EC2::Subnet"), Identifier: aws.String(id),
+			})
+			require.NoError(t, err)
+
+			var props map[string]any
+			require.NoError(t, json.Unmarshal([]byte(aws.ToString(got.ResourceDescription.Properties)), &props))
+			assert.Equal(t, []any{v6}, props["Ipv6CidrBlocks"])
+			assert.Equal(t, azID, props["AvailabilityZoneId"])
+			assert.Equal(t, true, props["AssignIpv6AddressOnCreation"])
+
+			desc, err := c.DescribeSubnets(t.Context(), &ec2.DescribeSubnetsInput{SubnetIds: []string{id}})
+			require.NoError(t, err)
+			require.Len(t, desc.Subnets, 1)
+			assert.True(t, aws.ToBool(desc.Subnets[0].AssignIpv6AddressOnCreation))
+			assert.Equal(t, strings.Contains(tt.name, "native"), aws.ToBool(desc.Subnets[0].Ipv6Native))
+
+			_, err = cc.UpdateResource(t.Context(), &cloudcontrol.UpdateResourceInput{
+				TypeName: aws.String("AWS::EC2::Subnet"), Identifier: aws.String(id),
+				PatchDocument: aws.String(`[{"op":"add","path":"/EnableDns64","value":true}]`),
+			})
+			require.NoError(t, err)
+
+			desc, err = c.DescribeSubnets(t.Context(), &ec2.DescribeSubnetsInput{SubnetIds: []string{id}})
+			require.NoError(t, err)
+			assert.True(t, aws.ToBool(desc.Subnets[0].EnableDns64))
+		})
+	}
 }

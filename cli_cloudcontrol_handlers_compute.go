@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -290,6 +291,7 @@ func ccELBTags(m map[string]string) []elbv2types.Tag {
 }
 
 type ccTargetGroupSpec struct {
+	TargetControlPort          *int32
 	HealthCheckEnabled         *bool
 	HealthCheckIntervalSeconds *int32
 	HealthCheckPath            *string
@@ -299,6 +301,8 @@ type ccTargetGroupSpec struct {
 	UnhealthyThresholdCount    *int32
 	Matcher                    *elbv2types.Matcher
 	HealthCheckProtocol        string
+	Targets                    []elbv2types.TargetDescription
+	TargetGroupAttributes      []elbv2types.TargetGroupAttribute
 }
 
 func ccDecodeTargetGroup(m map[string]any) (ccTargetGroupSpec, error) {
@@ -327,6 +331,7 @@ func (h *ccTargetGroup) Create(ctx context.Context, desired map[string]any) (str
 		HealthCheckPort: hc.HealthCheckPort, HealthCheckProtocol: elbv2types.ProtocolEnum(hc.HealthCheckProtocol),
 		HealthCheckTimeoutSeconds: hc.HealthCheckTimeoutSeconds, HealthyThresholdCount: hc.HealthyThresholdCount,
 		UnhealthyThresholdCount: hc.UnhealthyThresholdCount, Matcher: hc.Matcher,
+		TargetControlPort: hc.TargetControlPort,
 	}
 
 	if v, ok := ccInt32(desired, "Port"); ok {
@@ -350,7 +355,124 @@ func (h *ccTargetGroup) Create(ctx context.Context, desired map[string]any) (str
 		return "", ccMapError(err)
 	}
 
-	return aws.ToString(out.TargetGroups[0].TargetGroupArn), nil
+	arn := aws.ToString(out.TargetGroups[0].TargetGroupArn)
+
+	if err = h.applyAttributes(ctx, arn, hc.TargetGroupAttributes); err != nil {
+		return "", err
+	}
+
+	return arn, ccMapError(h.registerTargets(ctx, arn, hc.Targets))
+}
+
+func (h *ccTargetGroup) applyAttributes(
+	ctx context.Context, arn string, attrs []elbv2types.TargetGroupAttribute,
+) error {
+	if len(attrs) == 0 {
+		return nil
+	}
+
+	_, err := h.client.ModifyTargetGroupAttributes(ctx, &elbv2.ModifyTargetGroupAttributesInput{
+		TargetGroupArn: aws.String(arn), Attributes: attrs,
+	})
+
+	return ccMapError(err)
+}
+
+func (h *ccTargetGroup) registerTargets(ctx context.Context, arn string, targets []elbv2types.TargetDescription) error {
+	if len(targets) == 0 {
+		return nil
+	}
+
+	_, err := h.client.RegisterTargets(ctx, &elbv2.RegisterTargetsInput{
+		TargetGroupArn: aws.String(arn), Targets: targets,
+	})
+
+	return err
+}
+
+func ccTargetKey(t elbv2types.TargetDescription) string {
+	return fmt.Sprintf("%s:%d", aws.ToString(t.Id), aws.ToInt32(t.Port))
+}
+
+func (h *ccTargetGroup) syncTargets(ctx context.Context, arn string, current, desired map[string]any) error {
+	if _, given := desired["Targets"]; !given {
+		return nil
+	}
+
+	have, err := ccDecodeOptional[[]elbv2types.TargetDescription](current, "Targets")
+	if err != nil {
+		return err
+	}
+
+	want, err := ccDecodeOptional[[]elbv2types.TargetDescription](desired, "Targets")
+	if err != nil {
+		return err
+	}
+
+	haveKeys := make([]string, 0, len(have))
+	for _, t := range have {
+		haveKeys = append(haveKeys, ccTargetKey(t))
+	}
+
+	wantKeys := make([]string, 0, len(want))
+	for _, t := range want {
+		wantKeys = append(wantKeys, ccTargetKey(t))
+	}
+
+	var add, remove []elbv2types.TargetDescription
+
+	for _, t := range want {
+		if !slices.Contains(haveKeys, ccTargetKey(t)) {
+			add = append(add, t)
+		}
+	}
+
+	for _, t := range have {
+		if !slices.Contains(wantKeys, ccTargetKey(t)) {
+			remove = append(remove, elbv2types.TargetDescription{Id: t.Id, Port: t.Port})
+		}
+	}
+
+	if err = h.registerTargets(ctx, arn, add); err != nil {
+		return ccMapError(err)
+	}
+
+	if len(remove) == 0 {
+		return nil
+	}
+
+	_, err = h.client.DeregisterTargets(ctx, &elbv2.DeregisterTargetsInput{
+		TargetGroupArn: aws.String(arn), Targets: remove,
+	})
+
+	return ccMapError(err)
+}
+
+func (h *ccTargetGroup) readTargets(ctx context.Context, id string, model map[string]any) {
+	health, err := h.client.DescribeTargetHealth(ctx, &elbv2.DescribeTargetHealthInput{TargetGroupArn: aws.String(id)})
+	if err == nil {
+		var targets []elbv2types.TargetDescription
+
+		for _, d := range health.TargetHealthDescriptions {
+			draining := d.TargetHealth != nil && d.TargetHealth.State == elbv2types.TargetHealthStateEnumDraining
+			if d.Target == nil || draining {
+				continue
+			}
+
+			targets = append(targets, *d.Target)
+		}
+
+		if len(targets) > 0 {
+			model["Targets"] = targets
+		}
+	}
+
+	attrs, err := h.client.DescribeTargetGroupAttributes(ctx, &elbv2.DescribeTargetGroupAttributesInput{
+		TargetGroupArn: aws.String(id),
+	})
+	if err == nil && len(attrs.Attributes) > 0 {
+		model["TargetGroupAttributes"] = attrs.Attributes
+	}
 }
 
 func (h *ccTargetGroup) describe(ctx context.Context, id string) (*elbv2types.TargetGroup, error) {
@@ -380,8 +502,10 @@ func (h *ccTargetGroup) Read(ctx context.Context, id string) (map[string]any, er
 		"HealthCheckTimeoutSeconds": g.HealthCheckTimeoutSeconds, "HealthyThresholdCount": g.HealthyThresholdCount,
 		"UnhealthyThresholdCount": g.UnhealthyThresholdCount, "Matcher": g.Matcher, "Port": g.Port,
 		ccKeyVpcID: g.VpcId, "IpAddressType": string(g.IpAddressType), "ProtocolVersion": g.ProtocolVersion,
-		"LoadBalancerArns": g.LoadBalancerArns,
+		"LoadBalancerArns": g.LoadBalancerArns, "TargetControlPort": g.TargetControlPort,
 	}
+
+	h.readTargets(ctx, id, model)
 
 	model["TargetGroupName"] = aws.ToString(g.TargetGroupName)
 
@@ -403,11 +527,12 @@ func (h *ccTargetGroup) Read(ctx context.Context, id string) (map[string]any, er
 }
 
 func (h *ccTargetGroup) Update(ctx context.Context, id string, current, desired map[string]any) error {
-	mutable := []string{
-		ccKeyTags, "HealthCheckEnabled", "HealthCheckIntervalSeconds", "HealthCheckPath", "HealthCheckPort",
+	healthKeys := []string{
+		"HealthCheckEnabled", "HealthCheckIntervalSeconds", "HealthCheckPath", "HealthCheckPort",
 		"HealthCheckProtocol", "HealthCheckTimeoutSeconds", "HealthyThresholdCount", "UnhealthyThresholdCount",
 		"Matcher",
 	}
+	mutable := append([]string{ccKeyTags, "Targets", "TargetGroupAttributes"}, healthKeys...)
 	if err := ccRejectUnsupportedChanges(current, desired, mutable...); err != nil {
 		return err
 	}
@@ -417,7 +542,17 @@ func (h *ccTargetGroup) Update(ctx context.Context, id string, current, desired 
 		return err
 	}
 
-	if len(ccChanged(current, desired, mutable[1:]...)) > 0 {
+	if err = h.syncTargets(ctx, id, current, desired); err != nil {
+		return err
+	}
+
+	if len(ccChanged(current, desired, "TargetGroupAttributes")) > 0 {
+		if err = h.applyAttributes(ctx, id, hc.TargetGroupAttributes); err != nil {
+			return err
+		}
+	}
+
+	if len(ccChanged(current, desired, healthKeys...)) > 0 {
 		if _, err = h.client.ModifyTargetGroup(ctx, &elbv2.ModifyTargetGroupInput{
 			TargetGroupArn: aws.String(id), HealthCheckEnabled: hc.HealthCheckEnabled,
 			HealthCheckIntervalSeconds: hc.HealthCheckIntervalSeconds, HealthCheckPath: hc.HealthCheckPath,

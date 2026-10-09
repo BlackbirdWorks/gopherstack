@@ -20,7 +20,18 @@ const (
 	ccKeyZoneConfig = "HostedZoneConfig"
 	ccKeyZoneTags   = "HostedZoneTags"
 	ccKeyZoneVPCs   = "VPCs"
+
+	ccKeyZoneFeatures = "HostedZoneFeatures"
+	ccKeyZoneQueryLog = "QueryLoggingConfig"
 )
+
+type ccZoneFeatures struct {
+	EnableAcceleratedRecovery *bool
+}
+
+type ccZoneQueryLog struct {
+	CloudWatchLogsLogGroupArn string
+}
 
 // --- AWS::Route53::HostedZone ---
 
@@ -99,7 +110,73 @@ func (h *ccHostedZone) Create(ctx context.Context, desired map[string]any) (stri
 		}
 	}
 
+	if err = h.syncFeatures(ctx, id, desired); err != nil {
+		return "", err
+	}
+
+	if err = h.syncQueryLogging(ctx, id, desired); err != nil {
+		return "", err
+	}
+
 	return id, ccMapError(h.changeTags(ctx, id, tags, nil))
+}
+
+func (h *ccHostedZone) syncFeatures(ctx context.Context, id string, desired map[string]any) error {
+	f, err := ccDecodeOptional[ccZoneFeatures](desired, ccKeyZoneFeatures)
+	if err != nil || f.EnableAcceleratedRecovery == nil {
+		return err
+	}
+
+	_, err = h.client.UpdateHostedZoneFeatures(ctx, &route53.UpdateHostedZoneFeaturesInput{
+		HostedZoneId: aws.String(id), EnableAcceleratedRecovery: f.EnableAcceleratedRecovery,
+	})
+
+	return ccMapError(err)
+}
+
+func (h *ccHostedZone) queryLogs(ctx context.Context, id string) ([]r53types.QueryLoggingConfig, error) {
+	out, err := h.client.ListQueryLoggingConfigs(ctx, &route53.ListQueryLoggingConfigsInput{
+		HostedZoneId: aws.String(id),
+	})
+	if err != nil {
+		return nil, ccMapError(err)
+	}
+
+	return out.QueryLoggingConfigs, nil
+}
+
+func (h *ccHostedZone) syncQueryLogging(ctx context.Context, id string, desired map[string]any) error {
+	want, err := ccDecodeOptional[ccZoneQueryLog](desired, ccKeyZoneQueryLog)
+	if err != nil {
+		return err
+	}
+
+	have, err := h.queryLogs(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	if len(have) == 1 && aws.ToString(have[0].CloudWatchLogsLogGroupArn) == want.CloudWatchLogsLogGroupArn {
+		return nil
+	}
+
+	for _, c := range have {
+		if _, err = h.client.DeleteQueryLoggingConfig(ctx, &route53.DeleteQueryLoggingConfigInput{
+			Id: c.Id,
+		}); err != nil {
+			return ccMapError(err)
+		}
+	}
+
+	if want.CloudWatchLogsLogGroupArn == "" {
+		return nil
+	}
+
+	_, err = h.client.CreateQueryLoggingConfig(ctx, &route53.CreateQueryLoggingConfigInput{
+		HostedZoneId: aws.String(id), CloudWatchLogsLogGroupArn: aws.String(want.CloudWatchLogsLogGroupArn),
+	})
+
+	return ccMapError(err)
 }
 
 func (h *ccHostedZone) changeTags(ctx context.Context, id string, add map[string]string, remove []string) error {
@@ -132,6 +209,8 @@ func (h *ccHostedZone) Read(ctx context.Context, id string) (map[string]any, err
 		model["NameServers"] = out.DelegationSet.NameServers
 	}
 
+	h.readZoneExtras(ctx, id, z, model)
+
 	if len(out.VPCs) > 0 {
 		vpcs := make([]ccZoneVPC, 0, len(out.VPCs))
 		for _, v := range out.VPCs {
@@ -155,10 +234,33 @@ func (h *ccHostedZone) Read(ctx context.Context, id string) (map[string]any, err
 	return ccCleanModel(model), nil
 }
 
+func (h *ccHostedZone) readZoneExtras(ctx context.Context, id string, z *r53types.HostedZone, model map[string]any) {
+	if z.Features != nil && z.Features.AcceleratedRecoveryStatus != "" {
+		status := z.Features.AcceleratedRecoveryStatus
+		model[ccKeyZoneFeatures] = ccZoneFeatures{EnableAcceleratedRecovery: aws.Bool(
+			status == r53types.AcceleratedRecoveryStatusEnabled || status == r53types.AcceleratedRecoveryStatusEnabling,
+		)}
+	}
+
+	if logs, err := h.queryLogs(ctx, id); err == nil && len(logs) > 0 {
+		model[ccKeyZoneQueryLog] = ccZoneQueryLog{
+			CloudWatchLogsLogGroupArn: aws.ToString(logs[0].CloudWatchLogsLogGroupArn),
+		}
+	}
+}
+
 func (h *ccHostedZone) Update(ctx context.Context, id string, current, desired map[string]any) error {
 	if err := ccRejectUnsupportedChanges(
-		current, desired, ccKeyZoneConfig, ccKeyZoneTags, ccKeyZoneVPCs,
+		current, desired, ccKeyZoneConfig, ccKeyZoneTags, ccKeyZoneVPCs, ccKeyZoneFeatures, ccKeyZoneQueryLog,
 	); err != nil {
+		return err
+	}
+
+	if err := h.syncFeatures(ctx, id, desired); err != nil {
+		return err
+	}
+
+	if err := h.syncQueryLogging(ctx, id, desired); err != nil {
 		return err
 	}
 
@@ -270,24 +372,77 @@ type ccAlarm struct{ client *cloudwatch.Client }
 type ccAlarmSpec struct {
 	AlarmDescription                 *string
 	ActionsEnabled                   *bool
-	AlarmActions                     []string
-	OKActions                        []string
-	InsufficientDataActions          []string
-	ComparisonOperator               string
 	DatapointsToAlarm                *int32
-	Dimensions                       []cwtypes.Dimension
 	EvaluationPeriods                *int32
 	EvaluateLowSampleCountPercentile *string
 	ExtendedStatistic                *string
 	MetricName                       *string
 	Namespace                        *string
 	Period                           *int32
-	Statistic                        string
 	Threshold                        *float64
 	ThresholdMetricID                *string `json:"ThresholdMetricId"`
 	TreatMissingData                 *string
+	EvaluationWindow                 *ccEvaluationWindow
+	WarmUpConfiguration              *cwtypes.WarmUpConfiguration
+	ComparisonOperator               string
+	Statistic                        string
 	Unit                             string
+	AlarmActions                     []string
+	OKActions                        []string
+	InsufficientDataActions          []string
+	Dimensions                       []cwtypes.Dimension
 	Metrics                          []cwtypes.MetricDataQuery
+}
+
+type ccEvaluationWindow struct {
+	SlidingWindow   *struct{}
+	WallClockWindow *struct{ Timezone *string }
+}
+
+func (w *ccEvaluationWindow) sdk() (cwtypes.EvaluationWindow, error) {
+	switch {
+	case w.SlidingWindow != nil && w.WallClockWindow != nil:
+		return nil, fmt.Errorf("%w: EvaluationWindow takes exactly one of SlidingWindow or WallClockWindow",
+			cloudcontrolbackend.ErrValidation)
+	case w.WallClockWindow != nil:
+		return &cwtypes.EvaluationWindowMemberWallClockWindow{
+			Value: cwtypes.WallClockWindow{Timezone: w.WallClockWindow.Timezone},
+		}, nil
+	case w.SlidingWindow != nil:
+		return &cwtypes.EvaluationWindowMemberSlidingWindow{}, nil
+	default:
+		return nil, fmt.Errorf("%w: EvaluationWindow takes exactly one of SlidingWindow or WallClockWindow",
+			cloudcontrolbackend.ErrValidation)
+	}
+}
+
+func ccEvaluationWindowModel(w cwtypes.EvaluationWindow) any {
+	switch v := w.(type) {
+	case *cwtypes.EvaluationWindowMemberSlidingWindow:
+		return map[string]any{"SlidingWindow": map[string]any{}}
+	case *cwtypes.EvaluationWindowMemberWallClockWindow:
+		wc := map[string]any{}
+		if v.Value.Timezone != nil {
+			wc["Timezone"] = aws.ToString(v.Value.Timezone)
+		}
+
+		return map[string]any{"WallClockWindow": wc}
+	default:
+		return nil
+	}
+}
+
+func ccRejectUnsupportedAlarmMembers(desired map[string]any) error {
+	for _, k := range []string{"EvaluationCriteria", "EvaluationInterval"} {
+		if v, ok := desired[k]; ok && v != nil {
+			return fmt.Errorf(
+				"%w: %s is not supported: the CloudWatch backend has no PromQL alarm engine",
+				cloudcontrolbackend.ErrValidation, k,
+			)
+		}
+	}
+
+	return nil
 }
 
 func ccCWTags(m map[string]string) []cwtypes.Tag {
@@ -300,9 +455,21 @@ func ccCWTags(m map[string]string) []cwtypes.Tag {
 }
 
 func (h *ccAlarm) put(ctx context.Context, name string, desired map[string]any, tags map[string]string) error {
+	if err := ccRejectUnsupportedAlarmMembers(desired); err != nil {
+		return err
+	}
+
 	spec, err := ccDecode[ccAlarmSpec](desired)
 	if err != nil {
 		return err
+	}
+
+	var window cwtypes.EvaluationWindow
+
+	if spec.EvaluationWindow != nil {
+		if window, err = spec.EvaluationWindow.sdk(); err != nil {
+			return err
+		}
 	}
 
 	_, err = h.client.PutMetricAlarm(ctx, &cloudwatch.PutMetricAlarmInput{
@@ -329,6 +496,8 @@ func (h *ccAlarm) put(ctx context.Context, name string, desired map[string]any, 
 		TreatMissingData:                 spec.TreatMissingData,
 		Unit:                             cwtypes.StandardUnit(spec.Unit),
 		Metrics:                          spec.Metrics,
+		EvaluationWindow:                 window,
+		WarmUpConfiguration:              spec.WarmUpConfiguration,
 		Tags:                             ccCWTags(tags),
 	})
 
@@ -383,7 +552,11 @@ func (h *ccAlarm) Read(ctx context.Context, id string) (map[string]any, error) {
 		"ExtendedStatistic":                a.ExtendedStatistic, "MetricName": a.MetricName, "Namespace": a.Namespace,
 		"Period": a.Period, "Statistic": string(a.Statistic), "Threshold": a.Threshold,
 		"ThresholdMetricId": a.ThresholdMetricId, "TreatMissingData": a.TreatMissingData, "Unit": string(a.Unit),
-		"Metrics": a.Metrics,
+		"Metrics": a.Metrics, "WarmUpConfiguration": a.WarmUpConfiguration,
+	}
+
+	if w := ccEvaluationWindowModel(a.EvaluationWindow); w != nil {
+		model["EvaluationWindow"] = w
 	}
 
 	if tags, tagErr := h.client.ListTagsForResource(ctx, &cloudwatch.ListTagsForResourceInput{
@@ -453,6 +626,8 @@ func (*ccAlarm) mutable() []string {
 		"TreatMissingData",
 		"Unit",
 		"Metrics",
+		"EvaluationWindow",
+		"WarmUpConfiguration",
 	}
 }
 
