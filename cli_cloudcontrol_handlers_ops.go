@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -155,7 +156,9 @@ func (h *ccHostedZone) Read(ctx context.Context, id string) (map[string]any, err
 }
 
 func (h *ccHostedZone) Update(ctx context.Context, id string, current, desired map[string]any) error {
-	if err := ccRejectUnsupportedChanges(current, desired, ccKeyZoneConfig, ccKeyZoneTags); err != nil {
+	if err := ccRejectUnsupportedChanges(
+		current, desired, ccKeyZoneConfig, ccKeyZoneTags, ccKeyZoneVPCs,
+	); err != nil {
 		return err
 	}
 
@@ -172,6 +175,10 @@ func (h *ccHostedZone) Update(ctx context.Context, id string, current, desired m
 		}
 	}
 
+	if err := h.syncVPCs(ctx, id, current, desired); err != nil {
+		return err
+	}
+
 	have, err := ccZoneTagMap(current)
 	if err != nil {
 		return err
@@ -185,6 +192,50 @@ func (h *ccHostedZone) Update(ctx context.Context, id string, current, desired m
 	add, remove := ccTagDelta(have, want)
 
 	return ccMapError(h.changeTags(ctx, id, add, remove))
+}
+
+func (h *ccHostedZone) syncVPCs(ctx context.Context, id string, current, desired map[string]any) error {
+	if _, given := desired[ccKeyZoneVPCs]; !given {
+		return nil
+	}
+
+	have, err := ccDecodeOptional[[]ccZoneVPC](current, ccKeyZoneVPCs)
+	if err != nil {
+		return err
+	}
+
+	want, err := ccDecodeOptional[[]ccZoneVPC](desired, ccKeyZoneVPCs)
+	if err != nil {
+		return err
+	}
+
+	for _, v := range want {
+		if slices.Contains(have, v) {
+			continue
+		}
+
+		if _, err = h.client.AssociateVPCWithHostedZone(ctx, &route53.AssociateVPCWithHostedZoneInput{
+			HostedZoneId: aws.String(id),
+			VPC:          &r53types.VPC{VPCId: aws.String(v.VPCId), VPCRegion: r53types.VPCRegion(v.VPCRegion)},
+		}); err != nil {
+			return ccMapError(err)
+		}
+	}
+
+	for _, v := range have {
+		if slices.Contains(want, v) {
+			continue
+		}
+
+		if _, err = h.client.DisassociateVPCFromHostedZone(ctx, &route53.DisassociateVPCFromHostedZoneInput{
+			HostedZoneId: aws.String(id),
+			VPC:          &r53types.VPC{VPCId: aws.String(v.VPCId), VPCRegion: r53types.VPCRegion(v.VPCRegion)},
+		}); err != nil {
+			return ccMapError(err)
+		}
+	}
+
+	return nil
 }
 
 func (h *ccHostedZone) Delete(ctx context.Context, id string) error {

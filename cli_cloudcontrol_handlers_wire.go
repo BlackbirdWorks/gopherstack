@@ -32,5 +32,5 @@ func wireCloudControlInfraHandlers(bk *cloudcontrolbackend.InMemoryBackend, cfg 
 		client: apigateway.NewFromConfig(cfg), region: bk.Region(),
 	})
 	bk.RegisterTypeHandler("AWS::EFS::FileSystem", &ccFileSystem{client: efs.NewFromConfig(cfg)})
-	bk.RegisterTypeHandler("AWS::Glue::Database", &ccGlueDatabase{client: glue.NewFromConfig(cfg), region: bk.Region()})
+	bk.RegisterTypeHandler("AWS::Glue::Database", &ccGlueDatabase{client: glue.NewFromConfig(cfg)})
 }

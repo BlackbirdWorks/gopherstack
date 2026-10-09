@@ -169,11 +169,39 @@ func (h *ccVPC) Read(ctx context.Context, id string) (map[string]any, error) {
 
 	h.addDefaults(ctx, id, model)
 
+	if ids := ccVPCAssociationIDs(v); len(ids) > 0 {
+		model["CidrBlockAssociations"] = ids
+	}
+
+	if blocks := ccVPCIPv6Blocks(v); len(blocks) > 0 {
+		model["Ipv6CidrBlocks"] = blocks
+	}
+
 	if len(v.Tags) > 0 {
 		model[ccKeyTags] = ccEC2ModelTags(v.Tags)
 	}
 
 	return model, nil
+}
+
+func ccVPCAssociationIDs(v ec2types.Vpc) []string {
+	ids := make([]string, 0, len(v.CidrBlockAssociationSet))
+
+	for _, a := range v.CidrBlockAssociationSet {
+		ids = append(ids, aws.ToString(a.AssociationId))
+	}
+
+	return ids
+}
+
+func ccVPCIPv6Blocks(v ec2types.Vpc) []string {
+	blocks := make([]string, 0, len(v.Ipv6CidrBlockAssociationSet))
+
+	for _, a := range v.Ipv6CidrBlockAssociationSet {
+		blocks = append(blocks, aws.ToString(a.Ipv6CidrBlock))
+	}
+
+	return blocks
 }
 
 func (h *ccVPC) addDefaults(ctx context.Context, id string, model map[string]any) {
@@ -278,6 +306,10 @@ func (h *ccSubnet) Create(ctx context.Context, desired map[string]any) (string, 
 		in.AvailabilityZone = aws.String(az)
 	}
 
+	if arn := ccString(desired, "OutpostArn"); arn != "" {
+		in.OutpostArn = aws.String(arn)
+	}
+
 	out, err := h.client.CreateSubnet(ctx, in)
 	if err != nil {
 		return "", ccMapError(err)
@@ -319,6 +351,10 @@ func (h *ccSubnet) Read(ctx context.Context, id string) (map[string]any, error) 
 
 	if s.AvailabilityZoneId != nil {
 		model["AvailabilityZoneId"] = aws.ToString(s.AvailabilityZoneId)
+	}
+
+	if s.OutpostArn != nil && *s.OutpostArn != "" {
+		model["OutpostArn"] = aws.ToString(s.OutpostArn)
 	}
 
 	if len(s.Tags) > 0 {

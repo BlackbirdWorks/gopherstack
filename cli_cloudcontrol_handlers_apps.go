@@ -16,7 +16,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/glue"
 	gluetypes "github.com/aws/aws-sdk-go-v2/service/glue/types"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	cloudcontrolbackend "github.com/blackbirdworks/gopherstack/services/cloudcontrol"
 )
 
@@ -29,6 +28,8 @@ const (
 	ccKeyUserPoolTags   = "UserPoolTags"
 	ccKeySchema         = "Schema"
 	ccKeyPolicy         = "Policy"
+	ccKeySecurityPolicy = "SecurityPolicy"
+	ccKeyAccessMode     = "EndpointAccessMode"
 )
 
 // --- AWS::Cognito::UserPool ---
@@ -44,6 +45,7 @@ func ccUserPoolMutable() []string {
 		"DeletionProtection", "EmailConfiguration", "LambdaConfig", "VerificationMessageTemplate",
 		"UserPoolAddOns", "AccountRecoverySetting", "SmsConfiguration", "EmailVerificationMessage",
 		"EmailVerificationSubject", "SmsVerificationMessage", "SmsAuthenticationMessage", "DeviceConfiguration",
+		"UserAttributeUpdateSettings", "UserPoolTier",
 	}
 }
 
@@ -79,7 +81,7 @@ func (h *ccUserPool) Read(ctx context.Context, id string) (map[string]any, error
 
 	raw, _ := ccDropNulls(normalizeJSON(out.UserPool)).(map[string]any)
 	model := map[string]any{
-		"Id": id, "UserPoolId": id, ccKeyArn: aws.ToString(out.UserPool.Arn),
+		"UserPoolId": id, ccKeyArn: aws.ToString(out.UserPool.Arn),
 		ccKeyUserPoolName: aws.ToString(out.UserPool.Name),
 		"ProviderName":    fmt.Sprintf("cognito-idp.%s.amazonaws.com/%s", h.region, id),
 		"ProviderURL":     fmt.Sprintf("https://cognito-idp.%s.amazonaws.com/%s", h.region, id),
@@ -192,6 +194,8 @@ type ccRestAPISpec struct {
 	MinimumCompressionSize    *int32
 	DisableExecuteAPIEndpoint *bool  `json:"DisableExecuteApiEndpoint"`
 	APIKeySourceType          string `json:"ApiKeySourceType"`
+	SecurityPolicy            string
+	EndpointAccessMode        string
 	Description               string
 	Name                      string
 	BinaryMediaTypes          []string
@@ -236,6 +240,8 @@ func (h *ccRestAPI) Create(ctx context.Context, desired map[string]any) (string,
 			spec.DisableExecuteAPIEndpoint,
 		),
 		EndpointConfiguration:  spec.EndpointConfiguration,
+		SecurityPolicy:         apigwtypes.SecurityPolicy(spec.SecurityPolicy),
+		EndpointAccessMode:     apigwtypes.EndpointAccessMode(spec.EndpointAccessMode),
 		MinimumCompressionSize: spec.MinimumCompressionSize,
 		Policy:                 ccOptional(policy),
 		Tags:                   tags,
@@ -310,6 +316,7 @@ func (h *ccRestAPI) Read(ctx context.Context, id string) (map[string]any, error)
 		"RestApiId": id, "RootResourceId": a.RootResourceId, ccKeyName: a.Name, ccKeyDescription: a.Description,
 		ccKeyAPIKeySource: string(a.ApiKeySource), "BinaryMediaTypes": a.BinaryMediaTypes,
 		ccKeyMinCompression: a.MinimumCompressionSize, "EndpointConfiguration": a.EndpointConfiguration,
+		ccKeySecurityPolicy: string(a.SecurityPolicy), ccKeyAccessMode: string(a.EndpointAccessMode),
 	}
 
 	if a.DisableExecuteApiEndpoint {
@@ -330,7 +337,7 @@ func (h *ccRestAPI) Read(ctx context.Context, id string) (map[string]any, error)
 func (h *ccRestAPI) Update(ctx context.Context, id string, current, desired map[string]any) error {
 	mutable := []string{
 		ccKeyName, ccKeyDescription, ccKeyAPIKeySource, ccKeyMinCompression, "DisableExecuteApiEndpoint",
-		ccKeyPolicy, "BinaryMediaTypes", ccKeyTags,
+		ccKeyPolicy, "BinaryMediaTypes", ccKeyTags, ccKeySecurityPolicy, ccKeyAccessMode,
 	}
 	if err := ccRejectUnsupportedChanges(current, desired, mutable...); err != nil {
 		return err
@@ -370,6 +377,7 @@ func (*ccRestAPI) patchOps(current, desired map[string]any) ([]apigwtypes.PatchO
 	scalars := map[string]string{
 		ccKeyName: "/name", ccKeyDescription: "/description", ccKeyAPIKeySource: "/apiKeySource",
 		ccKeyMinCompression: "/minimumCompressionSize", "DisableExecuteApiEndpoint": "/disableExecuteApiEndpoint",
+		ccKeySecurityPolicy: "/securityPolicy", ccKeyAccessMode: "/endpointAccessMode",
 	}
 
 	for key, path := range scalars {
@@ -452,6 +460,8 @@ const (
 	ccKeyFSPolicy    = "FileSystemPolicy"
 	ccKeyThroughput  = "ThroughputMode"
 	ccKeyProvisioned = "ProvisionedThroughputInMibps"
+	ccKeyProtection  = "FileSystemProtection"
+	ccKeyBypass      = "BypassPolicyLockoutSafetyCheck"
 )
 
 func ccEFSTags(m map[string]string) []efstypes.Tag {
@@ -537,14 +547,37 @@ func (h *ccFileSystem) applyExtras(ctx context.Context, id string, desired map[s
 			return err
 		}
 
+		bypass, _ := ccBool(desired, ccKeyBypass)
+
 		if _, err = h.client.PutFileSystemPolicy(ctx, &efs.PutFileSystemPolicyInput{
-			FileSystemId: aws.String(id), Policy: aws.String(s),
+			FileSystemId: aws.String(id), Policy: aws.String(s), BypassPolicyLockoutSafetyCheck: bypass,
 		}); err != nil {
 			return ccMapError(err)
 		}
 	}
 
-	return nil
+	return h.applyProtection(ctx, id, desired)
+}
+
+func (h *ccFileSystem) applyProtection(ctx context.Context, id string, desired map[string]any) error {
+	if _, ok := desired[ccKeyProtection]; !ok {
+		return nil
+	}
+
+	prot, err := ccDecodeOptional[efstypes.FileSystemProtectionDescription](desired, ccKeyProtection)
+	if err != nil {
+		return err
+	}
+
+	if prot.ReplicationOverwriteProtection == "" {
+		return nil
+	}
+
+	_, err = h.client.UpdateFileSystemProtection(ctx, &efs.UpdateFileSystemProtectionInput{
+		FileSystemId: aws.String(id), ReplicationOverwriteProtection: prot.ReplicationOverwriteProtection,
+	})
+
+	return ccMapError(err)
 }
 
 func (h *ccFileSystem) Read(ctx context.Context, id string) (map[string]any, error) {
@@ -571,6 +604,10 @@ func (h *ccFileSystem) Read(ctx context.Context, id string) (map[string]any, err
 		}
 
 		model[ccKeyFSTags] = tagsProperty(m)
+	}
+
+	if f.FileSystemProtection != nil && f.FileSystemProtection.ReplicationOverwriteProtection != "" {
+		model[ccKeyProtection] = f.FileSystemProtection
 	}
 
 	h.readExtras(ctx, id, model)
@@ -601,6 +638,7 @@ func (h *ccFileSystem) readExtras(ctx context.Context, id string, model map[stri
 func (h *ccFileSystem) Update(ctx context.Context, id string, current, desired map[string]any) error {
 	mutable := []string{
 		ccKeyFSTags, ccKeyLifecycle, ccKeyBackup, ccKeyFSPolicy, ccKeyThroughput, ccKeyProvisioned,
+		ccKeyProtection, ccKeyBypass,
 	}
 	if err := ccRejectUnsupportedChanges(current, desired, mutable...); err != nil {
 		return err
@@ -622,7 +660,7 @@ func (h *ccFileSystem) Update(ctx context.Context, id string, current, desired m
 	if err := h.applyExtras(
 		ctx,
 		id,
-		ccChanged(current, desired, ccKeyLifecycle, ccKeyBackup, ccKeyFSPolicy),
+		ccChanged(current, desired, ccKeyLifecycle, ccKeyBackup, ccKeyFSPolicy, ccKeyProtection),
 	); err != nil {
 		return err
 	}
@@ -687,21 +725,21 @@ func (h *ccFileSystem) List(ctx context.Context) ([]string, error) {
 
 // --- AWS::Glue::Database ---
 
-type ccGlueDatabase struct {
-	client *glue.Client
-	region string
-}
+type ccGlueDatabase struct{ client *glue.Client }
 
 const (
 	ccKeyDBInput = "DatabaseInput"
 	ccKeyDBName  = "DatabaseName"
+
+	ccKeyCatalogID = "CatalogId"
 )
 
-func (h *ccGlueDatabase) arn(name string) string {
-	return fmt.Sprintf("arn:aws:glue:%s:%s:database/%s", h.region, config.DefaultAccountID, name)
-}
-
 func (h *ccGlueDatabase) Create(ctx context.Context, desired map[string]any) (string, error) {
+	catalog := ccString(desired, ccKeyCatalogID)
+	if catalog == "" {
+		return "", fmt.Errorf("%w: CatalogId is required", cloudcontrolbackend.ErrValidation)
+	}
+
 	in, err := ccDecodeOptional[gluetypes.DatabaseInput](desired, ccKeyDBInput)
 	if err != nil {
 		return "", err
@@ -718,13 +756,8 @@ func (h *ccGlueDatabase) Create(ctx context.Context, desired map[string]any) (st
 
 	in.Name = aws.String(name)
 
-	tags, err := ccDecodeOptional[map[string]string](desired, ccKeyTags)
-	if err != nil {
-		return "", err
-	}
-
 	if _, err = h.client.CreateDatabase(ctx, &glue.CreateDatabaseInput{
-		DatabaseInput: &in, CatalogId: ccOptional(ccString(desired, "CatalogId")), Tags: tags,
+		DatabaseInput: &in, CatalogId: aws.String(catalog),
 	}); err != nil {
 		return "", ccMapError(err)
 	}
@@ -744,18 +777,13 @@ func (h *ccGlueDatabase) Read(ctx context.Context, id string) (map[string]any, e
 		"TargetDatabase": d.TargetDatabase, "FederatedDatabase": d.FederatedDatabase,
 		"CreateTableDefaultPermissions": d.CreateTableDefaultPermissions,
 	}
-	model := map[string]any{ccKeyDBName: id, "CatalogId": d.CatalogId, ccKeyDBInput: input}
-
-	if tags, tagErr := h.client.GetTags(ctx, &glue.GetTagsInput{ResourceArn: aws.String(h.arn(id))}); tagErr == nil &&
-		len(tags.Tags) > 0 {
-		model[ccKeyTags] = tags.Tags
-	}
+	model := map[string]any{ccKeyDBName: id, ccKeyCatalogID: d.CatalogId, ccKeyDBInput: input}
 
 	return ccCleanModel(model), nil
 }
 
 func (h *ccGlueDatabase) Update(ctx context.Context, id string, current, desired map[string]any) error {
-	if err := ccRejectUnsupportedChanges(current, desired, ccKeyDBInput, ccKeyTags); err != nil {
+	if err := ccRejectUnsupportedChanges(current, desired, ccKeyDBInput); err != nil {
 		return err
 	}
 
@@ -773,34 +801,6 @@ func (h *ccGlueDatabase) Update(ctx context.Context, id string, current, desired
 		); err != nil {
 			return ccMapError(err)
 		}
-	}
-
-	return h.syncTags(ctx, id, current, desired)
-}
-
-func (h *ccGlueDatabase) syncTags(ctx context.Context, id string, current, desired map[string]any) error {
-	have, _ := ccDecodeOptional[map[string]string](current, ccKeyTags)
-	want, err := ccDecodeOptional[map[string]string](desired, ccKeyTags)
-	if err != nil {
-		return err
-	}
-
-	add, remove := ccTagDelta(have, want)
-
-	if len(add) > 0 {
-		if _, err = h.client.TagResource(ctx, &glue.TagResourceInput{
-			ResourceArn: aws.String(h.arn(id)), TagsToAdd: add,
-		}); err != nil {
-			return ccMapError(err)
-		}
-	}
-
-	if len(remove) > 0 {
-		_, err = h.client.UntagResource(ctx, &glue.UntagResourceInput{
-			ResourceArn: aws.String(h.arn(id)), TagsToRemove: remove,
-		})
-
-		return ccMapError(err)
 	}
 
 	return nil

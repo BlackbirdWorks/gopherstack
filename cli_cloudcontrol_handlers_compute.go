@@ -20,6 +20,7 @@ const (
 	ccKeyCapStrategy = "DefaultCapacityProviderStrategy"
 	ccKeyClusterCfg  = "Configuration"
 	ccKeySettings    = "ClusterSettings"
+	ccKeyConnect     = "ServiceConnectDefaults"
 )
 
 // ccDropNulls removes nil values from decoded JSON so SDK structs render only the properties that are set.
@@ -69,6 +70,7 @@ func ccECSTags(m map[string]string) []ecstypes.Tag {
 
 type ccClusterSpec struct {
 	Configuration *ecstypes.ClusterConfiguration
+	Connect       *ecstypes.ClusterServiceConnectDefaultsRequest
 	Settings      []ecstypes.ClusterSetting
 	CapProviders  []string
 	Strategy      []ecstypes.CapacityProviderStrategyItem
@@ -97,9 +99,20 @@ func ccDecodeCluster(m map[string]any) (ccClusterSpec, error) {
 		return spec, err
 	}
 
-	spec.Strategy, err = ccDecodeOptional[[]ecstypes.CapacityProviderStrategyItem](m, ccKeyCapStrategy)
+	if spec.Strategy, err = ccDecodeOptional[[]ecstypes.CapacityProviderStrategyItem](m, ccKeyCapStrategy); err != nil {
+		return spec, err
+	}
 
-	return spec, err
+	if raw, ok := m[ccKeyConnect]; ok && raw != nil {
+		var connect ecstypes.ClusterServiceConnectDefaultsRequest
+		if connect, err = ccDecode[ecstypes.ClusterServiceConnectDefaultsRequest](raw); err != nil {
+			return spec, err
+		}
+
+		spec.Connect = &connect
+	}
+
+	return spec, nil
 }
 
 func ccDecodeOptional[T any](m map[string]any, key string) (T, error) {
@@ -132,7 +145,7 @@ func (h *ccCluster) Create(ctx context.Context, desired map[string]any) (string,
 	if _, err = h.client.CreateCluster(ctx, &ecs.CreateClusterInput{
 		ClusterName: aws.String(name), Tags: ccECSTags(tags), Settings: spec.Settings,
 		Configuration: spec.Configuration, CapacityProviders: spec.CapProviders,
-		DefaultCapacityProviderStrategy: spec.Strategy,
+		DefaultCapacityProviderStrategy: spec.Strategy, ServiceConnectDefaults: spec.Connect,
 	}); err != nil {
 		return "", ccMapError(err)
 	}
@@ -166,6 +179,10 @@ func (h *ccCluster) Read(ctx context.Context, id string) (map[string]any, error)
 		model[ccKeyClusterCfg] = c.Configuration
 	}
 
+	if c.ServiceConnectDefaults != nil {
+		model[ccKeyConnect] = c.ServiceConnectDefaults
+	}
+
 	if len(c.CapacityProviders) > 0 {
 		model[ccKeyCapProv] = c.CapacityProviders
 	}
@@ -188,7 +205,7 @@ func (h *ccCluster) Read(ctx context.Context, id string) (map[string]any, error)
 
 func (h *ccCluster) Update(ctx context.Context, id string, current, desired map[string]any) error {
 	if err := ccRejectUnsupportedChanges(
-		current, desired, ccKeyTags, ccKeySettings, ccKeyClusterCfg, ccKeyCapProv, ccKeyCapStrategy,
+		current, desired, ccKeyTags, ccKeySettings, ccKeyClusterCfg, ccKeyCapProv, ccKeyCapStrategy, ccKeyConnect,
 	); err != nil {
 		return err
 	}
@@ -198,9 +215,10 @@ func (h *ccCluster) Update(ctx context.Context, id string, current, desired map[
 		return err
 	}
 
-	if len(ccChanged(current, desired, ccKeySettings, ccKeyClusterCfg)) > 0 {
+	if len(ccChanged(current, desired, ccKeySettings, ccKeyClusterCfg, ccKeyConnect)) > 0 {
 		if _, err = h.client.UpdateCluster(ctx, &ecs.UpdateClusterInput{
 			Cluster: aws.String(id), Settings: spec.Settings, Configuration: spec.Configuration,
+			ServiceConnectDefaults: spec.Connect,
 		}); err != nil {
 			return ccMapError(err)
 		}
@@ -364,6 +382,8 @@ func (h *ccTargetGroup) Read(ctx context.Context, id string) (map[string]any, er
 		ccKeyVpcID: g.VpcId, "IpAddressType": string(g.IpAddressType), "ProtocolVersion": g.ProtocolVersion,
 		"LoadBalancerArns": g.LoadBalancerArns,
 	}
+
+	model["TargetGroupName"] = aws.ToString(g.TargetGroupName)
 
 	if i := strings.Index(id, "targetgroup/"); i >= 0 {
 		model["TargetGroupFullName"] = id[i:]

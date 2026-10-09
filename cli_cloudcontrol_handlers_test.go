@@ -39,19 +39,24 @@ func TestCloudControlDelegatesToServiceBackends(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		patchedVal any
-		verify     func(t *testing.T, fx *sfnFixture, id string, present bool)
-		name       string
-		typeName   string
-		desired    string
-		wantID     string
-		patch      string
-		patchedKey string
+		patchedVal     any
+		verify         func(t *testing.T, fx *sfnFixture, id string, present bool)
+		name           string
+		typeName       string
+		desired        string
+		wantID         string
+		patch          string
+		patchedKey     string
+		immutablePatch string
+		wantKeys       []string
+		absentKeys     []string
 	}{
 		{
-			name: "s3_bucket", typeName: "AWS::S3::Bucket", desired: `{"BucketName":"cc-delegated-bucket"}`,
-			wantID: "cc-delegated-bucket",
-			patch:  `[{"op":"add","path":"/Tags","value":[{"Key":"env","Value":"test"}]}]`,
+			name:     "s3_bucket",
+			typeName: "AWS::S3::Bucket",
+			desired:  `{"BucketName":"cc-delegated-bucket"}`,
+			wantID:   "cc-delegated-bucket",
+			patch:    `[{"op":"add","path":"/Tags","value":[{"Key":"env","Value":"test"}]}]`,
 			verify: func(t *testing.T, fx *sfnFixture, id string, present bool) {
 				t.Helper()
 
@@ -62,7 +67,9 @@ func TestCloudControlDelegatesToServiceBackends(t *testing.T) {
 			},
 		},
 		{
-			name: "sqs_queue", typeName: "AWS::SQS::Queue", desired: `{"QueueName":"cc-delegated-queue"}`,
+			name:       "sqs_queue",
+			typeName:   "AWS::SQS::Queue",
+			desired:    `{"QueueName":"cc-delegated-queue"}`,
 			patch:      `[{"op":"add","path":"/VisibilityTimeout","value":77}]`,
 			patchedKey: "VisibilityTimeout", patchedVal: float64(77),
 			verify: func(t *testing.T, fx *sfnFixture, id string, present bool) {
@@ -109,7 +116,9 @@ func TestCloudControlDelegatesToServiceBackends(t *testing.T) {
 			},
 		},
 		{
-			name: "sns_topic", typeName: "AWS::SNS::Topic", desired: `{"TopicName":"cc-topic"}`,
+			name:       "sns_topic",
+			typeName:   "AWS::SNS::Topic",
+			desired:    `{"TopicName":"cc-topic"}`,
 			patch:      `[{"op":"add","path":"/DisplayName","value":"hello"}]`,
 			patchedKey: "DisplayName", patchedVal: "hello",
 			verify: func(t *testing.T, fx *sfnFixture, id string, present bool) {
@@ -135,7 +144,9 @@ func TestCloudControlDelegatesToServiceBackends(t *testing.T) {
 			},
 		},
 		{
-			name: "kms_key", typeName: "AWS::KMS::Key", desired: `{"Description":"cc key"}`,
+			name:       "kms_key",
+			typeName:   "AWS::KMS::Key",
+			desired:    `{"Description":"cc key"}`,
 			patch:      `[{"op":"replace","path":"/Description","value":"cc key v2"}]`,
 			patchedKey: "Description", patchedVal: "cc key v2",
 			verify: func(t *testing.T, fx *sfnFixture, id string, present bool) {
@@ -177,8 +188,10 @@ func TestCloudControlDelegatesToServiceBackends(t *testing.T) {
 			},
 		},
 		{
-			name: "ecr_repository", typeName: "AWS::ECR::Repository", desired: `{"RepositoryName":"cc-repo"}`,
-			wantID: "cc-repo", patch: `[{"op":"replace","path":"/ImageTagMutability","value":"IMMUTABLE"}]`,
+			name:     "ecr_repository",
+			typeName: "AWS::ECR::Repository",
+			desired:  `{"RepositoryName":"cc-repo"}`,
+			wantID:   "cc-repo", patch: `[{"op":"replace","path":"/ImageTagMutability","value":"IMMUTABLE"}]`,
 			patchedKey: "ImageTagMutability", patchedVal: "IMMUTABLE",
 			verify: func(t *testing.T, fx *sfnFixture, id string, present bool) {
 				t.Helper()
@@ -190,8 +203,10 @@ func TestCloudControlDelegatesToServiceBackends(t *testing.T) {
 			},
 		},
 		{
-			name: "kinesis_stream", typeName: "AWS::Kinesis::Stream", desired: `{"Name":"cc-stream","ShardCount":1}`,
-			wantID: "cc-stream", patch: `[{"op":"replace","path":"/RetentionPeriodHours","value":48}]`,
+			name:     "kinesis_stream",
+			typeName: "AWS::Kinesis::Stream",
+			desired:  `{"Name":"cc-stream","ShardCount":1}`,
+			wantID:   "cc-stream", patch: `[{"op":"replace","path":"/RetentionPeriodHours","value":48}]`,
 			patchedKey: "RetentionPeriodHours", patchedVal: 48,
 			verify: func(t *testing.T, fx *sfnFixture, id string, present bool) {
 				t.Helper()
@@ -246,9 +261,13 @@ func TestCloudControlDelegatesToServiceBackends(t *testing.T) {
 			},
 		},
 		{
-			name: "ec2_vpc", typeName: "AWS::EC2::VPC", desired: `{"CidrBlock":"10.20.0.0/16"}`,
-			patch:      `[{"op":"add","path":"/EnableDnsHostnames","value":true}]`,
-			patchedKey: "EnableDnsHostnames", patchedVal: true,
+			immutablePatch: `[{"op":"replace","path":"/CidrBlock","value":"10.99.0.0/16"}]`,
+			wantKeys:       []string{"VpcId", "CidrBlockAssociations", "DefaultSecurityGroup", "DefaultNetworkAcl"},
+			name:           "ec2_vpc",
+			typeName:       "AWS::EC2::VPC",
+			desired:        `{"CidrBlock":"10.20.0.0/16"}`,
+			patch:          `[{"op":"add","path":"/EnableDnsHostnames","value":true}]`,
+			patchedKey:     "EnableDnsHostnames", patchedVal: true,
 			verify: func(t *testing.T, fx *sfnFixture, id string, present bool) {
 				t.Helper()
 
@@ -258,9 +277,12 @@ func TestCloudControlDelegatesToServiceBackends(t *testing.T) {
 			},
 		},
 		{
-			name: "ec2_subnet", typeName: "AWS::EC2::Subnet", desired: `{"VpcId":"{{vpc}}","CidrBlock":"10.30.1.0/24"}`,
-			patch:      `[{"op":"add","path":"/MapPublicIpOnLaunch","value":true}]`,
-			patchedKey: "MapPublicIpOnLaunch", patchedVal: true,
+			immutablePatch: `[{"op":"replace","path":"/CidrBlock","value":"10.30.9.0/24"}]`,
+			name:           "ec2_subnet",
+			typeName:       "AWS::EC2::Subnet",
+			desired:        `{"VpcId":"{{vpc}}","CidrBlock":"10.30.1.0/24"}`,
+			patch:          `[{"op":"add","path":"/MapPublicIpOnLaunch","value":true}]`,
+			patchedKey:     "MapPublicIpOnLaunch", patchedVal: true,
 			verify: func(t *testing.T, fx *sfnFixture, id string, present bool) {
 				t.Helper()
 
@@ -270,7 +292,9 @@ func TestCloudControlDelegatesToServiceBackends(t *testing.T) {
 			},
 		},
 		{
-			name: "ec2_security_group", typeName: "AWS::EC2::SecurityGroup",
+			immutablePatch: `[{"op":"replace","path":"/GroupDescription","value":"other"}]`,
+			wantKeys:       []string{"Id", "GroupId"},
+			name:           "ec2_security_group", typeName: "AWS::EC2::SecurityGroup",
 			desired: `{"GroupDescription":"cc sg","GroupName":"cc-sg","SecurityGroupIngress":` +
 				`[{"IpProtocol":"tcp","FromPort":80,"ToPort":80,"CidrIp":"10.0.0.0/8"}]}`,
 			patch: `[{"op":"add","path":"/SecurityGroupIngress/-","value":` +
@@ -307,12 +331,14 @@ func TestCloudControlDelegatesToServiceBackends(t *testing.T) {
 			},
 		},
 		{
-			name:       "elbv2_target_group",
-			typeName:   "AWS::ElasticLoadBalancingV2::TargetGroup",
-			desired:    `{"Name":"cc-tg","Protocol":"HTTP","Port":80,"VpcId":"{{vpc}}"}`,
-			patch:      `[{"op":"add","path":"/HealthCheckPath","value":"/health"}]`,
-			patchedKey: "HealthCheckPath",
-			patchedVal: "/health",
+			name:           "elbv2_target_group",
+			immutablePatch: `[{"op":"replace","path":"/Name","value":"other-tg"}]`,
+			wantKeys:       []string{"TargetGroupArn", "TargetGroupName", "TargetGroupFullName"},
+			typeName:       "AWS::ElasticLoadBalancingV2::TargetGroup",
+			desired:        `{"Name":"cc-tg","Protocol":"HTTP","Port":80,"VpcId":"{{vpc}}"}`,
+			patch:          `[{"op":"add","path":"/HealthCheckPath","value":"/health"}]`,
+			patchedKey:     "HealthCheckPath",
+			patchedVal:     "/health",
 			verify: func(t *testing.T, fx *sfnFixture, id string, present bool) {
 				t.Helper()
 
@@ -323,9 +349,13 @@ func TestCloudControlDelegatesToServiceBackends(t *testing.T) {
 			},
 		},
 		{
-			name: "route53_hosted_zone", typeName: "AWS::Route53::HostedZone", desired: `{"Name":"cc-example.com"}`,
-			patch:      `[{"op":"add","path":"/HostedZoneConfig","value":{"Comment":"cc zone"}}]`,
-			patchedKey: "HostedZoneConfig", patchedVal: map[string]any{"Comment": "cc zone"},
+			immutablePatch: `[{"op":"replace","path":"/Name","value":"other.example.com"}]`,
+			wantKeys:       []string{"Id"},
+			name:           "route53_hosted_zone",
+			typeName:       "AWS::Route53::HostedZone",
+			desired:        `{"Name":"cc-example.com"}`,
+			patch:          `[{"op":"add","path":"/HostedZoneConfig","value":{"Comment":"cc zone"}}]`,
+			patchedKey:     "HostedZoneConfig", patchedVal: map[string]any{"Comment": "cc zone"},
 			verify: func(t *testing.T, fx *sfnFixture, id string, present bool) {
 				t.Helper()
 
@@ -335,7 +365,9 @@ func TestCloudControlDelegatesToServiceBackends(t *testing.T) {
 			},
 		},
 		{
-			name: "cloudwatch_alarm", typeName: "AWS::CloudWatch::Alarm",
+			immutablePatch: `[{"op":"replace","path":"/AlarmName","value":"other"}]`,
+			wantKeys:       []string{"Arn"},
+			name:           "cloudwatch_alarm", typeName: "AWS::CloudWatch::Alarm",
 			desired: `{"AlarmName":"cc-alarm","ComparisonOperator":"GreaterThanThreshold","EvaluationPeriods":1,` +
 				`"MetricName":"CPUUtilization","Namespace":"AWS/EC2","Period":60,"Statistic":"Average","Threshold":80}`,
 			wantID: "cc-alarm", patch: `[{"op":"replace","path":"/Threshold","value":90}]`,
@@ -351,9 +383,14 @@ func TestCloudControlDelegatesToServiceBackends(t *testing.T) {
 			},
 		},
 		{
-			name: "cognito_user_pool", typeName: "AWS::Cognito::UserPool", desired: `{"UserPoolName":"cc-pool"}`,
-			patch:      `[{"op":"add","path":"/MfaConfiguration","value":"OFF"}]`,
-			patchedKey: "MfaConfiguration", patchedVal: "OFF",
+			immutablePatch: `[{"op":"replace","path":"/UserPoolName","value":"other"}]`,
+			wantKeys:       []string{"UserPoolId", "Arn", "ProviderName", "ProviderURL"},
+			absentKeys:     []string{"Id"},
+			name:           "cognito_user_pool",
+			typeName:       "AWS::Cognito::UserPool",
+			desired:        `{"UserPoolName":"cc-pool"}`,
+			patch:          `[{"op":"add","path":"/MfaConfiguration","value":"OFF"}]`,
+			patchedKey:     "MfaConfiguration", patchedVal: "OFF",
 			verify: func(t *testing.T, fx *sfnFixture, id string, present bool) {
 				t.Helper()
 
@@ -364,7 +401,9 @@ func TestCloudControlDelegatesToServiceBackends(t *testing.T) {
 			},
 		},
 		{
-			name: "apigateway_rest_api", typeName: "AWS::ApiGateway::RestApi", desired: `{"Name":"cc-api"}`,
+			name:       "apigateway_rest_api",
+			typeName:   "AWS::ApiGateway::RestApi",
+			desired:    `{"Name":"cc-api"}`,
 			patch:      `[{"op":"add","path":"/Description","value":"cc api"}]`,
 			patchedKey: "Description", patchedVal: "cc api",
 			verify: func(t *testing.T, fx *sfnFixture, id string, present bool) {
@@ -376,12 +415,14 @@ func TestCloudControlDelegatesToServiceBackends(t *testing.T) {
 			},
 		},
 		{
-			name:       "efs_file_system",
-			typeName:   "AWS::EFS::FileSystem",
-			desired:    `{"PerformanceMode":"generalPurpose","Encrypted":true}`,
-			patch:      `[{"op":"add","path":"/BackupPolicy","value":{"Status":"ENABLED"}}]`,
-			patchedKey: "BackupPolicy",
-			patchedVal: map[string]any{"Status": "ENABLED"},
+			immutablePatch: `[{"op":"replace","path":"/PerformanceMode","value":"maxIO"}]`,
+			wantKeys:       []string{"FileSystemId", "Arn"},
+			name:           "efs_file_system",
+			typeName:       "AWS::EFS::FileSystem",
+			desired:        `{"PerformanceMode":"generalPurpose","Encrypted":true}`,
+			patch:          `[{"op":"add","path":"/BackupPolicy","value":{"Status":"ENABLED"}}]`,
+			patchedKey:     "BackupPolicy",
+			patchedVal:     map[string]any{"Status": "ENABLED"},
 			verify: func(t *testing.T, fx *sfnFixture, id string, present bool) {
 				t.Helper()
 
@@ -391,19 +432,102 @@ func TestCloudControlDelegatesToServiceBackends(t *testing.T) {
 			},
 		},
 		{
-			name:       "glue_database",
-			typeName:   "AWS::Glue::Database",
-			desired:    `{"DatabaseInput":{"Name":"cc_db"}}`,
-			wantID:     "cc_db",
-			patch:      `[{"op":"add","path":"/DatabaseInput/Description","value":"cc db"}]`,
-			patchedKey: "DatabaseInput",
-			patchedVal: map[string]any{"Name": "cc_db", "Description": "cc db"},
+			immutablePatch: `[{"op":"replace","path":"/DatabaseName","value":"other_db"}]`,
+			wantKeys:       []string{"CatalogId", "DatabaseName"},
+			absentKeys:     []string{"Tags"},
+			name:           "glue_database",
+			typeName:       "AWS::Glue::Database",
+			desired:        `{"CatalogId":"000000000000","DatabaseInput":{"Name":"cc_db"}}`,
+			wantID:         "cc_db",
+			patch:          `[{"op":"add","path":"/DatabaseInput/Description","value":"cc db"}]`,
+			patchedKey:     "DatabaseInput",
+			patchedVal:     map[string]any{"Name": "cc_db", "Description": "cc db"},
 			verify: func(t *testing.T, fx *sfnFixture, id string, present bool) {
 				t.Helper()
 
 				_, err := glue.NewFromConfig(fx.cfg).
 					GetDatabase(t.Context(), &glue.GetDatabaseInput{Name: aws.String(id)})
 				assert.Equal(t, present, err == nil)
+			},
+		},
+		{
+			name:       "ecs_cluster_service_connect",
+			typeName:   "AWS::ECS::Cluster",
+			desired:    `{"ClusterName":"cc-cluster-sc","ServiceConnectDefaults":{"Namespace":"ns-one"}}`,
+			wantID:     "cc-cluster-sc",
+			patch:      `[{"op":"replace","path":"/ServiceConnectDefaults/Namespace","value":"ns-two"}]`,
+			patchedKey: "ServiceConnectDefaults", patchedVal: map[string]any{"Namespace": "ns-two"},
+			immutablePatch: `[{"op":"replace","path":"/ClusterName","value":"other"}]`,
+			wantKeys:       []string{"Arn", "ServiceConnectDefaults"},
+			verify: func(t *testing.T, fx *sfnFixture, id string, present bool) {
+				t.Helper()
+
+				out, err := ecs.NewFromConfig(fx.cfg).
+					DescribeClusters(t.Context(), &ecs.DescribeClustersInput{Clusters: []string{id}})
+				require.NoError(t, err)
+				assert.Equal(t, present, len(out.Clusters) == 1 && aws.ToString(out.Clusters[0].Status) == "ACTIVE")
+			},
+		},
+		{
+			name:       "route53_private_zone_vpcs",
+			typeName:   "AWS::Route53::HostedZone",
+			desired:    `{"Name":"cc-private.example.com","VPCs":[{"VPCId":"{{vpc}}","VPCRegion":"{{region}}"}]}`,
+			patch:      `[{"op":"replace","path":"/VPCs","value":[{"VPCId":"{{vpc2}}","VPCRegion":"{{region}}"}]}]`,
+			patchedKey: "VPCs", patchedVal: []any{map[string]any{"VPCId": "{{vpc2}}", "VPCRegion": "{{region}}"}},
+			verify: func(t *testing.T, fx *sfnFixture, id string, present bool) {
+				t.Helper()
+
+				_, err := route53.NewFromConfig(fx.cfg).
+					GetHostedZone(t.Context(), &route53.GetHostedZoneInput{Id: aws.String(id)})
+				assert.Equal(t, present, err == nil)
+			},
+		},
+		{
+			name:       "apigateway_rest_api_security_policy",
+			typeName:   "AWS::ApiGateway::RestApi",
+			desired:    `{"Name":"cc-api-sp","EndpointAccessMode":"BASIC"}`,
+			patch:      `[{"op":"add","path":"/SecurityPolicy","value":"TLS_1_2"}]`,
+			patchedKey: "SecurityPolicy", patchedVal: "TLS_1_2",
+			wantKeys: []string{"RestApiId", "RootResourceId", "EndpointAccessMode"},
+			verify: func(t *testing.T, fx *sfnFixture, id string, present bool) {
+				t.Helper()
+
+				_, err := apigateway.NewFromConfig(fx.cfg).
+					GetRestApi(t.Context(), &apigateway.GetRestApiInput{RestApiId: aws.String(id)})
+				assert.Equal(t, present, err == nil)
+			},
+		},
+		{
+			name:     "cognito_user_pool_attribute_update_settings",
+			typeName: "AWS::Cognito::UserPool",
+			desired:  `{"UserPoolName":"cc-pool-us"}`,
+			patch: `[{"op":"add","path":"/UserAttributeUpdateSettings",` +
+				`"value":{"AttributesRequireVerificationBeforeUpdate":["email"]}}]`,
+			patchedKey: "UserAttributeUpdateSettings",
+			patchedVal: map[string]any{"AttributesRequireVerificationBeforeUpdate": []any{"email"}},
+			wantKeys:   []string{"UserPoolTier"},
+			verify: func(t *testing.T, fx *sfnFixture, id string, present bool) {
+				t.Helper()
+
+				_, err := cognitoidentityprovider.NewFromConfig(fx.cfg).DescribeUserPool(
+					t.Context(), &cognitoidentityprovider.DescribeUserPoolInput{UserPoolId: aws.String(id)},
+				)
+				assert.Equal(t, present, err == nil)
+			},
+		},
+		{
+			name:       "efs_file_system_protection",
+			typeName:   "AWS::EFS::FileSystem",
+			desired:    `{"PerformanceMode":"generalPurpose"}`,
+			patch:      `[{"op":"add","path":"/FileSystemProtection","value":{"ReplicationOverwriteProtection":"DISABLED"}}]`,
+			patchedKey: "FileSystemProtection",
+			patchedVal: map[string]any{"ReplicationOverwriteProtection": "DISABLED"},
+			verify: func(t *testing.T, fx *sfnFixture, id string, present bool) {
+				t.Helper()
+
+				out, err := efs.NewFromConfig(fx.cfg).
+					DescribeFileSystems(t.Context(), &efs.DescribeFileSystemsInput{FileSystemId: aws.String(id)})
+				assert.Equal(t, present, err == nil && len(out.FileSystems) == 1)
 			},
 		},
 	}
@@ -416,6 +540,9 @@ func TestCloudControlDelegatesToServiceBackends(t *testing.T) {
 			cc := cloudcontrol.NewFromConfig(fx.cfg)
 			desired := tt.desired
 
+			patch := tt.patch
+			vpc2 := ""
+
 			if strings.Contains(desired, "{{vpc}}") {
 				vpc, vpcErr := ec2.NewFromConfig(fx.cfg).CreateVpc(t.Context(), &ec2.CreateVpcInput{
 					CidrBlock: aws.String("10.30.0.0/16"),
@@ -424,6 +551,19 @@ func TestCloudControlDelegatesToServiceBackends(t *testing.T) {
 
 				desired = strings.ReplaceAll(desired, "{{vpc}}", aws.ToString(vpc.Vpc.VpcId))
 			}
+
+			if strings.Contains(patch, "{{vpc2}}") {
+				vpc, vpcErr := ec2.NewFromConfig(fx.cfg).CreateVpc(t.Context(), &ec2.CreateVpcInput{
+					CidrBlock: aws.String("10.31.0.0/16"),
+				})
+				require.NoError(t, vpcErr)
+
+				vpc2 = aws.ToString(vpc.Vpc.VpcId)
+				patch = strings.ReplaceAll(patch, "{{vpc2}}", vpc2)
+			}
+
+			desired = strings.ReplaceAll(desired, "{{region}}", fx.cfg.Region)
+			patch = strings.ReplaceAll(patch, "{{region}}", fx.cfg.Region)
 
 			created, err := cc.CreateResource(t.Context(), &cloudcontrol.CreateResourceInput{
 				TypeName: aws.String(tt.typeName), DesiredState: aws.String(desired),
@@ -445,6 +585,26 @@ func TestCloudControlDelegatesToServiceBackends(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, id, aws.ToString(got.ResourceDescription.Identifier))
 
+			var props map[string]any
+			require.NoError(t, json.Unmarshal([]byte(aws.ToString(got.ResourceDescription.Properties)), &props))
+
+			for _, k := range tt.wantKeys {
+				assert.Contains(t, props, k)
+				assert.NotEmpty(t, props[k], k)
+			}
+
+			for _, k := range tt.absentKeys {
+				assert.NotContains(t, props, k)
+			}
+
+			if tt.immutablePatch != "" {
+				_, immErr := cc.UpdateResource(t.Context(), &cloudcontrol.UpdateResourceInput{
+					TypeName: aws.String(tt.typeName), Identifier: aws.String(id),
+					PatchDocument: aws.String(tt.immutablePatch),
+				})
+				require.Error(t, immErr)
+			}
+
 			listed, err := cc.ListResources(t.Context(), &cloudcontrol.ListResourcesInput{
 				TypeName: aws.String(tt.typeName),
 			})
@@ -458,7 +618,7 @@ func TestCloudControlDelegatesToServiceBackends(t *testing.T) {
 			assert.Contains(t, listedIDs, id)
 
 			_, err = cc.UpdateResource(t.Context(), &cloudcontrol.UpdateResourceInput{
-				TypeName: aws.String(tt.typeName), Identifier: aws.String(id), PatchDocument: aws.String(tt.patch),
+				TypeName: aws.String(tt.typeName), Identifier: aws.String(id), PatchDocument: aws.String(patch),
 			})
 			require.NoError(t, err)
 
@@ -467,7 +627,9 @@ func TestCloudControlDelegatesToServiceBackends(t *testing.T) {
 					TypeName: aws.String(tt.typeName), Identifier: aws.String(id),
 				})
 				require.NoError(t, getErr)
-				assert.JSONEq(t, `{"`+tt.patchedKey+`":`+jsonScalar(tt.patchedVal)+`}`,
+				repl := strings.NewReplacer("{{vpc2}}", vpc2, "{{region}}", fx.cfg.Region)
+				want := repl.Replace(jsonScalar(tt.patchedVal))
+				assert.JSONEq(t, `{"`+tt.patchedKey+`":`+want+`}`,
 					subsetJSON(t, aws.ToString(after.ResourceDescription.Properties), tt.patchedKey))
 			}
 
