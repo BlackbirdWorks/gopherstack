@@ -25,14 +25,18 @@ var errKafkaFunction = errors.New("function returned an error")
 
 // kafkaWorkerSpec is everything a worker needs; a changed spec restarts it.
 type kafkaWorkerSpec struct {
-	UUID             string
-	FunctionARN      string
-	EventSource      string
-	EventSourceARN   string
-	BootstrapServers string
 	Filter           *FilterCriteria
 	Metrics          *ESMMetricsConfig
+	EventSourceARN   string
+	UUID             string
+	BootstrapServers string
+	EventSource      string
+	FunctionARN      string
+	Destination      string
+	ResourceARN      string
+	LogLevel         string
 	Consumer         kafkaConsumerConfig
+	Policy           retryPolicy
 	BatchSize        int
 	Window           time.Duration
 }
@@ -95,6 +99,10 @@ func buildKafkaSpec(m *EventSourceMapping, source, sourceARN string, brokers []s
 		BootstrapServers: strings.Join(brokers, ","),
 		Filter:           m.FilterCriteria,
 		Metrics:          m.MetricsConfig,
+		Policy:           policyFor(m),
+		Destination:      failureDestination(m),
+		ResourceARN:      esmARN(m),
+		LogLevel:         esmSystemLogLevel(m),
 		BatchSize:        batch,
 		Window:           window,
 		Consumer: kafkaConsumerConfig{
@@ -244,12 +252,14 @@ func (p *EventSourcePoller) runKafkaWorker(ctx context.Context, spec kafkaWorker
 		cons, err := p.kafkaConsumerFactoryOrDefault()(spec.Consumer)
 		if err != nil {
 			log.WarnContext(ctx, "esm kafka: consumer setup failed", "uuid", spec.UUID, "error", err)
+			newESMLogger(p.lambdaBackend, spec).warn(ctx, err.Error(), "")
 			sleepCtx(ctx, backoff)
 			backoff = nextBackoff(backoff)
 
 			continue
 		}
 
+		newESMLogger(p.lambdaBackend, spec).consumerBuilt(ctx, spec)
 		p.consumeKafka(ctx, cons, spec)
 		cons.Close()
 	}
@@ -264,6 +274,7 @@ func (p *EventSourcePoller) consumeKafka(ctx context.Context, cons kafkaConsumer
 			logger.Load(ctx).WarnContext(ctx, "esm kafka: poll failed", "uuid", spec.UUID, "error", err)
 			p.lambdaBackend.setESMLastProcessingResult(spec.UUID, "PROBLEM: "+err.Error())
 			p.kafkaMetric(spec, esmMetricGroupErrorCount, esmMetricPollingError, 1)
+			newESMLogger(p.lambdaBackend, spec).warn(ctx, err.Error(), "")
 			sleepCtx(ctx, backoff)
 			backoff = nextBackoff(backoff)
 
@@ -324,7 +335,7 @@ func (p *EventSourcePoller) deliverKafkaBatch(
 	chunks := splitKafkaByPayload(matched, kafkaMaxPayloadBytes)
 
 	for i, chunk := range chunks {
-		if !p.invokeKafkaWithRetry(ctx, spec, chunk) {
+		if !p.deliverKafkaChunk(ctx, cons, spec, chunk, 0) {
 			return
 		}
 
@@ -356,38 +367,13 @@ func (p *EventSourcePoller) commitKafka(
 	}
 
 	p.kafkaMetric(spec, esmMetricGroupEventCount, esmMetricCommitted, len(recs))
-}
 
-// invokeKafkaWithRetry reports whether the chunk was processed; false only when ctx ended first.
-func (p *EventSourcePoller) invokeKafkaWithRetry(ctx context.Context, spec kafkaWorkerSpec, chunk []KafkaRecord) bool {
-	payload, err := buildKafkaEventPayload(spec.EventSource, spec.EventSourceARN, spec.BootstrapServers, chunk)
-	if err != nil {
-		logger.Load(ctx).WarnContext(ctx, "esm kafka: failed to marshal event", "uuid", spec.UUID, "error", err)
-
-		return false
+	if maxLag, sumLag, known := offsetLags(recs); known {
+		p.kafkaMetric(spec, esmMetricGroupKafka, esmMetricMaxOffsetLag, int(maxLag))
+		p.kafkaMetric(spec, esmMetricGroupKafka, esmMetricSumOffsetLag, int(sumLag))
 	}
 
-	backoff := kafkaRetryBackoffBase
-
-	for ctx.Err() == nil {
-		invErr := p.invokeKafka(ctx, spec.FunctionARN, payload)
-		p.kafkaMetric(spec, esmMetricGroupEventCount, esmMetricInvoked, len(chunk))
-
-		if invErr == nil {
-			return true
-		}
-
-		p.kafkaMetric(spec, esmMetricGroupEventCount, esmMetricFailedInvoke, len(chunk))
-		p.kafkaMetric(spec, esmMetricGroupErrorCount, esmMetricInvokeError, 1)
-
-		logger.Load(ctx).WarnContext(ctx, "esm kafka: invocation failed; retrying batch",
-			"uuid", spec.UUID, "error", invErr)
-		p.lambdaBackend.setESMLastProcessingResult(spec.UUID, "PROBLEM: "+invErr.Error())
-		sleepCtx(ctx, backoff)
-		backoff = nextBackoff(backoff)
-	}
-
-	return false
+	newESMLogger(p.lambdaBackend, spec).committed(ctx, recs)
 }
 
 func (p *EventSourcePoller) invokeKafka(ctx context.Context, functionARN string, payload []byte) error {

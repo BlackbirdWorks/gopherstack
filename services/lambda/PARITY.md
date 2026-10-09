@@ -19,9 +19,10 @@ families:
 gaps: []
 # 2026-10-08: CreateFunction defaults an omitted PackageType to Zip (was Image).
 items_still_open:
-  - "Kafka ESM (self-managed): DestinationConfig.OnFailure is not delivered; the SDK does not document the Kafka on-failure record shape or target semantics, so a delivered record would be invented."
-  - "ESM MetricsConfig: EventCount (Polled/FilteredOut/Invoked/FailedInvoke/Deleted/Committed) and ErrorCount (PollingError/InvokeError/CommitError) publish to AWS/Lambda with the EventSourceMappingUUID dimension for SQS, Kinesis, DynamoDB and Kafka. Not emitted: KafkaMetrics (MaxOffsetLag/SumOffsetLag need consumer lag the Kafka consumer does not expose), DroppedEventCount and OnFailureDestinationDeliveredEventCount (stream pollers have no retry-exhaustion or on-failure delivery), SchemaRegistryErrorCount, ProvisionedPollers/EventPollerUnit. ESM LoggingConfig is stored only."
+  - "ESM OnFailure S3 destinations need root wiring (cli.go not editable in this pass): add an adapter whose PutObject(ctx, bucket, key, body) calls the s3 backend's PutObject(ctx, &s3.PutObjectInput{Bucket, Key, Body: bytes.NewReader(body)}) and register it with lambdaBk.SetESMS3Destination(adapter) next to wireLambdaAsyncDestinations. SQS, SNS and Kafka-topic destinations already deliver; an S3 destination logs 'no delivery implementation wired' and is not counted as delivered until then."
 structural_gaps:
+  - "ESM SchemaRegistryErrorCount and ProvisionedPollers/EventPollerUnit metrics: no Glue/Confluent schema-registry integration and no provisioned poller fleet exist to measure."
+  - "Kafka ESM LoggingConfig DEBUG offsets are logged on every commit, not once a minute, and omit endOffset; INFO/WARN omit securityProtocol, saslMechanism, networkConfig, assignedPartitions (no VPC/auth/rebalance model)."
   - "Invoke TenantId is validated (required for PER_TENANT, rejected otherwise) but does not route to a tenant-dedicated execution environment: one environment pool per function."
   - "Kafka ESM: MSK sources are polled only when services/kafka runs a real broker (--kafka-engine=docker); metadata-only MSK clusters stay unpolled with a warning, and MSK auth settings (IAM/SCRAM/TLS) are ignored (gopherstack-ce985)."
   - "MQ ESM: Amazon MQ sources are polled only when services/mq runs a real broker (--mq-engine=docker); metadata-only brokers stay unpolled with a warning. ActiveMQ is consumed over STOMP (AWS uses OpenWire/JMS), so brokerInTime is the message timestamp and messageType is inferred from STOMP content-length; one queue per mapping (Queues[0]); no TLS; the BASIC_AUTH secret must be JSON with username/password keys (the Lambda guide does not show its layout) and is read from services/secretsmanager in the secret ARN's region."
@@ -32,6 +33,20 @@ structural_gaps:
 deferred: []
 leaks: {status: ok, note: "gopherstack-9zx (2026-09-03): 2 real leak-class bugs found + fixed, see dated section below -- cleanupTimedOutRuntime silently dropped container/port/tempdir cleanup when b.cleanupSem was saturated (its two sibling call sites already fell back to inline cleanup; this one just returned), and a genuine async-invocation timeout skipped both retry and DLQ/on-failure destination delivery entirely (AWS treats a runtime timeout as a function error for async purposes). Everything else re-verified clean this pass: event-source pollers + janitor + container lifecycle otherwise leak-conscious; go test -race passes (3/3 clean runs). New PublishVersionWithRevision path adds no new goroutines/locks (reuses the existing PublishVersion lock); layerPolicyRevisionID/policyRevisionID are pure functions with no new backend state (derived from already-persisted b.permissions / b.layerPolicies, so no new persistence surface either). durable_execution rewrite: durableExecutionStore starts no goroutines and holds no live resources (pure in-memory map + mutex), so Shutdown has nothing to drain; every Lock/RLock is immediately followed by a deferred Unlock/RUnlock with no intervening early return; b.durableExecs.reset() (lifecycle.go) clears both the executions map and the callbackOwner index together, so no ghost callbackOwner entries survive a Reset."}
 ---
+
+## Notes (2026-10-07 — stream/Kafka error handling)
+
+Kinesis and DynamoDB stream mappings now invoke synchronously and honour MaximumRetryAttempts (nil = -1, 0 = no retry),
+MaximumRecordAgeInSeconds, BisectBatchOnFunctionError (splits do not consume retries) and DestinationConfig.OnFailure,
+emitting DroppedEventCount / OnFailureDestinationDeliveredEventCount. A failing batch blocks its shard until it succeeds
+or is dropped. Records follow kinesis-on-failure-destination.html / services-dynamodb-errors.html (KinesisBatchInfo,
+DDBStreamBatchInfo; S3 adds `payload` and keys `aws/lambda/<uuid>/<shard>/YYYY/MM/DD/...`). Kafka mappings follow
+kafka-on-failure-destination.html (one record per failed message, `kafka://topic` produced via the source cluster, infinite
+retries capped at 10 when a destination exists); `condition` is `RetryAttemptsExhausted` for expiry too (only value
+documented for streams). Kafka KafkaMetrics MaxOffsetLag/SumOffsetLag derive from the fetch high watermark of the committed
+partitions. LoggingConfig writes esm-logging.html records to /aws/lambda/<fn>, stream `YYYY/MM/DD/<uuid>`.
+Proven by `TestStreamRetryAndOnFailureDestination`, `TestDynamoDBStreamOnFailureDestination`,
+`TestKafkaRetryExhaustionDestinations`, `TestKafkaRecordAgeAndBisect`, `TestESMSystemLogLevels`, `TestKafkaOffsetLagMetrics`.
 
 ## Notes (2026-10-03 — Amazon MQ event source mappings)
 

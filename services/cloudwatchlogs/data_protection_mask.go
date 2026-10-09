@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"regexp"
 	"strings"
 )
@@ -66,7 +67,7 @@ const (
 
 // managedMaskRules is the subset of AWS managed data identifiers this emulator can detect.
 func managedMaskRules() map[string]maskRule {
-	return map[string]maskRule{
+	rules := map[string]maskRule{
 		"EmailAddress": {re: regexp.MustCompile(`[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}`)},
 		"IpAddress": {re: regexp.MustCompile(
 			`\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b`)},
@@ -85,7 +86,7 @@ func managedMaskRules() map[string]maskRule {
 				`(?i)(?:aws_?secret_?(?:access_?)?key|secret_?access_?key)["']?\s*[:=]\s*["']?([A-Za-z0-9/+=]{40})\b`),
 			group: 1,
 		},
-		"OpenSSHPrivateKey": privateKeyRule("OPENSSH PRIVATE KEY"),
+		"OpenSshPrivateKey": privateKeyRule("OPENSSH PRIVATE KEY"),
 		"PkcsPrivateKey":    privateKeyRule(`(?:RSA |EC |ENCRYPTED )?PRIVATE KEY`),
 		"PgpPrivateKey":     privateKeyRule("PGP PRIVATE KEY BLOCK"),
 		"PuttyPrivateKey": {re: regexp.MustCompile(
@@ -93,6 +94,12 @@ func managedMaskRules() map[string]maskRule {
 		"Ssn-US": {re: regexp.MustCompile(`\b(?:00[1-9]|0[1-9]\d|[1-5]\d\d|6[0-57-9]\d|66[0-5]|6[67]\d|[78][0-8]\d)-` +
 			`(?:0[1-9]|[1-9]\d)-(?:000[1-9]|00[1-9]\d|0[1-9]\d\d|[1-9]\d{3})\b`)},
 	}
+
+	maps.Copy(rules, formatManagedMaskRules())
+
+	rules["OpenSSHPrivateKey"] = rules["OpenSshPrivateKey"]
+
+	return rules
 }
 
 func privateKeyRule(label string) maskRule {

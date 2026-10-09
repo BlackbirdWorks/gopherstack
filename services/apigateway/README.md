@@ -16,7 +16,7 @@
 
 ### Known gaps
 
-- GetExport extensions=postman is accepted and ignored: checked api_op_GetExport.go and the API Gateway export docs; neither specifies the Postman document shape API Gateway emits.
+- GetExport extensions=postman is accepted and ignored: API_GetExport.html and the export guide say only that it exports the OpenAPI document "with Postman extensions" (not a Postman Collection v2.1); the extension keys AWS emits are not documented anywhere checked, so emitting any would be invented.
 - Cache-Control: max-age=0 invalidation is implemented; with RequireAuthorizationForCacheControl a request counts as authorized when SigV4-signed (the stage proxy performs no execute-api:InvalidateCache policy evaluation), and the Warning header text for SUCCEED_WITH_RESPONSE_HEADER is unspecified in the SDK and developer guide.
 
 ### Structural gaps

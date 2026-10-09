@@ -8,20 +8,21 @@
 | Metric | Value |
 | --- | --- |
 | Feature families | 10 (10 ok) |
-| Known gaps | 2 |
-| Structural gaps (can't be emulated) | 7 |
+| Known gaps | 1 |
+| Structural gaps (can't be emulated) | 9 |
 | Deferred items | 0 |
 | Resource leaks | ok |
 
 ### Known gaps
 
-- Kafka ESM (self-managed): DestinationConfig.OnFailure is not delivered; the SDK does not document the Kafka on-failure record shape or target semantics, so a delivered record would be invented.
-- ESM MetricsConfig: EventCount (Polled/FilteredOut/Invoked/FailedInvoke/Deleted/Committed) and ErrorCount (PollingError/InvokeError/CommitError) publish to AWS/Lambda with the EventSourceMappingUUID dimension for SQS, Kinesis, DynamoDB and Kafka. Not emitted: KafkaMetrics (MaxOffsetLag/SumOffsetLag need consumer lag the Kafka consumer does not expose), DroppedEventCount and OnFailureDestinationDeliveredEventCount (stream pollers have no retry-exhaustion or on-failure delivery), SchemaRegistryErrorCount, ProvisionedPollers/EventPollerUnit. ESM LoggingConfig is stored only.
+- ESM OnFailure S3 destinations need root wiring (cli.go not editable in this pass): add an adapter whose PutObject(ctx, bucket, key, body) calls the s3 backend's PutObject(ctx, &s3.PutObjectInput{Bucket, Key, Body: bytes.NewReader(body)}) and register it with lambdaBk.SetESMS3Destination(adapter) next to wireLambdaAsyncDestinations. SQS, SNS and Kafka-topic destinations already deliver; an S3 destination logs 'no delivery implementation wired' and is not counted as delivered until then.
 
 ### Structural gaps
 
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
+- ESM SchemaRegistryErrorCount and ProvisionedPollers/EventPollerUnit metrics: no Glue/Confluent schema-registry integration and no provisioned poller fleet exist to measure.
+- Kafka ESM LoggingConfig DEBUG offsets are logged on every commit, not once a minute, and omit endOffset; INFO/WARN omit securityProtocol, saslMechanism, networkConfig, assignedPartitions (no VPC/auth/rebalance model).
 - Invoke TenantId is validated (required for PER_TENANT, rejected otherwise) but does not route to a tenant-dedicated execution environment: one environment pool per function.
 - Kafka ESM: MSK sources are polled only when services/kafka runs a real broker (--kafka-engine=docker); metadata-only MSK clusters stay unpolled with a warning, and MSK auth settings (IAM/SCRAM/TLS) are ignored (gopherstack-ce985).
 - MQ ESM: Amazon MQ sources are polled only when services/mq runs a real broker (--mq-engine=docker); metadata-only brokers stay unpolled with a warning. ActiveMQ is consumed over STOMP (AWS uses OpenWire/JMS), so brokerInTime is the message timestamp and messageType is inferred from STOMP content-length; one queue per mapping (Queues[0]); no TLS; the BASIC_AUTH secret must be JSON with username/password keys (the Lambda guide does not show its layout) and is read from services/secretsmanager in the secret ARN's region.

@@ -46,20 +46,20 @@ type handleCreateESMInput struct {
 	SelfManagedKafkaEventSourceConfig   *SelfManagedKafkaEventSourceConfig   `json:"SelfManagedKafkaEventSourceConfig"`
 	SelfManagedEventSource              *SelfManagedEventSource              `json:"SelfManagedEventSource"`
 	DocumentDBEventSourceConfig         *DocumentDBEventSourceConfig         `json:"DocumentDBEventSourceConfig"`
-	EventSourceARN                      string                               `json:"EventSourceArn"`
-	FunctionName                        string                               `json:"FunctionName"`
+	MaximumRetryAttempts                *int                                 `json:"MaximumRetryAttempts"`
 	StartingPosition                    string                               `json:"StartingPosition"`
+	EventSourceARN                      string                               `json:"EventSourceArn"`
 	KMSKeyArn                           string                               `json:"KMSKeyArn"`
+	FunctionName                        string                               `json:"FunctionName"`
 	SourceAccessConfigurations          []SourceAccessConfiguration          `json:"SourceAccessConfigurations"`
 	Topics                              []string                             `json:"Topics"`
 	Queues                              []string                             `json:"Queues"`
 	FunctionResponseTypes               []string                             `json:"FunctionResponseTypes"`
 	StartingPositionTimestamp           float64                              `json:"StartingPositionTimestamp"`
-	BatchSize                           int                                  `json:"BatchSize"`
 	MaximumBatchingWindowInSeconds      int                                  `json:"MaximumBatchingWindowInSeconds"`
 	TumblingWindowInSeconds             int                                  `json:"TumblingWindowInSeconds"`
 	MaximumRecordAgeInSeconds           int                                  `json:"MaximumRecordAgeInSeconds"`
-	MaximumRetryAttempts                int                                  `json:"MaximumRetryAttempts"`
+	BatchSize                           int                                  `json:"BatchSize"`
 	ParallelizationFactor               int                                  `json:"ParallelizationFactor"`
 	BisectBatchOnFunctionError          bool                                 `json:"BisectBatchOnFunctionError"`
 }

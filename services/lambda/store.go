@@ -170,6 +170,7 @@ type InMemoryBackend struct {
 	runtimes                 map[string]*functionRuntime
 	activeConcurrencies      map[string]int
 	asyncDelivery            AsyncDestinationDelivery
+	esmS3                    ESMS3Destination
 	accountID                string
 	region                   string
 	sigV4Secret              string

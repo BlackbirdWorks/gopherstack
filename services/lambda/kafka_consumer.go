@@ -81,9 +81,14 @@ func (c *franzConsumer) Poll(ctx context.Context, maxRecords int) ([]KafkaRecord
 	}
 
 	recs := make([]KafkaRecord, 0, fetches.NumRecords())
-	for r := range fetches.RecordsAll() {
-		recs = append(recs, toKafkaRecord(r))
-	}
+
+	fetches.EachPartition(func(p kgo.FetchTopicPartition) {
+		for _, r := range p.Records {
+			rec := toKafkaRecord(r)
+			rec.HighWatermark = p.HighWatermark
+			recs = append(recs, rec)
+		}
+	})
 
 	if len(recs) > 0 {
 		return recs, nil
@@ -131,6 +136,15 @@ func (c *franzConsumer) Commit(ctx context.Context, recs []KafkaRecord) error {
 
 	if err := c.cl.CommitRecords(ctx, raws...); err != nil {
 		return fmt.Errorf("commit offsets: %w", err)
+	}
+
+	return nil
+}
+
+func (c *franzConsumer) ProduceFailed(ctx context.Context, topic string, key, value []byte) error {
+	res := c.cl.ProduceSync(ctx, &kgo.Record{Topic: topic, Key: key, Value: value})
+	if err := res.FirstErr(); err != nil {
+		return fmt.Errorf("produce to %s: %w", topic, err)
 	}
 
 	return nil

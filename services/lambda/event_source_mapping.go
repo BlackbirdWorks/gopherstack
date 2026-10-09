@@ -42,23 +42,23 @@ type EventSourceMapping struct {
 	SelfManagedKafkaEventSourceConfig   *SelfManagedKafkaEventSourceConfig   `json:"selfManagedKafkaConfig,omitempty"`
 	SelfManagedEventSource              *SelfManagedEventSource              `json:"selfManagedEventSource,omitempty"`
 	DocumentDBEventSourceConfig         *DocumentDBEventSourceConfig         `json:"docdbConfig,omitempty"`
-	EventSourceARN                      string                               `json:"eventSourceARN"`
-	FunctionARN                         string                               `json:"functionARN"`
-	UUID                                string                               `json:"uuid"`
+	MaximumRetryAttempts                *int                                 `json:"maximumRetryAttempts,omitempty"`
 	KMSKeyArn                           string                               `json:"kmsKeyArn,omitempty"`
+	UUID                                string                               `json:"uuid"`
+	FunctionARN                         string                               `json:"functionARN"`
 	State                               EventSourceMappingState              `json:"state"`
 	StartingPosition                    string                               `json:"startingPosition"`
 	LastProcessingResult                string                               `json:"lastProcessingResult"`
-	SourceAccessConfigurations          []SourceAccessConfiguration          `json:"sourceAccessConfigurations,omitempty"`
-	Topics                              []string                             `json:"topics,omitempty"`
-	Queues                              []string                             `json:"queues,omitempty"`
+	EventSourceARN                      string                               `json:"eventSourceARN"`
 	FunctionResponseTypes               []string                             `json:"functionResponseTypes,omitempty"`
+	Queues                              []string                             `json:"queues,omitempty"`
+	Topics                              []string                             `json:"topics,omitempty"`
+	SourceAccessConfigurations          []SourceAccessConfiguration          `json:"sourceAccessConfigurations,omitempty"`
 	StartingPositionTimestamp           float64                              `json:"startingPositionTimestamp,omitempty"`
 	BatchSize                           int                                  `json:"batchSize"`
 	MaximumBatchingWindowInSeconds      int                                  `json:"maxBatchingWindowSecs,omitempty"`
 	TumblingWindowInSeconds             int                                  `json:"tumblingWindowInSeconds,omitempty"`
 	MaximumRecordAgeInSeconds           int                                  `json:"maximumRecordAgeInSeconds,omitempty"`
-	MaximumRetryAttempts                int                                  `json:"maximumRetryAttempts,omitempty"`
 	ParallelizationFactor               int                                  `json:"parallelizationFactor,omitempty"`
 	BisectBatchOnFunctionError          bool                                 `json:"bisectBatchOnFunctionError,omitempty"`
 }
@@ -149,20 +149,20 @@ type CreateEventSourceMappingInput struct {
 	SelfManagedKafkaEventSourceConfig   *SelfManagedKafkaEventSourceConfig
 	SelfManagedEventSource              *SelfManagedEventSource
 	DocumentDBEventSourceConfig         *DocumentDBEventSourceConfig
-	EventSourceARN                      string
-	FunctionName                        string
+	MaximumRetryAttempts                *int
 	StartingPosition                    string
+	EventSourceARN                      string
 	KMSKeyArn                           string
+	FunctionName                        string
 	SourceAccessConfigurations          []SourceAccessConfiguration
 	Topics                              []string
 	Queues                              []string
 	FunctionResponseTypes               []string
 	StartingPositionTimestamp           float64
-	BatchSize                           int
 	MaximumBatchingWindowInSeconds      int
 	TumblingWindowInSeconds             int
 	MaximumRecordAgeInSeconds           int
-	MaximumRetryAttempts                int
+	BatchSize                           int
 	ParallelizationFactor               int
 	BisectBatchOnFunctionError          bool
 	Enabled                             bool
@@ -199,31 +199,31 @@ type jsonESMResponse struct {
 	LoggingConfig                       *ESMLoggingConfig                    `json:"LoggingConfig,omitempty"`
 	MetricsConfig                       *ESMMetricsConfig                    `json:"MetricsConfig,omitempty"`
 	ProvisionedPollerConfig             *ESMProvisionedPollerConfig          `json:"ProvisionedPollerConfig,omitempty"`
-	EventSourceMappingArn               string                               `json:"EventSourceMappingArn,omitempty"`
+	MaximumRetryAttempts                *int                                 `json:"MaximumRetryAttempts,omitempty"`
 	FilterCriteria                      *FilterCriteria                      `json:"FilterCriteria,omitempty"`
 	DestinationConfig                   *ESMDestinationConfig                `json:"DestinationConfig,omitempty"`
 	AmazonManagedKafkaEventSourceConfig *AmazonManagedKafkaEventSourceConfig `json:"AmazonManagedKafkaEventSourceConfig,omitempty"` //nolint:lll // AWS field name
 	SelfManagedKafkaEventSourceConfig   *SelfManagedKafkaEventSourceConfig   `json:"SelfManagedKafkaEventSourceConfig,omitempty"`   //nolint:lll // AWS field name
 	SelfManagedEventSource              *SelfManagedEventSource              `json:"SelfManagedEventSource,omitempty"`
 	DocumentDBEventSourceConfig         *DocumentDBEventSourceConfig         `json:"DocumentDBEventSourceConfig,omitempty"`
-	LastProcessingResult                string                               `json:"LastProcessingResult,omitempty"`
+	KMSKeyArn                           string                               `json:"KMSKeyArn,omitempty"`
 	UUID                                string                               `json:"UUID"`
 	FunctionARN                         string                               `json:"FunctionArn"`
-	KMSKeyArn                           string                               `json:"KMSKeyArn,omitempty"`
+	LastProcessingResult                string                               `json:"LastProcessingResult,omitempty"`
 	State                               string                               `json:"State"`
 	EventSourceARN                      string                               `json:"EventSourceArn,omitempty"`
 	StartingPosition                    string                               `json:"StartingPosition,omitempty"`
-	Queues                              []string                             `json:"Queues,omitempty"`
-	SourceAccessConfigurations          []SourceAccessConfiguration          `json:"SourceAccessConfigurations,omitempty"`
+	EventSourceMappingArn               string                               `json:"EventSourceMappingArn,omitempty"`
 	Topics                              []string                             `json:"Topics,omitempty"`
+	SourceAccessConfigurations          []SourceAccessConfiguration          `json:"SourceAccessConfigurations,omitempty"`
 	FunctionResponseTypes               []string                             `json:"FunctionResponseTypes,omitempty"`
+	Queues                              []string                             `json:"Queues,omitempty"`
 	LastModified                        float64                              `json:"LastModified"`
 	StartingPositionTimestamp           float64                              `json:"StartingPositionTimestamp,omitempty"`
 	BatchSize                           int                                  `json:"BatchSize"`
 	MaximumBatchingWindowInSeconds      int                                  `json:"MaximumBatchingWindowInSeconds,omitempty"` //nolint:lll // AWS field name
 	TumblingWindowInSeconds             int                                  `json:"TumblingWindowInSeconds,omitempty"`
 	MaximumRecordAgeInSeconds           int                                  `json:"MaximumRecordAgeInSeconds,omitempty"`
-	MaximumRetryAttempts                int                                  `json:"MaximumRetryAttempts,omitempty"`
 	ParallelizationFactor               int                                  `json:"ParallelizationFactor,omitempty"`
 	BisectBatchOnFunctionError          bool                                 `json:"BisectBatchOnFunctionError,omitempty"`
 }
@@ -323,6 +323,12 @@ func (b *InMemoryBackend) CreateEventSourceMapping(
 	if err := validateESMTuning(
 		input.EventSourceARN, input.SelfManagedEventSource != nil,
 		input.ScalingConfig, input.MetricsConfig, input.ProvisionedPollerConfig,
+	); err != nil {
+		return nil, err
+	}
+
+	if err := validateFailureDestination(
+		input.EventSourceARN, input.SelfManagedEventSource != nil, input.Topics, input.DestinationConfig,
 	); err != nil {
 		return nil, err
 	}
@@ -562,7 +568,8 @@ func applyESMWindowFields(esm *EventSourceMapping, input *UpdateEventSourceMappi
 	}
 
 	if input.MaximumRetryAttempts != nil {
-		esm.MaximumRetryAttempts = int(*input.MaximumRetryAttempts)
+		v := int(*input.MaximumRetryAttempts)
+		esm.MaximumRetryAttempts = &v
 	}
 
 	if input.ParallelizationFactor != nil {
@@ -615,6 +622,14 @@ func (b *InMemoryBackend) UpdateEventSourceMapping(
 		validateErr = validateESMTuning(
 			esm.EventSourceARN, esm.SelfManagedEventSource != nil,
 			input.ScalingConfig, input.MetricsConfig, input.ProvisionedPollerConfig,
+		)
+		if validateErr != nil {
+			return
+		}
+
+		validateErr = validateFailureDestination(
+			esm.EventSourceARN, esm.SelfManagedEventSource != nil, cmpTopics(esm.Topics, input.Topics),
+			cmpDest(esm.DestinationConfig, input.DestinationConfig),
 		)
 		if validateErr != nil {
 			return
@@ -749,4 +764,20 @@ func validateProvisionedPollers(sqs, kafka bool, ppc *ESMProvisionedPollerConfig
 	}
 
 	return nil
+}
+
+func cmpTopics(cur, upd []string) []string {
+	if len(upd) > 0 {
+		return upd
+	}
+
+	return cur
+}
+
+func cmpDest(cur, upd *ESMDestinationConfig) *ESMDestinationConfig {
+	if upd != nil {
+		return upd
+	}
+
+	return cur
 }
