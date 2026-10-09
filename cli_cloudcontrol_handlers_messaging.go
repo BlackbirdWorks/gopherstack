@@ -505,22 +505,35 @@ func (h *ccStream) Read(ctx context.Context, id string) (map[string]any, error) 
 	return model, nil
 }
 
+func ccRetentionHours(m map[string]any) (int32, error) {
+	f, ok := m["RetentionPeriodHours"].(float64)
+	if !ok {
+		return 0, nil
+	}
+
+	if f < math.MinInt32 || f > math.MaxInt32 {
+		return 0, fmt.Errorf("%w: RetentionPeriodHours out of range", cloudcontrolbackend.ErrValidation)
+	}
+
+	return int32(f), nil
+}
+
 func (h *ccStream) Update(ctx context.Context, id string, current, desired map[string]any) error {
 	if err := ccRejectUnsupportedChanges(current, desired, "RetentionPeriodHours", "Tags"); err != nil {
 		return err
 	}
 
 	if want, ok := ccInt32(desired, "RetentionPeriodHours"); ok {
-		have, _ := current["RetentionPeriodHours"].(int32)
-		if f, isF := current["RetentionPeriodHours"].(float64); isF && f >= math.MinInt32 && f <= math.MaxInt32 {
-			have = int32(f)
-		}
-
-		if err := h.setRetention(ctx, id, have, want); err != nil {
+		have, err := ccRetentionHours(current)
+		if err != nil {
 			return err
 		}
 
-		if err := h.waitActive(ctx, id); err != nil {
+		if err = h.setRetention(ctx, id, have, want); err != nil {
+			return err
+		}
+
+		if err = h.waitActive(ctx, id); err != nil {
 			return err
 		}
 	}
@@ -600,7 +613,7 @@ func (h *ccEventBus) Create(ctx context.Context, desired map[string]any) (string
 	}
 
 	in := &eventbridge.CreateEventBusInput{Name: aws.String(name), Tags: ccEventTags(tags)}
-	if v := ccString(desired, "Description"); v != "" {
+	if v := ccString(desired, ccKeyDescription); v != "" {
 		in.Description = aws.String(v)
 	}
 
@@ -625,10 +638,10 @@ func (h *ccEventBus) Read(ctx context.Context, id string) (map[string]any, error
 		return nil, ccMapError(err)
 	}
 
-	model := map[string]any{"Name": id, ccKeyArn: aws.ToString(out.Arn)}
+	model := map[string]any{ccKeyName: id, ccKeyArn: aws.ToString(out.Arn)}
 
 	if out.Description != nil {
-		model["Description"] = *out.Description
+		model[ccKeyDescription] = *out.Description
 	}
 
 	if out.KmsKeyIdentifier != nil {
@@ -649,12 +662,12 @@ func (h *ccEventBus) Read(ctx context.Context, id string) (map[string]any, error
 }
 
 func (h *ccEventBus) Update(ctx context.Context, id string, current, desired map[string]any) error {
-	if err := ccRejectUnsupportedChanges(current, desired, "Description", "KmsKeyIdentifier", "Tags"); err != nil {
+	if err := ccRejectUnsupportedChanges(current, desired, ccKeyDescription, "KmsKeyIdentifier", "Tags"); err != nil {
 		return err
 	}
 
 	in := &eventbridge.UpdateEventBusInput{Name: aws.String(id)}
-	if v := ccString(desired, "Description"); v != "" {
+	if v := ccString(desired, ccKeyDescription); v != "" {
 		in.Description = aws.String(v)
 	}
 
@@ -1032,7 +1045,7 @@ func (h *ccFunction) Create(ctx context.Context, desired map[string]any) (string
 		in.Handler = aws.String(v)
 	}
 
-	if v := ccString(desired, "Description"); v != "" {
+	if v := ccString(desired, ccKeyDescription); v != "" {
 		in.Description = aws.String(v)
 	}
 
@@ -1076,7 +1089,7 @@ func (h *ccFunction) Read(ctx context.Context, id string) (map[string]any, error
 	}
 
 	if c.Description != nil && *c.Description != "" {
-		model["Description"] = *c.Description
+		model[ccKeyDescription] = *c.Description
 	}
 
 	if c.Environment != nil && len(c.Environment.Variables) > 0 {
@@ -1094,7 +1107,7 @@ func (h *ccFunction) Read(ctx context.Context, id string) (map[string]any, error
 
 func (h *ccFunction) Update(ctx context.Context, id string, current, desired map[string]any) error {
 	if err := ccRejectUnsupportedChanges(
-		current, desired, "Runtime", "Handler", "Role", "Description", "MemorySize", "Timeout", "Environment",
+		current, desired, "Runtime", "Handler", "Role", ccKeyDescription, "MemorySize", "Timeout", "Environment",
 		"Code", "Tags",
 	); err != nil {
 		return err
@@ -1174,7 +1187,7 @@ func (h *ccFunction) updateConfiguration(ctx context.Context, id string, desired
 		in.Role = aws.String(v)
 	}
 
-	if v := ccString(desired, "Description"); v != "" {
+	if v := ccString(desired, ccKeyDescription); v != "" {
 		in.Description = aws.String(v)
 	}
 

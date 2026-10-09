@@ -188,8 +188,6 @@ func Middleware(store *FaultStore) func(echo.HandlerFunc) echo.HandlerFunc {
 
 					log.InfoContext(
 						ctx, "chaos: injecting fault",
-						"service", svc,
-						"operation", op,
 						"status_code", fe.StatusCode,
 						"error_code", fe.Code,
 					)

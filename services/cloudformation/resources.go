@@ -3446,24 +3446,24 @@ func intProp(props map[string]any, key string) int {
 }
 
 func clampInt32(n int64) int32 {
-	if n > math.MaxInt32 {
-		return math.MaxInt32
-	}
-
 	if n < math.MinInt32 {
 		return math.MinInt32
+	}
+
+	if n > math.MaxInt32 {
+		return math.MaxInt32
 	}
 
 	return int32(n)
 }
 
 func floatToInt32(v float64) int32 {
-	if v >= math.MaxInt32 {
-		return math.MaxInt32
-	}
+	if v < math.MinInt32 || v > math.MaxInt32 {
+		if v < 0 {
+			return math.MinInt32
+		}
 
-	if v <= math.MinInt32 {
-		return math.MinInt32
+		return math.MaxInt32
 	}
 
 	return int32(v)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/url"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -34,8 +35,11 @@ func ccString(m map[string]any, key string) string {
 
 func ccInt32(m map[string]any, key string) (int32, bool) {
 	f, ok := m[key].(float64)
+	if !ok || f < math.MinInt32 || f > math.MaxInt32 {
+		return 0, false
+	}
 
-	return int32(f), ok
+	return int32(f), true
 }
 
 // ccTagDelta returns the tags to set and the keys to remove to move current to desired.
@@ -133,7 +137,7 @@ func (h *ccRole) Create(ctx context.Context, desired map[string]any) (string, er
 		in.Path = aws.String(p)
 	}
 
-	if d := ccString(desired, "Description"); d != "" {
+	if d := ccString(desired, ccKeyDescription); d != "" {
 		in.Description = aws.String(d)
 	}
 
@@ -195,7 +199,7 @@ func (h *ccRole) Read(ctx context.Context, id string) (map[string]any, error) {
 	}
 
 	if r.Description != nil {
-		model["Description"] = *r.Description
+		model[ccKeyDescription] = *r.Description
 	}
 
 	if r.MaxSessionDuration != nil {
@@ -225,7 +229,13 @@ func (h *ccRole) Read(ctx context.Context, id string) (map[string]any, error) {
 
 func (h *ccRole) Update(ctx context.Context, id string, current, desired map[string]any) error {
 	if err := ccRejectUnsupportedChanges(
-		current, desired, "AssumeRolePolicyDocument", "Description", "MaxSessionDuration", "Tags", "ManagedPolicyArns",
+		current,
+		desired,
+		"AssumeRolePolicyDocument",
+		ccKeyDescription,
+		"MaxSessionDuration",
+		"Tags",
+		"ManagedPolicyArns",
 	); err != nil {
 		return err
 	}
@@ -256,7 +266,7 @@ func (h *ccRole) updateRoleSettings(ctx context.Context, id string, desired map[
 	}
 
 	in := &iam.UpdateRoleInput{RoleName: aws.String(id)}
-	if d := ccString(desired, "Description"); d != "" {
+	if d := ccString(desired, ccKeyDescription); d != "" {
 		in.Description = aws.String(d)
 	}
 
@@ -396,7 +406,7 @@ func (h *ccKey) Create(ctx context.Context, desired map[string]any) (string, err
 	}
 
 	in := &kms.CreateKeyInput{Tags: ccKMSTags(tags)}
-	if d := ccString(desired, "Description"); d != "" {
+	if d := ccString(desired, ccKeyDescription); d != "" {
 		in.Description = aws.String(d)
 	}
 
@@ -465,7 +475,7 @@ func (h *ccKey) Read(ctx context.Context, id string) (map[string]any, error) {
 	model := map[string]any{
 		"KeyId": aws.ToString(md.KeyId), ccKeyArn: aws.ToString(md.Arn), "Enabled": md.Enabled,
 		"KeyUsage": string(md.KeyUsage), "KeySpec": string(md.KeySpec),
-		"MultiRegion": aws.ToBool(md.MultiRegion), "Description": aws.ToString(md.Description),
+		"MultiRegion": aws.ToBool(md.MultiRegion), ccKeyDescription: aws.ToString(md.Description),
 	}
 
 	if pol, polErr := h.client.GetKeyPolicy(ctx, &kms.GetKeyPolicyInput{KeyId: aws.String(id)}); polErr == nil {
@@ -493,12 +503,12 @@ func (h *ccKey) Read(ctx context.Context, id string) (map[string]any, error) {
 
 func (h *ccKey) Update(ctx context.Context, id string, current, desired map[string]any) error {
 	if err := ccRejectUnsupportedChanges(
-		current, desired, "Description", "Enabled", "EnableKeyRotation", "KeyPolicy", "Tags", "PendingWindowInDays",
+		current, desired, ccKeyDescription, "Enabled", "EnableKeyRotation", "KeyPolicy", "Tags", "PendingWindowInDays",
 	); err != nil {
 		return err
 	}
 
-	if d, ok := desired["Description"].(string); ok && d != ccString(current, "Description") {
+	if d, ok := desired[ccKeyDescription].(string); ok && d != ccString(current, ccKeyDescription) {
 		if _, err := h.client.UpdateKeyDescription(ctx, &kms.UpdateKeyDescriptionInput{
 			KeyId: aws.String(id), Description: aws.String(d),
 		}); err != nil {
@@ -651,7 +661,7 @@ func (h *ccSecret) Create(ctx context.Context, desired map[string]any) (string, 
 	}
 
 	in := &secretsmanager.CreateSecretInput{Name: aws.String(name), Tags: ccSecretTags(tags)}
-	if d := ccString(desired, "Description"); d != "" {
+	if d := ccString(desired, ccKeyDescription); d != "" {
 		in.Description = aws.String(d)
 	}
 
@@ -684,7 +694,7 @@ func (h *ccSecret) Read(ctx context.Context, id string) (map[string]any, error) 
 	model := map[string]any{"Id": aws.ToString(out.ARN), ccKeyName: aws.ToString(out.Name)}
 
 	if out.Description != nil {
-		model["Description"] = *out.Description
+		model[ccKeyDescription] = *out.Description
 	}
 
 	if out.KmsKeyId != nil {
@@ -707,7 +717,7 @@ func (h *ccSecret) Update(ctx context.Context, id string, current, desired map[s
 	if err := ccRejectUnsupportedChanges(
 		current,
 		desired,
-		"Description",
+		ccKeyDescription,
 		"KmsKeyId",
 		"SecretString",
 		"Tags",
@@ -716,7 +726,7 @@ func (h *ccSecret) Update(ctx context.Context, id string, current, desired map[s
 	}
 
 	in := &secretsmanager.UpdateSecretInput{SecretId: aws.String(id)}
-	if d := ccString(desired, "Description"); d != "" {
+	if d := ccString(desired, ccKeyDescription); d != "" {
 		in.Description = aws.String(d)
 	}
 
@@ -837,7 +847,7 @@ func (h *ccParameter) Create(ctx context.Context, desired map[string]any) (strin
 }
 
 func (h *ccParameter) applyOptional(in *ssm.PutParameterInput, desired map[string]any) {
-	if d := ccString(desired, "Description"); d != "" {
+	if d := ccString(desired, ccKeyDescription); d != "" {
 		in.Description = aws.String(d)
 	}
 
@@ -862,7 +872,7 @@ func (h *ccParameter) Read(ctx context.Context, id string) (map[string]any, erro
 
 	p := out.Parameter
 	model := map[string]any{
-		"Name": id, "Type": string(p.Type), "Value": aws.ToString(p.Value), "DataType": aws.ToString(p.DataType),
+		ccKeyName: id, "Type": string(p.Type), "Value": aws.ToString(p.Value), "DataType": aws.ToString(p.DataType),
 	}
 
 	desc, err := h.client.DescribeParameters(ctx, &ssm.DescribeParametersInput{
@@ -880,7 +890,7 @@ func (h *ccParameter) Read(ctx context.Context, id string) (map[string]any, erro
 		}
 
 		if meta.Description != nil {
-			model["Description"] = *meta.Description
+			model[ccKeyDescription] = *meta.Description
 		}
 
 		if meta.AllowedPattern != nil {
@@ -909,7 +919,7 @@ func (h *ccParameter) Read(ctx context.Context, id string) (map[string]any, erro
 
 func (h *ccParameter) Update(ctx context.Context, id string, current, desired map[string]any) error {
 	if err := ccRejectUnsupportedChanges(
-		current, desired, "Value", "Description", "AllowedPattern", "Tier", "DataType", "Tags",
+		current, desired, "Value", ccKeyDescription, "AllowedPattern", "Tier", "DataType", "Tags",
 	); err != nil {
 		return err
 	}

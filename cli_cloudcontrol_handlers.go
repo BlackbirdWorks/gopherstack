@@ -188,6 +188,7 @@ func wireCloudControlHandlers(e http.Handler, services []service.Registerable) {
 	bk.RegisterTypeHandler("AWS::DynamoDB::Table", &ccTable{client: dynamodb.NewFromConfig(cfg)})
 	bk.RegisterTypeHandler("AWS::Logs::LogGroup", &ccLogGroup{client: cloudwatchlogs.NewFromConfig(cfg)})
 	wireCloudControlMoreHandlers(bk, cfg)
+	wireCloudControlInfraHandlers(bk, cfg)
 }
 
 // --- AWS::S3::Bucket ---

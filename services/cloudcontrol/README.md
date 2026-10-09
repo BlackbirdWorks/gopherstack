@@ -16,7 +16,7 @@
 
 ### Known gaps
 
-- Only 14 types are delegated to real service backends (S3 Bucket, SQS Queue, DynamoDB Table, Logs LogGroup, SNS Topic, IAM Role, KMS Key, SecretsManager Secret, SSM Parameter, ECR Repository, Kinesis Stream, Events EventBus, Lambda Function, StepFunctions StateMachine; TypeHandler registry wired in cli_cloudcontrol_handlers*.go; updates apply mutable properties only and reject the rest; SecretsManager GenerateSecretString is rejected); every other TypeName still uses the generic store, and delegated resources do not appear in the dashboard resource list.
+- 25 types are delegated to real service backends (14 earlier + EC2 VPC/Subnet/SecurityGroup, ECS Cluster, ELBv2 TargetGroup, Route53 HostedZone, CloudWatch Alarm, Cognito UserPool, ApiGateway RestApi, EFS FileSystem, Glue Database; wiring in cli_cloudcontrol_handlers*.go); every other TypeName still uses the generic store. Delegated updates apply mutable properties only and reject the rest; SecretsManager GenerateSecretString is rejected. AWS::IAM::Policy is not delegated: it is an inline-policy attachment with no addressable resource (opaque Id, no read/list), so there is no honest Cloud Control identifier. Dashboard: the UI lists via ListResources(TypeName), which already includes delegated resources, but its type dropdown (ui/src/routes/cloudcontrol) is a fixed 7-type list and the unused InMemoryBackend.ListAllResources omits delegated types.
 
 ### Structural gaps
 

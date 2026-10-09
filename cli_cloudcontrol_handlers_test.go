@@ -2,19 +2,29 @@ package main
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/apigateway"
 	"github.com/aws/aws-sdk-go-v2/service/cloudcontrol"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	"github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ecr"
+	"github.com/aws/aws-sdk-go-v2/service/ecs"
+	"github.com/aws/aws-sdk-go-v2/service/efs"
+	elbv2 "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	"github.com/aws/aws-sdk-go-v2/service/eventbridge"
+	"github.com/aws/aws-sdk-go-v2/service/glue"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	kmstypes "github.com/aws/aws-sdk-go-v2/service/kms/types"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
+	"github.com/aws/aws-sdk-go-v2/service/route53"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	"github.com/aws/aws-sdk-go-v2/service/sfn"
@@ -235,6 +245,167 @@ func TestCloudControlDelegatesToServiceBackends(t *testing.T) {
 				assert.Equal(t, present, err == nil)
 			},
 		},
+		{
+			name: "ec2_vpc", typeName: "AWS::EC2::VPC", desired: `{"CidrBlock":"10.20.0.0/16"}`,
+			patch:      `[{"op":"add","path":"/EnableDnsHostnames","value":true}]`,
+			patchedKey: "EnableDnsHostnames", patchedVal: true,
+			verify: func(t *testing.T, fx *sfnFixture, id string, present bool) {
+				t.Helper()
+
+				out, err := ec2.NewFromConfig(fx.cfg).
+					DescribeVpcs(t.Context(), &ec2.DescribeVpcsInput{VpcIds: []string{id}})
+				assert.Equal(t, present, err == nil && len(out.Vpcs) == 1)
+			},
+		},
+		{
+			name: "ec2_subnet", typeName: "AWS::EC2::Subnet", desired: `{"VpcId":"{{vpc}}","CidrBlock":"10.30.1.0/24"}`,
+			patch:      `[{"op":"add","path":"/MapPublicIpOnLaunch","value":true}]`,
+			patchedKey: "MapPublicIpOnLaunch", patchedVal: true,
+			verify: func(t *testing.T, fx *sfnFixture, id string, present bool) {
+				t.Helper()
+
+				out, err := ec2.NewFromConfig(fx.cfg).
+					DescribeSubnets(t.Context(), &ec2.DescribeSubnetsInput{SubnetIds: []string{id}})
+				assert.Equal(t, present, err == nil && len(out.Subnets) == 1)
+			},
+		},
+		{
+			name: "ec2_security_group", typeName: "AWS::EC2::SecurityGroup",
+			desired: `{"GroupDescription":"cc sg","GroupName":"cc-sg","SecurityGroupIngress":` +
+				`[{"IpProtocol":"tcp","FromPort":80,"ToPort":80,"CidrIp":"10.0.0.0/8"}]}`,
+			patch: `[{"op":"add","path":"/SecurityGroupIngress/-","value":` +
+				`{"IpProtocol":"tcp","FromPort":443,"ToPort":443,"CidrIp":"10.0.0.0/8"}}]`,
+			patchedKey: "SecurityGroupIngress",
+			patchedVal: []any{
+				map[string]any{"IpProtocol": "tcp", "FromPort": 80, "ToPort": 80, "CidrIp": "10.0.0.0/8"},
+				map[string]any{"IpProtocol": "tcp", "FromPort": 443, "ToPort": 443, "CidrIp": "10.0.0.0/8"},
+			},
+			verify: func(t *testing.T, fx *sfnFixture, id string, present bool) {
+				t.Helper()
+
+				out, err := ec2.NewFromConfig(fx.cfg).DescribeSecurityGroups(
+					t.Context(), &ec2.DescribeSecurityGroupsInput{GroupIds: []string{id}},
+				)
+				assert.Equal(t, present, err == nil && len(out.SecurityGroups) == 1)
+			},
+		},
+		{
+			name:       "ecs_cluster",
+			typeName:   "AWS::ECS::Cluster",
+			desired:    `{"ClusterName":"cc-cluster"}`,
+			wantID:     "cc-cluster",
+			patch:      `[{"op":"add","path":"/ClusterSettings","value":[{"Name":"containerInsights","Value":"enabled"}]}]`,
+			patchedKey: "ClusterSettings",
+			patchedVal: []any{map[string]any{"Name": "containerInsights", "Value": "enabled"}},
+			verify: func(t *testing.T, fx *sfnFixture, id string, present bool) {
+				t.Helper()
+
+				out, err := ecs.NewFromConfig(fx.cfg).
+					DescribeClusters(t.Context(), &ecs.DescribeClustersInput{Clusters: []string{id}})
+				require.NoError(t, err)
+				assert.Equal(t, present, len(out.Clusters) == 1 && aws.ToString(out.Clusters[0].Status) == "ACTIVE")
+			},
+		},
+		{
+			name:       "elbv2_target_group",
+			typeName:   "AWS::ElasticLoadBalancingV2::TargetGroup",
+			desired:    `{"Name":"cc-tg","Protocol":"HTTP","Port":80,"VpcId":"{{vpc}}"}`,
+			patch:      `[{"op":"add","path":"/HealthCheckPath","value":"/health"}]`,
+			patchedKey: "HealthCheckPath",
+			patchedVal: "/health",
+			verify: func(t *testing.T, fx *sfnFixture, id string, present bool) {
+				t.Helper()
+
+				out, err := elbv2.NewFromConfig(fx.cfg).DescribeTargetGroups(
+					t.Context(), &elbv2.DescribeTargetGroupsInput{TargetGroupArns: []string{id}},
+				)
+				assert.Equal(t, present, err == nil && len(out.TargetGroups) == 1)
+			},
+		},
+		{
+			name: "route53_hosted_zone", typeName: "AWS::Route53::HostedZone", desired: `{"Name":"cc-example.com"}`,
+			patch:      `[{"op":"add","path":"/HostedZoneConfig","value":{"Comment":"cc zone"}}]`,
+			patchedKey: "HostedZoneConfig", patchedVal: map[string]any{"Comment": "cc zone"},
+			verify: func(t *testing.T, fx *sfnFixture, id string, present bool) {
+				t.Helper()
+
+				_, err := route53.NewFromConfig(fx.cfg).
+					GetHostedZone(t.Context(), &route53.GetHostedZoneInput{Id: aws.String(id)})
+				assert.Equal(t, present, err == nil)
+			},
+		},
+		{
+			name: "cloudwatch_alarm", typeName: "AWS::CloudWatch::Alarm",
+			desired: `{"AlarmName":"cc-alarm","ComparisonOperator":"GreaterThanThreshold","EvaluationPeriods":1,` +
+				`"MetricName":"CPUUtilization","Namespace":"AWS/EC2","Period":60,"Statistic":"Average","Threshold":80}`,
+			wantID: "cc-alarm", patch: `[{"op":"replace","path":"/Threshold","value":90}]`,
+			patchedKey: "Threshold", patchedVal: float64(90),
+			verify: func(t *testing.T, fx *sfnFixture, id string, present bool) {
+				t.Helper()
+
+				out, err := cloudwatch.NewFromConfig(fx.cfg).DescribeAlarms(
+					t.Context(), &cloudwatch.DescribeAlarmsInput{AlarmNames: []string{id}},
+				)
+				require.NoError(t, err)
+				assert.Equal(t, present, len(out.MetricAlarms) == 1)
+			},
+		},
+		{
+			name: "cognito_user_pool", typeName: "AWS::Cognito::UserPool", desired: `{"UserPoolName":"cc-pool"}`,
+			patch:      `[{"op":"add","path":"/MfaConfiguration","value":"OFF"}]`,
+			patchedKey: "MfaConfiguration", patchedVal: "OFF",
+			verify: func(t *testing.T, fx *sfnFixture, id string, present bool) {
+				t.Helper()
+
+				_, err := cognitoidentityprovider.NewFromConfig(fx.cfg).DescribeUserPool(
+					t.Context(), &cognitoidentityprovider.DescribeUserPoolInput{UserPoolId: aws.String(id)},
+				)
+				assert.Equal(t, present, err == nil)
+			},
+		},
+		{
+			name: "apigateway_rest_api", typeName: "AWS::ApiGateway::RestApi", desired: `{"Name":"cc-api"}`,
+			patch:      `[{"op":"add","path":"/Description","value":"cc api"}]`,
+			patchedKey: "Description", patchedVal: "cc api",
+			verify: func(t *testing.T, fx *sfnFixture, id string, present bool) {
+				t.Helper()
+
+				_, err := apigateway.NewFromConfig(fx.cfg).
+					GetRestApi(t.Context(), &apigateway.GetRestApiInput{RestApiId: aws.String(id)})
+				assert.Equal(t, present, err == nil)
+			},
+		},
+		{
+			name:       "efs_file_system",
+			typeName:   "AWS::EFS::FileSystem",
+			desired:    `{"PerformanceMode":"generalPurpose","Encrypted":true}`,
+			patch:      `[{"op":"add","path":"/BackupPolicy","value":{"Status":"ENABLED"}}]`,
+			patchedKey: "BackupPolicy",
+			patchedVal: map[string]any{"Status": "ENABLED"},
+			verify: func(t *testing.T, fx *sfnFixture, id string, present bool) {
+				t.Helper()
+
+				out, err := efs.NewFromConfig(fx.cfg).
+					DescribeFileSystems(t.Context(), &efs.DescribeFileSystemsInput{FileSystemId: aws.String(id)})
+				assert.Equal(t, present, err == nil && len(out.FileSystems) == 1)
+			},
+		},
+		{
+			name:       "glue_database",
+			typeName:   "AWS::Glue::Database",
+			desired:    `{"DatabaseInput":{"Name":"cc_db"}}`,
+			wantID:     "cc_db",
+			patch:      `[{"op":"add","path":"/DatabaseInput/Description","value":"cc db"}]`,
+			patchedKey: "DatabaseInput",
+			patchedVal: map[string]any{"Name": "cc_db", "Description": "cc db"},
+			verify: func(t *testing.T, fx *sfnFixture, id string, present bool) {
+				t.Helper()
+
+				_, err := glue.NewFromConfig(fx.cfg).
+					GetDatabase(t.Context(), &glue.GetDatabaseInput{Name: aws.String(id)})
+				assert.Equal(t, present, err == nil)
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -243,9 +414,19 @@ func TestCloudControlDelegatesToServiceBackends(t *testing.T) {
 
 			fx := newSFNFixture(t)
 			cc := cloudcontrol.NewFromConfig(fx.cfg)
+			desired := tt.desired
+
+			if strings.Contains(desired, "{{vpc}}") {
+				vpc, vpcErr := ec2.NewFromConfig(fx.cfg).CreateVpc(t.Context(), &ec2.CreateVpcInput{
+					CidrBlock: aws.String("10.30.0.0/16"),
+				})
+				require.NoError(t, vpcErr)
+
+				desired = strings.ReplaceAll(desired, "{{vpc}}", aws.ToString(vpc.Vpc.VpcId))
+			}
 
 			created, err := cc.CreateResource(t.Context(), &cloudcontrol.CreateResourceInput{
-				TypeName: aws.String(tt.typeName), DesiredState: aws.String(tt.desired),
+				TypeName: aws.String(tt.typeName), DesiredState: aws.String(desired),
 			})
 			require.NoError(t, err)
 
