@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"math"
+	"strconv"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -3466,7 +3467,12 @@ func floatToInt32(v float64) int32 {
 		return math.MaxInt32
 	}
 
-	return int32(v)
+	n, err := strconv.ParseInt(strconv.FormatFloat(math.Trunc(v), 'f', 0, 64), 10, 32)
+	if err != nil {
+		return 0
+	}
+
+	return int32(n)
 }
 
 // int64Val converts a JSON-decoded numeric value to int64. CloudFormation templates may carry

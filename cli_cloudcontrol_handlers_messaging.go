@@ -515,7 +515,12 @@ func ccRetentionHours(m map[string]any) (int32, error) {
 		return 0, fmt.Errorf("%w: RetentionPeriodHours out of range", cloudcontrolbackend.ErrValidation)
 	}
 
-	return int32(f), nil
+	n, err := strconv.ParseInt(strconv.FormatFloat(math.Trunc(f), 'f', 0, 64), 10, 32)
+	if err != nil {
+		return 0, fmt.Errorf("%w: RetentionPeriodHours invalid", cloudcontrolbackend.ErrValidation)
+	}
+
+	return int32(n), nil
 }
 
 func (h *ccStream) Update(ctx context.Context, id string, current, desired map[string]any) error {
