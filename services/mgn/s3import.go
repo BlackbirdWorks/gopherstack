@@ -125,6 +125,7 @@ var (
 type importedRow struct {
 	appTags                map[string]string
 	launch                 *UpdateLaunchConfigurationInput
+	launchData             *importLaunchData
 	replication            *UpdateReplicationConfigurationInput
 	sourceProperties       *SourceProperties
 	serverTags             map[string]string
@@ -273,6 +274,7 @@ type importHeaderIndex struct {
 	appTagCols    map[string]int
 	waveTagCols   map[string]int
 	stagingCols   map[string]int
+	launchCols    map[string]int
 }
 
 // indexImportHeader maps each header row's fixed columns to their index
@@ -285,6 +287,7 @@ func indexImportHeader(header []string) importHeaderIndex {
 		appTagCols:    make(map[string]int),
 		waveTagCols:   make(map[string]int),
 		stagingCols:   make(map[string]int),
+		launchCols:    make(map[string]int),
 	}
 
 	for i, h := range header {
@@ -300,6 +303,8 @@ func indexImportHeader(header []string) importHeaderIndex {
 			idx.stagingCols[trimmed[len(csvColStagingTagPrefix):]] = i
 		case strings.HasPrefix(lower, csvColWaveTagPrefix):
 			idx.waveTagCols[trimmed[len(csvColWaveTagPrefix):]] = i
+		case isDynamicLaunchColumn(lower):
+			idx.launchCols[trimmed[len(csvLaunchPrefix):]] = i
 		default:
 			idx.cols[lower] = i
 		}
@@ -648,4 +653,16 @@ func (b *InMemoryBackend) resolveImportServerLocked(row importedRow) (*SourceSer
 	s, _ := b.resolveSourceServerByUserProvidedIDLocked(row.userProvidedID)
 
 	return s, nil
+}
+
+// isDynamicLaunchColumn reports whether lower is a mgn:launch: column whose name
+// embeds a case-sensitive key (tag key, device name, action name).
+func isDynamicLaunchColumn(lower string) bool {
+	rest, ok := strings.CutPrefix(lower, csvLaunchPrefix)
+	if !ok {
+		return false
+	}
+
+	return strings.HasPrefix(rest, launchTagInstancePfx) || strings.HasPrefix(rest, launchVolumePfx) ||
+		strings.HasPrefix(rest, launchNicPfx) || strings.HasPrefix(rest, launchPostActionsPfx)
 }

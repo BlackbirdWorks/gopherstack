@@ -308,9 +308,11 @@ type CrawlHistoryEntry struct {
 	// field (aws-sdk-go-v2/service/glue@v1.152.0 types.go:2815-2836,2916-2946), so
 	// this is internal-only: it persists (handleListCrawls' crawlHistoryOut DTO
 	// copies fields explicitly and never includes it, so it never reaches the wire).
-	WorkflowRunID string  `json:"workflowRunId,omitempty"`
-	StartTime     float64 `json:"StartTime,omitempty"`
-	EndTime       float64 `json:"EndTime,omitempty"`
+	WorkflowRunID string `json:"workflowRunId,omitempty"`
+	// TriggerName is internal-only, like WorkflowRunID: the trigger that started this crawl.
+	TriggerName string  `json:"triggerName,omitempty"`
+	StartTime   float64 `json:"StartTime,omitempty"`
+	EndTime     float64 `json:"EndTime,omitempty"`
 }
 
 // ConnectionsList holds connections for a Glue job.
@@ -571,7 +573,10 @@ type JobRun struct {
 	// WorkflowRunStatistics. Real AWS's JobRun has no such field, so this is
 	// internal-only: it persists but GetJobRun/GetJobRuns strip it before
 	// returning, since those embed *JobRun directly in the wire response.
-	WorkflowRunID        string               `json:"workflowRunId,omitempty"`
+	WorkflowRunID string `json:"workflowRunId,omitempty"`
+	// PredecessorRuns are the job runs whose completion satisfied the conditional
+	// trigger that started this run; GetJobRun returns them only on request.
+	PredecessorRuns      []Predecessor        `json:"PredecessorRuns,omitempty"`
 	StartedOn            float64              `json:"StartedOn,omitempty"`
 	CompletedOn          float64              `json:"CompletedOn,omitempty"`
 	MaxCapacity          float64              `json:"MaxCapacity,omitempty"`
@@ -579,6 +584,12 @@ type JobRun struct {
 	NumberOfWorkers      int                  `json:"NumberOfWorkers,omitempty"`
 	Timeout              int                  `json:"Timeout,omitempty"`
 	NotificationProperty NotificationProperty `json:"NotificationProperty,omitzero"`
+}
+
+// Predecessor mirrors types.Predecessor.
+type Predecessor struct {
+	JobName string `json:"JobName"`
+	RunID   string `json:"RunId"`
 }
 
 // StartJobRunOptions carries the optional per-run overrides AWS's

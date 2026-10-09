@@ -16,7 +16,7 @@
 
 ### Known gaps
 
-- Request members accepted and ignored with no determinable effect: Tags on CreateColumnStatisticsTaskSettings/CreateIntegrationResourceProperty/RegisterConnectionType/CreateCustomEntityType (the Glue ARN guide lists no ARN for them); UpdateTable VersionId/Force/ViewUpdateAction (UpdateTable API reference names no mismatch behavior); ModifyIntegration.IntegrationName (ARN is name-keyed); GetJobRun.PredecessorsIncluded (needs conditional-trigger firing on job completion, which the backend does not do and whose re-fire semantics are undocumented); Get/ResetJobBookmark.RunId (one bookmark per job; per-run semantics undocumented); GetConnection.ApplyOverrideForComputeEnvironment; GetTable/GetTables/SearchTables IncludeStatusDetails; GetDatabases/SearchTables ResourceShareType (no cross-account shares).
+- Request members accepted and ignored with no determinable effect: Tags on CreateColumnStatisticsTaskSettings/CreateIntegrationResourceProperty/RegisterConnectionType/CreateCustomEntityType (the Glue ARN guide lists no ARN for them); UpdateTable VersionId/Force/ViewUpdateAction (UpdateTable API reference names no mismatch behavior); ModifyIntegration.IntegrationName (ARN is name-keyed); Get/ResetJobBookmark.RunId (one bookmark per job; per-run semantics undocumented); GetConnection.ApplyOverrideForComputeEnvironment; GetTable/GetTables/SearchTables IncludeStatusDetails; GetDatabases/SearchTables ResourceShareType (no cross-account shares).
 
 ### Structural gaps
 

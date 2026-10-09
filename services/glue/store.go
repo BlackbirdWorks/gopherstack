@@ -244,6 +244,8 @@ type InMemoryBackend struct {
 	accountID string
 	region    string
 
+	triggerEvents []runCompletion
+
 	// limits holds the resource-cardinality caps enforced with
 	// ResourceNumberLimitExceededException (see limits.go); configuredLimits
 	// preserves a WithResourceLimits override across Reset(), matching

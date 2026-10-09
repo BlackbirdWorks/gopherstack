@@ -153,6 +153,16 @@ func (b *InMemoryBackend) launchParticipantInstanceLocked(sourceServerID string)
 		subnetID = rc.StagingAreaSubnetID
 	}
 
+	if lc, found := b.launchConfigs.Get(sourceServerID); found && lc.TemplateContents != nil {
+		if lc.TemplateContents.InstanceType != "" {
+			instanceType = lc.TemplateContents.InstanceType
+		}
+
+		if len(lc.TemplateContents.NetworkInterfaces) > 0 && lc.TemplateContents.NetworkInterfaces[0].SubnetID != "" {
+			subnetID = lc.TemplateContents.NetworkInterfaces[0].SubnetID
+		}
+	}
+
 	instances, err := ec2Bk.RunInstances(imageID, instanceType, subnetID, 1)
 	if err != nil || len(instances) == 0 {
 		return newSyntheticInstanceID()

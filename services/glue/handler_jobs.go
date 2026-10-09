@@ -268,8 +268,9 @@ func (h *Handler) handleStartJobRun(_ context.Context, in *startJobRunInput) (*s
 }
 
 type getJobRunInput struct {
-	JobName string `json:"JobName"`
-	RunID   string `json:"RunId"`
+	JobName              string `json:"JobName"`
+	RunID                string `json:"RunId"`
+	PredecessorsIncluded bool   `json:"PredecessorsIncluded,omitempty"`
 }
 
 type getJobRunOutput struct {
@@ -280,6 +281,10 @@ func (h *Handler) handleGetJobRun(_ context.Context, in *getJobRunInput) (*getJo
 	run, err := h.Backend.GetJobRun(in.JobName, in.RunID)
 	if err != nil {
 		return nil, err
+	}
+
+	if !in.PredecessorsIncluded {
+		run.PredecessorRuns = nil
 	}
 
 	return &getJobRunOutput{JobRun: run}, nil
@@ -300,6 +305,10 @@ func (h *Handler) handleGetJobRuns(_ context.Context, in *getJobRunsInput) (*get
 	runs, err := h.Backend.GetJobRuns(in.JobName)
 	if err != nil {
 		return nil, err
+	}
+
+	for _, r := range runs {
+		r.PredecessorRuns = nil
 	}
 
 	runs, next, err := pagedSlice(runs, in.NextToken, in.MaxResults, defaultListPageSize)

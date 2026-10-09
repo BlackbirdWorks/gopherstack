@@ -3,6 +3,7 @@ package glue
 import (
 	"fmt"
 	"maps"
+	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
@@ -108,7 +109,7 @@ func (b *InMemoryBackend) CreateTrigger(t Trigger, tags map[string]string) (*Tri
 	// docs state it is "not supported for ON_DEMAND triggers" (which never leave
 	// CREATED anyway).
 	if stored.StartOnCreation && stored.Type != triggerTypeOnDemand {
-		stored.State = "ACTIVATED"
+		stored.State = triggerStateActivated
 	}
 
 	stored.StartOnCreation = false
@@ -234,7 +235,7 @@ func (b *InMemoryBackend) StartTrigger(name string) error {
 		found = true
 		onDemand = t.Type == triggerTypeOnDemand
 		if !onDemand {
-			t.State = "ACTIVATED"
+			t.State = triggerStateActivated
 		}
 
 		actions = append([]TriggerAction(nil), t.Actions...)
@@ -249,7 +250,7 @@ func (b *InMemoryBackend) StartTrigger(name string) error {
 		// coarse backend lock, and it is not reentrant. workflowRunID is empty
 		// here: firing a trigger directly (rather than via StartWorkflowRun)
 		// creates no WorkflowRun to link the resulting runs to.
-		b.fireTriggerActions(actions, name, "")
+		b.fireTriggerActions(actions, name, "", nil)
 	}
 
 	return nil
@@ -263,16 +264,18 @@ func (b *InMemoryBackend) StartTrigger(name string) error {
 // types.go:2815-2836,7134-7352). Per-action errors are not propagated: AWS's
 // StartTrigger/StartWorkflowRun return as soon as the trigger fires, before the
 // resulting job runs/crawls complete or are even guaranteed to start successfully.
-func (b *InMemoryBackend) fireTriggerActions(actions []TriggerAction, triggerName, workflowRunID string) {
+func (b *InMemoryBackend) fireTriggerActions(
+	actions []TriggerAction, triggerName, workflowRunID string, preds []Predecessor,
+) {
 	for _, a := range actions {
 		switch {
 		case a.JobName != "":
 			if run, err := b.StartJobRun(a.JobName, a.Arguments); err == nil {
-				b.stampTriggeredJobRun(run, triggerName, workflowRunID)
+				b.stampTriggeredJobRun(run, triggerName, workflowRunID, preds)
 			}
 		case a.CrawlerName != "":
 			if err := b.StartCrawler(a.CrawlerName); err == nil {
-				b.stampTriggeredCrawl(a.CrawlerName, workflowRunID)
+				b.stampTriggeredCrawl(a.CrawlerName, triggerName, workflowRunID)
 			}
 		}
 	}
@@ -282,19 +285,22 @@ func (b *InMemoryBackend) fireTriggerActions(actions []TriggerAction, triggerNam
 // run. run is the live pointer StartJobRun stored in b.jobRuns, so this mutates
 // the real record. Reacquires b.mu itself since fireTriggerActions runs after
 // StartJobRun has already released it.
-func (b *InMemoryBackend) stampTriggeredJobRun(run *JobRun, triggerName, workflowRunID string) {
+func (b *InMemoryBackend) stampTriggeredJobRun(
+	run *JobRun, triggerName, workflowRunID string, preds []Predecessor,
+) {
 	b.mu.Lock("stampTriggeredJobRun")
 	defer b.mu.Unlock()
 
 	run.TriggerName = triggerName
 	run.WorkflowRunID = workflowRunID
+	run.PredecessorRuns = slices.Clone(preds)
 }
 
 // stampTriggeredCrawl sets workflowRunID on the crawl StartCrawler just
 // appended for crawlerName. StartCrawler having just succeeded guarantees that
 // entry is the crawler's sole in-flight crawl (StartCrawler rejects a second
 // concurrent run), so grabbing the last history entry is unambiguous.
-func (b *InMemoryBackend) stampTriggeredCrawl(crawlerName, workflowRunID string) {
+func (b *InMemoryBackend) stampTriggeredCrawl(crawlerName, triggerName, workflowRunID string) {
 	b.mu.Lock("stampTriggeredCrawl")
 	defer b.mu.Unlock()
 
@@ -304,6 +310,7 @@ func (b *InMemoryBackend) stampTriggeredCrawl(crawlerName, workflowRunID string)
 	}
 
 	hist[len(hist)-1].WorkflowRunID = workflowRunID
+	hist[len(hist)-1].TriggerName = triggerName
 }
 
 // StopTrigger deactivates a Glue trigger. On-demand triggers never enter the

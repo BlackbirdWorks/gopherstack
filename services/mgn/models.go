@@ -483,6 +483,7 @@ func (p *PostLaunchActions) clone() *PostLaunchActions {
 type LaunchConfiguration struct {
 	Licensing                           *Licensing
 	PostLaunchActions                   *PostLaunchActions
+	TemplateContents                    *LaunchTemplateContents
 	SourceServerID                      string
 	BootMode                            string
 	Ec2LaunchTemplateID                 string
@@ -502,6 +503,7 @@ func (l *LaunchConfiguration) clone() *LaunchConfiguration {
 
 	cp := *l
 	cp.PostLaunchActions = l.PostLaunchActions.clone()
+	cp.TemplateContents = l.TemplateContents.clone()
 
 	if l.Licensing != nil {
 		lic := *l.Licensing

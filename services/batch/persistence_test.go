@@ -1,6 +1,7 @@
 package batch_test
 
 import (
+	"bytes"
 	"context"
 	"net/http"
 	"testing"
@@ -374,3 +375,65 @@ func TestBatch_PersistenceWithNewResourceTypes(t *testing.T) {
 }
 
 // --- ResourceTypeValidation tests ---
+
+func TestBatch_RestoreBackfillsEcsClusterArn(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		eks  bool
+	}{
+		{name: "ecs", eks: false},
+		{name: "eks", eks: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			orig := batch.NewInMemoryBackend("111122223333", "us-west-2")
+
+			var eks *batch.EksConfiguration
+			if tt.eks {
+				eks = &batch.EksConfiguration{
+					EksClusterArn:       "arn:aws:eks:us-west-2:111122223333:cluster/c",
+					KubernetesNamespace: "ns",
+				}
+			}
+
+			created, err := orig.CreateComputeEnvironment(
+				t.Context(), "ce-old", "UNMANAGED", "ENABLED", nil, "", nil, eks, nil, nil,
+			)
+			require.NoError(t, err)
+
+			snap := orig.Snapshot(t.Context())
+			if created.EcsClusterArn != "" {
+				snap = bytes.ReplaceAll(
+					snap,
+					[]byte(`"ecsClusterArn":"`+created.EcsClusterArn+`"`),
+					[]byte(`"ecsClusterArn":""`),
+				)
+				require.NotContains(t, string(snap), created.EcsClusterArn)
+			}
+
+			fresh := batch.NewInMemoryBackend("000000000000", "us-east-1")
+			require.NoError(t, fresh.Restore(t.Context(), snap))
+
+			got, _ := fresh.DescribeComputeEnvironments(t.Context(), nil, 0, "")
+			require.Len(t, got, 1)
+
+			if tt.eks {
+				assert.Empty(t, got[0].EcsClusterArn)
+
+				return
+			}
+
+			assert.Equal(
+				t,
+				"arn:aws:ecs:us-west-2:111122223333:cluster/ce-old_Batch_"+got[0].UUID,
+				got[0].EcsClusterArn,
+			)
+			assert.NotEmpty(t, got[0].UUID)
+		})
+	}
+}

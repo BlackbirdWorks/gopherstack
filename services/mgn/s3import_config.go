@@ -112,11 +112,13 @@ func parseImportRowConfigs(row []string, idx importHeaderIndex, r *importedRow) 
 	launch := parseImportLaunch(p)
 	repl := parseImportReplication(p, idx)
 
+	launchData := parseImportLaunchData(p, idx)
+
 	if p.err != nil {
 		return p.err
 	}
 
-	r.launch, r.replication = launch, repl
+	r.launch, r.replication, r.launchData = launch, repl, launchData
 
 	return nil
 }
@@ -129,8 +131,6 @@ func parseImportLaunch(p *importConfigParser) *UpdateLaunchConfigurationInput {
 		EnableMapAutoTagging: p.boolean(csvLaunchMapTagging),
 		MapAutoTaggingMpeID:  p.optStr(csvLaunchMapTagValue),
 	}
-
-	p.enum(csvLaunchMapTagKey, "map-migrated", "aws-apn-id")
 
 	if lic := p.enum(csvLaunchLicensing, "BYOL", "LI"); lic != nil {
 		in.Licensing = &Licensing{OsByol: *lic == "BYOL"}
@@ -276,6 +276,8 @@ func (b *InMemoryBackend) applyImportConfigsLocked(serverID string, row imported
 			applyLaunchConfigUpdate(lc, *row.launch)
 		}
 	}
+
+	b.applyImportLaunchDataLocked(serverID, row.launchData)
 
 	if row.replication != nil {
 		if rc, ok := b.replicationConfigs.Get(serverID); ok {
