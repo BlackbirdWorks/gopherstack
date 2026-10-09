@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/aws/smithy-go/encoding/cbor"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -276,5 +277,62 @@ func BenchmarkCaptureResponseWriterWrite_Error(b *testing.B) {
 		if _, err := w.Write(payload); err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+func TestExtractErrorInfo(t *testing.T) {
+	t.Parallel()
+
+	cborBody := cbor.Encode(cbor.Map{
+		"__type":  cbor.String("ValidationException"),
+		"message": cbor.String("bad input"),
+	})
+
+	tests := []struct {
+		name     string
+		body     string
+		wantCode string
+		wantMsg  string
+		status   int
+	}{
+		{"json", `{"__type":"NoSuchThing","message":"gone"}`, "NoSuchThing", "gone", 400},
+		{"json_rest", `{"Code":"Boom","Message":"bang"}`, "Boom", "bang", 500},
+		{
+			"query_xml",
+			"<ErrorResponse><Error><Type>Sender</Type><Code>InvalidParameterValue</Code>" +
+				"<Message>bad value</Message></Error></ErrorResponse>",
+			"InvalidParameterValue",
+			"bad value",
+			400,
+		},
+		{
+			"ec2_xml",
+			"<Response><Errors><Error><Code>InvalidVpcID.NotFound</Code>" +
+				"<Message>no vpc</Message></Error></Errors></Response>",
+			"InvalidVpcID.NotFound",
+			"no vpc",
+			400,
+		},
+		{
+			"rest_xml",
+			"<Error><Code>NoSuchBucket</Code><Message>missing</Message></Error>",
+			"NoSuchBucket",
+			"missing",
+			404,
+		},
+		{"cbor", string(cborBody), "ValidationException", "bad input", 400},
+		{"garbage", "\xff\xff", "", "", 400},
+		{"empty", "", "", "", 400},
+		{"success_ignored", `{"__type":"X","message":"y"}`, "", "", 200},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			code, msg := extractErrorInfo(tt.status, []byte(tt.body))
+			assert.Equal(t, tt.wantCode, code)
+			assert.Equal(t, tt.wantMsg, msg)
+		})
 	}
 }

@@ -75,7 +75,6 @@ ops:
 gaps: []
 items_still_open:
   - "gopherstack-53eh: unaliased aggregates are named _col<N> by position, inferred from Trino; AWS documents no naming convention, so it is unverifiable."
-  - "gopherstack-53eh: wrapCloudTrailCapture's error-body extraction lacks query-protocol XML and CBOR shapes; it lives in pkgs/service, outside this directory."
   - "GetEventDataStore PartitionKeys content is AWS-computed and undocumented in the SDK; StartQuery QueryParameters ($StartTime$/$EndTime$/$Period$) are recorded on the Query but their substitution semantics are undocumented."
 structural_gaps:
   - "ListInsightsData/ListPublicKeys/SearchSampleQueries return empty lists: no Insight events are generated, no log-file digests are signed, and the sample-query catalog is AWS-owned data. ListInsightsMetricData is computed from recorded events."

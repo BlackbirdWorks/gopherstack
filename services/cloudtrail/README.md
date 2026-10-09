@@ -8,7 +8,7 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 60 (49 ok, 11 partial) |
-| Known gaps | 3 |
+| Known gaps | 2 |
 | Structural gaps (can't be emulated) | 4 |
 | Deferred items | 0 |
 | Resource leaks | fixed |
@@ -16,7 +16,6 @@
 ### Known gaps
 
 - gopherstack-53eh: unaliased aggregates are named _col<N> by position, inferred from Trino; AWS documents no naming convention, so it is unverifiable.
-- gopherstack-53eh: wrapCloudTrailCapture's error-body extraction lacks query-protocol XML and CBOR shapes; it lives in pkgs/service, outside this directory.
 - GetEventDataStore PartitionKeys content is AWS-computed and undocumented in the SDK; StartQuery QueryParameters ($StartTime$/$EndTime$/$Period$) are recorded on the Query but their substitution semantics are undocumented.
 
 ### Structural gaps
