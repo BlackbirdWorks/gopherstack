@@ -351,7 +351,42 @@ func (b *InMemoryBackend) DescribeCertificateAuthority(clusterName, id string) (
 		return nil, fmt.Errorf("%w: certificate authority %s not found in cluster %s", ErrNotFound, id, clusterName)
 	}
 
-	return deepCopyCertificateAuthority(ca), nil
+	cp := deepCopyCertificateAuthority(ca)
+	b.applyCertificateAuthorityTimeline(cp, clusterName, time.Now())
+
+	return cp, nil
+}
+
+const (
+	caAutoActivationMonthsBeforeExpiry = 6
+	caFinalAutoActivationDays          = 45
+)
+
+// applyCertificateAuthorityTimeline fills ScheduledEvents on a pending successor and ends the rollback window
+// at the final auto-activation, 45 days before the outgoing CA expires (EKS user guide, "Rotate the EKS cluster
+// certificate authority"). Must be called with at least a read lock held.
+func (b *InMemoryBackend) applyCertificateAuthorityTimeline(
+	ca *CertificateAuthority, clusterName string, now time.Time,
+) {
+	finalAt := ca.NotAfter.AddDate(0, 0, -caFinalAutoActivationDays)
+	if ca.RollbackAvailable && !now.Before(finalAt) {
+		ca.RollbackAvailable = false
+	}
+
+	if ca.SigningStatus != caSigningStatusNotUsed || ca.ActivatedAt != nil {
+		return
+	}
+
+	for _, other := range b.certificateAuthoritiesByCluster.Get(clusterName) {
+		if other.SigningStatus == caSigningStatusInUse {
+			ca.ScheduledEvents = &CertificateAuthorityScheduledEvents{
+				FirstAutoActivation: other.NotAfter.AddDate(0, -caAutoActivationMonthsBeforeExpiry, 0),
+				FinalAutoActivation: other.NotAfter.AddDate(0, 0, -caFinalAutoActivationDays),
+			}
+
+			return
+		}
+	}
 }
 
 // ListCertificateAuthorities returns every certificate authority in a

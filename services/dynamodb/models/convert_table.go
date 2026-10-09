@@ -234,6 +234,7 @@ func ToSDKUpdateTableInput(input *UpdateTableInput) (*dynamodb.UpdateTableInput,
 	out.BillingMode = types.BillingMode(input.BillingMode)
 	out.GlobalSecondaryIndexUpdates = toSDKGSIUpdates(input.GlobalSecondaryIndexUpdates)
 	out.ReplicaUpdates = toSDKReplicationGroupUpdates(input.ReplicaUpdates)
+	out.GlobalTableWitnessUpdates = toSDKWitnessUpdates(input.GlobalTableWitnessUpdates)
 	out.VectorIndexUpdates = toSDKVectorIndexUpdates(input.VectorIndexUpdates)
 	out.MultiRegionConsistency = types.MultiRegionConsistency(input.MultiRegionConsistency)
 	out.WarmThroughput = ToSDKWarmThroughput(input.WarmThroughput)
@@ -298,30 +299,90 @@ func toSDKReplicationGroupUpdates(updates []ReplicaUpdate) []types.ReplicationGr
 
 	for _, ru := range updates {
 		sdkRU := types.ReplicationGroupUpdate{}
-		if ru.Create != nil {
+		if c := ru.Create; c != nil {
 			sdkRU.Create = &types.CreateReplicationGroupMemberAction{
-				RegionName: &ru.Create.RegionName,
+				RegionName:                    &c.RegionName,
+				KMSMasterKeyId:                c.KMSMasterKeyID,
+				TableClassOverride:            types.TableClass(c.TableClassOverride),
+				ProvisionedThroughputOverride: toSDKProvisionedOverride(c.ProvisionedThroughputOverride),
+				OnDemandThroughputOverride:    toSDKOnDemandOverride(c.OnDemandThroughputOverride),
+				GlobalSecondaryIndexes:        toSDKReplicaGSIs(c.GlobalSecondaryIndexes),
 			}
 		}
-		if ru.Update != nil {
-			update := &types.UpdateReplicationGroupMemberAction{
-				RegionName:         &ru.Update.RegionName,
-				TableClassOverride: types.TableClass(ru.Update.TableClassOverride),
+
+		if u := ru.Update; u != nil {
+			sdkRU.Update = &types.UpdateReplicationGroupMemberAction{
+				RegionName:                    &u.RegionName,
+				KMSMasterKeyId:                u.KMSMasterKeyID,
+				TableClassOverride:            types.TableClass(u.TableClassOverride),
+				ProvisionedThroughputOverride: toSDKProvisionedOverride(u.ProvisionedThroughputOverride),
+				OnDemandThroughputOverride:    toSDKOnDemandOverride(u.OnDemandThroughputOverride),
+				GlobalSecondaryIndexes:        toSDKReplicaGSIs(u.GlobalSecondaryIndexes),
 			}
-			if ru.Update.ProvisionedReadCapacityUnits != nil {
-				rcu := *ru.Update.ProvisionedReadCapacityUnits
-				update.ProvisionedThroughputOverride = &types.ProvisionedThroughputOverride{
-					ReadCapacityUnits: &rcu,
-				}
-			}
-			sdkRU.Update = update
 		}
+
 		if ru.Delete != nil {
 			sdkRU.Delete = &types.DeleteReplicationGroupMemberAction{
 				RegionName: &ru.Delete.RegionName,
 			}
 		}
+
 		out = append(out, sdkRU)
+	}
+
+	return out
+}
+
+func toSDKProvisionedOverride(in *ProvisionedThroughputOverrideWire) *types.ProvisionedThroughputOverride {
+	if in == nil {
+		return nil
+	}
+
+	return &types.ProvisionedThroughputOverride{ReadCapacityUnits: in.ReadCapacityUnits}
+}
+
+func toSDKOnDemandOverride(in *OnDemandThroughputOverrideWire) *types.OnDemandThroughputOverride {
+	if in == nil {
+		return nil
+	}
+
+	return &types.OnDemandThroughputOverride{MaxReadRequestUnits: in.MaxReadRequestUnits}
+}
+
+func toSDKReplicaGSIs(in []ReplicaGSIWire) []types.ReplicaGlobalSecondaryIndex {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make([]types.ReplicaGlobalSecondaryIndex, len(in))
+	for i, g := range in {
+		out[i] = types.ReplicaGlobalSecondaryIndex{
+			IndexName:                     aws.String(g.IndexName),
+			ProvisionedThroughputOverride: toSDKProvisionedOverride(g.ProvisionedThroughputOverride),
+		}
+	}
+
+	return out
+}
+
+func toSDKWitnessUpdates(in []WitnessUpdate) []types.GlobalTableWitnessGroupUpdate {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make([]types.GlobalTableWitnessGroupUpdate, len(in))
+	for i, w := range in {
+		if w.Create != nil {
+			out[i].Create = &types.CreateGlobalTableWitnessGroupMemberAction{
+				RegionName: aws.String(w.Create.RegionName),
+			}
+		}
+
+		if w.Delete != nil {
+			out[i].Delete = &types.DeleteGlobalTableWitnessGroupMemberAction{
+				RegionName: aws.String(w.Delete.RegionName),
+			}
+		}
 	}
 
 	return out
@@ -416,6 +477,7 @@ func FromSDKTableDescription(td *types.TableDescription) TableDescription {
 			td.ProvisionedThroughput,
 		),
 		Replicas:                  replicas,
+		GlobalTableWitnesses:      fromSDKGlobalTableWitnesses(td.GlobalTableWitnesses),
 		VectorIndexes:             FromSDKVectorIndexDescriptions(td.VectorIndexes),
 		LatestStreamArn:           ptrconv.String(td.LatestStreamArn),
 		LatestStreamLabel:         ptrconv.String(td.LatestStreamLabel),
@@ -475,39 +537,61 @@ func FromSDKTableDescription(td *types.TableDescription) TableDescription {
 	return out
 }
 
-func fromSDKReplicaDescriptions(sdkReplicas []types.ReplicaDescription) []ReplicaDescription {
+func fromSDKGlobalTableWitnesses(in []types.GlobalTableWitnessDescription) []GlobalTableWitness {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make([]GlobalTableWitness, len(in))
+	for i, w := range in {
+		out[i] = GlobalTableWitness{RegionName: ptrconv.String(w.RegionName), WitnessStatus: string(w.WitnessStatus)}
+	}
+
+	return out
+}
+
+func fromSDKReplicaDescriptions(sdkReplicas []types.ReplicaDescription) []ReplicaWire {
 	if len(sdkReplicas) == 0 {
 		return nil
 	}
 
-	out := make([]ReplicaDescription, len(sdkReplicas))
+	out := make([]ReplicaWire, len(sdkReplicas))
 	for i, r := range sdkReplicas {
-		rep := ReplicaDescription{
-			RegionName:    ptrconv.String(r.RegionName),
-			ReplicaArn:    ptrconv.String(r.ReplicaArn),
-			ReplicaStatus: string(r.ReplicaStatus),
+		rep := ReplicaWire{
+			RegionName:     ptrconv.String(r.RegionName),
+			ReplicaArn:     ptrconv.String(r.ReplicaArn),
+			ReplicaStatus:  string(r.ReplicaStatus),
+			KMSMasterKeyID: ptrconv.String(r.KMSMasterKeyId),
 		}
 		if r.ReplicaTableClassSummary != nil && r.ReplicaTableClassSummary.TableClass != "" {
-			rep.TableClassOverride = string(r.ReplicaTableClassSummary.TableClass)
-		}
-		if r.ProvisionedThroughputOverride != nil &&
-			r.ProvisionedThroughputOverride.ReadCapacityUnits != nil {
-			rcu := *r.ProvisionedThroughputOverride.ReadCapacityUnits
-			rep.ProvisionedReadCapacityUnits = &rcu
-		}
-		if len(r.GlobalSecondaryIndexes) > 0 {
-			gsis := make([]ReplicaGSIOverride, 0, len(r.GlobalSecondaryIndexes))
-			for _, g := range r.GlobalSecondaryIndexes {
-				ov := ReplicaGSIOverride{IndexName: ptrconv.String(g.IndexName)}
-				if g.ProvisionedThroughputOverride != nil &&
-					g.ProvisionedThroughputOverride.ReadCapacityUnits != nil {
-					rcu := *g.ProvisionedThroughputOverride.ReadCapacityUnits
-					ov.ProvisionedReadCapacity = &rcu
-				}
-				gsis = append(gsis, ov)
+			rep.ReplicaTableClassSummary = &TableClassSummaryDescription{
+				TableClass: string(r.ReplicaTableClassSummary.TableClass),
 			}
-			rep.GlobalSecondaryIndexes = gsis
 		}
+
+		if r.ProvisionedThroughputOverride != nil {
+			rep.ProvisionedThroughputOverride = &ProvisionedThroughputOverrideWire{
+				ReadCapacityUnits: r.ProvisionedThroughputOverride.ReadCapacityUnits,
+			}
+		}
+
+		if r.OnDemandThroughputOverride != nil {
+			rep.OnDemandThroughputOverride = &OnDemandThroughputOverrideWire{
+				MaxReadRequestUnits: r.OnDemandThroughputOverride.MaxReadRequestUnits,
+			}
+		}
+
+		for _, g := range r.GlobalSecondaryIndexes {
+			gw := ReplicaGSIWire{IndexName: ptrconv.String(g.IndexName)}
+			if g.ProvisionedThroughputOverride != nil {
+				gw.ProvisionedThroughputOverride = &ProvisionedThroughputOverrideWire{
+					ReadCapacityUnits: g.ProvisionedThroughputOverride.ReadCapacityUnits,
+				}
+			}
+
+			rep.GlobalSecondaryIndexes = append(rep.GlobalSecondaryIndexes, gw)
+		}
+
 		out[i] = rep
 	}
 

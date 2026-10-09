@@ -59,6 +59,7 @@ func TestBlueGreen_LambdaHooks(t *testing.T) {
 		name       string
 		wantStatus string
 		wantHook   string
+		wantSecond string
 		wantCalls  int
 	}{
 		{
@@ -66,8 +67,16 @@ func TestBlueGreen_LambdaHooks(t *testing.T) {
 			wantStatus: "SUCCESSFUL", wantHook: "SUCCEEDED", wantCalls: 1,
 		},
 		{
-			name: "no_hook_status_is_success", invoker: &scriptedInvoker{responses: []string{`{}`}},
-			wantStatus: "SUCCESSFUL", wantHook: "SUCCEEDED", wantCalls: 1,
+			name: "no_hook_status_fails", invoker: &scriptedInvoker{responses: []string{`{}`}},
+			wantStatus: "ROLLBACK_FAILED", wantHook: "FAILED", wantCalls: 1,
+		},
+		{
+			name: "invalid_hook_status_fails", invoker: &scriptedInvoker{responses: []string{`{"hookStatus":"MAYBE"}`}},
+			wantStatus: "ROLLBACK_FAILED", wantHook: "FAILED", wantCalls: 1,
+		},
+		{
+			name: "non_json_fails", invoker: &scriptedInvoker{responses: []string{`ok`}},
+			wantStatus: "ROLLBACK_FAILED", wantHook: "FAILED", wantCalls: 1,
 		},
 		{
 			name: "hook_status_failed", invoker: &scriptedInvoker{responses: []string{`{"hookStatus":"FAILED"}`}},
@@ -81,9 +90,10 @@ func TestBlueGreen_LambdaHooks(t *testing.T) {
 		{
 			name: "in_progress_then_succeeded",
 			invoker: &scriptedInvoker{responses: []string{
-				`{"hookStatus":"IN_PROGRESS","callBackDelay":0}`, `{"hookStatus":"SUCCEEDED"}`,
+				`{"hookStatus":"IN_PROGRESS","callBackDelay":0,"hookDetails":{"checked":true}}`,
+				`{"hookStatus":"SUCCEEDED"}`,
 			}},
-			wantStatus: "SUCCESSFUL", wantHook: "SUCCEEDED", wantCalls: 2,
+			wantStatus: "SUCCESSFUL", wantHook: "SUCCEEDED", wantCalls: 2, wantSecond: `"checked":true`,
 		},
 	}
 
@@ -136,6 +146,14 @@ func TestBlueGreen_LambdaHooks(t *testing.T) {
 			assert.Equal(t, fnArn, tt.invoker.arns[0])
 			assert.Contains(t, string(tt.invoker.payloads[0]), `"hookDetails":{"gate":"x"}`)
 			assert.Contains(t, string(tt.invoker.payloads[0]), `"lifecycleStage":"PRE_SCALE_UP"`)
+			assert.Contains(t, string(tt.invoker.payloads[0]), `"executionId":"`)
+			assert.Contains(t, string(tt.invoker.payloads[0]), `"resourceArn":"arn:aws:ecs:`)
+			assert.Contains(t, string(tt.invoker.payloads[0]), `"productionTrafficWeights":{}`)
+
+			if tt.wantSecond != "" {
+				assert.Contains(t, string(tt.invoker.payloads[1]), tt.wantSecond)
+				assert.Contains(t, string(tt.invoker.payloads[1]), `"gate":"x"`)
+			}
 		})
 	}
 }

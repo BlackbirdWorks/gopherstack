@@ -3,8 +3,8 @@ package ecs
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"slices"
-	"strings"
 	"time"
 )
 
@@ -13,6 +13,7 @@ const (
 	hookStatusFailed     = "FAILED"
 
 	defaultHookCallbackDelay = 30 * time.Second
+	fullTrafficWeight        = 100
 )
 
 // LambdaInvoker runs a function synchronously; a function error must be returned as an error.
@@ -29,37 +30,52 @@ func (b *InMemoryBackend) SetLambdaInvoker(l LambdaInvoker) {
 }
 
 type hookResponse struct {
-	CallBackDelay *int   `json:"callBackDelay"`
-	HookStatus    string `json:"hookStatus"`
-	Reason        string `json:"reason"`
+	CallBackDelay *int           `json:"callBackDelay"`
+	HookDetails   map[string]any `json:"hookDetails"`
+	HookStatus    string         `json:"hookStatus"`
 }
 
-// parseHookResponse maps an invocation result to a hook status. The AWS developer guide has the function
-// return {"hookStatus": SUCCEEDED|FAILED|IN_PROGRESS}; the SDK does not define it, so a successful invocation
-// without a recognised hookStatus counts as SUCCEEDED and an invocation error as FAILED.
-func parseHookResponse(resp []byte, invokeErr error) (string, time.Duration) {
+// parseHookResponse maps an invocation result to a hook status per the ECS developer guide ("Lambda hooks"):
+// a missing or invalid hookStatus, an unparsable response or an invocation error fails the hook.
+func parseHookResponse(resp []byte, invokeErr error) (string, time.Duration, map[string]any) {
 	if invokeErr != nil {
-		return hookStatusFailed, 0
+		return hookStatusFailed, 0, nil
 	}
 
 	var r hookResponse
 	if json.Unmarshal(resp, &r) != nil {
-		return hookStatusSucceeded, 0
+		return hookStatusFailed, 0, nil
 	}
 
-	switch strings.ToUpper(r.HookStatus) {
-	case hookStatusFailed:
-		return hookStatusFailed, 0
+	switch r.HookStatus {
+	case hookStatusSucceeded:
+		return hookStatusSucceeded, 0, nil
 	case hookStatusInProgress:
 		delay := defaultHookCallbackDelay
 		if r.CallBackDelay != nil {
 			delay = time.Duration(*r.CallBackDelay) * time.Second
 		}
 
-		return hookStatusInProgress, delay
+		return hookStatusInProgress, delay, r.HookDetails
 	}
 
-	return hookStatusSucceeded, 0
+	return hookStatusFailed, 0, nil
+}
+
+// mergeHookDetails folds runtime hookDetails from an IN_PROGRESS response into the next invocation.
+func mergeHookDetails(current any, update map[string]any) any {
+	if len(update) == 0 {
+		return current
+	}
+
+	merged := map[string]any{}
+	if cur, ok := current.(map[string]any); ok {
+		maps.Copy(merged, cur)
+	}
+
+	maps.Copy(merged, update)
+
+	return merged
 }
 
 func isLambdaHook(h *DeploymentLifecycleHook) bool { return h.TargetType == hookTargetLambda }
@@ -84,18 +100,53 @@ type hookInvocation struct {
 	targetArn   string
 	serviceArn  string
 	stage       string
+	rawStage    string
 	revisionArn string
+	sourceArns  []string
+}
+
+// trafficWeights returns the test and production weight maps the guide shows for the stage.
+func (inv *hookInvocation) trafficWeights() (map[string]int, map[string]int) {
+	test, prod := map[string]int{}, map[string]int{}
+
+	shift := func(m map[string]int, target int) {
+		m[inv.revisionArn] = target
+		for _, src := range inv.sourceArns {
+			m[src] = fullTrafficWeight - target
+		}
+	}
+
+	switch inv.rawStage {
+	case stageTestTrafficShift:
+		shift(test, fullTrafficWeight)
+	case stagePreProductionShift:
+		shift(prod, 0)
+	case stageProductionTrafficShift:
+		shift(prod, fullTrafficWeight)
+	}
+
+	return test, prod
 }
 
 func (inv *hookInvocation) payload() []byte {
-	details := map[string]any{
-		"serviceArn": inv.serviceArn, "targetServiceRevisionArn": inv.revisionArn, "lifecycleStage": inv.stage,
-	}
-	if inv.hookDetails != nil {
-		details["hookDetails"] = inv.hookDetails
+	test, prod := inv.trafficWeights()
+	event := map[string]any{
+		"executionId":    inv.hookID,
+		"lifecycleStage": inv.stage,
+		"resourceArn":    inv.deployment,
+		"executionDetails": map[string]any{
+			"serviceArn":               inv.serviceArn,
+			"targetServiceRevisionArn": inv.revisionArn,
+			"testTrafficWeights":       test,
+			"productionTrafficWeights": prod,
+		},
 	}
 
-	raw, _ := json.Marshal(map[string]any{"executionDetails": details})
+	if inv.hookDetails != nil {
+		event["hookDetails"] = inv.hookDetails
+	}
+
+	raw, _ := json.Marshal(event)
 
 	return raw
 }
@@ -119,7 +170,10 @@ func (b *InMemoryBackend) ensureLambdaHookRunningLocked(svc *Service, sd *Servic
 	inv := &hookInvocation{
 		expires: *d.ExpiresAt, hookDetails: lambdaHookDetails(svc, d.TargetArn, d.Stage), hookID: d.HookID,
 		deployment: sd.ServiceDeploymentArn, targetArn: d.TargetArn, serviceArn: sd.ServiceArn,
-		stage: reportedLifecycleStage(d.Stage), revisionArn: sd.TargetServiceRevisionArn,
+		stage: reportedLifecycleStage(d.Stage), rawStage: d.Stage, revisionArn: sd.TargetServiceRevisionArn,
+	}
+	for _, src := range sd.sourceRevisions {
+		inv.sourceArns = append(inv.sourceArns, src.Arn)
 	}
 
 	go b.runLambdaHook(b.lambdaInvoker, inv)
@@ -141,12 +195,14 @@ func (b *InMemoryBackend) runLambdaHook(invoker LambdaInvoker, inv *hookInvocati
 			return
 		}
 
-		status, delay := parseHookResponse(resp, err)
+		status, delay, details := parseHookResponse(resp, err)
 		if status != hookStatusInProgress {
 			b.finishLambdaHook(inv, status)
 
 			return
 		}
+
+		inv.hookDetails = mergeHookDetails(inv.hookDetails, details)
 
 		select {
 		case <-time.After(delay):

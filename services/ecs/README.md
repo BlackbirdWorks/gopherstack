@@ -9,20 +9,16 @@
 | --- | --- |
 | PARITY entries audited | 65 (63 ok, 2 partial) |
 | Feature families | 1 (1 ok) |
-| Known gaps | 2 |
-| Structural gaps (can't be emulated) | 3 |
+| Known gaps | none |
+| Structural gaps (can't be emulated) | 4 |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- AWS_LAMBDA hook invocation payload (executionDetails: serviceArn, targetServiceRevisionArn, lifecycleStage, hookDetails) and the {hookStatus, callBackDelay} response contract come from the ECS developer guide, not the SDK; the default 30s callBackDelay is unverified.
-- Managed scaling is not modeled: AutoScalingGroupProvider is validated against Auto Scaling at create, but ManagedScaling targetCapacity and ManagedTerminationProtection never scale or protect the group.
 
 ### Structural gaps
 
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
+- Managed scaling / managed termination protection (2026-10-07): settings are validated against the ECS API reference ranges and defaults, but the group is never scaled or protected: ECS drives scale-out from the CapacityProviderReservation metric over container-instance resource accounting, and tasks here run on a runner with no per-instance CPU/memory ledger.
 - AWS/ECS CPUUtilization/MemoryUtilization are emitted only for docker-runtime tasks; the noop runner has no container stats to measure.
 - Daemon-launched tasks: ECS Managed Daemons run only on Managed Instances capacity providers, which provision EC2 hosts this emulator does not model, so ListTasks.daemonName filters correctly but no task ever belongs to a daemon.
 - awslogs without awslogs-stream-prefix names the stream after the runtime container ID: exact under the docker runtime, but without a container runtime no container ID exists and the task ID stands in.

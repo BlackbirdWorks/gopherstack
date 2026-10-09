@@ -9,15 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 64 (55 ok, 9 gap) |
 | Feature families | 13 (13 ok) |
-| Known gaps | 2 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- MSK Connect (kafkaconnect: CreateConnector/CreateCustomPlugin/CreateWorkerConfiguration, Terraform aws_mskconnect_*) is a separate AWS service with no services/kafkaconnect directory; out of scope for this directory.
-- CreateChannel does not restrict channels to MSK Express clusters (CreateChannel's doc says it streams from an Express cluster topic) nor check that TopicConfigurationList[].TopicArn names an existing topic: the SDK documents no error code or validator for either.
 
 ### Structural gaps
 

@@ -49,6 +49,10 @@ func (h *Handler) handleGetResourcesV2(c *echo.Context, body map[string]any) err
 }
 
 func (h *Handler) handleGetResourcesStatisticsV2(c *echo.Context, body map[string]any) error {
+	if msg := validateStatisticsRequest(body); msg != "" {
+		return typedErrorResponse(c, http.StatusBadRequest, "ValidationException", msg)
+	}
+
 	rules := groupByRulesFromBody(body[keyGroupByRules])
 	sortOrder, _ := body[keySortOrder].(string)
 

@@ -9,19 +9,20 @@
 | --- | --- |
 | PARITY entries audited | 70 (70 ok) |
 | Known gaps | 2 |
-| Structural gaps (can't be emulated) | 4 |
+| Structural gaps (can't be emulated) | 5 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- No published derivation: ArgoCd IdcManagedApplicationArn/ServerUrl, CertificateAuthority.ScheduledEvents, the CA RollbackAvailable expiry window (no duration documented), and EksAnywhereSubscription.LicenseArns/Licenses (no per-license record) are left empty rather than fabricated.
-- DescribeClusterVersions IncludeAll has no documented default exclusion, so it is a no-op; DescribeAddonVersions owner aws/publisher eks values and the UpdateParam encoding of the ConfigUpdate params are not stated by the pinned SDK.
+- ArgoCd IdcManagedApplicationArn: the IAM Identity Center application is created in the Identity Center instance owner's account, which IdcInstanceArn does not carry; resolving it needs an ssoadmin instance lookup (root wiring in cli.go).
+- DescribeClusterVersions IncludeAll has no documented default exclusion (checked api_op_DescribeClusterVersions.go and API_DescribeClusterVersions.html), so it stays a no-op; DescribeAddonVersions owner/publisher filter values and the ConfigUpdate UpdateParam encoding are not stated by the pinned SDK or the API reference.
 
 ### Structural gaps
 
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
+- EksAnywhereSubscription.LicenseArns/Licenses (2026-10-07): issued by AWS licensing for a real subscription purchase; no per-license record exists to derive.
 - EKS docker engine IAM (k8s-aws-v1) token authentication, managed nodegroup/Fargate/addon workloads and Insights computed from a live API server need a real Kubernetes control plane (gopherstack-7neth).
 - Insight/DescribeInsight content beyond the two derivable UPGRADE_READINESS checks, Nodegroup.Health.Issues and FargateProfile.Health.Issues, and DeleteCertificateAuthority's only-successor protection (EKS-appended successors come from EKS-driven rotation, never CUSTOMER-created) need a live API server or EKS-initiated events.
 - UpdateClusterVersion Force and UpdateNodegroupVersion Force override readiness checks and Pod disruption budgets that only a live cluster has; RollbackConfig.TimeoutMinutes is validated (120-10080) but no rollback timer runs. kube-apiserver, kube-controller-manager, kube-scheduler, zonal-shift, scaling-tier, remote-network and outpost members are stored and echoed, not enforced by a control plane.

@@ -8,21 +8,21 @@
 | Metric | Value |
 | --- | --- |
 | Feature families | 22 (22 ok) |
-| Known gaps | 3 |
-| Structural gaps (can't be emulated) | 14 |
+| Known gaps | 1 |
+| Structural gaps (can't be emulated) | 16 |
 | Deferred items | 5 |
 | Resource leaks | ok |
 
 ### Known gaps
 
-- Regional NAT gateway RouteTableId: the SDK doc only says "the ID of the NAT gateway" (typo); which route table AWS creates and how it is populated is not documented, so the member is left unset.
-- Filters the pinned SDK does not define well enough to apply: DescribeCapacityBlocks 'tags' (doc is only "the tags assigned"), DescribeInstanceEventWindows 'instance-tag' (value syntax undocumented), DescribeInstanceImageMetadata 'image-allowed' (Allowed AMIs evaluation is documented in the user guide, but AMIs here carry no CreationDate, ProductCodes or watermarks to evaluate CreationDateCondition, MarketplaceProductCodes or ImageWatermarks against), DescribeVpcPeeringConnections 'status-message' (message texts undocumented: VPC peering lifecycle page names states only), DescribeInstanceStatus 'application-status.status' (InstanceStatus.ApplicationStatus not emitted).
-- DescribeApplicationStatusCheckAssociationsOutput.Tags aggregation across checks is ambiguous in the pinned SDK docs.
+- Filters the pinned SDK does not define: DescribeCapacityBlocks 'tags' (doc is only "the tags assigned"; checked api_op_DescribeCapacityBlocks.go), DescribeInstanceEventWindows 'instance-tag' (value syntax undocumented in api_op_DescribeInstanceEventWindows.go), DescribeVpcPeeringConnections 'status-message' (no message texts in the SDK or the VPC peering lifecycle page, which names states only).
 
 ### Structural gaps
 
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
+- DescribeInstanceStatus application-status.status filter and InstanceStatus.ApplicationStatus (2026-10-07): derived from live HTTP(S) health-check results; see the DescribeApplicationStatus entry below.
+- DescribeApplicationStatusCheckAssociationsOutput.Tags (2026-10-07): the pinned deserializer reads only associationSet and nextToken, so the member can never reach an SDK client.
 - "DescribeApplicationStatus's ApplicationStatus.StatusSince and ApplicationStatusDetail (the real per-check status-transition timestamp and breakdown list) are always zero/empty, and the aggregated status itself never reports 'ok'/'impaired'/ 'initializing' (see the application_status_checks family note). Real AWS derives all of this from actually executing HTTP(S) health checks against the target instance's application over real network traffic between the AWS control plane and the instance. This mock has no network path to an instance's application at all — instances here are metadata records, not running workloads — so there is no data source that could ever produce a genuine check result, timestamp, or transition here, in an emulator or not. Reporting anything but the explicitly-defined 'not-applicable'/'insufficient-data'/ 'suppressed' subset would be fabrication. (gopherstack-8pce, 2026-08-07)"
 - "GetIpamDiscoveredRoutes/GetIpamRouteProtectionFindings (2026-09-19): no BGP route discovery or RPKI route-validation pipeline exists in this emulator -- both ops validate their real FK (IpamResourceDiscoveryId / IpamId, correct NotFound on an unknown one) but always return an empty, correctly-shaped result rather than fabricate routes or findings."
 - "Request fields still unread (2026-10-05): DescribeNetworkInsightsAnalyses AnalysisStartTime/AnalysisEndTime (analysis items carry startDate only, no end date; the SDK does not say which bound each field compares), CreateNetworkInsightsPath FilterAtSource/FilterAtDestination (no path-analysis engine consumes them), ExportTransitGatewayRoutes Filters (shapes an S3 file this backend does not render)."

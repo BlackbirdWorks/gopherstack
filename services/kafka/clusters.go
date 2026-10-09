@@ -259,6 +259,19 @@ func (b *InMemoryBackend) AddClusterInternal(name, kafkaVersion string) *Cluster
 	return cloneCluster(cluster)
 }
 
+// AddExpressClusterInternal adds an ACTIVE provisioned cluster with Express brokers directly (seed helper for tests).
+func (b *InMemoryBackend) AddExpressClusterInternal(name, kafkaVersion string) *Cluster {
+	cl := b.AddClusterInternal(name, kafkaVersion)
+
+	b.mu.Lock("AddExpressClusterInternal")
+	defer b.mu.Unlock()
+
+	stored, _ := b.clusters.Get(cl.ClusterArn)
+	stored.BrokerNodeGroupInfo.InstanceType = expressInstanceTypePrefix + "m7g.large"
+
+	return cloneCluster(stored)
+}
+
 // cloneCluster creates a deep copy of a cluster.
 func cloneCluster(c *Cluster) *Cluster {
 	clone := &Cluster{

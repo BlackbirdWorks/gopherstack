@@ -21,6 +21,11 @@ func (b *InMemoryBackend) CreateHostedConfigurationVersion(
 	content []byte,
 	latestVersionNumber *int32,
 ) (*HostedConfigurationVersion, error) {
+	content, err := b.preCreateHostedVersion(applicationID, profileID, contentType, description, content)
+	if err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateHostedConfigurationVersion")
 	defer b.mu.Unlock()
 

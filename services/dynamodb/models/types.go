@@ -129,7 +129,8 @@ type TableDescription struct {
 	GlobalSecondaryIndexes    []GlobalSecondaryIndexDescription `json:"GlobalSecondaryIndexes,omitempty"`
 	AttributeDefinitions      []AttributeDefinition             `json:"AttributeDefinitions"`
 	LocalSecondaryIndexes     []LocalSecondaryIndexDescription  `json:"LocalSecondaryIndexes,omitempty"`
-	Replicas                  []ReplicaDescription              `json:"Replicas,omitempty"`
+	Replicas                  []ReplicaWire                     `json:"Replicas,omitempty"`
+	GlobalTableWitnesses      []GlobalTableWitness              `json:"GlobalTableWitnesses,omitempty"`
 	VectorIndexes             []VectorIndexDescription          `json:"VectorIndexes,omitempty"`
 	KeySchema                 []KeySchemaElement                `json:"KeySchema"`
 	CreationDateTime          float64                           `json:"CreationDateTime,omitempty"`
@@ -220,6 +221,7 @@ type UpdateTableInput struct {
 	AttributeDefinitions        []AttributeDefinition        `json:"AttributeDefinitions,omitempty"`
 	GlobalSecondaryIndexUpdates []GlobalSecondaryIndexUpdate `json:"GlobalSecondaryIndexUpdates,omitempty"`
 	ReplicaUpdates              []ReplicaUpdate              `json:"ReplicaUpdates,omitempty"`
+	GlobalTableWitnessUpdates   []WitnessUpdate              `json:"GlobalTableWitnessUpdates,omitempty"`
 	VectorIndexUpdates          []VectorIndexUpdate          `json:"VectorIndexUpdates,omitempty"`
 }
 
@@ -232,19 +234,72 @@ type ReplicaUpdate struct {
 
 // CreateReplicationGroupMemberAction specifies parameters for creating a new replica.
 type CreateReplicationGroupMemberAction struct {
-	RegionName string `json:"RegionName"`
+	ProvisionedThroughputOverride *ProvisionedThroughputOverrideWire `json:"ProvisionedThroughputOverride,omitempty"`
+	OnDemandThroughputOverride    *OnDemandThroughputOverrideWire    `json:"OnDemandThroughputOverride,omitempty"`
+	KMSMasterKeyID                *string                            `json:"KMSMasterKeyId,omitempty"`
+	RegionName                    string                             `json:"RegionName"`
+	TableClassOverride            string                             `json:"TableClassOverride,omitempty"`
+	GlobalSecondaryIndexes        []ReplicaGSIWire                   `json:"GlobalSecondaryIndexes,omitempty"`
 }
 
 // UpdateReplicationGroupMemberAction specifies per-replica setting overrides.
 type UpdateReplicationGroupMemberAction struct {
-	ProvisionedReadCapacityUnits *int64 `json:"ProvisionedReadCapacityUnits,omitempty"`
-	RegionName                   string `json:"RegionName"`
-	TableClassOverride           string `json:"TableClassOverride,omitempty"`
+	ProvisionedThroughputOverride *ProvisionedThroughputOverrideWire `json:"ProvisionedThroughputOverride,omitempty"`
+	OnDemandThroughputOverride    *OnDemandThroughputOverrideWire    `json:"OnDemandThroughputOverride,omitempty"`
+	KMSMasterKeyID                *string                            `json:"KMSMasterKeyId,omitempty"`
+	RegionName                    string                             `json:"RegionName"`
+	TableClassOverride            string                             `json:"TableClassOverride,omitempty"`
+	GlobalSecondaryIndexes        []ReplicaGSIWire                   `json:"GlobalSecondaryIndexes,omitempty"`
+}
+
+// WitnessUpdate is one GlobalTableWitnessGroupUpdate (Create or Delete of a witness Region).
+type WitnessUpdate struct {
+	Create *WitnessRegionAction `json:"Create,omitempty"`
+	Delete *WitnessRegionAction `json:"Delete,omitempty"`
+}
+
+// WitnessRegionAction names the witness Region of a Create/DeleteGlobalTableWitnessGroupMemberAction.
+type WitnessRegionAction struct {
+	RegionName string `json:"RegionName"`
 }
 
 // DeleteReplicationGroupMemberAction specifies the region of the replica to delete.
 type DeleteReplicationGroupMemberAction struct {
 	RegionName string `json:"RegionName"`
+}
+
+// ReplicaWire is types.ReplicaDescription as it appears in TableDescription responses (SDK member names).
+type ReplicaWire struct {
+	OnDemandThroughputOverride    *OnDemandThroughputOverrideWire    `json:"OnDemandThroughputOverride,omitempty"`
+	ProvisionedThroughputOverride *ProvisionedThroughputOverrideWire `json:"ProvisionedThroughputOverride,omitempty"`
+	ReplicaTableClassSummary      *TableClassSummaryDescription      `json:"ReplicaTableClassSummary,omitempty"`
+	KMSMasterKeyID                string                             `json:"KMSMasterKeyId,omitempty"`
+	RegionName                    string                             `json:"RegionName,omitempty"`
+	ReplicaArn                    string                             `json:"ReplicaArn,omitempty"`
+	ReplicaStatus                 string                             `json:"ReplicaStatus,omitempty"`
+	GlobalSecondaryIndexes        []ReplicaGSIWire                   `json:"GlobalSecondaryIndexes,omitempty"`
+}
+
+// OnDemandThroughputOverrideWire is types.OnDemandThroughputOverride.
+type OnDemandThroughputOverrideWire struct {
+	MaxReadRequestUnits *int64 `json:"MaxReadRequestUnits,omitempty"`
+}
+
+// ProvisionedThroughputOverrideWire is types.ProvisionedThroughputOverride.
+type ProvisionedThroughputOverrideWire struct {
+	ReadCapacityUnits *int64 `json:"ReadCapacityUnits,omitempty"`
+}
+
+// ReplicaGSIWire is types.ReplicaGlobalSecondaryIndexDescription.
+type ReplicaGSIWire struct {
+	ProvisionedThroughputOverride *ProvisionedThroughputOverrideWire `json:"ProvisionedThroughputOverride,omitempty"`
+	IndexName                     string                             `json:"IndexName"`
+}
+
+// GlobalTableWitness is a witness Region of an MRSC global table.
+type GlobalTableWitness struct {
+	RegionName    string `json:"RegionName"`
+	WitnessStatus string `json:"WitnessStatus,omitempty"`
 }
 
 // ReplicaGSIOverride stores per-replica read-capacity override for one GSI.
@@ -255,6 +310,8 @@ type ReplicaGSIOverride struct {
 
 type ReplicaDescription struct {
 	ProvisionedReadCapacityUnits *int64               `json:"ProvisionedReadCapacityUnits,omitempty"`
+	OnDemandMaxReadRequestUnits  *int64               `json:"OnDemandMaxReadRequestUnits,omitempty"`
+	KMSMasterKeyID               string               `json:"KMSMasterKeyId,omitempty"`
 	RegionName                   string               `json:"RegionName,omitempty"`
 	ReplicaArn                   string               `json:"ReplicaArn,omitempty"`
 	ReplicaStatus                string               `json:"ReplicaStatus,omitempty"`

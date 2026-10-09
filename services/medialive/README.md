@@ -15,8 +15,8 @@
 
 ### Known gaps
 
-- ListOfferings ChannelConfiguration (match a channel's configuration) and the CW/EB template-group Scope filter are unimplemented: the pinned SDK says only 'match the configuration of an existing channel' and 'all scopes, AWS provided resources, or local resources' (no matching rules, no wire enum), so any filter would invent the vocabulary. ChannelClass filters ListOfferings/ListReservations over ResourceSpecification.ChannelClass, which no seeded offering sets (real catalog values unknown).
-- Cluster/Node/SignalMap/Batch state and error rules beyond the SDK-documented ones now enforced (DeleteCluster/DeleteNode require idle, UpdateNodeState ACTIVE|DRAINING) are not documented in the pinned SDK (e.g. signal-map name conflicts, group-identifier existence checks, async monitor-deployment progress), so they cannot be verified.
+- ListOfferings ChannelConfiguration (match a channel's configuration) and the CW/EB template-group Scope filter stay unimplemented: api_op_ListOfferings.go says only 'match the configuration of an existing channel' and the Scope doc (api_op_ListCloudWatchAlarmTemplateGroups.go, API reference cloudwatch-alarm-template-groups) says only 'all scopes, AWS provided resources, or local resources' with no query-parameter value vocabulary (re-checked 2026-10-07). ChannelClass filtering needs a seeded offering catalog whose real ResourceSpecification.ChannelClass values are not published.
+- Cluster/Node/SignalMap/Batch state and error rules beyond the SDK-documented ones now enforced (DeleteCluster/DeleteNode require idle, UpdateNodeState ACTIVE|DRAINING) are not documented in the pinned SDK or the MediaLive API reference (e.g. signal-map name conflicts, group-identifier existence checks, async monitor-deployment progress), so they cannot be verified.
 
 ### Structural gaps
 

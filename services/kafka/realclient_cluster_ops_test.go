@@ -480,14 +480,33 @@ func TestRealClient_ClusterOps(t *testing.T) {
 
 				client := newClient(t)
 				ctx := t.Context()
-				clusterArn := createCluster(t, client, "s35-channel-cluster")
+				clusterOut, err := client.CreateClusterV2(ctx, &kafkasdk.CreateClusterV2Input{
+					ClusterName: aws.String("s35-channel-cluster"),
+					Provisioned: &types.ProvisionedRequest{
+						KafkaVersion:        aws.String("3.6.0"),
+						NumberOfBrokerNodes: aws.Int32(3),
+						BrokerNodeGroupInfo: &types.BrokerNodeGroupInfo{
+							InstanceType:  aws.String("express.m7g.large"),
+							ClientSubnets: []string{"subnet-1", "subnet-2", "subnet-3"},
+						},
+					},
+				})
+				require.NoError(t, err)
+
+				clusterArn := clusterOut.ClusterArn
+
+				topicOut, err := client.CreateTopic(ctx, &kafkasdk.CreateTopicInput{
+					ClusterArn: clusterArn, TopicName: aws.String("s35-channel-topic"),
+					PartitionCount: aws.Int32(1), ReplicationFactor: aws.Int32(3),
+				})
+				require.NoError(t, err)
 
 				createOut, err := client.CreateChannel(ctx, &kafkasdk.CreateChannelInput{
 					ClusterArn:  clusterArn,
 					ChannelName: aws.String("s35-channel"),
 					TopicConfigurationList: []types.TopicConfiguration{
 						{
-							TopicArn:        aws.String("arn:aws:kafka:us-east-1:123456789012:topic/s35-channel-topic"),
+							TopicArn:        topicOut.TopicArn,
 							RecordConverter: &types.RecordConverter{ValueConverter: types.ValueConverterJson},
 						},
 					},

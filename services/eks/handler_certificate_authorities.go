@@ -103,6 +103,13 @@ func certificateAuthorityToJSON(ca *CertificateAuthority) map[string]any {
 		"notAfter":  ca.NotAfter.Unix(),
 	}
 
+	if ca.ScheduledEvents != nil {
+		m["scheduledEvents"] = map[string]any{
+			"firstAutoActivation": ca.ScheduledEvents.FirstAutoActivation.Unix(),
+			"finalAutoActivation": ca.ScheduledEvents.FinalAutoActivation.Unix(),
+		}
+	}
+
 	return m
 }
 

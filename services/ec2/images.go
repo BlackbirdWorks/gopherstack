@@ -17,8 +17,12 @@ import (
 // imageOwnerId -- see handler_images.go's knownImageOwnerAliases).
 const imageOwnerAliasAmazon = "amazon"
 
+const productCodeTypeMarketplace = "marketplace"
+
 // AMIStub is a static image entry.
 type AMIStub struct {
+	CreationTime        time.Time                 `json:"creationTime,omitzero"`
+	BlockDeviceMappings []ImageBlockDeviceMapping `json:"blockDeviceMappings,omitempty"`
 	State               string                    `json:"state,omitempty"`
 	VirtualizationType  string                    `json:"virtualizationType,omitempty"`
 	Description         string                    `json:"description,omitempty"`
@@ -31,7 +35,7 @@ type AMIStub struct {
 	ImdsSupport         string                    `json:"imdsSupport,omitempty"`
 	SourceImageID       string                    `json:"sourceImageID,omitempty"`
 	SriovNetSupport     string                    `json:"sriovNetSupport,omitempty"`
-	BlockDeviceMappings []ImageBlockDeviceMapping `json:"blockDeviceMappings,omitempty"`
+	ProductCodes        []string                  `json:"productCodes,omitempty"`
 	EnaSupport          bool                      `json:"enaSupport,omitempty"`
 	EnaSupportSet       bool                      `json:"enaSupportSet,omitempty"`
 }
@@ -496,6 +500,8 @@ func (b *InMemoryBackend) RegisterImage(name, description, architecture string) 
 		Description:  description,
 		Architecture: architecture,
 		OwnerID:      b.AccountID,
+
+		CreationTime: time.Now().UTC(),
 	}
 	if img.Architecture == "" {
 		img.Architecture = archX8664
@@ -891,6 +897,7 @@ func (b *InMemoryBackend) CopyImageEncrypted(
 		RootDeviceName: src.RootDeviceName,
 		SourceImageID:  src.ImageID,
 		OwnerID:        b.AccountID,
+		CreationTime:   time.Now().UTC(),
 	}
 	newImage.BlockDeviceMappings = b.copyImageMappingsLocked(src.BlockDeviceMappings, encrypted, kmsKeyID, remoteSnaps)
 	b.images.Put(newImage)
@@ -972,6 +979,7 @@ func (b *InMemoryBackend) DeregisterImageDeleteSnapshots(
 	delete(b.imageDeregistrationProtection, imageID)
 	delete(b.fastLaunchImages, imageID)
 	delete(b.imageWatermarks, imageID)
+	delete(b.imageWatermarkTimes, imageID)
 	delete(b.imageLaunchPermissions, imageID)
 	delete(b.imageLaunchPermissionPublic, imageID)
 

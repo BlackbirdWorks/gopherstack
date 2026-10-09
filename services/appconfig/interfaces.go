@@ -140,6 +140,14 @@ type StorageBackend interface {
 		latestDeploymentNumber *int32,
 		tags map[string]string,
 	) (*Deployment, error)
+	// StartDeploymentWithParameters is StartDeployment plus the request's DynamicExtensionParameters.
+	StartDeploymentWithParameters(
+		applicationID, environmentID, configProfileID, strategyID, configVersion, description string,
+		kmsKeyIdentifier *string,
+		latestDeploymentNumber *int32,
+		tags map[string]string,
+		dynamicParameters map[string]string,
+	) (*Deployment, error)
 	// GetDeployment retrieves a deployment by application, environment, and deployment number.
 	GetDeployment(applicationID, environmentID string, deploymentNumber int32) (*Deployment, error)
 	// ListDeployments returns paginated deployments for an environment.

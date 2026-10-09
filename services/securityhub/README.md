@@ -16,8 +16,8 @@
 
 ### Known gaps
 
-- GetFindingStatisticsV2/GetResourcesStatisticsV2.MaxStatisticResults is unapplied: the SDK says only "maximum number of results", not whether it caps groups or values per group.
-- GetFindingsV2 OcsfMapFilter entries repeating a field are combined by the CompositeFilter Operator, not V1's implicit CONTAINS-OR/NOT-AND rule; the AWS docs do not say which applies. vulnerabilities.is_fix_available matches YES/NO only: the SDK does not define how PARTIAL maps to an OCSF boolean.
+- GetFindingStatisticsV2/GetResourcesStatisticsV2.MaxStatisticResults is range-checked (1-400) but not applied as a cap: API_GetFindingStatisticsV2.html says only "the maximum number of results to be returned", not whether it limits groups or values per group.
+- vulnerabilities.is_fix_available matches YES/NO only: neither the SDK nor API_OcsfBooleanFilter/API_CompositeFilter define how the ASFF FixAvailable value PARTIAL maps to an OCSF boolean.
 
 ### Structural gaps
 

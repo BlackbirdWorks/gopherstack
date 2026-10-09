@@ -2063,7 +2063,11 @@ type Backend interface {
 	EnableAllowedImagesSettings(state string) (string, error)
 	DisableAllowedImagesSettings() string
 	GetAllowedImagesSettings() *AllowedImagesSettings
-	ReplaceImageCriteriaInAllowedImagesSettings(criteria []ImageCriterion) bool
+	ReplaceImageCriteriaInAllowedImagesSettings(criteria []ImageCriterion) error
+	// EvaluateAllowedImages returns the Allowed AMIs state and per-image verdicts.
+	EvaluateAllowedImages(imageIDs []string) (string, map[string]bool)
+	// ImageWatermarksFor returns the watermarks attached to an AMI.
+	ImageWatermarksFor(imageID string) []ImageWatermarkRecord
 
 	// ---- Store / Restore Image Tasks ----
 

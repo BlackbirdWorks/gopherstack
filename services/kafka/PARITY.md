@@ -115,9 +115,7 @@ gaps: []
   #   - ClientVpcConnection.Owner is populated from the backend's own AccountID as
   #     a best-effort placeholder; gopherstack has no cross-account VPC-connection
   #     ownership model to draw a different value from.
-items_still_open:
-  - "MSK Connect (kafkaconnect: CreateConnector/CreateCustomPlugin/CreateWorkerConfiguration, Terraform aws_mskconnect_*) is a separate AWS service with no services/kafkaconnect directory; out of scope for this directory."
-  - "CreateChannel does not restrict channels to MSK Express clusters (CreateChannel's doc says it streams from an Express cluster topic) nor check that TopicConfigurationList[].TopicArn names an existing topic: the SDK documents no error code or validator for either."
+items_still_open: []
 structural_gaps:
   - "Docker engine (--kafka-engine=docker) runs ONE plaintext single-node KRaft broker per provisioned cluster; serverless clusters, TLS/SASL/IAM listeners and the MSK Topic API metadata are not backed by a real multi-broker cluster."
 deferred: []

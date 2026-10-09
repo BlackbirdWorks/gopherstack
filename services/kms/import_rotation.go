@@ -42,13 +42,13 @@ func importedMaterialID(keyID string, material []byte) string {
 
 // importedMaterialsView returns key's material generations, synthesizing the single current entry for
 // keys imported before generations were tracked.
-func importedMaterialsView(key *Key, current *keyMaterial) []ImportedMaterial {
+func (b *InMemoryBackend) importedMaterialsView(key *Key, current *keyMaterial) []ImportedMaterial {
 	if len(key.ImportedMaterials) > 0 || current == nil || key.KeyState != KeyStateEnabled {
 		return key.ImportedMaterials
 	}
 
 	return []ImportedMaterial{{
-		ID:              importedMaterialID(key.KeyID, current.symmetricKey),
+		ID:              importedMaterialID(b.materialIDKey(key), current.symmetricKey),
 		ExpirationModel: key.ExpirationModel,
 		ValidTo:         key.ValidTo,
 		State:           keyMaterialCurrent,
@@ -145,14 +145,21 @@ func (b *InMemoryBackend) importNewMaterialLocked(
 		return id, nil
 	}
 
-	if findImportedMaterialByState(key.ImportedMaterials, keyMaterialPendingRotation) >= 0 {
+	if isMultiRegionReplica(key) {
+		return "", fmt.Errorf(
+			"%w: new key material cannot be imported directly into a replica key; import it into the primary "+
+				"key and use %s here", ErrUnsupportedOrigin, importTypeExisting,
+		)
+	}
+
+	if findPendingImportedMaterial(key.ImportedMaterials) >= 0 {
 		return "", fmt.Errorf(
 			"%w: key %q already has key material pending rotation; rotate or delete it first",
 			ErrKeyInvalidState, key.KeyID,
 		)
 	}
 
-	entry.State = keyMaterialPendingRotation
+	entry.State = b.pendingStateForNewMaterialLocked(key)
 	key.ImportedMaterials = append(key.ImportedMaterials, entry)
 	b.pendingMaterialsStore(region)[key.KeyID] = km
 
@@ -189,7 +196,7 @@ func (b *InMemoryBackend) reimportMaterialLocked(
 	case keyMaterialNonCurrent:
 		hist := b.keyMaterialHistoryStore(region)
 		if !slices.ContainsFunc(hist[key.KeyID], func(h *keyMaterial) bool {
-			return importedMaterialID(key.KeyID, h.symmetricKey) == id
+			return importedMaterialID(b.materialIDKey(key), h.symmetricKey) == id
 		}) {
 			hist[key.KeyID] = append(hist[key.KeyID], km)
 		}
@@ -200,63 +207,42 @@ func (b *InMemoryBackend) reimportMaterialLocked(
 	return id, nil
 }
 
-// rotateImportedLocked promotes the pending imported material to current.
+// rotateImportedLocked promotes the pending imported material to current; on a multi-Region primary it
+// rotates every replica too.
 func (b *InMemoryBackend) rotateImportedLocked(region string, key *Key) error {
 	if key.KeyState != KeyStateEnabled {
 		return keyStateError(key)
 	}
 
-	if key.MultiRegion {
+	if isMultiRegionReplica(key) {
 		return fmt.Errorf(
-			"%w: on-demand rotation is not supported for multi-Region keys with imported key material",
+			"%w: on-demand rotation of a multi-Region key set is invoked on the primary key",
 			ErrUnsupportedOrigin,
 		)
 	}
 
-	key.ImportedMaterials = importedMaterialsView(key, b.keyMaterialsStore(region)[key.KeyID])
+	if key.MultiRegion && len(b.replicaKeysLocked(key)) > 0 {
+		return b.rotateMultiRegionLocked(region, key)
+	}
+
+	key.ImportedMaterials = b.importedMaterialsView(key, b.keyMaterialsStore(region)[key.KeyID])
 
 	pIdx := findImportedMaterialByState(key.ImportedMaterials, keyMaterialPendingRotation)
-	pending := b.pendingMaterialsStore(region)[key.KeyID]
-
-	if pIdx < 0 || pending == nil {
+	if pIdx < 0 || b.pendingMaterialsStore(region)[key.KeyID] == nil {
 		return fmt.Errorf(
 			"%w: key %q has no imported key material pending rotation; import it with %s first",
 			ErrKeyInvalidState, key.KeyID, importTypeNew,
 		)
 	}
 
-	kms := b.keyMaterialsStore(region)
-	kmh := b.keyMaterialHistoryStore(region)
-
-	if current := kms[key.KeyID]; current != nil {
-		kmh[key.KeyID] = append(kmh[key.KeyID], current)
-	}
-
-	kms[key.KeyID] = pending
-	delete(b.pendingMaterialsStore(region), key.KeyID)
-
-	for i := range key.ImportedMaterials {
-		if key.ImportedMaterials[i].State == keyMaterialCurrent {
-			key.ImportedMaterials[i].State = keyMaterialNonCurrent
-		}
-	}
-
-	ts := UnixTimeFloat(time.Now())
-	key.ImportedMaterials[pIdx].State = keyMaterialCurrent
-	key.ImportedMaterials[pIdx].RotationDate = ts
-	key.ImportedMaterials[pIdx].RotationType = rotationTypeOnDemand
-	key.RotationDates = append(key.RotationDates, ts)
-	key.Rotations = append(key.Rotations, RotationRecord{Date: ts, RotationType: rotationTypeOnDemand})
-	syncCurrentExpiry(key)
-
-	return nil
+	return b.promotePendingLocked(region, key, key.ImportedMaterials[pIdx].ID, UnixTimeFloat(time.Now()))
 }
 
 // deleteImportedMaterialLocked removes one generation of imported material and returns its ID.
 func (b *InMemoryBackend) deleteImportedMaterialLocked(
 	region string, key *Key, wantID string,
 ) (string, error) {
-	key.ImportedMaterials = importedMaterialsView(key, b.keyMaterialsStore(region)[key.KeyID])
+	key.ImportedMaterials = b.importedMaterialsView(key, b.keyMaterialsStore(region)[key.KeyID])
 
 	var idx int
 	if wantID != "" {
@@ -277,14 +263,14 @@ func (b *InMemoryBackend) deleteImportedMaterialLocked(
 	e := key.ImportedMaterials[idx]
 
 	switch e.State {
-	case keyMaterialPendingRotation:
+	case keyMaterialPendingRotation, keyMaterialPendingMultiRegion:
 		key.ImportedMaterials = slices.Delete(key.ImportedMaterials, idx, idx+1)
 		delete(b.pendingMaterialsStore(region), key.KeyID)
 	case keyMaterialNonCurrent:
 		key.ImportedMaterials[idx].Imported = false
 		hist := b.keyMaterialHistoryStore(region)
 		hist[key.KeyID] = slices.DeleteFunc(hist[key.KeyID], func(h *keyMaterial) bool {
-			return importedMaterialID(key.KeyID, h.symmetricKey) == e.ID
+			return importedMaterialID(b.materialIDKey(key), h.symmetricKey) == e.ID
 		})
 	default:
 		key.ImportedMaterials[idx].Imported = false
@@ -310,9 +296,7 @@ func (b *InMemoryBackend) ImportKeyMaterialWithResult(
 	b.mu.Lock("ImportKeyMaterial")
 	defer b.mu.Unlock()
 
-	region := getRegion(ctx, b.defaultRegion)
-
-	key, err := b.lookupKeyWrite(ctx, input.KeyID, ErrInvalidArn)
+	key, region, err := b.resolveKeyAndRegion(ctx, input.KeyID, ErrInvalidArn)
 	if err != nil {
 		return nil, err
 	}
@@ -338,7 +322,7 @@ func (b *InMemoryBackend) ImportKeyMaterialWithResult(
 		return nil, fmt.Errorf("%w: KeyMaterial must not be empty", ErrIncorrectKeyMaterial)
 	}
 
-	key.ImportedMaterials = importedMaterialsView(key, b.keyMaterialsStore(region)[key.KeyID])
+	key.ImportedMaterials = b.importedMaterialsView(key, b.keyMaterialsStore(region)[key.KeyID])
 
 	importType, err := resolveImportType(input, len(key.ImportedMaterials) > 0)
 	if err != nil {
@@ -367,17 +351,13 @@ func (b *InMemoryBackend) ImportKeyMaterialWithResult(
 		return nil, fmt.Errorf("creating imported symmetric key material: %w", err)
 	}
 
-	id := importedMaterialID(key.KeyID, raw)
+	id := importedMaterialID(b.materialIDKey(key), raw)
 	entry := ImportedMaterial{
 		ID: id, Description: input.KeyMaterialDescription, ExpirationModel: expModel,
 		ValidTo: validTo, Imported: true,
 	}
 
-	if importType == importTypeNew {
-		id, err = b.importNewMaterialLocked(region, key, km, id, entry)
-	} else {
-		id, err = b.reimportMaterialLocked(region, key, km, id, input, entry)
-	}
+	id, err = b.dispatchImportLocked(region, key, km, id, importType, input, entry)
 
 	if err != nil {
 		return nil, err
@@ -394,9 +374,7 @@ func (b *InMemoryBackend) DeleteImportedKeyMaterialWithResult(
 	b.mu.Lock("DeleteImportedKeyMaterial")
 	defer b.mu.Unlock()
 
-	region := getRegion(ctx, b.defaultRegion)
-
-	key, err := b.lookupKeyWrite(ctx, input.KeyID, ErrInvalidArn)
+	key, region, err := b.resolveKeyAndRegion(ctx, input.KeyID, ErrInvalidArn)
 	if err != nil {
 		return nil, err
 	}
@@ -414,4 +392,23 @@ func (b *InMemoryBackend) DeleteImportedKeyMaterialWithResult(
 	}
 
 	return &DeleteImportedKeyMaterialOutput{KeyID: key.Arn, KeyMaterialID: id}, nil
+}
+
+// dispatchImportLocked routes an import to the replica, new-material or re-import path.
+func (b *InMemoryBackend) dispatchImportLocked(
+	region string, key *Key, km *keyMaterial, id, importType string,
+	input *ImportKeyMaterialInput, entry ImportedMaterial,
+) (string, error) {
+	if importType == importTypeExisting {
+		handled, err := b.importExistingIntoReplicaLocked(region, key, km, id, entry)
+		if err != nil || handled {
+			return id, err
+		}
+	}
+
+	if importType == importTypeNew {
+		return b.importNewMaterialLocked(region, key, km, id, entry)
+	}
+
+	return b.reimportMaterialLocked(region, key, km, id, input, entry)
 }

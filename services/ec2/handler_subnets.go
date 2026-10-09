@@ -96,11 +96,13 @@ type createSubnetCidrReservationResponse struct {
 // deserializers.go:107294) -- imageId/imageState do NOT sit at the top
 // level of instanceImageMetadataItem.
 type imageMetadataItem struct {
-	ImageID         string `xml:"imageId,omitempty"`
-	Name            string `xml:"name,omitempty"`
-	ImageOwnerID    string `xml:"imageOwnerId,omitempty"`
-	ImageOwnerAlias string `xml:"imageOwnerAlias,omitempty"`
-	ImageState      string `xml:"imageState,omitempty"`
+	ImageID           string               `xml:"imageId,omitempty"`
+	Name              string               `xml:"name,omitempty"`
+	ImageOwnerID      string               `xml:"imageOwnerId,omitempty"`
+	ImageOwnerAlias   string               `xml:"imageOwnerAlias,omitempty"`
+	ImageState        string               `xml:"imageState,omitempty"`
+	ImageAllowed      *bool                `xml:"imageAllowed,omitempty"`
+	ImageWatermarkSet []imageWatermarkItem `xml:"imageWatermarkSet>item,omitempty"`
 }
 
 // instanceImageMetadataItem matches types.InstanceImageMetadata

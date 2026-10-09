@@ -124,3 +124,117 @@ func TestStageResponseCache_Metrics(t *testing.T) {
 		})
 	}
 }
+
+func TestStageResponseCache_ControlInvalidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		strategy    string
+		wantStatus  int
+		wantHits    float64
+		wantMisses  float64
+		signed      bool
+		require     bool
+		wantWarning bool
+	}{
+		{name: "open_invalidates", wantStatus: http.StatusOK, wantHits: 1, wantMisses: 2},
+		{
+			name: "signed_invalidates", require: true, signed: true,
+			wantStatus: http.StatusOK, wantHits: 1, wantMisses: 2,
+		},
+		{
+			name: "unsigned_fail", require: true, strategy: "FAIL_WITH_403",
+			wantStatus: http.StatusForbidden, wantHits: 0, wantMisses: 1,
+		},
+		{
+			name: "unsigned_warn", require: true, strategy: "SUCCEED_WITH_RESPONSE_HEADER",
+			wantStatus: http.StatusOK, wantWarning: true, wantHits: 2, wantMisses: 1,
+		},
+		{
+			name: "unsigned_silent", require: true, strategy: "SUCCEED_WITHOUT_RESPONSE_HEADER",
+			wantStatus: http.StatusOK, wantHits: 2, wantMisses: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			tally := &metricTally{counts: map[string]float64{}}
+			h := apigateway.NewHandler(apigateway.NewInMemoryBackend())
+			h.SetMetricEmitter(cwmetric.EmitterFunc(tally.emit))
+
+			e := echo.New()
+			registry := service.NewRegistry()
+			require.NoError(t, registry.Register(h))
+			e.Use(service.NewServiceRouter(registry).RouteHandler())
+
+			srv := httptest.NewServer(e)
+			t.Cleanup(srv.Close)
+
+			cfg, err := awscfg.LoadDefaultConfig(t.Context(), awscfg.WithRegion("us-east-1"),
+				awscfg.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("test", "test", "")))
+			require.NoError(t, err)
+
+			client := apigwsdk.NewFromConfig(cfg, func(o *apigwsdk.Options) { o.BaseEndpoint = aws.String(srv.URL) })
+			apiID, _ := setupMockAPI(t, client, "cached-body")
+
+			_, err = client.CreateDeployment(t.Context(), &apigwsdk.CreateDeploymentInput{
+				RestApiId: aws.String(apiID), StageName: aws.String("prod"), CacheClusterEnabled: aws.Bool(true),
+			})
+			require.NoError(t, err)
+
+			ops := []apigwtypes.PatchOperation{patchOp(apigwtypes.OpReplace, "/*/*/caching/enabled", "true")}
+			if tt.require {
+				ops = append(ops,
+					patchOp(apigwtypes.OpReplace, "/*/*/caching/requireAuthorizationForCacheControl", "true"))
+			}
+
+			if tt.strategy != "" {
+				ops = append(ops,
+					patchOp(apigwtypes.OpReplace, "/*/*/caching/unauthorizedCacheControlHeaderStrategy", tt.strategy))
+			}
+
+			_, err = client.UpdateStage(t.Context(), &apigwsdk.UpdateStageInput{
+				RestApiId: aws.String(apiID), StageName: aws.String("prod"), PatchOperations: ops,
+			})
+			require.NoError(t, err)
+
+			get := func(cacheControl string) *http.Response {
+				req, reqErr := http.NewRequestWithContext(t.Context(), http.MethodGet,
+					srv.URL+"/restapis/"+apiID+"/prod/_user_request_/widgets", nil)
+				require.NoError(t, reqErr)
+
+				if cacheControl != "" {
+					req.Header.Set("Cache-Control", cacheControl)
+				}
+
+				if tt.signed {
+					req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=x")
+				}
+
+				resp, doErr := http.DefaultClient.Do(req)
+				require.NoError(t, doErr)
+				_ = resp.Body.Close()
+
+				return resp
+			}
+
+			get("")
+			second := get("max-age=0")
+			assert.Equal(t, tt.wantStatus, second.StatusCode)
+			assert.Equal(t, tt.wantWarning, second.Header.Get("Warning") != "")
+
+			if tt.wantStatus == http.StatusOK {
+				get("")
+			}
+
+			require.Eventually(t, func() bool {
+				return tally.get("CacheHitCount")+tally.get("CacheMissCount") >= tt.wantHits+tt.wantMisses
+			}, time.Second, time.Millisecond)
+			assert.InDelta(t, tt.wantHits, tally.get("CacheHitCount"), 0)
+			assert.InDelta(t, tt.wantMisses, tally.get("CacheMissCount"), 0)
+		})
+	}
+}

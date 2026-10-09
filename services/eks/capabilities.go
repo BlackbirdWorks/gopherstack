@@ -1,8 +1,11 @@
 package eks
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -65,6 +68,18 @@ func (b *InMemoryBackend) CreateCapability(
 	t := tags.New("eks.capability." + clusterName + "." + capabilityName + ".tags")
 	if len(kv) > 0 {
 		t.Merge(kv)
+	}
+
+	if capType == capabilityTypeArgoCd {
+		if config == nil {
+			config = &CapabilityConfiguration{}
+		}
+
+		if config.ArgoCd == nil {
+			config.ArgoCd = &ArgoCdConfig{}
+		}
+
+		config.ArgoCd.ServerURL = argoCdServerURL(capabilityName, clusterName, b.accountID, b.region)
 	}
 
 	now := time.Now().UTC()
@@ -225,4 +240,20 @@ func (b *InMemoryBackend) ListAllCapabilities() []*Capability {
 	}
 
 	return list
+}
+
+const argoCdHostnameNameMax = 41
+
+// argoCdServerURL builds the deterministic Argo CD endpoint documented under "Argo CD endpoint URL" in
+// the EKS user guide (Working with Argo CD).
+func argoCdServerURL(capabilityName, clusterName, accountID, region string) string {
+	host := strings.ReplaceAll(strings.ToLower(capabilityName), "_", "-")
+	if len(host) > argoCdHostnameNameMax {
+		host = host[:argoCdHostnameNameMax]
+	}
+
+	sum := sha256.Sum256([]byte(capabilityName + "/" + clusterName))
+
+	return fmt.Sprintf("https://%s-%s-%s.eks-capabilities.%s.amazonaws.com",
+		host, hex.EncodeToString(sum[:])[:8], accountID, region)
 }

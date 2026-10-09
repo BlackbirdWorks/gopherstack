@@ -39,6 +39,7 @@ type NatGateway struct {
 	AutoScalingIPs      string               `json:"autoScalingIPs,omitempty"`
 	AutoProvisionZones  string               `json:"autoProvisionZones,omitempty"`
 	AvailabilityMode    string               `json:"availabilityMode,omitempty"`
+	RouteTableID        string               `json:"routeTableID,omitempty"`
 	ZoneAddresses       []NatGatewayAddress  `json:"zoneAddresses,omitempty"`
 	SecondaryPrivateIPs []string             `json:"secondaryPrivateIPs,omitempty"`
 	SecondaryAddresses  []NatGatewayAddress  `json:"secondaryAddresses,omitempty"`
@@ -122,6 +123,7 @@ func (b *InMemoryBackend) DeleteNatGateway(id string) error {
 	}
 
 	b.releaseRegionalAddressesLocked(ngw)
+	b.deleteRegionalNatRouteTableLocked(ngw)
 
 	b.deindexNatGatewayLocked(ngw)
 	b.natGateways.Delete(id)

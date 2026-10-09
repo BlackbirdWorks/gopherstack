@@ -9,20 +9,20 @@
 | --- | --- |
 | PARITY entries audited | 69 (69 ok) |
 | Feature families | 34 (10 ok, 24 partial) |
-| Known gaps | 2 |
-| Structural gaps (can't be emulated) | 10 |
+| Known gaps | 1 |
+| Structural gaps (can't be emulated) | 11 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- parity-4: DescribeJobSchemaVersion/ListJobSchemaVersions serve one synthetic JobConfigSchemaVersion ("1.0") with a generic per-JobCategory schema — AWS does not publish real per-category schema content anywhere in the SDK, so there is no ground truth to model against; internally consistent with CreateJob's own validation. (no bd issue filed yet)
-- parity-25: presigned_session's CreatePresignedDomainUrlInput.ExpiresInSeconds/LandingUri/SessionExpirationDurationInSeconds are decoded but disclosed no-ops — CreatePresignedDomainUrlOutput has no field to reflect them into and this backend's synthetic authorized-URL token has no verified real query-parameter format to encode them, same stance as PartnerApps' identical fields. (no bd issue filed yet)
+- DescribeJobSchemaVersion/ListJobSchemaVersions serve one synthetic JobConfigSchemaVersion ("1.0") with a generic per-JobCategory schema: checked api_op_DescribeJobSchemaVersion.go and the API reference, neither publishes per-category schema content, so there is no ground truth to model.
 
 ### Structural gaps
 
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
+- Presigned URL expiry (2026-10-07): ExpiresInSeconds/SessionExpirationDurationInSeconds are range-checked against the API reference but not enforced; the synthetic AuthorizedUrl is not served by anything that could expire or single-use it.
 - List summaries (AutoMLJobSummary.FailureReason/PartialFailureReasons, ClusterSummary.TrainingPlanArns/ImageVersionStatus, ClusterNodeSummary.ImageVersionStatus/NodeLogicalId/PrivateDnsHostname/UltraServerInfo, DeviceSummary.AgentVersion/LatestHeartbeat/Models, FlowDefinitionSummary.FailureReason, LineageGroupSummary.DisplayName, HyperParameterTrainingJobSummary final-metric/objective-status, TrainingJobSummary.WarmPoolStatus, ProcessingJobSummary.ExitMessage): no failure FSM, warm pool, device heartbeat, EC2 networking or training process exists to source them.
 - DescribeApp/DescribeDomain server-derived fields (App EffectiveTrustedIdentityPropagationStatus/FailureReason/LastHealthCheckTimestamp/LastUserActivityTimestamp, Domain FailureReason/HomeEfsFileSystemId/SingleSignOn*): no app runtime, EFS or IAM Identity Center to derive them.
 - CreateAutoMLJobInput CandidateGenerationConfig/CompletionCriteria/Mode/ProblemType are stored and echoed but not enforced (no real training/HPO run); DescribeAutoMLJobV2 BestCandidate/ResolvedAttributes/AutoMLJobArtifacts/ModelDeployResult need real candidate output.

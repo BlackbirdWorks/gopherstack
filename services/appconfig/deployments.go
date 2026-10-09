@@ -159,6 +159,28 @@ func (b *InMemoryBackend) StartDeployment(
 	latestDeploymentNumber *int32,
 	tags map[string]string,
 ) (*Deployment, error) {
+	return b.StartDeploymentWithParameters(
+		applicationID, environmentID, configProfileID, strategyID, configVersion, description,
+		kmsKeyIdentifier, latestDeploymentNumber, tags, nil,
+	)
+}
+
+// StartDeploymentWithParameters is StartDeployment with the request's DynamicExtensionParameters, which are
+// handed to PRE_START_DEPLOYMENT extension actions alongside the association parameters.
+func (b *InMemoryBackend) StartDeploymentWithParameters(
+	applicationID, environmentID, configProfileID, strategyID, configVersion, description string,
+	kmsKeyIdentifier *string,
+	latestDeploymentNumber *int32,
+	tags map[string]string,
+	dynamicParameters map[string]string,
+) (*Deployment, error) {
+	override, err := b.preStartDeployment(
+		applicationID, environmentID, configProfileID, strategyID, configVersion, description, dynamicParameters,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("StartDeployment")
 	defer b.mu.Unlock()
 
@@ -209,6 +231,9 @@ func (b *InMemoryBackend) StartDeployment(
 	}
 
 	key := deploymentKey(applicationID, environmentID, deploymentNumber)
+	if override != nil {
+		b.deploymentContent[key] = override
+	}
 
 	switch {
 	case strategy.DeploymentDurationInMinutes <= 0 && strategy.FinalBakeTimeInMinutes <= 0:

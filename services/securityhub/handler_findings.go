@@ -252,7 +252,34 @@ func (h *Handler) handleBatchUpdateFindingsV2(c *echo.Context, body map[string]a
 	})
 }
 
+const (
+	maxStatisticResultsLimit = 400
+	maxStatisticsGroupByRule = 5
+)
+
+// validateStatisticsRequest applies the GetFindingStatisticsV2/GetResourcesStatisticsV2 API reference
+// constraints: MaxStatisticResults 1-400, SortOrder asc|desc, up to 5 GroupByRules.
+func validateStatisticsRequest(body map[string]any) string {
+	if v, ok := body["MaxStatisticResults"].(float64); ok && (v < 1 || v > maxStatisticResultsLimit) {
+		return "MaxStatisticResults must be between 1 and 400"
+	}
+
+	if so, ok := body[keySortOrder].(string); ok && so != "" && so != "asc" && so != "desc" {
+		return "SortOrder must be asc or desc"
+	}
+
+	if rules, ok := body[keyGroupByRules].([]any); ok && len(rules) > maxStatisticsGroupByRule {
+		return "GroupByRules accepts up to 5 rules"
+	}
+
+	return ""
+}
+
 func (h *Handler) handleGetFindingStatisticsV2(c *echo.Context, body map[string]any) error {
+	if msg := validateStatisticsRequest(body); msg != "" {
+		return typedErrorResponse(c, http.StatusBadRequest, "ValidationException", msg)
+	}
+
 	rules := groupByRulesFromBody(body[keyGroupByRules])
 	sortOrder, _ := body[keySortOrder].(string)
 

@@ -112,9 +112,7 @@ func (b *InMemoryBackend) RotateKeyOnDemand(
 	b.mu.Lock("RotateKeyOnDemand")
 	defer b.mu.Unlock()
 
-	region := getRegion(ctx, b.defaultRegion)
-
-	key, err := b.lookupKeyWrite(ctx, input.KeyID, ErrInvalidArn)
+	key, region, err := b.resolveKeyAndRegion(ctx, input.KeyID, ErrInvalidArn)
 	if err != nil {
 		return nil, err
 	}
@@ -320,7 +318,9 @@ func keyMaterialID(keyID string, generation int) string {
 
 // listRotationEntries builds ListKeyRotations entries; ALL_KEY_MATERIAL adds the first key material and,
 // for imported keys, material pending rotation.
-func listRotationEntries(key *Key, include string, current *keyMaterial) ([]KeyRotationEntry, error) {
+func (b *InMemoryBackend) listRotationEntries(
+	key *Key, include string, current *keyMaterial,
+) ([]KeyRotationEntry, error) {
 	switch include {
 	case "", includeRotationsOnly, includeAllKeyMaterial:
 	default:
@@ -335,7 +335,7 @@ func listRotationEntries(key *Key, include string, current *keyMaterial) ([]KeyR
 	}
 
 	if key.Origin == KeyOriginExternal {
-		return listImportedRotationEntries(key, include, current), nil
+		return b.listImportedRotationEntries(key, include, current), nil
 	}
 
 	stateFor := func(generation int) string {
@@ -369,8 +369,10 @@ func listRotationEntries(key *Key, include string, current *keyMaterial) ([]KeyR
 	return out, nil
 }
 
-func listImportedRotationEntries(key *Key, include string, current *keyMaterial) []KeyRotationEntry {
-	mats := importedMaterialsView(key, current)
+func (b *InMemoryBackend) listImportedRotationEntries(
+	key *Key, include string, current *keyMaterial,
+) []KeyRotationEntry {
+	mats := b.importedMaterialsView(key, current)
 	out := make([]KeyRotationEntry, 0, len(mats))
 
 	for _, m := range mats {
@@ -415,7 +417,7 @@ func (b *InMemoryBackend) ListKeyRotations(
 	// Build rotation entries from the typed Rotations slice. Legacy keys loaded
 	// from older snapshots that only have RotationDates (no Rotations) will show
 	// empty history; this is acceptable since type information cannot be recovered.
-	rotations, err := listRotationEntries(
+	rotations, err := b.listRotationEntries(
 		key, input.IncludeKeyMaterial, b.keyMaterialsStore(getRegion(ctx, b.defaultRegion))[key.KeyID],
 	)
 	if err != nil {

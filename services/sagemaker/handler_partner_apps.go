@@ -247,14 +247,11 @@ func (h *Handler) handleListPartnerApps(ctx context.Context, body []byte) ([]byt
 // createPartnerAppPresignedURLInput mirrors CreatePartnerAppPresignedUrlInput
 // (api_op_CreatePartnerAppPresignedUrl.go:24-38): Arn is required.
 // ExpiresInSeconds/SessionExpirationDurationInSeconds are decoded for
-// wire-shape fidelity but are a disclosed no-op: the response is a bare
-// {Url}, and this backend's synthesized URL
-// (CreatePartnerAppPresignedURL) carries no verified real query-parameter
-// format to encode an expiry into.
+// wire-shape fidelity and range-checked, but not encoded in the synthesized URL.
 type createPartnerAppPresignedURLInput struct {
+	ExpiresInSeconds                   *int32 `json:"ExpiresInSeconds,omitempty"`
+	SessionExpirationDurationInSeconds *int32 `json:"SessionExpirationDurationInSeconds,omitempty"`
 	Arn                                string `json:"Arn"`
-	ExpiresInSeconds                   int32  `json:"ExpiresInSeconds,omitempty"`
-	SessionExpirationDurationInSeconds int32  `json:"SessionExpirationDurationInSeconds,omitempty"`
 }
 
 func (h *Handler) handleCreatePartnerAppPresignedURL(ctx context.Context, body []byte) ([]byte, error) {
@@ -266,6 +263,10 @@ func (h *Handler) handleCreatePartnerAppPresignedURL(ctx context.Context, body [
 
 	if req.Arn == "" {
 		return nil, fmt.Errorf("%w: Arn is required", errInvalidRequest)
+	}
+
+	if err := validatePresignedDurations(req.ExpiresInSeconds, req.SessionExpirationDurationInSeconds); err != nil {
+		return nil, err
 	}
 
 	url, err := h.Backend.CreatePartnerAppPresignedURL(ctx, req.Arn)

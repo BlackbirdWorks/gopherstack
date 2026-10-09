@@ -2,6 +2,7 @@ package sagemaker_test
 
 import (
 	"encoding/json"
+	"maps"
 	"net/http"
 	"testing"
 
@@ -126,3 +127,76 @@ func TestHandler_CreatePresignedDomainUrl_NotFound(t *testing.T) {
 // ---------------------------------------------------------------------------
 // DeleteProcessingJob
 // ---------------------------------------------------------------------------
+
+func TestHandler_PresignedURL_ParameterValidation(t *testing.T) {
+	t.Parallel()
+
+	const badReq = "invalid request"
+
+	i := func(v int) *int { return &v }
+
+	tests := []struct {
+		expires *int
+		session *int
+		name    string
+		action  string
+		target  map[string]any
+		wantErr string
+	}{
+		{name: "domain_expires_low", action: "CreatePresignedDomainUrl", expires: i(4), wantErr: badReq},
+		{name: "domain_expires_high", action: "CreatePresignedDomainUrl", expires: i(301), wantErr: badReq},
+		{name: "domain_session_low", action: "CreatePresignedDomainUrl", session: i(1799), wantErr: badReq},
+		{name: "domain_session_high", action: "CreatePresignedDomainUrl", session: i(43201), wantErr: badReq},
+		{
+			name: "domain_bad_landing", action: "CreatePresignedDomainUrl",
+			target: map[string]any{"LandingUri": "nowhere:foo"}, wantErr: badReq,
+		},
+		{
+			name: "domain_valid_params_reach_lookup", action: "CreatePresignedDomainUrl",
+			expires: i(5), session: i(1800), target: map[string]any{"LandingUri": "app:JupyterLab:lab"},
+		},
+		{name: "notebook_session_low", action: "CreatePresignedNotebookInstanceUrl", session: i(10), wantErr: badReq},
+		{name: "partner_expires_high", action: "CreatePartnerAppPresignedUrl", expires: i(900), wantErr: badReq},
+		{name: "mlflow_app_session_high", action: "CreatePresignedMlflowAppUrl", session: i(99999), wantErr: badReq},
+		{
+			name: "mlflow_server_expires_low", action: "CreatePresignedMlflowTrackingServerUrl",
+			expires: i(0), wantErr: badReq,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			body := map[string]any{
+				"DomainId":             "d-missing",
+				"UserProfileName":      "up",
+				"NotebookInstanceName": "nb",
+				"Arn":                  "arn:aws:sagemaker:us-east-1:000000000000:partner-app/app-AAAAAAAAAAAA",
+				"TrackingServerName":   "ts",
+			}
+			maps.Copy(body, tt.target)
+
+			if tt.expires != nil {
+				body["ExpiresInSeconds"] = *tt.expires
+			}
+
+			if tt.session != nil {
+				body["SessionExpirationDurationInSeconds"] = *tt.session
+			}
+
+			rec := doSageMakerRequest(t, h, tt.action, body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+			if tt.wantErr == "" {
+				assert.NotContains(t, rec.Body.String(), badReq)
+
+				return
+			}
+
+			assert.Contains(t, rec.Body.String(), tt.wantErr)
+		})
+	}
+}

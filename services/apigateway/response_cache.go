@@ -3,6 +3,7 @@ package apigateway
 import (
 	"bytes"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -202,6 +203,45 @@ func replayCached(w http.ResponseWriter, resp *cachedResponse) {
 	_, _ = w.Write(resp.body)
 }
 
+const (
+	cacheStrategyFail    = "FAIL_WITH_403"
+	cacheStrategyWithout = "SUCCEED_WITHOUT_RESPONSE_HEADER"
+	sigV4Prefix          = "AWS4-HMAC-SHA256"
+)
+
+type cacheControl struct {
+	bypass bool
+	denied bool
+	warn   bool
+}
+
+// cacheInvalidation interprets a Cache-Control: max-age=0 request: bypass refetches and replaces
+// the entry, denied rejects with 403, warn serves normally with a Warning header. Without IAM
+// policy evaluation, a request is authorized when it is SigV4-signed.
+func cacheInvalidation(r *http.Request, ms *MethodSetting) cacheControl {
+	if !slices.ContainsFunc(r.Header.Values("Cache-Control"), func(v string) bool {
+		return slices.ContainsFunc(strings.Split(v, ","), func(d string) bool {
+			return strings.EqualFold(strings.TrimSpace(d), "max-age=0")
+		})
+	}) {
+		return cacheControl{}
+	}
+
+	if ms == nil || !ms.RequireAuthorizationForCacheControl ||
+		strings.HasPrefix(r.Header.Get("Authorization"), sigV4Prefix) {
+		return cacheControl{bypass: true}
+	}
+
+	switch ms.UnauthorizedCacheControlHeaderStrategy {
+	case cacheStrategyFail:
+		return cacheControl{denied: true}
+	case cacheStrategyWithout:
+		return cacheControl{}
+	default:
+		return cacheControl{warn: true}
+	}
+}
+
 // serveWithCache serves GET responses from the stage cache when the method has caching
 // enabled, recording hits and misses on obs; otherwise it dispatches unchanged.
 func (h *Handler) serveWithCache(
@@ -218,7 +258,22 @@ func (h *Handler) serveWithCache(
 
 	key := responseCacheKey(apiID, stage.StageName, stage.DeploymentID, r, integration, pathParams)
 
-	if hit, found := h.respCache.get(key); found {
+	ms, _ := stageMethodSettingFor(stage, resourcePath, r.Method)
+	cc := cacheInvalidation(r, ms)
+
+	if cc.denied {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"message":"Unauthorized"}`))
+
+		return
+	}
+
+	if cc.warn {
+		w.Header().Set("Warning", `199 - "Cache-Control header ignored: not authorized to invalidate the cache"`)
+	}
+
+	if hit, found := h.respCache.get(key); found && !cc.bypass {
 		obs.setCache(true)
 		replayCached(w, hit)
 

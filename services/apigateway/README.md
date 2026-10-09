@@ -16,8 +16,8 @@
 
 ### Known gaps
 
-- Stage response cache (GET only, keyed by path + integration cacheKeyParameters, per-deployment, TTL from the method setting, flushed by FlushStageCache) now emits CacheHitCount/CacheMissCount. Not modelled: client invalidation via Cache-Control: max-age=0 with RequireAuthorizationForCacheControl / UnauthorizedCacheControlHeaderStrategy (the pinned SDK names the settings but not the header contract).
-- GetExport extensions=postman is accepted and ignored: the Postman document shape is not described in the pinned SDK.
+- GetExport extensions=postman is accepted and ignored: checked api_op_GetExport.go and the API Gateway export docs; neither specifies the Postman document shape API Gateway emits.
+- Cache-Control: max-age=0 invalidation is implemented; with RequireAuthorizationForCacheControl a request counts as authorized when SigV4-signed (the stage proxy performs no execute-api:InvalidateCache policy evaluation), and the Warning header text for SUCCEED_WITH_RESPONSE_HEADER is unspecified in the SDK and developer guide.
 
 ### Structural gaps
 

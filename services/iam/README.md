@@ -10,19 +10,20 @@
 | PARITY entries audited | 38 (38 ok) |
 | Feature families | 6 (6 ok) |
 | Known gaps | 2 |
-| Structural gaps (can't be emulated) | 3 |
+| Structural gaps (can't be emulated) | 4 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- AcquireRole's List-parameter join format is undocumented in the SDK and AWS docs (unverifiable).
-- Policy simulation: MatchedStatements Start/EndPosition line/column convention and SourcePolicyType mapping are undocumented (SDK says only 'row and column'; unverifiable). OrganizationsDecisionDetail needs an SCP model; top-level EvalResourceName stays '*'.
+- AcquireRole ReplacementValues with several Values: neither api_op_AcquireRole.go, API_ReplacementValueEntry.html nor the role-template user guide says how a multi-value parameter is substituted into the template (checked 2026-10-07).
+- SimulateCustomPolicy/SimulatePrincipalPolicy MatchedStatements are not emitted: the API reference examples contradict each other on SourcePolicyType ("Resource Policy" vs the SDK enum "resource") and report Line 1 positions for multi-line input, so the Start/EndPosition and SourcePolicyType conventions cannot be derived. Top-level EvalResourceName stays '*'.
 
 ### Structural gaps
 
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
+- OrganizationsDecisionDetail (2026-10-07): needs the SCP hierarchy of the caller's account; services/iam holds no Organizations model and the simulate ops take no SCP wiring.
 - aws_iam_security_token_service_preferences: terraform provider v5.100.0 Put-then-Read singleton trips a Terraform Core state-consistency check (external tooling, gopherstack-101r); the op itself is wire-verified.
 - Role templates: the pinned SDK has no Create/Put/List op, so AddRoleTemplateVersionInternal is the only seam; AWS publishes no per-property value registry, so property values are untyped.
 - Access advisor Granularity=ACTION_LEVEL: needs real per-action usage tracking; emulating it would fabricate data.

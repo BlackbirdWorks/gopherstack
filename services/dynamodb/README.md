@@ -8,20 +8,20 @@
 | Metric | Value |
 | --- | --- |
 | Feature families | 15 (15 ok) |
-| Known gaps | 2 |
-| Structural gaps (can't be emulated) | 2 |
+| Known gaps | 1 |
+| Structural gaps (can't be emulated) | 3 |
 | Deferred items | 2 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Vector indexes are modeled (CreateTable/UpdateTable/DescribeTable/Restore*Override/SearchVectors with real COSINE/EUCLIDEAN/DOT_PRODUCT scoring, HASH/INLINE_FILTER schema); the SDK gives no formula for VectorCapacity (VectorSearchRequestBytes/VectorWriteRequestBytes) or the per-write VectorIndexes capacity members, so they are not emitted.
-- Unmodeled fields left nil rather than fabricated: GlobalTableWitnesses/MRSC witnesses, replica KMSMasterKeyId/OnDemand overrides/ReplicaInaccessibleDateTime.
+- Vector indexes are modeled (CreateTable/UpdateTable/DescribeTable/Restore*Override/SearchVectors with real COSINE/EUCLIDEAN/DOT_PRODUCT scoring, HASH/INLINE_FILTER schema); VectorCapacity (VectorSearchRequestBytes/VectorWriteRequestBytes) and the per-write VectorIndexes capacity members are not emitted: the pinned SDK doc strings give no byte-accounting formula (re-checked 2026-10-07).
 
 ### Structural gaps
 
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
+- ReplicaDescription.ReplicaInaccessibleDateTime / INACCESSIBLE_ENCRYPTION_CREDENTIALS (2026-10-07): set when a replica's customer-managed KMS key becomes unusable; the replica KMSMasterKeyId is stored and echoed but dynamodb holds no live KMS key-state wiring.
 - BackupExpiryDateTime applies to SYSTEM backups only; the emulator creates none.
 - DescribeContributorInsights FailureException: there is no insights processing to fail.
 

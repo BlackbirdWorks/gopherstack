@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -753,6 +754,7 @@ type tableSnapshot struct {
 	gsiList                   []models.GlobalSecondaryIndex
 	keySchema                 []models.KeySchemaElement
 	replicaList               []models.ReplicaDescription
+	witnessList               []models.GlobalTableWitness
 	vectorIndexes             []models.VectorIndexDescription
 	pt                        models.ProvisionedThroughputDescription
 	itemCount                 int64
@@ -781,6 +783,7 @@ func snapshotTable(table *Table) tableSnapshot {
 			len(table.LocalSecondaryIndexes),
 		),
 		replicaList:               make([]models.ReplicaDescription, len(table.Replicas)),
+		witnessList:               slices.Clone(table.GlobalTableWitnesses),
 		itemCount:                 int64(len(table.Items)),
 		itemSizeBytes:             estimateTableSizeBytes(table),
 		pt:                        table.ProvisionedThroughput,
@@ -865,6 +868,7 @@ func buildTableDescription(tableName *string, table *Table) *types.TableDescript
 		GlobalSecondaryIndexes:    models.ToSDKGlobalSecondaryIndexDescriptions(gsiDescs),
 		LocalSecondaryIndexes:     models.ToSDKLocalSecondaryIndexDescriptions(lsiDescs),
 		Replicas:                  toSDKReplicaDescriptions(s.replicaList),
+		GlobalTableWitnesses:      toSDKWitnesses(s.witnessList),
 		ItemCount:                 &s.itemCount,
 		TableSizeBytes:            &tableSizeBytes,
 		BillingModeSummary:        &types.BillingModeSummary{BillingMode: billingMode},
@@ -1139,6 +1143,10 @@ func (db *InMemoryDB) applyUpdateTableLocked(
 
 	applyMultiRegionConsistency(table, input.MultiRegionConsistency, input.ReplicaUpdates)
 
+	if witnessErr := applyWitnessUpdates(table, input); witnessErr != nil {
+		return NewValidationException(witnessErr.Error())
+	}
+
 	if input.DeletionProtectionEnabled != nil {
 		table.DeletionProtectionEnabled = *input.DeletionProtectionEnabled
 	}
@@ -1315,7 +1323,7 @@ func applyReplicaUpdates(table *Table, updates []types.ReplicationGroupUpdate) e
 				return errReplicaCreateRegionRequired
 			}
 
-			applyReplicaCreate(table, regionName)
+			applyReplicaCreate(table, regionName, u.Create)
 		case u.Delete != nil:
 			regionName := aws.ToString(u.Delete.RegionName)
 			if regionName == "" {
@@ -1336,7 +1344,7 @@ func applyReplicaUpdates(table *Table, updates []types.ReplicationGroupUpdate) e
 	return nil
 }
 
-func applyReplicaCreate(table *Table, regionName string) {
+func applyReplicaCreate(table *Table, regionName string, action *types.CreateReplicationGroupMemberAction) {
 	if regionName == "" {
 		return
 	}
@@ -1347,10 +1355,66 @@ func applyReplicaCreate(table *Table, regionName string) {
 		}
 	}
 
-	table.Replicas = append(table.Replicas, models.ReplicaDescription{
+	replica := models.ReplicaDescription{
 		RegionName:    regionName,
 		ReplicaStatus: statusActive,
+	}
+	applyReplicaOverrides(&replica, replicaOverrides{
+		tableClass:  action.TableClassOverride,
+		provisioned: action.ProvisionedThroughputOverride,
+		onDemand:    action.OnDemandThroughputOverride,
+		kmsKey:      action.KMSMasterKeyId,
+		gsis:        action.GlobalSecondaryIndexes,
 	})
+	table.Replicas = append(table.Replicas, replica)
+}
+
+// replicaOverrides are the per-replica settings shared by CreateReplicationGroupMemberAction and
+// UpdateReplicationGroupMemberAction.
+type replicaOverrides struct {
+	provisioned *types.ProvisionedThroughputOverride
+	onDemand    *types.OnDemandThroughputOverride
+	kmsKey      *string
+	tableClass  types.TableClass
+	gsis        []types.ReplicaGlobalSecondaryIndex
+}
+
+func applyReplicaOverrides(rep *models.ReplicaDescription, o replicaOverrides) {
+	if string(o.tableClass) != "" {
+		rep.TableClassOverride = string(o.tableClass)
+	}
+
+	if o.provisioned != nil && o.provisioned.ReadCapacityUnits != nil {
+		rcu := *o.provisioned.ReadCapacityUnits
+		rep.ProvisionedReadCapacityUnits = &rcu
+	}
+
+	if o.onDemand != nil && o.onDemand.MaxReadRequestUnits != nil {
+		maxRead := *o.onDemand.MaxReadRequestUnits
+		rep.OnDemandMaxReadRequestUnits = &maxRead
+	}
+
+	if o.kmsKey != nil {
+		rep.KMSMasterKeyID = *o.kmsKey
+	}
+
+	if len(o.gsis) == 0 {
+		return
+	}
+
+	overrides := make([]models.ReplicaGSIOverride, 0, len(o.gsis))
+
+	for _, g := range o.gsis {
+		ov := models.ReplicaGSIOverride{IndexName: aws.ToString(g.IndexName)}
+		if g.ProvisionedThroughputOverride != nil && g.ProvisionedThroughputOverride.ReadCapacityUnits != nil {
+			rcu := *g.ProvisionedThroughputOverride.ReadCapacityUnits
+			ov.ProvisionedReadCapacity = &rcu
+		}
+
+		overrides = append(overrides, ov)
+	}
+
+	rep.GlobalSecondaryIndexes = overrides
 }
 
 func applyReplicaDelete(table *Table, regionName string) {
@@ -1380,29 +1444,13 @@ func applyReplicaUpdate(
 			continue
 		}
 
-		if string(action.TableClassOverride) != "" {
-			table.Replicas[i].TableClassOverride = string(action.TableClassOverride)
-		}
-
-		if action.ProvisionedThroughputOverride != nil &&
-			action.ProvisionedThroughputOverride.ReadCapacityUnits != nil {
-			rcu := *action.ProvisionedThroughputOverride.ReadCapacityUnits
-			table.Replicas[i].ProvisionedReadCapacityUnits = &rcu
-		}
-
-		if len(action.GlobalSecondaryIndexes) > 0 {
-			overrides := make([]models.ReplicaGSIOverride, 0, len(action.GlobalSecondaryIndexes))
-			for _, g := range action.GlobalSecondaryIndexes {
-				ov := models.ReplicaGSIOverride{IndexName: aws.ToString(g.IndexName)}
-				if g.ProvisionedThroughputOverride != nil &&
-					g.ProvisionedThroughputOverride.ReadCapacityUnits != nil {
-					rcu := *g.ProvisionedThroughputOverride.ReadCapacityUnits
-					ov.ProvisionedReadCapacity = &rcu
-				}
-				overrides = append(overrides, ov)
-			}
-			table.Replicas[i].GlobalSecondaryIndexes = overrides
-		}
+		applyReplicaOverrides(&table.Replicas[i], replicaOverrides{
+			tableClass:  action.TableClassOverride,
+			provisioned: action.ProvisionedThroughputOverride,
+			onDemand:    action.OnDemandThroughputOverride,
+			kmsKey:      action.KMSMasterKeyId,
+			gsis:        action.GlobalSecondaryIndexes,
+		})
 
 		return
 	}
@@ -1765,6 +1813,7 @@ func buildUpdateTableOutput(
 		AttributeDefinitions:      models.ToSDKAttributeDefinitions(table.AttributeDefinitions),
 		GlobalSecondaryIndexes:    gsiDescs,
 		Replicas:                  toSDKReplicaDescriptions(table.Replicas),
+		GlobalTableWitnesses:      toSDKWitnesses(table.GlobalTableWitnesses),
 		VectorIndexes:             models.ToSDKVectorIndexDescriptions(vectorIndexDescriptionsLive(table)),
 		DeletionProtectionEnabled: aws.Bool(table.DeletionProtectionEnabled),
 		ProvisionedThroughput: &types.ProvisionedThroughputDescription{
@@ -1806,6 +1855,21 @@ func buildUpdateTableOutput(
 }
 
 // toSDKReplicaDescriptions converts internal replica metadata to SDK types.
+func toSDKWitnesses(in []models.GlobalTableWitness) []types.GlobalTableWitnessDescription {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make([]types.GlobalTableWitnessDescription, len(in))
+	for i, w := range in {
+		out[i] = types.GlobalTableWitnessDescription{
+			RegionName: aws.String(w.RegionName), WitnessStatus: types.WitnessStatus(w.WitnessStatus),
+		}
+	}
+
+	return out
+}
+
 func toSDKReplicaDescriptions(replicas []models.ReplicaDescription) []types.ReplicaDescription {
 	if len(replicas) == 0 {
 		return nil
@@ -1829,6 +1893,15 @@ func toSDKReplicaDescriptions(replicas []models.ReplicaDescription) []types.Repl
 			desc.ProvisionedThroughputOverride = &types.ProvisionedThroughputOverride{
 				ReadCapacityUnits: &rcu,
 			}
+		}
+
+		if r.KMSMasterKeyID != "" {
+			desc.KMSMasterKeyId = aws.String(r.KMSMasterKeyID)
+		}
+
+		if r.OnDemandMaxReadRequestUnits != nil {
+			maxRead := *r.OnDemandMaxReadRequestUnits
+			desc.OnDemandThroughputOverride = &types.OnDemandThroughputOverride{MaxReadRequestUnits: &maxRead}
 		}
 
 		if len(r.GlobalSecondaryIndexes) > 0 {

@@ -71,6 +71,16 @@ type imageCriterionItem struct {
 	MarketplaceProductCodeSet struct {
 		Items []string `xml:"item"`
 	} `xml:"marketplaceProductCodeSet"`
+	ImageWatermarkSet struct {
+		Items []imageWatermarkFilterItem `xml:"item"`
+	} `xml:"imageWatermarkSet"`
+}
+
+type imageWatermarkFilterItem struct {
+	MaximumDaysSinceSourceImageCreated *int32 `xml:"maximumDaysSinceSourceImageCreated,omitempty"`
+	MaximumDaysSinceWatermarkCreated   *int32 `xml:"maximumDaysSinceWatermarkCreated,omitempty"`
+	SourceImageRegion                  string `xml:"sourceImageRegion,omitempty"`
+	WatermarkKey                       string `xml:"watermarkKey,omitempty"`
 }
 
 func toImageCriterionItem(c ImageCriterion) imageCriterionItem {
@@ -91,6 +101,10 @@ func toImageCriterionItem(c ImageCriterion) imageCriterionItem {
 	item.ImageNameSet.Items = append(item.ImageNameSet.Items, c.ImageNames...)
 	item.ImageProviderSet.Items = append(item.ImageProviderSet.Items, c.ImageProviders...)
 	item.MarketplaceProductCodeSet.Items = append(item.MarketplaceProductCodeSet.Items, c.MarketplaceProductCodes...)
+
+	for _, w := range c.ImageWatermarks {
+		item.ImageWatermarkSet.Items = append(item.ImageWatermarkSet.Items, imageWatermarkFilterItem(w))
+	}
 
 	return item
 }
@@ -285,14 +299,19 @@ func parseImageCriteria(vals url.Values) []ImageCriterion {
 		providers := parseMemberList(vals, prefix+".ImageProvider")
 		codes := parseMemberList(vals, prefix+".MarketplaceProductCode")
 
+		watermarks := parseImageWatermarkFilters(vals, prefix+".ImageWatermark")
+
 		maxCreated := vals.Get(prefix + ".CreationDateCondition.MaximumDaysSinceCreated")
 		maxDeprecated := vals.Get(prefix + ".DeprecationTimeCondition.MaximumDaysSinceDeprecated")
 
-		if len(names) == 0 && len(providers) == 0 && len(codes) == 0 && maxCreated == "" && maxDeprecated == "" {
+		if len(names) == 0 && len(providers) == 0 && len(codes) == 0 && len(watermarks) == 0 &&
+			maxCreated == "" && maxDeprecated == "" {
 			break
 		}
 
-		c := ImageCriterion{ImageNames: names, ImageProviders: providers, MarketplaceProductCodes: codes}
+		c := ImageCriterion{
+			ImageNames: names, ImageProviders: providers, MarketplaceProductCodes: codes, ImageWatermarks: watermarks,
+		}
 
 		if maxCreated != "" {
 			if v, err := strconv.ParseInt(maxCreated, 10, 32); err == nil {
@@ -312,11 +331,32 @@ func parseImageCriteria(vals url.Values) []ImageCriterion {
 	return criteria
 }
 
-func (h *Handler) handleReplaceImageCriteriaInAllowedImagesSettings(vals url.Values, reqID string) (any, error) {
-	criteria := parseImageCriteria(vals)
-	ok := h.Backend.ReplaceImageCriteriaInAllowedImagesSettings(criteria)
+func parseImageWatermarkFilters(vals url.Values, prefix string) []ImageWatermarkFilter {
+	var out []ImageWatermarkFilter
 
-	return &replaceImageCriteriaInAllowedImagesSettingsResponse{Xmlns: ec2XMLNS, RequestID: reqID, Return: ok}, nil
+	for i := 1; ; i++ {
+		p := prefix + "." + strconv.Itoa(i)
+		f := ImageWatermarkFilter{
+			WatermarkKey:                       vals.Get(p + ".WatermarkKey"),
+			SourceImageRegion:                  vals.Get(p + ".SourceImageRegion"),
+			MaximumDaysSinceSourceImageCreated: parseOptionalInt32(vals, p+".MaximumDaysSinceSourceImageCreated"),
+			MaximumDaysSinceWatermarkCreated:   parseOptionalInt32(vals, p+".MaximumDaysSinceWatermarkCreated"),
+		}
+
+		if f == (ImageWatermarkFilter{}) {
+			return out
+		}
+
+		out = append(out, f)
+	}
+}
+
+func (h *Handler) handleReplaceImageCriteriaInAllowedImagesSettings(vals url.Values, reqID string) (any, error) {
+	if err := h.Backend.ReplaceImageCriteriaInAllowedImagesSettings(parseImageCriteria(vals)); err != nil {
+		return nil, err
+	}
+
+	return &replaceImageCriteriaInAllowedImagesSettingsResponse{Xmlns: ec2XMLNS, RequestID: reqID, Return: true}, nil
 }
 
 // ---- Handlers: Store / Restore Image Tasks ----

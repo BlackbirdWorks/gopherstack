@@ -584,6 +584,7 @@ type InMemoryBackend struct {
 	// account-level managed resource visibility.
 	tgwClientVpnAttachments            *store.Table[TransitGatewayClientVpnAttachment]
 	imageWatermarks                    map[string][]string
+	imageWatermarkTimes                map[string]map[string]time.Time
 	accountVpcEncryptionControl        *AccountVpcEncryptionControl
 	applicationStatusChecks            *store.Table[ApplicationStatusCheck]
 	applicationStatusCheckAssociations *store.Table[ApplicationStatusCheckAssociation]
@@ -737,6 +738,7 @@ func initBatch6Maps(b *InMemoryBackend) {
 // under the funlen limit, matching initVpcConfigMaps/initCapacityFamilyMaps.
 func initParity4Maps(b *InMemoryBackend) {
 	b.imageWatermarks = make(map[string][]string)
+	b.imageWatermarkTimes = make(map[string]map[string]time.Time)
 	b.accountVpcEncryptionControl = &AccountVpcEncryptionControl{
 		Mode:      accountVpcEncryptionControlModeUnmanaged,
 		State:     accountVpcEncryptionControlStateDefault,
@@ -1052,6 +1054,10 @@ func (b *InMemoryBackend) RunInstances(
 
 	b.mu.Lock("RunInstances")
 	defer b.mu.Unlock()
+
+	if err = b.checkImageLaunchAllowedLocked(imageID); err != nil {
+		return nil, err
+	}
 
 	if subnetID == "" {
 		subnetID = b.findDefaultSubnetID()

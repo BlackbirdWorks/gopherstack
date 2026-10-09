@@ -56,6 +56,13 @@ func (b *InMemoryBackend) CreateCapacityProvider(
 		return nil, err
 	}
 
+	if p := input.AutoScalingGroupProvider; p != nil {
+		err := normalizeManagedSettings(&p.ManagedScaling, &p.ManagedTerminationProtection, &p.ManagedDraining)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	cp := &CapacityProvider{
 		CreatedAt: time.Now(),
 		CapacityProviderArn: fmt.Sprintf(
@@ -302,6 +309,13 @@ func (b *InMemoryBackend) UpdateCapacityProvider(
 		return nil, fmt.Errorf("%w: capacity provider %s not found", ErrInvalidParameter, input.Name)
 	}
 
+	if p := input.AutoScalingGroupProvider; p != nil {
+		err := normalizeManagedSettings(&p.ManagedScaling, &p.ManagedTerminationProtection, &p.ManagedDraining)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	if input.AutoScalingGroupProvider != nil {
 		if cp.AutoScalingGroupProvider == nil {
 			cp.AutoScalingGroupProvider = &AutoScalingGroupProvider{}
@@ -325,4 +339,82 @@ func (b *InMemoryBackend) AddCapacityProviderInternal(cp *CapacityProvider) {
 	c := *cp
 	c.Tags = copyTags(cp.Tags)
 	b.capacityProviders.Put(&c)
+}
+
+const (
+	defaultInstanceWarmupPeriod = 300
+	defaultMaxScalingStepSize   = 10000
+	maxTargetCapacity           = 100
+	statusEnabled               = "ENABLED"
+	statusDisabled              = "DISABLED"
+)
+
+func validateEnabledDisabled(field, v string) error {
+	if v != "" && v != statusEnabled && v != statusDisabled {
+		return fmt.Errorf("%w: %s must be ENABLED or DISABLED", ErrInvalidParameter, field)
+	}
+
+	return nil
+}
+
+func validateRange(field string, v, lo, hi int) error {
+	if v < lo || v > hi {
+		return fmt.Errorf("%w: %s must be between %d and %d", ErrInvalidParameter, field, lo, hi)
+	}
+
+	return nil
+}
+
+// normalizeManagedSettings validates the ManagedScaling, ManagedTerminationProtection and ManagedDraining
+// values against the ECS API reference ranges and fills the documented defaults.
+func normalizeManagedSettings(ms **ManagedScaling, protection, draining *string) error {
+	if err := validateEnabledDisabled("managedTerminationProtection", *protection); err != nil {
+		return err
+	}
+
+	if err := validateEnabledDisabled("managedDraining", *draining); err != nil {
+		return err
+	}
+
+	if *protection == "" {
+		*protection = statusDisabled
+	}
+
+	m := *ms
+	if m == nil {
+		return nil
+	}
+
+	if err := validateEnabledDisabled("managedScaling.status", m.Status); err != nil {
+		return err
+	}
+
+	if m.TargetCapacityPercent == 0 {
+		m.TargetCapacityPercent = maxTargetCapacity
+	}
+
+	if m.MinimumScalingStepSize == 0 {
+		m.MinimumScalingStepSize = 1
+	}
+
+	if m.MaximumScalingStepSize == 0 {
+		m.MaximumScalingStepSize = defaultMaxScalingStepSize
+	}
+
+	for _, r := range []struct {
+		field  string
+		v      int
+		lo, hi int
+	}{
+		{"targetCapacity", m.TargetCapacityPercent, 1, maxTargetCapacity},
+		{"minimumScalingStepSize", m.MinimumScalingStepSize, 1, defaultMaxScalingStepSize},
+		{"maximumScalingStepSize", m.MaximumScalingStepSize, 1, defaultMaxScalingStepSize},
+		{"instanceWarmupPeriod", m.InstanceWarmupPeriod, 0, defaultMaxScalingStepSize},
+	} {
+		if err := validateRange(r.field, r.v, r.lo, r.hi); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

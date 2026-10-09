@@ -50,8 +50,13 @@ func (b *InMemoryBackend) CreateChannel(
 	b.mu.Lock("CreateChannel")
 	defer b.mu.Unlock()
 
-	if !b.clusters.Has(clusterArn) {
+	cluster, ok := b.clusters.Get(clusterArn)
+	if !ok {
 		return nil, ErrNotFound
+	}
+
+	if err := b.validateChannelSourceLocked(cluster, topicConfigurationList[0].TopicArn); err != nil {
+		return nil, err
 	}
 
 	channelArn := channelARN(clusterArn, channelName)
@@ -83,6 +88,24 @@ func (b *InMemoryBackend) CreateChannel(
 	b.channels.Put(ch)
 
 	return cloneChannel(ch), nil
+}
+
+const expressInstanceTypePrefix = "express."
+
+// validateChannelSourceLocked requires an Express cluster (api_op_CreateChannel.go: "streams records from an
+// Amazon MSK Express cluster topic") and a topic that exists on it. Must be called with b.mu held.
+func (b *InMemoryBackend) validateChannelSourceLocked(cluster *Cluster, topicArn string) error {
+	if !strings.HasPrefix(cluster.BrokerNodeGroupInfo.InstanceType, expressInstanceTypePrefix) {
+		return fmt.Errorf("channels require a cluster with Express brokers: %w", ErrValidation)
+	}
+
+	for _, t := range b.topics.All() {
+		if t.ClusterArn == cluster.ClusterArn && t.TopicArn == topicArn {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("topic %s does not exist on the cluster: %w", topicArn, ErrNotFound)
 }
 
 // validateCreateChannelInput applies validators.go's required-field rules

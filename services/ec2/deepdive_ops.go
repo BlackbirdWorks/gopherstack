@@ -46,6 +46,7 @@ func (b *InMemoryBackend) CreateImageWithLocation(
 		RootDeviceName: "/dev/xvda",
 		State:          stateAvailable,
 		OwnerID:        b.AccountID,
+		CreationTime:   time.Now().UTC(),
 	}
 	b.images.Put(image)
 

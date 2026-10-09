@@ -99,6 +99,10 @@ func (b *InMemoryBackend) publishDeployedConfigurationLocked(d *Deployment) {
 		}
 
 		content, contentType = hcv.Content, hcv.ContentType
+		key := deploymentKey(d.ApplicationID, d.EnvironmentID, d.DeploymentNumber)
+		if override, overridden := b.deploymentContent[key]; overridden {
+			content = override
+		}
 	} else {
 		fetched, err := b.fetchExternalConfigurationLocked(profile, d.ConfigurationVersion)
 		if err != nil {

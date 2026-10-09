@@ -671,12 +671,7 @@ func (h *Handler) handleStopNotebookInstance(ctx context.Context, body []byte) e
 // createPresignedNotebookInstanceURLInput is
 // CreatePresignedNotebookInstanceUrl's request shape
 // (api_op_CreatePresignedNotebookInstanceUrl.go:49-60).
-// SessionExpirationDurationInSeconds is modeled for wire visibility but
-// disclosed no-op: this backend's presigned URL (below) is a static string
-// with no TTL/session-expiry enforcement mechanism, the same structural gap
-// already disclosed for CreatePresignedMlflowAppUrl/
-// CreatePresignedMlflowTrackingServerUrl (parity-11) and hub.go's
-// PresignedUrlAccessConfig.
+// SessionExpirationDurationInSeconds is range-checked (1800-43200) but not encoded in the URL.
 type createPresignedNotebookInstanceURLInput struct {
 	SessionExpirationDurationInSeconds *int32 `json:"SessionExpirationDurationInSeconds,omitempty"`
 	NotebookInstanceName               string `json:"NotebookInstanceName"`
@@ -694,6 +689,10 @@ func (h *Handler) handleCreatePresignedNotebookInstanceURL(
 
 	if req.NotebookInstanceName == "" {
 		return nil, fmt.Errorf("%w: NotebookInstanceName is required", errInvalidRequest)
+	}
+
+	if err := validatePresignedDurations(nil, req.SessionExpirationDurationInSeconds); err != nil {
+		return nil, err
 	}
 
 	url, err := h.Backend.CreatePresignedNotebookInstanceURL(ctx, req.NotebookInstanceName)

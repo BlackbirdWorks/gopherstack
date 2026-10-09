@@ -142,8 +142,8 @@ families:
   Persistence: {status: ok, note: "Handler.Snapshot/Restore (persistence.go) delegate to InMemoryBackend.Snapshot/Restore (backend.go), which round-trips every store.Table via registry.SnapshotAll/RestoreAll (store_setup.go) plus the 5 plain-map fields (tags, findings, controlParams, productSubscriptions, orgAdminAccounts) and all scalar/pointer fields. Verified store_setup.go registers exactly the set of *store.Table fields declared on InMemoryBackend -- no orphaned or unregistered table."}
 gaps: []
 items_still_open:
-  - "GetFindingStatisticsV2/GetResourcesStatisticsV2.MaxStatisticResults is unapplied: the SDK says only \"maximum number of results\", not whether it caps groups or values per group."
-  - "GetFindingsV2 OcsfMapFilter entries repeating a field are combined by the CompositeFilter Operator, not V1's implicit CONTAINS-OR/NOT-AND rule; the AWS docs do not say which applies. vulnerabilities.is_fix_available matches YES/NO only: the SDK does not define how PARTIAL maps to an OCSF boolean."
+  - "GetFindingStatisticsV2/GetResourcesStatisticsV2.MaxStatisticResults is range-checked (1-400) but not applied as a cap: API_GetFindingStatisticsV2.html says only \"the maximum number of results to be returned\", not whether it limits groups or values per group."
+  - "vulnerabilities.is_fix_available matches YES/NO only: neither the SDK nor API_OcsfBooleanFilter/API_CompositeFilter define how the ASFF FixAvailable value PARTIAL maps to an OCSF boolean."
 structural_gaps:
   - "UpdateConfigurationPolicy.UpdatedReason has no read member in the SDK, so it cannot be surfaced."
   - "ListSecurityControlDefinitions.StandardsArn is unapplied: the 3-control catalog carries no per-standard control mapping (AWS-owned catalog data)."

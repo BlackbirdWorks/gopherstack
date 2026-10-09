@@ -574,10 +574,10 @@ families:
     field is 'returnValue', not 'return' (deserializers.go confirmed)."}
 gaps: []
 items_still_open:
-  - "Regional NAT gateway RouteTableId: the SDK doc only says \"the ID of the NAT gateway\" (typo); which route table AWS creates and how it is populated is not documented, so the member is left unset."
-  - "Filters the pinned SDK does not define well enough to apply: DescribeCapacityBlocks 'tags' (doc is only \"the tags assigned\"), DescribeInstanceEventWindows 'instance-tag' (value syntax undocumented), DescribeInstanceImageMetadata 'image-allowed' (Allowed AMIs evaluation is documented in the user guide, but AMIs here carry no CreationDate, ProductCodes or watermarks to evaluate CreationDateCondition, MarketplaceProductCodes or ImageWatermarks against), DescribeVpcPeeringConnections 'status-message' (message texts undocumented: VPC peering lifecycle page names states only), DescribeInstanceStatus 'application-status.status' (InstanceStatus.ApplicationStatus not emitted)."
-  - "DescribeApplicationStatusCheckAssociationsOutput.Tags aggregation across checks is ambiguous in the pinned SDK docs."
+  - "Filters the pinned SDK does not define: DescribeCapacityBlocks 'tags' (doc is only \"the tags assigned\"; checked api_op_DescribeCapacityBlocks.go), DescribeInstanceEventWindows 'instance-tag' (value syntax undocumented in api_op_DescribeInstanceEventWindows.go), DescribeVpcPeeringConnections 'status-message' (no message texts in the SDK or the VPC peering lifecycle page, which names states only)."
 structural_gaps:
+  - "DescribeInstanceStatus application-status.status filter and InstanceStatus.ApplicationStatus (2026-10-07): derived from live HTTP(S) health-check results; see the DescribeApplicationStatus entry below."
+  - "DescribeApplicationStatusCheckAssociationsOutput.Tags (2026-10-07): the pinned deserializer reads only associationSet and nextToken, so the member can never reach an SDK client."
   - "DescribeApplicationStatus's ApplicationStatus.StatusSince and ApplicationStatusDetail
     (the real per-check status-transition timestamp and breakdown list) are always
     zero/empty, and the aggregated status itself never reports 'ok'/'impaired'/

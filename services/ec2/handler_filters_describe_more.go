@@ -164,7 +164,7 @@ func applyInstanceTopologyFilters(
 }
 
 // applyInstanceImageMetadataFilters supports the filters in api_op_DescribeInstanceImageMetadata.go
-// except image-allowed, whose Allowed-AMIs evaluation is not specified by the SDK.
+// except image-allowed, which the handler evaluates against the Allowed AMIs criteria.
 func applyInstanceImageMetadataFilters(
 	items []InstanceImageMetadataItem, filters map[string][]string, b Backend,
 ) []InstanceImageMetadataItem {

@@ -116,6 +116,8 @@ type InMemoryBackend struct {
 	deploymentsByApp               *store.Index[Deployment]
 	registry                       *store.Registry
 	deployedConfigs                map[string]string
+	deploymentContent              map[string][]byte
+	extLambda                      ExtensionLambdaInvoker
 	extensionAssociations          *store.Table[ExtensionAssociation]
 	tags                           map[string]map[string]string
 	versionCounters                map[string]map[string]int32
@@ -148,6 +150,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		versionCounters:       make(map[string]map[string]int32),
 		deploymentCounters:    make(map[string]map[string]int32),
 		deployedConfigs:       make(map[string]string),
+		deploymentContent:     make(map[string][]byte),
 		fetchedConfigs:        make(map[string]*HostedConfigurationVersion),
 		deploymentTimers:      make(map[string]*deploymentTimer),
 		experimentRunEvents:   make(map[string][]ExperimentRunEvent),

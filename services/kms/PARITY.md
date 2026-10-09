@@ -87,8 +87,7 @@ families:
   multi_region: {status: ok, note: "ReplicateKey/UpdatePrimaryRegion primary<->replica promotion verified by existing TestUpdatePrimaryRegion_RoleSwap; DescribeKey MultiRegionConfiguration built correctly for both primary and replica sides"}
 gaps: []
 items_still_open:
-  - "Imported key material: multi-Region PENDING_MULTI_REGION_IMPORT_AND_ROTATION is not modeled (RotateKeyOnDemand is rejected for multi-Region imported keys per the SDK doc), nor automatic rotation of EXTERNAL keys."
-  - "RotateKeyOnDemand on an EXTERNAL key with nothing pending, and a second NEW_KEY_MATERIAL import while one is pending, return KMSInvalidStateException: the pinned SDK names no error for either case."
+  - "RotateKeyOnDemand on an EXTERNAL key with nothing pending, and a second NEW_KEY_MATERIAL import while one is pending, return KMSInvalidStateException: API_RotateKeyOnDemand.html requires the material to be PENDING_ROTATION and lists KMSInvalidStateException among its errors, but names no error for these two cases (re-checked 2026-10-07)."
 structural_gaps:
   - "External key store proxies are never contacted: XksProxyUriUnreachable/IncorrectAuthenticationCredential/InvalidResponse, XksKeyNotFound/XksKeyInvalidConfiguration for the external key itself, and VPC endpoint service existence checks need a real proxy or VPC."
 deferred:

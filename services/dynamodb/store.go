@@ -348,6 +348,7 @@ type Table struct {
 	AttributeDefinitions    []models.AttributeDefinition           `json:"AttributeDefinitions"`
 	GlobalSecondaryIndexes  []models.GlobalSecondaryIndex          `json:"GlobalSecondaryIndexes,omitempty"`
 	Replicas                []models.ReplicaDescription            `json:"Replicas,omitempty"`
+	GlobalTableWitnesses    []models.GlobalTableWitness            `json:"GlobalTableWitnesses,omitempty"`
 	VectorIndexes           []models.VectorIndexDescription        `json:"VectorIndexes,omitempty"`
 	LocalSecondaryIndexes   []models.LocalSecondaryIndex           `json:"LocalSecondaryIndexes,omitempty"`
 	KeySchema               []models.KeySchemaElement              `json:"KeySchema"`

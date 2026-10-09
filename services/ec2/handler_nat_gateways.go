@@ -195,6 +195,7 @@ type natGatewayItem struct {
 	NatGatewayID        string               `xml:"natGatewayId"`
 	SubnetID            string               `xml:"subnetId,omitempty"`
 	AvailabilityMode    string               `xml:"availabilityMode,omitempty"`
+	RouteTableID        string               `xml:"routeTableId,omitempty"`
 	AutoProvisionZones  string               `xml:"autoProvisionZones,omitempty"`
 	AutoScalingIPs      string               `xml:"autoScalingIps,omitempty"`
 	VpcID               string               `xml:"vpcId,omitempty"`
@@ -294,6 +295,7 @@ func toNatGatewayItem(ngw *NatGateway, tags map[string]string) natGatewayItem {
 		NatGatewayID:        ngw.ID,
 		SubnetID:            ngw.SubnetID,
 		AvailabilityMode:    ngw.NatGatewayMode(),
+		RouteTableID:        ngw.RouteTableID,
 		AutoProvisionZones:  ngw.AutoProvisionZones,
 		AutoScalingIPs:      ngw.AutoScalingIPs,
 		VpcID:               ngw.VPCID,

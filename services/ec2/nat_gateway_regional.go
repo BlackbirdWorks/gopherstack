@@ -79,6 +79,7 @@ func (b *InMemoryBackend) CreateRegionalNatGateway(
 		}
 	}
 
+	b.createRegionalNatRouteTableLocked(ngw)
 	b.natGateways.Put(ngw)
 	b.indexNatGatewayLocked(ngw)
 	b.setTagsLocked(ngw.ID, tags)

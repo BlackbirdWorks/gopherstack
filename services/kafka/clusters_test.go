@@ -283,11 +283,12 @@ func TestDeleteCluster_CascadesVpcConnectionsAndChannels(t *testing.T) {
 	t.Parallel()
 
 	b := kafka.NewInMemoryBackend(testAccountID, testRegion)
-	cl := b.AddClusterInternal("c1", "2.8.0")
+	cl := b.AddExpressClusterInternal("c1", "2.8.0")
 
 	conn := b.AddVpcConnectionInternal(cl.ClusterArn, "vpc-1")
 
 	s3Dest, topics := s3ChannelFixtures()
+	topics = withTopic(b, cl, topics)
 	ch, err := b.CreateChannel(
 		context.Background(), cl.ClusterArn, "my-channel", topics, nil, nil, s3Dest, nil, nil,
 	)

@@ -59,6 +59,7 @@ type backendSnapshot struct {
 	VersionCounters       map[string]map[string]int32     `json:"versionCounters"`
 	DeploymentCounters    map[string]map[string]int32     `json:"deploymentCounters"`
 	DeployedConfigs       map[string]string               `json:"deployedConfigs"`
+	DeploymentContent     map[string][]byte               `json:"deploymentContent,omitempty"`
 	ExperimentRunEvents   map[string][]ExperimentRunEvent `json:"experimentRunEvents"`
 	ExperimentRunCounters map[string]int32                `json:"experimentRunCounters"`
 	AccountSettings       AccountSettings                 `json:"accountSettings"`
@@ -87,6 +88,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		VersionCounters:       b.versionCounters,
 		DeploymentCounters:    b.deploymentCounters,
 		DeployedConfigs:       b.deployedConfigs,
+		DeploymentContent:     b.deploymentContent,
 		ExperimentRunEvents:   b.experimentRunEvents,
 		ExperimentRunCounters: b.experimentRunCounters,
 		AccountSettings:       b.accountSettings,
@@ -161,6 +163,12 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	}
 
 	b.deployedConfigs = snap.DeployedConfigs
+
+	b.deploymentContent = snap.DeploymentContent
+	if b.deploymentContent == nil {
+		b.deploymentContent = make(map[string][]byte)
+	}
+
 	b.fetchedConfigs = make(map[string]*HostedConfigurationVersion)
 
 	if snap.ExperimentRunEvents == nil {

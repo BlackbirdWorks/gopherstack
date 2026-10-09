@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -68,6 +69,7 @@ type backendSnapshot struct {
 	AvailabilityZoneGroupOptIns    map[string]string                           `json:"azGroupOptIns,omitempty"`
 	SQLHaHistory                   map[string][]*RegisteredSQLHaInstance       `json:"sqlHaHistory,omitempty"`
 	ImageWatermarks                map[string][]string                         `json:"imageWatermarks,omitempty"`
+	ImageWatermarkTimes            map[string]map[string]time.Time             `json:"imageWatermarkTimes,omitempty"`
 	AccountVpcEncryptionControl    *AccountVpcEncryptionControl                `json:"acctVpcEncCtrl,omitempty"`
 	IpamOrgAdminAccountID          string                                      `json:"ipamOrgAdminAcct,omitempty"`
 	Region                         string                                      `json:"region,omitempty"`
@@ -160,6 +162,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		ReachabilityAnalyzerOrgSharing: b.reachabilityAnalyzerOrgSharing,
 
 		ImageWatermarks:             b.imageWatermarks,
+		ImageWatermarkTimes:         b.imageWatermarkTimes,
 		AccountVpcEncryptionControl: b.accountVpcEncryptionControl,
 		ManagedResourceVisibility:   b.managedResourceDefaultVisibility,
 	}
@@ -294,6 +297,11 @@ func (b *InMemoryBackend) restoreParity4Fields(snap *backendSnapshot) {
 		b.imageWatermarks = snap.ImageWatermarks
 	} else {
 		b.imageWatermarks = make(map[string][]string)
+	}
+
+	b.imageWatermarkTimes = snap.ImageWatermarkTimes
+	if b.imageWatermarkTimes == nil {
+		b.imageWatermarkTimes = make(map[string]map[string]time.Time)
 	}
 
 	if snap.AccountVpcEncryptionControl != nil {

@@ -67,8 +67,8 @@ families:
   Tags: {status: fixed, note: "TagResource/UntagResource now sync storedLocation.Tags and storedTask.Tags in addition to storedAgent.Tags and the canonical b.tags map, closing the dead-code asymmetry flagged (but not fixed) in the prior sweep"}
 gaps: []
 items_still_open:
-  - "LocationUri schemes \"object-storage://\" and \"azure-blob://\" violate the published LocationUri pattern, but neither the pinned SDK nor botocore/AWS docs say what real AWS returns for these two types; not changed to a guessed scheme."
-  - "LocationUri scheme \"fsxl://\" for FSx Lustre was chosen by analogy with the documented FSx OpenZFS \"fsxz://\"; matches the published pattern but is unconfirmed against real output."
+  - "LocationUri schemes \"object-storage://\" and \"azure-blob://\" violate the published LocationUri pattern (^(efs|nfs|s3|smb|hdfs|fsx[a-z0-9-]+)://...$ in API_DescribeLocationObjectStorage.html), and no AWS doc or SDK text names the scheme real AWS returns for these two types (re-checked 2026-10-07); not changed to a guessed scheme."
+  - "LocationUri scheme \"fsxl://\" for FSx Lustre matches the published pattern fsx[a-z0-9-]+ but API_DescribeLocationFsxLustre.html shows no example value, so the exact scheme is unconfirmed."
 structural_gaps:
   - "AgentListEntry.Platform (agent software Version) is never emitted: it describes the real agent appliance, and CreateAgent has no input to source it from."
   - "ManagedSecretConfig stays absent from DescribeLocation*: AWS auto-provisions a service-owned Secrets Manager secret for plaintext credentials, so there is no SecretArn to honestly report."

@@ -116,9 +116,9 @@ gaps: []
     reach the SDK struct but are never read). Restored byte-identical again;
     all gates green with both layers in place."
 items_still_open:
-  - "Vector indexes are modeled (CreateTable/UpdateTable/DescribeTable/Restore*Override/SearchVectors with real COSINE/EUCLIDEAN/DOT_PRODUCT scoring, HASH/INLINE_FILTER schema); the SDK gives no formula for VectorCapacity (VectorSearchRequestBytes/VectorWriteRequestBytes) or the per-write VectorIndexes capacity members, so they are not emitted."
-  - "Unmodeled fields left nil rather than fabricated: GlobalTableWitnesses/MRSC witnesses, replica KMSMasterKeyId/OnDemand overrides/ReplicaInaccessibleDateTime."
+  - "Vector indexes are modeled (CreateTable/UpdateTable/DescribeTable/Restore*Override/SearchVectors with real COSINE/EUCLIDEAN/DOT_PRODUCT scoring, HASH/INLINE_FILTER schema); VectorCapacity (VectorSearchRequestBytes/VectorWriteRequestBytes) and the per-write VectorIndexes capacity members are not emitted: the pinned SDK doc strings give no byte-accounting formula (re-checked 2026-10-07)."
 structural_gaps:
+  - "ReplicaDescription.ReplicaInaccessibleDateTime / INACCESSIBLE_ENCRYPTION_CREDENTIALS (2026-10-07): set when a replica's customer-managed KMS key becomes unusable; the replica KMSMasterKeyId is stored and echoed but dynamodb holds no live KMS key-state wiring."
   - "BackupExpiryDateTime applies to SYSTEM backups only; the emulator creates none."
   - "DescribeContributorInsights FailureException: there is no insights processing to fail."
 deferred:

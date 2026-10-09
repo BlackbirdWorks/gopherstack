@@ -869,3 +869,39 @@ func TestGetFindingsTrendsV2_RoundTrip(t *testing.T) {
 	assert.Equal(t, int64(2), aws.ToInt64(point.TrendsValues.SeverityTrends.High))
 	assert.Equal(t, int64(1), aws.ToInt64(point.TrendsValues.SeverityTrends.Low))
 }
+
+func TestHandler_StatisticsV2_RequestValidation(t *testing.T) {
+	t.Parallel()
+
+	rule := []any{map[string]any{"GroupByField": "severity"}}
+	withMax := func(n int) map[string]any { return map[string]any{"GroupByRules": rule, "MaxStatisticResults": n} }
+	withSort := func(o string) map[string]any { return map[string]any{"GroupByRules": rule, "SortOrder": o} }
+	tests := []struct {
+		body     map[string]any
+		name     string
+		wantCode int
+	}{
+		{name: "valid", body: withMax(400), wantCode: http.StatusOK},
+		{name: "max_zero", body: withMax(0), wantCode: http.StatusBadRequest},
+		{name: "max_over", body: withMax(401), wantCode: http.StatusBadRequest},
+		{name: "bad_sort", body: withSort("up"), wantCode: http.StatusBadRequest},
+		{name: "asc_sort", body: withSort("asc"), wantCode: http.StatusOK},
+		{
+			name:     "too_many_rules",
+			body:     map[string]any{"GroupByRules": []any{rule[0], rule[0], rule[0], rule[0], rule[0], rule[0]}},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, path := range []string{"/findingsv2/statistics", "/resourcesv2/statistics"} {
+		for _, tt := range tests {
+			t.Run(path+"/"+tt.name, func(t *testing.T) {
+				t.Parallel()
+
+				h := newTestHandler(t)
+				rec := doRequest(t, h, http.MethodPost, path, tt.body)
+				assert.Equal(t, tt.wantCode, rec.Code)
+			})
+		}
+	}
+}
