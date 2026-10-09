@@ -428,6 +428,20 @@ func (b *InMemoryBackend) InviteAccountToOrganization(
 	return copyHandshake(h), nil
 }
 
+// LeaveOrganizationAs lets a member account leave; the management account still gets
+// MasterCannotLeaveOrganizationException.
+func (b *InMemoryBackend) LeaveOrganizationAs(accountID string) error {
+	b.mu.RLock("LeaveOrganizationAs")
+	member := b.org != nil && accountID != "" && accountID != b.org.MasterAccountID && b.accounts.Has(accountID)
+	b.mu.RUnlock()
+
+	if !member {
+		return b.LeaveOrganization()
+	}
+
+	return b.RemoveAccountFromOrganization(accountID)
+}
+
 // LeaveOrganization is callable only from a member account (SDK doc comment
 // on the operation), but this backend's caller identity is always the
 // management account (organization.go's CreateOrganization: b.accountID

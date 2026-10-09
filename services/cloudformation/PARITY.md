@@ -273,7 +273,6 @@ structural_gaps:
   - "changeset_diff.go requiresRecreation() covers a curated subset of resource types' replacement-forcing properties: CloudFormation resource property schemas are not part of aws-sdk-go-v2, so the full set cannot be derived (gopherstack-e5h)."
   - "ListResourceScanRelatedResources always returns an empty list: no cross-resource relationship graph is computed for a scan, so MaxResults/Resources have nothing to page or seed from."
 items_still_open:
-  - "StackSetOperations complete synchronously as SUCCEEDED (RUNNING/STOPPING unreachable): stack_sets.go/stack_instances.go provision child stacks inline under the backend lock, and no worker drives an operation lifecycle; making it async would need a worker plus a re-entrant provisioning path (gopherstack-b3pm)."
   - "Stack policy: Replacement Conditionally is treated as Update:Replace (deliberate, not an AWS-documented rule), and AWS's separate logical-ID/resource-type default-deny note is not modeled; NotAction/NotResource follow plain inversion (gopherstack-cqy3)."
   - "No nested-stack change-set or public-extension version machinery exists, so these stay unmodeled: CreateChangeSet IncludeNestedStacks (no nested-stack diff machinery), UpdateStack RetainExceptOnCreate, RollbackStack RoleARN, ActivateType MajorVersion/VersionBump/TypeNameAlias (no public extension version catalog) (gopherstack-xhu2t)."
   - "SAM transform (AWS::Serverless-2016-10-31) still unexpanded (FunctionUrlConfig and EventInvokeConfig now expand; EventInvokeConfig destinations need an explicit Destination ARN): HttpApi Auth/Domain/DefinitionBody/DefinitionUri/PropagateTags and HttpApi event Auth, Api event RequestParameters/RequestModel/ApiKeyRequired/AWS_IAM authorizers/UsagePlan/ResourcePolicy/Domain, Cognito AuthorizationScopes, ScheduleV2 DeadLetterConfig Type SQS (queue generation), SAM policy templates, Application/Connector/GraphQLApi/WebSocketApi, DeploymentPreference, StateMachine Events. All fail the stack/change set with an explicit reason, never silently dropped."
@@ -282,6 +281,10 @@ leaks: {status: clean, note: "no goroutines/janitors/tickers introduced this pas
 ---
 
 ## Notes
+
+### 2026-10-08: StackSet operation lifecycle (gopherstack-b3pm)
+
+Create/Delete/UpdateStackInstances, UpdateStackSet, DetectStackSetDrift and ImportStacksToStackSet now return an OperationId immediately; a per-stack-set worker (`stack_set_operations.go`) runs each operation QUEUED -> RUNNING -> SUCCEEDED/FAILED/STOPPED, one operation at a time per set. OperationPreferences are parsed, validated (both-of count/percentage, ranges, enums) and honoured: MaxConcurrentCount/Percentage (default 1) size the per-region batch, FailureToleranceCount/Percentage (default 0) halt a region whose failed accounts exceed it, STRICT_FAILURE_TOLERANCE shrinks the batch by failures, SEQUENTIAL regions cancel later regions after a halt, PARALLEL interleaves regions, RegionOrder reorders. Results start PENDING and move RUNNING -> SUCCEEDED/FAILED/CANCELLED; DescribeStackSetOperation echoes OperationPreferences, EndTimestamp, StatusReason and StatusDetails.FailedStackInstancesCount. StopStackSetOperation sets STOPPING and the worker cancels the rest at the next batch boundary. The backend lock is taken per account/region unit, never across the whole operation. DeleteStackSet fails with OperationInProgressException while operations are active; restored snapshots settle in-flight operations. A child stack that rolls back now leaves the instance OUTDATED (was recorded CURRENT). `SetStackSetBatchDelay` paces batches; `WaitForStackSetOperations` is the barrier tests use. Tests: `stack_set_operation_lifecycle_test.go`.
 
 ### 2026-10-07: type registry filters, S3 URLs, stack policy, SAM function extras
 
@@ -2342,7 +2345,7 @@ touched (models.go, handler_stack_sets.go) remain in active use — confirmed
 by `golangci-lint`'s 0-issues result, which would have flagged any now-stale
 suppression via `nolintlint`.
 
-**DECISION (2026-09-11, gopherstack-b3pm): stack-set operations complete
+**SUPERSEDED 2026-10-08 (see the 2026-10-08 note): was DECISION (2026-09-11, gopherstack-b3pm): stack-set operations complete
 synchronously, by design — recorded so this isn't re-discovered a third
 time.** `gopherstack-101r`'s sweep found `StopStackSetOperation`'s success
 path could only be reached by white-box-seeding a `RUNNING` operation,

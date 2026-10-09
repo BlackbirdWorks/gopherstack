@@ -286,3 +286,27 @@ func (b *InMemoryBackend) GetResourceShareAssociations(
 
 	return result
 }
+
+// HandleAccountLeftOrganization disassociates the departed account from every share that does not
+// set RetainSharingOnAccountLeaveOrganization (ram@v1.39.4 types.ResourceShareConfiguration).
+func (b *InMemoryBackend) HandleAccountLeftOrganization(accountID string) {
+	b.mu.Lock("HandleAccountLeftOrganization")
+	defer b.mu.Unlock()
+
+	now := time.Now()
+
+	for _, a := range b.associations {
+		if a.AssociationType != associationTypePrincipal || a.Status != associationStatusAssociated ||
+			principalReceiverAccountID(a.AssociatedEntity) != accountID {
+			continue
+		}
+
+		rs, ok := b.resourceShares.Get(a.ResourceShareARN)
+		if !ok || (rs.RetainSharingOnAccountLeaveOrganization != nil && *rs.RetainSharingOnAccountLeaveOrganization) {
+			continue
+		}
+
+		a.Status = associationStatusDisassociated
+		a.LastUpdatedTime = now
+	}
+}

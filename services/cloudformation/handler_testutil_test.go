@@ -37,6 +37,10 @@ func postForm(t *testing.T, h *cloudformation.Handler, body string) *httptest.Re
 	err := h.Handler()(c)
 	require.NoError(t, err)
 
+	if w, ok := h.Backend.(interface{ WaitForStackSetOperations() }); ok {
+		w.WaitForStackSetOperations()
+	}
+
 	return rec
 }
 

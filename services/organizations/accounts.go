@@ -158,6 +158,33 @@ func (b *InMemoryBackend) ListAccounts() ([]*Account, error) {
 
 // RemoveAccountFromOrganization removes an account from the organization.
 func (b *InMemoryBackend) RemoveAccountFromOrganization(accountID string) error {
+	if err := b.removeAccountLocking(accountID); err != nil {
+		return err
+	}
+
+	b.notifyAccountLeft(accountID)
+
+	return nil
+}
+
+// OnAccountLeave registers fn to run (outside the backend lock) after an account has left the organization.
+func (b *InMemoryBackend) OnAccountLeave(fn func(accountID string)) {
+	b.mu.Lock("OnAccountLeave")
+	defer b.mu.Unlock()
+	b.accountLeaveHooks = append(b.accountLeaveHooks, fn)
+}
+
+func (b *InMemoryBackend) notifyAccountLeft(accountID string) {
+	b.mu.RLock("notifyAccountLeft")
+	hooks := slices.Clone(b.accountLeaveHooks)
+	b.mu.RUnlock()
+
+	for _, fn := range hooks {
+		fn(accountID)
+	}
+}
+
+func (b *InMemoryBackend) removeAccountLocking(accountID string) error {
 	b.mu.Lock("RemoveAccountFromOrganization")
 	defer b.mu.Unlock()
 

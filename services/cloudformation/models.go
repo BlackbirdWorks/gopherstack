@@ -358,16 +358,33 @@ type TypeSummary struct {
 	IsActivated      bool   `xml:"IsActivated,omitempty"`
 }
 
+// OperationPreferences mirrors types.StackSetOperationPreferences.
+type OperationPreferences struct {
+	FailureToleranceCount      *int32   `json:"failureToleranceCount,omitempty"`
+	FailureTolerancePercentage *int32   `json:"failureTolerancePercentage,omitempty"`
+	MaxConcurrentCount         *int32   `json:"maxConcurrentCount,omitempty"`
+	MaxConcurrentPercentage    *int32   `json:"maxConcurrentPercentage,omitempty"`
+	ConcurrencyMode            string   `json:"concurrencyMode,omitempty"`
+	RegionConcurrencyType      string   `json:"regionConcurrencyType,omitempty"`
+	RegionOrder                []string `json:"regionOrder,omitempty"`
+}
+
 // StackSetOperation represents a StackSet operation (create/update/delete instances, etc.).
 type StackSetOperation struct {
-	CreatedAt    time.Time
-	OperationID  string
+	CreatedAt   time.Time
+	EndedAt     *time.Time            `json:"endedAt,omitempty"`
+	Preferences *OperationPreferences `json:"preferences,omitempty"`
+	OperationID string
+	// StackSetName is the owning StackSet.
 	StackSetName string
 	// Action is one of the real StackSetOperationAction values: CREATE /
-	// UPDATE / DELETE / DETECT_DRIFT. IMPORT is not a real value either
-	// (gopherstack-n3zi).
+	// UPDATE / DELETE / DETECT_DRIFT.
 	Action string
-	Status string // RUNNING / SUCCEEDED / STOPPED / STOPPING / FAILED
+	// Status is QUEUED / RUNNING / STOPPING / STOPPED / SUCCEEDED / FAILED.
+	Status       string
+	StatusReason string `json:"statusReason,omitempty"`
+	RetainStacks bool   `json:"retainStacks,omitempty"`
+	FailedCount  int    `json:"failedCount,omitempty"`
 }
 
 // RegisteredType holds registration info for a CloudFormation type.
@@ -529,10 +546,14 @@ type ChangeSetHook struct {
 
 // StackSetOperationSummary is a brief summary of a StackSet operation.
 type StackSetOperationSummary struct {
-	CreationTime time.Time `xml:"CreationTimestamp,omitempty"`
-	OperationID  string    `xml:"OperationId"`
-	Action       string    `xml:"Action"`
-	Status       string    `xml:"Status"`
+	CreationTime time.Time             `xml:"CreationTimestamp,omitempty"`
+	EndTime      *time.Time            `xml:"-"`
+	Preferences  *OperationPreferences `xml:"-"`
+	OperationID  string                `xml:"OperationId"`
+	Action       string                `xml:"Action"`
+	Status       string                `xml:"Status"`
+	StatusReason string                `xml:"-"`
+	FailedCount  int                   `xml:"-"`
 }
 
 // AutoDeploymentTarget represents a deployment target for a SERVICE_MANAGED StackSet.

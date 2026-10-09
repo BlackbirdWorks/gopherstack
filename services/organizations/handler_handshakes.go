@@ -7,6 +7,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -437,7 +438,7 @@ func (h *Handler) handleInviteOrganizationToTransferResponsibility(c *echo.Conte
 }
 
 func (h *Handler) handleLeaveOrganization(c *echo.Context, _ []byte) error {
-	if err := h.Backend.LeaveOrganization(); err != nil {
+	if err := h.Backend.LeaveOrganizationAs(awsmeta.Account(c.Request().Context())); err != nil {
 		return h.handleBackendError(c, err)
 	}
 

@@ -101,6 +101,7 @@ func testListStackInstanceResourceDriftsNarrowShape(t *testing.T) {
 	)
 	require.NoError(t, err)
 
+	backend.WaitForStackSetOperations()
 	instances, err := backend.ListStackInstances(
 		"drift-summary-ss", 0, "", cloudformation.ListStackInstancesFilter{},
 	)

@@ -101,6 +101,7 @@ func TestInMemoryBackend_SnapshotRestore_PlainMapFields(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.NotEmpty(t, opID)
+	original.WaitForStackSetOperations()
 
 	stack, err := original.CreateStack(ctx, "drift-stack", `{"Resources":{}}`, nil, cloudformation.StackOptions{})
 	require.NoError(t, err)
@@ -128,6 +129,7 @@ func TestInMemoryBackend_SnapshotRestore_PlainMapFields(t *testing.T) {
 	assert.Equal(t, "111111111111", instances.Data[0].Account)
 	assert.Equal(t, "us-east-1", instances.Data[0].Region)
 
+	fresh.WaitForStackSetOperations()
 	ops, err := fresh.ListStackSetOperations("test-set", 0, "")
 	require.NoError(t, err)
 	require.NotEmpty(t, ops.Data)

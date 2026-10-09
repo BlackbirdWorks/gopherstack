@@ -16,7 +16,7 @@
 ### Known gaps
 
 - Kafka ESM (self-managed): DestinationConfig.OnFailure is not delivered; the SDK does not document the Kafka on-failure record shape or target semantics, so a delivered record would be invented.
-- ESM MetricsConfig (EventCount/ErrorCount/KafkaMetrics) is validated and echoed but publishes nothing: the pinned SDK names the groups but not the CloudWatch metric names or dimensions. ESM LoggingConfig is likewise stored only.
+- ESM MetricsConfig: EventCount (Polled/FilteredOut/Invoked/FailedInvoke/Deleted/Committed) and ErrorCount (PollingError/InvokeError/CommitError) publish to AWS/Lambda with the EventSourceMappingUUID dimension for SQS, Kinesis, DynamoDB and Kafka. Not emitted: KafkaMetrics (MaxOffsetLag/SumOffsetLag need consumer lag the Kafka consumer does not expose), DroppedEventCount and OnFailureDestinationDeliveredEventCount (stream pollers have no retry-exhaustion or on-failure delivery), SchemaRegistryErrorCount, ProvisionedPollers/EventPollerUnit. ESM LoggingConfig is stored only.
 
 ### Structural gaps
 

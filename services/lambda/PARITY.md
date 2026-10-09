@@ -20,7 +20,7 @@ gaps: []
 # 2026-10-08: CreateFunction defaults an omitted PackageType to Zip (was Image).
 items_still_open:
   - "Kafka ESM (self-managed): DestinationConfig.OnFailure is not delivered; the SDK does not document the Kafka on-failure record shape or target semantics, so a delivered record would be invented."
-  - "ESM MetricsConfig (EventCount/ErrorCount/KafkaMetrics) is validated and echoed but publishes nothing: the pinned SDK names the groups but not the CloudWatch metric names or dimensions. ESM LoggingConfig is likewise stored only."
+  - "ESM MetricsConfig: EventCount (Polled/FilteredOut/Invoked/FailedInvoke/Deleted/Committed) and ErrorCount (PollingError/InvokeError/CommitError) publish to AWS/Lambda with the EventSourceMappingUUID dimension for SQS, Kinesis, DynamoDB and Kafka. Not emitted: KafkaMetrics (MaxOffsetLag/SumOffsetLag need consumer lag the Kafka consumer does not expose), DroppedEventCount and OnFailureDestinationDeliveredEventCount (stream pollers have no retry-exhaustion or on-failure delivery), SchemaRegistryErrorCount, ProvisionedPollers/EventPollerUnit. ESM LoggingConfig is stored only."
 structural_gaps:
   - "Invoke TenantId is validated (required for PER_TENANT, rejected otherwise) but does not route to a tenant-dedicated execution environment: one environment pool per function."
   - "Kafka ESM: MSK sources are polled only when services/kafka runs a real broker (--kafka-engine=docker); metadata-only MSK clusters stay unpolled with a warning, and MSK auth settings (IAM/SCRAM/TLS) are ignored (gopherstack-ce985)."
@@ -1325,7 +1325,7 @@ Hot-reload root allowlist (2026-10-02): after symlink resolution the mount path 
 
 ## 2026-10-04: in-process metric inventory (gopherstack-4m1qr)
 
-This service emits no in-process CloudWatch metrics today; recorded in items_still_open. Only SQS and CloudWatch Logs metric filters publish via pkgs/cwmetric.
+Invocation metrics (Invocations/Errors/Duration/Throttles) and opt-in event source mapping metrics publish via pkgs/cwmetric (esm_metrics.go; test esm_metrics_test.go, kafka_metrics_internal_test.go).
 
 ## 2026-10-04: per-region Lambda (gopherstack-12q3n)
 

@@ -1,6 +1,7 @@
 package cloudformation_test
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -35,7 +36,10 @@ func newNestedStackCapableClient(t *testing.T) *cfnsdk.Client {
 	require.NoError(t, registry.Register(h))
 	e.Use(service.NewServiceRouter(registry).RouteHandler())
 
-	srv := httptest.NewServer(e)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		e.ServeHTTP(w, r)
+		backend.WaitForStackSetOperations()
+	}))
 	t.Cleanup(srv.Close)
 
 	cfg, err := awscfg.LoadDefaultConfig(

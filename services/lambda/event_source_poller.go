@@ -514,6 +514,8 @@ func (p *EventSourcePoller) processMapping(ctx context.Context, m *EventSourceMa
 			p.shardIterators[iterKey] = nextIt
 		}()
 
+		p.esmCount(m, esmMetricPolled, len(records))
+
 		if len(records) == 0 {
 			continue
 		}
@@ -575,6 +577,8 @@ func (p *EventSourcePoller) invokeLambda(
 		})
 	}
 
+	p.esmFilteredMetric(m, len(records)-len(eventRecords))
+
 	if len(eventRecords) == 0 {
 		return
 	}
@@ -593,6 +597,8 @@ func (p *EventSourcePoller) invokeLambda(
 	}
 
 	_, err = p.invokeESMFunctionEvent(ctx, fnName, qualifier, payload)
+	p.esmInvokeMetrics(m, len(eventRecords), failedCount(err, len(eventRecords)))
+
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "event source poller: Lambda invocation failed",
 			"function", fnName, "stream", streamARN, "error", err)
@@ -738,6 +744,8 @@ func (p *EventSourcePoller) processDDBShard(
 		p.shardIterators[iterKey] = nextIt
 	}()
 
+	p.esmCount(m, esmMetricPolled, len(records))
+
 	if len(records) == 0 {
 		return
 	}
@@ -799,6 +807,8 @@ func (p *EventSourcePoller) invokeLambdaForDDB(
 		})
 	}
 
+	p.esmFilteredMetric(m, len(records)-len(eventRecords))
+
 	if len(eventRecords) == 0 {
 		return
 	}
@@ -821,6 +831,8 @@ func (p *EventSourcePoller) invokeLambdaForDDB(
 	} else {
 		_, invokeErr = p.invokeESMFunctionEvent(ctx, fnName, qualifier, payload)
 	}
+
+	p.esmInvokeMetrics(m, len(eventRecords), failedCount(invokeErr, len(eventRecords)))
 
 	if invokeErr != nil {
 		logger.Load(ctx).WarnContext(ctx, "event source poller: DDB Lambda invocation failed",
@@ -846,6 +858,7 @@ func (p *EventSourcePoller) processSQSMapping(ctx context.Context, m *EventSourc
 	}
 
 	log := logger.Load(ctx)
+	p.esmCount(m, esmMetricPolled, len(msgs))
 
 	// Enforce MaximumRecordAgeInSeconds: messages older than the limit are dropped
 	// (deleted) instead of invoked, matching AWS's record-age expiry.
@@ -859,6 +872,7 @@ func (p *EventSourcePoller) processSQSMapping(ctx context.Context, m *EventSourc
 	// Apply FilterCriteria: records that match no filter are discarded (deleted)
 	// without invoking the function, exactly as AWS drops filtered-out records.
 	matched, filtered := splitByFilter(m.FilterCriteria, kept)
+	p.esmFilteredMetric(m, len(filtered))
 	if len(filtered) > 0 {
 		if delErr := reader.DeleteMessagesLocal(m.EventSourceARN, receiptHandles(filtered)); delErr != nil {
 			log.WarnContext(ctx, "esm sqs: failed to delete filtered messages", "error", delErr)
@@ -877,10 +891,16 @@ func (p *EventSourcePoller) processSQSMapping(ctx context.Context, m *EventSourc
 		return
 	}
 
+	deleted := len(toDelete)
+
 	if delErr := reader.DeleteMessagesLocal(m.EventSourceARN, toDelete); delErr != nil {
+		deleted = 0
+
 		log.WarnContext(ctx, "esm sqs: failed to delete messages",
 			"queue", m.EventSourceARN, "error", delErr)
 	}
+
+	p.esmCount(m, esmMetricDeleted, deleted)
 }
 
 // deliverSQSBatch invokes the function for a batch of SQS messages, honoring
@@ -1017,6 +1037,8 @@ func (p *EventSourcePoller) invokeLambdaForSQS(
 	}
 
 	if invokeErr != nil {
+		p.esmInvokeMetrics(m, len(msgs), len(msgs))
+
 		return nil, invokeErr
 	}
 
@@ -1025,8 +1047,12 @@ func (p *EventSourcePoller) invokeLambdaForSQS(
 
 	// Apply partial-batch failure filtering when enabled.
 	if handles := filterByBatchItemFailures(reportFailures, respBody, msgs); handles != nil {
+		p.esmInvokeMetrics(m, len(msgs), len(msgs)-len(handles))
+
 		return handles, nil
 	}
+
+	p.esmInvokeMetrics(m, len(msgs), 0)
 
 	// Default: delete all delivered messages.
 	allHandles := make([]string, len(msgs))
@@ -1062,4 +1088,19 @@ func filterByBatchItemFailures(reportFailures bool, respBody []byte, msgs []*SQS
 	}
 
 	return toDelete
+}
+
+func failedCount(err error, n int) int {
+	if err != nil {
+		return n
+	}
+
+	return 0
+}
+
+// esmFilteredMetric reports FilteredOutEventCount only for mappings that carry filter criteria.
+func (p *EventSourcePoller) esmFilteredMetric(m *EventSourceMapping, n int) {
+	if m.FilterCriteria != nil && len(m.FilterCriteria.Filters) > 0 {
+		p.esmCount(m, esmMetricFilteredOut, n)
+	}
 }

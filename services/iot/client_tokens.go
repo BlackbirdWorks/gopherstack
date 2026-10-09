@@ -75,7 +75,7 @@ func (b *InMemoryBackend) RecordCreateToken(kind, token, resourceKey string) {
 
 const opReplayCapacity = 4096
 
-// opReplayCache remembers the most recent completed token-carrying mutations (FIFO-bounded, not persisted).
+// opReplayCache remembers the most recent completed token-carrying mutations (FIFO-bounded).
 type opReplayCache struct {
 	seen  map[string]struct{}
 	order []string
@@ -130,4 +130,28 @@ func (b *InMemoryBackend) RecordOpCompleted(op, token, resourceKey string) {
 
 	c.seen[k] = struct{}{}
 	c.order = append(c.order, k)
+}
+
+func (c *opReplayCache) snapshot() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return append([]string(nil), c.order...)
+}
+
+func (c *opReplayCache) restore(keys []string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.seen = make(map[string]struct{}, len(keys))
+	c.order = nil
+
+	for _, k := range keys[max(0, len(keys)-opReplayCapacity):] {
+		if _, dup := c.seen[k]; dup {
+			continue
+		}
+
+		c.seen[k] = struct{}{}
+		c.order = append(c.order, k)
+	}
 }

@@ -4072,6 +4072,7 @@ func registerCloudFormationAndDashboard(
 	// expand DeploymentTargets.OrganizationalUnitIds against the real OU
 	// hierarchy instead of rejecting OU-based targets outright.
 	wireCloudFormationOrganizations(cfnSvc, byName["Organizations"])
+	wireRAMOrganizations(byName["RAM"], byName["Organizations"])
 
 	wireVPCLatticeEndpoints(byName["VPCLattice"], byName["EC2"])
 
@@ -13135,6 +13136,32 @@ func wireCloudFormationOrganizations(cfnReg, orgReg service.Registerable) {
 	}
 
 	cfnBk.SetOrganizationsDirectory(orgBk)
+}
+
+// wireRAMOrganizations makes an Organizations account-leave disassociate that account from shares
+// without RetainSharingOnAccountLeaveOrganization.
+func wireRAMOrganizations(ramReg, orgReg service.Registerable) {
+	ramH, ok := ramReg.(*rambackend.Handler)
+	if !ok || ramH.Backend == nil {
+		return
+	}
+
+	ramBk, ok := ramH.Backend.(*rambackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	orgH, ok := orgReg.(*organizationsbackend.Handler)
+	if !ok || orgH.Backend == nil {
+		return
+	}
+
+	orgBk, ok := orgH.Backend.(*organizationsbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	orgBk.OnAccountLeave(ramBk.HandleAccountLeftOrganization)
 }
 
 // extractServiceName finds the service name for a given Echo context by checking

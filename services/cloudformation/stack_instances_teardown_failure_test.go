@@ -86,6 +86,7 @@ func TestDeleteStackInstances_SurvivesFailedTeardown(t *testing.T) {
 	assert.Equal(t, types.StackSetOperationResultStatusFailed, resultsOut.Summaries[0].Status)
 	assert.Contains(t, aws.ToString(resultsOut.Summaries[0].StatusReason), "shared-bucket")
 
+	backend.WaitForStackSetOperations()
 	inst, err := backend.DescribeStackInstance("teardown-fail-ss", "111111111111", "us-east-1")
 	require.NoError(t, err)
 	assert.Contains(t, inst.StatusReason, "shared-bucket")

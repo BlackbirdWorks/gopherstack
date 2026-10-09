@@ -2,6 +2,8 @@ package cloudformation
 
 import (
 	"context"
+	"sync"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -65,7 +67,9 @@ type StorageBackend interface {
 	DescribeAccountLimits() []AccountLimit
 	// Stack Sets
 	CreateStackSet(name, description, templateBody string, opts StackSetOptions) (*StackSet, error)
-	UpdateStackSet(name, description, templateBody string, opts StackSetOptions) (*StackSet, string, error)
+	UpdateStackSet(
+		name, description, templateBody string, opts StackSetOptions, opOpts ...StackSetOpOption,
+	) (*StackSet, string, error)
 	DeleteStackSet(name string) error
 	DescribeStackSet(name string) (*StackSet, error)
 	StackSetRegions(name string) []string
@@ -75,6 +79,7 @@ type StorageBackend interface {
 		stackSetName string,
 		accounts, ouIDs, regions []string,
 		filterType string,
+		opOpts ...StackSetOpOption,
 	) (string, error)
 	DeleteStackInstances(
 		ctx context.Context,
@@ -82,13 +87,16 @@ type StorageBackend interface {
 		accounts, ouIDs, regions []string,
 		retainStacks bool,
 		filterType string,
+		opOpts ...StackSetOpOption,
 	) (string, error)
-	UpdateStackInstances(stackSetName string, accounts, ouIDs, regions []string, filterType string) (string, error)
+	UpdateStackInstances(
+		stackSetName string, accounts, ouIDs, regions []string, filterType string, opOpts ...StackSetOpOption,
+	) (string, error)
 	ListStackInstances(
 		stackSetName string, maxResults int, nextToken string, filter ListStackInstancesFilter,
 	) (page.Page[StackInstance], error)
 	DescribeStackInstance(stackSetName, account, region string) (*StackInstance, error)
-	DetectStackSetDrift(stackSetName string) (string, error)
+	DetectStackSetDrift(stackSetName string, opOpts ...StackSetOpOption) (string, error)
 	ListStackSetOperations(
 		stackSetName string, maxResults int, nextToken string,
 	) (page.Page[StackSetOperationSummary], error)
@@ -100,7 +108,9 @@ type StorageBackend interface {
 	ListStackSetAutoDeploymentTargets(
 		stackSetName string, maxResults int, nextToken string,
 	) (page.Page[AutoDeploymentTarget], error)
-	ImportStacksToStackSet(stackSetName string, stackIDs, ouIDs []string) (string, error)
+	ImportStacksToStackSet(
+		stackSetName string, stackIDs, ouIDs []string, opOpts ...StackSetOpOption,
+	) (string, error)
 	ListStackInstanceResourceDrifts(
 		stackSetName, operationID, account, region string,
 	) ([]StackResourceDrift, error)
@@ -177,44 +187,44 @@ type StorageBackend interface {
 
 // InMemoryBackend is a concurrency-safe in-memory CloudFormation backend.
 type InMemoryBackend struct {
-	// registry lets Reset/Snapshot/Restore collapse the tables below to one
-	// call each instead of hand-rolled per-map boilerplate. See store_setup.go
-	// for the registrations and for why the maps further down are NOT
-	// registered (nested or slice-valued, which store.Table cannot represent).
-	registry            *store.Registry
-	stacks              *store.Table[Stack]
-	exports             *store.Table[Export]
-	driftDetections     *store.Table[DriftDetectionStatus]
+	resolver            DynamicRefResolver
+	orgDirectory        OrganizationsDirectory
+	stackSetOperations  map[string]map[string]*StackSetOperation
+	signals             map[string][]SignalRecord
 	stackSets           *store.Table[StackSet]
 	generatedTemplates  *store.Table[GeneratedTemplate]
 	resourceScans       *store.Table[ResourceScan]
-	typeRegistry        *store.Table[RegisteredType]
+	stackSetOpResults   map[string]map[string][]StackSetOperationResult
 	typeRegistrations   *store.Table[TypeRegistrationRecord]
 	publishers          *store.Table[Publisher]
 	stackRefactors      *store.Table[StackRefactor]
 	hookResults         *store.Table[HookResult]
-	stackIDIndex        map[string]string // stackID (ARN) → stackName
+	stackIDIndex        map[string]string
 	events              map[string][]StackEvent
 	resources           map[string]map[string]*StackResource
 	changeSets          map[string]map[string]*ChangeSet
 	stackPolicies       map[string]string
-	stackInstances      map[string][]StackInstance                      // stackSetName → instances
-	stackSetOperations  map[string]map[string]*StackSetOperation        // stackSetName → operationID → op
-	typeConfigs         map[string]string                               // typeName → config json
-	handlerProgress     map[string]string                               // bearerToken → status
-	signals             map[string][]SignalRecord                       // stackName+logicalID → records
-	stackSetOpResults   map[string]map[string][]StackSetOperationResult // stackSetName → opID → results
-	typeVersions        map[string][]*RegisteredTypeVersion             // typeArn → versions
-	resourceScanItems   map[string][]ScannedResource                    // scanID → scanned resources
-	resourceDriftStatus map[string]map[string]string                    // stackID → logicalID → drift status
-	resourceDriftDetail map[string]map[string]StackResourceDrift        // stackID → logicalID → drift detail
-	driftByStackID      map[string][]string                             // stackID → detectionIDs (reverse index)
+	stackInstances      map[string][]StackInstance
+	registry            *store.Registry
+	typeConfigs         map[string]string
+	driftDetections     *store.Table[DriftDetectionStatus]
+	handlerProgress     map[string]string
+	typeRegistry        *store.Table[RegisteredType]
+	typeVersions        map[string][]*RegisteredTypeVersion
+	resourceScanItems   map[string][]ScannedResource
+	resourceDriftStatus map[string]map[string]string
+	resourceDriftDetail map[string]map[string]StackResourceDrift
+	driftByStackID      map[string][]string
 	creator             *ResourceCreator
-	resolver            DynamicRefResolver
-	orgDirectory        OrganizationsDirectory
+	exports             *store.Table[Export]
+	stacks              *store.Table[Stack]
 	mu                  *lockmetrics.RWMutex
-	accountID           string
+	stackSetRuns        map[string]*stackSetOpRun
+	stackSetQueues      map[string]*stackSetOpQueue
 	region              string
+	accountID           string
+	opWG                sync.WaitGroup
+	stackSetBatchDelay  time.Duration
 	orgAccessEnabled    bool
 }
 

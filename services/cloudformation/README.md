@@ -9,14 +9,13 @@
 | --- | --- |
 | PARITY entries audited | 73 (72 ok, 1 partial) |
 | Feature families | 19 (19 ok) |
-| Known gaps | 5 |
+| Known gaps | 4 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- StackSetOperations complete synchronously as SUCCEEDED (RUNNING/STOPPING unreachable): stack_sets.go/stack_instances.go provision child stacks inline under the backend lock, and no worker drives an operation lifecycle; making it async would need a worker plus a re-entrant provisioning path (gopherstack-b3pm).
 - Stack policy: Replacement Conditionally is treated as Update:Replace (deliberate, not an AWS-documented rule), and AWS's separate logical-ID/resource-type default-deny note is not modeled; NotAction/NotResource follow plain inversion (gopherstack-cqy3).
 - No nested-stack change-set or public-extension version machinery exists, so these stay unmodeled: CreateChangeSet IncludeNestedStacks (no nested-stack diff machinery), UpdateStack RetainExceptOnCreate, RollbackStack RoleARN, ActivateType MajorVersion/VersionBump/TypeNameAlias (no public extension version catalog) (gopherstack-xhu2t).
 - SAM transform (AWS::Serverless-2016-10-31) still unexpanded (FunctionUrlConfig and EventInvokeConfig now expand; EventInvokeConfig destinations need an explicit Destination ARN): HttpApi Auth/Domain/DefinitionBody/DefinitionUri/PropagateTags and HttpApi event Auth, Api event RequestParameters/RequestModel/ApiKeyRequired/AWS_IAM authorizers/UsagePlan/ResourcePolicy/Domain, Cognito AuthorizationScopes, ScheduleV2 DeadLetterConfig Type SQS (queue generation), SAM policy templates, Application/Connector/GraphQLApi/WebSocketApi, DeploymentPreference, StateMachine Events. All fail the stack/change set with an explicit reason, never silently dropped.

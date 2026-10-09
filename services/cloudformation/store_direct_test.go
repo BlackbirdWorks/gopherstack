@@ -23,6 +23,7 @@ func TestStackSetDrift(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, opID)
 
+	b.WaitForStackSetOperations()
 	op, err := b.DescribeStackSetOperation("drift-ss", opID)
 	require.NoError(t, err)
 	assert.NotEmpty(t, op.Status)
@@ -56,6 +57,7 @@ func TestStackSetDrift_UpdatesInstanceDriftStatus(t *testing.T) {
 	)
 	require.NoError(t, err)
 
+	b.WaitForStackSetOperations()
 	instances, err := b.ListStackInstances("drift-instance-ss", 0, "", cloudformation.ListStackInstancesFilter{})
 	require.NoError(t, err)
 	require.Len(t, instances.Data, 1)
@@ -73,6 +75,7 @@ func TestStackSetDrift_UpdatesInstanceDriftStatus(t *testing.T) {
 	_, err = b.DetectStackSetDrift("drift-instance-ss")
 	require.NoError(t, err)
 
+	b.WaitForStackSetOperations()
 	instances, err = b.ListStackInstances("drift-instance-ss", 0, "", cloudformation.ListStackInstancesFilter{})
 	require.NoError(t, err)
 	require.Len(t, instances.Data, 1)
@@ -88,6 +91,7 @@ func TestStackSetDrift_UpdatesInstanceDriftStatus(t *testing.T) {
 	_, err = b.DetectStackSetDrift("drift-instance-ss")
 	require.NoError(t, err)
 
+	b.WaitForStackSetOperations()
 	instances, err = b.ListStackInstances("drift-instance-ss", 0, "", cloudformation.ListStackInstancesFilter{})
 	require.NoError(t, err)
 	require.Len(t, instances.Data, 1)
@@ -116,6 +120,7 @@ func TestStackSetOperationList(t *testing.T) {
 	)
 	require.NoError(t, err)
 
+	b.WaitForStackSetOperations()
 	p, err := b.ListStackSetOperations("op-list-ss", 0, "")
 	require.NoError(t, err)
 	assert.NotEmpty(t, p.Data)
@@ -136,6 +141,7 @@ func TestStopStackSetOperation(t *testing.T) {
 	err = b.StopStackSetOperation("stop-ss", opID)
 	require.ErrorIs(t, err, cloudformation.ErrOperationNotRunning)
 
+	b.WaitForStackSetOperations()
 	op, err := b.DescribeStackSetOperation("stop-ss", opID)
 	require.NoError(t, err)
 	assert.NotEmpty(t, op.Status)
