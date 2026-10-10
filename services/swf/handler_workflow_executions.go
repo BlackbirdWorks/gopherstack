@@ -382,6 +382,10 @@ func (h *Handler) handleListOpenWorkflowExecutions(
 	for i, e := range execs {
 		infos[i] = executionToInfo(e)
 	}
+	if pageErr := validatePageParams(in.NextPageToken, in.MaximumPageSize); pageErr != nil {
+		return nil, pageErr
+	}
+
 	infos, nextPageToken := applyPageTokenSlice(infos, in.NextPageToken, in.MaximumPageSize)
 
 	return &listWorkflowExecutionsOutput{ExecutionInfos: infos, NextPageToken: nextPageToken}, nil
@@ -420,6 +424,10 @@ func (h *Handler) handleListClosedWorkflowExecutions(
 	for i, e := range execs {
 		infos[i] = executionToInfo(e)
 	}
+	if pageErr := validatePageParams(in.NextPageToken, in.MaximumPageSize); pageErr != nil {
+		return nil, pageErr
+	}
+
 	infos, nextPageToken := applyPageTokenSlice(infos, in.NextPageToken, in.MaximumPageSize)
 
 	return &listWorkflowExecutionsOutput{ExecutionInfos: infos, NextPageToken: nextPageToken}, nil

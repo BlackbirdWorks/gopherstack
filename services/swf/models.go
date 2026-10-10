@@ -42,6 +42,7 @@ const (
 	attrWorkflowID      = "workflowId"
 	attrRunID           = "runId"
 	attrCause           = "cause"
+	attrActivityID      = "activityId"
 	attrControl         = "control"
 	attrChildPolicy     = "childPolicy"
 	attrTaskList        = "taskList"

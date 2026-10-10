@@ -108,6 +108,10 @@ func (h *Handler) handleListActivityTypes(
 
 		return a.ActivityType.Name < b.ActivityType.Name
 	})
+	if pageErr := validatePageParams(in.NextPageToken, in.MaximumPageSize); pageErr != nil {
+		return nil, pageErr
+	}
+
 	infos, nextPageToken := applyPageTokenSlice(infos, in.NextPageToken, in.MaximumPageSize)
 
 	return &listActivityTypesOutput{TypeInfos: infos, NextPageToken: nextPageToken}, nil

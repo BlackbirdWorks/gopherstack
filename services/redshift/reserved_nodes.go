@@ -80,7 +80,7 @@ func defaultReservedNodeOfferings() []*ReservedNodeOffering {
 		{
 			ReservedNodeOfferingID:   "offering-ra3-xlplus-1yr-allupfront",
 			ReservedNodeOfferingType: offeringClassRegular,
-			NodeType:                 "ra3.xlplus",
+			NodeType:                 nodeTypeRA3XLPlus,
 			Duration:                 durationOneYearSec,
 			FixedPrice:               priceRA3XLPlusAllUpfront,
 			UsagePrice:               priceZeroUpfront,

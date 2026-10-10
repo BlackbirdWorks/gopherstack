@@ -5,6 +5,7 @@ import (
 	"maps"
 	"math/rand/v2"
 	"net"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -97,7 +98,12 @@ func randomMaintenanceWindow() string {
 	endHour := totalMinutes / minutesPerHour % hoursPerDay
 	endMinute := totalMinutes % minutesPerHour
 
-	return fmt.Sprintf("%s:%02d:%02d-%s:%02d:%02d", day, hour, minute, day, endHour, endMinute)
+	endDay := day
+	if totalMinutes >= minutesPerDay {
+		endDay = maintenanceWindowDays[(slices.Index(maintenanceWindowDays, day)+1)%len(maintenanceWindowDays)]
+	}
+
+	return fmt.Sprintf("%s:%02d:%02d-%s:%02d:%02d", day, hour, minute, endDay, endHour, endMinute)
 }
 
 // validateClusterName validates the DAX cluster name format per AWS constraints.
@@ -161,8 +167,8 @@ func validateCreateCluster(input *CreateClusterInput) error {
 		return fmt.Errorf("%w: unsupported node type %q", ErrInvalidParameterValue, input.NodeType)
 	}
 
-	if input.IamRoleArn == "" {
-		return fmt.Errorf("%w: IamRoleArn is required", ErrInvalidParameterValue)
+	if err := validateRoleAndWindow(input); err != nil {
+		return err
 	}
 
 	if input.ReplicationFactor < minReplicationFactor {
@@ -378,7 +384,7 @@ func (b *InMemoryBackend) CreateCluster(input CreateClusterInput) (*Cluster, err
 	b.emitEventLocked(input.ClusterName, EventSourceTypeCluster,
 		fmt.Sprintf("Cluster %s has been created.", input.ClusterName))
 
-	cluster.TransitionDeadline = now.Add(clusterTransitionDelay)
+	cluster.TransitionDeadline = now.Add(b.transitionDelay())
 
 	cp := b.clusterCopy(cluster)
 
@@ -525,8 +531,8 @@ func (b *InMemoryBackend) DescribeClusters(
 
 // UpdateCluster updates a DAX cluster's configuration.
 func (b *InMemoryBackend) UpdateCluster(input UpdateClusterInput) (*Cluster, error) {
-	if input.ClusterName == "" {
-		return nil, fmt.Errorf("%w: ClusterName is required", ErrInvalidParameterValue)
+	if err := validateUpdateInput(&input); err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("UpdateCluster")
@@ -607,7 +613,7 @@ func (b *InMemoryBackend) DeleteCluster(clusterName string) (*Cluster, error) {
 	}
 
 	cluster.Status = StatusDeleting
-	cluster.TransitionDeadline = time.Now().Add(clusterTransitionDelay)
+	cluster.TransitionDeadline = time.Now().Add(b.transitionDelay())
 
 	b.emitEventLocked(clusterName, EventSourceTypeCluster,
 		fmt.Sprintf("Cluster %s is being deleted.", clusterName))
@@ -690,7 +696,7 @@ func (b *InMemoryBackend) IncreaseReplicationFactor(input IncreaseReplicationFac
 	cluster.TotalNodes = input.NewReplicationFactor
 	cluster.ActiveNodes = input.NewReplicationFactor
 	cluster.Status = StatusModifying
-	cluster.TransitionDeadline = now.Add(clusterTransitionDelay)
+	cluster.TransitionDeadline = now.Add(b.transitionDelay())
 
 	b.emitEventLocked(input.ClusterName, EventSourceTypeCluster,
 		fmt.Sprintf("Replication factor increased to %d.", input.NewReplicationFactor))
@@ -772,7 +778,7 @@ func (b *InMemoryBackend) DecreaseReplicationFactor(input DecreaseReplicationFac
 	cluster.TotalNodes = input.NewReplicationFactor
 	cluster.ActiveNodes = input.NewReplicationFactor
 	cluster.Status = StatusModifying
-	cluster.TransitionDeadline = time.Now().Add(clusterTransitionDelay)
+	cluster.TransitionDeadline = time.Now().Add(b.transitionDelay())
 	// NodeIDsToRemove (types.Cluster.NodeIdsToRemove) surfaces on the wire only
 	// while the decrease is in flight; cleared once sweepClusterTransitionsLocked
 	// brings the cluster back to "available".
@@ -818,7 +824,7 @@ func (b *InMemoryBackend) RebootNode(clusterName, nodeID string) (*Cluster, erro
 	for i := range cluster.Nodes {
 		if cluster.Nodes[i].NodeID == nodeID {
 			cluster.Nodes[i].NodeStatus = StatusRebooting
-			cluster.Nodes[i].RebootDeadline = time.Now().Add(clusterTransitionDelay)
+			cluster.Nodes[i].RebootDeadline = time.Now().Add(b.transitionDelay())
 			found = true
 
 			break

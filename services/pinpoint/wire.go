@@ -48,9 +48,10 @@ type createEmailTemplateRequest struct {
 
 // createExportJobRequest is the request body for CreateExportJob.
 type createExportJobRequest struct {
-	SegmentID   string `json:"SegmentId,omitempty"`
-	RoleArn     string `json:"RoleArn"`
-	S3UrlPrefix string `json:"S3UrlPrefix"`
+	SegmentID      string `json:"SegmentId,omitempty"`
+	RoleArn        string `json:"RoleArn"`
+	S3UrlPrefix    string `json:"S3UrlPrefix"`
+	SegmentVersion int    `json:"SegmentVersion,omitempty"`
 }
 
 // createImportJobRequest is the request body for CreateImportJob.
@@ -59,6 +60,10 @@ type createImportJobRequest struct {
 	Format      string `json:"Format"`
 	S3Url       string `json:"S3Url"`
 	SegmentName string `json:"SegmentName,omitempty"`
+	ExternalID  string `json:"ExternalId,omitempty"`
+
+	DefineSegment     bool `json:"DefineSegment,omitempty"`
+	RegisterEndpoints bool `json:"RegisterEndpoints,omitempty"`
 }
 
 // createInAppTemplateRequest is the request body for CreateInAppTemplate.
@@ -74,19 +79,20 @@ type createInAppTemplateRequest struct {
 
 // createJourneyRequest is the request body for CreateJourney.
 type createJourneyRequest struct {
-	Activities             map[string]map[string]any `json:"Activities,omitempty"`
-	StartCondition         map[string]any            `json:"StartCondition,omitempty"`
+	ClosedDays             map[string]any            `json:"ClosedDays,omitempty"`
 	Schedule               map[string]any            `json:"Schedule,omitempty"`
 	Limits                 map[string]any            `json:"Limits,omitempty"`
 	QuietTime              map[string]any            `json:"QuietTime,omitempty"`
 	OpenHours              map[string]any            `json:"OpenHours,omitempty"`
-	ClosedDays             map[string]any            `json:"ClosedDays,omitempty"`
+	Activities             map[string]map[string]any `json:"Activities,omitempty"`
+	StartCondition         map[string]any            `json:"StartCondition,omitempty"`
 	Name                   string                    `json:"Name"`
 	StartActivity          string                    `json:"StartActivity,omitempty"`
 	RefreshFrequency       string                    `json:"RefreshFrequency,omitempty"`
-	LocalTime              bool                      `json:"LocalTime,omitempty"`
-	WaitForQuietTime       bool                      `json:"WaitForQuietTime,omitempty"`
+	State                  string                    `json:"State,omitempty"`
 	RefreshOnSegmentUpdate bool                      `json:"RefreshOnSegmentUpdate,omitempty"`
+	WaitForQuietTime       bool                      `json:"WaitForQuietTime,omitempty"`
+	LocalTime              bool                      `json:"LocalTime,omitempty"`
 }
 
 // createPushTemplateRequest is the request body for CreatePushTemplate.
@@ -204,12 +210,17 @@ type exportJobDefinition struct {
 // types.ExportJobResponse and the deserializer's case list) -- a prior
 // version fabricated one.
 type exportJobResponse struct {
-	ApplicationID string              `json:"ApplicationId"`
-	ID            string              `json:"Id"`
-	JobStatus     string              `json:"JobStatus"`
-	Type          string              `json:"Type"`
-	CreationDate  string              `json:"CreationDate,omitempty"`
-	Definition    exportJobDefinition `json:"Definition"`
+	TotalPieces     *int                `json:"TotalPieces,omitempty"`
+	CompletedPieces *int                `json:"CompletedPieces,omitempty"`
+	TotalProcessed  *int                `json:"TotalProcessed,omitempty"`
+	TotalFailures   *int                `json:"TotalFailures,omitempty"`
+	ApplicationID   string              `json:"ApplicationId"`
+	ID              string              `json:"Id"`
+	JobStatus       string              `json:"JobStatus"`
+	Type            string              `json:"Type"`
+	CreationDate    string              `json:"CreationDate,omitempty"`
+	CompletionDate  string              `json:"CompletionDate,omitempty"`
+	Definition      exportJobDefinition `json:"Definition"`
 }
 
 // importJobDefinition is the nested Definition sub-object of
@@ -220,17 +231,26 @@ type importJobDefinition struct {
 	S3Url     string `json:"S3Url,omitempty"`
 	Format    string `json:"Format,omitempty"`
 	SegmentID string `json:"SegmentId,omitempty"`
+
+	ExternalID        string `json:"ExternalId,omitempty"`
+	DefineSegment     bool   `json:"DefineSegment"`
+	RegisterEndpoints bool   `json:"RegisterEndpoints"`
 }
 
 // importJobResponse is the JSON wire format of ImportJobResponse. No
 // top-level Arn member on the real type, same as exportJobResponse.
 type importJobResponse struct {
-	ApplicationID string              `json:"ApplicationId"`
-	ID            string              `json:"Id"`
-	Definition    importJobDefinition `json:"Definition"`
-	JobStatus     string              `json:"JobStatus"`
-	Type          string              `json:"Type"`
-	CreationDate  string              `json:"CreationDate,omitempty"`
+	TotalPieces     *int                `json:"TotalPieces,omitempty"`
+	CompletedPieces *int                `json:"CompletedPieces,omitempty"`
+	TotalProcessed  *int                `json:"TotalProcessed,omitempty"`
+	TotalFailures   *int                `json:"TotalFailures,omitempty"`
+	ApplicationID   string              `json:"ApplicationId"`
+	ID              string              `json:"Id"`
+	JobStatus       string              `json:"JobStatus"`
+	Type            string              `json:"Type"`
+	CreationDate    string              `json:"CreationDate,omitempty"`
+	CompletionDate  string              `json:"CompletionDate,omitempty"`
+	Definition      importJobDefinition `json:"Definition"`
 }
 
 // journeyResponse is the JSON wire format of JourneyResponse.

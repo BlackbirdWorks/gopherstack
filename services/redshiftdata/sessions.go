@@ -11,7 +11,7 @@ const (
 	// statusSessionAvailable is the AVAILABLE status for a Redshift Data API session
 	// (open and ready to run a SQL statement).
 	statusSessionAvailable = "AVAILABLE"
-	// statusSessionBusy is never reported: statements complete synchronously.
+	// statusSessionBusy marks a session with an unfinished statement.
 	statusSessionBusy = "BUSY"
 	// statusSessionClosed is reported once a session's TTL has passed.
 	statusSessionClosed = "CLOSED"
@@ -66,8 +66,10 @@ func (b *InMemoryBackend) ListSessions(
 ) ([]*SessionData, string, error) {
 	region := getRegion(ctx, b.defaultRegion)
 
-	b.mu.RLock("ListSessions")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListSessions")
+	defer b.mu.Unlock()
+
+	b.settleStatements(time.Now())
 
 	store := b.storeForRead(region)
 	if store == nil {
@@ -140,6 +142,8 @@ func groupSessions(statements map[string]*Statement, now time.Time) []*SessionDa
 			grouped[stmt.SessionID] = sess
 		}
 
+		sess.trackOpenStatement(stmt)
+
 		if stmt.CreatedAt.Before(sess.CreatedAt) {
 			sess.CreatedAt = stmt.CreatedAt
 		}
@@ -165,10 +169,7 @@ func groupSessions(statements map[string]*Statement, now time.Time) []*SessionDa
 			sess.TTL = minTime(sess.TTL, sess.UpdatedAt.Add(time.Duration(sess.AliveSeconds)*time.Second))
 		}
 
-		sess.Status = statusSessionAvailable
-		if !now.Before(sess.TTL) {
-			sess.Status = statusSessionClosed
-		}
+		sess.settleStatus(now)
 
 		result = append(result, sess)
 	}
@@ -264,4 +265,25 @@ func sessionPageStart(sessions []*SessionData, nextToken string) (int, error) {
 	}
 
 	return 0, fmt.Errorf("%w: invalid NextToken", ErrValidation)
+}
+
+// trackOpenStatement records the oldest unfinished statement as the session's current one.
+func (s *SessionData) trackOpenStatement(stmt *Statement) {
+	if isOpenStatus(stmt.Status) && (s.CurrentStatementID == "" || stmt.CreatedAt.Before(s.currentCreatedAt)) {
+		s.CurrentStatementID = stmt.ID
+		s.currentCreatedAt = stmt.CreatedAt
+	}
+}
+
+// settleStatus derives AVAILABLE, BUSY or CLOSED from the TTL and the current statement.
+func (s *SessionData) settleStatus(now time.Time) {
+	switch {
+	case !now.Before(s.TTL):
+		s.Status = statusSessionClosed
+		s.CurrentStatementID = ""
+	case s.CurrentStatementID != "":
+		s.Status = statusSessionBusy
+	default:
+		s.Status = statusSessionAvailable
+	}
 }

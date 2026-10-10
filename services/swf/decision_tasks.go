@@ -303,7 +303,27 @@ func (b *InMemoryBackend) handleScheduleActivityTaskDecision(dc decisionCtx) {
 	if attrs == nil {
 		return
 	}
+	at, registered := b.activities.Get(dc.domain + ":" + attrs.ActivityType.Name + ":" + attrs.ActivityType.Version)
+	if cause := scheduleActivityFailureCause(at, registered); cause != "" {
+		b.appendHistoryEventLocked(dc.domain, dc.workflowID, dc.runID, "ScheduleActivityTaskFailed", map[string]any{
+			eventAttrKey("ScheduleActivityTaskFailed"): map[string]any{
+				attrDTCEventID: dc.decisionTaskCompletedEventID,
+				attrActivityID: attrs.ActivityID,
+				"activityType": map[string]any{
+					attrName:    attrs.ActivityType.Name,
+					attrVersion: attrs.ActivityType.Version,
+				},
+				attrCause: cause,
+			},
+		})
+
+		return
+	}
+
 	taskList := attrs.TaskList
+	if taskList == "" {
+		taskList = at.Defaults.DefaultTaskList
+	}
 	if taskList == "" {
 		taskList = dc.exec.TaskList
 	}
@@ -314,9 +334,9 @@ func (b *InMemoryBackend) handleScheduleActivityTaskDecision(dc decisionCtx) {
 			attrName:    attrs.ActivityType.Name,
 			attrVersion: attrs.ActivityType.Version,
 		},
-		"activityId": attrs.ActivityID,
-		attrInput:    attrs.Input,
-		attrTaskList: map[string]any{attrName: taskList},
+		attrActivityID: attrs.ActivityID,
+		attrInput:      attrs.Input,
+		attrTaskList:   map[string]any{attrName: taskList},
 	}
 	timeouts.addTo(scheduled)
 	scheduledEventID := b.appendHistoryEventLocked(
@@ -347,7 +367,7 @@ func (b *InMemoryBackend) handleRequestCancelActivityTaskDecision(dc decisionCtx
 	b.appendHistoryEventLocked(dc.domain, dc.workflowID, dc.runID, "ActivityTaskCancelRequested", map[string]any{
 		eventAttrKey("ActivityTaskCancelRequested"): map[string]any{
 			attrDTCEventID: dc.decisionTaskCompletedEventID,
-			"activityId":   activityID,
+			attrActivityID: activityID,
 		},
 	})
 }
@@ -445,4 +465,16 @@ func (b *InMemoryBackend) handleRecordMarkerDecision(dc decisionCtx) {
 			"details":      details,
 		},
 	})
+}
+
+// scheduleActivityFailureCause returns the ScheduleActivityTaskFailedCause for an unusable activity type, or "".
+func scheduleActivityFailureCause(at *ActivityType, registered bool) string {
+	switch {
+	case !registered:
+		return "ACTIVITY_TYPE_DOES_NOT_EXIST"
+	case at.Status == statusDeprecated:
+		return "ACTIVITY_TYPE_DEPRECATED"
+	}
+
+	return ""
 }

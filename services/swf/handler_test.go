@@ -148,7 +148,7 @@ func TestSWFHandler_Actions(t *testing.T) {
 			name:     "DeprecateDomain_NotFound",
 			action:   "DeprecateDomain",
 			body:     map[string]any{"name": "nonexistent"},
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusBadRequest,
 		},
 		{
 			name:     "RegisterWorkflowType",
@@ -228,7 +228,7 @@ func TestSWFHandler_Actions(t *testing.T) {
 			name:     "DescribeWorkflowExecution_NotFound",
 			action:   "DescribeWorkflowExecution",
 			body:     map[string]any{"domain": "d1", "execution": map[string]any{"workflowId": "nonexistent"}},
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusBadRequest,
 		},
 	}
 
@@ -559,7 +559,7 @@ func TestSWFHandler_ErrorTypes(t *testing.T) {
 			name:     "UnknownResourceFault",
 			action:   "DeprecateDomain",
 			body:     map[string]any{"name": "nonexistent"},
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusBadRequest,
 			wantType: "UnknownResourceFault",
 		},
 	}

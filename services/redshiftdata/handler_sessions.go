@@ -95,6 +95,10 @@ func sessionToListItem(sess *SessionData) map[string]any {
 
 	item["SessionTtl"] = epochSeconds(sess.TTL)
 
+	if sess.CurrentStatementID != "" {
+		item["CurrentStatementId"] = sess.CurrentStatementID
+	}
+
 	if sess.AliveSeconds > 0 {
 		item["SessionAliveSeconds"] = sess.AliveSeconds
 	}

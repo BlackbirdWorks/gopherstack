@@ -353,6 +353,7 @@ func TestRespondDecisionTaskCompleted_ScheduleActivityTask(t *testing.T) {
 
 			b := swf.NewInMemoryBackend()
 			require.NoError(t, b.RegisterDomain("dom", "", "NONE"))
+			require.NoError(t, b.RegisterActivityType("dom", "my-act", "1.0", "", swf.ActivityTypeDefaults{}))
 			_, err := b.StartWorkflowExecution(swf.StartWorkflowExecutionInput{
 				Domain:     "dom",
 				WorkflowID: "wf-1",
@@ -570,12 +571,12 @@ func TestRespondDecisionTask_ViaHandler(t *testing.T) {
 			wantExecStatus: "FAILED",
 		},
 		{
-			name: "unknown_token_returns_404",
+			name: "unknown_token_is_unknown_resource",
 			setupFn: func(_ *swf.InMemoryBackend) string {
 				return "bad-token"
 			},
 			decisions: nil,
-			wantCode:  http.StatusNotFound,
+			wantCode:  http.StatusBadRequest,
 		},
 	}
 
@@ -617,6 +618,7 @@ func TestRespondDecisionTaskCompleted_MultipleDecisions(t *testing.T) {
 
 	b := swf.NewInMemoryBackend()
 	require.NoError(t, b.RegisterDomain("dom", "", "NONE"))
+	require.NoError(t, b.RegisterActivityType("dom", "act", "1.0", "", swf.ActivityTypeDefaults{}))
 	_, err := b.StartWorkflowExecution(swf.StartWorkflowExecutionInput{
 		Domain:     "dom",
 		WorkflowID: "wf-1",

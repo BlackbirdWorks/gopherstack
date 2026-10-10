@@ -1,6 +1,7 @@
 package swf
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -45,4 +46,32 @@ func (b *InMemoryBackend) GetWorkflowExecutionHistory(
 	p := page.New(cp, nextPageToken, maxPageSize, maxDefault)
 
 	return p.Data, p.Next
+}
+
+// RequireExecution returns ErrNotFound unless the domain is registered and the execution (or run) exists.
+func (b *InMemoryBackend) RequireExecution(domain, workflowID, runID string) error {
+	b.mu.RLock("RequireExecution")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.domains.Get(domain); !ok {
+		return fmt.Errorf("%w: domain %s not found", ErrNotFound, domain)
+	}
+
+	if _, ok := b.resolveExecutionLocked(domain, workflowID, runID); !ok {
+		return fmt.Errorf("%w: execution %s/%s not found", ErrNotFound, domain, workflowID)
+	}
+
+	return nil
+}
+
+// RequireDomain returns ErrNotFound unless the domain is registered.
+func (b *InMemoryBackend) RequireDomain(domain string) error {
+	b.mu.RLock("RequireDomain")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.domains.Get(domain); !ok {
+		return fmt.Errorf("%w: domain %s not found", ErrNotFound, domain)
+	}
+
+	return nil
 }

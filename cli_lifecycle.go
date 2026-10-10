@@ -6,15 +6,18 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	accountbackend "github.com/blackbirdworks/gopherstack/services/account"
 	apprunnerbackend "github.com/blackbirdworks/gopherstack/services/apprunner"
+	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	bedrockbackend "github.com/blackbirdworks/gopherstack/services/bedrock"
 	bedrockagentbackend "github.com/blackbirdworks/gopherstack/services/bedrockagent"
 	cloudfrontbackend "github.com/blackbirdworks/gopherstack/services/cloudfront"
 	comprehendbackend "github.com/blackbirdworks/gopherstack/services/comprehend"
+	daxbackend "github.com/blackbirdworks/gopherstack/services/dax"
 	directoryservicebackend "github.com/blackbirdworks/gopherstack/services/directoryservice"
 	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
 	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
 	efsbackend "github.com/blackbirdworks/gopherstack/services/efs"
+	eksbackend "github.com/blackbirdworks/gopherstack/services/eks"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
 	elasticbeanstalkbackend "github.com/blackbirdworks/gopherstack/services/elasticbeanstalk"
 	fsxbackend "github.com/blackbirdworks/gopherstack/services/fsx"
@@ -29,9 +32,11 @@ import (
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	networkmanagerbackend "github.com/blackbirdworks/gopherstack/services/networkmanager"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
+	pinpointbackend "github.com/blackbirdworks/gopherstack/services/pinpoint"
 	pollybackend "github.com/blackbirdworks/gopherstack/services/polly"
 	quicksightbackend "github.com/blackbirdworks/gopherstack/services/quicksight"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
+	redshiftdatabackend "github.com/blackbirdworks/gopherstack/services/redshiftdata"
 	rekognitionbackend "github.com/blackbirdworks/gopherstack/services/rekognition"
 	route53resolverbackend "github.com/blackbirdworks/gopherstack/services/route53resolver"
 	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
@@ -88,6 +93,11 @@ type LifecycleSettings struct {
 	IoTAnalytics                 time.Duration `name:"iotanalytics"                   env:"IOTANALYTICS_LIFECYCLE_DELAY"         default:"0s" help:"IoT Analytics channel/datastore/dataset CREATING and dataset content CREATING window."`          //nolint:lll // config struct tags are intentionally verbose
 	IoTWireless                  time.Duration `name:"iotwireless"                    env:"IOTWIRELESS_LIFECYCLE_DELAY"          default:"0s" help:"IoT Wireless FUOTA task FuotaSession_Waiting/In_FuotaSession stage window."`                     //nolint:lll // config struct tags are intentionally verbose
 	Account                      time.Duration `name:"account"                        env:"ACCOUNT_LIFECYCLE_DELAY"              default:"0s" help:"Account region ENABLING/DISABLING window (built-in 100ms)."`                                     //nolint:lll // config struct tags are intentionally verbose
+	RedshiftData                 time.Duration `name:"redshiftdata"                   env:"REDSHIFTDATA_LIFECYCLE_DELAY"         default:"0s" help:"Redshift Data statement SUBMITTED/STARTED window before FINISHED."`                              //nolint:lll // config struct tags are intentionally verbose
+	DAX                          time.Duration `name:"dax"                            env:"DAX_LIFECYCLE_DELAY"                  default:"0s" help:"DAX cluster and node creating/modifying/deleting window (built-in 1s)."`                         //nolint:lll // config struct tags are intentionally verbose
+	Pinpoint                     time.Duration `name:"pinpoint"                       env:"PINPOINT_LIFECYCLE_DELAY"             default:"0s" help:"Pinpoint export/import job CREATED/PROCESSING window before COMPLETED."`                         //nolint:lll // config struct tags are intentionally verbose
+	Autoscaling                  time.Duration `name:"autoscaling"                    env:"AUTOSCALING_LAUNCH_DELAY"             default:"0s" help:"Auto Scaling instance Pending window before InService."`                                         //nolint:lll // config struct tags are intentionally verbose
+	EKS                          time.Duration `name:"eks"                            env:"EKS_LIFECYCLE_DELAY"                  default:"0s" help:"EKS transitional-state window (built-in 100ms)."`                                                //nolint:lll // config struct tags are intentionally verbose
 }
 
 func (l LifecycleSettings) effective(specific time.Duration) time.Duration {
@@ -161,6 +171,46 @@ func applyRedshift(reg service.Registerable, l LifecycleSettings) {
 	if h, ok := reg.(*redshiftbackend.Handler); ok {
 		if bk, isBk := h.Backend.(*redshiftbackend.InMemoryBackend); isBk {
 			bk.SetClusterActivationDelay(l.effective(l.Redshift))
+		}
+	}
+}
+
+func applyRedshiftData(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*redshiftdatabackend.Handler); ok {
+		if bk, isBk := h.Backend.(*redshiftdatabackend.InMemoryBackend); isBk {
+			bk.SetLifecycleDelay(l.effective(l.RedshiftData))
+		}
+	}
+}
+
+func applyDAX(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*daxbackend.Handler); ok {
+		if bk, isBk := h.Backend.(*daxbackend.InMemoryBackend); isBk {
+			bk.SetLifecycleDelay(l.effective(l.DAX))
+		}
+	}
+}
+
+func applyPinpoint(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*pinpointbackend.Handler); ok {
+		if bk, isBk := h.Backend.(*pinpointbackend.InMemoryBackend); isBk {
+			bk.SetLifecycleDelay(l.effective(l.Pinpoint))
+		}
+	}
+}
+
+func applyAutoscaling(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*autoscalingbackend.Handler); ok {
+		if bk, isBk := h.Backend.(*autoscalingbackend.InMemoryBackend); isBk {
+			bk.SetLaunchDelay(l.effective(l.Autoscaling))
+		}
+	}
+}
+
+func applyEKS(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*eksbackend.Handler); ok {
+		if d := l.effective(l.EKS); d > 0 {
+			h.Backend.SetLifecycleDelay(d)
 		}
 	}
 }
@@ -398,6 +448,11 @@ func wireLifecycleDelays(byName map[string]service.Registerable, l LifecycleSett
 		"MediaStore":         applyMediaStore,
 		"EFS":                applyEFS,
 		"Redshift":           applyRedshift,
+		"RedshiftData":       applyRedshiftData,
+		"DAX":                applyDAX,
+		"Pinpoint":           applyPinpoint,
+		"Autoscaling":        applyAutoscaling,
+		"EKS":                applyEKS,
 		"CloudFront":         applyCloudFront,
 		"SSM":                applySSM,
 		"DocDB":              applyDocDB,

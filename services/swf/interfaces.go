@@ -39,6 +39,8 @@ type StorageBackend interface {
 	StartWorkflowExecution(input StartWorkflowExecutionInput) (*WorkflowExecution, error)
 	TerminateWorkflowExecution(domain, workflowID, runID, reason, details, childPolicyOverride string) error
 	DescribeWorkflowExecution(domain, workflowID, runID string) (*WorkflowExecution, error)
+	RequireDomain(domain string) error
+	RequireExecution(domain, workflowID, runID string) error
 	GetWorkflowExecutionHistory(
 		domain, workflowID, runID string,
 		maxPageSize int,

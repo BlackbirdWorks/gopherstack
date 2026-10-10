@@ -88,27 +88,38 @@ type EmailTemplate struct {
 
 // ExportJob represents a Pinpoint export job.
 type ExportJob struct {
-	ARN           string `json:"Arn,omitempty"`
-	ApplicationID string `json:"ApplicationId"`
-	SegmentID     string `json:"SegmentId,omitempty"`
-	ID            string `json:"Id"`
-	RoleArn       string `json:"RoleArn,omitempty"`
-	S3UrlPrefix   string `json:"S3UrlPrefix,omitempty"`
-	JobStatus     string `json:"JobStatus"`
-	CreationDate  string `json:"CreationDate,omitempty"`
+	JobStatus       string `json:"JobStatus"`
+	ApplicationID   string `json:"ApplicationId"`
+	SegmentID       string `json:"SegmentId,omitempty"`
+	ID              string `json:"Id"`
+	RoleArn         string `json:"RoleArn,omitempty"`
+	S3UrlPrefix     string `json:"S3UrlPrefix,omitempty"`
+	ARN             string `json:"Arn,omitempty"`
+	CreationDate    string `json:"CreationDate,omitempty"`
+	CompletionDate  string `json:"-"`
+	SegmentVersion  int    `json:"SegmentVersion,omitempty"`
+	TotalPieces     int    `json:"-"`
+	CompletedPieces int    `json:"-"`
+	TotalProcessed  int    `json:"-"`
 }
 
 // ImportJob represents a Pinpoint import job.
 type ImportJob struct {
-	ARN           string `json:"Arn,omitempty"`
-	ApplicationID string `json:"ApplicationId"`
-	ID            string `json:"Id"`
-	RoleArn       string `json:"RoleArn,omitempty"`
-	S3Url         string `json:"S3Url,omitempty"`
-	Format        string `json:"Format,omitempty"`
-	JobStatus     string `json:"JobStatus"`
-	SegmentID     string `json:"SegmentId,omitempty"`
-	CreationDate  string `json:"CreationDate,omitempty"`
+	JobStatus         string `json:"JobStatus"`
+	SegmentID         string `json:"SegmentId,omitempty"`
+	ID                string `json:"Id"`
+	RoleArn           string `json:"RoleArn,omitempty"`
+	S3Url             string `json:"S3Url,omitempty"`
+	Format            string `json:"Format,omitempty"`
+	ApplicationID     string `json:"ApplicationId"`
+	CompletionDate    string `json:"-"`
+	ARN               string `json:"Arn,omitempty"`
+	ExternalID        string `json:"ExternalId,omitempty"`
+	CreationDate      string `json:"CreationDate,omitempty"`
+	TotalPieces       int    `json:"-"`
+	CompletedPieces   int    `json:"-"`
+	RegisterEndpoints bool   `json:"RegisterEndpoints,omitempty"`
+	DefineSegment     bool   `json:"DefineSegment,omitempty"`
 }
 
 // InAppTemplate represents a Pinpoint in-app template.

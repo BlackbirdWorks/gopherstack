@@ -51,6 +51,10 @@ func (h *Handler) handlePollForActivityTask(
 	_ context.Context,
 	in *handlePollForActivityTaskInput,
 ) (*pollForActivityTaskOutput, error) {
+	if err := h.requireDomainAndTaskList(in.Domain, in.TaskList.Name); err != nil {
+		return nil, err
+	}
+
 	task := h.Backend.PollForActivityTask(in.Domain, in.TaskList.Name)
 	if task == nil {
 		return &pollForActivityTaskOutput{}, nil

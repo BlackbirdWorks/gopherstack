@@ -338,6 +338,11 @@ By default resources settle instantly. Set a dwell to make Creating/Processing/P
 | `--lifecycle-mediastore` | `MEDIASTORE_ACTIVATION_DELAY` | MediaStore container `CREATING`/`DELETING` window. |
 | `--lifecycle-efs` | `EFS_ACTIVATION_DELAY` | EFS file system `creating` window. |
 | `--lifecycle-redshift` | `REDSHIFT_ACTIVATION_DELAY` | Redshift cluster `creating` window. |
+| `--lifecycle-redshiftdata` | `REDSHIFTDATA_LIFECYCLE_DELAY` | Redshift Data statement `SUBMITTED`/`STARTED` window before `FINISHED`. |
+| `--lifecycle-dax` | `DAX_LIFECYCLE_DELAY` | DAX cluster/node `creating`/`modifying`/`deleting` window (built-in `1s`). |
+| `--lifecycle-pinpoint` | `PINPOINT_LIFECYCLE_DELAY` | Pinpoint export/import job `CREATED`/`PROCESSING` window before `COMPLETED`. |
+| `--lifecycle-autoscaling` | `AUTOSCALING_LAUNCH_DELAY` | Auto Scaling instance `Pending` window (with an `InProgress` activity) before `InService`. |
+| `--lifecycle-eks` | `EKS_LIFECYCLE_DELAY` | EKS transitional-state window (built-in `100ms`). |
 | `--lifecycle-docdb` | `DOCDB_LIFECYCLE_DELAY` | DocumentDB cluster/instance `creating` window. |
 | `--lifecycle-neptune` | `NEPTUNE_LIFECYCLE_DELAY` | Neptune cluster/instance `creating` window. |
 | `--lifecycle-awsconfig` | `AWSCONFIG_LIFECYCLE_DELAY` | AWS Config conformance pack `CREATE_IN_PROGRESS` window. |
@@ -613,7 +618,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [EventBridge](services/eventbridge/README.md) | A | 66 | 1 gap; 2 structural gaps; 2 deferred |
 | [EventBridge Pipes](services/pipes/README.md) | A | 10 | 1 gap; 1 structural gap |
 | [EventBridge Scheduler](services/scheduler/README.md) | A | 12 | 1 gap |
-| [Pinpoint](services/pinpoint/README.md) | A | 51 | 1 structural gap; 3 deferred |
+| [Pinpoint](services/pinpoint/README.md) | A | 51 | 2 structural gaps; 3 deferred |
 | [SES](services/ses/README.md) | A | 71 | 4 structural gaps; 1 deferred |
 | [SES v2](services/sesv2/README.md) | A | 112 | 2 gaps; 2 structural gaps |
 | [SNS](services/sns/README.md) | A | 34 | 1 structural gap; 1 deferred |

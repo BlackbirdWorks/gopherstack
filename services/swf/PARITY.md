@@ -2,7 +2,7 @@
 service: swf
 sdk_module: aws-sdk-go-v2/service/swf@v1.37.4   # verified this pass; go.mod pin, was stale at v1.33.14
 last_audit_commit: 49cff86c4                     # HEAD at close of the 2026-09-18 ledger burn-down pass
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
 overall: A            # genuine fixes found this pass, plus a wrapper-key/nested-shape sweep
                        # (2026-08-20) that found and fixed 2 more real bugs; see Notes.
                        # 2026-08-29: one more genuine bug found and fixed (ListOpen/
@@ -66,6 +66,14 @@ leaks: {status: clean, note: "the only goroutine is one short-lived invocation p
 ---
 
 ## Notes
+
+### 2026-10-10 (realism pass)
+
+- Domain, workflow/activity type name+version, workflowId and task list names are validated (1..256 / version 1..64 chars, no `:` `/` `|` control chars or leading/trailing space, not literal `arn`).
+- Faults are HTTP 400 like the real service (UnknownResourceFault and OperationNotPermittedFault were 404/403) and messages no longer repeat the fault code.
+- GetWorkflowExecutionHistory on an unknown domain/execution and Poll* on an unknown domain are UnknownResourceFault (they returned empty bodies); maximumPageSize (0..1000) and malformed nextPageToken are ValidationException on the List*/history/poll paths.
+- ScheduleActivityTask decisions use the activity type's default task list before falling back to the workflow's, and an unregistered or deprecated activity type records ScheduleActivityTaskFailed (ACTIVITY_TYPE_DOES_NOT_EXIST / ACTIVITY_TYPE_DEPRECATED). Tests: input_validation_sdk_test.go.
+- Kept lenient: StartWorkflowExecution without a task list or timeouts and no type defaults does not raise DefaultUndefinedFault (about 36 in-repo tests and fixtures start executions that way); an activity decision with no task list anywhere falls back to the workflow's list instead of DEFAULT_TASK_LIST_UNDEFINED.
 
 **2026-10-07**: sticky task lists (RespondDecisionTaskCompleted.TaskList/TaskListScheduleToStartTimeout), decision-task START_TO_CLOSE/SCHEDULE_TO_START and all four activity-task timeouts are now enforced by the lazy sweep (task_timeouts.go), emitting DecisionTaskTimedOut/ActivityTaskTimedOut and rescheduling; heartbeats extend HEARTBEAT and a heartbeat on a timed-out token returns UnknownResourceFault. Pending activity/decision queues now persist. ListDomains/ListActivityTypes/ListWorkflowTypes reject an empty registrationStatus.
 

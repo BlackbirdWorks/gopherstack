@@ -276,7 +276,7 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	case errors.Is(err, ErrNotFound):
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    "ResourceNotFoundException",
-			keyMessageField: err.Error(),
+			keyMessageField: errMessage(err),
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
@@ -285,7 +285,7 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		errors.Is(err, ErrNoResultSet):
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    errValidationException,
-			keyMessageField: err.Error(),
+			keyMessageField: errMessage(err),
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
@@ -333,4 +333,16 @@ func matchSQLLike(s, pattern string) bool {
 	default:
 		return len(s) > 0 && s[0] == pattern[0] && matchSQLLike(s[1:], pattern[1:])
 	}
+}
+
+// errMessage drops the leading "<Code>: " the sentinel errors contribute so the wire message is free of the code.
+func errMessage(err error) string {
+	msg := err.Error()
+	for _, sentinel := range []error{ErrNotFound, ErrValidation, ErrTerminalState, ErrNoResultSet} {
+		if errors.Is(err, sentinel) {
+			msg = strings.TrimPrefix(msg, sentinel.Error()+": ")
+		}
+	}
+
+	return msg
 }

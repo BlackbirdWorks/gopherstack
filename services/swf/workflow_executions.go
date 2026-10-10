@@ -164,8 +164,13 @@ func validateStartWorkflowExecutionInput(input StartWorkflowExecutionInput) erro
 	if input.Domain == "" {
 		return fmt.Errorf("%w: domain is required", ErrValidation)
 	}
-	if input.WorkflowID == "" {
-		return fmt.Errorf("%w: workflowId is required", ErrValidation)
+	if err := validateName("workflowId", input.WorkflowID, maxNameLength); err != nil {
+		return err
+	}
+	if input.TaskList != "" {
+		if err := validateName("taskList name", input.TaskList, maxNameLength); err != nil {
+			return err
+		}
 	}
 	if err := validateChildPolicy(input.ChildPolicy); err != nil {
 		return err

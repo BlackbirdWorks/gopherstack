@@ -7,7 +7,7 @@
 service: dax
 sdk_module: aws-sdk-go-v2/service/dax@v1.32.4   # awsjson1.1 protocol, target prefix AmazonDAXV3.
 last_audit_commit: 0b11fe635  # 2026-09-19 goroutine-launch fix (gopherstack-1x2u0 Part 2 follow-up); prior: d522d763f
-last_audit_date: 2026-10-07  # prior: 2026-09-19
+last_audit_date: 2026-10-10  # prior: 2026-09-19
 overall: A            # 2026-07-24: follow-up pass: closed all 3 previously-known gaps, killed both banned nolints
                       # 2026-07-31: pkgs/sdkcheck reverse check found ResetParameterGroup wrongly advertised/documented as a real SDK op (it isn't -- see its ops-block note); corrected, route left wired as internal test scaffolding. Grade held at A: unreachable by real traffic either way, since DAX dispatches purely by X-Amz-Target and no real client can send this target.
                       # 2026-08-10: control-plane sweep (gopherstack-mmqd). Fixed state-mutated-before-validation in UpdateCluster and UpdateParameterGroup, a wrong error fault code on 6 required-field checks, a fabricated Tags field on the Cluster wire response, 3 unvalidated @required fields (TagResource.Tags, UntagResource.TagKeys, UpdateParameterGroup.ParameterNameValues), and a missing per-subnet SupportedNetworkTypes field. See Notes.
@@ -71,6 +71,13 @@ leaks: {status: clean, note: "CreateCluster/DeleteCluster/IncreaseReplicationFac
 ---
 
 ## Notes
+
+### 2026-10-10 (realism pass)
+
+- `Backend.SetLifecycleDelay` / `--lifecycle-dax` overrides the 1s creating/modifying/deleting/rebooting dwell (0 keeps 1s).
+- IamRoleArn must be an IAM role ARN (InvalidARNFault) and PreferredMaintenanceWindow must be `ddd:hh24:mi-ddd:hh24:mi` spanning at least 60 minutes (InvalidParameterValueException) on create and update; generated windows that crossed midnight now roll the end day.
+- Error messages no longer repeat the fault code. Tests: create_validation_sdk_test.go.
+- Kept: DescribeClusters NextToken is the last cluster name, so an unknown token returns an empty page.
 
 ### 2026-09-19 goroutine-launch fix (gopherstack-1x2u0 Part 2 follow-up)
 

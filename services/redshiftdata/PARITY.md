@@ -7,7 +7,7 @@
 service: redshiftdata
 sdk_module: aws-sdk-go-v2/service/redshiftdata@v1.43.4   # version audited against
 last_audit_commit: d522d763f  # 2026-09-19 leak-audit follow-up (gopherstack-1x2u0); prior: c9523cebb                              # HEAD when this audit began (working tree, uncommitted)
-last_audit_date: 2026-10-07  # prior: 2026-09-18
+last_audit_date: 2026-10-10  # prior: 2026-09-18
 overall: A            # genuine wire-shape/field gaps found and fixed this pass
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -188,7 +188,7 @@ families:
 gaps: []
 items_still_open: []
 structural_gaps:
-  - "Statements complete synchronously to FINISHED (no SQL engine, so no execution window): CancelStatement always returns ValidationException, ListSessions never reports BUSY/CurrentStatementId, and WaitTimeSeconds has nothing to wait for."
+  - "Statements settle on a timer, not by running SQL (no SQL engine): result rows are a fixed placeholder, and QueryTimeout/ActiveStatementsExceeded-style faults cannot occur."
   - "DescribeStatement.RedshiftPid and ExecuteStatement/BatchExecuteStatement.DbGroups are engine/credential-sourced values (real backend pid, GetClusterCredentials groups); no engine or credential model exists."
   - "ActiveStatementsExceeded/ActiveSessionsExceeded/ActiveWaitingRequestsExceeded/DatabaseConnection/QueryTimeout/ExecuteStatement/BatchExecuteStatement exceptions need a real cluster, concurrency limit or wait queue."
 deferred:
@@ -197,6 +197,12 @@ leaks: {status: clean, note: "Janitor uses pkgs/worker.Group with TaskTimeout bo
 ---
 
 ## Notes
+
+### 2026-10-10 (realism pass)
+
+- Statements now progress SUBMITTED -> STARTED -> FINISHED over an opt-in window (`Backend.SetLifecycleDelay`, `--lifecycle-redshiftdata`, default 0 = instant). Open statements can be cancelled (sub-statements become ABORTED), ListSessions reports BUSY with CurrentStatementId while one runs, and GetStatementResult on an unfinished statement is a ValidationException.
+- WaitTimeSeconds (0..30, ValidationException otherwise) was silently dropped on ExecuteStatement, BatchExecuteStatement, DescribeStatement and GetStatementResult(V2); it now blocks until the statement leaves the open states or the wait expires.
+- Create responses omit empty ClusterIdentifier/WorkgroupName/Database/DbUser/SecretArn; error messages no longer repeat the code. Tests: statement_lifecycle_test.go.
 
 ### 2026-10-01 items_still_open burn-down
 

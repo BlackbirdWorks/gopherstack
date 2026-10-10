@@ -661,6 +661,18 @@ func parseCreateClusterOptions(vals url.Values) (CreateClusterOptions, error) {
 		opts.Port = p
 	}
 
+	opts.ClusterType = vals.Get("ClusterType")
+
+	if v := vals.Get("NumberOfNodes"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < minClusterNodeCount {
+			return CreateClusterOptions{}, fmt.Errorf("%w: NumberOfNodes must be an integer between %d and %d",
+				ErrInvalidParameter, minClusterNodeCount, maxClusterNodeCount)
+		}
+
+		opts.NumberOfNodes = n
+	}
+
 	return opts, nil
 }
 
@@ -1042,7 +1054,7 @@ func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) err
 		logger.Load(c.Request().Context()).Error("Redshift internal error", "error", opErr, "action", action)
 	}
 
-	return h.writeError(c, statusCode, code, opErr.Error())
+	return h.writeError(c, statusCode, code, strings.TrimPrefix(opErr.Error(), code+": "))
 }
 
 func (h *Handler) writeError(c *echo.Context, statusCode int, code, message string) error {

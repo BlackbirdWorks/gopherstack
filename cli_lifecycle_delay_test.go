@@ -9,6 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/apprunner"
 	apprunnertypes "github.com/aws/aws-sdk-go-v2/service/apprunner/types"
+	"github.com/aws/aws-sdk-go-v2/service/autoscaling"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockagent"
 	batypes "github.com/aws/aws-sdk-go-v2/service/bedrockagent/types"
 	"github.com/aws/aws-sdk-go-v2/service/cloudfront"
@@ -38,9 +39,12 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/memorydb"
 	"github.com/aws/aws-sdk-go-v2/service/neptune"
 	"github.com/aws/aws-sdk-go-v2/service/opensearch"
+	"github.com/aws/aws-sdk-go-v2/service/pinpoint"
+	pinpointtypes "github.com/aws/aws-sdk-go-v2/service/pinpoint/types"
 	"github.com/aws/aws-sdk-go-v2/service/quicksight"
 	qstypes "github.com/aws/aws-sdk-go-v2/service/quicksight/types"
 	"github.com/aws/aws-sdk-go-v2/service/redshift"
+	"github.com/aws/aws-sdk-go-v2/service/redshiftdata"
 	"github.com/aws/aws-sdk-go-v2/service/rekognition"
 	rektypes "github.com/aws/aws-sdk-go-v2/service/rekognition/types"
 	"github.com/aws/aws-sdk-go-v2/service/route53resolver"
@@ -341,6 +345,88 @@ func lifecycleKnobs() []lifecycleKnob {
 					require.Len(t, out.FileSystems, 1)
 
 					return string(out.FileSystems[0].LifeCycleState) == "creating"
+				}
+			},
+		},
+		{
+			name: "autoscaling",
+			set:  func(l *LifecycleSettings, d time.Duration) { l.Autoscaling = d },
+			start: func(t *testing.T, cfg aws.Config) func() bool {
+				t.Helper()
+
+				c := autoscaling.NewFromConfig(cfg)
+				_, err := c.CreateAutoScalingGroup(t.Context(), &autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: aws.String("lcasg"),
+					MinSize:              aws.Int32(0),
+					MaxSize:              aws.Int32(2),
+					DesiredCapacity:      aws.Int32(1),
+					AvailabilityZones:    []string{"us-east-1a"},
+				})
+				require.NoError(t, err)
+
+				return func() bool {
+					out, dErr := c.DescribeAutoScalingGroups(t.Context(), &autoscaling.DescribeAutoScalingGroupsInput{
+						AutoScalingGroupNames: []string{"lcasg"},
+					})
+					require.NoError(t, dErr)
+					require.Len(t, out.AutoScalingGroups, 1)
+					require.Len(t, out.AutoScalingGroups[0].Instances, 1)
+
+					return out.AutoScalingGroups[0].Instances[0].LifecycleState == "Pending"
+				}
+			},
+		},
+		{
+			name: "redshiftdata",
+			set:  func(l *LifecycleSettings, d time.Duration) { l.RedshiftData = d },
+			start: func(t *testing.T, cfg aws.Config) func() bool {
+				t.Helper()
+
+				c := redshiftdata.NewFromConfig(cfg)
+				stmt, err := c.ExecuteStatement(t.Context(), &redshiftdata.ExecuteStatementInput{
+					ClusterIdentifier: aws.String("lcdata"),
+					Database:          aws.String("dev"),
+					Sql:               aws.String("select 1"),
+				})
+				require.NoError(t, err)
+
+				return func() bool {
+					out, dErr := c.DescribeStatement(t.Context(), &redshiftdata.DescribeStatementInput{Id: stmt.Id})
+					require.NoError(t, dErr)
+
+					return string(out.Status) != "FINISHED"
+				}
+			},
+		},
+		{
+			name: "pinpoint",
+			set:  func(l *LifecycleSettings, d time.Duration) { l.Pinpoint = d },
+			start: func(t *testing.T, cfg aws.Config) func() bool {
+				t.Helper()
+
+				c := pinpoint.NewFromConfig(cfg)
+				app, err := c.CreateApp(t.Context(), &pinpoint.CreateAppInput{
+					CreateApplicationRequest: &pinpointtypes.CreateApplicationRequest{Name: aws.String("lcapp")},
+				})
+				require.NoError(t, err)
+
+				job, err := c.CreateExportJob(t.Context(), &pinpoint.CreateExportJobInput{
+					ApplicationId: app.ApplicationResponse.Id,
+					ExportJobRequest: &pinpointtypes.ExportJobRequest{
+						RoleArn:     aws.String("arn:aws:iam::000000000000:role/lc"),
+						S3UrlPrefix: aws.String("s3://lc/export"),
+					},
+				})
+				require.NoError(t, err)
+
+				return func() bool {
+					out, gErr := c.GetExportJob(t.Context(), &pinpoint.GetExportJobInput{
+						ApplicationId: app.ApplicationResponse.Id,
+						JobId:         job.ExportJobResponse.Id,
+					})
+					require.NoError(t, gErr)
+
+					return out.ExportJobResponse.JobStatus != pinpointtypes.JobStatusCompleted
 				}
 			},
 		},

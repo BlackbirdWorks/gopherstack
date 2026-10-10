@@ -112,6 +112,10 @@ func (h *Handler) handleListWorkflowTypes(
 
 		return a.WorkflowType.Name < b.WorkflowType.Name
 	})
+	if pageErr := validatePageParams(in.NextPageToken, in.MaximumPageSize); pageErr != nil {
+		return nil, pageErr
+	}
+
 	infos, nextPageToken := applyPageTokenSlice(infos, in.NextPageToken, in.MaximumPageSize)
 
 	return &listWorkflowTypesOutput{TypeInfos: infos, NextPageToken: nextPageToken}, nil

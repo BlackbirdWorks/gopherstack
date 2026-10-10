@@ -99,11 +99,7 @@ func (h *Handler) handleCreateExportJob(c *echo.Context, appID string) error {
 
 	job, backendErr := h.Backend.CreateExportJob(region, h.AccountID, appID, req)
 	if backendErr != nil {
-		if errors.Is(backendErr, awserr.ErrNotFound) {
-			return writeErrorResponse(c, http.StatusNotFound, "NotFoundException", backendErr.Error())
-		}
-
-		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", backendErr.Error())
+		return writeNotFoundOrInternal(c, backendErr)
 	}
 
 	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusCreated, toExportJobResponse(job))
@@ -143,11 +139,7 @@ func (h *Handler) handleCreateImportJob(c *echo.Context, appID string) error {
 
 	job, backendErr := h.Backend.CreateImportJob(region, h.AccountID, appID, req)
 	if backendErr != nil {
-		if errors.Is(backendErr, awserr.ErrNotFound) {
-			return writeErrorResponse(c, http.StatusNotFound, "NotFoundException", backendErr.Error())
-		}
-
-		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", backendErr.Error())
+		return writeNotFoundOrInternal(c, backendErr)
 	}
 
 	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusCreated, toImportJobResponse(job))
@@ -252,13 +244,29 @@ func toExportJobResponse(j *ExportJob) exportJobResponse {
 		ApplicationID: j.ApplicationID,
 		ID:            j.ID,
 		Definition: exportJobDefinition{
-			RoleArn:     j.RoleArn,
-			S3UrlPrefix: j.S3UrlPrefix,
+			RoleArn:        j.RoleArn,
+			S3UrlPrefix:    j.S3UrlPrefix,
+			SegmentID:      j.SegmentID,
+			SegmentVersion: j.SegmentVersion,
 		},
-		JobStatus:    j.JobStatus,
-		Type:         exportJobType,
-		CreationDate: j.CreationDate,
+		JobStatus:       j.JobStatus,
+		Type:            exportJobType,
+		CreationDate:    j.CreationDate,
+		CompletionDate:  j.CompletionDate,
+		TotalPieces:     piecesPtr(j.JobStatus, j.TotalPieces),
+		CompletedPieces: piecesPtr(j.JobStatus, j.CompletedPieces),
+		TotalProcessed:  piecesPtr(j.JobStatus, j.TotalProcessed),
+		TotalFailures:   piecesPtr(j.JobStatus, 0),
 	}
+}
+
+// piecesPtr returns a progress counter only once the job has completed.
+func piecesPtr(status string, n int) *int {
+	if status != jobStatusCompleted {
+		return nil
+	}
+
+	return &n
 }
 
 func toImportJobResponse(j *ImportJob) importJobResponse {
@@ -270,9 +278,18 @@ func toImportJobResponse(j *ImportJob) importJobResponse {
 			S3Url:     j.S3Url,
 			Format:    j.Format,
 			SegmentID: j.SegmentID,
+
+			ExternalID:        j.ExternalID,
+			DefineSegment:     j.DefineSegment,
+			RegisterEndpoints: j.RegisterEndpoints,
 		},
-		JobStatus:    j.JobStatus,
-		Type:         importJobType,
-		CreationDate: j.CreationDate,
+		JobStatus:       j.JobStatus,
+		Type:            importJobType,
+		CreationDate:    j.CreationDate,
+		CompletionDate:  j.CompletionDate,
+		TotalPieces:     piecesPtr(j.JobStatus, j.TotalPieces),
+		CompletedPieces: piecesPtr(j.JobStatus, j.CompletedPieces),
+		TotalProcessed:  piecesPtr(j.JobStatus, 0),
+		TotalFailures:   piecesPtr(j.JobStatus, 0),
 	}
 }

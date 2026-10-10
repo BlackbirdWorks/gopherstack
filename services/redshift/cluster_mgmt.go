@@ -3,6 +3,7 @@ package redshift
 import (
 	"fmt"
 	"sort"
+	"time"
 )
 
 // ModifyClusterOptions groups ModifyCluster's optional fields. Real
@@ -48,6 +49,8 @@ func (b *InMemoryBackend) ModifyCluster(id string, opts ModifyClusterOptions) (*
 	if id == "" {
 		return nil, fmt.Errorf("%w: ClusterIdentifier is required", ErrInvalidParameter)
 	}
+
+	b.advanceClusterStates(time.Now())
 
 	b.mu.Lock("ModifyCluster")
 	defer b.mu.Unlock()
@@ -96,6 +99,16 @@ func (b *InMemoryBackend) ModifyCluster(id string, opts ModifyClusterOptions) (*
 // validateModifyClusterOpts checks the ModifyCluster fields that can be
 // rejected outright, before anything is applied to the cluster.
 func validateModifyClusterOpts(b *InMemoryBackend, opts ModifyClusterOptions) error {
+	if opts.NodeType != "" {
+		if err := validateNodeType(opts.NodeType); err != nil {
+			return err
+		}
+	}
+
+	if opts.NumberOfNodes > maxClusterNodeCount {
+		return validateNodeCount(opts.NumberOfNodes)
+	}
+
 	if opts.ManualSnapshotRetentionPeriod != nil {
 		v := *opts.ManualSnapshotRetentionPeriod
 		if v != indefiniteManualSnapshotRetentionPeriod &&
@@ -199,6 +212,7 @@ func applyModifyClusterImmediate(cluster *Cluster, opts ModifyClusterOptions) {
 
 	if opts.NumberOfNodes > 0 {
 		cluster.NumberOfNodes = opts.NumberOfNodes
+		cluster.ClusterType = topologyType("", opts.NumberOfNodes)
 	}
 
 	if opts.AutomatedSnapshotRetentionPeriod != nil {
@@ -274,6 +288,8 @@ func (b *InMemoryBackend) PauseCluster(id string) (*Cluster, error) {
 		return nil, fmt.Errorf("%w: ClusterIdentifier is required", ErrInvalidParameter)
 	}
 
+	b.advanceClusterStates(time.Now())
+
 	b.mu.Lock("PauseCluster")
 	defer b.mu.Unlock()
 
@@ -282,8 +298,11 @@ func (b *InMemoryBackend) PauseCluster(id string) (*Cluster, error) {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 	}
 
-	cluster.Status = "paused"
-	cp := cloneCluster(cluster)
+	if cluster.Status != clusterStatusAvailable {
+		return nil, fmt.Errorf("%w: cluster %s is in %q state", ErrClusterInvalidState, id, cluster.Status)
+	}
+
+	cp := b.beginClusterTransitionLocked(cluster, clusterStatusPausing, clusterStatusPaused)
 
 	return &cp, nil
 }
@@ -294,6 +313,8 @@ func (b *InMemoryBackend) ResumeCluster(id string) (*Cluster, error) {
 		return nil, fmt.Errorf("%w: ClusterIdentifier is required", ErrInvalidParameter)
 	}
 
+	b.advanceClusterStates(time.Now())
+
 	b.mu.Lock("ResumeCluster")
 	defer b.mu.Unlock()
 
@@ -302,8 +323,11 @@ func (b *InMemoryBackend) ResumeCluster(id string) (*Cluster, error) {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 	}
 
-	cluster.Status = clusterStatusAvailable
-	cp := cloneCluster(cluster)
+	if cluster.Status != clusterStatusPaused {
+		return nil, fmt.Errorf("%w: cluster %s is in %q state", ErrClusterInvalidState, id, cluster.Status)
+	}
+
+	cp := b.beginClusterTransitionLocked(cluster, clusterStatusResuming, clusterStatusAvailable)
 
 	return &cp, nil
 }
@@ -318,6 +342,8 @@ func (b *InMemoryBackend) ResizeCluster(
 		return nil, fmt.Errorf("%w: ClusterIdentifier is required", ErrInvalidParameter)
 	}
 
+	b.advanceClusterStates(time.Now())
+
 	b.mu.Lock("ResizeCluster")
 	defer b.mu.Unlock()
 
@@ -326,17 +352,27 @@ func (b *InMemoryBackend) ResizeCluster(
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 	}
 
+	if cluster.Status != clusterStatusAvailable {
+		return nil, fmt.Errorf("%w: cluster %s is in %q state", ErrClusterInvalidState, id, cluster.Status)
+	}
+
+	if nodeType != "" {
+		if err := validateNodeType(nodeType); err != nil {
+			return nil, err
+		}
+	}
+
+	targetType, targetNodes, err := resolveResizeTopology(cluster, clusterType, numberOfNodes)
+	if err != nil {
+		return nil, err
+	}
+
 	if nodeType != "" {
 		cluster.NodeType = nodeType
 	}
 
-	if clusterType != "" {
-		cluster.ClusterType = clusterType
-	}
-
-	if numberOfNodes > 0 {
-		cluster.NumberOfNodes = numberOfNodes
-	}
+	cluster.ClusterType = targetType
+	cluster.NumberOfNodes = targetNodes
 
 	// Record the resize as an already-completed activeResizes entry so
 	// DescribeResize can observe it immediately after ResizeCluster returns (real
@@ -360,7 +396,7 @@ func (b *InMemoryBackend) ResizeCluster(
 		AllowCancelResize:   false,
 	}
 
-	cp := cloneCluster(cluster)
+	cp := b.beginClusterTransitionLocked(cluster, clusterStatusResizing, clusterStatusAvailable)
 
 	return &cp, nil
 }

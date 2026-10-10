@@ -48,6 +48,8 @@ type InMemoryBackend struct {
 	AccountID    string
 	Region       string
 	events       []*Event
+
+	transitionDelayOverride time.Duration
 }
 
 // NewInMemoryBackend creates a new DAX backend.

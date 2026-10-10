@@ -8,7 +8,7 @@ service: redshift
 sdk_module: aws-sdk-go-v2/service/redshift@v1.65.4
 sibling_sdk_modules: [aws-sdk-go-v2/service/redshiftserverless@v1.38.5]  # pinned in go.mod 2026-08-13, bd gopherstack-0w2p; see "Redshift Serverless" family row
 last_audit_commit: 68761ba3a
-last_audit_date: 2026-10-07  # 2026-10-01: serverless ScheduledActionResponse.NextInvocations computed from the {"at"|"cron"} union within StartTime/EndTime (disabled yields none); TestSDKRoundTrip_ServerlessScheduledActionNextInvocations.
+last_audit_date: 2026-10-10  # 2026-10-01: serverless ScheduledActionResponse.NextInvocations computed from the {"at"|"cron"} union within StartTime/EndTime (disabled yields none); TestSDKRoundTrip_ServerlessScheduledActionNextInvocations.
 overall: A            # RESTORED FROM A- (2026-07-25 follow-up pass, bd gopherstack-0eyk): the
                        # Create/ModifyRedshiftIdcApplicationResult missing-inner-<RedshiftIdcApplication>
                        # -wrapper bug that caused the prior A- downgrade is now fixed (see
@@ -101,6 +101,13 @@ leaks: {status: clean, note: "reviewed reconciler.go: StartReconciler/StopReconc
 ---
 
 ## Notes
+
+### 2026-10-10 (realism pass)
+
+- Error messages no longer repeat the code ("ClusterNotFound: cluster x not found" -> "cluster x not found").
+- CreateCluster now honours NumberOfNodes/ClusterType (both were dropped; every cluster was 1 node): 1..100 nodes, single-node needs exactly 1, an explicit multi-node needs >=2 (InvalidParameterCombination), ClusterType inferred when absent. NodeType is checked against the dc1/dc2/ds1/ds2/ra3 catalog on create/modify/resize. ModifyCluster keeps ClusterType in step with the node count.
+- PauseCluster/ResumeCluster/ResizeCluster require available/paused/available (InvalidClusterState) and, with the cluster lifecycle delay set (`--lifecycle-redshift`), pass through pausing/resuming/resizing; DeleteCluster reports `deleting` and rejects a second delete. Tests: cluster_topology_sdk_test.go.
+- Kept lenient: DeleteCluster without SkipFinalClusterSnapshot does not demand FinalClusterSnapshotIdentifier (real AWS defaults skip to false); callers across the repo (CloudFormation, integration tests) delete without either member. Marker values stay readable cluster identifiers.
 
 ### 2026-09-19 (terraform redshift-resources coverage pass)
 

@@ -7,7 +7,7 @@
 service: pinpoint
 sdk_module: aws-sdk-go-v2/service/pinpoint@v1.42.4
 last_audit_commit: 24813b443 # re-verified this pass; original required-output-member sweep landed at 1b9f9d3d8
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
 overall: A            # 2026-09-19 required-output-member re-sweep (gopherstack-r80d follow-up): all
                       # 120 required members across 122 ops cross-checked against the pinned SDK's
                       # required-output-member census; found and fixed one real gap (CreateCampaign)
@@ -90,6 +90,7 @@ families:
 gaps: []
 items_still_open: []
 structural_gaps:
+  - "Export and import jobs only track state: no S3 object is written or read, so exports produce no files, imports register no endpoints, and segment-scoped exports report no TotalProcessed. Campaigns stay SCHEDULED because nothing is delivered."
   - "PayloadTooLargeException is not enforced where it cannot fire: the 74 modeled ops with no request body (GET/DELETE) and the 9 ops that do not model it (Tag ops, Create*Template); the other 39 are enforced (gopherstack-coib)."
 deferred:                 # consciously not audited this pass (scope) — next pass targets
   - "GetApplicationDateRangeKpi/GetCampaignDateRangeKpi/GetJourneyDateRangeKpi always return an empty KpiResult.Rows — acceptable stub-shaped-but-real-state pattern (queries real backend, returns AWS-accurate empty analytics), not re-flagged"
@@ -99,6 +100,13 @@ leaks: {status: clean, note: "no goroutines/timers spawned by this service; purg
 ---
 
 ## Notes
+
+### 2026-10-10 (realism pass)
+
+- Export/import jobs now move CREATED -> PROCESSING -> COMPLETED over an opt-in window (`Backend.SetLifecycleDelay`, `--lifecycle-pinpoint`, default 0 completes on first read) with CompletionDate, TotalPieces, CompletedPieces, TotalFailures and (exports without a segment) TotalProcessed = the app's endpoint count. Previously every job stayed CREATED forever.
+- Export Definition echoes SegmentId/SegmentVersion and import Definition echoes ExternalId/DefineSegment/RegisterEndpoints (all were dropped). Import requires Format (CSV|JSON) and both jobs require `s3://` locations.
+- Campaign Schedule.Frequency must be a Frequency enum value and StartTime IMMEDIATE or ISO 8601; CreateJourney honours State (it was always DRAFT) and rejects unknown states; journey transition failures carry a message. BadRequestException from these paths is 400 (was 500) and error bodies carry both `message` and `Message` without repeating the code.
+- Kept lenient: import jobs still always materialise an IMPORT segment, and campaign SegmentId/SegmentVersion are not checked against existing segments.
 
 ### 2026-10-05 (gopherstack-fb5ao): secret-echo audit
 

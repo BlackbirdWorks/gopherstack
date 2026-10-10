@@ -119,6 +119,10 @@ func (h *Handler) handleListDomains(_ context.Context, in *handleListDomainsInpu
 
 		return domains[i].Name < domains[j].Name
 	})
+	if pageErr := validatePageParams(in.NextPageToken, in.MaximumPageSize); pageErr != nil {
+		return nil, pageErr
+	}
+
 	domains, nextPageToken := applyPageTokenSlice(domains, in.NextPageToken, in.MaximumPageSize)
 	infos := make([]domainInfoOutput, len(domains))
 	for i, d := range domains {

@@ -49,6 +49,14 @@ func (h *Handler) handlePollForDecisionTask(
 	_ context.Context,
 	in *handlePollForDecisionTaskInput,
 ) (*decisionTaskOutput, error) {
+	if err := h.requireDomainAndTaskList(in.Domain, in.TaskList.Name); err != nil {
+		return nil, err
+	}
+
+	if err := validatePageParams(in.NextPageToken, in.MaximumPageSize); err != nil {
+		return nil, err
+	}
+
 	task := h.Backend.PollForDecisionTask(
 		in.Domain, in.TaskList.Name, in.MaximumPageSize, in.NextPageToken, in.StartAtPreviousStartedEvent,
 	)

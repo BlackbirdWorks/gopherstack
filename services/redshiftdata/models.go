@@ -234,16 +234,18 @@ type ListStatementsFilter struct {
 // share a SessionID (see groupSessions). TTL is the earlier of the keep-alive
 // expiry and the 24h forced close; the session is CLOSED once TTL has passed.
 type SessionData struct {
-	CreatedAt         time.Time `json:"createdAt"`
-	UpdatedAt         time.Time `json:"updatedAt"`
-	TTL               time.Time `json:"ttl"`
-	SessionID         string    `json:"sessionId"`
-	ClusterIdentifier string    `json:"clusterIdentifier,omitempty"`
-	WorkgroupName     string    `json:"workgroupName,omitempty"`
-	Database          string    `json:"database,omitempty"`
-	DBUser            string    `json:"dbUser,omitempty"`
-	Status            string    `json:"status"`
-	AliveSeconds      int32     `json:"aliveSeconds,omitempty"`
+	CreatedAt          time.Time `json:"createdAt"`
+	UpdatedAt          time.Time `json:"updatedAt"`
+	TTL                time.Time `json:"ttl"`
+	currentCreatedAt   time.Time
+	SessionID          string `json:"sessionId"`
+	ClusterIdentifier  string `json:"clusterIdentifier,omitempty"`
+	WorkgroupName      string `json:"workgroupName,omitempty"`
+	Database           string `json:"database,omitempty"`
+	DBUser             string `json:"dbUser,omitempty"`
+	Status             string `json:"status"`
+	CurrentStatementID string `json:"-"`
+	AliveSeconds       int32  `json:"aliveSeconds,omitempty"`
 }
 
 // ListSessionsFilter controls session filtering and pagination.

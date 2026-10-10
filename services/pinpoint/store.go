@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"maps"
 	"strings"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -42,6 +43,7 @@ type InMemoryBackend struct {
 	mu                     *lockmetrics.RWMutex
 	accountID              string
 	region                 string
+	lifecycleDelay         time.Duration
 }
 
 // NewInMemoryBackend creates a new Pinpoint in-memory backend.
