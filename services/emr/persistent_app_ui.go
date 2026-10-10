@@ -35,7 +35,7 @@ func (b *InMemoryBackend) GetOnClusterPresignedURL(_ context.Context, clusterID,
 	defer b.mu.RUnlock()
 
 	if _, ok := b.clusterGet(region, clusterID); !ok {
-		return "", fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
+		return "", notValidErr("Cluster", clusterID)
 	}
 
 	return b.GetPresignedURL(clusterID, region), nil
@@ -66,7 +66,7 @@ func (b *InMemoryBackend) GetClusterSessionCredentials(
 	defer b.mu.RUnlock()
 
 	if _, ok := b.clusterGet(region, clusterID); !ok {
-		return nil, time.Time{}, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
+		return nil, time.Time{}, notValidErr("Cluster", clusterID)
 	}
 
 	expiry := time.Now().Add(sessionCredentialExpiry)

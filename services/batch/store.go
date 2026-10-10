@@ -73,7 +73,7 @@ func validateTags(tags map[string]string) error {
 }
 
 func paginateMapKeys(keys []string, nextToken string, maxResults int32) ([]string, string) {
-	p := page.NewHMAC(keys, nextToken, "batch-secret", int(maxResults), defaultPaginationLimit)
+	p := page.NewHMAC(keys, nextToken, paginationSecret, int(maxResults), defaultPaginationLimit)
 
 	return p.Data, p.Next
 }

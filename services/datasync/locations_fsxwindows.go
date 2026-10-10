@@ -18,7 +18,7 @@ func (b *InMemoryBackend) CreateLocationFsxWindows(
 	b.mu.Lock("CreateLocationFsxWindows")
 	defer b.mu.Unlock()
 
-	id := newID()
+	id := newID("loc-")
 	locationArn := b.locationARN(id)
 	now := time.Now().UTC()
 

@@ -10,7 +10,7 @@
 service: batch
 sdk_module: aws-sdk-go-v2/service/batch@v1.68.4
 last_audit_commit: 44bff591b  # 2026-09-19 over-wide-response sweep (this pass); prior: d522d763f  # 2026-09-19 leak-audit follow-up (gopherstack-1x2u0); prior: ed6ef1a53  # HEAD after the 2026-08-29 gopherstack-6flj/21my fresh sweep (ComputeEnvironment UnmanagedvCpus/ContainerOrchestrationType/Uuid); prior aad420594 was the 2026-07-25 full audit
-last_audit_date: 2026-10-07  # prior: 2026-09-19 -- 2026-09-19 over-wide-response sweep (gopherstack, see Notes) re-verified ListConsumableResources/ListJobsByConsumableResource/ListServiceJobs/ListJobs member-by-member against batch@v1.68.4
+last_audit_date: 2026-10-10  # prior: 2026-09-19 -- 2026-09-19 over-wide-response sweep (gopherstack, see Notes) re-verified ListConsumableResources/ListJobsByConsumableResource/ListServiceJobs/ListJobs member-by-member against batch@v1.68.4
 overall: A            # SDK bump (v1.61.1 -> v1.68.0) added 6 new ops (QuotaShare CRUD+List, UpdateServiceJob); all 6 implemented for real this pass, no regressions in previously-audited ops
                        # 2026-08-29 (constrain-not-honoured sweep, uncommitted at write time): ListJobs.Filters,
                        # ListConsumableResources.Filters, and ListServiceJobs.MaxResults/NextToken/Filters were all
@@ -74,6 +74,10 @@ leaks: {status: clean, note: "janitor.go's advanceJobs/sweep* all take/release t
 ---
 
 ## Notes
+
+### 2026-10-10 realism pass
+Probed with the AWS CLI. Fixed: error messages no longer duplicate the code ("ClientException: ClientException: ..."); CE/queue/job names enforce `[a-zA-Z0-9_-]{1,128}`; `minvCpus` > `maxvCpus` rejected; `retryStrategy.attempts` capped at 10; job/definition `timeout.attemptDurationSeconds` min 60 (handler-level, so direct backend callers keep short timeouts for janitor tests); unissued `nextToken` rejected. Tests: `request_validation_test.go`.
+Kept lenient: queue `computeEnvironmentOrder` is not checked against existing CEs and MANAGED CEs do not require `subnets`/`computeResources` -- roughly 70 in-repo tests and root `cli_test.go` fixtures create them bare. CEs/queues are VALID on creation (no CREATING phase); jobs advance one state per janitor tick.
 
 ### 2026-09-24 unbounded-growth sweep: service jobs never evicted
 

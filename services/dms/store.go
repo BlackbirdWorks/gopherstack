@@ -30,6 +30,7 @@ const (
 	statusActive     = "active"
 	statusReady      = "ready"
 	statusRunning    = "running"
+	statusStarting   = "starting"
 	statusStopped    = "stopped"
 	statusAvailable  = "available"
 	statusCancelling = "cancelling"

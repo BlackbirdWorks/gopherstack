@@ -349,6 +349,10 @@ func (h *Handler) handleRegisterJobDefinition(
 		timeoutSeconds = in.Timeout.AttemptDurationSeconds
 	}
 
+	if err := validateJobTimeout(&JobTimeout{AttemptDurationSeconds: timeoutSeconds}); err != nil {
+		return nil, err
+	}
+
 	jd, err := h.Backend.RegisterJobDefinition(
 		ctx,
 		in.JobDefinitionName,

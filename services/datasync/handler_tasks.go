@@ -99,6 +99,14 @@ func (h *Handler) handleCreateTask(_ context.Context, in *createTaskInput) (*cre
 		return nil, err
 	}
 
+	if err := firstErr(
+		validateTaskName(in.Name),
+		validateScheduleExpression(in.Schedule),
+		validateTaskOptions(in.Options),
+	); err != nil {
+		return nil, err
+	}
+
 	if in.SourceLocationArn == "" {
 		return nil, fmt.Errorf("%w: SourceLocationArn is required", errInvalidRequest)
 	}
@@ -227,6 +235,14 @@ func (h *Handler) handleUpdateTask(_ context.Context, in *updateTaskInput) (*upd
 		return nil, fmt.Errorf("%w: TaskArn is required", errInvalidRequest)
 	}
 
+	if err := firstErr(
+		validateTaskName(in.Name),
+		validateScheduleExpression(in.Schedule),
+		validateTaskOptions(in.Options),
+	); err != nil {
+		return nil, err
+	}
+
 	settings := TaskSettings{
 		Options:          in.Options,
 		Schedule:         taskScheduleFromInput(in.Schedule),
@@ -331,6 +347,10 @@ func (h *Handler) handleStartTaskExecution(
 ) (*startTaskExecutionOutput, error) {
 	if in.TaskArn == "" {
 		return nil, fmt.Errorf("%w: TaskArn is required", errInvalidRequest)
+	}
+
+	if err := validateTaskOptions(in.OverrideOptions); err != nil {
+		return nil, err
 	}
 
 	overrides := TaskExecutionOverrides{
@@ -478,6 +498,10 @@ func (h *Handler) handleUpdateTaskExecution(
 	// AWS requires the Options member on UpdateTaskExecution.
 	if len(in.Options) == 0 {
 		return nil, fmt.Errorf("%w: Options is required", errInvalidRequest)
+	}
+
+	if err := validateTaskOptions(in.Options); err != nil {
+		return nil, err
 	}
 
 	if err := h.Backend.UpdateTaskExecution(in.TaskExecutionArn, in.Options); err != nil {

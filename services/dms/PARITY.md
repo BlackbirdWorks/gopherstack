@@ -16,7 +16,7 @@ service: dms
 # 2026-08-20). Do not repeat cmd/opcensus's mistake when re-auditing.
 sdk_module: aws-sdk-go-v2/service/databasemigrationservice@v1.66.4
 last_audit_commit: 0c1472972  # terraform-coverage pass: S3Settings modeled, Certificate tagging added; prior: f16ac0367fc476ca2ffd1643ed5ef900b9ff0480
-last_audit_date: 2026-10-07  # prior: 2026-09-23
+last_audit_date: 2026-10-10  # prior: 2026-09-23
 overall: A            # 2026-08-29 (gopherstack-21my, parameter-honoring sweep): audited a coherent slice
                        # of ~44 Filters/pagination-bearing Describe ops (Filters+Marker/MaxRecords or
                        # Filters+NextToken/MaxRecords), not the full 47-op Describe/List surface. Fixed
@@ -216,6 +216,10 @@ leaks: {status: clean, note: "no goroutines, janitors, or timers in this service
 ---
 
 ## Notes
+
+### 2026-10-10 realism pass
+Probed with the AWS CLI. Fixed: error messages drop the doubled code prefix; replication instance identifier (letter first, alphanumeric/hyphen, no `--`, no trailing hyphen, 63 max), class (`dms.` prefix) and `AllocatedStorage` (5-6144) validated; `TableMappings` must be JSON; unissued `Marker`/`NextToken` rejected; StartReplicationTask returns `starting` and the next DescribeReplicationTasks moves it to `running` (starting tasks cannot be deleted/modified). Tests: `request_validation_test.go`.
+Kept lenient: ARNs still embed the identifier (`rep:ri1`) or a UUID rather than AWS 26-character ids; instances are `available` on creation; TestConnection is `successful` at once.
 
 - **2026-10-04 (reqfielddiff census)**: 13 tier-1 findings. Six are WrapOp(h.handle<Op>) false positives (ResourceIdentifier x3, MaxRecords x3, already applied, see gopherstack-99nj). Six were already recorded above. StartReplication.PremigrationAssessmentSettings is validated (see structural_gaps).
 

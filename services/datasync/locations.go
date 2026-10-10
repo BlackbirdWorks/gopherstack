@@ -5,8 +5,6 @@ import (
 	"maps"
 	"strings"
 	"time"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // CreateLocationS3 creates a new S3 location.
@@ -23,7 +21,7 @@ func (b *InMemoryBackend) CreateLocationS3(
 		return nil, err
 	}
 
-	id := newID()
+	id := newID("loc-")
 	locationArn := b.locationARN(id)
 	now := time.Now().UTC()
 
@@ -123,8 +121,10 @@ func (b *InMemoryBackend) ListLocations(
 		})
 	}
 
-	limit := int(maxResults)
-	pg := page.New(all, nextToken, limit, defaultMaxResults)
+	pg, err := paginate(all, nextToken, maxResults)
+	if err != nil {
+		return nil, "", err
+	}
 
 	return pg.Data, pg.Next, nil
 }

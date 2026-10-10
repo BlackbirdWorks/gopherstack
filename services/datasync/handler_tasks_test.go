@@ -137,10 +137,7 @@ func TestDataSync_TaskExecution(t *testing.T) {
 	assert.Contains(t, execArn, "/execution/")
 
 	// DescribeTaskExecution
-	rec = doRequest(t, h, "DescribeTaskExecution", map[string]any{"TaskExecutionArn": execArn})
-	assert.Equal(t, http.StatusOK, rec.Code)
-	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	descResp := settleExecution(t, h, execArn)
 	assert.Equal(t, "SUCCESS", descResp["Status"])
 
 	// ListTaskExecutions
@@ -326,8 +323,7 @@ func TestDataSync_CancelTaskExecution_RejectsTerminal(t *testing.T) {
 			name: "already SUCCESS via DescribeTaskExecution",
 			settle: func(t *testing.T, h *datasync.Handler, execArn string) {
 				t.Helper()
-				rec := doRequest(t, h, "DescribeTaskExecution", map[string]any{"TaskExecutionArn": execArn})
-				require.Equal(t, http.StatusOK, rec.Code)
+				settleExecution(t, h, execArn)
 			},
 			wantErr: "SUCCESS",
 		},
@@ -403,12 +399,7 @@ func TestDataSync_DescribeTaskExecutionLazyAdvance(t *testing.T) {
 	require.Len(t, execs, 1)
 	assert.Equal(t, "LAUNCHING", execs[0].(map[string]any)["Status"])
 
-	// First describe: should return SUCCESS.
-	rec = doRequest(t, h, "DescribeTaskExecution", map[string]any{"TaskExecutionArn": execArn})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	descResp := settleExecution(t, h, execArn)
 	assert.Equal(t, "SUCCESS", descResp["Status"])
 }
 
@@ -449,8 +440,7 @@ func TestDataSync_StartTaskExecutionRejectsConcurrent(t *testing.T) {
 
 	// Once the first execution settles into a terminal state, starting a new
 	// one is allowed again.
-	rec = doRequest(t, h, "DescribeTaskExecution", map[string]any{"TaskExecutionArn": execArn})
-	require.Equal(t, http.StatusOK, rec.Code)
+	settleExecution(t, h, execArn)
 
 	rec = doRequest(t, h, "StartTaskExecution", map[string]any{"TaskArn": taskArn})
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -486,9 +476,7 @@ func TestDataSync_TaskStatusRunningWhileExecuting(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &taskResp))
 	assert.Equal(t, "RUNNING", taskResp["Status"])
 
-	// Settling the execution (lazy advance on Describe) reverts the task.
-	rec = doRequest(t, h, "DescribeTaskExecution", map[string]any{"TaskExecutionArn": execArn})
-	require.Equal(t, http.StatusOK, rec.Code)
+	settleExecution(t, h, execArn)
 
 	rec = doRequest(t, h, "DescribeTask", map[string]any{"TaskArn": taskArn})
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &taskResp))
@@ -652,4 +640,47 @@ func TestDataSync_ListTaskExecutionsAllTasks(t *testing.T) {
 	execs, ok := listResp["TaskExecutions"].([]any)
 	require.True(t, ok)
 	assert.Len(t, execs, 2)
+}
+
+func settleExecution(t *testing.T, h *datasync.Handler, execArn string) map[string]any {
+	t.Helper()
+
+	var out map[string]any
+
+	for range 5 {
+		rec := doRequest(t, h, "DescribeTaskExecution", map[string]any{"TaskExecutionArn": execArn})
+		require.Equal(t, http.StatusOK, rec.Code)
+		out = map[string]any{}
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+		if out["Status"] == "SUCCESS" {
+			break
+		}
+	}
+
+	return out
+}
+
+func TestDataSync_TaskExecutionPhases(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	taskArn := createTestTask(t, h, createTestLocationS3(t, h), createTestLocationS3(t, h))
+	rec := doRequest(t, h, "StartTaskExecution", map[string]any{"TaskArn": taskArn})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var start map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &start))
+	execArn := start["TaskExecutionArn"].(string)
+
+	got := make([]string, 0, 5)
+
+	for range 5 {
+		rec = doRequest(t, h, "DescribeTaskExecution", map[string]any{"TaskExecutionArn": execArn})
+		var d map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &d))
+		got = append(got, d["Status"].(string))
+	}
+
+	assert.Equal(t, []string{"LAUNCHING", "PREPARING", "TRANSFERRING", "VERIFYING", "SUCCESS"}, got)
 }

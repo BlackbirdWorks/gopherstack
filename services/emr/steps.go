@@ -44,7 +44,7 @@ func (b *InMemoryBackend) buildInitialSteps(specs []StepSpec, executionRoleArn s
 	for _, spec := range specs {
 		actionOnFailure := spec.ActionOnFailure
 		if actionOnFailure == "" {
-			actionOnFailure = "TERMINATE_CLUSTER"
+			actionOnFailure = defaultActionOnFailure
 		}
 
 		step := Step{
@@ -78,6 +78,10 @@ func (b *InMemoryBackend) buildInitialSteps(specs []StepSpec, executionRoleArn s
 func (b *InMemoryBackend) AddJobFlowSteps(
 	ctx context.Context, jobFlowID string, specs []StepSpec, executionRoleArn string,
 ) ([]string, error) {
+	if err := validateStepSpecs(specs); err != nil {
+		return nil, err
+	}
+
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("AddJobFlowSteps")
@@ -85,7 +89,7 @@ func (b *InMemoryBackend) AddJobFlowSteps(
 
 	cluster, ok := b.clusterGet(region, jobFlowID)
 	if !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, jobFlowID)
+		return nil, notValidErr("Cluster", jobFlowID)
 	}
 
 	if !clusterAcceptsSteps(cluster.Status.State) {
@@ -100,7 +104,7 @@ func (b *InMemoryBackend) AddJobFlowSteps(
 	for _, spec := range specs {
 		actionOnFailure := spec.ActionOnFailure
 		if actionOnFailure == "" {
-			actionOnFailure = "TERMINATE_CLUSTER"
+			actionOnFailure = defaultActionOnFailure
 		}
 
 		step := Step{
@@ -134,7 +138,7 @@ func (b *InMemoryBackend) ListSteps(
 	stepStates []string,
 	stepIDs []string,
 	marker string,
-) ([]Step, string) {
+) ([]Step, string, error) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.RLock("ListSteps")
@@ -142,7 +146,7 @@ func (b *InMemoryBackend) ListSteps(
 
 	cluster, ok := b.clusterGet(region, clusterID)
 	if !ok {
-		return []Step{}, ""
+		return nil, "", notValidErr("Cluster", clusterID)
 	}
 
 	stateSet := buildStateSet(stepStates)
@@ -163,7 +167,7 @@ func (b *InMemoryBackend) ListSteps(
 
 	p := page.New(filtered, marker, listStepsPageSize, listStepsPageSize)
 
-	return p.Data, p.Next
+	return p.Data, p.Next, nil
 }
 
 // ListBootstrapActions returns the bootstrap actions for a cluster, paginated.
@@ -178,7 +182,7 @@ func (b *InMemoryBackend) ListBootstrapActions(
 
 	cluster, ok := b.clusterGet(region, clusterID)
 	if !ok {
-		return nil, "", fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
+		return nil, "", notValidErr("Cluster", clusterID)
 	}
 
 	commands := make([]Command, len(cluster.bootstrapActions))
@@ -235,7 +239,7 @@ func (b *InMemoryBackend) DescribeStep(ctx context.Context, clusterID, stepID st
 
 	cluster, ok := b.clusterGet(region, clusterID)
 	if !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
+		return nil, notValidErr("Cluster", clusterID)
 	}
 
 	for _, s := range cluster.steps {
@@ -247,7 +251,7 @@ func (b *InMemoryBackend) DescribeStep(ctx context.Context, clusterID, stepID st
 		}
 	}
 
-	return nil, fmt.Errorf("%w: step %s not found", ErrNotFound, stepID)
+	return nil, notValidErr("Step", stepID)
 }
 
 // CancelSteps cancels pending steps on a cluster.
@@ -263,7 +267,7 @@ func (b *InMemoryBackend) CancelSteps(
 
 	cluster, ok := b.clusterGet(region, clusterID)
 	if !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
+		return nil, notValidErr("Cluster", clusterID)
 	}
 
 	idSet := buildStringSet(stepIDs)

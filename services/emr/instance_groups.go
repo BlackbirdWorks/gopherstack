@@ -41,7 +41,7 @@ func (b *InMemoryBackend) ListInstanceGroups(ctx context.Context, clusterID stri
 
 	cluster, ok := b.clusterGet(region, clusterID)
 	if !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
+		return nil, notValidErr("Cluster", clusterID)
 	}
 
 	groups := make([]InstanceGroup, len(cluster.instanceGroups))
@@ -63,7 +63,7 @@ func (b *InMemoryBackend) AddInstanceGroups(
 
 	cluster, ok := b.clusterGet(region, clusterID)
 	if !ok {
-		return nil, "", fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
+		return nil, "", notValidErr("Cluster", clusterID)
 	}
 
 	groupIDs := make([]string, 0, len(specs))
@@ -113,7 +113,7 @@ func (b *InMemoryBackend) ModifyInstanceGroups(
 	if clusterID != "" {
 		cluster, ok := b.clusterGet(region, clusterID)
 		if !ok {
-			return fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
+			return notValidErr("Cluster", clusterID)
 		}
 
 		for _, mod := range mods {

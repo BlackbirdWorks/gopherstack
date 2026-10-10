@@ -2,7 +2,7 @@
 service: emrserverless
 sdk_module: aws-sdk-go-v2/service/emrserverless@v1.44.4
 last_audit_commit: 44bff591b  # 2026-09-19 over-wide-response sweep (this pass); prior: a2084957b  # 2026-09-18 (gopherstack-xhu2t): reqfielddiff tier-1 pass; prior value cfa41e2b0 was gopherstack-420's state-machine/precondition sweep commit
-last_audit_date: 2026-10-07  # prior: 2026-09-18 -- 2026-09-19 over-wide-response sweep (gopherstack) re-verified ListApplications/ListJobRunAttempts/ListJobRuns/ListSessions member-by-member against emrserverless@v1.44.4
+last_audit_date: 2026-10-10  # prior: 2026-09-18 -- 2026-09-19 over-wide-response sweep (gopherstack) re-verified ListApplications/ListJobRunAttempts/ListJobRuns/ListSessions member-by-member against emrserverless@v1.44.4
 overall: A
 ops:
   CreateApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "config sub-object allowlist extended to cover every types.CreateApplicationInput sub-object (added identityCenterConfiguration/diskEncryptionConfiguration/jobLevelCostAllocationConfiguration/schedulerConfiguration -- previously silently dropped); clientToken idempotency retained from prior pass"}
@@ -36,12 +36,16 @@ families:
 gaps: []
 items_still_open: []
 structural_gaps:
-  - "Job runs never run Spark/Hive code, so PENDING/SCHEDULED/RUNNING/SUCCESS/FAILED/QUEUED are unreachable and CancelJobRun has no running job to wind down for shutdownGracePeriodInSeconds; real job execution is outside an emulator."
+  - "Job runs never run Spark/Hive code, so FAILED/QUEUED are unreachable (GetJobRun walks PENDING/SCHEDULED/RUNNING/SUCCESS) and CancelJobRun has no running job to wind down for shutdownGracePeriodInSeconds; real job execution is outside an emulator."
 deferred: []
 leaks: {status: clean, note: "no goroutines/janitors in this service; sessionTokens/applicationTokens/jobRunTokens are plain in-memory maps cleaned up on DeleteApplication and full Reset(), and persisted/restored alongside the store.Table-backed resources -- no unbounded growth path found. Re-verified this pass: no new goroutines/tickers were introduced by the field additions."}
 ---
 
 ## Notes
+
+### 2026-10-10 realism pass
+Probed with the AWS CLI. Fixed: error messages drop the doubled code prefix; application names enforce `[A-Za-z0-9._/#-]{1,64}`; pagination tokens are opaque and bad tokens rejected with ValidationException; GetJobRun now walks SUBMITTED, PENDING, SCHEDULED, RUNNING, SUCCESS (one phase per call, no clock) and CancelJobRun on SUCCESS is rejected. Tests: `request_validation_test.go`.
+Kept lenient: duplicate application names still conflict (AWS behaviour unverified); applications are CREATED then STARTED without CREATING/STARTING phases.
 
 ### 2026-09-19 over-wide-response sweep (gopherstack)
 

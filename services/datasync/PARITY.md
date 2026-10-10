@@ -3,7 +3,7 @@
 service: datasync
 sdk_module: aws-sdk-go-v2/service/datasync@v1.61.4
 last_audit_commit: bfdb308be  # terraform-coverage sweep (datasync-and-sesv2): FSx/EFS LocationUri fixes; prior 49cff86c4
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
 overall: A            # systemic field-diff sweep: 20+ genuine wire-shape bugs found & fixed
 ops:
   CreateAgent: {wire: ok, errors: ok, state: ok, persist: ok, note: "SecurityGroupArns/SubnetArns/VpcEndpointId are stored (max one each); a VPC endpoint makes EndpointType PRIVATE_LINK. DescribeAgent echoes them in PrivateLinkConfig, minus PrivateLinkEndpoint (a real-AWS-assigned address, not fabricated)."}
@@ -79,6 +79,10 @@ leaks: {status: clean, note: "no goroutines/timers/janitors in this service; all
 ---
 
 ## Notes
+
+### 2026-10-10 realism pass
+Probed with the AWS CLI. Fixed: resource ids are now `loc-`/`task-`/`agent-`/`exec-` plus 17 hex (execution ARN `task/task-x/execution/exec-y`); bare not-found errors name the ARN and no longer echo the code as the message; `S3BucketArn`, task `Name` (`[a-zA-Z0-9\s+=._:@/-]+`), `Schedule.ScheduleExpression` (`cron(...)`/`rate(...)`) and task `Options` enums are validated on create/update/start/update-execution; bad `NextToken` rejected on every list; DescribeTaskExecution reports LAUNCHING, PREPARING, TRANSFERRING, VERIFYING, SUCCESS one phase per call, with the parent task RUNNING until SUCCESS. Tests: `validation_test.go`, `TestDataSync_TaskExecutionPhases`.
+Kept lenient: `ActivationKey` format (`XXXXX-XXXXX-XXXXX-XXXXX-XXXXX`) is not enforced because `test/terraform/fixtures/datasync-and-sesv2.tf` and integration tests use arbitrary keys.
 
 ### 2026-09-19 (terraform-coverage sweep, datasync-and-sesv2)
 

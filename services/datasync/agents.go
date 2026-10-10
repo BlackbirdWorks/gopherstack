@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"maps"
 	"time"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // validateAgentArns rejects a CreateLocation*/UpdateLocation* request that
@@ -38,7 +36,7 @@ func (b *InMemoryBackend) CreateAgentWithEndpoint(
 	b.mu.Lock("CreateAgent")
 	defer b.mu.Unlock()
 
-	id := newID()
+	id := newID("agent-")
 	agentArn := b.agentARN(id)
 	now := time.Now().UTC()
 
@@ -134,8 +132,10 @@ func (b *InMemoryBackend) ListAgents(maxResults int32, nextToken string) ([]*Age
 		})
 	}
 
-	limit := int(maxResults)
-	pg := page.New(all, nextToken, limit, defaultMaxResults)
+	pg, err := paginate(all, nextToken, maxResults)
+	if err != nil {
+		return nil, "", err
+	}
 
 	return pg.Data, pg.Next, nil
 }

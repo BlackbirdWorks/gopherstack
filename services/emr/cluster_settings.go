@@ -26,7 +26,7 @@ func (b *InMemoryBackend) ModifyCluster(
 
 	cluster, ok := b.clusterGet(region, clusterID)
 	if !ok {
-		return 0, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
+		return 0, notValidErr("Cluster", clusterID)
 	}
 
 	if stepConcurrencyLevel != 0 {
@@ -48,7 +48,7 @@ func (b *InMemoryBackend) SetTerminationProtection(
 	for _, id := range jobFlowIDs {
 		cluster, ok := b.clusterGet(region, id)
 		if !ok {
-			return fmt.Errorf("%w: cluster %s not found", ErrNotFound, id)
+			return notValidErr("Cluster", id)
 		}
 
 		cluster.TerminationProtected = protect
@@ -69,7 +69,7 @@ func (b *InMemoryBackend) SetKeepJobFlowAliveWhenNoSteps(
 	for _, id := range jobFlowIDs {
 		cluster, ok := b.clusterGet(region, id)
 		if !ok {
-			return fmt.Errorf("%w: cluster %s not found", ErrNotFound, id)
+			return notValidErr("Cluster", id)
 		}
 
 		cluster.KeepJobFlowAliveWhenNoSteps = keep
@@ -95,7 +95,7 @@ func (b *InMemoryBackend) SetVisibleToAllUsers(
 	for _, id := range jobFlowIDs {
 		cluster, ok := b.clusterGet(region, id)
 		if !ok {
-			return fmt.Errorf("%w: cluster %s not found", ErrNotFound, id)
+			return notValidErr("Cluster", id)
 		}
 
 		cluster.VisibleToAllUsers = visible
@@ -116,7 +116,7 @@ func (b *InMemoryBackend) SetUnhealthyNodeReplacement(
 	for _, id := range jobFlowIDs {
 		cluster, ok := b.clusterGet(region, id)
 		if !ok {
-			return fmt.Errorf("%w: cluster %s not found", ErrNotFound, id)
+			return notValidErr("Cluster", id)
 		}
 
 		cluster.UnhealthyNodeReplacement = replace

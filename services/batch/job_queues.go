@@ -46,9 +46,9 @@ func (b *InMemoryBackend) CreateJobQueue(
 	b.mu.Lock("CreateJobQueue")
 	defer b.mu.Unlock()
 
-	if len(name) == 0 || len(name) > maxJobQueueNameLength {
+	if !resourceNameRe.MatchString(name) {
 		return nil, fmt.Errorf(
-			"%w: jobQueueName must be between 1 and %d characters",
+			"%w: jobQueueName must match [a-zA-Z0-9_-]{1,%d}",
 			ErrValidation, maxJobQueueNameLength,
 		)
 	}

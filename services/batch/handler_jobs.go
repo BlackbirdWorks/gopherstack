@@ -381,6 +381,10 @@ type submitJobOutput struct {
 }
 
 func (h *Handler) handleSubmitJob(ctx context.Context, in *submitJobInput) (*submitJobOutput, error) {
+	if err := validateJobTimeout(in.Timeout); err != nil {
+		return nil, err
+	}
+
 	overrides := in.ContainerOverrides.toModel()
 
 	var arrayProps *ArrayProperties

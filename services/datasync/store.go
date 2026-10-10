@@ -75,8 +75,8 @@ func (b *InMemoryBackend) executionARN(taskArn, id string) string {
 	return arn.Build("datasync", b.region, b.accountID, "task/unknown/execution/"+id)
 }
 
-func newID() string {
-	return strings.ReplaceAll(uuid.NewString(), "-", "")[:16]
+func newID(prefix string) string {
+	return prefix + strings.ReplaceAll(uuid.NewString(), "-", "")[:17]
 }
 
 func (b *InMemoryBackend) storeLocation(l *storedLocation) Location {

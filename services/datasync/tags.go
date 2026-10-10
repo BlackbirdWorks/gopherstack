@@ -4,7 +4,6 @@ import (
 	"maps"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
-	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // TagResource adds or updates tags on a resource.
@@ -106,8 +105,10 @@ func (b *InMemoryBackend) ListTagsForResource(
 		all = append(all, tagEntry{k, tagMap[k]})
 	}
 
-	limit := int(maxResults)
-	pg := page.New(all, nextToken, limit, defaultMaxResults)
+	pg, err := paginate(all, nextToken, maxResults)
+	if err != nil {
+		return nil, "", err
+	}
 
 	result := make(map[string]string, len(pg.Data))
 	for _, e := range pg.Data {

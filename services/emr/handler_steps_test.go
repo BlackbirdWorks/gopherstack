@@ -18,14 +18,9 @@ func TestEMR_ListSteps(t *testing.T) {
 	h := newTestHandler(t)
 	rec := doEMRRequest(t, h, "ListSteps", map[string]any{"ClusterId": "j-123"})
 
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var out struct {
-		Steps []any `json:"Steps"`
-	}
-
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-	assert.Empty(t, out.Steps)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "Cluster id 'j-123' is not valid.")
+	assert.NotContains(t, rec.Body.String(), "ClientException")
 }
 
 func TestEMR_AddJobFlowSteps(t *testing.T) {

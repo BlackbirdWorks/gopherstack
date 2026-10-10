@@ -216,6 +216,10 @@ func validateRunJobFlowParams(params RunJobFlowParams) (string, error) {
 		return "", err
 	}
 
+	if err := firstErr(validateInstanceTypes(params.Instances), validateStepSpecs(params.Steps)); err != nil {
+		return "", err
+	}
+
 	if params.ManagedScalingPolicy != nil {
 		if err := validateManagedScalingPolicy(*params.ManagedScalingPolicy); err != nil {
 			return "", err
@@ -363,7 +367,7 @@ func (b *InMemoryBackend) DescribeCluster(ctx context.Context, id string) (*Clus
 
 	cluster, ok := b.clusterGet(region, id)
 	if !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, id)
+		return nil, notValidErr("Cluster", id)
 	}
 
 	cp := cluster.clone()
@@ -557,7 +561,7 @@ func (b *InMemoryBackend) TerminateJobFlows(ctx context.Context, ids []string) e
 	for _, id := range ids {
 		cluster, ok := b.clusterGet(region, id)
 		if !ok {
-			return fmt.Errorf("%w: cluster %s not found", ErrNotFound, id)
+			return notValidErr("Cluster", id)
 		}
 
 		if err := terminateSingle(cluster, id, "USER_REQUEST", "Terminated by user request"); err != nil {

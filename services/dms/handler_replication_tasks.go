@@ -72,6 +72,10 @@ func (h *Handler) handleCreateReplicationTask(
 		return nil, err
 	}
 
+	if err := validateTableMappings(ptrconv.String(in.TableMappings)); err != nil {
+		return nil, err
+	}
+
 	kv := tagsToMap(in.Tags)
 	rt, err := h.Backend.CreateReplicationTask(
 		ctx,

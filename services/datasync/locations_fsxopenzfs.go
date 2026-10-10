@@ -18,7 +18,7 @@ func (b *InMemoryBackend) CreateLocationFsxOpenZfs(
 	b.mu.Lock("CreateLocationFsxOpenZfs")
 	defer b.mu.Unlock()
 
-	id := newID()
+	id := newID("loc-")
 	locationArn := b.locationARN(id)
 	now := time.Now().UTC()
 

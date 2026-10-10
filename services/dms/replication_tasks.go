@@ -118,6 +118,10 @@ func (b *InMemoryBackend) CreateReplicationTask(
 	return &cp, nil
 }
 
+func taskActive(rt *ReplicationTask) bool {
+	return rt.Status == statusRunning || rt.Status == statusStarting
+}
+
 // DescribeReplicationTasks returns replication tasks matching filters (valid
 // filter names per api_op_DescribeReplicationTasks.go: replication-task-arn |
 // replication-task-id | migration-type | endpoint-arn |
@@ -127,8 +131,8 @@ func (b *InMemoryBackend) DescribeReplicationTasks(
 	ctx context.Context,
 	filters DescribeFilters,
 ) ([]*ReplicationTask, error) {
-	b.mu.RLock("DescribeReplicationTasks")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeReplicationTasks")
+	defer b.mu.Unlock()
 
 	items := b.replicationTasksByRegion.Get(getRegion(ctx, b.region))
 	result := make([]*ReplicationTask, 0, len(items))
@@ -140,6 +144,10 @@ func (b *InMemoryBackend) DescribeReplicationTasks(
 
 		cp := *rt
 		result = append(result, &cp)
+
+		if rt.Status == statusStarting {
+			rt.Status = statusRunning
+		}
 	}
 
 	return result, nil
@@ -179,7 +187,7 @@ func (b *InMemoryBackend) StartReplicationTask(
 		return nil, fmt.Errorf("%w: replication task %s not found", ErrNotFound, arnOrID)
 	}
 
-	if rt.Status == statusRunning {
+	if taskActive(rt) {
 		return nil, fmt.Errorf(
 			"%w: replication task %s is already running",
 			ErrInvalidState,
@@ -187,7 +195,7 @@ func (b *InMemoryBackend) StartReplicationTask(
 		)
 	}
 
-	rt.Status = statusRunning
+	rt.Status = statusStarting
 
 	if cdc.CdcStartPosition != "" {
 		rt.CdcStartPosition = cdc.CdcStartPosition
@@ -217,7 +225,7 @@ func (b *InMemoryBackend) StopReplicationTask(ctx context.Context, arnOrID strin
 		return nil, fmt.Errorf("%w: replication task %s not found", ErrNotFound, arnOrID)
 	}
 
-	if rt.Status != statusRunning {
+	if !taskActive(rt) {
 		return nil, fmt.Errorf(
 			"%w: replication task %s cannot be stopped; current status is %s",
 			ErrInvalidState,
@@ -245,7 +253,7 @@ func (b *InMemoryBackend) DeleteReplicationTask(ctx context.Context, arnOrID str
 	region := getRegion(ctx, b.region)
 
 	deleteTask := func(rt *ReplicationTask, id string) (*ReplicationTask, error) {
-		if rt.Status == statusRunning {
+		if taskActive(rt) {
 			return nil, fmt.Errorf(
 				"%w: replication task %s cannot be deleted while running; stop it first",
 				ErrInvalidState,
@@ -347,7 +355,7 @@ func (b *InMemoryBackend) ModifyReplicationTask(
 		return nil, fmt.Errorf("%w: replication task %s not found", ErrNotFound, arnOrID)
 	}
 
-	if rt.Status == statusRunning {
+	if taskActive(rt) {
 		return nil, fmt.Errorf(
 			"%w: replication task %s cannot be modified while running; stop it first",
 			ErrInvalidState,

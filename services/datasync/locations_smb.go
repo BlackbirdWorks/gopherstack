@@ -24,7 +24,7 @@ func (b *InMemoryBackend) CreateLocationSmb(
 		return nil, err
 	}
 
-	id := newID()
+	id := newID("loc-")
 	locationArn := b.locationARN(id)
 	now := time.Now().UTC()
 

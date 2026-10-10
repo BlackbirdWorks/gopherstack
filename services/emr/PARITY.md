@@ -7,7 +7,7 @@
 service: emr
 sdk_module: aws-sdk-go-v2/service/emr@v1.64.4   # bumped from v1.64.0 pin; no new ops, field-diffed Cluster/MonitoringConfiguration/ListInstancesInput this pass
 last_audit_commit: 0c1472972  # terraform-coverage pass: InstanceTypeConfigs modeled (closes gopherstack-dqd8 item below); prior: d522d763f
-last_audit_date: 2026-10-07  # prior: 2026-09-19
+last_audit_date: 2026-10-10  # prior: 2026-09-19
 overall: A                # 2026-09-04 (gopherstack-s1m six-bug-pattern sweep): checked all nine named delete/
                            # cancel/remove ops (TerminateJobFlows, RemoveTags, RemoveAutoScalingPolicy,
                            # RemoveManagedScalingPolicy, DeleteSecurityConfiguration, DeleteStudio,
@@ -233,6 +233,10 @@ session-termination-cascade: {status: ok, note: "2026-07-25: terminateSingle (cl
 ---
 
 ## Notes
+
+### 2026-10-10 realism pass
+Probed with the AWS CLI. Fixed: error messages drop the doubled code prefix and use AWS wording ("Cluster id 'j-x' is not valid.", "Step id 's-x' is not valid.", "A job flow that is shutting down, terminated, or finished may not be modified"); ListSteps on an unknown cluster errors instead of returning empty; unissued `Marker`/`NextToken` rejected; instance group types must look like `family.size`; step `ActionOnFailure` enum enforced on RunJobFlow/AddJobFlowSteps. Tests: `request_validation_test.go`.
+Kept lenient: clusters are created directly in WAITING (no STARTING/BOOTSTRAPPING phase) and steps complete after `stepCompletionDelay`; a STARTING phase would break in-repo callers that add steps or sessions right after RunJobFlow.
 
 ### 2026-09-23: terraform coverage sweep (closes gopherstack-dqd8 InstanceTypeConfigs item)
 

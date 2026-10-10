@@ -223,7 +223,7 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 
 	result, err := fn(ctx, body)
 	if err != nil {
-		return nil, err
+		return nil, describeNotFound(err, body)
 	}
 
 	return json.Marshal(result)
@@ -253,12 +253,12 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		errors.As(err, &typeErr):
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			keyType:    "InvalidRequestException",
-			keyMessage: err.Error(),
+			keyMessage: publicMessage(err),
 		})
 	default:
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			keyType:    internalExceptionType,
-			keyMessage: err.Error(),
+			keyMessage: publicMessage(err),
 		})
 	}
 }

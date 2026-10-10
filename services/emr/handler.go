@@ -321,6 +321,10 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}
 
+	if err := checkMarker(body); err != nil {
+		return nil, err
+	}
+
 	result, err := fn(ctx, body)
 	if err != nil {
 		return nil, err
@@ -341,15 +345,15 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
-		return c.JSON(http.StatusBadRequest, errorResponse("InvalidRequestException", err.Error()))
+		return c.JSON(http.StatusBadRequest, errorResponse("InvalidRequestException", publicMessage(err)))
 	case errors.Is(err, awserr.ErrAlreadyExists):
-		return c.JSON(http.StatusBadRequest, errorResponse("InvalidRequestException", err.Error()))
+		return c.JSON(http.StatusBadRequest, errorResponse("InvalidRequestException", publicMessage(err)))
 	case errors.Is(err, awserr.ErrInvalidParameter):
-		return c.JSON(http.StatusBadRequest, errorResponse("InvalidRequestException", err.Error()))
+		return c.JSON(http.StatusBadRequest, errorResponse("InvalidRequestException", publicMessage(err)))
 	case errors.Is(err, errUnknownAction):
-		return c.JSON(http.StatusBadRequest, errorResponse("UnknownOperationException", err.Error()))
+		return c.JSON(http.StatusBadRequest, errorResponse("UnknownOperationException", publicMessage(err)))
 	default:
-		return c.JSON(http.StatusInternalServerError, errorResponse("InternalServerException", err.Error()))
+		return c.JSON(http.StatusInternalServerError, errorResponse("InternalServerException", publicMessage(err)))
 	}
 }
 

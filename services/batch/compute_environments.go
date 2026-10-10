@@ -94,6 +94,10 @@ func validateComputeResourcesForCreate(ceType string, computeResources *ComputeR
 		)
 	}
 
+	if computeResources.MinvCpus > computeResources.MaxvCpus {
+		return fmt.Errorf("%w: minvCpus must not exceed maxvCpus", ErrValidation)
+	}
+
 	if ceType == "UNMANAGED" && (computeResources.Type == "FARGATE" || computeResources.Type == "FARGATE_SPOT") {
 		return fmt.Errorf(
 			"%w: FARGATE and FARGATE_SPOT are not valid for UNMANAGED compute environments",
@@ -110,9 +114,9 @@ func validateCreateComputeEnvironmentInput(
 	name, ceType, state string,
 	computeResources *ComputeResources,
 ) error {
-	if len(name) == 0 || len(name) > maxCENameLength {
+	if !resourceNameRe.MatchString(name) {
 		return fmt.Errorf(
-			"%w: computeEnvironmentName must be between 1 and %d characters",
+			"%w: computeEnvironmentName must match [a-zA-Z0-9_-]{1,%d}",
 			ErrValidation, maxCENameLength,
 		)
 	}

@@ -6,8 +6,6 @@ import (
 	"slices"
 	"strings"
 	"time"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // CreateTask creates a new DataSync task.
@@ -27,7 +25,7 @@ func (b *InMemoryBackend) CreateTask(
 		return nil, fmt.Errorf("destination location %s not found: %w", destinationLocationArn, ErrInvalidParameter)
 	}
 
-	id := newID()
+	id := newID("task-")
 	taskArn := b.taskARN(id)
 	now := time.Now().UTC()
 
@@ -194,8 +192,10 @@ func (b *InMemoryBackend) ListTasks(
 		})
 	}
 
-	limit := int(maxResults)
-	pg := page.New(all, nextToken, limit, defaultMaxResults)
+	pg, err := paginate(all, nextToken, maxResults)
+	if err != nil {
+		return nil, "", err
+	}
 
 	return pg.Data, pg.Next, nil
 }
@@ -278,7 +278,7 @@ func (b *InMemoryBackend) StartTaskExecution(
 		}
 	}
 
-	id := newID()
+	id := newID("exec-")
 	execArn := b.executionARN(taskArn, id)
 	now := time.Now().UTC()
 
@@ -350,9 +350,25 @@ func (b *InMemoryBackend) CancelTaskExecution(taskExecutionArn string) error {
 	return nil
 }
 
+// nextExecutionPhase returns the status following a non-terminal execution status.
+func nextExecutionPhase(status string) (string, bool) {
+	switch status {
+	case executionStatusLaunching:
+		return "PREPARING", true
+	case "PREPARING":
+		return "TRANSFERRING", true
+	case "TRANSFERRING":
+		return "VERIFYING", true
+	case "VERIFYING":
+		return executionStatusSuccess, true
+	default:
+		return "", false
+	}
+}
+
 // DescribeTaskExecution returns task execution details.
-// Executions in LAUNCHING state are lazily advanced to SUCCESS on first
-// describe. When the execution that finishes is still the task's current
+// Each describe reports the current phase and then advances a non-terminal execution one phase (LAUNCHING,
+// PREPARING, TRANSFERRING, VERIFYING, SUCCESS). When the execution that finishes is still the task's current
 // one, the parent task's Status reverts from RUNNING to AVAILABLE, matching
 // AWS (task Status is RUNNING only while a task execution is in progress).
 func (b *InMemoryBackend) DescribeTaskExecution(taskExecutionArn string) (*TaskExecution, error) {
@@ -369,15 +385,17 @@ func (b *InMemoryBackend) DescribeTaskExecution(taskExecutionArn string) (*TaskE
 		return nil, ErrNotFound
 	}
 
-	if e.Status == executionStatusLaunching {
-		e.Status = executionStatusSuccess
+	cp := e.toTaskExecution()
 
-		if t, found := b.tasks.Get(taskArn); found && t.CurrentTaskExecutionArn == taskExecutionArn {
-			t.Status = taskStatusAvailable
+	if next, advancing := nextExecutionPhase(e.Status); advancing {
+		e.Status = next
+
+		if next == executionStatusSuccess {
+			if t, found := b.tasks.Get(taskArn); found && t.CurrentTaskExecutionArn == taskExecutionArn {
+				t.Status = taskStatusAvailable
+			}
 		}
 	}
-
-	cp := e.toTaskExecution()
 
 	return &cp, nil
 }
@@ -417,8 +435,10 @@ func (b *InMemoryBackend) ListTaskExecutions(
 		})
 	}
 
-	limit := int(maxResults)
-	pg := page.New(all, nextToken, limit, defaultMaxResults)
+	pg, err := paginate(all, nextToken, maxResults)
+	if err != nil {
+		return nil, "", err
+	}
 
 	return pg.Data, pg.Next, nil
 }

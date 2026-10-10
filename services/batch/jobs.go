@@ -212,8 +212,12 @@ func (b *InMemoryBackend) SubmitJob(
 	b.mu.Lock("SubmitJob")
 	defer b.mu.Unlock()
 
-	if len(name) == 0 || len(name) > maxJobNameLength {
-		return nil, fmt.Errorf("%w: jobName must be between 1 and %d characters", ErrValidation, maxJobNameLength)
+	if !resourceNameRe.MatchString(name) {
+		return nil, fmt.Errorf("%w: jobName must match [a-zA-Z0-9_-]{1,%d}", ErrValidation, maxJobNameLength)
+	}
+
+	if err := validateRetryStrategy(retryStrategy); err != nil {
+		return nil, err
 	}
 
 	jq, ok := b.lookupJQByNameOrARN(region, queue)
