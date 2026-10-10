@@ -39,6 +39,10 @@ func (h *Handler) handleDetectModerationLabels(
 		return nil, err
 	}
 
+	if err := validatePercent("MinConfidence", float64(req.MinConfidence)); err != nil {
+		return nil, err
+	}
+
 	// Default: content is clean. Only return labels if MinConfidence is very low,
 	// which indicates the caller wants to see all possible labels.
 	labels := []moderationLabelEntry{}

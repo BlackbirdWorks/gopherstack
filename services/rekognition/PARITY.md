@@ -2,7 +2,7 @@
 service: rekognition
 sdk_module: aws-sdk-go-v2/service/rekognition@v1.58.0   # version audited against (was stale at v1.51.26; go.mod pins v1.54.4 -- corrected this sweep)
 last_audit_commit: 903d74b67                       # HEAD when this manifest was written
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
 overall: A            # field-completeness follow-up sweep (see Notes #6): shallow CreateProjectVersion/StartProjectVersion/CopyProjectVersion fields and async-video Get* JobTag/Video/SelectedSegmentTypes/GetRequestMetadata now modeled; deep Custom Labels manifests and post-training fields stay deliberately deferred
                        # 2026-08-29 (gopherstack wrapper-key/constraint-parameter sweep): three constraint
                        # parameters found never applied -- DescribeProjects.Features (never plumbed, and its
@@ -859,3 +859,11 @@ IndexFaces now validates QualityFilter (enum), DetectionAttributes (Attribute en
 ## 2026-10-05 (enumcheck re-census)
 
 - GetCelebrityInfo KnownGender.Type emitted "Unknown", which is not a types.KnownGenderType member (Male, Female, Nonbinary, Unlisted); now "Unlisted". Proof: `TestRealClient_GetCelebrityInfoKnownGenderIsEnumMember`.
+
+## 2026-10-10 (realism pass)
+
+- Project versions were stuck at TRAINING_IN_PROGRESS (never deletable, StartProjectVersion forced RUNNING from any state) and datasets at UPDATE_IN_PROGRESS after DistributeDatasetEntries. Both now settle (TRAINING_COMPLETED/COPYING_COMPLETED, CREATE_COMPLETE/UPDATE_COMPLETE); stream processors and project versions gain STARTING/STOPPING. `SetLifecycleDelay` (default 0) controls the dwell; at 0 everything settles on the next read.
+- StartProjectVersion rejects RUNNING/STARTING (ResourceInUseException) and untrained versions (ResourceNotReadyException); StartStreamProcessor rejects an already-started processor (ResourceInUseException).
+- Unresolvable NextToken returns InvalidPaginationTokenException (collections, projects, project versions, stream processors, users, faces, media analysis jobs). Dataset-entry and dataset-label tokens stay lenient.
+- CollectionId/ProjectName/stream processor Name/VersionName, UserId, ExternalImageId and ClientRequestToken patterns; MinConfidence and FaceMatchThreshold 0-100; MaxLabels >= 0; StartFaceDetection FaceAttributes enum.
+- Not-found/conflict messages carry real wording instead of the bare code. Lenient: DetectLabels et al. still accept arbitrary image bytes (many fixtures use placeholder bytes).

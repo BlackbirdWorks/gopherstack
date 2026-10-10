@@ -74,6 +74,10 @@ func (h *Handler) importTerminology(input map[string]any) (map[string]any, error
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
 
+	if err := validateResourceName(ErrInvalidParameter, "Name", name); err != nil {
+		return nil, err
+	}
+
 	mergeStrategy, _ := input["MergeStrategy"].(string)
 	if mergeStrategy == "" {
 		return nil, fmt.Errorf("%w: MergeStrategy is required", ErrInvalidParameter)
@@ -137,6 +141,10 @@ func (h *Handler) deleteTerminology(input map[string]any) (map[string]any, error
 }
 
 func (h *Handler) listTerminologies(input map[string]any) (map[string]any, error) {
+	if err := validateListMaxResults(input); err != nil {
+		return nil, err
+	}
+
 	maxResults := maxResultsField(input)
 	nextToken, _ := input["NextToken"].(string)
 	formatFilter, _ := input["TerminologyDataFormat"].(string)

@@ -4,6 +4,7 @@ import (
 	"maps"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -16,15 +17,16 @@ import (
 // since its values are map[string]string, not *T, so there is nothing for
 // store.Table to key on.
 type InMemoryBackend struct {
-	terminologies *store.Table[Terminology]
-	parallelData  *store.Table[ParallelData]
-	jobs          *store.Table[TranslationJob]
-	tags          map[string]map[string]string
-	registry      *store.Registry
-	mu            *lockmetrics.RWMutex
-	appConfig     any
-	accountID     string
-	region        string
+	appConfig      any
+	terminologies  *store.Table[Terminology]
+	parallelData   *store.Table[ParallelData]
+	jobs           *store.Table[TranslationJob]
+	tags           map[string]map[string]string
+	registry       *store.Registry
+	mu             *lockmetrics.RWMutex
+	accountID      string
+	region         string
+	lifecycleDelay time.Duration
 }
 
 // NewInMemoryBackend returns an initialized InMemoryBackend.

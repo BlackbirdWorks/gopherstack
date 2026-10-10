@@ -96,7 +96,7 @@ func (b *InMemoryBackend) GetSpeechSynthesisTask(taskID string) (*SpeechSynthesi
 		return nil, fmt.Errorf("%w: task %q", ErrTaskNotFound, taskID)
 	}
 
-	advanceTask(task)
+	b.settleTaskLocked(task)
 
 	return cloneTask(task), nil
 }
@@ -194,7 +194,7 @@ func (b *InMemoryBackend) ListSpeechSynthesisTasks(
 	out := make([]*SpeechSynthesisTask, 0, len(tasks))
 
 	for i := offset; i < len(tasks); i++ {
-		advanceTask(tasks[i])
+		b.settleTaskLocked(tasks[i])
 
 		if status != "" && tasks[i].TaskStatus != status {
 			continue

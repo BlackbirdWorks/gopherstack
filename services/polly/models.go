@@ -64,5 +64,6 @@ type DescribeVoicesFilter struct {
 	Engine                         string
 	LanguageCode                   string
 	Gender                         string
+	NextToken                      string
 	IncludeAdditionalLanguageCodes bool
 }

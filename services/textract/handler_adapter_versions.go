@@ -170,6 +170,10 @@ func (h *Handler) handleListAdapterVersions(
 	ctx context.Context,
 	in *listAdapterVersionsInput,
 ) (*listAdapterVersionsResponse, error) {
+	if err := validateNextToken(in.NextToken); err != nil {
+		return nil, err
+	}
+
 	versions, err := h.Backend.ListAdapterVersions(ctx, in.AdapterID)
 	if err != nil {
 		return nil, err

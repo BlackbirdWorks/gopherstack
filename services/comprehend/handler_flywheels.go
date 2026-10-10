@@ -31,7 +31,11 @@ func (h *Handler) listIterations(input map[string]any) (map[string]any, error) {
 		items = append(items, h.iterationMap(iteration))
 	}
 
-	tok, maxResults := paginationParams(input)
+	tok, maxResults, pageErr := paginationParams(input)
+	if pageErr != nil {
+		return nil, pageErr
+	}
+
 	page, nextTok := comprehendPaginate(items, tok, maxResults)
 	out := map[string]any{"FlywheelIterationPropertiesList": page}
 	if nextTok != "" {

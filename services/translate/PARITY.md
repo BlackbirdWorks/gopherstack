@@ -7,7 +7,7 @@
 service: translate
 sdk_module: aws-sdk-go-v2/service/translate@v1.36.4
 last_audit_commit: 1efb1a758
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
 # PROVENANCE NOTE (2026-08-20): the 2026-08-20 sweep initially reported this
 # manifest's previous stamp (2d47b51d4 / 2026-07-29) as failed provenance,
 # because 2d47b51d4 is an ec2 commit that never touched services/translate/.
@@ -415,3 +415,9 @@ Gates: `go build ./services/translate/...`, `go vet`, `go test -race
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 translate is region-isolated: terminologies and text translation jobs live per region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/translate`. Limitation: the dashboard shows the home region only. The tagging bridge lists the request region and resolves Tag/Untag by ARN region. `TestHandler_MultiRegionReset` covers Reset.
+
+## 2026-10-10 (realism pass)
+
+- Added `SetLifecycleDelay` (default 0): text translation jobs go SUBMITTED, IN_PROGRESS, terminal and parallel data CREATING/UPDATING to ACTIVE by elapsed time, visible through the List ops (they previously never advanced). Default keeps advance-per-poll.
+- Terminology and parallel data names, JobName, S3 URIs (input, output, parallel data) and InputDataConfig.ContentType are validated; MaxResults outside 1-500 on the four List ops is InvalidParameterValueException (limits confirmed against the Translate API reference). `[fail]` stays allowed in job names.
+- Unresolvable NextToken still yields an empty final page (deliberate, see the 2026-08-30 sweep). Error messages no longer repeat the exception code.

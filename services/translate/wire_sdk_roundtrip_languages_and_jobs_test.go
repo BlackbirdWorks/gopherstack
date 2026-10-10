@@ -163,11 +163,11 @@ func testTextTranslationJobLifecycleRealClient(t *testing.T) {
 		TargetLanguageCodes: []string{"fr"},
 		DataAccessRoleArn:   aws.String("arn:aws:iam::000000000000:role/TranslateRole"),
 		InputDataConfig: &translatetypes.InputDataConfig{
-			S3Uri:       aws.String("s3://b/i/"),
+			S3Uri:       aws.String("s3://bkt/i/"),
 			ContentType: aws.String("text/plain"),
 		},
 		OutputDataConfig: &translatetypes.OutputDataConfig{
-			S3Uri: aws.String("s3://b/o/"),
+			S3Uri: aws.String("s3://bkt/o/"),
 		},
 	})
 	require.NoError(t, err)

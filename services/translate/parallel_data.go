@@ -173,7 +173,11 @@ func (b *InMemoryBackend) GetParallelData(name string) (*ParallelData, error) {
 		return nil, fmt.Errorf("%w: parallel data %q not found", ErrNotFound, name)
 	}
 
-	b.advanceParallelData(pd)
+	if b.lifecycleDelay > 0 {
+		b.settleParallelDataLocked(pd)
+	} else {
+		b.advanceParallelData(pd)
+	}
 
 	return cloneParallelData(pd), nil
 }
@@ -245,8 +249,14 @@ func (b *InMemoryBackend) DeleteParallelData(name string) (*ParallelData, error)
 
 // ListParallelData returns a paginated list of parallel data resources.
 func (b *InMemoryBackend) ListParallelData(maxResults int, nextToken string) ([]*ParallelData, string) {
-	b.mu.RLock("ListParallelData")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListParallelData")
+	defer b.mu.Unlock()
+
+	if b.lifecycleDelay > 0 {
+		for _, pd := range b.parallelData.All() {
+			b.settleParallelDataLocked(pd)
+		}
+	}
 
 	names := sortedNames(b.parallelData.All(), func(pd *ParallelData) string { return pd.Name })
 

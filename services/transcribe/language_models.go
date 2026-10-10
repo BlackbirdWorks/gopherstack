@@ -26,8 +26,8 @@ func validateBaseModelName(name string) error {
 
 // CreateLanguageModel creates a new custom language model.
 func (b *InMemoryBackend) CreateLanguageModel(input *LanguageModel) (*LanguageModel, error) {
-	if input.ModelName == "" {
-		return nil, fmt.Errorf("%w: ModelName is required", ErrValidation)
+	if err := validateResourceName("ModelName", input.ModelName); err != nil {
+		return nil, err
 	}
 
 	if err := validateBaseModelName(input.BaseModelName); err != nil {
@@ -70,6 +70,7 @@ func (b *InMemoryBackend) CreateLanguageModel(input *LanguageModel) (*LanguageMo
 	b.recordResourceTagsLocked(b.resourceARN(resourceTypeLanguageModel, m.ModelName), m.Tags)
 
 	cp := m
+	b.observeLanguageModel(&cp)
 
 	return &cp, nil
 }
@@ -112,6 +113,7 @@ func (b *InMemoryBackend) DescribeLanguageModel(modelName string) (*LanguageMode
 	}
 
 	cp := *m
+	b.observeLanguageModel(&cp)
 
 	return &cp, nil
 }
@@ -126,8 +128,11 @@ func (b *InMemoryBackend) ListLanguageModels(
 
 	all := make([]LanguageModel, 0, b.languageModels.Len())
 	for _, m := range b.languageModels.All() {
-		if (statusFilter == "" || m.ModelStatus == statusFilter) && matchesNameContains(m.ModelName, nameContains) {
-			all = append(all, *m)
+		cp := *m
+		b.observeLanguageModel(&cp)
+
+		if (statusFilter == "" || cp.ModelStatus == statusFilter) && matchesNameContains(m.ModelName, nameContains) {
+			all = append(all, cp)
 		}
 	}
 

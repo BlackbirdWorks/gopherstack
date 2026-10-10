@@ -14,10 +14,20 @@ func (h *Handler) createParallelData(input map[string]any) (map[string]any, erro
 		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
 	}
 
+	if err := validateResourceName(ErrValidation, "Name", name); err != nil {
+		return nil, err
+	}
+
 	description, _ := input["Description"].(string)
 	cfg := extractParallelDataConfig(input)
 	encKey := extractEncryptionKey(input)
 	tags := extractTags(input)
+
+	if cfg != nil && cfg.S3URI != "" {
+		if err := validateS3URI("ParallelDataConfig.S3Uri", cfg.S3URI); err != nil {
+			return nil, err
+		}
+	}
 
 	pd, err := replayCreate(h, "CreateParallelData", input, ErrConflict,
 		func(p *ParallelData) string { return p.Name }, h.Backend.GetParallelData,
@@ -105,6 +115,10 @@ func (h *Handler) deleteParallelData(input map[string]any) (map[string]any, erro
 }
 
 func (h *Handler) listParallelData(input map[string]any) (map[string]any, error) {
+	if err := validateListMaxResults(input); err != nil {
+		return nil, err
+	}
+
 	maxResults := maxResultsField(input)
 	nextToken, _ := input["NextToken"].(string)
 

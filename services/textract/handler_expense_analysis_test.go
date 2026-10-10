@@ -34,10 +34,15 @@ func TestHandler_AnalyzeExpense(t *testing.T) {
 			wantDocs:   true,
 		},
 		{
-			name:       "empty body still returns expense docs",
-			body:       map[string]any{},
+			name:       "bytes document returns expense docs",
+			body:       map[string]any{"Document": map[string]any{"Bytes": "aGVsbG8="}},
 			wantStatus: http.StatusOK,
 			wantDocs:   true,
+		},
+		{
+			name:       "empty document rejected",
+			body:       map[string]any{},
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 

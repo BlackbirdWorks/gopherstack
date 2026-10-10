@@ -241,7 +241,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		code, status = "KmsKeyValidationException", http.StatusBadRequest
 	}
 
-	payload, marshalErr := json.Marshal(service.JSONErrorResponse{Type: code, Message: err.Error()})
+	payload, marshalErr := json.Marshal(service.JSONErrorResponse{Type: code, Message: errMessage(err)})
 	if marshalErr != nil {
 		return c.String(http.StatusInternalServerError, "internal server error")
 	}
@@ -350,7 +350,7 @@ func comprehendPaginate[T any](items []T, nextToken string, maxResults int) ([]T
 }
 
 // paginationParams extracts NextToken and MaxResults from the JSON body input.
-func paginationParams(input map[string]any) (string, int) {
+func paginationParams(input map[string]any) (string, int, error) {
 	tok, _ := input["NextToken"].(string)
 	maxResults := 0
 	switch v := input["MaxResults"].(type) {
@@ -360,5 +360,17 @@ func paginationParams(input map[string]any) (string, int) {
 		maxResults = v
 	}
 
-	return tok, maxResults
+	if _, present := input["MaxResults"]; present &&
+		(maxResults < listMaxResultsMin || maxResults > listMaxResultsMax) {
+		return "", 0, fmt.Errorf("%w: MaxResults must be between %d and %d",
+			ErrValidation, listMaxResultsMin, listMaxResultsMax)
+	}
+
+	if tok != "" {
+		if idx, err := strconv.Atoi(tok); err != nil || idx <= 0 {
+			return "", 0, fmt.Errorf("%w: NextToken is invalid", ErrValidation)
+		}
+	}
+
+	return tok, maxResults, nil
 }

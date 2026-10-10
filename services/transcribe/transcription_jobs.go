@@ -58,6 +58,7 @@ func (b *InMemoryBackend) StartTranscriptionJob(input *TranscriptionJob) (*Trans
 	b.jobs.Put(&job)
 	b.recordResourceTagsLocked(b.resourceARN(resourceTypeTranscriptionJob, job.JobName), job.Tags)
 	cp := job
+	b.observeTranscriptionJob(&cp)
 
 	return &cp, nil
 }
@@ -166,6 +167,7 @@ func (b *InMemoryBackend) GetTranscriptionJob(jobName string) (*TranscriptionJob
 
 	advanceDeferredTranscriptionJob(job)
 	cp := *job
+	b.observeTranscriptionJob(&cp)
 	cp.Tags = b.liveTagsLocked(b.resourceARN(resourceTypeTranscriptionJob, job.JobName))
 
 	return &cp, nil
@@ -181,8 +183,11 @@ func (b *InMemoryBackend) ListTranscriptionJobs(
 
 	all := make([]TranscriptionJob, 0, b.jobs.Len())
 	for _, j := range b.jobs.All() {
-		if (statusFilter == "" || j.JobStatus == statusFilter) && matchesNameContains(j.JobName, nameContains) {
-			all = append(all, *j)
+		cp := *j
+		b.observeTranscriptionJob(&cp)
+
+		if (statusFilter == "" || cp.JobStatus == statusFilter) && matchesNameContains(j.JobName, nameContains) {
+			all = append(all, cp)
 		}
 	}
 

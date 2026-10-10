@@ -43,6 +43,7 @@ type InMemoryBackend struct {
 	mu               *lockmetrics.RWMutex
 	accountID        string
 	region           string
+	lifecycleDelay   time.Duration
 }
 
 // NewInMemoryBackend creates a configured Comprehend backend.
@@ -88,6 +89,9 @@ func (b *InMemoryBackend) Reset() {
 func (b *InMemoryBackend) StartJob(jobType, name string, values map[string]any, tags []Tag) (*Job, error) {
 	if strings.TrimSpace(name) == "" {
 		return nil, fmt.Errorf("%w: JobName is required", ErrValidation)
+	}
+	if err := validateJobName(name); err != nil {
+		return nil, err
 	}
 	if len(tags) > maxTagsPerResource {
 		return nil, fmt.Errorf(
@@ -143,7 +147,7 @@ func (b *InMemoryBackend) DescribeJob(id, jobType string) (*Job, error) {
 		return nil, fmt.Errorf("%w: job %q", ErrJobNotFound, id)
 	}
 
-	advanceJob(job)
+	b.settleJobLocked(job)
 
 	return cloneJob(job), nil
 }
@@ -163,6 +167,7 @@ func (b *InMemoryBackend) StopJob(id, jobType string) (*Job, error) {
 	case statusSubmitted, statusInProgress:
 		job.JobStatus = statusStopRequested
 		job.stopRequested = true
+		job.stopRequestedAt = time.Now().UTC()
 	default:
 		return nil, fmt.Errorf("%w: job %q cannot be stopped in status %s", ErrValidation, id, job.JobStatus)
 	}
@@ -172,13 +177,16 @@ func (b *InMemoryBackend) StopJob(id, jobType string) (*Job, error) {
 
 // ListJobs returns jobs for one operation family in stable submission order.
 func (b *InMemoryBackend) ListJobs(jobType string) []*Job {
-	b.mu.RLock("ListJobs")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListJobs")
+	defer b.mu.Unlock()
 
 	all := b.jobs.All()
 	out := make([]*Job, 0, len(all))
 	for _, job := range all {
 		if job.JobType == jobType {
+			if b.lifecycleDelay > 0 {
+				b.settleJobLocked(job)
+			}
 			out = append(out, cloneJob(job))
 		}
 	}
@@ -262,7 +270,7 @@ func (b *InMemoryBackend) CreateResource(
 		Name:          name,
 		Arn:           resourceArn,
 		Type:          resourceType,
-		Status:        initialResourceStatus(resourceType),
+		Status:        b.initialResourceStatus(resourceType),
 		VersionName:   versionName,
 		ModelArn:      stringValue(values, "ModelArn", ""),
 		FlywheelArn:   stringValue(values, fieldFlywheelARN, ""),
@@ -325,7 +333,7 @@ func (b *InMemoryBackend) GetResource(resourceArn, resourceType string) (*Resour
 		return nil, fmt.Errorf("%w: resource %q", ErrNotFound, resourceArn)
 	}
 
-	advanceTrainingResource(resource)
+	b.settleResourceLocked(resource)
 
 	return cloneResource(resource), nil
 }
@@ -342,7 +350,7 @@ func (b *InMemoryBackend) ListResources(resourceType string) []*Resource {
 	out := make([]*Resource, 0, len(all))
 	for _, resource := range all {
 		if resource.Type == resourceType {
-			advanceTrainingResource(resource)
+			b.settleResourceLocked(resource)
 			out = append(out, cloneResource(resource))
 		}
 	}
@@ -635,6 +643,14 @@ func (b *InMemoryBackend) resourceARN(resourceType, name, version string) string
 	}
 
 	return arn.Build("comprehend", b.region, b.accountID, resource)
+}
+
+func (b *InMemoryBackend) initialResourceStatus(resourceType string) string {
+	if b.lifecycleDelay > 0 && isTrainingResourceType(resourceType) {
+		return statusSubmitted
+	}
+
+	return initialResourceStatus(resourceType)
 }
 
 func initialResourceStatus(resourceType string) string {

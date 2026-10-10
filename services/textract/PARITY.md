@@ -7,7 +7,7 @@
 service: textract
 sdk_module: aws-sdk-go-v2/service/textract@v1.43.4   # bumped from v1.41.0 pin; AdaptersConfig/HumanLoopConfig field-diffed this pass
 last_audit_commit: 49cff86c4
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
 overall: A            # 2026-08-20: wrapper-key/nested-shape sweep. Two real pattern-(a) fixes
                       # (AnalyzeIDDetections.Geometry fabricated field removed; Extraction.IdentityDocument
                       # missing field added), both latent/never-emitted in current mock data -- see the
@@ -489,3 +489,9 @@ textract already isolates regions internally: adapters and analysis jobs are key
 ## 2026-10-05 (gopherstack-uox6 pass 12, value semantics)
 
 Clean. UpdateAdapter changes only the members present (AdapterName, Description, AutoUpdate; api_op_UpdateAdapter.go), CreateAdapter defaults AutoUpdate to DISABLED. Analyze/Start/Get operations return synthetic documents with no update surface.
+
+## 2026-10-10 (realism pass)
+
+- Added `SetAsyncJobDelay` (default stays 200ms; the existing time-driven completion).
+- Empty Document (no Bytes, no S3Object) on DetectDocumentText/AnalyzeDocument/AnalyzeExpense is InvalidParameterException. JobTag, ClientRequestToken, NotificationChannel ARNs and AdapterName are pattern-validated; non-base64 NextToken is rejected on Get* and List* ops.
+- MaxResults above 1000 stays clamped, as the Get* docs state ("a maximum of 1,000 results is returned"). Error messages no longer repeat the exception code.

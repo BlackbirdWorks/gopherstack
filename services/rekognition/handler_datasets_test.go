@@ -215,7 +215,7 @@ func TestListDatasetLabels_InvalidToken(t *testing.T) { //nolint:paralleltest //
 // =============================================================================
 
 func TestDistributeDatasetEntries_SetsInProgress(t *testing.T) { //nolint:paralleltest // stateful
-	h := newTestHandler(t)
+	h := newSlowHandler(t)
 
 	rec := doRequest(t, h, "CreateProject", map[string]any{"ProjectName": "dist-proj"})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -255,7 +255,7 @@ func TestDistributeDatasetEntries_SetsInProgress(t *testing.T) { //nolint:parall
 // creating (Status = CREATE_IN_PROGRESS) or if the dataset is updating
 // (Status = UPDATE_IN_PROGRESS).".
 func TestDeleteDataset_WhileUpdating_Rejected(t *testing.T) { //nolint:paralleltest // stateful sequential
-	h := newTestHandler(t)
+	h := newSlowHandler(t)
 
 	rec := doRequest(t, h, "CreateProject", map[string]any{"ProjectName": "del-ds-proj"})
 	require.Equal(t, http.StatusOK, rec.Code)

@@ -42,6 +42,10 @@ func evictOneIfAtCapacity[V any](t *store.Table[V], maxLen int, keyFn func(*V) s
 
 // StartAsyncJob creates a new async video analysis job.
 func (b *InMemoryBackend) StartAsyncJob(params StartAsyncJobParams) (string, error) {
+	if err := validateClientToken(params.ClientRequestToken); err != nil {
+		return "", err
+	}
+
 	jobID, started, err := b.startAsyncJob(params)
 	if err != nil {
 		return "", err
@@ -212,10 +216,8 @@ func (b *InMemoryBackend) ListMediaAnalysisJobs(
 
 	const maxPerPage = 100
 
-	result, outToken := paginateTable(
+	return paginateTable(
 		b.mediaAnalysisJobs, maxResults, maxPerPage, nextToken,
 		mediaAnalysisJobKeyFn, (*storedMediaAnalysisJob).toMediaAnalysisJob,
 	)
-
-	return result, outToken, nil
 }

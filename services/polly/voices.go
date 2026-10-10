@@ -11,6 +11,14 @@ func (b *InMemoryBackend) DescribeVoices(filter DescribeVoicesFilter) ([]Voice, 
 		return nil, fmt.Errorf("%w: invalid Engine %q", ErrValidation, filter.Engine)
 	}
 
+	if filter.LanguageCode != "" && !isKnownLanguageCode(filter.LanguageCode) {
+		return nil, fmt.Errorf("%w: invalid LanguageCode %q", ErrValidation, filter.LanguageCode)
+	}
+
+	if filter.NextToken != "" {
+		return nil, fmt.Errorf("%w: invalid NextToken", ErrInvalidNextToken)
+	}
+
 	b.mu.RLock("DescribeVoices")
 	defer b.mu.RUnlock()
 

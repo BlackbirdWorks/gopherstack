@@ -1,6 +1,7 @@
 package textract_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -712,6 +713,7 @@ func TestHandler_StartDocumentAnalysis_AsyncInitialStatusInProgress(t *testing.T
 
 	backend := textract.NewInMemoryBackend("000000000000", "us-east-1")
 	textract.SetBackendAsyncDelay(backend, 500*time.Millisecond)
+	t.Cleanup(func() { backend.Shutdown(context.Background()) })
 	h := textract.NewHandler(backend)
 
 	startRec := doTextractRequest(t, h, "StartDocumentAnalysis", map[string]any{

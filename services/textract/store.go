@@ -135,6 +135,15 @@ func (b *InMemoryBackend) SetS3Backend(s3 S3Backend) {
 	b.s3 = s3
 }
 
+// SetAsyncJobDelay sets how long async jobs and adapter versions stay IN_PROGRESS before
+// settling. The default is 200ms.
+func (b *InMemoryBackend) SetAsyncJobDelay(d time.Duration) {
+	b.mu.Lock("SetAsyncJobDelay")
+	defer b.mu.Unlock()
+
+	b.asyncJobDelay = d
+}
+
 // runDelayed runs fn after delay, unless the backend's lifecycle context is
 // cancelled first. The goroutine is tracked by b.wg so [InMemoryBackend.Shutdown]
 // can wait for it. A zero delay fires fn promptly (time.After(0) is immediate).

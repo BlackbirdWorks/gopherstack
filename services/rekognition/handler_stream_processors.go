@@ -299,6 +299,10 @@ func (h *Handler) handleCreateStreamProcessor(
 		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
 	}
 
+	if err := validateName("Name", req.Name); err != nil {
+		return nil, err
+	}
+
 	params := CreateStreamProcessorParams{
 		Input:                 req.Input.asDomain(),
 		Output:                req.Output.asDomain(),

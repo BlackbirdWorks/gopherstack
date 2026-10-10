@@ -7,7 +7,7 @@
 service: polly
 sdk_module: aws-sdk-go-v2/service/polly@v1.60.4   # version audited against
 last_audit_commit: c9523cebb
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
 overall: A            # two real bugs found and fixed this pass (StartSpeechSynthesisStream accepted non-generative Engine values; StartSpeechSynthesisTask shared SynthesizeSpeech's wider mp3/ogg_vorbis SampleRate set)
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -660,3 +660,9 @@ FIXED: ListSpeechSynthesisTasks resumed at the match count instead of the scanne
 ## 2026-10-05 (gopherstack-uox6 pass 12, value semantics)
 
 GetLexicon/ListLexicons attributes are derived from the root `<lexicon>` tag only (a `<phoneme alphabet=...>` no longer leaks into Alphabet), accept single-quoted attributes, and LexemesCount counts `<lexeme>` tags that carry attributes. Proof: `TestLexicon_AttributesDerivedFromRootAndLexemes`. StartSpeechSynthesisTask defaults (engine, format, sample rate, text type) already match the SDK docs: clean.
+
+## 2026-10-10 (realism pass)
+
+- Added `SetLifecycleDelay` (default 0): synthesis tasks go scheduled, inProgress, then terminal by elapsed time, visible through ListSpeechSynthesisTasks. Default keeps advance-per-poll.
+- DescribeVoices rejects an unknown LanguageCode (derived from the SDK enum) and any NextToken (none is ever issued): InvalidNextTokenException. Error messages no longer repeat the exception code.
+- Open: completed tasks do not write audio to the S3 output URI; that needs an S3 backend hook wired from cli.go (not done here).

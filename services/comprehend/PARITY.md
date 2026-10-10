@@ -7,7 +7,7 @@
 service: comprehend
 sdk_module: aws-sdk-go-v2/service/comprehend@v1.43.4
 last_audit_commit: a2084957b
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
 overall: A            # 2026-08-29 (later same day, wrapper-key/constraint-parameter sweep): the
                       # enum-VALUE pass below claimed Filter support was "NEW" and complete across
                       # every List*Jobs/List<Resource>s op -- it was, except ListFlywheelIterationHistory,
@@ -832,3 +832,9 @@ comprehend is region-isolated: flywheels, classifiers, recognizers, endpoints an
 ## 2026-10-04 (gopherstack-0kk8)
 
 DetectPiiEntities no longer emits a Text member; types.PiiEntity has only BeginOffset, EndOffset, Score and Type.
+
+## 2026-10-10 (realism pass)
+
+- Added `SetLifecycleDelay` (default 0): with a delay, async jobs go SUBMITTED, IN_PROGRESS, terminal by elapsed time and are visible through List*Jobs, not only Describe; classifier/recognizer training starts at SUBMITTED, then TRAINING, then TRAINED. Default keeps advance-per-Describe and instant training.
+- JobName must match the documented pattern (1-256 chars); `[` `]` stay allowed so the `[fail]` marker works. MaxResults outside 1-500 and non-numeric NextToken return InvalidRequestException (limits confirmed against the Comprehend API reference).
+- Error messages no longer repeat the exception code (`errMessage`). Tests: `TestRealism_*` (realism_test.go).

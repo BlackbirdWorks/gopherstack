@@ -57,7 +57,10 @@ func buildMedicalTranscriptionJobOutput(job *MedicalTranscriptionJob) *medicalTr
 		MediaSampleRateHertz:             job.MediaSampleRateHertz,
 		Settings:                         job.Settings,
 		Tags:                             tagsFromMap(job.Tags),
-		Transcript:                       &transcriptOutput{TranscriptFileURI: buildMedicalTranscriptURI(job)},
+		Transcript:                       &transcriptOutput{},
+	}
+	if job.TranscriptionJobStatus == jobStatusCompleted {
+		out.Transcript.TranscriptFileURI = buildMedicalTranscriptURI(job)
 	}
 	if !job.CreationTime.IsZero() {
 		s := awstime.Epoch(job.CreationTime)
@@ -207,6 +210,10 @@ func (h *Handler) handleListMedicalTranscriptionJobs(
 	_ context.Context,
 	in *listMedicalTranscriptionJobsInput,
 ) (*listMedicalTranscriptionJobsOutput, error) {
+	if err := validateJobListRequest(in.Status, in.NextToken, in.MaxResults); err != nil {
+		return nil, err
+	}
+
 	jobs, nextToken := h.Backend.ListMedicalTranscriptionJobs(
 		in.Status, in.JobNameContains, in.NextToken, in.MaxResults,
 	)

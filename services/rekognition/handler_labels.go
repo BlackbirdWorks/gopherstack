@@ -2,6 +2,7 @@ package rekognition
 
 import (
 	"context"
+	"fmt"
 	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -52,6 +53,14 @@ type detectLabelsResp struct {
 
 func (h *Handler) handleDetectLabels(ctx context.Context, req *detectLabelsReq) (*detectLabelsResp, error) {
 	if err := h.checkImageRef(ctx, req.Image); err != nil {
+		return nil, err
+	}
+
+	if req.MaxLabels < 0 {
+		return nil, fmt.Errorf("%w: MaxLabels must be greater than or equal to 0", ErrValidation)
+	}
+
+	if err := validatePercent("MinConfidence", req.MinConfidence); err != nil {
 		return nil, err
 	}
 

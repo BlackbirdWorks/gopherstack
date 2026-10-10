@@ -133,12 +133,11 @@ func (b *InMemoryBackend) DescribeProjects(
 	// Apply nextToken offset.
 	start := 0
 	if nextToken != "" {
-		for i, v := range items {
-			if v.ProjectARN == nextToken {
-				start = i
-
-				break
-			}
+		if start = slices.IndexFunc(
+			items,
+			func(v *storedProject) bool { return v.ProjectARN == nextToken },
+		); start < 0 {
+			return nil, "", ErrInvalidPaginationToken
 		}
 	}
 

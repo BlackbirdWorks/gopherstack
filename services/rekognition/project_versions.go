@@ -3,6 +3,7 @@ package rekognition
 import (
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"time"
 )
@@ -48,7 +49,7 @@ func (b *InMemoryBackend) CreateProjectVersion(
 		ProjectVersionARN:                       arn,
 		ProjectARN:                              projectARN,
 		VersionName:                             versionName,
-		Status:                                  "TRAINING_IN_PROGRESS",
+		Status:                                  statusTrainingActive,
 		Tags:                                    tagsCopy,
 		OutputConfigS3Bucket:                    params.OutputConfigS3Bucket,
 		OutputConfigS3KeyPrefix:                 params.OutputConfigS3KeyPrefix,
@@ -77,8 +78,12 @@ func (b *InMemoryBackend) DeleteProjectVersion(projectVersionARN string) error {
 		return ErrProjectVersionNotFound
 	}
 
-	if v.Status == "TRAINING_IN_PROGRESS" || v.Status == processorRunning {
+	b.settleProjectVersionLocked(v)
+
+	switch v.Status {
+	case statusTrainingActive, processorRunning, statusStarting, statusStopping:
 		return ErrProjectVersionInUse
+	default:
 	}
 
 	b.projectVersions.Delete(projectVersionARN)
@@ -91,8 +96,12 @@ func (b *InMemoryBackend) DeleteProjectVersion(projectVersionARN string) error {
 func (b *InMemoryBackend) DescribeProjectVersions(
 	projectARN string, versionNames []string, maxResults int32, nextToken string,
 ) ([]*ProjectVersion, string, error) {
-	b.mu.RLock("DescribeProjectVersions")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeProjectVersions")
+	defer b.mu.Unlock()
+
+	for _, v := range b.projectVersions.All() {
+		b.settleProjectVersionLocked(v)
+	}
 
 	// Collect and sort version ARN keys that belong to this project.
 	keys := make([]string, 0)
@@ -111,12 +120,8 @@ func (b *InMemoryBackend) DescribeProjectVersions(
 
 	start := 0
 	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
-				start = i
-
-				break
-			}
+		if start = slices.Index(keys, nextToken); start < 0 {
+			return nil, "", ErrInvalidPaginationToken
 		}
 	}
 
@@ -199,7 +204,7 @@ func (b *InMemoryBackend) CopyProjectVersion(
 		ProjectVersionARN:       newARN,
 		ProjectARN:              destinationProjectARN,
 		VersionName:             name,
-		Status:                  "COPYING_IN_PROGRESS",
+		Status:                  statusCopyingActive,
 		SourceProjectVersionARN: sourceProjectVersionARN,
 		OutputConfigS3Bucket:    params.OutputConfigS3Bucket,
 		OutputConfigS3KeyPrefix: params.OutputConfigS3KeyPrefix,
@@ -225,7 +230,19 @@ func (b *InMemoryBackend) StartProjectVersion(
 		return ErrProjectVersionNotFound
 	}
 
-	v.Status = processorRunning
+	b.settleProjectVersionLocked(v)
+
+	switch v.Status {
+	case processorRunning, statusStarting, statusStopping:
+		return ErrProjectVersionInUse
+	case statusTrainingDone, statusCopyingDone, processorStopped:
+	default:
+		return ErrNotReady
+	}
+
+	v.Status = statusStarting
+	v.statusSince = time.Now()
+	b.settleProjectVersionLocked(v)
 	v.MinInferenceUnits = minInferenceUnits
 	v.MaxInferenceUnits = maxInferenceUnits
 
@@ -242,7 +259,13 @@ func (b *InMemoryBackend) StopProjectVersion(projectVersionARN string) error {
 		return ErrProjectVersionNotFound
 	}
 
-	v.Status = processorStopped
+	b.settleProjectVersionLocked(v)
+
+	if v.Status == processorRunning || v.Status == statusStarting {
+		v.Status = statusStopping
+		v.statusSince = time.Now()
+		b.settleProjectVersionLocked(v)
+	}
 
 	return nil
 }

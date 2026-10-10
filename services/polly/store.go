@@ -88,6 +88,7 @@ type InMemoryBackend struct {
 	region          string
 	voices          []Voice
 	streamLimits    streamLimits
+	lifecycleDelay  time.Duration
 	streamsInFlight int
 }
 

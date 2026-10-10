@@ -7,7 +7,7 @@
 service: transcribe
 sdk_module: aws-sdk-go-v2/service/transcribe@v1.64.0   # version audited against
 last_audit_commit: 7480cad08                      # HEAD after the 2026-09-19 list-summary-shapes sweep
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
 overall: A            # A = genuine fixes found; B = already-accurate, proven op-by-op
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -554,3 +554,9 @@ transcribe is region-isolated: jobs, vocabularies, vocabulary filters and langua
 ## 2026-10-04 (reqfielddiff tier-1 pass)
 
 Re-checked the 3 `OutputEncryptionKMSKeyId` findings (CallAnalytics, MedicalScribe, MedicalTranscription): unchanged and still in items_still_open. Transcript output is never written to S3 (URIs are synthetic) and no response type echoes the key, so there is no observable behaviour to implement.
+
+## 2026-10-10 (realism pass)
+
+- Added `SetLifecycleDelay` (default 0): transcription, medical transcription, call analytics and scribe jobs report IN_PROGRESS (no Transcript URI, no CompletionTime), vocabularies/medical vocabularies PENDING and language models IN_PROGRESS until the delay elapses, including in List filters.
+- Vocabulary, vocabulary filter, medical vocabulary, language model and category names are pattern-validated; the three job-name errors now report the pattern instead of "is required". List Status/StateEquals/StatusEquals use the SDK enums; MaxResults above 100 and non-numeric NextToken are BadRequestException (range confirmed against the ListTranscriptionJobs API reference).
+- Kept lenient: StartMedicalTranscriptionJob without OutputBucketName (a synthetic bucket is used; in-repo tests rely on it). Error messages no longer repeat the exception code.

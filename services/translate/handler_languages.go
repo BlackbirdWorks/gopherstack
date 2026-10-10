@@ -48,6 +48,10 @@ var displayLanguageCodesTable = sync.OnceValue(func() map[string]bool {
 })
 
 func (h *Handler) listLanguages(input map[string]any) (map[string]any, error) {
+	if err := validateListMaxResults(input); err != nil {
+		return nil, err
+	}
+
 	const defaultMaxLanguages = 500
 
 	maxResults := maxResultsField(input)

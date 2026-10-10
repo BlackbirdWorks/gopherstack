@@ -15,8 +15,8 @@ func startJob(t *testing.T, b *translate.InMemoryBackend, jobName string) *trans
 	job, err := b.StartTextTranslationJob(
 		jobName, "arn:aws:iam::000000000000:role/r", "en",
 		[]string{"es"}, nil, nil,
-		map[string]any{"S3Uri": "s3://b/i/"},
-		map[string]any{"S3Uri": "s3://b/o/"},
+		map[string]any{"S3Uri": "s3://bkt/i/"},
+		map[string]any{"S3Uri": "s3://bkt/o/"},
 		nil, nil,
 	)
 	require.NoError(t, err)

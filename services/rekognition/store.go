@@ -1,6 +1,9 @@
 package rekognition
 
 import (
+	"slices"
+	"time"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -8,41 +11,30 @@ import (
 
 // InMemoryBackend is an in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
-	mu       *lockmetrics.RWMutex
-	registry *store.Registry
-	s3       S3Backend
-	notifier JobNotifier
-
-	collections       *store.Table[storedCollection]
-	faces             *store.Table[storedFace]
-	facesByCollection *store.Index[storedFace]
-	streamProcessors  *store.Table[storedStreamProcessor]
-
-	// tags is left as a plain map: values are plain string maps, not *T, so
-	// they do not fit store.Table's keyed-by-identity-value shape. See
-	// persistence.go for how it is carried through Snapshot/Restore.
-	tags map[string]map[string]string // resourceARN -> tags
-
-	projects                 *store.Table[storedProject]
-	projectVersions          *store.Table[storedProjectVersion]
+	s3                       S3Backend
+	notifier                 JobNotifier
 	projectPolicies          *store.Table[storedProjectPolicy]
 	projectPoliciesByProject *store.Index[storedProjectPolicy]
+	mediaAnalysisJobs        *store.Table[storedMediaAnalysisJob]
+	collections              *store.Table[storedCollection]
+	faces                    *store.Table[storedFace]
+	facesByCollection        *store.Index[storedFace]
+	streamProcessors         *store.Table[storedStreamProcessor]
+	tags                     map[string]map[string]string
+	projects                 *store.Table[storedProject]
 	datasets                 *store.Table[storedDataset]
-
-	// datasetEntries is left as a plain map: values are []string, not *T, so
-	// they do not fit store.Table's keyed-by-identity-value shape. See
-	// persistence.go.
-	datasetEntries map[string][]string // datasetArn -> jsonLines
-	idem           *idempotency.Memo
-
-	users             *store.Table[storedUser]
-	usersByCollection *store.Index[storedUser]
-	livenessSessions  *store.Table[storedLivenessSession]
-	asyncJobs         *store.Table[storedAsyncJob]
-	mediaAnalysisJobs *store.Table[storedMediaAnalysisJob]
-
-	accountID string
-	region    string
+	registry                 *store.Registry
+	mu                       *lockmetrics.RWMutex
+	projectVersions          *store.Table[storedProjectVersion]
+	datasetEntries           map[string][]string
+	idem                     *idempotency.Memo
+	users                    *store.Table[storedUser]
+	usersByCollection        *store.Index[storedUser]
+	livenessSessions         *store.Table[storedLivenessSession]
+	asyncJobs                *store.Table[storedAsyncJob]
+	accountID                string
+	region                   string
+	lifecycleDelay           time.Duration
 }
 
 // NewInMemoryBackend creates a new in-memory backend.
@@ -82,17 +74,14 @@ func paginateTable[V any, R any](
 	nextToken string,
 	keyFn func(*V) string,
 	convert func(*V) R,
-) ([]R, string) {
+) ([]R, string, error) {
 	items := t.Snapshot()
 
 	start := 0
 	if nextToken != "" {
-		for i, v := range items {
-			if keyFn(v) == nextToken {
-				start = i
-
-				break
-			}
+		start = slices.IndexFunc(items, func(v *V) bool { return keyFn(v) == nextToken })
+		if start < 0 {
+			return nil, "", ErrInvalidPaginationToken
 		}
 	}
 
@@ -113,7 +102,7 @@ func paginateTable[V any, R any](
 		outToken = keyFn(items[end])
 	}
 
-	return result, outToken
+	return result, outToken, nil
 }
 
 // Reset clears all stored state.

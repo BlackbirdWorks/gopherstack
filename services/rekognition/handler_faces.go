@@ -86,6 +86,12 @@ func (h *Handler) handleIndexFaces(ctx context.Context, req *indexFacesReq) (*in
 }
 
 func validateIndexFacesOptions(req *indexFacesReq) error {
+	if req.ExternalImageID != "" {
+		if err := validateUserLikeID("ExternalImageId", req.ExternalImageID, maxIdentifierLen); err != nil {
+			return err
+		}
+	}
+
 	if !isValidQualityFilter(req.QualityFilter) {
 		return fmt.Errorf("%w: QualityFilter value %q is not valid", ErrValidation, req.QualityFilter)
 	}
@@ -210,6 +216,9 @@ func (h *Handler) handleSearchFaces(_ context.Context, req *searchFacesReq) (*se
 	threshold := defaultFaceMatchThreshold
 	if req.FaceMatchThreshold != nil {
 		threshold = float64(*req.FaceMatchThreshold)
+		if err := validatePercent("FaceMatchThreshold", threshold); err != nil {
+			return nil, err
+		}
 	}
 
 	matches, err := h.Backend.SearchFaces(req.CollectionID, req.FaceID, req.MaxFaces, threshold)
@@ -286,6 +295,9 @@ func (h *Handler) handleSearchFacesByImage(
 	threshold := defaultFaceMatchThreshold
 	if req.FaceMatchThreshold != nil {
 		threshold = float64(*req.FaceMatchThreshold)
+		if err := validatePercent("FaceMatchThreshold", threshold); err != nil {
+			return nil, err
+		}
 	}
 
 	imageKey := imageRefKey(req.Image)
@@ -467,6 +479,10 @@ type startFaceDetectionReq struct {
 func (h *Handler) handleStartFaceDetection(
 	ctx context.Context, req *startFaceDetectionReq,
 ) (*startJobResp, error) {
+	if req.FaceAttributes != "" && req.FaceAttributes != "DEFAULT" && req.FaceAttributes != "ALL" {
+		return nil, fmt.Errorf("%w: FaceAttributes value %q is not valid", ErrValidation, req.FaceAttributes)
+	}
+
 	if err := req.NotificationChannel.validate(); err != nil {
 		return nil, err
 	}

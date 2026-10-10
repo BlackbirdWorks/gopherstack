@@ -109,7 +109,11 @@ func (b *InMemoryBackend) DescribeTextTranslationJob(jobID string) (*Translation
 		return nil, fmt.Errorf("%w: job %q not found", ErrNotFound, jobID)
 	}
 
-	b.advanceJob(job)
+	if b.lifecycleDelay > 0 {
+		b.settleJobLocked(job)
+	} else {
+		b.advanceJob(job)
+	}
 
 	return cloneJob(job), nil
 }
@@ -197,12 +201,16 @@ func (b *InMemoryBackend) ListTextTranslationJobs(
 	maxResults int,
 	nextToken string,
 ) ([]*TranslationJob, string) {
-	b.mu.RLock("ListTextTranslationJobs")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListTextTranslationJobs")
+	defer b.mu.Unlock()
 
 	jobs := make([]*TranslationJob, 0, b.jobs.Len())
 
 	for _, job := range b.jobs.All() {
+		if b.lifecycleDelay > 0 {
+			b.settleJobLocked(job)
+		}
+
 		if matchesJobFilter(job, filter) {
 			jobs = append(jobs, job)
 		}

@@ -217,6 +217,10 @@ func (h *Handler) handleListMedicalScribeJobs(
 	_ context.Context,
 	in *listMedicalScribeJobsInput,
 ) (*listMedicalScribeJobsOutput, error) {
+	if err := validateScribeJobListRequest(in.Status, in.NextToken, in.MaxResults); err != nil {
+		return nil, err
+	}
+
 	jobs, nextToken := h.Backend.ListMedicalScribeJobs(in.Status, in.JobNameContains, in.NextToken, in.MaxResults)
 
 	summaries := make([]medicalScribeJobSummary, 0, len(jobs))

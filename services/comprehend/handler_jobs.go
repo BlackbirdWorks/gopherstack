@@ -134,7 +134,11 @@ func (h *Handler) listJobs(spec jobSpec) operation {
 			items = append(items, jobMap(job, spec))
 		}
 
-		tok, maxResults := paginationParams(input)
+		tok, maxResults, pageErr := paginationParams(input)
+		if pageErr != nil {
+			return nil, pageErr
+		}
+
 		page, nextTok := comprehendPaginate(items, tok, maxResults)
 		out := map[string]any{spec.listField: page}
 		if nextTok != "" {

@@ -3,6 +3,7 @@ package transcribe
 import (
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -82,6 +83,7 @@ type InMemoryBackend struct {
 	resourceTags             map[string]map[string]string // ARN → tag map
 	mu                       *lockmetrics.RWMutex
 	region                   string
+	lifecycleDelay           time.Duration
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.

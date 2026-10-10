@@ -56,19 +56,20 @@ type Tag struct {
 type Job struct {
 	SubmitTime            time.Time
 	EndTime               time.Time
+	stopRequestedAt       time.Time
 	Configuration         map[string]any
 	OutputDataConfig      map[string]any
 	InputDataConfig       map[string]any
-	FailureReason         string
-	DocumentClassifierArn string
-	LanguageCode          string
+	JobArn                string
+	EntityRecognizerArn   string
 	JobType               string
 	JobName               string
-	JobArn                string
+	DocumentClassifierArn string
 	DataAccessRoleArn     string
 	JobStatus             string
-	EntityRecognizerArn   string
+	LanguageCode          string
 	JobID                 string
+	FailureReason         string
 	TargetEventTypes      []string
 	polls                 int
 	stopRequested         bool
