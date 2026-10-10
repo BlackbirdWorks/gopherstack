@@ -22,6 +22,10 @@ func (b *InMemoryBackend) CreateBackupSelection(
 		return nil, fmt.Errorf("%w: SelectionName is required", ErrValidation)
 	}
 
+	if err := validateArnValue("IamRoleArn", iamRoleArn); err != nil {
+		return nil, err
+	}
+
 	// Resolve planID: accept either a plan ID (from planIDIndex) or a plan name.
 	if _, found := b.planIDIndex[planID]; !found {
 		// planID is not a known ID — try it as a plan name.

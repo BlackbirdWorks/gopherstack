@@ -89,7 +89,7 @@ func (b *InMemoryBackend) CreateDBInstance(
 	id, clusterID, instanceClass string,
 	opts DBInstanceCreateOptions,
 ) (*DBInstance, error) {
-	if err := validateNeptuneIdentifier(id, "DBInstanceIdentifier"); err != nil {
+	if err := validateInstanceNaming(id, instanceClass); err != nil {
 		return nil, err
 	}
 	if opts.PromotionTier < 0 || opts.PromotionTier > maxPromotionTier {
@@ -130,9 +130,11 @@ func (b *InMemoryBackend) CreateDBInstance(
 	dbSecurityGroups := make([]string, len(opts.DBSecurityGroups))
 	copy(dbSecurityGroups, opts.DBSecurityGroups)
 	inst := &DBInstance{
+		readyAt:                         b.readyAtLocked(),
 		region:                          region,
 		DBInstanceIdentifier:            id,
 		DBInstanceArn:                   b.instanceARN(region, id),
+		DbiResourceID:                   newResourceID("db-"),
 		DBClusterIdentifier:             clusterID,
 		DBInstanceClass:                 instanceClass,
 		Engine:                          neptuneEngine,

@@ -737,3 +737,7 @@ Emits AWS/DynamoDB (docs.aws.amazon.com/amazondynamodb/latest/developerguide/met
 ## 2026-10-04 (gopherstack-bn4vx, iterator region)
 
 `ShardIteratorEntry.Region` carries the stream's region so GetRecords resolves non-home tables without a request region; see services/dynamodbstreams/PARITY.md.
+
+## 2026-10-10 lifecycle dwell knob
+
+`DYNAMODB_CREATE_DELAY` falls back to `--lifecycle-delay` when unset (default `0s`). Proof: root `TestLifecycleDelayWiring/dynamodb`.

@@ -1,15 +1,18 @@
 package appconfig
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
 func (h *Handler) handleListTagsForResource(c *echo.Context, resourceArn string) error {
 	tags, err := h.Backend.ListTagsForResource(resourceArn)
 	if err != nil {
-		return internalServerErrorResponse(c, err)
+		return tagErrorResponse(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{"Tags": tags})
@@ -27,7 +30,7 @@ func (h *Handler) handleTagResource(c *echo.Context, resourceArn string) error {
 	}
 
 	if err := h.Backend.TagResource(resourceArn, req.Tags); err != nil {
-		return internalServerErrorResponse(c, err)
+		return tagErrorResponse(c, err)
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -37,8 +40,19 @@ func (h *Handler) handleUntagResource(c *echo.Context, resourceArn string) error
 	keysToRemove := c.Request().URL.Query()["tagKeys"]
 
 	if err := h.Backend.UntagResource(resourceArn, keysToRemove); err != nil {
-		return internalServerErrorResponse(c, err)
+		return tagErrorResponse(c, err)
 	}
 
 	return c.NoContent(http.StatusNoContent)
+}
+
+func tagErrorResponse(c *echo.Context, err error) error {
+	switch {
+	case errors.Is(err, awserr.ErrNotFound):
+		return notFoundResponse(c, err)
+	case errors.Is(err, awserr.ErrInvalidParameter):
+		return badRequestResponse(c, err)
+	default:
+		return internalServerErrorResponse(c, err)
+	}
 }

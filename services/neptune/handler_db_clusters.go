@@ -20,6 +20,9 @@ func (h *Handler) clusterARN(region, id string) string {
 
 func (h *Handler) handleCreateDBCluster(ctx context.Context, vals url.Values) (any, error) {
 	id := vals.Get("DBClusterIdentifier")
+	if engine := vals.Get("Engine"); engine != "" && engine != neptuneEngine {
+		return nil, fmt.Errorf("%w: Engine must be %q for Neptune clusters", ErrInvalidParameter, neptuneEngine)
+	}
 	paramGroupName := vals.Get("DBClusterParameterGroupName")
 	port := 0
 	if portStr := vals.Get("Port"); portStr != "" {
@@ -419,7 +422,7 @@ func toXMLCluster(c *DBCluster) xmlDBCluster {
 		ClusterCreateTime:               c.ClusterCreateTime,
 		Engine:                          c.Engine,
 		EngineVersion:                   c.EngineVersion,
-		Status:                          c.Status,
+		Status:                          observedStatus(c.Status, c.readyAt),
 		DBClusterParameterGroupName:     c.DBClusterParameterGroupName,
 		DBSubnetGroupName:               c.DBSubnetGroupName,
 		Endpoint:                        c.Endpoint,

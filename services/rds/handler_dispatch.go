@@ -512,7 +512,7 @@ func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) err
 	if code == "" {
 		code = "InternalFailure"
 		statusCode = http.StatusInternalServerError
-		logger.Load(c.Request().Context()).Error("RDS internal error", "error", opErr, "action", action)
+		logger.Load(c.Request().Context()).Error("RDS internal error", "action", action)
 	}
 
 	return h.writeError(c, statusCode, code, opErr.Error())

@@ -661,3 +661,7 @@ UnsupportedOperation (handler.go:492) is the unknown-route fallback, matched by 
 ## 2026-10-09 realism pass
 
 - CreateFileSystem with an already-used CreationToken now always fails 409 `FileSystemAlreadyExists` carrying the existing FileSystemId; the previous "identical args -> 200 existing file system" path was invented (API_CreateFileSystem documents the error for any reuse). Error Message no longer repeats the code. Tests: TestCreateFileSystem_CreationTokenIdempotency, TestCreationTokenIdempotency_HTTP.
+
+## 2026-10-10 lifecycle dwell knob
+
+`--lifecycle-efs` (`EFS_ACTIVATION_DELAY`, falls back to `--lifecycle-delay`, default `0s`) is passed to `SetFileSystemActivationDelay`, so file systems report `creating` before `available`. Proof: root `TestLifecycleDelayWiring/efs`.

@@ -180,9 +180,10 @@ type InMemoryBackend struct {
 	// services/mgn/exportimport.go and services/outposts's order lifecycle
 	// use -- distinct from the older stopCh-based invalidation reconciler
 	// above.
-	work      *worker.Group
-	accountID string
-	region    string
+	work        *worker.Group
+	accountID   string
+	region      string
+	deployDelay time.Duration
 }
 
 // NewInMemoryBackend creates a new in-memory CloudFront backend. ctx roots
@@ -192,6 +193,7 @@ type InMemoryBackend struct {
 func NewInMemoryBackend(ctx context.Context, accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
 		work:                                worker.NewGroup(ctx, "cloudfront"),
+		deployDelay:                         distributionDeployDelay,
 		distributionARNs:                    make(map[string]string),
 		distributionCallerRefs:              make(map[string]string),
 		distributionAliases:                 make(map[string][]string),

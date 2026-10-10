@@ -501,3 +501,7 @@ mediastore already isolates regions internally: containers and their policies ar
 ## 2026-10-05 (gopherstack-uox6 pass 12, value semantics)
 
 Clean. Create -> Describe -> Start/StopAccessLogging -> Describe keeps CreationTime/Endpoint and toggles AccessLoggingEnabled (default false); PutCorsPolicy and PutMetricPolicy replace the whole policy without leaking omitted rule members. Proof: `TestContainer_AccessLoggingAndPoliciesRoundTrip`, `TestContainer_CorsAndMetricPolicyReplacement`.
+
+## 2026-10-10 lifecycle dwell knob
+
+`--lifecycle-mediastore` (`MEDIASTORE_ACTIVATION_DELAY`, falls back to `--lifecycle-delay`, default `0s`) makes containers report `CREATING`/`DELETING` before settling. Proof: root `TestLifecycleDelayWiring/mediastore`.

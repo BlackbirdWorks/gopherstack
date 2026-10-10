@@ -230,10 +230,11 @@ func (b *InMemoryBackend) buildNewCluster(
 	azs := make([]string, len(opts.AvailabilityZones))
 	copy(azs, opts.AvailabilityZones)
 	cluster := &DBCluster{
+		readyAt:                         b.readyAtLocked(),
 		region:                          region,
 		DBClusterIdentifier:             id,
 		DBClusterArn:                    b.clusterARN(region, id),
-		DBClusterResourceID:             fmt.Sprintf("cluster-%s", id),
+		DBClusterResourceID:             newResourceID("cluster-"),
 		ClusterCreateTime:               nowISO8601(),
 		Engine:                          neptuneEngine,
 		EngineVersion:                   engineVersion,
@@ -908,7 +909,7 @@ func (b *InMemoryBackend) RestoreDBClusterFromSnapshot(
 		region:                          region,
 		DBClusterIdentifier:             clusterID,
 		DBClusterArn:                    b.clusterARN(region, clusterID),
-		DBClusterResourceID:             fmt.Sprintf("cluster-%s", clusterID),
+		DBClusterResourceID:             newResourceID("cluster-"),
 		ClusterCreateTime:               nowISO8601(),
 		Engine:                          snap.Engine,
 		EngineVersion:                   snap.EngineVersion,
@@ -1056,7 +1057,7 @@ func (b *InMemoryBackend) RestoreDBClusterToPointInTime(
 		region:                          region,
 		DBClusterIdentifier:             targetClusterID,
 		DBClusterArn:                    b.clusterARN(region, targetClusterID),
-		DBClusterResourceID:             fmt.Sprintf("cluster-%s", targetClusterID),
+		DBClusterResourceID:             newResourceID("cluster-"),
 		ClusterCreateTime:               nowISO8601(),
 		Engine:                          src.Engine,
 		EngineVersion:                   src.EngineVersion,

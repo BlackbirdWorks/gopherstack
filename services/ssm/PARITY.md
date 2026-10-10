@@ -1650,3 +1650,7 @@ Tool false positives (cmd/zeroguard): required path/identifier members (Name, *I
 ## 2026-10-05 (input enum validation)
 
 Enum-typed request members across document, automation, association, patch baseline, maintenance window, inventory, ops item and session ops are checked against SDK `Values()`. Invalid values return ValidationException (or op-declared error: InvalidPermissionType, InvalidOptionException). Proof: `TestSDK_EnumInputValidation`.
+
+## 2026-10-10 lifecycle dwell knob
+
+`--lifecycle-ssm-command` (`SSM_COMMAND_EXEC_DELAY`) and `--lifecycle-ssm-automation` (`SSM_AUTOMATION_EXEC_DELAY`) keep commands/automations `InProgress` before completing; both fall back to `--lifecycle-delay`, default `0s`. Proof: root `TestLifecycleDelayWiring/ssm_*`.

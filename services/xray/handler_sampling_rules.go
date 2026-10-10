@@ -165,6 +165,10 @@ func (h *Handler) handleGetSamplingRules(_ context.Context, body []byte) ([]byte
 		records = append(records, toSamplingRuleRecord(&rules[i]))
 	}
 
+	if tokErr := checkNextToken(in.NextToken); tokErr != nil {
+		return nil, tokErr
+	}
+
 	pg := page.New(records, in.NextToken, 0, defaultSamplingRulesPageSize)
 
 	return json.Marshal(map[string]any{

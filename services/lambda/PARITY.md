@@ -1368,3 +1368,7 @@ UpdateFunctionConfiguration, UpdateFunctionCode and UpdateAlias decode RevisionI
 ## 2026-10-09 (service realism pass)
 
 CreateFunction/UpdateFunctionConfiguration now enforce FunctionName and Role patterns, Role required, reserved env keys (AWS_REGION, AWS_DEFAULT_REGION, _HANDLER, _X_AMZN_TRACE_ID), env key pattern and 4KB limit. CreateAlias rejects all-digit names and a missing version (404, was 500). AddPermission validates Action and StatementId patterns. A non-token List Marker returns InvalidParameterValueException. Duplicate-function and duplicate-statement messages match AWS wording. Role ARN accepts an empty account id (many in-repo fixtures use `arn:aws:iam:::role/x`). Left lenient: State is Active at create (Pending only with an activation delay configured); CreateEventSourceMapping does not verify the SQS source exists.
+
+## 2026-10-10 lifecycle dwell knob
+
+`--lifecycle-lambda-activation` (`LAMBDA_ACTIVATION_DELAY`) and `--lifecycle-lambda-provisioned-concurrency` (`LAMBDA_PROVISIONED_CONCURRENCY_DELAY`) make functions report `Pending` and provisioned concurrency `IN_PROGRESS` before settling; both fall back to `--lifecycle-delay`, default `0s`. Proof: root `TestLifecycleDelayWiring/lambda_*`.

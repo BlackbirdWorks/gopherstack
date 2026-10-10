@@ -22,7 +22,7 @@ func TestHandler_DescribeUsers_All(t *testing.T) {
 		"AccessString": "on ~*",
 		"AuthenticationMode": map[string]any{
 			"Type":      "password",
-			"Passwords": []string{"pass1"},
+			"Passwords": []string{"pass1-long-enough-1"},
 		},
 	})
 
@@ -220,7 +220,7 @@ func TestHandler_User_CRUD(t *testing.T) {
 				"AccessString": "on ~* +@all",
 				"AuthenticationMode": map[string]any{
 					"Type":      "password",
-					"Passwords": []string{"mypassword123"},
+					"Passwords": []string{"mypassword123-long-enough"},
 				},
 			},
 			wantStatus: http.StatusOK,
@@ -240,7 +240,7 @@ func TestHandler_User_CRUD(t *testing.T) {
 					"AccessString": "on ~*",
 					"AuthenticationMode": map[string]any{
 						"Type":      "password",
-						"Passwords": []string{"pass1"},
+						"Passwords": []string{"pass1-long-enough-1"},
 					},
 				})
 			},
@@ -262,7 +262,7 @@ func TestHandler_User_CRUD(t *testing.T) {
 					"AccessString": "on ~*",
 					"AuthenticationMode": map[string]any{
 						"Type":      "password",
-						"Passwords": []string{"pass1"},
+						"Passwords": []string{"pass1-long-enough-1"},
 					},
 				})
 			},
@@ -290,7 +290,7 @@ func TestHandler_User_CRUD(t *testing.T) {
 					"AccessString": "on ~*",
 					"AuthenticationMode": map[string]any{
 						"Type":      "password",
-						"Passwords": []string{"pass1"},
+						"Passwords": []string{"pass1-long-enough-1"},
 					},
 				})
 			},
@@ -513,7 +513,7 @@ func TestHandler_UpdateUser_WithAuthMode(t *testing.T) {
 				"AccessString": "on ~*",
 				"AuthenticationMode": map[string]any{
 					"Type":      "password",
-					"Passwords": []string{"new-pass"},
+					"Passwords": []string{"new-pass-long-enough"},
 				},
 			},
 			wantStatus: http.StatusOK,
@@ -540,7 +540,7 @@ func TestHandler_UpdateUser_WithAuthMode(t *testing.T) {
 					"AccessString": "on ~*",
 					"AuthenticationMode": map[string]any{
 						"Type":      "password",
-						"Passwords": []string{"pass"},
+						"Passwords": []string{"pass-long-enough-1"},
 					},
 				})
 			}
@@ -641,7 +641,7 @@ func TestHandler_DeleteUser_InACL(t *testing.T) {
 				"AccessString": "on ~*",
 				"AuthenticationMode": map[string]any{
 					"Type":      "password",
-					"Passwords": []string{"pass"},
+					"Passwords": []string{"pass-long-enough-1"},
 				},
 			})
 
@@ -705,7 +705,7 @@ func TestHandler_CreateUser_IamAuth(t *testing.T) {
 				"AccessString": "on ~* +@all",
 				"AuthenticationMode": map[string]any{
 					"Type":      "password",
-					"Passwords": []string{"mypassword123"},
+					"Passwords": []string{"mypassword123-long-enough"},
 				},
 			},
 			wantStatus: http.StatusOK,
@@ -754,7 +754,7 @@ func TestHandler_UserCRUD(t *testing.T) {
 				"AccessString": "on ~* +@all",
 				"AuthenticationMode": map[string]any{
 					"Type":      "password",
-					"Passwords": []string{"mypassword"},
+					"Passwords": []string{"mypassword-long-enough"},
 				},
 			},
 			wantStatus: http.StatusOK,

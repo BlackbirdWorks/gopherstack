@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -171,6 +172,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		route := parseBackupPath(c.Request().Method, c.Request().URL.Path)
 
 		log.Debug("backup request", "operation", route.operation, "resource", route.resource)
+
+		if err := validatePageSize(c.Request().URL.Query()); err != nil {
+			return h.handleError(c, err)
+		}
 
 		var body []byte
 		if c.Request().Body != nil {
@@ -651,8 +656,10 @@ func missingOrInvalidParamCode(err error) string {
 	return "InvalidParameterValueException"
 }
 
+var errCodePrefix = regexp.MustCompile(`^[A-Za-z]+Exception: `)
+
 func errResp(code, msg string) map[string]string {
-	return map[string]string{"code": code, "message": msg}
+	return map[string]string{"code": code, "message": errCodePrefix.ReplaceAllString(msg, "")}
 }
 
 // epochSeconds returns the Unix epoch timestamp as a float64 for JSON serialization.

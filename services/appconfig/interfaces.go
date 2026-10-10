@@ -127,6 +127,7 @@ type StorageBackend interface {
 		description *string,
 		deploymentDuration, bakeTime int32,
 		growthFactor float32,
+		growthType *string,
 	) (*DeploymentStrategy, error)
 	// DeleteDeploymentStrategy deletes a deployment strategy.
 	DeleteDeploymentStrategy(strategyID string) error

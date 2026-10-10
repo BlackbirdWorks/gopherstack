@@ -962,3 +962,7 @@ Adjudicated (reqfielddiff -adjudicated), unchanged:
 ## 2026-10-05 (undeclared response members)
 
 DBCluster no longer emits EngineMode or MasterUserManagedSecret; neither exists on neptune@v1.48.4 DBCluster or Create/ModifyDBClusterInput. The backend fields stay.
+
+## 2026-10-10 realism pass
+
+Same message/pagination/lifecycle changes as DocDB. CreateDBCluster rejects Engine other than neptune; DBInstanceClass and DBSubnetGroupName are validated; DbClusterResourceId is now random and instances carry DbiResourceId. DeleteDBCluster still cascades to instances (the backend forbids deleting a cluster's last instance, so rejecting would make clusters undeletable). `SetLifecycleDelay` needs root wiring. Proof: `TestSDK_CreateValidation`, `TestSDK_ResourceIDsAndNotFound`, `TestSDK_DescribePagination`, `TestSDK_CreateReportsCreatingUntilDelay`.

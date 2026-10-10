@@ -933,3 +933,7 @@ The Resource Groups Tagging API bridge now lists the request region's tagged res
 ## 2026-10-05 (reqfielddiff tier-2 pagination)
 
 ListBackupJobSummaries, ListCopyJobSummaries, ListRestoreJobSummaries, ListScanJobSummaries (now state-sorted), ListBackupPlanVersions, ListRecoveryPointsByLegalHold, ListRecoveryPointsByResource, ListIndexedRecoveryPoints, ListReportJobs, ListRestoreAccessBackupVaults, ListRestoreJobsByProtectedResource, ListTags and ListTieringConfigurations honour maxResults/nextToken (`pageQuery`, filters.go; each Input binds them as query members, serializers.go backup@v1.59.4). ListIndexedRecoveryPoints applies createdAfter/createdBefore and ListReportJobs reads ReportPlanName. Proof: `TestRealClient_ListOpsHonourMaxResults`, `TestRealClient_ListIndexedRecoveryPointsCreatedRange`. ListRestoreJobs and ListScanJobs findings are tool misses (their filter-from-query helpers already read them).
+
+## 2026-10-10 realism pass
+
+botocore's trailing-slash paths (`/backup/plans/{id}/`) now route; error messages drop the duplicated code. Plan/rule names, 6-field cron ScheduleExpression, Start/CompletionWindowMinutes >= 60, cold-storage gap >= 90 days, ARN-shaped ResourceArn/IamRoleArn and MaxResults 1..1000 are validated. Left lenient: rule target vault existence, garbage NextToken returning an empty page, no RUNNING job state. Proof: `TestSDK_CreateBackupPlanValidation`, `TestHandler_TrailingSlashPaths`, `TestSDK_StartBackupJobArnValidation`, `TestSDK_ListMaxResultsBounds`.

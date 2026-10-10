@@ -217,7 +217,7 @@ func (b *InMemoryBackend) UpdateDistribution(
 // Callers may hold b.mu (After only schedules; the callback takes its own
 // lock).
 func (b *InMemoryBackend) scheduleDistributionDeployed(id string) {
-	b.work.After("DistributionDeployed", distributionDeployDelay, func() {
+	b.work.After("DistributionDeployed", b.deployDelay, func() {
 		b.mu.Lock("DistributionDeployed-async")
 		defer b.mu.Unlock()
 
@@ -229,6 +229,17 @@ func (b *InMemoryBackend) scheduleDistributionDeployed(id string) {
 		d.Status = statusDeployed
 		d.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)
 	})
+}
+
+// SetDistributionDeployDelay sets the InProgress -> Deployed dwell; d <= 0 keeps the current value.
+func (b *InMemoryBackend) SetDistributionDeployDelay(d time.Duration) {
+	if d <= 0 {
+		return
+	}
+
+	b.mu.Lock("SetDistributionDeployDelay")
+	defer b.mu.Unlock()
+	b.deployDelay = d
 }
 
 // rearmPendingDistributionDeploysLocked re-schedules the InProgress ->

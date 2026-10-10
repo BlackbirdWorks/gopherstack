@@ -617,3 +617,11 @@ Create->Describe->UpdateCluster round trip audited (shards 1, TLS on, port 6379,
 ### 2026-10-05: PARITY burn-down pass 5 (gopherstack-9x62)
 
 UpdateMultiRegionCluster now applies ShardConfiguration.ShardCount to the multi-Region cluster and validates UpdateStrategy. Open items reworded to name exactly what is missing. Tests: services/memorydb/update_multi_region_cluster_members_test.go.
+
+## 2026-10-10 lifecycle dwell knob
+
+`--lifecycle-memorydb` (`MEMORYDB_LIFECYCLE_DELAY`, falls back to `--lifecycle-delay`, default `0s`) is passed to `SetLifecycleDelay`, so clusters report `creating` before `available`. Proof: root `TestLifecycleDelayWiring/memorydb`.
+
+## 2026-10-10 realism pass
+
+Error messages no longer repeat the fault code. CreateUser validates passwords (16-128 chars, 1-2, no `/ " @`, required for password auth) and access-string syntax; CreateACL rejects unknown users; parameter group family and snapshot names are validated; clusters default ParameterGroupName to `default.memorydb-<engine><major>`. CreateSubnetGroup with no subnets stays accepted (many fixtures). Proof: `TestSDK_CreateUserValidation`, `TestSDK_ResourceNameAndReferenceValidation`, `TestSDK_ClusterDefaultParameterGroup`.

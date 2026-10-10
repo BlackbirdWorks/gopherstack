@@ -67,6 +67,14 @@ func (b *InMemoryBackend) StartBackupJobFromInput(in StartBackupJobInput) (*Job,
 		return nil, fmt.Errorf("%w: IamRoleArn is required", ErrValidation)
 	}
 
+	if err := validateArnValue("ResourceArn", resourceArn); err != nil {
+		return nil, err
+	}
+
+	if err := validateArnValue("IamRoleArn", iamRoleArn); err != nil {
+		return nil, err
+	}
+
 	if err := b.resourceExistsLocked(resourceArn); err != nil {
 		return nil, err
 	}

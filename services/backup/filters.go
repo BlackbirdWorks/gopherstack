@@ -1,7 +1,10 @@
 package backup
 
 import (
+	"cmp"
+	"fmt"
 	"net/url"
+	"strconv"
 	"time"
 )
 
@@ -113,3 +116,17 @@ func withNextToken(resp map[string]any, next string) map[string]any {
 }
 
 func summaryStateKey(m map[string]any) string { return summaryRowKey(m) }
+
+func validatePageSize(q url.Values) error {
+	raw := cmp.Or(q.Get("maxResults"), q.Get("MaxResults"))
+	if raw == "" {
+		return nil
+	}
+
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 1 || n > maxAllowedResults {
+		return fmt.Errorf("%w: MaxResults must be between 1 and %d", ErrValidation, maxAllowedResults)
+	}
+
+	return nil
+}

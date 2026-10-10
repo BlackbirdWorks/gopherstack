@@ -33,6 +33,10 @@ func (b *InMemoryBackend) CreateCluster(
 		return nil, fmt.Errorf("numberOfBrokerNodes must be at least 1: %w", ErrValidation)
 	}
 
+	if err := validateCreateClusterInput(name, kafkaVersion, brokerInfo.InstanceType); err != nil {
+		return nil, err
+	}
+
 	region := getRegion(ctx, b.region)
 
 	var evicted *liveBroker
@@ -114,6 +118,10 @@ func (b *InMemoryBackend) CreateServerlessCluster(
 ) (*Cluster, error) {
 	if name == "" {
 		return nil, fmt.Errorf("clusterName is required: %w", ErrValidation)
+	}
+
+	if err := validateClusterName(name); err != nil {
+		return nil, err
 	}
 
 	region := getRegion(ctx, b.region)

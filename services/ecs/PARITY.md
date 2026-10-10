@@ -1271,3 +1271,7 @@ Dropped invented members: cluster/capacityProvider createdAt, managedScaling.tar
 ## 2026-10-09 (service realism pass)
 
 CreateCluster validates the name pattern; RegisterTaskDefinition validates the family pattern; CreateService returns ClusterNotFoundException for an unknown cluster (it silently created the service) and rejects negative desiredCount. A nextToken not issued by the service returns InvalidParameterException. Messages no longer repeat the error code. Left lenient: container memory/memoryReservation is not required when the task sets no memory (many in-repo task definitions omit it).
+
+## 2026-10-10 lifecycle dwell knob
+
+`--lifecycle-ecs-start` (`ECS_START_DELAY`) and `--lifecycle-ecs-stop` (`ECS_STOP_DELAY`) fall back to `--lifecycle-delay`, default `0s`. The start pipeline now also applies with the default no-op runner, and DescribeTasks/ListTasks advance due phases instead of waiting for the 5s reconciler tick. Proof: root `TestLifecycleDelayWiring/ecs_*`.

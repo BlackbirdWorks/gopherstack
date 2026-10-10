@@ -712,3 +712,7 @@ ListNodes, ListKafkaVersions, ListScramSecrets, ListVpcConnections, ListClientVp
 ## 2026-10-05 (gopherstack-uox6 pass 5, value semantics)
 
 UpdateConfiguration creates a new revision (LatestRevision, ListConfigurationRevisions and DescribeConfigurationRevision keep history); CreateCluster stores EnhancedMonitoring DEFAULT and BrokerAZDistribution DEFAULT when omitted (types.BrokerNodeGroupInfo).
+
+## 2026-10-10 realism pass
+
+Bare NotFound/Conflict errors now carry a descriptive message; cluster names (1-64, alnum/-/_), Kafka version format and `kafka.`/`express.` instance types are validated; maxResults must be 1..100; node ARNs are `broker/<name>/<uuid>/<id>`. Left lenient: broker-count vs subnet-count multiple (many fixtures), Kafka version catalog membership, and invalid nextToken restarting at page one (asserted by existing tests). Proof: `TestSDK_CreateClusterValidation`, `TestSDK_ErrorMessagesAreDescriptive`, `TestSDK_ListNodesARNShape`, `TestSDK_ListClustersMaxResultsBounds`.

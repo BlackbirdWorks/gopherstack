@@ -404,6 +404,13 @@ func (b *InMemoryBackend) applyThroughputModeChange(
 	return nil
 }
 
+// SetFileSystemActivationDelay sets how long a new file system stays "creating"; zero (default) is instant.
+func (b *InMemoryBackend) SetFileSystemActivationDelay(d time.Duration) {
+	b.mu.Lock("SetFileSystemActivationDelay")
+	defer b.mu.Unlock()
+	b.fsActivationDelay = d
+}
+
 // effectiveFileSystemState resolves fs's currently-visible LifeCycleState,
 // lazily promoting "creating" to "available" once fsActivationDelay has
 // elapsed since CreationTime instead of a background goroutine (see

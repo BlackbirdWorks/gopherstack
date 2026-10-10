@@ -2316,3 +2316,7 @@ FIXED: DescribeEvents applies StartTime/EndTime (ISO 8601; api_op_DescribeEvents
 ## 2026-10-05 (reqfielddiff tier-1/2 pass 8)
 
 CreateScheduledAction/ModifyScheduledAction store StartTime/EndTime (ISO 8601; api_op_CreateScheduledAction.go) and the response echoes them; DescribeScheduledActions StartTime/EndTime keep ACTIVE actions with an at()/cron() invocation after/before the bound inside the action's own window (api_op_DescribeScheduledActions.go:36-65). Supersedes the 2026-10-05 note that recorded them as ignored. Persistence: additive ScheduledAction.StartTime/EndTime (omitempty). Proof: `TestScheduledAction_WindowAndRangeFilter`, `TestModifyScheduledAction_Window`.
+
+## 2026-10-10 lifecycle dwell knob
+
+`--lifecycle-redshift` (`REDSHIFT_ACTIVATION_DELAY`, falls back to `--lifecycle-delay`, default `0s`) is passed to `SetClusterActivationDelay`, so clusters report `creating` before `available`. Proof: root `TestLifecycleDelayWiring/redshift`.

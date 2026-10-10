@@ -93,6 +93,13 @@ func TestUpdateACLSliceNoAlias(t *testing.T) {
 
 	h := newTestHandler(t)
 
+	for _, u := range []string{"u1", "u2", "u3"} {
+		doRequest(t, h, "CreateUser", map[string]any{
+			"UserName": u, "AccessString": "on ~*",
+			"AuthenticationMode": map[string]any{"Type": "no-password-required"},
+		})
+	}
+
 	// Create ACL with users
 	doRequest(t, h, "CreateACL", map[string]any{
 		"ACLName":   "test-acl",

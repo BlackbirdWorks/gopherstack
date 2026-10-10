@@ -266,6 +266,10 @@ func (h *Handler) handleGetTraceSummaries(_ context.Context, body []byte) ([]byt
 		summaries = append(summaries, buildTraceSummaryView(traces[i].TraceID, sd, traces[i].StartTime))
 	}
 
+	if tokErr := checkNextToken(in.NextToken); tokErr != nil {
+		return nil, tokErr
+	}
+
 	pg := page.New(summaries, in.NextToken, 0, defaultTraceSummariesPageSize)
 
 	return json.Marshal(map[string]any{

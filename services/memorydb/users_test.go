@@ -34,7 +34,7 @@ func TestBackend_User_Lifecycle(t *testing.T) {
 				AccessString: "on ~* &* +@all",
 				AuthenticationMode: memorydb.ExportedAuthModeReq{
 					Type:      "password",
-					Passwords: []string{"mypassword"},
+					Passwords: []string{"mypassword-long-enough"},
 				},
 			}
 

@@ -1741,3 +1741,7 @@ Key value store data-plane writes (PutKVSValue, DeleteKVSValue, UpdateKVSValues)
 - DeleteDistribution/UpdateDistribution: missing If-Match is InvalidIfMatchVersion (400), stale is PreconditionFailed (412) (`TestDistributionIfMatchSemantics`).
 - MaxItems that is not a positive integer is InvalidArgument (`TestListMaxItemsValidation`); error messages no longer repeat the code (`TestErrorMessageOmitsCode`).
 - Kept lenient: required DistributionConfig members (Origins, DefaultCacheBehavior) and the alias-needs-certificate rule are not enforced because most in-repo fixtures post minimal configs; non-Distribution kinds (tenants, streaming, connection groups) still report Deployed immediately.
+
+## 2026-10-10 lifecycle dwell knob
+
+`--lifecycle-cloudfront` (`CLOUDFRONT_DEPLOY_DELAY`, or `--lifecycle-delay`) overrides the 100ms InProgress -> Deployed dwell via `SetDistributionDeployDelay`; unset keeps 100ms. Proof: root `TestLifecycleDelayCloudFront`.

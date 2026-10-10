@@ -7,7 +7,7 @@
 service: xray
 sdk_module: aws-sdk-go-v2/service/xray@v1.39.4   # version audited against (go.mod pin; was stale at v1.36.20)
 last_audit_commit: d522d763f  # 2026-09-19 leak-audit follow-up (gopherstack-1x2u0); prior: b4c2391e7                       # HEAD when this manifest was last rewritten
-last_audit_date: 2026-10-07  # prior: 2026-09-18
+last_audit_date: 2026-10-10  # prior: 2026-09-18
 overall: A            # A = genuine fixes found; B = already-accurate, proven op-by-op
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -553,3 +553,7 @@ PutResourcePolicy revision IDs now increment ("1", "2", ...) per api_op_PutResou
 ## 2026-10-05 (undeclared response members)
 
 TraceSummary no longer emits ForecastStatistics (types.TraceSummary has no such member).
+
+## 2026-10-10 realism pass
+
+TagResource/CreateGroup/CreateSamplingRule tags now reject an empty or >128-char key, a >256-char value and the reserved `aws:` key prefix with InvalidRequestException (api_op_TagResource.go limits). Every paginated read rejects a NextToken this service did not issue with InvalidRequestException instead of silently restarting. Proof: `TestTagResource_KeyValueValidation`, `TestList_InvalidNextToken`. Left open (unverifiable from the SDK): StartTime after EndTime on GetTraceSummaries/GetServiceGraph is accepted and returns an empty result; duplicate sampling-rule Priority is accepted.

@@ -2,7 +2,7 @@
 service: resourcegroupstaggingapi
 sdk_module: aws-sdk-go-v2/service/resourcegroupstaggingapi@v1.35.4
 last_audit_commit: 6d3b2159e
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
 overall: A            # 2026-08-07 (gopherstack-3xfq): ListRequiredTags now derives real
                        # RequiredTag rows from an effective TAG_POLICY document's
                        # report_required_tag_for blocks (see requiredTagsFromPolicy,
@@ -294,3 +294,7 @@ go.sum` empty. No code or persisted-field change.
 ## 2026-10-03 (gopherstack-taq78 multi-region)
 
 The bridge lists the request region's resources and resolves TagResources/UntagResources by the ARN's region for ECS, Athena, Glue, ECR, Backup, CodeCommit, Cloud Map, Lightsail, Cognito IdP, SESv2 and CodeDeploy (`regionalTagSpec` in cli_cross_region.go). Auto Scaling, ELBv2 and CloudFormation expose no tagged-resource listing and are not bridged. Proof: `TestInitializeServices_TaggingBridgeFollowsRegion`.
+
+## 2026-10-10 realism pass
+
+GetResources rejects ResourcesPerPage outside 1-100 with InvalidParameterException (api_op_GetResources.go doc) instead of clamping. TagResources/UntagResources report a tagger's not-found or invalid-parameter failure as InvalidParameterException/400 in FailedResourcesMap rather than InternalServiceException/500. Proof: `TestGetResources_ResourcesPerPageRange`, `TestTagResources_TaggerErrorClassification`.

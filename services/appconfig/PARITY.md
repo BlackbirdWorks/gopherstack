@@ -3,7 +3,7 @@ service: appconfig
 sdk_module: aws-sdk-go-v2/service/appconfig@v1.48.4    # version audited against (bumped from v1.43.11)
 # 2026-10-01: KmsKeyArn on profile Get/Create/Update and hosted versions resolved from KmsKeyIdentifier via the KMS backend (TestRealClient_KmsKeyArnResolved).
 last_audit_commit: 1d121bbad  # over-wide census re-check (0 code changes -- all 7 flagged List ops already exact)
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
                                # (bd gopherstack-kpvs) below. That pass concluded DeletionProtectionCheck
                                # enforcement was structurally blocked because "no cross-service backend-lookup
                                # pattern exists anywhere in this repo" -- that premise was wrong. The lazy
@@ -485,3 +485,7 @@ FIXED: ListHostedConfigurationVersions `VersionLabel` was exact-match only; the 
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 appconfig is region-isolated: applications, environments, profiles, strategies and deployments live per region. A completed deployment publishes into the appconfigdata backend of its own region (`SetPublisherResolver`), and the deletion-protection check reads that region's data plane. The tagging bridge and CloudFormation (`forRegion`) follow the region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestWireAppConfigDeployments_PublishesToDeploymentRegion`, `TestRegionIsolation/appconfig`. Limitation: the dashboard shows the home region only.
+
+## 2026-10-10 realism pass
+
+TagResource/ListTagsForResource/UntagResource now return ResourceNotFoundException for an ARN that names no live application, environment, profile, deployment, strategy, extension, association, experiment definition or run (previously any ARN was accepted and tags dangled after delete); tags are capped at 50 per resource, keys at 128 and values at 256 characters, and `aws:` keys are BadRequestException. CreateDeploymentStrategy/UpdateDeploymentStrategy validate DeploymentDurationInMinutes/FinalBakeTimeInMinutes 0-1440, GrowthFactor 1-100, GrowthType and ReplicateTo enums, default GrowthType to LINEAR and ReplicateTo to NONE, and UpdateDeploymentStrategy now applies GrowthType. CreateConfigurationProfile rejects a LocationUri that is not hosted, an ARN or one of the documented scheme prefixes. Proof: `TestTagResource_Realism`, `TestTagResource_TooManyTags`, `TestCreateDeploymentStrategy_Realism`, `TestCreateConfigurationProfile_LocationURI`. Left open: list ops accept a garbage next_token as the first page (HMAC pagination helper is shared; real service rejects it).

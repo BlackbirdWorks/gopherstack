@@ -882,3 +882,7 @@ ElasticsearchClusterConfig is now read and written as ColdStorageOptions{Enabled
 ## 2026-10-09 -- domain Processing window knob
 
 `--elasticsearch-processing-delay` (`ELASTICSEARCH_PROCESSING_DELAY`, default `0s`) is passed to `SetProcessingDelay` by the provider. Proof: root `TestElasticsearchProcessingDelayWiring`.
+
+## 2026-10-10 lifecycle dwell knob
+
+`--lifecycle-delay` is the fallback when `ELASTICSEARCH_PROCESSING_DELAY` is unset. Proof: root `TestLifecycleDelayWiring/elasticsearch`.

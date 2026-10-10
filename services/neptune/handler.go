@@ -250,6 +250,9 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		}
 		// Attach the SigV4-derived region so backend ops route to the correct region store.
 		ctx := context.WithValue(r.Context(), regionContextKey{}, h.regionFromRequest(c))
+		if pageErr := validatePagination(vals); pageErr != nil {
+			return h.handleOpError(c, action, pageErr)
+		}
 		resp, opErr := h.dispatch(ctx, action, vals)
 		if opErr != nil {
 			return h.handleOpError(c, action, opErr)
@@ -278,7 +281,7 @@ func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) err
 			Error("Neptune internal error", "error", opErr, "action", action)
 	}
 
-	return h.writeError(c, statusCode, code, opErr.Error())
+	return h.writeError(c, statusCode, code, wireMessage(code, opErr.Error()))
 }
 
 func neptuneErrorCode(opErr error) string {
@@ -434,13 +437,7 @@ const defaultNeptuneMaxRecords = 100
 
 // applyNeptuneMarker applies Marker/MaxRecords-based pagination to a slice.
 func applyNeptuneMarker[T any](items []T, marker, maxRecordsStr string) ([]T, string) {
-	start := 0
-	if marker != "" {
-		idx, err := strconv.Atoi(marker)
-		if err == nil && idx > 0 {
-			start = idx
-		}
-	}
+	start, _ := decodeMarker(marker)
 
 	if start >= len(items) {
 		return []T{}, ""
@@ -459,7 +456,7 @@ func applyNeptuneMarker[T any](items []T, marker, maxRecordsStr string) ([]T, st
 		return items, ""
 	}
 
-	return items[:limit], strconv.Itoa(start + limit)
+	return items[:limit], encodeMarker(start + limit)
 }
 
 // dispatch routes a Neptune Action to its handler. To keep each switch's

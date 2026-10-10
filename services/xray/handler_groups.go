@@ -137,6 +137,10 @@ func (h *Handler) handleGetGroups(_ context.Context, body []byte) ([]byte, error
 		views = append(views, toGroupView(&groups[i]))
 	}
 
+	if tokErr := checkNextToken(in.NextToken); tokErr != nil {
+		return nil, tokErr
+	}
+
 	pg := page.New(views, in.NextToken, 0, defaultGroupsPageSize)
 	resp := map[string]any{
 		"Groups":     pg.Data,

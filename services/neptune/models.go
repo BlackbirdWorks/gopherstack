@@ -1,5 +1,7 @@
 package neptune
 
+import "time"
+
 // ServerlessV2ScalingConfiguration holds Neptune Serverless v2 capacity settings.
 type ServerlessV2ScalingConfiguration struct {
 	MinCapacity float64 `json:"minCapacity"`
@@ -88,6 +90,7 @@ type DBCluster struct {
 	// by marshaling DBCluster directly), but persistence.go must carry it
 	// through a DTO explicitly since json.Marshal never sees unexported fields.
 	region                          string
+	readyAt                         time.Time
 	ServerlessV2ScalingConfig       *ServerlessV2ScalingConfiguration `json:"ServerlessV2ScalingConfiguration,omitempty"`
 	MasterUserManagedSecret         *MasterUserManagedSecret          `json:"MasterUserManagedSecret,omitempty"`
 	KmsKeyID                        string                            `json:"KmsKeyID"`
@@ -131,6 +134,7 @@ type DBInstance struct {
 	AvailabilityZone                string `json:"AvailabilityZone"`
 	Endpoint                        string `json:"Endpoint"`
 	DBInstanceArn                   string `json:"DBInstanceArn"`
+	DbiResourceID                   string `json:"DbiResourceId,omitempty"`
 	DBClusterIdentifier             string `json:"DBClusterIdentifier"`
 	DBInstanceClass                 string `json:"DBInstanceClass"`
 	Engine                          string `json:"Engine"`
@@ -145,6 +149,7 @@ type DBInstance struct {
 	PreferredBackupWindow           string `json:"PreferredBackupWindow"`
 	DBInstanceIdentifier            string `json:"DBInstanceIdentifier"`
 	region                          string
+	readyAt                         time.Time
 	NetworkType                     string   `json:"NetworkType,omitempty"`
 	VpcSecurityGroupIDs             []string `json:"VpcSecurityGroupIDs,omitempty"`
 	DBSecurityGroups                []string `json:"DBSecurityGroups,omitempty"`

@@ -64,6 +64,10 @@ func (b *InMemoryBackend) CreateSnapshot(ctx context.Context, req *createSnapsho
 
 	region := getRegion(ctx, b.defaultRegion)
 
+	if err := validateSnapshotName(req.SnapshotName); err != nil {
+		return nil, err
+	}
+
 	c, ok := b.clustersStore(region).Get(req.ClusterName)
 	if !ok {
 		return nil, ErrClusterNotFound

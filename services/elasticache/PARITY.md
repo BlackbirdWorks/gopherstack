@@ -909,3 +909,7 @@ ReplicationGroup no longer emits CacheParameterGroupName/PreferredMaintenanceWin
 
 - CreateCacheCluster/CreateReplicationGroup: id format (letter first, alphanumerics/hyphens, no trailing or double hyphen, 50/40 chars), Engine in redis/valkey/memcached, CacheNodeType shape `cache.<family>.<size>`, NumCacheNodes must be a positive integer (previously silently defaulted), AuthToken 16-128 printable chars without `@ " /` and only with TransitEncryptionEnabled (`InvalidParameterCombination`).
 - Describe* `Marker` that is not an issued token -> `InvalidParameterValue`. Error messages no longer repeat the code. Tests: input_validation_test.go.
+
+## 2026-10-10 lifecycle dwell knob
+
+`--lifecycle-elasticache` (`ELASTICACHE_LIFECYCLE_DELAY`, falls back to `--lifecycle-delay`, default `0s`) is passed to `SetLifecycleDelay`, so clusters report `creating` before `available`. Proof: root `TestLifecycleDelayWiring/elasticache`.

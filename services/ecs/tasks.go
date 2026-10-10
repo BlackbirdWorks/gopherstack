@@ -168,7 +168,7 @@ func (b *InMemoryBackend) startTasksOutsideLock(work []taskWork) {
 
 		b.ensureAwslogsStreams(w.task, w.td)
 
-		if b.runner == nil {
+		if _, noop := b.runner.(noopRunner); b.runner == nil || noop {
 			if b.maybeRegisterStartLifecycle(w.task, clusterName) {
 				continue
 			}
@@ -495,6 +495,8 @@ func (b *InMemoryBackend) DescribeTasks(
 ) ([]Task, []Failure, error) {
 	clusterName := clusterKey(b.resolveCluster(cluster))
 
+	b.stepTaskLifecycle(time.Now())
+
 	b.mu.RLock("DescribeTasks")
 	defer b.mu.RUnlock()
 
@@ -765,6 +767,8 @@ func (b *InMemoryBackend) ListTasks(cluster string) ([]string, error) {
 // matching every status.
 func (b *InMemoryBackend) ListTasksFiltered(input ListTasksInput) ([]string, error) {
 	clusterName := clusterKey(b.resolveCluster(input.Cluster))
+
+	b.stepTaskLifecycle(time.Now())
 
 	b.mu.RLock("ListTasksFiltered")
 	defer b.mu.RUnlock()

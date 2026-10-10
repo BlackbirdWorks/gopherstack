@@ -441,11 +441,12 @@ func (h *Handler) toXMLInstance(ctx context.Context, inst *DBInstance) xmlDBInst
 	return xmlDBInstance{
 		DBInstanceIdentifier:            inst.DBInstanceIdentifier,
 		DBInstanceArn:                   inst.DBInstanceArn,
+		DbiResourceID:                   inst.DbiResourceID,
 		DBClusterIdentifier:             inst.DBClusterIdentifier,
 		DBInstanceClass:                 inst.DBInstanceClass,
 		Engine:                          inst.Engine,
 		EngineVersion:                   inst.EngineVersion,
-		DBInstanceStatus:                inst.DBInstanceStatus,
+		DBInstanceStatus:                observedStatus(inst.DBInstanceStatus, inst.readyAt),
 		InstanceCreateTime:              inst.InstanceCreateTime,
 		Endpoint:                        inst.Endpoint,
 		DBSubnetGroup:                   h.xmlInstanceSubnetGroup(ctx, inst.DBSubnetGroupName),
@@ -510,6 +511,7 @@ type xmlDBInstance struct {
 	PreferredBackupWindow           string                            `xml:"PreferredBackupWindow,omitempty"`
 	DBInstanceIdentifier            string                            `xml:"DBInstanceIdentifier"`
 	DBInstanceArn                   string                            `xml:"DBInstanceArn,omitempty"`
+	DbiResourceID                   string                            `xml:"DbiResourceId,omitempty"`
 	VpcSecurityGroups               xmlVpcSecurityGroupMembershipList `xml:"VpcSecurityGroups,omitempty"`
 	DBSecurityGroups                xmlDBSecurityGroupMembershipList  `xml:"DBSecurityGroups,omitempty"`
 	PromotionTier                   int                               `xml:"PromotionTier,omitempty"`

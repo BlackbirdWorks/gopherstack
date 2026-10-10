@@ -1,6 +1,7 @@
 package memorydb
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"maps"
@@ -263,7 +264,7 @@ func buildCluster(region, clusterARN, aclName string, req *createClusterRequest,
 		Engine:                  d.engine,
 		ACLName:                 aclName,
 		SubnetGroupName:         req.SubnetGroupName,
-		ParameterGroupName:      req.ParameterGroupName,
+		ParameterGroupName:      cmp.Or(req.ParameterGroupName, defaultParameterGroupName(d.engine, d.engineVersion)),
 		KmsKeyID:                req.KmsKeyID,
 		SnsTopicArn:             req.SnsTopicArn,
 		MaintenanceWindow:       req.MaintenanceWindow,

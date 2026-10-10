@@ -64,6 +64,10 @@ func (h *Handler) handleListResourcePolicies(_ context.Context, body []byte) ([]
 		views = append(views, toResourcePolicyView(&policies[i]))
 	}
 
+	if tokErr := checkNextToken(in.NextToken); tokErr != nil {
+		return nil, tokErr
+	}
+
 	pg := page.New(views, in.NextToken, in.MaxResults, defaultResourcePoliciesPageSize)
 	resp := map[string]any{"ResourcePolicies": pg.Data, keyNextToken: pg.Next}
 

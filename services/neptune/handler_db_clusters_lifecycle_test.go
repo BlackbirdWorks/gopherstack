@@ -1164,7 +1164,7 @@ func TestDBCluster_HasResourceIdAndCreateTime(t *testing.T) {
 			clusterID: "res-cluster",
 			wantContains: []string{
 				"DbClusterResourceId",
-				"cluster-res-cluster",
+				"<DbClusterResourceId>cluster-",
 				"ClusterCreateTime",
 			},
 		},
