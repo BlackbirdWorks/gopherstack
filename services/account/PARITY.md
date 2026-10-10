@@ -12,7 +12,7 @@ sdk_module: aws-sdk-go-v2/service/account@v1.35.4   # (now a real go.mod/go.sum
   # SDK-completeness coverage and no test/integration/account_test.go, unlike
   # every other service in the repo.)
 last_audit_commit: 4cfa01673
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
 overall: A            # sdk_completeness_test.go added and green (16/16 real ops
                        # covered), GetPrimaryEmailUpdateStatus/GetGovCloudAccountInformation
                        # implemented for real, and a genuine cross-service routing bug
@@ -488,3 +488,10 @@ bare-assignment shape exists anywhere in this package.
 **No instance of the broken shape exists in account.** No code changed. Gates re-run for
 the record: `GOTOOLCHAIN=go1.27.0 golangci-lint run ./services/account/...` 0 issues;
 `GOTOOLCHAIN=go1.27.0 go test -race ./services/account/...` ok.
+
+## 2026-10-10 (realism pass)
+
+- Region catalog expanded to the real set: 17 ENABLED_BY_DEFAULT regions plus 15 opt-in regions that start DISABLED (af-south-1 and ap-east-1 stay seeded ENABLED for existing callers). Restored snapshots are topped up with missing regions.
+- New `SetLifecycleDelay` (default 100ms, unchanged) for ENABLING/DISABLING and primary-email ACCEPTED dwell; needs `cli.go` wiring to expose a flag.
+- Validation from the API reference: PutContactInformation lengths, two-letter CountryCode, `+` phone pattern, StateOrRegion required for US/CA/GB/DE/JP/IN/BR; PutAlternateContact email/phone patterns and lengths; AccountName <=50; ListRegions rejects unknown RegionOptStatusContains values and forged NextTokens.
+- Error messages no longer repeat the exception name.

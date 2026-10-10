@@ -25,8 +25,8 @@ import (
 type InMemoryBackend struct {
 	ec2Resolver                           EC2Resolver
 	dxResolver                            DirectConnectResolver
-	routingPolicyLabels                   *store.Table[AttachmentRoutingPolicyLabel]
-	registry                              *store.Registry
+	links                                 *store.Table[Link]
+	devices                               *store.Table[Device]
 	linkAssociations                      *store.Table[LinkAssociation]
 	connections                           *store.Table[Connection]
 	customerGatewayAssociations           *store.Table[CustomerGatewayAssociation]
@@ -36,10 +36,10 @@ type InMemoryBackend struct {
 	connectPeers                          *store.Table[ConnectPeer]
 	coreNetworks                          *store.Table[CoreNetwork]
 	policyHistories                       *store.Table[CoreNetworkPolicyHistory]
-	prefixListAssocs                      *store.Table[CoreNetworkPrefixListAssociation]
-	links                                 *store.Table[Link]
-	sites                                 *store.Table[Site]
 	orgStatus                             *organizationStatus
+	registry                              *store.Registry
+	routingPolicyLabels                   *store.Table[AttachmentRoutingPolicyLabel]
+	prefixListAssocs                      *store.Table[CoreNetworkPrefixListAssociation]
 	routeAnalyses                         *store.Table[RouteAnalysis]
 	resourceMetadata                      *store.Table[networkResourceMetadata]
 	resourcePolicies                      *store.Table[resourcePolicy]
@@ -47,21 +47,23 @@ type InMemoryBackend struct {
 	globalNetworks                        *store.Table[GlobalNetwork]
 	mu                                    *lockmetrics.RWMutex
 	work                                  *worker.Group
+	sites                                 *store.Table[Site]
 	attachments                           *store.Table[Attachment]
-	devices                               *store.Table[Device]
 	region                                string
 	accountID                             string
+	transitionDelay                       time.Duration
 }
 
 // NewInMemoryBackend creates a new in-memory AWS Network Manager backend.
 func NewInMemoryBackend(ctx context.Context, accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		registry:  store.NewRegistry(),
-		accountID: accountID,
-		region:    region,
-		mu:        lockmetrics.New("networkmanager"),
-		work:      worker.NewGroup(ctx, "networkmanager"),
-		orgStatus: &organizationStatus{OrganizationAwsServiceAccessStatus: orgAccessStatusDisabled},
+		registry:        store.NewRegistry(),
+		accountID:       accountID,
+		region:          region,
+		mu:              lockmetrics.New("networkmanager"),
+		work:            worker.NewGroup(ctx, "networkmanager"),
+		transitionDelay: asyncTransitionDelay,
+		orgStatus:       &organizationStatus{OrganizationAwsServiceAccessStatus: orgAccessStatusDisabled},
 	}
 	registerAllTables(b)
 
@@ -87,6 +89,19 @@ func (b *InMemoryBackend) SetDirectConnectResolver(r DirectConnectResolver) {
 	defer b.mu.Unlock()
 
 	b.dxResolver = r
+}
+
+// SetLifecycleDelay sets the dwell time for PENDING/CREATING/DELETING resources before they
+// settle. The default is 100ms; a negative value is ignored.
+func (b *InMemoryBackend) SetLifecycleDelay(d time.Duration) {
+	if d < 0 {
+		return
+	}
+
+	b.mu.Lock("SetLifecycleDelay")
+	defer b.mu.Unlock()
+
+	b.transitionDelay = d
 }
 
 // Region returns the AWS region this backend is configured for.
@@ -243,7 +258,7 @@ func scheduleAdvance[V any](
 	b *InMemoryBackend, label string, table *store.Table[V], id string,
 	statePtr func(*V) *string, from, to string,
 ) {
-	b.work.After(label, asyncTransitionDelay, func() {
+	b.work.After(label, b.transitionDelay, func() {
 		b.mu.Lock(label)
 		defer b.mu.Unlock()
 
@@ -260,7 +275,7 @@ func scheduleAdvance[V any](
 // asyncTransitionDelay, simulating the DELETING -> gone tail of every
 // delete-lifecycle op in this service.
 func scheduleRemoval[V any](b *InMemoryBackend, label string, table *store.Table[V], id string) {
-	b.work.After(label, asyncTransitionDelay, func() {
+	b.work.After(label, b.transitionDelay, func() {
 		b.mu.Lock(label)
 		defer b.mu.Unlock()
 

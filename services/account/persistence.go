@@ -157,6 +157,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	b.contactInfo = snap.ContactInfo
 	b.regions = snap.Regions
+	b.addMissingRegionsLocked()
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 	b.accountName = snap.AccountName

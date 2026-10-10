@@ -9,6 +9,7 @@ import (
 )
 
 type storedStorageVirtualMachine struct {
+	ReadyAt                 time.Time                        `json:"readyAt,omitzero"`
 	CreationTime            time.Time                        `json:"creationTime"`
 	Tags                    map[string]string                `json:"tags"`
 	ActiveDirectory         *SvmActiveDirectoryConfiguration `json:"activeDirectory,omitempty"`
@@ -27,7 +28,7 @@ func (s *storedStorageVirtualMachine) toPublic() *StorageVirtualMachine {
 		StorageVirtualMachineID:      s.StorageVirtualMachineID,
 		FileSystemID:                 s.FileSystemID,
 		Name:                         s.Name,
-		Lifecycle:                    s.Lifecycle,
+		Lifecycle:                    renderLifecycle(s.Lifecycle, s.ReadyAt),
 		ResourceARN:                  s.ResourceARN,
 		Subtype:                      s.Subtype,
 		RootVolumeSecurityStyle:      s.RootVolumeSecurityStyle,
@@ -90,6 +91,7 @@ func (b *InMemoryBackend) CreateStorageVirtualMachine(
 		FileSystemID:            input.FileSystemID,
 		Name:                    input.Name,
 		Lifecycle:               svmLifecycleCreated,
+		ReadyAt:                 b.readyAt(),
 		ResourceARN:             arn,
 		Subtype:                 svmSubtypeDefault,
 		RootVolumeSecurityStyle: input.RootVolumeSecurityStyle,

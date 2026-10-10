@@ -53,6 +53,7 @@ type InMemoryBackend struct {
 	region                   string
 	accountID                string
 	regions                  []*Region
+	transitionDelay          time.Duration
 }
 
 // simOTP is a fixed OTP used for simulation — callers pass it back to AcceptPrimaryEmailUpdate.
@@ -86,6 +87,7 @@ func NewInMemoryBackendWithContext(ctx context.Context, accountID, region string
 		accountCreatedDate: time.Now().UTC(),
 		mu:                 lockmetrics.New("account"),
 		work:               worker.NewGroup(ctx, "account"),
+		transitionDelay:    regionTransitionDelay,
 	}
 	registerAllTables(b)
 	b.initDefaultRegions()
@@ -93,24 +95,44 @@ func NewInMemoryBackendWithContext(ctx context.Context, accountID, region string
 	return b
 }
 
-func (b *InMemoryBackend) initDefaultRegions() {
-	b.regions = []*Region{
-		{RegionName: "us-east-1", RegionOptStatus: RegionOptStatusEnabledDefault},
-		{RegionName: "us-east-2", RegionOptStatus: RegionOptStatusEnabledDefault},
-		{RegionName: "us-west-1", RegionOptStatus: RegionOptStatusEnabledDefault},
-		{RegionName: "us-west-2", RegionOptStatus: RegionOptStatusEnabledDefault},
-		{RegionName: "eu-west-1", RegionOptStatus: RegionOptStatusEnabledDefault},
-		{RegionName: "eu-central-1", RegionOptStatus: RegionOptStatusEnabledDefault},
-		// ap-southeast-1 (Singapore, launched 2010) and ap-northeast-1 (Tokyo,
-		// launched 2011) predate AWS's 2019 opt-in region policy, so like the
-		// regions above they are ENABLED_BY_DEFAULT and cannot be disabled
-		// (gopherstack-5py7).
-		{RegionName: "ap-southeast-1", RegionOptStatus: RegionOptStatusEnabledDefault},
-		{RegionName: "ap-northeast-1", RegionOptStatus: RegionOptStatusEnabledDefault},
-		// Opt-in regions (launched after the 2019 policy): already ENABLED but
-		// can be disabled via DisableRegion.
-		{RegionName: "af-south-1", RegionOptStatus: RegionOptStatusEnabled},
-		{RegionName: "ap-east-1", RegionOptStatus: RegionOptStatusEnabled},
+func defaultRegions() []*Region {
+	defaults := []string{
+		"us-east-1", "us-east-2", "us-west-1", "us-west-2", "eu-west-1", "eu-west-2", "eu-west-3",
+		"eu-central-1", "eu-north-1", "ap-southeast-1", "ap-southeast-2", "ap-northeast-1", "ap-northeast-2",
+		"ap-northeast-3", "ap-south-1", "ca-central-1", "sa-east-1",
+	}
+	seededEnabled := []string{"af-south-1", "ap-east-1"}
+	optIn := []string{
+		"ap-east-2", "ap-south-2", "ap-southeast-3", "ap-southeast-4", "ap-southeast-5", "ap-southeast-6",
+		"ap-southeast-7", "ca-west-1", "eu-central-2", "eu-south-1", "eu-south-2", "il-central-1",
+		"me-central-1", "me-south-1", "mx-central-1",
+	}
+
+	regions := make([]*Region, 0, len(defaults)+len(optIn)+len(seededEnabled))
+	for _, name := range defaults {
+		regions = append(regions, &Region{RegionName: name, RegionOptStatus: RegionOptStatusEnabledDefault})
+	}
+
+	// af-south-1 and ap-east-1 are seeded ENABLED so existing callers can exercise DisableRegion.
+	for _, name := range seededEnabled {
+		regions = append(regions, &Region{RegionName: name, RegionOptStatus: RegionOptStatusEnabled})
+	}
+
+	for _, name := range optIn {
+		regions = append(regions, &Region{RegionName: name, RegionOptStatus: RegionOptStatusDisabled})
+	}
+
+	return regions
+}
+
+func (b *InMemoryBackend) initDefaultRegions() { b.regions = defaultRegions() }
+
+// addMissingRegionsLocked tops up a restored snapshot taken before the region catalog grew.
+func (b *InMemoryBackend) addMissingRegionsLocked() {
+	for _, r := range defaultRegions() {
+		if !b.knownRegionLocked(r.RegionName) {
+			b.regions = append(b.regions, r)
+		}
 	}
 }
 
@@ -128,6 +150,18 @@ func (b *InMemoryBackend) Reset() {
 	b.primaryEmailUpdateStatus = ""
 	b.primaryEmailUpdateAt = time.Time{}
 	b.initDefaultRegions()
+}
+
+// SetLifecycleDelay sets how long opt-in regions stay ENABLING/DISABLING and a primary email
+// update stays ACCEPTED. The default is 100ms; a negative value is ignored.
+func (b *InMemoryBackend) SetLifecycleDelay(d time.Duration) {
+	if d < 0 {
+		return
+	}
+
+	b.mu.Lock("SetLifecycleDelay")
+	b.transitionDelay = d
+	b.mu.Unlock()
 }
 
 // Close stops pending transition timers. Safe to call more than once.

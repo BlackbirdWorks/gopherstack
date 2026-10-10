@@ -11,6 +11,7 @@ import (
 )
 
 type storedFileCache struct {
+	ReadyAt              time.Time         `json:"readyAt,omitzero"`
 	CreationTime         time.Time         `json:"creationTime"`
 	Tags                 map[string]string `json:"tags"`
 	FileCacheID          string            `json:"fileCacheId"`
@@ -71,7 +72,7 @@ func (c *storedFileCache) toPublic(draIDs []string) *FileCache {
 		FileCacheType:                c.FileCacheType,
 		FileCacheTypeVersion:         c.FileCacheTypeVersion,
 		KmsKeyID:                     c.KmsKeyID,
-		Lifecycle:                    c.Lifecycle,
+		Lifecycle:                    renderLifecycle(c.Lifecycle, c.ReadyAt),
 		ResourceARN:                  c.ResourceARN,
 		SubnetIDs:                    c.SubnetIDs,
 		StorageCapacityGiB:           c.StorageCapacityGiB,
@@ -91,7 +92,7 @@ func (c *storedFileCache) toPublicCreating(draIDs []string) *FileCacheCreating {
 		FileCacheType:                c.FileCacheType,
 		FileCacheTypeVersion:         c.FileCacheTypeVersion,
 		KmsKeyID:                     c.KmsKeyID,
-		Lifecycle:                    c.Lifecycle,
+		Lifecycle:                    renderLifecycle(c.Lifecycle, c.ReadyAt),
 		ResourceARN:                  c.ResourceARN,
 		SubnetIDs:                    c.SubnetIDs,
 		StorageCapacityGiB:           c.StorageCapacityGiB,
@@ -232,6 +233,7 @@ func (b *InMemoryBackend) CreateFileCache(input *createFileCacheInput) (*FileCac
 		FileCacheTypeVersion: input.FileCacheTypeVersion,
 		KmsKeyID:             input.KmsKeyID,
 		Lifecycle:            lifecycleAvailable,
+		ReadyAt:              b.readyAt(),
 		ResourceARN:          arn,
 		SubnetIDs:            input.SubnetIDs,
 		StorageCapacityGiB:   input.StorageCapacityGiB,
@@ -409,6 +411,7 @@ func (b *InMemoryBackend) createFileCacheDRAsLocked(c *storedFileCache, dras []f
 			Subdirectories:     slices.Clone(d.DataRepositorySubdirectories),
 			NFS:                cloneNFSConfig(d.NFS),
 			Lifecycle:          lifecycleAvailable,
+			ReadyAt:            b.readyAt(),
 			ResourceARN:        arn,
 		})
 		b.tags[arn] = tags

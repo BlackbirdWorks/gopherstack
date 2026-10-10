@@ -100,7 +100,7 @@ sdk_module: aws-sdk-go-v2/service/networkmanager@v1.44.4   # go.mod's pinned ver
 # (the 2026-08-01 pre-implementation audit resolved v1.44.3 against @latest in a throwaway scratch
 # module; go.mod has since moved to v1.44.4, re-confirmed this pass by direct grep).
 last_audit_commit: b36537ddc
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
 overall: A   # Raised from gap by this pass: the integration suite (the parity proof
 # .claude/memories/parity-principles.md rule 3 requires) passes, every buildable gap the 2026-08-05
 # pass flagged is now real (cross-service ARN validation against services/ec2/services/directconnect,
@@ -1407,3 +1407,9 @@ Orphan `InvalidPolicyDocument` (corenetworks.go) is the free-form `CoreNetworkPo
 ## 2026-10-05 (gopherstack-uox6 pass 8, value semantics)
 
 UpdateGlobalNetwork, UpdateSite, UpdateDevice and UpdateLink now keep an omitted string member and clear it when sent as an empty string, per "To remove information for any of the parameters, specify an empty string" (api_op_UpdateSite.go:12, same text on the other three). Previously an empty string was ignored and UpdateGlobalNetwork wiped an omitted Description. UpdateConnection got the same pointer handling. Recorded, unchanged: UpdateCoreNetwork (its SDK doc is silent). Proof: `TestUpdate_OmittedKeepsEmptyStringClears`.
+
+## 2026-10-10 (realism pass)
+
+- New `SetLifecycleDelay` (default 100ms, unchanged) for the PENDING/CREATING/DELETING dwell; needs `cli.go` wiring to expose a flag.
+- All ops now reject, with ValidationException: maxResults outside 1-500, a nextToken that is not a token this service issued (or >2048 chars), ID-list query params with >10 values, Description/Address/Latitude/Longitude >256 and Model/Vendor/SerialNumber/Provider >128 characters (API reference and SDK "Constraints" docs).
+- Lenient by design: Latitude/Longitude are free strings (<=256); the docs state no numeric range, so none is enforced.

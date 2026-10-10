@@ -154,12 +154,13 @@ func TestIntegration_Account_SingletonLifecycle(t *testing.T) {
 	t.Run("contact information roundtrip", func(t *testing.T) { //nolint:paralleltest // sequential by design
 		_, err := client.PutContactInformation(ctx, &accountsdk.PutContactInformationInput{
 			ContactInformation: &accounttypes.ContactInformation{
-				AddressLine1: aws.String("123 Main St"),
-				City:         aws.String("Seattle"),
-				CountryCode:  aws.String("US"),
-				FullName:     aws.String("Jane Doe"),
-				PhoneNumber:  aws.String("555-0300"),
-				PostalCode:   aws.String("98101"),
+				AddressLine1:  aws.String("123 Main St"),
+				City:          aws.String("Seattle"),
+				CountryCode:   aws.String("US"),
+				FullName:      aws.String("Jane Doe"),
+				PhoneNumber:   aws.String("+12065550300"),
+				PostalCode:    aws.String("98101"),
+				StateOrRegion: aws.String("WA"),
 			},
 		})
 		require.NoError(t, err, "PutContactInformation should succeed")

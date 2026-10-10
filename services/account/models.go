@@ -21,6 +21,16 @@ const (
 )
 
 // isValidContactType reports whether ct is one of the three accepted values.
+func isValidRegionOptStatus(st RegionOptStatus) bool {
+	switch st {
+	case RegionOptStatusEnabled, RegionOptStatusDisabled, RegionOptStatusEnabling,
+		RegionOptStatusDisabling, RegionOptStatusEnabledDefault:
+		return true
+	}
+
+	return false
+}
+
 func isValidContactType(ct ContactType) bool {
 	return ct == ContactTypeBilling || ct == ContactTypeOperations || ct == ContactTypeSecurity
 }

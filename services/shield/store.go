@@ -1,28 +1,14 @@
 package shield
 
 import (
-	"crypto/rand"
-	"encoding/hex"
+	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
-// protectionIDBytes is the number of random bytes used for protection/group IDs.
-const protectionIDBytes = 16
-
-// newShieldID generates a new random hex ID (16 bytes = 32 hex chars).
-// Must be called without holding the lock.
-func newShieldID() string {
-	b := make([]byte, protectionIDBytes)
-
-	if _, err := rand.Read(b); err != nil {
-		// Fallback: deterministic counter - practically unreachable.
-		return hex.EncodeToString([]byte("fallback-shield-id"))
-	}
-
-	return hex.EncodeToString(b)
-}
+// newShieldID generates a 36-character UUID, matching the fixed-length ProtectionId/AttackId shape.
+func newShieldID() string { return uuid.NewString() }
 
 // InMemoryBackend is an in-memory store for Shield Advanced resources.
 //

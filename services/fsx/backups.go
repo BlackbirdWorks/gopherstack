@@ -20,6 +20,7 @@ import (
 // (aws-sdk-go-v2/service/fsx@v1.68.4/types/types.go), and it is a required
 // response member (gopherstack-r80d).
 type storedBackup struct {
+	ReadyAt      time.Time         `json:"readyAt,omitzero"`
 	CreationTime time.Time         `json:"creationTime"`
 	Tags         map[string]string `json:"tags"`
 	FileSystem   *storedFileSystem `json:"fileSystem,omitempty"`
@@ -57,7 +58,7 @@ func (b *storedBackup) toBackup(fallbackFS *storedFileSystem) *Backup {
 		BackupID:     b.BackupID,
 		BackupType:   b.BackupType,
 		CreationTime: epochTime(b.CreationTime),
-		Lifecycle:    b.Lifecycle,
+		Lifecycle:    renderLifecycle(b.Lifecycle, b.ReadyAt),
 		ResourceARN:  b.ResourceARN,
 		Tags:         tagsMapToSlice(b.Tags),
 	}
@@ -161,6 +162,7 @@ func (b *InMemoryBackend) CreateBackup(input *createBackupInput) (*Backup, error
 		BackupType:   backupTypeUserInitiated,
 		CreationTime: now,
 		Lifecycle:    lifecycleAvailable,
+		ReadyAt:      b.readyAt(),
 		ResourceARN:  arn,
 		Tags:         tags,
 		FileSystemID: fs.FileSystemID,
@@ -394,6 +396,7 @@ func (b *InMemoryBackend) CopyBackup(input *copyBackupInput) (*Backup, error) {
 		BackupType:   src.BackupType,
 		CreationTime: now,
 		Lifecycle:    lifecycleAvailable,
+		ReadyAt:      b.readyAt(),
 		ResourceARN:  arn,
 		Tags:         tags,
 		FileSystemID: src.FileSystemID,

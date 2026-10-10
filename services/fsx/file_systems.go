@@ -24,14 +24,15 @@ import (
 // so one field backs the corresponding member on whichever *Configuration
 // block toFileSystem() populates for this FileSystemType.
 type storedFileSystem struct {
+	ReadyAt                       time.Time           `json:"readyAt,omitzero"`
 	CreationTime                  time.Time           `json:"creationTime"`
 	Tags                          map[string]string   `json:"tags"`
-	PreferredSubnetID             string              `json:"preferredSubnetId,omitempty"`
-	DeploymentType                string              `json:"deploymentType,omitempty"`
-	FileSystemTypeVersion         string              `json:"fileSystemTypeVersion,omitempty"`
-	Lifecycle                     string              `json:"lifecycle"`
-	ResourceARN                   string              `json:"resourceArn"`
+	Lustre                        *storedLustreExtras `json:"lustre,omitempty"`
+	SelfManagedAD                 *SelfManagedADAttrs `json:"selfManagedAd,omitempty"`
 	DNSName                       string              `json:"dnsName,omitempty"`
+	FileSystemID                  string              `json:"fileSystemId"`
+	ResourceARN                   string              `json:"resourceArn"`
+	FileSystemTypeVersion         string              `json:"fileSystemTypeVersion,omitempty"`
 	KmsKeyID                      string              `json:"kmsKeyId,omitempty"`
 	StorageType                   string              `json:"storageType,omitempty"`
 	VpcID                         string              `json:"vpcId,omitempty"`
@@ -39,14 +40,15 @@ type storedFileSystem struct {
 	DailyAutomaticBackupStartTime string              `json:"dailyAutomaticBackupStartTime,omitempty"`
 	MountName                     string              `json:"mountName,omitempty"`
 	ActiveDirectoryID             string              `json:"activeDirectoryId,omitempty"`
-	SelfManagedAD                 *SelfManagedADAttrs `json:"selfManagedAd,omitempty"`
+	DeploymentType                string              `json:"deploymentType,omitempty"`
 	FileSystemType                string              `json:"fileSystemType"`
-	FileSystemID                  string              `json:"fileSystemId"`
+	Lifecycle                     string              `json:"lifecycle"`
 	NetworkType                   string              `json:"networkType,omitempty"`
 	RootVolumeID                  string              `json:"rootVolumeId,omitempty"`
 	WeeklyMaintenanceStartTime    string              `json:"weeklyMaintenanceStartTime,omitempty"`
-	NetworkInterfaceIDs           []string            `json:"networkInterfaceIds,omitempty"`
+	PreferredSubnetID             string              `json:"preferredSubnetId,omitempty"`
 	SubnetIDs                     []string            `json:"subnetIds,omitempty"`
+	NetworkInterfaceIDs           []string            `json:"networkInterfaceIds,omitempty"`
 	AutomaticBackupRetentionDays  int32               `json:"automaticBackupRetentionDays,omitempty"`
 	ThroughputCapacity            int32               `json:"throughputCapacity,omitempty"`
 	ThroughputCapacityPerHAPair   int32               `json:"throughputCapacityPerHAPair,omitempty"`
@@ -63,7 +65,7 @@ func (s *storedFileSystem) toFileSystem() *FileSystem {
 		FileSystemID:          s.FileSystemID,
 		FileSystemType:        s.FileSystemType,
 		FileSystemTypeVersion: s.FileSystemTypeVersion,
-		Lifecycle:             s.Lifecycle,
+		Lifecycle:             renderLifecycle(s.Lifecycle, s.ReadyAt),
 		ResourceARN:           s.ResourceARN,
 		DNSName:               s.DNSName,
 		KmsKeyID:              s.KmsKeyID,
@@ -100,13 +102,35 @@ func (s *storedFileSystem) toFileSystem() *FileSystem {
 // steady-state member) is the closest accurate value -- not the fabricated
 // "DISABLED" this used to send.
 func (s *storedFileSystem) toLustreConfiguration() *LustreConfiguration {
-	return &LustreConfiguration{
+	cfg := &LustreConfiguration{
 		DeploymentType: s.DeploymentType,
 		MountName:      s.MountName,
 		DataRepositoryConfiguration: &DataRepositoryConfiguration{
 			Lifecycle: lifecycleAvailable,
 		},
+		WeeklyMaintenanceStartTime:    s.WeeklyMaintenanceStartTime,
+		DailyAutomaticBackupStartTime: s.DailyAutomaticBackupStartTime,
+		AutomaticBackupRetentionDays:  s.AutomaticBackupRetentionDays,
+		CopyTagsToBackups:             s.CopyTagsToBackups,
+		ThroughputCapacity:            s.ThroughputCapacity,
 	}
+
+	if x := s.Lustre; x != nil {
+		cfg.DataCompressionType = x.DataCompressionType
+		cfg.DriveCacheType = x.DriveCacheType
+		cfg.PerUnitStorageThroughput = x.PerUnitStorageThroughput
+		cfg.EfaEnabled = x.EfaEnabled
+		cfg.RootSquashConfiguration = x.RootSquashConfiguration
+		cfg.DataReadCacheConfiguration = x.DataReadCacheConfiguration
+		cfg.MetadataConfiguration = x.MetadataConfiguration
+		cfg.LogConfiguration = x.LogConfiguration
+		cfg.DataRepositoryConfiguration.AutoImportPolicy = x.AutoImportPolicy
+		cfg.DataRepositoryConfiguration.ImportPath = x.ImportPath
+		cfg.DataRepositoryConfiguration.ExportPath = x.ExportPath
+		cfg.DataRepositoryConfiguration.ImportedFileChunkSize = x.ImportedFileChunkSize
+	}
+
+	return cfg
 }
 
 func (s *storedFileSystem) toWindowsConfiguration() *WindowsConfiguration {
@@ -171,15 +195,6 @@ type createFileSystemInput struct {
 	SubnetIDs             []string                    `json:"SubnetIds,omitempty"`
 	SecurityGroupIDs      []string                    `json:"SecurityGroupIds,omitempty"`
 	StorageCapacityGiB    int32                       `json:"StorageCapacity,omitempty"`
-}
-
-// createLustreConfiguration mirrors the CreateFileSystemLustreConfiguration
-// block sent by the AWS provider for Lustre file systems.
-type createLustreConfiguration struct {
-	MetadataConfiguration *struct {
-		Mode string `json:"Mode,omitempty"`
-	} `json:"MetadataConfiguration,omitempty"`
-	DeploymentType string `json:"DeploymentType,omitempty"`
 }
 
 // createWindowsConfiguration mirrors CreateFileSystemWindowsConfiguration.
@@ -282,28 +297,10 @@ func defaultLustreVersion(deploymentType string, cfg *createLustreConfiguration)
 	switch {
 	case deploymentType != "PERSISTENT_2":
 		return "2.10"
-	case cfg != nil && cfg.MetadataConfiguration != nil && cfg.MetadataConfiguration.Mode != "":
+	case cfg != nil && metadataMode(cfg.MetadataConfiguration) != "":
 		return "2.15"
 	default:
 		return "2.12"
-	}
-}
-
-// applyLustreConfig sets the Lustre-specific fields on fs. LustreConfiguration
-// is optional on the real CreateFileSystemInput; an absent block (or an
-// absent DeploymentType within it) defaults to SCRATCH_1, matching real AWS.
-func applyLustreConfig(fs *storedFileSystem, cfg *createLustreConfiguration) {
-	fs.MountName = generateLustreMountName()
-	if cfg != nil {
-		fs.DeploymentType = cfg.DeploymentType
-	}
-
-	if fs.DeploymentType == "" {
-		fs.DeploymentType = lustreDeploymentTypeScratch1
-	}
-
-	if fs.FileSystemTypeVersion == "" {
-		fs.FileSystemTypeVersion = defaultLustreVersion(fs.DeploymentType, cfg)
 	}
 }
 
@@ -366,6 +363,10 @@ func applyOntapConfig(fs *storedFileSystem, cfg *createOntapConfiguration) error
 		return fmt.Errorf(
 			"%w: OntapConfiguration.ThroughputCapacity or ThroughputCapacityPerHAPair is required", ErrValidation,
 		)
+	}
+
+	if err := validateOntapHA(cfg); err != nil {
+		return err
 	}
 
 	fs.DailyAutomaticBackupStartTime = cfg.DailyAutomaticBackupStartTime
@@ -431,9 +432,8 @@ func applyFileSystemTypeConfig(fs *storedFileSystem, input *createFileSystemInpu
 	switch fs.FileSystemType {
 	case fileSystemTypeLustre:
 		fs.FileSystemTypeVersion = input.FileSystemTypeVersion
-		applyLustreConfig(fs, input.LustreConfiguration)
 
-		return nil
+		return applyLustreConfig(fs, input.LustreConfiguration)
 	case fileSystemTypeWindows:
 		return applyWindowsConfig(fs, input.WindowsConfiguration)
 	case fileSystemTypeONTAP:
@@ -545,6 +545,10 @@ func (b *InMemoryBackend) CreateFileSystem(input *createFileSystemInput) (*FileS
 		)
 	}
 
+	if err := validateStorageBounds(input); err != nil {
+		return nil, err
+	}
+
 	if err := validateCreateTags(input.Tags); err != nil {
 		return nil, err
 	}
@@ -584,6 +588,7 @@ func (b *InMemoryBackend) CreateFileSystem(input *createFileSystemInput) (*FileS
 		FileSystemID:        id,
 		FileSystemType:      input.FileSystemType,
 		Lifecycle:           lifecycleAvailable,
+		ReadyAt:             b.readyAt(),
 		ResourceARN:         arn,
 		DNSName:             fmt.Sprintf("%s.fsx.%s.amazonaws.com", id, b.region),
 		StorageCapacityGiB:  input.StorageCapacityGiB,
@@ -804,6 +809,7 @@ func (b *InMemoryBackend) takeFinalBackupLocked(
 		BackupType:   backupTypeUserInitiated,
 		CreationTime: time.Now().UTC(),
 		Lifecycle:    lifecycleAvailable,
+		ReadyAt:      b.readyAt(),
 		ResourceARN:  arn,
 		Tags:         tags,
 		FileSystemID: fs.FileSystemID,
@@ -946,6 +952,7 @@ type updateFileSystemInput struct {
 	WindowsConfiguration *updateWindowsConfiguration `json:"WindowsConfiguration,omitempty"`
 	OntapConfiguration   *updateOntapConfiguration   `json:"OntapConfiguration,omitempty"`
 	OpenZFSConfiguration *updateOpenZFSConfiguration `json:"OpenZFSConfiguration,omitempty"`
+	LustreConfiguration  *updateLustreConfiguration  `json:"LustreConfiguration,omitempty"`
 	FileSystemID         string                      `json:"FileSystemId"`
 	StorageType          string                      `json:"StorageType,omitempty"`
 	StorageCapacityGiB   int32                       `json:"StorageCapacity,omitempty"`
@@ -1049,7 +1056,7 @@ func (b *InMemoryBackend) UpdateFileSystem(input *updateFileSystemInput) (*FileS
 
 	switch input.StorageType {
 	case "":
-	case "SSD", "HDD", storageTypeIntelligentTiered:
+	case storageTypeSSD, storageTypeHDD, storageTypeIntelligentTiered:
 		fs.StorageType = input.StorageType
 	default:
 		return nil, fmt.Errorf(
@@ -1057,6 +1064,18 @@ func (b *InMemoryBackend) UpdateFileSystem(input *updateFileSystemInput) (*FileS
 			ErrValidation,
 			input.StorageType,
 		)
+	}
+
+	if input.StorageCapacityGiB > 0 {
+		if err := validateStorageCapacityUpdate(fs, input.StorageCapacityGiB); err != nil {
+			return nil, err
+		}
+	}
+
+	if fs.FileSystemType == fileSystemTypeLustre {
+		if err := applyLustreUpdate(fs, input.LustreConfiguration); err != nil {
+			return nil, err
+		}
 	}
 
 	if input.StorageCapacityGiB > 0 {
@@ -1220,6 +1239,7 @@ func (b *InMemoryBackend) CreateFileSystemFromBackup(input *createFileSystemFrom
 		FileSystemType:        fsType,
 		FileSystemTypeVersion: fields.fsTypeVersion,
 		Lifecycle:             lifecycleAvailable,
+		ReadyAt:               b.readyAt(),
 		ResourceARN:           arn,
 		DNSName:               fmt.Sprintf("%s.fsx.%s.amazonaws.com", id, b.region),
 		StorageCapacityGiB:    fields.capacity,

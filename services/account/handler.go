@@ -240,7 +240,7 @@ func requiredContactInformationFields(info *ContactInformation) []struct{ name, 
 		{"City", info.City},
 		{"CountryCode", info.CountryCode},
 		{"FullName", info.FullName},
-		{"PhoneNumber", info.PhoneNumber},
+		{fieldPhoneNumber, info.PhoneNumber},
 		{"PostalCode", info.PostalCode},
 	}
 }
@@ -259,6 +259,10 @@ func (h *Handler) handlePutContactInformation(c *echo.Context, body []byte) erro
 		if strings.TrimSpace(f.value) == "" {
 			return writeError(c, http.StatusBadRequest, "ValidationException", f.name+" is required")
 		}
+	}
+
+	if err := validateContactInformation(&req.ContactInformation); err != nil {
+		return writeBackendError(c, err)
 	}
 
 	if err := h.Backend.PutContactInformation(&req.ContactInformation); err != nil {
@@ -312,7 +316,7 @@ func (h *Handler) handlePutAlternateContact(c *echo.Context, body []byte) error 
 		{"AlternateContactType", string(req.AlternateContactType)},
 		{"EmailAddress", req.EmailAddress},
 		{"Name", req.Name},
-		{"PhoneNumber", req.PhoneNumber},
+		{fieldPhoneNumber, req.PhoneNumber},
 		{"Title", req.Title},
 	}
 	for _, f := range requiredFields {
@@ -324,6 +328,10 @@ func (h *Handler) handlePutAlternateContact(c *echo.Context, body []byte) error 
 	if !isValidContactType(req.AlternateContactType) {
 		return writeError(c, http.StatusBadRequest, "ValidationException",
 			"AlternateContactType must be one of BILLING, OPERATIONS, SECURITY")
+	}
+
+	if err := validateAlternateContact(req.EmailAddress, req.Name, req.PhoneNumber, req.Title); err != nil {
+		return writeBackendError(c, err)
 	}
 
 	contact := &AlternateContact{
@@ -385,6 +393,13 @@ func (h *Handler) handleListRegions(c *echo.Context, body []byte) error {
 	if req.MaxResults != 0 && (req.MaxResults < minMaxResults || req.MaxResults > maxMaxResults) {
 		return writeError(c, http.StatusBadRequest, "ValidationException",
 			fmt.Sprintf("MaxResults must be between %d and %d", minMaxResults, maxMaxResults))
+	}
+
+	for _, st := range req.RegionOptStatusContains {
+		if !isValidRegionOptStatus(st) {
+			return writeError(c, http.StatusBadRequest, "ValidationException",
+				fmt.Sprintf("RegionOptStatusContains contains invalid value %q", st))
+		}
 	}
 
 	regions, next, err := h.Backend.ListRegions(req.RegionOptStatusContains, req.MaxResults, req.NextToken)
@@ -581,6 +596,10 @@ func (h *Handler) handlePutAccountName(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "AccountName is required")
 	}
 
+	if err := validateAccountName(req.AccountName); err != nil {
+		return writeBackendError(c, err)
+	}
+
 	if err := h.Backend.PutAccountName(req.AccountName); err != nil {
 		return writeBackendError(c, err)
 	}
@@ -669,5 +688,5 @@ func writeBackendError(c *echo.Context, err error) error {
 		code, status = "ResourceUnavailableException", http.StatusFailedDependency
 	}
 
-	return writeError(c, status, code, err.Error())
+	return writeError(c, status, code, strings.TrimPrefix(err.Error(), code+": "))
 }

@@ -3,6 +3,7 @@ package account
 import "errors"
 
 var (
+	errInvalidField       = errors.New("ValidationException")
 	errNoAlternateContact = errors.New("ResourceNotFoundException: no alternate contact found")
 	errNoContactInfo      = errors.New("ResourceNotFoundException: no contact information set")
 	// errRegionNotFound is a ValidationException, not a ResourceNotFoundException:

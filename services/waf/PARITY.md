@@ -7,7 +7,7 @@
 service: waf
 sdk_module: aws-sdk-go-v2/service/waf@v1.33.4   # WAF Classic (legacy WAF/WAF Regional), distinct from wafv2
 last_audit_commit: 1ecd57d33
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
 overall: A            # 2026-08-29 (cursor-population sweep): all 16 List ops declare a real NextMarker
                       # (from the pinned SDK Output structs directly), and 15 of 16 already read
                       # NextMarker/Limit from the request and set NextMarker on the response through the
@@ -387,3 +387,9 @@ Audited clean: Limit/NextMarker paging across the List ops. No change.
 ## 2026-10-05 (gopherstack-uox6 pass 7, value semantics)
 
 ActivatedRule.Type defaults to REGULAR on WebACL and RuleGroup inserts (types.go:118). UpdateRateBasedRule, UpdateWebACL default action and the match-set updates round-trip clean.
+
+## 2026-10-10 (realism pass)
+
+- Create* now validates Name (<=128) and MetricName (alphanumeric, <=128, not "All"/"Default_Action") with WAFInvalidParameterException, per the SDK field docs. Empty values are accepted: the SDK validators already require them and many in-repo callers omit them.
+- A List* NextMarker that matches no item is now WAFInvalidParameterException (SDK enum field NEXT_MARKER) instead of silently restarting at page one.
+- Error messages drop the duplicated code; WAFStaleDataException / WAFNonexistentItemException carry their service wording; referenced/non-empty/invalid-operation carry the SDK doc text.

@@ -14,6 +14,10 @@ func (h *Handler) opCreateRuleGroup(body []byte) (any, error) {
 		return nil, err
 	}
 
+	if err := validateCreateNames(in.Name, in.MetricName); err != nil {
+		return nil, err
+	}
+
 	rg, err := h.Backend.CreateRuleGroup(in.Name, in.MetricName, in.ChangeToken, tagsToMap(in.Tags))
 	if err != nil {
 		return nil, err
@@ -85,8 +89,12 @@ func (h *Handler) opListRuleGroups(body []byte) (any, error) {
 
 	_ = unmarshal(body, &in)
 
-	page, next := paginate(h.Backend.ListRuleGroups(), in.NextMarker, in.Limit,
+	page, next, err := paginate(h.Backend.ListRuleGroups(), in.NextMarker, in.Limit,
 		func(s RuleGroupSummary) string { return s.RuleGroupId })
+	if err != nil {
+		return nil, err
+	}
+
 	result := map[string]any{"RuleGroups": page}
 	if next != "" {
 		result["NextMarker"] = next
@@ -111,8 +119,12 @@ func (h *Handler) opListActivatedRulesInRuleGroup(body []byte) (any, error) {
 		return nil, err
 	}
 
-	page, next := paginate(rules, in.NextMarker, in.Limit,
+	page, next, err := paginate(rules, in.NextMarker, in.Limit,
 		func(r ActivatedRule) string { return r.RuleId })
+	if err != nil {
+		return nil, err
+	}
+
 	result := map[string]any{"ActivatedRules": page}
 	if next != "" {
 		result["NextMarker"] = next

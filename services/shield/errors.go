@@ -22,7 +22,7 @@ var (
 	// wire-correct "InvalidOperationException" __type -- the real Shield API code for "operation
 	// would not cause any change to occur" / requires-prerequisite errors, not
 	// "ResourceAlreadyExistsException".
-	ErrSubscriptionRequired = awserr.New("InvalidOperationException: subscription required", awserr.ErrConflict)
+	ErrSubscriptionRequired = awserr.New("InvalidOperationException", awserr.ErrConflict)
 	// ErrProtectionGroupNotFound is returned when a protection group does not exist.
 	ErrProtectionGroupNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	// ErrProtectionGroupAlreadyExists is returned when a protection group with the same ID already exists.

@@ -351,7 +351,7 @@ func TestInMemoryBackend_ListProtectionsSorted(t *testing.T) {
 	assert.Equal(t, "z-prot", list[2].Name)
 }
 
-// TestRefinement1_ProtectionIDIsUUID verifies protection IDs are UUID-like hex strings.
+// TestRefinement1_ProtectionIDIsUUID verifies protection IDs are 36-character UUIDs.
 func TestInMemoryBackend_ProtectionIDIsUUID(t *testing.T) {
 	t.Parallel()
 
@@ -361,8 +361,8 @@ func TestInMemoryBackend_ProtectionIDIsUUID(t *testing.T) {
 	p, err := b.CreateProtection("test-prot", "arn:aws:ec2:us-east-1::eip-allocation/eipalloc-1", nil)
 	require.NoError(t, err)
 
-	// ID should be a 32-char hex string (16 bytes), not a full ARN.
-	assert.Len(t, p.ID, 32)
+	assert.Len(t, p.ID, 36)
+	assert.Regexp(t, `^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`, p.ID)
 	assert.NotContains(t, p.ID, "arn:")
 
 	// ProtectionArn should be the full ARN.

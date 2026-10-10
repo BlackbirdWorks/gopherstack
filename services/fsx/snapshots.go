@@ -11,6 +11,7 @@ import (
 )
 
 type storedSnapshot struct {
+	ReadyAt      time.Time         `json:"readyAt,omitzero"`
 	CreationTime time.Time         `json:"creationTime"`
 	Tags         map[string]string `json:"tags"`
 	SnapshotID   string            `json:"snapshotId"`
@@ -26,7 +27,7 @@ func (s *storedSnapshot) toPublic() *Snapshot {
 		SnapshotID:   s.SnapshotID,
 		VolumeID:     s.VolumeID,
 		Name:         s.Name,
-		Lifecycle:    s.Lifecycle,
+		Lifecycle:    renderLifecycle(s.Lifecycle, s.ReadyAt),
 		ResourceARN:  s.ResourceARN,
 		Tags:         tagsMapToSlice(s.Tags),
 	}
@@ -82,6 +83,7 @@ func (b *InMemoryBackend) CreateSnapshot(input *createSnapshotInput) (*Snapshot,
 		VolumeID:     input.VolumeID,
 		Name:         input.Name,
 		Lifecycle:    lifecycleAvailable,
+		ReadyAt:      b.readyAt(),
 		ResourceARN:  arn,
 	}
 

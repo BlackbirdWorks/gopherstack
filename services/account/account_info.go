@@ -66,7 +66,7 @@ func (b *InMemoryBackend) AcceptPrimaryEmailUpdate(otp, email string) error {
 	b.pendingOTP = ""
 	b.primaryEmailUpdateStatus = PrimaryEmailUpdateStatusAccepted
 	b.primaryEmailUpdateAt = time.Now().UTC()
-	b.work.After("PrimaryEmailUpdateComplete", regionTransitionDelay, func() {
+	b.work.After("PrimaryEmailUpdateComplete", b.transitionDelay, func() {
 		b.mu.Lock("completePrimaryEmailUpdate")
 		defer b.mu.Unlock()
 

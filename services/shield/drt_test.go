@@ -110,7 +110,7 @@ func TestBackend_AssociateDRTRole(t *testing.T) {
 	}{
 		{
 			name:    "success",
-			roleARN: "arn:aws:iam::123:role/DRTRole",
+			roleARN: "arn:aws:iam::123456789012:role/DRTRole",
 		},
 		{
 			name:    "empty role arn returns error",
@@ -155,7 +155,7 @@ func TestInMemoryBackend_DisassociateDRTRoleAfterAssociate(t *testing.T) {
 
 	b := shield.NewInMemoryBackend("000000000000", "us-east-1")
 	require.NoError(t, b.CreateSubscription())
-	require.NoError(t, b.AssociateDRTRole("arn:aws:iam::123:role/DRTRole"))
+	require.NoError(t, b.AssociateDRTRole("arn:aws:iam::123456789012:role/DRTRole"))
 	require.NoError(t, b.DisassociateDRTRole())
 	assert.Empty(t, b.DescribeDRTAccess().RoleArn)
 }
@@ -233,7 +233,7 @@ func TestInMemoryBackend_DisassociateDRTRole(t *testing.T) {
 			name: "success",
 			setup: func(b *shield.InMemoryBackend) {
 				require.NoError(t, b.CreateSubscription())
-				require.NoError(t, b.AssociateDRTRole("arn:aws:iam::123:role/DRTRole"))
+				require.NoError(t, b.AssociateDRTRole("arn:aws:iam::123456789012:role/DRTRole"))
 			},
 		},
 		{

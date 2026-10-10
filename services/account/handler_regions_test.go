@@ -21,10 +21,10 @@ func TestHandler_ListRegions(t *testing.T) {
 		filter    []string
 		wantCount int
 	}{
-		{name: "no_filter", wantCount: 10},
-		{name: "filter_enabled_default", filter: []string{"ENABLED_BY_DEFAULT"}, wantCount: 8},
+		{name: "no_filter", wantCount: 34},
+		{name: "filter_enabled_default", filter: []string{"ENABLED_BY_DEFAULT"}, wantCount: 17},
 		{name: "filter_enabled", filter: []string{"ENABLED"}, wantCount: 2},
-		{name: "filter_disabled", filter: []string{"DISABLED"}, wantCount: 0},
+		{name: "filter_disabled", filter: []string{"DISABLED"}, wantCount: 15},
 	}
 
 	for _, tt := range tests {
@@ -93,7 +93,7 @@ func TestHandler_ListRegions_Alphabetical(t *testing.T) {
 func TestHandler_ListRegions_Pagination(t *testing.T) {
 	t.Parallel()
 
-	const totalRegions = 10
+	const totalRegions = 34
 
 	tests := []struct {
 		name       string
@@ -101,9 +101,9 @@ func TestHandler_ListRegions_Pagination(t *testing.T) {
 		wantPages  int
 	}{
 		{"maxResults_1", 1, totalRegions},
-		{"maxResults_3", 3, 4},
-		{"maxResults_4", 4, 3},
-		{"maxResults_10_exact", 10, 1},
+		{"maxResults_3", 3, 12},
+		{"maxResults_4", 4, 9},
+		{"maxResults_34_exact", 34, 1},
 		{"maxResults_50_exceeds_total", 50, 1},
 	}
 
@@ -144,7 +144,7 @@ func TestHandler_ListRegions_Pagination(t *testing.T) {
 					break
 				}
 
-				require.Less(t, pages, 20, "pagination must terminate")
+				require.Less(t, pages, 40, "pagination must terminate")
 			}
 
 			assert.Equal(t, tc.wantPages, pages)

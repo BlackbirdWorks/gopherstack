@@ -2,7 +2,7 @@
 service: shield
 sdk_module: aws-sdk-go-v2/service/shield@v1.37.4
 last_audit_commit: 0c1472972  # terraform-coverage pass: ProtectionGroup tagging; prior: 2d47b51d4
-last_audit_date: 2026-10-07  # prior: 2026-07-29
+last_audit_date: 2026-10-10  # prior: 2026-07-29
 overall: A            # all documented gaps from the prior sweep closed; one invented op deleted
 ops:
   CreateSubscription: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -492,3 +492,11 @@ Gates: `go build ./...`, `go vet ./services/shield/...`, `go test -race
 
 - OptimisticLockException, AccessDeniedException and AccessDeniedForDependencyException are not backend conditions (coarse per-backend lock, no IAM checks); pkgs/chaos injects them on demand via ChaosServiceName/ChaosOperations.
 - Provider quirks, not gaps: aws_shield_protection_health_check_association reports "root object was present, but now absent" after a correct Create/Read; aws_shield_drt_access_role_arn_association's delete waiter polls DescribeDRTAccess for a not-found that AWS never returns (fixture sets timeouts delete = "20s").
+
+## 2026-10-10 (realism pass)
+
+- ProtectionId/AttackId are now 36-char UUIDs (API reference: fixed length 36) instead of 32 hex chars.
+- Validation (API reference patterns): protection Name `[ a-zA-Z0-9_.\-]*` max 128; ProtectionGroupId `[a-zA-Z0-9\-]+` max 36; Members only with ARBITRARY and ResourceType only with BY_RESOURCE_TYPE; EmergencyContact email/phone (E.164)/notes; AssociateDRTRole RoleArn pattern.
+- Error messages no longer repeat the wire code ("ResourceNotFoundException: ..." / "invalid request: ...").
+- Lenient by design: DeleteSubscription still succeeds inside the 1-year commitment. The SDK doc says it cannot, but the aws_shield_subscription Terraform fixture (appmesh-shield-and-workspaces.tf) and integration cleanup destroy it.
+- ListProtections MaxResults range (0-10000) is clamped, not rejected.

@@ -53,7 +53,7 @@ func (b *InMemoryBackend) StartRouteAnalysis(
 
 	resolver := b.ec2Resolver
 
-	b.work.After("RouteAnalysisCompleted", asyncTransitionDelay, func() {
+	b.work.After("RouteAnalysisCompleted", b.transitionDelay, func() {
 		b.mu.Lock("RouteAnalysisCompleted-async")
 		defer b.mu.Unlock()
 

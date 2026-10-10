@@ -16,6 +16,7 @@ import (
 const defaultImportedFileChunkSize = 1024
 
 type storedDataRepositoryAssoc struct {
+	ReadyAt               time.Time                      `json:"readyAt,omitzero"`
 	CreationTime          time.Time                      `json:"creationTime"`
 	Tags                  map[string]string              `json:"tags"`
 	AssociationID         string                         `json:"associationId"`
@@ -39,7 +40,7 @@ func (a *storedDataRepositoryAssoc) toPublic() *DataRepositoryAssociation {
 		FileSystemID:                 a.FileSystemID,
 		FileSystemPath:               a.FileSystemPath,
 		DataRepositoryPath:           a.DataRepositoryPath,
-		Lifecycle:                    a.Lifecycle,
+		Lifecycle:                    renderLifecycle(a.Lifecycle, a.ReadyAt),
 		ResourceARN:                  a.ResourceARN,
 		Tags:                         tagsMapToSlice(a.Tags),
 		S3:                           cloneS3Config(a.S3),
@@ -108,6 +109,7 @@ func (b *InMemoryBackend) CreateDataRepositoryAssociation(
 		FileSystemPath:        input.FileSystemPath,
 		DataRepositoryPath:    input.DataRepositoryPath,
 		Lifecycle:             lifecycleAvailable,
+		ReadyAt:               b.readyAt(),
 		ResourceARN:           arn,
 		ImportedFileChunkSize: chunkSize,
 		S3:                    cloneS3Config(input.S3),

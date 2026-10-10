@@ -90,12 +90,16 @@ func TestCreateFileSystem_LustreTypeVersion(t *testing.T) {
 		{name: "omitted", version: "", want: "2.10"},
 		{
 			name: "persistent2 default", want: "2.12",
-			lustre: &types.CreateFileSystemLustreConfiguration{DeploymentType: types.LustreDeploymentTypePersistent2},
+			lustre: &types.CreateFileSystemLustreConfiguration{
+				DeploymentType:           types.LustreDeploymentTypePersistent2,
+				PerUnitStorageThroughput: aws.Int32(125),
+			},
 		},
 		{
 			name: "persistent2 metadata mode", want: "2.15",
 			lustre: &types.CreateFileSystemLustreConfiguration{
-				DeploymentType: types.LustreDeploymentTypePersistent2,
+				DeploymentType:           types.LustreDeploymentTypePersistent2,
+				PerUnitStorageThroughput: aws.Int32(125),
 				MetadataConfiguration: &types.CreateFileSystemLustreMetadataConfiguration{
 					Mode: types.MetadataConfigurationModeAutomatic,
 				},

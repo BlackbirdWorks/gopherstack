@@ -36,7 +36,7 @@ func (b *InMemoryBackend) ListRegions(
 	// region named by the decoded token.
 	if nextToken != "" {
 		start, decErr := decodeRegionToken(nextToken)
-		if decErr != nil {
+		if decErr != nil || !b.knownRegionLocked(start) {
 			return nil, "", errInvalidNextToken
 		}
 
@@ -55,6 +55,10 @@ func (b *InMemoryBackend) ListRegions(
 	page := filtered[:maxResults]
 
 	return page, encodeRegionToken(page[len(page)-1].RegionName), nil
+}
+
+func (b *InMemoryBackend) knownRegionLocked(name string) bool {
+	return slices.ContainsFunc(b.regions, func(r *Region) bool { return r.RegionName == name })
 }
 
 // EnableRegion starts an opt-in region's DISABLED -> ENABLING -> ENABLED transition.
@@ -96,7 +100,7 @@ func (b *InMemoryBackend) transitionRegion(
 		}
 
 		r.RegionOptStatus = pending
-		b.work.After("RegionTransition", regionTransitionDelay, func() {
+		b.work.After("RegionTransition", b.transitionDelay, func() {
 			b.mu.Lock("settleRegion")
 			defer b.mu.Unlock()
 

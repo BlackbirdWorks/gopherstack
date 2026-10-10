@@ -101,7 +101,7 @@ func validateUserAndGroupQuotas(quotas []OpenZFSUserOrGroupQuota) error {
 
 func validateOpenZFSSettings(s *openZFSVolumeSettings, tiering bool) error {
 	switch s.DataCompressionType {
-	case "", "NONE", "ZSTD", "LZ4":
+	case "", compressionNone, "ZSTD", "LZ4":
 	default:
 		return fmt.Errorf("%w: DataCompressionType %q must be NONE, ZSTD or LZ4", ErrValidation, s.DataCompressionType)
 	}

@@ -2,6 +2,7 @@ package fsx
 
 import (
 	"context"
+	"encoding/json"
 	"strconv"
 	"time"
 )
@@ -222,13 +223,22 @@ type FileSystemEndpoint struct {
 // file system. AWS always returns this block (with at least DeploymentType,
 // MountName, and DataRepositoryConfiguration) for Lustre file systems.
 type LustreConfiguration struct {
-	DataRepositoryConfiguration *DataRepositoryConfiguration `json:"DataRepositoryConfiguration,omitempty"`
-	DeploymentType              string                       `json:"DeploymentType,omitempty"`
-	DataCompressionType         string                       `json:"DataCompressionType,omitempty"`
-	DriveCacheType              string                       `json:"DriveCacheType,omitempty"`
-	MountName                   string                       `json:"MountName,omitempty"`
-	WeeklyMaintenanceStartTime  string                       `json:"WeeklyMaintenanceStartTime,omitempty"`
-	PerUnitStorageThroughput    int32                        `json:"PerUnitStorageThroughput,omitempty"`
+	DataRepositoryConfiguration   *DataRepositoryConfiguration `json:"DataRepositoryConfiguration,omitempty"`
+	DailyAutomaticBackupStartTime string                       `json:"DailyAutomaticBackupStartTime,omitempty"`
+	DeploymentType                string                       `json:"DeploymentType,omitempty"`
+	DataCompressionType           string                       `json:"DataCompressionType,omitempty"`
+	DriveCacheType                string                       `json:"DriveCacheType,omitempty"`
+	MountName                     string                       `json:"MountName,omitempty"`
+	WeeklyMaintenanceStartTime    string                       `json:"WeeklyMaintenanceStartTime,omitempty"`
+	RootSquashConfiguration       json.RawMessage              `json:"RootSquashConfiguration,omitempty"`
+	DataReadCacheConfiguration    json.RawMessage              `json:"DataReadCacheConfiguration,omitempty"`
+	MetadataConfiguration         json.RawMessage              `json:"MetadataConfiguration,omitempty"`
+	LogConfiguration              json.RawMessage              `json:"LogConfiguration,omitempty"`
+	AutomaticBackupRetentionDays  int32                        `json:"AutomaticBackupRetentionDays,omitempty"`
+	ThroughputCapacity            int32                        `json:"ThroughputCapacity,omitempty"`
+	PerUnitStorageThroughput      int32                        `json:"PerUnitStorageThroughput,omitempty"`
+	CopyTagsToBackups             bool                         `json:"CopyTagsToBackups,omitempty"`
+	EfaEnabled                    bool                         `json:"EfaEnabled,omitempty"`
 }
 
 // DataRepositoryConfiguration describes the data repository linkage for a
@@ -239,6 +249,8 @@ type DataRepositoryConfiguration struct {
 	AutoImportPolicy string `json:"AutoImportPolicy,omitempty"`
 	ImportPath       string `json:"ImportPath,omitempty"`
 	ExportPath       string `json:"ExportPath,omitempty"`
+
+	ImportedFileChunkSize int32 `json:"ImportedFileChunkSize,omitempty"`
 }
 
 // Backup represents an Amazon FSx backup.

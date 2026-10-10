@@ -31,8 +31,8 @@ func (b *InMemoryBackend) UpdateEmergencyContactSettings(contacts []EmergencyCon
 	}
 
 	for _, c := range contacts {
-		if c.EmailAddress == "" {
-			return fmt.Errorf("%w: EmailAddress is required for each emergency contact", ErrValidation)
+		if err := validateEmergencyContact(c); err != nil {
+			return err
 		}
 	}
 

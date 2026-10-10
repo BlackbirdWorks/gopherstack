@@ -54,12 +54,13 @@ func TestHandler_PutContactInformation_RequiredFields(t *testing.T) {
 	t.Parallel()
 
 	full := map[string]any{
-		"FullName":     "ACME Corporation",
-		"AddressLine1": "123 Main St",
-		"City":         "Seattle",
-		"PostalCode":   "98101",
-		"CountryCode":  "US",
-		"PhoneNumber":  "+1-555-555-5555",
+		"FullName":      "ACME Corporation",
+		"AddressLine1":  "123 Main St",
+		"City":          "Seattle",
+		"PostalCode":    "98101",
+		"CountryCode":   "US",
+		"StateOrRegion": "WA",
+		"PhoneNumber":   "+1-555-555-5555",
 	}
 
 	tests := []struct {

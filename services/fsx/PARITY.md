@@ -7,7 +7,7 @@
 service: fsx
 sdk_module: aws-sdk-go-v2/service/fsx@v1.68.4   # version audited against
 last_audit_commit: 6bc42ba0b
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
 overall: A            # genuine wire-format + error-code bugs found and fixed
                       # 2026-08-29 (constraint-not-honoured sweep, wrapper-key-sweep-rds-cloudwatch-sqs-sns branch):
                       # every Describe* op whose real Input struct declares a Filters member had NO field for it
@@ -868,3 +868,12 @@ ListTagsForResource pages through MaxResults/NextToken (api_op_ListTagsForResour
 - OpenZFS volumes store and return ParentVolumeId, CopyTagsToSnapshots, DataCompressionType, ReadOnly, RecordSizeKiB, NfsExports, quotas and OriginSnapshot; UpdateVolume applies them; CopyTagsToSnapshots seeds snapshot tags; DeleteVolume blocks on child/clone volumes unless DELETE_CHILD_VOLUMES_AND_SNAPSHOTS; a CLONE origin snapshot cannot be deleted; RestoreVolumeFromSnapshot enforces DELETE_INTERMEDIATE_SNAPSHOTS and DELETE_CLONED_VOLUMES (`openzfs_volume_config_test.go`).
 - DRA S3 policies, DeleteDataInFileSystem echo, file-cache DRAs (CopyTagsToDataRepositoryAssociations, DataRepositoryAssociationIds, NFS, file-cache-id filter), SecurityGroupIds, UpdateFileCache maintenance window, UpdateFileSystem.StorageType, SvmAdminPassword, CopyBackup.SourceRegion (cross-region via sibling backends), CopySnapshotAndUpdateVolume.CopyStrategy/Options and self-managed AD configuration on SVMs and Windows file systems (`data_repository_and_cache_config_test.go`, `active_directory_and_copy_test.go`).
 - The `data-repository-association-id` task filter was already fixed 2026-10-04 (batch-import tasks record their association).
+
+## 2026-10-10 (realism pass)
+
+- Lifecycle: new `SetLifecycleDelay` (default 0, instant). With a delay, file systems, backups, volumes, snapshots, caches, SVMs and associations render CREATING until `ReadyAt` passes (lazy, time-derived, persisted). Needs `cli.go` wiring to expose a flag.
+- LustreConfiguration: PerUnitStorageThroughput, DataCompressionType, DriveCacheType, WeeklyMaintenanceStartTime, backup settings, import/export paths, root squash, metadata, log and read-cache members were silently dropped on create; now stored and echoed. UpdateFileSystem now honors `LustreConfiguration`.
+- Validation: Lustre deployment type, PerUnitStorageThroughput per deployment/storage type (required for PERSISTENT_*), StorageCapacity step per deployment type; Windows/OpenZFS/ONTAP max capacity and Windows HDD minimum; ONTAP HAPairs 1-12 (>1 only SINGLE_AZ_2) and ThroughputCapacity = per-HA-pair x HAPairs. UpdateFileSystem rejects capacity decreases (except ONTAP), <10% growth, SCRATCH_1 growth.
+- Pagination: NextToken is now opaque (base64url of the cursor); an undecodable token is BadRequest.
+- Errors: wire messages no longer repeat the code; bare not-found errors carry the SDK-documented wording.
+- Lenient by design: ONTAP/Windows/OpenZFS ThroughputCapacity value sets are not in the pinned SDK, so only the documented HAPairs relationship is checked.

@@ -10,6 +10,7 @@ import (
 )
 
 type storedVolume struct {
+	ReadyAt                 time.Time                   `json:"readyAt,omitzero"`
 	CreationTime            time.Time                   `json:"creationTime"`
 	Tags                    map[string]string           `json:"tags"`
 	OpenZFS                 *OpenZFSVolumeConfiguration `json:"openZfs,omitempty"`
@@ -32,7 +33,7 @@ func (v *storedVolume) toPublic() *Volume {
 		VolumeType:   v.VolumeType,
 		FileSystemID: v.FileSystemID,
 		Name:         v.Name,
-		Lifecycle:    v.Lifecycle,
+		Lifecycle:    renderLifecycle(v.Lifecycle, v.ReadyAt),
 		ResourceARN:  v.ResourceARN,
 		Tags:         tagsMapToSlice(v.Tags),
 	}
@@ -55,7 +56,7 @@ func (v *storedVolume) toPublic() *Volume {
 		cfg.VolumePath = volumePath
 
 		if cfg.DataCompressionType == "" {
-			cfg.DataCompressionType = "NONE"
+			cfg.DataCompressionType = compressionNone
 		}
 
 		if cfg.RecordSizeKiB == 0 {
@@ -158,6 +159,7 @@ func (b *InMemoryBackend) CreateVolume(input *createVolumeInput) (*Volume, error
 		StorageVirtualMachineID: svmID,
 		Name:                    input.Name,
 		Lifecycle:               lifecycleAvailable,
+		ReadyAt:                 b.readyAt(),
 		ResourceARN:             arn,
 		OpenZFS:                 zfs,
 	}
@@ -264,6 +266,7 @@ func (b *InMemoryBackend) CreateVolumeFromBackup(input *createVolumeFromBackupIn
 		StorageVirtualMachineID: svm.StorageVirtualMachineID,
 		Name:                    input.Name,
 		Lifecycle:               lifecycleAvailable,
+		ReadyAt:                 b.readyAt(),
 		ResourceARN:             arn,
 	}
 
@@ -376,6 +379,7 @@ func (b *InMemoryBackend) createOpenZFSRootVolumeLocked(fs *storedFileSystem) st
 		FileSystemID: fs.FileSystemID,
 		Name:         openZFSRootVolumeName,
 		Lifecycle:    lifecycleAvailable,
+		ReadyAt:      b.readyAt(),
 		ResourceARN:  arn,
 	}
 

@@ -316,12 +316,22 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 		return nil, fmt.Errorf("%w: %s", errUnknownOperation, action)
 	}
 
+	body, err := decodeNextToken(body)
+	if err != nil {
+		return nil, err
+	}
+
 	result, err := fn(ctx, body)
 	if err != nil {
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	out, err := json.Marshal(result)
+	if err != nil {
+		return nil, err
+	}
+
+	return encodeNextToken(out), nil
 }
 
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
@@ -392,6 +402,28 @@ func notFoundErrorCode(err error) (string, bool) {
 	}
 }
 
+func notFoundMessage(code string) string {
+	return map[string]string{
+		"BackupNotFound":                    "No Amazon FSx backups were found based upon the supplied parameters.",
+		"DataRepositoryAssociationNotFound": "No data repository associations were found based upon the supplied parameters.",
+		"DataRepositoryTaskNotFound":        "The data repository task or tasks you specified could not be found.",
+		"FileCacheNotFound":                 "No caches were found based upon supplied parameters.",
+		"FileSystemNotFound":                "No Amazon FSx file systems were found based upon supplied parameters.",
+		"ResourceNotFound":                  "The resource specified by the Amazon Resource Name (ARN) can't be found.",
+		"S3AccessPointAttachmentNotFound":   "The access point specified was not found.",
+		"SnapshotNotFound":                  "No Amazon FSx snapshots were found based on the supplied parameters.",
+		"StorageVirtualMachineNotFound":     "No FSx for ONTAP SVMs were found based upon the supplied parameters.",
+		"VolumeNotFound":                    "No Amazon FSx volumes were found based upon the supplied parameters.",
+	}[code]
+}
+
 func errorResponse(code, msg string) map[string]string {
+	msg = strings.TrimPrefix(msg, code+": ")
+	if msg == code || msg == "" {
+		if def := notFoundMessage(code); def != "" {
+			msg = def
+		}
+	}
+
 	return map[string]string{"__type": code, "message": msg}
 }
