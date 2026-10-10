@@ -54,8 +54,6 @@ const (
 	quotaCustomPlatforms     = 25
 	quotaEnvironments        = 200
 
-	// healthColorGreen is the color label for a healthy environment.
-	healthColorGreen = "Green"
 	// healthRefreshedAt is a placeholder refresh timestamp for environment health responses.
 	healthRefreshedAt = "2026-01-01T00:00:00Z"
 	// envHealthStatusOk is the EnvironmentHealthStatus enum value ("Ok") that
@@ -427,7 +425,22 @@ func (h *Handler) handleOpError(c *echo.Context, opErr error) error {
 		statusCode = http.StatusInternalServerError
 	}
 
-	return h.writeError(c, statusCode, code, opErr.Error())
+	return h.writeError(c, statusCode, code, errorMessage(opErr))
+}
+
+// errorMessage drops the sentinel's own text so the wire message is never prefixed with a code.
+func errorMessage(err error) string {
+	msg := err.Error()
+
+	for _, s := range []error{
+		ErrResourceNotFound, ErrNotFound, ErrAlreadyExists, ErrInvalidParameter, ErrValidation, ErrUnknownAction,
+	} {
+		if errors.Is(err, s) {
+			msg = strings.TrimPrefix(msg, s.Error()+": ")
+		}
+	}
+
+	return msg
 }
 
 func (h *Handler) writeError(c *echo.Context, statusCode int, code, message string) error {

@@ -6,20 +6,27 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	apprunnerbackend "github.com/blackbirdworks/gopherstack/services/apprunner"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
+	bedrockbackend "github.com/blackbirdworks/gopherstack/services/bedrock"
+	bedrockagentbackend "github.com/blackbirdworks/gopherstack/services/bedrockagent"
 	cloudfrontbackend "github.com/blackbirdworks/gopherstack/services/cloudfront"
+	directoryservicebackend "github.com/blackbirdworks/gopherstack/services/directoryservice"
 	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
 	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
 	efsbackend "github.com/blackbirdworks/gopherstack/services/efs"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
+	elasticbeanstalkbackend "github.com/blackbirdworks/gopherstack/services/elasticbeanstalk"
 	inspector2backend "github.com/blackbirdworks/gopherstack/services/inspector2"
 	kinesisanalyticsv2backend "github.com/blackbirdworks/gopherstack/services/kinesisanalyticsv2"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
+	medialivebackend "github.com/blackbirdworks/gopherstack/services/medialive"
 	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
 	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	quicksightbackend "github.com/blackbirdworks/gopherstack/services/quicksight"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
+	route53resolverbackend "github.com/blackbirdworks/gopherstack/services/route53resolver"
+	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
 	ssmbackend "github.com/blackbirdworks/gopherstack/services/ssm"
 	workspacesbackend "github.com/blackbirdworks/gopherstack/services/workspaces"
 )
@@ -52,6 +59,13 @@ type LifecycleSettings struct {
 	AppRunner                    time.Duration `name:"apprunner"                      env:"APPRUNNER_OPERATION_DELAY"            default:"0s" help:"App Runner service OPERATION_IN_PROGRESS window after each operation."`                          //nolint:lll // config struct tags are intentionally verbose
 	KinesisAnalyticsV2           time.Duration `name:"kinesisanalyticsv2"             env:"KINESISANALYTICSV2_LIFECYCLE_DELAY"   default:"0s" help:"Managed Flink application STARTING/STOPPING/UPDATING window."`                                   //nolint:lll // config struct tags are intentionally verbose
 	QuickSightIngestion          time.Duration `name:"quicksight-ingestion"           env:"QUICKSIGHT_INGESTION_DELAY"           default:"0s" help:"QuickSight manual ingestion RUNNING window; 0 keeps the built-in 1s; ignores the global delay."` //nolint:lll // config struct tags are intentionally verbose
+	SageMaker                    time.Duration `name:"sagemaker"                      env:"SAGEMAKER_LIFECYCLE_DELAY"            default:"0s" help:"SageMaker transitional-state dwell; 0 keeps the built-in dwell."`                                //nolint:lll // config struct tags are intentionally verbose
+	Bedrock                      time.Duration `name:"bedrock"                        env:"BEDROCK_JOB_COMPLETION_DELAY"         default:"0s" help:"Bedrock job InProgress window; 0 keeps the built-in window."`                                    //nolint:lll // config struct tags are intentionally verbose
+	BedrockAgent                 time.Duration `name:"bedrockagent"                   env:"BEDROCKAGENT_LIFECYCLE_DELAY"         default:"0s" help:"Bedrock Agents CREATING/PREPARING/UPDATING/ingestion window."`                                   //nolint:lll // config struct tags are intentionally verbose
+	ElasticBeanstalk             time.Duration `name:"elasticbeanstalk"               env:"ELASTICBEANSTALK_LIFECYCLE_DELAY"     default:"0s" help:"Elastic Beanstalk environment Launching/Updating/Terminating window."`                           //nolint:lll // config struct tags are intentionally verbose
+	Route53Resolver              time.Duration `name:"route53resolver"                env:"ROUTE53RESOLVER_LIFECYCLE_DELAY"      default:"0s" help:"Route 53 Resolver endpoint CREATING/UPDATING and rule association CREATING window."`             //nolint:lll // config struct tags are intentionally verbose
+	DirectoryService             time.Duration `name:"directoryservice"               env:"DIRECTORYSERVICE_LIFECYCLE_DELAY"     default:"0s" help:"Directory Service transitional-state window; 0 keeps the built-in sub-second dwell."`            //nolint:lll // config struct tags are intentionally verbose
+	MediaLive                    time.Duration `name:"medialive"                      env:"MEDIALIVE_LIFECYCLE_DELAY"            default:"0s" help:"MediaLive channel/multiplex CREATING/STARTING/STOPPING/DELETING window."`                        //nolint:lll // config struct tags are intentionally verbose
 }
 
 func (l LifecycleSettings) effective(specific time.Duration) time.Duration {
@@ -208,6 +222,62 @@ func applyQuickSight(reg service.Registerable, l LifecycleSettings) {
 	}
 }
 
+func applySageMaker(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*sagemakerbackend.Handler); ok {
+		if d := l.effective(l.SageMaker); d > 0 {
+			h.Backend.SetLifecycleDelay(d)
+		}
+	}
+}
+
+func applyBedrock(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*bedrockbackend.Handler); ok {
+		if d := l.effective(l.Bedrock); d > 0 {
+			h.Backend.SetJobCompletionDelay(d)
+		}
+	}
+}
+
+func applyBedrockAgent(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*bedrockagentbackend.Handler); ok {
+		if bk, isBk := h.Backend.(*bedrockagentbackend.InMemoryBackend); isBk {
+			bk.SetLifecycleDelay(l.effective(l.BedrockAgent))
+		}
+	}
+}
+
+func applyElasticBeanstalk(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*elasticbeanstalkbackend.Handler); ok {
+		h.Backend.SetLifecycleDelay(l.effective(l.ElasticBeanstalk))
+	}
+}
+
+func applyRoute53Resolver(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*route53resolverbackend.Handler); ok {
+		if bk, isBk := h.Backend.(*route53resolverbackend.InMemoryBackend); isBk {
+			bk.SetLifecycleDelay(l.effective(l.Route53Resolver))
+		}
+	}
+}
+
+func applyDirectoryService(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*directoryservicebackend.Handler); ok {
+		if bk, isBk := h.Backend.(*directoryservicebackend.InMemoryBackend); isBk {
+			if d := l.effective(l.DirectoryService); d > 0 {
+				bk.SetLifecycleDelay(d)
+			}
+		}
+	}
+}
+
+func applyMediaLive(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*medialivebackend.Handler); ok {
+		if bk, isBk := h.Backend.(*medialivebackend.InMemoryBackend); isBk {
+			bk.SetLifecycleDelay(l.effective(l.MediaLive))
+		}
+	}
+}
+
 // wireLifecycleDelays applies the configured dwell times to the already
 // initialized service backends; zero values leave services instant.
 func wireLifecycleDelays(byName map[string]service.Registerable, l LifecycleSettings) {
@@ -230,6 +300,13 @@ func wireLifecycleDelays(byName map[string]service.Registerable, l LifecycleSett
 		"QuickSight":         applyQuickSight,
 		"AppRunner":          applyAppRunner,
 		"KinesisAnalyticsV2": applyKinesisAnalyticsV2,
+		"SageMaker":          applySageMaker,
+		"Bedrock":            applyBedrock,
+		"BedrockAgent":       applyBedrockAgent,
+		"Elasticbeanstalk":   applyElasticBeanstalk,
+		"Route53Resolver":    applyRoute53Resolver,
+		"DirectoryService":   applyDirectoryService,
+		"MediaLive":          applyMediaLive,
 	}
 
 	for name, apply := range appliers {

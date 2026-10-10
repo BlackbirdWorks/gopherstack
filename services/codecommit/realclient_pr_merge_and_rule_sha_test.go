@@ -255,9 +255,10 @@ func prRuleShaSetup(
 			PutFiles: []types.PutFileEntry{{FilePath: aws.String("a.txt"), FileContent: []byte("a")}},
 		})
 		require.NoError(t, err)
+		seedFeatureBranch(t, c, "repo")
 		pr, err := c.CreatePullRequest(ctx, &codecommitsdk.CreatePullRequestInput{
 			Title:   aws.String("t"),
-			Targets: []types.Target{{RepositoryName: aws.String("repo"), SourceReference: aws.String("main")}},
+			Targets: []types.Target{{RepositoryName: aws.String("repo"), SourceReference: aws.String("feature")}},
 		})
 		require.NoError(t, err)
 		rule, err := c.CreatePullRequestApprovalRule(ctx, &codecommitsdk.CreatePullRequestApprovalRuleInput{

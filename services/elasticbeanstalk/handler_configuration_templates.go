@@ -426,7 +426,7 @@ func (h *Handler) handleValidateConfigurationSettings(ctx context.Context, vals 
 		// template or environment belongs to" -- same no-application-found
 		// -> InvalidParameterValue precedent as CreateApplicationVersion's
 		// AutoCreateApplication=false path (see application_versions.go).
-		return nil, fmt.Errorf("%w: no application found named %s", ErrInvalidParameter, appName)
+		return nil, applicationNotFoundParam(appName)
 	}
 
 	if tmpl := vals.Get("TemplateName"); tmpl != "" {
@@ -435,7 +435,7 @@ func (h *Handler) handleValidateConfigurationSettings(ctx context.Context, vals 
 		}
 
 		if !h.Backend.HasConfigurationTemplate(ctx, appName, tmpl) {
-			return nil, fmt.Errorf("%w: no configuration template named %s", ErrNotFound, tmpl)
+			return nil, wrapf(ErrNotFound, "No Configuration Template named '%s' found.", tmpl)
 		}
 	}
 

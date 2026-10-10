@@ -89,6 +89,10 @@ func (b *InMemoryBackend) CreateResolverEndpoint(
 	rniEnhancedMetricsEnabled, targetNameServerMetricsEnabled bool,
 	dns64Enabled, ipv6InternetAccessEnabled bool,
 ) (*ResolverEndpoint, error) {
+	if err := validateEndpointIPs(ips); err != nil {
+		return nil, err
+	}
+
 	if vpcID == "" {
 		vpcID = b.subnetVPC(ctx, ips)
 	}
@@ -156,9 +160,10 @@ func (b *InMemoryBackend) CreateResolverEndpoint(
 		DNS64Enabled:                   dns64Enabled,
 		Ipv6InternetAccessEnabled:      ipv6InternetAccessEnabled,
 	}
+	b.beginEndpointTransition(ep, statusCreating)
 	b.endpoints.Put(ep)
 
-	return cloneEndpoint(ep), nil
+	return b.endpointView(ep), nil
 }
 
 // ListResolverEndpointIPAddresses returns the IP addresses associated with a resolver endpoint.
@@ -169,7 +174,7 @@ func (b *InMemoryBackend) ListResolverEndpointIPAddresses(ctx context.Context, e
 	region := getRegion(ctx, b.region)
 	ep, ok := b.endpoints.Get(regionalKey(region, endpointID))
 	if !ok {
-		return nil, fmt.Errorf("%w: resolver endpoint %s not found", ErrNotFound, endpointID)
+		return nil, fmt.Errorf("%w: Resolver endpoint with ID '%s' does not exist", ErrNotFound, endpointID)
 	}
 	cp := make([]IPAddress, len(ep.IPAddresses))
 	copy(cp, ep.IPAddresses)
@@ -184,10 +189,10 @@ func (b *InMemoryBackend) GetResolverEndpoint(ctx context.Context, id string) (*
 	region := getRegion(ctx, b.region)
 	ep, ok := b.endpoints.Get(regionalKey(region, id))
 	if !ok {
-		return nil, fmt.Errorf("%w: resolver endpoint %s not found", ErrNotFound, id)
+		return nil, fmt.Errorf("%w: Resolver endpoint with ID '%s' does not exist", ErrNotFound, id)
 	}
 
-	return cloneEndpoint(ep), nil
+	return b.endpointView(ep), nil
 }
 
 func (b *InMemoryBackend) ListResolverEndpoints(ctx context.Context) []*ResolverEndpoint {
@@ -198,7 +203,7 @@ func (b *InMemoryBackend) ListResolverEndpoints(ctx context.Context) []*Resolver
 	regionEps := b.endpointsByRegion.Get(region)
 	list := make([]*ResolverEndpoint, 0, len(regionEps))
 	for _, ep := range regionEps {
-		list = append(list, cloneEndpoint(ep))
+		list = append(list, b.endpointView(ep))
 	}
 	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
 
@@ -212,7 +217,7 @@ func (b *InMemoryBackend) DeleteResolverEndpoint(ctx context.Context, id string)
 	region := getRegion(ctx, b.region)
 	ep, ok := b.endpoints.Get(regionalKey(region, id))
 	if !ok {
-		return fmt.Errorf("%w: resolver endpoint %s not found", ErrNotFound, id)
+		return fmt.Errorf("%w: Resolver endpoint with ID '%s' does not exist", ErrNotFound, id)
 	}
 
 	tags := b.tagsStore(region)
@@ -258,7 +263,7 @@ func (b *InMemoryBackend) AssociateResolverEndpointIPAddress(
 	region := getRegion(ctx, b.region)
 	ep, ok := b.endpoints.Get(regionalKey(region, endpointID))
 	if !ok {
-		return nil, fmt.Errorf("%w: resolver endpoint %s not found", ErrNotFound, endpointID)
+		return nil, fmt.Errorf("%w: Resolver endpoint with ID '%s' does not exist", ErrNotFound, endpointID)
 	}
 
 	newIP := IPAddress{
@@ -271,8 +276,9 @@ func (b *InMemoryBackend) AssociateResolverEndpointIPAddress(
 	}
 	ep.IPAddresses = append(ep.IPAddresses, newIP)
 	ep.ModificationTime = newIP.CreationTime
+	b.beginEndpointTransition(ep, statusUpdating)
 
-	return cloneEndpoint(ep), nil
+	return b.endpointView(ep), nil
 }
 
 // cloneEndpoint returns a deep copy of a ResolverEndpoint.
@@ -306,7 +312,7 @@ func (b *InMemoryBackend) matchExistingEndpointByCreatorRequestID(
 			rniEnhancedMetricsEnabled, targetNameServerMetricsEnabled,
 			dns64Enabled, ipv6InternetAccessEnabled,
 		) {
-			return cloneEndpoint(existing), true, nil
+			return b.endpointView(existing), true, nil
 		}
 
 		return nil, true, fmt.Errorf(
@@ -426,7 +432,7 @@ func (b *InMemoryBackend) UpdateResolverEndpoint(
 	region := getRegion(ctx, b.region)
 	ep, ok := b.endpoints.Get(regionalKey(region, id))
 	if !ok {
-		return nil, fmt.Errorf("%w: resolver endpoint %s not found", ErrNotFound, id)
+		return nil, fmt.Errorf("%w: Resolver endpoint with ID '%s' does not exist", ErrNotFound, id)
 	}
 	switch resolverEndpointType {
 	case "", endpointTypeIPV4, endpointTypeIPV6, endpointTypeDualStack:
@@ -467,8 +473,9 @@ func (b *InMemoryBackend) UpdateResolverEndpoint(
 	}
 	applyUpdateIPAddresses(ep.IPAddresses, updateIPAddresses)
 	ep.ModificationTime = currentTime()
+	b.beginEndpointTransition(ep, statusUpdating)
 
-	return cloneEndpoint(ep), nil
+	return b.endpointView(ep), nil
 }
 
 // UpdateIPAddress carries a per-IP IPv6 assignment from
@@ -528,7 +535,7 @@ func (b *InMemoryBackend) DisassociateResolverEndpointIPAddress(
 	region := getRegion(ctx, b.region)
 	ep, ok := b.endpoints.Get(regionalKey(region, endpointID))
 	if !ok {
-		return nil, fmt.Errorf("%w: resolver endpoint %s not found", ErrNotFound, endpointID)
+		return nil, fmt.Errorf("%w: Resolver endpoint with ID '%s' does not exist", ErrNotFound, endpointID)
 	}
 
 	newIPs := make([]IPAddress, 0, len(ep.IPAddresses))
@@ -550,8 +557,9 @@ func (b *InMemoryBackend) DisassociateResolverEndpointIPAddress(
 		)
 	}
 	ep.IPAddresses = newIPs
+	b.beginEndpointTransition(ep, statusUpdating)
 
-	return cloneEndpoint(ep), nil
+	return b.endpointView(ep), nil
 }
 
 // --- Resolver Rule Update ---

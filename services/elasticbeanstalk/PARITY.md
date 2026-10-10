@@ -7,7 +7,7 @@
 service: elasticbeanstalk
 sdk_module: aws-sdk-go-v2/service/elasticbeanstalk@v1.37.4   # version audited against
 last_audit_commit: 16aa469b2                      # HEAD at close of the 2026-09-18 ledger burn-down pass
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
 overall: A            # A = genuine fixes found; B = already-accurate, proven op-by-op
                        #
                        # gopherstack-hoky pass (2026-09-11): CreateConfigurationTemplate's
@@ -478,3 +478,10 @@ Adjudicated, unchanged:
 ## 2026-10-07 (items_still_open burn-down)
 
 CreateApplication's duplicate name is an error: the pinned SDK says the name "Must be unique within your account" and the emulator returns InvalidParameterValue (TestCreateApplication_DuplicateName). ComposeEnvironments and EventDescription.RequestId were fixed (see their rows). The remaining 4 entries moved to structural_gaps.
+
+## 2026-10-10 (realism pass)
+
+- Environments move Launching -> Ready, Updating -> Ready and Terminating -> Terminated on a deadline (`SetLifecycleDelay`, `--lifecycle-elasticbeanstalk`, default 0 = instant); Health is Grey and HealthStatus Pending/Unknown while transitional, events are hidden until their deadline, and UpdateEnvironment on a non-Ready environment is rejected (`TestRealism_EnvironmentLifecycle`).
+- CreateEnvironment requires an existing application, a 4-40 char environment name, a 4-63 char CNAMEPrefix (letters, digits, inner hyphens) and a free DNS name; CheckDNSAvailability agrees (`TestRealism_CreateErrors`).
+- Error messages no longer carry the sentinel code (`ClientException: ...`) and use AWS wording ("No Application named 'x' found.", "No Environment found for EnvironmentName = 'x'.", "Application x already exists."); name lookups are InvalidParameterValue, not ResourceNotFoundException (`TestRealism_ErrorWording`).
+- Not changed: NextToken values that fail to decode still restart from page 1 (AWS's error for this is not documented).

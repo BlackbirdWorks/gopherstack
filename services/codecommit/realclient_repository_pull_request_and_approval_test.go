@@ -263,10 +263,12 @@ func TestRealClient_PullRequestLifecycle(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	seedFeatureBranch(t, client, "repo")
+
 	created, err := client.CreatePullRequest(ctx, &codecommitsdk.CreatePullRequestInput{
 		Title: aws.String("my change"),
 		Targets: []types.Target{
-			{RepositoryName: aws.String("repo"), SourceReference: aws.String("main")},
+			{RepositoryName: aws.String("repo"), SourceReference: aws.String("feature")},
 		},
 	})
 	require.NoError(t, err)
@@ -360,7 +362,9 @@ func TestRealClient_MergePullRequestByThreeWayAndFastForward(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	target := types.Target{RepositoryName: aws.String("repo"), SourceReference: aws.String("main")}
+	seedFeatureBranch(t, client, "repo")
+
+	target := types.Target{RepositoryName: aws.String("repo"), SourceReference: aws.String("feature")}
 
 	pr1, err := client.CreatePullRequest(ctx, &codecommitsdk.CreatePullRequestInput{
 		Title:   aws.String("pr1"),
@@ -625,10 +629,12 @@ func TestRealClient_ListPullRequestsFiltering(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	seedFeatureBranch(t, client, "repo")
+
 	_, err = client.CreatePullRequest(ctx, &codecommitsdk.CreatePullRequestInput{
 		Title: aws.String("open-pr"),
 		Targets: []types.Target{
-			{RepositoryName: aws.String("repo"), SourceReference: aws.String("main")},
+			{RepositoryName: aws.String("repo"), SourceReference: aws.String("feature")},
 		},
 	})
 	require.NoError(t, err)

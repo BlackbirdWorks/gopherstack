@@ -2,7 +2,7 @@
 service: codecommit
 sdk_module: aws-sdk-go-v2/service/codecommit@v1.36.4
 last_audit_commit: 6c5c49416
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
 overall: A            # this pass (gopherstack-gvkf): the entire Comment family (8 ops — the 7
                       # named in the bug plus DeleteCommentContent, found the same day) was
                       # undecodable by a real typed client: Comment.CreationDate/LastModifiedDate
@@ -1129,3 +1129,11 @@ Per-commit trees (`Commit.Tree`, path to blob and mode) and a blob store now bac
 ## 2026-10-05 (reqfielddiff tier-2 pagination)
 
 FIXED: ListApprovalRuleTemplates, ListAssociatedApprovalRuleTemplatesForRepository and ListRepositoriesForApprovalRuleTemplate page through maxResults/nextToken; ListBranches, ListPullRequests, ListRepositories and the three new ones share `paginateSlice`, which returns InvalidContinuationTokenException for a malformed token (deserializers.go declares it on all seven) instead of restarting. ListTagsForResource NextToken is a false positive (declares no token error; bounded by the tag cap). Proof: `TestListOps_PageAndRejectBadTokens`.
+
+## 2026-10-10 (realism pass)
+
+- Error messages no longer repeat the exception name; repository and branch lookups read "<name> does not exist" (`TestRealism_Errors`).
+- CreateRepository/UpdateRepositoryName reject names ending in `.git`; descriptions over 1000 characters are InvalidRepositoryDescriptionException; ListRepositories rejects unknown sortBy/order (InvalidSortBy/InvalidOrder).
+- CreatePullRequest validates the repository, source and destination branches (ReferenceDoesNotExist), identical refs (SourceAndDestinationAreSame), a single repository, title <= 100 and description <= 1000; GetPullRequest rejects non-numeric ids (InvalidPullRequestId).
+- The first branch created becomes the repository default branch; destination defaults to it. Commit, tree and blob ids are 40-char hex.
+- GetFolder lists only the immediate files and subFolders (with relativePath, treeId), returns the commit id, and FolderDoesNotExistException for a missing folder (`TestRealism_FolderListing`).

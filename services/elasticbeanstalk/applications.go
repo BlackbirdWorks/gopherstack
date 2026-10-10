@@ -2,7 +2,6 @@ package elasticbeanstalk
 
 import (
 	"context"
-	"fmt"
 	"slices"
 	"sort"
 
@@ -65,7 +64,7 @@ func (b *InMemoryBackend) CreateApplicationWithParams(
 	region := getRegion(ctx, b.region)
 
 	if _, ok := b.applicationGet(region, name); ok {
-		return nil, fmt.Errorf("%w: application %s already exists", ErrAlreadyExists, name)
+		return nil, wrapf(ErrAlreadyExists, "Application %s already exists.", name)
 	}
 
 	appARN := arn.Build("elasticbeanstalk", region, b.accountID, "application/"+name)
@@ -159,7 +158,7 @@ func (b *InMemoryBackend) UpdateApplication(ctx context.Context, name, descripti
 
 	app, ok := b.applicationGet(region, name)
 	if !ok {
-		return nil, fmt.Errorf("%w: application %s not found", ErrNotFound, name)
+		return nil, applicationNotFound(name)
 	}
 
 	app.Description = description
@@ -194,7 +193,7 @@ func (b *InMemoryBackend) UpdateApplicationResourceLifecycleWithParams(
 
 	app, ok := b.applicationGet(region, appName)
 	if !ok {
-		return nil, fmt.Errorf("%w: application %s not found", ErrNotFound, appName)
+		return nil, applicationNotFound(appName)
 	}
 
 	applyResourceLifecycleParams(app, &lifecycle)
@@ -213,8 +212,10 @@ func (b *InMemoryBackend) DeleteApplication(ctx context.Context, name string, te
 	region := getRegion(ctx, b.region)
 
 	if _, ok := b.applicationGet(region, name); !ok {
-		return fmt.Errorf("%w: application %s not found", ErrNotFound, name)
+		return applicationNotFound(name)
 	}
+
+	b.reapLocked(region)
 
 	// The index result is cloned before the loop since store.Index slices
 	// mutate under Delete (see pkgs/store gotcha).
@@ -228,7 +229,7 @@ func (b *InMemoryBackend) DeleteApplication(ctx context.Context, name string, te
 
 	if len(running) > 0 {
 		if !terminateEnvByForce {
-			return fmt.Errorf("%w: application %s has a running environment", ErrInvalidParameter, name)
+			return wrapf(ErrInvalidParameter, "Unable to delete application %s: it has running environments.", name)
 		}
 
 		for _, env := range running {

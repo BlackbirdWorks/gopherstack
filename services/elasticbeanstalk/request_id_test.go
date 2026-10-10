@@ -60,6 +60,16 @@ func TestEventRequestID(t *testing.T) {
 
 	client := ebsdk.NewFromConfig(cfg, func(o *ebsdk.Options) { o.BaseEndpoint = aws.String(srv.URL) })
 
+	_, err = client.CreateApplication(
+		t.Context(),
+		&ebsdk.CreateApplicationInput{ApplicationName: aws.String("rid-app")},
+	)
+	require.NoError(t, err)
+
+	mu.Lock()
+	ids = nil
+	mu.Unlock()
+
 	_, err = client.CreateEnvironment(t.Context(), &ebsdk.CreateEnvironmentInput{
 		ApplicationName:   aws.String("rid-app"),
 		EnvironmentName:   aws.String("rid-env"),

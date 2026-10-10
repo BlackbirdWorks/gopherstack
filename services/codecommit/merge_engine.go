@@ -6,8 +6,6 @@ import (
 	"slices"
 	"sort"
 	"strings"
-
-	"github.com/google/uuid"
 )
 
 const (
@@ -172,7 +170,7 @@ func (ev *mergeEvaluation) place(fm *fileMerge) {
 
 	blobID := fm.result.blobID
 	if blobID == "" {
-		blobID = uuid.NewString()
+		blobID = newObjectID()
 		ev.newBlobs[blobID] = fm.result.content
 	}
 
@@ -281,7 +279,7 @@ func (ev *mergeEvaluation) keepEmptyFolders(srcTree, dstTree map[string]TreeEntr
 			continue
 		}
 
-		blobID := uuid.NewString()
+		blobID := newObjectID()
 		ev.newBlobs[blobID] = []byte{}
 		ev.tree[folder+"/"+gitkeepFileName] = TreeEntry{BlobID: blobID, Mode: fileModeDefault}
 	}

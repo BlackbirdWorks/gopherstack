@@ -115,6 +115,14 @@ func (h *Handler) handleListRepositories(body []byte) (any, error) {
 	// Ignore parse errors — all fields are optional.
 	_ = json.Unmarshal(body, &in)
 
+	if in.SortBy != "" && in.SortBy != "repositoryName" && in.SortBy != "lastModifiedDate" {
+		return nil, fmt.Errorf("%w: sortBy %q is not valid", ErrInvalidSortBy, in.SortBy)
+	}
+
+	if in.Order != "" && !strings.EqualFold(in.Order, "ascending") && !strings.EqualFold(in.Order, "descending") {
+		return nil, fmt.Errorf("%w: order %q is not valid", ErrInvalidOrder, in.Order)
+	}
+
 	repos := h.Backend.ListRepositories()
 
 	// Apply sort.

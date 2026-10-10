@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -103,6 +104,16 @@ func (h *Handler) handleCreatePullRequest(body []byte) (any, error) {
 		return nil, fmt.Errorf("%w: title is required", errInvalidRequest)
 	}
 
+	if len(in.Title) > maxPullRequestTitleLength {
+		return nil, fmt.Errorf("%w: title must be %d characters or fewer", ErrInvalidTitle, maxPullRequestTitleLength)
+	}
+
+	if len(in.Description) > maxPullRequestDescription {
+		return nil, fmt.Errorf(
+			"%w: description must be %d characters or fewer", ErrInvalidDescription, maxPullRequestDescription,
+		)
+	}
+
 	if len(in.Targets) == 0 {
 		return nil, fmt.Errorf("%w: at least one target is required", errInvalidRequest)
 	}
@@ -151,6 +162,10 @@ func (h *Handler) handleGetPullRequest(body []byte) (any, error) {
 
 	if in.PullRequestID == "" {
 		return nil, fmt.Errorf("%w: pullRequestId is required", errInvalidRequest)
+	}
+
+	if _, convErr := strconv.ParseUint(in.PullRequestID, 10, 64); convErr != nil {
+		return nil, fmt.Errorf("%w: %q is not a valid pull request id", ErrInvalidPullRequestID, in.PullRequestID)
 	}
 
 	pr, err := h.Backend.GetPullRequest(in.PullRequestID)

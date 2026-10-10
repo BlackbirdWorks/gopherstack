@@ -7,7 +7,7 @@
 service: codeartifact
 sdk_module: aws-sdk-go-v2/service/codeartifact@v1.41.4   # version audited against
 last_audit_commit: 1d121bbad                      # over-wide census re-check, gopherstack-xhu2t work retained
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
 overall: A            # this pass: package-group "weak match" (casefold + dash/dot/underscore-run
                       # normalization, per AWS's documented dependency-confusion-protection
                       # algorithm) implemented and wired into GetAssociatedPackageGroup/
@@ -393,3 +393,9 @@ FIXED: ListPackageVersionAssets pages by max-results/next-token and ListPackageV
 
 - failedVersions entries now carry `errorMessage` beside `errorCode` (`TestPackageVersionErrors_CarryMessage`).
 - `domain-owner` is read on every op: non 12-digit values are a ValidationException, an owner other than the local account owns no domain here and yields ResourceNotFoundException (`TestDomainOwnerQuery`). AWS's real cross-account response is not documented in the pinned SDK.
+
+## 2026-10-10 (realism pass)
+
+- Domain names must be 2-50 chars (`[a-z][a-z0-9-]*[a-z0-9]`), repository names 2-100 chars (`[A-Za-z0-9][A-Za-z0-9._-]*`), descriptions <= 1000, encryptionKey a KMS key ARN, format one of the eight PackageFormat values, external connections one of the documented `public:` names, and upstream repositories must exist (`TestRealism_Errors`).
+- Error messages no longer start with the exception name.
+- No asynchronous lifecycle exists in CodeArtifact (domains and repositories are created Active), so no delay setter is added.

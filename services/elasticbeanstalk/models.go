@@ -96,10 +96,10 @@ type ApplicationResourceLifecycleParams struct {
 
 // Environment represents an Elastic Beanstalk environment.
 type Environment struct {
+	transitionUntil   time.Time
 	Tags              map[string]string `json:"tags,omitempty"`
-	Status            string            `json:"status"`
-	Health            string            `json:"health"`
-	EnvironmentName   string            `json:"environmentName"`
+	Tier              string            `json:"tier,omitempty"`
+	VPCID             string            `json:"vpcId,omitempty"`
 	EnvironmentID     string            `json:"environmentId"`
 	EnvironmentARN    string            `json:"environmentArn"`
 	SolutionStackName string            `json:"solutionStackName,omitempty"`
@@ -110,22 +110,24 @@ type Environment struct {
 	ApplicationName   string            `json:"applicationName"`
 	PlatformARN       string            `json:"platformArn,omitempty"`
 	TierVersion       string            `json:"tierVersion,omitempty"`
-	Tier              string            `json:"tier,omitempty"`
+	Health            string            `json:"health"`
 	TierType          string            `json:"tierType,omitempty"`
-	TierName          string            `json:"tierName,omitempty"`
-	OperationsRole    string            `json:"operationsRole,omitempty"`
+	EnvironmentName   string            `json:"environmentName"`
 	CNAME             string            `json:"cname,omitempty"`
+	TierName          string            `json:"tierName,omitempty"`
 	CNAMEPrefix       string            `json:"cnamePrefix,omitempty"`
 	LoadBalancerType  string            `json:"loadBalancerType,omitempty"`
-	VPCID             string            `json:"vpcId,omitempty"`
+	OperationsRole    string            `json:"operationsRole,omitempty"`
 	Subnets           string            `json:"subnets,omitempty"`
 	InstanceProfile   string            `json:"instanceProfile,omitempty"`
 	DateCreated       string            `json:"dateCreated,omitempty"`
 	DateUpdated       string            `json:"dateUpdated,omitempty"`
 	Region            string            `json:"region"`
-	OptionSettings    []OptionSetting   `json:"optionSettings,omitempty"`
+	transitionStatus  string
+	Status            string `json:"status"`
 	// EnvironmentLinks are the links created from an env.yaml manifest by ComposeEnvironments.
 	EnvironmentLinks []EnvironmentLink `json:"environmentLinks,omitempty"`
+	OptionSettings   []OptionSetting   `json:"optionSettings,omitempty"`
 }
 
 // EnvironmentLink mirrors types.EnvironmentLink.
@@ -207,6 +209,7 @@ type ManagedActionHistory struct {
 
 // EventRecord represents a single Elastic Beanstalk event.
 type EventRecord struct {
+	visibleAt       time.Time
 	ApplicationName string `json:"applicationName,omitempty"`
 	EnvironmentName string `json:"environmentName,omitempty"`
 	PlatformArn     string `json:"platformArn,omitempty"`

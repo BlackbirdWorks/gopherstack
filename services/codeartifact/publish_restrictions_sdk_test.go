@@ -44,19 +44,19 @@ func TestPublishPackageVersion_OriginRestrictions(t *testing.T) {
 			c := newTestCodeArtifactClient(t, h)
 			ctx := t.Context()
 
-			_, err := c.CreateDomain(ctx, &casdk.CreateDomainInput{Domain: aws.String("d")})
+			_, err := c.CreateDomain(ctx, &casdk.CreateDomainInput{Domain: aws.String("dom")})
 			require.NoError(t, err)
 
 			for _, repo := range []string{"repo", "elsewhere"} {
 				_, err = c.CreateRepository(ctx, &casdk.CreateRepositoryInput{
-					Domain: aws.String("d"), Repository: aws.String(repo),
+					Domain: aws.String("dom"), Repository: aws.String(repo),
 				})
 				require.NoError(t, err)
 			}
 
 			publish := func(version string) error {
 				_, perr := c.PublishPackageVersion(ctx, &casdk.PublishPackageVersionInput{
-					Domain: aws.String("d"), Repository: aws.String("repo"), Format: types.PackageFormatNpm,
+					Domain: aws.String("dom"), Repository: aws.String("repo"), Format: types.PackageFormatNpm,
 					Package: aws.String("lib"), PackageVersion: aws.String(version),
 					AssetName: aws.String("lib.tgz"), AssetSHA256: aws.String(sha256Hex("x")),
 					AssetContent: strings.NewReader("x"),
@@ -68,19 +68,19 @@ func TestPublishPackageVersion_OriginRestrictions(t *testing.T) {
 			require.NoError(t, publish("1.0.0"))
 
 			_, err = c.CreatePackageGroup(ctx, &casdk.CreatePackageGroupInput{
-				Domain: aws.String("d"), PackageGroup: aws.String("/npm/*"),
+				Domain: aws.String("dom"), PackageGroup: aws.String("/npm/*"),
 			})
 			require.NoError(t, err)
 
 			_, err = c.UpdatePackageGroupOriginConfiguration(ctx, &casdk.UpdatePackageGroupOriginConfigurationInput{
-				Domain: aws.String("d"), PackageGroup: aws.String("/npm/*"),
+				Domain: aws.String("dom"), PackageGroup: aws.String("/npm/*"),
 				Restrictions: map[string]types.PackageGroupOriginRestrictionMode{"PUBLISH": tt.mode},
 			})
 			require.NoError(t, err)
 
 			for _, repo := range tt.allowed {
 				_, err = c.UpdatePackageGroupOriginConfiguration(ctx, &casdk.UpdatePackageGroupOriginConfigurationInput{
-					Domain: aws.String("d"), PackageGroup: aws.String("/npm/*"),
+					Domain: aws.String("dom"), PackageGroup: aws.String("/npm/*"),
 					AddAllowedRepositories: []types.PackageGroupAllowedRepository{{
 						OriginRestrictionType: types.PackageGroupOriginRestrictionTypePublish,
 						RepositoryName:        aws.String(repo),
@@ -91,7 +91,7 @@ func TestPublishPackageVersion_OriginRestrictions(t *testing.T) {
 
 			if tt.pkgBlock {
 				_, err = c.PutPackageOriginConfiguration(ctx, &casdk.PutPackageOriginConfigurationInput{
-					Domain: aws.String("d"), Repository: aws.String("repo"), Format: types.PackageFormatNpm,
+					Domain: aws.String("dom"), Repository: aws.String("repo"), Format: types.PackageFormatNpm,
 					Package: aws.String("lib"), Restrictions: &types.PackageOriginRestrictions{
 						Publish:  types.AllowPublishBlock,
 						Upstream: types.AllowUpstreamAllow,

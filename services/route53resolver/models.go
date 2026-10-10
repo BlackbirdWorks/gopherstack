@@ -1,6 +1,8 @@
 package route53resolver
 
 import (
+	"time"
+
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -110,6 +112,8 @@ type IPAddress struct {
 }
 
 type ResolverEndpoint struct {
+	transitionUntil                time.Time
+	transitionStatus               string
 	ID                             string       `json:"id"`
 	ARN                            string       `json:"arn"`
 	Direction                      string       `json:"direction"`
@@ -315,6 +319,7 @@ type ResolverQueryLogConfigAssociation struct {
 
 // ResolverRuleAssociation represents an association between a Resolver rule and a VPC.
 type ResolverRuleAssociation struct {
+	creatingUntil  time.Time
 	ID             string `json:"id"`
 	Name           string `json:"name"`
 	ResolverRuleID string `json:"resolverRuleId"`

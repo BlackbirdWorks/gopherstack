@@ -206,7 +206,7 @@ func (b *InMemoryBackend) RestoreFromSnapshot(ctx context.Context, snapshotID st
 
 	dirID := dir.DirectoryID
 
-	b.work.After("DirectoryRestore", restoreLifecycleDelay, func() {
+	b.work.After("DirectoryRestore", b.delayOr(restoreLifecycleDelay), func() {
 		b.mu.Lock("RestoreFromSnapshot:active")
 		if d, exists := b.directoryGet(region, dirID); exists && d.Stage == string(DirectoryStageRestoring) {
 			setStage(d, DirectoryStageActive)

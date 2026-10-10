@@ -2,7 +2,7 @@
 service: route53resolver
 sdk_module: aws-sdk-go-v2/service/route53resolver@v1.53.0
 last_audit_commit: 1940758f8
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
                        # 2026-08-30: pagination-tie sweep (does a name-sorted List op lose or
                        # duplicate a record at a page boundary when two records tie on the sort
                        # key?). All 13 backend List* methods (endpoints, rules, firewall rule
@@ -944,3 +944,9 @@ persisted-struct/snapshot-inventory change; no version bump.
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 route53resolver already keys its resources by region; same-named resources in two regions coexist with region-correct ARNs. Proof: `TestRegionIsolation/route53resolver`. No code change to the resource store.
+
+## 2026-10-10 (realism pass)
+
+- Resolver endpoints report CREATING (and UPDATING after update / IP association changes) and rule associations CREATING until a deadline (`SetLifecycleDelay`, `--lifecycle-route53resolver`, default 0 = instant); DeleteResolverEndpoint, DeleteResolverRule and DisassociateResolverRule now return the resource with status DELETING instead of an empty body (`TestRealism_Lifecycle`).
+- Error bodies carry the text under both `message` and `Message`: route53resolver v1.53 deserializes only the modeled `Message`, so every error previously reached SDK clients with an empty message. The code prefix is removed and not-found wording is "Resolver endpoint with ID 'x' does not exist".
+- Endpoint IPs and rule target IPs must be valid IPv4 (IPv6 for Ipv6 members): InvalidParameterException.

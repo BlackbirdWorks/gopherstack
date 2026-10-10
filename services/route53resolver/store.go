@@ -37,7 +37,9 @@ func regionalKey(region, id string) string {
 }
 
 type InMemoryBackend struct {
-	appConfig any
+	appConfig       any
+	queryLogConfigs *store.Table[ResolverQueryLogConfig]
+	resolverConfigs *store.Table[ResolverConfig]
 	// registry lets Reset collapse every table's lifecycle to one call
 	// (registry.ResetAll()) instead of hand-rolled re-initialization of each
 	// map. See store_setup.go for the full set of registrations.
@@ -55,32 +57,28 @@ type InMemoryBackend struct {
 	firewallRules                         *store.Table[FirewallRule]
 	firewallRulesByRegion                 *store.Index[FirewallRule]
 	outpostResolvers                      *store.Table[OutpostResolver]
-	outpostResolversByRegion              *store.Index[OutpostResolver]
-	queryLogConfigs                       *store.Table[ResolverQueryLogConfig]
-	queryLogConfigsByRegion               *store.Index[ResolverQueryLogConfig]
+	clock                                 func() time.Time
+	mu                                    *lockmetrics.RWMutex
+	resolverDnssecConfigsByRegion         *store.Index[ResolverDnssecConfig]
 	queryLogConfigAssociations            *store.Table[ResolverQueryLogConfigAssociation]
 	queryLogConfigAssociationsByRegion    *store.Index[ResolverQueryLogConfigAssociation]
 	ruleAssociations                      *store.Table[ResolverRuleAssociation]
 	ruleAssociationsByRegion              *store.Index[ResolverRuleAssociation]
 	firewallConfigs                       *store.Table[FirewallConfig]
 	firewallConfigsByRegion               *store.Index[FirewallConfig]
-	resolverConfigs                       *store.Table[ResolverConfig]
+	outpostResolversByRegion              *store.Index[OutpostResolver]
 	resolverConfigsByRegion               *store.Index[ResolverConfig]
 	resolverDnssecConfigs                 *store.Table[ResolverDnssecConfig]
-	resolverDnssecConfigsByRegion         *store.Index[ResolverDnssecConfig]
-
-	// The following are deliberately left as plain region-nested maps (not
-	// store.Table): their values are not *T (svcTags.KV slices and bare
-	// policy-document strings), which store.Table's map[string]*V shape does
-	// not fit. See store_setup.go's file doc comment for the full rationale.
+	queryLogConfigsByRegion               *store.Index[ResolverQueryLogConfig]
+	// tags and the policy maps are plain region-nested maps (not store.Table): their values are
+	// not *T, so store.Table's map[string]*V shape does not fit (see store_setup.go).
 	tags                      map[string]map[string][]svcTags.KV
 	firewallRuleGroupPolicies map[string]map[string]string
 	queryLogConfigPolicies    map[string]map[string]string
 	resolverRulePolicies      map[string]map[string]string
-
-	mu        *lockmetrics.RWMutex
-	accountID string
-	region    string
+	accountID                 string
+	region                    string
+	lifecycleDelay            time.Duration
 }
 
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {

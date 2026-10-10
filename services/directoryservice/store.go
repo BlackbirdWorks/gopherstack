@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"github.com/google/uuid"
 
@@ -134,6 +135,8 @@ type InMemoryBackend struct {
 	work      *worker.Group
 	region    string
 	accountID string
+
+	lifecycleDelay atomic.Int64
 }
 
 // NewInMemoryBackend constructs a new InMemoryBackend whose background

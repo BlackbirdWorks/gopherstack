@@ -95,7 +95,7 @@ func (b *InMemoryBackend) CreateApplicationVersionWithParams(
 		// this name, and AutoCreateApplication is false, returns an
 		// InvalidParameterValue error."
 		if !params.AutoCreateApplication {
-			return nil, fmt.Errorf("%w: no application found named %s", ErrInvalidParameter, appName)
+			return nil, applicationNotFoundParam(appName)
 		}
 
 		appARN := arn.Build("elasticbeanstalk", region, b.accountID, "application/"+appName)
@@ -187,7 +187,7 @@ func (b *InMemoryBackend) DeleteApplicationVersion(ctx context.Context, appName,
 	region := getRegion(ctx, b.region)
 
 	if _, ok := b.appVersionGet(region, appName, versionLabel); !ok {
-		return fmt.Errorf("%w: application version %s not found", ErrNotFound, versionLabel)
+		return wrapf(ErrNotFound, "No Application Version named '%s' found.", versionLabel)
 	}
 
 	for _, env := range b.environmentsInRegion(region) {
@@ -216,7 +216,7 @@ func (b *InMemoryBackend) UpdateApplicationVersion(
 
 	ver, ok := b.appVersionGet(region, appName, versionLabel)
 	if !ok {
-		return nil, fmt.Errorf("%w: application version %s not found", ErrNotFound, versionLabel)
+		return nil, wrapf(ErrNotFound, "No Application Version named '%s' found.", versionLabel)
 	}
 
 	ver.Description = description

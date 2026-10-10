@@ -630,6 +630,10 @@ func (h *Handler) dispatch(c *echo.Context, route codeartifactRoute, body []byte
 		return c.JSON(http.StatusNotFound, errResp("ResourceNotFoundException", "unknown operation: "+route.operation))
 	}
 
+	if err := validatePackageFormat(c.Request().URL.Query().Get("format")); err != nil {
+		return h.handleError(c, err)
+	}
+
 	return fn(c, body)
 }
 
@@ -921,22 +925,32 @@ func (h *Handler) buildPackageVersionOps() map[string]func(*echo.Context, []byte
 }
 
 func (h *Handler) handleError(c *echo.Context, err error) error {
+	msg := err.Error()
+
+	for _, sentinel := range []error{ErrNotFound, ErrAlreadyExists, ErrValidation} {
+		if errors.Is(err, sentinel) {
+			msg = strings.TrimPrefix(msg, sentinel.Error()+": ")
+
+			break
+		}
+	}
+
 	switch {
 	case errors.Is(err, ErrNotFound):
-		return c.JSON(http.StatusNotFound, errResp("ResourceNotFoundException", err.Error()))
+		return c.JSON(http.StatusNotFound, errResp("ResourceNotFoundException", msg))
 	case errors.Is(err, ErrAlreadyExists):
-		return c.JSON(http.StatusConflict, errResp("ConflictException", err.Error()))
+		return c.JSON(http.StatusConflict, errResp("ConflictException", msg))
 	case errors.Is(err, ErrValidation):
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", err.Error()))
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", msg))
 	case errors.Is(err, errInvalidRequest):
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", err.Error()))
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", msg))
 	default:
 		// codeartifact@v1.41.4 types/errors.go models InternalServerException as the
 		// service's sole FaultServer exception, wired into 45 of 48 ops (all but
 		// ListTagsForResource/TagResource/UntagResource, which model no server fault
 		// at all). "InternalFailure" is not a codeartifact-modeled code at all, so it
 		// deserialized as an untyped smithy.GenericAPIError on every op.
-		return c.JSON(http.StatusInternalServerError, errResp("InternalServerException", err.Error()))
+		return c.JSON(http.StatusInternalServerError, errResp("InternalServerException", msg))
 	}
 }
 

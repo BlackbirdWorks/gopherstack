@@ -2,6 +2,7 @@ package elasticbeanstalk
 
 import (
 	"context"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -35,10 +36,10 @@ func getRegion(ctx context.Context, defaultRegion string) string {
 // per-key shape to model as a store.Table, so they remain plain region-nested
 // maps, unchanged by this refactor.
 type InMemoryBackend struct {
-	applications             *store.Table[Application]
-	applicationsByRegion     *store.Index[Application]
-	applicationsByARN        *store.Index[Application]
-	environments             *store.Table[Environment]
+	s3                       S3Reader
+	appConfig                any
+	configTemplatesByRegion  *store.Index[ConfigurationTemplate]
+	clock                    func() time.Time
 	environmentsByRegion     *store.Index[Environment]
 	environmentsByARN        *store.Index[Environment]
 	environmentsByName       *store.Index[Environment]
@@ -47,19 +48,21 @@ type InMemoryBackend struct {
 	appVersionsByRegion      *store.Index[ApplicationVersion]
 	appVersionsByARN         *store.Index[ApplicationVersion]
 	configTemplates          *store.Table[ConfigurationTemplate]
-	configTemplatesByRegion  *store.Index[ConfigurationTemplate]
+	applications             *store.Table[Application]
 	platformVersions         *store.Table[PlatformVersion]
-	platformVersionsByRegion *store.Index[PlatformVersion]
-	registry                 *store.Registry
+	environments             *store.Table[Environment]
 	managedActionHistory     map[string]map[string][]*ManagedActionHistory // region → envName → history items
-	events                   map[string][]*EventRecord                     // region → events
-	deletedEnvironments      map[string][]*Environment                     // region → terminated envs
-	envCounters              map[string]int                                // region → counter
+	platformVersionsByRegion *store.Index[PlatformVersion]
+	events                   map[string][]*EventRecord // region → events
+	deletedEnvironments      map[string][]*Environment // region → terminated envs
+	envCounters              map[string]int            // region → counter
 	mu                       *lockmetrics.RWMutex
-	s3                       S3Reader
-	appConfig                any
+	applicationsByARN        *store.Index[Application]
+	applicationsByRegion     *store.Index[Application]
+	registry                 *store.Registry
 	accountID                string
 	region                   string // default region
+	lifecycleDelay           time.Duration
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.

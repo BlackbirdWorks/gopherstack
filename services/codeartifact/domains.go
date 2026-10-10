@@ -19,6 +19,14 @@ func (b *InMemoryBackend) CreateDomain(
 ) (*Domain, error) {
 	region := getRegion(ctx, b.region)
 
+	if err := ValidateDomainName(name); err != nil {
+		return nil, err
+	}
+
+	if err := validateEncryptionKey(encryptionKey); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateDomain")
 	defer b.mu.Unlock()
 

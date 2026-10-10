@@ -107,7 +107,7 @@ func toEnvironmentDesc(env *Environment) environmentDescType {
 		DateUpdated:       env.DateUpdated,
 		Status:            env.Status,
 		Health:            env.Health,
-		HealthStatus:      envHealthStatusOk,
+		HealthStatus:      healthStatusFor(env.Status),
 		Tier: environmentTierType{
 			Name:    tierName,
 			Type:    tierType,
@@ -702,7 +702,7 @@ func (h *Handler) handleDescribeEnvironmentHealth(ctx context.Context, vals url.
 	// which is NOT a member of the real EnvironmentHealthStatus enum -- see
 	// envHealthStatusOk's doc comment. status is the real EnvironmentStatus
 	// value ("Ready") and is correct as-is.
-	_, status, err := h.Backend.DescribeEnvironmentHealth(ctx, envName)
+	color, status, err := h.Backend.DescribeEnvironmentHealth(ctx, envName)
 	if err != nil {
 		return nil, err
 	}
@@ -720,7 +720,7 @@ func (h *Handler) handleDescribeEnvironmentHealth(ctx context.Context, vals url.
 	wants := func(attr string) bool { return wantsAll || slices.Contains(attrs, attr) }
 
 	if wants("HealthStatus") {
-		result.HealthStatus = envHealthStatusOk
+		result.HealthStatus = healthStatusFor(status)
 	}
 
 	if wants("Status") {
@@ -728,7 +728,7 @@ func (h *Handler) handleDescribeEnvironmentHealth(ctx context.Context, vals url.
 	}
 
 	if wants("Color") {
-		result.Color = healthColorGreen
+		result.Color = color
 	}
 
 	if wants("RefreshedAt") {
@@ -930,4 +930,15 @@ func (h *Handler) handleSwapEnvironmentCNAMEs(ctx context.Context, vals url.Valu
 		Xmlns:            ebXMLNS,
 		ResponseMetadata: newResponseMetadata(ctx, "eb-swap-cnames"),
 	}, nil
+}
+
+func healthStatusFor(status string) string {
+	switch status {
+	case envStatusLaunching:
+		return "Pending"
+	case envStatusTerminating, envStatusTerminated:
+		return "Unknown"
+	default:
+		return envHealthStatusOk
+	}
 }

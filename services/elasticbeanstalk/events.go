@@ -3,6 +3,7 @@ package elasticbeanstalk
 import (
 	"context"
 	"slices"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 )
@@ -34,16 +35,33 @@ func (b *InMemoryBackend) eventsSliceRO(region string) []*EventRecord {
 // not a live join against its current state).
 // Caller must hold at least a write lock.
 func (b *InMemoryBackend) appendEvent(ctx context.Context, region string, env *Environment, message, severity string) {
+	b.appendEventAt(ctx, region, env, message, severity, time.Time{})
+}
+
+// appendEventAt records an event that stays hidden from DescribeEvents until visibleAt.
+func (b *InMemoryBackend) appendEventAt(
+	ctx context.Context,
+	region string,
+	env *Environment,
+	message, severity string,
+	visibleAt time.Time,
+) {
+	eventDate := nowISO8601()
+	if !visibleAt.IsZero() {
+		eventDate = visibleAt.UTC().Format("2006-01-02T15:04:05Z")
+	}
+
 	events := append(b.eventsSlice(region), &EventRecord{
 		ApplicationName: env.ApplicationName,
 		EnvironmentName: env.EnvironmentName,
 		PlatformArn:     env.PlatformARN,
 		TemplateName:    env.TemplateName,
 		VersionLabel:    env.VersionLabel,
-		EventDate:       nowISO8601(),
+		EventDate:       eventDate,
 		RequestID:       awsmeta.Get(ctx).RequestID,
 		Message:         message,
 		Severity:        severity,
+		visibleAt:       visibleAt,
 	})
 	if len(events) > maxEventsPerRegion {
 		events = events[len(events)-maxEventsPerRegion:]
@@ -68,6 +86,10 @@ func (b *InMemoryBackend) DescribeEvents(ctx context.Context, appName, envName s
 		}
 
 		if envName != "" && e.EnvironmentName != envName {
+			continue
+		}
+
+		if !e.visibleAt.IsZero() && b.now().Before(e.visibleAt) {
 			continue
 		}
 

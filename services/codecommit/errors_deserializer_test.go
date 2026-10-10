@@ -56,10 +56,12 @@ func TestDeletePullRequestApprovalRule_UnknownRuleIsIdempotentSDKRoundTrip(t *te
 	})
 	require.NoError(t, err)
 
+	seedFeatureBranch(t, client, "pr-repo")
+
 	prOut, err := client.CreatePullRequest(t.Context(), &codecommitsdk.CreatePullRequestInput{
 		Title: aws.String("Test PR"),
 		Targets: []types.Target{
-			{RepositoryName: aws.String("pr-repo"), SourceReference: aws.String("refs/heads/main")},
+			{RepositoryName: aws.String("pr-repo"), SourceReference: aws.String("refs/heads/feature")},
 		},
 	})
 	require.NoError(t, err)

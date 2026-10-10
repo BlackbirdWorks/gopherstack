@@ -7,7 +7,7 @@
 service: directoryservice
 sdk_module: aws-sdk-go-v2/service/directoryservice@v1.41.4   # version audited against
 last_audit_commit: 0c1472972  # 2026-09-24 lakeformation-appsync-neptune-and-athena terraform coverage; prior: 44bff591b
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
 overall: A            # 2026-08-29 (cursor-population sweep): every List/Describe op declaring a real
                       # NextToken (17 of 23, from the pinned SDK Output structs directly, not by grep)
                       # already reads NextToken/MaxResults from its request and populates NextToken on
@@ -720,3 +720,9 @@ Adjudicated (reqfielddiff -adjudicated), unchanged:
 - RegisterEventTopic.TopicName: false positive, read through handleTwoFieldOp.
 - DeregisterEventTopic.DirectoryId: false positive, read through handleTwoFieldOp.
 - DeregisterEventTopic.TopicName: false positive, read through handleTwoFieldOp.
+
+## 2026-10-10 (realism pass)
+
+- `SetLifecycleDelay` (`--lifecycle-directoryservice`) overrides the built-in sub-second Requested/Creating, restore and status-transition dwells when > 0 (`TestRealism_LifecycleDelay`).
+- CreateDirectory/CreateMicrosoftAD validate the fully qualified name, NetBIOS short name, password (8-64 chars, three of four character classes) and, when VpcSettings is given, exactly two distinct subnets (`TestRealism_CreateValidation`).
+- Not-found errors no longer echo the exception name as the message: "Directory d-xxxxxxxxxx does not exist."

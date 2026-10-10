@@ -64,6 +64,14 @@ func testReqField3CCDescribePullRequestEventsMaxResults(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	_, err = client.CreateCommit(ctx, &codecommitsdk.CreateCommitInput{
+		RepositoryName: aws.String("repo"),
+		BranchName:     aws.String("main"),
+		PutFiles:       []types.PutFileEntry{{FilePath: aws.String("a.txt"), FileContent: []byte("a")}},
+	})
+	require.NoError(t, err)
+	seedFeatureBranch(t, client, "repo")
+
 	created, err := client.CreatePullRequest(ctx, &codecommitsdk.CreatePullRequestInput{
 		Title: aws.String("pr"),
 		Targets: []types.Target{{
@@ -217,6 +225,14 @@ func testReqField3CCGetCommentsForPullRequestMaxResults(t *testing.T) {
 		RepositoryName: aws.String("repo"),
 	})
 	require.NoError(t, err)
+
+	_, err = client.CreateCommit(ctx, &codecommitsdk.CreateCommitInput{
+		RepositoryName: aws.String("repo"),
+		BranchName:     aws.String("main"),
+		PutFiles:       []types.PutFileEntry{{FilePath: aws.String("a.txt"), FileContent: []byte("a")}},
+	})
+	require.NoError(t, err)
+	seedFeatureBranch(t, client, "repo")
 
 	created, err := client.CreatePullRequest(ctx, &codecommitsdk.CreatePullRequestInput{
 		Title: aws.String("pr"),

@@ -58,7 +58,7 @@ func TestHandler_PackageVersionOps_RejectionNotBypassed(t *testing.T) {
 				"response body must be a single well-formed JSON document, not two concatenated: %s", rec.Body.String(),
 			)
 			assert.Equal(t, "ValidationException", resp["code"])
-			assert.Equal(t, "ValidationException: version is required", resp["message"])
+			assert.Equal(t, "version is required", resp["message"])
 		})
 	}
 }

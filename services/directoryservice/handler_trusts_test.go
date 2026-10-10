@@ -3,6 +3,7 @@ package directoryservice_test
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -145,7 +146,7 @@ func TestCreateTrust_StateByDirection(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler(t)
-			dirID := mustCreateSimpleAD(t, h, tt.name+".example.com")
+			dirID := mustCreateSimpleAD(t, h, strings.ReplaceAll(tt.name, "_", "-")+".example.com")
 
 			rec := doRequest(t, h, "CreateTrust", map[string]any{
 				"DirectoryId":      dirID,

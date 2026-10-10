@@ -1,6 +1,7 @@
 package elasticbeanstalk
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
@@ -140,8 +141,18 @@ func (b *InMemoryBackend) CreateEnvironment(
 
 	region := getRegion(ctx, b.region)
 
+	if err := validateEnvironmentNames(envName, params.CNAMEPrefix); err != nil {
+		return nil, err
+	}
+
+	if _, ok := b.applicationGet(region, appName); !ok {
+		return nil, applicationNotFound(appName)
+	}
+
+	b.reapLocked(region)
+
 	if _, ok := b.environmentGet(region, appName, envName); ok {
-		return nil, fmt.Errorf("%w: environment %s already exists", ErrAlreadyExists, envName)
+		return nil, wrapf(ErrAlreadyExists, "Environment %s already exists.", envName)
 	}
 
 	optionSettings := slices.Clone(params.OptionSettings)
@@ -149,7 +160,7 @@ func (b *InMemoryBackend) CreateEnvironment(
 	if params.TemplateName != "" {
 		tmpl, ok := b.configTemplateGet(region, appName, params.TemplateName)
 		if !ok {
-			return nil, fmt.Errorf("%w: no configuration template named %s", ErrNotFound, params.TemplateName)
+			return nil, wrapf(ErrNotFound, "No Configuration Template named '%s' found.", params.TemplateName)
 		}
 
 		if solutionStack == "" && params.PlatformARN == "" {
@@ -160,25 +171,17 @@ func (b *InMemoryBackend) CreateEnvironment(
 		optionSettings = updateOptionSettings(tmpl.OptionSettings, params.OptionSettings, params.OptionsToRemove)
 	}
 
+	cnamePrefix := cmp.Or(params.CNAMEPrefix, envName)
+	cname := cnamePrefix + "." + region + ".elasticbeanstalk.com"
+
+	if b.environmentCNAMETaken(region, cname) {
+		return nil, wrapf(ErrInvalidParameter, "DNS name (%s) is not available.", cname)
+	}
+
 	envID := b.nextEnvID(region)
 	envARN := arn.Build("elasticbeanstalk", region, b.accountID, "environment/"+appName+"/"+envName)
-
-	// Resolve tier fields (improvement #1)
-	tierName := params.TierName
-	if tierName == "" {
-		tierName = defaultEnvironmentTierName
-	}
-
-	tierType := params.TierType
-	if tierType == "" {
-		tierType = defaultEnvironmentTierType
-	}
-
-	cnamePrefix := params.CNAMEPrefix
-	if cnamePrefix == "" {
-		cnamePrefix = envName
-	}
-	cname := cnamePrefix + "." + region + ".elasticbeanstalk.com"
+	tierName := cmp.Or(params.TierName, defaultEnvironmentTierName)
+	tierType := cmp.Or(params.TierType, defaultEnvironmentTierType)
 
 	env := &Environment{
 		OptionSettings:    optionSettings,
@@ -211,11 +214,20 @@ func (b *InMemoryBackend) CreateEnvironment(
 		Tags:              copyTags(tags),
 		EnvironmentLinks:  slices.Clone(params.EnvironmentLinks),
 	}
+	b.beginTransition(env, envStatusLaunching)
 	b.environmentPut(env)
 
-	b.appendEvent(ctx, region, env, "Successfully launched environment: "+envName+".", eventSeverityInfo)
+	b.appendEvent(ctx, region, env, "createEnvironment is starting.", eventSeverityInfo)
+	b.appendEventAt(
+		ctx,
+		region,
+		env,
+		"Successfully launched environment: "+envName+".",
+		eventSeverityInfo,
+		b.visibleAt(),
+	)
 
-	return cloneEnvironment(env), nil
+	return b.observe(env), nil
 }
 
 // DescribeEnvironments returns environments, optionally filtered by app/environment names or IDs.
@@ -235,8 +247,8 @@ func (b *InMemoryBackend) DescribeEnvironments(
 	list := make([]*Environment, 0, len(envs))
 
 	for _, env := range envs {
-		if envMatches(env, appName, envNames, envIDs) {
-			list = append(list, cloneEnvironment(env))
+		if envMatches(env, appName, envNames, envIDs) && !b.terminated(env) {
+			list = append(list, b.observe(env))
 		}
 	}
 
@@ -271,7 +283,16 @@ func (b *InMemoryBackend) DescribeDeletedEnvironments(
 
 	var list []*Environment
 
-	for _, env := range b.deletedEnvironments[getRegion(ctx, b.region)] {
+	region := getRegion(ctx, b.region)
+	candidates := slices.Clone(b.deletedEnvironments[region])
+
+	for _, env := range b.environmentsInRegion(region) {
+		if b.terminated(env) {
+			candidates = append(candidates, b.observe(env))
+		}
+	}
+
+	for _, env := range candidates {
 		if !envMatches(env, appName, envNames, envIDs) {
 			continue
 		}
@@ -308,9 +329,19 @@ func (b *InMemoryBackend) UpdateEnvironmentWithParams(
 
 	region := getRegion(ctx, b.region)
 
+	b.reapLocked(region)
+
 	env, ok := b.environmentGet(region, appName, envName)
 	if !ok {
-		return nil, fmt.Errorf("%w: environment %s not found", ErrNotFound, envName)
+		return nil, environmentNotFound(envName)
+	}
+
+	if b.transitioning(env) {
+		return nil, wrapf(
+			ErrInvalidParameter,
+			"Environment named %s is in an invalid state for this operation. Must be Ready.",
+			envName,
+		)
 	}
 
 	if params.Description != "" {
@@ -364,9 +395,11 @@ func (b *InMemoryBackend) UpdateEnvironmentWithParams(
 
 	env.DateUpdated = nowISO8601()
 
-	b.appendEvent(ctx, region, env, "Environment update completed successfully.", eventSeverityInfo)
+	b.beginTransition(env, envStatusUpdating)
+	b.appendEvent(ctx, region, env, "Environment update is starting.", eventSeverityInfo)
+	b.appendEventAt(ctx, region, env, "Environment update completed successfully.", eventSeverityInfo, b.visibleAt())
 
-	return cloneEnvironment(env), nil
+	return b.observe(env), nil
 }
 
 // updateOptionSettings applies updates and removals while preserving deterministic output ordering.
@@ -404,9 +437,11 @@ func (b *InMemoryBackend) TerminateEnvironment(ctx context.Context, appName, env
 
 	region := getRegion(ctx, b.region)
 
+	b.reapLocked(region)
+
 	env, ok := b.environmentGet(region, appName, envName)
 	if !ok {
-		return nil, fmt.Errorf("%w: environment %s not found", ErrNotFound, envName)
+		return nil, environmentNotFound(envName)
 	}
 
 	return b.terminateEnvironmentLocked(ctx, region, env), nil
@@ -419,19 +454,20 @@ func (b *InMemoryBackend) terminateEnvironmentLocked(
 	region string,
 	env *Environment,
 ) *Environment {
-	env.Status = "Terminated"
 	env.DateUpdated = nowISO8601()
-	out := cloneEnvironment(env)
-	b.deletedEnvironments[region] = append(b.deletedEnvironments[region], out)
+	b.appendEvent(ctx, region, env, "terminateEnvironment is starting.", eventSeverityInfo)
+	b.appendEventAt(ctx, region, env, "terminateEnvironment completed successfully.", eventSeverityInfo, b.visibleAt())
 
-	if n := len(b.deletedEnvironments[region]); n > maxDeletedEnvironmentsPerRegion {
-		b.deletedEnvironments[region] = b.deletedEnvironments[region][n-maxDeletedEnvironmentsPerRegion:]
+	b.beginTransition(env, envStatusTerminating)
+
+	if b.lifecycleDelay > 0 {
+		return b.observe(env)
 	}
 
-	b.environmentDeleteKey(region, env.ApplicationName, env.EnvironmentName)
-	delete(b.managedActionHistory[region], env.EnvironmentName)
-
-	b.appendEvent(ctx, region, env, "terminateEnvironment completed successfully.", eventSeverityInfo)
+	env.transitionStatus = envStatusTerminating
+	env.transitionUntil = b.now()
+	out := b.observe(env)
+	b.reapLocked(region)
 
 	return out
 }
@@ -454,7 +490,7 @@ func (b *InMemoryBackend) AssociateEnvironmentOperationsRole(
 
 	env, ok := b.environmentByName(region, envName)
 	if !ok {
-		return fmt.Errorf("%w: environment %s not found", ErrNotFound, envName)
+		return environmentNotFound(envName)
 	}
 
 	env.OperationsRole = role
@@ -491,10 +527,12 @@ func (b *InMemoryBackend) DescribeEnvironmentHealth(ctx context.Context, envName
 
 	env, ok := b.environmentByName(region, envName)
 	if !ok {
-		return "", "", fmt.Errorf("%w: environment %s not found", ErrNotFound, envName)
+		return "", "", environmentNotFound(envName)
 	}
 
-	return env.Health, env.Status, nil
+	cp := b.observe(env)
+
+	return cp.Health, cp.Status, nil
 }
 
 // DisassociateEnvironmentOperationsRole removes the operations role from an environment.
@@ -506,7 +544,7 @@ func (b *InMemoryBackend) DisassociateEnvironmentOperationsRole(ctx context.Cont
 
 	env, ok := b.environmentByName(region, envName)
 	if !ok {
-		return fmt.Errorf("%w: environment %s not found", ErrNotFound, envName)
+		return environmentNotFound(envName)
 	}
 
 	env.OperationsRole = ""
@@ -533,11 +571,11 @@ func (b *InMemoryBackend) SwapEnvironmentCNAMEs(ctx context.Context, sourceEnvNa
 	}
 
 	if srcEnv == nil {
-		return fmt.Errorf("%w: source environment %s not found", ErrNotFound, sourceEnvName)
+		return environmentNotFound(sourceEnvName)
 	}
 
 	if dstEnv == nil {
-		return fmt.Errorf("%w: destination environment %s not found", ErrNotFound, destEnvName)
+		return environmentNotFound(destEnvName)
 	}
 
 	// CNAME is an indexed field (environmentsByCNAME); mutating it in place
@@ -560,4 +598,40 @@ func (b *InMemoryBackend) addEnvironmentInternal(region string, env *Environment
 	cp := cloneEnvironment(env)
 	cp.Region = region
 	b.environmentPut(cp)
+}
+
+func environmentNotFound(name string) error {
+	return wrapf(ErrNotFound, "No Environment found for EnvironmentName = '%s'.", name)
+}
+
+func applicationNotFoundParam(name string) error {
+	return wrapf(ErrInvalidParameter, "No Application named '%s' found.", name)
+}
+
+func applicationNotFound(name string) error {
+	return wrapf(ErrNotFound, "No Application named '%s' found.", name)
+}
+
+func validateEnvironmentNames(envName, cnamePrefix string) error {
+	if !validEnvLabel(envName, minEnvironmentNameLen, maxEnvironmentNameLen) {
+		return wrapf(
+			ErrInvalidParameter,
+			"Environment name must be between %d and %d characters, contain only letters, numbers and hyphens, "+
+				"and not begin or end with a hyphen.",
+			minEnvironmentNameLen,
+			maxEnvironmentNameLen,
+		)
+	}
+
+	if cnamePrefix != "" && !validEnvLabel(cnamePrefix, minCNAMEPrefixLen, maxCNAMEPrefixLen) {
+		return wrapf(
+			ErrInvalidParameter,
+			"CNAME prefix must be between %d and %d characters, contain only letters, numbers and hyphens, "+
+				"and not begin or end with a hyphen.",
+			minCNAMEPrefixLen,
+			maxCNAMEPrefixLen,
+		)
+	}
+
+	return nil
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -16,6 +17,11 @@ func (b *InMemoryBackend) CreatePullRequest(
 ) (*PullRequest, error) {
 	b.mu.Lock("CreatePullRequest")
 	defer b.mu.Unlock()
+
+	targets, err := b.resolvePullRequestTargets(targets)
+	if err != nil {
+		return nil, err
+	}
 
 	b.nextPRCounter++
 	prID := strconv.Itoa(b.nextPRCounter)
@@ -35,6 +41,48 @@ func (b *InMemoryBackend) CreatePullRequest(
 	b.pullRequests.Put(pr)
 
 	return b.snapshotPullRequest(pr), nil
+}
+
+// resolvePullRequestTargets validates each target and fills in the destination default branch. Caller holds the lock.
+func (b *InMemoryBackend) resolvePullRequestTargets(in []PullRequestTarget) ([]PullRequestTarget, error) {
+	out := make([]PullRequestTarget, 0, len(in))
+
+	for _, t := range in {
+		if len(out) > 0 && t.RepositoryName != out[0].RepositoryName {
+			return nil, fmt.Errorf("%w: a pull request can target only one repository", ErrMultipleRepositories)
+		}
+
+		repo, ok := b.repositories.Get(t.RepositoryName)
+		if !ok {
+			return nil, fmt.Errorf("%w: %s does not exist", ErrNotFound, t.RepositoryName)
+		}
+
+		if t.DestinationReference == "" {
+			t.DestinationReference = repo.DefaultBranch
+		}
+
+		for _, ref := range []string{t.SourceReference, t.DestinationReference} {
+			if _, found := b.branches.Get(branchKey(t.RepositoryName, strings.TrimPrefix(ref, "refs/heads/"))); !found {
+				return nil, fmt.Errorf("%w: %s does not exist", ErrReferenceNotFound, ref)
+			}
+		}
+
+		if strings.TrimPrefix(
+			t.SourceReference,
+			"refs/heads/",
+		) == strings.TrimPrefix(
+			t.DestinationReference,
+			"refs/heads/",
+		) {
+			return nil, fmt.Errorf(
+				"%w: source and destination references must differ", ErrSourceAndDestinationSame,
+			)
+		}
+
+		out = append(out, t)
+	}
+
+	return out, nil
 }
 
 // GetPullRequest returns a pull request by ID.
@@ -60,7 +108,7 @@ func (b *InMemoryBackend) ListPullRequests(repositoryName, pullRequestStatus, au
 	defer b.mu.RUnlock()
 
 	if !b.repositories.Has(repositoryName) {
-		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repositoryName)
+		return nil, fmt.Errorf("%w: %s does not exist", ErrNotFound, repositoryName)
 	}
 
 	all := b.pullRequests.All()

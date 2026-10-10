@@ -138,7 +138,7 @@ func (b *InMemoryBackend) applySetting(region, directoryID, name string) {
 
 // settleLater runs fn under b.mu on the backend worker once statusTransitionDelay elapses.
 func (b *InMemoryBackend) settleLater(name string, fn func()) {
-	b.work.After(name, statusTransitionDelay, func() {
+	b.work.After(name, b.delayOr(statusTransitionDelay), func() {
 		b.mu.Lock(name)
 		defer b.mu.Unlock()
 		fn()

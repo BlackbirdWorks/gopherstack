@@ -9,6 +9,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/apprunner"
 	apprunnertypes "github.com/aws/aws-sdk-go-v2/service/apprunner/types"
+	"github.com/aws/aws-sdk-go-v2/service/bedrockagent"
+	batypes "github.com/aws/aws-sdk-go-v2/service/bedrockagent/types"
 	"github.com/aws/aws-sdk-go-v2/service/cloudfront"
 	cftypes "github.com/aws/aws-sdk-go-v2/service/cloudfront/types"
 	configservice "github.com/aws/aws-sdk-go-v2/service/configservice"
@@ -19,6 +21,8 @@ import (
 	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	"github.com/aws/aws-sdk-go-v2/service/efs"
 	"github.com/aws/aws-sdk-go-v2/service/elasticache"
+	"github.com/aws/aws-sdk-go-v2/service/elasticbeanstalk"
+	ebtypes "github.com/aws/aws-sdk-go-v2/service/elasticbeanstalk/types"
 	"github.com/aws/aws-sdk-go-v2/service/elasticsearchservice"
 	"github.com/aws/aws-sdk-go-v2/service/inspector2"
 	inspector2types "github.com/aws/aws-sdk-go-v2/service/inspector2/types"
@@ -26,6 +30,8 @@ import (
 	kav2types "github.com/aws/aws-sdk-go-v2/service/kinesisanalyticsv2/types"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
+	"github.com/aws/aws-sdk-go-v2/service/medialive"
+	mltypes "github.com/aws/aws-sdk-go-v2/service/medialive/types"
 	"github.com/aws/aws-sdk-go-v2/service/mediastore"
 	"github.com/aws/aws-sdk-go-v2/service/memorydb"
 	"github.com/aws/aws-sdk-go-v2/service/neptune"
@@ -33,6 +39,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/quicksight"
 	qstypes "github.com/aws/aws-sdk-go-v2/service/quicksight/types"
 	"github.com/aws/aws-sdk-go-v2/service/redshift"
+	"github.com/aws/aws-sdk-go-v2/service/route53resolver"
+	r53types "github.com/aws/aws-sdk-go-v2/service/route53resolver/types"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/aws/aws-sdk-go-v2/service/workspaces"
 	wstypes "github.com/aws/aws-sdk-go-v2/service/workspaces/types"
@@ -582,6 +590,107 @@ func lifecycleKnobs() []lifecycleKnob {
 					require.NoError(t, dErr)
 
 					return out.Analysis.Status == qstypes.ResourceStatusCreationInProgress
+				}
+			},
+		},
+		{
+			name: "bedrockagent",
+			set:  func(l *LifecycleSettings, d time.Duration) { l.BedrockAgent = d },
+			start: func(t *testing.T, cfg aws.Config) func() bool {
+				t.Helper()
+
+				c := bedrockagent.NewFromConfig(cfg)
+				created, err := c.CreateAgent(t.Context(), &bedrockagent.CreateAgentInput{
+					AgentName:            aws.String("lcres"),
+					AgentResourceRoleArn: aws.String("arn:aws:iam::000000000000:role/r"),
+					FoundationModel:      aws.String("anthropic.claude-v2"),
+				})
+				require.NoError(t, err)
+				_, err = c.PrepareAgent(t.Context(), &bedrockagent.PrepareAgentInput{AgentId: created.Agent.AgentId})
+				require.NoError(t, err)
+
+				return func() bool {
+					out, dErr := c.GetAgent(t.Context(), &bedrockagent.GetAgentInput{
+						AgentId: created.Agent.AgentId,
+					})
+					require.NoError(t, dErr)
+
+					return out.Agent.AgentStatus == batypes.AgentStatusPreparing
+				}
+			},
+		},
+		{
+			name: "elasticbeanstalk",
+			set:  func(l *LifecycleSettings, d time.Duration) { l.ElasticBeanstalk = d },
+			start: func(t *testing.T, cfg aws.Config) func() bool {
+				t.Helper()
+
+				c := elasticbeanstalk.NewFromConfig(cfg)
+				_, err := c.CreateApplication(t.Context(), &elasticbeanstalk.CreateApplicationInput{
+					ApplicationName: aws.String("lcres"),
+				})
+				require.NoError(t, err)
+				_, err = c.CreateEnvironment(t.Context(), &elasticbeanstalk.CreateEnvironmentInput{
+					ApplicationName: aws.String("lcres"),
+					EnvironmentName: aws.String("lcres-env"),
+				})
+				require.NoError(t, err)
+
+				return func() bool {
+					out, dErr := c.DescribeEnvironments(t.Context(), &elasticbeanstalk.DescribeEnvironmentsInput{})
+					require.NoError(t, dErr)
+					require.Len(t, out.Environments, 1)
+
+					return out.Environments[0].Status == ebtypes.EnvironmentStatusLaunching
+				}
+			},
+		},
+		{
+			name: "route53resolver",
+			set:  func(l *LifecycleSettings, d time.Duration) { l.Route53Resolver = d },
+			start: func(t *testing.T, cfg aws.Config) func() bool {
+				t.Helper()
+
+				c := route53resolver.NewFromConfig(cfg)
+				created, err := c.CreateResolverEndpoint(t.Context(), &route53resolver.CreateResolverEndpointInput{
+					CreatorRequestId: aws.String("lcres"),
+					Name:             aws.String("lcres"),
+					Direction:        r53types.ResolverEndpointDirectionInbound,
+					SecurityGroupIds: []string{"sg-1"},
+					IpAddresses: []r53types.IpAddressRequest{
+						{SubnetId: aws.String("subnet-1")},
+						{SubnetId: aws.String("subnet-2")},
+					},
+				})
+				require.NoError(t, err)
+
+				return func() bool {
+					out, dErr := c.GetResolverEndpoint(t.Context(), &route53resolver.GetResolverEndpointInput{
+						ResolverEndpointId: created.ResolverEndpoint.Id,
+					})
+					require.NoError(t, dErr)
+
+					return out.ResolverEndpoint.Status == r53types.ResolverEndpointStatusCreating
+				}
+			},
+		},
+		{
+			name: "medialive",
+			set:  func(l *LifecycleSettings, d time.Duration) { l.MediaLive = d },
+			start: func(t *testing.T, cfg aws.Config) func() bool {
+				t.Helper()
+
+				c := medialive.NewFromConfig(cfg)
+				created, err := c.CreateChannel(t.Context(), &medialive.CreateChannelInput{Name: aws.String("lcres")})
+				require.NoError(t, err)
+
+				return func() bool {
+					out, dErr := c.DescribeChannel(t.Context(), &medialive.DescribeChannelInput{
+						ChannelId: created.Channel.Id,
+					})
+					require.NoError(t, dErr)
+
+					return out.State == mltypes.ChannelStateCreating
 				}
 			},
 		},

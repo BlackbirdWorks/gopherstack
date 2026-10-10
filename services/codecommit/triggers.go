@@ -8,7 +8,7 @@ func (b *InMemoryBackend) GetRepositoryTriggers(repoName string) ([]RepositoryTr
 	defer b.mu.RUnlock()
 
 	if !b.repositories.Has(repoName) {
-		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
+		return nil, fmt.Errorf("%w: %s does not exist", ErrNotFound, repoName)
 	}
 
 	triggers := b.triggers[repoName]
@@ -24,7 +24,7 @@ func (b *InMemoryBackend) PutRepositoryTriggers(repoName string, triggers []Repo
 	defer b.mu.Unlock()
 
 	if !b.repositories.Has(repoName) {
-		return fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
+		return fmt.Errorf("%w: %s does not exist", ErrNotFound, repoName)
 	}
 
 	b.triggers[repoName] = make([]RepositoryTrigger, len(triggers))
@@ -43,7 +43,7 @@ func (b *InMemoryBackend) TestRepositoryTriggers(repoName string, triggers []Rep
 	defer b.mu.RUnlock()
 
 	if !b.repositories.Has(repoName) {
-		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
+		return nil, fmt.Errorf("%w: %s does not exist", ErrNotFound, repoName)
 	}
 
 	names := make([]string, 0, len(triggers))

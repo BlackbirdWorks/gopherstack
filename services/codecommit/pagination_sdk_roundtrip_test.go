@@ -35,6 +35,8 @@ func TestListPullRequests_SDKRoundTrip_BoundaryWalk(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	seedBackendFeatureBranch(t, backend, repoName)
+
 	wantIDs := make(map[string]bool, 9)
 
 	for i := range 9 {

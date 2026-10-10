@@ -32,14 +32,14 @@ func setStage(d *storedDirectory, stage DirectoryStage) {
 // timer instead of an untracked goroutine sleeping in real time, so nothing
 // outlives Close() and pending timers cannot pile up past shutdown.
 func (b *InMemoryBackend) transitionDirectoryToActive(region, dirID string) {
-	b.work.After("DirectoryCreating", directoryLifecycleDelay, func() {
+	b.work.After("DirectoryCreating", b.delayOr(directoryLifecycleDelay), func() {
 		b.mu.Lock("transitionDirectoryToActive:creating")
 		if d, ok := b.directoryGet(region, dirID); ok && d.Stage == string(DirectoryStageRequested) {
 			setStage(d, DirectoryStageCreating)
 		}
 		b.mu.Unlock()
 
-		b.work.After("DirectoryActive", directoryLifecycleDelay, func() {
+		b.work.After("DirectoryActive", b.delayOr(directoryLifecycleDelay), func() {
 			b.mu.Lock("transitionDirectoryToActive:active")
 			if d, ok := b.directoryGet(region, dirID); ok && d.Stage == string(DirectoryStageCreating) {
 				setStage(d, DirectoryStageActive)
@@ -308,7 +308,7 @@ func (b *InMemoryBackend) DeleteDirectory(ctx context.Context, directoryID strin
 
 	d, ok := b.directoryGet(region, directoryID)
 	if !ok {
-		return ErrDirectoryNotFound
+		return wrapf(ErrDirectoryNotFound, "Directory %s does not exist.", directoryID)
 	}
 
 	delete(b.aliasesStore(region), d.Alias)
@@ -335,7 +335,7 @@ func (b *InMemoryBackend) DescribeDirectories(
 	if len(directoryIDs) > 0 {
 		for _, id := range directoryIDs {
 			if _, ok := b.describeByID(region, id); !ok {
-				return nil, "", ErrDirectoryNotFound
+				return nil, "", wrapf(ErrDirectoryNotFound, "Directory %s does not exist.", id)
 			}
 		}
 		ids = append([]string(nil), directoryIDs...)

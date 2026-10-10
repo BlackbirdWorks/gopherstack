@@ -347,6 +347,13 @@ By default resources settle instantly. Set a dwell to make Creating/Processing/P
 | `--lifecycle-quicksight` | `QUICKSIGHT_CREATION_DELAY` | QuickSight dashboard/analysis/data source `CREATION_IN_PROGRESS` window. |
 | `--lifecycle-quicksight-ingestion` | `QUICKSIGHT_INGESTION_DELAY` | QuickSight manual ingestion `RUNNING` window (built-in `1s`; ignores the global delay). |
 | `--lifecycle-kinesisanalyticsv2` | `KINESISANALYTICSV2_LIFECYCLE_DELAY` | Managed Flink application `STARTING`/`STOPPING`/`UPDATING` window. |
+| `--lifecycle-sagemaker` | `SAGEMAKER_LIFECYCLE_DELAY` | SageMaker transitional-state window (unset keeps the built-in dwell). |
+| `--lifecycle-bedrock` | `BEDROCK_JOB_COMPLETION_DELAY` | Bedrock job `InProgress` window (unset keeps the built-in window). |
+| `--lifecycle-bedrockagent` | `BEDROCKAGENT_LIFECYCLE_DELAY` | Bedrock Agents `CREATING`/`PREPARING`/`UPDATING` and ingestion window. |
+| `--lifecycle-elasticbeanstalk` | `ELASTICBEANSTALK_LIFECYCLE_DELAY` | Elastic Beanstalk environment `Launching`/`Updating`/`Terminating` window. |
+| `--lifecycle-route53resolver` | `ROUTE53RESOLVER_LIFECYCLE_DELAY` | Route 53 Resolver endpoint `CREATING`/`UPDATING` and rule association `CREATING` window. |
+| `--lifecycle-directoryservice` | `DIRECTORYSERVICE_LIFECYCLE_DELAY` | Directory Service `Requested`/`Creating`, restore and trust/snapshot/share/setting transitions (unset keeps the built-in sub-second dwell). |
+| `--lifecycle-medialive` | `MEDIALIVE_LIFECYCLE_DELAY` | MediaLive channel/multiplex `CREATING`/`STARTING`/`STOPPING`/`DELETING` window. |
 | `--lifecycle-cloudfront` | `CLOUDFRONT_DEPLOY_DELAY` | CloudFront distribution `InProgress` window (default `100ms`). |
 | `--lifecycle-ssm-command` / `--lifecycle-ssm-automation` | `SSM_COMMAND_EXEC_DELAY` / `SSM_AUTOMATION_EXEC_DELAY` | SendCommand / automation `InProgress` window. |
 | *(none)* | `DYNAMODB_CREATE_DELAY` | DynamoDB table `CREATING` window. |
@@ -566,8 +573,8 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [RDS Data](services/rdsdata/README.md) | A | 6 | 1 gap; 3 structural gaps |
 | [Redshift](services/redshift/README.md) | A | 9 | 5 gaps; 4 structural gaps |
 | [Redshift Data](services/redshiftdata/README.md) | A | 12 | 3 structural gaps; 1 deferred |
-| [Timestream Query](services/timestreamquery/README.md) | A | 12 | 2 structural gaps; 1 deferred |
-| [Timestream Write](services/timestreamwrite/README.md) | A | 19 | clean |
+| [Timestream Query](services/timestreamquery/README.md) | A | 12 | 3 structural gaps; 1 deferred |
+| [Timestream Write](services/timestreamwrite/README.md) | A | 19 | 1 structural gap |
 
 ### Networking & Content Delivery
 

@@ -519,10 +519,9 @@ func TestHandler_RebuildEnvironment(t *testing.T) {
 	}
 }
 
-// TestHandler_Environment_NotFoundUsesResourceNotFoundException verifies that
-// environment lookups by name surface the specific ResourceNotFoundException
-// wire code for these operations.
-func TestHandler_Environment_NotFoundUsesResourceNotFoundException(t *testing.T) {
+// TestHandler_Environment_NotFoundError verifies name lookups surface
+// InvalidParameterValue with the real "No Environment found" wording.
+func TestHandler_Environment_NotFoundError(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -551,7 +550,9 @@ func TestHandler_Environment_NotFoundUsesResourceNotFoundException(t *testing.T)
 			h := newTestHandler()
 			rec := postEBForm(t, h, tt.action)
 			require.Equal(t, http.StatusBadRequest, rec.Code)
-			assert.Contains(t, rec.Body.String(), "ResourceNotFoundException")
+			assert.Contains(t, rec.Body.String(), "<Code>InvalidParameterValue</Code>")
+			assert.Contains(t, rec.Body.String(), "No Environment found for EnvironmentName = &#39;doesnotexist&#39;.")
+			assert.NotContains(t, rec.Body.String(), "ResourceNotFoundException")
 		})
 	}
 }
@@ -565,7 +566,7 @@ func TestHandler_DescribeEnvironmentHealth_NotFoundError(t *testing.T) {
 	rec := postEBForm(t, h, "Version=2010-12-01&Action=DescribeEnvironmentHealth&EnvironmentName=missing")
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 	body := rec.Body.String()
-	assert.Contains(t, body, "ResourceNotFoundException")
+	assert.Contains(t, body, "<Code>InvalidParameterValue</Code>")
 	assert.NotContains(t, body, "Grey", "should not return Grey for missing env")
 	assert.NotContains(t, body, "Terminated", "should not return Terminated for missing env")
 }

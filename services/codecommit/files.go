@@ -7,8 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -41,7 +39,7 @@ func (b *InMemoryBackend) PutFile(
 	defer b.mu.Unlock()
 
 	if !b.repositories.Has(repoName) {
-		return nil, "", fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
+		return nil, "", fmt.Errorf("%w: %s does not exist", ErrNotFound, repoName)
 	}
 
 	var currentTip string
@@ -65,8 +63,8 @@ func (b *InMemoryBackend) PutFile(
 		)
 	}
 
-	commitID := uuid.NewString()
-	treeID := uuid.NewString()
+	commitID := newObjectID()
+	treeID := newObjectID()
 	now := time.Now().UTC()
 
 	fileMode := meta.FileMode
@@ -74,7 +72,7 @@ func (b *InMemoryBackend) PutFile(
 		fileMode = fileModeDefault
 	}
 
-	blobID := uuid.NewString()
+	blobID := newObjectID()
 	b.storeBlobLocked(repoName, blobID, content)
 	tree[filePath] = TreeEntry{BlobID: blobID, Mode: fileMode}
 	b.files.Put(&File{
@@ -120,7 +118,7 @@ func (b *InMemoryBackend) PutFile(
 
 	// Update branch tip
 	if branchName != "" {
-		b.branches.Put(&Branch{
+		b.putBranchLocked(&Branch{
 			BranchName:     branchName,
 			CommitID:       commitID,
 			RepositoryName: repoName,
@@ -138,7 +136,7 @@ func (b *InMemoryBackend) GetFile(repoName, commitSpecifier, filePath string) (*
 	defer b.mu.RUnlock()
 
 	if !b.repositories.Has(repoName) {
-		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
+		return nil, fmt.Errorf("%w: %s does not exist", ErrNotFound, repoName)
 	}
 
 	if commitID, tree, ok := b.specTreeLocked(repoName, commitSpecifier); ok {
@@ -165,7 +163,7 @@ func (b *InMemoryBackend) GetFolder(repoName, commitSpecifier, folderPath string
 	defer b.mu.RUnlock()
 
 	if !b.repositories.Has(repoName) {
-		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
+		return nil, fmt.Errorf("%w: %s does not exist", ErrNotFound, repoName)
 	}
 
 	folderPath = strings.Trim(folderPath, "/")
@@ -208,7 +206,7 @@ func (b *InMemoryBackend) GetFolderFiles(repoName, commitSpecifier, folderPath s
 	defer b.mu.RUnlock()
 
 	if !b.repositories.Has(repoName) {
-		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
+		return nil, fmt.Errorf("%w: %s does not exist", ErrNotFound, repoName)
 	}
 
 	folderPath = strings.Trim(folderPath, "/")
@@ -247,6 +245,104 @@ func (b *InMemoryBackend) GetFolderFiles(repoName, commitSpecifier, folderPath s
 	return files, nil
 }
 
+// FolderView is the immediate contents of a folder at a commit.
+type FolderView struct {
+	CommitID   string
+	Files      []*File
+	SubFolders []string
+}
+
+// GetFolderView lists the files and subfolders directly under folderPath.
+// An empty commitSpecifier means the repository default branch.
+func (b *InMemoryBackend) GetFolderView(repoName, commitSpecifier, folderPath string) (*FolderView, error) {
+	b.mu.RLock("GetFolderView")
+	defer b.mu.RUnlock()
+
+	repo, ok := b.repositories.Get(repoName)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s does not exist", ErrNotFound, repoName)
+	}
+
+	spec := commitSpecifier
+	if spec == "" {
+		spec = repo.DefaultBranch
+	}
+
+	folder := strings.Trim(folderPath, "/")
+
+	commitID, entries, err := b.folderEntriesLocked(repoName, spec, commitSpecifier != "", folder)
+	if err != nil {
+		return nil, err
+	}
+
+	if folder != "" && len(entries) == 0 {
+		return nil, fmt.Errorf("%w: %s does not exist", ErrFolderNotFound, folderPath)
+	}
+
+	view := &FolderView{CommitID: commitID}
+	splitFolderEntries(view, entries, folder)
+
+	return view, nil
+}
+
+// folderEntriesLocked returns every file under folder at spec, falling back to the
+// branch-less file view when spec has no tree. Caller holds the read lock.
+func (b *InMemoryBackend) folderEntriesLocked(
+	repoName, spec string, explicit bool, folder string,
+) (string, []*File, error) {
+	var entries []*File
+
+	if commitID, tree, found := b.specTreeLocked(repoName, spec); found {
+		for p, entry := range tree {
+			if folder == "" || strings.HasPrefix(p, folder+"/") {
+				entries = append(entries, b.fileFromEntryLocked(repoName, commitID, p, entry))
+			}
+		}
+
+		return commitID, entries, nil
+	}
+
+	if explicit {
+		if _, err := b.resolveCommitSpecifier(repoName, spec); err != nil {
+			return "", nil, err
+		}
+	}
+
+	for _, f := range b.filesByRepo.Get(repoName) {
+		if folder == "" || strings.HasPrefix(f.FilePath, folder+"/") {
+			cp := *f
+			entries = append(entries, &cp)
+		}
+	}
+
+	return "", entries, nil
+}
+
+// splitFolderEntries separates direct files from first-level subfolders under folder.
+func splitFolderEntries(view *FolderView, entries []*File, folder string) {
+	seen := map[string]bool{}
+
+	for _, f := range entries {
+		rest := strings.TrimPrefix(strings.TrimPrefix(f.FilePath, folder), "/")
+
+		head, _, nested := strings.Cut(rest, "/")
+		if !nested {
+			view.Files = append(view.Files, f)
+
+			continue
+		}
+
+		sub := strings.TrimPrefix(folder+"/"+head, "/")
+		if !seen[sub] {
+			seen[sub] = true
+			view.SubFolders = append(view.SubFolders, sub)
+		}
+	}
+
+	sort.Strings(view.SubFolders)
+	sort.Slice(view.Files, func(i, j int) bool { return view.Files[i].FilePath < view.Files[j].FilePath })
+}
+
 // DeleteFileMetadata carries DeleteFile's authoring fields (commitMessage/
 // name/email on AWS's DeleteFileInput, alongside the already-enforced
 // parentCommitId). Previously commitMessage/name/email were dropped
@@ -281,7 +377,7 @@ func (b *InMemoryBackend) DeleteFile(
 	defer b.mu.Unlock()
 
 	if !b.repositories.Has(repoName) {
-		return nil, "", fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
+		return nil, "", fmt.Errorf("%w: %s does not exist", ErrNotFound, repoName)
 	}
 
 	existing, ok := b.files.Get(fileKey(repoName, filePath))
@@ -314,8 +410,8 @@ func (b *InMemoryBackend) DeleteFile(
 	delete(tree, filePath)
 	b.files.Delete(fileKey(repoName, filePath))
 
-	commitID := uuid.NewString()
-	treeID := uuid.NewString()
+	commitID := newObjectID()
+	treeID := newObjectID()
 	now := time.Now().UTC()
 
 	message := meta.CommitMessage
@@ -347,7 +443,7 @@ func (b *InMemoryBackend) DeleteFile(
 
 	// Update branch tip
 	if branchName != "" {
-		b.branches.Put(&Branch{
+		b.putBranchLocked(&Branch{
 			BranchName:     branchName,
 			CommitID:       commitID,
 			RepositoryName: repoName,
@@ -365,7 +461,7 @@ func (b *InMemoryBackend) GetBlob(repoName, blobID string) ([]byte, error) {
 	defer b.mu.RUnlock()
 
 	if !b.repositories.Has(repoName) {
-		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
+		return nil, fmt.Errorf("%w: %s does not exist", ErrNotFound, repoName)
 	}
 
 	if content, ok := b.blobContentLocked(repoName, blobID); ok {
@@ -396,7 +492,7 @@ func (b *InMemoryBackend) ListFileCommitHistory(
 	defer b.mu.RUnlock()
 
 	if !b.repositories.Has(repoName) {
-		return page.Page[FileVersionEntry]{}, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
+		return page.Page[FileVersionEntry]{}, fmt.Errorf("%w: %s does not exist", ErrNotFound, repoName)
 	}
 
 	var entries []FileVersionEntry

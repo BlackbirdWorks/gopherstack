@@ -49,8 +49,9 @@ func TestElasticBeanstalk_PersistenceSnapshotRestore(t *testing.T) {
 			name: "batch1_environment_and_version_state_preserved",
 			setup: func(b *elasticbeanstalk.InMemoryBackend) {
 				ctx := context.Background()
+				_, _ = b.CreateApplication(ctx, "app", "", nil)
 				_, _ = b.CreateEnvironment(
-					ctx, "app", "env", "stack", "", nil,
+					ctx, "app", "env-name", "stack", "", nil,
 					elasticbeanstalk.CreateEnvironmentParams{
 						VersionLabel: "v1",
 						OptionSettings: []elasticbeanstalk.OptionSetting{
@@ -71,7 +72,7 @@ func TestElasticBeanstalk_PersistenceSnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *elasticbeanstalk.InMemoryBackend) {
 				t.Helper()
 
-				envs := b.DescribeEnvironments(context.Background(), "app", []string{"env"}, nil)
+				envs := b.DescribeEnvironments(context.Background(), "app", []string{"env-name"}, nil)
 				require.Len(t, envs, 1)
 				assert.Equal(t, "v1", envs[0].VersionLabel)
 				assert.Equal(t, "vpc-1", envs[0].OptionSettings[0].Value)

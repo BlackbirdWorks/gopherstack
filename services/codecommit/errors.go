@@ -9,6 +9,9 @@ import (
 )
 
 const (
+	maxRepositoryDescriptionLength  = 1000
+	maxPullRequestTitleLength       = 100
+	maxPullRequestDescription       = 1000
 	errRepoDoesNotExist             = "RepositoryDoesNotExistException"
 	errApprovalRuleTemplateNotExist = "ApprovalRuleTemplateDoesNotExistException"
 )
@@ -159,10 +162,25 @@ func validateBranchName(name string) error {
 	return nil
 }
 
+// ValidateRepositoryDescription rejects descriptions over 1,000 characters.
+func ValidateRepositoryDescription(desc string) error {
+	if len(desc) > maxRepositoryDescriptionLength {
+		return fmt.Errorf(
+			"%w: repository description must be %d characters or fewer",
+			ErrInvalidRepositoryDescription, maxRepositoryDescriptionLength,
+		)
+	}
+
+	return nil
+}
+
 // ValidateRepositoryName returns an error if name is not a valid CodeCommit repository name.
 func ValidateRepositoryName(name string) error {
 	if len(name) == 0 || len(name) > 100 {
 		return fmt.Errorf("%w: repository name must be between 1 and 100 characters", ErrInvalidRepositoryName)
+	}
+	if strings.HasSuffix(name, ".git") {
+		return fmt.Errorf("%w: repository name cannot end with .git", ErrInvalidRepositoryName)
 	}
 	if !repoNameRe.MatchString(name) {
 		return fmt.Errorf(
@@ -173,6 +191,23 @@ func ValidateRepositoryName(name string) error {
 
 	return nil
 }
+
+// Errors for listing, folder and pull request validation.
+var (
+	ErrInvalidSortBy                = awserr.New("InvalidSortByException", awserr.ErrInvalidParameter)
+	ErrInvalidOrder                 = awserr.New("InvalidOrderException", awserr.ErrInvalidParameter)
+	ErrInvalidRepositoryDescription = awserr.New("InvalidRepositoryDescriptionException", awserr.ErrInvalidParameter)
+	ErrFolderNotFound               = awserr.New("FolderDoesNotExistException", awserr.ErrNotFound)
+	ErrReferenceNotFound            = awserr.New("ReferenceDoesNotExistException", awserr.ErrNotFound)
+	ErrSourceAndDestinationSame     = awserr.New("SourceAndDestinationAreSameException", awserr.ErrInvalidParameter)
+	ErrInvalidPullRequestID         = awserr.New("InvalidPullRequestIdException", awserr.ErrInvalidParameter)
+	ErrInvalidTitle                 = awserr.New("InvalidTitleException", awserr.ErrInvalidParameter)
+	ErrInvalidDescription           = awserr.New("InvalidDescriptionException", awserr.ErrInvalidParameter)
+	ErrMultipleRepositories         = awserr.New(
+		"MultipleRepositoriesInPullRequestException",
+		awserr.ErrInvalidParameter,
+	)
+)
 
 // Errors raised by the merge operations' conflict handling inputs.
 var (
