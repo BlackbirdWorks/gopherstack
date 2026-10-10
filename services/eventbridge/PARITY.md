@@ -1124,3 +1124,12 @@ EventSizeLimitExceeded is a per-entry ErrorCode in a PutEvents 200 body (put_eve
 ## 2026-10-05 (zeroguard omitted-vs-zero audit)
 
 Tool false positives (cmd/zeroguard): required path/identifier members (Name, *Id, *Arn), Put* operations that replace the whole resource (PutRule, PutPermission, PutResourcePolicy, PutCodeBinding), and PatchOperations-based Update* ops.
+
+## 2026-10-09: Batch, CodeBuild, CodePipeline, SageMaker pipeline and Redshift Data targets
+
+Rule targets with a Batch job-queue, CodeBuild project, CodePipeline pipeline, SageMaker pipeline or Redshift cluster
+ARN were dropped with an "unsupported target" warning. They now deliver through `DeliveryTargets.{Batch,CodeBuild,
+CodePipeline,SageMakerPipeline,RedshiftData}` (delivery_services.go), wired in cli_eventbridge_job_targets_wiring.go;
+`TestEventBridgeJobTargets` drives PutEvents through the SDK and asserts the job/build/execution/statement exists.
+CodePipeline is wired the same way but has no root-level test yet. API Gateway (execute-api) and SSM RunCommand/Automation
+targets remain unsupported (no in-process execute-api invoke seam).

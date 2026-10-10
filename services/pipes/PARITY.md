@@ -1028,3 +1028,11 @@ SQS and Kinesis sources are read, and SQS, Kinesis, EventBridge and CloudWatch L
 ## 2026-10-05 (zeroguard omitted-vs-zero audit)
 
 Tool false positives (cmd/zeroguard): required path/identifier members (Name, *Id, *Arn), Put* operations that replace the whole resource (PutRule, PutPermission, PutResourcePolicy, PutCodeBinding), and PatchOperations-based Update* ops.
+
+## 2026-10-09: Batch, SageMaker pipeline, Redshift Data and ECS targets
+
+`dispatchTarget` returned ErrUnsupportedPipeTarget for Batch, SageMaker, Redshift and ECS ARNs although
+`TargetParameters` already models them. `Runner.SetJobTargets` (runner_job_targets.go) now routes them to the real
+backends via cli_pipes_job_targets_wiring.go; `TestPipesJobTargets` covers batch, sagemaker_pipeline and redshift_data
+end to end (ECS is wired, untested at root level). Still unsupported: API destination / API Gateway / Timestream /
+Inspector targets and API destination / API Gateway enrichment.

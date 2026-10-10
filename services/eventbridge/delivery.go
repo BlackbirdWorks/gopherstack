@@ -91,9 +91,15 @@ type DeliveryTargets struct {
 	CloudWatchLogs  CloudWatchLogsPublisher
 	APIDestinations APIDestinationResolver
 	EventBusRouter  EventBusRouter
-	RoleAuth        roleauth.Authorizer
-	obs             ruleObserver
-	ruleARN         string
+
+	Batch             BatchJobSubmitter
+	CodeBuild         CodeBuildStarter
+	CodePipeline      CodePipelineStarter
+	SageMakerPipeline SageMakerPipelineStarter
+	RedshiftData      RedshiftDataExecutor
+	RoleAuth          roleauth.Authorizer
+	obs               ruleObserver
+	ruleARN           string
 }
 
 // EventBusRouter routes a matched event to another event bus, implementing
@@ -744,6 +750,10 @@ func deliverToTarget(
 		// unavailable when the target is a cross-account event bus).
 		return deliverToEventBus(ctx, dt.EventBusRouter, targetARN, envelope)
 	default:
+		if failed, handled := deliverToServiceTarget(ctx, target, dt, payload); handled {
+			return failed
+		}
+
 		logger.Load(ctx).
 			WarnContext(ctx, "EventBridge: unsupported target ARN type", "arn", targetARN)
 	}

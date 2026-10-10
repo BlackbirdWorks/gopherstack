@@ -181,6 +181,7 @@ type Runner struct {
 	firehose         PipeFirehosePutter
 	kinesisReader    PipeKinesisReader
 	ddbStreamsReader PipeDynamoDBStreamsReader
+	jobs             JobTargets
 	backend          *InMemoryBackend
 	sem              chan struct{}
 	done             chan struct{}
@@ -592,6 +593,10 @@ func (r *Runner) dispatchTarget(ctx context.Context, p *Pipe, payload []byte) er
 		return r.invokeCloudWatchLogsTarget(ctx, p, payload)
 	case strings.HasPrefix(p.Target, "arn:aws:firehose:"):
 		return r.invokeFirehoseTarget(ctx, p, payload)
+	}
+
+	if handled, err := r.dispatchJobTarget(ctx, p); handled {
+		return err
 	}
 
 	return fmt.Errorf("%w %q for pipe %q", ErrUnsupportedPipeTarget, p.Target, p.Name)

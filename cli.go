@@ -3036,6 +3036,7 @@ func wireMessagingAndEventingIntegrations(byName map[string]service.Registerable
 		byName["StepFunctions"],
 		byName["CloudWatchLogs"],
 	)
+	wireEventBridgeJobTargets(byName)
 
 	// Wire S3 bucket notification delivery to SQS/SNS/Lambda targets.
 	wireS3Notifications(
@@ -4021,6 +4022,8 @@ func wireSchedulerAndPipesIntegrations(byName map[string]service.Registerable) {
 		byName["Firehose"],
 		byName["DynamoDB"],
 	)
+	wirePipesJobTargets(byName)
+	wireSchedulerDeliveryTargets(byName)
 }
 
 // wireGovernanceIntegrations wires Resource Groups Tagging API aggregation

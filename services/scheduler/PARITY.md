@@ -783,3 +783,10 @@ SQS (incl. FIFO), Kinesis, EventBridge and SageMaker targets resolve their backe
 ## 2026-10-05 (gopherstack-uox6 pass 5, value semantics)
 
 UpdateSchedule resets an omitted State to ENABLED and ActionAfterCompletion to NONE (full replacement, api_op_UpdateSchedule.go:16-19); omitted ScheduleExpressionTimezone is stored and returned as UTC.
+
+## 2026-10-09: Firehose, CodeBuild and CodePipeline targets
+
+Schedules targeting these ARNs were warned about and skipped. `Runner.SetDeliveryTargets` (runner_build_targets.go) now
+delivers them through cli_scheduler_build_targets_wiring.go; `TestSchedulerCodeBuildTarget` verifies a build is started
+via the SDK. Firehose and CodePipeline are wired but lack a root-level test. Universal (`arn:aws:scheduler:::aws-sdk:`)
+targets remain unsupported.
