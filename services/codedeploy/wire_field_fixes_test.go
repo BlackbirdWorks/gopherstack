@@ -221,6 +221,12 @@ func TestStopDeployment_RealClient_StatusMessage(t *testing.T) {
 		ApplicationName:     aws.String("wf-stopmsg-app"),
 		DeploymentGroupName: aws.String("wf-stopmsg-dg"),
 		ServiceRoleArn:      aws.String("arn:aws:iam::000000000000:role/role"),
+		DeploymentStyle:     &types.DeploymentStyle{DeploymentType: types.DeploymentTypeBlueGreen},
+		BlueGreenDeploymentConfiguration: &types.BlueGreenDeploymentConfiguration{
+			DeploymentReadyOption: &types.DeploymentReadyOption{
+				ActionOnTimeout: types.DeploymentReadyActionStopDeployment,
+			},
+		},
 	})
 	require.NoError(t, err)
 

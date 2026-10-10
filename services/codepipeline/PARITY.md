@@ -7,7 +7,7 @@
 service: codepipeline
 sdk_module: aws-sdk-go-v2/service/codepipeline@v1.54.0   # version audited against
 last_audit_commit: d4dc4a723
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
 overall: A            # 2026-09-08 (gopherstack-wlab) re-audit of the same 7 findings, using
 # botocore codepipeline/2015-07-09/service-2.json as the declared-error-set oracle (its per-op
 # "errors" lists are IDENTICAL to what gopherstack-3djp cited from codepipeline@v1.49.4's
@@ -648,3 +648,7 @@ ListRuleTypes now applies RuleOwnerFilter (`ruleOwnerFilter`, serializers.go:501
 ## 2026-10-05 (reqfielddiff, dropped request members)
 
 StartPipelineExecution honours ClientRequestToken (the SDK auto-fills it, so a retried call must not start a second execution). ListActionTypes applies RegionFilter to the custom action types of that region. The replay memo is not persisted. Proof: `dropped_members_sdk_test.go`.
+
+## Notes (2026-10-10 realism pass)
+
+GetPipelineState now returns stage-level latestExecution ({pipelineExecutionId, status} derived from the stage's newest action executions) and a default enabled inboundTransitionState on every non-first stage. List* NextToken is an opaque base64 token and a malformed one returns InvalidNextTokenException. PipelineNotFoundException reads "Account '<id>' does not have a pipeline with name '<name>'"; messages no longer repeat the exception code. Tests: state_and_errors_realism_test.go. StartPipelineExecution still runs the whole pipeline synchronously, so executions are never observed InProgress except when gated by an approval or disabled transition.

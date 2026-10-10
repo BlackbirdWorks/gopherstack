@@ -193,6 +193,7 @@ type StorageBackend interface {
 
 	// Upgrade operations
 	UpgradeDomain(domainName, upgradeName string) error
+	CheckUpgradeDomain(domainName, target string) error
 	GetUpgradeHistory(domainName string) ([]*UpgradeHistory, error)
 	GetUpgradeStatus(domainName string) (upgradeName, upgradeStatus, upgradeStep string, err error)
 

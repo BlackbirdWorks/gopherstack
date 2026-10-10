@@ -6,13 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strconv"
+	"regexp"
 	"strings"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -34,17 +35,21 @@ var (
 )
 
 // cpParseNextToken converts an opaque NextToken string to a slice start index.
-func cpParseNextToken(token string) int {
+func cpParseNextToken(token string) (int, error) {
 	if token == "" {
-		return 0
+		return 0, nil
 	}
 
-	idx, err := strconv.Atoi(token)
-	if err != nil || idx < 0 {
-		return 0
+	if err := page.ValidateToken(token); err != nil {
+		return 0, fmt.Errorf("%w: the next token provided is invalid", ErrInvalidNextToken)
 	}
 
-	return idx
+	idx := page.DecodeToken(token)
+	if idx < 0 {
+		return 0, fmt.Errorf("%w: the next token provided is invalid", ErrInvalidNextToken)
+	}
+
+	return idx, nil
 }
 
 // cpPaginate applies MaxResults/NextToken pagination to a slice.
@@ -69,7 +74,10 @@ func cpPaginate[T any](
 		limit = maxResults
 	}
 
-	start := cpParseNextToken(nextToken)
+	start, err := cpParseNextToken(nextToken)
+	if err != nil {
+		return nil, "", err
+	}
 
 	if start >= len(items) {
 		return items[:0], "", nil
@@ -80,7 +88,7 @@ func cpPaginate[T any](
 	var outToken string
 
 	if end < len(items) {
-		outToken = strconv.Itoa(end)
+		outToken = page.EncodeToken(end)
 	} else {
 		end = len(items)
 	}
@@ -296,6 +304,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	}
 
 	sentinels := []errMapping{
+		{ErrInvalidNextToken, "InvalidNextTokenException"},
 		{ErrPipelineNameInUse, "PipelineNameInUseException"},
 		{ErrNotFound, "PipelineNotFoundException"},
 		{ErrActionTypeNotFound, "ActionTypeNotFoundException"},
@@ -347,10 +356,21 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 }
 
 // errorBlob marshals a JSON error response and writes it to the echo context.
+var exceptionPrefixRe = regexp.MustCompile(`[A-Za-z]+Exception: `)
+
+// stripExceptionPrefixes drops the "<Code>: " sentinel text that error wrapping leaves in messages.
+func stripExceptionPrefixes(msg string) string {
+	if out := exceptionPrefixRe.ReplaceAllString(msg, ""); out != "" {
+		return out
+	}
+
+	return msg
+}
+
 func errorBlob(c *echo.Context, status int, errType string, err error) error {
 	payload, _ := json.Marshal(service.JSONErrorResponse{
 		Type:    errType,
-		Message: err.Error(),
+		Message: stripExceptionPrefixes(err.Error()),
 	})
 
 	return c.JSONBlob(status, payload)

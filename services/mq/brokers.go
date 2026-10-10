@@ -5,6 +5,7 @@ import (
 	"hash/fnv"
 	"maps"
 	"net"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -198,6 +199,37 @@ func validateCreateBrokerRequest(
 	return nil
 }
 
+var (
+	hostInstanceTypeRe = regexp.MustCompile(`^mq\.[a-z0-9]+\.[a-z0-9]+$`)
+	activeMQVersionRe  = regexp.MustCompile(`^5\.(1[5-9])(\.\d+)?$`)
+	rabbitMQVersionRe  = regexp.MustCompile(`^3\.(8|9|1[0-3])(\.\d+)?$`)
+)
+
+// validateBrokerCreateMembers checks engineVersion (supported minor lines, any patch) and hostInstanceType.
+// Empty values take their defaults later.
+func validateBrokerCreateMembers(engineType, engineVersion, hostInstanceType string) error {
+	if engineVersion != "" {
+		re := activeMQVersionRe
+		if engineType == EngineTypeRabbitMQ {
+			re = rabbitMQVersionRe
+		}
+
+		if !re.MatchString(engineVersion) {
+			return fmt.Errorf("%w: engineVersion %q is not supported for %s", ErrValidation, engineVersion, engineType)
+		}
+	}
+
+	if hostInstanceType != "" && !hostInstanceTypeRe.MatchString(hostInstanceType) {
+		return fmt.Errorf(
+			"%w: hostInstanceType %q is not a valid broker instance type",
+			ErrValidation,
+			hostInstanceType,
+		)
+	}
+
+	return nil
+}
+
 // CreateBroker creates a new Amazon MQ broker (compatibility wrapper).
 func (b *InMemoryBackend) CreateBroker(
 	name, deploymentMode, engineType, engineVersion, hostInstanceType string,
@@ -228,6 +260,10 @@ func (b *InMemoryBackend) CreateBrokerWithOptions(
 	opts *CreateBrokerOptions,
 ) (*Broker, error) {
 	if err := validateCreateBrokerRequest(name, deploymentMode, engineType, securityGroups, tags, opts); err != nil {
+		return nil, err
+	}
+
+	if err := validateBrokerCreateMembers(engineType, engineVersion, hostInstanceType); err != nil {
 		return nil, err
 	}
 
@@ -758,6 +794,14 @@ func (b *InMemoryBackend) UpdateBrokerWithOptions(
 
 	if err := validateSecurityGroupsCount(securityGroups, maxSecurityGroupsUpdate); err != nil {
 		return nil, err
+	}
+
+	if hostInstanceType != "" && !hostInstanceTypeRe.MatchString(hostInstanceType) {
+		return nil, fmt.Errorf(
+			"%w: hostInstanceType %q is not a valid broker instance type",
+			ErrValidation,
+			hostInstanceType,
+		)
 	}
 
 	b.mu.Lock("UpdateBroker")

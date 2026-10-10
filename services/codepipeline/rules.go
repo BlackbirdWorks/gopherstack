@@ -16,7 +16,7 @@ func (b *InMemoryBackend) ListRuleExecutions(
 
 	region := getRegion(ctx, b.region)
 	if !b.pipelines.Has(regionKey(region, pipelineName)) {
-		return nil, ErrNotFound
+		return nil, b.pipelineNotFound(pipelineName)
 	}
 
 	execs := b.executionsStoreRO(region)[pipelineName]

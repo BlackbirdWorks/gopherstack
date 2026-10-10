@@ -96,6 +96,10 @@ func (h *Handler) handleListConfigurations(c *echo.Context) error {
 	}
 
 	// Use opaque index-based tokens so the page boundary is stable.
+	if tokErr := page.ValidateToken(nextToken); tokErr != nil {
+		return h.writeError(c, fmt.Errorf("%w: invalid nextToken", ErrValidation))
+	}
+
 	pg := page.New(cfgs, nextToken, maxResults, mqDefaultPageSize)
 
 	list := make([]any, 0, len(pg.Data))

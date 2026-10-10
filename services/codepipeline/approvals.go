@@ -27,7 +27,7 @@ func (b *InMemoryBackend) PutActionRevision(
 
 	p, ok := b.pipelines.Get(regionKey(region, pipelineName))
 	if !ok {
-		return nil, false, fmt.Errorf("%w: pipeline %q", ErrNotFound, pipelineName)
+		return nil, false, b.pipelineNotFound(pipelineName)
 	}
 
 	stage := findStage(p, stageName)
@@ -97,7 +97,7 @@ func (b *InMemoryBackend) PutApprovalResult(
 
 	p, ok := b.pipelines.Get(regionKey(region, pipelineName))
 	if !ok {
-		return time.Time{}, fmt.Errorf("%w: pipeline %q", ErrNotFound, pipelineName)
+		return time.Time{}, b.pipelineNotFound(pipelineName)
 	}
 
 	stage := findStage(p, stageName)

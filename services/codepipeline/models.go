@@ -494,6 +494,7 @@ type ArtifactRevision struct {
 // StageState represents the state of a pipeline stage.
 type StageState struct {
 	InboundTransitionState *StageTransitionState
+	LatestExecution        map[string]any
 	Conditions             map[string]any
 	StageName              string
 	ActionStates           []map[string]any

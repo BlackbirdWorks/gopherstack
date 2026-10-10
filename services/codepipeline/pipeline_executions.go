@@ -18,7 +18,7 @@ func (b *InMemoryBackend) GetPipelineExecution(
 	region := getRegion(ctx, b.region)
 
 	if !b.pipelines.Has(regionKey(region, pipelineName)) {
-		return nil, ErrNotFound
+		return nil, b.pipelineNotFound(pipelineName)
 	}
 
 	for _, exec := range b.executionsStoreRO(region)[pipelineName] {
@@ -43,7 +43,7 @@ func (b *InMemoryBackend) ListPipelineExecutions(
 	region := getRegion(ctx, b.region)
 
 	if !b.pipelines.Has(regionKey(region, pipelineName)) {
-		return nil, ErrNotFound
+		return nil, b.pipelineNotFound(pipelineName)
 	}
 
 	stored := b.executionsStoreRO(region)[pipelineName]
@@ -69,7 +69,7 @@ func (b *InMemoryBackend) ListActionExecutions(
 	region := getRegion(ctx, b.region)
 
 	if !b.pipelines.Has(regionKey(region, pipelineName)) {
-		return nil, ErrNotFound
+		return nil, b.pipelineNotFound(pipelineName)
 	}
 
 	stored := b.actionExecutionsStoreRO(region)[pipelineName]
@@ -154,7 +154,7 @@ func (b *InMemoryBackend) ListDeployActionExecutionTargets(
 
 	if pipelineName != "" {
 		if !b.pipelines.Has(regionKey(region, pipelineName)) {
-			return nil, ErrNotFound
+			return nil, b.pipelineNotFound(pipelineName)
 		}
 
 		if !hasActionExecution(b.actionExecutionsStoreRO(region)[pipelineName], executionID) {

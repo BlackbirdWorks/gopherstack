@@ -1,7 +1,7 @@
 service: mq
 sdk_module: aws-sdk-go-v2/service/mq@v1.39.4   # audited against; go.mod pins this version
 last_audit_commit: d4dc4a723
-last_audit_date: 2026-10-09
+last_audit_date: 2026-10-10
 overall: A                # genuine fixes found (reboot-gated staging, persistence data loss, missing pagination/fields, wrapper-key/nested-shape sweep this pass)
 
 # 2026-09-12 (gopherstack-n3zi): drove the 13 typed-coverage-blind
@@ -220,3 +220,7 @@ Amazon MQ is region-isolated: each non-home region gets a lazily built sibling `
 ## 2026-10-09 -- docker ActiveMQ reconfiguration on reboot
 
 `pkgs/container.Runtime` gained `Exec`. A docker-backed ActiveMQ broker (users and configuration are ActiveMQ-only in the MQ API) now applies its configuration revision once it is up, and on RebootBroker applies the promoted users (`simpleAuthenticationPlugin`, console users via `users.properties`/`groups.properties`) and configuration (`activemq.xml`) then restarts the container; the broker stays REBOOT_IN_PROGRESS until it is reachable again. Proof: `TestDockerBrokerReboot_AppliesUsersAndConfiguration`, `TestDockerBrokerReboot_ExecFailureStillPromotes`; verified by hand against the real `apache/activemq-classic:5.18.7` image.
+
+## Notes (2026-10-10 realism pass)
+
+CreateBroker rejects an unsupported engineVersion (ActiveMQ 5.15-5.19, RabbitMQ 3.8-3.13, any patch), a malformed hostInstanceType (also on UpdateBroker) and ActiveMQ user passwords that break the 12-250 character / 4 unique / no `,:=` rules. ListBrokers, ListUsers, ListConfigurations, ListConfigurationRevisions, DescribeBrokerEngineTypes and DescribeBrokerInstanceOptions return BadRequestException for a malformed nextToken. Messages no longer repeat the exception code. Tests: create_broker_input_realism_test.go. In stub mode a broker is RUNNING immediately (CREATION_IN_PROGRESS only with the docker engine); no flag is wired for a stub-mode delay.

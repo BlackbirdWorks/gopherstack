@@ -2,6 +2,7 @@ package opensearch
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -161,8 +162,17 @@ func (h *Handler) handleUpgradeDomainRoutes(w http.ResponseWriter, r *http.Reque
 		_ = json.Unmarshal(body, &req)
 	}
 
-	if upgradeErr := h.Backend.UpgradeDomain(req.DomainName, req.TargetVersion); upgradeErr != nil {
-		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", upgradeErr.Error())
+	upgradeErr := h.Backend.CheckUpgradeDomain(req.DomainName, req.TargetVersion)
+	if upgradeErr == nil && !req.PerformCheckOnly {
+		upgradeErr = h.Backend.UpgradeDomain(req.DomainName, req.TargetVersion)
+	}
+
+	if upgradeErr != nil {
+		if errors.Is(upgradeErr, ErrValidation) {
+			h.writeError(r, w, http.StatusBadRequest, errValidation, upgradeErr.Error())
+		} else {
+			h.writeError(r, w, http.StatusNotFound, errResourceNotFound, upgradeErr.Error())
+		}
 
 		return
 	}

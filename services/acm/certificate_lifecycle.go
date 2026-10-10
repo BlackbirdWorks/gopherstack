@@ -72,7 +72,7 @@ func (b *InMemoryBackend) ResendValidationEmail(ctx context.Context, certARN, do
 
 	cert, ok := b.certs.Get(regionKey(region, certARN))
 	if !ok {
-		return fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
+		return fmt.Errorf("%w: Could not find certificate %s", ErrCertNotFound, certARN)
 	}
 
 	if cert.Status != statusPendingValidation {
@@ -145,7 +145,7 @@ func (b *InMemoryBackend) RevokeCertificate(ctx context.Context, certARN, revoca
 
 	cert, ok := b.certs.Get(regionKey(region, certARN))
 	if !ok {
-		return fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
+		return fmt.Errorf("%w: Could not find certificate %s", ErrCertNotFound, certARN)
 	}
 
 	if cert.Status == statusRevoked {
@@ -217,7 +217,7 @@ func (b *InMemoryBackend) UpdateCertificateOptions(ctx context.Context, certARN,
 
 	cert, ok := b.certs.Get(regionKey(region, certARN))
 	if !ok {
-		return fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
+		return fmt.Errorf("%w: Could not find certificate %s", ErrCertNotFound, certARN)
 	}
 
 	if cert.Status != statusIssued {
@@ -240,7 +240,7 @@ func (b *InMemoryBackend) ExpireCertificate(ctx context.Context, certARN string)
 
 	cert, ok := b.certs.Get(regionKey(region, certARN))
 	if !ok {
-		return fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
+		return fmt.Errorf("%w: Could not find certificate %s", ErrCertNotFound, certARN)
 	}
 
 	if cert.Status != statusIssued {
@@ -263,7 +263,7 @@ func (b *InMemoryBackend) InactivateCertificate(ctx context.Context, certARN str
 
 	cert, ok := b.certs.Get(regionKey(region, certARN))
 	if !ok {
-		return fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
+		return fmt.Errorf("%w: Could not find certificate %s", ErrCertNotFound, certARN)
 	}
 
 	if cert.Status != statusIssued {
@@ -286,7 +286,7 @@ func (b *InMemoryBackend) TimeoutPendingValidation(ctx context.Context, certARN 
 
 	cert, ok := b.certs.Get(regionKey(region, certARN))
 	if !ok {
-		return fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
+		return fmt.Errorf("%w: Could not find certificate %s", ErrCertNotFound, certARN)
 	}
 
 	if cert.Status != statusPendingValidation {
@@ -320,7 +320,7 @@ func (b *InMemoryBackend) FailCertificate(ctx context.Context, certARN, reason s
 
 	cert, ok := b.certs.Get(regionKey(region, certARN))
 	if !ok {
-		return fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
+		return fmt.Errorf("%w: Could not find certificate %s", ErrCertNotFound, certARN)
 	}
 
 	if cert.Status != statusPendingValidation {

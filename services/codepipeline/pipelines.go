@@ -69,7 +69,7 @@ func (b *InMemoryBackend) GetPipeline(ctx context.Context, name string) (*Pipeli
 
 	p, ok := b.pipelines.Get(regionKey(getRegion(ctx, b.region), name))
 	if !ok {
-		return nil, fmt.Errorf("%w: pipeline %q", ErrNotFound, name)
+		return nil, b.pipelineNotFound(name)
 	}
 
 	return copyPipeline(p), nil
@@ -103,7 +103,7 @@ func (b *InMemoryBackend) UpdatePipeline(ctx context.Context, decl PipelineDecla
 	// errors.As for a real caller -- see undeclared_error_codes_test.go.
 	p, ok := b.pipelines.Get(regionKey(getRegion(ctx, b.region), decl.Name))
 	if !ok {
-		return nil, fmt.Errorf("%w: pipeline %q", ErrNotFound, decl.Name)
+		return nil, b.pipelineNotFound(decl.Name)
 	}
 
 	if err := validateStageConditions(decl.Stages); err != nil {
@@ -138,7 +138,7 @@ func (b *InMemoryBackend) DeletePipeline(ctx context.Context, name string) error
 	key := regionKey(region, name)
 
 	if !b.pipelines.Has(key) {
-		return fmt.Errorf("%w: pipeline %q", ErrNotFound, name)
+		return b.pipelineNotFound(name)
 	}
 
 	b.pipelines.Delete(key)
@@ -420,7 +420,7 @@ func (b *InMemoryBackend) StartPipelineExecutionWith(
 
 	p, ok := b.pipelines.Get(regionKey(region, pipelineName))
 	if !ok {
-		return nil, ErrNotFound
+		return nil, b.pipelineNotFound(pipelineName)
 	}
 
 	if prior := b.replayStartedExecution(region, pipelineName, opts.ClientRequestToken); prior != nil {
@@ -521,7 +521,7 @@ func (b *InMemoryBackend) StopPipelineExecution(
 	region := getRegion(ctx, b.region)
 
 	if !b.pipelines.Has(regionKey(region, pipelineName)) {
-		return nil, ErrNotFound
+		return nil, b.pipelineNotFound(pipelineName)
 	}
 
 	// abandon has no independent effect in this synchronous backend: there is

@@ -49,7 +49,7 @@ func (b *InMemoryBackend) DisableStageTransition(
 
 	p, ok := b.pipelines.Get(regionKey(region, pipelineName))
 	if !ok {
-		return fmt.Errorf("%w: pipeline %q", ErrNotFound, pipelineName)
+		return b.pipelineNotFound(pipelineName)
 	}
 
 	if !pipelineHasStage(p, stageName) {
@@ -84,7 +84,7 @@ func (b *InMemoryBackend) EnableStageTransition(
 
 	p, ok := b.pipelines.Get(regionKey(region, pipelineName))
 	if !ok {
-		return fmt.Errorf("%w: pipeline %q", ErrNotFound, pipelineName)
+		return b.pipelineNotFound(pipelineName)
 	}
 
 	key := regionKey(region, stageTransitionKey{
@@ -139,7 +139,7 @@ func (b *InMemoryBackend) GetPipelineState(ctx context.Context, pipelineName str
 
 	p, ok := b.pipelines.Get(regionKey(region, pipelineName))
 	if !ok {
-		return nil, ErrNotFound
+		return nil, b.pipelineNotFound(pipelineName)
 	}
 
 	states := make([]StageState, len(p.Declaration.Stages))
@@ -165,12 +165,54 @@ func (b *InMemoryBackend) GetPipelineState(ctx context.Context, pipelineName str
 		states[i] = StageState{
 			StageName:              stage.Name,
 			InboundTransitionState: inState,
+			LatestExecution:        stageLatestExecution(actionExecs, stage.Name),
 			ActionStates:           actionStates,
 			Conditions:             b.stageConditionStates(region, pipelineName, stage.Name),
 		}
 	}
 
 	return states, nil
+}
+
+// stageLatestExecution derives StageState.latestExecution from the newest
+// execution that ran an action in the stage.
+func stageLatestExecution(actionExecs []*ActionExecution, stageName string) map[string]any {
+	var execID string
+
+	for _, ae := range slices.Backward(actionExecs) {
+		if ae.StageName == stageName {
+			execID = ae.PipelineExecutionID
+
+			break
+		}
+	}
+
+	if execID == "" {
+		return nil
+	}
+
+	status := statusSucceeded
+
+	for _, ae := range actionExecs {
+		if ae.StageName != stageName || ae.PipelineExecutionID != execID {
+			continue
+		}
+
+		switch ae.Status {
+		case statusFailed:
+			status = statusFailed
+		case statusInProgress:
+			if status != statusFailed {
+				status = statusInProgress
+			}
+		case statusActionAbandoned:
+			if status == statusSucceeded {
+				status = statusStopped
+			}
+		}
+	}
+
+	return map[string]any{keyPipelineExecutionID: execID, keyStatus: status}
 }
 
 // buildActionState builds the ActionState wire map for a single stage/action
@@ -254,7 +296,7 @@ func (b *InMemoryBackend) RetryStageExecution(
 
 	p, ok := b.pipelines.Get(regionKey(region, pipelineName))
 	if !ok {
-		return nil, fmt.Errorf("%w: pipeline %q", ErrNotFound, pipelineName)
+		return nil, b.pipelineNotFound(pipelineName)
 	}
 
 	if findStage(p, stageName) == nil {
@@ -354,7 +396,7 @@ func (b *InMemoryBackend) RollbackStage(
 
 	p, ok := b.pipelines.Get(regionKey(region, pipelineName))
 	if !ok {
-		return nil, fmt.Errorf("%w: pipeline %q", ErrNotFound, pipelineName)
+		return nil, b.pipelineNotFound(pipelineName)
 	}
 
 	stage := findStage(p, stageName)
@@ -415,7 +457,7 @@ func (b *InMemoryBackend) OverrideStageCondition(
 
 	p, ok := b.pipelines.Get(regionKey(region, pipelineName))
 	if !ok {
-		return fmt.Errorf("%w: pipeline %q", ErrNotFound, pipelineName)
+		return b.pipelineNotFound(pipelineName)
 	}
 
 	if findStage(p, stageName) == nil {

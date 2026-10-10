@@ -7,7 +7,7 @@
 service: codedeploy
 sdk_module: aws-sdk-go-v2/service/codedeploy@v1.43.0   # version audited against; corrected from stale v1.37.0 pin
 last_audit_commit: b1905140e                             # gopherstack-xhu2t reqfielddiff tier-1 sweep
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
 overall: A            # A = genuine fixes found; B = already-accurate, proven op-by-op
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -76,8 +76,7 @@ structural_gaps:
   - "InstanceSummary/InstanceTarget/ECSTarget/LambdaTarget lifecycleEvents, ECSTarget taskSetsInfo, LambdaTarget lambdaFunctionInfo: produced by the CodeDeploy agent / ECS and Lambda traffic shifting on real infrastructure; nothing executes hooks here."
   - "CreateDeployment DeploymentMode (STANDARD/RESTART): only shortens the per-instance lifecycle-event sequence run by the on-instance agent; request-only, not echoed in DeploymentInfo, no observable effect."
 deferred:                 # consciously not audited this pass (scope) — next pass targets
-  - "StopDeployment accepts a deployment in any status (including already-terminal Succeeded/Failed/Stopped) and unconditionally overwrites it to Stopped. Real AWS's StopDeployment error set includes DeploymentAlreadyCompletedException (confirmed in StopDeployment's own deserializer switch, deserializers.go:5294) for exactly this case. NOT fixed this pass: unlike ContinueDeployment (which had no legitimate success path in this backend either way, since blue/green Ready state is never reached), StopDeployment's current behavior is relied on by existing tests and the general 'stop a just-created deployment' UX this mock supports; enforcing the precondition would make StopDeployment permanently non-functional given CreateDeployment's synchronous-completion design, which is the same underlying lifecycle gap noted below, not a narrow validation fix. (bd: unfiled)"
-  - "CreateDeployment completing synchronously (status=Succeeded immediately, no Created/Queued/InProgress/Baking/Ready window) is a deliberate simplification, not a bug (see Notes) -- but it does mean no deployment in this backend can ever reach the real blue/green Ready wait-state, so ContinueDeployment's now-correct precondition check (see ops table) will always reject it. Modeling a genuine in-progress/waiting lifecycle so blue/green deployments can actually reach Ready is a larger rearchitecture, deliberately out of scope for this pass."
+  - "CreateDeployment completes synchronously (Succeeded, no Created/Queued/InProgress/Baking window): no agent or traffic shifting runs. The blue/green Ready wait is real: a BLUE_GREEN group with deploymentReadyOption.actionOnTimeout=STOP_DEPLOYMENT holds new deployments in Ready until ContinueDeployment (Succeeded) or StopDeployment (Stopped)."
 leaks: {status: clean, note: "no goroutines/janitors in this service; Reset/Snapshot/Restore all close tags.Tags handles correctly on the three dirty tables (applications, deploymentGroups, onPremisesInstances). The new applicationRevisions table carries no live handles (no tags.Tags field), so it needs no Close() calls -- registered as a 'clean' store.Table on b.registry like deployments/deploymentConfigs, reset via registry.ResetAll()."}
 ---
 
@@ -440,3 +439,7 @@ CreateDeploymentGroup/UpdateDeploymentGroup now accept autoScalingGroups as bare
 ## 2026-10-05 (reqfielddiff, dropped request members)
 
 CreateDeployment no longer drops AutoRollbackConfiguration, OverrideAlarmConfiguration or TargetInstances. DeploymentInfo still omits blueGreenDeploymentConfiguration, loadBalancerInfo, startTime, errorInformation, relatedDeployments, rollbackInfo and previousRevision: none has an input or lifecycle model here. Whether real AWS fills autoRollbackConfiguration from the group when the request omits it is unverified, so only the request value is echoed. Proof: `dropped_members_sdk_test.go`. Additive omitempty fields on Deployment.
+
+## Notes (2026-10-10 realism pass)
+
+StopDeployment on a Succeeded/Failed/Stopped deployment now returns DeploymentAlreadyCompletedException instead of rewriting it to Stopped. A BLUE_GREEN group with deploymentReadyOption.actionOnTimeout=STOP_DEPLOYMENT creates deployments in Ready; ContinueDeployment moves them to Succeeded and StopDeployment to Stopped (the earlier stop tests now use that path). CreateDeploymentGroup/UpdateDeploymentGroup reject a non-ARN serviceRoleArn (InvalidRoleException), an unknown deploymentConfigName (DeploymentConfigDoesNotExistException), bad deploymentStyle enums (InvalidDeploymentStyleException) and names over 100 characters; CreateApplication rejects names over 100. CreateDeployment rejects a revisionType with no matching location (InvalidRevisionException). completeTime is no longer 5 seconds in the future and startTime is returned. A missing serviceRoleArn stays accepted because in-repo callers create groups without one. Messages no longer repeat the code; not-found reads "No application found for name: <name>". Tests: lifecycle_validation_test.go, ready_wait_test.go.

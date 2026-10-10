@@ -58,6 +58,14 @@ var (
 	ErrInvalidTagsToAdd = awserr.New("InvalidTagsToAddException", awserr.ErrInvalidParameter)
 	// ErrInvalidNextToken is the SDK's InvalidNextTokenException (types/errors.go:3694).
 	ErrInvalidNextToken = awserr.New("InvalidNextTokenException", awserr.ErrInvalidParameter)
+	// ErrInvalidRole, ErrInvalidDeploymentStyle, ErrInvalidApplicationName,
+	// ErrInvalidDeploymentGroupName and ErrInvalidRevision are the codes
+	// CreateDeploymentGroup/CreateDeployment/CreateApplication model for bad input.
+	ErrInvalidRole                = awserr.New("InvalidRoleException", awserr.ErrInvalidParameter)
+	ErrInvalidDeploymentStyle     = awserr.New("InvalidDeploymentStyleException", awserr.ErrInvalidParameter)
+	ErrInvalidApplicationName     = awserr.New("InvalidApplicationNameException", awserr.ErrInvalidParameter)
+	ErrInvalidDeploymentGroupName = awserr.New("InvalidDeploymentGroupNameException", awserr.ErrInvalidParameter)
+	ErrInvalidRevision            = awserr.New("InvalidRevisionException", awserr.ErrInvalidParameter)
 	// ErrBatchLimitExceeded is BatchGetApplicationRevisions' own modeled code for
 	// exceeding the 25-revision batch cap.
 	ErrBatchLimitExceeded = awserr.New("BatchLimitExceededException", awserr.ErrInvalidParameter)

@@ -74,7 +74,7 @@ func (h *Handler) handleServerlessJSONRPC(c *echo.Context, op string) error {
 	if len(body) > 0 {
 		if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
 			return awserr.Write(c, awserr.ProtocolJSON10, awserr.APIError{
-				Code:       "ValidationException",
+				Code:       errValidation,
 				Message:    "invalid JSON",
 				HTTPStatus: http.StatusBadRequest,
 			})
@@ -134,7 +134,7 @@ func serverlessErrorTable() map[error]awserr.APIError {
 			HTTPStatus: http.StatusBadRequest,
 		},
 		ErrApplicationNotFound: {
-			Code:       "ResourceNotFoundException",
+			Code:       errResourceNotFound,
 			HTTPStatus: http.StatusNotFound,
 		},
 		ErrApplicationAlreadyExists: {Code: codeConflict, HTTPStatus: http.StatusConflict},

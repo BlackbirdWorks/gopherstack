@@ -7,7 +7,7 @@
 service: acm
 sdk_module: aws-sdk-go-v2/service/acm@v1.49.0   # version audited against
 last_audit_commit: 090ec574b
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
 overall: A            # A = genuine fix found (wire-shape bug); B = already-accurate, proven op-by-op
 # 2026-08-29 pass (gopherstack-6flj/21my dropped-filter/wrapper-key class,
 # targeted re-sweep): genuinely clean, no bug found -- reported honestly as
@@ -1101,3 +1101,7 @@ acm already keys its resources by region; same-named resources in two regions co
 ## 2026-10-05 (gopherstack-uox6 pass 11, value semantics)
 
 ImportCertificate and re-import now fill SubjectAlternativeNames from the certificate's DNS names; DescribeCertificate returned none for imported certificates and a re-import kept stale ones. Re-import keeps tags (api_op_ImportCertificate.go:103). Proof: `TestImportCertificate_ReimportReplacesSANsKeepsTags`. Recorded, unchanged: RequestCertificate KeyAlgorithm default RSA_2048 already applied; re-import of a non-imported certificate has no documented error.
+
+## Notes (2026-10-10 realism pass)
+
+Probed with the AWS CLI. RequestCertificate now rejects invalid DNS characters, a second wildcard, hyphen-edged labels and a primary name over 64 characters, unknown ValidationMethod, KeyAlgorithm and CertificateTransparencyLoggingPreference values and bad IdempotencyToken (InvalidParameterException; hyphens in tokens stay allowed because in-repo fixtures use them). The DNS validation record for a wildcard name no longer embeds `*.`. ListCertificates and ListCertificateDomainValidations reject MaxItems over 1000. Error messages no longer repeat the exception code and not-found reads "Could not find certificate <arn>.". Tests: request_certificate_realism_test.go.

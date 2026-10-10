@@ -132,6 +132,10 @@ func (h *Handler) handleCreateService(_ context.Context, body []byte) ([]byte, e
 		return nil, fmt.Errorf("%w: Name is required", errInvalidRequest)
 	}
 
+	if err := validateServiceName(req.Name); err != nil {
+		return nil, err
+	}
+
 	if req.HealthCheckConfig != nil && req.HealthCheckCustomConfig != nil {
 		return nil, fmt.Errorf(
 			"%w: HealthCheckConfig and HealthCheckCustomConfig are mutually exclusive",

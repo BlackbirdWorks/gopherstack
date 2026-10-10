@@ -498,14 +498,15 @@ func TestDeployments_ListStatusFilter(t *testing.T) {
 
 	h := newTestHandler(t)
 	_, _ = h.Backend.CreateApplication("app", "Server", nil)
-	_, _ = createDG(h.Backend, "app", "dg", "", "", nil)
+	_, _ = h.Backend.CreateDeploymentGroup("app", "dg", readyWaitGroupInput(), nil)
 
 	// Create one deployment then stop it.
 	d1, _ := createDeploy(h.Backend, "app", "dg", "", "")
-	_ = h.Backend.StopDeployment(d1.DeploymentID)
+	require.NoError(t, h.Backend.StopDeployment(d1.DeploymentID))
 
-	// Create another deployment (stays Succeeded).
-	_, _ = createDeploy(h.Backend, "app", "dg", "", "")
+	// Create another deployment and continue it to Succeeded.
+	d2, _ := createDeploy(h.Backend, "app", "dg", "", "")
+	require.NoError(t, h.Backend.ContinueDeployment(d2.DeploymentID))
 
 	tests := []struct {
 		name    string
@@ -728,17 +729,7 @@ func TestDeployments_StopDeployment_AlreadyStopped(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	createAppAndDG(t, h, "stop-twice-app", "stop-twice-dg")
-
-	createRec := doRequest(t, h, "CreateDeployment", map[string]any{
-		"applicationName":     "stop-twice-app",
-		"deploymentGroupName": "stop-twice-dg",
-	})
-	require.Equal(t, http.StatusOK, createRec.Code)
-
-	var createOut map[string]string
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
-	deployID := createOut["deploymentId"]
+	deployID := createReadyWaitDeployment(t, h.Backend, "stop-twice-app", "stop-twice-dg")
 
 	firstStop := doRequest(t, h, "StopDeployment", map[string]any{"deploymentId": deployID})
 	require.Equal(t, http.StatusOK, firstStop.Code)
@@ -755,17 +746,7 @@ func TestDeployments_StopDeploymentStatus(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	createAppAndDG(t, h, "stop-app", "stop-dg")
-
-	createRec := doRequest(t, h, "CreateDeployment", map[string]any{
-		"applicationName":     "stop-app",
-		"deploymentGroupName": "stop-dg",
-	})
-	require.Equal(t, http.StatusOK, createRec.Code)
-
-	var createOut map[string]string
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
-	deployID := createOut["deploymentId"]
+	deployID := createReadyWaitDeployment(t, h.Backend, "stop-app", "stop-dg")
 
 	stopRec := doRequest(t, h, "StopDeployment", map[string]any{
 		"deploymentId": deployID,

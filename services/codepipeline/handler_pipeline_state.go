@@ -47,6 +47,11 @@ func (h *Handler) handleGetPipelineState(
 
 	items := make([]map[string]any, len(states))
 	for i, s := range states {
+		inbound := s.InboundTransitionState
+		if inbound == nil && i > 0 {
+			inbound = &StageTransitionState{}
+		}
+
 		item := map[string]any{
 			"stageName":    s.StageName,
 			"actionStates": s.ActionStates,
@@ -54,14 +59,18 @@ func (h *Handler) handleGetPipelineState(
 		// Real types.StageState (deserializers.go awsAwsjson11_deserializeDocumentStageState)
 		// has no "outboundTransitionState" member -- only inboundTransitionState is
 		// wire-visible, regardless of DisableStageTransition's Outbound transitionType.
-		if s.InboundTransitionState != nil {
+		if inbound != nil {
 			item["inboundTransitionState"] = map[string]any{
 				// Real types.TransitionState (awsAwsjson11_deserializeDocumentTransitionState)
 				// has no "disabled"/"reason" members -- it is enabled (bool, inverse of our
 				// stored Disabled) and disabledReason, not disabled/reason.
-				"enabled":        !s.InboundTransitionState.Disabled,
-				"disabledReason": s.InboundTransitionState.Reason,
+				"enabled":        !inbound.Disabled,
+				"disabledReason": inbound.Reason,
 			}
+		}
+
+		if s.LatestExecution != nil {
+			item["latestExecution"] = s.LatestExecution
 		}
 
 		maps.Copy(item, s.Conditions)

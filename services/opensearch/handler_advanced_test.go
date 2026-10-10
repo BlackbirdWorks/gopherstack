@@ -21,7 +21,7 @@ func TestOpenSearch_UpgradeDomain(t *testing.T) {
 	resp := doRequest(t, h, http.MethodPost,
 		"/2021-01-01/opensearch/upgradeDomain", map[string]any{
 			"DomainName":       "upgradedom",
-			"TargetVersion":    "OpenSearch_2.11",
+			"TargetVersion":    "OpenSearch_2.13",
 			"PerformCheckOnly": false,
 		})
 	assert.Equal(t, http.StatusOK, resp.StatusCode)

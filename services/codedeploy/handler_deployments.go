@@ -196,6 +196,9 @@ func toDeploymentInfo(d *Deployment) deploymentInfo {
 		info.CompleteTime = &ct
 	}
 
+	st := awstime.Epoch(d.CreateTime)
+	info.StartTime = &st
+
 	return info
 }
 
@@ -257,6 +260,7 @@ type deploymentInfo struct {
 	TargetInstances               *targetInstancesEntry    `json:"targetInstances,omitempty"`
 	DeploymentStyle               *deploymentStyleEntry    `json:"deploymentStyle,omitempty"`
 	CompleteTime                  *float64                 `json:"completeTime,omitempty"`
+	StartTime                     *float64                 `json:"startTime,omitempty"`
 	ComputePlatform               string                   `json:"computePlatform,omitempty"`
 	DeploymentID                  string                   `json:"deploymentId"`
 	ApplicationName               string                   `json:"applicationName"`

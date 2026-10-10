@@ -8,7 +8,7 @@ service: servicediscovery
 sdk_module: aws-sdk-go-v2/service/servicediscovery@v1.43.4   # version audited against; matches go.mod (verified)
 botocore_model: servicediscovery/2017-03-14/service-2.json (botocore 1.43.56)  # for shape constraints not carried into the Go SDK comments
 last_audit_commit: 44bff591b  # 2026-09-19 over-wide-response sweep (this pass); prior: e50f52dce                      # this pass (2026-08-28, write-only-state sweep)
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
 overall: A            # write-only-state sweep pass (2026-08-28). No wire_field_fixes_test.go
                        # existed yet for this service despite the prior pass's extensive
                        # "audited and confirmed correct" notes below -- per this campaign's
@@ -647,3 +647,7 @@ The Resource Groups Tagging API bridge now lists the request region's tagged res
 
 - UpdateService omit-to-delete was already implemented (stale item removed); DnsRecords are now replaced wholesale, previously only the TTL of same-index records changed so a Type change was dropped. TestUpdateService_SDKDnsAndHealthSemantics.
 - reqfielddiff: DiscoverInstances/DiscoverInstancesRevision/GetOperation OwnerAccount are accepted and ignored (single-account model, see deferred cross-account entry).
+
+## Notes (2026-10-10 realism pass)
+
+Create*Namespace validates the per-kind name patterns (printable ASCII, no "arn:" prefix, DNS names up to 253 characters; public names may be single-label for in-repo fixtures), CreateService validates the service-name pattern, RegisterInstance validates InstanceId and rejects malformed AWS_INSTANCE_IPV4/IPV6. Error messages no longer repeat the code. Tests: input_realism_test.go. Operations still settle to SUCCESS inside the creating call.

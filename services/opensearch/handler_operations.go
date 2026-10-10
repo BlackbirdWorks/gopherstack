@@ -695,6 +695,8 @@ func extractMigrationOrRollbackOp(path, method string) string {
 
 // extractTagOrSoftwareOp handles tag route operation extraction.
 func extractTagOrSoftwareOp(path, method string) string {
+	path = canonicalTagsPath(path)
+
 	switch {
 	case path == openSearchTagsPath && method == http.MethodGet:
 		return "ListTags"
@@ -879,7 +881,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	}
 
 	// Tag routes: no domain name in path
-	if path == openSearchTagsPath || path == openSearchTagsRemoval {
+	if path = canonicalTagsPath(path); path == openSearchTagsPath || path == openSearchTagsRemoval {
 		return ""
 	}
 
