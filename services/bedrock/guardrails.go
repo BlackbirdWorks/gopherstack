@@ -1,6 +1,8 @@
 package bedrock
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"sort"
 	"strconv"
@@ -9,11 +11,15 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
-// newGuardrailID generates a unique guardrail ID.
+const guardrailIDLen = 10
+
+// newGuardrailID returns a deterministic 10-char [a-z0-9]+ guardrail ID.
 func (b *InMemoryBackend) newGuardrailID() string {
 	b.guardrailCounter++
 
-	return fmt.Sprintf("bedrock-guardrail-%07d", b.guardrailCounter)
+	sum := sha256.Sum256([]byte("guardrail-" + strconv.Itoa(b.guardrailCounter)))
+
+	return hex.EncodeToString(sum[:])[:guardrailIDLen]
 }
 
 // CreateGuardrail creates a new guardrail. The optional policies argument configures

@@ -6,7 +6,6 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
-	"github.com/blackbirdworks/gopherstack/services/s3"
 )
 
 // ErrNilAppContext is returned when Provider.Init is called with a nil AppContext.
@@ -68,10 +67,5 @@ func wireExportSink(ctx *service.AppContext, backend *InMemoryBackend) {
 		return
 	}
 
-	sh, ok := hp.GetS3Handler().(*s3.S3Handler)
-	if !ok || sh == nil || sh.Backend == nil {
-		return
-	}
-
-	backend.SetExportSink(newS3ExportSink(sh.Backend))
+	backend.SetExportSink(&s3ExportSink{provider: hp})
 }
