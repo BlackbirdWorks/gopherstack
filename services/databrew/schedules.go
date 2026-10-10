@@ -2,6 +2,7 @@ package databrew
 
 import (
 	"context"
+	"fmt"
 	"maps"
 	"slices"
 	"time"
@@ -25,11 +26,11 @@ func (b *InMemoryBackend) CreateSchedule(
 	defer b.mu.Unlock()
 	region := getRegion(ctx, b.defaultRegion)
 	if name == "" {
-		return nil, ErrValidation
+		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
 	}
 	t := b.schedulesTable(region)
 	if t.Has(name) {
-		return nil, ErrAlreadyExists
+		return nil, existsErr("Schedule", name)
 	}
 	sc := &Schedule{
 		Name: name, Arn: b.scheduleARN(region, name), JobNames: append([]string(nil), jobNames...),
@@ -48,7 +49,7 @@ func (b *InMemoryBackend) DescribeSchedule(ctx context.Context, name string) (*S
 	region := getRegion(ctx, b.defaultRegion)
 	sc, ok := b.schedulesTable(region).Get(name)
 	if !ok {
-		return nil, ErrNotFound
+		return nil, notFoundErr("Schedule", name)
 	}
 	cp := *sc
 	cp.Tags = maps.Clone(sc.Tags)
@@ -106,7 +107,7 @@ func (b *InMemoryBackend) UpdateSchedule(
 	region := getRegion(ctx, b.defaultRegion)
 	sc, ok := b.schedulesTable(region).Get(name)
 	if !ok {
-		return ErrNotFound
+		return notFoundErr("Schedule", name)
 	}
 	if len(jobNames) > 0 {
 		sc.JobNames = jobNames
@@ -123,7 +124,7 @@ func (b *InMemoryBackend) DeleteSchedule(ctx context.Context, name string) error
 	defer b.mu.Unlock()
 	region := getRegion(ctx, b.defaultRegion)
 	if !b.schedulesTable(region).Delete(name) {
-		return ErrNotFound
+		return notFoundErr("Schedule", name)
 	}
 
 	return nil

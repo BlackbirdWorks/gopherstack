@@ -98,16 +98,16 @@ func (b *InMemoryBackend) addJobLogLocked(jobID, event string, data *JobLogEvent
 // DeleteJob mid-flight makes later ticks harmless no-ops. Callers must hold b.mu
 // (this method only schedules; it doesn't mutate synchronously).
 func (b *InMemoryBackend) scheduleJobLocked(jobID, initiatedBy string) {
-	b.work.After("JobStarted", asyncTransitionDelay, func() {
+	b.work.After("JobStarted", b.transitionDelay(), func() {
 		b.tickJobStartedLocked(jobID)
 
-		b.work.After("JobConverting", asyncTransitionDelay, func() {
+		b.work.After("JobConverting", b.transitionDelay(), func() {
 			b.tickJobConvertingLocked(jobID)
 
-			b.work.After("JobLaunching", asyncTransitionDelay, func() {
+			b.work.After("JobLaunching", b.transitionDelay(), func() {
 				b.tickJobLaunchingLocked(jobID, initiatedBy)
 
-				b.work.After("JobEnd", asyncTransitionDelay, func() {
+				b.work.After("JobEnd", b.transitionDelay(), func() {
 					b.mu.Lock("JobEnd-async")
 					defer b.mu.Unlock()
 

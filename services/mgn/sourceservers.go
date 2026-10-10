@@ -219,13 +219,13 @@ func seedInitiationSteps() []DataReplicationInitiationStep {
 // is still in the state this scheduler put it in, so a later
 // Stop/Pause/DisconnectFromService halts progression without cancelling the timer.
 func (b *InMemoryBackend) scheduleReplicationLocked(sourceServerID string) {
-	b.work.After("ReplicationInitiated", asyncTransitionDelay, func() {
+	b.work.After("ReplicationInitiated", b.transitionDelay(), func() {
 		b.tickReplicationInitiatedLocked(sourceServerID)
 
-		b.work.After("ReplicationBacklog", asyncTransitionDelay, func() {
+		b.work.After("ReplicationBacklog", b.transitionDelay(), func() {
 			b.tickReplicationBacklogLocked(sourceServerID)
 
-			b.work.After("ReplicationContinuous", asyncTransitionDelay, func() {
+			b.work.After("ReplicationContinuous", b.transitionDelay(), func() {
 				b.tickReplicationContinuousLocked(sourceServerID)
 			})
 		})

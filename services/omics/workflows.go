@@ -27,6 +27,14 @@ func (b *InMemoryBackend) CreateWorkflow(input CreateWorkflowInput) (*Workflow, 
 		return nil, fmt.Errorf("%w: name is required", ErrValidation)
 	}
 
+	if err := validateWorkflowName(input.Name); err != nil {
+		return nil, err
+	}
+
+	if err := validateWorkflowEnums(input.Engine, input.StorageType); err != nil {
+		return nil, err
+	}
+
 	if err := b.checkWorkflowBucketOwner(input.DefinitionURI, input.WorkflowBucketOwnerID); err != nil {
 		return nil, err
 	}
@@ -57,6 +65,14 @@ func (b *InMemoryBackend) CreateWorkflow(input CreateWorkflowInput) (*Workflow, 
 	wf.Arn = arn.Build("omics", b.defaultRegion, b.accountID, "workflow/"+id)
 
 	b.workflows.Put(wf)
+
+	if b.timedLifecycle() {
+		b.afterHops(1, func() {
+			if w, ok := b.workflows.Get(id); ok && w.Status == statusCreating {
+				w.Status = statusActive
+			}
+		})
+	}
 
 	if input.Tags != nil {
 		b.tags[wf.Arn] = copyTags(input.Tags)
@@ -110,7 +126,7 @@ func (b *InMemoryBackend) GetWorkflow(id string) (*Workflow, error) {
 
 	if wf.Status == statusCreating {
 		wf.pollCount++
-		if wf.pollCount >= 1 {
+		if wf.pollCount >= 1 && !b.timedLifecycle() {
 			wf.Status = statusActive
 		}
 	}
@@ -210,6 +226,10 @@ func (b *InMemoryBackend) UpdateWorkflow(
 // StorageType/ParameterTemplate are stored/echoed exactly as given -- see
 // the doc comment on CreateWorkflow for why no default is fabricated.
 func (b *InMemoryBackend) CreateWorkflowVersion(input CreateWorkflowVersionInput) (*WorkflowVersion, error) {
+	if err := validateWorkflowEnums(input.Engine, input.StorageType); err != nil {
+		return nil, err
+	}
+
 	if err := b.checkWorkflowBucketOwner(input.DefinitionURI, input.WorkflowBucketOwnerID); err != nil {
 		return nil, err
 	}
@@ -264,6 +284,15 @@ func (b *InMemoryBackend) CreateWorkflowVersion(input CreateWorkflowVersionInput
 
 	b.workflowVersions.Put(wv)
 
+	if b.timedLifecycle() {
+		key := parentKey(input.WorkflowID, input.VersionName)
+		b.afterHops(1, func() {
+			if v, found := b.workflowVersions.Get(key); found && v.Status == statusCreating {
+				v.Status = statusActive
+			}
+		})
+	}
+
 	if input.Tags != nil {
 		b.tags[wv.Arn] = copyTags(input.Tags)
 	}
@@ -313,7 +342,7 @@ func (b *InMemoryBackend) GetWorkflowVersion(
 
 	if wv.Status == statusCreating {
 		wv.pollCount++
-		if wv.pollCount >= 1 {
+		if wv.pollCount >= 1 && !b.timedLifecycle() {
 			wv.Status = statusActive
 		}
 	}

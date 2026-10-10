@@ -173,6 +173,10 @@ func (b *InMemoryBackend) StartRun(input StartRunInput) (*Run, error) {
 
 	input.RunSettingID = ""
 
+	if err := validateRunEnums(input); err != nil {
+		return nil, err
+	}
+
 	input, err := b.resolveStartRunInputLocked(input)
 	if err != nil {
 		return nil, err
@@ -351,7 +355,43 @@ func (b *InMemoryBackend) startRunLocked(input StartRunInput) *Run {
 		b.tags[run.Arn] = copyTags(input.Tags)
 	}
 
+	b.scheduleRun(id, taskID)
+
 	return run
+}
+
+// scheduleRun walks a run PENDING -> STARTING -> RUNNING -> COMPLETED (and its task RUNNING -> COMPLETED)
+// when timed lifecycle is on, leaving a cancelled or failed run untouched.
+func (b *InMemoryBackend) scheduleRun(runID, taskID string) {
+	if !b.timedLifecycle() {
+		return
+	}
+
+	step := func(from, to string, fn func(r *Run, now time.Time)) func() {
+		return func() {
+			if r, ok := b.runs.Get(runID); ok && r.Status == from {
+				r.Status = to
+				fn(r, time.Now().UTC())
+			}
+		}
+	}
+	taskKey := parentKey(runID, taskID)
+
+	b.afterHops(runHopStarting, step(statusPending, statusStarting, func(*Run, time.Time) {}))
+	b.afterHops(runHopRunning, step(statusStarting, statusRunning, func(r *Run, now time.Time) {
+		r.StartTime = &now
+
+		if t, ok := b.runTasks.Get(taskKey); ok {
+			t.Status, t.StartTime = statusRunning, &now
+		}
+	}))
+	b.afterHops(runHopDone, step(statusRunning, statusCompleted, func(r *Run, now time.Time) {
+		r.StopTime = &now
+
+		if t, ok := b.runTasks.Get(taskKey); ok {
+			t.Status, t.StopTime = statusCompleted, &now
+		}
+	}))
 }
 
 // CancelRun cancels a run.
@@ -423,7 +463,9 @@ func (b *InMemoryBackend) GetRun(id string) (*Run, error) {
 		return nil, fmt.Errorf("%w: run %s not found", ErrNotFound, id)
 	}
 
-	advanceRunStatus(run)
+	if !b.timedLifecycle() {
+		advanceRunStatus(run)
+	}
 
 	result := *run
 
@@ -526,6 +568,10 @@ func (b *InMemoryBackend) GetRunTask(runID, taskID string) (*RunTask, error) {
 
 	switch task.Status {
 	case statusPending:
+		if b.timedLifecycle() {
+			break
+		}
+
 		task.pollCount++
 		if task.pollCount >= 1 {
 			task.Status = statusRunning
@@ -533,6 +579,10 @@ func (b *InMemoryBackend) GetRunTask(runID, taskID string) (*RunTask, error) {
 			task.StartTime = &now
 		}
 	case statusRunning:
+		if b.timedLifecycle() {
+			break
+		}
+
 		task.pollCount++
 		if task.pollCount >= pollCountRunningToCompleted {
 			task.Status = statusCompleted
@@ -1071,7 +1121,7 @@ func (b *InMemoryBackend) ListRunsInBatch(
 	}
 
 	slices.Sort(keys)
-	pageKeys, outToken := paginateStrings(keys, nextToken, maxResults)
+	pageKeys, outToken := paginateOpaque(keys, nextToken, maxResults)
 
 	result := make([]RunInBatchSummary, 0, len(pageKeys))
 	for _, k := range pageKeys {

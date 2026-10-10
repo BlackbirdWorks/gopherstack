@@ -15,6 +15,7 @@ import (
 	bedrockagentbackend "github.com/blackbirdworks/gopherstack/services/bedrockagent"
 	cloudfrontbackend "github.com/blackbirdworks/gopherstack/services/cloudfront"
 	comprehendbackend "github.com/blackbirdworks/gopherstack/services/comprehend"
+	databrewbackend "github.com/blackbirdworks/gopherstack/services/databrew"
 	daxbackend "github.com/blackbirdworks/gopherstack/services/dax"
 	detectivebackend "github.com/blackbirdworks/gopherstack/services/detective"
 	directoryservicebackend "github.com/blackbirdworks/gopherstack/services/directoryservice"
@@ -38,8 +39,11 @@ import (
 	medialivebackend "github.com/blackbirdworks/gopherstack/services/medialive"
 	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
 	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
+	mgnbackend "github.com/blackbirdworks/gopherstack/services/mgn"
+	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	networkmanagerbackend "github.com/blackbirdworks/gopherstack/services/networkmanager"
+	omicsbackend "github.com/blackbirdworks/gopherstack/services/omics"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	opsworksbackend "github.com/blackbirdworks/gopherstack/services/opsworks"
 	outpostsbackend "github.com/blackbirdworks/gopherstack/services/outposts"
@@ -50,6 +54,7 @@ import (
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	redshiftdatabackend "github.com/blackbirdworks/gopherstack/services/redshiftdata"
 	rekognitionbackend "github.com/blackbirdworks/gopherstack/services/rekognition"
+	resiliencehubbackend "github.com/blackbirdworks/gopherstack/services/resiliencehub"
 	route53resolverbackend "github.com/blackbirdworks/gopherstack/services/route53resolver"
 	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
 	ssmbackend "github.com/blackbirdworks/gopherstack/services/ssm"
@@ -127,6 +132,11 @@ type LifecycleSettings struct {
 	OpsWorks                     time.Duration `name:"opsworks"                       env:"OPSWORKS_LIFECYCLE_DELAY"             default:"0s" help:"OpsWorks instance transitional window."`                                                         //nolint:lll // config struct tags are intentionally verbose
 	Outposts                     time.Duration `name:"outposts"                       env:"OUTPOSTS_TRANSITION_DELAY"            default:"0s" help:"Outposts transitional window (built-in 100ms)."`                                                 //nolint:lll // config struct tags are intentionally verbose
 	Support                      time.Duration `name:"support"                        env:"SUPPORT_CASE_PROGRESS_DELAY"          default:"0s" help:"Support case progress window."`                                                                  //nolint:lll // config struct tags are intentionally verbose
+	MWAA                         time.Duration `name:"mwaa"                           env:"MWAA_LIFECYCLE_DELAY"                 default:"0s" help:"MWAA environment CREATING/UPDATING/DELETING window."`                                            //nolint:lll // config struct tags are intentionally verbose
+	Omics                        time.Duration `name:"omics"                          env:"OMICS_LIFECYCLE_DELAY"                default:"0s" help:"HealthOmics workflow/store/share/run and import/export/activation job per-hop window."`          //nolint:lll // config struct tags are intentionally verbose
+	ResilienceHub                time.Duration `name:"resiliencehub"                  env:"RESILIENCEHUB_LIFECYCLE_DELAY"        default:"0s" help:"Resilience Hub assessment/import/resolution per-hop window (built-in 100ms)."`                   //nolint:lll // config struct tags are intentionally verbose
+	DataBrew                     time.Duration `name:"databrew"                       env:"DATABREW_LIFECYCLE_DELAY"             default:"0s" help:"DataBrew job run STARTING-to-SUCCEEDED window (built-in 100ms)."`                                //nolint:lll // config struct tags are intentionally verbose
+	MGN                          time.Duration `name:"mgn"                            env:"MGN_LIFECYCLE_DELAY"                  default:"0s" help:"Application Migration Service replication/job/import per-hop window (built-in 100ms)."`          //nolint:lll // config struct tags are intentionally verbose
 	EKS                          time.Duration `name:"eks"                            env:"EKS_LIFECYCLE_DELAY"                  default:"0s" help:"EKS transitional-state window (built-in 100ms)."`                                                //nolint:lll // config struct tags are intentionally verbose
 }
 
@@ -350,6 +360,42 @@ func applySupport(reg service.Registerable, l LifecycleSettings) {
 		if bk, isBk := h.Backend.(*supportbackend.InMemoryBackend); isBk {
 			bk.SetCaseProgressDelay(l.effective(l.Support))
 		}
+	}
+}
+
+func applyMWAA(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*mwaabackend.Handler); ok {
+		if bk, isBk := h.Backend.(*mwaabackend.InMemoryBackend); isBk {
+			bk.SetTransitionDelay(l.effective(l.MWAA))
+		}
+	}
+}
+
+func applyOmics(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*omicsbackend.Handler); ok {
+		if bk, isBk := h.Backend.(*omicsbackend.InMemoryBackend); isBk {
+			bk.SetLifecycleDelay(l.effective(l.Omics))
+		}
+	}
+}
+
+func applyResilienceHub(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*resiliencehubbackend.Handler); ok {
+		h.Backend.SetTransitionDelay(l.effective(l.ResilienceHub))
+	}
+}
+
+func applyDataBrew(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*databrewbackend.Handler); ok {
+		if bk, isBk := h.Backend.(*databrewbackend.InMemoryBackend); isBk {
+			bk.SetJobRunDelay(l.effective(l.DataBrew))
+		}
+	}
+}
+
+func applyMGN(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*mgnbackend.Handler); ok {
+		h.Backend.SetTransitionDelay(l.effective(l.MGN))
 	}
 }
 
@@ -608,6 +654,11 @@ func wireLifecycleDelays(byName map[string]service.Registerable, l LifecycleSett
 		"Personalize":        applyPersonalize,
 		"OpsWorks":           applyOpsWorks,
 		"Outposts":           applyOutposts,
+		"MWAA":               applyMWAA,
+		"Omics":              applyOmics,
+		"ResilienceHub":      applyResilienceHub,
+		"DataBrew":           applyDataBrew,
+		"MGN":                applyMGN,
 		"Support":            applySupport,
 		"Detective":          applyDetective,
 		"Macie2":             applyMacie2,

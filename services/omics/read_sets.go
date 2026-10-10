@@ -146,12 +146,28 @@ func (b *InMemoryBackend) StartReadSetActivationJob(
 		ID:              newID(),
 		SequenceStoreID: sequenceStoreID,
 		Sources:         sources,
-		Status:          statusCompleted,
+		Status:          b.jobInitialStatus(),
 		CreationTime:    time.Now().UTC(),
 	}
-	now := time.Now().UTC()
-	job.CompletionTime = &now
+	if !b.timedLifecycle() {
+		now := time.Now().UTC()
+		job.CompletionTime = &now
+	}
+
 	b.readSetActivationJobs.Put(job)
+	key := parentKey(sequenceStoreID, job.ID)
+	b.scheduleJob(
+		func(time.Time) {
+			if j, ok := b.readSetActivationJobs.Get(key); ok {
+				j.Status = statusInProgress
+			}
+		},
+		func(now time.Time) {
+			if j, ok := b.readSetActivationJobs.Get(key); ok {
+				j.Status, j.CompletionTime = statusCompleted, &now
+			}
+		},
+	)
 
 	result := *job
 
@@ -241,12 +257,28 @@ func (b *InMemoryBackend) StartReadSetExportJob(
 		SequenceStoreID: sequenceStoreID,
 		Destination:     destination,
 		Sources:         sources,
-		Status:          statusCompleted,
+		Status:          b.jobInitialStatus(),
 		CreationTime:    time.Now().UTC(),
 	}
-	now := time.Now().UTC()
-	job.CompletionTime = &now
+	if !b.timedLifecycle() {
+		now := time.Now().UTC()
+		job.CompletionTime = &now
+	}
+
 	b.readSetExportJobs.Put(job)
+	key := parentKey(sequenceStoreID, job.ID)
+	b.scheduleJob(
+		func(time.Time) {
+			if j, ok := b.readSetExportJobs.Get(key); ok {
+				j.Status = statusInProgress
+			}
+		},
+		func(now time.Time) {
+			if j, ok := b.readSetExportJobs.Get(key); ok {
+				j.Status, j.CompletionTime = statusCompleted, &now
+			}
+		},
+	)
 
 	result := *job
 
@@ -323,11 +355,13 @@ func (b *InMemoryBackend) StartReadSetImportJob(
 		SequenceStoreID: sequenceStoreID,
 		RoleARN:         roleARN,
 		Sources:         sources,
-		Status:          statusCompleted,
+		Status:          b.jobInitialStatus(),
 		CreationTime:    time.Now().UTC(),
 	}
-	now := time.Now().UTC()
-	job.CompletionTime = &now
+	if !b.timedLifecycle() {
+		now := time.Now().UTC()
+		job.CompletionTime = &now
+	}
 
 	// Create read set entries for each source
 	for _, src := range sources {
@@ -365,6 +399,19 @@ func (b *InMemoryBackend) StartReadSetImportJob(
 	}
 
 	b.readSetImportJobs.Put(job)
+	key := parentKey(sequenceStoreID, job.ID)
+	b.scheduleJob(
+		func(time.Time) {
+			if j, ok := b.readSetImportJobs.Get(key); ok {
+				j.Status = statusInProgress
+			}
+		},
+		func(now time.Time) {
+			if j, ok := b.readSetImportJobs.Get(key); ok {
+				j.Status, j.CompletionTime = statusCompleted, &now
+			}
+		},
+	)
 
 	result := *job
 
@@ -669,8 +716,10 @@ func (b *InMemoryBackend) ListReadSetUploadParts(
 		},
 	)
 
-	if n, err := strconv.Atoi(token); err == nil {
-		token = strconv.Itoa(n)
+	if id, ok := decodePageToken(token); ok {
+		if n, err := strconv.Atoi(id); err == nil {
+			token = encodePageToken(strconv.Itoa(n))
+		}
 	}
 
 	return result, token, nil
@@ -678,6 +727,10 @@ func (b *InMemoryBackend) ListReadSetUploadParts(
 
 // partCursor turns a part-number token into the zero-padded sort key used for paging.
 func partCursor(token string) string {
+	if id, ok := decodePageToken(token); ok {
+		token = id
+	}
+
 	n, err := strconv.Atoi(token)
 	if err != nil {
 		return ""

@@ -7,7 +7,7 @@
 service: omics
 sdk_module: aws-sdk-go-v2/service/omics@v1.49.5
 last_audit_commit: 3fd671fd6
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
 overall: A            # 2026-08-07 (gopherstack-hnhk): RunBatch's real body shape is now modeled.
                        # StartRunBatch takes real BatchRunSettings (inlineSettings, field-diffed
                        # against awsRestjson1_serializeDocumentBatchRunSettings/InlineSetting) +
@@ -72,10 +72,18 @@ structural_gaps:
   - "RunTaskSummary CacheHit/CacheS3Uri/Gpus/InstanceType need a task-cache engine and AWS's compute-type mapping; WorkflowSummary/WorkflowVersionSummary Digest/Metadata have no documented algorithm or input."
 deferred:
   - "Field-by-field diff of ReferenceMetadata/ReadSetMetadata optional sub-object fields (Files/ReferenceFiles, CreationJobId, CreationType, Etag, SequenceInformation) against the SDK model -- MD5/fileType (top-level scalars) are now confirmed correct; the sub-objects remain unpopulated but are optional/pointer-safe on the wire"
-leaks: {status: clean, note: "pure synchronous in-memory backend -- no goroutines, tickers, or janitors; nothing to leak (reconfirmed this pass)"}
+leaks: {status: clean, note: "no goroutines by default; the opt-in lifecycle delay uses time.AfterFunc timers that spawn nothing until they fire; leak_main_test.go still green"}
 ---
 
 ## Notes
+
+### 2026-10-10 (realism pass)
+
+- `--lifecycle-omics` / `OMICS_LIFECYCLE_DELAY` (default 0 keeps poll-driven progression): when set, workflows, workflow versions, annotation/variant stores, shares, runs (PENDING, STARTING, RUNNING, COMPLETED with the task following) and read-set import/export/activation, reference, variant and annotation import jobs (SUBMITTED, IN_PROGRESS, COMPLETED) advance one hop per delay on a timer, so lists and gets agree.
+- List `startingToken`/`nextToken` are opaque and validated; garbage tokens and `maxResults`/`maxItems` outside 1..100 are ValidationException.
+- Error messages no longer repeat the exception code.
+- CreateWorkflow/CreateWorkflowVersion validate engine (WDL, NEXTFLOW, CWL, WDL_LENIENT), storage type and name length (128); StartRun validates logLevel, retentionMode, networkingMode, storageType, workflowType and cacheBehavior enums.
+- Kept lenient: StartRun does not require the workflow to exist (about 20 in-repo tests start runs against placeholder workflow ids; READY2RUN workflows have no local catalog either).
 
 **2026-09-18 (over-wide List-summary sweep, gopherstack-dv4s):** all 21
 census-flagged List ops verified member by member. 14 leaked Get/Describe-

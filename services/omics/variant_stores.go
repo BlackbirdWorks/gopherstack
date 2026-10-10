@@ -49,6 +49,14 @@ func (b *InMemoryBackend) CreateVariantStore(
 	vs.StoreArn = arn.Build("omics", b.defaultRegion, b.accountID, "variantStore/"+name)
 	b.variantStores.Put(vs)
 
+	if b.timedLifecycle() {
+		b.afterHops(1, func() {
+			if s, ok := b.variantStores.Get(name); ok && s.Status == statusCreating {
+				s.Status = statusActive
+			}
+		})
+	}
+
 	if tags != nil {
 		b.tags[vs.StoreArn] = copyTags(tags)
 	}
@@ -91,7 +99,7 @@ func (b *InMemoryBackend) GetVariantStore(name string) (*VariantStore, error) {
 
 	if vs.Status == statusCreating {
 		vs.pollCount++
-		if vs.pollCount >= 1 {
+		if vs.pollCount >= 1 && !b.timedLifecycle() {
 			vs.Status = statusActive
 		}
 	}
@@ -220,7 +228,7 @@ func (b *InMemoryBackend) StartVariantImportJob(
 	}
 
 	now := time.Now().UTC()
-	status := statusCompleted
+	status := b.jobInitialStatus()
 	job := &VariantImportJob{
 		ID:                   newID(),
 		DestinationName:      destinationName,
@@ -230,10 +238,28 @@ func (b *InMemoryBackend) StartVariantImportJob(
 		RunLeftNormalization: runLeftNormalization,
 		Status:               status,
 		CreationTime:         now,
-		CompletionTime:       &now,
 		UpdateTime:           now,
 	}
+	if !b.timedLifecycle() {
+		job.CompletionTime = &now
+	}
+
 	b.variantImportJobs.Put(job)
+	jobID, items0 := job.ID, items
+	b.scheduleJob(
+		func(t time.Time) {
+			if j, ok := b.variantImportJobs.Get(jobID); ok {
+				j.Status, j.UpdateTime = statusInProgress, t
+				j.Items = variantImportItemDetails(items0, statusInProgress)
+			}
+		},
+		func(t time.Time) {
+			if j, ok := b.variantImportJobs.Get(jobID); ok {
+				j.Status, j.UpdateTime, j.CompletionTime = statusCompleted, t, &t
+				j.Items = variantImportItemDetails(items0, statusCompleted)
+			}
+		},
+	)
 
 	result := *job
 

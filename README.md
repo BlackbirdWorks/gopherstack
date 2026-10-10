@@ -358,6 +358,11 @@ By default resources settle instantly. Set a dwell to make Creating/Processing/P
 | `--lifecycle-macie2` | `MACIE2_LIFECYCLE_DELAY` | Macie one-time classification job `RUNNING` window before `COMPLETE` (built-in `5s`). |
 | `--lifecycle-detective` | `DETECTIVE_LIFECYCLE_DELAY` | Detective investigation `RUNNING` window before `SUCCESSFUL`. |
 | `--lifecycle-eks` | `EKS_LIFECYCLE_DELAY` | EKS transitional-state window (built-in `100ms`). |
+| `--lifecycle-mwaa` | `MWAA_LIFECYCLE_DELAY` | MWAA environment `CREATING`/`UPDATING`/`DELETING` window. |
+| `--lifecycle-omics` | `OMICS_LIFECYCLE_DELAY` | HealthOmics workflow/store/share/run and import/export/activation job per-hop window. |
+| `--lifecycle-resiliencehub` | `RESILIENCEHUB_LIFECYCLE_DELAY` | Resilience Hub assessment/import/resolution per-hop window (built-in `100ms`). |
+| `--lifecycle-databrew` | `DATABREW_LIFECYCLE_DELAY` | DataBrew job run `STARTING`-to-`SUCCEEDED` window (built-in `100ms`). |
+| `--lifecycle-mgn` | `MGN_LIFECYCLE_DELAY` | Application Migration Service replication/job/import per-hop window (built-in `100ms`). |
 | `--lifecycle-docdb` | `DOCDB_LIFECYCLE_DELAY` | DocumentDB cluster/instance `creating` window. |
 | `--lifecycle-neptune` | `NEPTUNE_LIFECYCLE_DELAY` | Neptune cluster/instance `creating` window. |
 | `--lifecycle-awsconfig` | `AWSCONFIG_LIFECYCLE_DELAY` | AWS Config conformance pack `CREATE_IN_PROGRESS` window. |

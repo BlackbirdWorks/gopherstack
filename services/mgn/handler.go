@@ -15,6 +15,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -376,6 +377,13 @@ func decodeJSONBody(body []byte, v any) error {
 
 	if err := json.Unmarshal(body, v); err != nil {
 		return validationError("malformed request body: " + err.Error())
+	}
+
+	var pg struct {
+		NextToken string `json:"nextToken"`
+	}
+	if json.Unmarshal(body, &pg) == nil && page.ValidateToken(pg.NextToken) != nil {
+		return validationError("Invalid nextToken")
 	}
 
 	return nil

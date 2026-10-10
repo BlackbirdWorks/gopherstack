@@ -19,3 +19,11 @@ var (
 	// ErrInvalidParameter is returned when an invalid or missing parameter is provided.
 	ErrInvalidParameter = awserr.New("ValidationException: invalid parameter", awserr.ErrInvalidParameter)
 )
+
+func envNotFound(name string) error {
+	return awserr.New("ResourceNotFoundException: Environment "+name+" not found", ErrEnvironmentNotFound)
+}
+
+func envAlreadyExists(name string) error {
+	return awserr.New("ValidationException: Environment "+name+" already exists", ErrEnvironmentAlreadyExists)
+}

@@ -39,7 +39,7 @@ func (b *InMemoryBackend) StartMetricsExport(req *startMetricsExportRequest) *Me
 }
 
 func (b *InMemoryBackend) scheduleMetricsExport(id string) {
-	b.work.After("MetricsExport", asyncTransitionDelay, func() {
+	b.work.After("MetricsExport", b.transitionDelay(), func() {
 		b.mu.Lock("MetricsExport-async")
 		defer b.mu.Unlock()
 

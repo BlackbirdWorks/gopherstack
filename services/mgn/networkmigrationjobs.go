@@ -123,14 +123,14 @@ func (b *InMemoryBackend) createAndScheduleNMJobLocked(
 // asyncTransitionDelay ticks, mirroring the parent execution's Status once
 // the job completes.
 func (b *InMemoryBackend) scheduleNMJobLocked(jobID, definitionID, executionID string) {
-	b.work.After("NMJobStarted", asyncTransitionDelay, func() {
+	b.work.After("NMJobStarted", b.transitionDelay(), func() {
 		b.mu.Lock("NMJobStarted-async")
 		if j, ok := b.nmJobs.Get(jobID); ok && j.Status == NMStatusPending {
 			j.Status = NMStatusStarted
 		}
 		b.mu.Unlock()
 
-		b.work.After("NMJobSucceeded", asyncTransitionDelay, func() {
+		b.work.After("NMJobSucceeded", b.transitionDelay(), func() {
 			b.mu.Lock("NMJobSucceeded-async")
 			defer b.mu.Unlock()
 

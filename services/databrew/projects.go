@@ -24,11 +24,11 @@ func (b *InMemoryBackend) CreateProject(
 	defer b.mu.Unlock()
 	region := getRegion(ctx, b.defaultRegion)
 	if name == "" {
-		return nil, ErrValidation
+		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
 	}
 	t := b.projectsTable(region)
 	if t.Has(name) {
-		return nil, ErrAlreadyExists
+		return nil, existsErr("Project", name)
 	}
 	if sample.Type != "" && sample.Type != "FIRST_N" && sample.Type != "LAST_N" &&
 		sample.Type != "RANDOM" {
@@ -52,7 +52,7 @@ func (b *InMemoryBackend) DescribeProject(ctx context.Context, name string) (*Pr
 	region := getRegion(ctx, b.defaultRegion)
 	p, ok := b.projectsTable(region).Get(name)
 	if !ok {
-		return nil, ErrNotFound
+		return nil, notFoundErr("Project", name)
 	}
 	cp := *p
 	cp.Tags = maps.Clone(p.Tags)
@@ -98,7 +98,7 @@ func (b *InMemoryBackend) UpdateProject(
 	region := getRegion(ctx, b.defaultRegion)
 	p, ok := b.projectsTable(region).Get(name)
 	if !ok {
-		return ErrNotFound
+		return notFoundErr("Project", name)
 	}
 	if sample.Type != "" && sample.Type != "FIRST_N" && sample.Type != "LAST_N" &&
 		sample.Type != "RANDOM" {
@@ -127,7 +127,7 @@ func (b *InMemoryBackend) OpenProjectSession(ctx context.Context, name string) (
 	region := getRegion(ctx, b.defaultRegion)
 	p, ok := b.projectsTable(region).Get(name)
 	if !ok {
-		return nil, ErrNotFound
+		return nil, notFoundErr("Project", name)
 	}
 	p.OpenDate = float64(time.Now().Unix())
 	p.OpenedBy = awsmeta.CallerArn(ctx)
@@ -161,7 +161,7 @@ func (b *InMemoryBackend) DeleteProject(ctx context.Context, name string) error 
 	defer b.mu.Unlock()
 	region := getRegion(ctx, b.defaultRegion)
 	if !b.projectsTable(region).Has(name) {
-		return ErrNotFound
+		return notFoundErr("Project", name)
 	}
 	if j := b.projectJobName(region, name); j != "" {
 		return fmt.Errorf("%w: project %q is used by job %q", ErrConflict, name, j)

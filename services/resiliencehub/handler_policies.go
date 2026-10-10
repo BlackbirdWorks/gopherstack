@@ -66,6 +66,10 @@ func (h *Handler) handleDeleteResiliencyPolicy(_ context.Context, _ *http.Reques
 
 func (h *Handler) handleListResiliencyPolicies(_ context.Context, r *http.Request, _ []byte) ([]byte, error) {
 	q := r.URL.Query()
+	if err := validatePage(q.Get("nextToken"), queryMaxResults(q)); err != nil {
+		return nil, err
+	}
+
 	p := h.Backend.ListResiliencyPolicies(q.Get("policyName"), q.Get("nextToken"), queryMaxResults(q))
 
 	resp := listResiliencyPoliciesResponse{
@@ -81,6 +85,10 @@ func (h *Handler) handleListResiliencyPolicies(_ context.Context, r *http.Reques
 
 func (h *Handler) handleListSuggestedResiliencyPolicies(_ context.Context, r *http.Request, _ []byte) ([]byte, error) {
 	q := r.URL.Query()
+	if err := validatePage(q.Get("nextToken"), queryMaxResults(q)); err != nil {
+		return nil, err
+	}
+
 	p := h.Backend.ListSuggestedResiliencyPolicies(q.Get("nextToken"), queryMaxResults(q))
 
 	resp := listResiliencyPoliciesResponse{

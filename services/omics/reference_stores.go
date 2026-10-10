@@ -248,11 +248,13 @@ func (b *InMemoryBackend) StartReferenceImportJob(
 		ReferenceStoreID: referenceStoreID,
 		RoleARN:          roleARN,
 		Sources:          sources,
-		Status:           statusCompleted,
+		Status:           b.jobInitialStatus(),
 		CreationTime:     time.Now().UTC(),
 	}
-	now := time.Now().UTC()
-	job.CompletionTime = &now
+	if !b.timedLifecycle() {
+		now := time.Now().UTC()
+		job.CompletionTime = &now
+	}
 
 	// Create reference entries for each source
 	for _, src := range sources {
@@ -285,6 +287,19 @@ func (b *InMemoryBackend) StartReferenceImportJob(
 	}
 
 	b.referenceImportJobs.Put(job)
+	jobKey := parentKey(referenceStoreID, job.ID)
+	b.scheduleJob(
+		func(time.Time) {
+			if j, ok := b.referenceImportJobs.Get(jobKey); ok {
+				j.Status = statusInProgress
+			}
+		},
+		func(now time.Time) {
+			if j, ok := b.referenceImportJobs.Get(jobKey); ok {
+				j.Status, j.CompletionTime = statusCompleted, &now
+			}
+		},
+	)
 
 	result := *job
 

@@ -343,7 +343,7 @@ func TestStartRun_ResponseIncludesOptionalFields(t *testing.T) {
 		"workflowId":     "wf123",
 		"roleArn":        "arn:aws:iam::000000000000:role/role",
 		"name":           "my-run",
-		"networkingMode": "PUBLIC",
+		"networkingMode": "VPC",
 		"outputUri":      "s3://bucket/output",
 	})
 	require.Equal(t, http.StatusCreated, rec.Code)
@@ -351,7 +351,7 @@ func TestStartRun_ResponseIncludesOptionalFields(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.NotEmpty(t, resp["uuid"], "StartRunOutput.uuid must be populated")
-	assert.Equal(t, "PUBLIC", resp["networkingMode"])
+	assert.Equal(t, "VPC", resp["networkingMode"])
 	assert.Equal(t, "s3://bucket/output", resp["runOutputUri"])
 }
 

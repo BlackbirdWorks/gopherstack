@@ -75,7 +75,10 @@ func TestSiblingLookupsAreLiveInRealServer(t *testing.T) {
 		_, err := s3c.CreateBucket(t.Context(), &s3.CreateBucketInput{Bucket: aws.String("export-dest")})
 		require.NoError(t, err)
 
-		_, err = logs.CreateLogGroup(t.Context(), &cloudwatchlogs.CreateLogGroupInput{LogGroupName: aws.String("/live")})
+		_, err = logs.CreateLogGroup(
+			t.Context(),
+			&cloudwatchlogs.CreateLogGroupInput{LogGroupName: aws.String("/live")},
+		)
 		require.NoError(t, err)
 		_, err = logs.CreateLogStream(t.Context(), &cloudwatchlogs.CreateLogStreamInput{
 			LogGroupName: aws.String("/live"), LogStreamName: aws.String("s1"),

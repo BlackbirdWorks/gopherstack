@@ -7,7 +7,7 @@
 service: mwaa
 sdk_module: aws-sdk-go-v2/service/mwaa@v1.43.4   # version audited against (go.mod pins this)
 last_audit_commit: b0509bb19   # HEAD when this pass finished; see 2026-09-04 Notes entry
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
 overall: A                # 2026-09-04: one real bug found and fixed (PublishMetrics fabricated
                            # ResourceNotFoundException, an error its own op-level deserializer
                            # switch doesn't recognize; see 2026-09-04 Notes entry). Prior pass's
@@ -41,10 +41,18 @@ structural_gaps:
   - "InvokeRestApi always returns 200 with an empty RestApiResponse: no Apache Airflow webserver exists to execute the call, so there is no downstream status to map to RestApiStatusCode, RestApiClientException or RestApiServerException."
 deferred:
   - Chaos/fault-injection interaction with this pass's status-constant and NetworkConfiguration-validation changes (not re-audited; ChaosOperations() surface is GetSupportedOperations() minus nothing new -- it shrank by one entry this pass since GetMetrics was removed, see Notes).
-leaks: {status: clean, note: "no goroutines/janitors in this service; existing leak_test.go/isolation_test.go untouched and still green"}
+leaks: {status: clean, note: "no goroutines by default; the opt-in transition delay uses time.AfterFunc timers that spawn nothing until they fire; leak_main_test.go still green"}
 ---
 
 ## Notes
+
+### 2026-10-10 (realism pass)
+
+- `--lifecycle-mwaa` / `MWAA_LIFECYCLE_DELAY` (default 0 keeps the observe-once CREATING/UPDATING): when set, environments stay CREATING/UPDATING (LastUpdate PENDING) and DELETING for that long on a timer, then settle or disappear. A snapshot restored mid-transition is not re-timed.
+- Error messages no longer repeat the exception code (`ValidationException: ValidationException: ...`) and name the environment ("Environment e1 not found / already exists").
+- CreateEnvironment rejects non-ARN or wrong-service `SourceBucketArn`/`ExecutionRoleArn`; tags reject the reserved `aws:` prefix and over-long keys/values (create and TagResource).
+- ListEnvironments `NextToken` is opaque; a garbage token is a ValidationException (was a silent empty page).
+- Kept lenient: path `{Name}` over 80 chars on Get/Delete returns ResourceNotFound rather than ValidationException (not verifiable from the SDK).
 
 **2026-08-15 (gopherstack-3gbe):** investigated whether MWAA shares Omics'
 (gopherstack-keee) client-side host-prefix-rewrite reachability gap. It

@@ -126,7 +126,11 @@ func (h *Handler) handleGetWorkflow(c *echo.Context, id string) error {
 }
 
 func (h *Handler) handleListWorkflows(c *echo.Context) error {
-	maxResults, nextToken := paginationQueryParams(c)
+	maxResults, nextToken, err := paginationQueryParams(c)
+	if err != nil {
+		return h.mapError(c, err)
+	}
+
 	q := c.Request().URL.Query()
 	filter := &WorkflowFilter{Name: q.Get("name"), Type: q.Get("type")}
 	workflows, next, err := h.Backend.ListWorkflows(filter, maxResults, nextToken)
@@ -282,7 +286,11 @@ func (h *Handler) handleGetWorkflowVersion(c *echo.Context, workflowID, versionN
 }
 
 func (h *Handler) handleListWorkflowVersions(c *echo.Context, workflowID string) error {
-	maxResults, nextToken := paginationQueryParams(c)
+	maxResults, nextToken, err := paginationQueryParams(c)
+	if err != nil {
+		return h.mapError(c, err)
+	}
+
 	filter := &WorkflowVersionFilter{Type: c.QueryParam("type")}
 	versions, next, err := h.Backend.ListWorkflowVersions(workflowID, filter, maxResults, nextToken)
 

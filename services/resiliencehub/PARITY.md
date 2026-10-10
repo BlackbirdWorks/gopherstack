@@ -13,7 +13,7 @@
 service: resiliencehub
 sdk_module: aws-sdk-go-v2/service/resiliencehub@v1.38.3
 last_audit_commit: 576e42c5c
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
 # Grade A: 63/63 ops routed with real state/persistence, a Docker-backed
 # SDK-driven integration suite (test/integration/resiliencehub_test.go, 9
 # TestIntegration_ResilienceHub_* funcs / 27 subtests) proves wire
@@ -645,6 +645,12 @@ confirmed absent, not silently skipped.
    implementer relies on it.
 
 ## Notes
+
+### 2026-10-10 (realism pass)
+
+- `--lifecycle-resiliencehub` / `RESILIENCEHUB_LIFECYCLE_DELAY` overrides the 100ms per-hop window for assessments, resolutions, imports, metrics exports and grouping tasks (0 keeps the built-in).
+- `appVersion: release` now resolves to the latest published version (was always not-found); not-found before the first publish.
+- Every List op validates `nextToken` (garbage is ValidationException) and `maxResults` (1..100); ListAppAssessments/ListRecommendationTemplates reject unknown status/compliance/invoker enum values.
 
 **2026-09-19**: First terraform coverage (grafana-inspector-and-resiliencehub) found `validatePolicyMap` wrongly
 required a `Region` FailurePolicy entry; hashicorp/aws's provider marks `policy.region`

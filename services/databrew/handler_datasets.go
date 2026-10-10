@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strconv"
 )
 
 func parseDatasetOp(method, name string) string {
@@ -110,11 +109,14 @@ func (h *Handler) handleListDatasets(ctx context.Context, body []byte) ([]byte, 
 		NextToken  string `json:"NextToken"`
 	}
 	_ = json.Unmarshal(body, &req)
-	maxResults, _ := strconv.Atoi(req.MaxResults)
+	maxResults, token, err := listParams(req.MaxResults, req.NextToken)
+	if err != nil {
+		return nil, err
+	}
 
-	datasets, next := h.Backend.ListDatasets(ctx, maxResults, req.NextToken)
+	datasets, next := h.Backend.ListDatasets(ctx, maxResults, token)
 
-	return json.Marshal(map[string]any{"Datasets": datasets, nextTokenKey: next})
+	return marshalPage("Datasets", datasets, next)
 }
 
 func (h *Handler) handleUpdateDataset(ctx context.Context, body []byte) ([]byte, error) {

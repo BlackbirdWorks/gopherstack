@@ -325,7 +325,9 @@ func TestBackend_ARNIndex(t *testing.T) {
 			var envARN string
 			for _, n := range tt.envNames {
 				rec := doMWAARequest(t, h, http.MethodPut, "/environments/"+n, map[string]any{
-					"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
+					"DagS3Path":            "dags/",
+					"ExecutionRoleArn":     "arn:aws:iam::123456789012:role/r",
+					"SourceBucketArn":      "arn:aws:s3:::b",
 					"NetworkConfiguration": networkConfigBody(),
 				})
 				require.Equal(t, http.StatusOK, rec.Code)

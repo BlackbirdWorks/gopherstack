@@ -45,7 +45,11 @@ func (h *Handler) handleGetConfiguration(c *echo.Context, name string) error {
 }
 
 func (h *Handler) handleListConfigurations(c *echo.Context) error {
-	maxResults, nextToken := paginationQueryParams(c)
+	maxResults, nextToken, err := paginationQueryParams(c)
+	if err != nil {
+		return h.mapError(c, err)
+	}
+
 	cfgs, next, err := h.Backend.ListConfigurations(maxResults, nextToken)
 
 	if err != nil {

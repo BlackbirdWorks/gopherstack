@@ -57,6 +57,14 @@ func (h *Handler) handleListAppAssessments(_ context.Context, r *http.Request, _
 		statuses: q["assessmentStatus"], reverseOrder: q.Get("reverseOrder") == queryValueTrue,
 	}
 
+	if err := validatePage(q.Get("nextToken"), queryMaxResults(q)); err != nil {
+		return nil, err
+	}
+
+	if err := validateAssessmentFilter(f); err != nil {
+		return nil, err
+	}
+
 	p := h.Backend.ListAppAssessments(f, q.Get("nextToken"), queryMaxResults(q))
 
 	resp := listAppAssessmentsResponse{

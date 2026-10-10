@@ -50,7 +50,7 @@ sdk_module: aws-sdk-go-v2/service/mgn@v1.48.4   # gopherstack-u8my: go.mod had a
 # types/{types,enums,errors}.go, serializers.go, deserializers.go, validators.go byte-identical --
 # only client middleware plumbing differs, so no wire-shape claim in this file was affected.
 last_audit_commit: 302aa4e3c  # zeroguard: PutSourceServerAction/PutTemplateAction census, all false positive
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
 # 2026-08-30: cursor-population sweep (does every List/Describe response struct that DECLARES a
 # NextToken actually SET one before the collection can exceed a page?). Enumerated all 29 SDK ops
 # whose Input/Output declare NextToken. 22 already correct via the shared pkgs/page.New chokepoint
@@ -262,6 +262,13 @@ deferred:
   - "Nothing this pass. All 95 ops are implemented and this pass's own integration suite (test/integration/mgn_test.go) exercises every op family named in gopherstack-xd34's scope (source servers, replication/launch configuration templates, jobs, applications/waves, tagging, network migration, cross-service EC2/Organizations wiring)."
 leaks: {status: clean, note: "Handler.Reset()/Backend.Reset() close every SourceServer/Job/Application/Wave/etc.'s tags.Tags before clearing (tagging.go's 12 taggable kinds); InMemoryBackend.Close() stops the worker.Group backing every scheduled LifeCycleState/Job/ImportTask/NetworkMigrationJob transition timer -- verified by direct code read this pass, not re-derived from scratch."}
 ---
+
+## 2026-10-10 (realism pass)
+
+- `--lifecycle-mgn` / `MGN_LIFECYCLE_DELAY` overrides the 100ms per-hop window for replication, jobs, exports/imports and network-migration progression (0 keeps the built-in).
+- Garbage `nextToken` on any paged op is ValidationException (was a silent empty page).
+- Replication configuration (template and per-server) and launch configuration (template and per-server) validate their enums: dataPlaneRouting, defaultLargeStagingDiskType, ebsEncryption, internetProtocol, replicated-disk stagingDiskType, bootMode, launchDisposition, targetInstanceTypeRightSizingMethod; negative bandwidthThrottling is rejected.
+- Kept lenient: `maxResults` upper bounds (not published in the SDK).
 
 ## 2026-08-21 pass (gopherstack-r80d batch 32): required-output-member audit, clean
 

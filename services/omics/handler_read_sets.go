@@ -52,7 +52,10 @@ func (h *Handler) handleListReadSets(c *echo.Context, storeID string) error {
 		return err
 	}
 
-	maxResults, nextToken := listQueryParams(c)
+	maxResults, nextToken, err := listQueryParams(c)
+	if err != nil {
+		return h.mapError(c, err)
+	}
 
 	readSets, next, err := h.Backend.ListReadSets(
 		storeID,
@@ -116,7 +119,10 @@ func (h *Handler) handleListReadSetActivationJobs(c *echo.Context, storeID strin
 		return err
 	}
 
-	maxResults, nextToken := listQueryParams(c)
+	maxResults, nextToken, err := listQueryParams(c)
+	if err != nil {
+		return h.mapError(c, err)
+	}
 
 	jobs, next, err := h.Backend.ListReadSetActivationJobs(storeID, req.Filter, maxResults, nextToken)
 	if err != nil {
@@ -173,7 +179,10 @@ func (h *Handler) handleListReadSetExportJobs(c *echo.Context, storeID string) e
 		return err
 	}
 
-	maxResults, nextToken := listQueryParams(c)
+	maxResults, nextToken, err := listQueryParams(c)
+	if err != nil {
+		return h.mapError(c, err)
+	}
 
 	jobs, next, err := h.Backend.ListReadSetExportJobs(storeID, req.Filter, maxResults, nextToken)
 	if err != nil {
@@ -222,7 +231,10 @@ func (h *Handler) handleListReadSetImportJobs(c *echo.Context, storeID string) e
 		return err
 	}
 
-	maxResults, nextToken := listQueryParams(c)
+	maxResults, nextToken, err := listQueryParams(c)
+	if err != nil {
+		return h.mapError(c, err)
+	}
 
 	jobs, next, err := h.Backend.ListReadSetImportJobs(storeID, req.Filter, maxResults, nextToken)
 	if err != nil {
@@ -309,7 +321,10 @@ func (h *Handler) handleCompleteMultipartReadSetUpload(
 }
 
 func (h *Handler) handleListMultipartReadSetUploads(c *echo.Context, storeID string) error {
-	maxResults, nextToken := listQueryParams(c)
+	maxResults, nextToken, err := listQueryParams(c)
+	if err != nil {
+		return h.mapError(c, err)
+	}
 
 	uploads, next, err := h.Backend.ListMultipartReadSetUploads(
 		storeID,
@@ -333,7 +348,10 @@ func (h *Handler) handleListReadSetUploadParts(c *echo.Context, storeID, uploadI
 		return err
 	}
 
-	maxResults, nextToken := listQueryParams(c)
+	maxResults, nextToken, err := listQueryParams(c)
+	if err != nil {
+		return h.mapError(c, err)
+	}
 
 	parts, next, err := h.Backend.ListReadSetUploadParts(
 		storeID,

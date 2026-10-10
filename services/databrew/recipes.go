@@ -100,11 +100,11 @@ func (b *InMemoryBackend) CreateRecipe(
 	defer b.mu.Unlock()
 	region := getRegion(ctx, b.defaultRegion)
 	if name == "" {
-		return nil, ErrValidation
+		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
 	}
 	t := b.recipesTable(region)
 	if t.Has(name) {
-		return nil, ErrAlreadyExists
+		return nil, existsErr("Recipe", name)
 	}
 	now := float64(time.Now().Unix())
 	r := &Recipe{
@@ -135,7 +135,7 @@ func (b *InMemoryBackend) DescribeRecipe(ctx context.Context, name, version stri
 	region := getRegion(ctx, b.defaultRegion)
 	working, ok := b.recipesTable(region).Get(name)
 	if !ok {
-		return nil, ErrNotFound
+		return nil, notFoundErr("Recipe", name)
 	}
 	versions := b.recipeVersionsStoreRO(region)[name]
 
@@ -145,7 +145,7 @@ func (b *InMemoryBackend) DescribeRecipe(ctx context.Context, name, version stri
 			return b.copyRecipeWithProject(region, versions[len(versions)-1]), nil
 		}
 		if version == recipeVersionLatestPublished {
-			return nil, ErrNotFound
+			return nil, notFoundErr("Recipe", name+" published version")
 		}
 
 		return b.copyRecipeWithProject(region, working), nil
@@ -158,7 +158,7 @@ func (b *InMemoryBackend) DescribeRecipe(ctx context.Context, name, version stri
 			}
 		}
 
-		return nil, ErrNotFound
+		return nil, notFoundErr("Recipe", name+" version "+version)
 	}
 }
 
@@ -274,7 +274,7 @@ func (b *InMemoryBackend) PublishRecipe(ctx context.Context, name, description s
 	region := getRegion(ctx, b.defaultRegion)
 	working, ok := b.recipesTable(region).Get(name)
 	if !ok {
-		return ErrNotFound
+		return notFoundErr("Recipe", name)
 	}
 	if description != "" {
 		working.Description = description
@@ -318,7 +318,7 @@ func (b *InMemoryBackend) UpdateRecipe(
 	region := getRegion(ctx, b.defaultRegion)
 	r, ok := b.recipesTable(region).Get(name)
 	if !ok {
-		return ErrNotFound
+		return notFoundErr("Recipe", name)
 	}
 	if description != "" {
 		r.Description = description
@@ -340,7 +340,7 @@ func (b *InMemoryBackend) DeleteRecipe(ctx context.Context, name string) error {
 	defer b.mu.Unlock()
 	region := getRegion(ctx, b.defaultRegion)
 	if !b.recipesTable(region).Delete(name) {
-		return ErrNotFound
+		return notFoundErr("Recipe", name)
 	}
 	delete(b.recipeVersionsStore(region), name)
 
@@ -359,7 +359,7 @@ func (b *InMemoryBackend) DeleteRecipeVersion(ctx context.Context, name, version
 	defer b.mu.Unlock()
 	region := getRegion(ctx, b.defaultRegion)
 	if !b.recipesTable(region).Has(name) {
-		return ErrNotFound
+		return notFoundErr("Recipe", name)
 	}
 	if version == recipeVersionLatestPublished || !isValidRecipeVersionID(version) {
 		return fmt.Errorf("%w: invalid recipe version %q", ErrValidation, version)
@@ -387,7 +387,7 @@ func (b *InMemoryBackend) DeleteRecipeVersion(ctx context.Context, name, version
 
 	idx := recipeVersionIndex(versions[name], version)
 	if idx == -1 {
-		return ErrNotFound
+		return notFoundErr("Recipe", name+" version "+version)
 	}
 	if j, used := b.recipeVersionUsedByJob(region, name, version); used {
 		return fmt.Errorf("%w: recipe %q version %q is used by job %q", ErrConflict, name, version, j)
@@ -444,7 +444,7 @@ func (b *InMemoryBackend) BatchDeleteRecipeVersion(
 	defer b.mu.Unlock()
 	region := getRegion(ctx, b.defaultRegion)
 	if !b.recipesTable(region).Has(name) {
-		return nil, ErrNotFound
+		return nil, notFoundErr("Recipe", name)
 	}
 	if err := validateBatchDeleteRecipeVersions(toDelete); err != nil {
 		return nil, err

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strconv"
 )
 
 func parseRulesetOp(method, name string) string {
@@ -107,15 +106,18 @@ func (h *Handler) handleListRulesets(ctx context.Context, body []byte) ([]byte, 
 		TargetArn  string `json:"TargetArn"`
 	}
 	_ = json.Unmarshal(body, &req)
-	maxResults, _ := strconv.Atoi(req.MaxResults)
+	maxResults, token, err := listParams(req.MaxResults, req.NextToken)
+	if err != nil {
+		return nil, err
+	}
 
-	rulesets, next := h.Backend.ListRulesets(ctx, maxResults, req.NextToken, req.TargetArn)
+	rulesets, next := h.Backend.ListRulesets(ctx, maxResults, token, req.TargetArn)
 	items := make([]RulesetListItem, 0, len(rulesets))
 	for _, rs := range rulesets {
 		items = append(items, newRulesetListItem(rs))
 	}
 
-	return json.Marshal(map[string]any{"Rulesets": items, nextTokenKey: next})
+	return marshalPage("Rulesets", items, next)
 }
 
 func (h *Handler) handleUpdateRuleset(ctx context.Context, body []byte) ([]byte, error) {

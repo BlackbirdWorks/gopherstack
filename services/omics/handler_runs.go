@@ -57,7 +57,11 @@ func (h *Handler) handleGetRunGroup(c *echo.Context, id string) error {
 }
 
 func (h *Handler) handleListRunGroups(c *echo.Context) error {
-	maxResults, nextToken := paginationQueryParams(c)
+	maxResults, nextToken, err := paginationQueryParams(c)
+	if err != nil {
+		return h.mapError(c, err)
+	}
+
 	filter := &RunGroupFilter{Name: c.QueryParam("name")}
 	groups, next, err := h.Backend.ListRunGroups(filter, maxResults, nextToken)
 
@@ -215,7 +219,11 @@ func (h *Handler) handleGetRun(c *echo.Context, id string) error {
 }
 
 func (h *Handler) handleListRuns(c *echo.Context) error {
-	maxResults, nextToken := paginationQueryParams(c)
+	maxResults, nextToken, err := paginationQueryParams(c)
+	if err != nil {
+		return h.mapError(c, err)
+	}
+
 	q := c.Request().URL.Query()
 	filter := &RunFilter{
 		Name:       q.Get("name"),
@@ -255,7 +263,11 @@ func (h *Handler) handleGetRunTask(c *echo.Context, runID, taskID string) error 
 }
 
 func (h *Handler) handleListRunTasks(c *echo.Context, runID string) error {
-	maxResults, nextToken := paginationQueryParams(c)
+	maxResults, nextToken, err := paginationQueryParams(c)
+	if err != nil {
+		return h.mapError(c, err)
+	}
+
 	filter := &RunTaskFilter{Status: c.QueryParam("status")}
 	tasks, next, err := h.Backend.ListRunTasks(runID, filter, maxResults, nextToken)
 
@@ -325,7 +337,11 @@ func (h *Handler) handleGetRunCache(c *echo.Context, id string) error {
 }
 
 func (h *Handler) handleListRunCaches(c *echo.Context) error {
-	maxResults, nextToken := paginationQueryParams(c)
+	maxResults, nextToken, err := paginationQueryParams(c)
+	if err != nil {
+		return h.mapError(c, err)
+	}
+
 	caches, next, err := h.Backend.ListRunCaches(maxResults, nextToken)
 
 	if err != nil {
@@ -606,7 +622,11 @@ type runBatchListItemWire struct {
 }
 
 func (h *Handler) handleListRunBatches(c *echo.Context) error {
-	maxResults, nextToken := batchQueryParams(c)
+	maxResults, nextToken, err := batchQueryParams(c)
+	if err != nil {
+		return h.mapError(c, err)
+	}
+
 	q := c.Request().URL.Query()
 	filter := &RunBatchFilter{
 		Name:       q.Get("name"),
@@ -655,7 +675,11 @@ func (h *Handler) handleDeleteRunBatch(c *echo.Context) error {
 }
 
 func (h *Handler) handleListRunsInBatch(c *echo.Context, batchID string) error {
-	maxResults, nextToken := batchQueryParams(c)
+	maxResults, nextToken, err := batchQueryParams(c)
+	if err != nil {
+		return h.mapError(c, err)
+	}
+
 	q := c.Request().URL.Query()
 	filter := &RunsInBatchFilter{
 		RunID:            q.Get("runId"),
