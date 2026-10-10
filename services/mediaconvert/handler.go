@@ -5,13 +5,16 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -443,36 +446,53 @@ func applyListOrdering[T any](
 	return items
 }
 
-// limitSlice returns at most maxResults items; 0 means no limit.
-// parseMaxResults converts a query-parameter string to a non-negative int,
-// returning 0 (no limit) when the string is empty or unparseable.
-func parseMaxResults(s string) int {
-	if s == "" {
-		return 0
-	}
-
-	var n int
-
-	if _, err := fmt.Sscanf(s, "%d", &n); err != nil || n < 0 {
-		return 0
-	}
-
-	return n
-}
-
 // --- Error handling ---
 
 func (h *Handler) writeError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, ErrNotFound):
-		return c.JSON(http.StatusNotFound, errorResponse("NotFoundException", err.Error()))
+		return c.JSON(http.StatusNotFound, errorResponse("NotFoundException", errMessage(err)))
 	case errors.Is(err, ErrAlreadyExists):
-		return c.JSON(http.StatusConflict, errorResponse("ConflictException", err.Error()))
+		return c.JSON(http.StatusConflict, errorResponse("ConflictException", errMessage(err)))
 	case errors.Is(err, ErrValidation):
-		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", err.Error()))
+		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", errMessage(err)))
 	default:
-		return c.JSON(http.StatusInternalServerError, errorResponse("InternalError", err.Error()))
+		return c.JSON(http.StatusInternalServerError, errorResponse("InternalError", errMessage(err)))
 	}
+}
+
+// errMessage drops the sentinel's code prefix that fmt.Errorf("%w: ...") leaves in the message.
+func errMessage(err error) string {
+	msg := err.Error()
+	for _, sentinel := range []error{ErrNotFound, ErrAlreadyExists, ErrValidation} {
+		if errors.Is(err, sentinel) {
+			msg = strings.TrimPrefix(msg, sentinel.Error()+": ")
+		}
+	}
+
+	return msg
+}
+
+const maxListResults = 20
+
+// listPageArgs validates the nextToken and maxResults query parameters shared by every List* op.
+func listPageArgs(q url.Values) (string, int, error) {
+	token := q.Get("nextToken")
+	if page.ValidateToken(token) != nil {
+		return "", 0, fmt.Errorf("%w: invalid nextToken", ErrValidation)
+	}
+
+	raw := q.Get("maxResults")
+	if raw == "" {
+		return token, 0, nil
+	}
+
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 1 || n > maxListResults {
+		return "", 0, fmt.Errorf("%w: maxResults must be between 1 and %d", ErrValidation, maxListResults)
+	}
+
+	return token, n, nil
 }
 
 func errorResponse(code, msg string) map[string]string {

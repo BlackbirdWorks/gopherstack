@@ -51,8 +51,10 @@ type InMemoryBackend struct {
 	customDomains map[string][]*storedCustomDomain // serviceArn → domains; left raw, see type doc.
 	tags          map[string]map[string]string     // resourceArn → tags; left raw, see type doc.
 
-	accountID string
-	region    string
+	clock          func() time.Time
+	accountID      string
+	region         string
+	operationDelay time.Duration
 }
 
 // NewInMemoryBackend constructs a new InMemoryBackend.
@@ -73,8 +75,8 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return b
 }
 
-func (b *InMemoryBackend) serviceARN(id string) string {
-	return arn.Build("apprunner", b.region, b.accountID, "service/"+id)
+func (b *InMemoryBackend) serviceARN(name, id string) string {
+	return arn.Build("apprunner", b.region, b.accountID, "service/"+name+"/"+id)
 }
 
 func (b *InMemoryBackend) asgARN(name string, revision int32, id string) string {
@@ -107,7 +109,7 @@ func (b *InMemoryBackend) vicARN(name, id string) string {
 }
 
 func newID() string {
-	return strings.ReplaceAll(uuid.NewString(), "-", "")[:16]
+	return strings.ReplaceAll(uuid.NewString(), "-", "")
 }
 
 func newOpID() string {
@@ -119,7 +121,7 @@ func buildServiceURL(name, region string) string {
 }
 
 func (b *InMemoryBackend) addOperation(svc *storedService, opType string) {
-	now := time.Now().UTC()
+	now := b.now().UTC()
 	op := &storedOperation{
 		ID:        newOpID(),
 		Type:      opType,

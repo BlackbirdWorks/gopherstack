@@ -53,7 +53,10 @@ func (h *Handler) handleCreateVirtualRouter(c *echo.Context, meshName string) er
 		Tags              []tagInput      `json:"tags"`
 	}
 	if err := c.Bind(&body); err != nil || !isValidResourceName(body.VirtualRouterName) {
-		return c.JSON(http.StatusBadRequest, errResp("BadRequestException", "virtualRouterName is required"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("BadRequestException", nameMsg("virtualRouterName", body.VirtualRouterName)),
+		)
 	}
 	vr, err := h.Backend.CreateVirtualRouter(meshName, body.VirtualRouterName, body.Spec, tagsToMap(body.Tags))
 	if err != nil {
@@ -98,7 +101,10 @@ func (h *Handler) handleDeleteVirtualRouter(c *echo.Context, meshName, name stri
 }
 
 func (h *Handler) handleListVirtualRouters(c *echo.Context, meshName string) error {
-	maxResults, nextToken := listParams(c)
+	maxResults, nextToken, pageErr := listParams(c)
+	if pageErr != nil {
+		return h.mapErr(c, pageErr)
+	}
 	items, next, err := h.Backend.ListVirtualRouters(meshName, maxResults, nextToken)
 	if err != nil {
 		return h.mapErr(c, err)
@@ -190,7 +196,10 @@ func (h *Handler) handleCreateRoute(c *echo.Context, meshName, vrName string) er
 		Tags        []tagInput      `json:"tags"`
 	}
 	if err := c.Bind(&body); err != nil || !isValidResourceName(body.RouteName) {
-		return c.JSON(http.StatusBadRequest, errResp("BadRequestException", "routeName is required"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("BadRequestException", nameMsg("routeName", body.RouteName)),
+		)
 	}
 	r, err := h.Backend.CreateRoute(meshName, vrName, body.RouteName, body.Spec, tagsToMap(body.Tags))
 	if err != nil {
@@ -235,7 +244,10 @@ func (h *Handler) handleDeleteRoute(c *echo.Context, meshName, vrName, routeName
 }
 
 func (h *Handler) handleListRoutes(c *echo.Context, meshName, vrName string) error {
-	maxResults, nextToken := listParams(c)
+	maxResults, nextToken, pageErr := listParams(c)
+	if pageErr != nil {
+		return h.mapErr(c, pageErr)
+	}
 	items, next, err := h.Backend.ListRoutes(meshName, vrName, maxResults, nextToken)
 	if err != nil {
 		return h.mapErr(c, err)

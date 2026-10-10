@@ -69,6 +69,12 @@ deferred:
 leaks: {status: clean, note: "janitor.go uses pkgs/worker.Group.Ticker bound to ctx cancellation; no goroutine/map leaks found. lockmetrics.RWMutex used as the single coarse backend lock; safemap not used (not applicable, all backend collections are cross-map transactional and correctly share the coarse lock). Re-verified this pass: no new goroutines/tickers/maps introduced by the CreateJob/CreateJobTemplate/UpdateJobTemplate/DescribeEndpoints fixes; all new code paths run synchronously under the existing b.mu lock or (DescribeEndpoints) hold no lock at all since it reads no mutable backend state. 2026-08-19: CreateResourceShare's LastShareDetails fix (json.Marshal call) runs synchronously under the existing b.mu lock exactly like the rest of CreateResourceShare -- no new goroutines/tickers/maps."}
 ---
 
+## 2026-10-10 realism pass
+
+Built-in SYSTEM `Default` queue is seeded (undeletable) and jobs without a queue land on it; CreateJob rejects unknown
+job templates (NotFoundException) and Priority outside -50..50; List* ops validate nextToken and maxResults (1-20);
+error messages no longer repeat the code (`TestDefaultQueue`, `TestRequestRealism_Errors`).
+
 ## Notes
 
 - 2026-10-01 (items_still_open burn-down): removed entries already fixed at HEAD: no `ServiceOverrides` field exists

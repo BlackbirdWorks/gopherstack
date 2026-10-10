@@ -53,7 +53,10 @@ func (h *Handler) handleCreateVirtualService(c *echo.Context, meshName string) e
 		Tags               []tagInput      `json:"tags"`
 	}
 	if err := c.Bind(&body); err != nil || !isValidResourceName(body.VirtualServiceName) {
-		return c.JSON(http.StatusBadRequest, errResp("BadRequestException", "virtualServiceName is required"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("BadRequestException", nameMsg("virtualServiceName", body.VirtualServiceName)),
+		)
 	}
 	vs, err := h.Backend.CreateVirtualService(meshName, body.VirtualServiceName, body.Spec, tagsToMap(body.Tags))
 	if err != nil {
@@ -98,7 +101,10 @@ func (h *Handler) handleDeleteVirtualService(c *echo.Context, meshName, name str
 }
 
 func (h *Handler) handleListVirtualServices(c *echo.Context, meshName string) error {
-	maxResults, nextToken := listParams(c)
+	maxResults, nextToken, pageErr := listParams(c)
+	if pageErr != nil {
+		return h.mapErr(c, pageErr)
+	}
 	items, next, err := h.Backend.ListVirtualServices(meshName, maxResults, nextToken)
 	if err != nil {
 		return h.mapErr(c, err)

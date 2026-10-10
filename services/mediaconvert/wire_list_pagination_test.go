@@ -29,8 +29,8 @@ func TestListOps_Pagination(t *testing.T) {
 		client := newSDKTestClient(t, h)
 		ctx := t.Context()
 
-		const total = 25
-		for i := range total {
+		const total = 25 + 1 // plus the built-in Default queue
+		for i := range total - 1 {
 			_, err := client.CreateQueue(ctx, &mediaconvertsdk.CreateQueueInput{
 				Name: aws.String(queueName(i)),
 			})

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"strconv"
 
 	"github.com/labstack/echo/v5"
 
@@ -64,13 +63,9 @@ func (h *Handler) listArtifacts(ctx context.Context, c *echo.Context, appID, bra
 	}
 
 	q := c.Request().URL.Query()
-	nextToken := q.Get("nextToken")
-
-	maxResults := 0
-	if s := q.Get("maxResults"); s != "" {
-		if n, convErr := strconv.Atoi(s); convErr == nil && n > 0 {
-			maxResults = n
-		}
+	nextToken, maxResults, argErr := listPageArgs(q)
+	if argErr != nil {
+		return amplifyErrorJSON(c, http.StatusBadRequest, argErr.Error())
 	}
 
 	artifacts, outToken, err := h.Backend.ListArtifacts(appID, branchName, jobID, nextToken, maxResults)

@@ -83,6 +83,11 @@ VirtualNodeSpec, RouteSpec, VirtualGatewaySpec and GatewayRouteSpec are now vali
 aws-sdk-go-v2/service/appmesh@v1.38.4 types; unknown members still pass through. Test:
 `TestBackend_DeepSpecValidation`. meshOwner moved to structural_gaps.
 
+## 2026-10-10 realism pass
+
+List nextToken is now opaque (base64url of the cursor); malformed tokens and `limit` outside 1-100 return
+BadRequestException; over-long names report a length error instead of "is required" (`TestRequestRealism_Errors`).
+
 ## Notes
 
 **2026-09-19 required-output-members reverification**: re-read all 36 required

@@ -88,6 +88,12 @@ deferred: []
 leaks: {status: clean, note: "janitor.Run blocks on <-ctx.Done() and calls worker.Group.Stop() before returning, same lifecycle pattern as services/codebuild and services/batch; StartWorker only spawns the goroutine when a janitor was attached via WithJanitor (always true via provider.go), bound to the process/JanitorCtx lifetime. Fixed this sweep: DeleteApp previously cascaded only branches+tags, leaving jobs, domain associations, webhooks, and backend environments behind as ghost rows reachable by no legitimate path once the app 404s (an unbounded leak across create/delete churn in any long-running instance or test suite); DeleteBranch previously didn't cascade the branch's own jobs (or their artifacts) either. Both now cascade fully -- see InMemoryBackend.DeleteApp/deleteBranchLocked in apps.go and DeleteJob/DeleteBranch in jobs.go/branches.go. Every lock path remains defer-released; the new artifactsByJob store.Index (store_setup.go) adds no additional locking of its own, same invariant as every other index on this backend's single lockmetrics.RWMutex."}
 ---
 
+## 2026-10-10 realism pass
+
+Job IDs are sequential numerics per branch (newest first in ListJobs), app IDs are `d`+13 chars, pagination tokens are
+opaque and malformed tokens / maxResults > 100 return BadRequestException, and the code prefix is stripped from error
+messages (`TestJobIDs_Sequential`, `TestRequestRealism_Errors`).
+
 ## Notes
 
 ### 2026-09-19 required-output-members reverification

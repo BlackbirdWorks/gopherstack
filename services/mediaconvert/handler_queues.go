@@ -104,7 +104,12 @@ func (h *Handler) handleListQueues(c *echo.Context) error {
 		q.Get("listBy"), q.Get("order"),
 	)
 
-	pg := page.New(queues, q.Get("nextToken"), parseMaxResults(q.Get("maxResults")), defaultListPageSize)
+	token, maxResults, err := listPageArgs(q)
+	if err != nil {
+		return h.writeError(c, err)
+	}
+
+	pg := page.New(queues, token, maxResults, defaultListPageSize)
 
 	return c.JSON(http.StatusOK, queuesListOutput{Queues: pg.Data, NextToken: pg.Next})
 }

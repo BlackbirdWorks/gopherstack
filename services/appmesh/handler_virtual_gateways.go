@@ -53,7 +53,10 @@ func (h *Handler) handleCreateVirtualGateway(c *echo.Context, meshName string) e
 		Tags               []tagInput      `json:"tags"`
 	}
 	if err := c.Bind(&body); err != nil || !isValidResourceName(body.VirtualGatewayName) {
-		return c.JSON(http.StatusBadRequest, errResp("BadRequestException", "virtualGatewayName is required"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("BadRequestException", nameMsg("virtualGatewayName", body.VirtualGatewayName)),
+		)
 	}
 	vg, err := h.Backend.CreateVirtualGateway(meshName, body.VirtualGatewayName, body.Spec, tagsToMap(body.Tags))
 	if err != nil {
@@ -98,7 +101,10 @@ func (h *Handler) handleDeleteVirtualGateway(c *echo.Context, meshName, name str
 }
 
 func (h *Handler) handleListVirtualGateways(c *echo.Context, meshName string) error {
-	maxResults, nextToken := listParams(c)
+	maxResults, nextToken, pageErr := listParams(c)
+	if pageErr != nil {
+		return h.mapErr(c, pageErr)
+	}
 	items, next, err := h.Backend.ListVirtualGateways(meshName, maxResults, nextToken)
 	if err != nil {
 		return h.mapErr(c, err)
@@ -190,7 +196,10 @@ func (h *Handler) handleCreateGatewayRoute(c *echo.Context, meshName, vgName str
 		Tags             []tagInput      `json:"tags"`
 	}
 	if err := c.Bind(&body); err != nil || !isValidResourceName(body.GatewayRouteName) {
-		return c.JSON(http.StatusBadRequest, errResp("BadRequestException", "gatewayRouteName is required"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("BadRequestException", nameMsg("gatewayRouteName", body.GatewayRouteName)),
+		)
 	}
 	gr, err := h.Backend.CreateGatewayRoute(meshName, vgName, body.GatewayRouteName, body.Spec, tagsToMap(body.Tags))
 	if err != nil {
@@ -235,7 +244,10 @@ func (h *Handler) handleDeleteGatewayRoute(c *echo.Context, meshName, vgName, ro
 }
 
 func (h *Handler) handleListGatewayRoutes(c *echo.Context, meshName, vgName string) error {
-	maxResults, nextToken := listParams(c)
+	maxResults, nextToken, pageErr := listParams(c)
+	if pageErr != nil {
+		return h.mapErr(c, pageErr)
+	}
 	items, next, err := h.Backend.ListGatewayRoutes(meshName, vgName, maxResults, nextToken)
 	if err != nil {
 		return h.mapErr(c, err)

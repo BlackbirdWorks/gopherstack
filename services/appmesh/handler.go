@@ -1,8 +1,10 @@
 package appmesh
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -253,24 +255,49 @@ func isValidResourceName(name string) bool {
 	return len(name) >= 1 && len(name) <= maxResourceNameLen
 }
 
-func listParams(c *echo.Context) (int32, string) {
-	nextToken := c.QueryParam("nextToken")
-	maxResults := int32(defaultMaxResults)
-	// AWS App Mesh list operations bind max page size to the "limit" query
-	// param (see e.g. ListMeshesInput.Limit), not "maxResults".
-	if limitStr := c.QueryParam("limit"); limitStr != "" {
-		if limit, err := strconv.ParseInt(limitStr, 10, 32); err == nil && limit > 0 {
-			maxResults = int32(limit)
-		}
+// listParams reads the limit and nextToken query params; tokens are base64url-wrapped resource names.
+func nameMsg(field, value string) string {
+	if value == "" {
+		return field + " is required"
 	}
 
-	return maxResults, nextToken
+	return fmt.Sprintf("%s must be between 1 and %d characters", field, maxResourceNameLen)
+}
+
+func listParams(c *echo.Context) (int32, string, error) {
+	maxResults := int32(defaultMaxResults)
+
+	if limitStr := c.QueryParam("limit"); limitStr != "" {
+		limit, err := strconv.ParseInt(limitStr, 10, 32)
+		if err != nil || limit < 1 || limit > defaultMaxResults {
+			return 0, "", awserr.Newf("limit must be between 1 and %d", awserr.ErrInvalidParameter, defaultMaxResults)
+		}
+
+		maxResults = int32(limit)
+	}
+
+	var nextToken string
+
+	if raw := c.QueryParam("nextToken"); raw != "" {
+		decoded, err := base64.RawURLEncoding.DecodeString(raw)
+		if err != nil || len(decoded) == 0 {
+			return 0, "", awserr.New("invalid nextToken", awserr.ErrInvalidParameter)
+		}
+
+		nextToken = string(decoded)
+	}
+
+	return maxResults, nextToken, nil
+}
+
+func encodeNextToken(name string) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(name))
 }
 
 func listResp(key string, items []any, nextToken string) map[string]any {
 	resp := map[string]any{key: items}
 	if nextToken != "" {
-		resp["nextToken"] = nextToken
+		resp["nextToken"] = encodeNextToken(nextToken)
 	}
 
 	return resp

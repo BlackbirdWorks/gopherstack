@@ -58,6 +58,13 @@ CreateVpcIngressConnection now rejects a dangling ServiceArn with InvalidRequest
 (`TestCreateVpcIngressConnection_ServiceMustExist`). The CertificateValidationRecords item was stale:
 AssociateCustomDomain already emits them.
 
+## 2026-10-10 realism pass
+
+Opt-in `--lifecycle-apprunner` (`SetOperationDelay`, default 0): services report OPERATION_IN_PROGRESS (and IN_PROGRESS
+operations) after create/update/pause/resume/deploy/delete; state checks use the effective status. ServiceName now
+validated (4-40, `[A-Za-z0-9][A-Za-z0-9_-]*`); service ARN is `service/<name>/<32hex>`; errors no longer carry the
+exception name as a message suffix (`TestOperationLifecycle`, `TestCreateService_NameValidation`, `TestNotFoundMessage`).
+
 ## Notes
 
 ### 2026-09-19: required-output-member census
