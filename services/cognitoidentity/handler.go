@@ -2,10 +2,12 @@ package cognitoidentity
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -192,8 +194,35 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 
 	return c.JSON(statusCode, service.JSONErrorResponse{
 		Type:    errType,
-		Message: err.Error(),
+		Message: stripCodePrefix(err.Error()),
 	})
+}
+
+var codePrefixPattern = regexp.MustCompile(`^[A-Z][A-Za-z]+Exception: `)
+
+func stripCodePrefix(msg string) string {
+	return codePrefixPattern.ReplaceAllString(msg, "")
+}
+
+func encodePageToken(cursor string) string {
+	if cursor == "" {
+		return ""
+	}
+
+	return base64.RawURLEncoding.EncodeToString([]byte(cursor))
+}
+
+func decodePageToken(token string) (string, error) {
+	if token == "" {
+		return "", nil
+	}
+
+	dec, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil {
+		return "", fmt.Errorf("%w: invalid NextToken", ErrInvalidParameter)
+	}
+
+	return string(dec), nil
 }
 
 // cognitoIdentitySentinelErrors maps sentinel errors to their AWS exception type names.

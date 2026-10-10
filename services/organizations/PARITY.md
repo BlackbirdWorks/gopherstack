@@ -7,7 +7,14 @@
 service: organizations
 sdk_module: aws-sdk-go-v2/service/organizations@v1.53.5
 last_audit_commit: f78c3b7c7  # 2026-09-24 leak sweep: terminal handshakes evicted after 30d; prior: 5c20d9fd7
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
+# 2026-10-10 realism pass (AWS CLI/SDK probes): error bodies had empty messages -> real wording + Reason on
+# ConstraintViolation/InvalidInput; ListX paging validated on all 20 list ops (MaxResults 1-20, INVALID_NEXT_TOKEN);
+# duplicate CreateAccount email -> FAILED/EMAIL_ALREADY_EXISTS status (was InvalidInput); ParentNotFoundException
+# vs malformed parent id; AccountName(<=50)/Email(6-64)/RoleName/OU name(<=128) limits; CloseAccount on mgmt
+# account -> CANNOT_CLOSE_MANAGEMENT_ACCOUNT, already-closed -> AccountAlreadyClosedException.
+# Lenient on purpose: CreateAccount completes SUCCEEDED synchronously (callers read AccountId from the response);
+# SCP/RCP content only needs valid JSON (dozens of in-repo fixtures use "{}"); MaxResults=0 is "unset" (int field).
 overall: A            # 2026-08-30 (ordering pass): audited every List op's sort key against its actual
                       # unsorted source for tie-safety (Table.All() map walks are unspecified-order; a
                       # sort with no total-order comparator leaves ties to depend on that unspecified

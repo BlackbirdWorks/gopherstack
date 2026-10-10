@@ -130,6 +130,10 @@ func (h *Handler) handleListDelegatedAdministrators(c *echo.Context, body []byte
 		})
 	}
 
+	if rejected, pErr := h.checkPaging(c, req.MaxResults, req.NextToken); rejected {
+		return pErr
+	}
+
 	p := page.New(objs, req.NextToken, req.MaxResults, defaultMaxResults)
 
 	return c.JSON(http.StatusOK, listDelegatedAdministratorsResponse{
@@ -159,6 +163,10 @@ func (h *Handler) handleListDelegatedServicesForAccount(c *echo.Context, body []
 			ServicePrincipal:      svc.ServicePrincipal,
 			DelegationEnabledDate: epochSeconds(svc.DelegationEnabledDate),
 		})
+	}
+
+	if rejected, pErr := h.checkPaging(c, req.MaxResults, req.NextToken); rejected {
+		return pErr
 	}
 
 	p := page.New(objs, req.NextToken, req.MaxResults, defaultMaxResults)

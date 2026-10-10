@@ -68,4 +68,7 @@ var (
 	// awsRestjson1_deserializeOpErrorCreateResourceShare and
 	// awsRestjson1_deserializeOpErrorAssociateResourceShare).
 	ErrMalformedArn = awserr.New("MalformedArnException", awserr.ErrInvalidParameter)
+	// ErrInvalidNextToken is returned for a NextToken this service did not issue
+	// (InvalidNextTokenException on every paginated List/Get op).
+	ErrInvalidNextToken = awserr.New("InvalidNextTokenException", awserr.ErrInvalidParameter)
 )

@@ -6,8 +6,6 @@ import (
 	"slices"
 	"strings"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 const (
@@ -29,7 +27,7 @@ func (b *InMemoryBackend) CreateInstance(
 	b.mu.Lock("CreateInstance")
 	defer b.mu.Unlock()
 
-	id := uuid.NewString()[:uuidShortLen]
+	id := newResourceID()
 	instanceArn := "arn:aws:sso:::instance/ssoins-" + id
 
 	if ownerAccountID == "" {
@@ -195,7 +193,7 @@ func (b *InMemoryBackend) AddInstanceInternal(name string) *Instance {
 	b.mu.Lock("AddInstanceInternal")
 	defer b.mu.Unlock()
 
-	id := uuid.NewString()[:uuidShortLen]
+	id := newResourceID()
 	arn := "arn:aws:sso:::instance/ssoins-" + id
 	inst := &Instance{
 		InstanceArn:     arn,

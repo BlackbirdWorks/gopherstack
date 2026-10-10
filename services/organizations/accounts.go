@@ -15,21 +15,39 @@ const (
 	joinedMethodCreated         = "CREATED"
 
 	createAccountStateSucceeded = "SUCCEEDED"
+	createAccountStateFailed    = "FAILED"
+
+	createAccountFailureEmailExists = "EMAIL_ALREADY_EXISTS"
 )
+
+func (b *InMemoryBackend) failedCreateStatusLocked(name, reason string) *CreateAccountStatus {
+	b.statusCounter++
+	now := epochSeconds(time.Now())
+	status := &CreateAccountStatus{
+		ID:                 fmt.Sprintf("car-%012d", b.statusCounter),
+		AccountName:        name,
+		State:              createAccountStateFailed,
+		FailureReason:      reason,
+		RequestedTimestamp: now,
+		CompletedTimestamp: now,
+	}
+	b.createStatuses.Put(status)
+
+	return status
+}
 
 // createAccountLocked creates an account and status record.
 // Must be called with the write lock held.
-// Returns nil if the email already exists (duplicate email).
+// A duplicate email yields a FAILED status with no account, as in AWS.
 func (b *InMemoryBackend) createAccountLocked(
 	name, email, roleName, iamUserAccessToBilling string,
 	acctIDFn func(counter int) string,
 	govCloudID string,
 	tags []Tag,
 ) *CreateAccountStatus {
-	// Check for duplicate email.
 	if b.emailToAccountID != nil {
 		if _, exists := b.emailToAccountID[email]; exists {
-			return nil
+			return b.failedCreateStatusLocked(name, createAccountFailureEmailExists)
 		}
 	}
 
@@ -93,12 +111,7 @@ func (b *InMemoryBackend) CreateAccount(
 		return nil, err
 	}
 
-	status := b.createAccountLocked(name, email, roleName, iamUserAccessToBilling, newAccountID, "", tags)
-	if status == nil {
-		return nil, ErrInvalidInput
-	}
-
-	return status, nil
+	return b.createAccountLocked(name, email, roleName, iamUserAccessToBilling, newAccountID, "", tags), nil
 }
 
 // DescribeCreateAccountStatus returns the status of a CreateAccount request.
@@ -290,7 +303,7 @@ func (b *InMemoryBackend) CloseAccount(accountID string) error {
 	}
 
 	if accountID == b.org.MasterAccountID {
-		return ErrInvalidInput
+		return ErrCannotCloseManagementAccount
 	}
 
 	if acct.Status == accountStatusPendingClosure || acct.Status == accountStatusSuspended {
@@ -321,12 +334,7 @@ func (b *InMemoryBackend) CreateGovCloudAccount(
 	// Pre-calculate the GovCloud account ID using the next counter value.
 	govCloudID := newGovCloudAccountID(b.accountCounter + 1)
 
-	status := b.createAccountLocked(name, email, roleName, iamUserAccessToBilling, newAccountID, govCloudID, tags)
-	if status == nil {
-		return nil, ErrInvalidInput
-	}
-
-	return status, nil
+	return b.createAccountLocked(name, email, roleName, iamUserAccessToBilling, newAccountID, govCloudID, tags), nil
 }
 
 // ListCreateAccountStatus returns all CreateAccount status records, optionally filtered by state.

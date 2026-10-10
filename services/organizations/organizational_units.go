@@ -40,8 +40,12 @@ func (b *InMemoryBackend) CreateOrganizationalUnit(
 		return nil, ErrOrgNotFound
 	}
 
-	if !b.parentExists(parentID) {
+	if !validateOUName(name) {
 		return nil, ErrInvalidInput
+	}
+
+	if err := b.checkParentLocked(parentID); err != nil {
+		return nil, err
 	}
 
 	// Depth limit: root is depth 0, OUs are depth 1-5; creating at depth 6 is rejected.
@@ -142,6 +146,10 @@ func (b *InMemoryBackend) UpdateOrganizationalUnit(ouID, name string) (*Organiza
 	b.mu.Lock("UpdateOrganizationalUnit")
 	defer b.mu.Unlock()
 
+	if name != "" && !validateOUName(name) {
+		return nil, ErrInvalidInput
+	}
+
 	ou, ok := b.ous.Get(ouID)
 	if !ok {
 		return nil, ErrOUNotFound
@@ -184,8 +192,8 @@ func (b *InMemoryBackend) ListOrganizationalUnitsForParent(
 		return nil, ErrOrgNotFound
 	}
 
-	if !b.parentExists(parentID) {
-		return nil, ErrInvalidInput
+	if err := b.checkParentLocked(parentID); err != nil {
+		return nil, err
 	}
 
 	var out []*OrganizationalUnit
@@ -210,8 +218,8 @@ func (b *InMemoryBackend) ListAccountsForParent(parentID string) ([]*Account, er
 		return nil, ErrOrgNotFound
 	}
 
-	if !b.parentExists(parentID) {
-		return nil, ErrInvalidInput
+	if err := b.checkParentLocked(parentID); err != nil {
+		return nil, err
 	}
 
 	var out []*Account
@@ -275,8 +283,8 @@ func (b *InMemoryBackend) ListChildren(parentID, childType string) ([]ChildSumma
 		return nil, ErrOrgNotFound
 	}
 
-	if !b.parentExists(parentID) {
-		return nil, ErrInvalidInput
+	if err := b.checkParentLocked(parentID); err != nil {
+		return nil, err
 	}
 
 	var out []ChildSummary

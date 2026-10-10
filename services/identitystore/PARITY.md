@@ -2,7 +2,10 @@
 service: identitystore
 sdk_module: aws-sdk-go-v2/service/identitystore@v1.39.4   # version audited against
 last_audit_commit: 24813b443 # HEAD as of the 2026-09-19 required-output-member sweep (this pass)
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
+# 2026-10-10 realism pass: error messages no longer repeat the exception code; List* ops reject a NextToken this
+# service could not have issued (ValidationException).
+# Lenient on purpose: any well-formed IdentityStoreId is accepted (store created on first use).
 overall: A            # all 5 previously-dismissed gaps re-investigated: 1 real bug fixed, 3 implemented with concrete evidence, 1 kept as documented (justified) superset; a 6th, previously-unflagged wire bug found and fixed (CreateUser accepted an invented ExternalIds field)
                        # (2026-09-08, gopherstack-n7nk, P1) requireIdentityStoreID's writeError-returns-nil
                        # fall-through fixed (same class as elasticache gopherstack-8haq / pinpoint

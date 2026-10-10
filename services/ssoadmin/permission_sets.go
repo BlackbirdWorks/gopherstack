@@ -48,8 +48,8 @@ func (b *InMemoryBackend) CreatePermissionSet(
 	}
 
 	instanceID := instanceARNToID(instanceArn)
-	id := uuid.NewString()[:uuidShortLen]
-	psArn := arn.Build("sso", "", "", fmt.Sprintf("permissionSet/%s/%s", instanceID, id))
+	id := newResourceID()
+	psArn := arn.Build("sso", "", "", fmt.Sprintf("permissionSet/%s/ps-%s", instanceID, id))
 
 	if sessionDuration == "" {
 		sessionDuration = defaultSessionDuration
@@ -393,8 +393,8 @@ func (b *InMemoryBackend) AddPermissionSetInternal(instanceArn, name string) *Pe
 	defer b.mu.Unlock()
 
 	instanceID := instanceARNToID(instanceArn)
-	id := uuid.NewString()[:uuidShortLen]
-	psArn := arn.Build("sso", "", "", fmt.Sprintf("permissionSet/%s/%s", instanceID, id))
+	id := newResourceID()
+	psArn := arn.Build("sso", "", "", fmt.Sprintf("permissionSet/%s/ps-%s", instanceID, id))
 	ps := &PermissionSet{
 		PermissionSetArn: psArn,
 		InstanceArn:      instanceArn,

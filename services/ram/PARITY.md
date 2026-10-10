@@ -7,7 +7,11 @@
 service: ram
 sdk_module: aws-sdk-go-v2/service/ram@v1.39.4   # version audited against
 last_audit_commit: f78c3b7c7  # 2026-09-24 terminal invitation unbounded-growth fix; prior: 2332c3128
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
+# 2026-10-10 realism pass: allowExternalPrincipals now defaults true when omitted (SDK doc); resourceOwner,
+# associationType and principal shape validated (InvalidParameterException); non-ARN share ARN on Delete/Update ->
+# MalformedArnException; bad NextToken -> InvalidNextTokenException; error messages no longer repeat the code.
+# Lenient on purpose: new shares are ACTIVE immediately (no PENDING->ACTIVE window).
 # 2026-08-30: cursor-population sweep (does every List/Describe/Get response struct that DECLARES
 # a NextToken actually SET one before the collection can exceed a page?). Enumerated all 14 SDK
 # ops whose Input/Output declare NextToken. Found genuinely clean: all 12 real paginated ops

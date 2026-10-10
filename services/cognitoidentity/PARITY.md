@@ -7,7 +7,11 @@
 service: cognitoidentity
 sdk_module: aws-sdk-go-v2/service/cognitoidentity@v1.36.4
 last_audit_commit: 81a1aabf0
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
+# 2026-10-10 realism pass: IdentityPoolName (1-128, [\w\s+=,.@-]) and DeveloperProviderName ([\w.-]) validated;
+# ListIdentityPools/ListIdentities NextToken is opaque and rejected when malformed; ListIdentityPools MaxResults >60
+# rejected; messages no longer repeat the exception code.
+# Lenient on purpose: GetId accepts any Logins provider name; duplicate pool names still conflict.
 overall: A                # error-taxonomy field-diff vs deserializers.go found 3 real gaps, all fixed
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.

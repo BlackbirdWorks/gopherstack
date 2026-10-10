@@ -16,7 +16,7 @@ const (
 const (
 	identityStoreIDPrefixLen = 8
 	identityStoreIDMaxLen    = 12
-	uuidShortLen             = 8
+	resourceIDLen            = 16
 
 	// Instance/application status constants.
 	instanceStatusActive           = "ACTIVE"

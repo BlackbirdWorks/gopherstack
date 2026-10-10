@@ -60,6 +60,7 @@ func toResourceShareObject(rs *ResourceShare) resourceShareObject {
 type createResourceShareRequest struct {
 	// ResourceShareConfiguration mirrors types.ResourceShareConfiguration.
 	ResourceShareConfiguration *resourceShareConfigurationObject `json:"resourceShareConfiguration"`
+	AllowExternalPrincipals    *bool                             `json:"allowExternalPrincipals"`
 	Name                       string                            `json:"name"`
 	ClientToken                string                            `json:"clientToken"`
 	Tags                       []tagObject                       `json:"tags"`
@@ -67,7 +68,6 @@ type createResourceShareRequest struct {
 	ResourceArns               []string                          `json:"resourceArns"`
 	PermissionArns             []string                          `json:"permissionArns"`
 	Sources                    []string                          `json:"sources"`
-	AllowExternalPrincipals    bool                              `json:"allowExternalPrincipals"`
 }
 
 type createResourceShareResponse struct {
@@ -91,6 +91,10 @@ func (h *Handler) handleCreateResourceShare(_ context.Context, body []byte) ([]b
 		)
 	}
 
+	if err := validatePrincipals(req.Principals); err != nil {
+		return nil, err
+	}
+
 	token := req.ClientToken
 	req.ClientToken = ""
 
@@ -111,7 +115,7 @@ func (h *Handler) handleCreateResourceShare(_ context.Context, body []byte) ([]b
 func (h *Handler) createResourceShare(req createResourceShareRequest) (*ResourceShare, error) {
 	rs, err := h.Backend.CreateResourceShare(
 		req.Name,
-		req.AllowExternalPrincipals,
+		req.AllowExternalPrincipals == nil || *req.AllowExternalPrincipals,
 		fromTagObjects(req.Tags),
 		req.Principals,
 		req.ResourceArns,
@@ -175,6 +179,10 @@ func (h *Handler) handleGetResourceShares(_ context.Context, body []byte) ([]byt
 
 	if req.ResourceOwner == "" {
 		return nil, fmt.Errorf("%w: resourceOwner is required", errInvalidRequest)
+	}
+
+	if err := validateResourceOwner(req.ResourceOwner); err != nil {
+		return nil, err
 	}
 
 	var shares []resourceShareObject
@@ -322,6 +330,14 @@ func (h *Handler) handleUpdateResourceShare(_ context.Context, body []byte) ([]b
 		return nil, fmt.Errorf("%w: resourceShareArn is required", errInvalidRequest)
 	}
 
+	if err := validateShareARN(req.ResourceShareArn); err != nil {
+		return nil, err
+	}
+
+	if req.Name != "" && (len(req.Name) > maxShareNameLen || !ramShareNameRegex.MatchString(req.Name)) {
+		return nil, fmt.Errorf("%w: name must be 1-256 characters matching ^[\\w\\-.]+$", ErrValidation)
+	}
+
 	rs, err := h.Backend.UpdateResourceShare(
 		req.ResourceShareArn,
 		req.Name,
@@ -347,6 +363,10 @@ func (h *Handler) handleDeleteResourceShare(_ context.Context, c *echo.Context) 
 			"%w: resourceShareArn query parameter is required",
 			errInvalidRequest,
 		)
+	}
+
+	if err := validateShareARN(shareARN); err != nil {
+		return nil, err
 	}
 
 	if err := h.Backend.DeleteResourceShare(shareARN); err != nil {

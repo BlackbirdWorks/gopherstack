@@ -6,8 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
@@ -48,7 +46,7 @@ func (b *InMemoryBackend) AddApplicationInternal(instanceArn, name string) *Appl
 	b.mu.Lock("AddApplicationInternal")
 	defer b.mu.Unlock()
 
-	id := uuid.NewString()[:uuidShortLen]
+	id := newResourceID()
 	instanceID := instanceARNToID(instanceArn)
 	appArn := arn.Build("sso", "", b.accountID, fmt.Sprintf("application/%s/apl-%s", instanceID, id))
 	app := &Application{
@@ -128,7 +126,7 @@ func (b *InMemoryBackend) CreateApplication(
 		}
 	}
 
-	id := uuid.NewString()[:uuidShortLen]
+	id := newResourceID()
 	instanceID := instanceARNToID(instanceArn)
 	appArn := arn.Build("sso", "", b.accountID, fmt.Sprintf("application/%s/apl-%s", instanceID, id))
 	app := &Application{

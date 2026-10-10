@@ -473,6 +473,10 @@ func (h *Handler) handleListHandshakesForAccount(c *echo.Context, body []byte) e
 		}
 	}
 
+	if rejected, pErr := h.checkPaging(c, req.MaxResults, req.NextToken); rejected {
+		return pErr
+	}
+
 	p := page.New(objs, req.NextToken, req.MaxResults, defaultMaxResults)
 
 	return c.JSON(http.StatusOK, listHandshakesForAccountResponse{Handshakes: p.Data, NextToken: p.Next})
@@ -506,6 +510,10 @@ func (h *Handler) handleListHandshakesForOrganization(c *echo.Context, body []by
 		}
 	}
 
+	if rejected, pErr := h.checkPaging(c, req.MaxResults, req.NextToken); rejected {
+		return pErr
+	}
+
 	p := page.New(objs, req.NextToken, req.MaxResults, defaultMaxResults)
 
 	return c.JSON(http.StatusOK, listHandshakesForOrganizationResponse{Handshakes: p.Data, NextToken: p.Next})
@@ -531,6 +539,10 @@ func (h *Handler) handleListInboundResponsibilityTransfers(c *echo.Context, body
 	objs := make([]responsibilityTransferObject, 0, len(transfers))
 	for _, rt := range transfers {
 		objs = append(objs, toResponsibilityTransferObject(rt))
+	}
+
+	if rejected, pErr := h.checkPaging(c, req.MaxResults, req.NextToken); rejected {
+		return pErr
 	}
 
 	p := page.New(objs, req.NextToken, req.MaxResults, defaultMaxResults)
@@ -561,6 +573,10 @@ func (h *Handler) handleListOutboundResponsibilityTransfers(c *echo.Context, bod
 	objs := make([]responsibilityTransferObject, 0, len(transfers))
 	for _, rt := range transfers {
 		objs = append(objs, toResponsibilityTransferObject(rt))
+	}
+
+	if rejected, pErr := h.checkPaging(c, req.MaxResults, req.NextToken); rejected {
+		return pErr
 	}
 
 	p := page.New(objs, req.NextToken, req.MaxResults, defaultMaxResults)
