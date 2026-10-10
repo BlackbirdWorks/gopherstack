@@ -99,7 +99,7 @@ func lambdaCreateInput(t *testing.T, name string) *lambda.CreateFunctionInput {
 	}
 }
 
-func lifecycleKnobs() []lifecycleKnob {
+func baseLifecycleKnobs() []lifecycleKnob {
 	return []lifecycleKnob{
 		{
 			name: "elasticsearch",

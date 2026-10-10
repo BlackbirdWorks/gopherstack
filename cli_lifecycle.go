@@ -4,8 +4,11 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	accessanalyzerbackend "github.com/blackbirdworks/gopherstack/services/accessanalyzer"
 	accountbackend "github.com/blackbirdworks/gopherstack/services/account"
+	acmpcabackend "github.com/blackbirdworks/gopherstack/services/acmpca"
 	apprunnerbackend "github.com/blackbirdworks/gopherstack/services/apprunner"
+	appstreambackend "github.com/blackbirdworks/gopherstack/services/appstream"
 	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	bedrockbackend "github.com/blackbirdworks/gopherstack/services/bedrock"
@@ -13,13 +16,16 @@ import (
 	cloudfrontbackend "github.com/blackbirdworks/gopherstack/services/cloudfront"
 	comprehendbackend "github.com/blackbirdworks/gopherstack/services/comprehend"
 	daxbackend "github.com/blackbirdworks/gopherstack/services/dax"
+	detectivebackend "github.com/blackbirdworks/gopherstack/services/detective"
 	directoryservicebackend "github.com/blackbirdworks/gopherstack/services/directoryservice"
 	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
+	dsqlbackend "github.com/blackbirdworks/gopherstack/services/dsql"
 	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
 	efsbackend "github.com/blackbirdworks/gopherstack/services/efs"
 	eksbackend "github.com/blackbirdworks/gopherstack/services/eks"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
 	elasticbeanstalkbackend "github.com/blackbirdworks/gopherstack/services/elasticbeanstalk"
+	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
 	fsxbackend "github.com/blackbirdworks/gopherstack/services/fsx"
 	grafanabackend "github.com/blackbirdworks/gopherstack/services/grafana"
 	inspector2backend "github.com/blackbirdworks/gopherstack/services/inspector2"
@@ -28,12 +34,16 @@ import (
 	kafkaconnectbackend "github.com/blackbirdworks/gopherstack/services/kafkaconnect"
 	kinesisanalyticsv2backend "github.com/blackbirdworks/gopherstack/services/kinesisanalyticsv2"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
+	macie2backend "github.com/blackbirdworks/gopherstack/services/macie2"
 	medialivebackend "github.com/blackbirdworks/gopherstack/services/medialive"
 	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
 	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	networkmanagerbackend "github.com/blackbirdworks/gopherstack/services/networkmanager"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
+	opsworksbackend "github.com/blackbirdworks/gopherstack/services/opsworks"
+	outpostsbackend "github.com/blackbirdworks/gopherstack/services/outposts"
+	personalizebackend "github.com/blackbirdworks/gopherstack/services/personalize"
 	pinpointbackend "github.com/blackbirdworks/gopherstack/services/pinpoint"
 	pollybackend "github.com/blackbirdworks/gopherstack/services/polly"
 	quicksightbackend "github.com/blackbirdworks/gopherstack/services/quicksight"
@@ -43,10 +53,12 @@ import (
 	route53resolverbackend "github.com/blackbirdworks/gopherstack/services/route53resolver"
 	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
 	ssmbackend "github.com/blackbirdworks/gopherstack/services/ssm"
+	supportbackend "github.com/blackbirdworks/gopherstack/services/support"
 	textractbackend "github.com/blackbirdworks/gopherstack/services/textract"
 	transcribebackend "github.com/blackbirdworks/gopherstack/services/transcribe"
 	translatebackend "github.com/blackbirdworks/gopherstack/services/translate"
 	vpclatticebackend "github.com/blackbirdworks/gopherstack/services/vpclattice"
+	workmailbackend "github.com/blackbirdworks/gopherstack/services/workmail"
 	workspacesbackend "github.com/blackbirdworks/gopherstack/services/workspaces"
 )
 
@@ -103,6 +115,18 @@ type LifecycleSettings struct {
 	VPCLattice                   time.Duration `name:"vpclattice"                     env:"VPCLATTICE_LIFECYCLE_DELAY"           default:"0s" help:"VPC Lattice service/target group/association CREATE_IN_PROGRESS and target INITIAL window."`     //nolint:lll // config struct tags are intentionally verbose
 	KafkaConnect                 time.Duration `name:"kafkaconnect"                   env:"KAFKACONNECT_LIFECYCLE_DELAY"         default:"0s" help:"MSK Connect connector/plugin transitional window (built-in 500ms create, 300ms delete)."`        //nolint:lll // config struct tags are intentionally verbose
 	Grafana                      time.Duration `name:"grafana"                        env:"GRAFANA_LIFECYCLE_DELAY"              default:"0s" help:"Grafana workspace CREATING/UPDATING transitional window (built-in 100ms)."`                      //nolint:lll // config struct tags are intentionally verbose
+	ACMPCA                       time.Duration `name:"acmpca"                         env:"ACMPCA_AUDIT_REPORT_DELAY"            default:"0s" help:"ACM PCA audit report CREATING window."`                                                          //nolint:lll // config struct tags are intentionally verbose
+	AccessAnalyzer               time.Duration `name:"accessanalyzer"                 env:"ACCESSANALYZER_LIFECYCLE_DELAY"       default:"0s" help:"IAM Access Analyzer analyzer CREATING window."`                                                  //nolint:lll // config struct tags are intentionally verbose
+	AppStream                    time.Duration `name:"appstream"                      env:"APPSTREAM_LIFECYCLE_DELAY"            default:"0s" help:"AppStream fleet and image builder STARTING/STOPPING/PENDING window."`                            //nolint:lll // config struct tags are intentionally verbose
+	FIS                          time.Duration `name:"fis"                            env:"FIS_LIFECYCLE_DELAY"                  default:"0s" help:"FIS experiment state step delay (built-in 10ms)."`                                               //nolint:lll // config struct tags are intentionally verbose
+	DSQL                         time.Duration `name:"dsql"                           env:"DSQL_LIFECYCLE_DELAY"                 default:"0s" help:"Aurora DSQL cluster and stream transitional window (built-in 750ms/500ms)."`                     //nolint:lll // config struct tags are intentionally verbose
+	Macie2                       time.Duration `name:"macie2"                         env:"MACIE2_LIFECYCLE_DELAY"               default:"0s" help:"Macie one-time classification job RUNNING window (built-in 5s)."`                                //nolint:lll // config struct tags are intentionally verbose
+	Detective                    time.Duration `name:"detective"                      env:"DETECTIVE_LIFECYCLE_DELAY"            default:"0s" help:"Detective investigation RUNNING window."`                                                        //nolint:lll // config struct tags are intentionally verbose
+	WorkMail                     time.Duration `name:"workmail"                       env:"WORKMAIL_LIFECYCLE_DELAY"             default:"0s" help:"WorkMail transitional window."`                                                                  //nolint:lll // config struct tags are intentionally verbose
+	Personalize                  time.Duration `name:"personalize"                    env:"PERSONALIZE_LIFECYCLE_DELAY"          default:"0s" help:"Personalize resource CREATE PENDING/IN PROGRESS window."`                                        //nolint:lll // config struct tags are intentionally verbose
+	OpsWorks                     time.Duration `name:"opsworks"                       env:"OPSWORKS_LIFECYCLE_DELAY"             default:"0s" help:"OpsWorks instance transitional window."`                                                         //nolint:lll // config struct tags are intentionally verbose
+	Outposts                     time.Duration `name:"outposts"                       env:"OUTPOSTS_TRANSITION_DELAY"            default:"0s" help:"Outposts transitional window (built-in 100ms)."`                                                 //nolint:lll // config struct tags are intentionally verbose
+	Support                      time.Duration `name:"support"                        env:"SUPPORT_CASE_PROGRESS_DELAY"          default:"0s" help:"Support case progress window."`                                                                  //nolint:lll // config struct tags are intentionally verbose
 	EKS                          time.Duration `name:"eks"                            env:"EKS_LIFECYCLE_DELAY"                  default:"0s" help:"EKS transitional-state window (built-in 100ms)."`                                                //nolint:lll // config struct tags are intentionally verbose
 }
 
@@ -231,6 +255,100 @@ func applyAutoscaling(reg service.Registerable, l LifecycleSettings) {
 	if h, ok := reg.(*autoscalingbackend.Handler); ok {
 		if bk, isBk := h.Backend.(*autoscalingbackend.InMemoryBackend); isBk {
 			bk.SetLaunchDelay(l.effective(l.Autoscaling))
+		}
+	}
+}
+
+func applyACMPCA(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*acmpcabackend.Handler); ok {
+		h.Backend.SetAuditReportDelay(l.effective(l.ACMPCA))
+	}
+}
+
+func applyAccessAnalyzer(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*accessanalyzerbackend.Handler); ok {
+		if bk, isBk := h.Backend.(*accessanalyzerbackend.InMemoryBackend); isBk {
+			bk.SetAnalyzerCreateDelay(l.effective(l.AccessAnalyzer))
+		}
+	}
+}
+
+func applyAppStream(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*appstreambackend.Handler); ok {
+		if bk, isBk := h.Backend.(*appstreambackend.InMemoryBackend); isBk {
+			bk.SetStateTransitionDelay(l.effective(l.AppStream))
+		}
+	}
+}
+
+func applyFIS(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*fisbackend.Handler); ok {
+		if bk, isBk := h.Backend.(*fisbackend.InMemoryBackend); isBk {
+			if d := l.effective(l.FIS); d > 0 {
+				bk.SetLifecycleDelay(d)
+			}
+		}
+	}
+}
+
+func applyDSQL(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*dsqlbackend.Handler); ok {
+		if bk, isBk := h.Backend.(*dsqlbackend.InMemoryBackend); isBk {
+			bk.SetLifecycleDelay(l.effective(l.DSQL))
+		}
+	}
+}
+
+func applyMacie2(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*macie2backend.Handler); ok {
+		if bk, isBk := h.Backend.(*macie2backend.InMemoryBackend); isBk {
+			bk.SetLifecycleDelay(l.effective(l.Macie2))
+		}
+	}
+}
+
+func applyDetective(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*detectivebackend.Handler); ok {
+		if bk, isBk := h.Backend.(*detectivebackend.InMemoryBackend); isBk {
+			bk.SetLifecycleDelay(l.effective(l.Detective))
+		}
+	}
+}
+
+func applyWorkMail(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*workmailbackend.Handler); ok {
+		if bk, isBk := h.Backend.(*workmailbackend.InMemoryBackend); isBk {
+			bk.SetLifecycleDelay(l.effective(l.WorkMail))
+		}
+	}
+}
+
+func applyPersonalize(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*personalizebackend.Handler); ok {
+		h.Backend.SetLifecycleDelay(l.effective(l.Personalize))
+	}
+}
+
+func applyOpsWorks(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*opsworksbackend.Handler); ok {
+		if bk, isBk := h.Backend.(*opsworksbackend.InMemoryBackend); isBk {
+			bk.SetLifecycleDelay(l.effective(l.OpsWorks))
+		}
+	}
+}
+
+func applyOutposts(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*outpostsbackend.Handler); ok {
+		if d := l.effective(l.Outposts); d > 0 {
+			h.Backend.SetTransitionDelay(d)
+		}
+	}
+}
+
+func applySupport(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*supportbackend.Handler); ok {
+		if bk, isBk := h.Backend.(*supportbackend.InMemoryBackend); isBk {
+			bk.SetCaseProgressDelay(l.effective(l.Support))
 		}
 	}
 }
@@ -481,6 +599,18 @@ func wireLifecycleDelays(byName map[string]service.Registerable, l LifecycleSett
 		"VPCLattice":         applyVPCLattice,
 		"KafkaConnect":       applyKafkaConnect,
 		"Grafana":            applyGrafana,
+		"ACMPCA":             applyACMPCA,
+		"AccessAnalyzer":     applyAccessAnalyzer,
+		"AppStream":          applyAppStream,
+		"FIS":                applyFIS,
+		"DSQL":               applyDSQL,
+		"WorkMail":           applyWorkMail,
+		"Personalize":        applyPersonalize,
+		"OpsWorks":           applyOpsWorks,
+		"Outposts":           applyOutposts,
+		"Support":            applySupport,
+		"Detective":          applyDetective,
+		"Macie2":             applyMacie2,
 		"Pinpoint":           applyPinpoint,
 		"Autoscaling":        applyAutoscaling,
 		"EKS":                applyEKS,

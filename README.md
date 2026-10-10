@@ -345,6 +345,18 @@ By default resources settle instantly. Set a dwell to make Creating/Processing/P
 | `--lifecycle-vpclattice` | `VPCLATTICE_LIFECYCLE_DELAY` | VPC Lattice service/target group/association `CREATE_IN_PROGRESS` (and deletes `DELETE_IN_PROGRESS`) and registered-target `INITIAL`/`DRAINING` window. |
 | `--lifecycle-kafkaconnect` | `KAFKACONNECT_LIFECYCLE_DELAY` | MSK Connect connector/custom plugin transitional window (built-in `500ms` create, `300ms` delete). |
 | `--lifecycle-grafana` | `GRAFANA_LIFECYCLE_DELAY` | Grafana workspace `CREATING`/`UPDATING` window (built-in `100ms`). |
+| `--lifecycle-acmpca` | `ACMPCA_AUDIT_REPORT_DELAY` | ACM PCA audit report `CREATING` window. |
+| `--lifecycle-accessanalyzer` | `ACCESSANALYZER_LIFECYCLE_DELAY` | IAM Access Analyzer analyzer `CREATING` window. |
+| `--lifecycle-appstream` | `APPSTREAM_LIFECYCLE_DELAY` | AppStream fleet and image builder `STARTING`/`STOPPING`/`PENDING` window. |
+| `--lifecycle-fis` | `FIS_LIFECYCLE_DELAY` | FIS experiment state step delay (built-in `10ms`). |
+| `--lifecycle-dsql` | `DSQL_LIFECYCLE_DELAY` | Aurora DSQL cluster and stream transitional window (built-in `750ms` clusters, `500ms` streams). |
+| `--lifecycle-workmail` | `WORKMAIL_LIFECYCLE_DELAY` | WorkMail transitional window. |
+| `--lifecycle-personalize` | `PERSONALIZE_LIFECYCLE_DELAY` | Personalize resource CREATE PENDING/IN PROGRESS window. |
+| `--lifecycle-opsworks` | `OPSWORKS_LIFECYCLE_DELAY` | OpsWorks instance transitional window. |
+| `--lifecycle-outposts` | `OUTPOSTS_TRANSITION_DELAY` | Outposts transitional window (built-in 100ms). |
+| `--lifecycle-support` | `SUPPORT_CASE_PROGRESS_DELAY` | Support case progress window. |
+| `--lifecycle-macie2` | `MACIE2_LIFECYCLE_DELAY` | Macie one-time classification job `RUNNING` window before `COMPLETE` (built-in `5s`). |
+| `--lifecycle-detective` | `DETECTIVE_LIFECYCLE_DELAY` | Detective investigation `RUNNING` window before `SUCCESSFUL`. |
 | `--lifecycle-eks` | `EKS_LIFECYCLE_DELAY` | EKS transitional-state window (built-in `100ms`). |
 | `--lifecycle-docdb` | `DOCDB_LIFECYCLE_DELAY` | DocumentDB cluster/instance `creating` window. |
 | `--lifecycle-neptune` | `NEPTUNE_LIFECYCLE_DELAY` | Neptune cluster/instance `creating` window. |
