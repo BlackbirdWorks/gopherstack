@@ -2,7 +2,7 @@
 service: scheduler
 sdk_module: aws-sdk-go-v2/service/scheduler@v1.20.4   # version audited against
 last_audit_commit: 615cda74e                           # HEAD when this audit pass started
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-09
 overall: A            # genuine wire-breaking and next-invocation-computation bugs found and fixed (see Notes)
 ops:
   CreateSchedule:      {wire: fixed, errors: ok, state: fixed, persist: ok, note: "Target.EcsParameters wire bugs fixed (see 2026-08-20 Notes); ClientToken now idempotent (see Notes); ScheduleExpressionTimezone now validated as a real IANA name; ScheduleExpression now semantically validated (rate/cron/at), not just structurally; cron field values (ranges/names/wildcards) now validated per-field, see 2026-08-11 gopherstack-cz9e Notes"}
@@ -20,12 +20,26 @@ ops:
 families:
   RouteMatcher: {status: ok, note: "re-verified every op's REST method+path prefix against aws-sdk-go-v2 serializers.go this pass -- no drift; see prior pass's per-op mapping in Notes."}
   next-invocation computation: {status: fixed, note: "at() one-time expressions were validated at Create/Update time but the runner's isDue only matched rate()/cron() prefixes -- an at() schedule could NEVER fire. ScheduleExpressionTimezone was stored/round-tripped on the wire but never applied when evaluating cron/at wall-clock matches (runner always used the poll goroutine's raw time.Time, i.e. implicitly UTC/server-local). StartDate/EndDate were stored/round-tripped but the runner never gated cron/rate firing on them. All three fixed this pass -- see Notes."}
-  cross-service target delivery: {status: ok, note: "cli.go's wireSchedulerRunner wires ALL 8 Runner invoker interfaces (Lambda, SQS, SNS, StepFunctions, EventBridge, Kinesis, SageMaker, ECS); unchanged this pass, re-confirmed not a gap."}
+  cross-service target delivery: {status: ok, note: "wireSchedulerRunner wires the 8 core invokers; wireSchedulerDeliveryTargets adds Firehose, CodeBuild and CodePipeline; wireSchedulerUniversalTargets adds aws-sdk universal targets (see 2026-10-09 Notes)."}
 gaps: []
-items_still_open: []
+items_still_open:
+  - "Classic Inspector StartAssessmentRun templated target (arn:aws:inspector:...) is not delivered: only inspector2 is implemented, which has no assessment templates."
 deferred: []
 leaks: {status: clean, note: "leak_main_test.go (testleak.VerifyTestMain) passes under -race. The runner's poll goroutine remains the only background goroutine (ctx-parented via Handler.StartWorker/Shutdown, unchanged this pass). New state added this pass (Runner.locCache, Handler.idempotency) is plain in-memory data with no goroutines/tickers of its own; both are swept/bounded (locCache via the existing per-poll sweep alongside cronCache; idempotency via TTL-based lazy eviction) and cleared on Handler.Reset."}
 ---
+
+## 2026-10-09 universal targets
+
+`arn:aws:scheduler:::aws-sdk:{service}:{action}` targets call the service API in-process: `Target.Input` is the JSON
+request (PascalCase members, `{}` when empty) and the call goes through the Step Functions SDK integration, so any
+service in its table (including `batch:submitJob`) is reachable, with errors retried per the retry policy and then sent
+to the DLQ. Under `--enforce-iam` the call is signed with credentials of the schedule's `RoleArn` assumed by
+`scheduler.amazonaws.com`, so the target service authorizes against the real resource. Wired by
+`wireSchedulerUniversalTargets`. Tests: `TestSchedulerUniversalTargets` (sqs, dynamodb, batch),
+`TestSchedulerDeliveryTargets` (Firehose, CodePipeline). All templated target shapes in scheduler@v1.20.4
+(`EcsParameters`, `EventBridgeParameters`, `KinesisParameters`, `SageMakerPipelineParameters`, `SqsParameters`) were
+already delivered; the classic Amazon Inspector `StartAssessmentRun` templated target is not (no classic Inspector
+service exists here, only inspector2).
 
 ## 2026-10-07 items_still_open burn-down
 

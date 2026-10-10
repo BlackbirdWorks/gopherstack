@@ -182,6 +182,7 @@ type Runner struct {
 	kinesisReader    PipeKinesisReader
 	ddbStreamsReader PipeDynamoDBStreamsReader
 	jobs             JobTargets
+	http             HTTPTargets
 	backend          *InMemoryBackend
 	sem              chan struct{}
 	done             chan struct{}
@@ -499,6 +500,10 @@ func (r *Runner) invokeEnrichment(ctx context.Context, p *Pipe, payload []byte) 
 		return nil, r.sfn.StartExecution(enrichARN, "", input)
 	}
 
+	if body, handled, err := r.invokeHTTPEnrichment(ctx, p, payload); handled {
+		return body, err
+	}
+
 	// Enrichment ARN type is not handled by this runner — surface a real error
 	// rather than silently dropping the event.
 	return nil, fmt.Errorf("%w %q for pipe %q", ErrUnsupportedPipeEnrichment, enrichARN, p.Name)
@@ -587,6 +592,10 @@ func (r *Runner) dispatchTarget(ctx context.Context, p *Pipe, payload []byte) er
 		return r.invokeSQSTarget(ctx, p, payload)
 	case strings.HasPrefix(p.Target, "arn:aws:kinesis:"):
 		return r.invokeKinesisTarget(ctx, p, payload)
+	case isAPIDestinationARN(p.Target), isAPIGatewayARN(p.Target):
+		_, err := r.invokeHTTPTarget(ctx, p, payload)
+
+		return err
 	case strings.HasPrefix(p.Target, "arn:aws:events:"):
 		return r.invokeEventBridgeTarget(ctx, p, payload)
 	case strings.HasPrefix(p.Target, "arn:aws:logs:"):

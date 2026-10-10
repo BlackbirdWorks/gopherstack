@@ -48,7 +48,7 @@ func (a *ebBatchAdapter) SubmitBatchJob(
 	}
 
 	_, err := a.backend.SubmitJob(
-		inRegion(ctx, arnRegion(queueARN)),
+		batchbackend.WithRegion(ctx, arnRegion(queueARN)),
 		params.JobName, queueARN, params.JobDefinition,
 		nil, nil, nil, retry, nil, array, nil, nil, "", 0, false,
 	)

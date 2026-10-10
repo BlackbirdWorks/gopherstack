@@ -72,6 +72,7 @@ type Runner struct {
 	sageMaker   SageMakerPipelineStarter
 	ecsRunner   ECSTaskRunner
 	extra       DeliveryTargets
+	universal   UniversalTargetInvoker
 	auth        roleauth.Authorizer
 	lastFiredAt map[string]time.Time
 	// invalidExprWarned tracks schedule keys that have already logged an unparseable

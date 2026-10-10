@@ -3037,6 +3037,7 @@ func wireMessagingAndEventingIntegrations(byName map[string]service.Registerable
 		byName["CloudWatchLogs"],
 	)
 	wireEventBridgeJobTargets(byName)
+	wireHTTPTargets(byName)
 
 	// Wire S3 bucket notification delivery to SQS/SNS/Lambda targets.
 	wireS3Notifications(
@@ -11481,6 +11482,7 @@ func setupChaosAndRegistry(
 	chaos.RegisterRoutes(chaosGroup, faultStore, registry)
 	wireStepFunctionsSDKIntegration(e, services, cli.GetGlobalConfig().GetRegion(), cli.EnforceIAM)
 	wireAPIGatewayAWSServiceInvoker(e, services)
+	wireSchedulerUniversalTargets(e, services, cli.GetGlobalConfig().GetRegion(), cli.EnforceIAM)
 	wireCloudControlHandlers(e, services)
 	wireServiceRoleAuthorizer(services, cli.EnforceIAM)
 
@@ -11506,20 +11508,22 @@ func wireStepFunctionsSDKIntegration(e http.Handler, services []service.Register
 
 	if stsH, stsOk := byName["STS"].(*stsbackend.Handler); stsOk && enforceIAM {
 		if stsBk, bkOk := stsH.Backend.(*stsbackend.InMemoryBackend); bkOk {
-			roles = &sfnRoleAssumer{sts: stsBk}
+			roles = &serviceRoleAssumer{sts: stsBk, principal: "states.amazonaws.com", session: "states-execution"}
 		}
 	}
 
 	bk.SetSDKIntegration(sfnbackend.NewSDKIntegrationWithHTTP(e, region, roles, sfnConnectionsFor(byName)))
 }
 
-// sfnRoleAssumer issues execution-role credentials to states.amazonaws.com via STS.
-type sfnRoleAssumer struct {
-	sts *stsbackend.InMemoryBackend
+// serviceRoleAssumer issues execution-role credentials to a service principal via STS.
+type serviceRoleAssumer struct {
+	sts       *stsbackend.InMemoryBackend
+	principal string
+	session   string
 }
 
-func (r *sfnRoleAssumer) AssumeExecutionRole(roleArn string) (sfnbackend.RoleCredentials, error) {
-	out, err := r.sts.AssumeRoleForService("states.amazonaws.com", roleArn, "states-execution")
+func (r *serviceRoleAssumer) AssumeExecutionRole(roleArn string) (sfnbackend.RoleCredentials, error) {
+	out, err := r.sts.AssumeRoleForService(r.principal, roleArn, r.session)
 	if err != nil {
 		return sfnbackend.RoleCredentials{}, err
 	}

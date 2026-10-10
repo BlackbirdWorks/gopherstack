@@ -91,6 +91,7 @@ type DeliveryTargets struct {
 	CloudWatchLogs  CloudWatchLogsPublisher
 	APIDestinations APIDestinationResolver
 	EventBusRouter  EventBusRouter
+	APIGateway      APIGatewayInvoker
 
 	Batch             BatchJobSubmitter
 	CodeBuild         CodeBuildStarter
@@ -742,6 +743,8 @@ func deliverToTarget(
 		return deliverToCloudWatchLogs(ctx, dt.CloudWatchLogs, targetARN, payload)
 	case isAPIDestinationARN(targetARN):
 		return deliverToAPIDestination(ctx, dt.APIDestinations, target, payload)
+	case isAPIGatewayARN(targetARN):
+		return deliverToAPIGateway(ctx, dt.APIGateway, target, payload)
 	case isEventBusARN(targetARN):
 		// Routes the raw event, not payload: Input/InputPath/InputTransformer
 		// are target-invocation overrides and don't apply when the "target"

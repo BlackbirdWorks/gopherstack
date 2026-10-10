@@ -3,7 +3,7 @@ service: eventbridge
 sdk_module: aws-sdk-go-v2/service/eventbridge@v1.53.0
 sibling_sdk_modules: [aws-sdk-go-v2/service/pipes@v1.26.4, aws-sdk-go-v2/service/schemas@v1.37.4]  # Pipes and Schema Registry ops this Handler also implements; see schema_registry_and_pipes below
 last_audit_commit: f78c3b7c7  # 2026-09-24 leak sweep: terminal replays evicted after 1h; prior: 6020fa871
-last_audit_date: 2026-10-08
+last_audit_date: 2026-10-09
 overall: A
 # 2026-08-30 wrapper-key sweep (uncommitted as of this note): type-aware
 # go/types field-usage scan (302 exported fields across all 40 *Input/*Request
@@ -121,6 +121,20 @@ deferred:
   - "PutPermission/RemovePermission/policy-statement JSON shape (EventBusPolicyStatement.Principal as `any` for both string and object-with-AWS-key forms) -- spot-checked only, not re-verified this sweep beyond the persistence fix. UPDATE 2026-09-24: the surrounding document shape WAS re-verified and fixed -- see 2026-09-24 Notes entry; Principal's dual string/object shape itself remains unverified."
 leaks: {status: clean, note: "Re-verified this sweep: PutEvents's async delivery goroutine (b.wg.Go) acquires a workerSem slot or aborts on svcCtx.Done() before delivering, so Close()/Shutdown() cannot leave in-flight goroutines past defaultShutdownTimeout; deliverToTargetBounded applies a per-attempt context.WithTimeout and always cancels it. The new StartReplay FilterArns plumbing (replayDeliveryPlan struct, matchedDeliveryGroupsForEntry) is a same-lock-discipline refactor of the existing buildDeliveryPlan/deliverEvents path, not a new goroutine or lock -- scheduleReplayWorker still acquires workerSem-or-aborts-on-ctx.Done() exactly as before. Scheduler (scheduler.go) and ArchiveJanitor (janitor.go) were not touched this sweep; existing leak_test.go/isolation_test.go continue to pass."}
 ---
+
+## 2026-10-09 API Gateway targets and API-destination path parameters
+
+Rule targets with an `arn:aws:execute-api:{region}:{account}:{apiId}/{stage}/{METHOD}/{path}` ARN now invoke the
+deployed stage in-process through `apigateway.Handler.InvokeStage`, the same data-plane path an HTTP stage invoke takes
+(authorizers, validators, throttling, caching, integrations). `Target.HttpParameters` is honoured as in
+`types.HttpParameters` (eventbridge@v1.53.0): `PathParameterValues` fill the `*` wildcards of the ARN path (or of an API
+destination's endpoint) in order, `HeaderParameters` and `QueryStringParameters` are added to the request, and the
+event / `Input` / `InputPath` / `InputTransformer` payload is the body. A transport error or a >=400 status fails the
+delivery (retry policy, then DLQ). With `--enforce-iam` the rule's role needs `execute-api:Invoke`. Tests:
+`TestEventBridgeAPIGatewayTarget`, `TestBuildAPIGatewayRequest`, `TestInvokeAPIDestination`.
+
+Batch targets now submit into the job queue ARN's region (`batch.WithRegion`); `TestBatchTargetsHonourRegion`.
+`TestEventBridgeCodePipelineTarget` covers the CodePipeline target end to end.
 
 ## Notes
 

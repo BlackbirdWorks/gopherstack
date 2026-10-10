@@ -109,6 +109,8 @@ func TargetAction(targetARN string) (string, bool) {
 		return "ecs:RunTask", true
 	case "sagemaker":
 		return "sagemaker:StartPipelineExecution", true
+	case "execute-api":
+		return "execute-api:Invoke", true
 	case "events":
 		if strings.HasPrefix(res, "api-destination/") {
 			return "events:InvokeApiDestination", true

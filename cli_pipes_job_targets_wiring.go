@@ -59,7 +59,7 @@ func (a *pipesBatchAdapter) SubmitBatchJob(
 	}
 
 	_, err := a.backend.SubmitJob(
-		inRegion(ctx, arnRegion(queueARN)),
+		batchbackend.WithRegion(ctx, arnRegion(queueARN)),
 		p.JobName, queueARN, p.JobDefinition,
 		nil, p.Parameters, deps, retry, nil, array, overrides, nil, "", 0, false,
 	)

@@ -3,6 +3,7 @@ package eventbridge
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,76 +11,107 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/httptarget"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 const apiDestTimeout = 5 * time.Second
 
-// deliverToAPIDestination performs a real HTTP invocation of an API destination:
-// it resolves the destination's endpoint/method/rate-limit and the connection's
-// auth, applies the connection's invocation HTTP parameters (headers, query
-// string, and body merges), signs the request per the connection's
-// authorization type, honours the destination's rate limit, and reports whether
-// delivery failed (a transport error or a >=400 response), which drives
-// retry/DLQ handling upstream.
+// APIResponse is the HTTP response of an API destination or API Gateway invocation.
+type APIResponse struct {
+	Body   []byte
+	Status int
+}
+
+var errNoAPIDestinationResolver = errors.New("eventbridge: no API-destination resolver configured")
+
+var errAPIDestinationNotFound = errors.New("eventbridge: API destination not found")
+
+// deliverToAPIDestination invokes an API destination for a rule target and reports whether
+// delivery failed (a transport error or a >=400 response), which drives retry/DLQ upstream.
 func deliverToAPIDestination(
 	ctx context.Context,
 	resolver APIDestinationResolver,
 	target *Target,
 	payload string,
 ) bool {
-	log := logger.Load(ctx)
+	resp, err := invokeAPIDestination(ctx, resolver, target.Arn, payload, target.HTTPParameters)
+	if err != nil {
+		logger.Load(ctx).WarnContext(ctx, "EventBridge: API-destination delivery failed",
+			"arn", target.Arn, "error", err)
+
+		return true
+	}
+
+	return resp.Status >= http.StatusBadRequest
+}
+
+// InvokeAPIDestination performs the HTTP call of an API destination: it applies the
+// destination's body, header and query parameters, fills endpoint "*" wildcards from hp,
+// signs the request per the connection's authorization type and honours the destination's rate limit.
+func (b *InMemoryBackend) InvokeAPIDestination(
+	ctx context.Context, destARN string, payload []byte, hp *HTTPParameters,
+) (APIResponse, error) {
+	return invokeAPIDestination(ctx, b, destARN, string(payload), hp)
+}
+
+func invokeAPIDestination(
+	ctx context.Context,
+	resolver APIDestinationResolver,
+	destARN, payload string,
+	hp *HTTPParameters,
+) (APIResponse, error) {
 	if resolver == nil {
-		log.WarnContext(ctx, "EventBridge: no API-destination resolver configured", "arn", target.Arn)
-
-		return true
+		return APIResponse{}, errNoAPIDestinationResolver
 	}
 
-	dest, ok := resolver.ResolveAPIDestination(target.Arn)
+	dest, ok := resolver.ResolveAPIDestination(destARN)
 	if !ok {
-		log.WarnContext(ctx, "EventBridge: API destination not found", "arn", target.Arn)
-
-		return true
+		return APIResponse{}, fmt.Errorf("%w: %s", errAPIDestinationNotFound, destARN)
 	}
 
-	// Throttle to the destination's configured invocation rate before sending.
-	resolver.WaitAPIDestinationRateLimit(ctx, target.Arn, dest.RateLimitPerSecond)
-
-	body := mergeBodyParameters(payload, dest.BodyParameters)
+	resolver.WaitAPIDestinationRateLimit(ctx, destARN, dest.RateLimitPerSecond)
 
 	method := dest.HTTPMethod
 	if method == "" {
 		method = http.MethodPost
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, dest.Endpoint, strings.NewReader(body))
-	if err != nil {
-		log.WarnContext(ctx, "EventBridge: failed to build API-destination request", "arn", target.Arn, "error", err)
-
-		return true
+	endpoint := dest.Endpoint
+	if hp != nil {
+		endpoint = httptarget.FillWildcards(endpoint, hp.PathParameterValues)
 	}
+
+	req, err := http.NewRequestWithContext(
+		ctx, method, endpoint, strings.NewReader(mergeBodyParameters(payload, dest.BodyParameters)),
+	)
+	if err != nil {
+		return APIResponse{}, err
+	}
+
 	req.Header.Set("Content-Type", "application/json")
 
-	applyTargetHTTPParameters(req, target.HTTPParameters)
+	applyTargetHTTPParameters(req, hp)
 	applyConnectionHTTPParameters(req, dest.HeaderParameters, dest.QueryStringParameters)
 
 	if authErr := applyAPIDestinationAuth(ctx, req, dest); authErr != nil {
-		log.WarnContext(ctx, "EventBridge: failed to apply API-destination auth", "arn", target.Arn, "error", authErr)
-
-		return true
+		return APIResponse{}, authErr
 	}
 
 	client := &http.Client{Timeout: apiDestTimeout}
+
 	resp, err := client.Do(req)
 	if err != nil {
-		log.WarnContext(ctx, "EventBridge: API-destination request failed", "arn", target.Arn, "error", err)
-
-		return true
+		return APIResponse{}, err
 	}
 	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, resp.Body)
 
-	return resp.StatusCode >= http.StatusBadRequest
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxOAuthResponseBytes))
+	if err != nil {
+		return APIResponse{}, err
+	}
+
+	return APIResponse{Status: resp.StatusCode, Body: body}, nil
 }
 
 // mergeBodyParameters merges a connection's invocation body parameters into the

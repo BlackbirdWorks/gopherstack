@@ -7,7 +7,10 @@ import (
 	"strings"
 )
 
-var errTargetUnwired = errors.New("scheduler target invoker not wired")
+var (
+	errTargetUnwired            = errors.New("scheduler target invoker not wired")
+	errMalformedUniversalTarget = errors.New("malformed universal target ARN")
+)
 
 // FirehosePutter puts a record to the Firehose delivery stream named by streamARN.
 type FirehosePutter interface {
@@ -24,20 +27,22 @@ type CodePipelineStarter interface {
 	StartCodePipeline(ctx context.Context, pipelineARN string) error
 }
 
-// DeliveryTargets holds the Firehose, CodeBuild and CodePipeline target invokers.
+// DeliveryTargets holds the Firehose, CodeBuild, and CodePipeline target invokers.
 type DeliveryTargets struct {
 	Firehose     FirehosePutter
 	CodeBuild    CodeBuildStarter
 	CodePipeline CodePipelineStarter
 }
 
-// SetDeliveryTargets installs the Firehose, CodeBuild and CodePipeline target invokers.
+// SetDeliveryTargets installs the Firehose, CodeBuild, and CodePipeline target invokers.
 func (r *Runner) SetDeliveryTargets(d DeliveryTargets) { r.extra = d }
 
 func (r *Runner) invokeExtraTarget(ctx context.Context, s *Schedule, payload []byte) (bool, error) {
 	arn := s.Target.ARN
 
 	switch {
+	case strings.HasPrefix(arn, universalTargetPrefix):
+		return true, r.invokeUniversalTarget(ctx, s)
 	case strings.HasPrefix(arn, "arn:aws:firehose:"):
 		if r.extra.Firehose == nil {
 			return true, fmt.Errorf("%w: firehose target %q", errTargetUnwired, arn)

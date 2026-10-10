@@ -29,7 +29,7 @@ func (b *InMemoryBackend) SetRoleAuthorizer(a roleauth.Authorizer) {
 func usesTargetRole(arn string) bool {
 	switch {
 	case isKinesisStreamARN(arn), isKinesisFirehoseARN(arn), isECSARN(arn), isStateMachineARN(arn),
-		isAPIDestinationARN(arn), isEventBusARN(arn):
+		isAPIDestinationARN(arn), isEventBusARN(arn), isAPIGatewayARN(arn):
 		return true
 	default:
 		return false
