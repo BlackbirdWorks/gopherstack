@@ -659,7 +659,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [CodeBuild](services/codebuild/README.md) | A | 59 | 2 structural gaps; 1 deferred |
 | [CodeCommit](services/codecommit/README.md) | A | 79 | 1 gap; 1 structural gap |
 | [CodeConnections](services/codeconnections/README.md) | A | 27 | 1 gap |
-| [CodeDeploy](services/codedeploy/README.md) | A | 47 | 3 structural gaps; 2 deferred |
+| [CodeDeploy](services/codedeploy/README.md) | A | 47 | 3 structural gaps; 1 deferred |
 | [CodePipeline](services/codepipeline/README.md) | A | 22 | 3 gaps; 6 structural gaps; 1 deferred |
 | [CodeStar Connections](services/codestarconnections/README.md) | A | 27 | 1 gap; 2 structural gaps |
 | [Serverless Application Repository](services/serverlessrepo/README.md) | A | 14 | clean |
