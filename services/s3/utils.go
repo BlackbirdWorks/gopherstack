@@ -40,6 +40,23 @@ func parseUserMetadata(h http.Header) map[string]string {
 	return meta
 }
 
+const maxUserMetadataBytes = 2048
+
+func validateUserMetadataSize(h http.Header) error {
+	total := 0
+	for k, vals := range h {
+		if key, ok := strings.CutPrefix(strings.ToLower(k), "x-amz-meta-"); ok && len(vals) > 0 {
+			total += len(key) + len(vals[0])
+		}
+	}
+
+	if total > maxUserMetadataBytes {
+		return ErrMetadataTooLarge
+	}
+
+	return nil
+}
+
 const (
 	crc32Len = 4
 

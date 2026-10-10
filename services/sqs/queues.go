@@ -111,6 +111,10 @@ func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutp
 		return nil, err
 	}
 
+	if input.Attributes[attrFifoQueue] == attrValTrue && !strings.HasSuffix(input.QueueName, fifoSuffix) {
+		return nil, ErrInvalidQueueName
+	}
+
 	if !fifoThroughputPairingValid(nil, input.Attributes) {
 		return nil, ErrInvalidAttribute
 	}

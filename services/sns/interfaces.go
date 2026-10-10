@@ -19,6 +19,9 @@ type StorageBackend interface {
 	GetTopicAttributes(topicArn string) (map[string]string, error)
 	SetTopicAttributes(topicArn, attrName, attrValue string) error
 	Subscribe(topicArn, protocol, endpoint, filterPolicy string) (*Subscription, error)
+	SubscribeWithAttributes(
+		topicArn, protocol, endpoint, filterPolicy string, attrs map[string]string, baseURL string,
+	) (*Subscription, error)
 	ConfirmSubscription(topicArn, token string) (*Subscription, error)
 	ConfirmSubscriptionWith(topicArn, token string, authenticateOnUnsubscribe bool) (*Subscription, error)
 	Unsubscribe(subscriptionArn string) error
@@ -46,6 +49,9 @@ type StorageBackend interface {
 	GetTopicTags(arn string) map[string]string
 	SetTopicTags(arn string, kv *svcTags.Tags)
 	RemoveTopicTags(arn string, keys []string)
+	TagTopicByARN(topicARN string, newTags map[string]string) error
+	UntagTopicByARN(topicARN string, tagKeys []string) error
+	ListTopicTagsByARN(topicARN string) (map[string]string, error)
 	// Platform application operations.
 	CreatePlatformApplication(
 		name, platform string,

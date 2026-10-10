@@ -18,21 +18,19 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
-// parseListObjectsMaxKeys parses ListObjects (V1)'s max-keys query param. The
-// result is provably in [0, defaultMaxKeys]: it starts at the constant
-// default and is only reassigned to a parsed value that is non-negative and
-// strictly less than defaultMaxKeys. AWS clamps MaxKeys to [0, 1000] rather
-// than rejecting an over-limit value, so a value at or above the limit is
-// treated as the limit.
-func parseListObjectsMaxKeys(r *http.Request) int32 {
-	n := defaultMaxKeys
-	if mk := r.URL.Query().Get("max-keys"); mk != "" {
-		if v, err := strconv.Atoi(mk); err == nil && v >= 0 && v < defaultMaxKeys {
-			n = v
-		}
+// parseMaxKeys parses a max-keys query value: AWS clamps values above 1000 and
+// rejects non-numeric or negative ones with InvalidArgument.
+func parseMaxKeys(raw string) (int32, error) {
+	if raw == "" {
+		return defaultMaxKeys, nil
 	}
 
-	return int32(n)
+	v, err := strconv.Atoi(raw)
+	if err != nil || v < 0 {
+		return 0, ErrInvalidMaxKeys
+	}
+
+	return int32(min(v, defaultMaxKeys)), nil
 }
 
 func (h *S3Handler) listObjects(
@@ -71,7 +69,12 @@ func (h *S3Handler) listObjects(
 		"bucket", bucketName, "prefix", prefix, "delimiter", delimiter, "marker", marker,
 	)
 
-	maxKeys := parseListObjectsMaxKeys(r)
+	maxKeys, mkErr := parseMaxKeys(r.URL.Query().Get("max-keys"))
+	if mkErr != nil {
+		WriteError(ctx, w, r, mkErr)
+
+		return
+	}
 
 	// Pass marker and delimiter to backend so it can seek and group correctly.
 	out, err := h.Backend.ListObjects(ctx, &s3.ListObjectsInput{
@@ -94,12 +97,6 @@ func (h *S3Handler) listObjects(
 	if isTruncated && delimiter != "" {
 		nextMarker = aws.ToString(out.NextMarker)
 	}
-
-	logger.Load(ctx).DebugContext(
-		ctx,
-		"S3 listObjects output",
-		"bucket", bucketName, "objectCount", len(out.Contents), "isTruncated", isTruncated,
-	)
 
 	resp := ListBucketResult{
 		Name:         bucketName,
@@ -293,16 +290,12 @@ func (h *S3Handler) listObjectVersions(
 	delimiter := q.Get("delimiter")
 	encodingType := q.Get("encoding-type")
 
-	// n is provably in [0, defaultMaxKeys] before the int32 conversion: it
-	// starts at the constant default and is only reassigned to a parsed value
-	// that is positive and no greater than defaultMaxKeys.
-	n := defaultMaxKeys
-	if mk := q.Get("max-keys"); mk != "" {
-		if v, err := strconv.Atoi(mk); err == nil && v >= 0 && v <= defaultMaxKeys {
-			n = v
-		}
+	maxKeys, mkErr := parseMaxKeys(q.Get("max-keys"))
+	if mkErr != nil {
+		WriteError(ctx, w, r, mkErr)
+
+		return
 	}
-	maxKeys := int32(n)
 
 	input := &s3.ListObjectVersionsInput{
 		Bucket:          aws.String(bucketName),

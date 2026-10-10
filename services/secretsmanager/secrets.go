@@ -478,6 +478,10 @@ func (b *InMemoryBackend) ListSecrets(ctx context.Context, input *ListSecretsInp
 		return nil, err
 	}
 
+	if err := validateNextToken(input.NextToken); err != nil {
+		return nil, err
+	}
+
 	region := getRegion(ctx, b.region)
 
 	b.mu.RLock(opListSecrets)

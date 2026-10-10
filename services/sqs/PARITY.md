@@ -57,6 +57,8 @@ leaks: {status: clean, note: "fixed this pass: restoreQueueFromSnapshot now seed
 
 ## Notes
 
+**2026-10-09 realism pass:** `FifoQueue=true` on a name without `.fifo` is `InvalidParameterValue`; message bodies with characters outside the SQS set are `InvalidMessageContents` (body and String attribute values, single and batch); an over-size message is `InvalidParameterValue` (was mis-coded `InvalidMessageContents`). Not enforced: a `.fifo` name created without `FifoQueue=true` is still accepted because in-repo callers rely on it.
+
 ## 2026-10-03: SNS fan-out authorization under --enforce-iam
 
 - SNS subscription deliveries require the queue policy to allow sns.amazonaws.com with aws:SourceArn = topic ARN; a denied delivery goes to the subscription RedrivePolicy DLQ. The DLQ send itself is not policy-checked.

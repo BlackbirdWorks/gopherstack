@@ -183,14 +183,19 @@ func (b *InMemoryBackend) PutSecretValue(
 			return nil, err
 		}
 
-		if matched {
-			return &PutSecretValueOutput{
-				ARN:           secret.ARN,
-				Name:          secret.Name,
-				VersionID:     existing.VersionID,
-				VersionStages: existing.StagingLabels,
-			}, nil
+		if !matched {
+			return nil, fmt.Errorf(
+				"%w: You can't modify an existing secret version. You can only create new versions",
+				ErrSecretAlreadyExists,
+			)
 		}
+
+		return &PutSecretValueOutput{
+			ARN:           secret.ARN,
+			Name:          secret.Name,
+			VersionID:     existing.VersionID,
+			VersionStages: existing.StagingLabels,
+		}, nil
 	}
 
 	callerWantsCurrentLabel, stagingLabels := b.resolveStagingLabels(secret, input.VersionStages)
@@ -324,6 +329,10 @@ func (b *InMemoryBackend) ListSecretVersionIDs(
 		return nil, err
 	}
 
+	if err := validateNextToken(input.NextToken); err != nil {
+		return nil, err
+	}
+
 	region := getRegion(ctx, b.region)
 
 	b.mu.RLock("ListSecretVersionIDs")
@@ -407,6 +416,10 @@ func (b *InMemoryBackend) BatchGetSecretValue(
 		if err := validateMaxResults(&mr, maxResultsBatchGet); err != nil {
 			return nil, err
 		}
+	}
+
+	if err := validateNextToken(input.NextToken); err != nil {
+		return nil, err
 	}
 
 	if len(input.SecretIDList) > maxSecretIDListSize {

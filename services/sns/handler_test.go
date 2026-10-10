@@ -263,7 +263,7 @@ func TestSNSHandler_Shutdown(t *testing.T) {
 			delivered := make(chan struct{}, 1)
 			unblock := make(chan struct{})
 
-			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			ts := newNotificationServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				if tt.blockServer {
 					<-unblock
 				}

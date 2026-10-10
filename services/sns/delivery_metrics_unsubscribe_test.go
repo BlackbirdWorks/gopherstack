@@ -152,7 +152,7 @@ func TestUnsubscribe_AuthenticateOnUnsubscribe(t *testing.T) {
 			require.NoError(t, err)
 
 			_, err = client.ConfirmSubscription(t.Context(), &snssdk.ConfirmSubscriptionInput{
-				TopicArn: topic.TopicArn, Token: aws.String("tok"),
+				TopicArn: topic.TopicArn, Token: aws.String(sns.ConfirmationToken(aws.ToString(sub.SubscriptionArn))),
 				AuthenticateOnUnsubscribe: aws.String(map[bool]string{true: "true", false: "false"}[tt.flag]),
 			})
 			require.NoError(t, err)

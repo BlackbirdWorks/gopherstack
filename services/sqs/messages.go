@@ -100,6 +100,10 @@ func sendMessageLocked(
 		return nil, err
 	}
 
+	if err := validateMessageChars(input); err != nil {
+		return nil, err
+	}
+
 	if err := validateMessageSize(input.MessageBody, input.MessageAttributes, q); err != nil {
 		return nil, err
 	}
@@ -933,4 +937,34 @@ func (b *InMemoryBackend) emitSentBatch(q *Queue, input *SendMessageBatchInput, 
 				float64(messageSizeBytes(e.MessageBody, e.MessageAttributes)))
 		}
 	}
+}
+
+// validAWSChar reports whether r is in the SQS-permitted Unicode set.
+func validAWSChar(r rune) bool {
+	switch {
+	case r == '\t', r == '\n', r == '\r':
+		return true
+	case r >= ' ' && r <= '\ud7ff', r >= '\ue000' && r <= '\ufffd', r >= '\U00010000' && r <= '\U0010ffff':
+		return true
+	}
+
+	return false
+}
+
+func validateMessageChars(input *SendMessageInput) error {
+	for _, r := range input.MessageBody {
+		if !validAWSChar(r) {
+			return ErrInvalidMessageContents
+		}
+	}
+
+	for _, attr := range input.MessageAttributes {
+		for _, r := range attr.StringValue {
+			if !validAWSChar(r) {
+				return ErrInvalidMessageContents
+			}
+		}
+	}
+
+	return nil
 }

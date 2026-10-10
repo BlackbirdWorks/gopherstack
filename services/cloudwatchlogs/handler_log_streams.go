@@ -63,6 +63,9 @@ func (h *Handler) logStreamActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
+			if err := validateDescribeLimit(input.Limit); err != nil {
+				return nil, err
+			}
 			groupName, err := resolveLogGroupRef(input.LogGroupName, input.LogGroupIdentifier)
 			if err != nil {
 				return nil, err

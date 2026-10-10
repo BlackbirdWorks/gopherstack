@@ -2,6 +2,7 @@ package s3
 
 import (
 	"context"
+	"encoding/xml"
 	"net/http"
 	"strings"
 
@@ -21,6 +22,12 @@ func (h *S3Handler) putBucketLifecycleConfiguration(
 
 		return
 	}
+	if code, msg := validateLifecycleConfiguration(body); code != "" {
+		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{Code: code, Message: msg}, http.StatusBadRequest)
+
+		return
+	}
+
 	transitionDefaultMinObjectSize := r.Header.Get("X-Amz-Transition-Default-Minimum-Object-Size")
 
 	err = h.Backend.PutBucketLifecycleConfiguration(ctx, bucket, string(body), transitionDefaultMinObjectSize)
@@ -78,4 +85,36 @@ func (h *S3Handler) deleteBucketLifecycle(
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// validateLifecycleConfiguration returns an S3 error code and message for an invalid
+// lifecycle document, or empty strings when it is acceptable.
+func validateLifecycleConfiguration(body []byte) (string, string) {
+	var cfg lifecycleConfiguration
+	if err := xml.Unmarshal(body, &cfg); err != nil || len(cfg.Rules) == 0 {
+		return errMalformedXML, errMalformedXMLMsg
+	}
+
+	seen := make(map[string]struct{}, len(cfg.Rules))
+
+	for i := range cfg.Rules {
+		rule := &cfg.Rules[i]
+		if rule.Status != "Enabled" && rule.Status != "Disabled" {
+			return errMalformedXML, errMalformedXMLMsg
+		}
+
+		if rule.ID != "" {
+			if _, dup := seen[rule.ID]; dup {
+				return errInvalidArgument, "Rule ID must be unique. Found same ID for more than one rule"
+			}
+
+			seen[rule.ID] = struct{}{}
+		}
+
+		if rule.Expiration.Days != nil && *rule.Expiration.Days <= 0 {
+			return errInvalidArgument, "'Days' for Expiration action must be a positive integer"
+		}
+	}
+
+	return "", ""
 }

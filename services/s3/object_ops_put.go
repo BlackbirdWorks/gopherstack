@@ -68,6 +68,12 @@ func (h *S3Handler) putObject(
 		return
 	}
 
+	if err := validateUserMetadataSize(r.Header); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
 	// Conditional PUT: AWS S3 supports If-Match and If-None-Match on PutObject.
 	// `If-None-Match: *` is the canonical "create only if absent" pattern used by
 	// S3-based distributed locks; If-Match enforces ETag-based optimistic updates.

@@ -4,7 +4,6 @@ import (
 	"io"
 	"maps"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"testing"
 	"time"
@@ -670,7 +669,7 @@ func TestEndpointCreatedEventFired(t *testing.T) {
 	t.Parallel()
 
 	received := make(chan string, 5)
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := newNotificationServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		received <- string(body)
 		w.WriteHeader(http.StatusOK)
@@ -713,7 +712,7 @@ func TestEndpointDeletedEventFired(t *testing.T) {
 	t.Parallel()
 
 	received := make(chan string, 5)
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := newNotificationServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		received <- string(body)
 		w.WriteHeader(http.StatusOK)
@@ -757,7 +756,7 @@ func TestEndpointUpdatedEventFired(t *testing.T) {
 	t.Parallel()
 
 	received := make(chan string, 5)
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := newNotificationServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		received <- string(body)
 		w.WriteHeader(http.StatusOK)

@@ -228,6 +228,18 @@ func validateMaxResults(n *int64, limit int64) error {
 }
 
 // parseToken converts a pagination token string to an integer start index.
+func validateNextToken(token string) error {
+	if token == "" {
+		return nil
+	}
+
+	if idx, err := strconv.Atoi(token); err != nil || idx < 0 {
+		return ErrInvalidNextToken
+	}
+
+	return nil
+}
+
 func parseToken(token string) int {
 	if token == "" {
 		return 0

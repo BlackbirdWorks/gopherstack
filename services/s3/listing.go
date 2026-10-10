@@ -2,6 +2,7 @@ package s3
 
 import (
 	"context"
+	"encoding/base64"
 	"sort"
 	"strings"
 	"time"
@@ -392,7 +393,12 @@ func (b *InMemoryBackend) ListObjectsV2(
 	// Re-use ListObjects logic but handle V2 specific params
 	marker := ""
 	if input.ContinuationToken != nil && *input.ContinuationToken != "" {
-		marker = *input.ContinuationToken
+		decoded, ok := decodeContinuationToken(*input.ContinuationToken)
+		if !ok {
+			return nil, ErrInvalidContinuationToken
+		}
+
+		marker = decoded
 	} else if input.StartAfter != nil && *input.StartAfter != "" {
 		marker = *input.StartAfter
 	}
@@ -413,7 +419,7 @@ func (b *InMemoryBackend) ListObjectsV2(
 
 	nextCont := ""
 	if aws.ToBool(listOut.IsTruncated) {
-		nextCont = aws.ToString(listOut.NextMarker)
+		nextCont = encodeContinuationToken(aws.ToString(listOut.NextMarker))
 	}
 
 	return &s3.ListObjectsV2Output{
@@ -794,4 +800,24 @@ func truncateVersionEntries(walk delimitedWalk, maxKeys int32) (
 	}
 
 	return versions, cpList, isTruncated, nextMarker
+}
+
+const continuationTokenPrefix = "1"
+
+func encodeContinuationToken(key string) string {
+	return continuationTokenPrefix + base64.URLEncoding.EncodeToString([]byte(key))
+}
+
+func decodeContinuationToken(token string) (string, bool) {
+	rest, ok := strings.CutPrefix(token, continuationTokenPrefix)
+	if !ok {
+		return "", false
+	}
+
+	raw, err := base64.URLEncoding.DecodeString(rest)
+	if err != nil {
+		return "", false
+	}
+
+	return string(raw), true
 }

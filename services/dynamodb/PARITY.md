@@ -129,6 +129,8 @@ leaks: {status: clean, note: TTL sweeper + stream trimming verified, ctx-cancel 
 
 ## Notes
 
+**2026-10-09 realism pass:** key attribute types are checked against AttributeDefinitions (PutItem/BatchWrite put: `Type mismatch for key`, GSI/LSI keys: `Type mismatch for Index Key`, Get/Update/Delete: `The provided key element does not match the schema`); Query without KeyConditions/KeyConditionExpression is a ValidationException; attribute nesting over 32 levels is rejected; ListTables Limit messages follow the real wording and a negative Limit is rejected. Not modeled: an explicit ListTables `Limit: 0` (models.ListTablesInput.Limit is a plain int, so 0 reads as unset).
+
 ### 2026-10-07 WarmThroughput and remaining metrics
 
 - WarmThroughput on CreateTable, UpdateTable and GSI create/update is stored (merged per unit on update) and echoed as TableDescription.WarmThroughput and GlobalSecondaryIndexDescription.WarmThroughput with Status ACTIVE; unset stays nil (no AWS defaults invented). A GSI WarmThroughput naming neither unit is a ValidationException (SDK doc: "must specify ReadUnitsPerSecond, WriteUnitsPerSecond, or both"). Proof: `TestRealClient_WarmThroughput`.

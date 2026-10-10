@@ -553,6 +553,14 @@ func (b *InMemoryBackend) GetParameters(
 	region := getRegion(ctx)
 	account := awsmeta.Account(ctx)
 
+	if len(input.Names) > maxGetParametersNames {
+		return nil, fmt.Errorf(
+			"%w: 1 validation error detected: Value at 'names' failed to satisfy constraint: "+
+				"Member must have length less than or equal to %d",
+			ErrValidationException, maxGetParametersNames,
+		)
+	}
+
 	b.mu.RLock("GetParameters")
 	defer b.mu.RUnlock()
 
@@ -1090,3 +1098,5 @@ func paramMatchesPathFilter(name string, f ParameterFilter) bool {
 
 	return false
 }
+
+const maxGetParametersNames = 10

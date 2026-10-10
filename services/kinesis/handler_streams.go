@@ -114,7 +114,7 @@ func (h *Handler) handleCreateStream(
 	}
 
 	if !streamNameRe.MatchString(req.StreamName) {
-		return nil, ErrValidation
+		return nil, invalidStreamNameError(req.StreamName)
 	}
 
 	// Validate tags before mutating any state: AWS rejects the whole CreateStream

@@ -69,6 +69,8 @@ leaks: {status: clean, note: "stream.mu (lockmetrics) and stream.Tags always Clo
 
 ## Notes
 
+**2026-10-09 realism pass:** PutRecords no longer silently truncates a request above 500 records (rejected); GetRecords Limit above 10000 is `InvalidArgumentException` as documented; Enable/DisableEnhancedMonitoring validate metric names, expand `ALL` to the seven metrics and carry field-specific ValidationException text; CreateStream name errors name the `streamName` member.
+
 **2026-10-07:** CreateChannel now enforces the documented S3 OutputKeyTemplate rules (data-delivery-s3-key-template): no leading slash, `..`, `.` segment or `//`; closed placeholders with supported names only; literal characters limited to alphanumerics and `! - _ . * ( ) / = '`; at most one trailing `!{extension}` / `!{extension:.lowercase}`, required when compression is GZIP or ZSTD; expanded length at most 986 (checked as a lower bound). TestCreateChannel_OutputKeyTemplate.
 
 ### 2026-10-01: UpdateStreamWarmThroughput UPDATING window

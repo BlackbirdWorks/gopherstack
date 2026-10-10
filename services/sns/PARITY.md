@@ -59,6 +59,8 @@ leaks: {status: clean, note: "fixed this pass: (1) topicMessageArchive was never
 
 ## Notes
 
+**2026-10-09 realism pass:** Subscribe to http/https now POSTs a signed `SubscriptionConfirmation` (Token, SubscribeURL rooted at the request host) and ConfirmSubscription validates the token (`GET /?Action=ConfirmSubscription` is routed); email/email-json subscriptions have no mailbox so any non-empty token is still accepted. CreateTopic on an existing name with different attributes is `InvalidParameter`; Tag/Untag/ListTagsForResource on a missing topic are `ResourceNotFound` (404) and >50 tags is `TagLimitExceeded`; Subscribe applies its Attributes atomically (an invalid attribute fails the call and rolls back the new subscription instead of being logged and dropped).
+
 **2026-10-07:** the AWS/SNS filtered-out metrics now follow the CloudWatch metrics page: NumberOfNotificationsFilteredOut is the total, with -MessageAttributes, -NoMessageAttributes, -InvalidAttributes (String.Array attribute that is not a JSON array), -MessageBody and -InvalidMessageBody (body not a JSON object) as the per-reason counts (TestPublish_FilteredOutMetrics).
 
 ## 2026-10-03: Delivery authorization under --enforce-iam

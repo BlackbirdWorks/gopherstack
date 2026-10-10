@@ -311,6 +311,8 @@ func classifySSMError(reqErr error) (string, int) {
 	switch {
 	case errors.Is(reqErr, ErrParameterVersionNotFound):
 		return "ParameterVersionNotFound", statusCode
+	case errors.Is(reqErr, ErrParameterLabelLimitExceeded):
+		return "ParameterVersionLabelLimitExceeded", statusCode
 	case errors.Is(reqErr, ErrParameterNotFound):
 		return "ParameterNotFound", statusCode
 	case errors.Is(reqErr, ErrParameterAlreadyExists):

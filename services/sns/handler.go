@@ -17,11 +17,12 @@ import (
 )
 
 const (
-	snsVersion       = "Version=2010-03-31"
-	snsContentType   = "application/x-www-form-urlencoded"
-	snsMatchPriority = 80
-	unknownOperation = "Unknown"
-	opSubscribe      = "Subscribe"
+	snsVersion                = "Version=2010-03-31"
+	snsContentType            = "application/x-www-form-urlencoded"
+	snsMatchPriority          = 80
+	unknownOperation          = "Unknown"
+	opSubscribe               = "Subscribe"
+	actionConfirmSubscription = "ConfirmSubscription"
 )
 
 type Handler struct {
@@ -58,7 +59,7 @@ func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		"AddPermission",
 		"CheckIfPhoneNumberIsOptedOut",
-		"ConfirmSubscription",
+		actionConfirmSubscription,
 		"CreatePlatformApplication",
 		"CreatePlatformEndpoint",
 		"CreateSMSSandboxPhoneNumber",
@@ -143,6 +144,11 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		// Serve the signing cert PEM for signature verification.
 		if c.Request().Method == http.MethodGet &&
 			strings.HasSuffix(c.Request().URL.Path, "SimpleNotificationService.pem") {
+			return true
+		}
+
+		if c.Request().Method == http.MethodGet && c.Request().URL.Query().Get("Action") == actionConfirmSubscription &&
+			c.Request().URL.Query().Get("TopicArn") != "" {
 			return true
 		}
 
@@ -271,7 +277,7 @@ func (h *Handler) buildActions() map[string]snsActionFn {
 	return map[string]snsActionFn{
 		"AddPermission":                      h.handleAddPermission,
 		"CheckIfPhoneNumberIsOptedOut":       h.handleCheckIfPhoneNumberIsOptedOut,
-		"ConfirmSubscription":                h.handleConfirmSubscription,
+		actionConfirmSubscription:            h.handleConfirmSubscription,
 		"CreatePlatformApplication":          h.handleCreatePlatformApplication,
 		"CreatePlatformEndpoint":             h.handleCreatePlatformEndpoint,
 		"CreateSMSSandboxPhoneNumber":        h.handleCreateSMSSandboxPhoneNumber,

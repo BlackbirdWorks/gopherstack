@@ -420,6 +420,8 @@ leaks: {status: clean, note: "Janitor (janitor.go) is the only background gorout
 
 ## Notes
 
+**2026-10-09 realism pass:** LabelParameterVersion validates label syntax (1-100 chars, no leading digit, no `aws`/`ssm` prefix -> `InvalidLabels`), returns `ParameterVersionNotFound` for an unknown version and `ParameterVersionLabelLimitExceeded` above 10 labels (previously reported as InvalidLabels); GetParameters rejects more than 10 names. Left alone as unverifiable from the SDK: PutParameter Type change on overwrite, empty Value, and GetParametersByPath path syntax errors.
+
 ### 2026-10-01: items_still_open burn-down (task parameters, list shapes, command stage)
 
 Fixed, each proven with a typed aws-sdk-go-v2 client (mw_task_params_test.go): (1)

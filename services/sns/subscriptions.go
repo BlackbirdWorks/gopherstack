@@ -93,15 +93,55 @@ func isValidHTTPEndpoint(endpoint, protocol string) bool {
 func (b *InMemoryBackend) Subscribe(
 	topicArn, protocol, endpoint, filterPolicy string,
 ) (*Subscription, error) {
-	if err := validateSubscribeEndpoint(protocol, endpoint); err != nil {
+	return b.SubscribeWithAttributes(topicArn, protocol, endpoint, filterPolicy, nil, "")
+}
+
+// SubscribeWithAttributes is Subscribe plus subscription attributes applied atomically: an
+// invalid attribute fails the call and rolls back a newly created subscription. baseURL, when
+// set, roots the SubscribeURL sent to HTTP/HTTPS endpoints.
+func (b *InMemoryBackend) SubscribeWithAttributes(
+	topicArn, protocol, endpoint, filterPolicy string,
+	attrs map[string]string,
+	baseURL string,
+) (*Subscription, error) {
+	sub, created, sigAttr, err := b.subscribe(topicArn, protocol, endpoint, filterPolicy)
+	if err != nil {
 		return nil, err
+	}
+
+	for k, v := range attrs {
+		if k == attrFilterPolicy {
+			continue
+		}
+
+		if setErr := b.SetSubscriptionAttributes(sub.SubscriptionArn, k, v); setErr != nil {
+			if created {
+				_ = b.Unsubscribe(sub.SubscriptionArn)
+			}
+
+			return nil, setErr
+		}
+	}
+
+	if created && (protocol == protocolHTTP || protocol == protocolHTTPS) {
+		b.dispatchSubscriptionConfirmation(topicArn, sub.SubscriptionArn, endpoint, sigAttr, baseURL)
+	}
+
+	return sub, nil
+}
+
+func (b *InMemoryBackend) subscribe(
+	topicArn, protocol, endpoint, filterPolicy string,
+) (*Subscription, bool, string, error) {
+	if err := validateSubscribeEndpoint(protocol, endpoint); err != nil {
+		return nil, false, "", err
 	}
 
 	// Parse and validate the filter policy outside the backend lock so that
 	// JSON parsing of large policies does not block other SNS operations.
 	parsedPolicy, parseErr := parseFilterPolicy(filterPolicy)
 	if parseErr != nil {
-		return nil, parseErr
+		return nil, false, "", parseErr
 	}
 
 	b.mu.Lock(opSubscribe)
@@ -109,7 +149,7 @@ func (b *InMemoryBackend) Subscribe(
 
 	topic, exists := b.topics.Get(topicArn)
 	if !exists {
-		return nil, ErrTopicNotFound
+		return nil, false, "", ErrTopicNotFound
 	}
 
 	topicSubs := b.subscriptionsByTopic.Get(topicArn)
@@ -120,17 +160,17 @@ func (b *InMemoryBackend) Subscribe(
 		if !existing.PendingConfirmation &&
 			existing.Protocol == protocol &&
 			existing.Endpoint == endpoint {
-			return existing, nil
+			return existing, false, "", nil
 		}
 	}
 
 	if len(topicSubs) >= b.subscriptionLimitPerTopic {
-		return nil, ErrSubscriptionLimitExceeded
+		return nil, false, "", ErrSubscriptionLimitExceeded
 	}
 
 	if filterPolicy != "" {
 		if err := b.checkFilterPolicyQuotaLocked("", topicSubs); err != nil {
-			return nil, err
+			return nil, false, "", err
 		}
 	}
 
@@ -163,7 +203,7 @@ func (b *InMemoryBackend) Subscribe(
 
 	b.subscriptions.Put(sub)
 
-	return sub, nil
+	return sub, true, topic.Attributes[attrSignatureVersion], nil
 }
 
 // checkFilterPolicyQuotaLocked enforces the AWS SNS FilterPolicyLimitExceeded
@@ -262,8 +302,9 @@ func unsubscribeAllowed(sub *Subscription, callerAccount string) bool {
 	return callerAccount == sub.Owner || callerAccount == topicOwner
 }
 
-// ConfirmSubscription "confirms" a pending subscription.
-// In the mock, any non-empty token is accepted.
+// ConfirmSubscription confirms a pending subscription. HTTP/HTTPS subscriptions
+// require the token from their SubscriptionConfirmation message; email
+// subscriptions have no deliverable mailbox, so any non-empty token is accepted.
 // The subscription must belong to the given topicArn; if found and pending,
 // PendingConfirmation is cleared and the subscription ARN is returned.
 func (b *InMemoryBackend) ConfirmSubscription(topicArn, token string) (*Subscription, error) {
@@ -282,13 +323,23 @@ func (b *InMemoryBackend) ConfirmSubscriptionWith(
 	defer b.mu.Unlock()
 
 	// Use topic index for O(topic_subs) instead of O(all_subs).
+	pendingSeen := false
+
 	for _, sub := range b.subscriptionsByTopic.Get(topicArn) {
 		if sub.PendingConfirmation {
+			pendingSeen = true
+		}
+
+		if sub.PendingConfirmation && confirmationTokenMatches(sub, token) {
 			sub.PendingConfirmation = false
 			sub.AuthenticateOnUnsubscribe = authenticateOnUnsubscribe
 
 			return sub, nil
 		}
+	}
+
+	if pendingSeen {
+		return nil, ErrInvalidParameter
 	}
 
 	return nil, ErrSubscriptionNotFound
@@ -611,4 +662,12 @@ func isValidEmail(email string) bool {
 	domain := email[atIdx+1:]
 
 	return strings.Contains(domain, ".")
+}
+
+func confirmationTokenMatches(sub *Subscription, token string) bool {
+	if sub.Protocol == protocolHTTP || sub.Protocol == protocolHTTPS {
+		return token == ConfirmationToken(sub.SubscriptionArn)
+	}
+
+	return true
 }

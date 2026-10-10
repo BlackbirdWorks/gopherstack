@@ -1020,10 +1020,18 @@ func validateBatchWriteRequest(wwr wireWriteRequest, table *Table) error {
 		if err := validateKeySchema(wwr.wire, table.KeySchema); err != nil {
 			return err
 		}
+
+		if err := validateItemKeyTypes(wwr.wire, table); err != nil {
+			return err
+		}
 	}
 
 	if req.DeleteRequest != nil {
 		if err := validateKeySchema(wwr.wire, table.KeySchema); err != nil {
+			return err
+		}
+
+		if err := validateKeyElementTypes(wwr.wire, table); err != nil {
 			return err
 		}
 	}

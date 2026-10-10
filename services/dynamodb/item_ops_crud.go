@@ -381,7 +381,11 @@ func (db *InMemoryDB) validateItem(item map[string]any, table *Table) error {
 		return err
 	}
 
-	return validateKeySchema(item, table.KeySchema)
+	if err := validateKeySchema(item, table.KeySchema); err != nil {
+		return err
+	}
+
+	return validateItemKeyTypes(item, table)
 }
 
 func (db *InMemoryDB) populatePutItemOutput(
@@ -503,6 +507,10 @@ func (db *InMemoryDB) getItemCore(
 		defer table.mu.RUnlock()
 
 		pkVal, skVal, keyErr := resolveGetItemKeys(input.Key, table.KeySchema)
+		if keyErr == nil {
+			keyErr = validateKeyElementTypes(models.FromSDKItem(input.Key), table)
+		}
+
 		if keyErr != nil {
 			tableErr = keyErr
 
@@ -632,6 +640,10 @@ func (db *InMemoryDB) deleteItemLocked(
 	defer table.mu.Unlock()
 
 	if err := validateKeySchema(wireKey, table.KeySchema); err != nil {
+		return nil, "", "", nil, err
+	}
+
+	if err := validateKeyElementTypes(wireKey, table); err != nil {
 		return nil, "", "", nil, err
 	}
 
@@ -870,6 +882,10 @@ func (db *InMemoryDB) updateItemLocked(
 	defer table.mu.Unlock()
 
 	if err := validateKeySchema(wireKey, table.KeySchema); err != nil {
+		return nil, "", "", nil, err
+	}
+
+	if err := validateKeyElementTypes(wireKey, table); err != nil {
 		return nil, "", "", nil, err
 	}
 

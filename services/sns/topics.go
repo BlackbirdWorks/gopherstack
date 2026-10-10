@@ -76,8 +76,14 @@ func (b *InMemoryBackend) CreateTopicInRegion(
 
 	topicArn := arn.Build("sns", region, b.accountID, name)
 	if existing, exists := b.topics.Get(topicArn); exists {
-		// AWS SNS CreateTopic is idempotent: calling it with an existing name
-		// returns the existing topic ARN rather than an error.
+		// CreateTopic is idempotent for identical attributes; different ones are rejected.
+		if topicAttrsConflict(existing.Attributes, attributes) {
+			return nil, fmt.Errorf(
+				"%w: Invalid parameter: Attributes Reason: Topic already exists with different attributes",
+				ErrInvalidParameter,
+			)
+		}
+
 		return existing, nil
 	}
 
@@ -258,4 +264,19 @@ func (b *InMemoryBackend) sortedTopicsInRegion(region string) []Topic {
 	})
 
 	return topics
+}
+
+func topicAttrsConflict(existing, requested map[string]string) bool {
+	for k, v := range requested {
+		cur, ok := existing[k]
+		if !ok && v == boolFalseStr {
+			continue
+		}
+
+		if cur != v {
+			return true
+		}
+	}
+
+	return false
 }

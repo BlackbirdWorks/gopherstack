@@ -91,6 +91,8 @@ leaks: {status: fixed, note: "Found a real data race: ListSecrets/ListSecretVers
 
 ## Notes
 
+**2026-10-09 realism pass:** PutSecretValue reusing a ClientRequestToken with different content is `ResourceExistsException` (it previously overwrote the stored version); ListSecrets/ListSecretVersionIds/BatchGetSecretValue reject a malformed NextToken with `InvalidNextTokenException`.
+
 **2026-10-07:** the `all` filter key now follows the "Find secrets" user guide: each value is split into words (punctuation, lower-to-upper and letter/digit changes), matched case-insensitively as a word prefix against words in name, description, tag keys and tag values; any word may match and `!` negates (TestListSecrets_FilterAllWords). Prefix-on-word, not equality, keeps the earlier prefix behaviour.
 
 - **2026-10-04 (gopherstack-zurl)**: re-verified at HEAD. CreateSecret.ForceOverwriteReplicaSecret is

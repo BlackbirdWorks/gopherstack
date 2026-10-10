@@ -177,11 +177,15 @@ func ToSDKListTablesInput(input *ListTablesInput) *dynamodb.ListTablesInput {
 	const maxInt32Value = 2147483647
 	var l *int32
 
-	if input.Limit > 0 {
-		if input.Limit > maxInt32Value {
+	if input.Limit != 0 {
+		switch {
+		case input.Limit > maxInt32Value:
 			val := int32(maxInt32Value)
 			l = &val
-		} else {
+		case input.Limit < -maxInt32Value:
+			val := int32(-maxInt32Value)
+			l = &val
+		default:
 			val := int32(input.Limit) // #nosec G115
 			l = &val
 		}

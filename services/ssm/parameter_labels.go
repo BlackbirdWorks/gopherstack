@@ -3,6 +3,8 @@ package ssm
 import (
 	"context"
 	"fmt"
+	"regexp"
+	"strings"
 )
 
 // LabelParameterVersion adds labels to a specific parameter version.
@@ -33,12 +35,24 @@ func (b *InMemoryBackend) LabelParameterVersion(
 		version = param.Version
 	}
 
+	history := b.historyStore(region)[input.Name]
+	if _, err := b.parameterAtVersion(param, history, version); err != nil {
+		return nil, fmt.Errorf("%w: %q version %d", err, input.Name, version)
+	}
+
+	validLabels, invalidLabels := splitValidLabels(input.Labels)
+
 	if b.parameterLabels[region] == nil {
 		b.parameterLabels[region] = make(map[string]map[int64][]string)
 	}
 	parameterLabels := b.parameterLabelsStore(region)
 	if parameterLabels[input.Name] == nil {
 		parameterLabels[input.Name] = make(map[int64][]string)
+	}
+
+	if countDistinctLabels(parameterLabels[input.Name][version], validLabels) > maxLabelsPerVersion {
+		return nil, fmt.Errorf("%w: a parameter version can have a maximum of %d labels",
+			ErrParameterLabelLimitExceeded, maxLabelsPerVersion)
 	}
 
 	// In AWS a label points at exactly one version. Re-applying a label that
@@ -48,12 +62,11 @@ func (b *InMemoryBackend) LabelParameterVersion(
 		if v == version {
 			continue
 		}
-		parameterLabels[input.Name][v] = removeLabels(labels, input.Labels)
+
+		parameterLabels[input.Name][v] = removeLabels(labels, validLabels)
 	}
 
-	updatedLabels, invalidLabels := appendLabelsWithLimit(
-		parameterLabels[input.Name][version], input.Labels,
-	)
+	updatedLabels, _ := appendLabelsWithLimit(parameterLabels[input.Name][version], validLabels)
 	parameterLabels[input.Name][version] = updatedLabels
 
 	return &LabelParameterVersionOutputFull{
@@ -166,4 +179,40 @@ func appendLabelsWithLimit(existing, newLabels []string) ([]string, []string) {
 	}
 
 	return existing, invalid
+}
+
+var labelPattern = regexp.MustCompile(`^[A-Za-z_.-][A-Za-z0-9_.-]{0,99}$`)
+
+func validLabel(l string) bool {
+	lower := strings.ToLower(l)
+
+	return labelPattern.MatchString(l) && !strings.HasPrefix(lower, "aws") && !strings.HasPrefix(lower, "ssm")
+}
+
+func splitValidLabels(labels []string) ([]string, []string) {
+	valid := make([]string, 0, len(labels))
+	invalid := []string{}
+
+	for _, l := range labels {
+		if validLabel(l) {
+			valid = append(valid, l)
+		} else {
+			invalid = append(invalid, l)
+		}
+	}
+
+	return valid, invalid
+}
+
+func countDistinctLabels(existing, added []string) int {
+	seen := make(map[string]struct{}, len(existing)+len(added))
+	for _, l := range existing {
+		seen[l] = struct{}{}
+	}
+
+	for _, l := range added {
+		seen[l] = struct{}{}
+	}
+
+	return len(seen)
 }

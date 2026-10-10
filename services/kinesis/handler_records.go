@@ -137,13 +137,8 @@ func (h *Handler) handlePutRecords(
 		streamName = streamNameFromARN(req.StreamARN)
 	}
 
-	numRecords := len(req.Records)
-	const maxPutRecords = 500
-	if numRecords > maxPutRecords {
-		numRecords = maxPutRecords
-	}
-	entries := make([]PutRecordsEntry, numRecords)
-	for i, r := range req.Records[:numRecords] {
+	entries := make([]PutRecordsEntry, len(req.Records))
+	for i, r := range req.Records {
 		entries[i] = PutRecordsEntry(r)
 	}
 

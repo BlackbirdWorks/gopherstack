@@ -26,6 +26,8 @@ var (
 	ErrCryptoRandInvalidRange = errors.New("random integer bound must be positive")
 	// ErrSecretValueTooLarge is returned when a secret value exceeds the 64 KB AWS limit.
 	ErrSecretValueTooLarge = errors.New("InvalidParameterException")
+	// ErrInvalidNextToken is returned for a malformed pagination token.
+	ErrInvalidNextToken = errors.New("InvalidNextTokenException")
 	// ErrInvalidParameter is returned when an invalid parameter value is provided.
 	ErrInvalidParameter = errors.New("InvalidParameterException")
 	// ErrInvalidSecretName is returned when a secret name does not match the allowed pattern.

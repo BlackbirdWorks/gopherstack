@@ -22,7 +22,6 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"testing"
 	"time"
@@ -40,7 +39,7 @@ func TestGolden_PublishMixedSubscribersDeliveredEnvelope(t *testing.T) {
 	t.Parallel()
 
 	received := make(chan string, 1)
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := newNotificationServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		received <- string(body)
 		w.WriteHeader(http.StatusOK)
@@ -86,7 +85,7 @@ func TestSignature_SharedAcrossHTTPSubscribers(t *testing.T) {
 
 	received := make(chan string, numSubs)
 
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := newNotificationServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		w.WriteHeader(http.StatusOK)
 		received <- string(body)

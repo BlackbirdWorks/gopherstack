@@ -298,7 +298,7 @@ func (b *InMemoryBackend) GetRecords(ctx context.Context, input *GetRecordsInput
 	}
 
 	if limit > maxGetRecordsLimit {
-		limit = maxGetRecordsLimit
+		return nil, ErrInvalidArgument
 	}
 
 	enc := stream.EncryptionType

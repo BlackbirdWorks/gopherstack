@@ -59,6 +59,8 @@ leaks: {status: clean, note: janitor ctx-parented w/ <-ctx.Done() stop; replicat
 
 ## Notes
 
+**2026-10-09 realism pass:** error XML was written twice for any invalid bucket name/key (`ExtractResource` re-ran `resolveBucketAndKey` with the live writer; now side-effect-free `parseBucketAndKey`); `ErrMalformedXML` was missing from the error table (500 InternalError, also on PutBucketMetadataTableConfiguration); ListObjectsV2 continuation tokens are opaque and a bogus token is `InvalidArgument`; negative/non-numeric `max-keys` is `InvalidArgument`; user metadata over 2 KiB is `MetadataTooLarge`; PutBucketVersioning rejects unknown Status/MfaDelete; PutBucketCors validates methods (`InvalidRequest`), rule count and required members; PutBucketLifecycleConfiguration rejects unparseable XML, bad Status, duplicate IDs and non-positive Expiration Days. Not enforced (unverified/lenient): `IllegalLocationConstraintException` for a LocationConstraint that disagrees with the endpoint region, and lifecycle rules with no action element.
+
 ## 2026-10-07: MD5/SHA512 checksums, multipart object checksums, Object Lambda access points
 
 - MD5 and SHA512 are computed and verified (BadDigest on mismatch) on PutObject, POST object, UploadPart and annotations, stored on the version, and returned by HeadObject/GetObject (ChecksumMode), CopyObject, ListParts, GetObjectAttributes (Checksum and ObjectParts). Proof: `TestRealClient_PutObjectMD5SHA512Checksum`.

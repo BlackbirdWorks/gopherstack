@@ -174,6 +174,10 @@ func (h *Handler) handleDescribeLogGroups(ctx context.Context, b []byte) (any, e
 		return nil, err
 	}
 
+	if err := validateDescribeLimit(input.Limit); err != nil {
+		return nil, err
+	}
+
 	if input.LogGroupNamePrefix != "" && input.LogGroupNamePattern != "" {
 		return nil, fmt.Errorf("%w: logGroupNamePrefix and logGroupNamePattern are mutually exclusive", ErrValidation)
 	}
@@ -406,4 +410,16 @@ func (h *Handler) handleListAggregateLogGroupSummaries(
 	}
 
 	return map[string]any{"aggregateLogGroupSummaries": summaries}, nil
+}
+
+func validateDescribeLimit(limit int) error {
+	if limit > defaultDescribeLimit {
+		return fmt.Errorf(
+			"%w: 1 validation error detected: Value '%d' at 'limit' failed to satisfy constraint: "+
+				"Member must have value less than or equal to %d",
+			ErrValidation, limit, defaultDescribeLimit,
+		)
+	}
+
+	return nil
 }

@@ -34,6 +34,12 @@ func (h *S3Handler) createMultipartUpload(
 		return
 	}
 
+	if err := validateUserMetadataSize(r.Header); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
 	// Capture SSE config at session-init time and pin it on the upload via
 	// ctx. CompleteMultipartUpload reads it back to apply envelope encryption
 	// to the assembled body — same flow real S3 uses (SSE chosen on Create,

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
-	"strconv"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 
@@ -35,7 +34,12 @@ func (h *S3Handler) listObjectsV2(
 	}
 
 	q := r.URL.Query()
-	input := h.prepareListObjectsV2Input(bucketName, q)
+	input, prepErr := h.prepareListObjectsV2Input(bucketName, q)
+	if prepErr != nil {
+		WriteError(ctx, w, r, prepErr)
+
+		return
+	}
 
 	outV2, err := h.Backend.ListObjectsV2(ctx, input)
 	if err != nil {
@@ -55,12 +59,10 @@ func (h *S3Handler) listObjectsV2(
 func (h *S3Handler) prepareListObjectsV2Input(
 	bucketName string,
 	q url.Values,
-) *s3.ListObjectsV2Input {
-	maxKeys := int32(defaultMaxKeys)
-	if mk := q.Get("max-keys"); mk != "" {
-		if n, err := strconv.Atoi(mk); err == nil && n >= 0 && n <= 1000 {
-			maxKeys = int32(n) //nolint:gosec // Validated range
-		}
+) (*s3.ListObjectsV2Input, error) {
+	maxKeys, err := parseMaxKeys(q.Get("max-keys"))
+	if err != nil {
+		return nil, err
 	}
 
 	return &s3.ListObjectsV2Input{
@@ -72,7 +74,7 @@ func (h *S3Handler) prepareListObjectsV2Input(
 		MaxKeys:           aws.Int32(maxKeys),
 		EncodingType:      types.EncodingType(q.Get("encoding-type")),
 		FetchOwner:        aws.Bool(q.Get("fetch-owner") == sqlValTrue),
-	}
+	}, nil
 }
 
 func (h *S3Handler) handleListObjectsV2Error(
@@ -113,10 +115,8 @@ func (h *S3Handler) renderListObjectsV2Response(
 		IsTruncated:           isTruncated,
 		NextContinuationToken: nextCont,
 	}
-	if mk := q.Get("max-keys"); mk != "" {
-		if n, err := strconv.Atoi(mk); err == nil && n >= 0 && n <= 1000 {
-			resp.MaxKeys = n
-		}
+	if mk, err := parseMaxKeys(q.Get("max-keys")); err == nil {
+		resp.MaxKeys = int(mk)
 	}
 
 	seenPrefixes := make(map[string]struct{})

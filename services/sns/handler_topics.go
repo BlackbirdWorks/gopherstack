@@ -26,6 +26,11 @@ func (h *Handler) handleCreateTopic(c *echo.Context) error {
 		attrs["DataProtectionPolicy"] = dp
 	}
 
+	tags := parseSNSTagsFromForm(c)
+	if err := validateTagInput(tags); err != nil {
+		return h.handleBackendError(c, err)
+	}
+
 	region := httputils.ExtractRegionFromRequest(c.Request(), h.DefaultRegion)
 	topic, err := h.Backend.CreateTopicInRegion(name, region, attrs)
 	if err != nil {
@@ -33,7 +38,6 @@ func (h *Handler) handleCreateTopic(c *echo.Context) error {
 	}
 
 	// Apply Tags.member.N.Key/Value pairs supplied at topic creation time.
-	tags := parseSNSTagsFromForm(c)
 	if len(tags) > 0 {
 		h.Backend.SetTopicTags(topic.TopicArn, svcTags.FromMap("sns."+topic.TopicArn+".tags", tags))
 	}

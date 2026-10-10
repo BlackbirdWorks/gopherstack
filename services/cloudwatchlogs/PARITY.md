@@ -143,6 +143,8 @@ leaks: {status: clean, note: "Only one goroutine spawn site (scheduleFilterDeliv
 
 ## Notes
 
+**2026-10-09 realism pass:** log stream names containing `:` or `*` (or over 512 chars) are `InvalidParameterException`; DescribeLogGroups/DescribeLogStreams `limit` above 50 is rejected instead of silently clamped. Not modeled: Logs Insights query syntax errors (`MalformedQueryException`), metric-filter/filter-pattern syntax validation and subscription-filter destination existence checks.
+
 ## 2026-10-03: Subscription filter role under --enforce-iam
 
 - PutSubscriptionFilter to Kinesis/Firehose checks RoleArn (trust for logs.amazonaws.com, kinesis:PutRecord / firehose:PutRecord on the destination); Lambda destinations check the function's resource policy (logs.amazonaws.com, aws:SourceArn = log-group ARN). Denial returns InvalidParameterException "Could not deliver test message to specified Kinesis stream. Check if the given kinesis stream is in ACTIVE state." (Firehose: "...Firehose stream...", Lambda: "Could not execute the lambda function. Make sure you have given CloudWatch Logs permission to execute your function."). Messages are from AWS documentation/CLI reports, not SDK-pinned.
