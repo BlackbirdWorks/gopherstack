@@ -182,7 +182,7 @@ func (b *InMemoryBackend) AdvanceCopyImportJobStatuses(minAge time.Duration) int
 	for _, job := range b.modelImportJobs.All() {
 		if job.Status == statusInProgress && now.Sub(job.CreationTime) >= minAge {
 			endTime := now
-			job.Status = "Complete"
+			job.Status = statusCompleted
 			job.LastModifiedTime = now
 			job.EndTime = &endTime
 			advanced++

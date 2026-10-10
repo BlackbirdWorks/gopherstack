@@ -224,7 +224,7 @@ func (b *InMemoryBackend) StopEvaluationJob(jobARN string) error {
 		)
 	}
 
-	job.Status = statusStopped
+	job.Status = statusStopping
 	job.LastModifiedTime = time.Now().UTC()
 
 	return nil

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -199,7 +200,7 @@ func coreListUpdateOpsSupported() []string {
 		"DeleteProcessingJob",
 		opListTrials,
 		opListUserProfiles,
-		"ListTags",
+		opListTags,
 		"ListTrainingJobs",
 		"ListTransformJobs",
 		"StartNotebookInstance",
@@ -417,6 +418,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 }
 
 func (h *Handler) dispatch(ctx context.Context, op string, body []byte) ([]byte, error) {
+	if err := validateListPaging(op, body); err != nil {
+		return nil, err
+	}
+
 	if result, ok, err := h.dispatchCoreOps(ctx, op, body); ok {
 		return result, err
 	}
@@ -462,7 +467,7 @@ func (h *Handler) dispatchCoreOps(
 		r, err := h.handleAddTags(ctx, body)
 
 		return r, true, err
-	case "ListTags":
+	case opListTags:
 		r, err := h.handleListTags(ctx, body)
 
 		return r, true, err
@@ -905,6 +910,14 @@ func writeInternalServerError(c *echo.Context) error {
 	return c.JSONBlob(http.StatusInternalServerError, payload)
 }
 
+var wireCodePrefix = regexp.MustCompile(`^(?:(?:[A-Za-z]+(?:Exception|NotFound|InUse|Exceeded)|invalid request): )+`)
+
+// wireMessage drops the leading error-code text that sentinel wrapping leaves
+// in err.Error(), so clients do not see "ValidationException: ValidationException: ...".
+func wireMessage(err error) string {
+	return wireCodePrefix.ReplaceAllString(err.Error(), "")
+}
+
 func (h *Handler) handleError(c *echo.Context, err error) error {
 	var syntaxErr *json.SyntaxError
 	var typeErr *json.UnmarshalTypeError
@@ -913,7 +926,7 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	case errors.Is(err, awserr.ErrInvalidParameter):
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    errValidationException,
-			keyMessageField: err.Error(),
+			keyMessageField: wireMessage(err),
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
@@ -925,14 +938,14 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		// service emits.
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    "ResourceNotFound",
-			keyMessageField: err.Error(),
+			keyMessageField: wireMessage(err),
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, awserr.ErrNotFound):
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    errValidationException,
-			keyMessageField: err.Error(),
+			keyMessageField: wireMessage(err),
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
@@ -944,24 +957,30 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		// emits.
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    "ConflictException",
-			keyMessageField: err.Error(),
+			keyMessageField: wireMessage(err),
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, awserr.ErrConflict):
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    "ResourceInUse",
-			keyMessageField: err.Error(),
+			keyMessageField: wireMessage(err),
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
-	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
-		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
-		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: err.Error()})
+	case errors.Is(err, errInvalidRequest), errors.As(err, &syntaxErr), errors.As(err, &typeErr):
+		payload, _ := json.Marshal(map[string]string{
+			keyTypeField:    errValidationException,
+			keyMessageField: wireMessage(err),
+		})
+
+		return c.JSONBlob(http.StatusBadRequest, payload)
+	case errors.Is(err, errUnknownAction):
+		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: wireMessage(err)})
 	default:
 		return c.JSON(
 			http.StatusInternalServerError,
-			map[string]string{keyMessageField: err.Error()},
+			map[string]string{keyMessageField: wireMessage(err)},
 		)
 	}
 }

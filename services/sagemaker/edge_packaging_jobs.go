@@ -187,6 +187,10 @@ func (b *InMemoryBackend) StopEdgePackagingJob(ctx context.Context, name string)
 		return fmt.Errorf("%w: edge packaging job %q not found", ErrEdgePackagingJobNotFound, name)
 	}
 
+	if j.EdgePackagingJobStatus != edgePackagingJobStatusStarting && j.EdgePackagingJobStatus != "INPROGRESS" {
+		return nil
+	}
+
 	j.EdgePackagingJobStatus = edgePackagingJobStatusStopping
 	j.LastModifiedTime = time.Now()
 

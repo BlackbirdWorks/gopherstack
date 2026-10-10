@@ -2,8 +2,10 @@ package bedrockagent
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"sort"
+	"sync/atomic"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -49,6 +51,7 @@ func ctxRegion(ctx context.Context, dflt string) string {
 // are likewise left raw for the same reason. tags (map[string]map[string]string)
 // is the one remaining grouping map with a non-*T value.
 type InMemoryBackend struct {
+	transient                        map[string]transition
 	kbDocuments                      *store.Table[KBDocumentDetail]
 	kbDocumentsByDataSource          *store.Index[KBDocumentDetail]
 	agentsByName                     map[string]string
@@ -100,6 +103,7 @@ type InMemoryBackend struct {
 	promptCounter                    int
 	jobCounter                       int
 	resourcePolicyCounter            int
+	lifecycleDelay                   atomic.Int64
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)
@@ -132,6 +136,7 @@ func (b *InMemoryBackend) Reset() {
 	defer b.mu.Unlock()
 
 	b.registry.ResetAll()
+	b.transient = nil
 	b.agentsByName = make(map[string]string)
 	b.kbsByName = make(map[string]string)
 	b.flowsByName = make(map[string]string)
@@ -230,6 +235,7 @@ func paginate(ids []string, nextToken string, maxResults int) ([]string, string)
 	start := 0
 
 	if nextToken != "" {
+		nextToken = decodePageToken(nextToken)
 		// Default a miss (e.g. the item the token named was deleted) to the
 		// end of the collection, not the start: leaving start at 0 here
 		// would resume every stale cursor at page one, forever.
@@ -257,7 +263,7 @@ func paginate(ids []string, nextToken string, maxResults int) ([]string, string)
 	var outToken string
 
 	if end < len(ids) {
-		outToken = ids[end]
+		outToken = base64.StdEncoding.EncodeToString([]byte(ids[end]))
 	}
 
 	return page, outToken

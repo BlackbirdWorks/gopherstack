@@ -3,6 +3,7 @@ package sagemaker
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -139,10 +140,11 @@ type InMemoryBackend struct {
 	// PipelineDefinitionS3Location's object from (see SetS3Backend). Not part
 	// of persisted state -- it's a cross-service dependency wired at startup,
 	// not resource data.
-	s3        S3Accessor
-	accountID string
-	region    string
-	wg        sync.WaitGroup
+	s3             S3Accessor
+	accountID      string
+	region         string
+	wg             sync.WaitGroup
+	lifecycleDelay atomic.Int64
 }
 
 // ---------------------------------------------------------------------------

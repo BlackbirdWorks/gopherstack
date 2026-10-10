@@ -145,6 +145,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
+	b.transient = nil
+
 	if snap.Version != bedrockagentSnapshotVersion {
 		// An incompatible (older/newer/absent) snapshot version must never be
 		// partially decoded as the current shape -- that risks silently

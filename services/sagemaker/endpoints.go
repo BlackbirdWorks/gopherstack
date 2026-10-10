@@ -192,9 +192,11 @@ func (b *InMemoryBackend) CreateEndpoint(
 
 	ec, ok := b.endpointConfigsStore(region).Get(opts.EndpointConfigName)
 	if !ok {
-		return nil, fmt.Errorf(
-			"%w: could not find endpoint configuration %q",
+		return nil, b.couldNotFind(
 			ErrEndpointConfigNotFound,
+			region,
+			"endpoint configuration",
+			"endpoint-config/",
 			opts.EndpointConfigName,
 		)
 	}
@@ -230,7 +232,7 @@ func (b *InMemoryBackend) DescribeEndpoint(ctx context.Context, name string) (*E
 
 	ep, ok := b.endpointsStoreRO(region).Get(name)
 	if !ok {
-		return nil, fmt.Errorf("%w: endpoint %q not found", ErrEndpointNotFound, name)
+		return nil, b.couldNotFind(ErrEndpointNotFound, region, "endpoint", "endpoint/", name)
 	}
 
 	return cloneEndpoint(ep), nil
@@ -329,7 +331,7 @@ func (b *InMemoryBackend) DeleteEndpoint(ctx context.Context, name string) error
 
 	ep, ok := b.endpointsStore(region).Get(name)
 	if !ok {
-		return fmt.Errorf("%w: endpoint %q not found", ErrEndpointNotFound, name)
+		return b.couldNotFind(ErrEndpointNotFound, region, "endpoint", "endpoint/", name)
 	}
 
 	arnIdx := b.endpointARNIndexStore(region)
@@ -409,14 +411,16 @@ func (b *InMemoryBackend) UpdateEndpoint(
 
 	ep, ok := b.endpointsStore(region).Get(name)
 	if !ok {
-		return nil, fmt.Errorf("%w: endpoint %q not found", ErrEndpointNotFound, name)
+		return nil, b.couldNotFind(ErrEndpointNotFound, region, "endpoint", "endpoint/", name)
 	}
 
 	ec, ok := b.endpointConfigsStore(region).Get(opts.EndpointConfigName)
 	if !ok {
-		return nil, fmt.Errorf(
-			"%w: could not find endpoint configuration %q",
+		return nil, b.couldNotFind(
 			ErrEndpointConfigNotFound,
+			region,
+			"endpoint configuration",
+			"endpoint-config/",
 			opts.EndpointConfigName,
 		)
 	}
@@ -538,7 +542,7 @@ func (b *InMemoryBackend) UpdateEndpointWeightsAndCapacitiesFull(
 
 	ep, ok := b.endpointsStore(region).Get(name)
 	if !ok {
-		return nil, fmt.Errorf("%w: endpoint %q not found", ErrEndpointNotFound, name)
+		return nil, b.couldNotFind(ErrEndpointNotFound, region, "endpoint", "endpoint/", name)
 	}
 
 	// Apply weight/capacity changes to the endpoint's variant snapshots.

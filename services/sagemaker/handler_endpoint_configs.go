@@ -213,5 +213,9 @@ func validateCreateEndpointConfig(req *createEndpointConfigRequest) error {
 		return err
 	}
 
+	if err := validateEndpointConfigNames(req); err != nil {
+		return err
+	}
+
 	return validateVariantsScaling(req.ProductionVariants, req.ShadowProductionVariants)
 }

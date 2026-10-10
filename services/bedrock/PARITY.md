@@ -178,6 +178,14 @@ leaks: {status: clean, note: "no new goroutines, tickers, or unregistered maps i
   agent's own ARN still returned its tags, and agentTags is persisted
   verbatim in Snapshot(). See TestAgentsHandler_DeleteAgent_ClearsTags."}
 
+## 2026-10-10 realism pass
+
+- Errors no longer repeat the code; list `nextToken` is opaque (pkgs/page) and rejected when malformed; `maxResults` outside 1..1000 is a ValidationException.
+- Import jobs completed as `Complete`, which is not in `ModelImportJobStatus`; now `Completed`.
+- Evaluation jobs complete and invocation jobs walk Submitted, Validating, Scheduled, InProgress, Completed (janitor, quarter of the delay per phase). Stop goes through `Stopping` and the janitor settles to `Stopped`; stopping a non-running customization job is a ValidationException instead of overwriting its status.
+- CreateModelCustomizationJob validates job/model names, role ARN and S3 URIs against the documented patterns. Base model IDs are not checked (fixtures use ids outside the catalog).
+- `SetJobCompletionDelay(d)` overrides the 5s dwell (0 keeps it); root wiring is not done.
+
 ## 2026-08-21 (gopherstack-hjdd): snapshot-version guard, unbumped retype
 
 `bedrockSnapshotVersion` bumped 1 -> 2. `f16063cd2` retagged `Flow.FlowID`/`FlowArn`,

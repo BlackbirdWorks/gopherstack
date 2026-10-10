@@ -306,6 +306,21 @@ func (h *Handler) handleCreateNotebookInstanceFull(
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
+	if req.NotebookInstanceName != "" {
+		if err := firstErr(
+			validateResourceName("NotebookInstanceName", req.NotebookInstanceName),
+			validateInstanceType("InstanceType", req.InstanceType),
+		); err != nil {
+			return nil, err
+		}
+	}
+
+	if req.RoleArn != "" {
+		if err := validateRoleArn("RoleArn", req.RoleArn); err != nil {
+			return nil, err
+		}
+	}
+
 	var minIMDSVersion string
 	if req.InstanceMetadataServiceConfiguration != nil {
 		minIMDSVersion = req.InstanceMetadataServiceConfiguration.MinimumInstanceMetadataServiceVersion

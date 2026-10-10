@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -543,6 +544,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			}
 		}
 
+		if err := validateListQuery(r.URL.Query()); err != nil {
+			return h.writeError(c, err)
+		}
+
 		return h.dispatch(c, path, method, body)
 	}
 }
@@ -662,18 +667,22 @@ func (h *Handler) routeStubMiscOps(c *echo.Context, path, method string, body []
 	return h.routeEnforcedGuardrailConfig(c, path, method)
 }
 
+var wireCodePrefix = regexp.MustCompile(`^(?:[A-Za-z]+Exception: )+`)
+
 func (h *Handler) writeError(c *echo.Context, err error) error {
+	msg := wireCodePrefix.ReplaceAllString(err.Error(), "")
+
 	switch {
 	case errors.Is(err, ErrNotFound):
-		return c.JSON(http.StatusNotFound, errorResponse("ResourceNotFoundException", err.Error()))
+		return c.JSON(http.StatusNotFound, errorResponse("ResourceNotFoundException", msg))
 	case errors.Is(err, ErrAlreadyExists):
-		return c.JSON(http.StatusConflict, errorResponse("ConflictException", err.Error()))
+		return c.JSON(http.StatusConflict, errorResponse("ConflictException", msg))
 	case errors.Is(err, ErrValidation):
-		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", err.Error()))
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", msg))
 	case errors.Is(err, ErrResourceInUse):
-		return c.JSON(http.StatusConflict, errorResponse("ResourceInUseException", err.Error()))
+		return c.JSON(http.StatusConflict, errorResponse("ResourceInUseException", msg))
 	default:
-		return c.JSON(http.StatusInternalServerError, errorResponse("InternalServerException", err.Error()))
+		return c.JSON(http.StatusInternalServerError, errorResponse("InternalServerException", msg))
 	}
 }
 

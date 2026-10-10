@@ -60,6 +60,14 @@ func (h *Handler) handleCreateTransformJob(ctx context.Context, body []byte) ([]
 		return nil, fmt.Errorf("%w: TransformResources.InstanceCount is required", errInvalidRequest)
 	}
 
+	if err := firstErr(
+		validateResourceName("TransformJobName", req.TransformJobName),
+		validateInstanceType("TransformResources.InstanceType", req.TransformResources.InstanceType),
+		validateS3OutputPath("TransformOutput.S3OutputPath", req.TransformOutput.S3OutputPath),
+	); err != nil {
+		return nil, err
+	}
+
 	if req.DataCaptureConfig != nil && req.DataCaptureConfig.DestinationS3URI == "" {
 		return nil, fmt.Errorf("%w: DataCaptureConfig.DestinationS3Uri is required", errInvalidRequest)
 	}

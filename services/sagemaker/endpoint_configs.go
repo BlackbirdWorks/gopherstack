@@ -67,9 +67,11 @@ func (b *InMemoryBackend) DescribeEndpointConfig(ctx context.Context, name strin
 
 	ec, ok := b.endpointConfigsStoreRO(region).Get(name)
 	if !ok {
-		return nil, fmt.Errorf(
-			"%w: could not find endpoint configuration %q",
+		return nil, b.couldNotFind(
 			ErrEndpointConfigNotFound,
+			region,
+			"endpoint configuration",
+			"endpoint-config/",
 			name,
 		)
 	}
@@ -108,11 +110,7 @@ func (b *InMemoryBackend) DeleteEndpointConfig(ctx context.Context, name string)
 
 	ec, ok := ecStore.Get(name)
 	if !ok {
-		return fmt.Errorf(
-			"%w: could not find endpoint configuration %q",
-			ErrEndpointConfigNotFound,
-			name,
-		)
+		return b.couldNotFind(ErrEndpointConfigNotFound, region, "endpoint configuration", "endpoint-config/", name)
 	}
 
 	for _, ep := range b.endpointsStore(region).All() {
@@ -154,11 +152,7 @@ func (b *InMemoryBackend) SetEndpointConfigExtras(
 
 	ec, ok := b.endpointConfigsStore(region).Get(name)
 	if !ok {
-		return fmt.Errorf(
-			"%w: could not find endpoint configuration %q",
-			ErrEndpointConfigNotFound,
-			name,
-		)
+		return b.couldNotFind(ErrEndpointConfigNotFound, region, "endpoint configuration", "endpoint-config/", name)
 	}
 
 	if dataCaptureConfig != nil {

@@ -131,7 +131,7 @@ func TestHandler_CreatePresignedDomainUrl_NotFound(t *testing.T) {
 func TestHandler_PresignedURL_ParameterValidation(t *testing.T) {
 	t.Parallel()
 
-	const badReq = "invalid request"
+	const badReq = "must be"
 
 	i := func(v int) *int { return &v }
 

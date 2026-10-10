@@ -18,6 +18,7 @@ const (
 	agentStatusPreparing   = "PREPARING"
 	agentStatusPrepared    = "PREPARED"
 	kbStatusActive         = "ACTIVE"
+	kbStatusCreating       = "CREATING"
 	dsStatusAvailable      = "AVAILABLE"
 	aliasStatusPrepared    = "PREPARED"
 	// FlowStatus is one of the few bedrockagent enums that is NOT
@@ -30,6 +31,7 @@ const (
 	flowStatusPrepared    = "Prepared"
 	flowStatusFailed      = "Failed"
 	flowStatusNotPrepared = "NotPrepared"
+	ingestionJobStarting  = "STARTING"
 	ingestionJobRunning   = "IN_PROGRESS"
 	ingestionJobComplete  = "COMPLETE"
 	actionGroupEnabled    = "ENABLED"

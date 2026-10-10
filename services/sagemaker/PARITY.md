@@ -304,6 +304,7 @@ families:
 gaps: []
 
 items_still_open:
+  - "DeleteEndpoint removes the endpoint immediately; AWS shows a Deleting status first (the endpoint-deleted waiter still works)."
   - "DescribeJobSchemaVersion/ListJobSchemaVersions serve one synthetic JobConfigSchemaVersion (\"1.0\") with a generic per-JobCategory schema: checked api_op_DescribeJobSchemaVersion.go and the API reference, neither publishes per-category schema content, so there is no ground truth to model."
 structural_gaps:
   - "Presigned URL expiry (2026-10-07): ExpiresInSeconds/SessionExpirationDurationInSeconds are range-checked against the API reference but not enforced; the synthetic AuthorizedUrl is not served by anything that could expire or single-use it."
@@ -322,6 +323,19 @@ deferred: []
 leaks: {status: clean, note: "Re-verified this pass: grepped every 'go func()'/runDelayed call site service-wide (8 files). Only one raw 'go func()' exists (lifecycle.go Shutdown, which waits on b.wg and is itself bounded by ctx.Done()); every timer-based state transition goes through runDelayed(b.lifecycleCtx, ...), which Shutdown cancels and drains via b.wg. No goroutine leaks found."}
 
 ---
+
+## 2026-10-10 realism pass
+
+Probed with the AWS CLI against a built binary.
+
+- Errors no longer repeat the code ("ValidationException: ..."); untyped `errInvalidRequest` bodies now carry `__type: ValidationException`.
+- DescribeEndpoint/Model/EndpointConfig not-found use the AWS wording `Could not find endpoint "arn:..."`.
+- Create validation (names, role ARNs, `ml.*` instance types, S3 output paths, hyperparameters) follows the API reference patterns; instance types are pattern-checked, not enumerated.
+- List*/Search: MaxResults 1..100 and base64 NextToken enforced (ListTags exempt).
+- TrainingJob walks Starting, Downloading, Training, Uploading, Completed with closed transition EndTimes; Stop on a finished job is a no-op (also processing, HP tuning, edge packaging, inference recommendations, pipeline execution), which used to flip Completed to Stopped.
+- `InMemoryBackend.SetLifecycleDelay(d)` overrides every simulated dwell time (0 keeps the built-ins); root wiring is not done.
+- Lenient on purpose: ModelName on CreateEndpointConfig is not checked for existence, and notebook/processing/transform not-found wording is unchanged because the pinned SDK does not state it.
+- Open: DeleteEndpoint removes the endpoint immediately (no `Deleting` state).
 
 ## Notes
 

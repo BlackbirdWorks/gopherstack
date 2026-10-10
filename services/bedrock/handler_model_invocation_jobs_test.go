@@ -44,7 +44,7 @@ func TestAccuracy_ModelInvocationJob_StopTransitionsStatus(t *testing.T) {
 
 			var out map[string]any
 			require.NoError(t, json.Unmarshal(recGet.Body.Bytes(), &out))
-			assert.Equal(t, "Stopped", out["status"])
+			assert.Equal(t, "Stopping", out["status"])
 		})
 	}
 }
@@ -153,7 +153,7 @@ func TestAccuracy_ModelInvocationJob_StopChangesStatus(t *testing.T) {
 
 	var getOut map[string]any
 	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
-	assert.Equal(t, "Stopped", getOut["status"])
+	assert.Equal(t, "Stopping", getOut["status"])
 }
 
 func TestHandler_ModelInvocationJob_CRUD(t *testing.T) {
@@ -195,7 +195,7 @@ func TestHandler_ModelInvocationJob_CRUD(t *testing.T) {
 	rec5 := doRequest(t, h, http.MethodGet, "/model-invocation-job/"+url.PathEscape(jobARN), nil)
 	var stopped map[string]any
 	mustUnmarshal(t, rec5, &stopped)
-	assert.Equal(t, "Stopped", stopped[keyStatus])
+	assert.Equal(t, "Stopping", stopped[keyStatus])
 }
 
 func TestHandler_ModelInvocationJob_MissingName(t *testing.T) {
@@ -359,5 +359,5 @@ func TestBatch2Ops_StopModelInvocationJob_InProgress_Succeeds(t *testing.T) {
 
 	var out map[string]any
 	mustUnmarshal(t, rec3, &out)
-	assert.Equal(t, "Stopped", out["status"])
+	assert.Equal(t, "Stopping", out["status"])
 }

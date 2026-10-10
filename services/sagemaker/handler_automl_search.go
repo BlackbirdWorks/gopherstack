@@ -11,7 +11,7 @@ import (
 func automlSearchExtOpsSupported() []string {
 	return []string{
 		"ListCandidatesForAutoMLJob",
-		"Search",
+		opSearch,
 		"ListModelMetadata",
 		"GetSearchSuggestions",
 		"GetScalingConfigurationRecommendation",
@@ -30,7 +30,7 @@ func (h *Handler) dispatchAutoMLSearchExtOps(
 		r, err := h.handleListCandidatesForAutoMLJob(ctx, body)
 
 		return r, true, err
-	case "Search":
+	case opSearch:
 		r, err := h.handleSearch(ctx, body)
 
 		return r, true, err

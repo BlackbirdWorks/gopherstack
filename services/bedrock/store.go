@@ -3,9 +3,11 @@ package bedrock
 import (
 	"net/url"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -135,6 +137,7 @@ type InMemoryBackend struct {
 	// parity-4 counters.
 	advancedPromptOptJobCounter   int
 	resourcePolicyRevisionCounter int
+	jobDelay                      atomic.Int64
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend pre-seeded with foundation models.
@@ -309,12 +312,7 @@ func paginate[T any](list []T, maxResults int, nextToken string) ([]T, string) {
 		maxResults = bedrockDefaultPageSize
 	}
 
-	startIdx := 0
-	if nextToken != "" {
-		if n, err := strconv.Atoi(nextToken); err == nil && n >= 0 {
-			startIdx = n
-		}
-	}
+	startIdx := page.DecodeToken(nextToken)
 
 	if startIdx >= len(list) {
 		return []T{}, ""
@@ -324,7 +322,7 @@ func paginate[T any](list []T, maxResults int, nextToken string) ([]T, string) {
 	var outToken string
 
 	if end < len(list) {
-		outToken = strconv.Itoa(end)
+		outToken = page.EncodeToken(end)
 	} else {
 		end = len(list)
 	}

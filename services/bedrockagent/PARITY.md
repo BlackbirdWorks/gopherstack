@@ -549,6 +549,7 @@ families:
     ServiceQuotaExceededException, ThrottlingException, ValidationException)."}
 gaps: []
 items_still_open:
+  - "Agent, knowledge base, data source and job ids are `agent-00000001` style; AWS uses 10-character alphanumeric ids. Changing the format breaks many in-repo fixtures."
   - "ValidateFlowDefinition does not emit MismatchedNodeInputType/OutputType, IncompatibleConnectionDataType, MissingNodeInput/Output, UnknownNodeInput/Output, UnsatisfiedConnectionConditions or InvalidLoopBoundary: they need per-node-type input/output schemas and expression typing that the SDK does not specify."
 structural_gaps:
   - "DeleteAgentActionGroup.SkipResourceInUseCheck has nothing to guard: action groups are DRAFT-only and aliases route to numbered versions holding their own copy, so no in-use reference can exist."
@@ -629,6 +630,13 @@ leaks: {status: clean, note: "InMemoryBackend has no background goroutines,
   'no ghost map rows after delete' requirement for every resource with
   child collections or its own tags map entry."}
 ---
+
+## 2026-10-10 realism pass
+
+- Errors no longer repeat the code; `maxResults` outside 1..1000 and malformed `nextToken` are ValidationExceptions, and tokens are base64 of the next id.
+- `SetLifecycleDelay(d)` (0 = instant, the default) adds PREPARING for PrepareAgent, CREATING for knowledge bases and STARTING then IN_PROGRESS for ingestion jobs, as a non-persisted overlay over the stored final status. A second StartIngestionJob during an in-flight job is a ConflictException. Root wiring is not done.
+- Lenient on purpose: StopIngestionJob still accepts a finished job, because fixtures start several jobs back to back with the delay at 0.
+- Open: ids are `agent-00000001` style rather than the documented 10-character alphanumerics; changing them breaks many fixtures.
 
 ## Notes
 
