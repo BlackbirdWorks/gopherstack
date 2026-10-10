@@ -10,6 +10,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/lakeformation"
 )
 
+// Rows follow lf-permissions-reference.html "Lake Formation permissions per resource type".
 func TestGrantPermissions_PermissionsMatchResourceKind(t *testing.T) {
 	t.Parallel()
 
@@ -36,7 +37,18 @@ func TestGrantPermissions_PermissionsMatchResourceKind(t *testing.T) {
 		{name: "location access", resource: location, perms: []any{"DATA_LOCATION_ACCESS"}, want: http.StatusOK},
 		{name: "select on location", resource: location, perms: []any{"SELECT"}, want: http.StatusBadRequest},
 		{name: "create database on catalog", resource: catalog, perms: []any{"CREATE_DATABASE"}, want: http.StatusOK},
-		{name: "drop on catalog", resource: catalog, perms: []any{"DROP"}, want: http.StatusBadRequest},
+		{name: "drop on catalog", resource: catalog, perms: []any{"DROP"}, want: http.StatusOK},
+		{name: "alter on catalog", resource: catalog, perms: []any{"ALTER"}, want: http.StatusOK},
+		{name: "super user on catalog", resource: catalog, perms: []any{"SUPER_USER"}, want: http.StatusOK},
+		{name: "super user on database", resource: db, perms: []any{"SUPER_USER"}, want: http.StatusBadRequest},
+		{name: "delete on table", resource: table, perms: []any{"DELETE"}, want: http.StatusOK},
+		{name: "drop on database", resource: db, perms: []any{"DROP"}, want: http.StatusOK},
+		{
+			name:     "create database on database",
+			resource: db,
+			perms:    []any{"CREATE_DATABASE"},
+			want:     http.StatusBadRequest,
+		},
 	}
 
 	for _, tt := range tests {

@@ -8,7 +8,7 @@ service: ses
 sdk_module: aws-sdk-go-v2/service/ses@v1.37.4   # version audited against (query-XML, 2010-12-01); verified == go.mod this pass
 last_audit_commit: bfdb308be                      # HEAD at audit time (2026-09-19, terraform-coverage
                        # sweep iot-and-ses: VerifyDomainDkim DkimEnabled default fix); prior b1905140e
-last_audit_date: 2026-10-07                       # gopherstack wrapper-key/constraint sweep: 4 fixes below
+last_audit_date: 2026-10-10
                        # (ListTemplates default page size, DescribeConfigurationSet attribute gating,
                        # ListCustomVerificationEmailTemplates + ListReceiptRuleSets pagination never
                        # plumbed through the call chain at all) -- see the four rows' notes.
@@ -558,3 +558,9 @@ SendBounce now records the bounce as a captured Email (retrievable by the return
 ## 2026-10-05 (gopherstack-uox6 pass 5, value semantics)
 
 ListTemplates reports TemplateMetadata.CreatedTimestamp, set at CreateTemplate and kept across UpdateTemplate.
+
+## 2026-10-10 realism pass
+- XML error `<Message>` no longer starts with the code ("MessageRejected: ..."); not-found names are worded like SES ("Configuration set <x> does not exist.", "Rule set does not exist: x"). `TestOperationErrors_CodeAndMessage`.
+- CreateConfigurationSet validates the name (1-64 of letters, digits, `_`, `-`) -> `InvalidConfigurationSet`.
+- SendEmail rejects recipients without `@domain` (InvalidParameterValue).
+- Left lenient on purpose: identity verification settles to Success immediately (no click-through link to emulate); VerifyEmailIdentity/VerifyDomainIdentity accept malformed identities, list MaxItems/NextToken are clamped/ignored rather than rejected (in-repo callers and earlier tests rely on it).

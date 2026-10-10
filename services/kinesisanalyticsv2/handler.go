@@ -239,14 +239,29 @@ func (h *Handler) writeError(c *echo.Context, status int, code, message string) 
 func (h *Handler) handleError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
-		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+			errorText(err, "ResourceNotFoundException", "Specified resource can't be found."))
 	case errors.Is(err, awserr.ErrAlreadyExists):
-		return h.writeError(c, http.StatusConflict, "ResourceInUseException", err.Error())
+		return h.writeError(c, http.StatusConflict, "ResourceInUseException",
+			errorText(err, "ResourceInUseException", "The resource already exists or is in use."))
 	case errors.Is(err, ErrConcurrentModification):
-		return h.writeError(c, http.StatusBadRequest, "ConcurrentModificationException", err.Error())
+		return h.writeError(c, http.StatusBadRequest, "ConcurrentModificationException",
+			errorText(err, "ConcurrentModificationException",
+				"The application version or conditional token does not match the current value."))
 	case errors.Is(err, awserr.ErrInvalidParameter):
-		return h.writeError(c, http.StatusBadRequest, "InvalidArgumentException", err.Error())
+		return h.writeError(c, http.StatusBadRequest, "InvalidArgumentException",
+			errorText(err, "InvalidArgumentException", "The specified input parameter value is not valid."))
 	}
 
 	return h.writeError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+}
+
+// errorText drops the code prefix from the message, substituting def when only the bare code remains.
+func errorText(err error, code, def string) string {
+	msg := err.Error()
+	if msg == code {
+		return def
+	}
+
+	return strings.TrimPrefix(msg, code+": ")
 }

@@ -1,6 +1,7 @@
 package s3control
 
 import (
+	"encoding/json"
 	"encoding/xml"
 	"net/http"
 	"slices"
@@ -211,6 +212,16 @@ func (h *Handler) handleCreateAccessPoint(c *echo.Context) error {
 		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
 	}
 
+	if !validAccessPointName(name) {
+		return writeXMLErrorCode(c, http.StatusBadRequest, "InvalidRequest",
+			"Access point name must be 3-50 characters of lowercase letters, numbers and hyphens, "+
+				"and cannot start or end with a hyphen")
+	}
+
+	if _, err := h.Backend.GetAccessPoint(accountID, name); err == nil {
+		return handleBackendError(c, errAccessPointAlreadyOwned)
+	}
+
 	ap := h.Backend.CreateAccessPoint(accountID, name, body.Bucket)
 
 	// Persist VPC config and bucket account ID when provided.
@@ -410,6 +421,10 @@ func (h *Handler) handlePutAccessPointPolicy(c *echo.Context) error {
 		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
 	}
 
+	if !json.Valid([]byte(body.Policy)) {
+		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedPolicy", "Policy is not valid JSON")
+	}
+
 	if err := h.Backend.PutAccessPointPolicy(accountID, name, body.Policy); err != nil {
 		return handleBackendError(c, err)
 	}
@@ -576,4 +591,24 @@ func (h *Handler) handleListAccessPointsForDirectoryBuckets(c *echo.Context) err
 		NextToken    string                   `xml:"NextToken,omitempty"`
 		AccessPoints []listAccessPointItemXML `xml:"AccessPointList>AccessPoint"`
 	}{AccessPoints: page, NextToken: tok})
+}
+
+const (
+	minAccessPointNameLen = 3
+	maxAccessPointNameLen = 50
+)
+
+func validAccessPointName(name string) bool {
+	if len(name) < minAccessPointNameLen || len(name) > maxAccessPointNameLen ||
+		name[0] == '-' || name[len(name)-1] == '-' {
+		return false
+	}
+
+	for _, r := range name {
+		if r != '-' && (r < '0' || r > '9') && (r < 'a' || r > 'z') {
+			return false
+		}
+	}
+
+	return true
 }

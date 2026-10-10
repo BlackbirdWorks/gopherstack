@@ -849,12 +849,16 @@ const (
 	permissionInsert   = "INSERT"
 )
 
+// allowedPermissions follows "Lake Formation permissions per resource type" in
+// lf-permissions-reference.html (Catalog: ALL/SUPER_USER/ALTER/CREATE_DATABASE/DESCRIBE/DROP;
+// Database, Table, Data location rows as listed there). CREATE_CATALOG/CREATE_LF_TAG* are
+// kept on Catalog because they are real enum values with no documented target.
 func allowedPermissions(kind string) []string {
 	switch kind {
 	case "catalog":
 		return []string{
-			permissionAll, "CREATE_CATALOG", "CREATE_DATABASE", "CREATE_LF_TAG",
-			"CREATE_LF_TAG_EXPRESSION", permissionDescribe, "SUPER_USER",
+			permissionAll, permissionAlter, permissionDrop, "CREATE_CATALOG", "CREATE_DATABASE",
+			"CREATE_LF_TAG", "CREATE_LF_TAG_EXPRESSION", permissionDescribe, "SUPER_USER",
 		}
 	case "database":
 		return []string{permissionAll, permissionAlter, "CREATE_TABLE", permissionDescribe, permissionDrop}

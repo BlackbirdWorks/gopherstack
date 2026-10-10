@@ -17087,6 +17087,8 @@
       "Application.Tags []Tag `json:\"-\"`",
       "Application.VpcConfigurationDescriptions []VpcConfigurationDescription `json:\"-\"`",
       "Application.ZeppelinConfig *ZeppelinApplicationConfigDescription",
+      "Application.transitionUntil time.Time",
+      "Application.transitionalStatus string",
       "ApplicationCodeConfigDesc.CodeContentDescription *CodeContentDescription `json:\"CodeContentDescription,omitempty\"`",
       "ApplicationCodeConfigDesc.CodeContentType string `json:\"CodeContentType\"`",
       "ApplicationEncryptionConfigDesc.KeyID string `json:\"KeyId,omitempty\"`",

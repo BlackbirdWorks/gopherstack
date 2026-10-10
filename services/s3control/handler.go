@@ -398,14 +398,15 @@ func handleBackendError(c *echo.Context, err error) error {
 	}
 
 	code := err.Error()
+	msg := errorMessageForCode(code)
 
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
-		return writeXMLErrorCode(c, http.StatusNotFound, code, code)
+		return writeXMLErrorCode(c, http.StatusNotFound, code, msg)
 	case errors.Is(err, awserr.ErrInvalidParameter):
-		return writeXMLErrorCode(c, http.StatusBadRequest, code, code)
+		return writeXMLErrorCode(c, http.StatusBadRequest, code, msg)
 	case errors.Is(err, awserr.ErrAlreadyExists):
-		return writeXMLErrorCode(c, http.StatusConflict, code, code)
+		return writeXMLErrorCode(c, http.StatusConflict, code, msg)
 	default:
 		return writeXMLErrorCode(c, http.StatusInternalServerError, "InternalServiceException", code)
 	}
@@ -529,4 +530,30 @@ func (h *Handler) handleDeletePublicAccessBlock(c *echo.Context) error {
 	}
 
 	return c.NoContent(http.StatusNoContent)
+}
+
+//nolint:gochecknoglobals // static lookup table, never mutated
+var errorMessages = map[string]string{
+	"NoSuchAccessPoint":                     "The specified accesspoint does not exist",
+	"NoSuchAccessPointPolicy":               "The specified accesspoint policy does not exist",
+	"NoSuchBucket":                          "The specified bucket does not exist",
+	"NoSuchJob":                             "The specified job does not exist",
+	"NoSuchMultiRegionAccessPoint":          "The specified multi-region access point does not exist",
+	"NoSuchPublicAccessBlockConfiguration":  "The public access block configuration does not exist",
+	"NoSuchConfiguration":                   "The specified configuration does not exist",
+	"NoSuchStorageLensGroup":                "The specified storage lens group does not exist",
+	"NoSuchTagSetError":                     "The TagSet does not exist",
+	"NoSuchAccessGrant":                     "The specified access grant does not exist",
+	"NoSuchAccessGrantsLocation":            "The specified access grants location does not exist",
+	"AccessGrantsInstanceNotExistsError":    "The access grants instance does not exist",
+	"ReplicationConfigurationNotFoundError": "The replication configuration does not exist",
+	"AccessPointAlreadyOwnedByYou":          "You already own an accesspoint with this name",
+}
+
+func errorMessageForCode(code string) string {
+	if m, ok := errorMessages[code]; ok {
+		return m
+	}
+
+	return code
 }

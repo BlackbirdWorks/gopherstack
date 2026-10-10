@@ -7,7 +7,7 @@
 service: glacier
 sdk_module: aws-sdk-go-v2/service/glacier@v1.35.4
 last_audit_commit: c9523cebb
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
 overall: A            # wrapper-key/header/nested-shape sweep (2026-08-20): 1 real wire bug found and fixed (SelectParameters InputSerialization/OutputSerialization.Csv wire key was "Csv", real AWS is lowercase "csv"); 2 suspected wrapper-key bugs (GetVaultAccessPolicy/GetVaultNotifications) investigated and found to be FALSE POSITIVES -- gopherstack's existing flat shape was already correct, the wrapping helper in the real SDK's deserializers.go is dead code never reached from HandleDeserialize. All HTTP-header-bound response members (13 across 8 ops) audited against live HandleDeserialize/HttpBindings functions and found correct. Tree-hash algorithm cross-checked against the pinned SDK's own client-side implementation (internal/customizations/treehash.go), not just self-consistency.
                        # gopherstack-6flj/21my sweep (2026-08-29): 1 real bug found+fixed (ListJobs sorted by JobID instead of CreationDate/initiation-time -- see Notes). ListVaults/ListMultipartUploads/ListParts sort orders re-verified against real API docs (ASCII-by-name / no-guaranteed-order / by-range respectively) and found correct. DescribeCommands/DescribeDeployments-equivalent filters (statuscode/completed on ListJobs) re-verified honored. An existing test (TestSortedListJobs) was asserting the JobID-sort bug as correct behavior; fixed to assert CreationDate order instead.
 ops:
@@ -999,3 +999,8 @@ glacier is region-isolated: vaults, archives, jobs and multipart uploads live pe
 ## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
 
 FIXED: GetJobOutput invalid or unsatisfiable Range emitted InvalidRange, which names no type in glacier@v1.35.4; GetJobOutput models InvalidParameterValueException (deserializers.go:1889 error switch), now emitted as 400, the status AWS documents for that exception. Test: TestGetJobOutput_BadRangeIsModelledError (errors.As).
+
+## 2026-10-10 realism pass
+- Error messages no longer repeat the code ("ResourceNotFoundException: Vault not found" -> "Vault not found"); bare `invalid parameter` messages now say what was invalid (job Type, ArchiveId, lock id, part size, vault name). `TestErrorMessages_NoCodePrefix`.
+- Left lenient: ListVaults/ListJobs accept unknown markers (empty page); SetVaultNotifications does not validate SNSTopic is an ARN (real behaviour unverifiable).
+- Jobs already settle via `retrievalDelay` (100ms) and vault lock InProgress expires at 24h; unchanged.

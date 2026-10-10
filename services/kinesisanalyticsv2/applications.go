@@ -17,6 +17,10 @@ func (b *InMemoryBackend) CreateApplication(
 ) (*Application, error) {
 	region := getRegion(ctx, b.defaultRegion)
 
+	if err := validateCreateApplication(name, runtimeEnv); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateApplication")
 	defer b.mu.Unlock()
 
@@ -249,6 +253,7 @@ func (b *InMemoryBackend) UpdateApplication(
 
 	applyApplicationUpdate(app, params)
 	app.LastUpdateTimestamp = time.Now().UTC()
+	b.beginTransition(app, ApplicationStatusUpdating)
 
 	return app, b.recordOperation(region, params.Name, "UpdateApplication"), nil
 }
@@ -323,7 +328,7 @@ func (b *InMemoryBackend) StartApplication(
 		return "", ErrNotFound
 	}
 
-	if app.ApplicationStatus != ApplicationStatusReady {
+	if app.effectiveStatus() != ApplicationStatusReady {
 		return "", ErrAlreadyExists
 	}
 
@@ -334,6 +339,7 @@ func (b *InMemoryBackend) StartApplication(
 	}
 
 	app.ApplicationStatus = ApplicationStatusRunning
+	b.beginTransition(app, ApplicationStatusStarting)
 	applyRunConfigInput(app, runConfig)
 	applySQLRunConfigurations(app, sqlRunConfigs)
 
@@ -393,11 +399,12 @@ func (b *InMemoryBackend) StopApplication(ctx context.Context, name string, forc
 		return "", ErrValidation
 	}
 
-	if app.ApplicationStatus != ApplicationStatusRunning {
+	if app.effectiveStatus() != ApplicationStatusRunning {
 		return "", ErrAlreadyExists
 	}
 
 	app.ApplicationStatus = ApplicationStatusReady
+	b.beginTransition(app, ApplicationStatusStopping)
 
 	return b.recordOperation(region, name, "StopApplication"), nil
 }

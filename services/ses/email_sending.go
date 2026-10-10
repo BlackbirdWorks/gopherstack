@@ -244,6 +244,10 @@ func (b *InMemoryBackend) SendEmail(in SendEmailInput) (string, error) {
 		)
 	}
 
+	if bad := firstMalformedAddress(in.To, in.Cc, in.Bcc); bad != "" {
+		return "", fmt.Errorf("%w: Missing final '@domain' in address %q", ErrInvalidParameter, bad)
+	}
+
 	// AWS SES caps a single message at 10 MiB total (subject + body + headers).
 	const maxMessageBytes = 10 * 1024 * 1024
 	if len(in.Subject)+len(in.BodyHTML)+len(in.BodyText) > maxMessageBytes {
@@ -729,4 +733,24 @@ func (b *InMemoryBackend) ClearEmails() {
 
 	b.emails = nil
 	b.emailsByID.Reset()
+}
+
+// firstMalformedAddress returns the first recipient without an "@domain" part,
+// accepting "Name <local@domain>" display-name form; empty when all are well formed.
+func firstMalformedAddress(lists ...[]string) string {
+	for _, l := range lists {
+		for _, a := range l {
+			addr := a
+			if _, after, found := strings.Cut(a, "<"); found {
+				addr = strings.TrimSuffix(after, ">")
+			}
+
+			at := strings.LastIndex(addr, "@")
+			if at <= 0 || at == len(addr)-1 {
+				return a
+			}
+		}
+	}
+
+	return ""
 }

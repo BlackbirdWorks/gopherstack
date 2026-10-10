@@ -678,3 +678,6 @@ ListPermissions and GetEffectivePermissionsForPath now honour CatalogId: when su
 - Grant/Revoke reject permissions that the Lake Formation permissions reference does not allow on Catalog, Database, Table, TableWithColumns and DataLocation resources (e.g. SELECT on a database). LFTag/LFTagPolicy/LFTagExpression/DataCellsFilter are not matrix-checked.
 - RegisterResource requires an ARN; malformed NextToken and MaxResults outside 1-1000 are InvalidInputException on every list op; the trailing `: validation error` is gone from messages.
 - Lenient on purpose: principal identifiers are not format-checked and RegisterResource without RoleArn/UseServiceLinkedRole is accepted (AWS behaviour not determinable from the SDK).
+
+## 2026-10-10: permission-per-resource matrix verified
+Checked `allowedPermissions` against lf-permissions-reference.html ("Lake Formation permissions per resource type") and the pinned `types.Permission` enum. Catalog was missing ALTER and DROP (documented); added. Database, Table, TableWithColumns and DataLocation rows matched. CREATE_CATALOG/CREATE_LF_TAG/CREATE_LF_TAG_EXPRESSION stay accepted on Catalog (real enum values, no documented target; accepting is the safe side). LFTag, LFTagPolicy, DataCellsFilter resources are not matrix-checked. Rows cited in `TestGrantPermissions_PermissionsMatchResourceKind`.

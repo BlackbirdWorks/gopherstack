@@ -84,7 +84,7 @@ func (b *InMemoryBackend) InitiateMultipartUpload(
 	// Part size must be a power of 2 between 1 MiB and 4 GiB (inclusive).
 	if partSize != 0 &&
 		(!isPowerOfTwo(partSize) || partSize < minMultipartPartSize || partSize > maxMultipartPartSize) {
-		return nil, ErrValidation
+		return nil, fmt.Errorf("%w: part size must be a power of two between 1 MiB and 4 GiB", ErrValidation)
 	}
 
 	uploadID := generateID(multipartUploadIDLength)

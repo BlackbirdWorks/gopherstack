@@ -7,7 +7,7 @@
 service: kinesisanalyticsv2
 sdk_module: aws-sdk-go-v2/service/kinesisanalyticsv2@v1.41.4
 last_audit_commit: 47436caf9
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
 overall: A            # one real non-total-sort bug found and fixed this pass
                        # (ListApplicationSnapshots tie-break); every other prior
                        # finding re-verified, none regressed
@@ -618,3 +618,9 @@ UpdateApplication with a RunConfigurationUpdate that omits AllowNonRestoredState
 ## 2026-10-05 (reqfielddiff, dropped request members)
 
 AddApplicationCloudWatchLoggingOption, AddApplicationVpcConfiguration, DeleteApplicationCloudWatchLoggingOption and DeleteApplicationVpcConfiguration now honour ConditionalToken (`TestSDK_ConditionalTokenGuardsConfigOps`). DiscoverInputSchema accepts S3Configuration as the alternative to ResourceARN (`TestSDK_DiscoverInputSchemaS3Configuration`). No persisted fields changed.
+
+## 2026-10-10 realism pass
+- Start/Stop/Update now report STARTING/STOPPING/UPDATING for `SetLifecycleDelay(d)` (default 0 = instant, previous behaviour); time-driven, not per-Describe. Start/Stop/CreateSnapshot guards use the effective status. `TestLifecycleDelay_TransitionalStatuses`. Root wiring needed: a `--lifecycle-*` field and `SetLifecycleDelay` call in cli_lifecycle.go (not done here).
+- CreateApplication validates ApplicationName (`[a-zA-Z0-9_.-]`, 1-128) and RuntimeEnvironment against the pinned SDK enum -> InvalidArgumentException. `TestCreateApplication_InputValidation`.
+- Error messages are human text instead of the bare code.
+- Left lenient: ServiceExecutionRole is not required to be an ARN (in-repo tests/fixtures pass empty or non-ARN roles).

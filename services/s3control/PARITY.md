@@ -1,7 +1,7 @@
 service: s3control
 sdk_module: aws-sdk-go-v2/service/s3control@v1.73.4
 last_audit_commit: 2bc650bf9
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
                        # 2026-08-30: pagination-tie re-audit. Re-verified the 2026-08-28/29
                        # pagination_sweep entry below still holds: every List* backend method
                        # (ListAccessPoints/ListAccessPointsForDirectoryBuckets/ListJobs/
@@ -1166,3 +1166,10 @@ NoSuchAccessGrant (access_grants.go:260/276): the pinned s3control v1.73.4 decla
 ## 2026-10-07: Object Lambda access points reach S3
 
 - Create/PutAccessPointConfigurationForObjectLambda register the access point (name, account, alias, supporting bucket, Lambda ARN) with the S3 handler via `s3.ObjectLambdaAccessPointSink`; DeleteAccessPointForObjectLambda removes it. Proof: `TestObjectLambdaAccessPointSink`.
+
+## 2026-10-10 realism pass
+- Error `<Message>` was a copy of the code; now human text per code (`errorMessages`). `TestAccessPoint_RequestValidation`.
+- CreateAccessPoint validates the name (3-50 of lowercase letters, digits, hyphen; no leading/trailing hyphen -> InvalidRequest) and rejects a duplicate with `AccessPointAlreadyOwnedByYou` (409). PutAccessPointPolicy rejects non-JSON with `MalformedPolicy`.
+- Batch jobs advance by elapsed time instead of staying `New` forever: New (2s) -> Preparing (2s) -> Suspended (ConfirmationRequired) or Ready. UpdateJobStatus on Cancelled/Complete/Failed jobs returns `JobStatusException` (409). No task executor exists, so jobs never reach Active/Complete (structural). `TestJobLifecycle_StatusAdvancesWithTime`.
+- Shared fix: `pkgs/awserr` XML errors were written with a doubled `<?xml ...?>` declaration (echo's XMLBlob prepends one); botocore/AWS CLI could not parse them. Now written via `c.Blob`.
+- Left lenient: CreateAccessPoint does not check the bucket exists (cross-service); MRAP creation reports READY immediately; ListAccessPoints ignores bad NextToken.

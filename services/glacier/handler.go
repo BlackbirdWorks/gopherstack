@@ -772,7 +772,7 @@ var glacierBackendErrMappings = []backendErrMapping{
 func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 	for _, m := range glacierBackendErrMappings {
 		if errors.Is(err, m.err) {
-			return h.writeError(c, m.status, m.code, err.Error())
+			return h.writeError(c, m.status, m.code, strings.TrimPrefix(err.Error(), m.code+": "))
 		}
 	}
 

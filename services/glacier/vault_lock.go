@@ -215,11 +215,11 @@ func (b *InMemoryBackend) CompleteVaultLock(accountID, region, vaultName, lockID
 
 	lock, ok := b.vaultLocks.Get(vArn)
 	if !ok || lock.State != lockStateInProgress {
-		return ErrValidation
+		return fmt.Errorf("%w: no vault lock in progress", ErrValidation)
 	}
 
 	if lock.LockID != lockID {
-		return ErrValidation
+		return fmt.Errorf("%w: lock ID does not match the in-progress lock", ErrValidation)
 	}
 
 	lock.State = lockStateLocked

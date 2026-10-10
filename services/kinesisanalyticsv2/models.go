@@ -336,6 +336,12 @@ const (
 	ApplicationStatusRunning = "RUNNING"
 	// ApplicationStatusDeleting indicates an application being deleted.
 	ApplicationStatusDeleting = "DELETING"
+	// ApplicationStatusStarting is reported during the Start lifecycle window.
+	ApplicationStatusStarting = "STARTING"
+	// ApplicationStatusStopping is reported during the Stop lifecycle window.
+	ApplicationStatusStopping = "STOPPING"
+	// ApplicationStatusUpdating is reported during the Update lifecycle window.
+	ApplicationStatusUpdating = "UPDATING"
 )
 
 // OperationStatusSuccessful is the real Kinesis Analytics v2 OperationStatus
@@ -452,33 +458,44 @@ type Application struct {
 	LastUpdateTimestamp               time.Time `json:"-"`
 	CreatedAt                         time.Time `json:"-"`
 	ApplicationVersionCreateTimestamp time.Time `json:"-"`
-	RunConfig                         *RunConfigDesc
-	EncryptionConfig                  *ApplicationEncryptionConfigDesc
-	ZeppelinConfig                    *ZeppelinApplicationConfigDescription
+	transitionUntil                   time.Time
 	RollbackEnabled                   *bool
+	ZeppelinConfig                    *ZeppelinApplicationConfigDescription
+	EncryptionConfig                  *ApplicationEncryptionConfigDesc
 	SnapshotsEnabled                  *bool
 	FlinkConfig                       *FlinkApplicationConfigDesc
 	CodeConfig                        *ApplicationCodeConfigDesc
 	ApplicationVersionRolledBackTo    *int64
 	ApplicationVersionRolledBackFrom  *int64
 	ApplicationVersionUpdatedFrom     *int64
-	ApplicationMode                   string                        `json:"ApplicationMode,omitempty"`
-	ApplicationStatus                 string                        `json:"ApplicationStatus"`
-	ApplicationARN                    string                        `json:"ApplicationARN"`
-	ApplicationName                   string                        `json:"ApplicationName"`
-	RuntimeEnvironment                string                        `json:"RuntimeEnvironment"`
-	ServiceExecutionRole              string                        `json:"ServiceExecutionRole,omitempty"`
-	ApplicationDescription            string                        `json:"ApplicationDescription,omitempty"`
-	Region                            string                        `json:"-"`
-	MaintenanceWindowStartTime        string                        `json:"MaintenanceWindowStartTime,omitempty"`
-	Tags                              []Tag                         `json:"-"`
-	CloudWatchLoggingOptionDescs      []CloudWatchLoggingOptionDesc `json:"-"`
-	EnvironmentPropertyGroups         []PropertyGroup
+	RunConfig                         *RunConfigDesc
+	ApplicationName                   string `json:"ApplicationName"`
+	transitionalStatus                string
+	ApplicationStatus                 string                           `json:"ApplicationStatus"`
+	RuntimeEnvironment                string                           `json:"RuntimeEnvironment"`
+	ServiceExecutionRole              string                           `json:"ServiceExecutionRole,omitempty"`
+	ApplicationDescription            string                           `json:"ApplicationDescription,omitempty"`
+	Region                            string                           `json:"-"`
+	MaintenanceWindowStartTime        string                           `json:"MaintenanceWindowStartTime,omitempty"`
+	ApplicationMode                   string                           `json:"ApplicationMode,omitempty"`
+	ApplicationARN                    string                           `json:"ApplicationARN"`
+	CloudWatchLoggingOptionDescs      []CloudWatchLoggingOptionDesc    `json:"-"`
 	InputDescriptions                 []InputDescription               `json:"-"`
 	OutputDescriptions                []OutputDescription              `json:"-"`
 	VpcConfigurationDescriptions      []VpcConfigurationDescription    `json:"-"`
 	ReferenceDataSourceDescriptions   []ReferenceDataSourceDescription `json:"-"`
-	ApplicationVersionID              int64                            `json:"ApplicationVersionId"`
+	EnvironmentPropertyGroups         []PropertyGroup
+	Tags                              []Tag `json:"-"`
+	ApplicationVersionID              int64 `json:"ApplicationVersionId"`
+}
+
+// effectiveStatus reports the transitional status while a lifecycle window is open.
+func (a *Application) effectiveStatus() string {
+	if a.transitionalStatus != "" && time.Now().Before(a.transitionUntil) {
+		return a.transitionalStatus
+	}
+
+	return a.ApplicationStatus
 }
 
 // Snapshot represents an application snapshot.
@@ -512,7 +529,7 @@ func toSummary(app *Application) applicationSummary {
 	return applicationSummary{
 		ApplicationARN:       app.ApplicationARN,
 		ApplicationName:      app.ApplicationName,
-		ApplicationStatus:    app.ApplicationStatus,
+		ApplicationStatus:    app.effectiveStatus(),
 		RuntimeEnvironment:   app.RuntimeEnvironment,
 		ApplicationMode:      app.ApplicationMode,
 		ApplicationVersionID: app.ApplicationVersionID,
@@ -620,6 +637,7 @@ func copyVpcConfigs(src []VpcConfigurationDescription) []VpcConfigurationDescrip
 // appCopy returns a deep copy of an Application, safe to return to callers.
 func appCopy(src *Application) *Application {
 	cp := *src
+	cp.ApplicationStatus = src.effectiveStatus()
 	cp.Tags = cloneTags(src.Tags)
 	cp.CloudWatchLoggingOptionDescs = copyCWLOptions(src.CloudWatchLoggingOptionDescs)
 	cp.InputDescriptions = copyInputDescs(src.InputDescriptions)
