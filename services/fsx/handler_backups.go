@@ -76,7 +76,7 @@ func (h *Handler) handleCopyBackup(_ context.Context, in *copyBackupInput) (*cop
 			return nil, fmt.Errorf("%w: SourceRegion %q is not a valid region", ErrValidation, in.SourceRegion)
 		}
 
-		src, err := h.regionRoot().BackendFor(in.SourceRegion).CloneBackup(in.SourceBackupID)
+		src, err := h.regionRoot().BackendFor(in.SourceRegion).cloneBackup(in.SourceBackupID)
 		if err != nil {
 			return nil, err
 		}

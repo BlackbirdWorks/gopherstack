@@ -34,7 +34,7 @@ type StorageBackend interface {
 	) ([]*Backup, string, error)
 	DeleteBackup(backupID string) error
 	CopyBackup(input *copyBackupInput) (*Backup, error)
-	CloneBackup(backupID string) (*storedBackup, error)
+	cloneBackup(backupID string) (*storedBackup, error)
 
 	CreateFileSystemFromBackup(input *createFileSystemFromBackupInput) (*FileSystem, error)
 

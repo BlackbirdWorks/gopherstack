@@ -416,9 +416,8 @@ func (b *InMemoryBackend) backupARN(id string) string {
 	return arn.Build("fsx", b.region, b.accountID, fmt.Sprintf("backup/%s", id))
 }
 
-// CloneBackup returns a deep copy of a backup for a cross-region CopyBackup.
-func (b *InMemoryBackend) CloneBackup(backupID string) (*storedBackup, error) {
-	b.mu.RLock("CloneBackup")
+func (b *InMemoryBackend) cloneBackup(backupID string) (*storedBackup, error) {
+	b.mu.RLock("cloneBackup")
 	defer b.mu.RUnlock()
 
 	src, ok := b.backups.Get(backupIDFromARN(backupID))
