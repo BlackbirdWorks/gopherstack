@@ -222,6 +222,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 	b.relaunchClustersLocked()
+	b.resumeTransitionsLocked()
 
 	return nil
 }

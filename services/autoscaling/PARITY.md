@@ -1198,3 +1198,12 @@ AutoScalingGroupNotFound and LaunchConfigurationNotFound are sentinel texts matc
 ## 2026-10-05 (undeclared response members)
 
 LaunchConfiguration BlockDeviceMapping Ebs no longer emits KmsKeyId (not on types.Ebs).
+
+## 2026-10-10 realism pass (CLI/SDK probing)
+
+- Fixed: error text no longer repeats the code; not-found/already-exists use AWS wording ("AutoScalingGroup name not found - null", "AutoScalingGroup by this name already exists - A group with the name X already exists", "Launch configuration name not found - ..."); request IDs are per-response UUIDs instead of fixed strings.
+- Fixed: `UpdateAutoScalingGroup` raised an error when MinSize rose above (or MaxSize fell below) the current desired capacity; the SDK doc says desired is bumped/clamped. `MaxSize=0` was treated as "unlimited" and is now a real bound; capacity violations read "Desired capacity:N must be between the specified min size:M and max size:X"; `SetDesiredCapacity` reads "New SetDesiredCapacity value N is above/below max/min value M for the AutoScalingGroup."
+- Fixed: wire `CreateAutoScalingGroup` with an unknown `LaunchConfigurationName` now fails (checked in the handler, so in-process callers such as CloudFormation are unchanged); deleting a group that still has instances is `ResourceInUse`; invalid `NextToken` is `InvalidNextToken` on every Describe* list; `PutScalingPolicy` validates `PolicyType`/`AdjustmentType`.
+- Added: `SetDesiredCapacity`, `UpdateAutoScalingGroup` and `ExecutePolicy` record per-instance scaling activities with AWS cause text (they recorded none).
+- Added opt-in `InMemoryBackend.SetLaunchDelay(d)` (default 0): new instances stay `Pending` with an `InProgress` "Launching a new EC2 instance" activity until the delay elapses, then become `InService`/`Successful`. Needs root wiring (flag/env) to be user-reachable; restores settle in-flight launches.
+- Kept lenient (breaks many fixtures): launch source required on create, AvailabilityZones/VPCZoneIdentifier required, `MaxRecords` over the documented maximum is clamped rather than rejected.

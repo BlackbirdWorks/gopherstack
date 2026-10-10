@@ -32,7 +32,7 @@ func (b *InMemoryBackend) CreateCapability(
 	// no ResourceNotFoundException case -- an unknown cluster here is
 	// ErrValidation (InvalidParameterException), not ErrNotFound.
 	if _, ok := b.clusters.Get(clusterName); !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrValidation, clusterName)
+		return nil, errMsgf(ErrValidation, "No cluster found for name: %s.", clusterName)
 	}
 
 	key := capabilityKey(clusterName, capabilityName)

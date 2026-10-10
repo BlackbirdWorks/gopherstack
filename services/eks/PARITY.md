@@ -1306,3 +1306,12 @@ FIXED: DescribeAddonVersions and DescribeClusterVersions honour maxResults (1-10
 ## 2026-10-09 -- Argo CD IdcManagedApplicationArn
 
 `SetIdcApplicationManager` (wired in `cli_eks_idc_wiring.go`) creates an ssoadmin application in the capability's `IdcRegion` (default: the cluster region) for `AwsIdc.IdcInstanceArn`, reports it as `IdcManagedApplicationArn`, and removes it on DeleteCapability/DeleteCluster. An unknown instance fails CreateCapability with InvalidParameterException. The application name and provider ARN are emulator choices (not documented). Proof: `TestCapability_IdcManagedApplication`, root `TestEKSArgoCdIdcManagedApplication`.
+
+## 2026-10-10 realism pass (CLI/SDK probing)
+
+- Fixed: cluster version updates no longer flip `Version` instantly: the cluster (and nodegroup/addon) goes `UPDATING` while the update is `InProgress`, then back to `ACTIVE` with the new version. Update IDs are UUIDs. Restore re-arms transitions for resources snapshotted mid-CREATING/InProgress.
+- Fixed: partial `scalingConfig` on `CreateNodegroup` overwrote the documented defaults with zeros (`{}` produced min/max/desired 0).
+- Added validation: cluster/nodegroup/Fargate profile names, Kubernetes version format (1.20-1.60), IAM role ARN shape, nodegroup scaling (min <= desired <= max, max >= 1), cluster upgrades one minor at a time ("Unsupported Kubernetes minor version update from X to Y"), GET list `nextToken`/`maxResults` (1-100).
+- Fixed: error text no longer repeats the code; wording matches AWS ("No cluster found for name: X.", "No node group found for name: X.", "Cluster already exists with name: X", "NodeGroup already exists with name X and cluster name Y").
+- Added opt-in `InMemoryBackend.SetLifecycleDelay(d)` (0 keeps the built-in 100ms): scales every CREATING/UPDATING dwell and makes cluster/nodegroup/Fargate/addon deletes dwell in `DELETING` before disappearing. Needs root wiring (flag/env).
+- Kept lenient: >= 2 subnets in `vpcConfig` (fixtures pass one), unknown add-on names (the catalog is a subset of real add-ons), exact role ARN account-id length.

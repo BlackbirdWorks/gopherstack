@@ -20,23 +20,10 @@ func (b *InMemoryBackend) PutScheduledAction(
 	startTime, endTime *time.Time,
 	scalableTargetAction *ScalableTargetAction,
 ) (*ScheduledAction, error) {
-	if serviceNamespace == "" {
-		return nil, fmt.Errorf("%w: ServiceNamespace is required", ErrValidation)
-	}
-
-	if resourceID == "" {
-		return nil, fmt.Errorf("%w: ResourceId is required", ErrValidation)
-	}
-
-	if scalableDimension == "" {
-		return nil, fmt.Errorf("%w: ScalableDimension is required", ErrValidation)
-	}
-
-	if scheduledActionName == "" {
-		return nil, fmt.Errorf("%w: ScheduledActionName is required", ErrValidation)
-	}
-
-	if err := validateNamespaceDimension(serviceNamespace, scalableDimension); err != nil {
+	if err := validatePutScheduledActionInput(
+		serviceNamespace, resourceID, scalableDimension, scheduledActionName,
+		schedule, timezone, startTime, endTime, scalableTargetAction,
+	); err != nil {
 		return nil, err
 	}
 
@@ -49,9 +36,8 @@ func (b *InMemoryBackend) PutScheduledAction(
 	// depends on the existence of a scalable target").
 	if !b.scalableTargetExists(serviceNamespace, resourceID, scalableDimension) {
 		return nil, fmt.Errorf(
-			"%w: scalable target %s not found",
-			ErrNotFound,
-			scalableTargetKey(serviceNamespace, resourceID, scalableDimension),
+			"%w: No scalable target found for service namespace: %s, resource ID: %s, scalable dimension: %s",
+			ErrNotFound, serviceNamespace, resourceID, scalableDimension,
 		)
 	}
 
@@ -175,7 +161,9 @@ func (b *InMemoryBackend) DeleteScheduledAction(
 
 	group := b.actionsByName.Get(key)
 	if len(group) == 0 {
-		return fmt.Errorf("%w: scheduled action %s not found", ErrNotFound, scheduledActionName)
+		return fmt.Errorf("%w: No scheduled action found for service namespace: %s, resource ID: %s, "+
+			"scalable dimension: %s, scheduled action name: %s", ErrNotFound, serviceNamespace, resourceID,
+			scalableDimension, scheduledActionName)
 	}
 
 	b.scheduledActions.Delete(group[0].ARN)
@@ -245,4 +233,48 @@ func (b *InMemoryBackend) DescribeScheduledActions(
 	return paginate(list, f.MaxResults, maxDescribeScheduled, f.NextToken, func(a *ScheduledAction) string {
 		return a.ServiceNamespace + "|" + a.ResourceID + "|" + a.ScalableDimension + "|" + a.ScheduledActionName
 	})
+}
+
+func validateActionCapacity(a *ScalableTargetAction) error {
+	if a == nil {
+		return nil
+	}
+
+	if (a.MinCapacity != nil && *a.MinCapacity < 0) || (a.MaxCapacity != nil && *a.MaxCapacity < 0) {
+		return fmt.Errorf("%w: Capacity values must be 0 or greater", ErrValidation)
+	}
+
+	if a.MinCapacity != nil && a.MaxCapacity != nil && *a.MinCapacity > *a.MaxCapacity {
+		return fmt.Errorf("%w: MinCapacity (%d) must not exceed MaxCapacity (%d)",
+			ErrValidation, *a.MinCapacity, *a.MaxCapacity)
+	}
+
+	return nil
+}
+
+func validatePutScheduledActionInput(
+	serviceNamespace, resourceID, scalableDimension, scheduledActionName, schedule, timezone string,
+	startTime, endTime *time.Time,
+	action *ScalableTargetAction,
+) error {
+	switch {
+	case serviceNamespace == "":
+		return fmt.Errorf("%w: ServiceNamespace is required", ErrValidation)
+	case resourceID == "":
+		return fmt.Errorf("%w: ResourceId is required", ErrValidation)
+	case scalableDimension == "":
+		return fmt.Errorf("%w: ScalableDimension is required", ErrValidation)
+	case scheduledActionName == "":
+		return fmt.Errorf("%w: ScheduledActionName is required", ErrValidation)
+	}
+
+	if err := validateNamespaceDimension(serviceNamespace, scalableDimension); err != nil {
+		return err
+	}
+
+	if err := validateScheduleInput(schedule, timezone, startTime, endTime); err != nil {
+		return err
+	}
+
+	return validateActionCapacity(action)
 }

@@ -44,6 +44,28 @@ func encodeMetricDataToken(c metricDataCursor) string {
 	return base64.StdEncoding.EncodeToString(raw)
 }
 
+func validateMetricDataWindow(startTime, endTime time.Time, nextToken string) error {
+	if !startTime.Before(endTime) {
+		return apiErrorf(ErrValidation, "The parameter StartTime must be less than the parameter EndTime.")
+	}
+
+	if nextToken == "" {
+		return nil
+	}
+
+	raw, err := base64.StdEncoding.DecodeString(nextToken)
+	if err != nil {
+		return ErrInvalidNextToken
+	}
+
+	var c metricDataCursor
+	if err = json.Unmarshal(raw, &c); err != nil || c.ResultIndex < 0 || c.PointOffset < 0 {
+		return ErrInvalidNextToken
+	}
+
+	return nil
+}
+
 // decodeMetricDataToken decodes an opaque GetMetricData NextToken. A malformed or
 // empty token resolves to the start of the result set.
 func decodeMetricDataToken(token string) metricDataCursor {
@@ -129,6 +151,10 @@ func (b *InMemoryBackend) GetMetricDataPaged(
 	scanBy, nextToken string,
 	maxDatapoints int,
 ) (GetMetricDataPage, error) {
+	if err := validateMetricDataWindow(startTime, endTime, nextToken); err != nil {
+		return GetMetricDataPage{}, err
+	}
+
 	if maxDatapoints <= 0 {
 		maxDatapoints = defaultMaxDatapoints
 	}

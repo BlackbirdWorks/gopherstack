@@ -1404,3 +1404,12 @@ Fixed (typed SDK tests alarm_warmup_sdk_test.go, form_creation_tags_test.go, ano
 - DescribeAnomalyDetectors.Dimensions: filters detectors by dimensions.
 - DescribeAnomalyDetectors.AnomalyDetectorIds: filters by id (rejected when combined with other filters).
 - DescribeAnomalyDetectors.AnomalyDetectorTypes: filters single-metric versus metric-math detectors.
+
+## 2026-10-10 realism pass (CLI/SDK probing)
+
+- Fixed: `PutMetricAlarm` on an existing alarm reset it to INSUFFICIENT_DATA; the SDK doc says an update leaves state unchanged, so state/reason/timestamps now carry over.
+- Fixed: new alarms carry `StateReason` "Unchecked: Initial alarm creation"; evaluator transitions carry AWS-style reasons ("Threshold Crossed: 1 out of the last 1 datapoints [10.0 (dd/MM/yy HH:mm:ss)] was greater than the threshold (5.0) ...", "Insufficient Data: N datapoints were unknown.") plus `StateReasonData` JSON; history summary is "Alarm updated from X to Y" with `HistoryData` {version, oldState, newState}.
+- Fixed: error text no longer repeats the code ("InvalidParameterValue: ..."); query XML errors carry `<Type>`; `SetAlarmState` on an unknown alarm is `ResourceNotFound`/404 (the SDK shape), invalid `StateValue` is `ValidationError`.
+- Added validation: strict `NextToken` (`InvalidNextToken`) and `MaxRecords` 1-100 on DescribeAlarms/DescribeAlarmHistory/ListMetrics/GetMetricData; `StateValue`/`AlarmTypes`/`HistoryItemType`/`ScanBy` enums; `GetMetricStatistics` period (1,5,10,20,30 or multiple of 60), Statistics/ExtendedStatistics required, StartTime < EndTime, 1,440-datapoint cap; `GetMetricData` StartTime < EndTime; `PutMetricData` Unit enum, <=30 dimensions, 255-char names; `PutMetricAlarm` ComparisonOperator/Statistic/TreatMissingData enums, ExtendedStatistic pattern, Period 10/20/30/multiple of 60, name length; composite `AlarmRule` must parse (TRUE/FALSE now supported).
+- Kept lenient (strictness broke in-repo fixtures): reserved `AWS/` namespace on `PutMetricData` (internal wiring and many tests publish there), `EvaluationPeriods >= 1`, Statistic-or-ExtendedStatistic required, composite rules referencing unknown alarms.
+- Unverified wording: the `ResourceNotFound` message text for `SetAlarmState`, and the "Unable to parse AlarmRule" text, are not in the pinned SDK.

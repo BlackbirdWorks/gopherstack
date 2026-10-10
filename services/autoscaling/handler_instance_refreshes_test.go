@@ -18,6 +18,13 @@ func TestAutoscalingHandler_InstanceRefreshFlow(t *testing.T) {
 
 	h := newAutoscalingHandler()
 
+	postAutoscalingForm(
+		t,
+		h,
+		"Action=CreateLaunchConfiguration&Version=2011-01-01&LaunchConfigurationName=test-lc"+
+			"&ImageId=ami-12345678&InstanceType=t3.micro",
+	)
+
 	// Create an ASG first.
 	rec := postAutoscalingForm(t, h, "Action=CreateAutoScalingGroup&Version=2011-01-01"+
 		"&AutoScalingGroupName=test-asg&MinSize=0&MaxSize=5"+

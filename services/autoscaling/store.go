@@ -2,6 +2,7 @@ package autoscaling
 
 import (
 	"context"
+	"sync/atomic"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
@@ -28,6 +29,8 @@ const (
 	// lifecycleStatePendingWait is the lifecycle state for an instance launching but
 	// paused for an EC2_INSTANCE_LAUNCHING lifecycle hook to complete.
 	lifecycleStatePendingWait = "Pending:Wait"
+	// lifecycleStatePending is the lifecycle state of an instance that is still launching.
+	lifecycleStatePending = "Pending"
 	// lifecycleStateTerminatingWait is the lifecycle state for an instance being
 	// terminated but paused for an EC2_INSTANCE_TERMINATING lifecycle hook to complete.
 	lifecycleStateTerminatingWait = "Terminating:Wait"
@@ -92,7 +95,9 @@ type InMemoryBackend struct {
 	accountID               string
 	region                  string
 	deletedActivities       []ScalingActivity
+	launchTimers            []*time.Timer
 	nextHookSeq             int64
+	launchDelay             atomic.Int64
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend for the default account and region.
@@ -136,6 +141,12 @@ func (b *InMemoryBackend) Close() {
 		return true
 	})
 	b.pendingRefreshActions.Reset()
+
+	for _, t := range b.launchTimers {
+		t.Stop()
+	}
+
+	b.launchTimers = nil
 }
 
 // Purge removes all AutoScaling groups and launch configurations created before the cutoff time.

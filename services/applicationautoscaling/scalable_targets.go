@@ -168,6 +168,12 @@ func (b *InMemoryBackend) registerScalableTarget(
 		return nil, err
 	}
 
+	if err := validateActionCapacity(
+		&ScalableTargetAction{MinCapacity: minCapacity, MaxCapacity: maxCapacity},
+	); err != nil {
+		return nil, err
+	}
+
 	if serviceNamespace == dynamoDBServiceNamespace {
 		if err := b.registerDynamoDBScalableTarget(
 			resourceID, scalableDimension, minCapacity, maxCapacity, roleARN,
@@ -255,6 +261,8 @@ func (b *InMemoryBackend) registerScalableTarget(
 	return &cp, nil
 }
 
+const activityStatusSuccessful = "Successful"
+
 // recordActivityLocked appends a completed scaling activity. The caller must
 // hold the write lock.
 func (b *InMemoryBackend) recordActivityLocked(
@@ -270,7 +278,7 @@ func (b *InMemoryBackend) recordActivityLocked(
 		Cause:             cause,
 		StartTime:         when,
 		EndTime:           when,
-		StatusCode:        "Successful",
+		StatusCode:        activityStatusSuccessful,
 		StatusMessage:     "Successfully set desired capacity.",
 	})
 }
@@ -362,7 +370,10 @@ func (b *InMemoryBackend) DeregisterScalableTarget(serviceNamespace, resourceID,
 	key := scalableTargetKey(serviceNamespace, resourceID, scalableDimension)
 
 	if !b.scalableTargets.Has(key) {
-		return fmt.Errorf("%w: scalable target %s not found", ErrNotFound, key)
+		return fmt.Errorf(
+			"%w: No scalable target found for service namespace: %s, resource ID: %s, scalable dimension: %s",
+			ErrNotFound, serviceNamespace, resourceID, scalableDimension,
+		)
 	}
 
 	b.scalableTargets.Delete(key)

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/labstack/echo/v5"
@@ -16,6 +17,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
 
 const (
@@ -32,15 +34,46 @@ type Handler struct {
 	Backend       *InMemoryBackend
 	dispatchTable map[string]service.JSONOpFunc
 	peers         *regionpeers.Set[Handler]
+	scheduler     *Scheduler
+	workerCtx     context.Context //nolint:containedctx // janitor lifetime for lazily built regional siblings
+	schedulerRun  worker.SingleRun
+	workerMu      sync.Mutex
 }
 
 // NewHandler creates a new Application Auto Scaling handler backed by backend.
 // backend must not be nil.
 func NewHandler(backend *InMemoryBackend) *Handler {
-	h := &Handler{Backend: backend}
+	h := &Handler{Backend: backend, scheduler: NewScheduler(backend, 0)}
 	h.dispatchTable = h.buildDispatchTable()
 
 	return h
+}
+
+// StartWorker starts the scheduled-action scheduler. Implements service.BackgroundWorker.
+func (h *Handler) StartWorker(ctx context.Context) error {
+	h.workerMu.Lock()
+	h.workerCtx = ctx
+	h.workerMu.Unlock()
+
+	h.schedulerRun.Start(ctx, h.scheduler)
+
+	return nil
+}
+
+// Shutdown stops the scheduler of this handler and its regional siblings. Implements service.Shutdowner.
+func (h *Handler) Shutdown(ctx context.Context) {
+	for _, p := range h.peers.Drain() {
+		p.schedulerRun.Stop(ctx)
+	}
+
+	h.schedulerRun.Stop(ctx)
+}
+
+func (h *Handler) janitorContext() context.Context {
+	h.workerMu.Lock()
+	defer h.workerMu.Unlock()
+
+	return h.workerCtx
 }
 
 // Name returns the service name.
@@ -184,7 +217,23 @@ func marshalResourceError(errType, message, resourceName string) []byte {
 // aws-sdk-go-v2/service/applicationautoscaling/types/errors.go -- NOT by
 // resource semantics, so e.g. ObjectNotFoundException/ResourceNotFoundException
 // are still HTTP 400 even though they signal "not found".
-func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
+func (h *Handler) handleError(ctx context.Context, c *echo.Context, op string, err error) error {
+	return h.writeAPIError(ctx, c, op, err, clientMessage(err))
+}
+
+// clientMessage drops the "<ExceptionName>: " prefix sentinel wrapping adds to messages.
+func clientMessage(err error) string {
+	msg := err.Error()
+	name, rest, ok := strings.Cut(msg, ": ")
+
+	if ok && strings.HasSuffix(name, "Exception") && !strings.Contains(name, " ") {
+		return rest
+	}
+
+	return msg
+}
+
+func (h *Handler) writeAPIError(_ context.Context, c *echo.Context, _ string, err error, msg string) error {
 	var syntaxErr *json.SyntaxError
 	var typeErr *json.UnmarshalTypeError
 
@@ -201,33 +250,33 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	// field, and every FaultClient exception here resolves to HTTP 400
 	// (verified against ErrorFault() in the vendored SDK's types/errors.go).
 	case errors.Is(err, ErrNotFound):
-		return c.JSONBlob(http.StatusBadRequest, marshalError("ObjectNotFoundException", err.Error()))
+		return c.JSONBlob(http.StatusBadRequest, marshalError("ObjectNotFoundException", msg))
 	case errors.Is(err, ErrResourceNotFound):
-		body := marshalResourceError("ResourceNotFoundException", err.Error(), resourceName)
+		body := marshalResourceError("ResourceNotFoundException", msg, resourceName)
 
 		return c.JSONBlob(http.StatusBadRequest, body)
 	case errors.Is(err, ErrTooManyTags):
-		body := marshalResourceError("TooManyTagsException", err.Error(), resourceName)
+		body := marshalResourceError("TooManyTagsException", msg, resourceName)
 
 		return c.JSONBlob(http.StatusBadRequest, body)
 	case errors.Is(err, ErrLimitExceeded):
-		return c.JSONBlob(http.StatusBadRequest, marshalError("LimitExceededException", err.Error()))
+		return c.JSONBlob(http.StatusBadRequest, marshalError("LimitExceededException", msg))
 	case errors.Is(err, ErrInvalidNextToken):
-		return c.JSONBlob(http.StatusBadRequest, marshalError("InvalidNextTokenException", err.Error()))
+		return c.JSONBlob(http.StatusBadRequest, marshalError("InvalidNextTokenException", msg))
 	case errors.Is(err, ErrFailedResourceAccess):
-		return c.JSONBlob(http.StatusBadRequest, marshalError("FailedResourceAccessException", err.Error()))
+		return c.JSONBlob(http.StatusBadRequest, marshalError("FailedResourceAccessException", msg))
 	case errors.Is(err, ErrAlreadyExists):
-		return c.JSONBlob(http.StatusBadRequest, marshalError("ValidationException", err.Error()))
+		return c.JSONBlob(http.StatusBadRequest, marshalError("ValidationException", msg))
 	case errors.Is(err, ErrValidation):
-		return c.JSONBlob(http.StatusBadRequest, marshalError("ValidationException", err.Error()))
+		return c.JSONBlob(http.StatusBadRequest, marshalError("ValidationException", msg))
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
-		return c.JSONBlob(http.StatusBadRequest, marshalError("ValidationException", err.Error()))
+		return c.JSONBlob(http.StatusBadRequest, marshalError("ValidationException", msg))
 	// Server faults (HTTP 500).
 	case errors.Is(err, ErrConcurrentUpdate):
-		return c.JSONBlob(http.StatusInternalServerError, marshalError("ConcurrentUpdateException", err.Error()))
+		return c.JSONBlob(http.StatusInternalServerError, marshalError("ConcurrentUpdateException", msg))
 	default:
-		return c.JSONBlob(http.StatusInternalServerError, marshalError("InternalServiceException", err.Error()))
+		return c.JSONBlob(http.StatusInternalServerError, marshalError("InternalServiceException", msg))
 	}
 }
 

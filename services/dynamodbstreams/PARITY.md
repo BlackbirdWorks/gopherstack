@@ -201,3 +201,8 @@ A shard iterator entry now carries the stream's region (taken from the stream AR
 ## 2026-10-05 (gopherstack-uox6 pass 13, value semantics)
 
 Clean. ListStreams/DescribeStream clamp Limit to 100 and GetRecords rejects Limit above 1000 (api_op_ListStreams.go:39, api_op_DescribeStream.go:49, api_op_GetRecords.go:46); pagination covered by existing tests. Whether AWS rejects rather than clamps an over-limit ListStreams/DescribeStream is API-docs-only: recorded, not changed.
+
+## 2026-10-10 realism pass (CLI/SDK probing)
+
+- Fixed: malformed JSON bodies now return `SerializationException` (was a made-up `<Op>Exception`); `Limit` outside 1-100 on `ListStreams`/`DescribeStream` is a `ValidationException`; unknown-stream text reads "Requested resource not found: Stream: <arn> not found".
+- Open (owned by `services/dynamodb`, outside this pass): disabling a stream (`UpdateTable StreamSpecification.StreamEnabled=false`) drops it from `ListStreams`/`DescribeStream` immediately, whereas AWS keeps it visible as `DISABLED` with closed shards for 24h; `GetRecords` on an iterator taken before disabling still works.

@@ -3,8 +3,6 @@ package autoscaling
 import (
 	"encoding/xml"
 	"net/url"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // defaultNCMaxRecords and maxNCMaxRecords are DescribeNotificationConfigurations's documented
@@ -79,7 +77,10 @@ func (h *Handler) handleDescribeNotificationConfigurations(vals url.Values) (any
 		}
 	}
 
-	p := page.New(configs, vals.Get("NextToken"), maxRecords, defaultNCMaxRecords)
+	p, pageErr := newPage(vals, configs, maxRecords, defaultNCMaxRecords)
+	if pageErr != nil {
+		return nil, pageErr
+	}
 
 	members := make([]xmlNotificationConfiguration, 0, len(p.Data))
 	for _, c := range p.Data {

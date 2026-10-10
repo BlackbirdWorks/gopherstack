@@ -167,6 +167,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	// Cancelling, or RollbackInProgress; same rationale as rearmPendingWaits.
 	b.rearmPendingRefreshes()
 
+	b.settleLaunchesLocked()
+
 	return nil
 }
 

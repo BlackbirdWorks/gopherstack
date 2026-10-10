@@ -50,7 +50,7 @@ func TestPutMetricData_DatapointsGolden(t *testing.T) {
 	)
 
 	// Buckets are epoch-aligned; start on a period boundary so every write lands in one bucket.
-	period := int64(writes + 7200)
+	period := int64((writes + 7200 + 59) / 60 * 60)
 	base := time.Unix(time.Now().Add(-13*24*time.Hour).Unix()/period*period, 0).UTC()
 	for i := range writes {
 		v := float64(i)

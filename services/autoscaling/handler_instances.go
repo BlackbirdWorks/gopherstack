@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
-	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // defaultASIMaxRecords is DescribeAutoScalingInstances's documented default/max page size
@@ -63,7 +62,10 @@ func (h *Handler) handleDescribeAutoScalingInstances(vals url.Values) (any, erro
 		}
 	}
 
-	p := page.New(instances, vals.Get("NextToken"), maxRecords, defaultASIMaxRecords)
+	p, pageErr := newPage(vals, instances, maxRecords, defaultASIMaxRecords)
+	if pageErr != nil {
+		return nil, pageErr
+	}
 
 	members := make([]xmlInstanceDetails, 0, len(p.Data))
 	for _, inst := range p.Data {

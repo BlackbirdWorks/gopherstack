@@ -34,7 +34,7 @@ func TestUpdateClusterVersion_RollbackConfigTimeout(t *testing.T) {
 
 			_, err := client.UpdateClusterVersion(t.Context(), &ekssdk.UpdateClusterVersionInput{
 				Name:           aws.String("rb-cluster"),
-				Version:        aws.String("1.32"),
+				Version:        aws.String("1.33"),
 				RollbackConfig: &ekstypes.RollbackConfig{TimeoutMinutes: aws.Int32(tt.timeout)},
 			})
 

@@ -537,6 +537,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 // dispatcher reports whether it handled the operation so the chain can stop
 // at the first match.
 func (h *Handler) dispatch(c *echo.Context, route eksRoute, body []byte) error {
+	if err := validateListQuery(c); err != nil {
+		return h.handleError(c, err)
+	}
+
 	dispatchers := []func(*echo.Context, eksRoute, []byte) (bool, error){
 		h.dispatchClusterOps,
 		h.dispatchTagOps,
@@ -563,22 +567,36 @@ func (h *Handler) dispatch(c *echo.Context, route eksRoute, body []byte) error {
 }
 
 func (h *Handler) handleError(c *echo.Context, err error) error {
+	msg := clientMessage(err)
+
 	switch {
 	case errors.Is(err, ErrNotFound):
-		return c.JSON(http.StatusNotFound, errResp("ResourceNotFoundException", err.Error()))
+		return c.JSON(http.StatusNotFound, errResp("ResourceNotFoundException", msg))
 	case errors.Is(err, ErrAlreadyExists):
-		return c.JSON(http.StatusConflict, errResp("ResourceInUseException", err.Error()))
+		return c.JSON(http.StatusConflict, errResp("ResourceInUseException", msg))
 	case errors.Is(err, ErrValidation):
-		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", err.Error()))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", msg))
 	case errors.Is(err, ErrInvalidRequest):
-		return c.JSON(http.StatusBadRequest, errResp("InvalidRequestException", err.Error()))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidRequestException", msg))
 	case errors.Is(err, ErrResourceLimitExceeded):
-		return c.JSON(http.StatusBadRequest, errResp("ResourceLimitExceededException", err.Error()))
+		return c.JSON(http.StatusBadRequest, errResp("ResourceLimitExceededException", msg))
 	default:
-		return c.JSON(http.StatusInternalServerError, errResp("InternalFailure", err.Error()))
+		return c.JSON(http.StatusInternalServerError, errResp("InternalFailure", msg))
 	}
 }
 
 func errResp(code, msg string) map[string]string {
 	return map[string]string{"code": code, "message": msg}
+}
+
+// clientMessage drops the "<ExceptionName>: " prefix sentinel wrapping adds to messages.
+func clientMessage(err error) string {
+	msg := err.Error()
+	name, rest, ok := strings.Cut(msg, ": ")
+
+	if ok && strings.HasSuffix(name, "Exception") && !strings.Contains(name, " ") {
+		return rest
+	}
+
+	return msg
 }

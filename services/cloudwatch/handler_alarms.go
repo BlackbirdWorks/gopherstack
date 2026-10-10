@@ -2,7 +2,6 @@ package cloudwatch
 
 import (
 	"encoding/xml"
-	"errors"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -63,12 +62,12 @@ func (h *Handler) handlePutMetricAlarm(form url.Values, c *echo.Context) error {
 		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", err.Error())
 	}
 
-	if err := h.Backend.PutMetricAlarm(alarm); err != nil {
-		if errors.Is(err, ErrValidation) {
-			return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", err.Error())
-		}
+	if err := validateMetricAlarmRequest(alarm); err != nil {
+		return h.xmlBackendError(c, err)
+	}
 
-		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	if err := h.Backend.PutMetricAlarm(alarm); err != nil {
+		return h.xmlBackendError(c, err)
 	}
 
 	h.applyFormCreationTags(form, alarm.AlarmArn)
@@ -199,11 +198,7 @@ func (h *Handler) handleDescribeAlarms(form url.Values, c *echo.Context) error {
 		parentsOfAlarmName,
 	)
 	if err != nil {
-		if errors.Is(err, ErrValidation) {
-			return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", err.Error())
-		}
-
-		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+		return h.xmlBackendError(c, err)
 	}
 
 	metricMembers := make([]metricAlarmXML, 0, len(metricPage.Data))
@@ -341,7 +336,7 @@ func (h *Handler) handleSetAlarmState(form url.Values, c *echo.Context) error {
 		stateReason,
 		stateReasonData,
 	); err != nil {
-		return h.xmlError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
+		return h.setAlarmStateError(c, alarmName, err, false)
 	}
 
 	type response struct {

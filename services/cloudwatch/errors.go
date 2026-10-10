@@ -46,7 +46,27 @@ var ErrInsightRuleLimit = errors.New("LimitExceeded")
 var ErrMissingParameter = errors.New("MissingParameter")
 
 // ErrInvalidNextToken is returned when a pagination NextToken is invalid or expired.
-var ErrInvalidNextToken = errors.New("InvalidParameterValue: NextToken is invalid or expired")
+var ErrInvalidNextToken = errors.New("invalid NextToken")
+
+// ErrParamCombination is the base for InvalidParameterCombination failures.
+var ErrParamCombination = errors.New("InvalidParameterCombination")
+
+// ErrValidationFault is the base for request-shape (enum, range, length)
+// failures the service reports as ValidationError.
+var ErrValidationFault = errors.New("ValidationError")
+
+type apiError struct {
+	base error
+	msg  string
+}
+
+func (e *apiError) Error() string { return e.msg }
+
+func (e *apiError) Unwrap() error { return e.base }
+
+func apiErrorf(base error, format string, args ...any) error {
+	return &apiError{base: base, msg: fmt.Sprintf(format, args...)}
+}
 
 // ErrValueAndStatisticSet is returned when more than one of Value, StatisticSet,
 // and the Values/Counts array are set on a MetricDatum. AWS treats all three

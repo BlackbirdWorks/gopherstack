@@ -192,7 +192,7 @@ func (c *Cluster) clone() *Cluster {
 // scheduleClusterActivation schedules the async CREATING -> ACTIVE transition
 // for the named cluster.
 func (b *InMemoryBackend) scheduleClusterActivation(name string) {
-	b.work.After("ClusterTransition", clusterTransitionDelay, func() {
+	b.work.After("ClusterTransition", b.dwell(clusterTransitionDelay), func() {
 		b.mu.Lock("CreateCluster-async")
 		defer b.mu.Unlock()
 
@@ -210,11 +210,15 @@ func (b *InMemoryBackend) CreateCluster(
 	kv map[string]string,
 	opts ...ClusterOptionalConfig,
 ) (*Cluster, error) {
+	if err := validateCreateClusterInput(name, version, roleARN); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateCluster")
 	defer b.mu.Unlock()
 
 	if _, ok := b.clusters.Get(name); ok {
-		return nil, fmt.Errorf("%w: cluster %s already exists", ErrAlreadyExists, name)
+		return nil, fmt.Errorf("%w: Cluster already exists with name: %s", ErrAlreadyExists, name)
 	}
 
 	if n := b.countClusters(false); n >= b.limits.clustersPerAccount {
@@ -287,7 +291,7 @@ func (b *InMemoryBackend) DescribeCluster(name string) (*Cluster, error) {
 
 	c, ok := b.clusters.Get(name)
 	if !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, name)
+		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", name)
 	}
 
 	cp := c.clone()
@@ -363,6 +367,10 @@ func (b *InMemoryBackend) DeleteCluster(name string) (*Cluster, error) {
 	b.mu.Lock("DeleteCluster")
 	defer b.mu.Unlock()
 
+	if b.deferDeletes() {
+		return b.beginClusterDeleteLocked(name)
+	}
+
 	cp, err := b.deleteClusterLocked(name)
 	if err != nil {
 		return nil, err
@@ -376,9 +384,20 @@ func (b *InMemoryBackend) DeleteCluster(name string) (*Cluster, error) {
 }
 
 func (b *InMemoryBackend) deleteClusterLocked(name string) (*Cluster, error) {
+	c, err := b.checkClusterDeletableLocked(name)
+	if err != nil {
+		return nil, err
+	}
+
+	return b.removeClusterLocked(name, c), nil
+}
+
+// checkClusterDeletableLocked returns the named cluster once deletion protection and attached
+// resources permit deleting it.
+func (b *InMemoryBackend) checkClusterDeletableLocked(name string) (*Cluster, error) {
 	c, ok := b.clusters.Get(name)
 	if !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, name)
+		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", name)
 	}
 
 	if c.DeletionProtection {
@@ -399,6 +418,10 @@ func (b *InMemoryBackend) deleteClusterLocked(name string) (*Cluster, error) {
 			ErrAlreadyExists, name, fps[0].FargateProfileName)
 	}
 
+	return c, nil
+}
+
+func (b *InMemoryBackend) removeClusterLocked(name string, c *Cluster) *Cluster {
 	cp := c.clone()
 	cp.Status = statusDeleting
 
@@ -431,7 +454,7 @@ func (b *InMemoryBackend) deleteClusterLocked(name string) (*Cluster, error) {
 		c.Tags.Close()
 	}
 
-	return cp, nil
+	return cp
 }
 
 // RegisterCluster registers an external cluster.
@@ -443,7 +466,7 @@ func (b *InMemoryBackend) RegisterCluster(
 	defer b.mu.Unlock()
 
 	if _, ok := b.clusters.Get(name); ok {
-		return nil, fmt.Errorf("%w: cluster %s already exists", ErrAlreadyExists, name)
+		return nil, fmt.Errorf("%w: Cluster already exists with name: %s", ErrAlreadyExists, name)
 	}
 
 	if n := b.countClusters(true); n >= b.limits.registeredClustersPerAccount {

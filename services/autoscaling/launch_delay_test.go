@@ -1,0 +1,122 @@
+package autoscaling_test
+
+import (
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awscfg "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	assdk "github.com/aws/aws-sdk-go-v2/service/autoscaling"
+	"github.com/labstack/echo/v5"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/services/autoscaling"
+)
+
+func newClientWithBackend(t *testing.T) (*assdk.Client, *autoscaling.InMemoryBackend) {
+	t.Helper()
+
+	backend := autoscaling.NewInMemoryBackend()
+	e := echo.New()
+	registry := service.NewRegistry()
+	require.NoError(t, registry.Register(autoscaling.NewHandler(backend)))
+	e.Use(service.NewServiceRouter(registry).RouteHandler())
+
+	srv := httptest.NewServer(e)
+	t.Cleanup(srv.Close)
+
+	cfg, err := awscfg.LoadDefaultConfig(t.Context(), awscfg.WithRegion("us-east-1"),
+		awscfg.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("test", "test", "")))
+	require.NoError(t, err)
+
+	return assdk.NewFromConfig(cfg, func(o *assdk.Options) { o.BaseEndpoint = aws.String(srv.URL) }), backend
+}
+
+func instanceStates(t *testing.T, c *assdk.Client) (int, int) {
+	t.Helper()
+
+	out, err := c.DescribeAutoScalingGroups(t.Context(), &assdk.DescribeAutoScalingGroupsInput{})
+	require.NoError(t, err)
+	require.Len(t, out.AutoScalingGroups, 1)
+
+	var inService, pending int
+
+	for _, inst := range out.AutoScalingGroups[0].Instances {
+		switch string(inst.LifecycleState) {
+		case "InService":
+			inService++
+		case "Pending":
+			pending++
+		}
+	}
+
+	return inService, pending
+}
+
+func inProgressLaunches(t *testing.T, c *assdk.Client) int {
+	t.Helper()
+
+	out, err := c.DescribeScalingActivities(t.Context(), &assdk.DescribeScalingActivitiesInput{})
+	require.NoError(t, err)
+
+	n := 0
+	for _, a := range out.Activities {
+		if string(a.StatusCode) == "InProgress" && strings.HasPrefix(aws.ToString(a.Description), "Launching") {
+			n++
+		}
+	}
+
+	return n
+}
+
+func TestLaunchDelay_PendingThenInService(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		delay         time.Duration
+		wantPending   int
+		wantInService int
+	}{
+		{name: "delayed", delay: 40 * time.Millisecond, wantPending: 3},
+		{name: "instant", delay: 0, wantInService: 3},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			c, backend := newClientWithBackend(t)
+			backend.SetLaunchDelay(tt.delay)
+			seedGroup(t, c, "g", 3, 5)
+
+			inService, pending := instanceStates(t, c)
+			assert.Equal(t, tt.wantPending, pending)
+			assert.Equal(t, tt.wantInService, inService)
+
+			if tt.delay == 0 {
+				assert.Zero(t, inProgressLaunches(t, c))
+
+				return
+			}
+
+			assert.Positive(t, inProgressLaunches(t, c))
+
+			_, err := c.SetDesiredCapacity(t.Context(), &assdk.SetDesiredCapacityInput{
+				AutoScalingGroupName: aws.String("g"), DesiredCapacity: aws.Int32(5),
+			})
+			require.NoError(t, err)
+
+			require.Eventually(t, func() bool {
+				inSvc, pend := instanceStates(t, c)
+
+				return inSvc == 5 && pend == 0 && inProgressLaunches(t, c) == 0
+			}, 5*time.Second, 5*time.Millisecond)
+		})
+	}
+}

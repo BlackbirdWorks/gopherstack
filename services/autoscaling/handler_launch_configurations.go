@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"net/url"
 	"time"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // defaultLCMaxRecords and maxLCMaxRecords are DescribeLaunchConfigurations's documented
@@ -89,7 +87,10 @@ func (h *Handler) handleDescribeLaunchConfigurations(vals url.Values) (any, erro
 		}
 	}
 
-	p := page.New(lcs, vals.Get("NextToken"), maxRecords, defaultLCMaxRecords)
+	p, pageErr := newPage(vals, lcs, maxRecords, defaultLCMaxRecords)
+	if pageErr != nil {
+		return nil, pageErr
+	}
 
 	members := make([]xmlLaunchConfiguration, 0, len(p.Data))
 	for i := range p.Data {

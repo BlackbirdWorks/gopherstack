@@ -173,7 +173,7 @@ func (b *InMemoryBackend) DescribeInsight(clusterName, insightID string) (*Insig
 
 	c, ok := b.clusters.Get(clusterName)
 	if !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
 	}
 
 	for _, ins := range deriveUpgradeReadinessInsights(clusterName, c.Version, time.Now().UTC()) {
@@ -192,7 +192,7 @@ func (b *InMemoryBackend) ListInsights(clusterName string) ([]*Insight, error) {
 
 	c, ok := b.clusters.Get(clusterName)
 	if !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
 	}
 
 	return deriveUpgradeReadinessInsights(clusterName, c.Version, time.Now().UTC()), nil
@@ -205,7 +205,7 @@ func (b *InMemoryBackend) StartInsightsRefresh(clusterName string) (*InsightsRef
 	defer b.mu.RUnlock()
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
 	}
 
 	now := time.Now().UTC()
@@ -226,7 +226,7 @@ func (b *InMemoryBackend) DescribeInsightsRefresh(clusterName string) (*Insights
 	defer b.mu.RUnlock()
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
 	}
 
 	now := time.Now().UTC()

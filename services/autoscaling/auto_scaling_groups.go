@@ -207,23 +207,12 @@ func (b *InMemoryBackend) CreateAutoScalingGroup(input CreateAutoScalingGroupInp
 		b.instanceIndex[inst.InstanceID] = input.AutoScalingGroupName
 	}
 
-	b.activities[input.AutoScalingGroupName] = append(
-		b.activities[input.AutoScalingGroupName],
-		ScalingActivity{
-			ActivityID:           uuid.NewString(),
-			AutoScalingGroupName: input.AutoScalingGroupName,
-			Description:          "Launching a new EC2 instance",
-			Cause: fmt.Sprintf(
-				"At %s a user request created an AutoScalingGroup changing the desired capacity from 0 to %d.",
-				time.Now().UTC().Format(time.RFC3339), group.DesiredCapacity,
-			),
-			StatusCode:    statusCodeSuccessful,
-			StatusMessage: "",
-			Progress:      completedProgress,
-			StartTime:     time.Now(),
-			EndTime:       time.Now(),
-		},
-	)
+	b.appendCapacityActivity(input.AutoScalingGroupName, launchingActivityPrefix,
+		fmt.Sprintf(
+			"At %s a user request created an AutoScalingGroup changing the desired capacity from 0 to %d.",
+			time.Now().UTC().Format(time.RFC3339), group.DesiredCapacity,
+		), time.Now())
+	b.beginLaunchDwellLocked(group, instanceIDsOf(group.Instances))
 
 	cp := *group
 	cloneGroupMutableSlices(&cp)
@@ -375,18 +364,11 @@ func validateDeletionProtection(v string) error {
 		ErrInvalidParameter, v)
 }
 
-// validateCapacity checks that min ≤ desired ≤ max (when max > 0).
+// validateCapacity checks that min <= desired <= max and min <= max.
 func validateCapacity(minSize, maxSize, desired int32) error {
-	if minSize > desired {
-		return fmt.Errorf("%w: DesiredCapacity must be >= MinSize", ErrInvalidParameter)
-	}
-
-	if maxSize > 0 && desired > maxSize {
-		return fmt.Errorf("%w: DesiredCapacity must be <= MaxSize", ErrInvalidParameter)
-	}
-
-	if maxSize > 0 && minSize > maxSize {
-		return fmt.Errorf("%w: MinSize must be <= MaxSize", ErrInvalidParameter)
+	if minSize < 0 || maxSize < 0 || minSize > maxSize || desired < minSize || desired > maxSize {
+		return fmt.Errorf("%w: Desired capacity:%d must be between the specified min size:%d and max size:%d",
+			ErrInvalidParameter, desired, minSize, maxSize)
 	}
 
 	return nil
@@ -409,6 +391,8 @@ func (b *InMemoryBackend) applyUpdateCapacityLocked(g *AutoScalingGroup, input U
 
 	if input.DesiredCapacity != nil {
 		newDesired = min(*input.DesiredCapacity, maxDesiredCapacity)
+	} else {
+		newDesired = max(min(newDesired, newMax), newMin)
 	}
 
 	if err := validateCapacity(newMin, newMax, newDesired); err != nil {
@@ -584,8 +568,15 @@ func (b *InMemoryBackend) UpdateAutoScalingGroup(input UpdateAutoScalingGroupInp
 
 	input.AvailabilityZones = zones
 
+	before, oldDesired := instanceIDSet(g), g.DesiredCapacity
 	if err := b.applyUpdateCapacityLocked(g, input); err != nil {
 		return nil, err
+	}
+
+	if g.DesiredCapacity != oldDesired {
+		b.recordCapacityActivities(g, before, oldDesired, fmt.Sprintf(
+			"a user request update of AutoScalingGroup constraints to min: %d, max: %d, desired: %d",
+			g.MinSize, g.MaxSize, g.DesiredCapacity))
 	}
 
 	applyUpdateLaunchSourceFields(g, input)
@@ -628,8 +619,8 @@ func (b *InMemoryBackend) DeleteAutoScalingGroup(name string, forceDelete bool) 
 	}
 
 	if !forceDelete && len(g.Instances) > 0 {
-		return fmt.Errorf("%w: group %q has %d active instance(s); use ForceDelete=true to override",
-			ErrScalingActivityInProgress, name, len(g.Instances))
+		return errMsgf(ErrDeletionProtected, "You cannot delete an AutoScalingGroup while there are instances or "+
+			"pending Spot instance request(s) still in the group.")
 	}
 
 	b.cleanupHookTimers(name, "")
@@ -773,11 +764,21 @@ func (b *InMemoryBackend) SetDesiredCapacity(groupName string, desiredCapacity i
 	desired := min(desiredCapacity, maxDesiredCapacity)
 
 	if desired < g.MinSize {
-		return fmt.Errorf("%w: DesiredCapacity %d is less than MinSize %d", ErrInvalidParameter, desired, g.MinSize)
+		return errMsgf(
+			ErrInvalidParameter,
+			"New SetDesiredCapacity value %d is below min value %d for the AutoScalingGroup.",
+			desired,
+			g.MinSize,
+		)
 	}
 
-	if g.MaxSize > 0 && desired > g.MaxSize {
-		return fmt.Errorf("%w: DesiredCapacity %d exceeds MaxSize %d", ErrInvalidParameter, desired, g.MaxSize)
+	if desired > g.MaxSize {
+		return errMsgf(
+			ErrInvalidParameter,
+			"New SetDesiredCapacity value %d is above max value %d for the AutoScalingGroup.",
+			desired,
+			g.MaxSize,
+		)
 	}
 
 	if honorCooldown && g.DefaultCooldown > 0 && !g.LastScalingActivity.IsZero() {
@@ -787,7 +788,9 @@ func (b *InMemoryBackend) SetDesiredCapacity(groupName string, desiredCapacity i
 		}
 	}
 
+	before, oldDesired := instanceIDSet(g), g.DesiredCapacity
 	b.applyDesiredCapacityChange(g, desired)
+	b.recordCapacityActivities(g, before, oldDesired, "a user request explicitly set group desired capacity")
 
 	return nil
 }

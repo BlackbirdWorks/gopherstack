@@ -4,8 +4,6 @@ import (
 	"encoding/xml"
 	"net/url"
 	"slices"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 func (h *Handler) handleDescribeScalingActivities(vals url.Values) (any, error) {
@@ -31,7 +29,10 @@ func (h *Handler) handleDescribeScalingActivities(vals url.Values) (any, error) 
 		}
 	}
 
-	p := page.New(activities, vals.Get("NextToken"), maxRecords, defaultActivitiesMaxRecords)
+	p, pageErr := newPage(vals, activities, maxRecords, defaultActivitiesMaxRecords)
+	if pageErr != nil {
+		return nil, pageErr
+	}
 
 	members := make([]xmlScalingActivity, 0, len(p.Data))
 	for i := range p.Data {

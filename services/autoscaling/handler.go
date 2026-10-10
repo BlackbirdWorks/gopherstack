@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
@@ -377,22 +378,23 @@ func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) err
 		logger.Load(c.Request().Context()).Error("autoscaling internal error", "error", opErr, "action", action)
 	}
 
-	return h.writeError(c, statusCode, code, opErr.Error())
+	return h.writeError(c, statusCode, code, opErrorMessage(opErr))
 }
 
-func autoscalingErrorCode(opErr error) string {
-	type errorMapping struct {
-		sentinel error
-		code     string
-	}
+type errorMapping struct {
+	sentinel error
+	code     string
+}
 
-	mappings := []errorMapping{
+func errorMappings() []errorMapping {
+	return []errorMapping{
 		{ErrGroupNotFound, errValidationError},
 		{ErrGroupAlreadyExists, "AlreadyExists"},
 		{ErrLaunchConfigurationNotFound, errValidationError},
 		{ErrLaunchConfigurationAlreadyExists, "AlreadyExists"},
 		{ErrInvalidParameter, errValidationError},
 		{ErrUnknownAction, "InvalidAction"},
+		{ErrInvalidNextToken, "InvalidNextToken"},
 		{ErrActiveInstanceRefreshNotFound, "ActiveInstanceRefreshNotFound"},
 		{ErrLifecycleHookNotFound, errValidationError},
 		{ErrScalingActivityInProgress, "ScalingActivityInProgress"},
@@ -403,8 +405,10 @@ func autoscalingErrorCode(opErr error) string {
 		{ErrLaunchConfigurationInUse, "ResourceInUse"},
 		{ErrInstanceRefreshInProgress, "InstanceRefreshInProgress"},
 	}
+}
 
-	for _, m := range mappings {
+func autoscalingErrorCode(opErr error) string {
+	for _, m := range errorMappings() {
 		if errors.Is(opErr, m.sentinel) {
 			return m.code
 		}
@@ -417,7 +421,7 @@ func (h *Handler) writeError(c *echo.Context, statusCode int, code, message stri
 	errResp := &autoscalingErrorResponse{
 		Xmlns:     autoscalingXMLNS,
 		Error:     autoscalingError{Code: code, Message: message, Type: "Sender"},
-		RequestID: "autoscaling-error",
+		RequestID: uuid.NewString(),
 	}
 
 	xmlBytes, err := marshalXML(errResp)
@@ -544,6 +548,18 @@ func toXMLScalingActivity(a *ScalingActivity) xmlScalingActivity {
 
 type xmlResponseMetadata struct {
 	RequestID string `xml:"RequestId"`
+}
+
+// MarshalXML emits a fresh request ID per response; handlers pass operation-name placeholders.
+func (m xmlResponseMetadata) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
+	id := m.RequestID
+	if id == "" || strings.HasPrefix(id, "autoscaling-") {
+		id = uuid.NewString()
+	}
+
+	return e.EncodeElement(struct {
+		RequestID string `xml:"RequestId"`
+	}{RequestID: id}, start)
 }
 
 // emptyResultXML is the empty "<Op>Result" element real Autoscaling responses carry even

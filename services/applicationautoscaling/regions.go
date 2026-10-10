@@ -10,7 +10,12 @@ func (h *Handler) EnableRegions() {
 		nb := NewInMemoryBackend(home.accountID, region)
 		nb.SetAppConfig(home.appConfig)
 
-		return NewHandler(nb)
+		p := NewHandler(nb)
+		if ctx := h.janitorContext(); ctx != nil {
+			_ = p.StartWorker(ctx)
+		}
+
+		return p
 	})
 }
 

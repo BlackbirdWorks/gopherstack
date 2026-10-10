@@ -2,6 +2,8 @@ package eks
 
 import (
 	"context"
+	"sync/atomic"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -56,6 +58,7 @@ type InMemoryBackend struct {
 	// services/glue's limits/configuredLimits precedent.
 	limits           resourceLimits
 	configuredLimits resourceLimits
+	lifecycleDelay   atomic.Int64
 }
 
 // NewInMemoryBackend creates a new in-memory EKS backend.
@@ -89,6 +92,20 @@ func (b *InMemoryBackend) WithResourceLimits(l ResourceLimits) *InMemoryBackend 
 	applyResourceLimitOverrides(&b.configuredLimits, l)
 
 	return b
+}
+
+// SetLifecycleDelay sets how long clusters, nodegroups, addons, Fargate profiles, identity
+// providers, certificate authorities and updates dwell in a transitional state; 0 keeps the built-in 100ms.
+func (b *InMemoryBackend) SetLifecycleDelay(d time.Duration) {
+	b.lifecycleDelay.Store(int64(d))
+}
+
+func (b *InMemoryBackend) dwell(builtin time.Duration) time.Duration {
+	if d := time.Duration(b.lifecycleDelay.Load()); d > 0 {
+		return d
+	}
+
+	return builtin
 }
 
 // Close stops all scheduled state-transition timers so none outlives the

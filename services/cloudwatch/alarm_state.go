@@ -143,8 +143,8 @@ func (b *InMemoryBackend) setAlarmStateLocked(
 		applyLogAlarmStateLocked(update, logAlarm, stateValue, stateReason, stateReasonData, now)
 	}
 
-	summary := fmt.Sprintf("Alarm %q changed from %s to %s", alarmName, update.oldState, stateValue)
-	histData := b.stateChangeHistoryData(alarmName, update.oldState, stateValue, stateReason)
+	summary := fmt.Sprintf("Alarm updated from %s to %s", update.oldState, stateValue)
+	histData := stateChangeHistoryData(update.oldState, stateValue, stateReason, stateReasonData)
 	b.appendHistory(alarmName, update.histAlarmType, historyTypeStateUpdate, summary, histData)
 
 	// re-evaluate composite alarms that may reference this alarm, collecting any transitions
@@ -173,6 +173,16 @@ func (b *InMemoryBackend) SetAlarmState(
 	ctx context.Context,
 	alarmName, stateValue, stateReason, stateReasonData string,
 ) error {
+	if err := checkEnum(
+		"stateValue",
+		stateValue,
+		alarmStateOK,
+		alarmStateAlarm,
+		alarmStateInsufficientData,
+	); err != nil {
+		return err
+	}
+
 	update, err := b.setAlarmStateLocked(alarmName, stateValue, stateReason, stateReasonData)
 	if err != nil {
 		return err

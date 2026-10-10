@@ -16,6 +16,9 @@ func (b *InMemoryBackend) PutCompositeAlarm(alarm *CompositeAlarm) error {
 	if alarm.AlarmRule == "" {
 		return ErrAlarmRuleRequired
 	}
+	if err := validateAlarmRule(alarm.AlarmRule); err != nil {
+		return err
+	}
 
 	b.mu.Lock("PutCompositeAlarm")
 	defer b.mu.Unlock()
@@ -162,13 +165,8 @@ func (b *InMemoryBackend) reevaluateCompositeAlarms() []compositeAlarmTransition
 		ca.StateReason = reason
 		ca.StateTransitionedTimestamp = time.Now().UTC()
 		ca.StateUpdatedTimestamp = ca.StateTransitionedTimestamp
-		summary := fmt.Sprintf(
-			"Composite alarm %q changed from %s to %s",
-			ca.AlarmName,
-			oldState,
-			newState,
-		)
-		histData := b.stateChangeHistoryData(ca.AlarmName, oldState, newState, reason)
+		summary := fmt.Sprintf("Alarm updated from %s to %s", oldState, newState)
+		histData := stateChangeHistoryData(oldState, newState, reason, "")
 		b.appendHistory(ca.AlarmName, "CompositeAlarm", historyTypeStateUpdate, summary, histData)
 
 		if ca.ActionsEnabled {

@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"net/url"
 	"time"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // defaultSAMaxRecords and maxSAMaxRecords are DescribeScheduledActions's documented
@@ -81,7 +79,10 @@ func (h *Handler) handleDescribeScheduledActions(vals url.Values) (any, error) {
 		}
 	}
 
-	p := page.New(actions, vals.Get("NextToken"), maxRecords, defaultSAMaxRecords)
+	p, pageErr := newPage(vals, actions, maxRecords, defaultSAMaxRecords)
+	if pageErr != nil {
+		return nil, pageErr
+	}
 
 	members := make([]xmlScheduledAction, 0, len(p.Data))
 	for _, action := range p.Data {

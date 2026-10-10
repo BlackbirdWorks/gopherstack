@@ -11,6 +11,8 @@ import (
 	"math/big"
 	"sort"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // gopherstack-lruaw (2026-09-11): implements the five EKS Hybrid Nodes
@@ -129,7 +131,7 @@ func deepCopyCertificateAuthority(ca *CertificateAuthority) *CertificateAuthorit
 // comment ("Amazon EKS then distributes the successor CA ... you can track
 // this through the CA's distributionStatus").
 func (b *InMemoryBackend) scheduleCertificateAuthorityDistribution(clusterName, id string) {
-	b.work.After("CertificateAuthorityDistribution", certificateAuthorityDistributionDelay, func() {
+	b.work.After("CertificateAuthorityDistribution", b.dwell(certificateAuthorityDistributionDelay), func() {
 		b.mu.Lock("CertificateAuthorityDistribution-async")
 		defer b.mu.Unlock()
 
@@ -145,7 +147,7 @@ func (b *InMemoryBackend) scheduleCertificateAuthorityDistribution(clusterName, 
 // ActivateCertificateAuthority, matching its doc comment ("Amazon EKS
 // promotes it to be the cluster's signer").
 func (b *InMemoryBackend) scheduleCertificateAuthorityActivation(clusterName, id string) {
-	b.work.After("CertificateAuthorityActivation", certificateAuthorityActivationDelay, func() {
+	b.work.After("CertificateAuthorityActivation", b.dwell(certificateAuthorityActivationDelay), func() {
 		b.mu.Lock("CertificateAuthorityActivation-async")
 		defer b.mu.Unlock()
 
@@ -161,9 +163,9 @@ func (b *InMemoryBackend) scheduleCertificateAuthorityActivation(clusterName, id
 // "update" key (types.Update, deserializers.go's
 // awsRestjson1_deserializeOpDocument<Op>Output "update" case). All three
 // share types.UpdateTypeCertificateAuthorityUpdate.
-func newCertificateAuthorityUpdate(clusterName, id string, params []UpdateParam) *Update {
+func newCertificateAuthorityUpdate(clusterName string, params []UpdateParam) *Update {
 	return &Update{
-		ID:          stableID(clusterName + "/ca-update/" + id + "/" + time.Now().String()),
+		ID:          uuid.NewString(),
 		ClusterName: clusterName,
 		Status:      statusInProgress,
 		Type:        updateTypeCertificateAuthority,
@@ -181,7 +183,7 @@ func (b *InMemoryBackend) CreateCertificateAuthority(
 	defer b.mu.Unlock()
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
-		return nil, nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
 	}
 
 	if n := len(b.certificateAuthoritiesByCluster.Get(clusterName)); n >= maxCertificateAuthoritiesPerCluster {
@@ -213,7 +215,7 @@ func (b *InMemoryBackend) CreateCertificateAuthority(
 	b.certificateAuthorities.Put(ca)
 	b.scheduleCertificateAuthorityDistribution(clusterName, id)
 
-	upd := newCertificateAuthorityUpdate(clusterName, id, []UpdateParam{
+	upd := newCertificateAuthorityUpdate(clusterName, []UpdateParam{
 		{Type: updateParamCertificateAuthorityID, Value: id},
 	})
 	b.storeUpdateLocked(upd)
@@ -231,7 +233,7 @@ func (b *InMemoryBackend) ActivateCertificateAuthority(
 	defer b.mu.Unlock()
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
-		return nil, nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
 	}
 
 	ca, ok := b.certificateAuthorities.Get(certificateAuthorityKey(clusterName, id))
@@ -283,7 +285,7 @@ func (b *InMemoryBackend) ActivateCertificateAuthority(
 		}
 	}
 
-	upd := newCertificateAuthorityUpdate(clusterName, id, []UpdateParam{
+	upd := newCertificateAuthorityUpdate(clusterName, []UpdateParam{
 		{Type: updateParamCertificateAuthorityID, Value: id},
 		{Type: updateParamSigningStatus, Value: caSigningStatusInUse},
 	})
@@ -302,7 +304,7 @@ func (b *InMemoryBackend) DeleteCertificateAuthority(
 	defer b.mu.Unlock()
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
-		return nil, nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
 	}
 
 	ca, ok := b.certificateAuthorities.Get(certificateAuthorityKey(clusterName, id))
@@ -327,7 +329,7 @@ func (b *InMemoryBackend) DeleteCertificateAuthority(
 	b.certificateAuthorities.Delete(certificateAuthorityKey(clusterName, id))
 	cp.DistributionStatus = caDistributionStatusDeleting
 
-	upd := newCertificateAuthorityUpdate(clusterName, id, []UpdateParam{
+	upd := newCertificateAuthorityUpdate(clusterName, []UpdateParam{
 		{Type: updateParamCertificateAuthorityID, Value: id},
 	})
 	b.storeUpdateLocked(upd)
@@ -343,7 +345,7 @@ func (b *InMemoryBackend) DescribeCertificateAuthority(clusterName, id string) (
 	defer b.mu.RUnlock()
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
 	}
 
 	ca, ok := b.certificateAuthorities.Get(certificateAuthorityKey(clusterName, id))
@@ -396,7 +398,7 @@ func (b *InMemoryBackend) ListCertificateAuthorities(clusterName string) ([]*Cer
 	defer b.mu.RUnlock()
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
 	}
 
 	items := b.certificateAuthoritiesByCluster.Get(clusterName)

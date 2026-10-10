@@ -41,6 +41,8 @@ const (
 	keyAddonVersion           = "addonVersion"
 	typeUpgradeReadiness      = "UPGRADE_READINESS"
 	typeVersionUpdate         = "VersionUpdate"
+	typeConfigUpdate          = "ConfigUpdate"
+	paramVersion              = "Version"
 	connectorActivationWindow = 24 * time.Hour
 )
 
@@ -50,6 +52,7 @@ const (
 	statusFailed     = "FAILED"
 	statusDegraded   = "DEGRADED"
 	statusDeleting   = "DELETING"
+	statusUpdating   = "UPDATING"
 	statusSuccessful = "Successful"
 )
 

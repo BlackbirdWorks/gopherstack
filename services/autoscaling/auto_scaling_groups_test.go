@@ -412,6 +412,9 @@ func TestInMemoryBackend_LaunchTemplate(t *testing.T) {
 		{
 			name: "update_asg_clears_lc_when_lt_set",
 			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateLaunchConfiguration(autoscaling.CreateLaunchConfigurationInput{
+					LaunchConfigurationName: "my-lc", ImageID: "ami-12345678", InstanceType: "t3.micro",
+				})
 				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
 					AutoScalingGroupName:    "lt-update-asg",
 					LaunchConfigurationName: "my-lc",
