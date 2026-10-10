@@ -4,11 +4,13 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	cloudfrontbackend "github.com/blackbirdworks/gopherstack/services/cloudfront"
 	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
 	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
 	efsbackend "github.com/blackbirdworks/gopherstack/services/efs"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
+	inspector2backend "github.com/blackbirdworks/gopherstack/services/inspector2"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
 	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
@@ -39,6 +41,8 @@ type LifecycleSettings struct {
 	SSMAutomation                time.Duration `name:"ssm-automation"                 env:"SSM_AUTOMATION_EXEC_DELAY"            default:"0s" help:"SSM automation execution InProgress window."`                                        //nolint:lll // config struct tags are intentionally verbose
 	DocDB                        time.Duration `name:"docdb"                          env:"DOCDB_LIFECYCLE_DELAY"                default:"0s" help:"DocumentDB cluster and instance creating dwell."`                                    //nolint:lll // config struct tags are intentionally verbose
 	Neptune                      time.Duration `name:"neptune"                        env:"NEPTUNE_LIFECYCLE_DELAY"              default:"0s" help:"Neptune cluster and instance creating dwell."`                                       //nolint:lll // config struct tags are intentionally verbose
+	AWSConfig                    time.Duration `name:"awsconfig"                      env:"AWSCONFIG_LIFECYCLE_DELAY"            default:"0s" help:"AWS Config conformance pack CREATE_IN_PROGRESS window."`                             //nolint:lll // config struct tags are intentionally verbose
+	Inspector2                   time.Duration `name:"inspector2"                     env:"INSPECTOR2_LIFECYCLE_DELAY"           default:"0s" help:"Inspector2 ENABLING/DISABLING window."`                                              //nolint:lll // config struct tags are intentionally verbose
 }
 
 func (l LifecycleSettings) effective(specific time.Duration) time.Duration {
@@ -145,6 +149,20 @@ func applyNeptune(reg service.Registerable, l LifecycleSettings) {
 	}
 }
 
+func applyAWSConfig(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*awsconfigbackend.Handler); ok {
+		h.Backend.SetLifecycleDelay(l.effective(l.AWSConfig))
+	}
+}
+
+func applyInspector2(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*inspector2backend.Handler); ok {
+		if bk, isBk := h.Backend.(*inspector2backend.InMemoryBackend); isBk {
+			bk.SetLifecycleDelay(l.effective(l.Inspector2))
+		}
+	}
+}
+
 // wireLifecycleDelays applies the configured dwell times to the already
 // initialized service backends; zero values leave services instant.
 func wireLifecycleDelays(byName map[string]service.Registerable, l LifecycleSettings) {
@@ -161,6 +179,8 @@ func wireLifecycleDelays(byName map[string]service.Registerable, l LifecycleSett
 		"SSM":         applySSM,
 		"DocDB":       applyDocDB,
 		"Neptune":     applyNeptune,
+		"AWSConfig":   applyAWSConfig,
+		"Inspector2":  applyInspector2,
 	}
 
 	for name, apply := range appliers {

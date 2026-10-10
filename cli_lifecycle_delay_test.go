@@ -9,6 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudfront"
 	cftypes "github.com/aws/aws-sdk-go-v2/service/cloudfront/types"
+	configservice "github.com/aws/aws-sdk-go-v2/service/configservice"
 	"github.com/aws/aws-sdk-go-v2/service/docdb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
@@ -17,6 +18,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/efs"
 	"github.com/aws/aws-sdk-go-v2/service/elasticache"
 	"github.com/aws/aws-sdk-go-v2/service/elasticsearchservice"
+	"github.com/aws/aws-sdk-go-v2/service/inspector2"
+	inspector2types "github.com/aws/aws-sdk-go-v2/service/inspector2/types"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
 	"github.com/aws/aws-sdk-go-v2/service/mediastore"
@@ -423,6 +426,52 @@ func lifecycleKnobs() []lifecycleKnob {
 			},
 		},
 		{
+			name: "awsconfig",
+			set:  func(l *LifecycleSettings, d time.Duration) { l.AWSConfig = d },
+			start: func(t *testing.T, cfg aws.Config) func() bool {
+				t.Helper()
+
+				c := configservice.NewFromConfig(cfg)
+				_, err := c.PutConformancePack(t.Context(), &configservice.PutConformancePackInput{
+					ConformancePackName: aws.String("lcres"),
+					TemplateBody:        aws.String("Resources: {}"),
+				})
+				require.NoError(t, err)
+
+				return func() bool {
+					out, dErr := c.DescribeConformancePackStatus(
+						t.Context(),
+						&configservice.DescribeConformancePackStatusInput{ConformancePackNames: []string{"lcres"}},
+					)
+					require.NoError(t, dErr)
+					require.Len(t, out.ConformancePackStatusDetails, 1)
+
+					return string(out.ConformancePackStatusDetails[0].ConformancePackState) == "CREATE_IN_PROGRESS"
+				}
+			},
+		},
+		{
+			name: "inspector2",
+			set:  func(l *LifecycleSettings, d time.Duration) { l.Inspector2 = d },
+			start: func(t *testing.T, cfg aws.Config) func() bool {
+				t.Helper()
+
+				c := inspector2.NewFromConfig(cfg)
+				_, err := c.Enable(t.Context(), &inspector2.EnableInput{
+					ResourceTypes: []inspector2types.ResourceScanType{inspector2types.ResourceScanTypeEc2},
+				})
+				require.NoError(t, err)
+
+				return func() bool {
+					out, gErr := c.BatchGetAccountStatus(t.Context(), &inspector2.BatchGetAccountStatusInput{})
+					require.NoError(t, gErr)
+					require.Len(t, out.Accounts, 1)
+
+					return out.Accounts[0].State.Status == inspector2types.StatusEnabling
+				}
+			},
+		},
+		{
 			name: "dynamodb",
 			set:  func(*LifecycleSettings, time.Duration) {},
 			start: func(t *testing.T, cfg aws.Config) func() bool {
@@ -613,12 +662,13 @@ func TestLifecycleDelayCloudFront(t *testing.T) {
 			}
 
 			if tt.wantHeld {
-				require.Never(
-					t,
-					func() bool { return status() != "InProgress" },
-					700*time.Millisecond,
-					50*time.Millisecond,
-				)
+				tick := time.NewTicker(50 * time.Millisecond)
+				defer tick.Stop()
+
+				for range 14 {
+					<-tick.C
+					require.Equal(t, "InProgress", status())
+				}
 
 				return
 			}

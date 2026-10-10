@@ -340,6 +340,8 @@ By default resources settle instantly. Set a dwell to make Creating/Processing/P
 | `--lifecycle-redshift` | `REDSHIFT_ACTIVATION_DELAY` | Redshift cluster `creating` window. |
 | `--lifecycle-docdb` | `DOCDB_LIFECYCLE_DELAY` | DocumentDB cluster/instance `creating` window. |
 | `--lifecycle-neptune` | `NEPTUNE_LIFECYCLE_DELAY` | Neptune cluster/instance `creating` window. |
+| `--lifecycle-awsconfig` | `AWSCONFIG_LIFECYCLE_DELAY` | AWS Config conformance pack `CREATE_IN_PROGRESS` window. |
+| `--lifecycle-inspector2` | `INSPECTOR2_LIFECYCLE_DELAY` | Inspector2 `ENABLING`/`DISABLING` window. |
 | `--lifecycle-cloudfront` | `CLOUDFRONT_DEPLOY_DELAY` | CloudFront distribution `InProgress` window (default `100ms`). |
 | `--lifecycle-ssm-command` / `--lifecycle-ssm-automation` | `SSM_COMMAND_EXEC_DELAY` / `SSM_AUTOMATION_EXEC_DELAY` | SendCommand / automation `InProgress` window. |
 | *(none)* | `DYNAMODB_CREATE_DELAY` | DynamoDB table `CREATING` window. |
