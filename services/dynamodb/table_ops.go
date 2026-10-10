@@ -1744,7 +1744,7 @@ func (db *InMemoryDB) applyStreamSpec(
 		table.StreamViewType = string(ss.StreamViewType)
 
 		if table.StreamARN == "" {
-			streamCreatedAt := time.Now().UTC()
+			streamCreatedAt := table.nextStreamCreatedAt(time.Now())
 			table.StreamCreatedAt = streamCreatedAt
 			table.StreamARN = db.buildStreamARNInRegion(tableName, region, streamCreatedAt)
 			// Initialize the first shard when streams are newly enabled via UpdateTable.
@@ -1759,10 +1759,14 @@ func (db *InMemoryDB) applyStreamSpec(
 		return oldARN, table.StreamARN
 	}
 
+	table.retireStreamLocked(time.Now().UTC())
 	table.StreamsEnabled = false
 	table.StreamViewType = ""
 	table.StreamARN = ""
 	table.StreamShards = nil
+	table.StreamRecords = nil
+	table.streamSeq = 0
+	table.StreamHead = 0
 	table.streamTrimSeq = 0
 
 	return oldARN, ""

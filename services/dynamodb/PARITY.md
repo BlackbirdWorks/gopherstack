@@ -2,7 +2,7 @@
 service: dynamodb
 sdk_module: aws-sdk-go-v2/service/dynamodb@v1.67.0   # version audited against (go.mod pin)
 last_audit_commit: e1e3f187f  # 2026-09-26 global-tables-v2-autoscaling pass: ReplicaUpdates + AutoScalingRoleArn/ScalingPolicies; prior: cd027034c
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
   # 2026-09-26 (this audit): UpdateTableReplicaAutoScaling's ReplicaUpdates
   # (per-replica read-capacity + per-replica-per-GSI read-capacity) is now
   # wired end to end (wire, backend, Describe echo) -- previously accepted
@@ -741,3 +741,7 @@ Emits AWS/DynamoDB (docs.aws.amazon.com/amazondynamodb/latest/developerguide/met
 ## 2026-10-10 lifecycle dwell knob
 
 `DYNAMODB_CREATE_DELAY` falls back to `--lifecycle-delay` when unset (default `0s`). Proof: root `TestLifecycleDelayWiring/dynamodb`.
+
+## 2026-10-10 realism pass: disabled streams stay readable
+
+Disabling a stream (UpdateTable `StreamEnabled=false` or `DisableStream`) now moves it to `Table.RetiredStreams` instead of dropping it: it stays in `ListStreams`/`DescribeStream` as DISABLING then DISABLED (`SetStreamDisablingDelay`, default 0) with every shard closed (`EndingSequenceNumber` set), and `GetShardIterator`/`GetRecords` read its records until the janitor drops it after 24h. Re-enabling creates a new ARN and label (never reuses a retired one). Iterators now carry their stream ARN, so an iterator taken before disabling keeps reading the old generation. UpdateTable disable also resets the live record ring and sequence (it left them behind before). Persisted via an additive `Table.RetiredStreams` field (no version bump). Tests: `TestRetiredStream_*` (streams_retired_internal_test.go). Not modeled: retention of a deleted table's stream.

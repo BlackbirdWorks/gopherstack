@@ -29,6 +29,10 @@ func paginateDescribe[T any](items []T, maxResults int32, nextToken string, excl
 		return nil, "", fmt.Errorf("%w: maxResults must be between 1 and %d", ErrInvalidParameter, maxDescribePageSize)
 	}
 
+	if err := page.ValidateToken(nextToken); err != nil {
+		return nil, "", fmt.Errorf("%w: invalid nextToken", ErrInvalidParameter)
+	}
+
 	pg := page.New(items, nextToken, int(maxResults), defaultDescribePageSize)
 
 	return pg.Data, pg.Next, nil

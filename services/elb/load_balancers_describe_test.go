@@ -586,7 +586,16 @@ func TestRegionHostedZoneID(t *testing.T) {
 			b := elb.NewInMemoryBackend("123456789012", tt.region)
 			h := elb.NewHandler(b)
 
-			mustCreateLB(t, h, "zone-lb")
+			createRec := doELB(t, h, url.Values{
+				"Action":                              {"CreateLoadBalancer"},
+				"Version":                             {"2012-06-01"},
+				"LoadBalancerName":                    {"zone-lb"},
+				"Listeners.member.1.Protocol":         {"HTTP"},
+				"Listeners.member.1.LoadBalancerPort": {"80"},
+				"Listeners.member.1.InstancePort":     {"8080"},
+				"AvailabilityZones.member.1":          {tt.region + "a"},
+			})
+			require.Equal(t, http.StatusOK, createRec.Code)
 
 			rec := doELB(t, h, url.Values{
 				"Action":                     {"DescribeLoadBalancers"},

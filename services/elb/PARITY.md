@@ -7,7 +7,7 @@
 service: elb
 sdk_module: aws-sdk-go-v2/service/elasticloadbalancing@v1.36.4   # version audited against
 last_audit_commit: 9249d4561                      # HEAD when this audit began (working tree, pre-commit)
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
 overall: A            # A = genuine fixes found; B = already-accurate, proven op-by-op
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -675,3 +675,11 @@ Classic ELB already isolated load balancers per request region. The backend now 
 ## 2026-10-05 (gopherstack-uox6 pass 9, value semantics)
 
 Round trips clean. Recorded, unchanged (SDK silent): ModifyLoadBalancerAttributes rewrites a sub-struct it receives wholesale, so an omitted ConnectionDraining.Timeout or AccessLog bucket/prefix/interval resets to its default (api_op_ModifyLoadBalancerAttributes.go names no merge rule). HealthCheck is empty until ConfigureHealthCheck and Listener.InstanceProtocol is not defaulted to Protocol; both defaults appear only in the AWS web docs (types.go:269-300).
+
+## 2026-10-10 realism pass
+
+- Error bodies no longer repeat the code ("ValidationError: ValidationError: ..."); not-found/duplicate/policy/listener/certificate errors carry AWS wording ("There is no ACTIVE Load Balancer named 'x'").
+- CreateLoadBalancer is idempotent for an identical config (DuplicateLoadBalancerName only when settings differ); duplicate listener ports, AZs outside the request region, and bad/duplicate/excess initial Tags are rejected up front (a bad Tags set used to leave the load balancer created); duplicate AZs are collapsed.
+- DescribeLoadBalancers: out-of-range PageSize and a bad Marker are ValidationError (PageSize was silently ignored). DescribeLoadBalancerPolicies with an unknown PolicyName is PolicyNotFound.
+- Kept lenient: protocol case, ProxyProtocol attribute values. Needs cli.go wiring (not done): DescribeInstanceHealth always reports InService because `EC2Resolver` only exposes `InstanceExists`; real state needs an instance-state method on the resolver adapter.
+- Tests: `TestRealism_*` (realism_test.go).

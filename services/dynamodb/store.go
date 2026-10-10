@@ -207,40 +207,31 @@ const (
 // their value type (time.Time) carries no identity a store.Table key
 // function could extract -- see store_setup.go's doc comment.
 type InMemoryDB struct {
-	tables         *store.Table[Table] // key: tableKey(region, name)
-	tablesByRegion *store.Index[Table] // secondary index: region -> tables in that region
-	// deletingTables uses the same key scheme as tables; it is a staging area
-	// for deleted tables, drained by the janitor's runTableCleaner.
-	deletingTables *store.Table[Table]
-	backups        *store.Table[Backup]            // key: BackupArn
-	globalTables   *store.Table[StoredGlobalTable] // key: GlobalTableName
-	exports        *store.Table[storedExport]      // key: ExportArn
-	imports        *store.Table[storedImport]      // key: ImportArn
-	// streamARNIndex is a reverse index (key: StreamARN) onto the same
-	// *Table pointers stored in `tables` -- see store_setup.go's
-	// streamARNKeyFn doc for why this can't be a store.Index.
-	streamARNIndex       *store.Table[Table]
-	registry             *store.Registry
-	txnTokens            map[string]txnTokenRecord // committed idempotency tokens → expiry+request hash
-	txnPending           map[string]time.Time      // in-progress idempotency tokens → start time
-	fisReplicationPaused map[string]time.Time      // keyed by table ARN; value is expiry (zero = no expiry)
 	kmsKeys              KMSKeyStateChecker
-	keyInaccessibleSince map[string]time.Time // keyed by table ARN; set while the table's KMS key is unusable
-	exprCache            *ExpressionCache
-	throttler            *Throttler
+	s3                   S3Accessor
+	kinesisEmitter       KinesisEmitter
 	metrics              cwmetric.Sink
-	iteratorStore        *ShardIteratorStore // opaque shard iterator tokens
+	fisReplicationPaused map[string]time.Time
+	exprCache            *ExpressionCache
+	imports              *store.Table[storedImport]
+	streamARNIndex       *store.Table[Table]
+	tablesByRegion       *store.Index[Table]
+	registry             *store.Registry
+	txnTokens            map[string]txnTokenRecord
+	txnPending           map[string]time.Time
+	tables               *store.Table[Table]
+	globalTables         *store.Table[StoredGlobalTable]
+	keyInaccessibleSince map[string]time.Time
+	exports              *store.Table[storedExport]
+	throttler            *Throttler
+	backups              *store.Table[Backup]
+	iteratorStore        *ShardIteratorStore
 	mu                   *lockmetrics.RWMutex
-	// kinesisEmitter forwards stream records to Kinesis destinations when configured.
-	kinesisEmitter KinesisEmitter
-	// s3 is the cross-service S3 backend used by ImportTable (reads source objects)
-	// and ExportTableToPointInTime (writes export data). nil when not wired.
-	s3            S3Accessor
-	defaultRegion string
-	accountID     string
-	// createDelay is the time to wait before transitioning a new table to ACTIVE.
-	// Zero means immediate ACTIVE (no lifecycle simulation).
-	createDelay time.Duration
+	deletingTables       *store.Table[Table]
+	defaultRegion        string
+	accountID            string
+	streamDisablingDelay time.Duration
+	createDelay          time.Duration
 }
 
 // Backup holds the metadata and a point-in-time item snapshot for a DynamoDB on-demand backup.
@@ -354,6 +345,7 @@ type Table struct {
 	KeySchema               []models.KeySchemaElement              `json:"KeySchema"`
 	KinesisDestinations     []KinesisDestinationEntry              `json:"KinesisDestinations,omitempty"`
 	StreamRecords           []models.StreamRecord                  `json:"StreamRecords,omitempty"`
+	RetiredStreams          []RetiredStream                        `json:"RetiredStreams,omitempty"`
 	Items                   []map[string]any                       `json:"Items"`
 	itemSizes               []int
 	// PITRSnapshots is the per-table PITR ring buffer (see pitrSnapshot). It must be

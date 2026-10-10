@@ -7,7 +7,7 @@
 service: dynamodbstreams
 sdk_module: aws-sdk-go-v2/service/dynamodbstreams@v1.40.0   # version audited against
 last_audit_commit: 9bcb4b792                                  # HEAD when this manifest was written
-last_audit_date: 2026-09-18
+last_audit_date: 2026-10-10
 overall: A            # gaps closed upstream in services/dynamodb by 8ba0d8ad2; verified in this pass
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -206,3 +206,7 @@ Clean. ListStreams/DescribeStream clamp Limit to 100 and GetRecords rejects Limi
 
 - Fixed: malformed JSON bodies now return `SerializationException` (was a made-up `<Op>Exception`); `Limit` outside 1-100 on `ListStreams`/`DescribeStream` is a `ValidationException`; unknown-stream text reads "Requested resource not found: Stream: <arn> not found".
 - Open (owned by `services/dynamodb`, outside this pass): disabling a stream (`UpdateTable StreamSpecification.StreamEnabled=false`) drops it from `ListStreams`/`DescribeStream` immediately, whereas AWS keeps it visible as `DISABLED` with closed shards for 24h; `GetRecords` on an iterator taken before disabling still works.
+
+## 2026-10-10 disabled-stream retention
+
+The open item above is fixed (owned by `services/dynamodb`, see its PARITY.md): a disabled stream stays in `ListStreams`/`DescribeStream` as DISABLING then DISABLED with closed shards and readable records for 24h; re-enabling yields a new ARN. SDK test: `TestDisabledStream_RemainsReadable`.

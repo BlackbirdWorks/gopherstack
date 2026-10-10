@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -192,6 +193,16 @@ func validateCreateLBZones(input CreateLoadBalancerInput) error {
 		)
 	}
 
+	seenPorts := make(map[int32]struct{}, len(input.Listeners))
+
+	for _, l := range input.Listeners {
+		if _, dup := seenPorts[l.LoadBalancerPort]; dup {
+			return fmt.Errorf("%w: conflicting listener on port %d", ErrDuplicateListener, l.LoadBalancerPort)
+		}
+
+		seenPorts[l.LoadBalancerPort] = struct{}{}
+	}
+
 	if len(input.AvailabilityZones) > 0 && len(input.Subnets) > 0 {
 		return fmt.Errorf(
 			"%w: AvailabilityZones and Subnets are mutually exclusive",
@@ -256,8 +267,14 @@ func (b *InMemoryBackend) CreateLoadBalancer(
 
 	region := getRegion(ctx, b.region)
 
-	if b.lbs.Has(lbTableKey(region, input.LoadBalancerName)) {
-		return nil, fmt.Errorf("%w: %q", ErrLoadBalancerAlreadyExists, input.LoadBalancerName)
+	if existing, found := b.lbs.Get(lbTableKey(region, input.LoadBalancerName)); found {
+		if !sameLBConfig(existing, input, scheme) {
+			return nil, fmt.Errorf("%w: %q", ErrLoadBalancerAlreadyExists, input.LoadBalancerName)
+		}
+
+		cp := lbCopy(existing)
+
+		return &cp, nil
 	}
 
 	const maxLBs = 20
@@ -270,6 +287,10 @@ func (b *InMemoryBackend) CreateLoadBalancer(
 
 	if zoneErr := validateCreateLBZones(input); zoneErr != nil {
 		return nil, zoneErr
+	}
+
+	if azErr := validateZonesInRegion(region, input.AvailabilityZones); azErr != nil {
+		return nil, azErr
 	}
 
 	if resolveErr := b.validateCreateLBNetwork(input); resolveErr != nil {
@@ -288,7 +309,7 @@ func (b *InMemoryBackend) CreateLoadBalancer(
 	lbARN := arn.Build("elasticloadbalancing", region, b.accountID, "loadbalancer/"+input.LoadBalancerName)
 
 	// Ensure non-nil slices so callers never have to nil-check.
-	azs := nonNilStrings(input.AvailabilityZones)
+	azs := nonNilStrings(slices.Compact(sortedCopy(input.AvailabilityZones)))
 	sgs := nonNilStrings(input.SecurityGroups)
 	subnets := nonNilStrings(input.Subnets)
 
@@ -434,4 +455,68 @@ func (b *InMemoryBackend) validateCreateLBNetwork(input CreateLoadBalancerInput)
 	}
 
 	return nil
+}
+
+// sameLBConfig reports whether input describes the load balancer lb already
+// has, which makes a repeated CreateLoadBalancer idempotent as in AWS.
+func sameLBConfig(lb *LoadBalancer, input CreateLoadBalancerInput, scheme string) bool {
+	if lb.Scheme != scheme ||
+		!sameStringSet(lb.AvailabilityZones, input.AvailabilityZones) ||
+		!sameStringSet(lb.Subnets, input.Subnets) ||
+		!sameStringSet(lb.SecurityGroups, input.SecurityGroups) ||
+		len(lb.Listeners) != len(input.Listeners) {
+		return false
+	}
+
+	have := make(map[int32]Listener, len(lb.Listeners))
+	for _, l := range lb.Listeners {
+		have[l.LoadBalancerPort] = l
+	}
+
+	for _, want := range input.Listeners {
+		got, ok := have[want.LoadBalancerPort]
+		if !ok || !strings.EqualFold(got.Protocol, want.Protocol) || got.InstancePort != want.InstancePort ||
+			!strings.EqualFold(got.InstanceProtocol, want.InstanceProtocol) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func sameStringSet(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+
+	set := make(map[string]struct{}, len(a))
+	for _, v := range a {
+		set[v] = struct{}{}
+	}
+
+	for _, v := range b {
+		if _, ok := set[v]; !ok {
+			return false
+		}
+	}
+
+	return true
+}
+
+// validateZonesInRegion rejects availability zones that cannot belong to region.
+func validateZonesInRegion(region string, azs []string) error {
+	for _, az := range azs {
+		if !strings.HasPrefix(az, region) || len(az) == len(region) {
+			return fmt.Errorf("%w: Invalid availability zone: [%s]", ErrInvalidParameter, az)
+		}
+	}
+
+	return nil
+}
+
+func sortedCopy(src []string) []string {
+	out := slices.Clone(src)
+	slices.Sort(out)
+
+	return out
 }

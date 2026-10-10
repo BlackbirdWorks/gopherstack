@@ -37,6 +37,10 @@ func (b *InMemoryBackend) PutRepositoryCatalogData(
 		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, name)
 	}
 
+	if err := validateCatalogData(catalogData); err != nil {
+		return nil, err
+	}
+
 	if catalogData != nil {
 		repo.CatalogData = *catalogData
 	}
@@ -88,4 +92,32 @@ func (b *InMemoryBackend) PutRegistryCatalogData(displayName string) (RegistryCa
 	b.registryCatalogData = RegistryCatalogData{DisplayName: displayName}
 
 	return b.registryCatalogData, nil
+}
+
+const (
+	maxAboutTextLen   = 10240
+	maxUsageTextLen   = 10240
+	maxDescriptionLen = 1024
+	maxCatalogListLen = 50
+)
+
+func validateCatalogData(cd *CatalogData) error {
+	if cd == nil {
+		return nil
+	}
+
+	switch {
+	case len(cd.AboutText) > maxAboutTextLen:
+		return fmt.Errorf("%w: aboutText must be at most %d characters", ErrInvalidParameter, maxAboutTextLen)
+	case len(cd.UsageText) > maxUsageTextLen:
+		return fmt.Errorf("%w: usageText must be at most %d characters", ErrInvalidParameter, maxUsageTextLen)
+	case len(cd.Description) > maxDescriptionLen:
+		return fmt.Errorf("%w: description must be at most %d characters", ErrInvalidParameter, maxDescriptionLen)
+	case len(cd.Architectures) > maxCatalogListLen:
+		return fmt.Errorf("%w: architectures can have at most %d entries", ErrInvalidParameter, maxCatalogListLen)
+	case len(cd.OperatingSystems) > maxCatalogListLen:
+		return fmt.Errorf("%w: operatingSystems can have at most %d entries", ErrInvalidParameter, maxCatalogListLen)
+	}
+
+	return nil
 }

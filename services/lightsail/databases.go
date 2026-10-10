@@ -176,7 +176,7 @@ func findRDSBlueprint(id string) (*RelationalDatabaseBlueprint, bool) {
 }
 
 func (b *InMemoryBackend) scheduleRDSAvailableLocked(name string) {
-	b.work.After("RelationalDatabaseAvailable", asyncTransitionDelay, func() {
+	b.work.After("RelationalDatabaseAvailable", b.transitionDelay(), func() {
 		b.mu.Lock("RelationalDatabase-async-available")
 		defer b.mu.Unlock()
 
@@ -459,7 +459,7 @@ func (b *InMemoryBackend) RebootRelationalDatabase(name string) ([]Operation, er
 }
 
 func (b *InMemoryBackend) scheduleRDSStateLocked(name, fromState, toState string) {
-	b.work.After("RelationalDatabaseTransition", asyncTransitionDelay, func() {
+	b.work.After("RelationalDatabaseTransition", b.transitionDelay(), func() {
 		b.mu.Lock("RelationalDatabase-async-transition")
 		defer b.mu.Unlock()
 

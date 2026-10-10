@@ -25,6 +25,10 @@ func (b *InMemoryBackend) EnableAvailabilityZonesForLoadBalancer(
 		)
 	}
 
+	if azErr := validateZonesInRegion(getRegion(ctx, b.region), azs); azErr != nil {
+		return nil, azErr
+	}
+
 	existing := make(map[string]bool, len(lb.AvailabilityZones))
 	for _, az := range lb.AvailabilityZones {
 		existing[az] = true

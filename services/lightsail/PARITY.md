@@ -23,7 +23,7 @@ last_audit_commit: c02948310   # 2026-09-20 ssoadmin-config-and-lightsail terraf
 # closed the CreateCloudFormationStack wiring gap below; see "cli.go wiring" section for the cli.go
 # diff, which is the only .go-file change this follow-up pass made (plus errors.go's disclosure
 # comment).
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
 overall: A   # raised from A- by a follow-up pass that closed the one load-bearing gap the re-audit
 # above found: cli.go now calls wireLightsailCloudFormation(byName["Lightsail"], cfnSvc) from
 # registerCloudFormationAndDashboard (not from wireStorageAndSecretsIntegrations -- CloudFormation
@@ -1580,3 +1580,10 @@ CreateInstancesFromSnapshot defaulted IpAddressType to empty instead of dualstac
 ## 2026-10-05 (input enum validation)
 
 23 request members typed as SDK enums are now checked against `Values()` and an unknown value is InvalidInputException: IpAddressType on the create/set ops, ViewerMinimumTlsProtocolVersion, AppCategory, every `Get*MetricData` MetricName, PutAlarm ComparisonOperator/MetricName/TreatMissingData, SetResourceAccessForBucket Access, UpdateInstanceMetadataOptions HttpEndpoint/HttpProtocolIpv6/HttpTokens, SetupInstanceHttps CertificateProvider. Proof: `TestSDK_EnumInputValidation`. RECORDED: the metric-data Statistics and Unit members are not decoded from the request, so they are not validated.
+
+## 2026-10-10 realism pass
+
+- StopInstance now walks running -> stopping -> stopped and StartInstance stopped -> pending -> running (both were instant); Stop on a non-running and Start on a non-stopped instance is InvalidInputException. New `InMemoryBackend.SetTransitionDelay` (default 100ms, was a constant) scales every async hop; no root wiring needed unless a flag is wanted.
+- CreateInstances/CreateInstancesFromSnapshot register names atomically (a duplicate name in the request used to leak earlier names), validate the AZ against the region, and instance/disk/key pair/static IP/load balancer/snapshot names follow the 2-255 character rule; container service names follow the SDK-documented rule; bucket names are 3-54 lowercase.
+- CreateBucket returns `bucket` as well as `operations`. A bad PageToken says "Invalid pageToken" instead of leaking a base64 error.
+- Tests: lifecycle_realism_test.go; integration lifecycle test now waits for stopped/running.

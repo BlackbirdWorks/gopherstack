@@ -67,7 +67,8 @@ func (b *InMemoryBackend) Reset() {
 
 func validateResourceName(name string, maxLen int) error {
 	if len(name) == 0 || len(name) > maxLen || !resourceNameRE.MatchString(name) {
-		return ErrValidation
+		return invalid("Value '%s' at 'name' failed to satisfy constraint: Member must satisfy regular "+
+			"expression pattern: [a-zA-Z0-9_.-]+ and have length between 1 and %d", name, maxLen)
 	}
 
 	return nil
@@ -75,12 +76,18 @@ func validateResourceName(name string, maxLen int) error {
 
 func validateTags(tags map[string]string) error {
 	if len(tags) > maxTagsPerStream {
-		return ErrValidation
+		return ErrTagLimit
 	}
 
-	for k := range tags {
-		if k == "" {
-			return ErrValidation
+	for k, v := range tags {
+		if k == "" || len(k) > maxTagKeyLen || !tagTextRE.MatchString(k) {
+			return invalid("Value '%s' at 'tags.key' failed to satisfy constraint: Member must have length "+
+				"between 1 and %d and satisfy the tag character pattern", k, maxTagKeyLen)
+		}
+
+		if len(v) > maxTagValueLen || !tagTextRE.MatchString(v) {
+			return invalid("Value at 'tags.value' for key '%s' failed to satisfy constraint: Member must have "+
+				"length at most %d and satisfy the tag character pattern", k, maxTagValueLen)
 		}
 	}
 

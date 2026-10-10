@@ -58,7 +58,7 @@ func (b *InMemoryBackend) CreateCertificate(
 	cert.Tags.Merge(userTags)
 	b.certificates.Put(cert)
 
-	b.work.After("CertificateIssued", asyncTransitionDelay, func() {
+	b.work.After("CertificateIssued", b.transitionDelay(), func() {
 		b.mu.Lock("Certificate-async-issued")
 		defer b.mu.Unlock()
 
@@ -286,7 +286,7 @@ func (b *InMemoryBackend) CreateDistribution(req CreateDistributionRequest) ([]O
 	dist.Tags.Merge(req.Tags)
 	b.distributions.Put(dist)
 
-	b.work.After("DistributionDeployed", asyncTransitionDelay, func() {
+	b.work.After("DistributionDeployed", b.transitionDelay(), func() {
 		b.mu.Lock("Distribution-async-deployed")
 		defer b.mu.Unlock()
 
