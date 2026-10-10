@@ -451,7 +451,7 @@ func (b *InMemoryBackend) resolveKeyID(
 	if strings.HasPrefix(keyID, "alias/") {
 		alias, ok := b.aliasesStore(ctxRegion).Get(keyID)
 		if !ok {
-			return "", "", ErrAliasNotFound
+			return "", "", b.aliasNotFound(ctxRegion, keyID)
 		}
 
 		b.keyIDResolutionCache.Store(keyID, cachedResolution{keyID: alias.TargetKeyID, region: ""})
@@ -484,7 +484,7 @@ func (b *InMemoryBackend) resolveARNKeyID(keyID string, malformedARNErr error) (
 	if strings.HasPrefix(parsed.Resource, "alias/") {
 		alias, ok := b.aliasesStore(parsed.Region).Get(parsed.Resource)
 		if !ok {
-			return "", "", ErrAliasNotFound
+			return "", "", b.aliasNotFound(parsed.Region, parsed.Resource)
 		}
 
 		return alias.TargetKeyID, parsed.Region, nil
@@ -641,7 +641,7 @@ func (b *InMemoryBackend) resolveKeyAndRegion(
 		}
 	}
 
-	return nil, "", ErrKeyNotFound
+	return nil, "", fmt.Errorf("%w: Key '%s' does not exist", ErrKeyNotFound, keyID)
 }
 
 // lookupKey finds a key by ID, alias, or ARN. Caller must hold at least a read lock.
@@ -663,10 +663,14 @@ func (b *InMemoryBackend) lookupKeyWrite(ctx context.Context, keyID string, malf
 // return ErrKeyInvalidState, matching the KMSInvalidStateException that AWS raises.
 func keyStateError(key *Key) error {
 	if key.KeyState == KeyStateDisabled {
-		return ErrKeyDisabled
+		return fmt.Errorf("%w: %s is disabled", ErrKeyDisabled, key.Arn)
 	}
 
-	return ErrKeyInvalidState
+	if key.KeyState == KeyStatePendingDeletion {
+		return fmt.Errorf("%w: %s is pending deletion", ErrKeyInvalidState, key.Arn)
+	}
+
+	return fmt.Errorf("%w: %s is in state %s", ErrKeyInvalidState, key.Arn, key.KeyState)
 }
 
 // parseMarker converts a pagination marker string to an integer start index.

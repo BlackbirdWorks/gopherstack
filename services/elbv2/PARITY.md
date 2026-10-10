@@ -569,3 +569,7 @@ DescribeSSLPolicies and DescribeAccountLimits honour Marker/PageSize (default 40
 ### 2026-10-05: PARITY burn-down pass 5 (gopherstack-9x62)
 
 Removed stale open items: ASG and ECS already register and deregister ELBv2 targets (services/autoscaling/elbv2_targets_test.go, services/ecs/elbv2_targets_internal_test.go), and the EC2 and ACM resolvers already raise InvalidSubnet/SubnetNotFound/InvalidSecurityGroup/CertificateNotFound on create (crossservice_test.go). New: SetSecurityGroups and SetSubnets now validate through the resolver, SetSubnets applies IpAddressType, CreateLoadBalancer keeps IpamPools and CustomerOwnedIpv4Pool, CreateTargetGroup keeps TargetControlPort, DescribeLoadBalancers echoes EnforceSecurityGroupInboundRulesOnPrivateLinkTraffic, authenticate actions keep AuthenticationRequestExtraParams, and jwt-validation actions are accepted and echoed. Tests: services/elbv2/dropped_members_sdk_test.go.
+
+## 2026-10-09 (service realism pass)
+
+Load balancer and target group ARNs now carry random 16-hex ids (were a constant), LB ARNs use app/net/gwy by type, listener and rule ARNs derive from the LB/listener ARN, and DNS names use a numeric suffix. Target group names reject underscores; LB names reject the `internal-` prefix. Bare NotFound/Duplicate errors carry AWS messages. Left open: LB state is `active` immediately (no provisioning window); Marker values are not validated.

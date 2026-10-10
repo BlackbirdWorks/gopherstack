@@ -937,3 +937,7 @@ ServiceSpecificCredentialMetadata `ExpirationDate`/`ServiceCredentialAlias`
 ## 2026-10-05 (reqfielddiff tier-2 pagination)
 
 ListUserPolicies, ListRolePolicies, ListGroupPolicies, ListPolicyVersions, ListAccountAliases, ListInstanceProfilesForRole, GetGroup (Users), ListUserTags, ListRoleTags, ListPolicyTags, ListMFADeviceTags, SimulateCustomPolicy and SimulatePrincipalPolicy now honour Marker/MaxItems and emit Marker/IsTruncated (`pageForm`, handler_paging.go; each op's Input declares both, e.g. api_op_ListUserPolicies.go). Proof: `TestListOps_HonourMaxItemsAndMarker`. GetOrganizationsAccessReport.MaxItems and GetServiceLastAccessedDetailsWithEntities.MaxItems stay unconsulted: both always return an empty AccessDetails/EntityDetailsList, so there is nothing to page (the access-report model itself is a separate gap).
+
+## 2026-10-09 (service realism pass)
+
+Create{User,Role,Group,Policy,InstanceProfile} validate name pattern and max length (ValidationError). Attach{User,Role,Group}Policy returns NoSuchEntity for a missing customer-managed policy (AWS-managed `arn:aws:iam::aws:policy/` ARNs accepted unverified: no catalog). Tag limit (50) enforced as LimitExceeded. CreateRole validates MaxSessionDuration and tags before creating, and defaults MaxSessionDuration to 3600. Non-token Marker returns ValidationError. Error messages no longer repeat the error code. Left lenient: trust policy statements without Principal are accepted (many in-repo fixtures omit it).

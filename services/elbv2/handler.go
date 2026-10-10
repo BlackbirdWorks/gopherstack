@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -329,7 +330,7 @@ func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) err
 		logger.Load(c.Request().Context()).Error("elbv2 internal error", "error", opErr, "action", action)
 	}
 
-	return h.writeError(c, statusCode, code, opErr.Error())
+	return h.writeError(c, statusCode, code, errorMessage(code, opErr))
 }
 
 func elbv2ErrorCode(opErr error) (string, int) {
@@ -383,7 +384,7 @@ func (h *Handler) writeError(c *echo.Context, statusCode int, code, message stri
 	errResp := &elbv2ErrorResponse{
 		Xmlns:     elbv2XMLNS,
 		Error:     elbv2Error{Code: code, Message: message, Type: "Sender"},
-		RequestID: "elbv2-error",
+		RequestID: uuid.NewString(),
 	}
 
 	xmlBytes, err := marshalXML(errResp)
@@ -556,4 +557,27 @@ type xmlStringValue struct {
 
 type xmlStringList struct {
 	Members []xmlStringValue `xml:"member"`
+}
+
+// bareCodeMessages are AWS's own messages for errors this backend raises without detail.
+var bareCodeMessages = map[string]string{ //nolint:gochecknoglobals // read-only lookup table
+	"LoadBalancerNotFound":      "One or more load balancers not found",
+	"TargetGroupNotFound":       "One or more target groups not found",
+	"ListenerNotFound":          "One or more listeners not found",
+	"RuleNotFound":              "One or more rules not found",
+	"TrustStoreNotFound":        "One or more trust stores not found",
+	"DuplicateLoadBalancerName": "A load balancer with the same name exists, but with different settings",
+	"DuplicateTargetGroupName":  "A target group with the same name exists, but with different settings",
+	"ResourceInUse":             "The specified resource is in use",
+}
+
+func errorMessage(code string, err error) string {
+	msg := strings.TrimPrefix(err.Error(), code+": ")
+	if msg == code {
+		if m, ok := bareCodeMessages[code]; ok {
+			return m
+		}
+	}
+
+	return msg
 }

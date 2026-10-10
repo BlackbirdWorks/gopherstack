@@ -146,7 +146,7 @@ func (b *InMemoryBackend) roleDerivedMaxDuration(input *AssumeRoleInput) (int32,
 		return meta.MaxSessionDuration, nil
 	}
 
-	return int32(MaxDurationSeconds), nil
+	return int32(DefaultDurationSeconds), nil
 }
 
 // checkAssumeRoleTrust evaluates the target role's trust policy against the

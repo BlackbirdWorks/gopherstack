@@ -1364,3 +1364,7 @@ Handled and Unhandled (invocation.go:211,215) are X-Amz-Function-Error header va
 ## 2026-10-05 (zeroguard omitted-vs-zero pass)
 
 UpdateFunctionConfiguration, UpdateFunctionCode and UpdateAlias decode RevisionId as *string: omitted skips the check, an explicit empty value is a PreconditionFailedException (cmd/zeroguard). UpdateFunctionCode ImageUri/S3Bucket/S3Key and UpdateEventSourceMapping FunctionName/UUID rows are selectors with no clear semantics: tool false positives. Proof: `TestUpdate_RevisionIDOmittedVsEmpty`.
+
+## 2026-10-09 (service realism pass)
+
+CreateFunction/UpdateFunctionConfiguration now enforce FunctionName and Role patterns, Role required, reserved env keys (AWS_REGION, AWS_DEFAULT_REGION, _HANDLER, _X_AMZN_TRACE_ID), env key pattern and 4KB limit. CreateAlias rejects all-digit names and a missing version (404, was 500). AddPermission validates Action and StatementId patterns. A non-token List Marker returns InvalidParameterValueException. Duplicate-function and duplicate-statement messages match AWS wording. Role ARN accepts an empty account id (many in-repo fixtures use `arn:aws:iam:::role/x`). Left lenient: State is Active at create (Pending only with an activation delay configured); CreateEventSourceMapping does not verify the SQS source exists.

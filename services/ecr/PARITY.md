@@ -975,3 +975,7 @@ CreateRepository stores imageTagMutabilityExclusionFilters (api_op_CreateReposit
 ## 2026-10-05 (undeclared response members)
 
 ImageReplicationStatus no longer emits failureReason (SDK has failureCode only).
+
+## 2026-10-09 (service realism pass)
+
+CreateRepository validates the repositoryName pattern and 2-256 length. PutImage requires JSON imageManifest; SetRepositoryPolicy requires JSON policy text; PutLifecyclePolicy validates rule shape. TagResource enforces the 50-tag limit (TooManyTagsException). Messages no longer repeat the error code. Left lenient: Tag/Untag/ListTagsForResource accept an ARN with no repository (many in-repo callers); pagination tokens are not validated (formats vary per operation).

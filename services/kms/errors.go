@@ -47,6 +47,8 @@ var (
 	// recognizes CustomKeyStoreHasCMKsException for exactly this ("The custom key
 	// store that you delete cannot contain any KMS keys").
 	ErrCustomKeyStoreHasKeys = errors.New("CustomKeyStoreHasCMKsException")
+	// ErrInvalidMarker is returned when a List* Marker was not issued by this service.
+	ErrInvalidMarker = errors.New("InvalidMarkerException")
 	// ErrKeyDisabled is returned when an operation is attempted on a disabled key.
 	ErrKeyDisabled = errors.New("DisabledException")
 	// ErrKeyInvalidState is returned when a key is in a state that does not allow the requested

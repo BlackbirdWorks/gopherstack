@@ -480,14 +480,15 @@ func TestVersion_AlwaysLatestInCreateFunction(t *testing.T) {
 		wantVersion string
 	}{
 		{
-			name:        "no_publish_returns_latest",
-			body:        `{"FunctionName":"audit2-create-fn","PackageType":"Image","Code":{"ImageUri":"x"},"Role":"arn"}`,
+			name: "no_publish_returns_latest",
+			body: `{"FunctionName":"audit2-create-fn","PackageType":"Image","Code":{"ImageUri":"x"},` +
+				`"Role":"arn:aws:iam::123456789012:role/r"}`,
 			wantVersion: "$LATEST",
 		},
 		{
 			name: "with_publish_returns_numbered_version",
 			body: `{"FunctionName":"audit2-create-pub-fn","PackageType":"Image",` +
-				`"Code":{"ImageUri":"x"},"Role":"arn","Publish":true}`,
+				`"Code":{"ImageUri":"x"},"Role":"arn:aws:iam::123456789012:role/r","Publish":true}`,
 			wantVersion: "1",
 		},
 	}

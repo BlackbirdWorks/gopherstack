@@ -71,6 +71,11 @@ func (b *InMemoryBackend) Encrypt(
 	ctx context.Context,
 	input *EncryptInput,
 ) (*EncryptOutput, error) {
+	if len(input.Plaintext) == 0 {
+		return nil, fmt.Errorf("%w: 1 validation error detected: Plaintext must have length greater than or equal to 1",
+			ErrValidation)
+	}
+
 	if len(input.Plaintext) > maxPlaintextBytes {
 		return nil, fmt.Errorf(
 			"%w: plaintext must not exceed %d bytes, got %d",
@@ -225,11 +230,10 @@ func (b *InMemoryBackend) Decrypt(
 	region := getRegion(ctx, b.defaultRegion)
 
 	// Extract the key ID from the blob prefix first, then look up material.
-	if len(input.CiphertextBlob) < keyIDPrefixLen {
-		return nil, ErrCiphertextTooShort
+	keyID, shapeErr := embeddedKeyID(input.CiphertextBlob)
+	if shapeErr != nil {
+		return nil, shapeErr
 	}
-
-	keyID := strings.TrimRight(string(input.CiphertextBlob[:keyIDPrefixLen]), "\x00")
 
 	// If the caller provided a KeyId hint, verify it matches the embedded key ID.
 	if err := b.verifyKeyIDHint(ctx, input.KeyID, keyID, "KeyId"); err != nil {

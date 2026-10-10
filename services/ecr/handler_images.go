@@ -451,6 +451,10 @@ func (h *Handler) handlePutImage(ctx context.Context, in *putImageInput) (*putIm
 		return nil, err
 	}
 
+	if err := validateJSONObject("imageManifest", in.ImageManifest); err != nil {
+		return nil, err
+	}
+
 	// AWS validates a caller-supplied imageDigest against the digest it computes
 	// from the manifest and rejects a mismatch with ImageDigestDoesNotMatchException,
 	// independent of any backend state (this is pure request validation).

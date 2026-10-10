@@ -4,18 +4,20 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
-func (b *InMemoryBackend) listenerARN(lbName string, port int32) string {
-	return arn.Build(
-		"elasticloadbalancing",
-		b.region,
-		b.accountID,
-		fmt.Sprintf("listener/app/%s/0123456789abcdef/%d", lbName, port),
-	)
+// listenerARN derives "listener/<type>/<name>/<lbid>/<id>" from the load balancer ARN.
+func (b *InMemoryBackend) listenerARN(lbArn string) string {
+	path := lbArn
+	if _, after, ok := strings.Cut(lbArn, ":loadbalancer/"); ok {
+		path = after
+	}
+
+	return arn.Build("elasticloadbalancing", b.region, b.accountID, "listener/"+path+"/"+newHexID())
 }
 
 func isALBProtocol(proto string) bool {
@@ -132,7 +134,7 @@ func (b *InMemoryBackend) CreateListener(input CreateListenerInput) (*Listener, 
 		return nil, err
 	}
 
-	listenerArn := b.listenerARN(lb.LoadBalancerName, input.Port)
+	listenerArn := b.listenerARN(lb.LoadBalancerArn)
 
 	t := tags.New(fmt.Sprintf("elbv2.listener.%s.%d.tags", lb.LoadBalancerName, input.Port))
 	for _, kv := range input.Tags {
@@ -165,7 +167,7 @@ func (b *InMemoryBackend) CreateListener(input CreateListenerInput) (*Listener, 
 	b.markCertificatesInUse(listenerArn, input.Certificates)
 
 	// Auto-create default rule (AWS behaviour: every listener has a default rule).
-	defaultRuleArn := b.ruleARN(listenerArn, priorityDefault)
+	defaultRuleArn := b.ruleARN(listenerArn, newHexID())
 	defaultTags := tags.New("elbv2.rule." + defaultRuleArn + ".tags")
 	defaultActions := make([]Action, len(input.DefaultActions))
 	copy(defaultActions, input.DefaultActions)

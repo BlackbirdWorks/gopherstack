@@ -121,7 +121,14 @@ func TestAttachRolePolicy_Idempotent(t *testing.T) {
 	_, err := b.CreateRole("myrole", "/", "{}", "")
 	require.NoError(t, err)
 
-	policyArn := "arn:aws:iam::000000000000:policy/MyPolicy"
+	pol, err := b.CreatePolicy(
+		"MyPolicy",
+		"/",
+		allowAllPolicyDoc,
+	)
+	require.NoError(t, err)
+
+	policyArn := pol.Arn
 
 	// First attach
 	require.NoError(t, b.AttachRolePolicy("myrole", policyArn))
@@ -164,7 +171,7 @@ func TestPolicyNameFromARN(t *testing.T) {
 			_, err := b.CreatePolicy(
 				tt.wantName,
 				"/",
-				`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+				allowAllPolicyDoc,
 			)
 			require.NoError(t, err)
 
@@ -198,7 +205,7 @@ func TestIAMHandler_PolicyDispatch(t *testing.T) {
 				_, _ = b.CreatePolicy(
 					"ReadOnlyPolicy",
 					"/",
-					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+					allowAllPolicyDoc,
 				)
 			},
 			params:      map[string]string{"PolicyArn": "arn:aws:iam::000000000000:policy/ReadOnlyPolicy"},
@@ -219,7 +226,7 @@ func TestIAMHandler_PolicyDispatch(t *testing.T) {
 				_, _ = b.CreatePolicy(
 					"VersionedPolicy",
 					"/",
-					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+					allowAllPolicyDoc,
 				)
 			},
 			params: map[string]string{
@@ -236,7 +243,7 @@ func TestIAMHandler_PolicyDispatch(t *testing.T) {
 				_, _ = b.CreatePolicy(
 					"AnyPolicy",
 					"/",
-					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+					allowAllPolicyDoc,
 				)
 			},
 			params:      map[string]string{"PolicyArn": "arn:aws:iam::000000000000:policy/AnyPolicy"},
@@ -298,7 +305,7 @@ func TestIAMHandler_PolicyDispatch(t *testing.T) {
 				_, _ = b.CreateRole(
 					"any-role",
 					"/",
-					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+					allowAllPolicyDoc,
 					"",
 				)
 			},
@@ -352,12 +359,12 @@ func TestIAMHandler_ListPolicies(t *testing.T) {
 	_, _ = b.CreatePolicy(
 		"APolicy",
 		"/",
-		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+		allowAllPolicyDoc,
 	)
 	_, _ = b.CreatePolicy(
 		"BPolicy",
 		"/",
-		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+		allowAllPolicyDoc,
 	)
 
 	req := iamRequest("ListPolicies", nil)
@@ -398,7 +405,7 @@ func TestHandler_AttachDetachUserPolicy_RoundTrip(t *testing.T) {
 	e := echo.New()
 	h, b := newTestHandler(t)
 	_, _ = b.CreateUser("alice", "/", "")
-	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
+	doc := allowAllPolicyDoc
 	p, _ := b.CreatePolicy("P", "/", doc)
 
 	// Attach.
@@ -439,7 +446,7 @@ func TestHandler_AttachRolePolicy_RoundTrip(t *testing.T) {
 
 	e := echo.New()
 	h, b := newTestHandler(t)
-	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
+	doc := allowAllPolicyDoc
 	_, _ = b.CreateRole("MyRole", "/", doc, "")
 	p, _ := b.CreatePolicy("P", "/", doc)
 
@@ -470,7 +477,7 @@ func TestHandler_ListEntitiesForPolicy(t *testing.T) {
 
 	e := echo.New()
 	h, b := newTestHandler(t)
-	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
+	doc := allowAllPolicyDoc
 	_, _ = b.CreateUser("alice", "/", "")
 	p, _ := b.CreatePolicy("P", "/", doc)
 	_ = b.AttachUserPolicy("alice", p.Arn)
@@ -492,7 +499,7 @@ func TestIAMHandler_Policies(t *testing.T) {
 
 		req := iamRequest("CreatePolicy", map[string]string{
 			"PolicyName":     "MyPolicy",
-			"PolicyDocument": `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+			"PolicyDocument": allowAllPolicyDoc,
 		})
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
@@ -545,6 +552,11 @@ func TestIAMHandler_Policies(t *testing.T) {
 		e := echo.New()
 		h, b := newTestHandler(t)
 		_, _ = b.CreateUser("alice", "/", "")
+		_, _ = b.CreatePolicy(
+			"SomePolicy",
+			"/",
+			allowAllPolicyDoc,
+		)
 
 		req := iamRequest("AttachUserPolicy", map[string]string{
 			"UserName":  "alice",
@@ -563,6 +575,11 @@ func TestIAMHandler_Policies(t *testing.T) {
 		e := echo.New()
 		h, b := newTestHandler(t)
 		_, _ = b.CreateRole("MyRole", "/", "", "")
+		_, _ = b.CreatePolicy(
+			"SomePolicy",
+			"/",
+			allowAllPolicyDoc,
+		)
 
 		req := iamRequest("AttachRolePolicy", map[string]string{
 			"RoleName":  "MyRole",

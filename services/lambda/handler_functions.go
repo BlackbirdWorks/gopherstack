@@ -70,6 +70,11 @@ func (h *Handler) validateCreateFunctionInput(c *echo.Context, input *CreateFunc
 		return false
 	}
 
+	if !h.validateFunctionNameInput(c, input.FunctionName) || !h.validateRoleInput(c, input.Role) ||
+		!h.validateEnvironmentInput(c, input.Environment) {
+		return false
+	}
+
 	if !h.validateMemoryAndTimeout(c, input.MemorySize, input.Timeout) {
 		return false
 	}
@@ -394,7 +399,8 @@ func (h *Handler) handleCreateFunction(c *echo.Context) error {
 
 	if createErr := h.Backend.CreateFunction(fn); createErr != nil {
 		if errors.Is(createErr, ErrFunctionAlreadyExists) {
-			return h.writeError(c, http.StatusConflict, "ResourceConflictException", createErr.Error())
+			return h.writeError(c, http.StatusConflict, "ResourceConflictException",
+				"Function already exist: "+fn.FunctionName)
 		}
 
 		if errors.Is(createErr, ErrInvalidParameterValue) {
@@ -765,6 +771,14 @@ func (h *Handler) handleUpdateFunctionConfiguration(c *echo.Context, name string
 	}
 
 	if !h.validateUpdateConfigExtras(c, &input) {
+		return nil
+	}
+
+	if input.Role != nil && !h.validateRoleInput(c, *input.Role) {
+		return nil
+	}
+
+	if !h.validateEnvironmentInput(c, input.Environment) {
 		return nil
 	}
 

@@ -1000,3 +1000,6 @@ Tool false positives (cmd/zeroguard): required path/identifier members (Name, *I
 
 KeyMetadata no longer emits `PrimaryRegion` and `MultiRegionKeyType` directly (they belong under `MultiRegionConfiguration`). Proof: `TestHandler_KeyMetadataOmitsDirectMultiRegionFields`.
 
+## 2026-10-09 (service realism pass)
+
+Encrypt rejects empty Plaintext. Decrypt of a blob KMS did not produce returns InvalidCiphertextException (was NotFoundException). Sign/Verify/GenerateMac with an algorithm incompatible with the key returns InvalidKeyUsageException (was 500 KMSInternalException). Non-numeric List* Marker returns InvalidMarkerException. NotFound, AlreadyExists, Disabled and PendingDeletion errors carry AWS-style messages without a duplicated code prefix.

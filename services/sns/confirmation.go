@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -102,7 +103,12 @@ func (b *InMemoryBackend) deliverSubscriptionConfirmation(
 	ctx, cancel := context.WithTimeout(ctx, snsHTTPTimeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
+	target, ok := sanitizeEndpointURL(endpoint)
+	if !ok {
+		return
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(payload))
 	if err != nil {
 		return
 	}
@@ -119,4 +125,18 @@ func (b *InMemoryBackend) deliverSubscriptionConfirmation(
 
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxDeliveryResponseBytes))
 	_ = resp.Body.Close()
+}
+
+// sanitizeEndpointURL accepts only http/https URLs and rebuilds them from parsed parts.
+func sanitizeEndpointURL(raw string) (string, bool) {
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return "", false
+	}
+
+	clean := url.URL{
+		Scheme: u.Scheme, Host: u.Host, Path: u.Path, RawPath: u.RawPath, RawQuery: u.RawQuery, User: u.User,
+	}
+
+	return clean.String(), true
 }

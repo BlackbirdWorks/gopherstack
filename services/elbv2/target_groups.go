@@ -79,7 +79,7 @@ func (b *InMemoryBackend) tgARN(name string) string {
 		"elasticloadbalancing",
 		b.region,
 		b.accountID,
-		"targetgroup/"+name+"/0123456789abcdef",
+		"targetgroup/"+name+"/"+newHexID(),
 	)
 }
 

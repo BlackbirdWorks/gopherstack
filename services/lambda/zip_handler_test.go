@@ -91,6 +91,7 @@ func TestZipHandler_CreateFunction(t *testing.T) {
 			name: "ZipWithS3Code",
 			input: map[string]any{
 				"FunctionName": "zip-s3-func",
+				"Role":         "arn:aws:iam::123456789012:role/r",
 				"PackageType":  "Zip",
 				"Runtime":      "nodejs20.x",
 				"Handler":      "index.handler",

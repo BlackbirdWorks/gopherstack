@@ -347,6 +347,10 @@ func (h *Handler) handlePutLifecyclePolicy(
 		return nil, err
 	}
 
+	if err := validateLifecyclePolicyText(in.LifecyclePolicyText); err != nil {
+		return nil, err
+	}
+
 	result, err := h.Backend.PutLifecyclePolicy(ctx, in.RepositoryName, in.LifecyclePolicyText)
 	if err != nil {
 		return nil, err

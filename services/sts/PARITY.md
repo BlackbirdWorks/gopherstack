@@ -600,3 +600,7 @@ Clean. Default session lifetimes follow the SDK docs: AssumeRole 3600 clamped to
 ## 2026-10-05 (gopherstack-dcyg9 value semantics)
 
 Recorded, not fixed: the SDK caps root-user sessions at 3,600s (api_op_GetSessionToken.go:82-85, api_op_GetFederationToken.go:138-142). The backend cannot tell root from IAM-user callers: every untracked AKIA key, including the dummy keys SDK clients use, resolves to the root identity (caller_identity.go), so applying the cap would turn the 43,200s default into 3,600s for nearly all callers.
+
+## 2026-10-09 (service realism pass)
+
+AssumeRole against an existing role whose MaxSessionDuration is unset now caps DurationSeconds at 3600 (was 43200). AssumeRole for a role not present in IAM stays permitted (emulator leniency; AWS returns AccessDenied).

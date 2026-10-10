@@ -45,6 +45,7 @@ func (b *InMemoryBackend) CreateRole(
 		AssumeRolePolicyDocument: assumeRolePolicyDocument,
 		CreateDate:               time.Now().UTC(),
 		PermissionsBoundary:      permissionsBoundary,
+		MaxSessionDuration:       defaultMaxSessionDuration,
 	}
 	b.roles.Put(&r)
 	b.roleByARN[r.Arn] = roleName
@@ -430,6 +431,10 @@ func (b *InMemoryBackend) TagRole(roleName string, tags map[string]string) error
 	r, exists := b.roles.Get(roleName)
 	if !exists {
 		return fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
+	}
+
+	if err := checkTagLimit(r.Tags, tags); err != nil {
+		return err
 	}
 
 	if r.Tags == nil {

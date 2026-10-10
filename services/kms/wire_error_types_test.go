@@ -303,7 +303,7 @@ func TestWireErrorTypes_MalformedKeyIDArn(t *testing.T) {
 			name:       "encrypt malformed arn not found (unparseable)",
 			action:     "Encrypt",
 			malformed:  arnTooFewSections,
-			body:       func(arn string) string { return mustJSON(t, kms.EncryptInput{KeyID: arn}) },
+			body:       func(arn string) string { return mustJSON(t, kms.EncryptInput{KeyID: arn, Plaintext: []byte("x")}) },
 			wantStatus: http.StatusBadRequest,
 			wantType:   "NotFoundException",
 		},

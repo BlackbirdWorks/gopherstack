@@ -1267,3 +1267,7 @@ Tool false positives (cmd/zeroguard): required path/identifier members (Name, *I
 ## 2026-10-05 (undeclared response members)
 
 Dropped invented members: cluster/capacityProvider createdAt, managedScaling.targetCapacityUtilization, containerInstance.clusterArn, taskDefinition.platformFamily, task networkConfiguration/propagateTags/runtimeId. Service.serviceConnectConfiguration moved to the PRIMARY deployment; awsvpc task subnetId now comes from the requested subnet.
+
+## 2026-10-09 (service realism pass)
+
+CreateCluster validates the name pattern; RegisterTaskDefinition validates the family pattern; CreateService returns ClusterNotFoundException for an unknown cluster (it silently created the service) and rejects negative desiredCount. A nextToken not issued by the service returns InvalidParameterException. Messages no longer repeat the error code. Left lenient: container memory/memoryReservation is not required when the task sets no memory (many in-repo task definitions omit it).

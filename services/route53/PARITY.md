@@ -2,7 +2,7 @@
 service: route53
 sdk_module: aws-sdk-go-v2/service/route53@v1.65.6
 last_audit_commit: 70d96e12d  # 2026-09-19 cloudfront-and-route53/15 terraform sweep
-last_audit_date: 2026-09-19
+last_audit_date: 2026-10-07
 overall: A          # 2026-09-19 required-output-member re-sweep (gopherstack-r80d follow-up):
                     # all 108 required members across 58 ops re-verified by direct code
                     # reading, including the 7 handler-layer ops with no StorageBackend
@@ -857,3 +857,7 @@ Hosted zone, record and alias names are stored lowercase with a trailing dot; Cr
 ## 2026-10-05 (gopherstack-dcyg9 value semantics)
 
 Recorded, not fixed: the pinned SDK documents `*` as the leftmost-label wildcard (types.ResourceRecordSet.Name, types.go:1609-1621) but never says responses return it as `\052`, so the escape is not settled offline. Records keep the `*` form; no test/terraform fixture uses a wildcard record name, so drift behaviour could not be checked either.
+
+## 2026-10-09 (service realism pass)
+
+AWS CLI/boto3 send `.../rrset/` with a trailing slash; ChangeResourceRecordSets/ListResourceRecordSets failed with InvalidInput for them. Paths are now normalised. CreateHostedZone returns InvalidDomainName for empty/over-long labels and invalid characters. Messages no longer repeat the error code. Left lenient: changes report INSYNC immediately (no PENDING window) because the data plane is consistent at once and in-repo tests assert INSYNC.

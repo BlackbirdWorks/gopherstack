@@ -41,6 +41,10 @@ func (h *Handler) handleAddPermission(c *echo.Context, name string) error {
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "Principal is required")
 	}
 
+	if !h.validatePermissionInput(c, input.StatementID, input.Action) {
+		return nil
+	}
+
 	qualifier := c.Request().URL.Query().Get("Qualifier")
 
 	out, addErr := lambdaBk.AddPermission(name, qualifier, &input)
@@ -52,7 +56,8 @@ func (h *Handler) handleAddPermission(c *echo.Context, name string) error {
 
 		if errors.Is(addErr, ErrFunctionAlreadyExists) {
 			return h.writeError(c, http.StatusConflict, "ResourceConflictException",
-				"Permission already exists: "+input.StatementID)
+				"The statement id ("+input.StatementID+") provided already exists. "+
+					"Please provide a new statement id, or remove the existing statement.")
 		}
 
 		if errors.Is(addErr, ErrInvalidParameterValue) {

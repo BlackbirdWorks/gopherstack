@@ -1466,10 +1466,10 @@ func TestDescribeImages_FilterTagStatus_EmptyRepo(t *testing.T) {
 			t.Parallel()
 
 			h := newAccuracyHandler()
-			mustCreateRepo(t, h, "empty-filter-repo-"+tt.tagStatus)
+			mustCreateRepo(t, h, "empty-filter-repo-"+strings.ToLower(tt.tagStatus))
 
 			rec := doAccuracy(t, h, "DescribeImages", map[string]any{
-				"repositoryName": "empty-filter-repo-" + tt.tagStatus,
+				"repositoryName": "empty-filter-repo-" + strings.ToLower(tt.tagStatus),
 				"filter":         map[string]any{"tagStatus": tt.tagStatus},
 			})
 			require.Equal(t, http.StatusOK, rec.Code)

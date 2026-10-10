@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -43,6 +44,10 @@ func validateOnOffFlag(fieldName, v, defaultVal string) (string, error) {
 func validateLBName(name string) error {
 	if err := validateResourceName(name, "load balancer"); err != nil {
 		return err
+	}
+
+	if strings.HasPrefix(name, "internal-") {
+		return fmt.Errorf("%w: load balancer name cannot begin with \"internal-\"", ErrInvalidParameter)
 	}
 
 	if len(name) < minLBNameLength {
@@ -119,23 +124,35 @@ func canonicalHostedZoneIDForLB(lbType, region string) string {
 // lbDNSName returns the DNS name for a load balancer following the real AWS format.
 // ALB/GWLB: {name}-{id}.{region}.elb.amazonaws.com
 // NLB:      {name}-{id}.elb.{region}.amazonaws.com.
-func lbDNSName(name, lbType, region string) string {
-	const fixedID = "00000001"
+func lbDNSName(name, lbType, region, id string) string {
+	suffix := dnsSuffix(id)
+
 	switch lbType {
 	case lbTypeNetwork:
-		return fmt.Sprintf("%s-%s.elb.%s.amazonaws.com", name, fixedID, region)
+		return fmt.Sprintf("%s-%s.elb.%s.amazonaws.com", name, suffix, region)
 	default:
-		return fmt.Sprintf("%s-%s.%s.elb.amazonaws.com", name, fixedID, region)
+		return fmt.Sprintf("%s-%s.%s.elb.amazonaws.com", name, suffix, region)
 	}
 }
 
-func (b *InMemoryBackend) lbARN(name string) string {
+func (b *InMemoryBackend) lbARN(name, lbType, id string) string {
 	return arn.Build(
 		"elasticloadbalancing",
 		b.region,
 		b.accountID,
-		"loadbalancer/app/"+name+"/0123456789abcdef",
+		"loadbalancer/"+lbARNSegment(lbType)+"/"+name+"/"+id,
 	)
+}
+
+func lbARNSegment(lbType string) string {
+	switch lbType {
+	case lbTypeNetwork:
+		return "net"
+	case lbTypeGateway:
+		return "gwy"
+	default:
+		return "app"
+	}
 }
 
 // subnetMappingsToAZs converts SubnetMapping slices into AvailabilityZone structs.
@@ -205,12 +222,13 @@ func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*Lo
 		}
 	}
 
-	lbArn := b.lbARN(input.Name)
-
 	lbType, err := validateLBType(input.Type)
 	if err != nil {
 		return nil, err
 	}
+
+	lbID := newHexID()
+	lbArn := b.lbARN(input.Name, lbType, lbID)
 
 	scheme := input.Scheme
 	if scheme == "" {
@@ -260,7 +278,7 @@ func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*Lo
 	lb := &LoadBalancer{
 		LoadBalancerArn:              lbArn,
 		LoadBalancerName:             input.Name,
-		DNSName:                      lbDNSName(input.Name, lbType, b.region),
+		DNSName:                      lbDNSName(input.Name, lbType, b.region, lbID),
 		CanonicalHostedZoneID:        canonicalHostedZoneIDForLB(lbType, b.region),
 		CreatedTime:                  time.Now().UTC(),
 		Scheme:                       scheme,

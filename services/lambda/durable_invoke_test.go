@@ -290,7 +290,7 @@ func TestInvoke_DurableFunctionRequiresQualifier(t *testing.T) {
 			h, _ := newInMemoryHandler(t)
 			client := newTestLambdaClient(t, h)
 
-			fnName := "qual-req-" + strings.ReplaceAll(tt.name, " ", "-")
+			fnName := "qual-req-" + strings.NewReplacer(" ", "-", ",", "", "$", "").Replace(tt.name)
 
 			createInput := &lambdasdk.CreateFunctionInput{
 				FunctionName: aws.String(fnName),

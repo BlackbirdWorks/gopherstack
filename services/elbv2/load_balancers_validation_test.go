@@ -60,7 +60,7 @@ func TestProtocolValidationPerLBType(t *testing.T) {
 			require.Len(t, lbResp.Result.LoadBalancers.Members, 1)
 			lbArn := lbResp.Result.LoadBalancers.Members[0].LoadBalancerArn
 
-			tgArn := mustCreateTG(t, h, "proto-val-tg-"+tt.name)
+			tgArn := mustCreateTG(t, h, "proto-val-tg-"+strings.ReplaceAll(tt.name, "_", "-"))
 
 			listenerVals := url.Values{
 				"Action":                                 {"CreateListener"},

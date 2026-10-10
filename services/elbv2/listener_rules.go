@@ -94,7 +94,7 @@ func (b *InMemoryBackend) CreateRule(input CreateRuleInput) (*Rule, error) {
 	}
 
 	b.ruleCounter++
-	ruleArn := b.ruleARN(input.ListenerArn, strconv.Itoa(b.ruleCounter))
+	ruleArn := b.ruleARN(input.ListenerArn, newHexID())
 
 	t := tags.New("elbv2.rule." + ruleArn + ".tags")
 	for _, kv := range input.Tags {

@@ -38,8 +38,9 @@ const (
 	xmlElemPolicy                 = "Policy"
 	notApplicable                 = "N/A"
 
-	minMaxSessionDuration = 3600
-	maxMaxSessionDuration = 43200
+	defaultMaxSessionDuration = 3600
+	minMaxSessionDuration     = 3600
+	maxMaxSessionDuration     = 43200
 
 	// SSH public key operation names.
 	opUploadSSHPublicKey = "UploadSSHPublicKey"
@@ -583,6 +584,10 @@ func (h *Handler) dispatch(
 ) (any, error) {
 	reqID := newRequestID()
 
+	if err := validateRequestInput(action, vals); err != nil {
+		return nil, err
+	}
+
 	if cfn, ok := h.callerActions[action]; ok {
 		return cfn(ctx, vals, reqID)
 	}
@@ -678,7 +683,7 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 		log.WarnContext(ctx, "IAM request error", "error", reqErr, "action", action)
 	}
 
-	return h.writeError(c, statusCode, code, reqErr.Error())
+	return h.writeError(c, statusCode, code, errorMessage(reqErr))
 }
 
 // writeError writes an IAM XML error response.

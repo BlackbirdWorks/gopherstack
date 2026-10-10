@@ -563,8 +563,8 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Amazon MQ](services/mq/README.md) | A | 25 | 2 structural gaps; 1 deferred |
 | [AppSync](services/appsync/README.md) | A | 74 | 3 gaps; 3 structural gaps; 2 deferred |
 | [EventBridge](services/eventbridge/README.md) | A | 66 | 2 structural gaps; 2 deferred |
-| [EventBridge Pipes](services/pipes/README.md) | A | 10 | 1 structural gap |
-| [EventBridge Scheduler](services/scheduler/README.md) | A | 12 | clean |
+| [EventBridge Pipes](services/pipes/README.md) | A | 10 | 1 gap; 1 structural gap |
+| [EventBridge Scheduler](services/scheduler/README.md) | A | 12 | 1 gap |
 | [Pinpoint](services/pinpoint/README.md) | A | 51 | 1 structural gap; 3 deferred |
 | [SES](services/ses/README.md) | A | 71 | 4 structural gaps; 1 deferred |
 | [SES v2](services/sesv2/README.md) | A | 112 | 2 gaps; 2 structural gaps |

@@ -25,12 +25,12 @@ func parseMaxKeys(raw string) (int32, error) {
 		return defaultMaxKeys, nil
 	}
 
-	v, err := strconv.Atoi(raw)
+	v, err := strconv.ParseInt(raw, 10, 32)
 	if err != nil || v < 0 {
 		return 0, ErrInvalidMaxKeys
 	}
 
-	return int32(min(v, defaultMaxKeys)), nil
+	return min(int32(v), defaultMaxKeys), nil
 }
 
 func (h *S3Handler) listObjects(

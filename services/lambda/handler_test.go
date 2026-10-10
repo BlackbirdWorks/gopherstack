@@ -226,7 +226,8 @@ func TestCreateFunction(t *testing.T) {
 		{
 			name: "defaults_applied",
 			body: `{"FunctionName":"defaults-func","PackageType":"Image",` +
-				`"Code":{"ImageUri":"myimage:latest"},"MemorySize":256,"Timeout":60}`,
+				`"Code":{"ImageUri":"myimage:latest"},"MemorySize":256,"Timeout":60,` +
+				`"Role":"arn:aws:iam::123456789012:role/r"}`,
 			wantCode:             http.StatusCreated,
 			wantFunctionName:     "defaults-func",
 			wantLastUpdateStatus: lambda.LastUpdateStatusSuccessful,
@@ -265,7 +266,8 @@ func TestCreateFunction(t *testing.T) {
 					ImageURI:     "myimage:latest",
 				})
 			},
-			body:        `{"FunctionName":"dup-func","PackageType":"Image","Code":{"ImageUri":"myimage:latest"}}`,
+			body: `{"FunctionName":"dup-func","PackageType":"Image","Code":{"ImageUri":"myimage:latest"},` +
+				`"Role":"arn:aws:iam::123456789012:role/r"}`,
 			wantCode:    http.StatusConflict,
 			wantErrType: "ResourceConflictException",
 		},
@@ -580,13 +582,14 @@ func TestUpdateFunctionConfiguration(t *testing.T) {
 					Description:  "old description",
 				}
 			},
-			funcName:             "cfg-func",
-			body:                 `{"Description":"new description","MemorySize":512,"Timeout":30,"Role":"new-role"}`,
+			funcName: "cfg-func",
+			body: `{"Description":"new description","MemorySize":512,"Timeout":30,` +
+				`"Role":"arn:aws:iam::123456789012:role/new-role"}`,
 			wantCode:             http.StatusOK,
 			wantDescription:      "new description",
 			wantMemorySize:       512,
 			wantTimeout:          30,
-			wantRole:             "new-role",
+			wantRole:             "arn:aws:iam::123456789012:role/new-role",
 			wantLastUpdateStatus: lambda.LastUpdateStatusSuccessful,
 		},
 		{

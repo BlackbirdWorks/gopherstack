@@ -1,6 +1,7 @@
 package ecs
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -115,7 +116,7 @@ func TestRunTask_EC2Placement_HostPorts(t *testing.T) {
 			}
 
 			td, err := b.RegisterTaskDefinition(RegisterTaskDefinitionInput{
-				Family:      "placement-" + tt.name,
+				Family:      "placement-" + strings.NewReplacer(" ", "-", ":", "").Replace(tt.name),
 				NetworkMode: tt.networkMode,
 				ContainerDefinitions: []ContainerDefinition{
 					{Name: "app", Image: "nginx", PortMappings: []PortMapping{

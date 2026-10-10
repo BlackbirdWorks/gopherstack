@@ -30,6 +30,10 @@ func (h *Handler) handleSetRepositoryPolicy(
 		return nil, err
 	}
 
+	if err := validateRepositoryPolicyText(in.PolicyText); err != nil {
+		return nil, err
+	}
+
 	return h.Backend.SetRepositoryPolicy(ctx, in.RepositoryName, in.PolicyText)
 }
 

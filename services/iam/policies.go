@@ -190,6 +190,10 @@ func (b *InMemoryBackend) AttachUserPolicy(userName, policyArn string) error {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
+	if err := b.requireAttachablePolicyLocked(policyArn); err != nil {
+		return err
+	}
+
 	if slices.Contains(b.userPolicies[userName], policyArn) {
 		return nil // already attached
 	}
@@ -229,6 +233,10 @@ func (b *InMemoryBackend) AttachRolePolicy(roleName, policyArn string) error {
 
 	if _, exists := b.roles.Get(roleName); !exists {
 		return fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
+	}
+
+	if err := b.requireAttachablePolicyLocked(policyArn); err != nil {
+		return err
 	}
 
 	if slices.Contains(b.rolePolicies[roleName], policyArn) {
@@ -602,6 +610,10 @@ func (b *InMemoryBackend) TagPolicy(policyArn string, tags map[string]string) er
 		return fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyArn)
 	}
 
+	if err := checkTagLimit(p.Tags, tags); err != nil {
+		return err
+	}
+
 	if p.Tags == nil {
 		p.Tags = make(map[string]string, len(tags))
 	}
@@ -804,4 +816,19 @@ func (b *InMemoryBackend) ListPolicyVersions(policyArn string) ([]StoredPolicyVe
 	}
 
 	return append(versions, storedVersions...), nil
+}
+
+// awsManagedPolicyPrefix marks AWS managed policies, which have no local catalog so are accepted unverified.
+const awsManagedPolicyPrefix = "arn:aws:iam::aws:policy/"
+
+func (b *InMemoryBackend) requireAttachablePolicyLocked(policyArn string) error {
+	if strings.HasPrefix(policyArn, awsManagedPolicyPrefix) {
+		return nil
+	}
+
+	if _, ok := b.getPolicyByARNLocked(policyArn); !ok {
+		return fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyArn)
+	}
+
+	return nil
 }

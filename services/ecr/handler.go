@@ -553,7 +553,7 @@ func ecrErr(errType, msg string) map[string]string {
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
 	status, errType := h.classifyError(err)
 
-	return c.JSON(status, ecrErr(errType, err.Error()))
+	return c.JSON(status, ecrErr(errType, strings.TrimPrefix(err.Error(), errType+": ")))
 }
 
 // classifyError returns the HTTP status code and AWS error type string for err.
@@ -571,6 +571,7 @@ func (h *Handler) classifyError(err error) (int, string) {
 		{ErrRepositoryNotFound, "RepositoryNotFoundException", http.StatusNotFound},
 		{ErrRepositoryPolicyNotFound, "RepositoryPolicyNotFoundException", http.StatusBadRequest},
 		{ErrImageNotFound, "ImageNotFoundException", http.StatusBadRequest},
+		{ErrTooManyTags, "TooManyTagsException", http.StatusBadRequest},
 		{ErrScanNotFoundException, "ScanNotFoundException", http.StatusBadRequest},
 		{ErrRepositoryAlreadyExists, "RepositoryAlreadyExistsException", http.StatusBadRequest},
 		{ErrRepositoryNotEmpty, "RepositoryNotEmptyException", http.StatusBadRequest},

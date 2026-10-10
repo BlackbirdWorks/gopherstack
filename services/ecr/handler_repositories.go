@@ -94,6 +94,10 @@ func (h *Handler) handleCreateRepository(
 		)
 	}
 
+	if err := validateRepositoryName(in.RepositoryName); err != nil {
+		return nil, err
+	}
+
 	scanOnPush := false
 	if in.ImageScanningConfiguration != nil {
 		scanOnPush = in.ImageScanningConfiguration.ScanOnPush

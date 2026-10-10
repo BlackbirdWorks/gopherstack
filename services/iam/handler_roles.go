@@ -1,6 +1,7 @@
 package iam
 
 import (
+	"cmp"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -10,6 +11,25 @@ import (
 // MaxSessionDuration validation/update and Tags.member.N tagging-at-creation
 // (real AWS: "A list of tags that you want to attach to the new role").
 func (h *Handler) handleCreateRole(vals url.Values, reqID string) (any, error) {
+	var msd int32
+
+	if raw := vals.Get("MaxSessionDuration"); raw != "" {
+		d, parseErr := strconv.ParseInt(raw, 10, 32)
+		if parseErr != nil || d < minMaxSessionDuration || d > maxMaxSessionDuration {
+			return nil, fmt.Errorf(
+				"%w: MaxSessionDuration must be between %d and %d",
+				ErrValidationError, minMaxSessionDuration, maxMaxSessionDuration,
+			)
+		}
+
+		msd = int32(d)
+	}
+
+	tags := parseIAMTags(vals)
+	if err := checkTagLimit(nil, tags); err != nil {
+		return nil, err
+	}
+
 	r, err := h.Backend.CreateRole(
 		vals.Get("RoleName"),
 		vals.Get("Path"),
@@ -20,23 +40,15 @@ func (h *Handler) handleCreateRole(vals url.Values, reqID string) (any, error) {
 		return nil, err
 	}
 
-	if msd := vals.Get("MaxSessionDuration"); msd != "" {
-		d, parseErr := strconv.ParseInt(msd, 10, 32)
-		if parseErr != nil || d < minMaxSessionDuration || d > maxMaxSessionDuration {
-			return nil, fmt.Errorf(
-				"%w: MaxSessionDuration must be between %d and %d",
-				ErrValidationError, minMaxSessionDuration, maxMaxSessionDuration,
-			)
-		}
-
-		if updateErr := h.Backend.UpdateRoleMaxSessionDuration(r.RoleName, int32(d)); updateErr != nil {
+	if msd != 0 {
+		if updateErr := h.Backend.UpdateRoleMaxSessionDuration(r.RoleName, msd); updateErr != nil {
 			return nil, fmt.Errorf("updating max session duration for role %s: %w", r.RoleName, updateErr)
 		}
 
-		r.MaxSessionDuration = int32(d)
+		r.MaxSessionDuration = msd
 	}
 
-	if tags := parseIAMTags(vals); len(tags) > 0 {
+	if len(tags) > 0 {
 		if tagErr := h.Backend.TagRole(r.RoleName, tags); tagErr != nil {
 			return nil, tagErr
 		}
@@ -120,7 +132,7 @@ func toRoleXML(r *Role) RoleXML {
 		Arn:                      r.Arn,
 		CreateDate:               isoTime(r.CreateDate),
 		AssumeRolePolicyDocument: encodePolicyDocument(r.AssumeRolePolicyDocument),
-		MaxSessionDuration:       r.MaxSessionDuration,
+		MaxSessionDuration:       cmp.Or(r.MaxSessionDuration, defaultMaxSessionDuration),
 		Description:              r.Description,
 		Tags:                     tagsToXML(r.Tags),
 	}

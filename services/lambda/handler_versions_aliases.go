@@ -172,11 +172,29 @@ func (h *Handler) handleCreateAlias(c *echo.Context, name string) error {
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "FunctionVersion is required")
 	}
 
+	if !h.validateAliasName(c, input.Name) {
+		return nil
+	}
+
 	alias, createErr := lambdaBk.CreateAlias(name, &input)
 	if createErr != nil {
 		if errors.Is(createErr, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
 				"Function not found: "+name)
+		}
+
+		if errors.Is(createErr, ErrVersionNotFound) {
+			return h.writeError(
+				c,
+				http.StatusNotFound,
+				"ResourceNotFoundException",
+				"Function not found: "+buildVersionARN(
+					lambdaBk.region,
+					lambdaBk.accountID,
+					name,
+					input.FunctionVersion,
+				),
+			)
 		}
 
 		if errors.Is(createErr, ErrAliasAlreadyExists) {

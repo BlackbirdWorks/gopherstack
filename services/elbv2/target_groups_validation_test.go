@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -63,7 +64,7 @@ func TestPortValidationCreateTargetGroup(t *testing.T) {
 			rec := doELBv2(t, h, url.Values{
 				"Action":   {"CreateTargetGroup"},
 				"Version":  {"2015-12-01"},
-				"Name":     {"tg-port-" + tt.name},
+				"Name":     {"tg-port-" + strings.ReplaceAll(tt.name, "_", "-")},
 				"Protocol": {"HTTP"},
 				"Port":     {tt.port},
 				"VpcId":    {"vpc-00000000"},
@@ -269,7 +270,7 @@ func TestDescribeTargetGroups_UnknownArnReturnsNotFound(t *testing.T) {
 
 			arns := tc.arns
 			if tc.name == "mix_of_known_and_unknown" {
-				realArn := mustCreateTG(t, h, "real-tg-"+tc.name)
+				realArn := mustCreateTG(t, h, "real-tg-"+strings.ReplaceAll(tc.name, "_", "-"))
 				arns = []string{
 					realArn,
 					"arn:aws:elasticloadbalancing:us-east-1:000000000000:targetgroup/ghost/0000000000000000",

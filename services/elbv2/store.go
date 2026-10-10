@@ -1,7 +1,10 @@
 package elbv2
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -112,6 +115,27 @@ func validatePort(port int32) error {
 // validateResourceName returns ErrInvalidParameter if name violates the ELBv2 naming rules:
 // non-empty, alphanumeric characters, hyphens, and underscores;
 // cannot start or end with a hyphen.
+// newHexID returns a 16-char lowercase hex ID, the shape of the trailing ELBv2 ARN segments.
+func newHexID() string {
+	var buf [8]byte
+
+	_, _ = rand.Read(buf[:])
+
+	return hex.EncodeToString(buf[:])
+}
+
+const dnsSuffixHexChars = 8
+
+// dnsSuffix turns a hex ID into the 9-10 digit numeric suffix of ELB DNS names.
+func dnsSuffix(id string) string {
+	n, err := strconv.ParseUint(id[:min(len(id), dnsSuffixHexChars)], 16, 64)
+	if err != nil {
+		return "1234567890"
+	}
+
+	return strconv.FormatUint(1000000000+n%9000000000, 10)
+}
+
 func validateResourceName(name, kind string) error {
 	if len(name) == 0 {
 		return fmt.Errorf("%w: %s name must not be empty", ErrInvalidParameter, kind)
@@ -134,11 +158,10 @@ func validateResourceName(name, kind string) error {
 		upperAlpha := c >= 'A' && c <= 'Z'
 		digit := c >= '0' && c <= '9'
 		hyphen := c == '-'
-		underscore := c == '_'
 
-		if !lowerAlpha && !upperAlpha && !digit && !hyphen && !underscore {
+		if !lowerAlpha && !upperAlpha && !digit && !hyphen {
 			return fmt.Errorf(
-				"%w: %s name may only contain alphanumeric characters, hyphens, and underscores",
+				"%w: %s name may only contain alphanumeric characters and hyphens",
 				ErrInvalidParameter, kind,
 			)
 		}

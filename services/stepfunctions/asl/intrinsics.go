@@ -372,7 +372,15 @@ func intrinsicArrayPartition(args []any) (any, error) {
 		size = int(sizeF)
 	}
 
-	chunks := make([]any, 0, len(arr)/size+1)
+	if size > len(arr) {
+		size = len(arr)
+	}
+
+	if size < 1 {
+		size = 1
+	}
+
+	chunks := make([]any, 0, len(arr)/size)
 
 	for i := 0; i < len(arr); i += size {
 		end := min(i+size, len(arr))
