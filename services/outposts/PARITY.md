@@ -7,7 +7,7 @@
 service: outposts
 sdk_module: aws-sdk-go-v2/service/outposts@v1.66.1   # go.mod's actual pin at this audit (unchanged)
 last_audit_commit: 4049cb9ee # HEAD immediately before this 2026-09-06 pass's own fix commit
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
 # 2026-09-06 pass: two filed issues (gopherstack-vsmv, gopherstack-glw7), one real fix, one
 # confirmed-no-change verdict.
 # (1) gopherstack-vsmv: renewals.go's renewalIdempotency (store.go) caches one CreateRenewalResult
@@ -243,6 +243,12 @@ structural_gaps:
   - "UpdateSiteAddress's doc comment second clause (\"or after all Outposts that belong to the site have been deactivated\", api_op_UpdateSiteAddress.go:17-18) is not enforced beyond the existing order-in-progress check (siteHasInProgressOrderLocked). gopherstack-glw7, re-examined 2026-09-06: confirmed with a whole-module grep that \"deactivated\" names no lifecycle state anywhere else in outposts@v1.66.1 -- types.Outpost.LifeCycleStatus has no SDK enum at all (see the LifeCycleStatus structural_gaps entry above), and this backend's own model has no third, still-existing \"deactivated\" Outpost state to gate on (an Outpost is ACTIVE, PENDING_DECOMMISSION, or deleted). Genuinely unrepresentable today, not merely unconfirmed -- see the 2026-09-06 frontmatter entry for the full evidence trail."
 leaks: {status: clean, note: "InMemoryBackend.Reset() closes every Outpost's and Site's tags.Tags before clearing (store.go); Close() stops the worker.Group backing every scheduled Order/CapacityTask transition timer, now a 2-3-hop chain instead of one shot (mirrors services/grafana's scheduleWorkspaceActivation pattern the prior audit called out as the thing to watch for; services/mgn's exportimport.go chained-After pattern confirmed the same shape holds for a multi-hop chain, not just one hop). DeleteOutpost now also cleans up runningInstancesByOutpost rows as of the 2026-09-05 pass (was an unbounded ghost-row leak if an Outpost was deleted while EC2 instances were still recorded as running on its Asset)."}
 ---
+
+## 2026-10-10 realism pass
+
+- Opt-in `SetTransitionDelay` (default 0 keeps 100ms) stretches every order hop (PREPARING, IN_PROGRESS, DELIVERED, COMPLETED) and capacity-task hop.
+- CreateSite/UpdateSite/CreateOutpost bound Name/Description/Notes lengths; rack physical property members are checked against the SDK enums on CreateSite and UpdateSiteRackPhysicalProperties.
+- Kept lenient: Address required members are not rejected when empty (TestUpdateSiteAddress_RequiredEmptyString_RealClient depends on the wire round trip).
 
 ## Full write-only-state and wire-shape re-sweep (2026-08-29)
 

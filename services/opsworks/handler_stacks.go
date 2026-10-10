@@ -17,21 +17,23 @@ func (h *Handler) handleCreateStack(_ context.Context, body []byte) (any, error)
 			BerkshelfVersion string `json:"BerkshelfVersion"`
 			ManageBerkshelf  bool   `json:"ManageBerkshelf"`
 		} `json:"ChefConfiguration"`
-		Attributes                map[string]string `json:"Attributes"`
-		UseOpsworksSecurityGroups *bool             `json:"UseOpsworksSecurityGroups"`
-		AgentVersion              string            `json:"AgentVersion"`
-		DefaultInstanceProfileArn string            `json:"DefaultInstanceProfileArn"`
-		ServiceRoleArn            string            `json:"ServiceRoleArn"`
-		VpcID                     string            `json:"VpcId"`
-		Region                    string            `json:"Region"`
-		CustomJSON                string            `json:"CustomJson"`
-		DefaultAvailabilityZone   string            `json:"DefaultAvailabilityZone"`
-		DefaultOs                 string            `json:"DefaultOs"`
-		DefaultRootDeviceType     string            `json:"DefaultRootDeviceType"`
-		DefaultSSHKeyName         string            `json:"DefaultSshKeyName"`
-		DefaultSubnetID           string            `json:"DefaultSubnetId"`
-		HostnameTheme             string            `json:"HostnameTheme"`
-		Name                      string            `json:"Name"`
+		Attributes                map[string]string   `json:"Attributes"`
+		UseOpsworksSecurityGroups *bool               `json:"UseOpsworksSecurityGroups"`
+		CustomCookbooksSource     *cookbooksSourceReq `json:"CustomCookbooksSource"`
+		UseCustomCookbooks        *bool               `json:"UseCustomCookbooks"`
+		AgentVersion              string              `json:"AgentVersion"`
+		DefaultInstanceProfileArn string              `json:"DefaultInstanceProfileArn"`
+		ServiceRoleArn            string              `json:"ServiceRoleArn"`
+		VpcID                     string              `json:"VpcId"`
+		Region                    string              `json:"Region"`
+		CustomJSON                string              `json:"CustomJson"`
+		DefaultAvailabilityZone   string              `json:"DefaultAvailabilityZone"`
+		DefaultOs                 string              `json:"DefaultOs"`
+		DefaultRootDeviceType     string              `json:"DefaultRootDeviceType"`
+		DefaultSSHKeyName         string              `json:"DefaultSshKeyName"`
+		DefaultSubnetID           string              `json:"DefaultSubnetId"`
+		HostnameTheme             string              `json:"HostnameTheme"`
+		Name                      string              `json:"Name"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -50,6 +52,8 @@ func (h *Handler) handleCreateStack(_ context.Context, body []byte) (any, error)
 		DefaultSubnetID:           req.DefaultSubnetID,
 		HostnameTheme:             req.HostnameTheme,
 		UseOpsworksSecurityGroups: req.UseOpsworksSecurityGroups,
+		CustomCookbooksSource:     req.CustomCookbooksSource.toSource(),
+		UseCustomCookbooks:        req.UseCustomCookbooks,
 	}
 	if req.ConfigurationManager != nil {
 		opts.ConfigurationManager = &StackConfigurationManager{
@@ -88,24 +92,26 @@ func (h *Handler) handleCloneStack(_ context.Context, body []byte) (any, error) 
 			BerkshelfVersion string `json:"BerkshelfVersion"`
 			ManageBerkshelf  bool   `json:"ManageBerkshelf"`
 		} `json:"ChefConfiguration"`
-		UseOpsworksSecurityGroups *bool             `json:"UseOpsworksSecurityGroups"`
-		CustomJSON                string            `json:"CustomJson"`
-		DefaultInstanceProfileArn string            `json:"DefaultInstanceProfileArn"`
-		ServiceRoleArn            string            `json:"ServiceRoleArn"`
-		VpcID                     string            `json:"VpcId"`
-		AgentVersion              string            `json:"AgentVersion"`
-		Name                      string            `json:"Name"`
-		DefaultAvailabilityZone   string            `json:"DefaultAvailabilityZone"`
-		Region                    string            `json:"Region"`
-		DefaultOs                 string            `json:"DefaultOs"`
-		DefaultRootDeviceType     string            `json:"DefaultRootDeviceType"`
-		DefaultSSHKeyName         string            `json:"DefaultSshKeyName"`
-		DefaultSubnetID           string            `json:"DefaultSubnetId"`
-		HostnameTheme             string            `json:"HostnameTheme"`
-		SourceStackID             string            `json:"SourceStackId"`
-		ClonePermissions          *bool             `json:"ClonePermissions"`
-		Attributes                map[string]string `json:"Attributes"`
-		CloneAppIDs               []string          `json:"CloneAppIds"`
+		UseOpsworksSecurityGroups *bool               `json:"UseOpsworksSecurityGroups"`
+		CustomCookbooksSource     *cookbooksSourceReq `json:"CustomCookbooksSource"`
+		UseCustomCookbooks        *bool               `json:"UseCustomCookbooks"`
+		CustomJSON                string              `json:"CustomJson"`
+		DefaultInstanceProfileArn string              `json:"DefaultInstanceProfileArn"`
+		ServiceRoleArn            string              `json:"ServiceRoleArn"`
+		VpcID                     string              `json:"VpcId"`
+		AgentVersion              string              `json:"AgentVersion"`
+		Name                      string              `json:"Name"`
+		DefaultAvailabilityZone   string              `json:"DefaultAvailabilityZone"`
+		Region                    string              `json:"Region"`
+		DefaultOs                 string              `json:"DefaultOs"`
+		DefaultRootDeviceType     string              `json:"DefaultRootDeviceType"`
+		DefaultSSHKeyName         string              `json:"DefaultSshKeyName"`
+		DefaultSubnetID           string              `json:"DefaultSubnetId"`
+		HostnameTheme             string              `json:"HostnameTheme"`
+		SourceStackID             string              `json:"SourceStackId"`
+		ClonePermissions          *bool               `json:"ClonePermissions"`
+		Attributes                map[string]string   `json:"Attributes"`
+		CloneAppIDs               []string            `json:"CloneAppIds"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -127,6 +133,8 @@ func (h *Handler) handleCloneStack(_ context.Context, body []byte) (any, error) 
 		DefaultSubnetID:           req.DefaultSubnetID,
 		HostnameTheme:             req.HostnameTheme,
 		UseOpsworksSecurityGroups: req.UseOpsworksSecurityGroups,
+		CustomCookbooksSource:     req.CustomCookbooksSource.toSource(),
+		UseCustomCookbooks:        req.UseCustomCookbooks,
 	}
 	if req.ConfigurationManager != nil {
 		opts.ConfigurationManager = &StackConfigurationManager{
@@ -180,20 +188,22 @@ func (h *Handler) handleUpdateStack(_ context.Context, body []byte) (any, error)
 			BerkshelfVersion string `json:"BerkshelfVersion"`
 			ManageBerkshelf  bool   `json:"ManageBerkshelf"`
 		} `json:"ChefConfiguration"`
-		Attributes                map[string]string `json:"Attributes"`
-		UseOpsworksSecurityGroups *bool             `json:"UseOpsworksSecurityGroups"`
-		DefaultInstanceProfileArn string            `json:"DefaultInstanceProfileArn"`
-		AgentVersion              string            `json:"AgentVersion"`
-		CustomJSON                string            `json:"CustomJson"`
-		DefaultAvailabilityZone   string            `json:"DefaultAvailabilityZone"`
-		Name                      string            `json:"Name"`
-		DefaultOs                 string            `json:"DefaultOs"`
-		DefaultRootDeviceType     string            `json:"DefaultRootDeviceType"`
-		DefaultSSHKeyName         string            `json:"DefaultSshKeyName"`
-		DefaultSubnetID           string            `json:"DefaultSubnetId"`
-		HostnameTheme             string            `json:"HostnameTheme"`
-		ServiceRoleArn            string            `json:"ServiceRoleArn"`
-		StackID                   string            `json:"StackId"`
+		Attributes                map[string]string   `json:"Attributes"`
+		UseOpsworksSecurityGroups *bool               `json:"UseOpsworksSecurityGroups"`
+		CustomCookbooksSource     *cookbooksSourceReq `json:"CustomCookbooksSource"`
+		UseCustomCookbooks        *bool               `json:"UseCustomCookbooks"`
+		DefaultInstanceProfileArn string              `json:"DefaultInstanceProfileArn"`
+		AgentVersion              string              `json:"AgentVersion"`
+		CustomJSON                string              `json:"CustomJson"`
+		DefaultAvailabilityZone   string              `json:"DefaultAvailabilityZone"`
+		Name                      string              `json:"Name"`
+		DefaultOs                 string              `json:"DefaultOs"`
+		DefaultRootDeviceType     string              `json:"DefaultRootDeviceType"`
+		DefaultSSHKeyName         string              `json:"DefaultSshKeyName"`
+		DefaultSubnetID           string              `json:"DefaultSubnetId"`
+		HostnameTheme             string              `json:"HostnameTheme"`
+		ServiceRoleArn            string              `json:"ServiceRoleArn"`
+		StackID                   string              `json:"StackId"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -213,6 +223,8 @@ func (h *Handler) handleUpdateStack(_ context.Context, body []byte) (any, error)
 		HostnameTheme:             req.HostnameTheme,
 		ServiceRoleArn:            req.ServiceRoleArn,
 		UseOpsworksSecurityGroups: req.UseOpsworksSecurityGroups,
+		CustomCookbooksSource:     req.CustomCookbooksSource.toSource(),
+		UseCustomCookbooks:        req.UseCustomCookbooks,
 	}
 	if req.ConfigurationManager != nil {
 		opts.ConfigurationManager = &StackConfigurationManager{
@@ -365,6 +377,12 @@ func stacksToJSON(stacks []*Stack) []map[string]any {
 			"HostnameTheme":             s.HostnameTheme,
 			"UseOpsworksSecurityGroups": s.UseOpsworksSecurityGroups,
 		}
+		if s.CustomCookbooksSource != nil {
+			entry["CustomCookbooksSource"] = cookbooksSourceJSON(s.CustomCookbooksSource)
+		}
+		if s.UseCustomCookbooks != nil {
+			entry["UseCustomCookbooks"] = *s.UseCustomCookbooks
+		}
 		if s.ConfigurationManager != nil {
 			entry["ConfigurationManager"] = map[string]any{
 				"Name":    s.ConfigurationManager.Name,
@@ -424,4 +442,37 @@ func stackSummaryToJSON(s *StackSummary) map[string]any {
 		"LayersCount":    s.LayersCount,
 		"AppsCount":      s.AppsCount,
 	}
+}
+
+type cookbooksSourceReq struct {
+	Type     string `json:"Type"`
+	URL      string `json:"Url"`
+	Username string `json:"Username"`
+	Password string `json:"Password"`
+	SSHKey   string `json:"SshKey"`
+	Revision string `json:"Revision"`
+}
+
+func (r *cookbooksSourceReq) toSource() *CookbooksSource {
+	if r == nil {
+		return nil
+	}
+
+	return &CookbooksSource{
+		Type: r.Type, URL: r.URL, Username: r.Username, Password: r.Password, SSHKey: r.SSHKey, Revision: r.Revision,
+	}
+}
+
+const filteredSecret = "*****FILTERED*****"
+
+func cookbooksSourceJSON(c *CookbooksSource) map[string]any {
+	m := map[string]any{"Type": c.Type, "Url": c.URL, "Username": c.Username, "Revision": c.Revision}
+	if c.Password != "" {
+		m["Password"] = filteredSecret
+	}
+	if c.SSHKey != "" {
+		m["SshKey"] = filteredSecret
+	}
+
+	return m
 }

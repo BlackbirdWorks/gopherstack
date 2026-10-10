@@ -50,8 +50,13 @@ func decodeJSON(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
 func createTestOrg(t *testing.T, h *workmail.Handler, alias string) string {
 	t.Helper()
 
+	alias = strings.NewReplacer("_", "-", " ", "-").Replace(alias)
+	if len(alias) > 62 {
+		alias = alias[:62]
+	}
+
 	rec := doOp(t, h, "CreateOrganization", fmt.Sprintf(`{"Alias":%q}`, alias))
-	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	m := decodeJSON(t, rec)
 	orgID, ok := m["OrganizationId"].(string)
 	require.True(t, ok, "OrganizationId missing")

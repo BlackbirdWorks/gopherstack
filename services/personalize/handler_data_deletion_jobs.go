@@ -57,7 +57,7 @@ func dataDeletionJobToMap(job *DataDeletionJob) map[string]any {
 		keyDatasetGroupArn:     job.DatasetGroupArn,
 		keyRoleArn:             job.RoleArn,
 		"dataSource":           job.DataSource,
-		keyStatus:              job.Status,
+		keyStatus:              job.lc.deletionStatus(job.Status, job.CreationDateTime),
 		"numDeleted":           job.NumDeleted,
 		keyCreationDateTime:    awstime.Epoch(job.CreationDateTime),
 		keyLastUpdatedDateTime: awstime.Epoch(job.LastUpdatedDateTime),
@@ -73,7 +73,7 @@ func dataDeletionJobSummaryToMap(job *DataDeletionJob) map[string]any {
 		keyDataDeletionJobArn:  job.DataDeletionJobArn,
 		keyJobName:             job.JobName,
 		keyDatasetGroupArn:     job.DatasetGroupArn,
-		keyStatus:              job.Status,
+		keyStatus:              job.lc.deletionStatus(job.Status, job.CreationDateTime),
 		keyCreationDateTime:    awstime.Epoch(job.CreationDateTime),
 		keyLastUpdatedDateTime: awstime.Epoch(job.LastUpdatedDateTime),
 	}

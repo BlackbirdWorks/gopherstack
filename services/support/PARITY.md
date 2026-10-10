@@ -7,7 +7,7 @@
 service: support
 sdk_module: aws-sdk-go-v2/service/support@v1.34.4   # version audited against
 last_audit_commit: 49cff86c4  # HEAD when this manifest was written
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
 overall: A                # 1 severe wire bug (missing __type on every error) + several missing modeled exceptions fixed
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -37,11 +37,18 @@ families:
 gaps: []
 items_still_open: []
 structural_gaps:
-  - "CaseDetails.Status values all-open, customer-action-completed, pending-customer-action, unassigned and work-in-progress are AWS support-staff-side states with no client-callable operation that sets them."
+  - "CaseDetails.Status values all-open, customer-action-completed, pending-customer-action and unassigned (work-in-progress only appears with SetCaseProgressDelay) are AWS support-staff-side states with no client-callable operation that sets them."
 deferred:
   - integration test suite (test/integration/*_parity_test.go) was not run this pass — only unit tests plus static comparison against the real SDK's deserializers.go/serializers.go and the botocore support/2013-04-15/service-2.json model (stronger than typical unit-test-only audits, but still not a live SDK-client round trip). test/integration/support_test.go exists and covers the happy-path case lifecycle only; it does not exercise error paths, so it would not have caught the missing __type field either (the Go SDK client would have surfaced a generic/wrong error type, but the existing test never triggers an error path).
 leaks: {status: clean, note: "janitor.go RunJanitor/sweepExpiredResources reviewed; ticker-based, stops cleanly on ctx cancellation via worker.Group; StartWorker/Shutdown wire it into service.BackgroundWorker/Shutdowner correctly. New rate-limit timestamp slices (attachmentSetCreationTimes/describeAttachmentCallTimes) are pruned on every access and capped at their threshold by construction (no unbounded growth), guarded by the existing b.mu -- no new goroutines/tickers introduced."}
 ---
+
+## 2026-10-10 realism pass
+
+- Error messages no longer repeat the exception name and not-found messages say what was missing (`case X not found`).
+- ccEmailAddresses entries must be bare email addresses on CreateCase and AddCommunicationToCase.
+- Opt-in `SetCaseProgressDelay` (default 0): cases move opened to work-in-progress after the delay, reflected in DescribeCases and ResolveCase's initialCaseStatus.
+- Kept lenient: serviceCode/categoryCode are not checked against DescribeServices (the static catalog is a small subset and callers use `general-info`).
 
 ## Notes (this pass, 2026-07-24)
 

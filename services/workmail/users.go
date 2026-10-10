@@ -18,8 +18,8 @@ func (b *InMemoryBackend) CreateUser(orgID, name string, params CreateUserParams
 		return nil, fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 
-	if name == "" {
-		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
+	if err := validateEntityName("user", name, maxUserNameLen); err != nil {
+		return nil, err
 	}
 	validRoles := map[string]bool{roleUser: true, roleResource: true, roleSystemUser: true}
 	if params.Role != "" && !validRoles[params.Role] {
@@ -66,7 +66,7 @@ func (b *InMemoryBackend) DescribeUser(orgID, entityID string) (*User, error) {
 	defer b.mu.RUnlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return nil, fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return nil, fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	u := b.findUser(orgID, entityID)
 	if u == nil {
@@ -98,7 +98,7 @@ func (b *InMemoryBackend) UpdateUser(orgID, entityID string, params UpdateUserPa
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	u := b.findUser(orgID, entityID)
 	if u == nil {
@@ -290,7 +290,7 @@ func (b *InMemoryBackend) RegisterToWorkMail(orgID, entityID, email string) erro
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 
 	if u := b.findUser(orgID, entityID); u != nil {
@@ -385,7 +385,7 @@ func (b *InMemoryBackend) DeregisterFromWorkMail(orgID, entityID string) error {
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 
 	now := time.Now().UTC()
@@ -436,7 +436,7 @@ func (b *InMemoryBackend) ResetPassword(orgID, userID, _ string) error {
 	defer b.mu.RUnlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	u := b.findUser(orgID, userID)
 	if u == nil {
@@ -452,7 +452,7 @@ func (b *InMemoryBackend) UpdatePrimaryEmailAddress(orgID, entityID, email strin
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 
 	if u := b.findUser(orgID, entityID); u != nil {

@@ -100,7 +100,7 @@ func recommenderToMap(r *Recommender) map[string]any {
 		keyName:                r.Name,
 		keyDatasetGroupArn:     r.DatasetGroupArn,
 		keyRecipeArn:           r.RecipeArn,
-		keyStatus:              r.Status,
+		keyStatus:              r.lc.resourceStatus(r.Status, r.CreationDateTime),
 		keyCreationDateTime:    awstime.Epoch(r.CreationDateTime),
 		keyLastUpdatedDateTime: awstime.Epoch(r.LastUpdatedDateTime),
 	}
@@ -128,7 +128,7 @@ func recommenderSummaryToMap(r *Recommender) map[string]any {
 		keyName:                r.Name,
 		keyDatasetGroupArn:     r.DatasetGroupArn,
 		keyRecipeArn:           r.RecipeArn,
-		keyStatus:              r.Status,
+		keyStatus:              r.lc.resourceStatus(r.Status, r.CreationDateTime),
 		keyCreationDateTime:    awstime.Epoch(r.CreationDateTime),
 		keyLastUpdatedDateTime: awstime.Epoch(r.LastUpdatedDateTime),
 	}

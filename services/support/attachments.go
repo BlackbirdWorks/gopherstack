@@ -65,7 +65,7 @@ func (b *InMemoryBackend) DescribeAttachment(attachmentID string) (*Attachment, 
 
 	a, ok := b.attachments.Get(attachmentID)
 	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrAttachmentNotFound, attachmentID)
+		return nil, fmt.Errorf("%w: attachment %s not found", ErrAttachmentNotFound, attachmentID)
 	}
 
 	cp := *a
@@ -200,11 +200,11 @@ func (b *InMemoryBackend) attachmentSetForAppendLocked(id string) (*AttachmentSe
 
 	set, ok := b.attachmentSets.Get(id)
 	if !ok {
-		return nil, "", fmt.Errorf("%w: %s", ErrAttachmentSetNotFound, id)
+		return nil, "", fmt.Errorf("%w: attachment set %s not found", ErrAttachmentSetNotFound, id)
 	}
 
 	if time.Now().After(set.Expiry) {
-		return nil, "", fmt.Errorf("%w: %s", ErrAttachmentSetExpired, id)
+		return nil, "", fmt.Errorf("%w: attachment set %s has expired", ErrAttachmentSetExpired, id)
 	}
 
 	return set, id, nil
@@ -216,10 +216,10 @@ func (b *InMemoryBackend) consumeAttachmentSetLocked(id string) ([]AttachmentRef
 	}
 	set, ok := b.attachmentSets.Get(id)
 	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrAttachmentSetNotFound, id)
+		return nil, fmt.Errorf("%w: attachment set %s not found", ErrAttachmentSetNotFound, id)
 	}
 	if time.Now().After(set.Expiry) {
-		return nil, fmt.Errorf("%w: %s", ErrAttachmentSetExpired, id)
+		return nil, fmt.Errorf("%w: attachment set %s has expired", ErrAttachmentSetExpired, id)
 	}
 	refs := make([]AttachmentRef, 0, len(set.AttachmentIDs))
 	for _, attachmentID := range set.AttachmentIDs {

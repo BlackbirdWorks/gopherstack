@@ -2,7 +2,7 @@
 service: workmail
 sdk_module: aws-sdk-go-v2/service/workmail@v1.39.4
 last_audit_commit: dc877102
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
 # 2026-08-30: pagination-tie sweep (separate from the cursor-population sweep below -- this one
 # asks whether a name-sorted List op can lose or duplicate a record at a page boundary when two
 # records tie on the sort key). Of the 16 backend List* methods, 14 source from a store.Index
@@ -135,7 +135,7 @@ items_still_open:
   - "LimitExceededException (gopherstack-gmny): only CreateAlias (100 per user) and RegisterMailDomain (1000 per org) have published, non-adjustable quotas (docs-sourced, enforced). CreateOrganization's quota is adjustable; CreateAvailabilityConfiguration, CreateImpersonationRole, CreateMobileDeviceAccessRule, PutAccessControlRule, PutRetentionPolicy, StartMailboxExportJob and UpdateImpersonationRole publish no number anywhere, so they are not enforced."
   - "DeleteOrganization.ForceDelete is not applied: the SDK says only \"even if the organization has enabled users\" and does not name the error a non-forced delete raises (OrganizationStateException is a guess), so that precondition is not enforced."
 structural_gaps:
-  - "Organization.State is always ACTIVE and deletion is immediate: no asynchronous Creating/Deleting organization lifecycle exists to model."
+  - "Organization deletion is immediate: the SDK documents no Deleting state to model."
   - "DeleteOrganization.DeleteIdentityCenterApplication has no effect: no IAM Identity Center application is modeled."
   - "CreateOrganization.KmsKeyArn is accepted but not stored: no SDK output echoes it and no mailbox encryption happens."
 deferred: []
@@ -146,6 +146,16 @@ leaks: {status: fixed, note: "Found and fixed a real cascade-cleanup leak class 
 ---
 
 ## Notes
+
+## 2026-10-10 realism pass
+
+- Organization ids are now `m-` + 32 hex (34 chars); the 22-char ids failed the SDK/CLI `OrganizationId` length check.
+- Validated: Alias (1-62, letters/digits/single hyphens, no `d-` prefix), domain names, user (64), group (256) and resource (20) names.
+- MaxResults (1-100) and NextToken are validated for every list op; tokens are opaque base64.
+- Opt-in `SetLifecycleDelay` (default 0): organizations report REQUESTED then CREATING before ACTIVE (other ops return OrganizationStateException meanwhile); mailbox export jobs ramp EstimatedProgress and finish COMPLETED (cancel after that is rejected). With the default, export jobs stay RUNNING as before.
+- StartMailboxExportJob requires EntityId/RoleArn/KmsKeyArn/S3BucketName and an existing user or resource.
+- Missing-organization errors are OrganizationNotFoundException everywhere (several mailbox ops returned EntityNotFoundException); error messages no longer repeat the code.
+- Kept lenient: a quota is still not enforced for StartMailboxExportJob (none published).
 
 Protocol: awsjson1.1, single POST endpoint, `X-Amz-Target: WorkMailService.<Op>`.
 Route matcher is a simple header-prefix check (`service.PriorityHeaderExact`); every

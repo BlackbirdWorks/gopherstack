@@ -29,8 +29,8 @@ func (b *InMemoryBackend) CreateDatasetGroup(
 	b.mu.Lock("CreateDatasetGroup")
 	defer b.mu.Unlock()
 
-	if name == "" {
-		return nil, fmt.Errorf("%w: name is required", ErrValidation)
+	if err := validateName("name", name); err != nil {
+		return nil, err
 	}
 	if b.datasetGroups.Has(name) {
 		return nil, fmt.Errorf("%w: dataset group %q already exists", ErrAlreadyExists, name)
@@ -47,6 +47,7 @@ func (b *InMemoryBackend) CreateDatasetGroup(
 		KmsKeyArn:           kmsKeyArn,
 		RoleArn:             roleArn,
 		Status:              statusActive,
+		lc:                  b.lifecycle(),
 		CreationDateTime:    now,
 		LastUpdatedDateTime: now,
 	}

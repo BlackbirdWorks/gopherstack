@@ -20,8 +20,8 @@ func (b *InMemoryBackend) CreateMetricAttribution(
 	b.mu.Lock("CreateMetricAttribution")
 	defer b.mu.Unlock()
 
-	if name == "" {
-		return nil, fmt.Errorf("%w: name is required", ErrValidation)
+	if err := validateName("name", name); err != nil {
+		return nil, err
 	}
 	if len(metrics) == 0 {
 		return nil, fmt.Errorf("%w: metrics is required", ErrValidation)
@@ -41,6 +41,7 @@ func (b *InMemoryBackend) CreateMetricAttribution(
 		Metrics:              append([]MetricAttribute(nil), metrics...),
 		MetricsOutputConfig:  metricsOutputConfig,
 		Status:               statusActive,
+		lc:                   b.lifecycle(),
 		CreationDateTime:     now,
 		LastUpdatedDateTime:  now,
 	}

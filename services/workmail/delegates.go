@@ -11,7 +11,7 @@ func (b *InMemoryBackend) AssociateDelegateToResource(orgID, resourceID, entityI
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	r := b.findResource(orgID, resourceID)
 	if r == nil {
@@ -34,7 +34,7 @@ func (b *InMemoryBackend) DisassociateDelegateFromResource(
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	r := b.findResource(orgID, resourceID)
 	if r == nil {
@@ -60,7 +60,7 @@ func (b *InMemoryBackend) ListResourceDelegates(
 	defer b.mu.RUnlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return nil, "", fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return nil, "", fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	r := b.findResource(orgID, resourceID)
 	if r == nil {

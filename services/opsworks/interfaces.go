@@ -132,6 +132,8 @@ type StorageBackend interface {
 // against aws-sdk-go-v2/service/opsworks@v1.31.0's types.go) -- a previous
 // pass invented one and serialized it on the wire, which this pass removed.
 type Stack struct {
+	CustomCookbooksSource     *CookbooksSource
+	UseCustomCookbooks        *bool
 	CreatedAt                 time.Time
 	ConfigurationManager      *StackConfigurationManager
 	ChefConfiguration         *ChefConfiguration
@@ -162,6 +164,16 @@ type StackConfigurationManager struct {
 	Version string
 }
 
+// CookbooksSource mirrors the real types.Source; Password and SshKey are write-only and never returned.
+type CookbooksSource struct {
+	Type     string `json:"type,omitempty"`
+	URL      string `json:"url,omitempty"`
+	Username string `json:"username,omitempty"`
+	Password string `json:"password,omitempty"`
+	SSHKey   string `json:"sshKey,omitempty"`
+	Revision string `json:"revision,omitempty"`
+}
+
 // ChefConfiguration mirrors the real types.ChefConfiguration (confirmed
 // against aws-sdk-go-v2/service/opsworks@v1.31.0's types.go).
 type ChefConfiguration struct {
@@ -169,12 +181,10 @@ type ChefConfiguration struct {
 	ManageBerkshelf  bool
 }
 
-// CreateStackOptions carries CreateStack's optional parameters. AWS's
-// CreateStackInput also has CustomCookbooksSource/UseCustomCookbooks, which
-// remain unmodeled -- honoring a cookbook source would mean fetching from a
-// git/svn/s3/http repository, which this backend has no model for (see
-// PARITY.md's items_still_open).
+// CreateStackOptions carries CreateStack's optional parameters. AWS's.
 type CreateStackOptions struct {
+	CustomCookbooksSource     *CookbooksSource
+	UseCustomCookbooks        *bool
 	ConfigurationManager      *StackConfigurationManager
 	ChefConfiguration         *ChefConfiguration
 	UseOpsworksSecurityGroups *bool
@@ -192,6 +202,8 @@ type CreateStackOptions struct {
 
 // CloneStackOptions carries CloneStack's optional overrides; a zero value inherits from the source stack.
 type CloneStackOptions struct {
+	CustomCookbooksSource     *CookbooksSource
+	UseCustomCookbooks        *bool
 	ClonePermissions          *bool
 	ConfigurationManager      *StackConfigurationManager
 	ChefConfiguration         *ChefConfiguration
@@ -216,6 +228,8 @@ type CloneStackOptions struct {
 // (confirmed against api_op_UpdateStack.go) -- a stack's VPC cannot change
 // after creation.
 type UpdateStackOptions struct {
+	CustomCookbooksSource     *CookbooksSource
+	UseCustomCookbooks        *bool
 	ConfigurationManager      *StackConfigurationManager
 	ChefConfiguration         *ChefConfiguration
 	UseOpsworksSecurityGroups *bool

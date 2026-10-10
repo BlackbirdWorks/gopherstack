@@ -279,7 +279,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
-		return writeError(c, http.StatusNotFound, errResp("ResourceNotFoundException", err.Error()))
+		return writeError(c, http.StatusBadRequest, errResp("ResourceNotFoundException", err.Error()))
 	case errors.Is(err, awserr.ErrInvalidParameter):
 		return writeError(c, http.StatusBadRequest, errResp("ValidationException", err.Error()))
 	case errors.Is(err, errUnknownAction):

@@ -19,8 +19,8 @@ func (b *InMemoryBackend) CreateRecommender(
 	b.mu.Lock("CreateRecommender")
 	defer b.mu.Unlock()
 
-	if name == "" {
-		return nil, fmt.Errorf("%w: name is required", ErrValidation)
+	if err := validateName("name", name); err != nil {
+		return nil, err
 	}
 	if b.recommenders.Has(name) {
 		return nil, fmt.Errorf("%w: recommender %q already exists", ErrAlreadyExists, name)
@@ -40,6 +40,7 @@ func (b *InMemoryBackend) CreateRecommender(
 		DatasetGroupArn:                    datasetGroupArn,
 		RecipeArn:                          recipeArn,
 		Status:                             statusActive,
+		lc:                                 b.lifecycle(),
 		MinRecommendationRequestsPerSecond: minRPS,
 		RecommenderConfig:                  recommenderConfig,
 		CreationDateTime:                   now,
@@ -97,7 +98,7 @@ func (b *InMemoryBackend) UpdateRecommender(
 		keyCreationDateTime:    awstime.Epoch(r.LastUpdatedDateTime),
 		keyLastUpdatedDateTime: awstime.Epoch(r.LastUpdatedDateTime),
 		"recommenderConfig":    r.RecommenderConfig,
-		keyStatus:              r.Status,
+		keyStatus:              r.lc.resourceStatus(r.Status, r.CreationDateTime),
 	}
 
 	return r, nil

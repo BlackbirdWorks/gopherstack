@@ -83,6 +83,6 @@ func TestErrorContentType(t *testing.T) {
 
 	h := newTestHandler(t)
 	rec := doTarget(t, h, "DescribeStacks", map[string]any{"StackIds": []string{"missing"}})
-	require.Equal(t, http.StatusNotFound, rec.Code)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Equal(t, "application/x-amz-json-1.1", rec.Header().Get("Content-Type"))
 }

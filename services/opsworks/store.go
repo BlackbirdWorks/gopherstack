@@ -3,6 +3,7 @@ package opsworks
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -11,45 +12,36 @@ import (
 
 // InMemoryBackend is an in-memory OpsWorks backend.
 type InMemoryBackend struct {
-	mu       *lockmetrics.RWMutex
-	registry *store.Registry
-
-	stacks *store.Table[storedStack]
-
-	layers             *store.Table[storedLayer]
-	layersByStack      *store.Index[storedLayer]
-	instances          *store.Table[storedInstance]
-	instancesByStack   *store.Index[storedInstance]
-	apps               *store.Table[storedApp]
-	appsByStack        *store.Index[storedApp]
-	deployments        *store.Table[storedDeployment]
-	deploymentsByStack *store.Index[storedDeployment]
-	commands           *store.Table[storedCommand]
-
-	tags map[string]map[string]string
-
-	userProfiles *store.Table[storedUserProfile]
-	elasticLBs   *store.Table[storedElasticLoadBalancer]
-	elasticIPs   *store.Table[storedElasticIP]
-
+	userProfiles          *store.Table[storedUserProfile]
+	rdsDBInstancesByStack *store.Index[storedRdsDBInstance]
+	loadBasedAutoScale    *store.Table[storedLoadBasedAutoScaling]
+	stacks                *store.Table[storedStack]
+	layers                *store.Table[storedLayer]
+	layersByStack         *store.Index[storedLayer]
+	instances             *store.Table[storedInstance]
+	instancesByStack      *store.Index[storedInstance]
+	apps                  *store.Table[storedApp]
+	appsByStack           *store.Index[storedApp]
+	deployments           *store.Table[storedDeployment]
+	deploymentsByStack    *store.Index[storedDeployment]
+	commands              *store.Table[storedCommand]
+	tags                  map[string]map[string]string
+	registry              *store.Registry
+	mu                    *lockmetrics.RWMutex
+	ecsClustersByStack    *store.Index[storedEcsCluster]
 	volumes               *store.Table[storedVolume]
 	volumesByStack        *store.Index[storedVolume]
 	rdsDBInstances        *store.Table[storedRdsDBInstance]
-	rdsDBInstancesByStack *store.Index[storedRdsDBInstance]
+	elasticLBs            *store.Table[storedElasticLoadBalancer]
 	ecsClusters           *store.Table[storedEcsCluster]
-	ecsClustersByStack    *store.Index[storedEcsCluster]
+	elasticIPs            *store.Table[storedElasticIP]
 	permissions           *store.Table[storedPermission]
 	permissionsByStack    *store.Index[storedPermission]
-
-	timeBasedAutoScale *store.Table[storedTimeBasedAutoScaling]
-	loadBasedAutoScale *store.Table[storedLoadBasedAutoScaling]
-
-	// myUserProfileSSHKey backs the synthetic "current user" DescribeMyUserProfile
-	// returns -- there is no real per-caller IAM identity in this backend.
-	myUserProfileSSHKey string
-
-	accountID string
-	region    string
+	timeBasedAutoScale    *store.Table[storedTimeBasedAutoScaling]
+	myUserProfileSSHKey   string
+	accountID             string
+	region                string
+	lifecycleDelay        time.Duration
 }
 
 // NewInMemoryBackend creates a new in-memory OpsWorks backend.

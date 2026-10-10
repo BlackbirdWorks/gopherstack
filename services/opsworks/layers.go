@@ -32,7 +32,7 @@ func isValidLayerType(layerType string) bool {
 func (b *InMemoryBackend) CreateLayer(
 	stackID, layerType, name, shortname string, settings LayerSettings,
 ) (*Layer, error) {
-	if name == "" || shortname == "" || stackID == "" || !isValidLayerType(layerType) {
+	if name == "" || shortname == "" || stackID == "" || !isValidLayerType(layerType) || !validShortname(shortname) {
 		return nil, ErrValidation
 	}
 

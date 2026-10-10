@@ -126,7 +126,7 @@ func TestElasticIps(t *testing.T) {
 				rec = doTarget(t, h, "DescribeElasticIps", map[string]any{
 					"Ips": []string{"5.6.7.8"},
 				})
-				assert.Equal(t, http.StatusNotFound, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 	}

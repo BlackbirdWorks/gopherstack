@@ -69,7 +69,7 @@ func batchInferenceJobToMap(job *BatchInferenceJob) map[string]any {
 		"jobInput":              job.JobInput,
 		keyJobOutput:            job.JobOutput,
 		"batchInferenceJobMode": job.BatchInferenceJobMode,
-		keyStatus:               job.Status,
+		keyStatus:               job.lc.jobStatus(job.Status, job.CreationDateTime),
 		keyCreationDateTime:     awstime.Epoch(job.CreationDateTime),
 		keyLastUpdatedDateTime:  awstime.Epoch(job.LastUpdatedDateTime),
 	}
@@ -102,7 +102,7 @@ func batchInferenceJobSummaryToMap(job *BatchInferenceJob) map[string]any {
 		keyJobName:              job.JobName,
 		keySolutionVersionArn:   job.SolutionVersionArn,
 		"batchInferenceJobMode": job.BatchInferenceJobMode,
-		keyStatus:               job.Status,
+		keyStatus:               job.lc.jobStatus(job.Status, job.CreationDateTime),
 		keyCreationDateTime:     awstime.Epoch(job.CreationDateTime),
 		keyLastUpdatedDateTime:  awstime.Epoch(job.LastUpdatedDateTime),
 	}
@@ -168,7 +168,7 @@ func batchSegmentJobToMap(job *BatchSegmentJob) map[string]any {
 		keyRoleArn:             job.RoleArn,
 		"jobInput":             job.JobInput,
 		keyJobOutput:           job.JobOutput,
-		keyStatus:              job.Status,
+		keyStatus:              job.lc.jobStatus(job.Status, job.CreationDateTime),
 		keyCreationDateTime:    awstime.Epoch(job.CreationDateTime),
 		keyLastUpdatedDateTime: awstime.Epoch(job.LastUpdatedDateTime),
 	}
@@ -191,7 +191,7 @@ func batchSegmentJobSummaryToMap(job *BatchSegmentJob) map[string]any {
 		keyBatchSegmentJobArn:  job.BatchSegmentJobArn,
 		keyJobName:             job.JobName,
 		keySolutionVersionArn:  job.SolutionVersionArn,
-		keyStatus:              job.Status,
+		keyStatus:              job.lc.jobStatus(job.Status, job.CreationDateTime),
 		keyCreationDateTime:    awstime.Epoch(job.CreationDateTime),
 		keyLastUpdatedDateTime: awstime.Epoch(job.LastUpdatedDateTime),
 	}

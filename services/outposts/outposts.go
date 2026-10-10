@@ -23,6 +23,10 @@ func (b *InMemoryBackend) CreateOutpost(req *createOutpostRequest) (*Outpost, er
 		return nil, validationError("SiteId is required")
 	}
 
+	if err := validateSiteFields(req.Name, req.Description, ""); err != nil {
+		return nil, err
+	}
+
 	if req.SupportedHardwareType != "" && !isValidHardwareType(req.SupportedHardwareType) {
 		return nil, validationError("invalid SupportedHardwareType: " + req.SupportedHardwareType)
 	}
