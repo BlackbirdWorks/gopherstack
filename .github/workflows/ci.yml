@@ -167,9 +167,15 @@ jobs:
       - name: Run govulncheck and save to file
         run: govulncheck -mode=binary -format sarif "$RUNNER_TEMP/gopherstack" > govulncheck-raw.sarif
 
-      # Binary mode emits identical stacks; the SARIF schema requires unique items.
-      - name: Deduplicate SARIF stacks
-        run: jq '.runs[].results[] |= (if .stacks then .stacks |= unique else . end)' govulncheck-raw.sarif > govulncheck.sarif
+      # Binary mode emits identical stacks (schema requires unique items) and no
+      # locations (code scanning requires one); anchor to go.mod:1 like source mode.
+      - name: Normalize SARIF for code scanning
+        run: |
+          jq '.runs[].results[] |= (
+            (if .stacks then .stacks |= unique else . end)
+            | (if (.locations // []) | length == 0
+               then .locations = [{physicalLocation: {artifactLocation: {uri: "go.mod"}, region: {startLine: 1}}}]
+               else . end))' govulncheck-raw.sarif > govulncheck.sarif
 
       - name: Upload govulncheck SARIF
         if: always()
