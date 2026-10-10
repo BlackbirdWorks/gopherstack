@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	accountbackend "github.com/blackbirdworks/gopherstack/services/account"
 	apprunnerbackend "github.com/blackbirdworks/gopherstack/services/apprunner"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	bedrockbackend "github.com/blackbirdworks/gopherstack/services/bedrock"
@@ -15,6 +16,7 @@ import (
 	efsbackend "github.com/blackbirdworks/gopherstack/services/efs"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
 	elasticbeanstalkbackend "github.com/blackbirdworks/gopherstack/services/elasticbeanstalk"
+	fsxbackend "github.com/blackbirdworks/gopherstack/services/fsx"
 	inspector2backend "github.com/blackbirdworks/gopherstack/services/inspector2"
 	kinesisanalyticsv2backend "github.com/blackbirdworks/gopherstack/services/kinesisanalyticsv2"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
@@ -22,6 +24,7 @@ import (
 	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
 	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
+	networkmanagerbackend "github.com/blackbirdworks/gopherstack/services/networkmanager"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	quicksightbackend "github.com/blackbirdworks/gopherstack/services/quicksight"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
@@ -66,6 +69,9 @@ type LifecycleSettings struct {
 	Route53Resolver              time.Duration `name:"route53resolver"                env:"ROUTE53RESOLVER_LIFECYCLE_DELAY"      default:"0s" help:"Route 53 Resolver endpoint CREATING/UPDATING and rule association CREATING window."`             //nolint:lll // config struct tags are intentionally verbose
 	DirectoryService             time.Duration `name:"directoryservice"               env:"DIRECTORYSERVICE_LIFECYCLE_DELAY"     default:"0s" help:"Directory Service transitional-state window; 0 keeps the built-in sub-second dwell."`            //nolint:lll // config struct tags are intentionally verbose
 	MediaLive                    time.Duration `name:"medialive"                      env:"MEDIALIVE_LIFECYCLE_DELAY"            default:"0s" help:"MediaLive channel/multiplex CREATING/STARTING/STOPPING/DELETING window."`                        //nolint:lll // config struct tags are intentionally verbose
+	FSx                          time.Duration `name:"fsx"                            env:"FSX_LIFECYCLE_DELAY"                  default:"0s" help:"FSx resource CREATING window."`                                                                  //nolint:lll // config struct tags are intentionally verbose
+	NetworkManager               time.Duration `name:"networkmanager"                 env:"NETWORKMANAGER_LIFECYCLE_DELAY"       default:"0s" help:"Network Manager PENDING/DELETING window (built-in 100ms)."`                                      //nolint:lll // config struct tags are intentionally verbose
+	Account                      time.Duration `name:"account"                        env:"ACCOUNT_LIFECYCLE_DELAY"              default:"0s" help:"Account region ENABLING/DISABLING window (built-in 100ms)."`                                     //nolint:lll // config struct tags are intentionally verbose
 }
 
 func (l LifecycleSettings) effective(specific time.Duration) time.Duration {
@@ -194,6 +200,32 @@ func applyWorkSpaces(reg service.Registerable, l LifecycleSettings) {
 	}
 }
 
+func applyFSx(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*fsxbackend.Handler); ok {
+		if bk, isBk := h.Backend.(*fsxbackend.InMemoryBackend); isBk {
+			bk.SetLifecycleDelay(l.effective(l.FSx))
+		}
+	}
+}
+
+func applyNetworkManager(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*networkmanagerbackend.Handler); ok {
+		if d := l.effective(l.NetworkManager); d > 0 {
+			h.Backend.SetLifecycleDelay(d)
+		}
+	}
+}
+
+func applyAccount(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*accountbackend.Handler); ok {
+		if bk, isBk := h.Backend.(*accountbackend.InMemoryBackend); isBk {
+			if d := l.effective(l.Account); d > 0 {
+				bk.SetLifecycleDelay(d)
+			}
+		}
+	}
+}
+
 func applyAppRunner(reg service.Registerable, l LifecycleSettings) {
 	if h, ok := reg.(*apprunnerbackend.Handler); ok {
 		if bk, isBk := h.Backend.(*apprunnerbackend.InMemoryBackend); isBk {
@@ -307,6 +339,9 @@ func wireLifecycleDelays(byName map[string]service.Registerable, l LifecycleSett
 		"Route53Resolver":    applyRoute53Resolver,
 		"DirectoryService":   applyDirectoryService,
 		"MediaLive":          applyMediaLive,
+		"FSx":                applyFSx,
+		"NetworkManager":     applyNetworkManager,
+		"Account":            applyAccount,
 	}
 
 	for name, apply := range appliers {

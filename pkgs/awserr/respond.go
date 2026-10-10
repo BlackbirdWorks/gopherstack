@@ -79,6 +79,8 @@ func Classify(err error, table map[error]APIError, fallback APIError) APIError {
 type jsonErrorEnvelope struct {
 	Type    string `json:"__type"`
 	Message string `json:"message"`
+	// MessageCap: schema-serde SDK clients match the modeled "Message" key case-sensitively.
+	MessageCap string `json:"Message"`
 }
 
 // restXMLError is the S3-style bare <Error> document.
@@ -127,7 +129,7 @@ func Write(c *echo.Context, proto Protocol, e APIError) error {
 }
 
 func writeJSON(c *echo.Context, contentType string, e APIError) error {
-	body, _ := json.Marshal(jsonErrorEnvelope{Type: e.Code, Message: e.Message})
+	body, _ := json.Marshal(jsonErrorEnvelope{Type: e.Code, Message: e.Message, MessageCap: e.Message})
 	checksum := crc32.ChecksumIEEE(body)
 	c.Response().Header().Set("X-Amz-Crc32", strconv.FormatUint(uint64(checksum), 10))
 	c.Response().Header().Set("Content-Type", contentType)

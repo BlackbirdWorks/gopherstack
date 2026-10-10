@@ -24,6 +24,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/elasticbeanstalk"
 	ebtypes "github.com/aws/aws-sdk-go-v2/service/elasticbeanstalk/types"
 	"github.com/aws/aws-sdk-go-v2/service/elasticsearchservice"
+	fsxsdk "github.com/aws/aws-sdk-go-v2/service/fsx"
+	fsxtypes "github.com/aws/aws-sdk-go-v2/service/fsx/types"
 	"github.com/aws/aws-sdk-go-v2/service/inspector2"
 	inspector2types "github.com/aws/aws-sdk-go-v2/service/inspector2/types"
 	"github.com/aws/aws-sdk-go-v2/service/kinesisanalyticsv2"
@@ -642,6 +644,33 @@ func lifecycleKnobs() []lifecycleKnob {
 					require.Len(t, out.Environments, 1)
 
 					return out.Environments[0].Status == ebtypes.EnvironmentStatusLaunching
+				}
+			},
+		},
+		{
+			name: "fsx",
+			set:  func(l *LifecycleSettings, d time.Duration) { l.FSx = d },
+			start: func(t *testing.T, cfg aws.Config) func() bool {
+				t.Helper()
+
+				c := fsxsdk.NewFromConfig(cfg)
+				created, err := c.CreateFileSystem(t.Context(), &fsxsdk.CreateFileSystemInput{
+					FileSystemType:  fsxtypes.FileSystemTypeWindows,
+					SubnetIds:       []string{"subnet-0123abcd"},
+					StorageCapacity: aws.Int32(32),
+					WindowsConfiguration: &fsxtypes.CreateFileSystemWindowsConfiguration{
+						ThroughputCapacity: aws.Int32(8),
+					},
+				})
+				require.NoError(t, err)
+
+				return func() bool {
+					out, dErr := c.DescribeFileSystems(t.Context(), &fsxsdk.DescribeFileSystemsInput{
+						FileSystemIds: []string{aws.ToString(created.FileSystem.FileSystemId)},
+					})
+					require.NoError(t, dErr)
+
+					return out.FileSystems[0].Lifecycle == fsxtypes.FileSystemLifecycleCreating
 				}
 			},
 		},

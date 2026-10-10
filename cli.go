@@ -11591,6 +11591,7 @@ func setupRegistry(
 	// Chaos middleware runs outside the telemetry wrapper (as a global middleware).
 	// It extracts service/region/operation directly from the HTTP request headers so
 	// it does not depend on context values that are only set by the telemetry wrapper.
+	registry.Use(service.JSONErrorMessageMiddleware())
 	registry.Use(chaos.Middleware(faultStore))
 
 	// Records the region of every request so the dashboard can discover which

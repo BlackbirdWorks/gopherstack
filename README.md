@@ -343,6 +343,9 @@ By default resources settle instantly. Set a dwell to make Creating/Processing/P
 | `--lifecycle-awsconfig` | `AWSCONFIG_LIFECYCLE_DELAY` | AWS Config conformance pack `CREATE_IN_PROGRESS` window. |
 | `--lifecycle-inspector2` | `INSPECTOR2_LIFECYCLE_DELAY` | Inspector2 `ENABLING`/`DISABLING` window. |
 | `--lifecycle-apprunner` | `APPRUNNER_OPERATION_DELAY` | App Runner service `OPERATION_IN_PROGRESS` window after create/update/pause/resume/deploy/delete. |
+| `--lifecycle-fsx` | `FSX_LIFECYCLE_DELAY` | FSx file system/backup/volume/snapshot `CREATING` window. |
+| `--lifecycle-networkmanager` | `NETWORKMANAGER_LIFECYCLE_DELAY` | Network Manager `PENDING`/`DELETING` window (built-in `100ms`). |
+| `--lifecycle-account` | `ACCOUNT_LIFECYCLE_DELAY` | Account region `ENABLING`/`DISABLING` window (built-in `100ms`). |
 | `--lifecycle-workspaces` | `WORKSPACES_LIFECYCLE_DELAY` | WorkSpaces `PENDING` / directory `REGISTERING` window. |
 | `--lifecycle-quicksight` | `QUICKSIGHT_CREATION_DELAY` | QuickSight dashboard/analysis/data source `CREATION_IN_PROGRESS` window. |
 | `--lifecycle-quicksight-ingestion` | `QUICKSIGHT_INGESTION_DELAY` | QuickSight manual ingestion `RUNNING` window (built-in `1s`; ignores the global delay). |

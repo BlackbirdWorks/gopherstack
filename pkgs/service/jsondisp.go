@@ -19,6 +19,15 @@ type JSONErrorResponse struct {
 	Message string `json:"message"`
 }
 
+// MarshalJSON also emits "Message": schema-serde SDK clients match the modeled key case-sensitively.
+func (r JSONErrorResponse) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Type       string `json:"__type"`
+		Message    string `json:"message"`
+		MessageCap string `json:"Message"`
+	}{r.Type, r.Message, r.Message})
+}
+
 // DispatchFunc is the signature for service-specific action dispatch functions.
 // It receives the request context, the action name extracted from X-Amz-Target,
 // and the raw request body; it returns pre-marshaled JSON or an error.
