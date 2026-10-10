@@ -21,9 +21,11 @@ import (
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
 	elasticbeanstalkbackend "github.com/blackbirdworks/gopherstack/services/elasticbeanstalk"
 	fsxbackend "github.com/blackbirdworks/gopherstack/services/fsx"
+	grafanabackend "github.com/blackbirdworks/gopherstack/services/grafana"
 	inspector2backend "github.com/blackbirdworks/gopherstack/services/inspector2"
 	iotanalyticsbackend "github.com/blackbirdworks/gopherstack/services/iotanalytics"
 	iotwirelessbackend "github.com/blackbirdworks/gopherstack/services/iotwireless"
+	kafkaconnectbackend "github.com/blackbirdworks/gopherstack/services/kafkaconnect"
 	kinesisanalyticsv2backend "github.com/blackbirdworks/gopherstack/services/kinesisanalyticsv2"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	medialivebackend "github.com/blackbirdworks/gopherstack/services/medialive"
@@ -44,6 +46,7 @@ import (
 	textractbackend "github.com/blackbirdworks/gopherstack/services/textract"
 	transcribebackend "github.com/blackbirdworks/gopherstack/services/transcribe"
 	translatebackend "github.com/blackbirdworks/gopherstack/services/translate"
+	vpclatticebackend "github.com/blackbirdworks/gopherstack/services/vpclattice"
 	workspacesbackend "github.com/blackbirdworks/gopherstack/services/workspaces"
 )
 
@@ -97,6 +100,9 @@ type LifecycleSettings struct {
 	DAX                          time.Duration `name:"dax"                            env:"DAX_LIFECYCLE_DELAY"                  default:"0s" help:"DAX cluster and node creating/modifying/deleting window (built-in 1s)."`                         //nolint:lll // config struct tags are intentionally verbose
 	Pinpoint                     time.Duration `name:"pinpoint"                       env:"PINPOINT_LIFECYCLE_DELAY"             default:"0s" help:"Pinpoint export/import job CREATED/PROCESSING window before COMPLETED."`                         //nolint:lll // config struct tags are intentionally verbose
 	Autoscaling                  time.Duration `name:"autoscaling"                    env:"AUTOSCALING_LAUNCH_DELAY"             default:"0s" help:"Auto Scaling instance Pending window before InService."`                                         //nolint:lll // config struct tags are intentionally verbose
+	VPCLattice                   time.Duration `name:"vpclattice"                     env:"VPCLATTICE_LIFECYCLE_DELAY"           default:"0s" help:"VPC Lattice service/target group/association CREATE_IN_PROGRESS and target INITIAL window."`     //nolint:lll // config struct tags are intentionally verbose
+	KafkaConnect                 time.Duration `name:"kafkaconnect"                   env:"KAFKACONNECT_LIFECYCLE_DELAY"         default:"0s" help:"MSK Connect connector/plugin transitional window (built-in 500ms create, 300ms delete)."`        //nolint:lll // config struct tags are intentionally verbose
+	Grafana                      time.Duration `name:"grafana"                        env:"GRAFANA_LIFECYCLE_DELAY"              default:"0s" help:"Grafana workspace CREATING/UPDATING transitional window (built-in 100ms)."`                      //nolint:lll // config struct tags are intentionally verbose
 	EKS                          time.Duration `name:"eks"                            env:"EKS_LIFECYCLE_DELAY"                  default:"0s" help:"EKS transitional-state window (built-in 100ms)."`                                                //nolint:lll // config struct tags are intentionally verbose
 }
 
@@ -180,6 +186,28 @@ func applyRedshiftData(reg service.Registerable, l LifecycleSettings) {
 		if bk, isBk := h.Backend.(*redshiftdatabackend.InMemoryBackend); isBk {
 			bk.SetLifecycleDelay(l.effective(l.RedshiftData))
 		}
+	}
+}
+
+func applyVPCLattice(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*vpclatticebackend.Handler); ok {
+		if bk, isBk := h.Backend.(*vpclatticebackend.InMemoryBackend); isBk {
+			bk.SetLifecycleDelay(l.effective(l.VPCLattice))
+		}
+	}
+}
+
+func applyKafkaConnect(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*kafkaconnectbackend.Handler); ok {
+		if bk, isBk := h.Backend.(*kafkaconnectbackend.InMemoryBackend); isBk {
+			bk.SetLifecycleDelay(l.effective(l.KafkaConnect))
+		}
+	}
+}
+
+func applyGrafana(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*grafanabackend.Handler); ok {
+		h.Backend.SetLifecycleDelay(l.effective(l.Grafana))
 	}
 }
 
@@ -450,6 +478,9 @@ func wireLifecycleDelays(byName map[string]service.Registerable, l LifecycleSett
 		"Redshift":           applyRedshift,
 		"RedshiftData":       applyRedshiftData,
 		"DAX":                applyDAX,
+		"VPCLattice":         applyVPCLattice,
+		"KafkaConnect":       applyKafkaConnect,
+		"Grafana":            applyGrafana,
 		"Pinpoint":           applyPinpoint,
 		"Autoscaling":        applyAutoscaling,
 		"EKS":                applyEKS,

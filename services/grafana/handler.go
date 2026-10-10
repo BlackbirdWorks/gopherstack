@@ -170,6 +170,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.handleError(c, fmt.Errorf("%w: %s %s", errUnknownPath, c.Request().Method, c.Request().URL.Path))
 		}
 
+		if valErr := validateListQuery(c.Request()); valErr != nil {
+			return h.handleError(c, valErr)
+		}
+
 		result, dispErr := dispatchFn(ctx, c.Request(), body)
 		if dispErr != nil {
 			log.ErrorContext(ctx, "grafana: operation failed", "op", op, "error", dispErr)

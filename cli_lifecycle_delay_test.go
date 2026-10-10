@@ -52,6 +52,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/aws/aws-sdk-go-v2/service/transcribe"
 	trtypes "github.com/aws/aws-sdk-go-v2/service/transcribe/types"
+	"github.com/aws/aws-sdk-go-v2/service/vpclattice"
+	vltypes "github.com/aws/aws-sdk-go-v2/service/vpclattice/types"
 	"github.com/aws/aws-sdk-go-v2/service/workspaces"
 	wstypes "github.com/aws/aws-sdk-go-v2/service/workspaces/types"
 	"github.com/stretchr/testify/assert"
@@ -119,6 +121,24 @@ func lifecycleKnobs() []lifecycleKnob {
 					require.NoError(t, dErr)
 
 					return aws.ToBool(out.DomainStatus.Processing)
+				}
+			},
+		},
+		{
+			name: "vpclattice",
+			set:  func(l *LifecycleSettings, d time.Duration) { l.VPCLattice = d },
+			start: func(t *testing.T, cfg aws.Config) func() bool {
+				t.Helper()
+
+				c := vpclattice.NewFromConfig(cfg)
+				out, err := c.CreateService(t.Context(), &vpclattice.CreateServiceInput{Name: aws.String("lcres")})
+				require.NoError(t, err)
+
+				return func() bool {
+					got, gErr := c.GetService(t.Context(), &vpclattice.GetServiceInput{ServiceIdentifier: out.Id})
+					require.NoError(t, gErr)
+
+					return got.Status == vltypes.ServiceStatusCreateInProgress
 				}
 			},
 		},

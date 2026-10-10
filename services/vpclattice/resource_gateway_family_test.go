@@ -378,7 +378,7 @@ func TestPolicyOrphanFixedByARNNormalization(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler(t)
 
-	svcRec := doRequest(t, h, http.MethodPost, "/services", map[string]any{"name": "svc-orphan"})
+	svcRec := doRequest(t, h, http.MethodPost, "/services", map[string]any{"name": "svcx-orphan"})
 	require.Equal(t, http.StatusCreated, svcRec.Code)
 	svcID, _ := parseBody(t, svcRec)["id"].(string)
 

@@ -41,7 +41,7 @@ func TestServiceNetworkResourceAssociation_PrivateDNSEntry(t *testing.T) {
 
 			sn, err := client.CreateServiceNetwork(
 				ctx,
-				&vpclatticesdk.CreateServiceNetworkInput{Name: aws.String("sn")},
+				&vpclatticesdk.CreateServiceNetworkInput{Name: aws.String("snet")},
 			)
 			require.NoError(t, err)
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -61,7 +62,9 @@ const (
 
 	tgStatusActive = "ACTIVE"
 
-	targetStatusHealthy = "HEALTHY"
+	targetStatusHealthy  = "HEALTHY"
+	targetStatusInitial  = "INITIAL"
+	targetStatusDraining = "DRAINING"
 
 	authPolicyStateActive = "Active"
 
@@ -72,45 +75,36 @@ const (
 
 // InMemoryBackend is an in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
-	mu       *lockmetrics.RWMutex
-	registry *store.Registry
-
-	services        *store.Table[storedService]
-	servicesByName  *store.Index[storedService]
-	serviceNetworks *store.Table[storedServiceNetwork]
-	networksByName  *store.Index[storedServiceNetwork]
-	snsas           *store.Table[storedSNSA]
-	snvas           *store.Table[storedSNVA]
-
-	listeners          *store.Table[storedListener]
-	listenersByService *store.Index[storedListener]
-
-	rules           *store.Table[storedRule]
-	rulesByListener *store.Index[storedRule]
-
-	targetGroups *store.Table[storedTargetGroup]
-	tgsByName    *store.Index[storedTargetGroup]
-	targets      map[string][]*storedTarget
-
-	alss *store.Table[storedALS]
-
-	resourceGateways       *store.Table[storedResourceGateway]
-	resourceGatewaysByName *store.Index[storedResourceGateway]
-
+	endpoints                    EndpointDirectory
+	targets                      map[string][]*storedTarget
+	snras                        *store.Table[storedSNRA]
+	servicesByName               *store.Index[storedService]
+	serviceNetworks              *store.Table[storedServiceNetwork]
+	networksByName               *store.Index[storedServiceNetwork]
+	snsas                        *store.Table[storedSNSA]
+	snvas                        *store.Table[storedSNVA]
+	listeners                    *store.Table[storedListener]
+	listenersByService           *store.Index[storedListener]
+	rules                        *store.Table[storedRule]
+	rulesByListener              *store.Index[storedRule]
+	targetGroups                 *store.Table[storedTargetGroup]
+	tgsByName                    *store.Index[storedTargetGroup]
+	mu                           *lockmetrics.RWMutex
+	services                     *store.Table[storedService]
+	resourceGatewaysByName       *store.Index[storedResourceGateway]
+	alss                         *store.Table[storedALS]
 	resourceConfigurations       *store.Table[storedResourceConfiguration]
 	resourceConfigurationsByName *store.Index[storedResourceConfiguration]
-
-	snras *store.Table[storedSNRA]
-
-	domainVerifications         *store.Table[storedDomainVerification]
-	domainVerificationsByDomain *store.Index[storedDomainVerification]
-
-	authPolicies     map[string]string
-	resourcePolicies map[string]string
-	tags             map[string]map[string]string
-	endpoints        EndpointDirectory
-	accountID        string
-	region           string
+	resourceGateways             *store.Table[storedResourceGateway]
+	domainVerifications          *store.Table[storedDomainVerification]
+	domainVerificationsByDomain  *store.Index[storedDomainVerification]
+	registry                     *store.Registry
+	authPolicies                 map[string]string
+	resourcePolicies             map[string]string
+	tags                         map[string]map[string]string
+	accountID                    string
+	region                       string
+	lifecycleDelay               time.Duration
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.

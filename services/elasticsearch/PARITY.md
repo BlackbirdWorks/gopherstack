@@ -7,7 +7,7 @@
 service: elasticsearch
 sdk_module: aws-sdk-go-v2/service/elasticsearchservice@v1.45.4
 last_audit_commit: 366fb4907                    # HEAD after the 2026-09-18 reqfielddiff tier-1 sweep (reserved-instance pagination)
-last_audit_date: 2026-10-09
+last_audit_date: 2026-10-10
 overall: A            # gopherstack-6flj pass (2026-08-15): the outbound cross-cluster-search-connection
                        # family -- adjacent territory none of the 6 prior audits' notes mention -- had 3 real
                        # bugs: CreateOutboundCrossClusterSearchConnection's request/response used
@@ -886,3 +886,9 @@ ElasticsearchClusterConfig is now read and written as ColdStorageOptions{Enabled
 ## 2026-10-10 lifecycle dwell knob
 
 `--lifecycle-delay` is the fallback when `ELASTICSEARCH_PROCESSING_DELAY` is unset. Proof: root `TestLifecycleDelayWiring/elasticsearch`.
+
+### 2026-10-10: realism pass
+
+- Cluster/EBS validation on create and UpdateElasticsearchDomainConfig: instance type shape, InstanceCount 1-80, DedicatedMasterCount 3 or 5, EBS volume type (standard/gp2/gp3/io1) and size 10-16384 GiB.
+- UpgradeElasticsearchDomain and CheckElasticsearchDomainUpgrade require a known TargetVersion newer than the current one.
+- Error messages no longer repeat the exception code and use the real `Domain not found: <name>` wording.

@@ -210,6 +210,10 @@ func (h *Handler) handleListPolicyStores(
 	_ context.Context,
 	in *listPolicyStoresInput,
 ) (*listPolicyStoresOutput, error) {
+	if err := validateListParams(in.NextToken, in.MaxResults); err != nil {
+		return nil, err
+	}
+
 	maxResults := in.MaxResults
 	if maxResults <= 0 {
 		maxResults = defaultListPageSize

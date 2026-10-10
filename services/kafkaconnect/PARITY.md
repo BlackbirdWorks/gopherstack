@@ -2,7 +2,7 @@
 service: kafkaconnect
 sdk_module: aws-sdk-go-v2/service/kafkaconnect@v1.39.1
 last_audit_commit: 5bb0d02ee
-last_audit_date: 2026-10-05
+last_audit_date: 2026-10-10
 overall: A            # A: SDK-driven test/integration suite TestIntegration_KafkaConnect_ConnectorLifecycle (test/integration/kafkaconnect_test.go) + every buildable gap closed; remaining divergences are structural_gaps.
 ops:
   CreateConnector: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-10-05: CREATING, lazily RUNNING after 500ms; referenced custom plugin and worker configuration ARNs must exist (NotFoundException)"}
@@ -72,3 +72,8 @@ Grade moves B to A on `TestIntegration_KafkaConnect_ConnectorLifecycle` (test/in
 ## 2026-10-05 (gopherstack-uox6 pass 11, value semantics)
 
 CreateConnector defaults NetworkType to IPV4 (api_op_CreateConnector.go:92). Proof: `TestCreateConnector_NetworkTypeDefault`. Recorded, unchanged: RestartConnector ignores OnlyFailedTasks because no per-task state is modeled; Update capacity/configuration is one-of full replacement.
+
+### 2026-10-10: realism pass
+
+- Connector capacity validated (mcuCount 1/2/4/8, workerCount >= 1, autoscaling min <= max, maxAutoscalingTaskCount >= maxWorkerCount, cpu percentages <= 100), service execution role must be an ARN, resource names 1-128 characters, worker configuration properties must be base64. Validation runs before dependency lookups.
+- Opt-in `SetLifecycleDelay` (`--lifecycle-kafkaconnect`) overrides the built-in 500ms provisioning and 300ms deletion windows. Malformed `nextToken` and `maxResults` outside 1-100 are BadRequestException.

@@ -118,7 +118,7 @@ func TestSNSAIncludesCustomDomainNameAndDNSEntry(t *testing.T) {
 	h := newTestHandler(t)
 
 	recSvc := doRequest(t, h, http.MethodPost, "/services", map[string]any{
-		"name":             "svc-snsa-dns",
+		"name":             "svcx-snsa-dns",
 		"customDomainName": "example.com",
 	})
 	require.Equal(t, http.StatusCreated, recSvc.Code)
@@ -172,7 +172,7 @@ func TestServiceIncludesHostedZoneIDInDNSEntry(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	rec := doRequest(t, h, http.MethodPost, "/services", map[string]any{"name": "svc-hosted-zone"})
+	rec := doRequest(t, h, http.MethodPost, "/services", map[string]any{"name": "svcx-hosted-zone"})
 	require.Equal(t, http.StatusCreated, rec.Code)
 	svc := parseBody(t, rec)
 

@@ -342,6 +342,9 @@ By default resources settle instantly. Set a dwell to make Creating/Processing/P
 | `--lifecycle-dax` | `DAX_LIFECYCLE_DELAY` | DAX cluster/node `creating`/`modifying`/`deleting` window (built-in `1s`). |
 | `--lifecycle-pinpoint` | `PINPOINT_LIFECYCLE_DELAY` | Pinpoint export/import job `CREATED`/`PROCESSING` window before `COMPLETED`. |
 | `--lifecycle-autoscaling` | `AUTOSCALING_LAUNCH_DELAY` | Auto Scaling instance `Pending` window (with an `InProgress` activity) before `InService`. |
+| `--lifecycle-vpclattice` | `VPCLATTICE_LIFECYCLE_DELAY` | VPC Lattice service/target group/association `CREATE_IN_PROGRESS` (and deletes `DELETE_IN_PROGRESS`) and registered-target `INITIAL`/`DRAINING` window. |
+| `--lifecycle-kafkaconnect` | `KAFKACONNECT_LIFECYCLE_DELAY` | MSK Connect connector/custom plugin transitional window (built-in `500ms` create, `300ms` delete). |
+| `--lifecycle-grafana` | `GRAFANA_LIFECYCLE_DELAY` | Grafana workspace `CREATING`/`UPDATING` window (built-in `100ms`). |
 | `--lifecycle-eks` | `EKS_LIFECYCLE_DELAY` | EKS transitional-state window (built-in `100ms`). |
 | `--lifecycle-docdb` | `DOCDB_LIFECYCLE_DELAY` | DocumentDB cluster/instance `creating` window. |
 | `--lifecycle-neptune` | `NEPTUNE_LIFECYCLE_DELAY` | Neptune cluster/instance `creating` window. |

@@ -75,7 +75,7 @@ func (b *InMemoryBackend) AssociatePackage(ctx context.Context, packageID, domai
 	}
 
 	if _, exists = b.domainGet(region, domainName); !exists {
-		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+		return nil, fmt.Errorf("%w: Domain not found: %s", ErrDomainNotFound, domainName)
 	}
 
 	assocs := b.packageAssociationsStore(region)
@@ -183,7 +183,7 @@ func (b *InMemoryBackend) DissociatePackage(ctx context.Context, packageID, doma
 	}
 
 	if _, exists = b.domainGet(region, domainName); !exists {
-		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+		return nil, fmt.Errorf("%w: Domain not found: %s", ErrDomainNotFound, domainName)
 	}
 
 	out := b.domainPackageLocked(region, pkg, domainName)
@@ -276,7 +276,7 @@ func (b *InMemoryBackend) ListPackagesForDomain(ctx context.Context, domainName 
 	defer b.mu.RUnlock()
 
 	if _, exists := b.domainGet(region, domainName); !exists {
-		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+		return nil, fmt.Errorf("%w: Domain not found: %s", ErrDomainNotFound, domainName)
 	}
 
 	var result []*DomainPackage

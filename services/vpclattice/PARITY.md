@@ -1,7 +1,7 @@
 service: vpclattice
 sdk_module: aws-sdk-go-v2/service/vpclattice@v1.25.5
 last_audit_commit: 2bc650bf9
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
 # 2026-08-21 gopherstack-r80d batch 13 (required-output cut): last_audit_commit
 # left unchanged per this campaign's convention (the orchestrator, not this
 # pass, creates the commit; see gopherstack-z31a). 1 bug found and fixed,
@@ -126,7 +126,7 @@ gaps: []
 items_still_open:
   - "ServiceNetworkResourceAssociation dnsEntry is never emitted: neither the SDK, the API reference nor the VPC Lattice user guide (resource-configuration, service-network-associations) documents how its domain name or hosted zone is derived. privateDnsEntry is served from the resource configuration's custom domain (TestServiceNetworkResourceAssociation_PrivateDNSEntry)."
 structural_gaps:
-  - "failureCode/failureMessage on Service, ServiceNetworkVpcAssociation and ServiceNetworkResourceAssociation are never set: creates are synchronous and never reach a *_FAILED state."
+  - "failureCode/failureMessage on Service, ServiceNetworkVpcAssociation and ServiceNetworkResourceAssociation are never set: creates settle after an optional lifecycle delay and never reach a *_FAILED state."
   - "DomainVerification.Status never advances past PENDING: AWS polls public DNS for the TXT record (name/value are emulator-derived), and there is no DNS to observe."
   - "GetResourceGateway managedBy stays unset: no other AWS service provisions gateways here."
 leaks: {status: clean, note: "no goroutines/timers/background workers in this backend; Reset()/Snapshot()/Restore() all take the single lockmetrics.RWMutex and touch only in-memory maps/store.Table instances. No janitor loop to check. DeleteService/DeleteServiceNetwork now also cascade-delete their dependent listeners/rules/resourcePolicy/authPolicy/accessLogSubscriptions/tags instead of leaving ghost rows behind (previously: only tags were cleaned up on these two deletes; DeleteListener/DeleteTargetGroup already cascaded correctly and are unchanged)."
@@ -385,3 +385,9 @@ CreateTargetGroup stores the documented defaults (ProtocolVersion HTTP1, IP ipAd
 ## 2026-10-05 (dropped members: clientToken, SharingConfig, domain-verification filter)
 
 The twelve creates that document `clientToken` (CreateService, CreateServiceNetwork, CreateListener, CreateRule, CreateTargetGroup, CreateAccessLogSubscription, CreateResourceGateway, CreateResourceConfiguration, CreateServiceNetwork{Resource,Service,Vpc}Association, StartDomainVerification) replay on a reused token and return ConflictException when it is reused with other parameters. CreateServiceNetwork stores and returns `sharingConfig`. ListResourceConfigurations applies `domainVerificationIdentifier` (a CHILD inherits its group's). Proof: `client_token_test.go`.
+
+### 2026-10-10: realism pass
+
+- Names validated per the API reference (3-40/63/128 chars, a-z0-9 and hyphens, no leading/trailing/doubled hyphen, `svc-`/`tg-`/`listener-`/`rule-` prefixes rejected; service networks have no prefix rule). Listener port 1-65535, rule priority 1-2000 and unique per listener, target port 1-65535, forward actions must reference an existing target group. Lenient: other create paths keep their prior checks.
+- Opt-in `SetLifecycleDelay` (default 0, `--lifecycle-vpclattice`): services, target groups and service-network associations report CREATE_IN_PROGRESS then ACTIVE; deleting a service or target group reports DELETE_IN_PROGRESS before removal; registered targets are INITIAL then HEALTHY and deregistered ones DRAINING. Progression is lazy (settled on the next read or write), not janitor-driven. DeleteService now always answers DELETE_IN_PROGRESS.
+- Bare sentinel errors get readable messages; ResourceNotFoundException names the resource (and resourceId/resourceType) when the request addressed a single one. Malformed `nextToken` and `maxResults` outside 1-100 are ValidationException.

@@ -125,7 +125,7 @@ func TestServiceDelete_ConflictWhileAssociated(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler(t)
 
-	svcID := createTestService(t, h, "svc-conflict")
+	svcID := createTestService(t, h, "svcx-conflict")
 
 	snRec := doRequest(t, h, http.MethodPost, "/servicenetworks", map[string]any{"name": "sn-conflict"})
 	require.Equal(t, http.StatusCreated, snRec.Code)

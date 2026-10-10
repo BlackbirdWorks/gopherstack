@@ -16,7 +16,11 @@ func (b *InMemoryBackend) UpdateDomainConfig(ctx context.Context, name string, c
 
 	d, exists := b.domainGet(region, name)
 	if !exists {
-		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, name)
+		return nil, fmt.Errorf("%w: Domain not found: %s", ErrDomainNotFound, name)
+	}
+
+	if err := validateConfigUpdate(d, cfg); err != nil {
+		return nil, err
 	}
 
 	if applyDomainConfigUpdate(d, cfg) {
@@ -150,7 +154,7 @@ func (b *InMemoryBackend) CancelDomainConfigChange(ctx context.Context, domainNa
 
 	d, exists := b.domainGet(region, domainName)
 	if !exists {
-		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+		return nil, fmt.Errorf("%w: Domain not found: %s", ErrDomainNotFound, domainName)
 	}
 
 	return domainCopy(d), nil
@@ -163,7 +167,7 @@ func (b *InMemoryBackend) DescribeDomainAutoTunes(ctx context.Context, domainNam
 	defer b.mu.RUnlock()
 
 	if _, exists := b.domainGet(region, domainName); !exists {
-		return fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+		return fmt.Errorf("%w: Domain not found: %s", ErrDomainNotFound, domainName)
 	}
 
 	return nil
@@ -199,7 +203,7 @@ func (b *InMemoryBackend) DescribeDomainChangeProgress(
 
 	d, exists := b.domainGet(region, domainName)
 	if !exists {
-		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+		return nil, fmt.Errorf("%w: Domain not found: %s", ErrDomainNotFound, domainName)
 	}
 
 	latest := ChangeProgress{ChangeID: changeIDForVersion(region, d, d.ConfigVersion), StartTime: d.CreatedAt}

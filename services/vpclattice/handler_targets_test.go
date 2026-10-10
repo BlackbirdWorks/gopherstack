@@ -14,7 +14,7 @@ func TestTargets(t *testing.T) {
 	h := newTestHandler(t)
 
 	rec := doRequest(t, h, http.MethodPost, "/targetgroups", map[string]any{
-		"name":   "tg-targets",
+		"name":   "tgx-targets",
 		"type":   "IP",
 		"config": map[string]any{"protocol": "HTTP", "port": 80, "vpcIdentifier": "vpc-1"},
 	})
@@ -105,7 +105,7 @@ func TestListTargets_BodyFilter(t *testing.T) {
 			h := newTestHandler(t)
 
 			recTG := doRequest(t, h, http.MethodPost, "/targetgroups", map[string]any{
-				"name": "tg-filter-test",
+				"name": "tgx-filter-test",
 				"type": "IP",
 				"config": map[string]any{
 					"protocol":      "HTTP",
@@ -165,7 +165,7 @@ func TestRegisterDeregisterTargetsSuccessfulField(t *testing.T) {
 	h := newTestHandler(t)
 
 	rec := doRequest(t, h, http.MethodPost, "/targetgroups", map[string]any{
-		"name":   "tg-successful-field",
+		"name":   "tgx-successful-field",
 		"type":   "IP",
 		"config": map[string]any{"protocol": "HTTP", "port": 80, "vpcIdentifier": "vpc-1"},
 	})
@@ -234,7 +234,7 @@ func TestTargetFailureUsesFailureCodeFailureMessageKeys(t *testing.T) {
 	h := newTestHandler(t)
 
 	rec := doRequest(t, h, http.MethodPost, "/targetgroups", map[string]any{
-		"name":   "tg-failure-keys",
+		"name":   "tgx-failure-keys",
 		"type":   "IP",
 		"config": map[string]any{"protocol": "HTTP", "port": 80, "vpcIdentifier": "vpc-1"},
 	})

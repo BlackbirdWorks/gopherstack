@@ -7,6 +7,31 @@ const (
 	deletionDelay  = 300 * time.Millisecond
 )
 
+// SetLifecycleDelay overrides the built-in provisioning and deletion windows;
+// 0 keeps the built-in values.
+func (b *InMemoryBackend) SetLifecycleDelay(d time.Duration) {
+	b.mu.Lock("SetLifecycleDelay")
+	defer b.mu.Unlock()
+
+	b.lifecycleDelay = d
+}
+
+func (b *InMemoryBackend) provisionDelay() time.Duration {
+	if b.lifecycleDelay > 0 {
+		return b.lifecycleDelay
+	}
+
+	return provisionDelay
+}
+
+func (b *InMemoryBackend) deletionDelay() time.Duration {
+	if b.lifecycleDelay > 0 {
+		return b.lifecycleDelay
+	}
+
+	return deletionDelay
+}
+
 // settleLocked advances every transient resource whose deadline has passed.
 // Caller must hold b.mu for writing.
 func (b *InMemoryBackend) settleLocked(now time.Time) {

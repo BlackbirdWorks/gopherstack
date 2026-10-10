@@ -67,7 +67,7 @@ func TestRealClient_ServiceNetworkServiceAssociationLifecycle(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	svc, err := client.CreateService(ctx, &vpclatticesdk.CreateServiceInput{Name: aws.String("svc-snsa")})
+	svc, err := client.CreateService(ctx, &vpclatticesdk.CreateServiceInput{Name: aws.String("svcx-snsa")})
 	require.NoError(t, err)
 
 	assoc, err := client.CreateServiceNetworkServiceAssociation(
@@ -86,7 +86,7 @@ func TestRealClient_ServiceNetworkServiceAssociationLifecycle(t *testing.T) {
 		},
 	)
 	require.NoError(t, err)
-	assert.Equal(t, "svc-snsa", aws.ToString(got.ServiceName))
+	assert.Equal(t, "svcx-snsa", aws.ToString(got.ServiceName))
 	assert.Equal(t, "sn-snsa", aws.ToString(got.ServiceNetworkName))
 
 	listed, err := client.ListServiceNetworkServiceAssociations(
@@ -248,12 +248,12 @@ func TestRealClient_ListenerLifecycle(t *testing.T) {
 	client := newRealClient(t)
 	ctx := t.Context()
 
-	svc, err := client.CreateService(ctx, &vpclatticesdk.CreateServiceInput{Name: aws.String("svc-listener")})
+	svc, err := client.CreateService(ctx, &vpclatticesdk.CreateServiceInput{Name: aws.String("svcx-listener")})
 	require.NoError(t, err)
 
 	created, err := client.CreateListener(ctx, &vpclatticesdk.CreateListenerInput{
 		ServiceIdentifier: svc.Id,
-		Name:              aws.String("listener-slice32"),
+		Name:              aws.String("listenerx-slice32"),
 		Protocol:          vpclatticetypes.ListenerProtocolHttp,
 		DefaultAction: &vpclatticetypes.RuleActionMemberFixedResponse{
 			Value: vpclatticetypes.FixedResponseAction{StatusCode: aws.Int32(404)},
@@ -266,7 +266,7 @@ func TestRealClient_ListenerLifecycle(t *testing.T) {
 		ListenerIdentifier: created.Id,
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "listener-slice32", aws.ToString(got.Name))
+	assert.Equal(t, "listenerx-slice32", aws.ToString(got.Name))
 	assert.Equal(t, vpclatticetypes.ListenerProtocolHttp, got.Protocol)
 
 	updated, err := client.UpdateListener(ctx, &vpclatticesdk.UpdateListenerInput{
@@ -308,12 +308,12 @@ func TestRealClient_RuleLifecycle(t *testing.T) {
 	client := newRealClient(t)
 	ctx := t.Context()
 
-	svc, err := client.CreateService(ctx, &vpclatticesdk.CreateServiceInput{Name: aws.String("svc-rule")})
+	svc, err := client.CreateService(ctx, &vpclatticesdk.CreateServiceInput{Name: aws.String("svcx-rule")})
 	require.NoError(t, err)
 
 	listener, err := client.CreateListener(ctx, &vpclatticesdk.CreateListenerInput{
 		ServiceIdentifier: svc.Id,
-		Name:              aws.String("listener-rule"),
+		Name:              aws.String("listenerx-rule"),
 		Protocol:          vpclatticetypes.ListenerProtocolHttp,
 		DefaultAction: &vpclatticetypes.RuleActionMemberFixedResponse{
 			Value: vpclatticetypes.FixedResponseAction{StatusCode: aws.Int32(404)},
@@ -324,7 +324,7 @@ func TestRealClient_RuleLifecycle(t *testing.T) {
 	created, err := client.CreateRule(ctx, &vpclatticesdk.CreateRuleInput{
 		ServiceIdentifier:  svc.Id,
 		ListenerIdentifier: listener.Id,
-		Name:               aws.String("rule-slice32"),
+		Name:               aws.String("rulex-slice32"),
 		Priority:           aws.Int32(10),
 		Action: &vpclatticetypes.RuleActionMemberFixedResponse{
 			Value: vpclatticetypes.FixedResponseAction{StatusCode: aws.Int32(503)},
@@ -402,7 +402,7 @@ func TestRealClient_TargetGroupAndTargetsLifecycle(t *testing.T) {
 	ctx := t.Context()
 
 	created, err := client.CreateTargetGroup(ctx, &vpclatticesdk.CreateTargetGroupInput{
-		Name: aws.String("tg-slice32"),
+		Name: aws.String("tgx-slice32"),
 		Type: vpclatticetypes.TargetGroupTypeIp,
 		Config: &vpclatticetypes.TargetGroupConfig{
 			VpcIdentifier: aws.String("vpc-123"),
@@ -480,7 +480,7 @@ func TestRealClient_AccessLogSubscriptionLifecycle(t *testing.T) {
 	client := newRealClient(t)
 	ctx := t.Context()
 
-	svc, err := client.CreateService(ctx, &vpclatticesdk.CreateServiceInput{Name: aws.String("svc-als")})
+	svc, err := client.CreateService(ctx, &vpclatticesdk.CreateServiceInput{Name: aws.String("svcx-als")})
 	require.NoError(t, err)
 
 	created, err := client.CreateAccessLogSubscription(ctx, &vpclatticesdk.CreateAccessLogSubscriptionInput{
@@ -635,7 +635,7 @@ func TestRealClient_ServiceUpdate(t *testing.T) {
 	client := newRealClient(t)
 	ctx := t.Context()
 
-	created, err := client.CreateService(ctx, &vpclatticesdk.CreateServiceInput{Name: aws.String("svc-update")})
+	created, err := client.CreateService(ctx, &vpclatticesdk.CreateServiceInput{Name: aws.String("svcx-update")})
 	require.NoError(t, err)
 
 	updated, err := client.UpdateService(ctx, &vpclatticesdk.UpdateServiceInput{

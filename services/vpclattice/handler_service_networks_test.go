@@ -2,6 +2,7 @@ package vpclattice_test
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -74,7 +75,7 @@ func TestServiceNetworkDelete_ConflictWhileAssociated(t *testing.T) {
 			associate: func(t *testing.T, h *vpclattice.Handler, snID string) {
 				t.Helper()
 
-				svcRec := doRequest(t, h, http.MethodPost, "/services", map[string]any{"name": "svc-sn-conflict"})
+				svcRec := doRequest(t, h, http.MethodPost, "/services", map[string]any{"name": "svcx-sn-conflict"})
 				require.Equal(t, http.StatusCreated, svcRec.Code)
 				svcID, _ := parseBody(t, svcRec)["id"].(string)
 
@@ -104,7 +105,13 @@ func TestServiceNetworkDelete_ConflictWhileAssociated(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler(t)
 
-			snRec := doRequest(t, h, http.MethodPost, "/servicenetworks", map[string]any{"name": "sn-" + tc.name})
+			snRec := doRequest(
+				t,
+				h,
+				http.MethodPost,
+				"/servicenetworks",
+				map[string]any{"name": "sn-" + strings.ReplaceAll(tc.name, " ", "-")},
+			)
 			require.Equal(t, http.StatusCreated, snRec.Code)
 			snID, _ := parseBody(t, snRec)["id"].(string)
 

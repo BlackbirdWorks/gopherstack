@@ -7,7 +7,7 @@
 service: grafana
 sdk_module: aws-sdk-go-v2/service/grafana@v1.38.4
 last_audit_commit: 5c20d9fd7   # 2026-09-24 elasticsearch-grafana-and-ram pass; prior: 44bff591b
-last_audit_date: 2026-10-07  # prior: 2026-09-19
+last_audit_date: 2026-10-10  # prior: 2026-09-19
 # Grade A: this pass added the integration suite that is the only accepted parity proof
 # (.claude/memories/parity-principles.md rule 3 -- test/integration/grafana_test.go, driving
 # every operation through a real aws-sdk-go-v2 client against a live container) and closed
@@ -425,3 +425,8 @@ VPC configuration validation now accepts subnets and security groups that exist 
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 grafana is region-isolated: workspaces, API keys, service accounts and tags live per region. Each region runs its own transition timers, stopped on Reset, Shutdown or restore. The tagging bridge follows the region; EC2 validation already accepts resources of any region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/grafana`. Limitation: the dashboard shows the home region only.
+
+### 2026-10-10: realism pass
+
+- CreateWorkspace/UpdateWorkspace validate workspaceName (`[a-zA-Z0-9-._~]{1,255}`), workspaceDataSources and workspaceNotificationDestinations against the SDK enums. Malformed `nextToken` and `maxResults` outside 1-100 are ValidationException on every list call (the pinned SDK does not model it for ListWorkspaces, so clients see a generic API error with that code).
+- Opt-in `SetLifecycleDelay` (`--lifecycle-grafana`) overrides the built-in 100ms workspace transition window.

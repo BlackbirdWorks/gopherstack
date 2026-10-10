@@ -16,6 +16,20 @@ func validateUpdateWorkspaceRequest(req *updateWorkspaceRequest) error {
 		return validationError("invalid permissionType: " + req.PermissionType)
 	}
 
+	if err := validateWorkspaceName(req.WorkspaceName); err != nil {
+		return err
+	}
+
+	if err := validateEnumList("workspaceDataSources", req.WorkspaceDataSources, validDataSources); err != nil {
+		return err
+	}
+
+	if err := validateEnumList(
+		"workspaceNotificationDestinations", req.WorkspaceNotificationDestinations, validNotificationDestinations,
+	); err != nil {
+		return err
+	}
+
 	if req.RemoveNetworkAccessConfiguration && req.NetworkAccessControl != nil {
 		return validationError("cannot set removeNetworkAccessConfiguration and networkAccessControl together")
 	}

@@ -48,6 +48,8 @@ func (b *InMemoryBackend) CreateServiceNetworkServiceAssociation(
 	b.mu.Lock("CreateServiceNetworkServiceAssociation")
 	defer b.mu.Unlock()
 
+	b.settleLocked()
+
 	snID, ok := b.resolveServiceNetworkID(serviceNetworkID)
 	if !ok {
 		return nil, ErrNotFound
@@ -73,6 +75,7 @@ func (b *InMemoryBackend) CreateServiceNetworkServiceAssociation(
 	sn, _ := b.serviceNetworks.Get(snID)
 	svc, _ := b.services.Get(svcID)
 
+	until := b.pendingUntil()
 	snsa := &storedSNSA{
 		ARN:                assocARN,
 		ID:                 id,
@@ -82,7 +85,8 @@ func (b *InMemoryBackend) CreateServiceNetworkServiceAssociation(
 		ServiceNetworkARN:  sn.ARN,
 		ServiceNetworkID:   snID,
 		ServiceNetworkName: sn.Name,
-		Status:             statusActive,
+		Status:             createStatus(until),
+		StatusUntil:        until,
 		CreatedBy:          b.accountID,
 		CustomDomainName:   svc.CustomDomainName,
 		DNSName:            svc.DNSName,
@@ -102,8 +106,10 @@ func (b *InMemoryBackend) CreateServiceNetworkServiceAssociation(
 func (b *InMemoryBackend) GetServiceNetworkServiceAssociation(
 	snsaID string,
 ) (*ServiceNetworkServiceAssociation, error) {
-	b.mu.RLock("GetServiceNetworkServiceAssociation")
-	defer b.mu.RUnlock()
+	b.mu.Lock("GetServiceNetworkServiceAssociation")
+	defer b.mu.Unlock()
+
+	b.settleLocked()
 
 	id, ok := b.resolveSNSAID(snsaID)
 	if !ok {
@@ -119,6 +125,8 @@ func (b *InMemoryBackend) GetServiceNetworkServiceAssociation(
 func (b *InMemoryBackend) DeleteServiceNetworkServiceAssociation(snsaID string) error {
 	b.mu.Lock("DeleteServiceNetworkServiceAssociation")
 	defer b.mu.Unlock()
+
+	b.settleLocked()
 
 	id, ok := b.resolveSNSAID(snsaID)
 	if !ok {
@@ -141,8 +149,10 @@ func (b *InMemoryBackend) ListServiceNetworkServiceAssociations(
 	maxResults int32,
 	nextToken string,
 ) ([]*ServiceNetworkServiceAssociationSummary, string, error) {
-	b.mu.RLock("ListServiceNetworkServiceAssociations")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListServiceNetworkServiceAssociations")
+	defer b.mu.Unlock()
+
+	b.settleLocked()
 
 	region := b.regionFor(ctx)
 	all := make([]*ServiceNetworkServiceAssociationSummary, 0)
@@ -189,6 +199,8 @@ func (b *InMemoryBackend) CreateServiceNetworkVpcAssociation(
 	b.mu.Lock("CreateServiceNetworkVpcAssociation")
 	defer b.mu.Unlock()
 
+	b.settleLocked()
+
 	snID, ok := b.resolveServiceNetworkID(serviceNetworkID)
 	if !ok {
 		return nil, ErrNotFound
@@ -210,6 +222,7 @@ func (b *InMemoryBackend) CreateServiceNetworkVpcAssociation(
 	sgs := make([]string, len(securityGroupIDs))
 	copy(sgs, securityGroupIDs)
 
+	until := b.pendingUntil()
 	snva := &storedSNVA{
 		ARN:                assocARN,
 		ID:                 id,
@@ -218,7 +231,8 @@ func (b *InMemoryBackend) CreateServiceNetworkVpcAssociation(
 		ServiceNetworkID:   snID,
 		ServiceNetworkName: sn.Name,
 		SecurityGroupIDs:   sgs,
-		Status:             statusActive,
+		Status:             createStatus(until),
+		StatusUntil:        until,
 		CreatedBy:          b.accountID,
 		PrivateDNSEnabled:  privateDNSEnabled,
 		DNSOptions:         dnsOptions,
@@ -238,8 +252,10 @@ func (b *InMemoryBackend) CreateServiceNetworkVpcAssociation(
 func (b *InMemoryBackend) GetServiceNetworkVpcAssociation(
 	snvaID string,
 ) (*ServiceNetworkVpcAssociation, error) {
-	b.mu.RLock("GetServiceNetworkVpcAssociation")
-	defer b.mu.RUnlock()
+	b.mu.Lock("GetServiceNetworkVpcAssociation")
+	defer b.mu.Unlock()
+
+	b.settleLocked()
 
 	id, ok := b.resolveSNVAID(snvaID)
 	if !ok {
@@ -278,6 +294,8 @@ func (b *InMemoryBackend) DeleteServiceNetworkVpcAssociation(snvaID string) erro
 	b.mu.Lock("DeleteServiceNetworkVpcAssociation")
 	defer b.mu.Unlock()
 
+	b.settleLocked()
+
 	id, ok := b.resolveSNVAID(snvaID)
 	if !ok {
 		return ErrNotFound
@@ -297,8 +315,10 @@ func (b *InMemoryBackend) ListServiceNetworkVpcAssociations(
 	maxResults int32,
 	nextToken string,
 ) ([]*ServiceNetworkVpcAssociationSummary, string, error) {
-	b.mu.RLock("ListServiceNetworkVpcAssociations")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListServiceNetworkVpcAssociations")
+	defer b.mu.Unlock()
+
+	b.settleLocked()
 
 	region := b.regionFor(ctx)
 	all := make([]*ServiceNetworkVpcAssociationSummary, 0)

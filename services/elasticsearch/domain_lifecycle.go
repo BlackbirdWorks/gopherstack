@@ -18,7 +18,7 @@ func (b *InMemoryBackend) CancelElasticsearchServiceSoftwareUpdate(
 
 	d, exists := b.domainGet(region, domainName)
 	if !exists {
-		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+		return nil, fmt.Errorf("%w: Domain not found: %s", ErrDomainNotFound, domainName)
 	}
 
 	return domainCopy(d), nil
@@ -53,7 +53,7 @@ func (b *InMemoryBackend) GetUpgradeHistory(ctx context.Context, domainName stri
 
 	d, exists := b.domainGet(region, domainName)
 	if !exists {
-		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+		return nil, fmt.Errorf("%w: Domain not found: %s", ErrDomainNotFound, domainName)
 	}
 
 	out := make([]UpgradeRecord, 0, len(d.Upgrades))
@@ -73,7 +73,7 @@ func (b *InMemoryBackend) GetUpgradeStatus(ctx context.Context, domainName strin
 
 	d, exists := b.domainGet(region, domainName)
 	if !exists {
-		return UpgradeRecord{}, false, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+		return UpgradeRecord{}, false, fmt.Errorf("%w: Domain not found: %s", ErrDomainNotFound, domainName)
 	}
 
 	if len(d.Upgrades) == 0 {
@@ -96,7 +96,7 @@ func (b *InMemoryBackend) StartElasticsearchServiceSoftwareUpdate(
 
 	d, exists := b.domainGet(region, domainName)
 	if !exists {
-		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+		return nil, fmt.Errorf("%w: Domain not found: %s", ErrDomainNotFound, domainName)
 	}
 
 	return domainCopy(d), nil
@@ -112,7 +112,11 @@ func (b *InMemoryBackend) UpgradeElasticsearchDomain(
 
 	d, exists := b.domainGet(region, domainName)
 	if !exists {
-		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+		return nil, fmt.Errorf("%w: Domain not found: %s", ErrDomainNotFound, domainName)
+	}
+
+	if err := validateUpgradeTarget(d.ElasticsearchVersion, targetVersion); err != nil {
+		return nil, err
 	}
 
 	b.recordUpgrade(d, targetVersion, false)
@@ -134,7 +138,11 @@ func (b *InMemoryBackend) CheckElasticsearchDomainUpgrade(
 
 	d, exists := b.domainGet(region, domainName)
 	if !exists {
-		return fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+		return fmt.Errorf("%w: Domain not found: %s", ErrDomainNotFound, domainName)
+	}
+
+	if err := validateUpgradeTarget(d.ElasticsearchVersion, targetVersion); err != nil {
+		return err
 	}
 
 	b.recordUpgrade(d, targetVersion, true)

@@ -31,8 +31,18 @@ func (b *InMemoryBackend) CreateListener(
 	defaultAction *RuleAction,
 	tags map[string]string,
 ) (*Listener, error) {
-	if name == "" || protocol == "" {
-		return nil, ErrInvalidParameter
+	if protocol == "" {
+		return nil, invalidf("protocol is required")
+	}
+
+	if err := validateName("listener", name, idPrefixListener, maxChildNameLen); err != nil {
+		return nil, err
+	}
+
+	if port != 0 {
+		if err := validatePort(port); err != nil {
+			return nil, err
+		}
 	}
 
 	b.mu.Lock("CreateListener")
@@ -41,6 +51,10 @@ func (b *InMemoryBackend) CreateListener(
 	svcID, ok := b.resolveServiceID(serviceID)
 	if !ok {
 		return nil, ErrNotFound
+	}
+
+	if err := b.checkActionTargetGroups(defaultAction); err != nil {
+		return nil, err
 	}
 
 	// check duplicate name within service

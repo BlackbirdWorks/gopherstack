@@ -1,7 +1,7 @@
 service: verifiedpermissions
 sdk_module: aws-sdk-go-v2/service/verifiedpermissions@v1.36.4
 last_audit_commit: 24813b443 # re-verified this pass; original required-output-member sweep landed at f474dc461
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
 overall: A            # 2026-09-19 required-output-member re-sweep (gopherstack-r80d follow-up):
                       # all 87 required members across 26 ops re-verified by direct code
                       # reading (Results/Errors slices always non-nil on Batch*, Determining
@@ -652,3 +652,8 @@ entry is kept and replays inside the window and is swept/forgotten after it.
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 verifiedpermissions is region-isolated: policy stores and everything under them live per region. Per-region sibling handlers via `pkgs/regionpeers`; snapshots gain an additive `regions` key only when a sibling exists (no version bump; older snapshots restore). `NewHandler` alone stays single-region. Proof: `TestHandler_MultiRegionIsolation`, `TestHandler_MultiRegionPersistence`, `TestRegionIsolation/verifiedpermissions`. Limitation: the dashboard shows the home region only. The tagging bridge lists the request region and resolves Tag/Untag by ARN region. `TestHandler_MultiRegionReset` covers Reset.
+
+### 2026-10-10: realism pass
+
+- Policy stores in STRICT mode now enforce validation: a schema must exist, and a static policy's principal/resource entity types and action ids must be declared in it (CreatePolicy and UpdatePolicy). Condition expressions and action applies-to checks are not type-checked (no Cedar validator in cedar-go).
+- Error messages no longer repeat the exception code (`ValidationException: ...`). Malformed `nextToken` and `maxResults` outside 1-50 are ValidationException on every List op.

@@ -23,6 +23,10 @@ func (b *InMemoryBackend) CreateDomain(ctx context.Context, inp CreateDomainInpu
 		)
 	}
 
+	if err := validateClusterAndEBS(inp.ClusterConfig, inp.EBSOptions); err != nil {
+		return nil, err
+	}
+
 	region := getRegion(ctx, b.region)
 	b.mu.Lock("CreateDomain")
 	defer b.mu.Unlock()
@@ -109,7 +113,7 @@ func (b *InMemoryBackend) DeleteDomain(ctx context.Context, name string) (*Domai
 
 	d, exists := b.domainGet(region, name)
 	if !exists {
-		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, name)
+		return nil, fmt.Errorf("%w: Domain not found: %s", ErrDomainNotFound, name)
 	}
 
 	if b.processingDelay > 0 {
@@ -166,7 +170,7 @@ func (b *InMemoryBackend) DescribeDomain(ctx context.Context, name string) (*Dom
 
 	d, exists := b.domainGet(region, name)
 	if !exists {
-		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, name)
+		return nil, fmt.Errorf("%w: Domain not found: %s", ErrDomainNotFound, name)
 	}
 
 	return domainCopy(d), nil
