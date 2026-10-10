@@ -64,7 +64,7 @@ func (b *InMemoryBackend) CreateMonitor(
 		MonitorArn:        monARN,
 		MonitorName:       name,
 		Region:            region,
-		State:             monitorStateActive,
+		State:             b.initialState(),
 		AggregationPeriod: period,
 		Probes:            probes,
 		Tags:              tagsCopy,
@@ -74,7 +74,7 @@ func (b *InMemoryBackend) CreateMonitor(
 
 	b.monitors.Put(m)
 
-	return monitorCopy(m), nil
+	return b.viewMonitor(m), nil
 }
 
 // buildNestedProbes field-validates and builds the []*Probe for
@@ -125,7 +125,7 @@ func (b *InMemoryBackend) buildNestedProbes(
 			Protocol:        protocols[i],
 			DestinationPort: pi.DestinationPort,
 			PacketSize:      pi.PacketSize,
-			State:           probeStateActive,
+			State:           b.initialState(),
 			AddressFamily:   af,
 			CreatedAt:       &now,
 			ModifiedAt:      &now,
@@ -166,7 +166,7 @@ func (b *InMemoryBackend) GetMonitor(ctx context.Context, name string) (*Monitor
 		return nil, fmt.Errorf("%w: monitor %q not found", ErrNotFound, name)
 	}
 
-	return monitorCopy(m), nil
+	return b.viewMonitor(m), nil
 }
 
 // UpdateMonitor updates a monitor's aggregation period.
@@ -193,7 +193,7 @@ func (b *InMemoryBackend) UpdateMonitor(
 	m.AggregationPeriod = aggregationPeriod
 	m.ModifiedAt = &now
 
-	return monitorCopy(m), nil
+	return b.viewMonitor(m), nil
 }
 
 // ListMonitors returns a filtered, paginated list of monitor summaries.
@@ -240,7 +240,8 @@ func (b *InMemoryBackend) ListMonitors(
 		}
 
 		m := sorted[i]
-		if state != "" && !strings.EqualFold(m.State, state) {
+		effective := b.settledState(m.State, m.CreatedAt, time.Now().UTC())
+		if state != "" && !strings.EqualFold(effective, state) {
 			continue
 		}
 
@@ -248,7 +249,7 @@ func (b *InMemoryBackend) ListMonitors(
 		summaries = append(summaries, monitorSummary{
 			MonitorArn:        m.MonitorArn,
 			MonitorName:       m.MonitorName,
-			State:             m.State,
+			State:             effective,
 			AggregationPeriod: &period,
 			Tags:              maps.Clone(m.Tags),
 		})

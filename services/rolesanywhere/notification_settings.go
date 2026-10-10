@@ -11,6 +11,10 @@ func (b *InMemoryBackend) PutNotificationSettings(
 	trustAnchorID string,
 	settings []NotificationSetting,
 ) (*TrustAnchor, error) {
+	if err := validateNotificationSettings(settings); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("PutNotificationSettings")
 	defer b.mu.Unlock()
 

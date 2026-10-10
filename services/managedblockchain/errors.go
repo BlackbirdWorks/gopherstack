@@ -18,6 +18,11 @@ var (
 		"ResourceAlreadyExistsException: network already exists",
 		awserr.ErrAlreadyExists,
 	)
+	// ErrResourceNotReady is returned when the resource is still CREATING.
+	ErrResourceNotReady = awserr.New(
+		"ResourceNotReadyException: resource is not in a status that can complete the operation",
+		awserr.ErrConflict,
+	)
 	// ErrMissingNetworkName is returned when the network name is missing.
 	ErrMissingNetworkName = errors.New("Name is required for CreateNetwork")
 	// ErrMissingClientRequestToken is returned when ClientRequestToken is missing from

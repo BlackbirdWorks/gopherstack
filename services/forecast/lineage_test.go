@@ -17,24 +17,24 @@ func TestPredictorAndForecastLineage(t *testing.T) {
 	client := newTestForecastClient(t, h)
 	ctx := t.Context()
 
-	dgA := sdkDatasetGroup(t, client, "lineage-dg-a")
-	dgB := sdkDatasetGroup(t, client, "lineage-dg-b")
-	classic := sdkPredictor(t, client, "lineage-classic", dgA)
+	dgA := sdkDatasetGroup(t, client, "lineage_dg_a")
+	dgB := sdkDatasetGroup(t, client, "lineage_dg_b")
+	classic := sdkPredictor(t, client, "lineage_classic", dgA)
 
 	auto, err := client.CreateAutoPredictor(ctx, &forecastsdk.CreateAutoPredictorInput{
-		PredictorName:         aws.String("lineage-auto"),
+		PredictorName:         aws.String("lineage_auto"),
 		DataConfig:            &types.DataConfig{DatasetGroupArn: aws.String(dgB)},
 		ReferencePredictorArn: aws.String(classic),
 	})
 	require.NoError(t, err)
 
 	fcClassic, err := client.CreateForecast(ctx, &forecastsdk.CreateForecastInput{
-		ForecastName: aws.String("lineage-fc-classic"), PredictorArn: aws.String(classic),
+		ForecastName: aws.String("lineage_fc_classic"), PredictorArn: aws.String(classic),
 	})
 	require.NoError(t, err)
 
 	fcAuto, err := client.CreateForecast(ctx, &forecastsdk.CreateForecastInput{
-		ForecastName: aws.String("lineage-fc-auto"), PredictorArn: auto.PredictorArn,
+		ForecastName: aws.String("lineage_fc_auto"), PredictorArn: auto.PredictorArn,
 	})
 	require.NoError(t, err)
 
@@ -46,14 +46,14 @@ func TestPredictorAndForecastLineage(t *testing.T) {
 		byName[aws.ToString(p.PredictorName)] = p
 	}
 
-	assert.Equal(t, dgA, aws.ToString(byName["lineage-classic"].DatasetGroupArn))
-	assert.False(t, aws.ToBool(byName["lineage-classic"].IsAutoPredictor))
-	assert.Nil(t, byName["lineage-classic"].ReferencePredictorSummary)
-	assert.Equal(t, dgB, aws.ToString(byName["lineage-auto"].DatasetGroupArn))
-	assert.True(t, aws.ToBool(byName["lineage-auto"].IsAutoPredictor))
-	require.NotNil(t, byName["lineage-auto"].ReferencePredictorSummary)
-	assert.Equal(t, classic, aws.ToString(byName["lineage-auto"].ReferencePredictorSummary.Arn))
-	assert.Equal(t, types.StateActive, byName["lineage-auto"].ReferencePredictorSummary.State)
+	assert.Equal(t, dgA, aws.ToString(byName["lineage_classic"].DatasetGroupArn))
+	assert.False(t, aws.ToBool(byName["lineage_classic"].IsAutoPredictor))
+	assert.Nil(t, byName["lineage_classic"].ReferencePredictorSummary)
+	assert.Equal(t, dgB, aws.ToString(byName["lineage_auto"].DatasetGroupArn))
+	assert.True(t, aws.ToBool(byName["lineage_auto"].IsAutoPredictor))
+	require.NotNil(t, byName["lineage_auto"].ReferencePredictorSummary)
+	assert.Equal(t, classic, aws.ToString(byName["lineage_auto"].ReferencePredictorSummary.Arn))
+	assert.Equal(t, types.StateActive, byName["lineage_auto"].ReferencePredictorSummary.State)
 
 	filtered, err := client.ListPredictors(ctx, &forecastsdk.ListPredictorsInput{
 		Filters: []types.Filter{
@@ -62,7 +62,7 @@ func TestPredictorAndForecastLineage(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, filtered.Predictors, 1)
-	assert.Equal(t, "lineage-auto", aws.ToString(filtered.Predictors[0].PredictorName))
+	assert.Equal(t, "lineage_auto", aws.ToString(filtered.Predictors[0].PredictorName))
 
 	fcs, err := client.ListForecasts(ctx, &forecastsdk.ListForecastsInput{
 		Filters: []types.Filter{

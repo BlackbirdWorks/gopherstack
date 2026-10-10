@@ -331,11 +331,11 @@ func TestHandlerGetMonitorTimestampsEpochFloat(t *testing.T) {
 func TestHandlerListMonitorsPagination(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // fieldalignment: readability over micro-optimization
+	tests := []struct {
 		name       string
 		monitors   []string
-		maxResults int
 		wantPages  []int
+		maxResults int
 	}{
 		{
 			name:       "two_pages_of_two",
@@ -378,9 +378,9 @@ func TestHandlerListMonitorsPagination(t *testing.T) {
 				rec := doNMRequest(t, h, http.MethodGet, path, nil)
 				require.Equal(t, http.StatusOK, rec.Code)
 
-				var out struct { //nolint:govet // fieldalignment: readability over micro-optimization
-					Monitors  []any  `json:"monitors"`
+				var out struct {
 					NextToken string `json:"nextToken"`
+					Monitors  []any  `json:"monitors"`
 				}
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 
@@ -408,9 +408,9 @@ func TestHandlerListMonitorsTokenPastEnd(t *testing.T) {
 	rec := doNMRequest(t, h, http.MethodGet, "/monitors?nextToken=zzz-past-end", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	var out struct { //nolint:govet // fieldalignment: readability over micro-optimization
-		Monitors  []any  `json:"monitors"`
+	var out struct {
 		NextToken string `json:"nextToken"`
+		Monitors  []any  `json:"monitors"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 

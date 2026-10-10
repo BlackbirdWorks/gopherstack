@@ -25,7 +25,7 @@ func createTestTrustAnchor(t *testing.T, h *rolesanywhere.Handler) string {
 	t.Helper()
 
 	rec := doREST(t, h, http.MethodPost, "/trustanchors", map[string]any{
-		"name":   t.Name(),
+		"name":   testName(t),
 		"source": map[string]any{"sourceType": "CERTIFICATE_BUNDLE"},
 	})
 	require.Equal(t, http.StatusCreated, rec.Code)

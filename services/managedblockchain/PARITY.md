@@ -166,6 +166,8 @@ gopherstack-4shm's restraint principle.
 
 ## Notes
 
+- 2026-10-10 realism pass: error messages no longer carry a duplicated code. Opt-in `SetCreateDelay` (default 0) keeps new networks/members/nodes in CREATING until the delay elapses; DeleteMember/DeleteNode/CreateNode/CreateMember on a CREATING resource return ResourceNotReadyException (409, declared on those ops in the SDK). Resource ids now have the real shape (n-/m-/nd-/p-/in-/ac- plus 26 base32 chars, ResourceIdString max 32) instead of 36-char UUIDs. CreateNetwork/CreateMember now validate member name pattern, AdminUsername pattern/<=16, AdminPassword complexity (lower+upper+digit, none of @ ' \\ \" /), network name non-blank <=64, description <=128, ClientRequestToken <=64, FrameworkVersion <=8, voting policy comparator enum / duration <=168 / percentage <=100 (botocore managedblockchain service-2.json). Tests: create_delay_test.go, input_validation_test.go.
+
 **Framework/protocol**: restjson1. Base path family is `/networks`, plus `/tags/{ResourceArn}`,
 `/accessors[/{AccessorId}]`, `/invitations[/{InvitationId}]`.
 

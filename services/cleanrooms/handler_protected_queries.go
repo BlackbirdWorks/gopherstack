@@ -12,19 +12,19 @@ func (h *Handler) handleStartProtectedQuery(_ context.Context, body []byte) ([]b
 		SQLParameters        map[string]any `json:"sqlParameters"`
 		ResultConfiguration  map[string]any `json:"resultConfiguration"`
 		ComputeConfiguration map[string]any `json:"computeConfiguration"`
+		Type                 string         `json:"type"`
 		MembershipIdentifier string         `json:"membershipIdentifier"`
 		PayerAccountID       string         `json:"queryComputePayerAccountId"`
 	}
 	_ = json.Unmarshal(body, &req)
-	var sqlText string
-	if req.SQLParameters != nil {
-		if v, ok := req.SQLParameters["queryString"].(string); ok {
-			sqlText = v
-		}
+
+	if err := validateProtectedType(req.Type); err != nil {
+		return nil, err
 	}
-	q, err := h.Backend.StartProtectedQuery(
+
+	q, err := h.Backend.StartProtectedQuerySQL(
 		req.MembershipIdentifier,
-		sqlText,
+		req.SQLParameters,
 		req.ResultConfiguration,
 		req.ComputeConfiguration,
 		req.PayerAccountID,
@@ -83,6 +83,11 @@ func (h *Handler) handleUpdateProtectedQuery(_ context.Context, body []byte) ([]
 		TargetStatus             string `json:"targetStatus"`
 	}
 	_ = json.Unmarshal(body, &req)
+
+	if err := validateTargetStatus(req.TargetStatus); err != nil {
+		return nil, err
+	}
+
 	q, err := h.Backend.UpdateProtectedQuery(
 		req.MembershipIdentifier,
 		req.ProtectedQueryIdentifier,

@@ -52,9 +52,9 @@ func TestListPredictors_StatusFilter(t *testing.T) {
 	h := newHandler()
 	client := newTestForecastClient(t, h)
 
-	dg := sdkDatasetGroup(t, client, "status-filter-dg")
-	activeARN := sdkPredictor(t, client, "status-filter-active", dg)
-	stoppedARN := sdkPredictor(t, client, "status-filter-stopped", dg)
+	dg := sdkDatasetGroup(t, client, "status_filter_dg")
+	activeARN := sdkPredictor(t, client, "status_filter_active", dg)
+	stoppedARN := sdkPredictor(t, client, "status_filter_stopped", dg)
 
 	_, err := client.StopResource(t.Context(), &forecastsdk.StopResourceInput{ResourceArn: aws.String(stoppedARN)})
 	require.NoError(t, err)
@@ -115,17 +115,17 @@ func TestListForecasts_MultipleFilters_AND(t *testing.T) {
 	h := newHandler()
 	client := newTestForecastClient(t, h)
 
-	dg := sdkDatasetGroup(t, client, "forecasts-and-dg")
-	predictorA := sdkPredictor(t, client, "forecasts-and-predictor-a", dg)
-	predictorB := sdkPredictor(t, client, "forecasts-and-predictor-b", dg)
+	dg := sdkDatasetGroup(t, client, "forecasts_and_dg")
+	predictorA := sdkPredictor(t, client, "forecasts_and_predictor_a", dg)
+	predictorB := sdkPredictor(t, client, "forecasts_and_predictor_b", dg)
 
 	forecastA, err := client.CreateForecast(t.Context(), &forecastsdk.CreateForecastInput{
-		ForecastName: aws.String("forecasts-and-forecast-a"),
+		ForecastName: aws.String("forecasts_and_forecast_a"),
 		PredictorArn: aws.String(predictorA),
 	})
 	require.NoError(t, err)
 	_, err = client.CreateForecast(t.Context(), &forecastsdk.CreateForecastInput{
-		ForecastName: aws.String("forecasts-and-forecast-b"),
+		ForecastName: aws.String("forecasts_and_forecast_b"),
 		PredictorArn: aws.String(predictorB),
 	})
 	require.NoError(t, err)
@@ -232,11 +232,11 @@ func TestListMonitorEvaluations_EvaluationStateFilter(t *testing.T) {
 	h := newHandler()
 	client := newTestForecastClient(t, h)
 
-	dg := sdkDatasetGroup(t, client, "monitor-eval-dg")
-	predictorARN := sdkPredictor(t, client, "monitor-eval-predictor", dg)
+	dg := sdkDatasetGroup(t, client, "monitor_eval_dg")
+	predictorARN := sdkPredictor(t, client, "monitor_eval_predictor", dg)
 
 	monitor, err := client.CreateMonitor(t.Context(), &forecastsdk.CreateMonitorInput{
-		MonitorName: aws.String("monitor-eval-filter"),
+		MonitorName: aws.String("monitor_eval_filter"),
 		ResourceArn: aws.String(predictorARN),
 	})
 	require.NoError(t, err)

@@ -227,9 +227,9 @@ func (h *Handler) dispatchListMonitorEvaluations(input map[string]any) ([]byte, 
 		return nil, err
 	}
 
-	maxResults := 0
-	if mr, ok := input["MaxResults"].(float64); ok {
-		maxResults = int(mr)
+	maxResults, err := parseMaxResults(input)
+	if err != nil {
+		return nil, err
 	}
 	nextToken, _ := input["NextToken"].(string)
 
@@ -438,13 +438,13 @@ func summaryOutput(spec operationSpec, resource *Resource) map[string]any {
 }
 
 func listOutput(spec operationSpec, resources []*Resource, input map[string]any) (map[string]any, error) {
-	maxResults := 0
-	if mr, ok := input["MaxResults"].(float64); ok {
-		maxResults = int(mr)
+	maxResults, err := parseMaxResults(input)
+	if err != nil {
+		return nil, err
 	}
 	nextToken, _ := input["NextToken"].(string)
 
-	if err := page.ValidateToken(nextToken); err != nil {
+	if tokenErr := page.ValidateToken(nextToken); tokenErr != nil {
 		return nil, fmt.Errorf("%w: NextToken %q is not valid", ErrInvalidNextToken, nextToken)
 	}
 
@@ -600,7 +600,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		code, errType = http.StatusInternalServerError, "InternalServerException"
 	}
 
-	payload, marshalErr := json.Marshal(map[string]string{"__type": errType, "message": err.Error()})
+	payload, marshalErr := json.Marshal(map[string]string{"__type": errType, "message": publicMessage(err, errType)})
 	if marshalErr != nil {
 		return c.String(http.StatusInternalServerError, "internal server error")
 	}
@@ -819,3 +819,18 @@ func plural(base string) string {
 		return base + "s"
 	}
 }
+
+func parseMaxResults(input map[string]any) (int, error) {
+	mr, ok := input["MaxResults"].(float64)
+	if !ok {
+		return 0, nil
+	}
+
+	if mr < 1 || mr > maxListResults {
+		return 0, fmt.Errorf("%w: MaxResults must be between 1 and %d", ErrValidation, maxListResults)
+	}
+
+	return int(mr), nil
+}
+
+const maxListResults = 100

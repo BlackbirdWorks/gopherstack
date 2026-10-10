@@ -42,8 +42,20 @@ func (b *InMemoryBackend) CreateProfile(
 	enabled *bool,
 	acceptRoleSessionName *bool,
 ) (*Profile, error) {
-	if name == "" || roleArns == nil {
-		return nil, ErrValidation
+	if err := validateResourceName(name); err != nil {
+		return nil, err
+	}
+
+	if roleArns == nil {
+		return nil, invalid("roleArns is required")
+	}
+
+	if err := validateProfileLists(roleArns, managedPolicyArns); err != nil {
+		return nil, err
+	}
+
+	if err := validateDuration(durationSeconds); err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("CreateProfile")
@@ -155,6 +167,20 @@ func (b *InMemoryBackend) UpdateProfile(
 	requireInstanceProperties *bool,
 	acceptRoleSessionName *bool,
 ) (*Profile, error) {
+	if name != "" {
+		if err := validateResourceName(name); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := validateProfileLists(roleArns, managedPolicyArns); err != nil {
+		return nil, err
+	}
+
+	if err := validateDuration(durationSeconds); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("UpdateProfile")
 	defer b.mu.Unlock()
 

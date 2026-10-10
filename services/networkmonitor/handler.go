@@ -324,7 +324,7 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 
 	c.Response().Header().Set("X-Amzn-Errortype", code)
 
-	return c.JSON(status, errorResponse{Message: err.Error()})
+	return c.JSON(status, errorResponse{Message: publicMessage(err, code)})
 }
 
 // epochSeconds converts a *time.Time to a pointer to fractional epoch seconds,

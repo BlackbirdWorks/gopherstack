@@ -52,6 +52,8 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; locking is
 
 ## Notes
 
+- 2026-10-10 realism pass: error messages no longer carry a duplicated code (bare "ResourceNotFoundException" bodies now say the resource does not exist). Added botocore-sourced validation (validation.go): name `[ a-zA-Z0-9-_]*` 1-255 on trust anchor/profile/CRL create+update, profile durationSeconds 900-43200, roleArns pattern/max 250, managedPolicyArns max 50, ImportCrl trustAnchorArn pattern and crlData <= 300000 bytes, notification event/channel enums and threshold 1-360. Left lenient: x509CertificateData is not parsed as PEM (the repo's terraform fixture ships a non-decodable PEM) and the "threshold required when enabled" doc sentence is not enforced (breaks several in-repo callers, no SDK validator backs it). Tests: validation_test.go.
+
 Protocol: restJson1. Re-verified route/method/path/**response status code** for every
 operation directly against `botocore`'s `rolesanywhere/2018-05-10/service-2.json` (canonical
 source for `http.method`/`http.requestUri`/`http.responseCode`, cross-checked against

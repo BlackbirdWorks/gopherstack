@@ -130,6 +130,8 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; Reset()/Sn
 
 ## Notes
 
+- 2026-10-10 realism pass: error messages no longer repeat the code ("ResourceNotFoundException: ..." in the message). Opt-in `SetCreateDelay` (default 0 keeps the two-poll PENDING -> ACTIVE model) walks CREATE_PENDING -> CREATE_IN_PROGRESS -> ACTIVE by age on Describe/List and gates Delete (ResourceInUseException until ACTIVE). Name rule tightened to the real `^[a-zA-Z][a-zA-Z0-9_]*$`, max 63 (hyphens/leading digits were accepted; 256 max was wrong). Added: S3Config.Path pattern `^s3://[a-z0-9].+$` (DataSource/Destination), Format CSV|PARQUET, Schema.Attributes 1-100 with AttributeType enum, ForecastFrequency pattern, ForecastTypes pattern/1-20, NumberOfBacktestWindows 1-5, MaxResults 1-100 (InvalidInputException). Tests: create_delay_test.go, shape_validation_test.go. Left lenient: RoleArn is not checked (botocore Arn pattern accepts any forecast-style string and an account check needs IAM state).
+
 - Protocol: awsjson1.1, single POST endpoint, `X-Amz-Target: AmazonForecast.<Op>`.
   Verified against real SDK generated code (aws-sdk-go-v2/service/forecast@v1.42.0):
   target prefix `"AmazonForecast."` matches `newServiceMetadataMiddleware_op*`

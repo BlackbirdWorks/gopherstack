@@ -152,7 +152,7 @@ func TestDeleteCrl_CascadesTags(t *testing.T) {
 		context.Background(),
 		"cascade-crl",
 		[]byte("data"),
-		"arn:ta",
+		"arn:aws:rolesanywhere:us-east-1:123456789012:trust-anchor/ta",
 		true,
 		nil,
 	)
@@ -227,10 +227,24 @@ func TestCrl_DuplicateNameAllowed(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	first, err := b.ImportCrl(context.Background(), "dup-crl", []byte("data"), "arn:ta", true, nil)
+	first, err := b.ImportCrl(
+		context.Background(),
+		"dup-crl",
+		[]byte("data"),
+		"arn:aws:rolesanywhere:us-east-1:123456789012:trust-anchor/ta",
+		true,
+		nil,
+	)
 	require.NoError(t, err)
 
-	second, err := b.ImportCrl(context.Background(), "dup-crl", []byte("data"), "arn:ta", true, nil)
+	second, err := b.ImportCrl(
+		context.Background(),
+		"dup-crl",
+		[]byte("data"),
+		"arn:aws:rolesanywhere:us-east-1:123456789012:trust-anchor/ta",
+		true,
+		nil,
+	)
 	require.NoError(t, err)
 
 	assert.NotEqual(t, first.CrlID, second.CrlID)
@@ -249,7 +263,12 @@ func TestImportCrl_RequiredFields(t *testing.T) {
 		crlData        []byte
 		wantErr        bool
 	}{
-		{name: "missing crlData rejected", crlData: nil, trustAnchorArn: "arn:ta", wantErr: true},
+		{
+			name:           "missing crlData rejected",
+			crlData:        nil,
+			trustAnchorArn: "arn:aws:rolesanywhere:us-east-1:123456789012:trust-anchor/ta",
+			wantErr:        true,
+		},
 		{
 			name:           "missing trustAnchorArn rejected",
 			crlData:        []byte("data"),
@@ -259,7 +278,7 @@ func TestImportCrl_RequiredFields(t *testing.T) {
 		{
 			name:           "both present succeeds",
 			crlData:        []byte("data"),
-			trustAnchorArn: "arn:ta",
+			trustAnchorArn: "arn:aws:rolesanywhere:us-east-1:123456789012:trust-anchor/ta",
 			wantErr:        false,
 		},
 	}
@@ -307,7 +326,7 @@ func TestImportCrl_EmptyName(t *testing.T) {
 				context.Background(),
 				tt.crlName,
 				[]byte("data"),
-				"arn:ta",
+				"arn:aws:rolesanywhere:us-east-1:123456789012:trust-anchor/ta",
 				true,
 				nil,
 			)
@@ -494,7 +513,7 @@ func TestPutAttributeMapping_CertificateFieldEnum(t *testing.T) {
 			b := newBackend(t)
 			p, err := b.CreateProfile(
 				context.Background(),
-				t.Name(),
+				testName(t),
 				[]string{},
 				nil,
 				nil,
@@ -578,7 +597,7 @@ func TestPutAttributeMapping_MappingRulesRequired(t *testing.T) {
 			b := newBackend(t)
 			p, err := b.CreateProfile(
 				context.Background(),
-				t.Name(),
+				testName(t),
 				[]string{},
 				nil,
 				nil,

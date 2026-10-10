@@ -162,6 +162,8 @@ Also corrected an `items_still_open` mischaracterization of `ReceiverConfigurati
 
 ## Notes
 
+- 2026-10-10 realism pass: error messages no longer carry a duplicated code ("collaboration not found: ValidationException", bare "ResourceNotFoundException" body) -- handleError now emits sentence messages (error_message.go). Protected queries/jobs: opt-in `SetProtectedWorkDelay` (default 0 = SUCCESS on next read) walks SUBMITTED -> STARTED -> SUCCESS by elapsed time and UpdateProtectedQuery/Job cancel races the same clock. StartProtectedQuery silently dropped sqlParameters.analysisTemplateArn/parameters (now stored and echoed); now validates queryString-or-analysisTemplateArn present, queryString <= 500000, template ARN pattern, parameter values <= 1000, s3 resultFormat CSV|PARQUET, bucket 3-63, keyPrefix <= 512, type == SQL, and UpdateProtectedQuery targetStatus == CANCELLED (botocore cleanrooms service-2.json). CreateConfiguredTable now enforces the AnalysisMethod / SelectedAnalysisMethod enums. Left lenient: analysis-rule columns are not checked against allowedColumns (neither the SDK nor API reference states the rule). Tests: protected_query_lifecycle_test.go.
+
 Protocol: restjson1. This pass field-diffed every resource struct in `models.go` directly
 against the real deserializer functions in
 `aws-sdk-go-v2/service/cleanrooms@v1.45.6/deserializers.go`

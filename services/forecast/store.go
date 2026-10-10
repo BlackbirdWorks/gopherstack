@@ -15,7 +15,7 @@ import (
 
 // resourceNameRegex matches valid Amazon Forecast resource names:
 // only alphanumeric characters, underscores, and hyphens are allowed.
-var resourceNameRegex = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+var resourceNameRegex = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_]*$`)
 
 // InMemoryBackend stores Amazon Forecast state with concurrency-safe transitions.
 type InMemoryBackend struct {
@@ -27,6 +27,7 @@ type InMemoryBackend struct {
 	mu          *lockmetrics.RWMutex
 	accountID   string
 	region      string
+	createDelay time.Duration
 }
 
 // NewInMemoryBackend returns a stateful Amazon Forecast backend.
@@ -144,14 +145,49 @@ func (b *InMemoryBackend) describe(kind resourceKind, nameOrARN string) (*Resour
 		return nil, fmt.Errorf("%w: %s %q", ErrNotFound, kind, nameOrARN)
 	}
 
+	b.settleLocked(resource)
 	result := cloneResource(resource)
 	b.enrichLocked(result)
-	if resource.Status == statusCreatePending {
+	if b.createDelay <= 0 && resource.Status == statusCreatePending {
 		resource.Status = statusActive
 		resource.UpdatedAt = time.Now().UTC()
 	}
 
 	return result, nil
+}
+
+// SetCreateDelay keeps new resources in CREATE_PENDING then CREATE_IN_PROGRESS
+// for d before they turn ACTIVE (default 0: ACTIVE on the second Describe).
+func (b *InMemoryBackend) SetCreateDelay(d time.Duration) {
+	b.mu.Lock("SetCreateDelay")
+	defer b.mu.Unlock()
+
+	b.createDelay = d
+}
+
+func (b *InMemoryBackend) statusAt(r *Resource, now time.Time) string {
+	if b.createDelay <= 0 || (r.Status != statusCreatePending && r.Status != statusCreateInProgress) {
+		return r.Status
+	}
+
+	age := now.Sub(r.CreatedAt)
+
+	switch {
+	case age >= b.createDelay:
+		return statusActive
+	case age >= b.createDelay/2:
+		return statusCreateInProgress
+	default:
+		return statusCreatePending
+	}
+}
+
+func (b *InMemoryBackend) settleLocked(r *Resource) {
+	now := time.Now().UTC()
+	if status := b.statusAt(r, now); status != r.Status {
+		r.Status = status
+		r.UpdatedAt = now
+	}
 }
 
 func (b *InMemoryBackend) update(kind resourceKind, nameOrARN string, data map[string]any) (*Resource, error) {
@@ -185,6 +221,8 @@ func (b *InMemoryBackend) delete(kind resourceKind, nameOrARN string) error {
 		return fmt.Errorf("%w: %s %q", ErrNotFound, kind, nameOrARN)
 	}
 
+	b.settleLocked(resource)
+
 	if err := validateDeletableLocked(resource); err != nil {
 		return err
 	}
@@ -201,10 +239,12 @@ func (b *InMemoryBackend) list(kind resourceKind) []*Resource {
 	b.mu.RLock("list")
 	defer b.mu.RUnlock()
 
+	now := time.Now().UTC()
 	items := b.resources[kind].All()
 	result := make([]*Resource, 0, len(items))
 	for _, resource := range items {
 		clone := cloneResource(resource)
+		clone.Status = b.statusAt(resource, now)
 		b.enrichLocked(clone)
 		result = append(result, clone)
 	}

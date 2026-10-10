@@ -87,7 +87,7 @@ func unmarshalResponse(t *testing.T, rec *httptest.ResponseRecorder) map[string]
 func createPredictor(t *testing.T, h *forecast.Handler) string {
 	t.Helper()
 
-	code, created := request(t, h, "CreatePredictor", minimalCreatePredictorBody(t, h, "fk-predictor"))
+	code, created := request(t, h, "CreatePredictor", minimalCreatePredictorBody(t, h, "fk_predictor"))
 	require.Equal(t, http.StatusOK, code)
 	arn, ok := created["PredictorArn"].(string)
 	require.True(t, ok)
@@ -102,7 +102,7 @@ func createDatasetGroup(t *testing.T, h *forecast.Handler) string {
 	t.Helper()
 
 	code, created := request(t, h, "CreateDatasetGroup", map[string]any{
-		"DatasetGroupName": "fk-dataset-group", "Domain": "RETAIL",
+		"DatasetGroupName": "fk_dataset_group", "Domain": "RETAIL",
 	})
 	require.Equal(t, http.StatusOK, code)
 	arn, ok := created["DatasetGroupArn"].(string)
@@ -148,8 +148,8 @@ func createDataset(t *testing.T, h *forecast.Handler) string {
 	t.Helper()
 
 	code, created := request(t, h, "CreateDataset", map[string]any{
-		"DatasetName": "fk-dataset", "Domain": "RETAIL", "DatasetType": "TARGET_TIME_SERIES",
-		"DataFrequency": "D", "Schema": map[string]any{"Attributes": []any{}},
+		"DatasetName": "fk_dataset", "Domain": "RETAIL", "DatasetType": "TARGET_TIME_SERIES",
+		"DataFrequency": "D", "Schema": testSchema(),
 	})
 	require.Equal(t, http.StatusOK, code)
 	arn, ok := created["DatasetArn"].(string)
@@ -165,7 +165,7 @@ func createForecast(t *testing.T, h *forecast.Handler) string {
 
 	predictorARN := createPredictor(t, h)
 	code, created := request(t, h, "CreateForecast", map[string]any{
-		"ForecastName": "fk-forecast", "PredictorArn": predictorARN,
+		"ForecastName": "fk_forecast", "PredictorArn": predictorARN,
 	})
 	require.Equal(t, http.StatusOK, code)
 	arn, ok := created["ForecastArn"].(string)
@@ -181,7 +181,7 @@ func createExplainability(t *testing.T, h *forecast.Handler) string {
 
 	predictorARN := createPredictor(t, h)
 	code, created := request(t, h, "CreateExplainability", map[string]any{
-		"ExplainabilityName": "fk-explainability", "ResourceArn": predictorARN,
+		"ExplainabilityName": "fk_explainability", "ResourceArn": predictorARN,
 		"ExplainabilityConfig": map[string]any{
 			"TimePointGranularity": "ALL", "TimeSeriesGranularity": "ALL",
 		},
@@ -200,7 +200,7 @@ func createWhatIfAnalysis(t *testing.T, h *forecast.Handler) string {
 
 	forecastARN := createForecast(t, h)
 	code, created := request(t, h, "CreateWhatIfAnalysis", map[string]any{
-		"WhatIfAnalysisName": "fk-what-if-analysis", "ForecastArn": forecastARN,
+		"WhatIfAnalysisName": "fk_what_if_analysis", "ForecastArn": forecastARN,
 	})
 	require.Equal(t, http.StatusOK, code)
 	arn, ok := created["WhatIfAnalysisArn"].(string)
@@ -216,7 +216,7 @@ func createWhatIfForecast(t *testing.T, h *forecast.Handler) string {
 
 	analysisARN := createWhatIfAnalysis(t, h)
 	code, created := request(t, h, "CreateWhatIfForecast", map[string]any{
-		"WhatIfForecastName": "fk-what-if-forecast", "WhatIfAnalysisArn": analysisARN,
+		"WhatIfForecastName": "fk_what_if_forecast", "WhatIfAnalysisArn": analysisARN,
 	})
 	require.Equal(t, http.StatusOK, code)
 	arn, ok := created["WhatIfForecastArn"].(string)
@@ -260,7 +260,7 @@ func TestHandler_Protocol_ContentType(t *testing.T) {
 		{
 			name:       "success_has_json11_content_type",
 			action:     "CreateDatasetGroup",
-			body:       map[string]any{"DatasetGroupName": "ct-group", "Domain": "RETAIL"},
+			body:       map[string]any{"DatasetGroupName": "ct_group", "Domain": "RETAIL"},
 			wantStatus: http.StatusOK,
 			wantCT:     "application/x-amz-json-1.1",
 		},
@@ -377,7 +377,7 @@ func TestHandler_ResourceLifecycles(t *testing.T) {
 			status: "Status", listField: "DatasetGroups",
 			summaryKeys: []string{"DatasetGroupArn", "DatasetGroupName", "CreationTime", "LastModificationTime"},
 			createBody: func(*testing.T, *forecast.Handler) map[string]any {
-				return map[string]any{"DatasetGroupName": "sales-group", "Domain": "RETAIL"}
+				return map[string]any{"DatasetGroupName": "sales_group", "Domain": "RETAIL"}
 			},
 		},
 		{
@@ -390,7 +390,7 @@ func TestHandler_ResourceLifecycles(t *testing.T) {
 			createBody: func(*testing.T, *forecast.Handler) map[string]any {
 				return map[string]any{
 					"DatasetName": "sales", "Domain": "RETAIL", "DatasetType": "TARGET_TIME_SERIES",
-					"DataFrequency": "D", "Schema": map[string]any{"Attributes": []any{}},
+					"DataFrequency": "D", "Schema": testSchema(),
 				}
 			},
 		},
@@ -475,7 +475,7 @@ func TestHandler_ResourceLifecycles(t *testing.T) {
 				t.Helper()
 
 				return map[string]any{
-					"ForecastExportJobName": "forecast-export", "ForecastArn": createForecast(t, h),
+					"ForecastExportJobName": "forecast_export", "ForecastArn": createForecast(t, h),
 					"Destination": minimalDataDestination(),
 				}
 			},
@@ -493,7 +493,7 @@ func TestHandler_ResourceLifecycles(t *testing.T) {
 				t.Helper()
 
 				return map[string]any{
-					"ExplainabilityExportName": "explain-export", "ExplainabilityArn": createExplainability(t, h),
+					"ExplainabilityExportName": "explain_export", "ExplainabilityArn": createExplainability(t, h),
 					"Destination": minimalDataDestination(),
 				}
 			},
@@ -511,7 +511,7 @@ func TestHandler_ResourceLifecycles(t *testing.T) {
 				t.Helper()
 
 				return map[string]any{
-					"ExplainabilityName": "forecast-explain", "ResourceArn": createPredictor(t, h),
+					"ExplainabilityName": "forecast_explain", "ResourceArn": createPredictor(t, h),
 					"ExplainabilityConfig": map[string]any{
 						"TimePointGranularity": "ALL", "TimeSeriesGranularity": "ALL",
 					},
@@ -531,7 +531,7 @@ func TestHandler_ResourceLifecycles(t *testing.T) {
 				t.Helper()
 
 				return map[string]any{
-					"WhatIfAnalysisName": "promo-analysis", "ForecastArn": createForecast(t, h),
+					"WhatIfAnalysisName": "promo_analysis", "ForecastArn": createForecast(t, h),
 					"Tags": []any{map[string]any{"Key": "team", "Value": "forecasting"}},
 				}
 			},
@@ -548,7 +548,7 @@ func TestHandler_ResourceLifecycles(t *testing.T) {
 				t.Helper()
 
 				return map[string]any{
-					"WhatIfForecastName": "promo-forecast", "WhatIfAnalysisArn": createWhatIfAnalysis(t, h),
+					"WhatIfForecastName": "promo_forecast", "WhatIfAnalysisArn": createWhatIfAnalysis(t, h),
 					"Tags": []any{map[string]any{"Key": "team", "Value": "forecasting"}},
 				}
 			},
@@ -566,7 +566,7 @@ func TestHandler_ResourceLifecycles(t *testing.T) {
 				t.Helper()
 
 				return map[string]any{
-					"WhatIfForecastExportName": "promo-export",
+					"WhatIfForecastExportName": "promo_export",
 					"WhatIfForecastArns":       []any{createWhatIfForecast(t, h)},
 					"Destination":              minimalDataDestination(),
 					"Format":                   "CSV",
@@ -584,7 +584,7 @@ func TestHandler_ResourceLifecycles(t *testing.T) {
 				t.Helper()
 
 				return map[string]any{
-					"MonitorName": "quality-monitor", "ResourceArn": createPredictor(t, h),
+					"MonitorName": "quality_monitor", "ResourceArn": createPredictor(t, h),
 					"Tags": []any{map[string]any{"Key": "team", "Value": "forecasting"}},
 				}
 			},
@@ -648,14 +648,14 @@ func TestHandler_ConfigurationRetentionAndUpdates(t *testing.T) {
 		map[string]any{"AttributeName": "demand", "AttributeType": "float"},
 	}}
 	_, createdDataset := request(t, h, "CreateDataset", map[string]any{
-		"DatasetName": "schema-dataset", "Schema": schema, "DataFrequency": "D",
+		"DatasetName": "schema_dataset", "Schema": schema, "DataFrequency": "D",
 		"Domain": "RETAIL", "DatasetType": "TARGET_TIME_SERIES",
 	})
 	_, dataset := request(t, h, "DescribeDataset", map[string]any{"DatasetArn": createdDataset["DatasetArn"]})
 	assert.Equal(t, schema, dataset["Schema"])
 
 	config := map[string]any{
-		"PredictorName": "automl-predictor", "PerformAutoML": true, "PerformHPO": true,
+		"PredictorName": "automl_predictor", "PerformAutoML": true, "PerformHPO": true,
 		"HyperParameterTuningJobConfig": map[string]any{
 			"ParameterRanges": map[string]any{"ContinuousParameterRanges": []any{
 				map[string]any{"Name": "learning_rate", "MinValue": 0.01, "MaxValue": 0.2},
@@ -675,10 +675,10 @@ func TestHandler_ConfigurationRetentionAndUpdates(t *testing.T) {
 		map[string]any{"AttributeName": "item_id", "AttributeType": "string"},
 	}}
 	_, datasetA := request(t, h, "CreateDataset", map[string]any{
-		"DatasetName": "dataset-a", "Domain": "RETAIL", "DatasetType": "TARGET_TIME_SERIES", "Schema": datasetSchema,
+		"DatasetName": "dataset_a", "Domain": "RETAIL", "DatasetType": "TARGET_TIME_SERIES", "Schema": datasetSchema,
 	})
 	_, datasetB := request(t, h, "CreateDataset", map[string]any{
-		"DatasetName": "dataset-b", "Domain": "RETAIL", "DatasetType": "TARGET_TIME_SERIES", "Schema": datasetSchema,
+		"DatasetName": "dataset_b", "Domain": "RETAIL", "DatasetType": "TARGET_TIME_SERIES", "Schema": datasetSchema,
 	})
 	datasetArns := []any{datasetA["DatasetArn"], datasetB["DatasetArn"]}
 	_, updated := request(t, h, "UpdateDatasetGroup", map[string]any{
@@ -730,7 +730,7 @@ func TestHandler_ErrorPaths(t *testing.T) {
 		{
 			name:     "already_exists_dataset_group",
 			action:   "CreateDatasetGroup",
-			body:     map[string]any{"DatasetGroupName": "dup-group", "Domain": "RETAIL"},
+			body:     map[string]any{"DatasetGroupName": "dup_group", "Domain": "RETAIL"},
 			wantCode: http.StatusBadRequest,
 			wantType: "ResourceAlreadyExistsException",
 		},
@@ -773,4 +773,10 @@ func TestProvider(t *testing.T) {
 	handler, err := p.Init(&service.AppContext{})
 	require.NoError(t, err)
 	assert.Equal(t, "Forecast", handler.Name())
+}
+
+func testSchema() map[string]any {
+	return map[string]any{"Attributes": []any{
+		map[string]any{"AttributeName": "item_id", "AttributeType": "string"},
+	}}
 }

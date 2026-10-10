@@ -21,7 +21,7 @@ func TestRealClient_ProtectedQuerySummaryReceiverConfigurations(t *testing.T) {
 	}
 	s3 := &crtypes.ProtectedQueryOutputConfigurationMemberS3{
 		Value: crtypes.ProtectedQueryS3OutputConfiguration{
-			Bucket: aws.String("b"), ResultFormat: crtypes.ResultFormatCsv,
+			Bucket: aws.String("bkt"), ResultFormat: crtypes.ResultFormatCsv,
 		},
 	}
 

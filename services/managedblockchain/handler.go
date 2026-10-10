@@ -615,17 +615,49 @@ func (h *Handler) dispatchInvitationOps(c *echo.Context, op, resource string) er
 func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
-		return writeError(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+		return writeError(
+			c,
+			http.StatusNotFound,
+			"ResourceNotFoundException",
+			publicMessage(err, "ResourceNotFoundException"),
+		)
+	case errors.Is(err, ErrResourceNotReady):
+		return writeError(
+			c,
+			http.StatusConflict,
+			"ResourceNotReadyException",
+			publicMessage(err, "ResourceNotReadyException"),
+		)
 	case errors.Is(err, awserr.ErrAlreadyExists):
-		return writeError(c, http.StatusConflict, "ResourceAlreadyExistsException", err.Error())
+		return writeError(
+			c,
+			http.StatusConflict,
+			"ResourceAlreadyExistsException",
+			publicMessage(err, "ResourceAlreadyExistsException"),
+		)
 	case errors.Is(err, ErrResourceLimitExceeded):
-		return writeError(c, http.StatusTooManyRequests, "ResourceLimitExceededException", err.Error())
+		return writeError(
+			c,
+			http.StatusTooManyRequests,
+			"ResourceLimitExceededException",
+			publicMessage(err, "ResourceLimitExceededException"),
+		)
 	case errors.Is(err, ErrTooManyTags):
-		return writeError(c, http.StatusBadRequest, "TooManyTagsException", err.Error())
+		return writeError(c, http.StatusBadRequest, "TooManyTagsException", publicMessage(err, "TooManyTagsException"))
 	case errors.Is(err, awserr.ErrInvalidParameter):
-		return writeError(c, http.StatusBadRequest, "InvalidRequestException", err.Error())
+		return writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidRequestException",
+			publicMessage(err, "InvalidRequestException"),
+		)
 	default:
-		return writeError(c, http.StatusInternalServerError, "InternalServiceErrorException", err.Error())
+		return writeError(
+			c,
+			http.StatusInternalServerError,
+			"InternalServiceErrorException",
+			publicMessage(err, "InternalServiceErrorException"),
+		)
 	}
 }
 

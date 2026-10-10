@@ -7,8 +7,6 @@ import (
 	"sort"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
@@ -121,7 +119,7 @@ func (b *InMemoryBackend) createEthereumNodeLocked(
 		b.arnToResource[network.Arn] = network
 	}
 
-	nodeID := uuid.NewString()
+	nodeID := newResourceID("nd-")
 	host := fmt.Sprintf("%s.%s.t.ethereum.managedblockchain.%s.amazonaws.com", nodeID, ethereumMainnetNetworkID, region)
 
 	node := &Node{
@@ -141,7 +139,7 @@ func (b *InMemoryBackend) createEthereumNodeLocked(
 	b.nodes.Put(node)
 	b.arnToResource[node.Arn] = node
 
-	return cloneNode(node), nil
+	return b.viewNode(node), nil
 }
 
 // CreateNode creates a new peer node within a member. The node's KmsKeyArn
@@ -172,13 +170,17 @@ func (b *InMemoryBackend) CreateNode(
 		return nil, ErrMemberNotFound
 	}
 
+	if !b.memberReadyLocked(owner) {
+		return nil, ErrResourceNotReady
+	}
+
 	if edition := fabricEditionOf(network); edition != "" &&
 		b.peerNodeCountLocked(networkID, memberID) >= maxPeerNodesPerMember(edition) {
 		return nil, ErrResourceLimitExceeded
 	}
 
 	now := time.Now().UTC()
-	nodeID := uuid.NewString()
+	nodeID := newResourceID("nd-")
 
 	t := make(map[string]string)
 	maps.Copy(t, tags)
@@ -190,7 +192,7 @@ func (b *InMemoryBackend) CreateNode(
 		MemberID:         memberID,
 		InstanceType:     instanceType,
 		AvailabilityZone: availabilityZone,
-		Status:           nodeStatusAvailable,
+		Status:           b.initialStatus(),
 		CreationDate:     &now,
 		Tags:             t,
 		StateDB:          resolveStateDB(stateDB),
@@ -206,7 +208,7 @@ func (b *InMemoryBackend) CreateNode(
 	b.nodes.Put(node)
 	b.arnToResource[node.Arn] = node
 
-	return cloneNode(node), nil
+	return b.viewNode(node), nil
 }
 
 // GetNode returns a node by network ID, member ID, and node ID.
@@ -223,7 +225,7 @@ func (b *InMemoryBackend) GetNode(networkID, memberID, nodeID string) (*Node, er
 		return nil, ErrNodeNotFound
 	}
 
-	return cloneNode(node), nil
+	return b.viewNode(node), nil
 }
 
 // ListNodes returns all nodes for a member sorted by ID, optionally filtered.
@@ -239,11 +241,11 @@ func (b *InMemoryBackend) ListNodes(networkID, memberID string, filter ListNodes
 	all := make([]*Node, 0, len(nodes))
 
 	for _, n := range nodes {
-		if filter.Status != "" && n.Status != filter.Status {
+		if filter.Status != "" && b.settledStatus(n.Status, n.CreationDate) != filter.Status {
 			continue
 		}
 
-		all = append(all, cloneNode(n))
+		all = append(all, b.viewNode(n))
 	}
 
 	sort.Slice(all, func(i, j int) bool {
@@ -265,6 +267,10 @@ func (b *InMemoryBackend) DeleteNode(networkID, memberID, nodeID string) error {
 	node, exists := b.nodes.Get(nodeKey(networkID, memberID, nodeID))
 	if !exists {
 		return ErrNodeNotFound
+	}
+
+	if !b.nodeReadyLocked(node) {
+		return ErrResourceNotReady
 	}
 
 	delete(b.arnToResource, node.Arn)
@@ -295,7 +301,7 @@ func (b *InMemoryBackend) AddNodeInternal(region, accountID, networkID, memberID
 	defer b.mu.Unlock()
 
 	now := time.Now().UTC()
-	nodeID := uuid.NewString()
+	nodeID := newResourceID("nd-")
 
 	node := &Node{
 		ID:           nodeID,
@@ -335,7 +341,7 @@ func (b *InMemoryBackend) UpdateNode(
 		node.LogPublishingConfiguration = cloneNodeLogConfig(logConfig)
 	}
 
-	return cloneNode(node), nil
+	return b.viewNode(node), nil
 }
 
 // cloneNodeLogConfig returns a deep copy of NodeLogPublishingConfigState.

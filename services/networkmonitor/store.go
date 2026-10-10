@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -39,8 +40,6 @@ var (
 
 const (
 	monitorStateActive = "ACTIVE"
-
-	probeStateActive = "ACTIVE"
 
 	protocolTCP  = "TCP"
 	protocolICMP = "ICMP"
@@ -145,6 +144,7 @@ type InMemoryBackend struct {
 	accountID        string
 	defaultRegion    string
 	nextProbeSeq     int64
+	activationDelay  time.Duration
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)

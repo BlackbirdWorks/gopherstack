@@ -29,13 +29,32 @@ func (h *Handler) handleCreateNetwork(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "InvalidRequestException", ErrUnsupportedNetworkFramework.Error())
 	}
 
+	if err := validateNetworkFields(req); err != nil {
+		return writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidRequestException",
+			publicMessage(err, "InvalidRequestException"),
+		)
+	}
+
 	if errResp := validateMemberConfigurationRequest(req.MemberConfiguration); errResp != nil {
-		return writeError(c, http.StatusBadRequest, "InvalidRequestException", errResp.Error())
+		return writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidRequestException",
+			publicMessage(errResp, "InvalidRequestException"),
+		)
 	}
 
 	edition, err := extractNetworkFabricEdition(req.FrameworkConfiguration)
 	if err != nil {
-		return writeError(c, http.StatusBadRequest, "InvalidRequestException", err.Error())
+		return writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidRequestException",
+			publicMessage(err, "InvalidRequestException"),
+		)
 	}
 
 	var votingPolicy *VotingPolicy
@@ -118,7 +137,15 @@ func validateMemberConfigurationRequest(cfg memberConfiguration) error {
 		return ErrInvalidMemberAdminPassword
 	}
 
-	return nil
+	if err := validateMemberName(cfg.Name); err != nil {
+		return err
+	}
+
+	if len(cfg.Description) > maxDescriptionLen {
+		return invalidRequest("member description must not exceed %d characters", maxDescriptionLen)
+	}
+
+	return validateAdminCredentials(fabric.AdminUsername, fabric.AdminPassword)
 }
 
 // extractNetworkFabricEdition validates an optional

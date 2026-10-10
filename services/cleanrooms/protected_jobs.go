@@ -45,9 +45,17 @@ func (b *InMemoryBackend) StartProtectedJob(
 // observe forward progress. Callers must hold b.mu (write lock).
 func (b *InMemoryBackend) advanceProtectedJobsLocked() {
 	b.protectedJobs.Range(func(j *ProtectedJob) bool {
-		if !isTerminalProtectedJobStatus(j.Status) {
+		if isTerminalProtectedJobStatus(j.Status) {
+			return true
+		}
+
+		switch b.workStageLocked(j.CreateTime) {
+		case workDone:
 			j.Status = protectedJobStatusSuccess
 			j.Statistics = map[string]any{"totalDurationInMillis": mockDurationMillis}
+		case workRunning:
+			j.Status = statusStarted
+		case workQueued:
 		}
 
 		return true
@@ -96,6 +104,10 @@ func (b *InMemoryBackend) UpdateProtectedJob(
 	j, ok := b.protectedJobs.Get(membershipKey(membershipID, jobID))
 	if !ok {
 		return nil, ErrNotFound
+	}
+
+	if b.workDelay > 0 {
+		b.advanceProtectedJobsLocked()
 	}
 	// UpdateProtectedJob's only valid TargetStatus is CANCELLED, and AWS
 	// rejects cancelling a job that has already reached a terminal status

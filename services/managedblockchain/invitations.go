@@ -4,8 +4,6 @@ import (
 	"sort"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
@@ -77,7 +75,7 @@ func (b *InMemoryBackend) AddInvitationInternal(region, accountID, networkID, ne
 	defer b.mu.Unlock()
 
 	now := time.Now().UTC()
-	invitationID := uuid.NewString()
+	invitationID := newResourceID("in-")
 
 	var netSummary *InvitationNetworkSummary
 

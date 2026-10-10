@@ -30,8 +30,16 @@ func (b *InMemoryBackend) CreateTrustAnchor(
 	enabled *bool,
 	notificationSettings []NotificationSetting,
 ) (*TrustAnchor, error) {
-	if name == "" || source.SourceType == "" {
-		return nil, ErrValidation
+	if err := validateResourceName(name); err != nil {
+		return nil, err
+	}
+
+	if source.SourceType == "" {
+		return nil, invalid("source.sourceType is required")
+	}
+
+	if err := validateNotificationSettings(notificationSettings); err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("CreateTrustAnchor")
@@ -132,6 +140,12 @@ func (b *InMemoryBackend) UpdateTrustAnchor(
 	id, name string,
 	source *TrustAnchorSource,
 ) (*TrustAnchor, error) {
+	if name != "" {
+		if err := validateResourceName(name); err != nil {
+			return nil, err
+		}
+	}
+
 	b.mu.Lock("UpdateTrustAnchor")
 	defer b.mu.Unlock()
 

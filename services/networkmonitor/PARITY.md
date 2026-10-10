@@ -28,6 +28,8 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; InMemoryBa
 
 ## Notes
 
+- 2026-10-10 realism pass: error messages no longer carry a duplicated code. Opt-in `SetActivationDelay` (default 0) keeps new monitors and probes PENDING until the delay elapses (Get/List/state filter all see the same clock). Probe `destination` is now required to be an IPv4/IPv6 address (SDK: "This must be either an IPv4 or IPv6 address"); hostnames were accepted. destinationPort error message now states the real 1-65536 bound. Tests: activation_delay_test.go.
+
 - Wire shapes (field names, epoch-seconds timestamps via `createdAt`/`modifiedAt`,
   flat `probeWireBody` for CreateProbe/GetProbe/UpdateProbe responses, nested
   `probes` array on GetMonitor) were checked directly against

@@ -15,7 +15,40 @@ func (b *InMemoryBackend) StartProtectedQuery(
 	b.mu.Lock("StartProtectedQuery")
 	defer b.mu.Unlock()
 
-	return b.startProtectedQueryLocked(membershipID, sqlText, resultConfig, computeConfiguration, payerAccountID)
+	return b.startProtectedQueryLocked(
+		membershipID,
+		sqlParamsFromText(sqlText),
+		resultConfig,
+		computeConfiguration,
+		payerAccountID,
+	)
+}
+
+// StartProtectedQuerySQL starts a query from the full SQL parameters
+// (queryString, analysisTemplateArn, parameters).
+func (b *InMemoryBackend) StartProtectedQuerySQL(
+	membershipID string,
+	sqlParams map[string]any,
+	resultConfig map[string]any,
+	computeConfiguration map[string]any,
+	payerAccountID string,
+) (*ProtectedQuery, error) {
+	if err := validateProtectedQueryInput(sqlParams, resultConfig); err != nil {
+		return nil, err
+	}
+
+	b.mu.Lock("StartProtectedQuerySQL")
+	defer b.mu.Unlock()
+
+	return b.startProtectedQueryLocked(membershipID, sqlParams, resultConfig, computeConfiguration, payerAccountID)
+}
+
+func sqlParamsFromText(sqlText string) map[string]any {
+	if sqlText == "" {
+		return nil
+	}
+
+	return map[string]any{"queryString": sqlText}
 }
 
 // startProtectedQueryLocked is the shared implementation behind
@@ -25,7 +58,8 @@ func (b *InMemoryBackend) StartProtectedQuery(
 // the createMembershipLocked split between CreateMembership and
 // CreateCollaboration. Callers must hold b.mu (write lock).
 func (b *InMemoryBackend) startProtectedQueryLocked(
-	membershipID, sqlText string,
+	membershipID string,
+	sqlParams map[string]any,
 	resultConfig map[string]any,
 	computeConfiguration map[string]any,
 	payerAccountID string,
@@ -36,10 +70,6 @@ func (b *InMemoryBackend) startProtectedQueryLocked(
 	}
 	id := uuid.NewString()
 	ts := b.now()
-	var sqlParams map[string]any
-	if sqlText != "" {
-		sqlParams = map[string]any{"queryString": sqlText}
-	}
 	q := &ProtectedQuery{
 		ID:                   id,
 		MembershipIdentifier: membershipID,
@@ -69,9 +99,17 @@ func (b *InMemoryBackend) startProtectedQueryLocked(
 // always observe forward progress. Callers must hold b.mu (write lock).
 func (b *InMemoryBackend) advanceProtectedQueriesLocked() {
 	b.protectedQueries.Range(func(q *ProtectedQuery) bool {
-		if !isTerminalProtectedQueryStatus(q.Status) {
+		if isTerminalProtectedQueryStatus(q.Status) {
+			return true
+		}
+
+		switch b.workStageLocked(q.CreateTime) {
+		case workDone:
 			q.Status = protectedQueryStatusSuccess
 			q.Statistics = map[string]any{"totalDurationInMillis": mockDurationMillis}
+		case workRunning:
+			q.Status = statusStarted
+		case workQueued:
 		}
 
 		return true
@@ -129,6 +167,10 @@ func (b *InMemoryBackend) UpdateProtectedQuery(
 	q, ok := b.protectedQueries.Get(membershipKey(membershipID, queryID))
 	if !ok {
 		return nil, ErrNotFound
+	}
+
+	if b.workDelay > 0 {
+		b.advanceProtectedQueriesLocked()
 	}
 	// UpdateProtectedQuery's only valid TargetStatus is CANCELLED, and AWS
 	// rejects cancelling a query that has already reached a terminal status

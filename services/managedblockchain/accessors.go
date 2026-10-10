@@ -51,7 +51,7 @@ func (b *InMemoryBackend) CreateAccessor(
 	}
 
 	now := time.Now().UTC()
-	accessorID := uuid.NewString()
+	accessorID := newResourceID("ac-")
 	billingToken := uuid.NewString()
 
 	aType := accessorType
@@ -141,7 +141,7 @@ func (b *InMemoryBackend) AddAccessorInternal(region, accountID, accessorType, n
 	defer b.mu.Unlock()
 
 	now := time.Now().UTC()
-	accessorID := uuid.NewString()
+	accessorID := newResourceID("ac-")
 	billingToken := uuid.NewString()
 
 	accessor := &Accessor{

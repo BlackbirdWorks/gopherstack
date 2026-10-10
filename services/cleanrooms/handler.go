@@ -415,7 +415,7 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	// ResourceNotFoundException; emit both so the error is classified correctly.
 	c.Response().Header().Set("X-Amzn-Errortype", code)
 
-	return c.JSON(status, map[string]string{"__type": code, "message": err.Error()})
+	return c.JSON(status, map[string]string{"__type": code, "message": publicMessage(err, code)})
 }
 
 // opHandlerFn is the unified type for operation handlers.

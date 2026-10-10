@@ -6,8 +6,6 @@ import (
 	"sort"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
@@ -115,6 +113,10 @@ func (b *InMemoryBackend) CreateMember(
 		return nil, ErrInvitationNetworkMismatch
 	}
 
+	if !b.networkReadyLocked(network) {
+		return nil, ErrResourceNotReady
+	}
+
 	if inv.Status != invitationStatusPending {
 		return nil, ErrInvitationNotPending
 	}
@@ -131,7 +133,7 @@ func (b *InMemoryBackend) CreateMember(
 	}
 
 	now := time.Now().UTC()
-	memberID := uuid.NewString()
+	memberID := newResourceID("m-")
 
 	t := make(map[string]string)
 	maps.Copy(t, tags)
@@ -142,7 +144,7 @@ func (b *InMemoryBackend) CreateMember(
 		Name:                name,
 		Description:         description,
 		NetworkID:           networkID,
-		Status:              memberStatusAvailable,
+		Status:              b.initialStatus(),
 		CreationDate:        &now,
 		Tags:                t,
 		IsOwned:             true,
@@ -155,7 +157,7 @@ func (b *InMemoryBackend) CreateMember(
 
 	inv.Status = invitationStatusAccepted
 
-	return cloneMember(member), nil
+	return b.viewMember(member), nil
 }
 
 // GetMember returns a member by network ID and member ID.
@@ -172,7 +174,7 @@ func (b *InMemoryBackend) GetMember(networkID, memberID string) (*Member, error)
 		return nil, ErrMemberNotFound
 	}
 
-	return cloneMember(member), nil
+	return b.viewMember(member), nil
 }
 
 // ListMembers returns all members in a network, optionally filtered.
@@ -192,7 +194,7 @@ func (b *InMemoryBackend) ListMembers(networkID string, filter ListMembersFilter
 			continue
 		}
 
-		if filter.Status != "" && m.Status != filter.Status {
+		if filter.Status != "" && b.settledStatus(m.Status, m.CreationDate) != filter.Status {
 			continue
 		}
 
@@ -200,7 +202,7 @@ func (b *InMemoryBackend) ListMembers(networkID string, filter ListMembersFilter
 			continue
 		}
 
-		all = append(all, cloneMember(m))
+		all = append(all, b.viewMember(m))
 	}
 
 	sort.Slice(all, func(i, j int) bool {
@@ -230,6 +232,10 @@ func (b *InMemoryBackend) DeleteMember(networkID, memberID string) error {
 		return ErrMemberNotFound
 	}
 
+	if !b.memberReadyLocked(m) {
+		return ErrResourceNotReady
+	}
+
 	delete(b.arnToResource, m.Arn)
 	b.members.Delete(memberKey(networkID, memberID))
 
@@ -247,7 +253,7 @@ func (b *InMemoryBackend) AddMemberInternal(region, accountID, networkID, name s
 	defer b.mu.Unlock()
 
 	now := time.Now().UTC()
-	memberID := uuid.NewString()
+	memberID := newResourceID("m-")
 
 	member := &Member{
 		ID:           memberID,
@@ -288,7 +294,7 @@ func (b *InMemoryBackend) UpdateMember(
 		m.LogPublishingConfiguration = cloneMemberLogConfig(logConfig)
 	}
 
-	return cloneMember(m), nil
+	return b.viewMember(m), nil
 }
 
 // cloneMemberLogConfig returns a deep copy of MemberLogPublishingConfigState.
