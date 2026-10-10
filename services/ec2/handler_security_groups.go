@@ -811,6 +811,10 @@ func (h *Handler) handleCreateSecurityGroup(vals url.Values, reqID string) (any,
 	desc := vals.Get("GroupDescription")
 	vpcID := vals.Get("VpcId")
 
+	if err := validateSecurityGroupText(name, desc); err != nil {
+		return nil, err
+	}
+
 	sg, err := h.Backend.CreateSecurityGroup(name, desc, vpcID)
 	if err != nil {
 		return nil, err

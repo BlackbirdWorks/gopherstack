@@ -177,6 +177,15 @@ func (h *Handler) createCacheCluster(ctx context.Context, c *echo.Context, form 
 		return xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "CacheClusterId is required")
 	}
 
+	if err := firstError(
+		validateCacheID("CacheClusterId", id, maxCacheClusterIDLen),
+		validateCacheEngine(form.Get("Engine")),
+		validateCacheNodeType(form.Get("CacheNodeType")),
+		validateNumCacheNodesRaw(form.Get("NumCacheNodes")),
+	); err != nil {
+		return xmlError(c, http.StatusBadRequest, "InvalidParameterValue", err.Error())
+	}
+
 	plan, ok, planErr := h.planClusterCreate(ctx, c, form)
 	if !ok {
 		return planErr

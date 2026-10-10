@@ -22,6 +22,41 @@ const natGatewayConnectivityTypePublic = "public"
 // types/enums.go), the tombstone state DeleteNatGateway leaves behind.
 const natGatewayStateDeleted = "deleted"
 
+const (
+	natGatewayStatePending  = "pending"
+	natGatewayStateDeleting = "deleting"
+)
+
+func (b *InMemoryBackend) natGatewaysTransitionalLocked() bool {
+	for _, ngw := range b.natGateways.All() {
+		if ngw.State == natGatewayStatePending {
+			return true
+		}
+	}
+
+	for _, tomb := range b.natGatewayTombstones {
+		if tomb.value.State == natGatewayStateDeleting {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (b *InMemoryBackend) advanceNatGatewaysLocked() {
+	for _, ngw := range b.natGateways.All() {
+		if ngw.State == natGatewayStatePending {
+			ngw.State = stateAvailable
+		}
+	}
+
+	for _, tomb := range b.natGatewayTombstones {
+		if tomb.value.State == natGatewayStateDeleting {
+			tomb.value.State = natGatewayStateDeleted
+		}
+	}
+}
+
 // NatGateway represents an EC2 NAT Gateway.
 type NatGateway struct {
 	CreateTime          time.Time            `json:"createTime"`
@@ -85,7 +120,7 @@ func (b *InMemoryBackend) CreateNatGateway(
 		AssociationID:    newEIPAssociationID(),
 		PublicIP:         addr.PublicIP,
 		PrivateIP:        b.allocPrivateIP(),
-		State:            stateAvailable,
+		State:            natGatewayStatePending,
 		ConnectivityType: natGatewayConnectivityTypePublic,
 		CreateTime:       time.Now(),
 	}
@@ -130,7 +165,7 @@ func (b *InMemoryBackend) DeleteNatGateway(id string) error {
 	delete(b.tags, id)
 
 	cp := *ngw
-	cp.State = natGatewayStateDeleted
+	cp.State = natGatewayStateDeleting
 	pruneExpiredTombstones(b.natGatewayTombstones, time.Now())
 	b.natGatewayTombstones[id] = tombstone[NatGateway]{value: &cp, deletedAt: time.Now()}
 

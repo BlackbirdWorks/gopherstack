@@ -345,7 +345,14 @@ func vpcsSupportedOperations() []string {
 
 func (h *Handler) handleDescribeVpcs(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "VpcId")
+	if err := requireIDPrefix(ids, "vpc-", ErrMalformedVPCID); err != nil {
+		return nil, err
+	}
+
 	vpcs := h.Backend.DescribeVpcs(ids)
+	if err := requireAllIDsPresent(ids, vpcs, func(v *VPC) string { return v.ID }, ErrVPCNotFound); err != nil {
+		return nil, err
+	}
 
 	filters := parseEC2Filters(vals)
 	vpcs = applyVPCFilters(vpcs, filters, h.Backend)
@@ -429,6 +436,16 @@ func (h *Handler) handleCreateVpc(vals url.Values, reqID string) (any, error) {
 	tenancy := vals.Get("InstanceTenancy")
 	if tenancy == "" {
 		tenancy = vpcTenancyDefault
+	}
+
+	if cidr != "" {
+		if err := validateVpcCIDR(cidr); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := validateVpcTenancy(tenancy); err != nil {
+		return nil, err
 	}
 
 	v, err := h.Backend.CreateVpc(cidr, tenancy)

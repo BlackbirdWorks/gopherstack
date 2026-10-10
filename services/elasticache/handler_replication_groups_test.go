@@ -385,7 +385,7 @@ func TestHandler_CreateReplicationGroup_TransitEncryptionRequired_WithToken(t *t
 	out, err := client.CreateReplicationGroup(t.Context(), &elasticachesdk.CreateReplicationGroupInput{
 		ReplicationGroupId:          aws.String("http-transit-req-rg"),
 		ReplicationGroupDescription: aws.String("transit required with token"),
-		AuthToken:                   aws.String("required-token"),
+		AuthToken:                   aws.String("required-token-1234"),
 		TransitEncryptionEnabled:    aws.Bool(true),
 		TransitEncryptionMode:       elasticachetypes.TransitEncryptionModeRequired,
 	})

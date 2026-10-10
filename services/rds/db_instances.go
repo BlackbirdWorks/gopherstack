@@ -13,6 +13,7 @@ func normalizeDBInstanceDefaults(
 	engine, instanceClass string,
 	allocatedStorage int,
 	masterUser, region string,
+	catalogDefaults bool,
 	opts *DBInstanceOptions,
 ) (string, string, int, string) {
 	if engine == "" {
@@ -26,6 +27,9 @@ func normalizeDBInstanceDefaults(
 	}
 	if masterUser == "" {
 		masterUser = "admin"
+	}
+	if catalogDefaults && opts.EngineVersion == "" && opts.DBClusterIdentifier == "" {
+		opts.EngineVersion = defaultEngineVersion(engine)
 	}
 	if opts.StorageType == "" {
 		opts.StorageType = "gp2"
@@ -89,7 +93,7 @@ func (b *InMemoryBackend) createDBInstanceLocked(
 	}
 
 	engine, instanceClass, allocatedStorage, masterUser = normalizeDBInstanceDefaults(
-		engine, instanceClass, allocatedStorage, masterUser, b.region, &opts,
+		engine, instanceClass, allocatedStorage, masterUser, b.region, b.engine == nil, &opts,
 	)
 
 	secret, err := b.validateCreateLogin(engine, masterUser, opts)
@@ -203,6 +207,9 @@ func (b *InMemoryBackend) CreateDBInstance(
 		return nil, err
 	}
 	if err := validateNetworkType(opts.NetworkType); err != nil {
+		return nil, err
+	}
+	if err := validateDBInstanceClass(instanceClass); err != nil {
 		return nil, err
 	}
 

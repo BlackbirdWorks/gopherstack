@@ -297,7 +297,7 @@ func TestDeleteCacheCluster_FinalSnapshotIdentifier(t *testing.T) {
 			t.Parallel()
 
 			client := newTestStack(t)
-			clusterID := "fsi-" + tt.name
+			clusterID := "fsi-" + strings.ReplaceAll(tt.name, "_", "-")
 
 			_, err := client.CreateCacheCluster(t.Context(), &elasticachesdk.CreateCacheClusterInput{
 				CacheClusterId: aws.String(clusterID),

@@ -730,6 +730,12 @@ var errCodeLookup = []struct {
 	{ErrSubnetCIDRConflict, "InvalidSubnet.Conflict"},
 	{ErrSubnetRange, "InvalidSubnet.Range"},
 	{ErrVpcCIDRRange, "InvalidVpc.Range"},
+	{ErrInvalidVpcRange, "InvalidVpcRange"},
+	{ErrInvalidZone, "InvalidZone.NotFound"},
+	{ErrTagLimitExceeded, "TagLimitExceeded"},
+	{ErrMalformedVPCID, "InvalidVpcID.Malformed"},
+	{ErrMalformedInstanceID, "InvalidInstanceID.Malformed"},
+	{ErrMalformedAMIID, "InvalidAMIID.Malformed"},
 	{ErrClientVpnEndpointNotFound, "InvalidClientVpnEndpointId.NotFound"},
 	{ErrTrafficMirrorFilterNotFound, "InvalidTrafficMirrorFilterId.NotFound"},
 	{ErrTrafficMirrorFilterRuleNotFound, "InvalidTrafficMirrorFilterRuleId.NotFound"},
@@ -906,7 +912,7 @@ func (h *Handler) handleOpError(c *echo.Context, reqID, action string, opErr err
 			Error("EC2 internal error", "error", opErr, "action", action)
 	}
 
-	return h.writeError(c, reqID, statusCode, code, opErr.Error())
+	return h.writeError(c, reqID, statusCode, code, errorMessage(code, opErr.Error()))
 }
 
 func (h *Handler) writeError(

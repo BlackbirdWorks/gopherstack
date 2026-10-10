@@ -211,6 +211,17 @@ func (h *Handler) handleCreateUserPoolWithOpts(
 		}
 	}
 
+	if opts.PasswordPolicy == nil {
+		opts.PasswordPolicy = &PasswordPolicy{
+			MinimumLength:                 defaultPasswordMinLength,
+			RequireUppercase:              true,
+			RequireLowercase:              true,
+			RequireNumbers:                true,
+			RequireSymbols:                true,
+			TemporaryPasswordValidityDays: defaultTempPasswordValidDays,
+		}
+	}
+
 	if in.Policies != nil && in.Policies.SignInPolicy != nil {
 		opts.SignInPolicy = &SignInPolicy{
 			AllowedFirstAuthFactors: slices.Clone(in.Policies.SignInPolicy.AllowedFirstAuthFactors),

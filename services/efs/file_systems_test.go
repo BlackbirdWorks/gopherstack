@@ -377,7 +377,7 @@ func TestDeleteFileSystem_RejectedWhileReplicating(t *testing.T) {
 	require.NoError(t, b.DeleteFileSystem(context.Background(), fs.FileSystemID))
 }
 
-// TestCreationTokenIdempotency verifies identical args return 200, different args return 409.
+// TestCreationTokenIdempotency verifies a reused token is rejected whether or not the args match.
 func TestCreationTokenIdempotency(t *testing.T) {
 	t.Parallel()
 

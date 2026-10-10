@@ -127,27 +127,7 @@ func (b *InMemoryBackend) DescribeDBEngineVersions(engine, engineVersion string)
 	// AWS's per-engine "default" version (rds@v1.124.1 DescribeDBEngineVersions's
 	// DefaultOnly doc: "the default version of the specified engine or engine and
 	// major version combination"). Custom engine versions are never default.
-	builtin := []DBEngineVersion{
-		{
-			Engine: enginePostgres, EngineVersion: "9.6.24", DBEngineDescription: "PostgreSQL 9.6.24",
-			Status: engineVersionStatusDeprecated,
-		},
-		{Engine: enginePostgres, EngineVersion: "14.10", DBEngineDescription: "PostgreSQL 14.10"},
-		{Engine: enginePostgres, EngineVersion: "15.5", DBEngineDescription: "PostgreSQL 15.5", IsDefault: true},
-		oracleEngineVersion(),
-		sqlServerEngineVersion(),
-		{Engine: engineMySQL, EngineVersion: "8.0.35", DBEngineDescription: "MySQL 8.0.35", IsDefault: true},
-		{Engine: engineMariaDB, EngineVersion: "10.6.14", DBEngineDescription: "MariaDB 10.6.14", IsDefault: true},
-		{
-			Engine: engineAuroraMySQL, EngineVersion: "3.04.0",
-			DBEngineDescription: "Aurora MySQL 3.04.0", IsDefault: true,
-		},
-		{Engine: engineAuroraPostgresql, EngineVersion: "14.9", DBEngineDescription: "Aurora PostgreSQL 14.9"},
-		{
-			Engine: engineAuroraPostgresql, EngineVersion: "15.4",
-			DBEngineDescription: "Aurora PostgreSQL 15.4", IsDefault: true,
-		},
-	}
+	builtin := builtinDBEngineVersions()
 
 	b.mu.RLock("DescribeDBEngineVersions")
 	custom := b.customEngineVersions.All()
@@ -180,6 +160,41 @@ func (b *InMemoryBackend) DescribeDBEngineVersions(engine, engineVersion string)
 	}
 
 	return result
+}
+
+func builtinDBEngineVersions() []DBEngineVersion {
+	return []DBEngineVersion{
+		{
+			Engine: enginePostgres, EngineVersion: "9.6.24", DBEngineDescription: "PostgreSQL 9.6.24",
+			Status: engineVersionStatusDeprecated,
+		},
+		{Engine: enginePostgres, EngineVersion: "14.10", DBEngineDescription: "PostgreSQL 14.10"},
+		{Engine: enginePostgres, EngineVersion: "15.5", DBEngineDescription: "PostgreSQL 15.5", IsDefault: true},
+		oracleEngineVersion(),
+		sqlServerEngineVersion(),
+		{Engine: engineMySQL, EngineVersion: "8.0.35", DBEngineDescription: "MySQL 8.0.35", IsDefault: true},
+		{Engine: engineMariaDB, EngineVersion: "10.6.14", DBEngineDescription: "MariaDB 10.6.14", IsDefault: true},
+		{
+			Engine: engineAuroraMySQL, EngineVersion: "3.04.0",
+			DBEngineDescription: "Aurora MySQL 3.04.0", IsDefault: true,
+		},
+		{Engine: engineAuroraPostgresql, EngineVersion: "14.9", DBEngineDescription: "Aurora PostgreSQL 14.9"},
+		{
+			Engine: engineAuroraPostgresql, EngineVersion: "15.4",
+			DBEngineDescription: "Aurora PostgreSQL 15.4", IsDefault: true,
+		},
+	}
+}
+
+// defaultEngineVersion returns the catalog default for engine, or "" when the engine has none.
+func defaultEngineVersion(engine string) string {
+	for _, v := range builtinDBEngineVersions() {
+		if v.Engine == engine && v.IsDefault {
+			return v.EngineVersion
+		}
+	}
+
+	return ""
 }
 
 const (

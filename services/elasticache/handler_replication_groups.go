@@ -68,6 +68,17 @@ func logDeliveryConfigsToXML(configs []LogDeliveryConfig) *logDeliveryConfigsXML
 func (h *Handler) createReplicationGroup(ctx context.Context, c *echo.Context, form url.Values) error {
 	opts := parseCreateReplicationGroupOpts(form)
 
+	if err := firstError(
+		validateCacheID("ReplicationGroupId", opts.ID, maxReplicationGroupIDLen),
+		validateCacheEngine(opts.Engine),
+		validateCacheNodeType(opts.CacheNodeType),
+		validateAuthToken(opts.AuthToken, opts.TransitEncryptionEnabled),
+	); err != nil {
+		status, code, _ := paramErrorCode(err)
+
+		return xmlError(c, status, code, err.Error())
+	}
+
 	rg, err := h.Backend.CreateReplicationGroupFull(ctx, opts)
 	if err != nil {
 		return mapReplicationGroupCreateErr(c, err)

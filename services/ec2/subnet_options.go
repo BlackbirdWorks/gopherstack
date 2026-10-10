@@ -216,6 +216,10 @@ func (b *InMemoryBackend) resolveSubnetAZLocked(az, azID string) (string, error)
 		return b.Region + "a", nil
 	}
 
+	if err := b.validateZoneName(az); err != nil {
+		return "", err
+	}
+
 	return az, nil
 }
 
@@ -236,6 +240,10 @@ func (b *InMemoryBackend) subnetIPv4CIDRLocked(vpc *VPC, p CreateSubnetParams) (
 		if err != nil {
 			return "", nil, err
 		}
+	}
+
+	if err := validateSubnetPrefixLen(cidr); err != nil {
+		return "", nil, err
 	}
 
 	if !cidrContains(vpc.CIDRBlock, cidr) {

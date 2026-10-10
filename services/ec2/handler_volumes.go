@@ -805,8 +805,13 @@ func (h *Handler) handleCreateVolume(vals url.Values, reqID string) (any, error)
 
 	size := 0
 	if sizeStr != "" {
-		// If parsing fails, size defaults to 0 and CreateVolume will use the default size.
-		_, _ = fmt.Sscan(sizeStr, &size)
+		if _, scanErr := fmt.Sscan(sizeStr, &size); scanErr != nil {
+			return nil, fmt.Errorf("%w: invalid value %q for Size", ErrInvalidParameter, sizeStr)
+		}
+	}
+
+	if err := validateVolumeSizeAndType(volType, size, sizeStr != ""); err != nil {
+		return nil, err
 	}
 
 	iops, throughput, err := parseVolumePerf(

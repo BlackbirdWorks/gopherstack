@@ -9,13 +9,15 @@
 | --- | --- |
 | PARITY entries audited | 52 (51 ok, 1 partial) |
 | Feature families | 28 (27 ok, 1 partial) |
-| Known gaps | 3 |
+| Known gaps | 5 |
 | Structural gaps (can't be emulated) | 6 |
 | Deferred items | 0 |
 | Resource leaks | fixed |
 
 ### Known gaps
 
+- CreateDBCluster returns the cluster as available at once (CreateDBInstance already goes creating->available): in-repo unit, integration and Terraform callers assume it, so cluster creating state is not simulated.
+- CreateDBInstance without MasterUserPassword (and without ManageMasterUserPassword) is accepted, EngineVersion values outside the small built-in catalog are accepted, and MaxRecords below 20 is accepted: stricter checks break in-repo callers.
 - UNVERIFIABLE (gopherstack-1jkv): two different roles added to a cluster with FeatureName omitted on both coexist; the pinned SDK documents no collision rule.
 - UNVERIFIABLE: MasterUserSecret.KmsKeyId stays empty when MasterUserSecretKmsKeyId is unset; the pinned SDK does not state the default key's shape. Changing the key on a managed secret does not re-encrypt the Secrets Manager secret.
 - UNVERIFIABLE: DescribeEngineDefaultParameters returns an empty Parameters list and DescribeDBEngineVersions character-set/timezone catalogs exist only for oracle-ee and sqlserver-se; the pinned SDK has no per-family default-parameter table or per-version catalog to source real values from.

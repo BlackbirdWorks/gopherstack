@@ -494,7 +494,7 @@ func TestCreateDBCluster_BackupRetentionPeriodBounds(t *testing.T) {
 
 			h := newRDSHandler(t)
 			body := "Action=CreateDBCluster" +
-				"&DBClusterIdentifier=test-cluster-" + tt.name +
+				"&DBClusterIdentifier=test-cluster-" + strings.ReplaceAll(tt.name, "_", "-") +
 				"&Engine=aurora-mysql" +
 				"&BackupRetentionPeriod=" + tt.retention
 

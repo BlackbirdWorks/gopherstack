@@ -2,6 +2,7 @@ package elasticache_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -139,7 +140,7 @@ func TestCreateCacheCluster_PlacementAndParams(t *testing.T) {
 
 			client := newTestStack(t)
 			in := tt.in
-			in.CacheClusterId = aws.String("placement-" + tt.name[:min(len(tt.name), 8)])
+			in.CacheClusterId = aws.String("placement-" + strings.ReplaceAll(tt.name[:min(len(tt.name), 8)], "_", "x"))
 
 			out, err := client.CreateCacheCluster(t.Context(), &in)
 			if tt.wantCode != "" {

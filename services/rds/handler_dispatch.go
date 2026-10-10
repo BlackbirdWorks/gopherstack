@@ -593,7 +593,7 @@ func rdsErrorCode(opErr error) string {
 func (h *Handler) writeError(c *echo.Context, statusCode int, code, message string) error {
 	errResp := &rdsErrorResponse{
 		Xmlns: rdsXMLNS,
-		Error: rdsError{Code: code, Message: message, Type: "Sender"},
+		Error: rdsError{Code: code, Message: strings.TrimPrefix(message, code+": "), Type: "Sender"},
 	}
 
 	xmlBytes, err := marshalXML(errResp)

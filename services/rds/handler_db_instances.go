@@ -94,6 +94,10 @@ func (h *Handler) handleCreateDBInstance(vals url.Values) (any, error) {
 		)
 	}
 
+	if err = validateMasterPassword(engine, vals.Get("MasterUserPassword")); err != nil {
+		return nil, err
+	}
+
 	vpcSGIds := parseMultiValueParam(vals, "VpcSecurityGroupIds.VpcSecurityGroupId")
 	dbSGNames := parseMultiValueParam(vals, "DBSecurityGroups.DBSecurityGroupName")
 	logExports := parseMultiValueParam(vals, "EnableCloudwatchLogsExports.member")

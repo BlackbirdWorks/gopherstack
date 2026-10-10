@@ -8,13 +8,15 @@
 | Metric | Value |
 | --- | --- |
 | Feature families | 22 (22 ok) |
-| Known gaps | 1 |
+| Known gaps | 3 |
 | Structural gaps (can't be emulated) | 16 |
 | Deferred items | 5 |
 | Resource leaks | ok |
 
 ### Known gaps
 
+- RunInstances accepts any syntactically valid InstanceType and any ami-prefixed ImageId: the instance-type catalog is partial and many in-repo callers launch synthetic AMIs, so unknown-but-well-formed values are not rejected.
+- CreateVolume goes straight to available (no creating state) and CreateVolume without Size/SnapshotId defaults to 8 GiB instead of failing; DescribeInstances reservation ids are minted per call and all instances share one reservation.
 - Filters the pinned SDK does not define: DescribeCapacityBlocks 'tags' (doc is only "the tags assigned"; checked api_op_DescribeCapacityBlocks.go), DescribeInstanceEventWindows 'instance-tag' (value syntax undocumented in api_op_DescribeInstanceEventWindows.go), DescribeVpcPeeringConnections 'status-message' (no message texts in the SDK or the VPC peering lifecycle page, which names states only).
 
 ### Structural gaps

@@ -237,6 +237,8 @@ gaps: []
   # - [FIXED, prior pass] CreateDBShardGroup/DeleteDBShardGroup/ModifyDBShardGroup/RebootDBShardGroup and CreateIntegration/DeleteIntegration/ModifyIntegration and CreateCustomDBEngineVersion/DeleteCustomDBEngineVersion/ModifyCustomDBEngineVersion (10 ops total) previously wrapped their response fields one XML level too deep (e.g. `<CreateDBShardGroupResult><DBShardGroup><DBShardGroupIdentifier>...`) when the real aws-sdk-go-v2 output for all 10 is a FLAT shape with no such wrapper (`<CreateDBShardGroupResult><DBShardGroupIdentifier>...`) — see Notes. A real aws-sdk-go-v2 client's query-XML deserializer only looks for named fields as direct children of the `<XxxResult>` element, so every field on these 10 ops (including the identifier needed to address the resource in a follow-up call) previously came back empty/zero to a real SDK client, even though the emulator's backend state was correct.
   # - [FIXED, prior pass] CreateCustomDBEngineVersion/ModifyCustomDBEngineVersion additionally serialized the description field under the wrong element name (`DatabaseInstallationFilesS3BucketName` instead of `DBEngineVersionDescription`) — see Notes.
 items_still_open:
+  - "CreateDBCluster returns the cluster as available at once (CreateDBInstance already goes creating->available): in-repo unit, integration and Terraform callers assume it, so cluster creating state is not simulated."
+  - "CreateDBInstance without MasterUserPassword (and without ManageMasterUserPassword) is accepted, EngineVersion values outside the small built-in catalog are accepted, and MaxRecords below 20 is accepted: stricter checks break in-repo callers."
   - "UNVERIFIABLE (gopherstack-1jkv): two different roles added to a cluster with FeatureName omitted on both coexist; the pinned SDK documents no collision rule."
   - "UNVERIFIABLE: MasterUserSecret.KmsKeyId stays empty when MasterUserSecretKmsKeyId is unset; the pinned SDK does not state the default key's shape. Changing the key on a managed secret does not re-encrypt the Secrets Manager secret."
   - "UNVERIFIABLE: DescribeEngineDefaultParameters returns an empty Parameters list and DescribeDBEngineVersions character-set/timezone catalogs exist only for oracle-ee and sqlserver-se; the pinned SDK has no per-family default-parameter table or per-version catalog to source real values from."
@@ -1857,3 +1859,10 @@ subnet group, VPC security groups and log exports. CopyOptionGroup now assigns t
 ## 2026-10-05 (undeclared response members)
 
 OptimizedWritesEnabled (DBInstance, DBCluster), StorageOptimized and GlobalCluster.PrimaryRegion are not in rds@v1.124.1 output shapes (deserializers.go); dropped from the wire. Backend fields are unchanged.
+
+## 2026-10-09 realism pass (input validation, error messages)
+
+- CreateDBInstance: DBInstanceClass must look like `db.<family>.<size>` (or `db.serverless`); CreateDBInstance/CreateDBCluster MasterUserPassword 8-41 (mysql/mariadb/aurora-mysql), 8-30 (oracle) or 8-128 chars, no `/ " @`; DBClusterIdentifier uses the same letter/hyphen rules as instances. Omitted EngineVersion now reports the catalog default (not in docker engine mode, whose image default differs).
+- Describe* `Marker` that is not a token this service issued -> `InvalidParameterValue` instead of silently restarting the list.
+- Error Message no longer repeats the code prefix. Tests: input_validation_test.go.
+- Kept lenient (see items_still_open): cluster creating state, missing password, engine-version catalog, MaxRecords floor.

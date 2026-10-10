@@ -1045,7 +1045,7 @@ func TestDeleteSubnet_DependencyViolation_NatGateways(t *testing.T) {
 
 	ngws := b.DescribeNatGateways([]string{ngw.ID})
 	require.Len(t, ngws, 1, "a by-ID describe should still find the deleted gateway as a tombstone")
-	assert.Equal(t, "deleted", ngws[0].State)
+	assert.Equal(t, "deleting", ngws[0].State)
 }
 
 // TestDeleteVpc_DependencyViolation_IGWsAndNatGateways verifies that DeleteVpc
@@ -1098,7 +1098,7 @@ func TestDeleteVpc_DependencyViolation_IGWsAndNatGateways(t *testing.T) {
 	require.Error(t, err, "deleted IGW must NotFound, not silently vanish from the result")
 	deletedNGWs := b.DescribeNatGateways([]string{ngw.ID})
 	require.Len(t, deletedNGWs, 1, "a by-ID describe should still find the deleted gateway as a tombstone")
-	assert.Equal(t, "deleted", deletedNGWs[0].State)
+	assert.Equal(t, "deleting", deletedNGWs[0].State)
 	assert.Empty(t, b.DescribeVpcs([]string{vpc.ID}))
 }
 

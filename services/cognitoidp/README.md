@@ -8,13 +8,14 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 68 (68 ok) |
-| Known gaps | 4 |
+| Known gaps | 5 |
 | Structural gaps (can't be emulated) | 4 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
+- PasswordPolicyType.PasswordHistorySize is not modelled (dropped on create/update, not echoed, reuse not rejected).
 - WebAuthnMfaSettings (passkey MFA applies only when passkey is the first factor, which USER_AUTH here does not offer) and the SignUp/ConfirmSignUp Session auto sign-in are not modelled: the SDK docs for SignUp/ConfirmSignUp/InitiateAuth state the Session is usable with USER_AUTH but name no auth parameter or challenge for consuming it.
 - domains: DomainDescriptionType.Version (app version) is not documented beyond its name, so it stays unpopulated rather than fabricated.
 - MFA_SETUP/AssociateSoftwareToken/VerifySoftwareToken session single-use/rotation semantics across the three-call round trip are not stated anywhere in the SDK's doc prose, so this backend echoes the same session token unchanged through all three (only the final RespondToAuthChallenge deletes it) rather than inventing rotation behavior AWS never documents.

@@ -26,11 +26,11 @@ func TestDescribeSecurityGroupRules_GroupIDFilter_MultipleValues_RealClient(t *t
 	client := newTestEC2Client(t, h)
 
 	sg1, err := client.CreateSecurityGroup(t.Context(), &ec2sdk.CreateSecurityGroupInput{
-		GroupName: aws.String("sg-rules-multivalue-1"), Description: aws.String("first"),
+		GroupName: aws.String("rules-multivalue-1"), Description: aws.String("first"),
 	})
 	require.NoError(t, err)
 	sg2, err := client.CreateSecurityGroup(t.Context(), &ec2sdk.CreateSecurityGroupInput{
-		GroupName: aws.String("sg-rules-multivalue-2"), Description: aws.String("second"),
+		GroupName: aws.String("rules-multivalue-2"), Description: aws.String("second"),
 	})
 	require.NoError(t, err)
 

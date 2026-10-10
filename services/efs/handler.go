@@ -642,7 +642,7 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 }
 
 func errResp(code, msg string) map[string]string {
-	return map[string]string{"ErrorCode": code, "Message": msg}
+	return map[string]string{"ErrorCode": code, "Message": strings.TrimPrefix(msg, code+": ")}
 }
 
 type tagEntry struct {

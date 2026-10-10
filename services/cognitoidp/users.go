@@ -20,12 +20,19 @@ func (b *InMemoryBackend) AdminCreateUser(
 	b.mu.Lock("AdminCreateUser")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pools.Get(userPoolID); !ok {
+	pool, ok := b.pools.Get(userPoolID)
+	if !ok {
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
 	if b.usernameExistsLocked(userPoolID, username) {
 		return nil, fmt.Errorf("%w: user %q already exists", ErrUsernameExists, username)
+	}
+
+	if tempPassword != "" {
+		if err := validatePassword(pool.PasswordPolicy, tempPassword); err != nil {
+			return nil, err
+		}
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(tempPassword), bcryptCost)

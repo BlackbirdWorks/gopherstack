@@ -70,6 +70,7 @@ func (b *InMemoryBackend) CreateDBCluster(
 	cluster := b.newDBCluster(id, engine, masterUser, dbName, paramGroupName, port, serverlessV2Cfg, opts)
 	cluster.MasterSecret = secret
 	b.provisionClusterLocked(cluster, opts.MasterUserPassword)
+
 	b.clusters.Put(cluster)
 
 	if globalCluster != nil {
@@ -96,6 +97,9 @@ func (b *InMemoryBackend) CreateDBCluster(
 func validateCreateDBClusterInput(id, engine string, opts DBClusterOptions) error {
 	if id == "" {
 		return fmt.Errorf("%w: DBClusterIdentifier must not be empty", ErrInvalidParameter)
+	}
+	if err := validateDBClusterIdentifier(id); err != nil {
+		return err
 	}
 	if err := validateDBClusterEngine(engine); err != nil {
 		return err
@@ -124,6 +128,9 @@ func (b *InMemoryBackend) newDBCluster(
 	}
 	if port <= 0 {
 		port = enginePort(engine)
+	}
+	if opts.EngineVersion == "" && b.engine == nil {
+		opts.EngineVersion = defaultEngineVersion(engine)
 	}
 	endpoint := fmt.Sprintf("%s.cluster.%s.%s.rds.amazonaws.com", id, b.accountID, b.region)
 	readerEndpoint := fmt.Sprintf(

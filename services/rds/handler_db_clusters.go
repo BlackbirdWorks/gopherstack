@@ -137,6 +137,10 @@ func (h *Handler) handleCreateDBCluster(vals url.Values) (any, error) {
 		return nil, parseErr
 	}
 
+	if err = validateMasterPassword(engine, vals.Get("MasterUserPassword")); err != nil {
+		return nil, err
+	}
+
 	clusterOpts := buildDBClusterOptions(vals, numeric)
 
 	cluster, err := h.Backend.CreateDBCluster(

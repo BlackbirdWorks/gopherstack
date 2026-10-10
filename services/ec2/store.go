@@ -953,6 +953,8 @@ func (b *InMemoryBackend) reconcileInstanceLifecycle() {
 			break
 		}
 	}
+
+	hasTransitional = hasTransitional || b.natGatewaysTransitionalLocked()
 	b.mu.RUnlock()
 
 	if !hasTransitional {
@@ -973,6 +975,8 @@ func (b *InMemoryBackend) reconcileInstanceLifecycle() {
 			inst.State = StateTerminated
 		}
 	}
+
+	b.advanceNatGatewaysLocked()
 }
 
 // initDefaults pre-populates a default VPC, subnet, and security group.

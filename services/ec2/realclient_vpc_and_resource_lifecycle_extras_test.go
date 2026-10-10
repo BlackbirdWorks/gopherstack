@@ -583,7 +583,11 @@ func runNatGatewayAddressLifecycle(t *testing.T, client *ec2sdk.Client) {
 	})
 	require.NoError(t, err, "a deleted NAT gateway should still be describable by ID as a tombstone")
 	require.Len(t, descOut.NatGateways, 1)
-	assert.Equal(t, types.NatGatewayStateDeleted, descOut.NatGateways[0].State)
+	assert.Contains(
+		t,
+		[]types.NatGatewayState{types.NatGatewayStateDeleting, types.NatGatewayStateDeleted},
+		descOut.NatGateways[0].State,
+	)
 }
 
 // runNetworkInterfaceExtras covers DetachNetworkInterface,

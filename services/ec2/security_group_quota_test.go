@@ -24,7 +24,7 @@ func createTestSecurityGroup(t *testing.T, client *ec2sdk.Client, vpcID string) 
 	n := securityGroupQuotaTestSeq.Add(1)
 
 	out, err := client.CreateSecurityGroup(t.Context(), &ec2sdk.CreateSecurityGroupInput{
-		GroupName:   aws.String(fmt.Sprintf("sg-quota-test-%d", n)),
+		GroupName:   aws.String(fmt.Sprintf("quota-test-%d", n)),
 		Description: aws.String("quota test group"),
 		VpcId:       aws.String(vpcID),
 	})

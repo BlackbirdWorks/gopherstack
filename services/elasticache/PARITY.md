@@ -249,6 +249,7 @@ gaps: []
   #    this was flagged as a "cross-service concern" in the prior ledger -- it is now
   #    fixed for elasticache specifically; other services were not touched.
 items_still_open:
+  - "creating/modifying/deleting dwell states exist (SetLifecycleDelay) but the default delay is zero, so a running server reports available at once: in-repo integration tests and ~170 unit tests assert immediate availability and root wiring cannot set a delay."
   - "ReplicationGroup.EffectiveDurability when Durability is default or unset: the SDK says the service resolves it from engine version and cluster mode without documenting the rules, so only an explicit async/sync/disabled is mirrored."
 structural_gaps:
   - "CreateCacheCluster/CreateReplicationGroup SnapshotArns and SnapshotName/ServerlessCacheSnapshotName key data, CopySnapshot TargetBucket: RDB import/export needs an RDB reader/writer miniredis does not have; the ARNs are validated and topology/engine settings are restored, key data is not."
@@ -903,3 +904,8 @@ Still recorded, with the root cause stated precisely: non-cluster-mode replicati
 ## 2026-10-05 (undeclared response members)
 
 ReplicationGroup no longer emits CacheParameterGroupName/PreferredMaintenanceWindow/EngineVersion, its PendingModifiedValues keeps only AuthTokenStatus/AutomaticFailoverStatus, and GlobalReplicationGroup.NodeGroupCount and ReservedCacheNode.ReservationId are dropped (none are declared by the pinned SDK).
+
+## 2026-10-09 realism pass (input validation)
+
+- CreateCacheCluster/CreateReplicationGroup: id format (letter first, alphanumerics/hyphens, no trailing or double hyphen, 50/40 chars), Engine in redis/valkey/memcached, CacheNodeType shape `cache.<family>.<size>`, NumCacheNodes must be a positive integer (previously silently defaulted), AuthToken 16-128 printable chars without `@ " /` and only with TransitEncryptionEnabled (`InvalidParameterCombination`).
+- Describe* `Marker` that is not an issued token -> `InvalidParameterValue`. Error messages no longer repeat the code. Tests: input_validation_test.go.

@@ -9,12 +9,13 @@
 | --- | --- |
 | PARITY entries audited | 31 (31 ok) |
 | Feature families | 9 (9 ok) |
-| Known gaps | 3 |
+| Known gaps | 4 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
 ### Known gaps
 
+- File systems and mount targets report available at once (the creating dwell is opt-in via the activation delay, off by default): in-repo integration and root tests create mount targets straight after CreateFileSystem.
 - DeleteFileSystem rejects (FileSystemInUse) while access points exist; API_DeleteFileSystem documents FileSystemInUse only for mount targets and replication, and nothing documents access points, so this may be an over-restriction (tested in TestDeleteFileSystem_RequiresEmptyState).
 - NetworkInterfaceLimitExceeded is not enforced: it keys off the VPC 'Network interfaces per Region' quota (VPC User Guide), which also counts ENIs from non-EFS resources this backend does not model (NoFreeAddressesInSubnet is enforced from the subnet CIDR minus EC2 ENI and EFS mount-target addresses).
 - The 1,400 mount-targets-per-VPC cap is not enforced: the EFS quotas page gives the figure but CreateMountTarget's documented errors name no code for exceeding it.

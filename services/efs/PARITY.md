@@ -74,6 +74,7 @@ families:
   AccountPreferences: {status: ok}
 gaps: []
 items_still_open:
+  - "File systems and mount targets report available at once (the creating dwell is opt-in via the activation delay, off by default): in-repo integration and root tests create mount targets straight after CreateFileSystem."
   - "DeleteFileSystem rejects (FileSystemInUse) while access points exist; API_DeleteFileSystem documents FileSystemInUse only for mount targets and replication, and nothing documents access points, so this may be an over-restriction (tested in TestDeleteFileSystem_RequiresEmptyState)."
   - "NetworkInterfaceLimitExceeded is not enforced: it keys off the VPC 'Network interfaces per Region' quota (VPC User Guide), which also counts ENIs from non-EFS resources this backend does not model (NoFreeAddressesInSubnet is enforced from the subnet CIDR minus EC2 ENI and EFS mount-target addresses)."
   - "The 1,400 mount-targets-per-VPC cap is not enforced: the EFS quotas page gives the figure but CreateMountTarget's documented errors name no code for exceeding it."
@@ -384,10 +385,6 @@ enum's validation set (`LifeCycleState`, `PerformanceMode`, `ThroughputMode`,
   operations at different paths. This is correct: both `DescribeTagsOutput` and
   `ListTagsForResourceOutput` use the same wire key (`Tags`, an array of `{Key, Value}`), so
   reusing the handler is not a wire-shape bug -- don't "fix" this by splitting them apart.
-- `CreateFileSystem`'s idempotent-retry path (identical `CreationToken` + identical args)
-  returns HTTP 200 with the existing file system, while a fresh create returns 201. This
-  matches the existing `ErrCreationTokenExists` handling and is intentional, not a status-code
-  bug.
 - `DeleteFileSystemPolicy`'s real AWS `responseCode` is 200 per botocore, but gopherstack
   returns 204 (`NoContent`). Left as-is: `aws-sdk-go-v2`'s restjson1 deserializers accept any
   `2xx` for void-result ops (`response.StatusCode < 200 || >= 300` is the only check across
@@ -660,3 +657,7 @@ UpdateFileSystem leaving provisioned throughput mode now clears ProvisionedThrou
 ## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
 
 UnsupportedOperation (handler.go:492) is the unknown-route fallback, matched by no operation deserializer.
+
+## 2026-10-09 realism pass
+
+- CreateFileSystem with an already-used CreationToken now always fails 409 `FileSystemAlreadyExists` carrying the existing FileSystemId; the previous "identical args -> 200 existing file system" path was invented (API_CreateFileSystem documents the error for any reuse). Error Message no longer repeats the code. Tests: TestCreateFileSystem_CreationTokenIdempotency, TestCreationTokenIdempotency_HTTP.

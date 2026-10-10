@@ -9,13 +9,14 @@
 | --- | --- |
 | PARITY entries audited | 75 (73 ok, 2 partial) |
 | Feature families | 12 (12 ok) |
-| Known gaps | 1 |
+| Known gaps | 2 |
 | Structural gaps (can't be emulated) | 4 |
 | Deferred items | 2 |
 | Resource leaks | clean |
 
 ### Known gaps
 
+- creating/modifying/deleting dwell states exist (SetLifecycleDelay) but the default delay is zero, so a running server reports available at once: in-repo integration tests and ~170 unit tests assert immediate availability and root wiring cannot set a delay.
 - ReplicationGroup.EffectiveDurability when Durability is default or unset: the SDK says the service resolves it from engine version and cluster mode without documenting the rules, so only an explicit async/sync/disabled is mirrored.
 
 ### Structural gaps

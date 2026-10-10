@@ -574,6 +574,8 @@ families:
     field is 'returnValue', not 'return' (deserializers.go confirmed)."}
 gaps: []
 items_still_open:
+  - "RunInstances accepts any syntactically valid InstanceType and any ami-prefixed ImageId: the instance-type catalog is partial and many in-repo callers launch synthetic AMIs, so unknown-but-well-formed values are not rejected."
+  - "CreateVolume goes straight to available (no creating state) and CreateVolume without Size/SnapshotId defaults to 8 GiB instead of failing; DescribeInstances reservation ids are minted per call and all instances share one reservation."
   - "Filters the pinned SDK does not define: DescribeCapacityBlocks 'tags' (doc is only \"the tags assigned\"; checked api_op_DescribeCapacityBlocks.go), DescribeInstanceEventWindows 'instance-tag' (value syntax undocumented in api_op_DescribeInstanceEventWindows.go), DescribeVpcPeeringConnections 'status-message' (no message texts in the SDK or the VPC peering lifecycle page, which names states only)."
 structural_gaps:
   - "DescribeInstanceStatus application-status.status filter and InstanceStatus.ApplicationStatus (2026-10-07): derived from live HTTP(S) health-check results; see the DescribeApplicationStatus entry below."
@@ -6275,3 +6277,11 @@ Fixed: utilisation metrics via UsageReporter (TestEmitUsageMetrics, TestDockerCo
 ## Notes (2026-10-09 — CreateSubnet / ModifySubnetAttribute dropped members)
 
 CreateSubnet now honours `AvailabilityZoneId` (resolved to a zone name; with `AvailabilityZone` -> InvalidParameterCombination), `Ipv6CidrBlock` (must be a /64 inside one of the VPC's IPv6 blocks, else InvalidSubnet.Range; overlap -> InvalidSubnet.Conflict; stored as a subnet CIDR association with ipSource), `Ipv6Native` (needs an IPv6 CIDR, rejects an IPv4 CIDR; resource-name hostname and AAAA default), and `Ipv4/Ipv6IpamPoolId` + `NetmaskLength` (first free block in the VPC, recorded as a pool allocation and released on DeleteSubnet). IPv4 out-of-range now returns InvalidSubnet.Range. ModifySubnetAttribute now applies EnableDns64, AssignIpv6AddressOnCreation, EnableResourceNameDns(A|AAAA)RecordOnLaunch, PrivateDnsHostnameTypeOnLaunch, MapCustomerOwnedIpOnLaunch/CustomerOwnedIpv4Pool and Enable/DisableLniAtDeviceIndex; exactly one attribute per call (documented), none -> MissingParameter. DescribeSubnets returns the matching fields plus ipv6CidrBlockAssociationSet and privateDnsNameOptionsOnLaunch. Proof: subnet_options_test.go.
+
+## 2026-10-09 realism pass (input validation, lifecycle, error messages)
+
+- CreateVpc: CidrBlock must be IPv4 /16-/28 (`InvalidVpcRange`), malformed -> `InvalidParameterValue`, bad InstanceTenancy rejected; CreateSubnet enforces the same /16-/28 block size (`InvalidSubnet.Range`) and a malformed zone name -> `InvalidZone.NotFound` (also CreateVolume; the zone is not compared with the backend region because root wiring mixes regions).
+- DescribeVpcs/DescribeInstances: unknown explicit ids -> `InvalidVpcID.NotFound`/`InvalidInstanceID.NotFound`, ids without the vpc-/i- prefix -> `...Malformed`; DescribeInstances no longer emits an empty reservation when nothing matches.
+- RunInstances: malformed InstanceType and non-`ami-` ImageId rejected, unknown KeyName -> `InvalidKeyPair.NotFound`. CreateVolume: VolumeType enum and per-type size range checked, unparsable Size rejected. CreateSecurityGroup: `sg-` name prefix, charset and 255-char limits. CreateTags: `aws:` prefix, 128/256 char limits, >50 tags -> `TagLimitExceeded`. AllocateAddress: Domain must be vpc/standard.
+- NAT gateways now go pending -> available and deleting -> deleted via the lifecycle reconciler (waiters can observe both).
+- Error messages no longer repeat the code ("InvalidVpcID.NotFound: vpc-x"); bare-ID not-found details read "The vpc ID 'vpc-x' does not exist". Tests: input_validation_test.go, nat_gateways_test.go.
