@@ -288,6 +288,10 @@ func (h *Handler) handleREST(c *echo.Context) error {
 		body = map[string]any{}
 	}
 
+	if err := checkPaging(c); err != nil {
+		return respondErr(c, err)
+	}
+
 	handlers := map[string]func() error{
 		opPutPlaybackConfiguration:    func() error { return h.handlePutPlaybackConfiguration(c, body) },
 		opGetPlaybackConfiguration:    func() error { return h.handleGetPlaybackConfiguration(c, resource) },

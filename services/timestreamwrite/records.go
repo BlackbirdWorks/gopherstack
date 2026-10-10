@@ -41,6 +41,9 @@ func recordGoesToMemoryStore(r Record, tbl *Table, now time.Time) bool {
 	return r.InternalTimestamp.After(cutoff)
 }
 
+// futureIngestionWindow is how far ahead of now a record timestamp may lie.
+const futureIngestionWindow = 15 * time.Minute
+
 // recordOutsideRetention reports whether ts lies outside the table's memory-store
 // retention window and the table has no magnetic store write path to receive it.
 // Per RejectedRecordsException (types/errors.go, timestreamwrite@v1.38.4), "Records
@@ -146,6 +149,15 @@ func writeRecordsIntoSlot(
 		}
 
 		ts := parseTimestreamTime(r.Time, r.TimeUnit)
+
+		if ts.After(now.Add(futureIngestionWindow)) {
+			rejected = append(rejected, RejectedRecord{
+				RecordIndex: i,
+				Reason:      "The record timestamp is outside the time range of the data ingestion window.",
+			})
+
+			continue
+		}
 
 		if recordOutsideRetention(ts, tbl, now) {
 			rejected = append(rejected, RejectedRecord{

@@ -33,17 +33,12 @@ func validateTransitions(states map[string]*State) error {
 	return nil
 }
 
-func validateStateTransitions(name string, st *State, states map[string]*State) error {
-	const maxTargetsHint = 1024
+const initialTargetCap = 8
 
+func validateStateTransitions(name string, st *State, states map[string]*State) error {
 	targetSeeds := [...]string{st.Next, st.Default}
 
-	hint := len(st.Catch) + len(st.Choices)
-	if hint > maxTargetsHint || hint < 0 {
-		hint = maxTargetsHint
-	}
-
-	targets := make([]string, 0, hint)
+	targets := make([]string, 0, initialTargetCap)
 	targets = append(targets, targetSeeds[:]...)
 	for _, c := range st.Catch {
 		targets = append(targets, c.Next)

@@ -6,7 +6,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -82,20 +81,20 @@ func (h *Handler) handleGetCostAndUsage(
 		return nil, fmt.Errorf("%w: TimePeriod.End is required", ErrValidation)
 	}
 
-	// The wire model constrains Start/End to YearMonthDay
-	// ((\d{4}-\d{2}-\d{2})(T\d{2}:\d{2}:\d{2}Z)?) -- buildTimeBuckets silently
-	// returned zero buckets (a 200 with an empty result) for a value it
-	// couldn't parse instead of rejecting it.
-	if _, err := time.Parse("2006-01-02", start); err != nil {
-		return nil, fmt.Errorf("%w: TimePeriod.Start must be a date in YYYY-MM-DD format", ErrValidation)
-	}
-
-	if _, err := time.Parse("2006-01-02", end); err != nil {
-		return nil, fmt.Errorf("%w: TimePeriod.End must be a date in YYYY-MM-DD format", ErrValidation)
+	if _, _, err := parseTimePeriod(start, end, in.Granularity); err != nil {
+		return nil, err
 	}
 
 	if len(in.Metrics) == 0 {
 		return nil, fmt.Errorf("%w: Metrics is required", ErrValidation)
+	}
+
+	if err := validateCostUsageMetrics(in.Metrics); err != nil {
+		return nil, err
+	}
+
+	if err := validateGroupBy(in.GroupBy); err != nil {
+		return nil, err
 	}
 
 	granularity := in.Granularity
@@ -146,8 +145,8 @@ func (h *Handler) handleGetDimensionValues(
 	_ context.Context,
 	in *getDimensionValuesInput,
 ) (*getDimensionValuesOutput, error) {
-	if in.Dimension == "" {
-		return nil, fmt.Errorf("%w: Dimension is required", ErrValidation)
+	if err := validateDimensionName(in.Dimension); err != nil {
+		return nil, err
 	}
 
 	// Real GetDimensionValuesInput requires TimePeriod. This emulator's dimension
@@ -163,10 +162,8 @@ func (h *Handler) handleGetDimensionValues(
 	// dimension namespaces; this emulator's ledger models one flat dimension
 	// space shared across all three, so Context is validated (an unrecognized
 	// value real AWS rejects) but does not change which dimensions resolve.
-	switch in.Context {
-	case "", "COST_AND_USAGE", "RESERVATIONS", "SAVINGS_PLANS":
-	default:
-		return nil, fmt.Errorf("%w: Context must be one of COST_AND_USAGE, RESERVATIONS, SAVINGS_PLANS", ErrValidation)
+	if err := validateContext(in.Context); err != nil {
+		return nil, err
 	}
 
 	var vals []string
@@ -367,6 +364,10 @@ func validateForecastRequest(timePeriod map[string]string, metric, granularity s
 
 	if granularity == "" {
 		return "", "", fmt.Errorf("%w: Granularity is required", ErrValidation)
+	}
+
+	if err := validateForecastPeriod(start, end, metric); err != nil {
+		return "", "", err
 	}
 
 	return start, end, nil
@@ -583,7 +584,7 @@ func groupedMetricTotalsForPeriod(
 ) map[string]float64 {
 	totals := make(map[string]float64)
 
-	groupBy := []GroupBySpec{{Type: "DIMENSION", Key: groupKey}}
+	groupBy := []GroupBySpec{{Type: groupTypeDimension, Key: groupKey}}
 	for _, r := range h.Backend.GetCostAndUsage(start, end, "DAILY", []string{metric}, groupBy, serviceFilter) {
 		for _, g := range r.Groups {
 			if len(g.Keys) == 0 {

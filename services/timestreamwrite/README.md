@@ -10,8 +10,15 @@
 | PARITY entries audited | 19 (17 ok, 2 partial) |
 | Feature families | 3 (3 ok) |
 | Known gaps | none |
+| Structural gaps (can't be emulated) | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
+
+### Structural gaps
+
+These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
+
+- Batch load tasks never leave CREATED on their own: progressing them would require reading the S3 data source, and no cross-service reader is wired, so any terminal state would be fabricated.
 
 ## More
 

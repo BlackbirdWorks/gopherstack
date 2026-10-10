@@ -124,6 +124,9 @@ leaks: {status: clean, note: "no goroutines, timers, or janitors in this service
 
 ## Notes
 
+**2026-10-10 (realism pass):** resource names (channel, playback configuration, source location, VOD source) reject whitespace, `/`, control characters and >255 chars; AvailSuppression.Mode/FillPolicy are checked against the SDK enums; URLs over 25000 chars rejected; List ops reject MaxResults < 1 and malformed NextToken (the upper bound stays lenient: the pinned SDK documents only the default of 100, and TestListSourceLocations_DefaultPageSize relies on larger values); program output omits unset VodSourceName/LiveSourceName instead of emitting empty strings. Tests: TestRequestValidation, TestProgramOmitsUnsetSourceName.
+
+
 ### 2026-09-19 (gopherstack-op3e census): "/tags/" prefix shadow (eks/amplify/accessanalyzer) -- false positive
 
 Same census finding: all three winners' "/tags/" claims are gated by an

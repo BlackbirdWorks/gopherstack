@@ -119,6 +119,10 @@ func (h *Handler) handleDeleteNetwork(c *echo.Context, networkID string) error {
 }
 
 func (h *Handler) handleListNetworks(c *echo.Context) error {
+	if err := validPaging(c); err != nil {
+		return respondErr(c, err)
+	}
+
 	maxResults, nextTokenParam := paginationParams(c)
 	nets, nextToken, err := h.Backend.ListNetworks(maxResults, nextTokenParam)
 	if err != nil {

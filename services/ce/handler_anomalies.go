@@ -35,6 +35,10 @@ func (h *Handler) handleCreateAnomalyMonitor(
 		return nil, fmt.Errorf("%w: MonitorType is required", ErrValidation)
 	}
 
+	if err := validateMonitorDimension(in.AnomalyMonitor.MonitorDimension); err != nil {
+		return nil, err
+	}
+
 	mon, err := h.Backend.CreateAnomalyMonitor(
 		in.AnomalyMonitor.MonitorName,
 		in.AnomalyMonitor.MonitorType,
@@ -240,6 +244,10 @@ func (h *Handler) handleCreateAnomalySubscription(
 		return nil, fmt.Errorf("%w: Frequency is required", ErrValidation)
 	}
 
+	if err := validateSubscribers(in.AnomalySubscription.Subscribers); err != nil {
+		return nil, err
+	}
+
 	subs := make([]Subscriber, 0, len(in.AnomalySubscription.Subscribers))
 	for _, s := range in.AnomalySubscription.Subscribers {
 		subs = append(subs, Subscriber(s))
@@ -359,6 +367,10 @@ func (h *Handler) handleUpdateAnomalySubscription(
 ) (*updateAnomalySubscriptionOutput, error) {
 	if in.SubscriptionArn == "" {
 		return nil, fmt.Errorf("%w: SubscriptionArn is required", ErrValidation)
+	}
+
+	if err := validateSubscribers(in.Subscribers); err != nil {
+		return nil, err
 	}
 
 	subs := make([]Subscriber, 0, len(in.Subscribers))

@@ -246,9 +246,15 @@ func toProgramOutput(prog *Program) map[string]any {
 		keyChannelName:        prog.ChannelName,
 		"ProgramName":         prog.ProgramName,
 		keySourceLocationName: prog.SourceLocationName,
-		keyVodSourceName:      prog.VodSourceName,
-		keyLiveSourceName:     prog.LiveSourceName,
 		keyTags:               nilToEmpty(prog.Tags),
+	}
+
+	if prog.VodSourceName != "" {
+		out[keyVodSourceName] = prog.VodSourceName
+	}
+
+	if prog.LiveSourceName != "" {
+		out[keyLiveSourceName] = prog.LiveSourceName
 	}
 
 	if !prog.CreationTime.IsZero() {

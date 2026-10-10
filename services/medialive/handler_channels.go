@@ -980,6 +980,10 @@ func (h *Handler) handleDeleteChannel(c *echo.Context, channelID string) error {
 }
 
 func (h *Handler) handleListChannels(c *echo.Context) error {
+	if err := validPaging(c); err != nil {
+		return respondErr(c, err)
+	}
+
 	maxResults, nextTokenParam := paginationParams(c)
 	summaries, nextToken, err := h.Backend.ListChannels(maxResults, nextTokenParam)
 	if err != nil {

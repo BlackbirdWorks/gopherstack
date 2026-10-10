@@ -3,6 +3,8 @@ package timestreamwrite
 import (
 	"fmt"
 	"regexp"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // AWS API limits enforced by this handler.
@@ -280,6 +282,19 @@ func validateRecord(r recordInput, idx int) error {
 			"%w: record[%d] has Version %d; must be 1 or greater",
 			errInvalidRequest, idx, r.Version,
 		)
+	}
+
+	return nil
+}
+
+// validatePaging rejects a negative MaxResults and a NextToken this service never issued.
+func validatePaging(nextToken string, maxResults int) error {
+	if maxResults < 0 {
+		return fmt.Errorf("%w: MaxResults must be at least 1", errInvalidRequest)
+	}
+
+	if page.ValidateToken(nextToken) != nil {
+		return fmt.Errorf("%w: invalid NextToken", errInvalidRequest)
 	}
 
 	return nil

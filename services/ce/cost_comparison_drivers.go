@@ -46,7 +46,7 @@ func (b *InMemoryBackend) costComparisonDrivers(
 		for _, e := range entries {
 			group := ""
 			if groupKey != "" {
-				group = extractGroupKeys(e, []GroupBySpec{{Type: "DIMENSION", Key: groupKey}})[0]
+				group = extractGroupKeys(e, []GroupBySpec{{Type: groupTypeDimension, Key: groupKey}})[0]
 			}
 
 			if groups[group] == nil {

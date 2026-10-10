@@ -133,10 +133,8 @@ type timeBucket struct{ start, end string }
 func buildTimeBuckets(start, end, granularity string) []timeBucket {
 	var buckets []timeBucket
 
-	startT, err1 := time.Parse("2006-01-02", start)
-	endT, err2 := time.Parse("2006-01-02", end)
-
-	if err1 != nil || err2 != nil {
+	startT, endT, err := parseTimePeriod(start, end, strings.ToUpper(granularity))
+	if err != nil {
 		return buckets
 	}
 
@@ -407,7 +405,7 @@ func (b *InMemoryBackend) getCostAndUsage(
 	defer b.mu.RUnlock()
 
 	if len(metrics) == 0 {
-		metrics = []string{"BlendedCost"}
+		metrics = []string{metricBlendedCost}
 	}
 
 	buckets := buildTimeBuckets(start, end, granularity)
@@ -664,7 +662,7 @@ func (b *InMemoryBackend) GetForecastByTime(
 	defer b.mu.RUnlock()
 
 	if metric == "" {
-		metric = "BlendedCost"
+		metric = metricBlendedCost
 	}
 
 	histEnd := time.Now().UTC().Format("2006-01-02")

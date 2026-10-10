@@ -10,7 +10,7 @@
 | PARITY entries audited | 12 (12 ok) |
 | Feature families | 2 (1 ok, 1 deferred) |
 | Known gaps | none |
-| Structural gaps (can't be emulated) | 2 |
+| Structural gaps (can't be emulated) | 3 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
@@ -18,6 +18,7 @@
 
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
+- Query does not fail for tables that do not exist in timestreamwrite: that needs a cross-service catalog lookup in root wiring (cli.go), which this service cannot do alone.
 - CreateScheduledQuery KmsKeyId is stored and echoed, but there is no at-rest encryption layer to apply it to.
 - ScheduledQueryDescription.RecentlyFailedRuns and ScheduledQueryRunSummary.QueryInsightsResponse: ExecuteScheduledQuery runs no real query engine, so no run can fail or produce insights; both fields are optional and omitted.
 

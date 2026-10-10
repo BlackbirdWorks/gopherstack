@@ -42,6 +42,8 @@ families:
 leaks: {status: clean, note: "closeAllTableMutexesLocked is correctly called on Reset, DeleteDatabase, DeleteTable, and before Restore discards the records map — no lockmetrics.RWMutex leak found. Persistence Snapshot/Restore round-trips databases, tables, batchLoadTasks (via store.Registry), plus the hand-rolled records/tags maps, nextTaskID, and rebuilds the per-table dedup index and mutex on Restore."}
 gaps: []
 items_still_open: []
+structural_gaps:
+  - "Batch load tasks never leave CREATED on their own: progressing them would require reading the S3 data source, and no cross-service reader is wired, so any terminal state would be fabricated."
 deferred: []
 reaudit_2026-08-20: >
   Wrapper-key/nested-shape wire-parity sweep against the pinned
@@ -113,6 +115,9 @@ reaudit_2026-07-23: >
 ---
 
 ## Notes
+
+**2026-10-10 (realism pass):** WriteRecords rejects records more than 15 minutes ahead of now with RejectedRecordsException ("outside the time range of the data ingestion window"), even when magnetic-store writes are enabled; ListDatabases/ListTables/ListBatchLoadTasks reject negative MaxResults and malformed NextToken. Tests: TestWriteRecordsFutureTimestamp, TestListPagingRejectsBadToken.
+
 
 **2026-10-07:** WriteRecords now rejects a record missing a DIMENSION composite partition key whose EnforcementInRecord is REQUIRED (user guide: customer-defined-partition-keys-schema-validation, "4xx write errors"); returned as RejectedRecords with the record index. Reason text is emulator wording; ValidationException vs RejectedRecordsException is documented as either. TestHandler_WriteRecords_RequiredPartitionKey.
 

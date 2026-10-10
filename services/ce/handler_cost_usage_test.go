@@ -328,7 +328,7 @@ func TestGetTags_WithTagKey(t *testing.T) {
 func TestGetCostAndUsage_GroupByDimensions(t *testing.T) {
 	t.Parallel()
 
-	dimensions := []string{"REGION", "USAGE_TYPE", "LINKED_ACCOUNT", "TAG$Env"}
+	dimensions := []string{"REGION", "USAGE_TYPE", "LINKED_ACCOUNT"}
 
 	for _, dim := range dimensions {
 		t.Run(dim, func(t *testing.T) {
@@ -368,7 +368,6 @@ func TestGetCostAndUsage_AlternateMetrics(t *testing.T) {
 		{name: "net_unblended_cost", metric: "NetUnblendedCost"},
 		{name: "usage_quantity", metric: "UsageQuantity"},
 		{name: "normalized_usage", metric: "NormalizedUsageAmount"},
-		{name: "unknown_metric", metric: "UnknownMetric"},
 	}
 
 	for _, tt := range tests {

@@ -2,6 +2,7 @@ package medialive
 
 import (
 	"fmt"
+	"net"
 	"sort"
 	"time"
 
@@ -27,6 +28,10 @@ func (b *InMemoryBackend) CreateInputSecurityGroup(
 	whitelistRules []WhitelistRule,
 	tags map[string]string,
 ) (*InputSecurityGroup, error) {
+	if err := validateWhitelistRules(whitelistRules); err != nil {
+		return nil, err
+	}
+
 	id := newID()
 	rules := make([]WhitelistRule, len(whitelistRules))
 	copy(rules, whitelistRules)
@@ -78,6 +83,10 @@ func (b *InMemoryBackend) UpdateInputSecurityGroup(
 	g, ok := b.inputSecurityGroups.Get(groupID)
 	if !ok {
 		return nil, fmt.Errorf("%w: inputSecurityGroup %s not found", ErrNotFound, groupID)
+	}
+
+	if err := validateWhitelistRules(whitelistRules); err != nil {
+		return nil, err
 	}
 
 	rules := make([]WhitelistRule, len(whitelistRules))
@@ -136,4 +145,14 @@ func (b *InMemoryBackend) ListInputSecurityGroups(
 	}
 
 	return summaries, pg.Next, nil
+}
+
+func validateWhitelistRules(rules []WhitelistRule) error {
+	for _, r := range rules {
+		if _, _, err := net.ParseCIDR(r.Cidr); err != nil {
+			return fmt.Errorf("%w: invalid CIDR %q", ErrInvalidParameter, r.Cidr)
+		}
+	}
+
+	return nil
 }

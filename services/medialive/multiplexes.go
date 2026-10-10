@@ -33,6 +33,14 @@ func (b *InMemoryBackend) CreateMultiplex(
 		return nil, fmt.Errorf("%w: name required", ErrInvalidParameter)
 	}
 
+	if len(availabilityZones) != multiplexAvailabilityZones {
+		return nil, fmt.Errorf(
+			"%w: a multiplex requires exactly %d availability zones",
+			ErrInvalidParameter,
+			multiplexAvailabilityZones,
+		)
+	}
+
 	zones := make([]string, len(availabilityZones))
 	copy(zones, availabilityZones)
 
@@ -52,9 +60,13 @@ func (b *InMemoryBackend) CreateMultiplex(
 	defer b.mu.Unlock()
 
 	b.pruneDeletedMultiplexesLocked(b.now())
+	m.phase = b.newPhase(stateCreating)
 	b.multiplexes.Put(m)
 
-	return m.toMultiplex(), nil
+	out := b.multiplexView(m)
+	out.State = stateCreating
+
+	return out, nil
 }
 
 // DescribeMultiplex returns a Multiplex by ID. Takes the write lock (not
@@ -71,7 +83,7 @@ func (b *InMemoryBackend) DescribeMultiplex(multiplexID string) (*Multiplex, err
 		return nil, fmt.Errorf("%w: multiplex %s not found", ErrNotFound, multiplexID)
 	}
 
-	return m.toMultiplex(), nil
+	return b.multiplexView(m), nil
 }
 
 // UpdateMultiplex updates a Multiplex's mutable fields.
@@ -95,7 +107,7 @@ func (b *InMemoryBackend) UpdateMultiplex(
 
 	m.Settings = storedMultiplexSettings(settings)
 
-	return m.toMultiplex(), nil
+	return b.multiplexView(m), nil
 }
 
 // DeleteMultiplex marks a Multiplex DELETED rather than removing it
@@ -115,14 +127,22 @@ func (b *InMemoryBackend) DeleteMultiplex(multiplexID string) (*Multiplex, error
 		return nil, fmt.Errorf("%w: multiplex %s not found", ErrNotFound, multiplexID)
 	}
 
-	if m.State == stateRunning {
-		return nil, fmt.Errorf("%w: multiplex must be idle before deleting", ErrConflict)
+	if m.State == stateDeleted {
+		return nil, fmt.Errorf("%w: multiplex %s not found", ErrNotFound, multiplexID)
+	}
+
+	if st := b.multiplexState(m); st != stateIdle {
+		return nil, fmt.Errorf("%w: multiplex must be idle before deleting, current state %s", ErrConflict, st)
 	}
 
 	m.State = stateDeleted
 	m.DeletedAt = b.now()
+	m.phase = b.newPhase(stateDeleting)
 
-	return m.toMultiplex(), nil
+	out := b.multiplexView(m)
+	out.State = stateDeleting
+
+	return out, nil
 }
 
 // ListMultiplexes returns a paginated list of multiplexes. Takes the write
@@ -145,7 +165,9 @@ func (b *InMemoryBackend) ListMultiplexes(
 
 	summaries := make([]*MultiplexSummary, 0, len(pg.Data))
 	for _, m := range pg.Data {
-		summaries = append(summaries, m.toSummary())
+		sum := m.toSummary()
+		sum.State = b.multiplexState(m)
+		summaries = append(summaries, sum)
 	}
 
 	return summaries, pg.Next, nil
@@ -162,13 +184,14 @@ func (b *InMemoryBackend) StartMultiplex(multiplexID string) (*Multiplex, error)
 		return nil, fmt.Errorf("%w: multiplex %s not found", ErrNotFound, multiplexID)
 	}
 
-	if m.State != stateIdle {
-		return nil, fmt.Errorf("%w: multiplex must be idle to start", ErrConflict)
+	if st := b.multiplexState(m); st != stateIdle {
+		return nil, fmt.Errorf("%w: multiplex must be idle to start, current state %s", ErrConflict, st)
 	}
 
 	m.State = stateRunning
+	m.phase = b.newPhase(stateStarting)
 
-	result := m.toMultiplex()
+	result := b.multiplexView(m)
 	result.State = stateStarting
 
 	return result, nil
@@ -185,13 +208,14 @@ func (b *InMemoryBackend) StopMultiplex(multiplexID string) (*Multiplex, error) 
 		return nil, fmt.Errorf("%w: multiplex %s not found", ErrNotFound, multiplexID)
 	}
 
-	if m.State != stateRunning {
-		return nil, fmt.Errorf("%w: multiplex must be running to stop", ErrConflict)
+	if st := b.multiplexState(m); st != stateRunning {
+		return nil, fmt.Errorf("%w: multiplex must be running to stop, current state %s", ErrConflict, st)
 	}
 
 	m.State = stateIdle
+	m.phase = b.newPhase(stateStopping)
 
-	result := m.toMultiplex()
+	result := b.multiplexView(m)
 	result.State = stateStopping
 
 	return result, nil

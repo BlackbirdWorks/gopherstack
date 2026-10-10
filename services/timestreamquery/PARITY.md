@@ -40,6 +40,7 @@ families:
 gaps: []
 items_still_open: []
 structural_gaps:
+  - "Query does not fail for tables that do not exist in timestreamwrite: that needs a cross-service catalog lookup in root wiring (cli.go), which this service cannot do alone."
   - "CreateScheduledQuery KmsKeyId is stored and echoed, but there is no at-rest encryption layer to apply it to."
   - "ScheduledQueryDescription.RecentlyFailedRuns and ScheduledQueryRunSummary.QueryInsightsResponse: ExecuteScheduledQuery runs no real query engine, so no run can fail or produce insights; both fields are optional and omitted."
 deferred:
@@ -48,6 +49,9 @@ leaks: {status: clean, note: "clientTokens/scheduledQueryTokens/pageStore are se
 ---
 
 ## Notes
+
+**2026-10-10 (realism pass):** Query and PrepareQuery reject statements that cannot parse (unknown leading keyword, unbalanced parentheses, unterminated literal) with ValidationException; this is a shallow check, not a SQL parser. CreateScheduledQuery validates Name (1-64 of letters, digits, `_`, `.`, `-`) and the query text; ListScheduledQueries tokens are opaque and malformed ones, or MaxResults over 1000, return ValidationException. Tests: TestQuerySyntaxValidation, TestScheduledQueryPagingAndNames.
+
 
 ### 2026-08-23 (batch14 sweep): ErrorReportConfiguration.S3Configuration EncryptionOption/ObjectKeyPrefix closed
 

@@ -80,6 +80,9 @@ leaks: {status: clean, note: "StartJanitor's anomaly-eviction goroutine (evictEx
 
 ## Notes
 
+**2026-10-10 (realism pass):** GetCostAndUsage rejects Start >= End, unknown Metrics, unknown group-by dimensions, more than two GroupBy entries and bad GroupBy types; HOURLY accepts `YYYY-MM-DDThh:mm:ssZ` bounds (DAILY/MONTHLY stay date-only). NextPageToken/NextToken values are now opaque (base64) and malformed ones return InvalidNextTokenException on every op. CreateAnomalyMonitor checks MonitorDimension, anomaly subscriptions check Subscriber Type and email/SNS address shape, GetDimensionValues checks Dimension, forecast ops check Metric and period order. Tests: TestGetCostAndUsage_RequestValidation, TestGetCostAndUsage_HourlyBuckets, TestRequestEnumValidation. Forecast start-date recency is left unchecked: the pinned SDK doc ("equal to or no later than the current date") contradicts itself.
+
+
 ### 2026-09-19 required-output-member sweep (gopherstack-r80d follow-up)
 
 Cross-checked all 30 required output members across the 18 census ops

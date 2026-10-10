@@ -118,7 +118,7 @@ func (b *InMemoryBackend) anyChannelBusy(channelIDs []string) bool {
 			continue
 		}
 
-		switch ch.State {
+		switch b.channelState(ch) {
 		case stateStarting, stateRunning, stateStopping:
 			return true
 		default:
@@ -155,7 +155,7 @@ func (b *InMemoryBackend) cascadeDeleteChannelPlacementGroups(clusterID string) 
 func (b *InMemoryBackend) channelIDsForCluster(clusterID string) []string {
 	ids := []string{}
 
-	for _, ch := range b.channels.All() {
+	for _, ch := range b.liveChannels() {
 		if ch.AnywhereSettings.ClusterID == clusterID {
 			ids = append(ids, ch.ID)
 		}

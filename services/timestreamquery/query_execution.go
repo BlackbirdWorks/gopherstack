@@ -58,6 +58,10 @@ func (b *InMemoryBackend) QueryWithOptions(_ context.Context, opts QueryOptions)
 		}, nil
 	}
 
+	if err = validateQuerySyntax(opts.QueryString); err != nil {
+		return nil, err
+	}
+
 	// ClientToken idempotency check.
 	if opts.ClientToken != "" {
 		b.clientTokens.sweep()
@@ -211,6 +215,10 @@ func (b *InMemoryBackend) PrepareQuery(
 ) (*PrepareQueryResult, error) {
 	if queryString == "" {
 		return nil, fmt.Errorf("%w: QueryString is required", ErrValidation)
+	}
+
+	if err := validateQuerySyntax(queryString); err != nil {
+		return nil, err
 	}
 
 	cols, params := inferColumnsFromSQL(queryString)
