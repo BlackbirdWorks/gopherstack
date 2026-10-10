@@ -60,6 +60,8 @@ type ConfigurationRecorder struct {
 	RoleARN            string              `json:"roleARN"`
 	ServicePrincipal   string              `json:"servicePrincipal,omitempty"`
 	Status             string              `json:"status,omitempty"` // PENDING or ACTIVE
+	LastStartTime      float64             `json:"lastStartTime,omitempty"`
+	LastStopTime       float64             `json:"lastStopTime,omitempty"`
 }
 
 // wireConfigurationRecorder is ConfigurationRecorder's wire twin for
@@ -72,7 +74,9 @@ type ConfigurationRecorder struct {
 // omitempty, drops the key.
 type wireConfigurationRecorder struct {
 	*ConfigurationRecorder
-	Status *struct{} `json:"status,omitempty"`
+	Status        *struct{} `json:"status,omitempty"`
+	LastStartTime *struct{} `json:"lastStartTime,omitempty"`
+	LastStopTime  *struct{} `json:"lastStopTime,omitempty"`
 }
 
 func toWireConfigurationRecorders(recorders []ConfigurationRecorder) []wireConfigurationRecorder {
@@ -124,8 +128,29 @@ type AggregationAuthorization struct {
 
 // ConfigRuleSource represents the source definition of an AWS Config config rule.
 type ConfigRuleSource struct {
-	Owner            string `json:"Owner,omitempty"`
-	SourceIdentifier string `json:"SourceIdentifier,omitempty"`
+	CustomPolicyDetails *CustomPolicyDetails `json:"CustomPolicyDetails,omitempty"`
+	Owner               string               `json:"Owner,omitempty"`
+	SourceIdentifier    string               `json:"SourceIdentifier,omitempty"`
+	SourceDetails       []SourceDetail       `json:"SourceDetails,omitempty"`
+}
+
+// SourceDetail describes the events and frequency that trigger a custom rule.
+type SourceDetail struct {
+	EventSource               string `json:"EventSource,omitempty"`
+	MaximumExecutionFrequency string `json:"MaximumExecutionFrequency,omitempty"`
+	MessageType               string `json:"MessageType,omitempty"`
+}
+
+// CustomPolicyDetails holds the Guard policy of a CUSTOM_POLICY rule.
+type CustomPolicyDetails struct {
+	PolicyRuntime          string `json:"PolicyRuntime"`
+	PolicyText             string `json:"PolicyText"`
+	EnableDebugLogDelivery bool   `json:"EnableDebugLogDelivery,omitempty"`
+}
+
+// EvaluationModeConfiguration selects when a rule evaluates resources.
+type EvaluationModeConfiguration struct {
+	Mode string `json:"Mode,omitempty"`
 }
 
 // ConfigRuleScope restricts which resources trigger an AWS Config rule.
@@ -138,15 +163,16 @@ type ConfigRuleScope struct {
 
 // ConfigRule represents an AWS Config config rule.
 type ConfigRule struct {
-	Source                    *ConfigRuleSource `json:"Source,omitempty"`
-	Scope                     *ConfigRuleScope  `json:"Scope,omitempty"`
-	ConfigRuleName            string            `json:"ConfigRuleName"`
-	ConfigRuleArn             string            `json:"ConfigRuleArn,omitempty"`
-	ConfigRuleID              string            `json:"ConfigRuleId,omitempty"`
-	Description               string            `json:"Description,omitempty"`
-	InputParameters           string            `json:"InputParameters,omitempty"`
-	MaximumExecutionFrequency string            `json:"MaximumExecutionFrequency,omitempty"`
-	ConfigRuleState           string            `json:"ConfigRuleState,omitempty"`
+	Source                    *ConfigRuleSource             `json:"Source,omitempty"`
+	Scope                     *ConfigRuleScope              `json:"Scope,omitempty"`
+	ConfigRuleName            string                        `json:"ConfigRuleName"`
+	ConfigRuleArn             string                        `json:"ConfigRuleArn,omitempty"`
+	ConfigRuleID              string                        `json:"ConfigRuleId,omitempty"`
+	Description               string                        `json:"Description,omitempty"`
+	InputParameters           string                        `json:"InputParameters,omitempty"`
+	MaximumExecutionFrequency string                        `json:"MaximumExecutionFrequency,omitempty"`
+	ConfigRuleState           string                        `json:"ConfigRuleState,omitempty"`
+	EvaluationModes           []EvaluationModeConfiguration `json:"EvaluationModes,omitempty"`
 }
 
 // AccountAggregationSource identifies AWS accounts to aggregate from.
@@ -192,8 +218,8 @@ type ConformancePack struct {
 	ConformancePackName            string                          `json:"ConformancePackName"`
 	DeliveryS3Bucket               string                          `json:"DeliveryS3Bucket,omitempty"`
 	DeliveryS3KeyPrefix            string                          `json:"DeliveryS3KeyPrefix,omitempty"`
-	LastUpdateRequestedTime        string                          `json:"LastUpdateRequestedTime,omitempty"`
 	ConformancePackInputParameters []ConformancePackInputParameter `json:"ConformancePackInputParameters,omitempty"`
+	LastUpdateRequestedTime        float64                         `json:"LastUpdateRequestedTime,omitempty"`
 }
 
 // ConformancePackInputParameter mirrors types.ConformancePackInputParameter.
@@ -280,14 +306,15 @@ type Tag struct {
 
 // ConfigurationRecorderStatus represents the recording status of a recorder.
 type ConfigurationRecorderStatus struct {
-	Arn              string `json:"arn,omitempty"`
-	ServicePrincipal string `json:"servicePrincipal,omitempty"`
-	LastErrorCode    string `json:"lastErrorCode,omitempty"`
-	LastStartTime    string `json:"lastStartTime,omitempty"`
-	LastStatus       string `json:"lastStatus,omitempty"`
-	LastStopTime     string `json:"lastStopTime,omitempty"`
-	Name             string `json:"name"`
-	Recording        bool   `json:"recording"`
+	Arn                  string  `json:"arn,omitempty"`
+	ServicePrincipal     string  `json:"servicePrincipal,omitempty"`
+	LastErrorCode        string  `json:"lastErrorCode,omitempty"`
+	LastStatus           string  `json:"lastStatus,omitempty"`
+	Name                 string  `json:"name"`
+	LastStartTime        float64 `json:"lastStartTime,omitempty"`
+	LastStopTime         float64 `json:"lastStopTime,omitempty"`
+	LastStatusChangeTime float64 `json:"lastStatusChangeTime,omitempty"`
+	Recording            bool    `json:"recording"`
 }
 
 // ConfigurationRecorderSummary is a lightweight summary returned by ListConfigurationRecorders.
@@ -410,11 +437,13 @@ type RemediationExecutionStatusEntry struct {
 
 // ConfigRuleEvaluationStatus holds the evaluation status for a config rule.
 type ConfigRuleEvaluationStatus struct {
-	ConfigRuleName               string `json:"ConfigRuleName"`
-	LastSuccessfulInvocationTime string `json:"LastSuccessfulInvocationTime,omitempty"`
-	LastFailedInvocationTime     string `json:"LastFailedInvocationTime,omitempty"`
-	LastSuccessfulEvaluationTime string `json:"LastSuccessfulEvaluationTime,omitempty"`
-	LastFailedEvaluationTime     string `json:"LastFailedEvaluationTime,omitempty"`
+	ConfigRuleName               string  `json:"ConfigRuleName"`
+	ConfigRuleArn                string  `json:"ConfigRuleArn,omitempty"`
+	ConfigRuleID                 string  `json:"ConfigRuleId,omitempty"`
+	FirstActivatedTime           float64 `json:"FirstActivatedTime,omitempty"`
+	FirstEvaluationStarted       float64 `json:"FirstEvaluationStarted,omitempty"`
+	LastSuccessfulInvocationTime float64 `json:"LastSuccessfulInvocationTime,omitempty"`
+	LastSuccessfulEvaluationTime float64 `json:"LastSuccessfulEvaluationTime,omitempty"`
 }
 
 // ComplianceResult holds a compliance type value, optionally with the count of
@@ -542,9 +571,12 @@ type DeliveryChannelStatus struct {
 
 // ConformancePackStatus holds status of a conformance pack.
 type ConformancePackStatus struct {
-	ConformancePackName  string `json:"ConformancePackName"`
-	ConformancePackState string `json:"ConformancePackState"`
-	ConformancePackArn   string `json:"ConformancePackArn"`
+	ConformancePackName     string  `json:"ConformancePackName"`
+	ConformancePackState    string  `json:"ConformancePackState"`
+	ConformancePackArn      string  `json:"ConformancePackArn"`
+	ConformancePackID       string  `json:"ConformancePackId,omitempty"`
+	LastUpdateRequestedTime float64 `json:"LastUpdateRequestedTime,omitempty"`
+	LastUpdateCompletedTime float64 `json:"LastUpdateCompletedTime,omitempty"`
 }
 
 // ConformancePackComplianceItem holds compliance info for a conformance pack rule.

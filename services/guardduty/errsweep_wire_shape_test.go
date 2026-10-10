@@ -39,7 +39,9 @@ func TestSDK_GetDetector_NotFound_ErrorCodeSurvives(t *testing.T) {
 
 	var apiErr smithy.APIError
 	require.ErrorAs(t, err, &apiErr, "SDK must surface a typed API error, not an opaque one")
-	assert.Equal(t, "ResourceNotFoundException", apiErr.ErrorCode())
+	assert.Equal(t, "BadRequestException", apiErr.ErrorCode(), "GetDetector declares no ResourceNotFoundException")
+	assert.Equal(t, "The request is rejected because the input detectorId is not owned by the current account.",
+		apiErr.ErrorMessage())
 	assert.NotEqual(t, "UnknownError", apiErr.ErrorCode())
 	assert.NotContains(t, apiErr.ErrorCode(), "no-such-detector",
 		"code must not be the raw error message text")

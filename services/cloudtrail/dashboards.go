@@ -6,6 +6,8 @@ import (
 	"sort"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -166,9 +168,8 @@ func (b *InMemoryBackend) startRefreshQueriesLocked(d *Dashboard) {
 			continue
 		}
 
-		b.queryCounter++
 		b.queries.Put(&Query{
-			QueryID:               fmt.Sprintf("query-%06d", b.queryCounter),
+			QueryID:               uuid.NewString(),
 			EventDataStoreARN:     extractQueryFromTarget(w.QueryStatement),
 			QueryString:           w.QueryStatement,
 			QueryStatus:           queryStatusQueued,

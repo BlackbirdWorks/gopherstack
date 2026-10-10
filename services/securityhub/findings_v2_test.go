@@ -52,9 +52,9 @@ func TestHandler_GetFindingsV2_InvalidNextToken(t *testing.T) {
 	}{
 		{name: "valid next token", nextToken: "", wantCode: http.StatusOK},
 		{
-			name:      "non-numeric next token falls back",
+			name:      "non-numeric next token rejected",
 			nextToken: "notanumber",
-			wantCode:  http.StatusOK,
+			wantCode:  http.StatusBadRequest,
 		},
 	}
 

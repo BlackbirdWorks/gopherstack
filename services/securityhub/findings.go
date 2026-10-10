@@ -100,7 +100,37 @@ func validateASFFRequiredFields(f map[string]any, productArn, id string) string 
 		return "Resources must contain at least one entry"
 	}
 
+	return validateASFFEnums(f)
+}
+
+// validateASFFEnums rejects values outside the SeverityLabel, RecordState and WorkflowStatus enums.
+func validateASFFEnums(f map[string]any) string {
+	if sev, ok := f["Severity"].(map[string]any); ok {
+		if label, _ := sev["Label"].(string); label != "" && !validSeverityLabel(label) {
+			return "Severity.Label must be INFORMATIONAL, LOW, MEDIUM, HIGH or CRITICAL"
+		}
+	}
+
+	if state, _ := f["RecordState"].(string); state != "" && state != "ACTIVE" && state != "ARCHIVED" {
+		return "RecordState must be ACTIVE or ARCHIVED"
+	}
+
+	if wf, ok := f["Workflow"].(map[string]any); ok {
+		if st, _ := wf["Status"].(string); st != "" && !validWorkflowStatus(st) {
+			return "Workflow.Status must be NEW, NOTIFIED, RESOLVED or SUPPRESSED"
+		}
+	}
+
 	return ""
+}
+
+func validWorkflowStatus(status string) bool {
+	switch status {
+	case "NEW", "NOTIFIED", "RESOLVED", "SUPPRESSED":
+		return true
+	}
+
+	return false
 }
 
 func (b *InMemoryBackend) ImportFindings(findings []map[string]any) (int, int, []map[string]any) {
@@ -760,9 +790,11 @@ const (
 	trendBucketOther         = "Other"
 	trendBucketUnknown       = "Unknown"
 
-	severityLabelHigh     = "HIGH"
-	severityLabelMedium   = "MEDIUM"
-	severityLabelCritical = "CRITICAL"
+	severityLabelInformational = "INFORMATIONAL"
+	severityLabelLow           = "LOW"
+	severityLabelHigh          = "HIGH"
+	severityLabelMedium        = "MEDIUM"
+	severityLabelCritical      = "CRITICAL"
 )
 
 // severityTrendsBucket maps an ASFF SeverityLabel (types.SeverityLabel:

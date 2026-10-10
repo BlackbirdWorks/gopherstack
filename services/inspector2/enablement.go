@@ -1,5 +1,7 @@
 package inspector2
 
+import "time"
+
 // Resource types and scan-mode defaults for Enable/Disable and Configuration.
 const (
 	resourceTypeEC2            = "EC2"
@@ -92,6 +94,10 @@ func (b *InMemoryBackend) setEnabled(accountIDs, resourceTypes []string, enabled
 		}
 
 		for _, rt := range resourceTypes {
+			if target[rt] != enabled {
+				b.transitions[transitionKey(id, rt)] = b.now()
+			}
+
 			target[rt] = enabled
 		}
 
@@ -169,34 +175,81 @@ func (b *InMemoryBackend) GetAccountStatuses(accountIDs []string) StatusLookup {
 	return out
 }
 
-func (b *InMemoryBackend) statusLocked(accountID string, enabled map[string]bool) *AccountStatusResponse {
-	typeStatus := func(rt string) string {
-		if enabled[rt] {
-			return statusEnabled
-		}
+// SetLifecycleDelay sets how long Enable and Disable report ENABLING and DISABLING before settling; the default 0
+// settles instantly.
+func (b *InMemoryBackend) SetLifecycleDelay(d time.Duration) {
+	b.mu.Lock("SetLifecycleDelay")
+	defer b.mu.Unlock()
 
-		return statusDisabled
+	b.lifecycleDelay = d
+}
+
+// SetClock overrides the backend clock; for deterministic tests.
+func (b *InMemoryBackend) SetClock(clock func() time.Time) {
+	b.mu.Lock("SetClock")
+	defer b.mu.Unlock()
+
+	b.clock = clock
+}
+
+func (b *InMemoryBackend) now() time.Time {
+	if b.clock != nil {
+		return b.clock()
 	}
 
-	overall := statusDisabled
+	return time.Now()
+}
 
-	for _, v := range enabled {
-		if v {
-			overall = statusEnabled
+func transitionKey(accountID, resourceType string) string { return accountID + "|" + resourceType }
 
-			break
-		}
+// resourceStatusLocked reports one resource type's status, ENABLING or DISABLING while its dwell window is open.
+func (b *InMemoryBackend) resourceStatusLocked(accountID, rt string, enabled bool) string {
+	inWindow := false
+
+	if at, ok := b.transitions[transitionKey(accountID, rt)]; ok && b.lifecycleDelay > 0 {
+		inWindow = b.now().Sub(at) < b.lifecycleDelay
+	}
+
+	switch {
+	case enabled && inWindow:
+		return statusEnabling
+	case enabled:
+		return statusEnabled
+	case inWindow:
+		return statusDisabling
+	default:
+		return statusDisabled
+	}
+}
+
+func (b *InMemoryBackend) statusLocked(accountID string, enabled map[string]bool) *AccountStatusResponse {
+	statuses := make(map[string]string, len(knownResourceTypes()))
+	for _, rt := range knownResourceTypes() {
+		statuses[rt] = b.resourceStatusLocked(accountID, rt, enabled[rt])
 	}
 
 	return &AccountStatusResponse{
 		AccountID:            accountID,
-		Status:               overall,
-		Ec2Status:            typeStatus(resourceTypeEC2),
-		EcrStatus:            typeStatus(resourceTypeECR),
-		LambdaStatus:         typeStatus(resourceTypeLambda),
-		LambdaCodeStatus:     typeStatus(resourceTypeLambdaCode),
-		CodeRepositoryStatus: typeStatus(resourceTypeCodeRepository),
+		Status:               overallStatus(statuses),
+		Ec2Status:            statuses[resourceTypeEC2],
+		EcrStatus:            statuses[resourceTypeECR],
+		LambdaStatus:         statuses[resourceTypeLambda],
+		LambdaCodeStatus:     statuses[resourceTypeLambdaCode],
+		CodeRepositoryStatus: statuses[resourceTypeCodeRepository],
 	}
+}
+
+// overallStatus rolls per-type statuses up: ENABLING outranks ENABLED, which outranks DISABLING.
+func overallStatus(statuses map[string]string) string {
+	for _, want := range []string{statusEnabling, statusEnabled, statusDisabling} {
+		for _, st := range statuses {
+			if st == want {
+				return want
+			}
+		}
+	}
+
+	return statusDisabled
 }
 
 // effectiveMemberConfig returns accountID's effective configuration: any

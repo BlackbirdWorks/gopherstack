@@ -21,7 +21,7 @@ func TestCreateActionTargetPath(t *testing.T) {
 	rec := doRequest(t, h, http.MethodPost, "/actionTargets", map[string]any{
 		"Name":        "Send to Slack",
 		"Description": "Sends finding to Slack channel",
-		"Id":          "send-to-slack",
+		"Id":          "SendToSlack",
 	})
 
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -44,7 +44,7 @@ func TestDescribeActionTargetsIsPOSTActionTargetsGet(t *testing.T) {
 	doRequest(t, h, http.MethodPost, "/actionTargets", map[string]any{
 		"Name":        "My Action",
 		"Description": "desc",
-		"Id":          "my-action",
+		"Id":          "MyAction",
 	})
 
 	rec := doRequest(t, h, http.MethodPost, "/actionTargets/get", map[string]any{})
@@ -70,7 +70,7 @@ func TestDeleteActionTargetIsDELETEActionTargetsArn(t *testing.T) {
 	createRec := doRequest(t, h, http.MethodPost, "/actionTargets", map[string]any{
 		"Name":        "To Delete",
 		"Description": "desc",
-		"Id":          "to-delete",
+		"Id":          "ToDelete",
 	})
 
 	var createResp map[string]any
@@ -214,14 +214,14 @@ func TestHandler_UpdateActionTarget(t *testing.T) {
 			doRequest(t, h, http.MethodPost, "/actionTargets", map[string]any{
 				"Name":        "MyTarget",
 				"Description": "desc",
-				"Id":          "my-target",
+				"Id":          "MyTarget",
 			})
 
 			rec := doRequest(
 				t,
 				h,
 				http.MethodPatch,
-				"/actionTargets/arn:aws:securityhub:us-east-1:000000000000:action/custom/my-target",
+				"/actionTargets/arn:aws:securityhub:us-east-1:000000000000:action/custom/MyTarget",
 				map[string]any{
 					"Name":        "Updated",
 					"Description": "New desc",

@@ -1,6 +1,8 @@
 package inspector2
 
 import (
+	"time"
+
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -11,8 +13,10 @@ import (
 const (
 	inspector2Service = "inspector2"
 
-	statusEnabled  = "ENABLED"
-	statusDisabled = "DISABLED"
+	statusEnabled   = "ENABLED"
+	statusDisabled  = "DISABLED"
+	statusEnabling  = "ENABLING"
+	statusDisabling = "DISABLING"
 
 	// statusActive is the generic "ACTIVE" status value shared by CIS
 	// sessions, code security integrations/scan configs, and usage/free-trial
@@ -41,8 +45,8 @@ const (
 // file doc comment for the full persistence audit).
 type InMemoryBackend struct {
 	appConfig                      any
-	memberEnabled                  map[string]map[string]bool
-	scanConfigAssociations         *store.Table[CodeSecurityScanConfigurationAssociation]
+	enabledTypes                   map[string]bool
+	codeSecurityScanConfigs        *store.Table[CodeSecurityScanConfiguration]
 	findings                       *store.Table[storedFinding]
 	codeSecurityIntegrations       *store.Table[CodeSecurityIntegration]
 	cisScanConfigs                 *store.Table[CisScanConfiguration]
@@ -50,7 +54,7 @@ type InMemoryBackend struct {
 	cisScansByConfig               *store.Index[CisScan]
 	sbomExports                    *store.Table[SbomExport]
 	findingsReports                *store.Table[FindingsReport]
-	memberEc2Status                *store.Table[MemberEc2DeepInspectionStatus]
+	vulnerabilities                *store.Table[Vulnerability]
 	memberConfigs                  *store.Table[MemberConfiguration]
 	members                        *store.Table[Member]
 	registry                       *store.Registry
@@ -58,10 +62,10 @@ type InMemoryBackend struct {
 	delegatedAdmins                *store.Table[DelegatedAdminAccount]
 	cisSessions                    *store.Table[CisSession]
 	filters                        *store.Table[Filter]
-	enabledTypes                   map[string]bool
+	memberEnabled                  map[string]map[string]bool
+	scanConfigAssociations         *store.Table[CodeSecurityScanConfigurationAssociation]
 	coverageEntries                *store.Table[CoverageEntry]
-	codeSecurityScanConfigs        *store.Table[CodeSecurityScanConfiguration]
-	vulnerabilities                *store.Table[Vulnerability]
+	memberEc2Status                *store.Table[MemberEc2DeepInspectionStatus]
 	codeSnippets                   *store.Table[codeSnippet]
 	connectors                     *store.Table[Connector]
 	connectorsByAwsConfigArn       *store.Index[Connector]
@@ -70,12 +74,15 @@ type InMemoryBackend struct {
 	mu                             *lockmetrics.RWMutex
 	codeSecurityScans              map[string]map[string]any
 	scanConfigAssociationsByConfig *store.Index[CodeSecurityScanConfigurationAssociation]
+	transitions                    map[string]time.Time
+	clock                          func() time.Time
 	config                         Configuration
-	accountID                      string
 	region                         string
 	orgConfig                      OrgConfiguration
+	accountID                      string
 	ec2DeepConfig                  Ec2DeepInspectionConfig
 	orgEc2Config                   OrgEc2DeepInspectionConfig
+	lifecycleDelay                 time.Duration
 }
 
 // NewInMemoryBackend creates a new backend for the given account and region.
@@ -85,6 +92,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		registry:          store.NewRegistry(),
 		tags:              make(map[string]map[string]string),
 		enabledTypes:      make(map[string]bool),
+		transitions:       make(map[string]time.Time),
 		memberEnabled:     make(map[string]map[string]bool),
 		codeSecurityScans: make(map[string]map[string]any),
 		config:            defaultConfiguration(),

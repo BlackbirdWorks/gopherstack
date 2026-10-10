@@ -49,8 +49,17 @@ func (b *InMemoryBackend) PutDeliveryChannelConfig(ch *DeliveryChannel) error {
 		return fmt.Errorf("%w: %q is not a valid KMS ARN", ErrInvalidS3KmsKeyArn, s3KmsKeyArn)
 	}
 
+	if props := ch.ConfigSnapshotDeliveryProperties; props != nil &&
+		props.DeliveryFrequency != "" && !slices.Contains(ruleExecutionFrequencies(), props.DeliveryFrequency) {
+		return fmt.Errorf("%w: invalid deliveryFrequency %q", ErrValidation, props.DeliveryFrequency)
+	}
+
 	b.mu.Lock("PutDeliveryChannel")
 	defer b.mu.Unlock()
+
+	if !b.channels.Has(name) && b.channels.Len() > 0 {
+		return fmt.Errorf("%w: only one delivery channel is allowed per region", ErrMaxDeliveryChannels)
+	}
 
 	cp := ch.clone()
 	b.channels.Put(&cp)

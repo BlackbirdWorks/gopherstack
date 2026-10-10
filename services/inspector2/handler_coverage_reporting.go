@@ -19,7 +19,7 @@ const (
 )
 
 func (h *Handler) handleListCoverage(c *echo.Context) error {
-	req, ok := decodeFilterListRequest(c)
+	req, ok := decodeFilterListRequest(c, maxListCoverageResults)
 	if !ok {
 		return nil
 	}

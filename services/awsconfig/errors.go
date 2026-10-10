@@ -24,6 +24,8 @@ var (
 	)
 	// ErrAlreadyExists is returned when a resource already exists.
 	ErrAlreadyExists = awserr.New("MaxNumberOfConfigurationRecordersExceededException", awserr.ErrAlreadyExists)
+	// ErrMaxDeliveryChannels is returned when a second delivery channel is put (the limit is one per region).
+	ErrMaxDeliveryChannels = awserr.New("MaxNumberOfDeliveryChannelsExceededException", awserr.ErrInvalidParameter)
 	// ErrNoDeliveryChannel is returned when starting a recorder with no delivery channel configured.
 	ErrNoDeliveryChannel = awserr.New("NoAvailableDeliveryChannelException", awserr.ErrInvalidParameter)
 	// ErrValidation is returned when a required field is missing or invalid.

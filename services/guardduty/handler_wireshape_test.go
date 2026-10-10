@@ -198,7 +198,7 @@ func TestWireShape_Investigation_ValidatesDetectorAndFeature(t *testing.T) {
 		{
 			name:         "unknown detector is rejected",
 			useRealDetID: false,
-			wantCode:     http.StatusNotFound,
+			wantCode:     http.StatusBadRequest,
 		},
 		{
 			name:         "detector without AI_ANALYST is rejected",

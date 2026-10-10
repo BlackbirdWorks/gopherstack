@@ -418,7 +418,7 @@ func (h *Handler) handleListInvitations(query string) (any, int) {
 		out = append(out, map[string]any{
 			"accountId":          inv.AccountID, //nolint:goconst // existing issue.
 			"invitationId":       inv.InvitationID,
-			"invitedAt":          inv.InvitedAt,          //nolint:goconst // existing issue.
+			"invitedAt":          inv.InvitedAt,
 			"relationshipStatus": inv.RelationshipStatus, //nolint:goconst // existing issue.
 		})
 	}
@@ -445,20 +445,25 @@ func onlyAssociatedFromQuery(query string) bool {
 }
 
 func memberToMap(m *Member) map[string]any {
-	return map[string]any{
+	out := map[string]any{
 		"accountId":          m.AccountID,
 		"administratorId":    m.AdministratorID,
 		"masterId":           m.MasterID,
 		"detectorId":         m.DetectorID,
 		"email":              m.Email,
 		"relationshipStatus": m.RelationshipStatus,
-		"invitedAt":          m.InvitedAt,
 		// MemberOutput.UpdatedAt is a plain ISO8601 string on the wire (like
 		// GetDetectorOutput's, unlike ThreatEntitySet's epoch numbers) -- see
 		// aws-sdk-go-v2/service/guardduty deserializers.go's
 		// awsRestjson1_deserializeDocumentMember.
 		keyUpdatedAt: m.UpdatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 	}
+
+	if m.InvitedAt != "" {
+		out["invitedAt"] = m.InvitedAt
+	}
+
+	return out
 }
 
 func orEmpty(s []map[string]any) []map[string]any {

@@ -161,7 +161,10 @@ func (b *InMemoryBackend) StartConfigurationRecorder(name string) error {
 		return fmt.Errorf("%w: no delivery channel configured", ErrNoDeliveryChannel)
 	}
 
-	r.Status = recorderStatusActive
+	if r.Status != recorderStatusActive {
+		r.Status = recorderStatusActive
+		r.LastStartTime = float64(b.now().Unix())
+	}
 
 	return nil
 }
@@ -182,7 +185,10 @@ func (b *InMemoryBackend) StopConfigurationRecorder(name string) error {
 		return fmt.Errorf("%w: %s", ErrNotFound, name)
 	}
 
-	r.Status = recorderStatusPending
+	if r.Status == recorderStatusActive {
+		r.Status = recorderStatusPending
+		r.LastStopTime = float64(b.now().Unix())
+	}
 
 	return nil
 }
@@ -226,9 +232,9 @@ func (b *InMemoryBackend) deleteServiceLinkedLinkForRecorderLocked(recorderName 
 // recorderStatus builds a ConfigurationRecorderStatus from a recorder.
 func (b *InMemoryBackend) recorderStatus(r *ConfigurationRecorder) ConfigurationRecorderStatus {
 	recording := r.Status == recorderStatusActive
-	lastStatus := recorderStatusPending
-	if recording {
-		lastStatus = recorderStatusSuccess
+	lastStatus := recorderLastStatusPending
+	if recording || r.LastStartTime > 0 {
+		lastStatus = recorderLastStatusSuccess
 	}
 
 	return ConfigurationRecorderStatus{
@@ -237,6 +243,10 @@ func (b *InMemoryBackend) recorderStatus(r *ConfigurationRecorder) Configuration
 		Name:             r.Name,
 		Recording:        recording,
 		LastStatus:       lastStatus,
+
+		LastStartTime:        r.LastStartTime,
+		LastStopTime:         r.LastStopTime,
+		LastStatusChangeTime: max(r.LastStartTime, r.LastStopTime),
 	}
 }
 

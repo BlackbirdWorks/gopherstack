@@ -38,7 +38,7 @@ const (
 
 // handleListFindings handles POST /findings/list.
 func (h *Handler) handleListFindings(c *echo.Context) error {
-	req, ok := decodeFilterListRequest(c)
+	req, ok := decodeFilterListRequest(c, maxListFindingsResults)
 	if !ok {
 		return nil
 	}

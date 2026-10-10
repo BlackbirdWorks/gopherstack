@@ -3,6 +3,7 @@ package securityhub
 import (
 	"errors"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -38,6 +39,10 @@ func (h *Handler) handleCreateActionTarget(c *echo.Context, body map[string]any)
 
 	if id == "" {
 		return typedErrorResponse(c, http.StatusBadRequest, "InvalidInputException", "Id is required")
+	}
+
+	if msg := validateActionTargetInput(name, id); msg != "" {
+		return typedErrorResponse(c, http.StatusBadRequest, "InvalidInputException", msg)
 	}
 
 	arn, err := h.Backend.CreateActionTarget(name, description, id)
@@ -138,4 +143,22 @@ func (h *Handler) actionTargetsOpHandlers(
 		opUpdateActionTarget:    func() error { return h.handleUpdateActionTarget(c, resource, body) },
 		opDeleteActionTarget:    func() error { return h.handleDeleteActionTarget(c, resource) },
 	}
+}
+
+const maxActionTargetField = 20
+
+var actionTargetIDRe = regexp.MustCompile(`^[A-Za-z0-9]+$`)
+
+// validateActionTargetInput applies CreateActionTarget's documented limits: a name of at most 20 characters and an
+// alphanumeric Id of at most 20 characters (api_op_CreateActionTarget.go).
+func validateActionTargetInput(name, id string) string {
+	if len(name) > maxActionTargetField {
+		return "Name can contain up to 20 characters"
+	}
+
+	if len(id) > maxActionTargetField || !actionTargetIDRe.MatchString(id) {
+		return "Id can contain up to 20 alphanumeric characters"
+	}
+
+	return ""
 }

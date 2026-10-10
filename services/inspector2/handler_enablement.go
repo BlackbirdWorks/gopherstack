@@ -3,6 +3,8 @@ package inspector2
 import (
 	"encoding/json"
 	"net/http"
+	"regexp"
+	"slices"
 
 	"github.com/labstack/echo/v5"
 
@@ -39,6 +41,10 @@ func (h *Handler) handleToggle(c *echo.Context, enable bool) error {
 				errorResponse("ValidationException", "invalid JSON"),
 			)
 		}
+	}
+
+	if msg := validateToggleInput(req.ResourceTypes, req.AccountIDs); msg != "" {
+		return c.JSON(http.StatusBadRequest, errorResponse(errValidation, msg))
 	}
 
 	resp, replayErr := h.replay(opEnable, clientTokenFor(enable, req.ClientToken), req, func() (map[string]any, error) {
@@ -312,4 +318,24 @@ func (h *Handler) handleListAccountPermissions(c *echo.Context) error {
 	)
 
 	return c.JSON(http.StatusOK, withPageToken(map[string]any{"permissions": page}, next))
+}
+
+var accountIDPattern = regexp.MustCompile(`^\d{12}$`)
+
+// validateToggleInput checks Enable/Disable's resourceTypes against the ResourceScanType enum and accountIds
+// against the 12-digit pattern.
+func validateToggleInput(resourceTypes, accountIDs []string) string {
+	for _, rt := range resourceTypes {
+		if !slices.Contains(knownResourceTypes(), rt) {
+			return "Value '" + rt + "' at 'resourceTypes' failed to satisfy constraint: not a valid ResourceScanType"
+		}
+	}
+
+	for _, id := range accountIDs {
+		if !accountIDPattern.MatchString(id) {
+			return "Value '" + id + "' at 'accountIds' failed to satisfy constraint: must be a 12-digit account ID"
+		}
+	}
+
+	return ""
 }

@@ -364,6 +364,14 @@ func scopeMatches(scope *ConfigRuleScope, item *ResourceConfigItem) bool {
 
 // evaluateRuleLocked runs the appropriate evaluation strategy for a single rule.
 func (b *InMemoryBackend) evaluateRuleLocked(rule *ConfigRule, now float64) {
+	if act, ok := b.ruleActivity[rule.ConfigRuleName]; ok {
+		if act.firstEvaluation == 0 {
+			act.firstEvaluation = now
+		}
+
+		act.lastEvaluation = now
+	}
+
 	owner := ""
 	sourceID := ""
 

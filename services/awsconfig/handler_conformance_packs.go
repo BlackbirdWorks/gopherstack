@@ -185,6 +185,10 @@ func (h *Handler) handleDescribeConformancePackStatus(
 	_ context.Context, in *describeConformancePackStatusInput,
 ) (*describeConformancePackStatusOutput, error) {
 	statuses := h.Backend.DescribeConformancePackStatus(in.ConformancePackNames)
+
+	if err := requireNamed(in.ConformancePackNames, len(statuses), ErrNoSuchConformancePack); err != nil {
+		return nil, err
+	}
 	slices.SortFunc(statuses, func(a, b ConformancePackStatus) int {
 		return strings.Compare(a.ConformancePackName, b.ConformancePackName)
 	})

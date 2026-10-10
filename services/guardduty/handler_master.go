@@ -44,7 +44,7 @@ func adminAccountToMap(a *AdminAccount) map[string]any {
 	return map[string]any{
 		"accountId":          a.AccountID, //nolint:goconst // existing issue.
 		"invitationId":       a.InvitationID,
-		"invitedAt":          a.InvitedAt,          //nolint:goconst // existing issue.
+		"invitedAt":          a.InvitedAt,
 		"relationshipStatus": a.RelationshipStatus, //nolint:goconst // existing issue.
 	}
 }

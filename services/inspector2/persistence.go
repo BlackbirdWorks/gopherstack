@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -248,6 +249,7 @@ func (b *InMemoryBackend) restoreRawState(snap *backendSnapshot) {
 func (b *InMemoryBackend) resetRawState() {
 	b.tags = make(map[string]map[string]string)
 	b.enabledTypes = make(map[string]bool)
+	b.transitions = make(map[string]time.Time)
 	b.memberEnabled = make(map[string]map[string]bool)
 	b.codeSecurityScans = make(map[string]map[string]any)
 	b.config = defaultConfiguration()

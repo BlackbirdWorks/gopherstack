@@ -3,6 +3,7 @@ package inspector2
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync"
@@ -376,7 +377,7 @@ type findingSortInput struct {
 
 // decodeFilterListRequest reads and decodes a filterListRequest. On a malformed
 // body it returns ok=false after writing the appropriate error response.
-func decodeFilterListRequest(c *echo.Context) (filterListRequest, bool) {
+func decodeFilterListRequest(c *echo.Context, maxResultsLimit int32) (filterListRequest, bool) {
 	var req filterListRequest
 
 	body, err := httputils.ReadBody(c.Request())
@@ -394,8 +395,22 @@ func decodeFilterListRequest(c *echo.Context) (filterListRequest, bool) {
 		}
 	}
 
+	if req.MaxResults < 0 || req.MaxResults > maxResultsLimit {
+		_ = c.JSON(http.StatusBadRequest, errorResponse(errValidation, fmt.Sprintf(
+			"maxResults must be between 1 and %d", maxResultsLimit,
+		)))
+
+		return req, false
+	}
+
 	return req, true
 }
+
+// Documented maxResults ceilings (Inspector2 service model: ListFindings 1-100, ListCoverage 1-200).
+const (
+	maxListFindingsResults = 100
+	maxListCoverageResults = 200
+)
 
 // extractResourceARN extracts the resource ARN from the URL path.
 func extractResourceARN(path string) string {
@@ -420,11 +435,23 @@ func errorResponse(code, message string) map[string]string {
 func (h *Handler) mapError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
-		return c.JSON(http.StatusNotFound, errorResponse(errResourceNotFound, err.Error()))
+		return c.JSON(
+			http.StatusNotFound,
+			errorResponse(errResourceNotFound, publicMessage(err, "The requested resource was not found.")),
+		)
 	case errors.Is(err, awserr.ErrConflict):
-		return c.JSON(http.StatusConflict, errorResponse(errConflict, err.Error()))
+		return c.JSON(
+			http.StatusConflict,
+			errorResponse(
+				errConflict,
+				publicMessage(err, "The request conflicts with the current state of the resource."),
+			),
+		)
 	case errors.Is(err, awserr.ErrInvalidParameter):
-		return c.JSON(http.StatusBadRequest, errorResponse(errValidation, err.Error()))
+		return c.JSON(
+			http.StatusBadRequest,
+			errorResponse(errValidation, publicMessage(err, "The request has invalid input.")),
+		)
 	default:
 		log := logger.Load(c.Request().Context())
 		log.Error("inspector2: unexpected error", "err", err)
@@ -434,4 +461,18 @@ func (h *Handler) mapError(c *echo.Context, err error) error {
 			errorResponse("InternalServerException", "internal error"),
 		)
 	}
+}
+
+// publicMessage drops the "<Code>: " prefix that sentinel wrapping adds, falling back to fallback for a bare code.
+func publicMessage(err error, fallback string) string {
+	msg := err.Error()
+
+	for _, code := range []string{errResourceNotFound, errConflict, errValidation} {
+		msg = strings.TrimPrefix(msg, code+": ")
+		if msg == code {
+			return fallback
+		}
+	}
+
+	return msg
 }

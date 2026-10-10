@@ -378,7 +378,7 @@ func (h *Handler) restRouter() service.RESTRouter {
 			return errBody(errResourceNotFound, "not found")
 		},
 		BadRequestBody: func() any {
-			return errBody("BadRequestException", "failed to read body")
+			return errBody(errBadRequest, "failed to read body")
 		},
 		InternalErrorBody: func() any {
 			return errBody("InternalFailure", "serialization failed")
@@ -413,6 +413,10 @@ func (h *Handler) dispatch(
 	op, path, query string,
 	body []byte,
 ) (any, int, error) {
+	if err := checkQueryMaxResults(query); err != nil {
+		return nil, http.StatusBadRequest, err
+	}
+
 	if result, code, ok, err := h.dispatchDetectorOps(op, path, query, body); ok {
 		return result, code, err
 	}
@@ -825,18 +829,72 @@ func parseTagPath(method string, parts []string) (string, string) {
 func (h *Handler) handleError(c *echo.Context, err error) error {
 	status := http.StatusInternalServerError
 	code := "InternalServerErrorException"
-	msg := err.Error()
 
 	switch {
-	case errors.Is(err, awserr.ErrNotFound):
+	case errors.Is(err, ErrMalwareProtPlanAlreadyExists):
+		status, code = http.StatusConflict, errConflictException
+	case isModeledNotFound(err):
 		status, code = http.StatusNotFound, errResourceNotFound
+	case errors.Is(err, awserr.ErrNotFound):
+		status, code = http.StatusBadRequest, errBadRequest
 	case errors.Is(err, awserr.ErrConflict):
-		status, code = http.StatusConflict, "ConflictException"
+		status, code = http.StatusBadRequest, errBadRequest
 	case errors.Is(err, awserr.ErrInvalidParameter):
-		status, code = http.StatusBadRequest, "BadRequestException"
+		status, code = http.StatusBadRequest, errBadRequest
 	}
 
-	return c.JSON(status, errBody(code, msg))
+	return c.JSON(status, errBody(code, publicMessage(err)))
+}
+
+// isModeledNotFound reports the not-found errors of the only operations whose pinned SDK error set
+// declares ResourceNotFoundException (malware protection plans, malware scans, investigations).
+// Every other operation answers a missing resource with BadRequestException.
+func isModeledNotFound(err error) bool {
+	return errors.Is(err, ErrMalwareScanNotFound) || errors.Is(err, ErrMalwareProtPlanNotFound) ||
+		errors.Is(err, ErrInvestigationNotFound)
+}
+
+const (
+	errBadRequest = "BadRequestException"
+
+	msgDetectorNotOwned = "The request is rejected because the input detectorId is not owned by the current account."
+	msgDetectorExists   = "The request is rejected because a detector already exists for the current account."
+	msgInvalidInput     = "The request is rejected because an invalid or out-of-range value is specified " +
+		"as an input parameter."
+	msgResourceNotFound     = "The request is rejected because the specified resource was not found."
+	msgResourceAlreadyExist = "The request is rejected because the resource already exists."
+)
+
+// publicMessage drops the "<Code>: " prefix wrapping adds and replaces a bare sentinel with GuardDuty's wording.
+func publicMessage(err error) string {
+	switch {
+	case errors.Is(err, ErrDetectorNotFound) && err.Error() == errResourceNotFound:
+		return msgDetectorNotOwned
+	case errors.Is(err, ErrDetectorAlreadyExists):
+		return msgDetectorExists
+	}
+
+	msg := err.Error()
+
+	for _, code := range []string{errResourceNotFound, errConflictException, errBadRequest} {
+		msg = strings.TrimPrefix(msg, code+": ")
+		if msg == code {
+			msg = ""
+		}
+	}
+
+	switch {
+	case msg != "":
+		return msg
+	case errors.Is(err, awserr.ErrNotFound):
+		return msgResourceNotFound
+	case errors.Is(err, awserr.ErrConflict):
+		return msgResourceAlreadyExist
+	case errors.Is(err, awserr.ErrInvalidParameter):
+		return msgInvalidInput
+	}
+
+	return err.Error()
 }
 
 func tagsOrEmpty(m map[string]string) map[string]string {

@@ -6,6 +6,8 @@ import (
 	"slices"
 	"sort"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // QueryStatementForAlias returns the SQL of the dashboard widget registered under alias.
@@ -50,8 +52,7 @@ func (b *InMemoryBackend) StartQueryWithParams(
 		return nil, fmt.Errorf("%w: QueryStatement is required", ErrValidation)
 	}
 
-	b.queryCounter++
-	qid := fmt.Sprintf("query-%06d", b.queryCounter)
+	qid := uuid.NewString()
 	q := &Query{
 		QueryID:               qid,
 		EventDataStoreARN:     edsARN,

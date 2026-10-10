@@ -39,6 +39,10 @@ func (h *Handler) handleGetFindings(c *echo.Context, body map[string]any) error 
 		}
 	}
 
+	if !validPagingMax(maxResults, maxFindingsPage, nextToken) {
+		return pagingErrorResponse(c)
+	}
+
 	findings, nextOut := h.Backend.GetFindings(filters, sortMaps, nextToken, maxResults)
 
 	resp := map[string]any{"Findings": findings}
@@ -179,6 +183,10 @@ func (h *Handler) handleGetFindingsV2(c *echo.Context, body map[string]any) erro
 
 	if v, ok := body[keyMaxResults].(float64); ok {
 		maxResults = int(v)
+	}
+
+	if !validPagingMax(maxResults, maxFindingsPage, nextToken) {
+		return pagingErrorResponse(c)
 	}
 
 	findings, next := h.Backend.GetFindingsV2(filters, sortCriteria, nextToken, maxResults)
@@ -376,7 +384,7 @@ func validateBatchUpdateFindings(identifiers []any, updates map[string]any) stri
 
 func validSeverityLabel(label string) bool {
 	switch label {
-	case "INFORMATIONAL", "LOW", severityLabelMedium, severityLabelHigh, severityLabelCritical:
+	case severityLabelInformational, severityLabelLow, severityLabelMedium, severityLabelHigh, severityLabelCritical:
 		return true
 	}
 
