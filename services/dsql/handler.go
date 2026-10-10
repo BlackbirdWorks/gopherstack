@@ -187,6 +187,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		log.DebugContext(ctx, "dsql request", "op", op, "resource", resource)
 
+		if rejected, vErr := h.validateRequest(c, op, resource); rejected {
+			return vErr
+		}
+
 		return h.dispatch(ctx, c, op, resource, body)
 	}
 }
@@ -237,7 +241,7 @@ func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 	case errors.Is(err, ErrPolicyVersionMismatch):
 		return h.writeError(c, http.StatusConflict, "ConflictException", err.Error(), "")
 	case errors.Is(err, awserr.ErrNotFound):
-		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", err.Error(), "")
+		return h.writeNotFound(c, err)
 	case errors.Is(err, awserr.ErrConflict):
 		return h.writeError(c, http.StatusConflict, "ConflictException", err.Error(), "")
 	case errors.Is(err, awserr.ErrInvalidParameter):
@@ -245,4 +249,14 @@ func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 	default:
 		return h.writeError(c, http.StatusInternalServerError, "InternalServerException", err.Error(), "")
 	}
+}
+
+func (h *Handler) writeNotFound(c *echo.Context, err error) error {
+	resp := errorResponse{Type: "ResourceNotFoundException", Message: err.Error()}
+
+	if ref, ok := c.Get(resourceContextKey).(resourceRef); ok {
+		resp.ResourceID, resp.ResourceType = ref.forError(err)
+	}
+
+	return c.JSON(http.StatusNotFound, resp)
 }

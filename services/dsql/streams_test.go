@@ -50,7 +50,7 @@ func TestCreateStream_ClusterNotFound(t *testing.T) {
 	client := newTestClient(t, newTestHandler())
 
 	_, err := client.CreateStream(t.Context(), &dsqlsdk.CreateStreamInput{
-		ClusterIdentifier: aws.String("nope"),
+		ClusterIdentifier: aws.String("aaaaaaaaaaaaaaaaaaaaaaaaaa"),
 		TargetDefinition:  testKinesisTarget(),
 		Format:            types.StreamFormatJson,
 		Ordering:          types.StreamOrderingUnordered,

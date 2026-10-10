@@ -7,7 +7,7 @@
 service: detective
 sdk_module: aws-sdk-go-v2/service/detective@v1.41.4   # version audited against
 last_audit_commit: ed6ef1a53
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
 overall: A            # A = genuine fixes found; B = already-accurate, proven op-by-op
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -432,3 +432,10 @@ ListInvestigations now applies FilterCriteria (members ANDed, StringFilter exact
 ## 2026-10-05 (gopherstack-uox6 pass 11, value semantics)
 
 UpdateDatasourcePackages on an already STARTED package no longer resets its collection-start timestamp (types.go:490, "when data collection began"; interpretation of re-enabling an active package as a no-op). Proof: `TestUpdateDatasourcePackages_RepeatKeepsCollectionStart`. Recorded, unchanged: CreateMembers DisableEmailNotification has no observable effect, UpdateInvestigationState carries no change time in the SDK shape, and no SDK doc states a default package set for a new graph.
+
+### 2026-10-10 (realism pass)
+
+- Graph ARNs are validated (malformed is ValidationException, unknown is ResourceNotFoundException); MaxResults above the per-API ceiling and over-long invitation messages are rejected; StartInvestigation requires ScopeEndTime after ScopeStartTime.
+- New graphs start with DETECTIVE_CORE ingest STARTED.
+- Investigations can stay RUNNING for an opt-in window (`--lifecycle-detective`, default 0 = immediately SUCCESSFUL).
+- Error messages use the documented wording instead of the exception name.

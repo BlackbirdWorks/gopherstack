@@ -3577,6 +3577,23 @@ func (a *elbEC2ResolverAdapter) InstanceExists(id string) bool {
 	return a.regions.any(func(b ec2backend.Backend) bool { return len(b.DescribeInstances([]string{id}, "")) > 0 })
 }
 
+func (a *elbEC2ResolverAdapter) InstanceStateName(id string) (string, bool) {
+	var (
+		name  string
+		found bool
+	)
+
+	a.regions.any(func(b ec2backend.Backend) bool {
+		if insts := b.DescribeInstances([]string{id}, ""); len(insts) > 0 {
+			name, found = insts[0].State.Name, true
+		}
+
+		return found
+	})
+
+	return name, found
+}
+
 // elbCertificateResolverAdapter adapts the ACM and IAM backends to the
 // elb.CertificateResolver interface. AWS accepts either an ACM or an IAM
 // server-certificate ARN for SSLCertificateId (see elb.CertificateResolver's

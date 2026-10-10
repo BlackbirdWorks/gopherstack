@@ -1,6 +1,9 @@
 package macie2
 
 import (
+	"fmt"
+	"time"
+
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -28,6 +31,8 @@ const (
 	keyJobStatus           = "jobStatus"
 	defaultPageSize        = 50
 
+	valueNone           = "NONE"
+	valueRecommended    = "RECOMMENDED"
 	jobStatusRunning    = "RUNNING"
 	jobStatusIdle       = "IDLE"
 	jobStatusCancelled  = "CANCELLED"
@@ -49,40 +54,35 @@ const (
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	mu *lockmetrics.RWMutex
-	// registry holds every store.Table-backed resource field so their
-	// lifecycle (reset/snapshot/restore) collapses to one Registry call each
-	// -- see store_setup.go's registerAllTables. Every table below is
-	// "clean" (registered directly, no DTO-registry needed): each value
-	// type already carries its own identity as a real (non-json:"-")
-	// field.
-	registry              *store.Registry
-	allowLists            *store.Table[storedAllowList]      // id → allow list
-	customDataIDs         *store.Table[storedCustomDataID]   // id → custom data identifier
-	findingsFilters       *store.Table[storedFindingsFilter] // id → findings filter
-	findings              *store.Table[storedFinding]        // id → finding
-	s3Buckets             *store.Table[S3BucketMetadata]     // bucketArn → bucket metadata
-	tags                  map[string]map[string]string       // resourceARN → tags
+	orgConfig             *OrgConfig
+	findingsPubConfig     *FindingsPublicationConfig
+	allowLists            *store.Table[storedAllowList]
+	customDataIDs         *store.Table[storedCustomDataID]
+	findingsFilters       *store.Table[storedFindingsFilter]
+	findings              *store.Table[storedFinding]
+	s3Buckets             *store.Table[S3BucketMetadata]
+	tags                  map[string]map[string]string
 	session               *Session
-	classificationJobs    *store.Table[ClassificationJob]             // jobID → job
-	members               *store.Table[Member]                        // accountID → member
-	invitations           *store.Table[Invitation]                    // invitationID → invitation
-	administrator         *AdministratorAccount                       // this account's admin
-	orgAdminAccounts      *store.Table[OrgAdminAccount]               // accountID → org admin
-	orgConfig             *OrgConfig                                  // org configuration
-	autoDiscoveryConfig   *AutoDiscoveryConfig                        // automated discovery config
-	autoDiscoveryAccounts *store.Table[AutoDiscoveryAccount]          // accountID → auto discovery
-	classExportConfig     *ClassificationExportConfig                 // export config
-	classScopes           *store.Table[ClassificationScope]           // scopeID → scope
-	findingsPubConfig     *FindingsPublicationConfig                  // findings publication config
-	resourceProfiles      *store.Table[ResourceProfile]               // resourceArn → profile
-	resourceDetections    map[string][]ResourceProfileDetection       // resourceArn → detections
-	revealConfig          *RevealConfiguration                        // reveal config
-	retrievalConfig       *RetrievalConfiguration                     // reveal retrieval config
-	sensitivityTemplates  *store.Table[SensitivityInspectionTemplate] // templateID → template
+	classificationJobs    *store.Table[ClassificationJob]
+	members               *store.Table[Member]
+	invitations           *store.Table[Invitation]
+	administrator         *AdministratorAccount
+	orgAdminAccounts      *store.Table[OrgAdminAccount]
+	registry              *store.Registry
+	autoDiscoveryAccounts *store.Table[AutoDiscoveryAccount]
+	mu                    *lockmetrics.RWMutex
+	classExportConfig     *ClassificationExportConfig
+	classScopes           *store.Table[ClassificationScope]
+	autoDiscoveryConfig   *AutoDiscoveryConfig
+	resourceProfiles      *store.Table[ResourceProfile]
+	resourceDetections    map[string][]ResourceProfileDetection
+	revealConfig          *RevealConfiguration
+	retrievalConfig       *RetrievalConfiguration
+	sensitivityTemplates  *store.Table[SensitivityInspectionTemplate]
 	paginationSecret      string
 	accountID             string
 	region                string
+	lifecycleDelay        time.Duration
 }
 
 // NewInMemoryBackend constructs a new InMemoryBackend.
@@ -119,6 +119,10 @@ func listPaginated[T any, R any](
 ) ([]R, string, error) {
 	b.mu.RLock(lockName)
 	defer b.mu.RUnlock()
+
+	if token != "" && page.DecodeHMACToken(token, b.paginationSecret) == 0 {
+		return nil, "", fmt.Errorf("%w: nextToken is not valid", ErrValidation)
+	}
 
 	data, next := mapSortPaginate(itemsFn(), mapFn, sortFn, token, b.paginationSecret, limit)
 

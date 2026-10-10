@@ -11,7 +11,7 @@ import (
 func (b *InMemoryBackend) CreateMembers(
 	graphARN string,
 	accounts []Account,
-	_ string,
+	message string,
 ) ([]*MemberDetail, []UnprocessedAccount, error) {
 	if len(accounts) > maxCreateMembersPerBatch {
 		return nil, nil, fmt.Errorf("%w: cannot specify more than %d accounts", ErrValidation, maxCreateMembersPerBatch)
@@ -27,11 +27,15 @@ func (b *InMemoryBackend) CreateMembers(
 		}
 	}
 
+	if err := validateInvitationMessage(message); err != nil {
+		return nil, nil, err
+	}
+
 	b.mu.Lock("CreateMembers")
 	defer b.mu.Unlock()
 
-	if !b.graphs.Has(graphARN) {
-		return nil, nil, ErrGraphNotFound
+	if err := b.requireGraphLocked(graphARN); err != nil {
+		return nil, nil, err
 	}
 
 	now := time.Now().UTC()
@@ -86,8 +90,8 @@ func (b *InMemoryBackend) DeleteMembers(
 	b.mu.Lock("DeleteMembers")
 	defer b.mu.Unlock()
 
-	if !b.graphs.Has(graphARN) {
-		return nil, nil, ErrGraphNotFound
+	if err := b.requireGraphLocked(graphARN); err != nil {
+		return nil, nil, err
 	}
 
 	deleted := make([]string, 0, len(accountIDs))
@@ -118,8 +122,8 @@ func (b *InMemoryBackend) GetMembers(
 	b.mu.RLock("GetMembers")
 	defer b.mu.RUnlock()
 
-	if !b.graphs.Has(graphARN) {
-		return nil, nil, ErrGraphNotFound
+	if err := b.requireGraphLocked(graphARN); err != nil {
+		return nil, nil, err
 	}
 
 	var members []*MemberDetail
@@ -149,8 +153,8 @@ func (b *InMemoryBackend) ListMembers(
 	b.mu.RLock("ListMembers")
 	defer b.mu.RUnlock()
 
-	if !b.graphs.Has(graphARN) {
-		return nil, "", ErrGraphNotFound
+	if err := b.requireGraphLocked(graphARN); err != nil {
+		return nil, "", err
 	}
 
 	items := slices.Clone(b.membersByGraph.Get(graphARN))
@@ -165,9 +169,9 @@ func (b *InMemoryBackend) ListMembers(
 		start = len(items)
 	}
 
-	limit := int(maxResults)
-	if limit <= 0 || limit > maxMembersPerPage {
-		limit = maxMembersPerPage
+	limit, err := pageLimit(maxResults, maxMembersPerPage)
+	if err != nil {
+		return nil, "", err
 	}
 
 	end := min(start+limit, len(items))
@@ -191,8 +195,8 @@ func (b *InMemoryBackend) AcceptInvitation(graphARN string) error {
 	b.mu.Lock("AcceptInvitation")
 	defer b.mu.Unlock()
 
-	if !b.graphs.Has(graphARN) {
-		return ErrGraphNotFound
+	if err := b.requireGraphLocked(graphARN); err != nil {
+		return err
 	}
 
 	m, ok := b.members.Get(memberKey(graphARN, b.accountID))
@@ -216,8 +220,8 @@ func (b *InMemoryBackend) RejectInvitation(graphARN string) error {
 	b.mu.Lock("RejectInvitation")
 	defer b.mu.Unlock()
 
-	if !b.graphs.Has(graphARN) {
-		return ErrGraphNotFound
+	if err := b.requireGraphLocked(graphARN); err != nil {
+		return err
 	}
 
 	m, ok := b.members.Get(memberKey(graphARN, b.accountID))
@@ -239,8 +243,8 @@ func (b *InMemoryBackend) DisassociateMembership(graphARN string) error {
 	b.mu.Lock("DisassociateMembership")
 	defer b.mu.Unlock()
 
-	if !b.graphs.Has(graphARN) {
-		return ErrGraphNotFound
+	if err := b.requireGraphLocked(graphARN); err != nil {
+		return err
 	}
 
 	m, ok := b.members.Get(memberKey(graphARN, b.accountID))
@@ -283,9 +287,9 @@ func (b *InMemoryBackend) ListInvitations(maxResults int32, nextToken string) ([
 		start = len(invitations)
 	}
 
-	limit := int(maxResults)
-	if limit <= 0 || limit > maxInvitationsPerPage {
-		limit = maxInvitationsPerPage
+	limit, err := pageLimit(maxResults, maxInvitationsPerPage)
+	if err != nil {
+		return nil, "", err
 	}
 
 	end := min(start+limit, len(invitations))

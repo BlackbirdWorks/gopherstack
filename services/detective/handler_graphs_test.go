@@ -62,10 +62,12 @@ func TestDetective_Graph(t *testing.T) { //nolint:paralleltest // existing issue
 			wantCode: http.StatusOK,
 		},
 		{
-			name:     "DeleteGraph unknown arn returns 404",
-			method:   http.MethodPost,
-			path:     "/graph/removal",
-			body:     map[string]any{"GraphArn": "arn:aws:detective:us-east-1:000000000000:graph:doesnotexist"},
+			name:   "DeleteGraph unknown arn returns 404",
+			method: http.MethodPost,
+			path:   "/graph/removal",
+			body: map[string]any{
+				"GraphArn": missingGraphARN,
+			},
 			wantCode: http.StatusNotFound,
 		},
 		{

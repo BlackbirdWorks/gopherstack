@@ -1,6 +1,7 @@
 package detective
 
 import (
+	"fmt"
 	"maps"
 	"slices"
 	"strings"
@@ -26,6 +27,9 @@ func (b *InMemoryBackend) createGraphLocked(tags map[string]string) *storedGraph
 		Tags:        graphTags,
 	}
 	b.graphs.Put(g)
+
+	b.datasources[arn] = map[string]string{datasourceDetectiveCore: datasourceIngestStateStarted}
+	b.datasourceChangedAt[arn] = map[string]time.Time{datasourceDetectiveCore: now}
 
 	if len(graphTags) > 0 {
 		b.tags[arn] = make(map[string]string)
@@ -89,6 +93,10 @@ func (b *InMemoryBackend) DeleteGraph(graphARN string) error {
 	b.mu.Lock("DeleteGraph")
 	defer b.mu.Unlock()
 
+	if !graphARNRe.MatchString(graphARN) {
+		return fmt.Errorf("%w: GraphArn is not a valid behavior graph ARN", ErrValidation)
+	}
+
 	if !b.deleteGraphLocked(graphARN) {
 		return ErrGraphNotFound
 	}
@@ -112,9 +120,9 @@ func (b *InMemoryBackend) ListGraphs(maxResults int32, nextToken string) ([]*Gra
 		start = len(graphs)
 	}
 
-	limit := int(maxResults)
-	if limit <= 0 || limit > maxGraphsPerPage {
-		limit = maxGraphsPerPage
+	limit, err := pageLimit(maxResults, maxGraphsPerPage)
+	if err != nil {
+		return nil, "", err
 	}
 
 	end := min(start+limit, len(graphs))

@@ -24,8 +24,8 @@ func (b *InMemoryBackend) GetClusterPolicy(identifier string) (*ClusterPolicy, e
 // (optimistic concurrency), matching PutClusterPolicyInput's
 // expectedPolicyVersion semantics.
 func (b *InMemoryBackend) PutClusterPolicy(identifier, policy, expectedVersion string) (*ClusterPolicy, error) {
-	if policy == "" {
-		return nil, ErrValidation
+	if err := validatePolicyDocument(policy); err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("PutClusterPolicy")

@@ -136,15 +136,15 @@ func (h *Handler) handleCreateClassificationJob(body []byte) (any, int, error) {
 		Tags                          map[string]string `json:"tags"`
 		S3JobDefinition               map[string]any    `json:"s3JobDefinition"`
 		ScheduleFrequency             map[string]any    `json:"scheduleFrequency"`
-		ClientToken                   string            `json:"clientToken"`
-		Description                   string            `json:"description"`
-		JobType                       string            `json:"jobType"`
+		SamplingPercentage            *int32            `json:"samplingPercentage"`
 		Name                          string            `json:"name"`
+		JobType                       string            `json:"jobType"`
+		Description                   string            `json:"description"`
 		ManagedDataIdentifierSelector string            `json:"managedDataIdentifierSelector"`
+		ClientToken                   string            `json:"clientToken"`
 		AllowListIDs                  []string          `json:"allowListIds"`
 		CustomDataIdentifierIDs       []string          `json:"customDataIdentifierIds"`
 		ManagedDataIdentifierIDs      []string          `json:"managedDataIdentifierIds"`
-		SamplingPercentage            int32             `json:"samplingPercentage"`
 		InitialRun                    bool              `json:"initialRun"`
 	}
 
@@ -152,8 +152,20 @@ func (h *Handler) handleCreateClassificationJob(body []byte) (any, int, error) {
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 
-	if req.Name == "" || req.JobType == "" {
-		return nil, http.StatusBadRequest, ErrValidation
+	jr := jobRequest{
+		tags: req.Tags, s3JobDefinition: req.S3JobDefinition, scheduleFrequency: req.ScheduleFrequency,
+		name: req.Name, description: req.Description, jobType: req.JobType,
+		selector: req.ManagedDataIdentifierSelector, customIDs: req.CustomDataIdentifierIDs,
+		managedIDs: req.ManagedDataIdentifierIDs,
+	}
+
+	var sampling int32
+	if req.SamplingPercentage != nil {
+		jr.hasSamplingPercent, jr.samplingPercentage, sampling = true, *req.SamplingPercentage, *req.SamplingPercentage
+	}
+
+	if err := validateJobRequest(jr); err != nil {
+		return nil, http.StatusBadRequest, err
 	}
 
 	id, jobArn, err := h.Backend.CreateClassificationJob(
@@ -161,9 +173,13 @@ func (h *Handler) handleCreateClassificationJob(body []byte) (any, int, error) {
 		req.S3JobDefinition, req.ScheduleFrequency,
 		req.AllowListIDs, req.CustomDataIdentifierIDs, req.ManagedDataIdentifierIDs,
 		req.ManagedDataIdentifierSelector,
-		req.Tags, req.SamplingPercentage, req.InitialRun,
+		req.Tags, sampling, req.InitialRun,
 	)
 	if err != nil {
+		if errors.Is(err, awserr.ErrNotFound) {
+			return nil, http.StatusNotFound, err
+		}
+
 		return nil, http.StatusInternalServerError, err
 	}
 
@@ -209,7 +225,7 @@ func (h *Handler) handleListClassificationJobs(body []byte) (any, int, error) {
 
 	jobs, nextToken, err := h.Backend.ListClassificationJobs(req.FilterCriteria, sortBy, req.MaxResults, req.NextToken)
 	if err != nil {
-		return nil, http.StatusInternalServerError, err
+		return nil, http.StatusBadRequest, err
 	}
 
 	resp := map[string]any{keyItems: jobs}

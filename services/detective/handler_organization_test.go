@@ -25,7 +25,7 @@ func TestOrganizationConfiguration(t *testing.T) { //nolint:paralleltest // exis
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &graphResp))
 	graphArn := graphResp["GraphArn"].(string)
 
-	unknownArn := "arn:aws:detective:us-east-1:000000000000:graph:notexist"
+	unknownArn := missingGraphARN
 
 	tests := []struct {
 		name     string

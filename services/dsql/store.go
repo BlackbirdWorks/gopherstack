@@ -28,6 +28,8 @@ const (
 	maxClustersPerAccountRegion = 20
 	maxStreamsPerCluster        = 20
 	maxTagsPerResource          = 50
+	maxTagKeyLength             = 128
+	maxTagValueLength           = 256
 
 	identifierLength = 26
 	identifierAlpha  = "abcdefghijklmnopqrstuvwxyz0123456789"
@@ -39,6 +41,8 @@ type InMemoryBackend struct {
 	streams  *store.Table[Stream]
 	registry *store.Registry
 	mu       *lockmetrics.RWMutex
+
+	lifecycleDelay time.Duration
 }
 
 // NewInMemoryBackend creates a new in-memory Aurora DSQL backend.
@@ -122,12 +126,17 @@ func splitStreamKey(key string) (string, string) {
 
 func validateTags(tags map[string]string) error {
 	if len(tags) > maxTagsPerResource {
-		return ErrValidation
+		return fmt.Errorf("%w: a resource can have at most %d tags", ErrValidation, maxTagsPerResource)
 	}
 
-	for k := range tags {
-		if k == "" {
-			return ErrValidation
+	for k, v := range tags {
+		switch {
+		case k == "" || len(k) > maxTagKeyLength:
+			return fmt.Errorf("%w: tag keys must be 1 to %d characters", ErrValidation, maxTagKeyLength)
+		case len(v) > maxTagValueLength:
+			return fmt.Errorf("%w: tag values must be at most %d characters", ErrValidation, maxTagValueLength)
+		case strings.HasPrefix(strings.ToLower(k), "aws:"):
+			return fmt.Errorf("%w: tag keys may not start with the reserved aws: prefix", ErrValidation)
 		}
 	}
 

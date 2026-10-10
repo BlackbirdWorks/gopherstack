@@ -24,6 +24,9 @@ type fakeEC2Resolver struct {
 func (f *fakeEC2Resolver) SecurityGroupExists(id string) bool { return f.securityGroups[id] }
 func (f *fakeEC2Resolver) SubnetExists(id string) bool        { return f.subnets[id] }
 func (f *fakeEC2Resolver) InstanceExists(id string) bool      { return f.instances[id] }
+func (f *fakeEC2Resolver) InstanceStateName(id string) (string, bool) {
+	return "running", f.instances[id]
+}
 
 // fakeCertResolver is a test double for elb.CertificateResolver backed by a
 // static set, standing in for the real services/acm and services/iam

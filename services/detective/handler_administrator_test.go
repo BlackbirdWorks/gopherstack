@@ -46,7 +46,7 @@ func TestDetective_StartMonitoringMember(t *testing.T) { //nolint:paralleltest /
 		{
 			name: "StartMonitoringMember unknown graph returns 404",
 			body: map[string]any{
-				"GraphArn":  "arn:aws:detective:us-east-1:000000000000:graph:notexist",
+				"GraphArn":  missingGraphARN,
 				"AccountId": "111111111111",
 			},
 			wantCode: http.StatusNotFound,

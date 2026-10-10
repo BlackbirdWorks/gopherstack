@@ -683,3 +683,7 @@ Round trips clean. Recorded, unchanged (SDK silent): ModifyLoadBalancerAttribute
 - DescribeLoadBalancers: out-of-range PageSize and a bad Marker are ValidationError (PageSize was silently ignored). DescribeLoadBalancerPolicies with an unknown PolicyName is PolicyNotFound.
 - Kept lenient: protocol case, ProxyProtocol attribute values. Needs cli.go wiring (not done): DescribeInstanceHealth always reports InService because `EC2Resolver` only exposes `InstanceExists`; real state needs an instance-state method on the resolver adapter.
 - Tests: `TestRealism_*` (realism_test.go).
+
+### 2026-10-10 (realism pass)
+
+DescribeInstanceHealth derives health from the EC2 instance state through `EC2Resolver.InstanceStateName`: pending, stopped/stopping and terminated instances are OutOfService (ReasonCode Instance, "Instance is in <state> state."); registered instances EC2 no longer knows are Unknown. With no resolver wired every registered instance stays InService. Root SDK test: `TestInitializeServices_ELBInstanceHealthFromEC2`.
