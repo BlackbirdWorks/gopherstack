@@ -69,6 +69,12 @@ func validateScheduleFields(
 		return fmt.Errorf("%w: ScheduleExpression is required", ErrValidation)
 	}
 
+	if len(expr) > scheduleExpressionMaxLen {
+		return fmt.Errorf(
+			"%w: ScheduleExpression must be at most %d characters", ErrValidation, scheduleExpressionMaxLen,
+		)
+	}
+
 	if err := validateScheduleExpression(expr); err != nil {
 		return err
 	}
@@ -121,6 +127,12 @@ func (b *InMemoryBackend) CreateSchedule(
 		return nil, err
 	}
 
+	if len(description) > scheduleDescriptionMaxLen {
+		return nil, fmt.Errorf(
+			"%w: Description must be at most %d characters", ErrValidation, scheduleDescriptionMaxLen,
+		)
+	}
+
 	if groupName == "" {
 		groupName = defaultGroupName
 	}
@@ -138,7 +150,7 @@ func (b *InMemoryBackend) CreateSchedule(
 
 	tableKey := regionKey(region, scheduleKey(groupName, name))
 	if b.schedules.Has(tableKey) {
-		return nil, fmt.Errorf("%w: schedule %s already exists in group %s", ErrAlreadyExists, name, groupName)
+		return nil, alreadyExists("Schedule", name)
 	}
 
 	schedARN := arn.Build("scheduler", region, b.accountID, "schedule/"+groupName+"/"+name)
@@ -179,7 +191,7 @@ func (b *InMemoryBackend) GetSchedule(ctx context.Context, name, groupName strin
 
 	s, ok := b.schedules.Get(regionKey(region, scheduleKey(groupName, name)))
 	if !ok {
-		return nil, fmt.Errorf("%w: schedule %s not found", ErrNotFound, name)
+		return nil, notFound("Schedule", name)
 	}
 
 	return cloneSchedule(s), nil
@@ -237,7 +249,7 @@ func (b *InMemoryBackend) DeleteSchedule(ctx context.Context, name, groupName st
 
 	s, ok := b.schedules.Get(tableKey)
 	if !ok {
-		return fmt.Errorf("%w: schedule %s not found", ErrNotFound, name)
+		return notFound("Schedule", name)
 	}
 
 	b.schedules.Delete(tableKey)
@@ -259,6 +271,12 @@ func (b *InMemoryBackend) UpdateSchedule(
 		return nil, err
 	}
 
+	if len(description) > scheduleDescriptionMaxLen {
+		return nil, fmt.Errorf(
+			"%w: Description must be at most %d characters", ErrValidation, scheduleDescriptionMaxLen,
+		)
+	}
+
 	if groupName == "" {
 		groupName = defaultGroupName
 	}
@@ -270,7 +288,7 @@ func (b *InMemoryBackend) UpdateSchedule(
 
 	s, ok := b.schedules.Get(regionKey(region, scheduleKey(groupName, name)))
 	if !ok {
-		return nil, fmt.Errorf("%w: schedule %s not found", ErrNotFound, name)
+		return nil, notFound("Schedule", name)
 	}
 
 	s.ScheduleExpression = expr
@@ -396,6 +414,13 @@ func validateFlexibleTimeWindow(ftw FlexibleTimeWindow) error {
 		return err
 	}
 
+	if ftw.MaximumWindowInMinutes > flexibleWindowMaxMinutes {
+		return fmt.Errorf(
+			"%w: FlexibleTimeWindow.MaximumWindowInMinutes must be between 1 and %d",
+			ErrValidation, flexibleWindowMaxMinutes,
+		)
+	}
+
 	if ftw.Mode == flexibleTimeWindowModeFlexible && ftw.MaximumWindowInMinutes <= 0 {
 		return fmt.Errorf(
 			"%w: FlexibleTimeWindow.MaximumWindowInMinutes is required and must be >= 1 when Mode is FLEXIBLE",
@@ -469,6 +494,18 @@ func validateRetryPolicy(rp *RetryPolicy) error {
 
 // validateTarget validates target-specific parameter constraints.
 func validateTarget(target Target) error {
+	if len(target.Input) > targetInputMaxLen {
+		return fmt.Errorf("%w: Target.Input must be at most %d characters", ErrValidation, targetInputMaxLen)
+	}
+
+	if !strings.HasPrefix(target.ARN, "arn:") {
+		return fmt.Errorf("%w: Target.Arn %q is not a valid ARN", ErrValidation, target.ARN)
+	}
+
+	if !strings.HasPrefix(target.RoleARN, "arn:") {
+		return fmt.Errorf("%w: Target.RoleArn %q is not a valid ARN", ErrValidation, target.RoleARN)
+	}
+
 	if err := validateRetryPolicy(target.RetryPolicy); err != nil {
 		return err
 	}

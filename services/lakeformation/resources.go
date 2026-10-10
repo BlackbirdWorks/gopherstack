@@ -61,6 +61,10 @@ func (b *InMemoryBackend) RegisterResource(resourceArn, roleArn string, opts Reg
 		return fmt.Errorf("ResourceArn is required: %w", ErrValidation)
 	}
 
+	if !strings.HasPrefix(resourceArn, "arn:") {
+		return fmt.Errorf("ResourceArn %q is not a valid ARN: %w", resourceArn, ErrValidation)
+	}
+
 	b.mu.Lock("RegisterResource")
 	defer b.mu.Unlock()
 

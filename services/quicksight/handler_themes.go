@@ -101,7 +101,7 @@ func (h *Handler) handleCreateTheme(c *echo.Context) error {
 	)
 	if err != nil {
 		if errors.Is(err, ErrThemeAlreadyExists) {
-			return writeError(c, http.StatusConflict, errResourceExistsCode, err.Error())
+			return writeError(c, http.StatusConflict, errResourceExistsCode, errMessage(err))
 		}
 
 		return httpErr(c, err)
@@ -310,7 +310,7 @@ func (h *Handler) handleCreateThemeAlias(c *echo.Context) error {
 	)
 	if err != nil {
 		if errors.Is(err, ErrThemeAliasAlreadyExists) {
-			return writeError(c, http.StatusConflict, errResourceExistsCode, err.Error())
+			return writeError(c, http.StatusConflict, errResourceExistsCode, errMessage(err))
 		}
 
 		return httpErr(c, err)

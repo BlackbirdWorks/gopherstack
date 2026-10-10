@@ -7,7 +7,7 @@
 service: lakeformation
 sdk_module: aws-sdk-go-v2/service/lakeformation@v1.50.4
 last_audit_commit: 0c1472972  # 2026-09-24 lakeformation-appsync-neptune-and-athena terraform coverage; prior: 49cff86c4
-last_audit_date: 2026-10-09
+last_audit_date: 2026-10-10
 overall: A            # gopherstack-6flj wrapper-key sweep: GetTemporaryDataLocationCredentials wire-breaking sibling-copy bug fixed, plus 4 adjacent bugs
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -672,3 +672,9 @@ lakeformation is region-isolated: LF-tags, data cells filters, permissions and t
 ## 2026-10-04 (reqfielddiff tier-1 pass)
 
 ListPermissions and GetEffectivePermissionsForPath now honour CatalogId: when supplied, only entries whose resource lives in that catalog (resource-level CatalogId, defaulting to the account) are returned before pagination; when omitted behaviour is unchanged. Proof: `TestPermissions_CatalogIDScoping`.
+
+## 2026-10-10: realism pass (CLI/SDK probing)
+
+- Grant/Revoke reject permissions that the Lake Formation permissions reference does not allow on Catalog, Database, Table, TableWithColumns and DataLocation resources (e.g. SELECT on a database). LFTag/LFTagPolicy/LFTagExpression/DataCellsFilter are not matrix-checked.
+- RegisterResource requires an ARN; malformed NextToken and MaxResults outside 1-1000 are InvalidInputException on every list op; the trailing `: validation error` is gone from messages.
+- Lenient on purpose: principal identifiers are not format-checked and RegisterResource without RoleArn/UseServiceLinkedRole is accepted (AWS behaviour not determinable from the SDK).

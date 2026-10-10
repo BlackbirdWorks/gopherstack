@@ -322,7 +322,7 @@ func (h *Handler) handleRegisterWorkspaceDirectory(
 		return nil, err
 	}
 
-	return &registerWorkspaceDirectoryOutput{DirectoryId: id, State: stateRegistered}, nil
+	return &registerWorkspaceDirectoryOutput{DirectoryId: id, State: stateRegistering}, nil
 }
 
 type deregisterWorkspaceDirectoryInput struct {

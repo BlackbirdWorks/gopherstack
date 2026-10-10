@@ -1,7 +1,7 @@
 service: workspaces
 sdk_module: aws-sdk-go-v2/service/workspaces@v1.79.0
 last_audit_commit: 7c8077891728
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
 # 2026-09-07 (gopherstack-s3v4): CreateWorkspaces stored WorkspaceProperties verbatim: no default
 # and no validation. The pinned SDK's WorkspaceProperties.RunningMode doc comment
 # (types/types.go:1805-1815) states no default value -- evidence for defaulting to ALWAYS_ON is
@@ -734,3 +734,10 @@ ModifyWorkspaceProperties merges the supplied members instead of replacing the w
 ## 2026-10-05 (reqfielddiff tier-2 pagination)
 
 FIXED: DescribeWorkspacesPools applies Filters (Name PoolName; EQUALS/NOTEQUALS/CONTAINS/NOTCONTAINS; filters ANDed, values ORed, the NOT forms match none) and rejects other names/operators with InvalidParameterValuesException. Proof: `TestDescribeWorkspacesPools_Filters`. RECORDED: DescribeWorkspaceDirectories Filters (USER_IDENTITY_TYPE, WORKSPACE_TYPE) are unsupported because RegisterWorkspaceDirectory does not store UserIdentityType/WorkspaceType, so the directories carry nothing to match.
+
+## 2026-10-10: realism pass (CLI/SDK probing)
+
+- CreateWorkspaces reports `PENDING` and RegisterWorkspaceDirectory reports `REGISTERING`; `SetLifecycleDelay` (default 0, root wiring needed for a flag) keeps them in that state for Describe until the deadline, then `AVAILABLE`/`REGISTERED`. `SetClock` makes this testable without sleeping.
+- Bad NextToken on DescribeWorkspaces/Directories/Bundles is InvalidParameterValuesException; CreateTags on an unknown resource and DeregisterWorkspaceDirectory on an unregistered directory are ResourceNotFoundException; IP group rules must be IP addresses or CIDRs.
+- Errors carry readable messages instead of the bare code.
+- Lenient on purpose: an unknown BundleId is still accepted by CreateWorkspaces (in-repo callers use made-up `wsb-*` ids).

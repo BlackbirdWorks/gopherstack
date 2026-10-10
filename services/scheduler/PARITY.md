@@ -2,7 +2,7 @@
 service: scheduler
 sdk_module: aws-sdk-go-v2/service/scheduler@v1.20.4   # version audited against
 last_audit_commit: 615cda74e                           # HEAD when this audit pass started
-last_audit_date: 2026-10-09
+last_audit_date: 2026-10-10
 overall: A            # genuine wire-breaking and next-invocation-computation bugs found and fixed (see Notes)
 ops:
   CreateSchedule:      {wire: fixed, errors: ok, state: fixed, persist: ok, note: "Target.EcsParameters wire bugs fixed (see 2026-08-20 Notes); ClientToken now idempotent (see Notes); ScheduleExpressionTimezone now validated as a real IANA name; ScheduleExpression now semantically validated (rate/cron/at), not just structurally; cron field values (ranges/names/wildcards) now validated per-field, see 2026-08-11 gopherstack-cz9e Notes"}
@@ -804,3 +804,10 @@ Schedules targeting these ARNs were warned about and skipped. `Runner.SetDeliver
 delivers them through cli_scheduler_build_targets_wiring.go; `TestSchedulerCodeBuildTarget` verifies a build is started
 via the SDK. Firehose and CodePipeline are wired but lack a root-level test. Universal (`arn:aws:scheduler:::aws-sdk:`)
 targets remain unsupported.
+
+## 2026-10-10: realism pass (CLI/SDK probing)
+
+- Error messages no longer repeat the error code (`ValidationException: ValidationException: ...`); not-found/exists wording is `Schedule X does not exist.` / `ScheduleGroup X does not exist.`.
+- `rate()` enforces singular unit for 1 and plural otherwise; `FlexibleTimeWindow.MaximumWindowInMinutes` capped at 1440; Description max 512, ScheduleExpression max 256, Target.Input max 8192; Target.Arn/RoleArn must be ARNs.
+- ListSchedules/ListScheduleGroups: MaxResults 1-100, opaque base64 NextToken, malformed token is ValidationException.
+- Lenient on purpose: RoleArn is only checked for an `arn:` prefix (in-repo fixtures use `arn:r`, account `0`); `rate(N seconds)` stays accepted for local testing; past `at()` times and EndDate before StartDate are accepted (AWS behaviour not determinable from the SDK).

@@ -21,11 +21,11 @@ var (
 	// ErrNamespaceNotFound is returned when a namespace does not exist.
 	ErrNamespaceNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 	// ErrNamespaceAlreadyExists is returned when a namespace already exists.
-	ErrNamespaceAlreadyExists = awserr.New(errConflictException, awserr.ErrAlreadyExists)
+	ErrNamespaceAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
 	// ErrGroupNotFound is returned when a group does not exist.
 	ErrGroupNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 	// ErrGroupAlreadyExists is returned when a group already exists.
-	ErrGroupAlreadyExists = awserr.New(errConflictException, awserr.ErrAlreadyExists)
+	ErrGroupAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
 	// ErrGroupMemberNotFound is returned when a group member does not exist.
 	ErrGroupMemberNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 	// ErrGroupMemberAlreadyExists is returned when a group member already exists.
@@ -33,27 +33,27 @@ var (
 	// ErrUserNotFound is returned when a user does not exist.
 	ErrUserNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 	// ErrUserAlreadyExists is returned when a user already exists.
-	ErrUserAlreadyExists = awserr.New(errConflictException, awserr.ErrAlreadyExists)
+	ErrUserAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
 	// ErrDataSourceNotFound is returned when a data source does not exist.
 	ErrDataSourceNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 	// ErrDataSourceAlreadyExists is returned when a data source already exists.
-	ErrDataSourceAlreadyExists = awserr.New(errConflictException, awserr.ErrAlreadyExists)
+	ErrDataSourceAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
 	// ErrDataSetNotFound is returned when a dataset does not exist.
 	ErrDataSetNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 	// ErrDataSetAlreadyExists is returned when a dataset already exists.
-	ErrDataSetAlreadyExists = awserr.New(errConflictException, awserr.ErrAlreadyExists)
+	ErrDataSetAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
 	// ErrIngestionNotFound is returned when an ingestion does not exist.
 	ErrIngestionNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 	// ErrIngestionAlreadyExists is returned when an ingestion already exists.
-	ErrIngestionAlreadyExists = awserr.New(errConflictException, awserr.ErrAlreadyExists)
+	ErrIngestionAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
 	// ErrDashboardNotFound is returned when a dashboard does not exist.
 	ErrDashboardNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 	// ErrDashboardAlreadyExists is returned when a dashboard already exists.
-	ErrDashboardAlreadyExists = awserr.New(errConflictException, awserr.ErrAlreadyExists)
+	ErrDashboardAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
 	// ErrAnalysisNotFound is returned when an analysis does not exist.
 	ErrAnalysisNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 	// ErrAnalysisAlreadyExists is returned when an analysis already exists.
-	ErrAnalysisAlreadyExists = awserr.New(errConflictException, awserr.ErrAlreadyExists)
+	ErrAnalysisAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
 	// ErrFolderNotFound is returned when a folder does not exist.
 	ErrFolderNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 	// ErrFolderAlreadyExists is returned when a folder already exists.

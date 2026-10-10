@@ -14,7 +14,10 @@ import (
 const directoriesPageSize = 50
 
 // stateRegistered is the registration state for workspace directories.
-const stateRegistered = "REGISTERED"
+const (
+	stateRegistered  = "REGISTERED"
+	stateRegistering = "REGISTERING"
+)
 
 // DescribeWorkspaceDirectories returns workspace directories matching the given filters.
 // Only directories that have been registered via RegisterWorkspaceDirectory are returned.
@@ -37,6 +40,10 @@ func (b *InMemoryBackend) DescribeWorkspaceDirectoriesFiltered(
 		return nil, "", err
 	}
 
+	if err = checkPageToken(nextToken); err != nil {
+		return nil, "", err
+	}
+
 	b.mu.RLock("DescribeWorkspaceDirectories")
 	defer b.mu.RUnlock()
 
@@ -54,10 +61,7 @@ func (b *InMemoryBackend) DescribeWorkspaceDirectoriesFiltered(
 			continue
 		}
 
-		state := ds.Properties["State"]
-		if state == "" {
-			state = stateRegistered
-		}
+		state := b.directoryState(ds)
 
 		subnetRaw := ds.Properties["SubnetIds"]
 		var subnetIDs []string
@@ -351,6 +355,10 @@ func (b *InMemoryBackend) RegisterWorkspaceDirectoryWithConfig(reg DirectoryRegi
 
 	applyRegistrationAttributes(ds, reg)
 
+	if until := b.settleDeadline(); !until.IsZero() {
+		b.dirRegisteringUntil[directoryID] = until
+	}
+
 	if reg.IdcInstanceArn != "" {
 		ds.Properties[idcApplicationArnKey] = idcApplicationArn(reg.IdcInstanceArn, b.accountID, b.nextID("apl-"))
 	}
@@ -420,6 +428,10 @@ func (b *InMemoryBackend) DeregisterWorkspaceDirectory(directoryID string) error
 	b.mu.Lock("DeregisterWorkspaceDirectory")
 	defer b.mu.Unlock()
 
+	if !b.dirSettings.Has(directoryID) {
+		return errDirectoryNotFound
+	}
+
 	for _, w := range b.workspaces.All() {
 		if w.DirectoryID == directoryID {
 			return errDirectoryHasWorkspaces
@@ -428,6 +440,7 @@ func (b *InMemoryBackend) DeregisterWorkspaceDirectory(directoryID string) error
 
 	b.dirSettings.Delete(directoryID)
 	delete(b.directoryIpGroups, directoryID)
+	delete(b.dirRegisteringUntil, directoryID)
 
 	return nil
 }
@@ -473,4 +486,16 @@ func (b *InMemoryBackend) ModifyWorkspaceCreationProperties(
 	}
 
 	return nil
+}
+
+func (b *InMemoryBackend) directoryState(ds *storedDirSettings) string {
+	if b.directoryRegistering(ds.DirectoryID) {
+		return stateRegistering
+	}
+
+	if state := ds.Properties["State"]; state != "" {
+		return state
+	}
+
+	return stateRegistered
 }

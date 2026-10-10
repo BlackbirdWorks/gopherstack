@@ -34,7 +34,7 @@ func TestQuickSight_Analyses(t *testing.T) {
 				t.Helper()
 				assert.Equal(t, "a1", body["AnalysisId"])
 				assert.Contains(t, body["Arn"], "arn:aws:quicksight:us-east-1:000000000000:analysis/a1")
-				assert.Equal(t, "CREATION_SUCCESSFUL", body["CreationStatus"])
+				assert.Equal(t, "CREATION_IN_PROGRESS", body["CreationStatus"])
 			},
 		},
 		{

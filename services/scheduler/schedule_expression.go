@@ -58,6 +58,10 @@ func validateScheduleExpression(expr string) error {
 		if _, err := parseRateExpression(expr); err != nil {
 			return fmt.Errorf("%w: %w", ErrValidation, err)
 		}
+
+		if err := checkRateUnitNumber(expr); err != nil {
+			return fmt.Errorf("%w: %w", ErrValidation, err)
+		}
 	case strings.HasPrefix(expr, "at("):
 		if !strings.HasSuffix(expr, ")") {
 			return fmt.Errorf("%w: ScheduleExpression at expression must end with ')'", ErrValidation)
@@ -85,6 +89,22 @@ func validateScheduleExpression(expr string) error {
 		return fmt.Errorf(
 			"%w: ScheduleExpression must start with rate(), cron(), or at(); got %q",
 			ErrValidation, expr,
+		)
+	}
+
+	return nil
+}
+
+// checkRateUnitNumber enforces AWS's rule that a value of 1 takes a singular unit and any other value a plural one.
+func checkRateUnitNumber(expr string) error {
+	parts := strings.Fields(strings.TrimSuffix(strings.TrimPrefix(expr, "rate("), ")"))
+	n, _ := strconv.ParseInt(parts[0], 10, 64)
+	plural := strings.HasSuffix(strings.ToLower(parts[1]), "s")
+
+	if (n == 1) == plural {
+		return fmt.Errorf(
+			"%w: %q: a value of 1 requires a singular unit, any other value a plural unit",
+			ErrInvalidRateExpression, expr,
 		)
 	}
 

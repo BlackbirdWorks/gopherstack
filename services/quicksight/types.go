@@ -220,6 +220,8 @@ type Ingestion struct {
 	IngestionStatus string
 	RequestType     string
 	RequestSource   string
+
+	IngestionTimeInSeconds int64
 }
 
 // Dashboard represents a QuickSight dashboard.

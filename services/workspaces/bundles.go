@@ -82,6 +82,10 @@ func (b *InMemoryBackend) DescribeWorkspaceBundles(
 	_ context.Context,
 	bundleIDs []string, owner string, nextToken string,
 ) ([]*WorkspaceBundle, string, error) {
+	if err := checkPageToken(nextToken); err != nil {
+		return nil, "", err
+	}
+
 	b.mu.RLock("DescribeWorkspaceBundles")
 	defer b.mu.RUnlock()
 

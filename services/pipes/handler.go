@@ -19,6 +19,11 @@ import (
 )
 
 const (
+	maxListLimit      = 100
+	errCodeValidation = "ValidationException"
+)
+
+const (
 	keyMessageField = "message"
 	keyTypeField    = "__type"
 )
@@ -326,6 +331,24 @@ func (h *Handler) dispatch(
 	}
 }
 
+func errMessage(err error) string {
+	msg := err.Error()
+
+	for stripped := true; stripped; {
+		stripped = false
+
+		for _, code := range []string{
+			errCodeValidation, "NotFoundException", "ConflictException", "ServiceQuotaExceededException",
+		} {
+			if rest, ok := strings.CutPrefix(msg, code+": "); ok {
+				msg, stripped = rest, true
+			}
+		}
+	}
+
+	return msg
+}
+
 func (h *Handler) handleError(c *echo.Context, err error) error {
 	var syntaxErr *json.SyntaxError
 	var typeErr *json.UnmarshalTypeError
@@ -334,28 +357,28 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	case errors.Is(err, ErrNotFound):
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    "NotFoundException",
-			keyMessageField: err.Error(),
+			keyMessageField: errMessage(err),
 		})
 
 		return c.JSONBlob(http.StatusNotFound, payload)
 	case errors.Is(err, ErrAlreadyExists), errors.Is(err, ErrConflict):
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    "ConflictException",
-			keyMessageField: err.Error(),
+			keyMessageField: errMessage(err),
 		})
 
 		return c.JSONBlob(http.StatusConflict, payload)
 	case errors.Is(err, ErrQuota):
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    "ServiceQuotaExceededException",
-			keyMessageField: err.Error(),
+			keyMessageField: errMessage(err),
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, ErrValidation):
 		payload, _ := json.Marshal(map[string]string{
-			keyTypeField:    "ValidationException",
-			keyMessageField: err.Error(),
+			keyTypeField:    errCodeValidation,
+			keyMessageField: errMessage(err),
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
@@ -368,13 +391,13 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		// smithy.GenericAPIError{Code:"UnknownError"} instead of the
 		// ValidationException pipes@v1.26.4 types/errors.go models.
 		return c.JSON(http.StatusBadRequest, map[string]string{
-			keyTypeField:    "ValidationException",
-			keyMessageField: err.Error(),
+			keyTypeField:    errCodeValidation,
+			keyMessageField: errMessage(err),
 		})
 	default:
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    "InternalException",
-			keyMessageField: err.Error(),
+			keyMessageField: errMessage(err),
 		})
 
 		return c.JSONBlob(http.StatusInternalServerError, payload)
@@ -561,8 +584,8 @@ func (h *Handler) handleListPipes(ctx context.Context, query url.Values) ([]byte
 
 	if limitStr := query.Get("Limit"); limitStr != "" {
 		n, err := strconv.Atoi(limitStr)
-		if err != nil || n < 1 {
-			return nil, fmt.Errorf("%w: Limit must be a positive integer", ErrValidation)
+		if err != nil || n < 1 || n > maxListLimit {
+			return nil, fmt.Errorf("%w: Limit must be between 1 and %d", ErrValidation, maxListLimit)
 		}
 
 		f.Limit = n

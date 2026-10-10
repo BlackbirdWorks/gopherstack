@@ -1,7 +1,7 @@
 service: quicksight
 sdk_module: aws-sdk-go-v2/service/quicksight@v1.129.0
 last_audit_commit: 2332c3128  # 2026-09-24 DELETED analysis unbounded-growth fix; prior: 4ad783e5c
-last_audit_date: 2026-10-07 # quicksight-resources terraform coverage: CreateNamespace/Reset's
+last_audit_date: 2026-10-10 # quicksight-resources terraform coverage: CreateNamespace/Reset's
                       # default-namespace seed used the ResourceStatus enum's
                       # "CREATION_SUCCESSFUL" for Namespace.CreationStatus instead of the real,
                       # distinct NamespaceStatus enum's "CREATED" -- confirmed against
@@ -2285,3 +2285,10 @@ Tool false positives: both folder-permission ops page through `writePagedFolderP
 - DescribeFolderPermissions.NextToken: same path as MaxResults.
 - DescribeFolderResolvedPermissions.MaxResults: paged through the same helper.
 - DescribeFolderResolvedPermissions.NextToken: same path as MaxResults.
+
+## 2026-10-10: realism pass (CLI/SDK probing)
+
+- Duplicate creates now return `ResourceExistsException` (the SDK-modelled code) instead of `ConflictException` for namespace, group, user, data source, data set, ingestion, dashboard and analysis; ApprovalPolicy keeps `ConflictException` (its only modelled code). Error messages no longer echo the bare code.
+- CreateIngestion: id validated (`[a-zA-Z0-9-_]{1,128}`); ingestions stay RUNNING for `SetIngestionDelay` (default 1s) then report COMPLETED with IngestionTimeInSeconds; ListIngestions uses opaque tokens, newest first, bad token is `InvalidNextTokenException`.
+- CreateDashboard/CreateAnalysis/CreateDataSource report CREATION_IN_PROGRESS; Describe settles to CREATION_SUCCESSFUL after `SetCreationDelay` (default 0, root wiring needed for a flag).
+- Other list operations still use hand-rolled id tokens that silently restart on a bad token.

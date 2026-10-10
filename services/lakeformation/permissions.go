@@ -38,6 +38,9 @@ func (b *InMemoryBackend) grantPermissionsLocked(entry *PermissionEntry, lastUpd
 	if err := validatePermissions(entry.Permissions); err != nil {
 		return err
 	}
+	if err := validatePermissionsForResource(entry.Resource, entry.Permissions); err != nil {
+		return err
+	}
 	if err := validateGrantOptionSubset(entry.Permissions, entry.PermissionsWithGrantOption); err != nil {
 		return err
 	}
@@ -486,7 +489,8 @@ func validateBatchPermissionsEntries(entries []*BatchPermissionsRequestEntry) er
 // real "CREATE_LF_TAG_EXPRESSION" value.
 func isValidPermission(perm string) bool {
 	switch perm {
-	case "ALL", "SELECT", "ALTER", "DROP", "DELETE", "INSERT", "DESCRIBE",
+	case permissionAll, permissionSelect, permissionAlter, permissionDrop,
+		permissionDelete, permissionInsert, permissionDescribe,
 		"CREATE_DATABASE", "CREATE_TABLE", "DATA_LOCATION_ACCESS",
 		"CREATE_LF_TAG", "ASSOCIATE", "GRANT_WITH_LF_TAG_EXPRESSION",
 		"CREATE_LF_TAG_EXPRESSION", "CREATE_CATALOG", "SUPER_USER":
@@ -833,4 +837,68 @@ func resourceCatalogID(r *Resource, account string) string {
 // permissionInCatalog reports whether p belongs to catalogID; an empty catalogID matches everything.
 func permissionInCatalog(p *PermissionEntry, catalogID, account string) bool {
 	return catalogID == "" || resourceCatalogID(p.Resource, account) == catalogID
+}
+
+const (
+	permissionAll      = "ALL"
+	permissionAlter    = "ALTER"
+	permissionDescribe = "DESCRIBE"
+	permissionDrop     = "DROP"
+	permissionSelect   = "SELECT"
+	permissionDelete   = "DELETE"
+	permissionInsert   = "INSERT"
+)
+
+func allowedPermissions(kind string) []string {
+	switch kind {
+	case "catalog":
+		return []string{
+			permissionAll, "CREATE_CATALOG", "CREATE_DATABASE", "CREATE_LF_TAG",
+			"CREATE_LF_TAG_EXPRESSION", permissionDescribe, "SUPER_USER",
+		}
+	case "database":
+		return []string{permissionAll, permissionAlter, "CREATE_TABLE", permissionDescribe, permissionDrop}
+	case "table":
+		return []string{
+			permissionAll, permissionAlter, permissionDelete, permissionDescribe,
+			permissionDrop, permissionInsert, permissionSelect,
+		}
+	case "table with columns":
+		return []string{permissionAll, permissionSelect}
+	default:
+		return []string{"DATA_LOCATION_ACCESS"}
+	}
+}
+
+// validatePermissionsForResource rejects permissions that the documented Lake Formation
+// permissions reference does not allow on the given resource kind.
+func validatePermissionsForResource(res *Resource, perms []string) error {
+	var kind string
+
+	switch {
+	case res == nil:
+		return nil
+	case res.TableWithColumns != nil:
+		kind = "table with columns"
+	case res.Table != nil:
+		kind = "table"
+	case res.Database != nil:
+		kind = "database"
+	case res.DataLocation != nil:
+		kind = "data location"
+	case res.Catalog != nil:
+		kind = "catalog"
+	default:
+		return nil
+	}
+
+	allowed := allowedPermissions(kind)
+
+	for _, p := range perms {
+		if !slices.Contains(allowed, p) {
+			return fmt.Errorf("permission %s is not valid on a %s resource: %w", p, kind, ErrValidation)
+		}
+	}
+
+	return nil
 }

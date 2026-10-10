@@ -50,7 +50,10 @@ func (b *InMemoryBackend) CreateAnalysis(
 		b.tags[a.Arn] = maps.Clone(tags)
 	}
 
-	return a.toAnalysis(), nil
+	v := a.toAnalysis()
+	v.Status = statusCreationInProgress
+
+	return v, nil
 }
 
 func (b *InMemoryBackend) DescribeAnalysis(accountID, analysisID string) (*Analysis, error) {
@@ -62,7 +65,12 @@ func (b *InMemoryBackend) DescribeAnalysis(accountID, analysisID string) (*Analy
 		return nil, ErrAnalysisNotFound
 	}
 
-	return a.toAnalysis(), nil
+	v := a.toAnalysis()
+	if v.Status == statusCreationSuccessful {
+		v.Status = b.creationStatus(a.LastUpdatedTime)
+	}
+
+	return v, nil
 }
 
 func (b *InMemoryBackend) UpdateAnalysis(

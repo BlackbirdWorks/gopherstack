@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -96,7 +97,8 @@ const (
 	statusCancelled          = "CANCELLED"
 	statusFailed             = "FAILED"
 
-	defaultMaxResults = 100
+	defaultMaxResults     = 100
+	defaultIngestionDelay = time.Second
 )
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
@@ -165,14 +167,18 @@ type InMemoryBackend struct {
 
 	accountID string
 	region    string
+
+	ingestionDelay time.Duration
+	creationDelay  time.Duration
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		accountID: accountID,
-		region:    region,
-		registry:  store.NewRegistry(),
+		accountID:      accountID,
+		region:         region,
+		registry:       store.NewRegistry(),
+		ingestionDelay: defaultIngestionDelay,
 
 		groupMembers: make(map[string]bool),
 		tags:         make(map[string]map[string]string),

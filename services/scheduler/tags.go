@@ -1,9 +1,6 @@
 package scheduler
 
-import (
-	"context"
-	"fmt"
-)
+import "context"
 
 // TaggedEntry pairs a resource ARN with its tags.
 type TaggedEntry struct {
@@ -58,7 +55,7 @@ func (b *InMemoryBackend) TagResource(ctx context.Context, resourceARN string, k
 		return nil
 	}
 
-	return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
+	return notFound("Resource", resourceARN)
 }
 
 func (b *InMemoryBackend) UntagResource(ctx context.Context, resourceARN string, tagKeys []string) error {
@@ -79,7 +76,7 @@ func (b *InMemoryBackend) UntagResource(ctx context.Context, resourceARN string,
 		return nil
 	}
 
-	return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
+	return notFound("Resource", resourceARN)
 }
 
 func (b *InMemoryBackend) ListTagsForResource(ctx context.Context, resourceARN string) (map[string]string, error) {
@@ -96,5 +93,5 @@ func (b *InMemoryBackend) ListTagsForResource(ctx context.Context, resourceARN s
 		return g.Tags.Clone(), nil
 	}
 
-	return nil, fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
+	return nil, notFound("Resource", resourceARN)
 }
