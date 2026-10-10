@@ -185,9 +185,11 @@ func (h *Handler) startJanitor(ctx context.Context) {
 		return
 	}
 
+	wait := h.Backend.StartJanitor(runCtx, defaultJanitorInterval)
+
 	go func() {
 		defer close(run.done)
-		h.Backend.RunJanitor(runCtx, defaultJanitorInterval)
+		wait()
 	}()
 }
 

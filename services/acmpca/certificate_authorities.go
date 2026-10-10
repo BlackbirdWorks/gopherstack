@@ -67,6 +67,10 @@ func (b *InMemoryBackend) CreateCertificateAuthority(
 		return nil, err
 	}
 
+	if err = validateCAAlgorithms(cfg.KeyAlgorithm, cfg.SigningAlgorithm); err != nil {
+		return nil, err
+	}
+
 	o, keyStorageSecurityStandard, usageMode, err := resolveCreateCAOptions(opts)
 	if err != nil {
 		return nil, err
@@ -542,6 +546,10 @@ func (b *InMemoryBackend) ListCertificateAuthorities(
 		return page.Page[CertificateAuthority]{}, fmt.Errorf(
 			"%w: unsupported ResourceOwner %q", ErrInvalidArgs, resourceOwner,
 		)
+	}
+
+	if err := page.ValidateToken(nextToken); err != nil {
+		return page.Page[CertificateAuthority]{}, fmt.Errorf("%w: NextToken is invalid", ErrInvalidNextToken)
 	}
 
 	region := getRegion(ctx, b.region)

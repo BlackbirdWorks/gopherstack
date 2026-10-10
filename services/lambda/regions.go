@@ -155,7 +155,9 @@ func (b *InMemoryBackend) startWorkers(ctx context.Context) {
 			return
 		}
 
-		go NewJanitor(b, b.settings).Run(jctx)
+		wait := NewJanitor(b, b.settings).Start(jctx)
+
+		go wait()
 	})
 }
 

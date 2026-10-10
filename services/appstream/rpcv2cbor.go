@@ -116,7 +116,7 @@ func (h *Handler) handleCBOR(c *echo.Context) error {
 func (h *Handler) handleCBORError(c *echo.Context, err error) error {
 	code, status := h.errorCodeStatus(err)
 
-	return h.cborError(c, status, code, err.Error())
+	return h.cborError(c, status, code, errMessage(err, code))
 }
 
 // cborError writes a CBOR error response. See

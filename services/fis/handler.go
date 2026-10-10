@@ -130,6 +130,13 @@ func (h *Handler) Shutdown(_ context.Context) {
 	}
 }
 
+// SetLifecycleDelay sets the pause between experiment lifecycle states.
+func (h *Handler) SetLifecycleDelay(d time.Duration) {
+	if s, ok := h.Backend.(interface{ SetLifecycleDelay(time.Duration) }); ok {
+		s.SetLifecycleDelay(d)
+	}
+}
+
 // SetFaultStore injects the chaos FaultStore into the backend for inject-api-* actions.
 func (h *Handler) SetFaultStore(store *chaos.FaultStore) {
 	h.Backend.SetFaultStore(store)
@@ -272,6 +279,12 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 // dispatch routes a parsed FIS operation to the appropriate backend call.
 func (h *Handler) dispatch(ctx context.Context, c *echo.Context, op, id string, body []byte) error {
+	if isListOp(op) {
+		if err := checkPageQuery(c.Request().URL.Query()); err != nil {
+			return h.writeError(c, http.StatusBadRequest, err.Error(), "")
+		}
+	}
+
 	if handled, err := h.dispatchTargetAccountOps(c, op, id, body); handled {
 		return err
 	}
@@ -476,7 +489,7 @@ func classifyError(err error) errorClass {
 func (h *Handler) writeBackendError(c *echo.Context, err error, id string) error {
 	ec := classifyError(err)
 
-	return h.writeTypedError(c, ec.httpStatus, ec.exceptionType, err.Error(), id)
+	return h.writeTypedError(c, ec.httpStatus, ec.exceptionType, errorMessage(err), id)
 }
 
 // ----------------------------------------

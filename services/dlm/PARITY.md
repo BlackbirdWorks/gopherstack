@@ -2,7 +2,7 @@
 service: dlm
 sdk_module: aws-sdk-go-v2/service/dlm@v1.39.4   # version audited against (go.mod pin)
 last_audit_commit: ed6ef1a53
-last_audit_date: 2026-09-19
+last_audit_date: 2026-10-10
 overall: A            # gopherstack-x009: DefaultPolicy echo + LimitExceededException quota added; StatusMessage confirmed honest
 ops:
   CreateLifecyclePolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "rejects missing Description/ExecutionRoleArn with InvalidRequestException (both are required members of the real CreateLifecyclePolicyInput). PolicyDetails is stored as an opaque map[string]any and round-tripped verbatim, so every nested member documented in the real types.PolicyDetails (Actions, CopyTags, CreateInterval, CrossRegionCopyTargets, EventSource, Exclusions, ExtendDeletion, Parameters, PolicyLanguage, PolicyType, ResourceLocations, ResourceType, ResourceTypes, RetainInterval, Schedules[].{CreateRule,RetainRule,FastRestoreRule,ArchiveRule,CrossRegionCopyRules,DeprecateRule,ShareRules,TagsToAdd,VariableTags}, TargetTags) survives Create->Get unmodified; ResourceTypes/TargetTags/Schedules[].TagsToAdd are additionally decoded for GetLifecyclePolicies filtering (see models.go). FIXED 2026-08-08 (gopherstack-ks2s.12): the top-level [Default policies only] request members (CopyTags, CreateInterval, CrossRegionCopyTargets, DefaultPolicy, Exclusions, ExtendDeletion, RetainInterval -- aws-sdk-go-v2/service/dlm@v1.39.4/api_op_CreateLifecyclePolicy.go:65-138) were entirely absent from the handler's request struct and silently dropped. Now accepted and folded into the stored PolicyDetails document under the identical member names types.PolicyDetails documents for them (types/types.go:512-648), with DefaultPolicy (VOLUME/INSTANCE) mapped to PolicyDetails.ResourceType (types/types.go:614-622, same enum) plus PolicyLanguage=SIMPLIFIED -- see defaultPolicyFields in models.go. FIXED 2026-08-10 (gopherstack-x009): now enforces LimitExceededException once the backend already holds maxPoliciesPerRegion (100) policies -- AWS's documented default \"Policies per Region\" quota (adjustable; quota code L-5407D8DA, docs.aws.amazon.com/general/latest/gr/dlm.html), matching the modeled error catalog (types/errors.go:70, LimitExceededException.ErrorFault==FaultClient)."}
@@ -22,6 +22,15 @@ leaks: {status: clean, note: "no goroutines/janitors; store.Table + lockmetrics.
 ---
 
 ## Notes
+
+### 2026-10-10 realism pass
+
+- State must be ENABLED or DISABLED (SettablePolicyStateValues) on create and update.
+- Custom EBS snapshot policies validate ResourceTypes (VOLUME/INSTANCE), at most 50 TargetTags and 4 schedules, CreateRule (Interval 1/2/3/4/6/8/12/24 with HOURS, not both Interval and CronExpression, Times as hh:mm) and RetainRule (exactly one of Count 1-1000 or Interval with a DAYS/WEEKS/MONTHS/YEARS unit). Default, image and event-based policies are not inspected.
+- PolicyId now has 17 hex digits like real ids (`policy-0123456789abcdef0`); existing ids restore unchanged.
+- Error messages drop the duplicated code prefix.
+- Kept lenient: PolicyDetails is optional and TargetTags/RetainRule are not required, matching the many in-repo fixtures that create bare policies.
+- Tests: policy_validation_test.go.
 
 ### 2026-09-19 (gopherstack-op3e census): "/tags/" prefix shadow (amplify/eks/accessanalyzer) -- false positive
 

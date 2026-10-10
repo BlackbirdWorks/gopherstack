@@ -239,17 +239,9 @@ func (b *InMemoryBackend) ListFindings(
 
 	sortFindings(findings, sortCrit)
 
-	// Simple token-based pagination by finding ID prefix.
-	start := 0
-
-	if nextToken != "" {
-		for i, f := range findings {
-			if f.ID == nextToken {
-				start = i
-
-				break
-			}
-		}
+	start, tokErr := pageStart(len(findings), nextToken, func(i int) string { return findings[i].ID })
+	if tokErr != nil {
+		return nil, "", tokErr
 	}
 
 	findings = findings[start:]
@@ -384,16 +376,9 @@ func (b *InMemoryBackend) ListFindingsV2(
 
 	sortFindings(findings, sortCrit)
 
-	start := 0
-
-	if nextToken != "" {
-		for i, f := range findings {
-			if f.ID == nextToken {
-				start = i
-
-				break
-			}
-		}
+	start, tokErr := pageStart(len(findings), nextToken, func(i int) string { return findings[i].ID })
+	if tokErr != nil {
+		return nil, "", tokErr
 	}
 
 	findings = findings[start:]

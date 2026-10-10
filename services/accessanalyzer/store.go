@@ -2,6 +2,7 @@ package accessanalyzer
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -54,6 +55,8 @@ type InMemoryBackend struct {
 
 	accountID string
 	region    string
+
+	analyzerCreateDelay time.Duration
 }
 
 // NewInMemoryBackend constructs a new InMemoryBackend.

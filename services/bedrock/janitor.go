@@ -36,6 +36,12 @@ func (b *InMemoryBackend) jobCompletionDelay() time.Duration {
 
 // RunJanitor periodically advances time-based state machines for provisioned resources.
 func (b *InMemoryBackend) RunJanitor(ctx context.Context, interval time.Duration) {
+	b.StartJanitor(ctx, interval)()
+}
+
+// StartJanitor launches the ticker goroutine before returning; the returned
+// func blocks until ctx ends and the group has stopped.
+func (b *InMemoryBackend) StartJanitor(ctx context.Context, interval time.Duration) func() {
 	if d := b.jobCompletionDelay() / janitorTicksPerDelay; d > 0 && d < interval {
 		interval = d
 	}
@@ -43,8 +49,10 @@ func (b *InMemoryBackend) RunJanitor(ctx context.Context, interval time.Duration
 	g := worker.NewGroup(ctx, "bedrock")
 	g.Ticker("Janitor", interval, 0, b.runJanitorTick)
 
-	<-ctx.Done()
-	g.Stop()
+	return func() {
+		<-ctx.Done()
+		g.Stop()
+	}
 }
 
 func (b *InMemoryBackend) runJanitorTick(ctx context.Context) {

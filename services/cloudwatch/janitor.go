@@ -38,6 +38,12 @@ func NewJanitor(backend *InMemoryBackend) *Janitor {
 // tickers: one that sweeps expired metrics at Interval, and one that evaluates
 // metric alarm states at AlarmEvalInterval.
 func (j *Janitor) Run(ctx context.Context) {
+	j.Start(ctx)()
+}
+
+// Start launches the ticker goroutines before returning; the returned func
+// blocks until ctx ends and the group has stopped.
+func (j *Janitor) Start(ctx context.Context) func() {
 	evalInterval := j.AlarmEvalInterval
 	if evalInterval <= 0 {
 		evalInterval = alarmEvalInterval
@@ -47,8 +53,10 @@ func (j *Janitor) Run(ctx context.Context) {
 	g.Ticker(metricSweeper, j.Interval, 0, j.sweepMetrics)
 	g.Ticker(alarmEvaluator, evalInterval, 0, j.evaluateAlarms)
 
-	<-ctx.Done()
-	g.Stop()
+	return func() {
+		<-ctx.Done()
+		g.Stop()
+	}
 }
 
 // sweepMetrics evicts expired metrics.

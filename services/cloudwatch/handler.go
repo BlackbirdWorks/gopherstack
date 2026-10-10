@@ -196,7 +196,9 @@ func (h *Handler) startJanitor(ctx context.Context) {
 		return
 	}
 
-	go NewJanitor(bk).Run(jctx)
+	wait := NewJanitor(bk).Start(jctx)
+
+	go wait()
 }
 
 func (h *Handler) stopJanitor() {

@@ -7,7 +7,7 @@
 service: appstream
 sdk_module: aws-sdk-go-v2/service/appstream@v1.64.5
 last_audit_commit: 5c20d9fd7
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
 overall: A            # 2026-08-23: closed the one remaining named-and-flagged gap this file
                        # carried (UpdateThemeForStack request-side accept-and-drop -- see
                        # UpdateThemeForStack/Theme ops rows and the dated Notes section at the
@@ -183,6 +183,15 @@ assumption as the bug. Rewrote it to send all required fields plus a
 `Restore`, not just the initial create.
 
 ## Notes
+
+### 2026-10-10 realism pass
+
+- Opt-in `SetStateTransitionDelay` (default 0) shows STARTING/STOPPING on fleets and PENDING/STOPPING on image builders for the delay, measured with the backend clock; DeleteFleet during a transition is ResourceInUse. Interim state is not persisted.
+- ComputeCapacityStatus now follows the fleet: Running/Available are Desired only while RUNNING, InUse counts the fleet's sessions.
+- CreateFleet/UpdateFleet validate documented ranges: InstanceType must be a `stream.`/`rt.` type, DesiredInstances >= 0, MaxUserDurationInSeconds 600-432000, DisconnectTimeoutInSeconds 60-36000, IdleDisconnectTimeoutInSeconds 0 or 60-36000.
+- Error messages drop the duplicated code prefix; bare codes get a sentence.
+- Kept lenient: ImageName/ImageArn existence is not checked because AWS-provided base images are not modeled.
+- Tests: lifecycle_test.go.
 
 - **2026-10-04 (gopherstack-jzqo)**: both items verified at HEAD. The USER_NAME_NOT_FOUND ErrorCode is
   emitted; DescribeSoftwareAssociations accepts an image or image-builder resource (the SDK exposes no

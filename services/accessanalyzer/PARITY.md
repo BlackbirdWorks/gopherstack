@@ -7,7 +7,7 @@
 service: accessanalyzer
 sdk_module: aws-sdk-go-v2/service/accessanalyzer@v1.51.4
 last_audit_commit: 49cff86c4                             # HEAD when this manifest was written
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
 overall: A            # gopherstack-r80d batch 18 (required-output-member cut): Location.Span (nested 3 levels below ValidatePolicyOutput, invisible to a flat per-op required-field scan) was never emitted; fixed. Every other domain struct reachable from an Output field was re-verified end to end against accessanalyzer@v1.51.4/types/types.go and confirmed already correct, mostly by the 2026-08-15 gopherstack-6flj pass and gopherstack-kwht before it (re-confirmed, not re-litigated); prior 2026-08-10 wire-shape audit (19eea66b2) also re-confirmed, not re-litigated
 ops:
   CreateAnalyzer: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED THIS PASS: now accepts+persists the AnalyzerConfiguration union (\"configuration\") and the inline \"archiveRules\" array (each creates a real ArchiveRule via CreateArchiveRule, including its auto-archive-existing-findings side effect), neither of which was previously read from the request body at all."}
@@ -66,6 +66,14 @@ leaks: {status: clean, note: "FIXED THIS PASS: DeleteAnalyzer previously left gh
 ---
 
 ## Notes
+
+### 2026-10-10 realism pass
+
+- CreateAnalyzer validates analyzerName (`[A-Za-z][A-Za-z0-9_.-]*`, 1-255), the Type enum, unusedAccessAge (1-365) and that unusedAccess/internalAccess configuration matches the analyzer type; service-linked creation skips the name rule.
+- Opt-in `SetAnalyzerCreateDelay` reports new analyzers as CREATING (Get/List) for the delay; default 0 is ACTIVE immediately.
+- ListFindings/ListFindingsV2/ListAccessPreviewFindings/ListAnalyzedResources/ListPolicyGenerations reject an unknown nextToken with ValidationException instead of restarting from page one.
+- Error messages drop the duplicated code prefix and bare codes get a sentence.
+- Tests: realism_test.go.
 
 ### 2026-09-19 over-wide-response sweep
 

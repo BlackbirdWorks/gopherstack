@@ -29,6 +29,7 @@ const (
 	certResourceIDPrefix       = "certificate/"
 	reportResourcePrefix       = "audit-report/"
 	auditReportStatus          = "SUCCESS"
+	auditReportStatusCreating  = "CREATING"
 	auditReportFormatCSV       = "CSV"
 	auditReportFormatJSON      = "JSON"
 	actionGetCertificate       = "GetCertificate"
@@ -439,4 +440,6 @@ type InMemoryBackend struct {
 	mu          *lockmetrics.RWMutex
 	accountID   string
 	region      string
+	// auditReportDelay keeps new audit reports in CREATING for this long.
+	auditReportDelay time.Duration
 }

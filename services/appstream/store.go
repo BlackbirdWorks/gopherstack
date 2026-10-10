@@ -60,11 +60,13 @@ type InMemoryBackend struct {
 	users           *store.Table[storedUser]
 	userStackAssoc  map[string]map[string]bool
 	sessions        *store.Table[storedSession]
+	transitions     map[string]stateTransition
 	registry        *store.Registry
 	usageReport     *storedUsageReportSubscription
 	accountID       string
 	region          string
 	sessionSeq      int
+	transitionDelay time.Duration
 	exportTaskSeq   int
 }
 

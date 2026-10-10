@@ -125,9 +125,11 @@ func (h *Handler) startJanitor(ctx context.Context) {
 		return
 	}
 
+	wait := h.Backend.StartJanitor(runCtx, defaultAsyncInvokeCompletionDelay)
+
 	go func() {
 		defer close(run.done)
-		h.Backend.RunJanitor(runCtx, defaultAsyncInvokeCompletionDelay)
+		wait()
 	}()
 }
 

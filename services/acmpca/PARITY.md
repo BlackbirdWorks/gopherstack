@@ -7,7 +7,7 @@
 service: acmpca
 sdk_module: aws-sdk-go-v2/service/acmpca@v1.50.0   # version audited against
 last_audit_commit: 2332c3128  # 2026-09-24 DELETED CA unbounded-growth fix; prior: 3cec3729
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
 overall: A            # gopherstack-cq4o: ASN.1-heavy ApiPassthrough residuals implemented for real (see Notes)
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -27,7 +27,7 @@ ops:
   ListPermissions: {wire: ok, errors: ok, state: ok, persist: ok}
   CreatePermission: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED THIS PASS: Principal now validated to be exactly 'acm.amazonaws.com', the only value the real API accepts per CreatePermissionInput.Principal's doc comment ('At this time, the only valid principal is acm.amazonaws.com')."}
   DeletePermission: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateCertificateAuthorityAuditReport: {wire: ok, errors: ok, state: ok, persist: ok, note: "synchronous SUCCESS; real AWS is async (CREATING->SUCCESS/FAILED) but this is a reasonable simplification for an emulator."}
+  CreateCertificateAuthorityAuditReport: {wire: ok, errors: ok, state: ok, persist: ok, note: "SUCCESS immediately by default; opt-in SetAuditReportDelay models CREATING->SUCCESS."}
   DescribeCertificateAuthorityAuditReport: {wire: ok, errors: ok, state: ok, persist: ok}
   GetPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   PutPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -44,6 +44,15 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; all state 
 ---
 
 ## Notes
+
+### 2026-10-10 realism pass
+
+- KeyAlgorithm/SigningAlgorithm validated against the SDK enums and key/signing family (RSA keys with RSA/RSA_PSS, EC with ECDSA, ML_DSA_n and SM2 paired); InvalidArgsException otherwise.
+- Opt-in `SetAuditReportDelay` keeps new audit reports in CREATING for the delay (default 0: SUCCESS immediately). No S3 write happens, so the bucket is not checked (needs cli.go wiring to S3).
+- ListCertificateAuthorities/ListPermissions reject malformed NextToken with InvalidNextTokenException (the only declared code for those ops); ListTags declares none and stays lenient.
+- Error messages no longer repeat the code ("InvalidArgsException: InvalidArgsException: ...").
+- Kept lenient: ROOT CAs still auto-activate (real AWS leaves them PENDING_CERTIFICATE until a cert is imported) because Terraform/CDK fixtures in this repo rely on it; CA keys are always P-256 whatever KeyAlgorithm says.
+- Tests: realism_test.go.
 
 ### 2026-09-24 (leak sweep) DELETED CAs now evicted after their restoration window
 

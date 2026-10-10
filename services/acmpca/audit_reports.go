@@ -91,8 +91,20 @@ func (b *InMemoryBackend) DescribeCertificateAuthorityAuditReport(
 	}
 
 	cp := copyAuditReport(report)
+	if b.auditReportDelay > 0 && time.Since(cp.CreatedAt) < b.auditReportDelay {
+		cp.Status = auditReportStatusCreating
+	}
 
 	return &cp, nil
+}
+
+// SetAuditReportDelay keeps new audit reports in CREATING for d (default 0:
+// immediately SUCCESS).
+func (b *InMemoryBackend) SetAuditReportDelay(d time.Duration) {
+	b.mu.Lock("SetAuditReportDelay")
+	defer b.mu.Unlock()
+
+	b.auditReportDelay = d
 }
 
 func copyAuditReport(report *AuditReport) AuditReport {
