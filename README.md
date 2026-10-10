@@ -494,7 +494,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [App Runner](services/apprunner/README.md) | A | 37 | clean |
 | [Auto Scaling](services/autoscaling/README.md) | A | 66 | 1 gap; 2 structural gaps |
 | [Batch](services/batch/README.md) | A | 45 | 3 structural gaps |
-| [EC2](services/ec2/README.md) | A | — | 22 families; 1 gap; 16 structural gaps; 5 deferred |
+| [EC2](services/ec2/README.md) | A | — | 22 families; 3 gaps; 16 structural gaps; 5 deferred |
 | [Elastic Beanstalk](services/elasticbeanstalk/README.md) | A | 47 | 4 structural gaps |
 | [Lambda](services/lambda/README.md) | A | — | 10 families; 9 structural gaps |
 
@@ -512,7 +512,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [Backup](services/backup/README.md) | A | 66 | 3 structural gaps |
 | [Data Lifecycle Manager](services/dlm/README.md) | A | 8 | clean |
-| [EFS](services/efs/README.md) | A | 31 | 3 gaps; 1 deferred |
+| [EFS](services/efs/README.md) | A | 31 | 4 gaps; 1 deferred |
 | [FSx](services/fsx/README.md) | A | — | 13 families; 2 structural gaps |
 | [S3](services/s3/README.md) | A | 26 | 4 gaps; 4 structural gaps |
 | [S3 Control](services/s3control/README.md) | A | 44 | 3 gaps; 6 structural gaps; 2 deferred |
@@ -527,12 +527,12 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [DocumentDB](services/docdb/README.md) | A | 55 | 2 gaps; 4 structural gaps; 1 deferred |
 | [DynamoDB](services/dynamodb/README.md) | A | — | 15 families; 1 gap; 3 structural gaps; 2 deferred |
 | [DynamoDB Streams](services/dynamodbstreams/README.md) | A | 4 | clean |
-| [ElastiCache](services/elasticache/README.md) | A | 75 | 1 gap; 4 structural gaps; 2 deferred |
+| [ElastiCache](services/elasticache/README.md) | A | 75 | 2 gaps; 4 structural gaps; 2 deferred |
 | [MemoryDB](services/memorydb/README.md) | A | 45 | 1 gap; 2 structural gaps; 3 deferred |
 | [Neptune](services/neptune/README.md) | A | — | 13 families; 1 gap; 2 structural gaps; 2 deferred |
 | [QLDB](services/qldb/README.md) | Removed | — | removed service |
 | [QLDB Session](services/qldbsession/README.md) | Removed | — | removed service |
-| [RDS](services/rds/README.md) | A | 52 | 3 gaps; 6 structural gaps |
+| [RDS](services/rds/README.md) | A | 52 | 5 gaps; 6 structural gaps |
 | [RDS Data](services/rdsdata/README.md) | A | 6 | 1 gap; 3 structural gaps |
 | [Redshift](services/redshift/README.md) | A | 9 | 5 gaps; 4 structural gaps |
 | [Redshift Data](services/redshiftdata/README.md) | A | 12 | 3 structural gaps; 1 deferred |
@@ -618,7 +618,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [Cognito Identity](services/cognitoidentity/README.md) | A | 23 | 1 structural gap; 4 deferred |
-| [Cognito Identity Provider](services/cognitoidp/README.md) | A | 68 | 4 gaps; 4 structural gaps |
+| [Cognito Identity Provider](services/cognitoidp/README.md) | A | 68 | 5 gaps; 4 structural gaps |
 | [Directory Service](services/directoryservice/README.md) | A | 80 | 1 gap; 2 structural gaps; 1 deferred |
 | [IAM](services/iam/README.md) | A | 38 | 2 gaps; 4 structural gaps |
 | [IAM Access Analyzer](services/accessanalyzer/README.md) | A | 39 | 1 gap; 5 structural gaps; 1 deferred |
