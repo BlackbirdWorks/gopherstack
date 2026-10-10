@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -488,7 +489,7 @@ func TestDefaultParamGroupName(t *testing.T) {
 			rr := doRequest(t, h, url.Values{
 				"Action":              {"CreateDBCluster"},
 				"Version":             {"2014-10-31"},
-				"DBClusterIdentifier": {"pg-test-" + tc.name},
+				"DBClusterIdentifier": {"pg-test-" + strings.ReplaceAll(tc.name, ".", "-")},
 				"Engine":              {"docdb"},
 				"EngineVersion":       {tc.engineVersion},
 			})

@@ -200,6 +200,9 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.writeError(c, http.StatusBadRequest, "MissingAction", "missing Action parameter")
 		}
 		ctx := context.WithValue(r.Context(), regionContextKey{}, h.regionFromRequest(c))
+		if pageErr := validatePagination(vals); pageErr != nil {
+			return h.handleOpError(c, action, pageErr)
+		}
 		resp, opErr := h.dispatch(ctx, action, vals)
 		if opErr != nil {
 			return h.handleOpError(c, action, opErr)
@@ -371,10 +374,10 @@ func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) err
 	if code == "" {
 		code = "InternalFailure"
 		statusCode = http.StatusInternalServerError
-		logger.Load(c.Request().Context()).Error("DocDB internal error", "error", opErr, "action", action)
+		logger.Load(c.Request().Context()).Error("DocDB internal error", "action", action)
 	}
 
-	return h.writeError(c, statusCode, code, opErr.Error())
+	return h.writeError(c, statusCode, code, wireMessage(code, opErr.Error()))
 }
 
 func docdbErrorCode(opErr error) string {
@@ -479,13 +482,7 @@ const defaultDocDBMaxRecords = 100
 
 // applyDocDBMarker applies Marker/MaxRecords-based pagination to a slice.
 func applyDocDBMarker[T any](items []T, marker, maxRecordsStr string) ([]T, string) {
-	start := 0
-	if marker != "" {
-		idx, err := strconv.Atoi(marker)
-		if err == nil && idx > 0 {
-			start = idx
-		}
-	}
+	start, _ := decodeMarker(marker)
 
 	if start >= len(items) {
 		return []T{}, ""
@@ -504,5 +501,5 @@ func applyDocDBMarker[T any](items []T, marker, maxRecordsStr string) ([]T, stri
 		return items, ""
 	}
 
-	return items[:limit], strconv.Itoa(start + limit)
+	return items[:limit], encodeMarker(start + limit)
 }

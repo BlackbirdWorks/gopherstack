@@ -17,6 +17,9 @@ func validateCreateDBClusterParams(
 	if id == "" {
 		return fmt.Errorf("%w: DBClusterIdentifier is required", ErrInvalidParameter)
 	}
+	if err := validateIdentifier("DBClusterIdentifier", id); err != nil {
+		return err
+	}
 	if err := validateEngineVersion(engineVersion); err != nil {
 		return err
 	}
@@ -96,6 +99,9 @@ func (b *InMemoryBackend) CreateDBCluster(
 	); err != nil {
 		return nil, err
 	}
+	if err := validateClusterNaming(masterUser, engine); err != nil {
+		return nil, err
+	}
 	var extras ClusterExtras
 	if opts != nil {
 		extras = opts.ClusterExtras
@@ -137,6 +143,7 @@ func (b *InMemoryBackend) CreateDBCluster(
 	}
 
 	cluster := &DBCluster{
+		readyAt:                      b.readyAtLocked(),
 		DBClusterResourceID:          newResourceID("cluster-"),
 		region:                       region,
 		DBClusterIdentifier:          id,

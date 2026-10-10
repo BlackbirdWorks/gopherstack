@@ -266,7 +266,7 @@ func toXMLCluster(c *DBCluster) xmlDBCluster {
 	return xmlDBCluster{
 		DBClusterIdentifier:          c.DBClusterIdentifier,
 		Engine:                       c.Engine,
-		Status:                       c.Status,
+		Status:                       observedStatus(c.Status, c.readyAt),
 		StorageType:                  storageType,
 		MasterUsername:               c.MasterUsername,
 		DBClusterParameterGroupName:  c.DBClusterParameterGroupName,

@@ -3,6 +3,7 @@ package docdb
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -155,6 +156,7 @@ type DBCluster struct {
 	// marshaling DBCluster directly), but persistence.go must carry it
 	// through a DTO explicitly since json.Marshal never sees unexported fields.
 	region                      string
+	readyAt                     time.Time
 	Tags                        map[string]string    `json:"tags"`
 	DBClusterArn                string               `json:"dbClusterArn"`
 	EngineVersion               string               `json:"engineVersion"`
@@ -199,6 +201,7 @@ type DBInstance struct {
 	// region is the AWS region this instance belongs to; see DBCluster.region
 	// for the composite-key rationale (store_setup.go/persistence.go).
 	region                       string
+	readyAt                      time.Time
 	Tags                         map[string]string `json:"tags"`
 	DBInstanceIdentifier         string            `json:"dbInstanceIdentifier"`
 	DBClusterIdentifier          string            `json:"dbClusterIdentifier"`
@@ -416,9 +419,10 @@ type EventCategoryMap struct {
 // (a bare []Tag) carries no identity of its own to key a store.Table by (see
 // store_setup.go's doc comment for the full rationale).
 type InMemoryBackend struct {
-	registry                       *store.Registry
-	clusters                       *store.Table[DBCluster]
-	clustersByRegion               *store.Index[DBCluster]
+	secrets                        SecretsStore
+	subnets                        SubnetResolver
+	eventSubscriptions             *store.Table[EventSubscription]
+	eventSubscriptionsByRegion     *store.Index[EventSubscription]
 	instances                      *store.Table[DBInstance]
 	instancesByRegion              *store.Index[DBInstance]
 	subnetGroups                   *store.Table[DBSubnetGroup]
@@ -426,27 +430,19 @@ type InMemoryBackend struct {
 	clusterParameterGroups         *store.Table[DBClusterParameterGroup]
 	clusterParameterGroupsByRegion *store.Index[DBClusterParameterGroup]
 	clusterSnapshots               *store.Table[DBClusterSnapshot]
+	snapshotAttributes             *store.Table[DBClusterSnapshotAttributesResult]
+	clustersByRegion               *store.Index[DBCluster]
+	registry                       *store.Registry
 	clusterSnapshotsByRegion       *store.Index[DBClusterSnapshot]
-	eventSubscriptions             *store.Table[EventSubscription]
-	eventSubscriptionsByRegion     *store.Index[EventSubscription]
-	snapshotAttributes             *store.Table[DBClusterSnapshotAttributesResult] // no byRegion index; see doc comment
-	globalClusters                 *store.Table[GlobalCluster]                     // global/partition-scoped
+	globalClusters                 *store.Table[GlobalCluster]
 	tags                           map[string]map[string][]Tag
-	// eventsLog holds the account activity event log, keyed by region, fed by
-	// recordEvent (events.go). Plain map, not a store.Table: an Event carries
-	// no identity of its own to key a table by (mirrors the tags rationale
-	// above), and this backend has no need to look one up individually.
-	eventsLog map[string][]Event
-	// pendingMaintenanceActions holds queued maintenance actions keyed by
-	// resource ARN -> action name (maintenance.go seeds/mutates this via
-	// AddPendingMaintenanceActionInternal/ApplyPendingMaintenanceAction).
-	// Plain nested map for the same reason as eventsLog.
-	pendingMaintenanceActions map[string]map[string]PendingMaintenanceAction
-	mu                        *lockmetrics.RWMutex
-	secrets                   SecretsStore
-	subnets                   SubnetResolver
-	accountID                 string
-	region                    string
+	eventsLog                      map[string][]Event
+	pendingMaintenanceActions      map[string]map[string]PendingMaintenanceAction
+	mu                             *lockmetrics.RWMutex
+	clusters                       *store.Table[DBCluster]
+	accountID                      string
+	region                         string
+	lifecycleDelay                 time.Duration
 }
 
 // CreateDBClusterOptions holds optional parameters for CreateDBCluster.

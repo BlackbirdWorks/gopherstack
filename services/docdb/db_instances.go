@@ -14,8 +14,8 @@ func (b *InMemoryBackend) CreateDBInstance(
 	tags map[string]string,
 	opts *CreateDBInstanceOptions,
 ) (*DBInstance, error) {
-	if id == "" {
-		return nil, fmt.Errorf("%w: DBInstanceIdentifier is required", ErrInvalidParameter)
+	if err := validateInstanceNaming(id, instanceClass, engine); err != nil {
+		return nil, err
 	}
 	if promotionTier < 0 || promotionTier > maxPromotionTier {
 		return nil, fmt.Errorf(
@@ -72,6 +72,7 @@ func (b *InMemoryBackend) CreateDBInstance(
 	}
 
 	inst := &DBInstance{
+		readyAt:                     b.readyAtLocked(),
 		DbiResourceID:               newResourceID("db-"),
 		region:                      region,
 		DBInstanceIdentifier:        id,

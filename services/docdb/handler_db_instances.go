@@ -170,7 +170,7 @@ func toXMLInstance(inst *DBInstance) xmlDBInstance {
 		DBClusterIdentifier:          inst.DBClusterIdentifier,
 		DBInstanceClass:              inst.DBInstanceClass,
 		Engine:                       inst.Engine,
-		DBInstanceStatus:             inst.DBInstanceStatus,
+		DBInstanceStatus:             observedStatus(inst.DBInstanceStatus, inst.readyAt),
 		Endpoint:                     inst.Endpoint,
 		Port:                         inst.Port,
 		DBInstanceArn:                inst.DBInstanceArn,

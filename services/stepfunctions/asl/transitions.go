@@ -34,8 +34,17 @@ func validateTransitions(states map[string]*State) error {
 }
 
 func validateStateTransitions(name string, st *State, states map[string]*State) error {
-	targets := make([]string, 0, 2+len(st.Catch)+len(st.Choices))
-	targets = append(targets, st.Next, st.Default)
+	const maxTargetsHint = 1024
+
+	targetSeeds := [...]string{st.Next, st.Default}
+
+	hint := len(st.Catch) + len(st.Choices)
+	if hint > maxTargetsHint || hint < 0 {
+		hint = maxTargetsHint
+	}
+
+	targets := make([]string, 0, hint)
+	targets = append(targets, targetSeeds[:]...)
 	for _, c := range st.Catch {
 		targets = append(targets, c.Next)
 	}

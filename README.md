@@ -321,6 +321,29 @@ commonly set via env var:
 | `XRAY_JANITOR_INTERVAL` | `1m` | X-Ray janitor tick interval. |
 | `XRAY_TRACE_TTL` | `30m` | TTL for stored X-Ray traces. |
 
+#### Lifecycle realism (transitional-state dwell)
+
+By default resources settle instantly. Set a dwell to make Creating/Processing/Pending/InProgress states observable to SDK waiters. `--lifecycle-delay` is the default for every row below; a per-service value overrides it. All default to `0s` (CloudFront keeps its built-in `100ms`).
+
+| Flag | Env | Effect |
+|------|-----|--------|
+| `--lifecycle-delay` | `GOPHERSTACK_LIFECYCLE_DELAY` | Default dwell for all rows below, `ELASTICSEARCH_PROCESSING_DELAY` and `DYNAMODB_CREATE_DELAY`. |
+| `--lifecycle-opensearch-processing` | `OPENSEARCH_PROCESSING_DELAY` | OpenSearch domain `Processing=true` window. |
+| `--es-processing-delay` | `ELASTICSEARCH_PROCESSING_DELAY` | Elasticsearch domain `Processing=true` window. |
+| `--lifecycle-elasticache` | `ELASTICACHE_LIFECYCLE_DELAY` | ElastiCache `creating` window. |
+| `--lifecycle-memorydb` | `MEMORYDB_LIFECYCLE_DELAY` | MemoryDB cluster `creating` window. |
+| `--lifecycle-lambda-activation` | `LAMBDA_ACTIVATION_DELAY` | Lambda function `Pending` window. |
+| `--lifecycle-lambda-provisioned-concurrency` | `LAMBDA_PROVISIONED_CONCURRENCY_DELAY` | Provisioned concurrency `IN_PROGRESS` window. |
+| `--lifecycle-ecs-start` / `--lifecycle-ecs-stop` | `ECS_START_DELAY` / `ECS_STOP_DELAY` | Per-phase ECS task start/stop delay (no container runtime). |
+| `--lifecycle-mediastore` | `MEDIASTORE_ACTIVATION_DELAY` | MediaStore container `CREATING`/`DELETING` window. |
+| `--lifecycle-efs` | `EFS_ACTIVATION_DELAY` | EFS file system `creating` window. |
+| `--lifecycle-redshift` | `REDSHIFT_ACTIVATION_DELAY` | Redshift cluster `creating` window. |
+| `--lifecycle-docdb` | `DOCDB_LIFECYCLE_DELAY` | DocumentDB cluster/instance `creating` window. |
+| `--lifecycle-neptune` | `NEPTUNE_LIFECYCLE_DELAY` | Neptune cluster/instance `creating` window. |
+| `--lifecycle-cloudfront` | `CLOUDFRONT_DEPLOY_DELAY` | CloudFront distribution `InProgress` window (default `100ms`). |
+| `--lifecycle-ssm-command` / `--lifecycle-ssm-automation` | `SSM_COMMAND_EXEC_DELAY` / `SSM_AUTOMATION_EXEC_DELAY` | SendCommand / automation `InProgress` window. |
+| *(none)* | `DYNAMODB_CREATE_DELAY` | DynamoDB table `CREATING` window. |
+
 ### DynamoDB
 
 - **In-memory storage** — blazing fast tables and items

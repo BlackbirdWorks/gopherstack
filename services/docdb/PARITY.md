@@ -465,3 +465,7 @@ applyDocDBMarker restarts at page one on a malformed Marker. The pinned docdb SD
 
 False positives: every flagged Describe*/ListTagsForResource Filters member is documented 'isn't currently supported' in docdb@v1.51.4. IncludePublic/IncludeShared stay recorded (single account).
 - **2026-10-05 (pass 6, gopherstack-9x62)**: ModifyDBInstance/ModifyDBCluster NewDB*Identifier re-key with new ARN, endpoints, tags and member links (rename onto an existing id is rejected); ModifyDBCluster enforces AllowMajorVersionUpgrade; RestoreType is validated; DescribeDBEngineVersions reports ExportableLogTypes (audit, profiler per the CreateDBCluster SDK doc); InvalidParameterCombination and InvalidDBInstanceState now map to 400 instead of InternalFailure.
+
+## 2026-10-10 realism pass
+
+Error messages drop the duplicated code and use RDS-style not-found wording. Cluster/instance identifiers, MasterUsername, Engine, DBInstanceClass and DBSubnetGroupName are validated; Marker is an opaque token and a bad Marker or MaxRecords outside 1..100 is InvalidParameterValue (real minimum is 20; kept lenient because in-repo tests page by 1-2). `SetLifecycleDelay` makes new clusters/instances report `creating` first (default 0; root wiring in cli.go still needed). Proof: `TestSDK_CreateValidation`, `TestSDK_NotFoundWording`, `TestSDK_DescribePagination`, `TestSDK_CreateReportsCreatingUntilDelay`.

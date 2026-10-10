@@ -15,6 +15,9 @@ func (b *InMemoryBackend) CreateDBSubnetGroup(
 	if name == "" {
 		return nil, fmt.Errorf("%w: DBSubnetGroupName is required", ErrInvalidParameter)
 	}
+	if err := validateSubnetGroupName(name); err != nil {
+		return nil, err
+	}
 	region := getRegion(ctx, b.region)
 	b.mu.Lock("CreateDBSubnetGroup")
 	defer b.mu.Unlock()

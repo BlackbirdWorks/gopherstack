@@ -124,7 +124,7 @@ func (b *InMemoryBackend) SubscribeWithAttributes(
 	}
 
 	if created && (protocol == protocolHTTP || protocol == protocolHTTPS) {
-		b.dispatchSubscriptionConfirmation(topicArn, sub.SubscriptionArn, endpoint, sigAttr, baseURL)
+		b.dispatchSubscriptionConfirmation(topicArn, sub.SubscriptionArn, sigAttr, baseURL)
 	}
 
 	return sub, nil

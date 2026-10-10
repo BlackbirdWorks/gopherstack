@@ -42,23 +42,30 @@ type snsSubscriptionConfirmation struct {
 }
 
 func (b *InMemoryBackend) dispatchSubscriptionConfirmation(
-	topicArn, subscriptionARN, endpoint, sigAttr, baseURL string,
+	topicArn, subscriptionARN, sigAttr, baseURL string,
 ) {
 	if b.closing.Load() {
 		return
 	}
 
 	b.deliveryWg.Go(func() {
-		b.deliverSubscriptionConfirmation(b.svcCtx, topicArn, subscriptionARN, endpoint, sigAttr, baseURL)
+		b.deliverSubscriptionConfirmation(b.svcCtx, topicArn, subscriptionARN, sigAttr, baseURL)
 	})
 }
 
 func (b *InMemoryBackend) deliverSubscriptionConfirmation(
-	ctx context.Context, topicArn, subscriptionARN, endpoint, sigAttr, baseURL string,
+	ctx context.Context, topicArn, subscriptionARN, sigAttr, baseURL string,
 ) {
 	b.mu.RLock("SubscriptionConfirmation")
 	client := b.httpClient
+	sub, found := b.subscriptions.Get(subscriptionARN)
 	b.mu.RUnlock()
+
+	if !found {
+		return
+	}
+
+	endpoint := sub.Endpoint
 
 	token := ConfirmationToken(subscriptionARN)
 	msgID := uuid.NewString()
