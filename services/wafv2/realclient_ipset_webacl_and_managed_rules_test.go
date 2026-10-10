@@ -269,20 +269,20 @@ func TestLoggingConfiguration_TypedRoundTrip(t *testing.T) {
 	putOut, err := client.PutLoggingConfiguration(t.Context(), &wafv2sdk.PutLoggingConfigurationInput{
 		LoggingConfiguration: &types.LoggingConfiguration{
 			ResourceArn:           aws.String(webACLArn),
-			LogDestinationConfigs: []string{"arn:aws:s3:::my-log-bucket"},
+			LogDestinationConfigs: []string{"arn:aws:s3:::aws-waf-logs-my-bucket"},
 		},
 	})
 	require.NoError(t, err)
 	require.NotNil(t, putOut.LoggingConfiguration)
 	assert.Equal(t, webACLArn, aws.ToString(putOut.LoggingConfiguration.ResourceArn))
-	assert.Equal(t, []string{"arn:aws:s3:::my-log-bucket"}, putOut.LoggingConfiguration.LogDestinationConfigs)
+	assert.Equal(t, []string{"arn:aws:s3:::aws-waf-logs-my-bucket"}, putOut.LoggingConfiguration.LogDestinationConfigs)
 
 	getOut, err := client.GetLoggingConfiguration(t.Context(), &wafv2sdk.GetLoggingConfigurationInput{
 		ResourceArn: aws.String(webACLArn),
 	})
 	require.NoError(t, err)
 	require.NotNil(t, getOut.LoggingConfiguration)
-	assert.Equal(t, []string{"arn:aws:s3:::my-log-bucket"}, getOut.LoggingConfiguration.LogDestinationConfigs)
+	assert.Equal(t, []string{"arn:aws:s3:::aws-waf-logs-my-bucket"}, getOut.LoggingConfiguration.LogDestinationConfigs)
 
 	_, err = client.DeleteLoggingConfiguration(t.Context(), &wafv2sdk.DeleteLoggingConfigurationInput{
 		ResourceArn: aws.String(webACLArn),

@@ -412,3 +412,11 @@ Tool false positives (cmd/zeroguard): required path/identifier members (Name, *I
 ## 2026-10-05 (undeclared response members)
 
 SshPublicKey no longer emits KeyType (SDK type has only DateImported/SshPublicKeyBody/SshPublicKeyId).
+
+## 2026-10-10 (realism pass)
+
+- UserName must be 3-100 of `[\w@.-]` and not start with `-`/`.`/`@` per `CreateUserInput.UserName` (`TestUserNameValidation`); ImportSshPublicKey requires an RSA/ECDSA/ED25519 key line (`TestImportSSHPublicKeyFormat`).
+- CreateServer with FTP/FTPS requires a VPC endpoint and a non-SERVICE_MANAGED identity provider, enforced at the API boundary (`TestFTPServerRequirements`).
+- List* ops reject an invalid NextToken (InvalidNextTokenException) and MaxResults outside 1..1000 (`TestListPagingValidation`).
+- TagResource/UntagResource on an ARN with no matching resource is ResourceNotFoundException (`TestTagResourceUnknownARN`); messages no longer repeat the exception name.
+- Kept lenient: the SSH key check is structural (type plus base64 body), not a full parse, because in-repo fixtures use truncated keys; FTP rules are not applied to backend-level callers.

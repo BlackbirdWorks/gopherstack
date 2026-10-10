@@ -2435,3 +2435,11 @@ UpdateThing, UpdateThingGroup, UpdateDynamicThingGroup and UpdateFleetMetric dec
 - md2() is RFC 1319 (vectors in `TestSQLFunctions`); transform('enrichArray', obj, arr) merges obj into each element object, any other mode or a non-object element is Undefined (merge precedence on key clash is an assumption).
 - Replayed package mutation tokens: `TestPackageMutationTokenReplay`.
 - The broker now implements `iotdataplane.ConnectionNotifier` (session established/closed, with CLIENT_INITIATED_DISCONNECT, SERVER_INITIATED_DISCONNECT, MQTT_KEEP_ALIVE_TIMEOUT, CONNECTION_LOST, CLIENT_ERROR, UNKNOWN; a taken-over session reports nothing) and `iotdataplane.AckingPublisher` (QoS 1 write, PUBACK observed via OnPacketRead). Proof: `TestBroker_ReportsLifecycleToDataPlane`, `TestBroker_SendDirectMessageAwaitAck`.
+
+## 2026-10-10 (realism pass)
+
+- Thing, thing type and thing group names must match `[a-zA-Z0-9:_-]+` (max 128); policy names `[\w+=,.@-]+` (`TestEntityNameValidation`). CreateThing with an unknown ThingTypeName is ResourceNotFoundException (`TestCreateThingUnknownType`).
+- CreatePolicy with a non-JSON document is MalformedPolicyException (`TestPolicyValidation`).
+- A non-numeric/negative nextToken or marker, or a non-positive maxResults/pageSize, is InvalidRequestException on every list (`TestPaginationQueryValidation`).
+- Error messages no longer repeat the sentinel text (`TestErrorMessagesOmitSentinelText`).
+- Kept lenient: CreateJob does not require its target things to exist, and list page tokens remain integer offsets, not opaque.

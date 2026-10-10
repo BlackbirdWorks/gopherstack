@@ -85,6 +85,10 @@ func (h *Handler) handleListManagedRuleSets(ctx context.Context, body []byte) ([
 		return nil, err
 	}
 
+	if err := validatePageParams(req.Limit, req.NextMarker); err != nil {
+		return nil, err
+	}
+
 	sets := h.Backend.ListManagedRuleSets(ctx, req.Scope)
 
 	items, nextMarker := paginateByNameID(

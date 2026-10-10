@@ -342,11 +342,19 @@ func (b *InMemoryBackend) CreateThing(input *CreateThingInput) (*CreateThingOutp
 		return nil, fmt.Errorf("%w: ThingName is required", ErrValidation)
 	}
 
+	if err := validateEntityName("ThingName", input.ThingName); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateThing")
 	defer b.mu.Unlock()
 
 	if b.things.Has(input.ThingName) {
 		return nil, fmt.Errorf("%w: thing %q already exists", ErrAlreadyExists, input.ThingName)
+	}
+
+	if input.ThingTypeName != "" && !b.thingTypes.Has(input.ThingTypeName) {
+		return nil, fmt.Errorf("%w: %s", ErrThingTypeNotFound, input.ThingTypeName)
 	}
 
 	attrs := make(map[string]string)

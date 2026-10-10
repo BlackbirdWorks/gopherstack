@@ -60,7 +60,7 @@ func (b *InMemoryBackend) CreateStreamingDistribution(
 		}
 	}
 
-	id := generateID()
+	id := generateIDWithPrefix("E")
 	sd := &StreamingDistribution{
 		ID:               id,
 		ARN:              b.streamingDistributionARN(id),

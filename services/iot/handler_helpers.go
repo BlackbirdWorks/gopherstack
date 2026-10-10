@@ -62,7 +62,7 @@ func writeIoTError(c *echo.Context, err error) error {
 		errors.Is(err, ErrIndexNotFound),
 		errors.Is(err, ErrResourceNotFound):
 
-		return respondNotFound(c, err.Error())
+		return respondNotFound(c, publicMessage(err))
 	// ErrRuleNotFound/ErrTopicRuleDestinationNotFound are deliberately NOT
 	// grouped above: none of GetTopicRule/DeleteTopicRule/DisableTopicRule/
 	// EnableTopicRule/ReplaceTopicRule/GetTopicRuleDestination/
@@ -71,35 +71,38 @@ func writeIoTError(c *echo.Context, err error) error {
 	// ResourceNotFoundException case -- this family's real vocabulary has
 	// no not-found type at all; InvalidRequestException is the only
 	// declared client-fault type available.
+	case errors.Is(err, ErrMalformedPolicy):
+
+		return c.JSON(http.StatusBadRequest, awsErrBody{"MalformedPolicyException", publicMessage(err)})
 	case errors.Is(err, ErrSQLParse):
 
-		return c.JSON(http.StatusBadRequest, awsErrBody{"SqlParseException", err.Error()})
+		return c.JSON(http.StatusBadRequest, awsErrBody{"SqlParseException", publicMessage(err)})
 	case errors.Is(err, ErrValidation),
 		errors.Is(err, ErrRuleNotFound),
 		errors.Is(err, ErrTopicRuleDestinationNotFound):
 
-		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
+		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, publicMessage(err)})
 	case errors.Is(err, ErrCertificateValidation):
 
-		return c.JSON(http.StatusBadRequest, awsErrBody{"CertificateValidationException", err.Error()})
+		return c.JSON(http.StatusBadRequest, awsErrBody{"CertificateValidationException", publicMessage(err)})
 	case errors.Is(err, ErrAlreadyExists):
 
-		return respondConflict(c, err.Error())
+		return respondConflict(c, publicMessage(err))
 	case errors.Is(err, ErrVersionConflict):
 
-		return c.JSON(http.StatusConflict, awsErrBody{"VersionConflictException", err.Error()})
+		return c.JSON(http.StatusConflict, awsErrBody{"VersionConflictException", publicMessage(err)})
 	case errors.Is(err, ErrDeleteConflict):
 
-		return c.JSON(http.StatusConflict, awsErrBody{"DeleteConflictException", err.Error()})
+		return c.JSON(http.StatusConflict, awsErrBody{"DeleteConflictException", publicMessage(err)})
 	case errors.Is(err, ErrVersionsLimitExceeded):
 
-		return c.JSON(http.StatusConflict, awsErrBody{"VersionsLimitExceededException", err.Error()})
+		return c.JSON(http.StatusConflict, awsErrBody{"VersionsLimitExceededException", publicMessage(err)})
 	case errors.Is(err, ErrInvalidStateTransition):
 
-		return c.JSON(http.StatusConflict, awsErrBody{"InvalidStateTransitionException", err.Error()})
+		return c.JSON(http.StatusConflict, awsErrBody{"InvalidStateTransitionException", publicMessage(err)})
 	default:
 
-		return c.JSON(http.StatusInternalServerError, awsErrBody{"InternalFailureException", err.Error()})
+		return c.JSON(http.StatusInternalServerError, awsErrBody{"InternalFailureException", publicMessage(err)})
 	}
 }
 
@@ -123,7 +126,7 @@ func respondErr(c *echo.Context, err error) error {
 // type.
 func respondAsInvalidRequest(c *echo.Context, err, sentinel error) error {
 	if errors.Is(err, sentinel) {
-		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
+		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, publicMessage(err)})
 	}
 
 	return writeIoTError(c, err)
@@ -142,7 +145,7 @@ func respondAsInvalidRequest(c *echo.Context, err, sentinel error) error {
 // code writeIoTError has never rendered.
 func respondAsConflictCode(c *echo.Context, err, sentinel error, code string) error {
 	if errors.Is(err, sentinel) {
-		return c.JSON(http.StatusConflict, awsErrBody{code, err.Error()})
+		return c.JSON(http.StatusConflict, awsErrBody{code, publicMessage(err)})
 	}
 
 	return writeIoTError(c, err)

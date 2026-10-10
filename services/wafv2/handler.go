@@ -323,7 +323,7 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 
 	payload, _ := json.Marshal(map[string]string{
 		keyTypeField:    errType,
-		keyMessageField: err.Error(),
+		keyMessageField: publicMessage(err),
 	})
 
 	c.Response().Header().Set("X-Amzn-Errortype", errType)
@@ -345,6 +345,29 @@ func parseVisibilityConfig(stored json.RawMessage, metricName string) map[string
 		"MetricName":               metricName,
 		"SampledRequestsEnabled":   false,
 	}
+}
+
+const (
+	maxListLimit  = 100
+	maxMarkerSize = 256
+)
+
+// validatePageParams rejects a Limit outside 1..100 and a NextMarker this
+// service did not issue (not base64 or longer than 256 characters).
+func validatePageParams(limit int, nextMarker string) error {
+	if limit < 0 || limit > maxListLimit {
+		return fmt.Errorf("%w: Limit must be between 1 and %d", errInvalidRequest, maxListLimit)
+	}
+
+	if nextMarker == "" {
+		return nil
+	}
+
+	if _, err := base64.StdEncoding.DecodeString(nextMarker); err != nil || len(nextMarker) > maxMarkerSize {
+		return fmt.Errorf("%w: NextMarker is not valid", errInvalidRequest)
+	}
+
+	return nil
 }
 
 // paginateByName implements cursor-based pagination over name-sorted items.
@@ -493,6 +516,10 @@ func handleListResourceFamily[T any](
 	var req listFamilyRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if err := validatePageParams(req.Limit, req.NextMarker); err != nil {
+		return nil, err
 	}
 
 	summaries, nextMarker := listResourceSummaries(

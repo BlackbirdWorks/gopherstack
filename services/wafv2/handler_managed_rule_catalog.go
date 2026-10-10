@@ -320,6 +320,10 @@ func (h *Handler) handleListAvailableManagedRuleGroups(body []byte) ([]byte, err
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
+	if err := validatePageParams(req.Limit, req.NextMarker); err != nil {
+		return nil, err
+	}
+
 	catalog := getManagedRuleGroups()
 	sort.Slice(catalog, func(i, j int) bool { return catalog[i].Name < catalog[j].Name })
 
@@ -364,6 +368,10 @@ func (h *Handler) handleListMobileSdkReleases(body []byte) ([]byte, error) {
 	var req listMobileSdkReleasesRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if err := validatePageParams(req.Limit, req.NextMarker); err != nil {
+		return nil, err
 	}
 
 	releases := getMobileSdkReleases(req.Platform)

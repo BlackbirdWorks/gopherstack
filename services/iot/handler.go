@@ -237,6 +237,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		log.Debug("iot request", "operation", op, "path", c.Request().URL.Path)
 
+		if msg := invalidPaginationQuery(c); msg != "" {
+			return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, msg})
+		}
+
 		if handled, err := h.dispatchCoreOp(c, op); handled {
 			return err
 		}

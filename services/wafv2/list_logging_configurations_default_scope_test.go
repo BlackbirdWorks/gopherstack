@@ -45,7 +45,7 @@ func TestListLoggingConfigurations_LogScopeDefault(t *testing.T) {
 				_, err := client.PutLoggingConfiguration(t.Context(), &wafv2sdk.PutLoggingConfigurationInput{
 					LoggingConfiguration: &types.LoggingConfiguration{
 						ResourceArn:           aws.String(arn),
-						LogDestinationConfigs: []string{"arn:aws:s3:::log-bucket"},
+						LogDestinationConfigs: []string{"arn:aws:s3:::aws-waf-logs-bucket"},
 						LogScope:              scope,
 					},
 				})

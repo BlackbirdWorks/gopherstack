@@ -109,6 +109,7 @@ func TestIndexing_SearchIndex(t *testing.T) {
 	t.Parallel()
 	h := newIoTHandlerBatch1(t)
 
+	iotOK(t, h, http.MethodPost, "/thing-types/TemperatureSensor", map[string]any{})
 	iotOK(t, h, http.MethodPost, "/things/sensor-1", map[string]any{
 		"thingTypeName": "TemperatureSensor",
 		"attributePayload": map[string]any{

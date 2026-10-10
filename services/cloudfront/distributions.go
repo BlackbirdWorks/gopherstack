@@ -136,12 +136,16 @@ func (b *InMemoryBackend) CreateDistribution(
 		)
 	}
 
-	id := generateID()
+	if err := b.checkCNAMEConflictsLocked("", rawConfig); err != nil {
+		return nil, err
+	}
+
+	id := generateIDWithPrefix("E")
 	d := &Distribution{
 		ID:               id,
 		ARN:              b.distributionARN(id),
 		DomainName:       strings.ToLower(id) + ".cloudfront.net",
-		Status:           statusDeployed,
+		Status:           statusInProgress,
 		ETag:             uuid.NewString(),
 		CallerReference:  callerRef,
 		Comment:          comment,
@@ -154,6 +158,7 @@ func (b *InMemoryBackend) CreateDistribution(
 	b.distributionARNs[d.ARN] = id
 	b.distributionCallerRefs[callerRef] = id
 	b.indexDistributionConfig(id, rawConfig)
+	b.scheduleDistributionDeployed(id)
 	cp := b.copyDistribution(d)
 
 	return cp, nil
@@ -184,6 +189,10 @@ func (b *InMemoryBackend) UpdateDistribution(
 	d, ok := b.distributions.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: distribution %s not found", ErrNotFound, id)
+	}
+
+	if err := b.checkCNAMEConflictsLocked(id, rawConfig); err != nil {
+		return nil, err
 	}
 
 	d.Comment = comment
@@ -363,7 +372,7 @@ func (b *InMemoryBackend) CopyDistribution(primaryDistID, callerRef string, enab
 		)
 	}
 
-	id := generateID()
+	id := generateIDWithPrefix("E")
 	rawCopy := make([]byte, len(src.RawConfig))
 	copy(rawCopy, src.RawConfig)
 

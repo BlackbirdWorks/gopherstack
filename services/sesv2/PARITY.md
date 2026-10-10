@@ -926,3 +926,10 @@ ListContacts applies Filter.TopicFilter with FilteredStatus (`list_contacts_filt
 ## 2026-10-05 (undeclared response members)
 
 GetEmailIdentity no longer emits EmailIdentity (not on GetEmailIdentityOutput).
+
+## 2026-10-10 (realism pass)
+
+- Email identities must be an address or a domain name; configuration set names are 1-64 of `[A-Za-z0-9_-]` per the SDK doc; SendEmail rejects malformed To/Cc/Bcc addresses (`TestCreateValidation`, `TestSendEmailAddressValidation`).
+- A NextToken that is not base64 and a PageSize above 1000 are BadRequestException on every list; name-cursor pagination tokens are now base64 (`TestPagingQueryValidation`).
+- Not-found wording for identities, configuration sets and templates matches SES (`TestNotFoundWording`); messages no longer repeat the exception name.
+- Kept lenient: identities and DKIM are verified immediately (no PENDING phase) so send paths work without a verification step; SendBulkEmail destination addresses are not format-checked.

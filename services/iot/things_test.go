@@ -43,6 +43,9 @@ func TestBackend_CreateAndDescribeThing(t *testing.T) {
 			t.Parallel()
 
 			b := iot.NewInMemoryBackend()
+			if tt.input.ThingTypeName != "" {
+				mustCreateThingTypes(t, b, tt.input.ThingTypeName)
+			}
 
 			out, err := b.CreateThing(tt.input)
 

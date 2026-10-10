@@ -6,6 +6,7 @@ import (
 	"html"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -557,6 +558,15 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		)
 
 		log.Debug("cloudfront request", "operation", operation, "resource", resource)
+
+		if v := c.QueryParam("MaxItems"); v != "" {
+			if n, err := strconv.Atoi(v); err != nil || n < 1 {
+				return xmlResp(
+					c, http.StatusBadRequest,
+					cfErrorXML("InvalidArgument", "MaxItems must be a positive integer"),
+				)
+			}
+		}
 
 		return h.dispatch(c, operation, resource)
 	}

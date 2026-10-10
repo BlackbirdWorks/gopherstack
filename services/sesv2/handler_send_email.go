@@ -81,6 +81,14 @@ func (h *Handler) handleSendEmail(c *echo.Context) (any, error) {
 		)
 	}
 
+	for _, list := range [][]string{dest.ToAddresses, dest.CcAddresses, dest.BccAddresses} {
+		for _, addr := range list {
+			if err := validateSendAddress(addr); err != nil {
+				return nil, err
+			}
+		}
+	}
+
 	var subject, bodyHTML, bodyText string
 
 	if in.Content.Simple != nil {

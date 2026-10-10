@@ -1,6 +1,7 @@
 package sesv2_test
 
 import (
+	"encoding/base64"
 	"fmt"
 	"testing"
 
@@ -62,7 +63,7 @@ func TestListTenantsPaginationStaleCursor(t *testing.T) {
 
 	// A cursor naming a tenant that sorts after every remaining item and was
 	// never created (equivalent to "since deleted").
-	page, _, err := b.ListTenants("tenant-99", 2)
+	page, _, err := b.ListTenants(base64.StdEncoding.EncodeToString([]byte("tenant-99")), 2)
 	require.NoError(t, err)
 
 	for _, tn := range page {

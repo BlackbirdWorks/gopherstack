@@ -62,6 +62,12 @@ func generateID() string {
 	return string(b)
 }
 
+// generateIDWithPrefix returns a 14-character ID starting with prefix, the shape
+// real CloudFront distribution ("E"), invalidation ("I") and public key ("K") IDs take.
+func generateIDWithPrefix(prefix string) string {
+	return prefix + generateID()[len(prefix):]
+}
+
 // InMemoryBackend stores CloudFront resources in memory.
 //
 // Every map[string]*T resource collection is a *store.Table[T] registered exactly

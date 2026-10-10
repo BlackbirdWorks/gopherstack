@@ -115,7 +115,7 @@ func TestInMemoryBackend_Operations(t *testing.T) {
 				assert.NotEmpty(t, d.ID)
 				assert.NotEmpty(t, d.ARN)
 				assert.NotEmpty(t, d.ETag)
-				assert.Equal(t, "Deployed", d.Status)
+				assert.Equal(t, "InProgress", d.Status)
 				assert.Contains(t, d.DomainName, ".cloudfront.net")
 
 				got, err := b.GetDistribution(d.ID)

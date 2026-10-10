@@ -197,7 +197,7 @@ func (b *InMemoryBackend) CreateKeyGroup(name, comment string, items []string) (
 		}
 	}
 
-	id := generateID()
+	id := generateIDWithPrefix("K")
 	kg := &KeyGroup{
 		ID:               id,
 		Name:             name,

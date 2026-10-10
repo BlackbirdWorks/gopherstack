@@ -26,7 +26,7 @@ func TestListLoggingConfigurations_FilterByLogScope_RealClient(t *testing.T) {
 	_, err := client.PutLoggingConfiguration(ctx, &wafv2sdk.PutLoggingConfigurationInput{
 		LoggingConfiguration: &types.LoggingConfiguration{
 			ResourceArn:           aws.String("arn:aws:wafv2:us-east-1:123456789012:regional/webacl/customer-wa/id-1"),
-			LogDestinationConfigs: []string{"arn:aws:s3:::log-bucket"},
+			LogDestinationConfigs: []string{"arn:aws:s3:::aws-waf-logs-bucket"},
 			LogScope:              types.LogScopeCustomer,
 		},
 	})
@@ -35,7 +35,7 @@ func TestListLoggingConfigurations_FilterByLogScope_RealClient(t *testing.T) {
 	_, err = client.PutLoggingConfiguration(ctx, &wafv2sdk.PutLoggingConfigurationInput{
 		LoggingConfiguration: &types.LoggingConfiguration{
 			ResourceArn:           aws.String("arn:aws:wafv2:us-east-1:123456789012:regional/webacl/seclake-wa/id-2"),
-			LogDestinationConfigs: []string{"arn:aws:s3:::log-bucket"},
+			LogDestinationConfigs: []string{"arn:aws:s3:::aws-waf-logs-bucket"},
 			LogScope:              types.LogScopeSecurityLake,
 		},
 	})

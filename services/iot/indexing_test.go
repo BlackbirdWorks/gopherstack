@@ -173,6 +173,8 @@ func seedThingsForSearch(t *testing.T, b *iot.InMemoryBackend) {
 		},
 	}
 
+	mustCreateThingTypes(t, b, "TemperatureSensor", "HumiditySensor")
+
 	for _, th := range things {
 		_, err := b.CreateThing(&iot.CreateThingInput{
 			ThingName:        th.name,

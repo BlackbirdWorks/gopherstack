@@ -74,7 +74,7 @@ func (b *InMemoryBackend) CreateInvalidation(
 
 	now := time.Now().UTC()
 	inv := &Invalidation{
-		ID:         generateID(),
+		ID:         generateIDWithPrefix("I"),
 		Status:     statusInProgress,
 		CreateTime: now,
 		Paths:      append([]string(nil), paths...),

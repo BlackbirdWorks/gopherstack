@@ -494,6 +494,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 				fmt.Sprintf("no route for %s %s", c.Request().Method, c.Request().URL.Path))
 		}
 
+		if opErr := validatePagingQuery(c); opErr != nil {
+			return h.handleOpError(c, op, opErr)
+		}
+
 		resp, opErr := h.dispatchOp(c, op, resource)
 
 		if opErr != nil {
@@ -575,13 +579,13 @@ func tagsToEntries(tags map[string]string) []tagEntry {
 func (h *Handler) handleOpError(c *echo.Context, op string, opErr error) error {
 	switch {
 	case errors.Is(opErr, ErrNotFound):
-		return h.writeError(c, http.StatusNotFound, "NotFoundException", opErr.Error())
+		return h.writeError(c, http.StatusNotFound, "NotFoundException", publicMessage(opErr))
 	case errors.Is(opErr, ErrAlreadyExists):
-		return h.writeError(c, http.StatusConflict, "AlreadyExistsException", opErr.Error())
+		return h.writeError(c, http.StatusConflict, "AlreadyExistsException", publicMessage(opErr))
 	case errors.Is(opErr, ErrMailFromDomainNotVerified):
-		return h.writeError(c, http.StatusBadRequest, "MailFromDomainNotVerifiedException", opErr.Error())
+		return h.writeError(c, http.StatusBadRequest, "MailFromDomainNotVerifiedException", publicMessage(opErr))
 	case errors.Is(opErr, ErrInvalidInput):
-		return h.writeError(c, http.StatusBadRequest, "BadRequestException", opErr.Error())
+		return h.writeError(c, http.StatusBadRequest, "BadRequestException", publicMessage(opErr))
 	default:
 		logger.Load(c.Request().Context()).Error("SESv2 internal error", "error", opErr, "op", op)
 

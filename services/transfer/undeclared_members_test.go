@@ -29,15 +29,15 @@ func TestHandler_DescribeUser_SshKeyOmitsKeyType(t *testing.T) {
 			require.NoError(t, err)
 
 			doTransferRequest(t, h, "CreateUser", map[string]any{
-				"ServerId": s.ServerID, "UserName": "u",
+				"ServerId": s.ServerID, "UserName": "user1",
 				"Role": "arn:aws:iam::123456789012:role/TransferUserRole",
 			})
 			imp := doTransferRequest(t, h, "ImportSshPublicKey", map[string]any{
-				"ServerId": s.ServerID, "UserName": "u", "SshPublicKeyBody": tc.body,
+				"ServerId": s.ServerID, "UserName": "user1", "SshPublicKeyBody": tc.body,
 			})
 			require.Equal(t, http.StatusOK, imp.Code, imp.Body.String())
 
-			rec := doTransferRequest(t, h, "DescribeUser", map[string]any{"ServerId": s.ServerID, "UserName": "u"})
+			rec := doTransferRequest(t, h, "DescribeUser", map[string]any{"ServerId": s.ServerID, "UserName": "user1"})
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out struct {

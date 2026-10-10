@@ -43,6 +43,8 @@ func TestServer_DefaultsAndPartialProtocolDetailsUpdate(t *testing.T) {
 			c := newTestTransferClient(t, newTestHandler(t))
 			in := &transfersdk.CreateServerInput{Protocols: tc.protocols}
 			if !tc.wantNilPD {
+				in.EndpointType = types.EndpointTypeVpc
+				in.IdentityProviderType = types.IdentityProviderTypeAwsLambda
 				in.Certificate = aws.String("arn:aws:acm:us-east-1:123456789012:certificate/x")
 			}
 

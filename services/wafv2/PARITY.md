@@ -740,3 +740,11 @@ Fixed (list_logging_configurations_default_scope_test.go): ListLoggingConfigurat
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 WAFv2 REGIONAL-scope resources are region-isolated: the backend already partitioned by request region but never received it, and the ARN builders ignored it. It now reads the region from the request metadata, and web ACL, IP set, regex pattern set and rule group ARNs carry the creating region. CLOUDFRONT scope stays global by AWS definition: the API requires US East (N. Virginia) and the resource ARN has a `global` scope segment (https://docs.aws.amazon.com/waf/latest/APIReference/API_CreateWebACL.html, `Scope`). No snapshot shape change. Proof: `TestHandler_MultiRegionRegionalScope`, `TestHandler_MultiRegionCloudFrontScopeIsGlobal`, `TestRegionIsolation/wafv2`.
+
+## 2026-10-10 (realism pass)
+
+- List* Limit outside 1..100 and a NextMarker this service did not issue are WAFInvalidParameterException (`TestListPagingValidation`).
+- Logging destinations must be named `aws-waf-logs-*` (bucket, delivery stream, log group) per `types.LoggingConfiguration` (`TestLoggingDestinationNaming`).
+- CreateWebACL/UpdateWebACL reject more than 1500 WCUs with WAFLimitsExceededException using the existing capacity model (`TestWebACLCapacityLimit`).
+- Error messages no longer repeat the exception name (`TestErrorMessageOmitsCode`).
+- Kept lenient: a rule group's declared Capacity is not compared with its rules' computed capacity because the AWS error for that case is not stated in the SDK.

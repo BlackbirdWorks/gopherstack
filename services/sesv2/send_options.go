@@ -31,7 +31,7 @@ func (b *InMemoryBackend) validateSendOptions(from, templateName string, o SendO
 
 	if o.ConfigurationSetName != "" {
 		if _, ok := b.configurationSets.Get(o.ConfigurationSetName); !ok {
-			return fmt.Errorf("%w: configuration set %s not found", ErrNotFound, o.ConfigurationSetName)
+			return configSetMissing(o.ConfigurationSetName)
 		}
 	}
 
@@ -163,7 +163,7 @@ func (b *InMemoryBackend) checkIdentityARNLocked(identityARN string) error {
 	}
 
 	if _, ok := b.identities.Get(name); !ok {
-		return fmt.Errorf("%w: identity %s not found", ErrNotFound, name)
+		return identityMissing(name)
 	}
 
 	return nil

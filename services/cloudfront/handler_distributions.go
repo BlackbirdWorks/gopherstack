@@ -267,16 +267,8 @@ func (h *Handler) handleUpdateDistribution(c *echo.Context, id string) error {
 		return h.handleError(c, getErr)
 	}
 
-	ifMatch := c.Request().Header.Get("If-Match")
-	if ifMatch == "" || ifMatch != current.ETag {
-		return xmlResp(
-			c,
-			http.StatusPreconditionFailed,
-			cfErrorXML(
-				"PreconditionFailed",
-				"If-Match ETag did not match the current distribution config ETag",
-			),
-		)
+	if failed, resp := ifMatchRequiredFailure(c, current.ETag, "distribution"); failed {
+		return resp
 	}
 
 	d, updateErr := h.Backend.UpdateDistribution(id, cfg.Comment, cfg.Enabled, backfillOriginGroups(body))
@@ -295,16 +287,8 @@ func (h *Handler) handleDeleteDistribution(c *echo.Context, id string) error {
 		return h.handleError(c, getErr)
 	}
 
-	ifMatch := c.Request().Header.Get("If-Match")
-	if ifMatch == "" || ifMatch != current.ETag {
-		return xmlResp(
-			c,
-			http.StatusPreconditionFailed,
-			cfErrorXML(
-				"PreconditionFailed",
-				"If-Match ETag did not match the current distribution ETag",
-			),
-		)
+	if failed, resp := ifMatchRequiredFailure(c, current.ETag, "distribution"); failed {
+		return resp
 	}
 
 	if err := h.Backend.DeleteDistribution(id); err != nil {

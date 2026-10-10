@@ -1732,3 +1732,12 @@ CreateCachePolicy/UpdateCachePolicy apply the documented TTL defaults when omitt
 ## 2026-10-05 (gopherstack-uox6 pass 12, value semantics)
 
 Key value store data-plane writes (PutKVSValue, DeleteKVSValue, UpdateKVSValues) now set the store's LastModifiedTime; see services/cloudfrontkeyvaluestore/PARITY.md (gopherstack-uox6 pass 12).
+
+## 2026-10-10 (realism pass)
+
+- CreateDistribution returns `InProgress` and settles to `Deployed` through the same async hop UpdateDistribution uses (`TestDistributionCreatesAsInProgress`); waiters are unaffected.
+- CNAMEAlreadyExists (409) when a DistributionConfig alias (case-insensitive) is already used by another distribution, on create and update (`TestCNAMEConflicts`, `TestUpdateKeepsOwnCNAME`).
+- Distribution, streaming distribution, OAI/OAC, invalidation and public-key IDs carry the real `E`/`I`/`K` prefix (`TestResourceIDShapes`).
+- DeleteDistribution/UpdateDistribution: missing If-Match is InvalidIfMatchVersion (400), stale is PreconditionFailed (412) (`TestDistributionIfMatchSemantics`).
+- MaxItems that is not a positive integer is InvalidArgument (`TestListMaxItemsValidation`); error messages no longer repeat the code (`TestErrorMessageOmitsCode`).
+- Kept lenient: required DistributionConfig members (Origins, DefaultCacheBehavior) and the alias-needs-certificate rule are not enforced because most in-repo fixtures post minimal configs; non-Distribution kinds (tenants, streaming, connection groups) still report Deployed immediately.
